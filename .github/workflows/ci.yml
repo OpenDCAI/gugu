@@ -215,6 +215,8 @@ jobs:
       - run: command -v tmux || brew install tmux
       - uses: ./.github/actions/setup-community
       - run: pnpm build:app:ci
+        env:
+          GUGU_BUILD_SERIAL: '1'
       - run: pnpm rebuild:native
   android-build:
     name: Android debug build

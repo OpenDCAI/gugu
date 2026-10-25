@@ -158,7 +158,7 @@ export async function ensureAgentDependenciesProbed(
     return;
   }
 
-  const promise = manager.probeCategory('agent').finally(() => {
+  const promise = manager.probeAll().finally(() => {
     agentProbePromises.delete(manager);
     // 全量探测刚把每一行都重新量过,紧接着再扫一轮 PATH 只是重复劳动。
     agentRevalidations.set(manager, { checkedAt: Date.now(), inFlight: null });

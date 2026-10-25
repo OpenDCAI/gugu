@@ -23,7 +23,7 @@ import {
 } from './sidebar-primitives';
 import { sidebarRowInsetPx } from './sidebar-row-metrics';
 import { SidebarTwistyLane } from './sidebar-twisty';
-import type { SidebarJoin } from './sidebar-store';
+import type { SidebarJoin } from '@/lib/sidebarJoinedGroups';
 import { SidebarSessionTitle } from './sidebar-session-title';
 import { SidebarScheduleHoverMark, SidebarScheduleMark } from './sidebar-schedule-badge';
 import type { SessionpageScheduleDigest } from '@gugu/session-core/session-record/contract';

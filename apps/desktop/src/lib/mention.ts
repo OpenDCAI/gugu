@@ -16,6 +16,7 @@ export interface MentionCandidate {
   id: string
   name: string
   type: 'all' | 'human' | 'agent'
+  avatar?: string | null
   ownerDisplayName?: string
   /** 只用于 @ 候选搜索(lib/mentionMatch):咕咕号与 owner 给的备注。插入与投递仍用 name。 */
   guguNumber?: number | null
@@ -24,14 +25,14 @@ export interface MentionCandidate {
 
 export type GroupRosterCandidate = MentionCandidate & { type: 'human' | 'agent' }
 
-type RosterIdentity = { display_name: string; owner_user_id?: string | null; gugu_number?: number | null }
+type RosterIdentity = { display_name: string; avatar?: string | null; owner_user_id?: string | null; gugu_number?: number | null }
 
 // 名册条目的附加字段:agent 的主人名(候选里显示「· 某某的」)与咕咕号(候选搜索用)。
 function rosterExtras(type: MentionCandidate['type'], identity: RosterIdentity, identities: Readonly<Record<string, RosterIdentity>>) {
   const ownerDisplayName = type === 'agent' && identity.owner_user_id
     ? identities[identity.owner_user_id]?.display_name
     : undefined
-  const guguNumber = identity.gugu_number != null ? { guguNumber: identity.gugu_number } : {}
+  const guguNumber = { avatar: identity.avatar, ...(identity.gugu_number != null ? { guguNumber: identity.gugu_number } : {}) }
   return ownerDisplayName?.trim() ? { ownerDisplayName, ...guguNumber } : guguNumber
 }
 

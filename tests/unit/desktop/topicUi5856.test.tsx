@@ -8,6 +8,7 @@
 import { askReveal } from '../../../apps/desktop/src/hooks/useSourceMessageReveal'
 import { topicHistoryStub } from '../../support/chatWindowStub'
 import { readFile } from 'node:fs/promises'
+import { composerSlotClass, composerSlotInnerClass, composerSlotInnerBottomClass } from '@gugu/session-chat-ui/composer-layout'
 import { act, createElement, useEffect, useCallback, useState } from 'react'
 import { runInAction } from 'mobx'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
@@ -292,6 +293,30 @@ describe('TopicSplitPane 是分栏，不是话题的开关', () => {
     },
   }
 
+  for (const layout of ['desktop', 'phone', 'tab'] as const) {
+    it(`${layout}: topic settings request the source conversation, not a separate topic settings page`, async () => {
+      const tabs = document.body.appendChild(document.createElement('span'))
+      const requests: unknown[] = []
+      const receive = (event: Event) => requests.push((event as CustomEvent).detail)
+      window.addEventListener(UI_EVENTS.openChatDetailsDrawer, receive)
+      try {
+        await renderWithAppProviders(harness, createNode(TopicSplitPane, { ...baseProps, mobile: layout === 'phone', tabHost: layout === 'tab' ? tabs : undefined }))
+        if (layout === 'tab') {
+          await act(async () => { tabs.querySelector('[data-topic-tab] > div')!.dispatchEvent(new MouseEvent('contextmenu', { bubbles: true, clientX: 10, clientY: 10 })) })
+        } else {
+          await clickElement(harness.container.querySelector<HTMLElement>('[data-testid="topic-split-more"]')!)
+        }
+        const settings = document.querySelector<HTMLElement>('[data-testid="group-menu-settings"]')
+        expect(settings, 'settings stay reachable from the real topic pane').not.toBeNull()
+        await clickElement(settings!)
+        expect(requests).toEqual([{ chatId: 'source-1', page: 'settings' }])
+      } finally {
+        window.removeEventListener(UI_EVENTS.openChatDetailsDrawer, receive)
+        tabs.remove()
+      }
+    })
+  }
+
   // 2026-09-24 shuxue:「我在 topic 里面点不开你发的附件」。分栏复用 MessageList 却没接 onOpenFile ⇒
   // 文件卡的按钮点了什么都不发生(主线那边是接了的)。反例:不接时确实点不出任何调用 —— 证明这一格判得出缺失。
   // 用 pdf:png 按扩展名一律内联成图(不看 [Kind]),不画文件卡。
@@ -383,21 +408,14 @@ describe('TopicSplitPane 是分栏，不是话题的开关', () => {
     expect(harness.container.querySelector('[data-testid="topic-split-send"]')).toBeNull()
   })
 
-  it('分栏输入框的上下留白与主线那一份一致 —— ❌ 不许一个贴着窗底、一个悬在上面', async () => {
-    // owner 2026-09-19 实测(两栏并排的截图):「这个高度怎么不一致」。
-    // 两个输入框的胶囊本身都是 42px,差的是外面那一圈:主线有 `12px 22px 18px`,
-    // 分栏这一份原先什么都没有 ⇒ 胶囊直接压在窗底,并排看就是两个高度。
-    const chatArea = await readFile('apps/desktop/src/components/ChatAreaPanel.tsx', 'utf8')
-    expect(chatArea, '主线 composer 的外边距变了 —— 分栏这一份要跟着改,否则两边又会漂开').toContain("'12px 22px 18px'")
-
+  it('uses the same ACP desktop frame as the main composer without a second padding layer', async () => {
     await renderWithAppProviders(harness, createNode(TopicSplitPane, { ...baseProps }))
-    const wrapper = harness.container
-      .querySelector('[data-testid="chat-composer-aside"]')
-      ?.closest('[data-topic-split-composer]') as HTMLElement
-    expect(wrapper, '分栏的输入框没有外层留白容器').toBeTruthy()
-    // 垂直方向必须与主线逐字相同;水平方向故意窄一档(这一栏比主栏窄,照抄 22 会把胶囊挤细)。
-    expect(wrapper.style.paddingTop).toBe('12px')
-    expect(wrapper.style.paddingBottom).toBe('18px')
+    const wrapper = harness.container.querySelector<HTMLElement>('[data-topic-split-composer]')!
+    expect(wrapper.style.padding).toBe('0px')
+    const dock = wrapper.closest('[data-chat-bottom-dock]')!
+    expect(dock.classList.contains(composerSlotClass)).toBe(true)
+    expect(dock.firstElementChild?.classList.contains(composerSlotInnerClass)).toBe(true)
+    expect(dock.firstElementChild?.classList.contains(composerSlotInnerBottomClass)).toBe(true)
   })
 
   // 找茵第九轮 —— 「用的是同一个组件」不等于「那个组件被接全了」。
@@ -701,7 +719,7 @@ describe('TopicSplitPane 是分栏，不是话题的开关', () => {
         await renderWithAppProviders(harness, createNode(TopicSplitPane, { ...baseProps, currentUserId: null, mobile }))
         await clickElement(harness.container.querySelector('[data-testid="topic-split-more"]') as HTMLElement)
         const rows = [...document.querySelectorAll<HTMLElement>('[role=menuitem]')].map((row) => row.querySelector('.gg-menu-item-label')?.textContent)
-        expect(rows).toEqual(mobile ? ['搜索消息', '附件', '海龟汤'] : ['搜索消息', '海龟汤'])
+        expect(rows).toEqual(mobile ? ['搜索消息', '附件', '设置', '海龟汤'] : ['搜索消息', '设置', '海龟汤'])
         await clickElement(document.querySelector('[data-testid="chat-header-menu-app"]') as HTMLElement)
         expect(asked).toHaveBeenCalledWith({ extensionId: 'turtle-soup', chatId: 'source-1' })
       } finally {

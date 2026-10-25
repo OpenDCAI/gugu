@@ -3,7 +3,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { act, createElement } from 'react'
 import { createReactHarness } from '../../../support/testHarness'
 import { until } from '../../../support/awaitCondition'
-import { GroupAppSlot, WORKSPACE_APP_KIND } from '../../../../apps/desktop/src/components/appSlot/GroupAppSlot'
+import { GroupAppSlot } from '../../../../apps/desktop/src/components/appSlot/GroupAppSlot'
 import { groupSlotMemory } from '../../../../apps/desktop/src/components/appSlot/groupSlotMemory'
 import { installedExtensionsStore, type InstalledExtensionsList } from '../../../../apps/desktop/src/session/renderer/features/extensions/installed-extensions-store'
 import { AuthContext } from '../../../../apps/desktop/src/store/auth'
@@ -86,7 +86,7 @@ const on = (chatId: string) => groupSlotMemory.opened(chatId)?.itemId ?? null
 const panel = (chatId: string, itemId: string, request: number) =>
   harness.render(
     createElement(AuthContext.Provider, { value: { user: { id: 'user-1' } } as never },
-      createElement(GroupAppSlot, { chatId, kind: WORKSPACE_APP_KIND, title: 'Workspace', onClose: vi.fn(), fileToOpen: { chatId, itemId, request } })),
+      createElement(GroupAppSlot, { chatId, onClose: vi.fn(), asked: { chatId, itemId, request } })),
   )
 /** F asked for, the panel offers Slides for it, 「安装」 pressed: the install on its way. */
 async function offeredAndPressed(chatId: string, request: number) {

@@ -41,7 +41,6 @@ describe('#7317 device actions are re-registered the moment they change', () => 
     let on = false
     const { host, auths } = hostWith(env, client, () => ({
       v: 1,
-      updated_at: '',
       actions: [],
       ...(on ? {} : { switched_off: [{ group: 'computer', detail: 'Computer Use is off' }] }),
     }))

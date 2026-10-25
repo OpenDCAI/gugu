@@ -13,7 +13,7 @@ import type { MemberProfileCardModel, MemberProfileChatTarget, MemberProfileEdit
 import { type ActiveMemberProfile, agentOwnerDisplayName, toAgentProfile, toHumanProfile } from '../memberProfileModels'
 import { IconButton } from '../ui/IconButton'
 import { Menu, MenuItem } from '../ui/Menu'
-import { MemberPickerModal } from './MemberPickerModal'
+import { AddGroupMembers } from './AddGroupMembers'
 import { useMobileShell } from '../../hooks/useMobileShell'
 import { settingsErrorStyle } from './groupSettingsStyles'
 
@@ -218,10 +218,9 @@ export function useGroupMemberPanelControls({ chatId, enabled, snapshot, identit
         />
       ) : null}
       {pickerOpen && snapshot ? (
-        <MemberPickerModal
+        <AddGroupMembers
           chatId={chatId}
           snapshot={snapshot}
-          currentUserId={currentUserId}
           canInviteHumans={canInvite}
           humanDeniedHint={projectGroup ? t('group.projectGroupNoInvite') : undefined}
           onClose={() => setPickerOpen(false)}

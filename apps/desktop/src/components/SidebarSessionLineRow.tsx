@@ -1,6 +1,7 @@
 import { Zap } from '@/lib/icons'
 import { formatCalendarDay } from '../lib/calendarTime'
 import type { SidebarSessionLine } from '../lib/sidebarChatsBridge'
+import type { SidebarJoin } from '../lib/sidebarJoinedGroups'
 import { useChatStore } from '../store/chatContext'
 import { AgentContactStatusMark } from './AgentContactStatusMark'
 import { Avatar } from './Avatar'
@@ -9,10 +10,12 @@ import { clearDraggedSession, setDraggedSession } from '../session/renderer/lib/
 
 // gugu-dev#181 没有项目的会话就是和它的 agent 私聊,和对话排在同一条「对话」列表里,照私聊那一行画:agent 的头像和名字、
 // 第二行是这个会话的标题、右上是最后活动的时刻;行尾是状态(要你处理 = 琥珀字形,在跑 = 点),和对话行尾的未读数落在同一个位置。
-export function SidebarSessionLineRow({ line, isActive, onClick }: {
+export function SidebarSessionLineRow({ line, isActive, onClick, join }: {
   line: SidebarSessionLine
   isActive: boolean
   onClick: (event: React.MouseEvent) => void
+  /** 这一行是拼在一屏的某一组的框的哪一段(同对话行、「项目」那边的会话行)。 */
+  join?: SidebarJoin
 }) {
   const { identitiesById } = useChatStore('identitiesById')
   const agent = line.agentUserId ? identitiesById[line.agentUserId] : undefined
@@ -21,6 +24,8 @@ export function SidebarSessionLineRow({ line, isActive, onClick }: {
   return (
     <ListRow
       data-session-line={line.sessionId}
+      data-join={join?.pos}
+      data-join-on={join?.onScreen || undefined}
       draggable
       onDragStart={(event) => setDraggedSession(event.dataTransfer, { sessionId: line.sessionId, title: line.title, projectId: line.projectId }, event.currentTarget)}
       onDragEnd={clearDraggedSession}

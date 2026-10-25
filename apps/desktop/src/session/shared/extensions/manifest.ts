@@ -2,6 +2,7 @@ import { z } from 'zod';
 import { EXTENSION_API_VERSION } from './bridge-protocol';
 import { networkHostAllowed } from './partition';
 import { APP_PLATFORMS } from './app-platforms';
+import { claimTakes } from './file-openers';
 
 /**
  * Extension (App) manifest — the `manifest.json` at the root of an
@@ -262,6 +263,13 @@ const tabContributionSchema = z.strictObject({
    * `../../etc/*` means. The narrow thing answers the spec's case.
    */
   opensFiles: opensFilesSchema.optional(),
+  /**
+   * API 14 (owner 10-24: one App's one resource is one tab): the file this tab shows when the App is opened in a chat — a
+   * name at the top of that chat's folder (`"协作看板.board.json"`), one of this tab's `opensFiles.chat` claims. The host
+   * finds it before any of the App runs, made empty the first time (`{}` for JSON, which the App fills): so the App opened
+   * from the chat and that file opened from the folder are one tab. Without it, the App in a chat is its own page.
+   */
+  chatFile: z.string().trim().min(1).max(128).regex(/^[^/\\]+$/, { message: 'a file name at the top of the chat folder, without folders' }).optional(),
   /**
    * The icon of each kind of file this tab opens, by its claim in `opensFiles`: `{ ".md": "md.png" }` — what a file list
    * draws next to such a file (owner 10-17: a markdown file drawn with the folder App's own icon reads as a folder). The
@@ -617,6 +625,16 @@ export const extensionManifestSchema = z
           ctx.addIssue({ code: 'custom', path: ['contributes', 'tabs', index, 'fileIcons', claim], message: `"${claim}" is not one of this tab's opensFiles claims (${claims.join(', ') || 'none'}): fileIcons are keyed by them` });
         }
       }
+      if (tab.chatFile !== undefined) {
+        if (manifest.apiVersion < 14) ctx.addIssue({ code: 'custom', path: ['apiVersion'], message: 'chatFile requires apiVersion 14' });
+        const chatClaims = claimedSuffixes(tab, 'chat');
+        if (!chatClaims.some((claim) => claimTakes(claim, tab.chatFile!))) {
+          ctx.addIssue({ code: 'custom', path: ['contributes', 'tabs', index, 'chatFile'], message: `"${tab.chatFile}" is not a file this tab opens in a chat (its opensFiles.chat: ${chatClaims.join(', ') || 'none'})` });
+        }
+      }
+    }
+    if (manifest.contributes.tabs.filter((tab) => tab.chatFile !== undefined).length > 1) {
+      ctx.addIssue({ code: 'custom', path: ['contributes', 'tabs'], message: 'one tab at most names the file it shows in a chat (chatFile)' });
     }
     // 同时声明窄的和宽的是自相矛盾的:安装清单要照哪一条写给用户看?默默取宽的
     // 那个,等于让「默认最小」在一个笔误上悄悄失效。当场判错。

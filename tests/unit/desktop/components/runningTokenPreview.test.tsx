@@ -14,10 +14,16 @@ vi.mock('../../../../apps/desktop/src/components/MessagePreviewCard', () => ({
 const { RunningTokenBar } = await import('../../../../apps/desktop/src/components/RunningTokenBar')
 
 let harness: ReturnType<typeof createReactHarness>
-beforeEach(() => { harness = createReactHarness() })
-afterEach(() => harness.cleanup())
+beforeEach(() => {
+  vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] })
+  harness = createReactHarness()
+})
+afterEach(() => {
+  harness.cleanup()
+  vi.useRealTimers()
+})
 
-const wait = (ms: number) => act(async () => { await new Promise((resolve) => setTimeout(resolve, ms)) })
+const wait = (ms: number) => act(async () => { await vi.advanceTimersByTimeAsync(ms) })
 const card = () => document.body.querySelector('[data-testid="preview-card"]')
 const trigger = () => document.body.querySelector<HTMLElement>('[data-message-preview-trigger="agent-1"]')!
 

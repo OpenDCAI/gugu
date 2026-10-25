@@ -1249,7 +1249,9 @@ describe('#2503 平台凭据随会话续期', () => {
     // Without the bypass, this same environment must break the request; otherwise the
     // regression would pass on a host whose curl already ignores the poisoned proxy.
     const helper = await readFile(helperPathOf(settings.apiKeyHelper), 'utf8')
-    await expect(execFileAsync('sh', ['-c', helper.replace(" --noproxy '*'", '')], { env }))
+    // The broken bypass only needs one refused connection; retry waits do not test routing.
+    const withoutBypass = helper.replace(" --noproxy '*'", '').replace('--retry 15 ', '--retry 0 ')
+    await expect(execFileAsync('sh', ['-c', withoutBypass], { env }))
       .rejects.toMatchObject({ code: 7 })
     await expect(runApiKeyHelper(settings.apiKeyHelper, { env }))
       .resolves.toMatchObject({ stdout: 'sk-session\n' })

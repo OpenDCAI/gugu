@@ -64,6 +64,7 @@ type InternalElectronRealtimeChannelRegistryEntry = ElectronRealtimeChannelRegis
   }
 
 const registry = new Map<string, InternalElectronRealtimeChannelRegistryEntry>()
+const reconnectFlights = new Map<string, Promise<void>>()
 const debugStatusHandlers = new Map<string, (status: string, err?: Error) => void>()
 let nextChannelId = 1
 
@@ -121,6 +122,12 @@ export function listElectronRealtimeChannelRegistry(): ElectronRealtimeChannelRe
   }))
 }
 
+/** After an explicit host resume, replace stale physical subscriptions now,
+ * without waiting for CHANNEL_ERROR or the normal reconnect backoff. */
+export async function reconnectElectronRealtimeChannels(): Promise<void> {
+  await Promise.all([...registry.keys()].map(id => retryNow(id)))
+}
+
 // TEST-ONLY, env-gated (GUGU_DEVICE_RUNTIME_ACCOUNT_SWITCH_TEST_HOOKS=1). The flag is fixed at
 // Electron process startup, so this module-level assignment is stable for the full runtime.
 // Unset in production -> NOT assigned -> no product surface / no runtime probe.
@@ -140,6 +147,7 @@ export function _resetElectronRealtimeChannelRegistryForTesting(): void {
     if (entry.reconnectTimer) clearTimeout(entry.reconnectTimer)
   }
   registry.clear()
+  reconnectFlights.clear()
   debugStatusHandlers.clear()
   nextChannelId = 1
 }
@@ -252,7 +260,17 @@ function clearReconnectTimer(id: string): void {
   entry.reconnectTimer = null
 }
 
-async function retryNow(id: string): Promise<void> {
+function retryNow(id: string): Promise<void> {
+  const existing = reconnectFlights.get(id)
+  if (existing) return existing
+  const flight = replacePhysicalChannel(id).finally(() => {
+    if (reconnectFlights.get(id) === flight) reconnectFlights.delete(id)
+  })
+  reconnectFlights.set(id, flight)
+  return flight
+}
+
+async function replacePhysicalChannel(id: string): Promise<void> {
   const entry = registry.get(id)
   if (!entry?.active || !entry.createChannel) return
   clearReconnectTimer(id)

@@ -1,5 +1,5 @@
 import { GroupRenameContext, useChatCommands } from './chat/use-chat-commands'
-import { useState, useRef, useEffect, useCallback, useMemo, type ReactNode } from 'react'
+import { useState, useRef, useEffect, useCallback, useMemo, useSyncExternalStore, type ReactNode } from 'react'
 import { createPortal } from 'react-dom'
 import { useTranslation } from 'react-i18next'
 import { motion, AnimatePresence } from 'framer-motion'
@@ -81,7 +81,7 @@ import {
 } from './chat/chatPresentation'
 import { sessionComposerDockBandClassName } from '../session/renderer/features/sessions/session-composer-styles'
 import { GroupPanelTabs } from './appSlot/GroupPanelTabs'
-import { GroupFolderSlot } from './appSlot/GroupFolderSlot'; import { useOpenApp } from './appSlot/useOpenApp'; import { GROUP_PANEL_WIDTHS, groupSlotMemory, type FileToOpen } from './appSlot/groupSlotMemory'; import { SidePanelSplit, type PanelForm } from '../session/renderer/lib/layout/side-panel-split'
+import { GroupAppSlot } from './appSlot/GroupAppSlot'; import { useOpenApp } from './appSlot/useOpenApp'; import { folderTab, GROUP_PANEL_WIDTHS, groupSlotMemory, isFolder } from './appSlot/groupSlotMemory'; import { SidePanelSplit, type PanelForm } from '../session/renderer/lib/layout/side-panel-split'
 import { HistoryPanel, type HistoryTopicItem, type HistoryFileItem } from './HistoryPanel'
 import { useTopicSurface, type TopicSurface } from '@/hooks/useTopicSurface'
 import { chatDisplayName, isRoomChat } from '@gugu/core/shared/ui/chatModels'
@@ -104,6 +104,9 @@ import { useChatSearch } from './chat/useChatSearch'
 import { loadImportedSessionHistories, type ImportedSessionHistory } from '../lib/importedHistoryReader'
 export { ChatNotificationLevelControl } from './chat/ChatNotificationLevelControl'
 import { ChatSettingsPanel } from './chat/ChatSettingsPanel'
+import { useChatSlotProjectName } from '../lib/shellSlots'
+import { useChatHasMessages } from '../lib/chatSummariesBridge'
+import { ChatPartSlot } from '../session/renderer/lib/chat-slot'
 interface ChatAreaPanelProps {
   /** 这块面显示哪条会话:对话页给列表选中的那条,「助理」App 给和它的私聊(#7199);不给 = 跟着那条活的线(store/chatLineScope.tsx)。 */
   chatId?: string | null
@@ -120,11 +123,7 @@ interface ChatAreaPanelProps {
   onBack?: () => void
   /** #7199「助理」App 里那块:头栏只在搜索时出现(头像、搜索、设置在 App 自己那一排),输入框「和 X 聊天」+「+」;typing = 接在消息流末尾、取代运行条的「它在处理」。 */
   chrome?: { placeholder: string; attachGlyph: ReactNode; attachMenu?: readonly ComposerAttachAction[]; typing?: ReactNode; hideRunningStatus?: boolean }
-  /**
-   * gugu-dev#181 画在会话页一块里(项目块的项目群、对话块,见 ChatSlotHost):块顶上那条页签条就是头,这里不画头栏
-   * (搜索时照样临时出一条搜索栏);头栏右边那排图标画进 `actions`,对话的头像和名字画进 `title`(对话块第一枚页签),
-   * `tabs` 里是开着的话题(TopicSplitPane)和右栏开着的那几枚(GroupPanelTabs)。格子还没挂上 = null。不给 = 对话页、手机、网页那一种,头栏照旧。
-   */
+  /** Block tab-strip slots for actions, title, topics and right-panel tabs; absent on standalone/phone headers. */
   blockHost?: { actions: HTMLElement | null; title: HTMLElement | null; tabs: HTMLElement | null }
   onOpenUserChat?: (target: MemberProfileChatTarget) => void; onOpenSessionpageAgent?: (agentUserId: string, view?: 'code' | 'general') => Promise<void>; onOpenSessionpageAgentFile?: (agentUserId: string, path: string) => Promise<void>
 }
@@ -252,6 +251,8 @@ function ChatAreaSurface({ viewportKey = 'chats', activeTab, navigationTarget = 
     closeRightSurfaces()
     setShowDrawer(true)
   }, [closeRightSurfaces])
+  const projectName = useChatSlotProjectName()
+  const emptyProject = useChatHasMessages(projectName !== null ? activeChatId ?? undefined : undefined) === false
   const handleOpenAgentSettings = useCallback(() => {
     closeRightSurfaces()
     setShowAgentSettings(true)
@@ -385,32 +386,19 @@ function ChatAreaSurface({ viewportKey = 'chats', activeTab, navigationTarget = 
     })
   }, [])
 
-  // A chat's workspace (a group's, a topic's, a private chat's) is an App (真源 §2.4, 主人 09-29): the panel is its slot; the App lists,
-  // opens and follows changes itself (gugu.files.*), so nothing about the files is held here.
+  // A chat's panel (a group's, a topic's, a private chat's — 主人 10-05) holds Apps' pages and files, the folder among them (真源 §2.4):
+  // the Apps list, open and follow changes themselves (gugu.files.*), so nothing about the files is held here.
   const handleOpenWorkspacePanel = useCallback(() => {
     if (!activeChatId) return
-    closeRightSurfaces(); groupSlotMemory.noteShown(activeChatId) // 同槽位互斥（#1312），含 群公告（#1485 review）;它让开时这一枚还在页签上
+    closeRightSurfaces() // 同槽位互斥（#1312），含 群公告（#1485 review）
     setWorkspaceForm(workspaceForm === 'closed' ? 'side' : workspaceForm) // full stays full (a link opening a file in it)
   }, [activeChatId, closeRightSurfaces, workspaceForm])
   const handleCloseWorkspacePanel = useCallback(() => setWorkspaceForm('closed'), [])
-  // 摩擦单 F10: a file of this chat asked for by a link (MainLayout brought the chat up): its panel opens on that file —
-  // now, or as soon as this chat is the one shown.
-  const [fileToOpen, setFileToOpen] = useState<FileToOpen | null>(null)
-  const takeAskedFile = useCallback(() => {
-    const asked = groupSlotMemory.takeFile(activeChatId)
-    if (!activeChatId || !asked) return
-    handleOpenWorkspacePanel()
-    setFileToOpen({ chatId: activeChatId, ...asked, request: Date.now() })
-  }, [activeChatId, handleOpenWorkspacePanel])
-  useEffect(() => {
-    takeAskedFile()
-    window.addEventListener(UI_EVENTS.chatAsked, takeAskedFile)
-    return () => window.removeEventListener(UI_EVENTS.chatAsked, takeAskedFile)
-  }, [takeAskedFile])
-
-  // 「在本群打开」(app-redesign §5): an App opened from this chat opens in its panel here — a private chat's too (主人 10-05).
-  const appToOpen = useOpenApp(activeChat?.id ?? null, handleOpenWorkspacePanel)
-  const workspaceSlot = activeChatId ? <GroupFolderSlot visible={surfaceVisible} onForward={handleForward} chatId={activeChatId} onClose={handleCloseWorkspacePanel} appToOpen={appToOpen} fileToOpen={fileToOpen} tabbed={Boolean(blockHost)} full={workspaceForm === 'full'} onToggleFull={() => setWorkspaceForm(workspaceForm === 'full' ? 'side' : 'full')} /> : null
+  const handleOpenFolder = useCallback(() => { handleOpenWorkspacePanel(); if (activeChatId) groupSlotMemory.open(activeChatId, folderTab()) }, [activeChatId, handleOpenWorkspacePanel])
+  const shownInPanel = useSyncExternalStore(groupSlotMemory.subscribe, () => (activeChatId ? groupSlotMemory.opened(activeChatId) : null))
+  // What this chat's panel was asked to open, every way in — a link (摩擦单 F10), 「在本群打开」(app-redesign §5), a page's files.openWith.
+  const asked = useOpenApp(activeChatId, handleOpenWorkspacePanel)
+  const workspaceSlot = activeChatId ? <GroupAppSlot visible={surfaceVisible} onForward={handleForward} chatId={activeChatId} onClose={handleCloseWorkspacePanel} asked={asked} tabbed={Boolean(blockHost)} full={workspaceForm === 'full'} onToggleFull={() => setWorkspaceForm(workspaceForm === 'full' ? 'side' : 'full')} /> : null
 
   // @@@history (#957) — 历史面板：开启时加载消息附件；「线程」复用 store 的 threadSummaries。
   const loadHistoryFiles = useCallback(async (chatId: string) => {
@@ -861,16 +849,15 @@ function ChatAreaSurface({ viewportKey = 'chats', activeTab, navigationTarget = 
         isGroupChat={isGroupChat}
         isRoomChat={isRoomChatSurface}
         searchMode={searchMode}
-        workspacePanelOpen={workspaceForm !== 'closed'}
+        folderShown={workspaceForm !== 'closed' && isFolder(shownInPanel)}
         memberListOpen={memberListOpen}
         showHeaderMenu={showHeaderMenu}
         mobile={mobile}
         // 块里没有标题后面那个「(N)」,人数挂在成员按钮上(原型「👥 4」)。
         memberCount={blockHost && roomMemberTotal > 0 ? roomMemberTotal : undefined}
-        moreInTabMenu={Boolean(blockHost)}
         moreButtonRef={moreButtonRef}
         onEnterSearchMode={() => setSearchMode(true)}
-        onOpenWorkspacePanel={handleOpenWorkspacePanel}
+        onOpenFolder={handleOpenFolder}
         onCloseWorkspacePanel={handleCloseWorkspacePanel}
         onOpenSettingsDrawer={handleOpenSettingsDrawer}
         onOpenMemberList={handleOpenMemberList}
@@ -1032,11 +1019,9 @@ function ChatAreaSurface({ viewportKey = 'chats', activeTab, navigationTarget = 
           position: 'relative',
         }}
       >
-        {/* @@@1572/2234 中栏地板(useMessageColumnMinWidth:有右栏且行宽 < 380+360 时让位,右栏不被裁;否则 380;mobile→0)挂在分栏根上。工作区开着时
-            地板归分栏(左栏至少 240):它和会话页右栏是同一个分栏(SidePanelSplit:开合、全屏、拖宽)。手机上工作区是整页,在下面。 */}
         <SidePanelSplit form={mobile ? 'closed' : workspaceForm} resizeLabel={t('chatArea.openWith.resize')} widths={GROUP_PANEL_WIDTHS} unmountWhenClosed onCollapseWorkspace={handleCloseWorkspacePanel}
           className="flex-1" chatMinWidth={workspaceForm === 'closed' ? messageColumnMinWidth : 0} workspacePanel={workspaceSlot} chatColumn={
-        <div
+        emptyProject ? <ChatPartSlot chatId={activeChat.id} part="empty" className="flex min-h-0 min-w-0 flex-1 flex-col" /> : <div
           style={{
             flex: 1,
             minHeight: 0,
@@ -1155,8 +1140,8 @@ function ChatAreaSurface({ viewportKey = 'chats', activeTab, navigationTarget = 
       {/* Input area — white card with rounded border floating in gray.
           @@@multi-select (#988) — 多选态用底部批量操作条替换输入框（同槽位 + 同 --bg-primary 外壳）。 */}
       {selectMode ? (
-        // @@@1323-m4 item4 多选态批量条与 composer「同槽位+同外壳」→ padding 同步对标 SSOT `.comp`(12/22/18),否则切多选态槽位抖。
-        <div className={blockHost ? `${sessionComposerDockBandClassName} pt-3` : undefined} style={{ background: mobile ? 'var(--bg-primary)' : undefined, padding: blockHost ? undefined : mobile ? '10px 8px max(8px, env(safe-area-inset-bottom))' : '12px 22px 18px', flexShrink: 0 }}>
+        // Desktop selection and editing use the same ACP slot frame; phone spacing stays local.
+        <div className={mobile && blockHost ? `${sessionComposerDockBandClassName} pt-3` : undefined} style={{ background: mobile ? 'var(--bg-primary)' : undefined, padding: mobile ? (blockHost ? undefined : '10px 8px max(8px, env(safe-area-inset-bottom))') : 0, flexShrink: 0 }}>
           <div
             data-testid="message-select-bar"
             style={{ display: 'flex', flexWrap: mobile ? 'wrap' : undefined, alignItems: 'center', gap: 10, padding: '8px', border: '1px solid var(--border-subtle)', borderRadius: 'var(--radius-surface)', background: 'var(--bg-secondary)' }}
@@ -1185,10 +1170,8 @@ function ChatAreaSurface({ viewportKey = 'chats', activeTab, navigationTarget = 
           </div>
         </div>
       ) : (
-        // @@@1323-m4 item4 composer 外层 padding 对标 SSOT `.comp{padding:12px 22px 18px}`（#1330 deferred 此项,#1327 合后补）。
-        // 桌面左右 22 给输入区呼吸感;mobile 保窄边+安全区,顶部 hairline 与消息区分界(@@@1787 视觉验收:原先浮空无边界)。
-        // 画在会话页一块里时用会话输入框那条带(左右 16、离底 8):群框和会话框、新建会话页的框落在同一个位置(gugu-dev#181 核对 21)。
-        <div data-chat-composer="" className={blockHost ? `${sessionComposerDockBandClassName} pt-3` : undefined} style={{ background: mobile ? 'var(--bg-primary)' : undefined, padding: blockHost ? undefined : mobile ? '8px 10px max(10px, env(safe-area-inset-bottom))' : '12px 22px 18px', borderTop: mobile ? '1px solid var(--border-subtle)' : undefined, flexShrink: 0 }}>
+        // ChatBottomDock owns the shared desktop frame; keep phone padding and safe area unchanged.
+        <div data-chat-composer="" className={mobile && blockHost ? `${sessionComposerDockBandClassName} pt-3` : undefined} style={{ background: mobile ? 'var(--bg-primary)' : undefined, padding: mobile ? (blockHost ? undefined : '8px 10px max(10px, env(safe-area-inset-bottom))') : 0, borderTop: mobile ? '1px solid var(--border-subtle)' : undefined, flexShrink: 0 }}>
         {/* #1099: offline「唤醒 Agent」状态栏已删(ACP 发消息即触达自启)。removed 显提示栏。 */}
         {/* agent 会话 composer 通知区：已注销 Agent 的禁用说明。 */}
         {isAgentChat ? <AgentComposerNotices disabledReason={agentComposerDisabled ? (agentComposerDisabledReason ?? null) : null} agentUserId={activeChat?.peer_user_id ?? null} agentName={activeChatName} /> : null}

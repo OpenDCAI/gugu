@@ -285,6 +285,20 @@ export const extensionsController = createRPCController({
   },
 
   /**
+   * An App opened in a chat that names its file there (API 14 `chatFile`): that file, found or made, as a file opened with
+   * that App — so the panel opens it the way it opens any group file, and the two are one tab (owner 10-24).
+   */
+  appChatFile: async (args: { chatId: string; extensionId: string }) => {
+    try {
+      const files = await import('@main/core/extensions/app-files');
+      return { success: true as const, data: await files.appChatFile(String(args?.chatId ?? ''), String(args?.extensionId ?? '')) };
+    } catch (error) {
+      log.warn('Failed to find the file an App names in a chat:', error);
+      return { success: false as const, error: error instanceof Error ? error.message : String(error) };
+    }
+  },
+
+  /**
    * A group file opened from the shell — an App card's 「Open」 (摩擦单 F51), a file link (F10): which App opens it,
    * decided as a click in an App decides (`openerChoice`). The side panel does the opening. `at` (a pill's place, App 引用
    * pill): when one App opens it, that App gets the place as the `link` event a gugu link brings — opened and placed here,
