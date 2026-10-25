@@ -2041,12 +2041,12 @@ async function handleProfile(args, deps) {
 
 // gugu_file:send-file = 字节经 attachments/upload 直传 OSS,attachments/commit 放进会话的「附件」、发一条附件消息(#7290 gugu-3,
 // 和人发附件同一条路);download = 按消息 id 把附件下到本机(downloadAttachment)。
-async function uploadForSend(args, deps, label) {
+async function uploadForSend(args, deps, label, chatId) {
   const bytes = await readUploadBytes(label, args, ATTACHMENT_MAX_BYTES)
   const fileName = resolveUploadName(args)
   const contentType = resolveAttachmentMimeType(basename(String(args.file_path)), args.mime_type)
   const endpoint = await deps.attachmentsEndpoint()
-  return { endpoint, fileName, contentType, stagingKey: await uploadAttachmentBytes(endpoint, { bytes, name: fileName, contentType }) }
+  return { endpoint, fileName, contentType, stagingKey: await uploadAttachmentBytes(endpoint, { bytes, name: fileName, contentType }, { chat_id: chatId, as: deps.context.agentId }) }
 }
 
 async function sendMessageAsOwner(args, deps, content, extra = {}, outcome = { uncertain: false }) {
@@ -2091,7 +2091,7 @@ async function commitWithReplay(commit) {
 
 async function handleOwnerFile(args, deps) {
   const friendUserId = friendUserIdArg(args.friend_user_id)
-  const { endpoint, fileName, contentType, stagingKey } = await uploadForSend(args, deps, 'message_send_file_as_owner')
+  const { endpoint, fileName, contentType, stagingKey } = await uploadForSend(args, deps, 'message_send_file_as_owner', null)
   // 库里那一半照 send_friend_message_as_owner 的规矩(gugu-supabase send_friend_file_as_owner):发送者是主人,记下是这个 agent 代发。
   const send = { staging_key: stagingKey, friend_user_id: friendUserId, agent_user_id: deps.context.agentId, request_id: randomUUID(), file_name: fileName, content_type: contentType }
   const result = await commitWithReplay(() => sendFileAsOwner(endpoint, send))
@@ -2187,7 +2187,7 @@ async function handleFile(args, deps) {
       message = row
       fileName = attachmentNameOf(row ?? {})
     } else {
-      const upload = await uploadForSend(args, deps, 'message_send_file')
+      const upload = await uploadForSend(args, deps, 'message_send_file', chatId)
       const { endpoint, contentType, stagingKey } = upload
       fileName = upload.fileName
       const commit = {

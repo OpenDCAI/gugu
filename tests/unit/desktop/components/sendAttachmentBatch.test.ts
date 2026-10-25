@@ -38,6 +38,7 @@ describe('sendAttachmentBatch', () => {
     expect(onSent.mock.calls.map((c) => c[0])).toEqual([a, b])
     expect(onSent.mock.calls.map((c) => c[1]), 'onSent 带批内序号(同一 File 可能排进队两次)').toEqual([0, 1])
     expect(appendMessage).toHaveBeenCalledTimes(2)
+    expect(uploadMock.mock.calls.map(call=>call[2])).toEqual([{chat_id:'chat-1',as:'user-1'},{chat_id:'chat-1',as:'user-1'}])
     expect(commits().map((c) => c.staging_key), 'each file commits its own upload').toEqual(['staging/u/a.txt', 'staging/u/b.txt'])
     expect(commitMock.mock.calls[0]![1]).toMatchObject({ chat_id: 'chat-1', sender_user_id: 'user-1', to_user_ids: [], is_whisper: false })
   })

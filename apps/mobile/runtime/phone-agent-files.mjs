@@ -93,7 +93,7 @@ export function phoneFileTools({ agent, job, cloud, store, env, authorize, emit 
         let endpoint = await cloud.attachmentEndpoint()
         const contentType = resolveAttachmentMimeType(name, args.mime_type ?? file.mime_type)
         if (!entry.stagingKey) {
-          entry.stagingKey = await uploadAttachmentBytes(endpoint, { bytes, name, contentType })
+          entry.stagingKey = await uploadAttachmentBytes(endpoint, { bytes, name, contentType }, { chat_id: id, as: agent.agentUserId })
           await store.save()
         }
         // Upload is not delivery. Recheck after uploading and refresh the short owner token before commit.

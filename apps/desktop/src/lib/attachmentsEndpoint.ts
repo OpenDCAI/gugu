@@ -14,7 +14,7 @@ export async function attachmentsEndpoint(): Promise<AttachmentsEndpoint> {
 export async function sendFileToChat(file: File, to: { chatId: string; senderId: string; toUserIds?: string[] }): Promise<Record<string, unknown>> {
   const endpoint = await attachmentsEndpoint()
   const contentType = file.type || 'application/octet-stream'
-  const stagingKey = await uploadAttachmentBytes(endpoint, { bytes: file, name: file.name || 'file', contentType })
+  const stagingKey = await uploadAttachmentBytes(endpoint, { bytes: file, name: file.name || 'file', contentType }, { chat_id: to.chatId, as: to.senderId })
   return commitAttachment(endpoint, {
     staging_key: stagingKey,
     message_id: crypto.randomUUID(),
