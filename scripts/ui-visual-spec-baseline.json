@@ -1,14 +1,14 @@
 {
   "halfStepSpacingUtilities": {
-    "sessionRenderer": 214,
+    "sessionRenderer": 206,
     "mainRenderer": 53,
     "assistantUi": 24
   },
   "mainRendererGeometryDebt": {
-    "inlineFontSizeLiterals": 16,
+    "inlineFontSizeLiterals": 12,
     "inlineRadiusLiterals": 3,
-    "rawButtons": 131,
-    "inlineStyleBlocks": 613
+    "rawButtons": 116,
+    "inlineStyleBlocks": 553
   },
   "mainRendererGeometryDebtNote": "2026-10-01 inlineStyleBlocks 756→757 (#6874, L11 R14): the far-left rail dock's drag offset — dnd-kit's transform/transition, which changes every frame of a drag and so can only be an inline style. Not geometry debt.",
   "assistantUiGeometryDebt": {

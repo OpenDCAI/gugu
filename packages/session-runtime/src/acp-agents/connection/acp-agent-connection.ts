@@ -54,6 +54,8 @@ export interface AcpAgentConnection {
    * 而不是「我们调过 stop 了」。
    */
   pid: number | null;
+  /** Signal the bound process and wait for its actual exit, without force escalation. */
+  stopProcess(): Promise<void>;
 }
 
 /**
@@ -144,9 +146,10 @@ export async function createAcpAgentConnection(
     });
   }
 
+  let actualExitObserved = false;
   connectionScope.add(() => {
     // 已退出由进程宿主识别；其它失败交给 scope 的 cleanup-error 出口。
-    handle.kill('SIGTERM');
+    if (!actualExitObserved) handle.kill('SIGTERM');
   });
 
   const processClosed = onceProcessClosed(handle, logger);
@@ -158,7 +161,7 @@ export async function createAcpAgentConnection(
   // ❌ 不等 stderr 读到 EOF:harness 拉起的孙进程继承了 stderr 还活着时(Bun / node 包装脚本常见),
   // 管道在父进程退出后也不会关,那就是永远等下去。卡住的孙进程归收树(#6353),不归失败原因。
   const processExit = new Promise<{ code: number | null; signal: string | null }>((resolve) => {
-    handle.onExit(resolve);
+    handle.onExit(exit => { actualExitObserved = true; resolve(exit); });
   });
 
   const normalize = (raw: SessionUpdate): NormalizedEvent => {
@@ -201,7 +204,8 @@ export async function createAcpAgentConnection(
       supportsSteering,
       reportsState,
     });
-    void processClosed.then(async (closed) => {
+    const ended = processExit.then(async (exit) => {
+      const closed = { kind: 'exit' as const, exitCode: exit.code, signal: exit.signal };
       // @@@5405 先把这棵树收干净,再把「进程没了」报出去 —— 顺序本身就是合同的一部分。
       // 报出去的下一步是宿主结算这一代平台额度(撤令牌 + 删那份 0600 settings 文档)。
       // 适配器被 SIGKILL 时它没机会收自己拉起的引擎,引擎 reparent 到 PID1 继续跑完手上的工具
@@ -229,7 +233,6 @@ export async function createAcpAgentConnection(
         pid: typeof handle.pid === 'number' ? handle.pid : null,
         exitCode: exitCodeFromClosed(closed),
         signal: signalFromClosed(closed),
-        error: closed.kind === 'error' ? closed.error.message : undefined,
         stderrTailLines: stderrTail.lineCount(),
         stderrTail: stderrTail.text(),
         // 收掉了几个:0 与「没收」不是同一件事,所以这一格必须出现在每条退出记录上。
@@ -252,6 +255,18 @@ export async function createAcpAgentConnection(
       supportsSteering,
       reportsState,
       pid: typeof handle.pid === 'number' ? handle.pid : null,
+      stopProcess: async () => {
+        if (!actualExitObserved) handle.kill('SIGTERM');
+        let timer: ReturnType<typeof setTimeout> | undefined;
+        try {
+          await Promise.race([
+            ended,
+            new Promise<never>((_resolve, reject) => {
+              timer = setTimeout(() => reject(Object.assign(new Error('stop_pending: executor is still stopping; check its state before reporting success'), { code: 'stop_pending' })), 10_000);
+            }),
+          ]);
+        } finally { if (timer) clearTimeout(timer); }
+      },
     });
   } catch (e) {
     // #6360 initialize 没等到回话 —— 最常见的是适配器自己先退了(配置坏、依赖缺、env 错),

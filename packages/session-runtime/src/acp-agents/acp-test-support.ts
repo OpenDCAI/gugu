@@ -250,7 +250,7 @@ export class FakeAcpProcessHandle extends EventEmitter implements AcpProcessHand
   exitCode: number | null = null;
   /** 假 handle 背后没有真进程 ⇒ 明确 null,❌ 不编一个假 pid。 */
   readonly pid: number | null = null;
-  readonly kill = vi.fn<(signal?: NodeJS.Signals) => void>();
+  readonly kill = vi.fn<(signal?: NodeJS.Signals) => void>((signal = 'SIGTERM') => this.emitExit(null, signal));
   /**
    * @@@5405 假 handle 背后没有真树 ⇒ 默认报 0,但它是**可观察**的:退出边必须先收树再把
    * 「进程没了」报出去,而那条顺序只有在能看见这次调用发生在哪一步之前时才判得出来。

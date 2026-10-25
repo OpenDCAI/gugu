@@ -153,7 +153,7 @@ export const SESSION_TOOL_DEFS: readonly SessionpageToolDef[] = [
   },
   {
     name: 'session_children',
-    description: 'Direct children, newest first (default: yours). Archived only with status:"archived"; preview.ended = last turn\'s end.',
+    description: 'Children/current state, not history; what happened when: activity_list. Newest first (default yours); archived: status:"archived"; preview.ended = last turn end.',
     schema: z.object({
       session_id: sessionIdSchema.optional(),
       ...listWindowShape,
@@ -200,7 +200,7 @@ export const SESSION_TOOL_DEFS: readonly SessionpageToolDef[] = [
       files: z.preprocess(arrayArgument, z.array(z.object({ file_path: z.string().min(1), file_name: z.string().optional(), mime_type: z.string().optional() }).strict()).min(1).max(8)).optional(),
       source_link: sourceLinkSchema.optional(),
       // owner 10-17:发信方自己说发完以后去向,收件方在信封上读到(then="…")。是协议,不是程序推出的状态。
-      then: z.enum(SESSION_MESSAGE_THEN).describe('What you do next: continue, wait (on what: say) or stop.').optional(),
+      then: z.enum(SESSION_MESSAGE_THEN).describe('Your next step as sender: continue/wait/stop; this never stops recipients.').optional(),
       // 与 message_send 同名;取值是收到的那条信封的 msg。只核写法(与编排层同一个 regex),不查存在(发信方的话)。
       // refine 不进 JSON schema:不多花工具描述预算。
       reply_to_message_id: z.string().refine((value) => SESSION_MESSAGE_REPLY_TO.test(value), 'reply_to_message_id must be a msg:<uuid> as a delivery\'s msg gives it').optional(),

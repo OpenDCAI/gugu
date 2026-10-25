@@ -521,8 +521,7 @@ design.md:「**Shadows are zeroed globally. Only a floating surface may lift.**�
   ❌ 不再抄一排深浅 —— 深浅不是可选项:两个都能「浮起来」的浮层若投影一深一浅,
   读到的是「它们不是一类东西」,而它们是。
 - 非浮层一律**靠密度分层**(`bg-foreground/[0.025]`),❌ 不给阴影。
-  仓内已有两份现成的零阴影参照实现:`session/renderer/features/extensions/panel/extensions-panel.css`
-  与 `pages/explore/ExplorePage.css`。
+  仓内的零阴影参照实现:`session/renderer/features/extensions/panel/extensions-panel.css`。
 - 原来那 13 个具名 shadow 里,`--shadow-dropdown` / `-modal` / `-popover` / `-popover-strong` /
   `-overlay-panel` / `-floating` / `-toast` / `-toast-card` / `-call-panel` / `-drawer` /
   `-drawer-strong` / `-menu` 与 `--modal-shadow` / `--modal-light-shadow` 全部变成 `--shadow-lift`

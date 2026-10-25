@@ -1461,10 +1461,6 @@ function InnerLayout({
                 </div>
               </div>
             ),
-            // 「发现」页(ExplorePage)已不再挂载 —— owner 2026-09-05:「发现页离完善还有距离,先不展示」。
-            // 源码原样留在 pages/ExplorePage.tsx 及 pages/explore/ 下,只是没有入口也不再渲染;
-            // 恢复 = 把这块挂载和 Sidebar 里那个 RailItem 一起加回来。
-            // 页里三块(工作台 / 广场 / 找群)同进同出;群设置里的「公开到广场」开关同批撤掉。
             // @@@1787 owner: 移动端「我的」是 tab 页(仅移动 shell 会切到该 tab);nav 层保留底部 tab 栏,detail 全屏
             settings: (mobile || activeTab === 'settings') && (
               <div key="settings" style={{ flex: 1, minWidth: 0, overflow: 'hidden', display: 'flex', flexDirection: 'column' }}>

@@ -1,6 +1,5 @@
-// catalog_* —— 咕咕 MCP 的渐进披露。原生 tools/list 只列 GUGU_LISTED_TOOLS,其余工具经 catalog_list /
-// catalog_describe / catalog_call 取用。三个工具的说明字节固定,清单是静态的:不随 grant、也不随目录里有什么变,
-// 模型前缀因此不动。目录内容由调用方给的 CatalogSource 现取,来源可以不止这台 server 自己。
+// catalog_* —— 咕咕 MCP 的渐进披露。原生 tools/list 按角色列固定集合,其余经 catalog_* 取用。
+// 同角色的清单不随 grant 或目录内容变,复用模型前缀。目录来源由 CatalogSource 现取。
 
 import type { McpServer, RegisteredTool } from '@modelcontextprotocol/sdk/server/mcp.js'
 import type { RequestHandlerExtra } from '@modelcontextprotocol/sdk/shared/protocol.js'
@@ -42,6 +41,12 @@ export const GUGU_LISTED_TOOLS: ReadonlySet<string> = new Set([
   'catalog_list', 'catalog_describe', 'catalog_call',
 ])
 
+/** The coordinator's core tools replace occasional contact/group creation within the same budget. */
+export const GUGU_ASSISTANT_LISTED_TOOLS: ReadonlySet<string> = new Set([
+  ...[...GUGU_LISTED_TOOLS].filter(name => !['device_call', 'contact_friend', 'message_invite', 'topic_open'].includes(name)),
+  'activity_list', 'activity_context', 'session_stop',
+])
+
 type Extra = RequestHandlerExtra<ServerRequest, ServerNotification>
 
 /** 目录里的一项。`name` 只是查找键,怎么执行归 `run`:别的来源(扩展)带着自己的路由接进来。 */
@@ -70,10 +75,10 @@ export type CatalogLeftOut = () => string[] | Promise<string[]>
  * 这台 server 上注册了、但没列出来的工具。执行走它注册时的那个回调、先过它注册时的 schema ——
  * 与 SDK 处理原生 tools/call 是同一段代码,grant、toolScope、分叉拒绝也就是同一套。
  */
-export function unlistedTools(server: McpServer): CatalogTool[] {
+export function unlistedTools(server: McpServer, listedTools = GUGU_LISTED_TOOLS): CatalogTool[] {
   const registered = (server as unknown as { _registeredTools: Record<string, RegisteredTool> })._registeredTools
   return Object.entries(registered)
-    .filter(([name]) => !GUGU_LISTED_TOOLS.has(name))
+    .filter(([name]) => !listedTools.has(name))
     .map(([name, tool]) => ({
       ...(advertisedTool(name, tool) as Pick<Tool, 'name' | 'description' | 'inputSchema'> & { description: string }),
       run: async (args, extra) => {
@@ -108,10 +113,10 @@ function selfNamedArgumentHint(args: unknown, path: PropertyKey[]): string | nul
  * #7317 实测:让 agent「用我的电脑计算器按 6+6+6+6+6」,它在目录里搜 computer、screen、mouse、mac,一次也没碰到
  * 早就在它工具列表里的 device_actions,于是自己写 osascript、或把浏览器的鼠标当成电脑控制。
  */
-function ownListedTools(server: McpServer): Array<{ name: string; description: string; inputSchema: Tool['inputSchema'] }> {
+function ownListedTools(server: McpServer, listedTools: ReadonlySet<string>): Array<{ name: string; description: string; inputSchema: Tool['inputSchema'] }> {
   const registered = (server as unknown as { _registeredTools: Record<string, RegisteredTool> })._registeredTools
   return Object.entries(registered)
-    .filter(([name]) => GUGU_LISTED_TOOLS.has(name) && !name.startsWith('catalog_'))
+    .filter(([name]) => listedTools.has(name) && !name.startsWith('catalog_'))
     .map(([name, tool]) => advertisedTool(name, tool) as { name: string; description: string; inputSchema: Tool['inputSchema'] })
 }
 
@@ -166,12 +171,12 @@ const callOf = (name: string, schema: Tool['inputSchema']): string => {
   return `${name}(${params.join(', ')})`
 }
 
-export function registerGuguCatalogTools(server: McpServer, source: CatalogSource, leftOut?: CatalogLeftOut, skills?: CatalogSkills): void {
+export function registerGuguCatalogTools(server: McpServer, source: CatalogSource, leftOut?: CatalogLeftOut, skills?: CatalogSkills, listedTools = GUGU_LISTED_TOOLS): void {
   for (const [name, description] of Object.entries(CATALOG_DESCRIPTIONS)) assertMcpToolDescriptionWithinBudget(name, description)
   const find = async (name: string): Promise<CatalogTool> => {
-    const entry = unlistedTools(server).find((tool) => tool.name === name) ?? (await source(name)).find((tool) => tool.name === name)
+    const entry = unlistedTools(server, listedTools).find((tool) => tool.name === name) ?? (await source(name)).find((tool) => tool.name === name)
     // #6634 问题 14 W-21: Claude, having installed through catalog_call, sent catalog_list and catalog_call through it too.
-    if (!entry && GUGU_LISTED_TOOLS.has(name)) throw new Error(`${name} is one of your own tools, not a catalog entry: call it directly`)
+    if (!entry && listedTools.has(name)) throw new Error(`${name} is one of your own tools, not a catalog entry: call it directly`)
     if (!entry) {
       // #6634 问题 16 W-21: a program whose tools/list failed was simply absent; the agent guessed names for minutes.
       // An extension the person revoked or turned off was absent the same way, and an agent went and ran its program by hand.
@@ -193,12 +198,12 @@ export function registerGuguCatalogTools(server: McpServer, source: CatalogSourc
         row: { skill: skill.name, app: skill.extensionId, about: firstSentence(skill.description), read: join(skill.dir, 'SKILL.md') },
         text: `${skill.name} ${skill.extensionId} ${skill.description}`,
       }))
-      const toolEntries = [...unlistedTools(server), ...await source()].filter((tool) => searched || tool.listed !== false).map((tool) => ({
+      const toolEntries = [...unlistedTools(server, listedTools), ...await source()].filter((tool) => searched || tool.listed !== false).map((tool) => ({
         row: { call: callOf(tool.name, tool.inputSchema), about: firstSentence(tool.description), ...(tool.listed === false ? { native: true } : {}) },
         text: `${tool.name} ${tool.description}`,
       }))
       // …and so do 咕咕's own listed tools (#7317).
-      const ownEntries = (searched ? ownListedTools(server) : []).map((tool) => ({
+      const ownEntries = (searched ? ownListedTools(server, listedTools) : []).map((tool) => ({
         row: { call: callOf(tool.name, tool.inputSchema), about: firstSentence(tool.description), native: true as const },
         text: `${tool.name} ${tool.description}`,
       }))

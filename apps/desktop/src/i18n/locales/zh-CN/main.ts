@@ -521,7 +521,6 @@ export default {
       "retryDeviceChanged": "重试 Agent 创建时无法更换设备。",
       "taskBridgeUnavailable": "当前环境无法打开项目页"
     },
-    "explore": "发现",
     "features": "功能",
     "feedback": "问题反馈",
     "imagePreview": {

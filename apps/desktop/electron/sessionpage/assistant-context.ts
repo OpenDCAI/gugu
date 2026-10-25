@@ -49,6 +49,7 @@ export function personalAssistantContext(capabilities: Materialization, kind: As
   const meta = capabilities.sessionNewPatch?.meta ?? {}
   const claude = (meta.claudeCode ?? {}) as Record<string, unknown>
   const options = (claude.options ?? {}) as Record<string, unknown>
+  const systemPrompt = options.systemPrompt ?? [ASSISTANT_SYSTEM_PROMPT, capabilities.sessionPrompt].filter(Boolean).join('\n\n')
   const env = { ...(options.env as Record<string, string> | undefined), CLAUDE_CODE_AUTO_COMPACT_WINDOW: '250000' }
   delete (env as Record<string, string>).CLAUDE_AUTOCOMPACT_PCT_OVERRIDE
   const plugins = (options.plugins ?? []) as Array<{ type: string; path: string }>
@@ -73,8 +74,6 @@ export function personalAssistantContext(capabilities: Materialization, kind: As
   const memoryDir = startup?.workingContextPath ? dirname(startup.workingContextPath) : null
   const pendingScript = memoryDir ? assistantPendingHook(join(memoryDir, 'pending-work.json')) : null
   const noteScript = memoryDir ? assistantNoteWriteHook(memoryDir) : null
-  // Claude restores the original systemPrompt on --resume (measured on 2.1.296).
-  // Dynamic facts must use the native SessionStart additionalContext channel.
   // An immutable, account/content-addressed plugin avoids concurrent starts sharing a snapshot.
   const startupRoot = startup ? join(startup.guguHome, 'capability-packages', 'claude', 'gugu-assistant-context',
     createHash('sha256').update(JSON.stringify({ index: startup.index, rebuildScript, recoveryScript, pendingScript, noteScript })).digest('hex')) : null
@@ -117,7 +116,11 @@ export function personalAssistantContext(capabilities: Materialization, kind: As
             // Use the SDK's full-system-prompt channel, replacing its coding
             // preset. Keep Gugu's platform and identity byte-for-byte in that
             // same system message; never move them into a user turn.
-            systemPrompt: options.systemPrompt ?? [ASSISTANT_SYSTEM_PROMPT, capabilities.sessionPrompt].filter(Boolean).join('\n\n'),
+            // Native snapshots retain old tools after upgrades. Render the
+            // deterministic assistant prefix fresh; dynamic facts stay in hooks.
+            systemPrompt: typeof systemPrompt === 'object' && !Array.isArray(systemPrompt)
+              ? { ...systemPrompt, snapshot: false }
+              : { type: 'custom', prompt: systemPrompt, snapshot: false },
             ...(startupRoot ? { plugins: [...plugins, { type: 'local', path: startupRoot }] } : {}),
             // Reception should not inherit the coding harness's implicit high effort.
             // Explicit session/user choices still take precedence; thinking stays enabled.

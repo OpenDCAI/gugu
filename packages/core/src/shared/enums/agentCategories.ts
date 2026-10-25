@@ -1,6 +1,6 @@
 /**
  * Agent/技能分类枚举
- * 9 个预定义分类，供 ExplorePage 过滤和 agent_profiles.category 字段使用
+ * 9 个预定义分类，供 agent_profiles.category 字段使用
  */
 
 export const AGENT_CATEGORIES = [
