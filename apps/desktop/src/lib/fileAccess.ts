@@ -61,3 +61,11 @@ export const resolveFile = createFileResolver({ ...cloud,
     return file ? nativeBytes(context, file) : null
   },
 })
+
+/** The UI's placement and recent-open tracking share the resolver's no-network local probe. */
+export async function localFileRevision(itemId: string): Promise<FileRevision | null> {
+  if (!globalThis.window?.electronAPI) return null
+  const file = await resolveFile({ item_id: itemId }, fileReader(), { localOnly: true, signal: fileReadSignal() })
+  if (file?.status !== 'ready') return null
+  try { return file.revision } finally { await file.dispose() }
+}
