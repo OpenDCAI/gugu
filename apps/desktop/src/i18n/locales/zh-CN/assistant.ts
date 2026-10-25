@@ -33,7 +33,6 @@ export default {
   },
   "intro": {
     "title": "认识咕咕",
-    "sub": "个人助手、工作空间与协作对话，都在这里。",
     "guguTitle": "咕咕",
     "guguBody": "你的个人超级助手，记住你的安排，替你处理事务。",
     "projectsTitle": "项目",
@@ -286,7 +285,6 @@ export default {
       "title": "日程进展",
       "source": "来源",
       "sourcesTitle": "来源",
-      "sourcesBody": "{{name}}会从你连接的服务和对话中，整理出今天需要留意的安排。",
       "kind": {
         "calendar": {
           "title": "日历",
@@ -307,7 +305,6 @@ export default {
       "manage": "管理连接器",
       "manageElsewhere": "连接哪些服务，在电脑上{{name}}的「连接应用」里管理。",
       "emptyTitle": "今天的安排还没排进来",
-      "empty": "{{name}}会从你的日历、连接的服务和聊天里，把今天要留意的事排在这里。",
       "stale": "上次排的是 {{date}} 的安排，今天的还没排进来。",
       "plan": "让{{name}}排一下今天",
       "planPrompt": "帮我排一下今天的日程：看看我的日历（这台电脑和手机上的）、连接的应用和我们聊过的安排，放进动态的日程进展。",
@@ -344,7 +341,6 @@ export default {
       "close": "关闭",
       "placeholder": "描述你想持续关注的内容…",
       "startingPoint": "这是一个起点，而不是固定模板",
-      "hint": "{{name}}会先问你几个问题（盯什么、多久更新、几点前要好），再把它放到动态上。",
       "request": "我想在动态加一个小组件，一直帮我盯着：{{want}}\n先问我最多三个问题（盯什么、多久更新一次、几点前要准备好），然后把它加到动态上，按时更新。",
       "group": {
         "day": "每天的节奏",
@@ -421,7 +417,6 @@ export default {
     "unseen": "有没看过的结果",
     "emptyTitle": "还没有任务",
     "loadFailed": "任务列表没读到",
-    "empty": "{{name}}替你干活时开的任务会出现在这里。",
     "notRead": "{{name}}醒着时才读得到它开的任务。"
   },
   "routines": {
@@ -476,14 +471,12 @@ export default {
     "loadFailed": "记忆没读到，稍后再试。",
     "aboutUserTitle": "我对{{owner}}的了解",
     "updated": "更新于 {{time}}",
-    "aboutEmpty": "{{name}}越了解你，就越能帮到你。",
     "faster": "更快设置记忆",
     "fasterPrompt": "请帮我更快地设置记忆。",
     "all": "全部",
     "voiceNotes": "语音笔记",
     "voiceNotesCount": "会议与语音",
     "voiceNotesEmptyTitle": "还没有语音笔记",
-    "voiceNotesEmpty": "录下的会议和语音，{{name}}整理好后会放在这里。",
     "voiceLoadFailed": "语音笔记没读到",
     "items": "{{n}} 项",
     "createdBy": "由{{name}}记下",
@@ -681,7 +674,6 @@ export default {
   "diary": {
     "title": "日记",
     "emptyTitle": "还没有日记",
-    "empty": "{{name}}每晚会用自己的口吻写一篇日记，写好就出现在这里。",
     "ask": "问{{name}}今天怎么样",
     "prompt": "今天过得怎么样？用你自己的口吻写一篇今天的日记给我。",
     "loading": "正在读日记…",
@@ -839,7 +831,6 @@ export default {
     "model": "模型",
     "modelNote": "选择模型，以及使用你的账号额度或咕咕积分。",
 
-    "intro": "{{name}}是谁、它用得到什么、它现在怎么样，都在这里。",
     "whoNote": "你的咕咕",
     "look": "形象与性格",
     "name": "名字",
@@ -926,7 +917,6 @@ export default {
     "unreadable": "灵感暂时读不到，稍后再试。",
     "invalid": "{{name}}写的灵感这一块里「{{problem}}」这一格不对，没法照着画。",
     "empty": "暂时没有可用的灵感",
-    "emptyBody": "{{name}}会按它对你的了解，想几件现在就能替你做的事。",
     "ask": "让{{name}}想几个",
     "askPrompt": "根据你对我的了解，帮我想几件你现在就能替我做的事，放进「灵感」里。",
     "more": "让{{name}}换一批",

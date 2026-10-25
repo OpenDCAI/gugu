@@ -4,6 +4,7 @@ import { useTranslation } from 'react-i18next'
 import { LayoutGrid, MoreHorizontal } from '@/lib/icons'
 import { installedExtensionsStore } from '../../session/renderer/features/extensions/installed-extensions-store'
 import { IconButton } from '../ui/IconButton'
+import { Popover } from '../ui/Popover'
 import { DropdownMenu, MenuItem } from '../ui/Menu'
 import { OpenAppMenuItems } from './OpenAppMenuItems'
 import { GroupAppsPicker } from './GroupAppsPicker'
@@ -33,7 +34,7 @@ export const TopicMoreMenu = observer(function TopicMoreMenu({ chatId, mobile, i
   const pinned = pins.ids.flatMap((id) => apps.find((app) => app.extensionId === id) ?? [])
   const ask = (page: ChatDetailsRequest['page']) => window.dispatchEvent(new CustomEvent<ChatDetailsRequest>(UI_EVENTS.openChatDetailsDrawer, { detail: { chatId, page } }))
   return (
-    <>
+    <Popover.Root open={appsOpen} modal={false} onOpenChange={setAppsOpen}>
     <DropdownMenu.Root modal={false} open={menuOpen} onOpenChange={setMenuOpen}>
       <DropdownMenu.Trigger
         ref={anchor}
@@ -56,6 +57,6 @@ export const TopicMoreMenu = observer(function TopicMoreMenu({ chatId, mobile, i
       </DropdownMenu.Content>
     </DropdownMenu.Root>
     {groupId && appsOpen && <GroupAppsPicker chatId={groupId} pins={pins} mobile={mobile} anchor={anchor} onClose={() => setAppsOpen(false)} />}
-    </>
+    </Popover.Root>
   )
 })

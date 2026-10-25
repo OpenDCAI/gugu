@@ -40,7 +40,7 @@ import { agentComposerModel, isRetiredCloudAgentChat } from '../lib/agentCompose
 import { useAgentRunningStatus } from '../hooks/useAgentRunningStatus'
 import { useAgentStream } from '../hooks/useAgentStream'
 import { useStructurallyShared } from '../hooks/useStructurallyShared'
-import { RunningTokenBar } from './RunningTokenBar'
+import { RunningBarSlot, RunningTokenBar } from './RunningTokenBar'
 import { deriveAgentRunningState } from '../lib/agentRunningVerb'
 import { AgentConversationNoticeSlot } from './AgentTurnFailureBar'
 import { latestRecentAction } from './agentRecentActionModel'
@@ -1094,8 +1094,8 @@ function ChatAreaSurface({ viewportKey = 'chats', activeTab, navigationTarget = 
       <ChatTailNotice window={messageWindow} hidden={searchMode} onClick={pinToBottom} />
 
       {/* @@@1506 - Agent 运行状态：输入框上方的轻量浮动文字（owner #1506：无重白板，打字时也能瞥见）。群聊列出在跑的 agent（可点 → @mention）；
-          单聊是运行中/思考中（流式正文仍留消息流）。桌面上它和输入框同在 ChatBottomDock 那层半透明底上，消息流在底部让出同高的一格。 */}
-      <ChatBottomDock floating={!mobile} reserve={chatListRows.length === 0}>
+          单聊是运行中/思考中（流式正文仍留消息流）。运行条那一行是布局里真占位的一行(群、agent 私聊才有),透明、固定高;消息流在它上沿结束,运行条出现、消失不改变布局。 */}
+      <ChatBottomDock floating={!mobile} above={(isRoomChatSurface || isAgentChat) && <RunningBarSlot>
       {!searchMode && !chrome?.hideRunningStatus && (isRoomChatSurface ? (
         // @@@1696 群聊运行态：横排单行「运行 token」(流光动词) + cap +N。数据 = 在跑(transient)的 agent，
         // stateKey 由 presence recentActions 的最新 kind 派生，展示文案由 RunningTokenBar 翻译；
@@ -1134,14 +1134,14 @@ function ChatAreaSurface({ viewportKey = 'chats', activeTab, navigationTarget = 
             },
           ]}
         />
-      ) : null)}
+      ) : null)}</RunningBarSlot>}>
       {/* #2115 — 普通 ACP 回合终态失败条（运行条同槽位;重试=CAS error→pending 重排原命令,详见 Slot）。 */}
       {!searchMode && <AgentConversationNoticeSlot sessionpageNotices={sessionpageAgent.sessionpageNotices} failureExplained={sessionpageAgent.failureExplained} chatId={activeChatId} threadRootId={threadScope.rootId} profiles={messageMemberProfiles} />}
       {/* Input area — white card with rounded border floating in gray.
           @@@multi-select (#988) — 多选态用底部批量操作条替换输入框（同槽位 + 同 --bg-primary 外壳）。 */}
       {selectMode ? (
-        // @@@1323-m4 item4 多选态批量条与 composer「同槽位+同外壳」→ padding 同步对标 SSOT `.comp`(12/22/18),否则切多选态槽位抖。
-        <div className={blockHost ? `${sessionComposerDockBandClassName} pt-3` : undefined} style={{ background: mobile ? 'var(--bg-primary)' : undefined, padding: blockHost ? undefined : mobile ? '10px 8px max(8px, env(safe-area-inset-bottom))' : '12px 22px 18px', flexShrink: 0 }}>
+        // Desktop selection and editing use the same ACP slot frame; phone spacing stays local.
+        <div className={mobile && blockHost ? `${sessionComposerDockBandClassName} pt-3` : undefined} style={{ background: mobile ? 'var(--bg-primary)' : undefined, padding: mobile ? (blockHost ? undefined : '10px 8px max(8px, env(safe-area-inset-bottom))') : 0, flexShrink: 0 }}>
           <div
             data-testid="message-select-bar"
             style={{ display: 'flex', flexWrap: mobile ? 'wrap' : undefined, alignItems: 'center', gap: 10, padding: '8px', border: '1px solid var(--border-subtle)', borderRadius: 'var(--radius-surface)', background: 'var(--bg-secondary)' }}
@@ -1170,10 +1170,8 @@ function ChatAreaSurface({ viewportKey = 'chats', activeTab, navigationTarget = 
           </div>
         </div>
       ) : (
-        // @@@1323-m4 item4 composer 外层 padding 对标 SSOT `.comp{padding:12px 22px 18px}`（#1330 deferred 此项,#1327 合后补）。
-        // 桌面左右 22 给输入区呼吸感;mobile 保窄边+安全区,顶部 hairline 与消息区分界(@@@1787 视觉验收:原先浮空无边界)。
-        // 画在会话页一块里时用会话输入框那条带(左右 16、离底 8):群框和会话框、新建会话页的框落在同一个位置(gugu-dev#181 核对 21)。
-        <div data-chat-composer="" className={blockHost ? `${sessionComposerDockBandClassName} pt-3` : undefined} style={{ background: mobile ? 'var(--bg-primary)' : undefined, padding: blockHost ? undefined : mobile ? '8px 10px max(10px, env(safe-area-inset-bottom))' : '12px 22px 18px', borderTop: mobile ? '1px solid var(--border-subtle)' : undefined, flexShrink: 0 }}>
+        // ChatBottomDock owns the shared desktop frame; keep phone padding and safe area unchanged.
+        <div data-chat-composer="" className={mobile && blockHost ? `${sessionComposerDockBandClassName} pt-3` : undefined} style={{ background: mobile ? 'var(--bg-primary)' : undefined, padding: mobile ? (blockHost ? undefined : '8px 10px max(10px, env(safe-area-inset-bottom))') : 0, borderTop: mobile ? '1px solid var(--border-subtle)' : undefined, flexShrink: 0 }}>
         {/* #1099: offline「唤醒 Agent」状态栏已删(ACP 发消息即触达自启)。removed 显提示栏。 */}
         {/* agent 会话 composer 通知区：已注销 Agent 的禁用说明。 */}
         {isAgentChat ? <AgentComposerNotices disabledReason={agentComposerDisabled ? (agentComposerDisabledReason ?? null) : null} agentUserId={activeChat?.peer_user_id ?? null} agentName={activeChatName} /> : null}
@@ -1192,7 +1190,7 @@ function ChatAreaSurface({ viewportKey = 'chats', activeTab, navigationTarget = 
           onMentionInserted={() => setMentionToInsert(null)}
           chatId={activeChatId} hidden={!surfaceVisible}
           isGroupChat={isRoomChatSurface}
-          groupMembers={composerGroupMembers} currentUserId={user?.id ?? null} agentStatuses={groupAgentStatuses}
+          groupMembers={composerGroupMembers} currentUserId={user?.id ?? null} agentStatuses={groupAgentStatuses} messages={messages}
           disabled={agentComposerDisabled}
           disabledReason={agentComposerDisabledReason}
           whisperTarget={whisperTarget}

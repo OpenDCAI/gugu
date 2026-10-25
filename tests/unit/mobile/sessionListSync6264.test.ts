@@ -56,7 +56,7 @@ describe('startSessionListSync(#6264 手机与桌面任务页共用的会话列�
     const seen: string[] = []
     const lists: SessionpageSessionsListResult[] = []
     const sync = startSessionListSync(f.client, 'dev-1', {
-      onList: (r, { cached }) => { if (!cached) { seen.push(r.sessions[0]!.title); lists.push(r) } },
+      onList: (r) => { seen.push(r.sessions[0]!.title); lists.push(r) },
     })
     await flush()
     expect(seen).toEqual(['first'])
@@ -78,7 +78,7 @@ describe('startSessionListSync(#6264 手机与桌面任务页共用的会话列�
   it('窗口断过再通(那台机器随旧窗口拆了订阅;丢了推送也走这里):整个重来 —— 新订阅号、新的整份', async () => {
     const f = fakeClient()
     const seen: string[] = []
-    startSessionListSync(f.client, 'dev-1', { onList: (r, { cached }) => { if (!cached) seen.push(r.sessions[0]!.title) } })
+    startSessionListSync(f.client, 'dev-1', { onList: (r) => { seen.push(r.sessions[0]!.title) } })
     await flush()
     f.setCurrent(list('after-reopen'))
     for (const cb of f.links) cb(false)
@@ -95,7 +95,7 @@ describe('startSessionListSync(#6264 手机与桌面任务页共用的会话列�
   it('被重连之后,旧那一轮的推送一帧都不收(❌ 拿旧订阅的帧盖新的那份)', async () => {
     const f = fakeClient()
     const seen: string[] = []
-    const sync = startSessionListSync(f.client, 'dev-1', { onList: (r, { cached }) => { if (!cached) seen.push(r.sessions[0]!.title) } })
+    const sync = startSessionListSync(f.client, 'dev-1', { onList: (r) => { seen.push(r.sessions[0]!.title) } })
     await flush()
     const [[oldSub, oldPush]] = [...f.pushes.entries()]
     sync.reconnect()
@@ -116,7 +116,7 @@ describe('startSessionListSync(#6264 手机与桌面任务页共用的会话列�
       })
       const errors: Array<string | null> = []
       const seen: string[] = []
-      const sync = startSessionListSync(f.client, 'dev-1', { onList: (r, { cached }) => { if (!cached) seen.push(r.sessions[0]!.title) }, onError: (m) => errors.push(m) })
+      const sync = startSessionListSync(f.client, 'dev-1', { onList: (r) => { seen.push(r.sessions[0]!.title) }, onError: (m) => errors.push(m) })
       await vi.advanceTimersByTimeAsync(0)
       expect(errors).toContain(`session list subscription ${vi.mocked(f.client.subscribeSessionsList).mock.calls[0]![1]}: a change arrived before the full list`)
       await vi.advanceTimersByTimeAsync(4_000)
@@ -205,7 +205,7 @@ describe('startSessionListSync:列不出来时自己再试(#6264 断线重连)',
   })
 })
 
-describe('sessionListFromDigest(机器离线时退回心跳摘要)', () => {
+describe('sessionListFromDigest(没读到那台机器此刻的列表时退回心跳摘要)', () => {
   it('项目照样列出;每条会话都打不开;老宿主没报的字段不补默认值', () => {
     const result = sessionListFromDigest([
       { conversationId: 'c1', projectId: 'p1', projectName: 'repo', title: 't', harness: 'codex', agentStatus: 'done', lastInteractedAt: null, supported: true },
@@ -215,6 +215,14 @@ describe('sessionListFromDigest(机器离线时退回心跳摘要)', () => {
     expect(result.sessions.every((s) => s.supported === false)).toBe(true)
     expect('isPinned' in result.sessions[0]!).toBe(false)
     expect(result.sessions[1]!.isPinned).toBe(true)
+  })
+
+  it('机器在线(还在读 / 一时连不上):照宿主自己报的能不能打开', () => {
+    const result = sessionListFromDigest([
+      { conversationId: 'c1', projectId: 'p1', projectName: 'repo', title: 't', harness: 'codex', agentStatus: null, lastInteractedAt: null, supported: true },
+      { conversationId: 'c2', projectId: 'p1', projectName: 'repo', title: 'u', harness: 'codex', agentStatus: null, lastInteractedAt: null, supported: false },
+    ], true)
+    expect(result.sessions.map((s) => s.supported)).toEqual([true, false])
   })
 })
 

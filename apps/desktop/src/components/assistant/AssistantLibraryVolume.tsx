@@ -86,7 +86,7 @@ function FileLibraryVolume({ machine, assistantId, kind, askInChat }: Omit<Libra
   return <div className="ta-page" data-testid={`assistant-library-page-${kind}`}>
     <PageHead title={title} action={libraryHost(machine) && <Button variant="ghost" className="ta-pill-btn" onClick={() => setEditing(opened || 'new')}>{t(opened ? 'library.edit' : 'library.add')}</Button>} />
     {selected && <Button variant="ghost" className="ta-pill-btn self-start" onClick={() => setSelected(null)}>{t('library.backToIndex')}</Button>}
-    {!selected && kind === 'devices' && (platform.capabilities.agentRuntime ? <ShellSlot name="devices" className="ta-skin" /> : <AssistantDevicesPage cloudDeviceId={null} assistantName="" />)}
+    {!selected && kind === 'devices' && (platform.capabilities.agentRuntime ? <ShellSlot name="devices" className="ta-skin" /> : <AssistantDevicesPage cloudDeviceId={null} />)}
     {!selected && <AssistantRow title={t('library.organize')} onClick={() => askInChat(t('library.setupPrompt', { kind: title }))} />}
     {failed ? <AssistantEmpty action={<Button onClick={selected ? entry.reload : read.reload}>{t('machine.retry')}</Button>}>{t('library.failed')}</AssistantEmpty>
       : loading ? <AssistantEmpty>{t('library.loading')}</AssistantEmpty>

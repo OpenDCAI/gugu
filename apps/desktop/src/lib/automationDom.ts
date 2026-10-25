@@ -17,7 +17,6 @@ export const AUTOMATION_TEST_IDS = {
   chatComposerAside: 'chat-composer-aside',
   pendingAttachmentPreview: 'pending-attachment-preview',
   // App 引用 pill: a pill the composer holds, in the row above the input with the files.
-  composerFilePill: 'composer-file-pill',
   messageAttachmentImage: 'message-attachment-image',
   imagePreviewOverlay: 'image-preview-overlay',
   imagePreviewImage: 'image-preview-image',
@@ -98,8 +97,6 @@ export const AUTOMATION_TEST_IDS = {
   groupAgentJoinRole: 'group-agent-join-role',
   groupMembersAddButton: 'group-members-add-button',
   groupMembersAvatarRow: 'group-members-avatar-row',
-  groupMembersPickerHumanTab: 'group-members-picker-human-tab',
-  groupMembersPickerAgentTab: 'group-members-picker-agent-tab',
   groupMembersPickerHumanDenied: 'group-members-picker-human-denied',
   groupAgentCreateInput: 'group-agent-create-input',
   groupMemberProfileButton: 'group-member-profile-button',

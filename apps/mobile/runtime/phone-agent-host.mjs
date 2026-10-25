@@ -11,6 +11,7 @@ import { REMOTE_PROTOCOL_VERSION, MIN_CLIENT_PROTOCOL } from '../../../packages/
 import { createPhoneAgentCloud } from './phone-agent-cloud.mjs'
 import { createPhoneModelAccess } from './phone-agent-model.mjs'
 import { openPhoneAgentStore, admitPhoneJob, stableId, uuid } from './phone-agent-store.mjs'
+import { stopPhoneSession } from './phone-session-stop.mjs'
 import { withSessionAttachments } from '../../../packages/core/src/cloud/sessionAttachments.ts'
 import { startPhoneAgentRpc } from './phone-agent-rpc.mjs'
 import { phoneCommunicationTools, deliverPhoneOutbox } from './phone-agent-tools.mjs'
@@ -459,7 +460,10 @@ export async function startPhoneAgentHost(initialConfig, { runTurn, cancelTurn, 
       if (name === 'locate') return { session_ids: (action.session_ids ?? []).filter((id) => agents().some((agent) => agent.sessionId === id)) }
       if (name === 'children') return agents().filter((agent) => agent.caller?.sessionId === (action.session_id ?? caller.sessionId)).map(snapshot)
       if (name === 'get') return snapshot(findSession(action.session_id))
-      if (name === 'stop') return cancel(findSession(action.session_id))
+      if (name === 'stop') {
+        const agent = findSession(action.session_id)
+        return stopPhoneSession({ cancel: () => cancel(agent), running: () => activeJob?.agentUserId === agent.agentUserId, snapshot: () => snapshot(agent) })
+      }
       if (name === 'message') {
         const content = withSessionAttachments(required(action.text, 'text'), action.attachments)
         if (!Array.isArray(action.session_ids) || !action.session_ids.length) throw new Error('session_ids is required')

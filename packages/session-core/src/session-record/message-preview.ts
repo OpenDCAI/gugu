@@ -51,10 +51,12 @@ export type MessagePreviewPayload = {
   ended: TranscriptTurnOutcome | null;
   entries: MessagePreviewEntry[];
   at: number;
+  /** 宿主读不到这条会话(如 `record_not_found`):带上时间线服务的原错误码,其余字段是空投影。 */
+  error?: { code: string; message: string };
 };
 
 /** 投影本身(载荷减去 chat/agent/rev/epoch/at)。 */
-export type MessagePreviewProjection = Pick<MessagePreviewPayload, 'running' | 'now' | 'ended' | 'entries'>;
+export type MessagePreviewProjection = Pick<MessagePreviewPayload, 'running' | 'now' | 'ended' | 'entries' | 'error'>;
 
 export const MESSAGE_PREVIEW_MAX_ENTRIES = 6;
 /** 原话只留尾部 70 字(卡片一行约 23 个汉字,约 3 行)。 */

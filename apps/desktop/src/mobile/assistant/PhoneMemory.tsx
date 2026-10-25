@@ -82,16 +82,14 @@ function MemoryHome(props: PhonePageProps & { notes: NotesRead }) {
 }
 
 /** 「我对你的了解」:它记下的关于你的那几条(点一条看全文);一条没有时给「更快设置记忆」(只往聊天里填一句)。 */
-function AboutYou({ assistant, askInChat, go, notes }: PhonePageProps & { notes: MemoryEntry[] }) {
+function AboutYou({ askInChat, go, notes }: PhonePageProps & { notes: MemoryEntry[] }) {
   const { t } = useTranslation('assistant')
   const time = useTime()
-  const name = assistant.display_name
   const aboutYou = notes.filter((entry) => entry.kind === 'user')
   return (
     <AssistantSection title={t('library.longTerm')} testId="assistant-memory-about">
       {aboutYou.length === 0 ? (
         <div className="ta-phone-empty-body">
-          <p className="ta-page-sub">{t('memory.aboutEmpty', { name })}</p>
           <Button variant="ghost" className="ta-pill-btn" onClick={() => askInChat(t('memory.fasterPrompt'))} data-testid="assistant-memory-ask">
             <Sparkles />
             {t('memory.faster')}

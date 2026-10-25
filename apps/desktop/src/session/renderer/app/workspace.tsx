@@ -1,5 +1,6 @@
 import { LeftSidebar } from '@renderer/features/sidebar/left-sidebar';
 import { SessionKeyboardNavListener } from '@renderer/features/sidebar/session-keyboard-nav-listener';
+import { SESSION_NAV_FOCUS_REGION } from '@renderer/features/sidebar/session-keyboard-nav';
 import { CommandShortcutBinder } from '@renderer/lib/commands/command-shortcut-binder';
 import { AppKeyboardShortcuts } from '@renderer/lib/components/app-keyboard-shortcuts';
 import { BrowserAppShortcutEvents } from '@renderer/lib/components/browser-app-shortcut-events';
@@ -17,8 +18,8 @@ import { observer } from 'mobx-react-lite';
 import { memo, useEffect, useLayoutEffect, useMemo, useRef, useSyncExternalStore, type ReactNode } from 'react';
 import { PageShownContext, useRecentSessions, type SessionParams } from './recent-session-pages';
 import { ScreenBlockContext } from './screen-block-context';
-import { anchoredToBlock, BlockDropPreviewLayer, hasDraggedAppBlock, ScreenFrame, screenDropHandlers } from './screen-frame';
-import { hasDraggedSession } from '@renderer/lib/drag-session';
+import { anchoredToBlock, BlockDropPreviewLayer, ScreenFrame, screenDropHandlers } from './screen-frame';
+import { hasDraggedScreenContent } from '@renderer/lib/drag-screen-content';
 import { shieldNativeDrags } from '@renderer/lib/drag-shield';
 import { screenLayout } from './screen-layout';
 import { ensureScreenLayoutSync, focusScreenBlock, isScreenView, putBackFromWindow, setBlockDropPreview } from './screen-layout-actions';
@@ -57,6 +58,10 @@ export function Workspace() {
       {/* behavior session-page「键盘导航」: same visibility gate as the other document-level binders —
           a hidden task frame must not answer arrow keys aimed at the chat tab. */}
       {embedVisible && <SessionKeyboardNavListener />}
+      {/* The nav layer needs somewhere real to park focus: the sidebar list is virtualised, so the row the cursor sits on
+          may have no DOM node at all. Always mounted: inserted under the page root on each show, it re-matched the root's
+          :has() rules and restyled the whole page (~130 ms at 1000 chat rows). */}
+      <div data-region={SESSION_NAV_FOCUS_REGION} tabIndex={-1} aria-hidden="true" style={{ position: 'fixed', width: 0, height: 0, opacity: 0, outline: 'none' }} />
       <MonacoKeyboardBridge />
       <DefaultTaskAgentPublisher />
       <WorkspaceLayout
@@ -116,7 +121,7 @@ const ScreenArea = observer(function ScreenArea({
     () =>
       shieldNativeDrags(
         document,
-        (dataTransfer) => hasDraggedSession(dataTransfer) || hasDraggedAppBlock(dataTransfer),
+        hasDraggedScreenContent,
         () => setBlockDropPreview(null)
       ),
     []
@@ -189,7 +194,6 @@ const RetainedSessionPage = memo(function RetainedSessionPage({
   const place = useMemo(() => ({ blockId, focused, topLeft, topRight, multi }), [blockId, focused, topLeft, topRight, multi]);
   return (
     <div
-      inert={!shown}
       className="flex min-h-0 min-w-0 flex-col"
       ref={pageRef}
       style={blockId ? anchoredToBlock(blockId) : peekBox ? PEEKED_PAGE_STYLE : RETAINED_SURFACE_HIDDEN_STYLE}

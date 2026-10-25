@@ -98,7 +98,6 @@ function TopicMemberPicker({ invitation, participantIds, currentUserId, onInvite
         <h2 style={TITLE_STYLE}>{t('group.topicInvite.title')}</h2>
         <IconButton size="sm" aria-label={t('common.close')} onClick={close} disabled={busy}><X /></IconButton>
       </div>
-      <p style={HINT_STYLE}>{t('group.topicInvite.hint')}</p>
       <div style={SEARCH_STYLE}>
         <SearchField value={query} onChange={(event) => setQuery(event.target.value)} placeholder={t('group.topicInvite.search')} disabled={busy} autoFocus />
       </div>

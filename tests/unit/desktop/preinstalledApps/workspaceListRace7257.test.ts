@@ -27,6 +27,7 @@ const answer = (list: (typeof lists)[number], entries: Entry[]) => {
 }
 
 const gugu = {
+  linkTo: vi.fn(async ({ file }: { file: { id: string } }) => `gugu-file://${file.id}`),
   setTabTitle: vi.fn(async () => {}),
   getContext: vi.fn(async () => ctxOf('chat-1')),
   onContextChanged: vi.fn((fn: typeof contextChanged) => {

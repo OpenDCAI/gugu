@@ -1,4 +1,5 @@
 import './browser-user-agent-bootstrap'
+import { registerFileViewerMenus } from './file-viewer-context-menu'
 import { configuredEndpoint } from '@gugu/core/cloud/attachmentsApi'
 import { uploadSessionFiles } from '@gugu/core/local/agent/sessionFileHandoff'
 import { resourceMonitorWindow } from './resource-monitor-window'
@@ -52,7 +53,8 @@ import { autoApproveFromPermissionMode } from '@gugu/session-core/acp'
 import { classifyFatal, recordFatalSync } from './lib/fatal-triage'
 import { pathToFileURL } from 'node:url'
 import { appendFileSync, existsSync, mkdirSync, readFileSync, renameSync, writeFileSync } from 'fs'
-import { homedir, hostname, platform } from 'os'
+import { constants as osConstants, homedir, hostname, platform, setPriority } from 'os'
+import { spawn } from 'child_process'
 import { dirname, join, resolve, sep } from 'path'
 import { autoUpdater } from 'electron-updater'
 import windowStateStore from 'electron-window-state'
@@ -103,7 +105,9 @@ import {
 } from '../shared/update-policy'
 import { createBuiltRendererRootResolver } from './rendererRoot'
 import { ensureWindowsNpmGlobalBinInPath, hydrateLoginShellPath, loginShellEnvSnapshot } from './shellPath'
-import { makeChatClient, makeIdentityClient, supabase, electronFetch, bindElectronSupabaseAuth, refreshElectronSupabaseAuth } from './supabase'
+import { makeChatClient, makeIdentityClient, supabase, electronFetch, bindElectronSupabaseAuth, refreshElectronSupabaseAuth, resumeElectronSupabaseRealtime } from './supabase'
+import { createAccountResumeHandler, installNativeResumeSource, installNativeSleepActivity, watchHostResumeGap } from './server/account-resume-wiring'
+import { applyOwnerTimeZoneContext, ownerTimeZoneFromEnvironment } from './server/owner-timezone'
 import { runDueScheduledTasksForOwner } from './scheduled-tasks-runner'
 import { handOffLegacyWechat } from './wechat/handoff'
 import { LegacyWechatStore } from './wechat/store'
@@ -277,6 +281,7 @@ import {
   heldPlatformModelForSession,
   expiredPlatformModelSessions,
   platformCredentialGenerationForSession,
+  platformRequestsUseCredentialProxy,
   reissueExpiredPlatformModelForSession,
   sweepStalePlatformSettingsFiles,
   releasePlatformModelsAtExit,
@@ -444,6 +449,7 @@ import { openCloudDeviceRpcPipe, openSshDeviceRpcPipe, type SharedSshLinks } fro
 import { createDeviceRpcRequester } from '@gugu/core/cloud/deviceRpcRequester'
 import type { DeviceRpcHandlers } from '@gugu/core/cloud/deviceRpcResponder'
 import { CrossMachineError, createCrossMachineSessions, type CrossMachineSessions } from './cross-machine-sessions'
+import { createActivitySummaryQuery } from './activity-summary-query'
 import type { RemoteSessionCaller } from '@gugu/session-core/session-record/contract'
 import { computerName, ensureGuguKey, guguKeyComment, guguKeyDir } from './server/ssh-key-install'
 import {
@@ -625,6 +631,9 @@ enableOverlayScrollbars(app.commandLine)
 installDevtoolsLock((url) => {
   // 走到这里说明前面几层漏了 —— 这是要查的 bug,不是正常态,所以留证不静默。
   devtoolsLockLogger.error({ url }, 'DevTools 在锁定态下被打开,已强制关闭')
+})
+registerFileViewerMenus(app, () => currentHostCatalog().fileViewerMenu, (error) => {
+  processGoneLogger.error({ error: String(error) }, 'File context menu failed')
 })
 // @@@gugu-tier - inlined at build time by vite (define in vite.config.mts), default 'production'.
 declare const __GUGU_TIER__: string
@@ -2816,12 +2825,30 @@ const updateQuit = createUpdateQuit({
   markQuitIntent: () => {
     isQuitting = true
   },
-  handOff: () => autoUpdater.quitAndInstall(),
+  // @@@win-silent-update - NSIS: /S skips the assisted wizard, --force-run relaunches after it; when this version was
+  // staged (@@@staged-update) the same invocation only swaps directories instead of installing.
+  // macOS ignores both arguments; AppImage reads only isForceRunAfter (already true via autoRunAppAfterInstall).
+  handOff: () => autoUpdater.quitAndInstall(true, true),
   quitApp: () => app.quit(),
   logInfo: (detail, message) => updaterLogger.info(detail, message),
   logWarn: (detail, message) => updaterLogger.warn(detail, message),
   logError: (detail, message) => updaterLogger.error(detail, message),
 })
+
+// @@@staged-update - Windows: the verified installer extracts the new version next to the install dir (`--stage`,
+// below normal priority) while this app keeps running; the restart then only swaps directories
+// (build-resources/nsis/staged-update.nsh). A failed stage just leaves the restart on the regular silent install.
+function stageWindowsUpdate(installer: string): Promise<void> {
+  return new Promise((resolve) => {
+    const started = Date.now()
+    const child = spawn(installer, ['--stage', '/S'], { windowsHide: true, stdio: 'ignore' })
+    if (child.pid) {
+      try { setPriority(child.pid, osConstants.priority.PRIORITY_BELOW_NORMAL) } catch { /* best effort */ }
+    }
+    child.once('error', (error) => { updaterLogger.warn({ error: String(error) }, '[updater] staging could not start'); resolve() })
+    child.once('exit', (code) => { updaterLogger.info({ code, ms: Date.now() - started }, '[updater] staged next version'); resolve() })
+  })
+}
 
 // 发现 → 静默下载 → 下好 → 按下安装的接线在 ./update-flow(检查失败与下载失败的分界写在那个文件头)。
 const updateFlow = createUpdateFlow({
@@ -2849,6 +2876,7 @@ const updateFlow = createUpdateFlow({
     start: startMacDmgDownload,
   },
   updateQuit,
+  prepareInstall: (file) => (process.platform === 'win32' && file ? stageWindowsUpdate(file) : Promise.resolve()),
   logInfo: (message, detail) => updaterLogger.info(detail ?? {}, message),
   logWarn: (message, detail) => updaterLogger.warn(detail ?? {}, message),
 })
@@ -3176,13 +3204,13 @@ let sessionpageLocalSessionSource: HostLocalSessionSource | null = null
 async function localSessionPeers(
   emdash: EmdashBridgeModule,
   auth: RuntimeAuth,
+  sessionId?: string,
 ): Promise<LocalSessionPeer[]> {
   return resolveSessionpageSessionPeers({
     listRoster: () => listAgents(process.env, { includeGuests: true }),
     ownerUserId: auth.userId,
-    lookupIdentities: async (agentUserIds) => {
-      return loadSessionpageCanonicalAgentIdentities(auth, agentUserIds)
-    },
+    sessionId,
+    lookupIdentities: (agentUserIds) => loadSessionpageCanonicalAgentIdentities(auth, agentUserIds, Boolean(sessionId)),
     listSessionFacts: () => emdash.emdashSessionpageSessionFacts(),
   })
 }
@@ -3458,6 +3486,22 @@ function kickInboxForAgent(agentUserId: string, trigger: string): void {
   })
 }
 
+const inheritedOwnerTimeZone = ownerTimeZoneFromEnvironment()
+if (inheritedOwnerTimeZone) applyOwnerTimeZoneContext(inheritedOwnerTimeZone)
+
+const resumeAccountMessaging = createAccountResumeHandler({
+  kickInbox: kickInboxForAgent,
+  reconnect: resumeElectronSupabaseRealtime,
+  reconcile: async () => { await reconcileSessionpagePlatformOnResume?.() },
+  notifyCommands: () => deviceRuntimeHost?.notifyCommandsChanged(),
+})
+
+function recordDeviceSleep(sleep: { since: number; until: number; source: 'native-power' | 'fc-confirmed' }): void {
+  try { loadEmdashBridge()?.recordConfirmedDeviceSleep(sleep) } catch (error) {
+    createLogger('host-resume').error({ error }, 'confirmed sleep could not be recorded')
+  }
+}
+
 /**
  * spec delivery-routing「session-live 的产地」(#4896):一条会话转为**可投递就绪**时宿主只做这两件事 ——
  * 读者拉一次(云端账本)+ 排一次该会话的本机 outbox(本机账本)。两份账本、同一个就绪时刻;各腿在各自的
@@ -3588,12 +3632,12 @@ ipcMain.handle(SESSION_SHELL_CHANNELS.fatalBoot, (event, message: unknown) => {
 
 // This machine's rows of the canonical roster (same resolver as session_peers). The renderer adds the
 // other machines' rows from the session directory and never invents a mapping.
-handleShellChannel(SESSION_SHELL_CHANNELS.sessionPeers, async () => {
+handleShellChannel(SESSION_SHELL_CHANNELS.sessionPeers, async (_event, sessionId?: string) => {
   const auth = await authProvider?.getAuth()
   if (!auth?.accessToken || !auth.userId) throw new Error('任务页本机会话名册不可用：未登录')
   const emdash = loadEmdashBridge()
   if (!emdash) throw new Error('任务页运行时不可用')
-  return localSessionPeers(emdash, auth)
+  return localSessionPeers(emdash, auth, sessionId)
 })
 
 // @@@sessionpage TASKPAGE-FUSION 分享 — 会话页头部的分享入口需要两件事,都在这:
@@ -4130,18 +4174,8 @@ app.whenReady().then(async () => {
   if (hasPersistedMcpGrants('extension-gateway')) {
     void getExtensionGatewayHost().start().catch((err: unknown) => createLogger('stable-endpoint').warn({ err }, '扩展网关没能提前绑回端口'))
   }
-  powerMonitor.on('resume', () => {
-    notifyRendererForeground()
-    // #5906 —— 睡着的时候 wake 是聋的,定时器也只数醒着的时间 ⇒ 醒来当场取一次,不等对账节拍也不等 realtime 重连。
-    deviceRuntimeHost?.notifyCommandsChanged()
-    const reconcile = reconcileSessionpagePlatformOnResume
-    createLogger('sessionpage/platform').info({ hasReconcile: Boolean(reconcile) }, '平台凭据恢复事件收到')
-    if (reconcile) {
-      void reconcile().catch((error) => {
-        createLogger('sessionpage/platform').error({ err: error }, '平台凭据恢复对账失败')
-      })
-    }
-  })
+  installNativeSleepActivity(powerMonitor, recordDeviceSleep)
+  installNativeResumeSource(powerMonitor, notifyRendererForeground, resumeAccountMessaging)
   // @@@test-seam host-resume(GUGU_TEST_HOST_RESUME=1 才注册)—— 上面这条与 mainWindow 的 'focus'
   // 都要求一个能切焦点的 GUI 会话,锁屏的无人测试机上两条都按不动。这个信号跑的是**同一个**
   // reconcileSessionpagePlatformOnResume,不另立语义;env 没开时不注册,生产行为逐字不变。
@@ -4462,6 +4496,7 @@ app.whenReady().then(async () => {
         remote: crossMachine().messageDeps(() => remoteCaller(auth, context), signal),
       })
     }
+    const listActivity = createActivitySummaryQuery()
     localSessionActionDispatcher = async (auth, context, action, signal) => {
       signal.throwIfAborted()
       if (!action || typeof action !== 'object') {
@@ -4476,6 +4511,15 @@ app.whenReady().then(async () => {
         })
         : result
       if (record.action === 'devices') return crossMachine().listDeviceRows()
+      if (record.action === 'activity_list') {
+        const caller = await remoteCaller(auth, context)
+        return listActivity(record, { scope: `${auth.userId}:${context.sessionId}`,
+          devices: () => crossMachine().activityDevices(),
+          query: (device, query, stepSignal) => device.this_machine
+            ? emdash.runSessionAction(context, { action: 'activity_list', ...query }, stepSignal)
+            : crossMachine().runOnDevice(device.device_id, caller, { action: 'activity_list', ...query }, stepSignal),
+        }, signal)
+      }
       // gugu-dev#181 ⑨ 问自群里的那一句,问题卡也进那个群(question-card.ts)。
       if (record.action === 'ask_user') {
         const asked = await emdash.runSessionAction(context, record as SessionAction, signal)
@@ -4720,6 +4764,7 @@ app.whenReady().then(async () => {
       isExpired: (sessionId) => expiredPlatformModelSessions().includes(sessionId),
       resolveTarget: (sessionId) => sessionpagePlatformRecoveryHooks?.targetForSession(sessionId) ?? null,
       currentGeneration: platformCredentialGenerationForSession,
+      requestCredentialsManaged: (target) => platformRequestsUseCredentialProxy(target.sessionId),
       credentialLifecycleFor: (target) => resolveSessionpageCredentialLifecycle(target.providerId, target.surface),
       refresh: async (target) => {
         if (!await reissueExpiredPlatformModelForSession(target.sessionId)) {
@@ -5807,10 +5852,16 @@ app.whenReady().then(async () => {
             // #7199 心跳随行报「隧道最近一次有流量」(会话页宿主的心跳不算):云电脑的管家据此判闲置。
             onActivity: () => noteTunnelActivity(),
           })
-          await emdash.startSessionPtyAttachServer(app.getPath('userData'), { link }).then(
+          await emdash.startSessionPtyAttachServer(app.getPath('userData'), { link,
+            timeZone: context => applyOwnerTimeZoneContext(context), resume: since => {
+            if (since !== undefined) recordDeviceSleep({ since, until: Date.now(), source: 'fc-confirmed' })
+            resumeAccountMessaging('controller')
+          } }).then(
             (server) => createLogger('server').info({ socket: server.socketPath }, '账号进程套接字已开(设备连接 link 与 open-url 走它)'),
             (err: unknown) => createLogger('server').error({ err }, '账号进程套接字开不出来 —— 设备连接(link)与 open-url 不可用'),
           )
+          const stopResumeGapWatch = watchHostResumeGap(resumeAccountMessaging)
+          app.once('will-quit', stopResumeGapWatch)
           // 远程隧道:别的电脑经中转连到这里的终端 / 浏览器 / 端口(不挡启动,失败原因留给 tunnel.open 答)。
           void startServerTunnelEndpoint()
         }

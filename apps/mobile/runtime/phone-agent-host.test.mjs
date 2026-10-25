@@ -277,6 +277,43 @@ test('notification cancellation matches the active job exactly and preserves the
   } finally { releaseIssue(); releaseTurn(); await fx.close() }
 })
 
+test('remote session_stop waits for Pi to end and returns its final state with queued follow-ups cancelled', async () => {
+  let releaseTurn
+  const turnGate = new Promise(resolve => { releaseTurn = resolve })
+  let entered = false
+  let cancelled = false
+  const fx = await fixture(async () => {
+    entered = true
+    await turnGate
+    return { status: 'cancelled', text: '' }
+  }, { cancelTurn: () => { cancelled = true; return true } })
+  let stopping
+  try {
+    const created = await fx.host.invoke('sessionTimeline.sessionCreate', [{ harness: 'pi', prompt: '产生一份文件' }], randomUUID())
+    await until(() => entered, fx.events)
+    const sessionId = fx.host.state().sessions[0].sessionId
+    await fx.host.invoke('sessionTimeline.sessionSend', [{ conversationId: created.conversationId, text: '追加要求', clientRequestId: randomUUID() }], randomUUID())
+    let returned = false
+    stopping = fx.host.invoke('agentSession.stop', [{ sessionId: randomUUID(), deviceId: 'cloud-device' }, { action: 'stop', session_id: sessionId }])
+      .then(result => { returned = true; return result })
+    await until(() => cancelled && fx.host.state().execution?.phase === 'stopping', fx.events)
+    assert.equal(returned, false)
+    releaseTurn()
+    const result = await stopping
+    assert.equal(result.session_id, sessionId)
+    assert.equal(result.status, 'idle')
+    assert.equal(result.detail, 'plain')
+    assert.equal(result.cancelled, true)
+    assert.equal(result.settled, true)
+    assert.equal(fx.host.state().execution, null)
+    const journal = JSON.parse(await readFile(join(fx.root, 'hosts', ownerId, 'host.json'), 'utf8'))
+    assert.equal(Object.values(journal.jobs).length, 2)
+    assert.ok(Object.values(journal.jobs).every(job => job.status === 'cancelled'))
+    assert.deepEqual(fx.messages, [])
+    assert.deepEqual(journal.artifacts ?? {}, {})
+  } finally { releaseTurn(); await stopping?.catch(() => undefined); await fx.close() }
+})
+
 test('the native task page approves a fixed phone operation once while a forged remote UI source is refused', async () => {
   let turns = 0
   const writes = []

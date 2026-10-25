@@ -47,6 +47,8 @@ export type CancelFailedError = BaseError<'cancel_failed', SerializedError>;
 
 /** Closing an ACP session or releasing its process failed. */
 export type StopFailedError = BaseError<'stop_failed', SerializedError>;
+/** Termination was requested but the bound process has not exited. */
+export type StopPendingError = BaseError<'stop_pending'>;
 
 /** 停某个后台任务(#5117)的请求没送到/被适配器拒了 —— 与 stop_failed(停整个会话)是两件事。 */
 export type StopTaskFailedError = BaseError<'stop_task_failed', SerializedError>;
@@ -84,7 +86,7 @@ export type AcpStartSessionError =
   | SetConfigFailedError
   | InvalidStateError;
 export type AcpResumeSessionError = AcpStartSessionError;
-export type AcpStopSessionError = StopFailedError;
+export type AcpStopSessionError = StopFailedError | StopPendingError;
 export type AcpSendPromptError =
   | SessionNotFoundError
   | InvalidStateError
@@ -141,6 +143,7 @@ export const acpErr = {
   cancelFailed: (cause: SerializedError) => fail('cancel_failed', { cause }),
 
   stopFailed: (cause: SerializedError) => fail('stop_failed', { cause }),
+  stopPending: () => fail('stop_pending'),
 
   stopTaskFailed: (cause: SerializedError) => fail('stop_task_failed', { cause }),
 

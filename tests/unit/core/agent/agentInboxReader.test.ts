@@ -612,6 +612,8 @@ describe('P-E4 离线追赶:未读行逐条受理,由队列 drain 合批', () =>
     expect(asked).toEqual([{ kind: 'item', itemId: 'item-2', version: 4 }, { kind: 'message', messageId: '10000000-0000-4000-8000-00000000000c' }])
     expect(injections.map((entry) => entry.attachments?.length ?? 0)).toEqual([1, 0, 1])
     expect(injections[1]!.text).toContain('[附件] two.png (image/png)')
+    expect(injections[0]!.text).toContain('[Folder file gugu-file://item-2?v=4')
+    expect(injections[2]!.text, '悄悄话附件不在文件夹里').not.toContain('[Folder file')
   })
 
   // 新式附件的文件(不是图,比如 App 包):正文里没有链接,字节和图片一样下到本机、正文后面交本地路径;
@@ -638,6 +640,9 @@ describe('P-E4 离线追赶:未读行逐条受理,由队列 drain 合批', () =>
     expect(text).toContain('[附件] poll-0.1.0.guguext (application/vnd.gugu.extension+zip)')
     expect(text).toContain('[File saved at local path: /tmp/gugu-home/chat-media/abc-poll-0.1.0.guguext]')
     expect(text.match(/\[File saved at local path:/g)).toHaveLength(1)
+    // 它是群文件夹里的哪个文件、哪一版,怎么再发、怎么把改过的发成下一版:只在指着条目的那一条上。
+    expect(text).toContain('[Folder file gugu-file://item-7?v=1 — show it again: message_send_file {file: "gugu-file://item-7?v=1"}')
+    expect(text.match(/\[Folder file /g)).toHaveLength(1)
     expect(text).toContain('[URL] https://example.test/a.pdf')
     expect(injections.every((entry) => !entry.attachments)).toBe(true)
   })

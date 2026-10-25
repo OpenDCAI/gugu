@@ -21,6 +21,28 @@ beforeEach(async () => {
 afterEach(() => { fixture?.close(); });
 
 describe('activity journal: real SQLite, no transcript storage or reader', () => {
+  it('reads overlapping device sleep independently of event pages and session filters', () => {
+    const start = now; now += 120_000; journal.heartbeat();
+    journal.append({ event_id: 'sleep', kind: 'device.sleep', occurred_at: start + 10_000,
+      sleep_until_at: start + 110_000, sleep_source: 'native-power', observed_at: now });
+    const result = journal.list({ since: new Date(start + 20_000).toISOString(),
+      until: new Date(start + 100_000).toISOString(), session_id: 'unrelated' });
+    expect(result.events).toEqual([]);
+    expect(result.coverage.sleep_intervals).toEqual([{ since: start + 10_000, until: start + 110_000, source: 'native-power' }]);
+    expect(result.coverage.segments.every(segment => (segment.ended_at ?? segment.last_seen_at) <= start + 10_000
+      || segment.started_at >= start + 110_000)).toBe(true);
+  });
+  it('reads current session titles separately from immutable events, without retaining deleted titles', () => {
+    fixture.sqlite.exec(`INSERT INTO projects (id, name, path, created_at, updated_at) VALUES ('p1', 'P1', '/p1', 0, 0);
+      INSERT INTO sessions (id, project_id, title) VALUES ('s1', 'p1', 'Old title');`);
+    journal.append(event('created'));
+    fixture.sqlite.exec(`UPDATE sessions SET title = '新名称' WHERE id = 's1'`);
+    const current = journal.list({ since, until });
+    expect(current.session_titles).toEqual({ s1: '新名称' });
+    expect(current.events[0]).not.toHaveProperty('title');
+    fixture.sqlite.exec('DELETE FROM sessions');
+    expect(journal.list({ since, until }).session_titles).toEqual({});
+  });
   it('deduplicates receipts across restarts and preserves nullable source time', () => {
     journal.append(event('receipt', { occurred_at: null }));
     journal.append(event('receipt'));

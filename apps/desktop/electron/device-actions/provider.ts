@@ -209,7 +209,6 @@ export function createDeviceActionsProvider(input: {
     })
     return {
       v: DEVICE_ACTION_PROTOCOL_VERSION,
-      updated_at: deps.now().toISOString(),
       timezone: Intl.DateTimeFormat().resolvedOptions().timeZone,
       actions: entries,
       ...(off.length > 0 ? { switched_off: off } : {}),

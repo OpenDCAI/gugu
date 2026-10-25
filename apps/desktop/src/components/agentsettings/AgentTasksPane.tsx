@@ -122,10 +122,6 @@ export function AgentTasksPane({ agent }: AgentSettingsPaneProps) {
         </button>
       </div>
 
-      <div className={asClass.secretsArd}>
-        {t('settings.tasks.description')}
-      </div>
-
       {showForm && (
         <div
           style={{
@@ -186,7 +182,6 @@ export function AgentTasksPane({ agent }: AgentSettingsPaneProps) {
             </svg>
           </div>
           <div>{t('settings.tasks.empty')}</div>
-          <div className={asClass.tasksSub}>{t('settings.tasks.emptyHint')}</div>
         </div>
       ) : (
         <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>

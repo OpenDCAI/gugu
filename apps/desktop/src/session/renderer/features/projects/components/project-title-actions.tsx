@@ -13,11 +13,6 @@ import { isImplicitSessionHomeProject } from '@renderer/features/sessions/sessio
  * 为什么要有这个组件:在它之前,「在哪里打开项目」**只**长在项目设置页那条独有的 40px 横条上,
  * 而主页/会话页用的是零高度浮层——同一个项目里两套顶栏实现,owner 的原话是「一步一景」。
  *
- * ⚠️ 这里曾经还有一枚**项目设置齿轮**(先只在项目页、后来一度也发到会话页)。2026-09-10 owner
- * 拍板下线:「目前已有的项目设置基本不是我们想要的,所以就先不展示了项目设置。但任务设置可以有」
- * —— 他区分的是**项目设置**与**会话页设置**,后者(侧栏 ⌘, 那个多标签设置页)照旧。表单与读写
- * 代码原样留在 settings-view/ 下等重做,只是没有任何入口通向它。
- * ⇒ 本组件现在只剩「在哪里打开项目」一件事。
  */
 export const ProjectTitleActions = observer(function ProjectTitleActions({
   projectId,

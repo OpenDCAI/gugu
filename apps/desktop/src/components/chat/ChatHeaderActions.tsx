@@ -6,6 +6,7 @@ import { useChatFolderName } from './chatFolderName'
 import { Folder, LayoutGrid, MoreHorizontal, Search, Users } from '@/lib/icons'
 import { AUTOMATION_TEST_IDS } from '../../lib/automationDom'
 import { IconButton } from '../ui/IconButton'
+import { Popover } from '../ui/Popover'
 import { DropdownMenu, MenuItem } from '../ui/Menu'
 import { OpenAppMenuItems } from './OpenAppMenuItems'
 import { openApp } from '../appSlot/useOpenApp'
@@ -87,12 +88,12 @@ export const ChatHeaderActions = observer(function ChatHeaderActions({
   if (picker.chatId !== activeChatId) setPicker({ chatId: activeChatId, open: false })
   const openApps = () => { onCloseHeaderMenu(); setPicker({ chatId: activeChatId, open: true }) }
   return (
-    <>
+    <Popover.Root open={picker.open} modal={false} onOpenChange={(open) => setPicker({ chatId: activeChatId, open })}>
       {groupId && !compactRoom && <>
         <span ref={pinsRef} className="flex items-center gap-[2px]">
           {pinnedApps.slice(0, capacity).map((app) => <IconButton key={app.extensionId} data-testid={AUTOMATION_TEST_IDS.chatHeaderPinnedApp} data-app-id={app.extensionId} aria-label={app.name} title={app.name} onClick={() => openApp(app.extensionId, groupId)}><RailAppIcon app={app} className="gg-sidebar-launch-icon" /></IconButton>)}
         </span>
-        <IconButton ref={appsButton} data-testid={AUTOMATION_TEST_IDS.chatHeaderAppsButton} aria-label={t('header.groupApps')} title={t('header.groupApps')} aria-haspopup="dialog" aria-expanded={picker.open} on={picker.open || undefined} onClick={openApps}><LayoutGrid /></IconButton>
+        <Popover.Trigger ref={appsButton} data-testid={AUTOMATION_TEST_IDS.chatHeaderAppsButton} onClick={onCloseHeaderMenu} render={<IconButton aria-label={t('header.groupApps')} title={t('header.groupApps')} on={picker.open || undefined}><LayoutGrid /></IconButton>} />
       </>}
       {/* @@@1161 会话头右上 action icon 行(aria-label key 在 chatHeader 命名空间):
             searchMessages(在对话中搜索) · widgetList(工作区) · memberList(成员列表) · moreActions(更多操作)。
@@ -206,6 +207,6 @@ export const ChatHeaderActions = observer(function ChatHeaderActions({
         )}
       </DropdownMenu.Root>
       {groupId && picker.open && <GroupAppsPicker chatId={groupId} pins={pins} mobile={mobile} anchor={compactRoom ? moreButtonRef : appsButton} onClose={() => setPicker({ chatId: activeChatId, open: false })} />}
-    </>
+    </Popover.Root>
   )
 })

@@ -329,13 +329,11 @@ export function AgentLookEditor({
                     )
                   })}
                 </div>
-                <p className="gg-look-hint">{t('settings.look.colorHint')}</p>
               </>
             ) : tab === 'face' ? (
               <>
                 <FaceGroup
                   title={t('settings.look.facesDaily')}
-                  hint={t('settings.look.facesDailyHint')}
                   faces={REST_FACES}
                   draft={draft}
                   worn={wornOf(draft)}
@@ -347,7 +345,6 @@ export function AgentLookEditor({
                 />
                 <FaceGroup
                   title={t('settings.look.facesBold')}
-                  hint={t('settings.look.facesBoldHint')}
                   faces={BOLD_REST_FACES}
                   draft={draft}
                   worn={wornOf(draft)}
@@ -401,7 +398,6 @@ export function AgentLookEditor({
 
 function FaceGroup({
   title,
-  hint,
   faces,
   draft,
   worn,
@@ -412,7 +408,6 @@ function FaceGroup({
   onPick,
 }: {
   title: string
-  hint: string
   faces: readonly ExpressionId[]
   draft: AgentLook
   /** 舞台上那只此刻穿的那一身:样片穿同一身,只换脸 */
@@ -428,7 +423,6 @@ function FaceGroup({
     <div className="gg-look-face-group">
       <div className="gg-look-group-head">
         <span className="gg-look-group-title">{title}</span>
-        <span className="gg-look-group-hint">{hint}</span>
       </div>
       <div
         className="gg-look-faces"

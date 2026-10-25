@@ -33,7 +33,6 @@ export default {
   },
   "intro": {
     "title": "Meet Gugu",
-    "sub": "Your personal assistant, workspace and shared conversations.",
     "guguTitle": "Gugu",
     "guguBody": "Your personal super assistant, keeping track of plans and handling everyday work.",
     "projectsTitle": "Projects",
@@ -286,7 +285,6 @@ export default {
       "title": "Day in progress",
       "source": "Source",
       "sourcesTitle": "Sources",
-      "sourcesBody": "{{name}} pulls together what needs your attention today from the services you connect and your conversations.",
       "kind": {
         "calendar": {
           "title": "Calendar",
@@ -307,7 +305,6 @@ export default {
       "manage": "Manage connectors",
       "manageElsewhere": "Choose which services to connect in {{name}}'s Connected apps on your computer.",
       "emptyTitle": "Today's plan isn't in yet",
-      "empty": "{{name}} will lay out what needs your attention today from your calendar, connected services and chats.",
       "stale": "The last plan was for {{date}}. Today's isn't in yet.",
       "plan": "Ask {{name}} to plan today",
       "planPrompt": "Plan my day: check my calendars (this computer and my phone), my connected apps and what we've talked about, and put it in Today's Day in progress.",
@@ -344,7 +341,6 @@ export default {
       "close": "Close",
       "placeholder": "Describe what you want to follow...",
       "startingPoint": "A starting point, not a fixed template",
-      "hint": "{{name}} will ask a few questions first (what to watch, how often, ready by when), then put it on Activity.",
       "request": "I'd like a widget on Activity that keeps an eye on: {{want}}\nAsk me up to three questions first (what to watch, how often to update, when it should be ready), then add it to Activity and keep it updated on schedule.",
       "group": {
         "day": "Daily rhythm",
@@ -421,7 +417,6 @@ export default {
     "unseen": "Has unseen results",
     "emptyTitle": "No tasks yet",
     "loadFailed": "Couldn't load tasks",
-    "empty": "Tasks {{name}} starts while working for you show up here.",
     "notRead": "{{name}}'s tasks can only be read while it's awake."
   },
   "routines": {
@@ -476,14 +471,12 @@ export default {
     "loadFailed": "Couldn't load memories. Try again shortly.",
     "aboutUserTitle": "What I know about {{owner}}",
     "updated": "Updated {{time}}",
-    "aboutEmpty": "The more {{name}} knows about you, the more it can help.",
     "faster": "Set up memory faster",
     "fasterPrompt": "Please help me set up memory faster.",
     "all": "All",
     "voiceNotes": "Voice notes",
     "voiceNotesCount": "Meetings and voice",
     "voiceNotesEmptyTitle": "No voice notes yet",
-    "voiceNotesEmpty": "Meetings and voice recordings land here once {{name}} has sorted them.",
     "voiceLoadFailed": "Couldn't load voice notes",
     "items": "{{n}} items",
     "createdBy": "Noted by {{name}}",
@@ -681,7 +674,6 @@ export default {
   "diary": {
     "title": "Diary",
     "emptyTitle": "No diary yet",
-    "empty": "{{name}} writes a diary entry in its own voice every night; it shows up here.",
     "ask": "Ask {{name}} how today went",
     "prompt": "How did today go? Write me today's diary entry in your own voice.",
     "loading": "Reading the diary…",
@@ -839,7 +831,6 @@ export default {
     "model": "Model",
     "modelNote": "Choose a model and whose quota it uses: your account or Gugu credits.",
 
-    "intro": "Who {{name}} is, what it can use and how it is doing, all in one place.",
     "whoNote": "Your personal assistant",
     "look": "Look and character",
     "name": "Name",
@@ -909,7 +900,6 @@ export default {
     "unreadable": "Can't read ideas right now. Try again shortly.",
     "invalid": "The \"{{problem}}\" field in {{name}}'s ideas isn't right, so they can't be shown.",
     "empty": "No ideas are available right now.",
-    "emptyBody": "{{name}} will come up with a few things it can do for you right now, based on what it knows about you.",
     "ask": "Ask {{name}} for some",
     "askPrompt": "Based on what you know about me, come up with a few things you could do for me right now and put them in Ideas.",
     "more": "Ask {{name}} for new ones",

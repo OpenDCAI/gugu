@@ -1,4 +1,5 @@
 import type { ReactNode } from 'react'
+import type { MessageItem } from '@gugu/core/shared/types/chat'
 import type { GroupRosterCandidate } from '@/lib/mention'
 import type { ComposerAttachAction } from './ComposerAttachButton'
 import type { AgentStatusById } from './agentMentionStatusModels'
@@ -17,6 +18,8 @@ export interface ChatMessageComposerProps {
   chatId?: string | null
   isGroupChat?: boolean
   groupMembers?: GroupRosterCandidate[]
+  messages?: readonly MessageItem[]
+  participantIds?: readonly string[]
   currentUserId?: string | null; agentStatuses?: AgentStatusById
   disabled?: boolean
   disabledReason?: string

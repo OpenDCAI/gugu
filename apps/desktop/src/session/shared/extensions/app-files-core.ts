@@ -1,7 +1,7 @@
 import { readDocumentText, ChatFolderReadError } from './chat-folder-text';
 import { AttachmentsError, configuredEndpoint, fetchAttachmentUrls, placeAttachment, uploadAttachmentBytes } from '@gugu/core/cloud/attachmentsApi';
 import { createGuguSupabaseClient } from '@gugu/core/cloud/supabase';
-import { createAttachmentResolver } from '@gugu/core/shared/attachmentUrls';
+import { createAttachmentResolver, type AttachmentResolver } from '@gugu/core/shared/attachmentUrls';
 import { fetchInChunks } from '@gugu/core/shared/inChunks';
 import { mimeTypeFromName } from '@gugu/core/shared/imageMime.mjs';
 import { workspaceUploadKind } from '@gugu/core/shared/workspaceUpload.mjs';
@@ -102,6 +102,12 @@ export interface FilesPlatform {
   faces(people: readonly { id: string; avatar: string | null }[]): Promise<Record<string, string>>;
   /** The file service over HTTP (`<supabase>/files`, or the local stack's): a document's text is read from it, as it is now. */
   filesUrl(): string;
+  /**
+   * How a stored file's bytes are fetched from their signed link: the desktop's main passes Chromium's (`net.fetch`), whose
+   * disk cache keeps them — the file CDN answers `immutable`, and a reused link is the same URL (10-25: a 16 MB deck
+   * opened again, ~0.2 s less). The phone's page already fetches through its browser.
+   */
+  fetchBytes?: (url: string) => Promise<Response>;
   /** The host's log, for what went wrong without failing the call (bytes a refused replacement left in the bucket). */
   warn(message: string, data?: Record<string, unknown>): void;
 }
@@ -129,6 +135,8 @@ interface ItemRow {
   created_at: string | null;
   updated_at: string | null;
   created_by: string | null;
+  /** Read/replacement responses include the editor; a creation has no prior edit. */
+  updated_by?: string | null;
   source_message_ids: string[] | null;
   pointer: string | null;
   version: number;
@@ -207,22 +215,40 @@ function storageClient(token: string) {
 }
 
 /**
+ * Who reads (the person, or the agent an App's program acts as) → the resolver that signs for them, kept as the chat's is
+ * (`attachmentBytes.ts`): a link it signed holds for its life, so the same version opened again is not signed again
+ * (10-25: signing was 0.6–0.7 s of every open of a group file). Each call hands it the account's token as it is now.
+ */
+const resolvers = new Map<string, { token: string; resolver: AttachmentResolver }>();
+
+function resolverFor(account: { token: string; userId: string }, as: string | null | undefined): AttachmentResolver {
+  const key = `${account.userId}\u0000${as ?? ''}`;
+  const kept = resolvers.get(key);
+  if (kept) {
+    kept.token = account.token;
+    return kept.resolver;
+  }
+  const made: { token: string; resolver: AttachmentResolver } = { token: account.token, resolver: createAttachmentResolver((refs) => fetchAttachmentUrls(configuredEndpoint(made.token), refs, as)) };
+  resolvers.set(key, made);
+  return made.resolver;
+}
+
+/**
  * A short-lived signed URL for a stored file's bytes — one way for every file (#7290 收尾): attachments/urls signs that
  * item and version, as the one asking (`as`: an App's program acting as its agent) — the same path the chat reads; a file
  * from before the switch is signed there too (its bytes are the blob its pointer was registered as).
  */
-async function signedUrlOf(token: string, row: ItemRow, how: { version?: number; as?: string | null } = {}): Promise<string> {
+async function signedUrlOf(account: { token: string; userId: string }, row: ItemRow, how: { version?: number; as?: string | null } = {}): Promise<string> {
   if (row.kind !== 'file') throw new AppFileError('failed', `${row.filename} has no stored bytes`);
-  const link = await createAttachmentResolver((refs) => fetchAttachmentUrls(configuredEndpoint(token), refs, how.as))
-    .resolve({ kind: 'item', itemId: row.id, version: how.version ?? row.version });
+  const link = await resolverFor(account, how.as).resolve({ kind: 'item', itemId: row.id, version: how.version ?? row.version });
   if (link.status === 'gone') throw new AppFileError('not-found', `${row.filename} has no bytes for version ${how.version ?? row.version}`);
   return link.url;
 }
 
 /** A stored file's bytes, as `files.open` hands them to the page (`AppFileOpened.bytes`). */
-async function storedBytes(token: string, row: ItemRow, how: { version?: number; as?: string | null } = {}): Promise<ArrayBuffer> {
-  const url = await signedUrlOf(token, row, how);
-  const res = await fetch(url).catch((error: unknown) => {
+async function storedBytes(account: { token: string; userId: string }, row: ItemRow, how: { version?: number; as?: string | null; fetchBytes?: (url: string) => Promise<Response> } = {}): Promise<ArrayBuffer> {
+  const url = await signedUrlOf(account, row, how);
+  const res = await (how.fetchBytes ?? fetch)(url).catch((error: unknown) => {
     throw new AppFileError('failed', `${row.filename} could not be read: ${error instanceof Error ? error.message : String(error)}`);
   });
   if (!res.ok) throw new AppFileError('failed', `${row.filename} could not be read (HTTP ${res.status})`);
@@ -255,17 +281,20 @@ function entryOf(row: ItemRow, people: ReadonlyMap<string, AppFilePerson>, claim
     createdBy: row.created_by
       ? (people.get(row.created_by) ?? { id: personId(row.created_by), name: row.created_by.slice(0, 8), kind: 'human' })
       : { id: '', name: '', kind: 'system' },
+    updatedBy: row.updated_by
+      ? (people.get(row.updated_by) ?? { id: personId(row.updated_by), name: row.updated_by.slice(0, 8), kind: 'human' })
+      : null,
     sourceMessageIds: row.source_message_ids ?? [],
     canDelete: deletable.has(row.id),
   };
 }
 
 /**
- * Who made each file, by name and kind, in one read. A creator whose profile is gone (an erased
+ * Who created or last edited each file, by name and kind, in one read. An author whose profile is gone (an erased
  * account) keeps a shortened id rather than a blank — the old panel's rule (#1709).
  */
 async function peopleOf(token: string, rows: readonly ItemRow[], identities: Identities): Promise<Map<string, AppFilePerson>> {
-  const ids = [...new Set(rows.map((row) => row.created_by).filter((id): id is string => !!id))];
+  const ids = [...new Set(rows.flatMap((row) => [row.created_by, row.updated_by]).filter((id): id is string => !!id))];
   const people = new Map<string, AppFilePerson>();
   if (ids.length === 0) return people;
   for (const user of await identities(token, ids)) {
@@ -624,7 +653,7 @@ export function createAppFiles(platform: FilesPlatform) {
     }
     const actor = surface.asAgent ?? userId;
     const self = { userId: personId(actor), name: await selfName(token, actor) };
-    if (stored) return { entry: await entryOne(token, row, actor), docName: '', access, self, bytes: await storedBytes(token, row, { as: surface.asAgent }) };
+    if (stored) return { entry: await entryOne(token, row, actor), docName: '', access, self, bytes: await storedBytes({ token, userId }, row, { as: surface.asAgent, fetchBytes: platform.fetchBytes }) };
     if (typeof row.epoch !== 'number') throw new AppFileError('failed', `${row.filename}: the server did not say which version of the file is open`);
     const docName = `${row.id}@${row.epoch}`;
     const page = platform.sync.pageFor(surface.pageId, surface.extensionId);
@@ -906,7 +935,7 @@ export function createAppFiles(platform: FilesPlatform) {
       const version = ((Array.isArray(data) ? data[0] : data) ?? null) as { n: number; pointer: string | null; inline_text: string | null; content_type: string } | null;
       if (!version) throw new AppFileError('not-found', `${row.filename} has no version ${args.n}`);
       if (version.inline_text !== null) return { n: version.n, text: version.inline_text };
-      const bytes = await storedBytes(token, { ...row, pointer: version.pointer }, { version: version.n, as: surface.asAgent });
+      const bytes = await storedBytes({ token, userId }, { ...row, pointer: version.pointer }, { version: version.n, as: surface.asAgent, fetchBytes: platform.fetchBytes });
       return { n: version.n, bytes, contentType: version.content_type };
     },
 
@@ -1030,7 +1059,7 @@ export function createAppFiles(platform: FilesPlatform) {
     async downloadSource(surface: FileSurface, args: { ref: ChatFileRef }): Promise<DownloadSource> {
       const { token, userId } = await platform.account();
       const row = await readable(surface, { token, userId }, args.ref, 'saving');
-      if (row.kind === 'file') return { name: row.filename, kind: 'file', url: await signedUrlOf(token, row, { as: surface.asAgent }) };
+      if (row.kind === 'file') return { name: row.filename, kind: 'file', url: await signedUrlOf({ token, userId }, row, { as: surface.asAgent }) };
       try {
         return { name: row.filename, kind: 'text', text: await readDocumentText({ filesUrl: platform.filesUrl, fetch }, token, row.id, surface.asAgent) };
       } catch (error) {

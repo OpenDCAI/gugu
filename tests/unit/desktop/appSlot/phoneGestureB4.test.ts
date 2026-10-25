@@ -128,7 +128,11 @@ describe('the phone refuses a verb outside the gesture it needs, in the same sen
 
   it('control: inside a tap, compose hands the composer of the chat it names the text — no capability asked, nothing sent', async () => {
     const composed: unknown[] = []
-    const take = (event: Event) => composed.push((event as CustomEvent).detail)
+    const take = (event: Event) => {
+      expect(event.target).toBe(document)
+      expect(event.eventPhase).toBe(Event.BUBBLING_PHASE)
+      composed.push((event as CustomEvent).detail)
+    }
     window.addEventListener(APP_COMPOSE_EVENT, take)
     activation.isActive = true
     expect(await call('compose', { text: '  > picked  ', chat: CHAT })).toMatchObject({ ok: true })

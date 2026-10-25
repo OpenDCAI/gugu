@@ -19,7 +19,7 @@ import { TabChip, TabSlot } from '../../session/renderer/features/tabs/tab-bar/t
 import { PaneHeader } from '../ui/Pane'
 import { useBackLayer } from '../ui/sheetStack'
 import { ChatMessageComposer } from './ChatMessageComposer'
-import { RunningTokenBar, type RunningToken } from '../RunningTokenBar'
+import { RunningBarSlot, RunningTokenBar, type RunningToken } from '../RunningTokenBar'
 import { GROUP_AGENT_BAR_MAX } from '@/lib/groupRunningTokenModels'
 import { TopicBreadcrumb } from './TopicBreadcrumb'
 import { TopicMoreMenu } from './TopicMoreMenu'
@@ -200,13 +200,9 @@ const TOPIC_SPLIT_MESSAGES_STYLE: React.CSSProperties = {
   gap: 14,
   padding: '14px 12px',
 }
-// @@@5856 输入框的外边距与主线那一份对齐(ChatAreaPanel 的 `12px 22px 18px`)。
-// **垂直方向必须一模一样**:主线那份上 12 下 18,而这一栏原先什么都没有 ⇒ 输入框直接贴着窗底,
-// 同屏并排看就是两个高度(owner 2026-09-19 实测:「这个高度怎么不一致」)。
-// 水平方向用 14 与这一栏自己的头对齐 —— 它比主栏窄,照抄 22 会把输入框挤细。
-// 桌面上它坐在 ChatBottomDock 那层半透明底上(与主线同一层),自己不再垫实色。
+// Desktop framing is shared with the main composer through ChatBottomDock.
 const TOPIC_SPLIT_COMPOSER_STYLE: React.CSSProperties = {
-  padding: '12px 14px 18px', flexShrink: 0,
+  padding: 0, flexShrink: 0,
 }
 const TOPIC_SPLIT_COMPOSER_MOBILE_STYLE: React.CSSProperties = {
   background: 'var(--bg-primary)', padding: '8px 10px max(10px, env(safe-area-inset-bottom))', flexShrink: 0,
@@ -564,8 +560,10 @@ export function TopicSplitPane({ viewportKey = 'topic', navigationTarget = false
             自造的那份缺发送键、缺 @ 候选弹窗、缺草稿与附件 —— 这些原件早就解决过,
             重写一份等于把它们统统退回未解决态,而且不报任何错(owner 2026-09-19 实测点破)。
             话题是一间屋子 ⇒ isGroupChat,寻址规则与群一致。 */}
-        <ChatBottomDock floating={!mobile} reserve={messages.length === 0}>
-        {runningTokens && runningTokens.length > 0 ? (
+        {/* 话题里运行条那一行同样是真占位的一行;只在传了 runningTokens 时才有(手机整页话题),桌面分栏旁边群里那一条一直看得见。 */}
+        <ChatBottomDock floating={!mobile} above={runningTokens &&
+        <RunningBarSlot>
+        {runningTokens.length > 0 ? (
           <RunningTokenBar
             testId="topic-agent-running-status"
             cap={GROUP_AGENT_BAR_MAX}
@@ -577,6 +575,8 @@ export function TopicSplitPane({ viewportKey = 'topic', navigationTarget = false
             }}
           />
         ) : null}
+        </RunningBarSlot>
+        }>
         <div data-topic-split-composer="" style={mobile ? TOPIC_SPLIT_COMPOSER_MOBILE_STYLE : TOPIC_SPLIT_COMPOSER_STYLE}>
         <ChatMessageComposer
           mentionToInsert={mentionToInsert}
@@ -592,7 +592,7 @@ export function TopicSplitPane({ viewportKey = 'topic', navigationTarget = false
           onQuoteConsumed={() => setQuoted(null)}
           chatId={topic.chatId} hidden={visible === false}
           isGroupChat
-          groupMembers={rankedMentionMembers}
+          groupMembers={rankedMentionMembers} messages={messages} participantIds={participantIds}
           currentUserId={currentUserId}
           agentStatuses={agentStatuses}
           surface="aside"

@@ -10,6 +10,7 @@ import { DUR_SLOW_MS, EASE } from '@/styles/motion'
 import { useToast } from './toastContext'
 import { useBackLayer } from './ui/sheetStack'
 import { IconButton } from './ui/IconButton'
+import { bindFileViewerMenu } from './preview/file-viewer-menu'
 import { AUTOMATION_TEST_IDS } from '../lib/automationDom'
 import { fetchBlob, downloadRemoteFile } from '../lib/download'
 import { canWriteImageToClipboard, writeImageBlobToClipboard } from '../lib/imageClipboard'
@@ -343,14 +344,28 @@ export function ImagePreviewProvider({ children }: { children: ReactNode }) {
           active?.destroy()
           const pswp = new PhotoSwipeCtor(viewerOptions(request, isMobile, translate('shell.imagePreview.loadFailed')))
           wireViewer(pswp, translate('shell.imagePreview.dialog'))
-          pswp.on('change', () => setViewer((open) => (open?.pswp === pswp ? { ...open, index: pswp.currIndex } : open)))
+          let unbindMenu: (() => void) | undefined
+          const bindMenu = () => {
+            unbindMenu?.()
+            const quote = request.items[pswp.currIndex]?.quote
+            unbindMenu = quote && pswp.element ? bindFileViewerMenu(pswp.element, () => ({ quote: () => { pswp.close(); return quote() }, canSelectAll: false }), (error) => {
+              log.error({ error: String(error) }, 'image citation failed')
+              latest.current.toast(String(error), 'error')
+            }) : undefined
+          }
+          pswp.on('change', () => {
+            bindMenu()
+            setViewer((open) => (open?.pswp === pswp ? { ...open, index: pswp.currIndex } : open))
+          })
           pswp.on('destroy', () => {
+            unbindMenu?.()
             if (active === pswp) active = null
             setViewer((open) => (open?.pswp === pswp ? null : open))
           })
           active = pswp
           pswp.init()
           if (!pswp.element) throw new Error('PhotoSwipe did not create its root element')
+          bindMenu()
           setViewer({ pswp, root: pswp.element, items: request.items, index: pswp.currIndex })
         })
         .catch((error: unknown) => {

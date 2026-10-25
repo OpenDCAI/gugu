@@ -23,6 +23,10 @@ const HOST_CATALOG = {
     appMenu: {
       settings: '设置…',
     },
+    fileViewerMenu: {
+      copy: '复制', selectAll: '全选', quoteSelection: '引用选中文字', quoteFile: '引用整个文件',
+      undo: '撤销', redo: '重做', cut: '剪切', paste: '粘贴',
+    },
     notifications: {
       closeToTray: {
         title: '咕咕 仍在后台运行',
@@ -115,6 +119,10 @@ const HOST_CATALOG = {
     },
     appMenu: {
       settings: 'Settings…',
+    },
+    fileViewerMenu: {
+      copy: 'Copy', selectAll: 'Select All', quoteSelection: 'Quote Selection', quoteFile: 'Quote File',
+      undo: 'Undo', redo: 'Redo', cut: 'Cut', paste: 'Paste',
     },
     notifications: {
       closeToTray: {

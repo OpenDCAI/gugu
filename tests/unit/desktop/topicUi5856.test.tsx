@@ -8,6 +8,7 @@
 import { askReveal } from '../../../apps/desktop/src/hooks/useSourceMessageReveal'
 import { topicHistoryStub } from '../../support/chatWindowStub'
 import { readFile } from 'node:fs/promises'
+import { composerSlotClass, composerSlotInnerClass } from '@gugu/session-chat-ui/composer-layout'
 import { act, createElement, useEffect, useCallback, useState } from 'react'
 import { runInAction } from 'mobx'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
@@ -64,7 +65,6 @@ describe('TopicAnchorCard 把「可见 / 参与 / 通知」的第三件显形', 
     // 判据能判假:同一份数据只翻 is_participant,下面那次渲染必须拿不到这枚标。
     expect(observer).not.toBeNull()
     expect(observer?.textContent).toBe('只看得见')
-    expect(observer?.getAttribute('title')).toBe('你看得见这条话题，但它的消息不会通知你')
     expect(harness.container.querySelector('[data-testid="topic-anchor-row"]')?.getAttribute('data-topic-participant')).toBe('false')
 
     await harness.render(
@@ -407,21 +407,25 @@ describe('TopicSplitPane 是分栏，不是话题的开关', () => {
     expect(harness.container.querySelector('[data-testid="topic-split-send"]')).toBeNull()
   })
 
-  it('分栏输入框的上下留白与主线那一份一致 —— ❌ 不许一个贴着窗底、一个悬在上面', async () => {
-    // owner 2026-09-19 实测(两栏并排的截图):「这个高度怎么不一致」。
-    // 两个输入框的胶囊本身都是 42px,差的是外面那一圈:主线有 `12px 22px 18px`,
-    // 分栏这一份原先什么都没有 ⇒ 胶囊直接压在窗底,并排看就是两个高度。
-    const chatArea = await readFile('apps/desktop/src/components/ChatAreaPanel.tsx', 'utf8')
-    expect(chatArea, '主线 composer 的外边距变了 —— 分栏这一份要跟着改,否则两边又会漂开').toContain("'12px 22px 18px'")
+  // owner 10-25:有运行条的地方,那一行始终占位(透明、固定高),运行条出现、消失不改变布局。
+  it('reserves the running bar row above the composer when the pane shows running agents', async () => {
+    await renderWithAppProviders(harness, createNode(TopicSplitPane, { ...baseProps, runningTokens: [] }))
+    const dock = harness.container.querySelector<HTMLElement>('[data-topic-split-composer]')!.closest('[data-chat-bottom-dock]')!
+    expect(dock.firstElementChild?.querySelector('[data-running-bar-slot]')).not.toBeNull()
+  })
 
+  it('uses the same ACP desktop frame as the main composer without a second padding layer', async () => {
     await renderWithAppProviders(harness, createNode(TopicSplitPane, { ...baseProps }))
-    const wrapper = harness.container
-      .querySelector('[data-testid="chat-composer-aside"]')
-      ?.closest('[data-topic-split-composer]') as HTMLElement
-    expect(wrapper, '分栏的输入框没有外层留白容器').toBeTruthy()
-    // 垂直方向必须与主线逐字相同;水平方向故意窄一档(这一栏比主栏窄,照抄 22 会把胶囊挤细)。
-    expect(wrapper.style.paddingTop).toBe('12px')
-    expect(wrapper.style.paddingBottom).toBe('18px')
+    const wrapper = harness.container.querySelector<HTMLElement>('[data-topic-split-composer]')!
+    expect(wrapper.style.padding).toBe('0px')
+    const dock = wrapper.closest('[data-chat-bottom-dock]')!
+    expect(dock.classList.contains(composerSlotClass)).toBe(true)
+    // 桌面分栏不传 runningTokens(旁边群里那一条一直看得见)⇒ 不留运行条那一行;回复条 + 输入框底色与聊天栏同一个 token。
+    expect(dock.querySelector('[data-running-bar-slot]')).toBeNull()
+    const backing = dock.lastElementChild!
+    expect(backing.contains(wrapper)).toBe(true)
+    expect(backing.classList.contains(composerSlotInnerClass)).toBe(true)
+    expect(backing.classList.contains('bg-[var(--bg-primary)]')).toBe(true)
   })
 
   // 找茵第九轮 —— 「用的是同一个组件」不等于「那个组件被接全了」。

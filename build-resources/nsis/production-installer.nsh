@@ -1,3 +1,5 @@
+!include "${BUILD_RESOURCES_DIR}\nsis\staged-update.nsh"
+
 !macro customInit
   # #2482: v0.1.0's uninstaller exits with code 2 when electron-builder copies it to
   # $PLUGINSDIR and appends /KEEP_APP_DATA, --updated, and _?=<install dir>. Running
@@ -12,4 +14,5 @@
       ExecWait '$R0 /S' $R1
     ${EndIf}
   ${EndIf}
+  !insertmacro guguStagedUpdate
 !macroend

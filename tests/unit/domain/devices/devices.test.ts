@@ -100,10 +100,36 @@ describe('device cloud helpers', () => {
     ).toBeUndefined()
   })
 
+  it('keeps action summaries usable without fabricating full action documentation', () => {
+    const action = {
+      name: 'files.read', group: 'files', title: 'Read file', available: false,
+      risk: 'low', confirm: 'never', unavailable_reason: 'not_granted', unavailable_detail: 'Enable files',
+    }
+    const actions = {
+      v: 1, timezone: 'Asia/Shanghai', actions: [action],
+      switched_off: [{ group: 'computer', detail: 'Enable the computer app' }],
+    }
+    const device = normalizeDeviceRow({
+      device_id: 'device-1', label: 'Mac', hostname: 'fixture', platform: 'darwin', status: 'online',
+      last_seen_at: '2026-10-24T00:00:00Z',
+      capabilities: { terminals: ['terminal'], runtimes: ['codex'], actions },
+    })
+    expect(device.capabilities.actions).toEqual(actions)
+    expect(device.capabilities.actions?.actions[0]).not.toHaveProperty('description')
+    expect(device.capabilities.actions?.actions[0]).not.toHaveProperty('input_schema')
+  })
+
   it('fails loudly on invalid device rows', () => {
     expect(() => normalizeDeviceRow({ device_id: 'device-1', status: 'weird' })).toThrow(
       'Invalid device status: weird'
     )
+  })
+
+  it('surfaces a missing computed field instead of retrying the full manifest query', async () => {
+    const client = {
+      from: () => ({ select: () => ({ eq: () => ({ order: async () => ({ data: null, error: { message: 'device_list_capabilities is not installed' } }) }) }) }),
+    } as unknown as Parameters<typeof listDevices>[0]
+    await expect(listDevices(client, 'owner-1')).rejects.toThrow('device_list_capabilities is not installed')
   })
 
   // @@@1962 列表必须按 owner 显式过滤(user_id = ownerId)——多账号同机时不混入他人 online 设备行。
@@ -114,7 +140,7 @@ describe('device cloud helpers', () => {
         expect(table).toBe('gugu_devices')
         return {
           select(columns: string) {
-            expect(columns).toBe('device_id, label, hostname, platform, status, last_seen_at, capabilities, machine_id, session_digest')
+            expect(columns).toBe('device_id, label, hostname, platform, status, last_seen_at, capabilities:device_list_capabilities, machine_id, session_digest')
             return {
               eq(column: string, value: string) {
                 expect(column).toBe('user_id')       // 必须按 owner 过滤,绝不全表列举

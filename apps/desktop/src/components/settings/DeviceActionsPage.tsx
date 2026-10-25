@@ -12,7 +12,7 @@
 import { useCallback, useMemo, useState, type ReactNode } from 'react'
 import { useTranslation } from 'react-i18next'
 import type { Device } from '@gugu/core/shared/types/chat'
-import type { DeviceActionManifestEntry } from '@gugu/core/shared/deviceActions'
+import type { DeviceActionSummary } from '@gugu/core/shared/deviceActions'
 import {
   DEVICE_ACTIONS_CHANNELS,
   type DeviceActionsActionView,
@@ -165,7 +165,6 @@ export function ThisDeviceActions({ onBack, bare = false }: { onBack?: () => voi
   const header = bare ? null : (
     <PageHeader
       title={t('devices.deviceActions.thisTitle')}
-      subtitle={t('devices.deviceActions.thisSubtitle')}
       backLabel={t('devices.deviceActions.back')}
       onBack={onBack}
     />
@@ -429,7 +428,7 @@ function OtherDeviceActions({ device }: { device: Device }) {
   const text = useDeviceActionGroupText()
   const actions = device.capabilities?.actions?.actions ?? null
   const groups = useMemo(() => {
-    const out = new Map<string, DeviceActionManifestEntry[]>()
+    const out = new Map<string, DeviceActionSummary[]>()
     for (const a of actions ?? []) out.set(a.group, [...(out.get(a.group) ?? []), a])
     return [...out.entries()]
   }, [actions])

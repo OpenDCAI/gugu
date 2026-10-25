@@ -1,5 +1,5 @@
 import { commandRegistry } from '@renderer/lib/commands/registry';
-import { dissolveScreenGroup, isScreenView, isSessionGrouped, showSessionBeside, takeSessionOutOfGroup } from '@renderer/app/screen-layout-actions';
+import { dissolveScreenGroup, isScreenView, showSessionBeside, takeSessionOutOfGroup } from '@renderer/app/screen-layout-actions';
 import { AlertTriangle, Archive, Copy, LayoutGrid, Pencil, Pin, PinOff, Scissors, Sparkles, SquareMinus } from '@/lib/icons'
 import { GitFork } from 'lucide-react'
 import { installedExtensionsStore } from '@renderer/features/extensions/installed-extensions-store';
@@ -31,7 +31,7 @@ import { ContextMenuItem, ContextMenuSeparator } from '@renderer/lib/ui/context-
 import { hasStatusSource } from '@shared/core/sessions/initial-agent-status';
 import { Tooltip, TooltipContent, TooltipTrigger } from '@renderer/lib/ui/tooltip';
 import { useSessionMessages } from '@renderer/localization/use-session-messages';
-import { clearDraggedSession, setDraggedSession } from '@renderer/lib/drag-session';
+import { clearDraggedScreenContent, setDraggedScreenContent } from '@renderer/lib/drag-screen-content';
 import { appState, sidebarStore } from '@renderer/lib/stores/app-state';
 import { sessionKeyboardNav } from './session-keyboard-nav';
 import { SessionRowShell } from './sidebar-session-row';
@@ -41,7 +41,8 @@ import { machineRegistry } from '@renderer/lib/machine-routing';
 import { SidebarIdentityCard, sidebarIdentityCard, useSidebarIdentityCardTrigger } from './sidebar-identity-card';
 import { sessionAgentNames } from '@renderer/features/sessions/stores/session-agent-names';
 import { showModal } from '@renderer/lib/modal/modal-provider';
-import type { RemoteSidebarSession, SidebarJoin } from './sidebar-store';
+import type { SidebarJoin } from '@/lib/sidebarJoinedGroups';
+import type { RemoteSidebarSession } from './sidebar-store';
 import { remoteAgentStatus } from './session-groups';
 import { withMountedSession } from './with-mounted-session';
 import { useSessionSchedules } from '@renderer/features/automations/use-session-schedules';
@@ -180,7 +181,8 @@ export const SidebarSessionItem = observer(function SidebarSessionItem({
   const requestArchive = () => withMountedSession(projectId, sessionId, () => requestArchiveSession({ projectId, sessionId }));
 
   const isPinned = row.isPinned;
-  const grouped = isSessionGrouped(sessionId);
+  // 右键给不给「从这一组拿出来 / 拆开这一组」= 这一行在不在框里。
+  const grouped = join !== undefined;
   const setPinned = (pinned: boolean) => {
     withMountedSession(projectId, sessionId, (_session, manager) => void manager.setSessionPinned(sessionId, pinned));
   };
@@ -385,9 +387,9 @@ export const SidebarSessionItem = observer(function SidebarSessionItem({
           // 拖起来就不是在看这张卡了。
           identityCard.dismiss();
           // 带上项目:落在一块的边上时,分出来的那块要开这条会话的页(spec session-page「一屏几块」)。
-          setDraggedSession(e.dataTransfer, { sessionId, title, projectId }, e.currentTarget);
+          setDraggedScreenContent(e.dataTransfer, { kind: 'session', sessionId, title, projectId }, e.currentTarget);
         },
-        onDragEnd: clearDraggedSession,
+        onDragEnd: clearDraggedScreenContent,
         ...nestHere,
         onPointerEnter: identityCard.onPointerEnter,
         onPointerLeave: identityCard.onPointerLeave,

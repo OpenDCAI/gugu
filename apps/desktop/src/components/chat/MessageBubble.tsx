@@ -1,7 +1,7 @@
 import { lazy, memo, Suspense, useEffect, useRef, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import { useToast } from '../toastContext'; import { downloadAttachment } from '../../lib/attachmentBytes'
-import { motion, AnimatePresence } from 'framer-motion'; import { MediaAttachmentBubble } from './MediaAttachmentBubble'
+import { motion, AnimatePresence } from 'framer-motion'; import { MediaAttachmentBubble } from './MediaAttachmentBubble'; import { GroupAvatarSlot } from './StickyGroupAvatar'
 import { Avatar } from '../Avatar'
 import { useAuth } from '../../store/auth'; import { useLongPress } from '../../hooks/useLongPress'
 import { UI_EVENTS } from '../../lib/uiEvents'
@@ -213,7 +213,7 @@ interface BubbleProps {
   onEnterSelectMode?: (msg: MessageItem) => void
   // 连续消息合组（父层按「同发送者 + 无时间分隔线切断」判定）：true 时隐藏头像与名字/时间行、收紧行距，
   // 只留气泡。头像位置用等宽 spacer 占住，保证组内气泡与组首对齐。
-  groupedWithPrev?: boolean
+  groupedWithPrev?: boolean; groupedWithNext?: boolean // 下一条也属于这一组 ⇒ 头像不画在这里,画在组尾(Telegram 式,见 GroupAvatarSlot)
   // 本条上方刚渲染了时间分隔线：名字/时间行不再重复同一个时间（群聊仍显发送者名），时间节点走 VISUALLY_HIDDEN。
   hideTime?: boolean
   // 父层对每条本人消息都传 true（#2098 逐条已读：主列/话题视图均 showReadReceipt={is_mine}）→ 各自挂环；
@@ -241,7 +241,7 @@ export const MessageBubble = memo(function MessageBubble({
   onOpenFile, onOpenLocalFileLink,
   memberProfiles,
   onEnterSelectMode,
-  groupedWithPrev = false,
+  groupedWithPrev = false, groupedWithNext = false,
   hideTime = false,
   showReadReceipt = true,
 }: BubbleProps) {
@@ -362,10 +362,8 @@ export const MessageBubble = memo(function MessageBubble({
         padding: groupedWithPrev ? '1px 14px' : '5px 14px',
       }}
     >
-      {/* Avatar — both sent and received；合组的后续消息不重复头像，用等宽 spacer 保持气泡对齐 */}
-      {hideAvatar ? null : groupedWithPrev ? (
-        <div aria-hidden="true" style={{ width: compactMobile ? 44 : 32, flexShrink: 0 }} />
-      ) : canOpenProfile ? (
+      {/* Avatar — both sent and received；一组只在组尾画一个头像(sticky 贴滚动区底边),其余几条用等宽占位保持气泡对齐 */}
+      {hideAvatar ? null : <GroupAvatarSlot wide={compactMobile} groupedWithPrev={groupedWithPrev} groupedWithNext={groupedWithNext}>{canOpenProfile ? (
         <MemberProfileAvatarButton
           member={memberProfile!}
           testId={AUTOMATION_TEST_IDS.messageAvatarProfileButton}
@@ -376,7 +374,7 @@ export const MessageBubble = memo(function MessageBubble({
             onOpenMemberProfile!(memberProfile!, event.currentTarget, msg.is_mine ? 'left' : 'right')
           }}
         />
-      ) : avatar}
+      ) : avatar}</GroupAvatarSlot>}
 
       {/* Bubble + meta */}
       <div

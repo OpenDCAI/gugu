@@ -121,8 +121,8 @@ export function JoinGroupById({ headless }: { headless?: boolean }) {
       </div>
 
       <div className="flex-1 overflow-y-auto px-4">
-        {!group && !notFound && (
-          <div className={hintClass}>{looking ? t('joinGroup.looking') : t('joinGroup.prompt')}</div>
+        {!group && !notFound && looking && (
+          <div className={hintClass}>{t('joinGroup.looking')}</div>
         )}
 
         {notFound && <div className={hintClass}>{t('joinGroup.notFound', { id: parsedId })}</div>}

@@ -5,6 +5,8 @@ import { afterEach, describe, expect, it, vi } from 'vitest'
 import { clickElement, createNode, createReactHarness, renderWithAppProviders, typeInto, waitForCondition } from '../../../support/testHarness'
 
 const io = vi.hoisted(() => ({
+  firstRunDoneHere: vi.fn((_userId: string) => false),
+  rememberFirstRunDone: vi.fn(),
   readFirstRunProgress: vi.fn(),
   writeOccupation: vi.fn(async () => undefined),
   finishFirstRun: vi.fn(async () => '2026-10-16T00:00:00Z'),
@@ -59,6 +61,48 @@ describe('first run gate (#7348)', () => {
     } finally {
       harness.cleanup()
     }
+  })
+
+  it('a device that already read "finished" for this account lets it straight in without asking again (offline / slow network)', async () => {
+    io.firstRunDoneHere.mockImplementation((userId: string) => userId === 'u1')
+    io.readFirstRunProgress.mockRejectedValue(new Error('network down'))
+    const harness = await renderGate()
+    try {
+      expect(byTestId(harness.container, 'main-product')).not.toBeNull()
+      expect(byTestId(harness.container, 'full-screen-loader')).toBeNull()
+      expect(io.readFirstRunProgress).not.toHaveBeenCalled()
+    } finally {
+      harness.cleanup()
+      io.firstRunDoneHere.mockImplementation(() => false)
+      io.readFirstRunProgress.mockReset()
+    }
+  })
+
+  it('only a read that says "finished" is remembered; "not finished" and "unreadable" are not', async () => {
+    io.readFirstRunProgress.mockResolvedValueOnce({ stage: 'done', occupation: null })
+    const done = await renderGate()
+    try {
+      await waitForCondition(() => !!byTestId(done.container, 'main-product'), 'product rendered')
+      expect(io.rememberFirstRunDone).toHaveBeenCalledWith('u1')
+    } finally {
+      done.cleanup()
+    }
+    vi.clearAllMocks()
+    io.readFirstRunProgress.mockResolvedValueOnce({ stage: 'profile', occupation: null })
+    const profile = await renderGate()
+    try {
+      await waitForCondition(() => !!byTestId(profile.container, 'first-run-profile'), 'profile screen')
+    } finally {
+      profile.cleanup()
+    }
+    io.readFirstRunProgress.mockRejectedValueOnce(new Error('network down'))
+    const unreadable = await renderGate()
+    try {
+      await waitForCondition(() => !!byTestId(unreadable.container, 'first-run-unreadable'), 'unreadable screen')
+    } finally {
+      unreadable.cleanup()
+    }
+    expect(io.rememberFirstRunDone).not.toHaveBeenCalled()
   })
 
   it('unreadable progress says so and retries; it neither replays the flow nor lets you through', async () => {
@@ -142,6 +186,7 @@ describe('first run gate (#7348)', () => {
       await clickElement(byTestId(first.container, 'assistant-intro-primary')!)
       await waitForCondition(() => !!byTestId(first.container, 'main-product'), 'product after start')
       expect(io.finishFirstRun).toHaveBeenCalled()
+      expect(io.rememberFirstRunDone).toHaveBeenCalledWith('u1')
       expect(io.requestAssistantSetupHandoff).toHaveBeenCalledWith('u1')
     } finally {
       first.cleanup()
@@ -171,6 +216,7 @@ describe('first run gate (#7348)', () => {
       expect(harness.container.textContent).not.toContain('network down')
       expect(byTestId(harness.container, 'main-product')).toBeNull()
       expect(byTestId(harness.container, 'assistant-intro-later')).not.toBeNull()
+      expect(io.rememberFirstRunDone).not.toHaveBeenCalled()
     } finally {
       harness.cleanup()
     }

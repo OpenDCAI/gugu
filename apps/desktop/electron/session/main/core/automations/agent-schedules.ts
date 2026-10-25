@@ -5,6 +5,7 @@ import type { AutomationRun } from '@shared/core/automations/automation-run';
 import { automationsService, type AutomationsService } from './automations-service';
 import { getAutomation, listAgentSchedules } from './repo';
 import { describeScheduleTime, resolveScheduleTrigger } from './schedule-time';
+import { getOwnerTimeZoneContext } from '@shared/core/automations/timezone';
 
 /**
  * #7221 agent 的 schedule_* 工具:在它自己所在的这台机器上,给**自己**建、看、取消「已安排」。
@@ -103,7 +104,8 @@ export async function runAgentScheduleAction(
       provider: caller.provider ?? 'unknown',
       triggerConfig,
     });
-    return scheduleRow(automation, nextRun, null);
+    return { ...scheduleRow(automation, nextRun, null),
+      time_zone_source: action.tz?.trim() ? { status: 'explicit' } : getOwnerTimeZoneContext() };
   }
 
   if (action.action === 'schedule_list') {

@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import { AgentHarnessIcon, AgentHarnessLabel } from '../../../../apps/desktop/src/components/AgentHarnessIdentity'
+import { AgentHarnessIcon } from '../../../../apps/desktop/src/components/AgentHarnessIdentity'
 import { DevicesContext, type DevicesContextValue } from '../../../../apps/desktop/src/store/devicesContext'
 import type { ContactUser } from '@gugu/core/shared/types/contacts'
 import { createReactHarness, device, renderWithAppProviders } from '../../../support/testHarness'
@@ -18,20 +18,18 @@ afterEach(() => harness.cleanup())
 
 async function show(id: string, deviceId: string) {
   await renderWithAppProviders(harness, <DevicesContext.Provider value={devices}>
-    <AgentHarnessIcon agentId={id} /><AgentHarnessLabel agentId={id} />
+    <AgentHarnessIcon agentId={id} />
   </DevicesContext.Provider>, { contacts: { contacts: [contact(id, deviceId)] } })
 }
 
 describe('phone agent identity presentation', () => {
   it('renders outside account/device/contact providers without inventing a phone host', async () => {
-    await harness.render(<><AgentHarnessIcon agentId={undefined} /><AgentHarnessLabel agentId="unscoped-agent" /></>)
-    expect(harness.container.querySelector('[data-agent-harness-label]')?.textContent).toMatch(/pi/i)
+    await harness.render(<AgentHarnessIcon agentId={undefined} />)
     expect(harness.container.textContent).not.toMatch(/手机 Agent|Phone Agent/)
   })
 
   it('uses the known phone host for its label and generic icon even after that host stops', async () => {
     await show('phone-agent', 'phone')
-    expect(harness.container.querySelector('[data-agent-harness-label]')?.textContent).toMatch(/手机 Agent|Phone Agent/)
     const icon = harness.container.querySelector('[role="img"]')!
     expect(icon.getAttribute('aria-label')).toMatch(/手机 Agent|Phone Agent/)
     expect(icon.querySelector(':scope > svg')).not.toBeNull()
@@ -40,14 +38,13 @@ describe('phone agent identity presentation', () => {
 
   it.each(['desktop', 'unknown-external-device'])('preserves the Pi brand for %s rather than guessing its host is a phone', async (deviceId) => {
     await show('other-agent', deviceId)
-    expect(harness.container.querySelector('[data-agent-harness-label]')?.textContent).toMatch(/pi/i)
     expect(harness.container.querySelector('[role="img"]')?.getAttribute('aria-label')).toMatch(/pi/i)
     expect(harness.container.textContent).not.toMatch(/手机 Agent|Phone Agent/)
   })
 
   it('keeps an account tombstone visible instead of presenting the removed phone agent as available', async () => {
     await show('removed', 'phone')
-    expect(harness.container.querySelector('[data-agent-harness-label]')?.textContent).toMatch(/已移除|Removed/)
+    expect(harness.container.querySelector('[role="img"]')?.getAttribute('aria-label')).toMatch(/已移除|Removed/)
     expect(harness.container.textContent).not.toMatch(/手机 Agent|Phone Agent/)
   })
 })

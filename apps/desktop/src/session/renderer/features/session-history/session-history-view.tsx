@@ -802,9 +802,11 @@ export const SessionHistoryMainPanel = observer(function SessionHistoryMainPanel
                 <p className="text-sm text-foreground-muted">
                   {filtered ? translate('sessionImport.emptyNoMatch') : translate('sessionHistory.emptyNone')}
                 </p>
-                <p className="mt-1 text-xs leading-relaxed text-foreground-tertiary-muted">
-                  {current.isIndexing ? translate('sessionImport.emptyHintIndexing') : translate('sessionHistory.emptyHint')}
-                </p>
+                {current.isIndexing && (
+                  <p className="mt-1 text-xs leading-relaxed text-foreground-tertiary-muted">
+                    {translate('sessionImport.emptyHintIndexing')}
+                  </p>
+                )}
               </div>
             ) : (
               sections.map((section) => {

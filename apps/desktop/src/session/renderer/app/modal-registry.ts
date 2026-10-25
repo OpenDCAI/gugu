@@ -7,8 +7,6 @@ import { RenameSessionModal } from '@renderer/features/sessions/rename-session-m
 import { RenameAgentModal } from '@renderer/features/sessions/rename-agent-modal'
 import { CreateProjectNameModal } from '@renderer/features/projects/components/create-project-name-modal'
 import { LocalFolderProjectModal } from '@renderer/features/projects/components/local-folder-project-modal'
-import { ProjectConfigImportModal } from '@renderer/features/projects/components/settings-view/project-config-import-modal'
-import { ShareProjectConfigModal } from '@renderer/features/projects/components/settings-view/share-project-config-modal'
 import { AgentSignInModal } from '@renderer/features/settings/agents-page/AgentSignInModal'
 import { GithubConnectModal } from '@renderer/features/settings/components/github-connect-modal'
 import { AddRemoteModal } from '@renderer/features/sessions/add-remote-modal'
@@ -36,8 +34,6 @@ export const modalRegistry = {
   createPrModal: createModal(CreatePrModal, { size: 'md' }),
   renameSessionModal: createModal(RenameSessionModal, { size: 'xs' }),
   renameAgentModal: createModal(RenameAgentModal, { size: 'xs' }),
-  shareProjectConfigModal: createModal(ShareProjectConfigModal, { size: 'md' }),
-  projectConfigImportModal: createModal(ProjectConfigImportModal, { size: 'md' }),
   integrationSetupModal: createModal(IntegrationSetupModal, { size: 'md' }),
   githubConnectModal: createModal(GithubConnectModal, { size: 'md' }),
   agentSignInModal: createModal(AgentSignInModal, { size: 'lg' }),

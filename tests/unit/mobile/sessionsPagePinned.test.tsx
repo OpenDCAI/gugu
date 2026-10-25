@@ -437,6 +437,46 @@ describe('ProjectsPage — 所有机器一页、个人助理一组', () => {
     expect(groups()[0].querySelector('[data-testid="agent-watch-offline-why"]')).toBeNull()
   })
 
+  describe('在线却此刻读不到那台机器(它一时连不上):画它自己上报过的那份', () => {
+    const unreachable = '此刻连不上「ThinkPad」。'
+    const reported = device({
+      device_id: 'thinkpad',
+      label: 'ThinkPad',
+      session_digest: [{
+        conversationId: 'dig-1', projectId: 'p1', projectName: 'Repo', title: 'reported', harness: 'codex',
+        agentStatus: null, lastInteractedAt: '2026-09-27T10:09:00.000Z', supported: true,
+      }],
+    })
+    const note = (root: ParentNode) => root.querySelector('[data-testid="agent-watch-unreachable"]')
+    const red = () => harness.container.querySelector('[data-testid="agent-watch-sessions-error"]')
+
+    it('冷开、从没读到过:照摘要列出、点得开;分区下一行灰字说连不上,❌ 红框、❌「正在读取」', async () => {
+      updateDeviceSessions('thinkpad', { loading: false, error: unreachable })
+      await renderPage([reported])
+      const dug = harness.container.querySelector<HTMLButtonElement>('[data-session-id="dig-1"]')
+      expect(dug).not.toBeNull()
+      expect(dug!.disabled).toBe(false)
+      expect(red()).toBeNull()
+      expect(note(groups()[0])?.textContent).toBe(unreachable)
+      expect(harness.container.querySelector('[data-testid="agent-watch-projects-refreshing"]')).toBeNull()
+    })
+
+    it('读到过之后连不上(回前台重订失败):读到的那份留着,同样只有灰字', async () => {
+      write('thinkpad', [summary('live-1', 1)])
+      updateDeviceSessions('thinkpad', { loading: false, error: unreachable })
+      await renderPage([reported])
+      expect(row(groups()[0], 'live-1')).not.toBeNull()
+      expect(red()).toBeNull()
+      expect(note(groups()[0])?.textContent).toBe(unreachable)
+    })
+
+    it('阳控:一行都拿不出来(它也没报过摘要)才画红框', async () => {
+      updateDeviceSessions('thinkpad', { loading: false, error: unreachable })
+      await renderPage([device({ device_id: 'thinkpad', label: 'ThinkPad' })])
+      expect(red()?.textContent).toContain(unreachable)
+    })
+  })
+
   it('云端宿主收回着:助理那一组 ❌ 说休息 / 叫醒(owner 10-17),它上面的会话照常列出', async () => {
     const asleep = device({
       device_id: 'home',

@@ -88,7 +88,8 @@ export function useAgentMessagePreview(
       // 同一 epoch 只收更新的 rev;宿主重启换 epoch 后直接收。
       if (latest && latest.epoch === payload.epoch && payload.rev <= latest.rev) return
       latest = payload
-      if (active) setState({ status: 'live', preview: payload })
+      // 宿主读不到这条会话时推的是它的原错误码(如 record_not_found),照实交给卡片。
+      if (active) setState(payload.error ? { status: 'unavailable', error: payload.error.code } : { status: 'live', preview: payload })
     }
 
     const fail = (error: string) => {

@@ -75,7 +75,7 @@ export function machineAwareShellPort(local: SessionShellPort): SessionShellPort
       return machine ? machinePort(machine).ensureAgentAddress(input) : local.ensureAgentAddress(input)
     },
     fatalBoot: (message) => local.fatalBoot(message),
-    sessionPeers: () => local.sessionPeers(),
+    sessionPeers: (...args) => local.sessionPeers(...args),
   }
 }
 

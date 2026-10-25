@@ -149,7 +149,6 @@ export const UnstagedSection = observer(function UnstagedSection() {
         {!hasChanges && (
           <EmptyState
             label={translate('changes.workingTreeClean')}
-            description={translate('changes.workingTreeCleanHint')}
           />
         )}
         {hasChanges && (

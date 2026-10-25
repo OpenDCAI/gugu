@@ -90,6 +90,9 @@ export interface CommitArgs {
   via_app?: string | null
   /** 图配文字:服务端接在信封后面(首尾空白去掉;空的就没有)。 */
   caption?: string
+  /** The upload is this folder file's next version, from expected_version (a newer one stored since ⇒ refused, version_conflict). */
+  item_id?: string
+  expected_version?: number
 }
 
 /** Sends the upload as an attachment message: the message row as `messages_view` has it. */

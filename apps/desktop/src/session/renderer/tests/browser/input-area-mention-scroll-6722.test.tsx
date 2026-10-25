@@ -80,7 +80,7 @@ describe('#6722 @ mention keyboard scroll', () => {
     await page.getByRole('option', { name: /Agent 2/ }).hover()
     await until('hover selects Agent 2', () => activeOption()?.textContent?.includes('Agent 2') === true)
 
-    for (let index = 0; index < 9; index += 1) await userEvent.keyboard('{ArrowDown}')
+    for (let index = 0; index < 10; index += 1) await userEvent.keyboard('{ArrowDown}')
     await until('keyboard reaches the last candidate', () => activeOption() === rows.at(-1))
     expect(list.scrollTop).toBeGreaterThan(0)
     expect(isInsidePicker(rows.at(-1)!, list)).toBe(true)
@@ -95,7 +95,7 @@ describe('#6722 @ mention keyboard scroll', () => {
     await page.screenshot({ path: 'input-area-mention-scroll-6722.png' })
 
     await userEvent.keyboard('{Enter}')
-    await until('Enter accepts the visible last candidate', () => textarea.element().querySelector('[data-mention-id="agent-11"]') !== null)
+    await until('Enter accepts the visible last candidate', () => textarea.element().querySelector('[data-mention-id="*"]') !== null)
   })
 
   it('anchors the shared popup at the typed @ character', async () => {

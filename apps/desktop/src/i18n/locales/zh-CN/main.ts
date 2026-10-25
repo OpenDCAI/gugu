@@ -43,7 +43,6 @@ export default {
     "thread": {
       "scrollToBottom": "回到最新",
       "emptyTitle": "这个会话还没有内容",
-      "emptyHint": "它一开口，这里就会出现",
       "placeholder": "回复…",
       "composerLabel": "回复输入框",
       "dictate": "语音输入",
@@ -96,7 +95,6 @@ export default {
       "title": "项目",
       "loading": "正在读取项目…",
       "empty": "还没有项目",
-      "emptyHint": "在各台机器上创建的 Agent 会出现在这里。",
       "noMachines": "这个账号名下还没有机器。在电脑上装咕咕并登录同一账号，它上面的项目就会出现在这里。"
     },
     "machines": {
@@ -392,9 +390,7 @@ export default {
       "notificationsBlockedAction": "去「权限」里开",
       "notificationsSound": "提示音",
       "notificationsSoundAria": "开启通知提示音",
-      "notificationsSoundDescription": "弹出横幅时播放系统提示音",
       "notificationsTest": "系统横幅",
-      "notificationsTestDescription": "发一条真的系统通知，看看这条链通不通",
       "notificationsTestAction": "发送测试通知",
       "notificationsTestAria": "发送一条测试通知",
       "notificationsTestTitle": "咕咕",
@@ -406,7 +402,6 @@ export default {
       "notificationsTestRejectedMobile": "系统没让这条通知弹出来——咕咕还没拿到通知权限。去「我的 → 权限 → 通知」开。",
       "trayBadge": "托盘角标",
       "trayBadgeAria": "在托盘图标上显示未读数",
-      "trayBadgeDescription": "未读的聊天消息数，免打扰的会话不计；读过就减",
       "trayBadgeEnabled": "在托盘图标上显示未读数",
       "system": "跟随系统",
       "theme": "主题",
@@ -432,10 +427,6 @@ export default {
       "preferences": "偏好",
       "work": "工作",
       "about": "关于"
-    },
-    "page": {
-      "general": "语言、主题和通知这类整个咕咕通用的选项。",
-      "activity": "会话数、Token 与使用节奏:你和智能体都忙了什么。"
     },
     "nav": {
       "about": "关于",
@@ -529,7 +520,6 @@ export default {
       "retryDeviceChanged": "重试 Agent 创建时无法更换设备。",
       "taskBridgeUnavailable": "当前环境无法打开项目页"
     },
-    "explore": "发现",
     "features": "功能",
     "feedback": "问题反馈",
     "imagePreview": {

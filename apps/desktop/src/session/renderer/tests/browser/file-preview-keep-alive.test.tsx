@@ -18,7 +18,11 @@ vi.mock('@renderer/features/sessions/editor/file-content-preview', () => ({
         mocks.events.push(`unmount ${tab.path}`);
       };
     }, [tab]);
-    return <div data-preview={tab.path} />;
+    return (
+      <div data-preview={tab.path}>
+        {tab.path} preview <button type="button">{tab.path} open</button>
+      </div>
+    );
   },
 }));
 vi.mock('@renderer/features/sessions/editor/file-content-types', () => ({
@@ -113,10 +117,21 @@ async function activate(tabId: string) {
 }
 
 const layer = (path: string) => container.querySelector(`[data-preview="${path}"]`)?.parentElement ?? null;
-// 显示态不写 visibility(继承所在页):写成 visible 会让藏着的任务页把它照画出来(retainedSurface.ts)。
+// 藏 = content-visibility:hidden(lib/retainedSurface.ts):看不见、拿不到焦点、find 找不到。
 const shown = (path: string) => {
-  const el = layer(path);
-  return el !== null && el.style.visibility !== 'hidden';
+  const el = container.querySelector<HTMLElement>(`[data-preview="${path}"]`);
+  return el !== null && el.checkVisibility({ visibilityProperty: true });
+};
+const focusable = (path: string) => {
+  const button = container.querySelector<HTMLButtonElement>(`[data-preview="${path}"] button`)!;
+  button.focus();
+  const landed = document.activeElement === button;
+  button.blur();
+  return landed;
+};
+const findable = (text: string) => {
+  window.getSelection()?.removeAllRanges();
+  return (window as unknown as { find: (text: string) => boolean }).find(text);
 };
 
 describe('a file tab inside a retained session page that is not on screen', () => {
@@ -127,14 +142,18 @@ describe('a file tab inside a retained session page that is not on screen', () =
     const TabContent = FileTabContent;
     await act(async () => {
       root.render(
-        <div inert style={RETAINED_SURFACE_HIDDEN_STYLE}>
+        <div style={RETAINED_SURFACE_HIDDEN_STYLE}>
           <TabContent host={host as never} ctx={{} as never} />
         </div>
       );
     });
     expect(container.querySelector('[data-preview="/w/a.html"]')).not.toBeNull();
-    const painted = [...container.querySelectorAll('*')].filter((el) => getComputedStyle(el).visibility === 'visible');
+    // 藏起来的是面里的内容;面自己的盒子(没有底色、不接点击)留在原位占住尺寸。
+    const surface = container.firstElementChild!;
+    const painted = [...surface.querySelectorAll('*')].filter((el) => el.checkVisibility({ visibilityProperty: true }));
     expect(painted.map((el) => el.outerHTML.slice(0, 120))).toEqual([]);
+    expect(focusable('/w/a.html')).toBe(false);
+    expect(findable('/w/a.html preview')).toBe(false);
   });
 });
 
@@ -150,8 +169,11 @@ describe('a file preview tab, switched away from and back', () => {
     await activate(b.tabId);
     expect(mocks.events).toEqual(['mount /w/a.html', 'mount /w/b.html']);
     expect(shown('/w/b.html')).toBe(true);
+    expect(focusable('/w/b.html')).toBe(true);
+    expect(findable('/w/b.html preview')).toBe(true);
     expect(shown('/w/a.html')).toBe(false);
-    expect(layer('/w/a.html')?.inert).toBe(true);
+    expect(focusable('/w/a.html')).toBe(false);
+    expect(findable('/w/a.html preview')).toBe(false);
   });
 
   it('keeps it while a tab of another kind is in front, and shows none of it there', async () => {

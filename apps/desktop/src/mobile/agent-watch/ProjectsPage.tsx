@@ -65,9 +65,15 @@ const ALL_OPEN = { has: () => true }
  * 一台离线的机器页顶原来那一行,现在跟在它名下每个分区的页头后面(只一行,收起的分区不画)。收回着 / 正在起来的云端宿主
  * ❌ 说(owner 10-17:Agent 没有休息这回事;点开它上面的会话就在连它,那一页自己说「正在连接」)。
  */
-function MachineNote({ device }: { device: Device }): ReactNode {
+function MachineNote({ device, error }: { device: Device; error?: string | null }): ReactNode {
   if (device.cloud_computer === 'asleep' || device.cloud_computer === 'waking') return null
-  return device.is_online ? null : <OfflineNote lastSeenAt={device.last_seen_at} phone={isPhoneDevice(device)} />
+  if (!device.is_online) return <OfflineNote lastSeenAt={device.last_seen_at} phone={isPhoneDevice(device)} />
+  // 在线却此刻读不到(那台机器一时连不上):下面画的是它上报过的那份,照实说一句,❌ 红框(红框留给一行都拿不出来)。
+  return error ? (
+    <div className="gg-aw-offline" data-testid="agent-watch-unreachable">
+      <div className="gg-aw-offline-line"><span className="gg-aw-offline-text">{error}</span></div>
+    </div>
+  ) : null
 }
 
 /**
@@ -240,8 +246,10 @@ export function ProjectsPage({
 
   // ── 空 / 载入 / 出错 ────────────────────────────────────────────────
   const listed = machines.map((device) => ({ device, here: deviceSessionsOf(device, live) }))
-  const refreshing = listed.some(({ device, here }) => device.is_online && here.loading)
-  const failures = listed.filter(({ device, here }) => device.is_online && here.error)
+  // 读不到时下面照样有上报过的那份:❌ 每一轮重试都闪一下「正在读取」,❌ 压一块红(owner 09-08:红框留给「什么都没有、也读不出来」)。
+  const refreshing = listed.some(({ device, here }) => device.is_online && here.loading && !here.error)
+  const failures = listed.filter(({ device, here }) => device.is_online && here.error && here.sessions.length === 0)
+  const errorOf = new Map(listed.map(({ device, here }) => [device.device_id, here.error]))
   const nothingYet = sections.length === 0
   const waitingForMachines = devicesLoading && machines.length === 0
   // 助理那一组的页头下说宿主真的离线 —— 只在这一组里确有住在它上面的会话时说。收回着 / 正在起来的云端宿主 ❌ 说(MachineNote)。
@@ -306,7 +314,7 @@ export function ProjectsPage({
       {nothingYet && !waitingForMachines && !refreshing && !devicesError && failures.length === 0 ? (
         <div className="gg-aw-placeholder" data-testid="agent-watch-projects-empty">
           <div>{t('agentWatch.projects.empty')}</div>
-          <div>{hostCount === 0 ? phoneAgentAvailable() ? tFlow('noHost') : t('agentWatch.projects.noMachines') : t('agentWatch.projects.emptyHint')}</div>
+          {hostCount === 0 && <div>{phoneAgentAvailable() ? tFlow('noHost') : t('agentWatch.projects.noMachines')}</div>}
           {hostCount === 0 ? <PhoneHostSetupEntry /> : onCreate ? (
             <Button variant="secondary" size="lg" onClick={onCreate} data-testid="agent-watch-empty-create">{tFlow('createTask')}</Button>
           ) : null}
@@ -346,7 +354,7 @@ export function ProjectsPage({
               {heading}
               {machine && manyMachines ? <span className="gg-aw-group-machine">{` · ${machineLabel(machine)}`}</span> : null}
             </SectionLabel>
-            {!isCollapsed && noteDevice ? <MachineNote device={noteDevice} /> : null}
+            {!isCollapsed && noteDevice ? <MachineNote device={noteDevice} error={errorOf.get(noteDevice.device_id)} /> : null}
             {isCollapsed ? null : renderTree(section, section.roots)}
             {!isCollapsed && section.folded > 0 ? (
               <Button

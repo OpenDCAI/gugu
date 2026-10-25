@@ -206,9 +206,6 @@ export function SharePosterDialog({ title, subtitle, qrValue, memberAvatarUrls, 
             )}
           </div>
 
-          <p style={{ fontSize: 'var(--font-caption)', color: 'var(--text-tertiary)', margin: 0, textAlign: 'center' }}>
-            {t('sharing.mobileHint')}
-          </p>
         </div>
 
         {/* Footer actions */}

@@ -172,7 +172,7 @@ export function wireHeadlessSessionpageIdentity(hostIpc: HostIpc): { dispose(): 
     },
     agentCard: (sessionId) => identity.agentCard(sessionId),
     agentNames: () => identity.agentNames(),
-    sessionPeers: () => identity.sessionPeers(),
+    sessionPeers: (...args) => identity.sessionPeers(...args),
     // 改完名要让浏览器那头的侧栏身份卡 / 分享按钮当场换名 —— 与 provisioned 同一条广播口、同形载荷。
     renameAgent: async (input) => {
       const renamed = await identity.renameAgent(input)

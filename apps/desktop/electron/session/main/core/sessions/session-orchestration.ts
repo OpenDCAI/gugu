@@ -482,6 +482,7 @@ function runtimeError(result: { error: { type: string; message?: string } }): Er
 async function stopSessionTransport(target: SessionRow): Promise<void> {
   if (transportOf(target) === 'acp') {
     const result = await (await getAcpRuntimeClient()).stopSession({ sessionId: target.id });
+    if (!result.success && result.error.type === 'stop_pending') throw Object.assign(new Error('stop_pending: executor is still stopping; check session_get before reporting it stopped'), { code: 'stop_pending' });
     if (!result.success) throw runtimeError(result);
     // 状态桥要等下一次摘要推送才看得到这条会话没了;回执 ❌ 抢在它前面读到旧的 working(#6095 的 ACP 面)。
     // 停这一端自己把「被打断」交给写入者(与终端腿 stopSession 同一个写口),桥随后那一次是空操作。

@@ -15,6 +15,9 @@ import { isEmbedVisible } from '@renderer/lib/portal-container';
 import { log } from '@renderer/utils/logger';
 import { useSessionViewContext } from '../session-view-context';
 import { activeFileEntry as getActiveFileEntry } from './pane-selectors';
+import { bindFileViewerMenu } from '@/components/preview/file-viewer-menu';
+import { notify } from '@/lib/notices';
+import { quoteWorkspaceFile } from '@renderer/lib/editor/quote-workspace-file';
 
 interface EditorContextValue {
   /**
@@ -97,13 +100,31 @@ export const EditorProvider = observer(function EditorProvider({
     container.style.height = '100%';
     containerRef.current = container;
 
-    const editor = m.editor.create(container, DEFAULT_EDITOR_OPTIONS);
+    const editor = m.editor.create(container, { ...DEFAULT_EDITOR_OPTIONS, contextmenu: false });
     editorRef.current = editor;
     runInAction(() => editorBox.set(editor));
 
     configureMonacoEditor(editor);
 
     const cleanupActive = registerActiveCodeEditor(editor);
+    const cleanupMenu = bindFileViewerMenu(container, () => {
+      const file = getActiveFileEntry(paneTabManager);
+      const model = editor.getModel();
+      const range = editor.getSelection();
+      if (!file || !model || !range) throw new Error('The file editor is no longer available');
+      const last = range.endLineNumber > range.startLineNumber && range.endColumn === 1 ? range.endLineNumber - 1 : range.endLineNumber;
+      const path = file.path;
+      return {
+        selection: { text: model.getValueInRange(range), at: { lines: range.startLineNumber === last ? String(last) : `${range.startLineNumber}-${last}` } },
+        quote: (selection) => quoteWorkspaceFile(sessionView.projectId, sessionId, path, selection),
+        selectAll: () => { editor.focus(); editor.setSelection(model.getFullModelRange()); },
+        editable: !editor.getOption(m.editor.EditorOption.readOnly),
+        edit: (action) => {
+          editor.focus();
+          editor.trigger('file-context-menu', action === 'cut' ? 'editor.action.clipboardCutAction' : action === 'paste' ? 'editor.action.clipboardPasteAction' : action, null);
+        },
+      };
+    }, (error) => notify({ tier: 'error', title: error instanceof Error ? error.message : String(error) }));
 
     const focusDisposable = editor.onDidFocusEditorWidget(() => {
       sessionView.setFocusedRegion('main');
@@ -127,6 +148,7 @@ export const EditorProvider = observer(function EditorProvider({
 
     return () => {
       focusDisposable.dispose();
+      cleanupMenu();
       cleanupActive();
       editor.dispose();
       container.remove();

@@ -10,6 +10,7 @@ import {
   DEVICE_ACTION_RESULT_EVENT,
   DEVICE_ACTION_RPC_TYPE,
   normalizeDeviceActionsCapability,
+  normalizeDeviceActionsSummary,
   readDeviceActionResult,
   type DeviceActionsCapability,
 } from '@gugu/core/shared/deviceActions'
@@ -203,7 +204,6 @@ describe('被调用方(DeviceActionHost)', () => {
 
 const manifest: DeviceActionsCapability = {
   v: 1,
-  updated_at: new Date().toISOString(),
   timezone: 'Asia/Shanghai',
   actions: [{
     name: 'calendar.events.create', group: 'calendar', title: '建日程', description: '', risk: 'medium', confirm: 'on_conflict',
@@ -331,6 +331,22 @@ describe('调用方(DeviceActionCaller)', () => {
 })
 
 describe('登记清单的解析', () => {
+  it('shares summary normalization while preserving real documentation for full action callers', () => {
+    const entry = {
+      name: 'files.read', group: 'files', title: 'Read a file', description: 'Returns the requested file contents',
+      input_schema: { type: 'object', properties: { path: { type: 'string' } }, required: ['path'] },
+      available: true, risk: 'low', confirm: 'never',
+    }
+    const raw = {
+      v: 1, timezone: 'Asia/Shanghai', actions: [null, {}, entry],
+      switched_off: [{ group: 'computer', detail: 'Enable the computer app' }],
+    }
+    const { description: _description, input_schema: _schema, ...summary } = entry
+    expect(normalizeDeviceActionsSummary(raw)).toEqual({ ...raw, actions: [summary] })
+    expect(normalizeDeviceActionsCapability(raw)).toEqual({ ...raw, actions: [entry] })
+    expect(normalizeDeviceActionsSummary({ nope: true })).toBeNull()
+  })
+
   it('没授权的也登记、带原因;时区原样;不像清单的回 null', () => {
     const parsed = normalizeDeviceActionsCapability({
       v: 1, updated_at: 't', timezone: 'Asia/Shanghai',

@@ -89,12 +89,12 @@ export function useAttachmentObjectUrl(source: AttachmentSource, variant: Attach
 }
 
 /** 文件预览取原图,进全 app 唯一的看图器;等待期间已离开的预览不再打开。 */
-export async function openAttachmentImage(source: AttachmentSource, alt: string, isCurrent: () => boolean): Promise<void> {
+export async function openAttachmentImage(source: AttachmentSource, alt: string, isCurrent: () => boolean, quote?: () => Promise<void> | void): Promise<void> {
   const bytes = await attachmentBytes(source)
   if (bytes.status === 'gone') throw new Error('attachment is gone')
   const { openImageViewer } = await import('./imageViewer')
   if (!isCurrent()) return
-  openImageViewer([{ url: URL.createObjectURL(bytes.blob), alt }])
+  openImageViewer([{ url: URL.createObjectURL(bytes.blob), alt, quote }])
 }
 
 /** 下载一个附件(同一份缓存);条目删了就抛。 */

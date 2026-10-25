@@ -34,6 +34,14 @@ const configPathOf = (helper: string): string => {
   if (!match) throw new Error(`helper has no --config: ${helper}`)
   return match[1]
 }
+// This suite retains the pre-proxy helper layout to verify existing persisted sessions.
+vi.mock('@gugu/session-plugins/agents', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('@gugu/session-plugins/agents')>()
+  return { ...actual, resolveSessionpageCredentialLifecycle: (...args: Parameters<typeof actual.resolveSessionpageCredentialLifecycle>) => {
+    const lifecycle = actual.resolveSessionpageCredentialLifecycle(...args)
+    return args[0] === 'claude' && lifecycle ? { ...lifecycle, delivery: 'credential-helper' as const } : lifecycle
+  } }
+})
 vi.mock('@gugu/core', async (importOriginal) => ({
   ...(await importOriginal<Record<string, unknown>>()),
   listAgents: (...args: unknown[]) => listAgents(...args),

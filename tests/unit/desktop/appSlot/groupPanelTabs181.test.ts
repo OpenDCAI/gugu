@@ -2,10 +2,58 @@
 // 块的页签条按 tabs() 列出开着的几枚。owner 10-24:右栏没有「底」—— 群文件夹是普通的一枚,人打开它才有;一个 App 的一份
 // 资源只有一枚,怎么打开的只决定它的「上一页」(from)。
 import { describe, expect, it, vi } from 'vitest'
+import { readFileSync } from 'node:fs'
+import { resolve } from 'node:path'
 import { folderTab, groupSlotMemory, isFolder, type OpenedWith } from '../../../../apps/desktop/src/components/appSlot/groupSlotMemory'
+import type { ExtensionManifest } from '../../../../apps/desktop/src/session/shared/extensions/manifest'
 
 const board: OpenedWith = { kind: 'kanban.board', title: 'Board', opening: 1 }
 const deck: OpenedWith = { kind: 'slides.main', itemId: 'deck', typedName: 'deck.pptx', title: 'deck.pptx', opening: 2 }
+
+describe('renamed files already open in the panel', () => {
+  const installed: ExtensionManifest[] = [JSON.parse(readFileSync(resolve('apps/desktop/preinstalled-apps/workspace/manifest.json'), 'utf8'))]
+
+  it('updates the source and topic tabs together, keeping page identities, selection of the active tab and back links', () => {
+    const folder = folderTab()
+    const restore = vi.fn()
+    const file: OpenedWith = { kind: 'workspace.main', itemId: 'rename-file', title: 'old', fileName: 'old.md', typedName: 'old.md', opening: 320, from: folder, restore }
+    const other: OpenedWith = { ...deck, itemId: 'rename-other' }
+    groupSlotMemory.setForm('rename-source', 'side')
+    groupSlotMemory.open('rename-source', folder)
+    groupSlotMemory.open('rename-source', file)
+    groupSlotMemory.open('rename-topic', { ...file, opening: 321 })
+    groupSlotMemory.open('rename-topic', other)
+    expect(groupSlotMemory.fileIds().has('rename-file')).toBe(true)
+    const changed = vi.fn()
+    const off = groupSlotMemory.subscribe(changed)
+    const fresh = [{ id: 'rename-file', filename: 'new.md', content_type: 'text/markdown' }]
+    groupSlotMemory.updateFileNames(fresh, installed)
+    const renamed = groupSlotMemory.opened('rename-source')!
+    expect(renamed).toMatchObject({ itemId: 'rename-file', title: 'new', fileName: 'new.md', typedName: 'new.md', opening: 320 })
+    expect(renamed.from).toBe(folder)
+    expect(renamed.restore).toBe(restore)
+    expect(groupSlotMemory.form('rename-source')).toBe('side')
+    expect(groupSlotMemory.tabs('rename-source')).toHaveLength(2)
+    expect(groupSlotMemory.opened('rename-topic')).toBe(other)
+    expect(groupSlotMemory.tabs('rename-topic')[0]).toMatchObject({ title: 'new', opening: 321 })
+    const snapshot = groupSlotMemory.tabs('rename-source')
+    groupSlotMemory.updateFileNames(fresh, installed)
+    expect(groupSlotMemory.tabs('rename-source')).toBe(snapshot)
+    expect(changed).toHaveBeenCalledTimes(1)
+    off()
+    expect(restore).not.toHaveBeenCalled()
+  })
+
+  it('does not revive a closed file when a metadata read finishes afterwards', () => {
+    const file: OpenedWith = { kind: 'workspace.main', itemId: 'closed-rename', title: 'old', fileName: 'old.md', opening: 322 }
+    groupSlotMemory.open('rename-closed', file)
+    groupSlotMemory.close('rename-closed', file)
+    expect(groupSlotMemory.fileIds().has('closed-rename')).toBe(false)
+    groupSlotMemory.updateFileNames([{ id: 'closed-rename', filename: 'new.md', content_type: 'text/markdown' }], installed)
+    expect(groupSlotMemory.tabs('rename-closed')).toEqual([])
+    expect(groupSlotMemory.opened('rename-closed')).toBeNull()
+  })
+})
 
 describe('leaving a tab', () => {
   const file = (id: string, from?: OpenedWith): OpenedWith => ({ kind: 'workspace.main', itemId: id, title: `${id}.md`, opening: Number(id), ...(from ? { from } : {}) })

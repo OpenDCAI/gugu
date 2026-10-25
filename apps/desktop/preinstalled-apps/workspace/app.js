@@ -55,8 +55,6 @@ const STRINGS = {
     offline: '离线：改动会在回线后补上',
     gone: '这个文件不在了：被删掉了，或者你已经不在这个对话里。',
     readOnly: '只读',
-    saving: '保存中',
-    saved: '已保存',
     edit: '源码',
     split: '对照',
     preview: '预览',
@@ -82,7 +80,9 @@ const STRINGS = {
     upload: '上传',
     uploadTooLarge: '文件太大：{e}',
     download: '下载',
-    createdBy: '{who} 创建于{time}',
+    createdBy: '{who} 创建 · {time}',
+    editedBy: '{who} 编辑 · {time}',
+    editedAt: '已编辑 · {time}',
     agent: 'Agent',
     system: '系统',
     sources: '来源消息',
@@ -128,8 +128,6 @@ const STRINGS = {
     offline: 'Offline: changes catch up when back online',
     gone: 'This file is gone: it was deleted, or you are no longer in this chat.',
     readOnly: 'Read-only',
-    saving: 'Saving',
-    saved: 'Saved',
     edit: 'Source',
     split: 'Side by side',
     preview: 'Preview',
@@ -155,7 +153,9 @@ const STRINGS = {
     upload: 'Upload',
     uploadTooLarge: 'File too large: {e}',
     download: 'Download',
-    createdBy: 'Created by {who} {time}',
+    createdBy: 'Created by {who} · {time}',
+    editedBy: 'Edited by {who} · {time}',
+    editedAt: 'Edited · {time}',
     agent: 'agent',
     system: 'System',
     sources: 'Source messages',
@@ -337,7 +337,7 @@ function showList() {
   const fresh = state.shown && state.entries.find((e) => e.id === state.shown.id)
   if (fresh) {
     if (state.current?.entry.id === fresh.id) state.current.entry = fresh
-    $('doc-title').textContent = fresh.name
+    if (!$('doc-title').contains(document.activeElement)) $('doc-title').textContent = fresh.name
     showEntry(fresh)
   }
 }
@@ -354,7 +354,7 @@ function relativeTime(iso) {
   return rtf.format(seconds, 'second')
 }
 
-// When a file last changed: its last edit, else its making. There is no "last edited by" (fdf21cf0), only the time.
+// When a file last changed: its last edit, else its making.
 const changedAt = (entry) => entry.updatedAt ?? entry.createdAt
 
 const isFolder = (entry) => entry.type === 'folder'
@@ -561,6 +561,18 @@ function who(person) {
   return person.kind === 'agent' ? `${name} (${state.t.agent})` : name
 }
 
+// Creation and editing are separate facts: the creator must never be paired with the last edit's time.
+function activityOf(entry) {
+  if (!entry) return []
+  return [
+    entry.createdBy && !entry.systemRole ? fmt(state.t.createdBy, { who: who(entry.createdBy), time: relativeTime(entry.createdAt) }) : relativeTime(entry.createdAt),
+    entry.updatedAt && (entry.updatedBy || entry.createdAt && Date.parse(entry.updatedAt) > Date.parse(entry.createdAt))
+      ? fmt(entry.updatedBy ? state.t.editedBy : state.t.editedAt, {
+        who: entry.updatedBy ? who(entry.updatedBy) : '', time: relativeTime(entry.updatedAt),
+      }) : '',
+  ].filter(Boolean)
+}
+
 // F39 (L5) People read "周五聚餐吃什么", not "周五聚餐吃什么.dinner-vote.json": the host drops the suffix an App claims the
 // file by (entry.displayName) and says which App (entry.claimedBy) — this page never reads suffixes itself. 「附件」 goes by
 // its role (子文件夹): the folder gugu keeps for a chat's attachments, named in the person's language.
@@ -608,25 +620,32 @@ function listItem(entry) {
   title.append(name)
   // The whole name — suffix included — stays one hover (and the details) away; where it is, when the list is a search.
   open.title = pathOf(entry)
-  // Who · when (folders also say how much is in them). A search includes the containing folder on this same line.
+  // Who made it and when, then a separate edit time (folders also say how much is in them).
   const meta = document.createElement('span')
   meta.className = 'file-meta'
-  for (const text of [entry.createdBy && !entry.systemRole ? who(entry.createdBy) : '', relativeTime(changedAt(entry)), ...(folder ? [fmt(t.items, { n: inside(entry.id).length })] : [])]) {
-    meta.append(Object.assign(document.createElement('span'), { textContent: text }))
-  }
+  for (const text of activityOf(entry)) meta.append(Object.assign(document.createElement('span'), { className: 'file-activity', textContent: text }))
+  if (folder) meta.append(Object.assign(document.createElement('span'), { textContent: fmt(t.items, { n: inside(entry.id).length }) }))
   open.append(title)
   const where = state.filter.trim() && entry.parentId ? pathOf(entry).split('/').slice(0, -1).join('/') : ''
   if (where) meta.prepend(Object.assign(document.createElement('span'), { className: 'file-path', textContent: where }))
   open.append(meta)
   open.onclick = () => (folder ? enterFolder(entry.id) : openInHost(entry))
-  // Drag a row onto a folder, or onto a crumb, to move it there (desktop; 「附件」 itself stays put).
-  if (canWrite() && !entry.systemRole) {
+  // Files carry the same resource link outside this App; folder moves stay inside it.
+  const drag = (text, isLink) => {
     li.draggable = true
     li.addEventListener('dragstart', (event) => {
       state.dragging = entry
-      event.dataTransfer?.setData('text/plain', entry.name)
+      event.dataTransfer?.setData('text/plain', text)
+      if (isLink) event.dataTransfer?.setData('text/uri-list', text)
     })
     li.addEventListener('dragend', () => (state.dragging = null))
+  }
+  if (folder) {
+    if (canWrite() && !entry.systemRole) drag(entry.name, false)
+  } else {
+    // DataTransfer is writable only during dragstart, before any asynchronous host answer.
+    void gugu.linkTo({ kind: 'file', file: entry }).then((link) => drag(link, true))
+      .catch((error) => showBanner(fmt(state.t.failed, { e: error.message }), 'error'))
   }
   if (folder) dropOnto(li, entry.id)
   // One ⋯ per row: the other Apps that open the file (the host's picker, this App included), rename, move, delete. 「附件」
@@ -671,6 +690,7 @@ function startRename(li, entry) {
   li.draggable = false
   const input = document.createElement('input')
   input.className = 'rename-input'
+  input.setAttribute('aria-label', state.t.rename)
   input.value = entry.name
   li.replaceChildren(input)
   input.focus()
@@ -874,6 +894,7 @@ async function openHanded() {
     }
     const current = { entry: file.entry, file, view: null, unbind: null, offs: [] }
     state.current = current
+    bindFileMenu(current)
     showDoc(file.entry)
     if (file.type === 'text') await mountText(current)
     else mountJson(current)
@@ -979,18 +1000,47 @@ function refOf(current, { text, lines }) {
 // Cite: the places kept (＋), then the selection's, each a pill into this chat's composer (gugu.compose refs) — the person
 // says what to do with them, @s whom they like and sends it. A JSON file's view is not its text: its cite stays as it was,
 // each range quoted with the lines it is shown on, and a pill to the file. Called inside the click, as compose needs.
-async function cite() {
-  const current = state.current
-  if (!current || !(state.held.length || state.picks.length)) return
+async function cite(current = state.current, picks = state.picks, held = state.held, whole = false) {
+  if (!current || (!whole && !(held.length || picks.length))) return
   const quoted = ({ text, lines: [first, last] }) =>
     `${fmt(first === last ? state.t.line : state.t.lines, { first, last })}\n${text.replace(/\s+$/, '').split('\n').map((line) => `> ${line}`).join('\n')}`
   try {
-    if (current.file.type === 'text') await gugu.compose('', { refs: [...state.held, ...state.picks.map((pick) => refOf(current, pick))] })
-    else await gugu.compose(state.picks.map(quoted).join('\n\n'), { refs: [{ file: current.entry }] })
+    if (whole) await gugu.compose('', { refs: [{ file: current.entry }] })
+    else if (current.file.type === 'text') await gugu.compose('', { refs: [...held, ...picks.map((pick) => refOf(current, pick))] })
+    else await gugu.compose(picks.map(quoted).join('\n\n'), { refs: [{ file: current.entry }] })
     state.held = []
     renderHeld()
   } catch (error) {
     showBanner(fmt(state.t.failed, { e: error.message }), 'error')
+  }
+}
+
+// Register each file surface with the host's native menu. Cite keeps the App's existing refs/line fingerprints.
+function bindFileMenu(current) {
+  for (const id of ['editor', 'preview']) {
+    const root = $(id)
+    root.dataset.guguFileViewer = crypto.randomUUID()
+    let pending = null
+    const receive = ({ detail }) => {
+      if (detail.action === 'snapshot') {
+        const picks = (id === 'editor' ? !picksInPreview : picksInPreview) ? [...state.picks] : []
+        pending = { requestId: detail.requestId, picks, held: [...state.held], source: { entry: { ...current.entry }, file: { type: current.file.type, text: current.file.text } } }
+        detail.selection = { text: picks.map(pick => pick.text).join('\n') }
+        detail.editable = false
+        detail.customSelectAll = id === 'editor'
+      } else if (pending?.requestId === detail.requestId) {
+        const captured = pending
+        pending = null
+        if (detail.action === 'select-all') {
+          current.view?.dispatch({ selection: { anchor: 0, head: current.view.state.doc.length } })
+          current.view?.focus()
+        } else if (detail.action === 'quote-selection' || detail.action === 'quote-file') {
+          void cite(captured.source, captured.picks, captured.held, detail.action === 'quote-file')
+        }
+      }
+    }
+    root.addEventListener('gugu:file-viewer-menu', receive)
+    current.offs.push(() => { root.removeEventListener('gugu:file-viewer-menu', receive); delete root.dataset.guguFileViewer })
   }
 }
 
@@ -1188,12 +1238,12 @@ function watchStatus(current) {
     const t = state.t
     const badge = $('doc-status')
     badge.dataset.status = status
-    badge.textContent = file.readOnly && status === 'online' ? t.readOnly : status === 'online' ? (file.saved ? t.saved : t.saving) : status === 'offline' ? t.offline : ''
+    badge.textContent = file.readOnly && status === 'online' ? t.readOnly : status === 'offline' ? t.offline : ''
     if (status === 'gone') goneState(current)
     else if (status === 'offline') showBanner(t.offline, 'info')
     else if (!$('banner').dataset.sticky) hideBanner()
   }
-  // `saved` moving fires onStatus too (the runtime, F20): the badge follows it, nothing looks again.
+  // Ordinary edits and their confirmations stay quiet; read-only and offline still need saying.
   current.offs.push(file.onStatus(show))
   // A refused change (too large, rate-limited) is the runtime's to say, for every App alike (A6).
   show(file.status)
@@ -1264,16 +1314,12 @@ function showEntry(entry) {
   renderDocInfo(entry)
 }
 
-// Under the header: who created the file, and the messages it came from. The App cannot read those
+// Under the header: creation, editing, and the messages the file came from. The App cannot read those
 // messages (D-22); a click asks the host to show one in its chat (gugu.showMessage).
 function renderDocInfo(entry) {
   const t = state.t
   const parts = []
-  if (entry?.createdBy) {
-    const by = document.createElement('span')
-    by.textContent = fmt(t.createdBy, { who: who(entry.createdBy), time: relativeTime(entry.createdAt) })
-    parts.push(by)
-  }
+  for (const text of activityOf(entry)) parts.push(Object.assign(document.createElement('span'), { className: 'file-activity', textContent: text }))
   const sources = entry?.sourceMessageIds ?? []
   if (sources.length) {
     const box = document.createElement('span')
@@ -1385,8 +1431,12 @@ function start() {
   $('open-with').onclick = () => {
     if (state.shown) openInHost(state.shown, true)
   }
-  // Narrow, those two fold behind ⋯ (style.css): the page's one menu, as on a row.
-  $('more').onclick = () => toggleMenu($('more'), [[state.t.download, downloadShown], [state.t.openWith, () => openInHost(state.shown, true)]])
+  // The same menu at every width; the wide pane also keeps its Download and Open with shortcuts.
+  $('more').onclick = () => {
+    const items = [[state.t.download, downloadShown], [state.t.openWith, () => openInHost(state.shown, true)]]
+    if (canWrite() && state.shown && !state.shown.systemRole && !state.current?.file.readOnly) items.push([state.t.rename, () => startRename($('doc-title'), state.shown)])
+    toggleMenu($('more'), items)
+  }
   document.addEventListener('pointerdown', (event) => {
     if (state.menuAnchor && !$('menu').contains(event.target) && !state.menuAnchor.contains(event.target)) closeMenu()
   })

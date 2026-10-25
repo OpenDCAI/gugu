@@ -8,8 +8,9 @@ import { installedExtensionsStore } from '@renderer/features/extensions/installe
 import { getSessionPageStore } from '@renderer/features/sessions/stores/session-selectors';
 import { openSessionInSessionWhenReady } from '@renderer/features/sessions/open-session-in-session';
 import { MIN_PANE_HEIGHT_PX, MIN_PANE_WIDTH_PX } from '@renderer/features/tabs/pane-layout-store';
-import { minExtent } from '@renderer/features/tabs/pane-layout-tree';
+import { minExtent, paneExtent, removePane } from '@renderer/features/tabs/pane-layout-tree';
 import { auxWindows, type TabWindowHome } from './aux-windows';
+import { readChatSummaries, subscribeChatSummaries } from '@/lib/chatSummariesBridge';
 import { MAX_SCREEN_BLOCKS, screenLayout, type ScreenBlockContent, type ScreenLayoutSnapshot, type ScreenSession, type WindowableContent } from './screen-layout';
 
 /**
@@ -99,6 +100,35 @@ function pruneGoneApps(): void {
   );
 }
 
+/**
+ * 对话没了(删掉、退出、被移出):它那块收掉(收起来的组里也一样)。壳那份对话列表是「属于我的全部对话」(chatSummariesBridge),
+ * 只认在里面出现过、后来不在了的 —— 刚建的群要晚一步才进列表(store/chat.tsx loadChats),❌ 把还没进过列表的当成没了。
+ * 读回来的摆法里的对话上一次在列表里,算出现过(关着咕咕时被删、退出的,重启后第一份列表里就没有)。
+ */
+function pruneGoneChats(): void {
+  const chatsInLayout = () =>
+    [...screenLayout.blocks.values(), ...screenLayout.parkedContents].flatMap((block) => (block.kind === 'chat' ? [block.chatId] : []));
+  const listed = new Set(chatsInLayout());
+  const prune = () => {
+    const chats = readChatSummaries();
+    if (!chats) return;
+    for (const chatId of chats.keys()) listed.add(chatId);
+    for (const chatId of chatsInLayout()) if (listed.has(chatId) && !chats.has(chatId)) forgetChatOnScreen(chatId);
+  };
+  subscribeChatSummaries(prune);
+  prune();
+}
+
+/** 这条对话没了:它那块收掉;它在这屏上、屏空了就摆回最近看过的会话。人正看着别的视图(资源库、设置……)时 ❌ 把人拽回这屏。 */
+function forgetChatOnScreen(chatId: string): void {
+  const chat = { kind: 'chat', chatId } as const;
+  const onScreen = screenLayout.blockOf(chat) !== undefined;
+  screenLayout.forgetContent(chat);
+  if (!onScreen) return;
+  refillScreen();
+  if (isScreenView(appState.navigation.currentViewId)) followFocus();
+}
+
 /** 导航到一条会话(点左边一行、通知、新建完落地、后退)= 这屏把它摆出来。幂等;要赶在会话页第一次渲染之前装上。 */
 export function ensureScreenLayoutSync(): void {
   if (syncing) return;
@@ -108,9 +138,10 @@ export function ensureScreenLayoutSync(): void {
   // 拖分隔条这类连续变化攒一下再存;关窗、重载前把最后一下存上(和 App 摆在哪那张表对得上)。
   window.addEventListener('pagehide', () => saveScreenLayout(screenLayout.snapshot));
   pruneGoneApps();
-  // 左边列表把拼成一组的几条画成一个框(spec session-page「拼在一屏的几块是一组」):列表自己不认这屏,由这里喂。
+  pruneGoneChats();
+  // 左边列表把拼成一组的几行并在一处(spec session-page「拼在一屏的几块是一组」):列表自己不认这屏,由这里喂。
   reaction(
-    () => screenLayout.sessionGroups,
+    () => screenLayout.joinedGroups,
     (groups) => sidebarStore.setJoinedGroups(groups),
     { fireImmediately: true }
   );
@@ -219,11 +250,6 @@ export function takeSessionOutOfGroup(sessionId: string): void {
 export function dissolveScreenGroup(sessionId: string): void {
   screenLayout.dissolve(sessionId);
   followFocus();
-}
-
-/** 这条会话在不在一组里(左边那行右键要不要摆「从这一组拿出来 / 拆开这一组」)。 */
-export function isSessionGrouped(sessionId: string): boolean {
-  return screenLayout.isGrouped(sessionId);
 }
 
 function fullToast(): void {
@@ -427,11 +453,8 @@ export function revealAppBlock(tabKind: string): boolean {
     windowed.handle?.focus();
     return true;
   }
-  // 它在收起来的那组里:把那组摆回来(去看那组里的会话 = 整组回来),再看 App 那块。
-  const parkedWith = screenLayout.blockOfApp(tabKind) ? undefined : screenLayout.parkedSessionOfApp(tabKind);
-  if (parkedWith) {
-    screenLayout.show(parkedWith);
-  }
+  // 它在收起来的那组里:整组摆回来,正看着它那块(点组里任一样都一样)。
+  if (screenLayout.parkedContents.some((block) => block.kind === 'app' && block.tabKind === tabKind)) screenLayout.show({ kind: 'app', tabKind });
   const blockId = screenLayout.blockOfApp(tabKind);
   if (!blockId) return false;
   screenLayout.focus(blockId);
@@ -522,14 +545,16 @@ export const screenBlockElement = (blockId: string): HTMLElement | null =>
  * 指针在 (x, y) 时把 `content` 放下去会落在哪:一块的四条边(离哪条边近就是哪边)= 分出一块;
  * 一条会话那块的页签条或中间 —— 只有 App 能落 —— = 指针下那一格。它自己那块、满了又不能进格、太窄分不开、
  * 会话落在别的会话中间 —— 都是 null,这里不画落点(会话落在中间是插 @:那由指针下的输入面判,见 screenDropHandlers)。
+ * 会话落在聊天块的中间仍按最近边分块;输入框由 screenDropHandlers 排除,留给它自己的提及或邀请。
  */
 export function resolveBlockDrop(x: number, y: number, content: ScreenBlockContent): BlockDrop | null {
+  const from = blockOf(content);
   for (const blockId of screenLayout.order) {
     const element = screenBlockElement(blockId);
     if (!element) continue;
     const rect = element.getBoundingClientRect();
     if (x < rect.left || x > rect.right || y < rect.top || y > rect.bottom) continue;
-    if (blockOf(content) === blockId) return null;
+    if (from === blockId) return null;
     // 页签条压在上边沿里面:指着页签条 = 进那一条(排到哪),❌ 当成往上分一块。
     if (content.kind === 'app' && document.elementsFromPoint(x, y).some((el) => el.closest('[data-screen-page] .session-tab-bar'))) {
       return paneDropAt(x, y, blockId, content.tabKind);
@@ -543,8 +568,14 @@ export function resolveBlockDrop(x: number, y: number, content: ScreenBlockConte
       };
       const edge = (Object.keys(distance) as PaneEdge[]).reduce((a, b) => (distance[a] <= distance[b] ? a : b));
       const axis = edge === 'left' || edge === 'right' ? 'width' : 'height';
-      const splittable = (axis === 'width' ? rect.width : rect.height) >= blockMinExtent(blockId, axis) + contentMinExtent(content, axis) + 1;
-      if (distance[edge] <= EDGE_SHARE && splittable) return { blockId, edge };
+      // placeAt removes the old block first. Test the target's resulting extent, not its smaller pre-move box.
+      const frame = element.closest('[data-screen-frame]')?.getBoundingClientRect();
+      const available = from && screenLayout.layout
+        ? (frame ? paneExtent(removePane(screenLayout.layout, from), blockId, axis, frame[axis]) ?? 0 : 0)
+        : rect[axis];
+      const splittable = available >= blockMinExtent(blockId, axis) + contentMinExtent(content, axis) + 1;
+      const taskInChat = content.kind === 'session' && screenLayout.blocks.get(blockId)?.kind === 'chat';
+      if ((distance[edge] <= EDGE_SHARE || taskInChat) && splittable) return { blockId, edge };
     }
     return content.kind === 'app' ? paneDropAt(x, y, blockId, content.tabKind) : null;
   }

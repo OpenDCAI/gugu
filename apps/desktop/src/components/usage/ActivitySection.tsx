@@ -94,14 +94,14 @@ export function ActivitySection() {
       </section>
 
       <section className="gg-usage-section" aria-labelledby="usage-engines">
-        <SectionLabel id="usage-engines" trailing={<span className="gg-usage-hint">{t('usage.enginesHint')}</span>}>{t('usage.engines')}</SectionLabel>
+        <SectionLabel id="usage-engines">{t('usage.engines')}</SectionLabel>
         <Guarded state={data.usage} height={120}>
           {usage && <Engines usage={usage} range={current} />}
         </Guarded>
       </section>
 
       <section className="gg-usage-section" aria-labelledby="usage-rhythm">
-        <SectionLabel id="usage-rhythm" trailing={<span className="gg-usage-hint">{t('usage.rhythmHint')}</span>}>{t('usage.rhythm')}</SectionLabel>
+        <SectionLabel id="usage-rhythm">{t('usage.rhythm')}</SectionLabel>
         <Guarded state={data.usage} height={120}>
           {usage && <Rhythm usage={usage} range={current} />}
         </Guarded>

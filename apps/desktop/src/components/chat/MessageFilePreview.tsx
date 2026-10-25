@@ -1,6 +1,8 @@
 import type { MessageItem } from '@gugu/core/shared/types/chat'
 import { messageActionItems } from './messageActionItems'
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
+import { bindFileViewerMenu } from '../preview/file-viewer-menu'
+import { quoteChatFile, selectedTextQuote } from '../preview/quote-preview-file'
 import type { ParsedAttachment } from '@gugu/core/shared/ui/attachmentModels'
 import { useTranslation } from 'react-i18next'
 import { downloadBlob } from '../../lib/download'
@@ -50,12 +52,27 @@ export function MessageFilePreview({ file, mobile = false, fill = false, tabbed 
   const { toast } = useToast()
   const downloadFailed = t('chatArea.downloadFailed')
   const kind = classifyDocumentPreview(file)
-  const [read, setRead] = useState<{ content: string | ArrayBuffer | null; videoUrl?: string; error?: string } | null>(null)
   const key = sourceKeyOf(file.source)
+  const contentRef = useRef<HTMLDivElement>(null)
+  useEffect(() => {
+    if (!contentRef.current || (file.source.kind !== 'item' && !message)) return
+    return bindFileViewerMenu(contentRef.current, () => ({
+      quote: async (selection) => {
+        if (file.source.kind === 'item') return quoteChatFile(file.source.itemId, file.source.version, selection)
+        const { UI_EVENTS } = await import('@/lib/uiEvents')
+        window.dispatchEvent(new CustomEvent(UI_EVENTS.quoteMessage, { detail: { messageId: message!.id, senderName: file.fileName, content: selection ? selectedTextQuote(selection) : file.fileName } }))
+      },
+      canSelectAll: kind !== 'image' && kind !== 'video' && kind !== 'unsupported',
+    }), (error) => toast(error instanceof Error ? error.message : String(error), 'error'))
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- source identity retains the menu snapshot across unrelated renders
+  }, [key, file.fileName, message?.id, kind, toast])
+  const [read, setRead] = useState<{ content: string | ArrayBuffer | null; videoUrl?: string; error?: string } | null>(null)
   useEffect(() => {
     let live = true
     setRead(null)
-    if (kind !== 'unsupported') void (kind === 'image' ? openAttachmentImage(file.source, file.fileName, () => live) : readPreview(file, kind)).then(
+    const source = file.source
+    const quoteImage = source.kind === 'item' ? () => quoteChatFile(source.itemId, source.version, null) : undefined
+    if (kind !== 'unsupported') void (kind === 'image' ? openAttachmentImage(source, file.fileName, () => live, quoteImage) : readPreview(file, kind)).then(
       (done) => { if (live) { if (kind === 'image') (onBack ?? onClose)(); else if (done) setRead(done) } },
       (error) => live && setRead({ content: null, error: t(error instanceof Error && error.message === 'gone' ? 'attachmentView.fileGone' : 'attachmentView.fileUnavailable') }),
     )
@@ -72,5 +89,5 @@ export function MessageFilePreview({ file, mobile = false, fill = false, tabbed 
   const download = () => void previewBytes(file).then((blob) => downloadBlob(blob, file.fileName)).catch(() => toast(downloadFailed, 'error'))
   const actions = messageActionItems({ isMine: false, isRetracted: !!message?.retracted_at, content: message?.content ?? null, onForward: message && onForward ? () => onForward(message) : undefined, onDownload: download }, t)
   if (kind === 'image' && !read?.error) return null
-  return <MessageFilePreviewPanel fill={fill} tabbed={tabbed} mobile={mobile} file={file} kind={kind} content={read?.content ?? null} videoUrl={read?.videoUrl} loading={kind !== 'unsupported' && read === null} error={read?.error} onBack={onBack} full={full} onToggleFull={onToggleFull} onClose={onClose} actions={actions} onOpenExternal={kind === 'unsupported' || file.document ? undefined : openExternal} />
+  return <MessageFilePreviewPanel contentRef={contentRef} fill={fill} tabbed={tabbed} mobile={mobile} file={file} kind={kind} content={read?.content ?? null} videoUrl={read?.videoUrl} loading={kind !== 'unsupported' && read === null} error={read?.error} onBack={onBack} full={full} onToggleFull={onToggleFull} onClose={onClose} actions={actions} onOpenExternal={kind === 'unsupported' || file.document ? undefined : openExternal} />
 }

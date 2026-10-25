@@ -192,10 +192,12 @@ export class MemoryHeartbeatClient implements DeviceHeartbeatTableClient {
   from(table: 'gugu_devices') {
     expect(table).toBe('gugu_devices')
     return {
-      upsert: async (row: never, options?: { onConflict: string }) => {
-        if (this.errorMessage) return { data: null, error: { message: this.errorMessage } }
-        this.upserts.push({ row: row as Record<string, unknown>, options })
-        return { data: null, error: null }
+      upsert: (row: never, options?: { onConflict: string }) => {
+        const result = this.errorMessage ? { data: null, error: { message: this.errorMessage } } : { data: null, error: null }
+        if (!this.errorMessage) this.upserts.push({ row: row as Record<string, unknown>, options })
+        return Object.assign(Promise.resolve(result), {
+          select: async () => ({ ...result, data: result.error ? null : [{ runtimes: [] }] }),
+        })
       },
       update: (value: { status: 'offline'; updated_at: string }) => ({
         eq: async (_column: 'device_id', deviceId: string) => {

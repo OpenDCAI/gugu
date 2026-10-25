@@ -1,37 +1,20 @@
-import { useLayoutEffect, useRef, type ReactNode } from 'react'
-
-/** 底部那一摞的实测高度,挂在它所在的那一栏上;消息流末尾(MessageList)和空态占位都按它让位。 */
-const CHAT_DOCK_HEIGHT_VAR = '--chat-dock-h'
+import type { ReactNode } from 'react'
+import { composerSlotClass, composerSlotInnerClass } from '@gugu/session-chat-ui/composer-layout'
 
 /**
- * 会话底部那一摞(运行条、回合失败条、输入框 / 多选条)浮在消息流上,垫一层半透明底色:往上滑时消息从运行条和输入框四周
- * 隐约透出来,运行条和下面的输入区是同一层(owner 2026-10-23「类似 telegram 的那种半透明遮蔽」「状态 bar…和下面的输入框部分
- * 衔接自然」,❌ 一整条实色白底)。与会话页输入框槽同一层底色(chat-root.css.ts composerSlotInnerBottomClass)。
- * 只是带 alpha 的底色,❌ backdrop-filter(玻璃拟态已退役;mac 上一块就让 GPU 进程那份驱动内存清不掉)。
+ * The desktop composer uses the same slot frame as ACP tasks.
  *
- * 浮起来以后它不再占消息流的高度:它把自己的高度写进所在那一栏的 --chat-dock-h,消息流在最后一条后面让出同样高的一格,
- * 滚到底时最后一条落在运行条上面;它一变高(运行条出现、输入框长高),那一格跟着变,消息流在底部就照常贴底。
- * reserve:没有消息流可让(空态、骨架)时,在列底占一格同高的位置,空态的内容不被盖住。
- * floating=false(手机):照旧排在消息流下面。
+ * 底部那一摞排在消息流下面,不浮在消息流上(owner 10-25):消息流的滚动区在 `above`(运行条那一行)的上沿结束,
+ * 消息不会滚到运行条和输入框后面。`above` 是真占位的一行:固定高度、透明、没有底,里面有没有东西都不改变这一摞的高度,
+ * 所以运行条出现、消失不改变布局。回复条和输入框那一层的底色与聊天栏同一个 token(--bg-primary)。
+ * floating=false(手机):没有这层外框,照旧按顺序排在消息流下面。
  */
-export function ChatBottomDock({ floating, reserve, children }: { floating: boolean; reserve: boolean; children: ReactNode }) {
-  const ref = useRef<HTMLDivElement | null>(null)
-  useLayoutEffect(() => {
-    const el = ref.current, column = el?.parentElement
-    if (!floating || !el || !column) return
-    const report = () => column.style.setProperty(CHAT_DOCK_HEIGHT_VAR, `${el.offsetHeight}px`)
-    report()
-    const observer = new ResizeObserver(report)
-    observer.observe(el)
-    return () => { observer.disconnect(); column.style.removeProperty(CHAT_DOCK_HEIGHT_VAR) }
-  }, [floating])
-  if (!floating) return <>{children}</>
+export function ChatBottomDock({ floating, above, children }: { floating: boolean; above?: ReactNode; children: ReactNode }) {
+  if (!floating) return <>{above}{children}</>
   return (
-    <>
-      {reserve && <div aria-hidden className="h-[var(--chat-dock-h,0px)] shrink-0" />}
-      <div ref={ref} data-chat-bottom-dock="" className="absolute inset-x-0 bottom-0 z-[1] bg-[color-mix(in_srgb,var(--bg-primary)_82%,transparent)]">
-        {children}
-      </div>
-    </>
+    <div data-chat-bottom-dock="" className={`${composerSlotClass} relative! shrink-0`}>
+      {above ? <div className={`${composerSlotInnerClass} pb-0!`}>{above}</div> : null}
+      <div className={`${composerSlotInnerClass} bg-[var(--bg-primary)]`}>{children}</div>
+    </div>
   )
 }

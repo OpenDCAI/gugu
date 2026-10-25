@@ -80,7 +80,7 @@ it.each(['computer', 'cloud'] as const)('keeps the complete %s handbook retrieva
     expect(full).not.toContain(ASSISTANT_TASK_EXECUTION)
     const materialized = personalAssistantContext(fixture(), kind)
     const options = (materialized.sessionNewPatch!.meta!.claudeCode as { options: Record<string, unknown> }).options
-    const effective = String(options.systemPrompt) + '\n' + brief
+    const effective = (options.systemPrompt as { prompt: string }).prompt + '\n' + brief
     for (const rule of ASSISTANT_CONTEXT_CORE.slice(1)) expect(effective.split(rule)).toHaveLength(2)
     expect(effective).not.toContain('Read the assistant handbook before delegation')
     expect(await readFile(join(cwd, 'memory.md'), 'utf8')).toBe('durable owner memory')
@@ -102,13 +102,31 @@ it('keeps home executors isolated while the host supplies the contract in their 
   const options = (after.sessionNewPatch!.meta!.claudeCode as { options: Record<string, unknown> }).options
   expect(options.systemPrompt).not.toContain(ASSISTANT_TASK_EXECUTION)
   expect(options.systemPrompt).toContain(before.sessionPrompt)
+  expect(typeof options.systemPrompt).toBe('string')
   expect(options.settingSources).toEqual([])
   expect(options.tools).toContain('Bash')
   expect(options.env).toMatchObject({ CLAUDE_CODE_DISABLE_AUTO_MEMORY: '1', KEEP_THIS: 'yes' })
+  expect(options.env).not.toHaveProperty('ENABLE_TOOL_SEARCH')
   expect(options.settings).toBe('/private/model.json')
   expect(options.mcpServers).toHaveProperty('plugin_gugu-product_gugu')
   expect(after.artifacts).toEqual(before.artifacts)
   expect(JSON.stringify(after.artifacts)).not.toContain('recovery.cjs')
+})
+
+it('preserves executor tool-search choices without inheriting the assistant override', () => {
+  for (const value of ['true', 'auto:5']) {
+    const capabilities = fixture()
+    const claude = capabilities.sessionNewPatch!.meta!.claudeCode as { options: { env: Record<string, string> } }
+    claude.options.env.ENABLE_TOOL_SEARCH = value
+    const executor = assistantHomeTaskContext(capabilities, '/gugu/assistant', '/gugu')
+    const options = (executor.sessionNewPatch!.meta!.claudeCode as { options: { env: Record<string, string> } }).options
+    expect(options.env.ENABLE_TOOL_SEARCH).toBe(value)
+    for (const kind of ['cloud', 'computer'] as const) {
+      const assistant = personalAssistantContext(capabilities, kind)
+      expect((assistant.sessionNewPatch!.meta!.claudeCode as { options: { env: Record<string, string> } }).options.env.ENABLE_TOOL_SEARCH).toBe('false')
+    }
+    expect(claude.options.env.ENABLE_TOOL_SEARCH).toBe(value)
+  }
 })
 
 it('excludes ancestor coding instructions without changing the assistant settings or its own guide', async () => {
@@ -178,10 +196,12 @@ it('loads the assistant project and explicit Gugu tools without the host coding 
   expect(JSON.stringify(options.mcpServers)).not.toContain('private-sentinel')
   expect(options.settings).toBe('/private/model.json')
   expect(options.disallowedTools).toEqual(['AskUserQuestion'])
-  expect(options.env).toEqual({ KEEP_THIS: 'yes', CLAUDE_CODE_AUTO_COMPACT_WINDOW: '250000' })
+  expect(options.env).toEqual({ KEEP_THIS: 'yes', CLAUDE_CODE_AUTO_COMPACT_WINDOW: '250000', ENABLE_TOOL_SEARCH: 'false' })
   expect(after.sessionPrompt).toBe(before.sessionPrompt)
-  expect(options.systemPrompt).toContain('personal assistant in Gugu')
-  expect(String(options.systemPrompt).split(before.sessionPrompt!).length).toBe(2)
+  expect(options.systemPrompt).toMatchObject({ type: 'custom', snapshot: false })
+  const prompt = (options.systemPrompt as { prompt: string }).prompt
+  expect(prompt).toContain('personal assistant in Gugu')
+  expect(prompt.split(before.sessionPrompt!).length).toBe(2)
   expect(after.spawnEnv).toBe(before.spawnEnv)
   expect((before.sessionNewPatch!.meta!.claudeCode as { options: object }).options).not.toHaveProperty('strictMcpConfig')
 })
@@ -194,7 +214,22 @@ it('retains an explicit reasoning choice', () => {
   const after = personalAssistantContext(chosen)
   const actual = after.sessionNewPatch!.meta!.claudeCode as { options: Record<string, unknown> }
   expect(actual.options.effort).toBe('high')
-  expect(actual.options.systemPrompt).toBe('explicit system instructions')
+  expect(actual.options.systemPrompt).toEqual({ type: 'custom', prompt: 'explicit system instructions', snapshot: false })
+})
+
+it('keeps explicit preset and custom prompt content while disabling only assistant snapshots', () => {
+  for (const systemPrompt of [
+    { type: 'preset', preset: 'claude_code', append: 'owner policy', snapshot: true },
+    { type: 'custom', prompt: ['owner policy', 'platform policy'] },
+  ]) {
+    const before = fixture()
+    const options = (before.sessionNewPatch!.meta!.claudeCode as { options: Record<string, unknown> }).options
+    options.systemPrompt = systemPrompt
+    const after = personalAssistantContext(before)
+    const actual = (after.sessionNewPatch!.meta!.claudeCode as { options: Record<string, unknown> }).options
+    expect(actual.systemPrompt).toEqual({ ...systemPrompt, snapshot: false })
+    expect(options.systemPrompt).toBe(systemPrompt)
+  }
 })
 
 it.each(['computer', 'cloud'] as const)('opens %s with an honest snapshot while fresh discovery continues, including on resume', async kind => {
@@ -215,7 +250,7 @@ it.each(['computer', 'cloud'] as const)('opens %s with an honest snapshot while 
     }
     const start = await preparePersonalAssistantContext(fixture(), cwd, root, kind, deps, root)
     const options = (start.sessionNewPatch!.meta!.claudeCode as { options: Record<string, unknown> }).options
-    expect(options.systemPrompt).not.toContain('first-project')
+    expect((options.systemPrompt as { prompt: string }).prompt).not.toContain('first-project')
     expect(hookIndex(start)).toContain('not_loaded')
     await (await openingAssistantIndex(root, cwd, kind, deps)).refreshed
     const warm = await preparePersonalAssistantContext(fixture(), cwd, root, kind, deps, root)
@@ -226,7 +261,7 @@ it.each(['computer', 'cloud'] as const)('opens %s with an honest snapshot while 
     expect(executionHost).toMatchObject({ this_machine: true })
     if (kind === 'cloud') expect(executionHost).toHaveProperty('cloud_computer', 'awake')
     else expect(executionHost).not.toHaveProperty('cloud_computer')
-    expect(options.systemPrompt).toContain('identity and product rules')
+    expect((options.systemPrompt as { prompt: string }).prompt).toContain('identity and product rules')
     expect(start.sessionPrompt).toBe('identity and product rules')
     await (await openingAssistantIndex(root, cwd, kind, deps)).refreshed
     name = 'renamed-project'
@@ -262,7 +297,9 @@ it('uses a native context hook while retaining explicit string and preset system
     options.systemPrompt = prompt
     const after = personalAssistantContext(chosen, 'computer', { index: 'fresh-index', guguHome: '/home/gugu' })
     const actual = (after.sessionNewPatch!.meta!.claudeCode as { options: Record<string, unknown> }).options
-    expect(actual.systemPrompt).toEqual(prompt)
+    expect(actual.systemPrompt).toEqual(typeof prompt === 'string'
+      ? { type: 'custom', prompt, snapshot: false }
+      : { ...prompt, snapshot: false })
     expect(hookIndex(after)).toBe('fresh-index')
   }
 })
@@ -339,7 +376,7 @@ it('removes a persisted early-compaction percentage instead of carrying the old 
   const options = (chosen.sessionNewPatch!.meta!.claudeCode as { options: Record<string, unknown> }).options
   options.env = { CLAUDE_CODE_AUTO_COMPACT_WINDOW: '40000', CLAUDE_AUTOCOMPACT_PCT_OVERRIDE: '75', KEEP_THIS: 'yes' }
   const next = (personalAssistantContext(chosen).sessionNewPatch!.meta!.claudeCode as { options: Record<string, unknown> }).options
-  expect(next.env).toEqual({ CLAUDE_CODE_AUTO_COMPACT_WINDOW: '250000', KEEP_THIS: 'yes' })
+  expect(next.env).toEqual({ CLAUDE_CODE_AUTO_COMPACT_WINDOW: '250000', KEEP_THIS: 'yes', ENABLE_TOOL_SEARCH: 'false' })
   expect(options.env).toHaveProperty('CLAUDE_AUTOCOMPACT_PCT_OVERRIDE', '75')
 })
 

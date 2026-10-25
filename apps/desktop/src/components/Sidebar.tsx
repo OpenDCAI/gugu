@@ -415,11 +415,6 @@ export const Sidebar = observer(function Sidebar({ activeTab, onTabChange, setti
             badge={sessionAttention ? 1 : 0}
             badgeTone={sessionAttention === 'needs_user' ? 'warn' : undefined}
           />
-          {/* 「发现」入口已移除(owner 2026-09-05:「发现页离完善还有距离,先不展示」)。
-              页面代码(pages/ExplorePage.tsx 及其 pane)原样留在仓里,只是不再可达——
-              下架的是入口不是功能,想恢复就在这里加回一个 RailItem。
-              页里三块(工作台 / 广场 / 找群)同进同出:找群也没有入口 —— owner 追加「现在没有公开群
-              的概念,别有公开群」,群设置里的「公开到广场」开关同批撤掉(见 chat/GroupMembersSection)。 */}
           <RailItem
             icon={<ContactsIcon />}
             active={activeTab === 'contacts'}

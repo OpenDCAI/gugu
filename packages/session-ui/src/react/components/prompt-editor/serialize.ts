@@ -22,7 +22,7 @@ export function mentionInsertContent(item: MentionItem) {
   return [{ type: 'mention', attrs: {
     id: item.id, label: item.label, name: item.name ?? null, kind: item.kind,
     role: item.role ?? null, engine: item.engine ?? null,
-    title: item.role === 'agent' ? item.description ?? null : null,
+    title: item.role === 'agent' || item.kind === 'file' ? item.description ?? null : null,
     pending: item.pending ?? false, annotation: item.annotation ?? null,
   } }, { type: 'text', text: ' ' }];
 }

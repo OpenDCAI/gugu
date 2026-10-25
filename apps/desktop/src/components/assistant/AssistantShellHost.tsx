@@ -256,7 +256,7 @@ export function AssistantShellHost({ visible, ...chatHandlers }: { /** 会话页
       case 'onboarding': return <OnboardingSlot />
       // 格子挂着 = 「助理」App 开在「聊天」那一页;再加上会话页那一屏摆在眼前,才算人在看。
       case 'chat': return contact ? <AssistantChatSlot dm={dm} assistantId={contact.id} assistantName={contact.display_name} visible={visible} {...chatHandlers} /> : null
-      case 'devices': return <AssistantDevicesPage cloudDeviceId={cloudDeviceId} assistantName={contact?.display_name ?? ''} />
+      case 'devices': return <AssistantDevicesPage cloudDeviceId={cloudDeviceId} />
       case 'connectors': return <ConnectorsSection />
       case 'settings': return <AssistantSettingsPage />
     }
