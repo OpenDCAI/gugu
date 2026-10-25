@@ -57,7 +57,7 @@ export function ComposerCardView({ card, isMine, isGroup, chatId, senderName, ti
   const seated = !!task && !!memberProfiles?.[task.agentUserId] && memberProfiles[task.agentUserId]!.membership !== 'former'
   const join = useMyAgentJoin(isMine && isGroup && !seated ? chatId : null, task?.agentUserId ?? null)
   const status = useAgentDisplayStatuses(task ? [task.agentUserId] : [])[task?.agentUserId ?? '']
-  const openable = task && place.local
+  const openable = task && isMine
   const Root = openable ? 'button' : 'div'
   return (
     <Root
@@ -65,7 +65,7 @@ export function ComposerCardView({ card, isMine, isGroup, chatId, senderName, ti
       data-testid="composer-card"
       data-card-type={card.type}
       title={openable ? t('message.taskCard.open') : undefined}
-      onClick={openable ? () => openTaskCardSession(task) : undefined}
+      onClick={openable ? () => openTaskCardSession(task, place.local) : undefined}
       className="box-border flex w-[300px] max-w-full flex-col gap-2 rounded-xl border border-[var(--border)] bg-[var(--bg-primary)] p-3 text-left enabled:cursor-pointer enabled:hover:border-[var(--border-strong)]"
     >
       <span className="flex h-6 items-center gap-2">
@@ -110,10 +110,8 @@ function TaskStatusMark({ status }: { status: AgentDisplayStatus | undefined }) 
   return <AgentStatusGlyph presentation={presentation} label={t(`agentStatus.${presentation.label}`)} variant="2" />
 }
 
-let localDeviceIdOnce: Promise<string | null> | null = null
 function localDeviceId(): Promise<string | null> {
-  localDeviceIdOnce ??= Promise.resolve(platform.getLocalDeviceSelfSnapshot?.()).then((self) => self?.device_id ?? null, () => null)
-  return localDeviceIdOnce
+  return Promise.resolve(platform.getLocalDeviceSelfSnapshot?.()).then((self) => self?.device_id ?? null, () => null)
 }
 
 /**

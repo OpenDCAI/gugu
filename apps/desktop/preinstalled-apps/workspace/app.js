@@ -625,14 +625,22 @@ function listItem(entry) {
   if (where) meta.prepend(Object.assign(document.createElement('span'), { className: 'file-path', textContent: where }))
   open.append(meta)
   open.onclick = () => (folder ? enterFolder(entry.id) : openInHost(entry))
-  // Drag a row onto a folder, or onto a crumb, to move it there (desktop; 「附件」 itself stays put).
-  if (canWrite() && !entry.systemRole) {
+  // Files carry the same resource link outside this App; folder moves stay inside it.
+  const drag = (text, isLink) => {
     li.draggable = true
     li.addEventListener('dragstart', (event) => {
       state.dragging = entry
-      event.dataTransfer?.setData('text/plain', entry.name)
+      event.dataTransfer?.setData('text/plain', text)
+      if (isLink) event.dataTransfer?.setData('text/uri-list', text)
     })
     li.addEventListener('dragend', () => (state.dragging = null))
+  }
+  if (folder) {
+    if (canWrite() && !entry.systemRole) drag(entry.name, false)
+  } else {
+    // DataTransfer is writable only during dragstart, before any asynchronous host answer.
+    void gugu.linkTo({ kind: 'file', file: entry }).then((link) => drag(link, true))
+      .catch((error) => showBanner(fmt(state.t.failed, { e: error.message }), 'error'))
   }
   if (folder) dropOnto(li, entry.id)
   // One ⋯ per row: the other Apps that open the file (the host's picker, this App included), rename, move, delete. 「附件」

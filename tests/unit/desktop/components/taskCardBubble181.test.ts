@@ -2,11 +2,19 @@
 // gugu-dev#181 任务卡在群里的样子:卡头带时刻,「交给」带头像,我自己这台电脑上的卡不写在哪个项目,不挂已读环;
 // agent 回群引用那张卡时,引用块是卡头「新任务」+ 原话,不是「发卡的人 / 新任务：原话」。
 import { act } from 'react'
+import { ComposerCardView } from '../../../../apps/desktop/src/components/chat/ComposerCardView'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { MessageBubble } from '../../../../apps/desktop/src/components/chat/MessageBubble'
 import { serializeComposerCard, type TaskCard } from '../../../../packages/core/src/shared/ui/taskCardModels'
 import { createNode, createReactHarness, message, renderWithAppProviders } from '../../../support/testHarness'
 import type { ChatContextValue } from '../../../../apps/desktop/src/store/chatContext'
+
+const cardOpen = vi.hoisted(() => ({ open: vi.fn(), snapshot: vi.fn(async () => ({ device_id: 'device-1' })) }))
+vi.mock('../../../../apps/desktop/src/components/chat/openTaskCardSession', () => ({ openTaskCardSession: cardOpen.open }))
+vi.mock('../../../../apps/desktop/src/platform', async (original) => {
+  const actual = await original<typeof import('../../../../apps/desktop/src/platform')>()
+  return { ...actual, platform: { ...actual.platform, getLocalDeviceSelfSnapshot: cardOpen.snapshot } }
+})
 
 // What this viewer can look up about the agent: for a colleague's agent still waiting to be let in, nothing (80e).
 let lookedUp = 'codex'
@@ -135,5 +143,44 @@ describe('a task card waiting for the group owner (gugu-dev#181)', () => {
     await renderWithAppProviders(harness, groupCard({ 'agent-1': { displayName: 'Codex 1' } }), { chat })
     expect(joins.reads).toBe(0)
     expect(cardText()).not.toContain('等群主同意它进群')
+  })
+})
+
+
+describe('task card resource access', () => {
+  beforeEach(() => { cardOpen.open.mockClear(); cardOpen.snapshot.mockReset().mockResolvedValue({ device_id: 'device-1' }) })
+  const renderCard = (isMine: boolean, card: TaskCard = CARD) => renderWithAppProviders(harness,
+    createNode(ComposerCardView, { card, isMine, isGroup: true, chatId: 'chat-1', senderName: 'Colleague', time: '12:00' }))
+
+  it('opens the owner remote task through the resource route, while a local task keeps its layout opener', async () => {
+    await renderCard(true, { ...CARD, deviceId: 'another-device', machineLabel: 'Remote computer' })
+    const remote = harness.container.querySelector<HTMLButtonElement>('[data-testid="composer-card"]')!
+    expect(remote.tagName).toBe('BUTTON')
+    await act(async () => { remote.click() })
+    expect(cardOpen.open).toHaveBeenLastCalledWith(expect.objectContaining({ sessionId: CARD.sessionId }), false)
+    await renderCard(true)
+    await vi.waitFor(() => expect(cardOpen.snapshot).toHaveBeenCalled())
+    await act(async () => { harness.container.querySelector<HTMLButtonElement>('[data-testid="composer-card"]')!.click() })
+    expect(cardOpen.open).toHaveBeenLastCalledWith(CARD, true)
+  })
+
+  it('names the other owner and says it cannot be viewed, without opening a task', async () => {
+    await renderCard(false)
+    const card = harness.container.querySelector<HTMLElement>('[data-testid="composer-card"]')!
+    expect(card.tagName).toBe('DIV')
+    expect(card.textContent).toContain('Colleague 的任务 · 无法查看')
+    await act(async () => { card.click() })
+    expect(cardOpen.open).not.toHaveBeenCalled()
+  })
+
+  it('does not retain a failed device lookup for the next card mount', async () => {
+    cardOpen.snapshot.mockRejectedValueOnce(new Error('snapshot unavailable'))
+    await renderCard(true)
+    expect(harness.container.querySelector('[data-testid="composer-card"]')?.tagName).toBe('BUTTON')
+    harness.cleanup(); harness = createReactHarness()
+    await renderCard(true)
+    expect(cardOpen.snapshot).toHaveBeenCalledTimes(2)
+    await act(async () => { harness.container.querySelector<HTMLButtonElement>('[data-testid="composer-card"]')!.click() })
+    expect(cardOpen.open).toHaveBeenLastCalledWith(CARD, true)
   })
 })

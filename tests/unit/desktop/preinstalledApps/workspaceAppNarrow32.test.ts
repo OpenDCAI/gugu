@@ -21,6 +21,7 @@ const setNarrow = (matches: boolean) => {
 }
 
 const gugu = {
+  linkTo: vi.fn(async ({ file }: { file: { id: string } }) => `gugu-file://${file.id}`),
   getContext: vi.fn(async () => context),
   onContextChanged: vi.fn(() => () => {}),
   openBrowserTab: vi.fn(async () => {}),

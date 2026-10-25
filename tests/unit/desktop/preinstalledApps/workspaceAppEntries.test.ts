@@ -33,6 +33,7 @@ const context: Ctx = { chat: { id: 'chat-1', name: 'G', kind: 'group', groupId: 
 let contextChanged: (ctx: Ctx) => void = () => {}
 
 const gugu = {
+  linkTo: vi.fn(async ({ file }: { file: { id: string } }) => `gugu-file://${file.id}`),
   setTabTitle: vi.fn(async () => {}),
   getContext: vi.fn(async () => context),
   onContextChanged: vi.fn((fn: typeof contextChanged) => {
