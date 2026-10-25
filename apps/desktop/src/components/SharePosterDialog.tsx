@@ -86,7 +86,7 @@ export function SharePosterDialog({ title, subtitle, qrValue, memberAvatarUrls, 
       })
       .finally(() => { if (!cancelled) setGenerating(false) })
     return () => { cancelled = true }
-  }, [qrDataUrl, title, subtitle, memberKey, totalMemberCount, qrCaption, ctaText])
+  }, [qrDataUrl, title, subtitle, memberKey, totalMemberCount, qrCaption, ctaText, t])
 
   const handleCopy = useCallback(async () => {
     const canvas = posterCanvasRef.current
