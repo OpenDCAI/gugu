@@ -376,6 +376,27 @@ describe('SessionpagePlatformRecoveryCoordinator', () => {
     expect(attempts).toBe(1)
   })
 
+  it('returns the reason for a failed proxy recovery during flight cleanup and on later delivery', async () => {
+    let reentrant!: Promise<unknown>
+    const refresh = vi.fn(async () => { throw new Error('replacement access refused') })
+    const coordinator = new SessionpagePlatformRecoveryCoordinator({
+      isExpired: () => true,
+      resolveTarget: () => ({ ...target, credentialGeneration: 'generation-1' }),
+      currentGeneration: () => 'generation-1',
+      credentialLifecycleFor: () => ({ ...lifecycle, delivery: 'credential-proxy', originalProcessRefresh: 'supported' }),
+      requestCredentialsManaged: () => true,
+      reopen: vi.fn(), refresh, waitUntilReady: async () => undefined,
+      onStateChange: (_target, state) => {
+        if (state.status === 'failed') reentrant = coordinator.ensureReady(target.sessionId, 'agent-inbox')
+      },
+    })
+    const failed = { status: 'failed', error: 'replacement access refused' }
+    await expect(coordinator.retry(target.sessionId)).resolves.toEqual(failed)
+    await expect(reentrant).resolves.toEqual(failed)
+    await expect(coordinator.ensureReady(target.sessionId, 'session-direct')).resolves.toEqual(failed)
+    expect(refresh).toHaveBeenCalledTimes(1)
+  })
+
   it('clears failed state and returns live after an explicit retry succeeds', async () => {
     let expired = true
     let attempts = 0
