@@ -407,7 +407,7 @@ describe('TopicSplitPane 是分栏，不是话题的开关', () => {
     expect(harness.container.querySelector('[data-testid="topic-split-send"]')).toBeNull()
   })
 
-  // owner 10-25:有运行条的地方,那一行始终占位(透明、固定高),运行条出现、消失不改变布局。
+  // owner 10-25:有运行条的地方,那一行始终占位(固定高、没有底),运行条出现、消失不改变布局。
   it('reserves the running bar row above the composer when the pane shows running agents', async () => {
     await renderWithAppProviders(harness, createNode(TopicSplitPane, { ...baseProps, runningTokens: [] }))
     const dock = harness.container.querySelector<HTMLElement>('[data-topic-split-composer]')!.closest('[data-chat-bottom-dock]')!
@@ -420,12 +420,12 @@ describe('TopicSplitPane 是分栏，不是话题的开关', () => {
     expect(wrapper.style.padding).toBe('0px')
     const dock = wrapper.closest('[data-chat-bottom-dock]')!
     expect(dock.classList.contains(composerSlotClass)).toBe(true)
-    // 桌面分栏不传 runningTokens(旁边群里那一条一直看得见)⇒ 不留运行条那一行;回复条 + 输入框底色与聊天栏同一个 token。
+    // 桌面分栏不传 runningTokens(旁边群里那一条一直看得见)⇒ 不留运行条那一行;回复条 + 输入框那一层自己没有底。
     expect(dock.querySelector('[data-running-bar-slot]')).toBeNull()
-    const backing = dock.lastElementChild!
-    expect(backing.contains(wrapper)).toBe(true)
-    expect(backing.classList.contains(composerSlotInnerClass)).toBe(true)
-    expect(backing.classList.contains('bg-[var(--bg-primary)]')).toBe(true)
+    const layer = dock.lastElementChild!
+    expect(layer.contains(wrapper)).toBe(true)
+    expect(layer.classList.contains(composerSlotInnerClass)).toBe(true)
+    expect(layer.className).not.toMatch(/\bbg-/)
   })
 
   // 找茵第九轮 —— 「用的是同一个组件」不等于「那个组件被接全了」。
