@@ -5,7 +5,7 @@ import { Share2 } from '@/lib/icons'
 import { platform } from '../../platform'
 import { rendererLogger } from '../../lib/log'
 import { resolveSharePlan, sharePayloadForMessages } from '../../lib/shareToApps'
-import { attachmentResolver } from '../../lib/attachmentBytes'
+import { resolveAttachment } from '../../lib/attachmentBytes'
 import { useToast } from '../toastContext'
 import { ListRow } from '../ui/ListRow'
 import './share-to-apps.css'
@@ -28,7 +28,7 @@ export function ShareToAppsRow({ messages, onClose }: {
   if (!plan) return null
   const share = () => {
     onClose()
-    resolveSharePlan(plan, attachmentResolver.resolve).then((payload) => platform.shareToApps(payload)).catch((error: unknown) => {
+    resolveSharePlan(plan, resolveAttachment).then((payload) => platform.shareToApps(payload)).catch((error: unknown) => {
       // 原因(下载失败 / 面板打不开)进日志;给人看的只说没分享成。
       log.warn({ detail: error instanceof Error ? error.message : String(error) }, 'share to other apps failed')
       toast(t('forward.shareFailed'), 'error')

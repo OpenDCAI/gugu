@@ -30,6 +30,8 @@ export interface FileRevision {
   host_account_id?: string
   relative_path?: string
   temporary_transfer?: boolean
+  /** Actual workspace metadata kept at publication in the existing local revision index. */
+  workspace?: { path: string; parent_id: string | null; created_at: string | null; updated_at: string | null; created_by: string | null; source_message_ids: string[] }
 }
 export type FileMetadata = { status: 'ready'; revision: FileRevision } | { status: 'gone' | 'expired'; sha256: string | null }
 export interface FileBytes {
@@ -40,10 +42,19 @@ export interface FileBytes {
 }
 export type ResolvedFile = Exclude<FileMetadata, { status: 'ready' }> | {
   status: 'ready'
+  purpose: 'file'
+  reader: Readonly<FileActor>
   revision: FileRevision
   read(offset: number, length: number): Promise<Uint8Array>
   stream(): AsyncIterable<Uint8Array>
   dispose(): Promise<void>
+}
+/** Display-only pixels/playback never confer a capability to download, open or re-upload the original. */
+export type FileHandle = Extract<ResolvedFile, { status: 'ready' }>
+export type FilePreviewContent = Blob | { url: string; expiresAt: number }
+export type ResolvedPreview = Exclude<FileMetadata, { status: 'ready' }> | {
+  status: 'ready'; purpose: 'preview'; revision: FileRevision
+  content(): Promise<FilePreviewContent>; dispose(): Promise<void>
 }
 export type FileContext = { ref: FileRef; actor: FileActor; signal?: AbortSignal }
 export interface FileProviders {
@@ -54,6 +65,7 @@ export interface FileProviders {
   /** Only an already-held owner SSH link. Null means unavailable; ACL/integrity failures must throw. */
   ssh(revision: FileRevision, context: FileContext): Promise<FileBytes | null>
   temporary(revision: FileRevision, context: FileContext): Promise<FileBytes>
+  preview?(revision: FileRevision, context: FileContext, full: () => Promise<FileBytes>): Promise<FilePreviewContent>
 }
 
 export function requireFileRange(size: number, offset: number, length: number): void {
@@ -72,17 +84,23 @@ export function requireFileRevision(revision: FileRevision): void {
 
 /** Resolving metadata never signs or reads. The first byte read opens exactly one verified snapshot. */
 export function createFileResolver(providers: FileProviders) {
-  return async function resolveFile(ref: FileRef, actor: FileActor, options: { signal?: AbortSignal } = {}): Promise<ResolvedFile> {
+  function resolveFile(ref: FileRef, actor: FileActor, options: { localOnly: true; purpose?: 'file'; signal?: AbortSignal }): Promise<ResolvedFile | null>
+  function resolveFile(ref: FileRef, actor: FileActor, options: { purpose: 'preview'; signal?: AbortSignal }): Promise<ResolvedPreview>
+  function resolveFile(ref: FileRef, actor: FileActor, options?: { purpose?: 'file'; signal?: AbortSignal }): Promise<ResolvedFile>
+  async function resolveFile(ref: FileRef, actor: FileActor, options: { purpose?: 'file' | 'preview'; localOnly?: boolean; signal?: AbortSignal } = {}): Promise<ResolvedFile | ResolvedPreview | null> {
     if (!actor.accountId || !actor.actorId) throw new Error('File reader is not signed in')
     fileRefKey(ref)
+    const cancellation = new AbortController()
     const context = { ref: Object.freeze({ ...ref }), actor: Object.freeze({ ...actor }), signal: options.signal }
     context.signal?.throwIfAborted()
     const local = await providers.local(context)
+    if (options.localOnly && !local) return null
     if (local && (local.revision.source !== 'local' || local.revision.host_account_id !== context.actor.accountId)) throw new Error('Local file is not owned by this account')
     const metadata = local ? { status: 'ready' as const, revision: local.revision } : await providers.metadata(context)
     if (metadata.status !== 'ready') return metadata
     const revision = Object.freeze({ ...metadata.revision })
     requireFileRevision(revision)
+    context.signal = options.signal ? AbortSignal.any([options.signal, cancellation.signal]) : cancellation.signal
     let disposed = false
     let opened: Promise<FileBytes> | undefined
     const check = () => {
@@ -115,19 +133,72 @@ export function createFileResolver(providers: FileProviders) {
       if (bytes.byteLength !== length) throw new Error('File snapshot length changed')
       return bytes
     }
-    return { status: 'ready', revision, read,
+    const dispose = async () => {
+      if (disposed) return
+      disposed = true
+      cancellation.abort(new Error('File handle is disposed'))
+      await opened?.then(file => file.dispose(), () => undefined)
+    }
+    if (options.purpose === 'preview') {
+      let image: Promise<FilePreviewContent> | undefined
+      return { status: 'ready', purpose: 'preview', revision, dispose, content() {
+        check()
+        if (!providers.preview) throw new Error('File preview is unavailable')
+        const load = () => providers.preview!(revision, context, get).then(content => { check(); return content })
+        // A video may request a new short lease after a late Range request expires; never extend a signed URL.
+        return revision.source === 'managed-object' && revision.content_type.startsWith('video/') ? load() : image ??= load()
+      } }
+    }
+    return { status: 'ready', purpose: 'file', reader: context.actor, revision, read, dispose,
       async *stream() {
         check()
         await get() // Empty files still authenticate their final frame when deliberately opened.
         for (let offset = 0; offset < revision.size_bytes; offset += FILE_CHUNK_BYTES) {
           yield await read(offset, Math.min(FILE_CHUNK_BYTES, revision.size_bytes - offset))
         }
-      },
-      async dispose() {
-        if (disposed) return
-        disposed = true
-        await opened?.then(file => file.dispose(), () => undefined)
+        check()
       },
     }
   }
+  return resolveFile
+}
+
+/** A browser Blob consumes only the verified original capability; previews cannot be passed here. */
+export async function fileBlob(file: FileHandle): Promise<Blob> {
+  const chunks = file.stream()[Symbol.asyncIterator]()
+  try {
+    return await new Response(new ReadableStream({ async pull(controller) {
+      const next = await chunks.next()
+      if (next.done) controller.close(); else controller.enqueue(next.value)
+    }, async cancel() { await chunks.return?.(); } })).blob().then(blob => blob.slice(0, blob.size, file.revision.content_type))
+  } finally { await file.dispose() }
+}
+
+/** Only already-verified snapshots reach this display adapter. */
+export async function snapshotBlob(file: FileBytes, contentType: string): Promise<Blob> {
+  let offset = 0
+  return new Response(new ReadableStream({ async pull(controller) {
+    if (offset === file.size) { controller.close(); return }
+    const length = Math.min(FILE_CHUNK_BYTES, file.size - offset), bytes = await file.read(offset, length)
+    if (bytes.length !== length) throw new Error('File snapshot length changed')
+    offset += bytes.length; controller.enqueue(bytes)
+  } })).blob().then(blob => blob.slice(0, blob.size, contentType))
+}
+
+type FileStageSource = { revision: Pick<FileRevision, 'size_bytes' | 'sha256' | 'content_type'>; stream(): AsyncIterable<Uint8Array>; dispose(): Promise<void> }
+export type FileStageCommand = { op: 'begin'; name: string; revision: FileStageSource['revision'] } | { op: 'chunk'; id: string; bytes: Uint8Array } | { op: 'commit' | 'abort'; id: string }
+/** Existing native caches receive bounded frames, then verify and atomically publish a private file token. */
+export const stageFileHandle = (file: FileHandle, name: string, send: (command: FileStageCommand) => Promise<unknown>) => stageFileSource(file, name, send)
+/** Generated Blob saves use the same sink protocol, without inventing a message/file authority. */
+export async function stageFileSource(file: FileStageSource, name: string, send: (command: FileStageCommand) => Promise<unknown>): Promise<string> {
+  let id: string | undefined, written = 0
+  try {
+    const opened = await send({ op: 'begin', name, revision: file.revision }) as { id?: string }
+    if (!opened?.id || typeof opened.id !== 'string') throw new Error('Invalid native file stage')
+    id = opened.id
+    for await (const bytes of file.stream()) { requireFileRange(file.revision.size_bytes, written, bytes.length); await send({ op: 'chunk', id, bytes }); written += bytes.length }
+    if (written !== file.revision.size_bytes) throw new Error('Incomplete native file stage')
+    await send({ op: 'commit', id }); return id
+  } catch (error) { if (id) await send({ op: 'abort', id }); throw error }
+  finally { await file.dispose() }
 }

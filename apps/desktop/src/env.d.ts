@@ -16,7 +16,6 @@ interface Window {
     requestWirePort: (channel: string) => Promise<void>
     selectDirectory: () => Promise<string | null>
     selectFile: () => Promise<string | null>
-    openFileBytes: (bytes: Uint8Array, filename: string) => Promise<void>
     checkForUpdates: () => Promise<unknown>
     updateState: () => Promise<unknown>
     downloadUpdate: () => Promise<unknown>

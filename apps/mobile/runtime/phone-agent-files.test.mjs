@@ -1,6 +1,6 @@
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
-import { mkdtemp, rm, writeFile } from 'node:fs/promises'
+import { mkdtemp, readFile, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { createHash } from 'node:crypto'
@@ -98,14 +98,40 @@ test('unregistered paths, changed bytes and permission revocation before commit 
   } finally { await fx.close() }
 })
 
-test('attachment download rejects external legacy URLs before requesting any bytes', async () => {
+test('attachment download ignores an untrusted body URL and requires message ACL before requesting any object bytes', async () => {
   const fx = await fixture()
   try {
     fx.cloud.rpc = async (_schema, name) => { assert.equal(name, 'can_read_message'); return true }
     fx.cloud.chat = { from: () => ({ select: () => ({ eq: () => ({ single: async () => ({ data: { id: '4f6dac4f-a3f2-48da-9876-d3a4567d8b64', content_type: 'attachment', content: '[附件] secret.txt (text/plain)\n[URL] http://127.0.0.1/secret\n[Size] 42\n[Kind] file' }, error: null }) }) }) }) }
+    const endpoint = await fx.cloud.attachmentEndpoint()
+    fx.cloud.attachmentEndpoint = async () => ({ ...endpoint, fetch: async (url, init) => { fx.requests.push([String(url), init]); return json({ status: 'gone', sha256: null }) } })
     const tool = phoneFileTools({ agent, job: fx.job, cloud: fx.cloud, store: fx.store, env: {}, authorize: async () => undefined, emit: () => undefined }).find((item) => item.name === 'message_download_file')
-    await assert.rejects(tool.execute('unsafe', { source_message_id: 'msg:4f6dac4f-a3f2-48da-9876-d3a4567d8b64' }), /chat-media/)
-    assert.equal(fx.requests.length, 0)
+    await assert.rejects(tool.execute('unsafe', { source_message_id: 'msg:4f6dac4f-a3f2-48da-9876-d3a4567d8b64' }), /已删除或不可见/)
+    assert.deepEqual(fx.requests.map(([url]) => url), ['https://files.invalid/functions/v1/attachments/file-resolve'])
+    assert.deepEqual(JSON.parse(fx.requests[0][1].body), { ref: { message_id: '4f6dac4f-a3f2-48da-9876-d3a4567d8b64' }, as: agent.agentUserId })
+  } finally { await fx.close() }
+})
+
+test('the message authority downloads the verified original even when its body contains a local-network URL', async () => {
+  const fx = await fixture()
+  const id = '4f6dac4f-a3f2-48da-9876-d3a4567d8b64'
+  try {
+    fx.cloud.rpc = async (_schema, name) => { assert.equal(name, 'can_read_message'); return true }
+    fx.cloud.chat = { from: () => ({ select: () => ({ eq: () => ({ single: async () => ({ data: { id, content_type: 'attachment', content: '[附件] private.bin (application/octet-stream)\n[URL] http://127.0.0.1/secret\n[Size] 42\n[Kind] file' }, error: null }) }) }) }) }
+    const endpoint = await fx.cloud.attachmentEndpoint()
+    const revision = { status: 'ready', source: 'managed-object', file_name: 'private.bin', content_type: 'application/octet-stream', size_bytes: bytes.length, sha256: createHash('sha256').update(bytes).digest('hex') }
+    fx.cloud.attachmentEndpoint = async () => ({ ...endpoint, fetch: async (url, init) => {
+      fx.requests.push([String(url), init])
+      if (String(url).endsWith('/file-resolve')) { assert.deepEqual(JSON.parse(init.body), { ref: { message_id: id }, as: agent.agentUserId }); return json(revision) }
+      if (String(url).endsWith('/file-download')) { assert.equal(JSON.parse(init.body).as, agent.agentUserId); return json({ ...revision, download_id: 'download', url: 'https://storage.invalid/original' }) }
+      assert.equal(String(url), 'https://storage.invalid/original'); assert.equal(init?.headers?.Authorization, undefined); return new Response(bytes)
+    } })
+    const tool = phoneFileTools({ agent, job: fx.job, cloud: fx.cloud, store: fx.store, env: {}, authorize: async () => undefined, emit: () => undefined }).find(item => item.name === 'message_download_file')
+    const original = (await tool.execute('original', { source_message_id: `msg:${id}` })).details
+    assert.deepEqual(await readFile(original.file_path), bytes)
+    assert.equal(original.sha256, revision.sha256)
+    assert.deepEqual(fx.requests.map(([url]) => url), ['https://files.invalid/functions/v1/attachments/file-resolve', 'https://files.invalid/functions/v1/attachments/file-download', 'https://storage.invalid/original', 'https://files.invalid/functions/v1/attachments/file-resolve'])
+    assert.equal(JSON.stringify(original).includes('127.0.0.1'), false)
   } finally { await fx.close() }
 })
 

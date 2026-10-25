@@ -12,7 +12,7 @@ import { attachmentQueryClient } from '../../../../apps/desktop/src/lib/attachme
 
 const f = vi.hoisted(() => ({ message: vi.fn(), metadata: vi.fn(), cached: vi.fn(), send: vi.fn(), forget: vi.fn(), signed: vi.fn() }))
 vi.mock('@/lib/chat', () => ({ chatService: { getMessageById: f.message } }))
-vi.mock('@/lib/attachmentBytes', () => ({ attachmentResolver: { metadata: f.metadata, forget: f.forget, resolve: f.signed }, cachedAttachmentCopy: f.cached,
+vi.mock('@/lib/attachmentBytes', () => ({ attachmentMetadata: f.metadata, cachedAttachmentCopy: f.cached,
   sourceKeyOf: () => 'file@1', attachmentBytes: f.signed, useAttachmentObjectUrl: () => ({ status: 'loading' }),
 }))
 vi.mock('@/components/extensionBundle/ExtensionBundleCard', () => ({ ExtensionBundleCard: () => null }))

@@ -33,7 +33,7 @@ const client = {
 
 vi.mock('@gugu/core/cloud/supabase', () => ({ createGuguSupabaseClient: () => client }));
 vi.mock('@gugu/core', () => ({ userIdFromSupabaseAccessToken: (value: string) => (value ? '11111111-1111-4111-8111-111111111111' : null) }));
-vi.mock('@main/core/extensions/account-token', () => ({ currentAccountAccessToken: async () => token }));
+vi.mock('@main/core/extensions/account-token', async (importOriginal) => ({ ...(await importOriginal<object>()), currentAccountAccessToken: async () => token }));
 vi.mock('./file-sync', () => ({ fileSync: {} }));
 vi.mock('@main/lib/logger', () => ({ log: { warn: () => {} } }));
 

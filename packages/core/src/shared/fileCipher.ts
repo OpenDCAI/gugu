@@ -1,4 +1,5 @@
 import { sha256 } from '@noble/hashes/sha2.js'
+export { sha256 as fileSha256 } from '@noble/hashes/sha2.js'
 import type { StateAddress } from 'libsodium-wrappers'
 import { FILE_CHUNK_BYTES, requireFileRevision, type FileBytes, type FileRevision } from './fileResolver'
 

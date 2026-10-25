@@ -3,6 +3,7 @@ import type { RendererCommandDomain } from '../lib/rendererCommandProtocol'
 import type { Device } from '@gugu/core/shared/types/chat'
 import type { HumanAuthSession } from '@gugu/core'
 import type { SupportedLocale } from '@/i18n'
+import type { FileHandle } from '@gugu/core/shared/fileResolver'
 
 interface PlatformCapabilities {
   directoryPicker: boolean
@@ -36,7 +37,7 @@ interface PlatformCapabilities {
 export interface ShareToAppsPayload {
   text?: string
   title?: string
-  files?: Array<{ url: string; name: string; mimeType?: string }>
+  files?: Array<{ file: FileHandle; name: string; mimeType?: string }>
 }
 
 /** 没收下的原因,给界面挑一句用户看得懂的话;原文只进日志。 */
@@ -114,7 +115,7 @@ export interface AppPlatform {
    * 用系统应用打开一个附件。字节怎么拿由宿主挑:桌面要字节(交给主进程落盘再打开),安卓要签名链接(原生自己下),
    * 网页开新标签页。两样都按需取,宿主只调它要的那一样。
    */
-  openRemoteFile: (file: { bytes: () => Promise<Blob>; url: () => Promise<string> }, filename: string) => Promise<void>
+  openRemoteFile: (file: FileHandle, filename: string) => Promise<void>
   /**
    * 「保存」:把这份字节存成一个文件。桌面与网页交给浏览器的下载(a[download]);安卓的 WebView 不接下载,交给系统的
    * 「保存到…」。saved:false = 人在系统界面里取消了(不是失败);写不进去照常抛。

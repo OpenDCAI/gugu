@@ -6,9 +6,11 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { createFileResolver, type FileProviders, type FileRevision } from '../../../../packages/core/src/shared/fileResolver'
 import { ciphertextSize, transformFile } from '../../../../packages/core/src/shared/fileCipher'
 import { createProjectTransferHost } from '../../../../apps/desktop/electron/projectFileTransferHost'
-import { createFileSink } from '../../../../apps/desktop/electron/fileSnapshot'
+import { createFileChunkCache, createFileSink } from '../../../../apps/desktop/electron/fileSnapshot'
 import { createProjectFileReader, localProjectFileProvider, openProjectFileSource, snapshotProjectFile } from '../../../../apps/desktop/electron/projectFileHost'
 import { ownSshFileProvider } from '../../../../apps/desktop/electron/projectFileSsh'
+import { createDesktopFileAccess } from '../../../../apps/desktop/electron/desktopFileAccess'
+import { deviceFile, writeDeviceIdCache } from '@gugu/core/cloud/deviceRuntime'
 import { forgetProjectFile, forgetProjectGroupId, readProjectFile, rememberProjectFile, rememberProjectGroupId } from '../../../../apps/desktop/electron/sessionpage/sessionpage-project-groups'
 
 let home: string, root: string, tempRoot: string, env: NodeJS.ProcessEnv
@@ -70,6 +72,44 @@ describe('account/project revision index', () => {
 })
 
 describe('local read fence and verified snapshot', () => {
+  it('the production composition root opens by item or folder path without cloud, auth refresh or an SSH dial', async () => {
+    await writeDeviceIdCache(deviceFile(env, 'owner'), 'host-device')
+    await rememberProjectFile({ ...revision, workspace: { path: 'file.bin', parent_id: null, created_at: '2026-10-24T00:00:00Z', updated_at: '2026-10-24T00:00:00Z', created_by: 'owner', source_message_ids: [] } }, 'owner', env)
+    const network = vi.fn(async () => { throw new Error('Unexpected network request') })
+    const links = vi.fn(() => null)
+    const access = createDesktopFileAccess({ auth: async () => ({ userId: accountId, accessToken: 'memory-only-token' }), root: async () => root, links, tempRoot, downloads: join(home, 'downloads'), fetch: network, rpc: network, env })
+    expect(access.handlers('realtime')).toEqual({})
+    expect(Object.keys(access.handlers('ssh'))).toEqual(['file.read'])
+    for (const named of [{ id: 'item' }, { chat: 'group', name: 'file.bin' }]) {
+      const file = await access.resolveAccount(named, null, { localOnly: true })
+      expect(file?.status).toBe('ready')
+      if (file?.status !== 'ready') throw new Error('Expected local file')
+      expect(file.revision.workspace?.path).toBe('file.bin')
+      expect(await file.read(500_000, 2)).toEqual(new Uint8Array([83, 83]))
+      await file.dispose()
+    }
+    expect(network).not.toHaveBeenCalled(); expect(links).not.toHaveBeenCalled()
+    accountId = 'other'
+    await expect(access.resolveAccount({ id: 'item' }, null, { localOnly: true })).rejects.toThrow('device.json missing')
+    expect(network).not.toHaveBeenCalled()
+  })
+  it('persists only bounded raw chunks in the existing private cache across provider restarts', async () => {
+    const key = 'ab'.repeat(32), first = createFileChunkCache(tempRoot)
+    expect(await first.get(key, 0)).toBeNull()
+    await first.put(key, 0, new Uint8Array([1, 2, 3]))
+    const second = createFileChunkCache(tempRoot)
+    expect(await second.get(key, 0)).toEqual(new Uint8Array([1, 2, 3]))
+    expect((await stat(join(tempRoot, `open-${key}`))).mode & 0o777).toBe(0o700)
+    expect((await stat(join(tempRoot, `open-${key}`, '0'))).mode & 0o777).toBe(0o600)
+    for (const [badKey, index] of [['../project/file.bin', 0], [key, -1], [key, 0.5]] as const) {
+      await expect(second.get(badKey, index)).rejects.toThrow('Invalid file cache key')
+      await expect(second.put(badKey, index, new Uint8Array([7]))).rejects.toThrow('Invalid file cache key')
+    }
+    await expect(second.put(key, 1, new Uint8Array(524_289))).rejects.toThrow('Invalid file range')
+    await writeFile(join(tempRoot, `open-${key}`, '1'), new Uint8Array(524_289))
+    await expect(second.get(key, 1)).rejects.toThrow('Invalid file range')
+    await second.clear(key); expect(await readdir(tempRoot)).toEqual([])
+  })
   it('resolves locally before cloud lookup, is lazy, and exposes immutable bytes without paths or writes', async () => {
     const read = vi.fn(reader())
     const never = vi.fn(async () => { throw Error('Network must remain unused') })

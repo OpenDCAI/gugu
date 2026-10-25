@@ -12,6 +12,8 @@ import { composerSlotClass, composerSlotInnerClass } from '@gugu/session-chat-ui
 import { act, createElement, useEffect } from 'react'
 import { runInAction } from 'mobx'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+import * as attachmentReader from '../../../apps/desktop/src/lib/attachmentBytes'
+import { attachmentQueryClient } from '../../../apps/desktop/src/lib/attachmentQueryClient'
 
 import type { TopicSummary } from '@gugu/core/shared/types/chat'
 import { createNode, createReactHarness, clickElement, deferred, message, renderWithAppProviders } from '../../support/testHarness'
@@ -51,9 +53,16 @@ function topic(overrides: Partial<TopicSummary> = {}): TopicSummary {
 let harness: ReturnType<typeof createReactHarness>
 beforeEach(() => {
   listTopicsOfChat.mockReset()
+  attachmentQueryClient.clear()
+  vi.spyOn(attachmentReader, 'attachmentMetadata').mockResolvedValue({ status: 'ready', revision: { source: 'managed-object', file_name: 'fixture.pdf', content_type: 'application/pdf', size_bytes: 3, sha256: 'ab'.repeat(32) } })
+  vi.stubGlobal('IntersectionObserver', class {
+    constructor(private callback: (entries: { isIntersecting: boolean }[]) => void) {}
+    observe() { this.callback([{ isIntersecting: true }]) }
+    disconnect() {}
+  })
   harness = createReactHarness()
 })
-afterEach(() => harness.cleanup())
+afterEach(() => { harness.cleanup(); attachmentQueryClient.clear(); vi.restoreAllMocks(); vi.unstubAllGlobals() })
 
 describe('TopicAnchorCard 把「可见 / 参与 / 通知」的第三件显形', () => {
   it('非参与者的话题挂出「只看得见」，参与者的不挂', async () => {
@@ -326,7 +335,7 @@ describe('TopicSplitPane 是分栏，不是话题的开关', () => {
     const card = harness.container.querySelector('[data-testid="topic-split-pane"] button[aria-label="报告.pdf"]') as HTMLElement
     expect(card, '分栏里没画出文件卡').toBeTruthy()
     await clickElement(card)
-    expect(onOpenAttachment).toHaveBeenCalledWith(expect.objectContaining({ source: { kind: 'url', url: 'https://example.test/chat-media/a.pdf' }, fileName: '报告.pdf' }), attachmentProps.messages[0])
+    expect(onOpenAttachment).toHaveBeenCalledWith(expect.objectContaining({ source: { kind: 'message', messageId: 'att-1' }, fileName: '报告.pdf' }), attachmentProps.messages[0])
   })
 
   it('点击话题已读环显示该消息的已读/未读名单，排除只在来源群里的成员', async () => {

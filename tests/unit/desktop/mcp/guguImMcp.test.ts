@@ -1,3 +1,4 @@
+import { verifiedFileHandle } from '../../../helpers/verifiedFileHandle'
 import { createHash } from 'node:crypto'
 import { mkdtempSync, readFileSync, truncateSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
@@ -242,10 +243,11 @@ function harness(members: string[] = [], groupPrompt: string | null = null) {
     // #7290 gugu-3:附件经 attachments 函数(core 的客户端)—— upload 给表单、表单传到 OSS、commit 发消息。uploads 记成
     // [桶, 暂存键, 类型, 字节](第 4 位是真正传上去的字节,#5828);commit 记进 inserts,正文照服务端那样由信封生成。
     attachmentsEndpoint: async () => ({ supabaseUrl: 'https://db.test', anonKey: 'anon', token: 'token', fetch: attachmentsFetch }),
-    // 新式附件的签名链接:条目指回它那次上传的字节。
-    attachmentUrls: async (refs: Array<{ item_id?: string; version?: number; message_id?: string }>) => ({
-      urls: refs.map((ref) => ({ ...ref, message_id: ref.message_id ?? null, url: `https://oss.test/${String(ref.item_id).slice('item:'.length)}`, thumb_url: null, sha256: null, width: null, height: null, expires_at: '2999-01-01T00:00:00Z' })),
-    }),
+    resolveFile: async (ref: { message_id: string }) => {
+      const message = calls.inserts.map(([, row]) => row as Record<string, unknown>).find(row => row.id === ref.message_id)
+      const bytes = stagedBytes.get(String(message?.file_item_id).slice('item:'.length))
+      return bytes ? verifiedFileHandle(bytes) : { status: 'gone', sha256: null }
+    },
   }
   return {
     setGroupPrompt: (v: string | null) => { currentGroupPrompt = v }, failCommit: (error: Error) => { commitError = error }, loseCommitAnswers: (n: number) => { lostAnswers = n }, commitBodies, deps, calls }
@@ -1831,11 +1833,7 @@ describe('gugu 原子工具 MCP server（#1060 SDK 迁移 → #4191 原子化）
       restGet: async (path: string): Promise<Array<Record<string, unknown>>> => path.startsWith('messages?chat_id=eq.00000000-0000-4000-8000-000000000001&content_type=eq.attachment')
         ? h.calls.inserts.map(([, row]) => row as Record<string, unknown>).filter((row) => row.content_type === 'attachment').reverse()
         : h.deps.restGet(path),
-      // A card's bytes, as the signed link serves them back.
-      fetch: async (url: string) => {
-        const upload = h.calls.uploads.find(([, objectPath]) => url.endsWith(String(objectPath)))
-        return new Response(upload ? new Uint8Array(upload[3] as Uint8Array) : null, { status: upload ? 200 : 404 })
-      },
+
     }
     const send = (fileName: string, bytes: string) =>
       sendExtensionCardOf(TEST_CONTEXT, { chatId: '00000000-0000-4000-8000-000000000001', filePath: fixtureFile(fileName, bytes), fileName, sha256: sha(bytes) }, deps)
@@ -1855,7 +1853,7 @@ describe('gugu 原子工具 MCP server（#1060 SDK 迁移 → #4191 原子化）
     const unreadable = await sendExtensionCardOf(
       TEST_CONTEXT,
       { chatId: '00000000-0000-4000-8000-000000000001', filePath: fixtureFile('again.guguext', 'v1-bytes'), fileName: 'dinner-vote-1.0.0.guguext', sha256: sha('v1-bytes') },
-      { ...deps, fetch: async () => new Response(null, { status: 503 }) },
+      { ...deps, resolveFile: async () => { throw new Error('503') } },
     )
     expect(unreadable).toEqual({ messageId: String(row.id), alreadyThere: true, differs: null })
     expect(h.calls.inserts).toHaveLength(1)

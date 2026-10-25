@@ -1,102 +1,68 @@
-import { describe, expect, it } from 'vitest'
-import { createAttachmentResolver, REFRESH_MARGIN_MS, URLS_BATCH_MAX, type AttachmentUrlRef } from '@gugu/core/shared/attachmentUrls'
+import { describe, expect, it, vi } from 'vitest'
+import { createFileMetadataLoader, FILE_METADATA_BATCH_MAX } from '@gugu/core/cloud/fileMetadata'
+import { cloudFileProviders } from '@gugu/core/cloud/fileProviders'
+import { createFileResolver, type FileRef, type FileRevision } from '@gugu/core/shared/fileResolver'
+import { attachmentFileRef, parseAttachmentContent } from '@gugu/core/shared/ui/attachmentModels'
 
-// 假的 attachments/urls:记下每次收到的 refs;给的条目才回,别的当看不见。
-function fakeUrls(opts: { known?: (itemId: string) => boolean; expiresAt?: string; fail?: () => boolean } = {}) {
-  const calls: AttachmentUrlRef[][] = []
-  const fetchUrls = async (refs: AttachmentUrlRef[]) => {
+const actor = { accountId: 'owner', actorId: 'owner' }
+const revision: FileRevision = { source: 'managed-object', file_name: 'image.png', content_type: 'image/png', size_bytes: 16, sha256: 'ab'.repeat(32), width: 800, height: 600 }
+function fixture() {
+  const calls: FileRef[][] = [], hidden = new Set<string>()
+  let failing = false, malformed = false
+  const metadata = createFileMetadataLoader(async (_context, refs) => {
     calls.push(refs)
-    if (opts.fail?.()) throw new Error('attachments/urls 503')
-    return {
-      urls: refs.flatMap((r) => ('item_id' in r ? [r] : [])).filter((r) => (opts.known ?? (() => true))(r.item_id)).map((r) => ({
-        item_id: r.item_id, version: r.version, url: `https://cdn/${r.item_id}?auth_key=${calls.length}`, thumb_url: `https://cdn/${r.item_id}?auth_key=${calls.length}&x-oss-process=t`,
-        sha256: 'ab'.repeat(32), width: 800, height: 600, expires_at: opts.expiresAt ?? '2026-10-16T12:30:00.000Z',
-      })),
+    if (failing) throw Error('file-resolve 503')
+    if (malformed) return { error: 'not_configured' }
+    return { files: refs.map(ref => ({ ref, ...(hidden.has('item_id' in ref ? ref.item_id : 'message_id' in ref ? ref.message_id : ref.attachment_id) ? { status: 'gone', sha256: null } : { status: 'ready', ...revision }) })) }
+  })
+  const bytes = vi.fn(async () => { throw Error('Metadata must not sign or read') })
+  const cloud = cloudFileProviders({ metadata, endpoint: bytes, sink: bytes, cache: { get: async () => null, put: bytes, clear: bytes } })
+  const resolve = createFileResolver({ ...cloud, local: async () => null, managed: bytes, ssh: bytes, temporary: bytes })
+  return { calls, hidden, bytes, resolve: (ref: FileRef) => resolve(ref, actor), fail: (value: boolean) => { failing = value }, malformed: () => { malformed = true } }
+}
+const item = (item_id: string, version = 1) => ({ item_id, version })
+
+describe('the former URL resolver protections now belong to the canonical metadata and file capabilities', () => {
+  it('coalesces the visible batch and duplicate refs, maps dimensions/SHA exactly, and never fetches a body URL', async () => {
+    const f = fixture(); f.hidden.add('deleted')
+    const [a, a2, b, d] = await Promise.all([f.resolve(item('a')), f.resolve(item('a')), f.resolve(item('b', 2)), f.resolve(item('deleted'))])
+    expect(f.calls).toEqual([[item('a'), item('b', 2), item('deleted')]])
+    for (const file of [a, a2, b]) {
+      expect(file).toMatchObject({ status: 'ready', purpose: 'file', revision: { sha256: 'ab'.repeat(32), width: 800, height: 600 } })
+      expect('url' in file).toBe(false)
     }
-  }
-  return { calls, fetchUrls }
-}
-const manual = () => {
-  let pending: (() => void) | null = null
-  return { schedule: (f: () => void) => { pending = f }, run: async () => { const f = pending; pending = null; f?.(); await new Promise((r) => setTimeout(r, 0)) } }
-}
-const item = (itemId: string, version = 1) => ({ kind: 'item' as const, itemId, version })
-
-describe('附件链接只有一个入口', () => {
-  it('同一轮要的攒成一批(同一项只要一次);回答里没有的是墓碑;老消息直接用正文里的 URL', async () => {
-    const { calls, fetchUrls } = fakeUrls({ known: (id) => id !== 'deleted' })
-    const tick = manual()
-    const r = createAttachmentResolver(fetchUrls, { schedule: tick.schedule, now: () => Date.parse('2026-10-16T12:00:00Z') })
-    const a = r.resolve(item('a')); const a2 = r.resolve(item('a')); const b = r.resolve(item('b', 2)); const d = r.resolve(item('deleted'))
-    await tick.run()
-    expect(calls).toEqual([[{ item_id: 'a', version: 1 }, { item_id: 'b', version: 2 }, { item_id: 'deleted', version: 1 }]])
-    expect(await a).toMatchObject({ status: 'ready', url: 'https://cdn/a?auth_key=1', thumbUrl: 'https://cdn/a?auth_key=1&x-oss-process=t', sha256: 'ab'.repeat(32), width: 800, height: 600 })
-    expect(await a2).toEqual(await a)
-    expect(await b).toMatchObject({ status: 'ready', url: 'https://cdn/b?auth_key=1' })
-    expect(await d).toEqual({ status: 'gone' })
-    expect(await r.resolve({ kind: 'url', url: 'https://db/storage/v1/object/public/chat-media/x.png' })).toEqual({ status: 'ready', url: 'https://db/storage/v1/object/public/chat-media/x.png', thumbUrl: null, sha256: null, width: null, height: null })
-    expect(await r.resolve({ kind: 'gone' })).toEqual({ status: 'gone' })
-    expect(calls).toHaveLength(1)
+    expect(d).toEqual({ status: 'gone', sha256: null }); expect(f.bytes).not.toHaveBeenCalled()
+    const body = '[附件] image.png (image/png)\n[URL] http://127.0.0.1/private\n[Size] 16\n[Kind] image'
+    expect(attachmentFileRef(parseAttachmentContent(body, { id: 'legacy-message' })!.source)).toEqual({ message_id: 'legacy-message' })
+    expect(attachmentFileRef(parseAttachmentContent(body)!.source)).toBeNull()
+    expect(attachmentFileRef({ kind: 'gone' })).toBeNull()
   })
-
-  it('悄悄话的附件按消息签:refs 里是 { message_id },回答按 message_id 对回去;没回的是墓碑', async () => {
-    const calls: unknown[] = []
-    const tick = manual()
-    const r = createAttachmentResolver(async (refs) => {
-      calls.push(refs)
-      return { urls: [{ message_id: 'm1', url: 'https://cdn/w1', thumb_url: null, sha256: 'cd'.repeat(32), width: null, height: null, expires_at: '2999-01-01T00:00:00Z' }] }
-    }, { schedule: tick.schedule })
-    const mine = r.resolve({ kind: 'message', messageId: 'm1' }); const theirs = r.resolve({ kind: 'message', messageId: 'm2' })
-    await tick.run()
-    expect(calls).toEqual([[{ message_id: 'm1' }, { message_id: 'm2' }]])
-    expect(await mine).toMatchObject({ status: 'ready', url: 'https://cdn/w1' })
-    expect(await theirs).toEqual({ status: 'gone' })
+  it('private message bytes still use the exact message authority and invisible references stay gone', async () => {
+    const f = fixture(); f.hidden.add('m2')
+    const [mine, theirs] = await Promise.all([f.resolve({ message_id: 'm1' }), f.resolve({ message_id: 'm2' })])
+    expect(f.calls).toEqual([[{ message_id: 'm1' }, { message_id: 'm2' }]])
+    expect(mine).toMatchObject({ status: 'ready' }); expect(theirs).toEqual({ status: 'gone', sha256: null })
+    expect(f.bytes).not.toHaveBeenCalled()
   })
-
-  it('签好的链接留到过期前一分钟;之后重签。一批最多 200 个', async () => {
-    let now = Date.parse('2026-10-16T12:00:00Z')
-    const { calls, fetchUrls } = fakeUrls({ expiresAt: '2026-10-16T12:30:00.000Z' })
-    const tick = manual()
-    const r = createAttachmentResolver(fetchUrls, { schedule: tick.schedule, now: () => now })
-    const first = r.resolve(item('a')); await tick.run(); await first
-    now = Date.parse('2026-10-16T12:30:00Z') - REFRESH_MARGIN_MS - 1
-    expect(await r.resolve(item('a'))).toMatchObject({ url: 'https://cdn/a?auth_key=1' })
-    now += 2
-    const again = r.resolve(item('a')); await tick.run()
-    expect(await again).toMatchObject({ url: 'https://cdn/a?auth_key=2' })
-    const many = Array.from({ length: URLS_BATCH_MAX + 5 }, (_, i) => r.resolve(item(`m${i}`)))
-    await tick.run(); await Promise.all(many)
-    expect(calls.slice(2).map((c) => c.length)).toEqual([URLS_BATCH_MAX, 5])
+  it('bounds a large batch at 200 and never treats a cached URL as an access decision', async () => {
+    const f = fixture()
+    await Promise.all(Array.from({ length: FILE_METADATA_BATCH_MAX + 5 }, (_, i) => f.resolve(item(`m${i}`))))
+    expect(f.calls.map(batch => batch.length)).toEqual([200, 5])
+    f.hidden.add('m0')
+    expect(await f.resolve(item('m0'))).toEqual({ status: 'gone', sha256: null })
+    expect(f.calls.at(-1)).toEqual([item('m0')]); expect(f.bytes).not.toHaveBeenCalled()
   })
-
-  it('请求失败:这一批每一项都拒(调用方显示「暂时打不开 · 重试」),不缓存;重试就是再要一次。forget 丢掉记着的墓碑', async () => {
-    let failing = true
-    const { calls, fetchUrls } = fakeUrls({ fail: () => failing, known: (id) => id !== 'x' || !failing })
-    const tick = manual()
-    const r = createAttachmentResolver(fetchUrls, { schedule: tick.schedule })
-    // 先挂上断言再放行这一轮:拒绝发生在 tick.run() 里,晚挂就成了未处理的拒绝。
-    const refused = expect(r.resolve(item('a'))).rejects.toThrow('attachments/urls 503')
-    await tick.run()
-    await refused
-    failing = false
-    const retry = r.resolve(item('a')); await tick.run()
-    expect(await retry).toMatchObject({ status: 'ready' })
-    expect(calls).toHaveLength(2)
-    const { fetchUrls: f2 } = fakeUrls({ known: () => false })
-    let known = false
-    const r2 = createAttachmentResolver(async (refs) => (known ? fakeUrls().fetchUrls(refs) : f2(refs)), { schedule: tick.schedule })
-    const g = r2.resolve(item('z')); await tick.run(); expect(await g).toEqual({ status: 'gone' })
-    known = true
-    expect(await r2.resolve(item('z'))).toEqual({ status: 'gone' })
-    r2.forget(item('z'))
-    const back = r2.resolve(item('z')); await tick.run(); expect(await back).toMatchObject({ status: 'ready' })
+  it('a failed batch rejects every caller, retry recovers, and a changed ACL is checked without a second forget path', async () => {
+    const f = fixture(); f.fail(true)
+    const a = expect(f.resolve(item('a'))).rejects.toThrow('503'), b = expect(f.resolve(item('b'))).rejects.toThrow('503')
+    await Promise.all([a, b]); f.fail(false)
+    expect(await f.resolve(item('a'))).toMatchObject({ status: 'ready' }); expect(f.calls).toHaveLength(2)
+    f.hidden.add('z'); expect(await f.resolve(item('z'))).toEqual({ status: 'gone', sha256: null })
+    f.hidden.delete('z'); expect(await f.resolve(item('z'))).toMatchObject({ status: 'ready' })
   })
-
-  it('回答不是 { urls: [...] } ⇒ 这一批都拒(fail loud,不当墓碑)', async () => {
-    const tick = manual()
-    const r = createAttachmentResolver(async () => ({ error: 'not_configured' }), { schedule: tick.schedule })
-    const refused = expect(r.resolve(item('a'))).rejects.toThrow('without a urls list')
-    await tick.run()
-    await refused
+  it('malformed metadata is a failure for the complete batch, never a successful empty or tombstone answer', async () => {
+    const f = fixture(); f.malformed()
+    const a = expect(f.resolve(item('a'))).rejects.toThrow('Invalid file metadata batch'), b = expect(f.resolve(item('b'))).rejects.toThrow('Invalid file metadata batch')
+    await Promise.all([a, b]); expect(f.bytes).not.toHaveBeenCalled()
   })
 })

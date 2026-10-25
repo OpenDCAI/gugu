@@ -34,7 +34,7 @@ vi.mock('@main/core/extensions/extensions-root', () => ({
     grantedCapabilities: () => [...granted],
   }),
 }));
-vi.mock('@main/core/extensions/account-token', () => ({ currentAccountAccessToken: async () => null }));
+vi.mock('@main/core/extensions/account-token', async (importOriginal) => ({ ...(await importOriginal<object>()), currentAccountAccessToken: async () => null }));
 const ports = new Map<number, { post: (data: unknown) => void }>();
 const fileSync = {
   attachPort: vi.fn((id: number, extensionId: string, port: { post: (data: unknown) => void }) => {

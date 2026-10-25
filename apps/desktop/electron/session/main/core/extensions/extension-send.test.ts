@@ -61,7 +61,7 @@ vi.mock('@gugu/core/cloud/supabase', () => ({
   }),
 }));
 vi.mock('@gugu/core', () => ({ userIdFromSupabaseAccessToken: () => OWNER }));
-vi.mock('@main/core/extensions/account-token', () => ({ currentAccountAccessToken: async () => 'owner-token' }));
+vi.mock('@main/core/extensions/account-token', async (importOriginal) => ({ ...(await importOriginal<object>()), currentAccountAccessToken: async () => 'owner-token' }));
 const granted = new Set<string>();
 vi.mock('@main/core/extensions/extensions-root', () => ({
   extensionsService: () => ({
