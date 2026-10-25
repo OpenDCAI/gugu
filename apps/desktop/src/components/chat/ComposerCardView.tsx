@@ -83,7 +83,9 @@ export function ComposerCardView({ card, isMine, isGroup, chatId, senderName, ti
         <span className="ml-auto shrink-0 text-[var(--font-caption)] text-[var(--muted-fg)]">{time}</span>
       </span>
       <span className="line-clamp-4 whitespace-pre-wrap break-words text-[var(--font-prose)] leading-[var(--lh-prose)]">{card.text}</span>
-      {task && (
+      {task && !owned ? (
+        <span className="break-words text-[var(--font-caption)] text-[var(--muted-fg)]">{place.label}</span>
+      ) : task && (
         <span className="flex h-5 min-w-0 items-center gap-2 text-[var(--font-caption)] text-[var(--muted-fg)]">
           <span className="shrink-0">{t('message.taskCard.handedTo')}</span>
           <span className="flex shrink-0 items-center gap-1">
