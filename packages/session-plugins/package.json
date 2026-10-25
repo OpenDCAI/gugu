@@ -25,7 +25,7 @@
     "generate:acp-fixture": "tsx tooling/fixtures/create-acp-transcript.ts"
   },
   "dependencies": {
-    "@agentclientprotocol/claude-agent-acp": "npm:@gugu-acp/claude-agent-acp@1.5.1",
+    "@agentclientprotocol/claude-agent-acp": "npm:@gugu-acp/claude-agent-acp@1.5.2",
     "@agentclientprotocol/sdk": "1.9.0",
     "@gitbeaker/rest": "^43.8.0",
     "@gugu/session-core": "workspace:*",
