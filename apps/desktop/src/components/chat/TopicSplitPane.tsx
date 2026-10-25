@@ -588,7 +588,7 @@ export function TopicSplitPane({ viewportKey = 'topic', navigationTarget = false
           onQuoteConsumed={() => setQuoted(null)}
           chatId={topic.chatId} hidden={visible === false}
           isGroupChat
-          groupMembers={rankedMentionMembers}
+          groupMembers={rankedMentionMembers} messages={messages} participantIds={participantIds}
           currentUserId={currentUserId}
           agentStatuses={agentStatuses}
           surface="aside"
