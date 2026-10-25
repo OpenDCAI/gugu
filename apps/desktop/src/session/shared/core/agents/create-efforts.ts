@@ -79,7 +79,7 @@ function honoredByModel(
   if (!catalog || !modelEfforts?.length) return null;
   const accepted = new Set(modelEfforts);
   const options = Object.fromEntries(
-    Object.entries(catalog.options).filter(([id]) => accepted.has(id))
+    Object.entries(catalog.options).filter(([id]) => id === 'default' || accepted.has(id))
   );
   if (Object.keys(options).length === 0) return null;
   const defaultId = catalog.defaultId && options[catalog.defaultId] ? catalog.defaultId : null;

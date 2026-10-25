@@ -3,7 +3,7 @@
 // 对话的头像和名字画进页签那一格,人数挂在成员按钮上。不给 blockHost(对话页、手机、网页)时头栏照旧:每条带这个阳性对照。
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { act } from 'react'
-import { composerSlotClass, composerSlotInnerClass, composerSlotInnerBottomClass } from '@gugu/session-chat-ui/composer-layout'
+import { composerSlotClass, composerSlotInnerClass } from '@gugu/session-chat-ui/composer-layout'
 import { UI_EVENTS } from '../../../../apps/desktop/src/lib/uiEvents'
 import { requestShellChatAction } from '../../../../apps/desktop/src/lib/sidebarChatsBridge'
 import { ChatAreaPanel } from '../../../../apps/desktop/src/components/ChatAreaPanel'
@@ -155,8 +155,22 @@ describe('ChatAreaPanel hosted in a block (gugu-dev#181)', () => {
     expect(composer.style.padding).toBe('0px')
     const dock = composer.closest('[data-chat-bottom-dock]')!
     expect(dock.classList.contains(composerSlotClass)).toBe(true)
-    expect(dock.firstElementChild?.classList.contains(composerSlotInnerClass)).toBe(true)
-    expect(dock.firstElementChild?.classList.contains(composerSlotInnerBottomClass)).toBe(true)
+    // 回复条 + 输入框那一层:同一个 ACP 框,底色与聊天栏同一个 token。
+    const backing = dock.lastElementChild!
+    expect(backing.contains(composer)).toBe(true)
+    expect(backing.classList.contains(composerSlotInnerClass)).toBe(true)
+    expect(backing.classList.contains('bg-[var(--bg-primary)]')).toBe(true)
+  })
+
+  // owner 10-25:运行条那一行在可能有 agent 跑的会话里始终占位(透明、固定高),所以运行条出现、消失不改变布局;
+  // 底部那一摞排在消息流下面,不浮在消息流上。和真人的私聊没有运行条,不留这一行。
+  it.each([['group', true], ['ai', true], ['dm', false]] as const)('reserves the running bar row in a %s chat: %s', async (kind, reserved) => {
+    await renderPanel(undefined, kind)
+    const dock = harness.container.querySelector<HTMLElement>('[data-chat-bottom-dock]')!
+    expect(dock.classList.contains('absolute!')).toBe(false)
+    const row = dock.querySelector('[data-running-bar-slot]')
+    expect(row !== null).toBe(reserved)
+    if (row) expect(dock.firstElementChild!.contains(row)).toBe(true)
   })
 
   it('in a block the group tab gives the chat the room: the panel goes, its tab stays and brings it back (第 ⑥ 步)', async () => {
