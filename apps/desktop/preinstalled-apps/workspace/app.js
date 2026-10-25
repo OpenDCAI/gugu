@@ -55,8 +55,6 @@ const STRINGS = {
     offline: '离线：改动会在回线后补上',
     gone: '这个文件不在了：被删掉了，或者你已经不在这个对话里。',
     readOnly: '只读',
-    saving: '保存中',
-    saved: '已保存',
     edit: '源码',
     split: '对照',
     preview: '预览',
@@ -128,8 +126,6 @@ const STRINGS = {
     offline: 'Offline: changes catch up when back online',
     gone: 'This file is gone: it was deleted, or you are no longer in this chat.',
     readOnly: 'Read-only',
-    saving: 'Saving',
-    saved: 'Saved',
     edit: 'Source',
     split: 'Side by side',
     preview: 'Preview',
@@ -337,7 +333,7 @@ function showList() {
   const fresh = state.shown && state.entries.find((e) => e.id === state.shown.id)
   if (fresh) {
     if (state.current?.entry.id === fresh.id) state.current.entry = fresh
-    $('doc-title').textContent = fresh.name
+    if (!$('doc-title').contains(document.activeElement)) $('doc-title').textContent = fresh.name
     showEntry(fresh)
   }
 }
@@ -671,6 +667,7 @@ function startRename(li, entry) {
   li.draggable = false
   const input = document.createElement('input')
   input.className = 'rename-input'
+  input.setAttribute('aria-label', state.t.rename)
   input.value = entry.name
   li.replaceChildren(input)
   input.focus()
@@ -1188,12 +1185,12 @@ function watchStatus(current) {
     const t = state.t
     const badge = $('doc-status')
     badge.dataset.status = status
-    badge.textContent = file.readOnly && status === 'online' ? t.readOnly : status === 'online' ? (file.saved ? t.saved : t.saving) : status === 'offline' ? t.offline : ''
+    badge.textContent = file.readOnly && status === 'online' ? t.readOnly : status === 'offline' ? t.offline : ''
     if (status === 'gone') goneState(current)
     else if (status === 'offline') showBanner(t.offline, 'info')
     else if (!$('banner').dataset.sticky) hideBanner()
   }
-  // `saved` moving fires onStatus too (the runtime, F20): the badge follows it, nothing looks again.
+  // Ordinary edits and their confirmations stay quiet; read-only and offline still need saying.
   current.offs.push(file.onStatus(show))
   // A refused change (too large, rate-limited) is the runtime's to say, for every App alike (A6).
   show(file.status)
@@ -1385,8 +1382,12 @@ function start() {
   $('open-with').onclick = () => {
     if (state.shown) openInHost(state.shown, true)
   }
-  // Narrow, those two fold behind ⋯ (style.css): the page's one menu, as on a row.
-  $('more').onclick = () => toggleMenu($('more'), [[state.t.download, downloadShown], [state.t.openWith, () => openInHost(state.shown, true)]])
+  // The same menu at every width; the wide pane also keeps its Download and Open with shortcuts.
+  $('more').onclick = () => {
+    const items = [[state.t.download, downloadShown], [state.t.openWith, () => openInHost(state.shown, true)]]
+    if (canWrite() && state.shown && !state.shown.systemRole && !state.current?.file.readOnly) items.push([state.t.rename, () => startRename($('doc-title'), state.shown)])
+    toggleMenu($('more'), items)
+  }
   document.addEventListener('pointerdown', (event) => {
     if (state.menuAnchor && !$('menu').contains(event.target) && !state.menuAnchor.contains(event.target)) closeMenu()
   })
