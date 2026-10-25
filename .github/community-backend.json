@@ -1,5 +1,5 @@
 {
   "repository": "OpenDCAI/gugu-supabase",
-  "ref": "adfc993c2512cde58062e1eab55b62b81c044af9",
-  "status": "Companion for compact device-list capabilities: OpenDCAI/gugu-supabase#34. Merge and deploy the backend before this client change."
+  "ref": "ea2d9219d38f34feec09cd49c2a6e352eae18e00",
+  "status": "Compact device-list capabilities merged in OpenDCAI/gugu-supabase#35."
 }
