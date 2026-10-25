@@ -372,7 +372,6 @@ export default {
     "mobilePlaceholder": "消息",
     "projectGroupPlaceholder": "发消息给 {{name}}… @ 某个 agent 叫它",
     "removeAttachment": "移除 {{fileName}}",
-    "removeFilePill": "移除 {{label}}",
     "sendFailed": "发送失败：{{reason}}",
     "slashCommands": "斜杠命令",
     "verb": {

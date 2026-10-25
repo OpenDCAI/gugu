@@ -17,7 +17,6 @@ export const AUTOMATION_TEST_IDS = {
   chatComposerAside: 'chat-composer-aside',
   pendingAttachmentPreview: 'pending-attachment-preview',
   // App 引用 pill: a pill the composer holds, in the row above the input with the files.
-  composerFilePill: 'composer-file-pill',
   messageAttachmentImage: 'message-attachment-image',
   imagePreviewOverlay: 'image-preview-overlay',
   imagePreviewImage: 'image-preview-image',

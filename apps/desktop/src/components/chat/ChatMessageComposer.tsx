@@ -10,6 +10,7 @@ import { isMentionQueryActive } from '@/lib/mentionMatch'
 import { rankMentionCandidates } from '@/lib/mentionRanking'
 import { AUTOMATION_TEST_IDS } from '@/lib/automationDom'
 import { UI_EVENTS } from '@/lib/uiEvents'
+import { APP_COMPOSE_EVENT } from '../../session/shared/extensions/app-runtime-protocol'
 import { SLASH_COMMANDS } from '@/lib/slashCommands'
 import { useContactsStore } from '../../store/contactsContext'
 import { useTheme } from '../../store/theme'
@@ -26,7 +27,7 @@ import { useChatMessageSend } from './useChatMessageSend'
 import { ComposerAttachButton } from './ComposerAttachButton'
 import { ComposerVerbs } from './ComposerVerbs'
 import { useComposerVerbTakeover } from './useComposerVerbTakeover'
-import { DraftRefPills } from './DraftRefPills'
+import { parseGroupFileLink } from '@gugu/core/shared/ui/guguLink'
 import { ChatComposerContextBands } from './ChatComposerContextBands'
 import { AgentMentionOptionLabel, AgentMentionSelectionNotice } from './AgentMentionStatusNotice'
 import { mentionOptionStatusProps } from './agentMentionStatusModels'
@@ -47,7 +48,7 @@ export function ChatMessageComposer(props: ChatMessageComposerProps) {
   const { theme } = useTheme()
   const mobile = useMobileShell()
   const draft = useChatDraft(chatId)
-  const { text, setText, mentionTargets, setMentionTargets, attachments, setAttachments, refs, setRefs } = draft
+  const { text, setText, mentionTargets, setMentionTargets, attachments, setAttachments, flush } = draft
   const editorApiRef = useRef<PromptEditorRef | null>(null)
   const inputRef = useRef<HTMLElement | null>(null)
   const fileInputRef = useRef<HTMLInputElement>(null)
@@ -86,6 +87,9 @@ export function ChatMessageComposer(props: ChatMessageComposerProps) {
       }))
     },
     resolve(target: string, label: string): MentionItem | null {
+      const file = parseGroupFileLink(target)
+      if (file) return { id: target, label: target, name: label, kind: 'file',
+        description: file.version === undefined ? label : `${label} · ${t('filePill.picked', { version: file.version })}` }
       if (!target.startsWith('aid:')) return null
       return decorate({ id: target, label: target, name: label, role: 'agent', kind: 'custom' })
     },
@@ -122,6 +126,14 @@ export function ChatMessageComposer(props: ChatMessageComposerProps) {
     window.addEventListener(UI_EVENTS.composerAttachFiles, attach)
     return () => window.removeEventListener(UI_EVENTS.composerAttachFiles, attach)
   }, [isMain, enqueueFiles])
+  useEffect(() => {
+    // App composition appends through the store; preserve typing in either composer surface first.
+    const beforeCompose = (event: Event) => {
+      if ((event as CustomEvent<{ chatId: string }>).detail?.chatId === chatId) flush()
+    }
+    window.addEventListener(APP_COMPOSE_EVENT, beforeCompose, true)
+    return () => window.removeEventListener(APP_COMPOSE_EVENT, beforeCompose, true)
+  }, [chatId, flush])
 
   const composerAttachments: ComposerAttachment[] = attachments.map((attachment) => ({
     id: attachment.id, name: attachment.file.name, kind: attachment.kind === 'image' ? 'image' : 'file',
@@ -139,12 +151,11 @@ export function ChatMessageComposer(props: ChatMessageComposerProps) {
     <MessageProvider locale={resolvedLocale} translate={translateSessionMessage}>
       <div title={disabledReason} data-chat-composer-host="" data-mobile-group={mobile && isGroupChat || undefined} data-sending={sending} hidden={hidden} style={{ display: takenOver ? 'none' : undefined }}>
         <input ref={fileInputRef} type="file" multiple hidden onChange={(event) => { enqueueFiles(Array.from(event.target.files ?? [])); event.target.value = '' }} />
-        <DraftRefPills refs={refs} onRemove={(link) => setRefs((held) => held.filter((ref) => ref.link !== link))} />
         <ChatComposerContextBands {...props} />
         <AgentMentionSelectionNotice members={members} mentionTargets={activeTargets} agentStatuses={agentStatuses} />
         {invitation}
         <ChatComposer key={chatId} editorApiRef={editorApiRef} editorOptions={editorOptions} mobile={mobile}
-          disabled={disabled} disabledPlaceholder={placeholder ?? disabledReason} canSubmit={!sending && (!!text.trim() || attachments.length > 0 || refs.length > 0)}
+          disabled={disabled} disabledPlaceholder={placeholder ?? disabledReason} canSubmit={!sending && (!!text.trim() || attachments.length > 0)}
           placeholder={whisperTarget ? t('composer.whisperPlaceholder', { name: whisperTarget.displayName }) : placeholder ?? (mobile && isGroupChat ? t('composer.mobilePlaceholder') : projectName && !mobile ? t('composer.projectGroupPlaceholder', { name: projectName }) : t('composer.placeholder'))}
           onInputChange={setText} onSubmit={(value) => { void handleSend(value) }} onMentionInsert={onMentionInsert}
           mentionProvider={mentionProvider} renderMentionIcon={renderMentionIcon} dataDropTypes={dataDropTypes} onDataDropped={onDataDropped}

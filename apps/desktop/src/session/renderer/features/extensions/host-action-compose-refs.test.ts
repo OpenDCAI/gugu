@@ -22,7 +22,11 @@ const { applyExtensionHostAction } = await import('./host-action-handlers');
 describe("a chat's compose hands the chat shell its pills", () => {
   it('refs go with the text; none named, none carried', () => {
     const composed: AppComposeDetail[] = [];
-    const take = (event: Event) => composed.push((event as CustomEvent<AppComposeDetail>).detail);
+    const take = (event: Event) => {
+      expect(event.target).toBe(document);
+      expect(event.eventPhase).toBe(Event.BUBBLING_PHASE);
+      composed.push((event as CustomEvent<AppComposeDetail>).detail);
+    };
     window.addEventListener(APP_COMPOSE_EVENT, take);
     const refs = [{ label: '演示稿 · 第 3 页 · 标题', link: 'gugu-file://0c000000-0000-4000-8000-000000000016?v=7#slide=3&shape=12' }];
     try {

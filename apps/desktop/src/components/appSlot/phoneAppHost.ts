@@ -607,7 +607,8 @@ export function hostAppFrame(
           const picked = composeNamesPlace(args) ? null : await pickComposePlace(args, () => pickComposeTarget({ tasks: false, current: null }))
           if (picked && 'cancelled' in picked) return picked
           const detail = await composeInChat(sendPlatform, { text: args.text, chat: args.chat, refs: args.refs, about: args.about, images: args.images, ...picked })
-          window.dispatchEvent(new CustomEvent<AppComposeDetail>(APP_COMPOSE_EVENT, { detail }))
+          // Use the same capture-before-append ordering as the desktop host.
+          document.dispatchEvent(new CustomEvent<AppComposeDetail>(APP_COMPOSE_EVENT, { detail, bubbles: true }))
           return picked ?? undefined
         })()
       }
