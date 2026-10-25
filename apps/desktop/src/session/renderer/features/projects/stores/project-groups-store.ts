@@ -1,4 +1,4 @@
-import { observable, reaction, runInAction } from 'mobx';
+import { comparer, observable, reaction, runInAction } from 'mobx';
 import type { ProjectGroupBinding } from '@shared/core/projects/project-groups';
 import { projectGroupBindingChangedChannel } from '@shared/core/projects/projectEvents';
 import { events, onMachineEvent, rpcOn } from '@renderer/lib/ipc';
@@ -50,7 +50,7 @@ export class ProjectGroupsStore {
   }
 
   /** 会话页挂上时由远程主机那边调一次(它知道哪些机器连着)。重复调用无害。 */
-  start(syncedMachines: () => readonly string[]): void {
+  start(syncedMachines: () => readonly string[], agentSessions: () => readonly { projectId: string; agentUserId: string | null | undefined }[] = () => []): void {
     this.syncedMachines = syncedMachines;
     if (!this.stop) {
       void this.refresh(null);
@@ -69,9 +69,16 @@ export class ProjectGroupsStore {
       );
       // 聊天页的列表据此把项目群拿掉(它们在项目页里)。
       const offPublish = reaction(
-        () => [...new Set(this.byProject.values())].sort().join('\u0000'),
-        (joined) => publishProjectGroupChats(joined ? joined.split('\u0000') : []),
-        { fireImmediately: true }
+        () => {
+          const byChat = new Map<string, Set<string>>([...this.byProject.values()].map((chatId) => [chatId, new Set<string>()]));
+          for (const session of agentSessions()) {
+            const chatId = this.byProject.get(session.projectId);
+            if (chatId && session.agentUserId) byChat.get(chatId)!.add(session.agentUserId);
+          }
+          return [...byChat].map(([chatId, ids]) => [chatId, [...ids].sort()] as const).sort(([a], [b]) => a.localeCompare(b));
+        },
+        (rows) => publishProjectGroupChats(rows.map(([chatId]) => chatId), new Map(rows)),
+        { fireImmediately: true, equals: comparer.structural }
       );
       this.stop = () => {
         offHosts();

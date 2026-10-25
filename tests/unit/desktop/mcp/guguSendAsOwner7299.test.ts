@@ -70,6 +70,7 @@ describe('owner-requested attachments (#7299; #7290 gugu-3: upload, then commit 
     const commits: Array<Record<string, unknown>> = []
     const fetch = (async (url: string, init?: RequestInit) => {
       if (url.endsWith('/attachments/upload')) {
+        expect(JSON.parse(String(init?.body))).toMatchObject({ as: context.agentId, chat_id: null, size_bytes: expect.any(Number), request_id: expect.any(String) })
         if (uploadFails) return new Response(JSON.stringify({ error: 'failed', message: 'Storage unavailable' }), { status: 503 })
         return new Response(JSON.stringify({ staging_key: `staging/${owner}/s1`, url: 'https://oss.test/', fields: { key: 'k' }, max_bytes: 25 * 1024 * 1024 }))
       }

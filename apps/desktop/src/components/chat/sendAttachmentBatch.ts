@@ -12,7 +12,7 @@ import { i18n } from '@/i18n'
 // composer 的失败回滚据此只恢复未提交残余。任一件失败即 throw、中止后续。没提交的上传不用清:暂存一小时没人用就过期回收。
 const UPLOAD_CONCURRENCY = 3
 
-function startBoundedUploads(files: File[], endpoint: AttachmentsEndpoint): Promise<string>[] {
+function startBoundedUploads(files: File[], endpoint: AttachmentsEndpoint, scope: { chat_id: string; as: string }): Promise<string>[] {
   const settle: Array<{ resolve: (value: string) => void; reject: (error: unknown) => void }> = []
   const results = files.map(() => new Promise<string>((resolve, reject) => { settle.push({ resolve, reject }) }))
   // 未被 await 到的失败(中止点之后的件)不应成为 unhandledrejection。
@@ -24,7 +24,7 @@ function startBoundedUploads(files: File[], endpoint: AttachmentsEndpoint): Prom
       next += 1
       try {
         const file = files[index]
-        settle[index].resolve(await uploadAttachmentBytes(endpoint, { bytes: file, name: file.name || 'file', contentType: resolveFileMimeType(file) }))
+        settle[index].resolve(await uploadAttachmentBytes(endpoint, { bytes: file, name: file.name || 'file', contentType: resolveFileMimeType(file) }, scope))
       } catch (error) {
         settle[index].reject(error)
       }
@@ -97,7 +97,7 @@ export async function sendAttachmentBatch(args: {
     if (args.threadRootId != null || args.isThreadRoot === true) await requireThreadCapableChat(args.chatId, 'sendAttachmentBatch')
     // 上传并发(限 UPLOAD_CONCURRENCY 路)、提交仍按原顺序逐件:多张图不再一张等一张传完,顺序也不乱。
     const endpoint = await attachmentsEndpoint()
-    const uploads = startBoundedUploads(args.files, endpoint)
+    const uploads = startBoundedUploads(args.files, endpoint, { chat_id: args.chatId, as: args.senderId })
     for (; index < args.files.length; index += 1) {
       const file = args.files[index]
       const stagingKey = await uploads[index]

@@ -10,6 +10,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
  */
 
 type Row = Record<string, unknown>;
+const uploadScopes: Row[] = [];
 const rows: Row[] = [];
 const bucketed: string[] = [];
 const stored = new Map<string, Uint8Array>();
@@ -53,7 +54,8 @@ vi.mock('@gugu/core/cloud/supabase', () => ({
 vi.mock('@gugu/core/cloud/attachmentsApi', async (importOriginal) => ({
   ...(await importOriginal<object>()),
   configuredEndpoint: (token: string) => ({ supabaseUrl: 'https://db.test', anonKey: 'anon', token }),
-  uploadAttachmentBytes: async (_endpoint: unknown, file: { bytes: Uint8Array }) => {
+  uploadAttachmentBytes: async (_endpoint: unknown, file: { bytes: Uint8Array }, scope: Row) => {
+    uploadScopes.push(scope);
     const key = `staging/me/${randomUUID()}`;
     bucketed.push(key);
     stored.set(key, file.bytes);
@@ -92,6 +94,7 @@ const bytesOf = (text: string | Uint8Array) => {
 };
 
 beforeEach(() => {
+  uploadScopes.length = 0;
   rpcs.length = 0;
   places.length = 0;
   stagingOfItem.clear();
@@ -161,6 +164,7 @@ describe('files.upload from an App\'s program acting for an agent (G5)', () => {
     expect(doc).toMatchObject({ name: 'notes.md', type: 'text' });
     expect(file).toMatchObject({ name: 'deck.pptx', type: 'binary' });
     expect(bucketed).toHaveLength(1);
+    expect(uploadScopes).toEqual([{ chat_id: CHAT, as: AGENT }]);
   });
 
   it('a chat the agent is not in: refused before a byte goes, nothing in the bucket, nothing in the table', async () => {
