@@ -40,7 +40,7 @@ import { agentComposerModel, isRetiredCloudAgentChat } from '../lib/agentCompose
 import { useAgentRunningStatus } from '../hooks/useAgentRunningStatus'
 import { useAgentStream } from '../hooks/useAgentStream'
 import { useStructurallyShared } from '../hooks/useStructurallyShared'
-import { RunningTokenBar } from './RunningTokenBar'
+import { RunningBarSlot, RunningTokenBar } from './RunningTokenBar'
 import { deriveAgentRunningState } from '../lib/agentRunningVerb'
 import { AgentConversationNoticeSlot } from './AgentTurnFailureBar'
 import { latestRecentAction } from './agentRecentActionModel'
@@ -1094,8 +1094,8 @@ function ChatAreaSurface({ viewportKey = 'chats', activeTab, navigationTarget = 
       <ChatTailNotice window={messageWindow} hidden={searchMode} onClick={pinToBottom} />
 
       {/* @@@1506 - Agent 运行状态：输入框上方的轻量浮动文字（owner #1506：无重白板，打字时也能瞥见）。群聊列出在跑的 agent（可点 → @mention）；
-          单聊是运行中/思考中（流式正文仍留消息流）。桌面上它和输入框同在 ChatBottomDock 那层半透明底上，消息流在底部让出同高的一格。 */}
-      <ChatBottomDock floating={!mobile} reserve={chatListRows.length === 0}>
+          单聊是运行中/思考中（流式正文仍留消息流）。运行条那一行是布局里真占位的一行(群、agent 私聊才有),透明、固定高;消息流在它上沿结束,运行条出现、消失不改变布局。 */}
+      <ChatBottomDock floating={!mobile} above={(isRoomChatSurface || isAgentChat) && <RunningBarSlot>
       {!searchMode && !chrome?.hideRunningStatus && (isRoomChatSurface ? (
         // @@@1696 群聊运行态：横排单行「运行 token」(流光动词) + cap +N。数据 = 在跑(transient)的 agent，
         // stateKey 由 presence recentActions 的最新 kind 派生，展示文案由 RunningTokenBar 翻译；
@@ -1134,7 +1134,7 @@ function ChatAreaSurface({ viewportKey = 'chats', activeTab, navigationTarget = 
             },
           ]}
         />
-      ) : null)}
+      ) : null)}</RunningBarSlot>}>
       {/* #2115 — 普通 ACP 回合终态失败条（运行条同槽位;重试=CAS error→pending 重排原命令,详见 Slot）。 */}
       {!searchMode && <AgentConversationNoticeSlot sessionpageNotices={sessionpageAgent.sessionpageNotices} failureExplained={sessionpageAgent.failureExplained} chatId={activeChatId} threadRootId={threadScope.rootId} profiles={messageMemberProfiles} />}
       {/* Input area — white card with rounded border floating in gray.

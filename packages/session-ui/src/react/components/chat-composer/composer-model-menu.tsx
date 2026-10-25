@@ -356,6 +356,7 @@ export function ComposerModelMenu({
   const defaultEffortItem = defaultEffort
     ? (effortItems.find((e) => e.id === defaultEffort) ?? null)
     : null;
+  const resetEffortItem = defaultEffortItem ?? effortItems.find((e) => e.id === 'default');
   // The trigger and the Thinking row must describe the same effective level. A model default is
   // not an explicit user override, but it is still the level currently in effect when no override
   // exists; leaving it out of the radio value makes the trigger say one level while the panel says
@@ -414,7 +415,8 @@ export function ComposerModelMenu({
       : translate('composer.effortUnset');
   /** 复位钮只在「你改过、且改到了默认档之外」时出现 —— 见 modelEffortReset 那段。 */
   const canResetEffort =
-    !effortLocked && !!onEffortChange && !!selectedEffortItem && selectedEffort !== defaultEffort;
+    !effortLocked && !!onEffortChange && !!selectedEffortItem && !!resetEffortItem &&
+    selectedEffort !== resetEffortItem.id;
 
   // 选中项要**从清单里取同一个对象**递给 Combobox:它按 isItemEqualToValue 比,
   // 但触发器上的回显走的是这个值 —— 现拼一个新对象会让「当前选中」在重渲染间抖。
@@ -780,7 +782,7 @@ export function ComposerModelMenu({
                 >
                   {effortHasHints && !effortLocked ? effortHintText : null}
                 </span>
-                {canResetEffort && (
+                {canResetEffort && resetEffortItem && (
                   <button
                     type="button"
                     className={styles.modelEffortReset}
@@ -788,9 +790,8 @@ export function ComposerModelMenu({
                     title={translate('composer.effortReset')}
                     aria-label={translate('composer.effortReset')}
                     onClick={() => {
-                      // 空串 = 撤掉覆盖。两个宿主都写成 `state.setEffort(effortId || null)` /
-                      // `store.setEffort(effortId)`,空串在那里就是"回到目录的默认档"。
-                      onEffortChange?.('');
+                      // ACP select options accept advertised value IDs, including a provider's default row.
+                      onEffortChange?.(resetEffortItem.id);
                       setModelPanelOpen(false);
                     }}
                   >

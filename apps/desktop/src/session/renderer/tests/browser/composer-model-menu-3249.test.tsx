@@ -564,7 +564,7 @@ describe('#3249 composer 模型下拉', () => {
     ).toBeNull()
   })
 
-  it('复位钮:改过才出现,点了撤回覆盖', async () => {
+  it('复位钮:改过才出现,点了发送声明的默认档', async () => {
     // ① 当前就是模型默认档 —— 没有可撤的东西,❌ 不许画一枚点了什么也不发生的按钮。
     renderComposer('platform:glm-5.2', { selected: 'high', default: 'high' })
     await openPanel()
@@ -572,12 +572,32 @@ describe('#3249 composer 模型下拉', () => {
     await userEvent.keyboard('{Escape}')
     await until('model panel closed', () => openMenuParts() === 0)
 
-    // ② 改过了 —— 按钮出现,点了发空串(宿主两头都把空串读成"撤掉覆盖")。
-    renderComposer('platform:glm-5.2', { selected: 'max', default: 'high' })
+    // ② 改过了 —— 按钮出现,点了发送目录里的默认档 id。
+    renderComposer('platform:glm-5.2', { selected: 'max', default: 'high' }, LONG_EFFORTS)
     await openPanel()
     await page.getByTestId('composer-effort-reset').click()
-    expect(onEffortChange.mock.calls).toEqual([['']])
+    expect(onEffortChange.mock.calls).toEqual([['high']])
     await until('model panel closed', () => openMenuParts() === 0)
+  })
+
+  it('复位钮使用目录提供的 default 项,回到该项后隐藏', async () => {
+    renderComposer('platform:glm-5.2', { selected: 'low' }, LONG_EFFORTS)
+    await openPanel()
+    await page.getByTestId('composer-effort-reset').click()
+    expect(onEffortChange.mock.calls).toEqual([['default']])
+    await until('model panel closed', () => openMenuParts() === 0)
+
+    renderComposer('platform:glm-5.2', { selected: 'default' }, LONG_EFFORTS)
+    await openPanel()
+    expect(document.querySelector('[data-testid="composer-effort-reset"]')).toBeNull()
+  })
+
+  it.each([undefined, 'missing'])('没有合法默认项时不显示复位钮(default=%s)', async (defaultId) => {
+    renderComposer('platform:glm-5.2', { selected: 'low', default: defaultId })
+    await openPanel()
+    expect(effortReadout()).toBe('低')
+    expect(document.querySelector('[data-testid="composer-effort-reset"]')).toBeNull()
+    expect(onEffortChange).not.toHaveBeenCalled()
   })
 
   it('搜索按名字过滤(照上游:清单一长就得找得到)', async () => {

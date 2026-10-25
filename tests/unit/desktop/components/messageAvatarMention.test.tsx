@@ -109,3 +109,28 @@ describe('右键群聊消息头像 → @ 他', () => {
     expect(readComposer(composer)).toBe('@Claude 5 ')
   })
 })
+
+// owner 10-25:Telegram 式头像 —— 一组连续消息只在组尾画一个头像(sticky 贴滚动区底边),组首留标记、其余留占位。
+describe('group avatar sits on the last message of a run', () => {
+  it('a run of three from one sender draws one avatar, on the last row; single messages keep their own', async () => {
+    const run: MessageItem[] = [
+      message({ id: 'r-1', seq: 1, sender_user_id: 'u-alice', content: 'one' }),
+      message({ id: 'r-2', seq: 2, sender_user_id: 'u-alice', content: 'two' }),
+      message({ id: 'r-3', seq: 3, sender_user_id: 'u-alice', content: 'three' }),
+      message({ id: 'r-4', seq: 4, sender_user_id: 'u-claude', content: 'solo' }),
+    ]
+    const rows: ChatListRowItem[] = run.map((msg) => ({ type: 'message', message: msg }))
+    const rowProps: MessageListRowProps = {
+      rows, messages: run, isFiltering: false, mobile: false, memberReadSeqs: {}, isAgentChat: false, isGroupChat: true, memberProfiles,
+      onReaction: noop, onQuote: noop, onForward: noop, onDelete: noop, onVisible: noop, onOpenMemberProfile: noop, onMentionMember: noop,
+      highlight: undefined, flashMessageId: undefined, threeParty: undefined, onShowReadReceipt: undefined, onOpenTopic: undefined, topicAnchors: undefined, onOpenTopicAnchor: undefined,
+      agentFloodNoticeMessageId: undefined, onAgentFloodUndone: undefined, onOpenFile: undefined, onOpenLocalFileLink: undefined,
+      selectMode: false, selectedIds: new Set(), onToggleSelect: noop, onEnterSelectMode: noop,
+    }
+    await renderWithAppProviders(harness, createElement(MessageList, { rows, rowProps, resetKey: 'chat-run' }))
+    const avatarIn = (id: string) => harness.container.querySelector(`[data-msg-id="${id}"] [data-message-sender-id]`)
+    expect([avatarIn('r-1'), avatarIn('r-2'), avatarIn('r-3') !== null, avatarIn('r-4') !== null]).toEqual([null, null, true, true])
+    expect(harness.container.querySelector('[data-msg-id="r-1"] [data-avatar-group-top]')).not.toBeNull()
+    expect(harness.container.querySelector('[data-msg-id="r-2"] [data-avatar-group-top]')).toBeNull()
+  })
+})
