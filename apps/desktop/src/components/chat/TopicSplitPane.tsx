@@ -19,7 +19,7 @@ import { TabChip, TabSlot } from '../../session/renderer/features/tabs/tab-bar/t
 import { PaneHeader } from '../ui/Pane'
 import { useBackLayer } from '../ui/sheetStack'
 import { ChatMessageComposer } from './ChatMessageComposer'
-import { RunningTokenBar, type RunningToken } from '../RunningTokenBar'
+import { RunningBarSlot, RunningTokenBar, type RunningToken } from '../RunningTokenBar'
 import { GROUP_AGENT_BAR_MAX } from '@/lib/groupRunningTokenModels'
 import { TopicBreadcrumb } from './TopicBreadcrumb'
 import { TopicMoreMenu } from './TopicMoreMenu'
@@ -560,8 +560,10 @@ export function TopicSplitPane({ viewportKey = 'topic', navigationTarget = false
             自造的那份缺发送键、缺 @ 候选弹窗、缺草稿与附件 —— 这些原件早就解决过,
             重写一份等于把它们统统退回未解决态,而且不报任何错(owner 2026-09-19 实测点破)。
             话题是一间屋子 ⇒ isGroupChat,寻址规则与群一致。 */}
-        <ChatBottomDock floating={!mobile} reserve={messages.length === 0}>
-        {runningTokens && runningTokens.length > 0 ? (
+        {/* 话题里运行条那一行同样是真占位的一行;只在传了 runningTokens 时才有(手机整页话题),桌面分栏旁边群里那一条一直看得见。 */}
+        <ChatBottomDock floating={!mobile} above={runningTokens &&
+        <RunningBarSlot>
+        {runningTokens.length > 0 ? (
           <RunningTokenBar
             testId="topic-agent-running-status"
             cap={GROUP_AGENT_BAR_MAX}
@@ -573,6 +575,8 @@ export function TopicSplitPane({ viewportKey = 'topic', navigationTarget = false
             }}
           />
         ) : null}
+        </RunningBarSlot>
+        }>
         <div data-topic-split-composer="" style={mobile ? TOPIC_SPLIT_COMPOSER_MOBILE_STYLE : TOPIC_SPLIT_COMPOSER_STYLE}>
         <ChatMessageComposer
           mentionToInsert={mentionToInsert}
