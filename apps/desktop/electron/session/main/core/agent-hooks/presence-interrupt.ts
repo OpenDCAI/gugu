@@ -5,6 +5,7 @@ import semver from 'semver';
 import type { HarnessPresenceFile, HarnessPresenceStatus, HooksDescriptor } from '@gugu/session-core/agents/plugins';
 import { agentStatusWriter } from '@main/core/agent-status/agent-status-writer';
 import { log } from '@main/lib/logger';
+import { isProcessAlive } from '../../../../server/process-alive';
 import { agentHookService } from './agent-hook-service';
 import { isAppFocused } from './app-focus';
 
@@ -54,7 +55,7 @@ export function watchPresenceInterrupt(options: {
 }): () => void {
   const { presence, harnessSessionId, isActive, onInterrupted } = options;
   const fs = options.fs ?? nodeFs;
-  const isAlive = options.isAlive ?? processIsAlive;
+  const isAlive = options.isAlive ?? isProcessAlive;
   const now = options.now ?? Date.now;
   const directory = join(options.configRoot, presence.directory);
   let pid: number | null = null;
@@ -150,15 +151,6 @@ export function watchPresenceInterrupt(options: {
       });
   }, options.intervalMs ?? PRESENCE_POLL_MS);
   return () => clearInterval(timer);
-}
-
-function processIsAlive(pid: number): boolean {
-  try {
-    process.kill(pid, 0);
-    return true;
-  } catch (error) {
-    return (error as NodeJS.ErrnoException).code === 'EPERM';
-  }
 }
 
 /**
