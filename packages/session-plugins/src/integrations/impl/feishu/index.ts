@@ -37,8 +37,8 @@ const plugin = defineIntegrationPlugin(
       methods: [{
         kind: 'cli', tool: 'lark-cli', login: 'qr-code',
         prerequisite: { text: {
-          en: 'First configure your Feishu app, then authorize your personal account. Follow both links or QR codes in order. Existing MCP connections need to reconnect.',
-          'zh-CN': '先按引导配置你自己的飞书应用，再授权个人账号；依次完成两次链接或扫码确认。原有 MCP 连接需要重新连接。',
+          en: 'Follow the two authorization steps to connect your Feishu app and personal account.',
+          'zh-CN': '按引导完成两次授权，连接你的飞书应用和个人账号。',
         } },
       }],
     },

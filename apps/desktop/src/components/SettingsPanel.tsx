@@ -16,7 +16,6 @@ import { ActivitySection } from './usage/ActivitySection'
 import { PermissionsSection } from './settings/PermissionsSection'
 import { SettingsDetailNavigation, type SettingsDetailState } from './settings/SettingsDetailNavigation'
 import { usePanelScroll } from '../session/renderer/features/assistant/use-panel-scroll'
-import { ChannelsSection } from './settings/channels/ChannelsSection'
 import { PhoneDeviceActionsPage } from '../mobile/phone-device/PhoneDeviceActionsPage'
 import { SettingsNav } from './settings/SettingsNav'
 import { SessionSettingsSection } from './sessionpage/SessionSettingsSection'
@@ -49,6 +48,7 @@ import { useTranslation } from 'react-i18next'
 const sectionsFor = (mobile: boolean): ActiveSection[] =>
   SETTINGS_SECTIONS.filter(
     (section) =>
+      section !== 'channels' &&
       (section !== 'usage' || officialServicesEnabled()) &&
       (section !== 'permissions' || platform.kind === 'electron' || platform.systemPermissions.length > 0) &&
       (section !== 'apps' || platform.kind === 'capacitor') &&
@@ -96,7 +96,8 @@ export function SettingsPanel({ mobile = false, inline = false, onClose, initial
 
   // @@@1507 初始 section 可由调用方指定(如侧栏「额度」直接开到 quota);缺省 account。
   const [internalSection, setInternalSection] = useState<ActiveSection>(initialSection)
-  const activeSection = section ?? internalSection
+  const requestedSection = section ?? internalSection
+  const activeSection = requestedSection === 'channels' ? 'connectors' : requestedSection
   const setActiveSection = onSectionChange ?? setInternalSection
   const [internalPane, setInternalPane] = useState<'nav' | 'detail'>(mobile ? 'nav' : 'detail')
   const mobilePane = pane ?? internalPane
@@ -127,7 +128,6 @@ export function SettingsPanel({ mobile = false, inline = false, onClose, initial
       case 'about':    return <AboutSection />
       case 'permissions': return <PermissionsSection />
       case 'apps':     return <Suspense fallback={null}><MobileAppsSection /></Suspense>
-      case 'channels': return <ChannelsSection />
       case 'phone':    return <PhoneDeviceActionsPage />
       case 'sessions':
       case 'interface':

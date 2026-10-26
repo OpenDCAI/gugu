@@ -471,7 +471,7 @@ export default {
       "off": "Off",
       "offPrompt": "Off · tap to turn on",
       "offBlocked": "Off · turn on in system settings",
-      "unknown": "Unknown · check in system settings",
+      "unknown": "Check system settings",
       "settingsUnreachable": "Couldn't open that screen. Open system settings yourself, find 咕咕, and turn on {{name}}.",
       "readFailed": "Couldn't read permission status from the system. Come back to this page to try again."
     },

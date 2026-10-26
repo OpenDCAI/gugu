@@ -178,26 +178,25 @@ describe('咕咕组 · 资料', () => {
 })
 
 describe('咕咕组 · 连接应用', () => {
-  it('醒着:云端那段交给会话页画,带上它住的那台和它现在的名字;本机 / 其他设备是设备页那批组件', async () => {
+  it('应用列表委托给会话页，不再混入设备授权或三格页签', async () => {
     mine.value = { contact: CONTACT, agentId: 'a1', loading: false, error: null }
     await render(createNode(ConnectorsSection, {}), awake)
     expect(sessionSection.props).toMatchObject({ section: 'connectors', context: { home: { kind: 'cloud',deviceId: 'cloud-1' }, assistantName: '小咕' } })
     const tabs = [...harness.container.querySelectorAll<HTMLElement>('[role="tab"]')]
-    expect(tabs.map((tab) => tab.textContent)).toEqual(['云端', '本机', '其他设备'])
-    await clickElement(tabs[1])
-    expect(q('this-device')).not.toBeNull()
-    await clickElement(tabs[2])
-    expect(q('other-devices')).not.toBeNull()
+    // Owner 2026-10-27: apps have one list; device grants live in Settings → Permissions.
+    expect(tabs).toHaveLength(0)
+    expect(q('this-device')).toBeNull()
+    expect(q('other-devices')).toBeNull()
   })
 
-  it('住在自己的电脑上:第一段叫「账号」,读写的是那台电脑自己的集成,不用叫醒谁', async () => {
+  it('住在自己的电脑时仍读那台电脑的应用账号，不增加分类或叫醒动作', async () => {
     mine.value = { contact: CONTACT, agentId: 'a1', loading: false, error: null, homeDeviceId: 'mac-1' } as never
     await render(createNode(ConnectorsSection, {}), asleep, vi.fn(async () => {}), [
       { device_id: 'mac-1', label: 'MacBook', is_online: true, is_current_device: true },
     ])
     expect(sessionSection.props).toMatchObject({ section: 'connectors', context: { home: { kind: 'computer', deviceId: 'mac-1' }, assistantName: '小咕' } })
     const tabs = [...harness.container.querySelectorAll<HTMLElement>('[role="tab"]')]
-    expect(tabs.map((tab) => tab.textContent)).toEqual(['账号', '本机', '其他设备'])
+    expect(tabs).toHaveLength(0)
     expect(wake).not.toHaveBeenCalled()
   })
 

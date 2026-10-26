@@ -5,7 +5,7 @@ import { useAssistantHome } from '../../lib/useAssistantHome'
 import { SettingsNote, SettingsPage } from './SettingsPrimitives'
 import '../../i18n/registerAssistantCatalog'
 
-/** Application accounts and chat connections share one catalog. Device grants live in Devices. */
+/** Every application has one entry. Device grants are managed in Settings → Permissions. */
 export function ConnectorsSection({ panelNavigation = false }: { panelNavigation?: boolean }) {
   const { t } = useTranslation('assistant')
   const { contact, home, identityLoading } = useAssistantHome()

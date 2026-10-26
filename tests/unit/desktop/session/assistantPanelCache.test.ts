@@ -52,6 +52,16 @@ it('exposes one local copy through the files API and warms details without block
  expect(new TextDecoder().decode(panel.peekBody(item))).toBe('detail');expect(readBody).toHaveBeenCalledOnce()
  f.setOwner('other');expect(panel.peekSnapshot()).toBeUndefined();expect(panel.peekBody(item)).toBeUndefined();await manager.flush()
 })
+it('keeps account application state in the same durable store and never exposes another account’s copy',async()=>{
+ const f=fixture(),manager=f.manager();await manager.ready
+ const valid=(v:unknown):v is {channels:string[]}=>!!v&&typeof v==='object'&&Array.isArray((v as {channels:unknown}).channels)
+ const state=manager.accountState('owner','wechat',valid);state.save({channels:['connected']});await manager.flush()
+ const restarted=f.manager(),copy=restarted.accountState('owner','wechat',valid)
+ expect(copy.peek()).toEqual({channels:['connected']})
+ f.setOwner('other');expect(copy.peek()).toBeUndefined();copy.save({channels:['wrong-account']})
+ expect(restarted.accountState('other','wechat',valid).peek()).toBeUndefined()
+ f.setOwner('owner');expect(copy.peek()).toEqual({channels:['connected']});await restarted.flush()
+})
 
 it('keeps an unopened application list free of catalog body downloads, then refreshes only a previously opened detail',async()=>{
  const f=fixture(),manager=f.manager();await manager.ready;const cache=manager.files('owner','assistant')

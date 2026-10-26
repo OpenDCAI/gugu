@@ -3,13 +3,15 @@ import { useLocale } from '@/i18n'
 import type { AssistantPanelFiles } from '@gugu/core/cloud/assistantPanelFiles'
 import { isAssistantPanelReadRetryable,retryAssistantPanelRead,withAssistantPanelReadDeadline } from '@gugu/core/cloud/assistantPanelRead'
 import type { IntegrationMetadata } from '@/session/renderer/features/integrations/integrations-provider'
-import { readAssistantPanelIntegration } from './assistant-panel-integrations'
+import { peekAssistantPanelIntegration,readAssistantPanelIntegration } from './assistant-panel-integrations'
 
 export function useAssistantPanelIntegration(panel: AssistantPanelFiles | undefined,summary: IntegrationMetadata | null | undefined) {
   const { resolvedLocale } = useLocale()
-  const query = useQuery({ queryKey: ['assistant',panel?.ownerId,panel?.assistantId,'integration-detail',summary?.id,resolvedLocale],
-    queryFn: () => withAssistantPanelReadDeadline(() => readAssistantPanelIntegration(panel!,summary!.id,resolvedLocale)),
-    enabled: !!panel && summary?.metadataOnly === true,retry: retryAssistantPanelRead,
+  const query = useQuery({ queryKey: ['assistant',panel?.ownerId,panel?.assistantId,'integration-detail',summary?.id,summary?.catalogVersion,resolvedLocale],
+    queryFn: () => withAssistantPanelReadDeadline(() => readAssistantPanelIntegration(panel!,summary!.id,resolvedLocale,summary?.catalogVersion)),
+    initialData: () => peekAssistantPanelIntegration(panel,summary?.id,resolvedLocale),
+    placeholderData: previous => previous,
+    enabled: !!panel && summary?.metadataOnly === true,staleTime: summary?.catalogVersion ? Infinity : 0,retry: retryAssistantPanelRead,
     refetchOnWindowFocus: q => isAssistantPanelReadRetryable(q.state.error),
     refetchInterval: q => q.state.error && isAssistantPanelReadRetryable(q.state.error) ? 30_000 : false,
   })

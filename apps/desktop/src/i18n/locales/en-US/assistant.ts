@@ -708,13 +708,12 @@ export default {
     "title": "Capabilities and connections"
   },
   "connectors": {
+    "wechatDescription": "Talk to Gugu in WeChat",
+    "paused": "Paused",
+    "retrying": "Reconnecting",
     "savedCount": "{{count}} added",
     "connectedCount": "{{count}} connected",
     "deviceCount": "{{count}} devices",
-    "readWritePurpose": "Let it read and write {{app}}",
-    "chatPurpose": "Find it in {{app}}",
-    "chatDescription": "Chat with your assistant",
-    "chatUnavailable": "Chat connections are not available for this app yet.",
     "unverified": "Not yet verified",
     "prepareFailed": "Authorization preparation is unavailable.",
     "authorizationUnavailable": "The cloud service needed for authorization is unavailable.",
@@ -772,7 +771,7 @@ export default {
     "disconnectAccountBody": "Only {{account}} is disconnected; other accounts are not affected.",
     "setup": {
       "downloadProgress": "Download progress",
-      "progressUnreadable": "Download progress is unavailable; installation is still running.",
+      "progressUnreadable": "Preparing the connection…",
       "installing": "Verifying and installing…",
       "downloading": "Preparing download…",
       "downloadBytes": "Downloaded {{received}} / {{total}} MB",
@@ -804,9 +803,9 @@ export default {
         "not-callback": "That doesn't look like an authorization result. Copy the full address shown in the browser after you approve.",
         "state-mismatch": "That address is from a different authorization. Copy it again from the browser, or start over."
       },
-      "cliIntro": "Gugu installs the official {{name}} command-line tool where {{assistant}} lives and signs in. Once you confirm in {{name}}, {{assistant}} can use it.",
+      "cliIntro": "Confirm authorization in {{name}} to connect.",
       "prerequisiteLink": "Open the admin console",
-      "cliPreparing": "Getting the {{name}} tool ready. The first time it downloads, which can take a minute…",
+      "cliPreparing": "Preparing the connection…",
       "cliWaiting": "Waiting for authorization…",
       "cliDeviceHint": "Open the {{name}} authorization page and approve. The page should show this code:",
       "cliCode": "Authorization code",

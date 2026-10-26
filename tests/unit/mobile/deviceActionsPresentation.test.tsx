@@ -163,6 +163,19 @@ it('uses native grants only for the app version that is actually running here', 
   expect(mocks.invoke).not.toHaveBeenCalled()
 })
 
+it('separates missing grants from unavailable or system-blocked capabilities in the permission manager',async()=>{
+ mocks.state.groups=[{id:'notes',connected:false,blocked:null,actions:[]},
+  {id:'calendar',connected:false,blocked:{reason:'unsupported'},actions:[]},
+  {id:'contacts',connected:false,blocked:{reason:'os_permission'},actions:[]}] as DeviceActionsState['groups']
+ await h.render(<ThisDeviceActions bare managePermissions />)
+ const group=(id:string)=>h.container.querySelector(`[data-testid="settings-device-actions-${id}"]`)!
+ expect(group('available').textContent).toContain('备忘录')
+ expect(group('available').textContent).not.toContain('暂时用不了')
+ expect(group('unsupported').textContent).toContain('日历')
+ expect(group('system-blocked').textContent).toContain('通讯录')
+ expect(h.container.textContent).not.toContain('任务 Agent')
+})
+
 it('keeps an online machine online when the selected version is offline', async () => {
   const online = { ...device(true), device_id: 'beta', tier: 'beta' }
   const offline = { ...device(false), device_id: 'development', tier: 'development' }

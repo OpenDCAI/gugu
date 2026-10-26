@@ -15,6 +15,7 @@ import { AssistantEmpty, PageHead } from '@/session/renderer/features/assistant/
 import { integrationErrorText } from '@/session/renderer/features/integrations/integration-display'
 import {
   canSubmitForm,
+  cliInstructionKey,
   cliMethodOf,
   formInputOf,
   formMethodOf,
@@ -97,7 +98,8 @@ export function PhoneConnectorSetupPage({
   const connected = (displayName?: string) => {
     if (rpc) void reportAssistantAppChange({ rpc }, assistant.id, { resource: 'integrations', operation: 'saved', id,
       deviceId: homeDeviceId ?? undefined, after: { name: view?.item.name ?? id } })
-    // 连上了:重读一遍连接状态,回详情页时已是「已连接 + 账号」。
+    // Clear the shared snapshot too; an immediate read must not reuse pre-authorization state.
+    if (machine.state === 'ready') machine.machine.panel?.invalidate()
     integrations.retry()
     setDone({ ...(displayName ? { displayName } : {}) })
   }
@@ -485,18 +487,12 @@ function CliSetup({
     <div className="ta-phone-setup" data-testid="assistant-connector-cli">
       {idle ? (
         <>
-          <p className="ta-page-sub ta-pad">{t('connectors.setup.cliIntro', { name: item.name, assistant: assistantName })}</p>
-          {method?.prerequisite ? (
-            <div className="ta-card ta-phone-setup-prereq" data-testid="assistant-connector-prereq">
-              <p className="ta-page-sub">{method.prerequisite.text}</p>
-              {method.prerequisite.url ? (
-                <Button variant="ghost" className="ta-pill-btn" onClick={() => openInBrowser(method.prerequisite?.url ?? '')}>
-                  <ExternalLink />
-                  {t('connectors.setup.prerequisiteLink')}
-                </Button>
-              ) : null}
-            </div>
-          ) : null}
+          <p className="ta-page-sub ta-pad" data-testid={method?.prerequisite ? 'assistant-connector-prereq' : undefined}>
+            {cliInstructionKey(item) ? translateSessionMessage(cliInstructionKey(item)!) : method?.prerequisite?.text ?? t('connectors.setup.cliIntro', { name: item.name, assistant: assistantName })}
+          </p>
+          {method?.prerequisite?.url ? <Button variant="ghost" className="ta-pill-btn" onClick={() => openInBrowser(method.prerequisite!.url!)}>
+            <ExternalLink />{t('connectors.setup.prerequisiteLink')}
+          </Button> : null}
           <Button variant="ghost" className="ta-wide-btn" data-tone="primary" onClick={start} data-testid="assistant-connector-cli-start">
             {t('connectors.connect')}
           </Button>

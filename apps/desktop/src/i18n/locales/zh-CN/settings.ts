@@ -69,9 +69,9 @@ export default {
     "loadFailed": "聊天渠道加载失败",
     "reload": "重试",
     "actionFailed": "没能保存，请重试",
-    "defaultChannel": "默认聊天工具",
+    "defaultChannel": "接收提醒的应用",
     "defaultChannelHint": "主动消息也会在这里推送给你。",
-    "noDefaultChannel": "无默认聊天工具",
+    "noDefaultChannel": "不额外推送",
     "health": {
       "running": "正常收发",
       "lastMessage": "正常收发 · 最近一条 {{time}}",

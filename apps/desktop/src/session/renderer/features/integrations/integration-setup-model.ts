@@ -19,6 +19,13 @@ export function cliMethodOf(metadata: Authable): CliAuthMethod | undefined {
   return method?.kind === 'cli' ? method : undefined;
 }
 
+/** Known product prerequisites stay concise even when a saved catalog predates the copy update. */
+export function cliInstructionKey(metadata: Authable) {
+  const tool = cliMethodOf(metadata)?.tool
+  return tool === 'lark-cli' ? 'integrations.cliFeishuHint' as const
+    : tool === 'dws' ? 'integrations.cliDingTalkHint' as const : undefined
+}
+
 export function usesBrowserAuthorization(metadata: Authable): boolean {
   return metadata.auth.methods.some((method) => method.kind === 'mcp-oauth');
 }

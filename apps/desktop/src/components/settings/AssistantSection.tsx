@@ -138,7 +138,6 @@ export function AssistantSection({ available, onOpenSection, onOpenAssistantPage
         />
         {link('connectors', t('connectors.title'), t('connectors.note', { name }))}
         {link('devices', t('devices.title'), t('devices.note'))}
-        {link('channels', t('channels.title'), t('channels.note', { name }))}
       </SettingsGroup>
 
       {/* 它住哪:云上是管家说的状态(醒着多久、积分、休息、叫醒、关闭)+ 搬家;住电脑是那台开没开 + 搬家。 */}

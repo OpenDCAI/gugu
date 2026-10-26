@@ -10,7 +10,6 @@ import { withoutAssistantHome } from '@/lib/assistantHome'
 import { Button } from '@/components/ui/Button'
 import { Avatar } from '@/components/Avatar'
 import { Markdown } from '@/components/markdown/Markdown'
-import { ChatChannelsPanel } from '@/components/settings/channels/ChatChannelsPanel'
 import { AssistantSettingsPage } from '@/components/assistant/AssistantSettingsPage'
 import { AssistantDevicesPage } from '@/components/devices/AssistantDevicesPage'
 import { ChevronRight, Link, Monitor, Pencil } from '@/lib/icons'
@@ -39,7 +38,7 @@ export function PhoneProfile(props: PhonePageProps) {
   const name = assistant.display_name
   const diaries = usePhoneToday(chatId)
   const persona = usePhonePersona(machine)
-  const connectors = !sub || sub === 'connectors' || !!sub.startsWith('connector:')
+  const connectors = !sub || sub === 'channels' || sub === 'connectors' || !!sub.startsWith('connector:')
   const integrations = usePhoneIntegrations(machine, connectors)
   if (sub === 'library:capabilities' || sub === 'library:devices') return <PhoneLibraryVolume key={sub} {...props} kind={sub === 'library:capabilities' ? 'capabilities' : 'devices'} />
 
@@ -71,17 +70,7 @@ export function PhoneProfile(props: PhonePageProps) {
       </div>
     )
   }
-  if (sub === 'channels')
-    return (
-      <div className="ta-page ta-phone-profile" data-testid="assistant-slot-channels">
-        <PageHead title={t('channels.title')} />
-        <div className="ta-skin">
-          <ChatChannelsPanel />
-        </div>
-        {/* 聊天工具挂在咕咕云端,手机上也一样成立(电脑关着照样收得到)。 */}
-        <p className="ta-page-sub ta-pad">{t('channels.desktopOnly', { name })}</p>
-      </div>
-    )
+  if (sub === 'channels') return <PhoneConnectorsPage {...props} integrations={integrations} />
   if (sub === 'diaries') return <AssistantDiaryList view={diaries} name={name} askInChat={askInChat} open={(id) => go(`diary:${id}`)} />
   if (sub?.startsWith('diary:'))
     return (

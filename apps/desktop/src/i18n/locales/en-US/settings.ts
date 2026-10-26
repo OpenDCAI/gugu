@@ -69,9 +69,9 @@ export default {
     "loadFailed": "Couldn't load chat channels",
     "reload": "Retry",
     "actionFailed": "Couldn't save. Try again.",
-    "defaultChannel": "Default chat tool",
+    "defaultChannel": "App for reminders",
     "defaultChannelHint": "Proactive messages will also reach you here.",
-    "noDefaultChannel": "No default chat tool",
+    "noDefaultChannel": "No extra delivery",
     "health": {
       "running": "Working",
       "lastMessage": "Working · last message {{time}}",

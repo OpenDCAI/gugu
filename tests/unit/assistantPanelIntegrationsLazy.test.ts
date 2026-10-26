@@ -102,3 +102,57 @@ it('keeps an unknown catalog display name and never uses its id as a name after 
  expect(updated).not.toHaveBeenCalled()
  expect(result.items.every(item=>item.name!==item.id)).toBe(true)
 })
+
+
+it('shares selected metadata reads and invalidates only a changed content version or locale',async () => {
+ const {readAssistantPanelIntegration,cachedAssistantPanelIntegration}=await import('../../apps/desktop/src/components/assistant/assistant-panel-integrations')
+ let version='one'
+ const collection=vi.fn(async()=>[{resource_key:'catalog:custom',body_sha256:version,data:{providerId:'custom'}}])
+ const body=vi.fn(async()=>new TextEncoder().encode(JSON.stringify({version:1,en:{id:'custom',name:'Company app',auth:{methods:[]}},'zh-CN':{id:'custom',name:'公司应用',auth:{methods:[]}}})))
+ const panel={collection,body} as unknown as AssistantPanelFiles
+ await Promise.all([readAssistantPanelIntegration(panel,'custom','en-US','one'),readAssistantPanelIntegration(panel,'custom','en-US','one')])
+ expect(body).toHaveBeenCalledTimes(1)
+ expect(cachedAssistantPanelIntegration(panel,'custom','en-US','one')?.name).toBe('Company app')
+ const reads=collection.mock.calls.length
+ await readAssistantPanelIntegration(panel,'custom','en-US','one')
+ expect(collection).toHaveBeenCalledTimes(reads)
+ version='two'
+ expect(cachedAssistantPanelIntegration(panel,'custom','en-US','two')).toBeUndefined()
+ await readAssistantPanelIntegration(panel,'custom','en-US','two')
+ await readAssistantPanelIntegration(panel,'custom','zh-CN','two')
+ expect(body).toHaveBeenCalledTimes(3)
+ expect(cachedAssistantPanelIntegration({...panel} as AssistantPanelFiles,'custom','en-US','two')).toBeUndefined()
+})
+
+
+it('parses an existing local catalog, account state and selected body synchronously with no network calls',async()=>{
+ const {peekAssistantPanelIntegrations,peekAssistantPanelIntegration}=await import('../../apps/desktop/src/components/assistant/assistant-panel-integrations')
+ const row={domain:'integrations',device_id:'device',resource_key:'catalog:custom',body_sha256:'v1',data:{providerId:'custom',displayName:'Company app'}}
+ const account={domain:'integrations',device_id:'device',resource_key:'a',observed_at:'2026-10-27',data:{providerId:'custom',accountId:'a',configured:true,checkResult:'ok',checkedAt:50}}
+ const snapshot={version:1,revision:'1',items:[row,account,{domain:'integrations',device_id:'device',resource_key:'__collection__:device',data:{state:'ready'}}],application:[]}
+ const bytes=new TextEncoder().encode(JSON.stringify({version:1,en:{id:'custom',name:'Company app',description:'Manage documents',auth:{methods:[]}}}))
+ const network=vi.fn(async()=>{throw Error('offline')})
+ const panel={deviceId:'device',peekSnapshot:()=>snapshot,peekBody:()=>bytes,collection:network,body:network} as unknown as AssistantPanelFiles
+ expect(peekAssistantPanelIntegrations(panel,'en-US')?.configured.custom).toBe(true)
+ expect(peekAssistantPanelIntegrations(panel,'en-US')?.statuses.custom?.connected).toBe(true)
+ expect(peekAssistantPanelIntegration(panel,'custom','en-US')?.description).toBe('Manage documents')
+ expect(network).not.toHaveBeenCalled()
+ expect(peekAssistantPanelIntegration({...panel,peekBody:()=>undefined} as AssistantPanelFiles,'custom','en-US')).toBeUndefined()
+})
+
+it('reads a valid published catalog after a collection publication error without accepting rejected account changes',async()=>{
+ const {readAssistantPanelIntegration}=await import('../../apps/desktop/src/components/assistant/assistant-panel-integrations')
+ const row={domain:'integrations',device_id:'device',resource_key:'catalog:custom',body_sha256:'v1',data:{providerId:'custom',displayName:'Company app'}}
+ const account={domain:'integrations',device_id:'device',resource_key:'account',observed_at:'2026-10-27',data:{providerId:'custom',configured:true,checkResult:'ok',checkedAt:50}}
+ const snapshot={version:1,revision:'1',items:[row,account,{domain:'integrations',device_id:'device',resource_key:'__collection__:device',data:{state:'error'}}],application:[{domain:'integrations',resourceKey:'account',status:'failed'}]}
+ const body=vi.fn(async()=>new TextEncoder().encode(JSON.stringify({version:1,en:{id:'custom',name:'Company app',auth:{methods:[]}}})))
+ const panel={deviceId:'device',collection:async()=>{throw Error('collection failed')},snapshot:async()=>snapshot,peekSnapshot:()=>snapshot,body} as unknown as AssistantPanelFiles
+ expect((await readAssistantPanelIntegrations(panel,'en-US')).statuses.custom).toBeUndefined()
+ expect(await readAssistantPanelIntegration(panel,'custom','en-US')).toMatchObject({name:'Company app'})
+ expect(body).toHaveBeenCalledOnce()
+ row.body_sha256='v2';Object.assign(row,{stale_at:'2026-10-27'})
+ await expect(readAssistantPanelIntegration(panel,'custom','en-US','v2')).rejects.toMatchObject({code:'stale'})
+ Object.assign(row,{stale_at:null});snapshot.application.push({domain:'integrations',resourceKey:'catalog:custom',status:'failed'})
+ await expect(readAssistantPanelIntegration(panel,'custom','en-US','v2')).rejects.toMatchObject({code:'application-failed'})
+ expect(body).toHaveBeenCalledOnce()
+})

@@ -6,6 +6,7 @@ import { enrichAssistantPanelIntegrations,integrationListCopy } from './assistan
 
 export const EMPTY_INTEGRATION_SUMMARIES: IntegrationMetadata[] = []
 type Summary = Pick<IntegrationMetadata,'name' | 'description'>
+const summaryKey = (item: IntegrationMetadata) => `${item.id}|${item.catalogVersion ?? ''}`
 type SummaryCache = { summaries: Map<string,Summary>; pending: Set<string>; revision: number; listeners: Set<() => void> }
 const caches = new Map<string,SummaryCache>()
 function summaryCache(panel: AssistantPanelFiles | undefined,locale: string): SummaryCache {
@@ -21,18 +22,19 @@ export function useAssistantIntegrationSummaries(panel: AssistantPanelFiles | un
   useSyncExternalStore(subscribe,snapshot,snapshot)
   useEffect(() => {
     if (!panel) return
-    const missing = items.filter(item => item.metadataOnly && !builtinIntegrationSummary(item.id,locale) && (!item.description || item.name === item.id || item.summaryNameMissing) && !cache.summaries.has(item.id) && !cache.pending.has(item.id))
+    const missing = items.filter(item => item.metadataOnly && !builtinIntegrationSummary(item.id,locale) && (!item.description || item.name === item.id || item.summaryNameMissing) && !cache.summaries.has(summaryKey(item)) && !cache.pending.has(summaryKey(item)))
     if (!missing.length) return
-    for (const item of missing) cache.pending.add(item.id)
+    for (const item of missing) cache.pending.add(summaryKey(item))
     // List refreshes and remounts share this bounded enrichment, rather than
     // clearing useful text or starting another body download.
     void enrichAssistantPanelIntegrations(panel,missing,locale,(id,summary) => {
-      cache.summaries.set(id,summary); cache.revision++
+      const item = missing.find(item => item.id === id)!
+      cache.summaries.set(summaryKey(item),summary); cache.revision++
       for (const listener of cache.listeners) listener()
-    }).finally(() => { for (const item of missing) cache.pending.delete(item.id) })
+    }).finally(() => { for (const item of missing) cache.pending.delete(summaryKey(item)) })
   },[panel,items,locale,cache])
   return items.map(item => {
-    const summary = cache.summaries.get(item.id)
+    const summary = cache.summaries.get(summaryKey(item))
     const name = summary && item.metadataOnly && (item.summaryNameMissing || item.name === item.id) ? summary.name : item.name
     return { ...item,...integrationListCopy(item.id,name,item.description || summary?.description,locale) }
   })
