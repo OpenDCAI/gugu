@@ -1,4 +1,5 @@
 import { formatDeliveryTimestamp } from '@gugu/core/local/agent/deliveryEnvelope';
+import { installAssistantWorkLedgerHost } from '../../../../sessionpage/assistant-work-ledger';
 import { openFixture } from '@tooling/utils/db';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { SessionPaneTab } from '@gugu/session-core/session-record/contract';
@@ -597,6 +598,24 @@ describe('session orchestration', () => {
       const row = fixture.sqlite.prepare('SELECT config FROM sessions WHERE id = ?').get(sessionId) as { config: string | null };
       return row.config ? (JSON.parse(row.config) as Record<string, unknown>) : {};
     }
+
+    it('prepares one stable dormant account-work seat without delivering or starting its first turn', async () => {
+      project2Root();
+      const stop=installAssistantWorkLedgerHost({context:async()=>({ownerId:'owner',runtimeInstanceId:'runtime',deviceId:'device-b',client:{rpc:async()=>({data:null,error:null})}}),kick:()=>{}});
+      const intent={version:1 as const,assistant_id:'10000000-0000-4000-8000-000000000001',work_id:'10000000-0000-4000-8000-000000000002',operation_id:'10000000-0000-4000-8000-000000000003',message_id:'10000000-0000-4000-8000-000000000004',child_session_id:'10000000-0000-4000-8000-000000000005',coordinator:{session_id:'remote-caller',device_id:'device-a'},title:'Task',continuation:false};
+      try {
+        const action={action:'spawn' as const,prompt:'Run after account acceptance',project_id:'project-2',assistant_work:intent};
+        const first=await runRemoteSessionAction(remoteCaller,action) as {session_id:string;assistant_work_target:unknown};
+        expect(first.session_id).toBe(intent.child_session_id);
+        expect(first.assistant_work_target).toMatchObject({session_id:intent.child_session_id,device_id:'device-b'});
+        await runRemoteSessionAction(remoteCaller,action);
+        expect(childRows()).toHaveLength(1);
+        expect(mocks.startSession).not.toHaveBeenCalled();
+        expect(mocks.ptyStartSession).not.toHaveBeenCalled();
+        expect(mocks.sendMessage).not.toHaveBeenCalled();
+        expect(mocks.recordDeliveredSessionDirectMessage).not.toHaveBeenCalled();
+      } finally {stop();}
+    });
 
     it('spawns a child nested under the caller on the other machine, recorded in config, and answers to its session id', async () => {
       project2Root();
