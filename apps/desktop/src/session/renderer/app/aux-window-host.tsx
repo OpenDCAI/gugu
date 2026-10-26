@@ -15,7 +15,8 @@ import { installedExtensionsStore } from '@renderer/features/extensions/installe
 import { sessionRegistry } from '@renderer/features/sessions/stores/session-registry';
 import { TabBarActionRow } from '@renderer/features/sessions/titlebar-actions';
 import { sessionView } from '@renderer/features/sessions/view';
-import { WindowTabPane } from '@renderer/features/sessions/view/window-tab-pane';
+import { WindowTabPane, WindowTabPaneContent } from '@renderer/features/sessions/view/window-tab-pane';
+import { readChatSummary } from '@/lib/chatSummariesBridge';
 import { TabStripShell } from '@renderer/features/tabs/tab-bar';
 import { TabChip, TabSlot } from '@renderer/features/tabs/tab-bar/tab-chip';
 import { mirrorDocument, bridgeHotkeys } from '@renderer/lib/aux-document';
@@ -24,7 +25,7 @@ import { rpc } from '@renderer/lib/ipc';
 import { WorkspaceContentLayout } from '@renderer/lib/layout/workspace-layout';
 import { useSessionMessages } from '@renderer/localization/use-session-messages';
 import { log } from '@renderer/utils/logger';
-import { auxWindows, type AuxTabContent, type AuxWindow } from './aux-windows';
+import { auxWindows, type AuxChatTabContent, type AuxTabContent, type AuxWindow } from './aux-windows';
 import { PageShownContext } from './recent-session-pages';
 import { AUX_WINDOW_TRAFFIC_LIGHTS_PX, ScreenBlockContext, type ScreenBlockPlace } from './screen-block-context';
 import { putBackFromWindow, windowClosed, windowFocused } from './screen-layout-actions';
@@ -114,7 +115,7 @@ const AuxWindowFrame = observer(function AuxWindowFrame({ window: aux }: { windo
     <UiPortalContainerProvider value={mounted.layer}>
       {aux.content.kind === 'session' ? (
         <AuxSessionPage windowId={id} projectId={aux.content.projectId} sessionId={aux.content.sessionId} />
-      ) : aux.content.kind === 'tab' ? (
+      ) : aux.content.kind === 'tab' || aux.content.kind === 'chat-tab' ? (
         <AuxTabPage windowId={id} content={aux.content} />
       ) : (
         <AuxAppPage windowId={id} tabKind={aux.content.tabKind} />
@@ -130,6 +131,8 @@ function useWindowTitle(aux: AuxWindow): string {
     const { sessionId } = aux.content;
     return sessionRegistry.get(sessionId)?.sessions.get(sessionId)?.data.title ?? '';
   }
+  // 一个对话的一枚页签:标题是那个对话。
+  if (aux.content.kind === 'chat-tab') return readChatSummary(aux.content.chatId)?.name ?? '';
   const { tabKind } = aux.content;
   return installedExtensionsStore.allTabContributions.find((entry) => entry.kind === tabKind)?.title ?? '';
 }
@@ -163,7 +166,7 @@ const AuxSessionPage = observer(function AuxSessionPage({
 });
 
 /** 窗里的一枚页签:它那条会话的上下文里,画它那一格。那一格没了(✕ 掉了它)窗就关。 */
-const AuxTabPage = observer(function AuxTabPage({ windowId, content }: { windowId: string; content: AuxTabContent }) {
+const AuxTabPage = observer(function AuxTabPage({ windowId, content }: { windowId: string; content: AuxTabContent | AuxChatTabContent }) {
   const { home, paneId } = content;
   useEffect(
     () =>
@@ -185,9 +188,17 @@ const AuxTabPage = observer(function AuxTabPage({ windowId, content }: { windowI
     <div className="flex h-full min-h-0 w-full flex-col" data-aux-window={windowId}>
       <PageShownContext.Provider value={true}>
         <ScreenBlockContext.Provider value={place}>
-          <sessionView.WrapView projectId={content.projectId} sessionId={content.sessionId}>
-            <WindowTabPane windowId={windowId} paneId={paneId} />
-          </sessionView.WrapView>
+          {content.kind === 'tab' ? (
+            <sessionView.WrapView projectId={content.projectId} sessionId={content.sessionId}>
+              <WindowTabPane windowId={windowId} paneId={paneId} />
+            </sessionView.WrapView>
+          ) : (
+            // A chat's tab: the same strip and content, from the chat's strip (its content drawn by the shell into its slot).
+            <div className="relative flex h-full min-h-0 w-full flex-col bg-background text-foreground" data-aux-window={windowId}>
+              <ShellTitlebarDragRegion />
+              <WindowTabPaneContent windowId={windowId} paneId={paneId} paneLayout={content.home} />
+            </div>
+          )}
         </ScreenBlockContext.Provider>
       </PageShownContext.Provider>
     </div>

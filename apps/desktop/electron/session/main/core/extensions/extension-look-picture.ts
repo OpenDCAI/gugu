@@ -15,7 +15,7 @@ import { appRuntimeDir } from './app-runtime-dir';
  * PICTURE_MAX_HEIGHT, JPEG — about 30 KB and ~500 tokens each.
  *
  * The phone's picture is laid out the way the phone lays an App out: in a frame. On the phone an App's page is an
- * <iframe> as wide as the App's slot (GroupAppSlot.tsx `FramedApp`, `w-full`; the width it is told is the frame's,
+ * <iframe> as wide as the App's slot (GroupTabContent.tsx `PhoneAppFrame`, `w-full`; the width it is told is the frame's,
  * phoneAppHost.ts `layout.width`), and a document in a frame takes the frame's width — its own `<meta name="viewport">`
  * does nothing there. So the device is not emulated as a phone (`mobile: false`: no viewport line read, no 980 px
  * fallback), only its width and its touch (`(pointer: coarse)`, touch sizes). `mobile: true` drew a top-level page in a
@@ -28,9 +28,9 @@ export interface PictureSize {
   says: string;
 }
 /**
- * Where an App's page shows (owner 10-13), as wide as it is there: a group's panel opens 520 wide (groupSlotMemory.ts
- * `GROUP_PANEL_WIDTHS`); a phone's slot is its screen; a task page's tab is as wide as its pane — 952 in the 1280-wide
- * window it opens at, beside the 260 sidebar (mac1 10-13, `session_open_in_tab`).
+ * Where an App's page shows (owner 10-13), as wide as it is there: a group's App tab opens beside the group, half its
+ * block (484 in the 1280-wide window; the picture keeps 520); a phone's slot is its screen; a task page's tab is as wide
+ * as its pane — 952 in the 1280-wide window it opens at, beside the 260 sidebar (mac1 10-13, `session_open_in_tab`).
  */
 export const GROUP_PANEL: PictureSize = { width: 520, touch: false, says: '520 wide (a group\'s side panel)' };
 export const PHONE: PictureSize = { width: 412, touch: true, says: '412 wide (a phone, touch)' };

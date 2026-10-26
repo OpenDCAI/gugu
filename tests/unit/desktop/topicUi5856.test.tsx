@@ -293,24 +293,18 @@ describe('TopicSplitPane 是分栏，不是话题的开关', () => {
 
   for (const layout of ['desktop', 'phone', 'tab'] as const) {
     it(`${layout}: topic settings request the source conversation, not a separate topic settings page`, async () => {
-      const tabs = document.body.appendChild(document.createElement('span'))
       const requests: unknown[] = []
       const receive = (event: Event) => requests.push((event as CustomEvent).detail)
       window.addEventListener(UI_EVENTS.openChatDetailsDrawer, receive)
       try {
-        await renderWithAppProviders(harness, createNode(TopicSplitPane, { ...baseProps, mobile: layout === 'phone', tabHost: layout === 'tab' ? tabs : undefined }))
-        if (layout === 'tab') {
-          await act(async () => { tabs.querySelector('[data-topic-tab] > div')!.dispatchEvent(new MouseEvent('contextmenu', { bubbles: true, clientX: 10, clientY: 10 })) })
-        } else {
-          await clickElement(harness.container.querySelector<HTMLElement>('[data-testid="topic-split-more"]')!)
-        }
+        await renderWithAppProviders(harness, createNode(TopicSplitPane, { ...baseProps, mobile: layout === 'phone', embedded: layout === 'tab' }))
+        await clickElement(harness.container.querySelector<HTMLElement>('[data-testid="topic-split-more"]')!)
         const settings = document.querySelector<HTMLElement>('[data-testid="group-menu-settings"]')
         expect(settings, 'settings stay reachable from the real topic pane').not.toBeNull()
         await clickElement(settings!)
         expect(requests).toEqual([{ chatId: 'source-1', page: 'settings' }])
       } finally {
         window.removeEventListener(UI_EVENTS.openChatDetailsDrawer, receive)
-        tabs.remove()
       }
     })
   }
@@ -531,17 +525,11 @@ describe('TopicSplitPane 是分栏，不是话题的开关', () => {
     }
     return names
   }
-  // gugu-dev#181 第 ⑤ 步:块里的话题是页签条上和群对话并排的一枚页签,这一栏不再画自己那条头;不给 tabHost(对话页)头照旧。
-  it('在块里:话题画成页签条上的一枚页签(× = 收起分栏),这一栏没有自己的头', async () => {
-    const tabs = document.body.appendChild(document.createElement('span'))
-    const onClose = vi.fn()
-    await renderWithAppProviders(harness, createNode(TopicSplitPane, { ...baseProps, onClose, tabHost: tabs }))
+  // gugu-dev#181 第 ⑤ 步:块里的话题是页签条上和群对话并排的一枚页签(由会话页的页签引擎画,chat-tabs),这一栏不再画自己的收起钮。
+  it('在块里:这一栏没有自己的收起钮(页签的 × 收起分栏)', async () => {
+    await renderWithAppProviders(harness, createNode(TopicSplitPane, { ...baseProps, embedded: true }))
+    expect(harness.container.querySelector('[data-testid="topic-split-pane"]')).not.toBeNull()
     expect(harness.container.querySelector('[data-testid="topic-split-close"]'), 'the block tab strip is the header').toBeNull()
-    const tab = tabs.querySelector('[data-topic-tab="topic-1"]')
-    expect(tab?.textContent).toContain('分片下载失败')
-    await act(async () => { tab!.querySelector<HTMLElement>('button[aria-label]')!.click() })
-    expect(onClose).toHaveBeenCalledOnce()
-    tabs.remove()
   })
 
   it('不在块里(对话页):这一栏照旧有自己的头,也不画页签', async () => {

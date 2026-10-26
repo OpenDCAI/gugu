@@ -36,6 +36,8 @@ export function ExtensionTabPane({
   tabId,
   filePath,
   projectId,
+  chatId,
+  itemId,
 }: {
   extensionId: string;
   /** `<extensionId>.<tabName>` — which contribution this surface is drawing. */
@@ -52,6 +54,9 @@ export function ExtensionTabPane({
   filePath?: string;
   /** G1 With `filePath` and no session: the project whose folder the file is in (a page opened beside another). */
   projectId?: string;
+  /** Drawn for a chat (a chat's tab in a window of its own), and the chat file it was opened for. */
+  chatId?: string;
+  itemId?: string;
 }) {
   const { translate } = useSessionMessages();
   const [surface, setSurface] = useState<ExtensionSurface | null>(null);
@@ -176,6 +181,8 @@ export function ExtensionTabPane({
             tabKind,
             ...(filePath ? { filePath } : {}),
             ...(projectId ? { projectId } : {}),
+            ...(chatId ? { chatId } : {}),
+            ...(itemId ? { itemId } : {}),
           })
           .then((result) => {
             if (!result.success) {
@@ -194,7 +201,7 @@ export function ExtensionTabPane({
           });
       });
     },
-    [extensionId, filePath, projectId, startLayoutReports, sessionId, tabId]
+    [extensionId, filePath, projectId, chatId, itemId, startLayoutReports, sessionId, tabId]
   );
 
   const failureText =

@@ -1,11 +1,10 @@
 // @vitest-environment jsdom
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import { act, createElement } from 'react'
+import { act } from 'react'
 import { createReactHarness } from '../../../support/testHarness'
-import { GroupAppSlot } from '../../../../apps/desktop/src/components/appSlot/GroupAppSlot'
-import { groupSlotMemory } from '../../../../apps/desktop/src/components/appSlot/groupSlotMemory'
 import { installedExtensionsStore, type InstalledExtensionsList } from '../../../../apps/desktop/src/session/renderer/features/extensions/installed-extensions-store'
-import { AuthContext } from '../../../../apps/desktop/src/store/auth'
+import { closeChatTab, panelTabsOf } from '../../../../apps/desktop/src/session/renderer/features/chats/chat-tabs/chat-layouts'
+import { ask, chatTabs, shownItem } from './chatTabsHarness'
 import { openerChoice } from '../../../../apps/desktop/src/session/shared/extensions/file-openers'
 import type { ExtensionManifest } from '../../../../apps/desktop/src/session/shared/extensions/manifest'
 
@@ -59,7 +58,7 @@ beforeEach(() => {
   install([])
   sharedHere.packages = new Map()
   here.market = { success: true, data: [] }
-  for (const item of [...groupSlotMemory.tabs('group-1')]) groupSlotMemory.close('group-1', item)
+  for (const tab of panelTabsOf('group-1')) closeChatTab('group-1', tab.tabId)
   vi.mocked(appsHere!.marketOffers).mockClear()
   vi.mocked(appsHere!.installFromMarket).mockReset()
   vi.mocked(appsHere!.installAttachment).mockReset()
@@ -77,14 +76,9 @@ afterEach(() => {
 })
 
 /** The panel with a link to the file asked for (摩擦单 F10): who opens it is the host's answer. */
-async function openFile(request: number) {
-  await harness.render(
-    createElement(
-      AuthContext.Provider,
-      { value: { user: { id: 'user-1' } } as never },
-      createElement(GroupAppSlot, { chatId: 'group-1', onClose: vi.fn(), asked: { chatId: 'group-1', itemId: 'item-1', request } }),
-    ),
-  )
+async function openFile() {
+  await harness.render(chatTabs({ chatId: 'group-1' }))
+  ask('group-1', { itemId: 'item-1' })
 }
 const offer = () => harness.container.querySelector<HTMLElement>('[data-testid="group-app-slot-offer"]')
 /** React and the pending answers flushed until `fact` holds — a bounded number of turns, never a clock; red names the step. */
@@ -94,7 +88,6 @@ async function until(step: string, fact: () => boolean) {
 }
 
 describe('a group JSON file already open in Workspace', () => {
-  let request = 9200
   const workspace = { ...slides('1.0.0'), id: 'workspace', contributes: { tabs: [{ name: 'main', title: 'Workspace', opensFiles: { chat: ['.json'] } }] } } as ExtensionManifest
   const soup = (claim: string) => ({ ...slides('1.0.0'), id: 'turtle-soup', name: '海龟汤', contributes: { tabs: [{ name: 'main', title: '海龟汤', opensFiles: { chat: [claim] } }] } }) as ExtensionManifest
 
@@ -114,16 +107,18 @@ describe('a group JSON file already open in Workspace', () => {
       install([workspace, manifest])
       return { success: true, data: { installed: true, outcome: 'confirmed', id: manifest.id, name: manifest.name, version: manifest.version } }
     })
-    await openFile(++request)
-    await until('Workspace opened the JSON', () => groupSlotMemory.opened('group-1')?.kind === 'workspace.main')
+    await openFile()
+    await until('Workspace opened the JSON', () => shownItem('group-1')?.kind === 'workspace.main')
     await until('the cached market answered for the opened file', () => vi.mocked(appsHere!.marketOffers).mock.calls.length > 0)
+    // The tab's page mounts after its tab exists: its market read and the group's packages settle a few turns later.
+    for (let turn = 0; turn < 5; turn++) await act(async () => { await Promise.resolve() })
     expect(offer() !== null).toBe(offered)
     if (offered) {
       expect(offer()?.dataset.offerFrom).toBe('market')
       expect(offer()?.textContent).toContain('用『海龟汤』打开')
       await act(async () => harness.container.querySelector<HTMLButtonElement>('[data-testid="group-app-slot-offer-install"]')!.click())
-      await until('the same file opened in 海龟汤', () => groupSlotMemory.opened('group-1')?.kind === 'turtle-soup.main')
-      expect(groupSlotMemory.opened('group-1')?.itemId).toBe(file.itemId)
+      await until('the same file opened in 海龟汤', () => shownItem('group-1')?.kind === 'turtle-soup.main')
+      expect(shownItem('group-1')?.itemId).toBe(file.itemId)
       expect(appsHere!.installFromMarket).toHaveBeenCalledWith({ ref: { extensionId: manifest.id, version: manifest.version }, chatId: file.chatId })
       expect(offer()).toBeNull()
     }

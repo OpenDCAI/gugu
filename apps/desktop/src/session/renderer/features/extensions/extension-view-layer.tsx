@@ -7,7 +7,6 @@ import type { BrowserWebviewElement } from '@renderer/features/browser/browser-w
 import { extensionSurfaceStore } from './extension-surface-store';
 import { extensionViewStore, type ExtensionViewClaim } from './extension-view-store';
 import { installedExtensionsStore } from './installed-extensions-store';
-import { listenForAppSlots } from './app-slot-events';
 import { AppSettingsPage } from './app-settings-page';
 import { ExtensionGuestBinding } from './extension-guest-binding';
 
@@ -33,8 +32,6 @@ import { ExtensionGuestBinding } from './extension-guest-binding';
  */
 export const ExtensionViewLayer = observer(function ExtensionViewLayer() {
   const layerRef = useRef<HTMLDivElement | null>(null);
-  // Slots outside the session page (a group's side panel) claim through a window event.
-  useEffect(() => listenForAppSlots(), []);
   // Switched off or removed: its shared page goes, and switched on again it waits to be wanted.
   useEffect(
     () =>

@@ -9,6 +9,8 @@ export const blockKey = {
   chat: (chatId: string) => `chat:${chatId}`,
   app: (tabKind: string) => `app:${tabKind}`,
   project: (projectId: string) => `project:${projectId}`,
+  /** 一个群里的一张 App 页单独占一块(那个群的那张;为某个文件开的认那个文件)。 */
+  chatApp: (chatId: string, tabKind: string, itemId?: string) => `chat-app:${chatId}:${tabKind}:${itemId ?? ''}`,
 }
 
 /** 一组:组员按屏上从左上到右下(blockKey);`onScreen` = 这组此刻在屏上。 */

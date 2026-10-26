@@ -70,6 +70,13 @@ export type ChatPart = 'actions' | 'title' | 'tabs' | 'empty'
 export const chatPartSlotKey = (part: ChatPart, chatId: string) => `chat-${part}:${chatId}`
 
 /**
+ * 对话块里一枚页签此刻在屏上的那一格(群文件夹、App、文件、话题):会话页的页签引擎留格子,壳把这一枚的内容画进来
+ * (components/chat/ChatTabPortals.tsx)。只有在屏上的页签有格子。
+ */
+const CHAT_TAB_SLOT_PREFIX = 'chat-tab:'
+export const chatTabSlotKey = (chatId: string, tabId: string) => `${CHAT_TAB_SLOT_PREFIX}${chatId}/${tabId}`
+
+/**
  * 这个对话是不是画在会话页的格子里(项目块、对话块,gugu-dev#181):ChatSlotHost 给它包上;不在格子里 = null。
  * 输入框据此换成格子里的排法(「新任务 / 定时任务」在框内底排,能换成会话页那一侧的框);❌ 去 DOM 里找格子猜。
  * `projectName`:它是项目群时,那个项目的名字(输入框提示「发消息给 X…」);别的对话 = null。
