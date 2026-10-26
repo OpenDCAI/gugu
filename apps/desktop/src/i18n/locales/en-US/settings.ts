@@ -170,9 +170,10 @@ export default {
   },
   "devices": {
     "longOffline": "Long offline",
-    "configurations": "Configurations",
-    "configurationUnknown": "Configuration name unavailable",
-    "configurationCount": "{{count}} configurations",
+    "configurations": "Versions",
+    "configurationUnknown": "Version unavailable",
+    "configurationCount": "{{count}} versions",
+    "versionNames": { "production": "Gugu", "beta": "Gugu Beta" },
     "phoneActions": {
       "notificationsAndDnd": "Notifications and Do Not Disturb",
       "readFailed": "Could not read system permissions",

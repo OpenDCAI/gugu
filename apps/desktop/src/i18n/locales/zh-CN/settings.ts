@@ -170,9 +170,10 @@ export default {
   },
   "devices": {
     "longOffline": "很久没上线",
-    "configurations": "配置",
-    "configurationUnknown": "配置名未知",
-    "configurationCount": "{{count}} 个配置",
+    "configurations": "版本",
+    "configurationUnknown": "版本未知",
+    "configurationCount": "{{count}} 个版本",
+    "versionNames": { "production": "咕咕", "beta": "咕咕 Beta" },
     "phoneActions": {
       "notificationsAndDnd": "通知与勿扰",
       "readFailed": "读取系统权限失败",
