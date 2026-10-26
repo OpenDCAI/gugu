@@ -46,7 +46,7 @@ const HomeConnectorList = observer(function HomeConnectorList({ host, home, assi
   const [openId, setOpenId] = useState<string | null>(null);
   useAssistantPanelBack(panelNavigation && openId ? `connector:${openId}` : null, () => setOpenId(null));
   const reload = useCallback(() => void reloadList(), [reloadList]);
-  const visibleListError = integrations.length && isAssistantPanelReadRetryable(listError) ? null : listError;
+  const visibleListError = hasList && isAssistantPanelReadRetryable(listError) ? null : listError;
   const readError = useAssistantReadError(!hasList && !integrations.length, visibleListError, host.key);
   const failure = useReadFailure(readError, host.remote?.deviceId ?? null, host.remote?.deviceLabel ?? '', reload);
   const apps = assistantConnectedApps(connectorOrder(integrations, i18n.language), chats.list, kind => settings(`channels.${kind}`), t('connectors.wechatDescription'), stateFor, configuredConnections);

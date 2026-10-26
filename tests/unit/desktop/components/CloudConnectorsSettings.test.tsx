@@ -212,9 +212,9 @@ it('disconnects only the data purpose after confirmation, leaving chat managemen
   expect(q('assistant-app-chat-feishu')).toBeNull()
 })
 
-it('silently keeps saved applications when a background network read fails',async()=>{
- integrations.value=state({listError:Object.assign(new Error('offline'),{code:'transport-failed'})})
+it.each([{items:LIST},{items:[]}])('silently keeps saved applications or a known empty catalog when a background network read fails',async({items})=>{
+ integrations.value=state({integrations:items,listError:Object.assign(new Error('offline'),{code:'transport-failed'})})
  await render()
- expect(q('assistant-connector-feishu')).not.toBeNull()
+ expect(q('assistant-connector-feishu')!==null).toBe(items.length>0)
  expect(harness.container.querySelector('[role="status"]')).toBeNull()
 })
