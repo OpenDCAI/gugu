@@ -57,7 +57,8 @@ export function createAssistantWorkReconciler(deps:{
   const notify=async(ctx:WorkReconciliationContext,event:WorkReconciliationEvent,work:ReconciledWork,kind:'result'|'abandonment_notice')=>{
     const reason=failureReason(kind==='result'?event.reason_code:event.abandoned_reason_code)
     const category=assistantWorkNoticeReason(kind==='result'?event.reason_code:event.abandoned_reason_code)
-    const key=await deps.stableId(`work-notice:${ctx.assistantId}:${work.work_id}:${category}`)
+    const noticeKind=event.kind==='completed'?'completed':'handoff'
+    const key=await deps.stableId(`work-notice:${ctx.assistantId}:${work.work_id}:${noticeKind}:${category}`)
     if(!await current(ctx)) return
     const text=`「${work.title}」有消息没能送到：${reason}。`
     // The committed idempotent owner message is the proof. Losing its RPC reply cannot produce another notice.
