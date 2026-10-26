@@ -25,26 +25,25 @@ export function createDesktopAssistantWorkReconciler(deps:{
   warn(detail:{code:string}):void
 }) {
   let cursor:{ownerId:string;assistantId:string;before:string|null}|null=null
-  let bound:string|null=null
   return createAssistantWorkReconciler({
     context:async()=>{
       const ctx=await deps.context()
       if(!ctx) return null
       const assistant=await deps.assistant(ctx)
       if(assistant?.deviceId!==ctx.deviceId||!assistant.sessionId) return null
-      const key=JSON.stringify([ctx.ownerId,ctx.runtimeInstanceId,ctx.deviceId,assistant.agentId,assistant.sessionId])
-      if(bound!==key) {
-        const {error}=await ctx.client.rpc('assistant_work_coordinator_bind',{
-          p_assistant:assistant.agentId,p_runtime_instance_id:ctx.runtimeInstanceId,p_session_id:assistant.sessionId,
-        })
-        if(error) throw error
-        const current=await deps.context()
-        if(current?.ownerId!==ctx.ownerId||current.runtimeInstanceId!==ctx.runtimeInstanceId||current.deviceId!==ctx.deviceId) return null
-        bound=key
-      }
       return {...ctx,assistantId:assistant.agentId}
     },
     works:async(ctx)=>{
+      // A first bind may see no rows. Reconcile newly imported historical work
+      // on every pass; the server performs no UPDATE when its address is unchanged.
+      const assistant=await deps.assistant(ctx)
+      if(assistant?.agentId!==ctx.assistantId||assistant.deviceId!==ctx.deviceId||!assistant.sessionId) throw new Error('Assistant home changed')
+      const {error}=await ctx.client.rpc('assistant_work_coordinator_bind',{
+        p_assistant:ctx.assistantId,p_runtime_instance_id:ctx.runtimeInstanceId,p_session_id:assistant.sessionId,
+      })
+      if(error) throw error
+      const current=await deps.context()
+      if(current?.ownerId!==ctx.ownerId||current.runtimeInstanceId!==ctx.runtimeInstanceId||current.deviceId!==ctx.deviceId) throw new Error('Runtime changed')
       const before=cursor?.ownerId===ctx.ownerId&&cursor.assistantId===ctx.assistantId?cursor.before:null
       const result=await rpc(ctx,'assistant_work_list',{p_assistant:ctx.assistantId,p_before:before,p_limit:100,p_reconcile_only:true})
       if(!Array.isArray(result.items)) throw new Error('Invalid work list')
