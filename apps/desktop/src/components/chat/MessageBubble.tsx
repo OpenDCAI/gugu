@@ -22,7 +22,7 @@ import { ComposerCardView } from './ComposerCardView'
 import { QuestionCardView } from './QuestionCardView'
 import { MessageQuote } from './MessageQuote'
 import { parseComposerCard } from '@gugu/core/shared/ui/taskCardModels'
-import { Ellipsis, Reply, Smile, type IconComponent } from '@/lib/icons'
+import { HoverActionBar } from './HoverActionBar'
 import { DeferredEmojiQuickPicker, DeferredMessageActionSheet } from './messageActionModules'
 import { MsgMoreMenu } from './MsgMoreMenu'
 import { canSourceTopic } from './topicSplitModels' // @@@5856 与顶栏那颗按钮共用同一个判据,❌ 不再写第二份
@@ -435,7 +435,7 @@ export const MessageBubble = memo(function MessageBubble({
           {/* Hover action bar (.msg:hover .msg-actions{display:flex}) —— 只在桌面外壳:手机上消息操作走长按面板(下面 showMenu
               的手机分支),而且手机上等不到 pointerleave,一次点按置上的 hover 会让它一直浮着(#6850)。 */}
           <HoverActionBar
-            isMine={msg.is_mine}
+            isMine={msg.is_mine} anchorRef={bubbleRef}
             isRetracted={isRetracted}
             isVisible={!streaming && !compactMobile && (isRowHovered || showMoreMenu || showEmojiPicker)}
             reactButtonRef={reactButtonRef}
@@ -641,138 +641,6 @@ function ReactionBar({ reactions, isMine, onToggle }: {
           </motion.button>
         ))}
       </AnimatePresence>
-    </div>
-  )
-}
-/* ─────────────────────────────────────────────────────────────────────────────
-   HoverActionBar — design .msg-actions / .ma-b (lines 121-125 of index.html)
-
-   Values copied verbatim:
-     .msg-actions: position:absolute; top:-15px; display:none→flex on hover;
-       gap:2px; background:var(--bg); border:1px solid rgba(0,0,0,.04);
-       border-radius:var(--radius-capsule); padding:3px; box-shadow:0 6px 12px rgba(0,0,0,.12); z-index:var(--z-float)
-     .msg.agent .msg-actions: right:0; left:auto
-     .msg.own   .msg-actions: left:0;  right:auto
-     .ma-b: width:32px; height:32px; border:none; background:transparent;
-       border-radius:var(--radius-capsule); display:grid; place-items:center;
-       color:var(--muted-fg); cursor:pointer
-     .ma-b:hover: background:var(--hover); color:var(--fg)
-     .ma-b svg: width:20px; height:20px
-   gugu token mapping: --muted-fg→var(--text-secondary), --hover→var(--menu-item-hover),
-     --fg→var(--menu-fg), --bg→var(--menu-bg), --r-pill→999px
-   ──────────────────────────────────────────────────────────────────────────── */
-
-// @@@msg-actions-anchor (#1142) - In the design the bar anchors to `.msg` (the full row whose top is
-// the sender/time `.who` line ABOVE the bubble), so the design's top:-15px clears the bubble. Here
-// the position:relative anchor wraps only the bubble row (sender name is rendered above it), so
-// top:-15px landed inside the bubble and overlapped the text. bottom:100% pins the bar's bottom edge
-// to the bubble's top edge — sitting fully above the bubble regardless of bubble size, matching the
-// design's "bar above bubble" result against this tighter anchor.
-const MA_BAR_STYLE: React.CSSProperties = {
-  position: 'absolute',
-  bottom: '100%',
-  marginBottom: '2px',
-  display: 'flex',
-  gap: '2px',
-  background: 'var(--menu-bg)',
-  border: '1px solid var(--border)',
-  borderRadius: 'var(--radius-capsule)',
-  padding: '3px',
-  boxShadow: 'var(--shadow-lift)', // @@@shadow-lift (Refs #6105) 原来是全目录唯一一处自写的浮层阴影数值
-  zIndex: 'var(--z-float)',
-}
-
-// @@@3079 border / background / color / cursor / transition 全部交给 .gg-ghost。
-// ❌ 别把它们写回内联:内联优先级高于类,写回去 .gg-ghost 的 hover/active 就永远不生效
-// —— 这正是原来必须手写 onMouseEnter 直改 style 的原因。这里只留几何。
-const MA_BUTTON_STYLE: React.CSSProperties = {
-  width: '32px',
-  height: '32px',
-  borderRadius: 'var(--radius-capsule)',
-  display: 'grid',
-  placeItems: 'center',
-  flexShrink: 0,
-}
-
-/* SVG override: design .ma-b svg{width:20px;height:20px} */
-const MA_SVG_WRAPPER_STYLE: React.CSSProperties = {
-  display: 'flex',
-  width: '20px',
-  height: '20px',
-  alignItems: 'center',
-  justifyContent: 'center',
-  pointerEvents: 'none',
-}
-
-function MaButton({
-  title,
-  icon: Icon,
-  onClick,
-  buttonRef,
-}: {
-  title: string
-  icon: IconComponent
-  onClick: () => void
-  buttonRef?: React.RefObject<HTMLButtonElement | null>
-}) {
-  return (
-    <button
-      ref={buttonRef}
-      type="button"
-      title={title}
-      // @@@3079 .gg-ghost 就是 tokens.css 里为「消息工具条」这类图标钮定义的那一档:
-      // hover / active / disabled 齐全,转场走 --dur-fast。原来手写的两个 handler 只有 hover 一态,
-      // 按下毫无反馈;而且它直改 element.style,React 一旦重渲染就把内联值刷回去。
-      className="gg-ghost"
-      style={MA_BUTTON_STYLE}
-      onClick={(e) => { e.stopPropagation(); onClick() }}
-    >
-      <span style={MA_SVG_WRAPPER_STYLE}>
-        <Icon size={16} />
-      </span>
-    </button>
-  )
-}
-
-function HoverActionBar({
-  isMine,
-  isRetracted,
-  isVisible,
-  reactButtonRef,
-  moreButtonRef,
-  onReact,
-  onReply,
-  onMore,
-}: {
-  isMine: boolean
-  isRetracted: boolean
-  isVisible: boolean
-  reactButtonRef: React.RefObject<HTMLButtonElement | null>
-  moreButtonRef: React.RefObject<HTMLButtonElement | null>
-  onReact: () => void
-  onReply: () => void
-  onMore: () => void
-}) {
-  const { t } = useTranslation('messaging')
-  if (isRetracted) return null
-
-  /* Design: agent→right:0,left:auto  /  own→left:0,right:auto  */
-  const posStyle: React.CSSProperties = isMine
-    ? { left: 0, right: 'auto' }
-    : { right: 0, left: 'auto' }
-
-  /* Design: .msg:hover .msg-actions{display:flex} / else display:none */
-  const visStyle: React.CSSProperties = isVisible
-    ? { display: 'flex' }
-    : { display: 'none' }
-
-  return (
-    <div
-      style={{ ...MA_BAR_STYLE, ...posStyle, ...visStyle }}
-    >
-      <MaButton title={t('message.actions.react')} icon={Smile} onClick={onReact} buttonRef={reactButtonRef} />
-      <MaButton title={t('message.actions.reply')} icon={Reply} onClick={onReply} />
-      <MaButton title={t('message.actions.more')} icon={Ellipsis} onClick={onMore} buttonRef={moreButtonRef} />
     </div>
   )
 }
