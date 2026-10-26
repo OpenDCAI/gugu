@@ -276,6 +276,7 @@ export interface DispatchHere {
   chat: DispatchAsk['chat'];
   preselect: string | null;
   local?: string[];
+  spawnOn?: string | null;
   as?: string;
 }
 
@@ -288,7 +289,7 @@ export interface DispatchAgent { agent: string; named: boolean }
 /**
  * What a platform does that the rest does not share: its sheet, a chat's composer, and — where it has them — the person's
  * agents (a draft into one's composer, telling one, starting one); each answers which agent it was. A platform without
- * them (the phone, until it reaches its machines' agents) offers none in the sheet, and a call naming one is not found here.
+ * them offers none in the sheet, and a call naming one is not found here.
  */
 export interface AppDispatchPlatform extends AppSendPlatform {
   pick(ask: DispatchAsk): Promise<DispatchPicked>;
@@ -296,7 +297,7 @@ export interface AppDispatchPlatform extends AppSendPlatform {
   agents?: {
     draft(agent: DispatchAgent, text: string): Promise<string>;
     tell(agent: DispatchAgent, text: string, how: { delivery?: 'queue' | 'defer'; key?: string }): Promise<{ agent: string; id: string; deferred?: true }>;
-    spawn(prompt: string, spawn: DispatchSpawn): Promise<string>;
+    spawn(prompt: string, spawn: DispatchSpawn, device?: string): Promise<string>;
   };
 }
 
@@ -314,7 +315,7 @@ export async function dispatchFromApp(
   const call = dispatchCallOf(args);
   let text = call.text;
   let visible = call.visible;
-  let to: DispatchTarget | null = call.to;
+  let to: NonNullable<DispatchPicked>['to'] | null = call.to;
   let namedByCall = to !== null;
   // A draft of pills goes into their chat's composer: the refs name the place, as they always did.
   if (!to && !(call.draft && named(call.refs))) {
@@ -324,7 +325,7 @@ export async function dispatchFromApp(
     const pills = named(call.refs) ? (await pillsOf(token, refsOf(call.refs))).pills.map((pill) => pill.label) : [];
     // The person is not among whom they hand it to: a whisper to oneself is refused.
     const chat = here.chat && { ...here.chat, members: here.chat.members.filter((member) => member.id !== `user:${userId}`) };
-    const picked = await platform.pick({ draft: call.draft, offers, text, pills, chat, preselect: here.preselect, ...(call.draft && here.local ? { local: here.local } : {}), visible });
+    const picked = await platform.pick({ draft: call.draft, offers, text, pills, chat, preselect: here.preselect, ...(call.draft && here.local ? { local: here.local } : {}), ...(here.spawnOn !== undefined ? { spawnOn: here.spawnOn } : {}), visible });
     if (!picked) return { cancelled: true };
     ({ to, visible } = picked);
     namedByCall = false;
@@ -348,7 +349,7 @@ export async function dispatchFromApp(
     return { to: { chat: to.chat, member: to.member }, id: sent.id };
   }
   const { content: words } = await withPills((await platform.account()).token, text, call.refs);
-  if ('new' in to) return { to: { agent: await agents().spawn(words, call.spawn) } };
+  if ('new' in to) return { to: { agent: await agents().spawn(words, call.spawn, to.device) } };
   if ('chat' in to) throw new AppSendError('invalid', 'A chat as such is told nothing: to { chat, member }, or { draft: true }');
   const told = await agents().tell(agentOf(to), words, { delivery: call.delivery, key: call.key });
   return { to: { agent: told.agent }, id: told.id, ...(told.deferred ? { deferred: true as const } : {}) };

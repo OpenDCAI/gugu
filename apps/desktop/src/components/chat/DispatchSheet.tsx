@@ -8,6 +8,7 @@ import { useChatStore } from '../../store/chatContext'
 import { useOwnedAgents } from '../settings/channels/channelAgents'
 import { chatPickRow, forwardableChats } from './forwardMessageUtils'
 import { ChatPickSheet, type ChatPickRow, type ChatPickSection } from './ChatPickSheet'
+import { DispatchMachine } from './DispatchMachine'
 import { takeDispatchAsks, type DispatchAsked } from './dispatchAsk'
 
 const NEW_AGENT = 'new:agent'
@@ -29,6 +30,7 @@ export const DispatchSheet = observer(function DispatchSheet() {
   const [query, setQuery] = useState('')
   const [text, setText] = useState('')
   const [visible, setVisible] = useState(false)
+  const [spawnDevice, setSpawnDevice] = useState<string | null>(null)
   const open = useRef<DispatchAsked | null>(null)
 
   // Answered once: by the person, by running out, or by the next ask taking the sheet.
@@ -45,6 +47,7 @@ export const DispatchSheet = observer(function DispatchSheet() {
     setQuery('')
     setText(next.text)
     setVisible(next.visible)
+    setSpawnDevice(next.spawnOn ?? null)
   }), [])
   // It waits on a person, as an install's consent does; main's clock (ipc-bridge) is the longer one.
   useEffect(() => {
@@ -93,7 +96,7 @@ export const DispatchSheet = observer(function DispatchSheet() {
   const said = text.trim()
   const pickedTarget = (): NonNullable<DispatchPicked>['to'] | null => {
     if (!picked) return null
-    if (picked === NEW_AGENT) return { new: true }
+    if (picked === NEW_AGENT) return { new: true, ...(spawnDevice ? { device: spawnDevice } : {}) }
     const [kind, id = ''] = picked.split(/:(.*)/)
     if (kind === 'agent') return { agent: id }
     if (kind === 'member' && asked.chat) return { chat: asked.chat.id, member: id }
@@ -120,6 +123,7 @@ export const DispatchSheet = observer(function DispatchSheet() {
       {asked.pills.map((pill, index) => (
         <span key={index} className="truncate text-[length:var(--font-caption)] text-[var(--text-secondary)]" data-testid="dispatch-pill">@{pill}</span>
       ))}
+      {picked === NEW_AGENT && asked.spawnOn !== undefined && <DispatchMachine deviceId={spawnDevice} onPick={setSpawnDevice} />}
       {!asked.draft && toMember && (
         <label className="flex items-center gap-[var(--spacing-xs)] text-[length:var(--font-caption)] text-[var(--text-secondary)]">
           <input type="checkbox" checked={visible} onChange={(event) => setVisible(event.target.checked)} data-testid="dispatch-visible" />
@@ -143,7 +147,7 @@ export const DispatchSheet = observer(function DispatchSheet() {
       placeholder={assign ? t('forum.consent.searchAgents') : t('dispatchPick.search')}
       empty={assign ? t('forum.consent.noAgents') : t('dispatchPick.empty')}
       actionLabel={assign ? t('forum.consent.assignConfirm') : asked.draft ? t('composePick.action') : t('dispatchPick.send')}
-      actionDisabled={!picked || (!assign && !said && asked.pills.length === 0)}
+      actionDisabled={!picked || (picked === NEW_AGENT && asked.spawnOn !== undefined && !spawnDevice) || (!assign && !said && asked.pills.length === 0)}
       onAction={() => {
         const to = pickedTarget()
         if (to) finish({ to, visible: toMember && visible, text: said })

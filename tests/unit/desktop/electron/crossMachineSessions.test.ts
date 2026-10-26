@@ -338,6 +338,7 @@ describe('answering another machine', () => {
       peers: vi.fn(async () => ['peer']),
       run: vi.fn(async () => ({ ran: true })),
       app: vi.fn(async () => ({ id: 'm-1' })),
+      appSpawn: vi.fn(async () => ({ agentId: 'user:a-new' })),
       appReadFile: vi.fn(),
       appCall: vi.fn(),
       ...overrides,
@@ -350,6 +351,19 @@ describe('answering another machine', () => {
     await expect(xm.answer('peers', CALLER, { action: 'peers' }, h)).resolves.toEqual(['peer'])
     await expect(xm.answer('get', CALLER, { action: 'get', session_id: 's' }, h)).resolves.toEqual({ ran: true })
     expect(h.run).toHaveBeenCalledWith(CALLER, { action: 'get', session_id: 's' })
+  })
+
+  it('starts an App agent through the App spawn core, with the same checked options and no borrowed session caller', async () => {
+    const APP = { kind: 'app', deviceId: 'phone', deviceLabel: 'phone', extensionId: 'board', extensionName: 'Board' } as const
+    const { xm } = makeCrossMachine()
+    const h = host()
+    const action = { action: 'spawn', prompt: 'work', spawn: { model: 'platform:model', transport: 'acp', title: 'Card' } } as const
+    await expect(xm.answer('spawn', APP, action, h)).resolves.toEqual({ agentId: 'user:a-new' })
+    expect(h.appSpawn).toHaveBeenCalledWith(APP, action)
+    expect(h.run).not.toHaveBeenCalled()
+    expect(parseAgentSessionRequest('spawn', APP, { ...action, spawn: { transport: 'other' } })).toHaveProperty('error')
+    expect(parseAgentSessionRequest('spawn', APP, { ...action, spawn: { unknown: true } })).toHaveProperty('error')
+    expect(parseAgentSessionRequest('spawn', APP, { ...action, prompt: '' })).toHaveProperty('error')
   })
 
   it('refuses a malformed request', async () => {
@@ -409,7 +423,7 @@ describe('agentSession.<action> arguments', () => {
     expect(parseAgentSessionRequest('message', APP, { action: 'message', session_ids: ['s'], text: 'hi', delivery: 'attach' }))
       .toEqual({ error: 'delivery is queue or defer' })
     expect(parseAgentSessionRequest('spawn', APP, { action: 'spawn', prompt: 'x' }))
-      .toEqual({ error: 'an App may only send a message to another machine, read a file there, or have a page\'s call done there, not spawn' })
+      .toEqual({ caller: APP, action: { action: 'spawn', prompt: 'x', spawn: {} } })
     expect(parseAgentSessionRequest('read_file', APP, { ...READ, junk: 1 })).toEqual({ caller: APP, action: READ })
     expect(parseAgentSessionRequest('read_file', APP, { ...READ, offset: '0' }))
       .toEqual({ error: 'read_file names a session (session_id), a path in its working copy, an offset and a length' })
@@ -428,13 +442,13 @@ describe('agentSession.<action> arguments', () => {
     const appReadFile = vi.fn(async () => CHUNK)
     const appCall = vi.fn()
     await expect(xm.answer('message', APP, { action: 'message', session_ids: ['s'], text: 'hi' }, {
-      peers: vi.fn(), run, app, appReadFile, appCall,
+      peers: vi.fn(), run, app, appSpawn: vi.fn(), appReadFile, appCall,
     })).resolves.toEqual({ id: 'm-1' })
-    await expect(xm.answer('read_file', APP, READ, { peers: vi.fn(), run, app, appReadFile, appCall })).resolves.toEqual(CHUNK)
+    await expect(xm.answer('read_file', APP, READ, { peers: vi.fn(), run, app, appSpawn: vi.fn(), appReadFile, appCall })).resolves.toEqual(CHUNK)
     // A page's call on that machine (its program, its data folder): its own part, the verb and args as the page gave them.
     const CALL = { action: 'app_call', call_id: 'c-1', session_id: 's', version: '0.7.0', method: 'writeData', args: { path: 'journal.json', content: '{}' } } as const
     appCall.mockResolvedValueOnce(undefined)
-    await expect(xm.answer('app_call', APP, CALL, { peers: vi.fn(), run, app, appReadFile, appCall })).resolves.toBeUndefined()
+    await expect(xm.answer('app_call', APP, CALL, { peers: vi.fn(), run, app, appSpawn: vi.fn(), appReadFile, appCall })).resolves.toBeUndefined()
     expect(appCall).toHaveBeenCalledWith(APP, CALL)
     expect(app).toHaveBeenCalledWith(APP, { action: 'message', session_ids: ['s'], text: 'hi' })
     expect(appReadFile).toHaveBeenCalledWith(APP, READ)

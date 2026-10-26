@@ -59,6 +59,9 @@ import { installedExtensionsStore } from '../../session/renderer/features/extens
 import { fileIconKey } from '../../session/shared/extensions/app-icon'
 import { appFrameChannel } from './appOrigin'
 import { PHONE_CAPABILITIES, phoneApps } from './phoneApps'
+import { cachedPhoneAgents, phoneDispatch } from './phoneDispatch'
+import { onPhoneAppState, phoneAppState } from './phoneAppState'
+import { subscribeDeviceSessions } from '../../session/shared/remote-sessions/session-directory'
 import { callOnComputer } from './phoneProgramCall'
 import { followsSessionMachine } from '../../session/shared/extensions/machine-call'
 import { HOSTED_PROGRAM_ELSEWHERE } from '../../session/shared/extensions/program-place'
@@ -526,6 +529,8 @@ export function hostAppFrame(
         focusAppModalClose(modal.id)
         return undefined
       }
+      case 'getAppState':
+        return phoneAppState(hosted.binding.capabilities)
       case 'getContext':
         // A pill's place waiting for this page goes first, whatever the answer: the frame holds it until `onLink`.
         for (const link of takeOpeningLinks(hosted.binding)) event(link)
@@ -554,20 +559,29 @@ export function hostAppFrame(
       }
       case 'clipboardWriteText':
         return navigator.clipboard.writeText(pageArgument('clipboardWriteText', args))
-      case 'dispatch':
-        // The desktop's answer, with this page's sheet and the chat shell's composer. The person's agents are their
-        // computers': a phone does not reach them yet, so the sheet offers none and a call naming one is not found here.
+      case 'listAgents': {
+        const manifest = installedExtensionsStore.manifestFor(hosted.binding.extensionId)
+        if (!manifest) refused('not-installed', 'This App is not installed')
+        return phoneDispatch({ extensionId: manifest.id, extensionName: manifest.name }, hosted.binding.capabilities, {}).listAgents()
+      }
+      case 'dispatch': {
+        const manifest = installedExtensionsStore.manifestFor(hosted.binding.extensionId)
+        if (!manifest) refused('not-installed', 'This App is not installed')
+        const { agents, local, spawnOn } = phoneDispatch({ extensionId: manifest.id, extensionName: manifest.name }, hosted.binding.capabilities,
+          { deviceId: hosted.binding.session?.deviceId, chatId: hosted.binding.chatId, agents: members?.filter((member) => member.kind === 'agent').map((member) => member.id) })
         return dispatchFromApp(
           {
             ...sendPlatform,
+            agents,
             pick: pickDispatchTarget,
             // Use the same capture-before-append ordering as the desktop host.
             draftInChat: async (detail) => void document.dispatchEvent(new CustomEvent<AppComposeDetail>(APP_COMPOSE_EVENT, { detail, bubbles: true })),
           },
           hosted.binding.extensionId,
           args,
-          { chat: chat ? { id: chat.id, name: chat.name, members: members ?? [] } : null, preselect: null },
+          { chat: chat ? { id: chat.id, name: chat.name, members: members ?? [] } : null, preselect: null, local, spawnOn },
         )
+      }
       case 'messagesHistory':
         return messagesForApp.history(args)
       case 'messagesSearch':
@@ -760,6 +774,22 @@ export function hostAppFrame(
     )
   }
   window.addEventListener('message', onMessage)
+  let lastState = JSON.stringify(phoneAppState(hosted.binding.capabilities))
+  const stateChanged = () => {
+    const state = phoneAppState(hosted.binding.capabilities)
+    const next = JSON.stringify(state)
+    if (next !== lastState) { lastState = next; event({ type: 'appState', state }) }
+  }
+  const snapshot = () => new Map(cachedPhoneAgents(hosted.binding.extensionId, hosted.binding.capabilities).map((agent) => [agent.agentId, JSON.stringify(agent)]))
+  let previous = snapshot()
+  const stopState = onPhoneAppState(stateChanged)
+  const stopAgents = subscribeDeviceSessions(() => {
+    stateChanged()
+    const next = snapshot()
+    const changed = [...new Set([...previous.keys(), ...next.keys()])].filter((id) => previous.get(id) !== next.get(id))
+    previous = next
+    if (hosted.binding.capabilities.includes('agents:read') && changed.length) event({ type: 'agentsChanged', agentIds: changed })
+  })
 
   return {
     pageId,
@@ -768,6 +798,8 @@ export function hostAppFrame(
       // Another group, or another handed-over file: the open files it could enter were the old ones'.
       if (moved) relay.revoke(pageId, 'unbound')
       hosted.binding = granted(binding)
+      previous = snapshot()
+      stateChanged()
       // Reuse the parent's existing subscriptions and host events for its sandboxed modal pages too.
       for (const [childHost, childBinding] of modalHosts) childHost.update({ ...childBinding, locale: binding.locale, themeMode: binding.themeMode, capabilities: binding.capabilities })
       // Moved to a file a pill is waiting to open: its place is this page's now (after the context that names the file).
@@ -802,6 +834,8 @@ export function hostAppFrame(
       event({ type: 'programNotification', server: notification.server, method: notification.method, ...(notification.params === undefined ? {} : { params: notification.params }) })
     },
     dispose() {
+      stopState()
+      stopAgents()
       void phoneModals.pageGone(pageId)
       for (const { source } of watched.values()) readFiles.forget(source)
       watched = new Map()

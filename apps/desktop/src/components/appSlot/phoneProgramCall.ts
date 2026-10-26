@@ -23,6 +23,11 @@ function callerId(): string {
   }
 }
 
+/** The phone's existing App caller identity, shared by program calls and dispatch. */
+export function phoneAppCaller(app: { extensionId: string; extensionName: string }) {
+  return { kind: 'app' as const, deviceId: callerId(), deviceLabel: 'phone', extensionId: app.extensionId, extensionName: app.extensionName }
+}
+
 const refused = (code: string, message: string) => Object.assign(new Error(message), { code })
 
 type PhoneApp = { extensionId: string; extensionName: string; version: string }
@@ -35,7 +40,7 @@ export async function callOnComputer(app: PhoneApp, session: PhoneSession, metho
   const where = session.deviceLabel ?? session.deviceId
   // What the phone already shows of that computer: offline, nothing is sent (the desktop's own check before a call).
   if (session.online === false) throw refused('unavailable', `"${where}" is offline; nothing was sent there`)
-  const caller = { kind: 'app', deviceId: callerId(), deviceLabel: 'phone', extensionId: app.extensionId, extensionName: app.extensionName }
+  const caller = phoneAppCaller(app)
   // Imported when a call is made: the session page's connections are not this host's to open at load.
   const { appCallOn } = await import('../../mobile/agent-watch/sessionpage-rpc')
   try {

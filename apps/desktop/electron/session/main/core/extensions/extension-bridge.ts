@@ -1,3 +1,4 @@
+import { appStateOf } from '@shared/extensions/app-state';
 import { groupFileLink } from '@gugu/core/shared/ui/guguLink';
 import * as fs from 'node:fs';
 import * as path from 'node:path';
@@ -28,7 +29,6 @@ import {
   type ExtensionOperator,
   type ExtensionPageFrom,
   type ExtensionSession,
-  type ExtensionPaneTab,
   type ExtensionSurfaceMetrics,
   type ExtensionBridgeMethod,
   type MachineVerb,
@@ -1238,30 +1238,7 @@ function appStateFor(extensionId: string): ExtensionAppState {
   const { windowFocused } = requireHost().presentation();
   const mayReadAgents = extensionsService().hasCapability(extensionId, 'agents:read');
   const mayReachWorkspace = capabilities.includes('files:read') || capabilities.includes('files:write');
-  return {
-    windowFocused,
-    activeSessionId: appView.activeSessionId,
-    activeProjectId: appView.activeProjectId,
-    panes: appView.panes.map((pane) => ({
-      paneId: pane.paneId,
-      focused: pane.focused,
-      activeTab: pane.activeTab ? redactTab(pane.activeTab, mayReadAgents, mayReachWorkspace) : null,
-    })),
-  };
-}
-
-/** Absent means「没给我看」— never「这个 tab 不是 agent」, which `kind` answers. */
-function redactTab(
-  tab: { tabId: string; kind: string; agentId?: string; filePath?: string },
-  mayReadAgents: boolean,
-  mayReachWorkspace: boolean
-): ExtensionPaneTab {
-  return {
-    tabId: tab.tabId,
-    kind: tab.kind,
-    ...(mayReadAgents && tab.agentId && appViewAgentIds.has(tab.agentId) ? { agentId: appViewAgentIds.get(tab.agentId) } : {}),
-    ...(mayReachWorkspace && tab.filePath ? { filePath: tab.filePath } : {}),
-  };
+  return appStateOf(appView, windowFocused, { agents: mayReadAgents, files: mayReachWorkspace }, appViewAgentIds);
 }
 
 /** Pushes the current app state to every page and background page. Silent for one that has gone away. */

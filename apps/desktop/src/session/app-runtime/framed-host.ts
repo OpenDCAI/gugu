@@ -37,7 +37,7 @@ export function framedHost(): GuguHost & Record<string, unknown> {
  */
 const PHONE: ReadonlySet<HostMember> = new Set<HostMember>([
   'modal.open', 'modal.close', 'modal.key', 'onModalFocus',
-  'getContext', 'onContextChanged', 'onFilesChanged', 'reportError', 'openBrowserTab', 'dispatch', 'messages.history', 'messages.search',
+  'getContext', 'getAppState', 'onAppStateChanged', 'onAgentsChanged', 'onContextChanged', 'onFilesChanged', 'reportError', 'openBrowserTab', 'dispatch', 'listAgents', 'messages.history', 'messages.search',
   'chats.list', 'chats.members', 'linkTo', 'openLink',
   'forum.list', 'forum.read', 'forum.post', 'forum.reply', 'forum.react', 'forum.remove', 'forum.block', 'forum.assign', 'forum.award',
   'forum.subscribe', 'forum.unsubscribe', 'onForumChanged',

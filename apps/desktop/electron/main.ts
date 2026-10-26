@@ -4643,6 +4643,7 @@ app.whenReady().then(async () => {
           ? emdash.runRemoteSessionAction(caller, action as never, signal)
           : emdash.runEmdashExtensionAction(appInstallFrom(caller.deviceId, action)),
         app: (caller, action) => emdash.answerAppMessage(caller, action),
+        appSpawn: (caller, action) => emdash.spawnAgentForExtension({ extensionId: caller.extensionId, extensionName: caller.extensionName, prompt: action.prompt, ...action.spawn }),
         appReadFile: (caller, action) => emdash.answerAppReadFile(caller, action),
         appCall: (caller, action) => emdash.answerAppCall(caller, action),
       })

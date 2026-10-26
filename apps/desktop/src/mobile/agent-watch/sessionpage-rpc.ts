@@ -5,7 +5,7 @@ import type { ToolImage } from '@gugu/session-core/acp/client'
 import { rendererLogger } from '@/lib/log'
 import { readCachedDevices } from '@/store/devicesCache'
 import { translateSessionMessage } from '@renderer/localization/locale-store'
-import { appCallWaitMs, type AppCallAction } from '@gugu/session-core/session-record/contract'
+import { appCallWaitMs, type AppCallAction, type AppMessageAction, type AppMessageReceipt, type AppSpawnAction, type RemoteAppCaller } from '@gugu/session-core/session-record/contract'
 import { callDeviceRpc } from '@/lib/deviceRpc'
 import { openPhoneSessionHostPipe } from '@/lib/remoteSessionHost'
 import { SESSION_HOST_RPC } from '@/session/shared/lib/ipc/session-host-device-frames'
@@ -130,6 +130,15 @@ export async function appCallOn(deviceId: string, caller: unknown, action: AppCa
   const reply = await callDeviceRpc<{ value: unknown }>(deviceId, SESSION_HOST_RPC.call, { channel: 'agentSession.app_call', args: [caller, action] }, { timeoutMs: appCallWaitMs(action) })
   if (reply.error) throw new SessionpageRpcError(reply.error.code, reply.error.message)
   return reply.result?.value
+}
+
+/** Dispatch uses the existing App-authenticated action routes, with the desktop's waits for wake/start. */
+export async function appDispatchOn<A extends AppMessageAction | AppSpawnAction>(deviceId: string, caller: RemoteAppCaller, action: A): Promise<A extends AppSpawnAction ? { agentId: string } : AppMessageReceipt> {
+  const reply = await callDeviceRpc<{ value: A extends AppSpawnAction ? { agentId: string } : AppMessageReceipt }>(deviceId, SESSION_HOST_RPC.call,
+    { channel: `agentSession.${action.action}`, args: [caller, action] }, { timeoutMs: action.action === 'spawn' ? 90_000 : 180_000 })
+  if (reply.error) throw new SessionpageRpcError(reply.error.code, reply.error.message)
+  if (!reply.result) throw new SessionpageRpcError('failed', 'The computer returned no dispatch receipt')
+  return reply.result.value
 }
 
 /** A push of that machine's on a channel of its own (e.g. `extensions.program.notified`), heard through its window. */
@@ -263,6 +272,11 @@ export function fetchCreateModels(
 /** **在那台机器上开一条新会话。**只在用户点了发送之后调 —— 它会在对方机器上起一个 agent 进程。 */
 export function createSession(deviceId: string, request: SessionpageSessionCreateRequest): Promise<SessionpageSessionCreateResult> {
   return value(rpc(deviceId).sessionTimeline.sessionCreate(request))
+}
+
+/** A fresh read of the same per-computer list, e.g. an App looking up the agent it just started. */
+export function fetchSessionsList(deviceId: string) {
+  return once(deviceId).sessionTimeline.sessionsList()
 }
 
 export function fetchPhoneSessions(deviceId: string): Promise<{ projects: SessionpageProjectSummary[]; sessions: SessionpageSessionSummary[] }> {
