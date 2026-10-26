@@ -37,6 +37,8 @@ export interface ClaudeRecord {
    * 用这一行的 uuid —— 连着的两条输入没有各自的 id，就会被接成一条。
    */
   messageId: string | null
+  /** An input inserted into the current native cycle, rather than a new turn. */
+  steering?: boolean
   items: ClaudeRecordItem[]
   end: ClaudeRecordEnd | null
 }
@@ -167,6 +169,7 @@ export function readClaudeRecord(entry: Record<string, unknown>): ClaudeRecord {
   const queued = queuedPrompt(entry)
   if (queued) {
     record.messageId = uuid
+    record.steering = true
     record.items = readItems(queued.content, 'user', queued.isMeta)
     return record
   }

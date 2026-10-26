@@ -119,13 +119,14 @@ export const RECORD_KEY_BOUNDARY_SUFFIX = '#end';
  *   qwen     → `system/branch_checkpoint`(ACP 腿上以 `end_turn` 结束才写;终端腿没有结束记号)
  *   pi       → assistant 消息的 `stopReason`（`toolUse` 同 claude 的 `tool_use`;`aborted` = 打断）
  */
-export type RecordBoundary =
+/** The ending message ID also identifies fragments recorded after that end. */
+export type RecordBoundary = { messageId?: string } & (
   /** 正常收尾。`stopReason` 是 provider 自己的说法，映射到 ACP 的那五种。 */
   | { kind: 'turn_end'; stopReason?: 'end_turn' | 'max_tokens' | 'max_turn_requests' | 'refusal' }
   /** 被打断（用户 ESC、进程被杀）。 */
   | { kind: 'turn_aborted' }
   /** 没做完：harness 自己记下的报错（claude 的 `isApiErrorMessage` 行）。 */
-  | { kind: 'turn_failed' };
+  | { kind: 'turn_failed' });
 
 /**
  * 一条解码后的记录。`key` 是跨来源身份键：同一件事从两个来源各报一次也只算一次。

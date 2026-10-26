@@ -17,6 +17,9 @@ let harness: ReturnType<typeof createReactHarness>
 beforeEach(() => {
   vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] })
   harness = createReactHarness()
+  vi.spyOn(HTMLElement.prototype, 'offsetWidth', 'get').mockImplementation(function (this: HTMLElement) {
+    return this.matches('.rtb-more') ? 32 : this.matches('[data-message-preview-trigger]') ? 150 : 0
+  })
 })
 afterEach(() => {
   harness.cleanup()
@@ -37,7 +40,6 @@ const hover = (from: HTMLElement, to: HTMLElement) => act(async () => {
 
 const renderBar = (onTokenClick?: (id: string) => void) => harness.render(
   <RunningTokenBar
-    cap={3}
     previewChatId="chat-1"
     onTokenClick={onTokenClick}
     tokens={[{ id: 'agent-1', name: 'Pico', avatarUrl: null, avatarSeed: 'agent-1', stateKey: 'running', toolCount: 2, lastActiveAt: null }]}
@@ -106,10 +108,10 @@ describe('手机:短按 @ 它,长按看详情', () => {
   beforeEach(() => { Object.defineProperty(window, 'innerWidth', { configurable: true, value: 390 }) })
   afterEach(() => { Object.defineProperty(window, 'innerWidth', { configurable: true, value: desktopWidth }) })
 
-  it('手机把 cap 以后的 agent 也放在运行栏里,可直接 @', async () => {
+  it('手机把全部 agent 放在横滚运行栏里,可直接 @', async () => {
     const onTokenClick = vi.fn()
     await harness.render(
-      <RunningTokenBar cap={3} previewChatId="chat-1" onTokenClick={onTokenClick} tokens={[1, 2, 3, 4, 5].map((n) => ({
+      <RunningTokenBar previewChatId="chat-1" onTokenClick={onTokenClick} tokens={[1, 2, 3, 4, 5].map((n) => ({
         id: `agent-${n}`, name: `Agent ${n}`, avatarUrl: null, avatarSeed: `agent-${n}`,
         stateKey: 'running', toolCount: 2, lastActiveAt: null,
       }))} />,
@@ -159,11 +161,69 @@ describe('手机:短按 @ 它,长按看详情', () => {
   })
 })
 
+describe('desktop running agents fit the available width', () => {
+  it('reveals more agents as the same row grows and folds them again when it shrinks', async () => {
+    let width = 600
+    let report = () => {}
+    vi.spyOn(HTMLElement.prototype, 'clientWidth', 'get').mockImplementation(() => width)
+    vi.stubGlobal('ResizeObserver', class {
+      constructor(callback: () => void) { report = callback }
+      observe() {}
+      disconnect() {}
+    })
+    try {
+      await harness.render(<RunningTokenBar previewChatId="chat-1" tokens={Array.from({ length: 8 }, (_, n) => ({
+        id: `agent-${n}`, name: `Agent ${n}`, avatarUrl: null, avatarSeed: `agent-${n}`,
+        stateKey: 'running', toolCount: 0, lastActiveAt: null,
+      }))} />)
+      for (const [nextWidth, visible, overflow] of [[600, 3, '+5'], [1100, 6, '+2'], [1400, 8, null], [600, 3, '+5']] as const) {
+        width = nextWidth
+        await act(async () => report())
+        expect([...document.body.querySelectorAll<HTMLElement>('.rtb-bar > [data-message-preview-trigger]')].filter(e => e.style.visibility !== 'hidden')).toHaveLength(visible)
+        expect(document.body.querySelector('.rtb-more')?.textContent ?? null).toBe(overflow)
+      }
+    } finally { vi.unstubAllGlobals() }
+  })
+
+  it('packs the measured pills and responds when their text width changes', async () => {
+    let pillWidth = 140
+    let report = () => {}
+    vi.spyOn(HTMLElement.prototype, 'clientWidth', 'get').mockReturnValue(896)
+    vi.spyOn(HTMLElement.prototype, 'offsetWidth', 'get').mockImplementation(function (this: HTMLElement) {
+      return this.matches('.rtb-more') ? 32 : this.matches('[data-message-preview-trigger]') ? pillWidth : 0
+    })
+    vi.stubGlobal('ResizeObserver', class {
+      constructor(callback: () => void) { report = callback }
+      observe() {}
+      disconnect() {}
+    })
+    try {
+      await harness.render(<RunningTokenBar previewChatId="chat-1" tokens={Array.from({ length: 8 }, (_, n) => ({
+        id: `agent-${n}`, name: `Agent ${n}`, avatarUrl: null, avatarSeed: `agent-${n}`,
+        stateKey: 'running', toolCount: 0, lastActiveAt: null,
+      }))} />)
+      const pills = () => [...document.body.querySelectorAll<HTMLElement>('.rtb-bar > [data-message-preview-trigger]')]
+      expect(pills()).toHaveLength(8)
+      expect(pills().filter(e => e.style.visibility !== 'hidden')).toHaveLength(5)
+      expect(document.body.querySelector('.rtb-more')?.textContent).toBe('+3')
+      pillWidth = 100
+      await act(async () => report())
+      expect(pills().filter(e => e.style.visibility !== 'hidden')).toHaveLength(8)
+      expect(document.body.querySelector('.rtb-more')).toBeNull()
+      pillWidth = 160
+      await act(async () => report())
+      expect(pills().filter(e => e.style.visibility !== 'hidden')).toHaveLength(5)
+      expect(document.body.querySelector('.rtb-more')?.textContent).toBe('+3')
+    } finally { vi.unstubAllGlobals() }
+  })
+})
+
 describe('桌面: +n 只展开 agent,整条运行条共用一张预览', () => {
+  beforeEach(() => { vi.spyOn(HTMLElement.prototype, 'clientWidth', 'get').mockReturnValue(240) })
   const trigger = (id: string) => document.body.querySelector<HTMLElement>(`[data-message-preview-trigger="${id}"]`)!
   const count = () => document.body.querySelectorAll('[data-testid="preview-card"]').length
   const renderOverflow = () => harness.render(
-    <RunningTokenBar cap={1} previewChatId="chat-1" tokens={[1, 2, 3].map((n) => ({
+    <RunningTokenBar previewChatId="chat-1" tokens={[1, 2, 3].map((n) => ({
       id: `agent-${n}`, name: `Agent ${n}`, avatarUrl: null, avatarSeed: `agent-${n}`,
       stateKey: 'running', toolCount: 2, lastActiveAt: null,
     }))} />,

@@ -254,6 +254,7 @@ export default {
     "newProject": "新项目",
     "delete": "删除",
     "disableNotifications": "关闭通知",
+    "deleteFailed": "无法删除这条对话",
     "draft": "[草稿]",
     "moreTopics": "更多 · {{count}}",
     "moreTopics_one": "更多 · {{count}}",

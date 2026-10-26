@@ -254,6 +254,7 @@ export default {
     "newProject": "New project",
     "delete": "Delete",
     "disableNotifications": "Mute notifications",
+    "deleteFailed": "Could not delete this conversation",
     "draft": "[Draft]",
     "moreTopics": "More · {{count}}",
     "moreTopics_one": "More · {{count}}",
