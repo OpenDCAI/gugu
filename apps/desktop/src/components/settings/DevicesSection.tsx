@@ -208,6 +208,7 @@ export function DevicesSection({
       {dialog?.kind === 'remove' && (
         <DeviceRemoveDialog
           device={dialog.device}
+          removesVersion={(deviceMachineFor(machines, dialog.device.device_id)?.configurations.length ?? 1) > 1}
           model={deviceRowModel(dialog.device, addressOf(dialog.device.device_id))}
           agents={agents}
           onCascadeChange={(value) => setAgents((s) => ({ ...s, cascadeChecked: value }))}

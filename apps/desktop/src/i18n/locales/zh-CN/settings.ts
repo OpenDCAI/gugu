@@ -281,7 +281,6 @@ export default {
       "confirmOnConflict": "撞了先问你",
       "unsupported": "这台电脑暂时不能被调用。",
       "otherTitle": "「{{name}}」能做的事",
-      "otherNote": "权限在该设备上管理。",
       "otherNone": "未读到这台设备的工具清单。",
       "otherOffline": "这台设备当前离线。",
       "availableNow": "可用",
@@ -715,6 +714,18 @@ export default {
     "offline": "离线",
     "online": "在线",
     "remove": {
+      "version": {
+        "label": "移除「{{name}}」的「{{version}}」",
+        "title": "移除「{{name}}」的「{{version}}」？",
+        "confirm": "移除这个版本",
+        "desktop": "这个版本下次打开时会重新出现。要彻底移除，请在这个版本中退出登录。",
+        "cloud": "将从列表中移除这个版本。",
+        "server": "将在这个版本中退出你的账号，智能体不能再在这个版本上运行。",
+        "serverOffline": "这个版本现在离线，下次联网时会退出你的账号。",
+        "sshNote": "这个版本的咕咕 server 仍会保留。要一并删除，请选「卸载咕咕 server」。",
+        "boundAgents_one": "将同时删除这个版本上你的 {{count}} 个智能体。",
+        "boundAgents_other": "将同时删除这个版本上你的 {{count}} 个智能体。"
+      },
       "cloud": "将从列表中移除。",
       "confirm": "移除这台机器",
       "desktop": "那台电脑下次打开咕咕时会重新出现。要彻底移除，请在它上面退出登录。",

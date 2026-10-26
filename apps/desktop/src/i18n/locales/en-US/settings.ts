@@ -281,7 +281,6 @@ export default {
       "confirmOnConflict": "asks on conflicts",
       "unsupported": "This computer can't be called yet.",
       "otherTitle": "What “{{name}}” can do",
-      "otherNote": "Manage permissions on that device.",
       "otherNone": "Could not read this device’s tool list.",
       "otherOffline": "This device is offline.",
       "availableNow": "Available",
@@ -715,6 +714,18 @@ export default {
     "offline": "Offline",
     "online": "Online",
     "remove": {
+      "version": {
+        "label": "Remove {{version}} on \"{{name}}\"",
+        "title": "Remove {{version}} on \"{{name}}\"?",
+        "confirm": "Remove this version",
+        "desktop": "This version reappears when it opens again. To remove it for good, sign out in this version.",
+        "cloud": "This version will be removed from your list.",
+        "server": "Signs your account out of this version; agents can no longer run in it.",
+        "serverOffline": "This version is offline; it signs you out next time it connects.",
+        "sshNote": "This version of Gugu server stays installed. To delete it, use “Uninstall Gugu server”.",
+        "boundAgents_one": "Also deletes your {{count}} agent in this version.",
+        "boundAgents_other": "Also deletes your {{count}} agents in this version."
+      },
       "cloud": "It will be removed from your list.",
       "confirm": "Remove this machine",
       "desktop": "It reappears when Gugu opens on that computer. To remove it for good, sign out there.",

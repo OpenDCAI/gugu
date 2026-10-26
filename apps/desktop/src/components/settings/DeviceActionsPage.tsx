@@ -130,7 +130,7 @@ export function DeviceActionsPage({ device, isThisDevice, onBack, embedded = fal
     <SettingsPage data-testid="settings-device-actions">
       {!embedded && <PageHeader panelNavigation={panelNavigation} navigationKey={`device:${device.device_id}`} title={t('devices.deviceActions.otherTitle', { name: device.label })} backLabel={t('devices.deviceActions.back')} onBack={onBack} />}
       {versions}
-      <OtherDeviceActions device={selected} compact={embedded} />
+      <OtherDeviceActions device={selected} compact={embedded} machineOnline={device.is_online || configurations?.some(version => version.is_online) === true} />
     </SettingsPage>
   )
 }
@@ -456,7 +456,7 @@ function ActionRow({ action, english, disabled, save }: { action: DeviceActionsA
   )
 }
 
-function OtherDeviceActions({ device, compact = false }: { device: Device; compact?: boolean }) {
+function OtherDeviceActions({ device, compact = false, machineOnline }: { device: Device; compact?: boolean; machineOnline: boolean }) {
   const { t } = useTranslation('settings')
   const text = useDeviceActionGroupText()
   const actions = device.capabilities?.actions?.actions ?? null
@@ -469,8 +469,7 @@ function OtherDeviceActions({ device, compact = false }: { device: Device; compa
   if (!actions) return <SettingsNote>{t('devices.deviceActions.otherNone')}</SettingsNote>
   return (
     <>
-      {!compact && <SettingsNote>{t('devices.deviceActions.otherNote')}</SettingsNote>}
-      {!device.is_online && <SettingsNote tone="danger">{t('devices.deviceActions.otherOffline')}</SettingsNote>}
+      {!machineOnline && <SettingsNote tone="danger">{t('devices.deviceActions.otherOffline')}</SettingsNote>}
       <SettingsGroup>
         {groups.map(([group, list]) => {
           const on = list.some((a) => a.available)
@@ -481,7 +480,7 @@ function OtherDeviceActions({ device, compact = false }: { device: Device; compa
               data-testid={`settings-device-action-other-${group}`}
               leading={<GroupIcon group={{ id: group }} size="row" />}
               title={text.name(group)}
-              description={compact ? undefined : list.map((a) => a.title).join(' · ')}
+              description={compact ? undefined : text.description(group)}
               control={!device.is_online
                 ? <Chip>{t('devices.offline')}</Chip>
                 : on

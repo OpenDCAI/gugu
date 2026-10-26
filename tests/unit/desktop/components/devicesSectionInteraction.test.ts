@@ -88,10 +88,16 @@ describe('DevicesSection interaction', () => {
     expect(value.remove).not.toHaveBeenCalled()
     expect(value.rename).not.toHaveBeenCalled()
     const removeOld = configurations.querySelector<HTMLButtonElement>('[data-testid="device-configuration-remove-old"]')!
+    expect(removeOld.textContent).toBe('移除这个版本')
+    expect(configurations.textContent).not.toContain('移除这台机器')
     await act(async () => { removeOld.click() })
     await flush()
     expect(value.listBoundAgents).toHaveBeenCalledWith('old')
-    expect(document.body.querySelector('[data-testid="settings-device-remove-dialog"]')!.textContent).toContain('acceptance-tasks431')
+    const dialog = document.body.querySelector('[data-testid="settings-device-remove-dialog"]')!
+    expect(dialog.textContent).toContain('移除「Remote Mac」的「acceptance-tasks431」？')
+    expect(dialog.textContent).toContain('这个版本下次打开时会重新出现')
+    expect(dialog.textContent).not.toContain('移除这台机器')
+    expect(buttonByText(dialog, '移除这个版本')).not.toBeNull()
     expect(value.remove).not.toHaveBeenCalled()
   })
 
