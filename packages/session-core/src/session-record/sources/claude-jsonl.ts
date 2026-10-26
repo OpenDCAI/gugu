@@ -33,7 +33,7 @@ import { TailReader, type TailResume } from './tail-reader';
 
 
 /** 续读点里那份 claude 自己的数据。形状或读法变了就升版本号,老存档一律作废重读。 */
-const CLAUDE_RESUME_VERSION = 3;
+const CLAUDE_RESUME_VERSION = 4;
 type ClaudeResumeData = {
   version: number;
   primaryPath: string;
@@ -335,7 +335,7 @@ export function decodeClaudeRecord(
   if (record.sidechain) return [];
   const at = parseTimestamp(record.timestamp);
   const stamp = at !== undefined ? { at } : {};
-  const updates = record.items.map((item) => toUpdate(item, record.messageId));
+  const updates = record.items.map((item) => toUpdate(item, record.messageId, record.steering));
   const entries: RecordEntry[] = updates.map((update, index) => ({
     // 一条记录出多条 update 时按块序号加后缀：块数由记录本身定死，重读同一份记录得到同一批 key。
     key: updates.length === 1 ? `claude:${uuid}` : `claude:${uuid}#${index}`,
@@ -358,12 +358,12 @@ export function decodeClaudeRecord(
   return entries;
 }
 
-function toUpdate(item: ClaudeRecordItem, messageId: string | null): SessionUpdate {
+function toUpdate(item: ClaudeRecordItem, messageId: string | null, steering = false): SessionUpdate {
   switch (item.kind) {
     case 'text': {
       const content = { type: 'text' as const, text: item.text };
       return item.role === 'user'
-        ? { sessionUpdate: 'user_message_chunk', content, messageId }
+        ? { sessionUpdate: 'user_message_chunk', content, messageId, ...(steering ? { _meta: { guguSteering: true } } : {}) }
         : { sessionUpdate: 'agent_message_chunk', content, messageId };
     }
     case 'thinking':
