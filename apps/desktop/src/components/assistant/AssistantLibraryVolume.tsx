@@ -55,9 +55,10 @@ export function AssistantLibraryCard(props: CardProps) {
 }
 function FileLibraryCard({ machine, assistantId, kind, onOpen }: Omit<CardProps, 'kind'> & { kind: UserLibraryKind }) {
   const { t } = useTranslation('assistant')
-  const read = usePhoneRead(sourceKey(machine, kind, assistantId), () => readVolume(machine, kind), 'read Gugu library')
+  const read = usePhoneRead(sourceKey(machine, kind, assistantId), () => readVolume(machine, kind), 'read Gugu library',undefined,
+    () => machine?.panel ? assistantPanelLibrary(machine.panel).peekVolume(kind) : undefined)
   useLibraryNotifications(machine, kind, read.refresh)
-  const detail = kind === 'devices' ? t('library.deviceAccess') : read.state === 'loading' ? t('library.loading')
+  const detail = kind === 'devices' ? t('library.deviceAccess') : read.state === 'loading' ? undefined
     : read.state === 'error' ? t('library.failed') : read.data.items.length ? t('library.items', { count: read.data.items.length }) : undefined
   return <AssistantRow leading={kind === 'devices' ? <Monitor /> : <Sparkles />} title={t(`library.${kind}`)} detail={detail}
     onClick={onOpen} testId={`assistant-library-${kind}`} />
@@ -72,9 +73,11 @@ function FileLibraryVolume({ machine, assistantId, kind, askInChat }: Omit<Libra
   const [editing, setEditing] = useState<UserLibraryEntry | 'new' | null>(null)
   const panelNavigation = platform.kind === 'electron'
   useAssistantPanelBack(panelNavigation && (editing || selected) ? `library:${kind}:${editing ? 'edit' : selected}` : null, () => editing ? setEditing(null) : setSelected(null))
-  const read = usePhoneRead(sourceKey(machine, kind, assistantId), () => readVolume(machine, kind), 'read Gugu library')
+  const read = usePhoneRead(sourceKey(machine, kind, assistantId), () => readVolume(machine, kind), 'read Gugu library',undefined,
+    () => machine?.panel ? assistantPanelLibrary(machine.panel).peekVolume(kind) : undefined)
   const entry = usePhoneRead(machine && selected ? `${sourceKey(machine, kind, assistantId)}|${selected}` : null,
-    () => machine?.panel ? assistantPanelLibrary(machine.panel).entry(kind,selected!) : libraryHost(machine)!.readUserLibraryEntry(kind, selected!), 'read Gugu library entry')
+    () => machine?.panel ? assistantPanelLibrary(machine.panel).entry(kind,selected!) : libraryHost(machine)!.readUserLibraryEntry(kind, selected!), 'read Gugu library entry',undefined,
+    () => machine?.panel && selected ? assistantPanelLibrary(machine.panel).peekEntry(kind,selected) : undefined)
   useLibraryNotifications(machine, kind, read.refresh)
   useLibraryNotifications(machine, kind, entry.refresh)
   const title = t(`library.${kind}`)
@@ -91,11 +94,12 @@ function FileLibraryVolume({ machine, assistantId, kind, askInChat }: Omit<Libra
     onClose={() => setEditing(null)} onSaved={() => { setEditing(null); setSelected(null); read.reload() }} />
   return <div className="ta-page" data-testid={`assistant-library-page-${kind}`}>
     <PageHead title={opened?.name ?? title} action={machine && <Button variant="ghost" className="ta-pill-btn" disabled={read.state !== 'ok'} onClick={() => setEditing(opened || 'new')}>{t(opened ? 'library.edit' : 'library.add')}</Button>} />
+    {read.state==='ok'&&!!read.refreshError&&<p role="status" className="ta-page-sub">{assistantPanelFailure(read.refreshError,t)}</p>}
     {selected && !panelNavigation && <Button variant="ghost" className="ta-pill-btn self-start" onClick={() => setSelected(null)}>{t('library.backToIndex')}</Button>}
     {!selected && kind === 'devices' && (platform.capabilities.agentRuntime ? <ShellSlot name="devices" className="ta-skin" /> : <AssistantDevicesPage cloudDeviceId={null} />)}
     {!selected && <AssistantRow title={t('library.organize')} onClick={() => askInChat(t('library.setupPrompt', { kind: title }))} />}
     {failed ? <AssistantEmpty><span role="alert">{assistantPanelFailure(selected && entry.state === 'error' ? entry.error : read.state === 'error' ? read.error : null,t)}</span></AssistantEmpty>
-      : loading ? <AssistantEmpty>{t('library.loading')}</AssistantEmpty>
+      : loading ? <AssistantEmpty><span aria-hidden="true" className="block h-12" /></AssistantEmpty>
       : opened ? <><p className="ta-page-sub">{opened.description}</p><div className="ta-card ta-prose" data-testid="assistant-library-content"><Markdown trust="chat" content={opened.content || t('library.emptyContent')} /></div></>
       : current?.items.length ? [...groups].map(([group, items]) => <AssistantSection key={group} title={group}>
           {items.map(item => <AssistantRow key={item.id} leading={kind === 'devices' ? <Monitor /> : <Sparkles />} title={item.name}

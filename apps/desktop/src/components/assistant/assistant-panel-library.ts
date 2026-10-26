@@ -9,11 +9,27 @@ function metadata(item: AssistantPanelItem): Omit<UserLibraryEntry, 'content'> {
     modifiedAt: typeof item.data.modifiedAt === 'string' ? item.data.modifiedAt : item.updated_at,path: item.resource_key,index: item.resource_key }
 }
 export function assistantPanelLibrary(panel: AssistantPanelFiles) {
+  const volumeOf = (kind: UserLibraryKind, rows: AssistantPanelItem[]): UserLibraryRead => {
+    const items = rows.map(metadata),volume = { kind,name: kind,path: kind,index: kind }
+    return {volume,items,content:items.map(item=>`- ${item.name}：${item.description}`).join('\n')}
+  }
+  function localRows(kind: UserLibraryKind) {
+    const snapshot=panel.peekSnapshot()
+    if(!snapshot)return
+    const collection=assistantPanelCollection(snapshot,domain(kind),panel.deviceId)
+    return collection.state==='unprepared'&&!collection.items.length?undefined:collection.items
+  }
   return {
+    peekVolume(kind: UserLibraryKind): UserLibraryRead | undefined {
+      try { const rows=localRows(kind);return rows?volumeOf(kind,rows):undefined } catch { return }
+    },
+    peekEntry(kind: UserLibraryKind,key:string): UserLibraryEntry | undefined {
+      try {const row=localRows(kind)?.find(row=>row.resource_key===key);const bytes=row&&panel.peekBody(row)
+        return row&&bytes?{...metadata(row),content:new TextDecoder('utf-8',{fatal:true}).decode(bytes)}:undefined
+      } catch { return }
+    },
     async volume(kind: UserLibraryKind): Promise<UserLibraryRead> {
-      const items = (await panel.collection(domain(kind))).map(metadata)
-      const volume = { kind,name: kind,path: kind,index: kind }
-      return { volume,items,content: items.map(item => `- ${item.name}：${item.description}`).join('\n') }
+      return volumeOf(kind,await panel.collection(domain(kind)))
     },
     async entry(kind: UserLibraryKind, key: string): Promise<UserLibraryEntry> {
       const item = (await panel.collection(domain(kind))).find(row => row.resource_key === key)

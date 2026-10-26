@@ -4,13 +4,14 @@ import { join } from 'node:path'
 import { afterEach, expect, it, vi } from 'vitest'
 import { createAssistantPanelRuntime } from '../../apps/desktop/electron/sessionpage/assistant-panel-runtime'
 
-const calls = vi.hoisted(() => ({ signals: [] as AbortSignal[],domains:[] as string[], stalled:true,collectIntegrations: false,hold: null as Promise<void> | null }))
+const calls = vi.hoisted(() => ({ signals: [] as AbortSignal[],domains:[] as string[], stalled:true,collectIntegrations: false,blockedDomain:null as string|null,hold: null as Promise<void> | null }))
 vi.mock('../../apps/desktop/electron/sessionpage/assistant-panel-admission',async importOriginal=>{
   const original=await importOriginal<typeof import('../../apps/desktop/electron/sessionpage/assistant-panel-admission')>()
   return {...original,prepareAssistantPanelAdmission:(input:Parameters<typeof original.prepareAssistantPanelAdmission>[0])=>calls.stalled ? original.prepareAssistantPanelAdmission(input) : Promise.resolve({text:'',accepted:async()=>{}})}
 })
 vi.mock('../../apps/desktop/electron/sessionpage/assistant-panel-publisher',()=>({collectAssistantPanelFiles:async()=>[],publishAssistantPanelCollection:async({domain,collect}:{domain:string;collect: (previous: never[]) => Promise<unknown>})=>{
   calls.domains.push(domain)
+  if (domain === calls.blockedDomain) await calls.hold
   if (domain === 'integrations' && calls.collectIntegrations) { await collect([]); await calls.hold }
 }}))
 vi.mock('@gugu/core/cloud/supabase',() => ({ createGuguSupabaseClient: () => ({
@@ -23,7 +24,7 @@ vi.mock('@gugu/core/cloud/supabase',() => ({ createGuguSupabaseClient: () => ({
     } }
   },
 }) }))
-afterEach(() => { vi.useRealTimers(); calls.signals.length = 0; calls.domains.length=0; calls.stalled=true; calls.collectIntegrations=false; calls.hold=null })
+afterEach(() => { vi.useRealTimers(); calls.signals.length = 0; calls.domains.length=0; calls.stalled=true; calls.collectIntegrations=false; calls.blockedDomain=null; calls.hold=null })
 
 it('prepares stale profiles at each actual personal-assistant turn, independently of native startup', async () => {
   calls.stalled = false
@@ -96,4 +97,71 @@ it('publishes completed verification even when it finishes during the previous p
     await vi.advanceTimersByTimeAsync(1000)
     expect(integrations).toHaveBeenCalledTimes(2)
   } finally { held.resolve(); runtime.dispose(); vi.useRealTimers(); await rm(cwd,{ recursive: true,force: true }) }
+})
+
+async function libraryFixture() {
+  calls.stalled=false
+  const cwd=await mkdtemp(join(tmpdir(),'panel-library-publication-'))
+  let changed:((owner:string,kind:'capabilities'|'devices')=>void)|undefined
+  let integrationChanged:(()=>void)|undefined
+  const unsubscribe=vi.fn(),unsubscribeIntegrations=vi.fn()
+  const runtime=createAssistantPanelRuntime({getAuth:async()=>({accessToken:'fixture',userId:'owner'}),instanceId:()=> 'runtime',deviceId:async()=> 'device',
+    local:{onLibraryChanged:(listener:typeof changed)=>{changed=listener;return unsubscribe},onIntegrationsChanged:(listener:()=>void)=>{integrationChanged=listener;return unsubscribeIntegrations}} as never,guguHome:cwd,kind:'computer',env:{},failed:vi.fn(),locale:()=> 'zh-CN'})
+  await runtime.bind({sessionId:'session',assistantId:'assistant',ownerId:'owner',cwd})
+  return {runtime,changed:(owner:string,kind:'capabilities'|'devices')=>changed?.(owner,kind),integrationChanged:()=>integrationChanged?.(),unsubscribe,unsubscribeIntegrations,
+    async cleanup(){runtime.dispose();await rm(cwd,{recursive:true,force:true})}}
+}
+
+it('publishes a durable library change promptly without scanning unrelated panel collections',async()=>{
+  vi.useFakeTimers()
+  const f=await libraryFixture()
+  try{
+    await f.runtime.publish('session');calls.domains.length=0
+    f.changed('other-owner','capabilities');await vi.advanceTimersByTimeAsync(300)
+    expect(calls.domains).toEqual([])
+    f.changed('owner','capabilities');f.changed('owner','capabilities')
+    await vi.advanceTimersByTimeAsync(300)
+    expect(calls.domains).toEqual(['capabilities'])
+    f.changed('owner','devices');await vi.advanceTimersByTimeAsync(300)
+    expect(calls.domains).toEqual(['capabilities','device-notes'])
+    f.runtime.dispose();f.changed('owner','capabilities');await vi.advanceTimersByTimeAsync(1000)
+    expect(calls.domains).toHaveLength(2);expect(f.unsubscribe).toHaveBeenCalledOnce()
+  }finally{await f.cleanup()}
+})
+
+it('publishes externally completed authorizations through the same independent domain lane',async()=>{
+  vi.useFakeTimers();const held=Promise.withResolvers<void>();calls.blockedDomain='memory';calls.hold=held.promise
+  const f=await libraryFixture()
+  try{
+    const full=f.runtime.publish('session');await vi.advanceTimersByTimeAsync(1)
+    f.integrationChanged();await vi.advanceTimersByTimeAsync(300)
+    expect(calls.domains).toEqual(['memory','integrations'])
+    held.resolve();await full;f.runtime.dispose();f.integrationChanged();await vi.advanceTimersByTimeAsync(1000)
+    expect(f.unsubscribeIntegrations).toHaveBeenCalledOnce()
+  }finally{held.resolve();await f.cleanup()}
+})
+
+it('does not queue library publication behind an unrelated slow collection',async()=>{
+  vi.useFakeTimers();const held=Promise.withResolvers<void>();calls.blockedDomain='memory';calls.hold=held.promise
+  const f=await libraryFixture()
+  try{
+    const full=f.runtime.publish('session');await vi.advanceTimersByTimeAsync(1)
+    expect(calls.domains).toEqual(['memory'])
+    f.changed('owner','capabilities');await vi.advanceTimersByTimeAsync(300)
+    expect(calls.domains).toEqual(['memory','capabilities'])
+    held.resolve();await full
+  }finally{held.resolve();await f.cleanup()}
+})
+
+it('publishes again when a second library write arrives during the first publication',async()=>{
+  vi.useFakeTimers();const held=Promise.withResolvers<void>();calls.blockedDomain='capabilities';calls.hold=held.promise
+  const f=await libraryFixture()
+  try{
+    f.changed('owner','capabilities');await vi.advanceTimersByTimeAsync(300)
+    expect(calls.domains).toEqual(['capabilities'])
+    f.changed('owner','capabilities');await vi.advanceTimersByTimeAsync(300)
+    expect(calls.domains).toEqual(['capabilities'])
+    held.resolve();await vi.advanceTimersByTimeAsync(300)
+    expect(calls.domains).toEqual(['capabilities','capabilities'])
+  }finally{held.resolve();await f.cleanup()}
 })

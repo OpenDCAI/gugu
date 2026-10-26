@@ -3,6 +3,7 @@ import { and, asc, eq, sql } from 'drizzle-orm';
 import type { AppDb, DrizzleTx } from '@main/db/client';
 import { providerAccounts, type ProviderAccountRow } from '@main/db/schema';
 import type { ProviderAccountMeta } from '@shared/core/provider-accounts/provider-account-meta';
+import { log } from '@main/lib/logger';
 
 /** Meta payload without the schema version field, which the registry supplies. */
 export type ProviderAccountMetaInput = Omit<ProviderAccountMeta, 'version'>;
@@ -71,6 +72,21 @@ function toProviderAccount(row: ProviderAccountRow): ProviderAccount {
  * partial unique index; a missing default self-heals to the oldest account.
  */
 export class ProviderAccountRegistry {
+  private readonly listeners = new Set<() => void>();
+
+  /** Invalidations contain no account data or credentials. */
+  onChanged(listener: () => void): () => void {
+    this.listeners.add(listener);
+    return () => { this.listeners.delete(listener); };
+  }
+
+  private changed(): void {
+    for (const listener of this.listeners) {
+      try { listener(); }
+      catch { log.warn('Provider account change observer failed'); }
+    }
+  }
+
   constructor(
     private readonly db: AppDb,
     private readonly secretStore: ProviderAccountSecretStore
@@ -136,6 +152,7 @@ export class ProviderAccountRegistry {
       return inserted;
     });
 
+    this.changed();
     return {
       account: toProviderAccount(row),
       status: existing ? 'updated' : 'created',
@@ -198,6 +215,7 @@ export class ProviderAccountRegistry {
         .run();
       return { ...target, isDefault: true };
     });
+    if (row) this.changed();
     return row ? toProviderAccount(row) : null;
   }
 
@@ -218,6 +236,7 @@ export class ProviderAccountRegistry {
     const account = await this.getAccount(providerId, accountId);
     if (!account) return;
     await this.secretStore.deleteSecret(account.credentialRef);
+    this.changed();
   }
 
   /**
@@ -247,7 +266,8 @@ export class ProviderAccountRegistry {
     });
 
     if (!removed) return null;
-    await this.secretStore.deleteSecret(removed.credentialRef);
+    try { await this.secretStore.deleteSecret(removed.credentialRef); }
+    finally { this.changed(); }
     return toProviderAccount(removed);
   }
 
@@ -262,9 +282,8 @@ export class ProviderAccountRegistry {
       tx.delete(providerAccounts).where(eq(providerAccounts.providerId, providerId)).run();
       return existing;
     });
-    for (const row of rows) {
-      await this.secretStore.deleteSecret(row.credentialRef);
-    }
+    try { for (const row of rows) await this.secretStore.deleteSecret(row.credentialRef); }
+    finally { if (rows.length) this.changed(); }
   }
 
   async isConfigured(providerId: string): Promise<boolean> {
