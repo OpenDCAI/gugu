@@ -1,5 +1,6 @@
 import type { AppSpawnAction } from '@gugu/session-core/session-record/contract';
 import type { ExtensionCapability } from './manifest';
+import { decodeTypedId } from '@gugu/core/shared/typedId.mjs';
 
 /**
  * `gugu.dispatch(text, options)` (15): the one way an App hands something to someone — owner 10-25「全部统一」. Before it there
@@ -57,7 +58,8 @@ export function dispatchTargetOf(to: unknown): DispatchTarget | null {
  * The capability a call needs (its `BRIDGE_VERBS` row): none when the person picks or only a draft is put down — the last
  * step is theirs — else the one the named target's delivery always needed. A bad `to` needs none: the call says what is wrong.
  */
-export function dispatchNeeds(args: { to?: unknown; draft?: unknown }): ExtensionCapability | null {
+export function dispatchNeeds(args: { to?: unknown; draft?: unknown; spawn?: unknown }): ExtensionCapability | null {
+  if (named((args.spawn as { device?: unknown } | null)?.device)) return 'agents:control:all-machines';
   if (args.draft === true || !named(args.to) || typeof args.to !== 'object') return null;
   const to = args.to as { member?: unknown; agent?: unknown; new?: unknown };
   if (named(to.member)) return 'chat:relay';
@@ -128,12 +130,15 @@ export type DispatchSpawn = AppSpawnAction['spawn'];
 
 function spawnOf(spawn: unknown): DispatchSpawn {
   if (!named(spawn)) return {};
-  const shape = 'spawn is { title?, harness?, model?, transport?, project?, chat? }';
+  const shape = 'spawn is { title?, harness?, model?, transport?, project?, chat?, device? }';
   if (typeof spawn !== 'object' || Array.isArray(spawn)) return invalid(shape);
   const out: DispatchSpawn = {};
   for (const [key, value] of Object.entries(spawn as Record<string, unknown>)) {
     if (value === undefined || value === null) continue;
-    if (key === 'transport') {
+    if (key === 'device') {
+      try { decodeTypedId('device', value, 'spawn.device'); } catch (error) { invalid(error instanceof Error ? error.message : String(error)); }
+      out.device = value as string;
+    } else if (key === 'transport') {
       if (value !== 'acp' && value !== 'pty') invalid('spawn.transport is "acp" (a chat UI session) or "pty" (a terminal session)');
       out.transport = value as 'acp' | 'pty';
     } else if (key === 'chat') {

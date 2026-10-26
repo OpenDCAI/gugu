@@ -96,11 +96,11 @@ describe('扩展指南与源码对得上 (#6614)', () => {
     // 阳控:从运行时读出来的动词不能是空的。
     expect(verbs).toEqual(expect.arrayContaining(['open', 'list', 'create', 'rename', 'remove', 'onChanged']))
     // `gugu.messages.*` and `gugu.chats.*` are the host's own rows (host-calls.ts), as the page reaches them.
-    const messageVerbs = Object.keys(HOST_CALLS).filter((key) => key.startsWith('messages.') || key.startsWith('chats.') || key.startsWith('projects.'))
+    const messageVerbs = Object.keys(HOST_CALLS).filter((key) => key.startsWith('messages.') || key.startsWith('chats.') || key.startsWith('projects.') || key.startsWith('sessions.'))
     // `gugu.forum.*`: the page's own (create-gugu.ts); subscribe / unsubscribe are `forum.onChanged`'s host half.
     const forumVerbs = Object.keys(HOST_CALLS).filter((key) => key.startsWith('forum.') && key !== 'forum.subscribe' && key !== 'forum.unsubscribe').concat('forum.onChanged')
     const modalVerbs = Object.keys(HOST_CALLS).filter((key) => key.startsWith('modal.') && key !== 'modal.key')
-    expect(messageVerbs).toEqual(['messages.history', 'messages.search', 'chats.list', 'chats.members', 'projects.list'])
+    expect(messageVerbs).toEqual(['messages.history', 'messages.search', 'chats.list', 'chats.members', 'projects.list', 'sessions.index', 'sessions.read'])
     const all = EXTENSION_GUIDE_TOPICS.map(({ text }) => text).join('\n')
     const missing = [...verbs.map((verb) => `gugu.files.${verb}(`), ...messageVerbs.map((key) => `gugu.${key}(`), ...forumVerbs.map((key) => `gugu.${key}(`), ...modalVerbs.map((key) => `gugu.${key}(`), 'gugu.bind.codemirror(', 'gugu.codemirror(', 'gugu.clipboard.writeText(']
       .filter((call) => !all.includes(call))

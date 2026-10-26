@@ -664,9 +664,10 @@ describe('ChatMessageComposer', () => {
     await flush()
     await typeInComposer('@a')
     const options = Array.from(document.body.querySelectorAll('[role="option"]'))
-    expect(options).toHaveLength(2)
-    const expectedId = chatId === 'ordinary-group' ? 'atlas' : 'ada'
-    const expectedName = chatId === 'ordinary-group' ? 'Atlas' : 'Ada'
+    expect(options).toHaveLength(chatId === 'project-group' ? 1 : 2)
+    if (chatId === 'project-group') expect(options.some((option) => option.querySelector('[data-agent-id="ada"]'))).toBe(false)
+    const expectedId = chatId === 'project-topic' ? 'ada' : 'atlas'
+    const expectedName = chatId === 'project-topic' ? 'Ada' : 'Atlas'
     expect(options[0].querySelector(`[data-agent-id="${expectedId}"]`)).not.toBeNull()
     await pressEnter()
     expect(readComposer(container.querySelector('[contenteditable]') as HTMLElement)).toBe(`@${expectedName} `)

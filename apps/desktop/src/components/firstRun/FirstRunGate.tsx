@@ -19,10 +19,11 @@ import { QueryClientProvider } from '@tanstack/react-query'
 import { queryClient } from '@renderer/lib/query-client'
 import { platform } from '../../platform'
 import { ProductTour } from '../productTour/ProductTour'
-import type { ProductTourPosition } from '../../lib/productTour'
 import { FirstRunHarness } from './FirstRunHarness'
 import { FirstRunInstallProvider } from './FirstRunInstallProvider'
 import { UI_EVENTS } from '../../lib/uiEvents'
+import { startFirstRunHints } from '../../lib/firstRunHints'
+import { FirstRunHints } from './FirstRunHints'
 
 const log = rendererLogger('first-run')
 
@@ -30,8 +31,9 @@ type GateState =
   | { kind: 'loading' }
   | { kind: 'unreadable'; message: string }
   | { kind: 'profile'; occupation: Occupation | null }
-  | { kind: 'intro'; tour?: ProductTourPosition | null }
+  | { kind: 'intro' }
   | { kind: 'harness' }
+  | { kind: 'tour' }
   | { kind: 'done' }
 
 /**
@@ -61,7 +63,7 @@ function FirstRunFlow({ user, children }: { user: AuthUser; children: ReactNode 
     readFirstRunProgress(user.id)
       .then((progress) => {
         if (progress.stage === 'done') done()
-        else if (progress.stage === 'intro') setState(platform.kind === 'electron' && !progress.harness ? { kind: 'harness' } : { kind: 'intro', tour: progress.tour })
+        else if (progress.stage === 'intro') setState(platform.kind === 'electron' && !progress.harness ? { kind: 'harness' } : { kind: 'intro' })
         else setState({ kind: 'profile', occupation: progress.occupation })
       })
       .catch((e: unknown) => {
@@ -74,17 +76,19 @@ function FirstRunFlow({ user, children }: { user: AuthUser; children: ReactNode 
 
   useEffect(() => {
     if (platform.kind !== 'electron') return
-    const reopen = () => setState({ kind: 'intro', tour: { phase: 'modules', index: 0 } })
+    const reopen = () => setState({ kind: 'tour' })
     window.addEventListener(UI_EVENTS.reopenProductTour, reopen)
     return () => window.removeEventListener(UI_EVENTS.reopenProductTour, reopen)
   }, [])
 
   // The embedded task entry bootstraps once per document; finishing or reopening the tour must
   // keep its product tree and mount element connected at the same position.
-  if (state.kind === 'done' || (state.kind === 'intro' && platform.kind === 'electron')) return (
+  if (state.kind === 'done' || state.kind === 'tour' || (state.kind === 'intro' && platform.kind === 'electron')) return (
     <PhoneAgentSetupGate key={user.id} ownerId={user.id}>
-      {children}
-      {state.kind === 'intro' && <ProductTour key={user.id} userId={user.id} initial={state.tour} onDone={done} />}
+      <div className="contents" inert={state.kind === 'intro'}>{children}</div>
+      {state.kind === 'done' && <FirstRunHints key={user.id} userId={user.id} />}
+      {state.kind === 'intro' && <div className="ta-first-run ta-first-run-overlay" data-ta-scope data-testid="first-run-intro"><div className="ta-onb"><FirstRunIntro userId={user.id} onDone={done} /></div></div>}
+      {state.kind === 'tour' && <ProductTour key={user.id} userId={user.id} onDone={done} />}
     </PhoneAgentSetupGate>
   )
 
@@ -261,6 +265,7 @@ function FirstRunIntro({ userId, onDone }: { userId: string; onDone: () => void 
     setBusy(true)
     setError(null)
     try {
+      await startFirstRunHints(userId)
       await finishFirstRun()
       if (openAssistant) requestAssistantSetupHandoff(userId)
       onDone()

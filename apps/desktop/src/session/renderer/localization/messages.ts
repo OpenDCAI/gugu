@@ -225,7 +225,7 @@ const enUSCoreMessages = {
   'extensions.permissionsAgentsHistory':
     'Read what the agents this App started have said — the whole conversation, including anything you pasted into it',
   'extensions.permissionsAgentsHistoryAll':
-    'Read what the agents in EVERY project and task on {computer} have said — whole conversations, including anything you pasted into them',
+    'Read all agent and CLI conversations and their context metadata on {computer} or another of your computers — including anything you pasted into them',
   // Says what it costs, because that is the part the person cannot see coming.
   'extensions.permissionsAgentsControl':
     'Start agents — and have a new one join a chat you are in — and stop and give work to the ones it started; starting one and giving it work both use your quota',
@@ -1143,7 +1143,7 @@ const zhCNCoreMessages: Record<CoreSessionMessageKey, string> = {
   'extensions.permissionsAgentsReadAll': '看到{computer}上所有项目、所有会话里的 agent——它们是谁，以及各自在忙、在等你、还是已结束',
   'extensions.permissionsAgentsReadAllMachines': '看到你所有电脑上的 agent，不只是{computer}——它们是谁，以及各自在忙、在等你、还是已结束',
   'extensions.permissionsAgentsHistory': '读这个 App 自己起的 agent 说过的话——整段对话，包括你贴进去的东西',
-  'extensions.permissionsAgentsHistoryAll': '读{computer}上所有项目、所有会话里 agent 说过的话——整段对话，包括你贴进去的东西',
+  'extensions.permissionsAgentsHistoryAll': '读{computer}或你另一台电脑上所有 agent 和 CLI 的整段对话与上下文元信息，包括你贴进去的东西',
   'extensions.permissionsAgentsControl': '起 agent（可以让新 agent 加进你所在的对话），停它自己起的 agent、给它们派活——起一个和派一次活都会消耗你的额度',
   'extensions.permissionsAgentsControlAll': '在{computer}上所有项目、所有会话里起 agent、停 agent、给 agent 派活——起一个和派一次活都会消耗你的额度',
   'extensions.permissionsAgentsControlAllMachines': '在{computer}上所有项目、所有会话里起 agent、停 agent、给 agent 派活，还能给你所有其它电脑上的 agent 发消息——派活会消耗你的额度',

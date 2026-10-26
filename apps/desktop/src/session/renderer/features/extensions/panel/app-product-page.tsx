@@ -26,6 +26,7 @@ import { Button } from '@renderer/lib/ui/button';
 import { Dialog, DialogContent, DialogContentArea, DialogHeader, DialogTitle } from '@renderer/lib/ui/dialog';
 import { InfoTooltip } from '@renderer/lib/ui/info-tooltip';
 import { MarkdownRenderer } from '@renderer/lib/ui/markdown-renderer';
+import { ExpandableImage } from '@renderer/lib/ui/expandable-image';
 import { Switch } from '@renderer/lib/ui/switch';
 import { ToggleGroup, ToggleGroupItem } from '@renderer/lib/ui/toggle-group';
 import { rpc } from '@renderer/lib/ipc';
@@ -289,12 +290,12 @@ export function AppProductPage({
   // ── 截图一排(照 Google Play:产品页头下面一排图,放不下就横着翻)──
   const screenshots =
     shots.length > 0 ? (
-      <section className="mk-dsec is-shots" key="shots" data-testid="app-product-preview">
+      <section className="mk-dsec is-shots" key="shots" data-testid="app-product-preview" data-image-gallery="">
         <AppShelfRow label={translate('extensions.preview')} prevLabel={translate('extensions.shelfPrev')} nextLabel={translate('extensions.shelfNext')}>
           {shots.map((shot) => (
             <figure className="mk-shot" role="listitem" key={shot.src}>
               {/* README 里的图片是发布时一起传到下载站的公开地址(sync.mjs 改写过);会话页主渲染进程没对 img-src 设 CSP。 */}
-              <img src={shot.src} alt={shot.alt} loading="lazy" decoding="async" />
+              <ExpandableImage src={shot.src} alt={shot.alt} loading="lazy" decoding="async" />
               {/* 图注只在它说了名字以外的话时才写:README 里多半就是 App 的名字,再写一遍是废字。 */}
               {shot.alt && shot.alt !== text.name ? <figcaption>{shot.alt}</figcaption> : null}
             </figure>

@@ -121,9 +121,9 @@ export async function dispatchForApp(
           const receipt = await messageAgentFromHostApp(app, reach, { agentId: agent.agent, text, ...how }, { from: effects.from });
           return { agent: agent.agent, ...receipt };
         },
-        async spawn(prompt, spawn) {
+        async spawn(prompt, spawn, selectedDevice) {
           // Checked where the call is read (app-dispatch-core `spawnOf`): a wrong field is refused there, never dropped here.
-          const { agentId } = await spawnAgentForExtension({ ...app, bySession: effects.from, prompt, ...spawn });
+          const { agentId } = await spawnAgentForExtension({ ...app, bySession: effects.from, prompt, ...spawn, ...(selectedDevice ? { device: `device:${selectedDevice}` } : {}) });
           return agentId;
         },
       },

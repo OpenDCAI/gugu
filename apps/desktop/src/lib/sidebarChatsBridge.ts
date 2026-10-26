@@ -139,7 +139,7 @@ export function useSidebarSessions(): readonly SidebarSessionLine[] {
 }
 
 export type ShellChatDialog = 'create-group' | 'add-contact'
-export type ShellChatAction = ShellChatDialog
+export type ShellChatAction = ShellChatDialog | { kind: 'mark-read'; chatId: string }
 
 const ACTION_KEY = '__GUGU_SIDEBAR_CHAT_ACTION__'
 const ACTION_EVENT = 'gugu:sidebar-chat-action'

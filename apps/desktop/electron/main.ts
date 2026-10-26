@@ -356,7 +356,7 @@ import {
   createBrowserAppProgram,
   type BrowserAgentMcpHost,
 } from './browser-agent-mcp'
-import { createComputerUsePreview, type ComputerUsePreview } from './computer-use-program'
+import { createComputerUsePreview, installedComputerUseApps, type ComputerUsePreview } from './computer-use-program'
 import { sessionOf as computerSessionOf } from './device-actions/families/computer'
 import { connectedSessionIntegrations } from './session/main/core/integrations/session-integrations'
 import { connectedCliSkills } from './session/main/core/integrations/cli/cli-integrations'
@@ -1937,14 +1937,6 @@ function startDeviceRuntimeWhenRendererReady(): void {
         sendUiEvent(MAIN_UI_EVENTS.sessionpageDeliverFailed, {
           agentUserId: failure.agentUserId,
           error: failure.error,
-        })
-        const emdash = loadEmdashBridge()
-        if (!emdash) throw new Error('session-page status bridge is unavailable while settling delivery failure')
-        void emdash.emitSessionpageAgentFailure(sessionpageSessionId).catch((error) => {
-          createLogger('device-runtime').error(
-            { sessionId: sessionpageSessionId, err: error },
-            'session-page activity settlement failed',
-          )
         })
       }
     },
@@ -4648,6 +4640,9 @@ app.whenReady().then(async () => {
     })
     // 归档「连同子会话」跨机器(owner 2026-10-01「一起收」):人点的与 agent 的同一个动作,都经这里到别的机器。
     emdash.setOtherMachines({
+      devices: () => crossMachine().devices(),
+      isThisDevice: (deviceId) => crossMachine().isThisDevice(deviceId),
+      appSpawn: (app, deviceId, action) => crossMachine().appSpawn(app, deviceId, action),
       sessions: (since) => crossMachine().sessionsElsewhere(since),
       archive: (deviceId, sessionId) => crossMachine().archiveOn(deviceId, sessionId),
       appMessage: (app, deviceId, sessionId, text, how) => crossMachine().appMessage(app, deviceId, sessionId, text, how),
@@ -4926,7 +4921,7 @@ app.whenReady().then(async () => {
         disposeSession: async (sessionId) => {
           await teardownSessionpageSessionRuntimes(sessionId)
           await primaryGuguMcpHost?.revoke(sessionpageSurfaceKey(sessionId))
-          await closeSessionBrowserTools(sessionId)
+          await closeSessionBrowserTools(sessionId, emdash.emdashAgentBrowser())
           forgetSessionAppScope(sessionpageSurfaceKey(sessionId))
         },
         env: process.env,
@@ -5887,15 +5882,7 @@ app.whenReady().then(async () => {
         if (!SERVER_MODE) {
           // #7317 Computer Use 的「电脑」页签:看的是 agent 经设备动作做的每一步电脑控制;App 的程序只给它的页面 preview_state。
           const programs = emdash.emdashExtensionPrograms()
-          // The Computer Use Apps installed here whose pages may reach their program (the same refusal their pages get). Read
-          // at most once a second: listing the installed programs reads every App's files, and a step asks twice.
-          let apps: { at: number; list: ReturnType<typeof programs.installed> } | null = null
-          const computerUseApps = () => {
-            if (!apps || Date.now() - apps.at > 1_000) {
-              apps = { at: Date.now(), list: programs.installed().filter((program) => program.native === 'computer-use' && !programs.agentToolsRefusal(program.extensionId)) }
-            }
-            return apps.list
-          }
+          const computerUseApps = installedComputerUseApps(programs, emdash.emdashOnInstalledAppsChanged)
           computerUsePreviewInstance = createComputerUsePreview({
             nativeCursor: process.platform === 'darwin',
             peek: (target, options) => deviceActionsRuntime().peekWindow(target, options),
@@ -5910,7 +5897,6 @@ app.whenReady().then(async () => {
           computerUseOn = () => computerUseApps().length > 0
           let computerUseWas = false
           const computerUseSwitched = () => {
-            apps = null
             const on = computerUseOn()
             if (on === computerUseWas) return
             computerUseWas = on

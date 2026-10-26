@@ -1,5 +1,6 @@
-import type { SessionUpdate } from '@agentclientprotocol/sdk';
+import type { PromptResponse, SessionUpdate } from '@agentclientprotocol/sdk';
 import type { NormalizedEvent, NormalizedToolStatus, SessionUsage } from '@gugu/session-core/acp';
+import { redactAll } from '@gugu/session-shared/logger';
 import { terminalExitFromMeta } from '../../acp-terminal-exit';
 
 /**
@@ -16,6 +17,11 @@ import { terminalExitFromMeta } from '../../acp-terminal-exit';
  * - The vendor field is absent or not a string.
  */
 export function enrichClaudeUpdate(update: NormalizedEvent, raw: SessionUpdate): NormalizedEvent {
+  const failure = claudeSessionFailure(raw._meta);
+  if (failure?.severity === 'warning') {
+    const title = redactAll(failure.title);
+    return { kind: 'session_notice', code: 'provider-notice', title, detail: redactAll(failure.details ?? failure.title) };
+  }
   if (update.kind === 'message' && update.role === 'user') {
     const text = update.text.trim();
     if (isLocalCommandChunk(text)) return { kind: 'ignored' };
@@ -205,6 +211,19 @@ export function enrichClaudeUpdate(update: NormalizedEvent, raw: SessionUpdate):
     return update;
   }
   return { ...update, ...parentPatch, ...outputPatch, ...exitPatch, ...namePatch };
+}
+
+/** The bridge reports terminal failures on the prompt response, including v2's idle metadata. */
+export function claudePromptFailure(response: PromptResponse): string | null {
+  const failure = claudeSessionFailure(response._meta);
+  if (failure?.severity !== 'error') return null;
+  return redactAll([failure.title, failure.details].filter(Boolean).join('\n'));
+}
+
+function claudeSessionFailure(meta: unknown): { title: string; severity: string; details?: string } | null {
+  const failure = (meta as { jetbrains?: { air?: { sessionFailure?: Record<string, unknown> } } } | null)?.jetbrains?.air?.sessionFailure;
+  if (!failure || typeof failure.title !== 'string' || typeof failure.severity !== 'string') return null;
+  return { title: failure.title, severity: failure.severity, ...(typeof failure.details === 'string' ? { details: failure.details } : {}) };
 }
 
 type ClaudeMeta = {

@@ -69,6 +69,7 @@ type AssistanceOutcome =
 export class CloudBrowser {
   private launched: { chrome: LaunchedChrome; hub: CdpHub } | null = null;
   private starting: Promise<CdpHub> | null = null;
+  private closing: Promise<void> | null = null;
   private endedReason: string | null = null;
   private readonly tabs = new Map<string, CloudBrowserTab & { lastUsedAt: number }>();
   private readonly sessionTab = new Map<string, string>();
@@ -123,6 +124,38 @@ export class CloudBrowser {
     return this.launched && !this.launched.hub.closed ? this.launched.hub : null;
   }
 
+  sessionIds(): string[] {
+    return [...this.sessionTab.keys()];
+  }
+
+  tabIdForSession(sessionId: string): string | null {
+    return this.sessionTab.get(sessionId) ?? null;
+  }
+
+  sessionInUse(sessionId?: string): boolean {
+    return (sessionId === undefined ? this.totalInFlight() : this.inFlight.get(sessionId) ?? 0) > 0
+      || !!this.holder || !!this.pendingHolder
+      || (!!this.assistance && (sessionId === undefined || this.assistance.sessionId === sessionId));
+  }
+
+  /** Release the owning task's page, including the last Chrome process. Ordinary tool disconnects keep it. */
+  async closeSession(sessionId: string): Promise<void> {
+    const targetId = this.sessionTab.get(sessionId);
+    const hub = this.hub();
+    if (!targetId || !hub) return;
+    const { success } = await hub.send<{ success: boolean }>('Target.closeTarget', { targetId });
+    if (!success) throw new Error('Chrome did not close the task browser page');
+    if (this.sessionTab.get(sessionId) === targetId) this.sessionTab.delete(sessionId);
+    this.usedSince.delete(sessionId);
+    this.tabs.delete(targetId);
+    if (this.activeTabId === targetId) this.activeTabId = this.mostRecentTab();
+    if (this.tabs.size === 0 && this.totalInFlight() === 0) {
+      this.shutdown();
+      await this.closing;
+    }
+    this.notify();
+  }
+
   onChange(listener: ChangeListener): () => void {
     this.listeners.add(listener);
     return () => this.listeners.delete(listener);
@@ -141,6 +174,8 @@ export class CloudBrowser {
   // ── Chrome ────────────────────────────────────────────────────────────────
 
   async ensureHub(): Promise<CdpHub> {
+    // The profile is still owned by the retiring process until its actual exit.
+    if (this.closing) await this.closing;
     const live = this.hub();
     if (live) return live;
     this.starting ??= this.start().finally(() => {
@@ -154,13 +189,16 @@ export class CloudBrowser {
     if (!binary) throw new Error('there is no Chrome or Chromium on this computer, so there is no browser to drive');
     const display = findDisplay(this.env);
     const account = this.env.GUGU_SERVER_ACCOUNT?.trim() || 'default';
-    const chrome = await launchChrome({
+    let chrome: LaunchedChrome | null = null;
+    chrome = await launchChrome({
       binary,
       userDataDir: path.join(this.dataDir, 'cloud-browser', 'profile'),
       cacheDir: path.join(os.homedir(), '.cache', 'gugu-cloud-browser', account),
       display,
       env: this.env,
-      onExit: (reason) => this.ended(reason),
+      onExit: (reason) => {
+        if (chrome && this.launched?.chrome === chrome) this.ended(reason);
+      },
     });
     let hub: CdpHub;
     try {
@@ -171,7 +209,9 @@ export class CloudBrowser {
     }
     this.launched = { chrome, hub };
     this.endedReason = null;
-    hub.onClose((reason) => this.ended(reason));
+    hub.onClose((reason) => {
+      if (this.launched?.hub === hub) this.ended(reason);
+    });
     hub.onEvent((event) => this.onTargetEvent(event));
     await hub.send('Target.setDiscoverTargets', { discover: true });
     const { targetInfos } = await hub.send<{ targetInfos: TargetInfo[] }>('Target.getTargets');
@@ -186,10 +226,7 @@ export class CloudBrowser {
   /** 停掉 Chrome(咕咕 server 退出时)。 */
   shutdown(): void {
     const launched = this.launched;
-    this.launched = null;
-    this.stopTabRefresh();
-    launched?.hub.close();
-    launched?.chrome.child.kill();
+    if (launched) this.ended('the task browser was released');
   }
 
   private ended(reason: string): void {
@@ -198,7 +235,12 @@ export class CloudBrowser {
     this.launched = null;
     this.stopTabRefresh();
     launched?.hub.close();
-    if (launched && launched.chrome.child.exitCode === null) launched.chrome.child.kill();
+    if (launched && launched.chrome.child.exitCode === null && launched.chrome.child.signalCode === null) {
+      this.closing = new Promise<void>((resolve) => {
+        launched.chrome.child.once('exit', () => resolve());
+      }).finally(() => { this.closing = null; });
+      launched.chrome.child.kill();
+    }
     this.endedReason = reason;
     this.tabs.clear();
     this.sessionTab.clear();
@@ -206,6 +248,10 @@ export class CloudBrowser {
     this.holder = null;
     this.pendingHolder = null;
     this.completed = false;
+    this.usedSince.clear();
+    this.inFlight.clear();
+    if (this.idleTimer) clearTimeout(this.idleTimer);
+    this.idleTimer = null;
     // 这次浏览器会话结束了,「停止」跟着它结束:下次起来的是新的一次(❌ 卡片收起后没人能放行)。
     this.automation = 'idle';
     this.assistance?.settle({ kind: 'ended', reason });
@@ -703,6 +749,7 @@ export function isCloudBrowserHost(env: NodeJS.ProcessEnv = process.env): boolea
 export function cloudAgentBrowserBridge(): AgentBrowserBridgeShape {
   const browser = cloudBrowser();
   return {
+    closeSession: (sessionId) => browser.closeSession(sessionId),
     openTransport: (sessionId, signal) => browser.openTransport(sessionId, signal),
     toolStarting: (sessionId) => browser.toolStarting(sessionId),
     toolFinished: (sessionId) => browser.toolFinished(sessionId),

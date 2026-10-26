@@ -42,9 +42,10 @@ in chats. Tools-only Apps need no HTML: \`apps-settings\` explains their host se
 
 More \`guide_read\` topics:
 - \`apps-page\` — the \`window.gugu\` API your page calls: the same wherever it is, and what each host has.
-- \`apps-agents\` — what the app is showing, and seeing and driving the person's agents.
+- \`apps-agents\` — app state and agents.
+- \`apps-sessions\` — external CLI history and context (API 17).
 - \`apps-programs\` — your own tools for agents (MCP programs, skills), called from your page too.
-- \`apps-files\` — \`gugu.files\`: a chat's files and a session's working copy, edited live together.
+- \`apps-files\` — \`gugu.files\`: chat files and working copies, edited live.
 - \`apps-editors\` — an editor (a textarea, CodeMirror), keeping others' letters.
 - \`apps-together\` — several people in one App at once: presence, a game loop, secrets.
 - \`apps-messages\` — your chats, who is in them, their messages.
@@ -271,21 +272,43 @@ Show rejections inline, disable the control with its reason, or call \`reportErr
 Use \`window.gugu.x\` or another name.
 `;
 
+export const EXTENSION_GUIDE_SESSIONS = `# External session history and observed context
+
+Needs \`agents:history:all\` (API 17, including external CLI sessions):
+
+- \`gugu.sessions.index({ project?, source?, offset?, limit?, device?, groupPaths? })\` →
+  \`{ rows, groups, total, pending, stale, nextOffset }\`. Rows: \`{ source, providerSessionId, title, cwd, updatedAt, sizeBytes, filePath, group: { key, label, repositoryUrl? } }\`.
+  Grouping matches task history: repository/worktree, registered project, or \`gugu:task-home\` for standalone tasks; unknown cwd has a null key.
+  \`groupPaths\` accepts absolute directories, including zero-task paths; \`groups:[{path,group}]\` uses the same grouping.
+  \`repositoryUrl\` is the normalized origin from registered project remotes or native Git; absent means no cross-machine repository identity.
+  Sources are \`claude-code\` / \`codex\`; subagents are excluded by the host's import parser.
+  \`project\` is a project id or absolute cwd on that machine, matched exactly; worktrees are separate.
+  \`pending > 0\`: indexing is incomplete; call again. Page with offset/limit; default 100 rows.
+- \`gugu.sessions.read({ filePath, source, offset?, limit?, view?, device? })\` reads only an indexed path within the source's
+  native transcript roots. Default conversation view: \`{ source, providerSessionId, title, cwd, fileName, turns, total, nextOffset }\`;
+  turns are \`{ role, content, createdAt }\`, default 50. No thinking/tool output.
+  \`view:'context'\` instead returns compact \`loaded, nested, refs\` with the same metadata, no bodies:
+  loaded \`[{path:null|string,kind:'instruction-file'|'rendered-total'|'base-instructions',scope:null|string,chars,truncated,at}]\`;
+  nested \`[{path,at}]\`; refs are distinct paths from file/shell tool inputs, including Codex code-mode exec. Claude records rendered totals and instruction
+  attachments; Codex records base instructions and world_state AGENTS.md snapshots. Missing observations stay absent.
+  Timestamps can be null. Context is one summary per transcript, not a turns page.
+- Both follow a task's machine by default; \`device:'device:<id>'\` explicitly chooses a computer without any task.
+  It must have this same App/version and grant this permission. Cross-machine requests/answers are at most 1 MB; page large results.
+
+`;
+
 export const EXTENSION_GUIDE_AGENTS = `# Seeing and driving agents from your page
 
-These \`window.gugu\` verbs reach this computer's agents; \`:all-machines\` read and control also reach the person's
-other computers (history never leaves this one). Each tier is its own capability,
-consented to on its own; the rest of the API is in \`apps-page\`. Phones have getAppState, its change event, listAgents, onAgentsChanged and dispatch (below). Where your page is
-plays no part: the plain words reach the agents you started, \`:all\` every one here. Work that watches agents
-with no page open — a clock — goes in the background page.
+These \`window.gugu\` verbs reach agents by consented scope, independent of page location: plain words reach agents you
+started, \`:all\` everyone here, \`:all-machines\` other computers too. readAgentHistory stays local; sessions.index/read
+can name a device. Other APIs: \`apps-page\`. Monitoring without an open page belongs in the background page.
 
 Free — what the app is showing:
 
 - \`getAppState()\` → what the APP is showing, as opposed to where you sit:
   \`{ windowFocused, activeSessionId, activeProjectId, panes: [{ paneId, focused, activeTab: { tabId, kind, agentId?, filePath? } | null }] }\`.
-  \`activeProjectId\`: the project, ungated — ❌ not fished out of \`listAgents\` (that needs \`agents:read\`, an agent in the pane and a second call).
-  **\`panes\` is a list because the workspace panel splits** — ❌ never \`panes[0]\`; walk them, \`focused\` holds the
-  keyboard. \`kind\` is the host's own word, NOT a closed set (Apps register kinds too) — ignore unknown ones.
+  \`activeProjectId\` is ungated. Walk \`panes\`: the workspace splits, so never assume \`panes[0]\` is focused.
+  \`focused\` holds the keyboard; \`kind\` is open-ended (Apps register kinds), so ignore unknown ones.
   \`agentId\` needs \`agents:read\`, \`filePath\` needs \`files:read\`; absent means "not granted", not "not that sort of tab".
   \`panes\` says what is OPEN, not painted: a zero-width pane or a collapsed panel still lists its tab. For whether YOUR OWN
   surface is on screen read \`getContext().layout.visible\`; per-pane visibility is not exposed.
@@ -309,25 +332,23 @@ Needs \`agents:read\` (or \`agents:read:all\` / \`agents:read:all-machines\`, wh
   \`contextTokens\` is the context its engine last reported in use — what its next turn reads back.
   \`rateLimit\` is the account limit its engine last reported: \`{ status: 'allowed' | 'allowed_warning' |
   'rejected', resetsAt, window, utilization }\` — back off at a warning, resume after \`resetsAt\`.
-- Scope is NOT an argument. \`agents:read\` answers with the agents you started
-  (\`spawnedByThisExtension: true\`, each in a session of its own); \`agents:read:all\` with every
-  one on the machine — the agent of your page's session (\`ctx.session.agentId\`) among them. Which one you
-  get was settled when the user installed you. \`agents:read:all-machines\` adds the agents on the person's other
-  online computers (\`deviceId\`/\`deviceLabel\`; \`null\` = here), live fields \`null\`; offline or too-old ones absent. Declare only ONE word of a family — two is refused by the schema.
+- Scope comes from installation consent, never an argument: \`agents:read\` sees agents you started
+  (\`spawnedByThisExtension:true\`); \`:all\` sees everyone here; \`:all-machines\` adds other online computers
+  (\`deviceId\`/\`deviceLabel\`; \`null\` = here), with null live counters. Offline/old machines are absent from agent rows.
+  Declare ONE word per capability family; the schema refuses two.
 - \`transport\` is \`'acp'\` (a chat panel) or \`'pty'\` (a terminal). **Live counters are \`null\` unless that agent is
   open right now**: \`isGenerating\`, \`pendingPermissionCount\`, \`queuedPromptCount\`, \`contextTokens\`,
   \`rateLimit\` and \`lastActionAt\` are \`null\` for every terminal agent and for any panel agent not open now. \`null\` means
   "cannot be asked", NOT zero: a "0 waiting" badge drawn from a \`null\` is a lie.
-- \`pendingPermissionCount > 0\` means that agent is blocked on a human. That plus a stale
-  \`updatedAt\` is the whole "who is waiting?" question, answered without reading anything.
-- \`onAgentsChanged(fn)\` → these agents moved: started, stopped, began generating, finished, now
-  waiting on a human. **Ids only**: call \`listAgents()\` for the details of the ones
-  you care about. Ids are filtered to your declared scope, so plain
-  \`agents:read\` hears only of the ones you started; only this computer's, even with \`:all-machines\`.
-  A deleted agent does NOT arrive here: that channel does not exist yet.
-- \`listAgents({ report: true })\` → \`{ agents, unreached, checkedAt }\`, same scope. Rows add \`statusFrom\`
+- \`pendingPermissionCount > 0\` means the agent is waiting for a human.
+- \`onAgentsChanged(fn)\` gives scoped local agent IDs for status changes; call \`listAgents()\` for details.
+  It reports neither deletions nor remote changes, even with \`:all-machines\`; poll for those.
+- \`listAgents({ report: true })\` → \`{ agents, devices, unreached, checkedAt }\`, same scope. Rows add \`statusFrom\`
   (\`this_machine\` / \`device\`) and ISO \`statusAt\` (observation time). \`unreached\`: \`{ deviceId, label, detail }\`;
   null deviceId means remote listing failed. Missing there is unknown, not deleted. Poll for remote changes.
+  With \`agents:read:all-machines\`, \`devices\` is the host machine directory, including zero-task machines:
+  \`[{deviceId,label,online,thisMachine,checkedAt}]\`. Other scopes receive \`[]\`. IDs are raw; call with \`device:<id>\`.
+  \`thisMachine\` identifies this native host; always false on phones. The directory includes zero-task hosts.
 
 Needs \`agents:history\` (or \`agents:history:all\`):
 
@@ -361,6 +382,8 @@ can tell any of the person's agents. A sheet pick needs no capability.
   person's new-session box would pick; to start one like an agent you see, pass its row's \`providerId\` (as
   \`harness\`), \`model\`, \`transport\`, \`projectId\` (as \`project\`). It stays in your scope (\`spawnedByThisExtension\`).
   \`:all-machines\` reaches your other computers too.
+  API 17: \`spawn.device:'device:<id>'\` explicitly starts there, requiring \`agents:control:all-machines\`.
+  The target computer chooses its defaults and records the agent as started by this App.
 - \`stopAgent(agentId)\` → stops one you can see on this computer, panel or terminal. It does not undo the work
   already done.
 - Starting an agent and a message to one **spend the person's quota**. There is no second prompt at
@@ -451,11 +474,10 @@ export const follow = {
 
 Free — your own programs and data folder:
 
-- \`callProgram(tool, args?, server?)\` → calls a tool of your own MCP program and resolves its
-  result (\`{ content, structuredContent?, isError? }\`). Only tools whose \`_meta.ui.visibility\`
-  includes \`"app"\` (MCP Apps; absent: both): mark agent-only tools
-  \`["model"]\`, and page-only ones \`["app"]\` — agents never see those. \`server\` only when you
-  run several. Stamped \`"gugu/caller": "app"\`, the tab's session and its working copy, and on a page an agent
+- \`callProgram(tool, args?, { server?, device? })\` → your MCP tool's \`{ content, structuredContent?, isError? }\`.
+  \`_meta.ui.visibility\` must include \`"app"\` (absent: both); \`["model"]\` hides it from pages, \`["app"]\` from agents.
+  \`server\` selects one of several (a server string also works); API 17 \`device:'device:<id>'\` chooses a computer without a task.
+  Stamped \`"gugu/caller": "app"\`, the tab's session and its working copy, and on a page an agent
   works its \`"gugu/agent"\`. Refused while \`agents:tools\` is off.
   A tab of a session on another computer (\`ctx.session.deviceId\`) runs it THERE:
   \`not-installed\`, \`version-mismatch\`, \`unavailable\` (offline, too old, or silent 75 s: it may have run);
@@ -1052,6 +1074,11 @@ export const EXTENSION_GUIDE_TOPICS: readonly { topic: string; about: string; te
     topic: 'apps-messages',
     about: 'gugu.chats and gugu.messages (chat:read): the chats you are in and who is in one; a chat\'s timeline, one thread, the ones holding a text, and the ones citing a file, to count and show where a passage was discussed.',
     text: EXTENSION_GUIDE_MESSAGES,
+  },
+  {
+    topic: 'apps-sessions',
+    about: 'External CLI history and observed context (API 17): index, paginated conversation, instruction metadata, nested memory and tool-input file references, on a selected computer.',
+    text: EXTENSION_GUIDE_SESSIONS,
   },
   {
     topic: 'apps-forum',

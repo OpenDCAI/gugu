@@ -55,6 +55,22 @@ describe('one cloud provider and verified raw chunk cache', () => {
     expect(fetcher.mock.calls.map(row => row[0])).toEqual([thumbnail, 'https://objects.invalid/file'])
     await full.dispose()
   })
+  it.each(['image/svg+xml', 'image/png'])('uses the verified original when the signer provides no thumbnail for %s', async contentType => {
+    const row = { ...revision, content_type: contentType }, a = api(row, plain, { thumb_url: null }), c = cache()
+    const image = vi.fn(async () => { throw Error('Unexpected local image conversion') })
+    const fetcher = vi.fn(async (_url: RequestInfo | URL) => new Response(plain))
+    const cloud = cloudFileProviders({ endpoint: a.endpoint, cache: c.store, sink: async () => sink(), image, fetch: fetcher as typeof fetch })
+    const resolve = createFileResolver({ ...cloud, local: async () => null, ssh: async () => null })
+    const preview = await resolve(context.ref, context.actor, { purpose: 'preview' })
+    if (preview.status !== 'ready') throw Error('ready expected')
+    try {
+      const blob = await preview.content() as Blob
+      expect(blob.type).toBe(contentType)
+      expect(digest(new Uint8Array(await blob.arrayBuffer()))).toBe(row.sha256)
+      expect(fetcher.mock.calls.map(call => call[0])).toEqual(['https://objects.invalid/file'])
+      expect(image).not.toHaveBeenCalled()
+    } finally { await preview.dispose() }
+  })
   it('a local preview opens the verified source first and never signs a CDN URL', async () => {
     const a = api(), c = cache(), file = bytesFile(plain), full = vi.fn(async () => file)
     const image = vi.fn(async (verified: FileBytes) => { expect(verified).toBe(file); return new Blob(['local pixels'], { type: 'image/webp' }) })

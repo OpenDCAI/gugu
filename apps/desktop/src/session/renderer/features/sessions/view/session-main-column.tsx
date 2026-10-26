@@ -1,4 +1,4 @@
-import { DndContext, DragOverlay } from '@dnd-kit/core';
+import { DndContext } from '@dnd-kit/core';
 import { observer } from 'mobx-react-lite';
 import { Fragment, useEffect } from 'react';
 import { useScreenBlock } from '@renderer/app/screen-block-context';
@@ -22,7 +22,7 @@ import { MIN_PANE_HEIGHT_PX, MIN_PANE_WIDTH_PX } from '@renderer/features/tabs/p
 import { edgeFirst, PANE_EDGES, PaneEdgeDropZones } from '@renderer/features/tabs/pane-edge-drop';
 import { useTabDrag } from '@renderer/features/tabs/use-tab-drag';
 import { cornerPane, minExtent, type PaneLayoutNode } from '@renderer/features/tabs/pane-layout-tree';
-import { TabDragPreview } from '@renderer/features/tabs/tab-bar/tab-drag-preview';
+import { TabDragOverlay } from '@renderer/features/tabs/tab-bar/tab-drag-preview';
 import { useWorkspaceLayoutContext } from '@renderer/lib/layout/layout-provider';
 import { ContextMenu, ContextMenuContent, ContextMenuItem, ContextMenuSeparator, ContextMenuTrigger } from '@renderer/lib/ui/context-menu';
 import { ResizableHandle, ResizablePanel, ResizablePanelGroup } from '@renderer/lib/ui/resizable';
@@ -159,9 +159,7 @@ export const SessionMainColumn = observer(function SessionMainColumn() {
             draggingTabId={drag.dragging}
           />
         </div>
-        <DragOverlay dropAnimation={null}>
-          {drag.dragging ? <TabDragPreview tabId={drag.dragging} /> : null}
-        </DragOverlay>
+        <TabDragOverlay />
       </DndContext>
     </SessionActionsProvider>
   );

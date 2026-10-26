@@ -250,8 +250,11 @@ export default {
     "createTask": "新建任务",
     "createAgent": "新建 Agent",
     "createGroup": "新建群聊",
+    "createGroupMobile": "发起群聊",
+    "newProject": "新项目",
     "delete": "删除",
     "disableNotifications": "关闭通知",
+    "deleteFailed": "无法删除这条对话",
     "draft": "[草稿]",
     "moreTopics": "更多 · {{count}}",
     "moreTopics_one": "更多 · {{count}}",
@@ -260,6 +263,8 @@ export default {
     "emptyHint": "点上方“新建 Agent”开始第一段对话",
     "emptyHintMobile": "去「项目」页右上角新建 Agent，开始第一段对话",
     "enableNotifications": "开启通知",
+    "markRead": "标为已读",
+    "removeProject": "移除项目",
     "markAllRead": "全部标为已读",
     "markAllReadFailed": "未能全部标为已读，请重试",
     "markAllReadPartial": "有 {{count}} 个会话未能标为已读，请重试",
@@ -358,6 +363,26 @@ export default {
     "action": "放入输入框"
   },
   "composer": {
+    "phoneTask": {
+      "attachFolder": "挂文件夹",
+      "attachFailed": "文件夹没挂上，请重试",
+      "action": "新任务",
+      "chip": "新任务 · {{agent}}",
+      "pickAgent": "选 agent",
+      "placeholder": "想让 {{agent}} 做点什么？",
+      "pickFolder": "点一张文件夹开工",
+      "where": "{{folder}} · {{machine}}",
+      "offline": "{{machine}} 离线了，换一张文件夹",
+      "optionsFailed": "读不到 {{machine}} 上的 agent，确认它在线后再选一次文件夹",
+      "noAgent": "{{machine}} 上没有能用的 agent",
+      "loading": "正在读 {{machine}} 上的 agent",
+      "cancel": "不派任务了",
+      "failed": {
+        "host_outdated": "{{machine}} 上的咕咕太旧，更新后再派任务",
+        "start_failed": "任务没开起来，到任务卡上看原因",
+        "topic_missing": "任务开工了，到群里点任务卡进它的话题"
+      }
+    },
     "notInGroup": "不在本群",
     "agent": {
       "disabledReason": {
@@ -770,6 +795,10 @@ export default {
     "title": "发送到"
   },
   "topic": {
+    "phoneTabs": {
+      "group": "群聊",
+      "label": "群聊和话题"
+    },
     "anchor": {
       "lead": "话题",
       "separator": " · ",

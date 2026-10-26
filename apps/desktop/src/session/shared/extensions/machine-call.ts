@@ -2,6 +2,16 @@ import { APP_CALL_MAX_BYTES, type AppCallAction } from '@gugu/session-core/sessi
 import { verbFacts } from './bridge-protocol'
 import type { ExtensionManifest } from './manifest'
 import { HOSTED_PROGRAM_ELSEWHERE, hostsProgram } from './program-place'
+import { decodeTypedId } from '@gugu/core/shared/typedId.mjs'
+
+/** The same address the agent's session_spawn device takes. */
+export function appDeviceId(device: unknown): string {
+  try {
+    return decodeTypedId('device', device, 'device')
+  } catch (error) {
+    throw Object.assign(error instanceof Error ? error : new Error(String(error)), { code: 'invalid' })
+  }
+}
 
 /**
  * owner 10-16「程序跟着数据」: a page in a session on another of the person's machines has some of its calls done on THAT
@@ -22,8 +32,8 @@ export function notOnSessionMachine(manifest: Pick<ExtensionManifest, 'contribut
 }
 
 /** The one action a page's call travels in. `callId` names this call: sent again after a lost answer, it joins the first. */
-export function appCallAction(sessionId: string, version: string, method: string, args: Record<string, unknown>, callId: string): AppCallAction {
-  return { action: 'app_call', call_id: callId, session_id: sessionId, version, method, args }
+export function appCallAction(target: string | { deviceId: string }, version: string, method: string, args: Record<string, unknown>, callId: string): AppCallAction {
+  return { action: 'app_call', call_id: callId, ...(typeof target === 'string' ? { session_id: target } : { device_id: target.deviceId }), version, method, args }
 }
 
 const bytesOf = (value: unknown) => new TextEncoder().encode(JSON.stringify(value ?? null)).byteLength

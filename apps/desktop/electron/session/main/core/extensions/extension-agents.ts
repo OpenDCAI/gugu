@@ -328,6 +328,7 @@ export async function spawnAgentForExtension(options: {
   transport?: 'acp' | 'pty';
   project?: string;
   chat?: string;
+  device?: string;
 }): Promise<{ agentId: string }> {
   const { buildExtensionEnvelope, formatDeliveryTimestamp } = await import('@gugu/core/local/agent/deliveryEnvelope');
   const { spawnSessionForApp } = await import('@main/core/sessions/session-orchestration');
@@ -342,6 +343,7 @@ export async function spawnAgentForExtension(options: {
         at: formatDeliveryTimestamp(new Date().toISOString()),
       }),
   });
+  if ('agentId' in row) return row;
   const appId = (await agentIdsBySession(process.env)).get(row.id);
   if (!appId) throw new Error('the agent was started but has no identity yet; listAgents lists it once it has one');
   return { agentId: appId };

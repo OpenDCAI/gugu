@@ -467,6 +467,11 @@ export const PromptEditor = forwardRef<PromptEditorRef, PromptEditorProps>(funct
     setText(text) {
       editor?.commands.setContent(plainTextDoc(text, mentionProviderRef.current?.resolve), { emitUpdate: true });
     },
+    insertText(text, position) {
+      if (!editor) return;
+      editor.commands.insertContentAt(position === 'start' ? 0 : editor.state.doc.content.size,
+        plainTextDoc(text, mentionProviderRef.current?.resolve).content);
+    },
     insertMention(item) {
       if (item.insertText !== undefined) {
         editor?.chain().focus().insertContent(item.insertText).insertContent(' ').run();

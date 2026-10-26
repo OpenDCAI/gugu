@@ -1618,7 +1618,8 @@ body.barcode-scanner-active #root {
 
 /* Existing page snapshots keep the tab bar and live document interactive. */
 :root[data-mobile-direction] { view-transition-name: none; }
-:root[data-mobile-direction] [data-mobile-tab-page]:not([inert]) { view-transition-name: mobile-page; }
+/* 推进来的一层盖着时它是这一页,底下分页器的页都 inert(一页只能有一个 mobile-page,重名整次过场作废)。 */
+:root[data-mobile-direction] :is([data-mobile-tab-page]:not([inert]), [data-phone-layer][data-open]) { view-transition-name: mobile-page; }
 :root[data-mobile-direction]::view-transition { pointer-events: none; }
 ::view-transition-group(mobile-page), ::view-transition-old(mobile-page), ::view-transition-new(mobile-page),
 .gg-mobile-motion, .gg-sheet-content[data-sheet-mobile='true'], .gg-sheet-backdrop[data-sheet-mobile='true'] {
@@ -1691,7 +1692,7 @@ body.barcode-scanner-active #root {
   user-select: none;
   position: relative;
 }
-.gg-list-row[data-mobile] { padding: 10px; gap: 12px; }
+.gg-list-row[data-mobile] { padding: 8px; gap: 16px; } /* 手机:列表容器 8 + 行 8 = 头像左边 16;头像到文字 16(v7.12,owner 10-26) */
 /* #7333 导航行(侧栏、设置左栏):胶囊。普通列表行(联系人、成员)不挂这个变体,保持控件档圆角。 */
 .gg-list-row[data-variant='nav'] { border-radius: var(--radius-capsule); padding-inline: var(--spacing-md); }
 .gg-list-row-leading { flex-shrink: 0; display: flex; position: relative; }
