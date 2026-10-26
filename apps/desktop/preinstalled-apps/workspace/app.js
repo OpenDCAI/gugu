@@ -877,7 +877,9 @@ async function openHanded() {
   closeCurrent()
   document.body.classList.add('show-doc')
   try {
-    const [file] = await Promise.all([gugu.files.open(state.ctx.file), previewKit()])
+    // Prepare the reader during sync. JSON and stored files do not wait for a reader they never use.
+    const preview = previewKit().then((md) => ({ md }), (error) => ({ error }))
+    const file = await gugu.files.open(state.ctx.file)
     if (state.opening !== token) {
       file.close()
       return
@@ -896,7 +898,7 @@ async function openHanded() {
     state.current = current
     bindFileMenu(current)
     showDoc(file.entry)
-    if (file.type === 'text') await mountText(current)
+    if (file.type === 'text') await mountText(current, preview)
     else mountJson(current)
     watchStatus(current)
     watchPresence(current)
@@ -908,8 +910,10 @@ async function openHanded() {
   }
 }
 
-async function mountText(current) {
-  const md = await previewKit()
+async function mountText(current, preview) {
+  const prepared = await preview
+  if ('error' in prepared) throw prepared.error
+  const { md } = prepared
   if (state.current !== current) return
   const { file } = current
   document.body.dataset.kind = 'text'
