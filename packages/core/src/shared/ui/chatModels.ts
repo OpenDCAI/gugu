@@ -38,11 +38,16 @@ export function fallbackChatName(kind: ChatKind): string {
  * 场所的兜底名是另一回事:群名是用户输入(空名建群本来就落「群聊」),话题名由 create_topic 保证非空
  * (最差是「话题」)—— 那属于契约里明写的「user-input defaults」,不是解析失败。
  */
+export function groupDisplayName(group: { name?: string | null; alias?: string | null }): string {
+  return group.alias?.trim() || group.name?.trim() || fallbackChatName('group')
+}
+
 export function chatDisplayName(
-  chat: Pick<ChatItem, 'kind' | 'name' | 'peer_alias'>,
+  chat: Pick<ChatItem, 'kind' | 'name' | 'peer_alias' | 'alias'>,
   peerDisplayName: string | null | undefined,
 ): string {
-  if (isRoomChat(chat.kind)) return chat.name?.trim() || fallbackChatName(chat.kind)
+  if (chat.kind === 'group') return groupDisplayName(chat)
+  if (chat.kind === 'topic') return chat.name?.trim() || fallbackChatName(chat.kind)
   return chat.peer_alias?.trim() || peerDisplayName?.trim() || ''
 }
 
