@@ -1,5 +1,5 @@
 {
   "repository": "OpenDCAI/gugu-supabase",
-  "ref": "e27dca6f4525c7f1cdbc2c683a87c2c6bb7d354e",
-  "status": "File lifecycle and project transfer support with optional link throttling merged in OpenDCAI/gugu-supabase#41 and #42."
+  "ref": "529c73a5c637ddcde1e896b260052aa32de86225",
+  "status": "Topic archival with source-conversation authority and exact-name confirmation for Agent managers, merged in OpenDCAI/gugu-supabase#48."
 }

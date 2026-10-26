@@ -186,7 +186,13 @@ function ChatRowContextMenu({ x, y, chat, onClose, onPin, onSetNotificationLevel
       label: t('chatList.delete'),
       icon: Trash,
       danger: true,
-      onClick: () => { onDelete(); onClose() },
+      onClick: () => {
+        onClose()
+        void Promise.resolve().then(onDelete).catch((error: unknown) => {
+          chatListLog.error({ error: String(error), chatId: chat.id }, 'delete chat failed')
+          toast(t('chatList.deleteFailed'), 'error', messageForUser(error))
+        })
+      },
     },
   ]
 
@@ -656,8 +662,8 @@ export function ChatListPanel({
     const query = listQuery.trim().toLocaleLowerCase()
     if (!query) return true
     // @@@5856 话题和群一样有自己的名字(搜索按名字走);私聊才回落到对端名。
-    const name = isRoomChat(chat.kind) ? chat.name : (chat.peer_alias?.trim() || identitiesById[chat.peer_user_id ?? '']?.display_name || '')
-    return `${name} ${chatPreviewText(chat)}`.toLocaleLowerCase().includes(query)
+    const name = chatDisplayName(chat, identitiesById[chat.peer_user_id ?? '']?.display_name)
+    return `${name} ${chat.name} ${chatPreviewText(chat)}`.toLocaleLowerCase().includes(query)
   }
   const hasSearchQuery = listQuery.trim().length > 0
   // @@@empty-dm-not-listed — 没有过消息的单聊不占列表行(判据在 core,见 isChatListed)。搜索是一次明确的

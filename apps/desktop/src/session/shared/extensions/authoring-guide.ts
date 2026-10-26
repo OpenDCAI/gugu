@@ -325,6 +325,9 @@ Needs \`agents:read\` (or \`agents:read:all\` / \`agents:read:all-machines\`, wh
   you care about. Ids are filtered to your declared scope, so plain
   \`agents:read\` hears only of the ones you started; only this computer's, even with \`:all-machines\`.
   A deleted agent does NOT arrive here: that channel does not exist yet.
+- \`listAgents({ report: true })\` → \`{ agents, unreached, checkedAt }\`, same scope. Rows add \`statusFrom\`
+  (\`this_machine\` / \`device\`) and ISO \`statusAt\` (observation time). \`unreached\`: \`{ deviceId, label, detail }\`;
+  null deviceId means remote listing failed. Missing there is unknown, not deleted. Poll for remote changes.
 
 Needs \`agents:history\` (or \`agents:history:all\`):
 

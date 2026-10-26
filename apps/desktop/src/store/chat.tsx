@@ -1,4 +1,5 @@
 import type { UnreadLocatorCommit } from '../lib/chatUnreadLocatorWindow'
+import { topicService } from '../lib/topics'
 import type { ConversationViewport } from './chatWindowCache'
 import { useState, useEffect, useLayoutEffect, useCallback, useRef, useMemo, type SetStateAction } from 'react'
 import { chatService } from '../lib/chat'
@@ -822,7 +823,7 @@ export function ChatProvider({ children, active = true }: { children: React.Reac
   }, [userId])
 
   const deleteChat = useCallback(async (chatId: string, persist = false) => {
-    if (persist) await chatService.archiveChat(chatId)
+    if (persist) await (chatsRef.current.find((chat) => chat.id === chatId)?.kind === 'topic' ? topicService.archiveTopic(chatId) : chatService.archiveChat(chatId))
     projectionRef.current.forgetChat(chatId) // 显式删除是权威动作:乐观行与投影水位一起出列 (#4314)
     setChats((prev) => prev.filter((c) => c.id !== chatId))
     dropTextDraft(chatId)
@@ -830,7 +831,6 @@ export function ChatProvider({ children, active = true }: { children: React.Reac
     cache.delete(chatId)
     if (activeChatIdRef.current === chatId) setActiveChatId(null)
   }, [cache, setActiveChatId, dropDraftAttachments, dropTextDraft])
-
   // #901 退出群聊：共同 RPC 确认移除本人席位后，再本地清理。
   const leaveGroup = useCallback(async (chatId: string) => {
     if (!userId) throw new Error('Not authenticated')

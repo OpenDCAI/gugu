@@ -1,3 +1,4 @@
+import { groupDisplayName } from '@gugu/core/shared/ui/chatModels'
 import { useCallback, useEffect, useMemo, useState, type ReactNode } from 'react'
 import { AgentSettingsModal } from './agentsettings/AgentSettingsModal'
 import { chatPublicId, displayName, sortContactsPinnedFirst, sortGroupChatsPinnedFirst, userPublicId } from '../lib/contactsListSort'
@@ -53,6 +54,8 @@ import { CopyValue } from './CopyValue'
 import { CreateGroupChatForm, MEMBER_PICKER_SHEET } from './CreateGroupChatModal'
 import { ContactsPersonSectionState, ContactsGroupSectionState } from './contacts/ContactsSectionState'
 import { ContactsDeviceSections } from './contacts/ContactsDeviceSections'
+import { contactsAreEmpty } from './contacts/contactsByDevice'
+import { sidebarCountClass } from '../session/renderer/features/sidebar/sidebar-primitives'
 import { ContactGroupAvatar, ContactSearch, SelectionCheckbox } from './contacts/ContactSearch'
 import { ContactsListDock } from './contacts/ContactsListDock'
 import { OwnedAgentNameEditor } from './contacts/OwnedAgentNameEditor'
@@ -102,7 +105,6 @@ interface ContactsPanelProps {
 }
 type LeftSel = 'contacts' | 'new_friends' | 'add_friend' | 'group_chats' | 'agent_library' | `group:${string}`
 type MobileContactsPane = 'nav' | 'index' | 'detail'
-
 const ct = i18n.getFixedT(null, 'contacts')
 
 // @@@ui-ruler 本地样式副本(rowBase / meta / name / sharedTag / reqBadge / section* / cpane*)已按角色
@@ -441,7 +443,7 @@ function GroupSectionRow({
         selected={selected}
         pinned={pinned}
         leading={<ContactGroupAvatar group={group} size="sm" />}
-        title={group.name}
+        title={groupDisplayName(group)}
         /* show member count like design's group row .st-dot.off — 静态灰点(非 agent 态),用 offline 档 */
         subtitle={
           <span className={agentContactRowStatusClass('offline')}>
@@ -460,7 +462,6 @@ function GroupSectionRow({
   )
 }
 
-// ── ContactsThreeSectionSidebar ───────────────────────────────────────────────
 // Replaces ContactsNav + ContactsIndex for desktop. Single scrollable sidebar with
 // 3 collapsible sections: Agent / 个人 / 群组.
 function ContactsThreeSectionSidebar({
@@ -624,9 +625,8 @@ function ContactsThreeSectionSidebar({
           onKeyDown={rowKeyActivate(onSelectNewFriends)}
         />
 
-        {/* #5019 设备段(本机 → 其他设备 → 咕咕云)→ 个人 → 群组(没有我 agent 的群);分段逻辑见 contacts/ContactsDeviceSections。 */}
         <ContactsDeviceSections
-          agents={sortedAgents}
+          agents={sortedAgents} people={sortedHumans}
           groups={sortGroupChatsPinnedFirst(groupChats, isGroupPinned)}
           currentUserId={currentUserId}
           onCreateAgent={onCreateAgent}
@@ -656,11 +656,11 @@ function ContactsThreeSectionSidebar({
           )}
           personSection={
             <>
-              {/* 个人 section */}
               <SectionLabel
                 interactive
                 className={sectionLabelClass}
                 leading={<span className={sectionChevronClass(personCollapsed)}><ChevronDown size={16} /></span>}
+                trailing={personCollapsed ? <span className={sidebarCountClass}>{sortedHumans.length}</span> : undefined}
                 onClick={() => setPersonCollapsed((v) => !v)}
               >
                 {ct('panel.contactSectionTitle')}
@@ -679,7 +679,7 @@ function ContactsThreeSectionSidebar({
                     menu={buildRowMenu(c)}
                   />
                 ))}
-                <ContactsPersonSectionState isEmpty={sortedHumans.length === 0} onAddContact={() => onSelectAddFriend('contact')} />
+                <ContactsPersonSectionState isEmpty={contactsAreEmpty(sortedHumans, sortedAgents, groupChats)} onAddContact={() => onSelectAddFriend('contact')} />
               </Collapse>
             </>
           }
@@ -725,7 +725,7 @@ function CpaneGroupHeader({
       <div className={cpaneAvatarClass}>
         <ContactGroupAvatar group={group} size={96} />
       </div>
-      <div className={cpaneNameClass}>{group.name}</div>
+      <div className={cpaneNameClass}>{groupDisplayName(group)}</div>
       {/* group status: member count, no dot per design noStatus class */}
       <div className={cpaneStatusClass}>{ct('panel.memberCount', { count: group.member_count })}</div>
       <div className={cpaneActionsClass}>
@@ -1328,7 +1328,7 @@ function GroupChatRow({
         pinned={pinned}
         emphasis={selected}
         leading={<ContactGroupAvatar group={group} size="sm" />}
-        title={group.name}
+        title={groupDisplayName(group)}
         subtitle={
           <>
             {kindLabel} · {publicId ? `${ct('groupInvite.groupNumber', { number: publicId })} · ` : ''}
@@ -1423,7 +1423,7 @@ function GroupChatDetailPane({
             <Users size={28} />
           </div>
           <div className="min-w-0 flex-1">
-            <h2 className={detailTitleClass}>{group.name}</h2>
+            <h2 className={detailTitleClass}>{groupDisplayName(group)}</h2>
             <div className="!mt-2 flex flex-wrap items-center gap-2">
               <Chip>{densityText}</Chip>
               <span className="text-sm text-[var(--muted-fg)]">

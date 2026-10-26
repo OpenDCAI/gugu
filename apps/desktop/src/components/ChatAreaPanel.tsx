@@ -31,7 +31,7 @@ import { drainTopicSplitRequest, requestTopicSplit } from '../lib/topicSplitRequ
 import { buildGroupRosterCandidates } from '../lib/mention'
 import { topicMentionCandidates } from './chat/topicMentionModels'
 import { resolveGroupRunningIndicator } from '../lib/agentRunningStatusModels'
-import { GROUP_AGENT_BAR_MAX, groupRunningTokens } from '../lib/groupRunningTokenModels'
+import { groupRunningTokens } from '../lib/groupRunningTokenModels'
 import type { AgentLocation } from '@gugu/core/shared/ui/agentHeaderStatusModels'
 import { useReadReceiptPanel } from '@/hooks/useReadReceiptPanel'
 import { agentComposerModel, isRetiredCloudAgentChat } from '../lib/agentComposerModel'
@@ -1031,14 +1031,13 @@ function ChatAreaSurface({ viewportKey = 'chats', activeTab, navigationTarget = 
 
       {/* @@@1506 - Agent 运行状态：输入框上方的轻量浮动文字（owner #1506：无重白板，打字时也能瞥见）。群聊列出在跑的 agent（可点 → @mention）；
           单聊是运行中/思考中（流式正文仍留消息流）。运行条那一行是固定高的一行(群、agent 私聊才有),没有底,消息从它后面滚过;运行条出现、消失不改变布局。 */}
-      <ChatBottomDock floating={!mobile} reserve={chatListRows.length === 0} above={(isRoomChatSurface || isAgentChat) && <RunningBarSlot>
+      <ChatBottomDock reserve={chatListRows.length === 0} above={(isRoomChatSurface || isAgentChat) && <RunningBarSlot>
       {!searchMode && !chrome?.hideRunningStatus && (isRoomChatSurface ? (
         // @@@1696 群聊运行态：横排单行「运行 token」(流光动词) + cap +N。数据 = 在跑(transient)的 agent，
         // stateKey 由 presence recentActions 的最新 kind 派生，展示文案由 RunningTokenBar 翻译；
         // toolCount 近似用近 5 分钟 actions.length。onTokenClick 仍 @mention。
         <RunningTokenBar
           testId="group-agent-running-status"
-          cap={GROUP_AGENT_BAR_MAX}
           // @@@6357 悬浮 token = MessagePreview(它最近在做的事,不按 chat 过滤,#6573)。
           previewChatId={activeChatId}
           tokens={groupRunTokens}
@@ -1052,7 +1051,6 @@ function ChatAreaSurface({ viewportKey = 'chats', activeTab, navigationTarget = 
         // thinking → live tool kind → presence recent action → running；当前 locale 只在 RunningTokenBar 消费。
         <RunningTokenBar
           testId="agent-running-status"
-          cap={1}
           // @@@6357 私聊同一张卡。
           previewChatId={activeChatId}
           tokens={[

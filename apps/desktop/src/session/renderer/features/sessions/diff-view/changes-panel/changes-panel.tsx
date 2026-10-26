@@ -51,7 +51,6 @@ export const ChangesPanel = observer(function ChangesPanel({ isVisible }: { isVi
       <ResizablePanelGroup
         orientation="vertical"
         className="min-h-0 flex-1"
-        id="changes-panel-group"
         disableCursor
       >
         <ResizablePanel

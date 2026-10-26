@@ -18,7 +18,6 @@ import { PaneHeader } from '../ui/Pane'
 import { useBackLayer } from '../ui/sheetStack'
 import { ChatMessageComposer } from './ChatMessageComposer'
 import { RunningBarSlot, RunningTokenBar, type RunningToken } from '../RunningTokenBar'
-import { GROUP_AGENT_BAR_MAX } from '@/lib/groupRunningTokenModels'
 import { TopicBreadcrumb } from './TopicBreadcrumb'
 import { TopicMoreMenu } from './TopicMoreMenu'
 import { HistoryPanel, type HistoryFileItem } from '../HistoryPanel'
@@ -560,12 +559,11 @@ export function TopicSplitPane({ viewportKey = 'topic', navigationTarget = false
             重写一份等于把它们统统退回未解决态,而且不报任何错(owner 2026-09-19 实测点破)。
             话题是一间屋子 ⇒ isGroupChat,寻址规则与群一致。 */}
         {/* 话题里运行条那一行同样是固定高的一行;只在传了 runningTokens 时才有(手机整页话题),桌面分栏旁边群里那一条一直看得见。 */}
-        <ChatBottomDock floating={!mobile} reserve={messages.length === 0} above={runningTokens &&
+        <ChatBottomDock reserve={messages.length === 0} above={runningTokens &&
         <RunningBarSlot>
         {runningTokens.length > 0 ? (
           <RunningTokenBar
             testId="topic-agent-running-status"
-            cap={GROUP_AGENT_BAR_MAX}
             previewChatId={runningPreviewChatId}
             tokens={runningTokens}
             onTokenClick={(id) => {
