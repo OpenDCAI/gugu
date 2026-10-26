@@ -13,7 +13,7 @@ export function appForkPrompt(
   const source = variant.dir ? ` Source directory: ${JSON.stringify(variant.dir)}.` : '';
   const subject = `${app.name} (${app.id}), fork ${JSON.stringify(variant.name)}.${source}`;
   return update
-    ? `${subject} It is ${update.behind} releases behind upstream ${update.upstream}. Read guide apps-fork, merge upstream commit ${update.commit}, install and check it, preserving the custom changes and existing data.`
+    ? `${subject} It is ${update.behind} releases behind upstream ${update.upstream}. Read guide apps-fork. Before merging, diff this fork from its merge-base with ${update.commit}, list its custom behaviors and stored fields, and record existing data IDs and values. Merge that exact commit, compare both parents, then install and check every customization and those same data IDs and values, preserving the custom changes and existing data. Missing data is a failed merge.`
     : `${subject} Read guide apps-fork and continue changing this variant, preserving its identity and existing data. My request: `;
 }
 

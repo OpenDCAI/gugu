@@ -971,10 +971,17 @@ App's detail page. No fork or data copying is needed to switch.
 The App's row shows the upstream version and how many releases the active fork is behind.
 Its "Copy prompt" gives the App, variant, working directory and the target's exact commit.
 Read that repo's status first; preserve uncommitted work. Fetch \`upstream\` and merge the
-specified commit with git's three-way merge, resolving conflicts in the fork. Do not replace
+specified commit with git's three-way merge, resolving conflicts in the fork. Before merging,
+find its merge-base with the fork's HEAD and read the fork's diff from that base. List the
+custom behaviors and stored fields it added; record the existing data's IDs and values.
+After resolving conflicts, compare against both parents and verify each custom behavior and
+old data format still works, including when a device is offline. Similar upstream code is
+not proof that the fork's behavior was preserved. Do not replace
 your fork's files with a fresh upstream bundle or merge a moving branch tip in place of that
 commit. Keep the same data format, commit, then app_install the source directory and app_check
-again, including the custom feature and the existing data. A conflict or failed check is work
+again. Read back the same data IDs and values and exercise the custom behaviors: app_check's
+ok or an empty page is not proof that data survived. Missing data is a failed merge, not done.
+A conflict or failed check is work
 to finish, not grounds to silently discard the person's changes.
 
 ## Push or contribute, when asked
