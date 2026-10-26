@@ -10,6 +10,19 @@ const pending = () => {
 const target = { tabId: 'tab', sessionId: 'session' };
 
 describe('App guest binding belongs to the live webContents (#7514)', () => {
+  it('reclaims an unchanged binding without another IPC call, while a changed target is retargeted', async () => {
+    const bind = vi.fn().mockResolvedValue({ success: true });
+    const retarget = vi.fn().mockResolvedValue({ success: true });
+    const lifecycle = new ExtensionGuestBinding({ bind, retarget });
+    lifecycle.ready(8);
+    await lifecycle.aim(target);
+    await lifecycle.aim({ ...target });
+    expect(bind).toHaveBeenCalledOnce();
+    expect(retarget).not.toHaveBeenCalled();
+    await lifecycle.aim({ ...target, itemId: 'file' });
+    expect(retarget).toHaveBeenCalledExactlyOnceWith(8, { ...target, itemId: 'file' });
+  });
+
   it('ignores a destroyed guest completing its bind after another guest is ready', async () => {
     const old = pending();
     const next = pending();

@@ -11,13 +11,13 @@ type Dispatch = (webContentsId: number, target: ExtensionGuestTarget) => Promise
 /** A DOM webview may outlive its guest. Binding state belongs to the guest id,
  * and a previous guest's asynchronous reply must never mark its replacement bound. */
 export class ExtensionGuestBinding {
-  private guest: { webContentsId: number; bound: boolean; tail: Promise<unknown> } | null = null;
+  private guest: { webContentsId: number; target: ExtensionGuestTarget | null; tail: Promise<unknown> } | null = null;
 
   constructor(private readonly dispatch: { bind: Dispatch; retarget: Dispatch }) {}
 
   ready(webContentsId: number): void {
     if (this.guest?.webContentsId === webContentsId) return;
-    this.guest = { webContentsId, bound: false, tail: Promise.resolve() };
+    this.guest = { webContentsId, target: null, tail: Promise.resolve() };
   }
 
   reset(): void {
@@ -25,7 +25,7 @@ export class ExtensionGuestBinding {
   }
 
   get boundWebContentsId(): number | null {
-    return this.guest?.bound ? this.guest.webContentsId : null;
+    return this.guest?.target ? this.guest.webContentsId : null;
   }
 
   aim(target: ExtensionGuestTarget): Promise<(Reply & { webContentsId: number }) | null> {
@@ -35,9 +35,13 @@ export class ExtensionGuestBinding {
     // pages have their own queue, so a slow page cannot hold up its neighbours.
     const work = guest.tail.then(async () => {
       if (this.guest !== guest) return null;
-      const reply = await (guest.bound ? this.dispatch.retarget : this.dispatch.bind)(guest.webContentsId, target);
+      const previous = guest.target;
+      if (previous && previous.tabId === target.tabId && previous.sessionId === target.sessionId && previous.chatId === target.chatId && previous.itemId === target.itemId) {
+        return { success: true, webContentsId: guest.webContentsId };
+      }
+      const reply = await (previous ? this.dispatch.retarget : this.dispatch.bind)(guest.webContentsId, target);
       if (this.guest !== guest) return null;
-      if (reply.success) guest.bound = true;
+      if (reply.success) guest.target = { ...target };
       return { ...reply, webContentsId: guest.webContentsId };
     });
     guest.tail = work.catch(() => undefined);
