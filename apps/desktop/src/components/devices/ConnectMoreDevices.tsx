@@ -1,8 +1,8 @@
 /**
- * #7199 助理 App「能力 · 设备」底下的「连接更多设备」(Mac、Windows、Linux、iPhone、安卓、浏览器插件)。
+ * #7199 助理 App「能力 · 设备」底下的「连接更多设备」(Mac、Windows、Linux、安卓)。
  * 点一项就地展开那个平台怎么装、怎么连 ——
  * 下载按钮直接是正式通道的包(appLinks),登录用的是哪个账号写明白,装好登录后它自己出现在上面的列表里。
- * iPhone、浏览器插件咕咕还没有:写「即将推出」、点不动,❌ 编一份指引。
+ * 只列已经能连接的平台,未实现的功能不放占位行。
  * 另加一项咕咕自己有的「添加一台服务器」(经 SSH 装咕咕 server),只在能这么装的桌面上出现,走设置里现成的那一步。
  */
 import { useEffect, useState, type ReactNode } from 'react'
@@ -15,18 +15,15 @@ import { cn } from '../../lib/cn'
 import { useAuth } from '../../store/auth'
 import { platform } from '../../platform'
 import { desktopIpc } from '../../platform/desktopIpc'
-import { ArrowDownToLine, ChevronDown, ChevronRight, Globe, Monitor, Server } from '@/lib/icons'
+import { ArrowDownToLine, ChevronDown, ChevronRight, Monitor, Server } from '@/lib/icons'
 import { Button } from '../ui/Button'
-import { Chip } from '../ui/Chip'
 import { SettingsGroup, SettingsRow } from '../settings/SettingsPrimitives'
 import { PhoneGlyph } from './assistantDeviceUi'
 
-type Platform = 'mac' | 'windows' | 'linux' | 'iphone' | 'android' | 'browser'
+type Platform = 'mac' | 'windows' | 'linux' | 'android'
 
-/** 顺序:Mac、Windows、Linux、iPhone、安卓、浏览器插件。 */
-const PLATFORMS: readonly Platform[] = ['mac', 'windows', 'linux', 'iphone', 'android', 'browser']
-type GuidedPlatform = Exclude<Platform, 'iphone' | 'browser'>
-const isGuided = (key: Platform): key is GuidedPlatform => key !== 'iphone' && key !== 'browser'
+/** 顺序:Mac、Windows、Linux、安卓。 */
+const PLATFORMS: readonly Platform[] = ['mac', 'windows', 'linux', 'android']
 
 const LINUX_FILE = 'gugu-linux-x86_64.AppImage'
 
@@ -42,22 +39,18 @@ export function ConnectMoreDevices() {
   return (
     <SettingsGroup title={t('devices.connectMore.title')} data-testid="assistant-devices-connect-more">
       {PLATFORMS.map((key) => {
-        const guided = isGuided(key)
         const expanded = open === key
         return (
           <div key={key} data-testid={`assistant-connect-${key}`}>
             <SettingsRow
               leading={<PlatformGlyph platform={key} />}
               title={t(`devices.connectMore.${key}`)}
-              description={guided ? t(`devices.connectMore.requirement.${key}`) : undefined}
-              aria-expanded={guided ? expanded : undefined}
-              aria-disabled={guided ? undefined : true}
-              control={guided
-                ? <ChevronDown size={16} className={cn('transition-transform duration-[var(--dur-fast)] motion-reduce:transition-none', !expanded && '-rotate-90')} />
-                : <Chip>{t('devices.connectMore.comingSoon')}</Chip>}
-              onClick={guided ? () => setOpen(expanded ? null : key) : undefined}
+              description={t(`devices.connectMore.requirement.${key}`)}
+              aria-expanded={expanded}
+              control={<ChevronDown size={16} className={cn('transition-transform duration-[var(--dur-fast)] motion-reduce:transition-none', !expanded && '-rotate-90')} />}
+              onClick={() => setOpen(expanded ? null : key)}
             />
-            {expanded && guided && <Guide platform={key} />}
+            {expanded && <Guide platform={key} />}
           </div>
         )
       })}
@@ -79,13 +72,12 @@ export function ConnectMoreDevices() {
 }
 
 function PlatformGlyph({ platform: key }: { platform: Platform }) {
-  if (key === 'iphone' || key === 'android') return <PhoneGlyph />
-  if (key === 'browser') return <Globe size={18} />
+  if (key === 'android') return <PhoneGlyph />
   return <Monitor size={18} />
 }
 
 /** 一个平台怎么装、怎么连:下载 → 装上 → 用这个账号登录(它就出现在上面)→ 要让助理调它还差哪一步。 */
-function Guide({ platform: key }: { platform: GuidedPlatform }) {
+function Guide({ platform: key }: { platform: Platform }) {
   const { t } = useTranslation('settings')
   const account = useAuth().user?.email ?? null
   const signIn = account ? t('devices.connectMore.signIn', { account }) : t('devices.connectMore.signInNoAccount')
