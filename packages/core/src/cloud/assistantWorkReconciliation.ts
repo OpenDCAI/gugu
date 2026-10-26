@@ -17,6 +17,7 @@ export type WorkReconciliationContext = {ownerId:string;runtimeInstanceId:string
 export type ExecutorDeliveryProof = {preview?:{running?:boolean;ended?:{kind?:string;reason?:string}|null;entries?:Array<{kind:string;messageId?:string|null}>;error?:unknown}}
 const RECONCILIATION_GRACE_MS=120_000
 export const isOwnerReceiptEvent=(event:WorkReconciliationEvent)=>['completed','failed','cancelled','question'].includes(event.kind)
+const isAbandonmentNoticeEvent=(event:WorkReconciliationEvent)=>event.kind==='dispatch'||isOwnerReceiptEvent(event)
 const failureReason = (code:string|undefined|null) => ({
   REPORT_MISSING:'这件事没有交回结果',EXECUTION_FAILED:'执行时出了错，结果没有交回',INTERRUPTED:'执行中断了，结果没有交回',
   SOURCE_UNAVAILABLE:'原来的内容已无法读取',INCOMPATIBLE:'接收设备的版本不兼容',UNREACHABLE:'一直无法联系到接收设备',
@@ -58,7 +59,7 @@ export function createAssistantWorkReconciler(deps:{
     const category=assistantWorkNoticeReason(kind==='result'?event.reason_code:event.abandoned_reason_code)
     const key=await deps.stableId(`work-notice:${ctx.assistantId}:${work.work_id}:${category}`)
     if(!await current(ctx)) return
-    const text=`「${work.title}」有结果或问题没能交回：${reason}。`
+    const text=`「${work.title}」有消息没能送到：${reason}。`
     // The committed idempotent owner message is the proof. Losing its RPC reply cannot produce another notice.
     let posted=postedNotices.get(key)
     if(!posted) {
@@ -143,14 +144,22 @@ export function createAssistantWorkReconciler(deps:{
     }
     for(const event of await deps.abandoned(ctx)) {
       const home=event.kind==='dispatch'?event.from_device_id:event.to_device_id
-      if(event.assistant_user_id!==ctx.assistantId||home!==ctx.deviceId||event.abandonment_notified_at||!isOwnerReceiptEvent(event)) continue
+      if(event.assistant_user_id!==ctx.assistantId||home!==ctx.deviceId||event.abandonment_notified_at||!isAbandonmentNoticeEvent(event)) continue
       const work=works.find(w=>w.work_id===event.work_id)
       if(!work||event.owner_delivered_at) continue
-      const targetId=event.executor_session_id??event.from_session_id
+      const targetId=event.executor_session_id??(event.kind==='dispatch'?event.to_session_id:event.from_session_id)
       const actual=targetId?work.executor_outcomes[targetId]:undefined
-      if((event.terminal_origin==='coordinator'||event.kind==='question')
+      if((event.terminal_origin==='coordinator'||event.kind==='question'||event.kind==='dispatch')
         && (['completed','cancelled'].includes(work.outcome)||actual?.origin==='executor')) continue
-      try { await notify(ctx,event,work,'abandonment_notice') }
+      try {
+        if(event.kind==='dispatch'&&targetId&&await current(ctx)) {
+          const key=await deps.stableId(`dispatch-failure:${work.work_id}:${event.message_id}`)
+          await enqueueAssistantWorkDelivery(ctx.client,{assistantId:ctx.assistantId,runtimeInstanceId:ctx.runtimeInstanceId,operationId:key,workId:work.work_id,task:null,
+            events:[{message_id:key,kind:'failed',from_session_id:work.coordinator_session_id,from_device_id:ctx.deviceId,to_session_id:work.coordinator_session_id,to_device_id:ctx.deviceId,executor_session_id:targetId,reason_code:event.abandoned_reason_code??'DELIVERY_FAILED',
+              content:'任务派发未取得受理回执。这是协调者推断，平台会直接发送一条失败说明给账号本人，请勿重复通知；迟到的真实结果仍需正常交付。'}]})
+        }
+        await notify(ctx,event,work,'abandonment_notice')
+      }
       catch { deps.warn({code:'WORK_NOTICE_NOT_COMMITTED'}) }
     }
   }

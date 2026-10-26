@@ -132,4 +132,12 @@ describe('unfinished delivery reconciliation',()=>{
     f.works.mockResolvedValue([{...work,outcome:'failed',executor_outcomes:{child:{status:'failed',origin:'coordinator'}}}])
     await f.reconciler.kick();expect(f.rpc.mock.calls.some(([name])=>name==='assistant_work_commit')).toBe(false)
   })
+  it('records and notifies an abandoned dispatch once without making it an executor terminal',async()=>{
+    const f=fixture([])
+    f.abandoned.mockResolvedValue([{kind:'dispatch',message_id:'lost-dispatch',work_id:'work',assistant_user_id:'assistant',from_device_id:'cloud',to_session_id:'child',abandoned_reason_code:'DELIVERY_TIMEOUT'}] as never)
+    await f.reconciler.kick()
+    expect(f.rpc).toHaveBeenCalledWith('assistant_work_commit',expect.objectContaining({p_events:[expect.objectContaining({kind:'failed',from_session_id:'home',executor_session_id:'child',reason_code:'DELIVERY_TIMEOUT'})]}))
+    expect(f.notify).toHaveBeenCalledOnce()
+    expect(f.rpc).toHaveBeenCalledWith('assistant_work_owner_delivered',expect.objectContaining({p_message_id:'lost-dispatch',p_receipt_kind:'abandonment_notice'}))
+  })
 })
