@@ -18,6 +18,20 @@ async function fixture(source: 'claude-code' | 'codex', entries: unknown[]) {
 }
 
 describe('the existing transcript parser context view', () => {
+  it('attributes a qualified truncation warning to its file when loaded files share a basename', async () => {
+    const { path, options } = await fixture('claude-code', [
+      { type: 'attachment', sessionId: 'claude-main', attachment: { type: 'instructions', files: [
+        { path: '/user/CLAUDE.md', type: 'User', content: 'user' },
+        { path: '/project/CLAUDE.md', type: 'Project', content: 'project' },
+      ] }, rendered: [{ content: 'WARNING: /project/CLAUDE.md exceeds the limit; truncated' }] },
+    ])
+    const context = await readLocalTranscript(path, 'claude-code', { ...options, view: 'context' })
+    expect(context.loaded.filter((file) => file.kind === 'instruction-file').map((file) => ({ path: file.path, truncated: file.truncated }))).toEqual([
+      { path: '/user/CLAUDE.md', truncated: false },
+      { path: '/project/CLAUDE.md', truncated: true },
+    ])
+  })
+
   it('projects Claude instructions/rendered warnings/nested memory and tool inputs without bodies or outputs', async () => {
     const { path, options } = await fixture('claude-code', [
       { type: 'attachment', sessionId: 'claude-main', cwd: '/project', attachment: { type: 'instructions', files: [{ path: '/home/MEMORY.md', type: 'AutoMem', content: 'private instruction body' }] }, rendered: [{ content: 'WARNING: MEMORY.md exceeds the limit; truncated' }] },

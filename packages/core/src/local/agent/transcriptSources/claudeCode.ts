@@ -20,10 +20,11 @@ function claudeContext(entry: Record<string, unknown>, record: ClaudeRecord): Co
     const rendered = blocks?.join('') ?? null
     const warnings = rendered?.split('\n').filter((line) => /WARNING[^\n]*(?:truncat|limit|too long)/i.test(line)) ?? []
     const files = Array.isArray(attachment.files) ? attachment.files : []
+    const paths = files.flatMap((value) => { const path = asRecord(value)?.path; return typeof path === 'string' ? [path] : [] })
     context.loaded = files.flatMap((value) => {
       const file = asRecord(value)
       return file && typeof file.path === 'string' && typeof file.content === 'string'
-        ? [{ path: file.path, kind: 'instruction-file' as const, scope: typeof file.type === 'string' ? file.type : null, chars: file.content.length, truncated: warnings.some((line) => line.includes(file.path as string) || line.includes((file.path as string).split(/[\\/]/).at(-1)!)), at: record.timestamp }]
+        ? [{ path: file.path, kind: 'instruction-file' as const, scope: typeof file.type === 'string' ? file.type : null, chars: file.content.length, truncated: warnings.some((line) => line.includes(file.path as string) || (!paths.some((path) => line.includes(path)) && line.includes((file.path as string).split(/[\\/]/).at(-1)!))), at: record.timestamp }]
         : []
     })
     if (rendered !== null) context.loaded.push({ path: null, kind: 'rendered-total', scope: null, chars: rendered.length, truncated: warnings.length > 0, at: record.timestamp })
