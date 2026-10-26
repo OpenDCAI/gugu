@@ -8,7 +8,7 @@ function fixture(events:WorkReconciliationEvent[]=[dispatch]) {
   const inspect=vi.fn(async()=>({preview:{running:false,ended:{kind:'done'},entries:[{kind:'prompt',messageId:'dispatch'}]}}))
   const notify=vi.fn(async(_ctx:WorkReconciliationContext,_key:string,_text:string)=>({chatId:'dm',messageId:'notice'}))
   const clean=vi.fn()
-  const f={context:async()=>({ownerId:'owner',runtimeInstanceId:'runtime',deviceId:'cloud',assistantId:'assistant',client:{rpc}}),works:vi.fn(async()=>[work]),history:vi.fn(async()=>events),abandoned:vi.fn(async()=>[]),inspect,notify,clean,stableId:async(k:string)=>k,warn:vi.fn(),now:()=>now}
+  const f={context:async()=>({ownerId:'owner',runtimeInstanceId:'runtime',deviceId:'cloud',assistantId:'assistant',client:{rpc}}),works:vi.fn(async()=>[work]),history:vi.fn(async()=>events),abandoned:vi.fn(async()=>[]),ownerReceipts:vi.fn(async()=>[] as Array<{eventId:string;chatId:string;messageId:string}>),inspect,notify,clean,stableId:async(k:string)=>k,warn:vi.fn(),now:()=>now}
   return {...f,rpc,reconciler:createAssistantWorkReconciler(f)}
 }
 describe('unfinished delivery reconciliation',()=>{
@@ -32,6 +32,36 @@ describe('unfinished delivery reconciliation',()=>{
   it('keeps a real executor report even if it has not reached the assistant yet',async()=>{
     const f=fixture([dispatch,{kind:'completed',from_session_id:'child',message_id:'result'}]);await f.reconciler.kick()
     expect(f.inspect).not.toHaveBeenCalled();expect(f.rpc).not.toHaveBeenCalled()
+  })
+  it('keeps a durable host failure as progress and does not infer another terminal failure',async()=>{
+    const f=fixture([dispatch,{kind:'progress',from_session_id:'child',message_id:'host-failure',reason_code:'HOST_FAILURE'}])
+    await f.reconciler.kick()
+    expect(f.inspect).not.toHaveBeenCalled();expect(f.rpc).not.toHaveBeenCalled();expect(f.notify).not.toHaveBeenCalled()
+  })
+  it('notifies an admitted host failure once using its own committed event receipt',async()=>{
+    const f=fixture([dispatch,{kind:'progress',from_session_id:'child',message_id:'host-failure',reason_code:'HOST_FAILURE',assistant_admitted_at:new Date(now-10000).toISOString()}])
+    await f.reconciler.kick()
+    expect(f.notify).toHaveBeenCalledOnce()
+    expect(f.rpc).toHaveBeenCalledWith('assistant_work_owner_delivered',expect.objectContaining({p_message_id:'host-failure',p_receipt_kind:'result'}))
+    expect(f.rpc.mock.calls.some(([name])=>name==='assistant_work_commit')).toBe(false)
+  })
+  it('recovers an actual owner post receipt even after the task completed, without reposting',async()=>{
+    const f=fixture([{kind:'completed',message_id:'result',assistant_admitted_at:'2026-10-26T08:00:00Z'}])
+    f.works.mockResolvedValue([{...work,outcome:'completed'}])
+    f.ownerReceipts.mockResolvedValue([{eventId:'result',chatId:'dm',messageId:'actual-owner-post'}])
+    f.rpc.mockResolvedValueOnce({data:null,error:{message:'temporary failure'}} as never)
+    await f.reconciler.kick();await f.reconciler.kick()
+    expect(f.rpc).toHaveBeenCalledTimes(2)
+    expect(f.rpc.mock.calls[0]).toEqual(f.rpc.mock.calls[1])
+    expect(f.rpc).toHaveBeenCalledWith('assistant_work_owner_delivered',expect.objectContaining({p_message_id:'result',p_owner_message_id:'actual-owner-post'}))
+    expect(f.notify).not.toHaveBeenCalled();expect(f.clean).toHaveBeenCalledOnce()
+  })
+  it('does not repeat a host-failure notice already committed in the report turn',async()=>{
+    const f=fixture([{kind:'progress',message_id:'failure',reason_code:'HOST_FAILURE',assistant_admitted_at:'2026-10-26T08:00:00Z'}])
+    f.ownerReceipts.mockResolvedValue([{eventId:'failure',chatId:'dm',messageId:'actual-owner-post'}])
+    await f.reconciler.kick()
+    expect(f.notify).not.toHaveBeenCalled()
+    expect(f.rpc).toHaveBeenCalledWith('assistant_work_owner_delivered',expect.objectContaining({p_message_id:'failure'}))
   })
   it('posts one stable plain failure notice only after assistant admission and records the separate receipt',async()=>{
     const f=fixture([dispatch,{message_id:'failed',kind:'failed',terminal_origin:'coordinator',reason_code:'EXECUTOR_ENDED_WITHOUT_REPORT',assistant_admitted_at:new Date(now-10000).toISOString(),owner_delivered_at:null}])

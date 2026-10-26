@@ -10,12 +10,14 @@ export type WorkReconciliationEvent = {
   assistant_admitted_at?:string|null;owner_delivered_at?:string|null;terminal_origin?:string|null;reason_code?:string|null;
   abandonment_notified_at?:string|null;abandoned_reason_code?:string|null
 }
+export type WorkOwnerReceiptProof = {eventId:string;chatId:string;messageId:string}
 export type WorkReconciliationContext = {ownerId:string;runtimeInstanceId:string;deviceId:string;assistantId:string;client:AssistantWorkRpcClient}
 export type ExecutorDeliveryProof = {preview?:{running?:boolean;ended?:{kind?:string;reason?:string}|null;entries?:Array<{kind:string;messageId?:string|null}>;error?:unknown}}
 const RECONCILIATION_GRACE_MS=120_000
 const failureReason = (code:string|undefined|null) => {
   if(code==='EXECUTOR_ENDED_WITHOUT_REPORT') return '执行已经结束，但没有交回结果'
   if(code==='EXECUTOR_FAILED') return '执行时出了错，结果没有交回'
+  if(code==='HOST_FAILURE') return '执行中断了，结果没有交回'
   if(code==='EXECUTOR_CANCELLED_WITHOUT_REPORT') return '执行被中断，结果没有交回'
   if(code==='SOURCE_UNAVAILABLE') return '原来的内容已无法读取'
   if(code==='DELIVERY_HOST_OUTDATED') return '接收设备的版本不兼容'
@@ -31,6 +33,7 @@ export function createAssistantWorkReconciler(deps:{
   history(ctx:WorkReconciliationContext,work:ReconciledWork):Promise<WorkReconciliationEvent[]>
   abandoned(ctx:WorkReconciliationContext):Promise<WorkReconciliationEvent[]>
   inspect(ctx:WorkReconciliationContext,work:ReconciledWork,target:{session_id:string;device_id:string}):Promise<ExecutorDeliveryProof|null>
+  ownerReceipts?(ctx:WorkReconciliationContext,work:ReconciledWork,events:WorkReconciliationEvent[]):Promise<WorkOwnerReceiptProof[]>
   notify(ctx:WorkReconciliationContext,key:string,text:string):Promise<{chatId:string;messageId:string}>
   clean(work:ReconciledWork):void
   stableId(key:string):Promise<string>
@@ -60,10 +63,23 @@ export function createAssistantWorkReconciler(deps:{
   }
   const reconcileWork=async(ctx:WorkReconciliationContext,work:ReconciledWork)=>{
     if(work.assistant_user_id!==ctx.assistantId||work.coordinator_device_id!==ctx.deviceId) return
-    if(work.outcome==='completed'||work.outcome==='cancelled') { deps.clean(work);return }
     const events=await deps.history(ctx,work)
+    const delivered=new Set(events.filter(event=>event.owner_delivered_at).map(event=>event.message_id))
+    // Only a committed post from the same native report turn can prove owner delivery.
+    // Native history is durable, so a lost receipt RPC is retried without a second outbox.
+    if(deps.ownerReceipts) {
+      const proofs=await deps.ownerReceipts(ctx,work,events)
+      for(const proof of proofs) {
+        const event=events.find(e=>e.message_id===proof.eventId&&e.assistant_admitted_at&&!e.owner_delivered_at)
+        if(!event) continue
+        await receipt(ctx,event,'result',proof)
+        delivered.add(event.message_id)
+      }
+    }
     for(const event of events) {
-      if(event.kind==='failed'&&event.terminal_origin==='coordinator'&&event.assistant_admitted_at&&!event.owner_delivered_at) await notify(ctx,event,work,'result')
+      const inferredFailure=event.kind==='failed'&&event.terminal_origin==='coordinator'
+      const hostFailure=event.kind==='progress'&&event.reason_code==='HOST_FAILURE'
+      if((inferredFailure||hostFailure)&&event.assistant_admitted_at&&!delivered.has(event.message_id)) await notify(ctx,event,work,'result')
     }
     if(work.outcome!=='active') { deps.clean(work); return }
     for(const target of work.executors) {
@@ -73,7 +89,7 @@ export function createAssistantWorkReconciler(deps:{
       if(!dispatch?.executor_admitted_at||!dispatch.platform_received_at) continue
       // A durable report already received by the platform must be delivered, never replaced by a failure.
       const reports=events.slice(dispatchIndex+1).filter(e=>e.from_session_id===target.session_id&&e.kind!=='dispatch')
-      if(reports.some(e=>['completed','cancelled','failed','question','blocked'].includes(e.kind))) continue
+      if(reports.some(e=>['completed','cancelled','failed','question','blocked'].includes(e.kind)||e.reason_code==='HOST_FAILURE')) continue
       const lastAt=Math.max(Date.parse(dispatch.platform_received_at),...reports.map(e=>Date.parse(e.platform_received_at??'')))
       if(!Number.isFinite(lastAt)||now()-lastAt<RECONCILIATION_GRACE_MS) continue
       const proof=await deps.inspect(ctx,work,target)
