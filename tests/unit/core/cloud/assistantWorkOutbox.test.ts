@@ -17,7 +17,7 @@ function fixture(events = [event()], localNow = Date.parse('2026-10-26T01:00:00Z
   const warn = vi.fn()
   const unavailable = vi.fn(async (_ctx: typeof context, _failure: {code:string}, _signal: AbortSignal) => undefined)
   const pump = createAssistantWorkOutboxPump({ context: async () => context, rpc, deliver, warn, unavailable, now: () => localNow })
-  return { pump, rpc, deliver, warn, unavailable }
+  return { pump, rpc, deliver, warn, unavailable, setNow: (value:number) => {localNow=value} }
 }
 afterEach(() => { vi.useRealTimers() })
 describe('one account work outbox', () => {
@@ -162,7 +162,7 @@ it('reports persistent claim failure once instead of silently stopping delivery'
   f.rpc.mockResolvedValue({data:null,error:{code:'PGRST202',message:'private missing schema details'}})
   await f.pump.kick();await f.pump.kick()
   expect(f.unavailable).toHaveBeenCalledOnce()
-  expect(f.unavailable).toHaveBeenCalledWith(context,{code:'PGRST202'},expect.any(AbortSignal))
+  expect(f.unavailable).toHaveBeenCalledWith(context,{code:'PGRST202',day:'2026-10-26'},expect.any(AbortSignal))
   expect(JSON.stringify(f.unavailable.mock.calls)).not.toContain('private')
 })
 
@@ -180,4 +180,19 @@ it('bounds a silent availability notice and keeps later queue retries usable', a
   await f.pump.kick()
   expect(f.rpc).toHaveBeenCalledTimes(2)
   f.pump.stop()
+})
+
+it('warns again for a new failure on the next Beijing day, but not another error on the same day',async()=>{
+  const f=fixture()
+  const failure=()=>f.rpc.mockResolvedValue({data:null,error:{code:'PGRST202',message:'missing'}})
+  f.setNow(Date.parse('2026-10-26T15:59:00Z'));failure()
+  await f.pump.kick()
+  // A second error on the same date is still one owner notice.
+  f.rpc.mockResolvedValue({data:null,error:{code:'NETWORK',message:'another detail'}})
+  await f.pump.kick()
+  expect(f.unavailable).toHaveBeenCalledOnce()
+  f.rpc.mockResolvedValue({data:{events:[]},error:null});await f.pump.kick()
+  f.setNow(Date.parse('2026-10-26T16:01:00Z'));failure()
+  await f.pump.kick()
+  expect(f.unavailable).toHaveBeenCalledTimes(2)
 })

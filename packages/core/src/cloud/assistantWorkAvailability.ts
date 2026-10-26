@@ -1,6 +1,9 @@
 import type { AssistantWorkOutboxContext, AssistantWorkRpcClient } from './assistantWorkOutbox'
 
-export const ASSISTANT_WORK_AVAILABILITY_NOTICE = '暂时无法核对任务结果的交付情况，我会继续尝试。'
+export const ASSISTANT_WORK_AVAILABILITY_NOTICE = '任务完成的回报暂时送不到我这里，可能会晚一些到。'
+
+/** Calendar grouping only; delivery ages and lease budgets still come from the server. */
+export const assistantWorkAvailabilityDay = (now = Date.now()) => new Date(now + 8 * 60 * 60 * 1000).toISOString().slice(0, 10)
 
 /** A visible, idempotent service notice uses ordinary chat storage, never a second outbox. */
 export function createAssistantWorkAvailabilityNotifier(deps: {
@@ -9,7 +12,7 @@ export function createAssistantWorkAvailabilityNotifier(deps: {
   rpc(ctx: AssistantWorkOutboxContext, name: string, args: Record<string, unknown>, signal: AbortSignal): ReturnType<AssistantWorkRpcClient['rpc']>
   visible(ctx: AssistantWorkOutboxContext, post: {assistantId: string; chatId: string; messageId: string}, signal: AbortSignal): Promise<boolean>
 }) {
-  return async (ctx: AssistantWorkOutboxContext, _failure: {code: string}, signal: AbortSignal) => {
+  return async (ctx: AssistantWorkOutboxContext, failure: {code: string; day: string}, signal: AbortSignal) => {
     const check = async () => {
       signal.throwIfAborted()
       const current = await deps.context()
@@ -28,8 +31,8 @@ export function createAssistantWorkAvailabilityNotifier(deps: {
     if (!assistantId) throw new Error('Task notice assistant is unavailable')
     const chatId = await rpc('open_dm', {p_target_user_id: assistantId})
     if (typeof chatId !== 'string' || !chatId) throw new Error('Task notice chat is unavailable')
-    // One warning per account/assistant/queue protocol, including device races and restarts.
-    const bytes = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(JSON.stringify(['work-availability-v1', ctx.ownerId, assistantId])))
+    // The failure's Beijing start date permits a new warning for a later day's outage.
+    const bytes = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(JSON.stringify(['work-availability-v1', ctx.ownerId, assistantId, failure.day])))
     const hex = [...new Uint8Array(bytes)].map(byte => byte.toString(16).padStart(2, '0')).join('')
     const messageId = `${hex.slice(0,8)}-${hex.slice(8,12)}-4${hex.slice(13,16)}-a${hex.slice(17,20)}-${hex.slice(20,32)}`
     await rpc('send_message_idempotent', {

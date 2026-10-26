@@ -21,7 +21,7 @@ export function createAssistantWorkOutboxHost(deps: {
   subscribe(ownerId: string, changed: () => void): Promise<() => void>
   afterDrain?: () => Promise<void>
   warn(detail: { code: string; messageId?: string }): void
-  unavailable?(context: AssistantWorkOutboxContext, failure: {code: string}, signal: AbortSignal): Promise<void>
+  unavailable?(context: AssistantWorkOutboxContext, failure: {code: string; day: string}, signal: AbortSignal): Promise<void>
 }) {
   let subscriptionOwner: string | null = null
   let unsubscribe: (() => void) | null = null
