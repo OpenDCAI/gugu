@@ -81,9 +81,9 @@ describe('ChatMessageComposer and the new-task box', () => {
     await act(async () => { root.render(createElement(DraftHost, { chatId: 'chat-carry' })) })
     const textarea = () => container.querySelector('[contenteditable]') as HTMLElement
     await act(async () => { setComposerVerb('chat-carry', 'task') })
-    expect(textarea().closest('[style*="display: none"]'), 'the group box steps aside while the new task is open').not.toBeNull()
+    expect(textarea().closest('[hidden]'), 'the group box steps aside while the new task is open').not.toBeNull()
     await act(async () => { setComposerVerb('chat-carry', null, 'add a pricing page') })
-    expect(textarea().closest('[style*="display: none"]')).toBeNull()
+    expect(textarea().closest('[hidden]')).toBeNull()
     expect(readComposer(textarea())).toBe('add a pricing page')
   })
 })

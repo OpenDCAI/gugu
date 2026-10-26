@@ -27,7 +27,7 @@ const mocks = vi.hoisted(() => ({
   recordDeliveredSessionDirectMessage: vi.fn(),
   drainSessionMessageOutbox: vi.fn(),
   /** 挂载着的会话(按会话 id):pty 会话的进程经它起停。 */
-  mounted: new Map<string, { sessionPath: string | undefined; sessions: { startSession: unknown; stopSession: unknown; sendMessage: unknown } }>(),
+  mounted: new Map<string, { sessionPath: string | undefined; sessions: { startSession: unknown; stopSession: unknown; sendMessage: unknown; ownsSession: (id: string) => boolean } }>(),
   ensureSessionMounted: vi.fn(),
   installedExtensions: [] as Array<{
     manifest: { id: string; contributes: { tabs: Array<{ name: string; title?: string; opensFiles?: { session?: string[]; chat?: string[] } }> } };
@@ -303,6 +303,7 @@ describe('session orchestration', () => {
         startSession: mocks.ptyStartSession,
         stopSession: mocks.ptyStopSession,
         sendMessage: vi.fn(),
+        ownsSession: () => true,
       },
     });
   }
@@ -861,21 +862,32 @@ describe('session orchestration', () => {
         expect(mocks.settleSessionExited).not.toHaveBeenCalled();
       });
 
-      it('does not ask tmux when the project runs without tmux: nothing to stop', async () => {
-        mocks.tmuxEnabled.mockImplementation(async () => false);
+      it('stops the tmux engine even when the task mount exists but has not reattached its process', async () => {
+        mount(cold.sessionId);
+        mocks.mounted.get(cold.sessionId)!.sessions.ownsSession = () => false;
+        mocks.tmuxSessionNames.add(coldTmuxName);
 
         await expect(stopExactSessionpageSession(cold)).resolves.toBe(true);
-        expect(mocks.listTmuxSessionNames).not.toHaveBeenCalled();
-        expect(mocks.killTmuxSession).not.toHaveBeenCalled();
+        expect(mocks.killTmuxSession).toHaveBeenCalledExactlyOnceWith(expect.anything(), coldTmuxName);
+        expect(mocks.ptyStopSession).not.toHaveBeenCalled();
         expect(mocks.ensureSessionMounted).not.toHaveBeenCalled();
       });
 
-      it('fails loudly when its project is not open: whether it runs in tmux cannot be told', async () => {
-        mocks.openProjects = new Set();
+      it('stops the surviving engine even if the project now runs without tmux', async () => {
+        mocks.tmuxEnabled.mockImplementation(async () => false);
+        mocks.tmuxSessionNames.add(coldTmuxName);
 
-        await expect(stopExactSessionpageSession(cold)).rejects.toThrow(/project project-1 is not open/);
-        expect(mocks.listTmuxSessionNames).not.toHaveBeenCalled();
-        expect(mocks.killTmuxSession).not.toHaveBeenCalled();
+        await expect(stopExactSessionpageSession(cold)).resolves.toBe(true);
+        expect(mocks.killTmuxSession).toHaveBeenCalledExactlyOnceWith(expect.anything(), coldTmuxName);
+        expect(mocks.ensureSessionMounted).not.toHaveBeenCalled();
+      });
+
+      it('stops a surviving engine without requiring its project to be opened first', async () => {
+        mocks.openProjects = new Set();
+        mocks.tmuxSessionNames.add(coldTmuxName);
+
+        await expect(stopExactSessionpageSession(cold)).resolves.toBe(true);
+        expect(mocks.killTmuxSession).toHaveBeenCalledExactlyOnceWith(expect.anything(), coldTmuxName);
       });
     });
 

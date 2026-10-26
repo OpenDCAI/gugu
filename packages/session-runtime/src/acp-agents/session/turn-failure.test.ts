@@ -2,6 +2,14 @@ import { describe, expect, it } from 'vitest';
 import type { SerializedError } from '@gugu/session-shared';
 import { classifyTurnFailure, upstreamSaid } from './turn-failure';
 
+it('shows the native structured 5xx cause on the failure line', () => {
+  const message = 'We’re currently experiencing high demand, which may cause temporary errors.';
+  const result = classifyTurnFailure({ at: 'prompt', cause: {
+    name: 'RequestError', code: -32603, message, data: { message, codexErrorInfo: 'internalServerError' },
+  } });
+  expect(result.outcome).toMatchObject({ kind: 'error', reason: 'prompt_failed', said: message });
+});
+
 // #7103 通用形态 Codex「回合失败」那一行要说网关回的那一句,❌ 只说「回合未能完成」让人点开猜。
 // 夹具是真实读数:mac1 devdb,构建 8b9496a0,codex 0.156.1 通用形态,0 积分 → 网关只回话渠道回 400;
 // 这一轮的错由 codex-app-server-acp 桥按 turn.error 原样转成 RequestError(code -32603,data = turn.error)。

@@ -27,12 +27,24 @@ afterEach(() => {
   vi.unstubAllGlobals()
 })
 describe('MessageBubble touch menu', () => {
-  it('copies a text selection made inside the existing mobile action panel', async () => {
+  it('renders previously loaded mobile reactions in the same commit when reopening the menu', async () => {
+    await renderMessage(undefined, true)
+    await longPress()
+    await act(() => { document.dispatchEvent(new CustomEvent(UI_EVENTS.closeContextMenus)) })
+    expect(document.querySelector('[role="menu"]')).toBeNull()
+    await act(() => {
+      flushSync(() => { messageBubble().dispatchEvent(new MouseEvent('contextmenu', { bubbles: true, cancelable: true, clientX: 120, clientY: 240 })) })
+      expect(document.querySelector('[role="group"][aria-label="快速回应"]')?.querySelectorAll('button')).toHaveLength(7)
+    })
+  })
+  it('copies a text selection made inside the mobile menu\'s select-text view', async () => {
     const writeText = vi.fn(async () => {})
     Object.defineProperty(navigator, 'clipboard', { value: { writeText }, configurable: true })
     const toast = vi.fn()
     await renderMessage(toast)
     await longPress()
+    await clickElement(document.querySelector('[data-testid="message-action-selectText"]')!)
+    expect(document.querySelector('[data-testid="message-action-menu"]'), '换一屏,菜单不收').not.toBeNull()
     const text = document.querySelector<HTMLElement>('[data-testid="message-selection-text"]')!
     expect(text.textContent).toBe('hello from mobile')
     selectTextIn(text, 'from mobile')
@@ -40,12 +52,13 @@ describe('MessageBubble touch menu', () => {
     expect(writeText).toHaveBeenCalledWith('from mobile')
     expect(toast).toHaveBeenCalledWith('已复制', 'success')
   })
-  it('routes native in-panel Copy through the same clipboard feedback', async () => {
+  it('routes native in-menu Copy through the same clipboard feedback', async () => {
     const writeText = vi.fn(async () => {})
     Object.defineProperty(navigator, 'clipboard', { value: { writeText }, configurable: true })
     const toast = vi.fn()
     await renderMessage(toast)
     await longPress()
+    await clickElement(document.querySelector('[data-testid="message-action-selectText"]')!)
     const text = document.querySelector<HTMLElement>('[data-testid="message-selection-text"]')!
     selectTextIn(text, 'hello')
     const event = new Event('copy', { bubbles: true, cancelable: true })
@@ -85,6 +98,19 @@ describe('MessageBubble touch menu', () => {
     await contextMenu()
     await clickElement(menuItem('回复'))
     expect(onQuote).toHaveBeenCalledWith(expect.objectContaining({ id: 'msg-1', content: 'hello from mobile' }))
+    expect(document.querySelector('[role="menu"]')).toBeNull()
+  })
+  it('keeps frequency-ordered mobile reactions and calls the existing reaction action', async () => {
+    localStorage.setItem('gugu.reaction-frequency', JSON.stringify({ '🚀': 9, '👀': 3 }))
+    const onReaction = vi.fn()
+    await renderMessage(undefined, true, onReaction)
+    await longPress()
+    const group = document.querySelector('[role="group"][aria-label="快速回应"]')!
+    const buttons = [...group.querySelectorAll<HTMLButtonElement>('[role="menuitem"]')]
+    expect(buttons.map((button) => button.textContent)).toEqual(['🚀', '👀', '👍', '❤️', '😂', '✅', ''])
+    await clickElement(buttons[0])
+    expect(onReaction).toHaveBeenCalledWith('msg-1', '🚀')
+    expect(JSON.parse(localStorage.getItem('gugu.reaction-frequency')!)['🚀']).toBe(10)
     expect(document.querySelector('[role="menu"]')).toBeNull()
   })
   it('copies the captured message selection after menu focus clears the DOM selection', async () => {
@@ -250,38 +276,38 @@ describe('MessageBubble touch menu', () => {
     expect(localStorage.getItem('emoji-mart.last')).toBeNull()
     expect(document.body.querySelector('[role="toolbar"][aria-label="快速回应"]')).toBeNull()
   })
-  it('mobile long press opens the action sheet: reactions, reply first, then the desktop menu actions', async () => {
+  it('mobile long press opens one menu by the bubble (no bottom sheet): reactions, reply first, then the shared actions', async () => {
     const onReaction = vi.fn(); const onQuote = vi.fn()
     await renderMessage(undefined, true, onReaction, { onQuote })
     await longPress()
-    const sheet = document.body.querySelector('[data-testid="message-action-sheet"]') as HTMLElement
-    expect(sheet).not.toBeNull()
-    expect(document.body.querySelector('[role="menu"]'), '手机上不再弹指针菜单').toBeNull()
-    const rows = [...sheet.querySelectorAll('[data-testid^="message-action-"]')].map((el) => el.getAttribute('data-testid'))
-    expect(rows).toEqual(['message-action-reply', 'message-action-copy', 'message-action-forward', 'message-action-delete'])
-    await clickElement(sheet.querySelector('[data-testid="message-action-reply"]') as HTMLElement)
+    expect(document.body.querySelectorAll('[role="menu"]')).toHaveLength(1)
+    expect(document.body.querySelector('[data-slot="sheet-content"]'), 'owner 10-26:❌ 底部抽屉').toBeNull()
+    const menu = document.body.querySelector('[data-testid="message-action-menu"]') as HTMLElement
+    const rows = [...menu.querySelectorAll('[data-testid^="message-action-"]')].map((el) => el.getAttribute('data-testid'))
+    expect(rows).toEqual(['message-action-reply', 'message-action-copy', 'message-action-selectText', 'message-action-forward', 'message-action-delete'])
+    await clickElement(menu.querySelector('[data-testid="message-action-reply"]') as HTMLElement)
     expect(onQuote).toHaveBeenCalledWith(expect.objectContaining({ id: 'msg-1' }))
-    expect(document.body.querySelector('[data-testid="message-action-sheet"]')).toBeNull()
+    expect(document.body.querySelector('[role="menu"]')).toBeNull()
 
     await longPress()
-    const toolbar = document.body.querySelector('[data-testid="message-action-sheet"] [role="toolbar"]') as HTMLElement
-    expect([...toolbar.querySelectorAll('button')].map((b) => b.textContent)).toEqual([...QUICK_REACTIONS.map(({ emoji }) => emoji), ''])
-    await clickElement(toolbar.querySelectorAll('button')[1] as HTMLElement)
+    const quick = [...document.body.querySelectorAll<HTMLElement>('[data-testid="message-action-menu"] [role="group"][aria-label="快速回应"] [role="menuitem"]')]
+    expect(quick.map((b) => b.textContent)).toEqual([...QUICK_REACTIONS.map(({ emoji }) => emoji), ''])
+    await clickElement(quick[1])
     expect(onReaction).toHaveBeenCalledWith('msg-1', '❤️')
-    expect(document.body.querySelector('[data-testid="message-action-sheet"]')).toBeNull()
+    expect(document.body.querySelector('[role="menu"]')).toBeNull()
   })
   it('uses saved emoji frequencies and fills the quick row from the catalog', async () => {
     localStorage.setItem('gugu.reaction-frequency', JSON.stringify({ '🚀': 9, '👀': 3, '🦄': 100 }))
     const onReaction = vi.fn()
     await renderMessage(undefined, true, onReaction)
     await longPress()
-    const buttons = document.querySelectorAll<HTMLButtonElement>('[role="toolbar"][aria-label="快速回应"] button')
+    const buttons = document.querySelectorAll<HTMLButtonElement>('[role="group"][aria-label="快速回应"] [role="menuitem"]')
     expect([...buttons].map((b) => b.textContent)).toEqual(['🚀', '👀', '👍', '❤️', '😂', '✅', ''])
     await clickElement(buttons[0])
     expect(JSON.parse(localStorage.getItem('gugu.reaction-frequency')!)['🚀']).toBe(10)
     expect(onReaction).toHaveBeenCalledWith('msg-1', '🚀')
   })
-  it('expands inside the same mobile sheet and keeps all named work statuses reachable', async () => {
+  it('expands inside the same mobile menu and keeps all named work statuses reachable', async () => {
     const onReaction = vi.fn()
     await renderMessage(undefined, true, onReaction)
     await longPress()
@@ -289,9 +315,9 @@ describe('MessageBubble touch menu', () => {
       flushSync(() => { (document.querySelector('button[aria-label="更多表情"]') as HTMLButtonElement).click() })
       expect(document.querySelectorAll('section[aria-label="表态"] button')).toHaveLength(24)
     })
-    const sheet = document.querySelector('[data-testid="message-action-sheet"]')!
-    expect(document.querySelectorAll('[data-testid="message-action-sheet"]')).toHaveLength(1)
-    expect(sheet.querySelector('[role="toolbar"]')).toBeNull()
+    const sheet = document.querySelector('[data-testid="message-action-menu"]')!
+    expect(document.querySelectorAll('[role="menu"]')).toHaveLength(1)
+    expect(sheet.querySelector('[role="group"][aria-label="快速回应"]')).toBeNull()
     expect(sheet.querySelector('[data-testid="message-action-reply"]')).toBeNull()
     expect(sheet.querySelector('input')).toBeNull()
     expect([...sheet.querySelectorAll('section[aria-label="表态"] button')].map((button) => button.textContent)).toEqual(REACTIONS.filter(({ kind }) => kind === 'mood').map(({ emoji }) => emoji))
@@ -301,19 +327,19 @@ describe('MessageBubble touch menu', () => {
     expect(JSON.parse(localStorage.getItem('gugu.reaction-frequency')!)).toEqual({ '✅': 1 })
     expect(onReaction).toHaveBeenCalledWith('msg-1', '✅')
     await longPress()
-    expect(document.querySelector('[role="toolbar"] button')?.textContent).toBe('✅')
+    expect(document.querySelector('[role="group"][aria-label="快速回应"] [role="menuitem"]')?.textContent).toBe('✅')
   })
-  it('the Android back key closes the long-press sheet before the page underneath can go back', async () => {
+  it('the Android back key closes the long-press menu before the page underneath can go back', async () => {
     await renderMessage()
     await longPress()
-    expect(document.body.querySelector('[data-testid="message-action-sheet"]')).not.toBeNull()
+    expect(document.body.querySelector('[data-testid="message-action-menu"]')).not.toBeNull()
     const nativeBack = window as Window & { __guguNativeBackHandled?: boolean }
     nativeBack.__guguNativeBackHandled = false
     await act(async () => { window.dispatchEvent(new Event(NATIVE_BACK_EVENT)) })
-    expect(document.body.querySelector('[data-testid="message-action-sheet"]')).toBeNull()
-    expect(nativeBack.__guguNativeBackHandled, '返回键被面板吃掉,会话页不跟着退').toBe(true)
+    expect(document.body.querySelector('[data-testid="message-action-menu"]')).toBeNull()
+    expect(nativeBack.__guguNativeBackHandled, '返回键被菜单吃掉,会话页不跟着退').toBe(true)
   })
-  it('the lift that ends a long press does not become a click on the sheet that just opened under the finger', async () => {
+  it('the lift that ends a long press does not become a click on the menu that just opened under the finger', async () => {
     await renderMessage()
     const tapEnd = new Event('touchend', { bubbles: true, cancelable: true })
     await act(async () => { messageBubble().dispatchEvent(tapEnd) })
@@ -321,8 +347,8 @@ describe('MessageBubble touch menu', () => {
     await longPress()
     const liftEnd = new Event('touchend', { bubbles: true, cancelable: true })
     await act(async () => { messageBubble().dispatchEvent(liftEnd) })
-    expect(liftEnd.defaultPrevented, '长按的松手不取消 ⇒ 合成的 click 落到遮罩或某一行上').toBe(true)
-    expect(document.body.querySelector('[data-testid="message-action-sheet"]')).not.toBeNull()
+    expect(liftEnd.defaultPrevented, '长按的松手不取消 ⇒ 合成的 click 落到菜单外或某一行上').toBe(true)
+    expect(document.body.querySelector('[data-testid="message-action-menu"]')).not.toBeNull()
   })
   it.each(['context', 'more'])('keeps desktop %s menus action-only while retaining the hover reaction entry', async (entry) => {
     const onQuote = vi.fn()
@@ -334,7 +360,7 @@ describe('MessageBubble touch menu', () => {
     expect(document.querySelector('button[title="表情回应"]')).not.toBeNull()
     if (entry === 'more') await clickElement(document.querySelector('[data-testid="message-hover-actions"] button[aria-label="更多"]')!)
     else await contextMenu()
-    expect(document.querySelector('[data-testid="message-action-sheet"]')).toBeNull()
+    expect(document.querySelector('[data-testid="message-action-selectText"]')).toBeNull()
     expect(document.querySelectorAll('[role="menu"]')).toHaveLength(1)
     expect(document.querySelector('[aria-label="快速回应"]')).toBeNull()
     expect(document.querySelector('[aria-label="更多表情"]')).toBeNull()
@@ -342,6 +368,15 @@ describe('MessageBubble touch menu', () => {
     await clickElement(menuItem('回复'))
     expect(onQuote).toHaveBeenCalledWith(expect.objectContaining({ id: 'msg-1' }))
     expect(document.querySelector('[role="menu"]')).toBeNull()
+  })
+  it('expands More inside the mobile menu without dismissing it or opening another surface', async () => {
+    await renderMessage(undefined, true)
+    await longPress()
+    await clickElement(document.querySelector('[aria-label="更多表情"]') as HTMLElement)
+    await act(async () => { await vi.dynamicImportSettled() })
+    expect(document.querySelectorAll('[role="menu"]')).toHaveLength(1)
+    expect(document.querySelector('[role="group"][aria-label="快速回应"]')).toBeNull()
+    expect(document.querySelectorAll('section[aria-label="工作状态"] button')).toHaveLength(6)
   })
   // @@@copy-fail-loud (#1123) — clipboard 复制必须 await + 反馈，失败不静默。
   async function openMenuAndCopy() {

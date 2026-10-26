@@ -17,6 +17,7 @@ const io = vi.hoisted(() => ({
   requestAssistantSetupHandoff: vi.fn(),
 }))
 vi.mock('../../../../apps/desktop/src/lib/firstRun', () => io)
+vi.mock('../../../../apps/desktop/src/lib/firstRunHints', () => ({ startFirstRunHints: vi.fn(async () => undefined), readFirstRunHints: vi.fn(async () => null), dismissFirstRunHints: vi.fn() }))
 vi.mock('../../../../apps/desktop/src/lib/auth', () => ({ authService: {} }))
 vi.mock('../../../../apps/desktop/src/lib/productTour', async (original) => ({
   ...await original<Record<string, unknown>>(), saveProductTourPosition: vi.fn(),
@@ -68,7 +69,7 @@ describe('desktop product lifetime across the first-run tour', () => {
     delete (window as unknown as { __EMDASH_MOUNT__?: HTMLElement }).__EMDASH_MOUNT__
   })
 
-  it.each(['Skip tour', 'Start using Gugu'])('keeps the same connected task mount after %s and reopening the tour', async (label) => {
+  it.each(['assistant-intro-primary', 'assistant-intro-later'])('keeps the same connected task mount after %s and reopening the tour', async (testId) => {
     await harness.render(createNode(FirstRunGate, {
       user: { id: 'owner-1', email: 'owner@example.test', nickname: 'Owner' },
     }, createNode(EmdashSessionFrame)))
@@ -77,10 +78,8 @@ describe('desktop product lifetime across the first-run tour', () => {
     const content = mount.firstElementChild
     expect(mount.isConnected).toBe(true)
     expect(content).not.toBeNull()
-    const finishButton = () => [...document.querySelectorAll<HTMLButtonElement>('.product-tour-actions button')]
-      .find((button) => button.textContent === label)!
-    await clickElement(finishButton())
-    await waitForCondition(() => !document.querySelector('.product-tour-feature'), 'tour dismissed')
+    await clickElement(document.querySelector(`[data-testid="${testId}"]`)!)
+    await waitForCondition(() => !document.querySelector('[data-testid="first-run-intro"]'), 'intro dismissed')
 
     expect(io.finishFirstRun).toHaveBeenCalledOnce()
     expect(sessionMount()).toBe(mount)

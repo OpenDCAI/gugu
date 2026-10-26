@@ -1323,7 +1323,8 @@ function showEntry(entry) {
 function renderDocInfo(entry) {
   const t = state.t
   const parts = []
-  for (const text of activityOf(entry)) parts.push(Object.assign(document.createElement('span'), { className: 'file-activity', textContent: text }))
+  const activity = activityOf(entry).join(' · ')
+  if (activity) parts.push(Object.assign(document.createElement('span'), { className: 'file-activity', textContent: activity, title: activity }))
   const sources = entry?.sourceMessageIds ?? []
   if (sources.length) {
     const box = document.createElement('span')

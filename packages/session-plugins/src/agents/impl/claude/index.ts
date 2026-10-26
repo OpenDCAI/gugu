@@ -22,7 +22,7 @@ import {
   NODE_FOR_CLAUDE_ACP,
   resolveNodeInterpreter,
 } from '../../helpers/node-interpreter';
-import { enrichClaudeUpdate } from './acp-transform';
+import { claudePromptFailure, enrichClaudeUpdate } from './acp-transform';
 import { claudeAuthStatus } from './auth';
 import { claudeSubscriptionBehavior } from './subscription';
 import { buildClaudeHookConfig } from './hooks';
@@ -342,6 +342,7 @@ export const provider = registerPluginBehavior(plugin, {
     materialize: materializeClaudeSessionBundle,
   },
   acp: {
+    turnFailure: { fromPromptResponse: claudePromptFailure },
     explainError: (cause) => {
       const models = plugin.capabilities.models;
       if (!/Invalid value for config option model/i.test(cause.message ?? '')
