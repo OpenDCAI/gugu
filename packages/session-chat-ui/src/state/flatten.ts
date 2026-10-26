@@ -1,3 +1,4 @@
+import { withSentReplies } from './sent-replies';
 /**
  * flatten — segment a transcript into a two-tier UnitsView.
  *
@@ -152,6 +153,7 @@ export function flattenTier(
   prevKind?: string,
   prevDayKey?: string
 ): RenderUnit[] {
+  turns = turns.map(withSentReplies);
   const out: RenderUnit[] = [];
 
   // Hoist stable per-call values so processItem allocates nothing per seam.

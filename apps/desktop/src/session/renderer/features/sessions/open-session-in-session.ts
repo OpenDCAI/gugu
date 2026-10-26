@@ -21,6 +21,8 @@ interface OpenSessionInSessionOptions {
    * ❌ 把人停在别的页签上的那一枚抢成对话。
    */
   onlyIfNoTabs?: boolean;
+  /** 群聊点不同 Agent：把会话作为已有右栏里的新页签打开。 */
+  host?: { projectId: string; sessionId: string };
 }
 
 /**
@@ -36,6 +38,7 @@ export function openSessionInSessionWhenReady({
   timeout = 10_000,
   preview = false,
   onlyIfNoTabs = false,
+  host,
 }: OpenSessionInSessionOptions): () => void {
   return when(
     () => {
@@ -43,19 +46,19 @@ export function openSessionInSessionWhenReady({
       const session = sessionRegistry
         .get(sessionId)
         ?.sessions.get(sessionId);
-      return Boolean(page && getSessionView(projectId, sessionId) && session);
+      return Boolean(page && getSessionView(host?.projectId ?? projectId, host?.sessionId ?? sessionId) && session);
     },
     () => {
       const session = sessionRegistry
         .get(sessionId)
         ?.sessions.get(sessionId);
       if (!session) return;
-      const paneLayout = getSessionView(projectId, sessionId)?.paneLayout;
+      const paneLayout = getSessionView(host?.projectId ?? projectId, host?.sessionId ?? sessionId)?.paneLayout;
       if (onlyIfNoTabs && paneLayout?.groups.some((g) => g.pane.tabOrder.length > 0)) return;
 
       paneLayout?.open(
         sessionTabKind(session.data.runtime),
-        { sessionId },
+        { sessionId, ...(host ? { projectId, ownerSessionId: sessionId } : {}) },
         { preview }
       );
     },

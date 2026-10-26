@@ -71,3 +71,38 @@
   pointer-events: none;
 }
 [data-bubble-tail='mine']::before { left: auto; right: -8px; transform: scaleX(-1); }
+
+/* 项目 Agent 对话的署名与回复关系属于消息，放在正文气泡之外。 */
+.msg-sender-compact { color: var(--muted-fg); font-size: var(--font-caption); margin: 0 2px 3px; }
+.msg-sender-link[data-slot='button'] {
+  min-height: 0; height: auto; padding: 0; border: 0; border-radius: 0;
+  color: inherit; font-size: inherit; font-weight: inherit; line-height: inherit;
+}
+.msg-sender-link[data-slot='button']:hover { background: transparent; text-decoration: underline; }
+/* 轻量并排：署名贴左，回复摘要靠右，正文气泡只放消息内容。 */
+.msg-bubble-content { display: flex; flex-direction: column; align-items: flex-start; min-width: 0; max-width: 100%; }
+.msg-bubble-heading {
+  display: flex; align-items: center; justify-content: flex-start; gap: 8px;
+  align-self: stretch; contain: inline-size; min-width: 0; padding: 0; margin-bottom: 6px;
+}
+.msg-bubble-heading .msg-sender-compact {
+  order: -1; flex: 0 0 auto; max-width: 52%; margin: 0; min-width: 0;
+  color: var(--text-primary); font-weight: var(--font-weight-semibold); line-height: var(--lh-caption);
+}
+.msg-bubble-heading .msg-sender-link { max-width: 100%; }
+.msg-bubble-heading .msg-reply-summary + .msg-sender-compact::after {
+  content: ''; width: 1px; height: 9px; flex-shrink: 0;
+  background: var(--border-strong); margin-left: 2px;
+}
+.msg-reply-summary[data-slot='button'] {
+  display: flex; flex: 0 1 auto; gap: 5px; min-width: 0; max-width: 100%;
+  min-height: 0; height: auto; padding: 0; border: 0; border-radius: 0; margin: 0;
+  background: transparent; color: var(--muted-fg); font-size: var(--font-caption);
+  font-weight: var(--font-weight-regular); line-height: var(--lh-caption); justify-content: flex-end;
+}
+.msg-reply-summary svg { flex-shrink: 0; }
+.msg-reply-summary > span { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.msg-reply-summary:hover { color: var(--text-primary); }
+.msg-reply-summary:disabled { cursor: default; }
+.msg-time-outside { display: flex; justify-content: flex-start; }
+.msg-time-outside-own { justify-content: flex-end; }

@@ -12,6 +12,8 @@ import { TopicSplitPane } from '../../../../apps/desktop/src/components/chat/Top
 import { createReactHarness, message, renderWithAppProviders } from '../../../support/testHarness'
 
 vi.mock('../../../../apps/desktop/src/hooks/useAgentHarnessIdentity', () => ({ useAgentHarnessIdentity: () => 'codex' }))
+const openAgentSession = vi.hoisted(() => vi.fn())
+vi.mock('../../../../apps/desktop/src/components/chat/openAgentSession', () => ({ openAgentSession }))
 
 const noop = () => {}
 function profile(id: string, displayName: string, overrides: Partial<MemberProfileCardModel> = {}): MemberProfileCardModel {
@@ -26,7 +28,7 @@ const memberProfiles = {
 // 发送者两两不同 ⇒ 每行都是组首、都画头像。
 const messages: MessageItem[] = [
   message({ id: 'm-alice', seq: 1, sender_user_id: 'u-alice', content: 'hi from alice' }),
-  message({ id: 'm-claude', seq: 2, sender_user_id: 'u-claude', content: 'hi from claude' }),
+  message({ id: 'm-claude', seq: 2, sender_user_id: 'u-claude', content: 'hi from claude', reply_to_message_id: 'm-alice', reply_to_content: 'hi from alice', reply_to_sender_user_id: 'u-alice' }),
   message({ id: 'm-gone', seq: 3, sender_user_id: 'u-gone', content: 'bye' }),
   message({ id: 'm-mine', seq: 4, sender_user_id: 'user-1', is_mine: true, content: 'mine' }),
 ]
@@ -61,7 +63,25 @@ function rightClick(target: Element): boolean {
   return event.defaultPrevented
 }
 
-describe('右键群聊消息头像 → @ 他', () => {
+describe('右键群聊消息署名 → @ 他', () => {
+  it('左键 Agent 名字打开它的 Session，不插入 @ 或打开成员名片', async () => {
+    const onOpenMemberProfile = vi.fn()
+    const onMentionMember = await renderList({ onOpenMemberProfile })
+    const name = harness.container.querySelector('[data-msg-id="m-claude"] button.msg-sender-link')
+    expect(name?.textContent).toBe('Claude 5')
+    const heading = name!.closest('.msg-bubble-heading')!
+    const bubble = heading.nextElementSibling!
+    expect(heading).not.toBeNull()
+    expect(bubble.contains(name)).toBe(false)
+    expect(bubble.textContent).toBe('hi from claude')
+    expect(heading.querySelector('.msg-reply-summary')?.textContent).toContain('hi from alice')
+    await act(async () => { name!.dispatchEvent(new MouseEvent('click', { bubbles: true })) })
+    await vi.waitFor(() => expect(openAgentSession).toHaveBeenCalledWith('u-claude'))
+    expect(onMentionMember).not.toHaveBeenCalled()
+    expect(onOpenMemberProfile).not.toHaveBeenCalled()
+    expect(harness.container.querySelector('[data-msg-id="m-alice"] button.msg-sender-link')).toBeNull()
+  })
+
   it('在群的人和 agent:以他的 id 和名字插 @,并吞掉原生菜单', async () => {
     const onMentionMember = await renderList()
     expect(rightClick(avatarOf('m-alice'))).toBe(true)
@@ -79,7 +99,7 @@ describe('右键群聊消息头像 → @ 他', () => {
 
   it('自己、已退群的人不 @,原生菜单照常(正对照:同一列表里 Alice 能 @)', async () => {
     const onMentionMember = await renderList()
-    expect(rightClick(avatarOf('m-mine'))).toBe(false)
+    expect(harness.container.querySelector('[data-msg-id="m-mine"] [data-message-sender-id]')).toBeNull()
     expect(rightClick(avatarOf('m-gone'))).toBe(false)
     expect(onMentionMember).not.toHaveBeenCalled()
     expect(rightClick(avatarOf('m-alice'))).toBe(true)
@@ -111,8 +131,8 @@ describe('右键群聊消息头像 → @ 他', () => {
 })
 
 // owner 10-25:Telegram 式头像 —— 一组连续消息只在组尾画一个头像(sticky 贴滚动区底边),组首留标记、其余留占位。
-describe('group avatar sits on the last message of a run', () => {
-  it('a run of three from one sender draws one avatar, on the last row; single messages keep their own', async () => {
+describe('Agent group messages omit avatars', () => {
+  it('every received message keeps its sender label while avatar slots disappear', async () => {
     const run: MessageItem[] = [
       message({ id: 'r-1', seq: 1, sender_user_id: 'u-alice', content: 'one' }),
       message({ id: 'r-2', seq: 2, sender_user_id: 'u-alice', content: 'two' }),
@@ -128,9 +148,11 @@ describe('group avatar sits on the last message of a run', () => {
       selectMode: false, selectedIds: new Set(), onToggleSelect: noop, onEnterSelectMode: noop,
     }
     await renderWithAppProviders(harness, createElement(MessageList, { rows, rowProps, resetKey: 'chat-run' }))
-    const avatarIn = (id: string) => harness.container.querySelector(`[data-msg-id="${id}"] [data-message-sender-id]`)
-    expect([avatarIn('r-1'), avatarIn('r-2'), avatarIn('r-3') !== null, avatarIn('r-4') !== null]).toEqual([null, null, true, true])
-    expect(harness.container.querySelector('[data-msg-id="r-1"] [data-avatar-group-top]')).not.toBeNull()
-    expect(harness.container.querySelector('[data-msg-id="r-2"] [data-avatar-group-top]')).toBeNull()
+    for (const id of ['r-1', 'r-2', 'r-3', 'r-4']) {
+      const row = harness.container.querySelector(`[data-msg-id="${id}"]`)!;
+      expect(row.querySelector('[data-message-sender-name]')).not.toBeNull()
+      expect(row.querySelector('[data-avatar-group-top]')).toBeNull()
+      expect(row.querySelector('img')).toBeNull()
+    }
   })
 })

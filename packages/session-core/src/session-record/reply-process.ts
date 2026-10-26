@@ -11,12 +11,12 @@ export function replyItems(turn: TranscriptTurn): TranscriptItem[] {
   return turn.items.flatMap(expand);
 }
 
-export function replySource(turn: TranscriptTurn): DeliveryReadFacts | null {
+export function replySource(turn: TranscriptTurn, options: { includeThreads?: boolean } = {}): DeliveryReadFacts | null {
   const input = turn.items.filter(item => item.kind === 'message' && item.role === 'user').at(-1);
   if (input?.kind !== 'message') return null;
   const envelope = readDeliveryEnvelope(input.text);
   const facts = envelope?.segments.length === 1 ? envelope.segments[0]?.facts : null;
-  return facts?.route === 'chat' && facts.messageId && facts.chat && !facts.thread && !facts.whisperTo ? facts : null;
+  return facts?.route === 'chat' && facts.messageId && facts.chat && (options.includeThreads || !facts.thread) && !facts.whisperTo ? facts : null;
 }
 
 function sourceChatMatches(facts: DeliveryReadFacts, chatId: unknown): boolean {
@@ -64,7 +64,7 @@ export function replyProcess(turn: TranscriptTurn, before?: string): ReplyProces
   return result;
 }
 
-function sentMessageId(item: McpToolCall): string | null {
+export function sentMessageId(item: McpToolCall): string | null {
   const parse = (raw: unknown): string | null => {
     if (typeof raw === 'string') {
       const sent = /^(?:sent|replied) \(id=(?:msg:)?([a-f0-9-]{36})\)$/.exec(raw);
