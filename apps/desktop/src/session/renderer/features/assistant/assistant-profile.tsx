@@ -82,8 +82,6 @@ const ProfileHome = observer(function ProfileHome({ context, openCustomize = fal
   const apps = usePhoneRead(panel ? `profile-apps|${context.assistant.id}` : null, () => readAssistantPanelIntegrations(panel!, i18n.language), 'read application connections');
   const chat = useChatChannels();
   const counts = apps.state === 'ok' && (chat.status === 'ready' || chat.status === 'not_open') ? assistantApplicationCounts(apps.data.items, apps.data.configured, apps.data.statuses, chat.list) : null;
-    ? new Intl.DateTimeFormat(i18n.language, { year: 'numeric', month: 'long', day: 'numeric' }).format(new Date(assistant.created_at))
-    : null;
   const chip = persona.preset ? t(`customize.preset.${persona.preset}`) : persona.rest ? t('customize.custom') : t('customize.setCharacter');
   return (
     <div className="ta-page" data-testid="assistant-profile">

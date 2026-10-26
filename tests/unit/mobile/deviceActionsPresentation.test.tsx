@@ -9,7 +9,7 @@ import { UI_EVENTS } from '../../../apps/desktop/src/lib/uiEvents'
 import { clickElement, createReactHarness } from '../../support/testHarness'
 
 const mocks = vi.hoisted(() => ({ invoke: vi.fn(), reload: vi.fn(), state: { supported: true, platform: 'darwin', denyAll: false, groups: [], recent: [] } as DeviceActionsState }))
-vi.mock('../../../apps/desktop/src/platform', () => ({ platform: { kind: 'electron', systemPermissions: ['notifications'], checkSystemPermission: async () => 'granted', subscribeAppForeground: () => () => {} } }))
+vi.mock('../../../apps/desktop/src/platform', () => ({ platform: { kind: 'electron', capabilities: { agentRuntime: false }, systemPermissions: ['notifications'], checkSystemPermission: async () => 'granted', subscribeAppForeground: () => () => {} } }))
 vi.mock('../../../apps/desktop/src/mobile/phone-device/PhonePermissionsList', () => ({ PhonePermissionsList: () => null }))
 vi.mock('../../../apps/desktop/src/platform/desktopIpc', () => ({ desktopIpc: () => ({ invoke: mocks.invoke }) }))
 vi.mock('../../../apps/desktop/src/hooks/useThisDeviceActions', () => ({ useThisDeviceState: () => ({ state: mocks.state, reload: mocks.reload }) }))
