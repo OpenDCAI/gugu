@@ -1,3 +1,5 @@
+import { createPhoneAssistantWorkOutbox } from './phone-assistant-work-outbox.mjs'
+import { createPhoneAssistantWork } from './phone-assistant-work.mjs'
 import { randomUUID } from 'node:crypto'
 import { mkdir } from 'node:fs/promises'
 import { join } from 'node:path'
@@ -50,6 +52,7 @@ export async function startPhoneAgentHost(initialConfig, { runTurn, cancelTurn, 
   let ready = false
   let signingOut = false
   let rpcHost = null
+  let workPump = null
   let heartbeatTimer = null
   let reconciliationTimer = null
   let commandTick = null
@@ -85,7 +88,7 @@ export async function startPhoneAgentHost(initialConfig, { runTurn, cancelTurn, 
     const wasReady = ready
     ready = startupComplete && authenticated && rpcConnected && heartbeatHealthy && !stopped && !signingOut
     publish()
-    if (ready && !wasReady) setImmediate(() => { void drain().catch((error) => warn(error.message)) })
+    if (ready && !wasReady) setImmediate(() => { void drain().catch((error) => warn(error.message)); void workPump?.kick().catch(error=>warn(error.message)) })
   }
   const restoreLogger = setCoreLoggerFactory((scope) => Object.fromEntries(['debug', 'info', 'warn', 'error'].map((level) => [level, (_fields, message) => emit({ type: 'host_log', ownerId, level, message: `${scope}: ${message}` })])))
   const recordRequestFailure = (failure) => {
@@ -361,7 +364,7 @@ export async function startPhoneAgentHost(initialConfig, { runTurn, cancelTurn, 
         phoneWebTool({ agent, job, authorize: authorizeReply }),
         ...phoneMemoryTools({ agent, job, store, authorize: authorizeReply }),
         ...skillTurn.tools,
-        ...createPhoneSessionTools({ agent, job, cloud, store, deviceId, requester: rpcHost.requester, invoke, authorize: authorizeReply, emit }),
+        ...createPhoneSessionTools({ agent, job, cloud, store, deviceId, work, requester: rpcHost.requester, invoke, authorize: authorizeReply, emit }),
         ...actions.tools({ agent, job }),
       ]
       const unconfirmedHistory = Object.values(store.state.jobs).some((previous) => previous.id !== job.id && previous.agentUserId === agent.agentUserId && (previous.status === 'interrupted' || previous.errorCode === 'execution_unknown' || previous.confirmationResult?.code === 'execution_unknown'))
@@ -486,8 +489,12 @@ export async function startPhoneAgentHost(initialConfig, { runTurn, cancelTurn, 
     onSettled: () => { setImmediate(() => { void drain().catch((error) => warn(error.message)) }) },
   })
 
+  const work=createPhoneAssistantWork({ownerId,deviceId,instanceId,cloud,store,isReady:()=>ready && !stopped && !signingOut,
+    invoke:(...args)=>invoke(...args),kick:()=>{void workPump?.kick().catch(error=>warn(error.message))}})
+  workPump=createPhoneAssistantWorkOutbox({cloud,ownerId,deviceId,instanceId,isReady:()=>ready && !stopped && !signingOut,requester:()=>rpcHost?.requester,receive:work.receive,warn:detail=>warn(`work delivery: ${detail.code}`)})
   const invoke = async (channel, args, requestId, source = { kind: 'device-rpc' }) => {
     if (!ready || stopped || signingOut) throw Object.assign(new Error('手机宿主尚未就绪'), { code: 'host_not_ready' })
+    if(channel==='assistantWork.deliver') return work.receive(args[0])
     const configuredSkills = await skills.invoke(channel, args, requestId, source)
     if (configuredSkills) return configuredSkills.value
     const attached = await attachments.invoke(channel, args)
@@ -495,10 +502,12 @@ export async function startPhoneAgentHost(initialConfig, { runTurn, cancelTurn, 
     const task = await taskApi(channel, args, requestId, source)
     if (task) return task.value
     const [caller, action] = args
-    if (channel.startsWith('agentSession.')) {
+    const preparingWork=channel==='assistantWork.prepare'
+    if (preparingWork || channel.startsWith('agentSession.')) {
       if (!caller || typeof caller !== 'object' || !action || typeof action !== 'object') throw new Error('caller 和 action 是必填的')
       required(caller.deviceId, 'caller deviceId'); uuid(caller.sessionId, 'caller sessionId')
-      const name = channel.slice('agentSession.'.length)
+      const name = preparingWork ? 'spawn' : channel.slice('agentSession.'.length)
+      if(preparingWork && !action.assistant_work) throw new Error('Assistant work prepare requires its host intent')
       if (action.action !== name) throw new Error('session action 与 channel 不一致')
       const inputDataProof = trustedSourceProof(source, caller)
       if (name === 'spawn') return provision(requestId, action, caller, inputDataProof)
@@ -523,9 +532,9 @@ export async function startPhoneAgentHost(initialConfig, { runTurn, cancelTurn, 
         const targets = action.session_ids.map(findSession)
         const recipients = []
         for (const agent of targets) {
-          const id = stableId('phone-session-message', requestId, agent.sessionId)
+          const id = action.client_message_id ? uuid(action.client_message_id,'client_message_id') : stableId('phone-session-message', requestId, agent.sessionId)
           agent.knownSessions ??= {}; agent.knownSessions[caller.sessionId] = caller.deviceId
-          await admit({ id, agentUserId: agent.agentUserId, ...(inputDataProof ? { inputDataProof } : {}), prompt: buildSessionDirectEnvelope({ senderSessionId: caller.sessionId, senderTitle: caller.name, messageId: id, content, at: formatDeliveryTimestamp(new Date().toISOString()), then: action.then, inReplyTo: action.reply_to_message_id }), route: { kind: 'session-direct', caller, sourceMessageId: id } })
+          await admit({ id, agentUserId: agent.agentUserId, ...(inputDataProof ? { inputDataProof } : {}), prompt: buildSessionDirectEnvelope({ senderSessionId: caller.sessionId, senderTitle: caller.name, messageId: id, content, at: formatDeliveryTimestamp(action.client_message_at ?? new Date().toISOString()), then: action.then, inReplyTo: action.reply_to_message_id }), route: { kind: 'session-direct', caller, sourceMessageId: id } })
           recipients.push({ to: `session:${agent.sessionId}`, status: 'delivered', message_id: id })
         }
         return { recipients }
@@ -590,6 +599,7 @@ export async function startPhoneAgentHost(initialConfig, { runTurn, cancelTurn, 
         setImmediate(() => { void drain().catch((error) => warn(error.message)) })
       }
       lastHeartbeatAt = Date.now(); heartbeatHealthy = true; healthErrors.heartbeat = null; updateReadiness()
+      void workPump?.kick().catch(error=>warn(error.message))
       for (const agent of agents()) await report(agent).catch((error) => warn(error.message))
     })().catch((error) => {
       if (!stopped && !signingOut) { heartbeatHealthy = false; healthErrors.heartbeat = { message: error.message, code: error.code ?? null }; updateReadiness() }
@@ -611,7 +621,7 @@ export async function startPhoneAgentHost(initialConfig, { runTurn, cancelTurn, 
   const close = () => {
     if (closing) return closing
     stopped = true; ready = false; abort.abort(new Error('手机宿主已停止'))
-    clearInterval(heartbeatTimer); clearInterval(reconciliationTimer)
+    clearInterval(heartbeatTimer); clearInterval(reconciliationTimer); workPump?.close()
     if (activeJob) cancelTurn(store.state.agents[activeJob.agentUserId]?.sessionId)
     // host_stop and native pipe EOF can arrive while the first cleanup is awaiting I/O.
     // Every caller must join it; EOF may terminate the process as soon as close resolves.
