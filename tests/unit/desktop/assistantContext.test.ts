@@ -62,7 +62,9 @@ it.each(['computer', 'cloud'] as const)('keeps the complete %s handbook retrieva
     await mkdir(join(root, '.claude'))
     const instructions = assistantHomePaths(root, cwd, kind).instructions
     const full = assistantGuide(kind)
-    await writeFile(instructions, `Owner instructions before\n${full}\nOwner instructions after`)
+    const outdated = full.replaceAll('profile_rules: 2', 'profile_rules: 1')
+    expect(outdated).toContain('profile_rules: 1')
+    await writeFile(instructions, `Owner instructions before\n${outdated}\nOwner instructions after`)
     await writeFile(join(cwd, 'memory.md'), 'durable owner memory')
     await refreshAssistantContext(cwd, root, kind, root)
     const brief = await readFile(instructions, 'utf8')
@@ -72,6 +74,12 @@ it.each(['computer', 'cloud'] as const)('keeps the complete %s handbook retrieva
     expect(brief).toContain('宿主自动补齐执行约定')
     expect(brief).toContain('读写记忆/每日首聊先检查关于你')
     expect(full).toContain('已有账号同样检查，不合格式就自主整理')
+    // An upgrade must expose the version gate even after today's first conversation.
+    expect(brief).toContain('每次对话核 profile_rules: 2')
+    expect(brief).not.toContain('profile_rules: 1')
+    expect(brief).toContain('缺失/不同先查，核妥才记版本')
+    expect(brief).toContain('寒暄也核档案版本')
+    expect(full).toContain('即使当天已首聊，规矩更新后的第一次对话也先检查')
     // Both the resident instructions and the on-demand handbook carry the owner-facing boundary.
     for (const text of [brief, full]) {
       expect(text).toContain('不展示会话、work、设备、job 的内部编号')

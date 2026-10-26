@@ -40,7 +40,7 @@ describe('assistantGuide', () => {
       const brief = assistantBrief(kind, '/assistant/reference.md', '/assistant/memory')
       const guide = assistantGuide(kind)
       expect(brief).toContain('读写记忆/每日首聊先检查关于你')
-      expect(brief).toContain('寒暄仅保留每日档案检查')
+      expect(brief).toContain('寒暄也核档案版本')
       expect(guide).toContain('# 关于你（owner-profile.md）')
       expect(guide).toContain('正文开头先用「你」写 1～3 句事实摘要')
       expect(guide).toContain('身份、正在做的事、最近重点')
@@ -51,6 +51,28 @@ describe('assistantGuide', () => {
       expect(guide).toContain('已有账号同样检查，不合格式就自主整理')
       expect(guide).toContain('不等本人要求整理，合规就不重写')
     }
+  })
+
+  it('rechecks changed profile rules on the next conversation and persists only verified reviews', () => {
+    for (const kind of ['cloud', 'computer'] as const) {
+      const brief = assistantBrief(kind, '/assistant/.gugu-assistant-reference.md', '/assistant/memory')
+      const guide = assistantGuide(kind)
+      for (const prompt of [brief, guide]) {
+        expect(prompt).toContain('每次对话核 profile_rules: 2')
+        expect(prompt).toContain('缺失/不同先查，核妥才记版本')
+      }
+      expect(brief).toContain('寒暄也核档案版本')
+      expect(brief.length).toBeLessThanOrEqual(kind === 'computer' ? 2114 : 2136)
+      expect(guide).toContain('即使当天已首聊，规矩更新后的第一次对话也先检查')
+      expect(guide).toContain('owner-profile.md 的 YAML 头用 profile_rules 记录已核对的版本')
+      expect(guide).toContain('每次对话先读该值，不靠对话回忆')
+      expect(guide).toContain('不写进正文、name、description 或索引摘要')
+      expect(guide).toContain('只读版本字段不算正文读写')
+      expect(guide).toContain('回读确认合规后才写 profile_rules: 2')
+      expect(guide).toContain('读取、整理或保存失败不标记通过，下次对话重试')
+      expect(guide).toContain('正文已合规只补版本，不改事实')
+    }
+    expect(ASSISTANT_CONTEXT_CORE.join('\n').length).toBeLessThanOrEqual(1267)
   })
 
   it('frames delegated work as tasks and tools without person-like worker terminology', () => {
