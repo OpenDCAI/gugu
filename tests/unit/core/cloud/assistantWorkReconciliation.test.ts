@@ -98,12 +98,12 @@ describe('unfinished delivery reconciliation',()=>{
     await f.reconciler.kick()
     expect(f.rpc).toHaveBeenCalledWith('assistant_work_owner_delivered',expect.objectContaining({p_receipt_kind:'abandonment_notice'}))
   })
-  it('ignores abandoned ordinary progress and groups terminal notices by work and reason',async()=>{
+  it('groups notices by work and reason while keeping a late completed result distinct from a lost question',async()=>{
     const f=fixture([])
     f.abandoned.mockResolvedValue(['progress','completed','question','failed'].map((kind,index)=>({kind,message_id:`lost-${index}`,work_id:'work',assistant_user_id:'assistant',to_device_id:'cloud',abandoned_reason_code:'DELIVERY_TIMEOUT'})) as never)
     await f.reconciler.kick()
-    expect(f.notify).toHaveBeenCalledOnce()
-    expect(f.notify.mock.calls[0]?.[1]).toContain('work-notice:assistant:work:')
+    expect(f.notify).toHaveBeenCalledTimes(2)
+    expect(f.notify.mock.calls.map(row=>row[1])).toEqual(expect.arrayContaining([expect.stringContaining(':completed:'),expect.stringContaining(':handoff:')]))
     expect(f.rpc.mock.calls.filter(([name])=>name==='assistant_work_owner_delivered')).toHaveLength(3)
   })
   it('refuses missing owner posts and isolates one receipt failure from later proofs',async()=>{
