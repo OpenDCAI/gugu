@@ -24,6 +24,7 @@ export type InstalledRowNotice =
   | { kind: 'update'; version: string; releaseNotes: string }
   | { kind: 'yanked'; reason: string; installable: string | null }
   | { kind: 'deprecated'; note: string | null; replacedBy: string | null }
+  | { kind: 'forkBehind'; upstream: string; behind: number; commit: string }
   | { kind: 'gone' };
 
 /** 更新说明的第一行,去掉 Markdown 的列表点 / 标题井号 —— 一行里只放得下一句话。 */
@@ -43,13 +44,27 @@ export function InstalledRowNoticeLine({
   translate,
   onInstallVersion,
   onBrowseReplacement,
+  onCopyForkPrompt,
 }: {
   notice: InstalledRowNotice;
   installedVersion: string;
   translate: SessionTranslate;
   onInstallVersion?: (version: string) => void;
   onBrowseReplacement: () => void;
+  onCopyForkPrompt?: () => void;
 }) {
+  if (notice.kind === 'forkBehind') {
+    return (
+      <span className="xp-note">
+        <span>{translate('extensions.forkBehind', { version: notice.upstream, count: notice.behind })}</span>
+        {onCopyForkPrompt && (
+          <button type="button" className="xp-link" onClick={onCopyForkPrompt}>
+            {translate('extensions.copyPrompt')}
+          </button>
+        )}
+      </span>
+    );
+  }
   if (notice.kind === 'update') {
     const summary = firstLine(notice.releaseNotes);
     return (

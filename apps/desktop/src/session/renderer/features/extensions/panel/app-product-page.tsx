@@ -58,6 +58,7 @@ import { AppGivenSection } from './app-given-section';
 import { AppLifecycleButton, type AppLifecycle } from './app-lifecycle-button';
 import { AppMoreMenu } from './app-more-menu';
 import { AppShelfRow } from './app-shelf';
+import { AppVariantList, type AppVariantRow } from './app-variant-list';
 import { ExtensionMonogram } from './extension-monogram';
 import type { ExtensionPendingAction } from './extension-pending';
 import { InstalledRowNoticeLine, programFailureText, type InstalledRowNotice } from './installed-extension-row';
@@ -104,6 +105,9 @@ export function AppProductPage({
   readOnly = false,
   justInstalled = false,
   notice,
+  variants,
+  onSwitchVariant,
+  onCopyForkPrompt,
   revoked = [],
   pendingPermissions = [],
   agentStatus,
@@ -143,6 +147,9 @@ export function AppProductPage({
   justInstalled?: boolean;
   /** 云端那口对装着这一版要说的话(有新版 / 撤回 / 停止维护)。 */
   notice?: InstalledRowNotice;
+  variants?: { active: string; variants: readonly AppVariantRow[] };
+  onSwitchVariant?: (name: string) => void;
+  onCopyForkPrompt?: (variant: AppVariantRow, update?: Extract<InstalledRowNotice, { kind: 'forkBehind' }>) => void;
   revoked?: readonly string[];
   pendingPermissions?: readonly string[];
   agentStatus?: ExtensionAgentStatus;
@@ -740,13 +747,16 @@ export function AppProductPage({
       ) : null}
       {installed && notice && notice.kind !== 'update' ? (
         <fieldset disabled={readOnly} className="contents">
-          <div className="mk-banner is-warn">
+          <div className={cn('mk-banner', notice.kind !== 'forkBehind' && 'is-warn')}>
             <InstalledRowNoticeLine
               notice={notice}
               installedVersion={installed.version}
               translate={translate}
               onInstallVersion={(version) => onInstallVersion({ extensionId: installed.id, version })}
               onBrowseReplacement={() => onBrowseReplacement?.(installed.id)}
+              onCopyForkPrompt={notice.kind === 'forkBehind' && variants && onCopyForkPrompt
+                ? () => { const active = variants.variants.find((variant) => variant.name === variants.active); if (active) onCopyForkPrompt(active, notice); }
+                : undefined}
             />
           </div>
         </fieldset>
@@ -760,6 +770,16 @@ export function AppProductPage({
 
       <div className="mk-dbody">
         <div className="mk-dmain">
+          {installed && variants && onSwitchVariant && onCopyForkPrompt && (
+            <AppVariantList
+              active={variants.active}
+              variants={variants.variants}
+              disabled={readOnly || pending !== undefined}
+              translate={translate}
+              onSwitch={onSwitchVariant}
+              onCopy={onCopyForkPrompt}
+            />
+          )}
           {screenshots}
           {about}
           {ask}
