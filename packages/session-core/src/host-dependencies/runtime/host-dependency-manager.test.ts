@@ -2,6 +2,7 @@ import { err, ok } from '@gugu/session-shared';
 import { describe, expect, it, vi } from 'vitest';
 import type { IExecutionContext } from '../../exec/execution-context';
 import { HostDependencyManager } from './host-dependency-manager';
+import { createReplicaLedger, EMPTY_MANAGED_INSTALL_DIRS } from './ledger';
 import type { InstallMethodDetector } from './method-detection';
 import { nextHostDependency, probeAndSettle } from './test-support';
 import { normalizeSelection } from './types';
@@ -279,6 +280,49 @@ describe('HostDependencyManager cached path invalidation', () => {
 });
 
 describe('HostDependencyManager probe env (#6186)', () => {
+  it.each(['macos', 'linux', 'windows'] as const)('discovers a newly installed agent using the latest host ledger on %s (#465)', async (platform) => {
+    const bin = platform === 'windows' ? 'C:\\gugu\\agents\\mise-bin\\codex.cmd' : '/gugu/agents/mise-bin/codex';
+    const initialEnv = { PATH: platform === 'windows' ? 'C:\\Windows\\System32' : '/usr/bin:/bin' };
+    const installedEnv = { PATH: `${platform === 'windows' ? 'C:\\gugu\\agents\\mise-bin;' : '/gugu/agents/mise-bin:'}${initialEnv.PATH}` };
+    const ledger = createReplicaLedger();
+    const sync = (probeEnv: Record<string, string>) => ledger.apply({
+      ownedDirs: EMPTY_MANAGED_INSTALL_DIRS,
+      entries: [{ id: 'codex', selection: normalizeSelection({ kind: 'auto' }), installRecord: null, probeEnv }],
+    });
+    const ctx = makeCtx(async () => { throw new Error('not found in inherited PATH'); });
+    (ctx as { supportsLocalSpawn: boolean }).supportsLocalSpawn = true;
+    vi.mocked(ctx.exec).mockImplementation(async (command, args = [], options = {}) => {
+      if (command === 'realpath') return { stdout: `${args[0]}\n`, stderr: '' };
+      if (options.env?.PATH !== installedEnv.PATH) throw new Error('not found in inherited PATH');
+      if (command === 'which' || command === 'where') return { stdout: `${bin}\n`, stderr: '' };
+      if (command === bin) return { stdout: 'codex-cli 1.2.3\n', stderr: '' };
+      throw new Error('unexpected command');
+    });
+    const manager = new HostDependencyManager(ctx, {
+      platform,
+      dependencies: [TEST_DEPENDENCIES.find(d => d.id === 'codex')!],
+      installMethodDetector: unknownDetector,
+      ledger,
+      resolveProbeEnv: async descriptor => ledger.probeEnvFor(descriptor.id),
+    });
+    sync(initialEnv);
+    expect((await manager.probe('codex', { waitForInstallations: true })).status).toBe('missing');
+    sync(installedEnv);
+    expect(await manager.probe('codex', { waitForInstallations: true })).toMatchObject({
+      status: 'available', path: bin, version: '1.2.3',
+    });
+    expect(manager.getHostDependency('codex')?.installations).toEqual([
+      expect.objectContaining({ pathEntry: bin, status: 'available', version: '1.2.3' }),
+    ]);
+    expect(await manager.probeOverride('codex', { cli: 'codex' })).toMatchObject({
+      realpath: bin, status: 'available', version: '1.2.3',
+    });
+    expect(await manager.isPathResolutionConsistent('codex')).toBe(true);
+    // A later host snapshot must also remove a command that is no longer present.
+    sync(initialEnv);
+    expect((await manager.probe('codex', { waitForInstallations: true })).status).toBe('missing');
+  });
+
   const copilotLike = [{ ...TEST_DEPENDENCIES.find((d) => d.id === 'codex')!, probeEnv: { COPILOT_AUTO_UPDATE: 'false' } }];
   const versionCtx = (supportsLocalSpawn: boolean) => {
     const ctx = makeCtx(async (command, args = []) => {
@@ -527,7 +571,7 @@ describe('HostDependencyManager install', () => {
       }),
     );
     // Primary path-resolution which must happen synchronously.
-    expect(ctx.exec).toHaveBeenCalledWith('which', ['path-only-agent'], { timeout: 5000 });
+    expect(ctx.exec).toHaveBeenCalledWith('which', ['path-only-agent'], { timeout: 5000, env: undefined });
     // The binary itself must never be executed during dependency probing.
     expect(ctx.exec).not.toHaveBeenCalledWith('/bin/path-only-agent', expect.anything(), expect.anything());
   });
