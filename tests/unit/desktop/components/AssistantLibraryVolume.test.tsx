@@ -8,7 +8,7 @@ import { clickElement, createReactHarness, renderWithAppProviders, typeInto } fr
 import '../../../../apps/desktop/src/i18n/registerAssistantCatalog'
 
 const savedNotice = vi.hoisted(() => vi.fn(async () => null))
-vi.mock('@/components/assistant/assistant-panel-cloud',() => ({ queueAssistantAppChange: savedNotice }))
+vi.mock('@/lib/assistantPanelBridge',() => ({ assistantPanelAccountId: () => null,requireAssistantPanelBridge: () => ({ queueNotice: savedNotice }) }))
 let harness: ReturnType<typeof createReactHarness>
 const notifications = vi.hoisted(() => new Set<(notice: unknown) => void>())
 vi.mock('../../../../apps/desktop/src/mobile/agent-watch/sessionpage-rpc', async importOriginal => ({

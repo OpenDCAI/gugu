@@ -16,7 +16,7 @@ export function assertAssistantPanelOwner(expectedOwner: string | null): asserts
   if (!expectedOwner || accountId() !== expectedOwner) throw new AssistantPanelError('account-changed','Assistant panel account changed')
 }
 
-async function personalAssistant(owner: string): Promise<string | null> {
+export async function personalAssistant(owner: string): Promise<string | null> {
   assertAssistantPanelOwner(owner)
   const { data,error } = await identityDb.from('agent_provisions').select('agent_user_id,device_id,member_key,phase,created_at')
     .eq('owner_user_id',owner).eq('member_key','assistant').abortSignal(AbortSignal.timeout(10_000))

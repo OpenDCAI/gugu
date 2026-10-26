@@ -1,7 +1,5 @@
 import { useQuery } from '@tanstack/react-query';
-import { useMyAssistant } from '@/lib/myAssistant';
-import { chatDb } from '@/lib/supabase';
-import { getRendererSession } from '@/lib/sessionPublication';
+import { requireAssistantPanelBridge, useAssistantPanelAccountId } from '@/lib/assistantPanelBridge';
 import { observer } from 'mobx-react-lite';
 import { useCallback, useMemo, type ReactNode } from 'react';
 import { useTranslation } from 'react-i18next';
@@ -47,16 +45,14 @@ export function useHomeLibraryHost(home: AssistantHomePlace): LibraryHost {
     [local, deviceId, label, online, lastSeenAt, hostKind]
   );
   const shell = useAssistantShell();
-  const owner = getRendererSession()?.user.id ?? null;
-  const identity = useMyAssistant(owner,null);
-  const assistantId = shell?.assistant?.id ?? identity.agentId;
+  const owner = useAssistantPanelAccountId();
+  const identity = useQuery({ queryKey: ['assistant-panel-identity',owner],enabled: !!owner && !shell?.assistant?.id,
+    queryFn: () => requireAssistantPanelBridge().personalAssistant(owner!),staleTime: Infinity });
+  const assistantId = shell?.assistant?.id ?? identity.data ?? null;
   const folder = useQuery({
     queryKey: ['assistant-panel-folder',owner,assistantId],enabled: !!owner && !!assistantId && !shell?.chatId,
     queryFn: async () => {
-      const { data,error } = await chatDb.rpc('open_dm',{ p_target_user_id: assistantId! });
-      if (getRendererSession()?.user.id !== owner) throw new Error('Assistant account changed');
-      if (error || typeof data !== 'string') throw error ?? new Error('Assistant private folder is unavailable');
-      return data;
+      return requireAssistantPanelBridge().privateChat(owner!,assistantId!);
     },staleTime: Infinity,
   });
   const machine = useCloudAssistantFiles(assistantId,shell?.chatId ?? folder.data ?? null,home.deviceId);

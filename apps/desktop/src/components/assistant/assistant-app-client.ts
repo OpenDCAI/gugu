@@ -9,6 +9,7 @@ import { libraryHost } from './assistant-library-client';
 import type { AssistantMachine } from '../../session/renderer/features/assistant/assistant-machine-core';
 import { rendererLogger } from '../../lib/log';
 import { cachedDevicesAccount } from '../../store/devicesCache';
+import { assistantPanelAccountId, requireAssistantPanelBridge } from '../../lib/assistantPanelBridge';
 import { assistantPanelLibrary } from './assistant-panel-library';
 import { ASSISTANT_PANEL_CHANGED } from './assistant-panel-events';
 
@@ -22,7 +23,7 @@ type PanelAPI = {
 };
 
 /** Native React App surface, using the Extension API's member table and wire, without a second SDK. */
-export function assistantAppClient(machine: AssistantAppMachine | null | undefined, expectedOwnerId = cachedDevicesAccount(), onHomeDevice = false) {
+export function assistantAppClient(machine: AssistantAppMachine | null | undefined, expectedOwnerId = machine?.panel?.ownerId ?? assistantPanelAccountId() ?? cachedDevicesAccount(), onHomeDevice = false) {
   if (machine?.panel) {
     const panel = machine.panel;
     const library = assistantPanelLibrary(panel);
@@ -58,7 +59,7 @@ export function assistantAppClient(machine: AssistantAppMachine | null | undefin
   return { ...api, deliver: (event: ExtensionHostEvent) => hub.deliver(event) };
 }
 
-export async function assistantAppProgram<T>(machine: AssistantAppMachine | null | undefined, name: string, args?: Record<string, unknown>, expectedOwnerId = cachedDevicesAccount()): Promise<T> {
+export async function assistantAppProgram<T>(machine: AssistantAppMachine | null | undefined, name: string, args?: Record<string, unknown>, expectedOwnerId = machine?.panel?.ownerId ?? assistantPanelAccountId() ?? cachedDevicesAccount()): Promise<T> {
   const result = await assistantAppClient(machine, expectedOwnerId).callProgram(name, args);
   if (result.isError) throw new Error(result.content.filter(block => block.type === 'text').map(block => block.text).join('\n'), { cause: result });
   if (!result.structuredContent || !('result' in result.structuredContent)) throw new Error('Assistant App program did not return a result');
@@ -69,17 +70,16 @@ export async function publishAssistantAppChange(
   machine: AssistantAppMachine | null | undefined,
   change: Omit<AssistantAppChange, 'operationId'> & { operationId?: string },
   assistantId: string | undefined = undefined,
-  expectedOwnerId = cachedDevicesAccount(),
+  expectedOwnerId = machine?.panel?.ownerId ?? assistantPanelAccountId() ?? cachedDevicesAccount(),
 ): Promise<AssistantPanelReceipt | null> {
-  const { queueAssistantAppChange } = await import('./assistant-panel-cloud');
-  return queueAssistantAppChange({ ...change, operationId: change.operationId ?? crypto.randomUUID() },assistantId,expectedOwnerId);
+  return requireAssistantPanelBridge().queueNotice({ ...change, operationId: change.operationId ?? crypto.randomUUID() },assistantId,expectedOwnerId);
 }
 
 /** Call after a successful state mutation. A failed delivery must not turn a committed save into a fake save failure. */
 export async function reportAssistantAppChange(
   machine: AssistantAppMachine | null | undefined, assistantId: string | undefined,
   change: Omit<AssistantAppChange, 'operationId'> & { operationId?: string },
-  expectedOwnerId = cachedDevicesAccount(),
+  expectedOwnerId = machine?.panel?.ownerId ?? assistantPanelAccountId() ?? cachedDevicesAccount(),
 ): Promise<void> {
   if (machine?.panel && change.resource !== 'pending-work') return;
   void publishAssistantAppChange(machine, change, assistantId, expectedOwnerId).catch(() => {
