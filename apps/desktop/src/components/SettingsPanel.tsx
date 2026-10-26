@@ -103,7 +103,7 @@ export function SettingsPanel({ mobile = false, inline = false, onClose, initial
   const setMobilePane = onPaneChange ?? setInternalPane
   const [detailPage, setDetailPage] = useState<SettingsDetailState>(null)
   const bodyRef = useRef<HTMLDivElement>(null)
-  usePanelScroll(bodyRef, `${activeSection}:${detailPage?.key ?? ''}`)
+  const attachBody = usePanelScroll(bodyRef, `${activeSection}:${detailPage?.key ?? ''}`)
   const [parentSection, setParentSection] = useState<ActiveSection | null>(null)
   const back = () => {
     if (detailPage) return detailPage.back()
@@ -186,19 +186,19 @@ export function SettingsPanel({ mobile = false, inline = false, onClose, initial
               title={detailPage?.title ?? sectionTitle}
               titleLevel={mobile ? 'panel' : undefined}
               leading={mobile || detailPage ? (
-                <IconButton size="lg" aria-label={t(detailPage || parentSection ? 'settings.back' : 'settings.backToMy')} onClick={back}>
+                <IconButton shape="pill" className="bg-foreground/[0.06]" size="lg" aria-label={t(detailPage || parentSection ? 'settings.back' : 'settings.backToMy')} onClick={back}>
                   <ChevronLeft />
                 </IconButton>
               ) : undefined}
               actions={!mobile ? (
                 // @@@1787 owner: ✗ 是桌面弹窗逻辑;移动端出口统一为左上返回箭头(SettingsNav onBack),✗ 只留桌面
-                <IconButton aria-label={t('settings.close')} onClick={onClose}>
+                <IconButton shape="pill" size="lg" className="bg-foreground/[0.06]" aria-label={t('settings.close')} onClick={onClose}>
                   <X />
                 </IconButton>
               ) : undefined}
             />
             {/* @@@6436 内页排版(桌面与手机的内边距差别也在内)全在 settings/settings.css。 */}
-            <div ref={bodyRef} className="gg-settings-body window-no-drag-region">
+            <div ref={attachBody} className="gg-settings-body window-no-drag-region">
               <SettingsDetailNavigation.Provider value={setDetailPage}>{renderSection()}</SettingsDetailNavigation.Provider>
             </div>
           </Pane>

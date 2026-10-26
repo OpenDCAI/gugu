@@ -1,10 +1,11 @@
-import { useLayoutEffect, useRef, type RefObject } from 'react'
+import { useCallback, useLayoutEffect, useRef, useState, type RefObject } from 'react'
 
 /** Keep each index position while a portal or an asynchronously loaded page opens. */
 export function usePanelScroll(body: RefObject<HTMLDivElement | null>, key: string) {
   const positions = useRef(new Map<string, number>())
+  const [element, setElement] = useState<HTMLDivElement | null>(null)
+  const attach = useCallback((node: HTMLDivElement | null) => { body.current = node; setElement(node) }, [body])
   useLayoutEffect(() => {
-    const element = body.current
     if (!element) return
     const target = positions.current.get(key) ?? 0
     let restoring = true
@@ -23,5 +24,6 @@ export function usePanelScroll(body: RefObject<HTMLDivElement | null>, key: stri
       element.removeEventListener('wheel', interact)
       element.removeEventListener('touchstart', interact)
     }
-  }, [body, key])
+  }, [element, key])
+  return attach
 }

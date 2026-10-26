@@ -260,7 +260,7 @@ function AssistantPanel({ context, onCollapse }: { context: AssistantContext; on
   const back = parentRoute(route);
   const innerPage = useAssistantPanelPage();
   const body = useRef<HTMLDivElement>(null);
-  usePanelScroll(body, `${route.tab}:${route.sub ?? ''}:${innerPage?.key ?? ''}`);
+  const attachBody = usePanelScroll(body, `${route.tab}:${route.sub ?? ''}:${innerPage?.key ?? ''}`);
   const labels: Record<PanelTab, string> = {
     today: t('nav.today'),
     tasks: t('nav.tasks'),
@@ -287,7 +287,7 @@ function AssistantPanel({ context, onCollapse }: { context: AssistantContext; on
           <PanelRight />
         </button>
       </div>
-      <div className="ta-panel-body" hidden={taskChat} ref={body}>
+      <div className="ta-panel-body" hidden={taskChat} ref={attachBody}>
         <Page context={context} />
       </div>
       {taskChat ? <ShellSlot name="task-chat" className="ta-task-chat-slot" /> : null}
