@@ -6,6 +6,7 @@ import { Button } from '../ui/Button'
 import { IconButton } from '../ui/IconButton'
 import { Sheet } from '../ui/Sheet'
 import { SearchField } from '../ui/SearchField'
+import { useMobileShell } from '../../hooks/useMobileShell'
 
 /** One chat to pick, drawn as the chat list draws it: `avatar` goes to `Avatar` as it is. */
 export interface ChatPickRow {
@@ -61,6 +62,7 @@ interface ChatPickSheetProps {
  */
 export function ChatPickSheet(props: ChatPickSheetProps) {
   const { t } = useTranslation('messaging')
+  const mobile = useMobileShell()
   const { rows, sections = [], selected, query, actionDisabled = false } = props
   const renderRows = (list: readonly ChatPickRow[]) => list.map((row) => {
     const isSelected = selected.has(row.id)
@@ -71,7 +73,7 @@ export function ChatPickSheet(props: ChatPickSheetProps) {
         className="gg-row"
         data-selected={isSelected || undefined}
         onClick={() => props.onToggle(row.id)}
-        style={{ display: 'flex', alignItems: 'center', padding: '8px 16px', cursor: 'pointer', gap: '10px' }}
+        style={{ display: 'flex', alignItems: 'center', padding: '8px 16px', cursor: 'pointer', gap: mobile ? 'var(--spacing-lg)' : '10px' }}
       >
         <div
           style={{
@@ -118,7 +120,7 @@ export function ChatPickSheet(props: ChatPickSheetProps) {
     >
       <div
         style={{
-          padding: '14px 16px',
+          padding: mobile ? 'var(--spacing-sm) var(--spacing-lg)' : '14px 16px',
           borderBottom: '1px solid var(--border-color)',
           display: 'flex',
           alignItems: 'center',
@@ -131,7 +133,7 @@ export function ChatPickSheet(props: ChatPickSheetProps) {
         </IconButton>
       </div>
 
-      <div style={{ padding: '10px 16px', borderBottom: '1px solid var(--border-color)', display: 'flex', flexDirection: 'column', gap: 8 }}>
+      <div style={{ padding: mobile ? 'var(--spacing-sm) var(--spacing-lg)' : '10px 16px', borderBottom: '1px solid var(--border-color)', display: 'flex', flexDirection: 'column', gap: 8 }}>
         {props.above}
         <SearchField value={query} onChange={(event) => props.onQuery(event.target.value)} placeholder={props.placeholder} />
       </div>
@@ -150,7 +152,7 @@ export function ChatPickSheet(props: ChatPickSheetProps) {
         ))}
       </div>
 
-      <div style={{ padding: '10px 16px', borderTop: '1px solid var(--border-color)', display: 'flex', flexDirection: 'column', gap: '6px' }}>
+      <div style={{ padding: mobile ? 'var(--spacing-sm) var(--spacing-lg)' : '10px 16px', borderTop: '1px solid var(--border-color)', display: 'flex', flexDirection: 'column', gap: mobile ? 'var(--spacing-sm)' : '6px' }}>
         {props.error && <span style={{ fontSize: 'var(--font-body)', color: 'var(--danger)' }}>{props.error}</span>}
         <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
           <span style={{ fontSize: 'var(--font-body)', color: 'var(--text-secondary)', flex: 1 }}>{props.picked}</span>

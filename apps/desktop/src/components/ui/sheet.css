@@ -1,0 +1,26 @@
+/* Portals sit outside the phone shell. data-ta-scope supplies its shared glass
+   tokens; full-screen readers and pickers keep their existing page geometry. */
+.gg-sheet-content[data-sheet-mobile='true'] {
+  background: var(--ta-glass);
+  color: var(--ta-fg);
+  box-shadow: var(--ta-glass-fx);
+  -webkit-backdrop-filter: blur(var(--ta-glass-blur));
+  backdrop-filter: blur(var(--ta-glass-blur));
+}
+
+.gg-sheet-backdrop[data-sheet-mobile='true'] {
+  background: color-mix(in srgb, var(--bg-overlay-modal) 40%, transparent);
+}
+
+.gg-sheet-content[data-sheet-mobile='true'][data-sheet-fullscreen='true'] {
+  background: var(--ta-panel-bg);
+  box-shadow: none;
+}
+
+.gg-sheet-content[data-sheet-mobile='true'] [data-slot='search-field'] {
+  min-height: var(--control-h-touch);
+  padding-inline: var(--spacing-sm);
+  background: var(--ta-glass);
+  border-color: transparent;
+  box-shadow: var(--ta-glass-fx);
+}

@@ -217,18 +217,18 @@ export function MemberPicker({ title, confirmLabel, onConfirm, onClose, initialS
 
   return (
     <div className="flex min-h-0 flex-1 flex-col" data-testid="member-picker">
-      <div className={cn('flex items-center gap-2', mobile ? '!px-3 !pt-3 !pb-2' : '!px-5 !pt-4 !pb-3')}>
+      <div className={cn('flex items-center gap-2', mobile ? '!px-4 !pt-4 !pb-2' : '!px-5 !pt-4 !pb-3')}>
         {mobile ? <IconButton aria-label={t('common.close')} onClick={onClose}><X size={18} /></IconButton> : null}
         <h3 className={cn('m-0 min-w-0 flex-1 truncate text-[length:var(--font-heading)] font-semibold text-[var(--text-primary)]', mobile && 'text-center')}>{title}</h3>
         {mobile ? confirmButton : <IconButton aria-label={t('common.close')} onClick={onClose}><X size={18} /></IconButton>}
       </div>
-      <div className={mobile ? '!px-3 !pb-2' : '!px-5 !pb-2'}>
+      <div className={mobile ? '!px-4 !pb-2' : '!px-5 !pb-2'}>
         <SearchField value={query} onChange={(event) => changeQuery(event.target.value)} onKeyDown={onSearchKeyDown} placeholder={t('createGroup.searchPlaceholder')}
           clearLabel={t('friendSearch.clearSearch')} onClear={() => changeQuery('')} autoFocus={!mobile}
           role="combobox" aria-expanded aria-controls="member-picker-list" aria-activedescendant={visibleRows[activeIndex] ? `member-option-${visibleRows[activeIndex].entry.contact.id}` : undefined} />
       </div>
       {selected.length > 0 ? (
-        <div className={cn('flex shrink-0 gap-2 overflow-x-auto !pb-2', mobile ? '!px-3' : '!px-5')}>
+        <div className={cn('flex shrink-0 gap-2 overflow-x-auto !pb-2', mobile ? '!px-4' : '!px-5')}>
           {selected.map((id) => { const contact = entryOf.get(id)?.contact; if (!contact) return null; return (
             <Button key={id} variant="secondary" size="sm" onClick={() => toggle(id)} aria-label={t('createGroup.removeMember', { name: displayName(contact) })} className="shrink-0 gap-2 !rounded-[var(--radius-capsule)] !pl-1">
               <Avatar name={contact.display_name} avatarUrl={contact.avatar} seed={contact.id} size="xs" isAgent={contact.type === 'agent'} />
@@ -237,7 +237,7 @@ export function MemberPicker({ title, confirmLabel, onConfirm, onClose, initialS
           ) })}
         </div>
       ) : null}
-      {mobile ? <div role="radiogroup" className="flex shrink-0 gap-2 overflow-x-auto !px-3 !pb-2">{sourceButtons}</div> : null}
+      {mobile ? <div role="radiogroup" className="flex shrink-0 gap-2 overflow-x-auto !px-4 !pb-2">{sourceButtons}</div> : null}
       <div className="flex min-h-0 flex-1 border-t border-[var(--border-subtle)]">
         {!mobile ? <nav role="radiogroup" className="flex w-[178px] shrink-0 flex-col gap-1 overflow-y-auto border-r border-[var(--border-subtle)] !p-2">{sourceButtons}</nav> : null}
         <div className="relative flex min-w-0 flex-1 flex-col">
