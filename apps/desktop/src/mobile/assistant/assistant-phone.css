@@ -137,6 +137,7 @@
 .ta-phone .ta-row + .ta-row::before { content: none; }
 .ta-phone .ta-skin .gg-settings-row + .gg-settings-row { border-top: 0; }
 .ta-phone .ta-skin .gg-settings-row { min-height: 56px; padding-inline: 0; }
+.ta-phone .ta-skin .gg-settings-row.device-machine-version { padding: 16px; border-radius: var(--radius-control); }
 .ta-phone .ta-skin .gg-settings-row-title { font-size: var(--font-prose); line-height: var(--lh-prose); }
 .ta-phone .ta-skin .gg-settings-note,
 .ta-phone .ta-skin .gg-settings-row-description { font-size: var(--phone-font-note); line-height: var(--lh-body); }

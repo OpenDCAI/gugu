@@ -175,3 +175,33 @@ it('separates missing grants from unavailable or system-blocked capabilities in 
  expect(group('system-blocked').textContent).toContain('通讯录')
  expect(h.container.textContent).not.toContain('任务 Agent')
 })
+
+it('keeps an online machine online when the selected version is offline', async () => {
+  const online = { ...device(true), device_id: 'beta', tier: 'beta' }
+  const offline = { ...device(false), device_id: 'development', tier: 'development' }
+  await h.render(<DeviceActionsPage device={online} isThisDevice={false} embedded configurations={[online, offline]} />)
+  await clickElement(h.container.querySelector<HTMLElement>('[data-testid="device-configuration-development"]')!)
+  expect(h.container.textContent).not.toContain('这台设备当前离线')
+  expect(h.container.querySelector('[data-testid="settings-device-action-other-calendar"]')!.textContent).toContain('离线')
+  expect(h.container.querySelector('[data-testid="device-configuration-development"]')?.hasAttribute('data-selected')).toBe(true)
+  expect(mocks.invoke).not.toHaveBeenCalled()
+})
+
+it('shows the machine offline note only when every version is offline', async () => {
+  const old = { ...device(false), device_id: 'old' }
+  const recent = { ...device(false), device_id: 'recent' }
+  await h.render(<DeviceActionsPage device={recent} isThisDevice={false} configurations={[recent, old]} />)
+  expect(h.container.textContent).toContain('这台设备当前离线')
+  await clickElement(h.container.querySelector<HTMLElement>('[data-testid="device-configuration-old"]')!)
+  expect(h.container.textContent).toContain('这台设备当前离线')
+})
+
+it('shares permission purpose copy with settings and omits the remote management note', async () => {
+  mocks.state.groups = [{ id: 'calendar', connected: false, blocked: null, actions: [] }]
+  await h.render(<><ThisDeviceActions bare managePermissions /><DeviceActionsPage device={device(true)} isThisDevice={false} /></>)
+  const settings = h.container.querySelector('[data-testid="settings-device-action-group-calendar"] .gg-settings-row-description')?.textContent
+  const remote = h.container.querySelector('[data-testid="settings-device-action-other-calendar"] .gg-settings-row-description')?.textContent
+  expect(settings).toBe('用来查看和管理这台电脑上的日历与事件。')
+  expect(remote).toBe(settings)
+  expect(h.container.textContent).not.toContain('权限在该设备上管理')
+})

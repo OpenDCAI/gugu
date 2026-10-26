@@ -124,3 +124,15 @@ it.each(['prompt','queueBehindTurn'] as const)('%s preserves the next draft type
   await sent
   expect(cell.promptDraft?.text).toBe('Next unsent draft')
 })
+
+it('keeps resource changes hidden for communication input and releases an unadmitted slice after failure', async () => {
+  const { cell, agent } = fixture()
+  const rejected = vi.fn(async () => {})
+  const changes = '<resource_changes>数据：版本0→1\n+ 连接应用 钉钉</resource_changes>'
+  setNativePromptPreparation(async () => ({ text: '', beforeText: changes, accepted: async () => {}, rejected }))
+  agent.prompt = vi.fn(async () => { throw Object.assign(new Error('No session'), { deliveryRejectedBeforeAdmission: true }) })
+  await cell.prompt({ text: 'Scheduled check', origin: 'communication' })
+  expect(vi.mocked(agent.prompt).mock.calls[0]?.[0].prompt).toContainEqual({ type: 'text', text: changes })
+  expect(JSON.stringify([...cell.transcript.history, cell.transcript.activeTurn])).not.toContain('resource_changes')
+  expect(rejected).toHaveBeenCalledOnce()
+})

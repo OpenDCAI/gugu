@@ -137,3 +137,14 @@ it.each(['zh-CN','en-US'])('persists one localized terminal failure until a nati
   await again.inform(failure) // The cloud ack may have been lost before the native receipt.
   expect((await again.prepareText('no replay')).text).toBe('no replay')
 })
+
+it('routes committed integration changes into the resource journal before the next admission without duplicating panel copy', async () => {
+  const world = await fixture()
+  const changed = vi.fn(async () => true)
+  const app = createAssistantPanelApplication(world.binding, { ...world.deps, resourceChanged: changed })
+  const notice: AssistantPanelChange = { ...change('save'), domain: 'notice', operation: 'notice', operation_id: 'connect-dingtalk',
+    payload: { notice: { resource: 'integrations', id: 'dingtalk', operation: 'saved', after: { name: '钉钉' } } } }
+  await app.inform(notice)
+  expect(changed).toHaveBeenCalledWith('connect-dingtalk', notice.payload.notice)
+  expect((await app.prepareText('next message')).text).toBe('next message')
+})
