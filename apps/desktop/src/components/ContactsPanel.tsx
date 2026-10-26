@@ -53,6 +53,8 @@ import { CopyValue } from './CopyValue'
 import { CreateGroupChatForm, MEMBER_PICKER_SHEET } from './CreateGroupChatModal'
 import { ContactsPersonSectionState, ContactsGroupSectionState } from './contacts/ContactsSectionState'
 import { ContactsDeviceSections } from './contacts/ContactsDeviceSections'
+import { contactsAreEmpty } from './contacts/contactsByDevice'
+import { sidebarCountClass } from '../session/renderer/features/sidebar/sidebar-primitives'
 import { ContactGroupAvatar, ContactSearch, SelectionCheckbox } from './contacts/ContactSearch'
 import { ContactsListDock } from './contacts/ContactsListDock'
 import { OwnedAgentNameEditor } from './contacts/OwnedAgentNameEditor'
@@ -460,7 +462,6 @@ function GroupSectionRow({
   )
 }
 
-// ── ContactsThreeSectionSidebar ───────────────────────────────────────────────
 // Replaces ContactsNav + ContactsIndex for desktop. Single scrollable sidebar with
 // 3 collapsible sections: Agent / 个人 / 群组.
 function ContactsThreeSectionSidebar({
@@ -624,9 +625,8 @@ function ContactsThreeSectionSidebar({
           onKeyDown={rowKeyActivate(onSelectNewFriends)}
         />
 
-        {/* #5019 设备段(本机 → 其他设备 → 咕咕云)→ 个人 → 群组(没有我 agent 的群);分段逻辑见 contacts/ContactsDeviceSections。 */}
         <ContactsDeviceSections
-          agents={sortedAgents}
+          agents={sortedAgents} people={sortedHumans}
           groups={sortGroupChatsPinnedFirst(groupChats, isGroupPinned)}
           currentUserId={currentUserId}
           onCreateAgent={onCreateAgent}
@@ -656,11 +656,11 @@ function ContactsThreeSectionSidebar({
           )}
           personSection={
             <>
-              {/* 个人 section */}
               <SectionLabel
                 interactive
                 className={sectionLabelClass}
                 leading={<span className={sectionChevronClass(personCollapsed)}><ChevronDown size={16} /></span>}
+                trailing={personCollapsed ? <span className={sidebarCountClass}>{sortedHumans.length}</span> : undefined}
                 onClick={() => setPersonCollapsed((v) => !v)}
               >
                 {ct('panel.contactSectionTitle')}
@@ -679,7 +679,7 @@ function ContactsThreeSectionSidebar({
                     menu={buildRowMenu(c)}
                   />
                 ))}
-                <ContactsPersonSectionState isEmpty={sortedHumans.length === 0} onAddContact={() => onSelectAddFriend('contact')} />
+                <ContactsPersonSectionState isEmpty={contactsAreEmpty(sortedHumans, sortedAgents, groupChats)} onAddContact={() => onSelectAddFriend('contact')} />
               </Collapse>
             </>
           }
