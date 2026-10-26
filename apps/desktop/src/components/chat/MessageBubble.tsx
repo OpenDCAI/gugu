@@ -22,7 +22,7 @@ import { ComposerCardView } from './ComposerCardView'
 import { QuestionCardView } from './QuestionCardView'
 import { MessageQuote } from './MessageQuote'
 import { parseComposerCard } from '@gugu/core/shared/ui/taskCardModels'
-import { HoverActionBar } from './HoverActionBar'
+import { HoverActionBar, MessageHoverRegion, MessageHoverTrigger } from './HoverActionBar'
 import { DeferredEmojiQuickPicker, DeferredMessageActionSheet } from './messageActionModules'
 import { MsgMoreMenu } from './MsgMoreMenu'
 import { canSourceTopic } from './topicSplitModels' // @@@5856 与顶栏那颗按钮共用同一个判据,❌ 不再写第二份
@@ -251,7 +251,6 @@ export const MessageBubble = memo(function MessageBubble({
   const [menuPos, setMenuPos] = useState({ x: 0, y: 0 })
   const [showMoreMenu, setShowMoreMenu] = useState(false)
   const [showEmojiPicker, setShowEmojiPicker] = useState(false)
-  const [isRowHovered, setIsRowHovered] = useState(false)
   const moreButtonRef = useRef<HTMLButtonElement>(null)
   const reactButtonRef = useRef<HTMLButtonElement>(null)
   const bubbleRef = useRef<HTMLDivElement>(null)
@@ -355,9 +354,7 @@ export const MessageBubble = memo(function MessageBubble({
   const timeRoom = `"${fmtMsgTime(msg.created_at)}"`
 
   return (
-    <div
-      onPointerEnter={(e) => { if (e.pointerType !== 'touch') setIsRowHovered(true) }}
-      onPointerLeave={() => setIsRowHovered(false)}
+    <MessageHoverRegion enabled={!streaming && !compactMobile} forceOpen={showMoreMenu || showEmojiPicker}
       style={{
         display: 'flex',
         flexDirection: msg.is_mine ? 'row-reverse' : 'row',
@@ -368,6 +365,7 @@ export const MessageBubble = memo(function MessageBubble({
         padding: groupedWithPrev ? '1px 14px' : '5px 14px',
       }}
     >
+      {(hovered) => <>
       {/* Avatar — both sent and received；一组只在组尾画一个头像(sticky 贴滚动区底边),其余几条用等宽占位保持气泡对齐 */}
       {hideAvatar ? null : <GroupAvatarSlot wide={compactMobile} groupedWithPrev={groupedWithPrev} groupedWithNext={groupedWithNext}>{canOpenProfile ? (
         <MemberProfileAvatarButton
@@ -431,19 +429,18 @@ export const MessageBubble = memo(function MessageBubble({
         <div style={{ width: '100%', minWidth: 0 }}>
         {/* 气泡行收成 fit-content(我方 marginLeft:auto 靠右),工具条锚在**这一行**的边上 = 贴着气泡。
             Design: .msg-actions{position:absolute}  agent → right:0 / own → left:0  */}
-        <div data-message-bubble-row="true" style={{ position: 'relative', display: 'flex', flexDirection: 'row', alignItems: 'flex-end', justifyContent: msg.is_mine ? 'flex-end' : 'flex-start', gap: '4px', width: 'fit-content', maxWidth: '100%', minWidth: 0, ...(msg.is_mine ? { marginLeft: 'auto' } : {}) }}>
+        <MessageHoverTrigger data-message-bubble-row="true" style={{ position: 'relative', display: 'flex', flexDirection: 'row', alignItems: 'flex-end', justifyContent: msg.is_mine ? 'flex-end' : 'flex-start', gap: '4px', width: 'fit-content', maxWidth: '100%', minWidth: 0, ...(msg.is_mine ? { marginLeft: 'auto' } : {}) }}>
           {/* Hover action bar (.msg:hover .msg-actions{display:flex}) —— 只在桌面外壳:手机上消息操作走长按面板(下面 showMenu
               的手机分支),而且手机上等不到 pointerleave,一次点按置上的 hover 会让它一直浮着(#6850)。 */}
-          <HoverActionBar
+          {hovered && <HoverActionBar
             isMine={msg.is_mine} anchorRef={bubbleRef}
             isRetracted={isRetracted}
-            isVisible={!streaming && !compactMobile && (isRowHovered || showMoreMenu || showEmojiPicker)}
             reactButtonRef={reactButtonRef}
             moreButtonRef={moreButtonRef}
             onReact={openEmojiPickerFromButton}
             onReply={() => { onQuote(msg) }}
             onMore={openMoreMenuFromButton}
-          />
+          />}
           {msg.is_mine && !msg.retracted_at && sendState && (
             <MessageSendStatus state={sendState} messageId={msg.id} reason={msg.local_send_error} />
           )}
@@ -572,7 +569,7 @@ export const MessageBubble = memo(function MessageBubble({
             )}
             {showTime && <BubbleTime iso={msg.created_at} isMine={msg.is_mine} inline={timeInline} />}
           </div>
-        </div>
+        </MessageHoverTrigger>
 
         {/* 表情回应与气泡同侧(#6428):这一层是整列宽,我方气泡行靠 marginLeft:auto 贴右,回应条不跟着贴右就留在整列最左。 */}
         {msg.reactions.length > 0 && (
@@ -605,7 +602,8 @@ export const MessageBubble = memo(function MessageBubble({
           onClose={() => setShowEmojiPicker(false)}
         />
       )}
-    </div>
+      </>}
+    </MessageHoverRegion>
   )
 })
 

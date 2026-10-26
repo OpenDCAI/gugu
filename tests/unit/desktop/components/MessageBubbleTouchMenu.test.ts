@@ -10,6 +10,7 @@ import type { MemberProfileCardModel } from '../../../../apps/desktop/src/compon
 import { UI_EVENTS } from '../../../../apps/desktop/src/lib/uiEvents'
 import { NATIVE_BACK_EVENT } from '../../../../apps/desktop/src/components/ui/sheetStack'
 import { QUICK_REACTIONS, REACTIONS } from '../../../../packages/core/src/shared/ui/reactionCatalog'
+import { TOOLTIP_OPEN_DELAY_MS } from '../../../../apps/desktop/src/styles/motion'
 import { clickElement, createNode, createReactHarness, message, renderWithAppProviders } from '../../../support/testHarness'
 vi.mock('../../../../apps/desktop/src/hooks/useAgentHarnessIdentity', () => ({ useAgentHarnessIdentity: () => 'codex' }))
 let harness: ReturnType<typeof createReactHarness>
@@ -248,7 +249,9 @@ describe('MessageBubble touch menu', () => {
     await renderMessage(undefined, false, onReaction)
     const over = new MouseEvent('pointerover', { bubbles: true })
     Object.defineProperty(over, 'pointerType', { value: 'mouse' })
-    await act(async () => { messageBubble().dispatchEvent(over) })
+    const row = messageBubble().closest('[data-message-bubble-row]')!
+    await act(async () => { row.dispatchEvent(over); row.dispatchEvent(new MouseEvent('mouseenter')) })
+    await act(async () => { vi.advanceTimersByTime(TOOLTIP_OPEN_DELAY_MS) })
     const trigger = document.querySelector('button[title="表情回应"]') as HTMLButtonElement
     await clickElement(trigger)
     const toolbar = document.body.querySelector('[role="toolbar"][aria-label="快速回应"]') as HTMLElement | null
