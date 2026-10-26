@@ -223,11 +223,12 @@ it('retains every configured integration when device and note metadata exhaust t
   const index = await assistantStartupIndex({ ...deps, overflow, localSources: async () => [{
     source: 'integrations', status: 'read', read: 'catalog_list', items: [
       { id: 'dingtalk:default', name: '钉钉', modifiedAt: '2026-10-27T02:46:43Z' },
+      { id: 'dingtalk:second', name: '钉钉', modifiedAt: '2026-10-27T02:46:43Z' },
       { id: 'feishu:work', name: '飞书', modifiedAt: '2026-10-26T02:46:43Z' },
     ],
   }] })
   const row = records(index).find(row => row.source === 'integrations')!
-  expect(row.items?.map(item => item.id)).toEqual(['dingtalk:default', 'feishu:work'])
+  expect(row.items?.map(item => item.id)).toEqual(['dingtalk', 'feishu'])
   expect(row).not.toHaveProperty('omitted_items')
   expect(index).not.toContain('"integrations":1')
   expect(index.length).toBeLessThanOrEqual(6000)

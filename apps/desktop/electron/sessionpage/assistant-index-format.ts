@@ -10,6 +10,16 @@ export function boundedAssistantIndex(lines: string[], details?: string): string
   const rows = lines.map(line => line.startsWith('{') ? JSON.parse(line) as Row : line)
   for (const row of rows) {
     if (typeof row === 'string') continue
+    if (row.source === 'integrations' && Array.isArray(row.items)) {
+      // The opening inventory names connected applications, not every account.
+      // Keep the CLI read pointer, but do not pay repeatedly for the same App.
+      const applications = new Map<string, Row>()
+      for (const item of row.items as Row[]) {
+        const id = String(item.id).split(':')[0]!
+        applications.set(id, { id, name: item.name, ...(item.path ? { path: item.path } : {}) })
+      }
+      row.items = [...applications.values()]
+    }
     if (Array.isArray(row.items)) row.items.sort(compare)
     if (Array.isArray(row.groups)) row.groups.sort(compare)
   }
