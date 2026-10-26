@@ -223,6 +223,7 @@ export function ThisDeviceActions({ onBack, bare = false, panelNavigation = fals
     <SettingsPage data-testid="settings-device-actions">
       {header}
       {children}
+      <SettingsNote>{t('devices.deviceActions.thisNote')}</SettingsNote>
       {saveFailure && <SettingsNote role="alert" tone="danger">{t('devices.deviceActions.connectFailed', { message: saveFailure })}</SettingsNote>}
       {state.denyAll && <SettingsNote tone="danger" data-testid="settings-device-actions-deny-all-on">{t('devices.deviceActions.denyAllOn')}</SettingsNote>}
       {connected.length > 0 && <SettingsGroup title={t('devices.deviceActions.connected')} data-testid="settings-device-actions-connected">{connected.map(row)}</SettingsGroup>}

@@ -36,8 +36,9 @@ vi.mock('../../../../apps/desktop/src/session/renderer/features/remote-hosts/rem
 }))
 const showSetup = vi.hoisted(() => vi.fn())
 const showGitHub = vi.hoisted(() => vi.fn())
+const showConfirm = vi.hoisted(() => vi.fn())
 vi.mock('../../../../apps/desktop/src/session/renderer/lib/modal/modal-provider', () => ({
-  useShowModal: (name: string) => (name === 'githubConnectModal' ? showGitHub : showSetup),
+  useShowModal: (name: string) => (name === 'githubConnectModal' ? showGitHub : name === 'confirmActionModal' ? showConfirm : showSetup),
 }))
 
 const { CloudConnectorsSettings, HomeConnectorsSettings } = await import('../../../../apps/desktop/src/session/renderer/features/assistant/assistant-connectors-settings')
@@ -71,7 +72,7 @@ beforeEach(() => {
   queryClient = new QueryClient({ defaultOptions: { queries: { retry: false,gcTime: 0 } } })
   remoteState.device = observable({ isOnline: true, lastSeenAt: null, hostKind: 'cloud' })
 })
-afterEach(() => { harness.cleanup(); showSetup.mockClear(); showGitHub.mockClear() })
+afterEach(() => { harness.cleanup(); showSetup.mockClear(); showGitHub.mockClear(); showConfirm.mockClear() })
 const q = (id: string) => harness.container.querySelector<HTMLElement>(`[data-testid="${id}"]`)
 const render = () => renderNode(createNode(CloudConnectorsSettings, { cloudDeviceId: 'cloud-1', assistantName: '小咕' }))
 
@@ -194,4 +195,17 @@ it('ends an unresolved initial application read after fifteen seconds',async () 
     await act(async()=>{await vi.advanceTimersByTimeAsync(15_001)})
     expect(harness.container.textContent).toContain('这部分内容暂时读不出来')
   } finally { vi.useRealTimers() }
+})
+
+it('disconnects only the data purpose after confirmation, leaving chat management independent', async () => {
+  const disconnectIntegration = vi.fn(async () => ({ success: true }))
+  integrations.value = state({ disconnectIntegration })
+  await render()
+  await clickElement(q('assistant-connector-feishu')!)
+  expect(q('assistant-app-chat-feishu')).not.toBeNull()
+  await clickElement(q('assistant-connector-disconnect')!)
+  expect(disconnectIntegration).not.toHaveBeenCalled()
+  await act(async () => { showConfirm.mock.calls[0]![0].onSuccess() })
+  expect(disconnectIntegration).toHaveBeenCalledWith('feishu')
+  expect(q('assistant-app-chat-feishu')).not.toBeNull()
 })
