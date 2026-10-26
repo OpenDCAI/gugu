@@ -1250,10 +1250,10 @@ export function foldItem(
 }
 
 /**
- * Settle all in-progress states for a committed turn.
+ * Settle in-progress states owned by a committed turn.
  *
  * - thinking status 'thinking' → 'done' + computed durationMs
- * - tool status 'running' → 'done'
+ * - tool status 'running' → 'done', without crossing a subagent boundary
  *
  * Input must be plain objects (not Solid/MobX proxies).
  */
@@ -1264,14 +1264,11 @@ export function finalizeItems(items: TranscriptItem[], at: number): TranscriptIt
       return { ...item, children, status: readGroupStatus(children) };
     }
 
-    const children = item.children?.map(finalizeNode);
-    // ⚠️ 这里**不再**为后台子智能体开例外。
-    //
-    // 先前有一条「`background: true` 的不许在提交这一轮时落定」的守卫,是为了让那一行
-    // 一直活着、等子智能体真跑完再改成完成。owner 2026-09-06 判掉了那条路(见
-    // claude/acp-transform.ts 里那段):派发本身在启动返回时就完成了,「它还在不在跑」
-    // 归 agents 登记册答,不归转录行。守卫的对象没了,守卫也一并撤 —— ❌ 别留着,
-    // 那种「平时零发作、只在极端路径显形」的残留正是最难查的一类。
+    // The launch belongs to this turn; its nested tools belong to the child.
+    // Their own tool updates can still arrive after this turn is committed.
+    const children = item.kind === 'spawn-subagent-tool-call'
+      ? item.children
+      : item.children?.map(finalizeNode);
     const status = item.status === 'running' ? 'done' : item.status;
     return {
       ...item,

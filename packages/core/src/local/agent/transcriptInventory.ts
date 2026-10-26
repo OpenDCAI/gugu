@@ -8,7 +8,8 @@ import type {
   ImportedTranscript,
   ImportedTranscriptTurn,
   LocalTranscriptSession,
-  TranscriptSource
+  TranscriptSource,
+  TranscriptContext
 } from '../../shared/types/transcripts'
 
 export interface TranscriptInventoryOptions extends TranscriptScanOptions {
@@ -142,8 +143,8 @@ function absorbFrame(digest: TranscriptDigest, frame: TranscriptFrame): void {
 }
 
 /** 投递进来的那一轮只取正文:信封是写给 agent 的现场事实,摘句标题、预览与导入要的是这一轮说了什么。 */
-function readFrame(spec: TranscriptSourceSpec, entry: Record<string, unknown>): TranscriptFrame | null {
-  const frame = spec.readFrame(entry)
+function readFrame(spec: TranscriptSourceSpec, entry: Record<string, unknown>, view?: 'context'): TranscriptFrame | null {
+  const frame = spec.readFrame(entry, view)
   const delivery = frame?.turn?.role === 'user' ? readDeliveryEnvelope(frame.turn.content) : null
   return delivery ? { ...frame, turn: { ...frame!.turn!, content: delivery.body } } : frame
 }
@@ -244,11 +245,13 @@ export async function describeTranscript(
  * 解析、不带出返回值：原始文件只由 provision-owned history import RPC 消费，故无需回传。
  * 路径必须落在清单扫描根内。
  */
+export function readLocalTranscript(filePath: string, source: TranscriptSource, options: TranscriptInventoryOptions & { view: 'context' }): Promise<TranscriptContext>
+export function readLocalTranscript(filePath: string, source: TranscriptSource, options: TranscriptInventoryOptions): Promise<ImportedTranscript>
 export async function readLocalTranscript(
   filePath: string,
   source: TranscriptSource,
-  options: TranscriptInventoryOptions
-): Promise<ImportedTranscript> {
+  options: TranscriptInventoryOptions & { view?: 'context' }
+): Promise<ImportedTranscript | TranscriptContext> {
   const spec = requireTranscriptSourceSpec(source)
   await assertPathInScanRoots(filePath, spec, options)
   options.signal?.throwIfAborted()
@@ -257,28 +260,35 @@ export async function readLocalTranscript(
   const lines = bytes.toString('utf8').split('\n')
   const turns: ImportedTranscriptTurn[] = []
   const digest = newDigest()
+  const context: Pick<TranscriptContext, 'loaded' | 'nested' | 'refs'> = { loaded: [], nested: [], refs: [] }
+  const refs = new Set<string>()
   for (const line of lines) {
     options.signal?.throwIfAborted()
     const entry = parseJsonLine(line)
     if (!entry) continue
-    const frame = readFrame(spec, entry)
+    const frame = readFrame(spec, entry, options.view)
     if (!frame) continue
     // 摘录这一路对旁支是**逐条**跳过：混编文件里用户自己那几轮照样导得进来。
     if (frame.sidechain) continue
     absorbFrame(digest, frame)
+    if (options.view === 'context' && frame.context) {
+      context.loaded.push(...(frame.context.loaded ?? []))
+      context.nested.push(...(frame.context.nested ?? []))
+      for (const path of frame.context.refs ?? []) refs.add(path)
+    }
     if (frame.turn) turns.push(frame.turn)
   }
-  if (turns.length === 0) {
+  if (turns.length === 0 && options.view !== 'context') {
     throw new Error(`transcript 中没有可导入的用户/助手对话：${filePath}`)
   }
-  return {
+  const metadata = {
     source,
     providerSessionId: digest.providerSessionId ?? basename(filePath, spec.fileExtension),
     title: digest.title ?? '（无标题会话）',
     cwd: digest.cwd,
     fileName: basename(filePath),
-    turns
   }
+  return options.view === 'context' ? { ...metadata, ...context, refs: [...refs] } : { ...metadata, turns }
 }
 
 /**
