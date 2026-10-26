@@ -74,3 +74,11 @@ it('keeps an unopened application list free of catalog body downloads, then refr
  panel.invalidate();await vi.waitFor(()=>expect(readBody).toHaveBeenCalledTimes(2))
  expect(new TextDecoder().decode(panel.peekBody(next))).toBe('detail');await manager.flush()
 })
+
+it('preserves the usable snapshot when a single encoded body exceeds the durable cache budget',async()=>{
+ const f=fixture(),manager=f.manager();await manager.ready;const cache=manager.files('owner','assistant')
+ cache.saveSnapshot(snapshot());cache.saveBody(item,new Uint8Array(13*1024*1024))
+ expect(cache.peekSnapshot()?.items[0]?.resource_key).toBe(item.resource_key)
+ expect(cache.peekBody(item)).toBeUndefined();await manager.flush()
+ const restarted=f.manager();expect(restarted.files('owner','assistant').peekSnapshot()?.items).toHaveLength(1);await restarted.flush()
+})

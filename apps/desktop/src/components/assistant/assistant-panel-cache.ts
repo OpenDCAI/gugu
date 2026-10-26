@@ -22,7 +22,7 @@ export function createAssistantPanelCacheStore(input:{store:()=>Promise<AgentWat
     if(!value||typeof value!=='object')return
     const row=value as CacheRow
     if(typeof row.key!=='string'||!row.key.startsWith(PREFIX)||typeof row.owner!=='string'||typeof row.assistant!=='string'
-      ||row.scope!==JSON.stringify([row.owner,row.assistant])||typeof row.savedAt!=='number'||typeof row.bytes!=='number')return
+      ||row.scope!==JSON.stringify([row.owner,row.assistant])||!Number.isFinite(row.savedAt)||!Number.isFinite(row.bytes)||row.bytes<0||row.bytes>MAX_BYTES)return
     if(row.kind==='snapshot'){try{parseAssistantPanelSnapshot(row.value,row.owner,row.assistant)}catch{return}}
     else if(row.kind==='body'){if(typeof row.value!=='string')return}
     else if(row.kind!=='account-state'||!row.value||typeof row.value!=='object')return
@@ -39,7 +39,7 @@ export function createAssistantPanelCacheStore(input:{store:()=>Promise<AgentWat
     try{input.hot().setItem(HOT_KEY,JSON.stringify({version:1,rows:hot}))}catch{/* IndexedDB remains available when the mirror quota is full. */}
   },25)}
   function remove(key:string){rows.delete(key);persist(store=>store.delete('meta',key))}
-  function save(row:CacheRow){merge(row);persist(store=>store.put('meta',row));let total=[...rows.values()].reduce((sum,row)=>sum+row.bytes,0)
+  function save(row:CacheRow){if(row.bytes>MAX_BYTES)return;merge(row);persist(store=>store.put('meta',row));let total=[...rows.values()].reduce((sum,row)=>sum+row.bytes,0)
     for(const old of [...rows.values()].sort((a,b)=>a.savedAt-b.savedAt)){if(total<=MAX_BYTES)break;if(old.key===row.key)continue;total-=old.bytes;remove(old.key)}mirror()}
   const ready=input.store().then(store=>store.readAll('meta')).then(saved=>{
     for(const raw of saved){const row=valid(raw);if(row)merge(row)}input.changed()
