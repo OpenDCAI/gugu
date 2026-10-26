@@ -98,7 +98,7 @@ export const AssistantMainPanel = observer(function AssistantMainPanel() {
   useEffect(() => {
     if (localHome) void refreshLocalAssistantHome().catch(error => rendererLogger('assistant/home').warn({ error },'Local assistant instructions refresh failed'));
   },[localHome]);
-  const machine = useAssistantMachine(shell?.assistant?.id ?? null,shell?.chatId ?? null,home);
+  const machine = useAssistantMachine(shell?.assistant?.id ?? null,shell?.chatId ?? null,home,shell?.chatReadFailed);
   const [panelOpen, setPanelOpenState] = useState(readPanelOpen);
   const openedTask = useOpenedAssistantTaskChat();
   useEffect(() => {

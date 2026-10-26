@@ -32,7 +32,6 @@ vi.mock('../../../../apps/desktop/src/session/renderer/features/assistant/assist
 })
 vi.mock('../../../../apps/desktop/src/session/renderer/features/assistant/assistant-data', () => ({
   assistantWorkdir: () => null,
-  homeReadiness: () => 'ready',
   useAssistantMachine: () => ({ data: null, isLoading: false, error: null }),
 }))
 vi.mock('../../../../apps/desktop/src/session/renderer/features/assistant/assistant-home-sessions', () => ({ homeTarget: (home: { thisDevice?: boolean }) => home.thisDevice ? null : 'remote',localHomeSessions: { use: () => () => {} } }))

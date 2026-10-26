@@ -3,7 +3,7 @@ import type { PhonePageProps } from './MobileAssistantApp'
 import { machineKey, usePhoneRead } from './usePhoneRead'
 
 /** The complete assistant schedule index is cloud-readable while its host sleeps. */
-export function usePhoneRoutines({ machine }: Pick<PhonePageProps, 'assistant' | 'home' | 'homeDeviceId' | 'readiness' | 'machine'>) {
+export function usePhoneRoutines({ machine }: Pick<PhonePageProps, 'assistant' | 'home' | 'homeDeviceId' | 'machine'>) {
   const ready = machine.state === 'ready' ? machine.machine : null
   const api = ready?.panel ? assistantPanelRoutines(ready.panel) : null
   const stored = usePhoneRead(api && ready ? `routines|${machineKey(ready)}` : null,() => api!.list(),'list routines')

@@ -20,7 +20,7 @@ afterEach(() => { vi.useRealTimers(); calls.signals.length = 0 })
 it('aborts stalled cloud requests and releases admission after a bounded retry window', async () => {
   const cwd = await mkdtemp(join(tmpdir(),'panel-runtime-timeout-'))
   vi.useFakeTimers()
-  const runtime = createAssistantPanelRuntime({ getAuth: async () => ({ accessToken: 'fixture',userId: 'owner' }),
+  const runtime = createAssistantPanelRuntime({ locale: () => 'zh-CN',getAuth: async () => ({ accessToken: 'fixture',userId: 'owner' }),
     instanceId: () => 'runtime',deviceId: async () => 'device',local: {} as never,guguHome: cwd,kind: 'computer',env: {},failed: vi.fn(),
   })
   try {

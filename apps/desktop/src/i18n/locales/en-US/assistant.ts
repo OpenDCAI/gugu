@@ -68,8 +68,9 @@ export default {
   },
   "machine": {
     "stale": "This resource has not been updated to its current version.",
-    "applicationFailed": "{{domain}} “{{resource}}” could not be applied. The system will continue processing it.",
+    "applicationFailed": "{{domain}} “{{resource}}” could not be applied.",
     "changed": "This item has changed. Reopen it before editing.",
+    "authorizationUnavailable": "Authorization could not start because its execution environment is unavailable.",
     "accessFailed": "Access to this resource could not be verified.",
     "identityFailed": "The owner of this assistant resource could not be determined.",
     "invalidResource": "The resource name or content is invalid.",
@@ -688,7 +689,6 @@ export default {
     "cloudNote": "Authorizations are stored on {{name}}'s cloud device and work even with your computers off.",
     "connectedGroup": "Connected",
     "savedGroup": "Added",
-    "retryCheck": "Check again",
     "manage": "Manage connection",
     "availableGroup": "Available",
     "connect": "Connect",

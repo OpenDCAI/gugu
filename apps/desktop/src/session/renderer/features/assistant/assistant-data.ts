@@ -47,7 +47,7 @@ export function assistantWorkdir(home: AssistantHomePlace, assistantId: string):
   return live ? { state: 'missing' } : { state: 'pending' };
 }
 
-export function useAssistantMachine(assistantId: string | null, chatId: string | null, home: AssistantHomePlace | null) {
+export function useAssistantMachine(assistantId: string | null, chatId: string | null, home: AssistantHomePlace | null, chatReadFailed = false) {
   const data = useCloudAssistantFiles(assistantId,chatId,home?.deviceId ?? null);
   const client = useQueryClient();
   useEffect(() => {
@@ -55,8 +55,9 @@ export function useAssistantMachine(assistantId: string | null, chatId: string |
     window.addEventListener(ASSISTANT_PANEL_CHANGED,changed);
     return () => window.removeEventListener(ASSISTANT_PANEL_CHANGED,changed);
   },[client]);
-  const error = useMemo(() => data ? null : new AssistantPanelError(home?.deviceId ? 'missing-identity' : 'missing-home','PANEL_IDENTITY_UNAVAILABLE'),[data,home?.deviceId]);
-  return { data,isLoading: false,error,refetch: () => data?.panel?.invalidate() };
+  const isLoading = !!assistantId && !!home?.deviceId && !chatId && !chatReadFailed;
+  const error = useMemo(() => data || isLoading ? null : new AssistantPanelError(home?.deviceId ? 'missing-identity' : 'missing-home','PANEL_IDENTITY_UNAVAILABLE'),[data,home?.deviceId,isLoading]);
+  return { data,isLoading,error,refetch: () => data?.panel?.invalidate() };
 }
 
 export function useInstructions(machine: AssistantMachine | undefined) {

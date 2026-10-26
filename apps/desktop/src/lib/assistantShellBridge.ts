@@ -44,6 +44,7 @@ export type AssistantShellSnapshot = {
   ownerAvatar?: string | null
   /** 和它的那条私聊(还没认出来 = null):「今天」页读这条私聊文件夹里的 today.json。 */
   chatId: string | null
+  chatReadFailed?: boolean
   /** 它住哪(云上 / 某台电脑);还没有它、还认不出 = null。 */
   home: AssistantHomePlace | null
   setup: AssistantSetupStep | null
@@ -191,7 +192,7 @@ function sameSnapshot(a: AssistantShellSnapshot, b: AssistantShellSnapshot): boo
     a.loadError === b.loadError &&
     a.ownerName === b.ownerName &&
     a.assistantState === b.assistantState &&
-    a.chatId === b.chatId &&
+    a.chatId === b.chatId && a.chatReadFailed === b.chatReadFailed &&
     JSON.stringify(a.cloud) === JSON.stringify(b.cloud) &&
     JSON.stringify(a.assistant) === JSON.stringify(b.assistant)
   )

@@ -44,8 +44,8 @@ function useTime() {
  * 记忆、语音笔记、资料都在它家里,醒着才读得到(❌ 自己叫醒);健康是这台手机自己的数据,它在休息也照样能点进去看。
  */
 export function PhoneMemory(props: PhonePageProps) {
-  const { sub, readiness, machine } = props
-  const ready = readiness === 'ready' && machine.state === 'ready' ? machine.machine : null
+  const { sub, machine } = props
+  const ready = machine.state === 'ready' ? machine.machine : null
   // 记忆那一夹各页共用一份读数(首页、一条的全文、健康页里它记的 health_* 几条)。
   const notes = usePhoneRead(ready ? `memory|${machineKey(ready)}` : null, () => readMemoryNotes(ready!), 'read memory')
   if (sub === 'library:workspace') return <PhoneLibraryVolume key={sub} {...props} kind="workspace" />
@@ -58,11 +58,11 @@ export function PhoneMemory(props: PhonePageProps) {
 
 function MemoryHome(props: PhonePageProps & { notes: NotesRead }) {
   const { t } = useTranslation('assistant')
-  const { assistant, readiness, machine, go, notes } = props
+  const { assistant, machine, go, notes } = props
   const name = assistant.display_name
   return (
     <div className="ta-page" data-testid="assistant-memory">
-      <PhoneMachineView readiness={readiness} machine={machine} name={name}>
+      <PhoneMachineView machine={machine} name={name}>
         {() => (
           <ReadView read={notes} failedTitle={t('memory.loadFailed')}>
             {(read) => <AboutYou {...props} notes={read.notes} />}
@@ -72,7 +72,7 @@ function MemoryHome(props: PhonePageProps & { notes: NotesRead }) {
       <AssistantSection title={t('library.workspace')}>
         <AssistantLibraryCard assistantId={assistant.id} machine={machine.state === 'ready' ? machine.machine : null} kind="workspace" onOpen={() => go('library:workspace')} />
       </AssistantSection>
-      {notes.state === 'ok' && readiness === 'ready' && notes.data.notes.some((entry) => entry.kind !== 'user') ? (
+      {notes.state === 'ok' && notes.data.notes.some((entry) => entry.kind !== 'user') ? (
         <AssistantSection title={t('library.memory')} bare testId="assistant-memory-all">
           <MemoryList {...props} notes={notes.data.notes} />
         </AssistantSection>
@@ -129,9 +129,9 @@ function MemoryList({ assistant, go, notes }: PhonePageProps & { notes: MemoryEn
 }
 
 /** 本机健康不依赖助理连接；远端来源可以先打开，由各自页面说明实际连接状态。 */
-function MemorySources({ readiness, machine, go }: PhonePageProps) {
+function MemorySources({ machine, go }: PhonePageProps) {
   const { t } = useTranslation('assistant')
-  const ready = readiness === 'ready' && machine.state === 'ready' ? machine.machine : null
+  const ready = machine.state === 'ready' ? machine.machine : null
   const counts = usePhoneRead(ready ? `memory-counts|${machineKey(ready)}` : null, () => readMemoryCounts(ready!), 'count memory folders')
   const voice = counts.state === 'ok' ? counts.data.voice : null
   const files = counts.state === 'ok' ? counts.data.files : null
@@ -147,15 +147,15 @@ function MemorySources({ readiness, machine, go }: PhonePageProps) {
 /** 一条记忆的全文:正文、在对话中改(只填不发)、删(先确认;连同 MEMORY.md 里指向它的那一行),删完回首页重读。 */
 function MemoryNote(props: PhonePageProps & { file: string; notes: NotesRead }) {
   const { t } = useTranslation('assistant')
-  const { assistant, readiness, machine, notes, file } = props
-  const opened = readiness === 'ready' && machine.state === 'ready' ? machine.machine : null
+  const { assistant, machine, notes, file } = props
+  const opened = machine.state === 'ready' ? machine.machine : null
   const note = notes.state === 'ok' ? notes.data.notes.find((entry) => entry.file === file) ?? null : null
   if (opened && note) return <MemoryNoteBody {...props} machine={opened} note={note} />
   // 读到之前 / 读不到 / 已经不在了:页头先说是记忆,下面说清是哪一步。
   return (
     <div className="ta-page" data-testid="assistant-memory-detail">
       <PageHead title={t('nav.memory')} />
-      <PhoneMachineView readiness={readiness} machine={machine} name={assistant.display_name}>
+      <PhoneMachineView machine={machine} name={assistant.display_name}>
         {() => (
           <ReadView read={notes} failedTitle={t('memory.loadFailed')}>
             {() => <AssistantEmpty title={t('memory.goneTitle')}>{t('memory.gone')}</AssistantEmpty>}

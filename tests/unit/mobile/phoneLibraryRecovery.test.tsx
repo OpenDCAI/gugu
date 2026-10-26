@@ -28,7 +28,7 @@ afterEach(() => { harness.cleanup(); vi.useRealTimers() })
 describe('phone library recovery', () => {
   it.each(['capabilities', 'devices'] as const)('waits for cloud identity for %s without exposing the execution device state', async (kind) => {
     await renderWithAppProviders(harness, <PhoneHomeContext.Provider value={home}>
-      <PhoneLibraryVolume {...base} kind={kind} readiness="unreachable" machine={{ state: 'opening' }} />
+      <PhoneLibraryVolume {...base} kind={kind} machine={{ state: 'opening' }} />
     </PhoneHomeContext.Provider>)
     expect(harness.container.querySelector('[data-testid="file-book-reader"]')).toBeNull()
     expect(harness.container.textContent).not.toContain('Home computer')
@@ -39,19 +39,19 @@ describe('phone library recovery', () => {
   it('recovers a cloud read automatically without exposing diagnostics or a retry button', async () => {
     vi.useFakeTimers()
     const retry = vi.fn()
-    await renderWithAppProviders(harness, <PhoneLibraryVolume {...base} kind="capabilities" readiness="ready" machine={{ state: 'error', error: new Error('workspace unavailable'), retry }} />)
+    await renderWithAppProviders(harness, <PhoneLibraryVolume {...base} kind="capabilities" machine={{ state: 'error', error: new Error('workspace unavailable'), retry }} />)
     expect(harness.container.querySelector('[role="alert"]')?.textContent).not.toContain('workspace unavailable')
     expect(harness.container.querySelector('[data-testid="assistant-read-retry"]')).toBeNull()
     await act(async () => { await vi.advanceTimersByTimeAsync(1500) })
     expect(retry).toHaveBeenCalledTimes(1)
     vi.useRealTimers()
-    await renderWithAppProviders(harness, <PhoneLibraryVolume {...base} kind="capabilities" readiness="ready" machine={{ state: 'ready', machine }} />)
+    await renderWithAppProviders(harness, <PhoneLibraryVolume {...base} kind="capabilities" machine={{ state: 'ready', machine }} />)
     expect(harness.container.querySelector('[data-testid="file-book-reader"]')?.getAttribute('data-machine')).toBe('home')
     expect(harness.container.querySelector('[role="alert"]')).toBeNull()
   })
 
   it('keeps the account project directory accessible when the assistant workspace is unavailable', async () => {
-    await renderWithAppProviders(harness, <PhoneLibraryVolume {...base} kind="workspace" readiness="unreachable" machine={{ state: 'opening' }} />)
+    await renderWithAppProviders(harness, <PhoneLibraryVolume {...base} kind="workspace" machine={{ state: 'opening' }} />)
     expect(harness.container.querySelector('[data-testid="file-book-reader"]')?.getAttribute('data-kind')).toBe('workspace')
   })
 

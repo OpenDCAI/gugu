@@ -109,8 +109,8 @@ describe('assistant task rows open the task chat on both shells', () => {
     window.addEventListener(OPEN_ASSISTANT_TASK_CHAT, opened)
     window.addEventListener(APP_SHOW_SESSION_EVENT, showSession)
     try {
-      const common: PhonePageProps = { assistant, chatId: 'assistant-dm', ownerName: 'Owner', home: { kind: 'cloud', deviceId: 'home' }, machine: { state: 'ready',machine: panelMachine() }, homeDeviceId: 'home', cloudDeviceId: 'home', readiness: 'ready', askInChat: vi.fn(), sub: null, go: vi.fn(), open: vi.fn() }
-      const context: AssistantContext = { assistant, chatId: common.chatId, ownerName: common.ownerName, home: { kind: 'cloud', deviceId: 'home' }, homeDeviceId: 'home', snapshot: null, readiness: 'ready', machine: panelMachine(), machineLoading: false, machineError: null, retryMachine: vi.fn(), askInChat: vi.fn(), route: { tab: 'tasks' }, go: vi.fn() }
+      const common: PhonePageProps = { assistant, chatId: 'assistant-dm', ownerName: 'Owner', home: { kind: 'cloud', deviceId: 'home' }, machine: { state: 'ready',machine: panelMachine() }, homeDeviceId: 'home', cloudDeviceId: 'home', askInChat: vi.fn(), sub: null, go: vi.fn(), open: vi.fn() }
+      const context: AssistantContext = { readiness: 'ready', assistant, chatId: common.chatId, ownerName: common.ownerName, home: { kind: 'cloud', deviceId: 'home' }, homeDeviceId: 'home', snapshot: null, machine: panelMachine(), machineLoading: false, machineError: null, retryMachine: vi.fn(), askInChat: vi.fn(), route: { tab: 'tasks' }, go: vi.fn() }
       await renderWithAppProviders(harness, shell === 'phone'
         ? <PhoneTasks {...common} />
         : <AssistantTasksPage context={context} />)
@@ -137,8 +137,8 @@ describe('assistant task rows open the task chat on both shells', () => {
     updateDeviceSessions('phone-worker', { sessions: [phoneTask], cached: false, connected: true, loading: false })
     // The workspace-only store still cannot see the phone. The pane must use the shared directory.
     expect(mocks.rows.some((row) => row.deviceId === 'phone-worker')).toBe(false)
-    const common: PhonePageProps = { assistant, chatId: 'assistant-dm', ownerName: 'Owner', home: { kind: 'cloud', deviceId: 'home' }, machine: { state: 'ready',machine: panelMachine() }, homeDeviceId: 'home', cloudDeviceId: 'home', readiness: 'ready', askInChat: vi.fn(), sub: null, go: vi.fn(), open: vi.fn() }
-    const context: AssistantContext = { assistant, chatId: common.chatId, ownerName: 'Owner', home: { kind: 'cloud', deviceId: 'home' }, homeDeviceId: 'home', snapshot: null, readiness: 'ready', machine: panelMachine(), machineLoading: false, machineError: null, retryMachine: vi.fn(), askInChat: vi.fn(), route: { tab: 'tasks' }, go: vi.fn() }
+    const common: PhonePageProps = { assistant, chatId: 'assistant-dm', ownerName: 'Owner', home: { kind: 'cloud', deviceId: 'home' }, machine: { state: 'ready',machine: panelMachine() }, homeDeviceId: 'home', cloudDeviceId: 'home', askInChat: vi.fn(), sub: null, go: vi.fn(), open: vi.fn() }
+    const context: AssistantContext = { readiness: 'ready', assistant, chatId: common.chatId, ownerName: 'Owner', home: { kind: 'cloud', deviceId: 'home' }, homeDeviceId: 'home', snapshot: null, machine: panelMachine(), machineLoading: false, machineError: null, retryMachine: vi.fn(), askInChat: vi.fn(), route: { tab: 'tasks' }, go: vi.fn() }
     await renderWithAppProviders(harness, shell === 'phone' ? <PhoneTasks {...common} /> : <AssistantTasksPage context={context} />)
     expect(phoneTaskDirectoryRequested()).toBe(false)
     const phoneRow = () => harness.container.querySelector('[data-testid="assistant-subagent-phone-task"]')
@@ -163,7 +163,7 @@ describe('assistant task rows open the task chat on both shells', () => {
     updateDeviceSessions('action-phone', { sessions: [], cached: true, connected: false, loading: false, error: null })
     cloudRows = []
     const askInChat = vi.fn()
-    await renderWithAppProviders(harness, <PhoneTasks assistant={assistant} chatId="assistant-dm" ownerName="Owner" home={{ kind: 'cloud', deviceId: 'home' }} machine={{ state: 'ready',machine: panelMachine() }} homeDeviceId="home" cloudDeviceId="home" readiness="ready" askInChat={askInChat} sub={null} go={vi.fn()} open={vi.fn()} />)
+    await renderWithAppProviders(harness, <PhoneTasks assistant={assistant} chatId="assistant-dm" ownerName="Owner" home={{ kind: 'cloud', deviceId: 'home' }} machine={{ state: 'ready',machine: panelMachine() }} homeDeviceId="home" cloudDeviceId="home" askInChat={askInChat} sub={null} go={vi.fn()} open={vi.fn()} />)
     expect(harness.container.textContent).not.toMatch(/正在读取|Reading/)
     expect(harness.container.querySelector('.ta-empty')).not.toBeNull()
     const create = [...harness.container.querySelectorAll<HTMLButtonElement>('button')].filter((button) => /新建任务|创建任务|Create task/.test(button.textContent ?? ''))

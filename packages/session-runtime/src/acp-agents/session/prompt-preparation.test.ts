@@ -58,3 +58,32 @@ it('does not call the provider if a required panel change could not be applied',
   expect(result.success).toBe(false)
   expect(agent.prompt).not.toHaveBeenCalled()
 })
+
+it.each(['typed','communication'] as const)('refuses detached %s delivery before admission when panel preparation fails', async origin => {
+  const { cell,agent } = fixture()
+  setNativePromptPreparation(async () => { throw Object.assign(new Error('面板变更尚未处理完。'),{ deliveryRejectedBeforeAdmission: true }) })
+  const delivery = cell.promptDetached({ text: 'Due reminder',origin })
+  expect(await delivery.admission).toMatchObject({ success: false,error: { type: 'session_busy' } })
+  expect((await delivery.completion).success).toBe(false)
+  expect(agent.prompt).not.toHaveBeenCalled()
+  expect(cell.history().committed).toHaveLength(0)
+  expect(cell.machine.phase.kind).toBe('ready')
+})
+
+it('retains an already queued reminder when preparation fails and retries without another user action', async () => {
+  const { cell,agent } = fixture(), first = Promise.withResolvers<{ stopReason: 'end_turn' }>()
+  const prepare = vi.fn().mockResolvedValueOnce({ text: '',accepted: async () => {} })
+    .mockRejectedValueOnce(Object.assign(new Error('面板暂时读不到。'),{ deliveryRejectedBeforeAdmission: true }))
+    .mockResolvedValue({ text: '',accepted: async () => {} })
+  setNativePromptPreparation(prepare)
+  agent.prompt = vi.fn().mockImplementationOnce(() => first.promise).mockResolvedValue({ stopReason: 'end_turn' })
+  const running = cell.prompt({ text: 'First',origin: 'typed' })
+  await vi.waitFor(() => expect(agent.prompt).toHaveBeenCalledOnce())
+  cell.queuePrompt({ text: 'Due reminder',origin: 'communication' })
+  first.resolve({ stopReason: 'end_turn' });await running
+  await vi.waitFor(() => expect(prepare).toHaveBeenCalledTimes(2))
+  expect(cell.machine.queuedPrompts.map(row => row.text)).toEqual(['Due reminder'])
+  await vi.waitFor(() => expect(agent.prompt).toHaveBeenCalledTimes(2),{ timeout: 5000 })
+  expect(JSON.stringify(vi.mocked(agent.prompt).mock.calls[1])).toContain('Due reminder')
+  expect(cell.machine.queuedPrompts).toHaveLength(0)
+})

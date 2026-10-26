@@ -47,7 +47,7 @@ export async function publishAssistantPanelCollection(input: {
     // never be overwritten by an older observation of the same resource.
     const baseline = await input.cloud.snapshot(input.assistantId)
     const revisions = new Map(baseline.items.filter(row => row.domain === input.domain).map(row => [row.resource_key,row.revision]))
-    const pending = new Set(baseline.application.filter(row => row.domain === input.domain).map(row => row.resourceKey))
+    const pending = new Set(baseline.application.filter(row => row.domain === input.domain && !row.terminal).map(row => row.resourceKey))
     const records = await input.collect(baseline.items.filter(row => row.domain === input.domain && !row.resource_key.startsWith('__collection__')))
     if (new Set(records.map(row => row.key)).size !== records.length) throw new Error('PANEL_DUPLICATE_RESOURCE')
     const seen = new Set<string>()

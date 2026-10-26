@@ -10,7 +10,7 @@ import { sessions } from '@main/db/schema';
 import { log } from '@main/lib/logger';
 import type { Automation } from '@shared/core/automations/automation';
 import type { AutomationRun } from '@shared/core/automations/automation-run';
-import { markRunDone, markRunFailed, type OnStepCompleted } from '../run-transitions';
+import { markRunDone, markRunFailed, updateRunOrThrow, type OnStepCompleted } from '../run-transitions';
 import { describeScheduleTime } from '../schedule-time';
 import { sessionUsesAssistantPanel } from '../../sessions/session-admission-preparation';
 
@@ -29,7 +29,8 @@ export type AgentScheduleDeliveryDeps = {
     sessionId: string,
     envelope: (messageId: string, text: string) => string,
     text: string,
-    keyScope: string
+    keyScope: string,
+    receipt: { id: string; at: string }
   ): Promise<{ id: string }>;
 };
 
@@ -42,10 +43,10 @@ const defaultDeps: AgentScheduleDeliveryDeps = {
       .limit(1);
     return !!row && row.archivedAt == null;
   },
-  async deliver(sessionId, envelope, text, keyScope) {
+  async deliver(sessionId, envelope, text, keyScope, receipt) {
     // 动态取:会话编排拖着整套会话页运行时,调度器的单测不该为它付代价。
     const { messageSessionFrom } = await import('@main/core/sessions/session-orchestration');
-    return messageSessionFrom(envelope, sessionId, text, { keyScope });
+    return messageSessionFrom(envelope, sessionId, text, { keyScope, receipt });
   },
 };
 
@@ -86,6 +87,7 @@ export async function executeAgentDelivery(
   }
 
   const context = agentScheduleContext(automation, run);
+  const receipt = { id: run.id, at: new Date(run.scheduledAt ?? run.startedAt ?? automation.createdAt).toISOString() };
   try {
     await deps.deliver(
       sessionId,
@@ -95,12 +97,18 @@ export async function executeAgentDelivery(
           content: said,
           title: automation.name,
           context,
-          at: formatDeliveryTimestamp(new Date().toISOString()),
+          at: formatDeliveryTimestamp(receipt.at),
         }),
       text,
-      `automation:${automation.id}`
+      `automation:${automation.id}`,
+      receipt
     );
   } catch (error) {
+    if ((error as { code?: unknown } | null)?.code === 'SESSION_DIRECT_NOT_LIVE') {
+      const queued = await updateRunOrThrow(run.id, { status: 'queued', finishedAt: null });
+      onStepCompleted(queued);
+      return err('delivery_not_admitted');
+    }
     const message = error instanceof Error ? error.message : String(error);
     log.error('Agent schedule delivery failed', {
       automationId: automation.id,

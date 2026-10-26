@@ -777,7 +777,7 @@ export async function scheduleAutomationRun(input: {
   return run ?? null;
 }
 
-export async function listQueuedRuns(limit = 100, blockedSessions: readonly string[] = []): Promise<
+export async function listQueuedRuns(limit = 100, blockedSessions: readonly string[] = [], attemptedRuns: readonly string[] = []): Promise<
   Array<{
     run: AutomationRun;
     automation: Automation;
@@ -790,6 +790,7 @@ export async function listQueuedRuns(limit = 100, blockedSessions: readonly stri
     .where(
       and(
         eq(automationRuns.status, 'queued'),
+        attemptedRuns.length ? notInArray(automationRuns.id,[...attemptedRuns]) : undefined,
         eq(automations.enabled, 1),
         blockedSessions.length ? or(isNull(automations.agentSessionId),notInArray(automations.agentSessionId,[...blockedSessions])) : undefined,
         isNull(automations.deletedAt)
@@ -811,7 +812,7 @@ export async function startCreatingSession(
 ): Promise<AutomationRun | null> {
   const [run] = writeRuns(now, () => db.all<AutomationRunRow>(sql`
     UPDATE automation_runs
-    SET status = 'creating_session', started_at = ${now}
+    SET status = 'creating_session', started_at = COALESCE(started_at, ${now})
     WHERE id = ${id}
       AND status = 'queued'
     RETURNING

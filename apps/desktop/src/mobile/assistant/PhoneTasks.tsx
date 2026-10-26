@@ -14,7 +14,6 @@ import { AssistantEmpty, AssistantRow, AssistantSection } from '@/session/render
 import { useDevicesStore } from '@/store/devicesContext'
 import { StatusGlyph } from '../agent-watch/StatusGlyph'
 import type { PhonePageProps } from './MobileAssistantApp'
-import { PhoneMachineGate } from './PhoneMachineGate'
 import { ReadView, ReadFailed } from './PhoneMachineView'
 import { PhoneRoutineRead } from './PhoneRoutineRead'
 import { PhoneRoutineDetail } from './PhoneRoutineDetail'
@@ -76,14 +75,13 @@ function SubAgents({ machine, askInChat }: PhonePageProps) {
 }
 
 function Routines(props: PhonePageProps) {
-  const { assistant, readiness, askInChat, go } = props
+  const { assistant, askInChat, go } = props
   const { t, i18n } = useTranslation('assistant')
   const { read, routines, directory } = usePhoneRoutines(props)
   const formatAt = (at: number) =>
     new Intl.DateTimeFormat(i18n.language, { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit', hour12: false }).format(at)
   return (
-    <PhoneMachineGate readiness={readiness} name={assistant.display_name}>
-      <PhoneRoutineRead read={read} directory={directory}>
+    <PhoneRoutineRead read={read} directory={directory}>
         {() =>
           routines.length === 0 ? (
             <AssistantEmpty
@@ -117,6 +115,5 @@ function Routines(props: PhonePageProps) {
           )
         }
       </PhoneRoutineRead>
-    </PhoneMachineGate>
   )
 }

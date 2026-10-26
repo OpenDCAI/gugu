@@ -1,4 +1,5 @@
 import { PhoneProjects } from '../../mobile/assistant/PhoneProjects'
+import { useDevicesStore } from '../../store/devicesContext'
 import { observer } from 'mobx-react-lite'
 import { useTranslation } from 'react-i18next'
 import { Folder } from '../../lib/icons'

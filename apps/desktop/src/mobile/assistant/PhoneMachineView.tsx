@@ -5,24 +5,18 @@ import { LoadingIndicator } from '@/lib/loading/LoadingIndicator'
 import type { AssistantMachine } from '@/session/renderer/features/assistant/assistant-machine-core'
 import { AssistantEmpty } from '@/session/renderer/features/assistant/assistant-ui-parts'
 import type { PhonePageProps } from './MobileAssistantApp'
-import { PhoneMachineGate } from './PhoneMachineGate'
-import type { PhoneMachineState, PhoneReadiness } from './phoneMachine'
+import type { PhoneMachineState } from './phoneMachine'
 import { type PhoneRead } from './usePhoneRead'
 
 /** 门过了之后的页:工作区已经打开(❌ 再判 opening / error)。 */
 export type OpenedPageProps = Omit<PhonePageProps, 'machine'> & { machine: AssistantMachine }
 
-/**
- * 读它家里东西的那几页共用的一道门:在休息 / 正在醒 / 连不上(PhoneMachineGate)→ 找不到它的会话 / 工作区没打开(带重试)/ 正在打开,
- * 都过了才把打开的工作区交给 children。❌ 读不到时画一片空。
- */
+/** 云端读取的加载和失败状态；读不到时保留明确的原因。 */
 export function PhoneMachineView({
-  readiness,
   machine,
   name,
   children,
 }: {
-  readiness: PhoneReadiness
   machine: PhoneMachineState
   name: string
   children: (machine: AssistantMachine) => ReactNode
@@ -33,11 +27,7 @@ export function PhoneMachineView({
     if (machine.state === 'opening') return <ReadingNow />
     return children(machine.machine)
   })()
-  return (
-    <PhoneMachineGate readiness={readiness} name={name}>
-      {inner}
-    </PhoneMachineGate>
-  )
+  return inner
 }
 
 /** 读的时候:只一个「在等」(全产品同一个样子)。 */

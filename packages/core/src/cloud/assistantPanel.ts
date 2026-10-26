@@ -15,14 +15,14 @@ export type AssistantPanelChange = {
 }
 export type AssistantPanelSnapshot = {
   version: 1; revision: string; items: AssistantPanelItem[]
-  application: { operationId: string; revision: string; domain: string; resourceKey: string; status: 'pending' | 'failed'; errorCode: string | null }[]
+  application: { operationId: string; revision: string; domain: string; resourceKey: string; status: 'pending' | 'failed'; errorCode: string | null; terminal?: boolean }[]
 }
 export type AssistantPanelCommit = {
   operationId: string; domain: AssistantPanelDomain; key: string; expectedRevision: string
   operation: AssistantPanelOperation; data?: Record<string, unknown>; body?: { itemId: string; sha256: string }
   deviceId?: string | null; runtimeInstanceId?: string | null
 }
-export type AssistantPanelReceipt = { operationId: string; revision: string; status: 'pending' | 'failed' | 'applied' | 'superseded' }
+export type AssistantPanelReceipt = { operationId: string; revision: string; status: 'pending' | 'failed' | 'applied' | 'superseded'; terminal?: boolean }
 export type AssistantPanelNotice = {
   operationId: string; resource: string; operation: 'created' | 'edited' | 'removed' | 'saved'; id: string
   deviceId?: string; section?: string; before?: object; after?: object
@@ -55,7 +55,8 @@ export function parseAssistantPanelSnapshot(value: unknown, ownerId: string, ass
   for (const application of value.application) {
     if (!record(application) || !revision(application.revision) || typeof application.operationId !== 'string'
       || typeof application.domain !== 'string' || typeof application.resourceKey !== 'string'
-      || !['pending','failed'].includes(String(application.status)) || !nullableString(application.errorCode)) return invalid()
+      || !['pending','failed'].includes(String(application.status)) || !nullableString(application.errorCode)
+      || application.terminal !== undefined && typeof application.terminal !== 'boolean') return invalid()
   }
   return value as AssistantPanelSnapshot
 }
@@ -87,7 +88,8 @@ export function createAssistantPanelClient(transport: AssistantPanelTransport, a
   }
   const receipt = (data: unknown): AssistantPanelReceipt => {
     if (!record(data) || typeof data.operationId !== 'string' || !revision(data.revision)
-      || !['pending','failed','applied','superseded'].includes(String(data.status))) return invalid()
+      || !['pending','failed','applied','superseded'].includes(String(data.status))
+      || data.terminal !== undefined && typeof data.terminal !== 'boolean') return invalid()
     return data as AssistantPanelReceipt
   }
   return {
@@ -118,6 +120,9 @@ export function createAssistantPanelClient(transport: AssistantPanelTransport, a
       return data as { revision: string; changes: AssistantPanelChange[]; notices: AssistantPanelChange[] }
     }),
     ack: (assistant: string, instance: string, operationId: string, errorCode: string | null = null) => request(assistant,'assistant_panel_ack',{
+      p_runtime_instance_id: instance,p_operation_id: operationId,p_error_code: errorCode,
+    },receipt),
+    reject: (assistant: string, instance: string, operationId: string, errorCode: string) => request(assistant,'assistant_panel_reject',{
       p_runtime_instance_id: instance,p_operation_id: operationId,p_error_code: errorCode,
     },receipt),
     admit: (assistant: string, instance: string, head: string) => request(assistant,'assistant_panel_admit',{

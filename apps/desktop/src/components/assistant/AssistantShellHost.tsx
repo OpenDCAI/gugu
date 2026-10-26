@@ -240,12 +240,13 @@ export function AssistantShellHost({ visible, ...chatHandlers }: { /** 会话页
       ownerId: user?.id ?? null,
       ownerAvatar: user?.avatarUrl ?? null,
       chatId: dm.chatId,
+      chatReadFailed: !!dm.failed,
       home,
       setup,
       member,
       preparing,
     })
-  }, [cloudComputer?.available, cloudComputer?.loadError, localDeviceId, snapshot, contact, assistantState, user?.nickname, user?.id, user?.avatarUrl, dm.chatId, home, setup, member, preparing])
+  }, [cloudComputer?.available, cloudComputer?.loadError, localDeviceId, snapshot, contact, assistantState, user?.nickname, user?.id, user?.avatarUrl, dm.chatId, dm.failed, home, setup, member, preparing])
 
   const shellSlots = readShellSlots()
   const slots = useSyncExternalStore(

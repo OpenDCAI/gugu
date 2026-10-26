@@ -7,10 +7,11 @@ import { atomicWriteText } from '@gugu/core/local/state/paths'
 import type { AssistantPanelChange } from '@gugu/core/cloud/assistantPanel'
 import type { PanelApplication } from './assistant-panel-admission'
 import { assistantPanelPath } from './assistant-panel-paths'
+import { panelApplicationFailure } from '@gugu/core/shared/assistantPanelFailure'
 
 type Notice = { operationId: string; resource: string; context: Record<string, unknown> }
 type LocalState = { version: 1; ownerId: string; assistantId: string; revokedPaths: string[]; revokedKeys: string[]; paths: Record<string, string[]>;
-  appliedRevisions?: Record<string, string>; revokedResources?: Record<string, { domain: string; paths: string[] }>; notices: Notice[] }
+  acceptedFailures?: string[]; appliedRevisions?: Record<string, string>; revokedResources?: Record<string, { domain: string; paths: string[] }>; notices: Notice[] }
 export type AssistantPanelHome = { assistantId: string; ownerId: string; cwd: string; home: string; kind: AssistantHomeKind }
 
 const keyOf = (change: AssistantPanelChange) => JSON.stringify([change.domain,change.resource_key])
@@ -40,6 +41,7 @@ export function createAssistantPanelApplication(binding: AssistantPanelHome, dep
   readBody(change: AssistantPanelChange): Promise<Uint8Array>
   applyService(change: AssistantPanelChange): Promise<void>
   invalidate(): Promise<void>
+  locale?(): string
 }): PanelApplication & { statePath: string; identify(domain: string, path: string): Promise<string>; remember(domain: string, rows: Array<{ key: string; path: string }>): Promise<void> } {
   const paths = assistantHomePaths(binding.home,binding.cwd,binding.kind)
   const anchor = binding.kind === 'cloud' ? binding.home : binding.cwd
@@ -61,6 +63,7 @@ export function createAssistantPanelApplication(binding: AssistantPanelHome, dep
       || !Array.isArray(value.revokedPaths) || !Array.isArray(value.revokedKeys)
       || !value.paths || typeof value.paths !== 'object' || Array.isArray(value.paths) || !Array.isArray(value.notices)
       || Object.values(value.paths).some(paths => !Array.isArray(paths) || paths.some(path => typeof path !== 'string'))
+      || (value.acceptedFailures !== undefined && (!Array.isArray(value.acceptedFailures) || value.acceptedFailures.some(id => typeof id !== 'string')))
       || value.revokedPaths.some(path => typeof path !== 'string') || value.revokedKeys.some(key => typeof key !== 'string')) {
       throw new Error('PANEL_LEDGER_INVALID')
     }
@@ -91,6 +94,23 @@ export function createAssistantPanelApplication(binding: AssistantPanelHome, dep
     await deps.assertCurrent()
     if (change.assistant_user_id !== binding.assistantId || change.owner_user_id !== binding.ownerId) throw new Error('PANEL_ACCOUNT_CHANGED')
     const value = await state()
+    if (change.payload.failure) {
+      const failure = object(change.payload.failure)
+      if (typeof failure.operationId !== 'string' || typeof failure.domain !== 'string' || typeof failure.resourceKey !== 'string'
+        || typeof failure.errorCode !== 'string' || !/^[A-Z][A-Z0-9_]{0,63}$/.test(failure.errorCode)) throw new Error('PANEL_DATA_INVALID')
+      if (value.acceptedFailures?.includes(failure.operationId)) return
+      const locale = deps.locale?.() ?? 'zh-CN', resource = `failure:${failure.operationId}`
+      value.notices = value.notices.filter(entry => entry.resource !== resource)
+      value.notices.push({ operationId: change.operation_id,resource,context: {
+        type: 'assistant_panel_application_failed',...failure,
+        message: panelApplicationFailure(failure.domain,typeof failure.name === 'string' ? failure.name : failure.resourceKey,failure.errorCode,locale,String(failure.operation)),
+        instruction: locale.startsWith('en')
+          ? 'Explain this failed change and its reason once in the next reply, then continue the request. Unapplied saved values are not current state; deleted content must not be used as evidence.'
+          : '在下一次回复中说明一次这项变更未能完成及原因，然后继续处理当前请求。未应用的保存值不是当前状态；已删除的内容不得再作为有效依据。',
+      } })
+      await save(value)
+      return
+    }
     const notice = object(change.payload.notice)
     const resource = `notice:${JSON.stringify([notice.resource,notice.id])}`
     value.notices = value.notices.filter(entry => entry.resource !== resource)
@@ -209,9 +229,14 @@ export function createAssistantPanelApplication(binding: AssistantPanelHome, dep
       const value = await state(), included = new Set(value.notices.map(notice => notice.operationId))
       await save(value)
       const context = value.notices.map(notice => JSON.stringify(notice.context)).join('\n')
-      return { text: context ? `主人已在助理面板提交以下变更，执行前已应用。保留完整聊天；删除的内容不再作为有效依据。\n${context}\n\n${text}` : text,
+      const heading = (deps.locale?.() ?? 'zh-CN').startsWith('en')
+        ? 'Panel changes and their outcomes follow. Preserve the full conversation; deleted content is no longer valid evidence.'
+        : '面板操作及处理结果如下。保留完整聊天；删除的内容不再作为有效依据。'
+      return { text: context ? `${heading}\n${context}\n\n${text}` : text,
         accepted: () => serial(async () => {
           const current = await state()
+          const failures = current.notices.filter(notice => included.has(notice.operationId) && notice.resource.startsWith('failure:')).map(notice => notice.resource.slice('failure:'.length))
+          current.acceptedFailures = [...new Set([...(current.acceptedFailures ?? []),...failures])]
           current.notices = current.notices.filter(notice => !included.has(notice.operationId))
           await save(current)
         }),

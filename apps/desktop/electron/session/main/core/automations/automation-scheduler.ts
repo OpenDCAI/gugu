@@ -67,6 +67,7 @@ export class AutomationScheduler {
   private tickTail: Promise<void> = Promise.resolve();
   private drainTail: Promise<void> = Promise.resolve();
   private bootstrapTail: Promise<void> = Promise.resolve();
+  private readonly deliveryRetryAfter = new Map<string, number>();
   private readonly inFlight = new Set<string>(); // automation IDs currently executing
   private readonly deletingAutomationIds = new Set<string>();
   private readonly slotPool = new SlotPool(MAX_CONCURRENT_RUNS, () => {
@@ -277,9 +278,13 @@ export class AutomationScheduler {
   }
 
   private async pumpQueue(blocked: Map<string, Error>): Promise<void> {
+    const attempted = new Set<string>();
+    for (const [id,after] of this.deliveryRetryAfter) {
+      if (after > Date.now()) attempted.add(id); else this.deliveryRetryAfter.delete(id);
+    }
     while (this.slotPool.availableSlots > 0) {
       const capacity = this.slotPool.availableSlots;
-      const batch = blocked.size ? await listQueuedRuns(capacity,[...blocked.keys()]) : await listQueuedRuns(capacity);
+      const batch = await listQueuedRuns(capacity,[...blocked.keys()],[...attempted]);
       if (batch.length === 0) return;
 
       let madeProgress = false;
@@ -327,6 +332,7 @@ export class AutomationScheduler {
         if (!run) continue;
 
         madeProgress = true;
+        attempted.add(run.id);
         this.callbacks.onRunStep(run);
         this.inFlight.add(entry.automation.id);
         this.slotPool.start(() => this.runWorker(entry.automation, run));
@@ -368,7 +374,8 @@ export class AutomationScheduler {
       return;
     }
     try {
-      await this.executor(current, run, this.callbacks.onRunStep);
+      const result = await this.executor(current, run, this.callbacks.onRunStep);
+      if (!result.success && result.error === 'delivery_not_admitted') this.deliveryRetryAfter.set(run.id,Date.now() + 1500);
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
       log.error('AutomationScheduler worker failed unexpectedly', {

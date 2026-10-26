@@ -68,8 +68,9 @@ export default {
   },
   "machine": {
     "stale": "这份资料尚未更新到当前版本。",
-    "applicationFailed": "{{domain}}「{{resource}}」未能应用，系统会继续处理。",
+    "applicationFailed": "{{domain}}「{{resource}}」未能应用。",
     "changed": "这项内容已被修改，请重新打开后编辑。",
+    "authorizationUnavailable": "这次授权未能开始：执行环境暂时不可用。",
     "accessFailed": "暂时无法验证这份资料的访问权限。",
     "identityFailed": "暂时无法确定这位助理的资料归属。",
     "invalidResource": "这项资料的名称或内容不符合要求。",
@@ -688,7 +689,6 @@ export default {
     "cloudNote": "授权保存在：{{name}}的云设备。换设备登录、你的电脑关着也能用。",
     "connectedGroup": "已连接",
     "savedGroup": "已添加",
-    "retryCheck": "重新检查",
     "manage": "管理连接",
     "availableGroup": "可用",
     "connect": "连接",

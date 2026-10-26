@@ -2,7 +2,6 @@ import { AssistantPanelError } from '@gugu/core/cloud/assistantPanel'
 import { useCloudAssistantFiles } from '@/components/assistant/assistant-panel-files'
 import type { AssistantMachine } from '@/session/renderer/features/assistant/assistant-machine-core'
 
-export type PhoneReadiness = 'ready' | 'asleep' | 'waking' | 'unreachable'
 export type PhoneMachineState = { state: 'opening' } | { state: 'ready'; machine: AssistantMachine }
   | { state: 'error'; error: unknown; retry: () => void }
 

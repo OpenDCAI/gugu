@@ -4698,6 +4698,7 @@ app.whenReady().then(async () => {
     // 项目的跨设备身份由宿主的群对照维护；每次写入后通知渲染层重读。
     emdash.setUserLibraryOwner(async () => (await getSessionpageAuth())?.userId ?? null)
     const assistantPanel = createAssistantPanelRuntime({
+      locale: currentHostLocale,
       getAuth: getSessionpageAuth,
       instanceId: () => deviceRuntimeHost?.instanceId ?? null,
       deviceId: async () => { const id = await localDeviceId(); if (!id) throw new Error('PANEL_DEVICE_UNAVAILABLE'); return id },

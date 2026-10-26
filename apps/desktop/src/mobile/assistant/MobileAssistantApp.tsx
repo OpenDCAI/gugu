@@ -37,7 +37,7 @@ import { phoneNextRoute, phoneParentRoute, type PhoneParentRoute } from './phone
 import { PhoneToday } from './PhoneToday'
 import { PhoneVoiceBar } from './PhoneVoiceBar'
 import { usePhoneVoiceNotes } from './phoneVoiceRuntime'
-import { usePhoneMachine, type PhoneMachineState, type PhoneReadiness } from './phoneMachine'
+import { usePhoneMachine, type PhoneMachineState } from './phoneMachine'
 import '@/session/renderer/features/assistant/assistant-today.css'
 import './assistant-phone.css'
 
@@ -59,8 +59,6 @@ export type PhonePageProps = {
   cloudDeviceId: string | null
   /** 它住哪(云上 / 哪台电脑,那台在不在线)。 */
   home: AssistantHomePlace | null
-  /** 它家里此刻能不能读;云上收回着时要读的那一块由系统叫起来(PhoneMachineGate),住电脑 = 那台开着才读得到。 */
-  readiness: PhoneReadiness
   /** 读写它家里文件用的工作区(各格共用一份,❌ 每格各开一次)。 */
   machine: PhoneMachineState
   /** 把这句话(和要带上的文件)填进和它聊天的输入框并回到聊天:只填不发,人看过再发。 */
@@ -145,11 +143,10 @@ function MobileAssistantAppContent({
   const [ideasOpen, setIdeasOpen] = useState(false)
   const [chatColumn, setChatColumn] = useState<HTMLDivElement | null>(null)
   const chatShown = useReportChatOnScreen(visible && tab === 'chat' ? chatId : null) === chatId
-  const readiness = 'ready' as const
   const machine = usePhoneMachine(homeDeviceId, assistant.id, chatId)
   // 「+」里的「录制语音笔记」:手机只录和传到它家里(phoneVoiceRuntime),转写在电脑上点「开始转写」;它在休息时录音先留在手机上,❌ 替人叫醒。
   const { t: tVoice } = useTranslation('voiceNotes')
-  const voice = usePhoneVoiceNotes({ assistantId: assistant.id, deviceId: homeDeviceId, readiness, machine })
+  const voice = usePhoneVoiceNotes({ assistantId: assistant.id, deviceId: homeDeviceId, machine })
   const { disabled: voiceDisabled, start: voiceStart } = voice
   const back = backOf(route)
   // 安卓返回键:往下钻的页回上一层,别的格回聊天,聊天再退出(交给对话页那一层)。
@@ -194,7 +191,7 @@ function MobileAssistantAppContent({
     ],
     [t, tVoice, voiceDisabled, voiceStart],
   )
-  const page: PhonePageProps = { assistant, chatId, ownerName, homeDeviceId, cloudDeviceId, home, readiness, machine, askInChat, sub, go: (next) => open({ tab, sub: next ?? undefined }), open }
+  const page: PhonePageProps = { assistant, chatId, ownerName, homeDeviceId, cloudDeviceId, home, machine, askInChat, sub, go: (next) => open({ tab, sub: next ?? undefined }), open }
   const labels: Record<PhoneTab, string> = { chat: t('nav.chat'), today: t('nav.today'), tasks: t('nav.tasks'), memory: t('nav.memory'), profile: t('nav.profile') }
 
   // 它的主题色(小鸟身体的色相;照片头像没有 = 不写,走咕咕默认色),落在 `.ta-phone` 根上整页重算。
