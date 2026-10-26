@@ -422,6 +422,8 @@ button.ta-row:hover, a.ta-row:hover { background: var(--ta-glass-hover); }
 .ta-row-body { display: flex; flex: 1; min-width: 0; flex-direction: column; gap: 2px; }
 .ta-row-title { font-size: var(--ta-fs-row); line-height: var(--ta-lh-row); font-weight: 500; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .ta-row-sub { font-size: var(--ta-fs-sub); line-height: var(--ta-lh-sub); color: var(--ta-muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+/* 要多露几行的说明(「关于你」):按 data-lines 折行截断,❌ 一行省略号。 */
+.ta-row .ta-row-sub[data-lines] { display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: var(--ta-row-lines); white-space: normal; overflow-wrap: anywhere; }
 .ta-row-meta { flex-shrink: 0; display: inline-flex; align-items: center; gap: 5px; font-size: var(--ta-fs-sub); line-height: var(--ta-lh-sub); color: var(--ta-faint); }
 .ta-row-chevron { flex-shrink: 0; color: var(--ta-faint); }
 .ta-row-chevron svg { width: 16px; height: 16px; }

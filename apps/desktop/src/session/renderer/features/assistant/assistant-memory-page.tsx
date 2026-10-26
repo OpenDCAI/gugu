@@ -11,7 +11,7 @@ import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigge
 import { Input } from '@renderer/lib/ui/input';
 import { MarkdownRenderer } from '@renderer/lib/ui/markdown-renderer';
 import type { DirectoryEntry } from '@shared/core/fs/fs';
-import { folderNameProblem, joinPath, removeIndexEntry, resourceRejection, RESOURCES_DIR_NAME, type MemoryKind } from './assistant-files';
+import { folderNameProblem, isOwnerProfileNote, joinPath, removeIndexEntry, resourceRejection, RESOURCES_DIR_NAME, type MemoryKind } from './assistant-files';
 import { makeFolder, readText, removePath, renamePath, uploadFile, writeText } from './assistant-machine';
 import { useDirectory, useInvalidateAssistant, useMemoryNotes, type MemoryEntry } from './assistant-data';
 import type { AssistantContext, AssistantPageProps } from './assistant-context';
@@ -78,7 +78,7 @@ function MemoryHome({ context }: { context: AssistantContext }) {
               </button>
             </div>
           ) : (
-            aboutYou.map(note => <AssistantRow key={note.file} leading={ownerLeading(context.owner)} title={note.title}
+            aboutYou.map(note => <AssistantRow key={note.file} leading={ownerLeading(context.owner)} title={isOwnerProfileNote(note) ? t('memory.filter.user') : note.title} detailLines={4}
               detail={note.description || (latest ? t('memory.updated', { time: time(latest) }) : undefined)}
               onClick={() => context.go({ tab: 'memory', sub: `note:${note.file}` })} />)
           )}
@@ -150,15 +150,15 @@ function MemoryNoteDetail({ context, file }: { context: AssistantContext; file: 
       ) : (
         <div className="ta-page" data-testid="assistant-memory-detail">
           <PageHead
-            title={note.title}
-            sub={[kindLabel(note.kind, t, context.assistant.display_name), note.modifiedAt ? t('memory.updated', { time: time(note.modifiedAt) }) : null].filter(Boolean).join(' · ')}
+            title={isOwnerProfileNote(note) ? t('memory.filter.user') : note.title}
+            sub={[isOwnerProfileNote(note) ? null : kindLabel(note.kind, t, context.assistant.display_name), note.modifiedAt ? t('memory.updated', { time: time(note.modifiedAt) }) : null].filter(Boolean).join(' · ')}
           />
           <div className="ta-card ta-prose" data-testid="assistant-memory-body">
             <MarkdownRenderer content={note.body || t('memory.noContent')} />
           </div>
           <p className="ta-page-sub ta-pad">{t('memory.createdBy', { name: context.assistant.display_name })}</p>
           <div className="flex flex-wrap gap-2">
-            <button type="button" className="ta-pill-btn" onClick={() => context.askInChat(t('memory.editPrompt', { name: note.title }))}>
+            <button type="button" className="ta-pill-btn" onClick={() => context.askInChat(isOwnerProfileNote(note) ? t('memory.editAboutMePrompt') : t('memory.editPrompt', { name: note.title }))}>
               <SquarePen />
               {t('memory.editInChat')}
             </button>
@@ -169,7 +169,7 @@ function MemoryNoteDetail({ context, file }: { context: AssistantContext; file: 
               onClick={() =>
                 showConfirm({
                   title: t('memory.deleteTitle'),
-                  description: t('memory.deleteBody', { name: note.title }),
+                  description: t('memory.deleteBody', { name: isOwnerProfileNote(note) ? t('memory.filter.user') : note.title }),
                   confirmLabel: t('common.delete'),
                   variant: 'destructive',
                   onSuccess: () => void remove(note),
