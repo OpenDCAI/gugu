@@ -23,6 +23,23 @@ const line = (is_mine: boolean, at: number, extra: Partial<{ retracted_at: strin
 const awake = (since: number | null): AgentCloudState => ({ presence: 'awake', since })
 
 describe('awaitingReplySince', () => {
+  it('ends processing for a disclosed failed input, including the older unlinked disclosure format', () => {
+    const input = { ...line(true, T), id: 'hi' }
+    const failure = { ...line(false, T + 2_000, { content_type: 'system' }), id: 'failure',
+      sender_user_id: 'assistant', client_message_id: 'turn-failure:failure:generic' }
+    expect(awaitingReplySince([input, failure])).toBeNull()
+    expect(awaitingReplySince([input, { ...failure, reply_to_message_id: 'hi' }])).toBeNull()
+    expect(agentReplyPending({ status: 'idle', cloud: awake(T), awaitingSince: awaitingReplySince([input, failure]), now: T + 3_000 })).toBeNull()
+  })
+  it('does not end a newer input when an older turn fails, or mistake retained delivery for a failed turn', () => {
+    const first = { ...line(true, T), id: 'hi' }
+    const next = { ...line(true, T + 1_000), id: 'hello' }
+    const failure = { ...line(false, T + 2_000, { content_type: 'system' }), id: 'failure',
+      sender_user_id: 'assistant', client_message_id: 'turn-failure:failure:generic', reply_to_message_id: 'hi' }
+    expect(awaitingReplySince([first, next, failure])).toBe(T + 1_000)
+    expect(awaitingReplySince([first, next, { ...failure, reply_to_message_id: null }])).toBe(T + 1_000)
+    expect(awaitingReplySince([first, { ...failure, client_message_id: 'turn-failure:failure:notAdmitted' }])).toBe(T)
+  })
   it('最后一句是我说的 = 在等它,从我发出那刻算', () => {
     expect(awaitingReplySince([line(false, T - 60_000), line(true, T)])).toBe(T)
     expect(awaitingReplySince([line(true, T - 5_000), line(true, T)])).toBe(T)
@@ -84,4 +101,3 @@ describe('agentReplyPendingDeadline', () => {
     expect(agentReplyPendingDeadline(null, null)).toBeNull()
   })
 })
-

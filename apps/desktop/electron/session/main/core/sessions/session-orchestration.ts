@@ -479,9 +479,9 @@ function runtimeError(result: { error: { type: string; message?: string } }): Er
   return new Error(result.error.message ?? result.error.type);
 }
 
-async function stopSessionTransport(target: SessionRow): Promise<void> {
+async function stopSessionTransport(target: SessionRow, onlyIfIdle = false): Promise<void> {
   if (transportOf(target) === 'acp') {
-    const result = await (await getAcpRuntimeClient()).stopSession({ sessionId: target.id });
+    const result = await (await getAcpRuntimeClient()).stopSession({ sessionId: target.id, ...(onlyIfIdle ? { onlyIfIdle: true } : {}) });
     if (!result.success && result.error.type === 'stop_pending') throw Object.assign(new Error('stop_pending: executor is still stopping; check session_get before reporting it stopped'), { code: 'stop_pending' });
     if (!result.success) throw runtimeError(result);
     // 状态桥要等下一次摘要推送才看得到这条会话没了;回执 ❌ 抢在它前面读到旧的 working(#6095 的 ACP 面)。
@@ -652,13 +652,14 @@ async function startSpawnedSession(input: {
 export async function stopExactSessionpageSession(target: {
   projectId: string;
   sessionId: string;
+  onlyIfIdle?: boolean;
 }): Promise<boolean> {
   const rows = await projectSessionRows(target.projectId);
   const session = rows.find((row) =>
     row.id === target.sessionId && row.projectId === target.projectId
   );
   if (!session) return false;
-  await stopSessionTransport(session);
+  await stopSessionTransport(session, target.onlyIfIdle);
   return true;
 }
 
