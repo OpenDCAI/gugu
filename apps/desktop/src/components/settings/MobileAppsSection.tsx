@@ -95,15 +95,16 @@ const MobileAppsContent = observer(function MobileAppsContent() {
     inFlight.current = true
     setPending(action ? { [id]: action } : {})
     setFailed(null)
+    const title = translate(action ? 'extensions.installFailed' : 'extensions.switchFailed')
     try {
       const result = await run()
       if (!result.success) {
         log.error({ id, error: result.error }, 'Phone App action failed')
-        setFailed({ title: translate('extensions.installFailed'), cause: messageForUser(result.error) })
+        setFailed({ title, cause: messageForUser(result.error) })
       }
     } catch (error) {
       log.error({ id, error: String(error) }, 'Phone App action failed')
-      setFailed({ title: translate('extensions.installFailed'), cause: messageForUser(error) })
+      setFailed({ title, cause: messageForUser(error) })
     } finally {
       inFlight.current = false
       setPending({})

@@ -12,4 +12,3 @@ export function safeFailureLine(message: string, connectionLost: () => string): 
   if (firstLine === 'Wire transport disconnected') return connectionLost();
   return firstLine.slice(0, MAX_FAILURE_LINE_LENGTH);
 }
-

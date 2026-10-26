@@ -341,7 +341,7 @@ export const enUSCapabilityMessages = {
   'browserSettings.clearProfileStorageAction': 'Clear Storage',
   'browserSettings.clearProfileStorageFailed': 'Could not clear browser storage',
   'browserSettings.clearProfileStorageMissing':
-    'The browser profile no longer exists or could not be cleared.',
+    'This browser profile does not support clearing its data separately.',
   'browserSettings.deleteProfileTitle': 'Delete {name} browser profile?',
   'browserSettings.deleteProfileDescription':
     'This removes the profile and clears its cookies, local storage, IndexedDB, and cache.',
@@ -1171,7 +1171,7 @@ export const zhCNCapabilityMessages: Record<CapabilityMessageKey, string> = {
     '这会清除该配置的 cookie、local storage、IndexedDB 和缓存。使用它的浏览器标签页会退出登录。',
   'browserSettings.clearProfileStorageAction': '清除存储',
   'browserSettings.clearProfileStorageFailed': '无法清除浏览器存储',
-  'browserSettings.clearProfileStorageMissing': '该浏览器配置已不存在，或无法清除。',
+  'browserSettings.clearProfileStorageMissing': '此浏览器配置不支持单独清除数据。',
   'browserSettings.deleteProfileTitle': '删除浏览器配置 {name}？',
   'browserSettings.deleteProfileDescription':
     '这会移除该配置，并清除它的 cookie、local storage、IndexedDB 和缓存。',

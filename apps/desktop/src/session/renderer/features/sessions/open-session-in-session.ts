@@ -1,4 +1,3 @@
-import { messageForUser } from '@/lib/userFacingError';
 import { when } from 'mobx';
 import { getSessionPageStore, getSessionView, asProvisioned } from '@renderer/features/sessions/stores/session-selectors';
 import { sessionTabKind } from './session-tab-kind';
@@ -70,7 +69,7 @@ export function openSessionInSessionWhenReady({
         });
         toast({
           title: translateSessionMessage('sidebar.conversationNotOpenable'),
-          description: messageForUser(error),
+          description: translateSessionMessage('sidebar.workspaceNotReady'),
           variant: 'destructive',
         });
       },

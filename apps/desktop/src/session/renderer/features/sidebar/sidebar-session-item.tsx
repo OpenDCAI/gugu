@@ -236,10 +236,10 @@ export const SidebarSessionItem = observer(function SidebarSessionItem({
       },
       {
         timeout: 15_000,
-        onError: (error) => {
+        onError: () => {
           toast({
             title: translate('sidebar.forkFailed'),
-            description: messageForUser(error),
+            description: translate('sidebar.workspaceNotReady'),
             variant: 'destructive',
           });
         },
