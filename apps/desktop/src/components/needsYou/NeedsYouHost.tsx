@@ -16,6 +16,7 @@ import { openTaskCardSession } from '../chat/openTaskCardSession'
 import { useNeedsYouTasks, type NeedsYouTask } from './useNeedsYouTasks'
 import '@/i18n/registerMobileWorkspaceCatalog'
 import '@/mobile/agent-watch/agent-watch.css'
+import './needs-you.css'
 
 function taskKey(task: NeedsYouTask): string {
   return `${task.deviceId}/${task.session.conversationId}`
@@ -34,7 +35,7 @@ export function NeedsYouHost() {
   // Closing after the last wait also resets the next visit, without retaining a hidden dialog.
   if (opened && tasks.length === 0) setOpened(false)
   return createPortal(<>
-    {tasks.length > 0 && <div className="fixed right-4" style={{ bottom: mobile ? 'calc(72px + env(safe-area-inset-bottom))' : 16, zIndex: 'var(--z-settings-modal)' }}>
+    {tasks.length > 0 && <div className="needs-you-trigger" data-mobile={mobile || undefined}>
       <Button data-testid="needs-you-trigger" onClick={() => setOpened(true)} aria-haspopup="dialog" aria-expanded={shown}>
         <AgentNeedsUserGlyph size={16} />{t('needsYou.count', { count: tasks.length })}
       </Button>
@@ -58,21 +59,21 @@ function PendingTask({ task, onOpenTask }: { task: NeedsYouTask; onOpenTask: () 
   const { t } = useTranslation()
   const read = useTimelineSession(assistantTimelineClient(task.local), 'needs-you', task.deviceId, task.session.conversationId, true)
   const ready = read.phase === 'ready' && read.link === 'ok'
-  const installs = ready ? Object.values(read.timeline.settlements).filter(item => item.state === 'pending' && appInstallAskOf(item.host)).map(item => item.itemId) : []
   const previousInstalls = useRef<string[]>([])
   // The host's timeout and answers on another device withdraw the same permission sheet here.
   useEffect(() => {
+    const installs = ready ? Object.values(read.timeline.settlements).filter(item => item.state === 'pending' && appInstallAskOf(item.host)).map(item => item.itemId) : []
     for (const id of previousInstalls.current) if (!installs.includes(id)) closeInShell(id)
     previousInstalls.current = installs
-  }, [installs])
+  }, [ready, read.timeline.settlements])
   useEffect(() => () => { for (const id of previousInstalls.current) closeInShell(id) }, [])
   const pending = Object.values(read.timeline.settlements).filter(item => item.state === 'pending')
   return <section data-testid="needs-you-pending" className="flex flex-col gap-3">
     {(read.error || read.actionError) && <p role="alert">{read.error || read.actionError}</p>}
     {!ready && <p role="status">{t('needsYou.loading')}</p>}
-    {ready && pending.length === 0 && <Button variant="secondary" onClick={onOpenTask}>{t('needsYou.openTask')}</Button>}
     {ready && pending.map(settlement => <SettlementCard key={settlement.itemId} settlement={settlement} runtime={task.session.runtime}
       machine={task.local ? undefined : task.machine} busy={read.respondingItemId === settlement.itemId}
       onRespond={input => { void read.respond(input).catch(() => undefined) }} />)}
+    <Button variant="ghost" onClick={onOpenTask}>{t('needsYou.openTask')}</Button>
   </section>
 }
