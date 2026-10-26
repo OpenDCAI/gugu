@@ -78,7 +78,9 @@ export function AssistantDevicesPage({ cloudDeviceId, openedDeviceId, onOpenDevi
       </SettingsPage>
     )
   }
-  if (thisComputer && open === 'this-computer') return <ThisDeviceActions panelNavigation={panelNavigation} onBack={() => setOpen(null)}><DeviceMachineConfigurations devices={computer?.configurations} /></ThisDeviceActions>
+  if (thisComputer && open === 'this-computer') return computer
+    ? <DeviceActionsPage device={computer.device} configurations={computer.configurations} isThisDevice={computer.device.is_current_device === true} panelNavigation={panelNavigation} onBack={() => setOpen(null)} />
+    : <ThisDeviceActions panelNavigation={panelNavigation} onBack={() => setOpen(null)} />
   if (opened) return <DeviceActionsPage panelNavigation={panelNavigation} device={opened} configurations={openedMachine?.configurations} isThisDevice={opened.is_current_device === true} embedded={!!onOpenDevice} onBack={onOpenDevice ? undefined : () => setOpen(null)} />
 
   const groupNames = (groups: readonly string[]) => groups.map((g) => groupText.name(g)).join('、')
