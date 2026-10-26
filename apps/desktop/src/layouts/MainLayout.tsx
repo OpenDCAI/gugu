@@ -70,6 +70,7 @@ import { AssistantTaskChatOpener } from '../components/assistant/AssistantTaskCh
 import { FeedbackHost } from '../components/FeedbackHost'
 import { AssistantCloseHost } from '../components/assistant/AssistantCloseHost'
 import { MobileAssistantTab } from '../mobile/assistant/MobileAssistantTab'
+import type { PhoneRoute } from '../mobile/assistant/MobileAssistantApp'
 import { PhoneAssistantRow } from '../mobile/assistant/PhoneAssistantRow'
 import { usePhoneAssistant } from '../mobile/assistant/usePhoneAssistant'
 import { useBackgroundUsageSync } from '../components/usage/useBackgroundUsageSync'
@@ -249,12 +250,13 @@ function InnerLayout({
   // #7199 手机上打开的是和个人助理那条私聊:整块换成助理 App(聊天 + 动态 / 任务 / 记忆 / 它的名字),「在看」由 App 按它摆着的那一格报。
   const phoneAssistant = usePhoneAssistant(mobile)
   const [assistantChatRequest, setAssistantChatRequest] = useState(0)
+  const [assistantInitialRoute, setAssistantInitialRoute] = useState<PhoneRoute>()
   const openAssistantChat = useCallback((chatId: string): boolean => {
     const assistantChatId = mobile ? phoneAssistant.chatId : readAssistantShellBridge()?.getSnapshot()?.chatId
     if (chatId !== assistantChatId) return false
     setAgentCreateDraftOpen(false)
     setActiveTab(mobile ? 'assistant' : 'tasks')
-    if (mobile) setAssistantChatRequest((n) => n + 1)
+    if (mobile) { setAssistantInitialRoute(undefined); setAssistantChatRequest((n) => n + 1) }
     else appState.navigation.navigate('assistant')
     return true
   }, [mobile, phoneAssistant.chatId])
@@ -334,8 +336,16 @@ function InnerLayout({
     if (mobile && MOBILE_TABS.includes(activeTab)) setPhoneRootTab(activeTab)
   }, [mobile, activeTab])
   const pagerTab = phoneLayerOpen ? phoneRootTab : activeTab
-  const exitPhoneLayer = useCallback(() => navigateMobile(() => setActiveTab(phoneRootTab), 'pop'), [phoneRootTab])
+  const exitPhoneLayer = useCallback(() => navigateMobile(() => {
+    setActiveTab(activeTab === 'assistant' && assistantInitialRoute ? 'settings' : phoneRootTab)
+    setAssistantInitialRoute(undefined)
+  }, 'pop'), [activeTab, assistantInitialRoute, phoneRootTab])
+  const openPhoneAssistantProfile = useCallback(() => navigateMobile(() => {
+    setAssistantInitialRoute({ tab: 'profile' })
+    setActiveTab('assistant')
+  }, 'push'), [])
   const openPhoneAssistant = useCallback(() => navigateMobile(() => {
+    setAssistantInitialRoute(undefined)
     setActiveTab('assistant')
     setAssistantChatRequest((n) => n + 1)
   }, 'push'), [])
@@ -625,6 +635,7 @@ function InnerLayout({
     if (!assistantOnPhone || activeTab !== 'chats' || mobilePane !== 'chat' || !phoneAssistant.available) return
     setMobilePane('list')
     setActiveTab('assistant')
+    setAssistantInitialRoute(undefined)
     setAssistantChatRequest((n) => n + 1)
   }, [assistantOnPhone, activeTab, mobilePane, phoneAssistant.available])
   // 这一格只在手机壳里、且开得了个人助理时才有:跨到桌面宽度 / 管家说这里没开放,回对话页。
@@ -1349,7 +1360,7 @@ function InnerLayout({
             {/* #7199 咕咕:「消息」置顶第一行点进来;默认是和它的聊天,页头分段切 动态 / 任务 / 记忆,头像去资料。 */}
             {phoneAssistant.available && (
               <PhoneLayer open={activeTab === 'assistant'} testId="mobile-assistant-layer">
-                <MobileAssistantTab state={phoneAssistant} visible={activeTab === 'assistant'} navigationTarget={unreadNavigationTarget === 'assistant'} chatRequest={assistantChatRequest} onExit={exitPhoneLayer} onOpenUserChat={handleOpenProfileChat} />
+                <MobileAssistantTab state={phoneAssistant} visible={activeTab === 'assistant'} navigationTarget={unreadNavigationTarget === 'assistant'} chatRequest={assistantChatRequest} initialRoute={assistantInitialRoute} onExit={exitPhoneLayer} onOpenUserChat={handleOpenProfileChat} />
               </PhoneLayer>
             )}
             {/* 看管 agent(项目 → 会话 → 时间线),❌ 不是桌面那张会话页 IDE 面(那个 <720px 真不适配,它的槽在上面照旧 display:none)。 */}
@@ -1376,6 +1387,7 @@ function InnerLayout({
                 pane={settingsPane}
                 onPaneChange={(next) => navigateMobile(() => setSettingsPane(next), next === 'nav' ? 'pop' : 'push')}
                 onClose={exitPhoneLayer}
+                onOpenAssistantProfile={openPhoneAssistantProfile}
               />
             </PhoneLayer>
           </>

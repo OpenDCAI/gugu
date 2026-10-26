@@ -104,7 +104,7 @@ function MobileAssistantAppContent({
   cloudDeviceId,
   home,
   visible,
-  chatRequest, navigationTarget,
+  chatRequest, initialRoute, navigationTarget,
   onExit,
   ...chatHandlers
 }: {
@@ -118,12 +118,13 @@ function MobileAssistantAppContent({
   visible: boolean
   /** 每变一次 = 别处打开了和它的私聊:落在聊天那一段。 */
   chatRequest: number
+  initialRoute?: PhoneRoute
   navigationTarget?: boolean
-  /** 顶层的返回:退回「消息」。 */
+  /** 顶层的返回:由外壳退回进入前的一层。 */
   onExit?: () => void
 } & AssistantChatHandlers) {
   const { t } = useTranslation('assistant')
-  const [route, setRoute] = useState<PhoneRoute>({ tab: 'chat' })
+  const [route, setRoute] = useState<PhoneRoute>(initialRoute ?? { tab: 'chat' })
   useEffect(() => {
     const open = () => setRoute({ tab: 'profile', sub: 'connectors' })
     window.addEventListener(UI_EVENTS.openAssistantConnectors, open)
@@ -144,6 +145,9 @@ function MobileAssistantAppContent({
   useEffect(() => {
     if (chatRequest > 0) setRoute({ tab: 'chat' })
   }, [chatRequest])
+  useEffect(() => {
+    if (initialRoute) setRoute(initialRoute)
+  }, [initialRoute])
   const { setDraft, draftAttachments, setDraftAttachments } = useChatStore('setDraft', 'draftAttachments', 'setDraftAttachments')
   const attachmentsRef = useRef(draftAttachments)
   attachmentsRef.current = draftAttachments
@@ -158,7 +162,11 @@ function MobileAssistantAppContent({
   const { disabled: voiceDisabled, start: voiceStart } = voice
   const back = backOf(route)
   // 安卓返回键:往下钻的页回上一层,别的格回聊天,聊天再退出(交给外壳:退回「消息」)。
-  useBackLayer(() => taskChat ? showAssistantTaskChat(null) : open(back ?? { tab: 'chat' }), visible && tab !== 'chat')
+  useBackLayer(() => {
+    if (taskChat) showAssistantTaskChat(null)
+    else if (!back && initialRoute?.tab === tab && onExit) onExit()
+    else open(back ?? { tab: 'chat' })
+  }, visible && tab !== 'chat')
 
   // 「问问它」这类:回到聊天并唤起键盘(人要接着打字);点分段里的「聊天」只切过去,不弹键盘(手机壳惯例)。
   const openChat = useCallback(() => {
