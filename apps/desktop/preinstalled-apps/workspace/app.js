@@ -78,6 +78,8 @@ const STRINGS = {
     you: '你',
     justNow: '刚刚',
     upload: '上传',
+    insertImage: '插入图片',
+    imagePositionGone: '插入位置已更改，请重新选择图片。',
     uploadTooLarge: '文件太大：{e}',
     download: '下载',
     createdBy: '{who} 创建 · {time}',
@@ -151,6 +153,8 @@ const STRINGS = {
     you: 'You',
     justNow: 'just now',
     upload: 'Upload',
+    insertImage: 'Insert image',
+    imagePositionGone: 'The insertion position changed. Please select the images again.',
     uploadTooLarge: 'File too large: {e}',
     download: 'Download',
     createdBy: 'Created by {who} · {time}',
@@ -278,6 +282,8 @@ function renderChrome() {
   $('conflicts-done').textContent = t.done
   $('upload-label').textContent = $('empty-upload').textContent = t.upload
   $('upload').hidden = !canWrite()
+  $('insert-image-label').textContent = t.insertImage
+  updateImageButton()
   $('download').textContent = t.download
   $('open-with').textContent = t.openWith
   $('more').setAttribute('aria-label', t.more)
@@ -854,6 +860,7 @@ function closeCurrent() {
   const current = state.current
   if (!current) return
   state.current = null
+  updateImageButton()
   for (const off of current.offs) off()
   current.unbind?.()
   current.view?.destroy()
@@ -915,10 +922,11 @@ async function mountText(current) {
   current.marks = lineMarks(cm)
   current.view = new cm.EditorView({
     parent: $('editor'),
-    extensions: [cm.basicSetup, markdownSupport(cm), cm.EditorView.lineWrapping, editorTheme(cm), selectionWatch(cm), current.marks.extension],
+    extensions: [cm.basicSetup, markdownSupport(cm), cm.EditorView.lineWrapping, editorTheme(cm), selectionWatch(cm), current.marks.extension, imageInput(cm, current)],
   })
   current.unbind = gugu.bind.codemirror(current.view, file)
-  // Others' words (`chat`): raw HTML stays text, nothing loads; a relative link opens the file beside this one. Each
+  updateImageButton()
+  // Others' words (`chat`): raw HTML stays text, external images stay links; file images use the files API. Each
   // block says its lines (`sourceLines`): a selection there is cited by them, a pill's lines are found there.
   const render = () => {
     if (state.current !== current) return
@@ -928,6 +936,62 @@ async function mountText(current) {
   current.offs.push(file.onChange(debounce(render, 120)))
   render()
   showPlace()
+}
+
+function canInsertImage(current) {
+  return current && state.current === current && current.view && current.file.type === 'text' && !current.file.readOnly && current.file.status !== 'gone' && canWrite()
+}
+
+function updateImageButton() {
+  $('insert-image').hidden = !canInsertImage(state.current)
+}
+
+// A file's existing anchors keep the insertion point with the text while the upload or photo picker is open.
+async function insertImages(current, images, anchor) {
+  if (!canInsertImage(current) || !images.length) return
+  const { entry, file } = current
+  hideBanner()
+  try {
+    const path = entry.path ?? entry.name
+    const folder = entry.parentId ?? path.slice(0, path.lastIndexOf('/') + 1).replace(/\/$/, '')
+    const arrived = await gugu.files.upload({ chat: entry.chat, folder }, images)
+    if (!canInsertImage(current)) return
+    const at = file.resolve(anchor)
+    if (at === null) throw new Error(state.t.imagePositionGone)
+    // Use the names actually stored (including collision renames). Encode whitespace and Markdown delimiters.
+    const text = arrived.map((image) => `![](${encodeURIComponent(image.name).replace(/[()]/g, (c) => c === '(' ? '%28' : '%29')})`).join('\n')
+    if (!text) return
+    current.view.dispatch({ changes: { from: at, insert: text }, selection: { anchor: at + text.length } })
+    current.view.focus()
+  } catch (error) {
+    if (state.current === current) showBanner(fmt(error.code === 'too-large' ? state.t.uploadTooLarge : state.t.failed, { e: error.message }), 'error')
+  }
+}
+
+function imageInput(cm, current) {
+  const imagesIn = (transfer) => [...(transfer?.files ?? [])].filter((file) => file.type.startsWith('image/'))
+  return cm.EditorView.domEventHandlers({
+    paste(event, view) {
+      const images = imagesIn(event.clipboardData)
+      if (!canInsertImage(current) || !images.length) return false
+      event.preventDefault()
+      void insertImages(current, images, current.file.anchor(view.state.selection.main.head))
+      return true
+    },
+    dragover(event) {
+      if (!canInsertImage(current) || ![...(event.dataTransfer?.items ?? [])].some((item) => item.kind === 'file' && item.type.startsWith('image/'))) return false
+      event.preventDefault()
+      return true
+    },
+    drop(event, view) {
+      const images = imagesIn(event.dataTransfer)
+      if (!canInsertImage(current) || !images.length) return false
+      event.preventDefault()
+      const at = view.posAtCoords({ x: event.clientX, y: event.clientY }) ?? view.state.selection.main.head
+      void insertImages(current, images, current.file.anchor(at))
+      return true
+    },
+  })
 }
 
 // The selected text — in the editor (the source, each range of a multiple selection) or the preview — kept as it
@@ -1236,6 +1300,7 @@ function watchStatus(current) {
   const show = (status) => {
     if (state.current !== current) return
     const t = state.t
+    updateImageButton()
     const badge = $('doc-status')
     badge.dataset.status = status
     badge.textContent = file.readOnly && status === 'online' ? t.readOnly : status === 'offline' ? t.offline : ''
@@ -1422,6 +1487,16 @@ function start() {
   }
   $('new-doc').onclick = () => toggleMenu($('new-doc'), [[state.t.newDoc, createDoc], [state.t.newFolder, createFolder]])
   $('upload').onclick = $('empty-upload').onclick = () => uploadFiles()
+  $('insert-image').addEventListener('pointerdown', (event) => event.preventDefault())
+  $('insert-image').onclick = () => {
+    const current = state.current
+    if (!canInsertImage(current)) return
+    const anchor = current.file.anchor(current.view.state.selection.main.head)
+    const picker = $('image-picker')
+    picker.value = ''
+    picker.onchange = () => { void insertImages(current, [...picker.files].filter((file) => file.type.startsWith('image/')), anchor) }
+    picker.click()
+  }
   $('move-cancel').onclick = closeMoveDialog
   $('move-dialog').addEventListener('pointerdown', (event) => {
     if (event.target === $('move-dialog')) closeMoveDialog()

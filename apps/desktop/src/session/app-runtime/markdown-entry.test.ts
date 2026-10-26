@@ -6,11 +6,20 @@
 import { afterEach, beforeAll, describe, expect, it, vi } from 'vitest';
 import { renderer } from './markdown-entry';
 
+const imageFile = {
+  type: 'binary',
+  blob: vi.fn(async () => new Blob(['image'], { type: 'image/png' })),
+  close: vi.fn(),
+};
 const gugu = {
   openLink: vi.fn(async (_url: string) => undefined),
   reportError: vi.fn(async (_message: string) => undefined),
   openBrowserTab: vi.fn(async (_url: string) => undefined),
-  files: { openWith: vi.fn(async (_file: unknown, _options?: unknown) => undefined) },
+  files: {
+    open: vi.fn(async (_file: unknown, _options?: unknown) => imageFile),
+    readVersion: vi.fn(async (_file: unknown, _n: number): Promise<string | Blob> => new Blob(['old-image'], { type: 'image/png' })),
+    openWith: vi.fn(async (_file: unknown, _options?: unknown) => undefined),
+  },
 };
 const render = renderer(gugu);
 
@@ -133,6 +142,67 @@ describe('gugu.markdown(): others\' words never become markup', () => {
     expect(box.querySelectorAll('img, script, [onerror], [onclick]')).toHaveLength(0);
     expect([...box.querySelectorAll('a.gg-md-image')].map((a) => a.getAttribute('href'))).toContain('https://example.com/p.png');
     expect((window as unknown as { __pwned?: number }).__pwned).toBeUndefined();
+  });
+});
+
+describe('gugu.markdown(): file images', () => {
+  const file = { chat: 'chat-1', id: 'md-1', name: 'plan.md', path: 'notes/deep/plan.md' };
+  const id = '0b6d3a52-5a3e-4b70-9f0e-1d2c3b4a5f60';
+
+  it('resolves an image beside the file by its full folder path, and opens it through the existing file viewer', async () => {
+    const box = rendered('![figure](./figure%20%281%29.png)', { file, sourceLines: true });
+    await vi.waitFor(() => expect(box.querySelector('img')?.getAttribute('src')).toMatch(/^data:image\/png;base64,/));
+    expect(box.querySelector('img')?.alt).toBe('figure');
+    expect(box.querySelector('img')?.closest('[data-line]')?.getAttribute('data-line')).toBe('1-1');
+    expect(gugu.files.open).toHaveBeenCalledExactlyOnceWith({ chat: 'chat-1', name: 'notes/deep/figure (1).png' }, { readOnly: true });
+    expect(imageFile.close).toHaveBeenCalledOnce();
+    click(box.querySelector('img'));
+    expect(gugu.files.openWith).toHaveBeenCalledExactlyOnceWith({ chat: 'chat-1', name: 'notes/deep/figure (1).png' });
+  });
+
+  it('resolves gugu-file links by id and preserves an explicitly referenced version', async () => {
+    const box = rendered(`![now](gugu-file://${id}) ![then](gugu-file://${id}?v=2)`);
+    await vi.waitFor(() => expect(box.querySelectorAll('img')).toHaveLength(2));
+    expect(gugu.files.open).toHaveBeenCalledExactlyOnceWith({ id }, { readOnly: true });
+    expect(gugu.files.readVersion).toHaveBeenCalledExactlyOnceWith({ id }, 2);
+    expect(imageFile.close).toHaveBeenCalledOnce();
+  });
+
+  it('keeps external sources as chips in both trust levels and never reads an absolute filesystem or protocol-relative path', () => {
+    for (const trust of ['chat', 'document']) {
+      const box = rendered('![web](https://example.com/a.png) ![net](//example.com/a.png) ![disk](/tmp/a.png) ![unsafe](javascript:alert)', { file, trust });
+      expect(box.querySelector('img')).toBeNull();
+    }
+    expect(gugu.files.open).not.toHaveBeenCalled();
+    expect(gugu.files.readVersion).not.toHaveBeenCalled();
+  });
+
+  it('shows a permission refusal at the image and never substitutes a direct network read', async () => {
+    gugu.files.open.mockRejectedValueOnce(Object.assign(new Error('File access denied'), { code: 'denied' }));
+    const box = rendered('![figure](figure.png)', { file });
+    await vi.waitFor(() => expect(box.textContent).toContain('File access denied'));
+    expect(box.querySelector('img')).toBeNull();
+    expect(gugu.openBrowserTab).not.toHaveBeenCalled();
+  });
+
+  it('closes a handle that is not an image and says why it cannot be shown', async () => {
+    const text = { ...imageFile, type: 'text', close: vi.fn() };
+    gugu.files.open.mockResolvedValueOnce(text);
+    const box = rendered('![wrong](text.md)', { file });
+    await vi.waitFor(() => expect(box.textContent).toContain('not an image'));
+    expect(box.querySelector('img')).toBeNull();
+    expect(text.close).toHaveBeenCalledOnce();
+  });
+
+  it('drops an image response from a previous render and closes the handle', async () => {
+    let finish!: (file: typeof imageFile) => void;
+    gugu.files.open.mockImplementationOnce(() => new Promise((resolve) => { finish = resolve; }));
+    const box = rendered('![old](old.png)', { file });
+    render(box, '# new', { file });
+    finish(imageFile);
+    await vi.waitFor(() => expect(imageFile.close).toHaveBeenCalledOnce());
+    expect(box.querySelector('img')).toBeNull();
+    expect(box.textContent).toBe('new');
   });
 });
 

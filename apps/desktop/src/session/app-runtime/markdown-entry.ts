@@ -1,5 +1,6 @@
 import type { ChatHighlighter, HighlightResult } from '@gugu/session-chat-ui/highlight';
 import { documentToHtml } from '@gugu/session-chat-ui/markdown-html';
+import { parseGroupFileLink } from '@gugu/core/shared/ui/guguLink';
 import type { MarkdownTrust } from '@gugu/session-shared/markdown/dialect';
 import { APP_RUNTIME_MARKDOWN_CSS } from '@shared/extensions/app-runtime-protocol';
 import { revealMarkdownAnchor } from '../../components/markdown/revealAnchor';
@@ -25,7 +26,11 @@ type LinkVerbs = {
   openLink(url: string): Promise<unknown>;
   reportError(message: string): Promise<unknown>;
   openBrowserTab(url: string): Promise<unknown>;
-  files: { openWith?(file: unknown, options?: { at?: Record<string, string> }): Promise<unknown> };
+  files: {
+    open(file: unknown, options?: { readOnly?: boolean }): Promise<object>;
+    readVersion(file: unknown, n: number): Promise<string | Blob>;
+    openWith?(file: unknown, options?: { at?: Record<string, string> }): Promise<unknown>;
+  };
 };
 
 const TRUSTS: readonly MarkdownTrust[] = ['chat', 'document'];
@@ -116,7 +121,7 @@ function drawDiagrams(root: HTMLElement): void {
 
 /** A relative link in a file (`plan.md`, `./notes/a.md`, `../b.md`) names a file in the same place, beside it. */
 function siblingOf(file: unknown, href: string): { chat: string; name: string } | { session: string; name: string } | { project: string; name: string } | null {
-  const entry = ((file as { entry?: unknown } | null)?.entry ?? file) as { chat?: unknown; session?: unknown; project?: unknown; name?: unknown } | null;
+  const entry = ((file as { entry?: unknown } | null)?.entry ?? file) as { chat?: unknown; session?: unknown; project?: unknown; name?: unknown; path?: unknown } | null;
   if (!entry || typeof entry !== 'object' || href.startsWith('/') || /^[a-z][a-z\d+.-]*:/i.test(href)) return null;
   let path: string;
   try {
@@ -124,7 +129,7 @@ function siblingOf(file: unknown, href: string): { chat: string; name: string } 
   } catch {
     return null;
   }
-  const from = typeof entry.name === 'string' ? entry.name : '';
+  const from = typeof entry.path === 'string' ? entry.path : typeof entry.name === 'string' ? entry.name : '';
   const parts: string[] = [];
   for (const part of `${from.slice(0, from.lastIndexOf('/') + 1)}${path}`.split('/')) {
     if (part === '..') parts.pop();
@@ -158,6 +163,54 @@ function followLink(root: HTMLElement, gugu: LinkVerbs, file: unknown, href: str
   else void gugu.openLink(href).catch(failed);
 }
 
+// Images beside a file use the same authorized files API as opening it. Remote sources stay links: neither trust
+// level makes an App page fetch a picture from somebody's server on render. Clicking a picture opens its host viewer.
+async function resolveImage(gugu: LinkVerbs, ref: unknown, version?: number): Promise<string> {
+  let blob: Blob;
+  if (version !== undefined) {
+    const content = await gugu.files.readVersion(ref, version);
+    if (!(content instanceof Blob)) throw new Error('The referenced file is not an image');
+    blob = content;
+  } else {
+    const file = await gugu.files.open(ref, { readOnly: true }) as { type: string; blob(): Promise<Blob>; close(): void };
+    try {
+      if (file.type !== 'binary') throw new Error('The referenced file is not an image');
+      blob = await file.blob();
+    } finally {
+      file.close();
+    }
+  }
+  if (!blob.type.startsWith('image/')) throw new Error('The referenced file is not an image');
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => resolve(reader.result as string);
+    reader.onerror = () => reject(reader.error ?? new Error('Could not read the image'));
+    reader.readAsDataURL(blob);
+  });
+}
+
+function drawImages(root: HTMLElement, gugu: LinkVerbs, file: unknown): void {
+  for (const chip of root.querySelectorAll<HTMLAnchorElement>('a.gg-md-image[href]')) {
+    const href = chip.getAttribute('href')!;
+    const link = parseGroupFileLink(href);
+    const ref = link ? { id: link.itemId } : siblingOf(file, href);
+    if (!ref) continue;
+    const alt = chip.textContent ?? '';
+    const failed = (cause: unknown) => {
+      if (!root.contains(chip)) return;
+      chip.className = 'gg-md-image';
+      chip.textContent = `${alt}: ${cause instanceof Error ? cause.message : String(cause)}`;
+    };
+    void resolveImage(gugu, ref, link?.version).then((src) => {
+      if (!root.contains(chip)) return;
+      const image = Object.assign(document.createElement('img'), { src, alt });
+      image.onerror = () => failed(new Error('Could not display the image'));
+      chip.className = 'gg-md-inline-image';
+      chip.replaceChildren(image);
+    }).catch(failed);
+  }
+}
+
 // ── render ──
 
 type Rendered = { target: Element; root: HTMLElement; text: string; options: RenderOptions };
@@ -166,26 +219,27 @@ const byTarget = new WeakMap<Element, Rendered>();
 const byRoot = new WeakMap<Element, Rendered>();
 const ROOT_MARK = 'data-gugu-markdown';
 
-function paint(entry: Rendered): void {
+function paint(entry: Rendered, gugu: LinkVerbs): void {
   const { target, root, text, options } = entry;
   root.className = `gg-md gg-md--${options.density}`;
-  // Images stay nodes, painted as link chips (nothing loads on render); the transcript's HTML, sanitized once.
+  // Start with the transcript's sanitized chips, then resolve only file images through the authorized files API.
   // `sourceLines`: each block says the text's lines it came from (`data-line="3-5"`): a page finds a line's block by it.
   root.innerHTML = documentToHtml(text, { trust: options.trust, frontmatter: options.frontmatter, keepImageNodes: true, sourceLines: options.sourceLines });
   // Only when it is not there yet: taking the root out and back would drop the scroll position of a scrolling target.
   if (root.parentNode !== target || target.childNodes.length !== 1) target.replaceChildren(root);
   colourCode(root);
   drawDiagrams(root);
+  drawImages(root, gugu, options.file);
 }
 
 let themeWatch: MutationObserver | null = null;
 /** A diagram is drawn for the page's theme: when the person switches it, the documents on the page are drawn again. */
-function watchTheme(): void {
+function watchTheme(gugu: LinkVerbs): void {
   if (themeWatch) return;
   themeWatch = new MutationObserver(() => {
     for (const root of document.querySelectorAll(`[${ROOT_MARK}]`)) {
       const entry = byRoot.get(root);
-      if (entry) paint(entry);
+      if (entry) paint(entry, gugu);
     }
   });
   themeWatch.observe(document.documentElement, { attributes: true, attributeFilter: ['data-gugu-theme'] });
@@ -214,8 +268,8 @@ export function renderer(gugu: LinkVerbs) {
     }
     entry.text = text;
     entry.options = given;
-    paint(entry);
-    watchTheme();
+    paint(entry, gugu);
+    watchTheme(gugu);
   };
 }
 

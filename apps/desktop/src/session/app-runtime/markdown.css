@@ -17,6 +17,9 @@
   .gg-md .gg-md-mermaid { overflow-x: auto; }
   .gg-md .gg-md-mermaid svg { display: block; max-width: 100%; height: auto; margin: 0 auto; }
 
+  .gg-md .gg-md-inline-image { display: inline-block; max-width: 100%; }
+  .gg-md .gg-md-inline-image img { display: block; max-width: 100%; height: auto; border-radius: var(--em-radius-control); }
+
   /* ui.css 把 App 自己的勾选框画成咕咕多选的那颗圈；文档里的任务项是 gugu 每个 markdown 面都一样的那种勾选框。 */
   .gg-md li input[type='checkbox'] { appearance: auto; -webkit-appearance: auto; border: 0; border-radius: 0; background: none; }
   .gg-md li input[type='checkbox']::after { content: none; }

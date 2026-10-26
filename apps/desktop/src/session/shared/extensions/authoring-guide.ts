@@ -829,7 +829,8 @@ md.render(element, f.text, { density: 'comfortable', frontmatter: true, file: f.
 \`density\`: \`'compact'\` (the default, a chat's rhythm) or \`'comfortable'\` (a document). \`frontmatter: true\` shows a
 file's leading \`---\` YAML block as code instead of reading it as text. \`sourceLines: true\` marks each block with the
 lines it was written on (\`data-line="3-5"\`), to find a line's block. \`trust: 'chat'\` (the default) is for others'
-words: raw HTML stays text, no image loads; \`'document'\` only for text your App wrote. Links: \`#…\` in place,
+words: raw HTML stays text; \`'document'\` only for text your App wrote. File images (relative to \`file\`, or
+\`gugu-file://<id>\`) load through \`files:read\`; external images stay links. Links: \`#…\` in place,
 http(s) a browser tab, gugu resources through \`openLink\` (API 13, no capability), relative files beside \`file\`
 through \`gugu.files.openWith\` (needs \`files:read\`). Failures call \`reportError\`. Never put others' text through \`innerHTML\`.
 
