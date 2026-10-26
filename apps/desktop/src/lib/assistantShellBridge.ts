@@ -39,6 +39,9 @@ export type AssistantShellSnapshot = {
    */
   assistantState: 'found' | 'loading' | 'none' | 'unreadable'
   ownerName: string | null
+  /** 主人(登录的那个人)的 id 与头像:记忆页「关于你」那几行用他自己的头像打头。没登录 / 还没读到 = 不给。 */
+  ownerId?: string | null
+  ownerAvatar?: string | null
   /** 和它的那条私聊(还没认出来 = null):「今天」页读这条私聊文件夹里的 today.json。 */
   chatId: string | null
   /** 它住哪(云上 / 某台电脑);还没有它、还认不出 = null。 */
