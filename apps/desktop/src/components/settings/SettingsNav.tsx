@@ -7,8 +7,6 @@ import { Pane, PaneHeader } from '../ui/Pane'
 import { ListRow } from '../ui/ListRow'
 import { IconButton } from '../ui/IconButton'
 import {
-  Bot,
-  BotFilled,
   Sparkles,
   SparklesFilled,
   Plug,
@@ -26,8 +24,8 @@ import { useTranslation } from 'react-i18next'
 interface NavItem {
   key: ActiveSection
   labelKey: string
-  il: JSX.Element  // Solar linear (inactive)
-  ib: JSX.Element  // Solar bold/filled (active)
+  il: JSX.Element | null  // Solar linear (inactive)
+  ib: JSX.Element | null  // Solar bold/filled (active)
 }
 
 interface SettingsNavProps {
@@ -152,7 +150,7 @@ const NAV_ITEMS: NavItem[] = [
   { key: 'phone',   labelKey: 'settings.nav.phone', il: <IlPhone />,   ib: <IbPhone />   },
   { key: 'about',   labelKey: 'settings.nav.about', il: <IlAbout />,   ib: <IbAbout />   },
   // 会话页画的那几格(product spec)。同一套 Solar linear / bold,尺寸与上面这些一样。
-  { key: 'sessions', labelKey: 'settings.nav.sessions', il: <Bot size={15} />, ib: <BotFilled size={15} /> },
+  { key: 'sessions', labelKey: 'settings.nav.sessions', il: null, ib: null },
   { key: 'interface', labelKey: 'settings.nav.interface', il: <Palette size={15} />, ib: <PaletteFilled size={15} /> },
   { key: 'resource-monitor', labelKey: 'settings.nav.resource-monitor', il: <Activity size={15} />, ib: <Activity size={15} /> },
   { key: 'browser', labelKey: 'settings.nav.browser', il: <Globe size={15} />, ib: <GlobeFilled size={15} /> },
@@ -231,7 +229,7 @@ export function SettingsNav({ activeSection, sections, mobile = false, user, ass
                       role="button"
                       tabIndex={0}
                       aria-current={isActive ? 'page' : undefined}
-                      leading={isActive ? ib : il}
+                      leading={(isActive ? ib : il) ?? <span className="gg-settings-nav-spacer" aria-hidden="true" />}
                       title={t(labelKey)}
                       selected={isActive}
                       // #7333 桌面左栏是导航:胶囊行。手机「我的」是整屏入口列表,不是导航胶囊。
