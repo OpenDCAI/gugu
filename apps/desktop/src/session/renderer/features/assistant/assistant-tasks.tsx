@@ -1,6 +1,6 @@
 import { rendererLogger } from '@/lib/log';
 import { messageForUser } from '@/lib/userFacingError';
-import { useDirectoryDevices, useLiveDeviceSessions } from '@/session/shared/remote-sessions/session-directory';
+import { useDirectoryDevices, useLiveDeviceSessions, usePhoneTaskDirectory } from '@/session/shared/remote-sessions/session-directory';
 import { observer } from 'mobx-react-lite';
 import { useMemo, useState } from 'react';
 import { useTranslation } from 'react-i18next';
@@ -93,6 +93,7 @@ const TaskLists = observer(function TaskLists({ context }: AssistantPageProps) {
 
 /** 它的子 agent:所有别的机器(云电脑在内)会话目录里,父会话链上是它的那些。 */
 const SubAgents = observer(function SubAgents({ context }: AssistantPageProps) {
+  usePhoneTaskDirectory();
   const { t } = useTranslation('assistant');
   const devices = useDirectoryDevices();
   const live = useLiveDeviceSessions();

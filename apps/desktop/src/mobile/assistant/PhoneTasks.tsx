@@ -3,6 +3,7 @@ import { useTranslation } from 'react-i18next'
 import { Button } from '@/components/ui/Button'
 import { SegmentedTabs } from '@/components/ui/SegmentedTabs'
 import { Clock } from '@/lib/icons'
+import { isAgentHostDevice } from '@gugu/core/cloud/devices'
 import { assistantTasks, groupByDay } from '@/session/renderer/features/assistant/assistant-lineage'
 import { assistantTaskDeviceLabel, assistantTaskDirectory } from '@/session/renderer/features/assistant/assistant-task-directory'
 import { scheduleText } from '@/session/renderer/features/assistant/assistant-schedule'
@@ -71,7 +72,7 @@ function SubAgents({ assistant, chatId, homeDeviceId, readiness, askInChat }: Ph
     if (error) return <AssistantEmpty title={t('tasks.loadFailed')} action={<DeviceDirectoryRetry />}><span role="alert">{error}</span></AssistantEmpty>
     if (loading) return <ReadingNow />
     if (readiness !== 'ready' || !home) return <PhoneMachineGate readiness={readiness === 'ready' ? 'unreachable' : readiness} name={assistant.display_name}>{null}</PhoneMachineGate>
-    const unread = devices.filter((device) => device.is_online).map((device) => deviceSessionsOf(device, live))
+    const unread = devices.filter((device) => device.is_online && isAgentHostDevice(device)).map((device) => deviceSessionsOf(device, live))
     const errors = unread.flatMap((read) => read.error ? [read.error] : [])
     if (errors.length) return <AssistantEmpty title={t('tasks.loadFailed')}><span role="alert">{errors.join(' · ')}</span></AssistantEmpty>
     if (!homeRead || unread.some((read) => read.loading || read.cached)) return <ReadingNow />
@@ -92,7 +93,7 @@ function SubAgents({ assistant, chatId, homeDeviceId, readiness, askInChat }: Ph
     <>
       {groupByDay(children, (item) => item.summary.lastInteractedAt, new Date()).map((group) => (
         <AssistantSection key={group.bucket} title={t(`tasks.day.${group.bucket}`)} testId={`assistant-tasks-${group.bucket}`}>
-          {group.items.map(({ deviceId, summary }) => {
+          {group.items.map(({ deviceId, summary, live }) => {
             const opens = !!summary.agent?.userId
             const openable = online.get(deviceId) === true && opens
             return (
@@ -101,7 +102,7 @@ function SubAgents({ assistant, chatId, homeDeviceId, readiness, askInChat }: Ph
                 testId={`assistant-subagent-${summary.conversationId}`}
                 title={formatSessionTitleForDisplay(summary.harness, summary.title)}
                 detail={assistantTaskDeviceLabel(devices, deviceId)}
-                trailing={<StatusGlyph presentation={sessionPresentation(summary, openable)} />}
+                trailing={<StatusGlyph presentation={sessionPresentation(summary, live && openable)} />}
                 // 点得开的那几行右边一个 ›(手机上一眼看出能点);点不开的只是一条记录。
                 chevron={opens}
                 onClick={opens ? () => openAssistantTaskChat(assistant.id, { deviceId, summary }, listed) : undefined}

@@ -566,6 +566,7 @@ export class RemoteHostsStore {
     let lastLink: MachineLinkState | null = null;
     const onLink = () => {
       const link = machineLinkState(deviceId);
+      updateDeviceSessions(deviceId, { connected: link === 'open' });
       runInAction(() => {
         const state = this.hosts.get(deviceId);
         if (state) state.link = link;
@@ -621,7 +622,7 @@ export class RemoteHostsStore {
           updateDeviceSessions(deviceId, { projects: result.projects, sessions: result.sessions, cached: false }),
         onLoading: (loading) => updateDeviceSessions(deviceId, { loading }),
         onError: (error) => {
-          updateDeviceSessions(deviceId, { error });
+          updateDeviceSessions(deviceId, { error, ...(error ? { connected: false } : {}) });
           if (error) log.warn('[machines] 读那台机器的会话列表失败', { deviceId, error });
         },
       })

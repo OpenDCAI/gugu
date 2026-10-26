@@ -4,7 +4,7 @@ import { device } from '../../../support/testHarness'
 import { remoteWorkspaceDevices } from '../../../../apps/desktop/src/hooks/remoteWorkspaceDevices'
 import { assistantTaskDirectory, assistantTaskDeviceLabel } from '../../../../apps/desktop/src/session/renderer/features/assistant/assistant-task-directory'
 import { assistantTasks } from '../../../../apps/desktop/src/session/renderer/features/assistant/assistant-lineage'
-import { liveDeviceSessions, removeDeviceSessions, retainDeviceSessions, updateDeviceSessions } from '../../../../apps/desktop/src/session/shared/remote-sessions/session-directory'
+import { liveDeviceSessions, removeDeviceSessions, retainDeviceSessions, subscribeDeviceSessions, updateDeviceSessions } from '../../../../apps/desktop/src/session/shared/remote-sessions/session-directory'
 
 const session = (id: string, agent: string, parent: string | null = null): SessionpageSessionSummary => ({
   conversationId: id, agent: { userId: agent }, parentConversationId: parent, projectId: 'project',
@@ -15,7 +15,7 @@ const phone = (id: string, enabled = true) => device(id, [], { platform: 'androi
   host_kind: 'phone', terminals: [], runtimes: enabled ? ['pi'] : [], host_runtime_capability: enabled ? 1 : 0,
 } })
 function publish(id: string, sessions: SessionpageSessionSummary[]): void {
-  updateDeviceSessions(id, { projects: [], sessions, cached: false, loading: false, error: null })
+  updateDeviceSessions(id, { projects: [], sessions, cached: false, connected: true, loading: false, error: null })
 }
 afterEach(() => retainDeviceSessions([]))
 
@@ -60,6 +60,31 @@ describe('assistant task directory across execution devices', () => {
     expect(assistantTaskDirectory(devices, liveDeviceSessions())[0]).toMatchObject({ live: true, summary: { status: { status: 'idle', detail: 'done' } } })
     publish('phone', [working])
     expect(assistantTaskDirectory([{ ...devices[0]!, is_online: false }], liveDeviceSessions())[0]?.live).toBe(false)
+  })
+
+  it('immediately stops treating a disconnected working snapshot as live while the heartbeat is online', () => {
+    const devices = [device('computer', [])]
+    publish('computer', [{ ...session('task', 'worker'), agentStatus: 'working', status: { status: 'working', detail: 'running' } }])
+    expect(assistantTaskDirectory(devices, liveDeviceSessions())[0]?.live).toBe(true)
+    updateDeviceSessions('computer', { connected: false })
+    expect(devices[0]!.is_online).toBe(true)
+    expect(assistantTaskDirectory(devices, liveDeviceSessions())[0]?.live).toBe(false)
+  })
+
+  it('keeps equal poll results referentially stable and only notifies on actual changes', () => {
+    publish('phone', [session('task', 'worker')])
+    const before = liveDeviceSessions()
+    let notifications = 0
+    const off = subscribeDeviceSessions(() => { notifications += 1 })
+    publish('phone', [session('task', 'worker')])
+    expect(liveDeviceSessions()).toBe(before)
+    expect(notifications).toBe(0)
+    const original = session('task', 'worker')
+    publish('phone', [{ ...Object.fromEntries(Object.entries(original).reverse()) } as SessionpageSessionSummary])
+    expect(notifications).toBe(0)
+    updateDeviceSessions('phone', { connected: false })
+    expect(notifications).toBe(1)
+    off()
   })
 
   it('keeps phone summaries when a computer connection is removed', () => {

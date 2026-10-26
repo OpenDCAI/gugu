@@ -92,6 +92,17 @@ describe('startSessionListSync(#6264 手机与桌面任务页共用的会话列�
     expect(seen.at(-1)).toBe('after-reopen')
   })
 
+  it('reports a transport close immediately without waiting for a heartbeat or another list', async () => {
+    const f = fakeClient()
+    const connection = vi.fn()
+    const sync = startSessionListSync(f.client, 'dev-1', { onList: () => {}, onLink: connection })
+    await flush()
+    for (const cb of f.links) cb(false)
+    expect(connection).toHaveBeenLastCalledWith(false)
+    expect(f.client.subscribeSessionsList).toHaveBeenCalledTimes(1)
+    sync.stop()
+  })
+
   it('被重连之后,旧那一轮的推送一帧都不收(❌ 拿旧订阅的帧盖新的那份)', async () => {
     const f = fakeClient()
     const seen: string[] = []

@@ -14,7 +14,7 @@ export function assistantTaskDirectory(
       return local.sessions.map((summary) => ({ deviceId: device.device_id, summary, live: !local.error }))
     }
     const read = deviceSessionsOf(device, live)
-    return read.sessions.map((summary) => ({ deviceId: device.device_id, summary, live: device.is_online && !read.cached }))
+    return read.sessions.map((summary) => ({ deviceId: device.device_id, summary, live: device.is_online && !read.cached && read.connected === true }))
   })
 }
 

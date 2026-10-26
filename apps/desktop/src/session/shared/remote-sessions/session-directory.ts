@@ -1,4 +1,5 @@
-import { useMemo, useSyncExternalStore } from 'react'
+import { useEffect, useMemo, useSyncExternalStore } from 'react'
+import { isDeepEqual } from '@gugu/session-shared'
 import type { Device } from '@gugu/core/shared/types/chat'
 import { isPhoneDevice } from '@gugu/core/cloud/devices'
 import type {
@@ -21,22 +22,25 @@ export type DeviceSessions = {
   cached: boolean
   loading: boolean
   error: string | null
+  /** Current transport evidence; a heartbeat alone cannot keep a working row live. */
+  connected?: boolean
 }
 
 export type SessionDirectoryRow = { deviceId: string; session: SessionpageSessionSummary }
 
-const EMPTY: DeviceSessions = { projects: [], sessions: [], cached: true, loading: true, error: null }
+const EMPTY: DeviceSessions = { projects: [], sessions: [], cached: true, loading: true, error: null, connected: false }
 
 // Shell and session renderer can be separate module graphs in the same document.
 // Keep the single directory and its subscribers on that document, not in either bundle.
 type DirectoryRetry = { ownerId: string; run: () => void | Promise<void> }
-type DirectoryState = { devices: readonly Device[]; live: Readonly<Record<string, DeviceSessions>>; listeners: Set<() => void>; retries: Map<string, DirectoryRetry> }
+type DirectoryState = { devices: readonly Device[]; live: Readonly<Record<string, DeviceSessions>>; listeners: Set<() => void>; retries: Map<string, DirectoryRetry>; phoneReaders: number; demandListeners: Set<() => void> }
 const DIRECTORY_KEY = '__GUGU_SESSION_DIRECTORY__' as const
-const fallback: DirectoryState = { devices: [], live: {}, listeners: new Set(), retries: new Map() }
+const newDirectory = (): DirectoryState => ({ devices: [], live: {}, listeners: new Set(), retries: new Map(), phoneReaders: 0, demandListeners: new Set() })
+const fallback = newDirectory()
 function directoryState(): DirectoryState {
   if (typeof window === 'undefined') return fallback
   const host = window as Window & { [DIRECTORY_KEY]?: DirectoryState }
-  const state = host[DIRECTORY_KEY] ??= { devices: [], live: {}, listeners: new Set(), retries: new Map() }
+  const state = host[DIRECTORY_KEY] ??= newDirectory()
   state.retries ??= new Map()
   return state
 }
@@ -64,8 +68,36 @@ function publish(next: Readonly<Record<string, DeviceSessions>>): void {
 
 export function updateDeviceSessions(deviceId: string, patch: Partial<DeviceSessions>): void {
   const live = directoryState().live
-  publish({ ...live, [deviceId]: { ...(live[deviceId] ?? EMPTY), ...patch } })
+  const next = { ...(live[deviceId] ?? EMPTY), ...patch }
+  // Equal polls preserve the directory and subscriber snapshots, regardless of JSON key order.
+  if (live[deviceId] && isDeepEqual(live[deviceId], next)) return
+  publish({ ...live, [deviceId]: next })
 }
+
+/** Only a mounted desktop task pane requests polling; leaving the pane releases the last reader. */
+export function requestPhoneTaskDirectory(): () => void {
+  const state = directoryState()
+  state.phoneReaders += 1
+  if (state.phoneReaders === 1) for (const listener of state.demandListeners) listener()
+  let released = false
+  return () => {
+    if (released) return
+    released = true
+    state.phoneReaders -= 1
+    if (state.phoneReaders === 0) for (const listener of state.demandListeners) listener()
+  }
+}
+
+export function phoneTaskDirectoryRequested(): boolean { return directoryState().phoneReaders > 0 }
+function subscribePhoneTaskDirectory(listener: () => void): () => void {
+  const listeners = directoryState().demandListeners
+  listeners.add(listener)
+  return () => { listeners.delete(listener) }
+}
+export function usePhoneTaskDirectoryRequested(): boolean {
+  return useSyncExternalStore(subscribePhoneTaskDirectory, phoneTaskDirectoryRequested)
+}
+export function usePhoneTaskDirectory(): void { useEffect(requestPhoneTaskDirectory, []) }
 
 /** The shell publishes its existing account device list across the two React roots. No workspace capability is implied. */
 export function publishDirectoryDevices(devices: readonly Device[]): void {
