@@ -53,3 +53,13 @@ it('fills optional descriptions one by one with four workers and ignores a broke
  expect(updated).toHaveBeenCalledWith('p8','Description p8')
  expect(items).toHaveLength(9)
 })
+
+it('treats a malformed description as only that entry being unreadable',async()=>{
+ const {enrichAssistantPanelIntegrations}=await import('../../apps/desktop/src/components/assistant/assistant-panel-integrations')
+ const rows=[{resource_key:'catalog:github',data:{providerId:'github',displayName:'GitHub'}}]
+ const panel={collection:async()=>rows,snapshot:async()=>({application:[]}),body:async()=>new TextEncoder().encode(JSON.stringify({version:1,en:{id:'github',name:'GitHub',description:{bad:true},auth:{methods:[]}}}))} as unknown as AssistantPanelFiles
+ const items=(await readAssistantPanelIntegrations(panel,'en-US')).items,updated=vi.fn()
+ await enrichAssistantPanelIntegrations(panel,items,'en-US',updated)
+ expect(updated).not.toHaveBeenCalled()
+ expect(items[0]!.name).toBe('GitHub')
+})

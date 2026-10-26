@@ -44,8 +44,8 @@ export async function readAssistantPanelIntegration(panel: AssistantPanelFiles,i
   if (!row) throw new Error('PANEL_INTEGRATION_UNAVAILABLE')
   const data = JSON.parse(new TextDecoder('utf-8',{ fatal: true }).decode(await panel.body(row)))
   const item = data[locale === 'zh-CN' ? 'zh-CN' : 'en'] as IntegrationMetadata
-  if (data.version !== 1 || !item || item.id !== id || typeof item.name !== 'string' || !Array.isArray(item.auth?.methods)) throw new Error('PANEL_INTEGRATION_UNAVAILABLE')
-  return item
+  if (data.version !== 1 || !item || item.id !== id || typeof item.name !== 'string' || item.description !== undefined && typeof item.description !== 'string' || !Array.isArray(item.auth?.methods)) throw new Error('PANEL_INTEGRATION_UNAVAILABLE')
+  return { ...item,icon: integrationIcons[id] ?? item.icon }
 }
 
 /** Missing row descriptions are optional enrichment. Four workers avoid queuing
