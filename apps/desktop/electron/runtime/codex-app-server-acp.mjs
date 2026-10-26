@@ -1057,8 +1057,10 @@ function itemTool(item, terminalId = item?.id) {
       blocks.length > 0 &&
       blocks.every((block) => block?.type === 'text' || block?.type === 'image') &&
       Object.values(besides).every((value) => value == null || value === false)
+    const name = `mcp__${item.server || 'mcp'}__${item.tool || 'tool'}`
     return {
-      title: `mcp__${item.server || 'mcp'}__${item.tool || 'tool'}`,
+      name,
+      title: name,
       kind: 'other',
       rawInput: item.arguments,
       rawOutput: item.error ?? (carried ? undefined : item.result) ?? undefined,
@@ -1152,7 +1154,6 @@ function replayItem(item, fallbackId, revertAnchor, steering) {
     sessionUpdate: 'tool_call_update',
     toolCallId: messageId,
     status: acpToolStatus(item.status, 'completed'),
-    name: item.type,
     ...tool,
   })
 }
@@ -1443,7 +1444,6 @@ function onAppNotification(message) {
         sessionUpdate: 'tool_call_update',
         toolCallId: String(params.item?.id ?? ''),
         status: acpToolStatus(params.item?.status, 'in_progress'),
-        name: params.item.type,
         ...tool,
       })
     }
@@ -1472,7 +1472,6 @@ function onAppNotification(message) {
         sessionUpdate: 'tool_call_update',
         toolCallId: String(item.id ?? ''),
         status: outcome?.success === false ? 'failed' : acpToolStatus(item.status, 'completed'),
-        name: item.type,
         ...tool,
       })
     }

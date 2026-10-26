@@ -7,6 +7,7 @@ import { join, resolve } from 'node:path';
 import { Readable, Writable } from 'node:stream';
 import * as v2 from '@agentclientprotocol/sdk/experimental/v2';
 import { expect, it } from 'vitest';
+import { AcpTranscriptParser, decodeV2SessionUpdate } from '@gugu/session-core/acp';
 import { awaitFact } from '../../../support/awaitFact';
 
 const patch = '@@ -1 +1 @@\r\n-before\r\n+after\r\n';
@@ -16,7 +17,7 @@ require('node:readline').createInterface({ input: process.stdin }).on('line', li
   const m = JSON.parse(line)
   if (m.method === 'thread/start' && (!m.params.config?.['mcp_servers.fixture.url'] || process.env.GUGU_MCP_BEARER_FIXTURE !== 'fixture-bearer')) return out({ id: m.id, error: { code: -32603, message: 'Session MCP configuration missing after discovery' } })
   if (m.method === 'thread/start' || m.method === 'thread/resume') return out({ id: m.id, result: { thread: { id: 'thread', historyMode: 'paginated', turns: [] }, model: 'model', reasoningEffort: 'medium', activePermissionProfile: ':workspace' } })
-  if (m.method === 'thread/turns/list') return out({ id: m.id, result: { data: [{ id: 'historic', items: [{ type: 'commandExecution', command: 'echo recorded', status: 'completed', aggregatedOutput: 'RECORDED_TERMINAL', exitCode: 0 }] }], nextCursor: null } })
+  if (m.method === 'thread/turns/list') return out({ id: m.id, result: { data: [{ id: 'historic', items: [{ type: 'commandExecution', command: 'echo recorded', status: 'completed', aggregatedOutput: 'RECORDED_TERMINAL', exitCode: 0 }, { type: 'mcpToolCall', id: 'recorded-mcp', server: 'gugu', tool: 'message_send', arguments: { text: 'recorded reply' }, status: 'completed', result: { content: [{ type: 'text', text: 'recorded result' }] } }] }], nextCursor: null } })
   if (m.method === 'model/list') return out({ id: m.id, result: { data: [{ id: 'model', model: 'model', displayName: 'Model', supportedReasoningEfforts: [{ reasoningEffort: 'medium' }] }] } })
   if (m.method === 'permissionProfile/list') return out({ id: m.id, result: { data: [{ id: ':workspace', name: 'Workspace', allowed: true }] } })
   if (m.method === 'turn/start') {
@@ -24,6 +25,9 @@ require('node:readline').createInterface({ input: process.stdin }).on('line', li
     out({ method: 'item/started', params: { threadId: 'thread', turnId: 'turn', item: { type: 'userMessage', id: 'native-user', clientId: m.params.clientUserMessageId, content: m.params.input } } })
     out({ method: 'item/started', params: { threadId: 'thread', turnId: 'turn', item: { type: 'fileChange', id: 'edit', status: 'inProgress', changes: [{ path: 'C:\\\\work\\\\before.ts', kind: { type: 'update', move_path: 'C:\\\\work\\\\after.ts' }, diff: ${JSON.stringify(patch)} }] } } })
     out({ method: 'item/started', params: { threadId: 'thread', item: { type: 'commandExecution', id: 'command', command: 'echo done', cwd: '/w' } } })
+    const mcp = { type: 'mcpToolCall', id: 'live-mcp', server: 'gugu', tool: 'message_send', arguments: { text: 'live reply' }, status: 'inProgress' }
+    out({ method: 'item/started', params: { threadId: 'thread', item: mcp } })
+    out({ method: 'item/completed', params: { threadId: 'thread', item: { ...mcp, status: 'completed', result: { content: [{ type: 'text', text: 'live result' }] } } } })
     out({ method: 'item/commandExecution/outputDelta', params: { threadId: 'thread', itemId: 'command', delta: 'live output' } })
     out({ method: 'item/completed', params: { threadId: 'thread', item: { type: 'commandExecution', id: 'command', command: 'echo done', status: 'completed', aggregatedOutput: 'final output', exitCode: 0 } } })
     return out({ id: m.id, result: { turn: { id: 'turn' } } })
@@ -73,6 +77,14 @@ it('speaks SDK-validated v2: setup, native insertion receipt before idle, patch 
     const command = updates.filter(update => update.sessionUpdate === 'tool_call_update' && update.toolCallId === 'command');
     expect(command.at(-1)).toMatchObject({ content: [{ type: 'terminal', terminalId: 'command' }] });
     expect(command.every(update => !('rawOutput' in update) && !('_meta' in update))).toBe(true);
+    const mcpItems = (values: v2.SessionUpdate[]) => {
+      const parser = new AcpTranscriptParser({ sessionId: 'thread' });
+      for (const update of values) parser.pushEvent(decodeV2SessionUpdate(update), 1);
+      return [...parser.history, ...(parser.activeTurn ? [parser.activeTurn] : [])].flatMap(turn => turn.items).filter(item => 'toolCallId' in item && item.toolCallId.endsWith('-mcp'));
+    };
+    const liveMcp = updates.filter(update => update.sessionUpdate === 'tool_call_update' && update.toolCallId === 'live-mcp');
+    expect.soft(liveMcp).toMatchObject([{ name: 'mcp__gugu__message_send' }, { name: 'mcp__gugu__message_send' }]);
+    expect.soft(mcpItems(updates)).toMatchObject([{ kind: 'mcp-tool-call', server: 'gugu', tool: 'message_send' }]);
     await connection.agent.notify(v2.methods.agent.session.cancel, { sessionId: 'thread' });
     await awaitFact('native idle after cancel', () => updates.find(update => update.sessionUpdate === 'state_update' && update.state === 'idle'), { producer: child });
     expect(updates.at(-1)).toMatchObject({ state: 'idle', stopReason: 'cancelled' });
@@ -81,6 +93,8 @@ it('speaks SDK-validated v2: setup, native insertion receipt before idle, patch 
     expect(updates.slice(before)).toContainEqual({ sessionUpdate: 'state_update', state: 'idle' });
     expect(updates.slice(before)).toContainEqual(expect.objectContaining({ sessionUpdate: 'terminal_update', terminalId: 'historic:0', output: { data: Buffer.from('RECORDED_TERMINAL').toString('base64') } }));
     expect(updates.slice(before)).toContainEqual(expect.objectContaining({ sessionUpdate: 'tool_call_update', toolCallId: 'historic:0', content: [{ type: 'terminal', terminalId: 'historic:0' }] }));
+    expect.soft(updates.slice(before)).toContainEqual(expect.objectContaining({ toolCallId: 'recorded-mcp', name: 'mcp__gugu__message_send' }));
+    expect.soft(mcpItems(updates.slice(before))).toMatchObject([{ kind: 'mcp-tool-call', server: 'gugu', tool: 'message_send' }]);
     expect(stderr).not.toMatch(/non-JSON|failed|unmatched/);
   } finally {
     const exited = once(child, 'exit'); child.kill('SIGTERM'); await exited;
