@@ -1,10 +1,7 @@
 /**
- * #7199 手机当设备 —— 用户在「我的 → 这台手机」里的选择:总开关(让云端的助理用这台手机)+ 每组一个开关。
- * 默认全关:❌ 装上就把手机交给云端。按账号分开存(同一台手机换个号登录,是另一台设备、另一套选择)。
- *
- * 存在这台手机的 WebView 里(localStorage):它只关这台手机自己,别的设备与云端读的是登记清单
- * (设备行 capabilities.actions),不是这份。读写失败(隐私模式、存储被清)就当全关 —— 宁可助理调不到,
- * ❌ 不能在人没开的情况下替他开着。
+ * Phone task hosting and per-category phone data consent are independent.
+ * `enabled` retains the installation-bound consent gate for existing grants; the
+ * UI enables it only with an explicit category choice. It never permits remote actions.
  */
 import { useSyncExternalStore } from 'react'
 import { PHONE_ACTION_GROUPS, type PhoneActionGroup, type PhoneGroupGrants } from './phoneActionCatalog'
@@ -95,7 +92,7 @@ export function usePhoneDeviceSettings(userId: string | null): PhoneDeviceSettin
   )
 }
 
-/** 这一组此刻对云端算不算开着:总开关与组开关都开。 */
+/** A phone task may use only explicitly selected, installation-bound categories. */
 export function groupGranted(settings: PhoneDeviceSettings, group: PhoneActionGroup): boolean {
   return settings.enabled && settings.groups[group]
 }

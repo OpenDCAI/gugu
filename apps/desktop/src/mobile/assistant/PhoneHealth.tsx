@@ -1,26 +1,24 @@
 import { AssistantMemoryContent } from '@/components/assistant/AssistantMemoryContent'
 import { assistantPanelFailure } from '@/components/assistant/assistant-panel-errors'
 import { Capacitor } from '@capacitor/core'
-import { useRef, useState } from 'react'
+import { useRef } from 'react'
 import { useTranslation } from 'react-i18next'
 import { Button } from '@/components/ui/Button'
 import { IconButton } from '@/components/ui/IconButton'
 import { ArrowUpToLine, FileText, Heart, RefreshCw, Sparkles } from '@/lib/icons'
 import { LoadingIndicator } from '@/lib/loading/LoadingIndicator'
-import { rendererLogger } from '@/lib/log'
 import { HEALTH_REPORT_ACCEPT, HealthBody, isHealthNote } from '@/session/renderer/features/assistant/assistant-health'
 import { memoryContentPreview } from '@/session/renderer/features/assistant/memory-content-preview'
 import type { MemoryEntry } from '@/session/renderer/features/assistant/assistant-machine-core'
 import { AssistantRow, AssistantSection, PageHead, Tile } from '@/session/renderer/features/assistant/assistant-ui-parts'
 import { nativePhoneActions } from '../phone-device/nativePhoneActions'
+import { openPhonePermissions } from '../phone-device/phonePermissionsNavigation'
 import { readHealthSummary } from '../phone-device/phoneHealth'
 import type { PhonePageProps } from './MobileAssistantApp'
 import { PhoneMachineView, ReadFailed, ReadingNow, ReadView } from './PhoneMachineView'
 import { healthClock, PHONE_HEALTH_REFRESH_MS, readPhoneHealthView, type PhoneHealthView } from './phoneHealthView'
-import { errorText, usePhoneRead, type PhoneRead } from './usePhoneRead'
+import { usePhoneRead, type PhoneRead } from './usePhoneRead'
 import './phone-memory.css'
-
-const log = rendererLogger('mobile/assistant')
 
 /** 与桌面健康页、手机的 health.summary 默认同一段:最近 7 天(含今天)。 */
 const HEALTH_DAYS = 7
@@ -47,21 +45,6 @@ export function PhoneHealth({ assistant, askInChat, go, healthNotes, machine }: 
     (view) => (view.state === 'ok' ? PHONE_HEALTH_REFRESH_MS : null),
   )
   const view = health.state === 'ok' ? health.data : null
-  const [granting, setGranting] = useState(false)
-  // 弹 Health Connect 自己那一页(人可以只给其中几类);一类都没给 / 系统不再弹,带去 Health Connect 里咕咕那一页(与「这台手机」页同一套)。
-  const grant = async () => {
-    setGranting(true)
-    try {
-      const status = await nativePhoneActions.healthRequest()
-      if (status.granted_types.length === 0) await nativePhoneActions.openSettings({ target: 'health' })
-    } catch (error) {
-      log.warn({ error: errorText(error) }, 'health connect permission request failed')
-      await nativePhoneActions.openSettings({ target: 'health' }).catch(() => undefined)
-    } finally {
-      setGranting(false)
-      health.reload()
-    }
-  }
   return (
     <div className="ta-page ta-phone-health" data-testid="assistant-health" data-state={health.state === 'ok' ? health.data.state : health.state}>
       <PageHead
@@ -88,7 +71,7 @@ export function PhoneHealth({ assistant, askInChat, go, healthNotes, machine }: 
       ) : health.data.state === 'ok' ? (
         <HealthBody summary={health.data.summary} t={t} />
       ) : (
-        <ConnectCard view={health.data} granting={granting} onGrant={() => void grant()} onRetry={health.reload} />
+        <ConnectCard view={health.data} onGrant={openPhonePermissions} onRetry={health.reload} />
       )}
       <AssistantSection
         title={t('health.analysisTitle')}
@@ -130,7 +113,7 @@ export function PhoneHealth({ assistant, askInChat, go, healthNotes, machine }: 
 }
 
 /** 读不到:「让健康状况一目了然」那张卡,下面一句说清是哪一种、去哪弄好。 */
-function ConnectCard({ view, granting, onGrant, onRetry }: { view: Exclude<PhoneHealthView, { state: 'ok' }>; granting: boolean; onGrant: () => void; onRetry: () => void }) {
+function ConnectCard({ view, onGrant, onRetry }: { view: Exclude<PhoneHealthView, { state: 'ok' }>; onGrant: () => void; onRetry: () => void }) {
   const { t } = useTranslation('assistant')
   const line = (() => {
     switch (view.state) {
@@ -159,7 +142,7 @@ function ConnectCard({ view, granting, onGrant, onRetry }: { view: Exclude<Phone
       <div className="ta-card-divider" />
       <p className="ta-health-line">{line}</p>
       {canGrant ? (
-        <Button variant="ghost" className="ta-pill-btn" disabled={granting} onClick={onGrant} data-testid="assistant-health-grant">
+        <Button variant="ghost" className="ta-pill-btn" onClick={onGrant} data-testid="assistant-health-grant">
           {t('health.phone.grant')}
         </Button>
       ) : view.state === 'failed' ? (

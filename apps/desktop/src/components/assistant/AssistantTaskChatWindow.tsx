@@ -6,7 +6,7 @@ import { Avatar } from '../Avatar'
 import { PaneHeader } from '../ui/Pane'
 import { IconButton } from '../ui/IconButton'
 import { Button } from '../ui/Button'
-import { ChevronLeft, Plus, Search } from '../../lib/icons'
+import { ChevronLeft, Paperclip, Plus, Search } from '../../lib/icons'
 import { LoadingIndicator } from '../../lib/loading/LoadingIndicator'
 import { UI_EVENTS } from '../../lib/uiEvents'
 import { scheduleComposerFocus } from '../../lib/focusComposer'
@@ -51,7 +51,7 @@ export function AssistantTaskChatWindow({ agent, onClose,status,notice,pendingCo
           </>} />
         {notice}{waitingOnDm?<div className="task-chat-notice" role="status">{t('tasks.chatUnavailable')}</div>:null}{dm.chatId
           ? <TaskChatScope chatId={dm.chatId}><ChatAreaPanel viewportKey={assistantSlotKey('task-chat')} activeTab="chats" mobile={mobile}
-              chrome={{ placeholder: t('chat.placeholder', { name: agent.display_name }), attachGlyph: <Plus />, hideRunningStatus: true,runtimeReady }} {...handlers} /></TaskChatScope>
+              chrome={{ placeholder: t('chat.placeholder', { name: agent.display_name }), attachGlyph: mobile ? <Paperclip /> : <Plus />, hideRunningStatus: true,runtimeReady }} {...handlers} /></TaskChatScope>
           : pendingContent??<div className="assistant-task-chat-window__pending">
               {dm.failed
                 ? <><p>{t('chat.openFailed', { name: agent.display_name })}<br />{dm.failed.error}</p><Button onClick={dm.retry}>{t('machine.retry')}</Button></>

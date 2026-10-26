@@ -83,7 +83,6 @@ function FolderView({
           id: joinPath(machine.paths.resourcesDir, [...trail, name].join('/')), deviceId: machine.deviceId,
           after: { name, path: joinPath(machine.paths.resourcesDir, [...trail, name].join('/')) } })
         onUploaded([...new Set([...uploaded, ...outcome.done])])
-        if (!failures.length) toast(t('files.uploaded', { n: outcome.done.length }), 'success')
         reload()
       }
     } catch (error) {
@@ -170,7 +169,6 @@ function FileView({
   content,
 }: OpenedPageProps & { trail: string[]; entry: DirectoryEntry; content: FileContentView }) {
   const { t, i18n } = useTranslation('assistant')
-  const { toast } = useToast()
   const [confirming, setConfirming] = useState(false)
   const name = assistant.display_name
   const parent = trail.slice(0, -1)
@@ -248,7 +246,6 @@ function FileView({
             await removePath(machine, entry.path)
             await reportAssistantAppChange(machine, assistant.id, { resource: 'files', operation: 'removed',
               id: entry.path, deviceId: machine.deviceId, before: { name: entry.name, path: entry.path } })
-            toast(t('files.fileDeleted'), 'success')
           }}
         />
 

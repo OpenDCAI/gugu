@@ -9,6 +9,9 @@ import {
 } from '../../lib/systemPermissions'
 import { ChevronRight } from '@/lib/icons'
 import { SettingsGroup, SettingsNote, SettingsPage, SettingsRow } from './SettingsPrimitives'
+import { platform } from '@/platform'
+import { useAuth } from '@/store/auth'
+import { PhonePermissionsList } from '@/mobile/phone-device/PhonePermissionsList'
 
 /**
  * 「我的 → 权限」(product spec)。
@@ -33,6 +36,16 @@ function labelKeyOf(permission: SystemPermission): string {
 }
 
 export function PermissionsSection() {
+  if (platform.systemPermissions.length === 0) return null
+  return platform.kind === 'capacitor' ? <PhonePermissionsSection /> : <SystemPermissionsSection />
+}
+
+function PhonePermissionsSection() {
+  const { user } = useAuth()
+  return <SettingsPage data-testid="settings-permissions">{user && <PhonePermissionsList ownerId={user.id} />}</SettingsPage>
+}
+
+function SystemPermissionsSection() {
   const { t } = useTranslation('main')
   const rows = systemPermissionRows()
   const { states, refresh, failed } = useSystemPermissionStates(rows.map((row) => row.permission))

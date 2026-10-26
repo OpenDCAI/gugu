@@ -24,6 +24,7 @@ export function phoneParentRoute<T extends string>(route: PhoneParentRoute<T>): 
     const cut = id.indexOf(':')
     return { tab: route.tab, sub: cut > 0 ? `connector:${id.slice(0, cut)}` : 'connectors' }
   }
+  if (sub.startsWith('devices:')) return { tab: route.tab, sub: 'devices' }
   if (sub.startsWith('voice:')) return { tab: route.tab, sub: 'voice' }
   if (sub.startsWith('files:')) {
     const rest = sub.slice('files:'.length)

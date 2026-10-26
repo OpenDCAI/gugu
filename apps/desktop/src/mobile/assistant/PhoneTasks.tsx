@@ -1,11 +1,9 @@
 import { formatSessionTitleForDisplay } from '@/session/shared/core/sessions/session-title-utils'
-import { useState } from 'react'
 import { presentAgentStatus } from '@gugu/core/shared/agentStatusPresentation'
 import { useAssistantWorkTasks, openAssistantPanelTask } from '@/components/assistant/assistant-panel-tasks'
 import {useAuth} from '@/store/auth'
 import { useTranslation } from 'react-i18next'
 import { Button } from '@/components/ui/Button'
-import { SegmentedTabs } from '@/components/ui/SegmentedTabs'
 import { Clock } from '@/lib/icons'
 import { assistantTaskDeviceLabel } from '@/session/renderer/features/assistant/assistant-task-directory'
 import { groupByDay } from '@/session/renderer/features/assistant/assistant-lineage'
@@ -26,31 +24,20 @@ import { usePhoneRoutines } from './usePhoneRoutines'
  */
 export function PhoneTasks(props: PhonePageProps) {
   const { t } = useTranslation('assistant')
-  // 详情页摆着时这一格不卸:返回时还在进去之前那一段(定时)。
-  const [segment, setSegment] = useState<'tasks' | 'scheduled'>('tasks')
   if (props.sub?.startsWith('routine:')) return <PhoneRoutineDetail key={props.sub} {...props} id={props.sub.slice('routine:'.length)} />
   return (
     <div className="ta-page" data-testid="assistant-tasks">
       <div className="ta-phone-actions">
-        <div className="ta-phone-page-segments">
-          <SegmentedTabs
-            items={[
-              { value: 'tasks', label: t('tasks.segment'), testId: 'assistant-seg-tasks' },
-              { value: 'scheduled', label: t('routines.title'), testId: 'assistant-seg-scheduled' },
-            ]}
-            value={segment}
-            onChange={setSegment}
-            ariaLabel={t('tasks.title')}
-          />
-        </div>
-        <Button variant="ghost" className="ta-pill-btn"
-          onClick={() => props.askInChat(segment === 'tasks' ? t('tasks.createPrompt') : t('routines.createPrompt'))}
-          data-testid="assistant-tasks-create"
-        >
-          {segment === 'tasks' ? t('tasks.create') : t('routines.create')}
+        <Button variant="ghost" className="ta-pill-btn" onClick={() => props.askInChat(t('tasks.createPrompt'))} data-testid="assistant-tasks-create">
+          {t('tasks.create')}
         </Button>
       </div>
-      {segment === 'tasks' ? <SubAgents {...props} /> : <Routines {...props} />}
+      <SubAgents {...props} />
+      <AssistantSection title={t('routines.title')} bare action={
+        <Button variant="ghost" className="ta-pill-btn" onClick={() => props.askInChat(t('routines.createPrompt'))} data-testid="assistant-routines-create">
+          {t('routines.create')}
+        </Button>
+      }><Routines {...props} /></AssistantSection>
     </div>
   )
 }

@@ -31,7 +31,11 @@ import { PhoneGlyph } from './assistantDeviceUi'
 import { useDeviceActionGroupText } from '../settings/deviceActionGroupText'
 import { platform } from '../../platform'
 
-export function AssistantDevicesPage({ cloudDeviceId }: { cloudDeviceId: string | null }) {
+export function AssistantDevicesPage({ cloudDeviceId, openedDeviceId, onOpenDevice }: {
+  cloudDeviceId: string | null
+  openedDeviceId?: string | null
+  onOpenDevice?: (id: string | null) => void
+}) {
   const { t } = useTranslation('settings')
   const groupText = useDeviceActionGroupText()
   const { devices, phones, cloudComputer } = useDevicesStore()
@@ -41,10 +45,13 @@ export function AssistantDevicesPage({ cloudDeviceId }: { cloudDeviceId: string 
   const thisPhone = platform.kind === 'capacitor'
   const currentPhone = all.find(device => device.is_current_device && isPhoneDevice(device))
   const { state: thisActions } = useThisDeviceState()
-  const [open, setOpen] = useState<string | null>(null)
+  const [localOpen, setLocalOpen] = useState<string | null>(null)
+  const open = onOpenDevice ? openedDeviceId ?? null : localOpen
+  const setOpen = onOpenDevice ?? setLocalOpen
 
   const opened = open ? all.find((d) => d.device_id === open) ?? null : null
   if ((thisPhone && open === 'this-phone') || (opened?.is_current_device && isPhoneDevice(opened))) {
+    if (onOpenDevice) return <PhoneDeviceActionsPage />
     return (
       <SettingsPage data-testid="assistant-this-phone-actions">
         <div className="flex items-center gap-2">
@@ -58,7 +65,7 @@ export function AssistantDevicesPage({ cloudDeviceId }: { cloudDeviceId: string 
       </SettingsPage>
     )
   }
-  if (opened) return <DeviceActionsPage device={opened} isThisDevice={opened.is_current_device === true} onBack={() => setOpen(null)} />
+  if (opened) return <DeviceActionsPage device={opened} isThisDevice={opened.is_current_device === true} embedded={!!onOpenDevice} onBack={onOpenDevice ? undefined : () => setOpen(null)} />
 
   const groupNames = (groups: readonly string[]) => groups.map((g) => groupText.name(g)).join('、')
   /** 这台开了哪几项;没登记动作清单(老版本、Windows / Linux 上的咕咕)= null,这一行就不说、也不能点。 */
@@ -79,12 +86,12 @@ export function AssistantDevicesPage({ cloudDeviceId }: { cloudDeviceId: string 
       <SettingsGroup>
         {thisPhone && <SettingsRow data-testid="assistant-device-this-phone" leading={<PhoneGlyph />}
           title={<span className="flex items-center gap-2">{currentPhone?.label ?? t('devices.assistantPage.phoneTitle')}<Chip tone="accent">{t('devices.current')}</Chip></span>}
-          description={currentPhone ? grants(currentPhone) : undefined} control={<ChevronRight size={16} />}
+          control={<ChevronRight size={16} />}
           onClick={() => setOpen('this-phone')} />}
         {!thisPhone && all.length === 0 && <SettingsRow description={t('devices.assistantPage.empty')} />}
         {all.filter(device => !(thisPhone && device.is_current_device && isPhoneDevice(device))).map((device) => {
           const kind = deviceKind(device, cloudId)
-          const summary = grants(device)
+          const summary = isPhoneDevice(device) ? null : grants(device)
           return (
             <DeviceItem
               key={device.device_id}
