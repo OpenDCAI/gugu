@@ -3,7 +3,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { act } from 'react'
 import { createReactHarness } from '../../../support/testHarness'
 import { folderItem, isFolderItem, WORKSPACE_APP_KIND } from '../../../../apps/desktop/src/session/renderer/features/chats/chat-tabs/chat-panel-item'
-import { askChat, openPanelItem, panelFull, panelTabsOf, shownPanelTab, takeChatAsk } from '../../../../apps/desktop/src/session/renderer/features/chats/chat-tabs/chat-layouts'
+import { askChat, chatLayoutOf, openPanelItem, panelFull, panelTabsOf, shownPanelTab, takeChatAsk } from '../../../../apps/desktop/src/session/renderer/features/chats/chat-tabs/chat-layouts'
 import { extensionSurfaceStore } from '../../../../apps/desktop/src/session/renderer/features/extensions/extension-surface-store'
 import { extensionViewStore, residentPageKey, residentPlace } from '../../../../apps/desktop/src/session/renderer/features/extensions/extension-view-store'
 import {
@@ -51,16 +51,16 @@ const fullSwitch = () => harness.container.querySelector<HTMLButtonElement>('[da
 const NONE: { id: string; title: string }[] = []
 
 describe('the slot header', () => {
-  it('has the full switch in a block, pressed while the tab fills it; outside a block (no strip) none', async () => {
+  // owner 10-26 选 A:页签就是标题、× 和「最大化 / 还原」(TabHost.tabFill),页里不再横一行;没有页签条(手机)照旧一个页头。
+  it('in a block draws no row of its own; its tab fills the block and back; outside a block no full switch either', async () => {
     const tab = openPanelItem('full-switch', boardPage())!
     await harness.render(slot({ chatId: 'full-switch', tabbed: true }))
-    expect(fullSwitch()?.getAttribute('aria-pressed')).toBe('false')
-    expect(fullSwitch()?.getAttribute('aria-label')).toBe('面板全屏')
-    act(() => fullSwitch()!.click())
+    expect(fullSwitch()).toBeNull()
+    expect(harness.container.querySelector('[data-testid="group-app-slot-bar"]')).toBeNull()
+    const fill = () => chatLayoutOf('full-switch').groups[0]!.pane.tabFill(tab)!
+    act(() => fill().toggle())
     expect(panelFull('full-switch', tab)).toBe(true)
-    expect(fullSwitch()?.getAttribute('aria-pressed')).toBe('true')
-    expect(fullSwitch()?.getAttribute('aria-label')).toBe('还原面板')
-    act(() => fullSwitch()!.click())
+    act(() => fill().toggle())
     expect(panelFull('full-switch', tab)).toBe(false)
 
     await harness.render(slot({ chatId: 'full-switch' }))
@@ -126,6 +126,16 @@ describe('the slot header', () => {
     install([{ id: 'add', title: 'Add' }], [])
     expect(inline()).toEqual(['add'])
     expect(harness.container.querySelector('[data-testid="group-app-slot-more"]')).toBeNull()
+  })
+
+  it('in a block the App\'s toolbar is the task page\'s command bar; nothing declared, no bar', async () => {
+    install([{ id: 'add', title: 'Add' }, { id: 'sort', title: 'Sort' }, { id: 'undo', title: 'Undo' }], [{ id: 'export', title: 'Export' }])
+    openPanelItem('group-tools-tabbed', boardPage())
+    await harness.render(slot({ chatId: 'group-tools-tabbed', tabbed: true }))
+    const bar = () => harness.container.querySelector('[role="toolbar"]')
+    expect([...bar()!.querySelectorAll('button')].map((button) => button.textContent)).toEqual(['Add', 'Sort', 'Undo'])
+    install([], [])
+    expect(bar()).toBeNull()
   })
 
   it('reads what is installed straight from the store: the update bar and the 「no page」 note follow it', async () => {

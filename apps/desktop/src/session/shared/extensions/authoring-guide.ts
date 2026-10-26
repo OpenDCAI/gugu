@@ -490,10 +490,11 @@ Each call names its file or place. A file: an entry (from \`list\`) or \`ctx.fil
 \`{ chat | session | project, name }\`. A place: \`{ chat: id }\`, \`{ session: id }\` or
 \`{ project: id }\` — a project's folder, as a working copy (\`gugu.projects.list()\` → \`{ projects: [{ id, name }] }\`).
 
-- The file you were opened for (\`ctx.file\`) — the person clicked it and the host picked your App by its claim
+- The file you were opened for (\`ctx.file\`) — the host picked your App by its claim
   (\`opensFiles\`, e.g. \`{ "chat": [".vote.json"] }\`; most specific wins) or picked via "open with".
   No capability; a session's claims go under \`"session"\`.
 - \`"chatFile": "x.board.json"\` on it (API 14): opened in a chat, \`ctx.file\` is that top-level file, \`{}\` at first: fill it.
+- \`"sideWidth": 480\` (API 16): a tab's px beside a chat; none: half.
 - A name claims that one file (\`"session": ["TODO.md"]\`); a suffix is for a format of your own. Keep what your App
   does not understand as is. Changing course, remove the topics and files you made, or ask. A session file
   in a folder the search index skips hears the disk only when written.

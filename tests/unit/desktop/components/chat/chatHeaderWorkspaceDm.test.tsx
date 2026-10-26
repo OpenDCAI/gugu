@@ -18,18 +18,16 @@ const header = (props: { isGroupChat: boolean; isRoomChat: boolean; mobile: bool
     ...props,
     searchMode: false,
     folderShown: false,
-    memberListOpen: false,
+    infoShown: false,
     showHeaderMenu: false,
     moreButtonRef: createRef<HTMLButtonElement>(),
     onEnterSearchMode: vi.fn(),
     onOpenFolder,
     onCloseWorkspacePanel: vi.fn(),
-    onOpenSettingsDrawer: vi.fn(),
-    onOpenMemberList: vi.fn(),
-    onCloseRightSurfaces: vi.fn(),
+    onOpenInfo: vi.fn(),
+    onCloseInfo: vi.fn(),
     onToggleHeaderMenu: vi.fn(),
     onCloseHeaderMenu: vi.fn(),
-    onOpenAnnouncement: vi.fn(),
   }), { chat: { activeChatId: 'c', chats: [{ id: 'c', kind: props.isGroupChat ? 'group' : 'dm' }] as never } }) // the button's name: useChatFolderName
 const workspaceButton = () => document.querySelector<HTMLElement>('button[aria-label="文件夹"], button[aria-label="群文件夹"]')
 

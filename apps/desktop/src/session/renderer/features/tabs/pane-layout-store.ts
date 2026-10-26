@@ -67,7 +67,6 @@ export function mergeIntoOneStrip(snapshot: TabGroupsSnapshot): TabGroupsSnapsho
       merged.pair = {
         anchorTabId: first,
         sideTabId: second,
-        ratio: (layout.sizes[0] ?? 50) / 100,
         ...(vertical ? { sideAt: 'bottom' as const } : {}),
       };
     }
@@ -843,6 +842,10 @@ export class PaneLayoutStore<R extends TabRegistry = TabRegistry> {
       isViewActive: () => this._isViewActiveBox.get(),
       layoutSplitter: {
         windowOpener: (tabId) => this.windowOpener?.(tabId) ?? null,
+        pairAnchorTab: () => {
+          const anchor = this.pairAnchor?.() ?? null;
+          return anchor && anchor.paneId === paneId ? anchor.tabId : null;
+        },
         moveToOtherPane: (tabId) => {
           const to = neighbourInOrder(this.layout, paneId, 'after') ?? neighbourInOrder(this.layout, paneId, 'before');
           return to ? () => this.moveTab(tabId, paneId, to) : null;
