@@ -14,13 +14,12 @@ export function GroupNameRow({ chat, name, canEdit, onCommit }: {
 }) {
   const { t } = useTranslation('contacts')
   const { user } = useAuth()
-  const { refreshChats, patchChat } = useChatStore('refreshChats', 'patchChat')
+  const { patchChat } = useChatStore('patchChat')
   const [open, setOpen] = useState(false)
   const save = async (alias: string) => {
     if (!user) throw new Error('An authenticated account is required')
     await updateDisplayAlias(user.id, { kind: 'group', id: chat.id }, alias)
     patchChat(chat.id, { alias: alias.trim() || null })
-    await refreshChats()
   }
   return <>
     <div className="flex flex-wrap items-center gap-x-2">
