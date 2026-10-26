@@ -1,5 +1,6 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { createAssistantWorkOutboxPump, enqueueAssistantWorkDelivery, type ClaimedAssistantWorkEvent } from '../../../../packages/core/src/cloud/assistantWorkOutbox'
+import { DeviceRpcTimeoutError } from '../../../../packages/core/src/cloud/deviceRpcRequester'
 
 const context = { ownerId: 'owner', runtimeInstanceId: 'runtime', deviceId: 'mac' }
 const event = (extra: Partial<ClaimedAssistantWorkEvent> = {}): ClaimedAssistantWorkEvent => ({
@@ -68,15 +69,36 @@ describe('one account work outbox', () => {
     expect(f.rpc).toHaveBeenCalledWith('assistant_work_outbox_settle', expect.objectContaining({ p_stage: 'retry', p_error_code: 'DEVICE_OFFLINE', p_retry_after_seconds: 5 }), context)
     expect(JSON.stringify(f.warn.mock.calls)).not.toContain('private detail')
   })
+  it('preserves structured timeout and lowercase protocol reasons without logging private messages',async()=>{
+    for(const [error,code] of [[new DeviceRpcTimeoutError('private timeout details'),'DELIVERY_TIMEOUT'],
+      [Object.assign(Error('private protocol details'),{code:'unknown_method'}),'UNKNOWN_METHOD']] as const) {
+      const f=fixture();f.deliver.mockRejectedValue(error);await f.pump.kick()
+      expect(f.rpc).toHaveBeenCalledWith('assistant_work_outbox_settle',expect.objectContaining({p_stage:'retry',p_error_code:code}),context)
+      expect(JSON.stringify(f.warn.mock.calls)).not.toContain('private')
+    }
+  })
   it('bounds a stalled receiver and does not block the other receiver', async () => {
-    vi.useFakeTimers(); const f = fixture([event(), event({ message_id: 'second' })])
+    vi.useFakeTimers(); const f = fixture([event(), event({ message_id: 'second',to_session_id:'another-receiver' })])
     f.deliver.mockImplementation(async (row) => row.message_id === 'message' ? new Promise(() => {}) : { status: 'admitted', messageId: row.message_id })
     const done = f.pump.kick(); await vi.advanceTimersByTimeAsync(46_000); await done
     expect(f.rpc).toHaveBeenCalledWith('assistant_work_outbox_settle', expect.objectContaining({ p_message_id: 'second', p_stage: 'assistant_admitted' }), context)
     expect(f.rpc).toHaveBeenCalledWith('assistant_work_outbox_settle', expect.objectContaining({ p_message_id: 'message', p_stage: 'retry', p_error_code: 'DELIVERY_TIMEOUT' }), context)
   })
+  it('does not overtake an earlier message to the same receiver when that message was not admitted',async()=>{
+    const f=fixture([event(),event({message_id:'followup'})])
+    f.deliver.mockResolvedValueOnce({status:'pending'} as never)
+    await f.pump.kick()
+    expect(f.deliver).toHaveBeenCalledTimes(1)
+    expect(f.rpc.mock.calls.some(([name,args])=>name==='assistant_work_outbox_settle'&&args.p_message_id==='followup')).toBe(false)
+  })
   it('does not claim twice concurrently when delivery events arrive in a burst', async () => {
     const f = fixture(); await Promise.all([f.pump.kick(), f.pump.kick(), f.pump.kick()])
     expect(f.deliver).toHaveBeenCalledOnce()
+  })
+  it('drains the next FIFO batch immediately after consuming a short batch',async()=>{
+    const f=fixture();let batch=0
+    f.rpc.mockImplementation(async name=>({data:name==='assistant_work_outbox_claim'?{events:batch++<2?[event({message_id:`batch-${batch}`})]:[]}: {},error:null}))
+    await f.pump.kick()
+    expect(f.deliver.mock.calls.map(([row])=>row.message_id)).toEqual(['batch-1','batch-2'])
   })
 })
