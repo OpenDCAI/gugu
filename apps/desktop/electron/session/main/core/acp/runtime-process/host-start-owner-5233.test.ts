@@ -299,3 +299,63 @@ describe('#7364 a start stopped while the host is still preparing it', () => {
     expect(statusWriter.interrupt).not.toHaveBeenCalled();
   });
 });
+
+
+describe('idle teardown owns the whole host start boundary', () => {
+  it('holds a wake and its new credential until idle teardown has finished', async () => {
+    platform.issued = 0; platform.released = [];
+    const worker = fakeWorker();
+    const host = createStartOwningClient(worker.client as never);
+    await host.startSession({ input: startInput } as never, undefined as never);
+    const closing = Promise.withResolvers<void>();
+    const entered = Promise.withResolvers<void>();
+    worker.client.stopSession.mockImplementationOnce(async () => {
+      worker.loseAdapter('conv-1');
+      entered.resolve();
+      await closing.promise;
+      return ok(undefined);
+    });
+    const stop = host.stopSession({ sessionId: 'conv-1', onlyIfIdle: true } as never, undefined as never);
+    await entered.promise;
+    const wake = host.startSession({ input: startInput } as never, undefined as never);
+    await new Promise(resolve => setTimeout(resolve, 10));
+    const issuedDuringClose = platform.issued;
+    closing.resolve();
+    await expect(stop).resolves.toMatchObject({ success: true });
+    await expect(wake).resolves.toMatchObject({ success: true });
+    expect(issuedDuringClose, 'the wake must not mint a ticket that the old stop will revoke').toBe(1);
+    expect(platform.issued).toBe(2);
+    expect(worker.phase('conv-1')).toBe('ready');
+  });
+});
+
+
+it('does not revoke a live ticket when process stop has not completed', async () => {
+  platform.released = [];
+  const worker = fakeWorker();
+  const host = createStartOwningClient(worker.client as never);
+  await host.startSession({ input: startInput } as never, undefined as never);
+  worker.client.stopSession.mockResolvedValueOnce(err('stop_pending', 'still stopping') as never);
+  expect(await host.stopSession({ sessionId: 'conv-1' } as never, undefined as never))
+    .toMatchObject({ success: false, error: { type: 'stop_pending' } });
+  expect(platform.released).toEqual([]);
+});
+
+
+it('finishes a previously failed close before preparing a replacement credential', async () => {
+  platform.issued = 0; platform.released = [];
+  const worker = fakeWorker();
+  worker.client.adapterProvenance.mockResolvedValueOnce({ connectionKey: 'old', pid: 1, closing: true } as never);
+  const closing = Promise.withResolvers<void>();
+  worker.client.stopSession.mockImplementationOnce(async () => { await closing.promise; return ok(undefined); });
+  const host = createStartOwningClient(worker.client as never);
+  const wake = host.startSession({ input: startInput } as never, undefined as never);
+  await new Promise(resolve => setTimeout(resolve, 10));
+  const issuedBeforeExit = platform.issued;
+  closing.resolve();
+  await wake;
+  expect(worker.client.stopSession).toHaveBeenCalledTimes(1);
+  expect(issuedBeforeExit).toBe(0);
+  expect(platform.issued).toBe(1);
+  expect(platform.released).toEqual(['conv-1']);
+});

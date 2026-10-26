@@ -89,7 +89,7 @@ export class AcpRuntime {
   }
 
   /** 这条会话此刻attach的适配器进程(连接 key + pid)。只给会话重载当判据,见 SessionManager 那里。 */
-  adapterProvenance(sessionId: string): { connectionKey: string; pid: number | null } | null {
+  adapterProvenance(sessionId: string): { connectionKey: string; pid: number | null; closing?: true } | null {
     return this.manager.adapterProvenance(sessionId);
   }
 
