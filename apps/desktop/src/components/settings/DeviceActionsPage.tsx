@@ -121,12 +121,16 @@ export function GroupIcon({ group, size }: { group: { id: string; icon?: string 
 export function DeviceActionsPage({ device, isThisDevice, onBack, embedded = false, panelNavigation = false, configurations, configurationActions }: { device: Device; isThisDevice: boolean; onBack?: () => void; embedded?: boolean; panelNavigation?: boolean; configurations?: readonly Device[]; configurationActions?: DeviceConfigurationActions }) {
   const { t } = useTranslation('settings')
   const ipc = desktopIpc()
-  if (isThisDevice && ipc) return <ThisDeviceActions onBack={onBack} panelNavigation={panelNavigation}><DeviceMachineConfigurations devices={configurations} actions={configurationActions} /></ThisDeviceActions>
+  const [selectedVersionId, selectVersion] = useState<string | null>(null)
+  const selected = configurations?.find(version => version.device_id === selectedVersionId) ?? device
+  const selectedIsThisDevice = selected.device_id === device.device_id ? isThisDevice : selected.is_current_device === true
+  const versions = <DeviceMachineConfigurations devices={configurations} actions={configurationActions} selectedDeviceId={selected.device_id} onSelect={version => selectVersion(version.device_id)} />
+  if (selectedIsThisDevice && ipc) return <ThisDeviceActions onBack={onBack} panelNavigation={panelNavigation}>{versions}</ThisDeviceActions>
   return (
     <SettingsPage data-testid="settings-device-actions">
       {!embedded && <PageHeader panelNavigation={panelNavigation} navigationKey={`device:${device.device_id}`} title={t('devices.deviceActions.otherTitle', { name: device.label })} backLabel={t('devices.deviceActions.back')} onBack={onBack} />}
-      <DeviceMachineConfigurations devices={configurations} actions={configurationActions} />
-      <OtherDeviceActions device={device} compact={embedded} />
+      {versions}
+      <OtherDeviceActions device={selected} compact={embedded} />
     </SettingsPage>
   )
 }
