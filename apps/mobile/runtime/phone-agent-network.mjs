@@ -11,7 +11,7 @@ const transientStatus = new Set([408, 425, 500, 502, 503, 504])
 /** Whitelist transport facts. Never retain an error message, URL, body, header, or ticket. */
 export function phoneRequestFailure(error, status) {
   if (['dns', 'timeout', 'connection_reset', 'unreachable', 'network', 'service', 'authorization', 'quota', 'other'].includes(error?.category)) {
-    return { category: error.category, ...(transportCodes.has(error.code) ? { code: error.code } : {}), ...(Number.isInteger(error.status) ? { status: error.status } : {}), retryable: error.retryable === true }
+    return { category: error.category, ...(transportCodes.has(error.code) ? { code: error.code } : {}), ...(Number.isInteger(error.status) ? { status: error.status } : {}), ...(Number.isFinite(error.retryAt) ? { retryAt: error.retryAt } : {}), retryable: error.retryable === true }
   }
   const codes = []
   const seen = new Set()
@@ -55,25 +55,31 @@ export function phonePreparationFailureText(error) {
 }
 
 /** One deadline across verification, status reporting and model access; never replays a tool action. */
-export function createPhonePreparation({ signal, run = (action) => action(), record = () => undefined, budgetMs = 45_000, maxAttempts = 3, retryDelayMs = 500, now = Date.now, wait = delay }) {
+export function createPhonePreparation({ signal, run = (action) => action(), record = () => undefined, budgetMs = 45_000, retryDelayMs = 500, now = Date.now, wait = delay, random = Math.random, recoveryProbe = false }) {
   const deadline = now() + budgetMs
   const bounded = AbortSignal.any([signal, AbortSignal.timeout(budgetMs)])
   return async (operation, action) => {
-    for (let attempt = 1; ; attempt++) {
-      signal.throwIfAborted()
-      bounded.throwIfAborted()
-      try {
-        return await run(action, { signal: bounded, deadline })
-      } catch (error) {
+    let lastError
+    try {
+      for (let attempt = 1; ; attempt++) {
         signal.throwIfAborted()
-        const failure = phoneRequestFailure(error)
-        const pause = retryDelayMs * 2 ** (attempt - 1)
-        const retry = failure.retryable && attempt < maxAttempts && now() + pause < deadline && !bounded.aborted
-        await record({ operation, attempt, ...failure, retry })
-        if (!retry) throw error
-        try { await wait(pause, undefined, { signal: bounded }) }
-        catch (error) { signal.throwIfAborted(); bounded.throwIfAborted(); throw error }
+        if (now() >= deadline || bounded.aborted) throw lastError ?? bounded.reason ?? new DOMException('Preparation deadline exceeded', 'TimeoutError')
+        try { return await run(action, { signal: bounded, deadline }) }
+        catch (error) {
+          signal.throwIfAborted()
+          lastError = error
+          const failure = phoneRequestFailure(error)
+          const backoff = Math.min(8_000, retryDelayMs * 2 ** Math.min(attempt - 1, 8))
+          const pause = Math.max(backoff * (0.5 + random() * 0.5), (failure.retryAt ?? 0) - now())
+          const remaining = deadline - now()
+          // After suspension, a phone-wide recovery probe never opens another 45s retry burst.
+          const retry = !recoveryProbe && failure.retryable && remaining > 0 && !bounded.aborted
+          await record({ operation, attempt, ...failure, retry })
+          if (!retry) throw error
+          try { await wait(Math.min(pause, remaining), undefined, { signal: bounded }) }
+          catch { signal.throwIfAborted(); throw lastError }
+        }
       }
-    }
+    } catch (error) { signal.throwIfAborted(); throw Object.assign(error, { phonePreparation: true }) }
   }
 }

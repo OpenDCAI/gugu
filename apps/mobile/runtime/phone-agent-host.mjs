@@ -28,13 +28,14 @@ import { createPhoneTimelineRuntime } from './phone-agent-timeline.mjs'
 import { createPhoneTaskApi } from './phone-agent-task-api.mjs'
 import { createPhoneSkillsRuntime } from './phone-agent-skills.mjs'
 import { createPhonePreparation, phonePreparationFailureText, phoneRequestFailure } from './phone-agent-network.mjs'
+import { deferPhonePreparation, phonePreparationExpired, phonePreparationMayRun, phonePreparationWaitError } from './phone-agent-preparation-queue.mjs'
 
 const required = (value, name) => { if (typeof value !== 'string' || !value.trim()) throw new Error(`${name} is required`); return value.trim() }
 const parseSession = (value) => uuid(typeof value === 'string' ? value.replace(/^session:/, '') : value, 'session_id')
 const uniqueProofs = (...sets) => [...new Map(sets.flatMap((entries) => entries ?? []).map((proof) => [JSON.stringify(proof), structuredClone(proof)])).values()]
 
 /** Native Android owns this process. No receive, credential, or execution loop depends on a WebView. */
-export async function startPhoneAgentHost(initialConfig, { runTurn, cancelTurn, emit, nativeCall, cloudFactory = createPhoneAgentCloud, rpcFactory = startPhoneAgentRpc, modelFactory = createPhoneModelAccess, actionFactory = createPhoneActionRuntime, resolveIdentities = resolveGuguIds }) {
+export async function startPhoneAgentHost(initialConfig, { runTurn, cancelTurn, emit, nativeCall, cloudFactory = createPhoneAgentCloud, rpcFactory = startPhoneAgentRpc, modelFactory = createPhoneModelAccess, actionFactory = createPhoneActionRuntime, resolveIdentities = resolveGuguIds, preparationOptions = {} }) {
   let config = { ...initialConfig }
   const ownerId = uuid(config.ownerId, 'ownerId')
   const deviceId = required(config.deviceId, 'deviceId')
@@ -69,6 +70,7 @@ export async function startPhoneAgentHost(initialConfig, { runTurn, cancelTurn, 
   let authQueue = Promise.resolve()
   const abort = new AbortController()
   const store = await openPhoneAgentStore(root, ownerId)
+  const preparationNow = preparationOptions.now ?? Date.now
   const projectId = stableId('phone-project', ownerId, deviceId)
   const project = { id: projectId, name: '手机任务', path: root }
   const lastJob = (id) => Object.values(store.state.jobs).filter((job) => job.agentUserId === id).reverse().sort((a, b) => String(b.createdAt).localeCompare(String(a.createdAt)))[0]
@@ -292,7 +294,8 @@ export async function startPhoneAgentHost(initialConfig, { runTurn, cancelTurn, 
   async function runJob(job) {
     const agent = store.state.agents[job.agentUserId]
     if (!agent) { job.status = 'failed'; job.error = '这台手机已不再持有该 Agent'; await store.save(); return }
-    job.status = 'running'; job.phase = 'preparing'; job.startedAt = new Date().toISOString(); agent.status = 'working'; agent.lastError = null; agent.lastActiveAt = job.startedAt
+    const waitExpired = phonePreparationExpired(job, preparationNow())
+    job.status = 'running'; job.phase = 'preparing'; job.startedAt ??= new Date().toISOString(); agent.status = 'working'; agent.lastError = null; agent.lastActiveAt = job.startedAt
     await store.save(); publish()
     let lease
     const controller = new AbortController()
@@ -309,12 +312,13 @@ export async function startPhoneAgentHost(initialConfig, { runTurn, cancelTurn, 
       if (!controller.signal.aborted && !job.cancelRequested) return
       throw Object.assign(controller.signal.reason ?? new Error('任务已取消'), { cancelled: true })
     }
-    const prepare = createPhonePreparation({ signal: controller.signal,
+    const prepare = createPhonePreparation({ ...preparationOptions, recoveryProbe: Boolean(store.state.preparationBackoff), signal: controller.signal,
       run: cloud.prepareRequest ? (action, scope) => cloud.prepareRequest(action, scope) : undefined,
       record: async (failure) => { recordRequestFailure({ phase: 'preparing', ...failure }); await store.save() },
     })
     try {
       checkCancelled()
+      if (waitExpired) throw phonePreparationWaitError(job)
       const identity = await prepare('agent.verify', () => verifyAgent(agent.agentUserId))
       agent.displayName = identity.display_name ?? agent.displayName
       agent.guguNumber = identity.gugu_number ?? null
@@ -344,10 +348,12 @@ export async function startPhoneAgentHost(initialConfig, { runTurn, cancelTurn, 
       const skillTurn = skills.forTurn(agent)
       job.skillRevision = skillTurn.revision
       await store.save()
-      if (job.kind === 'confirmation') { job.confirmationResult = await actions.runConfirmation(agent, job, controller.signal); await store.save() }
+      if (job.kind === 'confirmation' && !job.confirmationResult) { job.confirmationResult = await actions.runConfirmation(agent, job, controller.signal); await store.save() }
       checkCancelled()
       lease = await prepare('model-access.issue', () => models.issue(agent, { onExpired: (error) => { warn(error.message); cancelTurn(agent.sessionId) } }))
       checkCancelled()
+      delete store.state.preparationBackoff; delete job.networkWait
+      await store.save()
       const tools = [
         ...phoneCommunicationTools({ agent, job, cloud, store, env, sendSession, emit, authorize: authorizeReply }).filter((tool) => tool.name !== 'session_message'),
         ...phoneChatReadTools({ agent, cloud, store, env }),
@@ -392,6 +398,11 @@ export async function startPhoneAgentHost(initialConfig, { runTurn, cancelTurn, 
       if (job.route?.kind !== 'task' && !job.sent?.length && !job.waitingConfirmation && job.text.trim() !== '[NO_REPLY]') throw new Error('这一轮结束了，但 Agent 尚未通过咕咕消息工具交付回复')
       job.status = 'done'; agent.status = Object.values(store.state.confirmations ?? {}).some((item) => item.agentUserId === agent.agentUserId && item.status === 'pending' && Date.parse(item.expiresAt) > Date.now()) ? 'needs_user' : 'idle'
     } catch (error) {
+      if (!error.cancelled && deferPhonePreparation(store.state, job, error, preparationNow(), preparationOptions.random)) {
+        agent.status = 'working'; agent.lastError = null
+        await store.save(); publish()
+        return
+      }
       const explanation = error.cancelled ? null : phonePreparationFailureText(error)
       job.status = error.cancelled ? 'cancelled' : error.interrupted ? 'interrupted' : 'failed'; job.error = explanation ?? error.message; job.errorCode = error.code ?? null
       agent.status = error.cancelled ? 'idle' : 'error'; agent.lastError = error.cancelled && error.code !== 'execution_unknown' ? null : job.error
@@ -404,15 +415,18 @@ export async function startPhoneAgentHost(initialConfig, { runTurn, cancelTurn, 
         await store.save(); await deliverPhoneOutbox(cloud, store, id).catch((failure) => warn(failure.message))
       }
       if (job.route?.kind === 'session-direct' && !job.sent?.length && !stopped && !signingOut) {
+        // Transitional local outbox: remove when the account task ledger emits durable failed events.
         job.failureNotice ??= { id: stableId('phone-session-failure', job.id), text: failureText, status: 'pending', createdAt: new Date().toISOString() }
         await store.save()
       }
     } finally {
-      await timelines.finish(agent, job).catch((error) => warn(error.message))
-      agent.dataProof = { groups: [...new Set([...(agent.dataProof?.groups ?? []), ...(job.usedGroups ?? [])])], permissionRequirements: uniqueProofs(agent.dataProof?.permissionRequirements, job.permissionRequirements) }
+      if (job.status !== 'queued') {
+        await timelines.finish(agent, job).catch((error) => warn(error.message))
+        agent.dataProof = { groups: [...new Set([...(agent.dataProof?.groups ?? []), ...(job.usedGroups ?? [])])], permissionRequirements: uniqueProofs(agent.dataProof?.permissionRequirements, job.permissionRequirements) }
+        job.finishedAt = new Date().toISOString(); agent.lastActiveAt = job.finishedAt
+      }
       abort.signal.removeEventListener('abort', stopTurn)
       if (activeController === controller) activeController = null
-      job.finishedAt = new Date().toISOString(); agent.lastActiveAt = job.finishedAt
       await store.save(); publish(); await report(agent).catch((error) => warn(error.message))
       await lease?.close().catch((error) => warn(error.message))
       void flushFailureNotices().catch(() => warn('手机任务失败交代暂未送达，已保留待交付记录'))
@@ -438,17 +452,19 @@ export async function startPhoneAgentHost(initialConfig, { runTurn, cancelTurn, 
     return deliveringFailures
   }
   async function drain() {
-    if (!ready || stopped || signingOut) return
+    if (stopped || signingOut) return
     if (draining) return draining
     draining = (async () => {
       for (;;) {
-        if (!ready || stopped || signingOut) break
-        const job = Object.values(store.state.jobs).find((item) => item.status === 'queued' && !skills.isEditing(item.agentUserId))
+        if (stopped || signingOut) break
+        const jobs = Object.values(store.state.jobs)
+        const job = jobs.find((item) => phonePreparationExpired(item, preparationNow()))
+          ?? (ready && phonePreparationMayRun(store.state, preparationNow()) ? jobs.find((item) => item.status === 'queued' && !skills.isEditing(item.agentUserId)) : null)
         if (!job) break
         activeJob = job
         try { await runJob(job) } catch (error) { job.status = 'failed'; job.error = error.message; await store.save(); warn(error.message) }
         finally { activeJob = null }
-        await inbox(job.agentUserId).catch((error) => warn(error.message))
+        if (job.status !== 'queued') await inbox(job.agentUserId).catch((error) => warn(error.message))
       }
     })().finally(() => { draining = null })
     return draining
@@ -568,6 +584,11 @@ export async function startPhoneAgentHost(initialConfig, { runTurn, cancelTurn, 
       const { error } = await cloud.identity.from('gugu_devices').upsert({ ...row, status: 'online', last_seen_at: now, updated_at: now, capabilities: { ...row.capabilities, runtimes: available ? ['pi'] : [], host_runtime_capability: available ? 1 : 0, host_kind: 'phone', remote_protocol: REMOTE_PROTOCOL_VERSION, min_client_protocol: MIN_CLIENT_PROTOCOL } }, { onConflict: 'device_id' })
       if (error) throw new Error(error.message)
       if (stopped || signingOut) return
+      if (available && store.state.preparationBackoff) {
+        store.state.preparationBackoff.awaitingHeartbeat = false
+        await store.save()
+        setImmediate(() => { void drain().catch((error) => warn(error.message)) })
+      }
       lastHeartbeatAt = Date.now(); heartbeatHealthy = true; healthErrors.heartbeat = null; updateReadiness()
       for (const agent of agents()) await report(agent).catch((error) => warn(error.message))
     })().catch((error) => {
@@ -670,6 +691,7 @@ export async function startPhoneAgentHost(initialConfig, { runTurn, cancelTurn, 
     heartbeatTimer = setInterval(() => { void heartbeat().catch((error) => warn(error.message)) }, 30_000)
     reconciliationTimer = setInterval(() => {
       // Broadcasts are an optimization; the DB queue and unread cursor remain authoritative.
+      void drain().catch((error) => warn(error.message)) // Also settles expired waits while offline.
       void tick().then(async () => {
         void flushFailureNotices().catch(() => warn('手机任务失败交代恢复失败'))
         for (const agent of agents()) await inbox(agent.agentUserId)

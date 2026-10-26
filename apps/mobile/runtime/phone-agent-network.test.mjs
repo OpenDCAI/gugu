@@ -16,15 +16,36 @@ test('preparation retries transport failure without retaining raw request data',
   assert.doesNotMatch(JSON.stringify(failures), /secret|https|private/)
 })
 
-test('preparation has both an attempt cap and one deadline across its requests', async () => {
+test('fast failures use the whole deadline with capped exponential backoff, not an attempt limit', async () => {
   let time = 0, requests = 0
-  const prepare = createPhonePreparation({ signal: new AbortController().signal, budgetMs: 45_000, now: () => time, wait: async ms => { time += ms } })
+  const pauses = []
+  const prepare = createPhonePreparation({ signal: new AbortController().signal, budgetMs: 45_000, random: () => 1, now: () => time, wait: async ms => { pauses.push(ms); time += ms } })
   await assert.rejects(prepare('model-access.issue', async () => { requests++; throw new TypeError('fetch failed') }))
-  assert.equal(requests, 3)
+  assert.equal(time, 45_000)
+  assert.equal(requests, 9)
+  assert.deepEqual(pauses.slice(0, 5), [500, 1_000, 2_000, 4_000, 8_000])
+  assert.ok(pauses.every(ms => ms <= 8_000))
   const bounded = createPhonePreparation({ signal: new AbortController().signal, budgetMs: 1000, now: () => time, wait: async ms => { time += ms } })
   await bounded('agent.verify', async () => { time += 800 })
   requests = 0
   await assert.rejects(bounded('model-access.issue', async () => { requests++; throw new TypeError('fetch failed') }))
+  assert.ok(requests >= 1)
+})
+
+test('a server Retry-After beyond this window is retained instead of issuing another request', async () => {
+  let time = 0, requests = 0
+  const error = Object.assign(new Error('busy'), { category: 'service', status: 503, retryable: true, retryAt: 120_000 })
+  const prepare = createPhonePreparation({ signal: new AbortController().signal, now: () => time, wait: async ms => { time += ms } })
+  await assert.rejects(prepare('model-access.issue', async () => { requests++; throw error }), value => value.retryAt === 120_000)
+  assert.equal(requests, 1)
+  assert.equal(time, 45_000)
+})
+
+test('a queued recovery probe makes one attempt rather than resetting the full retry burst', async () => {
+  let requests = 0
+  const prepare = createPhonePreparation({ signal: new AbortController().signal, recoveryProbe: true,
+    wait: async () => { throw new Error('a probe must return to the shared cooldown instead') } })
+  await assert.rejects(prepare('model-access.issue', async () => { requests++; throw new TypeError('fetch failed') }), error => error.phonePreparation === true)
   assert.equal(requests, 1)
 })
 

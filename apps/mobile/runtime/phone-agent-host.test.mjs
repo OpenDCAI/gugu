@@ -109,7 +109,7 @@ function fakeCloud() {
   return { cloud, commands, calls, messages, inboxRows, devices, users }
 }
 
-async function fixture(runTurn, { nativeCall = async () => ({ ok: true }), cancelTurn = () => true, actionFactory = async () => ({ tools: () => [], confirmationForMessage: () => null, cancel: async () => undefined }), prepare = async () => undefined, onRpcStart = () => undefined, onSessionReply = () => undefined } = {}) {
+async function fixture(runTurn, { nativeCall = async () => ({ ok: true }), cancelTurn = () => true, actionFactory = async () => ({ tools: () => [], confirmationForMessage: () => null, cancel: async () => undefined }), prepare = async () => undefined, onRpcStart = () => undefined, onSessionReply = () => undefined, preparationOptions = {} } = {}) {
   const root = await mkdtemp(join(tmpdir(), 'gugu-phone-host-'))
   const previousHome = process.env.GUGU_AGENT_HOME
   process.env.GUGU_AGENT_HOME = root
@@ -121,7 +121,7 @@ async function fixture(runTurn, { nativeCall = async () => ({ ok: true }), cance
   const config = { ownerId, deviceId, installId, supabaseUrl: 'https://test.invalid', supabaseAnonKey: 'public', accessToken: 'private', refreshToken: 'private', grants: { calendar: true, photos: true }, deviceRow: { device_id: deviceId, user_id: ownerId, label: '测试手机', hostname: 'test-phone', platform: 'android', capabilities: { actions: { v: 1, actions: [] } } } }
   await prepare({ root, ...fake, events })
   const host = await startPhoneAgentHost(config, {
-    runTurn, cancelTurn, emit: (event) => events.push(event), nativeCall,
+    runTurn, cancelTurn, emit: (event) => events.push(event), nativeCall, preparationOptions,
     cloudFactory: (_config, onSession) => { authChanged = onSession; return fake.cloud },
     actionFactory,
     resolveIdentities: async () => new Map([[ownerId, { displayName: '主人', guguNumber: 1, isAgent: false }], [agentId, { displayName: '手机 Agent', guguNumber: 2, isAgent: true }]]),
@@ -147,6 +147,10 @@ const until = async (predicate, events) => {
     await new Promise((resolve) => setTimeout(resolve, 10))
   }
 }
+const untilNetworkQueued = (fx) => until(async () => {
+  const journal = JSON.parse(await readFile(join(fx.root, 'hosts', ownerId, 'host.json'), 'utf8'))
+  return !fx.host.state().execution && Object.values(journal.jobs).some(job => job.status === 'queued' && job.networkWait)
+}, fx.events)
 
 test('a first preparation request failure recovers in the same task and returns exactly one result to the assistant', async () => {
   let issues = 0, turns = 0
@@ -180,9 +184,99 @@ test('a first preparation request failure recovers in the same task and returns 
   } finally { await fx.close() }
 })
 
-test('an exhausted preparation failure is disclosed once; a lost delivery acknowledgment survives restart with the same identity', async () => {
+test('two minutes offline preserves the same queued task; a successful heartbeat resumes it without any failure notice', async () => {
+  let time = 0, online = true, turns = 0, issues = 0
   const caller = { sessionId: 'edb18513-6477-4c4d-8766-049227046427', deviceId: 'acceptance-computer', name: '个人助理', harness: 'pi', platformModel: 'platform:free', transport: 'acp' }
-  let attempts = 0, turns = 0, journal, original
+  const fx = await fixture(async (command, hooks) => {
+    turns++
+    await hooks.extraTools.find(tool => tool.name === 'session_message').execute('one-result', { to: [`session:${caller.sessionId}`], text: '1073' })
+    return { status: 'done', text: '结果已交回' }
+  }, { preparationOptions: { now: () => time, wait: async ms => { time += ms }, random: () => 1 }, prepare: ({ cloud, devices }) => {
+    devices.push({ device_id: caller.deviceId, user_id: ownerId, label: '验收电脑', hostname: 'acceptance-computer', platform: 'darwin', status: 'online', last_seen_at: new Date().toISOString(), capabilities: { runtimes: ['pi'], host_runtime_capability: 1 } })
+    const access = cloud.modelAccess
+    cloud.modelAccess = body => {
+      if (body.action === 'issue') {
+        issues++
+        if (time < 120_000) throw new TypeError('fetch failed', { cause: Object.assign(new Error('offline'), { code: 'ENETUNREACH' }) })
+      }
+      return access(body)
+    }
+    const from = cloud.identity.from
+    cloud.identity.from = table => {
+      const query = from(table)
+      const upsert = query.upsert
+      query.upsert = (...args) => online ? upsert(...args) : Promise.reject(new TypeError('fetch failed'))
+      return query
+    }
+  } })
+  try {
+    await fx.host.invoke('agentSession.spawn', [caller, { action: 'spawn', harness: 'pi', prompt: '计算并交回' }], 'two-minute-outage')
+    await untilNetworkQueued(fx)
+    assert.equal(time, 45_000)
+    assert.equal(fx.host.state().sessions[0].status, 'working')
+    const journal = JSON.parse(await readFile(join(fx.root, 'hosts', ownerId, 'host.json'), 'utf8'))
+    const jobId = Object.keys(journal.jobs)[0]
+    assert.equal(journal.jobs[jobId].failureNotice, undefined)
+    online = false
+    time = 120_000
+    await assert.rejects(fx.host.handle({ type: 'configure', config: fx.config }), /fetch failed/)
+    assert.equal(issues, 9)
+    assert.equal(turns, 0)
+    online = true
+    await fx.host.handle({ type: 'configure', config: fx.config })
+    await until(() => fx.host.state().sessions[0]?.lastJobStatus === 'done', fx.events)
+    const completed = JSON.parse(await readFile(join(fx.root, 'hosts', ownerId, 'host.json'), 'utf8'))
+    assert.deepEqual(Object.keys(completed.jobs), [jobId])
+    assert.equal(turns, 1)
+    assert.equal(fx.sessionReplies.length, 1)
+    assert.equal(fx.sessionReplies[0].args[1].text, '1073')
+    assert.equal(fx.events.some(event => event.type === 'turn_failed'), false)
+    assert.equal(completed.jobs[jobId].failureNotice, undefined)
+  } finally { await fx.close() }
+})
+
+test('a process restart retains the queued network wait and resumes the original task once', async () => {
+  let time = 0, journal, turns = 0
+  const caller = { sessionId: 'edb18513-6477-4c4d-8766-049227046427', deviceId: 'acceptance-computer', name: '个人助理', harness: 'pi', platformModel: 'platform:free', transport: 'acp' }
+  const fx = await fixture(async () => { throw new Error('must wait for networking') }, {
+    preparationOptions: { now: () => time, wait: async ms => { time += ms }, random: () => 1 },
+    prepare: ({ cloud }) => {
+      const access = cloud.modelAccess
+      cloud.modelAccess = body => body.action === 'issue' ? Promise.reject(new TypeError('fetch failed')) : access(body)
+    },
+  })
+  try {
+    await fx.host.invoke('agentSession.spawn', [caller, { action: 'spawn', harness: 'pi', prompt: '恢复后只做一次' }], 'durable-network-wait')
+    await untilNetworkQueued(fx)
+    journal = JSON.parse(await readFile(join(fx.root, 'hosts', ownerId, 'host.json'), 'utf8'))
+    assert.equal(Object.values(journal.jobs)[0].failureNotice, undefined)
+  } finally { await fx.close() }
+  time = 120_000
+  const recovered = await fixture(async (command, hooks) => {
+    turns++
+    await hooks.extraTools.find(tool => tool.name === 'session_message').execute('one-result', { to: [`session:${caller.sessionId}`], text: '已完成' })
+    return { status: 'done', text: '已交回' }
+  }, { preparationOptions: { now: () => time }, prepare: async ({ root, devices }) => {
+    const directory = join(root, 'hosts', ownerId)
+    await mkdir(directory, { recursive: true })
+    await writeFile(join(directory, 'host.json'), JSON.stringify(journal))
+    devices.push({ device_id: caller.deviceId, user_id: ownerId, label: '验收电脑', hostname: 'acceptance-computer', platform: 'darwin', status: 'online', last_seen_at: new Date().toISOString(), capabilities: { runtimes: ['pi'], host_runtime_capability: 1 } })
+  } })
+  try {
+    await until(() => recovered.host.state().sessions[0]?.lastJobStatus === 'done', recovered.events).catch(error => {
+      throw new Error(`${error.message}; recovery state: ${JSON.stringify(recovered.host.state())}; backoff: ${JSON.stringify(journal.preparationBackoff)}`)
+    })
+    assert.equal(turns, 1)
+    assert.equal(recovered.sessionReplies.length, 1)
+    assert.equal(recovered.events.some(event => event.type === 'turn_failed'), false)
+    const completed = JSON.parse(await readFile(join(recovered.root, 'hosts', ownerId, 'host.json'), 'utf8'))
+    assert.deepEqual(Object.keys(completed.jobs), Object.keys(journal.jobs))
+  } finally { await recovered.close() }
+})
+
+test('an expired network wait is disclosed once; a lost delivery acknowledgment survives restart with the same identity', async () => {
+  const caller = { sessionId: 'edb18513-6477-4c4d-8766-049227046427', deviceId: 'acceptance-computer', name: '个人助理', harness: 'pi', platformModel: 'platform:free', transport: 'acp' }
+  let attempts = 0, turns = 0, journal, original, time = 0
   const fx = await fixture(async () => { turns++; throw new Error('must not run the model') }, {
     prepare: ({ cloud }) => {
       const access = cloud.modelAccess
@@ -192,14 +286,20 @@ test('an exhausted preparation failure is disclosed once; a lost delivery acknow
       }
     },
     onSessionReply: () => { throw new Error('acknowledgment lost') },
+    preparationOptions: { now: () => time, wait: async ms => { time += ms }, random: () => 1 },
   })
   try {
     await fx.host.invoke('agentSession.spawn', [caller, { action: 'spawn', harness: 'pi', prompt: '执行一次任务' }], 'preparation-exhausted')
+    await untilNetworkQueued(fx)
+    assert.equal(time, 45_000)
+    assert.equal(fx.sessionReplies.length, 0)
+    time += 30 * 60_000 + 1
+    await fx.host.handle({ type: 'configure', config: fx.config })
     await until(async () => {
       const state = JSON.parse(await readFile(join(fx.root, 'hosts', ownerId, 'host.json'), 'utf8'))
       return Object.values(state.jobs).some(job => job.failureNotice?.nextAttemptAt)
     }, fx.events)
-    assert.equal(attempts, 3)
+    assert.equal(attempts, 9)
     assert.equal(turns, 0)
     assert.equal(fx.sessionReplies.length, 1)
     original = fx.sessionReplies[0].args[1]
