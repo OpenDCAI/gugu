@@ -35,7 +35,7 @@ export function UserMessageActions(props: {
       {/* Virtual rows are reused: copy feedback belongs to this message ID. */}
       <Show when={props.itemId} keyed>
         {(itemId) => {
-          const { copied, failed, copy } = createClipboard();
+          const { copied, failed, copy } = createClipboard(translate);
           const copyLabel = () => failed() ?? (copied() ? translate('transcript.copied') : translate('transcript.copyMessage'));
           return <>
             <button type="button" class={userMessageActionButton}

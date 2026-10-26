@@ -1,5 +1,5 @@
 import { safeFailureLine, consoleLogger } from '@gugu/session-core/lib';
-import { useChatTranslator } from '@session-chat/localization';
+import type { ChatTranslator } from '@session-chat/localization';
 /**
  * createClipboard — Solid primitive for copy-to-clipboard interactions.
  *
@@ -24,10 +24,9 @@ export type ClipboardState = {
   copy: (text: string) => void;
 };
 
-export function createClipboard(resetMs = 1500): ClipboardState {
+export function createClipboard(translate: ChatTranslator, resetMs = 1500): ClipboardState {
   const [copied, setCopied] = createSignal(false);
   const [failed, setFailed] = createSignal<string | null>(null);
-  const translate = useChatTranslator();
   let resetTimer: ReturnType<typeof setTimeout> | undefined;
 
   const copy = (text: string): void => {

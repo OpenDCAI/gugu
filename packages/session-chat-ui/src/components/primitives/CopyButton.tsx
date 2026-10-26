@@ -30,8 +30,8 @@ export type CopyButtonProps = {
 };
 
 export function CopyButton(props: CopyButtonProps) {
-  const { copied, failed, copy } = createClipboard();
   const translate = useChatTranslator();
+  const { copied, failed, copy } = createClipboard(translate);
   /**
    * 可访问名与可见标签的**单一来源**。
    *

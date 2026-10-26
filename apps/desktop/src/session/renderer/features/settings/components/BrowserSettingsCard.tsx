@@ -543,7 +543,7 @@ function ImportLoginsRow({
       }
       toast({
         title: translate('browserSettings.importFailed', { browser: name }),
-        description: result.detail ? messageForUser(result.detail) : translate(`browserSettings.importFailedReason.${result.reason}`, { browser: name }),
+        description: messageForUser(result.detail || translate(`browserSettings.importFailedReason.${result.reason}`, { browser: name })),
         variant: 'destructive',
       });
     } finally {

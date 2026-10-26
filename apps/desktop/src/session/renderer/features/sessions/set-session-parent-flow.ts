@@ -67,9 +67,9 @@ function nestFailed(child: SessionRef, parent: SessionRef | null, error: unknown
   const cycle = parent !== null && String(error).includes(SESSION_PARENT_CYCLE);
   toast({
     title: translateSessionMessage('sidebar.nestFailed', { child: child.title }),
-    description: cycle
+    description: messageForUser(cycle
       ? translateSessionMessage('sidebar.nestCycleHint', { parent: parent.title })
-      : messageForUser(error),
+      : error),
     variant: 'destructive',
   });
 }
