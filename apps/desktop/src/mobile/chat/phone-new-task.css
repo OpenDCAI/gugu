@@ -2,7 +2,7 @@
 [data-chat-composer-host][data-taken-over] { display: none; }
 [data-chat-composer-host][data-phone-task] { position: relative; }
 
-/* 浮在群上的文件夹卡:电脑那一张按手机屏宽缩小;卡本身可点,周围不挡群。手机上不挂文件夹(没有「+」)。 */
+/* 浮在群上的文件夹卡:电脑那一张按手机屏宽缩小;卡本身可点,周围不挡群。 */
 .gg-phone-task-card {
   position: absolute;
   left: 0;
@@ -15,17 +15,21 @@
   pointer-events: none;
 }
 .gg-phone-task-card > * { pointer-events: auto; zoom: 0.72; }
-.gg-phone-task-card .gg-folder-card__add { display: none; }
+.gg-phone-folder-picker { position: absolute; inset: 0; z-index: 20; display: flex; background: var(--ta-panel-bg); }
 
 /* 框上沿那一枚任务标签(原型 v7.12 .v7-task-tag):左缩进让开回形针,和框里的字对齐。 */
 .gg-phone-task-tag {
-  display: flex;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) var(--control-h-touch);
   align-items: center;
   gap: var(--spacing-xs);
   min-width: 0;
   margin: 0 var(--spacing-sm) var(--spacing-sm) 48px;
 }
 .gg-phone-task-chip {
+  grid-column: 1;
+  grid-row: 1;
+  justify-self: start;
   display: inline-flex;
   flex-shrink: 0;
   align-items: center;
@@ -41,11 +45,14 @@
   cursor: pointer;
 }
 .gg-phone-task-where {
+  grid-column: 1 / -1;
+  grid-row: 2;
   display: inline-flex;
   align-items: center;
   gap: var(--spacing-xs);
   min-width: 0;
-  height: 32px;
+  min-height: 32px;
+  height: auto;
   padding: 0 var(--spacing-xs);
   border: 0;
   background: none;
@@ -54,6 +61,8 @@
   font-size: var(--font-caption);
   cursor: pointer;
 }
-.gg-phone-task-where > span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.gg-phone-task-where > span { min-width: 0; overflow-wrap: anywhere; white-space: normal; text-align: left; }
 .gg-phone-task-where[data-blocked] { color: var(--warn); }
-.gg-phone-task-tag > .gg-icon-btn { margin-left: auto; flex-shrink: 0; }
+.gg-phone-task-tag > .gg-icon-btn { grid-column: 2; grid-row: 1; justify-self: end; }
+.gg-phone-project-empty { display: flex; flex-direction: column; align-items: center; gap: var(--spacing-lg); padding-top: var(--spacing-2xl); color: var(--text-primary); font-size: var(--font-title); }
+[data-chat-surface]:has([data-chat-composer-host][data-phone-task]) .gg-phone-project-empty-start { visibility: hidden; }

@@ -1,7 +1,7 @@
 import { messageForUser } from '@/lib/userFacingError';
 import { useState, useEffect, useMemo, useRef, useCallback, type KeyboardEventHandler, type ReactNode } from 'react'
 import { useTranslation } from 'react-i18next'
-import { BellOff, CheckCircle, Checklist, ChevronDown, ChevronRight, MessageCircle, MessageSquare, Pin, Plus, SquarePen, Trash, X, Zap, type IconComponent } from '@/lib/icons'
+import { BellOff, CheckCircle, Checklist, ChevronDown, ChevronRight, FolderClosed, MessageCircle, MessageSquare, Pin, Plus, SquarePen, Trash, UserRound, Users, X, Zap, type IconComponent } from '@/lib/icons'
 import { Sheet } from './ui/Sheet'
 import { DropdownMenu, Menu, MenuItem } from './ui/Menu'
 import { PaneEmptyState } from './ui/PaneEmptyState'
@@ -26,6 +26,7 @@ import { formatCalendarDay } from '../lib/calendarTime'
 import { CreateGroupChatForm, MEMBER_PICKER_SHEET } from './CreateGroupChatModal'
 import { AddFriendSearch } from './AddFriendSearch'
 import { Avatar } from './Avatar'
+import { PhoneProjectChatAvatar } from '@/mobile/partners/PhoneProjectChatAvatar'
 import { AUTOMATION_TEST_IDS } from '../lib/automationDom'
 import { UI_EVENTS } from '../lib/uiEvents'
 import { requestTopicSplit } from '../lib/topicSplitRequest'
@@ -99,6 +100,8 @@ interface ChatListPanelProps {
   leadChatId?: string | null
   /** 手机页头左上角(自己的头像 →「我的」)。 */
   headerLeading?: ReactNode
+  /** 手机右上「写」菜单里的「新项目」(#446)。 */
+  onNewProject?: () => void
 }
 
 const CHAT_LIST_PLUS_BUTTON_SELECTOR = AUTOMATION_TEST_IDS.chatListPlusButton
@@ -393,16 +396,17 @@ function ChatRow({ chat, agentStatus, isActive, topicsExpanded, onToggleTopics, 
         leading={
           // Avatar — agent status lives in the corner badge (AvatarStatusBadge); the old
           // top-right dot was consolidated into it (#793 follow-up).
-          <Avatar
+          <PhoneProjectChatAvatar chat={chat} mobile={mobile}><Avatar
             name={displayName}
             avatarUrl={isRoom ? chat.avatar : peerIdentity?.avatar}
             seed={chat.peer_user_id ?? undefined}
             size={mobile ? 48 : 'sm'}
             isAgent={isAgentChat}
+            harnessBadge={!mobile}
             agentStatus={agentStatus}
             variant={isRoom ? 'group' : 'default'}
             memberAvatars={chat.member_user_ids?.flatMap((id) => identitiesById[id] ? [{ id, name: identitiesById[id].display_name, avatar: identitiesById[id].avatar }] : [])}
-          />
+          /></PhoneProjectChatAvatar>
         }
         title={
           <>
@@ -414,7 +418,7 @@ function ChatRow({ chat, agentStatus, isActive, topicsExpanded, onToggleTopics, 
           <>
             {/* Bolt/sparkle — the design accent, kept off the icon-size ladder
                 (11px decorative, not an icon-button glyph). Shown on agent and group rows. */}
-            {hasBolt && <Zap size={11} style={{ color: 'var(--agent-bolt)', flexShrink: 0 }} />}
+            {hasBolt && !mobile && <Zap size={11} style={{ color: 'var(--agent-bolt)', flexShrink: 0 }} />}
             {topicsExpanded !== undefined && (
               <span className="relative size-3.5 shrink-0">
                 <IconButton size="sm" className="absolute left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2"
@@ -503,13 +507,21 @@ interface PlusMenuItemsProps {
   onGroupChat: () => void
   onAddFriend: () => void
   onScan?: () => void
+  /** 手机(v7.12 稿 NewMenu,#446):有它时菜单是 发起群聊 / 新项目 / 添加联系人,新任务在项目群里派。 */
+  onNewProject?: () => void
   mobile?: boolean
 }
 
-function PlusMenuItems({ onSessionCreate, onGroupChat, onAddFriend, onScan, mobile = false }: PlusMenuItemsProps) {
+function PlusMenuItems({ onSessionCreate, onGroupChat, onAddFriend, onScan, onNewProject, mobile = false }: PlusMenuItemsProps) {
   const { t } = useTranslation('messaging')
+  const phoneItems = onNewProject ? [
+    { testid: 'plus-menu-create-group', icon: <Users size={15} />, label: t('chatList.createGroupMobile'), onClick: onGroupChat },
+    { testid: 'plus-menu-new-project', icon: <FolderClosed size={15} />, label: t('chatList.newProject'), onClick: onNewProject },
+    { testid: 'plus-menu-add-friend', icon: <UserRound size={15} />, label: t('chatList.addContact'), onClick: onAddFriend },
+  ] : null
   // design line 592: 新建群聊 (contacts icon) + 添加联系人 (add-person icon)
   const items = [
+    ...(phoneItems ?? [
     ...(onSessionCreate
       ? [{
           testid: AUTOMATION_TEST_IDS.mobileSessionCreateAction,
@@ -550,6 +562,7 @@ function PlusMenuItems({ onSessionCreate, onGroupChat, onAddFriend, onScan, mobi
       label: t('chatList.addContact'),
       onClick: onAddFriend,
     },
+    ]),
     // @@@scan-frame-icon (#537) — gated on barcodeScan capability; not in design dropdown but kept for native-scan devices
     ...(onScan && platform.capabilities.barcodeScan
       ? [{
@@ -597,6 +610,7 @@ export function ChatListPanel({
   lead,
   leadChatId = null,
   headerLeading,
+  onNewProject,
 }: ChatListPanelProps) {
   const inSidebar = placement === 'sidebar'
   const sidebarView = useSidebarChatView()
@@ -671,13 +685,13 @@ export function ChatListPanel({
   const hasSearchQuery = listQuery.trim().length > 0
   // @@@empty-dm-not-listed — 没有过消息的单聊不占列表行(判据在 core,见 isChatListed)。搜索是一次明确的
   // 指名道姓,不受此约束:搜得到就打得开,不然会话页开出来的空私聊只剩通讯录一条路。
-  // gugu-dev#181 项目群在项目页里(连同从它开出来的话题),对话页只剩人和用户群;搜索也不出现 —— 它在项目页打开。
+  // 桌面项目群归项目块;手机消息列表包含项目群及其话题(#446)。
   const isProjectGroupLine = (chat: ChatItem) => projectGroupChats.has(chat.kind === 'topic' ? (chat.source_chat_id ?? '') : chat.id)
   const shownAsLead = lead ? leadChatId : null
   const isListed = (chat: ChatItem) =>
     !isDuplicateAssistantChat(chat, assistantShell, workrooms)
       && chat.id !== shownAsLead
-      && !isProjectGroupLine(chat)
+      && (mobile || !isProjectGroupLine(chat))
       && (hasSearchQuery || isChatListed(chat, { activeChatId: selectedChatId, hasDraft: Boolean(drafts[chat.id]?.trim()) }))
   // @@@5856 沉降:长期无活动的话题落到底部的「更早」。它**只是列表位置**,不是话题的一种状态 ——
   // 话题没有开关(product spec)。任何人发一句,last_message_at 前移,这一条自己就浮回来了。
@@ -701,7 +715,7 @@ export function ChatListPanel({
     // isListed / matchesSearch 都是每次渲染新建的闭包,进依赖数组等于不缓存;
     // 它们的输入(chats / 搜索词 / 草稿 / 当前会话)已经在下面列全了。
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [chats, listQuery, selectedChatId, drafts, assistantShell, workrooms, projectGroupChats, shownAsLead])
+  }, [chats, listQuery, selectedChatId, drafts, assistantShell, workrooms, projectGroupChats, shownAsLead, mobile])
   const isTopLevel = (c: ChatItem) => isTopLevelChatRow(c, topicNesting, isListed, matchesSearch)
   const pinnedChats = chats.filter((c) => c.is_pinned && isTopLevel(c)).sort(byTime)
   const normalChats = chats.filter((c) => !c.is_pinned && isTopLevel(c)).sort(byTime)
@@ -1095,6 +1109,7 @@ export function ChatListPanel({
                     onGroupChat={() => setShowGroupModal(true)}
                     onAddFriend={() => setShowAddFriendModal(true)}
                     onScan={onScan}
+                    onNewProject={onNewProject ? () => { setShowPlusMenu(false); onNewProject() } : undefined}
                     mobile={mobile}
                   />
                 </DropdownMenu.Content>

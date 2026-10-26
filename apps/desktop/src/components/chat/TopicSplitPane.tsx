@@ -176,8 +176,8 @@ const TOPIC_SPLIT_PANE_STYLE: React.CSSProperties = {
 }
 // 手机上放不下两栏 ⇒ 整页盖住来源线(同 ChatSettingsPanel 的手机页)。来源线在下面不被挤窄,返回后停在原处。
 const TOPIC_PAGE_MOBILE_STYLE: React.CSSProperties = { position: 'fixed', inset: 'env(safe-area-inset-top) 0 0 0', zIndex: 'var(--z-modal)', background: 'var(--bg-primary)' }
-const TOPIC_PAGE_PANE_MOBILE_STYLE: React.CSSProperties = { ...TOPIC_SPLIT_PANE_STYLE, borderLeft: 'none' }
-const TOPIC_TAB_STYLE: React.CSSProperties = { position: 'absolute', inset: 0, zIndex: 1, background: 'var(--bg-primary)' }
+const TOPIC_PAGE_PANE_MOBILE_STYLE: React.CSSProperties = { ...TOPIC_SPLIT_PANE_STYLE, borderLeft: 'none', background: 'transparent' }
+const TOPIC_TAB_STYLE: React.CSSProperties = { position: 'absolute', inset: 0, zIndex: 1, background: 'transparent' }
 const TOPIC_SPLIT_HEADER_STYLE: React.CSSProperties = {
   display: 'flex',
   alignItems: 'flex-start',
@@ -209,7 +209,7 @@ const TOPIC_SPLIT_COMPOSER_STYLE: React.CSSProperties = {
   padding: 0, flexShrink: 0,
 }
 const TOPIC_SPLIT_COMPOSER_MOBILE_STYLE: React.CSSProperties = {
-  background: 'var(--bg-primary)', padding: '8px 10px max(10px, env(safe-area-inset-bottom))', flexShrink: 0,
+  background: 'transparent', padding: '8px 8px max(8px, env(safe-area-inset-bottom))', flexShrink: 0,
 }
 const TOPIC_SPLIT_EMPTY_STYLE: React.CSSProperties = { textAlign: 'center', color: 'var(--text-tertiary)', fontSize: 'var(--font-body)', padding: '24px 0' }
 
@@ -399,7 +399,7 @@ export function TopicSplitPane({ viewportKey = 'topic', navigationTarget = false
   // 手机页只有左上返回一个出口:子视图(附件/成员)开着先退回话题,否则收起话题回来源线。
   const goBack = filesOpen ? () => setFilesForChatId(null) : membersOpen ? () => setMembersOpen(false) : onClose
   // 手机整页:安卓返回键 = 左上返回(先退附件/成员子视图,再回群),❌ 越过群退到会话列表。
-  useBackLayer(goBack, mobile)
+  useBackLayer(goBack, mobile && (!inTab || filesOpen || membersOpen))
   // 名册那条头自带「话题成员 + 改名框」,名字在那儿写着了 ⇒ 这里就不再写一遍。
   // 附件面板没有标题(它自己那条头被收掉了),所以那时这里要写。
   const headerTitle = membersOpen

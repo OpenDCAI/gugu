@@ -29,6 +29,7 @@ import { navigateMobile } from '@/mobile/navigateMobile'
 import { tabItemStyle } from '@/mobile/settledTab'
 import { PhoneLayer } from '@/mobile/PhoneLayer'
 import { PhoneMeButton } from '@/mobile/PhoneMeButton'
+import { PhonePartnersPage } from '@/mobile/partners/PhonePartnersPage'
 import { chatOnScreen, useReportChatOnScreen } from '@/lib/onScreenChat'
 import { useLinkNavigation } from '../hooks/useLinkNavigation'
 import { readAssistantShellBridge } from '../lib/assistantShellBridge'
@@ -91,7 +92,7 @@ import { requestTopicSplit } from '../lib/topicSplitRequest'
 import type { CreateContextBirthGroup } from '../lib/agentCreateContextBridge'
 import { platform } from '../platform'
 import { useToast } from '../components/toastContext'
-import { askChat } from '../session/renderer/features/chats/chat-tabs/chat-layouts'
+import { askChat, closeTopicTab } from '../session/renderer/features/chats/chat-tabs/chat-layouts'
 import { filePillText } from '../components/markdown/filePills'
 import { APP_COMPOSE_EVENT, APP_OPEN_IN_CHAT_EVENT, APP_OPEN_WITH_EVENT, type AppComposeDetail, type AppOpenInChatDetail, type AppOpenWithDetail } from '../session/shared/extensions/app-runtime-protocol'
 import { chatSlotKey } from '../lib/shellSlots'
@@ -470,6 +471,18 @@ function InnerLayout({
     setActiveTab('assistant')
     setAssistantChatRequest((n) => n + 1)
   }, 'push'), [])
+  // 手机「伙伴」(#446):推进去的页没有底栏;「消息」右上「新项目」推进它的新项目页。
+  const [partnersPushed, setPartnersPushed] = useState(false)
+  const [projectChatFromPartners, setProjectChatFromPartners] = useState(false)
+  const backFromPhoneChat = useCallback(() => navigateMobile(() => {
+    setMobilePane('list')
+    if (projectChatFromPartners) { setProjectChatFromPartners(false); setActiveTab('contacts') }
+  }, 'pop'), [projectChatFromPartners])
+  const [newProjectRequest, setNewProjectRequest] = useState(0)
+  const openNewProject = useCallback(() => navigateMobile(() => {
+    setActiveTab('contacts')
+    setNewProjectRequest((n) => n + 1)
+  }, 'push'), [])
   const onScreenChatId = useReportChatOnScreen(activeTab === 'chats' && !showCreateSurface && (!mobile || mobilePane === 'chat') && !assistantOnPhone ? activeChatId : null)
   // showAgentCreateDraft already derives "closed" the instant activeTab leaves 'chats', but the
   // underlying state must reset too — otherwise switching back to chats later silently resurrects a
@@ -757,7 +770,7 @@ function InnerLayout({
   // 返回一步回到有底栏的那层。列表页上键盘弹起时它由键盘盖住(这里不画),❌ 跟着滚动 / 聚焦另外收放。
   // 横滑切 tab 用同一份判据(#6730):tab 栏在,点和滑都能换 tab;钻进全屏子页两样都不行 —— 横滑归子页所有,
   // 全屏创建页的出口只有左上返回箭头(#2525),横滑会把草稿连页一起掀掉。
-  const tabBarVisible = mobile && !(phoneViewport.keyboardVisible ?? phoneViewport.inputFocused) && !chatListHidden && !phoneLayerOpen
+  const tabBarVisible = mobile && phoneViewport.keyboardVisible !== true && !chatListHidden && !phoneLayerOpen && !partnersPushed
   // 手机上四个 tab 页常驻在分页器里,横滑时相邻页整页可见 ⇒ 离开的 tab 回到它的根上(与从前「切走即卸载、
   // 回来是根」同一个结果),拖过去看到的总是那个 tab 的浏览层。会话页、联系人页各自按 activeTab 复位。
   // 「我的」连 section 一起复位:SettingsPanel 按 settingsSection 换 key,离开时就回到 account,
@@ -1257,11 +1270,11 @@ function InnerLayout({
       }
       if (activeTab !== 'chats' || mobilePane !== 'chat') return
       (window as Window & { __guguNativeBackHandled?: boolean }).__guguNativeBackHandled = true
-      navigateMobile(() => setMobilePane('list'), 'pop')
+      backFromPhoneChat()
     }
     window.addEventListener(NATIVE_BACK_EVENT, handleNativeBack)
     return () => window.removeEventListener(NATIVE_BACK_EVENT, handleNativeBack)
-  }, [activeTab, mobile, mobilePane, phoneLayerOpen, exitPhoneLayer])
+  }, [activeTab, mobile, mobilePane, phoneLayerOpen, exitPhoneLayer, backFromPhoneChat])
 
   // 「我的」tab 只存在于移动 shell;resize 跨到桌面时回落会话页、以设置弹窗承接
   useEffect(() => {
@@ -1371,6 +1384,7 @@ function InnerLayout({
                       leadChatId={phoneAssistant.chatId}
                       headerLeading={mobile ? <PhoneMeButton user={user} onOpen={() => selectTab('settings')} /> : undefined}
                       onChatSelected={(focusTarget = 'composer') => navigateMobile(() => {
+                        setProjectChatFromPartners(false)
                         setAgentCreateDraftOpen(false)
                         setSessionCreateOpen(false)
                         setMobilePane('chat')
@@ -1379,6 +1393,7 @@ function InnerLayout({
                       onScan={handleScan}
                       onOpenAgentCreateDraft={openAgentCreateDraft}
                       onOpenSessionCreate={mobile && sessionHostAvailable ? openSessionCreate : undefined}
+                      onNewProject={mobile ? openNewProject : undefined}
                     />
                   </ResizableChatListPane>
                   <div data-shell-chat-detail={mobile ? undefined : ''} style={{ flex: '1 1 auto', minWidth: 0, minHeight: 0, position: 'relative', display: mobile && (mobilePane !== 'chat' || showCreateSurface) ? 'none' : 'flex' }}>
@@ -1395,7 +1410,7 @@ function InnerLayout({
                         hidden={showCreateSurface || onScreenChatId !== activeChatId}
                         mobile={mobile}
                         openNonce={chatOpenNonce}
-                        onBack={mobile ? () => navigateMobile(() => setMobilePane('list'), 'pop') : undefined}
+                        onBack={mobile ? backFromPhoneChat : undefined}
                         onOpenUserChat={handleOpenProfileChat}
                         onOpenSessionpageAgent={!mobile && sessionHostAvailable ? handleOpenSessionpageAgent : undefined}
                         onOpenSessionpageAgentFile={!mobile && sessionHostAvailable ? handleOpenSessionpageAgentFile : undefined}
@@ -1417,7 +1432,28 @@ function InnerLayout({
             contacts: (
               <div key="contacts" style={{ flex: 1, minWidth: 0, overflow: 'hidden', display: 'flex', flexDirection: 'column', ...(activeTab === 'contacts' || mobile ? undefined : RETAINED_SURFACE_HIDDEN_STYLE) }}>
                 <div data-shell-contacts={mobile ? undefined : ''} style={{ flex: 1, minHeight: 0, overflow: 'hidden' }}>
-                  <ContactsPanel externalContactId={externalContactId} activeTab={activeTab} mobile={mobile} scanSeed={scanSeed} onSwitchToChat={handleSwitchToChat} onOpenGroupChat={handleOpenGroupChat} onOpenAgentCreateDraft={openAgentCreateDraftFromContacts} />
+                  {mobile ? (
+                    <PhonePartnersPage
+                      user={user}
+                      active={activeTab === 'contacts' || projectChatFromPartners}
+                      externalContactId={externalContactId}
+                      scanSeed={scanSeed}
+                      newProjectRequest={newProjectRequest}
+                      onOpenMe={() => selectTab('settings')}
+                      onPushedChange={setPartnersPushed}
+                      onLeave={() => navigateMobile(() => setActiveTab('chats'), 'pop')}
+                      onSwitchToChat={handleSwitchToChat}
+                      onOpenGroupChat={handleOpenGroupChat}
+                      onOpenProjectGroup={(chatId, tabChatId) => navigateMobile(() => {
+                        setProjectChatFromPartners(true)
+                        openChatTarget(chatId)
+                        if (tabChatId) requestTopicSplit({ chatId: tabChatId, name: chats.find((chat) => chat.id === tabChatId)?.name ?? '', sourceChatId: chatId })
+                        else closeTopicTab(chatId)
+                      }, 'push')}
+                    />
+                  ) : (
+                    <ContactsPanel externalContactId={externalContactId} activeTab={activeTab} mobile={mobile} scanSeed={scanSeed} onSwitchToChat={handleSwitchToChat} onOpenGroupChat={handleOpenGroupChat} onOpenAgentCreateDraft={openAgentCreateDraftFromContacts} />
+                  )}
                 </div>
               </div>
             ),

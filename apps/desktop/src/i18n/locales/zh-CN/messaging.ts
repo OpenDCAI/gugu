@@ -250,6 +250,8 @@ export default {
     "createTask": "新建任务",
     "createAgent": "新建 Agent",
     "createGroup": "新建群聊",
+    "createGroupMobile": "发起群聊",
+    "newProject": "新项目",
     "delete": "删除",
     "disableNotifications": "关闭通知",
     "draft": "[草稿]",
@@ -359,6 +361,8 @@ export default {
   },
   "composer": {
     "phoneTask": {
+      "attachFolder": "挂文件夹",
+      "attachFailed": "文件夹没挂上，请重试",
       "action": "新任务",
       "chip": "新任务 · {{agent}}",
       "pickAgent": "选 agent",

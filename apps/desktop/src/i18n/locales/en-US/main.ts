@@ -627,6 +627,35 @@ export default {
       "retry": "Retry"
     },
   },
+  "partners": {
+    "search": "Search",
+    "noResults": "No results",
+    "projects": "Projects · {{count}}",
+    "friends": "Friends · {{count}}",
+    "rooms": "Chats · {{count}}",
+    "agents": "Agents · {{count}}",
+    "groupChat": "Group chat",
+    "assistant": "Personal assistant",
+    "groupOffline": "The computer with this project is offline",
+    "groupUnavailable": "Couldn't open the project group",
+    "newProject": {
+      "title": "New project",
+      "name": "Project name",
+      "create": "Create",
+      "machine": "Computer",
+      "folder": "Folder",
+      "newFolder": "New folder",
+      "existingFolder": "Existing folder",
+      "pickFolder": "Choose folder",
+      "offline": "Offline",
+      "noMachine": "No computer is online",
+      "readingDirectory": "Reading this computer's projects folder",
+      "noDefaultDirectory": "This computer has no default projects folder",
+      "invalidName": "A project name can't contain / \\ : * ? \" < > |",
+      "pathTaken": "This folder is taken by “{{name}}”",
+      "failed": "Couldn't create the project"
+    }
+  },
   "widget": {
     "empty": "No content"
   }

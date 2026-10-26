@@ -59,7 +59,7 @@ export function MobileTabPager({ mobile, tabs, activeTab, covered = false, swipe
     const position = tabPosition(pager.scrollLeft, width, tabs.length)
     if (position !== null) tabBarRef.current?.style.setProperty(TAB_POSITION_VAR, String(position))
     const tab = settledTab(pager.scrollLeft, width, tabs)
-    if (tab && tab !== activeTab) onSettle(tab)
+    if (swipeable && !covered && tab && tab !== activeTab) onSettle(tab)
   }
 
   return (

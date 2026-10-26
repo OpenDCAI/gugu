@@ -621,6 +621,35 @@ export default {
       "retry": "重试"
     },
   },
+  "partners": {
+    "search": "搜索",
+    "noResults": "没有找到",
+    "projects": "项目 · {{count}}",
+    "friends": "朋友 · {{count}}",
+    "rooms": "群 · {{count}}",
+    "agents": "Agent · {{count}}",
+    "groupChat": "群聊",
+    "assistant": "个人助理",
+    "groupOffline": "项目所在的电脑不在线",
+    "groupUnavailable": "项目群没打开",
+    "newProject": {
+      "title": "新项目",
+      "name": "项目名",
+      "create": "创建",
+      "machine": "机器",
+      "folder": "文件夹",
+      "newFolder": "新文件夹",
+      "existingFolder": "已有文件夹",
+      "pickFolder": "选文件夹",
+      "offline": "离线",
+      "noMachine": "没有在线的电脑",
+      "readingDirectory": "正在读这台电脑的项目目录",
+      "noDefaultDirectory": "这台电脑没设默认项目目录",
+      "invalidName": "项目名里不能有 / \\ : * ? \" < > |",
+      "pathTaken": "这个文件夹已被「{{name}}」占着",
+      "failed": "项目没建成"
+    }
+  },
   "widget": {
     "empty": "无内容"
   }

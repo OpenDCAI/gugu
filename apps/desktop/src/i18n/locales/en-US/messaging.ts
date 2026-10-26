@@ -250,6 +250,8 @@ export default {
     "createTask": "New task",
     "createAgent": "New Agent",
     "createGroup": "New group chat",
+    "createGroupMobile": "New group chat",
+    "newProject": "New project",
     "delete": "Delete",
     "disableNotifications": "Mute notifications",
     "draft": "[Draft]",
@@ -359,6 +361,8 @@ export default {
   },
   "composer": {
     "phoneTask": {
+      "attachFolder": "Attach folder",
+      "attachFailed": "Could not attach the folder. Try again.",
       "action": "New task",
       "chip": "New task · {{agent}}",
       "pickAgent": "Choose agent",

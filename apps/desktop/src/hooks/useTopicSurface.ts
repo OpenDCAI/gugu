@@ -162,6 +162,10 @@ export function useTopicSurface({
       try {
         const source = sourceMessages.current.find((message) => message.id === sourceMessageId)
         if (!source) throw new Error('Topic source message is not in the current message window')
+        if (source.content_type === 'card' && parseComposerCard(source.content)?.type === 'task') {
+          const existing = (await topicService.listTopicsOfChat(chatId)).find((topic) => topic.source_message_id === sourceMessageId)
+          if (existing) { openSplit({ chatId: existing.chat_id, name: existing.name }); return }
+        }
         const created = await topicService.createTopic({
           sourceChatId: chatId,
           sourceMessageId,

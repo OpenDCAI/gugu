@@ -62,6 +62,7 @@
   border-radius: 24px;
 }
 [data-phone-shell] :is(.gg-aw-card, .rounded-xl.border) .px-3 { padding-inline: var(--spacing-lg); }
+[data-phone-shell] [data-card-type] { background: var(--ta-glass); border-color: transparent; box-shadow: var(--ta-glass-fx); backdrop-filter: blur(var(--ta-glass-blur)); }
 
 /* ── 项目 / 任务那几页(agent-watch):和群聊同一片渐变;自己的话是咕咕那种气泡;
       等你批准的卡琥珀叠在实底上(不然透过渐变发灰),办完的卡和提示是玻璃。 ── */

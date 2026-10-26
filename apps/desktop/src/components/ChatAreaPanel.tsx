@@ -69,7 +69,7 @@ import { MessageList, type MessageListRowProps } from './chat/MessageList'
 import { useTaskChatRows } from './assistant/useTaskChatRows'
 import { MessageLoadFailure } from './chat/MessageLoadFailure'
 import { AgentFirstConversationEmpty } from './chat/AgentFirstConversationEmpty'
-import { MessageListSkeleton } from './chat/MessageListSkeleton'; import { ChatBottomDock } from './chat/ChatBottomDock'; import { PhoneChatTabs } from '../mobile/chat/PhoneChatTabs'
+import { MessageListSkeleton } from './chat/MessageListSkeleton'; import { ChatBottomDock } from './chat/ChatBottomDock'; import { PhoneChatTabs } from '../mobile/chat/PhoneChatTabs'; import { PhoneProjectEmpty } from '../mobile/chat/PhoneProjectEmpty'
 import { ChatHeaderActions } from './chat/ChatHeaderActions'
 import { useFollowingTail, useTailPinning } from './chat/useFollowingTail'
 import { useConversationScrollMemory } from './chat/useConversationScrollMemory'
@@ -892,7 +892,7 @@ function ChatAreaSurface({ viewportKey = 'chats', activeTab, navigationTarget = 
                 )
               })()}
               {/* @@@single-head (#957/#1234) agent 标识 ⚡bolt — 逐字节抄设计稿 #single-name .bolt(琥珀 #e0a13a, 12px, 明暗一致)。 */}
-              {isAgentChat && (
+              {isAgentChat && !mobile && (
                 <span aria-hidden style={{ color: 'var(--agent-bolt)', flexShrink: 0, display: 'inline-flex' }}>
                   <Zap size={12} />
                 </span>
@@ -901,7 +901,7 @@ function ChatAreaSurface({ viewportKey = 'chats', activeTab, navigationTarget = 
                   terminal 时代的离线/陈旧告警(设计稿仅 ⚡ + 状态点)。该 badge 仍存在于
                   chat-list/group 等 surface(它本质是「主机 gugu 版本过旧」提示,与 offline 正交)。 */}
             </span>
-            {isGroupChat && (() => {
+            {isGroupChat && !mobile && (() => {
               // #single-name 群头 .st: 绿点 ● + 完整成员名(`P7测试、林小满、Atlas、Borealis`),无「· N 人」
               // 点击 header 展开成员抽屉。溢出由 ellipsis 收。
               const members = [...groupCollabSnapshot.humans, ...groupCollabSnapshot.agents]
@@ -955,7 +955,7 @@ function ChatAreaSurface({ viewportKey = 'chats', activeTab, navigationTarget = 
           position: 'relative',
         }}
       >
-        <div data-testid="session-chat-panel" className="relative isolate flex min-h-0 min-w-0 flex-1 flex-col">
+        <div data-testid="session-chat-panel" className={`relative isolate flex min-h-0 min-w-0 flex-1 flex-col${mobile && topicSurface.splitTopic ? ' invisible pointer-events-none' : ''}`}>
         {opener.overlay}
         {emptyProject ? <ChatPartSlot chatId={activeChat.id} part="empty" className="flex min-h-0 min-w-0 flex-1 flex-col" /> : <div
           style={{
@@ -1008,7 +1008,7 @@ function ChatAreaSurface({ viewportKey = 'chats', activeTab, navigationTarget = 
           <AgentFirstConversationEmpty name={resolveOrLoud(activeChatName, `agent chat greeting ${activeChat?.id}`)} onPick={(s) => { if (activeChatId) setDraft(activeChatId, s) }} />
         ) : (
           <div style={{ flex: 1, textAlign: 'center', color: 'var(--text-muted)', fontSize: 'var(--font-body)', padding: '40px 0' }}>
-            {t('chatArea.noMessages')}
+            {mobile && isGroupChat ? <PhoneProjectEmpty chatId={activeChat.id} /> : t('chatArea.noMessages')}
           </div>
         )
       )}
@@ -1077,7 +1077,7 @@ function ChatAreaSurface({ viewportKey = 'chats', activeTab, navigationTarget = 
           @@@multi-select (#988) — 多选态用底部批量操作条替换输入框（同槽位 + 同 --bg-primary 外壳）。 */}
       {selectMode ? (
         // Desktop selection and editing use the same ACP slot frame; phone spacing stays local.
-        <div className={mobile && blockHost ? `${sessionComposerDockBandClassName} pt-3` : undefined} style={{ background: mobile ? 'var(--bg-primary)' : undefined, padding: mobile ? (blockHost ? undefined : '10px 8px max(8px, env(safe-area-inset-bottom))') : 0, flexShrink: 0 }}>
+        <div className={mobile && blockHost ? `${sessionComposerDockBandClassName} pt-3` : undefined} style={{ background: mobile ? 'transparent' : undefined, padding: mobile ? (blockHost ? undefined : '8px 8px max(8px, env(safe-area-inset-bottom))') : 0, flexShrink: 0 }}>
           <div
             data-testid="message-select-bar"
             style={{ display: 'flex', flexWrap: mobile ? 'wrap' : undefined, alignItems: 'center', gap: 10, padding: '8px', border: '1px solid var(--border-subtle)', borderRadius: 'var(--radius-surface)', background: 'var(--bg-secondary)' }}

@@ -343,7 +343,7 @@ export const MessageBubble = memo(function MessageBubble({
   // Pass it through so the avatar shows the unified status corner badge.
   // @@@msg-avatar (#1102) - 消息头像对齐设计稿 .av.s(28–32px 小号);原 md=40 偏大显「旧/重」。
   // @@@1355 sender avatars are projected only from the canonical sender URL.
-  const avatar = <Avatar name={avatarName} avatarUrl={avatarUrl} seed={msg.is_mine ? user?.id : (msg.sender_user_id ?? undefined)} size="sm" isAgent={avatarIsAgent} agentStatus={avatarIsAgent ? memberProfile?.agentStatus : undefined} still />
+  const avatar = <Avatar name={avatarName} avatarUrl={avatarUrl} seed={msg.is_mine ? user?.id : (msg.sender_user_id ?? undefined)} size="sm" isAgent={avatarIsAgent} harnessBadge={!compactMobile} agentStatus={avatarIsAgent ? memberProfile?.agentStatus : undefined} still />
   const canOpenProfile = !!memberProfile && !!onOpenMemberProfile
 
   if (msg.content_type === 'system') return <SystemMessageNotice message={msg} senderName={avatarName} />

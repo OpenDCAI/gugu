@@ -1,4 +1,4 @@
-import type { SessionpageSessionCreateResult } from '@gugu/session-core/session-record/contract'
+import type { SessionpageSessionCreateRequest, SessionpageSessionCreateResult } from '@gugu/session-core/session-record/contract'
 import { topicService } from '@/lib/topics'
 import { createSession } from './sessionpage-rpc'
 
@@ -35,13 +35,16 @@ export async function createTaskInGroup(input: {
   prompt: string
   harness: string
   model?: string
-}): Promise<{ sessionId: string; topicChatId: string }> {
+} & Pick<SessionpageSessionCreateRequest, 'sessionView' | 'permissionMode' | 'effort'>): Promise<{ sessionId: string; topicChatId: string }> {
   const result = await createSession(input.deviceId, {
     projectId: input.projectId,
     cwd: input.cwd,
     harness: input.harness,
     prompt: input.prompt,
     ...(input.model ? { model: input.model } : {}),
+    ...(input.sessionView ? { sessionView: input.sessionView } : {}),
+    ...(input.permissionMode ? { permissionMode: input.permissionMode } : {}),
+    ...(input.effort ? { effort: input.effort } : {}),
     chatId: input.chatId,
     taskChatId: input.chatId,
   })

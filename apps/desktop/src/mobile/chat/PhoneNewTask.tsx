@@ -17,10 +17,13 @@ import { TaskInGroupError, createTaskInGroup } from '../agent-watch/createTaskIn
 import { harnessUsable, initialSelection } from '../agent-watch/create-session-form'
 import { SessionpageRpcError, fetchCreateOptions } from '../agent-watch/sessionpage-rpc'
 import { taskFoldersOfChat } from './phoneTaskFolders'
+import { usePhoneFolderAttach } from './usePhoneFolderAttach'
+import { projectRpcOn } from '../partners/projectRpc'
 import './phone-new-task.css'
 
 const log = rendererLogger('phone-new-task')
-const NO_ATTACH: never[] = []
+const START = 'gugu:phone-new-task'
+export function startPhoneNewTask(chatId: string) { window.dispatchEvent(new CustomEvent(START, { detail: { chatId } })) }
 
 const folderName = (path: string) => path.replace(/[\\/]+$/, '').split(/[\\/]/).pop() || path
 
@@ -52,13 +55,27 @@ export function usePhoneNewTask({ chatId, enabled, clear }: {
 } {
   const { t } = useTranslation('messaging')
   const { toast } = useToast()
-  const { devices } = useDevicesStore()
-  const project = useMemo(() => (enabled && chatId ? taskFoldersOfChat(devices, chatId) : null), [enabled, chatId, devices])
+  const { devices, refresh } = useDevicesStore()
+  const accountProject = useMemo(() => (enabled && chatId ? taskFoldersOfChat(devices, chatId) : null), [enabled, chatId, devices])
+  const attach = usePhoneFolderAttach(accountProject, devices, refresh)
+  const project = useMemo(() => accountProject ? {
+    ...accountProject,
+    memberIds: [...new Set([...accountProject.memberIds, ...attach.added.map((item) => item.folder.projectId)])],
+    folders: [...new Map([...accountProject.folders, ...attach.added.map((item) => item.folder)].map((folder) => [folder.workspaceId, folder])).values()],
+    homeOf: (id: string) => attach.added.find((item) => item.folder.projectId === id)?.home ?? accountProject.homeOf(id),
+  } : null, [accountProject, attach.added])
   const [stage, setStage] = useState<Stage>({ kind: 'off' })
   const [options, setOptions] = useState<{ deviceId: string; value: SessionpageSessionCreateOptions | null; failed: boolean } | null>(null)
   const [harness, setHarness] = useState<string | null>(null)
   const [sending, setSending] = useState(false)
+  const [optionsRead, setOptionsRead] = useState(0)
   useEffect(() => { setStage({ kind: 'off' }) }, [chatId])
+  useEffect(() => {
+    if (!enabled || !project) return
+    const start = (event: Event) => { if ((event as CustomEvent<{ chatId: string }>).detail?.chatId === chatId) setStage({ kind: 'on', folder: null, picking: true }) }
+    window.addEventListener(START, start)
+    return () => window.removeEventListener(START, start)
+  }, [enabled, project, chatId])
 
   const chosen = stage.kind === 'on' ? stage.folder : null
   const home = chosen ? project?.homeOf(chosen.projectId) : undefined
@@ -81,7 +98,7 @@ export function usePhoneNewTask({ chatId, enabled, clear }: {
       },
     )
     return () => { live = false }
-  }, [deviceId, online])
+  }, [deviceId, online, optionsRead])
 
   const usable = options?.value?.harnesses.filter(harnessUsable) ?? []
   const picked = usable.find((option) => option.id === harness) ?? null
@@ -96,18 +113,32 @@ export function usePhoneNewTask({ chatId, enabled, clear }: {
     folders: project.folders,
     loadError: false,
     chosen,
-    fresh: undefined,
+    fresh: attach.fresh,
     choose: (workspaceId) => {
       const folder = project.folders.find((candidate) => candidate.workspaceId === workspaceId)
-      if (folder) setStage({ kind: 'on', folder, picking: false })
+      if (folder) { setOptionsRead((value) => value + 1); setStage({ kind: 'on', folder, picking: false }) }
     },
     reload: () => undefined,
-    // 手机上的卡不挂文件夹(没有「+」,见 phone-new-task.css);挂文件夹在电脑上做。
-    attach: async () => ({ ok: false, error: { type: 'rpc-failed', message: 'attaching folders is not offered on the phone' } }),
-    detach: async () => false,
+    // 挂文件夹由同一张卡的机器菜单进入 RemoteFolderPicker。
+    attach: async (id, path) => {
+      const device = devices.find((row) => row.device_id === project.homeOf(id)?.deviceId)
+      if (!device) return { ok: false, error: { type: 'rpc-failed', message: 'project machine not found' } }
+      const result = await projectRpcOn(device).projects.attachProjectFolder(id, path)
+      if (!result.success) return { ok: false, error: result.error }
+      await refresh()
+      return { ok: true, folder: result.data }
+    },
+    detach: async (folder) => {
+      const device = devices.find((row) => row.device_id === project.homeOf(folder.projectId)?.deviceId)
+      if (!device) throw new Error('project machine not found')
+      const result = await projectRpcOn(device).projects.detachProjectFolder(folder.projectId, folder.workspaceId)
+      if (!result.success) throw new Error(result.error.message)
+      if (result.success) { attach.remove(folder.workspaceId); await refresh() }
+      return result.success
+    },
   } : null
 
-  const overlay = stage.kind === 'on' && stage.picking && project && folderState ? (
+  const overlay = <>{attach.picker}{stage.kind === 'on' && stage.picking && project && folderState ? (
     <div className="gg-phone-task-card" data-testid="phone-task-folder-card">
       <ProjectFolderCard
         projectId={project.rowId}
@@ -115,13 +146,13 @@ export function usePhoneNewTask({ chatId, enabled, clear }: {
         folders={folderState}
         memberIds={project.memberIds}
         machineOf={(id) => project.homeOf(id)?.machine ?? { label: '', online: false, kind: 'computer' }}
-        attachMachines={NO_ATTACH}
-        onAttach={() => undefined}
+        attachMachines={attach.attachMachines}
+        onAttach={attach.onAttach}
         onDropFolder={() => undefined}
         floating
       />
     </div>
-  ) : null
+  ) : null}</>
 
   const agentName = picked?.name ?? ''
   const band = stage.kind === 'on' ? (
@@ -153,8 +184,13 @@ export function usePhoneNewTask({ chatId, enabled, clear }: {
     if (blocked || !home || !chosen || !picked) { toast(blocked ?? t('composer.phoneTask.loading', { machine }), 'error'); return }
     setSending(true)
     try {
+      const remembered = options?.value ? initialSelection(options.value) : null
       const { topicChatId } = await createTaskInGroup({
         deviceId: home.deviceId, projectId: home.localProjectId, cwd: chosen.path, chatId, prompt, harness: picked.id,
+        ...(remembered?.harness === picked.id ? {
+          model: remembered.model ?? undefined, sessionView: remembered.sessionView ?? undefined,
+          permissionMode: remembered.permissionMode ?? undefined, effort: remembered.effort ?? undefined,
+        } : {}),
       })
       clear()
       setStage({ kind: 'off' })
