@@ -1137,14 +1137,17 @@ export function createAppFiles(platform: FilesPlatform) {
     async openTarget(surface: FileSurface, args: { ref: ChatFileRef }): Promise<{ chatId: string; itemId: string; name: string; typedName: string; file: ChatPeekFile; opening?: PreparedChatFile }> {
       const { token, userId } = await platform.account();
       // The later open needs this same sync identity. Read it with the authorization, before the guest starts.
-      const [row] = await Promise.all([
-        readable(surface, { token, userId }, args.ref, 'opening'),
+      const [target] = await Promise.all([
+        // Stamp the authorization when it arrives; a slow identity lookup must not extend its lifetime.
+        readable(surface, { token, userId }, args.ref, 'opening').then((row) => ({
+          chatId: row.chat_id, itemId: row.id, name: row.filename,
+          typedName: typedFileName({ name: row.filename, contentType: row.content_type }),
+          file: { document: row.kind === 'document', contentType: row.content_type, version: row.version, size: row.size_bytes ?? 0 },
+          ...openingOf(row, surface.asAgent ?? userId),
+        })),
         selfName(token, surface.asAgent ?? userId),
       ]);
-      const file = { document: row.kind === 'document', contentType: row.content_type, version: row.version, size: row.size_bytes ?? 0 };
-      return { chatId: row.chat_id, itemId: row.id, name: row.filename, typedName: typedFileName({ name: row.filename, contentType: row.content_type }), file,
-        ...openingOf(row, surface.asAgent ?? userId),
-      };
+      return target;
     },
 
     /**

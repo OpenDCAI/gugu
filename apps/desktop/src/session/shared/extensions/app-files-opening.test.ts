@@ -71,6 +71,29 @@ it('reads the existing sync identity alongside click authorization, then reuses 
   expect(rpc.mock.calls.map(([name]) => name)).toEqual(['workspace_get_as']);
 });
 
+it('does not extend the authorization lifetime while the parallel identity read is pending', async () => {
+  let clock: number | undefined;
+  const realNow = Date.now;
+  const now = vi.spyOn(Date, 'now').mockImplementation(() => clock ?? realNow());
+  let snapshotRead = false;
+  const metadata = { ...row, get epoch() { clock = 1_000; snapshotRead = true; return row.epoch; } };
+  const requestedRow = Promise.resolve({ data: [metadata], error: null });
+  rpc.mockImplementationOnce(() => Object.assign(requestedRow, { select: vi.fn((_columns: string) => requestedRow) }));
+  let identity!: (value: Awaited<ReturnType<typeof identities>>) => void;
+  identities.mockImplementationOnce(() => new Promise((resolve) => { identity = resolve; }));
+  try {
+    const requested = files.openTarget(page, { ref: { id: ITEM } });
+    await vi.waitFor(() => expect(snapshotRead).toBe(true));
+    clock = 7_000;
+    identity([{ id: PERSON, name: 'Creator', kind: 'human', avatar: null }]);
+    const target = await requested;
+    expect(target.opening?.expiresAt).toBe(6_000);
+    await files.open(page, { ref: { chat: CHAT, id: ITEM }, deferDetails: true }, target.opening);
+    expect(rpc.mock.calls.map(([name]) => name)).toEqual(['workspace_get_as', 'workspace_get_as']);
+    expect(warn).toHaveBeenCalledOnce();
+  } finally { now.mockRestore(); }
+});
+
 it.each(['expiry', 'version', 'actor', 'guest'] as const)('rechecks the original authorized reader on %s mismatch and records it', async (mismatch) => {
   const { opening } = await files.openTarget(page, { ref: { id: ITEM } });
   if (mismatch === 'expiry') opening!.expiresAt = 0;
