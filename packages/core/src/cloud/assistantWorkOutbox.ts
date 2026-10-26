@@ -1,3 +1,5 @@
+import { DeviceRpcTimeoutError, DeviceRpcChannelError } from './deviceRpcRequester'
+
 /** Account events are the only durable delivery queue. This module keeps no local message copy. */
 export type AssistantWorkRpcClient = {
   rpc(name: string, args: Record<string, unknown>): PromiseLike<{ data: unknown; error: { code?: string; message: string } | null }>
@@ -82,8 +84,14 @@ export const ASSISTANT_WORK_DELIVERY_MAX_FAILURES = 100
 export const ASSISTANT_WORK_DELIVERY_BUDGET_MS = 45_000
 
 function errorCode(error: unknown): string {
+  if(error instanceof DeviceRpcTimeoutError) return 'DELIVERY_TIMEOUT'
+  if(error instanceof DeviceRpcChannelError) {
+    if(error.reason==='outdated') return 'DELIVERY_HOST_OUTDATED'
+    if(error.reason==='signInRequired') return 'AUTHENTICATION_REQUIRED'
+    if(error.reason==='unreachable') return 'DEVICE_UNREACHABLE'
+  }
   const code = (error as { code?: unknown } | null)?.code
-  return typeof code === 'string' && /^[A-Z0-9_]{1,80}$/.test(code) ? code : 'DELIVERY_FAILED'
+  return typeof code === 'string' && /^[A-Za-z0-9_]{1,80}$/.test(code) ? code.toUpperCase() : 'DELIVERY_FAILED'
 }
 
 export function createAssistantWorkOutboxPump(deps: {
@@ -112,18 +120,18 @@ export function createAssistantWorkOutboxPump(deps: {
     })
   }
 
-  const deliverOne = async (ctx: AssistantWorkOutboxContext, event: ClaimedAssistantWorkEvent) => {
-    if (stopped) return
+  const deliverOne = async (ctx: AssistantWorkOutboxContext, event: ClaimedAssistantWorkEvent):Promise<boolean> => {
+    if (stopped) return false
     const invalid = !event.message_id || !event.lease_token || !event.to_device_id || !event.to_session_id
       || !Number.isFinite(Date.parse(event.lease_until)) || !Number.isFinite(Date.parse(event.platform_received_at))
       || !Number.isInteger(event.failed_attempts) || event.failed_attempts < 0
-    if (invalid) { deps.warn?.({ code: 'INVALID_OUTBOX_EVENT' }); return }
-    if (!event.source_available) return settle(ctx, event, 'abandoned', 'SOURCE_UNAVAILABLE')
-    if (event.failed_attempts >= ASSISTANT_WORK_DELIVERY_MAX_FAILURES) return settle(ctx, event, 'abandoned', event.last_error_code ?? 'DELIVERY_ATTEMPTS_EXHAUSTED')
-    if (now() - Date.parse(event.platform_received_at) >= ASSISTANT_WORK_DELIVERY_MAX_AGE_MS) return settle(ctx, event, 'abandoned', 'DELIVERY_EXPIRED')
+    if (invalid) { deps.warn?.({ code: 'INVALID_OUTBOX_EVENT' }); return false }
+    if (!event.source_available) { await settle(ctx,event,'abandoned','SOURCE_UNAVAILABLE');return true }
+    if (event.failed_attempts >= ASSISTANT_WORK_DELIVERY_MAX_FAILURES) { await settle(ctx,event,'abandoned',event.last_error_code??'DELIVERY_ATTEMPTS_EXHAUSTED');return true }
+    if (now() - Date.parse(event.platform_received_at) >= ASSISTANT_WORK_DELIVERY_MAX_AGE_MS) { await settle(ctx,event,'abandoned','DELIVERY_EXPIRED');return true }
     const budget = Math.min(ASSISTANT_WORK_DELIVERY_BUDGET_MS, Date.parse(event.lease_until) - now() - 5000)
     // Insufficient remaining lease is not a failed delivery attempt. Let a fresh claim take it.
-    if (budget <= 0) return
+    if (budget <= 0) return false
     const controller = new AbortController()
     active.add(controller)
     let timer: ReturnType<typeof setTimeout> | undefined
@@ -140,17 +148,19 @@ export function createAssistantWorkOutboxPump(deps: {
         }),
       ])
     } catch (error) {
-      if (stopped) return
+      if (stopped) return false
       const code = errorCode(error)
       deps.warn?.({ code, messageId: event.message_id })
-      return settle(ctx, event, code === 'SOURCE_UNAVAILABLE' ? 'abandoned' : 'retry', code)
+      await settle(ctx, event, code === 'SOURCE_UNAVAILABLE' ? 'abandoned' : 'retry', code)
+      return code==='SOURCE_UNAVAILABLE'
     } finally {
       if (timer !== undefined) clearTimeout(timer)
       active.delete(controller)
     }
     // A lost settlement leaves the existing lease to expire. Do not label an admitted message failed.
-    if (result.status !== 'admitted' || result.messageId !== event.message_id) return settle(ctx, event, 'retry', 'NOT_ADMITTED')
+    if (result.status !== 'admitted' || result.messageId !== event.message_id) { await settle(ctx,event,'retry','NOT_ADMITTED');return false }
     await settle(ctx, event, event.kind === 'dispatch' ? 'executor_admitted' : 'assistant_admitted', undefined, result.receipt)
+    return true
   }
 
   const drain = async () => {
@@ -162,13 +172,19 @@ export function createAssistantWorkOutboxPump(deps: {
         p_runtime_instance_id: ctx.runtimeInstanceId, p_limit: 20, p_lease_seconds: 60,
       }) as { events?: ClaimedAssistantWorkEvent[] } | null
       if (!Array.isArray(result?.events)) throw Object.assign(new Error('Invalid outbox claim'), { code: 'INVALID_OUTBOX_CLAIM' })
-      // Two consumers bound CPU/network use. One slow receiver cannot block the other lane.
-      const pending = [...result.events]
+      // A target's next message cannot overtake an unadmitted predecessor. Separate targets keep two lanes.
+      const targets=new Map<string,ClaimedAssistantWorkEvent[]>()
+      for(const event of result.events) {
+        const key=JSON.stringify([event.to_device_id,event.to_session_id])
+        const group=targets.get(key)??[];group.push(event);targets.set(key,group)
+      }
+      const pending=[...targets.values()]
       await Promise.all([0, 1].map(async () => {
         while (!stopped && pending.length) {
-          const event = pending.shift()!
-          try { await deliverOne(ctx, event) }
-          catch (error) { deps.warn?.({ code: errorCode(error), messageId: event.message_id }) }
+          for(const event of pending.shift()!) {
+            try { if(!await deliverOne(ctx,event)) break;again=true }
+            catch(error) {deps.warn?.({code:errorCode(error),messageId:event.message_id});break}
+          }
         }
       }))
       if (result.events.length === 20) again = true
