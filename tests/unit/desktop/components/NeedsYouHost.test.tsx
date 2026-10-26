@@ -21,8 +21,8 @@ vi.mock('@/session/renderer/app/sessions-on-screen', () => ({ sessionPagesOnScre
 vi.mock('@/session/renderer/features/sessions/stores/session-selectors', () => ({ getSessionView: () => ({ paneLayout: { groups: [{ pane: { activeEntry: { kind: state.tab, state: { sessionId: 'task' } } } }] } }) }))
 vi.mock('@/session/renderer/features/extensions/install-consent', () => ({ closeInShell: close }))
 vi.mock('@/components/ui/Sheet', () => ({ Sheet: ({ children }: { children: ReactNode }) => <div role="dialog">{children}</div> }))
-vi.mock('@/mobile/agent-watch/TimelineView', () => ({ SettlementCard: ({ settlement, onRespond }: { settlement: Settlement; onRespond: (answer: unknown) => void }) =>
-  <button data-item-id={settlement.itemId} onClick={() => onRespond({ itemId: settlement.itemId, kind: settlement.kind, optionId: 'allow' })}>{settlement.title}</button> }))
+vi.mock('@/mobile/agent-watch/TimelineView', () => ({ SettlementCard: ({ settlement, onRespond, source }: { settlement: Settlement; onRespond: (answer: unknown) => void; source?: ReactNode }) =>
+  <div>{source}<button data-item-id={settlement.itemId} onClick={() => onRespond({ itemId: settlement.itemId, kind: settlement.kind, optionId: 'allow' })}>{settlement.title}</button></div> }))
 
 let harness: ReturnType<typeof createReactHarness>
 beforeEach(() => {
@@ -50,6 +50,23 @@ it('opens the same pending settlement over a group without navigating away', asy
   await act(async () => { document.querySelector<HTMLButtonElement>('[data-item-id="install"]')!.click() })
   expect(respond).toHaveBeenCalledWith({ itemId: 'install', kind: 'permission', optionId: 'allow' })
   expect(timeline.mock.calls.at(-1)?.[1]).toBe('desktop')
+})
+it('marks the automatically opened single task as selected with its task title', async () => {
+  await open()
+  const row = document.querySelector('[data-testid="needs-you-task"]')!
+  expect(row.getAttribute('aria-pressed')).toBe('true')
+  expect(row.querySelector('.gg-list-row-title')?.textContent).toBe('Install Reader')
+})
+it.each(['Enter', ' '])('selects a task from the list with the %s key without navigating or answering', async key => {
+  state.tasks.push({ deviceId: 'server', machine: 'Other host', local: false, session: { conversationId: 'other', title: 'Review destination', projectId: 'project', runtime: 'pty', supported: true } })
+  await open()
+  expect(document.querySelector('[data-testid="needs-you-source-link"]')).toBeNull()
+  const row = document.querySelectorAll('[data-testid="needs-you-task"]')[1]
+  await act(async () => { row.dispatchEvent(new KeyboardEvent('keydown', { key, bubbles: true, cancelable: true })) })
+  expect(row.getAttribute('aria-pressed')).toBe('true')
+  expect(document.querySelector('[data-testid="needs-you-source-link"]')?.textContent).toContain('Review destination')
+  expect(followLink).not.toHaveBeenCalled()
+  expect(respond).not.toHaveBeenCalled()
 })
 it('withdraws an open install sheet when its host cancels or another screen answers', async () => {
   await open()

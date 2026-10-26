@@ -1,6 +1,7 @@
 export default {
   "needsYou": {
     "title": "Needs you",
+    "waitingTasks": "Tasks waiting for you",
     "count": "Needs you · {{count}}",
     "loading": "Reading the request…",
     "sourceTask": "From task · {{title}}"

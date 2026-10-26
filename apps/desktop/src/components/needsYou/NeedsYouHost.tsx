@@ -5,16 +5,22 @@ import { useMobileShell } from '@/hooks/useMobileShell'
 import { useChatStore } from '@/store/chatContext'
 import { useTimelineSession } from '@/mobile/agent-watch/use-timeline-session'
 import { SettlementCard } from '@/mobile/agent-watch/TimelineView'
+import { SessionAvatar } from '@/mobile/agent-watch/StatusGlyph'
+import { sessionPresentation } from '@/mobile/agent-watch/watch-status'
+import { agentStatusText } from '@/lib/agentStatusText'
 import { assistantTimelineClient } from '../assistant/assistantTimelineClient'
 import { AgentNeedsUserGlyph } from '../AgentNeedsUserGlyph'
 import { Button } from '../ui/Button'
+import { ListRow } from '../ui/ListRow'
+import { SectionLabel } from '../ui/SectionLabel'
 import { Sheet } from '../ui/Sheet'
 import { PaneHeader } from '../ui/Pane'
+import { rowKeyActivate } from '../contacts/contactsPanelStyles'
 import { closeInShell } from '@/session/renderer/features/extensions/install-consent'
 import { appInstallAskOf } from '@/session/shared/extensions/host-actions'
 import { observer } from 'mobx-react-lite'
 import { followLink } from '@/lib/guguLinks'
-import { ChevronRight } from '@/lib/icons'
+import { ArrowRight } from '@/lib/icons'
 import { readPhoneAppView, onPhoneAppState } from '../appSlot/phoneAppState'
 import { sessionPageOnScreen, sessionPagesOnScreen } from '@/session/renderer/app/sessions-on-screen'
 import { getSessionView } from '@/session/renderer/features/sessions/stores/session-selectors'
@@ -56,14 +62,23 @@ export const NeedsYouHost = observer(function NeedsYouHost() {
       </Button>
     </div>}
     {shown && <Sheet fullScreenMobile testId="needs-you-sheet" ariaLabel={t('needsYou.title')} onClose={() => setOpened(false)} zIndex="var(--z-settings-modal)" desktopWidth="520px">
-      <PaneHeader title={t('needsYou.title')} mobile={mobile} divider actions={<Button variant="ghost" onClick={() => setOpened(false)}>{t('dialog.close')}</Button>} />
+      <PaneHeader title={<h2 className="gg-pane-title">{t('needsYou.title')}<span className="!ml-2 text-[length:var(--font-body)] font-normal text-[var(--text-secondary)]">{tasks.length}</span></h2>} mobile={mobile} divider actions={<Button variant="ghost" onClick={() => setOpened(false)}>{t('dialog.close')}</Button>} />
       <div className="flex min-h-0 flex-col gap-3 overflow-auto !p-4">
         {error && <p role="alert">{error}</p>}
-        {tasks.map(item => <Button key={taskKey(item)} variant={taskKey(item) === selected ? 'secondary' : 'ghost'}
-          data-testid="needs-you-task" onClick={() => setSelected(taskKey(item))}>
-          <span className="flex min-w-0 flex-1 flex-col text-left"><span className="truncate">{identitiesById[item.session.agent?.userId ?? '']?.display_name || item.session.title}</span>
-            <span className="text-[length:var(--font-caption)] text-[var(--text-secondary)]">{item.machine}</span></span>
-        </Button>)}
+        <div>
+          <SectionLabel>{t('needsYou.waitingTasks')}</SectionLabel>
+          {tasks.map(item => {
+            const agentName = identitiesById[item.session.agent?.userId ?? '']?.display_name
+            const presentation = sessionPresentation(item.session, true)
+            const select = () => setSelected(taskKey(item))
+            return <ListRow key={taskKey(item)} mobile={mobile} role="button" tabIndex={0}
+              data-testid="needs-you-task" selected={task === item} aria-pressed={task === item}
+              onClick={select} onKeyDown={rowKeyActivate(select)} title={item.session.title}
+              leading={<SessionAvatar agentId={item.session.agent?.userId} sessionId={item.session.conversationId} presentation={presentation} />}
+              subtitle={<>{agentName && <>{agentName} · </>}{item.machine}</>}
+              meta={presentation && <span className="text-[var(--text-secondary)]">{agentStatusText(presentation.label)}</span>} />
+          })}
+        </div>
         {task && <PendingTask key={taskKey(task)} task={task} onOpenTask={() => { setOpened(false); followLink({ kind: 'session', sessionId: task.session.conversationId }) }} />}
       </div>
     </Sheet>}
@@ -84,15 +99,18 @@ function PendingTask({ task, onOpenTask }: { task: NeedsYouTask; onOpenTask: () 
   }, [ready, read.timeline.settlements])
   useEffect(() => () => { for (const id of previousInstalls.current) closeInShell(id) }, [])
   const pending = Object.values(read.timeline.settlements).filter(item => item.state === 'pending')
-  return <section data-testid="needs-you-pending" className="flex flex-col gap-3">
+  const source = (
     <Button variant="ghost" size="sm" role="link" data-testid="needs-you-source-link" onClick={onOpenTask}
-      className="self-start max-w-full min-w-0 !px-0 !text-[length:var(--font-caption)] hover:underline">
+      className="self-start max-w-full min-w-0 !gap-1 !px-0 !text-[length:var(--font-caption)] hover:!text-[var(--text-primary)] hover:underline">
       <span className="truncate">{t('needsYou.sourceTask', { title: task.session.title })}</span>
-      <ChevronRight size={12} className="size-3 shrink-0 text-[var(--text-tertiary)]" />
+      <ArrowRight size={12} className="size-3 shrink-0" />
     </Button>
+  )
+  return <section data-testid="needs-you-pending" className="gg-aw !bg-transparent gap-3">
+    {(!ready || pending.length === 0) && source}
     {(read.error || read.actionError) && <p role="alert">{read.error || read.actionError}</p>}
     {!ready && <p role="status">{t('needsYou.loading')}</p>}
-    {ready && pending.map(settlement => <SettlementCard key={settlement.itemId} settlement={settlement} runtime={task.session.runtime}
+    {ready && pending.map((settlement, index) => <SettlementCard key={settlement.itemId} settlement={settlement} runtime={task.session.runtime} source={index === 0 ? source : undefined}
       machine={task.local ? undefined : task.machine} busy={read.respondingItemId === settlement.itemId}
       onRespond={input => { void read.respond(input).catch(() => undefined) }} />)}
   </section>
