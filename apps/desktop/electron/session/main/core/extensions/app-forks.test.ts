@@ -68,6 +68,16 @@ it('forks the exact installed commit, sparse-checks only its App, and installs e
   expect(readFileSync(path.join(fork.source_dir, 'index.html'), 'utf8')).toBe('my fix');
 });
 
+it('uses lowercase ASCII variant slugs as Git branches at both length boundaries', async () => {
+  for (const name of ['0', 'a'.repeat(63)]) {
+    const fork = await createAppFork('demo', name);
+    expect(execFileSync('git', ['branch', '--show-current'], { cwd: fork.git_dir, encoding: 'utf8' }).trim()).toBe(`fork/demo/${name}`);
+  }
+  for (const name of ['', '我的分叉', 'My-fork', 'my_fork', '-fork', 'a'.repeat(64)]) {
+    await expect(createAppFork('demo', name)).rejects.toThrow();
+  }
+});
+
 it('rejects an id change instead of replacing another App', async () => {
   const fork = await createAppFork('demo');
   const manifestFile = path.join(fork.source_dir, 'manifest.json');

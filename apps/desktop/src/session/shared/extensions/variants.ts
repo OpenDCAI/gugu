@@ -4,7 +4,7 @@ import { compareExtensionVersions } from './manifest';
 import type { MarketIndexVersion } from './market';
 
 /** A name is also a directory and a Git branch component, on every desktop OS. */
-export const variantNameSchema = z.string().min(1).max(80).regex(/^[\p{L}\p{N}_-][\p{L}\p{N}_-]*$/u).refine((name) => safePathSegment(name, '') === name, 'Choose a name that can be used as a folder.');
+export const variantNameSchema = z.string().regex(/^[a-z0-9][a-z0-9-]{0,62}$/).refine((name) => safePathSegment(name, '') === name, 'Choose a name that can be used as a folder.');
 export const extensionVariantSchema = z.object({
   name: variantNameSchema,
   base: z.string(),
