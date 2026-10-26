@@ -18,7 +18,7 @@ vi.mock('../../../../apps/desktop/src/store/devicesContext', () => ({ useDevices
 vi.mock('../../../../apps/desktop/src/components/assistant/taskExchangeTransport', () => ({ taskExchangeTransport: mocks.transport }))
 vi.mock('../../../../apps/desktop/src/session/renderer/features/remote-hosts/remote-hosts-store', () => ({ remoteHostsStore: { allListedSessions: () => mocks.rows, device: () => ({ label: 'Worker' }) } }))
 vi.mock('../../../../apps/desktop/src/session/renderer/features/assistant/assistant-home-sessions', () => ({
-  homeTarget: () => 'home', homeSessions: () => ({ sessions: mocks.rows.map((row) => row.summary), live: true }), localHomeSessions: { loaded: false, sessions: [], error: null },
+  homeTarget: () => 'home', homeSessions: () => ({ sessions: mocks.rows.map((row) => row.summary), live: true }), localHomeSessions: { loaded: false, sessions: [], error: null, use: () => () => {} },
 }))
 
 import { AssistantTaskChatOpener } from '../../../../apps/desktop/src/components/assistant/AssistantTaskChatOpener'
@@ -36,9 +36,6 @@ import { APP_SHOW_SESSION_EVENT } from '../../../../apps/desktop/src/session/sha
 let harness: ReturnType<typeof createReactHarness>
 let queryClient: QueryClient
 let cloudRows: unknown[] = []
-const cloudTask = (deviceId: string,row: SessionpageSessionSummary) => ({ domain: 'tasks',device_id: deviceId,resource_key: row.conversationId,
-  data: { sessionId: row.conversationId,title: row.title,harness: row.harness,unseen: row.unseen,agentId: row.agent?.userId,
-    lastInteractedAt: row.lastInteractedAt,status: row.status?.status ?? row.agentStatus,statusDetail: row.status?.detail,statusObservedAt: new Date().toISOString(),assistantSessionIds: ['assistant-session'] } })
 function panelMachine(): AssistantMachine { return { deviceId: 'home',projectId: 'panel',workspaceId: 'dm',paths: { memoryDir: 'memory' },panel: {
   assistantId: 'assistant',deviceId: 'home',snapshot: async () => ({ version: 1,revision: '1',application: [],items: [{ domain: 'tasks',device_id: 'home',resource_key: '__collection__:home',data: { state: 'ready' } },...cloudRows] }),
 } } as unknown as AssistantMachine }
@@ -65,7 +62,7 @@ beforeEach(() => {
   })
   mocks.rows = [{ deviceId: 'home', summary: summary('assistant-session', 'assistant'), live: true }, { deviceId: 'worker', summary: summary('task-session', 'task-agent', 'assistant-session'), live: false }]
   mocks.devices = [device('worker', [], { label: 'Worker', is_online: false, session_digest: [{ conversationId: 'task-session', projectId: 'p', projectName: 'Project', title: 'task-session', agentUserId: 'task-agent', parentConversationId: 'assistant-session', agentStatus: 'idle', lastInteractedAt: '2026-10-16T12:00:00Z', harness: 'codex', supported: false }] }), device('home', [], { label: 'Home' })]
-  cloudRows = [cloudTask('worker',mocks.rows[1]!.summary)]
+  cloudRows = [] // The trial cloud snapshot has no historical cross-device tasks.
   mocks.phones = []
   retainDeviceSessions([])
   publishDirectoryDevices(mocks.devices)
@@ -132,7 +129,7 @@ describe('assistant task rows open the task chat on both shells', () => {
     publishDirectoryDevices(mocks.devices)
     const computer = summary('computer-task', 'computer-agent', 'assistant-session')
     const phoneTask = { ...summary('phone-task', 'phone-agent', 'assistant-session'), harness: 'pi', status: { status: 'working', detail: 'running' } }
-    cloudRows = [cloudTask('worker',computer),cloudTask('phone-worker',phoneTask)]
+    cloudRows = []
     updateDeviceSessions('worker', { sessions: [computer], cached: false })
     updateDeviceSessions('phone-worker', { sessions: [phoneTask], cached: false, connected: true, loading: false })
     // The workspace-only store still cannot see the phone. The pane must use the shared directory.
@@ -140,7 +137,7 @@ describe('assistant task rows open the task chat on both shells', () => {
     const common: PhonePageProps = { assistant, chatId: 'assistant-dm', ownerName: 'Owner', home: { kind: 'cloud', deviceId: 'home' }, machine: { state: 'ready',machine: panelMachine() }, homeDeviceId: 'home', cloudDeviceId: 'home', askInChat: vi.fn(), sub: null, go: vi.fn(), open: vi.fn() }
     const context: AssistantContext = { readiness: 'ready', assistant, chatId: common.chatId, ownerName: 'Owner', home: { kind: 'cloud', deviceId: 'home' }, homeDeviceId: 'home', snapshot: null, machine: panelMachine(), machineLoading: false, machineError: null, retryMachine: vi.fn(), askInChat: vi.fn(), route: { tab: 'tasks' }, go: vi.fn() }
     await renderWithAppProviders(harness, shell === 'phone' ? <PhoneTasks {...common} /> : <AssistantTasksPage context={context} />)
-    expect(phoneTaskDirectoryRequested()).toBe(false)
+    expect(phoneTaskDirectoryRequested()).toBe(true)
     const phoneRow = () => harness.container.querySelector('[data-testid="assistant-subagent-phone-task"]')
     await vi.waitFor(() => expect(phoneRow()).not.toBeNull())
     const computerRow = harness.container.querySelector('[data-testid="assistant-subagent-computer-task"]')
@@ -150,7 +147,7 @@ describe('assistant task rows open the task chat on both shells', () => {
     expect(computerRow!.textContent?.includes('My computer')).toBe(shell !== 'desktop')
     expect(phoneRow()!.querySelector(shell === 'phone' ? '[data-tone="running"]' : '[data-agent-status="working"]')).not.toBeNull()
     await act(async () => {
-      cloudRows = [cloudTask('worker',computer),cloudTask('phone-worker',{ ...phoneTask,agentStatus: 'idle',status: { status: 'idle',detail: 'done' } })]
+      updateDeviceSessions('phone-worker', { sessions: [{ ...phoneTask,agentStatus: 'idle',status: { status: 'idle',detail: 'done' } }], cached: false,connected: true,loading: false })
       window.dispatchEvent(new Event('gugu:assistant-panel-changed'))
       await queryClient.invalidateQueries()
     })
