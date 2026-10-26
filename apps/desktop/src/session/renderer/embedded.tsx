@@ -49,6 +49,7 @@ import { wireExternalLinkRequests } from '@renderer/lib/external-link-requests';
 import { wireSessionsOnScreenReport } from '@renderer/app/sessions-on-screen';
 import { rpc } from '@renderer/lib/ipc';
 import { wireModelRegistryInvalidation } from '@renderer/lib/monaco/invalidation-bridges';
+import { monacoBootstrap } from '@renderer/lib/monaco/monaco-bootstrap';
 import { modelRegistry } from '@renderer/lib/monaco/monaco-model-registry';
 import { wirePrCacheInvalidation } from '@renderer/lib/pr-cache-invalidation';
 import { viewStateCache } from '@renderer/lib/stores/view-state-cache';
@@ -202,6 +203,13 @@ async function bootstrap() {
   wireSessionsOnScreenReport();
 
   initSoundPlayer();
+
+  // Monaco must NOT gate the mount: even vendored locally it is a multi-MB async chunk.
+  // Editors await monacoBootstrap.init() themselves when opened — boot it in the background
+  // and render the app immediately.
+  void monacoBootstrap.init().catch((error: unknown) => {
+    log.warn('[monaco-bootstrap] init failed:', error);
+  });
 
   // View-state/settings restoration is additive. Do not hold the only React mount behind a
   // non-critical RPC: a stale KV record, a first-run settings read, or a project mount failure
