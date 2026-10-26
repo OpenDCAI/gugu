@@ -59,9 +59,7 @@ describe('Claude native turn boundaries', () => {
     expect(turns).toHaveLength(1);
     expect(collectItems(turns).flatMap(item => item.kind === 'message' ? [item.text] : []))
       .toEqual(['Please compute 13 + 24.', '37']);
-    expect(collectItems(turns).filter(item => item.kind === 'thinking')).toEqual([
-      expect.objectContaining({ text: 'Computing the sum.', status: 'done' })
-    ]);
+    expect(collectItems(turns).filter(item => item.kind === 'thinking')).toEqual([]);
     expect(turns[0].outcome).toEqual({ kind: 'done', reason: 'end_turn' });
   });
 

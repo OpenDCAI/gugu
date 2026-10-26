@@ -347,11 +347,12 @@ export function decodeClaudeRecord(
       boundaryEntry(
         `claude:${uuid}`,
         at,
-        record.end === 'aborted'
+        { ...(record.end === 'aborted'
           ? { kind: 'turn_aborted' }
           : record.end === 'error'
             ? { kind: 'turn_failed' }
-            : { kind: 'turn_end', stopReason: record.end }
+            : { kind: 'turn_end', stopReason: record.end }),
+          ...(record.messageId ? { messageId: record.messageId } : {}) }
       )
     );
   }
