@@ -3,6 +3,7 @@ import { agentViewOf, type ListedSession } from '../../session/shared/extensions
 import { rendererLogger } from '../../lib/log'
 import { isAssistantHome } from '../../lib/assistantHome'
 import { readCachedDevices } from '../../store/devicesCache'
+import { appDeviceId } from '../../session/shared/extensions/machine-call'
 import { directoryRows, liveDeviceSessions, rowOpens } from '../../session/shared/remote-sessions/session-directory'
 import { visibleMachines, workspaceDevices } from '../../mobile/agent-watch/machine-list'
 import { APP_SHOW_SESSION_EVENT, type AppShowSessionDetail } from '../../session/shared/extensions/app-runtime-protocol'
@@ -77,9 +78,10 @@ export function phoneDispatch(app: { extensionId: string; extensionName: string 
       return { agent: agent.agent, ...receipt }
     },
     async spawn(prompt, spawn, selectedDevice) {
-      const deviceId = selectedDevice ?? spawnOn
+      const { device, ...options } = spawn
+      const deviceId = device !== undefined ? appDeviceId(device) : selectedDevice ?? spawnOn
       if (!deviceId || !visibleMachines(workspaceDevices(readCachedDevices()), (device) => isAssistantHome(device, null)).some((device) => device.device_id === deviceId && device.is_online)) throw new AppSendError('failed', 'No online computer is available to start this agent')
-      const receipt = await request(deviceId, { action: 'spawn', prompt, spawn })
+      const receipt = await request(deviceId, { action: 'spawn', prompt, spawn: options })
       return receipt.agentId
     },
   }

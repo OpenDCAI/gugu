@@ -56,8 +56,10 @@ export const HOST_CALLS = {
   listData: { verb: 'listData', pack: (dir = '.') => ({ path: dir }) },
   callProgram: {
     verb: 'callProgram',
-    pack: (tool: string, args?: Record<string, unknown>, server?: string) => ({ name: tool, ...(args === undefined ? {} : { arguments: args }), ...(server === undefined ? {} : { server }) }),
+    pack: (tool: string, args?: Record<string, unknown>, options?: string | { server?: string; device?: string }) => ({ name: tool, ...(args === undefined ? {} : { arguments: args }), ...(typeof options === 'string' ? { server: options } : options) }),
   },
+  'sessions.index': { verb: 'sessionsIndex', pack: (options?: Record<string, unknown>) => ({ ...options }) },
+  'sessions.read': { verb: 'sessionsRead' },
   notify: { verb: 'notify' },
   openLink: { verb: 'openLink', pack: (url: string) => ({ url }) },
   linkTo: { verb: 'linkTo', pack: (options: Record<string, unknown> = {}) => options },

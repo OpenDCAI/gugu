@@ -1420,10 +1420,17 @@ function agentScope(extensionId: string, word: 'agents:read' | 'agents:history' 
  */
 async function machineCall(caller: BridgeCaller, method: MachineVerb, args: Record<string, unknown>): Promise<unknown> {
   const { binding, extensionId } = caller;
-  if (binding?.sessionId) {
+  if (args.device !== undefined || binding?.sessionId) {
     const manifest = extensionsService().get(extensionId).manifest;
-    const { followsSessionMachine } = await import('@shared/extensions/machine-call');
-    if (followsSessionMachine(manifest, method, args)) {
+    const { followsSessionMachine, appDeviceId, notOnSessionMachine } = await import('@shared/extensions/machine-call');
+    if (args.device !== undefined) {
+      const invalid = notOnSessionMachine(manifest, method, args);
+      if (invalid) throw invalid;
+      const { callOnSessionMachine } = await import('./app-programs-elsewhere');
+      const { device, ...callArgs } = args;
+      const done = await callOnSessionMachine({ extensionId, manifest }, { deviceId: appDeviceId(device) }, method, callArgs, binding?.operator.kind === 'agent');
+      if (done.there) return done.value;
+    } else if (binding?.sessionId && followsSessionMachine(manifest, method, args)) {
       const { callOnSessionMachine } = await import('./app-programs-elsewhere');
       const done = await callOnSessionMachine({ extensionId, manifest }, binding.sessionId, method, args, binding.operator.kind === 'agent');
       if (done.there) return done.value;

@@ -4648,6 +4648,8 @@ app.whenReady().then(async () => {
     })
     // 归档「连同子会话」跨机器(owner 2026-10-01「一起收」):人点的与 agent 的同一个动作,都经这里到别的机器。
     emdash.setOtherMachines({
+      isThisDevice: (deviceId) => crossMachine().isThisDevice(deviceId),
+      appSpawn: (app, deviceId, action) => crossMachine().appSpawn(app, deviceId, action),
       sessions: (since) => crossMachine().sessionsElsewhere(since),
       archive: (deviceId, sessionId) => crossMachine().archiveOn(deviceId, sessionId),
       appMessage: (app, deviceId, sessionId, text, how) => crossMachine().appMessage(app, deviceId, sessionId, text, how),

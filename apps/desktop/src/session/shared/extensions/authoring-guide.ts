@@ -43,6 +43,7 @@ in chats. Tools-only Apps need no HTML: \`apps-settings\` explains their host se
 More \`guide_read\` topics:
 - \`apps-page\` — the \`window.gugu\` API your page calls: the same wherever it is, and what each host has.
 - \`apps-agents\` — what the app is showing, and seeing and driving the person's agents.
+- \`apps-sessions\` — external CLI session index, normalized conversation and context metadata on a chosen computer (API 17).
 - \`apps-programs\` — your own tools for agents (MCP programs, skills), called from your page too.
 - \`apps-files\` — \`gugu.files\`: a chat's files and a session's working copy, edited live together.
 - \`apps-editors\` — an editor (a textarea, CodeMirror), keeping others' letters.
@@ -271,10 +272,32 @@ Show rejections inline, disable the control with its reason, or call \`reportErr
 Use \`window.gugu.x\` or another name.
 `;
 
+export const EXTENSION_GUIDE_SESSIONS = `# External session history and observed context
+
+Needs \`agents:history:all\` (API 17, including external CLI sessions):
+
+- \`gugu.sessions.index({ project?, source?, offset?, limit?, device? })\` →
+  \`{ rows, total, pending, stale, nextOffset }\`. Rows: \`{ source, providerSessionId, title, cwd, updatedAt, sizeBytes, filePath }\`.
+  Sources are \`claude-code\` / \`codex\`; subagents are excluded by the host's import parser.
+  \`project\` is a project id or absolute cwd on that machine, matched exactly; worktrees are separate.
+  \`pending > 0\`: indexing is incomplete; call again. Page with offset/limit; default 100 rows.
+- \`gugu.sessions.read({ filePath, source, offset?, limit?, view?, device? })\` reads only an indexed path within the source's
+  native transcript roots. Default conversation view: \`{ source, providerSessionId, title, cwd, fileName, turns, total, nextOffset }\`;
+  turns are \`{ role, content, createdAt }\`, default 50. No thinking/tool output.
+  \`view:'context'\` instead returns compact \`loaded, nested, refs\` with the same metadata, no bodies:
+  loaded \`[{path:null|string,kind:'instruction-file'|'rendered-total'|'base-instructions',scope:null|string,chars,truncated,at}]\`;
+  nested \`[{path,at}]\`; refs are distinct paths from file/shell tool inputs. Claude records rendered totals and instruction
+  attachments; Codex records base instructions and world_state AGENTS.md snapshots. Missing observations stay absent.
+  Timestamps can be null. Context is one summary per transcript, not a turns page.
+- Both follow a task's machine by default; \`device:'device:<id>'\` explicitly chooses a computer without any task.
+  It must have this same App/version and grant this permission. Cross-machine requests/answers are at most 1 MB; page large results.
+
+`;
+
 export const EXTENSION_GUIDE_AGENTS = `# Seeing and driving agents from your page
 
 These \`window.gugu\` verbs reach this computer's agents; \`:all-machines\` read and control also reach the person's
-other computers (history never leaves this one). Each tier is its own capability,
+other computers. readAgentHistory stays local; sessions.index/read can name a device. Each tier is its own capability,
 consented to on its own; the rest of the API is in \`apps-page\`. Phones have getAppState, its change event, listAgents, onAgentsChanged and dispatch (below). Where your page is
 plays no part: the plain words reach the agents you started, \`:all\` every one here. Work that watches agents
 with no page open — a clock — goes in the background page.
@@ -358,6 +381,8 @@ can tell any of the person's agents. A sheet pick needs no capability.
   person's new-session box would pick; to start one like an agent you see, pass its row's \`providerId\` (as
   \`harness\`), \`model\`, \`transport\`, \`projectId\` (as \`project\`). It stays in your scope (\`spawnedByThisExtension\`).
   \`:all-machines\` reaches your other computers too.
+  API 17: \`spawn.device:'device:<id>'\` explicitly starts there, requiring \`agents:control:all-machines\`.
+  The target computer chooses its defaults and records the agent as started by this App.
 - \`stopAgent(agentId)\` → stops one you can see on this computer, panel or terminal. It does not undo the work
   already done.
 - Starting an agent and a message to one **spend the person's quota**. There is no second prompt at
@@ -448,11 +473,11 @@ export const follow = {
 
 Free — your own programs and data folder:
 
-- \`callProgram(tool, args?, server?)\` → calls a tool of your own MCP program and resolves its
+- \`callProgram(tool, args?, { server?, device? })\` → calls a tool of your own MCP program and resolves its
   result (\`{ content, structuredContent?, isError? }\`). Only tools whose \`_meta.ui.visibility\`
   includes \`"app"\` (MCP Apps; absent: both): mark agent-only tools
   \`["model"]\`, and page-only ones \`["app"]\` — agents never see those. \`server\` only when you
-  run several. Stamped \`"gugu/caller": "app"\`, the tab's session and its working copy, and on a page an agent
+  run several (the older server string still works). \`device:'device:<id>'\` chooses a computer without a task (API 17). Stamped \`"gugu/caller": "app"\`, the tab's session and its working copy, and on a page an agent
   works its \`"gugu/agent"\`. Refused while \`agents:tools\` is off.
   A tab of a session on another computer (\`ctx.session.deviceId\`) runs it THERE:
   \`not-installed\`, \`version-mismatch\`, \`unavailable\` (offline, too old, or silent 75 s: it may have run);
@@ -971,6 +996,11 @@ export const EXTENSION_GUIDE_TOPICS: readonly { topic: string; about: string; te
     topic: 'apps-messages',
     about: 'gugu.chats and gugu.messages (chat:read): the chats you are in and who is in one; a chat\'s timeline, one thread, the ones holding a text, and the ones citing a file, to count and show where a passage was discussed.',
     text: EXTENSION_GUIDE_MESSAGES,
+  },
+  {
+    topic: 'apps-sessions',
+    about: 'External CLI history and observed context (API 17): index, paginated conversation, instruction metadata, nested memory and tool-input file references, on a selected computer.',
+    text: EXTENSION_GUIDE_SESSIONS,
   },
   {
     topic: 'apps-forum',

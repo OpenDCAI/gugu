@@ -30,7 +30,8 @@ import {
 import { sessionService } from '@main/core/sessions/session-service';
 import { db } from '@main/db/client';
 import { sessions } from '@main/db/schema';
-import type { RemoteSessionCaller } from '@gugu/session-core/session-record/contract';
+import type { RemoteSessionCaller, AppSpawnAction } from '@gugu/session-core/session-record/contract';
+import { appDeviceId } from '@shared/extensions/machine-call';
 import { log } from '@main/lib/logger';
 import { rememberBirthGroup } from '@main/core/sessions/birth-groups';
 import type { BirthGroup } from '@shared/core/sessions/create-session';
@@ -1209,18 +1210,28 @@ async function spawnModelSelection(
  * the App's envelope, and the row records the App (`spawnedByExtensionId`: its `own` agents). `bySession`: the session of
  * the agent that works the App's page (owner 10-14) — recorded as who spawned it, by the rule session_spawn's are.
  */
-export async function spawnSessionForApp(input: {
+type AppSessionSpawnInput = AppSpawnAction['spawn'] & {
   extensionId: string;
+  extensionName?: string;
   bySession?: string;
   envelope: DeliveryEnvelope;
   prompt: string;
-  title?: string;
-  harness?: string;
-  model?: string;
-  transport?: SessionRuntime;
-  project?: string;
-  chat?: string;
-}): Promise<SessionRow> {
+};
+
+export function spawnSessionForApp(input: AppSessionSpawnInput & { device?: undefined }): Promise<SessionRow>;
+export function spawnSessionForApp(input: AppSessionSpawnInput): Promise<SessionRow | { agentId: string }>;
+export async function spawnSessionForApp(input: AppSessionSpawnInput): Promise<SessionRow | { agentId: string }> {
+  if (input.device !== undefined) {
+    const deviceId = appDeviceId(input.device);
+    const { otherMachines } = await import('./session-family');
+    if (!(await otherMachines().isThisDevice(deviceId))) {
+      if (!input.extensionName) throw new Error('App spawn needs the installed App name');
+      const { title, harness, model, transport, project, chat } = input;
+      return await otherMachines().appSpawn({ extensionId: input.extensionId, extensionName: input.extensionName }, deviceId, {
+        action: 'spawn', prompt: input.prompt, spawn: { title, harness, model, transport, project, chat },
+      });
+    }
+  }
   const ledger = createStageLedger({
     scope: 'sessionpage/session-spawn',
     what: 'App spawn',
