@@ -914,6 +914,13 @@ export type SessionpageSessionCreateRequest = {
   effort?: string;
   /** 生在哪个群里(群成员里「新建 Agent」):它的身份第一次建出来时进这个群,群规照常生效。老宿主不认这一格。 */
   chatId?: string;
+  /**
+   * 派任务(gugu-dev#181):第一句由那台机器落成这个对话里的一张任务卡,agent 进群坐任务座位(与 `chatId` 同给);
+   * 项目群里卡上开一条话题,agent 回在话题里(OpenDCAI/gugu#446)。老宿主不认这一格。
+   */
+  taskChatId?: string;
+  /** 在项目的哪个文件夹里开工(那台机器上的绝对路径或 `~` 开头),须是这个项目的文件夹;不给 = 项目根目录。老宿主不认这一格。 */
+  cwd?: string;
 };
 
 /** 建成了：手机拿这两个 id 直接跳进新会话的时间线。 */
@@ -923,6 +930,8 @@ export type SessionpageSessionCreateResult = {
   title: string;
   /** 手机宿主返回的真实入群结果；身份创建成功与入群成功分别表达。 */
   birthGroup?: { chatId: string; status: 'joined' | 'pending_approval' | 'failed'; error?: string } | null;
+  /** 派任务时那张卡的消息 id(在 `taskChatId` 那个对话里;项目群里话题从它开出来)。老宿主不带这一格。 */
+  taskMessageId?: string;
   /**
    * 会话行已经写下了,但 agent 没起来(原因码见 `remoteFailureKind`)。发起方照样进这条会话:
    * 第一句话在转录里,失败原因是其后的一行、可以再试一次 —— ❌ 留一条点不开的死行。老宿主不带这一格。
