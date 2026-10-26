@@ -940,7 +940,8 @@ migrate their data to make your new code work.
 
 ## After the person agrees
 
-1. Call \`app_create {fork_of:"<app-id>", name:"<variant-name>"}\`. It checks out the exact
+1. Call \`app_create {fork_of:"<app-id>", name:"remote-watch"}\`. The variant name is an ASCII
+   slug matching \`^[a-z0-9][a-z0-9-]{0,62}$\`. It checks out the exact
    installed upstream commit into a git working directory and returns where to edit. Use
    that returned directory, never the installed bundle. The upstream remote is \`upstream\`.
    A connected GitHub account gets a real fork as \`origin\`; without one, the local repo works.
