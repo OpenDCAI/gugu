@@ -1083,6 +1083,45 @@ describe('三态判决与失败面', () => {
     expect(cloud.markReadCalls).toEqual([])
   })
 
+  it('keeps the real ACP pre-turn refusal unread, then delivers that exact message once after recovery without an error card', async () => {
+    const { AcpRuntime, createAcpProcedures } = await import('@gugu/session-runtime/acp-agents')
+    const { makeAcpHarness, makeStartInput } = await import('../../../../packages/session-runtime/src/acp-agents/acp-test-support')
+    const h = makeAcpHarness()
+    const runtime = new AcpRuntime(h.deps)
+    const api = createAcpProcedures(runtime)
+    const notices = vi.fn<typeof fetch>(async () => new Response('', { status: 201 }))
+    vi.stubGlobal('fetch', notices)
+    try {
+      expect((await runtime.startSession(makeStartInput())).success).toBe(true)
+      h.agent.prompt.mockRejectedValueOnce(Object.assign(new Error('Internal error'), {
+        code: -32603, data: { details: 'Session not found' },
+      }))
+      const cloud = seed()
+      const { deps, wakes } = makeDeps(cloud, { inject: async input => {
+        const result = await api.promptDetached({ sessionId: 'conv-1', prompt: { text: input.text, origin: 'communication' } })
+        return result.declined ? 'not-live' : {
+          verdict: 'accepted', completion: api.waitPromptDetached({ requestId: result.requestId }).then(() => undefined),
+        }
+      } })
+      expect(await pullAgentInbox(AGENT, deps)).toMatchObject({ verdict: 'not-live', injected: 0 })
+      expect(cloud.markReadCalls).toEqual([])
+      expect(wakes).toEqual([AGENT])
+      expect(notices).not.toHaveBeenCalled()
+      expect((await runtime.startSession(makeStartInput({ providerSessionId: 'session-1' }))).success).toBe(true)
+      const delivered = await pullAgentInbox(AGENT, deps)
+      await delivered.completion
+      expect(delivered).toMatchObject({ verdict: 'accepted', injected: 1 })
+      expect(cloud.markReadCalls).toHaveLength(1)
+      expect(notices).not.toHaveBeenCalled()
+      expect((await pullAgentInbox(AGENT, deps)).injected).toBe(0)
+      expect(h.agent.prompt).toHaveBeenCalledTimes(2)
+      expect(h.agent.prompt.mock.calls[0]?.[0].prompt).toEqual(h.agent.prompt.mock.calls[1]?.[0].prompt)
+    } finally {
+      await runtime.dispose()
+      vi.unstubAllGlobals()
+    }
+  })
+
   it('describes an unaccepted retained message as pending, and a later successful admission consumes it once', async () => {
     const post = vi.fn<typeof fetch>(async () => new Response('', { status: 201 }))
     vi.stubGlobal('fetch', post)

@@ -84,8 +84,8 @@ export class AcpRuntime {
     return ok({ providerSessionId: result.data.providerSessionId, ...page });
   }
 
-  stopSession(sessionId: string): Promise<Result<void, AcpStopSessionError>> {
-    return this.manager.stop(sessionId);
+  stopSession(sessionId: string, onlyIfIdle = false): Promise<Result<void, AcpStopSessionError>> {
+    return this.manager.stop(sessionId, onlyIfIdle);
   }
 
   /** 这条会话此刻attach的适配器进程(连接 key + pid)。只给会话重载当判据,见 SessionManager 那里。 */

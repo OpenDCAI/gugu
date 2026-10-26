@@ -71,6 +71,7 @@ import type {
 } from './cell-deps';
 import { PermissionBroker, selectAutoApproveOption } from './permission-broker';
 import { RawAcpLog, type RawAcpEvent } from './raw-log';
+import { providerRejectedMissingSession } from './provider-admission';
 
 export interface AcpChatHistory {
   committed: TranscriptTurn[];
@@ -171,6 +172,7 @@ export class SessionCell {
   private lastFailureProvisional = false;
   /** 宿主要求关掉这条会话(stop / 删除 / 换运行时)。之后线断了是我们断的,在飞的那一轮是被停下,不是失败。 */
   private closeRequested = false;
+  private providerAdmission: { accept: () => void } | null = null;
   private reverting = false;
   private activeTurnCompletion: Promise<void> | null = null;
   /** agent 自己报状态(见 AcpAgentConnection.reportsState)。 */
@@ -417,6 +419,7 @@ export class SessionCell {
 
   push(event: NormalizedEvent): void {
     if (event.kind === 'ignored') return;
+    if (!this.replayingHistory && this.isTranscriptEvent(event)) this.providerAdmission?.accept();
     if (event.kind === 'agent_state') {
       this.onAgentState(event.state);
       return;
@@ -538,6 +541,7 @@ export class SessionCell {
   }
 
   queuePrompt(input: PromptInput): Result<void, InvalidStateError> {
+    if (this.closeRequested) return acpErr.invalidState('Session is closing; resume it after teardown');
     if (this.reverting) return acpErr.invalidState('Conversation revert is in progress.');
     const now = Date.now();
     const result = this.dispatchFor<InvalidStateError>(
@@ -813,6 +817,7 @@ export class SessionCell {
   }
 
   requestPermission(params: RequestPermissionRequest): Promise<RequestPermissionResponse> {
+    this.providerAdmission?.accept();
     const requestId = crypto.randomUUID();
     const fromRequest = requestToolUpdate(params.toolCall);
     this.fillToolCall(fromRequest);
@@ -1610,6 +1615,7 @@ export class SessionCell {
       onAdmission?: (result: Result<{ queued: boolean; steered?: boolean }, AcpSendPromptError>) => void;
     },
   ): Promise<Result<SessionPromptResult, AcpSendPromptError>> {
+    if (this.closeRequested) return acpErr.sessionBusy('Session is closing; resume it after teardown');
     if (this.reverting) return acpErr.sessionBusy('Conversation revert is in progress.');
     // 忙时插话只在没人排队时插进这一轮:队列里已有在等的输入,投递就排到它后面,按到达顺序出队
     // (spec session-injection)。排队那条的「立即发送」(fromQueue)是人亲手越过,照插。
@@ -1662,7 +1668,15 @@ export class SessionCell {
       return queued;
     }
     // #6387 受理结果说清是「开了一轮」还是「插进了在飞的那一轮」—— 投递方要如实告诉扩展。
-    if (!opts?.skipAdmission) opts?.onAdmission?.(ok({ queued: false, ...(steered ? { steered: true } : {}) }));
+    // A provider-side missing session is a refusal before a turn, not a completed inbox delivery.
+    // Queue ownership is already durable; a new communication turn waits for native progress.
+    const providerAdmission: { accept: () => void } | null = started && !steered && prompt.origin === 'communication' && opts?.onAdmission
+      ? { accept: () => {
+        if (this.providerAdmission !== providerAdmission) return;
+        this.providerAdmission = null;
+        if (!opts?.skipAdmission) opts?.onAdmission?.(ok({ queued: false }));
+      } } : null;
+    if (!providerAdmission && !opts?.skipAdmission) opts?.onAdmission?.(ok({ queued: false, ...(steered ? { steered: true } : {}) }));
     if (started && !steered) {
       this.openTurnCompletion();
       const envelope = this.makeTurnEnvelope();
@@ -1805,7 +1819,9 @@ export class SessionCell {
         return ok({ queued: false });
       }
 
+      if (providerAdmission) this.providerAdmission = providerAdmission;
       const response = await this.agent.prompt(promptRequest);
+      providerAdmission?.accept();
       const anchor = (response._meta?.guguRevert as { before?: unknown } | undefined)?.before;
       if (!steered && typeof anchor === 'string' && anchor) {
         this.transcript.setRevertAnchor(messageId, anchor);
@@ -1853,6 +1869,9 @@ export class SessionCell {
       }
       return ok({ queued: false });
     } catch (e) {
+      const beforeTurn = providerAdmission !== null && this.providerAdmission === providerAdmission;
+      if (beforeTurn) this.providerAdmission = null;
+      const refusal = beforeTurn && providerRejectedMissingSession(e);
       const cause = toSerializedError(e);
       const err = acpErr.promptFailed(cause);
       this.deps.logger.error('SessionCell: prompt failed', {
@@ -1926,7 +1945,7 @@ export class SessionCell {
           if (settled) this.lastFailureProvisional = classified.provisional;
         }
       }
-      return err;
+      return refusal ? acpErr.sessionNotFound(this.sessionId) : err;
     }
   }
 
