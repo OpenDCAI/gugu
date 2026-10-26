@@ -37,7 +37,6 @@ const hover = (from: HTMLElement, to: HTMLElement) => act(async () => {
 
 const renderBar = (onTokenClick?: (id: string) => void) => harness.render(
   <RunningTokenBar
-    cap={3}
     previewChatId="chat-1"
     onTokenClick={onTokenClick}
     tokens={[{ id: 'agent-1', name: 'Pico', avatarUrl: null, avatarSeed: 'agent-1', stateKey: 'running', toolCount: 2, lastActiveAt: null }]}
@@ -106,10 +105,10 @@ describe('手机:短按 @ 它,长按看详情', () => {
   beforeEach(() => { Object.defineProperty(window, 'innerWidth', { configurable: true, value: 390 }) })
   afterEach(() => { Object.defineProperty(window, 'innerWidth', { configurable: true, value: desktopWidth }) })
 
-  it('手机把 cap 以后的 agent 也放在运行栏里,可直接 @', async () => {
+  it('手机把全部 agent 放在横滚运行栏里,可直接 @', async () => {
     const onTokenClick = vi.fn()
     await harness.render(
-      <RunningTokenBar cap={3} previewChatId="chat-1" onTokenClick={onTokenClick} tokens={[1, 2, 3, 4, 5].map((n) => ({
+      <RunningTokenBar previewChatId="chat-1" onTokenClick={onTokenClick} tokens={[1, 2, 3, 4, 5].map((n) => ({
         id: `agent-${n}`, name: `Agent ${n}`, avatarUrl: null, avatarSeed: `agent-${n}`,
         stateKey: 'running', toolCount: 2, lastActiveAt: null,
       }))} />,
@@ -159,11 +158,37 @@ describe('手机:短按 @ 它,长按看详情', () => {
   })
 })
 
+describe('desktop running agents fit the available width', () => {
+  it('reveals more agents as the same row grows and folds them again when it shrinks', async () => {
+    let width = 600
+    let report = () => {}
+    vi.spyOn(HTMLElement.prototype, 'clientWidth', 'get').mockImplementation(() => width)
+    vi.stubGlobal('ResizeObserver', class {
+      constructor(callback: () => void) { report = callback }
+      observe() {}
+      disconnect() {}
+    })
+    try {
+      await harness.render(<RunningTokenBar previewChatId="chat-1" tokens={Array.from({ length: 8 }, (_, n) => ({
+        id: `agent-${n}`, name: `Agent ${n}`, avatarUrl: null, avatarSeed: `agent-${n}`,
+        stateKey: 'running', toolCount: 0, lastActiveAt: null,
+      }))} />)
+      for (const [nextWidth, visible, overflow] of [[600, 3, '+5'], [1100, 5, '+3'], [1400, 8, null], [600, 3, '+5']] as const) {
+        width = nextWidth
+        await act(async () => report())
+        expect(document.body.querySelectorAll('.rtb-bar > [data-message-preview-trigger]')).toHaveLength(visible)
+        expect(document.body.querySelector('.rtb-more')?.textContent ?? null).toBe(overflow)
+      }
+    } finally { vi.unstubAllGlobals() }
+  })
+})
+
 describe('桌面: +n 只展开 agent,整条运行条共用一张预览', () => {
+  beforeEach(() => { vi.spyOn(HTMLElement.prototype, 'clientWidth', 'get').mockReturnValue(240) })
   const trigger = (id: string) => document.body.querySelector<HTMLElement>(`[data-message-preview-trigger="${id}"]`)!
   const count = () => document.body.querySelectorAll('[data-testid="preview-card"]').length
   const renderOverflow = () => harness.render(
-    <RunningTokenBar cap={1} previewChatId="chat-1" tokens={[1, 2, 3].map((n) => ({
+    <RunningTokenBar previewChatId="chat-1" tokens={[1, 2, 3].map((n) => ({
       id: `agent-${n}`, name: `Agent ${n}`, avatarUrl: null, avatarSeed: `agent-${n}`,
       stateKey: 'running', toolCount: 2, lastActiveAt: null,
     }))} />,

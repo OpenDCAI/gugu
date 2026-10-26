@@ -31,7 +31,7 @@ import { drainTopicSplitRequest, requestTopicSplit } from '../lib/topicSplitRequ
 import { buildGroupRosterCandidates } from '../lib/mention'
 import { topicMentionCandidates } from './chat/topicMentionModels'
 import { resolveGroupRunningIndicator } from '../lib/agentRunningStatusModels'
-import { GROUP_AGENT_BAR_MAX, groupRunningTokens } from '../lib/groupRunningTokenModels'
+import { groupRunningTokens } from '../lib/groupRunningTokenModels'
 import type { AgentLocation } from '@gugu/core/shared/ui/agentHeaderStatusModels'
 import { useReadReceiptPanel } from '@/hooks/useReadReceiptPanel'
 import { agentComposerModel, isRetiredCloudAgentChat } from '../lib/agentComposerModel'
@@ -1038,7 +1038,6 @@ function ChatAreaSurface({ viewportKey = 'chats', activeTab, navigationTarget = 
         // toolCount 近似用近 5 分钟 actions.length。onTokenClick 仍 @mention。
         <RunningTokenBar
           testId="group-agent-running-status"
-          cap={GROUP_AGENT_BAR_MAX}
           // @@@6357 悬浮 token = MessagePreview(它最近在做的事,不按 chat 过滤,#6573)。
           previewChatId={activeChatId}
           tokens={groupRunTokens}
@@ -1052,7 +1051,6 @@ function ChatAreaSurface({ viewportKey = 'chats', activeTab, navigationTarget = 
         // thinking → live tool kind → presence recent action → running；当前 locale 只在 RunningTokenBar 消费。
         <RunningTokenBar
           testId="agent-running-status"
-          cap={1}
           // @@@6357 私聊同一张卡。
           previewChatId={activeChatId}
           tokens={[

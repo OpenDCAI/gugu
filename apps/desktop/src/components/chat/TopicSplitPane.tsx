@@ -18,7 +18,6 @@ import { PaneHeader } from '../ui/Pane'
 import { useBackLayer } from '../ui/sheetStack'
 import { ChatMessageComposer } from './ChatMessageComposer'
 import { RunningBarSlot, RunningTokenBar, type RunningToken } from '../RunningTokenBar'
-import { GROUP_AGENT_BAR_MAX } from '@/lib/groupRunningTokenModels'
 import { TopicBreadcrumb } from './TopicBreadcrumb'
 import { TopicMoreMenu } from './TopicMoreMenu'
 import { HistoryPanel, type HistoryFileItem } from '../HistoryPanel'
@@ -565,7 +564,6 @@ export function TopicSplitPane({ viewportKey = 'topic', navigationTarget = false
         {runningTokens.length > 0 ? (
           <RunningTokenBar
             testId="topic-agent-running-status"
-            cap={GROUP_AGENT_BAR_MAX}
             previewChatId={runningPreviewChatId}
             tokens={runningTokens}
             onTokenClick={(id) => {

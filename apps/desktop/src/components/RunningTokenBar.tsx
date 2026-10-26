@@ -28,8 +28,6 @@ export interface RunningToken {
 
 export interface RunningTokenBarProps {
   tokens: RunningToken[]
-  /** 桌面单行最多显示几个 token，其余进 +N；手机全部横滚。DM 传 1，群聊传 GROUP_AGENT_BAR_MAX。 */
-  cap: number
   onTokenClick?: (id: string) => void
   /** 兼容既有 e2e/testid：DM 传 'agent-running-status'，群聊传 'group-agent-running-status'。 */
   testId?: string
@@ -70,11 +68,10 @@ const PILL_MAX_PX = 168, PILL_GAP_PX = 8, MORE_PX = 52
 export function RunningBarSlot({ children }: { children: ReactNode }) {
   return <div data-running-bar-slot="" className="flex h-[42px] shrink-0 items-center"><div data-running-bar-content="" className="w-full">{children}</div></div>
 }
-// 桌面一行能放几个:全部放得下就全放(不超过 cap),否则留出 +N 的位置后能放几个放几个,至少 1 个。
-function fitCount(width: number, count: number, cap: number): number {
-  const all = Math.min(count, cap)
-  if (all * (PILL_MAX_PX + PILL_GAP_PX) - PILL_GAP_PX <= width && all === count) return all
-  return Math.max(1, Math.min(cap, Math.floor((width - MORE_PX) / (PILL_MAX_PX + PILL_GAP_PX))))
+// 桌面一行能放几个:全部放得下就全放,否则留出 +N 的位置后能放几个放几个,至少 1 个。
+function fitCount(width: number, count: number): number {
+  if (count * (PILL_MAX_PX + PILL_GAP_PX) - PILL_GAP_PX <= width) return count
+  return Math.max(1, Math.floor((width - MORE_PX) / (PILL_MAX_PX + PILL_GAP_PX)))
 }
 
 type PreviewControl = ReturnType<typeof Popover.createHandle<RunningToken>>
@@ -183,7 +180,7 @@ function MoreOverflow({
   )
 }
 
-export function RunningTokenBar({ tokens, cap, onTokenClick, testId, previewChatId }: RunningTokenBarProps) {
+export function RunningTokenBar({ tokens, onTokenClick, testId, previewChatId }: RunningTokenBarProps) {
   const [handle] = useState(() => Popover.createHandle<RunningToken>())
   const mobile = useMobileShell()
   const boxRef = useRef<HTMLDivElement | null>(null)
@@ -198,7 +195,7 @@ export function RunningTokenBar({ tokens, cap, onTokenClick, testId, previewChat
     return () => observer.disconnect()
   }, [empty])
   if (empty) return null
-  const visible = mobile ? tokens.length : fitCount(width, tokens.length, cap)
+  const visible = mobile ? tokens.length : fitCount(width, tokens.length)
   const shown = tokens.slice(0, visible)
   const overflow = tokens.slice(visible)
   return (
