@@ -25,6 +25,7 @@ import {
   extensionsService,
 } from '@main/core/extensions/extensions-root';
 import type { ExtensionDisclosure } from '@main/core/extensions/extensions-service';
+import type { AppVariants } from '@shared/extensions/variants';
 import { placeFor, placeLink } from '@shared/extensions/file-openers';
 import { removeUninstalledLeftovers } from '@main/core/extensions/extension-session-snapshot';
 import { extensionPrograms, extensionProgramStatus, retireExtensionPrograms, toolVisibleTo } from '@main/core/extensions/extension-programs';
@@ -142,7 +143,13 @@ export const extensionsController = createRPCController({
       const icons: Record<string, string> = {};
       // The App's own icon, for the far-left rail (its dock): drawn there at the rail's size.
       const appIcons: Record<string, string> = {};
+      const variants: Record<string, AppVariants> = {};
       for (const entry of extensions) {
+        try {
+          variants[entry.manifest.id] = extensionsService().variants(entry.manifest.id);
+        } catch (error) {
+          log.warn(`Extension ${entry.manifest.id}: variants unreadable`, error);
+        }
         if (entry.manifest.icon) {
           const rendered = renderExtensionIcon(entry.rootDir, entry.manifest.icon, APP_ICON_PIXELS);
           if ('dataUrl' in rendered) appIcons[entry.manifest.id] = rendered.dataUrl;
@@ -167,6 +174,7 @@ export const extensionsController = createRPCController({
           invalid,
           icons,
           appIcons,
+          ...(Object.keys(variants).length ? { variants } : {}),
           disabled: extensionsService().disabledIds(),
           // The market Apps not updated by themselves (owner 10-19): their 「自动更新」 is off.
           autoUpdateOff: extensionsService().autoUpdateOffIds(),
