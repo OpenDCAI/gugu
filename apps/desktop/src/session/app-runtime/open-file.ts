@@ -1204,7 +1204,7 @@ export class OpenFile {
       status: { get: () => (handle.closed ? 'gone' : this.status) },
       saved: { get: () => this.saved },
       onChange: {
-        value: (handler: (event: { local: boolean; delta?: TextDelta }) => void) => this.subscribe(handle, this.changeHandlers, handler),
+        value: (handler: (event: FileChange) => void) => this.subscribe(handle, this.changeHandlers, handler),
       },
       onStatus: {
         value: (handler: (status: FileStatus) => void) => this.subscribe(handle, this.statusHandlers, handler),

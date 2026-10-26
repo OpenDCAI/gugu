@@ -57,7 +57,7 @@ export function useChatOpener(chatId: string | null): { overlay: ReactNode; open
   const show = useCallback((target: string, item: PanelItem, from: OpenFrom) => {
     const shown = { ...item, ...(from.message ? { message: from.message } : {}) }
     // A pending message is not tab state: neither JSON nor structured-clone snapshots carry it.
-    if (item.takeOpening) Object.defineProperty(shown, 'takeOpening', { value: item.takeOpening, enumerable: false })
+    if (item.takeOpening) Object.defineProperty(shown, 'takeOpening', { get: () => item.takeOpening, enumerable: false })
     openPanelItem(target, shown, { ...(from.returnTo ? { returnTo: from.returnTo } : {}), ...(from.restore ? { restore: from.restore } : {}) })
     if (item.itemId) noteOpened(item.itemId)
   }, [])
