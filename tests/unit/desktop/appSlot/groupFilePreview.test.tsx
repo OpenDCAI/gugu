@@ -182,6 +182,18 @@ describe('unclaimed group files use the message preview from every entry', () =>
     expect(restore).toHaveBeenCalledTimes(1)
   })
 
+  it('a phone message preview has Back and closes its tab before restoring the originating topic', async () => {
+    boundary.mobile = true
+    const restore = vi.fn(() => expect(chatAlone('preview-group')).toBe(true))
+    await slot(detail('exe'), true, { restore })
+    expect(harness.container.querySelector('button[aria-label="关闭预览"]')).toBeNull()
+    const back = harness.container.querySelector<HTMLButtonElement>('button[aria-label="返回"]')
+    expect(back).not.toBeNull()
+    await act(async () => back!.click())
+    expect(shownItem('preview-group')).toBeNull()
+    expect(restore).toHaveBeenCalledTimes(1)
+  })
+
   it('expands and restores a group HTML preview in a block without replacing its page', async () => {
     const file = detail('html')
     await slot(file, true, { tabbed: true })
