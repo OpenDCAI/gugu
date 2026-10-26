@@ -5,6 +5,8 @@ import { createCloudComputerClient } from '../../../packages/core/src/cloud/clou
 export function createPhoneAssistantWorkOutbox({ cloud, ownerId, deviceId, instanceId, isReady, requester, receive, controller: controllerOverride, warn = () => {} }) {
   let closed = false
   let controller = controllerOverride ?? null
+  let flight = null
+  const closing = new AbortController()
   const context = async () => !closed && isReady() ? { ownerId, deviceId, runtimeInstanceId: instanceId } : null
   const prepare = async (target, signal) => {
     if (!controller) {
@@ -42,5 +44,27 @@ export function createPhoneAssistantWorkOutbox({ cloud, ownerId, deviceId, insta
       return result.result?.status === 'admitted' && result.result.messageId === event.message_id ? result.result : { status: 'pending' }
     },
   })
-  return { kick: () => pump.kick(), close() { closed = true; pump.stop() } }
+  const reconcile = async () => {
+    await pump.kick()
+    if (!await context()) return
+    const {data,error} = await cloud.identity.rpc('assistant_work_abandoned',{p_runtime_instance_id:instanceId,p_limit:100})
+    if (error) throw error
+    if (!Array.isArray(data?.events)) throw new Error('Invalid abandoned work list')
+    const homes = new Set(data.events.map(event => event.kind === 'dispatch' ? event.from_device_id : event.to_device_id))
+    const signal = AbortSignal.any([closing.signal,AbortSignal.timeout(45000)])
+    for (const home of homes) {
+      if (!home || home === deviceId) continue
+      await prepare(home,signal)
+      if (!await context()) return
+      const client = requester()
+      if (!client) throw new Error('Delivery channel unavailable')
+      const response = await client.call(home,'assistantWork.reconcile',{}, {timeoutMs:5000,signal})
+      if (response.error) throw new Error('Work home could not reconcile delivery')
+    }
+  }
+  return { kick() {
+    if (closed) return Promise.resolve()
+    if (!flight) flight = reconcile().catch(() => warn({code:'WORK_NOTICE_RECONCILIATION_UNAVAILABLE'})).finally(() => {flight = null})
+    return flight
+  }, close() { closed = true; closing.abort(); pump.stop() } }
 }
