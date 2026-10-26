@@ -14,6 +14,7 @@ export function ChannelAppConnection({ kind, name }: { kind: ChatChannelKind; na
   const state = useChatChannels()
   const [connecting, setConnecting] = useState(false)
   const connected = state.list?.channels.some(channel => channel.kind === kind)
+  if (kind !== 'wechat') return null
   if (kind === 'wechat' && connected && state.client && state.list) return <div className="gg-settings-page" data-testid={`assistant-app-chat-${kind}`}>
     <SectionLabel>{t('connectors.chatPurpose', { app: name })}</SectionLabel>
     <ConnectedChannels client={state.client} list={state.list} apply={state.apply} />
@@ -21,7 +22,7 @@ export function ChannelAppConnection({ kind, name }: { kind: ChatChannelKind; na
   return <SettingsGroup title={t('connectors.chatPurpose', { app: name })} data-testid={`assistant-app-chat-${kind}`}>
     {state.status === 'loading' ? <SettingsRow description={t('library.loading')} />
       : state.status === 'failed' ? <SettingsRow description={<span role="alert">{state.error}</span>} control={<Button size="sm" variant="ghost" onClick={() => void state.refresh()}>{t('machine.retry')}</Button>} />
-      : !state.client || !state.list?.kinds.includes(kind) || kind !== 'wechat' ? <SettingsRow description={t('connectors.chatUnavailable')} />
+      : !state.client || !state.list?.kinds.includes(kind) ? <SettingsRow description={t('connectors.chatUnavailable')} />
       : <SettingsRow description={t('connectors.chatDescription')} control={<Button size="sm" onClick={() => setConnecting(true)} data-testid="assistant-app-chat-connect">{t('connectors.connect')}</Button>} />}
     {connecting && state.client && state.list ? <WechatConnectDialog client={state.client} list={state.list} refresh={state.refresh} apply={state.apply} onClose={() => setConnecting(false)} /> : null}
   </SettingsGroup>

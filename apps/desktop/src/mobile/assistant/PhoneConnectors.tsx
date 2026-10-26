@@ -141,7 +141,7 @@ export function PhoneConnectorDetail({ assistant, homeDeviceId, machine, integra
         {() =>
           detail.error ? <ReadFailed title={t('connectors.loadFailed')} error={detail.error} onRetry={detail.reload} /> : detail.loading ? <ReadingNow /> : view ? (
             <>
-              {chatKind ? <h2 className="ta-section-label">{t('connectors.readWritePurpose', { app: view.item.name })}</h2> : null}
+              {id === 'feishu' || chatKind ? <h2 className="ta-section-label">{t('connectors.readWritePurpose', { app: view.item.name })}</h2> : null}
               <div className="ta-card ta-connector-hero">
                 <ConnectorIcon integration={view.item} size={56} />
                 <span className="ta-page-sub">{view.item.description}</span>

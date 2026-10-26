@@ -91,7 +91,7 @@ const ConnectorDetail = observer(function ConnectorDetail({ host, home, assistan
   return <SettingsPage data-testid="assistant-connector-detail">
     {!panelNavigation ? <div><Button variant="ghost" size="sm" onClick={onBack} data-testid="assistant-connector-back"><ChevronLeft size={16} aria-hidden />{t('connectors.title')}</Button></div> : null}
     <PageHead title={integration?.name ?? app.name} />
-    {app.integration ? <SettingsGroup title={app.chatKind ? t('connectors.readWritePurpose', { app: integration?.name ?? app.name }) : undefined}>
+    {app.integration ? <SettingsGroup title={app.id === 'feishu' || app.chatKind ? t('connectors.readWritePurpose', { app: integration?.name ?? app.name }) : undefined}>
       {detail.error || detail.loading ? <SettingsNote role={detail.error ? 'alert' : undefined}>{detail.error ? assistantPanelFailure(detail.error, t) : t('library.loading')}</SettingsNote>
         : integration ? <div className="ta-connector-hero">
           <IntegrationIcon provider={integration.id} icon={integration.icon as never} size={56} />

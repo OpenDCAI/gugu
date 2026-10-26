@@ -162,6 +162,16 @@ describe('直接展开的连接列表', () => {
 })
 
 describe('详情页', () => {
+  it('飞书只显示实际存在的读写连接，不臆造聊天连接或开放状态', async () => {
+    const page = pageProps('feishu')
+    await render(PhoneConnectorDetail, page.props)
+    await waitForCondition(() => !!q('assistant-connector-connect'), 'Feishu data detail loaded')
+    expect(q('assistant-connector-detail')!.textContent).toContain('让它读写飞书')
+    expect(q('assistant-app-chat-feishu')).toBeNull()
+    expect(q('assistant-connector-detail')!.textContent).not.toContain('在飞书里找到它')
+    expect(q('assistant-connector-detail')!.textContent).not.toContain('此应用暂未开放聊天连接')
+  })
+
   it('没连:主按钮「连接」去连接页(connector:<id>:connect),没有「断开」', async () => {
     const page = pageProps('qq-mail')
     await render(PhoneConnectorDetail, page.props)
