@@ -1,23 +1,20 @@
 import { describe, expect, it } from 'vitest'
 import type { CloudComputerSnapshot } from '@gugu/core/cloud/cloudComputer'
-import { SIDEBAR_TABS, mobileTabs } from '@gugu/core/shared/enums/sidebarTabModels'
+import { MOBILE_TABS } from '@gugu/core/shared/enums/sidebarTabModels'
 import { phoneAssistantStage } from '../../../apps/desktop/src/mobile/assistant/phoneAssistantStage'
 import { settledTab, tabPosition } from '../../../apps/desktop/src/mobile/settledTab'
 
-// #7199 owner 10-16「助理是咕咕底栏里的一格」:这一格排第一,分页器与底栏同一份顺序;手机壳里一直有(没有咕咕的新用户那一格里是引导)。
-describe('mobileTabs', () => {
-  it('puts the assistant first when the shell shows it, and leaves the four tabs alone otherwise', () => {
-    expect(mobileTabs(true)).toEqual(['assistant', 'tasks', 'chats', 'contacts', 'settings'])
-    expect(mobileTabs(false)).toEqual(SIDEBAR_TABS)
+// 手机底栏两格「消息 / 伙伴」(owner 10-26,OpenDCAI/gugu#446):咕咕是「消息」置顶第一行、推进来的一层,❌ 底栏里的一格。
+describe('MOBILE_TABS', () => {
+  it('is the two list pages, messages first', () => {
+    expect(MOBILE_TABS).toEqual(['chats', 'contacts'])
   })
 
-  it('lets the pager settle on the assistant page and on the last page of the longer list', () => {
-    const tabs = mobileTabs(true)
-    expect(settledTab(0, 390, tabs)).toBe('assistant')
-    expect(settledTab(390, 390, tabs)).toBe('tasks')
-    expect(settledTab(4 * 390, 390, tabs)).toBe('settings')
-    expect(settledTab(5 * 390, 390, tabs)).toBeNull()
-    expect(tabPosition(5 * 390, 390, tabs.length)).toBe(4)
+  it('lets the pager settle on either page and nowhere past the last one', () => {
+    expect(settledTab(0, 390, MOBILE_TABS)).toBe('chats')
+    expect(settledTab(390, 390, MOBILE_TABS)).toBe('contacts')
+    expect(settledTab(2 * 390, 390, MOBILE_TABS)).toBeNull()
+    expect(tabPosition(2 * 390, 390, MOBILE_TABS.length)).toBe(1)
   })
 })
 
@@ -42,7 +39,7 @@ describe('phoneAssistantStage', () => {
     expect(phoneAssistantStage({ ...base, cloudLoadFailed: true }).stage).toBe('cloud-unreadable')
   })
 
-  it('shows the setup guide to a new user with no assistant, whatever the butler has said (cell stays in the bar)', () => {
+  it('shows the setup guide to a new user with no assistant, whatever the butler has said (its row stays first in 消息)', () => {
     // 管家答了「没有云电脑 / 这里没开放」:没有快照,但已经知道了 ⇒ 引导(手机上装不了,引导里如实说)。
     expect(phoneAssistantStage({ ...base, cloudKnown: true })).toEqual({ stage: 'onboarding', snapshot: null })
     expect(phoneAssistantStage({ ...base, cloudKnown: true, snapshot: snapshot('none', null) }).stage).toBe('onboarding')
