@@ -2,7 +2,7 @@ import { JSDOM } from 'jsdom';
 import React, { act } from 'react';
 import { createRoot, type Root } from 'react-dom/client';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { AppVariantList, appForkPrompt, type AppVariantRow } from './app-variant-list';
+import { AppVariantList, type AppVariantRow } from './app-variant-list';
 
 const variants: AppVariantRow[] = [
   { name: 'upstream', base: '1.0.0', dir: null },
@@ -16,7 +16,6 @@ describe('App variants', () => {
   let root: Root;
   let container: HTMLDivElement;
   const onSwitch = vi.fn();
-  const onCopy = vi.fn();
 
   beforeEach(() => {
     vi.clearAllMocks();
@@ -37,7 +36,7 @@ describe('App variants', () => {
 
   async function render(disabled = false, rows = variants) {
     await act(async () => root.render(React.createElement(AppVariantList, {
-      active: 'timeline', variants: rows, disabled, translate, onSwitch, onCopy,
+      active: 'timeline', variants: rows, disabled, translate, onSwitch,
     })));
   }
 
@@ -55,29 +54,11 @@ describe('App variants', () => {
     expect(onSwitch).toHaveBeenCalledExactlyOnceWith('upstream');
   });
 
-  it('copying a fork prompt does not switch variants', async () => {
-    await render();
-    const copy = [...container.querySelectorAll<HTMLButtonElement>('button')].find((button) => button.textContent === 'extensions.copyPrompt');
-    expect(copy).toBeDefined();
-    await act(async () => copy!.click());
-    expect(onCopy).toHaveBeenCalledExactlyOnceWith(variants[1]);
-    expect(onSwitch).not.toHaveBeenCalled();
-  });
-
   it('disables switching while the host cannot change the App', async () => {
     await render(true);
     const choices = container.querySelectorAll<HTMLButtonElement>('[role="radio"]');
     expect([...choices].map((choice) => choice.getAttribute('aria-disabled'))).toEqual(['true', 'true']);
     await act(async () => choices[0]!.click());
     expect(onSwitch).not.toHaveBeenCalled();
-  });
-
-  it('the update prompt names the exact source and commit and preserves the person\'s work', () => {
-    const commit = '0123456789abcdef0123456789abcdef01234567';
-    const prompt = appForkPrompt({ id: 'board', name: 'Board' }, variants[1]!, { upstream: '1.2.0', behind: 2, commit });
-    expect(prompt).toContain('/work/board@timeline');
-    expect(prompt).toContain(commit);
-    expect(prompt).toContain('guide apps-fork');
-    expect(prompt).toContain('preserving the custom changes and existing data');
   });
 });

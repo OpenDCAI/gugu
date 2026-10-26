@@ -108,7 +108,6 @@ export function AppProductPage({
   notice,
   variants,
   onSwitchVariant,
-  onCopyForkPrompt,
   revoked = [],
   pendingPermissions = [],
   agentStatus,
@@ -150,7 +149,6 @@ export function AppProductPage({
   notice?: InstalledRowNotice;
   variants?: { active: string; variants: readonly AppVariantRow[] };
   onSwitchVariant?: (name: string) => void;
-  onCopyForkPrompt?: (variant: AppVariantRow, update?: Extract<InstalledRowNotice, { kind: 'forkBehind' }>) => void;
   revoked?: readonly string[];
   pendingPermissions?: readonly string[];
   agentStatus?: ExtensionAgentStatus;
@@ -187,7 +185,6 @@ export function AppProductPage({
   };
 }) {
   const { manifest, installed, cloud } = subject;
-  const activeVariant = variants?.variants.find((variant) => variant.name === variants.active);
   // 没点过切换就跟界面语言(界面语言换了也跟着换);点过的那一格还在就用它。
   const languages = manifestLanguages(manifest, locale);
   const [picked, setPicked] = useState<string | null>(null);
@@ -756,9 +753,6 @@ export function AppProductPage({
               translate={translate}
               onInstallVersion={(version) => onInstallVersion({ extensionId: installed.id, version })}
               onBrowseReplacement={() => onBrowseReplacement?.(installed.id)}
-              onCopyForkPrompt={notice.kind === 'forkBehind' && activeVariant && onCopyForkPrompt
-                ? () => onCopyForkPrompt(activeVariant, notice)
-                : undefined}
             />
           </div>
         </fieldset>
@@ -772,14 +766,13 @@ export function AppProductPage({
 
       <div className="mk-dbody">
         <div className="mk-dmain">
-          {installed && variants && onSwitchVariant && onCopyForkPrompt && (
+          {installed && variants && onSwitchVariant && (
             <AppVariantList
               active={variants.active}
               variants={variants.variants}
               disabled={readOnly || pending !== undefined}
               translate={translate}
               onSwitch={onSwitchVariant}
-              onCopy={onCopyForkPrompt}
             />
           )}
           {screenshots}

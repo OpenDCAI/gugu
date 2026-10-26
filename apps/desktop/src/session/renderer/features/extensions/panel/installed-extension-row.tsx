@@ -44,24 +44,17 @@ export function InstalledRowNoticeLine({
   translate,
   onInstallVersion,
   onBrowseReplacement,
-  onCopyForkPrompt,
 }: {
   notice: InstalledRowNotice;
   installedVersion: string;
   translate: SessionTranslate;
   onInstallVersion?: (version: string) => void;
   onBrowseReplacement: () => void;
-  onCopyForkPrompt?: () => void;
 }) {
   if (notice.kind === 'forkBehind') {
     return (
       <span className="xp-note">
-        <span>{translate('extensions.forkBehind', { version: notice.upstream, count: notice.behind })}</span>
-        {onCopyForkPrompt && (
-          <button type="button" className="xp-link" onClick={onCopyForkPrompt}>
-            {translate('extensions.copyPrompt')}
-          </button>
-        )}
+        {translate('extensions.forkBehind', { version: notice.upstream, count: notice.behind })}
       </span>
     );
   }

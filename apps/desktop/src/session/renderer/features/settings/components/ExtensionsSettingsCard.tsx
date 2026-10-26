@@ -29,7 +29,6 @@ import { AppMarketContent, type AppMarketState } from '@renderer/features/extens
 import { appLifecycle } from '@renderer/features/extensions/panel/app-lifecycle';
 import type { AppLifecycle } from '@renderer/features/extensions/panel/app-lifecycle-button';
 import { AppProductPage, listOf, type ExtensionDetailSubject } from '@renderer/features/extensions/panel/app-product-page';
-import { appForkPrompt, type AppVariantRow } from '@renderer/features/extensions/panel/app-variant-list';
 import { InstalledAppRow } from '@renderer/features/extensions/panel/app-rows';
 import {
   InstalledRowNoticeLine,
@@ -68,7 +67,6 @@ import type { MarketRefreshed } from '@shared/extensions/market-snapshot';
 import { marketHome } from '@shared/extensions/market-home';
 import { chatDb } from '@/lib/supabase';
 import type { ExtensionManifest } from '@shared/extensions/manifest';
-import type { ForkBehind } from '@shared/extensions/variants';
 import { remoteHostsStore } from '@renderer/features/remote-hosts/remote-hosts-store';
 
 /**
@@ -599,15 +597,6 @@ export const ExtensionsSettingsCard = observer(function ExtensionsSettingsCard()
     }
   };
 
-  const copyForkPrompt = async (manifest: ExtensionManifest, variant: AppVariantRow, update?: ForkBehind) => {
-    try {
-      await rpc.app.clipboardWriteText(appForkPrompt({ id: manifest.id, name: localizedManifestText(manifest, locale).name }, variant, update));
-      toast({ title: translate('extensions.promptCopied') });
-    } catch (error) {
-      toast({ title: translate('task.copyFailed'), description: messageForUser(error), tier: 'error' });
-    }
-  };
-
   /**
    * One way to ask, for every install here: with 「给哪些 agent」 (D-30) in the shell's sheet, else in the session page's own
    * dialog. `agreed` runs on a yes; this resolves once the shell's sheet is answered (the dialog answers on its own).
@@ -1102,8 +1091,6 @@ export const ExtensionsSettingsCard = observer(function ExtensionsSettingsCard()
   /** 已安装那一行名字下面那一句:有新版 / 撤回、停维(带下一步)/ 程序没起来 / 收回了几项 / 简介。 */
   const installedLine = (manifest: ExtensionManifest): ReactNode => {
     const notice = noticeOf(manifest);
-    const variants = store.variants[manifest.id];
-    const active = variants?.variants.find((variant) => variant.name === variants.active);
     if (notice?.kind === 'update') return <span>{translate('extensions.rowHasUpdate', { version: notice.version })}</span>;
     if (notice) {
       return (
@@ -1115,7 +1102,6 @@ export const ExtensionsSettingsCard = observer(function ExtensionsSettingsCard()
             translate={translate}
             onInstallVersion={(version) => void installFromShelf({ extensionId: manifest.id, version }, manifest.id)}
             onBrowseReplacement={() => notice.kind === 'deprecated' && notice.replacedBy && browseReplacement(notice.replacedBy)}
-            onCopyForkPrompt={active && notice.kind === 'forkBehind' ? () => void copyForkPrompt(manifest, active, notice) : undefined}
           />
         </span>
       );
@@ -1178,7 +1164,6 @@ export const ExtensionsSettingsCard = observer(function ExtensionsSettingsCard()
             notice={installed ? noticeOf(installed) : undefined}
             variants={installed ? store.variants[installed.id] : undefined}
             onSwitchVariant={installed ? (name) => void switchVariant(installed, name) : undefined}
-            onCopyForkPrompt={installed ? (variant, update) => void copyForkPrompt(installed, variant, update) : undefined}
             revoked={installed ? (revoked[installed.id] ?? []) : []}
             pendingPermissions={installed ? pendingPermissionsOf(installed.id) : []}
             agentStatus={installed ? agentStatus[installed.id] : undefined}
