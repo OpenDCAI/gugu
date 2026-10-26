@@ -1,4 +1,5 @@
 import { DeviceRpcTimeoutError, DeviceRpcChannelError } from './deviceRpcRequester'
+import { assistantWorkDeliveryTarget, type AssistantWorkAddress } from './assistantWorkRouting'
 
 /** Account events are the only durable delivery queue. This module keeps no local message copy. */
 export type AssistantWorkRpcClient = {
@@ -66,6 +67,7 @@ export async function enqueueAssistantWorkDelivery(client: AssistantWorkRpcClien
 }
 
 export type ClaimedAssistantWorkEvent = AssistantWorkEventInput & {
+  delivery_target?: AssistantWorkAddress | null
   work_id: string
   assistant_user_id?: string
   lease_token: string
@@ -136,6 +138,7 @@ export function createAssistantWorkOutboxPump(deps: {
     if (!event.source_available) { await settle(ctx,event,'abandoned','SOURCE_UNAVAILABLE');return true }
     if (event.failed_attempts >= ASSISTANT_WORK_DELIVERY_MAX_FAILURES) { await settle(ctx,event,'abandoned',event.last_error_code??'DELIVERY_ATTEMPTS_EXHAUSTED');return true }
     if (event.age_ms + Math.max(0, performance.now() - claimStartedAt) >= ASSISTANT_WORK_DELIVERY_MAX_AGE_MS) { await settle(ctx,event,'abandoned','DELIVERY_EXPIRED');return true }
+    if (!assistantWorkDeliveryTarget(event)) { await settle(ctx,event,'retry','DELIVERY_NOT_READY');return false }
     const budget = Math.min(ASSISTANT_WORK_DELIVERY_BUDGET_MS, event.lease_remaining_ms - Math.max(0, performance.now() - claimStartedAt) - 5000)
     // Insufficient remaining lease is not a failed delivery attempt. Let a fresh claim take it.
     if (budget <= 0) return false
@@ -183,7 +186,8 @@ export function createAssistantWorkOutboxPump(deps: {
       // A target's next message cannot overtake an unadmitted predecessor. Separate targets keep two lanes.
       const targets=new Map<string,ClaimedAssistantWorkEvent[]>()
       for(const event of result.events) {
-        const key=JSON.stringify([event.to_device_id,event.to_session_id])
+        const target=assistantWorkDeliveryTarget(event)
+        const key=JSON.stringify(target ? [target.device_id,target.session_id] : [null,event.message_id])
         const group=targets.get(key)??[];group.push(event);targets.set(key,group)
       }
       const pending=[...targets.values()]

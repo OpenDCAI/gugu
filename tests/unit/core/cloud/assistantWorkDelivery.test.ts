@@ -10,6 +10,19 @@ function fixture(row = event) {
   return { receiver, read, deliver }
 }
 describe('work delivery receiver', () => {
+  it('delivers a moved home through the canonical target without changing the original cloud facts',async()=>{
+    const row={...event,to_device_id:'old-home',to_session_id:'old-session',delivery_target:{device_id:'cloud',session_id:'new-session'}}
+    const f=fixture(row)
+    await expect(f.receiver.receive({assistant_id:'agent',work_id:'work',message_id:'message',delivery_target:{device_id:'attacker',session_id:'injected'}},'owner')).resolves.toMatchObject({status:'admitted'})
+    expect(f.deliver).toHaveBeenCalledWith(expect.objectContaining({to_device_id:'cloud',to_session_id:'new-session',content:row.content}))
+    expect(row.to_device_id).toBe('old-home');expect(row.to_session_id).toBe('old-session')
+  })
+  it('leaves an unbound moved home pending rather than falling back to its former device',async()=>{
+    const f=fixture({...event,delivery_target:null} as never)
+    await expect(f.receiver.receive({assistant_id:'agent',work_id:'work',message_id:'message'},'owner')).resolves.toEqual({status:'pending'})
+    expect(f.deliver).not.toHaveBeenCalled()
+  })
+
   it('cancels a stalled history read without later injecting its stale completion',async()=>{
     const f=fixture();const gate=Promise.withResolvers<AssistantWorkDeliveryEvent>()
     f.read.mockImplementationOnce(()=>gate.promise)

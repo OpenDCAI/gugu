@@ -8,6 +8,7 @@ import {
 } from '@gugu/core/cloud/assistantWorkDelivery'
 import type { DeviceRpcHandlers } from '@gugu/core/cloud/deviceRpcResponder'
 import type { DeviceRpcResponse } from '@gugu/core/cloud/deviceRpcProtocol'
+import { assistantWorkDeliveryTarget } from '@gugu/core/cloud/assistantWorkRouting'
 
 export type AssistantWorkHostContext = AssistantWorkOutboxContext & { client: AssistantWorkRpcClient }
 
@@ -62,10 +63,12 @@ export function createAssistantWorkOutboxHost(deps: {
       const reference: AssistantWorkDeliveryReference = {
         assistant_id: event.assistant_user_id, work_id: event.work_id, message_id: event.message_id,
       }
-      if (event.to_device_id === current.deviceId) return receiver.receive(reference, current.ownerId, signal)
-      await deps.prepareRemote(event.to_device_id, signal)
+      const target = assistantWorkDeliveryTarget(event)
+      if (!target) return { status: 'pending' }
+      if (target.device_id === current.deviceId) return receiver.receive(reference, current.ownerId, signal)
+      await deps.prepareRemote(target.device_id, signal)
       signal.throwIfAborted()
-      const response = await deps.requestRemote(event.to_device_id, ASSISTANT_WORK_DELIVERY_RPC, reference, signal)
+      const response = await deps.requestRemote(target.device_id, ASSISTANT_WORK_DELIVERY_RPC, reference, signal)
       if (response.error) throw Object.assign(new Error(response.error.message), {
         code: response.error.code === 'unknown_method' ? 'DELIVERY_HOST_OUTDATED' : response.error.code,
       })

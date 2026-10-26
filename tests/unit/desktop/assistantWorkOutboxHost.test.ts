@@ -14,6 +14,15 @@ function fixture(target='cloud') {
   return {deps,rpc,deliverLocal,prepareRemote,requestRemote,subscribe,warn}
 }
 describe('account delivery host',()=>{
+  it('wakes only the projected current home when the historical target has moved',async()=>{
+    const f=fixture('old-home');let claimed=false
+    const row={...event,to_device_id:'old-home',delivery_target:{device_id:'new-home',session_id:'new-session'}}
+    f.rpc.mockImplementation(async name=>({data:name==='assistant_work_outbox_claim'?{events:claimed?[]:(claimed=true,[row])}:{},error:null}))
+    const host=createAssistantWorkOutboxHost(f.deps);await host.kick();host.stop()
+    expect(f.prepareRemote).toHaveBeenCalledWith('new-home',expect.any(AbortSignal))
+    expect(f.requestRemote).toHaveBeenCalledWith('new-home','assistantWork.deliver',expect.any(Object),expect.any(AbortSignal))
+  })
+
   it('does not wait for realtime subscription before claiming queued work',async()=>{
     const f=fixture();let finish!:(off:()=>void)=>void
     f.subscribe.mockImplementation(()=>new Promise(resolve=>{finish=resolve}))

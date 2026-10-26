@@ -196,6 +196,7 @@ import {createDesktopAssistantWorkHistory} from './assistant-work-history'
 import { installAssistantWorkLedgerHost, enqueueAssistantWorkMessage } from './sessionpage/assistant-work-ledger'
 import { createAssistantWorkNoticeWakePump } from '@gugu/core/cloud/assistantWorkNoticeWake'
 import { isOwnerReceiptEvent } from '@gugu/core/cloud/assistantWorkReconciliation'
+import { assistantWorkCoordinator } from '@gugu/core/cloud/assistantWorkRouting'
 import { createDesktopAssistantWorkReconciler } from './assistant-work-reconciliation'
 import { enqueueAssistantWorkReport } from '@gugu/core/cloud/assistantWorkReports'
 import { pickAssistant, type AssistantProvisionRow } from '@gugu/core/shared/assistantProvision'
@@ -1666,11 +1667,18 @@ function assistantWorkDeliveryHost(): AssistantWorkOutboxHost {
       return value
   }
   const reconciler = createDesktopAssistantWorkReconciler({
-    context,assistant:resolveAssistant,
+    context,assistant:async current=>{
+      const value=await resolveAssistant(current)
+      if(!value||value.deviceId!==current.deviceId) return null
+      const target=await readSessionpageOpenTarget(value.agentId)
+      return target?.sessionId ? {...value,sessionId:target.sessionId} : null
+    },
     inspect: async (current, work, target) => {
       const bridge = loadEmdashBridge()
       if (!bridge) return null
-      const caller: RemoteSessionCaller = {deviceId:current.deviceId,deviceLabel:null,sessionId:work.coordinator_session_id,
+      const coordinator=assistantWorkCoordinator(work)
+      if (!coordinator) return null
+      const caller: RemoteSessionCaller = {deviceId:current.deviceId,deviceLabel:null,sessionId:coordinator.session_id,
         agentUserId:current.assistantId,name:'个人助理',harness:null,transport:'acp',model:null,platformModel:null}
       const signal = AbortSignal.timeout(5000)
       if (target.device_id === current.deviceId) return bridge.runRemoteSessionAction(caller,{action:'get',session_id:target.session_id},signal) as Promise<import('@gugu/core/cloud/assistantWorkReconciliation').ExecutorDeliveryProof>
@@ -1684,8 +1692,10 @@ function assistantWorkDeliveryHost(): AssistantWorkOutboxHost {
       const bridge=loadEmdashBridge()
       const auth=await desktopAuthProvider().getAuth()
       if(!bridge||!auth?.accessToken||auth.userId!==current.ownerId) return []
+      const coordinator=assistantWorkCoordinator(work)
+      if(!coordinator) return []
       const chatId=await openOwnerDirectChatForAgent(current.assistantId,auth.accessToken,process.env)
-      return bridge.readAssistantWorkOwnerReceipts(work.coordinator_session_id,pending,{chatId,ownerId:current.ownerId})
+      return bridge.readAssistantWorkOwnerReceipts(coordinator.session_id,pending,{chatId,ownerId:current.ownerId})
     },
     notify: async (current,key,text) => {
       const auth = await desktopAuthProvider().getAuth()

@@ -20,6 +20,12 @@ function fixture(events = [event()], localNow = Date.parse('2026-10-26T01:00:00Z
 }
 afterEach(() => { vi.useRealTimers() })
 describe('one account work outbox', () => {
+  it('defers a moved home before contacting any old delivery address',async()=>{
+    const f=fixture([event({delivery_target:null} as never)])
+    await f.pump.kick();expect(f.deliver).not.toHaveBeenCalled()
+    expect(f.rpc).toHaveBeenCalledWith('assistant_work_outbox_settle',expect.objectContaining({p_stage:'retry',p_error_code:'DELIVERY_NOT_READY',p_receipt:{failure_observed:false}}),context)
+  })
+
   it('returns acceptance only after the atomic cloud commit; never attempts direct delivery', async () => {
     const rpc = vi.fn(async (_name: string, _args: Record<string, unknown>) => ({ data: { work_id: 'work', event_ids: ['message'], outcome: 'active', terminal_version: '0' }, error: null }))
     const input = { assistantId: 'assistant', runtimeInstanceId: 'runtime', operationId: 'operation', workId: 'work', task: null, events: [event()] }
