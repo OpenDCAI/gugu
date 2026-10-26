@@ -6,6 +6,13 @@ const mac = { ...host, device_id: 'mac', label: '主人的 Mac', platform: 'darw
 const offline = { ...mac, device_id: 'offline', label: '离线电脑', online: false }
 const phone = { ...mac, device_id: 'phone', label: '手机', platform: 'ios', kind: undefined }
 
+it('rechecks the account after recording the resource version', async () => {
+  let owner = 'owner-a'
+  await expect(assistantStartupIndex({ ...fixture(), accountId: async () => owner, observed: async () => {
+    owner = 'owner-b'; return 1
+  } })).rejects.toThrow('account changed before delivery')
+})
+
 beforeEach(() => vi.stubEnv('GUGU_CLOUD_COMPUTER', '0'))
 afterEach(() => vi.unstubAllEnvs())
 

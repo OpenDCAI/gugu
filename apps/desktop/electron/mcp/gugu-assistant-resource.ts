@@ -22,6 +22,7 @@ export function registerAssistantResource(server: McpServer, deps: AssistantStar
     const version = index.split('\n').filter(line => line.startsWith('{')).map(line => JSON.parse(line))
       .find(row => row.source === 'resource_version')?.version
     if (changes && typeof version === 'number' && await deps.accountId() === owner) await changes.full(version)
+    if (await deps.accountId() !== owner) throw new Error('Assistant resource account changed before delivery')
     return { contents: [{ uri: uri.href, mimeType: 'text/plain', text: index }] }
   })
 }

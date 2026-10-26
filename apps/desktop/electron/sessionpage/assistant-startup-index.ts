@@ -138,6 +138,7 @@ export async function assistantStartupIndex(deps: AssistantStartupIndexDeps): Pr
   const complete = [...lines, '</gugu_resource_index>']
   const full = complete.join('\n')
   const details = full.length > ASSISTANT_INDEX_LIMIT ? await deps.overflow?.(full, account) : undefined
+  if (await deps.accountId() !== account) throw new Error('Assistant startup index: account changed before delivery')
   return boundedAssistantIndex(complete, details)
 
   async function collectDevice(device: string | undefined, scope: Record<string, unknown>): Promise<string[]> {
