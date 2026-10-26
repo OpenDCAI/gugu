@@ -230,8 +230,8 @@ export function PhonePartnersPage({
   return (
     <div className="flex h-full min-w-0 flex-1 flex-col overflow-hidden" data-testid="phone-partners">
       <div className="flex min-h-0 min-w-0 flex-1 flex-col" style={top ? RETAINED_SURFACE_HIDDEN_STYLE : undefined}>
-        <Pane paneRole="nav" mobile className="gg-partners">
-          <HeaderSearch mobile active={active && !top} value={query} onChange={setQuery} placeholder={t('partners.search')} testId="phone-partners-search">
+        <Pane paneRole="nav" mobile className="gg-partners" data-phone-root-list="contacts">
+          <HeaderSearch mobile externalTrigger="contacts" active={active && !top} value={query} onChange={setQuery} placeholder={t('partners.search')} testId="phone-partners-search">
             {(searchButton) => (
               <PaneHeader mobile titleLevel="page" title={<span data-first-run-hint="collaboration" data-first-run-device="phone">{t('shell.partnersMobile')}</span>} leading={<PhoneMeButton user={user} onOpen={onOpenMe} />} actions={searchButton} />
             )}

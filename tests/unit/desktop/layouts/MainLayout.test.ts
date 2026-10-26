@@ -771,7 +771,7 @@ describe('MainLayout', () => {
     await harness.render(createNode(MainLayout, { user: { id: 'user-1', email: 'user@example.com', nickname: 'User' } }))
     const pages = [...harness.container.querySelectorAll<HTMLElement>('[data-mobile-tab-pager] > [data-mobile-tab-page]')]
     expect(pages.map((page) => page.dataset.mobileTabPage)).toEqual(MOBILE_TABS)
-    const navIds = [AUTOMATION_TEST_IDS.mobileMessagesNav, AUTOMATION_TEST_IDS.mobileContactsNav]
+    const navIds = [AUTOMATION_TEST_IDS.mobileMessagesNav, AUTOMATION_TEST_IDS.mobileContactsNav, 'phone-list-search']
     const buttons = [...harness.container.querySelectorAll<HTMLElement>('nav button')]
     expect(buttons.map((button) => button.dataset.testid)).toEqual(navIds)
     expect(pages.filter((page) => !page.hasAttribute('inert')).map((page) => page.dataset.mobileTabPage)).toEqual(['chats'])
@@ -807,6 +807,7 @@ describe('MainLayout', () => {
     expect([...harness.container.querySelectorAll<HTMLElement>('nav button')].map((button) => button.dataset.testid)).toEqual([
       AUTOMATION_TEST_IDS.mobileMessagesNav,
       AUTOMATION_TEST_IDS.mobileContactsNav,
+      'phone-list-search',
     ])
     const row = harness.container.querySelector<HTMLElement>(`[data-mobile-tab-page="chats"] [data-testid="${AUTOMATION_TEST_IDS.mobileAssistantNav}"]`)!
     expect(row, 'the first row of 消息').toBeTruthy()
@@ -883,6 +884,9 @@ describe('MainLayout', () => {
     expect(harness.container.querySelector('nav')).toBeTruthy()
     await act(async () => { input.blur(); await Promise.resolve() })
     expect(harness.container.querySelector('nav')).toBeTruthy()
+    const nav = harness.container.querySelector('nav')
+    await act(async () => { window.dispatchEvent(Object.assign(new Event('gugu:phone-keyboard'), { visible: true })) })
+    expect(harness.container.querySelector('nav')).toBe(nav)
     input.remove()
   })
   // 点和它的私聊(通知、链接、搜索)= 推进咕咕那一层,❌ 在对话页里另开一屏(owner:「点进去成两个 app 了」)。

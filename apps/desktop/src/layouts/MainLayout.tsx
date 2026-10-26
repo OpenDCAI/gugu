@@ -7,13 +7,12 @@ import { installedExtensionsStore } from '../session/renderer/features/extension
 import { ResourceMonitorHost } from '@/session/renderer/features/settings/components/resource-monitor-host'
 import { reaction } from 'mobx'
 import { useCallback, useState, useEffect, useLayoutEffect, useRef } from 'react'
-import type { ReactNode, RefObject } from 'react'
 import '@/styles/desktop-shell.css'
 import '@/session/renderer/features/assistant/assistant-today.css'
 import '@/mobile/phone-shell.css'
 import '@/mobile/phone-look.css'
 import { usePhoneViewport } from '@/mobile/usePhoneViewport'
-import { MessageCircle, Users } from '@/lib/icons'
+import { PhoneTabBar as MobileTabBar } from '@/mobile/PhoneTabBar'
 import { Sidebar } from '../components/Sidebar'
 import { returnToScreen } from '@/session/renderer/app/screen-layout-actions'
 import { registeredViews } from '@/session/renderer/lib/layout/registered-views'
@@ -26,7 +25,6 @@ import { PhoneDeviceRoot } from '@/mobile/phone-device/PhoneDeviceRoot'
 import { useAppShowSession } from '@/mobile/agent-watch/useAppShowSession'
 import { MobileTabPager } from '@/mobile/MobileTabPager'
 import { navigateMobile } from '@/mobile/navigateMobile'
-import { tabItemStyle } from '@/mobile/settledTab'
 import { PhoneLayer } from '@/mobile/PhoneLayer'
 import { PhoneMeButton } from '@/mobile/PhoneMeButton'
 import { PhonePartnersPage } from '@/mobile/partners/PhonePartnersPage'
@@ -109,7 +107,7 @@ import { useMobileShell, readMobileShell } from '../hooks/useMobileShell'
 import { useMobileChatOpenNonce } from '../hooks/useMobileChatOpenNonce'
 import { useAgentCreateContextBridge } from '../hooks/useAgentCreateContextBridge'
 import { useTranslation } from 'react-i18next'
-import { AUTOMATION_TEST_IDS, type AutomationTestId } from '../lib/automationDom'
+import { AUTOMATION_TEST_IDS } from '../lib/automationDom'
 import type { SessionpageMessageHost } from '@shared/sessionpage-message-host'
 import { scheduleComposerFocus, type ComposerFocusReason } from '../lib/focusComposer'
 import { RETAINED_SURFACE_HIDDEN_STYLE } from '../lib/retainedSurface'
@@ -128,136 +126,6 @@ interface MainLayoutProps {
 }
 
 const ignoreShellCommit = () => {}
-
-function MobileTabBar({
-  activeTab,
-  onTabChange,
-  pendingContactsCount,
-  barRef,
-  tabs,
-}: {
-  activeTab: SidebarTab
-  onTabChange: (tab: SidebarTab) => void
-  pendingContactsCount: number
-  /** 分页器往这里写连续位置(TAB_POSITION_VAR),各格的亮暗跟着手指走。 */
-  barRef: RefObject<HTMLElement | null>
-  /** 这一刻有哪几格(与分页器同一份)。 */
-  tabs: readonly SidebarTab[]
-}) {
-  const { t } = useTranslation('main')
-  const activeIndex = tabs.indexOf(activeTab)
-  // 底栏两格「消息 / 伙伴」,只在这两张列表首页(owner 10-26,OpenDCAI/gugu#446,取代 10-22 的五格)。
-  // 咕咕是「消息」置顶第一行,「我的」从页头左上角自己的头像进,项目在「伙伴」里 —— 都是推进来的一层,❌ 回底栏占格。
-  // 格子的顺序不在这里写:按 tabs(MOBILE_TABS)排,横滑分页器用的是同一份(#6730)。
-  const items: Partial<Record<SidebarTab, {
-    label: string
-    icon: ReactNode
-    testId?: AutomationTestId
-    badge?: number
-  }>> = {
-    // 「消息」只放会话:私聊、群、项目群同列,谁有新消息谁顶上去,咕咕始终第一。
-    chats: {
-      label: t('shell.messagesMobile'),
-      icon: <MessageCircle size={22} />,
-      testId: AUTOMATION_TEST_IDS.mobileMessagesNav,
-    },
-    // 「伙伴」= 和你一起干活的:先项目、后朋友(owner 10-26:「他是类似于通讯录」);好友申请的数挂在这一格。
-    contacts: {
-      label: t('shell.partnersMobile'),
-      icon: <Users size={22} />,
-      testId: AUTOMATION_TEST_IDS.mobileContactsNav,
-      badge: pendingContactsCount,
-    },
-  }
-
-  return (
-    // 贴边满宽、不圆角、无投影;底色是透出全线渐变的玻璃(owner 10-26,OpenDCAI/gugu#446),样子在 phone-shell.css。
-    <nav
-      ref={barRef}
-      data-phone-tabbar=""
-      style={{
-        padding: '0 8px env(safe-area-inset-bottom)',
-        borderRadius: 'var(--radius-page)',
-        flexShrink: 0,
-      }}
-    >
-      <div
-        style={{
-          height: 56,
-          display: 'grid',
-          gridTemplateColumns: `repeat(${tabs.length}, 1fr)`,
-          gap: 4,
-          boxSizing: 'border-box',
-        }}
-      >
-      {tabs.map((tab, index) => {
-        const item = items[tab]
-        if (!item) return null
-        return (
-          <button
-            key={tab}
-            type="button"
-            className="gg-pressable"
-            aria-label={item.label}
-            data-testid={item.testId}
-            onClick={() => onTabChange(tab)}
-            style={{
-              position: 'relative',
-              border: 'none',
-              borderRadius: 'var(--radius-control)',
-              // @@@1787 owner: 去掉选中 pill 底色(「阴影特别重」)——选中态只走前景色。
-              background: 'transparent',
-              // 前景按分页器写来的连续位置插值,横滑时亮暗跟着手指走(settledTab.ts 的 tabItemStyle)。
-              ...tabItemStyle(index, activeIndex),
-              display: 'flex',
-              flexDirection: 'column',
-              alignItems: 'center',
-              justifyContent: 'center',
-              gap: 2,
-              fontSize: 'var(--font-caption)',
-              // 字重各格同一档,不随选中变:Sora 按档声明(300…800 每档一张 face),中文落到系统的静态字重,
-              // 插值只会在半路跳一档、英文字宽跟着变,滑动时 tab 栏会抖。
-              fontWeight: 500,
-              cursor: 'pointer',
-            }}
-          >
-            <span
-              style={{
-                position: 'relative',
-                display: 'inline-flex',
-                alignItems: 'center',
-                height: 23,
-              }}
-            >
-              {item.icon}
-              {item.badge ? (
-                <span
-                  style={{
-                    position: 'absolute',
-                    top: -5,
-                    right: -8,
-                    minWidth: 15,
-                    height: 15,
-                    borderRadius: 'var(--radius-capsule)',
-                    background: 'var(--badge-red)',
-                    color: 'var(--surface-white)',
-                    fontSize: 10,
-                    lineHeight: '15px',
-                    padding: '0 4px',
-                  }}
-                >
-                  {item.badge > 99 ? '99+' : item.badge}
-                </span>
-              ) : null}
-            </span>
-            <span className="max-w-full truncate">{item.label}</span>
-          </button>
-        )
-      })}
-      </div>
-    </nav>
-  )
-}
 
 // ── InnerLayout ────────────────────────────────────────────────────────────────
 
@@ -767,10 +635,10 @@ function InnerLayout({
   // 手机上会话列表被打开的会话 / 全屏创建页整页盖住(隐藏不卸载)。
   const chatListHidden = mobile && (mobilePane === 'chat' || showCreateSurface)
   // 底栏只在「消息 / 伙伴」两张列表首页(owner 10-26,#446):打开的对话、全屏创建页、推进来的一层(咕咕 / 项目 / 我的)都没有它,
-  // 返回一步回到有底栏的那层。列表页上键盘弹起时它由键盘盖住(这里不画),❌ 跟着滚动 / 聚焦另外收放。
+  // 返回一步回到有底栏的那层。列表页上键盘弹起时保留原锚点,由键盘盖住,❌ 跟着滚动 / 聚焦另外收放。
   // 横滑切 tab 用同一份判据(#6730):tab 栏在,点和滑都能换 tab;钻进全屏子页两样都不行 —— 横滑归子页所有,
   // 全屏创建页的出口只有左上返回箭头(#2525),横滑会把草稿连页一起掀掉。
-  const tabBarVisible = mobile && phoneViewport.keyboardVisible !== true && !chatListHidden && !phoneLayerOpen && !partnersPushed
+  const tabBarVisible = mobile && !chatListHidden && !phoneLayerOpen && !partnersPushed
   // 手机上四个 tab 页常驻在分页器里,横滑时相邻页整页可见 ⇒ 离开的 tab 回到它的根上(与从前「切走即卸载、
   // 回来是根」同一个结果),拖过去看到的总是那个 tab 的浏览层。会话页、联系人页各自按 activeTab 复位。
   // 「我的」连 section 一起复位:SettingsPanel 按 settingsSection 换 key,离开时就回到 account,
@@ -1544,6 +1412,7 @@ function InnerLayout({
             pendingContactsCount={pendingRequestCount}
             barRef={tabBarRef}
             tabs={tabs}
+            viewport={phoneViewport}
           />
         )}
 

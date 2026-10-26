@@ -4,6 +4,8 @@
    状态色(运行中、等你、未读)不降饱和:只用在几像素的小点和角标上。全在 [data-phone-shell] 下,电脑不动。 */
 
 [data-phone-shell] {
+  --phone-nav-height: calc(var(--spacing-lg) * 4);
+  --phone-nav-clearance: calc(var(--phone-nav-height) + var(--spacing-lg) * 2 + env(safe-area-inset-bottom));
   --bubble-mine: var(--ta-bubble-mine);
   --bubble-other: var(--ta-bubble-other);
   --bubble-own: var(--ta-bubble-mine);
@@ -13,11 +15,81 @@
 /* ── 玻璃:底栏、搜索框 ── */
 
 [data-phone-shell] [data-phone-tabbar] {
-  border-top: 1px solid var(--ta-glass-edge);
+  position: fixed;
+  z-index: 3;
+  inset-inline: var(--spacing-lg);
+  top: calc(var(--phone-nav-viewport-height, 100lvh) - var(--phone-nav-height) - var(--spacing-lg) - env(safe-area-inset-bottom));
+  height: var(--phone-nav-height);
+  display: flex;
+  gap: var(--spacing-sm);
+  pointer-events: none;
+}
+
+[data-phone-shell] :is(.gg-phone-nav-destinations, .gg-phone-nav-search) {
+  pointer-events: auto;
   background: var(--ta-glass);
+  box-shadow: var(--ta-glass-fx), var(--shadow-lift);
+  border-radius: calc(var(--phone-nav-height) / 2);
   -webkit-backdrop-filter: blur(var(--ta-glass-blur));
   backdrop-filter: blur(var(--ta-glass-blur));
 }
+
+[data-phone-shell] .gg-phone-nav-destinations {
+  position: relative;
+  flex: 1;
+  min-width: 0;
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  padding: var(--spacing-sm);
+}
+[data-phone-shell] .gg-phone-nav-destinations::before {
+  content: '';
+  position: absolute;
+  inset-block: var(--spacing-sm);
+  inset-inline-start: var(--spacing-sm);
+  width: calc((100% - var(--spacing-sm) * 2) / 2);
+  border-radius: calc(var(--phone-nav-height) / 2 - var(--spacing-sm));
+  background: var(--ta-glass-strong);
+  transform: translateX(calc(var(--gg-tab-position, var(--phone-nav-selected-index, 0)) * 100%));
+  pointer-events: none;
+}
+[data-phone-shell] .gg-phone-nav-item {
+  position: relative;
+  min-width: 0;
+  height: 100%;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  gap: var(--spacing-xs);
+  border-radius: calc(var(--phone-nav-height) / 2 - var(--spacing-sm));
+  font-size: var(--font-caption);
+  font-weight: 500;
+  line-height: var(--lh-caption);
+}
+[data-phone-shell] .gg-phone-nav-icon { position: relative; display: flex; }
+[data-phone-shell] .gg-phone-nav-icon > svg { width: var(--icon-rail); height: var(--icon-rail); }
+[data-phone-shell] .gg-phone-nav-search {
+  flex: 0 0 var(--phone-nav-height);
+  width: var(--phone-nav-height);
+  height: var(--phone-nav-height);
+  padding: 0;
+}
+[data-phone-shell] .gg-phone-nav-search > svg { width: var(--icon-rail); height: var(--icon-rail); }
+[data-phone-shell] .gg-phone-nav-badge {
+  position: absolute;
+  inset-block-start: calc(-1 * var(--spacing-xs));
+  inset-inline-start: calc(100% - var(--spacing-xs));
+  min-width: var(--spacing-lg);
+  height: var(--spacing-lg);
+  border-radius: var(--radius-capsule);
+  padding-inline: var(--spacing-xs);
+  background: var(--badge-red);
+  color: var(--surface-white);
+  font-size: var(--font-caption);
+  line-height: var(--spacing-lg);
+}
+[data-phone-shell] [data-phone-root-list='contacts'] .gg-partners-scroll { padding-bottom: var(--phone-nav-clearance); }
 
 [data-phone-shell] [data-slot='search-field'] {
   padding-inline: var(--spacing-sm);
