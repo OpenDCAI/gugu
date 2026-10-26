@@ -4,7 +4,7 @@ import type {AssistantTaskChat} from './assistantTaskChat'
 
 export function assistantWorkTarget(work:AssistantWorkTask,sessionId?:string):AssistantTaskChat|null {
   const executor=sessionId?work.executors.find(row=>row.session_id===sessionId):work.executors.length===1?work.executors[0]:null
-  return executor?{workId:work.work_id,title:work.title,assistantId:work.assistant_user_id,taskAgentId:executor.agent_user_id??null,
+  return executor?{workId:work.work_id,title:work.title,outcome:work.outcome,assistantId:work.assistant_user_id,taskAgentId:executor.agent_user_id??null,
     task:{sessionId:executor.session_id,deviceId:executor.device_id},assistants:[{sessionId:work.coordinator_session_id,deviceId:work.coordinator_device_id}]}:null
 }
 

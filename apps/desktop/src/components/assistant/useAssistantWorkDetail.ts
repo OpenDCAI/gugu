@@ -7,6 +7,9 @@ import {rendererLogger} from '../../lib/log'
 type Detail=Awaited<ReturnType<typeof assistantWorkCloud.get>>
 type Read={key:string;detail:Detail|null;error?:unknown}
 const cache=new Map<string,Detail>()
+export function readCachedAssistantWorkDetail(ownerId:string,assistantId:string,workId:string,sessionId:string){
+ return cache.get(JSON.stringify([ownerId,assistantId,workId,sessionId]))
+}
 
 /** Neither executor admission nor a host connection gates the page's first paint. */
 export function useAssistantWorkDetail(ownerId:string,assistantId:string,workId:string,sessionId:string){

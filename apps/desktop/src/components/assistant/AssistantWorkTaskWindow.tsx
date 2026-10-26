@@ -62,7 +62,7 @@ export function AssistantWorkTaskWindow({ownerId,request,...handlers}:{ownerId:s
  },[ownerId,canonicalKey,canonical,opened])
  const agent=contact??(identity?.ownerId===ownerId&&identity.agent.id===agentId?identity.agent:null)
  const title=detail?.work.title??request.title??t('tasks.title')
- const state=detail?.work.outcome??'active'
+ const state=detail?.work.outcome??request.outcome??'active'
  const status=t(state==='active'&&!agentId?'tasks.starting':`tasks.workState.${state}`)
  const notice=<>{read.error||identityFailed?<div className="task-chat-notice" role="status">{t('tasks.chatUnavailable')}</div>:null}
   {runtime.reason?<div className="task-chat-notice" role="status">{t('tasks.liveUnavailable',{reason:runtime.reason})}</div>

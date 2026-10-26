@@ -5,6 +5,7 @@ export type TaskChatEndpoint = { deviceId: string; sessionId: string }
 export type AssistantTaskChat = {
   workId?: string
   title?: string
+  outcome?: 'active' | 'completed' | 'failed' | 'cancelled'
   assistantId: string
   taskAgentId: string | null
   task: TaskChatEndpoint
