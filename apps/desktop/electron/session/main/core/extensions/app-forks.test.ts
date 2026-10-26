@@ -15,7 +15,7 @@ vi.mock('../github/services/github-api-auth-service-instance', () => ({ githubAp
 vi.mock('../github/services/octokit-provider', () => ({ getOctokit: async () => ({ success: true, data: { repos: { get: async () => { if (!state.forkExists) throw Object.assign(new Error('Not found'), { status: 404 }); return { data: { parent: { full_name: 'shuxueshuxue/gugu-apps' } } }; }, createFork: async () => { state.forkExists = true; state.createForks++; } } } }) }));
 vi.mock('../utils/exec', () => ({ getGitExecutable: () => 'git' }));
 vi.mock('@main/utils/userEnv', () => ({ loginShellEnv: () => null }));
-vi.mock('../runtime/review-git-env', () => ({ reviewGitEnv: () => ({ ...process.env, GIT_CONFIG_COUNT: '3', GIT_CONFIG_KEY_2: `url.file://${state.work}/github-fork.git.insteadOf`, GIT_CONFIG_VALUE_2: 'https://github.com/my-user/gugu-apps.git', GIT_CONFIG_KEY_0: `url.file://${state.repo}.insteadOf`, GIT_CONFIG_VALUE_0: 'https://github.com/shuxueshuxue/gugu-apps.git', GIT_CONFIG_KEY_1: 'protocol.file.allow', GIT_CONFIG_VALUE_1: 'always' }) }));
+vi.mock('../runtime/review-git-env', () => ({ reviewGitEnv: () => ({ ...process.env, GIT_CONFIG_COUNT: '3', GIT_CONFIG_KEY_2: `url.file://${state.work}/github-fork.git.insteadOf`, GIT_CONFIG_VALUE_2: 'https://github.com/my-user/gugu-apps.git', GIT_CONFIG_KEY_0: `url.file://${state.repo}.insteadOf`, GIT_CONFIG_VALUE_0: `https://github.com/${state.rows[0]!.source.repo}.git`, GIT_CONFIG_KEY_1: 'protocol.file.allow', GIT_CONFIG_VALUE_1: 'always' }) }));
 const { createAppFork, prepareForkVariant } = await import('./app-forks');
 const { prepareVariant, switchExtensionVariant } = await import('./extension-variants');
 const { installPrepared } = await import('./install-prepared');
@@ -115,4 +115,23 @@ it('uses human consent for new permissions, keeps a declined fork inactive, and 
   expect(requestInstallConsent).toHaveBeenCalledTimes(1);
   expect(afterInstall).toHaveBeenCalledTimes(3);
   expect(state.service.identityOf('demo')).toEqual({ id: 'demo', publisher: 'gugu' });
+});
+
+
+it('uses the third-party branch and installs the bundle view without Git or dependency directories', async () => {
+  const manifest = readFileSync(path.join(state.repo, 'sources', 'demo', 'manifest.json'), 'utf8');
+  writeFileSync(path.join(state.repo, 'manifest.json'), manifest);
+  writeFileSync(path.join(state.repo, 'index.html'), 'third-party release');
+  git('add', '.');
+  git('commit', '-qm', 'Third-party source');
+  state.rows[0]!.source = { repo: 'third-party/demo', path: '.', commit: git('rev-parse', 'HEAD') };
+  const fork = await createAppFork('demo');
+  expect(fork.branch).toBe('gugu-fork/my-fork');
+  expect(fork.source_dir).toBe(fork.git_dir);
+  mkdirSync(path.join(fork.source_dir, 'node_modules'));
+  writeFileSync(path.join(fork.source_dir, 'node_modules', 'ignored.js'), 'not packaged');
+  const variant = await prepareForkVariant(fork.source_dir);
+  const installed = state.service.installFromDirectory(fork.source_dir, state.service.inspectDirectory(fork.source_dir).manifestDigest, 'fork', { id: 'gugu' }, variant);
+  expect(existsSync(path.join(installed.rootDir, '.git'))).toBe(false);
+  expect(existsSync(path.join(installed.rootDir, 'node_modules'))).toBe(false);
 });

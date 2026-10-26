@@ -20,6 +20,7 @@ import { resolveAppSettings, type AppSettings } from '@shared/extensions/app-set
 import { requireAppPlatform } from '@shared/extensions/app-platforms';
 
 import { z } from 'zod';
+import { BUNDLE_SKIP_NAMES } from '@shared/extensions/market';
 import { appVariantsSchema, type AppVariants, type ExtensionVariant } from '@shared/extensions/variants';
 
 export type { ExtensionOrigin };
@@ -306,7 +307,7 @@ export class ExtensionsService {
       // Symlinks are copied as links, never followed: dereferencing would pull
       // whatever a bundle points at — a key, someone's documents — into the
       // extension's own origin, where it is then served to the extension.
-      fs.cpSync(source, staging, { recursive: true, dereference: false, verbatimSymlinks: true, ...(origin === 'fork' ? { filter: (file: string) => path.basename(file) !== '.git' } : {}) });
+      fs.cpSync(source, staging, { recursive: true, dereference: false, verbatimSymlinks: true, ...(origin === 'fork' ? { filter: (file: string) => !BUNDLE_SKIP_NAMES.has(path.basename(file)) } : {}) });
 
       // Re-check the copy, not the folder it came from. The digest above was
       // taken before this copy; anything that rewrote the source in between
@@ -420,7 +421,7 @@ export class ExtensionsService {
     const staging = `${target}-${randomHex()}`;
     fs.mkdirSync(path.dirname(target), { recursive: true });
     try {
-      fs.cpSync(sourceDir, staging, { recursive: true, dereference: false, verbatimSymlinks: true, filter: (source) => path.basename(source) !== '.git' });
+      fs.cpSync(sourceDir, staging, { recursive: true, dereference: false, verbatimSymlinks: true, filter: (source) => !BUNDLE_SKIP_NAMES.has(path.basename(source)) });
       fs.rmSync(target, { recursive: true, force: true });
       fs.renameSync(staging, target);
     } finally {
