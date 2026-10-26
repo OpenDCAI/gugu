@@ -62,9 +62,21 @@ it.each(['unprepared','collection-unavailable','application-failed','stale'])('d
   await harness.render(createElement(QueryClientProvider,{ client },createElement(Page)))
   await act(async () => { await vi.advanceTimersByTimeAsync(60_000) })
   expect(read).toHaveBeenCalledTimes(1)
-  expect(harness.container.querySelector('[role="alert"]')).not.toBeNull()
+  expect(harness.container.querySelector(code === 'unprepared' ? '[role="status"]' : '[role="alert"]')).not.toBeNull()
+  expect(harness.container.textContent).not.toContain('preparationFailed')
   recover = true
   await act(async () => { await client.invalidateQueries({ queryKey: ['schedules'] }); await vi.advanceTimersByTimeAsync(0) })
   expect(harness.container.textContent).toBe('new publication')
   client.clear()
+})
+
+it('keeps existing content visible during a slow refresh and after its failure', async () => {
+  const props = { readiness: 'ready' as const,onRetry: vi.fn(),hasData: true,children: createElement('span',{},'saved routine') }
+  await harness.render(createElement(MachineGate,{ ...props,loading: false,error: null }))
+  await harness.render(createElement(MachineGate,{ ...props,loading: true,error: null }))
+  expect(harness.container.textContent).toContain('saved routine')
+  await harness.render(createElement(MachineGate,{ ...props,loading: false,error: Object.assign(new Error('private'),{ code: 'collection-unavailable' }) }))
+  expect(harness.container.textContent).toContain('saved routine')
+  expect(harness.container.querySelector('[role="status"]')).not.toBeNull()
+  expect(harness.container.querySelector('[role="alert"]')).toBeNull()
 })

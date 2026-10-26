@@ -54,7 +54,7 @@ function MemoryHome({ context }: { context: AssistantContext }) {
   return (
     <div className="ta-page" data-testid="assistant-memory">
       <PageHead title={t('nav.memory')} />
-      <MachineGate
+      <MachineGate hasData={all.length > 0}
         readiness={context.readiness}
         loading={context.machineLoading || notes.isLoading}
         error={context.machineError ?? notes.error}
@@ -129,7 +129,7 @@ function MemoryNoteDetail({ context, file }: { context: AssistantContext; file: 
     }
   };
   return (
-    <MachineGate
+    <MachineGate hasData={!!note}
       readiness={context.readiness}
       loading={context.machineLoading || notes.isLoading}
       error={context.machineError ?? notes.error}
@@ -400,7 +400,7 @@ export function ResourceFiles({ context, trail }: { context: AssistantContext; t
           ) : null
         }
       />
-      <MachineGate
+      <MachineGate hasData={(listing.data?.length ?? 0) > 0}
         readiness={context.readiness}
         loading={context.machineLoading || listing.isLoading}
         error={context.machineError ?? listing.error}

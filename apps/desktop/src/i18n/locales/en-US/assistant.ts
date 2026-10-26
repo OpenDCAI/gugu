@@ -102,7 +102,6 @@ export default {
     "tooLarge": "This resource exceeds the save limit.",
     "unprepared": "Not prepared yet",
     "readTimedOut": "This content could not be read in time. It will refresh automatically.",
-    "preparationFailed": "This content has not been prepared successfully and cannot be read yet.",
     "collectionFailed": "This resource could not be read. It will refresh automatically.",
     "openFailed": "Couldn't open {{name}}'s files",
     "readFailed": "Couldn't read it: {{message}}",

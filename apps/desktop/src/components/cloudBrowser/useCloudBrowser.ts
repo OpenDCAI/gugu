@@ -8,6 +8,7 @@ import {
   type CloudBrowserLinkState,
 } from '@/lib/cloudBrowser'
 import { rendererLogger } from '@/lib/log'
+import { cloudHostSuspended } from '@/lib/cloudHostSuspended'
 import type {
   CloudBrowserClientMessage,
   CloudBrowserServerMessage,
@@ -89,6 +90,11 @@ export function useCloudBrowser(deviceId: string | null, need: CloudBrowserNeed)
     let cancelled = false
     let timer: ReturnType<typeof setTimeout> | null = null
     const tick = async () => {
+      // Local state only: a background browser preview must not attach to a sleeping host.
+      if (cloudHostSuspended(deviceId)) {
+        if (!cancelled) timer = setTimeout(() => void tick(), STATUS_POLL_MS)
+        return
+      }
       try {
         const next = await fetchCloudBrowserStatus(deviceId)
         if (cancelled) return

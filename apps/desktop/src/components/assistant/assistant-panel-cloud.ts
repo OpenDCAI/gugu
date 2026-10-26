@@ -1,7 +1,7 @@
 import { createAssistantPanelClient, AssistantPanelError } from '@gugu/core/cloud/assistantPanel'
 import { createAssistantPanelOutbox } from '@gugu/core/cloud/assistantPanelOutbox'
 import { pickAssistant, type AssistantProvisionRow } from '@gugu/core/shared/assistantProvision'
-import { identityDb } from '@/lib/supabase'
+import { identityDb, chatDb } from '@/lib/supabase'
 import { getRendererSession, observeRendererSession } from '@/lib/sessionPublication'
 import { rendererLogger } from '@/lib/log'
 import { assistantAppChangeSchema, type AssistantAppChange } from '@/session/shared/extensions/assistant-app'
@@ -18,10 +18,10 @@ export function assertAssistantPanelOwner(expectedOwner: string | null): asserts
 
 export async function personalAssistant(owner: string): Promise<string | null> {
   assertAssistantPanelOwner(owner)
-  const { data,error } = await identityDb.from('agent_provisions').select('agent_user_id,device_id,member_key,phase,created_at')
+  const { data,error,status } = await identityDb.from('agent_provisions').select('agent_user_id,device_id,member_key,phase,created_at')
     .eq('owner_user_id',owner).eq('member_key','assistant').abortSignal(AbortSignal.timeout(10_000))
   assertAssistantPanelOwner(owner)
-  if (error) throw new AssistantPanelError(error.code,'Could not read the personal assistant')
+  if (error) throw new AssistantPanelError(error.code,'Could not read the personal assistant',undefined,undefined,status)
   return pickAssistant((data ?? []) as AssistantProvisionRow[])?.agentId ?? null
 }
 
@@ -59,4 +59,13 @@ export async function queueAssistantAppChange(
   const notice = assistantAppChangeSchema.parse(change)
   try { return await outbox.enqueue(expectedOwnerId,notice,assistantId) }
   finally { void flushNotices() }
+}
+
+export async function assistantPrivateChat(ownerId: string, assistantId: string): Promise<string> {
+  assertAssistantPanelOwner(ownerId)
+  const { data,error,status } = await chatDb.rpc('open_dm',{ p_target_user_id: assistantId }).abortSignal(AbortSignal.timeout(10_000))
+  assertAssistantPanelOwner(ownerId)
+  if (error) throw new AssistantPanelError(error.code,'PANEL_PRIVATE_FOLDER_UNAVAILABLE',undefined,undefined,status)
+  if (typeof data !== 'string') throw new AssistantPanelError('missing-identity','PANEL_PRIVATE_FOLDER_UNAVAILABLE')
+  return data
 }

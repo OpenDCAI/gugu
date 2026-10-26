@@ -1,6 +1,4 @@
-import { useCallback, useEffect, useState } from 'react'
 import { useLocale } from '@/i18n'
-import { ASSISTANT_PANEL_CHANGED } from '@/components/assistant/assistant-panel-events'
 import { splitInstructions, splitPersona } from '@/session/renderer/features/assistant/assistant-files'
 import { readText } from '@/session/renderer/features/assistant/assistant-machine-core'
 import type { IntegrationMetadata } from '@/session/renderer/features/integrations/integrations-provider'
@@ -27,37 +25,15 @@ export type PhonePersona = {
  */
 export function usePhonePersona(machine: PhoneMachineState): PhonePersona {
   const ready = machine.state === 'ready' ? machine.machine : null
-  const [attempt, setAttempt] = useState(0)
-  const [read, setRead] = useState<{ key: unknown; attempt: number; persona?: Persona; revision?: string; error?: unknown } | null>(null)
-  useEffect(() => {
-    if (!ready) return
-    let cancelled = false
-    readText(ready, ready.paths.instructions).then(
-      (raw) => {
-        if (!cancelled) setRead({ key: ready, attempt, persona: splitPersona(splitInstructions(raw ?? '').user), revision: ready.panel?.revision(ready.paths.instructions) })
-      },
-      (error: unknown) => {
-        if (!cancelled) setRead({ key: ready, attempt, error })
-      },
-    )
-    return () => {
-      cancelled = true
-    }
-  }, [ready, attempt])
-  const reload = useCallback(() => setAttempt((n) => n + 1), [])
-  useEffect(() => {
-    window.addEventListener(ASSISTANT_PANEL_CHANGED,reload)
-    return () => window.removeEventListener(ASSISTANT_PANEL_CHANGED,reload)
-  },[reload])
-  const sameMachine = !!ready && read?.key === ready
-  const fresh = sameMachine && read?.attempt === attempt
-  return {
-    persona: sameMachine ? read?.persona ?? null : null,
-    revision: sameMachine ? read?.revision : undefined,
-    loading: !!ready && !fresh,
-    error: fresh ? read?.error ?? null : null,
-    reload,
-  }
+  const read = usePhoneRead(ready ? `persona|${machineKey(ready)}` : null,async () => {
+    const raw = await readText(ready!,ready!.paths.instructions)
+    return { persona: splitPersona(splitInstructions(raw ?? '').user),revision: ready!.panel?.revision(ready!.paths.instructions) }
+  },'read assistant personality')
+  return { persona: read.state === 'ok' ? read.data.persona : null,
+    revision: read.state === 'ok' ? read.data.revision : undefined,
+    loading: !!ready && read.state === 'loading',
+    error: read.state === 'error' ? read.error : read.state === 'ok' ? read.refreshError ?? null : null,reload: read.reload }
+
 }
 
 export type PhoneIntegrations = {

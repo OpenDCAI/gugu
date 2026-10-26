@@ -6,7 +6,7 @@ import { getRendererSession, observeRendererSession } from '@/lib/sessionPublica
 import { chatDb } from '@/lib/supabase'
 import { subscribePrivateUserEventBus, unsubscribePrivateUserEventBus } from '@/lib/realtimeChannel'
 import type { AssistantPanelBridge, AssistantPanelWindow } from '@/lib/assistantPanelBridge'
-import { assistantPanelCloud, assertAssistantPanelOwner, personalAssistant, queueAssistantAppChange } from './assistant-panel-cloud'
+import { assistantPanelCloud, assistantPrivateChat, assertAssistantPanelOwner, personalAssistant, queueAssistantAppChange } from './assistant-panel-cloud'
 import { ASSISTANT_PANEL_CHANGED } from './assistant-panel-events'
 
 const bridge: AssistantPanelBridge = {
@@ -42,13 +42,7 @@ const bridge: AssistantPanelBridge = {
     return () => unsubscribePrivateUserEventBus(handle)
   },
   personalAssistant,
-  async privateChat(ownerId,assistantId) {
-    assertAssistantPanelOwner(ownerId)
-    const { data,error } = await chatDb.rpc('open_dm',{ p_target_user_id: assistantId }).abortSignal(AbortSignal.timeout(10_000))
-    assertAssistantPanelOwner(ownerId)
-    if (error || typeof data !== 'string') throw new AssistantPanelError('missing-identity','PANEL_PRIVATE_FOLDER_UNAVAILABLE')
-    return data
-  },
+  privateChat: assistantPrivateChat,
   queueNotice: queueAssistantAppChange,
 }
 
