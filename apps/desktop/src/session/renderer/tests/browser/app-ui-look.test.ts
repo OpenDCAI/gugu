@@ -105,6 +105,22 @@ describe('an App page with gugu\'s look', () => {
     await until('primary reaches the light ink again', () => css(primary, 'background-color'), (value) => value === lightInk);
   });
 
+  it('keeps rendered Markdown nodes for a same-theme context, and repaints when the theme changes', async () => {
+    const { renderer } = await import('@/session/app-runtime/markdown-entry');
+    const target = document.createElement('article');
+    document.body.append(target);
+    renderer({ openLink: async () => undefined, openBrowserTab: async () => undefined, reportError: async () => undefined, files: {} })(target, '# Retained document\n\nThe same body.');
+    const heading = target.querySelector('h1');
+    const themeMode = document.documentElement.dataset.guguTheme as Context['themeMode'];
+    push!({ ...context, themeMode, chat: { ...context.chat, name: 'Renamed chat' } });
+    await new Promise<void>((resolve) => requestAnimationFrame(() => requestAnimationFrame(() => resolve())));
+    expect(target.querySelector('h1'), 'an unchanged theme must preserve the rendered document').toBe(heading);
+    push!({ ...context, themeMode: themeMode === 'light' ? 'dark' : 'light' });
+    await until('Markdown follows the changed theme', () => target.querySelector('h1') !== heading);
+    expect(target.textContent).toContain('The same body.');
+    target.remove();
+  });
+
   it('labels a danger button white on the red in both themes, like the host\'s ui/Button danger (#7333)', async () => {
     const danger = document.getElementById('danger')!;
     const white = tokenColor('--em-color-white', 'color');

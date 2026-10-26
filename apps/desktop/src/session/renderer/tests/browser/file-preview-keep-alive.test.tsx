@@ -58,7 +58,8 @@ vi.mock('@renderer/lib/ui/resizable', () => ({
   ResizableHandle: () => null,
 }));
 
-const { TabContent: FileTabContent, KEPT_HIDDEN_PREVIEWS } = await import('@renderer/features/sessions/editor/file-tab-view');
+const { TabContent: FileTabContent } = await import('@renderer/features/sessions/editor/file-tab-view');
+const { KEPT_HIDDEN_TABS: KEPT_HIDDEN_PREVIEWS } = await import('@renderer/features/tabs/retained-tab-content');
 
 type Tab = {
   tabId: string;

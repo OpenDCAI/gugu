@@ -42,7 +42,7 @@ async function mount(title = LONG_TITLE) {
     <SessionLocalizationProvider>
       <SessionRowShell
         sessionId="title-reveal" rowVariant="tree" depth={0} hasChildren={false} expanded={false}
-        needsAttention={false} title={title} harness={null} status="idle" lastInteractedAt={null}
+        needsAttention={false} title={title} harness={null} status="idle" lastInteractedAt={new Date().toISOString()}
         doneUnread={false} isActive={false} isCursor={false} isPendingArchive={false}
         quickActions={{ isPinned: false, onSetPinned: () => {}, archiveLabel: 'Archive', onArchive: () => {} }}
         onOpen={onOpen}
@@ -75,6 +75,10 @@ it('reveals only an overflowing title, stops with the full end readable, and res
   expect(row.querySelector('button')?.getAttribute('aria-label')).toBe(translateSessionMessage('sidebar.openConversation', { title: LONG_TITLE }));
 
   await userEvent.hover(row);
+  await until('hover reserves only the actual action width', () => viewport().getBoundingClientRect().width < before.width);
+  const hovered = viewport().getBoundingClientRect();
+  const actionsHovered = actions.getBoundingClientRect();
+  expect(actionsHovered.width).toBeGreaterThan(actionsBefore.width);
   const animation = runningAnimation();
   animation.pause();
   animation.currentTime = 200;
@@ -85,14 +89,25 @@ it('reveals only an overflowing title, stops with the full end readable, and res
   animation.finish();
   viewport().getAnimations().forEach((a) => a.finish());
   const end = track().getBoundingClientRect();
-  expect(end.right).toBeCloseTo(before.right, 0);
-  expect(end.right).toBeLessThanOrEqual(actionsBefore.left);
-  expect(viewport().getBoundingClientRect().width).toBe(before.width);
-  expect(actions.getBoundingClientRect().left).toBe(actionsBefore.left);
+  expect(end.right).toBeCloseTo(hovered.right, 0);
+  expect(end.right).toBeLessThanOrEqual(actionsHovered.left);
 
   await userEvent.hover(park);
+  await until('idle title regains the hidden action space', () => viewport().getBoundingClientRect().width === before.width);
   expect(track().getAnimations()).toHaveLength(0);
   expect(x()).toBe(0);
+});
+
+it('reserves action space when a quick-action button receives keyboard focus', async () => {
+  const row = await mount();
+  await until('long title measured', () => viewport() != null);
+  const idleWidth = viewport().getBoundingClientRect().width;
+  await userEvent.keyboard('{Tab}{Tab}{Tab}');
+  const actions = host.querySelector<HTMLElement>('[data-row-hover-actions]')!;
+  expect(actions.contains(document.activeElement)).toBe(true);
+  expect(document.activeElement).toBe(actions.querySelector('button'));
+  await until('focused actions reserve their width', () => viewport().getBoundingClientRect().width < idleWidth);
+  expect(row.contains(document.activeElement)).toBe(true);
 });
 
 it('does not animate a short title and preserves row activation', async () => {

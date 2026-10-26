@@ -73,8 +73,8 @@ export interface TabBarItemProps<T extends TabResource> {
 /**
  * Props for a kind's Content component (the pane body area).
  *
- * PaneContent mounts every registered Content unconditionally — the
- * component decides visibility, keepalive, and async loading internally.
+ * PaneContent retains recently visited kinds within its shared bound. A kind
+ * with several pages uses the same retention for its individual tabs.
  */
 export interface TabContentProps {
   host: TabHost;

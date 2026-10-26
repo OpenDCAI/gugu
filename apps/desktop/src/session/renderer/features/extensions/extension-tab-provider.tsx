@@ -18,7 +18,7 @@ import { ExtensionTabBadge } from './extension-tab-badge';
 import { ExtensionMark } from './extension-mark';
 import { ExtensionTabPane } from './extension-tab-pane';
 import { ExtensionSharedSlot } from './extension-shared-slot';
-import { extensionViewStore, residentPageKey, residentPlace } from './extension-view-store';
+import { residentPageKey, residentPlace } from './extension-view-store';
 import { extensionSurfaceStore, extensionTabTitle } from './extension-surface-store';
 import { installedExtensionsStore } from './installed-extensions-store';
 import { useScreenBlock } from '@renderer/app/screen-block-context';
@@ -203,7 +203,6 @@ export function createExtensionTabProvider(
       // last title some earlier session happened to leave behind.
       const sessionId = ctx.place?.kind === 'session' ? ctx.place.sessionId : null;
       extensionSurfaceStore.forget(sessionId, entry.tabId);
-      extensionViewStore.forgetSlot(sessionId, entry.tabId);
       resource.dispose();
     },
 

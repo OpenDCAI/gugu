@@ -362,7 +362,7 @@ function ChatAreaSurface({ viewportKey = 'chats', activeTab, navigationTarget = 
   // @@@5856 分栏标题块要说清「引自哪一句」。三态必须分开(pending 还没读到 / null 读到了「没这条」/
   // 有字 = 预览),合并任意两种都会让它说假话:首帧闪「已删除」、读取失败也渲染成「已删除」。
   // @@@3922 另把它 subject-scope(渲染期比对),否则从话题 A 切到 B 时 B 会顶着 A 的预览一个往返。
-  const splitTopicChatIdForPreview = topicSurface.splitTopic?.chatId ?? null
+  const splitTopicChatIdForPreview = topicSurface.topic?.chatId ?? null
   const [sourcePreviewState, setSourcePreviewState] = useState<{
     forTopicChatId: string | null
     preview: string | null | 'pending' | 'unreadable'
@@ -762,10 +762,10 @@ function ChatAreaSurface({ viewportKey = 'chats', activeTab, navigationTarget = 
     /></GroupRenameContext.Provider>
   ) : null
 
-  const topicPane = topicSurface.splitTopic && (
+  const topicPane = topicSurface.topic && (
     <TopicSplitPane
       viewportKey={`${viewportKey}:topic`} navigationTarget={navigationTarget}
-      topic={topicSurface.splitTopic} sourceChatId={activeChatId!}
+      topic={topicSurface.topic} sourceChatId={activeChatId!}
       messages={topicSurface.splitLine.messages} history={topicSurface.splitLine}
       loading={topicSurface.splitLine.loadingMessages}
       memberProfiles={messageMemberProfiles}
@@ -795,7 +795,7 @@ function ChatAreaSurface({ viewportKey = 'chats', activeTab, navigationTarget = 
       mobile={mobile} inTab={mobile}
       onReaction={(id, emoji) => void topicSurface.splitLine.toggleReaction(id, emoji)
         .catch((error) => toast(t('message.actions.react'), 'error', safeFailureLine(String((error as Error)?.message ?? error))))}
-      onForward={handleForward} visible={surfaceVisible}
+      onForward={handleForward} visible={surfaceVisible && topicSurface.splitTopic !== null}
       onDelete={(id) => void topicSurface.splitLine.deleteMessage(id)
         .catch((error) => toast(t('message.actions.delete'), 'error', safeFailureLine(String((error as Error)?.message ?? error))))}
     />

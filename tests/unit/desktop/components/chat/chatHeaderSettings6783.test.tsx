@@ -1,8 +1,7 @@
 // @vitest-environment jsdom
 //
 // #6783 页头只开这个聊天自己的信息(群信息 / 会话信息);私聊(含 agent 私聊)不走 Agent 设置。
-// owner 10-26:成员、公告、设置合成一枚「群信息」页签 —— 群聊从成员钮进(落在成员那一页),⋯ 里不再有公告 / 设置;
-// 私聊的 ⋯ 里是「会话信息」。
+// Settings must remain directly reachable after a change to the tab host (#249, #256, #439, #492).
 import { createRef } from 'react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { clickElement, createNode, createReactHarness, renderWithAppProviders } from '../../../../support/testHarness'
@@ -45,12 +44,13 @@ describe('#6783 页头 = 这个聊天自己的信息', () => {
       await clickElement(menuInfo()!)
       expect(onOpenInfo).toHaveBeenCalledWith()
     })
-    it(`群聊(${mobile ? '手机' : '桌面'}):成员钮 → 群信息落在成员那一页,⋯ 里没有公告 / 设置`, async () => {
+    it(`group (${mobile ? 'phone' : 'desktop'}): Settings opens the root; Members keeps its own direct destination`, async () => {
       const onOpenInfo = await renderHeader({ isGroupChat: true, mobile })
-      expect(menuInfo()).toBeNull()
+      expect(menuInfo()?.textContent).toBe('群设置')
+      expect(document.querySelector('[data-testid="chat-header-more-button"]')).not.toBeNull()
+      await clickElement(menuInfo()!)
+      expect(onOpenInfo).toHaveBeenCalledWith('main')
       expect(document.querySelector('[data-testid="group-menu-announcement"]')).toBeNull()
-      // 桌面群聊没有放不下的钉住 App 时 ⋯ 本身也不在(手机页头收起的搜索 / 文件夹还在 ⋯ 里)。
-      expect(document.querySelector('[data-testid="chat-header-more-button"]') !== null).toBe(mobile)
       await clickElement(document.querySelector('[data-testid="chat-header-members-button"]') as HTMLElement)
       expect(onOpenInfo).toHaveBeenCalledWith('members')
     })

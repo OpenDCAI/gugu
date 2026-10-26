@@ -60,6 +60,7 @@ import { homedir, hostname, platform } from 'os'
 import { dirname, join, resolve, sep } from 'path'
 import { autoUpdater } from 'electron-updater'
 import windowStateStore from 'electron-window-state'
+import { mainWindowSize } from './main-window-size'
 import {
   invokeRendererAuth,
   invokeRendererExtensions,
@@ -1448,44 +1449,18 @@ const mainRendererResponsiveness = createMainRendererResponsivenessLog({
   log: processGoneLogger,
 })
 
-// @@@default-window-size — 首启默认窗口尺寸(只在没有 window-state.json 时生效;之后由
-//   electron-window-state 记住用户自己拖的尺寸)。取「目标尺寸」与「主屏工作区」的较小者,
-//   而不是写死一个像素数:electron-window-state 5.0.3 对 defaultWidth/defaultHeight **不做任何
-//   屏幕钳制**(只有恢复旧状态那条路径才判可视性),所以写死的大默认值在 1280×800 这类小屏会把
-//   窗口撑出可视区、标题栏被顶出屏外 = 拖不动;写死的小默认值在大屏又显小。
-//   目标 1280×900 是 owner 2026-09-04 反馈「启动窗口有点小」后放大的结果(原 960×860);瓶颈是
-//   宽度——正文是居中列,960 下折行明显偏窄,而高度当时已有大片留白。
-//   ❌ 不要再往下减「留边」:workAreaSize 已经扣掉菜单栏 / Dock / 任务栏,再减就是重复扣除
-//   (实测:MBP 14" Dock 可见时工作区约 1512×883,减 80 会算出 807 —— 反而比原来的 860 还矮)。
-//   下限守住 minWidth/minHeight 的 800×600 地板,让极窄屏也不会算出小于地板的初始尺寸。
-const DEFAULT_WINDOW_TARGET = { width: 1280, height: 900 } as const
-const WINDOW_MIN = { width: 800, height: 600 } as const
-
-function defaultWindowSize(): { width: number; height: number } {
-  const workArea = screen.getPrimaryDisplay().workAreaSize
-  const fit = (target: number, available: number, min: number): number =>
-    Math.max(min, Math.min(target, available))
-  return {
-    width: fit(DEFAULT_WINDOW_TARGET.width, workArea.width, WINDOW_MIN.width),
-    height: fit(DEFAULT_WINDOW_TARGET.height, workArea.height, WINDOW_MIN.height)
-  }
-}
-
 function createWindow(loadContents = true): void {
-  const { width: defaultWidth, height: defaultHeight } = defaultWindowSize()
+  const { width: defaultWidth, height: defaultHeight } = mainWindowSize(screen.getPrimaryDisplay().workAreaSize)
   const winState = windowStateStore({ defaultWidth, defaultHeight })
+  const display = winState.x == null || winState.y == null
+    ? screen.getPrimaryDisplay()
+    : screen.getDisplayMatching(winState)
   const isMac = process.platform === 'darwin'
   mainWindow = new BrowserWindow({
     x: winState.x,
     y: winState.y,
-    width: winState.width,
-    height: winState.height,
-    // @@@desktop-never-mobile (#3566) — 800 是桌面三栏(侧栏 + 会话列表 + 内容区)还排得开的地板。
-    //   桌面主窗**永远不进手机 shell**(useMobileShell 对 electron 恒 false,owner 2026-09-08 拍板),
-    //   所以地板不再需要低于 720 的移动断点;#2525 曾把它降到 360 好让桌面窗口"进得去"手机 shell,
-    //   那条决策连同它的 floor guard e2e 一并作废。要再动这个数,判据是「桌面布局在该宽度下不破版」。
-    minWidth: WINDOW_MIN.width,
-    minHeight: WINDOW_MIN.height,
+    ...mainWindowSize(display.workArea, winState),
+    // @@@desktop-never-mobile (#3566): a small work area still uses the desktop shell.
     show: false,
     // @@@822 frameless 统一标题栏(跨平台一致): Mac 用 hiddenInset 保留原生交通灯并对齐 68px 导航栏
     //   ({x:5,y:14});三颗灯右侧留出少量呼吸。Windows/Linux 完全无边框(frame:false),
