@@ -209,6 +209,8 @@ vi.mock('../../../../apps/desktop/src/lib/contacts', () => ({
 }))
 
 vi.mock('../../../../apps/desktop/src/lib/agentPresenceStore', () => ({
+  getAgentPresenceSnapshot: () => null,
+  subscribeAgentPresence: () => () => {},
   setPresenceBusContext: ({ currentUserId }: { currentUserId: string | null }) => {
     probe.presenceStates.push(currentUserId)
     if (currentUserId) probe.calls.push({ accountId: currentUserId, owner: 'presence' })

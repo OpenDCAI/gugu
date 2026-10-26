@@ -101,7 +101,7 @@ const SubAgents = observer(function SubAgents({ context }: AssistantPageProps) {
         {group.items.map(task => <AssistantRow key={task.key} testId={`assistant-subagent-${task.id}`} title={formatSessionTitleForDisplay(task.harness ?? '',task.title)}
           detail={assistantTaskDeviceLabel(devices,task.deviceId)}
           trailing={task.status && task.status.status !== 'idle' ? <AgentStatusIndicator status={task.status.status} detail={task.status.detail} /> : task.unseen ? <span className="ta-unseen" aria-label={t('tasks.unseen')} /> : null}
-          chevron={false} onClick={task.agentId ? () => openAssistantPanelTask({assistantId:context.assistant.id},task) : undefined} />)}
+          chevron={false} onClick={() => openAssistantPanelTask({assistantId:context.assistant.id},task)} />)}
       </AssistantSection>)}
   </AssistantWorkTaskRead>;
 });

@@ -1,5 +1,6 @@
 import { describe, expect, it, vi } from 'vitest'
 import { createAssistantWorkClient } from '@gugu/core/cloud/assistantWork'
+import {setCoreLoggerFactory} from '@gugu/core/log'
 
 const owner = '10000000-0000-4000-8000-000000000001'
 const assistant = '10000000-0000-4000-8000-000000000002'
@@ -18,25 +19,35 @@ const event = () => ({ owner_user_id: owner,work_id: work,message_id: message,se
   owner_delivered_at: null,owner_chat_id: null,owner_message_id: null,delivery_state: 'pending' })
 
 describe('account assistant work client', () => {
+  it('opens a prepared work directly by id before its executor has an agent identity',async()=>{
+    const transport=vi.fn().mockResolvedValue({data:{work:row(),events:[],next_after:null},error:null})
+    const detail=await createAssistantWorkClient(transport,()=>owner).get(assistant,work)
+    expect(detail.work).toMatchObject({work_id:work,executors:[{session_id:'task-session',agent_user_id:null}]})
+    expect(transport).toHaveBeenCalledExactlyOnceWith('assistant_work_history',expect.objectContaining({p_assistant:assistant,p_work_id:work}))
+  })
+  it('rejects a direct task lookup whose work belongs to another assistant',async()=>{
+    const transport=vi.fn().mockResolvedValue({data:{work:{...row(),assistant_user_id:owner},events:[],next_after:null},error:null})
+    await expect(createAssistantWorkClient(transport,()=>owner).get(assistant,work)).rejects.toMatchObject({code:'invalid-response'})
+  })
   it('skips a malformed task without losing the following page cursor',async()=>{
-    const warn=vi.spyOn(console,'warn').mockImplementation(()=>{})
+    const warn=vi.fn(),restore=setCoreLoggerFactory(()=>({warn,info:vi.fn(),debug:vi.fn(),error:vi.fn()}))
     try {
       const transport=vi.fn().mockResolvedValueOnce({data:{items:[row(work,'3'),{...row(message,'2'),executors:null}],next_before:'2'},error:null})
         .mockResolvedValueOnce({data:{items:[row(operation,'1')],next_before:null},error:null})
       expect((await createAssistantWorkClient(transport,()=>owner).listAll(assistant)).map(r=>r.work_id)).toEqual([work,operation])
       expect(transport.mock.calls[1]![1].p_before).toBe('2')
       expect(warn).toHaveBeenCalledOnce()
-    } finally {warn.mockRestore()}
+    } finally {restore()}
   })
   it('skips a malformed history row and advances even when the whole page is malformed',async()=>{
-    const warn=vi.spyOn(console,'warn').mockImplementation(()=>{})
+    const warn=vi.fn(),restore=setCoreLoggerFactory(()=>({warn,info:vi.fn(),debug:vi.fn(),error:vi.fn()}))
     try {
       const transport=vi.fn().mockResolvedValueOnce({data:{events:[{...event(),attachment_refs:'bad'}],next_after:'2'},error:null})
         .mockResolvedValueOnce({data:{events:[{...event(),seq:'3'}],next_after:null},error:null})
       expect(await createAssistantWorkClient(transport,()=>owner).historyAll(assistant,work)).toHaveLength(1)
       expect(transport.mock.calls[1]![1].p_after).toBe('2')
       expect(warn).toHaveBeenCalledOnce()
-    } finally {warn.mockRestore()}
+    } finally {restore()}
   })
   it('reads all task pages directly from the cloud with lossless bigint cursors', async () => {
     const other = '10000000-0000-4000-8000-000000000006'

@@ -3,7 +3,7 @@ import type {AgentPresenceState,AgentPresenceListener} from './agentPresenceStor
 import {readAssistantPanelBridge,useAssistantPanelAccountId} from './assistantPanelBridge'
 
 export type AssistantWorkReads={
-  client:Pick<AssistantWorkClient,'listAll'|'historyAll'>
+  client:Pick<AssistantWorkClient,'listAll'|'historyAll'|'get'>
   watch(ownerId:string,assistantId:string,refresh:()=>void):()=>void
   presence(agentId:string):AgentPresenceState|null
   subscribePresence(agentId:string,listener:AgentPresenceListener):()=>void
@@ -12,6 +12,7 @@ const read=()=>readAssistantPanelBridge()?.work
 const required=()=>{const work=read();if(!work)throw new AssistantWorkError('unprepared','Account task reader is unavailable');return work}
 /** All cloud effects use the same authenticated App-shell bridge as the other panel domains. */
 export const assistantWorkCloud:AssistantWorkReads['client']={
+  get:(assistant,work)=>required().client.get(assistant,work),
   listAll:assistant=>required().client.listAll(assistant),
   historyAll:(assistant,work)=>required().client.historyAll(assistant,work),
 }

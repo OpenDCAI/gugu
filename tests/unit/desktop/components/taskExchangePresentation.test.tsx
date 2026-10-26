@@ -5,6 +5,7 @@ import { notifyManager } from '@tanstack/react-query'
 import { withSessionAttachments } from '@gugu/core/cloud/sessionAttachments'
 import { attachmentFileRef } from '@gugu/core/shared/ui/attachmentModels'
 import { taskExchangeContent } from '../../../../apps/desktop/src/components/assistant/taskExchangeContent'
+import { assistantExecutionAction, ASSISTANT_TASK_EXECUTION } from '@gugu/core/shared/assistantWorkflow'
 import { TaskExchangeBubble } from '../../../../apps/desktop/src/components/assistant/TaskExchangeBubble'
 import { FileAttachmentCard } from '../../../../apps/desktop/src/components/chat/FileAttachmentCard'
 import { attachmentQueryClient } from '../../../../apps/desktop/src/lib/attachmentQueryClient'
@@ -33,6 +34,21 @@ beforeEach(() => {
 afterEach(() => { notifyManager.setScheduler(callback => setTimeout(callback, 0)); ui.cleanup(); attachmentQueryClient.clear(); vi.unstubAllGlobals() })
 
 describe('task collaboration presentation', () => {
+  it.each([false, true])('keeps the actual host contract in agent input but out of the visible task on mobile=%s', async mobile => {
+    const action = assistantExecutionAction({ action: 'spawn', prompt: '整理读书会支出。' }) as { prompt: string }
+    expect(action.prompt).toContain(ASSISTANT_TASK_EXECUTION)
+    expect(taskExchangeContent(action.prompt).text).toBe('整理读书会支出。')
+    await renderWithAppProviders(ui, <TaskExchangeBubble message={message({ content: action.prompt, sender_user_id: 'assistant', is_mine: false })} recipientUserId="assistant" mobile={mobile} />, { contacts: { contacts: [] } })
+    expect(ui.container.textContent).toContain('整理读书会支出。')
+    expect(ui.container.textContent).not.toContain('任务执行约定')
+    expect(ui.container.textContent).not.toContain('gugu_task_context')
+  })
+  it('hides the already-delivered legacy host suffix as well as its work receipt', () => {
+    const content = '整理支出。\n\n# 任务执行约定\n- 你是执行者，需主人拍板时提问。\n\n<gugu_work>\n{"work_id":"old"}\n</gugu_work>'
+    expect(taskExchangeContent(content).text).toBe('整理支出。')
+    const quoted = '```\n' + content + '\n```'
+    expect(taskExchangeContent(quoted).text).toBe(quoted)
+  })
   it('understands the real producer format while leaving the original message untouched', () => {
     const displayed = taskExchangeContent(raw)
     expect(displayed.text).toBe('计算完成，附件在这里。')

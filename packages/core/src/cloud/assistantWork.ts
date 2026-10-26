@@ -1,4 +1,7 @@
 import { z } from 'zod'
+import {coreLogger} from '../log'
+
+const log=coreLogger('assistant-work')
 
 /** Cloud read contract shared by desktop and phone. Delivery writes belong to
  * assistantWorkOutbox; readers never attach to a device or maintain a queue. */
@@ -62,7 +65,7 @@ export function createAssistantWorkClient(transport: AssistantWorkTransport,acco
         const scope=z.object({owner_user_id:id,assistant_user_id:id}).safeParse(row)
         if(scope.success&&(scope.data.owner_user_id!==owner||scope.data.assistant_user_id!==assistantId))return invalid()
         const parsed=taskSchema.safeParse(row)
-        if(!parsed.success){console.warn('[assistant-work] Skipping malformed task row',{index,code:'invalid-row'});continue}
+        if(!parsed.success){log.warn({index,code:'invalid-row'},'Skipping malformed task row');continue}
         if(BigInt(parsed.data.created_seq)<=0n || before!==null&&BigInt(parsed.data.created_seq)>=BigInt(before))return invalid()
         items.push(parsed.data)
       }
@@ -75,24 +78,43 @@ export function createAssistantWorkClient(transport: AssistantWorkTransport,acco
   }
   async function history(assistantId: string,workId: string,after = '0',limit = 100) {
     return request('assistant_work_history',{ p_assistant: assistantId,p_work_id: workId,p_after: after,p_limit: limit },(value,owner) => {
-      const result = z.object({ events: z.array(z.unknown()),next_after: sequence.nullable() }).safeParse(value)
+      const result = z.object({ events: z.array(z.unknown()),next_after: sequence.nullable(),work:z.unknown().optional() }).safeParse(value)
       if (!result.success) return invalid()
+      let work:AssistantWorkTask|null=null
+      if(result.data.work!=null){
+        const parsed=taskSchema.safeParse(result.data.work)
+        if(!parsed.success||parsed.data.owner_user_id!==owner||parsed.data.assistant_user_id!==assistantId||parsed.data.work_id!==workId)return invalid()
+        work=parsed.data
+      }
       const raw=result.data.events,events:AssistantWorkEvent[]=[]
       for(const [index,row] of raw.entries()) {
         const scope=z.object({owner_user_id:id,work_id:id}).safeParse(row)
         if(scope.success&&(scope.data.owner_user_id!==owner||scope.data.work_id!==workId))return invalid()
         const parsed=eventSchema.safeParse(row)
-        if(!parsed.success){console.warn('[assistant-work] Skipping malformed history row',{index,code:'invalid-row'});continue}
+        if(!parsed.success){log.warn({index,code:'invalid-row'},'Skipping malformed history row');continue}
         if(BigInt(parsed.data.seq)<=BigInt(after))return invalid()
         events.push(parsed.data)
       }
       const next_after=result.data.next_after
       const last=z.object({seq:sequence}).safeParse(raw.at(-1))
       if(next_after!==null&&(raw.length===0||BigInt(next_after)<=BigInt(after)||last.success&&next_after!==last.data.seq))return invalid()
-      return {events,next_after}
+      return {events,next_after,work}
     })
   }
   return { list,history,
+    async get(assistantId:string,workId:string):Promise<{work:AssistantWorkTask;events:AssistantWorkEvent[]}>{
+      let page=await history(assistantId,workId)
+      if(!page.work)throw new AssistantWorkError('not-found','Task record is unavailable')
+      const work=page.work,events:AssistantWorkEvent[]=[],seen=new Set<string>()
+      for(;;){
+        for(const event of page.events){
+          if(seen.has(event.message_id))return invalid()
+          seen.add(event.message_id);events.push(event)
+        }
+        if(page.next_after===null)return {work,events}
+        page=await history(assistantId,workId,page.next_after)
+      }
+    },
     async listAll(assistantId: string): Promise<AssistantWorkTask[]> {
       const items: AssistantWorkTask[] = [],seen = new Set<string>()
       let before: string | null = null
