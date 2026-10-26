@@ -37,6 +37,7 @@ export const GUGU_BROWSER_MCP_SERVER_NAME = 'gugu-browser'
 
 /** 会话页那一侧经桥给的动作(agent-browser.ts 的 `agentBrowserBridge`)。 */
 export interface AgentBrowserBridge {
+  closeSession?: (sessionId: string) => Promise<void>
   states?: () => NonNullable<ExtensionAgentStatus['sessions']>
   openTransport: (sessionId: string, signal?: AbortSignal) => Promise<{ close(): void }>
   toolStarting: (sessionId: string) => { ok: true } | { ok: false; message: string }
@@ -251,10 +252,11 @@ function toolsFor(sessionId: string, bridge: () => AgentBrowserBridge): SessionB
 }
 
 /** End this session's browser work, retaining the person's tab for the next turn. */
-export async function closeSessionBrowserTools(sessionId: string): Promise<void> {
+export async function closeSessionBrowserTools(sessionId: string, bridge?: AgentBrowserBridge): Promise<void> {
   const tools = sessionTools.get(sessionId)
   sessionTools.delete(sessionId)
   await tools?.close()
+  await bridge?.closeSession?.(sessionId)
 }
 
 function refused(message: string): CallToolResult {
@@ -351,7 +353,7 @@ export function createBrowserAppProgram(bridge: () => AgentBrowserBridge): Nativ
       used.delete(extensionId)
       if (!own) return
       await Promise.allSettled(own.calls)
-      await Promise.all([...own.sessions].filter((id) => ![...used.values()].some((other) => other.sessions.has(id))).map(closeSessionBrowserTools))
+      await Promise.all([...own.sessions].filter((id) => ![...used.values()].some((other) => other.sessions.has(id))).map((id) => closeSessionBrowserTools(id)))
     },
   }
 }
