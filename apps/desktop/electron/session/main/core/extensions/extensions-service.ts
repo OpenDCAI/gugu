@@ -164,7 +164,7 @@ export class ExtensionsService {
   private readonly openWithFile: JsonFile<Record<string, string>>;
 
   constructor(private readonly rootDir: string) {
-    this.variantsFile = jsonFile(rootDir, '.variants.json', '{}', (value) => z.record(z.string(), appVariantsSchema).parse(value));
+    this.variantsFile = jsonFile(rootDir, '.variants.json', '{}', (value) => Object.assign(Object.create(null) as Record<string, AppVariants>, z.record(z.string(), appVariantsSchema).parse(value)));
     this.grantsFile = jsonFile(rootDir, '.granted-permissions.json', '{}', (value) => z.record(z.string(), z.object({ capabilities: z.array(z.string()), network: z.array(z.string()) })).parse(value) as Record<string, NonNullable<ExtensionManifest['permissions']>>);
     this.settingsFile = jsonFile(rootDir, SETTINGS_FILENAME, '{}', (value) => {
       if (!value || typeof value !== 'object' || Array.isArray(value)) throw new Error('Invalid App settings file');
@@ -304,7 +304,7 @@ export class ExtensionsService {
       // Symlinks are copied as links, never followed: dereferencing would pull
       // whatever a bundle points at — a key, someone's documents — into the
       // extension's own origin, where it is then served to the extension.
-      fs.cpSync(source, staging, { recursive: true, dereference: false, verbatimSymlinks: true });
+      fs.cpSync(source, staging, { recursive: true, dereference: false, verbatimSymlinks: true, ...(origin === 'fork' ? { filter: (file: string) => path.basename(file) !== '.git' } : {}) });
 
       // Re-check the copy, not the folder it came from. The digest above was
       // taken before this copy; anything that rewrote the source in between

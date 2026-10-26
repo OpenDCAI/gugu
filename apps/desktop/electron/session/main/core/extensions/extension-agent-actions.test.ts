@@ -31,7 +31,10 @@ vi.mock('./app-files', () => ({
   readAccount: async () => ({ type: 'human', owner_user_id: null, display_name: 'profile name' }),
 }));
 vi.mock('@main/core/extensions/extensions-root', () => ({
+  appSourcesRoot: () => path.join(workDir, 'app-sources'),
   extensionsService: () => ({
+    approvedManifest: (id: string) => list().extensions.find((entry: {manifest: {id: string}}) => entry.manifest.id === id).manifest,
+    variants: () => ({ active: 'upstream', variants: [] }),
     inspectDirectory,
     installFromDirectory,
     list,

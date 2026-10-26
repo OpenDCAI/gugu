@@ -50,14 +50,14 @@ describe('App variants use the installed App identity and the existing install t
 
   it('asks for only new grants, remembers their union, and keeps withdrawals across less capable variants', () => {
     const { source, manifest, save, service, fork, upstream, install } = setup();
-    service.setPermission('demo', 'files:read', false);
+    service.setPermissionGranted('demo', 'files:read', false);
     manifest.permissions!.capabilities!.push('chat:relay');
     save();
     const plan = installPlan(service, service.inspectDirectory(source).manifest, 'fork');
     expect(plan.newlyAsked).toEqual(['chat:relay']);
     expect(plan.asks).toBe(true);
     install(source, fork);
-    service.setPermission('demo', 'chat:relay', false);
+    service.setPermissionGranted('demo', 'chat:relay', false);
     install(service.variantDirectory('demo', 'upstream'), upstream);
     expect(service.revokedPermissions('demo')).toEqual(['files:read', 'chat:relay']);
     expect(installPlan(service, service.inspectDirectory(source).manifest, 'fork').asks).toBe(false);

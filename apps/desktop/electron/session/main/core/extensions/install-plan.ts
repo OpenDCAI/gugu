@@ -11,12 +11,13 @@ import type { ExtensionsService } from './extensions-service';
 export function installPlan(service: ExtensionsService, manifest: ExtensionManifest, origin: 'folder' | 'market' | 'fork' = 'folder') {
   const displaced = service.list().extensions.find((entry) => entry.manifest.id === manifest.id);
   const revokedPermissions = displaced ? service.revokedPermissions(manifest.id) : [];
+  const approved = displaced ? service.approvedManifest(manifest.id) : undefined;
   const { newlyAsked, asks } = installAsks({
-    installed: displaced ? service.approvedManifest(manifest.id) : undefined,
+    installed: approved,
     installedOrigin: displaced ? service.origins()[manifest.id] : undefined,
     revokedPermissions,
     candidate: manifest,
     origin,
   });
-  return { displaced, approved: displaced ? service.approvedManifest(manifest.id) : undefined, revokedPermissions, newlyAsked, asks };
+  return { displaced, approved, revokedPermissions, newlyAsked, asks };
 }
