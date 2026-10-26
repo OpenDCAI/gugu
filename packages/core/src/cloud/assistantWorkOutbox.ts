@@ -70,6 +70,8 @@ export type ClaimedAssistantWorkEvent = AssistantWorkEventInput & {
   assistant_user_id?: string
   lease_token: string
   lease_until: string
+  lease_remaining_ms: number
+  age_ms: number
   platform_received_at: string
   source_available: boolean
   failed_attempts: number
@@ -102,7 +104,6 @@ export function createAssistantWorkOutboxPump(deps: {
   warn?(detail: { code: string; messageId?: string }): void
   now?: () => number
 }) {
-  const now = deps.now ?? Date.now
   let flight: Promise<void> | null = null
   let again = false
   let stopped = false
@@ -120,16 +121,17 @@ export function createAssistantWorkOutboxPump(deps: {
     })
   }
 
-  const deliverOne = async (ctx: AssistantWorkOutboxContext, event: ClaimedAssistantWorkEvent):Promise<boolean> => {
+  const deliverOne = async (ctx: AssistantWorkOutboxContext, event: ClaimedAssistantWorkEvent, claimStartedAt: number):Promise<boolean> => {
     if (stopped) return false
     const invalid = !event.message_id || !event.lease_token || !event.to_device_id || !event.to_session_id
-      || !Number.isFinite(Date.parse(event.lease_until)) || !Number.isFinite(Date.parse(event.platform_received_at))
+      || !Number.isFinite(event.lease_remaining_ms) || event.lease_remaining_ms < 0
+      || !Number.isFinite(event.age_ms) || event.age_ms < 0
       || !Number.isInteger(event.failed_attempts) || event.failed_attempts < 0
     if (invalid) { deps.warn?.({ code: 'INVALID_OUTBOX_EVENT' }); return false }
     if (!event.source_available) { await settle(ctx,event,'abandoned','SOURCE_UNAVAILABLE');return true }
     if (event.failed_attempts >= ASSISTANT_WORK_DELIVERY_MAX_FAILURES) { await settle(ctx,event,'abandoned',event.last_error_code??'DELIVERY_ATTEMPTS_EXHAUSTED');return true }
-    if (now() - Date.parse(event.platform_received_at) >= ASSISTANT_WORK_DELIVERY_MAX_AGE_MS) { await settle(ctx,event,'abandoned','DELIVERY_EXPIRED');return true }
-    const budget = Math.min(ASSISTANT_WORK_DELIVERY_BUDGET_MS, Date.parse(event.lease_until) - now() - 5000)
+    if (event.age_ms + Math.max(0, performance.now() - claimStartedAt) >= ASSISTANT_WORK_DELIVERY_MAX_AGE_MS) { await settle(ctx,event,'abandoned','DELIVERY_EXPIRED');return true }
+    const budget = Math.min(ASSISTANT_WORK_DELIVERY_BUDGET_MS, event.lease_remaining_ms - Math.max(0, performance.now() - claimStartedAt) - 5000)
     // Insufficient remaining lease is not a failed delivery attempt. Let a fresh claim take it.
     if (budget <= 0) return false
     const controller = new AbortController()
@@ -159,7 +161,7 @@ export function createAssistantWorkOutboxPump(deps: {
     }
     // A lost settlement leaves the existing lease to expire. Do not label an admitted message failed.
     if (result.status !== 'admitted' || result.messageId !== event.message_id) { await settle(ctx,event,'retry','NOT_ADMITTED');return false }
-    await settle(ctx, event, event.kind === 'dispatch' ? 'executor_admitted' : 'assistant_admitted', undefined, result.receipt)
+    await settle(ctx, event, event.kind === 'dispatch' ? 'executor_admitted' : 'assistant_admitted', undefined, event.kind === 'dispatch' ? result.receipt : undefined)
     return true
   }
 
@@ -168,6 +170,7 @@ export function createAssistantWorkOutboxPump(deps: {
       again = false
       const ctx = await deps.context()
       if (stopped || !ctx) return
+      const claimStartedAt = performance.now()
       const result = await call({ rpc: (name, args) => deps.rpc(name, args, ctx) }, 'assistant_work_outbox_claim', {
         p_runtime_instance_id: ctx.runtimeInstanceId, p_limit: 20, p_lease_seconds: 60,
       }) as { events?: ClaimedAssistantWorkEvent[] } | null
@@ -182,7 +185,7 @@ export function createAssistantWorkOutboxPump(deps: {
       await Promise.all([0, 1].map(async () => {
         while (!stopped && pending.length) {
           for(const event of pending.shift()!) {
-            try { if(!await deliverOne(ctx,event)) break;again=true }
+            try { if(!await deliverOne(ctx,event,claimStartedAt)) break;again=true }
             catch(error) {deps.warn?.({code:errorCode(error),messageId:event.message_id});break}
           }
         }

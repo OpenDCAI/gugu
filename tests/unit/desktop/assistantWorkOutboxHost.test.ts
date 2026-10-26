@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from 'vitest'
 import { createAssistantWorkOutboxHost } from '../../../apps/desktop/electron/assistant-work-outbox'
-const event={assistant_user_id:'assistant',work_id:'work',message_id:'message',kind:'completed' as const,from_session_id:'child',from_device_id:'phone',to_session_id:'home',to_device_id:'cloud',source_available:true,content:'fresh result',attachment_refs:[],platform_received_at:new Date().toISOString(),lease_until:new Date(Date.now()+60000).toISOString(),lease_token:'lease',failed_attempts:0,attempts:1,terminal_version:'1'}
+const event={assistant_user_id:'assistant',work_id:'work',message_id:'message',kind:'completed' as const,from_session_id:'child',from_device_id:'phone',to_session_id:'home',to_device_id:'cloud',source_available:true,content:'fresh result',attachment_refs:[],platform_received_at:new Date().toISOString(),lease_until:new Date(Date.now()+60000).toISOString(),lease_token:'lease',lease_remaining_ms:60000,age_ms:0,failed_attempts:0,attempts:1,terminal_version:'1'}
 function fixture(target='cloud') {
   let claimed=false
   const row={...event,to_device_id:target}
@@ -22,10 +22,10 @@ describe('account delivery host',()=>{
     await vi.waitFor(()=>expect(f.deliverLocal).toHaveBeenCalledOnce(),{timeout:100})
     finish(()=>{});await kicked;host.stop()
   })
-  it('reads local canonical history and carries the real identity admission to settlement',async()=>{
+  it('reads local canonical history without binding assistant admission as an executor',async()=>{
     const f=fixture();const host=createAssistantWorkOutboxHost(f.deps);await host.kick()
     expect(f.rpc).toHaveBeenCalledWith('assistant_work_history',expect.objectContaining({p_work_id:'work'}))
-    expect(f.rpc).toHaveBeenCalledWith('assistant_work_outbox_settle',expect.objectContaining({p_receipt:{agent_user_id:'agent'}}))
+    expect(f.rpc).toHaveBeenCalledWith('assistant_work_outbox_settle',expect.objectContaining({p_receipt:{}}))
     host.stop()
   })
   it('transmits only a cloud reference, after the remote wake path',async()=>{
