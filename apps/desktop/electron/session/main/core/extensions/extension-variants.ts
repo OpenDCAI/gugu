@@ -3,6 +3,7 @@ import { forkBehind } from '@shared/extensions/variants';
 import type { HandedConsent } from '@shared/extensions/install-consent-flow';
 import { extensionsService } from './extensions-root';
 import { cloudExtensionMarket } from './market-catalog-root';
+import { announceInstalledChanged } from './extension-bridge-relay';
 import { installPlan } from './install-plan';
 import { installPrepared, type InstallDependencies } from './install-prepared';
 
@@ -38,7 +39,8 @@ export async function switchExtensionVariant(id: string, name: string, consent?:
   if (!variant) throw new Error(`App ${id} has no variant ${JSON.stringify(name)}. Read extensions.variants or install its fork's source_dir first.`);
   if (state.active === name) {
     const installed = service.get(id);
-    return { installed: true as const, outcome: 'confirmed' as const, id, name: installed.manifest.name, version: installed.manifest.version, manifest: installed.manifest, rootDir: installed.rootDir, asked: false, announced: 'shown' as const };
+    const announced = await announceInstalledChanged(dependencies.notifyInstalledChanged);
+    return { installed: true as const, outcome: 'confirmed' as const, id, name: installed.manifest.name, version: installed.manifest.version, manifest: installed.manifest, rootDir: installed.rootDir, asked: false, announced };
   }
   const prepared = prepareVariant(service.variantDirectory(id, name), variant);
   if (prepared.manifest.id !== id) throw new Error(`The cached variant is not App ${id}; reinstall the fork from its source_dir.`);

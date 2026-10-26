@@ -1362,7 +1362,7 @@ describe('app_install { market }', () => {
     entry: vi.fn(async (id: string) => (byId[id] ?? null) as never),
     list: vi.fn(async () => ({ extensions: found, total: found.length, hasMore: false }) as never),
     // What the market recorded for the version it unpacked: where its code is comes back with the folder.
-    materialize: vi.fn(async (id: string) => ({ sourceDir: `/tmp/market-staged/${id}`, source, releaseNotes: 'notes', sha256: 'a'.repeat(64) })),
+    materialize: vi.fn(async (id: string) => ({ sourceDir: `/tmp/market-staged/${id}`, source, releaseNotes: 'notes', sha256: 'a'.repeat(64), bytes: 42 })),
     hold: vi.fn(),
     held: vi.fn(async () => null),
     // The unpacked copy is done with once it is installed (or refused): let go of, never left in staging.
@@ -1462,7 +1462,7 @@ describe('app_install { market }', () => {
       index = { apps: [...index.apps, { id: 'reader', deprecated: null, versions: [versionOf(reader)] }] };
       // The copy the Apps page took still has no Reader: the case reproduces.
       expect((await market.list({ search: 'reader' })).total).toBe(0);
-      vi.spyOn(market, 'materialize').mockResolvedValue({ sourceDir: '/tmp/market-staged/reader', source, releaseNotes: 'notes', sha256: 'a'.repeat(64) });
+      vi.spyOn(market, 'materialize').mockResolvedValue({ sourceDir: '/tmp/market-staged/reader', source, releaseNotes: 'notes', sha256: 'a'.repeat(64), bytes: 42 });
       return market;
     };
     inspectDirectory.mockReturnValue({ manifest: reader, manifestDigest: 'digest-m' });

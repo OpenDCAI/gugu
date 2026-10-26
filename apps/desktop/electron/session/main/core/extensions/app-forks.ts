@@ -23,11 +23,14 @@ type ForkRecord = z.infer<typeof forkRecordSchema>;
 async function git(cwd: string, args: string[], token?: string): Promise<string> {
   const env = reviewGitEnv({ processEnv: process.env, loginShellEnv: loginShellEnv() });
   // Credentials stay in the child environment: never in a URL, Git config on disk, argv or an exception's command.
-  if (token) Object.assign(env, {
-    GIT_CONFIG_COUNT: '2', GIT_CONFIG_KEY_0: 'credential.helper', GIT_CONFIG_VALUE_0: '',
-    GIT_CONFIG_KEY_1: 'http.https://github.com/.extraheader',
-    GIT_CONFIG_VALUE_1: `Authorization: Basic ${Buffer.from(`x-access-token:${token}`).toString('base64')}`,
-  });
+  if (token) {
+    const count = Number(env.GIT_CONFIG_COUNT ?? '0');
+    Object.assign(env, {
+      GIT_CONFIG_COUNT: String(count + 2), [`GIT_CONFIG_KEY_${count}`]: 'credential.helper', [`GIT_CONFIG_VALUE_${count}`]: '',
+      [`GIT_CONFIG_KEY_${count + 1}`]: 'http.https://github.com/.extraheader',
+      [`GIT_CONFIG_VALUE_${count + 1}`]: `Authorization: Basic ${Buffer.from(`x-access-token:${token}`).toString('base64')}`,
+    });
+  }
   try {
     return (await run(getGitExecutable(), args, { cwd, env, maxBuffer: 4 * 1024 * 1024 })).stdout.trim();
   } catch (error) {
@@ -63,6 +66,7 @@ export function forkOfDirectory(sourceDir: string): (ForkRecord & { root: string
 /** Fetch precisely the installed release's source, then give the agent its editable bundle directory. */
 export async function createAppFork(id: string, requestedName?: string) {
   const service = extensionsService();
+  if (!service.isInstalled(id)) throw new Error(`App ${id} is not installed; use app_install {market:${JSON.stringify(id)}} first.`);
   const installed = service.get(id);
   const origin = service.origins()[id];
   if (origin !== 'market' && origin !== 'fork') throw new Error(`App ${id} is not installed from the market. Install it with app_install {market:${JSON.stringify(id)}} before forking.`);
@@ -91,15 +95,20 @@ export async function createAppFork(id: string, requestedName?: string) {
     throw new Error(`The fork folder ${root} already exists; choose another name in app_create {fork_of, name}.`);
   }
   if (!existing) {
-    await git(appSourcesRoot(), ['clone', '--no-checkout', '--origin', 'upstream',
-      ...(source.repo === 'shuxueshuxue/gugu-apps' ? ['--filter=blob:none', '--sparse'] : []), `https://github.com/${source.repo}.git`, root], token);
-    if (source.repo === 'shuxueshuxue/gugu-apps') await git(root, ['sparse-checkout', 'set', '--', `sources/${id}`], token);
-    await git(root, ['fetch', 'upstream', source.commit], token);
-    await git(root, ['checkout', '-b', branch, source.commit], token);
-    const manifest = service.inspectDirectory(sourceDir).manifest;
-    if (manifest.id !== id || manifest.version !== version) throw new Error(`The indexed source does not contain ${id}@${version}; ask the publisher to correct its source record.`);
-    const record: ForkRecord = { id, name, base: version, source };
-    fs.writeFileSync(path.join(root, '.git', 'gugu-fork.json'), `${JSON.stringify(record)}\n`);
+    try {
+      await git(appSourcesRoot(), ['clone', '--no-checkout', '--origin', 'upstream',
+        ...(source.repo === 'shuxueshuxue/gugu-apps' ? ['--filter=blob:none', '--sparse'] : []), `https://github.com/${source.repo}.git`, root], token);
+      if (source.repo === 'shuxueshuxue/gugu-apps') await git(root, ['sparse-checkout', 'set', '--', `sources/${id}`], token);
+      await git(root, ['fetch', 'upstream', source.commit], token);
+      await git(root, ['checkout', '-b', branch, source.commit], token);
+      const manifest = service.inspectDirectory(sourceDir).manifest;
+      if (manifest.id !== id || manifest.version !== version) throw new Error(`The indexed source does not contain ${id}@${version}; ask the publisher to correct its source record.`);
+      const record: ForkRecord = { id, name, base: version, source };
+      fs.writeFileSync(path.join(root, '.git', 'gugu-fork.json'), `${JSON.stringify(record)}\n`);
+    } catch (error) {
+      fs.rmSync(root, { recursive: true, force: true });
+      throw new Error(`The exact installed source could not be prepared. Retry app_create with the same fork_of and name after fixing: ${error instanceof Error ? error.message : String(error)}`);
+    }
   }
   service.retainUpstream(id, { name: 'upstream', base: version, commit: source.commit, repo: source.repo, path: source.path, dir: null, sha256: row.sha256, bytes: row.bytes });
   let repo: string | null = null;

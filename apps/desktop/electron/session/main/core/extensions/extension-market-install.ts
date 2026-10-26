@@ -94,7 +94,7 @@ export async function installExtensionFromMarket(
     const { manifest, manifestDigest } = service.inspectDirectory(prepared.sourceDir);
     const summary: MarketInstallSummary = { id: manifest.id, name: manifest.name, version: manifest.version };
     const plan = installPlan(service, manifest, 'market');
-    const variant = plan.displaced && service.variants(manifest.id).variants.length > 0 ? { name: 'upstream', base: manifest.version, commit: prepared.source.commit, repo: prepared.source.repo, path: prepared.source.path, dir: null, sha256: prepared.sha256, bytes: prepared.bytes ?? 0 } : undefined;
+    const variant = plan.displaced && service.variants(manifest.id).variants.length > 0 ? { name: 'upstream', base: manifest.version, commit: prepared.source.commit, repo: prepared.source.repo, path: prepared.source.path, dir: null, sha256: prepared.sha256, bytes: prepared.bytes } : undefined;
     if (install.consent?.kind === 'gugu') {
       // Nobody asked: so only gugu's own — the code in its own repository (the bytes were checked against what the market
       // published from there) — and never over an App installed here, whose update asks as any update does. Files with no

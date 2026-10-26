@@ -106,7 +106,7 @@ export interface MarketPrepared {
   source: MarketCodeSource;
   releaseNotes: string;
   sha256: string;
-  bytes?: number;
+  bytes: number;
 }
 
 /** 解开的包落在哪儿。dot 前缀,与安装 staging 同一套「扫描永远看不见」的约定。 */
