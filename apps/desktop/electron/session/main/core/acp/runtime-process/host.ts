@@ -191,7 +191,7 @@ export type AcpRuntimeClient = ContractClient<AcpApiContract> & {
     sessionId: string;
     prompt: PromptInput;
     steerIfBusy?: boolean;
-  }): Promise<{ requestId: string; queued: boolean; steered?: boolean; declined: boolean }>;
+  }): Promise<{ requestId: string; queued: boolean; steered?: boolean; declined: boolean; missing?: true }>;
   waitPromptDetached(input: { requestId: string }): Promise<{ queued: boolean }>;
   /**
    * #6396 告诉一条会话一件事:转录里一行 / agent 下一轮的开头(见 SessionManager.announce)。
@@ -207,7 +207,7 @@ type AcpRuntimeProcessClient = ContractClient<AcpRuntimeApiContract> & {
     sessionId: string;
     prompt: PromptInput;
     steerIfBusy?: boolean;
-  }): Promise<{ requestId: string; queued: boolean; steered?: boolean; declined: boolean }>;
+  }): Promise<{ requestId: string; queued: boolean; steered?: boolean; declined: boolean; missing?: true }>;
   waitPromptDetached(input: { requestId: string }): Promise<{ queued: boolean }>;
   /**
    * #6396 告诉一条会话一件事:转录里一行 / agent 下一轮的开头(见 SessionManager.announce)。
@@ -814,12 +814,14 @@ export function createStartOwningClient(client: ContractClient<AcpRuntimeApiCont
     },
     startSession: (input, meta) => startOnce(input, meta).result,
     stopSession: async (input, meta) => {
+      const idleStop = input.onlyIfIdle ? await client.stopSession(input, meta) : null;
+      if (idleStop && !idleStop.success) return idleStop;
       const inFlight = startsInFlight.get(input.sessionId);
       if (inFlight) inFlight.stopped = true;
       startsInFlight.delete(input.sessionId);
       const { closeSessionBrowserTools } = await import('../../../../../browser-agent-mcp');
       const closingBrowser = closeSessionBrowserTools(input.sessionId);
-      const [result] = await Promise.all([client.stopSession(input, meta), closingBrowser]);
+      const [result] = await Promise.all([idleStop ?? client.stopSession(input, meta), closingBrowser]);
       await closeRuntimeForkOwnershipForRuntimeSession(input.sessionId);
       // @@@stop-settles-the-credential — 「停了」和「它的凭据没了」必须是**同一个结果**。
       //

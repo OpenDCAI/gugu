@@ -40,7 +40,7 @@ export interface EmdashDeliveryBridge {
     sessionId: string,
     text: string,
     opts?: { steerIfBusy?: boolean; coalesceKey?: string; deferredDispatch?: true },
-  ): Promise<{ outcome: 'started' | 'queued' | 'declined'; completion: Promise<void>; turnId?: string }>
+  ): Promise<{ outcome: 'started' | 'queued' | 'declined' | 'missing'; completion: Promise<void>; turnId?: string }>
   ensureEmdashSession?(sessionId: string): Promise<void>
   /** @@@4526B 宿主 ACP 通道的取消口。 */
   cancelEmdashTurn?(sessionId: string): Promise<boolean>
@@ -49,6 +49,7 @@ export interface EmdashDeliveryBridge {
     /** 这条 ACP 会话跑的 harness —— per-harness 注入时机声明按它查(spec session-injection)。 */
     providerId: string
     lifecycle: string
+    closing?: boolean
     isGenerating: boolean
     recentActions?: string[]
     lastActionAt?: number | null
@@ -303,7 +304,7 @@ class EmdashAgentRegistry {
   async waitUntilReady(sessionId: string): Promise<void> {
     const summary = (await this.bridge?.emdashSessionSummaries())
       ?.find((candidate) => candidate.sessionId === sessionId)
-    if (!summary || !['ready', 'working', 'cancelling'].includes(summary.lifecycle)) {
+    if (!summary || summary.closing || !['ready', 'working', 'cancelling'].includes(summary.lifecycle)) {
       throw new Error(`ACP session ${sessionId} has not admitted after reopen (${summary?.lifecycle ?? 'absent'})`)
     }
   }
@@ -317,7 +318,7 @@ class EmdashAgentRegistry {
   ): Promise<{ providerId: string; surface: 'acp' } | null> {
     const summary = (await this.bridge?.emdashSessionSummaries())
       ?.find((candidate) => candidate.sessionId === sessionId)
-    return summary ? { providerId: summary.providerId, surface: 'acp' } : null
+    return summary && !summary.closing ? { providerId: summary.providerId, surface: 'acp' } : null
   }
 
   /** Reopen one mapped conversation (`ensureEmdashSession` is idempotent: ACP counts `starting` as live, PTY hydrate merges in its supervisor). */
@@ -438,7 +439,7 @@ class EmdashAgentRegistry {
     // `replaying` = the session is being loaded (a reconnect's session/load): not up yet, so the batch waits on the cursor
     // like `starting` — the start's own session-live pull brings it — instead of failing as「while session is 'replaying'」.
     // 不在跑的会话由调用方经路由器的唯一唤醒口唤醒(SessionpageLocalDeliveryRouter.wakeSession),这里只答「没收」。
-    if (!summary || summary.lifecycle === 'starting' || summary.lifecycle === 'replaying' || summary.lifecycle === 'closed') {
+    if (!summary || summary.closing || summary.lifecycle === 'starting' || summary.lifecycle === 'replaying' || summary.lifecycle === 'closed') {
       return false
     }
     // 编号 5 (10-12 片场试演): an adapter that exited on its own (a crash, a stop) leaves the session `lost`. This message kicks
@@ -464,6 +465,7 @@ class EmdashAgentRegistry {
       ...(opts?.delivery?.coalesceKey ? { coalesceKey: opts.delivery.coalesceKey } : {}),
       ...(opts?.deferredDispatch ? { deferredDispatch: true as const } : {}),
     }
+    let nativeMissing = false
     try {
       const result = await bridge.injectEmdashPromptDetached(
         sessionId,
@@ -472,6 +474,15 @@ class EmdashAgentRegistry {
       )
       // 会话此刻不收(原位回退进行中):没收下,消息留在来源侧。
       if (result.outcome === 'declined') return false
+      if (result.outcome === 'missing') {
+        nativeMissing = true
+        if (opts?.suppressWake) return false // The session-direct sender owns its one reopen attempt.
+        const batch = createHash('sha256').update(text).digest('hex')
+        if (reconnect?.batch === batch) throw new Error(`Session '${sessionId}' refused these messages before a turn again after recovery`)
+        if (!bridge.ensureEmdashSession) throw new Error(`session-page session wake is unavailable — cannot reconnect ${sessionId}`)
+        this.kickReconnect(sessionId, batch, bridge.ensureEmdashSession.bind(bridge))
+        return false
+      }
       if (result.outcome === 'queued' && !result.turnId) {
         throw new Error(
           `session-page session ${sessionId} returned queued without an admission identity; `
@@ -487,6 +498,7 @@ class EmdashAgentRegistry {
         queued: result.outcome === 'queued',
       }
     } catch (error) {
+      if (nativeMissing) throw error
       const afterFailure = await bridge.emdashSessionSummaries()
       const current = afterFailure.find((candidate) => candidate.sessionId === sessionId)
       if (!current || current.lifecycle === 'closed') return false

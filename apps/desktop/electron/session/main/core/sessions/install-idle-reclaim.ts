@@ -8,6 +8,7 @@ import { db } from '@main/db/client';
 import { sessions } from '@main/db/schema';
 import { events } from '@main/lib/events';
 import { log } from '@main/lib/logger';
+import { onConfirmedSleep } from '@main/core/activity/confirmed-sleep';
 import { parsePtySessionId } from '@shared/core/pty/ptySessionId';
 import { sessionReclaimedChannel } from '@shared/core/sessions/provisionEvents';
 import {
@@ -26,6 +27,7 @@ const ACP_LIVE = new Set<SessionSummary['lifecycle']>(['starting', 'replaying', 
 
 function acpAtRest(summary: SessionSummary): boolean {
   return summary.lifecycle === 'ready'
+    && !summary.closing
     && !summary.isGenerating
     && summary.pendingPermissionCount === 0
     && summary.queuedPromptCount === 0
@@ -107,7 +109,7 @@ export function installIdleReclaim(sources: { agentStatus: StatusSource }): () =
     watchedRemotely: (sessionId) => sharedRemotePaneRoute().watching(sessionId),
     sessionsWithLiveTerminals: () => withTerminals,
     stop: async (target) => {
-      if (!(await stopExactSessionpageSession(target))) {
+      if (!(await stopExactSessionpageSession({ ...target, onlyIfIdle: true }))) {
         throw new Error('session row is gone');
       }
     },
@@ -122,9 +124,11 @@ export function installIdleReclaim(sources: { agentStatus: StatusSource }): () =
     reclaimer.observeStatus(sessionId, reading.status)
   );
   const timer = setInterval(() => void reclaimer.tick(), IDLE_RECLAIM_TICK_MS);
+  const offResume = onConfirmedSleep(sleep => reclaimer.resumedFromConfirmedSleep(sleep));
   timer.unref?.();
   return () => {
     clearInterval(timer);
+    offResume();
     installed = false;
   };
 }

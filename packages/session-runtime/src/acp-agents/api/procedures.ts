@@ -55,8 +55,9 @@ export function createAcpProcedures(runtime: AcpRuntime) {
     },
     stopSession(input: {
       sessionId: string;
+      onlyIfIdle?: boolean;
     }): Promise<Result<void, AcpStopSessionError>> {
-      return runtime.stopSession(input.sessionId);
+      return runtime.stopSession(input.sessionId, input.onlyIfIdle);
     },
     sendPrompt(input: {
       sessionId: string;
@@ -69,12 +70,22 @@ export function createAcpProcedures(runtime: AcpRuntime) {
       sessionId: string;
       prompt: PromptInput;
       steerIfBusy?: boolean;
-    }): Promise<{ requestId: string; queued: boolean; steered?: boolean; declined: boolean }> {
+    }): Promise<{ requestId: string; queued: boolean; steered?: boolean; declined: boolean; missing?: true }> {
       const started = runtime.promptDetached(input.sessionId, input.prompt, input.steerIfBusy ? { steerIfBusy: true } : undefined);
-      if (!started.success) throw new Error(started.error.message);
+      if (!started.success) {
+        if (started.error.type === 'session_busy' || started.error.type === 'conversation_not_found') {
+          return { requestId: '', queued: false, declined: true };
+        }
+        throw new Error(started.error.message);
+      }
       const admission = await started.data.admission;
       if (!admission.success) {
         void started.data.completion.catch(() => undefined);
+        if (admission.error.type === 'conversation_not_found') {
+          const stopped = await runtime.stopSession(input.sessionId);
+          if (!stopped.success) throw new Error(stopped.error.message ?? 'Provider session teardown did not complete');
+          return { requestId: '', queued: false, declined: true, missing: true };
+        }
         // 会话此刻不收(原位回退进行中,#7308):调用方留着消息,等它收的那一刻再投。
         if (admission.error.type === 'session_busy') {
           return { requestId: '', queued: false, declined: true };

@@ -304,8 +304,7 @@ export function unreadRowFromRpc(raw: Record<string, unknown>): AgentInboxUnread
 type InlineImage = { data: string; mimeType: string; fileName: string; localPath: string }
 type SavedAttachment = { bytes: Uint8Array; localPath: string }
 
-/** 一次下载最多等这么久:签名、CDN 卡住时这一行照样交下去(文件那一支说没存下),不卡住整批。 */
-export type DisclosureRow = { agentUserId: string; chatId: string; threadRootId: string | null; key: string; reason: AgentFailureReason }
+export type DisclosureRow = { agentUserId: string; chatId: string; threadRootId: string | null; key: string; reason: AgentFailureReason; replyToMessageId?: string }
 
 /**
  * The failure row's content: what agents and clients that cannot read the reason see. Fixed English, so an agent reads the
@@ -344,6 +343,7 @@ export async function postDeliveryDisclosureRow(input: DisclosureRow, accessToke
       content: FAILURE_CONTENT[input.reason],
       content_type: 'system',
       client_message_id: turnFailureMarker(input.key, input.reason),
+      ...(input.replyToMessageId ? { reply_to_message_id: input.replyToMessageId } : {}),
       thread_root_id: input.threadRootId,
       is_thread_root: false,
     }),
@@ -910,7 +910,8 @@ async function discloseBatchFailure(
     const ids = chatMembers.map((member) => encodeTypedId('msg', member.row.id))
     const key = `turn-failure:batch:${createHash('sha256').update([agentUserId, ...ids].join(',')).digest('hex').slice(0, 32)}`
     try {
-      await post({ agentUserId, chatId, threadRootId: chatMembers[0]!.row.threadRootId, key, reason })
+      await post({ agentUserId, chatId, threadRootId: chatMembers[0]!.row.threadRootId, key, reason,
+        replyToMessageId: chatMembers.at(-1)!.row.id })
       log.warn({ agentUserId, chatId, messageIds: ids, key }, 'turn-failure disclosed to the source chat')
     } catch (error) {
       said = false
