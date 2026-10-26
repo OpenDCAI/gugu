@@ -63,6 +63,8 @@ export function createAssistantPanelRuntime(deps: {
     let scheduled: ReturnType<typeof setTimeout> | undefined
     let republish = false, disposed = false
     const watchers = new Map<string, FSWatcher>()
+    const collectionTimers = new Map<AssistantPanelDomain, ReturnType<typeof setTimeout>>()
+    const collections = new Map<AssistantPanelDomain, { promise: Promise<void>; again: boolean }>()
     const serial = <T>(work: () => Promise<T>): Promise<T> => {
       const next = tail.catch(() => undefined).then(work); tail = next; return next
     }
@@ -130,7 +132,7 @@ export function createAssistantPanelRuntime(deps: {
         ...deps.local.integrationCatalog().map(row => ({ key: `catalog:${row.id}`,data: { providerId: row.id,configured: false,displayName: row.en.name },
           bytes: new TextEncoder().encode(JSON.stringify({ version: 1,en: row.en,'zh-CN': row.zh })),contentType: 'application/json',
         })),
-        ...(await deps.local.integrations(binding.ownerId,schedulePublication)).map(({ publicMetadata,...row }) => {
+        ...(await deps.local.integrations(binding.ownerId,() => scheduleCollection('integrations'))).map(({ publicMetadata,...row }) => {
           const checkedAt = typeof row.checkedAt === 'number' ? row.checkedAt : Date.parse(String(row.checkedAt ?? ''))
           const { checkResult,checkedAt: _checkedAt,...metadata } = row
           return { key: JSON.stringify([row.providerId,row.accountId]),data: { ...metadata,
@@ -172,26 +174,59 @@ export function createAssistantPanelRuntime(deps: {
       },250)
       scheduled.unref()
     }
+    // Native library tools notify only after their atomic write is durable.
+    // Give that domain its own lane: a memory upload or integration check must
+    // not hold a newly created capability behind the full inventory sweep.
+    function scheduleCollection(domain: AssistantPanelDomain) {
+      if (disposed) return
+      clearTimeout(collectionTimers.get(domain))
+      const timer = setTimeout(() => {
+        collectionTimers.delete(domain)
+        void publishCollection(domain).catch(() => deps.failed(domain))
+      },100)
+      timer.unref(); collectionTimers.set(domain,timer)
+    }
+    const stopLibrary = deps.local.onLibraryChanged?.((ownerId,kind) => {
+      if (ownerId === binding.ownerId) scheduleCollection(kind === 'capabilities' ? 'capabilities' : 'device-notes')
+    })
+    const stopIntegrations = deps.local.onIntegrationsChanged?.(() => scheduleCollection('integrations'))
+    function publishCollection(domain: AssistantPanelDomain): Promise<void> {
+      const active = collections.get(domain)
+      if (active) { active.again = true; return active.promise }
+      const state = { promise: null as unknown as Promise<void>,again: false }
+      state.promise = (async () => {
+        do {
+          state.again = false
+          if (disposed) return
+          await auth()
+          const instanceId = deps.instanceId(),deviceId = await deps.deviceId()
+          if (!instanceId) throw new Error('PANEL_RUNTIME_LEASE_UNAVAILABLE')
+          await publishAssistantPanelCollection({ assistantId: binding.assistantId,instanceId,deviceId,domain,cloud,
+            collect: previous => observations(domain,previous),
+            upload: async row => uploadAssistantPanelBody({ ...await access(),name: `${row.key.split('/').pop() ?? domain}.bin`,bytes: row.bytes!,contentType: row.contentType ?? 'application/octet-stream' }),
+            discard: async itemId => {
+              const current = await auth()
+              const client = createGuguSupabaseClient({ schema: 'chat',headers: { Authorization: `Bearer ${current.accessToken}` } })
+              const { error } = await client.rpc('workspace_delete_as',{ p_item_id: itemId,p_as_user_id: binding.ownerId })
+              if (error) throw new Error('PANEL_UNUSED_BODY_CLEANUP_FAILED')
+            },
+            revoke: async (item,row) => application.apply({ operation_id: randomUUID(),revision: item.revision,assistant_user_id: binding.assistantId,
+              owner_user_id: binding.ownerId,domain,resource_key: row.key,device_id: deviceId,operation: 'remove',payload: { before: row.data },status: 'applied',error_code: null }),
+          })
+        } while (state.again && !disposed)
+      })().finally(() => { collections.delete(domain); if (state.again && !disposed) scheduleCollection(domain) })
+      collections.set(domain,state)
+      return state.promise
+    }
     function publish(): Promise<void> {
       if (publication) return publication
       publication = (async () => {
         if ((await hostAuth())?.userId !== binding.ownerId) { dispose(); return }
         await serial(() => prepare(''))
-        const instanceId = deps.instanceId()!, deviceId = await deps.deviceId()
         for (const domain of ['memory','personality','files','skills','voice-notes','schedules','capabilities','device-notes','integrations'] as const) {
+          if (disposed) break
           try {
-            await publishAssistantPanelCollection({ assistantId: binding.assistantId,instanceId,deviceId,domain,cloud,
-              collect: previous => observations(domain,previous),
-              upload: async row => uploadAssistantPanelBody({ ...await access(),name: `${row.key.split('/').pop() ?? domain}.bin`,bytes: row.bytes!,contentType: row.contentType ?? 'application/octet-stream' }),
-              discard: async itemId => {
-                const current = await auth()
-                const client = createGuguSupabaseClient({ schema: 'chat',headers: { Authorization: `Bearer ${current.accessToken}` } })
-                const { error } = await client.rpc('workspace_delete_as',{ p_item_id: itemId,p_as_user_id: binding.ownerId })
-                if (error) throw new Error('PANEL_UNUSED_BODY_CLEANUP_FAILED')
-              },
-              revoke: async (item,row) => application.apply({ operation_id: randomUUID(),revision: item.revision,assistant_user_id: binding.assistantId,
-                owner_user_id: binding.ownerId,domain,resource_key: row.key,device_id: deviceId,operation: 'remove',payload: { before: row.data },status: 'applied',error_code: null }),
-            })
+            await publishCollection(domain)
           } catch { deps.failed(domain) }
         }
         observeFiles()
@@ -202,8 +237,13 @@ export function createAssistantPanelRuntime(deps: {
     const refresh = setInterval(() => { void publish().catch(() => deps.failed('panel')) },30_000)
     refresh.unref()
     function dispose() {
+      if (disposed) return
       disposed = true; republish = false
       clearInterval(refresh); clearTimeout(scheduled)
+      stopLibrary?.()
+      stopIntegrations?.()
+      for (const timer of collectionTimers.values()) clearTimeout(timer)
+      collectionTimers.clear()
       for (const watcher of watchers.values()) watcher.close()
       watchers.clear()
     }

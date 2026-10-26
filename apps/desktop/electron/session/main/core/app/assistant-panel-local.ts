@@ -13,12 +13,14 @@ import { buildIntegrationListPayload } from '@main/core/integrations/integration
 import { listAgents } from '@gugu/core'
 import { agentMayBelongTo } from '@gugu/core/local/state/agentOwner'
 import type { AssistantPanelChange } from '@gugu/core/cloud/assistantPanel'
-import { readUserLibraryVolume, readUserLibraryEntry, writeUserLibraryEntry, removeUserLibraryEntry } from './user-library'
+import { readUserLibraryVolume, readUserLibraryEntry, writeUserLibraryEntry, removeUserLibraryEntry, onUserLibraryChanged } from './user-library'
 
 /** This bridge lives in the embedded module, beside the actual registries and
  * scheduler. The Electron host must not construct a second copy of either. */
 export const assistantPanelLocal = {
   integrationIndex: configuredIntegrationIndex,
+  onLibraryChanged: onUserLibraryChanged,
+  onIntegrationsChanged(listener: () => void) { return providerAccountRegistry.onChanged(listener) },
   async home(sessionId: string) {
     const row = (await getSessions()).find(row => row.id === sessionId && !row.archivedAt)
     if (!row?.workspaceId) throw new Error('PANEL_SESSION_HOME_UNAVAILABLE')

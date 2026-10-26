@@ -41,7 +41,7 @@ it('runs cloud reads and subscriptions in the shell across two module graphs and
   expect(paneMachine!.panel!.ownerId).toBe('owner')
   expect(await paneMachine!.panel!.body(item)).toEqual(new TextEncoder().encode('cloud memory'))
   expect(world.readBody.mock.calls.at(-1)![1]).toMatchObject({ token: 'private-owner',ownerId: 'owner',chatId: 'chat' })
-  expect(world.subscribe).toHaveBeenCalledWith('owner','assistant_panel_changed',expect.any(Function))
+  expect(world.subscribe).toHaveBeenCalledWith('owner','assistant_panel_changed',expect.any(Function),{onSubscribed:expect.any(Function)})
   await paneMachine!.panel!.write(paneMachine!.panel!.paths.instructions,new TextEncoder().encode('New owner agreement'),'text/plain')
   expect(world.rpc).toHaveBeenCalledWith('assistant_panel_commit',expect.objectContaining({ p_data: { text: 'New owner agreement' } }))
   const paneBridge = await import('@/lib/assistantPanelBridge')
