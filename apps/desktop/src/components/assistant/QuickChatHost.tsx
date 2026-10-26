@@ -25,12 +25,14 @@ export function QuickChatHost({
   assistantState,
   chatId,
   chatFailed,
+  chatError,
   retryChat,
 }: {
   assistant: QuickChatAssistant | null
   assistantState: 'found' | 'loading' | 'none' | 'unreadable'
   chatId: string | null
   chatFailed: boolean
+  chatError?: string
   retryChat: () => void
 }) {
   const { t } = useTranslation('assistant')
@@ -100,6 +102,7 @@ export function QuickChatHost({
       assistantState={assistantState}
       chatId={chatId}
       chatFailed={chatFailed}
+      chatError={chatError}
       retryChat={retryChat}
       visible={visible}
       shortcut={shortcut}

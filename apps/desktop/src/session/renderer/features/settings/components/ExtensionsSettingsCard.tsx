@@ -106,7 +106,7 @@ function marketStaleTime(iso: string, locale: string): string {
   ).format(at);
 }
 
-const errorMessage = (error: unknown) => (error instanceof Error ? error.message : String(error));
+const errorMessage = messageForUser;
 
 const GROUP_LABEL = {
   attention: 'extensions.groupAttention',

@@ -64,7 +64,7 @@ export const enUSProjectMessages = {
   'browser.screenshotCopied': 'Screenshot copied to clipboard',
   'browser.screenshotFailed': 'Could not capture screenshot',
   'browser.clearDataFailed': 'Could not clear browser data',
-  'browser.clearDataFailedDetail': 'Try again, or reload the browser view manually.',
+  'browser.clearDataFailedDetail': 'This browser tab is no longer open.',
   'browser.clearDataRequestFailed': 'The browser data request failed.',
   'browser.clearStorageTitle': 'Clear browser storage?',
   'browser.clearStorageDescription':
@@ -279,7 +279,7 @@ export const zhCNProjectMessages: Record<ProjectMessageKey, string> = {
   'browser.screenshotCopied': '截图已复制到剪贴板',
   'browser.screenshotFailed': '无法截图',
   'browser.clearDataFailed': '无法清除浏览器数据',
-  'browser.clearDataFailedDetail': '请重试，或手动重新加载浏览器视图。',
+  'browser.clearDataFailedDetail': '这个浏览器页签已经关闭。',
   'browser.clearDataRequestFailed': '清除浏览器数据的请求失败。',
   'browser.clearStorageTitle': '清除浏览器存储？',
   'browser.clearStorageDescription':

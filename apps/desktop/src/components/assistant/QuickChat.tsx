@@ -32,6 +32,7 @@ export function QuickChat({
   assistantState,
   chatId,
   chatFailed,
+  chatError,
   retryChat,
   visible,
   shortcut,
@@ -42,6 +43,7 @@ export function QuickChat({
   assistantState: 'found' | 'loading' | 'none' | 'unreadable'
   chatId: string | null
   chatFailed: boolean
+  chatError?: string
   retryChat: () => void
   visible: boolean
   shortcut: string
@@ -69,7 +71,7 @@ export function QuickChat({
       ) : assistantState === 'unreadable' ? (
         <QuickNote title={t('quickChat.unreadableTitle')} body={t('quickChat.unreadable')} action={t('quickChat.openApp')} onAction={onOpenMain} testId="quick-chat-unreadable" />
       ) : chatFailed ? (
-        <QuickNote title={t('quickChat.chatFailedTitle', { name })} body={t('quickChat.chatFailed')} action={t('machine.retry')} onAction={retryChat} testId="quick-chat-failed" />
+        <QuickNote title={t('quickChat.chatFailedTitle', { name })} body={chatError ?? t('quickChat.chatFailed')} action={t('machine.retry')} onAction={retryChat} testId="quick-chat-failed" />
       ) : assistantState === 'loading' || !chatId ? (
         <QuickNote loading body={t('quickChat.opening', { name })} />
       ) : (

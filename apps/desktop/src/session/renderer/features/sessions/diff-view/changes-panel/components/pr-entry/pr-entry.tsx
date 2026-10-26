@@ -78,7 +78,7 @@ export const PullRequestEntry = observer(function PullRequestEntry({ pr }: { pr:
       if (!result.success) {
         toast({
           title: translate(bypassRequirements ? 'pr.mergeBypassFailed' : 'pr.mergeFailed'),
-          description: result.error,
+          description: messageForUser(result.error),
           variant: 'destructive',
         });
       }

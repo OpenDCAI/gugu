@@ -1,3 +1,4 @@
+import { messageForUser } from '@/lib/userFacingError';
 import type { MessageItem } from '@gugu/core/shared/types/chat'
 import { reaction } from 'mobx'
 import { observer } from 'mobx-react-lite'
@@ -367,8 +368,8 @@ export const GroupAppSlot = observer(function GroupAppSlot(props: GroupAppSlotPr
           ? await appsHere.installAttachment({ ...installPackageOf(offer.from.card), chatId: props.chatId })
           : await appsHere.installFromMarket({ ref: { extensionId: offer.from.extensionId, version: offer.from.version }, chatId: props.chatId })
       if (!result.success) {
-        log.warn({ appName: offer.appName, from: offer.from.kind, error: result.error }, 'the App offered for a file did not install')
-        setOfferFailed(t('chatArea.openWith.installFailed'))
+        log.error({ appName: offer.appName, from: offer.from.kind, error: result.error }, 'the App offered for a file did not install')
+        setOfferFailed(messageForUser(result.error))
         return
       }
       if (result.data && isInstallRefused(result.data)) {
@@ -378,6 +379,9 @@ export const GroupAppSlot = observer(function GroupAppSlot(props: GroupAppSlotPr
       }
       if (!result.data?.installed) return
       setOffer(null)
+    } catch (error) {
+      log.error({ error }, 'the App offered for a file did not install')
+      setOfferFailed(messageForUser(error))
     } finally {
       setInstallingOffer(false)
     }
@@ -489,12 +493,15 @@ export const GroupAppSlot = observer(function GroupAppSlot(props: GroupAppSlotPr
     try {
       const result = await appsHere.installAttachment({ ...installPackageOf(pkg.card), chatId: props.chatId })
       if (!result.success || !result.data) {
-        log.warn({ package: packageKey(pkg.card), error: result.error }, "the group's App update did not install")
-        setUpdateFailed(t('chatArea.openWith.installFailed'))
+        log.error({ package: packageKey(pkg.card), error: result.error }, "the group's App update did not install")
+        setUpdateFailed(messageForUser(result.error))
       } else if (isInstallRefused(result.data)) {
         log.info({ package: packageKey(pkg.card), reason: result.data.reason }, "the group's App update was refused")
         setUpdateFailed(refusedLine(result.data))
       }
+    } catch (error) {
+      log.error({ error }, "the group's App update did not install")
+      setUpdateFailed(messageForUser(error))
     } finally {
       setUpdating(false)
     }

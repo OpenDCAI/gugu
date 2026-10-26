@@ -11,7 +11,7 @@ export type PhoneAssistantStage =
   | { stage: 'onboarding'; snapshot: CloudComputerSnapshot | null }
   | { stage: 'identity'; state: 'loading' | 'unreadable' }
   | { stage: 'chat-opening' }
-  | { stage: 'chat-failed'; retry: () => void }
+  | { stage: 'chat-failed'; error?: string; retry: () => void }
   | { stage: 'ready' }
 
 /** 这一格此刻是哪一步(纯函数,单测直接测):先看它和私聊,再看认它那一步,再看管家,最后才是引导。 */
@@ -19,6 +19,7 @@ export function phoneAssistantStage(input: {
   found: boolean
   chatId: string | null
   chatFailed: boolean
+  chatError?: string
   retryChat: () => void
   snapshot: CloudComputerSnapshot | null
   /** 管家那边有结论了(没开放 / 有快照 / 没问到但知道原因):false = 还在读。 */
@@ -28,7 +29,7 @@ export function phoneAssistantStage(input: {
 }): PhoneAssistantStage {
   const { found, chatId, snapshot, identity } = input
   if (found && chatId) return { stage: 'ready' }
-  if (found) return input.chatFailed ? { stage: 'chat-failed', retry: input.retryChat } : { stage: 'chat-opening' }
+  if (found) return input.chatFailed ? { stage: 'chat-failed', ...(input.chatError ? { error: input.chatError } : {}), retry: input.retryChat } : { stage: 'chat-opening' }
   // 标记读到了、通讯录里还没有那一位 = 还在读(开通刚建好它),❌ 说「没有」。
   if (identity.loading || identity.agentId) return { stage: 'identity', state: 'loading' }
   // 读不到 ≠ 没有它:如实说读不到,❌ 把人送进「安家」再建一个。

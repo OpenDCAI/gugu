@@ -73,7 +73,7 @@ export function archiveSessionNow(args: { projectId: string; sessionId: string; 
       log.error('[gugu-archive] 归档会话失败', { sessionId, error: String(error) });
       toast({
         title: translateSessionMessage('task.archiveTaskFailed'),
-        description: translateSessionMessage('task.archiveTaskFailedHint'),
+        description: messageForUser(error),
         variant: 'destructive',
       });
     }

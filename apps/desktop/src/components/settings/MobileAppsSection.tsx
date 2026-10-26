@@ -1,3 +1,4 @@
+import { messageForUser } from '@/lib/userFacingError';
 import { followLink } from '../../lib/guguLinks'
 import { useEffect, useRef, useState } from 'react'
 import { observer } from 'mobx-react-lite'
@@ -61,8 +62,8 @@ const MobileAppsContent = observer(function MobileAppsContent() {
 
   useEffect(() => {
     void phoneApps.ready().catch((error: unknown) => {
-      log.warn({ error: String(error) }, 'Phone Apps unreadable')
-      setFailed(translateSessionMessage('extensions.loadFailed'))
+      log.error({ error: String(error) }, 'Phone Apps unreadable')
+      setFailed(messageForUser(error))
     })
     const off = phoneApps.market.onRefreshed((result) => {
       if (result.outcome === 'changed') void client.invalidateQueries({ queryKey: MARKET_KEY })
@@ -98,12 +99,12 @@ const MobileAppsContent = observer(function MobileAppsContent() {
     try {
       const result = await run()
       if (!result.success) {
-        log.warn({ id, error: result.error }, 'Phone App action failed')
-        setFailed(translate('extensions.installFailed'))
+        log.error({ id, error: result.error }, 'Phone App action failed')
+        setFailed(messageForUser(result.error))
       }
     } catch (error) {
-      log.warn({ id, error: String(error) }, 'Phone App action failed')
-      setFailed(translate('extensions.installFailed'))
+      log.error({ id, error: String(error) }, 'Phone App action failed')
+      setFailed(messageForUser(error))
     } finally {
       inFlight.current = false
       setPending({})
@@ -121,7 +122,7 @@ const MobileAppsContent = observer(function MobileAppsContent() {
       if (kind) void followLink({ kind: 'app', extensionId: item.manifest.id, tab: kind.slice(item.manifest.id.length + 1), path: '', query: {}, place: null })
     }
   }
-  const error = failed ? <SettingsNote tone="danger" role="alert">{failed}</SettingsNote> : null
+  const error = failed ? <SettingsNote tone="danger" role="alert">{translate('extensions.installFailed')}<br />{failed}</SettingsNote> : null
   const installed = detail ? store.manifests.find((manifest) => manifest.id === detail.manifest.id) : undefined
 
   return (

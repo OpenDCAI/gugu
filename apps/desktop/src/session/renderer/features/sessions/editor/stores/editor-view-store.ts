@@ -7,14 +7,12 @@ import {
   isAbsoluteFilePath,
 } from '@renderer/lib/monaco/monacoModelPath';
 import type { Snapshottable } from '@renderer/lib/stores/snapshottable';
-import { toast } from '@renderer/lib/hooks/use-toast';
-import { translateSessionMessage } from '@renderer/localization/locale-store';
 import { log } from '@renderer/utils/logger';
 import type { EditorViewSnapshot } from '@shared/view-state';
 import { allFileResources, allOpenFileResources } from '../pane-selectors';
 import type { FileTabResource } from './file-tab-resource';
 import { FilesStore } from './files-store';
-import { workspaceBackend, workspaceRpc } from '@renderer/features/sessions/workspace-backend/workspace-backend';
+import { workspaceRpc } from '@renderer/features/sessions/workspace-backend/workspace-backend';
 
 /**
  * Manages file persistence (save) and sidebar navigation state.
@@ -136,20 +134,7 @@ export class EditorViewStore implements Snapshottable<EditorViewSnapshot> {
       this.isSaving = true;
     });
     try {
-      const result = await modelRegistry.saveFileToDisk(uri);
-      if (result === null) {
-        log.error('[EditorViewStore] Failed to save file:', uri);
-        const filePath = modelRegistry.filePathForUri(uri) ?? uri;
-        const name = filePath.split('/').pop() ?? filePath;
-        const machine = workspaceBackend(this.projectId).machine;
-        toast({
-          title:
-            machine.kind === 'remote'
-              ? translateSessionMessage('file.saveFailedOn', { name, device: machine.label() })
-              : translateSessionMessage('file.saveFailed', { name }),
-          variant: 'destructive',
-        });
-      }
+      await modelRegistry.saveFileToDisk(uri);
     } catch (error) {
       log.error('[EditorViewStore] Error saving file:', error);
     } finally {

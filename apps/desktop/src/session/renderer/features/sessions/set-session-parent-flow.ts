@@ -1,3 +1,4 @@
+import { messageForUser } from '@/lib/userFacingError';
 import { runInAction } from 'mobx';
 import { toast } from '@renderer/lib/hooks/use-toast';
 import { rpcOn } from '@renderer/lib/ipc';
@@ -68,7 +69,7 @@ function nestFailed(child: SessionRef, parent: SessionRef | null, error: unknown
     title: translateSessionMessage('sidebar.nestFailed', { child: child.title }),
     description: cycle
       ? translateSessionMessage('sidebar.nestCycleHint', { parent: parent.title })
-      : translateSessionMessage('sidebar.nestFailedHint'),
+      : messageForUser(error),
     variant: 'destructive',
   });
 }

@@ -12,7 +12,7 @@
 import { Show } from 'solid-js';
 import { IconCheck, IconCopy } from './icons';
 import { createClipboard } from './use-clipboard';
-import { copyButtonInline, copyButtonOverlay } from './copy-button.css';
+import { copyButtonInline, copyButtonOverlay, copyFailureText } from './copy-button.css';
 import { useChatTranslator, type ChatTranslationKey } from '@session-chat/localization';
 
 export type CopyButtonProps = {
@@ -30,7 +30,7 @@ export type CopyButtonProps = {
 };
 
 export function CopyButton(props: CopyButtonProps) {
-  const { copied, copy } = createClipboard();
+  const { copied, failed, copy } = createClipboard();
   const translate = useChatTranslator();
   /**
    * 可访问名与可见标签的**单一来源**。
@@ -41,7 +41,7 @@ export function CopyButton(props: CopyButtonProps) {
    * 现在两处都从这里取值，那个分叉在结构上不可能再出现。
    */
   const label = () => translate(props.labelKey ?? 'transcript.copy');
-  const ariaLabel = () => (copied() ? `${label()} - ${translate('transcript.copied')}` : label());
+  const ariaLabel = () => failed() ?? (copied() ? `${label()} - ${translate('transcript.copied')}` : label());
 
   if (props.variant === 'overlay') {
     return (
@@ -49,8 +49,11 @@ export function CopyButton(props: CopyButtonProps) {
         type="button"
         class={copyButtonOverlay}
         aria-label={ariaLabel()}
+        title={ariaLabel()}
+        data-copy-failed={failed() ? '' : undefined}
         onClick={() => copy(props.text)}
       >
+        <Show when={failed()}><span class={copyFailureText} role="alert">{failed()}</span></Show>
         <Show when={copied()} fallback={<IconCopy />}>
           <IconCheck />
         </Show>
@@ -63,12 +66,14 @@ export function CopyButton(props: CopyButtonProps) {
       type="button"
       class={copyButtonInline}
       aria-label={ariaLabel()}
+        title={ariaLabel()}
+        data-copy-failed={failed() ? '' : undefined}
       onClick={() => copy(props.text)}
     >
       <Show when={copied()} fallback={<IconCopy />}>
         <IconCheck />
       </Show>
-      <span>{copied() ? translate('transcript.copied') : label()}</span>
+      <span class={copyFailureText} role={failed() ? 'alert' : undefined}>{failed() ?? (copied() ? translate('transcript.copied') : label())}</span>
     </button>
   );
 }

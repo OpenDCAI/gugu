@@ -1,3 +1,4 @@
+import { messageForUser } from '@/lib/userFacingError';
 import { safeFailureLine } from '../sessions/gugu-reason';
 import { commandRegistry } from '@renderer/lib/commands/registry';
 import { dissolveScreenGroup, isScreenView, showSessionBeside, takeSessionOutOfGroup } from '@renderer/app/screen-layout-actions';
@@ -228,17 +229,17 @@ export const SidebarSessionItem = observer(function SidebarSessionItem({
           .catch((error: unknown) => {
             toast({
               title: translate('sidebar.forkFailed'),
-              description: error instanceof Error ? error.message : String(error),
+              description: messageForUser(error),
               variant: 'destructive',
             });
           });
       },
       {
         timeout: 15_000,
-        onError: () => {
+        onError: (error) => {
           toast({
             title: translate('sidebar.forkFailed'),
-            description: translate('sidebar.workspaceNotReady'),
+            description: messageForUser(error),
             variant: 'destructive',
           });
         },

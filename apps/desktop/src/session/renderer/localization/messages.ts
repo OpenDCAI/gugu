@@ -10,6 +10,15 @@ import { enUSAgentStatusMessages, zhCNAgentStatusMessages } from './messages-age
 import { enUSAppSettingsMessages, zhCNAppSettingsMessages } from './messages-app-settings';
 
 const enUSCoreMessages = {
+  'taskError.connectionLost': 'The connection to the machine was lost. Try again when it reconnects.',
+  'terminal.createFailed': 'Could not open terminal',
+  'transcript.copyFailed': 'Could not copy',
+  'externalLink.openFailed': 'Could not open link',
+  'github.authFailed': 'Could not sign in to GitHub',
+  'sidebar.addProjectFailed': 'Could not add project',
+  'sidebar.dropFolderRequired': 'Drop a folder to add a project.',
+  'sidebar.dropGitRequired': '{name} is not a Git repository.',
+  'resourceMonitor.popupBlocked': 'The monitor window was blocked by the browser.',
   'common.back': 'Back',
   'common.cancel': 'Cancel',
   'common.save': 'Save',
@@ -931,6 +940,15 @@ const enUSCoreMessages = {
 type CoreSessionMessageKey = keyof typeof enUSCoreMessages;
 
 const zhCNCoreMessages: Record<CoreSessionMessageKey, string> = {
+  'taskError.connectionLost': '与机器的连接已断开，请在重新连上后再试。',
+  'terminal.createFailed': '终端没能打开',
+  'transcript.copyFailed': '没能复制',
+  'externalLink.openFailed': '链接没能打开',
+  'github.authFailed': '没能登录 GitHub',
+  'sidebar.addProjectFailed': '没能添加项目',
+  'sidebar.dropFolderRequired': '请拖入文件夹来添加项目。',
+  'sidebar.dropGitRequired': '{name} 不是 Git 仓库。',
+  'resourceMonitor.popupBlocked': '浏览器阻止了监视窗弹出。',
   'common.back': '返回',
   'common.cancel': '取消',
   'common.save': '保存',

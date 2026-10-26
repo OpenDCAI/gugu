@@ -1,3 +1,4 @@
+import { messageForUser } from '@/lib/userFacingError';
 import { Check, ChevronDown, Ellipsis, Eraser, Pencil, Plus, Trash2, X } from '@/lib/icons'
 import { useEffect, useRef, useState } from 'react';
 import { browserControlsRegistry } from '@renderer/features/browser/browser-controls-registry';
@@ -103,7 +104,7 @@ export function BrowserSettingsCard() {
       if (!result.success) {
         toast({
           title: translate('browserSettings.clearBrowsingDataFailed'),
-          description: translate('browserSettings.clearBrowsingDataFailedHint'),
+          description: messageForUser(result.error),
           variant: 'destructive',
         });
         return;
@@ -113,7 +114,6 @@ export function BrowserSettingsCard() {
     } catch (error) {
       toast({
         title: translate('browserSettings.clearBrowsingDataFailed'),
-        // @@@raw detail — 未知错误原文不改写。
         description: errorMessage(error),
         variant: 'destructive',
       });
@@ -543,7 +543,7 @@ function ImportLoginsRow({
       }
       toast({
         title: translate('browserSettings.importFailed', { browser: name }),
-        description: translate(`browserSettings.importFailedReason.${result.reason}`, { browser: name }),
+        description: result.detail ? messageForUser(result.detail) : translate(`browserSettings.importFailedReason.${result.reason}`, { browser: name }),
         variant: 'destructive',
       });
     } finally {
@@ -629,7 +629,7 @@ async function deleteProfileAfterStorageClear({
     if (!clearResult.success) {
       toast({
         title: translate('browserSettings.deleteProfileFailed'),
-        description: translate('browserSettings.deleteProfileKept'),
+        description: translate('browserSettings.clearProfileStorageMissing'),
         variant: 'destructive',
       });
       return;
@@ -665,7 +665,7 @@ function reloadBrowserSessionsForProfile(profileId: string): void {
 }
 
 function errorMessage(error: unknown): string {
-  return error instanceof Error ? error.message : String(error);
+  return messageForUser(error);
 }
 
 function makeProfileId(name: string, profiles: readonly BrowserProfile[]): string {

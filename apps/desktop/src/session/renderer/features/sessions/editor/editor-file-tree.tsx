@@ -1,3 +1,4 @@
+import { messageForUser } from '@/lib/userFacingError';
 import { safeFailureLine } from '../gugu-reason';
 import { log } from '@renderer/utils/logger';
 // 会话工作区的文件树 —— 一棵,不管会话在哪台机器上(#6264:别的机器上的会话同一棵树,数据经工作区后端来)。
@@ -177,7 +178,7 @@ function confirmDelete(ctx: TreeContext, node: RenderableFileNode, translate: Tr
       return;
     }
     await ctx.scope.files?.registerDir(parent, true);
-    toast({ title: translate('fileTree.deleteFailed'), description: result.failure.message || translate('fileTree.deleteFailedDetail'), tier: 'error' });
+    toast({ title: translate('fileTree.deleteFailed'), description: messageForUser(result.failure.message), tier: 'error' });
   };
   if (ctx.tree.deleteMode === 'trash') {
     showModal('confirmActionModal', {
@@ -369,7 +370,7 @@ const FileTreeRow = observer(function FileTreeRow({
     } catch (error) {
       toast({
         title: translate('fileTree.showFailed'),
-        description: error instanceof Error ? error.message : translate('fileTree.showFailedDetail'),
+        description: messageForUser(error),
         variant: 'destructive',
       });
     }

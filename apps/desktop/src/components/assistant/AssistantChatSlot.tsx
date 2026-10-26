@@ -144,6 +144,7 @@ function AssistantChatSlotContent({ dm, assistantId, assistantName, visible, ...
     return (
       <div className="flex flex-1 flex-col items-center justify-center gap-3 text-sm text-[var(--text-secondary)]" data-testid="assistant-chat-pending">
         <p>{failed ? t('chat.openFailed', { name: assistantName }) : t('chat.opening', { name: assistantName })}</p>
+        {failed && dm.error ? <p role="alert">{dm.error}</p> : null}
         {failed && <Button size="sm" onClick={retry}>{t('machine.retry')}</Button>}
       </div>
     )

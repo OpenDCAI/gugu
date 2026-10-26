@@ -59,7 +59,7 @@ export function MobileAssistantGate({ stage, name, ownerName }: { stage: Exclude
       case 'chat-failed':
         return (
           <>
-            <p className="ta-intro-body" role="alert">{t('chat.openFailed', { name: who })}</p>
+            <p className="ta-intro-body" role="alert">{t('chat.openFailed', { name: who })}<br />{stage.error}</p>
             <Button variant="ghost" className="ta-pill-btn" onClick={stage.retry} data-testid="mobile-assistant-chat-retry">
               {t('machine.retry')}
             </Button>
