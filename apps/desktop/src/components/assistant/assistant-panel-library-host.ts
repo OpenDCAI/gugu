@@ -3,6 +3,7 @@ import type { LibraryHost, LibraryIntegrationsRpc, LibraryGithubRpc } from '@/se
 import type { GitHubAccountSummary } from '@/session/shared/github'
 import { readAssistantPanelIntegrations } from './assistant-panel-integrations'
 import { translateSessionMessage } from '@/session/renderer/localization/locale-store'
+import { waitForAssistantControl } from '@/lib/assistantControlReady'
 
 /** Read-only cloud metadata plus explicit existing authorization actions. */
 export function assistantPanelLibraryHost(base: LibraryHost, panel: AssistantPanelFiles | undefined, prepare: () => Promise<void>,loadError?: unknown): LibraryHost {
@@ -14,6 +15,14 @@ export function assistantPanelLibraryHost(base: LibraryHost, panel: AssistantPan
     await requirePanel().assertCurrent()
     await prepare()
     await requirePanel().assertCurrent()
+    if (base.remote) {
+      try {
+        await waitForAssistantControl(() => base.integrations.checkConfiguredConnections(), () => requirePanel().assertCurrent())
+      } catch (cause) {
+        await requirePanel().assertCurrent()
+        throw new Error(translateSessionMessage('deviceScope.unreachable', { device: base.remote.deviceLabel }), { cause })
+      }
+    }
     prepared = true
     for (const subscription of subscriptions) subscription.attach()
   }
