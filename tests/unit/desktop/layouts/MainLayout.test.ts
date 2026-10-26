@@ -2,6 +2,7 @@
 import { readFileSync } from 'node:fs'
 import { act, useEffect, type ReactNode } from 'react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+import { createDraftWriter } from '../../../../apps/desktop/src/store/chatDraftWrites'
 import { MainLayout } from '../../../../apps/desktop/src/layouts/MainLayout'
 import { AUTOMATION_TEST_IDS } from '../../../../apps/desktop/src/lib/automationDom'
 import { UI_EVENTS } from '../../../../apps/desktop/src/lib/uiEvents'
@@ -206,8 +207,9 @@ vi.mock('../../../../apps/desktop/src/components/AcpAgentCreateComposer', async 
 vi.mock('../../../../apps/desktop/src/components/ContactsPanel', async () => {
   const React = await vi.importActual<typeof import('react')>('react')
   return {
-    ContactsPanel: ({ onOpenAgentCreateDraft }: { onOpenAgentCreateDraft?: () => void }) => (
+    ContactsPanel: ({ onOpenAgentCreateDraft, onSwitchToChat }: { onOpenAgentCreateDraft?: () => void; onSwitchToChat?: (target: { id: string; type: 'human'; display_name: string }, draft: string) => Promise<void> }) => (
       React.createElement('div', { 'data-testid': 'mock-contacts-panel' },
+        React.createElement('button', { 'data-testid': 'mock-contact-draft', onClick: () => void onSwitchToChat?.({ id: 'recipient', type: 'human', display_name: 'Recipient' }, 'initial private draft') }, 'write to contact'),
         onOpenAgentCreateDraft
           ? React.createElement('button', { type: 'button', 'data-testid': 'mock-contacts-create-agent', onClick: onOpenAgentCreateDraft }, 'create agent')
           : null)
@@ -283,7 +285,7 @@ const { platformMock, chatStoreMock, chatServiceMock, draftValues } = vi.hoisted
     setActiveChatId: vi.fn(),
     refreshChats: vi.fn(),
     upsertChat: vi.fn(),
-    setDraft: vi.fn(),
+    writeDraft: vi.fn(),
     sendMessageToChat: vi.fn(),
     // The shell hears App packages sent in any chat (摩擦单 F66, ExtensionForwardHost).
     subscribeAccountRevision: vi.fn(() => () => undefined),
@@ -340,16 +342,14 @@ beforeEach(() => {
   chatStoreMock.setActiveChatId.mockReset()
   chatStoreMock.refreshChats.mockReset()
   chatStoreMock.upsertChat.mockReset()
-  chatStoreMock.setDraft.mockReset()
+  chatStoreMock.writeDraft.mockReset()
   chatStoreMock.sendMessageToChat.mockReset()
   chatStoreMock.sendMessageToChat.mockResolvedValue(MESSAGE_ID)
   draftValues.clear()
-  chatStoreMock.setDraft.mockImplementation(
-    (chatId: string, update: string | ((current: string) => string)) => {
-      const next = typeof update === 'function' ? update(draftValues.get(chatId) ?? '') : update
-      draftValues.set(chatId, next)
-    },
-  )
+  chatStoreMock.writeDraft.mockImplementation(createDraftWriter(() => ({
+    drafts: Object.fromEntries(draftValues),
+    setDraft: (id, update) => { draftValues.set(id, update(draftValues.get(id) ?? '')) },
+  })).writeDraft)
   chatServiceMock.getOrCreateDM.mockReset()
   phoneAssistantMock.state.available = false
   phoneAssistantMock.state.assistant = null
@@ -1084,7 +1084,7 @@ describe('MainLayout: personal assistant destinations', () => {
       expect(navigate).toHaveBeenCalledWith('assistant')
       expect(chatStoreMock.setActiveChatId).not.toHaveBeenCalled()
       if ('itemId' in detail) expect((takeChatAsk('personal-dm') as { itemId?: string } | null)?.itemId).toBe('personal-file')
-      if ('text' in detail) expect(chatStoreMock.setDraft).toHaveBeenCalledWith('personal-dm', expect.any(Function))
+      if ('text' in detail) expect(chatStoreMock.writeDraft).toHaveBeenCalledWith('personal-dm', { at: 'end', text: 'follow-up' })
     } finally { navigate.mockRestore() }
   })
 
@@ -1171,4 +1171,19 @@ describe('MainLayout: message link presentation identity', () => {
     expect(revealRoute.asked).toHaveBeenLastCalledWith(taskChat, MESSAGE_ID, 'assistant:task-chat')
   })
 
+})
+
+
+describe('MainLayout: initial private-chat drafts', () => {
+  it.each([true, false])('writes the draft through the shared entry when existing=%s', async (existing) => {
+    platformMock.kind = 'web'
+    platformMock.capabilities.sessionHost = false
+    if (existing) chatStoreMock.chats = [{ id: 'private-chat', kind: 'dm', peer_user_id: 'recipient' }] as never
+    chatServiceMock.getOrCreateDM.mockResolvedValue('private-chat')
+    await harness.render(createNode(MainLayout, { user: { id: 'user-1', email: 'user@example.com', nickname: 'User' } }))
+    await clickElement(harness.container.querySelector<HTMLElement>('[data-testid="mock-open-contacts"]')!)
+    await clickElement(harness.container.querySelector<HTMLElement>('[data-testid="mock-contact-draft"]')!)
+    expect(chatStoreMock.writeDraft).toHaveBeenCalledWith('private-chat', 'initial private draft')
+    expect(draftValues.get('private-chat')).toBe('initial private draft')
+  })
 })
