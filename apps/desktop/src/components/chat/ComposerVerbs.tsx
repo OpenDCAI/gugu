@@ -21,7 +21,7 @@ const SLOT_VERBS_STYLE = { gap: sessionComposerBox.toolbarGapPx } as const
 export function ComposerVerbs({ chatId, isGroupChat, draft, onCarried }: {
   chatId: string | null | undefined
   isGroupChat: boolean
-  draft: string
+  draft: () => string
   onCarried: () => void
 }) {
   const { t } = useTranslation('messaging')
@@ -32,8 +32,9 @@ export function ComposerVerbs({ chatId, isGroupChat, draft, onCarried }: {
   const pick = (verb: ComposerVerb) => {
     if (inSlot) {
       const chat = chats.find((candidate) => candidate.id === chatId)
-      setComposerVerb(chatId, verb, draft, { name: chat?.name ?? '', joinable: chat?.kind === 'group' })
-      if (draft.trim()) onCarried()
+      const carry = draft()
+      setComposerVerb(chatId, verb, carry, { name: chat?.name ?? '', joinable: chat?.kind === 'group' })
+      if (carry.trim()) onCarried()
       return
     }
     window.dispatchEvent(new CustomEvent(UI_EVENTS.createAgentInGroup, { detail: { chatId } }))
