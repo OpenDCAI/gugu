@@ -64,8 +64,9 @@ export const EXTENSION_THEME_CHANNEL = 'gugu-ext:theme';
  * (manifest.ts): an App that never handed anything to anyone runs as it did.
  * 16 (10-26, owner「根据该页面自己的声明」): a tab's `sideWidth` says how wide its page is beside a chat or a task's
  * conversation. Earlier strict schemas refuse the field: the market hands those clients the App's last version for 15.
+ * 17: explicit-device App programs, read-only external session history/context, and dispatch spawn.device.
  */
-export const EXTENSION_API_VERSION = 16;
+export const EXTENSION_API_VERSION = 17;
 
 /**
  * The page `app_check` runs is started with this argument (摩擦单 F5, F69): it says how often it wrote, set presence and
@@ -731,6 +732,9 @@ export const BRIDGE_VERBS = {
    * hand over the conversation to get a status light.
    */
   readAgentHistory: { needs: 'agents:history' },
+  /** External CLI history is every session, never only the agents this App started. */
+  sessionsIndex: { needs: 'agents:history:all', machine: true },
+  sessionsRead: { needs: 'agents:history:all', machine: true },
   /**
    * Stopping one of the agents this App reaches (starting one, telling one: `dispatch`).
    *

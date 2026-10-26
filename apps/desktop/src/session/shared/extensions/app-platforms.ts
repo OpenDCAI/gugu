@@ -20,7 +20,7 @@ export const PHONE_CAPABILITY_SUPPORT = {
   'agents:read:all': 'agent',
   'agents:read:all-machines': 'available',
   'agents:history': 'agent',
-  'agents:history:all': 'agent',
+  'agents:history:all': 'available',
   'agents:control': 'available',
   'agents:control:all': 'agent',
   'agents:control:all-machines': 'available',

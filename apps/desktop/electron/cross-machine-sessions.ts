@@ -408,6 +408,11 @@ export function createCrossMachineSessions(deps: CrossMachineDeps) {
     return await call(deviceId, { kind: 'app', deviceId: here.deviceId, deviceLabel: here.label, ...app } satisfies RemoteAppCaller, action)
   }
 
+  const appSpawn: OtherMachines['appSpawn'] = async (app, deviceId, action) => {
+    const here = await thisDevice()
+    return await call(deviceId, { kind: 'app', deviceId: here.deviceId, deviceLabel: here.label, ...app } satisfies RemoteAppCaller, action) as { agentId: string }
+  }
+
   /** 对端:答 `agentSession.<name>`。信任边界是账号(频道只对本账号开),这里认形状与调用方;错误带 `code` 原样回到发起方。 */
   const answer = async (name: AgentSessionActionName, rawCaller: unknown, rawAction: unknown, host: AgentSessionHost): Promise<unknown> => {
     const parsed = parseAgentSessionRequest(name, rawCaller, rawAction)
@@ -438,6 +443,10 @@ export function createCrossMachineSessions(deps: CrossMachineDeps) {
   }
 
   return {
+    devices: async () => {
+      const { thisDeviceId, rows } = await devices()
+      return rows.map(({ device_id, label, is_online }) => ({ deviceId: device_id, label, online: is_online, thisMachine: device_id === thisDeviceId }))
+    },
     async listDeviceRows() {
       const [{ thisDeviceId, rows }, cloud] = await Promise.all([
         devices(),
@@ -488,6 +497,7 @@ export function createCrossMachineSessions(deps: CrossMachineDeps) {
     appMessage,
     appReadFile,
     appCall,
+    appSpawn,
     messageDeps,
     assertFileHandoffSupported,
     answer,
@@ -517,6 +527,7 @@ export function parseAgentSessionRequest(
     if (name === 'spawn') {
       try {
         const checked = dispatchCallOf({ text: action.prompt, to: { new: true }, spawn: action.spawn })
+        if (checked.spawn.device !== undefined) return { error: 'an App spawn is already routed to its device; spawn.device must be absent' }
         return {
           caller: { kind: 'app', deviceId, deviceLabel: text('deviceLabel'), extensionId, extensionName },
           action: { action: 'spawn', prompt: checked.text, spawn: checked.spawn },
@@ -537,14 +548,16 @@ export function parseAgentSessionRequest(
     }
     if (name === 'app_call') {
       // Which verbs that machine does for a page elsewhere, and their arguments, are the bridge's to judge (`BRIDGE_VERBS`).
-      const { call_id: callId, session_id: sessionId, version, method, args } = action
-      if (typeof callId !== 'string' || !callId || typeof sessionId !== 'string' || typeof version !== 'string' || typeof method !== 'string'
+      const { call_id: callId, session_id: sessionId, device_id: targetDevice, version, method, args } = action
+      const target = typeof sessionId === 'string' && sessionId && targetDevice === undefined ? { session_id: sessionId }
+        : typeof targetDevice === 'string' && targetDevice && sessionId === undefined ? { device_id: targetDevice } : null
+      if (typeof callId !== 'string' || !callId || !target || typeof version !== 'string' || typeof method !== 'string'
         || !args || typeof args !== 'object' || Array.isArray(args)) {
-        return { error: 'app_call names the call (call_id), a session (session_id), the App\'s version, the verb (method) and its args (an object)' }
+        return { error: 'app_call names the call (call_id), exactly one session_id or device_id, the App\'s version, the verb (method) and its args (an object)' }
       }
       return {
         caller: { kind: 'app', deviceId, deviceLabel: text('deviceLabel'), extensionId, extensionName },
-        action: { action: 'app_call', call_id: callId, session_id: sessionId, version, method, args: args as Record<string, unknown> },
+        action: { action: 'app_call', call_id: callId, ...target, version, method, args: args as Record<string, unknown> },
       }
     }
     const ids = action.session_ids
