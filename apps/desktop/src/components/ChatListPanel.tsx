@@ -186,7 +186,13 @@ function ChatRowContextMenu({ x, y, chat, onClose, onPin, onSetNotificationLevel
       label: t('chatList.delete'),
       icon: Trash,
       danger: true,
-      onClick: () => { onDelete(); onClose() },
+      onClick: () => {
+        onClose()
+        void Promise.resolve().then(onDelete).catch((error: unknown) => {
+          chatListLog.error({ error: String(error), chatId: chat.id }, 'delete chat failed')
+          toast(t('chatList.deleteFailed'), 'error', messageForUser(error))
+        })
+      },
     },
   ]
 

@@ -98,13 +98,36 @@ const CREATED_TOPIC = [{
 }]
 
 describe('#5856 topic_ 域:agent 直接操作话题', () => {
-  test('四件工具都挂在 topic 域上,且 ❌ 没有删除(删是人的动作)', () => {
+  test('topic commands include an explicit destructive deletion tool', () => {
     const topicDefs = (TOOL_DEFS as Array<{ name: string; writer?: boolean }>)
       .filter((def) => def.name.startsWith('topic_'))
-    expect(topicDefs.map((def) => def.name).sort()).toEqual(['topic_invite', 'topic_list', 'topic_members', 'topic_open'])
-    expect(topicDefs.filter((def) => def.writer).map((def) => def.name).sort()).toEqual(['topic_invite', 'topic_open'])
-    expect((TOOL_DEFS as Array<{ name: string }>).some((def) => /^topic_(delete|remove|close|archive)/.test(def.name)))
-      .toBe(false)
+    expect(topicDefs.map((def) => def.name).sort()).toEqual(['topic_delete', 'topic_invite', 'topic_list', 'topic_members', 'topic_open'])
+    expect(topicDefs.filter((def) => def.writer).map((def) => def.name).sort()).toEqual(['topic_delete', 'topic_invite', 'topic_open'])
+  })
+
+  test('topic_delete passes the current Agent and the unmodified confirmation name to the database', async () => {
+    const { deps, calls } = topicHarness({ rpc: () => ({ chat_id: TOPIC_CHAT, status: 'archived' }) })
+    await callTool('topic_delete', { chat_id: TOPIC_CHAT, confirm_name: ' 话题 e\u0301 ' }, deps)
+    expect(calls.rpcs.find(([name]) => name === 'archive_topic_as')).toEqual(['archive_topic_as', {
+      p_chat_id: TOPIC_CHAT, p_as_user_id: AGENT_ID, p_confirm_name: ' 话题 e\u0301 ',
+    }])
+  })
+
+  test('topic_delete propagates backend permission/name errors and refuses an unconfirmed result', async () => {
+    for (const message of ['source group manager required', 'confirmation name mismatch']) {
+      const { deps } = topicHarness({ rpc: () => { throw new Error(message) } })
+      await expect(callTool('topic_delete', { chat_id: TOPIC_CHAT, confirm_name: 'Topic' }, deps)).rejects.toThrow(message)
+    }
+    const { deps } = topicHarness({ rpc: () => ({ chat_id: TOPIC_CHAT, status: 'active' }) })
+    await expect(callTool('topic_delete', { chat_id: TOPIC_CHAT, confirm_name: 'Topic' }, deps)).rejects.toThrow('database did not confirm')
+  })
+
+  test('topic_delete requires a confirmation name and a topic ID', async () => {
+    const { deps, calls } = topicHarness()
+    await expect(callTool('topic_delete', { chat_id: TOPIC_CHAT }, deps)).rejects.toThrow()
+    expect(calls.rpcs).toEqual([])
+    await expect(callTool('topic_delete', { chat_id: SOURCE_CHAT, confirm_name: 'Topic' }, deps)).rejects.toThrow('不是一条话题')
+    expect(calls.rpcs.some(([name]) => name === 'archive_topic_as')).toBe(false)
   })
 
   // @@@5856 找茬第九轮:chat_facts 对「此刻还读不到这条线的人」返回 0 行,而 chatKindOf 恰恰会在
