@@ -170,6 +170,7 @@ export default {
   },
   "devices": {
     "phoneActions": {
+      "notificationsAndDnd": "Notifications and Do Not Disturb",
       "readFailed": "Could not read system permissions",
       "statusUnknown": "Not read",
       "localAgentOnly": "Only task Agents on this phone can use these tools.",
