@@ -6,7 +6,8 @@ import { act } from 'react'
 import { composerSlotClass, composerSlotInnerClass } from '@gugu/session-chat-ui/composer-layout'
 import { ChatAreaPanel } from '../../../../apps/desktop/src/components/ChatAreaPanel'
 import { AUTOMATION_TEST_IDS } from '../../../../apps/desktop/src/lib/automationDom'
-import { chat, clickElement, createNode, createReactHarness, displayIdentity, renderWithAppProviders } from '../../../support/testHarness'
+import { chat, clickElement, createNode, createReactHarness, displayIdentity, renderWithAppProviders, waitForCondition } from '../../../support/testHarness'
+import { commandRegistry } from '../../../../apps/desktop/src/session/renderer/lib/commands/registry'
 import { openImRepository, type AccountImRepository } from '../../../../apps/desktop/src/lib/imRepository'
 import { createMemoryLocalSyncDb } from '../../../../apps/desktop/src/lib/localSyncDb'
 import { chatTabSlotKey, InChatSlot, installShellSlots, readShellSlots } from '../../../../apps/desktop/src/lib/shellSlots'
@@ -86,6 +87,31 @@ const header = () => harness.container.querySelector('[data-chat-area-header]')
 const membersButtonIn = (root: ParentNode) => root.querySelector(`[data-testid="${AUTOMATION_TEST_IDS.chatHeaderMembersButton}"]`)
 
 describe('ChatAreaPanel hosted in a block (gugu-dev#181)', () => {
+  it('#492 the owner pencil edits the name inside an info portal outside the chat command surface', async () => {
+    const slot = document.body.appendChild(document.createElement('div'))
+    installShellSlots()
+    try {
+      await renderPanel({ actions, title, tabs: null })
+      await act(async () => { openInfoTab('group-1', 'main') })
+      const info = infoTabOf('group-1')!
+      await act(async () => { readShellSlots()!.setSlot(chatTabSlotKey('group-1', info.tabId), slot) })
+      await waitForCondition(() => !!slot.querySelector('[data-testid="group-name-edit"]'), 'owner settings loaded')
+      const pencil = slot.querySelector<HTMLElement>('[data-testid="group-name-edit"]')!
+      commandRegistry.setContext(pencil)
+      expect(harness.container.contains(pencil), 'the real tab slot is outside the chat surface').toBe(false)
+      await clickElement(pencil)
+      expect(slot.querySelector<HTMLInputElement>('input[placeholder="群名称"]')?.value).toBe('设计评审')
+    } finally {
+      await act(async () => {
+        commandRegistry.setContext(document.body)
+        const info = infoTabOf('group-1')
+        if (info) readShellSlots()?.setSlot(chatTabSlotKey('group-1', info.tabId), null)
+        closeInfoTab('group-1')
+      })
+      slot.remove()
+    }
+  })
+
   for (const mobile of [false, true]) {
     it(`#492 ${mobile ? 'phone' : 'desktop block'}: More > Settings reaches the root of the existing info tab in one action`, async () => {
       const slot = document.body.appendChild(document.createElement('div'))
