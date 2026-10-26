@@ -750,6 +750,18 @@ describe('session orchestration', () => {
       await expect(runRemoteSessionAction(remoteCaller, { ...action, delivery_at: undefined })).rejects.toThrow(/original timestamp/);
     });
 
+    it('uses the cloud outbox message id for every replay and admits a durable pending receipt', async () => {
+      const id = '8ff7b564-892b-4aa5-9d49-a85c1d5cb9ea';
+      mocks.sendMessage.mockImplementation(async (params) => ({ id: params.clientMessageId, status: 'queued' }));
+      const action = { action: 'message', session_ids: ['caller'], text: 'ready', client_message_id: id, client_message_at: '2026-10-26T01:00:00Z' } as const;
+      const first = await runRemoteSessionAction(remoteCaller, action as never);
+      const second = await runRemoteSessionAction(remoteCaller, action as never);
+      expect(mocks.sendMessage.mock.calls.slice(-2).map(([params]) => params.clientMessageId)).toEqual([id, id]);
+      expect(mocks.sendMessage.mock.calls.at(-1)![0].text).toContain('at="2026-10-26T01:00:00Z"');
+      expect(first).toEqual({ recipients: [{ to: 'session:caller', status: 'delivered', message_id: id }] });
+      expect(second).toEqual(first);
+    });
+
     // owner 10-17:发信方自己说的发完以后去向与回的是哪条 —— 收件这台机器写上信封属性,正文不动;取值不对在投递前就拒。
     it('writes the sender\'s then / reply_to_message_id on the envelope, and refuses a then it does not know', async () => {
       mocks.sendMessage.mockResolvedValue({ id: 'm1', status: 'delivered' });

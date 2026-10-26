@@ -146,7 +146,9 @@ export function createCrossMachineSessions(deps: CrossMachineDeps) {
       throw new CrossMachineError('SESSION_DEVICE_UNKNOWN', `device:${deviceId} is not one of this account's machines — session_devices lists them`)
     }
     if (requireTaskRuntime && !isAgentHostDevice(device)) throw noTaskRuntime(device)
-    if (!device.is_online) {
+    const cloud = await deps.cloudComputerState?.().catch(() => null)
+    const pausedCloud = cloud?.deviceId === deviceId && ['asleep', 'waking', 'error', 'provisioning'].includes(cloud.state)
+    if (!device.is_online || pausedCloud) {
       // #7199 睡着的云电脑:先叫醒,醒了照常发出去;醒不来就说是哪台、为什么。
       let woke = false
       try {
@@ -161,6 +163,7 @@ export function createCrossMachineSessions(deps: CrossMachineDeps) {
         const awake = (await deps.listDevices()).find((row) => row.device_id === deviceId)
         if (awake?.is_online) return awake
       }
+      if (pausedCloud) throw new CrossMachineError('SESSION_DEVICE_WAKE_FAILED', `${describe(device)} has not resumed; nothing was sent there`)
       throw new CrossMachineError(
         'SESSION_DEVICE_OFFLINE',
         `${describe(device)} is offline (last seen ${ago(device.last_seen_at, now())}); nothing was sent there`,
@@ -475,6 +478,7 @@ export function createCrossMachineSessions(deps: CrossMachineDeps) {
         session_titles: Object.fromEntries((d.session_digest ?? []).map(s => [s.conversationId, s.title])) }))
     },
     thisDevice,
+    ensureReachable: async (deviceId: string) => { await reachable(deviceId) },
     isThisDevice: async (deviceId: string) => deviceId === await deps.thisDeviceId(),
     call,
     locateSessions,
