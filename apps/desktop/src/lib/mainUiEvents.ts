@@ -13,7 +13,7 @@ export const MAIN_UI_EVENTS = {
   // @@@acp-stream (#966 gate A) - ACP agent 流式输出。
   agentStream: defineEvent<AgentStreamPayload>('agent-stream'),
   // @@@sessionpage fail-loud VISIBLE (#6) - 会话页 agent 投递终态失败 → toast。
-  sessionpageDeliverFailed: defineEvent<{ agentUserId: string; error: string }>('sessionpage-deliver-failed'),
+  sessionpageDeliverFailed: defineEvent<{ agentUserId: string; messageId?: string | null; error: string }>('sessionpage-deliver-failed'),
   // @@@sessionpage otty-state - 被人类 block 的 agent 里最急的那一种 → 最左栏「消息」那颗点。
   sessionpageAttention: defineEvent<AgentAttention>('sessionpage-attention'),
   // @@@sessionpage 分享 - 会话页头部的分享入口,由 gugu 渲染层用自己的通讯录打开 SharePosterDialog;没绑 agent 时说明原因。

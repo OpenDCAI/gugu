@@ -63,7 +63,7 @@ import {
   type MemberProfileSide,
   toIdentityProfile,
 } from './memberProfileModels'
-import { ChatMessageComposer, type ComposerAttachAction } from './chat/ChatMessageComposer'
+import { ChatMessageComposer, type ChatMessageComposerProps, type ComposerAttachAction } from './chat/ChatMessageComposer'
 // @@@5856 消息列表抽成共享组件(话题分栏也用它)——见 MessageList.tsx 头部注释。
 import { MessageList, type MessageListRowProps } from './chat/MessageList'
 import { useTaskChatRows } from './assistant/useTaskChatRows'
@@ -149,7 +149,7 @@ function ChatAreaSurface({ viewportKey = 'chats', activeTab, navigationTarget = 
   const search = useChatSearch(activeChatId, surfaceVisible, messages, surfaceElement, viewportKey)
   const { searchMode, setSearchMode, searchQuery, setSearchQuery, isFiltering, displayedMessages } = search
   const filePreviewCloseRef = useRef<() => void>(() => {})
-  const [quoteText, setQuoteText] = useState<{ messageId?: string; senderName: string; content: string } | null>(null)
+  const [quoteText, setQuoteText] = useState<ChatMessageComposerProps['quoteContent']>(null)
   // @@@message-forward (#899) / @@@multi-select (#988) - messages pending forward; single-forward
   // sets [msg], batch sets the selected list. Opens ForwardMessageDialog when non-empty.
   const [forwardMessages, setForwardMessages] = useState<MessageItem[]>([])
@@ -450,7 +450,7 @@ function ChatAreaSurface({ viewportKey = 'chats', activeTab, navigationTarget = 
 
   const handleQuote = useCallback((msg: MessageItem) => {
     setQuoteText({
-      messageId: msg.id,
+      messageId: msg.id, source: msg,
       senderName: msg.sender_user_id ? (identitiesById[msg.sender_user_id]?.display_name ?? '') : '',
       content: msg.content_type === 'attachment' ? t('chatArea.attachment') : msg.content_type === 'card' ? composerCardLine(msg.content ?? '') : (msg.content ?? ''),
     })
@@ -474,12 +474,8 @@ function ChatAreaSurface({ viewportKey = 'chats', activeTab, navigationTarget = 
   // Listen for RPC-triggered quote
   useEffect(() => {
     const handler = (e: Event) => {
-      const { messageId, senderName = '', content } = (e as CustomEvent).detail as {
-        messageId?: string
-        senderName?: string
-        content: string
-      }
-      setQuoteText({ messageId, senderName, content })
+      const { messageId, senderName = '', content, source } = (e as CustomEvent).detail as NonNullable<ChatMessageComposerProps['quoteContent']>
+      setQuoteText({ messageId, senderName, content, source })
     }
     window.addEventListener(UI_EVENTS.quoteMessage, handler)
     return () => window.removeEventListener(UI_EVENTS.quoteMessage, handler)
