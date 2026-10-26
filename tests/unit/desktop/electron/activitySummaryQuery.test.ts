@@ -68,8 +68,8 @@ describe('activity summaries are complete facts before presentation pagination',
       } })) }
     const result = await run()({ action: 'activity_list', since: new Date(at - 30_000).toISOString() }, source, signal())
     expect(result.devices.map(d => d.summary)).toEqual([
-      '助理：已记录，0 条事件；休眠 1 段共 不足 1 分钟，期间没有任务在运行。',
-      'Mac：已记录，0 条事件；未采集 1 段共 不足 1 分钟，不能断定在不在工作。',
+      '助理：已记录，0 条事件；休眠 1 段共不足 1 分钟，期间没有任务在运行。',
+      'Mac：已记录，0 条事件；未采集 1 段共不足 1 分钟，不能断定在不在工作。',
     ])
   })
   it('defaults to midnight in the declared host zone, reports local bounds and hides raw events', async () => {
