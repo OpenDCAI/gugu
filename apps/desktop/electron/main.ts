@@ -321,6 +321,7 @@ import { SESSION_TITLE_MODELS_CHANNEL } from '../src/session/shared/core/session
 import { sessionEvents } from './session/main/core/sessions/session-events'
 import { applyGeneratedTitle, sessionTitleIsFallback } from './session/main/core/sessions/renameSession'
 import { appSettingsService } from './session/main/core/settings/settings-service'
+import { platformWebSearchForSession } from './sessionpage/sessionpage-platform-search'
 import {
   claudeSessionDelivery,
   sweepStaleRendezvousSocksNow,
@@ -336,6 +337,7 @@ import {
   setSessionIntegrationBridge,
   setSessionIntegrationSkillBridge,
   setSessionBrowserBridge,
+  setSessionWebSearchBridge,
   setSessionExtensionBridge,
   setSessionLibraryMcpBridge,
 } from './capability-bundle'
@@ -1854,6 +1856,7 @@ function startDeviceRuntimeWhenRendererReady(): void {
   primaryGuguMcpHost ??= createDesktopGuguMcpHost(stableMcpPersistence('gugu-mcp'))
   // 一个收口:任何一家拿得到咕咕自己那台 MCP,就同样拿得到已连接的集成(见 setSessionIntegrationBridge)。
   setSessionIntegrationBridge(integrationMcpServersFor)
+  setSessionWebSearchBridge(platformWebSearchForSession)
   // #7210 连上的官方命令行带的 skills,同一个收口:会话要能开,读不出来只让它们缺席、在日志里说出来。
   setSessionIntegrationSkillBridge(() =>
     connectedCliSkills(
