@@ -85,6 +85,12 @@
 .ta-phone-seg .gg-segtabs::-webkit-scrollbar { display: none; }
 .ta-phone-seg .gg-segtab { flex: 1 0 auto; min-height: 36px; padding: 4px 8px; border-radius: var(--radius-capsule); justify-content: center; white-space: nowrap; font-size: var(--font-body); }
 .ta-phone-seg .gg-segtab[data-selected] { background: var(--ta-seg-active); color: var(--fg); }
+/* Avatar pages select no segment; clear touch hover and the previous color transition immediately. */
+.ta-phone[data-tab='profile'] .ta-phone-seg .gg-segtab {
+  background: transparent;
+  color: var(--muted-fg);
+  transition-property: color, border-color, transform !important;
+}
 @media (max-width: 380px) { .ta-phone-seg .gg-segtab { padding: 4px; } .ta-phone-head .gg-pane-actions { gap: 0; } }
 @media (max-width: 340px) { .ta-phone-seg { margin: 0; } .ta-phone-seg .gg-segtab { font-size: var(--font-caption); } }
 
