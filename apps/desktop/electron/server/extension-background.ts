@@ -14,6 +14,8 @@ import { log } from '../session/main/lib/logger';
 import { extensionsService } from '../session/main/core/extensions/extensions-root';
 
 let nextId = 1;
+// A quick disable/enable must wait for the previous browser to release this App's persistent partition.
+const retiring = new Map<string, Promise<void>>();
 const mime: Record<string, string> = { '.js': 'text/javascript', '.mjs': 'text/javascript', '.css': 'text/css', '.html': 'text/html', '.htm': 'text/html', '.json': 'application/json', '.svg': 'image/svg+xml', '.png': 'image/png', '.wasm': 'application/wasm' };
 
 /** The same installed HTML, App runtime, bridge and resource policy, in a browser with no window. */
@@ -23,6 +25,15 @@ export function serverExtensionBackground(bundle: ExtensionBundle, entry: string
   let context: BrowserContext | null = null;
   let page: Page | null = null;
   let detach: (() => void) | null = null;
+  const previous = retiring.get(bundle.extensionId);
+  let release!: () => void;
+  const lifetime = new Promise<void>((resolve) => { release = resolve; });
+  retiring.set(bundle.extensionId, lifetime);
+  const released = () => {
+    release();
+    if (retiring.get(bundle.extensionId) === lifetime) retiring.delete(bundle.extensionId);
+  };
+  let starting = true;
   const origin = `https://${bundle.extensionId}.gugu-app.invalid`;
   const currentBundle = () => ({ ...bundle, networkHosts: extensionsService().grantedHosts(bundle.extensionId) });
   const own = (url: string) => new URL(url).origin === origin;
@@ -38,10 +49,13 @@ export function serverExtensionBackground(bundle: ExtensionBundle, entry: string
     destroy() {
       destroyed = true;
       detach?.();
-      void context?.close().catch((error: unknown) => log.error('Server App background could not close', { extensionId: bundle.extensionId, error }));
+      if (context) void context.close().catch((error: unknown) => log.error('Server App background could not close', { extensionId: bundle.extensionId, error })).finally(released);
+      else if (!starting) released();
     },
   };
   void (async () => {
+    await previous;
+    if (destroyed) { released(); return; }
     const binary = findChrome(process.env);
     if (!binary) throw new Error('App background pages need Chrome or Chromium on this server (GUGU_CLOUD_BROWSER_CHROME selects it)');
     // The server already ships this dependency for its browser tools; never download another browser.
@@ -56,7 +70,8 @@ export function serverExtensionBackground(bundle: ExtensionBundle, entry: string
       args: chromeArgs({ userDataDir: root, cacheDir: path.join(root, 'cache'), headless: true, root: process.getuid?.() === 0 })
         .filter((arg) => !arg.startsWith('--remote-debugging-') && !arg.startsWith('--user-data-dir=') && arg !== 'about:blank'),
     });
-    if (destroyed) { await context.close(); return; }
+    starting = false;
+    if (destroyed) { await context.close(); released(); return; }
     let serve!: (request: Request) => Response | Promise<Response>;
     setupExtensionProtocol({ protocol: {
       isProtocolHandled: () => false,
@@ -91,7 +106,7 @@ export function serverExtensionBackground(bundle: ExtensionBundle, entry: string
     });
     page = context.pages()[0] ?? await context.newPage();
     const backgroundPage = page;
-    context.on('close', () => { destroyed = true; detach?.(); });
+    context.on('close', () => { destroyed = true; detach?.(); released(); });
     context.on('page', (opened) => { if (opened !== backgroundPage) void opened.close(); });
     page.on('crash', () => { runtime.destroy(); log.error('Server App background process gone', { extensionId: bundle.extensionId }); });
     const { answerCall, stopPageWatches } = await import('../session/main/core/extensions/extension-bridge');
@@ -114,6 +129,7 @@ export function serverExtensionBackground(bundle: ExtensionBundle, entry: string
     await page.goto(`${origin}/${entry}`);
     log.info('Server App background loaded', { extensionId: bundle.extensionId, pageId: id });
   })().catch((error: unknown) => {
+    starting = false;
     runtime.destroy();
     log.error('Server App background failed to load', { extensionId: bundle.extensionId, error });
   });
