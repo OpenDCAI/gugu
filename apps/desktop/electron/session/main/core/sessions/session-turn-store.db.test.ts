@@ -62,7 +62,7 @@ describe('conversation-turn-store', () => {
     const imageTurn = (data: string): TranscriptTurn => ({
       ...turn(originalId, 'picture'),
       items: [{ kind: 'mcp-tool-call', id: originalId + ':tool:pic', seq: 0,
-        toolCallId: 'pic', title: 'Screenshot', status: 'done', images: [{ mimeType: 'image/png', data }] }],
+        toolCallId: 'pic', tool: 'screenshot', title: 'Screenshot', status: 'done', images: [{ mimeType: 'image/png', data }] }],
     });
     await persistCommittedTurn({ sessionId: 'c1', source: 'live', turn: imageTurn('earlier') });
     await persistCommittedTurn({ sessionId: 'c1', source: 'live', turn: imageTurn('latest') });

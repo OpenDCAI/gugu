@@ -123,10 +123,12 @@ describe('lazy tool pictures after the host closes the runtime', () => {
     const { store, internals } = makeStore();
     internals.session = null;
     internals._runtimeTurns = [{ ...turn('runtime:turn:2', 2), items: [
-      { kind: 'mcp-tool-call', id: 'runtime:turn:2:tool:pic', seq: 0, toolCallId: 'pic',
+      { kind: 'mcp-tool-call', id: 'runtime:turn:2:tool:pic', seq: 0, toolCallId: 'pic', tool: 'screenshot',
         title: 'Screenshot', status: 'done', imageRefs: [{ mimeType: 'image/png', chars: 4 }] },
     ] }];
-    const invoke = vi.spyOn(window.electronAPI, 'invoke').mockResolvedValue({
+    const bridge = window.electronAPI;
+    if (!bridge) throw new Error('test desktop bridge missing');
+    const invoke = vi.spyOn(bridge, 'invoke').mockResolvedValue({
       ok: true, image: { mimeType: 'image/png', data: 'aGV5' },
     });
     expect(await store.resolveToolImage('runtime:turn:2:tool:pic', 0)).toBe('data:image/png;base64,aGV5');
