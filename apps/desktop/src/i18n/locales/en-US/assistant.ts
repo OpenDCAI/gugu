@@ -527,11 +527,11 @@ export default {
     "emptyStateTitle": "Your health at a glance",
     "emptyStateSubtitle": "Connect your health data to see sleep, recovery, activity and more in one place.",
     "state": {
-      "noPhone": "Allow health data access in the phone’s permission settings.",
+      "noPhone": "Allow health data access in My → Permissions.",
       "oldApp": "咕咕 on {{device}} is too old to read health data. Update it and try again.",
       "offline": "{{device}} is offline (last seen {{time}}). Open 咕咕 on the phone and try again.",
       "offlineNever": "{{device}} is offline. Open 咕咕 on the phone and try again.",
-      "notGranted": "In 咕咕 on {{device}}, open Me → This phone and connect Health.",
+      "notGranted": "On {{device}}, open My → Permissions and allow health data access.",
       "osPermission": "{{device}} hasn't allowed 咕咕 to read health data in Health Connect yet.",
       "unsupported": "{{device}} has no Health Connect (built in from Android 14), so health data can't be read.",
       "failed": "Couldn't read it this time: {{message}}",
@@ -545,9 +545,9 @@ export default {
       "notAndroid": "Health data can only be read in the 咕咕 Android app.",
       "oldApp": "咕咕 on this phone is too old to read health data. Update it and try again.",
       "unsupported": "This phone has no Health Connect (built in from Android 14), so health data can't be read.",
-      "notGranted": "咕咕 hasn't been allowed to read health data in Health Connect yet.",
-      "osPermission": "The system won't let 咕咕 read health data right now. Allow it again in Health Connect.",
-      "grant": "Allow access"
+      "notGranted": "Allow health data access in My → Permissions.",
+      "osPermission": "System access is not granted. Manage it in My → Permissions.",
+      "grant": "Manage permissions"
     },
     "retry": "Try again",
     "today": "Today",

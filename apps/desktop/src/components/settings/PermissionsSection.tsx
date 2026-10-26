@@ -36,6 +36,7 @@ function labelKeyOf(permission: SystemPermission): string {
 }
 
 export function PermissionsSection() {
+  if (platform.systemPermissions.length === 0) return null
   return platform.kind === 'capacitor' ? <PhonePermissionsSection /> : <SystemPermissionsSection />
 }
 

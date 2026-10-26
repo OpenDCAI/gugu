@@ -527,11 +527,11 @@ export default {
     "emptyStateTitle": "让健康状况一目了然",
     "emptyStateSubtitle": "连接健康数据，在一处查看睡眠、恢复、活动等信息。",
     "state": {
-      "noPhone": "在手机的权限设置中允许读取健康数据。",
+      "noPhone": "到“我的 → 权限”允许健康数据读取。",
       "oldApp": "{{device}} 上的咕咕版本太旧，还读不了健康数据。更新后再试。",
       "offline": "{{device}} 现在离线（最后在线 {{time}}）。打开手机上的咕咕后重试。",
       "offlineNever": "{{device}} 现在离线。打开手机上的咕咕后重试。",
-      "notGranted": "在 {{device}} 上的咕咕里打开 我的 → 这台手机，连上「健康」。",
+      "notGranted": "在 {{device}} 上打开“我的 → 权限”，允许健康数据读取。",
       "osPermission": "{{device}} 还没在 Health Connect 里允许咕咕读健康数据。",
       "unsupported": "{{device}} 没有 Health Connect（安卓 14 起系统自带），读不了健康数据。",
       "failed": "这次没读出来：{{message}}",
@@ -545,9 +545,9 @@ export default {
       "notAndroid": "健康数据只有在咕咕安卓 App 里才读得到。",
       "oldApp": "这台手机上的咕咕版本太旧，还读不了健康数据。更新后再试。",
       "unsupported": "这台手机没有 Health Connect（安卓 14 起系统自带），读不了健康数据。",
-      "notGranted": "还没在 Health Connect 里允许咕咕读健康数据。",
-      "osPermission": "系统现在不让咕咕读健康数据，去 Health Connect 里重新允许。",
-      "grant": "去授权"
+      "notGranted": "到“我的 → 权限”允许健康数据读取。",
+      "osPermission": "系统尚未授权，到“我的 → 权限”管理。",
+      "grant": "管理权限"
     },
     "retry": "重试",
     "today": "今天",
