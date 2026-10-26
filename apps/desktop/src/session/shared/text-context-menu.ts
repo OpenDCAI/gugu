@@ -10,7 +10,7 @@ export interface TextContextMenu {
   canSelectAll?: boolean;
 }
 
-/** One editing model for terminals and file viewers; Electron still performs the actions. */
+/** One editing model for terminals and file viewers; each host supplies its editing actions. */
 export function textContextMenuItems(options: TextContextMenu, extra: ContentMenuEntry[] = []): ContentMenuEntry[] {
   const labels = { ...LABELS, ...options.labels };
   const selected = options.selectionText.length > 0;
