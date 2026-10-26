@@ -19,7 +19,7 @@ const HIDING_ATTRIBUTES = ['style', 'class', 'hidden', 'inert']
 export const ClaimedPage = observer(function ClaimedPage({ slotId, chatId, kind, itemId }: { slotId: string; chatId: string; kind: string; itemId?: string }) {
   const { t } = useTranslation('messaging')
   const boxRef = useRef<HTMLDivElement | null>(null)
-  // A page opened for a file goes when its claim does (extension-view-store): covered, the slot keeps it for the way back.
+  // A covered slot keeps its claim for the way back.
   const coveredRef = useRef(false)
   coveredRef.current = useContext(PeekCovered)
   // The resident layer draws a page only for an App it keeps (installed, switched on, listed in this window:
