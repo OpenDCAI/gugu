@@ -115,3 +115,15 @@ it('lets the permissions frame own a single title and its back action', async ()
   expect(h.container.querySelector('h1')?.textContent).toBe('权限')
   expect(h.container.querySelector('[data-testid="settings-device-action-group-files.documents"]')).not.toBeNull()
 })
+
+
+it('uses product names for public versions while retaining development and unknown version labels', async () => {
+  const tiers = ['production', 'beta', 'acceptance-tasks431', undefined]
+  await h.render(<DeviceActionsPage device={device(true)} isThisDevice={false} embedded
+    configurations={tiers.map((tier, index) => ({ ...device(true), device_id: `version-${index}`, tier }))} />)
+  const versions = h.container.querySelector('[data-testid="device-machine-configurations"]')!
+  expect(versions.textContent).toContain('版本')
+  for (const [index, title] of ['咕咕', '咕咕 Beta', 'acceptance-tasks431', '版本未知'].entries()) {
+    expect(versions.querySelector(`[data-testid="device-configuration-version-${index}"] .gg-settings-row-title`)?.textContent).toBe(title)
+  }
+})

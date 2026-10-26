@@ -81,7 +81,7 @@ describe('DevicesSection interaction', () => {
     expect(container.querySelectorAll('[data-testid="settings-device-row"]')).toHaveLength(1)
     await openMenuItem('settings-device-open-actions')
     const configurations = container.querySelector('[data-testid="device-machine-configurations"]')!
-    expect(configurations.textContent).toContain('beta')
+    expect(configurations.textContent).toContain('咕咕 Beta')
     expect(configurations.textContent).toContain('acceptance-tasks431')
     expect(configurations.querySelectorAll('.gg-settings-row[data-testid^="device-configuration-"]')).toHaveLength(2)
     expect(value.remove).not.toHaveBeenCalled()
