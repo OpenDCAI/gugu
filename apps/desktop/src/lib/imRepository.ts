@@ -289,7 +289,7 @@ function createTransaction(accountId: string, operations: LocalImDbOperation[], 
       const root = value.thread_root_id ?? null
       const streamId = messageStreamId(value)
       put('stream', { accountId, id: streamId, chatId, kind: root ? 'thread' : 'main', rootMessageId: root })
-      operations.push({ type: 'put', store: 'message', diskOnly,
+      operations.push({ type: 'put', store: 'message', ...(diskOnly ? { diskOnly: true } : {}),
         value: { accountId, id: nonEmpty(value.id, 'message.id'), chatId, streamId, seq: value.seq, value, resident: diskOnly ? 0 : 1 } })
     },
     putStream: (id, chatId, kind, rootMessageId = null) => put('stream', {
@@ -364,10 +364,15 @@ export async function replaceMessageWindow(
   hasMoreOlder = false,
 ): Promise<void> {
   await repository.transaction((transaction) => {
-    const persisted = messages.filter((message) => message.chat_id === chatId && message.seq >= 0)
+    const tombstones = new Set(repository.snapshot().view.filter((row) => row.key.startsWith('history-deleted:')).map((row) => row.key.slice('history-deleted:'.length)))
+    const persisted = messages.filter((message) => message.chat_id === chatId && message.seq >= 0 && !tombstones.has(message.id))
     const ids = new Set(persisted.map((message) => message.id))
+    const streamIds = new Set(persisted.map(messageStreamId))
     for (const row of repository.snapshot().message) {
       if (row.chatId === chatId && !ids.has(row.id)) transaction.evictMessage(row.id)
+    }
+    for (const row of repository.snapshot().stream) {
+      if (row.chatId === chatId && !streamIds.has(row.id)) transaction.delete('stream', [repository.accountId, row.id])
     }
     for (const message of persisted) transaction.putMessage(message)
     transaction.putView(`message-window:${chatId}`, {

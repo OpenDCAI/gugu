@@ -302,7 +302,7 @@ describe('account-scoped normalized IM repository', () => {
     const next = [...messages.slice(1), { ...message('m-121'), seq: 121 }]
     await replaceMessageWindow(repository, 'chat-1', next, true)
     expect(commit.mock.calls[1][0]).toEqual([
-      { type: 'delete', store: 'message', key: ['account-a', 'm-1'] },
+      { type: 'delete', store: 'message', key: ['account-a', 'm-1'], memoryOnly: true },
       { type: 'put', store: 'message', value: expect.objectContaining({ id: 'm-121', seq: 121 }) },
       { type: 'put', store: 'view', value: expect.objectContaining({ value: { oldestSeq: 2, maxSeq: 121, hasMoreOlder: true } }) },
     ])

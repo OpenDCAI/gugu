@@ -32,6 +32,7 @@ function wait(ms: number): Promise<void> {
 function measuredAdapter(metrics: CommitMetrics): LocalImDbAdapter {
   const delegate = createMemoryLocalSyncDb()
   return {
+    ...delegate,
     loadAccount: (accountId) => delegate.loadAccount(accountId),
     async commit(operations: readonly LocalImDbOperation[]) {
       const startedAt = performance.now()
