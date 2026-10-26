@@ -203,7 +203,7 @@ class EmdashAgentRegistry {
    * another wake, until that start ends either way — then the record goes and things are as before (148 r3: the retry a person
    * sends after that row must not sink without a word).
    */
-  private readonly reconnects = new Map<string, { batch: string; outcome?: 'up' | Error; overdue?: true }>()
+  private readonly reconnects = new Map<string, { batch: string; outcome?: 'up' | Error; overdue?: true; refused?: true }>()
   private onReconnectSettled: ((guguAgentUserId: string) => void) | null = null
 
   /** Inject the session-backend module-boundary bridge (main.ts, after loadEmdashBridge). */
@@ -423,6 +423,10 @@ class EmdashAgentRegistry {
     const summaries = await bridge.emdashSessionSummaries()
     const summary = summaries.find((candidate) => candidate.sessionId === sessionId)
     const reconnect = opts?.suppressWake ? undefined : this.reconnects.get(sessionId)
+    const batch = createHash('sha256').update(text).digest('hex')
+    if (reconnect?.refused && reconnect.batch === batch) {
+      throw new Error(`Session '${sessionId}' refused these messages before a turn again after recovery`)
+    }
     // 编号 5: the reconnect a delivery kicked gave up — the pull it triggered fails the batch in hand (the one that kicked it is
     // in it: the cursor did not move), said in its chat as before (「…咕咕这边出错了」): never silence. A failed start says it
     // once, and a later message is a new try; one over the budget and still going fails every batch at once, without another
@@ -448,7 +452,6 @@ class EmdashAgentRegistry {
       if (opts?.suppressWake) return false
       if (!bridge.ensureEmdashSession) throw new Error(`session-page session wake is unavailable — cannot reconnect ${sessionId}`)
       if (reconnect && !reconnect.outcome) return false
-      const batch = createHash('sha256').update(text).digest('hex')
       if (reconnect?.batch === batch) {
         throw new Error(`Session '${sessionId}' lost its ACP adapter again after it was reconnected for these messages; not reconnecting it again for them`)
       }
@@ -477,8 +480,10 @@ class EmdashAgentRegistry {
       if (result.outcome === 'missing') {
         nativeMissing = true
         if (opts?.suppressWake) return false // The session-direct sender owns its one reopen attempt.
-        const batch = createHash('sha256').update(text).digest('hex')
-        if (reconnect?.batch === batch) throw new Error(`Session '${sessionId}' refused these messages before a turn again after recovery`)
+        if (reconnect?.batch === batch) {
+          reconnect.refused = true
+          throw new Error(`Session '${sessionId}' refused these messages before a turn again after recovery`)
+        }
         if (!bridge.ensureEmdashSession) throw new Error(`session-page session wake is unavailable — cannot reconnect ${sessionId}`)
         this.kickReconnect(sessionId, batch, bridge.ensureEmdashSession.bind(bridge))
         return false

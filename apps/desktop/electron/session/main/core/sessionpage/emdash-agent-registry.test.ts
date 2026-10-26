@@ -123,6 +123,7 @@ describe('emdash ACP session-direct live-only delivery', () => {
     expect(await emdashAgentRegistry.tryInjectSessionMessage('conv-child', input)).toBe(false)
     expect(ensure).toHaveBeenCalledTimes(1)
     await expect(emdashAgentRegistry.tryInjectSessionMessage('conv-child', input)).rejects.toThrow('again after recovery')
+    await expect(emdashAgentRegistry.tryInjectSessionMessage('conv-child', input)).rejects.toThrow('again after recovery')
     expect(ensure).toHaveBeenCalledTimes(1)
   })
 
