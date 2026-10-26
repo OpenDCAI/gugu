@@ -1,4 +1,7 @@
 import { z } from 'zod'
+import {coreLogger} from '../log'
+
+const log=coreLogger('assistant-work')
 
 /** Cloud read contract shared by desktop and phone. Delivery writes belong to
  * assistantWorkOutbox; readers never attach to a device or maintain a queue. */
@@ -62,7 +65,7 @@ export function createAssistantWorkClient(transport: AssistantWorkTransport,acco
         const scope=z.object({owner_user_id:id,assistant_user_id:id}).safeParse(row)
         if(scope.success&&(scope.data.owner_user_id!==owner||scope.data.assistant_user_id!==assistantId))return invalid()
         const parsed=taskSchema.safeParse(row)
-        if(!parsed.success){console.warn('[assistant-work] Skipping malformed task row',{index,code:'invalid-row'});continue}
+        if(!parsed.success){log.warn({index,code:'invalid-row'},'Skipping malformed task row');continue}
         if(BigInt(parsed.data.created_seq)<=0n || before!==null&&BigInt(parsed.data.created_seq)>=BigInt(before))return invalid()
         items.push(parsed.data)
       }
@@ -88,7 +91,7 @@ export function createAssistantWorkClient(transport: AssistantWorkTransport,acco
         const scope=z.object({owner_user_id:id,work_id:id}).safeParse(row)
         if(scope.success&&(scope.data.owner_user_id!==owner||scope.data.work_id!==workId))return invalid()
         const parsed=eventSchema.safeParse(row)
-        if(!parsed.success){console.warn('[assistant-work] Skipping malformed history row',{index,code:'invalid-row'});continue}
+        if(!parsed.success){log.warn({index,code:'invalid-row'},'Skipping malformed history row');continue}
         if(BigInt(parsed.data.seq)<=BigInt(after))return invalid()
         events.push(parsed.data)
       }
