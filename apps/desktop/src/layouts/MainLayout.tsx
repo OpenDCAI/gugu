@@ -9,7 +9,9 @@ import { reaction } from 'mobx'
 import { useCallback, useState, useEffect, useLayoutEffect, useRef } from 'react'
 import type { ReactNode, RefObject } from 'react'
 import '@/styles/desktop-shell.css'
+import '@/session/renderer/features/assistant/assistant-today.css'
 import '@/mobile/phone-shell.css'
+import '@/mobile/phone-look.css'
 import { usePhoneViewport } from '@/mobile/usePhoneViewport'
 import { MessageCircle, Users } from '@/lib/icons'
 import { Sidebar } from '../components/Sidebar'
@@ -168,18 +170,12 @@ function MobileTabBar({
   }
 
   return (
-    // 2026-09-22 按 design.md 统一:tab 栏是贴边满宽带 ⇒「Never round a full-bleed surface」
-    // + 「Decorative … glass … and ornamental shadows」+ 「Shadows are zeroed globally.
-    // Only a floating surface may lift.」⇒ 改回贴边实心条:--radius-page(0)、无 blur、无投影,
-    // 与主体的分界只由 border-top 那一条发丝线承担(「Section boundaries are the only line kind
-    // a page owes」)。原裁决:@@@1787 owner 定调玻璃拟态:tab 栏做成悬浮玻璃岛(半透明+blur+
-    // 细边+柔投影),不再是贴边实心条。
+    // 贴边满宽、不圆角、无投影;底色是透出全线渐变的玻璃(owner 10-26,OpenDCAI/gugu#446),样子在 phone-shell.css。
     <nav
       ref={barRef}
+      data-phone-tabbar=""
       style={{
-        padding: '0 10px env(safe-area-inset-bottom)',
-        background: 'var(--card)',
-        borderTop: '1px solid var(--border)',
+        padding: '0 8px env(safe-area-inset-bottom)',
         borderRadius: 'var(--radius-page)',
         flexShrink: 0,
       }}
@@ -1281,6 +1277,8 @@ function InnerLayout({
       data-phone-shell={mobile ? '' : undefined}
       data-gugu-shell-phase={effectsActive ? 'active' : 'committed-inert'}
       data-desktop-shell={mobile ? undefined : ''}
+      // 手机全线一个底:咕咕页那套渐变 + 玻璃(owner 10-26),壳上挂 data-ta-scope 让 --ta-* 处处可用。
+      data-ta-scope={mobile ? '' : undefined}
       style={{
         display: 'flex',
         width: '100vw',
@@ -1289,7 +1287,7 @@ function InnerLayout({
         top: mobile ? phoneViewport.viewportOffsetTop : undefined,
         left: mobile ? 0 : undefined,
         overflow: 'hidden',
-        background: mobile ? 'var(--bg-primary)' : 'var(--shell-bg)',
+        background: mobile ? 'var(--ta-panel-bg)' : 'var(--shell-bg)',
         // @@@mobile-safe-area-top (#1227) — Android 15+ (targetSdk 36) 强制 edge-to-edge：WebView
         //   绘到状态栏下，顶栏会被遮。整个移动 shell 顶部留状态栏安全区（box-sizing:border-box
         //   全局，100dvh 内收不溢出；env=0 在无刘海/桌面安全回退）。即 paddingTop:env(safe-area-inset-top)。
@@ -1321,7 +1319,7 @@ function InnerLayout({
           display: 'flex',
           flexDirection: mobile ? 'column' : 'row',
           boxShadow: 'none',
-          background: mobile ? 'var(--bg-primary)' : 'var(--shell-bg)',
+          background: mobile ? 'transparent' : 'var(--shell-bg)',
         }}
       >
         {/* 会话页常驻不卸载:会话页子应用启动重(14MB bundle + 运行时初始化),切走即销毁 →

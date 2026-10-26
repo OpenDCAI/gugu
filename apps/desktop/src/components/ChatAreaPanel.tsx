@@ -813,7 +813,7 @@ function ChatAreaSurface({ viewportKey = 'chats', activeTab, navigationTarget = 
         // flexShrink:0 的固定宽度)在异常并存时把整个 MainLayout 行撑开、反向挤压左侧会话列表。
         minWidth: 0,
         height: '100%',
-        background: 'var(--bg-primary)',
+        background: mobile ? 'var(--ta-panel-bg)' : 'var(--bg-primary)',
         display: 'flex',
         flexDirection: 'column',
         overflow: 'hidden',
@@ -830,7 +830,7 @@ function ChatAreaSurface({ viewportKey = 'chats', activeTab, navigationTarget = 
         divider={!agentHero} className={agentHero ? 'gg-agent-header' : undefined} data-chat-area-header=""
         mobile={mobile}
         style={{
-          background: 'var(--bg-primary)',
+          background: mobile ? 'transparent' : 'var(--bg-primary)',
           paddingRight: 'calc(var(--pane-pad-x) + var(--titlebar-controls-width))',
           // agent 单聊:小鸟比头栏高几像素,允许它探出头栏(见 tokens.css .gg-agent-header)。
           overflow: agentHero ? 'visible' : 'hidden',
@@ -1107,7 +1107,7 @@ function ChatAreaSurface({ viewportKey = 'chats', activeTab, navigationTarget = 
         </div>
       ) : (
         // ChatBottomDock owns the shared desktop frame; keep phone padding and safe area unchanged.
-        <div data-chat-composer="" className={mobile && blockHost ? `${sessionComposerDockBandClassName} pt-3` : undefined} style={{ background: mobile ? 'var(--bg-primary)' : undefined, padding: mobile ? (blockHost ? undefined : '8px 10px max(10px, env(safe-area-inset-bottom))') : 0, borderTop: mobile ? '1px solid var(--border-subtle)' : undefined, flexShrink: 0 }}>
+        <div data-chat-composer="" className={mobile && blockHost ? `${sessionComposerDockBandClassName} pt-3` : undefined} style={{ padding: mobile ? (blockHost ? undefined : '8px 8px max(8px, env(safe-area-inset-bottom))') : 0, flexShrink: 0 }}>
         {/* #1099: offline「唤醒 Agent」状态栏已删(ACP 发消息即触达自启)。removed 显提示栏。 */}
         {/* agent 会话 composer 通知区：已注销 Agent 的禁用说明。 */}
         {isAgentChat ? <AgentComposerNotices disabledReason={agentComposerDisabled ? (agentComposerDisabledReason ?? null) : null} agentUserId={activeChat?.peer_user_id ?? null} agentName={activeChatName} /> : null}
