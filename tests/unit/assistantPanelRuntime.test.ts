@@ -34,9 +34,9 @@ it('prepares stale profiles at each actual personal-assistant turn, independentl
     await writeFile(join(memory, 'owner-profile.md'), '姓名：测试')
     await writeFile(join(memory, 'MEMORY.md'), '- [关于你](owner-profile.md) profile_rules: 2')
     await runtime.bind({ sessionId: 'session', assistantId: 'assistant', ownerId: 'owner', cwd })
-    expect((await runtime.prepare('session', 'hi')).trailingText).toContain('先读owner-profile.md再整理')
-    expect((await runtime.prepare('session', 'hi')).trailingText).toContain('先读owner-profile.md再整理')
-    await writeFile(join(memory, 'MEMORY.md'), '- [关于你](owner-profile.md) profile_rules: 5')
+    expect((await runtime.prepare('session', 'hi')).beforeText).toContain('读owner-profile.md：')
+    expect((await runtime.prepare('session', 'hi')).beforeText).toContain('读owner-profile.md：')
+    await writeFile(join(memory, 'MEMORY.md'), '- [关于你](owner-profile.md) profile_rules: 6')
     expect((await runtime.prepare('session', 'hi')).text).toBe('')
   } finally { runtime.dispose(); await rm(cwd, { recursive: true, force: true }) }
 })

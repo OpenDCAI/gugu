@@ -18,8 +18,8 @@ export async function prepareAssistantProfileReview(admission: PanelPreparedAdmi
   const review = [
     '<gugu_profile_review>',
     ...(unavailable ? ['未核。'] : []),
-    `先读owner-profile.md再整理：正文用「你」写1～3句已证身份、近况、作息；勿据mtime猜作息，未知省略，无标题。称呼仅「称呼：姓名」；称呼规矩仅留提示词，不入任何记忆。禁「他」，删除助理规矩及推理；本人确认约定移feedback并索引，事实、日期与来源保留，依据放末节。回读合规才在MEMORY.md原行记profile_rules:${PROFILE_RULES_VERSION}并回读；失败不标通过。不新建档案或报进度，再回复。`,
+    `需回复时先用message_send按信封回复，再整理，不再发消息。读owner-profile.md：「你」开头，几句已证身份、近况、作息；未知省略，禁标题及mtime推测。仅留「称呼：姓名」，其余称呼原话、助理规矩全删，勿记忆。禁「他」；其他本人确认约定移feedback并索引。保留事实、日期、来源；依据放末节。回读合规才在MEMORY.md原行记profile_rules:${PROFILE_RULES_VERSION}并回读；失败不记。`,
     '</gugu_profile_review>',
   ].join('\n')
-  return { ...admission, trailingText: [admission.trailingText, review].filter(Boolean).join('\n\n') }
+  return { ...admission, beforeText: [admission.beforeText, review].filter(Boolean).join('\n\n') }
 }

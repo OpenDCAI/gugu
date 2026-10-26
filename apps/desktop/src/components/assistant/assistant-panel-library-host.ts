@@ -2,10 +2,13 @@ import type { AssistantPanelFiles } from '@gugu/core/cloud/assistantPanelFiles'
 import type { LibraryHost, LibraryIntegrationsRpc, LibraryGithubRpc } from '@/session/renderer/features/library/library-host'
 import type { GitHubAccountSummary } from '@/session/shared/github'
 import { readAssistantPanelIntegrations } from './assistant-panel-integrations'
+import { translateSessionMessage } from '@/session/renderer/localization/locale-store'
 
 /** Read-only cloud metadata plus explicit existing authorization actions. */
 export function assistantPanelLibraryHost(base: LibraryHost, panel: AssistantPanelFiles | undefined, prepare: () => Promise<void>,loadError?: unknown): LibraryHost {
   let prepared = false
+  const authorizationVersions = new Map<string,number>()
+  const cancelPending = (provider: string) => authorizationVersions.set(provider,(authorizationVersions.get(provider) ?? 0) + 1)
   const subscriptions = new Set<{ attach(): void; dispose?: () => void }>()
   async function prepareAction() {
     await requirePanel().assertCurrent()
@@ -13,6 +16,12 @@ export function assistantPanelLibraryHost(base: LibraryHost, panel: AssistantPan
     await requirePanel().assertCurrent()
     prepared = true
     for (const subscription of subscriptions) subscription.attach()
+  }
+  async function authorize<T>(provider: string,action: () => Promise<T>): Promise<T> {
+    const version = authorizationVersions.get(provider) ?? 0
+    await prepareAction()
+    if ((authorizationVersions.get(provider) ?? 0) !== version) throw new Error(translateSessionMessage('integrations.authorizationCancelled'))
+    return action()
   }
   const onEvent: LibraryGithubRpc['onEvent'] = (event,listener) => {
     const subscription = { attach() { subscription.dispose ??= base.github.onEvent(event,listener) },dispose: undefined as (() => void) | undefined }
@@ -44,12 +53,12 @@ export function assistantPanelLibraryHost(base: LibraryHost, panel: AssistantPan
         connected: state.accountChecks.get(row.resource_key)! }))
     },
     disconnect,
-    connect: async (...args) => { await prepareAction(); return base.integrations.connect(...args) },
-    authorize: async (...args) => { await prepareAction(); return base.integrations.authorize(...args) },
-    cliLoginStart: async (...args) => { await prepareAction(); return base.integrations.cliLoginStart(...args) },
+    connect: (...args) => authorize(args[0],() => base.integrations.connect(...args)),
+    authorize: (...args) => authorize(args[0],() => base.integrations.authorize(...args)),
+    cliLoginStart: (...args) => authorize(args[0],() => base.integrations.cliLoginStart(...args)),
     cliLoginWait: (...args) => base.integrations.cliLoginWait(...args),
     cliLoginProgress: (...args) => prepared ? base.integrations.cliLoginProgress(...args) : Promise.resolve(null),
-    cancelAuthorization: (...args) => prepared ? base.integrations.cancelAuthorization(...args) : Promise.resolve(),
+    cancelAuthorization: (...args) => { cancelPending(args[0]); return prepared ? base.integrations.cancelAuthorization(...args) : Promise.resolve() },
   }
   async function githubAccounts(): Promise<GitHubAccountSummary[]> {
     const rows = await accounts('github')
@@ -76,9 +85,9 @@ export function assistantPanelLibraryHost(base: LibraryHost, panel: AssistantPan
         const account = (await githubAccounts()).find(row => row.accountId === accountId)!
         return { success: true,account }
       },
-      importCliAccounts: async () => { await prepareAction(); return base.github.importCliAccounts() },
-      auth: async () => { await prepareAction(); return base.github.auth() },
-      authCancel: () => prepared ? base.github.authCancel() : Promise.resolve({ success: true as const }),
+      importCliAccounts: () => authorize('github',() => base.github.importCliAccounts()),
+      auth: () => authorize('github',() => base.github.auth()),
+      authCancel: () => { cancelPending('github'); return prepared ? base.github.authCancel() : Promise.resolve({ success: true as const }) },
       onEvent,
     },
   }

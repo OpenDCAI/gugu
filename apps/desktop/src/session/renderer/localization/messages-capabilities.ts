@@ -730,6 +730,8 @@ export const enUSCapabilityMessages = {
   'integrations.connectTitleFor': 'Connect {name}',
   'integrations.connectAction': 'Connect',
   'integrations.requiredFieldSuffix': ' *',
+  'integrations.missingRequiredFields': 'Fill in {fields} before connecting.',
+  'integrations.authorizationCancelled': 'Authorization cancelled.',
   'integrations.browserAuthDescription':
     'Opens the {name} authorization page in your browser. Approve access there and the connection completes on its own.',
   'integrations.browserAuthWaiting': 'Finish authorizing {name} in your browser…',
@@ -1532,6 +1534,8 @@ export const zhCNCapabilityMessages: Record<CapabilityMessageKey, string> = {
   'integrations.connectTitleFor': '连接 {name}',
   'integrations.connectAction': '连接',
   'integrations.requiredFieldSuffix': ' *',
+  'integrations.missingRequiredFields': '请先填写{fields}。',
+  'integrations.authorizationCancelled': '已取消授权。',
   'integrations.browserAuthDescription': '将在浏览器中打开 {name} 授权页面，同意授权后自动完成连接。',
   'integrations.browserAuthWaiting': '请在浏览器中完成 {name} 授权…',
   'integrations.browserAuthAction': '前往授权',

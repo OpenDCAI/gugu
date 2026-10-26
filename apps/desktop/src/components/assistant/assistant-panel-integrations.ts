@@ -1,16 +1,24 @@
 import { integrationIcons } from '@gugu/session-plugins/integration-icons'
+import { builtinIntegrationSummary } from '@gugu/session-plugins/integration-summaries'
 import type { AssistantPanelFiles } from '@gugu/core/cloud/assistantPanelFiles'
 import type { ConnectionStatus } from '@/session/shared/issue-providers'
 import type { IntegrationMetadata } from '@/session/renderer/features/integrations/integrations-provider'
 
 /** Catalogs and saved account metadata come from the same complete cloud
  * collection. Reading authorization status never verifies credentials. */
-export async function readAssistantPanelIntegrations(panel: AssistantPanelFiles, _locale: string) {
+export function integrationListCopy(id: string,name: unknown,description: unknown,locale: string) {
+  const builtin = builtinIntegrationSummary(id,locale)
+  if (builtin) return { ...builtin,summaryNameMissing: false }
+  const summaryNameMissing = typeof name !== 'string' || !name.trim() || name.trim() === id
+  return { name: summaryNameMissing ? locale === 'zh-CN' ? '应用' : 'Application' : name.trim(),
+    description: typeof description === 'string' ? description : '',summaryNameMissing }
+}
+export async function readAssistantPanelIntegrations(panel: AssistantPanelFiles, locale: string) {
   const rows = await panel.collection('integrations')
   const snapshot = await panel.snapshot()
   const catalog = rows.filter(row => row.resource_key.startsWith('catalog:'))
   const items: IntegrationMetadata[] = catalog.map(row => ({
-    id: String(row.data.providerId),name: String(row.data.displayName ?? row.data.providerId),description: typeof row.data.description === 'string' ? row.data.description : '',
+    id: String(row.data.providerId),...integrationListCopy(String(row.data.providerId),row.data.displayName,row.data.description,locale),
     websiteUrl: '',features: [],disconnectCredentialLabel: undefined,
     capabilities: { requiresRepositoryUrl: false,supportsIssueContext: false },auth: { methods: [] },
     icon: integrationIcons[String(row.data.providerId)] ?? { kind: 'svg',variants: [] },abilities: [],playbooks: [],multiAccount: false,metadataOnly: true,
@@ -45,21 +53,21 @@ export async function readAssistantPanelIntegration(panel: AssistantPanelFiles,i
   const data = JSON.parse(new TextDecoder('utf-8',{ fatal: true }).decode(await panel.body(row)))
   const item = data[locale === 'zh-CN' ? 'zh-CN' : 'en'] as IntegrationMetadata
   if (data.version !== 1 || !item || item.id !== id || typeof item.name !== 'string' || item.description !== undefined && typeof item.description !== 'string' || !Array.isArray(item.auth?.methods)) throw new Error('PANEL_INTEGRATION_UNAVAILABLE')
-  return { ...item,icon: integrationIcons[id] ?? item.icon }
+  return { ...item,...integrationListCopy(id,item.name === id ? row.data.displayName : item.name,item.description,locale),icon: integrationIcons[id] ?? item.icon }
 }
 
 /** Missing names and descriptions are optional enrichment. Four workers avoid queuing
  * a whole catalog ahead of the entry the person explicitly opens. */
 export async function enrichAssistantPanelIntegrations(panel: AssistantPanelFiles,items: readonly IntegrationMetadata[],locale: string,
   updated: (id: string,summary: Pick<IntegrationMetadata,'name' | 'description'>) => void,active: () => boolean = () => true): Promise<void> {
-  const missing = items.filter(item => item.metadataOnly && (!item.description || item.name === item.id))
+  const missing = items.filter(item => item.metadataOnly && !builtinIntegrationSummary(item.id,locale) && (!item.description || item.name === item.id || item.summaryNameMissing))
   let next = 0
   await Promise.all(Array.from({ length: Math.min(4,missing.length) },async () => {
     while (active() && next < missing.length) {
       const item = missing[next++]!
       try {
         const detail = await readAssistantPanelIntegration(panel,item.id,locale)
-        if (active()) updated(item.id,{ name: detail.name,description: detail.description ?? item.description ?? '' })
+        if (active()) updated(item.id,{ name: detail.name,description: detail.description || item.description || '' })
       } catch { /* A missing description never hides its row or asks for a retry. */ }
     }
   }))

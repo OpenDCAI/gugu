@@ -1,3 +1,4 @@
+import { summary } from './summary';
 import type { VerifyResult } from '../../capabilities/auth';
 import { defineIntegrationPlugin, registerIntegrationPluginBehavior } from '../../plugin';
 import { verifyPlaneCredentials } from './client';
@@ -7,8 +8,8 @@ import { PLANE_CLOUD_API_BASE_URL } from './types';
 const plugin = defineIntegrationPlugin(
   {
     id: 'plane',
-    name: 'Plane',
-    description: { en: 'Work on Plane work items', 'zh-CN': '处理 Plane 工作项' },
+    name: summary.name['zh-CN'],
+    description: summary.description,
     websiteUrl: 'https://plane.so',
   },
   {

@@ -3,6 +3,7 @@ import { noopLogger } from '@gugu/session-shared/logger'
 import { SessionCell } from './cell'
 import { FakeAcpAgent } from '../acp-test-support'
 import { setNativePromptPreparation } from './prompt-preparation'
+import { renderDeliveryEnvelope } from '../../../../core/src/local/agent/deliveryEnvelope'
 
 const cells: SessionCell[] = []
 afterEach(() => { setNativePromptPreparation(null); for (const cell of cells.splice(0)) cell.dispose() })
@@ -15,13 +16,16 @@ function fixture() {
   return { cell,agent }
 }
 
-it('places conditional profile review after the actual input without exposing it in the transcript', async () => {
+it('places conditional profile review before the delivery envelope and preserves the final reply instruction', async () => {
   const { cell, agent } = fixture()
   const review = '<gugu_profile_review>Review the outdated profile</gugu_profile_review>'
-  setNativePromptPreparation(async () => ({ text: 'panel change', trailingText: review, accepted: async () => {} }))
-  await cell.prompt({ text: 'hi', origin: 'communication' })
+  const envelope = renderDeliveryEnvelope({ route: 'chat', from: '测试', fromId: 'user:person', messageId: 'msg:fixture', chat: 'isolated', at: 'test', content: 'hi' })
+  setNativePromptPreparation(async () => ({ text: 'panel change', beforeText: review, accepted: async () => {} }))
+  await cell.prompt({ text: envelope, origin: 'communication' })
   const request = vi.mocked(agent.prompt).mock.calls[0]![0]
-  expect(request.prompt).toEqual([{ type: 'text', text: 'panel change' }, { type: 'text', text: 'hi' }, { type: 'text', text: review }])
+  expect(request.prompt).toEqual([{ type: 'text', text: 'panel change' }, { type: 'text', text: review }, { type: 'text', text: envelope }])
+  expect(envelope).toContain('what you print here does not reach the sender — reply with message_send.')
+  expect(request.prompt.at(-1)).toEqual({ type: 'text', text: envelope })
   const visible = JSON.stringify([...cell.transcript.history, cell.transcript.activeTurn])
   expect(visible).toContain('hi')
   expect(visible).not.toContain('gugu_profile_review')
