@@ -87,10 +87,13 @@ describe('one account work outbox', () => {
   it('counts actual failures rather than lease attempts towards the limit', async () => {
     const f = fixture([event({ attempts: 100, failed_attempts: 0 })]); await f.pump.kick(); expect(f.deliver).toHaveBeenCalledOnce()
   })
-  it('abandons after 100 real failures, preserving the row and its reason', async () => {
-    const f = fixture([event({ failed_attempts: 100, last_error_code: 'DEVICE_OFFLINE' })]); await f.pump.kick()
-    expect(f.deliver).not.toHaveBeenCalled()
-    expect(f.rpc).toHaveBeenCalledWith('assistant_work_outbox_settle', expect.objectContaining({ p_stage: 'abandoned', p_error_code: 'DEVICE_OFFLINE' }), context)
+  it('retains an offline result for 24 hours even when an older server increments every retry', async () => {
+    const f = fixture([event({ failed_attempts: 100, attempts: 101, age_ms: 8 * 60 * 60_000, last_error_code: 'DEVICE_OFFLINE' })])
+    f.deliver.mockRejectedValue(Object.assign(new Error('offline'), { code: 'DEVICE_OFFLINE' }))
+    await f.pump.kick()
+    expect(f.deliver).toHaveBeenCalledOnce()
+    expect(f.rpc).toHaveBeenCalledWith('assistant_work_outbox_settle', expect.objectContaining({ p_stage: 'retry', p_receipt: { failure_observed: false } }), context)
+    expect(f.rpc.mock.calls.some(([name, args]) => name === 'assistant_work_outbox_settle' && args.p_stage === 'abandoned')).toBe(false)
   })
   it('abandons after 24 hours even if no other runtime attempted it', async () => {
     const f = fixture([event({ platform_received_at: '2026-10-25T01:00:00Z', age_ms: 86_400_000 })]); await f.pump.kick()
