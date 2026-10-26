@@ -358,6 +358,24 @@ export default {
     "action": "放入输入框"
   },
   "composer": {
+    "phoneTask": {
+      "action": "新任务",
+      "chip": "新任务 · {{agent}}",
+      "pickAgent": "选 agent",
+      "placeholder": "想让 {{agent}} 做点什么？",
+      "pickFolder": "点一张文件夹开工",
+      "where": "{{folder}} · {{machine}}",
+      "offline": "{{machine}} 离线了，换一张文件夹",
+      "optionsFailed": "读不到 {{machine}} 上的 agent，确认它在线后再选一次文件夹",
+      "noAgent": "{{machine}} 上没有能用的 agent",
+      "loading": "正在读 {{machine}} 上的 agent",
+      "cancel": "不派任务了",
+      "failed": {
+        "host_outdated": "{{machine}} 上的咕咕太旧，更新后再派任务",
+        "start_failed": "任务没开起来，到任务卡上看原因",
+        "topic_missing": "任务开工了，到群里点任务卡进它的话题"
+      }
+    },
     "notInGroup": "不在本群",
     "agent": {
       "disabledReason": {

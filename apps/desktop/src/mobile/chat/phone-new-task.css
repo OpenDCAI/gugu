@@ -1,0 +1,59 @@
+/* 手机项目群派「新任务」(PhoneNewTask)。 */
+[data-chat-composer-host][data-taken-over] { display: none; }
+[data-chat-composer-host][data-phone-task] { position: relative; }
+
+/* 浮在群上的文件夹卡:电脑那一张按手机屏宽缩小;卡本身可点,周围不挡群。手机上不挂文件夹(没有「+」)。 */
+.gg-phone-task-card {
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: 100%;
+  z-index: 2;
+  display: flex;
+  justify-content: center;
+  padding-bottom: var(--spacing-sm);
+  pointer-events: none;
+}
+.gg-phone-task-card > * { pointer-events: auto; zoom: 0.72; }
+.gg-phone-task-card .gg-folder-card__add { display: none; }
+
+/* 框上沿那一枚任务标签(原型 v7.12 .v7-task-tag):左缩进让开回形针,和框里的字对齐。 */
+.gg-phone-task-tag {
+  display: flex;
+  align-items: center;
+  gap: var(--spacing-xs);
+  min-width: 0;
+  margin: 0 var(--spacing-sm) var(--spacing-sm) 48px;
+}
+.gg-phone-task-chip {
+  display: inline-flex;
+  flex-shrink: 0;
+  align-items: center;
+  gap: var(--spacing-sm);
+  height: 32px;
+  padding: 0 var(--spacing-sm);
+  border: 0;
+  border-radius: var(--radius-capsule);
+  background: var(--selected);
+  color: var(--fg);
+  font: inherit;
+  font-size: var(--font-body);
+  cursor: pointer;
+}
+.gg-phone-task-where {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--spacing-xs);
+  min-width: 0;
+  height: 32px;
+  padding: 0 var(--spacing-xs);
+  border: 0;
+  background: none;
+  color: var(--muted-fg);
+  font: inherit;
+  font-size: var(--font-caption);
+  cursor: pointer;
+}
+.gg-phone-task-where > span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.gg-phone-task-where[data-blocked] { color: var(--warn); }
+.gg-phone-task-tag > .gg-icon-btn { margin-left: auto; flex-shrink: 0; }

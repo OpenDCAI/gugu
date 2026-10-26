@@ -8,7 +8,7 @@
     "inlineFontSizeLiterals": 12,
     "inlineRadiusLiterals": 3,
     "rawButtons": 107,
-    "inlineStyleBlocks": 550
+    "inlineStyleBlocks": 549
   },
   "mainRendererGeometryDebtNote": "2026-10-01 inlineStyleBlocks 756→757 (#6874, L11 R14): the far-left rail dock's drag offset — dnd-kit's transform/transition, which changes every frame of a drag and so can only be an inline style. Not geometry debt.",
   "assistantUiGeometryDebt": {
