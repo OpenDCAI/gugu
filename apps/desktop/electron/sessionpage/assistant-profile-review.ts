@@ -21,5 +21,5 @@ export async function prepareAssistantProfileReview(admission: PanelPreparedAdmi
     `先读owner-profile.md再整理：正文用「你」写1～3句已证身份、近况、作息；勿据mtime猜作息，未知省略，无标题。称呼仅「称呼：姓名」；称呼规矩仅留提示词，不入任何记忆。禁「他」，删除助理规矩及推理；本人确认约定移feedback并索引，事实、日期与来源保留，依据放末节。回读合规才在MEMORY.md原行记profile_rules:${PROFILE_RULES_VERSION}并回读；失败不标通过。不新建档案或报进度，再回复。`,
     '</gugu_profile_review>',
   ].join('\n')
-  return { ...admission, trailingText: [admission.trailingText, review].filter(Boolean).join('\n\n') }
+  return { ...admission, beforeText: [admission.beforeText, review].filter(Boolean).join('\n\n') }
 }

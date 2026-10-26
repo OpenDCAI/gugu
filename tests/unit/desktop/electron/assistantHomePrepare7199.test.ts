@@ -32,7 +32,7 @@ describe('prepareLocalAssistantHome', () => {
     const p = paths(result.workdir)
     expect(result.workdir).toBe(join(guguHome, 'assistant'))
     const brief = await readFile(p.instructions, 'utf8')
-    expect(brief).toContain('电脑开着你就在')
+    expect(brief).toContain('暂不可用时消息保留')
     expect(brief.length).toBeLessThan(2400)
     expect(brief).not.toContain('"batches"')
     expect(await readFile(join(result.workdir, '.gugu-assistant-reference.md'), 'utf8')).toBe(assistantGuide('computer'))

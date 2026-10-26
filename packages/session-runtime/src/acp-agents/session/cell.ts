@@ -1799,9 +1799,8 @@ export class SessionCell {
         data: attachment.data,
         mimeType: attachment.mimeType,
       }));
-      const turnContextBlocks = [prepared?.text,turnContext].filter((text): text is string => !!text).map(text => ({ type: 'text' as const,text }));
+      const turnContextBlocks = [prepared?.text,prepared?.beforeText,turnContext].filter((text): text is string => !!text).map(text => ({ type: 'text' as const,text }));
       const textBlocks = prompt.text ? [{ type: 'text' as const, text: prompt.text }] : [];
-      const preparedTail = prepared?.trailingText ? [{ type: 'text' as const, text: prepared.trailingText }] : [];
       const trailingBlocks =
         prompt.origin === undefined && prompt.hiddenContext
           ? [{ type: 'text' as const, text: prompt.hiddenContext }]
@@ -1812,14 +1811,16 @@ export class SessionCell {
       // 就会静默退化成一句普通的话 —— 用户看见命令芯片、agent 收到的却是散文。
       // ⚠️ 判据用 agent **真的报过**的那份名单,不是「以 / 开头」:后者会把
       // `/Users/foo 这个文件…` 也当成命令(opencode 会把它整轮吞掉)。
+      // Routed envelopes are not commands; with no command list their leading '<' otherwise reorders the reply hint.
       const leadsWithCommand =
-        prompt.text !== undefined
+        prompt.origin !== 'communication'
+        && prompt.text !== undefined
         && invokesCommand(prompt.text, this.config.availableCommands);
       const promptRequest = {
         sessionId: this.acpSessionId,
         prompt: leadsWithCommand
-          ? [...textBlocks, ...contextBlocks, ...turnContextBlocks, ...attachmentBlocks, ...trailingBlocks, ...preparedTail]
-          : [...contextBlocks, ...turnContextBlocks, ...attachmentBlocks, ...textBlocks, ...trailingBlocks, ...preparedTail],
+          ? [...textBlocks, ...contextBlocks, ...turnContextBlocks, ...attachmentBlocks, ...trailingBlocks]
+          : [...contextBlocks, ...turnContextBlocks, ...attachmentBlocks, ...textBlocks, ...trailingBlocks],
       };
       this.rawLog.record({
         kind: 'prompt',

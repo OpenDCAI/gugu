@@ -1,4 +1,4 @@
-export type NativePromptPreparation = { text: string; trailingText?: string; accepted(): Promise<void> }
+export type NativePromptPreparation = { text: string; beforeText?: string; accepted(): Promise<void> }
 type Prepare = (sessionId: string) => Promise<NativePromptPreparation>
 let prepare: Prepare | null = null
 
