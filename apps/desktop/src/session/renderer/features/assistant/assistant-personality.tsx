@@ -11,7 +11,7 @@ import { Dialog, DialogContent } from '@renderer/lib/ui/dialog';
 import { composeInstructions, joinPersona, PERSONA_PRESETS, splitPersona, type PersonaPreset } from './assistant-files';
 import { readText, writeText } from './assistant-machine';
 import { useInstructions, useInvalidateAssistant } from './assistant-data';
-import { useReadFailure } from './assistant-read-failure';
+import { useAssistantReadError, useReadFailure } from './assistant-read-failure';
 import type { AssistantContext } from './assistant-context';
 import { reportAssistantAppChange } from '@/components/assistant/assistant-app-client';
 
@@ -154,7 +154,7 @@ const PersonaPending = observer(function PersonaPending({
 }) {
   const { t } = useTranslation('assistant');
   const name = context.assistant.display_name;
-  const readError = context.readiness === 'ready' ? context.machineError ?? instructions.error : null;
+  const readError = useAssistantReadError(context.machineLoading || instructions.isLoading,context.machineError ?? instructions.error);
   const machineError = Boolean(context.machineError);
   const { retryMachine } = context;
   const { refetch } = instructions;

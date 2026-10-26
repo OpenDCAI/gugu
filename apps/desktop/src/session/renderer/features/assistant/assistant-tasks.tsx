@@ -1,7 +1,6 @@
 import { messageForUser } from '@/lib/userFacingError';
 import { formatSessionTitleForDisplay } from '@shared/core/sessions/session-title-utils';
 import { rendererLogger } from '@/lib/log';
-import { useAssistantReadError, useReadFailure } from './assistant-read-failure';
 import { isAssistantPanelReadRetryable, retryAssistantPanelRead } from '@gugu/core/cloud/assistantPanelRead';
 import { assistantPanelFailure } from '@/components/assistant/assistant-panel-errors';
 import { isAgentHostDevice } from '@gugu/core/cloud/devices';
@@ -145,9 +144,6 @@ const RoutineLists = observer(function RoutineLists({ context }: AssistantPagePr
   const { t, i18n } = useTranslation('assistant');
   const formatAt = useFormatAt();
   const { query, routines } = useAssistantRoutines(context);
-  const readError = useAssistantReadError(context.machineLoading || query.isFetching,context.machineError ?? query.error,context.homeDeviceId);
-  const failure = useReadFailure(readError,null,'',() => void query.refetch());
-  if (failure) return <AssistantEmpty title={t('routines.loadFailed')}><span role="alert">{failure.text}</span></AssistantEmpty>;
   const active = routines.filter((a) => a.enabled);
   const inactive = routines.filter((a) => !a.enabled);
   const row = (automation: Automation) => (
@@ -162,7 +158,7 @@ const RoutineLists = observer(function RoutineLists({ context }: AssistantPagePr
     />
   );
   return (
-    <MachineGate readiness={context.readiness} loading={context.machineLoading || query.isLoading} error={context.machineError ?? query.error} onRetry={() => void query.refetch()}>
+    <MachineGate hasData={query.data !== undefined && routines.length > 0} readiness={context.readiness} loading={context.machineLoading || query.isLoading} error={context.machineError ?? query.error} onRetry={() => void query.refetch()}>
       {routines.length === 0 ? (
         <AssistantSection bare>
           <AssistantEmpty
@@ -204,7 +200,7 @@ const RoutineDetail = observer(function RoutineDetail({ context, id }: { context
   const automation = routines.find((a) => a.id === id) ?? null;
   const scheduled = automation?.nextRunAt ?? null;
   return (
-    <MachineGate readiness={context.readiness} loading={context.machineLoading || query.isLoading} error={context.machineError ?? query.error} onRetry={() => void query.refetch()}>
+    <MachineGate hasData={!!automation} readiness={context.readiness} loading={context.machineLoading || query.isLoading} error={context.machineError ?? query.error} onRetry={() => void query.refetch()}>
       {!automation ? (
         <AssistantEmpty title={t('routines.goneTitle')}>{t('routines.gone')}</AssistantEmpty>
       ) : (
