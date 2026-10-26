@@ -100,8 +100,9 @@ export default {
   },
   "mic": {
     "denied": "Allow microphone access in Settings",
+    "permissions": "Manage permissions",
     "openSettings": "Open System Settings",
-    "deniedPhone": "Gugu has no microphone access. In system Settings, open Apps → Gugu → Permissions and allow Microphone, then come back to record.",
+    "deniedPhone": "Microphone is off. Manage it in My → Permissions.",
     "missing": "No microphone found. Connect one and try again.",
     "failed": "Couldn't start recording. Try again.",
     "interrupted": "Recording was interrupted. What was recorded will still be processed.",

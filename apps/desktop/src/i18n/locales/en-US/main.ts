@@ -462,6 +462,8 @@ export default {
       "batteryOptimization": "Background running",
       "batteryOptimizationPurpose": "Keeps alerts coming after you switch away from 咕咕; tap to exempt it from battery optimization",
       "camera": "Camera",
+      "microphone": "Microphone",
+      "microphonePurpose": "Send voice messages",
       "cameraPurpose": "Scans QR codes to add friends and join groups",
       "fileAccess": "Files and folders",
       "fileAccessPurpose": "Opens project folders on your computer",
