@@ -317,8 +317,16 @@ describe('连接页:浏览器授权', () => {
     const writeText = vi.fn(async () => undefined)
     Object.defineProperty(navigator, 'clipboard', { configurable: true, value: { writeText } })
     await startAuthorization()
-    await clickElement(q('assistant-connector-copy-auth-link')!)
-    expect(writeText).toHaveBeenCalledWith(opened[0])
+    vi.useFakeTimers()
+    try {
+      await clickElement(q('assistant-connector-copy-auth-link')!)
+      expect(writeText).toHaveBeenCalledWith(opened[0])
+      expect(q('assistant-connector-copy-auth-link')!.textContent).toContain(i18n.t('connectors.setup.linkCopied', { ns: 'assistant' }))
+      await act(async () => { await vi.runOnlyPendingTimersAsync() })
+      expect(q('assistant-connector-copy-auth-link')!.textContent).toContain(i18n.t('connectors.setup.copyAuthLink', { ns: 'assistant' }))
+    } finally {
+      vi.useRealTimers()
+    }
   })
 
   it('人拒绝了授权:说是拒绝(带 data-reason),不 connect', async () => {
