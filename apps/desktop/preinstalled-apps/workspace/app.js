@@ -242,11 +242,11 @@ async function applyContext(ctx) {
   const inGroup = !!ctx.chat
   // A page the host opened for one file (F3: its own page, bound to that file for life) shows that file only.
   document.body.classList.toggle('no-list', !inGroup || !canRead() || !!ctx.file)
-  if (previous?.chat?.id !== ctx.chat?.id) {
+  if (previous?.chat?.id !== ctx.chat?.id || !!previous?.file !== !!ctx.file) {
     // Adds, deletes and renames in this chat's workspace (§2.4: fed from workspace_changed) — every call names its chat.
     state.unwatch?.()
-    state.unwatch = inGroup && canRead() ? gugu.files.onChanged({ chat: ctx.chat.id }, heard) : null
-    if (inGroup && canRead()) await refreshList()
+    state.unwatch = inGroup && canRead() && !ctx.file ? gugu.files.onChanged({ chat: ctx.chat.id }, heard) : null
+    if (inGroup && canRead() && !ctx.file) await refreshList()
   }
   // The host hands this page a file when it picked this App for it (真源 §2.6: a click goes to the host,
   // which picks the most specific claim; .md and plain .json are this App's). The host's header then has
@@ -909,15 +909,10 @@ async function openHanded() {
 }
 
 async function mountText(current) {
-  const [cm, md] = await Promise.all([editorKit(), previewKit()])
+  const md = await previewKit()
+  if (state.current !== current) return
   const { file } = current
   document.body.dataset.kind = 'text'
-  current.marks = lineMarks(cm)
-  current.view = new cm.EditorView({
-    parent: $('editor'),
-    extensions: [cm.basicSetup, markdownSupport(cm), cm.EditorView.lineWrapping, editorTheme(cm), selectionWatch(cm), current.marks.extension],
-  })
-  current.unbind = gugu.bind.codemirror(current.view, file)
   // Others' words (`chat`): raw HTML stays text, nothing loads; a relative link opens the file beside this one. Each
   // block says its lines (`sourceLines`): a selection there is cited by them, a pill's lines are found there.
   const render = () => {
@@ -927,6 +922,16 @@ async function mountText(current) {
   }
   current.offs.push(file.onChange(debounce(render, 120)))
   render()
+  // Reading does not wait for the source editor's module and construction.
+  await new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(resolve)))
+  const cm = await editorKit()
+  if (state.current !== current) return
+  current.marks = lineMarks(cm)
+  current.view = new cm.EditorView({
+    parent: $('editor'),
+    extensions: [cm.basicSetup, markdownSupport(cm), cm.EditorView.lineWrapping, editorTheme(cm), selectionWatch(cm), current.marks.extension],
+  })
+  current.unbind = gugu.bind.codemirror(current.view, file)
   showPlace()
 }
 

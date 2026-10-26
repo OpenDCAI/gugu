@@ -1736,7 +1736,7 @@ async function dispatch(caller: BridgeCaller, method: ExtensionBridgeMethod, arg
 
     case 'filesUpload': {
       const files = await import('@main/core/extensions/app-files');
-      const page = asCallingAgent(caller, await resourcePage(caller, args), args);
+      const page = asCallingAgent(caller, await caller.resourcePage(args), args);
       const place = placeOf(args.place);
       // `pick` is a page's, in its gesture (the door refuses it from anyone else): a background page or a program uploads
       // the bytes it has (G5), it never opens the person's picker.
