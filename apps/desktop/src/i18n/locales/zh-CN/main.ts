@@ -436,7 +436,6 @@ export default {
       "account": "账户",
       "activity": "活跃",
       "apps": "App",
-      "channels": "聊天渠道",
       "browser": "浏览器",
       "devices": "设备",
       "general": "通用",

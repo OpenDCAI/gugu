@@ -118,13 +118,6 @@ function IbApps() {
   return <svg xmlns="http://www.w3.org/2000/svg" width="15" height="15" viewBox="0 0 24 24"><g fill="currentColor"><rect width="9.5" height="9.5" x="2" y="2" rx="2.5"/><rect width="9.5" height="9.5" x="12.5" y="2" rx="2.5"/><rect width="9.5" height="9.5" x="2" y="12.5" rx="2.5"/><rect width="9.5" height="9.5" x="12.5" y="12.5" rx="2.5"/></g></svg>
 }
 
-// 聊天渠道:一个带三点的对话气泡 —— Solar「chat-round-dots」,同一套 1.5 线宽画法(在微信等聊天工具里找 agent)
-function IlChannels() {
-  return <svg xmlns="http://www.w3.org/2000/svg" width="15" height="15" viewBox="0 0 24 24"><g fill="none" stroke="currentColor" strokeWidth="1.5"><path d="M12 22c5.523 0 10-4.477 10-10S17.523 2 12 2S2 6.477 2 12c0 1.6.376 3.112 1.043 4.453c.178.356.237.763.134 1.148l-.595 2.226a1.3 1.3 0 0 0 1.591 1.592l2.226-.596a1.63 1.63 0 0 1 1.149.133A9.96 9.96 0 0 0 12 22Z"/><path strokeLinecap="round" strokeLinejoin="round" d="M8 12h.009m3.982 0H12m3.991 0H16"/></g></svg>
-}
-function IbChannels() {
-  return <svg xmlns="http://www.w3.org/2000/svg" width="15" height="15" viewBox="0 0 24 24"><path fill="currentColor" fillRule="evenodd" d="M12 2c5.523 0 10 4.477 10 10s-4.477 10-10 10c-1.6 0-3.111-.376-4.452-1.044a1.63 1.63 0 0 0-1.149-.133l-2.225.596a1.301 1.301 0 0 1-1.593-1.593l.596-2.225a1.63 1.63 0 0 0-.133-1.149A9.96 9.96 0 0 1 2 12C2 6.477 6.477 2 12 2m-4.009 9a1 1 0 1 0 0 2a1 1 0 0 0 0-2M12 11a1 1 0 1 0 0 2a1 1 0 0 0 0-2m4.009 0a1 1 0 1 0 0 2a1 1 0 0 0 0-2" clipRule="evenodd"/></svg>
-}
 // 这台手机:Solar「smartphone」同一套 1.5 线宽画法(#7199 手机当设备,只在手机壳上)
 function IlPhone() {
   return <svg xmlns="http://www.w3.org/2000/svg" width="15" height="15" viewBox="0 0 24 24"><g fill="none" stroke="currentColor" strokeWidth="1.5"><path d="M4 10c0-3.771 0-5.657 1.172-6.828S8.229 2 12 2s5.657 0 6.828 1.172S20 6.229 20 10v4c0 3.771 0 5.657-1.172 6.828S15.771 22 12 22s-5.657 0-6.828-1.172S4 17.771 4 14z"/><path strokeLinecap="round" d="M15 19H9"/></g></svg>
@@ -145,7 +138,6 @@ const NAV_ITEMS: NavItem[] = [
   { key: 'usage',   labelKey: 'settings.nav.usage', il: <IlUsage />,   ib: <IbUsage />   },
   { key: 'subscriptions', labelKey: 'settings.nav.subscriptions', il: <IlSubscriptions />, ib: <IbSubscriptions /> },
   { key: 'activity', labelKey: 'settings.nav.activity', il: <IlActivity />, ib: <IbActivity /> },
-  { key: 'channels', labelKey: 'settings.nav.channels', il: <IlChannels />, ib: <IbChannels /> },
   { key: 'apps',    labelKey: 'settings.nav.apps', il: <IlApps />,    ib: <IbApps />    },
   { key: 'phone',   labelKey: 'settings.nav.phone', il: <IlPhone />,   ib: <IbPhone />   },
   { key: 'about',   labelKey: 'settings.nav.about', il: <IlAbout />,   ib: <IbAbout />   },

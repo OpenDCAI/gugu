@@ -1,7 +1,7 @@
 export type ActiveSection =
   // 咕咕(助理)那一组(owner 10-16「咕咕的设置是全局设置里的一组;齿轮直接开这一组,❌ 再有第二个设置页」):
   // assistant = 它是谁与它的状态(名字、形象、醒着多久、积分、快速聊天、关闭);connectors = 它连着的应用。
-  // 它用的设备 / 聊天工具就是下面的 devices / channels,不另起一页。
+  // 它用的设备在 devices,聊天工具并入 connectors。
   | 'assistant'
   | 'connectors'
   | 'account'
@@ -17,7 +17,7 @@ export type ActiveSection =
   // The phone's own App store (L9): the Apps installed on it from chats, to uninstall. The desktop manages its Apps on
   // the far-left rail's 「App」 page.
   | 'apps'
-  // 在微信(以后飞书、钉钉)里直接和自己的 agent 聊(product spec)。客户端跑在桌面本机,只有桌面版显示。
+  // Legacy settings deep links only; SettingsPanel redirects channels to connectors.
   | 'channels'
   // #7199 手机当设备:云端的个人助理能用这台手机做哪些事。只在手机壳上(桌面的「这台电脑能做的事」在「设备」里)。
   | 'phone'
@@ -36,7 +36,7 @@ export type SettingsGroupId = 'assistant' | 'account' | 'preferences' | 'work' |
 
 /**
  * The one settings (product spec): sections in groups, a caption + divider between groups.
- * 咕咕 · 连接应用 / 账户 · 用量 · 订阅 · 活跃 / 通用 · 界面 · 权限 · 模型 / 会话 · 仓库 · 浏览器 · 设备 · 聊天渠道 · App / 关于.
+ * 咕咕 · 连接应用 / 账户 · 用量 · 订阅 · 活跃 / 通用 · 界面 · 权限 · 模型 / 会话 · 仓库 · 浏览器 · 设备 · App / 关于.
  * Which of them a host shows is SettingsPanel's filter (task host, system permissions, the phone's own Apps).
  * 桌面左栏与手机「我的」读的都是这一份,❌ 各写一个顺序。
  */
@@ -51,8 +51,7 @@ export const SETTINGS_GROUPS: readonly { readonly id: SettingsGroupId; readonly 
   { id: 'preferences', sections: ['general', 'interface', 'permissions', 'model', 'resource-monitor'] },
   // agent 跑起来的那几样(会话的默认行为、仓库、浏览器)挨着「设备」。App 只在手机壳上:那里的 App 由
   // 这一页自己的 App 仓管(L9)。
-  // 聊天渠道挨着设备:微信消息经「这台电脑」转给 agent,两页说的是同一件事的两头。
-  { id: 'work', sections: ['sessions', 'browser', 'devices', 'channels', 'apps', 'phone'] },
+  { id: 'work', sections: ['sessions', 'browser', 'devices', 'apps', 'phone'] },
   { id: 'about', sections: ['about'] },
 ]
 export const SETTINGS_SECTION_GROUPS: readonly (readonly ActiveSection[])[] = SETTINGS_GROUPS.map((group) => group.sections)

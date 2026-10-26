@@ -40,7 +40,6 @@ import { useTranslation } from 'react-i18next'
  * ❌ 桌面手机各写一个判断:
  * - 「权限」只在读得到系统权限真值的宿主上(product spec);
  * - 「App」只在手机壳上:那里的 App 由这一页自己的 App 仓管(L9);桌面在最左栏的「App」里管,网页不装 App;
- * - 「聊天渠道」只在桌面版上:微信客户端跑在这台电脑的主进程里;
  * - 「这台手机」只在手机壳上(#7199 手机当设备:那几个动作要安卓的系统接口;桌面的「这台电脑能做的事」在「设备」里);
  * - 会话页那几格只在有会话页宿主的桌面形态上(它们是会话页的组件);手机「我的」不画。
  * - 「咕咕」组:云上可开通、已经有它、或桌面可在本机安家时显示;手机的连接应用复用资料页里的授权流程。
@@ -48,7 +47,6 @@ import { useTranslation } from 'react-i18next'
 const sectionsFor = (mobile: boolean): ActiveSection[] =>
   SETTINGS_SECTIONS.filter(
     (section) =>
-      section !== 'channels' &&
       (section !== 'usage' || officialServicesEnabled()) &&
       (section !== 'permissions' || platform.kind === 'electron' || platform.systemPermissions.length > 0) &&
       (section !== 'apps' || platform.kind === 'capacitor') &&

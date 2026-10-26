@@ -35,7 +35,10 @@ vi.mock('../../../../apps/desktop/src/components/agentsettings/AgentSettingsModa
   AgentSettingsModal: ({ initialTab }: { initialTab?: string }) => createElement('div', { 'data-testid': 'agent-settings-modal', 'data-tab': initialTab }),
 }))
 const invoke = vi.hoisted(() => vi.fn(async () => ({ ok: true })))
-vi.mock('../../../../apps/desktop/src/session/renderer/lib/ipc', () => ({ invokeOnMachine: invoke }))
+vi.mock('../../../../apps/desktop/src/session/renderer/lib/ipc', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('../../../../apps/desktop/src/session/renderer/lib/ipc')>()),
+  invokeOnMachine: invoke,
+}))
 
 const sessionSection = vi.hoisted(() => ({ props: null as unknown }))
 vi.mock('../../../../apps/desktop/src/components/sessionpage/SessionSettingsSection', () => ({
@@ -54,6 +57,7 @@ vi.mock('../../../../apps/desktop/src/lib/cloudComputerStore', async (importOrig
   wakeCloudComputer: wake,
 }))
 
+const { SettingsPanel } = await import('../../../../apps/desktop/src/components/SettingsPanel')
 const { AssistantSection } = await import('../../../../apps/desktop/src/components/settings/AssistantSection')
 const { ConnectorsSection } = await import('../../../../apps/desktop/src/components/settings/ConnectorsSection')
 const { DevicesContext } = await import('../../../../apps/desktop/src/store/devicesContext')
@@ -213,5 +217,17 @@ describe('咕咕组 · 连接应用', () => {
     await render(createNode(ConnectorsSection,{}),{ ...asleep,loadError: 'unavailable' } as never)
     expect(sessionSection.props).not.toBeNull()
     expect(wake).not.toHaveBeenCalled()
+  })
+})
+
+
+describe('retired chat channel settings links', () => {
+  it.each([false, true])('opens Connect apps for a legacy channels link (mobile=%s)', async (mobile) => {
+    mine.value = { contact: CONTACT, agentId: 'a1', loading: false, error: null }
+    await render(createNode(SettingsPanel, { initialSection: 'channels', inline: true, mobile, pane: 'detail' }), awake)
+    expect(harness.container.querySelector('[data-settings-section="connectors"]')).not.toBeNull()
+    expect(q('settings-connectors')).not.toBeNull()
+    expect(q('settings-nav-channels')).toBeNull()
+    expect(harness.container.querySelector('.gg-settings-detail .gg-pane-title')?.textContent).toBe('连接应用')
   })
 })

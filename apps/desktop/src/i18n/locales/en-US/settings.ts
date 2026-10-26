@@ -48,16 +48,11 @@ export default {
     "uploadFailed": "Could not upload the avatar"
   },
   "channels": {
-    "intro": "Chat with your agent in WeChat, even when your computer is off.",
     "connected": "Connected",
-    "available": "Available",
-    "comingSoon": "Coming soon",
-    "connect": "Connect",
     "disconnect": "Disconnect",
     "wechat": "WeChat",
     "feishu": "Feishu",
     "dingtalk": "DingTalk",
-    "wechatHint": "Chat with an agent in WeChat's \"WeChat ClawBot\"",
     "wechatChatWith": "Chat with \"{{name}}\" in WeChat ClawBot",
     "wechatNoAgent": "Connected, no agent chosen yet",
     "connectedSince": "Connected {{time}}",
@@ -65,9 +60,6 @@ export default {
     "agentHint": "Messages from WeChat go to this agent; its replies go back to WeChat.",
     "pickAgent": "Choose an agent",
     "noAgents": "You have no agent yet. Create one, then come back to choose it.",
-    "notOpen": "Chat channels aren't available yet.",
-    "loadFailed": "Couldn't load chat channels",
-    "reload": "Retry",
     "actionFailed": "Couldn't save. Try again.",
     "defaultChannel": "App for reminders",
     "defaultChannelHint": "Proactive messages will also reach you here.",
@@ -84,8 +76,7 @@ export default {
       "title": "Disconnect WeChat?",
       "body": "What you send to ClawBot no longer reaches the agent, and the agent's messages no longer go to WeChat. You can scan to connect again any time.",
       "cancel": "Cancel",
-      "confirm": "Disconnect",
-      "failed": "Couldn't disconnect. Try again."
+      "confirm": "Disconnect"
     },
     "dialog": {
       "title": "Connect WeChat",

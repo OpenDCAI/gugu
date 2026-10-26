@@ -442,7 +442,6 @@ export default {
       "account": "Account",
       "activity": "Activity",
       "apps": "Apps",
-      "channels": "Chat channels",
       "browser": "Browser",
       "devices": "Devices",
       "general": "General",

@@ -48,16 +48,11 @@ export default {
     "uploadFailed": "上传失败"
   },
   "channels": {
-    "intro": "在微信里和 agent 聊天，电脑关机时也可用。",
     "connected": "已连接",
-    "available": "可用",
-    "comingSoon": "即将推出",
-    "connect": "连接",
     "disconnect": "断开连接",
     "wechat": "微信",
     "feishu": "飞书",
     "dingtalk": "钉钉",
-    "wechatHint": "在微信的「微信ClawBot」里和 agent 聊天",
     "wechatChatWith": "在微信「微信ClawBot」里和「{{name}}」聊天",
     "wechatNoAgent": "已连接，还没选对接哪个 agent",
     "connectedSince": "连接于 {{time}}",
@@ -65,9 +60,6 @@ export default {
     "agentHint": "微信里发来的消息交给它；它的回复回到微信。",
     "pickAgent": "选一个 agent",
     "noAgents": "你还没有 agent。先建一个，再回来选。",
-    "notOpen": "聊天渠道暂未开放。",
-    "loadFailed": "聊天渠道加载失败",
-    "reload": "重试",
     "actionFailed": "没能保存，请重试",
     "defaultChannel": "接收提醒的应用",
     "defaultChannelHint": "主动消息也会在这里推送给你。",
@@ -84,8 +76,7 @@ export default {
       "title": "断开微信？",
       "body": "断开后，微信里给 ClawBot 发的话不再转给 agent，agent 的消息也不再推到微信。之后可以随时重新扫码连接。",
       "cancel": "取消",
-      "confirm": "断开连接",
-      "failed": "没能断开，请重试"
+      "confirm": "断开连接"
     },
     "dialog": {
       "title": "连接微信",
