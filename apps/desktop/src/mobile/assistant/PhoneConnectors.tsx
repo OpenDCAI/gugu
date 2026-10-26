@@ -169,7 +169,7 @@ export function PhoneConnectorDetail({ assistant, homeDeviceId, machine, integra
                   </p>
                 )}
               </div>
-              <AssistantSection title={t('connectors.connection', { name: view.item.name })}>
+              {view.connected ? <AssistantSection title={t('connectors.connection', { name: view.item.name })}>
                 <AssistantRow
                   title={t('connectors.status')}
                   detail={issueText}
@@ -180,7 +180,7 @@ export function PhoneConnectorDetail({ assistant, homeDeviceId, machine, integra
                   }
                 />
                 {view.account && !listsAccounts ? <AssistantRow title={t('connectors.account')} trailing={view.account} /> : null}
-              </AssistantSection>
+              </AssistantSection> : null}
               {listsAccounts && accounts.accounts?.length ? (
                 <AssistantSection title={t('connectors.accounts')} testId="assistant-connector-accounts">
                   {accounts.accounts.map((account) => (

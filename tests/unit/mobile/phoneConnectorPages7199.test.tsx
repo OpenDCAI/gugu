@@ -166,6 +166,8 @@ describe('详情页', () => {
     await render(PhoneConnectorDetail, page.props)
     expect(q('assistant-connector-detail')).not.toBeNull()
     expect(q('assistant-connector-disconnect')).toBeNull()
+    expect(q('assistant-connector-detail')!.textContent).not.toContain('未连接')
+    expect(q('assistant-connector-detail')!.textContent).toContain('在哪能用')
     await clickElement(q('assistant-connector-connect')!)
     expect(page.go).toHaveBeenCalledWith('connector:qq-mail:connect')
   })
