@@ -69,7 +69,7 @@ function SubAgents({ assistant, askInChat }: PhonePageProps) {
       {group.items.map(task => <AssistantRow key={task.key} testId={`assistant-subagent-${task.id}`} title={formatSessionTitleForDisplay(task.harness ?? '',task.title)}
         detail={assistantTaskDeviceLabel(devices,task.deviceId)}
         trailing={<StatusGlyph presentation={presentAgentStatus({ reading: task.status,unseen: task.unseen })} />}
-        chevron={!!task.agentId} onClick={task.agentId ? () => openAssistantPanelTask({assistantId:assistant.id},task) : undefined} />)}
+        chevron onClick={() => openAssistantPanelTask({assistantId:assistant.id},task)} />)}
     </AssistantSection>)}</AssistantWorkTaskRead>
 }
 

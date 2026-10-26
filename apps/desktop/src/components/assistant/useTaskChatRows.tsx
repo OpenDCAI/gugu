@@ -10,6 +10,7 @@ import { Button } from '../ui/Button'
 import { rendererLogger } from '../../lib/log'
 import './assistant-task-chat.css'
 import {assistantWorkRefresh} from './assistant-work-refresh'
+import {readCachedAssistantWorkDetail} from './useAssistantWorkDetail'
 
 const log = rendererLogger('assistant/task-chat')
 
@@ -51,7 +52,9 @@ export function useTaskChatRows(messages: readonly MessageItem[], ownerId: strin
     void pending.refresh()
     return () => { alive = false; pending.close(); clearTimeout(retry); stop() }
   },[key,visible,ownerId,task])
-  const exchanges = projection?.key === key ? projection.entries : cache.get(key) ?? EMPTY
+  const known=task?.workId&&ownerId?readCachedAssistantWorkDetail(ownerId,task.assistantId,task.workId,task.task.sessionId):null
+  const knownExchanges=useMemo(()=>known?assistantWorkExchanges(known.events,known.work.work_id):null,[known])
+  const exchanges = projection?.key === key ? projection.entries : knownExchanges??cache.get(key)??EMPTY
   const allRows = useMemo(() => taskChatRows(messages, exchanges, task, query), [messages, exchanges, task, query])
   const count = query ? Infinity : history.key === key ? history.count : 80
   const { rows, earlier } = useMemo(() => taskChatWindow(allRows, count), [allRows, count])

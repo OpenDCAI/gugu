@@ -4,8 +4,10 @@ import { useSyncExternalStore } from 'react'
 export type TaskChatEndpoint = { deviceId: string; sessionId: string }
 export type AssistantTaskChat = {
   workId?: string
+  title?: string
+  outcome?: 'active' | 'completed' | 'failed' | 'cancelled'
   assistantId: string
-  taskAgentId: string
+  taskAgentId: string | null
   task: TaskChatEndpoint
   assistants: TaskChatEndpoint[]
 }
@@ -13,7 +15,7 @@ export const OPEN_ASSISTANT_TASK_CHAT = '__open_assistant_task_chat'
 type Registry = { entries: Map<string, AssistantTaskChat>; listeners: Set<() => void>; loaded?: Set<string>; opened?: OpenedAssistantTaskChat | null }
 export type OpenedAssistantTaskChat = { ownerId: string; request: AssistantTaskChat; name: string }
 const KEY = '__GUGU_ASSISTANT_TASK_CHATS__'
-const taskKey = (ownerId: string,task: AssistantTaskChat) => `${ownerId}:${task.taskAgentId}:${task.workId ?? "legacy"}`
+const taskKey = (ownerId: string,task: AssistantTaskChat) => `${ownerId}:${task.taskAgentId??task.task.sessionId}:${task.workId ?? "legacy"}`
 function registry(): Registry {
   const target = window as unknown as Record<string, unknown>
   return (target[KEY] ??= { entries: new Map(), listeners: new Set() }) as Registry
