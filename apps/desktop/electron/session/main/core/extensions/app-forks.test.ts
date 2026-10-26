@@ -17,6 +17,8 @@ vi.mock('../utils/exec', () => ({ getGitExecutable: () => 'git' }));
 vi.mock('@main/utils/userEnv', () => ({ loginShellEnv: () => null }));
 vi.mock('../runtime/review-git-env', () => ({ reviewGitEnv: () => ({ ...process.env, GIT_CONFIG_COUNT: '3', GIT_CONFIG_KEY_2: `url.file://${state.work}/github-fork.git.insteadOf`, GIT_CONFIG_VALUE_2: 'https://github.com/my-user/gugu-apps.git', GIT_CONFIG_KEY_0: `url.file://${state.repo}.insteadOf`, GIT_CONFIG_VALUE_0: 'https://github.com/shuxueshuxue/gugu-apps.git', GIT_CONFIG_KEY_1: 'protocol.file.allow', GIT_CONFIG_VALUE_1: 'always' }) }));
 const { createAppFork, prepareForkVariant } = await import('./app-forks');
+const { prepareVariant, switchExtensionVariant } = await import('./extension-variants');
+const { installPrepared } = await import('./install-prepared');
 
 const git = (...args: string[]) => execFileSync('git', args, { cwd: state.repo, encoding: 'utf8' }).trim();
 beforeEach(() => {
@@ -88,4 +90,29 @@ it('reuses the connected GitHub account, creates one repository fork and pushes 
     expect(execFileSync('git', ['--git-dir', bare, 'rev-parse', `refs/heads/${fork.branch}`], { encoding: 'utf8' }).trim()).toBe(fork.commit);
     expect(readFileSync(path.join(fork.git_dir, '.git', 'config'), 'utf8')).not.toContain('unit-test-token');
   }
+});
+
+
+it('uses human consent for new permissions, keeps a declined fork inactive, and switches through the shared aftercare', async () => {
+  const fork = await createAppFork('demo');
+  const file = path.join(fork.source_dir, 'manifest.json');
+  const manifest = JSON.parse(readFileSync(file, 'utf8')) as Record<string, unknown>;
+  manifest.permissions = { capabilities: ['chat:relay'] };
+  writeFileSync(file, JSON.stringify(manifest));
+  const variant = (await prepareForkVariant(fork.source_dir))!;
+  const prepared = prepareVariant(fork.source_dir, variant);
+  const afterInstall = vi.fn();
+  const requestInstallConsent = vi.fn(async () => ({ outcome: 'declined' as const }));
+  const dependencies = { afterInstall, requestInstallConsent, notifyInstalledChanged: async () => {} };
+  expect(prepared.asks).toBe(true);
+  expect(await installPrepared(prepared, { kind: 'here' }, dependencies)).toEqual({ outcome: 'declined' });
+  expect(state.service.variants('demo').active).toBe('upstream');
+  expect(afterInstall).not.toHaveBeenCalled();
+  const agreed = await installPrepared(prepared, { kind: 'given', digest: prepared.manifestDigest }, dependencies);
+  expect(agreed.outcome).toBe('confirmed');
+  expect((await switchExtensionVariant('demo', 'upstream', undefined, dependencies)).installed).toBe(true);
+  expect((await switchExtensionVariant('demo', 'my-fork', undefined, dependencies)).installed).toBe(true);
+  expect(requestInstallConsent).toHaveBeenCalledTimes(1);
+  expect(afterInstall).toHaveBeenCalledTimes(3);
+  expect(state.service.identityOf('demo')).toEqual({ id: 'demo', publisher: 'gugu' });
 });
