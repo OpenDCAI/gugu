@@ -1153,7 +1153,7 @@ function appLines(apps: readonly ExtensionCatalogApp[]): string[] {
 export const GUGU_APPS_SEARCH_LINE = [
   'An App not listed here may have been installed since, be switched off or be only in the market.',
   'Before you answer a message that names an App (「记账 App」) or a game, look it up with catalog_call app_search { query } — even when a tool of your own could do it (a device\'s calendar, hosting the game yourself): the person asked for the App, and a game\'s App keeps the game for everyone in the chat.',
-  'Installing an App or changing its version is app_install; switching one on is your owner\'s, on its 「App」 page. Never edit an App\'s installed files.',
+  'Installing an App or changing its version is app_install; switching one on is your owner\'s, on its 「App」 page. Never edit an App\'s installed files. If an App cannot do what the person asks, ask whether to fork it (guide_read apps-fork).',
   '> (from Wei) 来一局狼人杀',
   'catalog_call app_search { query: "狼人杀" } → an App row → use its tools, or do what its next says',
 ].join('\n')

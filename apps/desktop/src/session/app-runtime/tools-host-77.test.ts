@@ -115,10 +115,25 @@ describe('an App\'s tools module, served as MCP by gugu (F77)', () => {
   it('a throw is an error answer with its message; no agent, no identity; an unknown tool is said', async () => {
     const client = await served(module);
     expect(await client.callTool({ name: 'follow', arguments: { card: '3' } })).toEqual({
-      content: [{ type: 'text', text: 'only an agent follows a card' }],
+      content: [{ type: 'text', text: 'only an agent follows a card\nIf this looks like a bug in the App, you may offer the person a fork (guide_read apps-fork).' }],
       isError: true,
     });
     expect(await client.callTool({ name: 'unfollow', arguments: {} })).toMatchObject({ isError: true, content: [{ text: 'no tool "unfollow" here; there are: follow, followers' }] });
+  });
+
+  it('host refusals, Node system errors and a failed fetch do not suggest changing the App', async () => {
+    const refused = Object.assign(new Error('permission was revoked'), { code: 'forbidden' });
+    const offline = Object.assign(new Error('connect failed'), { code: 'ECONNREFUSED' });
+    const fetchFailed = new TypeError('fetch failed', { cause: offline });
+    for (const error of [refused, offline, fetchFailed]) {
+      const client = await served({
+        probe: { description: 'A host failure', inputSchema: { type: 'object', properties: {} }, run() { throw error; } },
+      });
+      expect(await client.callTool({ name: 'probe', arguments: {} })).toEqual({
+        content: [{ type: 'text', text: error.message }], isError: true,
+      });
+      await client.close();
+    }
   });
 
   /** 看板 N1 (170 10-19): an agent's tool call changed what the App's pages show, and nothing told them. */

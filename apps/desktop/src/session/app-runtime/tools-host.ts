@@ -101,7 +101,14 @@ export async function serveTools(tools: ReadonlyMap<string, AppTool>, transport:
       void server.notification({ method: TOOLS_CALLED, params: { tool: name } });
       return text(typeof value === 'string' ? value : (JSON.stringify(value) ?? ''));
     } catch (error) {
-      return { ...text(error instanceof Error ? error.message : String(error)), isError: true };
+      const message = error instanceof Error ? error.message : String(error);
+      // Host refusals and Node system errors carry a code (fetch puts it on its cause).
+      // Keep those answers as they are; a fork cannot repair the environment.
+      const cause = error instanceof Error ? error.cause : undefined;
+      const coded = (typeof error === 'object' && error !== null && 'code' in error)
+        || (typeof cause === 'object' && cause !== null && 'code' in cause);
+      const hint = coded ? '' : '\nIf this looks like a bug in the App, you may offer the person a fork (guide_read apps-fork).';
+      return { ...text(message + hint), isError: true };
     }
   });
   await server.connect(transport);
