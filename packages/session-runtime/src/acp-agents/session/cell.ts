@@ -1277,6 +1277,10 @@ export class SessionCell {
    */
   private onAgentState(state: 'running' | 'requires_action' | 'idle'): void {
     if (!this.reportsState) return;
+    if (this.replayingHistory) {
+      if (state === 'idle') this.transcript.endTurn();
+      return;
+    }
     if (state !== 'idle') {
       this.idleReported = false;
       if (this.machine.phase.kind === 'ready') this.applyEvent({ type: 'WorkStarted' });
