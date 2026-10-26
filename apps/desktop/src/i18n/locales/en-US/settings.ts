@@ -169,6 +169,11 @@ export default {
     "usageWindows": "Usage windows"
   },
   "devices": {
+    "longOffline": "Long offline",
+    "configurations": "Versions",
+    "configurationUnknown": "Version unavailable",
+    "configurationCount": "{{count}} versions",
+    "versionNames": { "production": "Gugu", "beta": "Gugu Beta" },
     "phoneActions": {
       "notificationsAndDnd": "Notifications and Do Not Disturb",
       "readFailed": "Could not read system permissions",

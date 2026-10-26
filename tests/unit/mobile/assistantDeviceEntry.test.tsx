@@ -52,3 +52,30 @@ it('keeps desktop authorization reachable before device registration', async () 
   await clickElement(find('assistant-device-this-computer')!)
   expect(find('local-computer-permissions')).not.toBeNull()
 })
+
+it('shows same-machine tiers once on both phone and desktop, using the online row', async () => {
+  const capabilities = { terminals: [], runtimes: [], actions: { actions: [] } }
+  state.devices = [{ device_id: 'acceptance', machine_id: 'same-mac', label: 'Mac', is_online: false, last_seen_at: '2026-10-27', capabilities },
+    { device_id: 'beta', machine_id: 'same-mac', label: 'Mac', is_online: true, last_seen_at: '2026-10-26', capabilities }]
+  for (const kind of ['capacitor', 'electron']) {
+    state.kind = kind
+    const open = vi.fn()
+    await renderWithAppProviders(harness, <AssistantDevicesPage cloudDeviceId={null} onOpenDevice={open} />)
+    expect(find('assistant-device-acceptance')).toBeNull()
+    expect(find('assistant-device-beta')!.textContent).toContain('2 个版本')
+    await clickElement(find('assistant-device-beta')!)
+    expect(open).toHaveBeenCalledWith('beta')
+  }
+})
+
+it('folds eight-day offline machines by default and moves a returning endpoint to the normal list', async () => {
+  state.devices = [{ device_id: 'old', machine_id: 'old-mac', label: 'Old Mac', is_online: false,
+    last_seen_at: new Date(Date.now() - 8 * 86400000).toISOString(), capabilities: { terminals: [], runtimes: [] } }]
+  await renderWithAppProviders(harness, <AssistantDevicesPage cloudDeviceId={null} />)
+  expect(find('device-long-offline-toggle')!.getAttribute('aria-expanded')).toBe('false')
+  expect(find('device-long-offline')!.contains(find('assistant-device-old'))).toBe(true)
+  state.devices = [{ ...(state.devices[0] as object), is_online: true, last_seen_at: new Date().toISOString() }]
+  await renderWithAppProviders(harness, <AssistantDevicesPage cloudDeviceId={null} />)
+  expect(find('device-long-offline')).toBeNull()
+  expect(find('assistant-device-old')).not.toBeNull()
+})

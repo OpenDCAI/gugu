@@ -74,6 +74,26 @@ afterEach(() => {
   vi.restoreAllMocks()
 })
 describe('DevicesSection interaction', () => {
+  it('groups physical machines but retains both tier configurations in details', async () => {
+    const value = store({ devices: [device({ device_id: 'old', machine_id: 'same-mac', tier: 'acceptance-tasks431', is_online: false }),
+      device({ device_id: 'active', machine_id: 'same-mac', tier: 'beta' })] })
+    await act(async () => { root.render(createElement(DevicesContext.Provider, { value }, createElement(DevicesSection))) })
+    expect(container.querySelectorAll('[data-testid="settings-device-row"]')).toHaveLength(1)
+    await openMenuItem('settings-device-open-actions')
+    const configurations = container.querySelector('[data-testid="device-machine-configurations"]')!
+    expect(configurations.textContent).toContain('咕咕 Beta')
+    expect(configurations.textContent).toContain('acceptance-tasks431')
+    expect(configurations.querySelectorAll('.gg-settings-row[data-testid^="device-configuration-"]')).toHaveLength(2)
+    expect(value.remove).not.toHaveBeenCalled()
+    expect(value.rename).not.toHaveBeenCalled()
+    const removeOld = configurations.querySelector<HTMLButtonElement>('[data-testid="device-configuration-remove-old"]')!
+    await act(async () => { removeOld.click() })
+    await flush()
+    expect(value.listBoundAgents).toHaveBeenCalledWith('old')
+    expect(document.body.querySelector('[data-testid="settings-device-remove-dialog"]')!.textContent).toContain('acceptance-tasks431')
+    expect(value.remove).not.toHaveBeenCalled()
+  })
+
   it('opens the confirmation sheet above the settings layer and removes an unbound device', async () => {
     const value = store()
     await act(async () => {
