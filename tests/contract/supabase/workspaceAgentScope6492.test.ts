@@ -328,7 +328,7 @@ describe('#6492 an App acting for an agent, against the migrated database', () =
     expect(oldGet.rows[0]?.inline_text).toBe('BODY-6492')
     const projected = await client.rpc('workspace_get_as', { p_item_id: created.id, p_as_user_id: w.agent }).select('id,filename')
     expect(projected.error).toBeNull()
-    expect(projected.data).toEqual([{ id: created.id, filename: created.name }])
+    expect(projected.data).toEqual([{ id: created.id, filename: 'Plan 2' }])
   })
 
   it('workspace_list_as 在库里分页与筛选(已发出的 MCP 用它):总数、下一段、名字按字面(% _ 不是通配)、种类;按名字找文件也用它', async () => {
