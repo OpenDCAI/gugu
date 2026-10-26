@@ -52,8 +52,8 @@ function SharePreview({ share }: { share: IncomingShare }) {
  */
 export function ShareIntakeContent({ share, onDone }: { share: IncomingShare; onDone: (afterClose?: () => void) => void }) {
   const { t } = useTranslation('messaging')
-  const { chats, identitiesById, activeChatId, drafts, draftAttachments, setDraft, setDraftAttachments } = useChatStore(
-    'chats', 'identitiesById', 'activeChatId', 'drafts', 'draftAttachments', 'setDraft', 'setDraftAttachments',
+  const { chats, identitiesById, activeChatId, drafts, draftAttachments, writeDraft, setDraftAttachments } = useChatStore(
+    'chats', 'identitiesById', 'activeChatId', 'drafts', 'draftAttachments', 'writeDraft', 'setDraftAttachments',
   )
   const [query, setQuery] = useState('')
   const displayName = useCallback(
@@ -73,11 +73,11 @@ export function ShareIntakeContent({ share, onDone }: { share: IncomingShare; on
 
   const sendTo = (chat: ChatItem) => {
     const next = mergeShareIntoDraft(
-      { text: drafts[chat.id] ?? '', attachments: draftAttachments[chat.id] ?? [] },
+      { text: '', attachments: draftAttachments[chat.id] ?? [] },
       share,
       () => crypto.randomUUID(),
     )
-    setDraft(chat.id, next.text)
+    if (next.text) writeDraft(chat.id, { at: 'end', text: next.text })
     setDraftAttachments(chat.id, next.attachments)
     // 与点通知进会话同一条路:选中、切到对话、手机壳下钻到会话页、聚焦输入框。
     onDone(() => window.dispatchEvent(new CustomEvent(UI_EVENTS.notificationClicked, { detail: { chatId: chat.id } })))
