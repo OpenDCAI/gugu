@@ -363,6 +363,9 @@ div.gg-settings-identity {
   line-height: var(--lh-body);
 }
 /* 手机「我的」是开放分组:不套卡、行间不画线,铺在全线渐变上(v7.12,owner 10-26)。 */
+.gg-settings-nav-pane[data-mobile] .gg-settings-nav-group:first-child {
+  margin-top: var(--spacing-lg);
+}
 .gg-settings-nav-pane[data-mobile] .gg-settings-nav-caption {
   padding-inline: var(--spacing-lg);
 }
