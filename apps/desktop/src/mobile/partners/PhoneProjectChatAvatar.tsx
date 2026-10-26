@@ -16,5 +16,5 @@ function ProjectChatAvatar({ chat, children }: { chat: ChatItem; children: React
   if (!project) return children
   const running = Object.values(statuses).filter((status) => status === 'working').length
   const waiting = Object.values(statuses).some((status) => status === 'needs_user' || status === 'error')
-  return <span className="gg-phone-project-avatar"><ProjectFolderAvatar coverId={project.coverId} running={running} size={48} />{waiting ? <span className="gg-phone-project-attention" /> : null}</span>
+  return <span className="gg-phone-project-avatar"><ProjectFolderAvatar coverId={project.coverId} running={running} size={48} />{waiting ? <span className="gg-phone-project-attention" data-testid="phone-project-waiting" aria-hidden /> : null}</span>
 }

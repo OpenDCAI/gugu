@@ -1,29 +1,33 @@
 import { useState } from 'react'
 import { useTranslation } from 'react-i18next'
-import type { ContactUser } from '@gugu/core/shared/types/contacts'
 import { Avatar } from '../Avatar'
 import { Sheet } from '../ui/Sheet'
 import { Button } from '../ui/Button'
-import { useContactsStore } from '../../store/contactsContext'
+import { messageForUser } from '../../lib/userFacingError'
 import { AUTOMATION_TEST_IDS } from '../../lib/automationDom'
 
-// #5645 右键菜单「设置备注」的输入弹窗。几何与文案对齐 AddFriendSearch 的附言 Sheet；
-// 保存走 contacts store 的 updateContactAlias（同资料卡内联编辑、MemberProfilePopover 一条路）。
-export function ContactAliasSheet({ contact, onClose }: { contact: ContactUser; onClose: () => void }) {
+// The same editor serves private contact and group display overrides on every shell.
+export function AliasSheet({ name, alias, avatarUrl, seed, group = false, onSave, onClose }: {
+  name: string; alias?: string | null; avatarUrl?: string | null; seed: string; group?: boolean
+  onSave: (alias: string) => Promise<void>; onClose: () => void
+}) {
   const { t } = useTranslation('contacts')
-  const { updateContactAlias } = useContactsStore()
-  const saved = contact.alias?.trim() ?? ''
+  const saved = alias?.trim() ?? ''
   const [draft, setDraft] = useState(saved)
   const [saving, setSaving] = useState(false)
+  const [error, setError] = useState<string | null>(null)
 
   const save = async () => {
     if (saving) return
     const next = draft.trim()
     if (next === saved) { onClose(); return }
     setSaving(true)
+    setError(null)
     try {
-      await updateContactAlias(contact.id, next)
+      await onSave(next)
       onClose()
+    } catch (err) {
+      setError(messageForUser(err))
     } finally {
       setSaving(false)
     }
@@ -38,9 +42,9 @@ export function ContactAliasSheet({ contact, onClose }: { contact: ContactUser; 
     >
       <div className="flex flex-col gap-4 px-5 pb-4 pt-5">
         <div className="flex items-center gap-3">
-          <Avatar name={contact.display_name} avatarUrl={contact.avatar} seed={contact.id} size="md" />
+          <Avatar name={name} avatarUrl={avatarUrl} seed={seed} variant={group ? 'group' : undefined} size="md" />
           <div className="min-w-0">
-            <div className="truncate text-[length:var(--font-title)] leading-[var(--lh-title)] font-semibold text-[var(--text-primary)]">{contact.display_name}</div>
+            <div className="truncate text-[length:var(--font-title)] leading-[var(--lh-title)] font-semibold text-[var(--text-primary)]">{name}</div>
             <div className="text-[length:var(--font-body)] leading-[var(--lh-body)] text-[var(--text-tertiary)]">{t('contextMenu.setAlias')}</div>
           </div>
         </div>
@@ -51,10 +55,12 @@ export function ContactAliasSheet({ contact, onClose }: { contact: ContactUser; 
           onChange={(e) => setDraft(e.target.value)}
           onKeyDown={(e) => { if (e.key === 'Enter') void save() }}
           placeholder={t('profile.notSet')}
+          aria-label={t('profile.alias')}
           maxLength={80}
           autoFocus
           disabled={saving}
         />
+        {error ? <div role="alert" className="text-sm text-[var(--danger)]">{error}</div> : null}
         <div className="flex justify-end gap-2">
           <Button variant="secondary" onClick={onClose} disabled={saving}>
             {t('common.cancel')}

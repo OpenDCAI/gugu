@@ -27,6 +27,7 @@ import { CreateGroupChatForm, MEMBER_PICKER_SHEET } from './CreateGroupChatModal
 import { AddFriendSearch } from './AddFriendSearch'
 import { Avatar } from './Avatar'
 import { PhoneProjectChatAvatar } from '@/mobile/partners/PhoneProjectChatAvatar'
+import { phoneChatUnread } from '@/mobile/chat/phoneChatUnread'
 import { AUTOMATION_TEST_IDS } from '../lib/automationDom'
 import { UI_EVENTS } from '../lib/uiEvents'
 import { requestTopicSplit } from '../lib/topicSplitRequest'
@@ -679,18 +680,19 @@ export function ChatListPanel({
     const query = listQuery.trim().toLocaleLowerCase()
     if (!query) return true
     // @@@5856 话题和群一样有自己的名字(搜索按名字走);私聊才回落到对端名。
-    const name = isRoomChat(chat.kind) ? chat.name : (chat.peer_alias?.trim() || identitiesById[chat.peer_user_id ?? '']?.display_name || '')
-    return `${name} ${chatPreviewText(chat)}`.toLocaleLowerCase().includes(query)
+    const name = chatDisplayName(chat, identitiesById[chat.peer_user_id ?? '']?.display_name)
+    return `${name} ${chat.name} ${chatPreviewText(chat)}`.toLocaleLowerCase().includes(query)
   }
   const hasSearchQuery = listQuery.trim().length > 0
   // @@@empty-dm-not-listed — 没有过消息的单聊不占列表行(判据在 core,见 isChatListed)。搜索是一次明确的
   // 指名道姓,不受此约束:搜得到就打得开,不然会话页开出来的空私聊只剩通讯录一条路。
-  // 桌面项目群归项目块;手机消息列表包含项目群及其话题(#446)。
+  // 桌面项目群归项目块；手机消息列表一段对话一行，话题只从对话页签进入(#446)。
   const isProjectGroupLine = (chat: ChatItem) => projectGroupChats.has(chat.kind === 'topic' ? (chat.source_chat_id ?? '') : chat.id)
   const shownAsLead = lead ? leadChatId : null
   const isListed = (chat: ChatItem) =>
     !isDuplicateAssistantChat(chat, assistantShell, workrooms)
       && chat.id !== shownAsLead
+      && (!mobile || chat.kind !== 'topic')
       && (mobile || !isProjectGroupLine(chat))
       && (hasSearchQuery || isChatListed(chat, { activeChatId: selectedChatId, hasDraft: Boolean(drafts[chat.id]?.trim()) }))
   // @@@5856 沉降:长期无活动的话题落到底部的「更早」。它**只是列表位置**,不是话题的一种状态 ——
@@ -740,13 +742,13 @@ export function ChatListPanel({
   const shownChats = pinnedRows.map(({ row }) => row).concat(normalLines.flatMap(({ row }) => ('chat' in row ? [row.chat] : [])))
   const visibleChats = useMemo(
     () => shownChats.flatMap((chat) => {
-      if (collapsedTopicSources.has(chat.id)) return [chat]
+      if (mobile || collapsedTopicSources.has(chat.id)) return [chat]
       const { live } = splitSunkTopics(topicNesting.bySource.get(chat.id) ?? [], isSunk, undefined, expandedTopicSources.has(chat.id))
       return [chat, ...live]
     }),
     // isSunk 每次渲染新建(它读 Date.now),输入已在下面列全。
     // eslint-disable-next-line react-hooks/exhaustive-deps
-    [shownChats, topicNesting, activeTopicChatId, collapsedTopicSources, expandedTopicSources],
+    [shownChats, topicNesting, activeTopicChatId, collapsedTopicSources, expandedTopicSources, mobile],
   )
   const visibleChatIds = useMemo(() => visibleChats.map((chat) => chat.id), [visibleChats])
 
@@ -758,14 +760,15 @@ export function ChatListPanel({
   // @@@5856 一条线 + 挂在它底下的话题子行。置顶段与常规段共用这一份 ——
   // ❌ 不在两处各抄一遍「记得也画子行」,那种东西漏一处就只在某一段里话题消失。
   // 并在一组里的那一行:框画在它最外面那一层上 —— 有话题子行时是连同子行的那一层,框把子行一起圈住。
+  const phoneUnread = useMemo(() => mobile ? phoneChatUnread(chats) : null, [mobile, chats])
   const renderChatRow = (chat: ChatItem, join?: SidebarJoin) => {
     const topics = topicNesting.bySource.get(chat.id) ?? []
-    const hasTopics = topics.length > 0
+    const hasTopics = !mobile && topics.length > 0
     const topicsExpanded = !collapsedTopicSources.has(chat.id)
     const row = (
       <ChatRow
         key={chat.id}
-        chat={chat}
+        chat={phoneUnread ? { ...chat, unread_count: phoneUnread.get(chat.id) ?? 0 } : chat}
         join={hasTopics ? undefined : join}
         agentStatus={rowAgentStatus(chat, identitiesById, agentStatuses, shownAgent)}
         isActive={chat.id === selectedChatId}

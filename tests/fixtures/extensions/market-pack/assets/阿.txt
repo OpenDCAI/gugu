@@ -1,0 +1,1 @@
+System locale must not change the archive fingerprint.

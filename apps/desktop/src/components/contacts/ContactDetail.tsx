@@ -1,3 +1,4 @@
+import { groupDisplayName } from '@gugu/core/shared/ui/chatModels'
 // 联系人详情(人 / Agent)和它用到的几块:原样从 ContactsPanel.tsx 搬出(那个文件行数冻结、只减不增),
 // 手机「伙伴」点一个朋友也开这一页(#446)。
 import { useEffect, useState } from 'react'
@@ -461,7 +462,7 @@ export function GroupChatRow({
         pinned={pinned}
         emphasis={selected}
         leading={<ContactGroupAvatar group={group} size="sm" />}
-        title={group.name}
+        title={groupDisplayName(group)}
         subtitle={
           <>
             {kindLabel} · {publicId ? `${ct('groupInvite.groupNumber', { number: publicId })} · ` : ''}
