@@ -18,6 +18,12 @@ import { rememberAssistantTaskChat } from '../../../../apps/desktop/src/lib/assi
 import { installAssistantShellBridge, publishAssistantShell } from '../../../../apps/desktop/src/lib/assistantShellBridge'
 import { appState } from '../../../../apps/desktop/src/session/renderer/lib/stores/app-state'
 import { MOBILE_TABS } from '@gugu/core/shared/enums/sidebarTabModels'
+import { i18n } from '../../../../apps/desktop/src/i18n'
+import type { Notice } from '../../../../apps/desktop/src/lib/notices'
+const deliveryNotice = vi.hoisted(() => vi.fn<(notice: Notice) => string>(() => 'notice'))
+vi.mock('../../../../apps/desktop/src/lib/notices', async (original) => ({
+  ...await original<object>(), notify: deliveryNotice,
+}))
 const taskRoute = vi.hoisted(() => ({ contacts: [] as unknown[] }))
 const revealRoute = vi.hoisted(() => ({ asked: vi.fn() }))
 vi.mock('../../../../apps/desktop/src/hooks/useSourceMessageReveal', async (original) => {
@@ -325,6 +331,7 @@ beforeEach(() => {
     },
   })
   taskRoute.contacts = []
+  deliveryNotice.mockClear()
   fileOwner.mockResolvedValue({ data: { chat_id: 'personal-dm' }, error: null })
   activationProbe.calls.length = 0
   chatAreaProbe.mounts = 0
@@ -389,6 +396,43 @@ function chatSurfaceOf(container: HTMLElement): HTMLElement | null {
 function layerOpen(testId: string): boolean {
   return document.querySelector(`[data-testid="${testId}"]`)?.hasAttribute('data-open') ?? false
 }
+
+describe('MainLayout: task delivery failure notices', () => {
+  const fail = async (agentUserId: string, messageId?: string, error = 'Provider refused the request') => {
+    await act(async () => {
+      window.dispatchEvent(new CustomEvent(UI_EVENTS.sessionpageDeliverFailed, { detail: { agentUserId, messageId, error } }))
+    })
+    return deliveryNotice.mock.calls.at(-1)![0]
+  }
+  const description = (name: string, count: number) => i18n.t('shell.toast.taskDeliverFailedCount', { ns: 'main', name, count })
+
+  it('updates one task notice with the actual redacted cause and distinct source message count', async () => {
+    taskRoute.contacts = [{ id: 'agent-1', display_name: 'Ledger' }]
+    await renderMainLayoutWithToast()
+    const first = await fail('agent-1', 'message-1', 'Denied /Users/alice/private with sk-test_secret\nprivate stack')
+    expect(first.title).toBe('Denied [path] with [redacted token]')
+    expect(first.description).toBe(description('Ledger', 1))
+    expect((await fail('agent-1', 'message-1')).description).toBe(description('Ledger', 1))
+    const second = await fail('agent-1', 'message-2')
+    expect(second.key).toBe(first.key)
+    expect(second.description).toBe(description('Ledger', 2))
+    expect((await fail('agent-2', 'message-3')).key).not.toBe(first.key)
+  })
+
+  it.each(['onDismiss', 'onAutoClose'] as const)('starts a new message count after %s, ignoring an old notice callback', async (close) => {
+    await renderMainLayoutWithToast()
+    const old = await fail('agent-1', 'message-1')
+    old[close]?.()
+    expect((await fail('agent-1', 'message-2')).description).toBe(description('agent-1', 1))
+    old[close]?.()
+    expect((await fail('agent-1', 'message-3')).description).toBe(description('agent-1', 2))
+  })
+
+  it('does not invent a message count for an event without a source message', async () => {
+    await renderMainLayoutWithToast()
+    expect((await fail('agent-1')).description).toBe(i18n.t('shell.toast.taskDeliverFailed', { ns: 'main', name: 'agent-1' }))
+  })
+})
 // 安卓返回键(同 ui/sheetStack.ts 的 NATIVE_BACK_EVENT)。
 async function nativeBack() {
   await act(async () => {

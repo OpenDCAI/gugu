@@ -1936,6 +1936,7 @@ function startDeviceRuntimeWhenRendererReady(): void {
       if (sessionpageSessionId) {
         sendUiEvent(MAIN_UI_EVENTS.sessionpageDeliverFailed, {
           agentUserId: failure.agentUserId,
+          messageId: failure.messageId,
           error: failure.error,
         })
         const emdash = loadEmdashBridge()
