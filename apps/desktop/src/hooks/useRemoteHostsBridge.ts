@@ -1,4 +1,4 @@
-import { isPhoneDevice } from '@gugu/core/cloud/devices'
+import { remoteWorkspaceDevices } from './remoteWorkspaceDevices'
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { serverMachineNotices } from '@gugu/core/cloud/serverMachineHealth'
 import type { SshSignInState } from '../lib/serverSshMachines'
@@ -61,9 +61,7 @@ export function useRemoteHostsBridge(
   }, [devices, sshMachines])
   const remote = useMemo<RemoteHostDevice[]>(
     () =>
-      devices
-        // 手机宿主能运行 Agent，但尚不提供这条完整 workspace pipe；创建和对话走手机宿主自己的协议。
-        .filter((device) => !device.device_id.startsWith('cloud:') && device.is_current_device !== true && !isPhoneDevice(device))
+      remoteWorkspaceDevices(devices)
         .map((device) => ({
           id: device.device_id,
           label: isAssistantHome(device, homeId) ? homeName : device.label,
