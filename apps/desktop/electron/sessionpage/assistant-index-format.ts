@@ -42,7 +42,15 @@ export function boundedAssistantIndex(lines: string[], details?: string): string
     } else {
       const candidates = rows.filter((row): row is Row => typeof row !== 'string' && !row.account && row.source !== 'integrations' && row.source !== 'resource_version')
       const candidate = candidates.find(row => !row.device_id) ?? candidates.at(-1)
-      if (!candidate) throw new Error('Assistant required resources exceed their context budget')
+      if (!candidate) {
+        const applications = rows.find((row): row is Row => typeof row !== 'string' && row.source === 'integrations'
+          && Array.isArray(row.items) && row.items.some(item => (item as Row).path))
+        if (!applications) throw new Error('Assistant required resources exceed their context budget')
+        applications.items = (applications.items as Row[]).map(({ id, name }) => ({ id, name }))
+        applications.omitted_details = true
+        result = render()
+        continue
+      }
       const source = String(candidate.source ?? 'devices')
       omissions[source] = (omissions[source] ?? 0) + 1
       rows.splice(rows.indexOf(candidate), 1)
