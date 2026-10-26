@@ -6,6 +6,7 @@ import { toolCallName } from '../acp/models/turns/tool-calls';
 import type { TranscriptItem, TranscriptTurn, TranscriptTurnOutcome } from '../acp/models/turns/turn';
 import { RECENT_ACTION_MAX_ENTRIES, RECENT_ACTION_WINDOW_MS, recentActionName } from '../acp/recent-actions';
 import { AcpTranscriptParser } from '../acp/reducer';
+import { decodeSessionUpdate } from '../acp/reducer/decode';
 import type { ParserState } from '../acp/reducer/reducer';
 import type {
   PendingRequest,
@@ -37,7 +38,7 @@ import { questionAnswered, readQuestion } from './sources/question-tools';
  * 存档只是一条更快的捷径，❌ 任何一处对不上都必须能安全地退回「从头读」——
  * 接错了拼出来的是一份缺了中间的时间线，而那种缺失不报错、和"读得慢"在界面上分不出来。
  */
-export const TIMELINE_ARCHIVE_VERSION = 1;
+export const TIMELINE_ARCHIVE_VERSION = 2;
 
 export type TimelineArchive = {
   readonly version: number;
@@ -46,6 +47,7 @@ export type TimelineArchive = {
   readonly epoch: string;
   readonly seq: number;
   readonly lastAt: number | null;
+  readonly lastBoundaryMessageId: string | null;
   /** reducer 的整份内部状态。 */
   readonly parser: ParserState;
   readonly seenKeys: readonly string[];
@@ -200,6 +202,7 @@ class RecordTimeline implements SessionTimeline {
   private subscribers = new Set<Subscriber>();
   /** 最近一条记录的 provider 时钟。没有时钟的记录跟着上一条走，❌ 别拿 Date.now() 冒充。 */
   private lastAt: number | null = null;
+  private lastBoundaryMessageId: string | null = null;
   /** Per-tool timestamps collected from the same records that feed the transcript reducer. */
   private recentActionEntries = new Map<string, RecentActionEntry>();
   /** 这一代是被什么换掉的。拿旧 epoch 游标来续的人要看到真原因，不是笼统的 epoch_changed。 */
@@ -252,6 +255,7 @@ class RecordTimeline implements SessionTimeline {
     this.epochValue = archive.epoch;
     this.seq = archive.seq;
     this.lastAt = archive.lastAt;
+    this.lastBoundaryMessageId = archive.lastBoundaryMessageId;
     this.seenKeys = new Set(archive.seenKeys);
     this.settlements = new Map(archive.settlements.map((one) => [one.itemId, one]));
     this.settlementSeq = new Map(archive.settlementSeq.map(([id, at]) => [id, at]));
@@ -314,6 +318,7 @@ class RecordTimeline implements SessionTimeline {
       epoch: this.epochValue,
       seq: this.seq,
       lastAt: this.lastAt,
+      lastBoundaryMessageId: this.lastBoundaryMessageId,
       parser: this.parser.snapshotState(),
       seenKeys: [...this.seenKeys],
       settlements: [...this.settlements.values()],
@@ -561,11 +566,18 @@ class RecordTimeline implements SessionTimeline {
       const at = entry.at ?? this.lastAt ?? this.now();
       this.lastAt = at;
       if (entry.boundary) {
+        this.lastBoundaryMessageId = entry.boundary.messageId ?? null;
         // 边界不是内容：它不进时间线，只把当前这一轮关掉并给它结局。
         // 没有活着的一轮时 reducer 自己 no-op，所以重复的边界是安全的。
         this.parser.settleTurn(outcomeOf(entry.boundary), at);
       } else {
-        this.parser.push(entry.update, at);
+        // Even an empty final thinking row carries its provider message identity.
+        // Later fragments of that same message use the common completed-turn tail.
+        const tail = !this.parser.activeTurn &&
+          (entry.update.sessionUpdate === 'agent_message_chunk' || entry.update.sessionUpdate === 'agent_thought_chunk') &&
+          entry.update.messageId && entry.update.messageId === this.lastBoundaryMessageId;
+        if (tail) this.parser.pushTail(decodeSessionUpdate(entry.update), at);
+        else this.parser.push(entry.update, at);
         this.recordRecentActions(this.parser.activeTurn?.items ?? [], at);
         this.trackSettlement(entry.update, at);
       }
@@ -668,6 +680,7 @@ class RecordTimeline implements SessionTimeline {
     // 「这次没报 ⇒ 撤销」在一份还没被同步过的新代上误开火。
     this.liveItemIds = new Set();
     this.lastAt = null;
+    this.lastBoundaryMessageId = null;
     this.recentActionEntries = new Map();
     this.needsPublish = true;
     // 不当场发：源紧接着就会把重读的内容送进来，那时快照才是完整的。
