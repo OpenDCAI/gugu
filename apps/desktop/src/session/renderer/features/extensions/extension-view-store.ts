@@ -42,7 +42,7 @@ export interface ExtensionViewClaim {
 export interface ExtensionResidentPage {
   key: string;
   kind: string;
-  /** `chat:<chatId>`(那个群的那张)、`session:<sessionId>`(每任务一份的那个任务的那张)或 `app`(其余那一张)—— 页的一生不变。 */
+  /** 群、每任务一份的任务或 App;文件页再带文件的 id。页的一生不变。 */
   place: string;
   itemId?: string;
 }

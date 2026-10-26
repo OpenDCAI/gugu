@@ -404,7 +404,6 @@ const ExtensionPage = observer(function ExtensionPage({
     () => () => {
       teardownRef.current?.();
       // 常驻页没了(扩展停用 / 卸载 / 最久没用被销毁):它说过的话一起清掉,再开从清单标题重新开始。
-      // 为文件开的页走了不算:那些话是常驻页的。
       if (pageKey !== undefined) extensionSurfaceStore.forgetShared(pageKey);
     },
     [pageKey]

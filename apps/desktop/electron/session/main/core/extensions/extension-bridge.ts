@@ -149,6 +149,8 @@ export interface BridgeCaller {
   pageId: number;
   /** As the files code sees this call: which file it may open without a capability (`ctx.file`; a program's, handed). */
   filePage(args: Record<string, unknown>, resource?: boolean): DesktopFilePage;
+  /** File scope as a resource container; only a program derives its authority from the named parameters. */
+  resourcePage(args: Record<string, unknown>): DesktopFilePage | Promise<DesktopFilePage>;
   /** Where its events go (`filesChanged`). */
   hear(event: ExtensionHostEvent): void;
   /**
@@ -167,6 +169,12 @@ function hearOn(webContentsId: number): (event: ExtensionHostEvent) => void {
 }
 
 function pageCaller(binding: SurfaceBinding, webContentsId: number): BridgeCaller {
+  const filePage = () => ({
+    pageId: webContentsId,
+    extensionId: binding.extensionId,
+    handed: handedFileOf(binding),
+    ...(binding.operator.kind === 'agent' ? { asAgent: binding.operator.id.replace(/^user:/, '') } : {}),
+  });
   return {
     extensionId: binding.extensionId,
     kind: 'page',
@@ -174,23 +182,21 @@ function pageCaller(binding: SurfaceBinding, webContentsId: number): BridgeCalle
     pageId: webContentsId,
     // Owner 10-14: a chat's files are opened, written and listed as whoever works the page — an agent through its own
     // door (`*_as`: its membership, its name on what it makes, its presence), as a program's call for an agent is.
-    filePage: () => ({
-      pageId: webContentsId,
-      extensionId: binding.extensionId,
-      handed: handedFileOf(binding),
-      ...(binding.operator.kind === 'agent' ? { asAgent: binding.operator.id.replace(/^user:/, '') } : {}),
-    }),
+    filePage,
+    resourcePage: filePage,
     hear: hearOn(webContentsId),
   };
 }
 
 function backgroundCaller(extensionId: string, webContentsId: number): BridgeCaller {
+  const filePage = () => ({ pageId: webContentsId, extensionId, handed: null });
   return {
     extensionId,
     kind: 'background',
     binding: null,
     pageId: webContentsId,
-    filePage: () => ({ pageId: webContentsId, extensionId, handed: null }),
+    filePage,
+    resourcePage: filePage,
     hear: hearOn(webContentsId),
   };
 }
@@ -801,17 +807,6 @@ function asCallingAgent(caller: BridgeCaller, page: DesktopFilePage, args: Recor
   const local = [args.ref, args.place].some((named) => named !== null && typeof named === 'object' && isLocal(named));
   if (caller.callingAgent === undefined || page.asAgent || local) return page;
   throw Object.assign(new Error('An agent\'s call works as that agent: hand it the file (a "gugu-file" parameter) or its chat ("gugu-chat")'), { code: 'denied' });
-}
-
-/** File scope compares resource containers; message scope still compares the handed discussion addresses. */
-async function resourcePage(caller: BridgeCaller, args: Record<string, unknown>): Promise<DesktopFilePage> {
-  const ref = args.ref === undefined ? null : fileRefOf(args.ref);
-  const place = args.place === undefined ? null : placeOf(args.place);
-  const named = ref ?? place;
-  if (!named || !('chat' in named) || named.chat === undefined) return caller.filePage(args, true);
-  const actor = caller.callingAgent ?? caller.filePage(args, true).asAgent ?? null;
-  const chat = await resourceChatOf(named.chat, { asAgent: actor });
-  return caller.filePage(ref ? { ...args, ref: { ...ref, chat } } : { ...args, place: { chat } }, true);
 }
 
 /** Who reads a chat's files for a caller: the person, or the agent its page works as (`*_as`). */
@@ -1714,7 +1709,7 @@ async function dispatch(caller: BridgeCaller, method: ExtensionBridgeMethod, arg
       const files = await import('@main/core/extensions/app-files');
       // Every call names where its file is (真源原则 13); the caller only says which file it may open as handed. Closing
       // what it opened is never refused.
-      const page = method === 'filesClose' ? caller.filePage(args) : asCallingAgent(caller, await resourcePage(caller, args), args);
+      const page = method === 'filesClose' ? caller.filePage(args) : asCallingAgent(caller, await caller.resourcePage(args), args);
       const verbs = {
         filesOpen: 'openAppFile',
         filesReopen: 'reopenAppFile',
@@ -1762,7 +1757,7 @@ async function dispatch(caller: BridgeCaller, method: ExtensionBridgeMethod, arg
     case 'showMessage': {
       const files = await import('@main/core/extensions/app-files');
       const shown = thePage(caller);
-      const page = method === 'showMessage' ? caller.filePage(args) : await resourcePage(caller, args);
+      const page = method === 'showMessage' ? caller.filePage(args) : await caller.resourcePage(args);
       // The window the page is drawn in: dialogs sit on it, and it is the one that shows chats.
       const owner = shown.embedderId === null ? null : (webContents.fromId(shown.embedderId) ?? null);
       if (method === 'filesDownload') return await files.downloadAppFile(page, args as never, owner);

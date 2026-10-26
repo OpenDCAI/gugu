@@ -27,13 +27,14 @@ const pdfApp = { extensionId: 'pdf', tabKind: 'pdf.viewer', tabTitle: 'PDF', app
 const chooser = vi.hoisted(() => ({ kind: 'none' as string }));
 // Where the file is and who opens it are app-files' (their own tests); here, what the bridge does with the answer.
 vi.mock('@main/core/extensions/app-files', () => ({
-  resourceChatOf: async (chatId: string) => chatId,
+  resourceChatOf: vi.fn(async (chatId: string) => chatId),
   openWithTarget: vi.fn(async (_page: unknown, args: { ref: { project?: string } }) =>
     args.ref.project ? { kind: 'peek', target: local } : { kind: 'chat', target: { chatId: CHAT, itemId: 'item-1', name: 'deck.pdf', typedName: 'deck.pdf', file } }),
   openerChoice: () => (chooser.kind === 'none' ? { kind: 'none' } : { kind: 'one', candidate: pdfApp }),
 }));
 
 const { bindExtensionSurface, registerExtensionBridge, setExtensionBridgeHost } = await import('./extension-bridge');
+const { openWithTarget, resourceChatOf } = await import('./app-files');
 const { EXTENSION_BRIDGE_CHANNEL } = await import('@shared/extensions/bridge-protocol');
 registerExtensionBridge();
 const handle = handlers.get(EXTENSION_BRIDGE_CHANNEL)!;
@@ -47,9 +48,23 @@ beforeEach(async () => {
   chooser.kind = 'none';
   setExtensionBridgeHost({ deliver, presentation: () => ({ locale: 'en', themeMode: 'light' as const, fullscreen: false, windowFocused: true }) });
   await bindExtensionSurface({ webContentsId: PAGE, extensionId: 'kanban', tabId: 'dock', tabKind: 'kanban.board' });
+  vi.mocked(resourceChatOf).mockClear();
 });
 
 describe('files.openWith(file, { peek: true }): beside the page that asked (G1)', () => {
+  it('uses the page binding without resolving its parameter’s resource scope', async () => {
+    expect(await openWith({ ref: { chat: CHAT, id: 'item-1' } })).toMatchObject({ ok: true });
+    expect(resourceChatOf).not.toHaveBeenCalled();
+    expect(openWithTarget).toHaveBeenCalledWith(expect.objectContaining({ pageId: PAGE }), expect.objectContaining({ ref: { chat: CHAT, id: 'item-1' } }));
+  });
+
+  it('still refuses an unreadable file before opening a tab', async () => {
+    vi.mocked(openWithTarget).mockRejectedValueOnce(Object.assign(new Error('No such file in a chat you are in'), { code: 'not-found' }));
+    expect(await openWith({ ref: { chat: CHAT, id: 'item-1' } })).toMatchObject({ ok: false, code: 'not-found' });
+    expect(deliver).not.toHaveBeenCalled();
+    expect(resourceChatOf).not.toHaveBeenCalled();
+  });
+
   it('a chat file nobody here opens: to the page\'s slot, for the host\'s preview — not refused', async () => {
     expect(await openWith({ ref: { id: 'item-1' }, peek: true })).toEqual({ ok: true, value: undefined });
     expect(deliver.mock.calls[0]![0]).toMatchObject({ sessionId: null, tabId: 'dock' });
