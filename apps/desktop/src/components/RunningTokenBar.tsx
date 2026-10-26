@@ -37,7 +37,7 @@ export interface RunningTokenBarProps {
 
 // 自包含样式（:hover 卡 + 流光 + 展开卡入场需 CSS，注入一次；同时只有一个运行条实例=DM 或群聊，不重复）。
 const STYLE = `
-.rtb-bar{display:flex;align-items:center;gap:8px;padding:4px 14px 2px 24px;font-size:var(--font-caption);color:var(--faint-fg);white-space:nowrap;flex-shrink:0}
+.rtb-bar{position:relative;display:flex;align-items:center;gap:8px;padding:4px 14px 2px 24px;font-size:var(--font-caption);color:var(--faint-fg);white-space:nowrap;flex-shrink:0}
 .rtb-bar[data-mobile=false]{padding:var(--spacing-sm) 0}
 .rtb-bar[data-mobile=true]{overflow-x:auto;overscroll-behavior-x:contain;scrollbar-width:none;scroll-snap-type:x proximity}
 .rtb-bar[data-mobile=true]>.rtb-tok{scroll-snap-align:start}
@@ -64,14 +64,19 @@ const STYLE = `
  * 在可能有 agent 跑的会话里它始终占同一个高度、完全透明:里面有没有 pill、有几个、名字多长,都不改变它的高度。
  * 单行不换行:pill 最宽 168px(.rtb-pill),名字截断;桌面按这一行的宽度算放几个,其余进 +N。
  */
-const PILL_MAX_PX = 168, PILL_GAP_PX = 8, MORE_PX = 52
+const PILL_GAP_PX = 8
 export function RunningBarSlot({ children }: { children: ReactNode }) {
   return <div data-running-bar-slot="" className="flex h-[42px] shrink-0 items-center"><div data-running-bar-content="" className="w-full">{children}</div></div>
 }
 // 桌面一行能放几个:全部放得下就全放,否则留出 +N 的位置后能放几个放几个,至少 1 个。
-function fitCount(width: number, count: number): number {
-  if (count * (PILL_MAX_PX + PILL_GAP_PX) - PILL_GAP_PX <= width) return count
-  return Math.max(1, Math.floor((width - MORE_PX) / (PILL_MAX_PX + PILL_GAP_PX)))
+function fitCount(width: number, pills: number[], more: number): number {
+  if (pills.reduce((sum, pill) => sum + pill + PILL_GAP_PX, -PILL_GAP_PX) <= width) return pills.length
+  let used = more
+  for (let i = 0; i < pills.length; i++) {
+    used += pills[i] + PILL_GAP_PX
+    if (used > width) return Math.max(1, i)
+  }
+  return pills.length
 }
 
 type PreviewControl = ReturnType<typeof Popover.createHandle<RunningToken>>
@@ -81,12 +86,14 @@ function RunningTokenItem({
   token,
   index = 0,
   overflow = false,
+  folded = false,
   onTokenClick,
   preview,
 }: {
   token: RunningToken
   index?: number
   overflow?: boolean
+  folded?: boolean
   onTokenClick?: (id: string) => void
   preview: PreviewControl
 }) {
@@ -110,6 +117,7 @@ function RunningTokenItem({
       closeDelay={150}
       payload={token}
       className={overflow ? 'rtb-otok' : 'rtb-tok'}
+      style={folded ? { position: 'absolute', left: 0, top: 0, visibility: 'hidden' } : undefined}
       data-clickable={onTokenClick ? 'true' : 'false'}
       data-message-preview-trigger={token.id}
       aria-label={t('runtime.viewDetails', { name: displayName, status: stateWord })}
@@ -184,19 +192,23 @@ export function RunningTokenBar({ tokens, onTokenClick, testId, previewChatId }:
   const [handle] = useState(() => Popover.createHandle<RunningToken>())
   const mobile = useMobileShell()
   const boxRef = useRef<HTMLDivElement | null>(null)
-  const [width, setWidth] = useState(Number.POSITIVE_INFINITY)
+  const [fitted, setFitted] = useState(Number.POSITIVE_INFINITY)
   const empty = tokens.length === 0
+  const visible = mobile ? tokens.length : fitted
   useLayoutEffect(() => {
     const el = boxRef.current
-    if (!el) return
-    const observer = new ResizeObserver(() => setWidth(el.clientWidth))
+    if (!el || mobile) return
+    const pills = [...el.querySelectorAll<HTMLElement>('.rtb-bar > [data-message-preview-trigger]')]
+    const more = el.querySelector<HTMLElement>('.rtb-more')
+    const report = () => setFitted(fitCount(el.clientWidth, pills.map(pill => pill.offsetWidth), more?.offsetWidth ?? 0))
+    const observer = new ResizeObserver(report)
     observer.observe(el)
-    setWidth(el.clientWidth)
+    pills.forEach(pill => observer.observe(pill))
+    if (more) observer.observe(more)
+    report()
     return () => observer.disconnect()
-  }, [empty])
+  }, [tokens, mobile, visible]) // Re-measure after +N mounts or its digit count changes.
   if (empty) return null
-  const visible = mobile ? tokens.length : fitCount(width, tokens.length)
-  const shown = tokens.slice(0, visible)
   const overflow = tokens.slice(visible)
   return (
     <div ref={boxRef} data-testid={testId} style={{ flexShrink: 0, width: '100%', minWidth: 0 }}>
@@ -207,8 +219,8 @@ export function RunningTokenBar({ tokens, onTokenClick, testId, previewChatId }:
       }}>
         {({ payload: token }) => <>
           <div className="rtb-bar" data-mobile={mobile}>
-            {shown.map((t, i) => (
-              <RunningTokenItem key={t.id} token={t} index={i} onTokenClick={onTokenClick} preview={handle} />
+            {tokens.map((t, i) => (
+              <RunningTokenItem key={t.id} token={t} index={i} folded={i >= visible} onTokenClick={onTokenClick} preview={handle} />
             ))}
             {overflow.length > 0 && <MoreOverflow tokens={overflow} onTokenClick={onTokenClick} preview={handle} />}
           </div>

@@ -17,6 +17,9 @@ let harness: ReturnType<typeof createReactHarness>
 beforeEach(() => {
   vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] })
   harness = createReactHarness()
+  vi.spyOn(HTMLElement.prototype, 'offsetWidth', 'get').mockImplementation(function (this: HTMLElement) {
+    return this.matches('.rtb-more') ? 32 : this.matches('[data-message-preview-trigger]') ? 150 : 0
+  })
 })
 afterEach(() => {
   harness.cleanup()
@@ -173,12 +176,44 @@ describe('desktop running agents fit the available width', () => {
         id: `agent-${n}`, name: `Agent ${n}`, avatarUrl: null, avatarSeed: `agent-${n}`,
         stateKey: 'running', toolCount: 0, lastActiveAt: null,
       }))} />)
-      for (const [nextWidth, visible, overflow] of [[600, 3, '+5'], [1100, 5, '+3'], [1400, 8, null], [600, 3, '+5']] as const) {
+      for (const [nextWidth, visible, overflow] of [[600, 3, '+5'], [1100, 6, '+2'], [1400, 8, null], [600, 3, '+5']] as const) {
         width = nextWidth
         await act(async () => report())
-        expect(document.body.querySelectorAll('.rtb-bar > [data-message-preview-trigger]')).toHaveLength(visible)
+        expect([...document.body.querySelectorAll<HTMLElement>('.rtb-bar > [data-message-preview-trigger]')].filter(e => e.style.visibility !== 'hidden')).toHaveLength(visible)
         expect(document.body.querySelector('.rtb-more')?.textContent ?? null).toBe(overflow)
       }
+    } finally { vi.unstubAllGlobals() }
+  })
+
+  it('packs the measured pills and responds when their text width changes', async () => {
+    let pillWidth = 140
+    let report = () => {}
+    vi.spyOn(HTMLElement.prototype, 'clientWidth', 'get').mockReturnValue(896)
+    vi.spyOn(HTMLElement.prototype, 'offsetWidth', 'get').mockImplementation(function (this: HTMLElement) {
+      return this.matches('.rtb-more') ? 32 : this.matches('[data-message-preview-trigger]') ? pillWidth : 0
+    })
+    vi.stubGlobal('ResizeObserver', class {
+      constructor(callback: () => void) { report = callback }
+      observe() {}
+      disconnect() {}
+    })
+    try {
+      await harness.render(<RunningTokenBar previewChatId="chat-1" tokens={Array.from({ length: 8 }, (_, n) => ({
+        id: `agent-${n}`, name: `Agent ${n}`, avatarUrl: null, avatarSeed: `agent-${n}`,
+        stateKey: 'running', toolCount: 0, lastActiveAt: null,
+      }))} />)
+      const pills = () => [...document.body.querySelectorAll<HTMLElement>('.rtb-bar > [data-message-preview-trigger]')]
+      expect(pills()).toHaveLength(8)
+      expect(pills().filter(e => e.style.visibility !== 'hidden')).toHaveLength(5)
+      expect(document.body.querySelector('.rtb-more')?.textContent).toBe('+3')
+      pillWidth = 100
+      await act(async () => report())
+      expect(pills().filter(e => e.style.visibility !== 'hidden')).toHaveLength(8)
+      expect(document.body.querySelector('.rtb-more')).toBeNull()
+      pillWidth = 160
+      await act(async () => report())
+      expect(pills().filter(e => e.style.visibility !== 'hidden')).toHaveLength(5)
+      expect(document.body.querySelector('.rtb-more')?.textContent).toBe('+3')
     } finally { vi.unstubAllGlobals() }
   })
 })
