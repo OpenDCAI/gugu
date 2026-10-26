@@ -7,6 +7,7 @@ import { ASSISTANT_PANEL_CHANGED } from './assistant-panel-events'
 import { isAssistantPanelReadRetryable, withAssistantPanelReadDeadline } from '@gugu/core/cloud/assistantPanelRead'
 
 const log = rendererLogger('mobile/assistant')
+const initialValue = <T,>(read?: () => T | undefined): T | undefined => { try { return read?.() } catch { return undefined } }
 
 export type PhoneRead<T> = { state: 'loading' } | { state: 'ok'; data: T; refreshError?: unknown } | { state: 'error'; error: unknown }
 
@@ -25,10 +26,13 @@ export function usePhoneRead<T>(
   read: () => Promise<T>,
   what: string,
   pollMs?: (data: T) => number | null,
+  initial?: () => T | undefined,
 ): PhoneRead<T> & { reload: () => void; refresh: () => Promise<void> } {
   const [result, setResult] = useState<{ key: string; read: PhoneRead<T> } | null>(null)
   const readRef = useRef(read)
   readRef.current = read
+  const initialRef = useRef(initial)
+  initialRef.current = initial
   const pollRef = useRef(pollMs)
   pollRef.current = pollMs
   const full = key
@@ -55,8 +59,11 @@ export function usePhoneRead<T>(
       } catch (error) {
         if (!active()) return
         log.warn({ what, quiet, error: error instanceof Error ? error.message : String(error) }, 'assistant phone read failed')
-        setResult(previous => quiet && previous?.key === full && previous.read.state === 'ok'
-          ? { ...previous,read: { ...previous.read,refreshError: error } } : { key: full,read: { state: 'error',error } })
+        setResult(previous => {
+          const local = initialValue(initialRef.current)
+          const last = previous?.key === full && previous.read.state === 'ok' ? previous.read.data : local
+          return quiet && last !== undefined ? { key: full,read: { state: 'ok',data: last,refreshError: error } } : { key: full,read: { state: 'error',error } }
+        })
         if (isAssistantPanelReadRetryable(error)) timer = setTimeout(() => void run(true),lastInterval ?? 5000)
         // A requested refresh must not turn a failed verification into a successful mutation.
         if (explicit) throw error
@@ -64,9 +71,13 @@ export function usePhoneRead<T>(
     }
     const refresher = { key: full, run: () => run(false, true),reload: () => { void run(true) } }
     refreshRef.current = refresher
-    const changed = () => { void run(true) }
+    const changed = () => {
+      const local = initialValue(initialRef.current)
+      if (local !== undefined) setResult({ key: full,read: { state: 'ok',data: local } })
+      void run(true)
+    }
     window.addEventListener(ASSISTANT_PANEL_CHANGED,changed)
-    void run(false)
+    void run(initialValue(initialRef.current) !== undefined)
     return () => {
       cancelled = true
       clearTimeout(timer)
@@ -80,7 +91,8 @@ export function usePhoneRead<T>(
     const reader = refreshRef.current
     if (reader && reader.key === fullRef.current) await reader.run()
   }, [])
-  const current: PhoneRead<T> = result && result.key === full ? result.read : { state: 'loading' }
+  const local = full !== null ? initialValue(initial) : undefined
+  const current: PhoneRead<T> = result && result.key === full ? result.read : local !== undefined ? { state: 'ok',data: local } : { state: 'loading' }
   return { ...current, reload, refresh }
 }
 
