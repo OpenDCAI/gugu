@@ -71,6 +71,7 @@ export {
   // agent 的 session_* 跨机器:别的机器问 `agentSession.*` 时由宿主答;别的机器上的 App 发来的消息由这台的 App 发信答。
   setAgentSessionHost,
   answerAppMessage,
+  spawnAgentForExtension,
   answerAppReadFile,
   answerAppCall,
   // @@@2374 —— `gugu_session` 的 app_* 动作分派。宿主(main.ts)按 `EmdashBridgeModule`

@@ -523,7 +523,7 @@ export interface AppShowMessageDetail {
 
 /** `gugu.showSession` on the phone: the task tab opens the session's row — the machine it is on, and the row as listed. */
 export const APP_SHOW_SESSION_EVENT = 'gugu:app-show-session';
-export type AppShowSessionDetail = { deviceId: string; session: SessionpageSessionSummary; tabKind?: string } | { projectId: string };
+export type AppShowSessionDetail = { deviceId: string; session: SessionpageSessionSummary; tabKind?: string; draft?: { text: string } } | { projectId: string };
 
 /** What `files.open` / `files.reopen` answer. */
 export interface AppFileOpened {

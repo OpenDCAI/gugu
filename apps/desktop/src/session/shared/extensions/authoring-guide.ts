@@ -227,7 +227,8 @@ Handing something to someone (\`apiVersion\` 15):
   consent, no capability. Never a picker of your own.
 - Naming \`to\` sends at once: \`{ chat, member }\` needs \`chat:relay\`, \`{ agent }\` / \`{ new }\` \`agents:control\`
   (\`apps-agents\`); a program or background page must name it. Tell only whom it concerns; keep state in the file.
-  Refused: \`not-found\` (left, yourself, not reachable — a phone reaches no agent yet), \`denied\`, \`rate-limited\`
+  Phones reach computers' agents too (see \`apps-agents\`).
+  Refused: \`not-found\` (left, yourself, absent), \`failed\` (computer unread), \`denied\`, \`rate-limited\`
   (30/minute to a chat), \`invalid\`. Agents following changes: a tool (\`apps-programs\`), gugu stamps its caller.
 
 Free, from a click or key (they read and write no data):
@@ -274,7 +275,7 @@ export const EXTENSION_GUIDE_AGENTS = `# Seeing and driving agents from your pag
 
 These \`window.gugu\` verbs reach this computer's agents; \`:all-machines\` read and control also reach the person's
 other computers (history never leaves this one). Each tier is its own capability,
-consented to on its own; the rest of the API is in \`apps-page\`. A phone has none of them. Where your page is
+consented to on its own; the rest of the API is in \`apps-page\`. Phones have getAppState, its change event, listAgents, onAgentsChanged and dispatch (below). Where your page is
 plays no part: the plain words reach the agents you started, \`:all\` every one here. Work that watches agents
 with no page open — a clock — goes in the background page.
 
@@ -348,6 +349,10 @@ Needs \`agents:history\` (or \`agents:history:all\`):
   your tab needs it, not because you can.
 
 Needs \`agents:control\` (or \`agents:control:all\` / \`agents:control:all-machines\`):
+
+Phones: listAgents reads the computers' current lists (own / all-machines scope); live counters are null. Tells/drafts reach their agents. New agents use the context's computer, else the most recently online one;
+the sheet lets the person change it. \`agents:control\` starts agents and tells those this App started; \`:all-machines\`
+can tell any of the person's agents. A sheet pick needs no capability.
 
 - Starting and telling an agent is \`dispatch\` (\`to: { new: true }\`, \`{ agent }\`): what \`spawn\` leaves out is what the
   person's new-session box would pick; to start one like an agent you see, pass its row's \`providerId\` (as

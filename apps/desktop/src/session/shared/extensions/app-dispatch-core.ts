@@ -1,3 +1,4 @@
+import type { AppSpawnAction } from '@gugu/session-core/session-record/contract';
 import type { ExtensionCapability } from './manifest';
 
 /**
@@ -123,7 +124,7 @@ export function dispatchCallOf(args: Record<string, unknown>): DispatchCall {
 }
 
 /** The words a new agent is started on (`session_spawn`'s), each said wrong where it is: never a field quietly dropped. */
-export interface DispatchSpawn { title?: string; harness?: string; model?: string; transport?: 'acp' | 'pty'; project?: string; chat?: string }
+export type DispatchSpawn = AppSpawnAction['spawn'];
 
 function spawnOf(spawn: unknown): DispatchSpawn {
   if (!named(spawn)) return {};
@@ -182,6 +183,8 @@ export interface DispatchAsk {
   /** For a draft: the person's agents with a session on this computer — the only composers a draft can go into. */
   local?: string[];
   visible: boolean;
+  /** Phone only: the default computer for a new agent; the person can change it in the existing machine picker. */
+  spawnOn?: string | null;
   /**
    * Not a message but a forum assignment (`gugu.forum.assign`): the post's title is what is shown, read only, and only the
    * person's own agents are offered; what follows the pick is the forum's (`forum_assign`), not a delivery.
@@ -194,5 +197,5 @@ export interface DispatchAsk {
  * An agent of theirs is named by its id, wherever it runs.
  */
 export type DispatchPicked =
-  | { to: { chat: string } | { chat: string; member: string } | { agent: string } | { new: true }; visible: boolean; text: string }
+  | { to: { chat: string } | { chat: string; member: string } | { agent: string } | { new: true; device?: string }; visible: boolean; text: string }
   | null;

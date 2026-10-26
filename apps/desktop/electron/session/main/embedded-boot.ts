@@ -217,6 +217,7 @@ import { setAgentSessionHost } from '@main/core/sessions/agent-session-controlle
 import { answerAppMessage } from '@main/core/extensions/extension-send'
 import { answerAppReadFile } from '@main/core/extensions/app-files-elsewhere'
 import { answerAppCall } from '@main/core/extensions/app-programs-elsewhere'
+export { spawnAgentForExtension } from '@main/core/extensions/extension-agents'
 export { answerAppMessage, answerAppReadFile, answerAppCall, setAgentSessionHost }
 import { readAcpSessionSummaries } from '@main/core/acp/session-summary-reader'
 import { flushLogWrites, setLogFileOwner } from '@main/lib/file-logger'

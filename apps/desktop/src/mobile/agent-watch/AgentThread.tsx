@@ -39,6 +39,7 @@ import { TurnProcessMessage, TurnProcessToggleProvider } from './turn-process-me
 import { attachmentMentions, sessionAttachmentAdapter } from './composer-attachments'
 import { sessionAttachmentRpc } from './sessionpage-rpc'
 import { PhoneTaskDraftRecovery } from '../local-agent/PhoneTaskDraftRecovery'
+import { appendToDraft } from '@/store/chatContext'
 
 /**
  * 手机任务时间线复用 assistant-ui Thread 的消息仓库、滚动、附件和发送行为。
@@ -199,6 +200,8 @@ export function AgentThread({
   timeline,
   deviceId,
   sessionId,
+  draft,
+  onDraftApplied,
   phoneHost = false,
   machineLabel,
   sessionRuntime,
@@ -219,6 +222,8 @@ export function AgentThread({
   timeline: AgentWatchTimeline
   deviceId: string
   sessionId: string
+  draft?: { text: string }
+  onDraftApplied?: () => void
   phoneHost?: boolean
   /** That machine's name, for an App install asked there (D-31). */
   machineLabel?: string
@@ -328,6 +333,16 @@ export function AgentThread({
     },
     adapters: { attachments },
   })
+  // Each App handoff is applied once, including a second draft into the task already open.
+  const appliedDraft = useRef<typeof draft>(undefined)
+  useEffect(() => {
+    if (!draft || appliedDraft.current === draft) return
+    appliedDraft.current = draft
+    const composer = runtime.thread.composer
+    const text = composer.getState().text
+    composer.setText(appendToDraft(text, draft.text))
+    onDraftApplied?.()
+  }, [draft, runtime, onDraftApplied])
   const hostRef = useRef<HTMLDivElement | null>(null)
   useLoadOlderOnTop(hostRef, timeline.hasOlder, onLoadOlder)
   useEffect(preloadSharedChatRuntime, [])

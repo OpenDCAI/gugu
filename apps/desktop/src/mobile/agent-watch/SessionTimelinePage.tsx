@@ -1,4 +1,5 @@
 import { useEffect, useState, type CSSProperties } from 'react'
+import { showPhoneAppView } from '@/components/appSlot/phoneAppState'
 import { reaction } from 'mobx'
 import { useTranslation } from 'react-i18next'
 import { PhoneTaskSkills } from '../local-agent/PhoneTaskSkillsButton'
@@ -49,6 +50,7 @@ export function SessionTimelinePage({
   session,
   agent,
   firstPrompt,
+  draft,
   initialAppKind,
   onBack,
   onOpenChat,
@@ -59,6 +61,7 @@ export function SessionTimelinePage({
   agent?: SessionShellAgentName | undefined
   /** 刚从新建页建成:建它时带的那句(新建页上已经画着),这一页接着画,❌ 换页时让它消失。 */
   firstPrompt?: string
+  draft?: { text: string }
   initialAppKind?: string
   onBack: () => void
   /** 去这个 agent 的私聊(模式按钮的「聊天」,#7197)。 */
@@ -71,9 +74,15 @@ export function SessionTimelinePage({
   // #7199 打开睡着的云电脑上的会话 = 叫醒它的三件事之一;醒了时间线照常连上。
   const { issue: wakeIssue, dropped: wakeDropped, retry: retryWake } = useCloudComputerWake(device)
   const cloudAsleep = device.cloud_computer === 'asleep' || device.cloud_computer === 'waking'
+  const [appliedDraft, setAppliedDraft] = useState<typeof draft>(undefined)
   const [menuOpen, setMenuOpen] = useState(false)
   // owner 10-16 The App this page shows instead of the timeline, picked from the mode button; null = the timeline.
   const [appKind, setAppKind] = useState<string | null>(initialAppKind ?? null)
+  useEffect(() => showPhoneAppView({
+    activeSessionId: session.conversationId,
+    activeProjectId: session.projectId ?? null,
+    panes: [{ paneId: 'workspace', focused: true, activeTab: { tabId: appKind ?? session.conversationId, kind: appKind ?? 'session', ...(!appKind ? { agentId: session.conversationId } : {}) } }],
+  }), [session.conversationId, session.projectId, appKind])
   // Its back key goes back to the timeline, as its header's back does — not past it to the list (the App is a layer here).
   useBackLayer(() => setAppKind(null), appKind !== null)
   const apps = useSessionApps()
@@ -228,6 +237,8 @@ export function SessionTimelinePage({
           timeline={timeline}
           deviceId={device.device_id}
           sessionId={session.conversationId}
+          draft={draft === appliedDraft ? undefined : draft}
+          onDraftApplied={() => setAppliedDraft(draft)}
           phoneHost={phoneHost}
           machineLabel={machineLabel(device)}
           sessionRuntime={session.runtime}

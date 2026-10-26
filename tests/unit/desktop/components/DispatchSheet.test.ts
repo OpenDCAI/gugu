@@ -28,6 +28,16 @@ vi.mock('../../../../apps/desktop/src/components/settings/channels/channelAgents
   useOwnedAgents: () => [agent('a-other', 'Other agent'), agent('a-sibling', 'Same project'), agent('a-here', 'This page')],
 }))
 
+const computers = [
+  { device_id: 'first', label: 'First computer', is_online: true },
+  { device_id: 'second', label: 'Second computer', is_online: true },
+  { device_id: 'offline', label: 'Offline computer', is_online: false },
+].map((one) => ({ ...one, hostname: one.device_id, platform: 'darwin', status: one.is_online ? 'online' : 'offline', last_seen_at: '2026-10-26T01:00:00Z', capabilities: { terminals: [], runtimes: [] } }))
+vi.mock('../../../../apps/desktop/src/store/devicesContext', () => ({
+  useDevicesStore: () => ({ devices: computers, phones: [{ ...computers[0], device_id: 'phone', capabilities: { host_kind: 'phone', host_runtime_capability: 1, terminals: [], runtimes: ['pi'] } }], loading: false, error: null }),
+}))
+vi.mock('../../../../apps/desktop/src/store/auth', () => ({ useAuth: () => ({ user: null }) }))
+
 const { DispatchSheet } = await import('../../../../apps/desktop/src/components/chat/DispatchSheet')
 const { pickDispatchTarget } = await import('../../../../apps/desktop/src/components/chat/dispatchAsk')
 const ask = (over: Record<string, unknown>) => pickDispatchTarget({ draft: true, offers: ['chat', 'my-agent'], text: 'cite', pills: [], chat: null, preselect: null, visible: false, ...over } as never)
@@ -55,6 +65,21 @@ const type = async (field: HTMLInputElement | HTMLTextAreaElement, value: string
 })
 
 describe('DispatchSheet', () => {
+  it('uses the phone New task machine picker for a new agent, defaults to context, and returns the selected computer', async () => {
+    let picked: Promise<unknown> = Promise.resolve()
+    await act(async () => { picked = ask({ draft: false, offers: ['new-agent'], spawnOn: 'first' }) })
+    await click(document.body.querySelector('[data-pick-row="new:agent"]'))
+    expect(document.body.querySelector('[data-testid="dispatch-machine"]')?.textContent).toContain('First computer')
+    await click(document.body.querySelector('[data-testid="dispatch-machine"]'))
+    expect(document.body.querySelector('[data-testid="agent-watch-pick-machine"]')).not.toBeNull()
+    expect(document.body.querySelector('[data-device-id="phone"]')).toBeNull()
+    expect(document.body.querySelector<HTMLButtonElement>('[data-device-id="offline"]')?.disabled).toBe(true)
+    await click(document.body.querySelector('[data-device-id="second"]'))
+    expect(document.body.querySelector('[data-testid="dispatch-machine"]')?.textContent).toContain('Second computer')
+    await click(document.body.querySelector('[data-testid="dispatch-sheet-action"]'))
+    await expect(picked).resolves.toEqual({ to: { new: true, device: 'second' }, visible: false, text: 'cite' })
+  })
+
   it('a draft from a task\'s tab: 「我的 agent」 first, the page\'s own ticked and first, only those with a session here; a pick is the place', async () => {
     let picked: Promise<unknown> = Promise.resolve()
     await act(async () => { picked = ask({ preselect: 'user:a-here', local: ['user:a-here', 'user:a-other'] }) })
