@@ -38,6 +38,7 @@ describe('usePhoneRead polling', () => {
     await act(async () => { await vi.advanceTimersByTimeAsync(1000) })
     expect(read, 'the quiet re-read ran and failed').toHaveBeenCalledTimes(2)
     expect(latest, 'a failed quiet re-read leaves the last read in place').toEqual(expect.objectContaining({ state: 'ok', data: 'processing' }))
+    expect(latest).not.toHaveProperty('refreshError')
     await act(async () => { await vi.advanceTimersByTimeAsync(1000) })
     expect(read, 'polling went on after the failure').toHaveBeenCalledTimes(3)
     expect(latest).toEqual(expect.objectContaining({ state: 'ok', data: 'done' }))

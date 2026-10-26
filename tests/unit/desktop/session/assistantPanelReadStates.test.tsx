@@ -62,3 +62,20 @@ it('names a failed schedule read instead of rendering the empty schedule list', 
   expect(harness.container.textContent).not.toContain('routines.emptyTitle')
   expect(harness.container.querySelector('[role="alert"]')).not.toBeNull()
 })
+
+it('silently preserves a previously read empty schedule list during network recovery',async()=>{
+ vi.useFakeTimers()
+ let client:QueryClient|undefined
+ try {
+  const collection=vi.fn().mockResolvedValueOnce([]).mockRejectedValue(new TypeError('network unavailable'))
+  client=await render(context({machineLoading:false,machine:{deviceId:'home',panel:{collection}} as never}))
+  await clickElement(harness.container.querySelector<HTMLElement>('[data-testid="assistant-seg-scheduled"]')!)
+  await act(async()=>{await vi.advanceTimersByTimeAsync(0)})
+  expect(harness.container.textContent).toContain('routines.emptyTitle')
+  await act(async()=>{void client!.invalidateQueries({queryKey:['home','schedules']});await vi.advanceTimersByTimeAsync(6000)})
+  expect(collection.mock.calls.length).toBeGreaterThan(1)
+  expect(harness.container.textContent).toContain('routines.emptyTitle')
+  expect(harness.container.textContent).not.toContain('routines.loadFailed')
+  expect(harness.container.querySelector('[role="alert"],[role="status"]')).toBeNull()
+ }finally{client?.clear();vi.useRealTimers()}
+})

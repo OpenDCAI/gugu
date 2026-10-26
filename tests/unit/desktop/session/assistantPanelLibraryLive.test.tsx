@@ -62,5 +62,5 @@ it.each([false,true])('paints its local capability copy immediately while the ne
  expect(h.container.textContent).toContain('吃大米');expect(h.container.textContent).not.toMatch(/正在读取|正在加载/)
  await act(async()=>{network.resolve({data:null,error:{code:'ENOTFOUND',message:'network unavailable'},status:0})})
  expect(h.container.textContent).toContain('吃大米');expect(h.container.textContent).not.toMatch(/正在读取|正在加载/)
- expect(h.container.querySelector('[role="status"]')).not.toBeNull()
+ expect(h.container.querySelector('[role="status"]')).toBeNull();expect(h.container.querySelector('[role="alert"]')).toBeNull()
 })
