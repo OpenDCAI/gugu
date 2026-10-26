@@ -1,10 +1,11 @@
+import { summary } from './summary';
 import { icon } from './icon';
 import { verifyCliConnectionRecord } from '../../helpers/cli-connection';
 import { defineIntegrationPlugin, registerIntegrationPluginBehavior } from '../../plugin';
 
 const plugin = defineIntegrationPlugin({
-  id: 'tencent-meeting', name: '腾讯会议', websiteUrl: 'https://meeting.tencent.com',
-  description: { en: 'Meetings, recordings and meeting notes through the official Tencent Meeting CLI', 'zh-CN': '通过腾讯会议官方 CLI 管理会议、录制与会议纪要' },
+  id: 'tencent-meeting', name: summary.name['zh-CN'], websiteUrl: 'https://meeting.tencent.com',
+  description: summary.description,
   abilities: [
     { en: 'Find and manage your meetings', 'zh-CN': '查询和管理你的会议' },
     { en: 'Read recordings and meeting notes', 'zh-CN': '读取录制和会议纪要' },

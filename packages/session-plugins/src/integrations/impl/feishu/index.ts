@@ -1,3 +1,4 @@
+import { summary } from './summary';
 import { verifyCliConnectionRecord } from '../../helpers/cli-connection';
 import { defineIntegrationPlugin, registerIntegrationPluginBehavior } from '../../plugin';
 import { icon } from './icon';
@@ -6,8 +7,8 @@ import { icon } from './icon';
 const plugin = defineIntegrationPlugin(
   {
     id: 'feishu',
-    name: '飞书',
-    description: { en: 'Feishu docs, messages and contacts', 'zh-CN': '飞书的云文档、消息和通讯录' },
+    name: summary.name['zh-CN'],
+    description: summary.description,
     websiteUrl: 'https://www.feishu.cn',
     abilities: [
       { en: 'Read and write Feishu docs and wiki pages', 'zh-CN': '读写飞书云文档和知识库' },

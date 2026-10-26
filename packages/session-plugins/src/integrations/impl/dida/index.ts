@@ -1,3 +1,4 @@
+import { summary } from './summary';
 import { verifyHostedMcpCredentials } from '../../helpers/hosted-mcp';
 import { defineIntegrationPlugin, registerIntegrationPluginBehavior } from '../../plugin';
 import { icon } from './icon';
@@ -12,8 +13,8 @@ export const DIDA_MCP_URL = 'https://mcp.dida365.com';
 const plugin = defineIntegrationPlugin(
   {
     id: 'dida',
-    name: '滴答清单',
-    description: { en: 'Read and write your Dida365 tasks', 'zh-CN': '读写滴答清单里的任务' },
+    name: summary.name['zh-CN'],
+    description: summary.description,
     websiteUrl: 'https://dida365.com',
     abilities: [
       { en: 'Add, update and complete tasks', 'zh-CN': '添加、修改、完成任务' },

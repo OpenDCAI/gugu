@@ -17,7 +17,7 @@ it('keeps localized names and descriptions across fresh list arrays without anot
   expect(h.container.textContent).toBe('Mailbox|English summary')
   const first=renders.length
   await h.render(<Probe rows={items()} locale="en-US"/> )
-  expect(renders.slice(first)).not.toContain('mail|')
+  expect(renders.slice(first)).not.toContain('Application|')
   expect(h.container.textContent).toBe('Mailbox|English summary')
   expect(body).toHaveBeenCalledTimes(1)
   await h.render(<Probe rows={items()} locale="zh-CN"/> )
@@ -45,6 +45,6 @@ it('shares in-flight enrichment across list refreshes, keeps it after remount, a
   expect(h.container.textContent).toBe('Mailbox|Cached')
   expect(body).toHaveBeenCalledTimes(1)
   await h.render(<Probe current={{...panel,ownerId:'another-owner',body:async()=>{throw new Error('unavailable')}} as AssistantPanelFiles}/> )
-  expect(h.container.textContent).toBe('mail|')
+  expect(h.container.textContent).toBe('Application|')
  } finally { h.cleanup() }
 })

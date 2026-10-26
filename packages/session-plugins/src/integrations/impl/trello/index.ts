@@ -1,3 +1,4 @@
+import { summary } from './summary';
 import type { VerifyResult } from '../../capabilities/auth';
 import { defineIntegrationPlugin, registerIntegrationPluginBehavior } from '../../plugin';
 import { verifyTrelloCredentials } from './client';
@@ -6,8 +7,8 @@ import { icon } from './icon';
 const plugin = defineIntegrationPlugin(
   {
     id: 'trello',
-    name: 'Trello',
-    description: { en: 'Work on Trello cards', 'zh-CN': '处理 Trello 卡片' },
+    name: summary.name['zh-CN'],
+    description: summary.description,
     websiteUrl: 'https://trello.com',
   },
   {

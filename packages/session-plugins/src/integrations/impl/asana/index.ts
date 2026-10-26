@@ -1,3 +1,4 @@
+import { summary } from './summary';
 import type { VerifyResult } from '../../capabilities/auth';
 import { defineIntegrationPlugin, registerIntegrationPluginBehavior } from '../../plugin';
 import { verifyAsanaCredentials } from './client';
@@ -6,8 +7,8 @@ import { icon } from './icon';
 const plugin = defineIntegrationPlugin(
   {
     id: 'asana',
-    name: 'Asana',
-    description: { en: 'Work on Asana tasks', 'zh-CN': '处理 Asana 任务' },
+    name: summary.name['zh-CN'],
+    description: summary.description,
     websiteUrl: 'https://asana.com',
   },
   {
