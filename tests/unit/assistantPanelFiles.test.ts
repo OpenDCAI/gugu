@@ -52,6 +52,20 @@ it('keeps unprepared, empty and failed collections distinct', async () => {
   await expect(f.panel.list('记忆')).rejects.toMatchObject({ code: 'collection-unavailable' })
 })
 
+it('turns preparation which has not completed in fifteen seconds into a read failure and recovers on publication', async () => {
+  vi.useFakeTimers()
+  try {
+    const f = fixture()
+    await expect(f.panel.collection('schedules')).rejects.toMatchObject({ code: 'unprepared' })
+    await vi.advanceTimersByTimeAsync(15_001)
+    await expect(f.panel.collection('schedules')).rejects.toMatchObject({ code: 'preparation-timeout',domain: 'schedules' })
+    expect(f.panel.collectionState('schedules')).toBe('error')
+    f.put('schedules','__collection__',{ state: 'ready' }); f.panel.invalidate()
+    expect(await f.panel.collection('schedules')).toEqual([])
+    expect(f.panel.collectionState('schedules')).toBe('ready')
+  } finally { vi.useRealTimers() }
+})
+
 it('shows a newly saved voice note before old-account backfill, without claiming a complete history', async () => {
   const f = fixture(); f.loseNextResponse()
   await f.panel.mkdir('记忆/voice-notes/new-note')

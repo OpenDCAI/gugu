@@ -12,7 +12,8 @@ import { useShowModal } from '@renderer/lib/modal/modal-provider';
 import type { AssistantContext } from './assistant-context';
 import { connectorOrder } from './assistant-connector-order';
 import { homeTarget } from './assistant-home-sessions';
-import { useReadFailure } from './assistant-read-failure';
+import { useAssistantReadError, useReadFailure } from './assistant-read-failure';
+import { retryAssistantPanelRead } from '@gugu/core/cloud/assistantPanelRead';
 import { when } from 'mobx';
 import { useAssistantShell } from './assistant-shell';
 import { useCloudAssistantFiles } from '@/components/assistant/assistant-panel-files';
@@ -47,13 +48,13 @@ export function useHomeLibraryHost(home: AssistantHomePlace): LibraryHost {
   const shell = useAssistantShell();
   const owner = useAssistantPanelAccountId();
   const identity = useQuery({ queryKey: ['assistant-panel-identity',owner],enabled: !!owner && !shell?.assistant?.id,
-    queryFn: () => requireAssistantPanelBridge().personalAssistant(owner!),staleTime: Infinity });
+    queryFn: () => requireAssistantPanelBridge().personalAssistant(owner!),staleTime: Infinity,retry: retryAssistantPanelRead });
   const assistantId = shell?.assistant?.id ?? identity.data ?? null;
   const folder = useQuery({
     queryKey: ['assistant-panel-folder',owner,assistantId],enabled: !!owner && !!assistantId && !shell?.chatId,
     queryFn: async () => {
       return requireAssistantPanelBridge().privateChat(owner!,assistantId!);
-    },staleTime: Infinity,
+    },staleTime: Infinity,retry: retryAssistantPanelRead,
   });
   const machine = useCloudAssistantFiles(assistantId,shell?.chatId ?? folder.data ?? null,home.deviceId);
   const prepare = useCallback(async () => {
@@ -110,7 +111,8 @@ export const ConnectorLists = observer(function ConnectorLists({ onOpen }: { onO
   const { integrations, configuredConnections, connectionStatus, hasList, listError, reloadList } = useIntegrationsContext();
   const { remote } = useLibraryHost();
   const reload = useCallback(() => void reloadList(), [reloadList]);
-  const failure = useReadFailure(hasList ? null : listError, remote?.deviceId ?? null, remote?.deviceLabel ?? '', reload);
+  const readError = useAssistantReadError(!hasList,listError,remote?.deviceId ?? '');
+  const failure = useReadFailure(hasList ? null : readError, remote?.deviceId ?? null, remote?.deviceLabel ?? '', reload);
   if (failure)
     return (
       <AssistantEmpty action={failure.retry ? <button type="button" className="ta-pill-btn" onClick={failure.retry}>{t('machine.retry')}</button> : undefined}>

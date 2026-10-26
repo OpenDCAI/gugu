@@ -96,6 +96,23 @@ it('retains prior content and marks the collection unreadable after a real read 
   expect(f.rows.get('memory:__collection__')?.data.state).toBe('error')
 })
 
+it('records a rejected first publication as error even when the error marker loses a version race', async () => {
+  const f = transport(), original = f.input.cloud.commit.getMockImplementation()!
+  let conflict = true
+  f.input.cloud.commit.mockImplementation(async (assistant,change) => {
+    if (change.operation === 'save') throw new AssistantPanelError('22023','Invalid observation')
+    if (change.operation === 'error' && conflict) {
+      conflict = false
+      await original(assistant,{ ...change,operationId: 'concurrent-marker',operation: 'prepared',data: { state: 'ready',schemaVersion: 1,itemCount: 0 } })
+      throw new AssistantPanelError('40001','Marker changed')
+    }
+    return original(assistant,change)
+  })
+  await expect(publishAssistantPanelCollection(f.input)).rejects.toMatchObject({ code: '22023' })
+  expect(f.rows.has('memory:note')).toBe(false)
+  expect(f.rows.get('memory:__collection__')?.data.state).toBe('error')
+})
+
 it('collects nested actual files and rejects symlink escape even for an empty directory', async () => {
   const f = await fixture()
   await mkdir(join(f.paths.resourcesDir,'nested'),{ recursive: true })

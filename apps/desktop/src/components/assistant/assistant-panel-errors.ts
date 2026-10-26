@@ -3,7 +3,8 @@
 export function assistantPanelFailure(error: unknown, t: (key: string, values?: Record<string, unknown>) => string): string {
   const detail = error as { code?: string; domain?: string; resourceKey?: string }
   const code = detail?.code
-  const key = code === 'unprepared' ? 'unprepared' : code === 'stale' ? 'stale'
+  const key = code === 'read-timeout' ? 'readTimedOut' : code === 'preparation-timeout' ? 'preparationFailed'
+    : code === 'unprepared' ? 'unprepared' : code === 'stale' ? 'stale'
     : code === 'application-failed' ? 'applicationFailed'
       : code === '40001' || code === 'exists' ? 'changed'
         : ['42501','signed-out','account-changed'].includes(code ?? '') ? 'accessFailed'

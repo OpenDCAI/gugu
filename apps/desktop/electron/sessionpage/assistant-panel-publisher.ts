@@ -88,10 +88,17 @@ export async function publishAssistantPanelCollection(input: {
       catch (error) { if (!['40001','55000'].includes(String((error as { code?: string }).code))) throw error }
     }
   } catch (error) {
-    try {
-      const marker = await input.cloud.resource(input.assistantId,input.domain,markerKey)
-      await commit(markerKey,marker?.revision ?? '0','error',{ state: 'error',schemaVersion: 1,errorCode: 'RESOURCE_PUBLICATION_FAILED' })
-    } catch { /* A failed publication is still a failure; never mark it ready. */ }
+    for (let attempt = 0; attempt < 3; attempt++) {
+      try {
+        const marker = await input.cloud.resource(input.assistantId,input.domain,markerKey)
+        await commit(markerKey,marker?.revision ?? '0','error',{ state: 'error',schemaVersion: 1,errorCode: 'RESOURCE_PUBLICATION_FAILED' })
+        break
+      } catch (failure) {
+        // Retry only the marker's version race with a fresh revision. A
+        // transport/authorization failure is covered by the bounded reader.
+        if (String((failure as { code?: string }).code) !== '40001') break
+      }
+    }
     throw error
   }
 }

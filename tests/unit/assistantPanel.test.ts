@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from 'vitest'
-import { assistantPanelCollection, createAssistantPanelClient, parseAssistantPanelSnapshot } from '../../packages/core/src/cloud/assistantPanel'
+import { AssistantPanelError, assistantPanelCollection, createAssistantPanelClient, parseAssistantPanelSnapshot } from '../../packages/core/src/cloud/assistantPanel'
 
 const item = (key: string, data: Record<string, unknown> = {}) => ({
   assistant_user_id: 'assistant',owner_user_id: 'owner',domain: 'memory',resource_key: key,
@@ -9,6 +9,16 @@ const item = (key: string, data: Record<string, unknown> = {}) => ({
 const snapshot = (items: unknown[] = []) => ({ version: 1,revision: '9007199254740993',items,application: [] })
 
 describe('assistant panel account data', () => {
+  it('classifies transport failure without reclassifying snapshot or ownership failures', async () => {
+    let owner = 'owner'
+    const transport = vi.fn().mockRejectedValueOnce(new TypeError('private fetch diagnosis'))
+      .mockRejectedValueOnce(new AssistantPanelError('stale','snapshot fact'))
+      .mockImplementationOnce(async () => { owner = 'other'; throw new TypeError('fetch failed') })
+    const client = createAssistantPanelClient(transport,() => owner)
+    await expect(client.snapshot('assistant')).rejects.toMatchObject({ code: 'transport-failed',message: 'PANEL_TRANSPORT_FAILED' })
+    await expect(client.snapshot('assistant')).rejects.toMatchObject({ code: 'stale' })
+    await expect(client.snapshot('assistant')).rejects.toMatchObject({ code: 'account-changed' })
+  })
   it('distinguishes unprepared, successfully empty, failed and per-device collections', () => {
     const read = (items: unknown[]) => parseAssistantPanelSnapshot(snapshot(items),'owner','assistant')
     expect(assistantPanelCollection(read([]),'memory').state).toBe('unprepared')

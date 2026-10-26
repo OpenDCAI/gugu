@@ -3,7 +3,8 @@ import {useAssistantWorkOwnerId} from '@/lib/assistantWorkReadBridge';
 import { messageForUser } from '@/lib/userFacingError';
 import { formatSessionTitleForDisplay } from '@shared/core/sessions/session-title-utils';
 import { rendererLogger } from '@/lib/log';
-import { useReadFailure } from './assistant-read-failure';
+import { useAssistantReadError, useReadFailure } from './assistant-read-failure';
+import { isAssistantPanelReadRetryable, retryAssistantPanelRead } from '@gugu/core/cloud/assistantPanelRead';
 import { assistantPanelFailure } from '@/components/assistant/assistant-panel-errors';
 import { useDirectoryDevices } from '@/session/shared/remote-sessions/session-directory';
 import { assistantTaskDeviceLabel } from './assistant-task-directory';
@@ -113,7 +114,8 @@ const SubAgents = observer(function SubAgents({ context }: AssistantPageProps) {
  */
 function useAssistantRoutines(context: AssistantContext) {
   const api = context.machine?.panel ? assistantPanelRoutines(context.machine.panel) : null;
-  const query = useQuery({ queryKey: assistantQueryKey(context.homeDeviceId,'schedules'),enabled: !!api,queryFn: () => api!.list() });
+  const query = useQuery({ queryKey: assistantQueryKey(context.homeDeviceId,'schedules'),enabled: !!api,queryFn: () => api!.list(),retry: retryAssistantPanelRead,
+    refetchOnWindowFocus: query => isAssistantPanelReadRetryable(query.state.error) });
   const setEnabled = useMutation({ mutationFn: async ({ id,enabled }: { id: string; enabled: boolean }) => {
     await api!.setEnabled(id,enabled,query.data?.find(row => row.id === id)?.panelRevision);
   },onSuccess: () => { void query.refetch(); } });
@@ -132,7 +134,8 @@ const RoutineLists = observer(function RoutineLists({ context }: AssistantPagePr
   const { t, i18n } = useTranslation('assistant');
   const formatAt = useFormatAt();
   const { query, routines } = useAssistantRoutines(context);
-  const failure = useReadFailure(query.error,null,'',() => void query.refetch());
+  const readError = useAssistantReadError(context.machineLoading || query.isFetching,context.machineError ?? query.error,context.homeDeviceId);
+  const failure = useReadFailure(readError,null,'',() => void query.refetch());
   if (failure) return <AssistantEmpty title={t('routines.loadFailed')}><span role="alert">{failure.text}</span></AssistantEmpty>;
   const active = routines.filter((a) => a.enabled);
   const inactive = routines.filter((a) => !a.enabled);

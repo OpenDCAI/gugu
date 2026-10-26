@@ -30,7 +30,7 @@ describe('usePhoneRead polling', () => {
     const read = vi
       .fn<() => Promise<string>>()
       .mockResolvedValueOnce('processing')
-      .mockRejectedValueOnce(new Error('network'))
+      .mockRejectedValueOnce(new TypeError('network'))
       .mockResolvedValueOnce('done')
     await harness.render(createNode(Probe, { read, pollMs: (data: string) => (data === 'processing' ? 1000 : null) }))
     await act(async () => { await vi.advanceTimersByTimeAsync(0) })
@@ -48,6 +48,27 @@ describe('usePhoneRead polling', () => {
     await harness.render(createNode(Probe, { read, pollMs: () => 1000 }))
     await act(async () => { await vi.advanceTimersByTimeAsync(0) })
     expect(latest?.state).toBe('error')
+  })
+
+  it('bounds an unresolved read, ignores its late result and recovers automatically', async () => {
+    const hung = deferred<string>()
+    const read = vi.fn<() => Promise<string>>().mockReturnValueOnce(hung.promise).mockResolvedValueOnce('recovered')
+    await harness.render(createNode(Probe,{ read,pollMs: () => null }))
+    await act(async () => { await vi.advanceTimersByTimeAsync(15_001) })
+    expect(latest).toMatchObject({ state: 'error',error: { code: 'read-timeout' } })
+    await act(async () => { await vi.advanceTimersByTimeAsync(5000) })
+    expect(latest).toMatchObject({ state: 'ok',data: 'recovered' })
+    await act(async () => { hung.resolve('stale') })
+    expect(latest).toMatchObject({ state: 'ok',data: 'recovered' })
+  })
+
+  it.each(['unprepared','collection-unavailable','application-failed','stale'])('does not poll snapshot state %s until an actual change arrives', async code => {
+    const read = vi.fn<() => Promise<string>>().mockRejectedValueOnce(Object.assign(new Error('snapshot state'),{ code })).mockResolvedValueOnce('changed')
+    await harness.render(createNode(Probe,{ read,pollMs: () => 1000 }))
+    await act(async () => { await vi.advanceTimersByTimeAsync(60_000) })
+    expect(read).toHaveBeenCalledTimes(1)
+    await act(async () => { window.dispatchEvent(new Event('gugu:assistant-panel-changed')); await vi.advanceTimersByTimeAsync(0) })
+    expect(latest).toMatchObject({ state: 'ok',data: 'changed' })
   })
 
   it('does not let an earlier poll replace the verified result after a mutation', async () => {
@@ -87,6 +108,8 @@ describe('usePhoneRead polling', () => {
     expect(harness.container.querySelector('[data-testid="false-empty"]')).toBeNull()
     expect(harness.container.textContent).not.toContain('raw private diagnosis')
     await act(async () => { await vi.advanceTimersByTimeAsync(1000) })
+    expect(read).toHaveBeenCalledTimes(2)
+    await act(async () => { window.dispatchEvent(new Event('gugu:assistant-panel-changed')); await vi.advanceTimersByTimeAsync(0) })
     expect(harness.container.textContent).toContain('recovered')
     expect(harness.container.querySelector('[role="alert"]')).toBeNull()
   })
