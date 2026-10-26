@@ -1938,14 +1938,6 @@ function startDeviceRuntimeWhenRendererReady(): void {
           agentUserId: failure.agentUserId,
           error: failure.error,
         })
-        const emdash = loadEmdashBridge()
-        if (!emdash) throw new Error('session-page status bridge is unavailable while settling delivery failure')
-        void emdash.emitSessionpageAgentFailure(sessionpageSessionId).catch((error) => {
-          createLogger('device-runtime').error(
-            { sessionId: sessionpageSessionId, err: error },
-            'session-page activity settlement failed',
-          )
-        })
       }
     },
   })
