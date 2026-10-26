@@ -24,7 +24,7 @@ vi.mock('../../../../apps/desktop/src/components/extensionBundle/sharedPackages'
 
 const { ask, chatTabs, shownItem } = await import('./chatTabsHarness')
 const { folderItem, isFolderItem } = await import('../../../../apps/desktop/src/session/renderer/features/chats/chat-tabs/chat-panel-item')
-const { chatAlone, closeChatTab, openPanelItem, panelTabsOf, shownPanelTab } = await import('../../../../apps/desktop/src/session/renderer/features/chats/chat-tabs/chat-layouts')
+const { chatAlone, chatLayoutOf, closeChatTab, openPanelItem, panelFull, panelTabsOf, shownPanelTab } = await import('../../../../apps/desktop/src/session/renderer/features/chats/chat-tabs/chat-layouts')
 const { AppPeekSlot } = await import('../../../../apps/desktop/src/components/appSlot/AppPeekSlot')
 const { ClaimedPage } = await import('../../../../apps/desktop/src/components/appSlot/ClaimedPage')
 const { peekStore } = await import('../../../../apps/desktop/src/session/renderer/features/extensions/peek-store')
@@ -105,19 +105,23 @@ describe('G2: back from a file opened by an App goes back to that App', () => {
 })
 
 describe('tabbed group panel expansion', () => {
-  it.each([false, true])('expands and restores the current page (App=%s)', async (app) => {
+  // owner 10-26 选 A:页里不再横一行,「最大化 / 还原」长在页签上(TabHost.tabFill,页签那颗钮和双击)。
+  it.each([false, true])('expands and restores the current page from its tab (App=%s)', async (app) => {
     const chatId = `expand-panel-${app}`
     await harness.render(chatTabs({ chatId, tabbed: true }))
     ask(chatId, { app: app ? 'kanban' : 'workspace' })
-    const opened = shownPanelTab(chatId)
-    expect(app ? opened?.item.kind : isFolderItem(opened?.item)).toBe(app ? 'kanban.board' : true)
-    const toggle = () => button('group-app-slot-full')!
-    expect(toggle()).not.toBeNull()
-    act(() => toggle().click())
-    expect(toggle().getAttribute('aria-pressed')).toBe('true')
-    act(() => toggle().click())
-    expect(toggle().getAttribute('aria-pressed')).toBe('false')
-    expect(shownPanelTab(chatId)?.tabId).toBe(opened?.tabId)
+    const opened = shownPanelTab(chatId)!
+    expect(app ? opened.item.kind : isFolderItem(opened.item)).toBe(app ? 'kanban.board' : true)
+    expect(harness.container.querySelector('[data-testid="group-app-slot-bar"]'), 'no row under the tab').toBeNull()
+    const pane = chatLayoutOf(chatId).groups[0]!.pane
+    const fill = () => pane.tabFill(opened.tabId)!
+    expect(fill().full).toBe(false)
+    act(() => fill().toggle())
+    expect(panelFull(chatId, opened.tabId)).toBe(true)
+    expect(fill().full).toBe(true)
+    act(() => fill().toggle())
+    expect(panelFull(chatId, opened.tabId)).toBe(false)
+    expect(shownPanelTab(chatId)?.tabId).toBe(opened.tabId)
     expect(chatAlone(chatId)).toBe(false)
   })
 })

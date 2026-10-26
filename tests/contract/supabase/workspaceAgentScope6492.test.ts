@@ -253,6 +253,9 @@ describe('topic resources use the source container through the real App SDK and 
     await join(w)
     const topic = await topicOf(w.group, w.peer)
     await db.query('DELETE FROM chat.chat_members WHERE chat_id=$1 AND user_id=$2', [w.group, w.owner])
+    // Current departures cascade; restore a legacy source seat to exercise actor-scoped file access.
+    expect((await db.query('SELECT 1 FROM chat.chat_members WHERE chat_id=$1 AND user_id=$2', [w.group, w.agent])).rows).toHaveLength(0)
+    await join(w)
     const { files, surface } = agentFiles(w)
     const made = await files.create(topic, { name: 'agent-source.md', content: 'Actor membership' }, { asAgent: w.agent })
     expect(await files.resourceChat(topic, { asAgent: w.agent })).toBe(w.group)

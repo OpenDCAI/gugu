@@ -39,6 +39,11 @@ export interface ContactsDevicePartition {
   primaryKey: string
 }
 
+/** A folded device section still contains contacts; empty states use all partitions. */
+export function contactsAreEmpty(people: readonly ContactUser[], agents: readonly ContactUser[], groups: readonly ContactGroupChat[]): boolean {
+  return people.length === 0 && agents.length === 0 && groups.length === 0
+}
+
 export const CLOUD_DEVICE_PREFIX = 'cloud:'
 
 // #4277 段按**电脑**归并,不按设备行(三句模型「设备是电脑」)。设备 id 由(机器, 账号, tier)派生(#523),同一台

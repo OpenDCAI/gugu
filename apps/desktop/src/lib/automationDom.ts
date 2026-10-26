@@ -75,7 +75,6 @@ export const AUTOMATION_TEST_IDS = {
   sidebarAssistantNav: 'sidebar-assistant-nav',
   sidebarSettingsNav: 'sidebar-settings-nav',
   mobileAssistantNav: 'mobile-assistant-nav',
-  mobileSessionsNav: 'mobile-sessions-nav',
   mobileMessagesNav: 'mobile-messages-nav',
   mobileSessionCreateAction: 'mobile-session-create-action',
   mobileContactsNav: 'mobile-contacts-nav',
@@ -124,7 +123,6 @@ export const AUTOMATION_TEST_IDS = {
   groupAnnouncementPostButton: 'group-announcement-post-button',
   groupAnnouncementCard: 'group-announcement-card',
   groupHeaderMenu: 'group-header-menu',
-  groupMenuAnnouncement: 'group-menu-announcement',
   groupMenuSettings: 'group-menu-settings',
   settingsModelPane: 'settings-model-pane',
   // #886 contact row context-menu items

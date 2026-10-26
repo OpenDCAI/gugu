@@ -34,11 +34,11 @@ const LIT_VAR = '--gg-tab-lit'
  * 位置变量还没写过(tab 栏刚挂上、分页器还没滚过)就按当前 tab 的整数位置算。|x| 写成 max(x, -x):WebView 113 没有 CSS abs()。
  * ❌ transition:值本来就跟着手指走,再加过渡就拖在手指后面。
  */
-export function tabItemStyle(index: number, activeIndex: number): CSSProperties {
+export function tabItemStyle(index: number, activeIndex: number, selectedColor = 'var(--text-primary)'): CSSProperties {
   const position = `var(${TAB_POSITION_VAR}, ${activeIndex})`
   return {
     [LIT_VAR]: `max(0, 1 - max(${position} - ${index}, ${index} - ${position}))`,
-    color: `color-mix(in srgb, var(--text-primary) calc(var(${LIT_VAR}) * 100%), var(--text-tertiary))`,
+    color: `color-mix(in srgb, ${selectedColor} calc(var(${LIT_VAR}) * 100%), var(--text-tertiary))`,
   } as CSSProperties
 }
 

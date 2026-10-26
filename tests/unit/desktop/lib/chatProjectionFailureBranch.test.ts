@@ -1,5 +1,9 @@
 // @vitest-environment node
 // @@@chat-projection 失败支 —— 判据边界上的确定性阳控/阴控(#5394 ③)。
+import { chatDisplayName } from '@gugu/core/shared/ui/chatModels'
+import { createChatNotificationPayload } from '@gugu/core/shared/ui/chatNotificationModels'
+import { contactGroupChatsOf } from '../../../../apps/desktop/src/lib/contactGroupChats'
+import { searchContacts } from '../../../../apps/desktop/src/lib/contactSearch'
 import { describe, expect, it, vi, beforeEach } from 'vitest'
 type Response = { data: unknown; error: { message: string } | null }
 const calls: string[] = []
@@ -138,4 +142,33 @@ describe('chat projection 失败支 —— 一波失败 ⇒ 账本一行 ok:fals
     expect(calls).toHaveLength(0) // 一发都不打
     expect(projection.ledger().filter((e) => e.trigger.includes('hydrate'))).toHaveLength(1)
   })
+})
+
+it('projects private group aliases through display/search/notifications and remote update/delete', async () => {
+  seedWorld(2)
+  const signal = new AbortController().signal
+  const id = chatId(0)
+  rowsByKey.set('contact_overrides', [
+    { target_kind: 'group', target_id: id, alias: 'Private nickname' },
+    { target_kind: 'contact', target_id: id, alias: 'Contact with the same id' },
+  ])
+  const projection = createChatProjection(VIEWER)
+  await projection.hydrate('0', signal)
+  const displayed = () => {
+    const row = projection.current().find((chat) => chat.id === id)!
+    expect(row.name).toBe('G0')
+    return { title: chatDisplayName(row, null), notification: createChatNotificationPayload(row).title }
+  }
+  expect(displayed()).toEqual({ title: 'Private nickname', notification: 'Private nickname' })
+  const groups = contactGroupChatsOf(projection.current())
+  for (const query of ['Private nickname', 'G0']) {
+    expect(searchContacts(query, { people: [], agents: [], groups, recentAt: new Map() })?.groups.map((hit) => hit.item.id)).toEqual([id])
+  }
+  expect(projection.current().find((chat) => chat.id === chatId(1))?.alias).toBeNull()
+  rowsByKey.set('contact_overrides', [{ target_kind: 'group', target_id: id, alias: 'Synced nickname' }])
+  await projection.advance([{ revision: '1', event: 'chat_meta_changed', chatId: id, entityId: null }], '1', signal)
+  expect(displayed()).toEqual({ title: 'Synced nickname', notification: 'Synced nickname' })
+  rowsByKey.set('contact_overrides', [])
+  await projection.advance([{ revision: '2', event: 'chat_meta_changed', chatId: id, entityId: null }], '2', signal)
+  expect(displayed()).toEqual({ title: 'G0', notification: 'G0' })
 })

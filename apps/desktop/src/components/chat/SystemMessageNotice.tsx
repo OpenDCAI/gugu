@@ -1,20 +1,29 @@
 import { useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import { agentFailureNeedsModelChoice, type AgentFailureReason } from '@gugu/core/shared/agentQuotaReason'
-import { turnFailureReason } from '@gugu/core/shared/ui/systemNotice'
+import { parseSystemNotice } from '@gugu/core/shared/ui/systemNotice'
 import type { MessageItem } from '@gugu/core/shared/types/chat'
 import { AlertTriangle, Clock } from '@/lib/icons'
 import { useContactsStore } from '@/store/contactsContext'
 import { AgentSettingsModal } from '../agentsettings/AgentSettingsModal'
 import { Button } from '../ui/Button'
+import { InlineAction } from '../settings/addServer/InlineAction'
 import './system-message-notice.css'
 
 type NoticeMessage = Pick<MessageItem, 'id' | 'content' | 'content_type' | 'sender_user_id' | 'client_message_id'>
 
-export function SystemMessageNotice({ message, senderName }: { message: NoticeMessage; senderName?: string }) {
-  const reason = turnFailureReason(message)
+export function SystemMessageNotice({ message, senderName, onOpenTopic }: { message: NoticeMessage; senderName?: string; onOpenTopic?: (topicChatId: string) => void }) {
+  const notice = parseSystemNotice(message)
+  const reason = notice?.kind === 'turn-failure' ? notice.reason : null
   if (reason === 'notAdmitted') return <PendingDeliveryNotice />
   if (reason) return <AgentReplyFailureNotice reason={reason} agentUserId={message.sender_user_id} senderName={senderName} />
+  // The server writes this one format; the marker supplies the identity even if the topic is renamed or deleted.
+  const separator = ' 开了话题:'
+  const split = message.content?.indexOf(separator) ?? -1
+  if (notice?.kind === 'topic-opened' && onOpenTopic && split >= 0) {
+    const end = split + separator.length
+    return <div className="system-message-notice"><span>{message.content!.slice(0, end)}<InlineAction testId="topic-opened-link" onClick={() => onOpenTopic(notice.topicChatId)}>{message.content!.slice(end)}</InlineAction></span></div>
+  }
   return <div className="system-message-notice"><span>{message.content}</span></div>
 }
 

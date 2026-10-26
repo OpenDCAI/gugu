@@ -33,6 +33,11 @@ export interface TabHost {
   closeAll(): void;
   /** 右键「拆开」:并排的一对变回两枚普通页签(spec session-page「并排」)。 */
   separatePair(): void;
+  /**
+   * 并排在对话旁边的那一页「占满」(= 拆开、它占满),或拆开后点着的它「还原」回对话旁边;别的页签 = null
+   * (页签上那颗钮和双击,owner 10-26 选 A:工具栏那一行去掉,钮长在它作用的那枚页签上)。
+   */
+  tabFill(tabId: string): { full: boolean; toggle: () => void } | null;
   /** Whether this tab can go to a new pane beside its own (#7052). False where there is no pane layout. */
   canSplitTab(tabId: string): boolean;
   /** Moves this tab into a new pane on that side of its own. */

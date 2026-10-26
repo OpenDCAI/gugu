@@ -252,8 +252,11 @@ export default {
     "createTask": "新建任务",
     "createAgent": "新建 Agent",
     "createGroup": "新建群聊",
+    "createGroupMobile": "发起群聊",
+    "newProject": "新项目",
     "delete": "删除",
     "disableNotifications": "关闭通知",
+    "deleteFailed": "无法删除这条对话",
     "draft": "[草稿]",
     "moreTopics": "更多 · {{count}}",
     "moreTopics_one": "更多 · {{count}}",
@@ -361,6 +364,26 @@ export default {
     "action": "放入输入框"
   },
   "composer": {
+    "phoneTask": {
+      "attachFolder": "挂文件夹",
+      "attachFailed": "文件夹没挂上，请重试",
+      "action": "新任务",
+      "chip": "新任务 · {{agent}}",
+      "pickAgent": "选 agent",
+      "placeholder": "想让 {{agent}} 做点什么？",
+      "pickFolder": "点一张文件夹开工",
+      "where": "{{folder}} · {{machine}}",
+      "offline": "{{machine}} 离线了，换一张文件夹",
+      "optionsFailed": "读不到 {{machine}} 上的 agent，确认它在线后再选一次文件夹",
+      "noAgent": "{{machine}} 上没有能用的 agent",
+      "loading": "正在读 {{machine}} 上的 agent",
+      "cancel": "不派任务了",
+      "failed": {
+        "host_outdated": "{{machine}} 上的咕咕太旧，更新后再派任务",
+        "start_failed": "任务没开起来，到任务卡上看原因",
+        "topic_missing": "任务开工了，到群里点任务卡进它的话题"
+      }
+    },
     "notInGroup": "不在本群",
     "agent": {
       "disabledReason": {
@@ -629,6 +652,8 @@ export default {
     "noGroupApps": "本设备暂无可用的 App。",
     "openInGroup": "在这个群里打开…",
     "announcement": "群公告",
+    "groupInfo": "群信息",
+    "chatInfo": "会话信息",
     "memberList": "成员列表",
     "more": "更多操作",
     "searchChat": "搜索对话",
@@ -771,6 +796,10 @@ export default {
     "title": "发送到"
   },
   "topic": {
+    "phoneTabs": {
+      "group": "群聊",
+      "label": "群聊和话题"
+    },
     "anchor": {
       "lead": "话题",
       "separator": " · ",

@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
-import { useState } from 'react'
-import { expectExit, frame, holdDialogExit } from '../../support/dialogExit'
+import { act, useState } from 'react'
+import { frame } from '../../support/dialogExit'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import type { Device } from '@gugu/core/shared/types/chat'
 import type { SessionpageSessionSummary } from '@gugu/session-core/session-record/contract'
@@ -65,20 +65,21 @@ describe('SessionTimelinePage mode button → 对话', () => {
   })
 })
 
-it('timeline archive: the parent page unmounts only after its actions sheet exits', async () => {
-  const exit = holdDialogExit()
+it('timeline archive: the menu closes on the tap, the page goes back once the machine confirms', async () => {
   const back = vi.fn()
-  actions.update.mockResolvedValue({ title: 'Task one', isPinned: false, archived: true })
+  let confirm: (value: { title: string; isPinned: boolean; archived: boolean }) => void = () => undefined
+  actions.update.mockImplementation(() => new Promise((resolve) => { confirm = resolve }))
   function Parent() {
     const [shown, setShown] = useState(true)
     return shown ? createNode(SessionTimelinePage, { device, session: session(), onBack: () => { back(); setShown(false) } }) : null
   }
   await harness.render(createNode(Parent))
   await clickElement(document.querySelector('[data-testid="agent-watch-session-page-menu"]')!); await frame()
-  const popup = document.querySelector<HTMLElement>('[data-testid="agent-watch-session-actions"]')!
+  expect(document.querySelector('[role="menu"]'), 'owner 10-26:贴着 ⋯ 弹菜单,❌ 底部抽屉').not.toBeNull()
   await clickElement(document.querySelector('[data-testid="agent-watch-session-archive"]')!)
-  expect(back).not.toHaveBeenCalled()
-  await expectExit(popup, exit)
+  expect(document.querySelector('[role="menu"]')).toBeNull()
+  expect(back, '机器还没回话,页面不走').not.toHaveBeenCalled()
+  await act(async () => { confirm({ title: 'Task one', isPinned: false, archived: true }) })
   expect(back).toHaveBeenCalledOnce()
   expect(harness.container.textContent).toBe('')
 })

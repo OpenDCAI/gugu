@@ -34,11 +34,36 @@ export default {
   "intro": {
     "title": "Meet Gugu",
     "guguTitle": "Gugu",
-    "guguBody": "Your personal super assistant, keeping track of plans and handling everyday work.",
+    "messagesTitle": "Messages",
+    "partnersTitle": "Partners",
     "projectsTitle": "Projects",
-    "projectsBody": "Your workspace for working closely with Agents on complex tasks.",
     "chatsTitle": "Chats",
-    "chatsBody": "Collaborate with other people and each other’s Agents."
+    "phone": {
+      "guguBody": "Your personal assistant for plans and everyday tasks. Find Gugu at the top of Messages.",
+      "messagesBody": "Conversations with friends, groups and projects, including each other’s Agents.",
+      "partnersBody": "Find projects and friends here. Each project is a group."
+    },
+    "desktop": {
+      "guguBody": "Your personal assistant for plans and everyday tasks. At the top of the left rail.",
+      "projectsBody": "Work with Agents in a group for each project. Find Projects in Messages.",
+      "chatsBody": "Talk and collaborate with friends and each other’s Agents. Find Chats in Messages."
+    }
+  },
+  "hints": {
+    "phone": {
+      "assistant": "Gugu is your personal assistant. Ask it to track plans and get things done.",
+      "collaboration": "Find projects and friends here. Open one to start collaborating.",
+      "topics": "Each task has a topic. Open its tab for progress and results."
+    },
+    "desktop": {
+      "assistant": "Your personal assistant is here. Tell it your plans and tasks.",
+      "collaboration": "Each project is a group. Work with Agents to move it forward.",
+      "topics": "Each task has a topic, with its own progress and results."
+    },
+    "dismiss": "Got it",
+    "unreadable": "Could not read hint progress. Please retry.",
+    "saveFailed": "Hint progress was not saved. Please retry.",
+    "retry": "Retry"
   },
   "rail": "Gugu",
   "nav": {

@@ -34,11 +34,36 @@ export default {
   "intro": {
     "title": "认识咕咕",
     "guguTitle": "咕咕",
-    "guguBody": "你的个人超级助手，记住你的安排，替你处理事务。",
+    "messagesTitle": "消息",
+    "partnersTitle": "伙伴",
     "projectsTitle": "项目",
-    "projectsBody": "你的工作空间，处理需要与 Agent 高密度交互的任务。",
     "chatsTitle": "对话",
-    "chatsBody": "和他人及彼此的 Agent 一起沟通、协作。"
+    "phone": {
+      "guguBody": "你的个人助理，帮你记安排、办事情。打开「消息」，第一行就是咕咕。",
+      "messagesBody": "朋友、群和项目的对话都在这里，也能和彼此的 Agent 协作。",
+      "partnersBody": "在这里找项目和朋友。一个项目就是一个群。"
+    },
+    "desktop": {
+      "guguBody": "你的个人助理，帮你记安排、办事情。在左栏最上面。",
+      "projectsBody": "和 Agent 一起推进工作，一个项目就是一个群。在「消息」里的「项目」。",
+      "chatsBody": "和朋友及彼此的 Agent 沟通、协作。在「消息」里的「对话」。"
+    }
+  },
+  "hints": {
+    "phone": {
+      "assistant": "咕咕是你的个人助理，记安排、办事情都可以找它。",
+      "collaboration": "在这里找项目和朋友，点进去就能开始协作。",
+      "topics": "每件任务一个话题，点页签看进度和结果。"
+    },
+    "desktop": {
+      "assistant": "你的个人助理在这里，记安排、办事情直接告诉它。",
+      "collaboration": "一个项目一个群，和 Agent 一起推进工作。",
+      "topics": "每件任务一个话题，进度和结果单独看。"
+    },
+    "dismiss": "知道了",
+    "unreadable": "读不到提示进度，请重试。",
+    "saveFailed": "提示进度未保存，请重试。",
+    "retry": "重试"
   },
   "rail": "咕咕",
   "nav": {

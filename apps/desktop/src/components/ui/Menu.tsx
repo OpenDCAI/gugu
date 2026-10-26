@@ -163,11 +163,13 @@ export interface MenuItemProps {
    * 这一格只是文字,不注册任何按键。
    */
   shortcut?: string
+  /** false = 点了菜单不收(在原浮层里换一屏,如「选择文字」);默认点了就收。 */
+  closeOnClick?: boolean
   onClick?: () => void
   children: ReactNode
 }
 
-export function MenuItem({ icon, danger, disabled, title, className, style, 'data-testid': testId, render, nativeButton, shortcut, onClick, children }: MenuItemProps) {
+export function MenuItem({ icon, danger, disabled, title, className, style, 'data-testid': testId, render, nativeButton, shortcut, closeOnClick, onClick, children }: MenuItemProps) {
   return (
     <MenuPrimitive.Item
       className={cn('group/menu-item', menuItem, className)}
@@ -178,6 +180,7 @@ export function MenuItem({ icon, danger, disabled, title, className, style, 'dat
       title={title}
       render={render}
       nativeButton={nativeButton}
+      closeOnClick={closeOnClick}
       onClick={onClick}
     >
       {icon != null && <span className={menuItemIcon}>{icon}</span>}

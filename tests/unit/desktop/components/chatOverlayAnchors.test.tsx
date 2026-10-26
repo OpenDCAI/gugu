@@ -6,7 +6,7 @@ import { MemberProfilePopover } from '../../../../apps/desktop/src/components/Me
 import { ReadReceiptPopover } from '../../../../apps/desktop/src/components/ReadReceiptPopover'
 import { Menu, MenuItem } from '../../../../apps/desktop/src/components/ui/Menu'
 import { Popover } from '../../../../apps/desktop/src/components/ui/Popover'
-import { createNode, createReactHarness, message, renderWithAppProviders } from '../../../support/testHarness'
+import { createNode, createReactHarness, message, renderWithAppProviders, waitForCondition } from '../../../support/testHarness'
 
 vi.mock('../../../../apps/desktop/src/hooks/useAgentHarnessIdentity', () => ({ useAgentHarnessIdentity: () => 'codex' }))
 
@@ -29,11 +29,13 @@ async function settle() {
   }
 }
 
-async function hoverBubble() {
+async function hoverBubble(compactMobile = false) {
   const bubble = harness.container.querySelector('[data-testid="message-bubble-action-target"]')!
   const over = new MouseEvent('pointerover', { bubbles: true })
   Object.defineProperty(over, 'pointerType', { value: 'mouse' })
-  await act(async () => { bubble.dispatchEvent(over) })
+  const row = bubble.closest('[data-message-bubble-row]')!
+  await act(async () => { row.dispatchEvent(over); row.dispatchEvent(new MouseEvent('mouseenter')) })
+  if (!compactMobile) await waitForCondition(() => !!document.querySelector('[data-testid="message-hover-actions"]'), 'hover pill opens')
   await settle()
 }
 
@@ -111,10 +113,7 @@ describe('overlay anchors (2a)', () => {
       msg: message({ id: 'msg-1', content: 'hi', is_mine: false, sender_user_id: 'sender-1', created_at: '2026-05-24T00:00:00.000Z' }),
       onReaction: vi.fn(), memberReadSeqs: {}, onQuote: vi.fn(), onForward: vi.fn(), onDelete: vi.fn(), isGroup: true, compactMobile,
     }))
-    const bubble = harness.container.querySelector('[data-testid="message-bubble-action-target"]') as HTMLElement
-    const over = new MouseEvent('pointerover', { bubbles: true })
-    Object.defineProperty(over, 'pointerType', { value: 'mouse' })
-    await act(async () => { bubble.dispatchEvent(over) })
+    await hoverBubble(compactMobile)
     const bar = document.querySelector<HTMLElement>('[data-testid="message-hover-actions"]')
     if (compactMobile) expect(bar).toBeNull()
     else expect(bar?.style.display).toBe(display)

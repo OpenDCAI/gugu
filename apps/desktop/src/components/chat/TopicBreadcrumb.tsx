@@ -1,4 +1,5 @@
 import { useTranslation } from 'react-i18next'
+import { composerCardPreview } from '@gugu/core/shared/ui/taskCardModels'
 import { isTopicNameCutFromSource } from './topicAnchorModels'
 
 /**
@@ -56,6 +57,7 @@ export function TopicBreadcrumb({
   sourceMessagePreview,
 }: TopicBreadcrumbProps) {
   const { t } = useTranslation('messaging')
+  const preview = sourceMessagePreview == null ? sourceMessagePreview : composerCardPreview(sourceMessagePreview)?.text ?? sourceMessagePreview
   return (
     <div
       data-testid="topic-breadcrumb"
@@ -67,8 +69,8 @@ export function TopicBreadcrumb({
       >
         {topicName}
       </span>
-      {sourceMessagePreview === 'pending' || sourceMessagePreview === 'unreadable'
-        || isTopicNameCutFromSource(topicName, sourceMessagePreview) ? null : sourceMessagePreview === null ? (
+      {preview === 'pending' || preview === 'unreadable'
+        || isTopicNameCutFromSource(topicName, preview) ? null : preview === null ? (
         <span
           data-testid="topic-breadcrumb-source-deleted"
           style={TOPIC_BREADCRUMB_SOURCE_DELETED_STYLE}
@@ -80,7 +82,7 @@ export function TopicBreadcrumb({
           data-testid="topic-breadcrumb-source-preview"
           style={TOPIC_BREADCRUMB_SOURCE_PREVIEW_STYLE}
         >
-          {t('topic.breadcrumb.sourcePreview', { preview: sourceMessagePreview })}
+          {t('topic.breadcrumb.sourcePreview', { preview })}
         </span>
       )}
     </div>
