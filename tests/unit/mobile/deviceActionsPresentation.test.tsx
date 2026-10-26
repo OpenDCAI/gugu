@@ -1,6 +1,8 @@
 import { useAssistantPanelPage } from '../../../apps/desktop/src/lib/assistantPanelPage'
 // @vitest-environment jsdom
 import { afterEach, beforeEach, expect, it, vi } from 'vitest'
+import { useState } from 'react'
+import { SettingsDetailNavigation, type SettingsDetailState } from '../../../apps/desktop/src/components/settings/SettingsDetailNavigation'
 import type { Device } from '@gugu/core/shared/types/chat'
 import { DeviceActionsPage, ThisDeviceActions } from '../../../apps/desktop/src/components/settings/DeviceActionsPage'
 import { PermissionsSection } from '../../../apps/desktop/src/components/settings/PermissionsSection'
@@ -95,4 +97,20 @@ it('keeps system permissions and every task grant together, including folder aut
   expect(mocks.invoke).toHaveBeenCalledWith('device-actions:connect', 'files.documents')
   expect(mocks.reload).toHaveBeenCalledTimes(1)
   expect(h.container.querySelector('[data-testid="settings-device-action-detail-back"]')?.textContent).toContain('权限')
+})
+
+it('lets the permissions frame own a single title and its back action', async () => {
+  mocks.state.groups = [{ id: 'files.documents', connected: false, blocked: null, actions: [] }]
+  function Frame() {
+    const [detail, setDetail] = useState<SettingsDetailState>(null)
+    return <><h1>{detail?.title ?? '权限'}</h1>{detail && <button data-testid="permission-toolbar-back" onClick={detail.back}>返回</button>}
+      <SettingsDetailNavigation.Provider value={setDetail}><ThisDeviceActions bare managePermissions /></SettingsDetailNavigation.Provider></>
+  }
+  await h.render(<Frame />)
+  await clickElement(h.container.querySelector<HTMLElement>('[data-testid="settings-device-action-group-files.documents"]')!)
+  expect(h.container.querySelector('h1')?.textContent).toBe('文稿')
+  expect(h.container.querySelector('[data-testid="settings-device-action-detail-back"]')).toBeNull()
+  await clickElement(h.container.querySelector<HTMLElement>('[data-testid="permission-toolbar-back"]')!)
+  expect(h.container.querySelector('h1')?.textContent).toBe('权限')
+  expect(h.container.querySelector('[data-testid="settings-device-action-group-files.documents"]')).not.toBeNull()
 })

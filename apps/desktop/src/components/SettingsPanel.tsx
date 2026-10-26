@@ -1,4 +1,4 @@
-import { lazy, Suspense, useState } from 'react'
+import { lazy, Suspense, useRef, useState } from 'react'
 import { officialServicesEnabled } from '@gugu/core/cloud/optionalServices'
 import { useAuth } from '../store/auth'
 import { useContactsStore } from '../store/contactsContext'
@@ -14,6 +14,8 @@ import { ModelSection } from './settings/ModelSection'
 import { UsageSection } from './usage/UsageSection'
 import { ActivitySection } from './usage/ActivitySection'
 import { PermissionsSection } from './settings/PermissionsSection'
+import { SettingsDetailNavigation, type SettingsDetailState } from './settings/SettingsDetailNavigation'
+import { usePanelScroll } from '../session/renderer/features/assistant/use-panel-scroll'
 import { ChannelsSection } from './settings/channels/ChannelsSection'
 import { PhoneDeviceActionsPage } from '../mobile/phone-device/PhoneDeviceActionsPage'
 import { SettingsNav } from './settings/SettingsNav'
@@ -99,8 +101,12 @@ export function SettingsPanel({ mobile = false, inline = false, onClose, initial
   const [internalPane, setInternalPane] = useState<'nav' | 'detail'>(mobile ? 'nav' : 'detail')
   const mobilePane = pane ?? internalPane
   const setMobilePane = onPaneChange ?? setInternalPane
+  const [detailPage, setDetailPage] = useState<SettingsDetailState>(null)
+  const bodyRef = useRef<HTMLDivElement>(null)
+  usePanelScroll(bodyRef, `${activeSection}:${detailPage?.key ?? ''}`)
   const [parentSection, setParentSection] = useState<ActiveSection | null>(null)
   const back = () => {
+    if (detailPage) return detailPage.back()
     if (parentSection) {
       setActiveSection(parentSection)
       setParentSection(null)
@@ -177,10 +183,10 @@ export function SettingsPanel({ mobile = false, inline = false, onClose, initial
           <Pane paneRole="detail" mobile={mobile} className="gg-settings-detail">
             <PaneHeader
               mobile={mobile}
-              title={sectionTitle}
+              title={detailPage?.title ?? sectionTitle}
               titleLevel={mobile ? 'panel' : undefined}
-              leading={mobile ? (
-                <IconButton size="lg" aria-label={t(parentSection ? 'settings.back' : 'settings.backToMy')} onClick={back}>
+              leading={mobile || detailPage ? (
+                <IconButton size="lg" aria-label={t(detailPage || parentSection ? 'settings.back' : 'settings.backToMy')} onClick={back}>
                   <ChevronLeft />
                 </IconButton>
               ) : undefined}
@@ -192,8 +198,8 @@ export function SettingsPanel({ mobile = false, inline = false, onClose, initial
               ) : undefined}
             />
             {/* @@@6436 内页排版(桌面与手机的内边距差别也在内)全在 settings/settings.css。 */}
-            <div className="gg-settings-body window-no-drag-region">
-              {renderSection()}
+            <div ref={bodyRef} className="gg-settings-body window-no-drag-region">
+              <SettingsDetailNavigation.Provider value={setDetailPage}>{renderSection()}</SettingsDetailNavigation.Provider>
             </div>
           </Pane>
         )}

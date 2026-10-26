@@ -53,6 +53,7 @@ import { reportAssistantAppChange } from '../assistant/assistant-app-client'
 import { libraryDeviceId } from '../assistant/assistant-library-client'
 import { cachedDevicesAccount } from '../../store/devicesCache'
 import { UI_EVENTS } from '../../lib/uiEvents'
+import { useSettingsDetail } from './SettingsDetailNavigation'
 
 async function saveDevicePermission(channel: string, args: unknown, change: { action: string; enabled?: boolean; group?: string }): Promise<void> {
   const ipc = desktopIpc()
@@ -199,7 +200,7 @@ export function ThisDeviceActions({ onBack, bare = false, panelNavigation = fals
   )
 
   const selected = openGroup ? state.groups.find((g) => g.id === openGroup) ?? null : null
-  if (selected) return <GroupDetail panelNavigation={panelNavigation} group={selected} denyAll={state.denyAll} onBack={() => setOpenGroup(null)} reload={reload} backLabel={backLabel} />
+  if (selected) return <GroupDetail settingsNavigation={bare} panelNavigation={panelNavigation} group={selected} denyAll={state.denyAll} onBack={() => setOpenGroup(null)} reload={reload} backLabel={backLabel} />
 
   const available = state.groups.filter((g) => !g.connected)
   const row = (group: DeviceActionsGroupView) => (
@@ -287,13 +288,14 @@ function RecentCalls({ state }: { state: DeviceActionsState }) {
   )
 }
 
-function GroupDetail({ group, denyAll, onBack, reload, backLabel, panelNavigation = false }: { panelNavigation?: boolean; group: DeviceActionsGroupView; denyAll: boolean; onBack: () => void; reload: () => void; backLabel?: string }) {
+function GroupDetail({ group, denyAll, onBack, reload, backLabel, panelNavigation = false, settingsNavigation = false }: { settingsNavigation?: boolean; panelNavigation?: boolean; group: DeviceActionsGroupView; denyAll: boolean; onBack: () => void; reload: () => void; backLabel?: string }) {
   const { t, i18n } = useTranslation('settings')
   const text = useDeviceActionGroupText()
   const english = i18n.language.startsWith('en')
   const [busy, setBusy] = useState(false)
   const [failure, setFailure] = useState<{ message: string; settingsUrl?: string; restart?: true } | null>(null)
   const name = text.name(group.id)
+  const settingsDetail = useSettingsDetail(settingsNavigation ? `permission:${group.id}` : null, name, onBack)
   const save = (...args: Parameters<typeof saveDevicePermission>) => updateDevicePermission(args, reload, message => setFailure(message ? { message } : null))
 
   const connect = useCallback(async () => {
@@ -334,9 +336,9 @@ function GroupDetail({ group, denyAll, onBack, reload, backLabel, panelNavigatio
   return (
     <SettingsPage data-testid={`settings-device-action-detail-${group.id}`}>
       <PageHeader
-        title={name} panelNavigation={panelNavigation} navigationKey={`device-group:${group.id}`}
+        title={settingsDetail ? null : name} panelNavigation={panelNavigation} navigationKey={`device-group:${group.id}`}
         backLabel={backLabel ?? t('devices.deviceActions.thisTitle')}
-        onBack={onBack}
+        onBack={settingsDetail ? undefined : onBack}
         testId="settings-device-action-detail-back"
         trailing={group.connected
           ? (
@@ -349,7 +351,6 @@ function GroupDetail({ group, denyAll, onBack, reload, backLabel, panelNavigatio
 
       <div className="gg-settings-card window-no-drag-region flex flex-col items-center gap-2 px-4 py-6 text-center">
         <GroupIcon group={group} size="hero" />
-        <div className="font-medium">{name}</div>
         <div className="max-w-[420px] text-[var(--muted-fg)]">{text.description(group.id)}</div>
         {!group.connected && (
           <Button
