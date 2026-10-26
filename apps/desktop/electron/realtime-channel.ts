@@ -210,12 +210,15 @@ async function subscribeRegistryEntry(id: string, reconnecting: boolean): Promis
       setRegistryStatus(id, 'subscribed')
       return
     }
-    if (latest.subscribedOnce && latest.reconnectOnStatus(status, err)) {
+    // One-shot subscriptions may deliberately hand initial failures back to their owner.
+    // Managed persistent channels must retry even when their very first join failed.
+    const shouldUnsubscribe = latest.unsubscribeOnStatus(status, err)
+    if (latest.reconnectOnStatus(status, err) && (latest.subscribedOnce || !shouldUnsubscribe)) {
       setRegistryStatus(id, name === 'CLOSED' ? 'closed' : 'error', name)
       scheduleReconnect(id)
       return
     }
-    if (!latest.unsubscribeOnStatus(status, err)) return
+    if (!shouldUnsubscribe) return
     if (subscribed) {
       removeCurrentChannel()
       return
