@@ -740,6 +740,20 @@ export function createStartOwningClient(client: ContractClient<AcpRuntimeApiCont
   const startsInFlight = new Map<string, StartOperation>();
   const stopsInFlight = new Map<string, ReturnType<typeof client.stopSession>>();
   const conditionalStops = new Set<string>();
+  async function closeBrowserToolsBestEffort(sessionId: string): Promise<void> {
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    let active = true;
+    try {
+      await Promise.race([
+        import('../../../../../browser-agent-mcp').then(module => active ? module.closeSessionBrowserTools(sessionId) : undefined),
+        new Promise<never>((_resolve, reject) => {
+          timer = setTimeout(() => reject(new Error('Browser tool cleanup timed out after 1000ms')), 1_000);
+        }),
+      ]);
+    } catch (error) {
+      log.warn('acp stop: browser tool cleanup failed', { sessionId, error: String(error) });
+    } finally { active = false; if (timer) clearTimeout(timer); }
+  }
   async function stopWorker(input: Parameters<typeof client.stopSession>[0], meta: Parameters<typeof client.stopSession>[1]) {
     let timer: ReturnType<typeof setTimeout> | undefined;
     try {
@@ -758,7 +772,7 @@ export function createStartOwningClient(client: ContractClient<AcpRuntimeApiCont
     const stopping = stopsInFlight.get(sessionId);
     if (!stopping) return;
     const result = await stopping;
-    if (!result.success && await detachedClient.adapterProvenance({ sessionId }) !== null) {
+    if (!result.success && (await detachedClient.adapterProvenance({ sessionId }))?.closing) {
       throw new Error(`ACP process teardown did not complete: ${result.error.message ?? result.error.type}`);
     }
   }
@@ -808,8 +822,7 @@ export function createStartOwningClient(client: ContractClient<AcpRuntimeApiCont
       }
       if (inFlight) inFlight.stopped = true;
       if (startsInFlight.get(input.sessionId) === inFlight) startsInFlight.delete(input.sessionId);
-      const { closeSessionBrowserTools } = await import('../../../../../browser-agent-mcp');
-      const [result] = await Promise.all([idleStop ?? stopWorker(input, meta), closeSessionBrowserTools(input.sessionId)]);
+      const [result] = await Promise.all([idleStop ?? stopWorker(input, meta), closeBrowserToolsBestEffort(input.sessionId)]);
       // Lost replies do not retain credentials after the worker proves the process is gone.
       if (!result.success && await detachedClient.adapterProvenance({ sessionId: input.sessionId }) !== null) return result;
       await closeRuntimeForkOwnershipForRuntimeSession(input.sessionId);

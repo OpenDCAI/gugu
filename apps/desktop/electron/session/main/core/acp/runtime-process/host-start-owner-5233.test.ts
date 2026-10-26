@@ -395,12 +395,13 @@ it('releases the old ticket and permits recovery after teardown RPC rejects afte
   expect(platform.issued).toBe(2);
 });
 
-it('bounds a silent worker stop and does not mint over a process still alive', async () => {
+it('bounds a silent worker stop and does not mint over a process still closing', async () => {
   platform.issued = 0; platform.released = [];
   const worker = fakeWorker();
   const host = createStartOwningClient(worker.client as never);
   await host.startSession({ input: startInput } as never, undefined as never);
   worker.client.stopSession.mockImplementationOnce(() => new Promise(() => {}));
+  worker.client.adapterProvenance.mockResolvedValue({ connectionKey: 'k-conv-1', pid: 1, closing: true } as never);
   vi.useFakeTimers();
   try {
     const stopped = host.stopSession({ sessionId: 'conv-1' }, undefined as never);
@@ -416,4 +417,43 @@ it('bounds a silent worker stop and does not mint over a process still alive', a
     await expect(retry).resolves.toMatchObject({ success: true });
     expect(platform.released).toEqual(['conv-1']);
   } finally { vi.useRealTimers(); }
+});
+
+it.each(['reject', 'hang'])('browser cleanup can %s without retaining the old ticket or blocking a wake', async mode => {
+  platform.issued = 0; platform.released = [];
+  const worker = fakeWorker();
+  const host = createStartOwningClient(worker.client as never);
+  await host.startSession({ input: startInput } as never, undefined as never);
+  const browser = Promise.withResolvers<void>();
+  browserClose.mockImplementationOnce(() => mode === 'reject' ? Promise.reject(new Error('browser close failed')) : browser.promise);
+  vi.useFakeTimers();
+  try {
+    const stopped = host.stopSession({ sessionId: 'conv-1' }, undefined as never);
+    void stopped.catch(() => {});
+    const wake = host.startSession({ input: startInput } as never, undefined as never);
+    void wake.catch(() => {});
+    let stopResult: unknown;
+    void stopped.then(value => { stopResult = value; }, error => { stopResult = error; });
+    await vi.advanceTimersByTimeAsync(1_010);
+    expect(stopResult).toMatchObject({ success: true });
+    await expect(wake).resolves.toMatchObject({ success: true });
+    expect(platform.released).toEqual(['conv-1']);
+    expect(platform.issued).toBe(2);
+  } finally { browser.resolve(); vi.useRealTimers(); }
+});
+
+it('reuses a live session when opening it while idle reclamation declines', async () => {
+  const worker = fakeWorker();
+  const host = createStartOwningClient(worker.client as never);
+  await host.startSession({ input: startInput } as never, undefined as never);
+  const conditional = Promise.withResolvers<ReturnType<typeof err>>();
+  worker.client.stopSession.mockImplementationOnce(() => conditional.promise as never);
+  const reclaim = host.stopSession({ sessionId: 'conv-1', onlyIfIdle: true }, undefined as never);
+  await vi.waitFor(() => expect(worker.client.stopSession).toHaveBeenCalledOnce());
+  const opening = host.startSession({ input: startInput } as never, undefined as never);
+  void opening.catch(() => {});
+  conditional.resolve(err('stop_failed', 'Session is no longer idle; reclamation declined'));
+  expect((await reclaim).success).toBe(false);
+  await expect(opening).resolves.toMatchObject({ success: true });
+  expect(worker.phase('conv-1')).toBe('ready');
 });
