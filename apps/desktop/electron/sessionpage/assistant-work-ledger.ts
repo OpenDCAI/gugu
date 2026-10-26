@@ -25,6 +25,12 @@ export async function enqueueAssistantWorkMessage(raw:AssistantWorkIntent,text:s
   const intent=assistantWorkIntentSchema.parse(raw)
   const context=await assistantWorkLedgerContext()
   if(context.deviceId!==intent.coordinator.device_id || !targets.length || targets.some(t=>!t.sessionId || !t.deviceId)) throw new Error('Assistant work dispatch endpoints changed')
+  const binding=await context.client.rpc('assistant_work_coordinator_bind',{
+    p_assistant:intent.assistant_id,p_runtime_instance_id:context.runtimeInstanceId,p_session_id:intent.coordinator.session_id,
+  })
+  if(binding.error) throw Object.assign(new Error(binding.error.message),{code:binding.error.code})
+  const current=await assistantWorkLedgerContext()
+  if(current.ownerId!==context.ownerId || current.runtimeInstanceId!==context.runtimeInstanceId || current.deviceId!==context.deviceId) throw new Error('Assistant work account runtime changed')
   const events=targets.map(target=>({
     message_id:target.sessionId===intent.child_session_id ? intent.message_id : messageFor(intent.message_id,target.sessionId),
     kind:'dispatch' as const,from_session_id:intent.coordinator.session_id,from_device_id:context.deviceId,
