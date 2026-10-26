@@ -263,6 +263,8 @@ export default {
     "emptyHint": "点上方“新建 Agent”开始第一段对话",
     "emptyHintMobile": "去「项目」页右上角新建 Agent，开始第一段对话",
     "enableNotifications": "开启通知",
+    "markRead": "标为已读",
+    "removeProject": "移除项目",
     "markAllRead": "全部标为已读",
     "markAllReadFailed": "未能全部标为已读，请重试",
     "markAllReadPartial": "有 {{count}} 个会话未能标为已读，请重试",

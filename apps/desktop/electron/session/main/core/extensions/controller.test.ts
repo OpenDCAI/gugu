@@ -140,11 +140,15 @@ vi.mock('./extension-icon', () => ({
 }));
 
 import { extensionsController } from './controller';
-import { extensionSurfaceBindingForTests, registerExtensionBridge } from './extension-bridge';
+import { extensionSurfaceBindingForTests, onInstalledAppsChanged, registerExtensionBridge } from './extension-bridge';
 import { EXTENSION_BRIDGE_CHANNEL } from '@shared/extensions/bridge-protocol';
 import { packExtensionArchive } from './extension-archive';
 import { extensionsService } from './extensions-root';
 import { cloudExtensionMarket } from './market-catalog-root';
+import { extensionPrograms, type ExtensionProgram } from './extension-programs';
+import { installedComputerUseApps } from '../../../../computer-use-program';
+import { syncDeviceHeartbeat } from '@gugu/core/cloud/deviceRuntime';
+import { MemoryHeartbeatClient } from '../../../../../../../tests/support/deviceRuntimeHarness';
 
 const EXTENSION_ID = 'demo-ext';
 
@@ -194,6 +198,72 @@ beforeEach(async () => {
 });
 
 describe('extensions controller', () => {
+  it('publishes current Computer Use capability after App changes without rescanning between heartbeats', async () => {
+    const service = extensionsService();
+    const installed = vi.fn(() => service.list().extensions.flatMap(({ manifest }) =>
+      (manifest.contributes.mcpServers ?? []).flatMap((server) => 'host' in server ? [{
+        extensionId: manifest.id, server: server.name, native: server.host,
+      } as ExtensionProgram] : [])));
+    let off: (() => void) | undefined;
+    const apps = installedComputerUseApps({ installed, agentToolsRefusal: extensionPrograms.agentToolsRefusal }, (listener) => {
+      off = onInstalledAppsChanged(listener);
+    });
+    const clock = vi.spyOn(Date, 'now');
+    const client = new MemoryHeartbeatClient();
+    let beatNumber = 0;
+    const heartbeat = () => {
+      clock.mockReturnValue(++beatNumber * 30_000);
+      return syncDeviceHeartbeat(client, {
+        userId: 'owner', deviceId: 'device', capabilities: { terminals: [], runtimes: [] },
+        deviceActions: () => ({ v: 1, actions: [], ...(apps().length ? {} : { switched_off: [{ group: 'computer', detail: 'Computer Use is off' }] }) }),
+      }, {});
+    };
+    const beat = async (on: boolean) => {
+      await heartbeat();
+      expect((client.upserts.at(-1)?.row.capabilities as { actions: { switched_off?: unknown } }).actions.switched_off === undefined).toBe(on);
+      const reads = installed.mock.calls.length;
+      apps(); // The preview reads the same list as the heartbeat.
+      await heartbeat();
+      expect(installed).toHaveBeenCalledTimes(reads);
+    };
+    const install = async (host: 'computer-use' | 'browser-use') => {
+      const source = writeBundle([], undefined, ['agents:tools']);
+      const file = join(source, 'manifest.json');
+      const manifest = JSON.parse(readFileSync(file, 'utf8'));
+      manifest.contributes.mcpServers = [{ name: 'control', host }];
+      writeFileSync(file, JSON.stringify(manifest));
+      const inspected = await folderAsk(source);
+      const result = await folderGiven(source, inspected.ask.manifestDigest);
+      expect(result.success, result.error).toBe(true);
+    };
+    try {
+      await beat(false);
+      await install('computer-use');
+      await beat(true);
+      await extensionsController.setEnabled({ extensionId: EXTENSION_ID, enabled: false });
+      await beat(false);
+      await extensionsController.setEnabled({ extensionId: EXTENSION_ID, enabled: true });
+      await beat(true);
+      await install('browser-use'); // Replacing the same id can remove its native capability.
+      await beat(false);
+      await install('computer-use');
+      await beat(true);
+      for (const granted of [false, true]) {
+        await extensionsController.setPermissionGranted({ extensionId: EXTENSION_ID, permission: 'agents:tools', granted });
+        await beat(granted);
+      }
+      const reads = installed.mock.calls.length;
+      await extensionsController.setSettings({ extensionId: EXTENSION_ID, settings: {} });
+      await beat(true);
+      expect(installed.mock.calls.length).toBeGreaterThan(reads);
+      await extensionsController.uninstall({ extensionId: EXTENSION_ID });
+      await beat(false);
+    } finally {
+      off?.();
+      clock.mockRestore();
+    }
+  });
+
   it('refuses a folder with no platform declaration or only a phone interface before asking for consent', async () => {
     for (const platforms of [undefined, ['phone']]) {
       const source = writeBundle([]);

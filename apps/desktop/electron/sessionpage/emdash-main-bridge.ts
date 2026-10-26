@@ -103,7 +103,6 @@ export {
   // TEST-ONLY (host exposes env-gated) — feed a real AgentEvent into the real pipeline for the otty e2e.
   emitSessionpageAgentEventForTest,
   emitSessionpageAgentEvent,
-  emitSessionpageAgentFailure,
   // @@@sessionpage TASKPAGE-FUSION — register a gugu-built MCP injector so session-page codex sessions get
   // the gugu MCP send tool + gugu identity at session start (enables the target agent to reply).
   // @@@5301 会话页 agent 通知正文的注入口(见 notification-copy.ts)。

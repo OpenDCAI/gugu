@@ -2,12 +2,13 @@ import { useEffect, useRef, useState, useSyncExternalStore, type KeyboardEvent }
 import { createPortal } from 'react-dom'
 import { installShellSlots, PROJECT_TOPICS_SLOT_PREFIX, readShellSlots } from '../lib/shellSlots'
 import { useProjectGroupChats } from '../lib/projectGroupChatsBridge'
-import { CHAT_LIST_SLOT_KEY, publishSidebarChatSignals, sidebarChatSignals, useSidebarChatView } from '../lib/sidebarChatsBridge'
+import { subscribeShellChatActions, takeShellChatAction, type ShellChatAction, CHAT_LIST_SLOT_KEY, publishSidebarChatSignals, sidebarChatSignals, useSidebarChatView } from '../lib/sidebarChatsBridge'
 import { useChatStore } from '../store/chatContext'
 import { ChatListPanel, TopicSubRow, TopicSubRows } from './ChatListPanel'
 import { compareChatsByActivityDesc, isSunkTopic } from '@gugu/core/shared/ui/chatModels'
 import type { ChatItem } from '@gugu/core/shared/types/chat'
 import { splitSunkTopics } from './chatListTopicNesting'
+import { useMarkChatsRead } from '../hooks/useMarkChatsRead'
 import { nextChatId } from './chat-list-keyboard-nav'
 import { readSessionpageViewRequestBridge } from '../lib/sessionpageViewRequestBridge'
 import { requestTopicSplit } from '../lib/topicSplitRequest'
@@ -24,6 +25,15 @@ const EMPTY: ReadonlyMap<string, HTMLElement> = new Map()
  */
 export function ChatListSlotHost() {
   const { chats } = useChatStore('chats')
+  const markRead = useMarkChatsRead()
+  useEffect(() => {
+    const take = () => {
+      const action = takeShellChatAction((value): value is Extract<ShellChatAction, { kind: 'mark-read' }> => typeof value === 'object' && value.kind === 'mark-read')
+      if (action) markRead(action.chatId)
+    }
+    take()
+    return subscribeShellChatActions(take)
+  }, [markRead])
   const projectGroupChats = useProjectGroupChats()
   useEffect(() => {
     publishSidebarChatSignals(sidebarChatSignals(chats, projectGroupChats))
