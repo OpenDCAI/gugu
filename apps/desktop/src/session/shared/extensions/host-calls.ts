@@ -26,7 +26,7 @@ export const HOST_CALLS = {
   /** `level: 'hint'` (摩擦单 F62): a note for the App's author, recorded, no red dot. */
   reportError: { verb: 'reportError', pack: (message: string, options?: { level?: 'error' | 'hint' }) => ({ message, ...(options?.level === 'hint' ? { level: 'hint' } : {}) }) },
   /** How wide the answer is was settled at install, never at the call: no scope argument (behavior tab-extensions). */
-  listAgents: { verb: 'listAgents', pack: () => ({}) },
+  listAgents: { verb: 'listAgents', pack: (options?: { report?: boolean }) => options?.report === true ? { report: true } : {} },
   readAgentHistory: { verb: 'readAgentHistory', pack: (agentId: string, before?: number) => ({ agentId, ...(before === undefined ? {} : { before }) }) },
   stopAgent: { verb: 'stopAgent', pack: (agentId: string) => ({ agentId }) },
   /** `gugu.dispatch(text, options)` (15): the one way to hand something to someone; `images` arrive as bytes (create-gugu.ts). */

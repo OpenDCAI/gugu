@@ -4,7 +4,7 @@ import * as fs from 'node:fs';
 import * as path from 'node:path';
 import { clipboard, ipcMain, shell, webContents, type IpcMainInvokeEvent, type WebContents } from 'electron';
 import { extensionIdForSession } from '@main/core/extensions/extension-session';
-import { extensionBackgroundWebContentsId, runningExtensionBackgrounds } from '@main/core/extensions/extension-background';
+import { extensionBackgroundWebContentsId, runningExtensionBackgrounds, postExtensionBackground } from '@main/core/extensions/extension-background';
 import { extensionsService } from '@main/core/extensions/extensions-root';
 import { AppModalSessions } from '@shared/extensions/app-modal';
 import { extensionPartition, extensionResourceUrl } from '@shared/extensions/partition';
@@ -159,10 +159,13 @@ export interface BridgeCaller {
 }
 
 /** Events to a page or the background page: their webContents, while it lives. */
-function hearOn(webContentsId: number): (event: ExtensionHostEvent) => void {
+function hearOn(webContentsId: number): (event: ExtensionHostEvent) => boolean {
   return (event) => {
+    if (process.env.GUGU_SERVER_MODE === '1' && postExtensionBackground(webContentsId, event)) return true;
     const contents = webContents.fromId(webContentsId);
-    if (contents && !contents.isDestroyed()) sendEvent(contents, event);
+    if (!contents || contents.isDestroyed()) return false;
+    sendEvent(contents, event);
+    return true;
   };
 }
 
@@ -649,11 +652,7 @@ export function deliverToExtension(
 ): { background: boolean; views: number } {
   let background = false;
   const backgroundId = extensionBackgroundWebContentsId(extensionId);
-  const backgroundContents = backgroundId === null ? null : webContents.fromId(backgroundId);
-  if (backgroundContents && !backgroundContents.isDestroyed()) {
-    sendEvent(backgroundContents, event);
-    background = true;
-  }
+  if (backgroundId !== null) background = hearOn(backgroundId)(event);
   let views = 0;
   if (opened) {
     const where = whereKey(opened);
@@ -1311,9 +1310,7 @@ async function flushAgentChanges(changed: string[]): Promise<void> {
     // `changed` are sessions; the App hears of them by the id it names agents with (F35).
     const agentIds = [...visible].filter(([, conversationId]) => changed.includes(conversationId)).map(([agentId]) => agentId);
     if (agentIds.length === 0) continue;
-    const contents = webContents.fromId(id);
-    if (!contents || contents.isDestroyed()) continue;
-    sendEvent(contents, { type: 'agentsChanged', agentIds });
+    hearOn(id)({ type: 'agentsChanged', agentIds });
   }
 }
 
@@ -1361,8 +1358,7 @@ function deliverToEveryPage(extensionId: string, event: ExtensionHostEvent, keep
     if (binding.extensionId === extensionId && keep(binding)) ids.add(webContentsId);
   }
   for (const id of ids) {
-    const contents = webContents.fromId(id);
-    if (contents && !contents.isDestroyed()) sendEvent(contents, event);
+    hearOn(id)(event);
   }
 }
 
@@ -1527,10 +1523,9 @@ async function dispatch(caller: BridgeCaller, method: ExtensionBridgeMethod, arg
       const backgroundId = extensionBackgroundWebContentsId(extensionId);
       // 没声明 background 的扩展、或后台已经没了 —— 响亮失败。静默丢一条消息,
       // 在作者那儿的样子是「我发了,它没反应」,查起来最费。
-      const contents = backgroundId === null ? undefined : webContents.fromId(backgroundId);
-      if (!contents || contents.isDestroyed()) throw new Error('This App has no background instance');
+      if (backgroundId === null) throw new Error('This App has no background instance');
       // 宿主填的,不是视图自报 —— 一个能自报上下文的视图等于能冒充别的会话。形状就是它 context 里的那几项。
-      sendEvent(contents, { type: 'from-view', message: args.message, from: await pageFrom(thePage(caller)) });
+      hearOn(backgroundId)({ type: 'from-view', message: args.message, from: await pageFrom(thePage(caller)) });
       return undefined;
     }
 
@@ -1687,6 +1682,11 @@ async function dispatch(caller: BridgeCaller, method: ExtensionBridgeMethod, arg
       const { agents, unreached } = await listAgentsForExtension({ scope: agentScope(extensionId, 'agents:read'), extensionId });
       // 问不到的机器(离线、太旧、没回话)不在清单里,记一条,❌ 静默。
       for (const machine of unreached) log.warn('listAgents: another machine was not read', { extensionId, ...machine });
+      // Monitoring must distinguish an unreachable computer from a removed agent. Scope and rows stay the same.
+      if (args.report === true) {
+        const checkedAt = new Date().toISOString();
+        return { agents: agents.map((agent) => ({ ...agent, statusFrom: agent.deviceId === null ? 'this_machine' : 'device', statusAt: checkedAt })), unreached, checkedAt };
+      }
       return agents;
     }
 

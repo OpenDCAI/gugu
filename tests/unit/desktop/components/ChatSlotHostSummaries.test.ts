@@ -41,3 +41,18 @@ describe('the chat summaries the shell hands the session page', () => {
     expect(readChatSummary('topic-1')).toMatchObject({ name: '登录页白屏', kind: 'topic', sourceChatId: 'group-1' })
   })
 })
+
+it('publishes a group alias to quick open and delivery titles, and removes it when cleared', async () => {
+  const render = async (alias: string | null) => {
+    const value = chatStore({ chatsRead: true, chats: [chat({ id: 'group-alias', kind: 'group', name: 'Shared group', alias })] })
+    await act(async () => { root.render(createElement(ChatStoreProvider, { value }, createElement(ChatSlotHost, {} as never))) })
+  }
+  await render('Private group')
+  expect(readChatSummary('group-alias')).toMatchObject({ name: 'Private group', alias: 'Private group' })
+  // Clearing an alias equal to the shared name must still publish the removal.
+  await render('Shared group')
+  expect(readChatSummary('group-alias')?.alias).toBe('Shared group')
+  await render(null)
+  expect(readChatSummary('group-alias')?.name).toBe('Shared group')
+  expect(readChatSummary('group-alias')?.alias).toBeUndefined()
+})
