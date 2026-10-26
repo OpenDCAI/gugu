@@ -196,7 +196,7 @@ interface BubbleProps {
   isGroup?: boolean
   // @@@5856 提供则「开话题」菜单项可用 → 从本消息开一条话题(product spec:必须有来源)。
   // 话题里的消息不传(单层不嵌套守卫)。
-  onOpenTopic?: (messageId: string) => void
+  onOpenTopic?: (messageId: string) => void; onOpenTopicAnchor?: (topicChatId: string) => void
   onOpenFile?: (meta: import('@gugu/core/shared/ui/attachmentModels').ParsedAttachment, message?: MessageItem) => void; onOpenLocalFileLink?: (path: string) => void
   // @@@whisper (#820) — memberProfiles map 用于 whisper 标签显示收件人名字。
   memberProfiles?: Record<string, MemberProfileCardModel>
@@ -229,7 +229,7 @@ export const MessageBubble = memo(function MessageBubble({
   onOpenMemberProfile,
   compactMobile = false,
   isGroup = false,
-  onOpenTopic,
+  onOpenTopic, onOpenTopicAnchor,
   onOpenFile, onOpenLocalFileLink,
   memberProfiles,
   onEnterSelectMode,
@@ -346,7 +346,7 @@ export const MessageBubble = memo(function MessageBubble({
   const avatar = <Avatar name={avatarName} avatarUrl={avatarUrl} seed={msg.is_mine ? user?.id : (msg.sender_user_id ?? undefined)} size="sm" isAgent={avatarIsAgent} agentStatus={avatarIsAgent ? memberProfile?.agentStatus : undefined} still />
   const canOpenProfile = !!memberProfile && !!onOpenMemberProfile
 
-  if (msg.content_type === 'system') return <SystemMessageNotice message={msg} senderName={avatarName} />
+  if (msg.content_type === 'system') return <SystemMessageNotice message={msg} senderName={avatarName} onOpenTopic={onOpenTopicAnchor} />
   const showSender = isGroup && !msg.is_mine && !groupedWithPrev && !card
   // 时间在气泡右下角:正文是文字 ⇒ 和最后一行同一行;引用回复、附件、小组件 ⇒ 单独占最后一行。任务卡自己的行尾写着时间。
   const showTime = !hideTime && !card
