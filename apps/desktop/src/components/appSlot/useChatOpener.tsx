@@ -26,9 +26,11 @@ type OpenFrom = { message?: MessageItem; restore?: () => void; returnTo?: string
  * App's `files.recent` reads it. An App reading a file again, or an agent working a page, is not the person opening it.
  */
 function noteOpened(itemId: string): void {
-  void chatDb.rpc('workspace_note_open', { p_item_id: itemId }).then(({ error }) => {
-    if (error) log.warn({ itemId, error: error.message }, 'the open was not kept for 最近打开')
-  })
+  void import('../../lib/fileAccess').then(async ({ localFileRevision }) => {
+    if (await localFileRevision(itemId)) return
+    const { error } = await chatDb.rpc('workspace_note_open', { p_item_id: itemId })
+    if (error) throw new Error(error.message)
+  }).catch(error => log.warn({ itemId, error: String(error) }, 'the open was not kept for 最近打开'))
 }
 
 /**

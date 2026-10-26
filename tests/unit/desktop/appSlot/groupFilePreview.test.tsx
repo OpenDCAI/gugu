@@ -23,7 +23,7 @@ vi.mock('@/hooks/useMobileShell', () => ({ useMobileShell: () => boundary.mobile
 vi.mock('@/lib/supabase', () => ({ chatDb: { rpc: vi.fn(async () => ({ error: null })) } }))
 vi.mock('@/lib/attachmentBytes', () => ({
   attachmentBytes: boundary.read,
-  attachmentResolver: { resolve: boundary.signed },
+  attachmentPreview: boundary.signed,
   openAttachmentInSystemApp: boundary.open,
   sourceKeyOf: (source: { itemId: string; version: number }) => `${source.itemId}@${source.version}`,
 }))
@@ -64,7 +64,7 @@ beforeEach(() => {
     boundary.previewContents.set(url, html)
     return { ok: true, url, update: vi.fn(), release: vi.fn() }
   })
-  boundary.signed.mockResolvedValue({ status: 'ready', url: 'https://media.test/signed.mp4' })
+  boundary.signed.mockResolvedValue({ status: 'ready', purpose: 'preview', content: async () => ({ url: 'https://media.test/signed.mp4', expiresAt: Date.now() + 60_000 }), dispose: vi.fn() })
   boundary.read.mockResolvedValue({ status: 'ready', blob: { text: async () => '<h1>lane report</h1>', arrayBuffer: async () => new ArrayBuffer(4) } })
   boundary.document.mockResolvedValue({ text: '<h1>live report</h1>' })
   boundary.save.mockResolvedValue(undefined)
@@ -73,12 +73,49 @@ beforeEach(() => {
 })
 afterEach(() => {
   harness.cleanup()
+  vi.restoreAllMocks()
   vi.unstubAllGlobals()
   HTMLElement.prototype.checkVisibility = checkVisibility
   act(() => installedExtensionsStore.applyList({ extensions: [], invalid: [] } as never))
 })
 
 describe('unclaimed group files use the message preview from every entry', () => {
+  it('renews an expired video preview after a late Range failure, preserving position without downloading the original', async () => {
+    let now = 1_800_000_000_000
+    vi.spyOn(Date, 'now').mockImplementation(() => now)
+    const content = vi.fn(async () => ({ url: `https://media.test/lease-${now}.mp4`, expiresAt: now + 60_000 })), dispose = vi.fn()
+    boundary.signed.mockResolvedValue({ status: 'ready', purpose: 'preview', content, dispose })
+    await slot(detail('mp4'))
+    await until('first short playback lease', () => harness.container.querySelector('video')?.src.includes(`lease-${now}`) === true)
+    const video = harness.container.querySelector('video')!, play = vi.spyOn(video, 'play').mockResolvedValue()
+    video.currentTime = 42; Object.defineProperty(video, 'paused', { value: false, configurable: true })
+    now += 60_001
+    await act(async () => video.dispatchEvent(new Event('error')))
+    await until('renewed playback lease', () => video.src.includes(`lease-${now}`))
+    await act(async () => video.dispatchEvent(new Event('loadedmetadata')))
+    expect(video.currentTime).toBe(42); expect(play).toHaveBeenCalledTimes(1); expect(content).toHaveBeenCalledTimes(2)
+    expect(boundary.read).not.toHaveBeenCalled(); expect(boundary.open).not.toHaveBeenCalled()
+    await harness.render(null); expect(dispose).toHaveBeenCalledTimes(1)
+  })
+  it('a fresh video lease failure is displayed once instead of repeatedly signing or fetching the original', async () => {
+    const content = vi.fn(async () => ({ url: 'https://media.test/fresh.mp4', expiresAt: Date.now() + 60_000 }))
+    boundary.signed.mockResolvedValue({ status: 'ready', purpose: 'preview', content, dispose: vi.fn() })
+    await slot(detail('mp4'))
+    await until('player ready', () => harness.container.querySelector('video') !== null)
+    await act(async () => harness.container.querySelector('video')!.dispatchEvent(new Event('error')))
+    expect(harness.container.querySelector('video')).toBeNull(); expect(content).toHaveBeenCalledTimes(1)
+    expect(boundary.read).not.toHaveBeenCalled()
+  })
+  it('a verified project video uses and releases a local Blob URL, without requesting a streaming cloud lease', async () => {
+    const urls = { create: vi.fn(() => 'blob:verified-project-video'), revoke: vi.fn() }, dispose = vi.fn()
+    vi.stubGlobal('URL', class extends URL { static createObjectURL = urls.create; static revokeObjectURL = urls.revoke })
+    const content = vi.fn(async () => new Blob(['verified video'], { type: 'video/mp4' }))
+    boundary.signed.mockResolvedValue({ status: 'ready', purpose: 'preview', content, dispose })
+    await slot(detail('mp4'))
+    await until('verified local playback', () => harness.container.querySelector('video')?.src === 'blob:verified-project-video')
+    expect(content).toHaveBeenCalledTimes(1); expect(boundary.read).not.toHaveBeenCalled()
+    await harness.render(null); expect(urls.revoke).toHaveBeenCalledWith('blob:verified-project-video'); expect(dispose).toHaveBeenCalledTimes(1)
+  })
   it('the phone opens its chooser above the App page; cancelling keeps that page and picking preserves its Back link', async () => {
     boundary.mobile = true
     const folder = openPanelItem('preview-group', folderItem())

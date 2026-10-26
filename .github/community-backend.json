@@ -1,5 +1,5 @@
 {
   "repository": "OpenDCAI/gugu-supabase",
-  "ref": "7fd68ca02a016a8531b03b1424a17f3fbd8af3cd",
-  "status": "Workspace content editor metadata merged in OpenDCAI/gugu-supabase#37."
+  "ref": "e27dca6f4525c7f1cdbc2c683a87c2c6bb7d354e",
+  "status": "File lifecycle and project transfer support with optional link throttling merged in OpenDCAI/gugu-supabase#41 and #42."
 }

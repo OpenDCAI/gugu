@@ -11,7 +11,7 @@ const { openResource, readBytes } = vi.hoisted(() => ({
 vi.mock('@/lib/guguLinks', () => ({ openLinkTarget: openResource }))
 vi.mock('@/platform', () => ({ platform: { kind: 'electron' } }))
 vi.mock('@/lib/attachmentBytes', () => ({
-  attachmentBytes: readBytes, sourceKeyOf: () => 'budget', attachmentResolver: { resolve: vi.fn(), forget: vi.fn() }, openAttachmentInSystemApp: vi.fn(),
+  attachmentBytes: readBytes, sourceKeyOf: () => 'budget', attachmentPreview: vi.fn(), openAttachmentInSystemApp: vi.fn(),
 }))
 vi.mock('@/components/chat/MessageFilePreviewPanel', () => ({
   MessageFilePreviewPanel: ({ content, onClose, fill }: { content: string | null; onClose: () => void; fill: boolean }) =>

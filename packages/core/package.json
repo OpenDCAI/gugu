@@ -12,6 +12,9 @@
     "./shared/*": "./src/shared/*"
   },
   "dependencies": {
+    "@noble/hashes": "2.2.0",
+    "libsodium": "0.8.4",
+    "libsodium-wrappers": "0.8.4",
     "@supabase/supabase-js": "^2.39.0"
   }
 }

@@ -110,8 +110,6 @@ contextBridge.exposeInMainWorld('electronAPI', {
   requestWirePort: emdashRequestWirePort,
   selectDirectory: (): Promise<string | null> => ipcRenderer.invoke('dialog:select-directory'),
   selectFile: (): Promise<string | null> => ipcRenderer.invoke('dialog:select-file'),
-  openFileBytes: (bytes: Uint8Array, filename: string): Promise<void> =>
-    ipcRenderer.invoke('file:open-bytes', { bytes, filename }),
   checkForUpdates: (): Promise<unknown> => ipcRenderer.invoke('updates:check'),
   updateState: (): Promise<unknown> => ipcRenderer.invoke('updates:state'),
   downloadUpdate: (): Promise<unknown> => ipcRenderer.invoke('updates:download'),

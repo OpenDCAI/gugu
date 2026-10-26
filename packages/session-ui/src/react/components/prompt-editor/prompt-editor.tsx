@@ -274,6 +274,7 @@ export const PromptEditor = forwardRef<PromptEditorRef, PromptEditorProps>(funct
 
   // Separate suggestion state for @ and / so they don't conflict.
   const [isEmpty, setIsEmpty] = useState(true);
+  const [editorDom, setEditorDom] = useState<HTMLElement | null>(null);
   const [mentionSuggestion, setMentionSuggestion] =
     useState<SuggestionState<MentionItem>>(emptySuggestion());
   const [commandSuggestion, setCommandSuggestion] =
@@ -434,6 +435,8 @@ export const PromptEditor = forwardRef<PromptEditorRef, PromptEditorProps>(funct
         return parts.join('\n').replace(/\n+$/, '');
       },
     },
+    onCreate({ editor: e }) { setEditorDom(e.view.dom); },
+    onUnmount() { setEditorDom(null); },
     onUpdate({ editor: e }) {
       setIsEmpty(e.isEmpty);
       const text = serializeDoc(e.state.doc);
@@ -443,9 +446,9 @@ export const PromptEditor = forwardRef<PromptEditorRef, PromptEditorProps>(funct
   });
 
   useEffect(() => {
-    inputRef?.(editor?.view.dom ?? null);
+    inputRef?.(editorDom);
     return () => inputRef?.(null);
-  }, [editor, inputRef]);
+  }, [editorDom, inputRef]);
 
   // Keep stable ref to editor.
   editorRef.current = editor;
@@ -548,7 +551,7 @@ export const PromptEditor = forwardRef<PromptEditorRef, PromptEditorProps>(funct
       ? mentionActiveOptionId
       : null;
   useEffect(() => {
-    const dom = editor?.view.dom;
+    const dom = editorDom;
     if (!dom) return;
     if (!comboboxOpen || !activeListboxId) {
       for (const name of [
@@ -568,7 +571,7 @@ export const PromptEditor = forwardRef<PromptEditorRef, PromptEditorProps>(funct
     dom.setAttribute('aria-controls', activeListboxId);
     if (activeOptionId) dom.setAttribute('aria-activedescendant', activeOptionId);
     else dom.removeAttribute('aria-activedescendant');
-  }, [editor, comboboxOpen, activeListboxId, activeOptionId]);
+  }, [editorDom, comboboxOpen, activeListboxId, activeOptionId]);
 
   return (
     <>

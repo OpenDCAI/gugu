@@ -1,10 +1,10 @@
+import { fileBlob } from '@gugu/core/shared/fileResolver'
 import { guguLink, guguLinkScheme, linkTargetOf, type GuguLinkTarget } from '@gugu/core/shared/ui/guguLink'
 import { openLinkWith } from '../../session/shared/extensions/open-link'
 import { openLinkTarget } from '../../lib/guguLinks'
 import { resourceChatIdOf } from '../../session/shared/extensions/app-files-core'
 import { readCachedDevices } from '../../store/devicesCache'
 import { listedSession, liveDeviceSessions } from '../../session/shared/remote-sessions/session-directory'
-import { fetchBlob } from '../../lib/download'
 import { rendererLogger } from '../../lib/log'
 import { platform } from '../../platform'
 import { getRendererAccessToken } from '../../lib/sessionPublication'
@@ -59,6 +59,9 @@ import { installedExtensionsStore } from '../../session/renderer/features/extens
 import { fileIconKey } from '../../session/shared/extensions/app-icon'
 import { appFrameChannel } from './appOrigin'
 import { PHONE_CAPABILITIES, phoneApps } from './phoneApps'
+import { cachedPhoneAgents, phoneDispatch } from './phoneDispatch'
+import { onPhoneAppState, phoneAppState } from './phoneAppState'
+import { subscribeDeviceSessions } from '../../session/shared/remote-sessions/session-directory'
 import { callOnComputer } from './phoneProgramCall'
 import { followsSessionMachine } from '../../session/shared/extensions/machine-call'
 import { HOSTED_PROGRAM_ELSEWHERE } from '../../session/shared/extensions/program-place'
@@ -187,6 +190,12 @@ const askForumConsent = (detail: AppForumConsentDetail) => {
 }
 
 const files = createAppFiles({
+  async resolveFile(ref, actorId, options) {
+    if (options.localOnly) return null;
+    if (!('id' in ref)) throw new AppFileError('invalid', 'A stored file must be resolved by its id');
+    const { resolveFile, fileReader, fileReadSignal } = await import('../../lib/fileAccess');
+    return resolveFile({ item_id: ref.id, ...(options.version ? { version: options.version } : {}) }, fileReader(actorId), { signal: fileReadSignal() });
+  },
   // Who opens a group file of this kind here — the same choice a tap makes (摩擦单 F39).
   claimant(typedName) {
     const candidate = claimantOf(typedName, appsHereNow(), 'chat', phoneApps.remembered)
@@ -526,6 +535,8 @@ export function hostAppFrame(
         focusAppModalClose(modal.id)
         return undefined
       }
+      case 'getAppState':
+        return phoneAppState(hosted.binding.capabilities)
       case 'getContext':
         // A pill's place waiting for this page goes first, whatever the answer: the frame holds it until `onLink`.
         for (const link of takeOpeningLinks(hosted.binding)) event(link)
@@ -554,20 +565,29 @@ export function hostAppFrame(
       }
       case 'clipboardWriteText':
         return navigator.clipboard.writeText(pageArgument('clipboardWriteText', args))
-      case 'dispatch':
-        // The desktop's answer, with this page's sheet and the chat shell's composer. The person's agents are their
-        // computers': a phone does not reach them yet, so the sheet offers none and a call naming one is not found here.
+      case 'listAgents': {
+        const manifest = installedExtensionsStore.manifestFor(hosted.binding.extensionId)
+        if (!manifest) refused('not-installed', 'This App is not installed')
+        return phoneDispatch({ extensionId: manifest.id, extensionName: manifest.name }, hosted.binding.capabilities, {}).listAgents()
+      }
+      case 'dispatch': {
+        const manifest = installedExtensionsStore.manifestFor(hosted.binding.extensionId)
+        if (!manifest) refused('not-installed', 'This App is not installed')
+        const { agents, local, spawnOn } = phoneDispatch({ extensionId: manifest.id, extensionName: manifest.name }, hosted.binding.capabilities,
+          { deviceId: hosted.binding.session?.deviceId, chatId: hosted.binding.chatId, agents: members?.filter((member) => member.kind === 'agent').map((member) => member.id) })
         return dispatchFromApp(
           {
             ...sendPlatform,
+            agents,
             pick: pickDispatchTarget,
             // Use the same capture-before-append ordering as the desktop host.
             draftInChat: async (detail) => void document.dispatchEvent(new CustomEvent<AppComposeDetail>(APP_COMPOSE_EVENT, { detail, bubbles: true })),
           },
           hosted.binding.extensionId,
           args,
-          { chat: chat ? { id: chat.id, name: chat.name, members: members ?? [] } : null, preselect: null },
+          { chat: chat ? { id: chat.id, name: chat.name, members: members ?? [] } : null, preselect: null, local, spawnOn },
         )
+      }
       case 'messagesHistory':
         return messagesForApp.history(args)
       case 'messagesSearch':
@@ -696,7 +716,7 @@ export function hostAppFrame(
         return files.downloadSource(surface(), { ref: chatRef(args.ref) }).then(async (source) => {
           // The one save every 「保存」 takes (platform.saveFile: the system's 「保存到…」 on the phone), under the file's
           // own name — a file in OSS has a link named by its hash (#7290). Cancelled in the system picker = false.
-          const blob = source.kind === 'file' ? await fetchBlob(source.url) : new Blob([source.text], { type: 'text/plain;charset=utf-8' })
+          const blob = source.kind === 'file' ? await fileBlob(source.file) : new Blob([source.text], { type: 'text/plain;charset=utf-8' })
           return (await platform.saveFile(blob, source.name)).saved
         })
       // The App's own data folder and program: in a session they are its computer's (owner 10-16「程序跟着数据」), done
@@ -760,6 +780,22 @@ export function hostAppFrame(
     )
   }
   window.addEventListener('message', onMessage)
+  let lastState = JSON.stringify(phoneAppState(hosted.binding.capabilities))
+  const stateChanged = () => {
+    const state = phoneAppState(hosted.binding.capabilities)
+    const next = JSON.stringify(state)
+    if (next !== lastState) { lastState = next; event({ type: 'appState', state }) }
+  }
+  const snapshot = () => new Map(cachedPhoneAgents(hosted.binding.extensionId, hosted.binding.capabilities).map((agent) => [agent.agentId, JSON.stringify(agent)]))
+  let previous = snapshot()
+  const stopState = onPhoneAppState(stateChanged)
+  const stopAgents = subscribeDeviceSessions(() => {
+    stateChanged()
+    const next = snapshot()
+    const changed = [...new Set([...previous.keys(), ...next.keys()])].filter((id) => previous.get(id) !== next.get(id))
+    previous = next
+    if (hosted.binding.capabilities.includes('agents:read') && changed.length) event({ type: 'agentsChanged', agentIds: changed })
+  })
 
   return {
     pageId,
@@ -768,6 +804,8 @@ export function hostAppFrame(
       // Another group, or another handed-over file: the open files it could enter were the old ones'.
       if (moved) relay.revoke(pageId, 'unbound')
       hosted.binding = granted(binding)
+      previous = snapshot()
+      stateChanged()
       // Reuse the parent's existing subscriptions and host events for its sandboxed modal pages too.
       for (const [childHost, childBinding] of modalHosts) childHost.update({ ...childBinding, locale: binding.locale, themeMode: binding.themeMode, capabilities: binding.capabilities })
       // Moved to a file a pill is waiting to open: its place is this page's now (after the context that names the file).
@@ -802,6 +840,8 @@ export function hostAppFrame(
       event({ type: 'programNotification', server: notification.server, method: notification.method, ...(notification.params === undefined ? {} : { params: notification.params }) })
     },
     dispose() {
+      stopState()
+      stopAgents()
       void phoneModals.pageGone(pageId)
       for (const { source } of watched.values()) readFiles.forget(source)
       watched = new Map()

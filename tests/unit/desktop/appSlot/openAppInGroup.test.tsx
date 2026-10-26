@@ -192,10 +192,8 @@ describe("a card's 「打开」 is 「在本群打开」", () => {
     expect(harness.container.querySelector('[data-testid="extension-bundle-card-elsewhere"]')).not.toBeNull()
   })
 
-  // 125 10-06 (phone cell 1): the phone stopped asking for agents:read, but its card still said the App would 「看到这个 App
-  // 自己起的 agent」 — a phone neither asks nor gives that. A card says what this device's consent asks (`grantable`).
-  // Control (the parent commit): the phone's card listed the agents line as the desktop's does.
-  it('the card says only what this device can grant: on the phone an agents-only App asks for nothing; the desktop lists it', async () => {
+  // The card and the install sheet must describe the same supported capabilities.
+  it('the card shows agent-read permission on both phone and desktop', async () => {
     const permissions = () => harness.container.querySelector('[data-testid="extension-bundle-card-permissions"]')?.textContent
     card.manifest = app([OWN_PAGE], ['agents:read'])
     await show({ id: 'group-1', kind: 'group' })
@@ -206,13 +204,13 @@ describe("a card's 「打开」 is 「在本群打开」", () => {
     host.grantable = (manifest) => grantableBy(manifest as never, PHONE_CAPABILITIES)
     await show({ id: 'group-1', kind: 'group' })
     const onPhone = permissions()
-    // The phone writes it as an App that asks for nothing does; the desktop as before.
+    // An App with no permissions remains distinct from one reading its agents.
     card.manifest = app([OWN_PAGE])
     harness.cleanup()
     harness = createReactHarness()
     await show({ id: 'group-1', kind: 'group' })
-    expect(onPhone).toBe(permissions())
-    expect(onDesktop).not.toBe(onPhone)
+    expect(onPhone).not.toBe(permissions())
+    expect(onDesktop).toBe(onPhone)
   })
 
   it.each(['electron', 'capacitor'] as const)('in a private chat (%s), an installed App opens in this private chat, as in a group', async (kind) => {

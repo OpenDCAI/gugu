@@ -2,8 +2,8 @@
 import { conversationLink, groupFileLink, parseGroupFileLink } from '@gugu/core/shared/ui/guguLink'
 
 import { downloadSessionFile } from '@gugu/core/local/agent/sessionFileHandoff'
-import { createHash, randomUUID } from 'node:crypto'
-import { mkdir, readFile, stat, writeFile } from 'node:fs/promises'
+import { randomUUID } from 'node:crypto'
+import { readFile, stat } from 'node:fs/promises'
 import { basename, isAbsolute, join as joinPath, resolve as resolvePath } from 'node:path'
 import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js'
 import { ListToolsRequestSchema } from '@modelcontextprotocol/sdk/types.js'
@@ -13,13 +13,12 @@ import { tokenizeMarkdownMath } from '../../../../packages/core/src/shared/markd
 import { findRosterNameHits } from '../../../../packages/core/src/shared/rosterNameMatching.mjs'
 import { findMentionSpans } from '../../../../packages/core/src/shared/mentionToken.mjs'
 import { EXTENSION_ARCHIVE_MIME, resolveAttachmentMimeType } from '../../../../packages/core/src/shared/imageMime.mjs'
-import { attachmentDownloadName } from '../../../../packages/core/src/shared/attachmentDownloadName.mjs'
+import { saveFileHandle } from '@gugu/core/local/files/fileSnapshots'
 import { decodeIdentityAddress, decodeTypedId, encodeTypedId } from '../../../../packages/core/src/shared/typedId.mjs'
 import { workspaceUploadKind } from '../../../../packages/core/src/shared/workspaceUpload.mjs'
 import { parseAttachmentContent } from '../../../../packages/core/src/shared/ui/attachmentModels'
-import { createAttachmentResolver } from '../../../../packages/core/src/shared/attachmentUrls'
 import { attachmentFolderLine } from '../../../../packages/core/src/shared/attachmentFolderLine'
-import { AttachmentsError, commitAttachment, fetchAttachmentUrls, sendFileAsOwner, uploadAttachmentBytes } from '../../../../packages/core/src/cloud/attachmentsApi'
+import { AttachmentsError, commitAttachment, sendFileAsOwner, uploadAttachmentBytes } from '../../../../packages/core/src/cloud/attachmentsApi'
 import { createGroupWithInvitations } from '../../../../packages/core/src/cloud/groupChat'
 import { createGroupAdmin, setGroupAvatar } from '../../../../packages/core/src/cloud/groupAdmin'
 import { registerGuguTool } from './register-gugu-tool.mjs'
@@ -468,14 +467,10 @@ function createDeps(context, injected = {}, state = createSessionState()) {
       if (!res.ok) throw new Error(`Group avatar upload failed: ${res.status} ${await res.text()}`)
       return `${base}/storage/v1/object/public/chat-media/${storagePath}`
     },
-    // 新式附件的签名链接:默认以这个 agent 的身份(attachments/urls 的 `as`,按 agent 是不是成员判);
-    // 主人与好友私聊里的附件按主人要(#84,见 downloadAttachment)。
     attachmentsEndpoint: () => attachmentsEndpoint(context, fetchImpl),
-    attachmentUrls: async (refs, asUserId = context.agentId) => fetchAttachmentUrls(await attachmentsEndpoint(context, fetchImpl), refs, asUserId),
-    fetchBytes: async (url) => {
-      const res = await fetchImpl(url)
-      if (!res.ok) throw new Error(`GET attachment → ${res.status}`)
-      return Buffer.from(await res.arrayBuffer())
+    resolveFile: (ref, actor = context.agentId) => {
+      if (!context.resolveFile) throw new Error('Verified file resolver is not installed')
+      return context.resolveFile(ref, actor)
     },
     ...injected,
     context,
@@ -698,11 +693,11 @@ export async function sendExtensionCardOf(context, { chatId, filePath, fileName,
   if (existing) {
     // Its bytes decide whether it is this App; a card that cannot be fetched is answered as there, contents unknown
     // (differs: null) — never a second card on a guess. A new card's link is signed as this agent (#7290).
-    const bytes = await createAttachmentResolver(deps.attachmentUrls).resolve(existing.source)
-      .then((link) => (link.status === 'ready' ? (injected.fetch ?? fetch)(link.url) : null))
-      .then(async (response) => (response?.ok ? new Uint8Array(await response.arrayBuffer()) : null))
-      .catch(() => null)
-    const differs = bytes === null ? null : createHash('sha256').update(bytes).digest('hex') !== String(sha256)
+    const differs = await deps.resolveFile({ message_id: existing.id }).then(async file => {
+      if (file.status !== 'ready') return null
+      try { for await (const _chunk of file.stream()) { /* Authenticate the entire original before comparing. */ } return file.revision.sha256 !== String(sha256) }
+      finally { await file.dispose() }
+    }).catch(() => null)
     return { messageId: existing.id, alreadyThere: true, differs }
   }
   // No mime_type: the .guguext name gives the extension archive type, which is what makes the chat draw a card.
@@ -2125,20 +2120,15 @@ async function downloadAttachment(messageId, deps) {
   const attachment = message.content_type === 'attachment' ? parseAttachmentContent(message.content, message) : null
   if (!attachment) throw new Error(`message_download_file: message ${messageId} has no attachment`)
   if (attachment.source.kind === 'gone') throw new Error(`message_download_file: the file of message ${messageId} was deleted from the group folder`)
-  const link = await createAttachmentResolver((refs) => deps.attachmentUrls(refs, readerId)).resolve(attachment.source)
-  if (link.status === 'gone') throw new Error(`message_download_file: the file of message ${messageId} is no longer readable`)
-  const bytes = await deps.fetchBytes(link.url)
+  const file = await deps.resolveFile({ message_id: messageId }, readerId)
+  if (file.status !== 'ready') throw new Error(`message_download_file: the file of message ${messageId} is no longer readable`)
   const home = typeof deps.context.guguHome === 'string' ? deps.context.guguHome.trim() : ''
-  if (!home) throw new Error('gugu MCP context has no guguHome; cannot save the attachment')
-  const sha256 = createHash('sha256').update(bytes).digest('hex')
-  const dir = joinPath(home, 'chat-media', sha256)
-  const path = joinPath(dir, attachmentDownloadName(attachment.fileName))
-  await mkdir(dir, { recursive: true, mode: 0o700 })
-  await writeFile(path, bytes, { mode: 0o600 })
+  if (!home) { await file.dispose(); throw new Error('gugu MCP context has no guguHome; cannot save the attachment') }
+  const saved = await saveFileHandle(file, joinPath(home, 'chat-media'), attachment.fileName)
   const folder = attachment.source.kind === 'item'
     ? { file: groupFileLink(attachment.source.itemId, { version: attachment.source.version }), next: attachmentFolderLine(attachment.source.itemId, attachment.source.version) }
     : {}
-  return JSON.stringify({ source_message_id: `msg:${messageId}`, file_path: path, file_name: attachment.fileName, size_bytes: bytes.length, sha256, ...folder })
+  return JSON.stringify({ source_message_id: `msg:${messageId}`, ...saved, ...folder })
 }
 
 /** message_send_file 的 file:群文件夹里一个文件的 gugu-file 链接(?v= 是它的那一版),或者裸的 item_id。 */

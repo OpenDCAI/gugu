@@ -1,3 +1,4 @@
+import { verifiedFileHandle } from '../../../../../../tests/helpers/verifiedFileHandle';
 import { describe, expect, it } from 'vitest';
 import { attachmentInstallPlan, couldUpdateUnasked, messagePackageSource, resolveAttachmentPackage, type InstalledApp, type PackageMessageRow, type PackageReads } from './attachment-install';
 import { EXTENSION_API_VERSION, parseExtensionManifest, type ExtensionManifest } from './manifest';
@@ -129,9 +130,9 @@ describe('#7290 a card by its message: the publisher is its sender, never the ma
     sender_user_id: ALICE.toUpperCase(),
     ...over,
   });
-  const reads = (row: PackageMessageRow | null, signed: string | null = 'https://cdn.example.test/x?auth_key=1'): PackageReads & { asked: unknown[] } => {
+  const reads = (row: PackageMessageRow | null, readable = true): PackageReads & { asked: unknown[] } => {
     const asked: unknown[] = [];
-    return { asked, message: async () => row, sign: async (source) => (asked.push(source), signed) };
+    return { asked, message: async () => row, open: async (source) => (asked.push(source), readable ? verifiedFileHandle(new Uint8Array([7])) : null) };
   };
 
   it('a new card in the folder: its item and version, published by its sender', () => {
@@ -156,10 +157,12 @@ describe('#7290 a card by its message: the publisher is its sender, never the ma
 
   it('resolveAttachmentPackage: reads the message and signs its bytes; unreadable or gone throws', async () => {
     const some = reads(card());
-    expect(await resolveAttachmentPackage({ messageId: 'm1' }, some)).toEqual({ publisher: ALICE, url: 'https://cdn.example.test/x?auth_key=1' });
+    const found = await resolveAttachmentPackage({ messageId: 'm1' }, some);
+    expect(found.publisher).toBe(ALICE); expect(found.file).toMatchObject({ purpose: 'file' });
+    expect(await found.file.read(0, 1)).toEqual(new Uint8Array([7])); await found.file.dispose();
     expect(some.asked).toEqual([{ kind: 'item', itemId: ITEM, version: 2 }]);
     await expect(resolveAttachmentPackage({ messageId: 'm1' }, reads(null))).rejects.toThrow(/no message m1 you can read/);
-    await expect(resolveAttachmentPackage({ messageId: 'm1' }, reads(card(), null))).rejects.toThrow(/no longer there/);
+    await expect(resolveAttachmentPackage({ messageId: 'm1' }, reads(card(), false))).rejects.toThrow(/no longer there/);
   });
 
 });

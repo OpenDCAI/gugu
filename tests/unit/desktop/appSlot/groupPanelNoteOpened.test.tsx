@@ -15,6 +15,8 @@ import { ask, chatTabs, shownItem } from './chatTabsHarness'
  * (`APP_OPEN_WITH_EVENT`, MainLayout), which brings that chat up.
  */
 const rpc = vi.hoisted(() => vi.fn(async () => ({ data: null, error: null })))
+const local = vi.hoisted(() => vi.fn(async (_item: string): Promise<unknown> => null))
+vi.mock('../../../../apps/desktop/src/lib/fileAccess', async original => ({ ...await original<typeof import('../../../../apps/desktop/src/lib/fileAccess')>(), localFileRevision: local }))
 vi.mock('../../../../apps/desktop/src/lib/supabase', () => ({ chatDb: { rpc } }))
 vi.mock('../../../../apps/desktop/src/platform', () => ({
   platform: { kind: 'electron', capabilities: { appUpdates: false, notifications: false, rendererCommandBridge: false } },
@@ -32,7 +34,7 @@ const originalCheckVisibility = HTMLElement.prototype.checkVisibility
 beforeEach(() => {
   harness = createReactHarness()
   HTMLElement.prototype.checkVisibility = () => false
-  rpc.mockClear()
+  rpc.mockClear(); local.mockReset().mockResolvedValue(null)
 })
 afterEach(() => {
   harness.cleanup()
@@ -50,13 +52,23 @@ describe('a file opened in a group\'s panel is kept for 最近打开, once', () 
     await harness.render(chatTabs({ chatId: 'g-note' }))
     askFile('g-note', detailOf('g-note', 'F1'))
     expect(shownItem('g-note')?.itemId).toBe('F1')
-    expect(rpc.mock.calls).toEqual([['workspace_note_open', { p_item_id: 'F1' }]])
+    await vi.waitFor(() => expect(rpc.mock.calls).toEqual([['workspace_note_open', { p_item_id: 'F1' }]]))
     // The person goes to another chat and comes back: the panel shows F1 again from what it remembered.
     harness.cleanup()
     harness = createReactHarness()
     await harness.render(chatTabs({ chatId: 'g-note' }))
     expect(shownItem('g-note')?.itemId).toBe('F1')
     expect(rpc).toHaveBeenCalledTimes(1)
+  })
+
+  it('a local file keeps its App tab without reporting the open to the cloud', async () => {
+    local.mockResolvedValueOnce({ source: 'local', item_id: 'L1', chat_id: 'g-local' })
+    await harness.render(chatTabs({ chatId: 'g-local' }))
+    askFile('g-local', detailOf('g-local', 'L1'))
+    expect(shownItem('g-local')?.itemId).toBe('L1')
+    await vi.waitFor(() => expect(local).toHaveBeenCalledWith('L1'))
+    await act(async () => {})
+    expect(rpc).not.toHaveBeenCalled()
   })
 
   it('an App\'s own page in the panel (no file) is not a file opened: nothing kept', async () => {

@@ -2,7 +2,6 @@
 import { readFileSync } from 'node:fs'
 import { act } from 'react'
 import { flushSync } from 'react-dom'
-import { FrequentlyUsed } from 'emoji-mart'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { MessageBubble } from '../../../../apps/desktop/src/components/chat/MessageBubble'
 import { AUTOMATION_TEST_IDS } from '../../../../apps/desktop/src/lib/automationDom'
@@ -10,16 +9,14 @@ import type { ToastType } from '../../../../apps/desktop/src/components/toastCon
 import type { MemberProfileCardModel } from '../../../../apps/desktop/src/components/MemberProfileCard'
 import { UI_EVENTS } from '../../../../apps/desktop/src/lib/uiEvents'
 import { NATIVE_BACK_EVENT } from '../../../../apps/desktop/src/components/ui/sheetStack'
-import { QUICK_REACTIONS } from '../../../../packages/core/src/shared/ui/reactionCatalog'
+import { QUICK_REACTIONS, REACTIONS } from '../../../../packages/core/src/shared/ui/reactionCatalog'
 import { TOOLTIP_OPEN_DELAY_MS } from '../../../../apps/desktop/src/styles/motion'
 import { clickElement, createNode, createReactHarness, message, renderWithAppProviders } from '../../../support/testHarness'
 vi.mock('../../../../apps/desktop/src/hooks/useAgentHarnessIdentity', () => ({ useAgentHarnessIdentity: () => 'codex' }))
-const frequent = FrequentlyUsed as typeof FrequentlyUsed & { get: (options: unknown) => string[] }
 let harness: ReturnType<typeof createReactHarness>
 beforeEach(() => {
   vi.useFakeTimers()
-  vi.spyOn(frequent, 'get').mockReturnValue([])
-  vi.spyOn(frequent, 'add')
+  for (const key of ['gugu.reaction-frequency', 'emoji-mart.frequently', 'emoji-mart.last']) localStorage.removeItem(key)
   vi.stubGlobal('IntersectionObserver', class { observe() {} unobserve() {} disconnect() {} })
   harness = createReactHarness()
 })
@@ -101,7 +98,7 @@ describe('MessageBubble touch menu', () => {
     expect(document.querySelector('[role="menu"]')).toBeNull()
   })
   it('keeps frequency-ordered reactions in the desktop menu and calls the existing reaction action', async () => {
-    vi.mocked(frequent.get).mockReturnValue(['rocket', 'eyes'])
+    localStorage.setItem('gugu.reaction-frequency', JSON.stringify({ '🚀': 9, '👀': 3 }))
     const onReaction = vi.fn()
     await renderMessage(undefined, false, onReaction)
     await contextMenu()
@@ -110,7 +107,7 @@ describe('MessageBubble touch menu', () => {
     expect(buttons.map((button) => button.textContent)).toEqual(['🚀', '👀', '👍', '❤️', '😂', '✅', ''])
     await clickElement(buttons[0])
     expect(onReaction).toHaveBeenCalledWith('msg-1', '🚀')
-    expect(frequent.add).toHaveBeenCalledWith({ id: 'rocket' })
+    expect(JSON.parse(localStorage.getItem('gugu.reaction-frequency')!)['🚀']).toBe(10)
     expect(document.querySelector('[role="menu"]')).toBeNull()
   })
   it('copies the captured message selection after menu focus clears the DOM selection', async () => {
@@ -246,6 +243,8 @@ describe('MessageBubble touch menu', () => {
     expect(bubble.style.getPropertyValue('-webkit-user-select')).toBe('none')
   })
   it('exposes quick reactions as a labelled toolbar with arrow-key navigation', async () => {
+    localStorage.setItem('emoji-mart.frequently', '{"rocket":100}')
+    localStorage.setItem('emoji-mart.last', 'rocket')
     const onReaction = vi.fn()
     await renderMessage(undefined, false, onReaction)
     const over = new MouseEvent('pointerover', { bubbles: true })
@@ -258,7 +257,7 @@ describe('MessageBubble touch menu', () => {
     const toolbar = document.body.querySelector('[role="toolbar"][aria-label="快速回应"]') as HTMLElement | null
     const buttons = Array.from(toolbar?.querySelectorAll('button') ?? []) as HTMLButtonElement[]
     expect(toolbar).not.toBeNull()
-    // 常用为空时按目录里的混合快捷顺序补齐,最后一项展开完整选择器。
+    // 旧库记录不迁移,按目录里的混合快捷顺序补齐,最后一项展开精选回应。
     expect(buttons.map((button) => button.getAttribute('aria-label'))).toEqual(
       [...QUICK_REACTIONS.map(({ emoji, zh }) => `回应 ${emoji} ${zh}`), '更多表情'],
     )
@@ -270,6 +269,8 @@ describe('MessageBubble touch menu', () => {
     expect(document.activeElement).toBe(buttons[1])
     await clickElement(buttons[1])
     expect(onReaction).toHaveBeenCalledWith('msg-1', '❤️')
+    expect(localStorage.getItem('emoji-mart.frequently')).toBeNull()
+    expect(localStorage.getItem('emoji-mart.last')).toBeNull()
     expect(document.body.querySelector('[role="toolbar"][aria-label="快速回应"]')).toBeNull()
   })
   it('mobile long press opens the action sheet: reactions, reply first, then the desktop menu actions', async () => {
@@ -292,31 +293,38 @@ describe('MessageBubble touch menu', () => {
     expect(onReaction).toHaveBeenCalledWith('msg-1', '❤️')
     expect(document.body.querySelector('[data-testid="message-action-sheet"]')).toBeNull()
   })
-  it('uses emoji-mart frequency order and fills the quick row from the catalog', async () => {
-    vi.mocked(frequent.get).mockReturnValue(['rocket', 'eyes'])
+  it('uses saved emoji frequencies and fills the quick row from the catalog', async () => {
+    localStorage.setItem('gugu.reaction-frequency', JSON.stringify({ '🚀': 9, '👀': 3, '🦄': 100 }))
     const onReaction = vi.fn()
     await renderMessage(undefined, true, onReaction)
     await longPress()
     const buttons = document.querySelectorAll<HTMLButtonElement>('[role="toolbar"][aria-label="快速回应"] button')
     expect([...buttons].map((b) => b.textContent)).toEqual(['🚀', '👀', '👍', '❤️', '😂', '✅', ''])
     await clickElement(buttons[0])
-    expect(frequent.add).toHaveBeenCalledWith({ id: 'rocket' })
+    expect(JSON.parse(localStorage.getItem('gugu.reaction-frequency')!)['🚀']).toBe(10)
     expect(onReaction).toHaveBeenCalledWith('msg-1', '🚀')
   })
   it('expands inside the same mobile sheet and keeps all named work statuses reachable', async () => {
     const onReaction = vi.fn()
     await renderMessage(undefined, true, onReaction)
     await longPress()
-    await clickElement(document.querySelector('button[aria-label="更多表情"]') as HTMLElement)
+    await act(() => {
+      flushSync(() => { (document.querySelector('button[aria-label="更多表情"]') as HTMLButtonElement).click() })
+      expect(document.querySelectorAll('section[aria-label="表态"] button')).toHaveLength(24)
+    })
     const sheet = document.querySelector('[data-testid="message-action-sheet"]')!
     expect(document.querySelectorAll('[data-testid="message-action-sheet"]')).toHaveLength(1)
     expect(sheet.querySelector('[role="toolbar"]')).toBeNull()
     expect(sheet.querySelector('[data-testid="message-action-reply"]')).toBeNull()
+    expect(sheet.querySelector('input')).toBeNull()
+    expect([...sheet.querySelectorAll('section[aria-label="表态"] button')].map((button) => button.textContent)).toEqual(REACTIONS.filter(({ kind }) => kind === 'mood').map(({ emoji }) => emoji))
     const statuses = sheet.querySelectorAll<HTMLButtonElement>('section[aria-label="工作状态"] button')
     expect([...statuses].map((b) => b.textContent)).toEqual(['👌收到', '👀在看', '⏳稍等', '✅完成', '❓疑问', '❌不对'])
     await clickElement(statuses[3])
-    expect(frequent.add).toHaveBeenCalledWith({ id: 'white_check_mark' })
+    expect(JSON.parse(localStorage.getItem('gugu.reaction-frequency')!)).toEqual({ '✅': 1 })
     expect(onReaction).toHaveBeenCalledWith('msg-1', '✅')
+    await longPress()
+    expect(document.querySelector('[role="toolbar"] button')?.textContent).toBe('✅')
   })
   it('the Android back key closes the long-press sheet before the page underneath can go back', async () => {
     await renderMessage()

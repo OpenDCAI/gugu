@@ -2,7 +2,11 @@ import { mkdtemp, readFile, readdir, rm } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterEach, describe, expect, it } from 'vitest'
-import { openBytesInSystemApp, sanitizeRemoteFileName } from '../../apps/desktop/electron/remoteFileOpen'
+import { sanitizeRemoteFileName } from '../../apps/desktop/electron/remoteFileOpen'
+import { createNativeFileHost } from '../../apps/desktop/electron/nativeFileHost'
+import { stageFileHandle } from '@gugu/core/shared/fileResolver'
+import { verifiedFileHandle } from '../helpers/verifiedFileHandle'
+import { createHash } from 'node:crypto'
 
 const roots: string[] = []
 
@@ -18,17 +22,25 @@ afterEach(async () => {
 
 const bytes = (text: string) => new TextEncoder().encode(text)
 
-// 字节由渲染层给(lib/attachmentBytes 从 Cache Storage / 签名链接取到的那一份),主进程只落盘、交给系统应用。
+// The former whole-array IPC protections now exercise the actual bounded native sink and opaque token handoff.
+async function openVerifiedOriginal(input: { bytes: Uint8Array; filename: string }, dependencies: { tempRoot: string; openPath(path: string): Promise<string>; maxBytes?: number }) {
+  const host = createNativeFileHost({ root: dependencies.tempRoot, owner: async () => 'owner', alive: () => true, local: async () => null, ssh: async () => null, published: () => {}, ...dependencies })
+  const file = await verifiedFileHandle(input.bytes)
+  const id = await stageFileHandle(file, input.filename, command => host.stage(1, command))
+  await host.open(1, id)
+  const directory = join(dependencies.tempRoot, `open-${createHash('sha256').update(input.bytes).digest('hex')}`)
+  return { directory, path: join(directory, sanitizeRemoteFileName(input.filename)) }
+}
 describe('system-app handoff of attachment bytes', () => {
-  it('writes once per content and reuses that file for repeated and concurrent opens', async () => {
+  it('keeps one published file per content for repeated and concurrent opens', async () => {
     const tempRoot = await testRoot()
     const opened: string[] = []
     const deps = { tempRoot, openPath: async (path: string) => { opened.push(path); return '' } }
     const [a, b] = await Promise.all([
-      openBytesInSystemApp({ bytes: bytes('<p>hi</p>'), filename: 'page.html' }, deps),
-      openBytesInSystemApp({ bytes: bytes('<p>hi</p>'), filename: 'page.html' }, deps),
+      openVerifiedOriginal({ bytes: bytes('<p>hi</p>'), filename: 'page.html' }, deps),
+      openVerifiedOriginal({ bytes: bytes('<p>hi</p>'), filename: 'page.html' }, deps),
     ])
-    const again = await openBytesInSystemApp({ bytes: bytes('<p>hi</p>'), filename: 'page.html' }, deps)
+    const again = await openVerifiedOriginal({ bytes: bytes('<p>hi</p>'), filename: 'page.html' }, deps)
     expect(new Set([a.path, b.path, again.path]).size).toBe(1)
     expect(await readFile(a.path, 'utf8')).toBe('<p>hi</p>')
     expect(opened).toHaveLength(3)
@@ -39,8 +51,8 @@ describe('system-app handoff of attachment bytes', () => {
   it('keeps different contents apart, even under the same name', async () => {
     const tempRoot = await testRoot()
     const deps = { tempRoot, openPath: async () => '' }
-    const one = await openBytesInSystemApp({ bytes: bytes('v1'), filename: 'report.pdf' }, deps)
-    const two = await openBytesInSystemApp({ bytes: bytes('v2'), filename: 'report.pdf' }, deps)
+    const one = await openVerifiedOriginal({ bytes: bytes('v1'), filename: 'report.pdf' }, deps)
+    const two = await openVerifiedOriginal({ bytes: bytes('v2'), filename: 'report.pdf' }, deps)
     expect(one.directory).not.toBe(two.directory)
     expect(await readFile(one.path, 'utf8')).toBe('v1')
     expect(await readFile(two.path, 'utf8')).toBe('v2')
@@ -48,7 +60,7 @@ describe('system-app handoff of attachment bytes', () => {
 
   it('refuses bytes over the limit without writing anything', async () => {
     const tempRoot = await testRoot()
-    await expect(openBytesInSystemApp({ bytes: bytes('too big'), filename: 'a.bin' }, { tempRoot, openPath: async () => '', maxBytes: 3 })).rejects.toThrow('byte limit')
+    await expect(openVerifiedOriginal({ bytes: bytes('too big'), filename: 'a.bin' }, { tempRoot, openPath: async () => '', maxBytes: 3 })).rejects.toThrow('byte limit')
     expect(await readdir(tempRoot)).toEqual([])
   })
 
@@ -56,9 +68,9 @@ describe('system-app handoff of attachment bytes', () => {
     const tempRoot = await testRoot()
     let refuse = true
     const deps = { tempRoot, openPath: async () => (refuse ? 'no application' : '') }
-    await expect(openBytesInSystemApp({ bytes: bytes('x'), filename: 'a.rtf' }, deps)).rejects.toThrow('Could not open file: no application')
+    await expect(openVerifiedOriginal({ bytes: bytes('x'), filename: 'a.rtf' }, deps)).rejects.toThrow('Could not open file: no application')
     refuse = false
-    const opened = await openBytesInSystemApp({ bytes: bytes('x'), filename: 'a.rtf' }, deps)
+    const opened = await openVerifiedOriginal({ bytes: bytes('x'), filename: 'a.rtf' }, deps)
     expect(await readFile(opened.path, 'utf8')).toBe('x')
   })
 

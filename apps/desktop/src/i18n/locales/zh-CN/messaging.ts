@@ -326,6 +326,13 @@ export default {
   "attachmentView": {
     "fileGone": "文件已删除",
     "fileVersion": "第 {{n}} 版",
+    "fileExpired": "文件已过期",
+    "reupload": "重新上传",
+    "selectOriginal": "选择原文件",
+    "storageWarning": "群文件存储空间即将用尽（{{used}} / {{limit}}）。",
+    "storageFull": "群文件存储空间已满（{{used}} / {{limit}}），暂时无法上传新文件。",
+    "usageUnavailable": "文件用量暂不可用。",
+
     "fileUnavailable": "文件暂时打不开",
     "imageUnavailable": "图片暂时打不开",
     "newerInFolder": "文件夹里有新版",
@@ -395,7 +402,7 @@ export default {
   "emoji": {
     "moreReactions": "更多表情",
     "workStatus": "工作状态",
-    "frequent": "常用",
+    "reactions": "表态",
     "quickReactions": "快速回应",
     "reactWith": "回应 {{emoji}}"
   },
@@ -508,6 +515,15 @@ export default {
     "renameHintTopic": "编辑话题名",
     "renamePlaceholderTopic": "话题名称",
     "settings": {
+      "filePolicyLoadFailed": "无法读取项目文件策略。",
+      "fileCloudUpload": "文件上传到云端",
+      "fileCloudUploadHint": "默认关闭。文件保留在主家设备，临时中转单独设置。",
+      "fileAdvanced": "文件扩展配置",
+      "fileLocalSsh": "优先从本机读取，其次使用本人已有的 SSH 连接。远端文件只读。",
+      "fileTemporary": "允许云端临时中转",
+      "fileStrictHint": "严格不上传：同时关闭云端存储和临时中转。远端读取仅能通过可用的本机或本人 SSH 连接。",
+      "fileRetention": "临时副本保留时长",
+      "fileRetentions": {"read-once": "读完即删", "1d": "1 天", "7d": "7 天", "30d": "30 天"},
       "notLoaded": "群设置还没加载完，请稍后再试",
       "manage": "群管理",
       "saveFailed": "保存失败，已恢复为原来的设置。请重试。",

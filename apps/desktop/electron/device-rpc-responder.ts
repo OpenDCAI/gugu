@@ -52,12 +52,17 @@ export function createDesktopDeviceRpcSubscription<TChannel>({
   supabase,
   warn = console.warn,
   createHandlers,
-  askerLimits
+  askerLimits,
+  broadcastEvents,
+  onSubscribed,
 }: {
   supabase: RpcSupabaseClient<TChannel>
   warn?: (message: string) => void
   /** 每个发问端一条线的上限(deviceRpcAskerLimitsFromEnv;默认 DEVICE_RPC_ASKER_LIMITS)。 */
   askerLimits?: DeviceRpcAskerLimits
+  /** Control hints share the existing device channel; file bytes must never use these callbacks. */
+  broadcastEvents?: Record<string, (deviceId: string, payload: unknown) => void>
+  onSubscribed?: (deviceId: string) => void
   /**
    * 每条频道一份宿主处理器。**按频道建、按频道拆**：处理器可能握着会话页窗口（taskhost.open），
    * 而订阅只在这条频道活着的时候有意义 —— 频道断了还留着，就是「以为还有人在看」的泄漏。
@@ -107,6 +112,9 @@ export function createDesktopDeviceRpcSubscription<TChannel>({
       })
       const rpcChannel = channel as TChannel & RpcChannel & ElectronManagedRealtimeChannel
       liveChannel = rpcChannel
+      for (const [event, receive] of Object.entries(broadcastEvents ?? {})) {
+        rpcChannel.on('broadcast', { event }, payload => { if (active) receive(deviceId, payload) })
+      }
       rpcChannel.on('broadcast', { event: 'broadcast' }, (payload) => {
         if (!active) return
         const request = parseDeviceRpcRequest(payload)
@@ -144,6 +152,7 @@ export function createDesktopDeviceRpcSubscription<TChannel>({
       onStatus: (status, err) => {
         const name = subscribeStatusName(status)
         if (name === 'SUBSCRIBED' || name.endsWith('.SUBSCRIBED')) {
+          if (active) onSubscribed?.(deviceId)
           if (hostHandlers && !announced) {
             announced = true
             void Promise.resolve(publishEvent({ type: SESSION_HOST_READY_EVENT })).catch((error: unknown) => {

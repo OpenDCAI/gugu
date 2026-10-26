@@ -8,7 +8,7 @@ export interface ReactionEntry {
   emoji: string
   zh: string
   en: string
-  /** mood = 表态;status = 带工作含义的回应,完整选择器单列「工作状态」。 */
+  /** mood = 表态;status = 带工作含义的回应,精选面板单列「工作状态」。 */
   kind: 'mood' | 'status'
   quickOrder?: number
 }
@@ -24,6 +24,24 @@ export const REACTIONS: readonly ReactionEntry[] = [
   { emoji: '😮', zh: '惊讶', en: 'Wow', kind: 'mood' },
   { emoji: '😢', zh: '难过', en: 'Sad', kind: 'mood' },
   { emoji: '🙏', zh: '感谢', en: 'Thanks', kind: 'mood', quickOrder: 5 },
+  { emoji: '😀', zh: '开心', en: 'Happy', kind: 'mood' },
+  { emoji: '😄', zh: '大笑', en: 'Laugh', kind: 'mood' },
+  { emoji: '😊', zh: '微笑', en: 'Smile', kind: 'mood' },
+  { emoji: '🥰', zh: '暖心', en: 'Loved', kind: 'mood' },
+  { emoji: '😍', zh: '喜欢', en: 'Adore', kind: 'mood' },
+  { emoji: '🤣', zh: '笑翻', en: 'Hilarious', kind: 'mood' },
+  { emoji: '😉', zh: '眨眼', en: 'Wink', kind: 'mood' },
+  { emoji: '😎', zh: '酷', en: 'Cool', kind: 'mood' },
+  { emoji: '🤔', zh: '思考', en: 'Thinking', kind: 'mood' },
+  { emoji: '😅', zh: '汗颜', en: 'Phew', kind: 'mood' },
+  { emoji: '🥲', zh: '苦笑', en: 'Bittersweet', kind: 'mood' },
+  { emoji: '😭', zh: '大哭', en: 'Crying', kind: 'mood' },
+  { emoji: '😡', zh: '生气', en: 'Angry', kind: 'mood' },
+  { emoji: '🎉', zh: '庆祝', en: 'Celebrate', kind: 'mood' },
+  { emoji: '💯', zh: '满分', en: 'Perfect', kind: 'mood' },
+  { emoji: '🔥', zh: '火热', en: 'Fire', kind: 'mood' },
+  { emoji: '🚀', zh: '起飞', en: 'Launch', kind: 'mood' },
+  { emoji: '👏', zh: '鼓掌', en: 'Applause', kind: 'mood' },
   { emoji: '👌', zh: '收到', en: 'Got it', kind: 'status' },
   { emoji: '👀', zh: '在看', en: 'On it', kind: 'status', quickOrder: 3 },
   { emoji: '⏳', zh: '稍等', en: 'One moment', kind: 'status' },

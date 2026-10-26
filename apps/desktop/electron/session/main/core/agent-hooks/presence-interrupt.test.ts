@@ -48,11 +48,14 @@ describe('watchPresenceInterrupt (spec hook-status-derivation「打断边:会话
   let interrupted: number;
   let faults: Array<string | null>;
   let stop: () => void;
-  const start = (location: Parameters<typeof watchPresenceInterrupt>[0]['location'] = { kind: 'pid', pid: 42 }) => {
+  let harnessSessionId: string | undefined;
+  let dead: Set<number>;
+  const start = () => {
     stop = watchPresenceInterrupt({
       presence: claudePresenceFile,
       configRoot: '/home/u/.claude',
-      location,
+      harnessSessionId: () => harnessSessionId,
+      isAlive: (pid) => !dead.has(pid),
       isActive: () => active,
       onInterrupted: () => {
         interrupted += 1;
@@ -72,6 +75,8 @@ describe('watchPresenceInterrupt (spec hook-status-derivation「打断边:会话
     active = true;
     interrupted = 0;
     faults = [];
+    harnessSessionId = 's-claude';
+    dead = new Set();
   });
   afterEach(() => {
     stop?.();
@@ -123,9 +128,10 @@ describe('watchPresenceInterrupt (spec hook-status-derivation「打断边:会话
   it('a file that never appears while active is a fault after the grace, and clears once it reads', async () => {
     start();
     await vi.advanceTimersByTimeAsync(PRESENCE_APPEAR_WITHIN_MS + 2 * PRESENCE_POLL_MS);
-    expect(faults).toEqual([`${PATH} did not appear`]);
+    const missing = 'no sessions/<pid>.json for session s-claude under /home/u/.claude';
+    expect(faults).toEqual([missing]);
     await step('busy');
-    expect(faults).toEqual([`${PATH} did not appear`, null]);
+    expect(faults).toEqual([missing, null]);
   });
 
   it('an unknown status or a file of another process is a fault, never an interrupt', async () => {
@@ -153,15 +159,67 @@ describe('watchPresenceInterrupt (spec hook-status-derivation「打断边:会话
     expect(faults.at(-1)).toBeNull();
   });
 
-  it('a tmux session is found once by its harness session id, then followed by pid', async () => {
+  it('the file is found by its harness session id, then followed by pid across /clear', async () => {
     files.set('/home/u/.claude/sessions/9.json', record(9, 'busy', 'someone-else'));
     files.set(PATH, record(42, 'busy', 'target'));
-    start({ kind: 'session', sessionId: 'target' });
+    harnessSessionId = 'target';
+    start();
     await step();
     files.set(PATH, record(42, 'idle', 'renamed-by-clear'));
     await step();
     expect(interrupted).toBe(1);
     expect(faults).toEqual([]);
+  });
+
+  it('Windows relaunch: the pty child never writes; its `--resume` child does, under its own pid', async () => {
+    start();
+    await step();
+    files.set('/home/u/.claude/sessions/7.json', record(7, 'busy'));
+    await step();
+    files.set('/home/u/.claude/sessions/7.json', record(7, 'idle'));
+    await step();
+    expect(interrupted).toBe(1);
+    expect(faults).toEqual([]);
+  });
+
+  it('a locked file that goes away (the process was replaced) is looked up again with a fresh grace', async () => {
+    start();
+    await step('busy');
+    await vi.advanceTimersByTimeAsync(PRESENCE_APPEAR_WITHIN_MS);
+    files.delete(PATH);
+    await step();
+    await vi.advanceTimersByTimeAsync(PRESENCE_APPEAR_WITHIN_MS / 2);
+    expect(faults).toEqual([]);
+    files.set('/home/u/.claude/sessions/7.json', record(7, 'busy'));
+    await step();
+    files.set('/home/u/.claude/sessions/7.json', record(7, 'idle'));
+    await step();
+    expect(interrupted).toBe(1);
+    expect(faults).toEqual([]);
+  });
+
+  it('a file left by a dead process with the same session id is not followed', async () => {
+    files.set('/home/u/.claude/sessions/5.json', record(5, 'busy'));
+    dead.add(5);
+    start();
+    await step();
+    files.set('/home/u/.claude/sessions/5.json', record(5, 'idle'));
+    files.set(PATH, record(42, 'busy'));
+    await step();
+    await step('idle');
+    expect(interrupted).toBe(1);
+  });
+
+  it('a fork whose child id has not been reported yet reads nothing, and is a fault once overdue', async () => {
+    harnessSessionId = undefined;
+    files.set(PATH, record(42, 'busy', 'the-fork-source'));
+    start();
+    await vi.advanceTimersByTimeAsync(PRESENCE_APPEAR_WITHIN_MS + 2 * PRESENCE_POLL_MS);
+    expect(faults).toEqual(['the harness has not reported its session id for this spawn']);
+    harnessSessionId = 'fork-child';
+    files.set('/home/u/.claude/sessions/8.json', record(8, 'busy', 'fork-child'));
+    await step();
+    expect(faults.at(-1)).toBeNull();
   });
 });
 
@@ -170,7 +228,7 @@ describe('startPresenceInterrupt', () => {
     capabilities: { hooks: { kind: 'config' as const, scope: 'workspace' as const, supportedEvents: ['stop' as const], presence: { sinceVersion: '2.1.175' } } },
     behavior: { hooks: { presence: claudePresenceFile } },
   };
-  const base = { spawnEnv: { HOME: '/home/u' }, location: { kind: 'pid' as const, pid: 42 }, sessionId: 's1', projectId: 'p1', providerId: 'claude' };
+  const base = { spawnEnv: { HOME: '/home/u' }, harnessSessionId: () => 's-claude', sessionId: 's1', projectId: 'p1', providerId: 'claude' };
   beforeEach(() => {
     mocks.reportStatusSourceFault.mockClear();
     mocks.logError.mockClear();
@@ -186,11 +244,6 @@ describe('startPresenceInterrupt', () => {
     expect(startPresenceInterrupt({ ...base, plugin, harnessVersion: '2.1.150' })).toBeUndefined();
     expect(mocks.logError).toHaveBeenCalledWith(expect.any(String), expect.objectContaining({ harnessVersion: '2.1.150' }));
     expect(mocks.reportStatusSourceFault).toHaveBeenCalledWith(expect.objectContaining({ sessionId: 's1', message: expect.stringMatching(/since 2\.1\.175; this spawn is 2\.1\.150/) }));
-  });
-
-  it('a pid-less pty is marked like a missing version', () => {
-    expect(startPresenceInterrupt({ ...base, plugin, harnessVersion: '2.1.301', location: { kind: 'pid', pid: Number.NaN } })).toBeUndefined();
-    expect(mocks.reportStatusSourceFault).toHaveBeenCalledWith(expect.objectContaining({ message: expect.stringMatching(/no pid/) }));
   });
 
   it('declaring presence without registering a reader is a plugin bug: thrown at spawn', () => {

@@ -1,6 +1,8 @@
 import './browser-user-agent-bootstrap'
 import { registerFileViewerMenus } from './file-viewer-context-menu'
 import { configuredEndpoint } from '@gugu/core/cloud/attachmentsApi'
+import { createDesktopFileAccess } from './desktopFileAccess'
+import { createNativeFileHost, registerNativeFileIpc } from './nativeFileHost'
 import { uploadSessionFiles } from '@gugu/core/local/agent/sessionFileHandoff'
 import { resourceMonitorWindow } from './resource-monitor-window'
 import { linkProjectDevice } from './session/main/core/projects/project-device-link'
@@ -87,8 +89,7 @@ import { createSelectAccountHandler, webAuthnKeychainGroup } from './macWebAuthn
 import {
   cleanupRemoteFileDirectory,
   cleanupStaleRemoteFileDirectories,
-  openBytesInSystemApp,
-  REMOTE_FILE_TTL_MS,
+  trackRemoteFileDirectory,
 } from './remoteFileOpen'
 import {
   changelogUrl,
@@ -444,7 +445,7 @@ import { killAccountTmuxServer } from './server/server-layout'
 import { registerServerSshInstallIpc } from './server/ssh-install/ipc'
 import { registerServerSshUninstallIpc } from './server/ssh-uninstall-ipc'
 import { registerSshLinkIpc } from './server/ssh-link-ipc'
-import { openCloudDeviceRpcPipe, openSshDeviceRpcPipe, type SharedSshLinks } from './device-rpc-requester'
+import { openCloudDeviceRpcPipe, openSshDeviceRpcPipe } from './device-rpc-requester'
 import { createDeviceRpcRequester } from '@gugu/core/cloud/deviceRpcRequester'
 import type { DeviceRpcHandlers } from '@gugu/core/cloud/deviceRpcResponder'
 import { CrossMachineError, createCrossMachineSessions, type CrossMachineSessions } from './cross-machine-sessions'
@@ -465,7 +466,7 @@ import {
   sshTargetOf,
   findSshMachine,
 } from './server/ssh-machines'
-import { setAccountAccessTokenReader } from '@main/core/extensions/account-token'
+import { setAccountAccessTokenReader, setAccountFileResolver } from '@main/core/extensions/account-token'
 import { createLocalDeviceIdResolver, type DeviceHeartbeatTableClient } from '@gugu/core/cloud/deviceRuntime'
 import { createDeviceProjectsPublisher, type DeviceProjectsPublisher } from '@gugu/core/cloud/deviceProjectsPublisher'
 import type { DeviceProjectsRpcClient } from '@gugu/core/cloud/deviceProjects'
@@ -957,6 +958,7 @@ function createDeviceSessionpageBridge() {
   })
   return {
     ...bridge,
+    downloadAttachment: desktopFiles.download,
     fetchLocalSessionDirectInbox: async (agentUserId: string) => {
       // @@@4629 属主解析走认领者注册表 —— ❌ 别退回「查会话页 agent 注册表,查不到再查 local-session」:
       // 那两个是内核角色,promote 把 native 认领者(codex app-server / opencode serve-attach)扶正时正好
@@ -1622,7 +1624,7 @@ function createPrimaryDeviceRpcHandlers(io?: { openTopicPublisher: OpenTopicPubl
   // MessagePreview(#6357)只挂咕咕云频道:它往 realtime topic 推,SSH 设备连接没有这条路。
   const base = bridge.createSessionpageSessionDeviceRpcHandlers(io ? { preview: messagePreviewHostDeps(io) } : undefined)
   // #7199 第二步:别的机器上的 agent 调这台电脑的单个动作(请执行 / 结果收到)。
-  return { ...base, handlers: { ...base.handlers, ...deviceActionsRuntime().rpcHandlers(), ...tunnelRpcHandlers() } }
+  return { ...base, handlers: { ...base.handlers, ...deviceActionsRuntime().rpcHandlers(), ...tunnelRpcHandlers(), ...desktopFiles.handlers(io ? 'realtime' : 'ssh') } }
 }
 
 /**
@@ -1879,6 +1881,7 @@ function startDeviceRuntimeWhenRendererReady(): void {
       supabase,
       createHandlers: (io) => createPrimaryDeviceRpcHandlers(io),
       askerLimits: deviceRpcAskerLimitsFromEnv(process.env),
+      broadcastEvents: { 'files.transfer': () => drainProjectFiles() }, onSubscribed: () => drainProjectFiles(),
     }),
     ...heartbeatRowSources,
     // server 首次注册报的名字(deviceLabelOption):经远程 SSH 装上的报人填的 SSH 别名 / 主机(登录时记在 connect-via.json);
@@ -2124,28 +2127,21 @@ ipcMain.handle('updates:changelog', async (): Promise<unknown> => {
 ipcMain.handle('app:get-version', () => app.getVersion())
 const remoteFileTempRoot = join(app.getPath('userData'), 'cache', 'remote-files')
 const remoteFileOpenDirectories = new Set<string>()
-
-ipcMain.handle('file:open-bytes', async (_event, input: unknown) => {
-  const value = (input ?? {}) as { bytes?: unknown; filename?: unknown }
-  if (!(value.bytes instanceof Uint8Array)) throw new Error('file:open-bytes needs bytes')
-  const filename = requiredIpcString(value.filename, 'filename')
-  await openBytesInSystemApp({ bytes: value.bytes, filename }, {
-    tempRoot: remoteFileTempRoot,
-    openPath: (path) => {
-      // Register complete bytes before launching: failed opens keep the cache and still need cleanup.
-      const directory = dirname(path)
-      if (!remoteFileOpenDirectories.has(directory)) {
-        remoteFileOpenDirectories.add(directory)
-        const cleanupTimer = setTimeout(() => {
-          remoteFileOpenDirectories.delete(directory)
-          void cleanupRemoteFileDirectory(directory)
-        }, REMOTE_FILE_TTL_MS)
-        cleanupTimer.unref()
-      }
-      return shell.openPath(path)
-    },
-  })
+const desktopFiles = createDesktopFileAccess({ auth: () => desktopAuthProvider().getAuth(), tempRoot: remoteFileTempRoot,
+  rpc: async (name, args) => { const auth = await desktopAuthProvider().getAuth(); if (!auth) throw new Error('File reader is not signed in'); const { data, error } = await makeChatClient(auth.accessToken).rpc(name, args); if (error) throw error; return data },
+  downloads: join(resolveGuguHome(process.env), 'attachments'), fetch: electronFetch, links: () => sshLinks,
+  root: async projectId => { const bridge = loadEmdashBridge(); if (!bridge) throw new Error('Project registry is unavailable'); return bridge.emdashProjectRoot(projectId) },
 })
+function drainProjectFiles() { void desktopFiles.drain().catch(error => createLogger('files').warn({ error: String(error) }, 'Project transfer reconciliation failed')) }
+const nativeFiles = createNativeFileHost({ root: remoteFileTempRoot,
+  owner: async () => (await desktopAuthProvider().getAuth())?.userId ?? null,
+  alive: scope => !!webContents.fromId(scope) && !webContents.fromId(scope)!.isDestroyed(),
+  local: desktopFiles.providers.local, ssh: desktopFiles.providers.ssh, publish: (chat, file, actor, message) => desktopFiles.publish(chat, file, null, actor, undefined, message), publication: desktopFiles.publish.local,
+  openPath: path => shell.openPath(path), published: directory => trackRemoteFileDirectory(remoteFileOpenDirectories, directory),
+})
+registerNativeFileIpc(ipcMain, nativeFiles, error => createLogger('files').warn({ error: String(error) }, 'Native file operation failed'))
+app.on('will-quit', () => { void nativeFiles.drop().catch(error => createLogger('files').warn({ error: String(error) }, 'File handle cleanup failed')) })
+
 // @@@payment-window (#1907) - 支付在专用 BrowserWindow 原生 POST 落地,主窗不再被支付页顶掉。
 // @@@local-runtime-open - Opening a terminal window is strictly local, so it bypasses cloud device commands.
 ipcMain.handle('agent-runtime:open', (_event, agentUserId: unknown) => openAgentRuntime(agentUserId))
@@ -2193,6 +2189,7 @@ setAccountAccessTokenReader(async () => {
   const auth = await provider.getAuth()
   return auth?.accessToken ?? null
 })
+setAccountFileResolver(desktopFiles.resolveAccount, desktopFiles.publish)
 
 // #7337 设置页「用模型给会话起名」的候选:这个账号能在 Chat Completions 上用的在售平台模型(起名走的就是这条协议)。
 ipcMain.handle(SESSION_TITLE_MODELS_CHANNEL, async () => {
@@ -2296,6 +2293,7 @@ ipcMain.handle('notifications:show', (_event, params: unknown) => showAppNotific
 // #5906 —— 登录态的变化是**事件**,设备 runtime 靠它当场重新确立 owner 边界 / 订上命令 wake / 登出时撤订阅。
 // 宿主不再有 2 秒一轮的 tick 去「碰巧发现」登录了;不通知的话,要等一个对账周期(30 s)设备才跟上。
 function onHumanAuthSessionChanged(): void {
+  void nativeFiles.ownerChanged(typeof pushedHumanAuth === 'object' ? pushedHumanAuth?.userId ?? null : null).catch(error => createLogger('files').warn({ error: String(error) }, 'File handle cleanup failed'))
   void refreshElectronSupabaseAuth().catch((error: unknown) => {
     createLogger('device-runtime/auth').warn({ error: String(error) }, 'Realtime account auth update failed')
   })
@@ -2520,7 +2518,7 @@ const updateFeedConfig = updateFeedOptions(updateChannel, process.platform)
 // #6264「别的机器上的编程只给用 SSH 装上的机器」:这台桌面上用 SSH 装上的机器(本机映射,不上云)。
 const sshMachineStore = SERVER_MODE ? null : createSshMachineStore(defaultSshMachinesFile(app.getPath('userData')))
 // 这台桌面到远程 SSH 机器的设备连接,一台机器一条:窗口(经 ssh-link-ipc)与主进程(agent 的 session_* 跨机器)共用。
-let sshLinks: SharedSshLinks | null = null
+let sshLinks: ReturnType<typeof registerSshLinkIpc> | null = null
 // 远程隧道:经中转连到「只经咕咕云连着」的机器(server/tunnel-machines.ts),连通了就与远程 SSH 的机器同一套。
 let tunnelMachines: TunnelMachines | null = null
 // 收掉这台电脑上每条远程隧道(frpc 访问端 + ssh 共享连接)与问 tunnel.open 的频道;同步,停机两条路都调它。
@@ -4643,6 +4641,7 @@ app.whenReady().then(async () => {
           ? emdash.runRemoteSessionAction(caller, action as never, signal)
           : emdash.runEmdashExtensionAction(appInstallFrom(caller.deviceId, action)),
         app: (caller, action) => emdash.answerAppMessage(caller, action),
+        appSpawn: (caller, action) => emdash.spawnAgentForExtension({ extensionId: caller.extensionId, extensionName: caller.extensionName, prompt: action.prompt, ...action.spawn }),
         appReadFile: (caller, action) => emdash.answerAppReadFile(caller, action),
         appCall: (caller, action) => emdash.answerAppCall(caller, action),
       })
@@ -5057,6 +5056,7 @@ app.whenReady().then(async () => {
             },
             socialBridgeDeps: {
               host: primaryGuguMcpHost,
+              resolveFile: desktopFiles.resolve,
               // grant key 用**分叉自己**的会话 id:它必须是独立一格,否则会顶掉来源会话的 grant。
               grantKey: sessionpageSurfaceKey(info.sessionId),
               runHostAction: runAction,
@@ -5338,6 +5338,7 @@ app.whenReady().then(async () => {
           model: sessionBundleModelFor(info.providerId, 'acp', processConfigPlatform),
           socialBridgeDeps: {
             host: primaryGuguMcpHost,
+            resolveFile: desktopFiles.resolve,
             grantKey: sessionpageSurfaceKey(info.sessionId),
             ...(assistantRole ? { personalAssistant: true as const, assistantWork: {
               ...assistantWorkBinding(persistedSessionId, info.cwd, SERVER_MODE ? 'cloud' : 'computer', provisioned.guguAgentUserId),
