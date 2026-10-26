@@ -708,6 +708,13 @@ export default {
     "title": "能力与连接"
   },
   "connectors": {
+    "savedCount": "已添加 {{count}} 个",
+    "connectedCount": "已连接 {{count}} 个",
+    "deviceCount": "{{count}} 台设备",
+    "readWritePurpose": "让它读写{{app}}",
+    "chatPurpose": "在{{app}}里找到它",
+    "chatDescription": "和咕咕聊天",
+    "chatUnavailable": "此应用暂未开放聊天连接",
     "unverified": "尚未验证",
     "prepareFailed": "暂时无法完成授权准备。",
     "authorizationUnavailable": "暂时无法使用授权所需的云端服务。",

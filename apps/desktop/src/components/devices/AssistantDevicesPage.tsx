@@ -22,7 +22,7 @@ import { withoutAssistantHome } from '../../lib/assistantHome'
 import { ChevronLeft, ChevronRight, Monitor, Server } from '@/lib/icons'
 import { Button } from '../ui/Button'
 import { Chip } from '../ui/Chip'
-import { DeviceActionsPage } from '../settings/DeviceActionsPage'
+import { DeviceActionsPage, ThisDeviceActions } from '../settings/DeviceActionsPage'
 import { useThisDeviceState } from '../../hooks/useThisDeviceActions'
 import { SettingsGroup, SettingsPage, SettingsRow } from '../settings/SettingsPrimitives'
 import { PhoneDeviceActionsPage } from '../../mobile/phone-device/PhoneDeviceActionsPage'
@@ -31,7 +31,8 @@ import { PhoneGlyph } from './assistantDeviceUi'
 import { useDeviceActionGroupText } from '../settings/deviceActionGroupText'
 import { platform } from '../../platform'
 
-export function AssistantDevicesPage({ cloudDeviceId, openedDeviceId, onOpenDevice }: {
+export function AssistantDevicesPage({ cloudDeviceId, openedDeviceId, onOpenDevice, panelNavigation = false }: {
+  panelNavigation?: boolean
   cloudDeviceId: string | null
   openedDeviceId?: string | null
   onOpenDevice?: (id: string | null) => void
@@ -43,6 +44,8 @@ export function AssistantDevicesPage({ cloudDeviceId, openedDeviceId, onOpenDevi
   const cloudId = cloudDeviceId ?? snapshot?.deviceId ?? null
   const all = useMemo(() => sortAssistantDevices(withoutAssistantHome([...devices, ...(phones ?? [])], cloudId)), [devices, phones, cloudId])
   const thisPhone = platform.kind === 'capacitor'
+  const thisComputer = platform.kind === 'electron'
+  const currentComputer = all.find(device => device.is_current_device && !isPhoneDevice(device))
   const currentPhone = all.find(device => device.is_current_device && isPhoneDevice(device))
   const { state: thisActions } = useThisDeviceState()
   const [localOpen, setLocalOpen] = useState<string | null>(null)
@@ -65,7 +68,8 @@ export function AssistantDevicesPage({ cloudDeviceId, openedDeviceId, onOpenDevi
       </SettingsPage>
     )
   }
-  if (opened) return <DeviceActionsPage device={opened} isThisDevice={opened.is_current_device === true} embedded={!!onOpenDevice} onBack={onOpenDevice ? undefined : () => setOpen(null)} />
+  if (thisComputer && open === 'this-computer') return <ThisDeviceActions panelNavigation={panelNavigation} onBack={() => setOpen(null)} />
+  if (opened) return <DeviceActionsPage panelNavigation={panelNavigation} device={opened} isThisDevice={opened.is_current_device === true} embedded={!!onOpenDevice} onBack={onOpenDevice ? undefined : () => setOpen(null)} />
 
   const groupNames = (groups: readonly string[]) => groups.map((g) => groupText.name(g)).join('、')
   /** 这台开了哪几项;没登记动作清单(老版本、Windows / Linux 上的咕咕)= null,这一行就不说、也不能点。 */
@@ -84,12 +88,16 @@ export function AssistantDevicesPage({ cloudDeviceId, openedDeviceId, onOpenDevi
   return (
     <SettingsPage data-testid="assistant-devices">
       <SettingsGroup>
+        {thisComputer && <SettingsRow data-testid="assistant-device-this-computer" leading={<Monitor size={18} />}
+          title={<span className="flex min-w-0 items-center gap-2"><span className="truncate">{currentComputer?.label ?? t('devices.deviceActions.thisTitle')}</span><Chip tone="accent">{t('devices.current')}</Chip></span>}
+          description={currentComputer ? grants(currentComputer) : undefined} control={<ChevronRight size={16} />}
+          onClick={() => setOpen('this-computer')} />}
         {thisPhone && <SettingsRow data-testid="assistant-device-this-phone" leading={<PhoneGlyph />}
           title={<span className="flex items-center gap-2">{currentPhone?.label ?? t('devices.assistantPage.phoneTitle')}<Chip tone="accent">{t('devices.current')}</Chip></span>}
           control={<ChevronRight size={16} />}
           onClick={() => setOpen('this-phone')} />}
-        {!thisPhone && all.length === 0 && <SettingsRow description={t('devices.assistantPage.empty')} />}
-        {all.filter(device => !(thisPhone && device.is_current_device && isPhoneDevice(device))).map((device) => {
+        {!thisPhone && !thisComputer && all.length === 0 && <SettingsRow description={t('devices.assistantPage.empty')} />}
+        {all.filter(device => !(thisPhone && device.is_current_device && isPhoneDevice(device)) && !(thisComputer && device.is_current_device && !isPhoneDevice(device))).map((device) => {
           const kind = deviceKind(device, cloudId)
           const summary = isPhoneDevice(device) ? null : grants(device)
           return (

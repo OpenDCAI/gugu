@@ -6,7 +6,7 @@ import type { PhoneAgentHostState } from '../../../../apps/desktop/src/mobile/lo
 import type { PhoneOsState } from '../../../../apps/desktop/src/mobile/phone-device/phoneActionCatalog'
 
 const mocks = vi.hoisted(() => ({
-  kind: 'capacitor', permissions: ['notifications', 'batteryOptimization', 'camera'], host: null as PhoneAgentHostState | null,
+  kind: 'capacitor', permissions: ['notifications', 'batteryOptimization', 'camera', 'microphone'], host: null as PhoneAgentHostState | null,
   owner: 'setup-owner', installKey: 'native-install-a', available: true, restartHost: vi.fn(),
   runtimeRequest: vi.fn(), dataRequest: vi.fn(), healthRequest: vi.fn(), nativeSettings: vi.fn(),
   check: vi.fn(), request: vi.fn(), settings: vi.fn(), foreground: [] as Array<() => void>, os: null as PhoneOsState | null, refresh: vi.fn(),
@@ -54,7 +54,7 @@ async function renderGate(ownerId = mocks.owner) {
   return h
 }
 beforeEach(() => {
-  vi.clearAllMocks(); localStorage.clear(); mocks.kind = 'capacitor'; mocks.permissions.splice(0, mocks.permissions.length, 'notifications', 'batteryOptimization', 'camera')
+  vi.clearAllMocks(); localStorage.clear(); mocks.kind = 'capacitor'; mocks.permissions.splice(0, mocks.permissions.length, 'notifications', 'batteryOptimization', 'camera', 'microphone')
   mocks.host = null; mocks.owner = `setup-owner-${++ownerSequence}`; mocks.installKey = 'native-install-a'; mocks.available = true; mocks.os = osState(); mocks.foreground = []
   mocks.check.mockReset().mockResolvedValue('prompt'); mocks.request.mockReset().mockResolvedValue('blocked'); mocks.settings.mockReset().mockResolvedValue(true)
   mocks.runtimeRequest.mockReset().mockResolvedValue({}); mocks.nativeSettings.mockReset().mockResolvedValue(undefined); mocks.dataRequest.mockReset().mockResolvedValue({}); mocks.refresh.mockReset().mockResolvedValue(undefined)
@@ -112,11 +112,11 @@ describe('single phone permissions destination', () => {
 })
 
 describe('phone permission actions and real Android state', () => {
-  it('lists three system permissions and ten distinct phone capability permissions, without changing consent on mount', async () => {
+  it('lists four system permissions and ten distinct phone capability permissions, without changing consent on mount', async () => {
     await render()
     for (const row of PHONE_PERMISSION_ROWS) expect(byId(`phone-device-group-${row.id}`)?.textContent).toContain(row.purpose)
     for (const p of mocks.permissions) expect(byId(`phone-device-system-${p}`)).not.toBeNull()
-    expect(byId('phone-permissions-list')?.querySelectorAll('[role="button"]')).toHaveLength(13)
+    expect(byId('phone-permissions-list')?.querySelectorAll('[role="button"]')).toHaveLength(14)
     expect(byId('phone-permissions-list')?.textContent).toContain('这台手机上的任务 Agent 能用')
     expect(readPhoneDeviceSettings(mocks.owner)).toMatchObject({ enabled: false, hostEnabled: false })
     expect(mocks.runtimeRequest).not.toHaveBeenCalled(); expect(mocks.dataRequest).not.toHaveBeenCalled(); expect(mocks.nativeSettings).not.toHaveBeenCalled()
@@ -164,6 +164,13 @@ describe('phone permission actions and real Android state', () => {
     expect(byId('phone-device-group-contacts')?.textContent).toContain('未开启')
     expect(byId('phone-device-system-camera')?.textContent).toContain('已开启')
     expect(mocks.request).toHaveBeenCalledTimes(1)
+  })
+  it('requests microphone from its own row without changing existing-recording consent', async () => {
+    await render(); expect(mocks.request).not.toHaveBeenCalled()
+    await clickElement(byId('phone-device-system-microphone')!)
+    expect(mocks.request).toHaveBeenCalledExactlyOnceWith('microphone')
+    expect(readPhoneDeviceSettings(mocks.owner).groups.recordings).toBe(false)
+    expect(mocks.dataRequest).not.toHaveBeenCalled()
   })
   it('keeps unreadable rows visible and reports one combined failure', async () => {
     mocks.refresh.mockRejectedValue(new Error('read failed')); mocks.check.mockRejectedValue(new Error('system failed')); await render()

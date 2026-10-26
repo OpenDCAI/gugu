@@ -946,3 +946,5 @@ textarea.ta-input { min-height: 80px; resize: vertical; line-height: 1.5; }
 .ta-row.ta-row-split { padding: 0; }
 .ta-row-main { display: flex; flex: 1; min-width: 0; align-items: center; gap: var(--spacing-md); padding: var(--ta-pad-row-y) var(--ta-pad-row-x); border: 0; background: transparent; color: inherit; font: inherit; text-align: left; cursor: pointer; }
 .ta-row-split > .ta-row-meta { padding-inline-end: var(--ta-pad-row-x); }
+
+.ta-skin .ta-application-row .gg-settings-row-description { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }

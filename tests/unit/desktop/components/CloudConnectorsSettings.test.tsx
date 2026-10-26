@@ -9,6 +9,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { clickElement, createNode, createReactHarness } from '../../../support/testHarness'
 import '../../../../apps/desktop/src/i18n/registerAssistantCatalog'
 
+vi.mock('@/components/settings/channels/useChatChannels', () => ({ useChatChannels: () => ({ client: null, list: null, status: 'not_open', error: '', refresh: async () => {}, apply: () => {} }) }))
 vi.mock('@/lib/assistantPanelBridge',() => ({ useAssistantPanelAccountId: () => 'owner',requireAssistantPanelBridge: () => { throw new Error('Unexpected identity lookup') } }))
 vi.mock('@/components/assistant/assistant-panel-files',() => ({ ASSISTANT_PANEL_CHANGED: 'panel-changed',useCloudAssistantFiles: () => ({ panel: { ownerId: 'owner',assistantId: 'a1' } }) }))
 vi.mock('../../../../apps/desktop/src/session/renderer/features/assistant/assistant-shell',() => ({ useAssistantShell: () => ({ assistant: { id: 'a1' },chatId: 'dm' }) }))
@@ -35,8 +36,9 @@ vi.mock('../../../../apps/desktop/src/session/renderer/features/remote-hosts/rem
 }))
 const showSetup = vi.hoisted(() => vi.fn())
 const showGitHub = vi.hoisted(() => vi.fn())
+const showConfirm = vi.hoisted(() => vi.fn())
 vi.mock('../../../../apps/desktop/src/session/renderer/lib/modal/modal-provider', () => ({
-  useShowModal: (name: string) => (name === 'githubConnectModal' ? showGitHub : showSetup),
+  useShowModal: (name: string) => (name === 'githubConnectModal' ? showGitHub : name === 'confirmActionModal' ? showConfirm : showSetup),
 }))
 
 const { CloudConnectorsSettings, HomeConnectorsSettings } = await import('../../../../apps/desktop/src/session/renderer/features/assistant/assistant-connectors-settings')
@@ -70,7 +72,7 @@ beforeEach(() => {
   queryClient = new QueryClient({ defaultOptions: { queries: { retry: false,gcTime: 0 } } })
   remoteState.device = observable({ isOnline: true, lastSeenAt: null, hostKind: 'cloud' })
 })
-afterEach(() => { harness.cleanup(); showSetup.mockClear(); showGitHub.mockClear() })
+afterEach(() => { harness.cleanup(); showSetup.mockClear(); showGitHub.mockClear(); showConfirm.mockClear() })
 const q = (id: string) => harness.container.querySelector<HTMLElement>(`[data-testid="${id}"]`)
 const render = () => renderNode(createNode(CloudConnectorsSettings, { cloudDeviceId: 'cloud-1', assistantName: '小咕' }))
 
@@ -91,8 +93,8 @@ describe('咕咕 · 连接应用 · 云端', () => {
     const connected = q('assistant-connectors-connected')!
     const available = q('assistant-connectors-available')!
     expect([...connected.querySelectorAll('.gg-settings-row-title')].map((el) => el.textContent)).toEqual(['飞书'])
-    expect(connected.textContent).toContain('示例用户')
-    expect([...available.querySelectorAll('.gg-settings-row-title')].map((el) => el.textContent)).toEqual(['GitHub', 'Notion'])
+    expect(connected.textContent).toContain('日程与文档')
+    expect([...available.querySelectorAll('.gg-settings-row-title')].map((el) => el.textContent)).toEqual(['GitHub', 'Notion', '微信'])
   })
 
   it('点一行进详情:没连的主按钮是「连接」,GitHub 走它自己的弹窗,其余走通用设置弹窗;「连接应用」回列表', async () => {
@@ -119,19 +121,21 @@ describe('咕咕 · 连接应用 · 云端', () => {
     expect(q('assistant-connector-connect')!.textContent).toBe('管理连接')
   })
 
-  it('列表直接连接,不经过详情页', async () => {
+  it('每行只有一个详情入口，不再逐行放连接按钮或未连接状态', async () => {
     integrations.value = state()
     await render()
-    await clickElement(q('assistant-connect-notion')!)
-    expect(showSetup).toHaveBeenCalledWith(expect.objectContaining({ integration: 'notion' }))
-    expect(q('assistant-connector-detail')).toBeNull()
+    expect(q('assistant-connect-notion')).toBeNull()
+    expect(q('assistant-connector-notion')!.querySelectorAll('button')).toHaveLength(0)
+    expect(q('assistant-connector-notion')!.textContent).not.toContain('未连接')
+    await clickElement(q('assistant-connector-notion')!)
+    expect(q('assistant-connector-detail')).not.toBeNull()
   })
 
   it('授权失效与网络检查失败分开处理,检查失败只重查', async () => {
     integrations.value = state({ checkedConnections: { feishu: { connected: false, errorType: 'authorization_expired' } } })
     await render()
     expect(q('assistant-connector-feishu')!.textContent).toContain('需要重新授权')
-    expect(q('assistant-connect-feishu')!.textContent).toBe('重新连接')
+    expect(q('assistant-connect-feishu')).toBeNull()
     const reloadConnections = vi.fn()
     integrations.value = state({ connectionCheckError: new Error('offline'), reloadConnections })
     await render()
@@ -191,4 +195,19 @@ it('ends an unresolved initial application read after fifteen seconds',async () 
     await act(async()=>{await vi.advanceTimersByTimeAsync(15_001)})
     expect(harness.container.textContent).toContain('这部分内容暂时读不出来')
   } finally { vi.useRealTimers() }
+})
+
+it('disconnects only the data purpose after confirmation, leaving chat management independent', async () => {
+  const disconnectIntegration = vi.fn(async () => ({ success: true }))
+  integrations.value = state({ disconnectIntegration })
+  await render()
+  await clickElement(q('assistant-connector-feishu')!)
+  expect(q('assistant-app-chat-feishu')).toBeNull()
+  expect(harness.container.textContent).toContain('让它读写飞书')
+  expect(harness.container.textContent).not.toContain('此应用暂未开放聊天连接')
+  await clickElement(q('assistant-connector-disconnect')!)
+  expect(disconnectIntegration).not.toHaveBeenCalled()
+  await act(async () => { showConfirm.mock.calls[0]![0].onSuccess() })
+  expect(disconnectIntegration).toHaveBeenCalledWith('feishu')
+  expect(q('assistant-app-chat-feishu')).toBeNull()
 })

@@ -12,6 +12,7 @@ import { SettingsGroup, SettingsNote, SettingsPage, SettingsRow } from './Settin
 import { platform } from '@/platform'
 import { useAuth } from '@/store/auth'
 import { PhonePermissionsList } from '@/mobile/phone-device/PhonePermissionsList'
+import { ThisDeviceActions } from './DeviceActionsPage'
 
 /**
  * 「我的 → 权限」(product spec)。
@@ -68,8 +69,8 @@ function SystemPermissionsSection() {
     }
   }
 
-  return (
-    <SettingsPage data-testid="settings-permissions">
+  const systemPermissions = (
+    <>
       <SettingsNote>{t('settings.permissions.intro')}</SettingsNote>
       <SettingsGroup
         footer={(
@@ -108,6 +109,9 @@ function SystemPermissionsSection() {
           )
         })}
       </SettingsGroup>
-    </SettingsPage>
+    </>
   )
+  return platform.kind === 'electron'
+    ? <div data-testid="settings-permissions"><ThisDeviceActions bare managePermissions backLabel={t('settings.nav.permissions')}>{systemPermissions}</ThisDeviceActions></div>
+    : <SettingsPage data-testid="settings-permissions">{systemPermissions}</SettingsPage>
 }

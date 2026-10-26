@@ -51,7 +51,7 @@ export interface IncomingShare {
 }
 
 /** 手机「权限」页列出的系统权限。只列咕咕真用到、要用户点头的(product spec)。 */
-export type SystemPermission = 'notifications' | 'camera' | 'fileAccess' | 'batteryOptimization'
+export type SystemPermission = 'notifications' | 'camera' | 'fileAccess' | 'batteryOptimization' | 'microphone'
 
 /**
  * 系统当下给的真值,按「点这一行该做什么」切成四档:

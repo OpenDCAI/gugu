@@ -7,7 +7,9 @@ import { homeTarget } from './assistant-home-sessions';
 import { rendererLogger } from '@/lib/log';
 import { PanelRight } from 'lucide-react';
 import { observer } from 'mobx-react-lite';
-import { useEffect, useState, useSyncExternalStore, type ReactNode } from 'react';
+import { useEffect, useRef, useState, useSyncExternalStore, type ReactNode } from 'react';
+import { useAssistantPanelPage } from '@/lib/assistantPanelPage';
+import { usePanelScroll } from './use-panel-scroll';
 import { useTranslation } from 'react-i18next';
 import { Avatar } from '@/components/Avatar';
 import { ChevronLeft, Search, Settings } from '@/lib/icons';
@@ -256,6 +258,9 @@ function AssistantPanel({ context, onCollapse }: { context: AssistantContext; on
   const taskChat = opened?.request.assistantId === context.assistant.id && context.route.tab === 'tasks';
   const { route, go } = context;
   const back = parentRoute(route);
+  const innerPage = useAssistantPanelPage();
+  const body = useRef<HTMLDivElement>(null);
+  const attachBody = usePanelScroll(body, `${route.tab}:${route.sub ?? ''}:${innerPage?.key ?? ''}`);
   const labels: Record<PanelTab, string> = {
     today: t('nav.today'),
     tasks: t('nav.tasks'),
@@ -266,8 +271,8 @@ function AssistantPanel({ context, onCollapse }: { context: AssistantContext; on
   return (
     <section className="ta-panel" data-testid={`assistant-page-${route.tab}`} data-sub={route.sub ?? ''}>
       <div className="ta-panel-top" hidden={taskChat}>
-        {back ? (
-          <button type="button" className="ta-circle ta-panel-back" aria-label={t('panel.back')} title={t('panel.back')} onClick={() => go(back)} data-testid="assistant-back">
+        {innerPage || back ? (
+          <button type="button" className="ta-circle ta-panel-back" aria-label={t('panel.back')} title={t('panel.back')} onClick={() => innerPage ? innerPage.back() : back && go(back)} data-testid="assistant-back">
             <ChevronLeft />
           </button>
         ) : null}
@@ -282,7 +287,7 @@ function AssistantPanel({ context, onCollapse }: { context: AssistantContext; on
           <PanelRight />
         </button>
       </div>
-      <div className="ta-panel-body" hidden={taskChat}>
+      <div className="ta-panel-body" hidden={taskChat} ref={attachBody}>
         <Page context={context} />
       </div>
       {taskChat ? <ShellSlot name="task-chat" className="ta-task-chat-slot" /> : null}

@@ -6,12 +6,13 @@ import { useEffect, useLayoutEffect, useRef, useState, type ReactNode } from 're
 import { useTranslation } from 'react-i18next'
 import { formatClock } from '@gugu/core/shared/voiceNotes'
 import { useToast } from '@/components/toastContext'
+import { openPhonePermissions } from '../phone-device/phonePermissionsNavigation'
 import { Button } from '@/components/ui/Button'
 import { ChevronRight, Pause, Play, RefreshCw, Square, X } from '@/lib/icons'
 import type { PhoneRoute } from './MobileAssistantApp'
 import { PhoneConfirmDialog } from './PhoneConfirmDialog'
 import type { VoiceJobView } from './phoneVoiceJobs'
-import { openMicrophoneSettings, phoneVoiceJobs, phoneVoiceRecorder, useRecorder, useVoiceJobs, type PhoneVoice } from './phoneVoiceRuntime'
+import { phoneVoiceJobs, phoneVoiceRecorder, useRecorder, useVoiceJobs, type PhoneVoice } from './phoneVoiceRuntime'
 import { voiceFailureText } from './phoneVoiceNotesData'
 
 
@@ -175,8 +176,8 @@ export function PhoneVoiceBar({
           {t('mic.deniedPhone')}
         </span>
         <div className="vn-bar-actions">
-          <Button variant="ghost" className="vn-bar-text-btn" onClick={() => void openMicrophoneSettings()} data-testid="phone-voice-bar-settings">
-            {t('mic.openSettings')}
+          <Button variant="ghost" className="vn-bar-text-btn" onClick={openPhonePermissions} data-testid="phone-voice-bar-settings">
+            {t('mic.permissions')}
           </Button>
           <Button variant="ghost" className="vn-bar-btn" aria-label={t('bar.close')} title={t('bar.close')} onClick={voice.clearMicDenied}>
             <X />

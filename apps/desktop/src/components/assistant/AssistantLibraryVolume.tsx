@@ -20,6 +20,7 @@ import { onMachineEvent as onRuntimeMachineEvent } from '../../session/renderer/
 import { assistantPanelFailure } from './assistant-panel-errors'
 import { onMachineEvent } from '../../mobile/agent-watch/sessionpage-rpc'
 import { assistantPanelLibrary } from './assistant-panel-library'
+import { useAssistantPanelBack } from '../../lib/assistantPanelPage'
 
 function useLibraryNotifications(machine: LibraryProps['machine'], kind: UserLibraryKind, refresh: () => unknown) {
   useEffect(() => {
@@ -69,6 +70,8 @@ function FileLibraryVolume({ machine, assistantId, kind, askInChat }: Omit<Libra
   const { t } = useTranslation('assistant')
   const [selected, setSelected] = useState<string | null>(null)
   const [editing, setEditing] = useState<UserLibraryEntry | 'new' | null>(null)
+  const panelNavigation = platform.kind === 'electron'
+  useAssistantPanelBack(panelNavigation && (editing || selected) ? `library:${kind}:${editing ? 'edit' : selected}` : null, () => editing ? setEditing(null) : setSelected(null))
   const read = usePhoneRead(sourceKey(machine, kind, assistantId), () => readVolume(machine, kind), 'read Gugu library')
   const entry = usePhoneRead(machine && selected ? `${sourceKey(machine, kind, assistantId)}|${selected}` : null,
     () => machine?.panel ? assistantPanelLibrary(machine.panel).entry(kind,selected!) : libraryHost(machine)!.readUserLibraryEntry(kind, selected!), 'read Gugu library entry')
@@ -87,8 +90,8 @@ function FileLibraryVolume({ machine, assistantId, kind, askInChat }: Omit<Libra
   if (editing) return <AssistantLibraryEditor machine={machine} assistantId={assistantId} kind={kind} entry={editing === 'new' ? null : editing}
     onClose={() => setEditing(null)} onSaved={() => { setEditing(null); setSelected(null); read.reload() }} />
   return <div className="ta-page" data-testid={`assistant-library-page-${kind}`}>
-    <PageHead title={title} action={machine && <Button variant="ghost" className="ta-pill-btn" disabled={read.state !== 'ok'} onClick={() => setEditing(opened || 'new')}>{t(opened ? 'library.edit' : 'library.add')}</Button>} />
-    {selected && <Button variant="ghost" className="ta-pill-btn self-start" onClick={() => setSelected(null)}>{t('library.backToIndex')}</Button>}
+    <PageHead title={opened?.name ?? title} action={machine && <Button variant="ghost" className="ta-pill-btn" disabled={read.state !== 'ok'} onClick={() => setEditing(opened || 'new')}>{t(opened ? 'library.edit' : 'library.add')}</Button>} />
+    {selected && !panelNavigation && <Button variant="ghost" className="ta-pill-btn self-start" onClick={() => setSelected(null)}>{t('library.backToIndex')}</Button>}
     {!selected && kind === 'devices' && (platform.capabilities.agentRuntime ? <ShellSlot name="devices" className="ta-skin" /> : <AssistantDevicesPage cloudDeviceId={null} />)}
     {!selected && <AssistantRow title={t('library.organize')} onClick={() => askInChat(t('library.setupPrompt', { kind: title }))} />}
     {failed ? <AssistantEmpty><span role="alert">{assistantPanelFailure(selected && entry.state === 'error' ? entry.error : read.state === 'error' ? read.error : null,t)}</span></AssistantEmpty>

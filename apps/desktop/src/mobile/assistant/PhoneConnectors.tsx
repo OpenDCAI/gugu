@@ -19,7 +19,12 @@ import {
   formatDay,
   setupPlanOf,
 } from './phoneConnectorFlow'
-import { connectorDetail, connectorGroups } from './phoneProfileModel'
+import { connectorDetail } from './phoneProfileModel'
+import { connectorOrder } from '@/session/renderer/features/assistant/assistant-connector-order'
+import { assistantConnectedApps, chatAppConnected, chatKindForApp, type AssistantConnectedApp } from '@/components/assistant/assistant-app-connections'
+import { useChatChannels } from '@/components/settings/channels/useChatChannels'
+import { ChannelAppConnection } from '@/components/settings/channels/ChannelAppConnection'
+import { ChannelBrandIcon } from '@/components/settings/channels/ChannelBrandIcon'
 import { usePhoneConnectorAccounts, type ConnectorAccountRow } from './usePhoneConnectorAccounts'
 import { usePhoneIntegrationDetail,type PhoneIntegrations,type usePhoneIntegrations } from './usePhoneProfileData'
 import './phone-connector.css'
@@ -65,45 +70,24 @@ export function ConnectorIcon({ integration, size }: { integration: IntegrationM
 
 function ConnectorLists({ data, open }: { data: PhoneIntegrations; open: (id: string) => void }) {
   const { t, i18n } = useTranslation('assistant')
-  const { connected, available } = connectorGroups(data.items, data.configured, data.statuses, i18n.language)
-  const verified = connected.filter(({ item }) => connectorState(true, data.statuses?.[item.id], data.statusError, true) === 'connected')
-  const saved = connected.filter(({ item }) => connectorState(true, data.statuses?.[item.id], data.statusError, true) !== 'connected')
-  const row = ({ item, detail }: { item: IntegrationMetadata; detail: string }) => {
-    const configured = !!data.configured[item.id]
-    const state = connectorState(configured, data.statuses?.[item.id], data.statusError,true)
-    return (
-        <AssistantRow
-          key={item.id}
-          testId={`assistant-connector-${item.id}`}
-          leading={<ConnectorIcon integration={item} size={32} />}
-          title={item.name}
-          detail={detail || <span aria-hidden="true">&nbsp;</span>}
-          detailLines={1}
-          trailing={configured && state !== 'connected' ? <span className={state === 'needsReauth' || state === 'checkFailed' ? 'ta-phone-warn' : undefined}>{t(`connectors.${state}`)}</span> : undefined}
-          chevron={!configured || state === 'connected'}
-          onClick={() => open(item.id)}
-        />
-    )
-  }
-  return (
-    <>
-      {verified.length ? (
-        <AssistantSection title={t('connectors.connected')} testId="assistant-connectors-connected">
-          {verified.map(row)}
-        </AssistantSection>
-      ) : null}
-      {saved.length ? (
-        <AssistantSection title={t('connectors.savedGroup')} testId="assistant-connectors-saved">
-          {saved.map(row)}
-        </AssistantSection>
-      ) : null}
-      {available.length ? (
-        <AssistantSection title={t('connectors.availableGroup')} testId="assistant-connectors-available">
-          {available.map(row)}
-        </AssistantSection>
-      ) : null}
-    </>
-  )
+  const settings = useTranslation('settings').t
+  const chats = useChatChannels()
+  const apps = assistantConnectedApps(connectorOrder(data.items, i18n.language), chats.list, kind => settings(`channels.${kind}`), t('connectors.chatDescription'))
+  const stateFor = (app: AssistantConnectedApp) => connectorState(!!data.configured[app.id], data.statuses?.[app.id], data.statusError, true)
+  const connected = (app: AssistantConnectedApp) => chatAppConnected(app) || !!app.integration && stateFor(app) === 'connected'
+  const saved = (app: AssistantConnectedApp) => !!data.configured[app.id] || !!app.channel
+  const groups = [
+    { key: 'connected', title: t('connectors.connected'), items: apps.filter(connected) },
+    { key: 'saved', title: t('connectors.savedGroup'), items: apps.filter(app => !connected(app) && saved(app)) },
+    { key: 'available', title: t('connectors.availableGroup'), items: apps.filter(app => !connected(app) && !saved(app)) },
+  ]
+  return <>{groups.filter(group => group.items.length).map(group => <AssistantSection key={group.key} title={group.title} testId={`assistant-connectors-${group.key}`}>
+    {group.items.map(app => <AssistantRow key={app.id} testId={`assistant-connector-${app.id}`}
+      leading={app.integration ? <ConnectorIcon integration={app.integration} size={32} /> : app.chatKind ? <ChannelBrandIcon kind={app.chatKind} size={32} /> : undefined}
+      title={app.name} detail={app.description || <span aria-hidden="true">&nbsp;</span>} detailLines={1}
+      trailing={group.key === 'saved' ? <span>{t(`connectors.${app.integration ? stateFor(app) : app.channel?.health.state === 'starting' ? 'checking' : 'needsReauth'}`)}</span> : undefined}
+      chevron={group.key !== 'saved'} onClick={() => open(app.id)} />)}
+  </AssistantSection>)}</>
 }
 
 /**
@@ -115,6 +99,8 @@ function ConnectorLists({ data, open }: { data: PhoneIntegrations; open: (id: st
 export function PhoneConnectorDetail({ assistant, homeDeviceId, machine, integrations, id, go }: PhonePageProps & { integrations: Integrations; id: string }) {
   const { t } = useTranslation('assistant')
   const name = assistant.display_name
+  const settings = useTranslation('settings').t
+  const chatKind = chatKindForApp(id)
   const selected = integrations.data?.items.find(item => item.id === id)
   const detail = usePhoneIntegrationDetail(machine,selected)
   const view = integrations.data && detail.data ? connectorDetail([detail.data],integrations.data.configured,integrations.data.statuses,id) : null
@@ -146,6 +132,7 @@ export function PhoneConnectorDetail({ assistant, homeDeviceId, machine, integra
       id: confirm.accountId ? `${view.item.id}:${confirm.accountId}` : view.item.id, deviceId: homeDeviceId ?? undefined })
   }
   const credentialLike = !!view && !!formMethodOf(view.item)
+  if (integrations.data && !selected && chatKind) return <div className="ta-page ta-phone-profile" data-testid="assistant-connector-detail"><PageHead title={settings(`channels.${chatKind}`)} /><ChannelAppConnection kind={chatKind} name={settings(`channels.${chatKind}`)} /></div>
 
   return (
     <div className="ta-page ta-phone-profile" data-testid="assistant-connector-detail">
@@ -154,9 +141,9 @@ export function PhoneConnectorDetail({ assistant, homeDeviceId, machine, integra
         {() =>
           detail.error ? <ReadFailed title={t('connectors.loadFailed')} error={detail.error} onRetry={detail.reload} /> : detail.loading ? <ReadingNow /> : view ? (
             <>
+              {id === 'feishu' || chatKind ? <h2 className="ta-section-label">{t('connectors.readWritePurpose', { app: view.item.name })}</h2> : null}
               <div className="ta-card ta-connector-hero">
                 <ConnectorIcon integration={view.item} size={56} />
-                <span className="ta-tile-title">{view.item.name}</span>
                 <span className="ta-page-sub">{view.item.description}</span>
                 {plan && plan.kind !== 'unavailable' ? (
                   <Button variant="ghost" className="ta-solid-btn" disabled={state === 'checking'} onClick={() => go(connectSub(view.item.id))} data-testid="assistant-connector-connect">
@@ -197,6 +184,7 @@ export function PhoneConnectorDetail({ assistant, homeDeviceId, machine, integra
                   {t('connectors.disconnect')}
                 </Button>
               ) : null}
+              {chatKind ? <ChannelAppConnection kind={chatKind} name={view.item.name} /> : null}
               <AssistantSection title={t('connectors.usableOn')}>
                 <AssistantRow leading={<Cloud className="ta-file-icon" />} title={t('connectors.cloudWhere')} detail={t('connectors.cloudWhereNote', { name })} />
               </AssistantSection>

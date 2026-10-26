@@ -100,8 +100,9 @@ export default {
   },
   "mic": {
     "denied": "请在设置中授权麦克风权限",
+    "permissions": "管理权限",
     "openSettings": "打开系统设置",
-    "deniedPhone": "咕咕没有麦克风权限。到系统设置 → 应用 → 咕咕 → 权限，把「麦克风」设为允许，再回来录。",
+    "deniedPhone": "麦克风未开启，到“我的 → 权限”管理。",
     "missing": "没找到麦克风，请连接后再试。",
     "failed": "录音没能开始，请重试。",
     "interrupted": "录音已中断，已录下的部分照常整理。",

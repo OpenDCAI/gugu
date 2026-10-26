@@ -32,6 +32,7 @@ vi.mock('../../../apps/desktop/src/mobile/assistant/phoneVoiceRuntime', () => ({
   phoneVoiceRecorder: { stop: mocks.stop, pause: mocks.pause, resume: mocks.resume, cancel: mocks.cancel, clearError: mocks.clearError },
   phoneVoiceJobs: { discard: mocks.discard, retry: mocks.retry, dismiss: mocks.dismiss },
 }))
+vi.mock('../../../apps/desktop/src/mobile/phone-device/phonePermissionsNavigation', () => ({ openPhonePermissions: mocks.openSettings }))
 vi.mock('../../../apps/desktop/src/lib/cloudComputerStore', () => ({ wakeCloudComputer: mocks.wake }))
 
 const job = (extra: Partial<VoiceJobView> = {}): VoiceJobView => ({ id: 'note-1', phase: 'recording', failure: null, dismissed: false, createdAt: '2026-10-16T09:00:00.000Z', held: null, ...extra })

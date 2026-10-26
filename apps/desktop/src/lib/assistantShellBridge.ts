@@ -39,6 +39,7 @@ export type AssistantShellSnapshot = {
    */
   assistantState: 'found' | 'loading' | 'none' | 'unreadable'
   ownerName: string | null
+  deviceCount?: number
   /** 主人(登录的那个人)的 id 与头像:记忆页「关于你」那几行用他自己的头像打头。没登录 / 还没读到 = 不给。 */
   ownerId?: string | null
   ownerAvatar?: string | null
@@ -190,6 +191,7 @@ function sameSnapshot(a: AssistantShellSnapshot, b: AssistantShellSnapshot): boo
     a.setup === b.setup &&
     JSON.stringify(a.home) === JSON.stringify(b.home) &&
     a.loadError === b.loadError &&
+    a.deviceCount === b.deviceCount &&
     a.ownerName === b.ownerName &&
     a.assistantState === b.assistantState &&
     a.chatId === b.chatId && a.chatReadFailed === b.chatReadFailed &&

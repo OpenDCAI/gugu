@@ -708,6 +708,13 @@ export default {
     "title": "Capabilities and connections"
   },
   "connectors": {
+    "savedCount": "{{count}} added",
+    "connectedCount": "{{count}} connected",
+    "deviceCount": "{{count}} devices",
+    "readWritePurpose": "Let it read and write {{app}}",
+    "chatPurpose": "Find it in {{app}}",
+    "chatDescription": "Chat with your assistant",
+    "chatUnavailable": "Chat connections are not available for this app yet.",
     "unverified": "Not yet verified",
     "prepareFailed": "Authorization preparation is unavailable.",
     "authorizationUnavailable": "The cloud service needed for authorization is unavailable.",
