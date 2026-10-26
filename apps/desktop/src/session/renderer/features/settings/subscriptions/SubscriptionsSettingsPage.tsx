@@ -57,8 +57,6 @@ export const SubscriptionsSettingsPage = observer(function SubscriptionsSettings
         title={translate('subscriptions.title')}
         showTitleInSettings
         aside={<SubscriptionRefresh machine={deviceId} />}
-        description={translate('subscriptions.description')}
-        remoteDescription={(device) => translate('subscriptions.remoteDescription', { device })}
       />
       <LibraryHostProvider value={host} key={host.key}>
         <SubscriptionList machine={deviceId} />

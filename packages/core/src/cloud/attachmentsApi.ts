@@ -50,9 +50,12 @@ async function call(endpoint: AttachmentsEndpoint, route: string, body: Record<s
 export async function uploadAttachmentBytes(
   endpoint: AttachmentsEndpoint,
   file: { bytes: Uint8Array | Blob; name: string; contentType: string },
+  scope: { chat_id: string | null; as: string; request_id?: string },
 ): Promise<string> {
-  const form = await call(endpoint, 'upload', {}) as { staging_key: string; url: string; fields: Record<string, string>; max_bytes: number; method?: 'POST' | 'PUT'; headers?: Record<string, string> }
   const size = file.bytes instanceof Blob ? file.bytes.size : file.bytes.byteLength
+  const form = await call(endpoint, 'upload', {
+    size_bytes: size, as: scope.as, chat_id: scope.chat_id, request_id: scope.request_id ?? crypto.randomUUID(),
+  }) as { staging_key: string; url: string; fields: Record<string, string>; max_bytes: number; method?: 'POST' | 'PUT'; headers?: Record<string, string> }
   if (size > form.max_bytes) throw new AttachmentsError('upload', 413, 'too_large', `${file.name} is ${size} bytes; a file is at most ${form.max_bytes}`)
   const method = form.method ?? 'POST'
   if (method !== 'POST' && method !== 'PUT') throw new AttachmentsError('upload', 502, 'invalid', 'unsupported upload method')
@@ -87,6 +90,9 @@ export interface CommitArgs {
   via_app?: string | null
   /** 图配文字:服务端接在信封后面(首尾空白去掉;空的就没有)。 */
   caption?: string
+  /** The upload is this folder file's next version, from expected_version (a newer one stored since ⇒ refused, version_conflict). */
+  item_id?: string
+  expected_version?: number
 }
 
 /** Sends the upload as an attachment message: the message row as `messages_view` has it. */

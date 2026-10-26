@@ -60,7 +60,7 @@ export function DeviceRemoveDialog({
   agents: BoundAgentsState
   onCascadeChange: (value: boolean) => void
   removing: boolean
-  failed: boolean
+  failed: string
   onCancel: () => void
   onConfirm: () => void
 }) {
@@ -89,7 +89,7 @@ export function DeviceRemoveDialog({
           <div className={`${body} text-[var(--muted-fg)]`}>{t('devices.remove.sshNote')}</div>
         )}
         <BoundAgentsConfirm state={agents} onCascadeChange={onCascadeChange} />
-        {failed && <div className={`${body} text-[var(--danger)]`}>{t('devices.remove.failed')}</div>}
+        {failed && <div className={`${body} text-[var(--danger)]`}>{failed}</div>}
         <div className="flex justify-end gap-2">
           <Button size="sm" onClick={onCancel}>{t('devices.cancel')}</Button>
           <Button size="sm" variant="danger" disabled={removing || boundAgentsBlock(agents)} onClick={onConfirm}>

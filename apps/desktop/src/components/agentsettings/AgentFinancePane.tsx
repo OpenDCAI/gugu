@@ -19,7 +19,6 @@ export function AgentFinancePane({ agent: _agent }: AgentSettingsPaneProps) {
     <div>
       {/* 账务 — design data-pane="finance" */}
       <div className={asClass.financeTitle}>{t('settings.finance.title')}</div>
-      <div className={asClass.financeSub}>{t('settings.finance.description')}</div>
 
       {/* #1228: finance 后端未建 → 时间 pills 诚实禁用「即将开放」(原先切换不改数据=假交互)；
           统计值一律诚实空态「—」(原先写死 ¥ 假数据)。后端落地后接真结算数据 + range 过滤。 */}
@@ -40,7 +39,6 @@ export function AgentFinancePane({ agent: _agent }: AgentSettingsPaneProps) {
       </div>
 
       <div className={asClass.financeH2}>{t('settings.finance.overview')}</div>
-      <div className={asClass.financeSub}>{t('settings.finance.overviewHint')}</div>
 
       <div className={asClass.financeGrid}>
         {/* TODO(finance backend): replace ¥0.00 with real settled income for selected range */}

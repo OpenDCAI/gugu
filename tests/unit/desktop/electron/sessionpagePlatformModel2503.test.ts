@@ -34,6 +34,16 @@ const configPathOf = (helper: string): string => {
   if (!match) throw new Error(`helper has no --config: ${helper}`)
   return match[1]
 }
+const legacyHelper = vi.hoisted(() => ({ enabled: false }))
+vi.mock('@gugu/session-plugins/agents', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('@gugu/session-plugins/agents')>()
+  return { ...actual, resolveSessionpageCredentialLifecycle: (...args: Parameters<typeof actual.resolveSessionpageCredentialLifecycle>) => {
+    const lifecycle = actual.resolveSessionpageCredentialLifecycle(...args)
+    // Persisted pre-proxy helper sessions still need their original recovery path.
+    return legacyHelper.enabled && args[0] === 'claude' && lifecycle
+      ? { ...lifecycle, delivery: 'credential-helper' as const } : lifecycle
+  } }
+})
 vi.mock('@gugu/core', async (importOriginal) => ({
   ...(await importOriginal<Record<string, unknown>>()),
   listAgents: (...args: unknown[]) => listAgents(...args),
@@ -68,6 +78,7 @@ const {
   claudeCredentialHelperFile,
   dynamicClaudeSettings,
   heldPlatformModelForSession,
+  platformRequestsUseCredentialProxy,
   assertUserModelAllowed,
   codexPlatformInjection,
   platformModelForSession,
@@ -129,7 +140,7 @@ function platformLaunch(
   })
 }
 // 签发退避按会话 id 记、跨过结清(会话重建)活着;用例共用同一个会话 id,别把上一条的窗口带过去。
-beforeEach(() => resetPlatformIssueBackoffsForTest())
+beforeEach(() => { resetPlatformIssueBackoffsForTest(); legacyHelper.enabled = false })
 
 describe('#2503 session-page sessions carry the designated model', () => {
   beforeEach(() => {
@@ -155,6 +166,62 @@ describe('#2503 session-page sessions carry the designated model', () => {
     revokePlatformModelAccess.mockResolvedValue(undefined)
     checkpointPlatformModelAccess.mockResolvedValue(undefined)
   })
+  it.each([['tui', 'expired'], ['cui', 'expired'], ['tui', 'rejected'], ['cui', 'rejected']] as const)('keeps %s Claude on loopback for a %s credential', async (surface, recovery) => {
+    const forwarded: Array<{ authorization: unknown; apiKey: unknown; body: string }> = []
+    const upstream = createServer((request, response) => {
+      let body = ''
+      request.setEncoding('utf8')
+      request.on('data', chunk => { body += chunk })
+      request.on('end', () => {
+        forwarded.push({ authorization: request.headers.authorization, apiKey: request.headers['x-api-key'], body })
+        response.writeHead(recovery === 'rejected' && forwarded.length === 1 ? 401 : 200)
+        response.end('accepted')
+      })
+    })
+    await new Promise<void>(resolve => upstream.listen(0, '127.0.0.1', resolve))
+    const relayUrl = `http://127.0.0.1:${(upstream.address() as { port: number }).port}`
+    try {
+      agentOnThisSession()
+      loadEngine.mockResolvedValue({ id: 'claude', modelConfigInjection: 'provider-env' })
+      platformLaunch('glm-5.2-claude', 60_000, undefined, [], 'old-session', relayUrl, 'raw-old-platform-token')
+      const platform = await platformModelForSession({ surface, sessionId: SESSION, providerId: 'claude', authProvider, env: CLAUDE_TEST_ENV })
+      const local = platform.platformProvider!
+      expect(platformRequestsUseCredentialProxy(SESSION)).toBe(true)
+      expect(local.baseUrl).toMatch(/^http:\/\/127\.0\.0\.1:\d+\//)
+      expect(local.apiKey).not.toBe('raw-old-platform-token')
+      expect(JSON.stringify(platform)).not.toContain('raw-old-platform-token')
+      const refused = await fetch(`${local.baseUrl}/messages`, { method: 'POST', headers: { authorization: 'Bearer raw-old-platform-token' }, body: '{}' })
+      expect(refused.status).toBe(401)
+      expect(forwarded).toHaveLength(0)
+
+      if (recovery === 'expired') {
+        vi.useFakeTimers({ toFake: ['Date'] })
+        vi.setSystemTime(Date.now() + 65_000)
+      }
+      const replacement = deferred<unknown>()
+      const issuing = deferred<void>()
+      issuePlatformModelAccess.mockImplementationOnce(() => { issuing.resolve(); return replacement.promise })
+      const resumed = recovery === 'expired' ? reissueExpiredPlatformModelForSession(SESSION) : Promise.resolve(true)
+      const result = fetch(`${local.baseUrl}/messages`, { method: 'POST', headers: { authorization: `Bearer ${local.apiKey}`, 'x-api-key': local.apiKey }, body: '{"stream":true} \n' })
+      await issuing.promise
+      expect(forwarded).toHaveLength(recovery === 'expired' ? 0 : 1)
+      replacement.resolve({ accessSessionId: 'fresh-session', relayUrl, token: 'raw-fresh-platform-token', model: 'glm-5.2-claude', modelId: 'glm-5.2', protocol: 'anthropic-messages', expiresAt: new Date(Date.now() + 60_000).toISOString(), contextWindow: null, switchableModels: [], membershipLocked: [] })
+      await expect(resumed).resolves.toBe(true)
+      expect(await (await result).text()).toBe('accepted')
+      const accepted = { authorization: 'Bearer raw-fresh-platform-token', apiKey: 'raw-fresh-platform-token', body: '{"stream":true} \n' }
+      expect(forwarded).toEqual(recovery === 'expired' ? [accepted] : [
+        { authorization: 'Bearer raw-old-platform-token', apiKey: 'raw-old-platform-token', body: accepted.body }, accepted,
+      ])
+      expect(issuePlatformModelAccess).toHaveBeenCalledTimes(1)
+      expect(heldPlatformModelForSession(SESSION)?.platformProvider).toEqual(local)
+    } finally {
+      vi.useRealTimers()
+      await releasePlatformModelForSession(SESSION)
+      expect(platformRequestsUseCredentialProxy(SESSION)).toBe(false)
+      upstream.closeAllConnections()
+      await new Promise<void>(resolve => upstream.close(() => resolve()))
+    }
+  })
   it('fails before quota mint when user availableModels excludes the Claude platform alias', async () => {
     const home = await mkdtemp(join(tmpdir(), 'gugu-claude-arm-c-'))
     try {
@@ -173,6 +240,15 @@ describe('#2503 session-page sessions carry the designated model', () => {
     } finally {
       await rm(home, { recursive: true, force: true })
     }
+  })
+  it('does not treat a legacy Claude helper as a request-time proxy', async () => {
+    legacyHelper.enabled = true
+    agentOnThisSession()
+    loadEngine.mockResolvedValue({ id: 'claude', modelConfigInjection: 'provider-env' })
+    platformLaunch('glm-5.2-claude')
+    await platformModelForSession({ surface: 'tui', sessionId: SESSION, providerId: 'claude', authProvider, env: CLAUDE_TEST_ENV })
+    expect(platformRequestsUseCredentialProxy(SESSION)).toBe(false)
+    expect(platformRequestsUseCredentialProxy('not-a-platform-session')).toBe(false)
   })
   it('reports the model the quota designated, not the one the composer picked', async () => {
     agentOnThisSession()
@@ -578,14 +654,12 @@ describe('#2503 session-page sessions carry the designated model', () => {
     expect(settingsPath.endsWith('.json')).toBe(true)
     expect(settingsPath).not.toContain('sk-session')
     const settings = JSON.parse(await readFile(settingsPath, 'utf8')) as { env: Record<string, string> }
-    expect(settings.env.ANTHROPIC_BASE_URL).toBe('https://relay.example')
-    // @@@static-key-outranks-helper — 这两个键要**在、且为空串**,不是缺席。
-    // 缺席只表达「我们不提供」,而 claude 会把用户自己 ~/.claude/settings.json 里的
-    // 静态 ANTHROPIC_API_KEY 合并进来并压过 apiKeyHelper ⇒ 平台会话拿用户的 key 打网关 → 401。
-    // (2026-09-19 chole 实测:改成空串后 claude 送的才是 helper 那枚。)
-    expect(settings.env.ANTHROPIC_AUTH_TOKEN).toBe('')
+    expect(settings.env.ANTHROPIC_BASE_URL).toBe(platform.platformProvider?.baseUrl.replace(/\/v1$/, ''))
+    // Override both user credential sources: only the stable loopback secret reaches Claude.
+    expect(settings.env.ANTHROPIC_AUTH_TOKEN).toBe(platform.platformProvider?.apiKey)
+    expect(settings.env.ANTHROPIC_AUTH_TOKEN).not.toBe('sk-session')
     expect(settings.env.ANTHROPIC_API_KEY).toBe('')
-    expect(typeof (JSON.parse(await readFile(settingsPath, 'utf8')) as { apiKeyHelper?: unknown }).apiKeyHelper).toBe('string')
+    expect((JSON.parse(await readFile(settingsPath, 'utf8')) as { apiKeyHelper?: unknown }).apiKeyHelper).toBeUndefined()
     expect(settings.env.ANTHROPIC_CUSTOM_MODEL_OPTION).toBe('glm-5.2-claude')
     expect(settings.env.ANTHROPIC_CUSTOM_MODEL_OPTION_NAME).toBe('glm-5.2-claude')
     expect((await stat(settingsPath)).mode & 0o777).toBe(0o600)
@@ -601,14 +675,12 @@ describe('#2503 session-page sessions carry the designated model', () => {
     expect(settingsPath).not.toBeNull()
     if (!settingsPath) return
     const settings = JSON.parse(await readFile(settingsPath, 'utf8')) as { env: Record<string, string> }
-    expect(settings.env.ANTHROPIC_BASE_URL).toBe('https://relay.example')
-    // @@@static-key-outranks-helper — 这两个键要**在、且为空串**,不是缺席。
-    // 缺席只表达「我们不提供」,而 claude 会把用户自己 ~/.claude/settings.json 里的
-    // 静态 ANTHROPIC_API_KEY 合并进来并压过 apiKeyHelper ⇒ 平台会话拿用户的 key 打网关 → 401。
-    // (2026-09-19 chole 实测:改成空串后 claude 送的才是 helper 那枚。)
-    expect(settings.env.ANTHROPIC_AUTH_TOKEN).toBe('')
+    expect(settings.env.ANTHROPIC_BASE_URL).toBe(platform.platformProvider?.baseUrl.replace(/\/v1$/, ''))
+    // Override both user credential sources: only the stable loopback secret reaches Claude.
+    expect(settings.env.ANTHROPIC_AUTH_TOKEN).toBe(platform.platformProvider?.apiKey)
+    expect(settings.env.ANTHROPIC_AUTH_TOKEN).not.toBe('sk-session')
     expect(settings.env.ANTHROPIC_API_KEY).toBe('')
-    expect(typeof (JSON.parse(await readFile(settingsPath, 'utf8')) as { apiKeyHelper?: unknown }).apiKeyHelper).toBe('string')
+    expect((JSON.parse(await readFile(settingsPath, 'utf8')) as { apiKeyHelper?: unknown }).apiKeyHelper).toBeUndefined()
     expect(settings.env.ANTHROPIC_CUSTOM_MODEL_OPTION).toBe('glm-5.2-claude')
     expect(settings.env.ANTHROPIC_CUSTOM_MODEL_OPTION_NAME).toBe('glm-5.2-claude')
     expect((await stat(settingsPath)).mode & 0o777).toBe(0o600)
@@ -690,7 +762,7 @@ describe('#2503 session-page sessions carry the designated model', () => {
     if (!settingsPath) return
     const settings = JSON.parse(await readFile(settingsPath, 'utf8')) as { env: Record<string, string> }
     expect(settings.env).not.toHaveProperty('CLAUDE_CODE_MAX_CONTEXT_TOKENS')
-    expect(settings.env.ANTHROPIC_BASE_URL).toBe('https://relay.example')
+    expect(settings.env.ANTHROPIC_BASE_URL).toBe(platform.platformProvider?.baseUrl.replace(/\/v1$/, ''))
     expect(platform.contextWindow).toBeNull()
   })
   it('gives the codex remote TUI only the secret-free provider declaration needed by its auth gate', async () => {
@@ -970,8 +1042,9 @@ describe('#4467 宿主退出只留 tmux 里仍在跑、凭据不经宿主供给�
   })
 })
 
-describe('#2503 平台凭据随会话续期', () => {
+describe('#2503 平台凭据随会话续期（含存量 helper 兼容）', () => {
   beforeEach(() => {
+    legacyHelper.enabled = true
     vi.clearAllMocks()
     vi.useFakeTimers()
     revokePlatformModelAccess.mockResolvedValue(undefined)

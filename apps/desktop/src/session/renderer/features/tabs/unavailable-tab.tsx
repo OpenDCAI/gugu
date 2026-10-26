@@ -1,3 +1,4 @@
+import { messageForUser } from '@/lib/userFacingError';
 import { Unplug, X } from '@/lib/icons'
 import { observer } from 'mobx-react-lite';
 import { useState } from 'react';
@@ -110,7 +111,7 @@ export const UnavailableTabPlaceholder = observer(function UnavailableTabPlaceho
     } catch (error) {
       log.error('extension enable refused:', error);
       toast({
-        title: translate('extensions.switchFailed'),
+        title: translate('extensions.switchFailed'), description: messageForUser(error),
         tier: 'error',
         action: { label: translate('extensions.retry'), onClick: () => void enable() },
       });

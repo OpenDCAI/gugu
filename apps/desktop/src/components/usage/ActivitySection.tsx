@@ -94,14 +94,14 @@ export function ActivitySection() {
       </section>
 
       <section className="gg-usage-section" aria-labelledby="usage-engines">
-        <SectionLabel id="usage-engines" trailing={<span className="gg-usage-hint">{t('usage.enginesHint')}</span>}>{t('usage.engines')}</SectionLabel>
+        <SectionLabel id="usage-engines">{t('usage.engines')}</SectionLabel>
         <Guarded state={data.usage} height={120}>
           {usage && <Engines usage={usage} range={current} />}
         </Guarded>
       </section>
 
       <section className="gg-usage-section" aria-labelledby="usage-rhythm">
-        <SectionLabel id="usage-rhythm" trailing={<span className="gg-usage-hint">{t('usage.rhythmHint')}</span>}>{t('usage.rhythm')}</SectionLabel>
+        <SectionLabel id="usage-rhythm">{t('usage.rhythm')}</SectionLabel>
         <Guarded state={data.usage} height={120}>
           {usage && <Rhythm usage={usage} range={current} />}
         </Guarded>
@@ -241,7 +241,7 @@ function Engines({ usage, range }: { usage: UsageDay[]; range: DayRange }) {
   return (
     <>
       <div className="na-table-wrap">
-        <table className="na-table" data-testid="usage-engines">
+        <table className="na-table na-table--engines" data-testid="usage-engines">
           <thead>
             <tr>
               <th>{t('usage.na.colEngine')}</th><th>{t('usage.na.colSessions')}</th>
@@ -251,16 +251,16 @@ function Engines({ usage, range }: { usage: UsageDay[]; range: DayRange }) {
           <tbody>
             {rows.map((row) => (
               <tr key={row.engine} data-testid={`usage-engine-${row.engine}`}>
-                <td><ModelBadge model={engineLabel(row.engine)} icon={<EngineIcon engine={row.engine} size={16} />} /></td>
-                <td>
+                <td data-label={t('usage.na.colEngine')}><ModelBadge model={engineLabel(row.engine)} icon={<EngineIcon engine={row.engine} size={16} />} /></td>
+                <td data-label={t('usage.na.colSessions')}>
                   <div className="na-cell-stack">
                     <span>{plain(row.sessions)}</span>
                     <span className="na-tokens-sub">{plain(row.share * 100)}%</span>
                   </div>
                 </td>
-                <td><span className="na-mono-xs">{row.guguTokens > 0 ? compact(row.guguTokens) : '—'}</span></td>
-                <td><span className="na-mono-xs">{row.byokTokens > 0 ? compact(row.byokTokens) : '—'}</span></td>
-                <td>{row.runSeconds > 0 ? <span className="na-cost">{duration(row.runSeconds, t)}</span> : <span className="gg-usage-muted">—</span>}</td>
+                <td data-label={t('usage.na.colGuguTokens')}><span className="na-mono-xs">{row.guguTokens > 0 ? compact(row.guguTokens) : '—'}</span></td>
+                <td data-label={t('usage.na.colByokTokens')}><span className="na-mono-xs">{row.byokTokens > 0 ? compact(row.byokTokens) : '—'}</span></td>
+                <td data-label={t('usage.na.colRuntime')}>{row.runSeconds > 0 ? <span className="na-cost">{duration(row.runSeconds, t)}</span> : <span className="gg-usage-muted">—</span>}</td>
               </tr>
             ))}
           </tbody>

@@ -174,6 +174,10 @@ export const composerSlotClass = style({
   right: 0,
   width: '100%',
   zIndex: 20,
+  // No backing of its own (owner 2026-10-25: the area reads as empty space, messages scroll past
+  // behind it); only the cards inside draw a background. Outside the inner column, pointer and
+  // wheel events reach the messages.
+  pointerEvents: 'none',
   // Match the scroll container gutter so the composer column aligns with the
   // message column when the viewport is narrower than CONTAINER_WIDTH.
   paddingLeft: CONTENT_GUTTER,
@@ -228,8 +232,7 @@ export const heroSlotHiddenClass = style({
 /**
  * Inner centering wrapper inside the composer slot — constrains the composer
  * to the same max-width as the content column so it aligns with user message
- * cards. Carries the composer's solid backing and 8px bottom gap so the backing only
- * covers the content area, leaving the scrollbar track unobscured.
+ * cards, with an 8px bottom gap. It has no backing: the cards portaled into it draw their own.
  * This is the element exposed as `view.composerSlot` (portal target).
  */
 export const composerSlotInnerClass = style({
@@ -240,16 +243,6 @@ export const composerSlotInnerClass = style({
   ...widenAtXl,
   paddingBottom: '8px',
   pointerEvents: 'auto',
-});
-
-/**
- * 底部的槽垫一层半透明的底色:往上滑时输入框那张卡(实色)盖住消息,卡四周和底下那 8px 是一层淡的遮罩,
- * 后面的消息隐约透出来(owner 2026-10-23「类似 telegram 的那种半透明遮蔽」,❌ 一整块实色白底、❌ 全透明)。
- * 只是带 alpha 的底色,❌ 毛玻璃(backdrop-filter):玻璃拟态 2026-09-22 已退役(docs/ui-visual-spec.md),mac 上一块
- * backdrop-filter 就让 CoreAnimation overlay 失败,GPU 进程那份驱动内存清不掉(macOS 实测约 390MB,2026-10-05)。
- */
-export const composerSlotInnerBottomClass = style({
-  background: `color-mix(in srgb, ${vars.bg} 82%, transparent)`,
 });
 
 export const composerSlotInnerCenteredClass = style({

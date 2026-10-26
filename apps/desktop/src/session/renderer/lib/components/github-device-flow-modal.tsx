@@ -1,3 +1,4 @@
+import { messageForUser } from '@/lib/userFacingError';
 import { AlertCircle, Check, Copy, ExternalLink } from '@/lib/icons'
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { useToast } from '@renderer/lib/hooks/use-toast';
@@ -141,7 +142,7 @@ function GithubDeviceFlowModalBody({ onSuccess, onClose, onError }: Omit<GithubD
         if (!isAutomatic) {
           toast({
             title: 'Copy failed',
-            description: 'Please copy the code manually',
+            description: messageForUser(err),
             variant: 'destructive',
           });
         }

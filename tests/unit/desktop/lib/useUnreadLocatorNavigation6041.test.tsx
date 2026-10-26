@@ -36,6 +36,8 @@ async function setup() {
     vi.spyOn(row, 'getBoundingClientRect').mockReturnValue(bounds)
     vi.spyOn(surface, 'getClientRects').mockReturnValue([view] as unknown as DOMRectList)
     vi.spyOn(row, 'getClientRects').mockReturnValue([bounds] as unknown as DOMRectList)
+    // jsdom has no checkVisibility; the row is laid out and shown.
+    row.checkVisibility = () => true
   }
   return { input, revealMessage, Probe, render, request, dispatch, visible, pending: () => pending,
     resolve: () => act(async () => resolve()), fail: (error: Error) => act(async () => reject(error)) }

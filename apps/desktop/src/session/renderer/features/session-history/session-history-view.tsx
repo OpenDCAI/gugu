@@ -1,3 +1,4 @@
+import { messageForUser } from '@/lib/userFacingError';
 import { observer } from 'mobx-react-lite';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { ChevronDown, Folder, ListFilter } from '@/lib/icons';
@@ -381,11 +382,11 @@ export const SessionHistoryMainPanel = observer(function SessionHistoryMainPanel
         .catch((error: unknown) => {
           if (generation !== sectionGeneration.current) return;
           log.error('load more sessions in a section failed', { key: section.key, error: String(error) });
-          setActionError(translate('sessionHistory.loadMoreFailed'));
+          setActionError(messageForUser(error));
         })
         .finally(settle);
     },
-    [sectionPages, source, status, query, sort, translate, machine]
+    [sectionPages, source, status, query, sort, machine]
   );
 
   // 「显示更多」= 这一节变成限高小窗并当场要下一批;「收起」= 回到只露头几条,多要来的那些行一并扔掉。
@@ -412,7 +413,6 @@ export const SessionHistoryMainPanel = observer(function SessionHistoryMainPanel
     setExpandedKey((currentKey) => (currentKey === row.key ? null : row.key));
   };
 
-  // 失败文案只留用户能照做的下一步;原因进日志(user-copy-leak 闸:❌ 把内部失败描述拼进文案)。
   const openSession = async (ref: Omit<SessionHistoryGuguRef, 'runtime'>) => {
     try {
       // 别的机器上的项目:先把那台机器的项目表挂进来,侧栏与会话页才认得它(一套工作台)。
@@ -420,7 +420,7 @@ export const SessionHistoryMainPanel = observer(function SessionHistoryMainPanel
       await getProjectManagerStore().ensureProjectLoaded(ref.projectId);
     } catch (e) {
       log.error('open session from session history failed', { ref, error: String(e) });
-      setActionError(translate('sessionHistory.openFailed'));
+      setActionError(messageForUser(e));
       return;
     }
     navigate('session', { projectId: ref.projectId, sessionId: ref.sessionId });
@@ -440,7 +440,7 @@ export const SessionHistoryMainPanel = observer(function SessionHistoryMainPanel
       toast({ title: translate('sessionHistory.restoredToast') });
     } catch (e) {
       log.error('restore archived session failed', { ref, error: String(e) });
-      setActionError(translate('sessionHistory.restoreFailed'));
+      setActionError(messageForUser(e));
     }
   };
 
@@ -802,9 +802,11 @@ export const SessionHistoryMainPanel = observer(function SessionHistoryMainPanel
                 <p className="text-sm text-foreground-muted">
                   {filtered ? translate('sessionImport.emptyNoMatch') : translate('sessionHistory.emptyNone')}
                 </p>
-                <p className="mt-1 text-xs leading-relaxed text-foreground-tertiary-muted">
-                  {current.isIndexing ? translate('sessionImport.emptyHintIndexing') : translate('sessionHistory.emptyHint')}
-                </p>
+                {current.isIndexing && (
+                  <p className="mt-1 text-xs leading-relaxed text-foreground-tertiary-muted">
+                    {translate('sessionImport.emptyHintIndexing')}
+                  </p>
+                )}
               </div>
             ) : (
               sections.map((section) => {

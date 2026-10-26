@@ -98,8 +98,6 @@ export function PromptLibraryView() {
       <PageHeader
         sticky
         title={translate('prompts.title')}
-        description={translate('prompts.subtitle')}
-        remoteDescription={(device) => translate('deviceScope.subtitle.prompts', { device })}
       >
         <div className="flex w-full justify-between gap-2">
           <SearchInput

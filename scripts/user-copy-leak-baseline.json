@@ -6,11 +6,6 @@
   },
   {
     "rule": "copy-leaks-internal-detail",
-    "file": "apps/desktop/src/i18n/locales/en-US/discover.ts",
-    "count": 8
-  },
-  {
-    "rule": "copy-leaks-internal-detail",
     "file": "apps/desktop/src/i18n/locales/en-US/main.ts",
     "count": 2
   },
@@ -28,11 +23,6 @@
     "rule": "copy-leaks-internal-detail",
     "file": "apps/desktop/src/i18n/locales/zh-CN/contacts.ts",
     "count": 3
-  },
-  {
-    "rule": "copy-leaks-internal-detail",
-    "file": "apps/desktop/src/i18n/locales/zh-CN/discover.ts",
-    "count": 8
   },
   {
     "rule": "copy-leaks-internal-detail",
@@ -111,11 +101,6 @@
   },
   {
     "rule": "copy-leaks-raw-error-field",
-    "file": "apps/desktop/src/components/discover/PostComments.tsx",
-    "count": 3
-  },
-  {
-    "rule": "copy-leaks-raw-error-field",
     "file": "apps/desktop/src/components/sessionpage/AgentSharePopover.tsx",
     "count": 1
   },
@@ -123,21 +108,6 @@
     "rule": "copy-leaks-raw-error-field",
     "file": "apps/desktop/src/lib/teamProvisionSaga.ts",
     "count": 1
-  },
-  {
-    "rule": "copy-leaks-raw-error-field",
-    "file": "apps/desktop/src/pages/explore/PlazaMomentsPane.tsx",
-    "count": 2
-  },
-  {
-    "rule": "copy-leaks-raw-error-field",
-    "file": "apps/desktop/src/pages/explore/PlazaPostCard.tsx",
-    "count": 2
-  },
-  {
-    "rule": "copy-leaks-raw-error-field",
-    "file": "apps/desktop/src/pages/explore/WorkbenchPane.tsx",
-    "count": 2
   },
   {
     "rule": "copy-leaks-raw-error-field",
@@ -237,7 +207,7 @@
   {
     "rule": "copy-leaks-raw-error-slot",
     "file": "apps/desktop/src/session/renderer/features/sessions/editor/editor-file-tree.tsx",
-    "count": 6
+    "count": 2
   },
   {
     "rule": "copy-leaks-raw-error-slot",

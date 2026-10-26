@@ -4,15 +4,16 @@ import { inferAttachmentKind } from '@gugu/core/shared/ui/attachmentModels'
 import { buildRosterNameIndex, resolveOpeningAgentCall } from '@gugu/core/shared/rosterNameMatching.mjs'
 import { resolveMentionUserIds, type MentionCandidate } from '@/lib/mention'
 import { scheduleComposerFocus } from '@/lib/focusComposer'
+import { rendererLogger } from '@/lib/log'
+import { safeFailureLine } from '@/session/renderer/features/sessions/gugu-reason'
 import { useToast } from '../toastContext'
-import { withFilePills } from '../markdown/filePills'
 import { revokeAttachmentPreviewUrls, withPreviewUrl, type ChatDraft, type MentionTarget } from './useChatDraft'
 import type { ChatMessageComposerProps } from './chatComposerModels'
 
 /** Chat delivery owns recipients and rollback; the shared editor only submits its document. */
 export function useChatMessageSend(props: ChatMessageComposerProps, draft: ChatDraft, members: MentionCandidate[], activeMentionTargets: MentionTarget[], inputRef: RefObject<HTMLElement | null>) {
   const { onSend, beforeSend, onSendAttachments, quoteContent, onQuoteConsumed, chatId, isGroupChat, disabled, disabledReason, whisperTarget, onExitWhisper } = props
-  const { text, attachments, refs, clear, flush, setText, setMentionTargets, setAttachments, persistTo } = draft
+  const { text, attachments, clear, flush, setText, setMentionTargets, setAttachments, persistTo } = draft
   const { t } = useTranslation('messaging')
   const { toast } = useToast()
   const [sending, setSending] = useState(false)
@@ -23,7 +24,7 @@ export function useChatMessageSend(props: ChatMessageComposerProps, draft: ChatD
   const handleSend = useCallback(async (value?: string) => {
     // 回车走 handleKeyDown 直达这里、不看按钮的 disabled:在途时再进就会把同一批附件重发一遍。
     if (sendingRef.current) return
-    const typed = withFilePills((value ?? text).trim(), refs) // a failed send puts it back: its pills go back to the row (useChatDraft)
+    const typed = (value ?? text).trim()
     const pendingFiles = attachments.map((a) => a.file)
     const multimodalImage = pendingFiles.some((file) => inferAttachmentKind(file) === 'image')
     if (disabled) {
@@ -92,6 +93,8 @@ export function useChatMessageSend(props: ChatMessageComposerProps, draft: ChatD
       // @@@whisper (#820) — clear whisper mode after a successful send.
       if (whisperTarget) onExitWhisper?.()
     } catch (err) {
+      const reason = String((err as Error)?.message ?? err)
+      rendererLogger('chat/send').error({ chatId, error: reason }, 'message send failed')
       // Rollback restores only UNSENT intent. @@@2188 - the send is phased (attachments commit one by
       // one, reported via onSent; text last): units already in the conversation must NOT return to the
       // draft, or a retry re-sends them (duplicate attachment). The uncommitted remainder stays recoverable.
@@ -114,12 +117,12 @@ export function useChatMessageSend(props: ChatMessageComposerProps, draft: ChatD
       }
       // Drop the now-stale snapshot URLs (replaced by fresh ones above, or unused when persisting to store).
       revokeAttachmentPreviewUrls(snapshotAttachments)
-      toast(t('composer.sendFailed', { reason: String((err as Error)?.message ?? err) }), 'error')
+      toast(t('composer.sendFailed', { reason: safeFailureLine(reason) }), 'error')
     } finally {
       sendingRef.current = false
       setSending(false)
     }
-  }, [beforeSend, chatId, text, attachments, refs, activeMentionTargets, members, rosterNameIndex, isGroupChat, onSend, onSendAttachments, quoteContent, onQuoteConsumed, t, toast, disabled, disabledReason, whisperTarget, onExitWhisper, setText, setMentionTargets, setAttachments, clear, persistTo, flush, inputRef])
+  }, [beforeSend, chatId, text, attachments, activeMentionTargets, members, rosterNameIndex, isGroupChat, onSend, onSendAttachments, quoteContent, onQuoteConsumed, t, toast, disabled, disabledReason, whisperTarget, onExitWhisper, setText, setMentionTargets, setAttachments, clear, persistTo, flush, inputRef])
 
   return { sending, handleSend }
 }

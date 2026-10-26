@@ -1,3 +1,4 @@
+import { messageForUser } from '@/lib/userFacingError';
 import { useLayoutEffect, useRef, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import { Button } from '@/components/ui/Button'
@@ -39,23 +40,23 @@ export function PhoneConfirmDialog({
 }) {
   const { t } = useTranslation('assistant')
   const [busy, setBusy] = useState(false)
-  const [failed, setFailed] = useState(false)
+  const [failed, setFailed] = useState('')
   const confirmed = useRef(false)
-  useLayoutEffect(() => { if (open) { setBusy(false); setFailed(false); confirmed.current = false } }, [open])
+  useLayoutEffect(() => { if (open) { setBusy(false); setFailed(''); confirmed.current = false } }, [open])
   const close = () => {
     if (!busy) onClose()
   }
   useBackLayer(close, open)
   const confirm = async () => {
     setBusy(true)
-    setFailed(false)
+    setFailed('')
     try {
       await onConfirm()
       confirmed.current = true
       onClose()
     } catch (error) {
-      log.warn({ error: errorText(error) }, 'assistant phone delete failed')
-      setFailed(true)
+      log.error({ error: errorText(error) }, 'assistant phone delete failed')
+      setFailed(messageForUser(error))
       setBusy(false)
     }
   }
@@ -71,8 +72,8 @@ export function PhoneConfirmDialog({
             <Dialog.Title className="ta-dialog-title">{title}</Dialog.Title>
             <Dialog.Description className="ta-page-sub">{body}</Dialog.Description>
             {failed ? (
-              <p className="ta-phone-confirm-failed" role="alert">
-                {failedText}
+              <p className="ta-phone-confirm-failed" role="alert" aria-label={failedText}>
+                {failed}
               </p>
             ) : null}
             <div className="mt-2 flex justify-end gap-2">

@@ -75,9 +75,7 @@ function DiaryEmpty({ name, askInChat }: { name: string; askInChat: (draft: stri
           {t('diary.ask', { name })}
         </button>
       }
-    >
-      {t('diary.empty', { name })}
-    </AssistantEmpty>
+    />
   );
 }
 

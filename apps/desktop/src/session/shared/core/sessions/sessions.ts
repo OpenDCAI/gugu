@@ -133,7 +133,7 @@ export type SessionMessage = {
 };
 
 /**
- * How a session-direct message meets a busy ACP session, when the sender asks (an App's `messageAgent`
+ * How a session-direct message meets a busy ACP session, when the sender asks (an App's `dispatch` to an agent
  * `{ queue: true }`; an agent's `session_message` only ever steers). Absent = the default: into the current turn where the harness can take it. `queue` = after
  * this turn, as the next one (at once when idle); `coalesceKey` = a queued message of the same key is replaced, not
  * added to. Only the ACP adapter reads it — a terminal session is refused before anything is sent.

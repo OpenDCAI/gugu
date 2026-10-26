@@ -43,7 +43,6 @@ export default {
     "thread": {
       "scrollToBottom": "Jump to latest",
       "emptyTitle": "Nothing in this task yet",
-      "emptyHint": "It will show up here as soon as the agent speaks",
       "placeholder": "Reply…",
       "composerLabel": "Reply box",
       "dictate": "Voice input",
@@ -98,7 +97,6 @@ export default {
       "title": "Projects",
       "loading": "Loading projects…",
       "empty": "No projects yet",
-      "emptyHint": "Agents created on your machines show up here.",
       "noMachines": "No machines under this account yet. Install Gugu on a computer and sign in with the same account — its projects will show up here."
     },
     "machines": {
@@ -398,9 +396,7 @@ export default {
       "notificationsBlockedAction": "Open Permissions",
       "notificationsSound": "Notification sound",
       "notificationsSoundAria": "Enable notification sound",
-      "notificationsSoundDescription": "Play the system sound when a banner appears",
       "notificationsTest": "System banners",
-      "notificationsTestDescription": "Sends a real system notification so you can see whether the chain works",
       "notificationsTestAction": "Send a test notification",
       "notificationsTestAria": "Send a test notification",
       "notificationsTestTitle": "咕咕",
@@ -412,7 +408,6 @@ export default {
       "notificationsTestRejectedMobile": "The system refused to show it — 咕咕 has no notification permission yet. Turn it on from Me → Permissions → Notifications.",
       "trayBadge": "Tray badge",
       "trayBadgeAria": "Show the unread count on the tray icon",
-      "trayBadgeDescription": "Unread chat messages, muted chats excluded; reading them clears it",
       "trayBadgeEnabled": "Show the unread count on the tray icon",
       "system": "System",
       "theme": "Theme",
@@ -438,10 +433,6 @@ export default {
       "preferences": "Preferences",
       "work": "Work",
       "about": "About"
-    },
-    "page": {
-      "general": "Language, theme and notifications that apply across all of Gugu.",
-      "activity": "Sessions, tokens and rhythm: what you and your agents have been busy with."
     },
     "nav": {
       "assistant": "Profile",
@@ -535,7 +526,6 @@ export default {
       "retryDeviceChanged": "You cannot switch devices while retrying this Agent creation",
       "taskBridgeUnavailable": "Tasks cannot be opened in this environment"
     },
-    "explore": "Explore",
     "features": "Features",
     "feedback": "Send feedback",
     "imagePreview": {

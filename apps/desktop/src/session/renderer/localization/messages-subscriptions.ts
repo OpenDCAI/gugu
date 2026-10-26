@@ -46,10 +46,6 @@ export const enUSSubscriptionMessages = {
   "subscriptions.gugu.resets": "Refreshes {date}",
   "subscriptions.remaining": "{window} remaining",
   'subscriptions.title': 'My subscriptions',
-  'subscriptions.description':
-    'Manage your accounts, APIs and credits.',
-  'subscriptions.remoteDescription':
-    'Manage your accounts, APIs and credits on {device}.',
   'subscriptions.empty': 'No harnesses installed',
   'subscriptions.refresh': 'Refresh',
   'subscriptions.checkNow': 'Check now',
@@ -131,9 +127,6 @@ export const zhCNSubscriptionMessages: Record<keyof typeof enUSSubscriptionMessa
   "subscriptions.gugu.resets": "{date} 刷新",
   "subscriptions.remaining": "{window}剩余",
   'subscriptions.title': '我的订阅',
-  'subscriptions.description':
-    '管理账号、API 与额度。',
-  'subscriptions.remoteDescription': '管理 {device} 上的账号、API 与额度。',
   'subscriptions.empty': '未安装 Harness',
   'subscriptions.refresh': '刷新',
   'subscriptions.checkNow': '现在查',

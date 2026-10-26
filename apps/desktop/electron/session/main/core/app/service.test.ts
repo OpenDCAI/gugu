@@ -251,4 +251,17 @@ describe('AppService.showTerminalContextMenu', () => {
     expect(mocks.clipboardWriteText).toHaveBeenCalledWith('  indented value\n');
   });
 
+  it('preserves link copying, terminal actions and native popup coordinates', () => {
+    appService.showTerminalContextMenu({ requestId: 'terminal', selectionText: '', linkText: ' https://example.com/ ', x: 10.2, y: 20.8 });
+    const template = mocks.menuBuildFromTemplate.mock.calls[0]![0];
+    expect(template.map(item => item.label ?? item.type)).toEqual(['Copy', 'Copy Link', 'Paste', 'separator', 'Select All', 'Clear']);
+    expect(template[0]!.enabled).toBe(false);
+    template[1]!.click?.({} as Electron.MenuItem, undefined as never, undefined as never);
+    expect(mocks.clipboardWriteText).toHaveBeenCalledWith('https://example.com/');
+    for (const index of [2, 4, 5]) template[index]!.click?.({} as Electron.MenuItem, undefined as never, undefined as never);
+    expect(mocks.eventEmit.mock.calls.map(call => call[1])).toEqual([
+      { requestId: 'terminal', action: 'paste' }, { requestId: 'terminal', action: 'select-all' }, { requestId: 'terminal', action: 'clear' },
+    ]);
+    expect(mocks.menuPopup).toHaveBeenCalledWith({ window: undefined, x: 10, y: 21 });
+  });
 });

@@ -21,11 +21,16 @@ export function assistantHomeTaskContext(capabilities: Materialization, cwd: str
   if (resolve(cwd) !== resolve(guguHome, ASSISTANT_COMPUTER_WORKDIR_NAME)) return capabilities
   const materialized = personalAssistantContext(capabilities)
   const claude = materialized.sessionNewPatch!.meta!.claudeCode as { options: Record<string, unknown> }
+  const original = capabilities.sessionNewPatch?.meta?.claudeCode as { options?: { env?: Record<string, string> } } | undefined
+  const env: Record<string, string> = { ...(claude.options.env as Record<string, string>), CLAUDE_CODE_DISABLE_AUTO_MEMORY: '1' }
+  // Sharing the assistant's directory must not change an executor's tool-search policy.
+  delete env.ENABLE_TOOL_SEARCH
+  if (original?.options?.env?.ENABLE_TOOL_SEARCH !== undefined) env.ENABLE_TOOL_SEARCH = original.options.env.ENABLE_TOOL_SEARCH
   claude.options = { ...claude.options,
     systemPrompt: ['你是个人助理委派的 Task Agent，只承接当前交代及其来源。个人助理的身份、全部个人记忆与主动日程不属于本任务。', capabilities.sessionPrompt].filter(Boolean).join('\n\n'),
     settingSources: [],
     tools: ['Read', 'Write', 'Edit', 'Bash', 'Glob', 'Grep', 'WebSearch', 'WebFetch'],
-    env: { ...(claude.options.env as Record<string, string>), CLAUDE_CODE_DISABLE_AUTO_MEMORY: '1' },
+    env,
   }
   return materialized
 }
@@ -49,7 +54,10 @@ export function personalAssistantContext(capabilities: Materialization, kind: As
   const meta = capabilities.sessionNewPatch?.meta ?? {}
   const claude = (meta.claudeCode ?? {}) as Record<string, unknown>
   const options = (claude.options ?? {}) as Record<string, unknown>
-  const env = { ...(options.env as Record<string, string> | undefined), CLAUDE_CODE_AUTO_COMPACT_WINDOW: '250000' }
+  const systemPrompt = options.systemPrompt ?? [ASSISTANT_SYSTEM_PROMPT, capabilities.sessionPrompt].filter(Boolean).join('\n\n')
+  // Gugu already owns the direct table and catalog. Native tool search retains old
+  // deferred definitions in history even when prompt snapshots are disabled.
+  const env = { ...(options.env as Record<string, string> | undefined), CLAUDE_CODE_AUTO_COMPACT_WINDOW: '250000', ENABLE_TOOL_SEARCH: 'false' }
   delete (env as Record<string, string>).CLAUDE_AUTOCOMPACT_PCT_OVERRIDE
   const plugins = (options.plugins ?? []) as Array<{ type: string; path: string }>
   const servers: Record<string, unknown> = {}
@@ -73,8 +81,6 @@ export function personalAssistantContext(capabilities: Materialization, kind: As
   const memoryDir = startup?.workingContextPath ? dirname(startup.workingContextPath) : null
   const pendingScript = memoryDir ? assistantPendingHook(join(memoryDir, 'pending-work.json')) : null
   const noteScript = memoryDir ? assistantNoteWriteHook(memoryDir) : null
-  // Claude restores the original systemPrompt on --resume (measured on 2.1.296).
-  // Dynamic facts must use the native SessionStart additionalContext channel.
   // An immutable, account/content-addressed plugin avoids concurrent starts sharing a snapshot.
   const startupRoot = startup ? join(startup.guguHome, 'capability-packages', 'claude', 'gugu-assistant-context',
     createHash('sha256').update(JSON.stringify({ index: startup.index, rebuildScript, recoveryScript, pendingScript, noteScript })).digest('hex')) : null
@@ -117,7 +123,11 @@ export function personalAssistantContext(capabilities: Materialization, kind: As
             // Use the SDK's full-system-prompt channel, replacing its coding
             // preset. Keep Gugu's platform and identity byte-for-byte in that
             // same system message; never move them into a user turn.
-            systemPrompt: options.systemPrompt ?? [ASSISTANT_SYSTEM_PROMPT, capabilities.sessionPrompt].filter(Boolean).join('\n\n'),
+            // Native snapshots retain old tools after upgrades. Render the
+            // deterministic assistant prefix fresh; dynamic facts stay in hooks.
+            systemPrompt: typeof systemPrompt === 'object' && !Array.isArray(systemPrompt)
+              ? { ...systemPrompt, snapshot: false }
+              : { type: 'custom', prompt: systemPrompt, snapshot: false },
             ...(startupRoot ? { plugins: [...plugins, { type: 'local', path: startupRoot }] } : {}),
             // Reception should not inherit the coding harness's implicit high effort.
             // Explicit session/user choices still take precedence; thinking stays enabled.

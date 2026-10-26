@@ -605,7 +605,7 @@ describe('MainLayout', () => {
     await renderMainLayoutWithToast()
     const surface = chatSurfaceOf(harness.container)
     expect(surface, 'the chats surface mounts at boot').not.toBeNull()
-    expect(surface!.style.visibility).toBe('')
+    expect(surface!.style.contentVisibility).toBe('')
     const chatArea = harness.container.querySelector('[data-testid="mock-chat-area"]') as HTMLElement
     await clickElement(harness.container.querySelector('[data-testid="mock-chat-area-bump"]') as HTMLElement)
     await clickElement(harness.container.querySelector('[data-testid="mock-chat-area-bump"]') as HTMLElement)
@@ -613,15 +613,14 @@ describe('MainLayout', () => {
     await clickElement(harness.container.querySelector('[data-testid="mock-open-contacts"]') as HTMLElement)
     expect(harness.container.querySelector('[data-testid="mock-chat-area"]'), 'switching to contacts must not unmount the chat area').toBe(chatArea)
     expect(chatArea.getAttribute('data-active-tab')).toBe('contacts')
-    expect(surface!.style.visibility).toBe('hidden')
+    // 藏 = content-visibility:hidden(不画、不可聚焦、find 找不到;浏览器里的判据见 retained-page-stays-hidden)。
+    expect(surface!.style.contentVisibility).toBe('hidden')
     expect(surface!.style.position).toBe('absolute')
     expect(surface!.style.pointerEvents).toBe('none')
-    expect(surface!.hasAttribute('inert')).toBe(true)
     await clickElement(harness.container.querySelector('[data-testid="mock-open-chats"]') as HTMLElement)
     expect(harness.container.querySelector('[data-testid="mock-chat-area"]')).toBe(chatArea)
     expect(chatArea.getAttribute('data-bumps'), 'local UI state survives the contacts round trip').toBe('2')
-    expect(surface!.style.visibility).toBe('')
-    expect(surface!.hasAttribute('inert')).toBe(false)
+    expect(surface!.style.contentVisibility).toBe('')
     expect(chatAreaProbe.mounts, 'exactly one mount across boot → contacts → chats').toBe(1)
   })
 
@@ -645,8 +644,7 @@ describe('MainLayout', () => {
     expect(harness.container.querySelector('[data-testid="mock-chat-area"]'), 'opening the create surface must not unmount the chat area').toBe(chatArea)
     expect(chatArea.getAttribute('data-hidden')).toBe('true')
     const shell = chatArea.parentElement as HTMLElement
-    expect(shell.style.visibility).toBe('hidden')
-    expect(shell.hasAttribute('inert')).toBe(true)
+    expect(shell.style.contentVisibility).toBe('hidden')
     await clickElement(harness.container.querySelector('[data-testid="mock-chat-row"]') as HTMLElement)
     expect(harness.container.querySelector('[data-testid="mock-acp-agent-create-composer"]')?.closest('[style*="display: none"]')).toBeTruthy()
     expect(harness.container.querySelector('[data-testid="mock-chat-area"]')).toBe(chatArea)

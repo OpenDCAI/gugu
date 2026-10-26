@@ -1,3 +1,5 @@
+import { rendererLogger } from '@/lib/log';
+import { messageForUser } from '@/lib/userFacingError';
 import { useEffect, useRef, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import { publicAssetPath } from '@gugu/core/shared/ui/publicAssets'
@@ -165,10 +167,9 @@ export function FeedbackModal({ onClose }: { onClose: () => void }) {
     try {
       const tail = await platform.readLogTail()
       setAttachedLog({ text: tail.text, lines: tail.lines, truncated: tail.truncated })
-    } catch {
-      // 读不到就保持未勾选。原因对用户没有可操作性(路径、权限码),所以不往这句里拼。
+    } catch (error) { rendererLogger('actions/FeedbackModal').error({ error: error }, 'action failed');
       setAttachedLog(null)
-      toast(t('feedback.attachLog.unavailable'), 'error')
+      toast(t('feedback.attachLog.unavailable'), 'error', messageForUser(error))
     } finally {
       setReadingLog(false)
     }
@@ -244,7 +245,6 @@ export function FeedbackModal({ onClose }: { onClose: () => void }) {
               style={{ width: THANKS_ART_WIDTH, height: THANKS_ART_HEIGHT, objectFit: 'contain', display: 'block' }}
             />
             <div style={{ fontSize: 'var(--font-heading)', fontWeight: 600, color: 'var(--text-primary)', marginTop: 16 }}>{t('feedback.thanks.title')}</div>
-            <div style={{ fontSize: 'var(--font-body)', lineHeight: 1.7, color: 'var(--faint-fg)', marginTop: 8, maxWidth: 280 }}>{t('feedback.thanks.body')}</div>
           </div>
         ) : (
         <>

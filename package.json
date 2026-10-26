@@ -310,7 +310,8 @@
       "@codemirror/view@6.43.13": "patches/@codemirror__view@6.43.13.patch",
       "@xterm/headless@6.0.0": "patches/@xterm__headless@6.0.0.patch",
       "app-builder-lib@26.15.3": "patches/app-builder-lib@26.15.3.patch",
-      "@steipete/sweet-cookie@0.4.4": "patches/@steipete__sweet-cookie@0.4.4.patch"
+      "@steipete/sweet-cookie@0.4.4": "patches/@steipete__sweet-cookie@0.4.4.patch",
+      "ssh2@1.17.0": "patches/ssh2@1.17.0.patch"
     }
   },
   "optionalDependencies": {

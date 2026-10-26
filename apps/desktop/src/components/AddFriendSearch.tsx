@@ -265,11 +265,6 @@ export function AddFriendSearch({
 
       {/* Content */}
       <div style={{ flex: 1, overflowY: 'auto' }}>
-        {!hasQuery && (
-          <div style={{ padding: '32px 16px', textAlign: 'center', fontSize: 'var(--font-body)', color: 'var(--text-secondary)' }}>
-            {t('friendSearch.prompt')}
-          </div>
-        )}
         {hasQuery && isSearching && (
           <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 24 }}>
             <div

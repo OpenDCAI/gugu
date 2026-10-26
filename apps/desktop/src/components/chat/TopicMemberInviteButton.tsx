@@ -1,3 +1,4 @@
+import { messageForUser } from '@/lib/userFacingError';
 import { useState, type CSSProperties } from 'react'
 import { useTranslation } from 'react-i18next'
 import { Check, UserPlus, X } from '@/lib/icons'
@@ -61,7 +62,7 @@ function TopicMemberPicker({ invitation, participantIds, currentUserId, onInvite
   const [query, setQuery] = useState('')
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set())
   const [busy, setBusy] = useState(false)
-  const [failed, setFailed] = useState(false)
+  const [failed, setFailed] = useState('')
   const candidates = invitation.candidates.filter((member) => member.id !== currentUserId && !participantIds.includes(member.id))
   const selected = candidates.filter((member) => selectedIds.has(member.id))
   const visible = candidates.filter((member) => member.name.toLocaleLowerCase().includes(query.trim().toLocaleLowerCase()))
@@ -78,7 +79,7 @@ function TopicMemberPicker({ invitation, participantIds, currentUserId, onInvite
   const invite = async () => {
     if (busy || !selected.length) return
     setBusy(true)
-    setFailed(false)
+    setFailed('')
     try {
       // 与话题 composer 共用发送路径。@ 消息本身就是邀请，成员维护归服务端。
       const names = selected.map((member) => `@${member.name}`).join(' ')
@@ -87,7 +88,7 @@ function TopicMemberPicker({ invitation, participantIds, currentUserId, onInvite
       onClose()
     } catch (error) {
       inviteLog.error({ error }, 'topic member invitation failed')
-      setFailed(true)
+      setFailed(messageForUser(error))
     } finally {
       setBusy(false)
     }
@@ -98,7 +99,6 @@ function TopicMemberPicker({ invitation, participantIds, currentUserId, onInvite
         <h2 style={TITLE_STYLE}>{t('group.topicInvite.title')}</h2>
         <IconButton size="sm" aria-label={t('common.close')} onClick={close} disabled={busy}><X /></IconButton>
       </div>
-      <p style={HINT_STYLE}>{t('group.topicInvite.hint')}</p>
       <div style={SEARCH_STYLE}>
         <SearchField value={query} onChange={(event) => setQuery(event.target.value)} placeholder={t('group.topicInvite.search')} disabled={busy} autoFocus />
       </div>
@@ -124,7 +124,7 @@ function TopicMemberPicker({ invitation, participantIds, currentUserId, onInvite
         ))}
         {visible.length === 0 ? <p style={HINT_STYLE}>{t(query.trim() ? 'group.topicInvite.noResults' : 'group.topicInvite.empty')}</p> : null}
       </div>
-      {failed ? <p role="alert" style={ERROR_STYLE}>{t('group.topicInvite.failed')}</p> : null}
+      {failed ? <p role="alert" style={ERROR_STYLE}>{failed}</p> : null}
       <div style={FOOTER_STYLE}>
         <Button variant="ghost" onClick={close} disabled={busy}>{t('common.cancel')}</Button>
         <Button variant="primary" onClick={() => { void invite() }} disabled={busy || !selected.length} data-testid="topic-member-invite-confirm">

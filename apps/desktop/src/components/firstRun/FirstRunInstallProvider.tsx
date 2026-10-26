@@ -1,3 +1,4 @@
+import { messageForUser } from '@/lib/userFacingError';
 import { useState, type ReactNode } from 'react'
 import { useTranslation } from 'react-i18next'
 import type { FirstRunHarness } from '@gugu/core/shared/firstRun'
@@ -37,8 +38,8 @@ export function FirstRunInstallProvider({ children }: { children: ReactNode }) {
             update(managedReady
               ? { id, state: 'done' }
               : { id, state: 'failed', error: t('firstRun.harnessVerifyFailed') })
-          }).catch(() => update({ id, state: 'failed', error: t('firstRun.harnessReadFailed') }))
-      }).catch((error: unknown) => update({ id, state: 'failed', error: error instanceof Error ? error.message : t('firstRun.harnessVerifyFailed') }))
+          }).catch((error: unknown) => update({ id, state: 'failed', error: messageForUser(error) }))
+      }).catch((error: unknown) => update({ id, state: 'failed', error: messageForUser(error) }))
     }
   }
 
@@ -52,7 +53,7 @@ export function FirstRunInstallProvider({ children }: { children: ReactNode }) {
             <Button size="sm" variant="ghost" onClick={() => setHidden(true)}>{t('firstRun.hideInstall')}</Button>
           </div>
           {tasks.map((task) => <InstallTaskRow key={task.id} task={task} onRetry={() => start([task.id])}
-            onCancel={() => { void rpc.agents.cancelInstall(task.id).catch(() => update({ ...task, error: t('firstRun.harnessCancelFailed') })) }} />)}
+            onCancel={() => { void rpc.agents.cancelInstall(task.id).catch((error: unknown) => update({ ...task, error: messageForUser(error) })) }} />)}
         </aside>
       ) : null}
     </FirstRunInstallContext.Provider>

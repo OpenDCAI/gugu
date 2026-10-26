@@ -89,7 +89,7 @@ describe('native first-login module tour', () => {
       await waitForCondition(() => !!h.container.querySelector('[role=alert]'), 'visible save error')
       // The optimistic navigation is briefly followed by a rollback when the save fails.
       expect(h.clicks).toEqual(['assistant', 'chats', 'page:projects', 'assistant'])
-      expect(h.container.textContent).not.toContain('offline')
+      expect(h.container.textContent).toContain('offline')
       await clickElement(h.button('下一步'))
       await waitForCondition(() => h.clicks.includes('page:projects'), 'retry advances')
     } finally { h.cleanup() }

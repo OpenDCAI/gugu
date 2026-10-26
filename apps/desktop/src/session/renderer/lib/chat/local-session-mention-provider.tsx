@@ -7,7 +7,7 @@ import { getProjectManagerStore } from '@renderer/features/projects/stores/proje
 import { remoteHostsStore } from '@renderer/features/remote-hosts/remote-hosts-store';
 import { shellPort } from '@renderer/lib/shell-port';
 import { translateSessionMessage } from '@renderer/localization/locale-store';
-import type { SessionShellPeer } from '@shared/lib/ipc/shell-port';
+import { SESSION_PRIVATE_AGENT_ERROR, type SessionShellPeer } from '@shared/lib/ipc/shell-port';
 import {
   registerLocalSessionMentions,
   type LocalSessionMention,
@@ -136,8 +136,9 @@ export function localSessionMentionHiddenContext(
  */
 async function loadLocalSessionMentionCandidates(
   options: LocalSessionMentionOptions & { mentionUri?: string } = {},
+  sessionId?: string,
 ): Promise<{ candidates: MentionCandidate[]; notRead: readonly { id: string; label: string }[] }> {
-  const local = await shellPort().sessionPeers();
+  const local = await shellPort().sessionPeers(sessionId);
   const remote = remoteHostsStore.directoryPeers();
   const candidates = candidatesFromRows([...local, ...remote.peers], options);
   if (options.mentionUri) {
@@ -184,13 +185,17 @@ export function createLocalSessionMentionProvider(
       const wanted = sessionId.trim();
       if (!wanted) return null;
       try {
-        const { candidates } = await loadLocalSessionMentionCandidates(options);
+        const { candidates } = await loadLocalSessionMentionCandidates(options, wanted);
         const match = candidates.find((candidate) => candidate.sessionId === wanted);
         if (!match) return null;
         // 空查询走与弹层同一条映射,pill 的形状(名字/图标/副标题)因此不会分叉。
         return mentionItemsFromLocalSessionCandidates([match], '')[0] ?? null;
       } catch (error) {
         log.warn('Failed to resolve dragged session mention', { error });
+        if (error instanceof Error && error.message.includes(SESSION_PRIVATE_AGENT_ERROR)) {
+          return { id: `private:${wanted}`, label: '', kind: 'custom', disabled: true,
+            description: translateSessionMessage('chat.mentionDropPrivateAgent') };
+        }
         return null;
       }
     },

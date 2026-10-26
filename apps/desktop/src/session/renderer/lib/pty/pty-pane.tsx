@@ -1,3 +1,5 @@
+import { i18n } from '@/i18n';
+import { messageForUser } from '@/lib/userFacingError';
 import React, { forwardRef, useCallback, useImperativeHandle, useMemo, useRef } from 'react';
 import {
   createPaneDimensionSink,
@@ -5,9 +7,10 @@ import {
 } from '@renderer/features/tabs/pane-dimension-provider';
 import { createLocalSessionMentionProvider } from '@renderer/lib/chat/local-session-mention-provider';
 import { getDraggedWorkspaceFile } from '@renderer/lib/drag-files';
-import { getDraggedSession } from '@renderer/lib/drag-session';
+import { getDraggedScreenContent } from '@renderer/lib/drag-screen-content';
 import { terminalSessionMentionInput } from '@renderer/lib/chat/use-session-mention-drop';
 import { rpc } from '@renderer/lib/ipc';
+import { toast } from '@renderer/lib/hooks/use-toast';
 import { log } from '@renderer/utils/logger';
 import { cn } from '@renderer/utils/utils';
 import { PaneSizingContextProvider, usePaneSizingContext } from './pane-sizing-context';
@@ -40,7 +43,7 @@ type Props = {
   onEnterPress?: (message: string) => void;
   /**
    * 粘贴图片、拖入文件时写进终端的是**本机**路径。终端连着别的机器时(#6264 SSH 直连)那些路径在对面不存在,
-   * 传 false:粘贴只收文字,拖入不写任何东西。默认 true(本机终端)。
+   * 传 false:文字与 URL 照常粘贴,本机文件路径不写过去。默认 true(本机终端)。
    */
   localPaths?: boolean;
   /**
@@ -70,8 +73,8 @@ async function readClipboardFiles(): Promise<File[]> {
       files.push(new File([blob], `pasted-image-${Date.now()}.${ext}`, { type }));
     }
     return files;
-  } catch {
-    return [];
+  } catch (error) {
+    log.error({ error }, 'terminal clipboard files failed'); toast({ title: i18n.t('shell.titlebar.items.paste', { ns: 'main' }), description: messageForUser(error), tier: 'error' }); return [];
   }
 }
 
@@ -134,8 +137,8 @@ async function pasteClipboardImageOrText(args: {
   try {
     const text = await navigator.clipboard.readText();
     if (text) args.sendInput(text);
-  } catch {
-    // Clipboard read denied or unavailable.
+  } catch (error) {
+    log.error({ error }, 'terminal paste failed'); toast({ title: i18n.t('shell.titlebar.items.paste', { ns: 'main' }), description: messageForUser(error), tier: 'error' });
   }
   return false;
 }
@@ -293,7 +296,7 @@ const PtyPaneInner = forwardRef<{ focus: () => void }, Props>(
                 fallbackText,
               });
             } catch (error) {
-              log.warn('Terminal image paste failed', { error });
+              log.error({ error }, 'Terminal image paste failed'); toast({ title: i18n.t('shell.titlebar.items.paste', { ns: 'main' }), description: messageForUser(error), tier: 'error' });
             }
           })();
           return;
@@ -321,6 +324,13 @@ const PtyPaneInner = forwardRef<{ focus: () => void }, Props>(
         event.preventDefault();
         const dt = event.dataTransfer;
         if (!dt) return;
+        // A resource URL is text, on this machine or another, just as a text paste is.
+        const uri = dt.files?.length ? '' : dt.getData('text/uri-list');
+        if (uri) {
+          sendInput(dt.getData('text/plain') || uri);
+          focus();
+          return;
+        }
         // 远端终端:会话、工作区文件是本机的东西,对面用不了;OS 文件传到那台机器、写那边的路径。
         if (!localPaths) {
           if (remoteFiles && dt.files?.length) void injectRemoteFiles(Array.from(dt.files), { focus, sendInput });
@@ -332,8 +342,8 @@ const PtyPaneInner = forwardRef<{ focus: () => void }, Props>(
         // 会一声不响地什么都不发生(owner 2026-09-16 实撞:他那两条会话都是终端形态)。
         // 写进去的是**寻址名**(Codex 1 / Claude 1),不是 uuid:spec session-page-comm ⑨ 定的
         // 就是「可读名即寻址名,agent 到通讯录里按名字查回 ID」,而终端里没有 pill 能替 uuid 挡脸。
-        const draggedSession = getDraggedSession(dt);
-        if (draggedSession) {
+        const draggedSession = getDraggedScreenContent(dt);
+        if (draggedSession?.kind === 'session') {
           void (async () => {
             try {
               const mention = await createLocalSessionMentionProvider().resolveSession(

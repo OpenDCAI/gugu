@@ -52,7 +52,7 @@ import { composeHistoryTurns, sideChatOwnTurns } from './history-composition';
 import { toast } from '@renderer/lib/hooks/use-toast';
 import { translateSessionMessage } from '@renderer/localization/locale-store';
 import type { SessionMessageKey } from '@renderer/localization/messages';
-import { failureText, guguFailureText } from '../gugu-reason';
+import { failureText } from '../gugu-reason';
 import { rpc } from '@renderer/lib/ipc';
 import { log } from '@renderer/utils/logger';
 import { sessionHasPriorContext } from '@shared/core/sessions/prior-context';
@@ -2379,31 +2379,20 @@ export class AcpChatStore {
     this.messageCount = committedCount + activeCount + pendingPromptCount;
   }
 
-  /**
-   * 标题说没做成哪件事(按界面语言);正文按原因表说(#7103):带原因码的说那一句,其余都是「咕咕这边出错了」——
-   * 原文只进日志,❌ 上屏(它常常是 `ACP session is not connected` 这类写给开发者的英文,或者带着本机地址)。
-   */
+  /** Keep the failure reason visible through the existing one-line sanitizer, and persist its full detail. */
   private _toastError(title: AcpFailureTitle, error: unknown): void {
     const cause = describeFailureCause(error);
-    log.warn('ACP chat action failed', { sessionId: this.sessionId, title, error: cause });
+    log.error('ACP chat action failed', { sessionId: this.sessionId, title, error: cause });
     toast({
       title: translateSessionMessage(title),
-      // #7103 谁拒绝谁说话:agent 拒的(ACP 那侧带病因的 Result)递它的原话一行;咕咕自己这一侧(运行时、宿主、这个 store)
-      // 按原因码说,不带码就是「咕咕这边出错了」,原文只进上面那行日志。
-      description: (refusedByAgent(error) ? failureText : guguFailureText)(cause ?? '', translateSessionMessage),
+      description: failureText(cause ?? '', translateSessionMessage),
       variant: 'destructive',
     });
   }
 }
 
-/** ACP 那侧带病因的失败(`acpErr.promptFailed(cause)` 一类 `{ type, cause }`):拒绝方是 agent 自己。 */
-function refusedByAgent(error: unknown): boolean {
-  return typeof error === 'object' && error !== null && !(error instanceof Error) && 'cause' in error;
-}
-
 /**
- * 把失败的**病因**取出来 —— 给日志与原因表用(#7103 起,弹窗正文按原因表说:带原因码说那一句,
- * 其余「咕咕这边出错了」;病因原文只进日志。失败的那一轮本身由转录里「回合失败」那一行说,原文在它的详情里)。
+ * 把失败的**病因**取出来,供日志与弹窗共用。失败的那一轮本身由转录里「回合失败」那一行说,原文在它的详情里。
  *
  * ⚠️ 这条路上的失败大多**不是 `Error` 实例** —— 它们是 Result 的错误对象
  * (`{ type, message }`)或 ACP 的 `RequestError`。原来的写法是

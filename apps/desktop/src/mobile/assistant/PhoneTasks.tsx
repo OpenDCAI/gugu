@@ -82,9 +82,7 @@ function SubAgents({ assistant, homeDeviceId, cloudDeviceId, readiness, askInCha
               {t('tasks.create')}
             </Button>
           }
-        >
-          {t('tasks.empty', { name: assistant.display_name })}
-        </AssistantEmpty>
+        />
       </AssistantSection>
     )
   }

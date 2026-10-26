@@ -1,8 +1,11 @@
+import { messageForUser } from '@/lib/userFacingError';
 import { useEffect, useRef, useState, useCallback } from 'react'
 import QRCode from 'qrcode'
 import { createSharePosterCanvas, copyPosterToClipboard, downloadPoster } from './sharePosterCanvas'
 import { Sheet } from './ui/Sheet'
 import { useTranslation } from 'react-i18next'
+import { rendererLogger } from '@/lib/log'
+import { safeFailureLine } from '@/session/renderer/features/sessions/gugu-reason'
 
 // @@@share-poster (#903) - Share poster dialog: canvas-composed image with QR + branding.
 // Supports copy-to-clipboard and download. No new dependencies (reuses `qrcode` already
@@ -27,15 +30,13 @@ export interface SharePosterDialogProps {
   onClose: () => void
 }
 
-type CopyState = 'idle' | 'copying' | 'copied' | 'error'
-
 export function SharePosterDialog({ title, subtitle, qrValue, memberAvatarUrls, totalMemberCount, qrCaption, ctaText, onClose }: SharePosterDialogProps) {
   const { t } = useTranslation('contacts')
   const [qrDataUrl, setQrDataUrl] = useState<string | null>(null)
   const [posterDataUrl, setPosterDataUrl] = useState<string | null>(null)
   const [generating, setGenerating] = useState(false)
   const [genError, setGenError] = useState<string | null>(null)
-  const [copyState, setCopyState] = useState<CopyState>('idle')
+  const [copyState, setCopyState] = useState<string | null>(null)
   const [downloadDone, setDownloadDone] = useState(false)
   const posterCanvasRef = useRef<HTMLCanvasElement | null>(null)
 
@@ -47,10 +48,10 @@ export function SharePosterDialog({ title, subtitle, qrValue, memberAvatarUrls, 
       .then((url) => { if (!cancelled) setQrDataUrl(url) })
       .catch((err) => {
         console.error('[SharePosterDialog] QR gen error', err)
-        if (!cancelled) setGenError(t('sharing.qrFailed'))
+        if (!cancelled) setGenError(messageForUser(err))
       })
     return () => { cancelled = true }
-  }, [qrValue, t])
+  }, [qrValue])
 
   // @@@445 数组 prop 转稳定 key 当 effect 依赖,避免每次渲染新引用触发重画。
   // 用 JSON.stringify(非 join('|')):URL 含字面 '|' 时 split round-trip 会损坏。直接把数组传给 canvas。
@@ -81,7 +82,7 @@ export function SharePosterDialog({ title, subtitle, qrValue, memberAvatarUrls, 
       .catch((err) => {
         // @@@445 fail-loud:生成失败显式提示用户(别静默吞→空白海报让人以为成功)。
         console.error('[SharePosterDialog] poster gen error', err)
-        if (!cancelled) setGenError(t('sharing.posterFailed'))
+        if (!cancelled) setGenError(messageForUser(err))
       })
       .finally(() => { if (!cancelled) setGenerating(false) })
     return () => { cancelled = true }
@@ -91,9 +92,15 @@ export function SharePosterDialog({ title, subtitle, qrValue, memberAvatarUrls, 
     const canvas = posterCanvasRef.current
     if (!canvas) return
     setCopyState('copying')
-    const ok = await copyPosterToClipboard(canvas)
-    setCopyState(ok ? 'copied' : 'error')
-    if (ok) setTimeout(() => setCopyState('idle'), 2000)
+    try {
+      await copyPosterToClipboard(canvas)
+      setCopyState('copied')
+      setTimeout(() => setCopyState(null), 2000)
+    } catch (error) {
+      const reason = String((error as Error)?.message ?? error)
+      rendererLogger('clipboard').error({ error: reason }, 'copy poster failed')
+      setCopyState(safeFailureLine(reason))
+    }
   }, [])
 
   const handleDownload = useCallback(() => {
@@ -104,13 +111,9 @@ export function SharePosterDialog({ title, subtitle, qrValue, memberAvatarUrls, 
     setTimeout(() => setDownloadDone(false), 2000)
   }, [])
 
-  let copyLabel: string
-  switch (copyState) {
-    case 'copying': copyLabel = t('sharing.copying'); break
-    case 'copied':  copyLabel = t('sharing.copied'); break
-    case 'error':   copyLabel = t('sharing.copyFailed'); break
-    default:        copyLabel = t('sharing.copyImage')
-  }
+  const copyLabel = copyState === 'copying' ? t('sharing.copying')
+    : copyState === 'copied' ? t('sharing.copied')
+    : copyState ?? t('sharing.copyImage')
 
   return (
     <Sheet
@@ -206,9 +209,6 @@ export function SharePosterDialog({ title, subtitle, qrValue, memberAvatarUrls, 
             )}
           </div>
 
-          <p style={{ fontSize: 'var(--font-caption)', color: 'var(--text-tertiary)', margin: 0, textAlign: 'center' }}>
-            {t('sharing.mobileHint')}
-          </p>
         </div>
 
         {/* Footer actions */}

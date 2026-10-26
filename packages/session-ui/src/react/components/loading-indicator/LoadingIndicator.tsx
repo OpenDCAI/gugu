@@ -93,9 +93,9 @@ export function LoadingIndicator(props: LoadingIndicatorProps) {
       animationData: structuredClone(loadingAnimationData),
     })
 
-    // 看不见就不转(#6629)。常驻但隐藏的面(`visibility:hidden` + `inert`,见 lib/retainedSurface.ts)
+    // 看不见就不转(#6629)。常驻但隐藏的面(`content-visibility:hidden`,见 lib/retainedSurface.ts)
     // 里的加载态照样逐帧改 SVG,渲染进程就按刷新率把样式/布局/绘制整条管线空跑,实测吃掉一个核的一半。
-    // IntersectionObserver 对 visibility:hidden 仍报「相交」⇒ 以 checkVisibility 为准;
+    // 以 checkVisibility 为准(它认 display / visibility / content-visibility 整条祖先链);
     // 祖先的属性变化(切面板)与自己进出文档/显示(IntersectionObserver)都触发重判。
     // 没有 checkVisibility 的 WebView(旧 iOS)照旧一直转。
     const observers: Array<MutationObserver | IntersectionObserver> = []

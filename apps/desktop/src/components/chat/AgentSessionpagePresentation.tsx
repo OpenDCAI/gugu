@@ -1,3 +1,4 @@
+import { messageForUser } from '@/lib/userFacingError';
 import { useCallback, useEffect, useState, type ReactNode } from 'react'
 import { useTranslation } from 'react-i18next'
 import type { AgentDisplayStatus, ChatItem } from '@gugu/core/shared/types/chat'
@@ -119,11 +120,11 @@ export function useAgentSessionpagePresentation(
         { error: error instanceof Error ? error.message : String(error) },
         'platform credential recovery retry failed',
       )
-      toast(t('agent.taskpage.recoveryFailed.retryError'), 'error')
+      toast(t('agent.taskpage.recoveryFailed.retryError'), 'error', messageForUser(error))
     } finally {
       setRecoveryRetrying(false)
     }
-  }, [projection.context?.sessionId, recoveryRetrying, t, toast])
+  }, [projection.context?.sessionId, recoveryRetrying, toast, t])
 
   // 状态就是那张 agent 状态表给的那一个(宿主写下的读数 × 可达),与头像、列表、通讯录同一个词。审阅门与
   // provider 阻塞只有宿主知道,也在本机那一条里;它们对状态的影响(等你 / 出错)宿主写读数时已经算过,

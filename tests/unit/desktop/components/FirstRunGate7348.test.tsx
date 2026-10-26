@@ -5,6 +5,8 @@ import { afterEach, describe, expect, it, vi } from 'vitest'
 import { clickElement, createNode, createReactHarness, renderWithAppProviders, typeInto, waitForCondition } from '../../../support/testHarness'
 
 const io = vi.hoisted(() => ({
+  firstRunDoneHere: vi.fn((_userId: string) => false),
+  rememberFirstRunDone: vi.fn(),
   readFirstRunProgress: vi.fn(),
   writeOccupation: vi.fn(async () => undefined),
   finishFirstRun: vi.fn(async () => '2026-10-16T00:00:00Z'),
@@ -61,14 +63,55 @@ describe('first run gate (#7348)', () => {
     }
   })
 
+  it('a device that already read "finished" for this account lets it straight in without asking again (offline / slow network)', async () => {
+    io.firstRunDoneHere.mockImplementation((userId: string) => userId === 'u1')
+    io.readFirstRunProgress.mockRejectedValue(new Error('network down'))
+    const harness = await renderGate()
+    try {
+      expect(byTestId(harness.container, 'main-product')).not.toBeNull()
+      expect(byTestId(harness.container, 'full-screen-loader')).toBeNull()
+      expect(io.readFirstRunProgress).not.toHaveBeenCalled()
+    } finally {
+      harness.cleanup()
+      io.firstRunDoneHere.mockImplementation(() => false)
+      io.readFirstRunProgress.mockReset()
+    }
+  })
+
+  it('only a read that says "finished" is remembered; "not finished" and "unreadable" are not', async () => {
+    io.readFirstRunProgress.mockResolvedValueOnce({ stage: 'done', occupation: null })
+    const done = await renderGate()
+    try {
+      await waitForCondition(() => !!byTestId(done.container, 'main-product'), 'product rendered')
+      expect(io.rememberFirstRunDone).toHaveBeenCalledWith('u1')
+    } finally {
+      done.cleanup()
+    }
+    vi.clearAllMocks()
+    io.readFirstRunProgress.mockResolvedValueOnce({ stage: 'profile', occupation: null })
+    const profile = await renderGate()
+    try {
+      await waitForCondition(() => !!byTestId(profile.container, 'first-run-profile'), 'profile screen')
+    } finally {
+      profile.cleanup()
+    }
+    io.readFirstRunProgress.mockRejectedValueOnce(new Error('network down'))
+    const unreadable = await renderGate()
+    try {
+      await waitForCondition(() => !!byTestId(unreadable.container, 'first-run-unreadable'), 'unreadable screen')
+    } finally {
+      unreadable.cleanup()
+    }
+    expect(io.rememberFirstRunDone).not.toHaveBeenCalled()
+  })
+
   it('unreadable progress says so and retries; it neither replays the flow nor lets you through', async () => {
     io.readFirstRunProgress.mockRejectedValueOnce(new Error('permission denied for table users'))
     io.readFirstRunProgress.mockResolvedValueOnce({ stage: 'done', occupation: null })
     const harness = await renderGate()
     try {
       await waitForCondition(() => !!byTestId(harness.container, 'first-run-unreadable'), 'unreadable screen')
-      // 原因进日志,屏上只说读不到 + 重试(仓库的文案规则:❌ 把内部失败描述拼进用户文案)
-      expect(harness.container.textContent).not.toContain('permission denied for table users')
+      expect(harness.container.textContent).toContain('permission denied for table users')
       expect(byTestId(harness.container, 'first-run-retry')).not.toBeNull()
       expect(byTestId(harness.container, 'main-product')).toBeNull()
       expect(byTestId(harness.container, 'first-run-profile')).toBeNull()
@@ -142,6 +185,7 @@ describe('first run gate (#7348)', () => {
       await clickElement(byTestId(first.container, 'assistant-intro-primary')!)
       await waitForCondition(() => !!byTestId(first.container, 'main-product'), 'product after start')
       expect(io.finishFirstRun).toHaveBeenCalled()
+      expect(io.rememberFirstRunDone).toHaveBeenCalledWith('u1')
       expect(io.requestAssistantSetupHandoff).toHaveBeenCalledWith('u1')
     } finally {
       first.cleanup()
@@ -168,9 +212,10 @@ describe('first run gate (#7348)', () => {
       await waitForCondition(() => !!byTestId(harness.container, 'assistant-intro-later'), 'later link')
       await clickElement(byTestId(harness.container, 'assistant-intro-later')!)
       await waitForCondition(() => !!harness.container.querySelector('[role="alert"]'), 'error shown')
-      expect(harness.container.textContent).not.toContain('network down')
+      expect(harness.container.textContent).toContain('network down')
       expect(byTestId(harness.container, 'main-product')).toBeNull()
       expect(byTestId(harness.container, 'assistant-intro-later')).not.toBeNull()
+      expect(io.rememberFirstRunDone).not.toHaveBeenCalled()
     } finally {
       harness.cleanup()
     }

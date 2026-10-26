@@ -1,14 +1,15 @@
 // @vitest-environment jsdom
 // 内置工作区 App 接手旧工作区的四样(真源 §2.4 c3d9f16d / fdf21cf0):上传、下载、「谁创建的」、来源消息。
-// 「最近动态」那一块已删(主人 10-04 选方案 A「一张清单」):列表本身按最后改动排,每行写创建者。
+// The list sorts by the last change, but keeps creation and editing attribution separate.
 // 页面跑在假的 window.gugu 上 —— 判的是 App 怎么用这几个宿主动词、结果怎么画;动词本身由 L3 的运行时测。
 // 宿主没给的动词,对应按钮就不出现(和 files.rename 一样)。
 import { readFileSync } from 'node:fs'
 import { resolve } from 'node:path'
-import { beforeAll, describe, expect, test, vi } from 'vitest'
+import { afterAll, beforeAll, describe, expect, test, vi } from 'vitest'
 import { until } from '../../../support/awaitCondition'
 
-const ago = (seconds: number) => new Date(Date.now() - seconds * 1000).toISOString()
+const now = Date.parse('2026-10-25T12:00:00Z')
+const ago = (seconds: number) => new Date(now - seconds * 1000).toISOString()
 
 const entries = [
   {
@@ -30,8 +31,10 @@ const entries = [
 type Ctx = { chat: { id: string; name: string; kind: 'group' | 'topic'; groupId: string | null }; locale: string; capabilities: string[]; file?: { chat: string; id: string } }
 const context: Ctx = { chat: { id: 'chat-1', name: 'G', kind: 'group', groupId: 'chat-1' }, locale: 'zh-CN', capabilities: ['files:read', 'files:write'] }
 let contextChanged: (ctx: Ctx) => void = () => {}
+let filesChanged = (_change: { kind: 'entries'; entries: typeof entries; gone: string[] }) => {}
 
 const gugu = {
+  linkTo: vi.fn(async ({ file }: { file: { id: string } }) => `gugu-file://${file.id}`),
   setTabTitle: vi.fn(async () => {}),
   getContext: vi.fn(async () => context),
   onContextChanged: vi.fn((fn: typeof contextChanged) => {
@@ -43,7 +46,7 @@ const gugu = {
   showMessage: vi.fn(async (_id: string) => {}),
   files: {
     list: vi.fn(async () => entries),
-    onChanged: vi.fn(() => () => {}),
+    onChanged: vi.fn((_place: unknown, fn: typeof filesChanged) => { filesChanged = fn; return () => {} }),
     // Only what the host hands this page (context.file) is opened here; no file service in this rig.
     open: vi.fn(async () => { throw new Error('rig: no file service here') }),
     create: vi.fn(),
@@ -72,6 +75,7 @@ const menuItem = (text: string) => menuItems().find((item) => item.textContent =
 const pressEscape = () => document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape' }))
 
 beforeAll(async () => {
+  vi.spyOn(Date, 'now').mockReturnValue(now)
   const html = readFileSync(resolve(process.cwd(), 'apps/desktop/preinstalled-apps/workspace/index.html'), 'utf8')
   const page = new DOMParser().parseFromString(html, 'text/html')
   document.body.innerHTML = page.body.innerHTML
@@ -83,18 +87,18 @@ beforeAll(async () => {
   await vi.waitFor(() => expect(app().entries).toHaveLength(4))
 })
 
+afterAll(() => vi.restoreAllMocks())
+
 describe('workspace App: what the old workspace panel did', () => {
-  test('one list: the newest change first, with creator and changed time under each name', () => {
+  test('one list: newest change first, with the creator paired only with creation time', () => {
     expect(document.getElementById('activity'), '对照:父提交在列表下面还有一块「最近动态」').toBe(null)
     // plan.md was made an hour ago and edited a minute ago: its edit counts, so it sits above photo.png.
     expect(app().entries.map((li) => li.querySelector('.file-name')!.textContent)).toEqual(['old.md', 'plan.md', 'photo.png', 'cfg.json'])
     const cells = (id: string) => [...document.querySelector(`[data-id="${id}"] .file-meta`)!.children].map((cell) => cell.textContent)
-    expect(cells('plan')[0]).toBe('张三')
-    expect(cells('plan')[1]).not.toBe('')
-    expect(cells('plan')).toHaveLength(2)
-    expect(cells('photo')).toEqual(['写手 (Agent)', expect.any(String)])
-    expect(cells('cfg')).toEqual(['系统', expect.any(String)])
-    expect(cells('old')[0], 'no creator: left blank').toBe('')
+    expect(cells('plan')).toEqual(['张三 创建 · 1小时前', '已编辑 · 1分钟前'])
+    expect(cells('photo')).toEqual(['写手 (Agent) 创建 · 2分钟前'])
+    expect(cells('cfg')).toEqual(['系统 创建 · 2小时前'])
+    expect(cells('old'), 'no creation metadata: no invented attribution').toEqual([])
   })
 
   test('a file on screen shows its creator and source messages; a click asks the host to show one', async () => {
@@ -105,7 +109,7 @@ describe('workspace App: what the old workspace panel did', () => {
     await vi.waitFor(() => expect(app().shown).toBe('large.json'))
     expect($('doc-message').hidden).toBe(false)
     expect($('download').hidden).toBe(false)
-    expect(app().info).toContain('写手 (Agent) 创建于')
+    expect(app().info).toContain('写手 (Agent) 创建 · 2分钟前')
     const sources = Array.from(document.querySelectorAll<HTMLButtonElement>('#doc-info .source'))
     expect(sources.map((b) => b.textContent)).toEqual(['第 1 条', '第 2 条'])
 
@@ -133,6 +137,38 @@ describe('workspace App: what the old workspace panel did', () => {
     $('download').click()
     await vi.waitFor(() => expect(banner()).toContain('disk full'))
     contextChanged({ ...context })
+    await vi.waitFor(() => expect(app().shown).toBe(null))
+  })
+
+  test('an edited document keeps creation and edit times separate in its header, without assigning an editor', async () => {
+    const entry = entries[0]
+    gugu.files.open.mockResolvedValueOnce({ type: 'binary', entry, close: vi.fn() } as never)
+    contextChanged({ ...context, locale: 'en', file: { chat: 'chat-1', id: entry.id } })
+    await vi.waitFor(() => expect(app().shown).toBe('plan.md'))
+    expect([...$('doc-info').querySelectorAll('.file-activity')].map((line) => line.textContent)).toEqual([
+      'Created by 张三 · 1 hour ago', 'Edited · 1 minute ago',
+    ])
+    contextChanged({ ...context })
+    await vi.waitFor(() => expect(app().shown).toBe(null))
+  })
+
+  test.each([
+    { locale: 'zh-CN', name: '李四', kind: 'human', at: ago(60), expected: '李四 编辑 · 1分钟前' },
+    { locale: 'en', name: 'Helper', kind: 'agent', at: ago(60), expected: 'Edited by Helper (agent) · 1 minute ago' },
+    { locale: 'en', name: 'Jane', kind: 'human', at: ago(3600), expected: 'Edited by Jane · 1 hour ago' },
+  ])('a known $kind editor appears in the list and open header ($locale, $at)', async ({ locale, name, kind, at, expected }) => {
+    const entry = { ...entries[0], updatedAt: at, updatedBy: { id: 'editor', name, kind } }
+    contextChanged({ ...context, locale })
+    filesChanged({ kind: 'entries', entries: [entry], gone: [] })
+    const lines = () => [...document.querySelector('[data-id="plan"] .file-meta')!.children].map((cell) => cell.textContent)
+    expect(lines()).toContain(expected)
+    expect(lines().join(' ')).toContain('张三')
+    gugu.files.open.mockResolvedValueOnce({ type: 'binary', entry, close: vi.fn() } as never)
+    contextChanged({ ...context, locale, file: { chat: 'chat-1', id: entry.id! } })
+    await vi.waitFor(() => expect(app().shown).toBe('plan.md'))
+    expect([...$('doc-info').querySelectorAll('.file-activity')].map((line) => line.textContent)).toContain(expected)
+    contextChanged({ ...context })
+    filesChanged({ kind: 'entries', entries: [entries[0]], gone: [] })
     await vi.waitFor(() => expect(app().shown).toBe(null))
   })
 

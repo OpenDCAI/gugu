@@ -1,3 +1,4 @@
+import { safeFailureLine } from '@/session/renderer/features/sessions/gugu-reason'
 import type { CSSProperties, ReactNode } from 'react'
 import { useTranslation } from 'react-i18next'
 import { motion } from 'framer-motion'
@@ -21,12 +22,12 @@ import { isProjectGroupChat } from '../../lib/groupMemberPermissions'
 // @@@6418 群设置抽屉各页共用的小件(页头 / 导航行 / 开关行 / 邀请链接)。几何在 groupSettingsStyles.ts。
 
 const headStyle: CSSProperties = {
-  padding: '34px 24px 14px', fontSize: 'var(--font-heading)', fontWeight: 600, borderBottom: '1px solid var(--border)',
+  height: 'var(--pane-header-h)', padding: '0 24px', fontSize: 'var(--font-heading)', fontWeight: 600, borderBottom: '1px solid var(--border)',
   display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 4, flexShrink: 0, color: 'var(--text-primary)',
 }
-const subpageHeadStyle: CSSProperties = { ...headStyle, padding: '30px 24px 12px 14px' }
-// 移动壳:与其它手机页面同一条页头(#1787)—— 44px 返回贴左、紧凑上下距、无桌面抽屉的 34px 顶距。
-const mobileHeadStyle: CSSProperties = { ...headStyle, padding: '6px 12px 6px 4px', gap: 2, borderBottom: '1px solid var(--border)' }
+const subpageHeadStyle: CSSProperties = { ...headStyle, padding: '0 24px 0 14px' }
+// Mobile keeps its natural height and 44px back target; desktop uses the shared pane-header height.
+const mobileHeadStyle: CSSProperties = { ...headStyle, height: 'auto', padding: '6px 12px 6px 4px', gap: 2, borderBottom: '1px solid var(--border)' }
 // 标题区撑满返回与动作之间:成员页的话题改名框(flex:1)要住得下。
 const headTitleStyle: CSSProperties = { display: 'flex', alignItems: 'center', gap: 4, flex: 1, minWidth: 0 }
 const headTitleTextStyle: CSSProperties = { overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }
@@ -145,7 +146,6 @@ const linkBoxStyle: CSSProperties = {
 const linkTextStyle: CSSProperties = {
   flex: 1, minWidth: 0, fontSize: 'var(--font-body)', color: 'var(--text-tertiary)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap',
 }
-const linkHintStyle: CSSProperties = { fontSize: 'var(--font-body)', color: 'var(--text-tertiary)', marginTop: 6, lineHeight: 1.5 }
 const posterButtonStyle: CSSProperties = { marginTop: 10, width: '100%' }
 
 /** 群设置一级页上给普通成员的那一块邀请链接(没有链接 = 不画)。项目群不拉人(gugu-dev#181):只说原因。 */
@@ -180,8 +180,8 @@ export function GroupInviteLinkBlock({ inviteLink, onOpenPoster }: { inviteLink:
             try {
               await navigator.clipboard.writeText(inviteLink)
               toast(t('group.settings.inviteCopied'), 'success')
-            } catch {
-              toast(t('group.settings.inviteCopyFailed'), 'error')
+            } catch (error) {
+              toast(t('actions.copyFailed', { ns: 'common' }), 'error', safeFailureLine(String((error as Error)?.message ?? error)))
             }
           }}
         >
@@ -189,7 +189,6 @@ export function GroupInviteLinkBlock({ inviteLink, onOpenPoster }: { inviteLink:
           {t('group.settings.copyLink')}
         </Button>
       </div>
-      <div style={linkHintStyle}>{t('group.settings.shareLinkHint')}</div>
       <Button variant="secondary" size="md" style={posterButtonStyle} onClick={onOpenPoster}>{t('group.settings.sharePoster')}</Button>
     </div>
   )

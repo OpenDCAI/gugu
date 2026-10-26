@@ -1,7 +1,7 @@
 // @vitest-environment jsdom
 // #7238: the 群文件夹 App cites a markdown file's places as pills to their lines, and a pill opens the file there. Judged on
 // the real app.js and the real CodeMirror (bound by a stand-in that puts the file's text in): Cite hands
-// `gugu.compose('', { refs })` — each range of the selection a pill with `at: { lines, h }` and its words, no quote; a
+// `gugu.dispatch('', { draft: true, refs })` — each range of the selection a pill with `at: { lines, h }` and its words, no quote; a
 // selection in the preview is cited by the lines its blocks were written on; ＋ Keep gathers places for one Cite; a
 // pill's link marks its lines in the source and the preview, found again when the file changed above them (and said),
 // and only said when the lines themselves changed. A place is the file's it came for; a JSON file's cite stays a quote.
@@ -76,6 +76,7 @@ const ctxOf = (id: string) => ({ chat: { id: 'chat-1', name: 'G', kind: 'group',
 let link: (event: { type: 'link'; tab: string; path: string; query: Record<string, string>; file: string | null }) => void = () => {}
 let contextChanged: (ctx: ReturnType<typeof ctxOf>) => void = () => {}
 const gugu = {
+  linkTo: vi.fn(async ({ file }: { file: { id: string } }) => `gugu-file://${file.id}`),
   setTabTitle: vi.fn(async () => {}),
   getContext: vi.fn(async () => ctxOf('plan')),
   onContextChanged: vi.fn((handler: typeof contextChanged) => {
@@ -86,7 +87,7 @@ const gugu = {
     link = handler
     return () => {}
   }),
-  compose: vi.fn(async (_text: string, _options: unknown) => {}),
+  dispatch: vi.fn(async (_text: string, _options: unknown) => ({ to: { chat: 'g-1' } })),
   codemirror: vi.fn(async () => ({ EditorView, EditorState: cmState.EditorState, basicSetup, markdown, markdownLanguage, json, view: cmView, state: cmState })),
   markdown: vi.fn(async () => md),
   // The file's text in the editor, as the binding puts it there.
@@ -105,7 +106,7 @@ const line = (n: number) => view().state.doc.line(n)
 const select = (...ranges: [number, number][]) => view().dispatch({ selection: EditorSelection.create(ranges.map(([from, to]) => EditorSelection.range(from, to))) })
 const marked = (cls: string) => [...document.querySelectorAll('.cm-line')].flatMap((l, i) => (l.classList.contains(cls) ? [i + 1] : []))
 const previewMarked = (cls: string) => [...document.querySelectorAll(`#preview .${cls}`)].map((b) => b.getAttribute('data-line'))
-const refsOfLastCompose = () => (gugu.compose.mock.calls.at(-1)![1] as { refs: unknown[] }).refs
+const refsOfLastCompose = () => (gugu.dispatch.mock.calls.at(-1)![1] as { refs: unknown[] }).refs
 /** The editor's text changed by someone else: the file says so and the preview draws it again. */
 async function edit(change: { from: number; to?: number; insert: string }) {
   view().dispatch({ changes: change })
@@ -129,18 +130,35 @@ beforeAll(async () => {
 })
 
 beforeEach(() => {
-  gugu.compose.mockClear()
+  gugu.dispatch.mockClear()
   select([0, 0])
   document.getSelection()?.removeAllRanges()
 })
 
 describe('Cite: pills to the picked lines, no quote', () => {
+  test('the native menu keeps its picked lines after focus changes and quotes a whole file without selection', async () => {
+    select([line(3).from, line(4).to])
+    const root = $('editor')
+    expect(root.dataset.guguFileViewer).toBeTruthy()
+    const request = { action: 'snapshot', requestId: 'native', selection: { text: '' } }
+    root.dispatchEvent(new CustomEvent('gugu:file-viewer-menu', { detail: request }))
+    expect(request.selection.text).toBe('目标：十月上线\n负责人：小王')
+    select([0, 0])
+    root.dispatchEvent(new CustomEvent('gugu:file-viewer-menu', { detail: { ...request, action: 'quote-selection' } }))
+    await until('native Cite composed', () => gugu.dispatch.mock.calls.length > 0)
+    expect(refsOfLastCompose()).toEqual([{ file: entry, at: { lines: '3-4', h: fingerprint('目标：十月上线\n负责人：小王') }, label: 'Lines 3–4 · 目标：十月上线 负责人：小王' }])
+    root.dispatchEvent(new CustomEvent('gugu:file-viewer-menu', { detail: { ...request, action: 'snapshot', requestId: 'whole' } }))
+    root.dispatchEvent(new CustomEvent('gugu:file-viewer-menu', { detail: { ...request, action: 'quote-file', requestId: 'whole' } }))
+    await until('whole file composed', () => gugu.dispatch.mock.calls.length === 2)
+    expect(refsOfLastCompose()).toEqual([{ file: entry }])
+  })
+
   test('each range of the selection is one pill: its lines and their fingerprint, the lines then its words', async () => {
     select([line(3).from, line(4).to], [line(7).from + 2, line(7).from + 6])
     $('cite-sel').click()
-    await until('Cite has composed', () => gugu.compose.mock.calls.length > 0)
-    expect(gugu.compose).toHaveBeenCalledOnce()
-    expect(gugu.compose.mock.calls[0]![0]).toBe('')
+    await until('Cite has composed', () => gugu.dispatch.mock.calls.length > 0)
+    expect(gugu.dispatch).toHaveBeenCalledOnce()
+    expect(gugu.dispatch.mock.calls[0]![0]).toBe('')
     expect(refsOfLastCompose()).toEqual([
       { file: entry, at: { lines: '3-4', h: fingerprint('目标：十月上线\n负责人：小王') }, label: 'Lines 3–4 · 目标：十月上线 负责人：小王' },
       // A phrase inside a line: that line, and the words picked.
@@ -151,8 +169,8 @@ describe('Cite: pills to the picked lines, no quote', () => {
   test('picked in the source, a pill\'s words read as the preview\'s: no heading or list marker', async () => {
     select([line(6).from, line(7).to])
     $('cite-sel').click()
-    await until('Cite has composed', () => gugu.compose.mock.calls.length > 0)
-    expect(gugu.compose).toHaveBeenCalledOnce()
+    await until('Cite has composed', () => gugu.dispatch.mock.calls.length > 0)
+    expect(gugu.dispatch).toHaveBeenCalledOnce()
     expect((refsOfLastCompose() as { label: string }[])[0]!.label).toBe('Lines 6–7 · 风险 支付接口可能延期')
   })
 
@@ -166,8 +184,8 @@ describe('Cite: pills to the picked lines, no quote', () => {
     document.getSelection()!.addRange(range)
     document.dispatchEvent(new Event('selectionchange'))
     $('cite-sel').click()
-    await until('Cite has composed', () => gugu.compose.mock.calls.length > 0)
-    expect(gugu.compose).toHaveBeenCalledOnce()
+    await until('Cite has composed', () => gugu.dispatch.mock.calls.length > 0)
+    expect(gugu.dispatch).toHaveBeenCalledOnce()
     const [ref] = refsOfLastCompose() as { at: { lines: string; h: string } }[]
     expect(ref!.at).toEqual({ lines: '3-7', h: fingerprint(TEXT.split('\n').slice(2, 7).join('\n')) })
   })
@@ -181,8 +199,8 @@ describe('Cite: pills to the picked lines, no quote', () => {
     expect(previewMarked('md-held')).toEqual(['1-1'])
     select([line(3).from, line(3).to])
     $('held-cite').click()
-    await until('Cite has composed', () => gugu.compose.mock.calls.length > 0)
-    expect(gugu.compose).toHaveBeenCalledOnce()
+    await until('Cite has composed', () => gugu.dispatch.mock.calls.length > 0)
+    expect(gugu.dispatch).toHaveBeenCalledOnce()
     expect((refsOfLastCompose() as { at: { lines: string } }[]).map((ref) => ref.at.lines)).toEqual(['1', '3'])
     expect($('held-bar').hidden).toBe(true)
     expect(marked('cm-held')).toEqual([])
@@ -261,7 +279,7 @@ describe("a pill's place is the file's it came for; a JSON file's cite stays a q
     await until('the JSON file is shown', () => document.querySelector('.cm-editor') !== null && view().state.doc.toString().includes('不是标题'))
     select([line(2).from, line(3).to])
     $('cite-sel').click()
-    await until('Cite has composed', () => gugu.compose.mock.calls.length > 0)
-    expect(gugu.compose.mock.calls).toEqual([['Lines 2–3\n>   "a": "**粗**",\n>   "b": "# 不是标题"', { refs: [{ file: config.entry }] }]])
+    await until('Cite has composed', () => gugu.dispatch.mock.calls.length > 0)
+    expect(gugu.dispatch.mock.calls).toEqual([['Lines 2–3\n>   "a": "**粗**",\n>   "b": "# 不是标题"', { draft: true, refs: [{ file: config.entry }] }]])
   })
 })

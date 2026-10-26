@@ -45,7 +45,6 @@ export function AssistantIntro({
     <>
       <AgentAvatar id="assistant-draft" name={t('rail')} look={look} size={88} />
       <h1 className="ta-onb-title">{t('intro.title')}</h1>
-      <p className="ta-onb-sub">{t('intro.sub')}</p>
       <ul className="ta-onb-intro" data-testid="assistant-intro-rows">
         {rows.map((row) => (
           <li key={row.key} className="ta-onb-intro-row" data-intro-row={row.key}>

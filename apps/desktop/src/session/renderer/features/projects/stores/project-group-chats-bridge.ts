@@ -9,11 +9,14 @@ export const PROJECT_GROUP_CHATS_BRIDGE_KEY = '__GUGU_PROJECT_GROUP_CHATS__' as 
 export const PROJECT_GROUP_CHATS_EVENT = 'gugu:project-group-chats' as const;
 
 /** 这台电脑与连着的每台机器上、各个本地项目绑的群(同一个群可能被几台机器上的项目绑着,这里只列一次)。 */
-export type ProjectGroupChatsBridge = { readonly chatIds: ReadonlySet<string> };
+export type ProjectGroupChatsBridge = {
+  readonly chatIds: ReadonlySet<string>;
+  readonly projectMemberIds: ReadonlyMap<string, readonly string[]>;
+};
 
-export function publishProjectGroupChats(chatIds: Iterable<string>): void {
+export function publishProjectGroupChats(chatIds: Iterable<string>, projectMemberIds: ReadonlyMap<string, readonly string[]>): void {
   if (typeof window === 'undefined') return;
-  const bridge: ProjectGroupChatsBridge = { chatIds: new Set(chatIds) };
+  const bridge: ProjectGroupChatsBridge = { chatIds: new Set(chatIds), projectMemberIds };
   (window as unknown as Record<string, unknown>)[PROJECT_GROUP_CHATS_BRIDGE_KEY] = bridge;
   window.dispatchEvent(new Event(PROJECT_GROUP_CHATS_EVENT));
 }

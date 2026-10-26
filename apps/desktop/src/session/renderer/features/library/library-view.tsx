@@ -110,8 +110,6 @@ function IntegrationsLibraryPage() {
       <PageHeader
         sticky
         title={translate('settings.integrations')}
-        description={translate('settings.integrationsDescription')}
-        remoteDescription={(device) => translate('deviceScope.subtitle.integrations', { device })}
       />
       <IntegrationsCard />
     </div>

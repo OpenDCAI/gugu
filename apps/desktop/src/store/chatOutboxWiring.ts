@@ -20,6 +20,7 @@ import {
 import { advanceReadWatermark, applyThreadSnapshot } from './chatRealtimeMutations'
 import { createChatOutbox, type ChatOutbox } from './chatOutbox'
 import { i18n } from '@/i18n'
+import { rendererLogger } from '@/lib/log'
 
 export interface OutboxWiringIo {
   getImRepository(): Promise<AccountImRepository>
@@ -88,6 +89,7 @@ export function outboxRecordToMessage(
     delivered: false,
     delivery_status: null,
     local_send_state: record.state === 'failed' ? 'failed' : 'sending',
+    local_send_error: record.lastError,
   }
 }
 
@@ -111,7 +113,7 @@ export function createOutboxWiring(io: OutboxWiringIo): OutboxWiring {
     if (!active) return
     const state = record.state === 'failed' ? 'failed' : 'sending'
     const patchRow = (m: MessageItem) =>
-      m.id === record.clientMessageId ? { ...m, local_send_state: state as MessageItem['local_send_state'] } : m
+      m.id === record.clientMessageId ? { ...m, local_send_state: state as MessageItem['local_send_state'], local_send_error: record.lastError } : m
     if (record.payload.threadRootId) {
       io.setThreadMessages((prev) => prev.map(patchRow), record.chatId)
     } else {
@@ -120,6 +122,7 @@ export function createOutboxWiring(io: OutboxWiringIo): OutboxWiring {
     // fail-loud 不许失踪(#1762 评审[9]):终态 failed 时那条乐观行若不在屏上(话题已关/切了会话),
     // 「未送达」badge 无处渲染 → 用全局 toast 外化;行仍在 outbox,回到现场即可重试/丢弃。
     if (record.state === 'failed') {
+      rendererLogger('chat/outbox').error({ chatId: record.chatId, messageId: record.clientMessageId, error: record.lastError }, 'message send failed')
       const onScreen = record.payload.threadRootId
         ? io.activeChatId() === record.chatId && io.activeThreadRootId() === record.payload.threadRootId
         : io.activeChatId() === record.chatId

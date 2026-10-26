@@ -44,7 +44,12 @@ export type ExtensionTabDescriptor = {
   state?: Record<string, unknown>;
 };
 
-export type TabDescriptor = BuiltInTabDescriptor | ExtensionTabDescriptor;
+/** Closing a shown tab returns here while that tab is still open. */
+export type TabReturnTo = { tabId: string; message?: string };
+
+export type TabDescriptor = (BuiltInTabDescriptor | ExtensionTabDescriptor) & {
+  returnTo?: TabReturnTo;
+};
 
 const BUILT_IN_TAB_KINDS = {
   session: true,

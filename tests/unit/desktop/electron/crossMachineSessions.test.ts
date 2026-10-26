@@ -83,6 +83,18 @@ const actions = (call: ReturnType<typeof vi.fn>) =>
   call.mock.calls.map(([deviceId, , payload]) => [deviceId, (payload as { action: { action: string } }).action.action])
 
 describe('reaching another machine', () => {
+  it('uses the shared task-host predicate for activity targets and keeps offline hosts', async () => {
+    const phone = device('phone', 'Phone', false)
+    phone.capabilities = { ...phone.capabilities, host_kind: 'phone', host_runtime_capability: 1, runtimes: ['pi'] }
+    const actionOnly = device('actions-only', 'No task host', true)
+    actionOnly.capabilities = { ...actionOnly.capabilities, host_kind: 'phone' }
+    const oldComputer = device('old', 'Older computer', true)
+    delete oldComputer.capabilities.host_runtime_capability
+    const { xm, call } = makeCrossMachine(undefined, { listDevices: async () => [oldComputer, phone, actionOnly] })
+    expect((await xm.activityDevices()).map(d => [d.device_id, d.online])).toEqual([['old', true], ['phone', false]])
+    expect(call).not.toHaveBeenCalled()
+  })
+
   it('refuses file handoff to an older or unknown receiver before any message RPC, without blocking text', async () => {
     for (const protocol of [undefined, 10, 11]) {
       const target = device('dev-b', 'receiver', true)

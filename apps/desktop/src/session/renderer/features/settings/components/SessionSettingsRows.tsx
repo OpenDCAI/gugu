@@ -26,7 +26,6 @@ export const AutoGenerateSessionNamesRow: React.FC = () => {
   return (
     <SettingsRow
       title={translate('taskDefaults.autoGenerateName')}
-      description={translate('taskDefaults.autoGenerateNameDescription')}
       control={
         <>
           <ResetToDefaultButton

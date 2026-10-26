@@ -20,7 +20,7 @@ function deferred(): Deferred {
 }
 const flush = () => new Promise((resolve) => setImmediate(resolve))
 
-function rig() {
+function rig(opts: { prepareInstall?: (file: string | undefined) => Promise<void> } = {}) {
   const listeners = new Map<string, Array<(arg?: unknown) => void>>()
   const on = (event: string) => (listener: (arg: never) => void) => {
     listeners.set(event, [...(listeners.get(event) ?? []), listener as (arg?: unknown) => void])
@@ -79,6 +79,7 @@ function rig() {
     rejectTarget: () => false,
     dmg: { applies: () => false, start: () => {} },
     updateQuit,
+    prepareInstall: opts.prepareInstall ?? (async () => {}),
     logInfo: () => {},
     logWarn: () => {},
   })
@@ -95,7 +96,7 @@ function rig() {
     periodicCheck: async () => { await checkForUpdates().catch(() => {}); await flush() },
     finishDownload: async () => {
       const d = pendingDownload!; pendingDownload = null
-      fire('update-downloaded'); d.resolve(); await flush()
+      fire('update-downloaded', { downloadedFile: `pending/${flow.lastUpdateInfo?.version}.exe` }); d.resolve(); await flush()
     },
     failDownload: async (message = 'net::ERR_CONNECTION_RESET') => {
       const d = pendingDownload!; pendingDownload = null
@@ -190,6 +191,31 @@ describe('没按过「重启更新」', () => {
     const r = await staged()
     await r.periodicCheck()
     expect(r.downloads).toEqual(['0.2.90-beta.2.1'])
+    expect(r.status).toBe('downloaded')
+  })
+})
+
+describe('@@@staged-update 下好之后先把新版本准备好', () => {
+  it('准备完之前不出「重启更新」,也 ❌ 再下一遍;准备的是下好的那个安装包', async () => {
+    const gate = deferred()
+    const prepared: Array<string | undefined> = []
+    const r = rig({ prepareInstall: (file) => { prepared.push(file); return gate.promise.then(() => {}) } })
+    r.setFeed('0.2.90-beta.2.1')
+    await r.periodicCheck()
+    await r.finishDownload()
+    expect(prepared).toEqual(['pending/0.2.90-beta.2.1.exe'])
+    expect(r.status).toBe('downloading')
+    await r.periodicCheck()
+    expect(r.downloads).toEqual(['0.2.90-beta.2.1'])
+    gate.resolve(); await flush()
+    expect(r.status).toBe('downloaded')
+  })
+
+  it('准备失败照样出「重启更新」(重启时走常规安装)', async () => {
+    const r = rig({ prepareInstall: () => Promise.reject(new Error('stage exited 3')) })
+    r.setFeed('0.2.90-beta.2.1')
+    await r.periodicCheck()
+    await r.finishDownload()
     expect(r.status).toBe('downloaded')
   })
 })

@@ -90,19 +90,24 @@ export function useLiveDeviceSessions(): Readonly<Record<string, DeviceSessions>
 }
 
 /**
- * 一台机器上的项目与会话。离线时会话照心跳摘要;项目照账号上记着的那份(#113)列全 —— ❌ 只列摘要里碰巧有会话的那几个。
- * 摘要里的会话所在的项目账号上没有(还没读到账号上的那份)也照样列出,会话不能没有归处。
+ * 一台机器上的项目与会话:读到了那台机器此刻的就是它;没读到(离线、刚开还在读、一时连不上)就是它**自己上报过的那份** ——
+ * 会话照心跳摘要,项目照账号上记着的那份(#113)列全(❌ 只列摘要里碰巧有会话的那几个;摘要里的会话所在的项目账号上
+ * 没有,也照样列出,会话不能没有归处)。电脑的「上次的样子」只有这一份:设备行连同摘要本来就跟着设备列表存在本地,
+ * ❌ 再另存一份会话底稿。在线时这一份标 cached(还没对过账,❌ 冒充此刻),读的进度与错误照实带上。
  */
 export function deviceSessionsOf(device: Device, liveSessions: Readonly<Record<string, DeviceSessions>>): DeviceSessions {
-  if (device.is_online) return liveSessions[device.device_id] ?? EMPTY
-  // 手机摘要里的 chatId 是继续真实 DM 的地址,离线也有效。状态由行所在机器的在线信号决定,
-  // 不把旧的 working 当此刻正在运行;完整 workspace 时间线仍然 unsupported。
-  if (isPhoneDevice(device) && liveSessions[device.device_id]) return { ...liveSessions[device.device_id]!, cached: true, loading: false, error: null }
-  const digest = sessionListFromDigest(device.session_digest)
+  const live = liveSessions[device.device_id]
+  if (device.is_online && live && (!live.cached || isPhoneDevice(device))) return live
+  // 手机的目录由手机自己的记录铺(usePhoneAgentDirectory):摘要里没有 chatId(继续真实 DM 的地址),离线也照那一份。
+  // 状态由行所在机器的在线信号决定,不把旧的 working 当此刻正在运行;完整 workspace 时间线仍然 unsupported。
+  if (!device.is_online && isPhoneDevice(device) && live) return { ...live, cached: true, loading: false, error: null }
+  const digest = sessionListFromDigest(device.session_digest, device.is_online)
   const recorded = (device.projects ?? []).map((project) => ({ id: project.localProjectId, name: project.name, path: project.rootPath }))
   const known = new Set(recorded.map((project) => project.id))
   const projects = [...recorded, ...digest.projects.filter((project) => !known.has(project.id))]
-  return { ...digest, projects, cached: false, loading: false, error: null }
+  return device.is_online
+    ? { ...digest, projects, cached: true, loading: live?.loading ?? true, error: live?.error ?? null }
+    : { ...digest, projects, cached: false, loading: false, error: null }
 }
 
 /** 全部机器的行;地址是行上的机器,❌ 人进的是哪台。 */

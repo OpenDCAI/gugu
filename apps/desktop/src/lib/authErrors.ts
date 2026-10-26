@@ -1,3 +1,4 @@
+import { messageForUser } from '@/lib/userFacingError';
 type AuthErrorLike = {
   message?: string
   code?: string
@@ -6,11 +7,10 @@ type AuthErrorLike = {
 import { i18n } from '@/i18n'
 import { isAuthRetryableFetchError } from '@supabase/supabase-js'
 
-type AuthCopyKey = 'failed' | 'invalidEmail' | 'networkFailed' | 'otpInvalid' | 'rateLimited'
+type AuthCopyKey = 'invalidEmail' | 'networkFailed' | 'otpInvalid' | 'rateLimited'
 
 function authCopy(key: AuthCopyKey): string {
   switch (key) {
-    case 'failed': return i18n.t('auth.failed', { ns: 'main' })
     case 'invalidEmail': return i18n.t('auth.invalidEmail', { ns: 'main' })
     case 'networkFailed': return i18n.t('auth.networkFailed', { ns: 'main' })
     case 'otpInvalid': return i18n.t('auth.otpInvalid', { ns: 'main' })
@@ -25,8 +25,7 @@ function authErrorLike(error: unknown): AuthErrorLike {
 }
 
 export function userVisibleAuthError(
-  error: unknown,
-  fallback = authCopy('failed')
+  error: unknown
 ): string {
   const detail = authErrorLike(error)
   const code = detail.code?.trim().toLowerCase() ?? ''
@@ -60,5 +59,5 @@ export function userVisibleAuthError(
     return authCopy('invalidEmail')
   }
 
-  return fallback
+  return messageForUser(error)
 }

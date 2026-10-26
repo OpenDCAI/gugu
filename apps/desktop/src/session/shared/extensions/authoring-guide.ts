@@ -25,7 +25,7 @@ import { EXTENSION_API_VERSION } from './bridge-protocol';
  *   迭代时 agent 会每次重装都去请人点同意。
  *   `apps` 这篇贴着字节上限(guguGuide6614):补的这半句,由第 5 步删掉的「Installing and testing your own App never
  *   needs it」抵掉 —— 开头那段已经说清装和进群各走哪条。
- * 第 4 条:`listAgents` 的 transport 和 `spawnAgent` / `session_spawn` 同一套词 `acp` / `pty`(真源原则 12),
+ * 第 4 条:`listAgents` 的 transport 和 `dispatch` 的 `spawn` / `session_spawn` 同一套词 `acp` / `pty`(真源原则 12),
  *   所以「照着一个 agent 起一个」能把 transport 原样传回去。
  */
 export const EXTENSION_GUIDE_START = `# Making a gugu App — start here
@@ -179,7 +179,7 @@ the dock/background have neither chat nor session. Read context before drawing.
 - \`setTabTitle\` / \`setTabBadge\`: your tab/panel. \`reportError\`: there and in the App error log, read by \`app_check\`.
 - \`openBrowserTab\`: a browser tab in a session; the system browser elsewhere (a phone: a new window).
 - What a host cannot do is not on its \`gugu\` (\`typeof gugu.x\`): the background page and a program have no tab
-  or gesture (no \`setTabTitle\`, \`compose\`, \`clipboard\`, picker); a phone has no background page, \`notify\`,
+  or gesture (no \`setTabTitle\`, \`dispatch\` without \`to\`, \`clipboard\`, picker); a phone has no background page, \`notify\`,
   programs (a session's tab calls its computer's), agents or working copies — no cookies: \`localStorage\` / IndexedDB or \`writeData\`.
 - \`gugu.clipboard.writeText\`: click/key only, including your \`menu\` / \`toolbar\` entries (\`onCommand\`), drawn on the tab/panel header.
 - Chat panels open at 520 px: design narrow first, widen with a media/container query.
@@ -215,28 +215,26 @@ Free:
 - \`broadcastToViews(message)\` → background → live views, resolves \`{ delivered }\` (0 is normal).
 - \`onViewMessage(fn)\` → background hears \`(message, from)\`; \`from\`: host-stamped sender context.
 
-Needs \`chat:relay\`:
+Handing something to someone (\`apiVersion\` 15):
 
-- \`send(to, text, { chat } | { refs })\` → \`{ id }\`: one whisper in the operator's name, from your App, no @ needed.
-  Name \`{ chat: ctx.chat.id }\` or the chat its \`refs\` point into (pills below the text). Tell only the person concerned
-  what happened ("your move"); keep state in the file. \`to\`: a \`user:<uuid>\` from \`chat.members\`, never everyone.
-  Your own agents: \`messageAgent\` (\`apps-agents\`).
-  Refused: \`not-found\` — recipient left, was never there, or is yourself: remove it from followers;
-  \`denied\` — no capability; \`rate-limited\` — over 30/minute per person and App: send less, later;
-  \`invalid\` — fix the call. To let agents follow changes, give them a tool (\`apps-programs\`): gugu supplies its
-  caller's identity, never trust an agent-written id list. Keep followers in your data; on \`onContextChanged\`, drop
-  anyone no longer in \`chat.members\`.
+- \`dispatch(text, { to?, draft?, refs?, images?, visible?, delivery?, key?, spawn?, offer? })\` → \`{ to, id?, deferred? }\` |
+  \`{ cancelled: true }\`. \`to\`: \`{ chat, member }\` (a whisper as the operator; \`visible: true\`: the chat sees it),
+  \`{ agent }\` (as \`session_message\`; \`delivery: 'queue' | 'defer'\`, \`key\` replaces your waiting one), \`{ new: true }\`
+  (\`spawn\`: \`session_spawn\`'s words; answers \`{ to: { agent } }\`). \`draft: true\`: only into \`{ chat }\`'s / \`{ agent }\`'s
+  composer (or \`refs\`' chat; \`images: [blob]\` a chat's) — they send it, or not.
+- No \`to\` (a click or key): gugu's sheet shows the text (theirs to edit), the pills and whom — the chat's agents and people,
+  their own agents, a new agent (\`offer\`: \`chat\` \`agent-in-chat\` \`person-in-chat\` \`my-agent\` \`new-agent\`); their press is the
+  consent, no capability. Never a picker of your own.
+- Naming \`to\` sends at once: \`{ chat, member }\` needs \`chat:relay\`, \`{ agent }\` / \`{ new }\` \`agents:control\`
+  (\`apps-agents\`); a program or background page must name it. Tell only whom it concerns; keep state in the file.
+  Refused: \`not-found\` (left, yourself, not reachable — a phone reaches no agent yet), \`denied\`, \`rate-limited\`
+  (30/minute to a chat), \`invalid\`. Agents following changes: a tool (\`apps-programs\`), gugu stamps its caller.
 
 Free, from a click or key (they read and write no data):
 
 - \`showMessage(id)\` → its chat comes up, scrolled to it (a file's \`sourceMessageIds\`). \`not-found\`: not in its chat.
 - \`showSession(id)\` → that session comes up, as a click on it in the task list (\`ctx.session.id\`, a tool's
   \`call.session\`). \`not-found\`: not in that list. \`{ peek: true }\`: beside your page, left as it is.
-- \`compose(text, { chat } | { session } | { refs })\` → adds \`text\` to the composer the call names — a chat's
-  (\`ctx.chat.id\`, or its \`refs\`' chat) or a session's — and brings it up; none named (\`apiVersion\` 10): the
-  person picks in gugu's sheet → \`{ chat }\` / \`{ session }\` / \`{ cancelled: true }\`. They send it, or not.
-  Never a list, picker or composer of your own. "Cite this": a ref per place picked; a chat's takes \`images: [blob]\`
-  too. \`not-found\`: a chat you are not in, a session not here.
 - \`refs: [{ file, at?, label?, version? }]\`: pills to places in one chat's files, "file · \`label\`": \`file\` its
   entry or \`ctx.file\`; \`at\` where (\`{ slide: 3, shape: 12 }\`), back as the \`onLink\` \`query\`
   of the App a click opens it in; \`version\` picked on (else the entry's). Only with refs may \`text\` be empty.
@@ -351,20 +349,13 @@ Needs \`agents:history\` (or \`agents:history:all\`):
 
 Needs \`agents:control\` (or \`agents:control:all\` / \`agents:control:all-machines\`):
 
-- \`spawnAgent(prompt, { title?, harness?, model?, transport?, project?, chat? })\` → \`{ agentId }\`. Starts a new
-  agent in a NEW session of its own, on the words \`session_spawn\` takes; what you leave out is what the person's
-  new-session box would pick (the engine they last started, else settings' default agent). To start one like an agent
-  you see, pass its row's \`providerId\` (as \`harness\`), \`model\`, \`transport\` and \`projectId\` (as \`project\`). \`chat\`: born in that
-  group, as its rules allow. \`prompt\` arrives marked as from your App. It stays in your scope: \`listAgents\` lists it
-  with \`spawnedByThisExtension: true\`.
-- \`messageAgent(agentId, text, { queue?, defer?, key? })\` → \`{ id, deferred? }\`: tells an agent you reach, as
-  \`session_message\` does (a stopped one is woken first); the state stays in your data. Busy, it joins the current turn
-  if its engine can. \`queue: true\`: after that turn (not for \`'pty'\` agents). \`defer: true\`: no wake — sent when it
-  next starts working. \`key\` (with either): your waiting message of that key is replaced.
+- Starting and telling an agent is \`dispatch\` (\`to: { new: true }\`, \`{ agent }\`): what \`spawn\` leaves out is what the
+  person's new-session box would pick; to start one like an agent you see, pass its row's \`providerId\` (as
+  \`harness\`), \`model\`, \`transport\`, \`projectId\` (as \`project\`). It stays in your scope (\`spawnedByThisExtension\`).
   \`:all-machines\` reaches your other computers too.
 - \`stopAgent(agentId)\` → stops one you can see on this computer, panel or terminal. It does not undo the work
   already done.
-- \`spawnAgent\` and a message to an agent **spend the person's quota**. There is no second prompt at
+- Starting an agent and a message to one **spend the person's quota**. There is no second prompt at
   call time: they agreed when they installed you. That is exactly why you should not loop.
 - Anything you start is recorded as started by YOU, and stays marked that way even after the
   person uninstalls you.
@@ -393,7 +384,7 @@ export const follow = {
 }
 \`\`\`
 
-  — and the page, when that card changes, \`gugu.send\`s each follower of it. \`agent\` is the calling
+  — and the page, when that card changes, \`gugu.dispatch\`es to each follower of it. \`agent\` is the calling
   agent's \`user:<uuid>\`, stamped by gugu: no agent can fake it, so never ask for it in an argument.
   \`session\`, \`workspaceRoot\` and \`model\` come stamped the same way: its session (a \`{ session }\` place; keep it, and a
   click takes the person there with \`showSession\`), that working copy's absolute path, and the model gugu runs it on,
@@ -417,7 +408,7 @@ export const follow = {
   serves every session; gugu starts it on first use and stops it when idle (never while it holds a chat file open).
   A program on \`node\` has the global \`gugu\` — a page's, but for the page's own verbs; a \`worker_threads\`
   worker has none (relay through the main thread yourself). It opens a chat file it
-  is handed by its id, \`{ id }\`, and \`gugu.send(to, text, { refs: [{ file: f.entry }] })\` whispers in that file's chat.
+  is handed by its id, \`{ id }\`, and \`gugu.dispatch(text, { to: { chat, member }, refs })\` whispers in that file's chat.
   A file it makes goes in with \`gugu.files.upload(place, file)\` (\`files:write\`) — into the chat of a file an agent
   handed it, as that agent, judged by the agent's membership; a stored file it is handed
   gets its next version with \`gugu.files.replace(file, blob, { expectedVersion: entry.version })\` (needed;
@@ -481,7 +472,7 @@ const save = () => gugu.writeData('save.json', JSON.stringify(state))
  * `gugu.files` — the platform runtime's shared files (L3; notes/2026-09-29-app-platform/workspace-app/
  * L3-runtime-interface.md). The page an agent reads before writing a vote, a game or an editor.
  */
-export const EXTENSION_GUIDE_FILES = `# gugu.files — an App's chat files, edited live by people and agents together
+export const EXTENSION_GUIDE_FILES = `# gugu.files — shared live files
 
 Claim an existing data file's name or suffix and open it live; never copy it into your bundle
 (\`app_install\` data \`{ item_id }\`). Top-level \`await\` needs \`<script type="module">\`.
@@ -522,8 +513,9 @@ Each call names its file or place. A file: an entry (from \`list\`) or \`ctx.fil
 - An image, a clip, a sound opens read-only: \`URL.createObjectURL(await f.blob())\`; \`files.replace(entry,
   blob, { expectedVersion: entry.version })\` makes its next version (needed; else \`content-changed\`).
   \`files.versions(entry)\` / \`files.readVersion(entry, n)\`: its history.
-- An entry: \`{ id, chat | session | project, name, contentType, type (text|json|binary|folder), parentId, path, systemRole, size,
-  version, createdAt, updatedAt, createdBy: { id, name, kind: human|agent|system }, sourceMessageIds, canDelete }\`.
+- Entry: \`{id,chat|session|project,name,contentType,type,parentId,path,systemRole,size,version,
+  createdAt,updatedAt,createdBy,updatedBy,sourceMessageIds,canDelete}\`.
+  Both authors: \`{id,name,kind:human|agent|system}\`; unknown/local editor is null.
 
 ## A text file (markdown)
 
@@ -729,8 +721,8 @@ the reason word (\`account_too_new\`, \`blocked_by_poster\`, \`owner_identity_li
   new post arrives on \`gugu.forum.onChanged('feed', …)\`.
 - \`gugu.forum.reply(postId, text, { replyTo? })\` → \`{ reply }\` · \`gugu.forum.react({ kind: 'post'|'reply', id, emoji, on })\`
   · \`gugu.forum.remove({ reply } | { post })\` · \`gugu.forum.block(userId, on)\`.
-- \`gugu.forum.assign(postId, agentId?)\`: the host lists the person's own agents and they pick one (\`agentId\` only
-  preselects; you never list them), answering \`{ confirming: true }\`; \`onChanged\` says \`assigned\`. The agent is
+- \`gugu.forum.assign(postId, agentId?)\`: gugu's sheet lists the person's own agents and they pick one (\`agentId\` only
+  preselects; you never list them), answering \`{ assigned: { agent } }\` or \`{ cancelled: true }\`. The agent is
   woken with the post and answers with its own \`forum_reply\`.
 - \`gugu.forum.award(postId, [{ reply, amount }])\`: 1–3 answers adding up to the bounty, from 24 hours after posting
   to 24 hours after the deadline; \`[]\` ends it without accepting. The host draws the confirmation, answers
@@ -766,7 +758,7 @@ program reads as that agent: \`chats.list\` its chats, the rest only a chat it h
   \`limit\` 1–100 (50). A chat the reader is not in has none.
 - A message: \`{ id, seq, chat, thread, sender: { id, name }, text, contentType, createdAt, refs }\`. \`sender.id\` is
   \`user:<uuid>\`, as \`chat.members\`; \`null\` for a line gugu wrote (\`system\`: someone joined). \`text\` is as written. \`refs\` is every file link in
-  it, read for you: \`{ file, version?, at? }\` — \`at\` is the place your \`refs\` / \`compose\` named.
+  it, read for you: \`{ file, version?, at? }\` — \`at\` is the place your \`refs\` named.
 
 \`{ file }\` finds every message citing that file, anywhere in it. To count one place, keep the ones whose \`at\` is that
 place — the search does not:

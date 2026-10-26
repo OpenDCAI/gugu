@@ -12,7 +12,7 @@ import {
   getSessionView,
 } from '@renderer/features/sessions/stores/session-selectors';
 import type { CommandProvider } from '@renderer/lib/commands/types';
-import { toast } from '@renderer/lib/hooks/use-toast';
+import { copyExternalLink } from '@renderer/lib/open-external-link';
 import { rpc } from '@renderer/lib/ipc';
 import { normalizeBrowserUrl } from '@shared/browser';
 import { COMMANDS, type CommandId } from '@shared/commands';
@@ -186,14 +186,7 @@ export function createSessionCommandProvider(projectId: string, sessionId: strin
                     allowSearchQueries: false,
                   });
                   if (!normalized.ok) return;
-                  void navigator.clipboard
-                    .writeText(normalized.url)
-                    .then(() => {
-                      toast({ title: 'Browser URL copied' });
-                    })
-                    .catch(() => {
-                      toast({ title: 'Could not copy browser URL', variant: 'destructive' });
-                    });
+                  void copyExternalLink(normalized.url, 'Browser URL copied');
                 },
               },
             ]

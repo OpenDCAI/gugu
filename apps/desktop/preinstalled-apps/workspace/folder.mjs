@@ -49,6 +49,7 @@ const rowOf = async (entry) => ({
   path: entry.path,
   type: entry.type,
   size: entry.size,
+  ...(Number.isInteger(entry.version) ? { version: entry.version } : {}),
   by: byOf(entry),
   updated_at: entry.updatedAt,
   ...await linked(entry),
@@ -184,7 +185,7 @@ async function saveLocally(entry, data, agent) {
 
 export const list = {
   description:
-    'The files in a chat\'s folder (群文件夹 of a source group or private chat), newest first: id, name, path (from the top: 合同/2026/甲方.pdf), type (folder for a subfolder), size, who made it, link; the header counts its text files, stored files and folders. folder lists only what is directly in that folder.',
+    'The files in a chat\'s folder (群文件夹 of a source group or private chat), newest first: id, name, path (from the top: 合同/2026/甲方.pdf), type (folder for a subfolder), size, version, who made it, link; the header counts its text files, stored files and folders. folder lists only what is directly in that folder.',
   inputSchema: {
     type: 'object',
     required: ['chat_id'],

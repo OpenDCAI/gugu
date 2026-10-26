@@ -606,6 +606,7 @@ function decodeStandardSessionUpdate(raw: unknown): NormalizedEvent {
         content: [update.content as EntityContent],
         contentMode: 'append',
         ...(typeof update._meta?.guguRevertAnchor === 'string' ? { revertAnchor: update._meta.guguRevertAnchor } : {}),
+        ...(update._meta?.guguSteering === true ? { steering: true } : {}),
       };
     }
 

@@ -239,26 +239,12 @@ export async function createSharePosterCanvas(opts: PosterOptions): Promise<HTML
   return drawSharePoster({ ...opts, memberAvatarUrls }, images)
 }
 
-/**
- * Renders the poster canvas to a Blob and writes it to the clipboard.
- * Returns true on success.
- */
-export async function copyPosterToClipboard(canvas: HTMLCanvasElement): Promise<boolean> {
-  return new Promise((resolve) => {
-    canvas.toBlob(async (blob) => {
-      if (!blob) {
-        resolve(false)
-        return
-      }
-      try {
-        // blob-first 约束(#1892)收口在 lib/imageClipboard——toBlob 回调里 blob 已 resolve
-        await writeImageBlobToClipboard(blob)
-        resolve(true)
-      } catch {
-        resolve(false)
-      }
-    }, 'image/png')
+/** Encode PNG bytes before writing them; preserve the clipboard rejection. */
+export async function copyPosterToClipboard(canvas: HTMLCanvasElement): Promise<void> {
+  const blob = await new Promise<Blob>((resolve, reject) => {
+    canvas.toBlob((value) => value ? resolve(value) : reject(new Error('Could not encode poster as PNG')), 'image/png')
   })
+  await writeImageBlobToClipboard(blob)
 }
 
 /**

@@ -1,3 +1,4 @@
+import { messageForUser } from '@/lib/userFacingError';
 import { useState, useEffect, useMemo, useRef, useCallback, type KeyboardEventHandler } from 'react'
 import { useTranslation } from 'react-i18next'
 import { BellOff, CheckCircle, Checklist, ChevronDown, ChevronRight, MessageCircle, MessageSquare, Pin, Plus, Trash, X, Zap, type IconComponent } from '@/lib/icons'
@@ -8,6 +9,7 @@ import { SearchField } from './ui/SearchField'
 import { HeaderSearch } from './ui/HeaderSearch'
 import { Pane, PaneHeader } from './ui/Pane'
 import { ListRow } from './ui/ListRow'
+import { clearDraggedScreenContent, setDraggedScreenContent } from '../session/renderer/lib/drag-screen-content'
 import { Chip } from './ui/Chip'
 import { Button } from './ui/Button'
 import { IconButton } from './ui/IconButton'
@@ -32,7 +34,6 @@ import { subscribeShellChatActions, takeShellChatAction, useSidebarChatView, use
 import { SidebarSessionLineRow } from './SidebarSessionLineRow'
 import { blockKey, joinRows, type JoinedGroup, type SidebarJoin } from '../lib/sidebarJoinedGroups'
 import { groupTopicsBySource, isTopLevelChatRow, splitSunkTopics } from './chatListTopicNesting'
-import { requestTopicsPanel } from '../lib/topicsPanelRequest'
 import { useAgentDisplayStatuses } from '../hooks/useAgentDisplayStatus'
 import { useShownAgentStatus, type ShownAgentStatus } from './chat/useAgentsOnCloudComputer'
 import { AgentHostStaleBadge } from './AgentHostStaleBadge'
@@ -75,7 +76,7 @@ function rowAgentStatus(
 }
 
 interface ChatListPanelProps {
-  activeTab: SidebarTab
+  activeTab?: SidebarTab
   mobile?: boolean
   /** 手机上列表被打开的会话 / 创建页整页盖住(隐藏不卸载)。 */
   hidden?: boolean
@@ -177,7 +178,7 @@ function ChatRowContextMenu({ x, y, chat, onClose, onPin, onSetNotificationLevel
           .then(({ failedChats }) => { if (failedChats > 0) toast(t('chatList.markAllReadPartial', { count: failedChats }), 'error') })
           .catch((error: unknown) => {
             chatListLog.error({ error: String(error) }, 'mark all read failed')
-            toast(t('chatList.markAllReadFailed'), 'error')
+            toast(t('chatList.markAllReadFailed'), 'error', messageForUser(error))
           })
       },
     },
@@ -234,8 +235,14 @@ const TOPIC_SUBROW_STYLE: React.CSSProperties = { paddingLeft: 40, paddingTop: 4
 const TOPIC_SUBROW_ICON_STYLE: React.CSSProperties = { color: 'var(--text-tertiary)' }
 const TOPIC_SUBROW_NAME_STYLE: React.CSSProperties = { fontSize: 'var(--font-body)', color: 'var(--text-secondary)' }
 
-function TopicSubRow({ topic, isActive, tabIndex, onClick, onFocus, onKeyDown, onPin, onSetNotificationLevel, onDelete }: {
+function startChatDrag(event: React.DragEvent<HTMLElement>, chat: ChatItem, title: string) {
+  if (!event.currentTarget.draggable) return
+  setDraggedScreenContent(event.dataTransfer, { kind: 'chat', chatId: chat.kind === 'topic' ? chat.source_chat_id! : chat.id, title, ...(chat.kind === 'topic' ? { topic: { chatId: chat.id, name: chat.name ?? '' } } : {}) }, event.currentTarget)
+}
+
+export function TopicSubRow({ topic, mobile, isActive, tabIndex, onClick, onFocus, onKeyDown, onPin, onSetNotificationLevel, onDelete }: {
   topic: ChatItem
+  mobile: boolean
   isActive: boolean
   tabIndex: number
   onClick: (event: React.MouseEvent) => void
@@ -262,6 +269,9 @@ function TopicSubRow({ topic, isActive, tabIndex, onClick, onFocus, onKeyDown, o
       data-chat-id={topic.id}
       data-chat-row={topic.id}
       data-topic-subrow={topic.id}
+      draggable={!mobile}
+      onDragStart={(event) => startChatDrag(event, topic, topic.name)}
+      onDragEnd={clearDraggedScreenContent}
       selected={isActive}
       emphasis={topic.unread_count > 0}
       role="option"
@@ -280,7 +290,7 @@ function TopicSubRow({ topic, isActive, tabIndex, onClick, onFocus, onKeyDown, o
       style={TOPIC_SUBROW_STYLE}
       leading={<MessageSquare size={13} style={TOPIC_SUBROW_ICON_STYLE} />}
       title={<span style={TOPIC_SUBROW_NAME_STYLE}>{topic.name}</span>}
-      meta={topic.unread_count > 0 ? topic.unread_count : undefined}
+      meta={topic.unread_count > 0 ? <Chip tone="danger" shape="count">{topic.unread_count > 99 ? '99+' : topic.unread_count}</Chip> : undefined}
     />
     {showMenu && (
       <ChatRowContextMenu
@@ -294,6 +304,26 @@ function TopicSubRow({ topic, isActive, tabIndex, onClick, onFocus, onKeyDown, o
       />
     )}
     </>
+  )
+}
+
+/** The same topic branch and More disclosure under every source conversation. */
+export function TopicSubRows({ topics, isSunk, expanded, onExpand, children }: {
+  topics: readonly ChatItem[]
+  isSunk: (topic: ChatItem) => boolean
+  expanded: boolean
+  onExpand: () => void
+  children: (topic: ChatItem) => React.ReactNode
+}) {
+  const { t } = useTranslation('messaging')
+  const { live, sunk } = splitSunkTopics(topics, isSunk, undefined, expanded)
+  return (
+    <div className="gg-topic-subrows">
+      {live.map(children)}
+      {sunk.length > 0 && <Button variant="ghost" size="sm" data-testid="topic-sunk-section" data-source-chat-id={topics[0]?.source_chat_id} aria-expanded={false} onClick={onExpand} style={SUNK_SECTION_STYLE}>
+        {t('chatList.moreTopics', { count: sunk.length })}
+      </Button>}
+    </div>
   )
 }
 
@@ -329,6 +359,9 @@ function ChatRow({ chat, agentStatus, isActive, topicsExpanded, onToggleTopics, 
       <ListRow
         data-chat-id={chat.id}
         data-chat-row={chat.id}
+        draggable={!mobile}
+        onDragStart={(event) => startChatDrag(event, chat, displayName)}
+        onDragEnd={clearDraggedScreenContent}
         data-join={join?.pos}
         data-join-on={join?.onScreen || undefined}
         data-unread-stream-id={chat.unread_locator?.stream_id ?? undefined}
@@ -592,6 +625,7 @@ export function ChatListPanel({
   const [searchQuery, setSearchQuery] = useState('')
   const [focusedChatId, setFocusedChatId] = useState<string | null>(activeChatId)
   const [collapsedTopicSources, setCollapsedTopicSources] = useState<ReadonlySet<string>>(() => new Set())
+  const [expandedTopicSources, setExpandedTopicSources] = useState<ReadonlySet<string>>(() => new Set())
   // @@@5856 分栏此刻显示的是哪条话题 —— 子行的高亮要跟着它,而分栏也可以从消息上的锚点打开,
   // 所以这个真值只能由聊天区广播过来(UI_EVENTS.topicSplitChanged),❌ 不许在这边猜。
   const [activeTopicChatId, setActiveTopicChatId] = useState<string | null>(null)
@@ -682,12 +716,12 @@ export function ChatListPanel({
   const visibleChats = useMemo(
     () => shownChats.flatMap((chat) => {
       if (collapsedTopicSources.has(chat.id)) return [chat]
-      const { live } = splitSunkTopics(topicNesting.bySource.get(chat.id) ?? [], isSunk)
+      const { live } = splitSunkTopics(topicNesting.bySource.get(chat.id) ?? [], isSunk, undefined, expandedTopicSources.has(chat.id))
       return [chat, ...live]
     }),
     // isSunk 每次渲染新建(它读 Date.now),输入已在下面列全。
     // eslint-disable-next-line react-hooks/exhaustive-deps
-    [shownChats, topicNesting, activeTopicChatId, collapsedTopicSources],
+    [shownChats, topicNesting, activeTopicChatId, collapsedTopicSources, expandedTopicSources],
   )
   const visibleChatIds = useMemo(() => visibleChats.map((chat) => chat.id), [visibleChats])
 
@@ -700,8 +734,8 @@ export function ChatListPanel({
   // ❌ 不在两处各抄一遍「记得也画子行」,那种东西漏一处就只在某一段里话题消失。
   // 并在一组里的那一行:框画在它最外面那一层上 —— 有话题子行时是连同子行的那一层,框把子行一起圈住。
   const renderChatRow = (chat: ChatItem, join?: SidebarJoin) => {
-    const { live, sunk } = splitSunkTopics(topicNesting.bySource.get(chat.id) ?? [], isSunk)
-    const hasTopics = live.length > 0 || sunk.length > 0
+    const topics = topicNesting.bySource.get(chat.id) ?? []
+    const hasTopics = topics.length > 0
     const topicsExpanded = !collapsedTopicSources.has(chat.id)
     const row = (
       <ChatRow
@@ -728,6 +762,7 @@ export function ChatListPanel({
       <TopicSubRow
         key={topic.id}
         topic={topic}
+        mobile={mobile}
         isActive={!inSidebar && topic.id === activeTopicChatId}
         tabIndex={focusedChatId === topic.id ? 0 : -1}
         onClick={(event) => selectChat(topic, 'composer', event.metaKey || event.ctrlKey)}
@@ -741,26 +776,9 @@ export function ChatListPanel({
     return (
       <div key={chat.id} data-join={join?.pos} data-join-on={join?.onScreen || undefined}>
         {row}
-        {topicsExpanded && <div className="gg-topic-subrows">
-          {live.map(subRow)}
-          {/* @@@5856 「更多 · N」—— 沉下去的 + 摊不下的那些话题。只留一行告诉你它们还在,
-              发一句就浮回上面(spec:「没有开关,只有沉降」)。
-              ❌ 它不就地展开:一个老群能攒出两百条,展开等于把整条侧边栏灌满
-              (owner 2026-09-20)。点它跳到这条线的完整话题清单,
-              带搜索、能翻。 */}
-          {sunk.length > 0 && (
-            <Button
-              variant="ghost"
-              size="sm"
-              data-testid="topic-sunk-section"
-              data-source-chat-id={chat.id}
-              onClick={() => { selectChat(chat, 'sidebar'); requestTopicsPanel(chat.id) }}
-              style={SUNK_SECTION_STYLE}
-            >
-              {t('chatList.moreTopics', { count: sunk.length })}
-            </Button>
-          )}
-        </div>}
+        {topicsExpanded && <TopicSubRows topics={topics} isSunk={isSunk} expanded={expandedTopicSources.has(chat.id)} onExpand={() => setExpandedTopicSources((previous) => new Set(previous).add(chat.id))}>
+          {subRow}
+        </TopicSubRows>}
       </div>
     )
   }
@@ -831,6 +849,11 @@ export function ChatListPanel({
   }, [inSidebar, onChatSelected, openUnreadChat, setActiveChatId, selectedChatId])
 
   const toggleTopics = (chatId: string) => {
+    setExpandedTopicSources((previous) => {
+      const next = new Set(previous)
+      next.delete(chatId)
+      return next
+    })
     setCollapsedTopicSources((previous) => {
       const next = new Set(previous)
       if (next.has(chatId)) next.delete(chatId)

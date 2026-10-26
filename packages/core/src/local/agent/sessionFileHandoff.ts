@@ -21,7 +21,7 @@ export async function uploadSessionFile(endpoint: AttachmentsEndpoint, file: Ses
   const contentType = resolveAttachmentMimeType(name, file.mime_type)
   const sha = createHash('sha256').update(bytes).digest('hex')
   if (sender.expectedSha256 && sender.expectedSha256 !== sha) throw new Error('Registered artifact changed before upload')
-  const stagingKey = sender.stagingKey ?? await uploadAttachmentBytes(endpoint, { bytes, name, contentType })
+  const stagingKey = sender.stagingKey ?? await uploadAttachmentBytes(endpoint, { bytes, name, contentType }, { chat_id: null, as: sender.agentId })
   await sender.onStaged?.(stagingKey)
   await sender.beforeCommit?.()
   const args = { staging_key: stagingKey, attachment_id: sender.attachmentId ?? randomUUID(), sender_user_id: sender.agentId,

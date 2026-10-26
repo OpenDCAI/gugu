@@ -162,7 +162,8 @@ export function MessagePreviewCard({
 
   let note: string | null = null
   if (state.status === 'connecting' || state.status === 'idle') note = t('runtime.messagePreview.connecting')
-  else if (state.status === 'unavailable') note = t('runtime.messagePreview.unavailable')
+  else if (state.status === 'unavailable')
+    note = t(state.error === 'record_not_found' ? 'runtime.messagePreview.recordNotFound' : 'runtime.messagePreview.unavailable')
   else if (preview && preview.entries.length === 0 && !preview.running) note = t('runtime.messagePreview.empty')
 
   let now: { key: string; label: string } | null = null

@@ -8,13 +8,13 @@
 import { askReveal } from '../../../apps/desktop/src/hooks/useSourceMessageReveal'
 import { topicHistoryStub } from '../../support/chatWindowStub'
 import { readFile } from 'node:fs/promises'
-import { composerSlotClass, composerSlotInnerClass, composerSlotInnerBottomClass } from '@gugu/session-chat-ui/composer-layout'
-import { act, createElement, useEffect, useCallback, useState } from 'react'
+import { composerSlotClass, composerSlotInnerClass } from '@gugu/session-chat-ui/composer-layout'
+import { act, createElement, useEffect } from 'react'
 import { runInAction } from 'mobx'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
 import type { TopicSummary } from '@gugu/core/shared/types/chat'
-import { createNode, createReactHarness, clickElement, deferred, message, renderWithAppProviders, typeInto } from '../../support/testHarness'
+import { createNode, createReactHarness, clickElement, deferred, message, renderWithAppProviders } from '../../support/testHarness'
 
 const listTopicsOfChat = vi.fn<(sourceChatId: string) => Promise<TopicSummary[]>>()
 vi.mock('../../../apps/desktop/src/lib/topics', () => ({
@@ -30,8 +30,7 @@ const { TopicSplitPane } = await import('../../../apps/desktop/src/components/ch
 const { installedExtensionsStore } = await import('../../../apps/desktop/src/session/renderer/features/extensions/installed-extensions-store')
 const { EXTENSION_API_VERSION, parseExtensionManifest } = await import('../../../apps/desktop/src/session/shared/extensions/manifest')
 const { UI_EVENTS } = await import('../../../apps/desktop/src/lib/uiEvents')
-const { quotePrefixOf, latestTopicSourceIdOf, canSourceTopic, maxTopicSplitWidthForAvailableWidth, TOPIC_SPLIT_MIN_WIDTH, TOPIC_SPLIT_MAX_WIDTH } = await import('../../../apps/desktop/src/components/chat/topicSplitModels')
-const { defaultHistoryTab, pageHistoryTopics, HISTORY_TOPIC_PAGE } = await import('../../../apps/desktop/src/components/historyPanelModels')
+const { quotePrefixOf, canSourceTopic, maxTopicSplitWidthForAvailableWidth, TOPIC_SPLIT_MIN_WIDTH, TOPIC_SPLIT_MAX_WIDTH } = await import('../../../apps/desktop/src/components/chat/topicSplitModels')
 const { chatDisplayName } = await import('@gugu/core/shared/ui/chatModels')
 const { withSourceLineCandidates } = await import('../../../apps/desktop/src/lib/mention')
 
@@ -65,7 +64,6 @@ describe('TopicAnchorCard 把「可见 / 参与 / 通知」的第三件显形', 
     // 判据能判假:同一份数据只翻 is_participant,下面那次渲染必须拿不到这枚标。
     expect(observer).not.toBeNull()
     expect(observer?.textContent).toBe('只看得见')
-    expect(observer?.getAttribute('title')).toBe('你看得见这条话题，但它的消息不会通知你')
     expect(harness.container.querySelector('[data-testid="topic-anchor-row"]')?.getAttribute('data-topic-participant')).toBe('false')
 
     await harness.render(
@@ -408,14 +406,25 @@ describe('TopicSplitPane 是分栏，不是话题的开关', () => {
     expect(harness.container.querySelector('[data-testid="topic-split-send"]')).toBeNull()
   })
 
+  // owner 10-25:有运行条的地方,那一行始终占位(固定高、没有底),运行条出现、消失不改变布局。
+  it('reserves the running bar row above the composer when the pane shows running agents', async () => {
+    await renderWithAppProviders(harness, createNode(TopicSplitPane, { ...baseProps, runningTokens: [] }))
+    const dock = harness.container.querySelector<HTMLElement>('[data-topic-split-composer]')!.closest('[data-chat-bottom-dock]')!
+    expect(dock.firstElementChild?.querySelector('[data-running-bar-slot]')).not.toBeNull()
+  })
+
   it('uses the same ACP desktop frame as the main composer without a second padding layer', async () => {
     await renderWithAppProviders(harness, createNode(TopicSplitPane, { ...baseProps }))
     const wrapper = harness.container.querySelector<HTMLElement>('[data-topic-split-composer]')!
     expect(wrapper.style.padding).toBe('0px')
     const dock = wrapper.closest('[data-chat-bottom-dock]')!
     expect(dock.classList.contains(composerSlotClass)).toBe(true)
-    expect(dock.firstElementChild?.classList.contains(composerSlotInnerClass)).toBe(true)
-    expect(dock.firstElementChild?.classList.contains(composerSlotInnerBottomClass)).toBe(true)
+    // 桌面分栏不传 runningTokens(旁边群里那一条一直看得见)⇒ 不留运行条那一行;回复条 + 输入框那一层自己没有底。
+    expect(dock.querySelector('[data-running-bar-slot]')).toBeNull()
+    const layer = dock.lastElementChild!
+    expect(layer.contains(wrapper)).toBe(true)
+    expect(layer.classList.contains(composerSlotInnerClass)).toBe(true)
+    expect(layer.className).not.toMatch(/\bbg-/)
   })
 
   // 找茵第九轮 —— 「用的是同一个组件」不等于「那个组件被接全了」。
@@ -780,55 +789,6 @@ describe('@@@5856 「这条消息开得出话题吗」只有一个判据,顶栏�
   })
 })
 
-describe('顶栏那颗「开话题」挑来源:只挑服务端会收的那一条', () => {
-  type Row = Parameters<typeof latestTopicSourceIdOf>[0][number]
-  function row(overrides: Partial<Row> & { id: string }): Row {
-    return { seq: 1, local_send_state: undefined, is_whisper: false, retracted_at: null, content_type: 'text', ...overrides } as Row
-  }
-
-  it('正control:一条正常的文本消息就是来源,取的是最新那条', () => {
-    expect(latestTopicSourceIdOf([row({ id: 'old', seq: 1 }), row({ id: 'new', seq: 2 })])).toBe('new')
-  })
-
-  it('末尾挂着发失败的红气泡时,往前退到上一条真消息 —— ❌ 不是「这条线开不出话题」', () => {
-    const rows = [row({ id: 'real', seq: 3 }), row({ id: 'optimistic', seq: -1, local_send_state: 'failed' })]
-    expect(latestTopicSourceIdOf(rows)).toBe('real')
-  })
-
-  it('悄悄话与撤回跳过 —— 与服务端那两条硬拒对齐', () => {
-    const rows = [
-      row({ id: 'real', seq: 1 }),
-      row({ id: 'whisper', seq: 2, is_whisper: true }),
-      row({ id: 'retracted', seq: 3, retracted_at: '2026-09-19T00:00:00.000Z' }),
-    ]
-    expect(latestTopicSourceIdOf(rows)).toBe('real')
-  })
-
-  it('系统消息与附件**收**,因为服务端收 —— ❌ 客户端不许比服务端严', () => {
-    // 比服务端严的后果:一条最近全是附件的线(或刚建好只有入群系统消息的新群)上,
-    // 这颗按钮整颗消失且不给任何解释。服务端对这两种是接受的,只是名字回落成「话题」。
-    expect(latestTopicSourceIdOf([row({ id: 'attachment', content_type: 'attachment' })])).toBe('attachment')
-    expect(latestTopicSourceIdOf([row({ id: 'system', content_type: 'system' })])).toBe('system')
-  })
-
-  it('一条都挑不出来时返回 null,按钮就不画 —— ❌ 不是指到一条必被拒的消息上', () => {
-    expect(latestTopicSourceIdOf([row({ id: 'whisper', is_whisper: true })])).toBeNull()
-    expect(latestTopicSourceIdOf([])).toBeNull()
-  })
-})
-
-describe('历史面板的默认落点', () => {
-  it('群落在话题、私聊落在导入历史、话题自己落在附件', () => {
-    expect(defaultHistoryTab('group')).toBe('topics')
-    expect(defaultHistoryTab('private')).toBe('imported')
-    expect(defaultHistoryTab('topic')).toBe('attachments')
-  })
-
-  it('❌ 私聊不许因为多了话题 tab 就改落点 —— 这条断言就是为那次回归立的', () => {
-    expect(defaultHistoryTab('private')).not.toBe('topics')
-  })
-})
-
 describe('一条会话在界面上叫什么(会话列表 / 转发目标 / 话题面包屑读同一份)', () => {
   it('场所用自己的名字,dm/ai 用对端', () => {
     expect(chatDisplayName({ kind: 'topic', name: '分片下载失败', peer_alias: null }, undefined)).toBe('分片下载失败')
@@ -1097,14 +1057,11 @@ describe('会话列表:话题是来源线的子行,不是一行平级的会话',
     expect(after.sunk.map((r) => r.id)).toEqual(['v2', 'v1'])
   })
 
-  it('200 条话题侧栏仅 3 条,历史面板分批渲染且全部可达', async () => {
+  it('more reveals all read and old topics inline in the original order', async () => {
     const { splitSunkTopics } = await nest()
     const rows = Array.from({ length: 200 }, (_, index) => topicRow(`p${index}`, 'g1'))
     expect(splitSunkTopics(rows as never, () => false).live).toHaveLength(3)
-    expect(pageHistoryTopics(rows, 1).shown).toHaveLength(HISTORY_TOPIC_PAGE)
-    expect(pageHistoryTopics(rows, 2).shown).toHaveLength(HISTORY_TOPIC_PAGE * 2)
-    expect(pageHistoryTopics(rows, 7)).toEqual({ shown: rows, remaining: 0 })
-    expect(pageHistoryTopics(rows.slice(0, 3), 1)).toEqual({ shown: rows.slice(0, 3), remaining: 0 })
+    expect(splitSunkTopics(rows as never, () => true, undefined, true)).toEqual({ live: rows, sunk: [] })
   })
 
 })
@@ -1142,124 +1099,5 @@ describe('「把这条话题开成分栏」的请求:只有正显示来源线的
     vi.mocked(Date.now).mockReturnValue(now + 15_001)
     expect(drainTopicSplitRequest('g3')).toBeNull()
     vi.mocked(Date.now).mockRestore()
-  })
-})
-
-
-describe('话题面板搜索、分页与「更多」导航', () => {
-  const baseProps = { attachments: [], onOpenFile: vi.fn(), onDownloadFile: vi.fn(), onClose: vi.fn() }
-  const topics = Array.from({ length: 200 }, (_, index) => ({
-    chatId: `history-${index}`, title: index === 199 ? 'Release 发布复盘' : `话题 ${index}`,
-    participantCount: 1, messageCount: 2, lastMessageAt: null, isParticipant: index % 2 === 0,
-  }))
-
-  it('在完整列表中搜索,叠加「我的」筛选,清除搜索后回到首批', async () => {
-    const { HistoryPanel } = await import('../../../apps/desktop/src/components/HistoryPanel')
-    const observe = vi.fn()
-    vi.stubGlobal('IntersectionObserver', class { observe = observe; disconnect = vi.fn() })
-    try {
-      const onOpenTopic = vi.fn()
-      await renderWithAppProviders(harness, createNode(HistoryPanel, { ...baseProps, mode: 'group', topics, onOpenTopic }), { chat: {} })
-      const cards = () => harness.container.querySelectorAll('[data-testid="history-topic-card"]')
-      expect(cards()).toHaveLength(30)
-      const input = harness.container.querySelector('input[type="search"]') as HTMLInputElement
-      await typeInto(input, '  RELEASE  ')
-      expect(cards()).toHaveLength(1)
-      expect(cards()[0].textContent).toContain('Release 发布复盘')
-      await clickElement(cards()[0] as HTMLElement)
-      expect(onOpenTopic).toHaveBeenCalledWith('history-199', 'Release 发布复盘')
-      const filter = (label: string) => Array.from(harness.container.querySelectorAll('button')).find((node) => node.textContent === label) as HTMLElement
-      await clickElement(filter('我的'))
-      expect(cards()).toHaveLength(0)
-      expect(harness.container.textContent).toContain('未找到匹配的话题')
-      await clickElement(filter('全部'))
-      expect(cards()).toHaveLength(1)
-      await clickElement(harness.container.querySelector('[aria-label="清除搜索"]') as HTMLElement)
-      expect(cards()).toHaveLength(30)
-      expect(input.value).toBe('')
-    } finally { vi.unstubAllGlobals() }
-  })
-
-  it('滚到面板底部才接下一批;过期 observer 不得在搜索后多接一批', async () => {
-    const { HistoryPanel } = await import('../../../apps/desktop/src/components/HistoryPanel')
-    const callbacks: Array<(entries: Array<{ isIntersecting: boolean }>) => void> = []
-    const roots: Array<Element | Document | null | undefined> = []
-    vi.stubGlobal('IntersectionObserver', class {
-      constructor(callback: typeof callbacks[number], options: IntersectionObserverInit) { callbacks.push(callback); roots.push(options.root) }
-      observe = vi.fn()
-      disconnect = vi.fn()
-    })
-    try {
-      await renderWithAppProviders(harness, createNode(HistoryPanel, { ...baseProps, mode: 'group', topics, onOpenTopic: vi.fn() }), { chat: {} })
-      const count = () => harness.container.querySelectorAll('[data-testid="history-topic-card"]').length
-      expect(roots[0]).toBe(harness.container.querySelector('.gg-hist-body'))
-      await act(async () => callbacks[0]([{ isIntersecting: false }]))
-      expect(count()).toBe(30)
-      await act(async () => callbacks[0]([{ isIntersecting: true }]))
-      expect(count()).toBe(60)
-      const oldCallback = callbacks.at(-1)!
-      await typeInto(harness.container.querySelector('input') as HTMLInputElement, '话题')
-      expect(count()).toBe(30)
-      await act(async () => oldCallback([{ isIntersecting: true }]))
-      expect(count()).toBe(30)
-      for (let page = 1; page < 7; page++) {
-        await act(async () => callbacks.at(-1)!([{ isIntersecting: true }]))
-      }
-      expect(count()).toBe(199)
-      expect(harness.container.querySelector('[data-testid="history-topics-next-page"]')).toBeNull()
-    } finally { vi.unstubAllGlobals() }
-  })
-
-  it('私聊常规打开仍是导入历史;明确的话题入口落在话题', async () => {
-    const { HistoryPanel } = await import('../../../apps/desktop/src/components/HistoryPanel')
-    const props = { ...baseProps, mode: 'private' as const, topics: topics.slice(0, 1), onOpenTopic: vi.fn(), importedHistory: '导入记录内容' }
-    await renderWithAppProviders(harness, createNode(HistoryPanel, { ...props, key: 'normal' }), { chat: {} })
-    expect(harness.container.textContent).toContain('导入记录内容')
-    expect(harness.container.querySelector('input')).toBeNull()
-    await renderWithAppProviders(harness, createNode(HistoryPanel, { ...props, key: 'more', initialTab: 'topics' }), { chat: {} })
-    expect(harness.container.textContent).not.toContain('导入记录内容')
-    expect(harness.container.querySelectorAll('[data-testid="history-topic-card"]')).toHaveLength(1)
-  })
-
-  it('跨会话请求等目标会话重置完才打开;已开面板时每次点更多也切回话题', async () => {
-    const { useTopicsPanelRequest } = await import('../../../apps/desktop/src/hooks/useTopicsPanelRequest')
-    const { requestTopicsPanel, drainTopicsPanelRequest } = await import('../../../apps/desktop/src/lib/topicsPanelRequest')
-    function Surface({ chatId, openNonce }: { chatId: string; openNonce?: number }) {
-      const [tab, setTab] = useState('closed')
-      useEffect(() => setTab('closed'), [chatId, openNonce])
-      const onOpen = useCallback(() => setTab('topics'), [])
-      useTopicsPanelRequest(chatId, openNonce, onOpen)
-      return createElement('button', { onClick: () => setTab('attachments') }, tab)
-    }
-    await harness.render(createNode(Surface, { chatId: 'old-chat' }))
-    await act(async () => requestTopicsPanel('next-chat'))
-    expect(harness.container.textContent).toBe('closed')
-    await harness.render(createNode(Surface, { chatId: 'next-chat' }))
-    expect(harness.container.textContent).toBe('topics')
-    expect(drainTopicsPanelRequest('next-chat')).toBe(false)
-    await clickElement(harness.container.querySelector('button') as HTMLElement)
-    expect(harness.container.textContent).toBe('attachments')
-    await act(async () => requestTopicsPanel('next-chat'))
-    expect(harness.container.textContent).toBe('topics')
-    await clickElement(harness.container.querySelector('button') as HTMLElement)
-    await act(async () => {
-      requestTopicsPanel('next-chat')
-      await harness.render(createNode(Surface, { chatId: 'next-chat', openNonce: 1 }))
-    })
-    expect(harness.container.textContent).toBe('topics')
-    const { useMobileChatOpenNonce } = await import('../../../apps/desktop/src/hooks/useMobileChatOpenNonce')
-    function MobileSurface({ pane }: { pane: 'list' | 'chat' }) {
-      const openNonce = useMobileChatOpenNonce(true, pane)
-      return createNode(Surface, { chatId: 'next-chat', openNonce })
-    }
-    await harness.render(createNode(MobileSurface, { pane: 'list' }))
-    await act(async () => {
-      requestTopicsPanel('next-chat')
-      await harness.render(createNode(MobileSurface, { pane: 'chat' }))
-    })
-    expect(harness.container.textContent).toBe('topics')
-    await harness.render(createNode(MobileSurface, { pane: 'list' }))
-    await harness.render(createNode(MobileSurface, { pane: 'chat' }))
-    expect(harness.container.textContent).toBe('closed')
   })
 })

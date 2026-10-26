@@ -1037,12 +1037,12 @@ function guguToolNamingLine(
   const names = mcpToolNamesOn(mcp.toolNames, surface === 'tui' ? 'tui' : 'acp')
   switch (names.kind) {
     case 'listed':
-      return `Your harness lists each 咕咕 tool as \`${names.prefix}<tool>\` (e.g. \`${names.prefix}message_send\`); call that name directly.\n`
+      return `Your harness lists each 咕咕 tool as \`${names.prefix}<tool>\` (e.g. \`${names.prefix}message_send\`); follow that tool definition's invocation form.\n`
     case 'proxied':
       return `Your harness does not list 咕咕 tools one by one: call them through its \`${names.proxyTool}\` tool, naming the tool \`${names.prefix}<tool>\` (e.g. \`${names.prefix}message_send\`).\n`
     case 'namespaced':
-      // #6615 问题 11 模型眼里是「这个命名空间里的裸名」,❌ 拼一个 `<namespace>__<tool>` —— 那个字符串不在它的工具表里。
-      return `Your harness lists 咕咕 tools in its \`${names.namespace}\` namespace under their bare names (e.g. \`message_send\` there); call them there directly.\n`
+      // Codex advertises the native name or an exec declaration, depending on its model tool mode.
+      return `Your harness exposes 咕咕 tools under \`${names.namespace}\`; follow each tool definition's advertised invocation form.\n`
     case 'server-proxied':
       // server 名就是咕咕那台 server 注册时用的名字 —— 与写进配置的键同一个常量,❌ 别另写一个字面量。
       return `Your harness does not list 咕咕 tools one by one: call them through its \`${names.proxyTool}\` tool with \`${names.serverArg}\` set to \`${GUGU_MCP_SERVER_NAME}\` and \`${names.toolArg}\` set to the bare tool name (e.g. \`message_send\`).\n`

@@ -22,7 +22,7 @@ export interface TaskCard {
   sessionId: string
   /** The session's project on that machine (a local id: it opens the session there, nowhere else). */
   projectId: string
-  /** The machine the session runs on — the card opens the session only there. */
+  /** The machine the session runs on; another owned machine resolves it through the task directory. */
   deviceId: string
   machineLabel: string
 }

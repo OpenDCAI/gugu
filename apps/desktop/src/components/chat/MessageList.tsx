@@ -212,6 +212,8 @@ const MessageListRow = memo(function MessageListRow({
   const showTimeDivider = !isFiltering && shouldShowTimeDivider(messages, index)
   const prevMsg = prevRow?.type === 'message' ? prevRow.message : null
   const groupedWithPrev = computeGroupedWithPrev({ isFiltering, showTimeDivider, prevMsg, msg, prevIsThreadRoot: false })
+  const nextRow = rows[index + 1]
+  const groupedWithNext = nextRow?.type === 'message' && computeGroupedWithPrev({ isFiltering, showTimeDivider: !isFiltering && shouldShowTimeDivider(messages, index + 1), prevMsg: msg, msg: nextRow.message, prevIsThreadRoot: false })
   const anchoredTopics = topicAnchors?.get(msg.id)
   // @@@5856 自动调档那条系统消息用专门的版式渲染:居中、说清改了哪几个、就地一键全撤。
   const isAgentFloodNotice = msg.id === agentFloodNoticeMessageId && msg.content_type === 'system'
@@ -233,11 +235,7 @@ const MessageListRow = memo(function MessageListRow({
       // #2098 owner 定:已读回执逐条显示(每条本人消息都挂环),非只末条。气泡内已按 is_mine + read>0 门控。
       showReadReceipt={msg.is_mine && !isAgentChat}
       groupedWithPrev={groupedWithPrev}
-      // 这条消息上方刚渲染了时间分隔 pill → 气泡的名字/时间行不再把同一个时间重说一遍(截图里
-      // 「03:10」上下各出现一次)。时间节点仍在 DOM 里(视觉隐藏),移动端无 hover、读屏与 e2e 照样取得到。
-      // 手机上时间只由分隔 pill 说(间隔 ≥5 分钟才出一条,微信同款):窄屏上每换一个发送者就再印一遍
-      // 「14:52」,同一分钟里的一串对话被切成一截一截的(手机端走查实拍)。桌面有宽度,照旧在组首写时间。
-      hideTime={showTimeDivider || mobile}
+      groupedWithNext={groupedWithNext}
       onShowReadReceipt={onShowReadReceipt}
       highlight={highlight}
       onQuote={onQuote} onShowMessage={onShowMessage}
@@ -348,7 +346,7 @@ export function MessageList({
   /** 这条消息流在哪一栏。只决定布局与自动化选择器;未读定位确认使用本视口 ref。 */
   surface?: 'main' | 'aside'
   /** @@@6530 这次打开时的第一条未读:在视口上方时右上角出「↑ N 条新消息」,点了跳过去。 */
-  unreadAbove?: { messageId: string; messageSeq: number; label: string; onJump: () => void } | null
+  unreadAbove?: { messageId: string; messageSeq: number; label: string; onJump: () => void; onSeen?: () => void } | null
   /** 接在最后一条后面、随消息流一起滚的那一格(助理聊天里它在处理时的打字气泡);窗口没到最新处时不画。 */
   footer?: ReactNode
 }): ReactNode {
@@ -363,7 +361,7 @@ export function MessageList({
   // 未读行不在窗口里:比窗口最早一条还早 = 在上方(-1);否则是尾部对账还没回来,先不判(null)。
   const unreadIndex = unreadAbove ? rows.findIndex((row) => row.message.id === unreadAbove.messageId) : -1
   const unreadAt = !unreadAbove ? null : unreadIndex >= 0 ? unreadIndex : rows.length > 0 && rows[0].message.seq > unreadAbove.messageSeq ? -1 : null
-  const showUnreadAbove = useRowAboveViewport(ownScrollerRef, unreadAbove?.messageId, unreadAt, true)
+  const showUnreadAbove = useRowAboveViewport(ownScrollerRef, unreadAbove?.messageId, unreadAt, initialTopMostItemIndex !== null, unreadAbove?.onSeen)
   const scrollerStyle = useMemo<CSSProperties>(() => (topInset ? { ...LIST_SCROLLER_STYLE, paddingTop: topInset } : LIST_SCROLLER_STYLE), [topInset])
   const frameStyle = useMemo<CSSProperties>(() => ({ minHeight: 0, ...(style ?? { flex: 1 }), ...LIST_FRAME_STYLE, visibility: initialTopMostItemIndex === null ? 'hidden' : undefined }), [style, initialTopMostItemIndex])
   return (
@@ -373,7 +371,7 @@ export function MessageList({
         <div ref={contentRef}>
           {rows.slice(start, end).map((row, i) => <MessageListRow key={row.message.id} index={start + i} {...rowProps} />)}
           {end >= rows.length ? footer : null}
-          {/* 会话底部那一摞浮在消息流上时(ChatBottomDock 写的 --chat-dock-h),滚到底的最后一条落在它上面;没有它就是 0。 */}
+          {/* 会话底部那一摞浮在消息流上(ChatBottomDock 写的 --chat-dock-h),滚到底的最后一条落在它上面;没有它就是 0。 */}
           <div aria-hidden className="h-[var(--chat-dock-h,0px)]" />
         </div>
       </div>

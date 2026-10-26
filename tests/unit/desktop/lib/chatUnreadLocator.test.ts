@@ -12,6 +12,8 @@ function giveVisibleRect(element: HTMLElement): void {
   } as DOMRect
   Object.defineProperty(element, 'getClientRects', { value: () => ({ 0: rect, length: 1, item: () => rect }) })
   Object.defineProperty(element, 'getBoundingClientRect', { value: () => rect })
+  // jsdom has no checkVisibility; these elements are laid out and shown.
+  Object.defineProperty(element, 'checkVisibility', { value: () => true })
 }
 
 function unreadThreadChat(): ChatItem {

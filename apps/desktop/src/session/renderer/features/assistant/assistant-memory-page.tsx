@@ -1,3 +1,5 @@
+import { rendererLogger } from '@/lib/log';
+import { messageForUser } from '@/lib/userFacingError';
 import { useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { ArrowUpToLine, Crown, File, Folder, FolderPlus, Heart, Mic, MoreHorizontal, Plus, Sparkles, SquarePen, Trash2 } from '@/lib/icons';
@@ -71,7 +73,6 @@ function MemoryHome({ context }: { context: AssistantContext }) {
         <AssistantSection title={t('library.longTerm')} testId="assistant-memory-about">
           {aboutYou.length === 0 ? (
             <div className="flex flex-col items-start gap-3">
-              <p className="ta-page-sub">{t('memory.aboutEmpty', { name })}</p>
               <button type="button" className="ta-pill-btn" onClick={() => context.askInChat(t('memory.fasterPrompt'))} data-testid="assistant-memory-ask">
                 <Sparkles />
                 {t('memory.faster')}
@@ -134,8 +135,8 @@ function MemoryNoteDetail({ context, file }: { context: AssistantContext; file: 
       await invalidate('memory');
       toast({ title: t('memory.deleted') });
       context.go({ tab: 'memory' });
-    } catch {
-      toast({ title: t('memory.deleteFailed'), tier: 'error' });
+    } catch (error) { rendererLogger('actions/assistant-memory-page').error({ error: error }, 'action failed');
+      toast({ title: t('memory.deleteFailed'), description: messageForUser(error), tier: 'error' });
     }
   };
   return (
@@ -216,8 +217,8 @@ function ResourceRow({
         id: entry.path, deviceId: context.homeDeviceId, before: { name: entry.name, path: entry.path }, after: { name } });
       await invalidate('dir');
       toast({ title: t('files.renamed') });
-    } catch {
-      toast({ title: t('files.renameFailed'), tier: 'error' });
+    } catch (error) { rendererLogger('actions/assistant-memory-page').error({ error: error }, 'action failed');
+      toast({ title: t('files.renameFailed'), description: messageForUser(error), tier: 'error' });
     }
   };
   const remove = async () => {
@@ -227,8 +228,8 @@ function ResourceRow({
         id: entry.path, deviceId: context.homeDeviceId, before: { name: entry.name, path: entry.path } });
       await invalidate('dir');
       toast({ title: folder ? t('files.folderDeleted') : t('files.fileDeleted') });
-    } catch {
-      toast({ title: t('files.deleteFailed'), tier: 'error' });
+    } catch (error) { rendererLogger('actions/assistant-memory-page').error({ error: error }, 'action failed');
+      toast({ title: t('files.deleteFailed'), description: messageForUser(error), tier: 'error' });
     }
   };
   if (renaming)
@@ -363,8 +364,8 @@ function ResourceFiles({ context, trail }: { context: AssistantContext; trail: s
       setFolderName('');
       await invalidate('dir');
       toast({ title: t('files.folderCreated') });
-    } catch {
-      toast({ title: t('files.folderCreateFailed'), tier: 'error' });
+    } catch (error) { rendererLogger('actions/assistant-memory-page').error({ error: error }, 'action failed');
+      toast({ title: t('files.folderCreateFailed'), description: messageForUser(error), tier: 'error' });
     }
   };
 

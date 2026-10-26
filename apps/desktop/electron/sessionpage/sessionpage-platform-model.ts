@@ -10,9 +10,7 @@
 // resolver what environment that decision produces, so onboarding one more agent never
 // means editing this file.
 
-import { request as httpRequest, type IncomingHttpHeaders, type Server } from 'node:http'
-import { request as httpsRequest } from 'node:https'
-import { finished, pipeline } from 'node:stream'
+import type { Server } from 'node:http'
 import { randomUUID } from 'node:crypto'
 import { access, readFile, readdir, rm, writeFile } from 'node:fs/promises'
 import { homedir, tmpdir } from 'node:os'
@@ -65,6 +63,8 @@ import { guguAgentUserIdForSession } from './sessionpage-session-agent'
 import type { PlatformCredentialRuntimeObservation } from './sessionpage-platform-recovery'
 import { hostCatalog, type HostCatalog } from '../../shared/host-localization'
 import { quoteShellArg } from '../session/main/utils/shellEscape'
+
+import { proxyPlatformCredentialRequest, withinCredentialDeadline } from './platform-credential-proxy'
 
 const log = createLogger('sessionpage/platform-model')
 
@@ -381,42 +381,8 @@ function credentialRequestAuthorized(request: import('node:http').IncomingMessag
   return authorization === `Bearer ${secret}`
 }
 
-const HOP_BY_HOP_HEADERS = new Set([
-  'connection',
-  'keep-alive',
-  'proxy-authenticate',
-  'proxy-authorization',
-  'te',
-  'trailer',
-  'transfer-encoding',
-  'upgrade',
-])
-
-/**
- * 只在本机有意义、❌ 不出这个代理的请求头。
- *
- * `x-openai-actor-authorization`(#6921):咕咕写给 codex 的出图**开关**(codex 见到它才挂出图工具),
- * 值是一个固定串而不是凭据。codex 把 provider 的 `http_headers` 加在**每一个**请求上
- * (codex-rs `model-provider-info/src/lib.rs` `build_header_map` → `to_api_provider`),网关用不着它;
- * 网关渠道一旦配了请求头透传(New API 的 header_override `*`),它会被当成 OpenAI 的身份凭据送去上游。
- */
+// These local capability hints must not reach the model gateway.
 const LOCAL_ONLY_REQUEST_HEADERS = new Set([CODEX_ACTOR_AUTHORIZATION_HEADER])
-
-function relayRequestHeaders(
-  headers: IncomingHttpHeaders,
-  upstream: URL,
-  token: string,
-): Record<string, string | string[]> {
-  const forwarded: Record<string, string | string[]> = {}
-  for (const [name, value] of Object.entries(headers)) {
-    const lower = name.toLowerCase()
-    if (value === undefined || HOP_BY_HOP_HEADERS.has(lower) || LOCAL_ONLY_REQUEST_HEADERS.has(lower)) continue
-    forwarded[name] = value
-  }
-  forwarded.host = upstream.host
-  forwarded.authorization = `Bearer ${token}`
-  return forwarded
-}
 
 /** 宿主听「这条会话的哪些模型被会员档收掉了」(#7056):界面据此刷新目录、在下一轮之前停下说清。 */
 let membershipListener: ((change: { sessionId: string; locked: readonly string[] }) => void) | null = null
@@ -448,53 +414,37 @@ async function proxyPlatformRequest(
 ): Promise<void> {
   const held = activeAccessSessions.get(sessionId)
   if (!held?.credentialRoute) throw new Error('platform credential proxy session is not active')
-  const token = await credentialForRuntimeRequest(sessionId)
-  await tellCredentialRefusal(sessionId, null)
-  const upstream = new URL(`${held.relayUrl.replace(/\/$/, '')}${suffix}${search}`)
-  const send = upstream.protocol === 'https:' ? httpsRequest : httpRequest
-  // Which end went first, for the log only (pipeline/finished take both down either way): the gateway's answer closing
-  // before its end is a cut worth a warn; the harness hanging up — Codex often does right after response.completed, and
-  // the gateway may keep the answer open a while after — logs nothing.
-  let gatewayCut = false
-  let harnessGone = false
-  // 网关的回复原样转回,❌ 在这里认出它的报错再改写:要说清的话由发出拒绝的网关自己说(#7092,owner 2026-10-10)。
-  const upstreamRequest = send(upstream, {
-    method: request.method,
-    headers: relayRequestHeaders(request.headers, upstream, token),
-  }, (upstreamResponse) => {
-    const headers: Record<string, string | string[]> = {}
-    for (const [name, value] of Object.entries(upstreamResponse.headers)) {
-      if (value === undefined || HOP_BY_HOP_HEADERS.has(name.toLowerCase())) continue
-      headers[name] = value
+  const credential = async () => {
+    try {
+      return await withinCredentialDeadline(credentialForRuntimeRequest(sessionId))
+    } catch (error) {
+      if (error instanceof PlatformCredentialUnavailableError) throw error
+      throw new PlatformCredentialUnavailableError('service-unavailable', error)
     }
-    response.writeHead(upstreamResponse.statusCode ?? 502, headers)
-    // Either end gone mid-answer takes the other down at once (#7169). `pipe` passed neither on: a stream the gateway cut
-    // left the harness's answer open — Codex then waited out its 300 s stream_idle_timeout before retrying — and a harness
-    // gone left its request open at the gateway. The callback keeps the error from reaching the process's top level.
-    upstreamResponse.once('close', () => {
-      if (!upstreamResponse.complete && !harnessGone) gatewayCut = true
-    })
-    pipeline(upstreamResponse, response, (error) => {
-      if (!error) return
-      upstreamRequest.destroy()
-      if (gatewayCut) {
-        log.warn({ sessionId, path: suffix, status: upstreamResponse.statusCode, error: error.message }, '平台中转:网关中途掐断了回答,给 harness 的那条也当场断开')
+  }
+  await proxyPlatformCredentialRequest(request, response, {
+    upstream: () => new URL(`${held.relayUrl.replace(/\/$/, '')}${suffix}${search}`),
+    localOnlyHeaders: LOCAL_ONLY_REQUEST_HEADERS,
+    credential: async () => {
+      const token = await credential()
+      await tellCredentialRefusal(sessionId, null)
+      return token
+    },
+    refresh: async (rejected) => {
+      const current = activeAccessSessions.get(sessionId)
+      if (!current || current !== held) throw new Error('Platform credential session ended')
+      // A concurrent refresh may already have replaced the rejected generation.
+      if (current.token === rejected) current.renewalFailedAt = Date.now()
+      const next = await credential()
+      if (next === rejected) {
+        throw new PlatformCredentialUnavailableError('service-unavailable', new Error('Rejected platform credential was not replaced'))
       }
-    })
+      return next
+    },
+    warn: event => log.warn({ sessionId, path: suffix, ...event, error: event.code }, event.kind === 'stream'
+      ? '平台中转:网关中途掐断了回答,给 harness 的那条也当场断开'
+      : '平台中转:连不上网关'),
   })
-  upstreamRequest.on('error', (error) => {
-    // The gateway not reached (refused, reset, DNS): the harness gets a 502 — and the log says why, as for a cut.
-    if (!harnessGone) log.warn({ sessionId, path: suffix, error: error.message }, '平台中转:连不上网关')
-    if (!response.headersSent) response.writeHead(502).end()
-    else response.destroy(error)
-  })
-  // The harness gone at any point — before the gateway's first byte too (it can take a minute): its request goes with it.
-  finished(response, (error) => {
-    if (!error) return
-    if (!gatewayCut) harnessGone = true
-    if (!upstreamRequest.destroyed) upstreamRequest.destroy()
-  })
-  request.pipe(upstreamRequest)
 }
 
 function endpointSecret(): string {
@@ -946,6 +896,8 @@ async function tellCredentialRefusal(sessionId: string, error: unknown): Promise
 async function credentialForRuntimeRequest(sessionId: string): Promise<string> {
   const held = activeAccessSessions.get(sessionId)
   if (!held?.credentialRoute) throw new Error('platform runtime credential session is not active')
+
+  if (held.rotationPromise) await held.rotationPromise
 
   // The helper/relay is the last wall-clock check before a harness sends a request. A stale timer
   // must never turn into a stale token: expiry and an observed renewal failure both rotate
@@ -1949,7 +1901,7 @@ async function resolvePlatformModelForSession(input: PlatformModelForSessionInpu
     : legacyVisibleClientArgv
 
   // Claude 的 --settings 与用户 settings.json 有覆盖顺序要求，临时 override 必须保持单一文档。
-  const dynamicClaude = dialect === 'provider-env' && Boolean(materialized.settingsOverride)
+  const dynamicClaude = !usesCredentialProxy && dialect === 'provider-env' && Boolean(materialized.settingsOverride)
   const credentialFiles = dynamicClaude
     ? await writeSessionCredentialFiles(input.sessionId)
     : null
@@ -2060,6 +2012,12 @@ async function resolvePlatformModelForSession(input: PlatformModelForSessionInpu
  */
 export function heldPlatformModelForSession(sessionId: string): SessionpagePlatformModel | null {
   return activeAccessSessions.get(sessionId)?.launch ?? null
+}
+
+/** Only a real relay route, not a legacy helper, owns request-time credential admission. */
+export function platformRequestsUseCredentialProxy(sessionId: string): boolean {
+  const held = activeAccessSessions.get(sessionId)
+  return Boolean(held?.credentialRoute && !held.credentialConfigPath)
 }
 
 /** A held platform generation is usable only while its server expiry is still in the future. */
@@ -2285,4 +2243,3 @@ async function releasePlatformModels(select: (held: { surface: InjectionSurface 
   }
   await Promise.all(Array.from({ length: Math.min(RELEASE_CONCURRENCY, doomed.length) }, lane))
 }
-

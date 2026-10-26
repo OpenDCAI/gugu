@@ -94,7 +94,7 @@ const gestureCalls: Record<string, Record<string, unknown>> = {
   filesDownload: { ref: { name: 'a.md' } },
   showMessage: { id: 'msg-1' },
   showSession: { id: 's-1' },
-  compose: { text: 'picked' },
+  dispatch: { text: 'picked' },
   clipboardWriteText: { text: 'hi' },
   openLink: { url: 'gugu://ext/radar/radar' },
   forumPost: { title: 't', body: 'b' },
@@ -126,17 +126,21 @@ describe('the phone refuses a verb outside the gesture it needs, in the same sen
     expect(await call('setTabTitle', { title: 'Board' })).toMatchObject({ ok: true })
   })
 
-  it('control: inside a tap, compose hands the composer of the chat it names the text — no capability asked, nothing sent', async () => {
+  it('control: inside a tap, a dispatch draft hands the composer of the chat it names the text — no capability asked, nothing sent', async () => {
     const composed: unknown[] = []
-    const take = (event: Event) => composed.push((event as CustomEvent).detail)
+    const take = (event: Event) => {
+      expect(event.target).toBe(document)
+      expect(event.eventPhase).toBe(Event.BUBBLING_PHASE)
+      composed.push((event as CustomEvent).detail)
+    }
     window.addEventListener(APP_COMPOSE_EVENT, take)
     activation.isActive = true
-    expect(await call('compose', { text: '  > picked  ', chat: CHAT })).toMatchObject({ ok: true })
-    // A phone has no sessions: one named is not here.
-    expect(await call('compose', { text: 'picked', session: 'task-1' })).toMatchObject({ ok: false, code: 'not-found' })
+    expect(await call('dispatch', { text: '  > picked  ', draft: true, to: { chat: CHAT } })).toMatchObject({ ok: true, value: { to: { chat: CHAT } } })
+    // A phone reaches none of the person's agents yet: one named is not here.
+    expect(await call('dispatch', { text: 'picked', draft: true, to: { agent: 'user:00000000-0000-4000-8000-000000000009' } })).toMatchObject({ ok: false, code: 'not-found' })
     // App 引用 pill: refs make pills the composer holds, as on the desktop; `about` is gone, said so.
-    expect(await call('compose', { text: '', refs: [{ file: { id: DECK }, at: { slide: 2 }, label: '第 2 页' }] })).toMatchObject({ ok: true })
-    expect(await call('compose', { text: 'x', about: { id: DECK } })).toMatchObject({ ok: false, code: 'invalid' })
+    expect(await call('dispatch', { text: '', draft: true, refs: [{ file: { id: DECK }, at: { slide: 2 }, label: '第 2 页' }] })).toMatchObject({ ok: true })
+    expect(await call('dispatch', { text: 'x', draft: true, about: { id: DECK } })).toMatchObject({ ok: false, code: 'invalid' })
     window.removeEventListener(APP_COMPOSE_EVENT, take)
     expect(composed).toEqual([
       { chatId: CHAT, text: '> picked\n' },
@@ -172,8 +176,8 @@ describe("showSession on the phone: the task tab opens the session's row, on whi
 })
 
 describe('the phone refuses a verb whose capability the App lacks, as the desktop does (S15)', () => {
-  it('send without chat:relay is denied, naming the capability, before anything is sent', async () => {
-    expect(await call('send', { to: 'user:00000000-0000-4000-8000-000000000001', text: 'hi' })).toMatchObject({
+  it('a dispatch naming a member without chat:relay is denied, naming the capability, before anything is sent', async () => {
+    expect(await call('dispatch', { to: { chat: CHAT, member: 'user:00000000-0000-4000-8000-000000000001' }, text: 'hi' })).toMatchObject({
       ok: false,
       code: 'denied',
       message: 'Not permitted: this App does not have "chat:relay"',
@@ -186,8 +190,8 @@ describe('the phone refuses a verb whose capability the App lacks, as the deskto
       throw new Error('offline')
     })
     start(['files:read', 'files:write', 'chat:relay'])
-    const answer = await call('send', { to: 'user:00000000-0000-4000-8000-000000000001', text: 'hi' })
-    expect(answer.message).not.toMatch(/Not permitted/)
+    const answer = await call('dispatch', { to: { chat: CHAT, member: 'user:00000000-0000-4000-8000-000000000001' }, text: 'hi' })
+    expect(answer).not.toMatchObject({ code: 'denied' })
   })
 
   it('files:read:all-machines is kept when installed here and has what files:read gives: its verbs, and a watched chat changing', async () => {

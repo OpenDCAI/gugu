@@ -1,3 +1,4 @@
+import { messageForUser } from '@/lib/userFacingError';
 import { Sheet } from '../components/ui/Sheet'
 import { PaneHeader } from '../components/ui/Pane'
 import { RightPanelBackButton } from '../components/chat/RightPanel'
@@ -88,7 +89,7 @@ import type { CreateContextBirthGroup } from '../lib/agentCreateContextBridge'
 import { platform } from '../platform'
 import { useToast } from '../components/toastContext'
 import { groupSlotMemory } from '../components/appSlot/groupSlotMemory'
-import { addFilePills } from '../components/markdown/filePills'
+import { filePillText } from '../components/markdown/filePills'
 import { APP_COMPOSE_EVENT, APP_OPEN_IN_CHAT_EVENT, APP_OPEN_WITH_EVENT, type AppComposeDetail, type AppOpenInChatDetail, type AppOpenWithDetail } from '../session/shared/extensions/app-runtime-protocol'
 import { chatSlotKey } from '../lib/shellSlots'
 import { assistantSlotKey } from '../lib/assistantShellBridge'
@@ -382,14 +383,10 @@ function InnerLayout({
     setDraft,
     draftAttachments,
     setDraftAttachments,
-    draftRefs,
-    setDraftRefs,
-  } = useChatStore('chats', 'activeChatId', 'setActiveChatId', 'refreshChats', 'upsertChat', 'appendMessage', 'sendMessageToChat', 'setDraft', 'draftAttachments', 'setDraftAttachments', 'draftRefs', 'setDraftRefs')
-  // The attachments and pills each chat's draft holds now: a compose's images (G3) and pills go after them.
+  } = useChatStore('chats', 'activeChatId', 'setActiveChatId', 'refreshChats', 'upsertChat', 'appendMessage', 'sendMessageToChat', 'setDraft', 'draftAttachments', 'setDraftAttachments')
+  // A compose's images join the attachments already queued for its chat.
   const draftAttachmentsRef = useRef(draftAttachments)
   draftAttachmentsRef.current = draftAttachments
-  const draftRefsRef = useRef(draftRefs)
-  draftRefsRef.current = draftRefs
   const notificationSettings = useNotificationSettings()
   // @@@5295 托盘角标开关存在渲染层,主进程每次启动都是默认开 —— 挂载时推一次真值。
   useEffect(() => { pushTrayBadgeEnabled() }, [])
@@ -624,6 +621,7 @@ function InnerLayout({
     const frame = emdashFrameHomeRef.current
     const dest = showCreateSurface ? composerSlotRef.current : sessionSlotRef.current
     if (!frame || !dest) return
+    let shown = false
     const syncRect = () => {
       const rect = dest.getBoundingClientRect()
       frame.style.top = `${rect.top}px`
@@ -631,24 +629,29 @@ function InnerLayout({
       frame.style.width = `${rect.width}px`
       frame.style.height = `${rect.height}px`
       frame.dataset.emdashSlot = dest === sessionSlotRef.current ? 'task' : 'composer'
-      const shown = rect.width > 0 && rect.height > 0
-      frame.style.visibility = shown ? 'visible' : 'hidden'
-      if (shown) frame.style.removeProperty('--gugu-animation-surface-paused')
-      else frame.style.setProperty('--gugu-animation-surface-paused', 'paused')
+      shown = rect.width > 0 && rect.height > 0
       frame.style.pointerEvents = shown ? 'auto' : 'none'
-      raise()
+      hide()
     }
+    // Hidden, the frame's page is skipped (content-visibility): not drawn, focusable, findable or intersecting, so its
+    // animations stop too. ❌ An inherited property (visibility, inert, a custom property) toggled on the frame restyles
+    // every element of the page: 158–168 ms at 1000 chat rows on mac1, paid on each switch to and from Messages, ~2 ms this way.
     // A session opened beside an App in a chat's side panel (G1) is the frame's page, drawn over that panel: while the
-    // frame is hidden (the chats tab) and holds one, it sits above the panels (z-float), not under them — nothing else of
-    // it shows then, only that page and the App pages, which are drawn over their own slots anyway.
-    const raise = () => {
-      frame.style.zIndex = sessionPeek.current && frame.style.visibility === 'hidden' ? 'calc(var(--z-float) + 1)' : '5'
+    // frame is hidden (the chats tab) and holds one, the page stays and only the rest hides (visibility; the peeked page
+    // says visible for itself), and the frame sits above the panels (z-float), not under them.
+    const hide = () => {
+      const peek = !shown && sessionPeek.current !== null
+      frame.style.contentVisibility = shown || peek ? 'visible' : 'hidden'
+      // Skipped, the page still hands its titlebar's app-region rects to the window: collapse them (lib/retainedSurface.ts).
+      frame.style.transform = shown || peek ? '' : 'scale(0)'
+      frame.style.visibility = peek ? 'hidden' : 'visible'
+      frame.style.zIndex = peek ? 'calc(var(--z-float) + 1)' : '5'
     }
     syncRect()
     const ro = new ResizeObserver(syncRect)
     ro.observe(dest)
     window.addEventListener('resize', syncRect)
-    const offPeek = reaction(() => sessionPeek.current !== null, raise)
+    const offPeek = reaction(() => sessionPeek.current !== null, hide)
     return () => {
       ro.disconnect()
       window.removeEventListener('resize', syncRect)
@@ -860,15 +863,14 @@ function InnerLayout({
       window.dispatchEvent(new CustomEvent(UI_EVENTS.chatAsked, { detail: { chatId: chat.id } }))
       return true
     }
-    // gugu.compose into a chat the call named — from a page anywhere, the phone's too: after that chat's draft, the chat
+    // a gugu.dispatch draft into a chat — from a page anywhere, the phone's too: after that chat's draft, the chat
     // up and its composer focused (the slot of that chat, if open, gets out of the way: useSlotMakesWay).
     const onCompose = (event: Event) => {
       const detail = (event as CustomEvent<AppComposeDetail>).detail
       if (!detail) return
       const placed = (chatId: string) => {
-        if (detail.text) setDraft(chatId, (draft) => appendToDraft(draft, detail.text))
-        // App 引用 pill: its pills go to the composer's row, beside the files (A, owner 10-14); sent under the words.
-        if (detail.refs?.length) setDraftRefs(chatId, addFilePills(draftRefsRef.current[chatId] ?? [], detail.refs))
+        const text = [detail.text, ...(detail.refs ?? []).map(filePillText)].filter(Boolean).join('\n')
+        if (text) setDraft(chatId, (draft) => appendToDraft(draft, text))
         if (detail.images?.length) {
           const images = detail.images.map((image) => ({
             id: crypto.randomUUID(),
@@ -910,7 +912,7 @@ function InnerLayout({
       window.removeEventListener(APP_OPEN_IN_CHAT_EVENT, onOpenInChat)
       window.removeEventListener(UI_EVENTS.openApp, onOpenInChat)
     }
-  }, [focusComposerForUserEntry, openChatTarget, setDraft, setDraftAttachments, setDraftRefs, t, toast, user.id])
+  }, [focusComposerForUserEntry, openChatTarget, setDraft, setDraftAttachments, t, toast, user.id])
 
 
   // 选中变化 ⇒ shell 让位(收草稿面、移动壳下钻)。这条集中反应兜住只写得到 store 的入口(App 层的宿主),
@@ -977,7 +979,7 @@ function InnerLayout({
       if (!detail?.agentUserId) return
       const contact = contacts.find((c) => c.id === detail.agentUserId)
       const name = contact?.alias?.trim() || contact?.display_name || detail.agentUserId
-      toast(t('shell.toast.taskDeliverFailed', { name }), 'error')
+      toast(t('shell.toast.taskDeliverFailed', { name }), 'error', messageForUser(detail.error))
     }
     window.addEventListener(UI_EVENTS.sessionpageDeliverFailed, handleSessionpageDeliverFailed)
     return () => window.removeEventListener(UI_EVENTS.sessionpageDeliverFailed, handleSessionpageDeliverFailed)
@@ -1074,7 +1076,7 @@ function InnerLayout({
     } catch (err) {
       // 点了「发消息」却开不了会话(断网、库拒绝…):❌ 留一个没人接的 rejection 让按钮看着像坏了(#6832)。
       openChatLog.error({ targetId: target.id, error: String(err) }, 'getOrCreateDM failed')
-      toast(t('shell.toast.openChatFailed'), 'error')
+      toast(t('shell.toast.openChatFailed'), 'error', messageForUser(err))
     } finally {
       switchingRef.current = false
     }
@@ -1392,10 +1394,10 @@ function InnerLayout({
             ),
             // #6158 聊天面常驻(与上面会话页那格同法):切到别的 tab 只隐藏(见 lib/retainedSurface.ts),❌ 条件卸载、❌ 换 key 重挂 ——
             // 话题分栏/选中会话/滚动/分栏草稿全是本地状态。隐藏期间快捷键与「看见即已读」由 ChatAreaPanel/ChatListPanel 按 activeTab 门控(#6089)。
-            // 手机壳里它是分页器的一页,不隐藏(横滑时相邻页要看得见),只 inert。
+            // 手机壳里它是分页器的一页,不隐藏(横滑时相邻页要看得见),只 inert(MobileTabPager)。
             // gugu-dev#181 桌面上(有会话页)没有单独的聊天页:对话是会话页这屏的一块,列表在会话页侧栏「对话」里。
             chats: !chatsAreBlocks && (
-              <div key="chat" inert={activeTab !== 'chats'} style={{ display: 'flex', flexDirection: mobile ? 'column' : 'row', flex: 1, minWidth: 0, overflow: 'hidden', ...(activeTab === 'chats' || mobile ? undefined : RETAINED_SURFACE_HIDDEN_STYLE) }}>
+              <div key="chat" style={{ display: 'flex', flexDirection: mobile ? 'column' : 'row', flex: 1, minWidth: 0, overflow: 'hidden', ...(activeTab === 'chats' || mobile ? undefined : RETAINED_SURFACE_HIDDEN_STYLE) }}>
                   {/* #2525 移动端全屏创建页:列表/会话/底部 tab 岛全部让位(display 隐藏而非卸载 ——
                       返回时列表滚动位置与会话状态原样还在),真正的 composer 由下面那份 fixed overlay
                       盖到本页正文槽上。 */}
@@ -1427,7 +1429,7 @@ function InnerLayout({
                     )}
                     {/* 创建面打开时聊天区只隐藏不卸载(同 #6158 的常驻面):从前条件卸载,关掉创建面回来 = 整个面板重挂,
                         消息列表、滚动位置、分栏、群协作状态全部重来一遍,就是那一下白闪。 */}
-                    <div inert={showCreateSurface || assistantOnPhone} className="flex min-h-0 min-w-0 flex-[1_1_auto]" style={showCreateSurface || assistantOnPhone ? RETAINED_SURFACE_HIDDEN_STYLE : undefined}>
+                    <div className="flex min-h-0 min-w-0 flex-[1_1_auto]" style={showCreateSurface || assistantOnPhone ? RETAINED_SURFACE_HIDDEN_STYLE : undefined}>
                       <ChatAreaPanel
                         chatId={activeChatId}
                         navigationTarget={unreadNavigationTarget === 'chat'}
@@ -1455,16 +1457,12 @@ function InnerLayout({
             ),
             // 联系人面与聊天面同法常驻(lib/retainedSurface.ts):每次进来都重挂约 1,500 个组件。手机壳里本来就常驻。
             contacts: (
-              <div key="contacts" inert={activeTab !== 'contacts'} style={{ flex: 1, minWidth: 0, overflow: 'hidden', display: 'flex', flexDirection: 'column', ...(activeTab === 'contacts' || mobile ? undefined : RETAINED_SURFACE_HIDDEN_STYLE) }}>
+              <div key="contacts" style={{ flex: 1, minWidth: 0, overflow: 'hidden', display: 'flex', flexDirection: 'column', ...(activeTab === 'contacts' || mobile ? undefined : RETAINED_SURFACE_HIDDEN_STYLE) }}>
                 <div data-shell-contacts={mobile ? undefined : ''} style={{ flex: 1, minHeight: 0, overflow: 'hidden' }}>
                   <ContactsPanel externalContactId={externalContactId} activeTab={activeTab} mobile={mobile} scanSeed={scanSeed} onSwitchToChat={handleSwitchToChat} onOpenGroupChat={handleOpenGroupChat} onOpenAgentCreateDraft={openAgentCreateDraftFromContacts} />
                 </div>
               </div>
             ),
-            // 「发现」页(ExplorePage)已不再挂载 —— owner 2026-09-05:「发现页离完善还有距离,先不展示」。
-            // 源码原样留在 pages/ExplorePage.tsx 及 pages/explore/ 下,只是没有入口也不再渲染;
-            // 恢复 = 把这块挂载和 Sidebar 里那个 RailItem 一起加回来。
-            // 页里三块(工作台 / 广场 / 找群)同进同出;群设置里的「公开到广场」开关同批撤掉。
             // @@@1787 owner: 移动端「我的」是 tab 页(仅移动 shell 会切到该 tab);nav 层保留底部 tab 栏,detail 全屏
             settings: (mobile || activeTab === 'settings') && (
               <div key="settings" style={{ flex: 1, minWidth: 0, overflow: 'hidden', display: 'flex', flexDirection: 'column' }}>
@@ -1487,8 +1485,8 @@ function InnerLayout({
             whichever of sessionSlotRef/composerSlotRef is current. Base state here (0×0, hidden,
             unclickable) is what's visible before that effect's first run — never a flex participant,
             so this JSX position can stay fixed forever without any conditional-sibling insertBefore
-            crash (see the effect's comment for why that matters). visibility over display:none so the
-            effect can toggle it without fighting layout; pointerEvents mirrors visibility so a
+            crash (see the effect's comment for why that matters). content-visibility over display:none so the
+            page keeps its layout while hidden; pointerEvents mirrors visibility so a
             visually-hidden frame never eats clicks meant for whatever's actually on screen. */}
         {/* 门只看 sessionHost 能力,不看 shell 宽度(见 @@@web-target-gate;❌ 不是旧说法的「没有会话页
             资产」)。桌面 Electron 永不进移动 shell(#3566);移动 shell 里(web 目标窄视口 / Capacitor,
@@ -1497,7 +1495,7 @@ function InnerLayout({
         {sessionHostAvailable && (
           <div
             ref={emdashFrameHomeRef}
-            style={{ position: 'fixed', top: 0, left: 0, width: 0, height: 0, overflow: 'hidden', visibility: 'hidden', pointerEvents: 'none', zIndex: 5 }}
+            style={{ position: 'fixed', top: 0, left: 0, width: 0, height: 0, overflow: 'hidden', contentVisibility: 'hidden', transform: 'scale(0)', pointerEvents: 'none', zIndex: 5 }}
           >
             <EmdashSessionFrame />
           </div>
@@ -1592,8 +1590,6 @@ function InnerLayout({
           onOpenSessionpageAgentFile={handleOpenSessionpageAgentFile}
         />
       )}
-      {/* gugu-dev#181 会话页侧栏「对话」那一格(lib/shellSlots.ts 的 chat-list)和两枚页签上的未读数。 */}
-      {!mobile && sessionHostAvailable && <ChatListSlotHost activeTab={activeTab} />}
 
     </div>
   )
@@ -1606,6 +1602,7 @@ export function MainLayout({
   effectsActive = true,
   onShellCommitted,
 }: MainLayoutProps) {
+  const mobile = useMobileShell()
   return (
     <ContactsProvider active={effectsActive}>
       <DevicesProvider active={effectsActive}>
@@ -1614,6 +1611,9 @@ export function MainLayout({
           effectsActive={effectsActive}
           onShellCommitted={onShellCommitted}
         />
+        {/* gugu-dev#181 会话页侧栏「对话」那一格(lib/shellSlots.ts 的 chat-list)和两枚页签上的未读数。
+            在 InnerLayout 外面:切 tab 时 InnerLayout 整个重画,这张表不跟着重画。 */}
+        {!mobile && platform.capabilities.sessionHost && <ChatListSlotHost />}
       </DevicesProvider>
     </ContactsProvider>
   )

@@ -1,3 +1,5 @@
+import { rendererLogger } from '@/lib/log';
+import { messageForUser } from '@/lib/userFacingError';
 import { useCallback, useEffect, useState } from 'react';
 import { ChevronRight } from '@/lib/icons';
 import { AppPlacesEditor, AppPlacesSummary } from '@/components/extensionBundle/AppPlaces';
@@ -26,14 +28,14 @@ export function AppGivenSection({
   const { translate } = useSessionMessages();
   const [places, setPlaces] = useState<EnablePlace[] | null>(null);
   const [busy, setBusy] = useState(false);
-  const [failed, setFailed] = useState(false);
+  const [failed, setFailed] = useState('');
   const load = useCallback(async () => {
     try {
       const result = await api.appPlaces({ extensionId });
-      if (!result.success) { setFailed(true); return; }
+      if (!result.success) throw result.error;
       setPlaces(result.data);
-      setFailed(false);
-    } catch { setFailed(true); }
+      setFailed('');
+    } catch (error) { rendererLogger('actions/app-given-section').error({ error }, 'action failed'); setFailed(messageForUser(error)); }
   }, [api, extensionId]);
   useEffect(() => {
     void load();
@@ -44,10 +46,10 @@ export function AppGivenSection({
     setBusy(true);
     try {
       const result = await api.setAppPlaces({ extensionId, enableIn: applyPlaceChanges(enabled, changes) });
-      if (!result.success) { setFailed(true); return; }
+      if (!result.success) throw result.error;
       await load();
-    } catch {
-      setFailed(true);
+    } catch (error) {
+      rendererLogger('actions/app-given-section').error({ error }, 'action failed'); setFailed(messageForUser(error));
     } finally {
       setBusy(false);
     }
@@ -55,7 +57,7 @@ export function AppGivenSection({
   return (
     <>
     {failed && <p role="alert" className="text-sm text-foreground-destructive">
-      {translate('appSettings.scopeFailed')} <button type="button" className="xp-link" onClick={() => void load()}>{translate('extensions.retry')}</button>
+      {failed} <button type="button" className="xp-link" onClick={() => void load()}>{translate('extensions.retry')}</button>
     </p>}
     {places &&
     // Read again when opened: the person may have changed it from another computer, or an install chose it since.

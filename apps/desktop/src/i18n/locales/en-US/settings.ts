@@ -230,7 +230,6 @@ export default {
       "menu": "What it can do",
       "back": "Devices",
       "thisTitle": "What this computer can do",
-      "thisSubtitle": "Connect services and data so your assistant can help more",
       "thisNote": "Your assistant (including your Gugu) can do these things on this computer. Only what you connect here can be used, and disconnecting takes effect at once; anything that needs your say is asked in the chat first.",
       "connected": "Connected",
       "available": "Available",
@@ -592,8 +591,6 @@ export default {
     "copied": "Address copied",
     "assistantPage": {
       "title": "Devices",
-      "note": "Let {{name}} operate these devices for you",
-      "noteNoName": "Let your assistant operate these devices for you",
       "presence": {
         "awake": "Online"
       },
@@ -655,7 +652,6 @@ export default {
       }
     },
     "current": "This device",
-    "description": "Computers and servers your agents can run on.",
     "empty": {
       "none": "No machines signed in to Gugu yet",
       "title": "Only this computer so far",
@@ -812,7 +808,6 @@ export default {
     "submitted": "Report submitted. Thank you for helping us investigate.",
     "submitting": "Submitting...",
     "thanks": {
-      "body": "We read every report you send.",
       "done": "Done",
       "illustrationAlt": "Gugu hugging the report you just sent, saying thank you",
       "title": "Thank you for the report"
@@ -946,7 +941,6 @@ export default {
     },
     "engines": "By engine",
     "enginesEmpty": "No engine used in this period yet.",
-    "enginesHint": "Engines used in this period",
     "heat": {
       "less": "Less",
       "more": "More",
@@ -977,6 +971,7 @@ export default {
       "colSessions": "Tasks",
       "colTime": "Time",
       "colTokens": "Tokens",
+      "inputOutputTokens": "Input / Output tokens",
       "cache": "Cache",
       "consumption": "Consumption",
       "copied": "Copied",
@@ -1045,7 +1040,6 @@ export default {
     },
     "rhythm": "Rhythm",
     "rhythmEmpty": "No tasks in this period yet.",
-    "rhythmHint": "When in the day you start tasks",
     "streaks": "{{current}}-day streak · longest {{longest}} · {{active}} active days",
     "syncError": "Couldn't upload this device's latest data; showing the last upload.",
     "syncing": "Syncing this device's latest data…",

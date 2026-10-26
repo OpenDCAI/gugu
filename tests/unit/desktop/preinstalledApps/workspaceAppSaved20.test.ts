@@ -1,7 +1,6 @@
 // @vitest-environment jsdom
-// 摩擦单 F20(L5,S1 复跑 cf4e6772f):B 用工作区 App 打开一个 JSON,一个字没改,头上一直是「Saving」。
-// 修在运行时:`saved` 一变,onStatus 就触发(open-file.ts);App 只跟着 onStatus 画,不再每 400 ms 轮询(审计 C2)。
-// 这里的运行时是假的:saved 变 true 时,照真运行时那样发一次 onStatus。
+// Save acknowledgments still emit onStatus (F20); ordinary typing must not flash a caption (#320).
+// The runtime is the boundary here: status and saved move as they do on the real file.
 import { readFileSync } from 'node:fs'
 import { resolve } from 'node:path'
 import { beforeAll, describe, expect, test, vi } from 'vitest'
@@ -34,6 +33,7 @@ const file = {
 }
 
 const gugu = {
+  linkTo: vi.fn(async ({ file }: { file: { id: string } }) => `gugu-file://${file.id}`),
   setTabTitle: vi.fn(async () => {}),
   getContext: vi.fn(async () => ({ chat: { id: 'chat-1', name: 'G', kind: 'group', groupId: 'chat-1' }, file: { chat: 'chat-1', id: 'cfg' }, locale: 'en', capabilities: [] })),
   onContextChanged: vi.fn(() => () => {}),
@@ -57,14 +57,27 @@ beforeAll(async () => {
   Object.assign(window, { gugu })
   // @ts-expect-error — 内置 App 是不经构建的纯 ES module,没有类型;运行时 import 可用。
   await import('../../../../apps/desktop/preinstalled-apps/workspace/app.js')
-  await vi.waitFor(() => expect(gugu.files.open).toHaveBeenCalled())
+  await vi.waitFor(() => expect(file.onStatus).toHaveBeenCalled())
 })
 
-describe('workspace App: the save badge of a file opened and left alone (F20)', () => {
-  test('Saving while the server has not confirmed yet, then Saved when the runtime says saved moved — no change needed', async () => {
-    await vi.waitFor(() => expect(status()).toBe('Saving'))
+describe('workspace App: quiet save acknowledgments', () => {
+  test('ordinary online edits stay quiet, while read-only and offline states remain visible', () => {
+    expect(status()).toBe('')
     saved = true
     statusChanged('online')
-    expect(status()).toBe('Saved')
+    expect(status()).toBe('')
+    saved = false
+    statusChanged('online')
+    expect(status()).toBe('')
+    file.readOnly = true
+    statusChanged('online')
+    expect(status()).toBe('Read-only')
+    file.readOnly = false
+    statusChanged('offline')
+    expect(status()).toBe('Offline: changes catch up when back online')
+    expect(document.getElementById('banner')?.hidden).toBe(false)
+    statusChanged('online')
+    expect(status()).toBe('')
+    expect(document.getElementById('banner')?.hidden).toBe(true)
   })
 })

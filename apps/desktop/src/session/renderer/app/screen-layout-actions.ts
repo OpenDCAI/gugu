@@ -8,7 +8,7 @@ import { installedExtensionsStore } from '@renderer/features/extensions/installe
 import { getSessionPageStore } from '@renderer/features/sessions/stores/session-selectors';
 import { openSessionInSessionWhenReady } from '@renderer/features/sessions/open-session-in-session';
 import { MIN_PANE_HEIGHT_PX, MIN_PANE_WIDTH_PX } from '@renderer/features/tabs/pane-layout-store';
-import { minExtent } from '@renderer/features/tabs/pane-layout-tree';
+import { minExtent, paneExtent, removePane } from '@renderer/features/tabs/pane-layout-tree';
 import { auxWindows, type TabWindowHome } from './aux-windows';
 import { readChatSummaries, subscribeChatSummaries } from '@/lib/chatSummariesBridge';
 import { MAX_SCREEN_BLOCKS, screenLayout, type ScreenBlockContent, type ScreenLayoutSnapshot, type ScreenSession, type WindowableContent } from './screen-layout';
@@ -545,14 +545,16 @@ export const screenBlockElement = (blockId: string): HTMLElement | null =>
  * 指针在 (x, y) 时把 `content` 放下去会落在哪:一块的四条边(离哪条边近就是哪边)= 分出一块;
  * 一条会话那块的页签条或中间 —— 只有 App 能落 —— = 指针下那一格。它自己那块、满了又不能进格、太窄分不开、
  * 会话落在别的会话中间 —— 都是 null,这里不画落点(会话落在中间是插 @:那由指针下的输入面判,见 screenDropHandlers)。
+ * 会话落在聊天块的中间仍按最近边分块;输入框由 screenDropHandlers 排除,留给它自己的提及或邀请。
  */
 export function resolveBlockDrop(x: number, y: number, content: ScreenBlockContent): BlockDrop | null {
+  const from = blockOf(content);
   for (const blockId of screenLayout.order) {
     const element = screenBlockElement(blockId);
     if (!element) continue;
     const rect = element.getBoundingClientRect();
     if (x < rect.left || x > rect.right || y < rect.top || y > rect.bottom) continue;
-    if (blockOf(content) === blockId) return null;
+    if (from === blockId) return null;
     // 页签条压在上边沿里面:指着页签条 = 进那一条(排到哪),❌ 当成往上分一块。
     if (content.kind === 'app' && document.elementsFromPoint(x, y).some((el) => el.closest('[data-screen-page] .session-tab-bar'))) {
       return paneDropAt(x, y, blockId, content.tabKind);
@@ -566,8 +568,14 @@ export function resolveBlockDrop(x: number, y: number, content: ScreenBlockConte
       };
       const edge = (Object.keys(distance) as PaneEdge[]).reduce((a, b) => (distance[a] <= distance[b] ? a : b));
       const axis = edge === 'left' || edge === 'right' ? 'width' : 'height';
-      const splittable = (axis === 'width' ? rect.width : rect.height) >= blockMinExtent(blockId, axis) + contentMinExtent(content, axis) + 1;
-      if (distance[edge] <= EDGE_SHARE && splittable) return { blockId, edge };
+      // placeAt removes the old block first. Test the target's resulting extent, not its smaller pre-move box.
+      const frame = element.closest('[data-screen-frame]')?.getBoundingClientRect();
+      const available = from && screenLayout.layout
+        ? (frame ? paneExtent(removePane(screenLayout.layout, from), blockId, axis, frame[axis]) ?? 0 : 0)
+        : rect[axis];
+      const splittable = available >= blockMinExtent(blockId, axis) + contentMinExtent(content, axis) + 1;
+      const taskInChat = content.kind === 'session' && screenLayout.blocks.get(blockId)?.kind === 'chat';
+      if ((distance[edge] <= EDGE_SHARE || taskInChat) && splittable) return { blockId, edge };
     }
     return content.kind === 'app' ? paneDropAt(x, y, blockId, content.tabKind) : null;
   }

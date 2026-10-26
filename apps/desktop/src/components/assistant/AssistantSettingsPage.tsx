@@ -30,7 +30,7 @@ export function AssistantSettingsPage({ onOpenPage, onOpenSection }: {
       ) : null}
       {section === 'aimodel' && contact ? <AgentAiModelPane agent={contact} />
         : section === 'connectors' ? <ConnectorsSection />
-        : section === 'devices' ? <AssistantDevicesPage cloudDeviceId={cloudDeviceId} assistantName={contact?.display_name ?? t('rail')} />
+        : section === 'devices' ? <AssistantDevicesPage cloudDeviceId={cloudDeviceId} />
         : section === 'channels' ? <ChatChannelsPanel />
         : <AssistantSection available={SECTIONS} onOpenSection={onOpenSection ?? setSection} onOpenModel={() => setSection('aimodel')}
             onOpenAssistantPage={onOpenPage ?? ((tab) => appState.navigation.navigate('assistant', { tab }))} />}

@@ -3,7 +3,7 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { PassThrough } from 'node:stream'
 import { afterEach, describe, expect, it, vi } from 'vitest'
-import { createHostResumeHandler, watchHostResumeGap } from '../../../../apps/desktop/electron/server/host-resume'
+import { createHostResumeHandler, installNativeSleepActivity, watchHostResumeGap } from '../../../../apps/desktop/electron/server/host-resume'
 import { runResume } from '../../../../apps/desktop/electron/server/resume-cli'
 import { callAccountProcess } from '../../../../apps/desktop/electron/server/account-call'
 import { HOST_RESUME_CALL } from '../../../../apps/desktop/electron/session/main/core/pty/attach/attach-protocol'
@@ -13,6 +13,27 @@ import type { ServerAccount } from '../../../../apps/desktop/electron/server/ser
 afterEach(() => vi.useRealTimers())
 
 describe('retained account resume', () => {
+  it('attests native suspend/resume only, never an unpaired resume or a wall-clock stall', () => {
+    const listeners = new Map<string, () => void>(), record = vi.fn()
+    let now = 1000
+    installNativeSleepActivity({ on: (event, callback) => listeners.set(event, callback) }, record, () => now)
+    listeners.get('resume')!()
+    expect(record).not.toHaveBeenCalled()
+    listeners.get('suspend')!(); now = 9000; listeners.get('resume')!()
+    expect(record).toHaveBeenCalledExactlyOnceWith({ since: 1000, until: 9000, source: 'native-power' })
+    now = 19000; listeners.get('resume')!()
+    expect(record).toHaveBeenCalledOnce()
+  })
+  it('passes a confirmed suspension interval through the account command and rejects future intervals', async () => {
+    const call = vi.fn(async () => ({ reply: Buffer.from('{"result":{"resumed":true}}') }))
+    const account = { userId: 'owner', dataDir: '/unused', signedIn: true, email: null } as ServerAccount
+    const io = { stdout: new PassThrough(), stderr: new PassThrough() }, deps = { accounts: () => [account], call }
+    const since = Date.now() - 10_000
+    expect(await runResume(['--account', 'owner', '--suspended-since', String(since)], io, deps)).toBe(0)
+    expect(call).toHaveBeenCalledWith(account, { type: HOST_RESUME_CALL, payload: { suspendedSince: since } }, { timeoutMs: 5_000 })
+    expect(await runResume(['--account', 'owner', '--suspended-since', String(Date.now() + 10_000)], io, deps)).toBe(2)
+    expect(call).toHaveBeenCalledOnce()
+  })
   it('starts REST catchup while realtime and credential recovery are still blocked', async () => {
     const never = new Promise<void>(() => undefined)
     const pullUnread = vi.fn(async () => undefined)

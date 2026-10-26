@@ -212,6 +212,7 @@ function entryOf(place: LocalPlace, rel: string, stat: fs.Stats, contentType = l
     createdAt: stat.birthtime.toISOString(),
     updatedAt: stat.mtime.toISOString(),
     createdBy: null,
+    updatedBy: null,
     sourceMessageIds: [],
   };
 }

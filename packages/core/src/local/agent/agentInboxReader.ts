@@ -24,6 +24,7 @@ import { resolveListenModeDefault } from '../../cloud/listenMode'
 import type { ChatKind } from '../../shared/types/chat'
 import { parseAttachmentContent, type AttachmentSource } from '../../shared/ui/attachmentModels'
 import { createAttachmentResolver } from '../../shared/attachmentUrls'
+import { attachmentFolderLine } from '../../shared/attachmentFolderLine'
 import { configuredEndpoint, fetchAttachmentUrls } from '../../cloud/attachmentsApi'
 import { resolveGuguHome } from '../state/paths'
 import {
@@ -74,7 +75,7 @@ export interface AgentInboxUnreadRow {
   contentType: string | null
   toUserIds: string[] | null
   isWhisper: boolean
-  /** App 以人的名义送来的那一行(`gugu.send`,#6835):App 的 extension id。 */
+  /** App 以人的名义送来的那一行(`gugu.dispatch`,#6835):App 的 extension id。 */
   viaApp?: string | null
   /**
    * #7290 附件消息指向群文件夹的条目与版本(新式附件);条目删了 ⇒ itemId 为 null。从 pull_agent_inbox_v2 来的行一定带着
@@ -779,9 +780,10 @@ async function prepareMessage(
       fileLine = `\n[File not saved: ${error instanceof Error ? error.message : String(error)}]`
     }
   }
+  const folderLine = attachment?.source.kind === 'item' ? `\n${attachmentFolderLine(attachment.source.itemId, attachment.source.version)}` : ''
   const content = attachments && attachment
-    ? `${attachment.caption || `[Image attached: ${attachment.fileName}]`}${attachments?.[0]?.localPath ? `\n[Image attached at local path: ${attachments[0].localPath}]` : ''}`
-    : `${row.content}${fileLine}`
+    ? `${attachment.caption || `[Image attached: ${attachment.fileName}]`}${folderLine}${attachments?.[0]?.localPath ? `\n[Image attached at local path: ${attachments[0].localPath}]` : ''}`
+    : `${row.content}${folderLine}${fileLine}`
   const messageContext = buildAgentMentionContext(content, row.toUserIds, identities, agentUserId)
   const envelope = buildAgentDeliveryEnvelope(
     {

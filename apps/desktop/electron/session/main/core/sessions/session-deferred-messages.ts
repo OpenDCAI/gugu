@@ -5,7 +5,7 @@ import { log } from '@main/lib/logger';
 import { getSessionMessageRouter } from './session-message-router';
 
 /**
- * 附带(defer:推迟到对方下次进入运行中时再送;App 的 `messageAgent(…, { defer: true })`,owner 10-09「直接用"进入运行中"这个事件不就得了」):一次普通的 session-direct 发送,
+ * 附带(defer:推迟到对方下次进入运行中时再送;App 的 `dispatch(…, { to: { agent }, delivery: 'defer' })`,owner 10-09「直接用"进入运行中"这个事件不就得了」):一次普通的 session-direct 发送,
  * ACP 通信输入在准入前把待附带消息拼入同一次请求；已在工作的会话与终端仍由 working 边沿投递。
  *
  * - 唯一的原文是 `messages` 表里的一行:content = 发送时拼好的整个信封,metadata `state: 'deferred'`(待附带)、

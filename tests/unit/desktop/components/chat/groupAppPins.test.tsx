@@ -69,7 +69,7 @@ afterEach(() => {
 async function header(chatId = 'g1', userId = 'user-1', mobile = true) {
   const actions = createNode(ChatHeaderActions, {
     isGroupChat: true, isRoomChat: true, mobile,
-    searchMode: false, folderShown: false, memberListOpen: false, showHeaderMenu: true,
+    searchMode: false, folderShown: false, memberListOpen: false, showHeaderMenu: mobile,
     moreButtonRef: createRef<HTMLButtonElement>(), onEnterSearchMode: vi.fn(), onOpenFolder: vi.fn(), onCloseWorkspacePanel: vi.fn(),
     onOpenSettingsDrawer: vi.fn(), onOpenMemberList: vi.fn(), onCloseRightSurfaces: vi.fn(),
     onToggleHeaderMenu: vi.fn(), onCloseHeaderMenu: vi.fn(), onOpenAnnouncement: vi.fn(),
@@ -85,6 +85,27 @@ async function picker() {
 }
 
 describe('personal group App shortcuts', () => {
+  it('closes the desktop App picker when its selected header button is clicked again', async () => {
+    await header('g1', 'user-1', false)
+    const button = document.querySelector<HTMLButtonElement>('button[aria-label="群 Apps"]')!
+    expect(button.getAttribute('aria-expanded')).toBe('false')
+    expect(document.querySelector('[data-testid="group-apps-picker"]')).toBeNull()
+
+    await clickElement(button)
+    expect(button.getAttribute('aria-expanded')).toBe('true')
+    expect(button.hasAttribute('data-on')).toBe(true)
+    expect(document.querySelector('[data-testid="group-apps-picker"]')).not.toBeNull()
+
+    await clickElement(button)
+    expect(button.getAttribute('aria-expanded')).toBe('false')
+    expect(button.hasAttribute('data-on')).toBe(false)
+    expect(document.querySelector('[data-testid="group-apps-picker"]')).toBeNull()
+
+    await clickElement(button)
+    expect(button.getAttribute('aria-expanded')).toBe('true')
+    expect(document.querySelector('[data-testid="group-apps-picker"]')).not.toBeNull()
+  })
+
   it('places pinned shortcuts before Group Apps and the other desktop actions', async () => {
     const bounds = vi.spyOn(HTMLElement.prototype, 'getBoundingClientRect').mockImplementation(function (this: HTMLElement) {
       const width = this.hasAttribute('data-chat-area-header') ? 1200 : this.hasAttribute('data-tabbar-actions') ? 320 : 32

@@ -362,6 +362,31 @@ describe('#6530 opening a badged chat lands on the latest message (WeChat)', () 
 })
 // 下面这些用例的定位路径现在由「↑ N 条新消息」触发(主线)或列表直接触发(话题流未读)。
 describe('#4258 jumping to the unread locator', () => {
+  it('consumes a naturally seen entry without letting its late callback consume a newer entry', async () => {
+    serverRows = Array.from({ length: 11 }, (_, index) => peerRow(index + 1))
+    serverMainReadSeq = 9
+    chatServiceMock.markRead.mockImplementation(async (_chatId: string, seq: number) => {
+      if (seq > serverMainReadSeq) readStateVersion += 1
+      serverMainReadSeq = Math.max(serverMainReadSeq, seq)
+    })
+    await renderProvider()
+    await openBadgedChat()
+    const seenEntry = latestStore!.unreadEntry!
+    await act(async () => { seenEntry.onSeen() })
+    expect(latestStore!.unreadEntry).toBeNull()
+    await setChatOnScreen(false)
+    serverRows = [...serverRows, peerRow(12)]
+    await act(async () => { await latestStore!.refreshChats() })
+    await act(async () => { await latestStore!.openUnreadChat(CHAT_ID, false) })
+    const nextEntry = latestStore!.unreadEntry!
+    expect(nextEntry.locator.message_id).toBe('m12')
+    await act(async () => { seenEntry.onSeen() })
+    expect(latestStore!.unreadEntry).toBe(nextEntry)
+    await act(async () => { nextEntry.onSeen() })
+    expect(latestStore!.unreadEntry).toBeNull()
+    expect(markStreamReadMock).not.toHaveBeenCalled()
+  })
+
   it('consumes the entry as soon as presentation confirms, before the read RPC settles', async () => {
     serverRows = Array.from({ length: 11 }, (_, index) => peerRow(index + 1))
     serverMainReadSeq = 9

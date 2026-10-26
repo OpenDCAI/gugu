@@ -125,10 +125,9 @@ describe('形象工坊', () => {
       return r
     }
 
-    it('没存过装扮:默认不戴,页签上写明;一个位置一排,每排都有「不戴」', async () => {
+    it('没存过装扮:默认不戴;一个位置一排,每排都有「不戴」', async () => {
       await openOutfits()
       expect(stageWear()).toBe('')
-      expect(q('.gg-look-outfit-note')?.textContent).toMatch(/默认形象不戴装扮|The default look has no outfit/)
       expect(qa('.gg-look-outfit-group').length).toBe(8)
       for (const g of qa('.gg-look-outfit-group')) expect(g.querySelector('[data-outfit=""]')).not.toBeNull()
     })

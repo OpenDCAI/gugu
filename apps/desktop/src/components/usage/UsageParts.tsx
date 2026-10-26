@@ -89,7 +89,7 @@ export function ModelBadge({ model, icon }: { model: string; icon?: ReactNode })
       onClick={() => { void navigator.clipboard?.writeText(model).then(() => setCopied(true), () => {}) }}
       onKeyDown={(e) => { if (e.key === 'Enter') void navigator.clipboard?.writeText(model).then(() => setCopied(true), () => {}) }}>
       {glyph ? <span className="na-badge-icon">{glyph}</span> : <span className="na-badge-dot" style={swatch(stringToColor(model))} />}
-      <span>{model}</span>
+      <span className="na-badge-label">{model}</span>
     </span>
   )
 }

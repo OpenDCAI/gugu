@@ -3,7 +3,7 @@
  * ⚠️ 每条选择器都显式挂在 .gg-aw 之下,不是命名规范而是**必须**:tokens.css:604 有一条
  * 未分层的全局重置 `*:not(.gugu-skin, …) { margin:0; padding:0 }`,特异性 (0,1,0) 且排在本表
  * 之后 —— 任何单类选择器写的 margin/padding 都会被它平掉。限定在页面根下 (0,2,0) 才赢得干净,
- * ❌ 不靠 !important 把问题按下去(与 ExplorePage.css 同一条理由)。
+ * ❌ 不靠 !important 把问题按下去。
  *
  * 几何一律取 tokens.css 的刻度,本表不拍新数:
  *   字号 --font-caption/body/title/heading = 12/14/16/20;消息正文 --font-prose = 16
@@ -451,7 +451,9 @@
 .gg-aw .gg-aw-item {
   min-height: var(--control-h-touch);
 }
-.gg-aw .gg-aw-item:not([aria-disabled='true']):hover { background: var(--hover); }
+@media (hover: hover) {
+  .gg-aw .gg-aw-item:not([aria-disabled='true']):hover { background: var(--hover); }
+}
 .gg-aw .gg-aw-item:not([aria-disabled='true']):active { background: var(--press); }
 .gg-aw .gg-aw-item[aria-disabled='true'] { cursor: default; opacity: 0.55; }
 /* 行 = 打开按钮 + 行尾「…」管理入口。两个都是按钮,❌ 嵌套(按钮里不能再放按钮),并排放。 */

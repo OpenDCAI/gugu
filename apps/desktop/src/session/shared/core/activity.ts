@@ -15,7 +15,7 @@ export const activityEventSchema = z.object({
     'session.turn_recorded', 'session.history_reverted',
     'project.created', 'project.deleted', 'project.folder_attached', 'project.folder_detached',
     'project.group_bound', 'project.group_unbound', 'app.source_created', 'app.source_updated',
-    'app.installed', 'app.replaced', 'session.model_changed', 'session.lifecycle']),
+    'app.installed', 'app.replaced', 'session.model_changed', 'session.lifecycle', 'device.sleep']),
   occurred_at: z.number().int().nonnegative().nullable(),
   observed_at: z.number().int().nonnegative(),
   session_id: id.optional(),
@@ -30,6 +30,8 @@ export const activityEventSchema = z.object({
   app_version: id.optional(),
   model_id: id.optional(),
   previous_model_id: id.optional(),
+  sleep_until_at: z.number().int().nonnegative().optional(),
+  sleep_source: z.enum(['native-power', 'fc-confirmed']).optional(),
   lifecycle: sessionLifecycleSchema.optional(),
   source_ref: z.string().max(2048).refine(value => parseConversationLink(value) !== null, 'source_ref must be a conversation locator').optional(),
   status: z.enum([...AGENT_STATUSES, 'scheduled', 'queued',
@@ -42,6 +44,10 @@ export type ActivityEvent = z.infer<typeof activityEventSchema>;
  * session, or the automation of its run), in one place, so no producer can omit or contradict it.
  */
 export const activityObservationSchema = activityEventSchema.omit({ project_id: true }).superRefine((event, ctx) => {
+  if (event.kind === 'device.sleep' && (event.occurred_at === null || event.sleep_until_at === undefined
+    || event.sleep_until_at <= event.occurred_at || !event.sleep_source)) {
+    ctx.addIssue({ code: 'custom', path: ['sleep_until_at'], message: 'Device sleep requires a confirmed ordered interval and source' });
+  }
   if (event.kind.startsWith('project.') && !event.object_id) {
     ctx.addIssue({ code: 'custom', path: ['object_id'], message: 'Project events must name their subject project' });
   }

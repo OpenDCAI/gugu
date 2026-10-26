@@ -1,6 +1,5 @@
 /**
  * #7199 助理 App「能力 · 设备」(owner 10-15 定落在助理 App 里):
- * - 头一句「让 X 帮你操作以下设备」,X = 个人助理的名字;
  * - 只列人自己的设备:它住的那台云端宿主不在这里(owner 10-15「云电脑对用户完全不可见」);
  * - 本机在最上,再其次在线的、离线的;每台写在线 / 离线,手机另标「非全天可用」(规则见 lib/deviceAvailability);
  *   本机名字旁一个「本机」;
@@ -31,7 +30,7 @@ import { ConnectMoreDevices } from './ConnectMoreDevices'
 import { PhoneGlyph } from './assistantDeviceUi'
 import { useDeviceActionGroupText } from '../settings/deviceActionGroupText'
 
-export function AssistantDevicesPage({ cloudDeviceId, assistantName }: { cloudDeviceId: string | null; assistantName: string }) {
+export function AssistantDevicesPage({ cloudDeviceId }: { cloudDeviceId: string | null }) {
   const { t } = useTranslation('settings')
   const groupText = useDeviceActionGroupText()
   const { devices, phones, cloudComputer } = useDevicesStore()
@@ -74,10 +73,7 @@ export function AssistantDevicesPage({ cloudDeviceId, assistantName }: { cloudDe
 
   return (
     <SettingsPage data-testid="assistant-devices">
-      {/* 页标题由助理 App 的页头(PageHead)画;这一组只带头一句说明,与「聊天工具」页同一个版式。 */}
-      <SettingsGroup
-        note={assistantName ? t('devices.assistantPage.note', { name: assistantName }) : t('devices.assistantPage.noteNoName')}
-      >
+      <SettingsGroup>
         {all.length === 0 && <SettingsRow description={t('devices.assistantPage.empty')} />}
         {all.map((device) => {
           const kind = deviceKind(device, cloudId)

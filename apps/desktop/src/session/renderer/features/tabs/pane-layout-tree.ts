@@ -38,6 +38,17 @@ export function minExtent(node: PaneLayoutNode, axis: 'width' | 'height', unit: 
   return along ? inner.reduce((sum, value) => sum + value, 0) + gap * (inner.length - 1) : Math.max(...inner);
 }
 
+/** A pane's extent after a layout change, with the same one-pixel dividers as the rendered tree. */
+export function paneExtent(node: PaneLayoutNode, paneId: string, axis: 'width' | 'height', extent: number): number | undefined {
+  if (node.type === 'pane') return node.paneId === paneId ? extent : undefined;
+  const along = (node.orientation === 'horizontal') === (axis === 'width');
+  for (const [index, child] of node.children.entries()) {
+    const size = along ? (extent - node.children.length + 1) * node.sizes[index] / 100 : extent;
+    const found = paneExtent(child, paneId, axis, size);
+    if (found !== undefined) return found;
+  }
+}
+
 /** Every pane, top-left to bottom-right (depth first): the order the panes are listed and walked in. */
 export function paneOrder(node: PaneLayoutNode): string[] {
   return node.type === 'pane' ? [node.paneId] : node.children.flatMap(paneOrder);

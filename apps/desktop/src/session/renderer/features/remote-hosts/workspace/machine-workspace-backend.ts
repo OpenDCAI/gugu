@@ -132,8 +132,7 @@ function machineTree(deviceId: string): WorkspaceTreeBackend {
     download(scope, entry) {
       return downloadEntry(
         transfers(scope),
-        { name: entry.name, path: entry.path, isDirectory: entry.kind === 'directory', size: entry.size ?? 0 },
-        describe
+        { name: entry.name, path: entry.path, isDirectory: entry.kind === 'directory', size: entry.size ?? 0 }
       );
     },
     transfers: (scope) => transfers(scope).active,

@@ -1,3 +1,4 @@
+import { messageForUser } from '@/lib/userFacingError';
 import { useCallback, useEffect, useRef, useState, type ReactNode } from 'react'
 import { createPortal } from 'react-dom'
 import { useTranslation } from 'react-i18next'
@@ -10,10 +11,12 @@ import { DUR_SLOW_MS, EASE } from '@/styles/motion'
 import { useToast } from './toastContext'
 import { useBackLayer } from './ui/sheetStack'
 import { IconButton } from './ui/IconButton'
+import { bindFileViewerMenu } from './preview/file-viewer-menu'
 import { AUTOMATION_TEST_IDS } from '../lib/automationDom'
 import { fetchBlob, downloadRemoteFile } from '../lib/download'
 import { canWriteImageToClipboard, writeImageBlobToClipboard } from '../lib/imageClipboard'
 import { rendererLogger } from '../lib/log'
+import { safeFailureLine } from '@/session/renderer/features/sessions/gugu-reason'
 import { useMobileShell } from '../hooks/useMobileShell'
 import { readRendererPlatform, windowTitlebarHeight } from '../lib/window-chrome'
 import {
@@ -266,8 +269,9 @@ function ImageViewerChrome({ viewer, mobile }: { viewer: OpenViewer; mobile: boo
   const handleDownload = useCallback(async () => {
     try {
       await downloadRemoteFile(current.full ? await current.full() : current.url, downloadNameFor(current))
-    } catch {
-      toast(t('shell.imagePreview.downloadFailed'), 'error')
+    } catch (error) {
+      rendererLogger('chat/file-open').error({ error }, 'image download failed')
+      toast(t('shell.imagePreview.downloadFailed'), 'error', safeFailureLine(String((error as Error)?.message ?? error)))
     }
   }, [current, t, toast])
 
@@ -282,8 +286,8 @@ function ImageViewerChrome({ viewer, mobile }: { viewer: OpenViewer; mobile: boo
       // blob-first(#1892):先 await 拿到 Blob 再写剪贴板
       await writeImageBlobToClipboard(await fetchImageAsPngBlob(current.full ? await current.full() : current.url))
       toast(t('shell.imagePreview.copied'), 'success')
-    } catch {
-      toast(t('shell.imagePreview.copyFailed'), 'error')
+    } catch (error) {
+      toast(t('shell.imagePreview.copyFailed'), 'error', safeFailureLine(String((error as Error)?.message ?? error)))
     } finally {
       setCopying(false)
     }
@@ -343,19 +347,33 @@ export function ImagePreviewProvider({ children }: { children: ReactNode }) {
           active?.destroy()
           const pswp = new PhotoSwipeCtor(viewerOptions(request, isMobile, translate('shell.imagePreview.loadFailed')))
           wireViewer(pswp, translate('shell.imagePreview.dialog'))
-          pswp.on('change', () => setViewer((open) => (open?.pswp === pswp ? { ...open, index: pswp.currIndex } : open)))
+          let unbindMenu: (() => void) | undefined
+          const bindMenu = () => {
+            unbindMenu?.()
+            const quote = request.items[pswp.currIndex]?.quote
+            unbindMenu = quote && pswp.element ? bindFileViewerMenu(pswp.element, () => ({ quote: () => { pswp.close(); return quote() }, canSelectAll: false }), (error) => {
+              log.error({ error: String(error) }, 'image citation failed')
+              latest.current.toast(String(error), 'error')
+            }) : undefined
+          }
+          pswp.on('change', () => {
+            bindMenu()
+            setViewer((open) => (open?.pswp === pswp ? { ...open, index: pswp.currIndex } : open))
+          })
           pswp.on('destroy', () => {
+            unbindMenu?.()
             if (active === pswp) active = null
             setViewer((open) => (open?.pswp === pswp ? null : open))
           })
           active = pswp
           pswp.init()
           if (!pswp.element) throw new Error('PhotoSwipe did not create its root element')
+          bindMenu()
           setViewer({ pswp, root: pswp.element, items: request.items, index: pswp.currIndex })
         })
         .catch((error: unknown) => {
           log.error({ error: String(error), count: request.items.length }, 'failed to open image viewer')
-          latest.current.toast(latest.current.t('shell.imagePreview.openFailed'), 'error')
+          latest.current.toast(latest.current.t('shell.imagePreview.openFailed'), 'error', messageForUser(error))
         })
     })
     return () => {

@@ -111,12 +111,9 @@ const enUSCoreMessages = {
   'palette.deepSampleSaved': 'Deep sample saved',
   'palette.deepSampleFailed': 'Deep sample failed',
   'settings.general': 'General',
-  'settings.generalDescription': 'Task defaults and notifications.',
   'settings.agents': 'Agents',
-  'settings.agentsDescription': 'Manage agents and model configurations.',
   'settings.refreshAgents': 'Refresh agent detection',
   'settings.integrations': 'Integrations',
-  'settings.integrationsDescription': 'Connect external services and tools.',
   // ── extensions: sandboxed tab surfaces ─────────────────────────────────
   'extensions.preparing': 'Preparing App',
   'extensions.activationFailed': 'This App could not be started',
@@ -167,7 +164,8 @@ const enUSCoreMessages = {
   'extensions.bundleCardInstalledOn': 'Installed on {machine}.',
   'extensions.bundleCardNotInstalledOn': 'Not installed on {machine}.',
   'extensions.needsDesktop': 'Requires Gugu Desktop',
-  'extensions.phoneAgentsUnavailable': 'Agent features are unavailable on phones.',
+  'extensions.phoneAgentCapabilitiesLabel': 'App capabilities on phones',
+  'extensions.phoneAgentCapabilitiesInfo': 'These capabilities require installing and authorizing this App in Gugu Desktop. They are not enabled by installing this App on a phone:',
   'extensions.platformVersionUnavailable': 'This version is not available for this device.',
   'extensions.bundleCardElsewhere': 'This App needs what only a computer has — use it on the computer.',
   'extensions.bundleCardOpensInSessions': 'Installed — it opens its files in a task.',
@@ -205,7 +203,7 @@ const enUSCoreMessages = {
   'extensions.permissionsFilesReadAllMachines':
     'Read the files of every chat you are in, and of the tasks on ALL your computers, not just {computer} (the others read only)',
   'extensions.permissionsFilesWrite': 'Change the files of every chat you are in, and of the tasks on {computer}',
-  // `gugu.send`: a whisper to one person or agent, sent as you and marked as from this App (摩擦单 F16, F79).
+  // `gugu.dispatch` to a member of a chat: a whisper to one person or agent, sent as you and marked as from this App (摩擦单 F16, F79).
   'extensions.permissionsChatRelay': 'Whisper to a person or agent in any chat you are in, in your name — they see it came from this App',
   'extensions.permissionsChatRead': 'See which chats you are in and who is in them, and read the messages you can see there',
   // The two scopes must read differently at a glance: the whole point of
@@ -461,9 +459,7 @@ const enUSCoreMessages = {
 
   'settings.extensions': 'Apps',
   'settings.interface': 'Interface',
-  'settings.interfaceDescription': 'Customize the appearance and behavior of gugu.',
   'settings.browser': 'Browser',
-  'settings.browserDescription': 'Manage browser profiles and their stored logins.',
   'settings.keyboardShortcuts': 'Keyboard shortcuts',
   'settings.tools': 'Tools',
   'settings.contextBar': 'Context bar',
@@ -477,8 +473,6 @@ const enUSCoreMessages = {
   'settings.confirmBeforeCancelAndSendDescription':
     'When you send a queued prompt while a turn is running, confirm before cancelling that turn. Turning it off cancels and sends right away — the dialog’s “Don’t ask again” lands here, and this row is how you get the question back.',
   'settings.chatView': 'Conversation view',
-  'settings.chatViewDescription':
-    'How agent conversations are laid out on the task page. Two columns puts your messages in a right-aligned pill with a left gutter; single column keeps every row full width.',
   'settings.chatViewSingle': 'Single column',
   'settings.chatViewDouble': 'Two columns',
   'update.version': 'Version',
@@ -893,6 +887,7 @@ const enUSCoreMessages = {
   'extensions.spawnedByUninstalled': 'Started by the uninstalled “{name}” App',
   // 把一条会话行拖进 composer,但它在本机名册里没有身份 —— 说得出「为什么还不能 @」。
   'chat.mentionDropNoIdentity': '“{title}” has no identity yet — run it once before you can @ it',
+  'chat.mentionDropPrivateAgent': 'This Agent is private to another user and cannot be added.',
   'chat.sideChatSuffix': '{label} · Side',
   'chat.sideChatFailed': 'The side chat could not be opened',
   'chat.forkUnsupported': '{name} does not support forking a task',
@@ -1037,12 +1032,9 @@ const zhCNCoreMessages: Record<CoreSessionMessageKey, string> = {
   'palette.deepSampleSaved': '已保存深度采样',
   'palette.deepSampleFailed': '深度采样失败',
   'settings.general': '通用',
-  'settings.generalDescription': '会话默认行为与通知。',
   'settings.agents': '智能体',
-  'settings.agentsDescription': '管理智能体和模型配置。',
   'settings.refreshAgents': '刷新智能体检测',
   'settings.integrations': '集成',
-  'settings.integrationsDescription': '连接外部服务和工具。',
   // ── extensions: sandboxed tab surfaces ─────────────────────────────────
   'extensions.preparing': '正在准备 App',
   'extensions.activationFailed': '这个 App 没能启动',
@@ -1093,7 +1085,8 @@ const zhCNCoreMessages: Record<CoreSessionMessageKey, string> = {
   'extensions.bundleCardInstalledOn': '已装到「{machine}」。',
   'extensions.bundleCardNotInstalledOn': '「{machine}」上没有装。',
   'extensions.needsDesktop': '请在电脑上使用',
-  'extensions.phoneAgentsUnavailable': '在手机上，agent 相关功能不可用。',
+  'extensions.phoneAgentCapabilitiesLabel': '手机端的 App 能力',
+  'extensions.phoneAgentCapabilitiesInfo': '以下能力需要在电脑端安装并授权此 App 才能使用。在手机端安装此 App 不会启用这些能力：',
   'extensions.platformVersionUnavailable': '此版本不适用于这台设备。',
   'extensions.bundleCardElsewhere': '这个 App 要用只有电脑上才有的能力，请在电脑上用。',
   'extensions.bundleCardOpensInSessions': '装好了，它在会话里打开它的文件。',
@@ -1346,9 +1339,7 @@ const zhCNCoreMessages: Record<CoreSessionMessageKey, string> = {
 
   'settings.extensions': 'App',
   'settings.interface': '界面',
-  'settings.interfaceDescription': '自定义咕咕的外观和行为。',
   'settings.browser': '浏览器',
-  'settings.browserDescription': '管理浏览器配置及其已保存的登录状态。',
   'settings.keyboardShortcuts': '键盘快捷键',
   'settings.tools': '工具',
   'settings.contextBar': '上下文栏',
@@ -1362,8 +1353,6 @@ const zhCNCoreMessages: Record<CoreSessionMessageKey, string> = {
   'settings.confirmBeforeCancelAndSendDescription':
     '回合进行中立即发送排队提示时，先确认是否取消当前回合。关掉就直接取消并发送 —— 确认框里的「不再询问」落的就是这一项，这一行是把它调回来的地方。',
   'settings.chatView': '对话视图',
-  'settings.chatViewDescription':
-    '项目页里 agent 对话的排版。双栏把你的消息收成右侧胶囊、左边留白；单栏每一行都占满整宽。',
   'settings.chatViewSingle': '单栏',
   'settings.chatViewDouble': '双栏',
   'update.version': '版本',
@@ -1755,6 +1744,7 @@ const zhCNCoreMessages: Record<CoreSessionMessageKey, string> = {
   'extensions.spawnedBy': '由 App「{name}」发起',
   'extensions.spawnedByUninstalled': '由已卸载的 App「{name}」发起',
   'chat.mentionDropNoIdentity': '「{title}」还没有身份，先跑一次它才能被 @',
+  'chat.mentionDropPrivateAgent': '此 Agent 为其他用户私有，无法添加。',
   'chat.sideChatSuffix': '{label} · 侧边',
   'chat.sideChatFailed': '侧边聊天没能打开',
   'chat.forkUnsupported': '{name} 不支持会话分叉',

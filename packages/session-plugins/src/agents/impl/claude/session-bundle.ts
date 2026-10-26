@@ -125,7 +125,7 @@ export const claudeSessionBundleDescriptor = {
   },
   credentialLifecycle: {
     'acp': {
-      delivery: 'credential-helper',
+      delivery: 'credential-proxy',
       originalProcessRefresh: 'supported',
       recovery: 'reopen',
       inferenceOwner: 'provider-process',
@@ -133,7 +133,7 @@ export const claudeSessionBundleDescriptor = {
       sourceChangeSession: 'preserve',
     },
     'tui': {
-      delivery: 'credential-helper',
+      delivery: 'credential-proxy',
       originalProcessRefresh: 'supported',
       recovery: 'reopen',
       inferenceOwner: 'provider-process',

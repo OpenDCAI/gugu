@@ -25,12 +25,12 @@ describe('一屏几块(spec session-page,#7052)', () => {
     // ❌ 只换掉正看着的那一块(owner 10-10:「另一个被拼的会话还留在那里」)
     screen.show(s('c'));
     expect(sessionsOn(screen)).toEqual(['c']);
-    expect(screen.joinedGroups).toEqual([{ members: [k('a'), k('b')], anchor: k('a'), onScreen: false }]);
+    expect(screen.joinedGroups).toEqual([{ members: [k('a'), k('b')], onScreen: false }]);
 
     screen.show(s('a'));
     expect(sessionsOn(screen)).toEqual(['a', 'b']);
     expect(focusedSession(screen)).toBe('a');
-    expect(screen.joinedGroups).toEqual([{ members: [k('a'), k('b')], anchor: k('a'), onScreen: true }]);
+    expect(screen.joinedGroups).toEqual([{ members: [k('a'), k('b')], onScreen: true }]);
 
     // 再去组外,再点回组里另一条:整组回来,正看着点的那条
     screen.show(s('c'));
@@ -51,31 +51,27 @@ describe('一屏几块(spec session-page,#7052)', () => {
 
     screen.showBeside(s('b'));
     expect(sessionsOn(screen)).toEqual(['c', 'd', 'b']);
-    expect(screen.joinedGroups).toEqual([{ members: [k('c'), k('d'), k('b')], anchor: k('c'), onScreen: true }]);
+    expect(screen.joinedGroups).toEqual([{ members: [k('c'), k('d'), k('b')], onScreen: true }]);
     expect(screen.parked).toHaveLength(0);
     // a 不在任何组了:点它就是它单独一屏
     screen.show(s('a'));
     expect(sessionsOn(screen)).toEqual(['a']);
   });
 
-  it('框摆在拼之前正看着的那条;它被拿出来 → 摆在剩下的第一条;拿到只剩一块 = 这组散了', () => {
+  it('组员照屏上从左上到右下;挪块跟着变;拿到只剩一块 = 这组散了', () => {
     const screen = new ScreenLayoutStore();
     screen.show(s('b'));
     screen.placeAt({ kind: 'session', ...s('a') }, screen.blockOfSession('b')!, 'left');
     screen.showBeside(s('c'));
-    expect(sessionsOn(screen)).toEqual(['a', 'c', 'b']);
-    expect(screen.joinedGroups[0].anchor).toBe(k('b'));
+    expect(screen.joinedGroups[0].members).toEqual([k('a'), k('c'), k('b')]);
 
-    // 挪动组里的块不换框的位置
     screen.placeAt({ kind: 'session', ...s('b') }, screen.blockOfSession('a')!, 'left');
-    expect(sessionsOn(screen)).toEqual(['b', 'a', 'c']);
-    expect(screen.joinedGroups[0].anchor).toBe(k('b'));
+    expect(screen.joinedGroups[0].members).toEqual([k('b'), k('a'), k('c')]);
 
     screen.close(screen.blockOfSession('b')!);
-    expect(screen.joinedGroups[0]).toMatchObject({ anchor: k('a'), members: [k('a'), k('c')] });
+    expect(screen.joinedGroups[0].members).toEqual([k('a'), k('c')]);
     screen.close(screen.blockOfSession('c')!);
     expect(screen.joinedGroups).toEqual([]);
-    expect(screen.anchorKey).toBeNull();
   });
 
   it('拆开这一组:在屏上 = 只留正看着那块;收着的 = 不再记着', () => {
@@ -103,7 +99,7 @@ describe('一屏几块(spec session-page,#7052)', () => {
     screen.showBeside(s('c'));
     screen.show(s('x'));
     screen.forgetSession('b');
-    expect(screen.joinedGroups).toEqual([{ members: [k('a'), k('c')], anchor: k('a'), onScreen: false }]);
+    expect(screen.joinedGroups).toEqual([{ members: [k('a'), k('c')], onScreen: false }]);
     screen.release({ kind: 'session', ...s('a') });
     expect(screen.parked).toHaveLength(0);
     expect(sessionsOn(screen)).toEqual(['x']);
@@ -162,7 +158,7 @@ describe('一屏几块(spec session-page,#7052)', () => {
     expect(screen.blockOfApp('x.clock')).toBeDefined();
     expect(screen.focusedSession).toBeUndefined();
     // 组员不分种类;列表里有哪几行由列表自己认(左边列表里没有 App)
-    expect(screen.joinedGroups).toEqual([{ members: [k('a'), 'app:x.clock'], anchor: k('a'), onScreen: true }]);
+    expect(screen.joinedGroups).toEqual([{ members: [k('a'), 'app:x.clock'], onScreen: true }]);
 
     screen.show(s('b'));
     expect(sessionsOn(screen)).toEqual(['b']);
@@ -186,7 +182,7 @@ describe('一屏几块(spec session-page,#7052)', () => {
     screen.show(c1);
     screen.showBeside(c2);
     screen.show(s('a'));
-    expect(screen.joinedGroups).toEqual([{ members: ['chat:c1', 'chat:c2'], anchor: 'chat:c1', onScreen: false }]);
+    expect(screen.joinedGroups).toEqual([{ members: ['chat:c1', 'chat:c2'], onScreen: false }]);
 
     screen.show(c2);
     expect(screen.order.map((id) => screen.blocks.get(id))).toEqual([c1, c2]);
@@ -203,17 +199,6 @@ describe('一屏几块(spec session-page,#7052)', () => {
     expect(screen.focusedBlockId).toBe(screen.blockOfApp('x.notes'));
   });
 
-  it('anchor 是拼之前正看着的那块,不分种类:先看着对话再 ⌘ 点会话 = 那条对话', () => {
-    const screen = new ScreenLayoutStore();
-    screen.show({ kind: 'chat', chatId: 'c1' });
-    screen.showBeside(s('a'));
-    screen.showBeside(s('b'));
-    expect(screen.joinedGroups).toEqual([{ members: ['chat:c1', k('a'), k('b')], anchor: 'chat:c1', onScreen: true }]);
-    // 它被拿出来 → 剩下的第一块
-    screen.close(screen.blockOf({ kind: 'chat', chatId: 'c1' })!);
-    expect(screen.joinedGroups[0].anchor).toBe(k('a'));
-  });
-
   it('对话没了(删掉、退出):它那块收掉,收起来的组里也一样', () => {
     const screen = new ScreenLayoutStore();
     screen.show({ kind: 'chat', chatId: 'c1' });
@@ -221,7 +206,7 @@ describe('一屏几块(spec session-page,#7052)', () => {
     screen.showBeside(s('a'));
     screen.show(s('x'));
     screen.forgetContent({ kind: 'chat', chatId: 'c1' });
-    expect(screen.joinedGroups).toEqual([{ members: ['chat:c2', k('a')], anchor: 'chat:c2', onScreen: false }]);
+    expect(screen.joinedGroups).toEqual([{ members: ['chat:c2', k('a')], onScreen: false }]);
     screen.forgetContent({ kind: 'chat', chatId: 'c2' });
     expect(screen.parked).toHaveLength(0);
   });
@@ -326,8 +311,8 @@ describe('一屏几块(spec session-page,#7052)', () => {
     expect(sessionsOn(again)).toEqual(['c', 'd']);
     expect(focusedSession(again)).toBe('c');
     expect(again.joinedGroups).toEqual([
-      { members: [k('c'), k('d')], anchor: k('c'), onScreen: true },
-      { members: [k('a'), k('b')], anchor: k('a'), onScreen: false },
+      { members: [k('c'), k('d')], onScreen: true },
+      { members: [k('a'), k('b')], onScreen: false },
     ]);
     again.show(s('b'));
     expect(sessionsOn(again)).toEqual(['a', 'b']);
@@ -347,7 +332,7 @@ describe('一屏几块(spec session-page,#7052)', () => {
     const legacy = new ScreenLayoutStore();
     legacy.restore({ layout: saved.layout, blocks: saved.blocks, focused: saved.focused });
     expect(sessionsOn(legacy)).toEqual(['c', 'd']);
-    expect(legacy.joinedGroups[0].anchor).toBe(k('c'));
+    expect(legacy.joinedGroups).toEqual([{ members: [k('c'), k('d')], onScreen: true }]);
   });
 
   it('最近看过的会话:正看着 App 那块时,是之前看过的那块会话', () => {

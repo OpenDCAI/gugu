@@ -5,7 +5,8 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { ChatMessageComposer } from '../../../../apps/desktop/src/components/chat/ChatMessageComposer'
 import { setLocalePreference } from '../../../../apps/desktop/src/i18n'
 import { ChatStoreProvider, type DraftAttachment, type DraftMention } from '../../../../apps/desktop/src/store/chatContext'
-import { chatStore, contactsStore } from '../../../support/testHarness'
+import { chat, chatStore, contactsStore, message } from '../../../support/testHarness'
+import { publishProjectGroupChats } from '../../../../apps/desktop/src/session/renderer/features/projects/stores/project-group-chats-bridge'
 import { ContactsContext } from '../../../../apps/desktop/src/store/contactsContext'
 import { AUTOMATION_TEST_IDS } from '../../../../apps/desktop/src/lib/automationDom'
 import { readComposer, writeComposer, selectComposer } from '../../../support/composerEditor'
@@ -13,6 +14,8 @@ import type { GroupRosterCandidate } from '../../../../apps/desktop/src/lib/ment
 const { toastMock } = vi.hoisted(() => ({
   toastMock: vi.fn(),
 }))
+const sendErrorLog = vi.hoisted(() => vi.fn())
+vi.mock('../../../../apps/desktop/src/lib/log', () => ({ rendererLogger: () => ({ debug: vi.fn(), info: vi.fn(), warn: vi.fn(), error: sendErrorLog }) }))
 vi.mock('../../../../apps/desktop/src/components/toastContext', () => ({
   useToast: () => ({ toast: toastMock }),
 }))
@@ -27,6 +30,7 @@ async function flush() {
   })
 }
 beforeEach(() => {
+  publishProjectGroupChats([], new Map())
   mobileShellState.enabled = false
   setLocalePreference('zh-CN')
   toastMock.mockClear()
@@ -137,7 +141,7 @@ describe('ChatMessageComposer', () => {
   it('restores pending attachments and reports send failures', async () => {
     const file = new File(['image'], 'avatar.png', { type: 'image/png' })
     const onSendAttachments = vi.fn(async () => {
-      throw new Error('upload denied')
+      throw new Error('upload denied /Users/test/private sk-synthetic-secret\nstack detail')
     })
     await act(async () => {
       root.render(createElement(ChatMessageComposer, {
@@ -167,7 +171,8 @@ describe('ChatMessageComposer', () => {
     expect(container.querySelectorAll('[data-slot="composer-attachment"]')).toHaveLength(1)
     expect(URL.createObjectURL).toHaveBeenCalledTimes(2)
     expect(URL.revokeObjectURL).toHaveBeenCalledWith('blob:gugu-preview')
-    expect(toastMock).toHaveBeenCalledWith('发送失败：upload denied', 'error')
+    expect(toastMock).toHaveBeenCalledWith('发送失败：upload denied [path] [redacted token]', 'error')
+    expect(sendErrorLog).toHaveBeenCalledWith(expect.objectContaining({ error: 'upload denied /Users/test/private sk-synthetic-secret\nstack detail' }), 'message send failed')
   })
   it('#2188 restores only the text when every attachment committed before the text failed', async () => {
     const file = new File(['report'], 'report.txt', { type: 'text/plain' })
@@ -620,6 +625,54 @@ describe('ChatMessageComposer', () => {
     await flush()
     expect(document.body.querySelector('[role="listbox"]')).toBeNull()
   })
+  it('ranks loaded group history and inserts the keyboard-selected identity', async () => {
+    vi.spyOn(Date, 'now').mockReturnValue(Date.UTC(2026, 9, 25, 12))
+    const onSend = vi.fn(async () => {})
+    await act(async () => {
+      root.render(createElement(ChatMessageComposer, {
+        onSend, chatId: 'group-1', isGroupChat: true, currentUserId: 'me',
+        groupMembers: [rosterMember('alice', 'Alice', 'human'), rosterMember('atlas', 'Atlas', 'agent')],
+        messages: [message({ chat_id: 'group-1', sender_user_id: 'me', to_user_ids: ['atlas'], created_at: '2026-10-25T11:59:00Z' })],
+      }))
+    })
+    await flush()
+    await typeInComposer('@a')
+    const options = Array.from(document.body.querySelectorAll('[role="option"]'))
+    expect(options).toHaveLength(2)
+    expect(options[0].querySelector('[data-agent-id="atlas"]')).not.toBeNull()
+    expect(options[1].textContent).toContain('Alice')
+    await pressEnter()
+    expect(readComposer(container.querySelector('[contenteditable]') as HTMLElement)).toBe('@Atlas ')
+    await clickSend()
+    expect(onSend).toHaveBeenCalledWith('@Atlas', expect.objectContaining({ toUserIds: ['atlas'] }))
+  })
+  it.each(['project-group', 'project-topic', 'ordinary-group'] as const)('uses project affiliation in %s without changing the selected identity', async (chatId) => {
+    vi.spyOn(Date, 'now').mockReturnValue(Date.UTC(2026, 9, 25, 12))
+    publishProjectGroupChats(['project-group'], new Map([['project-group', ['ada']]]))
+    const onSend = vi.fn(async () => {})
+    const topic = chatId === 'project-topic'
+    await act(async () => {
+      root.render(createElement(ChatStoreProvider, { value: chatStore({ chats: [chat({
+        id: chatId, kind: topic ? 'topic' : 'group', source_chat_id: topic ? 'project-group' : null,
+      })] }) }, createElement(ChatMessageComposer, {
+        onSend, chatId, isGroupChat: true, currentUserId: 'me',
+        groupMembers: [rosterMember('atlas', 'Atlas', 'agent'), rosterMember('ada', 'Ada', 'agent')],
+        participantIds: topic ? ['atlas', 'ada'] : undefined,
+        messages: [message({ chat_id: chatId, sender_user_id: 'me', to_user_ids: ['atlas'], created_at: '2026-10-25T11:59:00Z' })],
+      })))
+    })
+    await flush()
+    await typeInComposer('@a')
+    const options = Array.from(document.body.querySelectorAll('[role="option"]'))
+    expect(options).toHaveLength(2)
+    const expectedId = chatId === 'ordinary-group' ? 'atlas' : 'ada'
+    const expectedName = chatId === 'ordinary-group' ? 'Atlas' : 'Ada'
+    expect(options[0].querySelector(`[data-agent-id="${expectedId}"]`)).not.toBeNull()
+    await pressEnter()
+    expect(readComposer(container.querySelector('[contenteditable]') as HTMLElement)).toBe(`@${expectedName} `)
+    await clickSend()
+    expect(onSend).toHaveBeenCalledWith(`@${expectedName}`, expect.objectContaining({ toUserIds: [expectedId] }))
+  })
   it('#6722 keeps the keyboard-highlighted mention visible beyond the first popup viewport', async () => {
     const members = Array.from({ length: 12 }, (_, index) =>
       rosterMember(`agent-${index}`, `Agent ${index}`, 'agent'))
@@ -646,7 +699,7 @@ describe('ChatMessageComposer', () => {
 
     const textarea = container.querySelector('[contenteditable]') as HTMLElement
     await act(async () => {
-      for (let index = 0; index < 12; index += 1) {
+      for (let index = 0; index < 11; index += 1) {
         textarea.dispatchEvent(new KeyboardEvent('keydown', {
           key: 'ArrowDown',
           bubbles: true,
@@ -656,8 +709,8 @@ describe('ChatMessageComposer', () => {
     })
     await flush()
 
-    expect(options[12].getAttribute('aria-selected')).toBe('true')
-    expect(scrollIntoView[12]).toHaveBeenCalledWith({ block: 'nearest' })
+    expect(options[11].getAttribute('aria-selected')).toBe('true')
+    expect(scrollIntoView[11]).toHaveBeenCalledWith({ block: 'nearest' })
 
     await pressEnter()
     await flush()
@@ -675,11 +728,11 @@ describe('ChatMessageComposer', () => {
       }))
     })
     await flush()
-    await typeInComposer('@')
+    await typeInComposer('@Agent')
 
     const textarea = container.querySelector('[contenteditable]') as HTMLElement
     await act(async () => {
-      for (let index = 0; index < 5; index += 1) {
+      for (let index = 0; index < 4; index += 1) {
         textarea.dispatchEvent(new KeyboardEvent('keydown', {
           key: 'ArrowDown',
           bubbles: true,
@@ -699,7 +752,7 @@ describe('ChatMessageComposer', () => {
     })
     await flush()
 
-    expect(document.body.querySelectorAll('[role="option"]')).toHaveLength(3)
+    expect(document.body.querySelectorAll('[role="option"]')).toHaveLength(2)
     expect(document.body.querySelector('[role="option"][aria-selected="true"]')?.textContent).toContain('Agent 1')
     await pressEnter()
     await flush()

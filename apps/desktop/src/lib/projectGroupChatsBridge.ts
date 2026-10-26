@@ -12,6 +12,7 @@ import type {
 const BRIDGE_KEY = '__GUGU_PROJECT_GROUP_CHATS__' satisfies typeof WriterKey
 const EVENT = 'gugu:project-group-chats' satisfies typeof WriterEvent
 const NONE: ReadonlySet<string> = new Set()
+const NO_MEMBERS: ReadonlyMap<string, readonly string[]> = new Map()
 
 /** 桥不在 = 任务 bundle 还没起来(或不是桌面版):还不知道哪些是项目群,一个也不拿掉。形状不对 = 两边构建漂开了,照旧 throw。 */
 export function readProjectGroupChats(target: Window | undefined = typeof window === 'undefined' ? undefined : window): ReadonlySet<string> {
@@ -30,4 +31,18 @@ function subscribe(listener: () => void): () => void {
 
 export function useProjectGroupChats(): ReadonlySet<string> {
   return useSyncExternalStore(subscribe, () => readProjectGroupChats(), () => NONE)
+}
+
+/** Confirmed project agents from the already-loaded session directories, keyed by project-group chat. */
+export function readProjectGroupMembers(target: Window | undefined = typeof window === 'undefined' ? undefined : window): ReadonlyMap<string, readonly string[]> {
+  if (!target) return NO_MEMBERS
+  const candidate = (target as unknown as Record<string, unknown>)[BRIDGE_KEY]
+  if (!candidate) return NO_MEMBERS
+  const members = (candidate as Partial<ProjectGroupChatsBridge>).projectMemberIds
+  if (!(members instanceof Map)) throw new Error('project group members bridge is present but malformed')
+  return members
+}
+
+export function useProjectGroupMembers(): ReadonlyMap<string, readonly string[]> {
+  return useSyncExternalStore(subscribe, () => readProjectGroupMembers(), () => NO_MEMBERS)
 }

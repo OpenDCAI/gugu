@@ -45,7 +45,7 @@ export type NormalizedEvent =
       messageId: string | null;
       text: string;
       revertAnchor?: string;
-      /** A cell-inserted communication message that continues the active turn. */
+      /** A message that continues the active turn: a cell-inserted one, or a steered input replayed from history. */
       steering?: boolean;
       /** Attachment references for user messages submitted with images. */
       attachments?: AttachmentRef[];

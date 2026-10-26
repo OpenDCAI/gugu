@@ -171,7 +171,7 @@ import {
 } from '@renderer/lib/chat/local-session-mention-provider';
 import { useSessionAgentCreationTools } from '@renderer/lib/chat/use-session-agent-creation-tools';
 import { useSessionMentionDrop } from '@renderer/lib/chat/use-session-mention-drop';
-import { hasDraggedSession } from '@renderer/lib/drag-session';
+import { getDraggedScreenContent } from '@renderer/lib/drag-screen-content';
 import { renderMentionTokens } from '@renderer/lib/chat/render-mention-tokens';
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
@@ -849,7 +849,7 @@ const ComposerForStore = observer(function ComposerForStore({
   useEffect(() => {
     const surface = composerSlot.closest('[data-session-chat-surface]');
     if (!(surface instanceof HTMLElement)) return;
-    const accepts = (event: DragEvent) => Boolean(event.dataTransfer) && hasDraggedSession(event.dataTransfer!);
+    const accepts = (event: DragEvent) => event.dataTransfer && getDraggedScreenContent(event.dataTransfer)?.kind === 'session';
     const onDragOver = (event: DragEvent) => {
       if (accepts(event)) event.preventDefault();
     };

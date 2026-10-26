@@ -79,7 +79,6 @@ const ChatViewCard: React.FC<Props> = ({ disabled }) => {
     <SettingsGroup
       data-testid="settings-chat-view"
       title={translate('settings.chatView')}
-      note={translate('settings.chatViewDescription')}
     >
       <SettingsRow>
         <div className="grid grid-cols-[repeat(auto-fit,minmax(6.5rem,1fr))] gap-2 text-sm">

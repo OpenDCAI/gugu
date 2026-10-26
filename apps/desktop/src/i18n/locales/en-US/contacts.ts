@@ -24,10 +24,9 @@ export default {
     "full": "This group is full. Ask the group owner to increase the member limit."
 },
   "agentName": {
-    "edit": "Rename agent",
+    "edit": "Rename",
     "label": "Agent name",
-    "failed": "Could not save. Try again.",
-    "saving": "Saving…"
+    "failed": "Could not save. Try again."
   },
   "common": {
     "agent": "Agent",
@@ -37,7 +36,6 @@ export default {
     "contacts": "Contacts",
     "copiedGuguNumber": "Gugu ID copied",
     "done": "Done",
-    "edit": "Edit",
     "groupChat": "Group chat",
     "groups": "Groups",
     "guguNumber": "Gugu ID",
@@ -102,6 +100,7 @@ export default {
     "title": "New group chat"
   },
   "memberPicker": {
+    "selectionUnavailable": "A selected member is unavailable or cannot be invited to this group.",
     "allProjects": "All",
     "allResults": "All results",
     "localDevice": "{{name}} · This device",
@@ -141,7 +140,6 @@ export default {
     "guguNumberValue": "Gugu ID {{number}}",
     "noResults": "No users found",
     "notePlaceholder": "Add a note or introduce yourself (optional)",
-    "prompt": "Enter a name, email, or Gugu ID",
     "requestTitle": "Send friend request",
     "requestToJoin": "Request to join",
     "searchPlaceholder": "Search by user, Gugu ID, or email",
@@ -253,7 +251,6 @@ export default {
     "lookupFailed": "Group lookup failed. Try again.",
     "notFound": "No group found for ID {{id}}",
     "pending": "Pending review",
-    "prompt": "Enter a group ID to find a group",
     "request": "Request to join",
     "refusedInviteOnly": "This group is invite-only",
     "refusedNotFound": "That group ID no longer exists",
@@ -317,7 +314,6 @@ export default {
     "myAgentLabel": "My agent",
     "agentOwnerUnavailable": "Owner unavailable",
     "agentOwnerLabel": "{{owner}}'s agent",
-    "agentType": "Agent type",
     "alias": "Alias",
     "aliasLabel": "Alias",
     "bio": "Bio",
@@ -380,7 +376,6 @@ export default {
     "downloadImage": "Download image",
     "generatingPoster": "Generating poster…",
     "generatingQr": "Generating…",
-    "mobileHint": "Press and hold the image or use a button below to save it",
     "myQr": "My QR code",
     "posterFailed": "Could not generate the poster. Try again.",
     "posterTitle": "Share poster",

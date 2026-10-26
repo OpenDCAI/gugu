@@ -9,6 +9,7 @@ import { AutomationScheduler, type SchedulerCallbacks } from './automation-sched
 import { deleteSession } from '@main/core/sessions/deleteSession';
 import { AutomationsService } from './automations-service';
 import { closeSpentOneTimeAutomation, getAutomation, insertRun } from './repo';
+import { setOwnerTimeZoneContext } from '@shared/core/automations/timezone';
 
 // #7221 agent 给自己排的已安排:建、看、取消、到点送回、建它的会话不在了。读写的是真库(迁移跑到最新),
 // 投递的那一头(会话编排的 messageSessionFrom)换成记录器 —— 它本身由 session_message 那套测试守。
@@ -95,12 +96,23 @@ beforeEach(async () => {
 });
 
 afterEach(() => {
+  setOwnerTimeZoneContext(null);
   fixture.close();
   mocks.db = undefined;
   vi.useRealTimers();
 });
 
 describe('schedule_create / schedule_list / schedule_cancel', () => {
+  it('new default schedules follow the owner zone while an existing explicit schedule remains unchanged', async () => {
+    const original = await runAgentScheduleAction(AGENT, { action: 'schedule_create', prompt: 'existing', cron: '0 8 * * *', tz: 'America/Toronto' }, service);
+    const before = await getAutomation(scheduleIdOf(original));
+    const context = { time_zone: 'Pacific/Auckland', source_device_id: 'phone', source_last_seen_at: null,
+      read_at: new Date(NOW).toISOString(), status: 'device' as const };
+    setOwnerTimeZoneContext(context);
+    const created = await runAgentScheduleAction(AGENT, { action: 'schedule_create', prompt: 'new', cron: '0 8 * * *' }, service);
+    expect(created).toMatchObject({ tz: 'Pacific/Auckland', next_run_at: '2026-10-16 08:00 Pacific/Auckland', time_zone_source: context });
+    expect((await getAutomation(scheduleIdOf(original)))?.triggerConfig).toEqual(before?.triggerConfig);
+  });
   it('一次性:建好就预排那一行 scheduled,管家的查询读得到那一刻;回执按 tz 报时间', async () => {
     expect(keeperNextDue()).toBeNull();
     const created = await runAgentScheduleAction(AGENT, {

@@ -325,17 +325,29 @@ export default {
   },
   "attachmentView": {
     "fileGone": "文件已删除",
+    "fileVersion": "第 {{n}} 版",
     "fileUnavailable": "文件暂时打不开",
     "imageUnavailable": "图片暂时打不开",
     "newerInFolder": "文件夹里有新版",
     "retry": "重试"
   },
+  "dispatchPick": {
+    "myAgents": "我的 agent",
+    "title": "交给谁",
+    "search": "搜索成员、任务或对话",
+    "chatAgents": "{{chat}} 的 agent",
+    "chatPeople": "{{chat}} 的成员",
+    "new": "新建",
+    "newAgent": "新的 agent",
+    "empty": "没有可选的对象",
+    "send": "发送",
+    "text": "要发出的内容",
+    "textPlaceholder": "写上要做什么",
+    "visible": "群里所有人可见（默认只有对方看得到）"
+  },
   "composePick": {
     "title": "选择发送位置",
-    "search": "搜索对话或任务",
     "chats": "对话",
-    "tasks": "我的任务",
-    "empty": "没有可选的对话或任务",
     "action": "放入输入框"
   },
   "composer": {
@@ -372,7 +384,6 @@ export default {
     "mobilePlaceholder": "消息",
     "projectGroupPlaceholder": "发消息给 {{name}}… @ 某个 agent 叫它",
     "removeAttachment": "移除 {{fileName}}",
-    "removeFilePill": "移除 {{label}}",
     "sendFailed": "发送失败：{{reason}}",
     "slashCommands": "斜杠命令",
     "verb": {
@@ -455,7 +466,6 @@ export default {
     },
     "topicInvite": {
       "title": "添加话题成员",
-      "hint": "从来源对话选择成员。添加后会在话题中发送邀请消息。",
       "search": "搜索成员",
       "message": "{{names}} 邀请你们加入话题。",
       "confirm": "添加（{{count}}）",
@@ -511,7 +521,6 @@ export default {
       "agentFloodTopics": "话题阈值",
       "agentFloodTopicsFailed": "话题列表未能加载。",
       "agentFloodPermissionsFailed": "话题管理权限未能加载，暂时只读。",
-      "agentFloodLoadFailed": "阈值未能加载，请重新打开设置。",
       "agentFloodSaveFailed": "阈值保存失败，请重试。",
       "agentFloodThreshold": "Agent 超过这个数就全员转被动",
       "agentFloodThresholdAria": "Agent 超过几个转被动",
@@ -585,7 +594,6 @@ export default {
       "rules": "协作规则",
       "rulesPlaceholder": "群协作规则：核心原则、方向确认、协作约定…",
       "rulesUnset": "未设置协作规则",
-      "shareLinkHint": "分享此链接邀请他人加入群",
       "sharePoster": "分享本群（生成海报）",
       "title": "群设置",
       "unavailable": "不可用",
@@ -645,12 +653,16 @@ export default {
     "view": "查看 {{title}}"
   },
   "message": {
-    "myAgentSuffix": "（我的 agent）",
-    "agentOwnerUnavailableSuffix": "（主人信息不可用）",
+    "myAgentTag": "我的 agent",
+    "agentOwnerUnavailableTag": "主人信息不可用",
+    "agentOwnerTag": "{{owner}} 的 agent",
     "agentOwnerSuffix": "（{{owner}} 的 agent）",
     "actions": {
       "comingSoon": "即将开放",
       "copy": "复制文本",
+      "copyLink": "复制链接",
+      "openLink": "打开链接",
+      "selectText": "选择文本",
       "delete": "删除",
       "edit": "编辑",
       "forward": "转发",
@@ -658,6 +670,7 @@ export default {
       "openTopic": "开话题",
       "react": "表情回应",
       "reply": "回复",
+      "quoteSelection": "引用选中文字",
       "select": "多选"
     },
     "attachment": "[附件]",
@@ -687,7 +700,7 @@ export default {
       "schedule": "已安排",
       "handedTo": "交给",
       "onMachine": "在 {{machine}} 上",
-      "onColleagueComputer": "在 {{name}} 的电脑上",
+      "onColleagueComputer": "{{name}} 的任务 · 无法查看",
       "awaitingApproval": "等群主同意它进群",
       "rejected": "群主没有同意它进群，结果在它的会话里",
       "open": "打开这个会话",
@@ -747,7 +760,6 @@ export default {
       "participantCount": "{{count}} 人参与",
       "participantCount_one": "{{count}} 人参与",
       "observer": "只看得见",
-      "observerHint": "你看得见这条话题，但它的消息不会通知你",
       "openedBy": "{{name}}开的",
       "quiet": "还没有人说话"
     },

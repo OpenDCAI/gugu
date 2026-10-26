@@ -2,13 +2,13 @@ import { createGuguSupabaseClient } from '@gugu/core/cloud/supabase';
 import { groupFileLink } from '@gugu/core/shared/ui/guguLink';
 import { stringifyMention } from '@gugu/session-shared/markdown';
 import { APP_COMPOSE_IMAGE_MAX_BYTES, APP_COMPOSE_MAX_IMAGES, fileRefOf, isLocal, type AppComposeDetail, type AppComposeImage, type AppComposeRef } from './app-runtime-protocol';
+import { dispatchCallOf, dispatchOffers, type DispatchAsk, type DispatchPicked, type DispatchSpawn, type DispatchTarget } from './app-dispatch-core';
 
 /**
- * `gugu.send(to, text, { chat } | { refs })` (摩擦单 F16, 真源 §4): an App tells an agent — or a person (F79) — that
- * something happened, in the name of whoever works the page, as a whisper in the chat the call names. (One of the
- * person's agents here is told another way, `gugu.messageAgent`: `extension-send.ts`.)
- * The same answer on the desktop (main, `extension-send.ts`) and the phone (the outer gugu page, `phoneAppHost.ts`):
- * only the account comes from the platform. `chat:relay` is asked at each host's door, from the verb's row.
+ * `gugu.dispatch` (15, app-dispatch-core.ts): what the call is, where it goes and what goes — the same on the desktop
+ * (main, `extension-send.ts`) and the phone (the outer gugu page, `phoneAppHost.ts`); a platform brings its account, its
+ * sheet, its composers and what it can do with the person's agents. The capability is asked at each host's door, from
+ * the verb's row. To a member of a chat it goes as below (摩擦单 F16, 真源 §4):
  *
  * - Where: the chat the call names (真源原则 13 — never where the page is): `chat`, or the chat of the files its `refs`
  *   point at (App 引用 pill, owner 10-14: each a pill under the text). One of them.
@@ -19,6 +19,8 @@ import { APP_COMPOSE_IMAGE_MAX_BYTES, APP_COMPOSE_MAX_IMAGES, fileRefOf, isLocal
  *   person's token, as the database lets them write for an agent of theirs in the chat (`chat.can_act_as`, gugu-supabase
  *   #116) — with `via_app` = the App: which App said it is a fact of the message, not a part of its text. The server
  *   limits it to 30 a minute per sender and App (`rate-limited`).
+ * - `visible` (owner 10-25「允许」): not a whisper but a message the chat sees, `@` its member — the bubble says which App
+ *   sent it for whom, as a whisper's does.
  */
 
 export class AppSendError extends Error {
@@ -35,7 +37,6 @@ export interface AppSendPlatform {
   account(): Promise<{ token: string; userId: string }>;
 }
 
-const USER_ID = /^user:([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})$/i;
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
 function client(token: string, schema: 'chat' | 'identity') {
@@ -156,41 +157,10 @@ export function pillText(pill: AppComposeRef): string {
   return stringifyMention({ label: pill.label, target: pill.link, kind: 'file' });
 }
 
-/** Said where a call names two places (`compose` names a session too, on the desktop). */
-export const COMPOSE_WHERE = 'Say where: gugu.compose(text, { chat: id }), { session: id } or { refs: [{ file }] } — one of them, or none to let the person pick';
-
-/** Where a compose goes, as a call names it: what the person picked when the call named none, and what the App hears back. */
-export type ComposePlace = { chat: string } | { session: string };
-
-/** What the host's sheet offers (`ComposeTargetPicker`): this computer's tasks too, or chats only; `current` comes ticked. */
-export interface ComposePickAsk {
-  tasks: boolean;
-  current: string | null;
-}
-
-/** Whether the call named where it goes. Naming none is a call of its own: the person picks (`pickComposePlace`). */
-export function composeNamesPlace(args: { chat?: unknown; session?: unknown; refs?: unknown }): boolean {
-  return named(args.chat) || named(args.session) || named(args.refs);
-}
-
 /**
- * `gugu.compose(text)` naming no place: the host asks the person where, in its own sheet — the list is never the App's —
- * and it goes there as if the call had named it. The App hears the place, or that they cancelled. Images go into a
- * chat's composer only, so with images the sheet offers chats.
- */
-export async function pickComposePlace(
-  args: { text?: unknown; about?: unknown; images?: unknown },
-  pick: (ask: { tasks: boolean }) => Promise<ComposePlace | null>,
-): Promise<ComposePlace | { cancelled: true }> {
-  if (named(args.about)) throw new AppSendError('invalid', ABOUT_GONE);
-  if (!String(args.text ?? '').trim()) throw new AppSendError('invalid', 'Nothing to compose: text is empty');
-  return (await pick({ tasks: !named(args.images) })) ?? { cancelled: true };
-}
-
-/**
- * `gugu.compose(text, { chat } | { refs })` into a chat the call names (a session's is the desktop's: `extension-send.ts`):
+ * A draft into a chat's composer (`dispatch` with `draft`; an agent's is the desktop's: `extension-send.ts`):
  * which chat, and what goes in its composer — the text as the App wrote it, with a new line for what the person adds,
- * and the pills its `refs` make beside it (the composer holds them; they go under what is sent). With refs, the text may
+ * and the inline file mentions its `refs` add to that draft. With refs, the text may
  * be empty. Nothing is sent here, so nothing more is asked: the person sends it, or not.
  */
 export async function composeInChat(
@@ -227,7 +197,7 @@ async function composePlace(
   text: string,
   args: { chat?: unknown; refs?: unknown },
 ): Promise<{ chatId: string; text: string; refs?: AppComposeRef[] }> {
-  if (named(args.chat) === named(args.refs)) throw new AppSendError('invalid', COMPOSE_WHERE);
+  if (named(args.chat) === named(args.refs)) throw new AppSendError('invalid', 'A draft goes into one chat\'s composer: to { chat }, or the chat its refs point into');
   const refs = named(args.refs) ? refsOf(args.refs) : null;
   const { token } = await platform.account();
   const said = text ? `${text}\n` : '';
@@ -243,52 +213,143 @@ async function composePlace(
   return { chatId: args.chat, text: said };
 }
 
-export function createAppSend(platform: AppSendPlatform) {
-  /** `as`: the agent that works the page (its bare uuid), when an agent does. */
-  return async function sendFromApp(
-    extensionId: string,
-    args: { to: unknown; text: unknown; chat?: unknown; refs?: unknown; about?: unknown },
-    options: { as?: string } = {},
-  ): Promise<{ id: string }> {
-    if (named(args.about)) throw new AppSendError('invalid', ABOUT_GONE);
-    if (named(args.chat) === named(args.refs)) {
-      throw new AppSendError('invalid', 'Say where: gugu.send(to, text, { chat: id }) or { refs: [{ file }] } (its entry, or ctx.file) — one of them');
-    }
-    if (named(args.chat) && (typeof args.chat !== 'string' || !UUID.test(args.chat))) {
-      throw new AppSendError('invalid', 'chat is a chat\'s id, as getContext() gives it');
-    }
-    const refs = named(args.refs) ? refsOf(args.refs) : null;
-    const to = String(args.to ?? '');
-    const toId = USER_ID.exec(to)?.[1];
-    if (!toId) throw new AppSendError('invalid', 'to is a member\'s id, user:<uuid> — as members and presence give it');
-    const text = String(args.text ?? '').trim();
-    if (!text && !refs) throw new AppSendError('invalid', 'Say something: text is empty');
+/**
+ * To a member of a chat, the call already checked (`dispatchCallOf`): `as` the agent that works the page (its bare uuid),
+ * when an agent does; `visible`: a message the chat sees, `@` the member, instead of a whisper.
+ */
+async function sendToMember(
+  platform: AppSendPlatform,
+  extensionId: string,
+  args: { member: string; chat: string; text: string; refs: unknown },
+  options: { as?: string; visible?: boolean },
+): Promise<{ id: string }> {
+  const toId = args.member.replace(/^user:/, '');
+  const { token, userId } = await platform.account();
+  const { chatId, content: said } = await withPills(token, args.text, args.refs);
+  if (chatId && chatId !== args.chat) throw new AppSendError('invalid', `refs point into chat ${chatId}, not ${args.chat}`);
+  // Seen by the chat, it says whom it is for as any message does: `@` the member's name, the id in to_user_ids.
+  const content = options.visible ? `@${await nameOf(token, toId)} ${said}` : said;
+  const id = globalThis.crypto.randomUUID();
+  const { error } = await client(token, 'chat').rpc('send_message_idempotent', {
+    p_message_id: id,
+    p_chat_id: args.chat,
+    p_sender_user_id: options.as ?? userId,
+    p_to_user_ids: [toId],
+    p_content: content,
+    p_content_type: 'text',
+    p_reply_to_message_id: null,
+    p_thread_root_id: null,
+    p_is_thread_root: false,
+    p_is_whisper: options.visible !== true,
+    p_via_app: extensionId,
+  });
+  if (error) {
+    if (error.code === 'PT429' || /rate-limited/.test(error.message)) throw new AppSendError('rate-limited', error.message);
+    // check_violation: the whisper rule (#84) refused `to` — the App drops them (F78); the database's words say why.
+    if (error.code === '23514') throw new AppSendError('not-found', error.message);
+    throw new AppSendError('failed', error.message);
+  }
+  return { id };
+}
 
-    const { token, userId } = await platform.account();
-    const pointed = refs ? await pillsOf(token, refs) : null;
-    const chatId = pointed ? pointed.chatId : (args.chat as string);
+/** A member's name, as a message the chat sees `@`s them; the database's own refusal says when there is none. */
+async function nameOf(token: string, userId: string): Promise<string> {
+  const { data, error } = await client(token, 'identity').from('users').select('display_name').eq('id', userId).maybeSingle();
+  if (error) throw new AppSendError('failed', error.message);
+  const name = (data as { display_name?: string | null } | null)?.display_name?.trim();
+  if (!name) throw new AppSendError('not-found', `No member user:${userId}`);
+  return name;
+}
 
-    const content = pointed ? [text, pointed.pills.map(pillText).join(' ')].filter(Boolean).join('\n\n') : text;
-    const id = globalThis.crypto.randomUUID();
-    const { error } = await client(token, 'chat').rpc('send_message_idempotent', {
-      p_message_id: id,
-      p_chat_id: chatId,
-      p_sender_user_id: options.as ?? userId,
-      p_to_user_ids: [toId],
-      p_content: content,
-      p_content_type: 'text',
-      p_reply_to_message_id: null,
-      p_thread_root_id: null,
-      p_is_thread_root: false,
-      p_is_whisper: true,
-      p_via_app: extensionId,
-    });
-    if (error) {
-      if (error.code === 'PT429' || /rate-limited/.test(error.message)) throw new AppSendError('rate-limited', error.message);
-      // check_violation: the whisper rule (#84) refused `to` — the App drops them (F78); the database's words say why.
-      if (error.code === '23514') throw new AppSendError('not-found', error.message);
-      throw new AppSendError('failed', error.message);
-    }
-    return { id };
+/** The text with each pill after it, as a message carries them (to a chat, or an agent's session), and the pills' chat. */
+async function withPills(token: string, text: string, refs: unknown): Promise<{ chatId: string | null; content: string }> {
+  if (!named(refs)) return { chatId: null, content: text };
+  const { chatId, pills } = await pillsOf(token, refsOf(refs));
+  return { chatId, content: [text, pills.map(pillText).join(' ')].filter(Boolean).join('\n\n') };
+}
+
+/**
+ * Where the page is, for the sheet: its chat and who is in it, its session's agent (ticked first), the person's agents
+ * with a session here (a draft's composers); `as` the agent working the page (bare uuid).
+ */
+export interface DispatchHere {
+  chat: DispatchAsk['chat'];
+  preselect: string | null;
+  local?: string[];
+  as?: string;
+}
+
+/**
+ * An agent of the person's: one the call named (`named`, within the App's own reach) or one the person picked in the sheet
+ * (any of theirs, wherever it runs: their press is the consent).
+ */
+export interface DispatchAgent { agent: string; named: boolean }
+
+/**
+ * What a platform does that the rest does not share: its sheet, a chat's composer, and — where it has them — the person's
+ * agents (a draft into one's composer, telling one, starting one); each answers which agent it was. A platform without
+ * them (the phone, until it reaches its machines' agents) offers none in the sheet, and a call naming one is not found here.
+ */
+export interface AppDispatchPlatform extends AppSendPlatform {
+  pick(ask: DispatchAsk): Promise<DispatchPicked>;
+  draftInChat(detail: AppComposeDetail): Promise<void>;
+  agents?: {
+    draft(agent: DispatchAgent, text: string): Promise<string>;
+    tell(agent: DispatchAgent, text: string, how: { delivery?: 'queue' | 'defer'; key?: string }): Promise<{ agent: string; id: string; deferred?: true }>;
+    spawn(prompt: string, spawn: DispatchSpawn): Promise<string>;
   };
+}
+
+/**
+ * `gugu.dispatch(text, options)`, after the door: the target named, or picked by the person in the platform's sheet
+ * (which shows the text, every pill and the target, and lets them change the text — it goes as theirs), then the one
+ * delivery that target always had. Answers where it went (an agent by its id), or that the person cancelled.
+ */
+export async function dispatchFromApp(
+  platform: AppDispatchPlatform,
+  extensionId: string,
+  args: Record<string, unknown>,
+  here: DispatchHere,
+): Promise<{ to: DispatchTarget; id?: string; deferred?: true } | { cancelled: true }> {
+  const call = dispatchCallOf(args);
+  let text = call.text;
+  let visible = call.visible;
+  let to: DispatchTarget | null = call.to;
+  let namedByCall = to !== null;
+  // A draft of pills goes into their chat's composer: the refs name the place, as they always did.
+  if (!to && !(call.draft && named(call.refs))) {
+    const offers = dispatchOffers(call, { inChat: here.chat !== null, agents: platform.agents !== undefined });
+    if (offers.length === 0) throw new AppSendError('not-found', 'Nothing here to hand it to: name a target (to)');
+    const { token, userId } = await platform.account();
+    const pills = named(call.refs) ? (await pillsOf(token, refsOf(call.refs))).pills.map((pill) => pill.label) : [];
+    // The person is not among whom they hand it to: a whisper to oneself is refused.
+    const chat = here.chat && { ...here.chat, members: here.chat.members.filter((member) => member.id !== `user:${userId}`) };
+    const picked = await platform.pick({ draft: call.draft, offers, text, pills, chat, preselect: here.preselect, ...(call.draft && here.local ? { local: here.local } : {}), visible });
+    if (!picked) return { cancelled: true };
+    ({ to, visible } = picked);
+    namedByCall = false;
+    text = picked.text.trim();
+    if (!text && !named(call.refs)) return { cancelled: true };
+  }
+  const agentOf = (target: { agent: string }): DispatchAgent => ({ agent: target.agent, named: namedByCall });
+  const agents = () => {
+    if (!platform.agents) throw new AppSendError('not-found', "The person's agents are not reachable from here");
+    return platform.agents;
+  };
+  if (call.draft) {
+    if (to && 'agent' in to) return { to: { agent: await agents().draft(agentOf(to), text) } };
+    const detail = await composeInChat(platform, { text, chat: to && 'chat' in to ? to.chat : undefined, refs: call.refs, images: call.images });
+    await platform.draftInChat(detail);
+    return { to: { chat: detail.chatId } };
+  }
+  if (!to) throw new AppSendError('invalid', 'Say whom: to { chat, member }, { agent } or { new: true }');
+  if ('member' in to) {
+    const sent = await sendToMember(platform, extensionId, { member: to.member, chat: to.chat, text, refs: call.refs }, { as: here.as, visible });
+    return { to: { chat: to.chat, member: to.member }, id: sent.id };
+  }
+  const { content: words } = await withPills((await platform.account()).token, text, call.refs);
+  if ('new' in to) return { to: { agent: await agents().spawn(words, call.spawn) } };
+  if ('chat' in to) throw new AppSendError('invalid', 'A chat as such is told nothing: to { chat, member }, or { draft: true }');
+  const told = await agents().tell(agentOf(to), words, { delivery: call.delivery, key: call.key });
+  return { to: { agent: told.agent }, id: told.id, ...(told.deferred ? { deferred: true as const } : {}) };
 }

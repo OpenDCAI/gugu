@@ -22,6 +22,7 @@ import { paneSlotView, sameKindSide as sameKindSideOf } from './pane-slot-view';
 import { MIN_PANE_HEIGHT_PX, MIN_PANE_WIDTH_PX, type PaneStore } from './pane-store';
 import { TabBar } from './tab-bar';
 import { isUnavailableTabResource, UnavailableTabContent } from './unavailable-tab';
+import { RETAINED_SURFACE_HIDDEN_STYLE } from '@/lib/retainedSurface';
 
 // Monaco 0.55 收字的是 `.native-edit-context`,旁边那个 `ime-text-area` 是只读的:聚焦它 = 看着进了编辑器、字打不进去。
 // 浏览器页签的网页是主进程的 view(#7274),页签里只有它的占位 `[data-browser-page]`:聚焦占位 = 把焦点交给网页。
@@ -276,9 +277,7 @@ const ContentLayer = observer(function ContentLayer({
   return (
     <div
       className="absolute"
-      style={{ ...style, visibility: visible ? undefined : 'hidden' }}
-      // React 19 认 boolean;给空串会被当成 false —— 藏着的那一格就没真被摘出焦点与点击。
-      inert={!visible}
+      style={visible ? style : { ...RETAINED_SURFACE_HIDDEN_STYLE, ...style }}
       data-pane-layer={kind}
       data-pane-layer-key={layerKey}
       data-pane-tab={tabId ?? undefined}
