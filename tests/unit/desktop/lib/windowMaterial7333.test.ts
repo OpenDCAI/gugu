@@ -25,7 +25,7 @@ describe('window material decision (#7333)', () => {
 /** nativeTheme / ipcMain / the vibrant window, faked: the negative cases are simulated here, never by a switch in the product. */
 function rig(initial: { reduce?: boolean; contrast?: boolean } = {}) {
   const theme = { prefersReducedTransparency: !!initial.reduce, shouldUseHighContrastColors: !!initial.contrast, updated: [] as (() => void)[] }
-  const handlers = new Map<string, (event: { sender: unknown; returnValue: unknown }) => void>()
+  const handlers = new Map<string, (event: { sender: unknown }) => unknown>()
   const sent: [string, unknown][] = []
   const vibrant: WindowMaterialWindow = { isDestroyed: () => false, webContents: { send: (channel, value) => { sent.push([channel, value]) } } }
   const other = { send: vi.fn() }
@@ -36,13 +36,11 @@ function rig(initial: { reduce?: boolean; contrast?: boolean } = {}) {
       get shouldUseHighContrastColors() { return theme.shouldUseHighContrastColors },
       on: (_event, listener) => theme.updated.push(listener),
     },
-    ipcMain: { on: (channel, listener) => handlers.set(channel, listener) },
+    ipcMain: { handle: (channel, listener) => handlers.set(channel, listener) },
     materialWindow: () => vibrant,
   })
   const ask = (sender: unknown): unknown => {
-    const event = { sender, returnValue: undefined as unknown }
-    handlers.get(WINDOW_MATERIAL_GET_CHANNEL)!(event)
-    return event.returnValue
+    return handlers.get(WINDOW_MATERIAL_GET_CHANNEL)!({ sender })
   }
   const systemChanged = (next: { reduce?: boolean; contrast?: boolean }) => {
     theme.prefersReducedTransparency = !!next.reduce
@@ -81,11 +79,11 @@ describe('window material wiring in the main process (#7333)', () => {
 })
 
 describe('window material attribute (#7333)', () => {
-  it('writes the main-process decision and follows its changes', () => {
+  it('writes the main-process decision and follows its changes', async () => {
     const root = document.createElement('html')
     let push: ((material: WindowMaterial) => void) | null = null
-    const dispose = installWindowMaterialAttribute(root, {
-      getMaterial: () => 'native',
+    const dispose = await installWindowMaterialAttribute(root, {
+      getMaterial: async () => 'native',
       onMaterialChange: (callback) => {
         push = callback
         return () => {
@@ -100,9 +98,9 @@ describe('window material attribute (#7333)', () => {
     expect(push).toBeNull()
   })
 
-  it('leaves the attribute absent (= opaque) where there is no main process', () => {
+  it('leaves the attribute absent (= opaque) where there is no main process', async () => {
     const root = document.createElement('html')
-    installWindowMaterialAttribute(root, undefined)
+    await installWindowMaterialAttribute(root, undefined)
     expect(root.dataset.windowMaterial).toBeUndefined()
   })
 })

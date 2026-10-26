@@ -19,6 +19,7 @@ export {
 export {
   getLocaleSnapshot,
   i18n,
+  localeReady,
   registerLocaleNamespace,
   setLocalePreference,
   subscribeLocale,

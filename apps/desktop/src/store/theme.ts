@@ -1,7 +1,6 @@
 import { createContext, useContext, useEffect, useSyncExternalStore } from 'react'
 import React from 'react'
 import {
-  hydrateHostTheme,
   readEffectiveHostTheme,
   readThemePreference,
   startHostThemeSystemSync,
@@ -49,16 +48,11 @@ export function ThemeProvider({ children }: { children: React.ReactNode }) {
     () => 'light' as ThemePreference,
   )
 
-  // index.html 的引导脚本已经按同一套规则落过一次属性;这里补一次,兜住属性被别处清掉的情况。
-  useEffect(() => {
-    hydrateHostTheme()
-  }, [])
-
   // 「跟随系统」的执行处。挂在这里 = 整个 app 生命周期内有效。
   useEffect(() => startHostThemeSystemSync(), [])
 
   const setTheme = (next: ThemePreference) => {
-    writeThemePreference(next)
+    void writeThemePreference(next)
   }
 
   return React.createElement(

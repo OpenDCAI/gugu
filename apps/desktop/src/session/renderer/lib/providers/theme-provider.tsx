@@ -52,15 +52,15 @@ export function ThemeProvider({ children }: { children: ReactNode }) {
 
   // 真值仍是二态 —— 第三态在**偏好**那一层,不在这里。
   const setTheme = (next: Theme) => {
-    if (next) writeHostTheme(next);
+    if (next) void writeHostTheme(next);
   };
 
   const setPreference = (next: ThemePreference) => {
-    writeThemePreference(next);
+    void writeThemePreference(next);
   };
 
   const toggleTheme = () => {
-    writeHostTheme(nextHostTheme(effectiveTheme));
+    void writeHostTheme(nextHostTheme(effectiveTheme));
   };
 
   return (

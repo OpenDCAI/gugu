@@ -63,29 +63,23 @@ export function readThemePreference(): ThemePreference {
   return saved === 'light' || saved === 'dark' || saved === 'system' ? saved : DEFAULT_PREFERENCE;
 }
 
-/**
- * @@@native-appearance (#7333) — 偏好同步给主进程(mac 上照抄成 nativeTheme.themeSource,原生材质跟着它的明暗走),
- * 拿回主进程恢复 themeSource **之后**的真实明暗。偏好是 system 时用这个答案落主题:此刻 renderer 的 matchMedia 可能
- * 还停在上一次手选的明暗上(主进程改 themeSource 之后,Chromium 才异步把 prefers-color-scheme 推过来),先拿它解析
- * 就会先画错一帧。三种结果分开走,❌ 合成一个 null:
- *   no-bridge — web / 测试,没有主进程:matchMedia 就是它的系统外观真值,正常路径;
- *   ok        — 主进程答了真实明暗;
- *   failed    — 桥在、主进程没答上来(它那一侧已记原因):这次不算成功,调用方保留现有偏好与主题。
- */
-type NativeAppearanceSync = { kind: 'no-bridge' } | { kind: 'ok'; system: HostTheme } | { kind: 'failed' };
+/** Await nativeTheme.themeSource before using the real system appearance. */
+type NativeAppearanceSync = { kind: 'no-bridge' } | { kind: 'ok'; system: HostTheme };
 
 export class NativeAppearanceSyncError extends Error {}
 
-function syncNativeAppearance(preference: ThemePreference): NativeAppearanceSync {
+async function syncNativeAppearance(preference: ThemePreference): Promise<NativeAppearanceSync> {
   if (typeof window === 'undefined') return { kind: 'no-bridge' };
   const bridge = window.electronAPI?.syncThemePreference;
   if (!bridge) return { kind: 'no-bridge' };
-  const answer = bridge(preference);
-  return answer === 'light' || answer === 'dark' ? { kind: 'ok', system: answer } : { kind: 'failed' };
+  const answer = await bridge(preference);
+  if (answer !== 'light' && answer !== 'dark') {
+    throw new NativeAppearanceSyncError(`Main did not resolve theme preference ${preference}`);
+  }
+  return { kind: 'ok', system: answer };
 }
 
-/** 同步成功(或没有主进程)之后,偏好 → 真值。 */
-function settledTheme(preference: ThemePreference, sync: Exclude<NativeAppearanceSync, { kind: 'failed' }>): HostTheme {
+function settledTheme(preference: ThemePreference, sync: NativeAppearanceSync): HostTheme {
   if (preference !== 'system') return preference;
   return sync.kind === 'ok' ? sync.system : resolveThemePreference('system');
 }
@@ -140,12 +134,8 @@ export function subscribeToHostTheme(onChange: () => void): () => void {
 }
 
 /** 写偏好,并把解析出来的真值落到属性上。返回落下去的那个真值。 */
-export function writeThemePreference(preference: ThemePreference): HostTheme {
-  const sync = syncNativeAppearance(preference);
-  // 主进程没跟上:不写偏好、不动主题,响亮报错(调用方是一次点击 / 命令,错误进全局错误捕获与日志)。
-  if (sync.kind === 'failed') {
-    throw new NativeAppearanceSyncError(`主进程没能同步主题偏好 ${preference};偏好与主题保持原样`);
-  }
+export async function writeThemePreference(preference: ThemePreference): Promise<HostTheme> {
+  const sync = await syncNativeAppearance(preference);
   const resolved = settledTheme(preference, sync);
   if (typeof localStorage !== 'undefined') {
     localStorage.setItem(HOST_THEME_STORAGE_KEY, preference);
@@ -156,8 +146,8 @@ export function writeThemePreference(preference: ThemePreference): HostTheme {
 }
 
 /** 手动选定一个具体的明暗态(= 偏好落成 light/dark,不再跟随系统)。 */
-export function writeHostTheme(next: EffectiveTheme): void {
-  writeThemePreference(next === 'emdark' ? 'dark' : 'light');
+export async function writeHostTheme(next: EffectiveTheme): Promise<void> {
+  await writeThemePreference(next === 'emdark' ? 'dark' : 'light');
 }
 
 /**
@@ -199,17 +189,17 @@ export function startHostThemeSystemSync(): () => void {
  * 把存下来的偏好解析成真值落到属性上。
  * 属性缺失时❌不能默认浅色 —— 存的可能是「跟随系统」而系统正是深色。
  */
-export function hydrateHostTheme(): HostTheme {
+export async function hydrateHostTheme(): Promise<HostTheme> {
   const preference = readThemePreference();
-  const sync = syncNativeAppearance(preference);
-  // 启动恢复时主进程没跟上:属性已经由 index.html 的引导脚本落过,保留它,只把失败报出来(❌ 在这里抛:会把整个壳拖垮)。
-  if (sync.kind === 'failed') {
-    themeLog.error({ preference }, '启动时主进程没能同步主题偏好;保留当前主题,原生外观可能与它不一致');
+  try {
+    const sync = await syncNativeAppearance(preference);
+    const resolved = settledTheme(preference, sync);
+    applyEffectiveTheme(resolved);
+    return resolved;
+  } catch (error) {
+    themeLog.error({ preference, error: String(error) }, '启动时主进程没能同步主题偏好;保留当前主题,原生外观可能与它不一致');
     return readEffectiveHostTheme();
   }
-  const resolved = settledTheme(preference, sync);
-  applyEffectiveTheme(resolved);
-  return resolved;
 }
 
 /**
@@ -221,8 +211,8 @@ export function nextHostTheme(current: EffectiveTheme): EffectiveTheme {
 }
 
 /** 翻转主题,返回翻到的那个。DOM 写入,不会失败。 */
-export function toggleHostTheme(): EffectiveTheme {
+export async function toggleHostTheme(): Promise<EffectiveTheme> {
   const next = nextHostTheme(readHostTheme());
-  writeHostTheme(next);
+  await writeHostTheme(next);
   return next;
 }

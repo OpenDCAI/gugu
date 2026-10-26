@@ -5,6 +5,7 @@
 // 会话页是独立文档,壳里装的垫片不跨文档:非安全上下文(http://<ip>)下 crypto.randomUUID 缺席会让这里启动即白。
 import '@/lib/insecure-context-shims';
 import { hasEntryRoot, renderEntryRoot } from '@/lib/renderer-entry-root';
+import { localeReady } from '@/i18n/runtime';
 import { installRemoteHostSessionpageBridges } from './features/remote-hosts/install-sessionpage-bridges';
 import './lib/install-sessionpage-history-bridge';
 import { setupNavigationGuards } from '@renderer/app/view-registry';
@@ -120,6 +121,7 @@ function renderSessionTree(container: HTMLElement, mountEl: HTMLElement | undefi
 }
 
 async function bootstrap() {
+  await localeReady;
   // Portals (Base UI dialogs/popovers/tooltips + raw createPortal) must stay inside the shadow
   // root — document.body is outside it and has none of the session page's CSS (dialogs render as bare
   // unstyled text there). Give them a dedicated layer next to the app mount. Must run before

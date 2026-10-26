@@ -24,15 +24,12 @@ function navigatorLanguages(): readonly string[] {
   return navigator.languages?.length ? navigator.languages : [navigator.language]
 }
 
-// 桌面宿主经 preload 同步注入真实系统语言;web/移动端没有该注入,退回 navigator。
-// `refresh` 用于宿主语言可能已经变了的时机(languagechange):首帧那份是 preload 时刻的快照,
-// 不重新问宿主的话「跟随系统」在桌面上就只能靠重启才更新。
-function hostLanguages(refresh = false): readonly string[] {
-  const bridge = typeof window === 'undefined' ? null : window.guguHostLocale
-  const injected = refresh && bridge?.readSystemLanguages
-    ? bridge.readSystemLanguages()
-    : bridge?.systemLanguages
-  return preferHostLanguages(injected, navigatorLanguages())
+// Keep the existing host-language seed, awaiting its IPC before the first locale.
+// Web/mobile have no bridge and use their navigator languages as before.
+let systemLanguages: readonly string[] | undefined
+
+function hostLanguages(): readonly string[] {
+  return preferHostLanguages(systemLanguages, navigatorLanguages())
 }
 
 function initialPreference(): LocalePreference {
@@ -46,10 +43,7 @@ function initialPreference(): LocalePreference {
 }
 
 const preference = initialPreference()
-let snapshot: LocaleSnapshot = {
-  preference,
-  resolvedLocale: resolveLocale(preference, hostLanguages()),
-}
+let snapshot: LocaleSnapshot | undefined
 
 const resources: Resource = {
   'zh-CN': { common: zhCNCommon },
@@ -58,24 +52,35 @@ const resources: Resource = {
 
 export const i18n = createInstance()
 
-void i18n.use(initReactI18next).init({
-  resources,
-  lng: snapshot.resolvedLocale,
-  fallbackLng: FALLBACK_LOCALE,
-  supportedLngs: ['zh-CN', 'en-US'],
-  defaultNS: 'common',
-  ns: ['common'],
-  interpolation: { escapeValue: false },
-  returnNull: false,
-  initAsync: false,
-  react: { useSuspense: false },
-})
-
 const listeners = new Set<() => void>()
+
+function initializeLocale(languages?: readonly string[]): void {
+  systemLanguages = languages
+  snapshot = { preference, resolvedLocale: resolveLocale(preference, hostLanguages()) }
+  void i18n.use(initReactI18next).init({
+    resources,
+    lng: snapshot.resolvedLocale,
+    fallbackLng: FALLBACK_LOCALE,
+    supportedLngs: ['zh-CN', 'en-US'],
+    defaultNS: 'common',
+    ns: ['common'],
+    interpolation: { escapeValue: false },
+    returnNull: false,
+    initAsync: false,
+    react: { useSuspense: false },
+  })
+  if (typeof document !== 'undefined') document.documentElement.lang = snapshot.resolvedLocale
+}
+
+// Both renderer entry points await this existing preload seed before mounting.
+const bridge = typeof window === 'undefined' ? undefined : window.guguHostLocale
+export const localeReady: Promise<void> = bridge
+  ? bridge.systemLanguages.then(initializeLocale)
+  : Promise.resolve(initializeLocale())
 
 function applySnapshot(next: LocaleSnapshot, broadcast: boolean): void {
   if (
-    snapshot.preference === next.preference
+    snapshot?.preference === next.preference
     && snapshot.resolvedLocale === next.resolvedLocale
   ) return
 
@@ -89,14 +94,14 @@ function applySnapshot(next: LocaleSnapshot, broadcast: boolean): void {
   }
 }
 
-if (typeof document !== 'undefined') document.documentElement.lang = snapshot.resolvedLocale
-
 if (typeof window !== 'undefined') {
-  window.addEventListener('languagechange', () => {
-    if (snapshot.preference !== 'system') return
+  window.addEventListener('languagechange', async () => {
+    if (snapshot?.preference !== 'system') return
+    if (window.guguHostLocale) systemLanguages = await window.guguHostLocale.readSystemLanguages()
+    if (snapshot?.preference !== 'system') return
     applySnapshot({
       preference: 'system',
-      resolvedLocale: resolveLocale('system', hostLanguages(true)),
+      resolvedLocale: resolveLocale('system', hostLanguages()),
     }, true)
   })
 
@@ -123,6 +128,7 @@ if (typeof window !== 'undefined') {
 }
 
 export function getLocaleSnapshot(): LocaleSnapshot {
+  if (!snapshot) throw new Error('Host locale is not initialized')
   return snapshot
 }
 
@@ -147,6 +153,10 @@ export function setLocalePreference(next: LocalePreference): void {
 }
 
 export function registerLocaleNamespace(namespace: string, catalog: LocaleCatalog): void {
+  if (!snapshot) {
+    void localeReady.then(() => registerLocaleNamespace(namespace, catalog))
+    return
+  }
   for (const locale of ['zh-CN', 'en-US'] as const) {
     i18n.addResourceBundle(locale, namespace, catalog[locale], true, true)
   }

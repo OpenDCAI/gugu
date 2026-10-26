@@ -113,7 +113,7 @@ function createAppCommandProvider(): CommandProvider {
           // @@@task-fusion (#2802) — 从前这里走会话页自己的 app-settings(异步、可能失败,
           // 所以有个失败 toast)。主题收敛成 `<html data-theme>` 一份真值后,翻转就是一次 DOM
           // 写入:同步、不会失败,失败分支跟着一起删。
-          toggleHostTheme();
+          void toggleHostTheme();
         },
       });
 

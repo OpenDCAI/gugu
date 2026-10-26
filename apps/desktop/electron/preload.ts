@@ -155,10 +155,9 @@ contextBridge.exposeInMainWorld('electronAPI', {
   syncWindowTone: (tone: 'light' | 'dark'): void => {
     ipcRenderer.send('window:sync-tone', tone)
   },
-  // @@@native-appearance (#7333) 偏好原样给主进程(mac 上照抄成 nativeTheme.themeSource),同步答回此刻的真实明暗 ——
-  // 切回「跟随系统」时 renderer 用这个答案落主题,不先拿旧的 matchMedia 画错一帧。主进程同步失败答 null。
-  syncThemePreference: (preference: ThemePreferenceValue): 'light' | 'dark' | null =>
-    ipcRenderer.sendSync(WINDOW_THEME_PREFERENCE_CHANNEL, preference),
+  // Await the native appearance before committing the resolved renderer theme.
+  syncThemePreference: (preference: ThemePreferenceValue): Promise<'light' | 'dark'> =>
+    ipcRenderer.invoke(WINDOW_THEME_PREFERENCE_CHANNEL, preference),
   relaunchApp: (): Promise<void> => ipcRenderer.invoke('app:relaunch'),
   onAppForeground: (callback: () => void): (() => void) => {
     const listener = () => callback()
@@ -181,15 +180,11 @@ contextBridge.exposeInMainWorld('electronAPI', {
     ipcRenderer.invoke('owned-agent:rename-local-footprint', { agentUserId, name }),
 })
 
-// @@@host-system-languages — 宿主真实系统语言。同步取值:renderer 的 i18n runtime 是模块副作用,在第一帧
-// 之前就要解析「跟随系统」,拿不到值就只能退回 navigator.languages,而那个列表在 Electron 里首项是 Chromium
-// 界面语言(中文 macOS 实测 ['en-US','zh-Hans-CN'])→ 中文系统显示英文。
-// ❌ 不给缺应答兜底:preload 只在 Electron 下加载,通道必被 main 应答,`undefined` 只可能是接线断了
-// (单边改名 / handler 被移到 whenReady 之后 / handler 抛错)。兜成空数组会让 renderer 悄悄退回
-// navigator 那份 —— 那正是本 bug 本体,且全套测试照样绿。fail loud,别静默降级。
-// 空数组本身是合法答案(宿主确实没给出偏好语言),由 renderer 侧按 spec 回落。
-function readHostSystemLanguages(): readonly string[] {
-  const answer: unknown = ipcRenderer.sendSync(HOST_SYSTEM_LANGUAGES_CHANNEL)
+// Start the real host-language request in preload, while renderer modules load.
+// The i18n consumer awaits this existing seed before resolving its first locale.
+// A missing response still fails loudly; Chromium languages are not a substitute.
+async function readHostSystemLanguages(): Promise<readonly string[]> {
+  const answer: unknown = await ipcRenderer.invoke(HOST_SYSTEM_LANGUAGES_CHANNEL)
   if (!Array.isArray(answer)) {
     throw new Error(
       `[localization] main did not answer ${HOST_SYSTEM_LANGUAGES_CHANNEL} (got ${typeof answer}); `
@@ -200,10 +195,7 @@ function readHostSystemLanguages(): readonly string[] {
 }
 
 contextBridge.exposeInMainWorld('guguHostLocale', {
-  // 首帧种子:preload 加载时已同步取好,renderer 启动时零 IPC 等待。
   systemLanguages: readHostSystemLanguages(),
-  // 宿主语言在 app 运行期变化时重新问一次 —— 首帧种子是快照,不刷新的话 renderer 的
-  // languagechange 监听在桌面上会退化成一个永远算出同一个值的空动作。
   readSystemLanguages: readHostSystemLanguages,
 })
 
@@ -216,12 +208,12 @@ contextBridge.exposeInMainWorld('desktopWindow', {
   isMaximized: (): Promise<boolean> => ipcRenderer.invoke('window:isMaximized'),
   // Windows 标题栏「编辑 / 视图」菜单;命令清单由 main 的 window-menu-commands.ts 把关。
   runMenuCommand: (command: string): void => ipcRenderer.send('window:menu-command', command),
-  getChromeLabels: (): {
+  getChromeLabels: (): Promise<{
     minimize: string
     maximize: string
     restore: string
     close: string
-  } => ipcRenderer.sendSync('window-chrome:get-labels'),
+  }> => ipcRenderer.invoke('window-chrome:get-labels'),
   onChromeLabelsChange: (callback: (labels: {
     minimize: string
     maximize: string
@@ -243,8 +235,8 @@ contextBridge.exposeInMainWorld('desktopWindow', {
     ipcRenderer.on('window:maximized-changed', handler)
     return () => ipcRenderer.removeListener('window:maximized-changed', handler)
   },
-  // @@@window-material (#7333) 窗口材质的判定在主进程(shared/window-material.ts);同步读是因为首帧前就要落属性。
-  getMaterial: (): WindowMaterial => ipcRenderer.sendSync(WINDOW_MATERIAL_GET_CHANNEL),
+  // The renderer awaits the material before mounting its first frame.
+  getMaterial: (): Promise<WindowMaterial> => ipcRenderer.invoke(WINDOW_MATERIAL_GET_CHANNEL),
   onMaterialChange: (callback: (material: WindowMaterial) => void): (() => void) => {
     const handler = (_event: Electron.IpcRendererEvent, material: WindowMaterial): void => callback(material)
     ipcRenderer.on(WINDOW_MATERIAL_CHANGED_CHANNEL, handler)

@@ -2064,9 +2064,7 @@ ipcMain.on('window:menu-command', (event, command: unknown) => {
   }
   runWindowMenuCommand(command, { contents: event.sender, window })
 })
-ipcMain.on('window-chrome:get-labels', (event) => {
-  event.returnValue = currentHostCatalog().windowChrome
-})
+ipcMain.handle('window-chrome:get-labels', () => currentHostCatalog().windowChrome)
 ipcMain.handle('locale:sync-resolved', (_event, locale: unknown) => {
   syncResolvedHostLocale(locale)
 })
@@ -2074,12 +2072,8 @@ ipcMain.handle('locale:sync-resolved', (_event, locale: unknown) => {
 ipcMain.on('window:sync-tone', (_event, tone: unknown) => {
   syncWindowTone(tone)
 })
-// @@@host-system-languages — renderer 判定「跟随系统」的唯一真值源。**不能**让 renderer 自己读
-// navigator.languages:Electron 把 Chromium 界面语言排在那个列表首位(中文 macOS 实测 ['en-US',
-// 'zh-Hans-CN']),会把中文系统解析成 en-US。同步应答,因为 renderer 首帧前就要用。
-ipcMain.on(HOST_SYSTEM_LANGUAGES_CHANNEL, (event) => {
-  event.returnValue = app.getPreferredSystemLanguages()
-})
+// Resolve the first renderer locale from the actual host languages, asynchronously.
+ipcMain.handle(HOST_SYSTEM_LANGUAGES_CHANNEL, () => app.getPreferredSystemLanguages())
 // @@@logging (#2382) - renderer 的日志回传到主进程,和主进程日志同流、同脱敏、同落盘:
 // 渲染侧崩在用户机器上时,`console` 只活在 devtools 里,拿不回来。
 ipcMain.handle(RENDERER_LOG_CHANNEL, (_event, payload: unknown) => {

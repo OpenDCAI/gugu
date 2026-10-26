@@ -6,15 +6,15 @@ import type { WindowMaterial } from '../../shared/window-material'
  * 没有桥(dev:web、手机、子窗口)⇒ 不落属性 = opaque,那是它们的真实状态:那些地方没有系统材质。
  */
 export interface WindowMaterialBridge {
-  getMaterial?: () => WindowMaterial
+  getMaterial?: () => Promise<WindowMaterial>
   onMaterialChange?: (callback: (material: WindowMaterial) => void) => () => void
 }
 
 export const WINDOW_MATERIAL_ATTRIBUTE = 'windowMaterial'
 
-export function installWindowMaterialAttribute(root: HTMLElement, bridge: WindowMaterialBridge | undefined): () => void {
+export async function installWindowMaterialAttribute(root: HTMLElement, bridge: WindowMaterialBridge | undefined): Promise<() => void> {
   if (!bridge?.getMaterial) return () => {}
-  root.dataset[WINDOW_MATERIAL_ATTRIBUTE] = bridge.getMaterial()
+  root.dataset[WINDOW_MATERIAL_ATTRIBUTE] = await bridge.getMaterial()
   if (!bridge.onMaterialChange) return () => {}
   return bridge.onMaterialChange((material) => {
     root.dataset[WINDOW_MATERIAL_ATTRIBUTE] = material

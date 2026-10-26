@@ -11,7 +11,7 @@ import { createLogger } from './lib/logger'
 const logger = createLogger('window-material')
 
 /**
- * @@@window-material (#7333) — 主进程这一侧:读系统信号 → 判定 → 同步答 renderer 的首帧询问 → 信号变了推过去。
+ * @@@window-material (#7333) — 主进程这一侧:读系统信号 → 判定 → 答 renderer 的首帧询问 → 信号变了推过去。
  * 判定本身在 shared/window-material.ts(纯函数);这里只接线,依赖全部注入(main.ts 传 Electron 的真对象,
  * 单测传假的 —— 负例在单测里模拟,❌ 在产品主进程里留测试开关)。
  * 材质是**某一扇窗**的属性:只有建窗时挂了 vibrancy、且底色让出来的那扇(mac 主窗)才可能是 native;
@@ -30,9 +30,9 @@ export interface WindowMaterialTheme {
   on(event: 'updated', listener: () => void): unknown
 }
 
-/** `electron.ipcMain` 里用得到的那一项:同步询问。 */
+/** The existing request channels, answered without blocking the renderer thread. */
 export interface WindowMaterialIpc {
-  on(channel: string, listener: (event: { sender: unknown; returnValue: unknown }, ...args: unknown[]) => void): unknown
+  handle(channel: string, listener: (event: { sender: unknown }, ...args: unknown[]) => unknown): unknown
 }
 
 /** 挂了 vibrancy 的那扇窗(mac 主窗);没有这样的窗时返回 null。 */
@@ -74,9 +74,7 @@ export function installWindowMaterial({ platform, nativeTheme, ipcMain, material
     const win = materialWindow()
     return !!win && !win.isDestroyed() && win.webContents === sender
   }
-  ipcMain.on(WINDOW_MATERIAL_GET_CHANNEL, (event) => {
-    event.returnValue = isMaterialWindow(event.sender) ? material : 'opaque'
-  })
+  ipcMain.handle(WINDOW_MATERIAL_GET_CHANNEL, (event) => isMaterialWindow(event.sender) ? material : 'opaque')
 
   nativeTheme.on('updated', () => {
     const next = decide()
@@ -115,15 +113,9 @@ export function applyNativeThemePreference(platform: NodeJS.Platform, theme: Nat
   return theme.shouldUseDarkColors ? 'dark' : 'light'
 }
 
-/** 同步询问:renderer 写偏好(启动恢复、手选、切回跟随系统)时发,先恢复 themeSource,再拿真实明暗。 */
+/** Apply the preference before answering with the actual native appearance. */
 export function installNativeAppearanceSync(deps: { platform: NodeJS.Platform; nativeTheme: NativeAppearanceTheme; ipcMain: WindowMaterialIpc }): void {
-  deps.ipcMain.on(WINDOW_THEME_PREFERENCE_CHANNEL, (event, preference) => {
-    try {
-      event.returnValue = applyNativeThemePreference(deps.platform, deps.nativeTheme, preference)
-    } catch (error) {
-      // 同步 IPC 不能抛给 renderer(它会一直等 returnValue):记下来,答一个明确的空值,renderer 据此不改主题。
-      logger.error({ error: String(error) }, '主题偏好同步失败')
-      event.returnValue = null
-    }
-  })
+  deps.ipcMain.handle(WINDOW_THEME_PREFERENCE_CHANNEL, (_event, preference) =>
+    applyNativeThemePreference(deps.platform, deps.nativeTheme, preference),
+  )
 }

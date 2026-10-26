@@ -1,7 +1,7 @@
 import { makeAutoObservable, runInAction } from 'mobx';
 import { rpc } from '@renderer/lib/ipc';
 import { log } from '@renderer/utils/logger';
-import { getLocaleSnapshot, subscribeLocale } from '@/i18n';
+import { getLocaleSnapshot, localeReady, subscribeLocale } from '@/i18n';
 import {
   declaredContexts,
   extensionTabKind,
@@ -100,7 +100,9 @@ export class InstalledExtensionsStore {
   /** Who published each App installed from a chat (摩擦单 F66): `{ [extensionId]: { id, name } }`. */
   publishers: Record<string, { id: string; name?: string }> = {};
   /** The interface language, mirrored so the names below follow a switch: an App is called what its `localized` says there. */
-  locale: string = getLocaleSnapshot().resolvedLocale;
+  // Initial mirroring waits for the same host seed as the renderer mount.
+  // Constructing this module-level store must not read an unfinished host seed.
+  locale!: string;
   isLoaded = false;
   /**
    * 云端那口对装着的这些扩展要说的话(#5410):有新版 / 装的这版被撤回了 / 已弃用。
@@ -112,7 +114,9 @@ export class InstalledExtensionsStore {
 
   constructor(private readonly api: InstalledExtensionsApi = rpc.extensions) {
     makeAutoObservable<InstalledExtensionsStore, 'api'>(this, { api: false });
-    subscribeLocale(() => runInAction(() => { this.locale = getLocaleSnapshot().resolvedLocale; }));
+    const syncLocale = () => runInAction(() => { this.locale = getLocaleSnapshot().resolvedLocale; });
+    void localeReady.then(syncLocale);
+    subscribeLocale(syncLocale);
   }
 
   /** A default App page uses its localized name; specifically named subpages keep their contribution title. */
@@ -299,6 +303,7 @@ export class InstalledExtensionsStore {
   }
 
   async load(): Promise<void> {
+    await localeReady;
     const result = await this.api.list();
     if (!result.success || !result.data) {
       throw new Error(result.error ?? 'Failed to list extensions');

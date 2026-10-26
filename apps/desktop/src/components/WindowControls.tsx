@@ -38,10 +38,10 @@ export interface WindowChromeState {
 
 /** 最大化状态与本地化按钮名(主进程随宿主语言推送)。标题栏的「视图」菜单也读同一份。 */
 function useWindowChromeState(): WindowChromeState {
-  const dw = typeof window !== 'undefined' ? window.desktopWindow : undefined
+  const dw = typeof window !== 'undefined' && hasCustomWindowControls(readRendererPlatform())
+    ? window.desktopWindow : undefined
   const [maximized, setMaximized] = useState(false)
   const [labels, setLabels] = useState<WindowChromeLabels>(() => {
-    if (dw?.getChromeLabels) return dw.getChromeLabels()
     const documentLocale = typeof document === 'undefined' ? null : document.documentElement.lang
     return hostCatalog(isResolvedLocale(documentLocale) ? documentLocale : 'zh-CN').windowChrome
   })
@@ -51,6 +51,9 @@ function useWindowChromeState(): WindowChromeState {
     let active = true
     void dw.isMaximized().then((m) => {
       if (active) setMaximized(m)
+    })
+    void dw.getChromeLabels?.().then((next) => {
+      if (active) setLabels(next)
     })
     const unsubscribe = dw.onMaximizedChange(setMaximized)
     const unsubscribeLabels = dw.onChromeLabelsChange?.(setLabels)
