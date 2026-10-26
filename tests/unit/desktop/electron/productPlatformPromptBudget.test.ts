@@ -119,7 +119,7 @@ describe('tool usage belongs to schemas and assistant duplicates keep one owner'
     for (const name of ['session_spawn', 'session_message']) {
       const schema = SESSION_TOOL_DEFS.find(tool => tool.name === name)!.schema
       const json = z.toJSONSchema(schema, { io: 'input' })
-      expect((json.properties!.source_link as { description: string }).description).toContain('Copy source_link from the delivery')
+      expect((json.properties!.source_link as { description: string }).description).toContain('Copy delivery source_link')
     }
   })
 })

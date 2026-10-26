@@ -6,6 +6,13 @@ const mac = { ...host, device_id: 'mac', label: '主人的 Mac', platform: 'darw
 const offline = { ...mac, device_id: 'offline', label: '离线电脑', online: false }
 const phone = { ...mac, device_id: 'phone', label: '手机', platform: 'ios', kind: undefined }
 
+it('rechecks the account after recording the resource version', async () => {
+  let owner = 'owner-a'
+  await expect(assistantStartupIndex({ ...fixture(), accountId: async () => owner, observed: async () => {
+    owner = 'owner-b'; return 1
+  } })).rejects.toThrow('account changed before delivery')
+})
+
 beforeEach(() => vi.stubEnv('GUGU_CLOUD_COMPUTER', '0'))
 afterEach(() => vi.unstubAllEnvs())
 
@@ -203,4 +210,44 @@ it('omits complete records with discovery pointers when even device summaries ex
   expect(omission).toMatchObject({ complete: false, read: expect.arrayContaining(['session_devices']) })
   expect(omission.omitted_records).toBeDefined()
   expect(index.endsWith('</gugu_resource_index>')).toBe(true)
+})
+
+
+it('retains every configured integration when device and note metadata exhaust the budget', async () => {
+  const deps = fixture()
+  const original = deps.run.getMockImplementation()!
+  deps.run.mockImplementation((action, signal) => action.action === 'devices'
+    ? Promise.resolve(Array.from({ length: 80 }, (_, i) => ({ ...mac, device_id: `computer-${i}`, online: false })))
+    : original(action, signal))
+  const overflow = vi.fn(async (_index: string, _account: string) => '/isolated/remaining-index.md')
+  const index = await assistantStartupIndex({ ...deps, overflow, localSources: async () => [{
+    source: 'integrations', status: 'read', read: 'catalog_list', items: [
+      { id: 'dingtalk:default', name: '钉钉', modifiedAt: '2026-10-27T02:46:43Z' },
+      { id: 'dingtalk:second', name: '钉钉', modifiedAt: '2026-10-27T02:46:43Z' },
+      { id: 'feishu:work', name: '飞书', modifiedAt: '2026-10-26T02:46:43Z' },
+    ],
+  }] })
+  const row = records(index).find(row => row.source === 'integrations')!
+  expect(row.items?.map(item => item.id)).toEqual(['dingtalk', 'feishu'])
+  expect(row).not.toHaveProperty('omitted_items')
+  expect(index).not.toContain('"integrations":1')
+  expect(index.length).toBeLessThanOrEqual(6000)
+  expect(index).toContain('其余见 /isolated/remaining-index.md')
+  expect(overflow).toHaveBeenCalledOnce()
+  expect(overflow.mock.calls[0]?.[0].length).toBeGreaterThan(6000)
+  expect(overflow.mock.calls[0]?.[0]).toContain('computer-79')
+  expect(overflow.mock.calls[0]?.[1]).toBe('owner-a')
+})
+
+it('keeps application names inline even when their optional CLI locations alone exceed the budget', async () => {
+  const overflow = vi.fn(async (_index: string, _account: string) => '/isolated/remaining-index.md')
+  const index = await assistantStartupIndex({ ...fixture(), overflow, localSources: async () => [{
+    source: 'integrations', status: 'read', read: 'Read: remaining-index.md', items: [
+      { id: 'dingtalk:default', name: '钉钉', path: '/installed/' + 'long-directory/'.repeat(1000), modifiedAt: '2026-10-27T00:00:00Z' },
+    ],
+  }] })
+  expect(records(index).find(row => row.source === 'integrations')?.items).toEqual([{ id: 'dingtalk', name: '钉钉' }])
+  expect(index).toContain('其余见 /isolated/remaining-index.md')
+  expect(index.length).toBeLessThanOrEqual(6000)
+  expect(overflow.mock.calls[0]?.[0]).toContain('/installed/long-directory/')
 })

@@ -1,3 +1,4 @@
+import { configuredIntegrationIndex } from '../integrations/integration-resource-index'
 import { integrationAccountSignature,panelIntegrationChecks } from './assistant-panel-integration-checks'
 import { eq } from 'drizzle-orm'
 import { db } from '@main/db/client'
@@ -17,6 +18,7 @@ import { readUserLibraryVolume, readUserLibraryEntry, writeUserLibraryEntry, rem
 /** This bridge lives in the embedded module, beside the actual registries and
  * scheduler. The Electron host must not construct a second copy of either. */
 export const assistantPanelLocal = {
+  integrationIndex: configuredIntegrationIndex,
   onLibraryChanged: onUserLibraryChanged,
   onIntegrationsChanged(listener: () => void) { return providerAccountRegistry.onChanged(listener) },
   async home(sessionId: string) {
