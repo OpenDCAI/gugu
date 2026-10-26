@@ -9,6 +9,7 @@ import { isOwnerProfileNote, RESOURCES_DIR_NAME, type MemoryKind } from '@/sessi
 import { readMemoryNotes, type MemoryEntry } from '@/session/renderer/features/assistant/assistant-machine-core'
 import { AssistantEmpty, AssistantRow, AssistantSection, ownerLeading, PageHead } from '@/session/renderer/features/assistant/assistant-ui-parts'
 import { useAuth } from '@/store/auth'
+import { memoryContentPreview } from '@/session/renderer/features/assistant/memory-content-preview'
 import type { PhonePageProps } from './MobileAssistantApp'
 import { PhoneConfirmDialog } from './PhoneConfirmDialog'
 import { PhoneFiles } from './PhoneFiles'
@@ -100,7 +101,7 @@ function AboutYou({ askInChat, go, notes }: PhonePageProps & { notes: MemoryEntr
         </div>
       ) : (
         aboutYou.map(entry => <AssistantRow key={entry.file} leading={ownerLeading(owner)} title={isOwnerProfileNote(entry) ? t('memory.filter.user') : entry.title} detailLines={4}
-          detail={entry.description || (entry.modifiedAt ? t('memory.updated', { time: time(entry.modifiedAt) }) : undefined)} onClick={() => go(`note:${entry.file}`)} />)
+          detail={memoryContentPreview(entry.body) || (entry.modifiedAt ? t('memory.updated', { time: time(entry.modifiedAt) }) : undefined)} onClick={() => go(`note:${entry.file}`)} />)
       )}
     </AssistantSection>
   )
@@ -119,7 +120,8 @@ function MemoryList({ assistant, go, notes }: PhonePageProps & { notes: MemoryEn
           <AssistantRow
             key={entry.file}
             title={entry.title}
-            detail={entry.modifiedAt ? t('memory.updated', { time: time(entry.modifiedAt) }) : kindLabel(entry.kind, t, name)}
+            detail={memoryContentPreview(entry.body, 140) || (entry.modifiedAt ? t('memory.updated', { time: time(entry.modifiedAt) }) : kindLabel(entry.kind, t, name))}
+            detailLines={4}
             onClick={() => go(`note:${entry.file}`)}
             testId={`assistant-memory-${entry.file}`}
           />
