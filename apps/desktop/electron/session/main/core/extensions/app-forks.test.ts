@@ -7,12 +7,13 @@ import { EXTENSION_API_VERSION } from '@shared/extensions/manifest';
 import { ExtensionsService } from './extensions-service';
 import type { MarketIndexVersion } from '@shared/extensions/market';
 
-const state = vi.hoisted(() => ({ work: '', repo: '', service: null as unknown as ExtensionsService, rows: [] as MarketIndexVersion[], connected: false, forkExists: false, createForks: 0 }));
+const state = vi.hoisted(() => ({ work: '', repo: '', service: null as unknown as ExtensionsService, rows: [] as MarketIndexVersion[], connected: false, forkExists: false, createForks: 0, pendingObjects: 0, objectReads: [] as string[] }));
 vi.mock('./extensions-root', () => ({ extensionsService: () => state.service, appSourcesRoot: () => path.join(state.work, 'app-sources') }));
 vi.mock('./market-catalog-root', () => ({ cloudExtensionMarket: () => ({ sourceVersion: async (_id: string, version: string) => state.rows.find((row) => row.version === version), sourceVersions: async () => state.rows }) }));
 vi.mock('../github/accounts/github-account-service-instance', () => ({ githubAccountService: { listAccounts: async () => state.connected ? [{ accountId: 'account', host: 'github.com', login: 'my-user', isDefault: true }] : [] } }));
 vi.mock('../github/services/github-api-auth-service-instance', () => ({ githubApiAuthService: { getToken: async () => ({ success: true, data: 'unit-test-token' }) } }));
-vi.mock('../github/services/octokit-provider', () => ({ getOctokit: async () => ({ success: true, data: { repos: { get: async () => { if (!state.forkExists) throw Object.assign(new Error('Not found'), { status: 404 }); return { data: { parent: { full_name: 'shuxueshuxue/gugu-apps' } } }; }, createFork: async () => { state.forkExists = true; state.createForks++; } } } }) }));
+vi.mock('../github/services/octokit-provider', () => ({ getOctokit: async () => ({ success: true, data: { git: { getCommit: async (args: { commit_sha: string }) => { state.objectReads.push(args.commit_sha); if (state.pendingObjects-- > 0) throw Object.assign(new Error('Fork objects not ready'), { status: 404 }); return { data: { sha: args.commit_sha } }; } }, repos: { get: async () => { if (!state.forkExists) throw Object.assign(new Error('Not found'), { status: 404 }); return { data: { parent: { full_name: 'shuxueshuxue/gugu-apps' } } }; }, createFork: async () => { state.forkExists = true; state.createForks++; } } } }) }));
+vi.mock('node:timers/promises', async (importOriginal) => ({ ...(await importOriginal<object>()), setTimeout: async () => undefined }));
 vi.mock('../utils/exec', () => ({ getGitExecutable: () => 'git' }));
 vi.mock('@main/utils/userEnv', () => ({ loginShellEnv: () => null }));
 vi.mock('../runtime/review-git-env', () => ({ reviewGitEnv: () => ({ ...process.env, GIT_CONFIG_COUNT: '3', GIT_CONFIG_KEY_2: `url.file://${state.work}/github-fork.git.insteadOf`, GIT_CONFIG_VALUE_2: 'https://github.com/my-user/gugu-apps.git', GIT_CONFIG_KEY_0: `url.file://${state.repo}.insteadOf`, GIT_CONFIG_VALUE_0: `https://github.com/${state.rows[0]!.source.repo}.git`, GIT_CONFIG_KEY_1: 'protocol.file.allow', GIT_CONFIG_VALUE_1: 'always' }) }));
@@ -22,7 +23,7 @@ const { installPrepared } = await import('./install-prepared');
 
 const git = (...args: string[]) => execFileSync('git', args, { cwd: state.repo, encoding: 'utf8' }).trim();
 beforeEach(() => {
-  state.connected = false; state.forkExists = false; state.createForks = 0;
+  state.connected = false; state.forkExists = false; state.createForks = 0; state.pendingObjects = 0; state.objectReads = [];
   state.work = mkdtempSync(path.join(tmpdir(), 'gugu-fork-source-'));
   state.repo = path.join(state.work, 'upstream');
   mkdirSync(state.repo);
@@ -135,4 +136,15 @@ it('uses the third-party branch and installs the bundle view without Git or depe
   const installed = state.service.installFromDirectory(fork.source_dir, state.service.inspectDirectory(fork.source_dir).manifestDigest, 'fork', { id: 'gugu' }, variant);
   expect(existsSync(path.join(installed.rootDir, '.git'))).toBe(false);
   expect(existsSync(path.join(installed.rootDir, 'node_modules'))).toBe(false);
+});
+
+
+it('waits for the exact Git object of a newly created GitHub fork before pushing its branch', async () => {
+  state.connected = true;
+  state.pendingObjects = 1;
+  const bare = path.join(state.work, 'github-fork.git');
+  git('clone', '--bare', '-q', state.repo, bare);
+  const fork = await createAppFork('demo');
+  expect(state.objectReads).toEqual([fork.commit, fork.commit]);
+  expect(execFileSync('git', ['--git-dir', bare, 'rev-parse', `refs/heads/${fork.branch}`], { encoding: 'utf8' }).trim()).toBe(fork.commit);
 });

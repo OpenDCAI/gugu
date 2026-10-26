@@ -1,5 +1,6 @@
 import { execFile } from 'node:child_process';
 import { promisify } from 'node:util';
+import { setTimeout as delay } from 'node:timers/promises';
 import * as fs from 'node:fs';
 import * as path from 'node:path';
 import { z } from 'zod';
@@ -125,6 +126,16 @@ export async function createAppFork(id: string, requestedName?: string) {
       } catch (error) {
         if ((error as { status?: number }).status !== 404) throw error;
         await client.data.repos.createFork({ owner, repo: repository });
+        // GitHub forks asynchronously; wait for the exact Git object before pushing (GitHub documents up to 5 min).
+        for (let attempt = 0; ; attempt++) {
+          try {
+            await client.data.git.getCommit({ owner: account.login, repo: repository, commit_sha: source.commit });
+            break;
+          } catch (error) {
+            if (![404, 409].includes((error as { status?: number }).status ?? 0) || attempt >= 60) throw error;
+            await delay(5_000);
+          }
+        }
       }
     }
     const remotes = (await git(root, ['remote'])).split('\n');
