@@ -37,8 +37,7 @@ describe('file preview within a task conversation', () => {
     expect(ui.container.querySelector('.task-chat-conversation')?.classList.contains('hidden')).toBe(true)
     expect(ui.container.querySelector('textarea')).toBe(draft)
     expect(draft.value).toBe('unfinished task draft')
-    const header = pane.querySelector('[data-slot="pane-header"]')!
-    const back = header.firstElementChild as HTMLButtonElement
+    const back = pane.querySelector<HTMLButtonElement>('header button[aria-label="Back"]')!
     expect(back.getAttribute('aria-label')).toBe('Back')
     await clickElement(back)
     expect(pane.textContent).toBe('')
