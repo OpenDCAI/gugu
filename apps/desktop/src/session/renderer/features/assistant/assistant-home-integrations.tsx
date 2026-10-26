@@ -128,7 +128,8 @@ export const ConnectorLists = observer(function ConnectorLists({ onOpen }: { onO
       testId={`assistant-connector-${integration.id}`}
       leading={<IntegrationIcon provider={integration.id} icon={integration.icon} size={30} />}
       title={integration.name}
-      detail={detail}
+      detail={detail || '\u00a0'}
+      detailLines={1}
       onClick={() => onOpen(integration.id)}
     />
   );

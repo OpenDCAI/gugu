@@ -1,3 +1,4 @@
+import { parseMemoryNote,memoryIndexHints,readFrontmatter } from '@gugu/core/shared/assistantMemory'
 import { createHash, randomUUID } from 'node:crypto'
 import { readFile, readdir, stat } from 'node:fs/promises'
 import { dirname } from 'node:path'
@@ -153,5 +154,18 @@ export async function collectAssistantPanelFiles(binding: AssistantPanelHome, do
     }
   }
   await walk('')
+  if (domain === 'memory') {
+    const index = result.find(row => row.data.relativePath === 'MEMORY.md')
+    const hints = memoryIndexHints(index?.bytes ? new TextDecoder().decode(index.bytes) : '')
+    for (const row of result) {
+      const path = String(row.data.relativePath)
+      const note = parseMemoryNote(path,new TextDecoder().decode(row.bytes),hints.get(path))
+      row.data = { ...row.data,title: note.title,kind: path === 'owner-profile.md' ? 'user' : note.kind }
+    }
+  }
+  if (domain === 'skills') for (const row of result) {
+    const { fields } = readFrontmatter(new TextDecoder().decode(row.bytes))
+    row.data = { ...row.data,name: fields.name || row.key,description: fields.description ?? '' }
+  }
   return result
 }
