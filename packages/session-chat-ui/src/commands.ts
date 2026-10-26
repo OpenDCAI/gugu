@@ -35,6 +35,7 @@ export const CHAT_VIEW_COMMANDS = [
  * via `view.setCommands(commands)`.
  */
 export type ChatCommands = {
+  onCopyError?: (error: unknown) => void;
   canRevertMessage?: (itemId: string) => boolean;
   onEditMessage?: (arg: { itemId: string }) => void;
   /** Host-owned draft: virtual row reuse must not move it to another message. */

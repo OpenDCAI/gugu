@@ -1,3 +1,4 @@
+import { translateSessionMessage } from '@renderer/localization/locale-store';
 import { messageForUser } from '@/lib/userFacingError';
 import { AlertCircle, Check, Copy, ExternalLink } from '@/lib/icons'
 import { useCallback, useEffect, useRef, useState } from 'react';
@@ -141,7 +142,7 @@ function GithubDeviceFlowModalBody({ onSuccess, onClose, onError }: Omit<GithubD
         log.error('Failed to copy:', err);
         if (!isAutomatic) {
           toast({
-            title: 'Copy failed',
+            title: translateSessionMessage('task.copyFailed'),
             description: messageForUser(err),
             variant: 'destructive',
           });
@@ -205,15 +206,15 @@ function GithubDeviceFlowModalBody({ onSuccess, onClose, onError }: Omit<GithubD
 
     // Auth error
     const cleanupError = events.onEvent(githubAuthErrorChannel, (data) => {
-      setError(data.message || data.error);
+      setError(messageForUser(data.message || data.error));
 
       if (onError) {
         onError(data.error);
       }
 
       toast({
-        title: 'Authentication Failed',
-        description: data.message || 'An error occurred',
+        title: translateSessionMessage('github.authFailed'),
+        description: messageForUser(data.message || data.error),
         variant: 'destructive',
       });
     });

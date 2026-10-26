@@ -1,3 +1,4 @@
+import { messageForUser } from '@/lib/userFacingError';
 import { useAppSettingsKey } from '@renderer/features/settings/use-app-settings-key';
 import { commandRegistry } from '@renderer/lib/commands/registry';
 import { useCommandProvider } from '@renderer/lib/commands/use-command-provider';
@@ -53,14 +54,14 @@ export function useOpenInTargets(path: string) {
         if (!res?.success) {
           toast({
             title: translate('titlebar.openInFailed', { app: label }),
-            description: res?.error || 'Application not available.',
+            description: messageForUser(res?.error),
             variant: 'destructive',
           });
         }
       } catch (e: unknown) {
         toast({
           title: translate('titlebar.openInFailed', { app: label }),
-          description: e instanceof Error ? e.message : String(e),
+          description: messageForUser(e),
           variant: 'destructive',
         });
       }

@@ -1,3 +1,7 @@
+import { log } from '@renderer/utils/logger';
+import { translateSessionMessage } from '@renderer/localization/locale-store';
+import { toast } from '@renderer/lib/hooks/use-toast';
+import { messageForUser } from '@/lib/userFacingError';
 import { observable, runInAction } from 'mobx';
 import type * as monaco from 'monaco-editor';
 import { diffHunks, mergeThreeWay } from '@/session/app-runtime/apply-from';
@@ -5,7 +9,7 @@ import { EDITOR_CONFIRM_FILE_BYTES } from '@renderer/lib/editor/file-size-limits
 import { HEAD_REF, type GitRef } from '@shared/core/git/types';
 import { gitRefToString, refsEqual } from '@shared/core/git/utils';
 import { buildMonacoModelPath, isExternalModelRoot } from './monacoModelPath';
-import { workspaceRpc } from '@renderer/features/sessions/workspace-backend/workspace-backend';
+import { workspaceBackend, workspaceRpc } from '@renderer/features/sessions/workspace-backend/workspace-backend';
 
 const BUFFER_DEBOUNCE_MS = 2000;
 
@@ -837,37 +841,38 @@ export class MonacoModelRegistry {
     const buf = this.modelMap.get(uri);
     if (!buf || buf.type !== 'buffer') return null;
 
-    const content = buf.model.getValue();
-    // Outside the workspace the write goes through writeExternalFile: `writeFile` is gated
-    // to stay inside the workspace, which is the right leash for an agent's plan and the
-    // wrong one for a person saving a file on their own machine (#5585).
-    const result = buf.external
-      ? await workspaceRpc(buf.projectId).files.writeExternalFile(
-          buf.projectId,
-          buf.workspaceId,
-          buf.filePath,
-          content
-        )
-      : await workspaceRpc(buf.projectId).files.writeFile(
-          buf.projectId,
-          buf.workspaceId,
-          buf.filePath,
-          content
-        );
-    if (!result.success) {
-      // 盘上那份在你上次读到之后被别人改过(别的机器的写入带着版本标记,对不上就拒):重读一次,那边的改动
-      // 并进你的缓冲区(与本机外部改动同一条路,两边都留),再把并好的写下去 —— 这就是你按的那一下 ⌘S。
-      if ((result.error as { code?: string }).code === 'conflict' && !merged) {
-        await this.invalidateModel(this.toDiskUri(uri));
-        return this.saveFileToDisk(uri, true);
+    try {
+      const content = buf.model.getValue();
+      // Outside the workspace the write goes through writeExternalFile: `writeFile` is gated
+      // to stay inside the workspace, which is the right leash for an agent's plan and the
+      // wrong one for a person saving a file on their own machine (#5585).
+      const files = workspaceRpc(buf.projectId).files;
+      const write = buf.external ? files.writeExternalFile : files.writeFile;
+      const result = await write(buf.projectId, buf.workspaceId, buf.filePath, content);
+      if (!result.success) {
+        // 盘上那份在你上次读到之后被别人改过(别的机器的写入带着版本标记,对不上就拒):重读一次,那边的改动
+        // 并进你的缓冲区(与本机外部改动同一条路,两边都留),再把并好的写下去 —— 这就是你按的那一下 ⌘S。
+        if ((result.error as { code?: string }).code === 'conflict' && !merged) {
+          await this.invalidateModel(this.toDiskUri(uri));
+          return this.saveFileToDisk(uri, true);
+        }
+        throw new Error(result.error.type === 'not_found' ? translateSessionMessage('taskError.fileNotFound', { path: '[path]' }) : result.error.message);
       }
+
+      this.markSaved(uri);
+      runInAction(() => this.deletedOnDisk.delete(uri));
+      void workspaceRpc(buf.projectId).editor.clearBuffer(buf.projectId, buf.workspaceId, buf.filePath);
+      return content;
+    } catch (error) {
+      log.error('Failed to save file', { path: buf.filePath, error });
+      const name = buf.filePath.split('/').pop() ?? buf.filePath;
+      const machine = workspaceBackend(buf.projectId).machine;
+      const title = machine.kind === 'remote'
+        ? translateSessionMessage('file.saveFailedOn', { name, device: machine.label() })
+        : translateSessionMessage('file.saveFailed', { name });
+      toast({ title, description: messageForUser(error), tier: 'error' });
       return null;
     }
-
-    this.markSaved(uri);
-    runInAction(() => this.deletedOnDisk.delete(uri));
-    void workspaceRpc(buf.projectId).editor.clearBuffer(buf.projectId, buf.workspaceId, buf.filePath);
-    return content;
   }
 
   // ---------------------------------------------------------------------------

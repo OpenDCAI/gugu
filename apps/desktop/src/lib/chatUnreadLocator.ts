@@ -36,11 +36,12 @@ export function markManualUnreadAndRefresh(
 export async function markAllChatsReadAndRefresh(deps: {
   chats: readonly ChatItem[]
   refresh: (options?: { acceptEmpty?: boolean }) => Promise<void>
-}): Promise<{ failedChats: number }> {
+}): Promise<{ failedChats: number; error?: unknown }> {
   const { data, error } = await chatDb.rpc('list_unread_locators', { p_chat_id: null })
   if (error) throw new Error(error.message)
   const seenSeq = new Map(deps.chats.map((chat) => [chat.id, chat.next_message_seq - 1]))
   const failedChatIds = new Set<string>()
+  let failure: unknown
   await Promise.all(((data ?? []) as Array<Record<string, unknown>>).map(async (row) => {
     const chatId = String(row.chat_id)
     const seq = seenSeq.get(chatId)
@@ -51,11 +52,12 @@ export async function markAllChatsReadAndRefresh(deps: {
       else await markMemberRead(chatId, seq)
     } catch (err) {
       failedChatIds.add(chatId)
+      failure ??= err
       unreadLocatorLog.error({ error: String(err), chatId, streamId: row.stream_id }, 'mark all read failed')
     }
   }))
   await deps.refresh({ acceptEmpty: true })
-  return { failedChats: failedChatIds.size }
+  return { failedChats: failedChatIds.size, ...(failedChatIds.size ? { error: failure } : {}) }
 }
 
 export type OpenableUnreadTarget = {

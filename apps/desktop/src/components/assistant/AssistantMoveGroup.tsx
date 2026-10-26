@@ -1,3 +1,4 @@
+import { messageForUser } from '@/lib/userFacingError';
 import { useEffect, useMemo, useState, useSyncExternalStore } from 'react'
 import { useTranslation } from 'react-i18next'
 import { Button } from '../ui/Button'
@@ -36,7 +37,7 @@ function openMembership() {
 export function AssistantMoveGroup({ ownerUserId, assistantId, assistantName, home, localDeviceId, cloudAvailable }: AssistantMoveGroupProps) {
   const { t, i18n } = useTranslation('assistant')
   const [member, setMember] = useState<boolean | null>(null)
-  const [membershipFailed, setMembershipFailed] = useState(false)
+  const [membershipFailed, setMembershipFailed] = useState<string | null>(null)
   const [membershipAttempt, setMembershipAttempt] = useState(0)
   // 一次搬的状态是模块级的:搬着时这一组被换位置重挂,照样读得到;每次状态变都重渲染、重读日志
   // (搬完 / 搬断了「接着搬」那一行才跟着变;读日志只是一次 localStorage)。
@@ -46,13 +47,13 @@ export function AssistantMoveGroup({ ownerUserId, assistantId, assistantName, ho
 
   useEffect(() => {
     let cancelled = false
-    setMembershipFailed(false)
+    setMembershipFailed(null)
     if (!cloudAvailable) { setMember(null); return }
     getMembership()
       .then((m) => !cancelled && setMember(!!m && m.tier !== 'free'))
       .catch((error: unknown) => {
-        log.warn({ error: String(error) }, 'read membership failed')
-        if (!cancelled) setMembershipFailed(true)
+        log.error({ error: String(error) }, 'read membership failed')
+        if (!cancelled) setMembershipFailed(messageForUser(error))
       })
     return () => {
       cancelled = true
@@ -67,7 +68,7 @@ export function AssistantMoveGroup({ ownerUserId, assistantId, assistantName, ho
   const onComputerHere = home.kind === 'computer' && home.thisDevice
   return (
     <SettingsGroup title={t('move.group')} data-testid="assistant-move-group">
-      {membershipFailed ? <SettingsRow title={t('setup.membershipUnreadable')} control={<Button size="sm" onClick={() => setMembershipAttempt((attempt) => attempt + 1)}>{t('setup.retry')}</Button>} /> : null}
+      {membershipFailed ? <SettingsRow title={t('setup.membershipUnreadable')} description={membershipFailed} control={<Button size="sm" onClick={() => setMembershipAttempt((attempt) => attempt + 1)}>{t('setup.retry')}</Button>} /> : null}
       {pending && env ? (
         <SettingsRow
           title={t('move.resumeTitle')}

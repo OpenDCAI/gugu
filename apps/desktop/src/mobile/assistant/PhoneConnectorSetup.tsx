@@ -84,10 +84,10 @@ export function PhoneConnectorSetupPage({
   const view = integrations.data && !integrations.error ? connectorDetail(integrations.data.items, integrations.data.configured, integrations.data.statuses, id) : null
   const rpc = useMemo(() => (homeDeviceId ? machineRpc(homeDeviceId) : null), [homeDeviceId])
   const [done, setDone] = useState<{ displayName?: string } | null>(null)
-  const [browserFailed, setBrowserFailed] = useState(false)
+  const [browserFailed, setBrowserFailed] = useState<string | null>(null)
   const openInBrowser = useCallback((url: string) => {
-    setBrowserFailed(false)
-    void openAuthorizationLink(url).catch(() => setBrowserFailed(true))
+    setBrowserFailed(null)
+    void openAuthorizationLink(url).catch((error) => setBrowserFailed(messageForUser(error)))
   }, [])
   const connected = (displayName?: string) => {
     if (rpc) void reportAssistantAppChange({ rpc }, assistant.id, { resource: 'integrations', operation: 'saved', id,
@@ -100,7 +100,7 @@ export function PhoneConnectorSetupPage({
     <AuthorizationBrowser.Provider value={openInBrowser}>
     <div className="ta-page ta-phone-profile" data-testid="assistant-connector-setup">
       <PageHead title={view ? t('connectors.setup.title', { name: view.item.name }) : t('connectors.title')} />
-      {browserFailed ? <p role="alert" className="ta-phone-error">{t('connectors.setup.openFailed')}</p> : null}
+      {browserFailed ? <p role="alert" className="ta-phone-error">{t('connectors.setup.openFailed')}<br />{browserFailed}</p> : null}
       <CloudGate readiness={readiness} name={name} integrations={integrations}>
         {() =>
           !view || !rpc ? (
@@ -302,7 +302,7 @@ function BrowserSetup({
   const openInBrowser = useContext(AuthorizationBrowser)
   const [state, setState] = useState<OauthState | null>(null)
   const [text, setText] = useState('')
-  const [pasteFailed, setPasteFailed] = useState(false)
+  const [pasteFailed, setPasteFailed] = useState<string | null>(null)
   const [linkCopied, setLinkCopied] = useState(false)
   const handle = useRef<OauthSetupHandle | null>(null)
   const connectedRef = useRef(onConnected)
@@ -313,7 +313,7 @@ function BrowserSetup({
   const start = () => {
     handle.current?.cancel()
     setText('')
-    setPasteFailed(false)
+    setPasteFailed(null)
     const deps: OauthSetupDeps = {
       begin: async (options) => {
         // OAuth 客户端(MCP SDK 的授权那一块)只在人点「前往授权」时才加载。
@@ -339,10 +339,10 @@ function BrowserSetup({
   const paste = async () => {
     try {
       const value = await navigator.clipboard.readText()
-      setPasteFailed(false)
+      setPasteFailed(null)
       onChange(value)
-    } catch {
-      setPasteFailed(true)
+    } catch (error) {
+      setPasteFailed(messageForUser(error))
     }
   }
 
@@ -401,7 +401,7 @@ function BrowserSetup({
       />
       {state.hint || pasteFailed ? (
         <p className="ta-phone-error" role="alert" data-testid="assistant-connector-paste-hint">
-          {pasteFailed ? t('connectors.setup.pasteFailed') : t(`connectors.setup.hint.${state.hint}`)}
+          {pasteFailed ? <>{t('connectors.setup.pasteFailed')}<br />{pasteFailed}</> : t(`connectors.setup.hint.${state.hint}`)}
         </p>
       ) : null}
       <div className="ta-phone-setup-actions">

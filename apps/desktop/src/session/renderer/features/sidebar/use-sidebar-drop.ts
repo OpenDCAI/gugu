@@ -1,3 +1,4 @@
+import { translateSessionMessage } from '@renderer/localization/locale-store';
 import { messageForUser } from '@/lib/userFacingError';
 import { useCallback, useRef, useState } from 'react';
 import { getProjectManagerStore } from '@renderer/features/projects/stores/project-selectors';
@@ -57,24 +58,24 @@ export function useSidebarDrop() {
             });
             if (status.error) {
               toast({
-                title: 'Cannot add project',
-                description: `Could not inspect ${basenameFromAnyPath(filePath)}: ${status.error.message}`,
+                title: translateSessionMessage('sidebar.addProjectFailed'),
+                description: messageForUser(status.error),
                 variant: 'destructive',
               });
               return null;
             }
             if (!status.isDirectory) {
               toast({
-                title: 'Cannot add project',
-                description: 'Drop a folder to add it as a project.',
+                title: translateSessionMessage('sidebar.addProjectFailed'),
+                description: translateSessionMessage('sidebar.dropFolderRequired'),
                 variant: 'destructive',
               });
               return null;
             }
             if (!status.isGitRepo) {
               toast({
-                title: 'Cannot add project',
-                description: `${basenameFromAnyPath(filePath)} is not a git repository.`,
+                title: translateSessionMessage('sidebar.addProjectFailed'),
+                description: translateSessionMessage('sidebar.dropGitRequired', { name: basenameFromAnyPath(filePath) }),
                 variant: 'destructive',
               });
               return null;
@@ -93,7 +94,7 @@ export function useSidebarDrop() {
           } catch (err) {
             log.error('Failed to add dropped project:', err);
             toast({
-              title: 'Cannot add project',
+              title: translateSessionMessage('sidebar.addProjectFailed'),
               description: messageForUser(err),
               variant: 'destructive',
             });

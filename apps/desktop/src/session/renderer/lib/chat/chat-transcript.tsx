@@ -32,6 +32,11 @@ import type {
   TranscriptTurn,
 } from '@gugu/session-chat-ui';
 import { createElement, useEffect, useLayoutEffect, useRef } from 'react';
+import { toast } from '@renderer/lib/hooks/use-toast';
+import { messageForUser } from '@/lib/userFacingError';
+import { translateSessionMessage } from '@renderer/localization/locale-store';
+
+const onCopyError = (error: unknown) => toast({ title: translateSessionMessage('task.copyFailed'), description: messageForUser(error), tier: 'error' });
 
 export type ChatTranscriptProps = Pick<
   ChatViewOptions,
@@ -132,7 +137,7 @@ export function ChatTranscript(props: ChatTranscriptProps): React.ReactElement {
         pinUserMessages: p.pinUserMessages,
         class: p.class,
         contentClass: p.contentClass,
-        commands: p.commands ?? {},
+        commands: { onCopyError, ...p.commands },
         padTop: p.padTop,
         embedded: p.embedded,
         // Thread stable wrappers that read from propsRef at call time — never stale.
@@ -174,9 +179,7 @@ export function ChatTranscript(props: ChatTranscriptProps): React.ReactElement {
 
   // Push command callbacks reactively so inline functions are never stale.
   useEffect(() => {
-    if (props.commands !== undefined) {
-      viewRef.current?.setCommands(props.commands);
-    }
+    viewRef.current?.setCommands({ onCopyError, ...props.commands });
   }, [props.commands]);
 
   // Layout lives on the process-long context (measurement-coupled), not on the

@@ -91,7 +91,7 @@ describe('moveSessionUnder', () => {
     expect(mocks.machines).toEqual([null]);
   });
 
-  it("fails loud: the main process's words go to the log, the toast says what to do next", async () => {
+  it("fails loud: the failed action retains the underlying cause in its toast and log", async () => {
     mocks.setSessionParent.mockRejectedValue(new Error('parent session not found on any of your machines (not reached: Studio)'));
 
     moveSessionUnder(child, parent, null);
@@ -99,7 +99,7 @@ describe('moveSessionUnder', () => {
 
     expect(mocks.expanded.size).toBe(0);
     expect(mocks.toast).toHaveBeenCalledWith(
-      expect.objectContaining({ variant: 'destructive', description: 'sidebar.nestFailedHint' })
+      expect.objectContaining({ variant: 'destructive', description: 'parent session not found on any of your machines (not reached: Studio)' })
     );
     expect(String(mocks.logError.mock.calls[0]?.[1]?.error)).toContain('not reached: Studio');
   });

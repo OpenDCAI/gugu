@@ -20,6 +20,7 @@ export type RecorderSnapshot = {
   /** 连着多久几乎没声音(「未检测到声音」)。 */
   silentMs: number;
   error: RecorderError | null;
+  cause?: unknown;
 };
 
 export type RecordedSegment = {
@@ -100,7 +101,7 @@ class VoiceRecorder {
   }
 
   clearError() {
-    if (this.snapshot.error) this.set({ error: null });
+    if (this.snapshot.error) this.set({ error: null, cause: undefined });
   }
 
   /** 开始录:先问系统要麦克风(macOS 第一次会弹框),再开录。拿不到麦克风 = false,原因在 snapshot.error。 */
@@ -110,7 +111,7 @@ class VoiceRecorder {
     this.set({ ...IDLE, phase: 'starting' });
     const mime = pickMime();
     if (!mime) {
-      this.set({ phase: 'idle', error: 'capture_failed' });
+      this.set({ phase: 'idle', error: 'capture_failed', cause: new Error('This device does not support the available audio recording formats.') });
       return false;
     }
     const permission = (await invokeOnMachine(null, VOICE_NOTE_MICROPHONE_CHANNEL, 'request').catch(() => 'granted')) as VoiceNoteMicrophoneStatus;
@@ -125,7 +126,7 @@ class VoiceRecorder {
       });
     } catch (error) {
       const name = error instanceof DOMException ? error.name : '';
-      this.set({ phase: 'idle', error: name === 'NotFoundError' || name === 'OverconstrainedError' ? 'mic_missing' : name === 'NotAllowedError' ? 'mic_denied' : 'capture_failed' });
+      this.set({ phase: 'idle', cause: error, error: name === 'NotFoundError' || name === 'OverconstrainedError' ? 'mic_missing' : name === 'NotAllowedError' ? 'mic_denied' : 'capture_failed' });
       return false;
     }
     if (this.cancelled) {
@@ -159,13 +160,13 @@ class VoiceRecorder {
       live.run = this.openSegment(live, 0, 0);
       this.live = live;
       for (const track of stream.getAudioTracks()) track.addEventListener('ended', () => this.interrupt());
-    } catch {
+    } catch (error) {
       // 开不起来(编码器、音频设备出错):把麦克风还回去,回到没在录,❌ 卡在「正在开始录音…」。
       if (timer) clearInterval(timer);
       for (const track of stream.getTracks()) track.stop();
       void context?.close().catch(() => undefined);
       this.live = null;
-      this.set({ ...IDLE, error: 'capture_failed' });
+      this.set({ ...IDLE, error: 'capture_failed', cause: error });
       return false;
     }
     this.set({ phase: 'recording' });
