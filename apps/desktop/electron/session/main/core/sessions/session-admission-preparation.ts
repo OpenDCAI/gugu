@@ -1,5 +1,5 @@
 import { setNativePromptPreparation } from '@gugu/session-runtime/acp-agents'
-export type SessionAdmissionPreparation = { text: string; trailingText?: string; accepted(): Promise<void>; assistantPanel?: true }
+export type SessionAdmissionPreparation = { text: string; beforeText?: string; accepted(): Promise<void>; assistantPanel?: true }
 type Prepare = (sessionId: string, text: string) => Promise<SessionAdmissionPreparation>
 let prepare: Prepare | null = null
 const panelSessions = new Set<string>()

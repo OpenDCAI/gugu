@@ -63,6 +63,7 @@ it.each(['computer', 'cloud'] as const)('keeps the complete %s handbook retrieva
     const instructions = assistantHomePaths(root, cwd, kind).instructions
     const full = assistantGuide(kind)
     const outdated = full.replaceAll('profile_rules: 5', 'profile_rules: 1').replaceAll('关于你v3', '关于你v1')
+      .replace('你是个人助理', '你是主人的个人代理，电脑睡了或关了以后再处理')
     expect(outdated).toContain('profile_rules: 1')
     await writeFile(instructions, `Owner instructions before\n${outdated}\nOwner instructions after`)
     await writeFile(join(cwd, 'memory.md'), 'durable owner memory')
@@ -70,7 +71,7 @@ it.each(['computer', 'cloud'] as const)('keeps the complete %s handbook retrieva
     const brief = await readFile(instructions, 'utf8')
     expect(brief).toContain('Owner instructions before')
     expect(brief).toContain('Owner instructions after')
-    expect(brief).toContain('主人明确要求当作任务')
+    expect(brief).toContain('明确要求当作任务')
     expect(brief).toContain('宿主自动补齐执行约定')
     expect(brief).toContain('关于你：按宿主整理要求处理，不自行重查版本。')
     expect(full).toContain('不依赖模型碰巧读到索引')
@@ -82,17 +83,18 @@ it.each(['computer', 'cloud'] as const)('keeps the complete %s handbook retrieva
     expect(full).toContain('即使当天已聊过，缺失/不同仍在下一轮整理')
     // Both the resident instructions and the on-demand handbook carry the owner-facing boundary.
     for (const text of [brief, full]) {
+      expect(text).not.toMatch(/主人|用户|电脑睡|机器睡|叫醒/)
       expect(text).toContain('不展示会话、work、设备、job 的内部编号')
       expect(text).toContain('Pi 运行时、ACP')
       expect(text).toContain('用任务标题、设备名和可点击链接')
       expect(text).toContain('不说「我猜」')
-      expect(text).toContain('不请主人核对完整 ID')
+      expect(text).toContain('不要求核对完整 ID')
       expect(text).toContain('先查原记录')
       expect(text).toContain('仍查不到就说明已知事实与缺口')
       expect(text).toContain('做好了但交不回')
     }
     expect(brief).toContain("Don't ask by default")
-    expect(brief).toContain('主人明确要求先问后做时照办')
+    expect(brief).toContain('明确要求先问后做时照办')
     expect(brief).toContain('缺授权的花钱、对外发送、删除或改动')
     expect(brief).toContain('.gugu-assistant-reference.md')
     expect(brief).not.toContain('"batches"')
