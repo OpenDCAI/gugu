@@ -1,4 +1,4 @@
-import { DndContext, type DropAnimationFunction } from '@dnd-kit/core';
+import { DndContext, useDndContext, type DropAnimationFunction } from '@dnd-kit/core';
 import { act } from 'react';
 import { afterEach, expect, it, vi } from 'vitest';
 import { cdp, page, userEvent } from 'vitest/browser';
@@ -24,6 +24,7 @@ vi.mock('@gugu/core/cloud/config', async (original) => ({ ...(await original<obj
 
 let harness: ReturnType<typeof createReactHarness>;
 let layout: PaneLayoutStore;
+let dropContext: ReturnType<typeof useDndContext>;
 const records: { node: Element; animation: Animation }[] = [];
 let orderAtDrop: string[] = [];
 const provider = createTabProvider({
@@ -43,9 +44,12 @@ const order = () => [...harness.container.querySelectorAll<HTMLElement>('.sessio
 const lefts = () => new Map(pane().tabOrder.map(tabId => [tabId, harness.container.querySelector<HTMLElement>(`[data-tabid="${tabId}"]`)!.getBoundingClientRect().left]));
 const settled = () => until('tab movement finishes', () => [...harness.container.querySelectorAll('.session-tab-slot')].every(e => e.getAnimations().length === 0));
 
+function DropContext() { dropContext = useDndContext(); return null; }
+
 function Strip() {
   const drag = useTabDrag({ layout, blockId: null, contentOf: () => null, openWindow: () => null });
   return <PaneLayoutProvider paneLayout={layout}><DndContext sensors={drag.sensors} onDragStart={drag.onDragStart} onDragMove={drag.onDragMove} onDragEnd={event => { orderAtDrop = order(); drag.onDragEnd(event); }} onDragCancel={drag.onDragCancel}>
+    <DropContext />
     <PaneContext.Provider value={{ paneId: layout.groups[0].paneId, pane: pane(), isFocusedPane: true }}>
       <div style={{ width: 800, display: 'flex', flexDirection: 'column' }}><TabBar /></div>
       <button onClick={() => layout.open('motion-fixture', { id: 'New' }, { beside: true, activate: false })}>open beside</button>
@@ -134,15 +138,19 @@ it('makes room during a real pointer drag using the same movement, then commits 
 });
 
 it('holds the dropped overlay at its destination until dnd-kit removes it', async () => {
-  harness = createReactHarness();
+  await page.viewport(1280, 800); await mount();
   const source = document.createElement('div'), overlay = document.createElement('div');
   source.style.cssText = 'position:fixed;left:100px;top:40px;width:120px;height:34px;opacity:.6';
   overlay.style.cssText = 'position:fixed;left:260px;top:48px;width:120px;height:34px';
   harness.container.append(source, overlay);
   const destination = source.getBoundingClientRect();
+  const { draggableNodes, droppableContainers, measuringConfiguration } = dropContext;
   const completion = (tabDropAnimation as DropAnimationFunction)({
-    active: { node: source }, dragOverlay: { node: overlay, rect: overlay.getBoundingClientRect() },
-  } as Parameters<DropAnimationFunction>[0]);
+    active: { id: 'landing', data: { current: {} }, node: source, rect: destination },
+    dragOverlay: { node: overlay, rect: overlay.getBoundingClientRect() },
+    transform: { x: 0, y: 0, scaleX: 1, scaleY: 1 },
+    draggableNodes, droppableContainers, measuringConfiguration,
+  });
   expect(source.style.opacity).toBe('0');
   await completion;
   expect(source.style.opacity).toBe('0.6');
