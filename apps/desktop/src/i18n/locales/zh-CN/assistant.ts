@@ -476,6 +476,7 @@ export default {
     "noContent": "暂无内容。",
     "editInChat": "在对话中修改",
     "editPrompt": "关于“{{name}}”这条记忆，我想改一下：",
+    "editAboutMePrompt": "你记的关于我的那些，我想改一下：",
     "deleteTitle": "删除这条记忆？",
     "deleteBody": "“{{name}}”将被永久移除。此操作无法撤销。",
     "deleted": "已删除",

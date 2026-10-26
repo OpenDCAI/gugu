@@ -7,6 +7,7 @@
 import {
   ASSISTANT_RESOURCES_DIR_NAME,
   assistantHomePaths,
+  OWNER_PROFILE_MEMORY_FILE,
   type AssistantHomeKind,
   type AssistantHomePaths,
 } from '@gugu/core/shared/assistantPolicy';
@@ -100,6 +101,14 @@ export type MemoryNote = {
   kind: MemoryKind;
   body: string;
 };
+
+/**
+ * 开通时写进记忆夹的那一条(owner-profile.md)。文件里叫「关于主人」,那是写给助理自己读的名字;
+ * 界面上对人一律叫「关于你」(owner 10-26:「我叫主人别人可能不叫主人」),❌ 把「主人」「用户」原样摆给人看。
+ */
+export function isOwnerProfileNote(note: { file: string }): boolean {
+  return note.file === OWNER_PROFILE_MEMORY_FILE;
+}
 
 const MEMORY_KINDS: readonly MemoryKind[] = ['user', 'feedback', 'project', 'reference'];
 const memoryKind = (value: string | undefined): MemoryKind | undefined => {

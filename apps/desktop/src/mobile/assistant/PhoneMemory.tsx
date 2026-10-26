@@ -5,7 +5,7 @@ import { Markdown } from '@/components/markdown/Markdown'
 import { useToast } from '@/components/toastContext'
 import { Button } from '@/components/ui/Button'
 import { Folder, Heart, Mic, Sparkles, SquarePen, Trash2 } from '@/lib/icons'
-import { RESOURCES_DIR_NAME, type MemoryKind } from '@/session/renderer/features/assistant/assistant-files'
+import { isOwnerProfileNote, RESOURCES_DIR_NAME, type MemoryKind } from '@/session/renderer/features/assistant/assistant-files'
 import { readMemoryNotes, type MemoryEntry } from '@/session/renderer/features/assistant/assistant-machine-core'
 import { AssistantEmpty, AssistantRow, AssistantSection, ownerLeading, PageHead } from '@/session/renderer/features/assistant/assistant-ui-parts'
 import { useAuth } from '@/store/auth'
@@ -99,7 +99,7 @@ function AboutYou({ askInChat, go, notes }: PhonePageProps & { notes: MemoryEntr
           </Button>
         </div>
       ) : (
-        aboutYou.map(entry => <AssistantRow key={entry.file} leading={ownerLeading(owner)} title={entry.title} detailLines={4}
+        aboutYou.map(entry => <AssistantRow key={entry.file} leading={ownerLeading(owner)} title={isOwnerProfileNote(entry) ? t('memory.filter.user') : entry.title} detailLines={4}
           detail={entry.description || (entry.modifiedAt ? t('memory.updated', { time: time(entry.modifiedAt) }) : undefined)} onClick={() => go(`note:${entry.file}`)} />)
       )}
     </AssistantSection>
@@ -172,15 +172,17 @@ function MemoryNoteBody({ assistant, askInChat, go, notes, machine, note }: Open
   const time = useTime()
   const [confirming, setConfirming] = useState(false)
   const name = assistant.display_name
+  const aboutMe = isOwnerProfileNote(note)
+  const title = aboutMe ? t('memory.filter.user') : note.title
   return (
     <div className="ta-page" data-testid="assistant-memory-detail">
-      <PageHead title={note.title} sub={[kindLabel(note.kind, t, name), note.modifiedAt ? t('memory.updated', { time: time(note.modifiedAt) }) : null].filter(Boolean).join(' · ')} />
+      <PageHead title={title} sub={[aboutMe ? null : kindLabel(note.kind, t, name), note.modifiedAt ? t('memory.updated', { time: time(note.modifiedAt) }) : null].filter(Boolean).join(' · ')} />
       <div className="ta-card ta-prose" data-testid="assistant-memory-body">
         <Markdown trust="chat" content={note.body || t('memory.noContent')} />
       </div>
       <p className="ta-page-sub ta-pad">{t('memory.createdBy', { name })}</p>
       <div className="ta-phone-row-actions">
-        <Button variant="ghost" className="ta-pill-btn" onClick={() => askInChat(t('memory.editPrompt', { name: note.title }))} data-testid="assistant-memory-edit">
+        <Button variant="ghost" className="ta-pill-btn" onClick={() => askInChat(aboutMe ? t('memory.editAboutMePrompt') : t('memory.editPrompt', { name: note.title }))} data-testid="assistant-memory-edit">
           <SquarePen />
           {t('memory.editInChat')}
         </Button>
@@ -192,7 +194,7 @@ function MemoryNoteBody({ assistant, askInChat, go, notes, machine, note }: Open
       <PhoneConfirmDialog
           open={confirming}
           title={t('memory.deleteTitle')}
-          body={t('memory.deleteBody', { name: note.title })}
+          body={t('memory.deleteBody', { name: title })}
           confirmLabel={t('common.delete')}
           failedText={t('memory.deleteFailed')}
           testId="assistant-memory-delete-dialog"

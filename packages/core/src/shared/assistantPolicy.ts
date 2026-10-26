@@ -193,7 +193,8 @@ export function ownerProfileMemoryFile(markdown: string): string {
   return [
     '---',
     `name: ${OWNER_PROFILE_MEMORY_NAME}`,
-    'description: 主人在开通时告诉我的称呼和基本信息',
+    // 这一句会原样出现在记忆页上(人看得到),也会被助理读:❌ 写「主人」「用户」,也不用「你 / 我」这类两头读法相反的代词。
+    'description: 开通时填的称呼和基本信息',
     'type: user',
     '---',
     '',

@@ -476,6 +476,7 @@ export default {
     "noContent": "Nothing here yet.",
     "editInChat": "Edit in chat",
     "editPrompt": "I'd like to change the memory “{{name}}”: ",
+    "editAboutMePrompt": "About what you've noted about me, I'd like to change: ",
     "deleteTitle": "Delete this memory?",
     "deleteBody": "“{{name}}” will be removed permanently. This can't be undone.",
     "deleted": "Deleted",
