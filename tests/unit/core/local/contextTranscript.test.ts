@@ -18,6 +18,18 @@ async function fixture(source: 'claude-code' | 'codex', entries: unknown[]) {
 }
 
 describe('the existing transcript parser context view', () => {
+  it('extracts paths from Codex code-mode exec input using the shell input rule', async () => {
+    const { path, options } = await fixture('codex', [
+      { type: 'session_meta', payload: { id: 'codex-exec', cwd: '/project' } },
+      { type: 'response_item', payload: { type: 'custom_tool_call', call_id: 't', name: 'exec', input: 'const r = await tools.exec_command({cmd:"cat /project/AGENTS.md"}); text(r.output)' } },
+      { type: 'response_item', payload: { type: 'custom_tool_call_output', call_id: 't', output: '/never/output.md' } },
+      { type: 'response_item', payload: { type: 'reasoning', summary: [{ text: '/never/reasoning.md' }] } },
+    ])
+    const context = await readLocalTranscript(path, 'codex', { ...options, view: 'context' })
+    expect(context.refs).toEqual(['/project/AGENTS.md'])
+    expect(JSON.stringify(context)).not.toMatch(/output|reasoning/)
+  })
+
   it('attributes a qualified truncation warning to its file when loaded files share a basename', async () => {
     const { path, options } = await fixture('claude-code', [
       { type: 'attachment', sessionId: 'claude-main', attachment: { type: 'instructions', files: [

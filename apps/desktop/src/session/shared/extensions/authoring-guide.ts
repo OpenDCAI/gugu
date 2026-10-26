@@ -289,7 +289,7 @@ Needs \`agents:history:all\` (API 17, including external CLI sessions):
   turns are \`{ role, content, createdAt }\`, default 50. No thinking/tool output.
   \`view:'context'\` instead returns compact \`loaded, nested, refs\` with the same metadata, no bodies:
   loaded \`[{path:null|string,kind:'instruction-file'|'rendered-total'|'base-instructions',scope:null|string,chars,truncated,at}]\`;
-  nested \`[{path,at}]\`; refs are distinct paths from file/shell tool inputs. Claude records rendered totals and instruction
+  nested \`[{path,at}]\`; refs are distinct paths from file/shell tool inputs, including Codex code-mode exec. Claude records rendered totals and instruction
   attachments; Codex records base instructions and world_state AGENTS.md snapshots. Missing observations stay absent.
   Timestamps can be null. Context is one summary per transcript, not a turns page.
 - Both follow a task's machine by default; \`device:'device:<id>'\` explicitly chooses a computer without any task.

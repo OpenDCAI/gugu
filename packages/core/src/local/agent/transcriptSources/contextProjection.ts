@@ -6,7 +6,7 @@ export type ContextFrame = Partial<Pick<TranscriptContext, 'loaded' | 'nested' |
 /** Only the input of the source's file/shell tools. No outputs, reasoning or free-text conversation is inspected. */
 export function contextToolRefs(name: string, input: unknown): string[] {
   const tool = name.split('.').at(-1)
-  if (!tool || !['Read', 'Edit', 'Write', 'Bash', 'exec_command'].includes(tool)) return []
+  if (!tool || !['Read', 'Edit', 'Write', 'Bash', 'exec_command', 'exec'].includes(tool)) return []
   if (typeof input === 'string') {
     try { input = JSON.parse(input) } catch { /* Native custom tools may pass plain shell text. */ }
   }
