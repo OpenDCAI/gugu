@@ -8,6 +8,7 @@ import { subscribePrivateUserEventBus, unsubscribePrivateUserEventBus } from '@/
 import type { AssistantPanelBridge, AssistantPanelWindow } from '@/lib/assistantPanelBridge'
 import { assistantPanelCloud, assistantPrivateChat, assertAssistantPanelOwner, personalAssistant, queueAssistantAppChange } from './assistant-panel-cloud'
 import { ASSISTANT_PANEL_CHANGED } from './assistant-panel-events'
+import { assistantPanelCacheStore } from './assistant-panel-cache'
 
 const bridge: AssistantPanelBridge = {
   work: assistantWorkReads,
@@ -22,6 +23,7 @@ const bridge: AssistantPanelBridge = {
       return { token,chatId,ownerId,accountId: () => getRendererSession()?.user.id ?? null }
     }
     return createAssistantPanelFiles({ ownerId,assistantId,deviceId,cloud: assistantPanelCloud,
+      cache: assistantPanelCacheStore().files(ownerId,assistantId),
       assertCurrent: () => assertAssistantPanelOwner(ownerId),
       readBody: (item,signal) => readAssistantPanelBody(item,{ ...access(),signal }),
       upload: (name,bytes,contentType) => uploadAssistantPanelBody({ ...access(),name,bytes,contentType }),
@@ -38,7 +40,7 @@ const bridge: AssistantPanelBridge = {
     assertAssistantPanelOwner(ownerId)
     const handle = domain==='work'
       ? subscribePrivateUserEventBus(ownerId,'assistant_work_changed',listener,{onSubscribed:()=>listener()})
-      : subscribePrivateUserEventBus(ownerId,'assistant_panel_changed',listener)
+      : subscribePrivateUserEventBus(ownerId,'assistant_panel_changed',listener,{onSubscribed:()=>listener()})
     return () => unsubscribePrivateUserEventBus(handle)
   },
   personalAssistant,
@@ -48,5 +50,6 @@ const bridge: AssistantPanelBridge = {
 
 /** App entry only: install before the embedded session-page bundle mounts. */
 export function installAssistantPanelHost(w: Window = window): void {
+  void assistantPanelCacheStore().ready;
   (w as AssistantPanelWindow).__GUGU_ASSISTANT_PANEL__ = bridge
 }
