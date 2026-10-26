@@ -14,10 +14,11 @@ export type AssistantWorkHostContext = AssistantWorkOutboxContext & { client: As
 /** The host owns only transport. Task creation/terminal commits are installed by the ledger bridge. */
 export function createAssistantWorkOutboxHost(deps: {
   context(): Promise<AssistantWorkHostContext | null>
-  deliverLocal(event: AssistantWorkDeliveryEvent): Promise<{ admitted: boolean; messageId: string }>
+  deliverLocal(event: AssistantWorkDeliveryEvent): Promise<{ admitted: boolean; messageId: string; receipt?: Record<string, unknown> }>
   prepareRemote(deviceId: string): Promise<void>
   requestRemote(deviceId: string, type: string, payload: unknown, signal: AbortSignal): Promise<DeviceRpcResponse<unknown>>
   subscribe(ownerId: string, changed: () => void): Promise<() => void>
+  afterDrain?: () => Promise<void>
   warn(detail: { code: string; messageId?: string }): void
 }) {
   let subscriptionOwner: string | null = null
@@ -88,11 +89,19 @@ export function createAssistantWorkOutboxHost(deps: {
     context: deps.context,
     async kick(): Promise<void> {
       if (stopped) return
-      try { await ensureSubscription(); await pump.kick() }
+      try {
+        void ensureSubscription().catch(() => deps.warn({code:'WORK_EVENTS_UNAVAILABLE'}))
+        await pump.kick(); await deps.afterDrain?.()
+      }
       catch { deps.warn({ code: 'WORK_OUTBOX_UNAVAILABLE' }) }
     },
     rpcHandlers(): DeviceRpcHandlers {
-      return { [ASSISTANT_WORK_DELIVERY_RPC]: async (payload, ctx) => {
+      return { 'assistantWork.reconcile': async (_payload, ctx) => {
+        const current = await deps.context()
+        if (!current || current.ownerId !== ctx.request.user_id) return {error:{code:'OWNER_CHANGED',message:'Account changed'}}
+        void this.kick()
+        return {result:{accepted:true}}
+      }, [ASSISTANT_WORK_DELIVERY_RPC]: async (payload, ctx) => {
         try { return { result: await receiver.receive(payload, ctx.request.user_id) } }
         catch (error) {
           const code = (error as { code?: unknown })?.code
