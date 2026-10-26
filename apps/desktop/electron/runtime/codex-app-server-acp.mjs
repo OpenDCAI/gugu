@@ -1100,7 +1100,7 @@ function acpToolStatus(status, fallback) {
  *
  * `fallbackId` 兜住历史条目没有 id 的情况:共用空串会让多条工具调用折叠成同一个条目。
  */
-function replayItem(item, fallbackId, revertAnchor) {
+function replayItem(item, fallbackId, revertAnchor, steering) {
   if (subagents.replayItem(item)) return
   const type = String(item?.type ?? '')
   const messageId = String(item?.id ?? '') || fallbackId
@@ -1108,7 +1108,8 @@ function replayItem(item, fallbackId, revertAnchor) {
     // live 从不回声用户消息(客户端自己就有);重放时客户端手里是空的,这条只能由适配器补。
     // 复用 textPrompt:多段文本的连接方式必须和发送侧一致,否则重放出来的话和当初发出去的不一样。
     const text = joinPromptText(item?.content)
-    if (text) sessionUpdate({ sessionUpdate: 'user_message_chunk', messageId, content: { type: 'text', text }, ...(revertAnchor ? { _meta: { guguRevertAnchor: revertAnchor } } : {}) })
+    const meta = steering ? { guguSteering: true } : revertAnchor ? { guguRevertAnchor: revertAnchor } : null
+    if (text) sessionUpdate({ sessionUpdate: 'user_message_chunk', messageId, content: { type: 'text', text }, ...(meta ? { _meta: meta } : {}) })
     return
   }
   if (type === 'agentMessage') {
@@ -1281,7 +1282,8 @@ async function replayHistory(threadId, generation, deadline) {
       // 每轮之间再查一次:重放一条长会话要写几千行,期间宿主完全可能已经重来一次 load。
       if (generation !== loadGeneration) return
       // A native turn may also contain steered inputs; only its leading prompt is a turn boundary.
-      replayItem(items[j], `${String(turn?.id ?? `turn-${i}`)}:${j}`, historyCanRevert && !userSeen ? turn.id : undefined)
+      // The later ones carry the same steering mark the live insert had, so reopen keeps them in this turn.
+      replayItem(items[j], `${String(turn?.id ?? `turn-${i}`)}:${j}`, historyCanRevert && !userSeen ? turn.id : undefined, userSeen)
       if (items[j]?.type === 'userMessage') userSeen = true
     }
   }
