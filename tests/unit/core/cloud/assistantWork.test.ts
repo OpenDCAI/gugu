@@ -18,6 +18,16 @@ const event = () => ({ owner_user_id: owner,work_id: work,message_id: message,se
   owner_delivered_at: null,owner_chat_id: null,owner_message_id: null,delivery_state: 'pending' })
 
 describe('account assistant work client', () => {
+  it('opens a prepared work directly by id before its executor has an agent identity',async()=>{
+    const transport=vi.fn().mockResolvedValue({data:{work:row(),events:[],next_after:null},error:null})
+    const detail=await createAssistantWorkClient(transport,()=>owner).get(assistant,work)
+    expect(detail.work).toMatchObject({work_id:work,executors:[{session_id:'task-session',agent_user_id:null}]})
+    expect(transport).toHaveBeenCalledExactlyOnceWith('assistant_work_history',expect.objectContaining({p_assistant:assistant,p_work_id:work}))
+  })
+  it('rejects a direct task lookup whose work belongs to another assistant',async()=>{
+    const transport=vi.fn().mockResolvedValue({data:{work:{...row(),assistant_user_id:owner},events:[],next_after:null},error:null})
+    await expect(createAssistantWorkClient(transport,()=>owner).get(assistant,work)).rejects.toMatchObject({code:'invalid-response'})
+  })
   it('skips a malformed task without losing the following page cursor',async()=>{
     const warn=vi.spyOn(console,'warn').mockImplementation(()=>{})
     try {

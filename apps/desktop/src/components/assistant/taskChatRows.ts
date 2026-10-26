@@ -26,7 +26,7 @@ export function taskChatRows(messages: readonly MessageItem[], exchanges: readon
     if (seen.has(entry.id) || (query && !entry.content.toLowerCase().includes(query.toLowerCase()))) continue
     seen.add(entry.id)
     rows.push({
-      type: 'task-exchange', recipientUserId: fromAssistant ? task.taskAgentId : task.assistantId,
+      type: 'task-exchange', recipientUserId: fromAssistant ? task.taskAgentId??task.task.sessionId : task.assistantId,
       message: {
         id: `session-direct:${entry.id}`, chat_id: messages[0]?.chat_id ?? '', seq: -1,
         sender_user_id: fromAssistant ? task.assistantId : task.taskAgentId, to_user_ids: null,

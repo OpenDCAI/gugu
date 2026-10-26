@@ -25,6 +25,7 @@ function read<T>(action:(client:WorkClient)=>Promise<T>):Promise<T> {
 }
 // Pagination shares one cancellation signal and one deadline for the whole read.
 const client:WorkClient={
+  get:(...args)=>read(client=>client.get(...args)),
   list:(...args)=>read(client=>client.list(...args)),
   history:(...args)=>read(client=>client.history(...args)),
   listAll:(...args)=>read(client=>client.listAll(...args)),
