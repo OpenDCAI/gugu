@@ -220,9 +220,11 @@
 .ta-chat > * { background: transparent !important; }
 .ta-chat [data-chat-area-header] { background: transparent !important; }
 /* 输入区那一块不要底色:输入条浮在渐变上;消息从头像那一排底下淡出来。 */
-/* 输入框和消息同一条边线:左右都离这一列 16px(dock 自己的 16,输入区不再另加一层);底边贴列底,和右边面板的底边对齐。 */
+/* 输入框和消息同一条边线:左右都离这一列 16px(dock 自己的 16,输入区不再另加一层)。 */
 .ta-chat [data-chat-composer] { background: transparent !important; padding: 0 !important; }
 .ta-chat [data-chat-bottom-dock] > div { padding-bottom: 0 !important; }
+/* 电脑上底边落在右边面板的内容线上(面板 1px 边 + 16 内距):面板里开着任务聊天时,两个输入框上下齐平。 */
+.ta-chat-col [data-chat-bottom-dock] > div { padding-bottom: 17px !important; }
 .ta-chat [data-msg-id] > div { padding-inline: 16px !important; }
 /* 最后一条和输入框之间留 16px;露着「灵感」时再让出胶囊那一行(32 + 上下各 8),见下面 data-ideas-entry。 */
 .ta-chat-col [data-testid='chat-message-list'] { padding-bottom: 16px; }
