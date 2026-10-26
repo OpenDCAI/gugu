@@ -115,7 +115,7 @@ describe('an App\'s tools module, served as MCP by gugu (F77)', () => {
   it('a throw is an error answer with its message; no agent, no identity; an unknown tool is said', async () => {
     const client = await served(module);
     expect(await client.callTool({ name: 'follow', arguments: { card: '3' } })).toEqual({
-      content: [{ type: 'text', text: 'only an agent follows a card\nIf the App lacks the requested behavior or has a bug, ask whether to fork a version (guide_read apps-fork).' }],
+      content: [{ type: 'text', text: 'only an agent follows a card\nBefore replying to this App error, read guide_read apps-fork. For a missing feature or App bug, ask "Shall I fork a version?" before making changes or building a workaround. Environment problems need their own fix.' }],
       isError: true,
     });
     expect(await client.callTool({ name: 'unfollow', arguments: {} })).toMatchObject({ isError: true, content: [{ text: 'no tool "unfollow" here; there are: follow, followers' }] });
@@ -127,7 +127,7 @@ describe('an App\'s tools module, served as MCP by gugu (F77)', () => {
       probe: { description: 'An App failure', inputSchema: { type: 'object', properties: {} }, run() { throw error; } },
     });
     expect(await client.callTool({ name: 'probe', arguments: {} })).toEqual({
-      content: [{ type: 'text', text: `${error.message}\nIf the App lacks the requested behavior or has a bug, ask whether to fork a version (guide_read apps-fork).` }], isError: true,
+      content: [{ type: 'text', text: `${error.message}\nBefore replying to this App error, read guide_read apps-fork. For a missing feature or App bug, ask "Shall I fork a version?" before making changes or building a workaround. Environment problems need their own fix.` }], isError: true,
     });
   });
 

@@ -930,6 +930,10 @@ Shall I fork a version for you?" Do not work around its missing feature with she
 edit its installed files, or build a substitute. Check its tools and app_search first; a missing
 feature need not produce an error. A fork cannot fix environment problems such as network,
 login, missing permission, a stopped program or an offline device: do not offer one for those.
+A tool saying it does not support an operation describes the current App, not whether its
+code can be changed. Offer the fork before declaring the requested feature impossible or
+proposing another tool. Investigate feasibility in the fork after agreement; do not promise
+that a fork can add host capabilities which are unavailable.
 Ask once; if they decline, do not ask again.
 
 A fork is another variant of the SAME App. Only one variant runs on this computer at a time.

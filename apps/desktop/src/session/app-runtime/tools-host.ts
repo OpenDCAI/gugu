@@ -102,7 +102,7 @@ export async function serveTools(tools: ReadonlyMap<string, AppTool>, transport:
       return text(typeof value === 'string' ? value : (JSON.stringify(value) ?? ''));
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
-      const hint = '\nIf the App lacks the requested behavior or has a bug, ask whether to fork a version (guide_read apps-fork).';
+      const hint = '\nBefore replying to this App error, read guide_read apps-fork. For a missing feature or App bug, ask "Shall I fork a version?" before making changes or building a workaround. Environment problems need their own fix.';
       return { ...text(message + hint), isError: true };
     }
   });
