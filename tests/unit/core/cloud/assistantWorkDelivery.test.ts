@@ -1,0 +1,33 @@
+import { describe, expect, it, vi } from 'vitest'
+import { createAssistantWorkDeliveryReceiver, type AssistantWorkDeliveryEvent } from '../../../../packages/core/src/cloud/assistantWorkDelivery'
+
+const event: AssistantWorkDeliveryEvent = { message_id: 'message', work_id: 'work', kind: 'completed', from_session_id: 'executor', from_device_id: 'phone',
+  to_session_id: 'assistant', to_device_id: 'cloud', content: 'current result', source_available: true, attachment_refs: [], platform_received_at: '2026-10-26T00:00:00Z' }
+function fixture(row = event) {
+  const read = vi.fn(async () => row)
+  const deliver = vi.fn(async () => ({ messageId: 'message', admitted: true }))
+  const receiver = createAssistantWorkDeliveryReceiver({ context: async () => ({ ownerId: 'owner', deviceId: 'cloud' }), read, deliver })
+  return { receiver, read, deliver }
+}
+describe('work delivery receiver', () => {
+  it('reads the canonical cloud event and preserves its stable identity and timestamp', async () => {
+    const f = fixture()
+    await expect(f.receiver.receive({ assistant_id: 'agent', work_id: 'work', message_id: 'message' }, 'owner')).resolves.toEqual({ status: 'admitted', messageId: 'message' })
+    expect(f.deliver).toHaveBeenCalledWith(expect.objectContaining({ message_id: 'message', content: 'current result', platform_received_at: '2026-10-26T00:00:00Z' }))
+  })
+  it('does not use the sender cached body after its source becomes invisible', async () => {
+    const f = fixture({ ...event, source_available: false, content: null } as never)
+    await expect(f.receiver.receive({ assistant_id: 'agent', work_id: 'work', message_id: 'message', content: 'old cached result' }, 'owner')).rejects.toMatchObject({ code: 'SOURCE_UNAVAILABLE' })
+    expect(f.deliver).not.toHaveBeenCalled()
+  })
+  it('rejects a different owner before reading any work', async () => {
+    const f = fixture()
+    await expect(f.receiver.receive({ assistant_id: 'agent', work_id: 'work', message_id: 'message' }, 'other')).rejects.toMatchObject({ code: 'OWNER_CHANGED' })
+    expect(f.read).not.toHaveBeenCalled()
+  })
+  it('rejects a different destination device and never injects a model message', async () => {
+    const f = fixture({ ...event, to_device_id: 'another' })
+    await expect(f.receiver.receive({ assistant_id: 'agent', work_id: 'work', message_id: 'message' }, 'owner')).rejects.toMatchObject({ code: 'WRONG_DEVICE' })
+    expect(f.deliver).not.toHaveBeenCalled()
+  })
+})
