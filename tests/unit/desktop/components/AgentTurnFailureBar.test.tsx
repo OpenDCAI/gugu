@@ -162,3 +162,29 @@ describe('durable provider failure notice', () => {
     expect(harness.container.querySelector('[role="status"]')).toBeNull()
   })
 })
+
+
+describe('topic-opened system notice', () => {
+  const message = { id: 'notice-1', content: 'Codex 1 开了话题:Release: notes', content_type: 'system' as const,
+    sender_user_id: 'agent-1', client_message_id: 'topic-opened:topic-chat-id' }
+  it('opens the exact topic id through the anchor callback, keeping colons in its name', async () => {
+    const onOpenTopic = vi.fn()
+    await harness.render(createNode(SystemMessageNotice, { message, onOpenTopic }))
+    const link = harness.container.querySelector<HTMLButtonElement>('[data-testid="topic-opened-link"]')!
+    expect(link.textContent).toBe('Release: notes')
+    expect(harness.container.textContent).toBe(message.content)
+    await clickElement(link)
+    expect(onOpenTopic).toHaveBeenCalledExactlyOnceWith('topic-chat-id')
+  })
+  it('does not infer a topic from matching words without the server marker or an opening path', async () => {
+    for (const props of [
+      { message: { ...message, client_message_id: null }, onOpenTopic: vi.fn() },
+      { message: { ...message, content_type: 'text' as const }, onOpenTopic: vi.fn() },
+      { message },
+    ]) {
+      await harness.render(createNode(SystemMessageNotice, props))
+      expect(harness.container.textContent).toBe(message.content)
+      expect(harness.container.querySelector('button')).toBeNull()
+    }
+  })
+})

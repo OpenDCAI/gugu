@@ -1,6 +1,7 @@
 import { JSDOM } from 'jsdom';
 import React, { act } from 'react';
 import { createRoot } from 'react-dom/client';
+import { registerImageViewerHost } from '@/lib/imageViewer';
 import { describe, expect, it, vi } from 'vitest';
 
 (globalThis as typeof globalThis & { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
@@ -65,6 +66,22 @@ async function render(props: Record<string, unknown>, act_?: (document: Document
 }
 
 describe('App 的产品页 (#7059)', () => {
+  it('opens the selected screenshot in the shared image gallery when the picture itself is clicked', async () => {
+    const opened = vi.fn();
+    const unregister = registerImageViewerHost(opened);
+    try {
+      await render({ api: readmeOf('![First](https://download.example/first.png)\n\n![Second](https://download.example/second.png)') as never }, async (document) => {
+        const shots = document.querySelectorAll<HTMLImageElement>('[data-testid="app-product-preview"] img');
+        expect(shots).toHaveLength(2);
+        await act(async () => shots[1].click());
+        expect(opened).toHaveBeenCalledExactlyOnceWith({ items: [
+          { url: 'https://download.example/first.png', alt: 'First', thumb: shots[0] },
+          { url: 'https://download.example/second.png', alt: 'Second', thumb: shots[1] },
+        ], index: 1 });
+      });
+    } finally { unregister(); }
+  });
+
   it('shows the platforms declared by the installed version rather than the market version', async () => {
     const market = { ...(pomodoro as object), platforms: ['desktop', 'phone'] };
     const installed = { ...(pomodoro as object), platforms: ['desktop'] };

@@ -152,6 +152,8 @@ export function cloudFileProviders(deps: {
           if (!blob.type.startsWith('image/')) throw new Error('Invalid file preview image')
           await deps.imageCache?.put(key, new Response(blob)); return blob
         }
+        // The signer owns thumbnail eligibility; formats without one are safe image sources as original blobs.
+        return snapshotBlob(await full(), revision.content_type)
       }
       if (video) return snapshotBlob(await full(), revision.content_type)
       if (!deps.image) throw new Error('Local image preview is unavailable')
