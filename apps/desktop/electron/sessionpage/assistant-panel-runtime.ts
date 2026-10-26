@@ -12,7 +12,8 @@ import type { assistantPanelLocal } from '../session/main/core/app/assistant-pan
 import { applyAssistantPanelService } from './assistant-panel-service'
 import { localAgentForSession } from './sessionpage-session-agent'
 import { createAssistantPanelApplication, type AssistantPanelHome } from './assistant-panel-application'
-import { prepareAssistantPanelAdmission } from './assistant-panel-admission'
+import { prepareAssistantPanelAdmission, type PanelPreparedAdmission } from './assistant-panel-admission'
+import { prepareAssistantProfileReview } from './assistant-profile-review'
 import { invalidateAssistantIndex } from './assistant-index-cache'
 import { collectAssistantPanelFiles, publishAssistantPanelCollection, type PanelObservation } from './assistant-panel-publisher'
 
@@ -193,7 +194,8 @@ export function createAssistantPanelRuntime(deps: {
     }
     observeFiles()
     return { application,dispose,
-      prepare: (text: string) => serial(() => prepare(text)),
+      prepare: (text: string) => serial(async () => prepareAssistantProfileReview(await prepare(text),
+        assistantHomePaths(binding.home,binding.cwd,binding.kind).memoryDir)),
       publish,
     }
   }
@@ -213,7 +215,7 @@ export function createAssistantPanelRuntime(deps: {
       await entry.application.prepareText('')
       return entry.application.statePath
     },
-    async prepare(sessionId: string, text: string) {
+    async prepare(sessionId: string, text: string): Promise<PanelPreparedAdmission & { assistantPanel?: true }> {
       const entry = await current(sessionId)
       return entry ? { ...await entry.prepare(text),assistantPanel: true as const } : { text,accepted: async () => {} }
     },

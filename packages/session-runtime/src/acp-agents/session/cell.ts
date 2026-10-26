@@ -1801,6 +1801,7 @@ export class SessionCell {
       }));
       const turnContextBlocks = [prepared?.text,turnContext].filter((text): text is string => !!text).map(text => ({ type: 'text' as const,text }));
       const textBlocks = prompt.text ? [{ type: 'text' as const, text: prompt.text }] : [];
+      const preparedTail = prepared?.trailingText ? [{ type: 'text' as const, text: prepared.trailingText }] : [];
       const trailingBlocks =
         prompt.origin === undefined && prompt.hiddenContext
           ? [{ type: 'text' as const, text: prompt.hiddenContext }]
@@ -1817,8 +1818,8 @@ export class SessionCell {
       const promptRequest = {
         sessionId: this.acpSessionId,
         prompt: leadsWithCommand
-          ? [...textBlocks, ...contextBlocks, ...turnContextBlocks, ...attachmentBlocks, ...trailingBlocks]
-          : [...contextBlocks, ...turnContextBlocks, ...attachmentBlocks, ...textBlocks, ...trailingBlocks],
+          ? [...textBlocks, ...contextBlocks, ...turnContextBlocks, ...attachmentBlocks, ...trailingBlocks, ...preparedTail]
+          : [...contextBlocks, ...turnContextBlocks, ...attachmentBlocks, ...textBlocks, ...trailingBlocks, ...preparedTail],
       };
       this.rawLog.record({
         kind: 'prompt',

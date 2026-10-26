@@ -15,6 +15,18 @@ function fixture() {
   return { cell,agent }
 }
 
+it('places conditional profile review after the actual input without exposing it in the transcript', async () => {
+  const { cell, agent } = fixture()
+  const review = '<gugu_profile_review>Review the outdated profile</gugu_profile_review>'
+  setNativePromptPreparation(async () => ({ text: 'panel change', trailingText: review, accepted: async () => {} }))
+  await cell.prompt({ text: 'hi', origin: 'communication' })
+  const request = vi.mocked(agent.prompt).mock.calls[0]![0]
+  expect(request.prompt).toEqual([{ type: 'text', text: 'panel change' }, { type: 'text', text: 'hi' }, { type: 'text', text: review }])
+  const visible = JSON.stringify([...cell.transcript.history, cell.transcript.activeTurn])
+  expect(visible).toContain('hi')
+  expect(visible).not.toContain('gugu_profile_review')
+})
+
 it('adds current panel changes to a direct prompt and consumes them only after a native receipt', async () => {
   const { cell,agent } = fixture(), completed = Promise.withResolvers<{ stopReason: 'end_turn' }>()
   const accepted = vi.fn(async () => {})

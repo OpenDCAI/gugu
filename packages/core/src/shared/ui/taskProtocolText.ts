@@ -1,7 +1,7 @@
 /** Owner-visible projection only. The durable message and model input retain host context. */
 export function taskProtocolText(content: string): string {
   let text = content.trimEnd()
-  const protocol = /(?:^|\n)<(gugu_work(?:_result)?|gugu_task_context)>\s*\n?[\s\S]*?\n?<\/\1>\s*$/
+  const protocol = /(?:^|\n)<(gugu_work(?:_result)?|gugu_task_context|gugu_profile_review)>\s*\n?[\s\S]*?\n?<\/\1>\s*$/
   for (let block = protocol.exec(text); block; block = protocol.exec(text)) text = text.slice(0, block.index).trimEnd()
   // Already-delivered work orders used an unwrapped, recognizable host suffix.
   // Restrict legacy removal to that suffix, never inline mentions or fenced examples.
