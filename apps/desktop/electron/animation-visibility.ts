@@ -1,4 +1,4 @@
-import { app, webContents, type WebContents } from 'electron'
+import { app, BrowserWindow, webContents, type WebContents } from 'electron'
 import { ANIMATION_WINDOW_SEEN_EVENT } from '@gugu/session-shared/animation-visibility'
 import { createLogger } from './lib/logger'
 
@@ -6,7 +6,7 @@ import { createLogger } from './lib/logger'
 export function forwardWindowSeen(): void {
   const send = (contents: WebContents) => {
     if (contents.isDestroyed()) return
-    const host = contents.getOwnerBrowserWindow()
+    const host = BrowserWindow.fromWebContents(contents)
     if (!host || host.isDestroyed()) return
     const seen = host.isVisible() && !host.isMinimized()
     void contents.executeJavaScript(`window.dispatchEvent(new CustomEvent(${JSON.stringify(ANIMATION_WINDOW_SEEN_EVENT)}, { detail: ${seen} }))`)
@@ -18,8 +18,11 @@ export function forwardWindowSeen(): void {
   app.on('browser-window-created', (_, host) => {
     const sync = () => {
       for (const contents of webContents.getAllWebContents())
-        if (!contents.isDestroyed() && contents.getOwnerBrowserWindow() === host) send(contents)
+        if (!contents.isDestroyed() && BrowserWindow.fromWebContents(contents) === host) send(contents)
     }
-    for (const event of ['minimize', 'hide', 'restore', 'show'] as const) host.on(event, sync)
+    host.on('minimize', sync)
+    host.on('hide', sync)
+    host.on('restore', sync)
+    host.on('show', sync)
   })
 }

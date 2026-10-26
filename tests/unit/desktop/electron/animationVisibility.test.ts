@@ -9,6 +9,7 @@ const native = vi.hoisted(() => ({ listeners: new Map<string, (...args: unknown[
 vi.mock('electron', () => ({
   app: { on: (event: string, listener: (...args: unknown[]) => void) => native.listeners.set(event, listener) },
   webContents: { getAllWebContents: () => native.contents },
+  BrowserWindow: { fromWebContents: (contents: { getOwnerBrowserWindow: () => unknown }) => contents.getOwnerBrowserWindow() },
 }))
 const log = vi.hoisted(() => ({ error: vi.fn() }))
 vi.mock('../../../../apps/desktop/electron/lib/logger', () => ({ createLogger: () => log }))
