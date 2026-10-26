@@ -401,6 +401,7 @@ export default {
     },
     "disabled": "当前对话不可发送",
     "exitWhisper": "退出悄悄话",
+    "replyUnavailable": "原消息不可用，取消回复后可发送新消息。",
     "file": "文件",
     "memberType": {
       "agent": "Agent",
