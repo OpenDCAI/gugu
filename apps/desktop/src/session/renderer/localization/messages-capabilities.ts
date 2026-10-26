@@ -741,6 +741,8 @@ export const enUSCapabilityMessages = {
     'Confirm authorization in {name} to connect.',
   'integrations.cliDescriptionOnDevice':
     'Confirm authorization in {name} to connect on {device}.',
+  'integrations.cliFeishuHint': 'Follow the two authorization steps to connect your Feishu app and personal account.',
+  'integrations.cliDingTalkHint': 'Ask your organization admin to allow access, then confirm authorization in DingTalk.',
   'integrations.cliPrerequisiteLink': 'Open the admin console',
   'integrations.cliPreparing': 'Preparing the connection…',
   'integrations.cliConnecting': 'Connecting',
@@ -1542,6 +1544,8 @@ export const zhCNCapabilityMessages: Record<CapabilityMessageKey, string> = {
   'integrations.browserAuthRetry': '重新授权',
   'integrations.cliDescription': '在{name}确认授权，即可完成连接。',
   'integrations.cliDescriptionOnDevice': '在{name}确认授权，即可在「{device}」完成连接。',
+  'integrations.cliFeishuHint': '按引导完成两次授权，连接你的飞书应用和个人账号。',
+  'integrations.cliDingTalkHint': '请先让组织管理员允许访问，再在钉钉确认授权。',
   'integrations.cliPrerequisiteLink': '打开管理后台',
   'integrations.cliPreparing': '正在准备连接…',
   'integrations.cliConnecting': '正在连接',

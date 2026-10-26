@@ -1,6 +1,7 @@
 import { integrationIcons } from '@gugu/session-plugins/integration-icons'
 import { builtinIntegrationSummary } from '@gugu/session-plugins/integration-summaries'
 import type { AssistantPanelFiles } from '@gugu/core/cloud/assistantPanelFiles'
+import { assistantPanelCollection,type AssistantPanelItem } from '@gugu/core/cloud/assistantPanel'
 import type { ConnectionStatus } from '@/session/shared/issue-providers'
 import type { IntegrationMetadata } from '@/session/renderer/features/integrations/integrations-provider'
 
@@ -16,6 +17,10 @@ export function integrationListCopy(id: string,name: unknown,description: unknow
 export async function readAssistantPanelIntegrations(panel: AssistantPanelFiles, locale: string) {
   const rows = await panel.collection('integrations')
   const snapshot = await panel.snapshot()
+  return parseAssistantPanelIntegrations(rows,snapshot,locale)
+}
+type Snapshot = Awaited<ReturnType<AssistantPanelFiles['snapshot']>>
+function parseAssistantPanelIntegrations(rows: AssistantPanelItem[],snapshot: Snapshot,locale: string) {
   const catalog = rows.filter(row => row.resource_key.startsWith('catalog:'))
   const items: IntegrationMetadata[] = catalog.map(row => ({
     id: String(row.data.providerId),catalogVersion: row.body_sha256 ?? row.revision,...integrationListCopy(String(row.data.providerId),row.data.displayName,row.data.description,locale),
@@ -46,6 +51,31 @@ export async function readAssistantPanelIntegrations(panel: AssistantPanelFiles,
   return { items,configured,statuses,accounts,accountChecks }
 }
 
+/** The same parser backs first-frame local content and background cloud verification. */
+export function peekAssistantPanelIntegrations(panel: AssistantPanelFiles | undefined,locale: string) {
+  const snapshot = panel?.peekSnapshot?.()
+  if (!snapshot) return undefined
+  const collection = assistantPanelCollection(snapshot,'integrations',panel?.deviceId)
+  if (collection.state !== 'ready' && !collection.items.some(row => row.resource_key.startsWith('catalog:'))) return undefined
+  return parseAssistantPanelIntegrations(collection.items,snapshot,locale)
+}
+function parseIntegrationBody(row: AssistantPanelItem,id: string,locale: string,bytes: Uint8Array): IntegrationMetadata {
+  const data = JSON.parse(new TextDecoder('utf-8',{ fatal: true }).decode(bytes))
+  const item = data[locale === 'zh-CN' ? 'zh-CN' : 'en'] as IntegrationMetadata
+  if (data.version !== 1 || !item || item.id !== id || typeof item.name !== 'string' || item.description !== undefined && typeof item.description !== 'string' || !Array.isArray(item.auth?.methods)) throw new Error('PANEL_INTEGRATION_UNAVAILABLE')
+  return { ...item,...integrationListCopy(id,item.name === id ? row.data.displayName : item.name,item.description,locale),icon: integrationIcons[id] ?? item.icon }
+}
+export function peekAssistantPanelIntegration(panel: AssistantPanelFiles | undefined,id: string | undefined,locale: string) {
+  if (!panel || !id) return undefined
+  const snapshot = panel.peekSnapshot?.()
+  if (!snapshot) return undefined
+  const row = assistantPanelCollection(snapshot,'integrations',panel.deviceId).items.find(row => row.resource_key === `catalog:${id}`)
+  if (!row) return undefined
+  const bytes = panel.peekBody?.(row)
+  if (!bytes) return undefined
+  try { return parseIntegrationBody(row,id,locale,bytes) } catch { return undefined }
+}
+
 type DetailEntry = { version: string | undefined; promise: Promise<IntegrationMetadata>; value?: IntegrationMetadata }
 const integrationDetails = new WeakMap<AssistantPanelFiles, Map<string, DetailEntry>>()
 export function cachedAssistantPanelIntegration(panel: AssistantPanelFiles | undefined,id: string | undefined,locale: string,version: string | undefined) {
@@ -67,10 +97,7 @@ export async function readAssistantPanelIntegration(panel: AssistantPanelFiles,i
   const current = entries.get(key)
   if (actualVersion && current?.version === actualVersion) return current.promise
   const entry: DetailEntry = { version: actualVersion, promise: Promise.resolve().then(async () => {
-    const data = JSON.parse(new TextDecoder('utf-8',{ fatal: true }).decode(await panel.body(row)))
-    const item = data[locale === 'zh-CN' ? 'zh-CN' : 'en'] as IntegrationMetadata
-    if (data.version !== 1 || !item || item.id !== id || typeof item.name !== 'string' || item.description !== undefined && typeof item.description !== 'string' || !Array.isArray(item.auth?.methods)) throw new Error('PANEL_INTEGRATION_UNAVAILABLE')
-    return { ...item,...integrationListCopy(id,item.name === id ? row.data.displayName : item.name,item.description,locale),icon: integrationIcons[id] ?? item.icon }
+    return parseIntegrationBody(row,id,locale,await panel.body(row))
   }) }
   entries.set(key,entry)
   try { entry.value = await entry.promise; return entry.value }

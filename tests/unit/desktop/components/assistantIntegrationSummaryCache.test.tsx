@@ -48,3 +48,9 @@ it('shares in-flight enrichment across list refreshes, keeps it after remount, a
   expect(h.container.textContent).toBe('Application|')
  } finally { h.cleanup() }
 })
+it('updates a custom app description when its published content version changes',async()=>{
+ const h=createReactHarness();let version='one'
+ const panel={ownerId:'version-owner',assistantId:'version-assistant',collection:async()=>[{resource_key:'catalog:mail',body_sha256:version,data:{providerId:'mail'}}],body:async()=>new TextEncoder().encode(JSON.stringify({version:1,en:{id:'mail',name:'Mailbox',description:version,auth:{methods:[]}}}))} as unknown as AssistantPanelFiles
+ function Probe(){const items=useAssistantIntegrationSummaries(panel,[{id:'mail',name:'mail',description:'',catalogVersion:version,metadataOnly:true}] as IntegrationMetadata[],'en-US');return <span>{items[0]!.description}</span>}
+ try{await h.render(<Probe/>);expect(h.container.textContent).toBe('one');version='two';await h.render(<Probe/>);expect(h.container.textContent).toBe('two')}finally{h.cleanup()}
+})

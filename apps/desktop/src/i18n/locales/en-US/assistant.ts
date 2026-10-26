@@ -803,9 +803,9 @@ export default {
         "not-callback": "That doesn't look like an authorization result. Copy the full address shown in the browser after you approve.",
         "state-mismatch": "That address is from a different authorization. Copy it again from the browser, or start over."
       },
-      "cliIntro": "Gugu installs the official {{name}} command-line tool where {{assistant}} lives and signs in. Once you confirm in {{name}}, {{assistant}} can use it.",
+      "cliIntro": "Confirm authorization in {{name}} to connect.",
       "prerequisiteLink": "Open the admin console",
-      "cliPreparing": "Getting the {{name}} tool ready. The first time it downloads, which can take a minute…",
+      "cliPreparing": "Preparing the connection…",
       "cliWaiting": "Waiting for authorization…",
       "cliDeviceHint": "Open the {{name}} authorization page and approve. The page should show this code:",
       "cliCode": "Authorization code",

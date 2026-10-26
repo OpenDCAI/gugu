@@ -803,9 +803,9 @@ export default {
         "not-callback": "这不像授权结果。要复制同意授权后浏览器地址栏里的完整网址。",
         "state-mismatch": "这个网址不是这一次授权的，请回到浏览器再复制一次，或重新授权。"
       },
-      "cliIntro": "咕咕会在{{assistant}}那边装好{{name}}的官方命令行并登录；你在{{name}}里确认授权后，{{assistant}}就能用它。",
+      "cliIntro": "在{{name}}确认授权，即可完成连接。",
       "prerequisiteLink": "打开管理后台",
-      "cliPreparing": "正在准备{{name}}命令行，第一次要下载，可能需要一分钟…",
+      "cliPreparing": "正在准备连接…",
       "cliWaiting": "等待授权中…",
       "cliDeviceHint": "打开{{name}}授权页并同意授权，页面上显示的授权码应为：",
       "cliCode": "授权码",

@@ -1,3 +1,4 @@
+import { peekAssistantPanelIntegrations } from '@/components/assistant/assistant-panel-integrations';
 import { EMPTY_INTEGRATION_SUMMARIES,useAssistantIntegrationSummaries } from '@/components/assistant/useAssistantIntegrationSummaries';
 import { isAssistantPanelReadRetryable, retryAssistantPanelRead } from '@gugu/core/cloud/assistantPanelRead';
 import { ASSISTANT_PANEL_CHANGED } from '@/components/assistant/assistant-panel-events';
@@ -110,6 +111,7 @@ export function IntegrationsProvider({ children }: { children: React.ReactNode }
   } = useQuery({
     queryKey: [...INTEGRATIONS_LIST_QUERY_KEY, host.key, locale],
     queryFn: () => api.list(locale),
+    initialData: () => peekAssistantPanelIntegrations(host.assistantPanel,locale)?.items,
     staleTime: Infinity,
     refetchOnWindowFocus: false,
     enabled,
@@ -127,6 +129,7 @@ export function IntegrationsProvider({ children }: { children: React.ReactNode }
   const { data: statusData, error: connectionReadError, isFetching: isCheckingConnections } = useQuery({
     queryKey: statusKey,
     queryFn: () => api.checkAllConnections(),
+    initialData: () => peekAssistantPanelIntegrations(host.assistantPanel,locale)?.statuses,
     staleTime: 30_000,
     refetchOnWindowFocus: true,
     enabled,
@@ -138,6 +141,7 @@ export function IntegrationsProvider({ children }: { children: React.ReactNode }
     useQuery({
       queryKey: [...statusKey, 'configured'],
       queryFn: () => api.checkConfiguredConnections(),
+      initialData: () => peekAssistantPanelIntegrations(host.assistantPanel,locale)?.configured,
       staleTime: Infinity,
       refetchOnWindowFocus: false,
       enabled,

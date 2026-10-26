@@ -123,3 +123,19 @@ it('shares selected metadata reads and invalidates only a changed content versio
  expect(body).toHaveBeenCalledTimes(3)
  expect(cachedAssistantPanelIntegration({...panel} as AssistantPanelFiles,'custom','en-US','two')).toBeUndefined()
 })
+
+
+it('parses an existing local catalog, account state and selected body synchronously with no network calls',async()=>{
+ const {peekAssistantPanelIntegrations,peekAssistantPanelIntegration}=await import('../../apps/desktop/src/components/assistant/assistant-panel-integrations')
+ const row={domain:'integrations',device_id:'device',resource_key:'catalog:custom',body_sha256:'v1',data:{providerId:'custom',displayName:'Company app'}}
+ const account={domain:'integrations',device_id:'device',resource_key:'a',observed_at:'2026-10-27',data:{providerId:'custom',accountId:'a',configured:true,checkResult:'ok',checkedAt:50}}
+ const snapshot={version:1,revision:'1',items:[row,account,{domain:'integrations',device_id:'device',resource_key:'__collection__:device',data:{state:'ready'}}],application:[]}
+ const bytes=new TextEncoder().encode(JSON.stringify({version:1,en:{id:'custom',name:'Company app',description:'Manage documents',auth:{methods:[]}}}))
+ const network=vi.fn(async()=>{throw Error('offline')})
+ const panel={deviceId:'device',peekSnapshot:()=>snapshot,peekBody:()=>bytes,collection:network,body:network} as unknown as AssistantPanelFiles
+ expect(peekAssistantPanelIntegrations(panel,'en-US')?.configured.custom).toBe(true)
+ expect(peekAssistantPanelIntegrations(panel,'en-US')?.statuses.custom?.connected).toBe(true)
+ expect(peekAssistantPanelIntegration(panel,'custom','en-US')?.description).toBe('Manage documents')
+ expect(network).not.toHaveBeenCalled()
+ expect(peekAssistantPanelIntegration({...panel,peekBody:()=>undefined} as AssistantPanelFiles,'custom','en-US')).toBeUndefined()
+})

@@ -14,7 +14,7 @@ import { CustomizeDialog, usePersona } from './assistant-personality';
 import { ShellSlot, useAssistantShell } from './assistant-shell';
 import { useAssistantPanelPage } from '@/lib/assistantPanelPage';
 import { usePhoneRead } from '@/mobile/assistant/usePhoneRead';
-import { readAssistantPanelIntegrations } from '@/components/assistant/assistant-panel-integrations';
+import { peekAssistantPanelIntegrations,readAssistantPanelIntegrations } from '@/components/assistant/assistant-panel-integrations';
 import { useChatChannels } from '@/components/settings/channels/useChatChannels';
 import { assistantApplicationCounts } from '@/components/assistant/assistant-app-connections';
 import { AssistantRow, AssistantSection, PageHead } from './assistant-ui';
@@ -79,7 +79,7 @@ const ProfileHome = observer(function ProfileHome({ context, openCustomize = fal
   const persona = usePersona(context);
   const shell = useAssistantShell();
   const panel = context.machine?.panel;
-  const apps = usePhoneRead(panel ? `profile-apps|${context.assistant.id}` : null, () => readAssistantPanelIntegrations(panel!, i18n.language), 'read application connections');
+  const apps = usePhoneRead(panel ? `profile-apps|${context.assistant.id}` : null, () => readAssistantPanelIntegrations(panel!, i18n.language), 'read application connections',undefined,() => peekAssistantPanelIntegrations(panel,i18n.language));
   const chat = useChatChannels();
   const counts = apps.state === 'ok' && (chat.status === 'ready' || chat.status === 'not_open') ? assistantApplicationCounts(apps.data.items, apps.data.configured, apps.data.statuses, chat.list) : null;
   const chip = persona.preset ? t(`customize.preset.${persona.preset}`) : persona.rest ? t('customize.custom') : t('customize.setCharacter');

@@ -8,7 +8,7 @@ const PREFIX='assistant-panel.v1:'
 const HOT_KEY='gugu.assistantPanel.v1'
 const MAX_BYTES=32*1024*1024, HOT_BYTES=1024*1024
 const cachedDomains=new Set(['integrations','capabilities','device-notes'])
-type CacheRow=LocalRow&{scope:string;owner:string;assistant:string;kind:'snapshot'|'body';value:unknown;bytes:number}
+type CacheRow=LocalRow&{scope:string;owner:string;assistant:string;kind:'snapshot'|'body'|'account-state';value:unknown;bytes:number}
 const encode=(bytes:Uint8Array)=>{let value='';for(let start=0;start<bytes.length;start+=8192)value+=String.fromCharCode(...bytes.subarray(start,start+8192));return btoa(value)}
 const decode=(value:string)=>Uint8Array.from(atob(value),character=>character.charCodeAt(0))
 
@@ -24,7 +24,8 @@ export function createAssistantPanelCacheStore(input:{store:()=>Promise<AgentWat
     if(typeof row.key!=='string'||!row.key.startsWith(PREFIX)||typeof row.owner!=='string'||typeof row.assistant!=='string'
       ||row.scope!==JSON.stringify([row.owner,row.assistant])||typeof row.savedAt!=='number'||typeof row.bytes!=='number')return
     if(row.kind==='snapshot'){try{parseAssistantPanelSnapshot(row.value,row.owner,row.assistant)}catch{return}}
-    else if(row.kind!=='body'||typeof row.value!=='string')return
+    else if(row.kind==='body'){if(typeof row.value!=='string')return}
+    else if(row.kind!=='account-state'||!row.value||typeof row.value!=='object')return
     return row
   }
   function merge(row:CacheRow){if(!rows.has(row.key)||rows.get(row.key)!.savedAt<row.savedAt)rows.set(row.key,row);stamp=Math.max(stamp,row.savedAt)}
@@ -64,7 +65,19 @@ export function createAssistantPanelCacheStore(input:{store:()=>Promise<AgentWat
       forget(domain,key,revision){const current=snapshot();if(current)saveSnapshot({...current,revision,items:current.items.filter(item=>item.domain!==domain||item.resource_key!==key)})},
     }
   }
-  return {files,ready,async flush(){await ready;await tail;clearTimeout(hotTimer);
+  function accountState<T>(owner:string,key:string,isValue:(value:unknown)=>value is T) {
+    const scope=JSON.stringify([owner,'']),id=PREFIX+scope+':account:'+key
+    const active=()=>!!owner&&input.accountId()===owner
+    return {
+      peek():T|undefined {const value=active()?rows.get(id)?.value:undefined;return isValue(value)?value:undefined},
+      save(value:T){
+        if(!active()||!isValue(value)||JSON.stringify(rows.get(id)?.value)===JSON.stringify(value))return
+        save({key:id,savedAt:nextStamp(),scope,owner,assistant:'',kind:'account-state',value,bytes:JSON.stringify(value).length*2})
+        input.changed()
+      },
+    }
+  }
+  return {files,accountState,ready,async flush(){await ready;await tail;clearTimeout(hotTimer);
     // Mirror writes are deliberately coalesced during a catalog's four-way fill.
     mirror();await new Promise(resolve=>setTimeout(resolve,30))},
   }

@@ -9,7 +9,7 @@
 .ta-app-connection-icon { display: grid; place-items: center; width: 56px; height: 56px; }
 .ta-app-connection-description { display: grid; place-items: center; width: 100%; max-width: 420px; min-height: 48px; font-size: var(--ta-fs-sub, var(--font-body)); line-height: 24px; color: var(--ta-muted, var(--muted-fg)); }
 .ta-app-connection-action { display: grid; place-items: center; min-width: 112px; min-height: 44px; }
-.ta-app-connection-action > button { min-width: 112px; min-height: 44px; border-radius: var(--radius-circle); }
+.ta-app-connection-action > button { min-width: 112px; height: 44px; min-height: 44px; margin: 0; padding-block: 0; border-radius: var(--radius-circle); }
 .ta-connection-placeholder { display: block; background: color-mix(in srgb, var(--muted-fg) 12%, transparent); border-radius: var(--radius-control); }
 .ta-connection-placeholder-icon { width: 56px; height: 56px; }
 .ta-connection-placeholder-description { width: 80%; height: 24px; }

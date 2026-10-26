@@ -15,6 +15,7 @@ import { AssistantEmpty, PageHead } from '@/session/renderer/features/assistant/
 import { integrationErrorText } from '@/session/renderer/features/integrations/integration-display'
 import {
   canSubmitForm,
+  cliInstructionKey,
   cliMethodOf,
   formInputOf,
   formMethodOf,
@@ -486,18 +487,12 @@ function CliSetup({
     <div className="ta-phone-setup" data-testid="assistant-connector-cli">
       {idle ? (
         <>
-          <p className="ta-page-sub ta-pad">{t('connectors.setup.cliIntro', { name: item.name, assistant: assistantName })}</p>
-          {method?.prerequisite ? (
-            <div className="ta-card ta-phone-setup-prereq" data-testid="assistant-connector-prereq">
-              <p className="ta-page-sub">{method.prerequisite.text}</p>
-              {method.prerequisite.url ? (
-                <Button variant="ghost" className="ta-pill-btn" onClick={() => openInBrowser(method.prerequisite?.url ?? '')}>
-                  <ExternalLink />
-                  {t('connectors.setup.prerequisiteLink')}
-                </Button>
-              ) : null}
-            </div>
-          ) : null}
+          <p className="ta-page-sub ta-pad" data-testid={method?.prerequisite ? 'assistant-connector-prereq' : undefined}>
+            {cliInstructionKey(item) ? translateSessionMessage(cliInstructionKey(item)!) : method?.prerequisite?.text ?? t('connectors.setup.cliIntro', { name: item.name, assistant: assistantName })}
+          </p>
+          {method?.prerequisite?.url ? <Button variant="ghost" className="ta-pill-btn" onClick={() => openInBrowser(method.prerequisite!.url!)}>
+            <ExternalLink />{t('connectors.setup.prerequisiteLink')}
+          </Button> : null}
           <Button variant="ghost" className="ta-wide-btn" data-tone="primary" onClick={start} data-testid="assistant-connector-cli-start">
             {t('connectors.connect')}
           </Button>

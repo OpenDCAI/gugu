@@ -26,6 +26,7 @@ import {
 } from './integrations-provider';
 import {
   canSubmitForm,
+  cliInstructionKey,
   cliMethodOf as cliMethod,
   formInputOf,
   formMethodOf as formMethod,
@@ -338,7 +339,7 @@ function IntegrationCliLogin({
         ) : (
           <>
             <p className="text-sm leading-6 text-foreground-muted">
-              {method.prerequisite?.text ?? (remote
+              {cliInstructionKey(metadata) ? translate(cliInstructionKey(metadata)!) : method.prerequisite?.text ?? (remote
                 ? translate('integrations.cliDescriptionOnDevice', { name: metadata.name, device: remote.deviceLabel })
                 : translate('integrations.cliDescription', { name: metadata.name }))}
               {method.prerequisite?.url ? <Button variant="link" size="xs" className="ml-1 h-auto p-0 text-xs" onClick={() => openUrl(method.prerequisite!.url!)}>
