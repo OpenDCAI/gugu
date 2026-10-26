@@ -14,6 +14,7 @@ import { closeInShell } from '@/session/renderer/features/extensions/install-con
 import { appInstallAskOf } from '@/session/shared/extensions/host-actions'
 import { observer } from 'mobx-react-lite'
 import { followLink } from '@/lib/guguLinks'
+import { ChevronRight } from '@/lib/icons'
 import { readPhoneAppView, onPhoneAppState } from '../appSlot/phoneAppState'
 import { sessionPageOnScreen, sessionPagesOnScreen } from '@/session/renderer/app/sessions-on-screen'
 import { getSessionView } from '@/session/renderer/features/sessions/stores/session-selectors'
@@ -84,11 +85,15 @@ function PendingTask({ task, onOpenTask }: { task: NeedsYouTask; onOpenTask: () 
   useEffect(() => () => { for (const id of previousInstalls.current) closeInShell(id) }, [])
   const pending = Object.values(read.timeline.settlements).filter(item => item.state === 'pending')
   return <section data-testid="needs-you-pending" className="flex flex-col gap-3">
+    <Button variant="ghost" size="sm" role="link" data-testid="needs-you-source-link" onClick={onOpenTask}
+      className="self-start max-w-full min-w-0 !px-0 !text-[length:var(--font-caption)] hover:underline">
+      <span className="truncate">{t('needsYou.sourceTask', { title: task.session.title })}</span>
+      <ChevronRight size={12} className="size-3 shrink-0 text-[var(--text-tertiary)]" />
+    </Button>
     {(read.error || read.actionError) && <p role="alert">{read.error || read.actionError}</p>}
     {!ready && <p role="status">{t('needsYou.loading')}</p>}
     {ready && pending.map(settlement => <SettlementCard key={settlement.itemId} settlement={settlement} runtime={task.session.runtime}
       machine={task.local ? undefined : task.machine} busy={read.respondingItemId === settlement.itemId}
       onRespond={input => { void read.respond(input).catch(() => undefined) }} />)}
-    <Button variant="ghost" data-testid="needs-you-open-page" onClick={onOpenTask}>{t('needsYou.openPage')}</Button>
   </section>
 }

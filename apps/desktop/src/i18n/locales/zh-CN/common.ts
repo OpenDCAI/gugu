@@ -3,7 +3,7 @@ export default {
     "title": "需要你处理",
     "count": "需要你处理 · {{count}}",
     "loading": "正在读取请求…",
-    "openPage": "去所在页面"
+    "sourceTask": "来自任务 · {{title}}"
   },
   "actions": {
     "copiedAgentId": "已复制 Agent ID",

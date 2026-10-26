@@ -88,10 +88,15 @@ it('records a phone answer using the existing mobile responder identity', async 
   expect(timeline.mock.calls.at(-1)?.[1]).toBe('mobile')
 })
 
-it.each([false, true])('opens the existing session link and closes review (mobile=%s)', async mobile => {
+it.each([false, true])('opens the task from its quiet source link without answering (mobile=%s)', async mobile => {
   state.mobile = mobile
   await open()
-  await act(async () => { document.querySelector<HTMLButtonElement>('[data-testid="needs-you-open-page"]')!.click() })
+  const source = document.querySelector<HTMLButtonElement>('[data-testid="needs-you-source-link"]')!
+  expect(source.getAttribute('role')).toBe('link')
+  expect(source.textContent).toContain('Install Reader')
+  expect(document.querySelector('[data-testid="needs-you-open-page"]')).toBeNull()
+  expect(document.querySelector('[data-item-id="install"]')).not.toBeNull()
+  await act(async () => { source.click() })
   expect(followLink).toHaveBeenCalledWith({ kind: 'session', sessionId: 'task' })
   expect(document.querySelector('[role="dialog"]')).toBeNull()
   expect(respond).not.toHaveBeenCalled()
