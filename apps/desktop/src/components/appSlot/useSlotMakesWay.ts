@@ -5,7 +5,7 @@ import { useChatStore } from '../../store/chatContext'
 import { APP_COMPOSE_EVENT, type AppComposeDetail } from '../../session/shared/extensions/app-runtime-protocol'
 
 /**
- * An App took the person to this slot's chat (desktop or phone) — `gugu.compose` (the chat shell put the text after the
+ * An App took the person to this slot's chat (desktop or phone) — a `gugu.dispatch` draft (the chat shell put the text after the
  * chat's draft, MainLayout): the slot
  * gets out from over the chat, so what the App pointed at is seen. After a compose the composer is focused — the chat's
  * own or a topic pane's. Nothing here sends.

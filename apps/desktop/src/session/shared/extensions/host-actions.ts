@@ -44,7 +44,7 @@ export type ExtensionHostAction =
   | { kind: 'reportError'; message: string }
   /** The page loaded another document (a reload, another of the App's pages): what the old one said about itself goes. */
   | { kind: 'newDocument' }
-  /** `gugu.compose`: into the composer of the chat the call named (the window brings it up), or of that session's. */
+  /** `gugu.dispatch` with `draft`: into the composer of the chat (the window brings it up), or of that agent's session. */
   | { kind: 'compose'; detail: AppComposeDetail }
   | { kind: 'compose'; sessionId: string; text: string }
   /** `gugu.showMessage` / `files.openWith`: the window that shows chats does it, bringing the chat up. */
@@ -84,11 +84,11 @@ export const EXTENSION_MEMBER_FACES_METHOD = 'extensions.memberFaces';
 export const EXTENSION_LISTED_SESSION_METHOD = 'extensions.listedSession';
 
 /**
- * `gugu.compose(text)` naming no place: main asks the window that draws the page to let the person pick one
- * (`ComposeTargetPicker`): `ComposePickAsk` → a `ComposePlace`, or null when they cancel. It waits on a person, so it
- * closes by itself after `INSTALL_CONSENT_HUMAN_WINDOW_MS`, as an install's consent does (ipc-bridge's clock is longer).
+ * `gugu.dispatch` naming no target: main asks the window that draws the page to let the person pick one (`DispatchSheet`):
+ * `DispatchAsk` → `DispatchPicked`, or null when they cancel. It waits on a person, so it closes by itself after
+ * `INSTALL_CONSENT_HUMAN_WINDOW_MS`, as an install's consent does (ipc-bridge's clock is longer).
  */
-export const EXTENSION_PICK_COMPOSE_TARGET_METHOD = 'extensions.pickComposeTarget';
+export const EXTENSION_PICK_DISPATCH_TARGET_METHOD = 'extensions.pickDispatchTarget';
 
 /**
  * 留给**人**读完权限再决定的时间,谁发起的安装都是这一个。

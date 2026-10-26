@@ -540,9 +540,7 @@ export interface AppOpenInChatDetail {
 export const APP_FORUM_CONSENT_EVENT = 'gugu:app-forum-consent';
 export type AppForumConsentDetail =
   | { type: 'bounty'; draft: import('./app-forum-core').BountyDraft }
-  | { type: 'award'; draft: import('./app-forum-core').AwardDraft }
-  /** `gugu.forum.assign`: the person picks one of their own agents in the host's list; the App never lists them. */
-  | { type: 'assign'; draft: import('./app-forum-core').AssignDraft };
+  | { type: 'award'; draft: import('./app-forum-core').AwardDraft };
 
 export interface AppShowMessageDetail {
   chatId: string;

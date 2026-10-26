@@ -331,12 +331,23 @@ export default {
     "newerInFolder": "Newer version in the folder",
     "retry": "Retry"
   },
+  "dispatchPick": {
+    "myAgents": "My agents",
+    "title": "Hand to",
+    "search": "Search members, tasks or chats",
+    "chatAgents": "Agents in {{chat}}",
+    "chatPeople": "People in {{chat}}",
+    "new": "New",
+    "newAgent": "A new agent",
+    "empty": "No one to hand it to",
+    "send": "Send",
+    "text": "What will be sent",
+    "textPlaceholder": "Say what to do",
+    "visible": "Visible to everyone in the chat (by default only they see it)"
+  },
   "composePick": {
     "title": "Choose where to send",
-    "search": "Search chats and tasks",
     "chats": "Chats",
-    "tasks": "My tasks",
-    "empty": "No chats or tasks to choose",
     "action": "Add to composer"
   },
   "composer": {

@@ -331,12 +331,23 @@ export default {
     "newerInFolder": "文件夹里有新版",
     "retry": "重试"
   },
+  "dispatchPick": {
+    "myAgents": "我的 agent",
+    "title": "交给谁",
+    "search": "搜索成员、任务或对话",
+    "chatAgents": "{{chat}} 的 agent",
+    "chatPeople": "{{chat}} 的成员",
+    "new": "新建",
+    "newAgent": "新的 agent",
+    "empty": "没有可选的对象",
+    "send": "发送",
+    "text": "要发出的内容",
+    "textPlaceholder": "写上要做什么",
+    "visible": "群里所有人可见（默认只有对方看得到）"
+  },
   "composePick": {
     "title": "选择发送位置",
-    "search": "搜索对话或任务",
     "chats": "对话",
-    "tasks": "我的任务",
-    "empty": "没有可选的对话或任务",
     "action": "放入输入框"
   },
   "composer": {

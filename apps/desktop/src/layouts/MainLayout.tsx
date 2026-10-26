@@ -863,7 +863,7 @@ function InnerLayout({
       window.dispatchEvent(new CustomEvent(UI_EVENTS.chatAsked, { detail: { chatId: chat.id } }))
       return true
     }
-    // gugu.compose into a chat the call named — from a page anywhere, the phone's too: after that chat's draft, the chat
+    // a gugu.dispatch draft into a chat — from a page anywhere, the phone's too: after that chat's draft, the chat
     // up and its composer focused (the slot of that chat, if open, gets out of the way: useSlotMakesWay).
     const onCompose = (event: Event) => {
       const detail = (event as CustomEvent<AppComposeDetail>).detail

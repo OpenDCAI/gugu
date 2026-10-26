@@ -1,8 +1,8 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 /**
- * 摩擦单 F16 `gugu.send` 过桥:一条悄悄话,发在调用点名的那个 chat 里(`chat`,或 `refs` 指的文件所在的 chat);门口按动词那一行
- * 要 `chat:relay`。告诉自己的 agent 是另一个动词 `messageAgent`,门口要 `agents:control`。页面在哪不参与(真源原则 13):
+ * `gugu.dispatch`(15)过桥:门口按动词那一行、按调用点名的对象要能力 —— 群成员 `chat:relay`,这个人的 agent / 新 agent
+ * `agents:control`,人在 sheet 里选的不要。页面在哪只填 sheet 要列的(页面所在的群、它的会话),❌ 决定发到哪(真源原则 13):
  * 群里的页和后台页交出去的是同一份参数。服务端的限速以 `rate-limited` 交给 App(它据此退避),❌ 折成 failed。
  */
 
@@ -33,11 +33,9 @@ vi.mock('@main/core/extensions/extensions-root', () => ({
     agentReach: () => 'own',
   }),
 }));
-const sendFromApp = vi.fn();
-const messageAgentFromApp = vi.fn();
+const dispatchForApp = vi.fn();
 vi.mock('@main/core/extensions/extension-send', () => ({
-  sendFromApp: (...args: unknown[]) => sendFromApp(...args),
-  messageAgentFromApp: (...args: unknown[]) => messageAgentFromApp(...args),
+  dispatchForApp: (...args: unknown[]) => dispatchForApp(...args),
 }));
 const spawnAgentForExtension = vi.fn();
 const stopAgentForExtension = vi.fn();
@@ -56,7 +54,7 @@ const { EXTENSION_BRIDGE_CHANNEL } = await import('@shared/extensions/bridge-pro
 
 registerExtensionBridge();
 const handle = handlers.get(EXTENSION_BRIDGE_CHANNEL)!;
-const call = (sender: number, args: Record<string, unknown>, method = 'send') =>
+const call = (sender: number, args: Record<string, unknown>, method = 'dispatch') =>
   handle({ sender: { id: sender, session: {} } }, { method, args });
 
 const AGENT = 'user:0a000000-0000-4000-8000-000000000016';
@@ -66,51 +64,54 @@ const ENTRY = { chat: CHAT, id: ITEM, name: 'game.chess.json' };
 
 beforeEach(async () => {
   granted.clear();
-  sendFromApp.mockReset();
-  messageAgentFromApp.mockReset();
+  dispatchForApp.mockReset();
   await bindExtensionSurface({ webContentsId: PAGE, extensionId: 'chess', tabId: 'tab-1', tabKind: 'chess.main', chatId: CHAT });
 });
 
-describe('gugu.send over the bridge (F16)', () => {
-  it('with chat:relay: handed over as the call names it, and the id comes back', async () => {
+const MEMBER = { chat: CHAT, member: AGENT };
+/** What the bridge handed `dispatchForApp`: the call as it came, where the page is, and who works it. */
+const handed = () => dispatchForApp.mock.calls.at(-1) as [string, Record<string, unknown>, Record<string, unknown>, { from?: string }];
+
+describe('gugu.dispatch over the bridge', () => {
+  it('to a member, with chat:relay: handed over as the call names it, the page\'s chat for the sheet, and the id comes back', async () => {
     granted.add('chat:relay');
-    sendFromApp.mockResolvedValue({ id: 'm-1' });
-    const result = await call(PAGE, { to: AGENT, text: 'e2e4 — your move', refs: [{ file: ENTRY }] });
-    expect(result).toEqual({ ok: true, value: { id: 'm-1' } });
-    expect(sendFromApp).toHaveBeenCalledWith('chess', { to: AGENT, text: 'e2e4 — your move', refs: [{ file: ENTRY }] }, {});
+    dispatchForApp.mockResolvedValue({ to: MEMBER, id: 'm-1' });
+    const result = await call(PAGE, { to: MEMBER, text: 'e2e4 — your move', refs: [{ file: ENTRY }] });
+    expect(result).toEqual({ ok: true, value: { to: MEMBER, id: 'm-1' } });
+    expect(handed()[0]).toBe('chess');
+    expect(handed()[1]).toEqual({ to: MEMBER, text: 'e2e4 — your move', refs: [{ file: ENTRY }] });
+    expect(handed()[2]).toMatchObject({ session: null });
+    expect(handed()[2]).not.toHaveProperty('as');
+    expect(handed()[3].from).toBeUndefined();
   });
 
-  it('the door asks chat:relay, from the verb\'s row: without it, refused there and nothing handed over', async () => {
-    const result = await call(PAGE, { to: AGENT, text: 'e2e4', chat: CHAT });
-    expect(result).toEqual({ ok: false, code: 'denied', message: 'Not permitted: this App does not have "chat:relay"' });
-    expect(sendFromApp).not.toHaveBeenCalled();
+  it('the door asks what the target needs, from the verb\'s row: without it, refused there and nothing handed over', async () => {
+    expect(await call(PAGE, { to: MEMBER, text: 'e2e4' })).toEqual({ ok: false, code: 'denied', message: 'Not permitted: this App does not have "chat:relay"' });
+    expect(await call(PAGE, { to: { agent: AGENT }, text: 'run it' })).toEqual({ ok: false, code: 'denied', message: 'Not permitted: this App does not have "agents:control"' });
+    expect(await call(PAGE, { to: { new: true }, text: 'help' })).toEqual({ ok: false, code: 'denied', message: 'Not permitted: this App does not have "agents:control"' });
+    expect(dispatchForApp).not.toHaveBeenCalled();
+    // The person picks in the sheet: no capability asked at all.
+    dispatchForApp.mockResolvedValue({ cancelled: true });
+    expect(await call(PAGE, { text: 'whom?' })).toEqual({ ok: true, value: { cancelled: true } });
   });
 
   it('counter-cells: someone outside the chat and the server limit keep their code — not-found (F78), rate-limited', async () => {
     granted.add('chat:relay');
     const refusal = (code: string, message: string) => Object.assign(new Error(message), { code });
-    sendFromApp.mockRejectedValueOnce(refusal('not-found', `${AGENT} is not in this chat`));
-    expect(await call(PAGE, { to: AGENT, text: 'hi', chat: CHAT })).toEqual({ ok: false, code: 'not-found', message: `${AGENT} is not in this chat` });
-    sendFromApp.mockRejectedValueOnce(refusal('rate-limited', 'rate-limited: 30 a minute'));
-    expect(await call(PAGE, { to: AGENT, text: 'hi', chat: CHAT })).toEqual({ ok: false, code: 'rate-limited', message: 'rate-limited: 30 a minute' });
+    dispatchForApp.mockRejectedValueOnce(refusal('not-found', `${AGENT} is not in this chat`));
+    expect(await call(PAGE, { to: MEMBER, text: 'hi' })).toEqual({ ok: false, code: 'not-found', message: `${AGENT} is not in this chat` });
+    dispatchForApp.mockRejectedValueOnce(refusal('rate-limited', 'rate-limited: 30 a minute'));
+    expect(await call(PAGE, { to: MEMBER, text: 'hi' })).toEqual({ ok: false, code: 'rate-limited', message: 'rate-limited: 30 a minute' });
   });
 
   // Control (the parent commit a770f2e40d): the page's chat went along as where to send, and the background page went
   // along as "in no chat" — the same call meant two things.
   it('the background page: the same call, handed over the same — where a page is plays no part', async () => {
     granted.add('chat:relay');
-    sendFromApp.mockResolvedValue({ id: 'm-2' });
-    expect(await call(BACKGROUND, { to: AGENT, text: 'ready', chat: CHAT })).toEqual({ ok: true, value: { id: 'm-2' } });
-    expect(sendFromApp).toHaveBeenCalledWith('chess', { to: AGENT, text: 'ready', chat: CHAT }, {});
-  });
-
-  it('messageAgent: its own verb and its own word at the door (agents:control)', async () => {
-    expect(await call(PAGE, { agentId: AGENT, text: 'run it' }, 'messageAgent')).toMatchObject({ ok: false, code: 'denied' });
-    granted.add('agents:control');
-    messageAgentFromApp.mockResolvedValue({ id: 'm-4' });
-    expect(await call(PAGE, { agentId: AGENT, text: 'run it' }, 'messageAgent')).toEqual({ ok: true, value: { id: 'm-4' } });
-    expect(messageAgentFromApp).toHaveBeenCalledWith('chess', { agentId: AGENT, text: 'run it' }, {});
-    expect(sendFromApp).not.toHaveBeenCalled();
+    dispatchForApp.mockResolvedValue({ to: MEMBER, id: 'm-2' });
+    expect(await call(BACKGROUND, { to: MEMBER, text: 'ready' })).toEqual({ ok: true, value: { to: MEMBER, id: 'm-2' } });
+    expect(handed()[1]).toEqual({ to: MEMBER, text: 'ready' });
+    expect(handed()[2]).toEqual({ chat: null, session: null });
   });
 });
 
@@ -124,34 +125,33 @@ describe('the check’s page, worked by the agent that asks (owner 10-14)', () =
     await bindExtensionSurface({ webContentsId: CHECK, extensionId: 'chess', tabId: 'check', tabKind: 'chess.main', chatId: CHAT, operator: { kind: 'agent', id: WORKER } });
   });
 
-  it('its send goes, written as that agent; the agent it tells is told from that agent’s session, and the one it starts is its child', async () => {
+  it('a named target goes, as that agent: written as it to a chat, told and started from its session; the sheet is handed back', async () => {
     granted.add('chat:relay');
     granted.add('agents:control');
-    sendFromApp.mockResolvedValue({ id: 'm-3' });
-    messageAgentFromApp.mockResolvedValue({ id: 'm-5' });
-    spawnAgentForExtension.mockResolvedValue({ agentId: AGENT });
-    expect(await call(CHECK, { to: AGENT, text: 'your move', refs: [{ file: ENTRY }] })).toEqual({ ok: true, value: { id: 'm-3' } });
-    expect(sendFromApp).toHaveBeenCalledWith('chess', { to: AGENT, text: 'your move', refs: [{ file: ENTRY }] }, { as: WORKER.slice('user:'.length) });
-    expect(await call(CHECK, { agentId: AGENT, text: 'run it' }, 'messageAgent')).toEqual({ ok: true, value: { id: 'm-5' } });
-    expect(messageAgentFromApp).toHaveBeenCalledWith('chess', { agentId: AGENT, text: 'run it' }, { from: 'session-f' });
-    expect(await call(CHECK, { prompt: 'help' }, 'spawnAgent')).toEqual({ ok: true, value: { agentId: AGENT } });
-    expect(spawnAgentForExtension).toHaveBeenCalledWith(expect.objectContaining({ extensionId: 'chess', prompt: 'help', bySession: 'session-f' }));
+    dispatchForApp.mockResolvedValue({ to: MEMBER, id: 'm-3' });
+    expect(await call(CHECK, { to: MEMBER, text: 'your move', refs: [{ file: ENTRY }] })).toEqual({ ok: true, value: { to: MEMBER, id: 'm-3' } });
+    expect(handed()[2]).toMatchObject({ as: WORKER.slice('user:'.length) });
+    expect(handed()[3].from).toBe('session-f');
     // Stopped by the agent that works the page: its session goes along, so it cannot stop itself (session_stop's check).
     expect(await call(CHECK, { agentId: AGENT }, 'stopAgent')).toEqual({ ok: true, value: undefined });
     expect(stopAgentForExtension).toHaveBeenCalledWith(expect.objectContaining({ agentId: AGENT, bySession: 'session-f' }));
     expect(checkReadingsOf(CHECK)).toBeNull();
+    // No target: the person's sheet is not the agent's — handed back to it, answered as cancelled, nothing dispatched.
+    dispatchForApp.mockClear();
+    expect(await call(CHECK, { text: 'whom?' })).toEqual({ ok: true, value: { cancelled: true } });
+    expect(dispatchForApp).not.toHaveBeenCalled();
+    expect(checkReadingsOf(CHECK)?.shown).toEqual([{ verb: 'dispatch', detail: '{"text":"whom?"}' }]);
     // Control: the group’s page, worked by the person, tells and starts from no session.
-    await call(PAGE, { agentId: AGENT, text: 'run it' }, 'messageAgent');
-    expect(messageAgentFromApp).toHaveBeenLastCalledWith('chess', { agentId: AGENT, text: 'run it' }, {});
-    await call(PAGE, { prompt: 'help' }, 'spawnAgent');
-    expect(spawnAgentForExtension).toHaveBeenLastCalledWith(expect.objectContaining({ bySession: undefined }));
+    dispatchForApp.mockResolvedValue({ to: { agent: AGENT }, id: 'm-4' });
+    await call(PAGE, { to: { agent: AGENT }, text: 'run it' });
+    expect(handed()[3].from).toBeUndefined();
   });
 
   it('the agent gone from this computer: it tells no one, and says so', async () => {
     granted.add('agents:control');
     roster.clear();
-    expect(await call(CHECK, { agentId: AGENT, text: 'run it' }, 'messageAgent')).toMatchObject({ ok: false, message: expect.stringContaining('no longer on this computer') });
-    expect(messageAgentFromApp).not.toHaveBeenCalled();
+    expect(await call(CHECK, { to: { agent: AGENT }, text: 'run it' })).toMatchObject({ ok: false, message: expect.stringContaining('no longer on this computer') });
+    expect(dispatchForApp).not.toHaveBeenCalled();
   });
 
   it('its counts come back; a real page that reports counts is not heard', async () => {

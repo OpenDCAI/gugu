@@ -5,7 +5,7 @@
 //
 // Built only on the public App API (the App platform's L3 runtime interface):
 // gugu.getContext / onContextChanged, gugu.files.*, gugu.bind.codemirror, gugu.codemirror(), gugu.markdown(),
-// presence, showMessage, openBrowserTab, clipboard and compose. It is the acceptance test of that API: anything it could not do
+// presence, showMessage, openBrowserTab, clipboard and dispatch. It is the acceptance test of that API: anything it could not do
 // through it is reported, not worked around.
 //
 // Where it runs is read from the context, never assumed: with a chat it shows that chat's
@@ -997,17 +997,17 @@ function refOf(current, { text, lines }) {
   return { file: current.entry, at: placeOf(current.file.text, first, last), label }
 }
 
-// Cite: the places kept (＋), then the selection's, each a pill into this chat's composer (gugu.compose refs) — the person
+// Cite: the places kept (＋), then the selection's, each a pill into this chat's composer (a gugu.dispatch draft with refs) — the person
 // says what to do with them, @s whom they like and sends it. A JSON file's view is not its text: its cite stays as it was,
-// each range quoted with the lines it is shown on, and a pill to the file. Called inside the click, as compose needs.
+// each range quoted with the lines it is shown on, and a pill to the file. Called inside the click, as a draft needs.
 async function cite(current = state.current, picks = state.picks, held = state.held, whole = false) {
   if (!current || (!whole && !(held.length || picks.length))) return
   const quoted = ({ text, lines: [first, last] }) =>
     `${fmt(first === last ? state.t.line : state.t.lines, { first, last })}\n${text.replace(/\s+$/, '').split('\n').map((line) => `> ${line}`).join('\n')}`
   try {
-    if (whole) await gugu.compose('', { refs: [{ file: current.entry }] })
-    else if (current.file.type === 'text') await gugu.compose('', { refs: [...held, ...picks.map((pick) => refOf(current, pick))] })
-    else await gugu.compose(picks.map(quoted).join('\n\n'), { refs: [{ file: current.entry }] })
+    if (whole) await gugu.dispatch('', { draft: true, refs: [{ file: current.entry }] })
+    else if (current.file.type === 'text') await gugu.dispatch('', { draft: true, refs: [...held, ...picks.map((pick) => refOf(current, pick))] })
+    else await gugu.dispatch(picks.map(quoted).join('\n\n'), { draft: true, refs: [{ file: current.entry }] })
     state.held = []
     renderHeld()
   } catch (error) {
