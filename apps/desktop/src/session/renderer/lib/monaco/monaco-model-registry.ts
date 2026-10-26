@@ -866,7 +866,7 @@ export class MonacoModelRegistry {
           await this.invalidateModel(this.toDiskUri(uri));
           return this.saveFileToDisk(uri, true);
         }
-        throw new Error(result.error.message);
+        throw new Error(result.error.type === 'not_found' ? translateSessionMessage('taskError.fileNotFound', { path: '[path]' }) : result.error.message);
       }
 
       this.markSaved(uri);

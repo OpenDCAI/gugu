@@ -81,7 +81,8 @@ describe('markAllChatsReadAndRefresh', () => {
 
     const result = await markAllChatsReadAndRefresh({ chats: [chat('a', 9), chat('b', 9)], refresh })
 
-    expect(result).toEqual({ failedChats: 1 })
+    expect(result).toMatchObject({ failedChats: 1, error: expect.any(Error) })
+    expect((result.error as Error).message).toBe('boom')
     expect(rpc).toHaveBeenCalledWith('mark_read', { p_chat_id: 'a', p_seq: 8 })
     expect(refresh).toHaveBeenCalledTimes(1)
   })

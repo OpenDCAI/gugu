@@ -1,5 +1,5 @@
-import { copyFailureText } from '@session-chat/components/primitives/copy-button.css';
 /** @jsxImportSource solid-js */
+import { copyFailureText } from '@session-chat/components/primitives/copy-button.css';
 import { Show } from 'solid-js';
 import { useCommands } from '@session-chat/components/contexts/CommandsContext';
 import { IconCheck, IconCopy, IconEdit } from '@session-chat/components/primitives/icons';
