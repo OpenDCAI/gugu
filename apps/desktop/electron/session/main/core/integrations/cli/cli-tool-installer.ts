@@ -10,6 +10,7 @@ import type { IntegrationCliTool } from '@gugu/session-plugins/integrations';
 import JSZip from 'jszip';
 import { resolvesInside } from '../../extensions/path-containment';
 import { cliToolsRoot } from './cli-paths';
+import { preinstalledCliDirectory } from './cli-preinstalled';
 import { FEISHU_BINARY_SHA256, FEISHU_CLI_VERSION, FEISHU_SKILLS_COMMIT, feishuArchiveName } from './feishu-cli';
 import { TMEET_BINARY, TMEET_SKILLS_COMMIT } from './tmeet-cli';
 import {
@@ -54,7 +55,8 @@ export function cliToolHome(tool: IntegrationCliTool, guguHome?: string): string
 
 export function installedCliTool(tool: IntegrationCliTool, guguHome?: string): InstalledCliTool {
   const recipe = cliToolRecipe(tool);
-  const dir = path.join(cliToolsRoot(guguHome), tool, recipe.version);
+  const localDir = path.join(cliToolsRoot(guguHome), tool, recipe.version);
+  const dir = existsSync(path.join(localDir, '.complete')) ? localDir : preinstalledCliDirectory(recipe) ?? localDir;
   return {
     tool,
     version: recipe.version,
