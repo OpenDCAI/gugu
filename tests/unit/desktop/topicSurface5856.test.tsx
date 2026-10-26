@@ -47,7 +47,7 @@ vi.mock('../../../apps/desktop/src/lib/chatMessageWriter', () => ({
 
 const { useTopicSurface } = await import('../../../apps/desktop/src/hooks/useTopicSurface')
 // The topic open beside a group is its tab (chat-tabs), kept for the window: each case starts with none.
-const { closeTopicTab, hideTopicTab } = await import('../../../apps/desktop/src/session/renderer/features/chats/chat-tabs/chat-layouts')
+const { closeTopicTab, openPanelItem, closeChatTab } = await import('../../../apps/desktop/src/session/renderer/features/chats/chat-tabs/chat-layouts')
 type Surface = ReturnType<typeof useTopicSurface>
 
 function topic(overrides: Partial<TopicSummary> = {}): TopicSummary {
@@ -189,7 +189,7 @@ describe('分栏里 @ 到的人写进 to_user_ids', () => {
     await openSplit()
     const history = surface!.splitLine.messageWindow
     actionsOf.mockClear()
-    await act(async () => hideTopicTab('chat-A'))
+    const board = await act(async () => openPanelItem('chat-A', { kind: 'kanban.board', title: 'Board' }))
     expect(surface!.splitTopic).toBeNull()
     expect(surface!.topic?.chatId).toBe('topic-1')
     expect(surface!.splitLine.messageWindow).toBe(history)
@@ -197,6 +197,7 @@ describe('分栏里 @ 到的人写进 to_user_ids', () => {
     await act(async () => closeTopicTab('chat-A'))
     expect(surface!.topic).toBeNull()
     expect(actionsOf).toHaveBeenLastCalledWith(null, expect.any(Object))
+    await act(async () => closeChatTab('chat-A', board!))
   })
 
   it('#6004: @所有人 keeps the topic chat ID and broadcast sentinel, without expanding source members', async () => {
