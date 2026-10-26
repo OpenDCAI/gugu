@@ -1824,8 +1824,8 @@ export class SessionCell {
           }
           return retried;
         }
-        // `injected` is an admission receipt. The provider's output remains on the primary
-        // prompt's ACP stream, so this call must not settle the cell turn.
+        recordUserMessage();
+        // Admission records this input; the primary ACP stream still owns foreground completion.
         return ok({ queued: false });
       }
 

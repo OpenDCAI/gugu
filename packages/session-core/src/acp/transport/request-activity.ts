@@ -46,11 +46,10 @@ export function createRequestActivity(
         boundaries.delete(params.sessionId);
         await target.cancel(params);
       };
-      if (property === 'steer' && target.extMethod) return async (params: PromptRequest, dispatch?: Parameters<AcpAgentApi['prompt']>[1]) => {
+      if (property === 'steer' && target.extMethod) return async (params: PromptRequest) => {
         const result = await target.extMethod!('_session/steering', { ...params,
           _meta: { steering: { idleBehavior: 'promptRequired', delivery: 'next' } } });
         if (result.outcome !== 'injected' && result.outcome !== 'promptRequired') throw new Error(`ACP steering returned unsupported outcome '${String(result.outcome)}'`);
-        if (result.outcome === 'injected' && dispatch) emit({ sessionId: params.sessionId, event: dispatch.message });
         return result.outcome;
       };
       if (property !== 'prompt') {
