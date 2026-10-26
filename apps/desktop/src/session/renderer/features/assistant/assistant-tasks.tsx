@@ -1,3 +1,4 @@
+import { messageForUser } from '@/lib/userFacingError';
 import { formatSessionTitleForDisplay } from '@shared/core/sessions/session-title-utils';
 import { rendererLogger } from '@/lib/log';
 import { assistantPanelFailure } from '@/components/assistant/assistant-panel-errors';
@@ -217,7 +218,7 @@ const RoutineDetail = observer(function RoutineDetail({ context, id }: { context
                             id: automation.id, deviceId: context.homeDeviceId, before: { name: automation.name, active: automation.enabled }, after: { name: automation.name, active: enabled } });
                           toast({ title: enabled ? t('routines.enabledToast') : t('routines.disabledToast') });
                         },
-                        onError: (error) => { rendererLogger('actions/assistant-tasks').error({ error: error }, 'action failed'); toast({ title: t('routines.updateFailed'), description: assistantPanelFailure(error,t), tier: 'error' }); },
+                        onError: (error) => { rendererLogger('actions/assistant-tasks').error({ error: error }, 'action failed'); toast({ title: t('routines.updateFailed'), description: messageForUser(assistantPanelFailure(error,t)), tier: 'error' }); },
                       }
                     )
                   }
@@ -255,7 +256,7 @@ const RoutineDetail = observer(function RoutineDetail({ context, id }: { context
                         toast({ title: t('routines.deleted') });
                         context.go({ tab: 'tasks' });
                       },
-                      onError: (error) => { rendererLogger('actions/assistant-tasks').error({ error: error }, 'action failed'); toast({ title: t('routines.deleteFailed'), description: assistantPanelFailure(error,t), tier: 'error' }); },
+                      onError: (error) => { rendererLogger('actions/assistant-tasks').error({ error: error }, 'action failed'); toast({ title: t('routines.deleteFailed'), description: messageForUser(assistantPanelFailure(error,t)), tier: 'error' }); },
                     }),
                 })
               }

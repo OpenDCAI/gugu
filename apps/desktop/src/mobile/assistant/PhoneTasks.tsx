@@ -15,7 +15,7 @@ import { useDevicesStore } from '@/store/devicesContext'
 import { StatusGlyph } from '../agent-watch/StatusGlyph'
 import type { PhonePageProps } from './MobileAssistantApp'
 import { PhoneMachineGate } from './PhoneMachineGate'
-import { ReadView } from './PhoneMachineView'
+import { ReadView, ReadFailed } from './PhoneMachineView'
 import { PhoneRoutineRead } from './PhoneRoutineRead'
 import { PhoneRoutineDetail } from './PhoneRoutineDetail'
 import { usePhoneRoutines } from './usePhoneRoutines'
@@ -62,6 +62,7 @@ function SubAgents({ machine, askInChat }: PhonePageProps) {
   const devices = [...hosts,...phones]
   const ready = machine.state === 'ready' ? machine.machine : null
   const read = usePhoneRead(ready ? `tasks|${machineKey(ready)}` : null,() => readAssistantPanelTasks(ready!.panel!),'read assistant tasks')
+  if (machine.state === 'error') return <ReadFailed title={t('tasks.loadFailed')} error={machine.error} onRetry={machine.retry} />
   return <ReadView read={read} failedTitle={t('tasks.loadFailed')}>{children => children.length === 0
     ? <AssistantSection bare><AssistantEmpty title={t('tasks.emptyTitle')} action={<Button variant="ghost" className="ta-pill-btn"
       onClick={() => askInChat(t('tasks.createPrompt'))}>{t('tasks.create')}</Button>} /></AssistantSection>
