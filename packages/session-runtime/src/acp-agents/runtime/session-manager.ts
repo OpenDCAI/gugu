@@ -1268,7 +1268,7 @@ export class SessionManager implements InboundRouter {
     let record = this.cells.get(sessionId);
     if (onlyIfIdle && record) {
       const state = record.cell.sessionState;
-      if (record.phase !== 'ready' || state.lifecycle !== 'ready' || state.isGenerating
+      if (record.phase !== 'ready' || state.lifecycle !== 'ready' || state.isGenerating || record.cell.hasInFlightPrompt
         || state.pendingPermissions.length > 0 || state.queuedPrompts.length > 0
         || state.backgroundAgentCount > 0 || state.backgroundCommandCount > 0) {
         return acpErr.stopFailed(toSerializedError(new Error('Session is no longer idle; reclamation declined')));
@@ -1311,10 +1311,22 @@ export class SessionManager implements InboundRouter {
   ): Promise<Result<void, AcpStopSessionError>> {
     const alreadyStopping = this.intentionalProcessCloses.has(record.processKey);
     this.intentionalProcessCloses.add(record.processKey);
-    let providerClosed = alreadyStopping;
+    // session/close is courteous cleanup, not authority to keep the process alive.
+    // Its transport can be silent/broken; SIGTERM and actual exit own final teardown.
     try {
-      if (!alreadyStopping) await record.cell.closeSession();
-      providerClosed = true;
+      if (!alreadyStopping) {
+        let timer: ReturnType<typeof setTimeout> | undefined;
+        try {
+          await Promise.race([
+            record.cell.closeSession(),
+            new Promise<never>((_resolve, reject) => {
+              timer = setTimeout(() => reject(new Error('Provider session/close timed out after 1000ms')), 1_000);
+            }),
+          ]);
+        } catch (error) {
+          this.deps.logger.warn('SessionManager: provider close failed; stopping its process', { sessionId, error: String(error) });
+        } finally { if (timer) clearTimeout(timer); }
+      }
       this.deps.promptQueueStore?.clear(sessionId);
       await record.connectionLease.value.stopProcess();
       this.removeRecord(sessionId, false, true);
@@ -1325,14 +1337,6 @@ export class SessionManager implements InboundRouter {
         return acpErr.stopPending();
       }
       return acpErr.stopFailed(toSerializedError(error));
-    } finally {
-      // Once session/close succeeded this record cannot be made live again. Keep its closing
-      // state until actual exit or a later wake retries teardown, including signal errors.
-      if (!providerClosed) this.intentionalProcessCloses.delete(record.processKey);
-      if (!providerClosed && this.cells.get(sessionId) === record) {
-        record.closing = false;
-        this.syncRecord(record);
-      }
     }
   }
 
@@ -1826,6 +1830,7 @@ export class SessionManager implements InboundRouter {
       sessionId: params.sessionId,
       update: params.update,
     });
+    record.cell.noteProviderUpdate();
     this.applyRawMeta(record.cell, params.update);
     // 子智能体派生了:它自己的会话号从此路由回本会话(#5117)。路由随本会话一起注销
     // (`unregisterRoutes` 按 conversationId 清)。

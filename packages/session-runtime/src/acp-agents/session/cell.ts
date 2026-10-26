@@ -254,6 +254,11 @@ export class SessionCell {
     return this._supportsLoadSession;
   }
 
+  /** A dispatched prompt is owned before a state-reporting provider says running. */
+  get hasInFlightPrompt(): boolean {
+    return this.activeTurnCompletion !== null;
+  }
+
   private get agent(): NonNullable<SessionCellDeps['agent']> {
     if (!this._agent) {
       throw new Error(`SessionCell ${this.sessionId} has no ACP agent while starting`);
@@ -417,9 +422,13 @@ export class SessionCell {
     return merge(texts);
   }
 
+  /** Called by the ACP notification boundary, including updates we do not render. */
+  noteProviderUpdate(): void {
+    if (!this.replayingHistory) this.providerAdmission?.accept();
+  }
+
   push(event: NormalizedEvent): void {
     if (event.kind === 'ignored') return;
-    if (!this.replayingHistory && this.isTranscriptEvent(event)) this.providerAdmission?.accept();
     if (event.kind === 'agent_state') {
       this.onAgentState(event.state);
       return;
@@ -1641,6 +1650,9 @@ export class SessionCell {
       if (!opts?.skipAdmission) opts?.onAdmission?.(queued);
       return queued;
     }
+    const transcriptBeforePrompt = this.transcript.snapshotState();
+    const turnContextBeforePrompt = new Map(this.pendingTurnContext);
+    const sessionContextBeforePrompt = this.pendingSessionContext;
     const decision = this.dispatchFor<AcpSendPromptError>(
       {
         type: 'Prompt',
@@ -1824,7 +1836,9 @@ export class SessionCell {
 
       if (providerAdmission) this.providerAdmission = providerAdmission;
       const nativePrompt = this.agent.prompt(promptRequest);
-      const response = await (providerAdmission ? Promise.race([
+      // v1 providers may compact or reason silently for minutes. Only a provider that
+      // declares native state/admission signals can be timed out for not admitting.
+      const response = await (providerAdmission && this.reportsState ? Promise.race([
         nativePrompt,
         new Promise<never>((_resolve, reject) => {
           admissionTimer = setTimeout(() => {
@@ -1891,6 +1905,22 @@ export class SessionCell {
       // advances once and the completion channel reports the original cause, rather than requeueing.
       if (beforeTurn && !refusal) providerAdmission.accept();
       if (beforeTurn && refusal) this.providerAdmission = null;
+      if (refusal) {
+        this.rawLog.record({ kind: 'prompt_result', sessionId: this.acpSessionId,
+          stopReason: null, error: toSerializedError(e) });
+        this.deps.logger.warn('SessionCell: provider refused a prompt before admission', { sessionId: this.sessionId });
+        // No provider update was received: this was never a turn. Restore only our
+        // tentative projection, before any failed turn can reach durable history.
+        this.transcript.restoreState(transcriptBeforePrompt);
+        this.pendingTurnContext = new Map([...turnContextBeforePrompt, ...this.pendingTurnContext]);
+        if (sessionContextBeforePrompt && this.pendingSessionContext !== sessionContextBeforePrompt) {
+          this.pendingSessionContext = [sessionContextBeforePrompt, this.pendingSessionContext].filter(Boolean).join('\n\n');
+        }
+        this.applyEvent({ type: 'PromptRefused' });
+        this.closeTurnCompletion();
+        this.emitTranscriptChanged();
+        return acpErr.sessionNotFound(this.sessionId);
+      }
       const cause = toSerializedError(e);
       const err = acpErr.promptFailed(cause);
       this.deps.logger.error('SessionCell: prompt failed', {
