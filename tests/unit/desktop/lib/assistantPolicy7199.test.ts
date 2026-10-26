@@ -113,7 +113,7 @@ describe('assistantGuide', () => {
     expect(cloud).toContain('后台资源需要时自动启动')
     expect(cloud).toContain('不用对人提后台资源')
     expect(computer).toContain('暂不可用时消息保留')
-    expect(computer).toContain('暂不可用时恢复后补办')
+    expect(computer).not.toContain('提醒、定时汇报用咕咕的 schedule_create')
     expect(computer).not.toContain('海外网站')
     for (const prompt of [cloud, computer]) expect(prompt).not.toMatch(/一直在|电脑睡|机器睡|睡着|叫醒|正在连接|未连接|重新连接|连接断/)
   })
