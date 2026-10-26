@@ -169,6 +169,10 @@ export default {
     "usageWindows": "用量窗口"
   },
   "devices": {
+    "longOffline": "很久没上线",
+    "configurations": "配置",
+    "configurationUnknown": "配置名未知",
+    "configurationCount": "{{count}} 个配置",
     "phoneActions": {
       "notificationsAndDnd": "通知与勿扰",
       "readFailed": "读取系统权限失败",

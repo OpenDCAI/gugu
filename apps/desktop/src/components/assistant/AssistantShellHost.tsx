@@ -1,3 +1,4 @@
+import { deviceMachines } from '@/lib/deviceMachines'
 import { cloudComputerEnabled } from '@gugu/core/cloud/optionalServices'
 import { useEffect, useMemo, useState, useSyncExternalStore, type ReactNode } from 'react'
 import { createPortal } from 'react-dom'
@@ -228,7 +229,7 @@ export function AssistantShellHost({ visible, ...chatHandlers }: { /** 会话页
     () => readSetupStep(ownerUserId),
   )
   const setup: AssistantSetupStep | null = contact ? storedStep : assistantState === 'none' ? 'shell' : null
-  const deviceCount = withoutAssistantHome([...devices, ...(phones ?? [])], cloudDeviceId).length
+  const deviceCount = deviceMachines(withoutAssistantHome([...devices, ...(phones ?? [])], cloudDeviceId)).length
   useEffect(() => {
     publishAssistantShell({
       deviceCount,

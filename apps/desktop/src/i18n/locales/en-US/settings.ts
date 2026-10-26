@@ -169,6 +169,10 @@ export default {
     "usageWindows": "Usage windows"
   },
   "devices": {
+    "longOffline": "Long offline",
+    "configurations": "Configurations",
+    "configurationUnknown": "Configuration name unavailable",
+    "configurationCount": "{{count}} configurations",
     "phoneActions": {
       "notificationsAndDnd": "Notifications and Do Not Disturb",
       "readFailed": "Could not read system permissions",

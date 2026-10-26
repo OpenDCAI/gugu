@@ -40,6 +40,12 @@ describe('device cloud helpers', () => {
     })
   })
 
+  it('keeps a reported tier for configuration details and does not invent one for old rows', () => {
+    const row = { device_id: 'mac-beta', label: 'Mac', hostname: 'mac', platform: 'darwin', status: 'online', last_seen_at: '2026-10-27T00:00:00Z' }
+    expect(normalizeDeviceRow({ ...row, tier: 'beta' }).tier).toBe('beta')
+    expect(normalizeDeviceRow(row)).not.toHaveProperty('tier')
+  })
+
   // @@@5912 在线只看 status。一行 status='online' 而 last_seen_at 很旧,改前会被算成**离线**
   // (客户端自己拿时间戳推),改后就是在线:租约过期与否由库的清扫者判。这一格红过。
   it.each([
@@ -140,7 +146,7 @@ describe('device cloud helpers', () => {
         expect(table).toBe('gugu_devices')
         return {
           select(columns: string) {
-            expect(columns).toBe('device_id, label, hostname, platform, status, last_seen_at, capabilities:device_list_capabilities, machine_id, session_digest')
+            expect(columns).toBe('device_id, label, hostname, platform, status, last_seen_at, capabilities:device_list_capabilities, machine_id, tier, session_digest')
             return {
               eq(column: string, value: string) {
                 expect(column).toBe('user_id')       // 必须按 owner 过滤,绝不全表列举
