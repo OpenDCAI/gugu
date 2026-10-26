@@ -4,7 +4,7 @@ import * as path from 'node:path';
 import JSZip from 'jszip';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { EXTENSION_API_VERSION } from '@shared/extensions/manifest';
-import { packExtensionArchive, unpackExtensionArchive } from './extension-archive';
+import { packExtensionArchive, packInstalledExtension, unpackExtensionArchive } from './extension-archive';
 import { ExtensionsService } from './extensions-service';
 
 let workDir: string;
@@ -57,8 +57,6 @@ describe('.guguext packing (#6646)', () => {
     const second = await packExtensionArchive(service, dir);
     vi.useRealTimers();
     expect(second.sha256).toBe(first.sha256);
-    const dates = Object.values((await JSZip.loadAsync(first.bytes)).files).map((entry) => entry.date.toISOString());
-    expect(new Set(dates)).toEqual(new Set(['1980-01-01T00:00:00.000Z']));
     expect(first.manifest).toMatchObject({ id: 'demo-ext', version: '1.2.0' });
 
     const staging = path.join(workDir, 'staging');
@@ -67,6 +65,17 @@ describe('.guguext packing (#6646)', () => {
     expect(unpacked.report).toMatchObject({ ok: true, problems: [] });
     expect(listed(unpacked.dir)).toEqual(['app.js', 'index.html', 'manifest.json']);
     expect(readFileSync(path.join(unpacked.dir, 'app.js'), 'utf8')).toBe('console.log(1)');
+  });
+
+  it('packs the market fixture to the published packDir fingerprint', async () => {
+    const dir = path.resolve('tests/fixtures/extensions/market-pack');
+    // Recompute in shuxueshuxue/gugu-apps at 7d4406f91f5050fd6814f77187fa7605ea97deee:
+    // node --input-type=module -e 'import {packDir,sha256} from "./scripts/lib.mjs"; console.log(sha256(await packDir(process.argv[1])))' /path/to/gugu/tests/fixtures/extensions/market-pack
+    // Nested, mixed-case and Chinese names distinguish directory entries, recursive order and locale sorting.
+    const packed = await packExtensionArchive(service, dir);
+    expect(packed.sha256).toBe('1acf67197831bc1fe6e2506b071fd988f798c0e58489409d2af40f675ccb044c');
+    service.installFromDirectory(dir, service.inspectDirectory(dir).manifestDigest, 'folder');
+    expect((await packInstalledExtension(service, 'market-pack')).bytes).toEqual(packed.bytes);
   });
 
   it('refuses to pack a bundle the package checks refuse, saying why', async () => {
