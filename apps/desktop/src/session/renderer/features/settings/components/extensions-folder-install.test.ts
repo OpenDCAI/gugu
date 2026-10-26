@@ -3,6 +3,7 @@ import { JSDOM } from 'jsdom';
 import React, { act } from 'react';
 import { createRoot, type Root } from 'react-dom/client';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { until } from '../../../../../../../../tests/support/awaitCondition';
 
 (globalThis as typeof globalThis & { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
 
@@ -25,6 +26,8 @@ const h = vi.hoisted(() => {
     list: vi.fn(answer({ extensions: [manifest('1.0.0')], invalid: [], icons: {}, disabled: [] })),
     variants: vi.fn(answer({ active: 'upstream', variants: [], behind: null })),
     switchVariant: vi.fn(),
+    marketReadme: vi.fn(answer({ readme: null })),
+    marketHistory: vi.fn(answer([])),
     revoked: vi.fn(answer({ notes: ['files:read'] })),
     agentStatus: vi.fn(answer({})),
     marketUpdates: vi.fn(answer({ checkedAt: '2026-09-28T00:00:00.000Z', updates: {}, yanked: {}, deprecated: {} })),
@@ -34,13 +37,13 @@ const h = vi.hoisted(() => {
     installFromFolder: vi.fn(),
     uninstall: vi.fn(async () => ({ success: true })),
   };
-  return { manifest, api, ranking: vi.fn(async () => ({ data: [], error: null })), showConfirm: vi.fn(), pickFolder: vi.fn(async () => '/tmp/notes-next') };
+  return { manifest, api, clipboard: vi.fn(async () => undefined), ranking: vi.fn(async () => ({ data: [], error: null })), showConfirm: vi.fn(), pickFolder: vi.fn(async () => '/tmp/notes-next') };
 });
 
 vi.mock('@/lib/supabase', () => ({ chatDb: { rpc: h.ranking } }));
 
 vi.mock('@renderer/lib/ipc', () => ({
-  rpc: { extensions: {}, app: {} },
+  rpc: { extensions: {}, app: { clipboardWriteText: h.clipboard } },
   rpcOn: () => ({}),
   events: { on: () => () => undefined },
   onMachineEvent: () => () => undefined,
@@ -619,5 +622,95 @@ describe('市场页 (#7059)', () => {
     expect(dom.window.document.querySelector('[data-testid="extensions-store"]')).toBeNull();
     await press('[data-testid="app-product-back"]');
     expect(dom.window.document.querySelector('[data-testid="extensions-store"]')).not.toBeNull();
+  });
+});
+
+describe('App variant switching uses the existing install consent', () => {
+  let dom: JSDOM;
+  let root: Root;
+  let active: string;
+  let asks: boolean;
+  const originalList = h.api.list.getMockImplementation();
+  const originalVariants = h.api.variants.getMockImplementation();
+  const originalUpdates = h.api.marketUpdates.getMockImplementation();
+  const variants = ['upstream', 'timeline'].map((name) => ({
+    name, base: '1.0.0', dir: name === 'upstream' ? null : '/work/notes@timeline',
+    repo: 'https://github.com/example/apps', path: 'notes', commit: 'a'.repeat(40), sha256: 'b'.repeat(64), bytes: 10,
+  }));
+  const doc = () => dom.window.document;
+  const press = async (selector: string) => {
+    const element = doc().querySelector<HTMLElement>(selector);
+    expect(element, selector).not.toBeNull();
+    await act(async () => element!.click());
+  };
+
+  beforeEach(() => {
+    vi.clearAllMocks();
+    active = 'timeline';
+    asks = false;
+    dom = new JSDOM('<!doctype html><html><body><div id="root"></div></body></html>');
+    for (const key of ['window', 'document', 'HTMLElement', 'HTMLInputElement', 'Element', 'Node', 'Event', 'navigator', 'MutationObserver'] as const) vi.stubGlobal(key, dom.window[key]);
+    vi.stubGlobal('getComputedStyle', dom.window.getComputedStyle.bind(dom.window));
+    root = createRoot(doc().querySelector('#root')!);
+    h.api.list.mockResolvedValue({ success: true, data: { extensions: [h.manifest('1.0.0')], invalid: [], icons: {}, disabled: [] } });
+    h.api.variants.mockImplementation(async () => ({ success: true, data: { active, variants, behind: null } }));
+    h.api.switchVariant.mockImplementation(async (_id: string, name: string, consent: { kind: string }) => {
+      const manifest = h.manifest('1.0.0', [], asks ? ['files:read', 'notifications'] : ['files:read']);
+      if (consent.kind === 'return') return { success: true, data: { outcome: 'ask', asks, ask: { manifest, manifestDigest: 'variant-digest', installed: h.manifest('1.0.0'), revokedPermissions: [] } } };
+      active = name;
+      return { success: true, data: { outcome: 'confirmed', manifest } };
+    });
+  });
+  afterEach(() => {
+    act(() => root.unmount());
+    dom.window.close();
+    vi.unstubAllGlobals();
+    h.api.list.mockImplementation(originalList!);
+    h.api.variants.mockImplementation(originalVariants!);
+    h.api.marketUpdates.mockImplementation(originalUpdates!);
+    h.api.switchVariant.mockReset();
+  });
+
+  async function openVariantList() {
+    await act(async () => root.render(React.createElement(SessionLocalizationProvider, null, React.createElement(ExtensionsSettingsCard))));
+    await showInstalled(dom);
+    await until('the installed Notes row', () => !!doc().querySelector('[data-testid="extension-row-notes"]'));
+    await press('[data-testid="extension-row-notes"] .mk-name');
+    await until('the Notes variants', () => !!doc().querySelector('[data-testid="app-variant-upstream"]'));
+  }
+
+  it('switches without a dialog when no new permission is needed, then reads the active variant again', async () => {
+    await openVariantList();
+    await press('[data-testid="app-variant-upstream"]');
+    expect(h.showConfirm).not.toHaveBeenCalled();
+    expect(h.api.switchVariant.mock.calls).toEqual([
+      ['notes', 'upstream', { kind: 'return' }],
+      ['notes', 'upstream', { kind: 'given', digest: 'variant-digest' }],
+    ]);
+    await until('the upstream variant is selected', () => doc().querySelector('[data-testid="app-variant-upstream"]')?.getAttribute('aria-checked') === 'true');
+  });
+
+  it('waits for the existing consent dialog before installing a variant with additional permissions', async () => {
+    asks = true;
+    await openVariantList();
+    await press('[data-testid="app-variant-upstream"]');
+    expect(h.api.switchVariant).toHaveBeenCalledExactlyOnceWith('notes', 'upstream', { kind: 'return' });
+    expect(h.showConfirm).toHaveBeenCalledOnce();
+    const prompt = h.showConfirm.mock.calls[0]![0] as { onSuccess: () => void };
+    await act(async () => prompt.onSuccess());
+    expect(h.api.switchVariant).toHaveBeenLastCalledWith('notes', 'upstream', { kind: 'given', digest: 'variant-digest' });
+  });
+
+  it('copies the exact upstream commit from the installed row without navigating away', async () => {
+    const commit = 'c'.repeat(40);
+    h.api.marketUpdates.mockResolvedValue({ success: true, data: { checkedAt: '2026-10-26T00:00:00Z', updates: {}, yanked: {}, deprecated: {}, forkBehind: { notes: { upstream: '1.2.0', behind: 2, commit } } } });
+    await act(async () => root.render(React.createElement(SessionLocalizationProvider, null, React.createElement(ExtensionsSettingsCard))));
+    await showInstalled(dom);
+    await until('the fork update prompt link', () => !!doc().querySelector('[data-testid="extension-row-notes"] .xp-link'));
+    await press('[data-testid="extension-row-notes"] .xp-link');
+    expect(h.clipboard).toHaveBeenCalledOnce();
+    expect(h.clipboard.mock.calls[0]![0]).toContain(commit);
+    expect(h.clipboard.mock.calls[0]![0]).toContain('/work/notes@timeline');
+    expect(doc().querySelector('[data-testid="extensions-store"]')).not.toBeNull();
   });
 });
