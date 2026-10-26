@@ -3,8 +3,13 @@ import {
   GUGU_PLATFORM_BLOCK,
   GUGU_PLATFORM_PROMPT_TOKEN_BUDGET,
   estimatePromptTokens,
+  GUGU_ACKNOWLEDGEMENT, personalAssistantPlatformPrompt,
 } from '../../../../apps/desktop/electron/product-platform-prompt'
-import { guguSessionSurfaceBlock } from '../../../../apps/desktop/electron/capability-bundle'
+import { GUGU_APPS_SEARCH_LINE, guguSessionSurfaceBlock } from '../../../../apps/desktop/electron/capability-bundle'
+import { z } from 'zod'
+import { listRowsSchema, agentStatusFilterSchema } from '../../../../apps/desktop/electron/mcp/list-window.mjs'
+import { EXTENSION_TOOL_DEFS } from '../../../../apps/desktop/electron/mcp/gugu-extension-tool'
+import { assistantBrief } from '../../../../packages/core/src/shared/assistantPolicy'
 import { SESSION_TOOL_DEFS } from '../../../../apps/desktop/electron/mcp/gugu-session-tool'
 // @ts-expect-error -- the MCP tool implementation is an untyped ESM module.
 import { TOOL_DEFS } from '../../../../apps/desktop/electron/mcp/gugu-im-server.mjs'
@@ -20,7 +25,14 @@ describe('GUGU platform prompt budget', () => {
 describe('platform block carries no per-harness tool naming (#6192)', () => {
   it('keeps harness tool-name decoration out of the constant platform block', () => {
     expect(GUGU_PLATFORM_BLOCK).not.toMatch(/mcp__|gugu_<tool>|Pi `|Claude `|Codex `/)
-    expect(GUGU_PLATFORM_BLOCK).toContain('call the tool exactly as your tool list names it')
+    expect(GUGU_PLATFORM_BLOCK).not.toContain('canonical suffix')
+    expect(guguSessionSurfaceBlock('acp', 'claude', true)).toContain("follow that tool definition's invocation form")
+    const fallback = 'Call the tool exactly as your tool list names it, not by the bare suffix.'
+    expect(GUGU_PLATFORM_BLOCK).not.toContain(fallback)
+    for (const provider of ['amp', 'antigravity']) {
+      expect(guguSessionSurfaceBlock('acp', provider, true).split(fallback)).toHaveLength(2)
+      expect(guguSessionSurfaceBlock('acp', provider, false)).not.toContain(fallback)
+    }
   })
 })
 
@@ -57,6 +69,57 @@ describe('a routing or usage sentence has one owner (#6634 问题 15)', () => {
       'intent=preview', 'A harness Task, Agent', 'GUI-visible Gugu conversation',
     ]) {
       expect(everything).not.toContain(gone)
+    }
+  })
+})
+
+describe('tool usage belongs to schemas and assistant duplicates keep one owner', () => {
+  it('retains product-specific delegation triggers and the catalog search boundary', () => {
+    const surface = guguSessionSurfaceBlock('acp', 'claude', true)
+    expect(surface).toContain('「起一个 agent」「创建一个小弟」')
+    expect(surface).toContain('Never substitute one for a requested Gugu session')
+    expect(GUGU_PLATFORM_BLOCK).toContain("these tools are invisible to your harness's tool search")
+  })
+
+  it('keeps the shared list contract once in the platform instead of repeating it in fields', () => {
+    expect(GUGU_PLATFORM_BLOCK).toContain('`rows` is 1-based ("20" / "41-60"), default 20, all for catalogs')
+    expect(GUGU_PLATFORM_BLOCK).toContain('pass `next` as `rows`')
+    expect(GUGU_PLATFORM_BLOCK).toContain('`name` matches a substring, `pinned` a boolean, `status` a status/detail')
+    expect(GUGU_PLATFORM_BLOCK).toContain('`total` is after filtering')
+    expect(GUGU_PLATFORM_BLOCK).toContain('not a current observation')
+    expect(listRowsSchema.description).toBeUndefined()
+    expect(agentStatusFilterSchema.description).toBeUndefined()
+  })
+
+  it('keeps App mutation rules in app_install and leaves its game example intact', () => {
+    const install = EXTENSION_TOOL_DEFS.find(tool => tool.name === 'app_install')!
+    expect(install.description).toContain('never edit installed files')
+    expect(install.description).toContain('Switching an App on belongs to the person')
+    expect(GUGU_APPS_SEARCH_LINE).not.toContain('Never edit')
+    expect(GUGU_APPS_SEARCH_LINE).toContain('To install an App or change its version, use app_install.')
+    expect(GUGU_APPS_SEARCH_LINE).toContain('来一局狼人杀')
+  })
+
+  it('keeps all group guidance and general style when suppressing only the assistant acknowledgement duplicate', () => {
+    const assistant = personalAssistantPlatformPrompt(GUGU_PLATFORM_BLOCK)
+    for (const tag of ['gugu_transport', 'gugu_silence', 'gugu_collaboration', 'gugu_examples']) {
+      const section = GUGU_PLATFORM_BLOCK.match(new RegExp(`<${tag}>[\\s\\S]*?</${tag}>`))![0]
+      expect(assistant).toContain(section)
+    }
+    expect(assistant).toContain('Short. Lead with the answer')
+    expect(assistant).toContain('In mathematical prose')
+    expect(assistant).not.toContain(GUGU_ACKNOWLEDGEMENT)
+    expect(GUGU_PLATFORM_BLOCK).toContain(GUGU_ACKNOWLEDGEMENT)
+    const brief = assistantBrief('cloud', '/reference', '/memory')
+    expect(brief).toContain('多步工作先用 message_send 短句承接')
+    expect(brief).toContain('中文。')
+    expect(brief).not.toContain('简洁，先说结果')
+    expect(brief).not.toContain('schedule_create')
+    expect(brief).toContain('session_spawn(nest:true)')
+    for (const name of ['session_spawn', 'session_message']) {
+      const schema = SESSION_TOOL_DEFS.find(tool => tool.name === name)!.schema
+      const json = z.toJSONSchema(schema, { io: 'input' })
+      expect((json.properties!.source_link as { description: string }).description).toContain('Copy source_link from the delivery')
     }
   })
 })

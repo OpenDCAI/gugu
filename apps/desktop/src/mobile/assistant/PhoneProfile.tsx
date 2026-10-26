@@ -4,6 +4,7 @@ import { AssistantNameInline } from '../../components/assistant/AssistantNameInl
 import { useTranslation } from 'react-i18next'
 import { useContactsStore } from '../../store/contactsContext'
 import { useDevicesStore } from '../../store/devicesContext'
+import { isPhoneDevice } from '@gugu/core/cloud/devices'
 import { withoutAssistantHome } from '@/lib/assistantHome'
 import { Button } from '@/components/ui/Button'
 import { Avatar } from '@/components/Avatar'
@@ -30,6 +31,8 @@ import { AssistantLibraryCard } from '@/components/assistant/AssistantLibraryVol
 /** Profile home: identity and three resource entries; details keep their existing routes. */
 export function PhoneProfile(props: PhonePageProps) {
   const { t } = useTranslation('assistant')
+  const settings = useTranslation('settings').t
+  const devices = useDevicesStore()
   const { assistant, chatId, askInChat, sub, go, machine, cloudDeviceId } = props
   const name = assistant.display_name
   const diaries = usePhoneToday(chatId)
@@ -51,15 +54,20 @@ export function PhoneProfile(props: PhonePageProps) {
     if (route?.view === 'connect') return <PhoneConnectorSetupPage {...props} integrations={integrations} id={route.id} />
     return <PhoneConnectorDetail {...props} integrations={integrations} id={route?.id ?? sub.slice('connector:'.length)} />
   }
-  if (sub === 'devices' || sub?.startsWith('devices:'))
+  if (sub === 'devices' || sub?.startsWith('devices:')) {
+    const openedDeviceId = sub.startsWith('devices:') ? sub.slice('devices:'.length) : null
+    const opened = [...devices.devices, ...(devices.phones ?? [])].find(device => device.device_id === openedDeviceId)
+    const title = openedDeviceId === 'this-phone' || (opened?.is_current_device && isPhoneDevice(opened))
+      ? settings('devices.assistantPage.phoneTitle') : opened?.label ?? t('library.devices')
     return (
-      // 设备那一页(AssistantDevicesPage)自己带标题和说明,这里不再叠一层(与桌面同)。
       <div className="ta-page ta-phone-profile" data-testid="assistant-slot-devices">
+        <PageHead title={title} />
         <div className="ta-skin">
-          <AssistantDevicesPage cloudDeviceId={cloudDeviceId} openedDeviceId={sub.startsWith('devices:') ? sub.slice('devices:'.length) : null} onOpenDevice={(id) => go(id ? `devices:${id}` : 'devices')} />
+          <AssistantDevicesPage cloudDeviceId={cloudDeviceId} openedDeviceId={openedDeviceId} onOpenDevice={(id) => go(id ? `devices:${id}` : 'devices')} />
         </div>
       </div>
     )
+  }
   if (sub === 'channels') return <PhoneConnectorsPage {...props} integrations={integrations} />
   if (sub === 'diaries') return <AssistantDiaryList view={diaries} name={name} askInChat={askInChat} open={(id) => go(`diary:${id}`)} />
   if (sub?.startsWith('diary:'))
@@ -94,6 +102,7 @@ function ProfileHome({
   const devicesDetail = devices.error ? t('library.failed') : devices.loading ? t('library.loading') : t('connectors.deviceCount', { count: deviceCount })
   return (
     <div className="ta-page ta-phone-profile" data-testid="assistant-profile">
+      <PageHead title={t('nav.profile')} />
       <div className="ta-hero ta-phone-hero">
         <Button variant="ghost" className="ta-hero-avatar" onClick={() => go('customize')} aria-label={t('customize.title')} data-testid="assistant-profile-edit">
           <Avatar name={name} avatarUrl={assistant.avatar} seed={assistant.id} size={72} isAgent harnessBadge={false} />
@@ -101,9 +110,9 @@ function ProfileHome({
             <Pencil />
           </span>
         </Button>
-        <h1 className="ta-hero-name" data-testid="assistant-name">
+        <div className="ta-hero-name" data-testid="assistant-name">
           <AssistantNameInline key={assistant.id} name={name} onCommit={(name) => updateAgentProfile(assistant.id, { name })} />
-        </h1>
+        </div>
         {/* 性格未读到时保留中性名称，不把读取失败当作尚未设置。 */}
         <Button variant="ghost" className="ta-chip" onClick={() => go('customize')} data-testid="assistant-character-chip">
           {t(personaChipKey(persona.persona))}
