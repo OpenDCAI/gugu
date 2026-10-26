@@ -940,3 +940,8 @@ textarea.ta-input { min-height: 80px; resize: vertical; line-height: 1.5; }
 .ta-connector-hero h2 { margin: 0; font-size: var(--ta-fs-title, var(--font-title)); line-height: var(--ta-lh-title, var(--lh-title)); font-weight: 600; }
 .ta-connector-hero p { margin: 0; font-size: var(--ta-fs-sub, var(--font-body)); color: var(--ta-muted, var(--muted-fg)); }
 .ta-connector-hero > button { border-radius: 999px; }
+
+/* Resource folders have a primary open action and a separate context menu. */
+.ta-row.ta-row-split { padding: 0; }
+.ta-row-main { display: flex; flex: 1; min-width: 0; align-items: center; gap: var(--spacing-md); padding: var(--ta-pad-row-y) var(--ta-pad-row-x); border: 0; background: transparent; color: inherit; font: inherit; text-align: left; cursor: pointer; }
+.ta-row-split > .ta-row-meta { padding-inline-end: var(--ta-pad-row-x); }

@@ -15,9 +15,10 @@ export type PanelTab = (typeof PANEL_TABS)[number];
 
 /**
  * 面板此刻是哪一页。`sub` = 往下钻到的子页(往下钻时左上出返回箭头):
- * - profile:`diaries`、`diary:<id>`、`devices`、`connectors`(连接列表也直接展开在资料首页;聊天工具在全局设置里)
+ * - today:`diary:<id>`
+ * - profile:`files`、`files:<相对路径>`、兼容 `diaries`、`diary:<id>`、`devices`、`connectors`(连接列表也直接展开在资料首页;聊天工具在全局设置里)
  * - tasks:`routine:<id>`
- * - memory:`note:<文件名>`、`files`、`files:<相对路径>`、`voice`、`voice:<id>`(一条语音笔记)
+ * - memory:`note:<文件名>`、`voice`、`voice:<id>`(一条语音笔记)
  */
 export type PanelRoute = { tab: PanelTab; sub?: string };
 

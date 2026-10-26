@@ -82,6 +82,7 @@ export function AssistantRow({
   testId,
   chevron = true,
   detailLines,
+  trailingInteractive = false,
 }: {
   leading?: ReactNode;
   title: ReactNode;
@@ -92,7 +93,22 @@ export function AssistantRow({
   onClick?: () => void;
   testId?: string;
   chevron?: boolean;
+  /** A row action and its menu must be sibling buttons, never nested buttons. */
+  trailingInteractive?: boolean;
 }) {
+  if (onClick && trailingInteractive) return (
+    <div className="ta-row ta-row-split" data-testid={testId} data-divided={leading ? undefined : ''}>
+      <button type="button" onClick={onClick} className="ta-row-main">
+        {leading ? <span className="flex size-9 shrink-0 items-center justify-center">{leading}</span> : null}
+        <span className="ta-row-body">
+          <span className="ta-row-title">{title}</span>
+          {detail ? <span className="ta-row-sub" data-lines={detailLines} style={detailLines ? ({ '--ta-row-lines': detailLines } as CSSProperties) : undefined}>{detail}</span> : null}
+        </span>
+        {chevron && <span className="ta-row-chevron"><ChevronRight /></span>}
+      </button>
+      <span className="ta-row-meta">{trailing}</span>
+    </div>
+  );
   const body = (
     <>
       {leading ? <span className="flex size-9 shrink-0 items-center justify-center">{leading}</span> : null}

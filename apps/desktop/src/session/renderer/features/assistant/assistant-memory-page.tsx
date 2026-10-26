@@ -3,7 +3,7 @@ import { rendererLogger } from '@/lib/log';
 import { assistantPanelFailure } from '@/components/assistant/assistant-panel-errors';
 import { useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
-import { ArrowUpToLine, File, Folder, FolderPlus, Heart, Mic, MoreHorizontal, Plus, Sparkles, SquarePen, Trash2 } from '@/lib/icons';
+import { ArrowUpToLine, File, Folder, FolderPlus, Heart, Mic, MoreHorizontal, Sparkles, SquarePen, Trash2 } from '@/lib/icons';
 import { useToast } from '@renderer/lib/hooks/use-toast';
 import { useShowModal } from '@renderer/lib/modal/modal-provider';
 import { Button } from '@renderer/lib/ui/button';
@@ -37,32 +37,23 @@ function kindLabel(kind: MemoryKind, t: (key: string, options?: Record<string, u
 }
 
 /**
- * 记忆首页:页头「记忆 +」→「我对 X 的了解」那张卡(它记下的关于你的那几条)→「全部」两列小卡:
- * 录音笔记、给它的资料(一个文件夹)、其余每一条记忆。点进去是往下钻的那一页。
+ * 记忆首页:页头「记忆」→「我对 X 的了解」那张卡(它记下的关于你的那几条)→「全部」两列小卡:
+ * 录音笔记、其余每一条记忆；给助理的资料在资料页。点进去是往下钻的那一页。
  */
 function MemoryHome({ context }: { context: AssistantContext }) {
   const { t } = useTranslation('assistant');
   const time = useTimeFormat();
   const notes = useMemoryNotes(context.machine);
-  const root = useDirectory(context.machine, context.machine?.paths.resourcesDir ?? null);
   const name = context.assistant.display_name;
   const all = notes.data?.notes ?? [];
   const aboutYou = all.filter((n) => n.kind === 'user');
   const others = all.filter((n) => n.kind !== 'user');
   const latest = aboutYou.map((n) => n.modifiedAt).filter(Boolean).sort().at(-1) ?? null;
-  const fileCount = (root.data ?? []).filter((entry) => !entry.name.startsWith('.')).length;
   const voice = useVoiceNotes(context.machine);
   const voiceCount = voice.data?.length ?? 0;
   return (
     <div className="ta-page" data-testid="assistant-memory">
-      <PageHead
-        title={t('nav.memory')}
-        action={
-          <button type="button" className="ta-circle" aria-label={t('files.upload')} title={t('files.upload')} onClick={() => context.go({ tab: 'memory', sub: 'files' })} data-testid="assistant-memory-add">
-            <Plus />
-          </button>
-        }
-      />
+      <PageHead title={t('nav.memory')} />
       <MachineGate
         readiness={context.readiness}
         loading={context.machineLoading || notes.isLoading}
@@ -103,7 +94,6 @@ function MemoryHome({ context }: { context: AssistantContext }) {
         <AssistantSection title={t('library.sources')}>
           <AssistantRow leading={<Heart />} title={t('health.title')} onClick={() => context.go({ tab: 'memory', sub: 'health' })} testId="assistant-memory-health" />
           <AssistantRow leading={<Mic />} title={t('memory.voiceNotes')} detail={voiceCount > 0 ? t('memory.items', { n: voiceCount }) : t('memory.voiceNotesCount')} onClick={() => context.go({ tab: 'memory', sub: VOICE_NOTE_SUB })} testId="assistant-memory-voice" />
-          <AssistantRow leading={<Folder />} title={RESOURCES_DIR_NAME} detail={root.isSuccess ? t('memory.items', { n: fileCount }) : ''} onClick={() => context.go({ tab: 'memory', sub: 'files' })} testId="assistant-memory-files" />
         </AssistantSection>
       </MachineGate>
     </div>
@@ -253,6 +243,7 @@ function ResourceRow({
       title={entry.name}
       detail={folder ? undefined : formatSize(entry.size)}
       onClick={folder ? onOpen : undefined}
+      trailingInteractive
       trailing={
         <span onClick={(e) => e.stopPropagation()}>
           <DropdownMenu>
@@ -293,12 +284,12 @@ function formatSize(bytes: number): string {
  * 文件(「添加与你有关的文件」):云电脑主目录下「给助理的资料」这一夹。人在这里传、建夹、改名、删;
  * 传完一点「让它去看」,把一句交代填进和它的私聊(人看过再发) —— 由人发那一下。
  */
-function ResourceFiles({ context, trail }: { context: AssistantContext; trail: string[] }) {
+export function ResourceFiles({ context, trail }: { context: AssistantContext; trail: string[] }) {
   const { t } = useTranslation('assistant');
   const { toast } = useToast();
   const invalidate = useInvalidateAssistant(context.homeDeviceId);
   const root = context.machine?.paths.resourcesDir ?? null;
-  const openFolder = (name: string) => context.go({ tab: 'memory', sub: `files:${[...trail, name].join('/')}` });
+  const openFolder = (name: string) => context.go({ tab: context.route.tab, sub: `files:${[...trail, name].join('/')}` });
   const dir = root ? trail.reduce((acc, name) => joinPath(acc, name), root) : null;
   const listing = useDirectory(context.machine, dir);
   const inputRef = useRef<HTMLInputElement>(null);

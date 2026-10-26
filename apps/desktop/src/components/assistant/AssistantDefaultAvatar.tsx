@@ -5,7 +5,7 @@ import { useAgentLook } from '../agentAvatar/useAgentLook'
 import { useAgentLookPoster } from '../agentAvatar/posters'
 
 /** The assistant alone keeps the 3D figure and its still posters. */
-export function AssistantDefaultAvatar({ id, avatar, look, name, size, still = false, hoverPoke, state }: {
+export function AssistantDefaultAvatar({ id, avatar, look, name, size, still = false, hoverPoke, state, canvasPaddingX }: {
   id: string
   avatar?: string | null
   look?: AgentLook
@@ -13,10 +13,11 @@ export function AssistantDefaultAvatar({ id, avatar, look, name, size, still = f
   size: number
   still?: boolean
   hoverPoke?: boolean
+  canvasPaddingX?: number
   state?: AgentStatusLabel | null
 }) {
   return still ? <AssistantStill id={id} avatar={avatar} look={look} name={name} size={size} />
-    : <AgentAvatar id={id} avatar={avatar} look={look} name={name} size={size} hoverPoke={hoverPoke} state={state} />
+    : <AgentAvatar id={id} avatar={avatar} look={look} name={name} size={size} hoverPoke={hoverPoke} state={state} canvasPaddingX={canvasPaddingX} />
 }
 
 function AssistantStill({ id, avatar, look, name, size }: { id: string; avatar?: string | null; look?: AgentLook; name: string; size: number }) {
