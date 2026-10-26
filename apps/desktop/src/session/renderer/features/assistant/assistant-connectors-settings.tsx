@@ -88,7 +88,7 @@ const HomeConnectorList = observer(function HomeConnectorList({ host, home, assi
           data-testid={`assistant-connector-${integration.id}`}
           leading={<IntegrationIcon provider={integration.id} icon={integration.icon} size={28} />}
           title={integration.name}
-          description={detail}
+          description={detail || '\u00a0'}
           control={
             <span className="flex items-center gap-2">
               <Chip tone={state === 'connected' ? 'ok' : state === 'needsReauth' || state === 'checkFailed' ? 'warn' : 'default'}>{t(`connectors.${state}`)}</Chip>

@@ -1,3 +1,4 @@
+import { EMPTY_INTEGRATION_SUMMARIES,useAssistantIntegrationSummaries } from '@/components/assistant/useAssistantIntegrationSummaries';
 import { isAssistantPanelReadRetryable, retryAssistantPanelRead } from '@gugu/core/cloud/assistantPanelRead';
 import { ASSISTANT_PANEL_CHANGED } from '@/components/assistant/assistant-panel-events';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
@@ -102,7 +103,7 @@ export function IntegrationsProvider({ children }: { children: React.ReactNode }
   // 插件的中英两份由那台机器的主进程按这台桌面的界面语言解析成字符串;换语言重取。
   const locale = useSyncExternalStore(subscribeSessionLocale, () => getSessionLocaleSnapshot().resolvedLocale);
   const {
-    data: integrations = [],
+    data: rawIntegrations = EMPTY_INTEGRATION_SUMMARIES,
     error: listError,
     isFetched: listFetched,
     refetch: refetchList,
@@ -115,6 +116,8 @@ export function IntegrationsProvider({ children }: { children: React.ReactNode }
     refetchInterval: query => host.assistantPanelExpected && isAssistantPanelReadRetryable(query.state.error) ? 30_000 : false,
     ...(host.assistantPanelExpected ? { retry: retryAssistantPanelRead,refetchOnWindowFocus: (query: { state: { error: unknown } }) => isAssistantPanelReadRetryable(query.state.error) } : remote ? { retry: false } : {}),
   });
+
+  const integrations = useAssistantIntegrationSummaries(host.assistantPanel,rawIntegrations,locale);
 
   useEffect(() => {
     // @issue 的图标是聊天里用的,聊天只跟本机那一份走。

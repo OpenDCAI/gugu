@@ -1,3 +1,4 @@
+import { integrationIcons } from '@gugu/session-plugins/integration-icons'
 import type { AssistantPanelFiles } from '@gugu/core/cloud/assistantPanelFiles'
 import type { ConnectionStatus } from '@/session/shared/issue-providers'
 import type { IntegrationMetadata } from '@/session/renderer/features/integrations/integrations-provider'
@@ -9,10 +10,10 @@ export async function readAssistantPanelIntegrations(panel: AssistantPanelFiles,
   const snapshot = await panel.snapshot()
   const catalog = rows.filter(row => row.resource_key.startsWith('catalog:'))
   const items: IntegrationMetadata[] = catalog.map(row => ({
-    id: String(row.data.providerId),name: String(row.data.displayName ?? row.data.providerId),description: '',
+    id: String(row.data.providerId),name: String(row.data.displayName ?? row.data.providerId),description: typeof row.data.description === 'string' ? row.data.description : '',
     websiteUrl: '',features: [],disconnectCredentialLabel: undefined,
     capabilities: { requiresRepositoryUrl: false,supportsIssueContext: false },auth: { methods: [] },
-    icon: { kind: 'svg',variants: [] },abilities: [],playbooks: [],multiAccount: false,metadataOnly: true,
+    icon: integrationIcons[String(row.data.providerId)] ?? { kind: 'svg',variants: [] },abilities: [],playbooks: [],multiAccount: false,metadataOnly: true,
   }))
   const accounts = rows.filter(row => !row.resource_key.startsWith('catalog:'))
   const configured: Record<string, boolean> = {}, statuses: Record<string, ConnectionStatus> = {}
@@ -45,4 +46,21 @@ export async function readAssistantPanelIntegration(panel: AssistantPanelFiles,i
   const item = data[locale === 'zh-CN' ? 'zh-CN' : 'en'] as IntegrationMetadata
   if (data.version !== 1 || !item || item.id !== id || typeof item.name !== 'string' || !Array.isArray(item.auth?.methods)) throw new Error('PANEL_INTEGRATION_UNAVAILABLE')
   return item
+}
+
+/** Missing row descriptions are optional enrichment. Four workers avoid queuing
+ * a whole catalog ahead of the entry the person explicitly opens. */
+export async function enrichAssistantPanelIntegrations(panel: AssistantPanelFiles,items: readonly IntegrationMetadata[],locale: string,
+  updated: (id: string,description: string) => void,active: () => boolean = () => true): Promise<void> {
+  const missing = items.filter(item => item.metadataOnly && !item.description)
+  let next = 0
+  await Promise.all(Array.from({ length: Math.min(4,missing.length) },async () => {
+    while (active() && next < missing.length) {
+      const item = missing[next++]!
+      try {
+        const detail = await readAssistantPanelIntegration(panel,item.id,locale)
+        if (active()) updated(item.id,detail.description ?? '')
+      } catch { /* A missing description never hides its row or asks for a retry. */ }
+    }
+  }))
 }

@@ -109,7 +109,8 @@ function ConnectorLists({ data, open, connect }: { data: PhoneIntegrations; open
           testId={`assistant-connector-${item.id}`}
           leading={<ConnectorIcon integration={item} size={30} />}
           title={item.name}
-          detail={detail}
+          detail={detail || '\u00a0'}
+          detailLines={1}
           trailing={<span className={state === 'connected' ? 'ta-ok' : state === 'needsReauth' || state === 'checkFailed' ? 'ta-phone-warn' : undefined}>{t(`connectors.${state}`)}</span>}
           onClick={() => open(item.id)}
         />

@@ -1,3 +1,4 @@
+import { EMPTY_INTEGRATION_SUMMARIES,useAssistantIntegrationSummaries } from '@/components/assistant/useAssistantIntegrationSummaries'
 import { useLocale } from '@/i18n'
 import { splitInstructions, splitPersona } from '@/session/renderer/features/assistant/assistant-files'
 import { readText } from '@/session/renderer/features/assistant/assistant-machine-core'
@@ -54,7 +55,8 @@ export function usePhoneIntegrations(machine: PhoneMachineState, active: boolean
   const ready = machine.state === 'ready' ? machine.machine : null
   const read = usePhoneRead(active && ready ? `integrations|${machineKey(ready)}|${resolvedLocale}` : null,
     () => readAssistantPanelIntegrations(ready!.panel!,resolvedLocale),'read assistant integration metadata')
-  return { data: read.state === 'ok' ? read.data : null,loading: read.state === 'loading',error: read.state === 'error' ? read.error : null,retry: read.reload }
+  const items = useAssistantIntegrationSummaries(ready?.panel,read.state === 'ok' ? read.data.items : EMPTY_INTEGRATION_SUMMARIES,resolvedLocale)
+  return { data: read.state === 'ok' ? { ...read.data,items } : null,loading: read.state === 'loading',error: read.state === 'error' ? read.error : null,retry: read.reload }
 }
 
 export function usePhoneIntegrationDetail(machine: PhoneMachineState,summary: IntegrationMetadata | null | undefined) {
