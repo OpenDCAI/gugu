@@ -8,8 +8,7 @@ import { Button } from '../ui/Button'
 import { PageHead } from '../../session/renderer/features/assistant/assistant-ui-parts'
 import type { AssistantMachine } from '../../session/renderer/features/assistant/assistant-machine-core'
 import type { UserLibraryEntry, UserLibraryKind } from '../../session/shared/user-library'
-import { assistantAppProgram, publishAssistantAppChange } from './assistant-app-client'
-import { toast } from '../../session/renderer/lib/hooks/use-toast'
+import { assistantAppProgram, reportAssistantAppChange } from './assistant-app-client'
 import { libraryDeviceId } from './assistant-library-client'
 import { cachedDevicesAccount } from '../../store/devicesCache'
 
@@ -33,12 +32,10 @@ export function AssistantLibraryEditor({ machine, assistantId, kind, entry, onCl
       const saved = await assistantAppProgram<UserLibraryEntry>(machine, 'library_write', { kind, name: name.trim(), description, group: group.trim() || null, content,
         ...(entry ? { id: entry.id, expectedModifiedAt: entry.modifiedAt } : {}) }, ownerId)
       const change = saved.activity?.at(-1)
-      try {
-        if (assistantId) await publishAssistantAppChange(machine, { resource: kind === 'capabilities' ? 'capabilities' : 'device-notes',
+      if (assistantId) await reportAssistantAppChange(machine, assistantId, { resource: kind === 'capabilities' ? 'capabilities' : 'device-notes',
           operation: entry ? 'edited' : 'created', id: saved.id, deviceId: libraryDeviceId(machine),
           ...(change ? { operationId: change.operationId, before: change.before, after: change.after }
-            : { after: { name: saved.name, description: saved.description, group: saved.group } }) }, assistantId, ownerId)
-      } catch (error) { rendererLogger('actions/AssistantLibraryEditor').error({ error: error }, 'action failed'); toast({ title: t('library.savedNotificationFailed'), description: messageForUser(error), tier: 'warning' }) }
+            : { after: { name: saved.name, description: saved.description, group: saved.group } }) }, ownerId)
       onSaved()
     } catch (error) { rendererLogger('actions/AssistantLibraryEditor').error({ error }, 'action failed'); setFailed(messageForUser(error)) }
     finally { setSaving(false) }

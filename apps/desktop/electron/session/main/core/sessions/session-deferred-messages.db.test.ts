@@ -25,6 +25,7 @@ import {
   withDeferredMessagesBeforeAdmission,
 } from './session-deferred-messages';
 import { setSessionMessageRouter } from './session-message-router';
+import { setSessionAdmissionPreparation } from './session-admission-preparation';
 
 type Status = { sessionId: string; reading: { status: string } | null };
 
@@ -65,6 +66,7 @@ describe('deferred messages: kept on the session, sent when it starts working', 
 
   afterEach(() => {
     setSessionMessageRouter(null);
+    setSessionAdmissionPreparation(null);
     fixture.close();
     mocks.db = undefined;
   });
@@ -103,6 +105,32 @@ describe('deferred messages: kept on the session, sent when it starts working', 
     await withDeferredMessagesBeforeAdmission('s1', 'RETRY', async text => {
       expect(text).toBe('APP-A\n\nRETRY'); return { declined: false, requestId: 'retry' };
     });
+    expect(states()).toEqual([{ id: 'A', state: 'accepted' }]);
+  });
+
+  it('keeps deferred context retryable when a required panel change fails before model admission', async () => {
+    storeDeferredMessage({ sessionId: 's1', id: 'A', text: 'APP-A' });
+    setSessionAdmissionPreparation(async () => { throw new Error('memory/note: FILE_WRITE_FAILED'); });
+    const send = vi.fn(async () => ({ declined: false, requestId: 'must-not-run' }));
+    await expect(withDeferredMessagesBeforeAdmission('s1', 'USER', send)).rejects.toMatchObject({ deliveryRejectedBeforeAdmission: true });
+    expect(send).not.toHaveBeenCalled();
+    expect(states()).toEqual([{ id: 'A', state: 'deferred' }]);
+    const accepted = vi.fn(async () => {});
+    setSessionAdmissionPreparation(async (_id, text) => ({ text: `MEMORY REVOKED\n${text}`, accepted }));
+    await withDeferredMessagesBeforeAdmission('s1', 'RETRY', async text => {
+      expect(text).toBe('MEMORY REVOKED\nAPP-A\n\nRETRY');
+      expect(accepted).not.toHaveBeenCalled();
+      return { declined: false, requestId: 'native-retry' };
+    });
+    expect(accepted).toHaveBeenCalledOnce();
+    expect(states()).toEqual([{ id: 'A', state: 'accepted' }]);
+  });
+
+  it('does not turn an accepted model request into a delivery failure if the preparation checkpoint cannot be saved', async () => {
+    storeDeferredMessage({ sessionId: 's1', id: 'A', text: 'APP-A' });
+    setSessionAdmissionPreparation(async (_id, text) => ({ text, accepted: async () => { throw new Error('Disk unavailable'); } }));
+    expect(await withDeferredMessagesBeforeAdmission('s1', 'USER', async () => ({ declined: false, requestId: 'accepted' })))
+      .toEqual({ declined: false, requestId: 'accepted' });
     expect(states()).toEqual([{ id: 'A', state: 'accepted' }]);
   });
 

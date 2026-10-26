@@ -9,6 +9,7 @@ export { injectEmdashPromptDetached } from '../session/main/core/acp/inject-prom
 export { recordConfirmedDeviceSleep } from '../session/main/core/activity/collector'
 export {
   bootEmdashModule,
+  setSessionAdmissionPreparation,
   readCurrentActivityInput,
   disposeEmdashModule,
   emdashRpcRouter,

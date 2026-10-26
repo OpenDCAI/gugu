@@ -3,6 +3,12 @@ import { db } from '@main/db/client';
 import { messages, sessions } from '@main/db/schema';
 import { log } from '@main/lib/logger';
 import { getSessionMessageRouter } from './session-message-router';
+import { prepareSessionAdmission } from './session-admission-preparation';
+
+async function checkpointPreparation(sessionId: string, prepared: Awaited<ReturnType<typeof prepareSessionAdmission>>): Promise<void> {
+  try { await prepared.accepted(); }
+  catch { log.warn('Admission preparation receipt checkpoint failed', { sessionId }); }
+}
 
 /**
  * 附带(defer:推迟到对方下次进入运行中时再送;App 的 `dispatch(…, { to: { agent }, delivery: 'defer' })`,owner 10-09「直接用"进入运行中"这个事件不就得了」):一次普通的 session-direct 发送,
@@ -144,7 +150,12 @@ export function deferredMessagesSettled(sessionId: string): Promise<void> {
 export async function withDeferredMessagesBeforeAdmission<T extends { declined: boolean; requestId: string }>(
   sessionId: string, text: string, admit: (text: string) => Promise<T>, skipClaim = false,
 ): Promise<T> {
-  if (skipClaim) return admit(text);
+  if (skipClaim) {
+    const prepared = await prepareSessionAdmission(sessionId,text);
+    const receipt = await admit(prepared.text);
+    if (!receipt.declined && receipt.requestId) await checkpointPreparation(sessionId, prepared);
+    return receipt;
+  }
   const previous = admissions.get(sessionId) ?? Promise.resolve();
   const current = previous.catch(() => undefined).then(async () => {
     await deferredMessagesSettled(sessionId);
@@ -157,10 +168,12 @@ export async function withDeferredMessagesBeforeAdmission<T extends { declined: 
     });
     const prompt = [...claimed.map(row => row.content), text].join('\n\n');
     try {
-      const receipt = await admit(prompt);
+      const prepared = await prepareSessionAdmission(sessionId,prompt);
+      const receipt = await admit(prepared.text);
       if (!receipt.declined && !receipt.requestId) throw new Error('ACP admission returned no receipt for deferred context');
       for (const row of claimed) setState(row.id, 'dispatching', receipt.declined ? 'deferred' : 'accepted',
         receipt.declined ? {} : { nativeReceiptId: receipt.requestId });
+      if (!receipt.declined) await checkpointPreparation(sessionId, prepared);
       return receipt;
     } catch (error) {
       const rejected = rejectedBeforeAdmission(error);

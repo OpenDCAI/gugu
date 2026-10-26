@@ -74,6 +74,7 @@ import { registerRPCRouter } from '@shared/lib/ipc/rpc'
 // this separately bundled module graph. Re-export the setter so the host can
 // install the same gate in this bundle instead of mutating a duplicate module.
 export { setPlatformRecoveryReadyGate } from './core/sessions/platform-recovery-gate'
+export { setSessionAdmissionPreparation } from './core/sessions/session-admission-preparation'
 import { registerWebviewAttachPolicy } from '@main/app/webview-policy'
 import { setupPreviewProtocol } from '@main/core/files/preview-protocol'
 import {

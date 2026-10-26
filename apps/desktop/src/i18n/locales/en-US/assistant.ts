@@ -9,7 +9,6 @@ export default {
     "entryName": "Name",
     "add": "Add entry",
     "edit": "Edit entry",
-    "savedNotificationFailed": "Saved; delivery of the update to your assistant is unconfirmed",
     "memory": "Memory", "workspace": "Projects", "capabilities": "Capabilities", "devices": "Devices",
     "loading": "Reading…", "failed": "Resources could not be read. Please retry.", "items": "{{count}} entries",
     "notConfigured": "Not configured yet", "setup": "Set up together", "organize": "Organize in chat", "backToIndex": "Back to index",

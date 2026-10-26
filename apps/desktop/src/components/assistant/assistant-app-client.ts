@@ -1,15 +1,13 @@
-import { i18n } from '@/i18n';
-import { messageForUser } from '@/lib/userFacingError';
 import { hostEventHub, hostMembers } from '../../session/shared/extensions/host-calls';
 import type { ExtensionHostEvent } from '../../session/shared/extensions/bridge-protocol';
 import type { ExtensionAgentView } from '../../session/shared/extensions/bridge-protocol';
 import type { CallToolResult } from '@modelcontextprotocol/sdk/types';
 import type { AppMessageReceipt } from '@gugu/session-core/session-record/contract';
-import { assistantAppChangeText, type AssistantAppChange } from '../../session/shared/extensions/assistant-app';
+import type { AssistantAppChange } from '../../session/shared/extensions/assistant-app';
+import type { AssistantPanelReceipt } from '@gugu/core/cloud/assistantPanel';
 import { libraryHost } from './assistant-library-client';
-import { readAssistantShellBridge } from '../../lib/assistantShellBridge';
+import { queueAssistantAppChange } from './assistant-panel-cloud';
 import type { AssistantMachine } from '../../session/renderer/features/assistant/assistant-machine-core';
-import { toast } from '../../session/renderer/lib/hooks/use-toast';
 import { rendererLogger } from '../../lib/log';
 import { cachedDevicesAccount } from '../../store/devicesCache';
 
@@ -44,18 +42,10 @@ export async function assistantAppProgram<T>(machine: AssistantAppMachine | null
 export async function publishAssistantAppChange(
   machine: AssistantAppMachine | null | undefined,
   change: Omit<AssistantAppChange, 'operationId'> & { operationId?: string },
-  assistantId = readAssistantShellBridge()?.getSnapshot()?.assistant?.id,
+  assistantId: string | undefined = undefined,
   expectedOwnerId = cachedDevicesAccount(),
-): Promise<AppMessageReceipt | null> {
-  const app = assistantAppClient(machine, expectedOwnerId);
-  if (!assistantId) {
-    const listed = await app.listAgents();
-    assistantId = listed.agents[0]?.agentId.replace(/^user:/, '');
-    if (!assistantId && listed.unreached.length) throw new Error('Personal assistant device could not be read');
-    if (!assistantId) return null;
-  }
-  return app.dispatch(assistantAppChangeText({ ...change, operationId: change.operationId ?? crypto.randomUUID() }),
-    { to: { agent: `user:${assistantId}` }, delivery: 'defer' });
+): Promise<AssistantPanelReceipt | null> {
+  return queueAssistantAppChange({ ...change, operationId: change.operationId ?? crypto.randomUUID() },assistantId,expectedOwnerId);
 }
 
 /** Call after a successful state mutation. A failed delivery must not turn a committed save into a fake save failure. */
@@ -64,9 +54,7 @@ export async function reportAssistantAppChange(
   change: Omit<AssistantAppChange, 'operationId'> & { operationId?: string },
   expectedOwnerId = cachedDevicesAccount(),
 ): Promise<void> {
-  try { await publishAssistantAppChange(machine, change, assistantId, expectedOwnerId); }
-  catch (error) {
-    rendererLogger('assistant/app').error({ error: String(error), operationId: change.operationId }, 'App state message delivery unconfirmed');
-    toast({ title: i18n.t('library.savedNotificationFailed', { ns: 'assistant' }), description: messageForUser(error), tier: 'warning' });
-  }
+  void publishAssistantAppChange(machine, change, assistantId, expectedOwnerId).catch(() => {
+    rendererLogger('assistant/app').warn({ operationId: change.operationId }, 'Saved App change publication deferred');
+  });
 }
