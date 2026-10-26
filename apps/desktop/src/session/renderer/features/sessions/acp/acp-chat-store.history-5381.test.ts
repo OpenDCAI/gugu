@@ -118,6 +118,26 @@ beforeEach(() => {
 });
 afterEach(() => vi.restoreAllMocks());
 
+describe('lazy tool pictures after the host closes the runtime', () => {
+  it('reads the persisted original turn without restarting the stopped runtime', async () => {
+    const { store, internals } = makeStore();
+    internals.session = null;
+    internals._runtimeTurns = [{ ...turn('runtime:turn:2', 2), items: [
+      { kind: 'mcp-tool-call', id: 'runtime:turn:2:tool:pic', seq: 0, toolCallId: 'pic',
+        title: 'Screenshot', status: 'done', imageRefs: [{ mimeType: 'image/png', chars: 4 }] },
+    ] }];
+    const invoke = vi.spyOn(window.electronAPI, 'invoke').mockResolvedValue({
+      ok: true, image: { mimeType: 'image/png', data: 'aGV5' },
+    });
+    expect(await store.resolveToolImage('runtime:turn:2:tool:pic', 0)).toBe('data:image/png;base64,aGV5');
+    expect(invoke).toHaveBeenCalledWith('sessions.getStoredToolImage', {
+      sessionId: store.sessionId, originTurnId: 'runtime:turn:2', itemId: 'runtime:turn:2:tool:pic', index: 0,
+    });
+    expect(internals.session).toBeNull();
+    store.dispose();
+  });
+});
+
 describe('#7304 原地回退后的历史对账', () => {
   function setup() {
     const { store, internals } = makeStore();

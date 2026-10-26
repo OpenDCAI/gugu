@@ -879,13 +879,19 @@ export class AcpChatStore {
     const generation = this._historyGeneration;
     const stored = findToolItem(this._storedHistoryTurns, itemId)
       ?? (this._olderSource === 'stored' ? findToolItem(this._olderHistoryTurns, itemId) : null);
+    const runtime = !stored ? findToolItem(this._runtimeTurns, itemId)
+      ?? (this._olderSource === 'runtime' ? findToolItem(this._olderHistoryTurns, itemId) : null) : null;
     try {
       const result = stored
         ? await rpc.sessions.getStoredToolImage({ sessionId: this.sessionId, seq: stored.turn.seq, itemId, index })
-        : await this.session?.getToolImage(itemId, index).then(result => {
-            if (!result.success) throw result.error;
-            return result.data;
-          });
+        : this.session
+          ? await this.session.getToolImage(itemId, index).then(result => {
+              if (!result.success) throw result.error;
+              return result.data;
+            })
+          : runtime
+            ? await rpc.sessions.getStoredToolImage({ sessionId: this.sessionId, originTurnId: runtime.turn.id, itemId, index })
+            : null;
       if (this._disposed || generation !== this._historyGeneration) return null;
       if (!result?.ok) {
         if (result) log.warn('Tool image unavailable', { code: result.code });

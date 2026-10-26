@@ -56,6 +56,11 @@ export type CommittedTurnSource = 'live' | 'replay' | 'revision' | 'backfill';
  * 重编号只动 id 那几个字段（`id` 与 `parentId`，两者都以 turn id 为前缀），
  * ❌ 不做整段 JSON 的字符串替换：消息正文里恰好出现同样的字符串就会被误伤。
  */
+function rewriteTurnId(value: string, previous: string, next: string): string {
+  if (value === previous) return next;
+  return value.startsWith(previous + ':') ? next + value.slice(previous.length) : value;
+}
+
 export function renumberStoredTurn(
   turn: TranscriptTurn,
   sessionId: string,
@@ -65,18 +70,13 @@ export function renumberStoredTurn(
   const prevTurnId = turn.id;
   if (nextTurnId === prevTurnId) return { ...turn, seq: storeSeq };
 
-  const rewrite = (value: string): string => {
-    if (value === prevTurnId) return nextTurnId;
-    if (value.startsWith(`${prevTurnId}:`)) return `${nextTurnId}${value.slice(prevTurnId.length)}`;
-    return value;
-  };
   const walk = (node: unknown): unknown => {
     if (Array.isArray(node)) return node.map(walk);
     if (node === null || typeof node !== 'object') return node;
     const out: Record<string, unknown> = {};
     for (const [key, val] of Object.entries(node as Record<string, unknown>)) {
       out[key] = (key === 'id' || key === 'parentId') && typeof val === 'string'
-        ? rewrite(val)
+        ? rewriteTurnId(val, prevTurnId, nextTurnId)
         : walk(val);
     }
     return out;
@@ -188,9 +188,19 @@ export async function getStoredHistory(params: {
     : { ...page, turns: trimTurnsForTransport(page.turns) };
 }
 
-export async function getStoredToolImage(params: { sessionId: string; seq: number; itemId: string; index: number }) {
-  const page = await readStoredTurns(params.sessionId, { before: params.seq + 1, limit: 1 });
-  return findToolImage(page.turns.filter(turn => turn.seq === params.seq), params.itemId, params.index, Number.POSITIVE_INFINITY);
+export async function getStoredToolImage(params: {
+  sessionId: string; itemId: string; index: number;
+} & ({ seq: number } | { originTurnId: string })) {
+  await persistenceTails.get(params.sessionId);
+  const [row] = await db.select({ data: sessionTurns.data, turnId: sessionTurns.turnId })
+    .from(sessionTurns).where(and(
+      eq(sessionTurns.sessionId, params.sessionId),
+      'seq' in params ? eq(sessionTurns.seq, params.seq) : eq(sessionTurns.turnId, params.originTurnId),
+    )).orderBy(desc(sessionTurns.seq)).limit(1);
+  const turn = row ? JSON.parse(row.data) as TranscriptTurn : null;
+  const itemId = row && turn && !('seq' in params)
+    ? rewriteTurnId(params.itemId, row.turnId, turn.id) : params.itemId;
+  return findToolImage(turn ? [turn] : [], itemId, params.index, Number.POSITIVE_INFINITY);
 }
 
 export interface StoredTurnPage {

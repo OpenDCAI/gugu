@@ -1449,7 +1449,7 @@ describe('AcpRuntime session manager', () => {
     expect(exported.data).not.toContain('ghost-command');
   });
 
-  it('fetches a full desktop tool picture from retained history after the runtime closes', async () => {
+  it('fetches a full desktop tool picture without applying the phone preview limit', async () => {
     const h = makeAcpHarness();
     const rt = new AcpRuntime(h.deps);
     const image = { mimeType: 'image/png', data: 'x'.repeat(1_048_577) };
@@ -1470,12 +1470,16 @@ describe('AcpRuntime session manager', () => {
     const item = rt.getChatHistory('conv-picture').committed.flatMap(turn => turn.items)
       .find(entry => 'toolCallId' in entry && entry.toolCallId === 'picture');
     if (!item) throw new Error('replayed tool picture missing');
-    expect(rt.getToolImage('conv-picture', item.id, 0)).toEqual({ ok: true, image });
-    await rt.stopSession('conv-picture');
     const fetched = rt.getToolImage('conv-picture', item.id, 0);
-    expect(fetched).toEqual({ ok: true, image });
-    if (fetched.ok) fetched.image.data = 'changed by reader';
-    expect(rt.getToolImage('conv-picture', item.id, 0)).toEqual({ ok: true, image });
+    expect(fetched.ok).toBe(true);
+    if (!fetched.ok) throw new Error(fetched.message);
+    expect(fetched.image.data.length).toBe(image.data.length);
+    expect(fetched.image.mimeType).toBe(image.mimeType);
+    fetched.image.data = 'changed by reader';
+    const again = rt.getToolImage('conv-picture', item.id, 0);
+    expect(again.ok && again.image.data.length).toBe(image.data.length);
+    await rt.stopSession('conv-picture');
+    expect(rt.getToolImage('conv-picture', item.id, 0)).toMatchObject({ ok: false, code: 'no_such_item' });
   });
 
   it('returns a resume result with replayed history', async () => {

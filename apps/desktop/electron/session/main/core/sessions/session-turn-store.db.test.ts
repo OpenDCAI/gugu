@@ -20,7 +20,7 @@ vi.mock('@main/db/client', () => ({
   },
 }));
 
-import { persistCommittedTurn, readStoredTurns, storedRevertBoundary, truncateStoredHistory } from './session-turn-store';
+import { getStoredToolImage, persistCommittedTurn, readStoredTurns, storedRevertBoundary, truncateStoredHistory } from './session-turn-store';
 
 type Fixture = Awaited<ReturnType<typeof openFixture>>;
 
@@ -55,6 +55,21 @@ describe('conversation-turn-store', () => {
       INSERT INTO projects (id, name, path) VALUES ('p1', 'P', '/repo');
       INSERT INTO sessions (id, project_id, title) VALUES ('c1', 'p1', 'C');
     `);
+  });
+
+  it('resolves a stopped runtime picture through its persisted origin without confusing reused runtime IDs', async () => {
+    const originalId = 'c1:turn:0';
+    const imageTurn = (data: string): TranscriptTurn => ({
+      ...turn(originalId, 'picture'),
+      items: [{ kind: 'mcp-tool-call', id: originalId + ':tool:pic', seq: 0,
+        toolCallId: 'pic', title: 'Screenshot', status: 'done', images: [{ mimeType: 'image/png', data }] }],
+    });
+    await persistCommittedTurn({ sessionId: 'c1', source: 'live', turn: imageTurn('earlier') });
+    await persistCommittedTurn({ sessionId: 'c1', source: 'live', turn: imageTurn('latest') });
+    expect(await getStoredToolImage({ sessionId: 'c1', originTurnId: originalId, itemId: originalId + ':tool:pic', index: 0 }))
+      .toEqual({ ok: true, image: { mimeType: 'image/png', data: 'latest' } });
+    expect(await getStoredToolImage({ sessionId: 'c1', seq: 0, itemId: 'c1:turn:s0:tool:pic', index: 0 }))
+      .toEqual({ ok: true, image: { mimeType: 'image/png', data: 'earlier' } });
   });
 
   it('回退按原生凭据裁剪落盘历史,重开和继续发送都不复活旧后缀 (#7304)', async () => {
