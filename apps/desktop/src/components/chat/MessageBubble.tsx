@@ -23,7 +23,7 @@ import { QuestionCardView } from './QuestionCardView'
 import { MessageQuote } from './MessageQuote'
 import { parseComposerCard } from '@gugu/core/shared/ui/taskCardModels'
 import { HoverActionBar, MessageHoverRegion, MessageHoverTrigger } from './HoverActionBar'
-import { DeferredEmojiQuickPicker, DeferredMessageActionSheet } from './messageActionModules'
+import { DeferredEmojiQuickPicker } from './messageActionModules'
 import { MsgMoreMenu } from './MsgMoreMenu'
 import { canSourceTopic } from './topicSplitModels' // @@@5856 与顶栏那颗按钮共用同一个判据,❌ 不再写第二份
 import { highlightText } from './highlightText'
@@ -343,7 +343,7 @@ export const MessageBubble = memo(function MessageBubble({
   // Pass it through so the avatar shows the unified status corner badge.
   // @@@msg-avatar (#1102) - 消息头像对齐设计稿 .av.s(28–32px 小号);原 md=40 偏大显「旧/重」。
   // @@@1355 sender avatars are projected only from the canonical sender URL.
-  const avatar = <Avatar name={avatarName} avatarUrl={avatarUrl} seed={msg.is_mine ? user?.id : (msg.sender_user_id ?? undefined)} size="sm" isAgent={avatarIsAgent} agentStatus={avatarIsAgent ? memberProfile?.agentStatus : undefined} still />
+  const avatar = <Avatar name={avatarName} avatarUrl={avatarUrl} seed={msg.is_mine ? user?.id : (msg.sender_user_id ?? undefined)} size="sm" isAgent={avatarIsAgent} harnessBadge={!compactMobile} agentStatus={avatarIsAgent ? memberProfile?.agentStatus : undefined} still />
   const canOpenProfile = !!memberProfile && !!onOpenMemberProfile
 
   if (msg.content_type === 'system') return <SystemMessageNotice message={msg} senderName={avatarName} onOpenTopic={onOpenTopicAnchor} />
@@ -496,7 +496,7 @@ export const MessageBubble = memo(function MessageBubble({
                 {card?.type === 'question' ? (
                   <QuestionCardView card={card} chatId={msg.chat_id} messageId={msg.id} agentUserId={msg.sender_user_id ?? ''} time={fmtMsgTime(msg.created_at)} />
                 ) : card ? (
-                  <ComposerCardView card={card} isMine={msg.is_mine} isGroup={isGroup} chatId={msg.chat_id} senderName={avatarName} time={fmtMsgTime(msg.created_at)} memberProfiles={memberProfiles} />
+                  <ComposerCardView card={card} isMine={msg.is_mine} isGroup={isGroup} chatId={msg.chat_id} senderName={avatarName} time={fmtMsgTime(msg.created_at)} memberProfiles={memberProfiles} onOpenTopic={compactMobile && onOpenTopic && card.type === 'task' ? () => onOpenTopic(msg.id) : undefined} />
                 ) : msg.content_type === 'widget' ? (() => {
                   // Widget: parse JSON from msg.content, fall back to plain bubble on failure
                   let widget: Widget | null = null
@@ -586,13 +586,10 @@ export const MessageBubble = memo(function MessageBubble({
       {/* ── More menu (hover-bar "More" button) — design #msgmenu, portalled ── */}
       {showMoreMenu && <MsgMoreMenu anchor={moreButtonRef} {...messageActions(() => setShowMoreMenu(false))} />}
 
-      {/* ── 右键:指针处的同一份菜单。手机长按:底部面板(Sheet 进返回键栈、带遮罩,关闭路径由它保证) ── */}
-      {showMenu && (compactMobile ? (
-        <DeferredMessageActionSheet
-          selectableText={msg.content_type === 'text' ? msg.content ?? undefined : undefined}
-          {...messageActions(() => setShowMenu(false))}
-        />
-      ) : <MsgMoreMenu x={menuPos.x} y={menuPos.y} {...messageActions(() => setShowMenu(false))} />)}
+      {/* ── 右键:指针处的同一份菜单。手机长按:贴着气泡弹出同一份菜单(返回键先关它;owner 10-26 ❌ 底部抽屉) ── */}
+      {showMenu && (compactMobile
+        ? <MsgMoreMenu anchor={bubbleRef} selectableText={msg.content_type === 'text' ? msg.content ?? undefined : undefined} {...messageActions(() => setShowMenu(false))} />
+        : <MsgMoreMenu x={menuPos.x} y={menuPos.y} {...messageActions(() => setShowMenu(false))} />)}
 
       {/* ── Emoji quick-picker (hover-bar "Add emoji" button) ── */}
       {showEmojiPicker && (

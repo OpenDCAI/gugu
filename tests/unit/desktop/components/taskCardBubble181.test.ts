@@ -187,6 +187,20 @@ describe('task card resource access', () => {
     if (!openable) expect(card.textContent).toContain('Original owner 的任务 · 无法查看')
   })
 
+  // #446:手机上任务那枚页签 = 开在卡上的话题,点卡就切过去;谁的卡都一样,❌ 去开会话页。
+  it.each([true, false])('on the phone a tap opens the card\'s topic (mine=%s), not the session', async (isMine) => {
+    const onOpenTopic = vi.fn()
+    await renderWithAppProviders(harness, createNode(MessageBubble, {
+      msg: message({ id: 'card-1', is_mine: isMine, content_type: 'card', content: serializeComposerCard(CARD) }),
+      onReaction: vi.fn(), memberReadSeqs: {}, onQuote: vi.fn(), onForward: vi.fn(), onDelete: vi.fn(), compactMobile: true, onOpenTopic,
+    }))
+    const card = harness.container.querySelector<HTMLElement>('[data-testid="composer-card"]')!
+    expect(card.tagName).toBe('BUTTON')
+    await act(async () => { card.click() })
+    expect(onOpenTopic).toHaveBeenCalledWith('card-1')
+    expect(cardOpen.open).not.toHaveBeenCalled()
+  })
+
   it('does not retain a failed device lookup for the next card mount', async () => {
     cardOpen.snapshot.mockRejectedValueOnce(new Error('snapshot unavailable'))
     await renderCard(true)

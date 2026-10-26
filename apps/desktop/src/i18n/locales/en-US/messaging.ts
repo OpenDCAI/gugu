@@ -250,6 +250,8 @@ export default {
     "createTask": "New task",
     "createAgent": "New Agent",
     "createGroup": "New group chat",
+    "createGroupMobile": "New group chat",
+    "newProject": "New project",
     "delete": "Delete",
     "disableNotifications": "Mute notifications",
     "deleteFailed": "Could not delete this conversation",
@@ -359,6 +361,26 @@ export default {
     "action": "Add to composer"
   },
   "composer": {
+    "phoneTask": {
+      "attachFolder": "Attach folder",
+      "attachFailed": "Could not attach the folder. Try again.",
+      "action": "New task",
+      "chip": "New task · {{agent}}",
+      "pickAgent": "Choose agent",
+      "placeholder": "What should {{agent}} do?",
+      "pickFolder": "Tap a folder to start",
+      "where": "{{folder}} · {{machine}}",
+      "offline": "{{machine}} is offline. Pick another folder.",
+      "optionsFailed": "Could not read the agents on {{machine}}. Check it is online, then pick the folder again.",
+      "noAgent": "No usable agent on {{machine}}",
+      "loading": "Reading the agents on {{machine}}",
+      "cancel": "Cancel task",
+      "failed": {
+        "host_outdated": "Gugu on {{machine}} is too old. Update it, then send the task again.",
+        "start_failed": "The task did not start. Open its task card to see why.",
+        "topic_missing": "The task started. Tap its card in the group to open its topic."
+      }
+    },
     "notInGroup": "Not in this group",
     "agent": {
       "disabledReason": {
@@ -771,6 +793,10 @@ export default {
     "title": "Send to"
   },
   "topic": {
+    "phoneTabs": {
+      "group": "Group",
+      "label": "Group and topics"
+    },
     "anchor": {
       "lead": "Topic",
       "separator": " · ",
