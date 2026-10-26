@@ -1,3 +1,4 @@
+import { formatDeliveryTimestamp } from '@gugu/core/local/agent/deliveryEnvelope';
 import { installAssistantWorkLedgerHost } from '../../../../sessionpage/assistant-work-ledger';
 import { openFixture } from '@tooling/utils/db';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
@@ -744,7 +745,7 @@ describe('session orchestration', () => {
       const first = mocks.sendMessage.mock.calls.at(-1)![0];
       await runRemoteSessionAction(remoteCaller, action);
       expect(mocks.sendMessage.mock.calls.at(-1)![0]).toEqual(first);
-      expect(first.text).toContain('2026-10-26 15:00');
+      expect(first.text).toContain(formatDeliveryTimestamp(action.delivery_at));
       await runRemoteSessionAction({ ...remoteCaller, sessionId: 'another-sender' }, action);
       expect(mocks.sendMessage.mock.calls.at(-1)![0].clientMessageId).not.toBe(first.clientMessageId);
       await expect(runRemoteSessionAction(remoteCaller, { ...action, delivery_at: undefined })).rejects.toThrow(/original timestamp/);
