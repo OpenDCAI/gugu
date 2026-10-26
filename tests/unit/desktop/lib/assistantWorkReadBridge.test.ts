@@ -58,7 +58,7 @@ it.each(['list','history'])('bounds a stalled account %s read even if the transp
  }finally{session.publishRendererSession('SIGNED_OUT',null);vi.useRealTimers()}
 })
 
-it.each([{status:503,code:'PGRST000',retry:true},{status:0,code:'ENOTFOUND',retry:true},{status:403,code:'42501',retry:false}])('retains transport retryability for RPC status $status without retrying authorization',async value=>{
+it.each([{status:503,code:'PGRST000',retry:true},{status:0,code:'ENOTFOUND',retry:true},{status:403,code:'42501',retry:false},{status:500,code:'54000',retry:false}])('retains transport retryability for RPC status $status without retrying fixed errors',async value=>{
  vi.resetModules()
  const session=await import('../../../../apps/desktop/src/lib/sessionPublication')
  session.publishRendererSession('SIGNED_IN',{user:{id:'owner'}} as Session)
@@ -67,8 +67,9 @@ it.each([{status:503,code:'PGRST000',retry:true},{status:0,code:'ENOTFOUND',retr
   const shell=await import('../../../../apps/desktop/src/lib/assistantWorkShell')
   const error=await shell.assistantWorkReads.client.listAll('assistant').catch(failure=>failure as unknown)
   expect(error).toBeInstanceOf(Error)
+  expect(error).toMatchObject({code:value.code})
+  if(value.status===0||value.status>=500)expect(error).toMatchObject({status:value.status})
   expect(isAssistantPanelReadRetryable(error)).toBe(value.retry)
-  if(!value.retry)expect(error).toMatchObject({code:'42501'})
  }finally{session.publishRendererSession('SIGNED_OUT',null)}
 })
 
