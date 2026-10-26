@@ -123,7 +123,7 @@ function VoiceNotesList({ context }: { context: AssistantContext }) {
           </button>
         }
       />
-      <MachineGate hasData={items.length > 0}
+      <MachineGate hasData={notes.data !== undefined || items.length > 0}
         readiness={context.readiness}
         loading={context.machineLoading || notes.isLoading}
         error={context.machineError ?? notes.error}

@@ -147,7 +147,7 @@ const RoutineLists = observer(function RoutineLists({ context }: AssistantPagePr
     />
   );
   return (
-    <MachineGate failedTitle={t('routines.loadFailed')} hasData={query.data !== undefined && routines.length > 0} readiness={context.readiness} loading={context.machineLoading || query.isLoading} error={context.machineError ?? query.error} onRetry={() => void query.refetch()}>
+    <MachineGate failedTitle={t('routines.loadFailed')} hasData={query.data !== undefined} readiness={context.readiness} loading={context.machineLoading || query.isLoading} error={context.machineError ?? query.error} onRetry={() => void query.refetch()}>
       {routines.length === 0 ? (
         <AssistantSection bare>
           <AssistantEmpty
@@ -189,7 +189,7 @@ const RoutineDetail = observer(function RoutineDetail({ context, id }: { context
   const automation = routines.find((a) => a.id === id) ?? null;
   const scheduled = automation?.nextRunAt ?? null;
   return (
-    <MachineGate hasData={!!automation} readiness={context.readiness} loading={context.machineLoading || query.isLoading} error={context.machineError ?? query.error} onRetry={() => void query.refetch()}>
+    <MachineGate hasData={query.data !== undefined} readiness={context.readiness} loading={context.machineLoading || query.isLoading} error={context.machineError ?? query.error} onRetry={() => void query.refetch()}>
       {!automation ? (
         <AssistantEmpty title={t('routines.goneTitle')}>{t('routines.gone')}</AssistantEmpty>
       ) : (

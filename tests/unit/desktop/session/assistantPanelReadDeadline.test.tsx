@@ -80,3 +80,15 @@ it('keeps existing content visible during a slow refresh and after its failure',
   expect(harness.container.querySelector('[role="status"]')).not.toBeNull()
   expect(harness.container.querySelector('[role="alert"]')).toBeNull()
 })
+
+it.each([new TypeError('network unavailable'),Object.assign(new Error('private network detail'),{code:'ENOTFOUND',status:0})])('silently keeps cached desktop content after a network refresh fails',async error=>{
+ const props={readiness:'ready' as const,onRetry:vi.fn(),hasData:true,children:createElement('span',{},'saved routine')}
+ await harness.render(createElement(MachineGate,{...props,loading:false,error}))
+ expect(harness.container.textContent).toBe('saved routine')
+ expect(harness.container.querySelector('[role="status"],[role="alert"]')).toBeNull()
+ await act(async()=>{await vi.advanceTimersByTimeAsync(1501)})
+ expect(props.onRetry).toHaveBeenCalledOnce()
+ await harness.render(createElement(MachineGate,{...props,loading:true,error:null}))
+ await act(async()=>{await vi.advanceTimersByTimeAsync(15_001)})
+ expect(harness.container.textContent).toBe('saved routine')
+})

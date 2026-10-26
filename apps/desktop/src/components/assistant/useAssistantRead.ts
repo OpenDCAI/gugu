@@ -62,7 +62,9 @@ export function usePhoneRead<T>(
         setResult(previous => {
           const local = initialValue(initialRef.current)
           const last = previous?.key === full && previous.read.state === 'ok' ? previous.read.data : local
-          return quiet && last !== undefined ? { key: full,read: { state: 'ok',data: last,refreshError: error } } : { key: full,read: { state: 'error',error } }
+          return quiet && last !== undefined ? { key: full,read: { state: 'ok',data: last,
+            ...(!isAssistantPanelReadRetryable(error) ? { refreshError: error } : {}),
+          } } : { key: full,read: { state: 'error',error } }
         })
         if (isAssistantPanelReadRetryable(error)) timer = setTimeout(() => void run(true),lastInterval ?? 5000)
         // A requested refresh must not turn a failed verification into a successful mutation.
