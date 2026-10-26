@@ -5,18 +5,30 @@ import type { LibraryHost } from '../../apps/desktop/src/session/renderer/featur
 import { assistantPanelLibraryHost } from '../../apps/desktop/src/components/assistant/assistant-panel-library-host'
 
 function fixture() {
-  const native = vi.fn(async () => ({ success: true })), subscribe = vi.fn(() => vi.fn())
+  const native = vi.fn(async () => ({ success: true })), subscribe = vi.fn(() => vi.fn()), ready = vi.fn(async () => ({}))
   const base = { key: 'native',remote: { online: false },
     integrations: { connect: native,authorize: native,cliLoginStart: native,cliLoginProgress: native,cancelAuthorization: native,
-      list: native,accounts: native,checkAllConnections: native,checkConfiguredConnections: native },
+      list: native,accounts: native,checkAllConnections: native,checkConfiguredConnections: ready },
     github: { auth: native,authCancel: native,listAccounts: native,importCliAccounts: native,onEvent: subscribe },
   } as unknown as LibraryHost
   const panel = { ownerId: 'owner',assistantId: 'assistant',assertCurrent: vi.fn(async () => {}),
     collection: vi.fn(async () => []),snapshot: vi.fn(async () => ({ application: [] })),body: vi.fn(),change: vi.fn(),save: vi.fn(),
   } as unknown as AssistantPanelFiles
   const prepare = vi.fn(async () => {})
-  return { native,subscribe,panel,prepare,host: assistantPanelLibraryHost(base,panel,prepare) }
+  return { native,subscribe,panel,prepare,ready,host: assistantPanelLibraryHost(base,panel,prepare) }
 }
+
+it('does not start a CLI download/login until control RPC actually acknowledges the read', async () => {
+  const f = fixture()
+  let release!: () => void
+  f.ready.mockImplementationOnce(() => new Promise(resolve => { release = () => resolve({}) }))
+  const login = f.host.integrations.cliLoginStart('feishu')
+  await vi.waitFor(() => expect(f.ready).toHaveBeenCalledOnce())
+  expect(f.native).not.toHaveBeenCalled()
+  release()
+  await login
+  expect(f.native).toHaveBeenCalledOnce()
+})
 
 it('reads application and account metadata while the host is asleep without touching native APIs', async () => {
   const f = fixture()

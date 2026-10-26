@@ -2,7 +2,7 @@ import { i18n } from '@/i18n/runtime'
 import '@/i18n/registerAssistantCatalog'
 import type { AssistantHomePlace } from '@/lib/assistantHome'
 import { wakeCloudComputer } from '@/lib/cloudComputerStore'
-import { readCachedDevices } from '@/store/devicesCache'
+import { waitForAssistantControl } from '@/lib/assistantControlReady'
 import { getRendererSession } from '@/lib/sessionPublication'
 import { machineRpc } from '../agent-watch/sessionpage-rpc'
 
@@ -19,14 +19,15 @@ export function phoneAssistantAuthorization(deviceId: string, home: AssistantHom
         try { await wakeCloudComputer() }
         catch (cause) { throw new Error(i18n.t('assistant:machine.authorizationUnavailable'), { cause }) }
       }
-      const deadline = Date.now() + 60_000
-      while (!readCachedDevices().some(device => device.device_id === deviceId && device.is_online)) {
+      try { await waitForAssistantControl(() => native.integrations.checkConfiguredConnections(), assertOwner) }
+      catch (cause) {
         assertOwner()
-        if (Date.now() > deadline) throw new Error(i18n.t('assistant:machine.authorizationUnavailable'))
-        await new Promise(resolve => setTimeout(resolve,250))
+        throw new Error(i18n.t('assistant:machine.authorizationUnavailable'), { cause })
       }
     })().catch(error => { preparing = null; throw error })
-    await preparing; assertOwner()
+    const current = preparing
+    try { await current; assertOwner() }
+    finally { if (preparing === current) preparing = null }
   }
   const integrations = new Proxy(native.integrations,{
     get(target,key,receiver) {

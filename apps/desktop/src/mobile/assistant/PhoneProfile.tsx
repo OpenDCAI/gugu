@@ -5,6 +5,7 @@ import { useTranslation } from 'react-i18next'
 import { useContactsStore } from '../../store/contactsContext'
 import { useDevicesStore } from '../../store/devicesContext'
 import { isPhoneDevice } from '@gugu/core/cloud/devices'
+import { deviceMachineFor, deviceMachines } from '@/lib/deviceMachines'
 import { withoutAssistantHome } from '@/lib/assistantHome'
 import { Button } from '@/components/ui/Button'
 import { Avatar } from '@/components/Avatar'
@@ -56,8 +57,9 @@ export function PhoneProfile(props: PhonePageProps) {
   }
   if (sub === 'devices' || sub?.startsWith('devices:')) {
     const openedDeviceId = sub.startsWith('devices:') ? sub.slice('devices:'.length) : null
-    const opened = [...devices.devices, ...(devices.phones ?? [])].find(device => device.device_id === openedDeviceId)
-    const title = openedDeviceId === 'this-phone' || (opened?.is_current_device && isPhoneDevice(opened))
+    const machine = deviceMachineFor(deviceMachines([...devices.devices, ...(devices.phones ?? [])]), openedDeviceId)
+    const opened = machine?.device
+    const title = openedDeviceId === 'this-phone' || (machine?.current && opened && isPhoneDevice(opened))
       ? settings('devices.assistantPage.phoneTitle') : opened?.label ?? t('library.devices')
     return (
       <div className="ta-page ta-phone-profile" data-testid="assistant-slot-devices">
@@ -95,7 +97,7 @@ function ProfileHome({
   const { t } = useTranslation('assistant')
   const name = assistant.display_name
   const devices = useDevicesStore()
-  const deviceCount = withoutAssistantHome([...devices.devices, ...(devices.phones ?? [])], props.cloudDeviceId ?? null).length
+  const deviceCount = deviceMachines(withoutAssistantHome([...devices.devices, ...(devices.phones ?? [])], props.cloudDeviceId ?? null)).length
   const chats = useChatChannels()
   const counts = integrations.data && (chats.status === 'ready' || chats.status === 'not_open') ? assistantApplicationCounts(integrations.data.items, integrations.data.configured, integrations.data.statuses, chats.list) : null
   const appsDetail = integrations.error ? t('connectors.loadFailed') : !counts ? undefined : t(counts.saved > counts.connected ? 'connectors.savedCount' : 'connectors.connectedCount', { count: counts.saved > counts.connected ? counts.saved : counts.connected })
