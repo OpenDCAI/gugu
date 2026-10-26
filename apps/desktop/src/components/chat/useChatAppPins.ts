@@ -1,6 +1,8 @@
+import { useTranslation } from 'react-i18next'
+import { rendererLogger } from '@/lib/log';
+import { messageForUser } from '@/lib/userFacingError';
 import { useEffect } from 'react'
 import { skipToken, useMutation, useQuery } from '@tanstack/react-query'
-import { useTranslation } from 'react-i18next'
 import { queryClient } from '../../session/renderer/lib/query-client'
 import { readChatAppPins, setChatAppPin, watchChatAppPins } from '../../lib/chatAppPins'
 import { useAuth } from '../../store/auth'
@@ -36,7 +38,7 @@ export function useChatAppPins(chatId: string | null) {
       return setChatAppPin(userId, chatId, appId, pinned)
     },
     onSuccess: (ids, { userId, chatId }) => { queryClient.setQueryData(['chat-app-pins', userId, chatId], ids) },
-    onError: () => { toast(t('header.appPinsSaveFailed'), 'error') },
+    onError: (error) => { rendererLogger('actions/useChatAppPins').error({ error: error }, 'action failed'); toast(t('header.appPinsSaveFailed'), 'error', messageForUser(error)) },
   }, queryClient)
   return { ids: query.data ?? [], ready: query.isSuccess, error: query.isError, saving: mutation.isPending, retry: () => { void query.refetch() }, set: ({ appId, pinned }: { appId: string; pinned: boolean }) => mutation.mutate({ userId, chatId, appId, pinned }) }
 }

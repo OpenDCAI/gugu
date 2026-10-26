@@ -1,3 +1,5 @@
+import { i18n } from '@/i18n';
+import { messageForUser } from '@/lib/userFacingError';
 import { hostEventHub, hostMembers } from '../../session/shared/extensions/host-calls';
 import type { ExtensionHostEvent } from '../../session/shared/extensions/bridge-protocol';
 import type { ExtensionAgentView } from '../../session/shared/extensions/bridge-protocol';
@@ -7,7 +9,6 @@ import { assistantAppChangeText, type AssistantAppChange } from '../../session/s
 import { libraryHost } from './assistant-library-client';
 import { readAssistantShellBridge } from '../../lib/assistantShellBridge';
 import type { AssistantMachine } from '../../session/renderer/features/assistant/assistant-machine-core';
-import { i18n } from '../../i18n';
 import { toast } from '../../session/renderer/lib/hooks/use-toast';
 import { rendererLogger } from '../../lib/log';
 import { cachedDevicesAccount } from '../../store/devicesCache';
@@ -16,7 +17,7 @@ type ProgramNotification = { server: string; method: string; params?: unknown };
 export type AssistantAppMachine = Pick<AssistantMachine, 'rpc'>;
 type PanelAPI = {
   listAgents(): Promise<{ agents: ExtensionAgentView[]; unreached: unknown[] }>;
-  messageAgent(agentId: string, text: string, options: { defer: true }): Promise<AppMessageReceipt>;
+  dispatch(text: string, options: { to: { agent: string }; delivery: 'defer' }): Promise<AppMessageReceipt>;
   callProgram(name: string, args?: Record<string, unknown>, server?: string): Promise<CallToolResult>;
   onProgramNotification(listener: (event: ProgramNotification) => void): () => void;
 };
@@ -24,7 +25,7 @@ type PanelAPI = {
 /** Native React App surface, using the Extension API's member table and wire, without a second SDK. */
 export function assistantAppClient(machine: AssistantAppMachine | null | undefined, expectedOwnerId = cachedDevicesAccount(), onHomeDevice = false) {
   const hub = hostEventHub();
-  const api = hostMembers('page', name => ['listAgents', 'messageAgent', 'callProgram', 'onProgramNotification'].includes(name),
+  const api = hostMembers('page', name => ['listAgents', 'dispatch', 'callProgram', 'onProgramNotification'].includes(name),
     async (verb, args) => {
       const host = onHomeDevice ? machine?.rpc.app : libraryHost(machine);
       if (!host) throw new Error('Assistant App host is unavailable');
@@ -35,7 +36,8 @@ export function assistantAppClient(machine: AssistantAppMachine | null | undefin
 
 export async function assistantAppProgram<T>(machine: AssistantAppMachine | null | undefined, name: string, args?: Record<string, unknown>, expectedOwnerId = cachedDevicesAccount()): Promise<T> {
   const result = await assistantAppClient(machine, expectedOwnerId).callProgram(name, args);
-  if (result.isError || !result.structuredContent || !('result' in result.structuredContent)) throw new Error('Assistant App program did not return a result');
+  if (result.isError) throw new Error(result.content.filter(block => block.type === 'text').map(block => block.text).join('\n'), { cause: result });
+  if (!result.structuredContent || !('result' in result.structuredContent)) throw new Error('Assistant App program did not return a result');
   return result.structuredContent.result as T;
 }
 
@@ -52,8 +54,8 @@ export async function publishAssistantAppChange(
     if (!assistantId && listed.unreached.length) throw new Error('Personal assistant device could not be read');
     if (!assistantId) return null;
   }
-  return app.messageAgent(`user:${assistantId}`,
-    assistantAppChangeText({ ...change, operationId: change.operationId ?? crypto.randomUUID() }), { defer: true });
+  return app.dispatch(assistantAppChangeText({ ...change, operationId: change.operationId ?? crypto.randomUUID() }),
+    { to: { agent: `user:${assistantId}` }, delivery: 'defer' });
 }
 
 /** Call after a successful state mutation. A failed delivery must not turn a committed save into a fake save failure. */
@@ -64,7 +66,7 @@ export async function reportAssistantAppChange(
 ): Promise<void> {
   try { await publishAssistantAppChange(machine, change, assistantId, expectedOwnerId); }
   catch (error) {
-    rendererLogger('assistant/app').warn({ error: String(error), operationId: change.operationId }, 'App state message delivery unconfirmed');
-    toast({ title: i18n.t('library.savedNotificationFailed', { ns: 'assistant' }), tier: 'warning' });
+    rendererLogger('assistant/app').error({ error: String(error), operationId: change.operationId }, 'App state message delivery unconfirmed');
+    toast({ title: i18n.t('library.savedNotificationFailed', { ns: 'assistant' }), description: messageForUser(error), tier: 'warning' });
   }
 }

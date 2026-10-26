@@ -1,3 +1,4 @@
+import { messageForUser } from '@/lib/userFacingError';
 import { useEffect, useState } from 'react'
 import { createOptimisticDmChat } from '@gugu/core/shared/ui/chatModels'
 import { chatService } from '../../lib/chat'
@@ -7,7 +8,7 @@ import { useChatStore } from '../../store/chatContext'
 
 const dmLog = rendererLogger('assistant/chat')
 
-export type AssistantDm = { chatId: string | null; failed: boolean; retry: () => void }
+export type AssistantDm = { chatId: string | null; failed: { error: string } | null; retry: () => void }
 
 /**
  * #7199 和个人助理的那条私聊;还没有就建一条(与通讯录「发消息」同一个 getOrCreateDM)。
@@ -21,7 +22,7 @@ export function useAssistantDm(assistantId: string | null): AssistantDm {
     : null
   const [created, setCreated] = useState<{ agentId: string; chatId: string } | null>(null)
   const [attempt, setAttempt] = useState(0)
-  const [failedAttempt, setFailedAttempt] = useState<number | null>(null)
+  const [failedAttempt, setFailedAttempt] = useState<{ attempt: number; error: string } | null>(null)
   const userId = user?.id ?? null
   useEffect(() => {
     if (existing || !userId || !assistantId) return
@@ -36,10 +37,10 @@ export function useAssistantDm(assistantId: string | null): AssistantDm {
       .catch((error: unknown) => {
         if (cancelled) return
         dmLog.error({ error: String(error), assistantId }, 'open assistant dm failed')
-        setFailedAttempt(attempt)
+        setFailedAttempt({ attempt, error: messageForUser(error) })
       })
     return () => { cancelled = true }
   }, [existing, userId, assistantId, attempt, upsertChat, refreshChats])
   const chatId = existing ?? (assistantId && created?.agentId === assistantId ? created.chatId : null)
-  return { chatId, failed: chatId === null && failedAttempt === attempt, retry: () => setAttempt((n) => n + 1) }
+  return { chatId, failed: chatId === null && failedAttempt?.attempt === attempt ? failedAttempt : null, retry: () => setAttempt((n) => n + 1) }
 }

@@ -1,3 +1,4 @@
+import { messageForUser } from '@/lib/userFacingError';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import type { Device } from '@gugu/core/shared/types/chat'
@@ -66,7 +67,7 @@ const log = rendererLogger('devices')
 const META_SEP = "before:inline-block before:w-4 before:text-center before:content-['·']"
 
 type DialogState =
-  | { kind: 'remove'; device: Device; removing: boolean; failed: boolean }
+  | { kind: 'remove'; device: Device; removing: boolean; failed: string }
   | { kind: 'uninstall'; device: Device }
 
 export function DevicesSection({
@@ -85,7 +86,7 @@ export function DevicesSection({
 
   const [editingId, setEditingId] = useState<string | null>(null)
   const [draftLabel, setDraftLabel] = useState('')
-  const [rowError, setRowError] = useState<string | null>(null)
+  const [rowError, setRowError] = useState<{ id: string; message: string } | null>(null)
   const [dialog, setDialog] = useState<DialogState | null>(null)
   const [agents, setAgents] = useState<BoundAgentsState>({ agents: [], loading: false, cascadeChecked: false })
   const canAddServer = desktopIpc() !== null
@@ -142,7 +143,7 @@ export function DevicesSection({
       setEditingId(null)
     } catch (err) {
       log.error({ err: String((err as Error)?.message ?? err), deviceId: device.device_id }, 'rename device failed')
-      setRowError(device.device_id)
+      setRowError({ id: device.device_id, message: messageForUser(err) })
     }
   }, [draftLabel, rename])
 
@@ -160,7 +161,7 @@ export function DevicesSection({
   }, [listBoundAgents])
 
   const openRemove = useCallback((device: Device) => {
-    setDialog({ kind: 'remove', device, removing: false, failed: false })
+    setDialog({ kind: 'remove', device, removing: false, failed: '' })
     void loadAgents(device)
   }, [loadAgents])
 
@@ -170,28 +171,27 @@ export function DevicesSection({
   }, [loadAgents])
 
   /** 移除 = 这个账号不再用这台机器;用 SSH 装上的,这台电脑也不再记得怎么连过去。 */
-  const removeDevice = useCallback(async (device: Device): Promise<boolean> => {
+  const removeDevice = useCallback(async (device: Device): Promise<void> => {
     try {
       await remove(device.device_id, { cascade: agents.agents.length > 0 })
-      await forget(device.device_id).catch(() => undefined)
-      return true
+      await forget(device.device_id)
     } catch (err) {
       log.error({ err: String((err as Error)?.message ?? err), deviceId: device.device_id }, 'remove device failed')
-      return false
+      throw err
     }
   }, [remove, forget, agents.agents.length])
 
   const confirmRemove = useCallback(async () => {
     if (dialog?.kind !== 'remove') return
     const device = dialog.device
-    setDialog({ kind: 'remove', device, removing: true, failed: false })
-    const ok = await removeDevice(device)
-    setDialog(ok ? null : { kind: 'remove', device, removing: false, failed: true })
+    setDialog({ kind: 'remove', device, removing: true, failed: '' })
+    try { await removeDevice(device); setDialog(null) }
+    catch (error) { setDialog({ kind: 'remove', device, removing: false, failed: messageForUser(error) }) }
   }, [dialog, removeDevice])
 
   const copyAddress = useCallback(async (address: string) => {
-    await platform.writeClipboardText(address)
-    toast(t('devices.copied'), 'success')
+    try { await platform.writeClipboardText(address); toast(t('devices.copied'), 'success') }
+    catch (error) { log.error({ error }, 'device address copy failed'); toast(t('actions.copyFailed', { ns: 'common' }), 'error', messageForUser(error)) }
   }, [toast, t])
 
   const actionsDevice = actionsFor ? devices.find((d) => d.device_id === actionsFor) ?? null : null
@@ -267,7 +267,7 @@ export function DevicesSection({
             model={deviceRowModel(device, addressOf(device.device_id), cloudDeviceId)}
             editing={editingId === device.device_id}
             draftLabel={draftLabel}
-            renameFailed={rowError === device.device_id}
+            renameFailed={rowError?.id === device.device_id ? rowError.message : ''}
             onDraftChange={setDraftLabel}
             onStartRename={() => startRename(device)}
             onCommitRename={() => void commitRename(device)}
@@ -323,7 +323,7 @@ export function DevicesSection({
           agents={agents}
           onCascadeChange={(value) => setAgents((s) => ({ ...s, cascadeChecked: value }))}
           onRemove={() => removeDevice(dialog.device)}
-          onRemoveOnly={() => setDialog({ kind: 'remove', device: dialog.device, removing: false, failed: false })}
+          onRemoveOnly={() => setDialog({ kind: 'remove', device: dialog.device, removing: false, failed: '' })}
           onClose={() => setDialog(null)}
         />
       )}
@@ -473,7 +473,7 @@ function DeviceRow({
   model: DeviceRowModel
   editing: boolean
   draftLabel: string
-  renameFailed: boolean
+  renameFailed: string
   onDraftChange: (value: string) => void
   onStartRename: () => void
   onCommitRename: () => void
@@ -653,7 +653,7 @@ function DeviceRow({
         </div>
         </div>
         {renameFailed && (
-          <div className="mt-1 text-[length:var(--font-caption)] text-[var(--danger)]">{t('devices.renameFailed')}</div>
+          <div className="mt-1 text-[length:var(--font-caption)] text-[var(--danger)]">{renameFailed}</div>
         )}
       </div>
 

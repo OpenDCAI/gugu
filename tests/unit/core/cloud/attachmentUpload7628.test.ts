@@ -10,8 +10,11 @@ describe('attachment upload transports', () => {
       .mockResolvedValueOnce(new Response('{}'))
     const key = await uploadAttachmentBytes({ supabaseUrl: 'https://project.example', anonKey: 'public', token: 'user', fetch: fetcher }, {
       bytes: new Uint8Array([1, 2, 3]), name: 'data.bin', contentType: 'application/octet-stream',
-    })
+    }, { chat_id: 'source-chat', as: 'sender-agent', request_id: '12345678-1234-4234-8234-123456789abc' })
     expect(key).toBe('staging/u/file')
+    expect(JSON.parse(fetcher.mock.calls[0][1].body)).toEqual({
+      size_bytes: 3, chat_id: 'source-chat', as: 'sender-agent', request_id: '12345678-1234-4234-8234-123456789abc',
+    })
     const upload = fetcher.mock.calls[1][1] as RequestInit
     expect(upload.method).toBe('PUT')
     expect(upload.body).toBeInstanceOf(Blob)
@@ -26,7 +29,10 @@ describe('attachment upload transports', () => {
       })))
       .mockResolvedValueOnce(new Response(null, { status: 204 }))
     await uploadAttachmentBytes({ supabaseUrl: 'https://project.example', anonKey: 'public', token: 'user', fetch: fetcher }, {
-      bytes: new Uint8Array([1]), name: 'data.bin', contentType: 'application/octet-stream',
+      bytes: new Blob([new Uint8Array([1])]), name: 'data.bin', contentType: 'application/octet-stream',
+    }, { chat_id: null, as: 'private-sender' })
+    expect(JSON.parse(fetcher.mock.calls[0][1].body)).toEqual({
+      size_bytes: 1, chat_id: null, as: 'private-sender', request_id: expect.stringMatching(/^[0-9a-f]{8}(?:-[0-9a-f]{4}){3}-[0-9a-f]{12}$/i),
     })
     const upload = fetcher.mock.calls[1][1] as RequestInit
     expect(upload.method).toBe('POST')

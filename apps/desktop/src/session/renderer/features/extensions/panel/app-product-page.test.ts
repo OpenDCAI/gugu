@@ -81,9 +81,14 @@ describe('App 的产品页 (#7059)', () => {
     expect(uninstalled.text).toContain('extensions.platform.desktop and extensions.platform.phone');
   });
 
-  it('explains unavailable agent features only when the phone reports them', async () => {
-    expect((await render({ phoneAgentFeaturesUnavailable: true })).text).toContain('extensions.phoneAgentsUnavailable');
-    expect((await render({})).text).not.toContain('extensions.phoneAgentsUnavailable');
+  it('offers an information control for declared phone Agent capabilities without a fixed warning', async () => {
+    await render({ phoneAgentCapabilities: ['agents:tools'] }, async (document) => {
+      expect(document.querySelector('[data-testid="app-product-phone-agent-features"]')).toBeNull();
+      expect(document.querySelector('button[aria-label="extensions.phoneAgentCapabilitiesLabel"]')).not.toBeNull();
+    });
+    await render({}, async (document) => {
+      expect(document.querySelector('button[aria-label="extensions.phoneAgentCapabilitiesLabel"]')).toBeNull();
+    });
   });
 
   it('does not offer to install a history version unavailable on this device', async () => {

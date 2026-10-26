@@ -1,17 +1,16 @@
 // @vitest-environment jsdom
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import { act, createElement, type ComponentProps } from 'react'
+import { act } from 'react'
 import { createReactHarness } from '../../../support/testHarness'
-import { GroupAppSlot, WORKSPACE_APP_KIND } from '../../../../apps/desktop/src/components/appSlot/GroupAppSlot'
-import { folderTab, groupSlotMemory, isFolder } from '../../../../apps/desktop/src/components/appSlot/groupSlotMemory'
+import { folderItem, isFolderItem, WORKSPACE_APP_KIND } from '../../../../apps/desktop/src/session/renderer/features/chats/chat-tabs/chat-panel-item'
+import { askChat, openPanelItem, panelFull, panelTabsOf, shownPanelTab, takeChatAsk } from '../../../../apps/desktop/src/session/renderer/features/chats/chat-tabs/chat-layouts'
 import { extensionSurfaceStore } from '../../../../apps/desktop/src/session/renderer/features/extensions/extension-surface-store'
 import { extensionViewStore, residentPageKey, residentPlace } from '../../../../apps/desktop/src/session/renderer/features/extensions/extension-view-store'
-import { listenForAppSlots } from '../../../../apps/desktop/src/session/renderer/features/extensions/app-slot-events'
 import {
   installedExtensionsStore,
   type InstalledExtensionsList,
 } from '../../../../apps/desktop/src/session/renderer/features/extensions/installed-extensions-store'
-import { AuthContext } from '../../../../apps/desktop/src/store/auth'
+import { ask, chatTabs, shownItem, type ChatTabsProps } from './chatTabsHarness'
 
 vi.mock('../../../../apps/desktop/src/platform', () => ({
   platform: { kind: 'electron', capabilities: { appUpdates: false, notifications: false, rendererCommandBridge: false } },
@@ -29,9 +28,9 @@ vi.mock('../../../../apps/desktop/src/components/extensionBundle/sharedPackages'
 }))
 
 /**
- * The group's side panel and the session page's right panel are one model (统筹 110 批的方案 L3-group-panel-fullscreen.md):
- * the same three forms, what a page says about itself kept by page in the one store the session page reads, the toolbar and
- * menu read as the session page reads them. Only where each is drawn differs.
+ * A group's tabs and the session page's are one model (统筹 110 批的方案 L3-group-panel-fullscreen.md): the same engine, what
+ * a page says about itself kept by page in the one store the session page reads, the toolbar and menu read as the session
+ * page reads them. Only where each is drawn differs.
  */
 
 let harness: ReturnType<typeof createReactHarness>
@@ -46,49 +45,35 @@ afterEach(() => {
   HTMLElement.prototype.checkVisibility = originalCheckVisibility
 })
 
-const slot = (props: Partial<ComponentProps<typeof GroupAppSlot>> = {}) =>
-  createElement(GroupAppSlot, { chatId: 'group-1', onClose: vi.fn(), ...props })
-const boardPage = (opening: number) => ({ kind: 'board.main', title: 'Board', opening })
+const slot = (props: Partial<ChatTabsProps> = {}) => chatTabs({ chatId: 'group-1', ...props })
+const boardPage = () => ({ kind: 'board.main', title: 'Board' })
 const fullSwitch = () => harness.container.querySelector<HTMLButtonElement>('[data-testid="group-app-slot-full"]')
 const NONE: { id: string; title: string }[] = []
 
-describe('the form of a group panel (摩擦单 F29: as it was left in each group, full too)', () => {
-  it('is kept per group, full too; opening something in it leaves its form as it is', () => {
-    expect(groupSlotMemory.form('form-a')).toBe('closed')
-    groupSlotMemory.setForm('form-a', 'full')
-    groupSlotMemory.setForm('form-b', 'side')
-    expect([groupSlotMemory.form('form-a'), groupSlotMemory.form('form-b')]).toEqual(['full', 'side'])
-
-    groupSlotMemory.open('form-a', boardPage(1))
-    expect(groupSlotMemory.form('form-a')).toBe('full')
-  })
-})
-
 describe('the slot header', () => {
-  it('has the full switch where the panel can go full, pressed while full; a topic slot (no switch given) has none', async () => {
-    const onToggleFull = vi.fn()
-    await harness.render(slot({ full: false, onToggleFull }))
+  it('has the full switch in a block, pressed while the tab fills it; outside a block (no strip) none', async () => {
+    const tab = openPanelItem('full-switch', boardPage())!
+    await harness.render(slot({ chatId: 'full-switch', tabbed: true }))
     expect(fullSwitch()?.getAttribute('aria-pressed')).toBe('false')
     expect(fullSwitch()?.getAttribute('aria-label')).toBe('面板全屏')
     act(() => fullSwitch()!.click())
-    expect(onToggleFull).toHaveBeenCalledTimes(1)
-
-    await harness.render(slot({ full: true, onToggleFull }))
+    expect(panelFull('full-switch', tab)).toBe(true)
     expect(fullSwitch()?.getAttribute('aria-pressed')).toBe('true')
     expect(fullSwitch()?.getAttribute('aria-label')).toBe('还原面板')
+    act(() => fullSwitch()!.click())
+    expect(panelFull('full-switch', tab)).toBe(false)
 
-    await harness.render(slot())
+    await harness.render(slot({ chatId: 'full-switch' }))
     expect(fullSwitch()).toBeNull()
   })
 
   it('draws what its page says about itself as main hands it to a task’s tab (L11 复核 11): one store, one rule', async () => {
-    // On screen, the slot claims its page (the events the resident layer listens to); main's relay then reaches the
-    // renderer's host-action handler, which is `extensionSurfaceStore.say` with the slot's tab and no task.
-    const stop = listenForAppSlots()
+    // On screen, the slot claims its page on the resident layer's store; main's relay then reaches the renderer's
+    // host-action handler, which is `extensionSurfaceStore.say` with the slot's tab and no task.
     HTMLElement.prototype.checkVisibility = () => true
     vi.spyOn(HTMLElement.prototype, 'getBoundingClientRect').mockReturnValue({ x: 0, y: 0, top: 0, left: 0, right: 360, bottom: 400, width: 360, height: 400, toJSON: () => ({}) })
-    try {
-      groupSlotMemory.open('group-2', folderTab())
+    {
+      openPanelItem('group-2', folderItem())
       await harness.render(slot({ chatId: 'group-2' }))
       const claimOf = (chatId: string, itemId?: string) =>
         [...extensionViewStore.claims.values(), ...[...extensionViewStore.filePages.values()].map((file) => file.claim)].find(
@@ -109,16 +94,14 @@ describe('the slot header', () => {
       expect(harness.container.querySelector('[data-testid="group-app-slot-error"]')).toBeNull()
 
       // A page opened for a file: its own slot, its own words; the group's page untouched.
-      groupSlotMemory.open('group-4', { kind: WORKSPACE_APP_KIND, itemId: 'item-4', title: 'plan', fileName: 'plan.json', typedName: 'plan.json', opening: 4 })
+      openPanelItem('group-4', { kind: WORKSPACE_APP_KIND, itemId: 'item-4', title: 'plan', fileName: 'plan.json', typedName: 'plan.json' })
       // (Its page waits for the group's shared packages to be read — a signed-in person's.)
-      await harness.render(createElement(AuthContext.Provider, { value: { user: { id: 'user-1' } } as never }, slot({ chatId: 'group-4' })))
+      await harness.render(slot({ chatId: 'group-4' }))
       await act(async () => {})
       act(() => extensionSurfaceStore.say(null, claimOf('group-4', 'item-4').tabId, { title: 'Board' }))
       expect(harness.container.querySelector('[title="plan.json · Board"]')?.textContent).toBe('plan')
       expect(harness.container.textContent).not.toContain('Board')
       expect(extensionSurfaceStore.sharedState(residentPageKey(WORKSPACE_APP_KIND, residentPlace({ chatId: 'group-4' }))).title).toBeNull()
-    } finally {
-      stop()
     }
   })
 
@@ -134,7 +117,7 @@ describe('the slot header', () => {
 
   it('shows the toolbar and menu the App declared, as the task page reads them, and follows a new version', async () => {
     install([{ id: 'add', title: 'Add' }, { id: 'sort', title: 'Sort' }, { id: 'undo', title: 'Undo' }], [{ id: 'export', title: 'Export' }])
-    groupSlotMemory.open('group-tools', boardPage(2))
+    openPanelItem('group-tools', boardPage())
     await harness.render(slot({ chatId: 'group-tools' }))
     const inline = () => [...harness.container.querySelectorAll('[data-command]')].map((node) => node.getAttribute('data-command'))
     expect(inline()).toEqual(['add', 'sort'])
@@ -148,10 +131,8 @@ describe('the slot header', () => {
   it('reads what is installed straight from the store: the update bar and the 「no page」 note follow it', async () => {
     install([], [], '1.0.0')
     sharedHere.packages = new Map([['board', { manifest: { id: 'board', name: 'Board', version: '1.1.0' }, card: { source: { kind: 'url', url: 'https://files.invalid/board.zip' }, messageId: 'm-board' } }]])
-    groupSlotMemory.open('group-3', boardPage(3))
-    await harness.render(
-      createElement(AuthContext.Provider, { value: { user: { id: 'user-1' } } as never }, slot({ chatId: 'group-3' })),
-    )
+    openPanelItem('group-3', boardPage())
+    await harness.render(slot({ chatId: 'group-3' }))
     await act(async () => {})
     const bar = () => harness.container.querySelector('[data-testid="group-app-slot-update"]')
     const noPage = () => harness.container.querySelector('[data-testid="group-app-slot-no-page"]')
@@ -169,10 +150,8 @@ describe('the slot header', () => {
   it('no update bar over an App that did not come from a chat (E-05)', async () => {
     install([], [], '1.0.0', 'market')
     sharedHere.packages = new Map([['board', { manifest: { id: 'board', name: 'Board', version: '1.1.0' }, url: 'https://files.invalid/board.zip' }]])
-    groupSlotMemory.open('group-3', boardPage(3))
-    await harness.render(
-      createElement(AuthContext.Provider, { value: { user: { id: 'user-1' } } as never }, slot({ chatId: 'group-3' })),
-    )
+    openPanelItem('group-3-market', boardPage())
+    await harness.render(slot({ chatId: 'group-3-market' }))
     await act(async () => {})
     expect(harness.container.querySelector('[data-testid="group-app-slot"]')).not.toBeNull()
     expect(harness.container.querySelector('[data-testid="group-app-slot-update"]')).toBeNull()
@@ -188,25 +167,25 @@ describe('an App opened in the group (「在本群打开」)', () => {
 
   it('the folder asked for is a tab of its own beside a remembered App, with no Back', async () => {
     const chatId = 'folder-entry-7590'
-    const calendar = { kind: 'day-calendar.main', title: '日历', opening: 7590 }
-    groupSlotMemory.open(chatId, calendar)
+    const calendar = openPanelItem(chatId, { kind: 'day-calendar.main', title: '日历' })
     await harness.render(slot({ chatId }))
     expect(harness.container.querySelector('[data-app-kind]')?.getAttribute('data-app-kind')).toBe('day-calendar.main')
-    await harness.render(slot({ chatId, asked: { chatId, app: 'workspace', request: 759001 } }))
+    ask(chatId, { app: 'workspace' })
     expect(harness.container.querySelector('[data-app-kind]')?.getAttribute('data-app-kind')).toBe(WORKSPACE_APP_KIND)
     expect(harness.container.querySelector('[data-testid="group-app-slot-back"]')).toBeNull()
-    expect(isFolder(groupSlotMemory.opened(chatId))).toBe(true)
-    expect(groupSlotMemory.tabs(chatId)[0]).toBe(calendar)
+    expect(isFolderItem(shownItem(chatId))).toBe(true)
+    expect(panelTabsOf(chatId).map((tab) => tab.tabId), 'the folder beside the chat, the calendar still a tab').toEqual([shownPanelTab(chatId)?.tabId, calendar])
   })
 
   it('opens its own page here, with no file', async () => {
     const { appsHere } = await import('../../../../apps/desktop/src/components/appSlot/appsHere')
     vi.mocked(appsHere!.groupFilesOpenedBy).mockClear()
     installTabs([{ name: 'main', title: 'Board' }])
-    await harness.render(slot({ chatId: 'group-5', asked: { chatId: 'group-5', app: 'board', request: 5001 } }))
+    await harness.render(slot({ chatId: 'group-5' }))
+    ask('group-5', { app: 'board' })
     await act(async () => {})
-    expect(groupSlotMemory.opened('group-5')).toMatchObject({ kind: 'board.main', title: 'Board' })
-    expect(groupSlotMemory.opened('group-5')?.itemId).toBeUndefined()
+    expect(shownItem('group-5')).toMatchObject({ kind: 'board.main', title: 'Board' })
+    expect(shownItem('group-5')?.itemId).toBeUndefined()
     expect(appsHere!.groupFilesOpenedBy).not.toHaveBeenCalled()
   })
 
@@ -216,16 +195,18 @@ describe('an App opened in the group (「在本群打开」)', () => {
     const { appsHere } = await import('../../../../apps/desktop/src/components/appSlot/appsHere')
     vi.mocked(appsHere!.groupFileOpener).mockClear()
     vi.mocked(appsHere!.groupFileOpener).mockResolvedValue({ success: false, error: 'not in this test' })
-    groupSlotMemory.ask('group-7', { itemId: 'item-7', at: { slide: '3', shape: '12' } })
-    const asked = groupSlotMemory.take('group-7')
+    askChat('group-7', { itemId: 'item-7', at: { slide: '3', shape: '12' } })
+    const asked = takeChatAsk('group-7')
     expect(asked).toEqual({ itemId: 'item-7', at: { slide: '3', shape: '12' } })
-    expect(groupSlotMemory.take('group-7')).toBeNull()
-    await harness.render(slot({ chatId: 'group-7', asked: { chatId: 'group-7', ...asked!, request: 7001 } }))
+    expect(takeChatAsk('group-7')).toBeNull()
+    await harness.render(slot({ chatId: 'group-7' }))
+    ask('group-7', asked!)
     await act(async () => {})
     expect(appsHere!.groupFileOpener).toHaveBeenCalledWith({ chatId: 'group-7', itemId: 'item-7', at: { slide: '3', shape: '12' } })
     // Control: a plain link's file goes without one.
     vi.mocked(appsHere!.groupFileOpener).mockClear()
-    await harness.render(slot({ chatId: 'group-8', asked: { chatId: 'group-8', itemId: 'item-8', request: 8001 } }))
+    await harness.render(slot({ chatId: 'group-8' }))
+    ask('group-8', { itemId: 'item-8' })
     await act(async () => {})
     expect(appsHere!.groupFileOpener).toHaveBeenCalledWith({ chatId: 'group-8', itemId: 'item-8' })
   })
@@ -234,10 +215,11 @@ describe('an App opened in the group (「在本群打开」)', () => {
     const { appsHere } = await import('../../../../apps/desktop/src/components/appSlot/appsHere')
     vi.mocked(appsHere!.groupFilesOpenedBy).mockClear()
     installTabs([{ name: 'main', title: 'Board', opensFiles: { chat: ['.board.json'] } }])
-    await harness.render(slot({ chatId: 'group-6', asked: { chatId: 'group-6', app: 'board', request: 6001 } }))
+    await harness.render(slot({ chatId: 'group-6' }))
+    ask('group-6', { app: 'board' })
     await act(async () => {})
     expect(appsHere!.groupFilesOpenedBy).toHaveBeenCalledWith({ chatId: 'group-6', extensionId: 'board' })
-    expect(groupSlotMemory.opened('group-6')).toBeNull()
+    expect(shownItem('group-6')).toBeNull()
   })
 
   // owner 10-24: one App's one resource is one tab, however it was opened; how only gives it its 上一页. Control (the parent
@@ -249,19 +231,19 @@ describe('an App opened in the group (「在本群打开」)', () => {
     const candidate = { extensionId: 'board', tabKind: 'board.file', tabTitle: 'Board', app: { name: 'Board' }, onlyTab: false, suffix: '.board.json' }
     const detail = { chatId, itemId: 'B', name: 'team.board.json', typedName: 'team.board.json', file: { document: true, contentType: 'application/json', version: 1, size: 2 }, choice: { kind: 'one', candidate } }
     vi.mocked(appsHere!.appChatFile).mockResolvedValue({ success: true, data: detail as never })
-    await harness.render(slot({ chatId, asked: { chatId, app: 'board', request: 9001 } }))
+    await harness.render(slot({ chatId }))
+    ask(chatId, { app: 'board' })
     await act(async () => {})
     expect(appsHere!.appChatFile).toHaveBeenCalledWith({ chatId, extensionId: 'board' })
-    const board = groupSlotMemory.opened(chatId)
-    expect(board).toMatchObject({ kind: 'board.file', itemId: 'B', title: 'team' })
+    const board = shownPanelTab(chatId)
+    expect(board?.item).toMatchObject({ kind: 'board.file', itemId: 'B', title: 'team' })
     expect(harness.container.querySelector('[data-testid="group-app-slot-back"]'), 'opened from the chat: no 上一页').toBeNull()
-    const folder = folderTab()
-    groupSlotMemory.open(chatId, folder)
-    await harness.render(slot({ chatId, asked: { chatId, itemId: 'B', request: 9002, opener: detail as never, fromPage: true, from: folder } }))
+    const folder = openPanelItem(chatId, folderItem())
+    ask(chatId, { itemId: 'B', opener: detail as never, fromPage: true })
     await act(async () => {})
-    expect(groupSlotMemory.tabs(chatId).map((tab) => tab.itemId ?? 'folder')).toEqual(['B', 'folder'])
-    expect(groupSlotMemory.opened(chatId)?.opening, 'the page already there').toBe(board!.opening)
+    expect(panelTabsOf(chatId).map((tab) => tab.item.itemId ?? 'folder')).toEqual(['B', 'folder'])
+    expect(shownPanelTab(chatId)?.tabId, 'the tab already there').toBe(board!.tabId)
     act(() => (harness.container.querySelector('[data-testid="group-app-slot-back"]') as HTMLButtonElement).click())
-    expect(groupSlotMemory.opened(chatId)).toBe(folder)
+    expect(shownPanelTab(chatId)?.tabId).toBe(folder)
   })
 })

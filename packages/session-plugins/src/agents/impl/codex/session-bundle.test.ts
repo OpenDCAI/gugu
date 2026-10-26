@@ -44,6 +44,7 @@ describe('problem 9: gugu-delivered MCP servers are not asked about call by call
       }),
     );
     expect(result.threadConfig).toMatchObject({
+      'tools.update_plan.enabled': true,
       'mcp_servers.gugu.default_tools_approval_mode': 'approve',
       'mcp_servers.quiet_probe_quiet.default_tools_approval_mode': 'approve',
     });
@@ -65,7 +66,7 @@ describe('#7191 a session with gugu\'s browser tab turns off codex\'s own browse
   });
 });
 
-describe('10-06: alwaysLoad servers are outside codex code mode, the person\'s own servers stay as codex has them', () => {
+describe('Codex native tool surfaces preserve the catalog and explicit App disclosure', () => {
   const servers = [
     { name: 'gugu', url: 'http://127.0.0.1:1/mcp', alwaysLoad: true, owner: 'gugu' as const },
     { name: 'omnisearch', url: 'http://127.0.0.1:2/mcp', alwaysLoad: true, owner: 'integration' as const },
@@ -76,13 +77,24 @@ describe('10-06: alwaysLoad servers are outside codex code mode, the person\'s o
   it('the terminal leg writes them into the app-server config by codex namespace', () => {
     const result = materializeCodexSessionBundle({ ...ctx, surface: 'app-server' as const }, bundle({ mcpServers: servers }));
     expect(result.threadConfig?.['features.code_mode.direct_only_tool_namespaces'])
-      .toEqual(['mcp__gugu', 'mcp__omnisearch', 'mcp__gw_probe_a']);
+      .toEqual(['mcp__omnisearch', 'mcp__gw_probe_a']);
+    expect(result.threadConfig?.['mcp_servers.gugu.omit_tools_from']).toEqual(['deferred']);
+    expect(result.threadConfig).not.toHaveProperty(['mcp_servers.my_own.omit_tools_from']);
+    expect(result.threadConfig).not.toHaveProperty(['mcp_servers.omnisearch.omit_tools_from']);
   });
 
   it('the chat leg hands the same list to the ACP bridge', () => {
     const result = materializeCodexSessionBundle(ctx, bundle({ mcpServers: servers }));
     expect(JSON.parse(result.env.GUGU_CODEX_DIRECT_TOOL_NAMESPACES ?? 'null'))
-      .toEqual(['mcp__gugu', 'mcp__omnisearch', 'mcp__gw_probe_a']);
+      .toEqual(['mcp__omnisearch', 'mcp__gw_probe_a']);
+  });
+
+  it('a core-only session clears an inherited direct-only list on both legs', () => {
+    const core = bundle({ mcpServers: [servers[0]!] });
+    expect(materializeCodexSessionBundle({ ...ctx, surface: 'app-server' as const }, core).threadConfig?.['features.code_mode.direct_only_tool_namespaces'])
+      .toEqual([]);
+    expect(JSON.parse(materializeCodexSessionBundle(ctx, core).env.GUGU_CODEX_DIRECT_TOOL_NAMESPACES ?? 'null'))
+      .toEqual([]);
   });
 
   it('nothing declared alwaysLoad, no list', () => {

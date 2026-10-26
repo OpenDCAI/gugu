@@ -42,7 +42,7 @@ import {
   permissionSide,
   type DeclaredPermission,
 } from '@shared/extensions/catalog';
-import { claimedSuffixes, compareExtensionVersions, type ExtensionManifest } from '@shared/extensions/manifest';
+import { claimedSuffixes, compareExtensionVersions, type ExtensionCapability, type ExtensionManifest } from '@shared/extensions/manifest';
 import { pinsAutoUpdate } from '@shared/extensions/market-entries';
 import {
   marketSourceLabel,
@@ -120,7 +120,7 @@ export function AppProductPage({
   onOpenExternal = confirmOpenExternalLink,
   backgroundSupported = true,
   permissionRevocationSupported = true,
-  phoneAgentFeaturesUnavailable = false,
+  phoneAgentCapabilities = [],
   similar = [],
   menu,
 }: {
@@ -164,7 +164,7 @@ export function AppProductPage({
   /** Whether this host lets people take back individual permissions after installation. */
   permissionRevocationSupported?: boolean;
   /** Agent capabilities declared by the App, before the phone removes them from its permission list. */
-  phoneAgentFeaturesUnavailable?: boolean;
+  phoneAgentCapabilities?: readonly ExtensionCapability[];
   onBrowseReplacement?: (extensionId: string) => void;
   /** 右栏「类似 App」:市场里同一类的别的 App(照 Google Play),点一个 = 换到它的产品页。 */
   similar?: { id: string; name: string; publisher: string; line: string; iconUrl?: string | null; onOpen: () => void }[];
@@ -537,7 +537,13 @@ export function AppProductPage({
   // 照 Google Play「数据安全」:先一句话,再一张带框的卡片(它这一节本来就画框,是整页唯一一张)。
   const permissionsSection = (
     <section className="mk-dsec" key="permissions" data-testid="app-product-permissions">
-      <h3>{translate('extensions.detailPermissions')}</h3>
+      <h3 className="flex items-center gap-1">
+        {translate('extensions.detailPermissions')}
+        {phoneAgentCapabilities.length > 0 ? <InfoTooltip label={translate('extensions.phoneAgentCapabilitiesLabel')} content={<>
+          <p>{translate('extensions.phoneAgentCapabilitiesInfo')}</p>
+          <ul className="list-disc pl-4">{phoneAgentCapabilities.map((capability) => <li key={capability}>{describeCapability(capability, declaring, translate, machine)}</li>)}</ul>
+        </>} /> : null}
+      </h3>
       <p className="mk-note">
         {installed && withdrawn > 0
           ? translate('extensions.permissionsWithdrawnNote', { count: permissions.length, revoked: withdrawn })
@@ -717,11 +723,6 @@ export function AppProductPage({
         <div className="mk-banner" role="status" data-testid="app-product-installed">
           <Check className="size-3.5" />
           {translate('extensions.justInstalled')}
-        </div>
-      ) : null}
-      {phoneAgentFeaturesUnavailable ? (
-        <div className="mk-banner" data-testid="app-product-phone-agent-features">
-          {translate('extensions.phoneAgentsUnavailable')}
         </div>
       ) : null}
       {/* 装不上 / 停止维护 / 这一版被撤回:一句话,带它的下一步。 */}

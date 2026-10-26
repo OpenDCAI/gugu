@@ -1,3 +1,4 @@
+import { messageForUser } from '@/lib/userFacingError';
 import { toast } from 'sonner';
 import type { SessionPaneTab } from '@gugu/session-core/session-record/contract';
 import { closeSessionPaneTab, sessionPaneTabs } from './session-pane-tabs';
@@ -72,9 +73,8 @@ export async function openPathWithFailureToast(
 ): Promise<void> {
   const result = await rpc.app.openPath(filePath, workspace);
   if (!result.success) {
-    // @@@4891 result.error 是 shell 层的原文,用户读不懂也用不上 —— 进日志。
     sessionLog.error({ err: result.error, filePath }, 'openPath failed');
-    toast.error(translateSessionMessage('taskError.openFileFailed', { path: filePath }));
+    toast.error(translateSessionMessage('taskError.openFileFailed', { path: '[path]' }), { description: messageForUser(result.error) });
   }
 }
 
@@ -86,7 +86,7 @@ async function openDirectoryInFileManager(dirPath: string): Promise<void> {
   const result = await rpc.app.openIn({ app: 'finder', path: dirPath });
   if (!result?.success) {
     sessionLog.error({ err: result?.error, dirPath }, 'openIn(finder) failed');
-    toast.error(translateSessionMessage('taskError.openFileFailed', { path: dirPath }));
+    toast.error(translateSessionMessage('taskError.openFileFailed', { path: '[path]' }), { description: messageForUser(result?.error) });
   }
 }
 
@@ -316,7 +316,7 @@ export function makeFileLinkHandlers(
       // A click on a link: what fails is said with the same toast an open that fails says, not left in the console.
       openFileInSessionEditor(projectId, sessionId, filePath, { ...opts, ...(at ? { at } : {}) }).catch((error: unknown) => {
         sessionLog.error({ err: String(error), filePath }, 'opening a linked file failed');
-        toast.error(translateSessionMessage('taskError.openFileFailed', { path: filePath }));
+        toast.error(translateSessionMessage('taskError.openFileFailed', { path: '[path]' }), { description: messageForUser(error) });
       });
     },
     onOpenExternal: (filePath) => {

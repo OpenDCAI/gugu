@@ -7,9 +7,14 @@ import { act } from 'react'
 import { createRoot } from 'react-dom/client'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 
+const notice = vi.hoisted(() => vi.fn())
+vi.mock('../../../apps/desktop/src/session/renderer/lib/hooks/use-toast', () => ({ toast: notice }))
+vi.mock('../../../apps/desktop/src/session/renderer/localization/locale-store', () => ({ translateSessionMessage: () => 'Copy failed' }))
+const commands: Array<{ onCopyError?: (error: unknown) => void }> = []
 const created: HTMLElement[] = []
 vi.mock('@gugu/session-chat-ui', () => ({
-  createChatView: ({ parent }: { parent: HTMLElement }) => {
+  createChatView: ({ parent, commands: actions }: { parent: HTMLElement; commands: typeof commands[number] }) => {
+    commands.push(actions)
     const body = document.createElement('div')
     body.dataset.fakeView = 'true'
     parent.appendChild(body)
@@ -26,6 +31,8 @@ const roots: Array<() => void> = []
 afterEach(() => {
   while (roots.length) roots.pop()?.()
   created.length = 0
+  commands.length = 0
+  notice.mockClear()
 })
 
 function mountSync() {
@@ -50,4 +57,11 @@ describe('嵌入的会话页转录:模块加载过之后,挂上的同一次提�
     expect(container.querySelector('[data-fake-view]'), 'the view waited for a promise callback').not.toBeNull()
     expect(created).toHaveLength(1)
   })
+})
+
+it('reports a transcript copy failure through the existing action notice', async () => {
+  await loadChatUi()
+  mountSync()
+  commands[0]!.onCopyError!(new Error('Clipboard permission denied for /Users/alice/private.txt with sk-test_secret\nprivate stack'))
+  expect(notice).toHaveBeenCalledExactlyOnceWith({ title: 'Copy failed', description: 'Clipboard permission denied for [path] with [redacted token]', tier: 'error' })
 })

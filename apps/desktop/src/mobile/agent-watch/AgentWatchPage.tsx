@@ -1,3 +1,4 @@
+import { messageForUser } from '@/lib/userFacingError';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import type { Device } from '@gugu/core/shared/types/chat'
@@ -39,7 +40,7 @@ export type AgentWatchRoute =
    */
   | { name: 'projects'; reveal?: { deviceId: string; sessionId: string } | { projectId: string } }
   /** `deviceId` = 会话所在的机器(跨机器的子会话在它自己那台上打开)。 */
-  | { name: 'timeline'; deviceId: string; session: SessionpageSessionSummary; firstPrompt?: string; appKind?: string }
+  | { name: 'timeline'; deviceId: string; session: SessionpageSessionSummary; firstPrompt?: string; appKind?: string; draft?: { text: string } }
   /**
    * 新建会话的两步(owner 2026-09-06:「新建任务应该是先选择设备再新建任务」):
    * 根页的 + → `pick-machine`(「在哪台机器上」,离线的点不动)→ `create`。
@@ -146,9 +147,9 @@ export function AgentWatchPage({
     seenOpenRequest.current = openRequest
     // A row that does not open (an offline machine's, from its heartbeat): the person lands where it is listed, as a tap leaves them.
     if ('projectId' in openRequest) { setRoute({ name: 'projects', reveal: openRequest }); return }
-    const { deviceId, session, tabKind } = openRequest
+    const { deviceId, session, tabKind, draft } = openRequest
     setRoute(rowOpens(session)
-      ? { name: 'timeline', deviceId, session, ...(tabKind ? { appKind: tabKind } : {}) }
+      ? { name: 'timeline', deviceId, session, ...(tabKind ? { appKind: tabKind } : {}), ...(draft ? { draft } : {}) }
       : { name: 'projects', reveal: { deviceId, sessionId: session.conversationId } })
   }, [openRequest, setRoute])
 
@@ -166,6 +167,7 @@ export function AgentWatchPage({
         session={liveSession ?? route.session}
         agent={agentOfSession(liveSession ?? route.session, agentNames)}
         firstPrompt={route.firstPrompt}
+        draft={route.draft}
         onBack={() => setRoute({ name: 'projects' })}
         onOpenChat={onOpenAgentChat}
       />
@@ -184,8 +186,8 @@ export function AgentWatchPage({
         onCreated={(session, firstPrompt, result) => {
           const phone = isPhoneDevice(device)
           if (phone && result?.birthGroup?.status === 'failed') {
-            log.warn({ deviceId: device.device_id, sessionId: session.conversationId, chatId: result.birthGroup.chatId, reason: result.birthGroup.error ?? null }, 'phone agent created but group join failed')
-            toast(tWorkspace('groupJoinFailed'), 'error')
+            log.error({ deviceId: device.device_id, sessionId: session.conversationId, chatId: result.birthGroup.chatId, reason: result.birthGroup.error ?? null }, 'phone agent created but group join failed')
+            toast(tWorkspace('groupJoinFailed'), 'error', messageForUser(result.birthGroup.error))
           }
           const groupId = phone ? result?.birthGroup?.chatId : birthGroup?.chatId
           if (groupId && onOpenGroupChat && (!phone || result?.birthGroup?.status === 'joined' || result?.birthGroup?.status === 'pending_approval')) {

@@ -125,7 +125,7 @@ type CommonEnvelopeFacts = {
   chatKind?: ChatKind | null
   /** 悄悄话的收件人（typed id，空格分隔）：库里 `is_whisper` 那一行才有，只有发信人和这几位看得见（#6835）。 */
   whisperTo?: string | null
-  /** App 以当前用户的名义送来的（`gugu.send`）：那个 App 的 id。 */
+  /** App 以当前用户的名义送来的（`gugu.dispatch`）：那个 App 的 id。 */
   viaApp?: string | null
   /** 已安排到点（route `scheduled`，#7221）：是它自己排的哪一条 —— 那条的标题。人看的投递卡上也写它。 */
   schedule?: string | null
@@ -565,7 +565,7 @@ export interface AgentDeliveryEnvelopeInput {
   threadRootId: string | null
   /** `is_whisper` 行的收件人（裸 user id）；不是悄悄话 = null。 */
   whisperTo?: readonly string[] | null
-  /** App 代发（`gugu.send`）的 App id；不是 = null。 */
+  /** App 代发（`gugu.dispatch`）的 App id；不是 = null。 */
   viaApp?: string | null
 }
 

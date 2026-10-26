@@ -1,3 +1,5 @@
+import { rendererLogger } from '@/lib/log';
+import { messageForUser } from '@/lib/userFacingError';
 import { ExternalLink } from '@/lib/icons'
 import { observer } from 'mobx-react-lite';
 import { useState } from 'react';
@@ -76,7 +78,7 @@ export const PullRequestEntry = observer(function PullRequestEntry({ pr }: { pr:
       if (!result.success) {
         toast({
           title: translate(bypassRequirements ? 'pr.mergeBypassFailed' : 'pr.mergeFailed'),
-          description: result.error,
+          description: messageForUser(result.error),
           variant: 'destructive',
         });
       }
@@ -166,10 +168,10 @@ export const PullRequestEntry = observer(function PullRequestEntry({ pr }: { pr:
             setIsMarkingReady(true);
             prStore
               .markReadyForReview(pr.url)
-              .catch(() => {
+              .catch((error) => { rendererLogger('actions/pr-entry').error({ error: error }, 'action failed');
                 toast({
                   title: translate('pr.markReadyFailed'),
-                  description: translate('pr.markReadyFailedHint'),
+                  description: messageForUser(error),
                   variant: 'destructive',
                 });
               })

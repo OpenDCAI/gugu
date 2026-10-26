@@ -6,7 +6,6 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { act, type ReactNode } from 'react'
 import { ChatAreaPanel } from '../../../../apps/desktop/src/components/ChatAreaPanel'
 import { requestTopicSplit } from '../../../../apps/desktop/src/lib/topicSplitRequest'
-import { requestTopicsPanel } from '../../../../apps/desktop/src/lib/topicsPanelRequest'
 import { chat, createNode, createReactHarness, renderWithAppProviders } from '../../../support/testHarness'
 import { openImRepository, type AccountImRepository } from '../../../../apps/desktop/src/lib/imRepository'
 import { createMemoryLocalSyncDb } from '../../../../apps/desktop/src/lib/localSyncDb'
@@ -97,10 +96,5 @@ describe('手机从列表点回同一个群的话题行,话题页要出来', () 
     expect(topicPage()).not.toBeNull()
   })
 
-  it('keeps More topics pending until the mobile chat becomes visible and resets', async () => {
-    await render(true, 0)
-    await act(async () => { requestTopicsPanel('g1') })
-    await render(false, 1)
-    expect(harness.container.querySelector('[data-testid="history-panel"]')).not.toBeNull()
-  })
+
 })

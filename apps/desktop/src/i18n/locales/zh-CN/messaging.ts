@@ -326,17 +326,35 @@ export default {
   "attachmentView": {
     "fileGone": "文件已删除",
     "fileVersion": "第 {{n}} 版",
+    "fileExpired": "文件已过期",
+    "reupload": "重新上传",
+    "selectOriginal": "选择原文件",
+    "storageWarning": "群文件存储空间即将用尽（{{used}} / {{limit}}）。",
+    "storageFull": "群文件存储空间已满（{{used}} / {{limit}}），暂时无法上传新文件。",
+    "usageUnavailable": "文件用量暂不可用。",
+
     "fileUnavailable": "文件暂时打不开",
     "imageUnavailable": "图片暂时打不开",
     "newerInFolder": "文件夹里有新版",
     "retry": "重试"
   },
+  "dispatchPick": {
+    "myAgents": "我的 agent",
+    "title": "交给谁",
+    "search": "搜索成员、任务或对话",
+    "chatAgents": "{{chat}} 的 agent",
+    "chatPeople": "{{chat}} 的成员",
+    "new": "新建",
+    "newAgent": "新的 agent",
+    "empty": "没有可选的对象",
+    "send": "发送",
+    "text": "要发出的内容",
+    "textPlaceholder": "写上要做什么",
+    "visible": "群里所有人可见（默认只有对方看得到）"
+  },
   "composePick": {
     "title": "选择发送位置",
-    "search": "搜索对话或任务",
     "chats": "对话",
-    "tasks": "我的任务",
-    "empty": "没有可选的对话或任务",
     "action": "放入输入框"
   },
   "composer": {
@@ -497,6 +515,15 @@ export default {
     "renameHintTopic": "编辑话题名",
     "renamePlaceholderTopic": "话题名称",
     "settings": {
+      "filePolicyLoadFailed": "无法读取项目文件策略。",
+      "fileCloudUpload": "文件上传到云端",
+      "fileCloudUploadHint": "默认关闭。文件保留在主家设备，临时中转单独设置。",
+      "fileAdvanced": "文件扩展配置",
+      "fileLocalSsh": "优先从本机读取，其次使用本人已有的 SSH 连接。远端文件只读。",
+      "fileTemporary": "允许云端临时中转",
+      "fileStrictHint": "严格不上传：同时关闭云端存储和临时中转。远端读取仅能通过可用的本机或本人 SSH 连接。",
+      "fileRetention": "临时副本保留时长",
+      "fileRetentions": {"read-once": "读完即删", "1d": "1 天", "7d": "7 天", "30d": "30 天"},
       "notLoaded": "群设置还没加载完，请稍后再试",
       "manage": "群管理",
       "saveFailed": "保存失败，已恢复为原来的设置。请重试。",
@@ -510,7 +537,6 @@ export default {
       "agentFloodTopics": "话题阈值",
       "agentFloodTopicsFailed": "话题列表未能加载。",
       "agentFloodPermissionsFailed": "话题管理权限未能加载，暂时只读。",
-      "agentFloodLoadFailed": "阈值未能加载，请重新打开设置。",
       "agentFloodSaveFailed": "阈值保存失败，请重试。",
       "agentFloodThreshold": "Agent 超过这个数就全员转被动",
       "agentFloodThresholdAria": "Agent 超过几个转被动",
@@ -643,12 +669,16 @@ export default {
     "view": "查看 {{title}}"
   },
   "message": {
-    "myAgentSuffix": "（我的 agent）",
-    "agentOwnerUnavailableSuffix": "（主人信息不可用）",
+    "myAgentTag": "我的 agent",
+    "agentOwnerUnavailableTag": "主人信息不可用",
+    "agentOwnerTag": "{{owner}} 的 agent",
     "agentOwnerSuffix": "（{{owner}} 的 agent）",
     "actions": {
       "comingSoon": "即将开放",
       "copy": "复制文本",
+      "copyLink": "复制链接",
+      "openLink": "打开链接",
+      "selectText": "选择文本",
       "delete": "删除",
       "edit": "编辑",
       "forward": "转发",
@@ -656,6 +686,7 @@ export default {
       "openTopic": "开话题",
       "react": "表情回应",
       "reply": "回复",
+      "quoteSelection": "引用选中文字",
       "select": "多选"
     },
     "attachment": "[附件]",

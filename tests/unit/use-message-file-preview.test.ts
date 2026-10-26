@@ -9,7 +9,7 @@ import type { PreviewFile } from '@/components/chat/useMessageFilePreview'
 // 字节、链接、交给系统应用都经 lib/attachmentBytes(一个入口);这里把它换掉,判的是预览自己的状态机。
 const bytesMocks = vi.hoisted(() => ({
   attachmentBytes: vi.fn(), downloadAttachment: vi.fn(),
-  attachmentResolver: { resolve: vi.fn(), forget: vi.fn() },
+  attachmentPreview: vi.fn(),
   openAttachmentInSystemApp: vi.fn(),
   sourceKeyOf: (source: { kind: string; url?: string }) => `${source.kind}:${source.url ?? ''}`,
 }))
@@ -36,6 +36,9 @@ vi.mock('@/components/chat/MessageFilePreviewPanel', () => ({
       React.createElement('button', { 'data-testid': 'preview-close', onClick: onClose }),
       React.createElement('button', { 'data-testid': 'preview-external', onClick: onOpenExternal })),
 }))
+
+const previewToast = vi.hoisted(() => vi.fn())
+vi.mock('@/components/toastContext', () => ({ useToast: () => ({ toast: previewToast }) }))
 
 const { useMessageFilePreview } = await import('@/components/chat/useMessageFilePreview')
 
@@ -68,7 +71,6 @@ describe('useMessageFilePreview', () => {
       visible,
       closeRightSurfaces, onForward,
       toast: vi.fn(),
-      downloadFailed: 'download failed',
     })
     openPreview = preview.open
     closePreview = preview.close
@@ -78,7 +80,7 @@ describe('useMessageFilePreview', () => {
   beforeEach(() => {
     vi.stubGlobal('IS_REACT_ACT_ENVIRONMENT', true)
     bytesMocks.downloadAttachment.mockResolvedValue(undefined)
-    bytesMocks.attachmentResolver.resolve.mockResolvedValue({ status: 'ready', url: 'https://cdn.test/signed', thumbUrl: null, sha256: null, width: null, height: null })
+    bytesMocks.attachmentPreview.mockResolvedValue({ status: 'ready', content: async () => ({ url: 'https://cdn.test/signed', expiresAt: Date.now() + 60_000 }), dispose: vi.fn() })
     container = document.createElement('div')
     document.body.appendChild(container)
     root = createRoot(container)
@@ -218,14 +220,14 @@ describe('useMessageFilePreview', () => {
 
   // 手机上点视频要能直接播(#6682):进应用内预览、由 <video> 按需取签好的链接,❌ 整段读进内存,❌ 交给系统应用。
   it('previews playable videos in place from the signed link without fetching the whole file', async () => {
-    bytesMocks.attachmentResolver.resolve.mockResolvedValue({ status: 'ready', url: 'https://cdn.test/promo?auth_key=1', thumbUrl: null, sha256: null, width: null, height: null })
+    bytesMocks.attachmentPreview.mockResolvedValue({ status: 'ready', url: 'https://cdn.test/promo?auth_key=1', thumbUrl: null, sha256: null, width: null, height: null })
     const video: PreviewFile = { kind: 'file', fileName: 'promo.mp4', mimeType: '', sizeBytes: 9_000_000, source: { kind: 'url', url: 'https://files.test/promo.mp4' } }
 
     await act(async () => { root.render(React.createElement(Probe)) })
     await act(async () => { openPreview?.(video); await Promise.resolve() })
 
     expect(container.querySelector('[data-testid="preview-content"]')).not.toBeNull()
-    expect(bytesMocks.attachmentResolver.resolve).toHaveBeenCalledWith(video.source)
+    expect(bytesMocks.attachmentPreview).toHaveBeenCalledWith(video.source)
     expect(bytesMocks.attachmentBytes).not.toHaveBeenCalled()
     expect(bytesMocks.openAttachmentInSystemApp).not.toHaveBeenCalled()
   })
@@ -234,7 +236,7 @@ describe('useMessageFilePreview', () => {
   it('closes the mobile preview on Android back before the page underneath moves', async () => {
     mobile = true
     const { isSheetOpen, NATIVE_BACK_EVENT } = await import('@/components/ui/sheetStack')
-    bytesMocks.attachmentResolver.resolve.mockResolvedValue({ status: 'ready', url: 'https://cdn.test/promo', thumbUrl: null, sha256: null, width: null, height: null })
+    bytesMocks.attachmentPreview.mockResolvedValue({ status: 'ready', url: 'https://cdn.test/promo', thumbUrl: null, sha256: null, width: null, height: null })
     const video: PreviewFile = { kind: 'file', fileName: 'promo.mp4', mimeType: 'video/mp4', sizeBytes: 1, source: { kind: 'url', url: 'https://files.test/promo.mp4' } }
     await act(async () => { root.render(React.createElement(Probe)) })
     await act(async () => { openPreview?.(video); await Promise.resolve() })
@@ -301,4 +303,16 @@ describe('useMessageFilePreview', () => {
     await act(async () => { (container.querySelector('[data-testid="preview-close"]') as HTMLElement).click() })
     expect(restore).toHaveBeenCalledTimes(1)
   })
+  it.each(['download', 'external'])('keeps the sanitized %s failure cause', async (action) => {
+    bytesMocks.attachmentBytes.mockResolvedValue(bytesOf(async () => 'readable'))
+    await act(async () => { root.render(React.createElement(Probe)); await Promise.resolve() })
+    await act(async () => { openPreview?.(file); await Promise.resolve() })
+    const error = new Error('Attachment access denied /Users/test/private sk-synthetic-secret\nstack detail')
+    if (action === 'download') bytesMocks.attachmentBytes.mockRejectedValue(error)
+    else bytesMocks.openAttachmentInSystemApp.mockRejectedValue(error)
+    previewToast.mockClear()
+    await act(async () => { (container.querySelector(`[data-testid="preview-${action}"]`) as HTMLElement).click(); await Promise.resolve() })
+    expect(previewToast).toHaveBeenCalledWith('无法下载文件', 'error', 'Attachment access denied [path] [redacted token]')
+  })
+
 })

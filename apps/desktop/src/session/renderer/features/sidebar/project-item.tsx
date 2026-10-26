@@ -107,7 +107,8 @@ export const SidebarProjectItem = observer(function SidebarProjectItem({
   const needsYouCount = sidebarStore.needsYouCountForProject(projectId);
   // gugu-dev#181 项目就是群:行尾挂项目群的未读(含它的话题),壳发过来的那一份;真读了才减。
   const groupChatId = projectGroupsStore.chatIdOf(projectId);
-  const groupUnread = useSidebarChatSignals()?.groupUnread.get(groupChatId ?? '') ?? 0;
+  const chatSignals = useSidebarChatSignals();
+  const groupUnread = (isExpanded ? chatSignals?.groupMainUnread : chatSignals?.groupUnread)?.get(groupChatId ?? '') ?? 0;
   // 挂在别的会话下面的一条拖回它自己的项目行 = 回到根(spec session-page「把会话拖成 child」)。
   // 只有它不挂着时本来就显示在这一行的才收:换项目不是这个动作。
   const unnestDrop = useSessionDropTarget();

@@ -1,3 +1,4 @@
+import { messageForUser } from '@/lib/userFacingError';
 import { CircleAlert, Trash2Icon } from '@/lib/icons';
 import { UI_EVENTS } from '@/lib/uiEvents';
 import { observer } from 'mobx-react-lite';
@@ -105,7 +106,6 @@ function marketStaleTime(iso: string, locale: string): string {
   ).format(at);
 }
 
-const errorMessage = (error: unknown) => (error instanceof Error ? error.message : String(error));
 
 const GROUP_LABEL = {
   attention: 'extensions.groupAttention',
@@ -264,7 +264,7 @@ export const ExtensionsSettingsCard = observer(function ExtensionsSettingsCard()
       setInventory('error');
       toast({
         title: translateRef.current('extensions.loadFailed'),
-        description: errorMessage(error),
+        description: messageForUser(error),
         tier: 'error',
         action: { label: translateRef.current('extensions.retry'), onClick: () => void refresh() },
       });
@@ -507,12 +507,10 @@ export const ExtensionsSettingsCard = observer(function ExtensionsSettingsCard()
           for (const deviceId of also ?? []) await installOnAlso(deviceId, alsoOn.find((one) => one.id === deviceId)?.label ?? deviceId, ask);
         }, machine, alsoOn);
       } catch (error) {
-        // 原因(指纹对不上 / 下载失败 / 已经下架)进日志;文案只说结果与下一步 ——
-        // ❌ 不把内部失败描述端给用户(CI policy: copy-leaks-raw-error-slot)。
         log.error('extension market install failed:', error);
         toast({
           title: translateRef.current('extensions.installFailed'),
-          description: translateRef.current('extensions.marketPrepareFailed'),
+          description: messageForUser(error),
           tier: 'error',
           action: {
             label: translateRef.current('extensions.retry'),
@@ -561,7 +559,7 @@ export const ExtensionsSettingsCard = observer(function ExtensionsSettingsCard()
       } catch (error) {
         toast({
           title: translateRef.current('extensions.installFailed'),
-          description: errorMessage(error),
+          description: messageForUser(error),
           tier: 'error',
           action: {
             label: translateRef.current('extensions.retry'),
@@ -625,7 +623,7 @@ export const ExtensionsSettingsCard = observer(function ExtensionsSettingsCard()
     } catch (error) {
       toast({
         title: translate('extensions.installFailed'),
-        description: errorMessage(error),
+        description: messageForUser(error),
         tier: 'error',
       });
     } finally {
@@ -651,7 +649,7 @@ export const ExtensionsSettingsCard = observer(function ExtensionsSettingsCard()
       log.error('extension market install on another computer failed:', { deviceId, error });
       toast({
         title: translateRef.current('extensions.installFailedOn', { machine: label }),
-        description: translateRef.current('extensions.marketPrepareFailed'),
+        description: messageForUser(error),
         tier: 'error',
         action: { label: translateRef.current('extensions.retry'), onClick: () => void installOnAlso(deviceId, label, ask) },
       });
@@ -708,7 +706,7 @@ export const ExtensionsSettingsCard = observer(function ExtensionsSettingsCard()
       // still refuses if what it reads changed underneath.
       toast({
         title: translateRef.current('extensions.installFailed'),
-        description: errorMessage(error),
+        description: messageForUser(error),
         tier: 'error',
         action: {
           label: translateRef.current('extensions.retry'),
@@ -760,7 +758,7 @@ export const ExtensionsSettingsCard = observer(function ExtensionsSettingsCard()
       }));
       toast({
         title: translateRef.current('extensions.permissionChangeFailed'),
-        description: errorMessage(error),
+        description: messageForUser(error),
         tier: 'error',
         action: {
           label: translateRef.current('extensions.retry'),
@@ -783,7 +781,7 @@ export const ExtensionsSettingsCard = observer(function ExtensionsSettingsCard()
     } catch (error) {
       log.error('extension switch refused:', error);
       toast({
-        title: translateRef.current('extensions.switchFailed'),
+        title: translateRef.current('extensions.switchFailed'), description: messageForUser(error),
         tier: 'error',
         action: {
           label: translateRef.current('extensions.retry'),
@@ -805,14 +803,14 @@ export const ExtensionsSettingsCard = observer(function ExtensionsSettingsCard()
       : () =>
           void (store.dock.includes(manifest.id) ? unpinFromDock : pinToDock)(manifest.id).catch((error: unknown) => {
             log.error('dock change refused:', error);
-            toast({ title: translateRef.current('extensions.dockFailed'), tier: 'error' });
+            toast({ title: translateRef.current('extensions.dockFailed'), description: messageForUser(error), tier: 'error' });
           });
   const setDisclosure = async (manifest: ExtensionManifest, level: ExtensionDisclosureLevel) => {
     try {
       await store.setDisclosure(manifest.id, level);
     } catch (error) {
       log.error('extension disclosure refused:', error);
-      toast({ title: translateRef.current('extensions.disclosureFailed'), tier: 'error' });
+      toast({ title: translateRef.current('extensions.disclosureFailed'), description: messageForUser(error), tier: 'error' });
     }
   };
 
@@ -870,7 +868,7 @@ export const ExtensionsSettingsCard = observer(function ExtensionsSettingsCard()
     } catch (error) {
       toast({
         title: translate('extensions.uninstallFailed'),
-        description: errorMessage(error),
+        description: messageForUser(error),
         tier: 'error',
         action: { label: translate('extensions.retry'), onClick: () => void uninstall(app) },
       });
@@ -971,7 +969,7 @@ export const ExtensionsSettingsCard = observer(function ExtensionsSettingsCard()
       onToggle: (next: boolean) =>
         void store.setAutoUpdate(manifest.id, next).catch((error: unknown) => {
           log.error('auto-update switch refused:', error);
-          toast({ title: translateRef.current('extensions.switchFailed'), tier: 'error' });
+          toast({ title: translateRef.current('extensions.switchFailed'), description: messageForUser(error), tier: 'error' });
         }),
     };
   };

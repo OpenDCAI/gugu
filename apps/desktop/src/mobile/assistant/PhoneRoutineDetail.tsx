@@ -1,3 +1,4 @@
+import { messageForUser } from '@/lib/userFacingError';
 import './phone-memory.css'
 import { useRef, useState } from 'react'
 import { useTranslation } from 'react-i18next'
@@ -51,17 +52,15 @@ export function PhoneRoutineDetail(props: PhonePageProps & { id: string }) {
     if (!automation || !homeDeviceId || toggling.current) return
     toggling.current = true
     setPending(on)
-    let updated = false
     try {
       await machineRpc(homeDeviceId).automations.setAutomationEnabled(automation.id, on)
-      updated = true
       await reportAssistantAppChange({ rpc: machineRpc(homeDeviceId) }, assistant.id, { resource: 'schedules', operation: 'edited',
         id: automation.id, deviceId: homeDeviceId, before: { name: automation.name, active: automation.enabled }, after: { name: automation.name, active: on } })
       await read.refresh()
       toast(on ? t('routines.enabledToast') : t('routines.disabledToast'), 'success')
     } catch (error) {
-      log.warn({ error: errorText(error) }, 'set routine enabled failed')
-      toast(t(updated ? 'routines.loadFailed' : 'routines.updateFailed'), 'error')
+      log.error({ error: errorText(error) }, 'set routine enabled failed')
+      toast(t('routines.updateFailed'), 'error', messageForUser(error))
     } finally {
       toggling.current = false
       setPending(null)

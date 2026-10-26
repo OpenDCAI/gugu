@@ -11,7 +11,7 @@ const { openResource, readBytes } = vi.hoisted(() => ({
 vi.mock('@/lib/guguLinks', () => ({ openLinkTarget: openResource }))
 vi.mock('@/platform', () => ({ platform: { kind: 'electron' } }))
 vi.mock('@/lib/attachmentBytes', () => ({
-  attachmentBytes: readBytes, sourceKeyOf: () => 'budget', attachmentResolver: { resolve: vi.fn(), forget: vi.fn() }, openAttachmentInSystemApp: vi.fn(),
+  attachmentBytes: readBytes, sourceKeyOf: () => 'budget', attachmentPreview: vi.fn(), openAttachmentInSystemApp: vi.fn(),
 }))
 vi.mock('@/components/chat/MessageFilePreviewPanel', () => ({
   MessageFilePreviewPanel: ({ content, onClose, fill }: { content: string | null; onClose: () => void; fill: boolean }) =>
@@ -21,7 +21,7 @@ vi.mock('@/components/chat/MessageFilePreviewPanel', () => ({
 const { useMessageFilePreview } = await import('@/components/chat/useMessageFilePreview')
 
 function Conversation({ restore }: { restore?: () => void }) {
-  const preview = useMessageFilePreview({ mobile: false, visible: true, closeRightSurfaces: () => undefined, toast: () => undefined, downloadFailed: 'failed', onForward: () => undefined })
+  const preview = useMessageFilePreview({ mobile: false, visible: true, closeRightSurfaces: () => undefined, toast: () => undefined, onForward: () => undefined })
   return createElement('div', null,
     createElement('button', { onClick: () => preview.open({ kind: 'file', fileName: 'budget.md', mimeType: 'text/markdown', sizeBytes: 28, source: { kind: 'item', itemId: 'budget', version: 1 } }, undefined, restore) }, '打开附件'),
     preview.panel)

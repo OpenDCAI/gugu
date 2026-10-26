@@ -1,3 +1,5 @@
+import { messageForUser } from '@/lib/userFacingError';
+import { safeFailureLine } from '../gugu-reason';
 import { detectPlatform } from '@tanstack/react-hotkeys';
 import { useCallback, useMemo, useState, type ReactElement } from 'react';
 import type { OpenedOutput } from '@gugu/session-chat-ui';
@@ -27,7 +29,7 @@ const REVEAL_LABEL_KEY =
  * (对话右边并排,owner 10-15:「默认是打开在侧边栏」),这里列出全部打开方式。
  *
  * 用默认应用打开 / 在访达中显示只在会话就跑在这台电脑上时给:另一台机器上的文件这台电脑开不了,
- * ❌ 摆两条点了必失败的项。失败原文进日志,提示里只说哪一步没成(user-copy-leak-check)。
+ * ❌ 摆两条点了必失败的项。复制失败原因去敏后显示并记录。
  */
 export function useOpenedOutputMenu({ projectId, sessionId }: { projectId: string; sessionId: string }): {
   commands: Pick<ChatCommands, 'outputOpenMode' | 'onOutputMenu'>;
@@ -51,8 +53,8 @@ export function useOpenedOutputMenu({ projectId, sessionId }: { projectId: strin
         await rpc.app.clipboardWriteText(text);
         toast({ title: done });
       } catch (error) {
-        log.warn({ error }, 'opened-output copy failed');
-        toast({ title: translate('task.copyFailed'), variant: 'destructive' });
+        log.error({ error }, 'opened-output copy failed');
+        toast({ title: translate('task.copyFailed'), description: safeFailureLine(String((error as Error)?.message ?? error)), variant: 'destructive' });
       }
     },
     [translate]
@@ -62,8 +64,8 @@ export function useOpenedOutputMenu({ projectId, sessionId }: { projectId: strin
     async (path: string) => {
       const result = await rpc.app.showItemInFolder(path).catch((error: unknown) => ({ success: false as const, error }));
       if (!result.success) {
-        log.warn({ error: result.error, path }, 'opened-output reveal failed');
-        toast({ title: translate('fileTree.showFailed'), variant: 'destructive' });
+        log.error({ error: result.error, path }, 'opened-output reveal failed');
+        toast({ title: translate('fileTree.showFailed'), description: messageForUser(result.error), variant: 'destructive' });
       }
     },
     [translate]
@@ -73,8 +75,8 @@ export function useOpenedOutputMenu({ projectId, sessionId }: { projectId: strin
     async (path: string) => {
       const result = await rpc.app.openPath(path).catch((error: unknown) => ({ success: false as const, error }));
       if (!result.success) {
-        log.warn({ error: result.error, path }, 'opened-output openPath failed');
-        toast({ title: translate('taskError.openFileFailed', { path }), variant: 'destructive' });
+        log.error({ error: result.error, path }, 'opened-output openPath failed');
+        toast({ title: translate('transcript.outputMenu.app'), description: messageForUser(result.error), variant: 'destructive' });
       }
     },
     [translate]
@@ -82,7 +84,7 @@ export function useOpenedOutputMenu({ projectId, sessionId }: { projectId: strin
 
   const openInBrowser = useCallback(async (url: string) => {
     const result = await rpc.app.openExternal(url).catch((error: unknown) => ({ success: false as const, error }));
-    if (result && 'success' in result && !result.success) log.warn({ error: result.error, url }, 'opened-output openExternal failed');
+    if (result && 'success' in result && !result.success) log.error({ error: result.error, url }, 'opened-output openExternal failed');
   }, []);
 
   if (!target) return { commands, menu: null };

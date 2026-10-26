@@ -9,7 +9,6 @@ import { act } from 'react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { NewFriendsPanel } from '../../../../apps/desktop/src/components/NewFriendsPanel'
 import { chatService } from '../../../../apps/desktop/src/lib/chat'
-import { UserFacingError } from '../../../../apps/desktop/src/lib/userFacingError'
 import type { ManagedGroupJoinRequest } from '../../../../apps/desktop/src/lib/groupJoinRequests'
 import { clickElement, createNode, createReactHarness, displayIdentity, renderWithAppProviders } from '../../../support/testHarness'
 
@@ -86,7 +85,7 @@ describe('#6418 通讯录「新的请求」里的入群申请', () => {
   })
 
   it('库里拒绝(人数已满):把产品文案显示在这条申请下,不重读', async () => {
-    vi.spyOn(chatService, 'decideGroupJoin').mockRejectedValue(new UserFacingError('群成员已满，先调高人数上限再处理', 'unknown' as never, null))
+    vi.spyOn(chatService, 'decideGroupJoin').mockRejectedValue(new Error('群成员已满，先调高人数上限再处理'))
     const refreshGroupJoinRequests = vi.fn(async () => {})
     await renderPanel({ groupJoinRequests: [joinRequest()], refreshGroupJoinRequests })
     await clickElement(groupTab()!)

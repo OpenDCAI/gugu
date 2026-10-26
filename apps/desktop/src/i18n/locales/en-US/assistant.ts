@@ -917,7 +917,6 @@ export default {
     "unreadableTitle": "Can't find your Gugu right now",
     "unreadable": "Take a look in Gugu, then press the shortcut again in a bit.",
     "chatFailedTitle": "Couldn't open your chat with {{name}}",
-    "chatFailed": "The network may have dropped for a moment.",
     "opening": "Opening your chat with {{name}}…",
     "emptyTitle": "Say something to {{name}}",
     "empty": "Press Enter to send; Shift + Enter for a new line.",

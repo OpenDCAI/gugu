@@ -971,6 +971,7 @@ export default {
       "colSessions": "Tasks",
       "colTime": "Time",
       "colTokens": "Tokens",
+      "inputOutputTokens": "Input / Output tokens",
       "cache": "Cache",
       "consumption": "Consumption",
       "copied": "Copied",

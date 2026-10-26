@@ -40,7 +40,7 @@ export function AssistantTaskChatWindow({ agent, onClose, ...handlers }: {
               chrome={{ placeholder: t('chat.placeholder', { name: agent.display_name }), attachGlyph: <Plus />, hideRunningStatus: true }} {...handlers} /></TaskChatScope>
           : <div className="assistant-task-chat-window__pending">
               {dm.failed
-                ? <><p>{t('chat.openFailed', { name: agent.display_name })}</p><Button onClick={dm.retry}>{t('machine.retry')}</Button></>
+                ? <><p>{t('chat.openFailed', { name: agent.display_name })}<br />{dm.failed.error}</p><Button onClick={dm.retry}>{t('machine.retry')}</Button></>
                 : <LoadingIndicator size="panel" ariaLabel={t('chat.opening', { name: agent.display_name })} />}
             </div>}
       </section>

@@ -16,6 +16,7 @@ import {
   type AgentSessionAction,
   type AgentSessionActionName,
   type AppMessageAction,
+  type AppSpawnAction,
   type AppCallAction,
   appCallWaitMs,
   type AppMessageReceipt,
@@ -26,6 +27,7 @@ import {
   type SessionpageSessionsListResult,
 } from '@gugu/session-core/session-record/contract'
 import { SESSION_HOST_RPC } from '@shared/lib/ipc/session-host-device-frames'
+import { dispatchCallOf } from '@shared/extensions/app-dispatch-core'
 import type { OtherMachines } from './session/main/core/sessions/session-family'
 import type { WorkspaceChunk } from './session/main/core/files/workspace-transfer'
 import { DeviceRpcChannelError, DeviceRpcTimeoutError, type DeviceRpcRequester } from '@gugu/core/cloud/deviceRpcRequester'
@@ -111,6 +113,7 @@ export type AgentSessionHost = {
   run(caller: RemoteSessionCaller, action: Action): Promise<unknown>
   /** 另一台机器上的 App 发来的消息:与本机 App 发消息同一个函数,信封写那个 App。 */
   app(caller: RemoteAppCaller, action: AppMessageAction): Promise<AppMessageReceipt>
+  appSpawn(caller: RemoteAppCaller, action: AppSpawnAction): Promise<{ agentId: string }>
   /** 另一台机器上的 App 读这台机器上一条会话工作副本里的一块(那台机器判过 `files:read:all-machines`)。 */
   appReadFile(caller: RemoteAppCaller, action: AppReadFileAction): Promise<WorkspaceChunk>
   /** 另一台机器上的 App 页面让这台机器做一个跟着会话机器的动词(它的数据目录、它的程序;页面在这台机器的一条会话里)。 */
@@ -411,6 +414,7 @@ export function createCrossMachineSessions(deps: CrossMachineDeps) {
     if ('error' in parsed) throw new CrossMachineError('invalid_payload', parsed.error)
     try {
       if ('kind' in parsed.caller) {
+        if (parsed.action.action === 'spawn') return await host.appSpawn(parsed.caller, parsed.action as AppSpawnAction)
         if (parsed.action.action === 'read_file') return await host.appReadFile(parsed.caller, parsed.action as AppReadFileAction)
         if (parsed.action.action === 'app_call') return await host.appCall(parsed.caller, parsed.action as AppCallAction)
         return await host.app(parsed.caller, parsed.action as AppMessageAction)
@@ -490,7 +494,7 @@ export function createCrossMachineSessions(deps: CrossMachineDeps) {
   }
 }
 
-/** `agentSession.<name>` 的参数:形状不对当场拒,❌ 带着 undefined 往下走。App 调用方(`kind: 'app'`)只能发消息、读文件、让那台机器做它页面的一个动词。 */
+/** `agentSession.<name>` 的参数:形状不对当场拒,❌ 带着 undefined 往下走。App 调用方(`kind: 'app'`)可发消息、起 agent、读文件、让那台机器做它页面的一个动词。 */
 export function parseAgentSessionRequest(
   name: AgentSessionActionName,
   rawCaller: unknown,
@@ -504,12 +508,23 @@ export function parseAgentSessionRequest(
   const deviceId = text('deviceId')
   if (!deviceId) return { error: 'caller.deviceId is required' }
   if (caller.kind === 'app') {
-    if (name !== 'message' && name !== 'read_file' && name !== 'app_call') {
-      return { error: `an App may only send a message to another machine, read a file there, or have a page's call done there, not ${name}` }
+    if (name !== 'message' && name !== 'spawn' && name !== 'read_file' && name !== 'app_call') {
+      return { error: `an App may only send a message, start an agent, read a file, or have a page's call done on another machine, not ${name}` }
     }
     const extensionId = text('extensionId')
     const extensionName = text('extensionName')
     if (!extensionId || !extensionName) return { error: 'an App caller needs extensionId and extensionName' }
+    if (name === 'spawn') {
+      try {
+        const checked = dispatchCallOf({ text: action.prompt, to: { new: true }, spawn: action.spawn })
+        return {
+          caller: { kind: 'app', deviceId, deviceLabel: text('deviceLabel'), extensionId, extensionName },
+          action: { action: 'spawn', prompt: checked.text, spawn: checked.spawn },
+        }
+      } catch (error) {
+        return { error: error instanceof Error ? error.message : String(error) }
+      }
+    }
     if (name === 'read_file') {
       const { session_id: sessionId, path, offset, length } = action
       if (typeof sessionId !== 'string' || typeof path !== 'string' || typeof offset !== 'number' || typeof length !== 'number') {

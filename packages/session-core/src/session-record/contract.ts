@@ -491,6 +491,10 @@ export type RemoteCaller = RemoteSessionCaller | RemoteAppCaller;
 /** App 发消息的送法(`messageAgent` 的 queue / defer / key):本机这台和别的机器上同一份。 */
 export type AppMessageOptions = { delivery?: 'queue' | 'defer'; key?: string };
 export type AppMessageReceipt = { id: string; deferred?: true };
+/** An App starts an agent on another computer through the same App spawn core. */
+export type AppSpawnAction = { action: 'spawn'; prompt: string; spawn: {
+  title?: string; harness?: string; model?: string; transport?: 'acp' | 'pty'; project?: string; chat?: string;
+} };
 /** App 调用方给一条会话发消息(会话 id 由发起方从那台机器的会话列表里取)。 */
 export type AppMessageAction = { action: 'message'; session_ids: [string]; text: string } & AppMessageOptions;
 /** App 调用方读一条会话工作副本里的一块(#6264 的块,路径相对那份工作副本;`files:read:all-machines`)。 */

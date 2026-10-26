@@ -30,7 +30,7 @@ const DIR_CONCURRENCY = 16;
  * 决定，同一份文件读多少遍都一样;续读时随续读点装回去，接着数。
  */
 type Child = { id: string; name: string; callId: string; task?: string; model?: string };
-type Ordinals = { turn: number; item: number; calls: Record<string, Record<string, unknown>>; children: Record<string, Child> };
+type Ordinals = { turn: number; item: number; userSeen: boolean; calls: Record<string, Record<string, unknown>>; children: Record<string, Child> };
 
 export function createCodexJsonlSource(locator: SessionRecordLocator, options?: SessionRecordSourceOptions, nativeChild = false): SessionRecordSource {
   const children = new Map<string, SessionRecordSource>();
@@ -84,9 +84,9 @@ export function createCodexJsonlSource(locator: SessionRecordLocator, options?: 
   };
   const root = createJsonlTailSource<Ordinals>(locator, options, {
     name: 'codex',
-    resumeVersion: 5,
+    resumeVersion: 6,
     resolve: () => resolveRolloutFile(locator),
-    initial: () => ({ turn: 0, item: -1, calls: {}, children: {} }),
+    initial: () => ({ turn: 0, item: -1, userSeen: false, calls: {}, children: {} }),
     decode(record, ordinals) {
       currentState = ordinals;
       const codex = readCodexRecord(record);
@@ -97,6 +97,7 @@ export function createCodexJsonlSource(locator: SessionRecordLocator, options?: 
         ordinals.turn += 1;
         ordinals.item = 0;
       }
+      if (codex.turnStart || codex.end) ordinals.userSeen = false;
       const key = `codex:${locator.providerSessionId}:${ordinals.turn}:${ordinals.item}`;
       if (nativeChild && codex.turnStart) return [{ key, at: parseTimestamp(codex.timestamp), update: subagentUpdate({
         sessionUpdate: 'subagent_state_update', subagentSessionId: locator.providerSessionId, state: 'running', canCancel: false,
@@ -129,6 +130,11 @@ export function createCodexJsonlSource(locator: SessionRecordLocator, options?: 
         return updates.map((update, index) => ({ key: `${key}#${index}`, at, update }));
       }
       const entry = decode(codex, key);
+      if (entry?.update && item?.kind === 'text' && item.role === 'user') {
+        // Only task_started's leading input opens a turn; later inputs use the runtime replay's steering mark.
+        if (ordinals.turn > 0 && ordinals.userSeen) entry.update._meta = { ...entry.update._meta, guguSteering: true };
+        ordinals.userSeen = true;
+      }
       return entry ? [entry] : [];
     }
   });

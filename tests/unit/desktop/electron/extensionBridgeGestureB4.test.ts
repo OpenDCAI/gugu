@@ -25,7 +25,7 @@ type Host = {
   openLink(url: string): Promise<unknown>
   showMessage(id: string): Promise<unknown>
   showSession(id: string): Promise<unknown>
-  compose(text: string, where: { chat: string }): Promise<unknown>
+  dispatch(text: string, options?: Record<string, unknown>): Promise<unknown>
   clipboard: { writeText(text: string): Promise<unknown> }
   appFiles: Record<'openWith' | 'upload' | 'download', (args: unknown) => Promise<unknown>>
   forum: Record<'post' | 'reply' | 'react' | 'remove' | 'block' | 'assign' | 'award', (...args: unknown[]) => Promise<unknown>>
@@ -39,7 +39,7 @@ const gestureCalls: Record<string, () => Promise<unknown>> = {
   filesDownload: () => host.appFiles.download({ ref: { chat: 'chat-1', name: 'a.md' } }),
   showMessage: () => host.showMessage('msg-1'),
   showSession: () => host.showSession('s-1'),
-  compose: () => host.compose('picked', { chat: 'chat-1' }),
+  dispatch: () => host.dispatch('picked'),
   clipboardWriteText: () => host.clipboard.writeText('hi'),
   forumPost: () => host.forum.post({ title: 't', body: 'b' }),
   forumReply: () => host.forum.reply('0b000000-0000-4000-8000-000000000002', 'hi'),
@@ -77,6 +77,8 @@ describe('a verb that needs a gesture is refused at the one entry, in one senten
     activation.isActive = false
     await expect(host.getContext()).resolves.toBe('done')
     await expect(host.appFiles.upload({ files: [{ name: 'a.txt', bytes: new Uint8Array() }] })).resolves.toBe('done')
-    expect(methodsSent()).toEqual(['getContext', 'filesUpload'])
+    // A dispatch naming its target sends straight away: no gesture (its capability is asked at main's door).
+    await expect(host.dispatch('hi', { to: { agent: 'user:0a000000-0000-4000-8000-000000000001' } })).resolves.toBe('done')
+    expect(methodsSent()).toEqual(['getContext', 'filesUpload', 'dispatch'])
   })
 })

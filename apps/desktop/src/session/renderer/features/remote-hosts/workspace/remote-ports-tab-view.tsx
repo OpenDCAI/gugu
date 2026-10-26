@@ -1,9 +1,11 @@
+import { messageForUser } from '@/lib/userFacingError';
+import { toast } from '@renderer/lib/hooks/use-toast';
+import { copyExternalLink } from '@renderer/lib/open-external-link';
 import { Copy, Globe, RefreshCw, Unplug, X } from '@/lib/icons';
 import { observer } from 'mobx-react-lite';
 import { useCallback, useEffect, useState } from 'react';
 import type { SessionpageListeningPort } from '@gugu/session-core/session-record/contract';
 import type { TabContentProps } from '@renderer/features/tabs/core/tab-provider';
-import { toast } from '@renderer/lib/hooks/use-toast';
 import { events, rpc, rpcOn } from '@renderer/lib/ipc';
 import { Button } from '@renderer/lib/ui/button';
 import { EmptyState } from '@renderer/lib/ui/empty-state';
@@ -73,9 +75,9 @@ const RemotePortsView = observer(function RemotePortsView({ ctx, onOpen }: { ctx
     void rpc.remotePorts
       .list({ deviceId: ctx.deviceId })
       .then((result) => {
-        if (result.success) setSnapshot(result.data);
+        if (!result.success) throw result.error; setSnapshot(result.data);
       })
-      .catch(() => undefined);
+      .catch((error: unknown) => { log.error({ error }, 'ports snapshot failed'); setDraftError(messageForUser(error)); });
   }, [ctx.deviceId]);
 
   const checkListening = useCallback(() => {
@@ -89,7 +91,7 @@ const RemotePortsView = observer(function RemotePortsView({ ctx, onOpen }: { ctx
       })
       .catch((error: unknown) => {
         // 此刻够不着:表上照样有转着的与输出里发现的,只记日志。
-        log.warn('[remote-ports] listening ports not read', { deviceId: ctx.deviceId, error: String(error) });
+        setDraftError(messageForUser(error)); log.error('[remote-ports] listening ports not read', { deviceId: ctx.deviceId, error: String(error) });
       })
       .finally(() => setChecking(false));
   }, [ctx.deviceId]);
@@ -122,7 +124,7 @@ const RemotePortsView = observer(function RemotePortsView({ ctx, onOpen }: { ctx
         const reason = result.error.type === 'failed' ? result.error.reason : 'unknown';
         setDraftError(remotePortFailureText(reason, port, device, translate));
       }
-    } finally {
+    } catch (error) { log.error({ error }, 'port forwarding failed'); setDraftError(messageForUser(error)); } finally {
       setForwarding(false);
     }
   };
@@ -228,12 +230,7 @@ function RemotePortRowView({ row, deviceId, onOpen }: { row: RemotePortRow; devi
   const forwarded = row.state === 'ready' || row.state === 'connecting';
   const copy = () => {
     if (row.localPort === null) return;
-    void rpc.app
-      .clipboardWriteText(`http://localhost:${row.localPort}/`)
-      .then((result) => {
-        if (result.success) toast({ title: translate('externalLink.linkCopied') });
-      })
-      .catch(() => undefined);
+    void copyExternalLink(`http://localhost:${row.localPort}/`);
   };
   return (
     <div
@@ -273,7 +270,7 @@ function RemotePortRowView({ row, deviceId, onOpen }: { row: RemotePortRow; devi
           {forwarded ? (
             <RowAction
               label={translate('remotePorts.stop')}
-              onClick={() => void rpc.remotePorts.stop({ deviceId, remotePort: row.remotePort }).catch(() => undefined)}
+              onClick={() => void rpc.remotePorts.stop({ deviceId, remotePort: row.remotePort }).then((result) => { if (!result.success) throw result.error; }).catch((error: unknown) => { log.error({ error }, 'port action failed'); toast({ title: translate('remotePorts.stop'), description: messageForUser(error), tier: 'error' }); })}
             >
               <Unplug />
             </RowAction>
@@ -281,7 +278,7 @@ function RemotePortRowView({ row, deviceId, onOpen }: { row: RemotePortRow; devi
             row.sources.some((source) => source === 'terminal' || source === 'agent') && (
               <RowAction
                 label={translate('remotePorts.remove')}
-                onClick={() => void rpc.remotePorts.forget({ deviceId, remotePort: row.remotePort }).catch(() => undefined)}
+                onClick={() => void rpc.remotePorts.forget({ deviceId, remotePort: row.remotePort }).then((result) => { if (!result.success) throw result.error; }).catch((error: unknown) => { log.error({ error }, 'port action failed'); toast({ title: translate('remotePorts.remove'), description: messageForUser(error), tier: 'error' }); })}
               >
                 <X />
               </RowAction>

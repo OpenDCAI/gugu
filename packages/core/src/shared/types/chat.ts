@@ -99,7 +99,7 @@ export interface MessageItem {
   to_user_ids: string[] | null
   // @@@whisper (#820) - true = 定向私密消息（仅 sender + to_user_ids 可见，RLS 强制）；与「@提及定向(公开)」区分。
   is_whisper?: boolean
-  // App 用 gugu.send 以人的名义发的那一行:App 的 id(= manifest id);其余 null(#6835)。
+  // App 用 gugu.dispatch 以人的名义发的那一行:App 的 id(= manifest id);其余 null(#6835)。
   via_app?: string | null
   /** Public AI-sent marker; the source identity is visible only to the human sender. */
   sent_by_agent?: boolean
@@ -125,6 +125,7 @@ export interface MessageItem {
   // 'read' rows), independent of the monotonic last_read_seq watermark. Drives precise directed read receipts.
   readers?: string[]
   local_send_state?: 'sending' | 'failed' | null
+  local_send_error?: string | null
   forwarded_from_message_id?: string | null
   // @@@threads (#957) — 非空 = 此消息是某话题(thread_root_id 指向的 root)下的回复；
   // 主时间线过滤掉这些(不刷屏主线)、thread 视图按 root 聚合。root 消息本身 thread_root_id 为 null。

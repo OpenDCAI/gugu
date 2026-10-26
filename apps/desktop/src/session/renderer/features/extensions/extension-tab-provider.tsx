@@ -8,7 +8,6 @@ import type {
   TabResource,
 } from '@renderer/features/tabs/core/tab-provider';
 import { createTabProvider } from '@renderer/features/tabs/core/tab-provider-registry';
-import type { SessionTabContext } from '@renderer/features/tabs/core/session-tab-context';
 import {
   GenericTabDragPreview,
   GenericTabItem,
@@ -97,17 +96,16 @@ function createExtensionTabContent(extensionId: string, kind: string) {
     ) {
       return null;
     }
-    // The session this tab is in — the one fact the host hands the bridge for it (真源原则 13). Its agent, project and
-    // working copy are main's to read from the session; what is on screen is `getAppState()`'s.
-    const sessionCtx = ctx as SessionTabContext;
+    const place = ctx.place;
+    const sessionId = place?.kind === 'session' ? place.sessionId : undefined;
     if (!resource.filePath) {
-      return <ExtensionSharedSlot tabKind={kind} sessionId={sessionCtx.sessionId} tabId={activeTab.tabId} perSession={isPerSession(kind)} />;
+      return <ExtensionSharedSlot tabKind={kind} sessionId={sessionId} chatId={place?.kind === 'chat' ? place.chatId : undefined} tabId={activeTab.tabId} perSession={isPerSession(kind)} />;
     }
     return (
       <ExtensionTabPane
         extensionId={extensionId}
         tabKind={kind}
-        sessionId={sessionCtx.sessionId}
+        sessionId={sessionId ?? null}
         tabId={activeTab.tabId}
         filePath={resource.filePath}
       />
@@ -196,10 +194,12 @@ export function createExtensionTabProvider(
       if (args?.filePath) return { filePath: args.filePath };
       // 每个任务一份的(#7317):这个任务开它的,就是这个任务自己的那枚,❌ 从别的任务拿过来。
       if (isPerSession(kind)) return { perSession: true };
-      const { projectId, sessionId } = ctx as SessionTabContext;
-      appPlacementStore.place(kind, { projectId, sessionId });
-      // 它本来自己占着一块:那块收掉(一个 App 只有一份)。
-      takeAppOffScreen(kind);
+      if (ctx.place?.kind === 'session') {
+        const { projectId, sessionId } = ctx.place;
+        appPlacementStore.place(kind, { projectId, sessionId });
+        // 它本来自己占着一块:那块收掉(一个 App 只有一份)。群里的页属于那个群,不挪群以外的那张。
+        takeAppOffScreen(kind);
+      }
       return {};
     },
     // `entry.state` is the only path a per-tab fact travels on, and until now it
@@ -207,8 +207,7 @@ export function createExtensionTabProvider(
     // opened for. Reading it here is what makes the file claim mean anything.
     initialize: (entry, _handle, ctx) => new ExtensionTabResource(extensionId, entry.state?.filePath, () => {
       if (entry.state?.filePath) return fileBaseName(entry.state.filePath);
-      const sessionId = (ctx as SessionTabContext).sessionId;
-      const surface = extensionSurfaceStore.sharedState(residentPageKey(kind, residentPlace({ sessionId, perSession: isPerSession(kind) })));
+      const surface = extensionSurfaceStore.sharedState(residentPageKey(kind, residentPlace({ ...ctx.place, perSession: isPerSession(kind) })));
       return extensionTabTitle(surface, titleOf()).label;
     }),
     /**
@@ -217,15 +216,16 @@ export function createExtensionTabProvider(
      * 认领文件开出来的那种:那一格是为某个文件开的,关就是关。
      */
     onBeforeClose: (entry, _resource, ctx) => {
-      if (!entry.state?.filePath && !isPerSession(kind)) appPlacementStore.take(kind, { sessionId: (ctx as SessionTabContext).sessionId });
+      if (!entry.state?.filePath && !isPerSession(kind) && ctx.place?.kind === 'session') appPlacementStore.take(kind, { sessionId: ctx.place.sessionId });
       return true;
     },
     dispose: (entry, resource: ExtensionTabResource, ctx) => {
       // Drop what the extension said about this tab along with the tab. A
       // reopened tab is a new one and starts at its manifest title, not at the
       // last title some earlier session happened to leave behind.
-      extensionSurfaceStore.forget((ctx as SessionTabContext).sessionId, entry.tabId);
-      extensionViewStore.forgetSlot((ctx as SessionTabContext).sessionId, entry.tabId);
+      const sessionId = ctx.place?.kind === 'session' ? ctx.place.sessionId : null;
+      extensionSurfaceStore.forget(sessionId, entry.tabId);
+      extensionViewStore.forgetSlot(sessionId, entry.tabId);
       resource.dispose();
     },
 
@@ -239,7 +239,8 @@ export function createExtensionTabProvider(
       // What the extension has said about *this* tab wins over the manifest:
       // a live title is the whole point of letting it set one. The manifest
       // title stays the fallback, so a tab is never nameless.
-      const sessionId = (ctx as SessionTabContext).sessionId;
+      const place = ctx.place;
+      const sessionId = place?.kind === 'session' ? place.sessionId : null;
       const own = extensionSurfaceStore.state(sessionId, tab.tabId);
       // 常驻的那一格对着的是这个任务里那张常驻页,它说的话按页记;认领文件的格才各记各的。
       const claimedFileForSurface =
@@ -247,7 +248,7 @@ export function createExtensionTabProvider(
       const perSession = isPerSession(kind);
       const surface = claimedFileForSurface
         ? own
-        : extensionSurfaceStore.sharedState(residentPageKey(kind, residentPlace({ sessionId, perSession })));
+        : extensionSurfaceStore.sharedState(residentPageKey(kind, residentPlace({ ...place, perSession })));
       // GenericTabItem 是 observer(= React.memo)。每次渲染给一个新数组身份,
       // 那层 memo 就永远比不中 —— 这是「稳定引用确有理由」的那种情况。
       // The file this tab was opened for, when a claim opened it.
@@ -275,15 +276,14 @@ export function createExtensionTabProvider(
           // all: without it, installing an extension could make a file type
           // unopenable — an ability no install may have. Host-provided and first,
           // so it cannot be hidden behind an extension's own entries.
-          ...(claimedFile
+          ...(claimedFile && place?.kind === 'session'
             ? [
                 {
                   id: `${kind}:open-in-builtin-editor`,
                   label: translateSessionMessage('extensions.openInBuiltInEditor'),
                   group: 'extension',
                   run: () => {
-                    const sessionCtx = ctx as SessionTabContext;
-                    openFileInBuiltInEditor(sessionCtx.projectId, sessionCtx.sessionId, claimedFile);
+                    openFileInBuiltInEditor(place.projectId, place.sessionId, claimedFile);
                   },
                 },
               ]
@@ -297,7 +297,7 @@ export function createExtensionTabProvider(
             },
           })),
         ],
-        [blockId, claimedFile, ctx, perSession, sessionId, tab.tabId]
+        [blockId, claimedFile, perSession, place, sessionId, tab.tabId]
       );
       // 同一个 App 开着两个不同目录下的同名文件:与文件页签同一条规矩,补上区分它们的那截路径(file-tab-label.ts)。
       const claimedTabs = host.resolvedTabs.filter((t): t is ResolvedTab<ExtensionTabResource> => t.kind === kind && !!(t.resource as ExtensionTabResource).filePath);

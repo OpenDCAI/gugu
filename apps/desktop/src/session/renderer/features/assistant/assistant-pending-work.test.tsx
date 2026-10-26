@@ -17,7 +17,7 @@ const call = vi.hoisted(() => vi.fn(async (name: string) => {
 const client = vi.hoisted(() => vi.fn(() => ({ callProgram: call, onProgramNotification: () => () => undefined })));
 vi.mock('@/store/devicesCache', () => ({ cachedDevicesAccount: () => 'owner' }));
 vi.mock('@/components/assistant/assistant-app-client', () => ({ assistantAppClient: client, reportAssistantAppChange: change }));
-vi.mock('react-i18next', () => ({ useTranslation: () => ({ t: (key: string, data?: { count: number }) => data ? `${key}:${data.count}` : key }) }));
+vi.mock('react-i18next', async (importOriginal) => ({ ...(await importOriginal<typeof import('react-i18next')>()), useTranslation: () => ({ t: (key: string, data?: { count: number }) => data ? `${key}:${data.count}` : key }) }));
 vi.mock('@renderer/lib/ui/markdown-renderer', () => ({ MarkdownRenderer: ({ content }: { content: string }) => <p>{content}</p> }));
 vi.mock('./assistant-ui', () => ({ AssistantSection: ({ children }: { children: React.ReactNode }) => <section>{children}</section>,
   AssistantEmpty: ({ children }: { children: React.ReactNode }) => <p>{children}</p> }));
@@ -49,7 +49,7 @@ it('reads from the assistant home and clearing forgets entries through the App w
 it('does not display a fabricated zero while the recovery state is unreadable', async () => {
   state.fail = true;
   await open();
-  expect(container.querySelector('summary')?.textContent).toBe('memory.pending.retry');
+  expect(container.querySelector('summary')?.textContent).toBe('read failed');
   expect(container.textContent).not.toContain('memory.pending.count:0');
 });
 it('shows a refused device task with its original requirement and source instead of an executor wait', async () => {

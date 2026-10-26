@@ -280,3 +280,45 @@
 @container (max-width: 480px) {
   .na-pager-size, .na-pager-edge { display: none; }
 }
+
+/* One set of data and rows: narrow containers read as labelled records rather than a wide table. */
+@container (max-width: 560px) {
+  .gg-usage-section { grid-template-columns: minmax(0, 1fr); }
+  .na-overview-balance { grid-row: 1; min-width: 0; border-top: 0; border-bottom: 1px solid var(--border); }
+  .na-overview-head, .na-balance-top, .na-balance-cell span { flex-wrap: wrap; }
+  .na-overview-main, .na-overview-balance, .na-referral { overflow-wrap: anywhere; }
+  .gg-usage .na-balance-value { font-size: var(--font-heading); overflow-wrap: anywhere; }
+  .na-stat-label, .na-stat-value { overflow: visible; white-space: normal; overflow-wrap: anywhere; text-overflow: clip; }
+  .na-stat-label { letter-spacing: normal; text-transform: none; }
+  .na-card-head { display: grid; grid-template-columns: minmax(0, 1fr); }
+  .na-card-title { flex-wrap: wrap; }
+  .na-card-title b { flex-shrink: 1; min-width: 0; overflow-wrap: anywhere; }
+  .na-card-actions { min-width: 0; width: 100%; align-items: stretch; flex-direction: column; }
+  .na-seg { display: flex; width: 100%; min-width: 0; height: auto; overflow: visible; }
+  .gg-usage .na-seg-item { flex: 1 1 0; min-width: 0; min-height: var(--control-h-touch); padding: var(--spacing-sm) var(--spacing-xs); white-space: normal; line-height: var(--lh-caption); overflow-wrap: anywhere; }
+  .na-seg-item svg { flex-shrink: 0; }
+  .gg-usage .na-filter { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .na-filter .na-input { grid-column: 1 / -1; min-width: 0; width: 100%; height: var(--control-h-touch); }
+  .na-table-wrap { min-width: 0; overflow: visible; }
+  .na-table, .na-table tbody { display: block; }
+  .na-table { position: relative; }
+  /* Keep column headers available to assistive technology, within the table's own width. */
+  .na-table thead { position: absolute; width: 100%; clip-path: inset(50%); }
+  .na-table thead tr { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); }
+  .na-table thead th { min-width: 0; height: auto; white-space: normal; overflow-wrap: anywhere; }
+  .na-table tbody tr { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: var(--spacing-md); height: auto; padding: var(--spacing-md); }
+  .na-table td { min-width: 0; padding: 0; white-space: normal; overflow-wrap: anywhere; }
+  .na-table td[data-label]::before { content: attr(data-label); display: block; margin-bottom: var(--spacing-xs); color: var(--muted-fg); font-size: var(--font-caption); font-weight: var(--font-weight-regular); }
+  .na-table--ledger tbody tr:not(.na-skel-row) { grid-template-areas: 'model cost' 'time time' 'tokens tokens'; }
+  .na-table--ledger td[data-field='model'] { grid-area: model; }
+  .na-table--ledger td[data-field='cost'] { grid-area: cost; text-align: right; }
+  .na-table--ledger td[data-field='time'] { grid-area: time; }
+  .na-table--ledger td[data-field='tokens'] { grid-area: tokens; }
+  .na-table--engines tbody tr > td:first-child { grid-column: 1 / -1; }
+  .gg-usage .na-badge { max-width: 100%; height: auto; min-height: 24px; white-space: normal; padding-block: var(--spacing-xs); }
+  .na-badge-label { min-width: 0; overflow-wrap: anywhere; }
+  .na-badge-icon { flex-shrink: 0; }
+  .na-cost { max-width: 100%; height: auto; min-height: 24px; overflow-wrap: anywhere; }
+  .na-pager-btns { flex-wrap: wrap; min-width: 0; max-width: 100%; gap: var(--spacing-xs); }
+  .na-pager-btn { min-width: var(--control-h-touch); height: var(--control-h-touch); }
+}

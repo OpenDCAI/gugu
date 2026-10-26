@@ -61,7 +61,7 @@ const token = vi.hoisted(() => {
   const b64 = (o: object) => Buffer.from(JSON.stringify(o)).toString('base64url');
   return `${b64({ alg: 'none' })}.${b64({ sub: 'user-a', exp: Math.floor(Date.now() / 1000) + 3600, role: 'authenticated' })}.sig`;
 });
-vi.mock('@main/core/extensions/account-token', () => ({ currentAccountAccessToken: async () => token }));
+vi.mock('@main/core/extensions/account-token', async (importOriginal) => ({ ...(await importOriginal<object>()), currentAccountAccessToken: async () => token }));
 vi.mock('@main/lib/logger', () => ({ log: { error: vi.fn(), warn: vi.fn(), debug: vi.fn(), info: vi.fn() } }));
 
 // ─── the stand-in file service ────────────────────────────────────────────────

@@ -86,7 +86,6 @@ import {
   composerSlotAnimatingClass,
   composerSlotCenteredClass,
   composerSlotClass,
-  composerSlotInnerBottomClass,
   composerSlotInnerCenteredClass,
   composerSlotInnerClass,
   contentOverlaySlotClass,
@@ -2013,7 +2012,7 @@ export function ChatRoot(props: ChatRootProps) {
                       ref={(el) => {
                         composerSlotEl = el;
                       }}
-                      class={`${composerSlotInnerClass} ${effectiveComposerPlacement() === 'center' ? composerSlotInnerCenteredClass : composerSlotInnerBottomClass}`}
+                      class={`${composerSlotInnerClass}${effectiveComposerPlacement() === 'center' ? ` ${composerSlotInnerCenteredClass}` : ''}`}
                     />
                   </div>
                 </Show>

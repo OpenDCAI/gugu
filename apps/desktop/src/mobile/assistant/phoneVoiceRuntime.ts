@@ -1,3 +1,4 @@
+import { messageForUser } from '@/lib/userFacingError';
 // #7199 手机助理 App 的「录制语音笔记」:把录音机(phoneVoiceRecorder)与进度(phoneVoiceJobs)接上真东西 ——
 // 麦克风(WebAudio)、手机壳通往它家里那台的工作区(PhoneMachineState)、手机上的存储。手机只录和传,转写在桌面点「开始转写」。
 // 一个 App 进程里一份:离开助理那一格 / 切到别的页也接着录、接着传,回来录音条还在。
@@ -104,11 +105,12 @@ export function usePhoneVoiceNotes(input: {
         setMicDenied(false)
         return
       }
+      const cause = phoneVoiceRecorder.getSnapshot().cause
       phoneVoiceRecorder.clearError()
       if (outcome === 'mic_denied') setMicDenied(true)
       else if (outcome === 'mic_missing') toast(t('mic.missing'), 'error')
       else if (outcome === 'busy') toast(t('mic.busy'), 'info')
-      else if (outcome !== 'no_assistant' && outcome !== 'cancelled') toast(t('mic.failed'), 'error')
+      else if (outcome !== 'no_assistant' && outcome !== 'cancelled') toast(t('mic.failed'), 'error', messageForUser(cause))
     })()
   }, [t, toast])
   const clearMicDenied = useCallback(() => setMicDenied(false), [])

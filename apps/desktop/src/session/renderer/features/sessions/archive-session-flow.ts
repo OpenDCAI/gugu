@@ -1,3 +1,4 @@
+import { messageForUser } from '@/lib/userFacingError';
 import {
   canOfferDontAskAgain,
   shouldConfirm as shouldConfirmField,
@@ -72,7 +73,7 @@ export function archiveSessionNow(args: { projectId: string; sessionId: string; 
       log.error('[gugu-archive] 归档会话失败', { sessionId, error: String(error) });
       toast({
         title: translateSessionMessage('task.archiveTaskFailed'),
-        description: translateSessionMessage('task.archiveTaskFailedHint'),
+        description: messageForUser(error),
         variant: 'destructive',
       });
     }
@@ -111,7 +112,7 @@ async function undoArchive(archived: ArchivedSessionRef[]): Promise<void> {
     log.error('[gugu-archive] 撤销归档失败', { archived, error: String(error) });
     toast({
       title: translateSessionMessage('task.archiveUndoFailed'),
-      description: translateSessionMessage('task.archiveUndoFailedHint'),
+      description: messageForUser(error),
       variant: 'destructive',
     });
   }

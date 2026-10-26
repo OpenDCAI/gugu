@@ -77,7 +77,8 @@ function runtimeFileVerbs(): string[] {
 
 const truth: Truth = {
   verbs: preloadVerbs(),
-  capabilityOf: Object.fromEntries(Object.entries(BRIDGE_VERBS).map(([verb, facts]) => [verb, facts.needs])),
+  // `dispatch` needs what its target needs (app-dispatch-core.ts): written under no single 「Needs」, its section says which.
+  capabilityOf: Object.fromEntries(Object.entries(BRIDGE_VERBS).map(([verb, facts]) => [verb, typeof facts.needs === 'function' ? null : facts.needs])),
   capabilities: EXTENSION_CAPABILITIES,
   tools: EXTENSION_TOOL_DEFS.map((def) => def.name),
 }
@@ -85,7 +86,7 @@ const truth: Truth = {
 describe('扩展指南与源码对得上 (#6614)', () => {
   it('动词、能力、工具一个不漏,带权限的动词写在对的「Needs」下', () => {
     // 阳控:读出来的真值不能是空的,否则下面每一条都空转成绿。
-    expect(truth.verbs).toEqual(expect.arrayContaining(['getContext', 'readAgentHistory', 'callProgram', 'spawnAgent']))
+    expect(truth.verbs).toEqual(expect.arrayContaining(['getContext', 'readAgentHistory', 'callProgram', 'dispatch']))
     expect(truth.tools).toEqual(['app_create', 'app_pack', 'app_install', 'app_check'])
     expect(guideProblems(EXTENSION_GUIDE_TOPICS, truth)).toEqual([])
   })

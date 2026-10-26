@@ -1,3 +1,4 @@
+import { verifiedFileHandle } from '../../../../../../../tests/helpers/verifiedFileHandle';
 import { EXTENSION_API_VERSION } from '@shared/extensions/manifest';
 import { extensionsInventoryChangedChannel, extensionsQuitChangedChannel } from '@shared/extensions/marketEvents';
 import { createHash } from 'node:crypto';
@@ -97,6 +98,7 @@ vi.mock('@main/lib/logger', () => ({
 
 // The chat card's Install: the download is stubbed and the consent relay records what it was asked, so a test reads
 // whether the card's click alone installs a package.
+const attachmentFixture = vi.hoisted(() => ({ bytes: new Uint8Array() }));
 const consentRequests = vi.hoisted(() => [] as { manifest: { id: string } }[]);
 vi.mock('@gugu/core/cloud/config', async (importOriginal) => ({
   ...(await importOriginal<object>()),
@@ -113,7 +115,7 @@ vi.mock('./app-files', async (importOriginal) => ({
       file_item_id: '44444444-4444-4444-8444-444444444444', file_version: 1, file_blob_id: null,
       sender_user_id: '0a000000-0000-4000-8000-00000000000a',
     }),
-    sign: async () => 'https://cdn.test/ab/abab?auth_key=1',
+    open: async () => verifiedFileHandle(attachmentFixture.bytes, {}, async signal => new Uint8Array(await (await fetch('https://cdn.test/ab/abab?auth_key=1', { signal })).arrayBuffer())),
   },
 }));
 // 「给哪些 agent」要读账号的行;这些用例没有登录态，不问(D-30 自己的读写在 app-given 的用例里判)。
@@ -452,6 +454,7 @@ describe('extensions controller', () => {
       }));
       writeFileSync(join(dir, 'index.html'), '<!doctype html>');
       const { bytes } = await packExtensionArchive(extensionsService(), dir);
+      attachmentFixture.bytes = new Uint8Array(bytes);
       vi.stubGlobal('fetch', vi.fn(async () => new Response(new Uint8Array(bytes))));
     };
     // The card by its message: its publisher the server's word on it (摩擦单 F66, #7290).

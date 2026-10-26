@@ -13,7 +13,7 @@ import { sessionListFromDigest } from '@/session/shared/remote-sessions/session-
 import { isAssistantSession } from '@/session/renderer/features/assistant/assistant-lineage'
 import { usePhoneAssistantIdentity } from '../assistant/phoneAssistantIdentity'
 import { useMachineLabel } from './useMachineLabel'
-import { visibleMachines } from './machine-list'
+import { visibleMachines, workspaceDevices } from './machine-list'
 import { DeviceDirectoryRetry } from './DeviceDirectoryRetry'
 import { PhoneHostSetupEntry } from './PhoneHostSetupEntry'
 import { phoneAgentAvailable } from '../local-agent/nativeAgent'
@@ -34,16 +34,19 @@ import './task-flow-catalog'
 export function MachinesPage({
   onBack,
   onOpenDevice,
+  computersOnly = false,
 }: {
   onBack: () => void
   onOpenDevice: (device: Device) => void
+  computersOnly?: boolean
 }) {
   const { t } = useTranslation('main')
   const { t: tFlow } = useTranslation('mobileTaskFlow')
   const { devices: allDevices, phones = [], loading, error } = useDevicesStore()
   const { isHome, label: machineLabel } = useMachineLabel()
   // #7199 个人助理住的那台不列(规定「它住在哪」):那台不接人开的任务。
-  const devices = visibleMachines([...new Map([...allDevices, ...phones].map((device) => [device.device_id, device])).values()], isHome)
+  const candidates = [...new Map([...allDevices, ...phones].map((device) => [device.device_id, device])).values()]
+  const devices = visibleMachines(computersOnly ? workspaceDevices(candidates) : candidates, isHome)
 
   return (
     <AgentWatchScreen

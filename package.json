@@ -233,6 +233,7 @@
     "jszip": "3.10.1",
     "katex": "^0.16.45",
     "lib0": "0.2.117",
+    "libsodium-wrappers": "0.8.4",
     "lucide-react": "^0.564.0",
     "mobx": "^6.15.0",
     "mobx-react-lite": "^4.1.1",
@@ -310,7 +311,8 @@
       "@codemirror/view@6.43.13": "patches/@codemirror__view@6.43.13.patch",
       "@xterm/headless@6.0.0": "patches/@xterm__headless@6.0.0.patch",
       "app-builder-lib@26.15.3": "patches/app-builder-lib@26.15.3.patch",
-      "@steipete/sweet-cookie@0.4.4": "patches/@steipete__sweet-cookie@0.4.4.patch"
+      "@steipete/sweet-cookie@0.4.4": "patches/@steipete__sweet-cookie@0.4.4.patch",
+      "ssh2@1.17.0": "patches/ssh2@1.17.0.patch"
     }
   },
   "optionalDependencies": {

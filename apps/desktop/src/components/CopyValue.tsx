@@ -1,6 +1,8 @@
 import { useCallback, useRef, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import { Copy } from '@/lib/icons'
+import { rendererLogger } from '@/lib/log'
+import { safeFailureLine } from '@/session/renderer/features/sessions/gugu-reason'
 import { useToast } from './toastContext'
 
 interface CopyValueProps {
@@ -29,9 +31,9 @@ export function CopyValue({
 }: CopyValueProps) {
   const { t } = useTranslation()
   const { toast } = useToast()
-  const [copied, setCopied] = useState<'ok' | 'fail' | null>(null)
+  const [copied, setCopied] = useState<string | null>(null)
   const timer = useRef<ReturnType<typeof setTimeout> | null>(null)
-  const flash = useCallback((state: 'ok' | 'fail') => {
+  const flash = useCallback((state: string) => {
     setCopied(state)
     if (timer.current) clearTimeout(timer.current)
     timer.current = setTimeout(() => setCopied(null), 1600)
@@ -41,12 +43,13 @@ export function CopyValue({
   const handleCopy = useCallback(async () => {
     try {
       await navigator.clipboard.writeText(value)
-      if (feedback === 'inline') flash('ok')
+      if (feedback === 'inline') flash(message)
       else toast(message, 'success')
     } catch (error) {
-      if (feedback === 'inline') flash('fail')
-      else toast(t('actions.copyFailed'), 'error')
-      console.error('Clipboard copy failed:', error)
+      const reason = String((error as Error)?.message ?? error)
+      rendererLogger('clipboard').error({ error: reason }, 'clipboard copy failed')
+      if (feedback === 'inline') flash(safeFailureLine(reason))
+      else toast(t('actions.copyFailed'), 'error', safeFailureLine(reason))
     }
   }, [value, message, toast, feedback, flash, t])
 
@@ -109,10 +112,10 @@ export function CopyValue({
           style={{
             fontSize: 'var(--font-body)',
             whiteSpace: 'nowrap',
-            color: copied === 'ok' ? 'var(--ok)' : 'var(--danger)'
+            color: copied === message ? 'var(--ok)' : 'var(--danger)'
           }}
         >
-          {copied === 'ok' ? message : t('actions.copyFailed')}
+          {copied}
         </span>
       ) : null}
     </span>

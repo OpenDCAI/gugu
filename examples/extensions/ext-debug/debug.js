@@ -535,10 +535,11 @@ if (!window.gugu) {
     const back = await readOnce(entry);
     return back === stamp ? `${name} 写入并读回一致` : `${name} 写了，但读回的内容对不上`;
   });
-  action('do-compose', 'compose', async () => {
-    const here = hereOf(state.snapshot?.上下文);
+  action('do-compose', 'dispatch draft', async () => {
+    const context = state.snapshot?.上下文;
+    const here = context && !isError(context) ? (context.chat ? { chat: context.chat.id } : context.session?.agentId ? { agent: context.session.agentId } : null) : null;
     if (!here) throw new Error('这一页不在会话里，也不在对话里：没有能放进去的输入框');
-    await window.gugu.compose('这句来自扩展调试台。', here);
+    await window.gugu.dispatch('这句来自扩展调试台。', { draft: true, to: here });
     return '已放进对话的输入框（没发，按发送才发）';
   });
   action('do-open', 'openBrowserTab', async () => {
@@ -563,15 +564,15 @@ if (!window.gugu) {
   // ❌ 别对 listAgents()[0] 动手：声明了 :all 的话，排第一的很可能是别的项目里正在
   // 干活的真 agent —— 一个调试面板不该往别人的会话里投轮次、更不该把它停掉。
   let ownAgentId = null;
-  action('do-spawn', 'spawnAgent', async () => {
-    const { agentId } = await window.gugu.spawnAgent('这是扩展调试台起的一个 agent，回一句「收到」就好。', { title: '调试台起的' });
+  action('do-spawn', 'dispatch new agent', async () => {
+    const { to: { agent: agentId } } = await window.gugu.dispatch('这是扩展调试台起的一个 agent，回一句「收到」就好。', { to: { new: true }, spawn: { title: '调试台起的' } });
     ownAgentId = agentId;
     void rebuild();
     return `起来了：${agentId.slice(0, 8)}…（左边多出一条会话，标题前有个小方块图标，悬停显示「由扩展「…」发起」）`;
   });
-  action('do-send', 'messageAgent', async () => {
+  action('do-send', 'dispatch to agent', async () => {
     if (!ownAgentId) return '先按上面的「起一个 agent」—— 只往自己起的那条投，不碰别人的';
-    const { id } = await window.gugu.messageAgent(ownAgentId, '这一轮来自扩展调试台。');
+    const { id } = await window.gugu.dispatch('这一轮来自扩展调试台。', { to: { agent: ownAgentId } });
     return `已投给自己起的 ${ownAgentId.slice(0, 8)}…（消息 ${id.slice(0, 8)}…）`;
   });
   action('do-stop', 'stopAgent', async () => {

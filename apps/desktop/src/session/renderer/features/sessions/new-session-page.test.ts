@@ -267,7 +267,7 @@ describe('NewSessionPage', () => {
     vi.stubGlobal('Event', dom.window.Event);
     // setLocalePreference 会往 window 派发 CustomEvent；用 Node 全局那个会被 jsdom 的 EventTarget 拒收。
     vi.stubGlobal('CustomEvent', dom.window.CustomEvent);
-    // 新建会话页与会话页共用一个分栏(lib/layout/side-panel-split.tsx):量分栏区宽度要 `ResizeObserver`、
+    // 新建会话页的分栏:量分栏区宽度要 `ResizeObserver`、
     // 存宽度要 `localStorage`、弹簧要 rAF;面板里的文件树分栏(react-resizable-panels)还要
     // `DOMRect`。少一个不是断言失败,
     // 是渲染期抛异常、整棵树起不来(实撞:14 条一起红在 `localStorage is not defined`,

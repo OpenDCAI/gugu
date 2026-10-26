@@ -89,7 +89,7 @@ describe('设置「模型」页', () => {
 
     await clickElement(switchOf('glm-5.3-flash')!)
     await waitForCondition(() => switchOf('glm-5.3-flash')!.getAttribute('aria-checked') === 'true', 'switch did not flip back')
-    expect(harness.container.textContent).toContain('没存上，请再试一次')
+    expect(harness.container.textContent).toContain('boom')
   })
 
   it('filters both groups by the search box', async () => {

@@ -1,3 +1,7 @@
+import { translateSessionMessage } from '@renderer/localization/locale-store';
+import { rendererLogger } from '@/lib/log';
+import { toast } from '@renderer/lib/hooks/use-toast';
+import { messageForUser } from '@/lib/userFacingError';
 // 邀请返利。原在「会员与额度」页,#6334 该页并入「用量」后搬到这里,版式是图标徽章 + 标题头的卡片。
 // 一次性赠送只进不过期积分、只发一次,不构成第二套周期额度(behavior)。
 import { useCallback, useEffect, useState } from 'react'
@@ -23,8 +27,9 @@ export function ReferralCard() {
       await navigator.clipboard.writeText(inviteUrl)
       setCopied(true)
       window.setTimeout(() => setCopied(false), 1500)
-    } catch {
-      /* 剪贴板不可用:静默(输入框可见可手动复制) */
+    } catch (error) {
+      rendererLogger('actions/ReferralCard').error({ error: error }, 'action failed')
+      toast({ title: translateSessionMessage('task.copyFailed'), description: messageForUser(error), tier: 'error' })
     }
   }, [inviteUrl])
 

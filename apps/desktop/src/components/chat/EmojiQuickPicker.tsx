@@ -1,4 +1,5 @@
-import { lazy, Suspense, useState, type KeyboardEvent, type ReactNode, type RefObject } from 'react'
+import { useState, type KeyboardEvent, type ReactNode, type RefObject } from 'react'
+import { Menu as MenuPrimitive } from '@base-ui/react/menu'
 import { useTranslation } from 'react-i18next'
 import { FrequentlyUsed } from 'emoji-mart'
 import data, { type EmojiMartData } from '@emoji-mart/data'
@@ -6,7 +7,7 @@ import { QUICK_REACTIONS, REACTIONS, reactionLabel } from '@gugu/core/shared/ui/
 import { Plus } from '@/lib/icons'
 import { Popover } from '../ui/Popover'
 import { Button } from '../ui/Button'
-const EmojiPickerPanel = lazy(() => import('../EmojiPickerPanel').then((module) => ({ default: module.EmojiPickerPanel })))
+import { DeferredEmojiPickerPanel } from './messageActionModules'
 
 // emoji-mart 5.6 的运行时导出 get,类型生成物却写成 _get1。只收窄这一个已存在的接口。
 const frequent = FrequentlyUsed as typeof FrequentlyUsed & { get(options: { maxFrequentRows: number; perLine: number }): string[] }
@@ -16,12 +17,14 @@ const emojiData = data as unknown as EmojiMartData
 const emojiIds = new Map(Object.values(emojiData.emojis).flatMap((entry) => entry.skins.map(({ native }) => [native, entry.id] as const)))
 
 /** 桌面回应浮层与手机长按面板共用:一行常用 + 完整选择器,在原面板内切换。 */
-export function EmojiQuickPicker({ anchor, onPick, onClose, children, disabled = false }: {
+export function EmojiQuickPicker({ anchor, onPick, onClose, onExpand, children, disabled = false, menu = false }: {
   anchor?: Element | RefObject<Element | null>
   onPick: (emoji: string) => void
   onClose: () => void
+  onExpand?: () => void
   children?: ReactNode
   disabled?: boolean
+  menu?: boolean
 }) {
   const { t, i18n } = useTranslation('messaging')
   const [expanded, setExpanded] = useState(false)
@@ -34,6 +37,7 @@ export function EmojiQuickPicker({ anchor, onPick, onClose, children, disabled =
     const current = Math.max(0, buttons.indexOf(document.activeElement as HTMLButtonElement))
     const next = event.key === 'Home' ? 0 : event.key === 'End' ? buttons.length - 1 : (current + (event.key === 'ArrowRight' ? 1 : -1) + buttons.length) % buttons.length
     event.preventDefault()
+    event.stopPropagation()
     buttons[next]?.focus()
   }
   const body = disabled ? children : expanded ? (
@@ -44,13 +48,13 @@ export function EmojiQuickPicker({ anchor, onPick, onClose, children, disabled =
           {REACTIONS.filter(({ kind }) => kind === 'status').map(({ emoji }) => <Button key={emoji} variant="ghost" onClick={() => pickQuick(emoji)}><span className="text-xl">{emoji}</span>{reactionLabel(emoji, i18n.language)}</Button>)}
         </div>
       </section>
-      <Suspense fallback={null}><EmojiPickerPanel onSelect={pick} /></Suspense>
+      <DeferredEmojiPickerPanel onSelect={pick} />
     </>
   ) : (
     <>
-      <div role="toolbar" aria-label={t('emoji.quickReactions')} onKeyDown={handleToolbarKeyDown} className="grid grid-cols-7 justify-items-center pb-2">
-        {emojis.map((emoji) => <Button key={emoji} variant="ghost" size="icon" className="text-[length:var(--font-size-xl)]" title={reactionLabel(emoji, i18n.language) ?? emoji} aria-label={t('emoji.reactWith', { emoji: `${emoji} ${reactionLabel(emoji, i18n.language) ?? ''}`.trim() })} onClick={() => pickQuick(emoji)}>{emoji}</Button>)}
-        <Button variant="ghost" size="icon" aria-label={t('emoji.moreReactions')} onClick={() => setExpanded(true)}><Plus size={20} /></Button>
+      <div role={menu ? 'group' : 'toolbar'} aria-label={t('emoji.quickReactions')} onKeyDown={handleToolbarKeyDown} className="grid grid-cols-7 justify-items-center pb-2">
+        {emojis.map((emoji) => <QuickReactionButton key={emoji} menu={menu} title={reactionLabel(emoji, i18n.language) ?? emoji} label={t('emoji.reactWith', { emoji: `${emoji} ${reactionLabel(emoji, i18n.language) ?? ''}`.trim() })} onClick={() => pickQuick(emoji)}>{emoji}</QuickReactionButton>)}
+        <QuickReactionButton menu={menu} label={t('emoji.moreReactions')} onClick={() => { setExpanded(true); onExpand?.() }}><Plus size={20} /></QuickReactionButton>
       </div>
       {children}
     </>
@@ -64,4 +68,13 @@ export function EmojiQuickPicker({ anchor, onPick, onClose, children, disabled =
       </Popover.Portal>
     </Popover.Root>
   ) : body
+}
+
+function QuickReactionButton({ menu, label, title, onClick, children }: {
+  menu: boolean; label: string; title?: string; onClick: () => void; children: ReactNode
+}) {
+  const props = { 'aria-label': label, title, onClick, className: 'text-[length:var(--font-size-xl)] data-[highlighted]:bg-[var(--menu-item-hover)]' }
+  return menu
+    ? <MenuPrimitive.Item {...props} nativeButton closeOnClick={false} render={<Button variant="ghost" size="icon">{children}</Button>}>{children}</MenuPrimitive.Item>
+    : <Button {...props} variant="ghost" size="icon">{children}</Button>
 }

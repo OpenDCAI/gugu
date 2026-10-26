@@ -16,7 +16,10 @@ const context = { agentId: agent, threadRootId: null, getAccessToken: async () =
 /** The attachments function as core's client reaches it: upload → a form → OSS; commit → the message (kept in `commits`). */
 function attachmentsFake(uploads: string[], commits: Array<Record<string, unknown>>) {
   const fetch = (async (url: string, init?: RequestInit) => {
-    if (url.endsWith('/attachments/upload')) return new Response(JSON.stringify({ staging_key: `staging/o/${uploads.length + 1}`, url: 'https://oss.test/', fields: {}, max_bytes: 25 * 1024 * 1024 }))
+    if (url.endsWith('/attachments/upload')) {
+      expect(JSON.parse(String(init?.body))).toMatchObject({ as: agent, chat_id: dm, size_bytes: expect.any(Number), request_id: expect.any(String) })
+      return new Response(JSON.stringify({ staging_key: `staging/o/${uploads.length + 1}`, url: 'https://oss.test/', fields: {}, max_bytes: 25 * 1024 * 1024 }))
+    }
     if (url === 'https://oss.test/') { uploads.push(((init?.body as FormData).get('file') as File).name); return new Response(null, { status: 204 }) }
     const args = JSON.parse(String(init?.body)) as Record<string, unknown>
     commits.push(args)

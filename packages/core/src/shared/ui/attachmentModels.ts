@@ -1,4 +1,5 @@
 import { isImageMimeType, resolveAttachmentMimeType } from '../imageMime.mjs'
+import type { FileRef } from '../fileResolver'
 
 export type AttachmentKind = 'image' | 'file'
 
@@ -25,6 +26,11 @@ export type AttachmentSource =
   | { kind: 'message'; messageId: string }
   | { kind: 'gone' }
 
+/** Legacy text is metadata, never an address to fetch; only an authoritative message can resolve its bytes. */
+export function attachmentFileRef(source: AttachmentSource): FileRef | null {
+  return source.kind === 'item' ? { item_id: source.itemId, version: source.version } : source.kind === 'message' ? { message_id: source.messageId } : null
+}
+
 /** 读出来的附件:正文里的名字、类型、大小,加上字节从哪来。 */
 export interface ParsedAttachment {
   kind: AttachmentKind
@@ -41,6 +47,7 @@ export interface MessageFileRef {
   file_item_id?: string | null
   file_version?: number | null
   file_blob_id?: string | null
+  local_send_state?: 'sending' | 'failed' | null
 }
 
 /** 没定型的行(事件载荷、REST 原样回的 JSON)上读那两列。 */
@@ -106,7 +113,7 @@ export function parseAttachmentContent(content: string | null, ref?: MessageFile
   if (legacy) {
     const url = urlLine.slice(URL_PREFIX.length).trim()
     if (!url) return null
-    source = { kind: 'url', url }
+    source = ref?.id && !(ref.local_send_state === 'sending' && url.startsWith('blob:')) ? { kind: 'message', messageId: ref.id } : { kind: 'url', url }
   } else if (ref?.file_item_id && Number.isInteger(ref.file_version) && (ref.file_version as number) >= 1) {
     source = { kind: 'item', itemId: ref.file_item_id, version: ref.file_version as number }
   } else if (ref?.file_blob_id && ref.id) {

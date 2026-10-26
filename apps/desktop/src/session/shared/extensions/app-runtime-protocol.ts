@@ -92,32 +92,6 @@ export function injectAppRuntime(html: string): string {
   return head + RUNTIME_SCRIPT_TAG + html.slice(head.length);
 }
 
-// ─── slots outside the session page ─────────────────────────────────────────────
-
-/**
- * The window event a slot outside the session page (a group's side panel, later the dock) claims an
- * App's resident page with, and releases it (task renderer `app-slot-events.ts`).
- */
-export const APP_SLOT_EVENT = 'gugu:app-slot';
-
-export type AppSlotEventDetail =
-  | {
-      type: 'claim';
-      /** Stable for the slot; claiming again replaces its claim. */
-      slotId: string;
-      /** `<extensionId>.<tabName>` — which App page. */
-      kind: string;
-      /** The group the slot is drawn for; the page's context carries it (and no sessionId). */
-      chatId?: string;
-      /** The group file the slot opened with this App (「用 X 打开」): the page's handed-over file. */
-      itemId?: string;
-      /** Where to draw the page: an element of this document, on screen while claimed. */
-      element: HTMLElement;
-    }
-  | { type: 'release'; slotId: string }
-  /** The person picked one of the tab's declared toolbar / menu entries on the slot's header (摩擦单 F13). */
-  | { type: 'command'; slotId: string; commandId: string };
-
 // ─── the sync port ──────────────────────────────────────────────────────────
 
 /** main → preload: here is this page's sync port (in `event.ports`). */
@@ -540,9 +514,7 @@ export interface AppOpenInChatDetail {
 export const APP_FORUM_CONSENT_EVENT = 'gugu:app-forum-consent';
 export type AppForumConsentDetail =
   | { type: 'bounty'; draft: import('./app-forum-core').BountyDraft }
-  | { type: 'award'; draft: import('./app-forum-core').AwardDraft }
-  /** `gugu.forum.assign`: the person picks one of their own agents in the host's list; the App never lists them. */
-  | { type: 'assign'; draft: import('./app-forum-core').AssignDraft };
+  | { type: 'award'; draft: import('./app-forum-core').AwardDraft };
 
 export interface AppShowMessageDetail {
   chatId: string;
@@ -551,7 +523,7 @@ export interface AppShowMessageDetail {
 
 /** `gugu.showSession` on the phone: the task tab opens the session's row — the machine it is on, and the row as listed. */
 export const APP_SHOW_SESSION_EVENT = 'gugu:app-show-session';
-export type AppShowSessionDetail = { deviceId: string; session: SessionpageSessionSummary; tabKind?: string } | { projectId: string };
+export type AppShowSessionDetail = { deviceId: string; session: SessionpageSessionSummary; tabKind?: string; draft?: { text: string } } | { projectId: string };
 
 /** What `files.open` / `files.reopen` answer. */
 export interface AppFileOpened {

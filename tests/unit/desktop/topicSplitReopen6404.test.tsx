@@ -25,6 +25,8 @@ vi.mock('../../../apps/desktop/src/lib/chat', () => ({
 }))
 
 const { useTopicSurface } = await import('../../../apps/desktop/src/hooks/useTopicSurface')
+// The topic open beside a group is its tab (chat-tabs), kept for the window: each case starts with none.
+const { closeTopicTab } = await import('../../../apps/desktop/src/session/renderer/features/chats/chat-tabs/chat-layouts')
 
 let surface: ReturnType<typeof useTopicSurface> | null = null
 function Probe() {
@@ -35,6 +37,7 @@ function Probe() {
     closeRightSurfaces: () => surface?.closeSplit(),
     subscribeAccountRevision: () => () => {},
     onCreateFailed: () => {},
+    embedded: false,
   })
   return null
 }
@@ -45,7 +48,10 @@ beforeEach(() => {
   getMessages.mockReset().mockImplementation((chatId) => Promise.resolve([message({ id: `${chatId}-m1`, chat_id: chatId, seq: 1 })]))
   harness = createReactHarness()
 })
-afterEach(() => harness.cleanup())
+afterEach(() => {
+  harness.cleanup()
+  closeTopicTab('chat-A')
+})
 
 async function open(chatId: string, toggle = false) {
   await act(async () => { surface?.openSplit({ chatId, name: chatId }, toggle) })

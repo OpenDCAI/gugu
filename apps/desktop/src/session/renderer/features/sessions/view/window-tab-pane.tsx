@@ -4,6 +4,7 @@ import { auxLeadingReserve, PutBackButton } from '@renderer/app/aux-window-host'
 import { auxWindows } from '@renderer/app/aux-windows';
 import { PaneContent } from '@renderer/features/tabs/pane-content';
 import { PaneProvider } from '@renderer/features/tabs/pane-context';
+import type { PaneLayoutStore } from '@renderer/features/tabs/pane-layout-store';
 import { ShellTitlebarDragRegion } from '@renderer/lib/components/titlebar/shell-titlebar';
 import { SessionContentGate } from '../main-panel';
 import { useWorkspaceViewModel } from '../session-view-context';
@@ -20,14 +21,18 @@ export const WindowTabPane = observer(function WindowTabPane({ windowId, paneId 
     <div className="relative flex h-full min-h-0 w-full flex-col bg-background text-foreground" data-aux-window={windowId}>
       <ShellTitlebarDragRegion />
       <SessionContentGate>
-        <WindowTabPaneContent windowId={windowId} paneId={paneId} />
+        <SessionWindowTabPane windowId={windowId} paneId={paneId} />
       </SessionContentGate>
     </div>
   );
 });
 
-const WindowTabPaneContent = observer(function WindowTabPaneContent({ windowId, paneId }: { windowId: string; paneId: string }) {
-  const { paneLayout } = useWorkspaceViewModel();
+const SessionWindowTabPane = observer(function SessionWindowTabPane({ windowId, paneId }: { windowId: string; paneId: string }) {
+  return <WindowTabPaneContent windowId={windowId} paneId={paneId} paneLayout={useWorkspaceViewModel().paneLayout} />;
+});
+
+/** The window's strip and its one tab, from whichever strip it came out of (a task's, a chat's). */
+export const WindowTabPaneContent = observer(function WindowTabPaneContent({ windowId, paneId, paneLayout }: { windowId: string; paneId: string; paneLayout: PaneLayoutStore }) {
   const sensors = useSensors(useSensor(PointerSensor, { activationConstraint: { distance: 6 } }));
   const group = paneLayout.windowPanes.get(paneId);
   if (!group) return null;

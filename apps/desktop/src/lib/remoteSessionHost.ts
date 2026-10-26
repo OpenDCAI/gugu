@@ -244,14 +244,14 @@ export function openRemoteSessionHostPipe(
           (reply) => {
             unanswered -= 1
             // 那台机器已经不认这条窗口(重启过 / 频道换过):断开,客户端会重开一条。
-            if (reply.error) shut(`frame rejected: ${reply.error.code}`)
+            if (reply.error) shut(`frame rejected: ${reply.error.code} (client ${client})`)
             else heard += 1
           },
-          () => {
+          (error: unknown) => {
             unanswered -= 1
             // 探活那一问没回,可这期间听到过那台机器(推来的帧、别的批的应答):它还在,下一拍再问。
             if (probe && heard !== heardAtSend) return
-            shut('frame not delivered')
+            shut(`frame not delivered: ${String(error)} (client ${client})`)
           },
         )
       }

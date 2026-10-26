@@ -65,21 +65,21 @@ export const authService = {
         options: { shouldCreateUser: true, data }
       })
       if (error)
-        return { success: false, error: userVisibleAuthError(error, i18n.t('auth.sendFailed', { ns: 'main' })) }
+        return { success: false, error: userVisibleAuthError(error) }
       return { success: true }
     } catch (error) {
       authLog.error(
         { error: error instanceof Error ? error.message : String(error) },
         'request login OTP failed',
       )
-      return { success: false, error: userVisibleAuthError(error, i18n.t('auth.sendFailed', { ns: 'main' })) }
+      return { success: false, error: userVisibleAuthError(error) }
     }
   },
 
   async verifyLoginOtp(email: string, token: string): Promise<AuthResult> {
     try {
       const { data, error } = await supabase.auth.verifyOtp({ email, token, type: 'email' })
-      if (error) return { success: false, error: userVisibleAuthError(error, i18n.t('auth.verifyFailed', { ns: 'main' })) }
+      if (error) return { success: false, error: userVisibleAuthError(error) }
       clearPendingReferrer()  // @@@1511 登录/注册成功,清掉已用的邀请码(防误带给后续本机登录者)。
       if (!data.session) return { success: false, error: i18n.t('auth.verifyFailed', { ns: 'main' }) }
       return { success: true, userId: data.user?.id, session: data.session }
@@ -88,13 +88,13 @@ export const authService = {
         { error: error instanceof Error ? error.message : String(error) },
         'verify login OTP failed',
       )
-      return { success: false, error: userVisibleAuthError(error, i18n.t('auth.verifyFailed', { ns: 'main' })) }
+      return { success: false, error: userVisibleAuthError(error) }
     }
   },
 
   async updateNickname(userId: string, nickname: string): Promise<{ success: boolean; error?: string }> {
     const { error } = await supabase.auth.updateUser({ data: { nickname } })
-    if (error) return { success: false, error: userVisibleAuthError(error, i18n.t('account.saveFailed', { ns: 'settings' })) }
+    if (error) return { success: false, error: userVisibleAuthError(error) }
     const profileError = await updateIdentityUserProfile(userId, { display_name: nickname })
     if (profileError) return { success: false, error: profileError }
     return { success: true }

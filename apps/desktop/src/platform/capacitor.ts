@@ -265,7 +265,7 @@ export const capacitorPlatform: AppPlatform = {
   // @@@share-with-apps 系统分享两个方向,见 capacitorShare.ts。
   shareToApps,
   subscribeIncomingShares,
-  openRemoteFile: async (file, filename) => openInApps(await file.url(), filename),
+  openRemoteFile: openInApps,
   saveFile: saveToDevice,
   checkSystemPermission,
   async requestSystemPermission(permission) {

@@ -89,6 +89,26 @@ describe('global commands before widget key consumption', () => {
     expect(find).toHaveBeenCalledTimes(1);
     expect(widget).not.toHaveBeenCalled();
   });
+  it.each(['windows', 'mac'] as const)('%s find keeps the clicked surface when its timeline cannot take focus', async (platform) => {
+    settings.platform = platform;
+    const timeline = document.createElement('p'); host.append(timeline);
+    const findTimeline = vi.fn();
+    let disposeTimeline!: () => void;
+    await act(async () => {
+      disposeTimeline = commandRegistry.register({ scopeId: 'session-sub', isActive: (target) => target === timeline,
+        getCommands: () => [{ id: 'app.find', execute: findTimeline }] });
+      root.render(<CommandShortcutBinder key={platform} />);
+      input.blur();
+      timeline.dispatchEvent(new MouseEvent('pointerdown', { bubbles: true }));
+    });
+    try {
+      await act(async () => {
+        document.body.dispatchEvent(new KeyboardEvent('keydown', { key: 'f', ctrlKey: platform === 'windows', metaKey: platform === 'mac', bubbles: true, cancelable: true }));
+      });
+      expect(findTimeline).toHaveBeenCalledTimes(1);
+      expect(find).not.toHaveBeenCalled();
+    } finally { await act(async () => disposeTimeline()); }
+  });
   it('uses the command id override and releases the old chord after rebinding', async () => {
     settings.keyboard = { 'app.find': 'Mod+G' };
     await act(async () => root.render(<CommandShortcutBinder key="rebound" />));

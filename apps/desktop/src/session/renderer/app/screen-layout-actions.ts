@@ -7,7 +7,7 @@ import { translateSessionMessage } from '@renderer/localization/locale-store';
 import { installedExtensionsStore } from '@renderer/features/extensions/installed-extensions-store';
 import { getSessionPageStore } from '@renderer/features/sessions/stores/session-selectors';
 import { openSessionInSessionWhenReady } from '@renderer/features/sessions/open-session-in-session';
-import { MIN_PANE_HEIGHT_PX, MIN_PANE_WIDTH_PX } from '@renderer/features/tabs/pane-layout-store';
+import { MIN_PANE_HEIGHT_PX, MIN_PANE_WIDTH_PX, type PaneLayoutStore } from '@renderer/features/tabs/pane-layout-store';
 import { minExtent, paneExtent, removePane } from '@renderer/features/tabs/pane-layout-tree';
 import { auxWindows, type TabWindowHome } from './aux-windows';
 import { readChatSummaries, subscribeChatSummaries } from '@/lib/chatSummariesBridge';
@@ -206,7 +206,7 @@ function followFocus(): void {
   const focusedId = screenLayout.focusedBlockId;
   const session = screenLayout.focusedSession ?? (onScreen ? undefined : screenLayout.recentSession);
   if (!session) {
-    if (focusedBlock?.kind === 'app' && !onScreen && navigation.currentViewId !== 'screen') navigation.navigate('screen');
+    if ((focusedBlock?.kind === 'app' || focusedBlock?.kind === 'chat-app') && !onScreen && navigation.currentViewId !== 'screen') navigation.navigate('screen');
     return;
   }
   if (navigation.currentViewId === 'session' && current?.sessionId === session.sessionId) return;
@@ -385,6 +385,11 @@ export function putBackFromWindow(windowId: string): void {
     appState.navigation.navigate('session', { projectId: content.projectId, sessionId: content.sessionId });
     return;
   }
+  // 一个对话的一枚页签:回到那个对话原来那一格(那个对话在屏上就在那一块里看得到)。
+  if (content.kind === 'chat-tab') {
+    content.home.returnFromWindow(content.paneId, { activate: true });
+    return;
+  }
   // 回到原处:它原来挨着的那块还在,就贴回那一边;不在了,放在正看着那块右边。
   const origin = window.origin && screenLayout.blocks.has(window.origin.neighborId) ? window.origin : null;
   const target = origin?.neighborId ?? screenLayout.focusedBlockId ?? screenLayout.order[0];
@@ -408,7 +413,7 @@ export function windowClosed(windowId: string): void {
   const window = auxWindows.remove(windowId);
   if (!window) return;
   // 一枚页签的窗关了:页签回到它原来那一格(❌ 连同终端进程一起没了);要关掉它,点它自己的 ×。
-  if (window.content.kind === 'tab') {
+  if (window.content.kind === 'tab' || window.content.kind === 'chat-tab') {
     window.content.home.returnFromWindow(window.content.paneId, { activate: false });
     return;
   }
@@ -475,6 +480,18 @@ export function openTabInWindow(
   const paneId = home.detachToWindow(tabId);
   if (!paneId) return;
   auxWindows.add({ kind: 'tab', projectId: session.projectId, sessionId: session.sessionId, paneId, home }, at);
+}
+
+/** 一个对话的一枚页签单独成窗(页签右键「在新窗口打开」、拖到窗口外松手):同上,装它的是那个对话的页签存储。 */
+export function openChatTabInWindow(
+  chatId: string,
+  home: PaneLayoutStore,
+  tabId: string,
+  at?: { screenX: number; screenY: number }
+): void {
+  const paneId = home.detachToWindow(tabId);
+  if (!paneId) return;
+  auxWindows.add({ kind: 'chat-tab', chatId, paneId, home }, at);
 }
 
 /** 要打开的那枚在某扇窗里:把那扇窗提到前面。 */

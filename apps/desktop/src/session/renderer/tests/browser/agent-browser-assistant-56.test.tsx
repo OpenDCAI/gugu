@@ -19,7 +19,7 @@ vi.mock('@renderer/localization/use-session-messages', async () => {
     zhCNProjectMessages[key].replace('{name}', values?.name ?? '') }) };
 });
 vi.mock('sonner', () => ({ toast: { error: mocks.error } }));
-vi.mock('@renderer/utils/logger', () => ({ log: { warn: vi.fn() } }));
+vi.mock('@renderer/utils/logger', () => ({ log: { error: vi.fn() } }));
 const { AgentBrowserAssistant } = await import('@renderer/features/browser/agent-browser-assistant');
 const owner = { projectId: 'project-A', sessionId: 'agent-A', browserId: 'page-A', workspaceId: 'workspace-A' };
 let harness: ReturnType<typeof createReactHarness>;
@@ -70,7 +70,7 @@ it('keeps the one shortcut available when message delivery fails', async () => {
   await emit(owner.browserId, 'driving');
   await harness.render(<AgentBrowserAssistant owner={owner} agentName="Codex 118" />);
   await act(async () => button('请暂停').click());
-  await vi.waitFor(() => expect(mocks.error).toHaveBeenCalledWith('请求未能发送，请重试。'));
+  await vi.waitFor(() => expect(mocks.error).toHaveBeenCalledExactlyOnceWith('请求未能发送，请重试。', { description: 'connection lost' }));
   expect(button('请暂停').disabled).toBe(false);
   expect(harness.container.querySelectorAll('button')).toHaveLength(1);
 });

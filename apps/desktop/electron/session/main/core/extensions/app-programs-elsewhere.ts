@@ -21,7 +21,7 @@ const machines = new Map<string, SessionMachine>();
 
 /**
  * The machine a session is on, when it is not this one: null for a session of this computer. Asked of the person's
- * other online machines (the list `messageAgent` and `files` across machines read); a session none of them has throws
+ * other online machines (the list `dispatch` to an agent and `files` across machines read); a session none of them has throws
  * `not-found`, naming the machines that could not be asked.
  */
 export async function sessionMachine(sessionId: string): Promise<SessionMachine | null> {

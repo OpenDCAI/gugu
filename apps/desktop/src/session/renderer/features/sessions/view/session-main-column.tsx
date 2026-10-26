@@ -1,49 +1,32 @@
-import {
-  type CollisionDetection,
-  DndContext,
-  type DragEndEvent,
-  type DragMoveEvent,
-  DragOverlay,
-  type DragStartEvent,
-  PointerSensor,
-  pointerWithin,
-  useDroppable,
-  useSensor,
-  useSensors,
-} from '@dnd-kit/core';
+import { DndContext, DragOverlay } from '@dnd-kit/core';
 import { observer } from 'mobx-react-lite';
-import { Fragment, useEffect, useState } from 'react';
+import { Fragment, useEffect } from 'react';
 import { useScreenBlock } from '@renderer/app/screen-block-context';
 import { auxLeadingReserve, PutBackButton } from '@renderer/app/aux-window-host';
 import { BlockGrip, CloseBlockButton, droppedOutsideWindow, startSessionBlockDrag } from '@renderer/app/screen-frame';
 import { screenLayout, type WindowableContent } from '@renderer/app/screen-layout';
 import {
-  blockDropPreview,
   closeScreenBlock,
-  dropOnScreen,
   openInWindow,
   openTabInWindow,
   putBackFromWindow,
-  resolveBlockDrop,
   revealTabWindow,
-  screenBlockElement,
-  setBlockDropPreview,
 } from '@renderer/app/screen-layout-actions';
 import { auxWindows } from '@renderer/app/aux-windows';
-import { setDragShield } from '@renderer/lib/drag-shield';
 import { useGroupRef } from 'react-resizable-panels';
 import { ProjectTitleActions } from '@renderer/features/projects/components/project-title-actions';
 import { sessionRegistry } from '@renderer/features/sessions/stores/session-registry';
 import { PaneContent } from '@renderer/features/tabs/pane-content';
 import { PaneProvider } from '@renderer/features/tabs/pane-context';
-import { MIN_PANE_HEIGHT_PX, MIN_PANE_WIDTH_PX, PANE_EDGE_DROP_PREFIX, paneEdgeDropId } from '@renderer/features/tabs/pane-layout-store';
-import { cornerPane, minExtent, type PaneEdge, type PaneLayoutNode } from '@renderer/features/tabs/pane-layout-tree';
+import { MIN_PANE_HEIGHT_PX, MIN_PANE_WIDTH_PX } from '@renderer/features/tabs/pane-layout-store';
+import { edgeFirst, PANE_EDGES, PaneEdgeDropZones } from '@renderer/features/tabs/pane-edge-drop';
+import { useTabDrag } from '@renderer/features/tabs/use-tab-drag';
+import { cornerPane, minExtent, type PaneLayoutNode } from '@renderer/features/tabs/pane-layout-tree';
 import { TabDragPreview } from '@renderer/features/tabs/tab-bar/tab-drag-preview';
 import { useWorkspaceLayoutContext } from '@renderer/lib/layout/layout-provider';
 import { ContextMenu, ContextMenuContent, ContextMenuItem, ContextMenuSeparator, ContextMenuTrigger } from '@renderer/lib/ui/context-menu';
 import { ResizableHandle, ResizablePanel, ResizablePanelGroup } from '@renderer/lib/ui/resizable';
 import { useSessionMessages } from '@renderer/localization/use-session-messages';
-import { cn } from '@renderer/utils/utils';
 import { sessionViewOfRuntime } from '@shared/core/sessions/sessions';
 import { parseExtensionTabKind } from '@shared/extensions/manifest';
 import { isTaskOwnedTab } from '../../extensions/task-owned-tab';
@@ -60,8 +43,6 @@ import { SessionOutputsPopover } from './session-outputs-popover';
 import { TerminalModelMenu } from './terminal-model-menu';
 import { useSessionStartupFailure } from '../use-session-startup-failure';
 
-type ActiveDrag = { kind: 'tab'; tabId: string };
-
 /**
  * 会话页的主区(spec session-page「一屏几块」,#7052):一个会话一块,块里的格子按一棵树摆 —— 左右并排或上下叠着,
  * 可以一层套一层。对话是会话的第一枚页签(写会话名),和审阅、终端、浏览器、文件一样排在页签条上;
@@ -75,8 +56,6 @@ export const SessionMainColumn = observer(function SessionMainColumn() {
   const { paneLayout } = sessionView;
   const { projectId, sessionId: pageSessionId } = useSessionViewContext();
   const { blockId, windowId } = useScreenBlock();
-  const sensors = useSensors(useSensor(PointerSensor, { activationConstraint: { distance: 6 } }));
-  const [activeDrag, setActiveDrag] = useState<ActiveDrag | null>(null);
 
   // 屏上不止一块时,一块 ❌ 空着:空了关掉,摆上来就空的开它的对话;只剩它一块时留着「+」那一列(见 keepBlockFilled)。
   useEffect(() => {
@@ -135,57 +114,18 @@ export const SessionMainColumn = observer(function SessionMainColumn() {
     // blockContentOf 每次被调用时现读页签;它闭包里认的只有这几样。
   }, [paneLayout, projectId, pageSessionId, windowId]);
 
-  const handleDragStart = (event: DragStartEvent) => {
-    setDragShield(true);
-    setActiveDrag({ kind: 'tab', tabId: event.active.id as string });
-  };
-
-  // 指针出了这一块:落点归这一屏(别的块的四条边);还在这一块里:归这一块自己的格子。
-  const handleDragMove = (event: DragMoveEvent) => {
-    const content = blockContentOf(String(event.active.id));
-    const start = event.activatorEvent as PointerEvent | null;
-    if (!content || !blockId || !start) return;
-    const x = start.clientX + event.delta.x;
-    const y = start.clientY + event.delta.y;
-    const own = screenBlockElement(blockId)?.getBoundingClientRect();
-    const inOwn = own !== undefined && x >= own.left && x <= own.right && y >= own.top && y <= own.bottom;
-    setBlockDropPreview(inOwn ? null : resolveBlockDrop(x, y, content));
-  };
-
-  const handleDragEnd = (event: DragEndEvent) => {
-    setDragShield(false);
-    setActiveDrag(null);
-    const toBlock = blockDropPreview.get();
-    setBlockDropPreview(null);
-    const content = blockContentOf(String(event.active.id));
-    // 插 @ 的落点只有原生拖拽(左边一行、⋮⋮)画得出来;页签这条拖拽从不写它,这里只是让类型说清楚。
-    if (toBlock && !('mention' in toBlock) && content) {
-      dropOnScreen(toBlock, content);
-      return;
-    }
+  const drag = useTabDrag({
+    layout: paneLayout,
+    blockId,
+    contentOf: blockContentOf,
     // 拖到窗口外松手 = 单独成窗:会话自己那枚 = 整个会话(已经在窗里的除外),App 那枚 = 这个 App,别的附页 = 这一枚;
     // 一个任务一份的 App 页签不成窗(#7317)。
-    const start = event.activatorEvent as PointerEvent | null;
-    if (start && !(content && windowId) && !ownedByTask(String(event.active.id))) {
-      const view = (start.target as Node | null)?.ownerDocument?.defaultView ?? window;
-      const x = start.clientX + event.delta.x;
-      const y = start.clientY + event.delta.y;
-      if (x < 0 || y < 0 || x > view.innerWidth || y > view.innerHeight) {
-        const at = { screenX: start.screenX + event.delta.x, screenY: start.screenY + event.delta.y };
-        if (content) openInWindow(content, at);
-        else openTabInWindow({ projectId, sessionId: pageSessionId }, paneLayout, String(event.active.id), at);
-        return;
-      }
-    }
-    if (!event.over) return;
-    paneLayout.handleDragEnd(event.active.id as string, event.over.id as string);
-  };
-
-  const handleDragCancel = () => {
-    setDragShield(false);
-    setActiveDrag(null);
-    setBlockDropPreview(null);
-  };
+    openWindow: (tabId) => {
+      const content = blockContentOf(tabId);
+      if (ownedByTask(tabId) || (content && windowId)) return null;
+      return (at) => (content ? openInWindow(content, at) : openTabInWindow({ projectId, sessionId: pageSessionId }, paneLayout, tabId, at));
+    },
+  });
 
   // Each pane's conversation in front goes through the ready gate (it was the chat column's, one at a time).
   const shownChats = [
@@ -204,49 +144,28 @@ export const SessionMainColumn = observer(function SessionMainColumn() {
         <SessionReadyGate key={sessionId} sessionId={sessionId} />
       ))}
       <DndContext
-        sensors={sensors}
+        sensors={drag.sensors}
         collisionDetection={edgeFirst}
-        onDragStart={handleDragStart}
-        onDragMove={handleDragMove}
-        onDragEnd={handleDragEnd}
-        onDragCancel={handleDragCancel}
+        onDragStart={drag.onDragStart}
+        onDragMove={drag.onDragMove}
+        onDragEnd={drag.onDragEnd}
+        onDragCancel={drag.onDragCancel}
       >
         <div className="h-full min-h-0 min-w-0" data-session-panes="">
           <PaneTree
             node={paneLayout.layout}
             topLeftPaneId={cornerPane(paneLayout.layout, 'top-left')}
             topRightPaneId={cornerPane(paneLayout.layout, 'top-right')}
-            draggingTabId={activeDrag?.tabId ?? null}
+            draggingTabId={drag.dragging}
           />
         </div>
         <DragOverlay dropAnimation={null}>
-          {activeDrag?.kind === 'tab' ? <TabDragPreview tabId={activeDrag.tabId} /> : null}
+          {drag.dragging ? <TabDragPreview tabId={drag.dragging} /> : null}
         </DragOverlay>
       </DndContext>
     </SessionActionsProvider>
   );
 });
-
-/**
- * 边上的落点压过整格:指针落在某一格的边缘区里就是「分出一格」,哪怕它同时也在那一格里。
- * 几条边的边缘区在角上重叠时,取指针离得最近的那条边。
- */
-const edgeFirst: CollisionDetection = (args) => {
-  const hits = pointerWithin(args);
-  const pointer = args.pointerCoordinates;
-  const edges = hits.filter((hit) => String(hit.id).startsWith(PANE_EDGE_DROP_PREFIX));
-  if (edges.length === 0 || !pointer) return hits;
-  const distance = (id: string) => {
-    const rect = args.droppableRects.get(id);
-    if (!rect) return Number.POSITIVE_INFINITY;
-    const edge = /^pane-edge-(left|right|top|bottom)-/.exec(id)?.[1];
-    if (edge === 'left') return pointer.x - rect.left;
-    if (edge === 'right') return rect.left + rect.width - pointer.x;
-    if (edge === 'top') return pointer.y - rect.top;
-    return rect.top + rect.height - pointer.y;
-  };
-  return [[...edges].sort((a, b) => distance(String(a.id)) - distance(String(b.id)))[0]];
-};
 
 const childPanelId = (node: PaneLayoutNode) => (node.type === 'pane' ? `pane-${node.paneId}` : `cut-${node.id}`);
 
@@ -350,7 +269,7 @@ const PaneCell = observer(function PaneCell({
   const group = paneLayout.groups.find((g) => g.paneId === paneId);
   if (!group) return null;
   // 拖到哪条边 = 在那一边并排(spec session-page「并排」);放不下两页的那一向不出落点。
-  const splitEdges = draggingTabId === null ? [] : EDGES.filter((edge) => group.pane.pairSplitBlocked(draggingTabId, edge) === null);
+  const splitEdges = draggingTabId === null ? [] : PANE_EDGES.filter((edge) => group.pane.pairSplitBlocked(draggingTabId, edge) === null);
   return (
     <PaneProvider group={group} isFocusedPane={sessionView.focusedRegion === 'main' && paneLayout.activePaneId === paneId}>
       <SplitPaneHotkey />
@@ -369,8 +288,6 @@ const PaneCell = observer(function PaneCell({
   );
 });
 
-const EDGES: readonly PaneEdge[] = ['left', 'right', 'top', 'bottom'];
-
 /** 一格(或一刀)在这一向最少要多大:里面每格不比 MIN_PANE_WIDTH_PX / MIN_PANE_HEIGHT_PX 更窄更矮。 */
 const paneMinSize = (node: PaneLayoutNode, orientation: 'horizontal' | 'vertical') =>
   orientation === 'horizontal' ? minExtent(node, 'width', MIN_PANE_WIDTH_PX) : minExtent(node, 'height', MIN_PANE_HEIGHT_PX);
@@ -383,53 +300,6 @@ function paneCellSize(paneId: string): { width: number; height: number } | null 
     if (rect && rect.width > 0) return { width: rect.width, height: rect.height };
   }
   return null;
-}
-
-/**
- * 拖页签时一格四边的落点:落在哪一边,就在那一边分出一格,新格占这一格的一半 —— 指着时就把那一半画出来,
- * 松手前看得到结果。边缘区占这一格那一向的约五分之一(最少 32px、最多 120px),正中留给「搬进这一格」。
- */
-function PaneEdgeDropZones({ paneId, edges }: { paneId: string; edges: readonly PaneEdge[] }) {
-  return (
-    <div className="pointer-events-none absolute inset-0 z-30" data-pane-edge-zones="">
-      {edges.map((edge) => (
-        <PaneEdgeDropZone key={edge} paneId={paneId} edge={edge} />
-      ))}
-    </div>
-  );
-}
-
-const ZONE = 'clamp(32px, 22%, 120px)';
-
-function PaneEdgeDropZone({ paneId, edge }: { paneId: string; edge: PaneEdge }) {
-  const { setNodeRef, isOver } = useDroppable({ id: paneEdgeDropId(edge, paneId) });
-  const zone =
-    edge === 'left'
-      ? { left: 0, top: 0, bottom: 0, width: ZONE }
-      : edge === 'right'
-        ? { right: 0, top: 0, bottom: 0, width: ZONE }
-        : edge === 'top'
-          ? { left: 0, right: 0, top: 0, height: ZONE }
-          : { left: 0, right: 0, bottom: 0, height: ZONE };
-  const half =
-    edge === 'left'
-      ? 'inset-y-0 left-0 w-1/2'
-      : edge === 'right'
-        ? 'inset-y-0 right-0 w-1/2'
-        : edge === 'top'
-          ? 'inset-x-0 top-0 h-1/2'
-          : 'inset-x-0 bottom-0 h-1/2';
-  return (
-    <>
-      <div ref={setNodeRef} className="absolute" style={zone} data-pane-edge={edge} />
-      {isOver && (
-        <div
-          className={cn('absolute rounded-[var(--radius-control)] border border-foreground/20 bg-foreground/10', half)}
-          data-pane-edge-preview={edge}
-        />
-      )}
-    </>
-  );
 }
 
 /**

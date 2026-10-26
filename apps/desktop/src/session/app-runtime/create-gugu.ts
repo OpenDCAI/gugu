@@ -1,4 +1,5 @@
 import { folderOf, placeKey, placeOf, type AppPlace } from '@shared/extensions/app-runtime-protocol';
+import { DISPATCH_GONE } from '@shared/extensions/app-dispatch-core';
 import { BRIDGE_VERBS, type ExtensionFileChangeBatch } from '@shared/extensions/bridge-protocol';
 import { coded, guguError, refOf, type GuguHost } from './host';
 import { createModalApi } from './modal';
@@ -133,23 +134,25 @@ export function createGugu(
   }
   api.files = files;
   if (raw.modal) api.modal = createModalApi(raw);
-  // `gugu.compose(text, { …, images })` (G3): Blobs become bytes here, the one shape every host carries.
-  if (typeof raw.compose === 'function') {
-    const compose = raw.compose as (text: unknown, where?: Record<string, unknown>) => Promise<unknown>;
-    api.compose = coded(async (text: unknown, where?: Record<string, unknown>) => {
-      const images = where?.images;
-      if (images === undefined) return compose(text, where);
-      if (!Array.isArray(images)) throw guguError('invalid', 'gugu.compose(text, { images }) takes a list of Blobs or Files');
+  // `gugu.dispatch(text, { …, images })` (G3): Blobs become bytes here, the one shape every host carries.
+  if (typeof raw.dispatch === 'function') {
+    const dispatch = raw.dispatch as (text: unknown, options?: Record<string, unknown>) => Promise<unknown>;
+    api.dispatch = coded(async (text: unknown, options?: Record<string, unknown>) => {
+      const images = options?.images;
+      if (images === undefined) return dispatch(text, options);
+      if (!Array.isArray(images)) throw guguError('invalid', 'gugu.dispatch(text, { images }) takes a list of Blobs or Files');
       const carried = await Promise.all(
         images.map(async (image: unknown) => {
-          if (!(image instanceof Blob)) throw guguError('invalid', 'gugu.compose(text, { images }) takes a list of Blobs or Files');
+          if (!(image instanceof Blob)) throw guguError('invalid', 'gugu.dispatch(text, { images }) takes a list of Blobs or Files');
           const name = (image as Blob & { name?: unknown }).name;
           return { name: typeof name === 'string' ? name : '', type: image.type, bytes: await image.arrayBuffer() };
         }),
       );
-      return compose(text, { ...where, images: carried });
+      return dispatch(text, { ...options, images: carried });
     });
   }
+  // The calls of before 15 say where they went, instead of being simply missing: an App written for 14 is told what to call.
+  for (const [gone, why] of Object.entries(DISPATCH_GONE)) api[gone] = () => Promise.reject(guguError('invalid', why));
   /**
    * Collaborative text in a JSON file (摩擦单 F8): `{ $text: initial }`, the form the file service builds a Y.Text from
    * (an agent writes the same in its data). Read back it is a plain string; `f.textAt(path)` edits it letter by letter.
@@ -158,12 +161,6 @@ export function createGugu(
     if (typeof initial !== 'string') throw guguError('invalid', 'gugu.text takes the text to start with, a string');
     return Object.freeze({ $text: initial });
   };
-  // `gugu.send(to, text, { chat } | { refs })` (F16): a whisper in the chat the call names, the host's `send` underneath.
-  // `where` goes as the App wrote it: the host says what it does not take (`about`, gone 10-14), not this layer by dropping it.
-  if (typeof raw.send === 'function') {
-    const send = coded(raw.send as (args: Record<string, unknown>) => Promise<unknown>);
-    api.send = (to: string, text: string, where?: Record<string, unknown>) => send({ ...where, to, text });
-  }
   if (load.codemirror) {
     const loadCodemirror = load.codemirror;
     api.bind = Object.freeze({

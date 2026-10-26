@@ -218,16 +218,15 @@ describe('#4602 会话启动失败在当前 DM 显形', () => {
     expect(harness.container.querySelector('[data-testid="agent-taskpage-probe"]')?.getAttribute('data-status'))
       .toBe('needs_user')
   })
-  // 恢复失败按构造全是咕咕这一侧的(恢复协调器):不带码的原文 ❌ 当原话递出去。
-  it('平台恢复失败按原因表说(❌ 英文原文)并给重试入口', async () => {
+  // Uncoded recovery failures retain their actual sanitized cause.
+  it('平台恢复失败保留实际原因并给重试入口', async () => {
     projection.platformRecovery = { status: 'failed', error: 'gateway rejected replacement credential' }
     install(fakeBridge([]))
     const invoke = vi.fn(async () => ({ status: 'ready' }))
     ;(window as unknown as { electronAPI: unknown }).electronAPI = { invoke, eventOn: () => () => {} }
     await harness.render(createNode(Probe, {}))
     const notice = harness.container.querySelector('[data-testid="agent-sessionpage-platform-recovery-failed"]')
-    expect(notice?.textContent).toContain(GUGU_SIDE())
-    expect(notice?.textContent).not.toContain('gateway rejected replacement credential')
+    expect(notice?.textContent).toContain('gateway rejected replacement credential')
     const retry = notice?.querySelector<HTMLButtonElement>('[data-testid="agent-sessionpage-platform-recovery-retry"]')
     expect(retry).not.toBeNull()
     await act(async () => { retry!.click() })

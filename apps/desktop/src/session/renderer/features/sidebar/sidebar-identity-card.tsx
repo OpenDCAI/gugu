@@ -1,3 +1,5 @@
+import { safeFailureLine } from '../sessions/gugu-reason';
+import { log } from '@renderer/utils/logger';
 import { PreviewCard as PreviewCardPrimitive } from '@base-ui/react/preview-card';
 import { Check, Copy } from '@/lib/icons';
 import { makeAutoObservable } from 'mobx';
@@ -246,7 +248,8 @@ export const SidebarIdentityCard = observer(function SidebarIdentityCard({
 
 function IdentityRow({ row }: { row: RowSpec }) {
   const { translate } = useSessionMessages();
-  const [state, setState] = useState<'idle' | 'copied' | 'failed'>('idle');
+  const copiedLabel = translate('identityCard.copied');
+  const [state, setState] = useState<string | null>(null);
   const timer = useRef<ReturnType<typeof setTimeout> | null>(null);
   useEffect(
     () => () => {
@@ -255,10 +258,10 @@ function IdentityRow({ row }: { row: RowSpec }) {
     []
   );
 
-  const flash = (next: 'copied' | 'failed') => {
+  const flash = (next: string) => {
     setState(next);
     if (timer.current) clearTimeout(timer.current);
-    timer.current = setTimeout(() => setState('idle'), COPIED_MS);
+    timer.current = setTimeout(() => setState(null), COPIED_MS);
   };
 
   const copy = async () => {
@@ -267,10 +270,10 @@ function IdentityRow({ row }: { row: RowSpec }) {
       // 带上标签:「任务名：X」。分隔符取文案(中文全角「：」,英文「: 」),拼接在这里做 ——
       // ❌ 把会话标题当插值参数塞进文案模板:标题是用户写的任意文字。
       await navigator.clipboard.writeText(`${row.label}${translate('identityCard.copyKeySeparator')}${row.value}`);
-      flash('copied');
-    } catch {
-      // 复制失败也要就地说:值仍在行上,用户可以自己选 —— ❌ 静默。
-      flash('failed');
+      flash(copiedLabel);
+    } catch (error) {
+      log.error({ error }, 'sidebar identity copy failed');
+      flash(safeFailureLine(String((error as Error)?.message ?? error)));
     }
   };
 
@@ -292,7 +295,7 @@ function IdentityRow({ row }: { row: RowSpec }) {
     <button
       type="button"
       data-identity-row={row.key}
-      data-copy-state={state}
+      data-copy-state={state === null ? 'idle' : state === copiedLabel ? 'copied' : 'failed'}
       aria-label={translate('identityCard.copy', { label: row.label })}
       onClick={(event) => {
         // 行本身是会话的点击目标;这里的点击只是复制,❌ 顺带把会话打开或把卡关掉。
@@ -306,22 +309,18 @@ function IdentityRow({ row }: { row: RowSpec }) {
           两行图标不对齐也看不出来。反馈就地替换值:值与反馈叠在同一格,值只是藏起来仍占着宽,
           所以点完卡不变窄、图标不挪位。 */}
       <span className="grid min-w-0 grid-cols-1">
-        <span className={cn(valueClass, 'col-start-1 row-start-1', state !== 'idle' && 'invisible')}>{row.value}</span>
-        <span aria-live="polite" className={cn(valueClass, 'col-start-1 row-start-1 text-foreground-muted')}>
-          {state === 'copied'
-            ? translate('identityCard.copied')
-            : state === 'failed'
-              ? translate('identityCard.copyFailed')
-              : null}
+        <span className={cn(valueClass, 'col-start-1 row-start-1', state !== null && 'invisible')}>{row.value}</span>
+        <span aria-live="polite" className="min-w-0 whitespace-normal break-words text-left text-sm leading-5 col-start-1 row-start-1 text-foreground-muted">
+          {state}
         </span>
       </span>
       <span
         className={cn(
           'flex size-4 shrink-0 items-center justify-center text-foreground-muted transition-opacity duration-[var(--dur-fast)]',
-          state === 'idle' && 'opacity-0 group-hover/identity-row:opacity-100 group-focus-visible/identity-row:opacity-100'
+          state === null && 'opacity-0 group-hover/identity-row:opacity-100 group-focus-visible/identity-row:opacity-100'
         )}
       >
-        {state === 'copied' ? <Check className="size-3" /> : <Copy className="size-3" />}
+        {state === copiedLabel ? <Check className="size-3" /> : <Copy className="size-3" />}
       </span>
     </button>
   );

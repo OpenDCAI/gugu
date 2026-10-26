@@ -13,6 +13,7 @@ import { spawnOwnedChild } from '../../../../packages/session-core/src/exec/owne
 import { codexReasoningText } from '../../../../packages/core/src/shared/reasoningText.mjs'
 import { unifiedDiffTexts, withoutTrailingNewline } from '../../../../packages/core/src/shared/unifiedDiff.mjs'
 import { createCodexSubagents } from './codex-subagents.mjs'
+import { CODEX_AUTONOMY_BY_MODE, CODEX_PERMISSION_MODES } from '../../../../packages/session-plugins/src/agents/impl/codex/permission-modes.ts'
 
 const codexBin = process.env.GUGU_CODEX_BIN?.trim()
 if (!codexBin) {
@@ -800,6 +801,7 @@ async function startApp(servers) {
 async function startAppOnce(servers) {
   const mcp = mcpConfig(servers)
   appServerThreadConfig = mcp.config
+  appServerThreadConfig['tools.update_plan.enabled'] = true
   const reasoningSummary = process.env.GUGU_CODEX_REASONING_SUMMARY?.trim()
   if (reasoningSummary) {
     // Codex ACP is a thin bridge: argv belongs to the adapter process, while
@@ -820,10 +822,10 @@ async function startAppOnce(servers) {
     // 可选 server 首次取工具只等 1 秒(codex 的 mcp_optional_startup_grace_ms),慢一步就不在那一轮里。
     // 标 required:开场等它起好,起不来就让开场响亮地失败。
     appServerThreadConfig[`mcp_servers.${GUGU_MCP_CONFIG_KEY}.required`] = true
+    appServerThreadConfig[`mcp_servers.${GUGU_MCP_CONFIG_KEY}.omit_tools_from`] = ['deferred']
   }
-  // 哪些 server 的工具不进 code mode 的 exec 沙箱、直接上模型的工具表:声明了 alwaysLoad 的那几台(咕咕自己那台、
-  // 资源库连上的服务、人选了直接列出的 App),由物化器算好递过来(session-bundle.ts codexDirectNamespaces)。
-  // 咕咕自己那台在里面 —— #3551 当年挂住的那条路靠它挡住。
+  // Library services and full-disclosure Apps keep the materializer's direct-only namespaces.
+  // Gugu's own catalog follows Codex's native execution surface without deferred loading.
   const directNamespaces = process.env.GUGU_CODEX_DIRECT_TOOL_NAMESPACES?.trim()
   if (directNamespaces) {
     const parsed = JSON.parse(directNamespaces)
@@ -1100,7 +1102,7 @@ function acpToolStatus(status, fallback) {
  *
  * `fallbackId` 兜住历史条目没有 id 的情况:共用空串会让多条工具调用折叠成同一个条目。
  */
-function replayItem(item, fallbackId, revertAnchor) {
+function replayItem(item, fallbackId, revertAnchor, steering) {
   if (subagents.replayItem(item)) return
   const type = String(item?.type ?? '')
   const messageId = String(item?.id ?? '') || fallbackId
@@ -1108,7 +1110,8 @@ function replayItem(item, fallbackId, revertAnchor) {
     // live 从不回声用户消息(客户端自己就有);重放时客户端手里是空的,这条只能由适配器补。
     // 复用 textPrompt:多段文本的连接方式必须和发送侧一致,否则重放出来的话和当初发出去的不一样。
     const text = joinPromptText(item?.content)
-    if (text) sessionUpdate({ sessionUpdate: 'user_message_chunk', messageId, content: { type: 'text', text }, ...(revertAnchor ? { _meta: { guguRevertAnchor: revertAnchor } } : {}) })
+    const meta = steering ? { guguSteering: true } : revertAnchor ? { guguRevertAnchor: revertAnchor } : null
+    if (text) sessionUpdate({ sessionUpdate: 'user_message_chunk', messageId, content: { type: 'text', text }, ...(meta ? { _meta: meta } : {}) })
     return
   }
   if (type === 'agentMessage') {
@@ -1281,7 +1284,8 @@ async function replayHistory(threadId, generation, deadline) {
       // 每轮之间再查一次:重放一条长会话要写几千行,期间宿主完全可能已经重来一次 load。
       if (generation !== loadGeneration) return
       // A native turn may also contain steered inputs; only its leading prompt is a turn boundary.
-      replayItem(items[j], `${String(turn?.id ?? `turn-${i}`)}:${j}`, historyCanRevert && !userSeen ? turn.id : undefined)
+      // The later ones carry the same steering mark the live insert had, so reopen keeps them in this turn.
+      replayItem(items[j], `${String(turn?.id ?? `turn-${i}`)}:${j}`, historyCanRevert && !userSeen ? turn.id : undefined, userSeen)
       if (items[j]?.type === 'userMessage') userSeen = true
     }
   }
@@ -1393,6 +1397,17 @@ function onAppNotification(message) {
     sessionUpdate({
       sessionUpdate: 'agent_thought_chunk',
       content: { type: 'text', text: `${previous !== undefined && previous !== part ? '\n\n' : ''}${String(params.delta ?? '')}` },
+    })
+    return
+  }
+  if (method === 'turn/plan/updated') {
+    sessionUpdate({
+      sessionUpdate: 'plan',
+      entries: params.plan.map(({ step, status }) => ({
+        content: step,
+        status: status === 'inProgress' ? 'in_progress' : status,
+        priority: 'medium',
+      })),
     })
     return
   }
@@ -2597,10 +2612,16 @@ async function handleAcpRequest(message) {
     }
     // codex app-server 的 `thread/settings/update`:给**已加载**线程排队一次 next-turn
     // 设置的部分更新,不起轮次、不加 transcript 条目(app-server README)。
-    // `permissions` 就是按 id 选 profile,与 `sandboxPolicy` 互斥 —— 只传前者。
+    // `permissions` selects the sandbox profile; approvalPolicy must change with it.
     // ⚠️ 它只认内存里的线程(load_thread → get_thread 只查内存表),所以必须在
     //    thread/start / thread/resume 之后调用,established 那个前置判断不能去掉。
-    await appRequest('thread/settings/update', { threadId: sessionId, permissions: wanted })
+    const mode = Object.entries(CODEX_PERMISSION_MODES).find(([, profile]) => profile.id === wanted)?.[0]
+    const autonomy = CODEX_AUTONOMY_BY_MODE[mode]
+    await appRequest('thread/settings/update', {
+      threadId: sessionId,
+      permissions: wanted,
+      ...(autonomy ? { approvalPolicy: autonomy.approvalPolicy } : {}),
+    })
     selectedPermissionProfile = wanted || null
     // 切权限档的回包也要带上 model / thought_level 两组 —— 只回 mode 一组,
     // 宿主的 deriveConfigGroups 会把没报的那两组读成 null,界面上模型与推理档当场消失。

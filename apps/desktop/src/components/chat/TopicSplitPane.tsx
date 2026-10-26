@@ -1,10 +1,10 @@
 import { useUnreadLocatorNavigation } from '@/hooks/useUnreadLocatorNavigation'
+import { useRoomCollab } from '@/hooks/useRoomCollab'
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
-import { createPortal } from 'react-dom'
 import { motion } from 'framer-motion'
 import { useTranslation } from 'react-i18next'
 import { DUR_SLOW_MS, EASE_SPRING, tween } from '@/styles/motion'
-import { ChevronLeft, MessageSquare, Paperclip, Search, Users, X } from '@/lib/icons'
+import { ChevronLeft, Paperclip, Search, Users, X } from '@/lib/icons'
 import type { MessageItem } from '@gugu/core/shared/types/chat'
 import { visibleDeliveryMessages } from '@gugu/core/shared/ui/systemNotice'
 import type { GroupRosterCandidate } from '@/lib/mention'
@@ -13,9 +13,7 @@ import type { MemberProfileCardModel } from '../MemberProfileCard'
 import type { ParsedAttachment } from '@gugu/core/shared/ui/attachmentModels'
 import type { MemberProfileSide } from '../memberProfileModels'
 import { IconButton } from '../ui/IconButton'
-import { Menu, MenuItem } from '../ui/Menu'
-import { ChatTabMenuItems } from '../../session/renderer/features/chats/chat-tab-menu-items'
-import { TabChip, TabSlot } from '../../session/renderer/features/tabs/tab-bar/tab-chip'
+import { MenuItem } from '../ui/Menu'
 import { PaneHeader } from '../ui/Pane'
 import { useBackLayer } from '../ui/sheetStack'
 import { ChatMessageComposer } from './ChatMessageComposer'
@@ -45,7 +43,6 @@ import { ResizablePane } from '@/layouts/ResizablePane'
 import { prioritizeTopicParticipants } from './topicMentionModels'
 import { useReadReceiptPanel } from '@/hooks/useReadReceiptPanel'
 import { ReadReceiptPopover } from '../ReadReceiptPopover'
-import { groupSlotMemory } from '../appSlot/groupSlotMemory'
 import { ChatBottomDock } from './ChatBottomDock'
 import type { ChatConversation } from '@/store/useChatConversation'
 import { useFollowingTail, useTailPinning } from './useFollowingTail'
@@ -127,10 +124,10 @@ export type TopicSplitPaneProps = {
   /** 移动壳:整页盖住来源线、出口是左上返回,且不抢焦点(不弹软键盘)。 */
   mobile?: boolean
   /**
-   * gugu-dev#181 画在会话页一块里:这一栏不画自己那条头,话题是块页签条上和群对话并排的一枚页签,画进这一格
-   * (× = 收起分栏;附件、成员、群文件夹、App 在这枚页签的右键菜单里)。格子还没挂上 = null。不给 = 对话页、手机,头照旧。
+   * gugu-dev#181 画在会话页一块里:话题是块页签条上的一枚页签(和群那一枚并排,× = 收起),这一栏就是那一枚的内容,
+   * 宽窄由并排的分界管 —— 没有自己的拖拽边、也没有自己的收起钮。不给 = 对话页(自带拖拽边)、手机(整页)。
    */
-  tabHost?: HTMLElement | null
+  embedded?: boolean
   // ⚠️ 下面几个是 MessageBubble 的**必填** props,而这一栏自己拿不到它们的实现
   // (表情/转发/删除都要 ChatAreaPanel 那层的 handler)。做成可选透传而不是在内部写死
   // no-op:不接时这几个动作在分栏里点了没反应 = 静默失败,接上就跟主线同口径。
@@ -236,7 +233,7 @@ export function TopicSplitPane({ viewportKey = 'topic', navigationTarget = false
   onReaction,
   onForward, visible,
   onDelete,
-  tabHost,
+  embedded = false,
 }: TopicSplitPaneProps) {
   const { t } = useTranslation('messaging')
   // #6004: the projection owns membership and chat_members_changed refreshes. Read this topic's
@@ -271,8 +268,7 @@ export function TopicSplitPane({ viewportKey = 'topic', navigationTarget = false
   }, [focusComposerToken, mobile])
   const [quoted, setQuoted] = useState<{ forChatId: string; messageId: string; senderName: string; content: string } | null>(null)
   const activeQuote = quoted?.forChatId === topic.chatId ? quoted : null
-  // @@@5856 话题的附件列表。全宽形态拿掉之后头栏那颗 🕐 只对来源线生效 ⇒ 话题自己的附件
-  // 一个入口都不剩。这一栏自带一颗 🕐,与 👥 同一个槽位(互斥),开的是同一份 HistoryPanel 的话题支。
+  // Attachments stay in the topic pane, alongside its members entry.
   const [filesForChatId, setFilesForChatId] = useState<string | null>(null)
   const filesOpen = filesForChatId === topic.chatId
   const [files, setFiles] = useState<HistoryFileItem[]>([])
@@ -295,6 +291,7 @@ export function TopicSplitPane({ viewportKey = 'topic', navigationTarget = false
   // 换话题就收回去:名册是「关于哪条话题」的读数,跟着主体走(同 activeQuote 的 subject-scope)。
   const [membersForChatId, setMembersForChatId] = useState<string | null>(null)
   const membersOpen = membersForChatId === topic.chatId
+  const collab = useRoomCollab(topic.chatId, 'topic')
   const setMembersOpen = useCallback(
     (next: boolean | ((open: boolean) => boolean)) => {
       setMembersForChatId((current) => {
@@ -462,7 +459,7 @@ export function TopicSplitPane({ viewportKey = 'topic', navigationTarget = false
         {/* 这一条**常驻**:面板开着时它也在。曾经开面板就把它收起来,代价是
             ①「收起分栏」与另一颗切换键一起消失,②这一栏里再没有一个字说明你在哪条话题上
             (找茬第十轮)。嵌进来的那两个面板自带的头由 tokens.css 收掉,所以不会两条头叠着摆。 */}
-        {tabHost !== undefined ? null : mobile ? (
+        {mobile ? (
           <PaneHeader mobile divider title={headerTitle} actions={headerToggles} leading={(
             <IconButton size="lg" data-testid="topic-split-back" aria-label={t('common.back')} title={t('common.back')} onClick={goBack}><ChevronLeft /></IconButton>
           )} />
@@ -471,16 +468,18 @@ export function TopicSplitPane({ viewportKey = 'topic', navigationTarget = false
           {headerTitle}
           <div style={TOPIC_SPLIT_HEADER_ACTIONS_STYLE}>
             {headerToggles}
-            <IconButton
-              size="sm"
-              data-testid="topic-split-close"
-              aria-label={t('topic.pane.collapseSplit')}
-              // 「收起分栏」是界面动作、不是话题状态 ⇒ title 里点明「话题不会关闭」。
-              title={t('topic.pane.collapseSplitHint')}
-              onClick={onClose}
-            >
-              <X size={16} />
-            </IconButton>
+            {embedded ? null : (
+              <IconButton
+                size="sm"
+                data-testid="topic-split-close"
+                aria-label={t('topic.pane.collapseSplit')}
+                // 「收起分栏」是界面动作、不是话题状态 ⇒ title 里点明「话题不会关闭」。
+                title={t('topic.pane.collapseSplitHint')}
+                onClick={onClose}
+              >
+                <X size={16} />
+              </IconButton>
+            )}
           </div>
         </div>
         )}
@@ -490,7 +489,6 @@ export function TopicSplitPane({ viewportKey = 'topic', navigationTarget = false
           // 这份面板自带的头嵌进来时由 .gg-topic-split-members 收掉;它不定宽,撑满这一栏。
           <div className="gg-topic-split-members" style={TOPIC_SPLIT_MEMBERS_STYLE}>
             <HistoryPanel
-              mode="topic"
               mobile={mobile}
               attachments={files}
               loading={filesLoading}
@@ -507,6 +505,7 @@ export function TopicSplitPane({ viewportKey = 'topic', navigationTarget = false
                 key={topic.chatId}
                 chatId={topic.chatId}
                 chatKind="topic"
+                snapshot={collab.snapshot} onReload={collab.reload} error={collab.error}
                 head={(title, actions) => (
                   // 桌面上收起名册归上面那条常驻分栏头的 👥,这里不再画关闭;手机整页的出口是左上返回。
                   <div style={TOPIC_SPLIT_MEMBERS_HEAD_STYLE}>
@@ -546,7 +545,7 @@ export function TopicSplitPane({ viewportKey = 'topic', navigationTarget = false
               initialTopMostItemIndex={openLocation()}
               followTail={!unreadNavigationPending && !messageWindow.hasNewer && messageWindow.change !== 'newer'}
               unreadAbove={history.unreadEntry ? { messageId: history.unreadEntry.locator.message_id, messageSeq: history.unreadEntry.locator.message_seq,
-                label: t('chatArea.unreadAbove', { count: history.unreadEntry.locator.unread_count }), onJump: () => void history.jumpToUnreadEntry(scrollerRef.current).catch(onHistoryError) } : null}
+                label: t('chatArea.unreadAbove', { count: history.unreadEntry.locator.unread_count }), onSeen: history.unreadEntry.onSeen, onJump: () => void history.jumpToUnreadEntry(scrollerRef.current).catch(onHistoryError) } : null}
               onAtBottomChange={onAtBottomChange}
               onTotalListHeightChanged={onTotalListHeightChanged}
               style={MESSAGE_LIST_STYLE}
@@ -560,8 +559,8 @@ export function TopicSplitPane({ viewportKey = 'topic', navigationTarget = false
             自造的那份缺发送键、缺 @ 候选弹窗、缺草稿与附件 —— 这些原件早就解决过,
             重写一份等于把它们统统退回未解决态,而且不报任何错(owner 2026-09-19 实测点破)。
             话题是一间屋子 ⇒ isGroupChat,寻址规则与群一致。 */}
-        {/* 话题里运行条那一行同样是真占位的一行;只在传了 runningTokens 时才有(手机整页话题),桌面分栏旁边群里那一条一直看得见。 */}
-        <ChatBottomDock floating={!mobile} above={runningTokens &&
+        {/* 话题里运行条那一行同样是固定高的一行;只在传了 runningTokens 时才有(手机整页话题),桌面分栏旁边群里那一条一直看得见。 */}
+        <ChatBottomDock floating={!mobile} reserve={messages.length === 0} above={runningTokens &&
         <RunningBarSlot>
         {runningTokens.length > 0 ? (
           <RunningTokenBar
@@ -616,25 +615,9 @@ export function TopicSplitPane({ viewportKey = 'topic', navigationTarget = false
       </div>
     </motion.div>
   )
-  if (mobile) return page
+  if (mobile || embedded) return page
   return (
     <>
-    {tabHost ? createPortal(
-      <TopicTab
-        name={topic.name}
-        chatId={topic.chatId}
-        sourceChatId={sourceChatId}
-        onClose={onClose}
-        items={(
-          <>
-            {searchItem}
-            <MenuItem data-testid="topic-split-files-toggle" onClick={toggleFiles} icon={<Paperclip size={16} />}>{t('topic.pane.attachments')}</MenuItem>
-            <MenuItem data-testid="topic-split-members-toggle" onClick={() => setMembersOpen((open) => !open)} icon={<Users size={16} />}>{t('topic.pane.members')}</MenuItem>
-          </>
-        )}
-      />,
-      tabHost,
-    ) : null}
     {/* @@@5856 宽度归 ResizablePane —— owner 拿掉了「全宽打开」那颗键之后,
         「想看大一点」这件事只剩这条分割线,所以它必须真能拖(拖拽那一套复用会话列表那一份,
         见 ResizablePane 的注释:边界情形全在那儿踩过了)。 */}
@@ -656,41 +639,5 @@ export function TopicSplitPane({ viewportKey = 'topic', navigationTarget = false
       {page}
     </ResizablePane>
     </>
-  )
-}
-
-/**
- * 块里的话题页签(gugu-dev#181 第 ⑤⑥ 步):和群对话那一枚并排连成一对(排右),× = 收起分栏、页签也拿掉(话题不会关闭)。
- * 右边换成了右栏里的东西时它还在,只是不亮;点一下分栏回来(`onPick`,GroupPanelTabs 画这一枚)。
- * 这一栏的附件、成员、群文件夹和能在话题里开的 App 在它的右键菜单里 —— 页签条右端那一排是这一块的。
- */
-export function TopicTab({ name, chatId, sourceChatId, onClose, onPick, items }: { name: string; chatId: string; sourceChatId: string; onClose?: () => void; onPick?: () => void; items?: React.ReactNode }) {
-  const { t } = useTranslation('messaging')
-  const [menuAt, setMenuAt] = useState<{ x: number; y: number } | null>(null)
-  return (
-    <TabSlot data-topic-tab={chatId}>
-      <TabChip
-        isActive={!onPick}
-        pairRole="end"
-        label={name}
-        preSlot={<MessageSquare size={14} />}
-        closeLabel={t('topic.pane.collapseSplitHint')}
-        onClick={onPick}
-        onClose={() => {
-          groupSlotMemory.closeTopic(chatId)
-          onClose?.()
-        }}
-        onContextMenu={(event) => {
-          event.preventDefault()
-          setMenuAt({ x: event.clientX, y: event.clientY })
-        }}
-      />
-      {menuAt ? (
-        <Menu x={menuAt.x} y={menuAt.y} onClose={() => setMenuAt(null)}>
-          {items}
-          <ChatTabMenuItems chatId={sourceChatId} />
-        </Menu>
-      ) : null}
-    </TabSlot>
   )
 }
