@@ -124,6 +124,16 @@ describe('the background page lists agents as every page does (L12)', () => {
     expect(await call(BACKGROUND, 'listAgents')).toEqual({ ok: false, code: 'denied', message: 'Not permitted: this App does not have "agents:read"' });
     expect(listAgentsForExtension).not.toHaveBeenCalled();
   });
+
+  it('reports the same scoped rows with observation time and unreachable machines when requested', async () => {
+    granted.add('agents:read:all-machines');
+    const result = await call(BACKGROUND, 'listAgents', { report: true });
+    expect(result).toMatchObject({ ok: true, value: {
+      agents: expect.arrayContaining([expect.objectContaining({ agentId: 'user:on-b', deviceId: 'dev-b', statusFrom: 'device', statusAt: expect.any(String) })]),
+      unreached: [expect.objectContaining({ deviceId: 'dev-c' })], checkedAt: expect.any(String),
+    } });
+    expect(listAgentsForExtension).toHaveBeenLastCalledWith({ scope: 'all-machines', extensionId: 'keeper' });
+  });
 });
 
 describe('the background page drives the agents it may see', () => {
