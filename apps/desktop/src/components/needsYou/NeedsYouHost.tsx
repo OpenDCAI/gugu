@@ -15,7 +15,7 @@ import { appInstallAskOf } from '@/session/shared/extensions/host-actions'
 import { observer } from 'mobx-react-lite'
 import { followLink } from '@/lib/guguLinks'
 import { readPhoneAppView, onPhoneAppState } from '../appSlot/phoneAppState'
-import { sessionPagesOnScreen } from '@/session/renderer/app/sessions-on-screen'
+import { sessionPageOnScreen, sessionPagesOnScreen } from '@/session/renderer/app/sessions-on-screen'
 import { getSessionView } from '@/session/renderer/features/sessions/stores/session-selectors'
 import { isEmbedVisible, subscribeEmbedVisibility } from '@/session/renderer/lib/portal-container'
 import { useNeedsYouTasks, type NeedsYouTask } from './useNeedsYouTasks'
@@ -36,7 +36,7 @@ export const NeedsYouHost = observer(function NeedsYouHost() {
   // Reuse the actual task route and active pane entries. A file/App tab has no approval card.
   const shownSessions = mobile
     ? phone.panes.some(pane => pane.activeTab?.kind === 'session') ? [phone.activeSessionId] : []
-    : embedded ? sessionPagesOnScreen().filter(page => getSessionView(page.projectId, page.sessionId)?.paneLayout.groups.some(({ pane }) => {
+    : embedded ? sessionPagesOnScreen().filter(page => sessionPageOnScreen(page.sessionId) && getSessionView(page.projectId, page.sessionId)?.paneLayout.groups.some(({ pane }) => {
       const entry = pane.activeEntry
       return (entry?.kind === 'session' || entry?.kind === 'acp-chat') && (entry.state as { sessionId?: string }).sessionId === page.sessionId
     })).map(page => page.sessionId) : []

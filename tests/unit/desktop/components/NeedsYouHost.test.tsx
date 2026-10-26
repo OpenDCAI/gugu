@@ -7,7 +7,7 @@ import { showPhoneAppView } from '../../../../apps/desktop/src/components/appSlo
 import { setEmbedVisible } from '../../../../apps/desktop/src/session/renderer/lib/portal-container'
 import { NeedsYouHost } from '../../../../apps/desktop/src/components/needsYou/NeedsYouHost'
 
-const state = vi.hoisted(() => ({ tasks: [] as unknown[], settlements: {} as Record<string, unknown>, link: 'ok', mobile: false, pages: [] as { projectId: string; sessionId: string }[], tab: 'acp-chat' }))
+const state = vi.hoisted(() => ({ tasks: [] as unknown[], settlements: {} as Record<string, unknown>, link: 'ok', mobile: false, pages: [] as { projectId: string; sessionId: string }[], wholePage: true, tab: 'acp-chat' }))
 const followLink = vi.hoisted(() => vi.fn())
 const close = vi.hoisted(() => vi.fn())
 const respond = vi.hoisted(() => vi.fn(async () => undefined))
@@ -17,7 +17,7 @@ vi.mock('@/hooks/useMobileShell', () => ({ useMobileShell: () => state.mobile })
 vi.mock('@/mobile/agent-watch/use-timeline-session', () => ({ useTimelineSession: timeline }))
 vi.mock('@/components/assistant/assistantTimelineClient', () => ({ assistantTimelineClient: () => ({}) }))
 vi.mock('@/lib/guguLinks', () => ({ followLink }))
-vi.mock('@/session/renderer/app/sessions-on-screen', () => ({ sessionPagesOnScreen: () => state.pages }))
+vi.mock('@/session/renderer/app/sessions-on-screen', () => ({ sessionPagesOnScreen: () => state.pages, sessionPageOnScreen: () => state.wholePage }))
 vi.mock('@/session/renderer/features/sessions/stores/session-selectors', () => ({ getSessionView: () => ({ paneLayout: { groups: [{ pane: { activeEntry: { kind: state.tab, state: { sessionId: 'task' } } } }] } }) }))
 vi.mock('@/session/renderer/features/extensions/install-consent', () => ({ closeInShell: close }))
 vi.mock('@/components/ui/Sheet', () => ({ Sheet: ({ children }: { children: ReactNode }) => <div role="dialog">{children}</div> }))
@@ -32,6 +32,7 @@ beforeEach(() => {
   state.link = 'ok'
   state.mobile = false
   state.pages = []
+  state.wholePage = true
   state.tab = 'acp-chat'
   setEmbedVisible(true)
   harness = createReactHarness()
@@ -106,6 +107,12 @@ it('hides only the task with a visible agent pane and restores it when leaving',
 it('keeps the global request when the task shows a file or App instead of its agent', async () => {
   state.pages = [{ projectId: 'project', sessionId: 'task' }]
   state.tab = 'file'
+  await open()
+  expect(document.querySelector('[data-item-id="install"]')).not.toBeNull()
+})
+it('keeps global access when only a detached file tab belongs to the waiting task', async () => {
+  state.pages = [{ projectId: 'project', sessionId: 'task' }]
+  state.wholePage = false
   await open()
   expect(document.querySelector('[data-item-id="install"]')).not.toBeNull()
 })
