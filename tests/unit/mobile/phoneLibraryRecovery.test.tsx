@@ -39,7 +39,7 @@ describe('phone library recovery', () => {
   it('recovers a cloud read automatically without exposing diagnostics or a retry button', async () => {
     vi.useFakeTimers()
     const retry = vi.fn()
-    await renderWithAppProviders(harness, <PhoneLibraryVolume {...base} kind="capabilities" machine={{ state: 'error', error: new Error('workspace unavailable'), retry }} />)
+    await renderWithAppProviders(harness, <PhoneLibraryVolume {...base} kind="capabilities" machine={{ state: 'error', error: new TypeError('Failed to fetch workspace unavailable'), retry }} />)
     expect(harness.container.querySelector('[role="alert"]')?.textContent).not.toContain('workspace unavailable')
     expect(harness.container.querySelector('[data-testid="assistant-read-retry"]')).toBeNull()
     await act(async () => { await vi.advanceTimersByTimeAsync(1500) })
@@ -48,6 +48,16 @@ describe('phone library recovery', () => {
     await renderWithAppProviders(harness, <PhoneLibraryVolume {...base} kind="capabilities" machine={{ state: 'ready', machine }} />)
     expect(harness.container.querySelector('[data-testid="file-book-reader"]')?.getAttribute('data-machine')).toBe('home')
     expect(harness.container.querySelector('[role="alert"]')).toBeNull()
+  })
+
+  it.each(['unprepared','collection-unavailable','application-failed','stale'])('does not retry a fixed cloud state %s', async code => {
+    vi.useFakeTimers()
+    const retry = vi.fn()
+    await renderWithAppProviders(harness,<PhoneLibraryVolume {...base} kind="capabilities" machine={{ state: 'error',error: Object.assign(new Error('private diagnostic'),{ code }),retry }} />)
+    await act(async () => { await vi.advanceTimersByTimeAsync(60_000) })
+    expect(retry).not.toHaveBeenCalled()
+    expect(harness.container.textContent).not.toContain('private diagnostic')
+    expect(harness.container.querySelector('[data-testid="assistant-read-retry"]')).toBeNull()
   })
 
   it('keeps the account project directory accessible when the assistant workspace is unavailable', async () => {
