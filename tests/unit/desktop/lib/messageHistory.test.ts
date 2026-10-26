@@ -3,14 +3,17 @@ import { IDBFactory, IDBKeyRange } from 'fake-indexeddb'
 import { openLocalSyncDb, type LocalImDbAdapter } from '../../../../apps/desktop/src/lib/localSyncDb'
 import { openImRepository, replaceMessageWindow } from '../../../../apps/desktop/src/lib/imRepository'
 import { readHistoryPage, retainHistoryPage, retainMessageDeletion, mergeHistoryRanges } from '../../../../apps/desktop/src/lib/messageHistory'
-import { message } from '../../../support/testHarness'
+import { chat, message } from '../../../support/testHarness'
+import { chatService } from '../../../../apps/desktop/src/lib/chat'
+import { fetchChatHistoryPage, restoreChatHistoryAnchor } from '../../../../apps/desktop/src/store/chatWindowPublication'
+import { ChatHistoryWindow } from '../../../../apps/desktop/src/store/chatHistoryWindow'
 
 let adapter: LocalImDbAdapter
 beforeEach(async () => {
   vi.stubGlobal('IDBKeyRange', IDBKeyRange)
   adapter = await openLocalSyncDb(new IDBFactory())
 })
-afterEach(() => { adapter.close(); vi.unstubAllGlobals() })
+afterEach(() => { adapter.close(); vi.restoreAllMocks(); vi.unstubAllGlobals() })
 const rows = (seqs: number[], chatId = 'group') => seqs.map((seq) => message({ id: `${chatId}-${seq}`, chat_id: chatId, seq }))
 
 describe('durable sparse history', () => {
@@ -77,5 +80,49 @@ describe('durable sparse history', () => {
     const repository = await openImRepository('account', { adapter })
     await retainHistoryPage(repository, { chatId: 'group', direction: 'newer', cursor: 101, limit: 3 }, [], 0)
     expect(await readHistoryPage(repository, { chatId: 'group', direction: 'newer', cursor: 101, limit: 3 })).toEqual([])
+  })
+})
+
+
+describe('online retained history publication', () => {
+  it.each(['group', 'topic'] as const)('opens a covered %s anchor online without waiting for history HTTP', async (kind) => {
+    vi.stubGlobal('navigator', { onLine: true })
+    const repository = await openImRepository('account', { adapter })
+    await repository.transaction((tx) => tx.putChat(kind, chat({ id: kind, kind })))
+    const page = rows(Array.from({ length: 40 }, (_, i) => i + 81), kind)
+    await retainHistoryPage(repository, { chatId: kind, direction: 'older', cursor: 121, limit: 40 }, page, 40)
+    await repository.transaction((tx) => retainMessageDeletion(repository, tx, `${kind}-99`))
+    const network = vi.spyOn(chatService, 'getMessages').mockImplementation(() => new Promise(() => {}))
+    const byId = vi.spyOn(chatService, 'getMessageById').mockImplementation(() => new Promise(() => {}))
+    const window = new ChatHistoryWindow('account'); window.reset(kind)
+    expect(await restoreChatHistoryAnchor(window, 'account', `${kind}-100`, async () => repository)).toBe(true)
+    expect(window.getSnapshot().messages.map((row) => row.seq)).toEqual(page.filter((row) => row.seq !== 99).map((row) => row.seq))
+    expect(window.getSnapshot().hasNewer).toBe(true)
+    expect(network).not.toHaveBeenCalled(); expect(byId).not.toHaveBeenCalled()
+    repository.close()
+  })
+
+  it('downloads an uncertified online page instead of claiming an empty cached result', async () => {
+    vi.stubGlobal('navigator', { onLine: true })
+    const repository = await openImRepository('account', { adapter })
+    await repository.transaction((tx) => tx.putChat('group', chat({ id: 'group', kind: 'group' })))
+    const page = rows([100, 101])
+    const network = vi.spyOn(chatService, 'getMessages').mockResolvedValue(page)
+    const result = await fetchChatHistoryPage('account', async () => repository, true)('group', 'older', 102, 20)
+    expect(result).toEqual(page)
+    expect(network).toHaveBeenCalledWith('group', 'account', 'loadOlder', 20, 102)
+    repository.close()
+  })
+
+  it('does not reuse an old certified tail for an authoritative online latest read', async () => {
+    vi.stubGlobal('navigator', { onLine: true })
+    const repository = await openImRepository('account', { adapter })
+    await repository.transaction((tx) => tx.putChat('group', chat({ id: 'group', kind: 'group' })))
+    await retainHistoryPage(repository, { chatId: 'group', direction: 'latest', cursor: 0, limit: 20 }, rows([100]), 1)
+    const network = vi.spyOn(chatService, 'getMessages').mockResolvedValue(rows([200]))
+    const result = await fetchChatHistoryPage('account', async () => repository)('group', 'latest', 0, 20)
+    expect(result.map((row) => row.seq)).toEqual([200])
+    expect(network).toHaveBeenCalledWith('group', 'account', 'initialLoad', 20)
+    repository.close()
   })
 })

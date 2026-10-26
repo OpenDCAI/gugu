@@ -82,16 +82,18 @@ export async function openCachedChatWindow(options: {
 }
 
 /** The existing history controller owns both primary and scoped pagination. */
-export function fetchChatHistoryPage(userId: string, getRepository?: () => Promise<AccountImRepository>): FetchHistoryPage {
+export function fetchChatHistoryPage(userId: string, getRepository?: () => Promise<AccountImRepository>, preferRetained = false): FetchHistoryPage {
   return async (chatId, direction, cursor, limit) => {
     const repository = await getRepository?.()
     const query = { chatId, direction, cursor, limit }
     // This experiment covers room mainlines and topics; private conversations keep their existing reader.
     const retained = repository?.snapshot().chat.some((row) => row.id === chatId && isRoomChat(row.value.kind)) ? repository : undefined
-    if (retained && !navigator.onLine) {
+    // Old anchors may paint a previously certified page online; their caller already
+    // revalidates the resulting window. Latest/delta reads still require server authority.
+    if (retained && (preferRetained || !navigator.onLine)) {
       const cached = await readHistoryPage(retained, query)
       if (cached !== null) return cached
-      throw new HistoryNotDownloadedError()
+      if (!navigator.onLine) throw new HistoryNotDownloadedError()
     }
     const rows = await (direction === 'newer' ? chatService.getMessages(chatId, userId, 'loadNewer', limit, undefined, cursor)
       : direction === 'older' ? chatService.getMessages(chatId, userId, 'loadOlder', limit, cursor)
@@ -108,7 +110,7 @@ export function restoreChatHistoryAnchor(window: ChatHistoryWindow, userId: stri
     if (!local && !navigator.onLine) throw new HistoryNotDownloadedError()
     const anchor = local?.value ?? await chatService.getMessageById(messageId, userId)
     if (!anchor || anchor.chat_id !== chatId || anchor.thread_root_id) throw new Error('Saved conversation message is no longer available')
-    const fetch = fetchChatHistoryPage(userId, getRepository)
+    const fetch = fetchChatHistoryPage(userId, getRepository, true)
     const [older, newer] = await Promise.all([
       fetch(chatId, 'older', anchor.seq + 1, 20),
       fetch(chatId, 'newer', anchor.seq, 20),
