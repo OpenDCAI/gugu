@@ -11,22 +11,23 @@ type TextFile = { entry: AppFileEntry; text: string; close(): void }
 const START = 'left right'
 const image = () => new File(['image'], 'shot.png', { type: 'image/png' })
 const $ = (id: string) => document.getElementById(id)!
-let cleanup = () => {}
+let cleanup = async () => {}
 
 async function mount(readOnly = false) {
   const loaded = await loadPage<TextFile>('text')
   loaded.service.write('item-1@1', START)
   loaded.host.appFiles.open.mockImplementation(async () => {
     const opened = fileOpened('text')
-    return { ...opened, access: readOnly ? 'r' : 'rw', entry: { ...opened.entry, name: 'report.md', path: 'notes/report.md', parentId: 'notes-folder' } }
+    return { ...opened, access: readOnly ? 'ro' : 'rw', entry: { ...opened.entry, name: 'report.md', path: 'notes/report.md', parentId: 'notes-folder' } }
   })
   const file = await loaded.open()
   const { codemirror, bindCodemirror } = await import('../../../../apps/desktop/src/session/app-runtime/codemirror-entry')
   const upload = vi.fn(async (_where: unknown, files: File[]): Promise<AppFileEntry[]> => files.map((f) => ({ ...file.entry, id: 'image-1', name: f.name, type: 'binary', contentType: f.type })))
   const ctx = { chat: { id: 'chat-1', name: 'Images', kind: 'group', groupId: 'chat-1' }, file: { chat: 'chat-1', id: 'item-1' }, locale: 'en', capabilities: ['files:read', 'files:write'] }
+  let contextChanged: (ctx: unknown) => Promise<unknown> = async () => {}
   const gugu = {
     getContext: async () => ctx,
-    onContextChanged: () => () => {},
+    onContextChanged: (fn: typeof contextChanged) => { contextChanged = fn; return () => {} },
     setTabTitle: async () => {},
     onLink: () => () => {},
     codemirror: async () => codemirror,
@@ -41,8 +42,14 @@ async function mount(readOnly = false) {
   // @ts-expect-error The built-in App is an unbundled ES module.
   await import('../../../../apps/desktop/preinstalled-apps/workspace/app.js')
   await vi.waitFor(() => expect(document.querySelector('.cm-content')).not.toBeNull())
+  await vi.waitFor(() => expect($('doc-status').dataset.status).toBe('online'))
   const view = codemirror.EditorView.findFromDOM(document.querySelector('.cm-editor') as HTMLElement)!
-  cleanup = () => { view.destroy(); file.close(); document.body.replaceChildren() }
+  cleanup = async () => {
+    await contextChanged({ ...ctx, file: undefined })
+    // Let the selection bar's queued frame settle while its document still exists.
+    await new Promise<void>((done) => requestAnimationFrame(() => done()))
+    document.body.replaceChildren()
+  }
   expect(view.state.doc.toString()).toBe(START)
   view.dispatch({ selection: { anchor: 5 } })
   return { ...loaded, file, view, upload }
@@ -55,7 +62,7 @@ function paste(view: Awaited<ReturnType<typeof mount>>['view'], files: File[]) {
   return event
 }
 
-afterEach(() => { cleanup(); cleanup = () => {} })
+afterEach(async () => { await cleanup(); cleanup = async () => {} })
 
 describe('workspace Markdown image insertion', () => {
   test('paste uploads beside this document and inserts the stored name, with Markdown delimiters escaped', async () => {
