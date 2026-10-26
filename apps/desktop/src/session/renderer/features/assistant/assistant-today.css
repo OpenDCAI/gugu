@@ -232,6 +232,16 @@
 .ta-task-chat-slot [data-msg-id] > div { padding-inline: 16px !important; }
 .ta-task-chat-slot [data-chat-bottom-dock] > div:last-child { padding-bottom: 16px !important; }
 .ta-task-chat-slot [data-testid='chat-message-list'] { padding-bottom: 16px; }
+/* 主聊天和面板里的任务聊天是同一个输入框:同高同宽,四边按 8/16 走。
+   文字离框 16,+ 号和发送键离框 8;空着时一行字(上 12、下 8)加一排 32 的按钮(下 8),共 86 高,打字多了照常长高。
+   聊天页那档加厚是给宽窗口的,助理这一列窄,沿用它就成了一块大方墩。 */
+.ta-chat-col [data-slot='composer-input'],
+.ta-task-chat-slot [data-slot='composer-input'] { min-height: 44px !important; padding: 12px 16px 8px !important; }
+.ta-chat-col [data-slot='composer-toolbar'],
+.ta-task-chat-slot [data-slot='composer-toolbar'] { padding: 0 8px 8px !important; }
+/* 助理这里没有快捷动词,它那个空位却有 42 高,把底排撑高 10px。 */
+.ta-chat-col [data-slot='composer-actions-start'] > span:empty,
+.ta-task-chat-slot [data-slot='composer-actions-start'] > span:empty { display: none; }
 /* 输入条上方那句说明(云电脑休眠中…):做成一行居中的小字胶囊,不抢输入条。 */
 .ta-chat [data-composer-notice] {
   justify-content: center;
@@ -243,9 +253,15 @@
   padding: 4px 12px !important;
   font-size: var(--font-caption) !important;
 }
+/* 顶上从头像那一排底下淡出来;底下到输入框(或它上面那颗胶囊)的上沿为止:输入框底下、两侧那条空地不露出滚过去的消息。
+   --chat-dock-avatar-h 是 ChatBottomDock 实测的「输入框上沿到列底」的高度。 */
 .ta-chat [data-testid='chat-message-list'] {
-  -webkit-mask-image: linear-gradient(to bottom, transparent 0, #000 28px);
-  mask-image: linear-gradient(to bottom, transparent 0, #000 28px);
+  -webkit-mask-image: linear-gradient(to bottom, transparent 0, #000 28px, #000 calc(100% - var(--chat-dock-avatar-h, 0px)), transparent calc(100% - var(--chat-dock-avatar-h, 0px)));
+  mask-image: linear-gradient(to bottom, transparent 0, #000 28px, #000 calc(100% - var(--chat-dock-avatar-h, 0px)), transparent calc(100% - var(--chat-dock-avatar-h, 0px)));
+}
+.ta-task-chat-slot [data-testid='chat-message-list'] {
+  -webkit-mask-image: linear-gradient(to bottom, #000 calc(100% - var(--chat-dock-avatar-h, 0px)), transparent calc(100% - var(--chat-dock-avatar-h, 0px)));
+  mask-image: linear-gradient(to bottom, #000 calc(100% - var(--chat-dock-avatar-h, 0px)), transparent calc(100% - var(--chat-dock-avatar-h, 0px)));
 }
 
 /* 输入区复用聊天页的三段式组件与尺寸，多行输入不另套圆角容器。 */

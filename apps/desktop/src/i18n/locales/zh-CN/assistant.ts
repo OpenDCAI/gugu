@@ -452,22 +452,6 @@ export default {
     "gone": "它可能已经被删掉了。"
   },
   "memory": {
-    "pending": {
-      "title": "没办完的事",
-      "count": "{{count}} 项",
-      "note": "清空只移除这里的恢复记录，不会取消任务。",
-      "retry": "暂时读不到，重试",
-      "loading": "正在读取…",
-      "empty": "没有待跟进记录",
-      "uncertain": "投递结果待核实",
-      "needsSource": "缺少来源，无法自动恢复",
-      "blocked": "等待设备开启任务宿主",
-      "question": "等你回答",
-      "executor": "等待任务回报",
-      "source": "原始需求",
-      "clear": "清空记录",
-      "clearFailed": "清空失败，请重试"
-    },
     "loadFailed": "记忆没读到，稍后再试。",
     "aboutUserTitle": "我对{{owner}}的了解",
     "updated": "更新于 {{time}}",
