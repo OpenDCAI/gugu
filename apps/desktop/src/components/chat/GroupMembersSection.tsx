@@ -5,7 +5,7 @@ import { buildGroupInviteShareUrl } from '../../lib/groupInviteShareUrl'
 import { useMobileShell } from '../../hooks/useMobileShell'
 import type { ChatItem, GroupCollabSnapshot, NotificationLevel } from '@gugu/core/shared/types/chat'
 import { resolveOrLoud } from '@gugu/core/shared/resolveOrLoud'
-import { GroupNameInlineEdit } from './GroupNameInlineEdit'
+import { GroupNameRow } from './GroupNameRow'
 import { Avatar } from '../Avatar'
 import { Button } from '../ui/Button'
 import { displayAvatarUrl } from '../../lib/dicebearAvatar'
@@ -278,7 +278,7 @@ export function GroupMembersSection({
               ) : null}
             </div>
             <div style={profileTextStyle}>
-              <GroupNameInlineEdit name={groupName} canEdit={viewerIsManager && Boolean(settings)} onCommit={handleRename} wrap />
+              <GroupNameRow chat={chat} name={groupName} canEdit={viewerIsManager && Boolean(settings)} onCommit={handleRename} />
               <div style={memberCountStyle}>{t('group.settings.memberCount', { count: totalMembers })}</div>
             </div>
           </div>
