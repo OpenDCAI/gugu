@@ -39,8 +39,8 @@ describe('assistantGuide', () => {
     for (const kind of ['cloud', 'computer'] as const) {
       const brief = assistantBrief(kind, '/assistant/reference.md', '/assistant/memory')
       const guide = assistantGuide(kind)
-      expect(brief).toContain('读写记忆/每日首聊先检查关于你')
-      expect(brief).toContain('寒暄仅保留每日档案检查')
+      expect(brief).toContain('关于你v2：比对上下文索引，同版不调工具')
+      expect(brief).toContain('同版寒暄直接回复')
       expect(guide).toContain('# 关于你（owner-profile.md）')
       expect(guide).toContain('正文开头先用「你」写 1～3 句事实摘要')
       expect(guide).toContain('身份、正在做的事、最近重点')
@@ -51,6 +51,33 @@ describe('assistantGuide', () => {
       expect(guide).toContain('已有账号同样检查，不合格式就自主整理')
       expect(guide).toContain('不等本人要求整理，合规就不重写')
     }
+  })
+
+  it('compares profile versions in the loaded index without tools and persists verified reviews in that row', () => {
+    for (const kind of ['cloud', 'computer'] as const) {
+      const brief = assistantBrief(kind, '/assistant/.gugu-assistant-reference.md', '/assistant/memory')
+      const guide = assistantGuide(kind)
+      for (const prompt of [brief, guide]) {
+        expect(prompt).toContain('关于你v2：比对上下文索引，同版不调工具')
+        expect(prompt).toContain('缺失/不同才读档案，核妥记入 MEMORY.md 原行')
+        expect(prompt).not.toContain('每次对话先读该值')
+        expect(prompt).not.toContain('读写记忆/每日首聊先检查关于你')
+      }
+      expect(brief).toContain('同版寒暄直接回复')
+      expect(brief.length).toBeLessThanOrEqual(kind === 'computer' ? 2111 : 2133)
+      expect(guide).toContain('即使当天已首聊，规矩更新后的第一次对话也先检查')
+      expect(guide).toContain('MEMORY.md 中指向 owner-profile.md 的原行记录已核版本 profile_rules: 2')
+      expect(guide).toContain('不为比对重读索引、档案或 YAML，也不调其他工具')
+      expect(guide).toContain('同版不因寒暄、每日首聊或读取其他记忆而重查')
+      expect(guide).toContain('旧 YAML 版本不能代替索引标记')
+      expect(guide).toContain('回读确认合规后才更新索引原行的 profile_rules: 2')
+      expect(guide).toContain('读取、整理或保存失败不标记通过，下次对话重试')
+      expect(guide).toContain('保留原链接和事实摘要，不另建条目')
+      expect(guide).toContain('正文已合规只补索引版本，不改事实')
+      expect(guide).toContain('索引更新成功后以新行为准，不再按启动旧行重查')
+      expect(guide).toContain('不把版本写进档案正文、name 或 description')
+    }
+    expect(ASSISTANT_CONTEXT_CORE.join('\n').length).toBeLessThanOrEqual(1267)
   })
 
   it('frames delegated work as tasks and tools without person-like worker terminology', () => {
