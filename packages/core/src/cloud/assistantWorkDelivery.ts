@@ -13,7 +13,7 @@ export type AssistantWorkDeliveryEvent = AssistantWorkEventInput & {
 const fail = (code: string) => Object.assign(new Error(code), { code })
 export function createAssistantWorkDeliveryReceiver(deps: {
   context(): Promise<{ ownerId: string; deviceId: string } | null>
-  read(ref: AssistantWorkDeliveryReference): Promise<AssistantWorkDeliveryEvent | null>
+  read(ref: AssistantWorkDeliveryReference, signal?: AbortSignal): Promise<AssistantWorkDeliveryEvent | null>
   deliver(event: AssistantWorkDeliveryEvent, signal?: AbortSignal): Promise<{ admitted: boolean; messageId: string; receipt?: Record<string, unknown> }>
 }) {
   type Admission = { status: 'admitted'; messageId: string; receipt?: Record<string, unknown> } | { status: 'pending' }
@@ -30,7 +30,15 @@ export function createAssistantWorkDeliveryReceiver(deps: {
       if (existing) return existing
       const admitting = (async (): Promise<Admission> => {
       // Deliberately ignore any cached content/attachments supplied on the wire.
-      const event = await deps.read({ assistant_id: ref.assistant_id, work_id: ref.work_id, message_id: ref.message_id })
+      const canonical={ assistant_id: ref.assistant_id, work_id: ref.work_id, message_id: ref.message_id }
+      const event = await (signal ? new Promise<AssistantWorkDeliveryEvent|null>((resolve,reject)=>{
+        const aborted=()=>{signal.removeEventListener('abort',aborted);reject(signal.reason)}
+        signal.addEventListener('abort',aborted,{once:true})
+        Promise.resolve().then(()=>{signal.throwIfAborted();return deps.read(canonical,signal)}).then(
+          value=>{signal.removeEventListener('abort',aborted);resolve(value)},
+          error=>{signal.removeEventListener('abort',aborted);reject(error)},
+        )
+      }) : deps.read(canonical))
       if (!event || event.message_id !== ref.message_id || event.work_id !== ref.work_id) throw fail('WORK_MESSAGE_NOT_FOUND')
       if (!event.source_available || typeof event.content !== 'string') throw fail('SOURCE_UNAVAILABLE')
       const current = await deps.context()

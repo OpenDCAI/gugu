@@ -10,6 +10,21 @@ function fixture(row = event) {
   return { receiver, read, deliver }
 }
 describe('work delivery receiver', () => {
+  it('cancels a stalled history read without later injecting its stale completion',async()=>{
+    const f=fixture();const gate=Promise.withResolvers<AssistantWorkDeliveryEvent>()
+    f.read.mockImplementationOnce(()=>gate.promise)
+    const controller=new AbortController()
+    const ref={assistant_id:'agent',work_id:'work',message_id:'message'}
+    const flight=f.receiver.receive(ref,'owner',controller.signal)
+    let rejected=false;void flight.catch(()=>{rejected=true})
+    await vi.waitFor(()=>expect(f.read).toHaveBeenCalledOnce())
+    controller.abort(new Error('cancelled'))
+    try {await vi.waitFor(()=>expect(rejected).toBe(true),{timeout:100})}
+    finally {gate.resolve(event);await Promise.allSettled([flight])}
+    expect(f.deliver).not.toHaveBeenCalled()
+    await f.receiver.receive(ref,'owner')
+    expect(f.deliver).toHaveBeenCalledOnce()
+  })
   it('joins concurrent wire replays until the actual admission settles', async () => {
     const f = fixture(); const gate = Promise.withResolvers<void>();
     f.deliver.mockImplementation(async () => { await gate.promise; return { messageId: 'message', admitted: true }; });
