@@ -1,3 +1,4 @@
+import { useGroupDisplayName } from '../hooks/useGroupDisplayName'
 import { GroupInvitationsPanel } from './contacts/GroupInvitationsPanel'
 import { messageForUser } from '../lib/userFacingError'
 import { Button } from './ui/Button'
@@ -230,7 +231,7 @@ function GroupJoinRequestItem({ request, onDecided }: { request: ManagedGroupJoi
   const [error, setError] = useState<string | null>(null)
   const requester = identitiesById[request.requester_user_id]
   const requestedBy = request.requested_by_user_id ? identitiesById[request.requested_by_user_id] : undefined
-  const groupName = resolveOrLoud(request.group.name, `join request group ${request.group.id}`)
+  const groupName = useGroupDisplayName(request.group)
   const joinLine = request.requester_type === 'agent' && request.requested_by_user_id
     ? t('groupJoinRequests.agentRequestedBy', { owner: resolveOrLoud(requestedBy?.display_name, `agent join requested by ${request.requested_by_user_id}`), group: groupName })
     : t('groupJoinRequests.wantsToJoin', { group: groupName })

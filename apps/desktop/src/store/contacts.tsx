@@ -459,7 +459,9 @@ export function ContactsProvider({ children, active = true }: { children: React.
   const getCommonGroupChats = useCallback(
     async (contactId: string) => {
       if (!userId) return []
-      return contactsService.getCommonGroupChats(userId, contactId)
+      const rows = await contactsService.getCommonGroupChats(userId, contactId)
+      const aliases = new Map(chatListRemovalRef.current.chats.map((chat) => [chat.id, chat.alias]))
+      return rows.map((row) => ({ ...row, alias: aliases.get(row.id) ?? null }))
     },
     [userId],
   )
