@@ -9,7 +9,7 @@ import { SegmentedTabs } from '@/components/ui/SegmentedTabs'
 import { Avatar } from '@/components/Avatar'
 import { ChatAreaPanel } from '@/components/ChatAreaPanel'
 import { FilePreviewHost } from '@/components/chat/filePreviewHost'
-import { AssistantCustomizeCard } from '@/components/assistant/AssistantCustomizeCard'
+import { AssistantComposerEntries } from '@/components/assistant/AssistantComposerEntries'
 import { useCustomizeCardOffered } from '@/lib/assistantSetupState'
 import { useAuth } from '@/store/auth'
 import type { AssistantChatHandlers } from '@/components/assistant/AssistantChatSlot'
@@ -19,7 +19,6 @@ import { useBackLayer } from '@/components/ui/sheetStack'
 import { appendDraft } from '@/lib/assistantDraft'
 import type { AssistantHomePlace } from '@/lib/assistantHome'
 import { assistantTintHue, assistantTintStyle } from '@/lib/assistantTint'
-import { IdeasEntry } from '@/session/renderer/features/assistant/assistant-ideas'
 import { scheduleComposerFocus } from '@/lib/focusComposer'
 import { ArrowUpToLine, ChevronLeft, Mic, Plus, Search, Settings, Sparkles } from '@/lib/icons'
 import { useReportChatOnScreen } from '@/lib/onScreenChat'
@@ -37,7 +36,7 @@ import { phoneNextRoute, phoneParentRoute, type PhoneParentRoute } from './phone
 import { PhoneToday } from './PhoneToday'
 import { PhoneVoiceBar } from './PhoneVoiceBar'
 import { usePhoneVoiceNotes } from './phoneVoiceRuntime'
-import { usePhoneMachine, type PhoneMachineState, type PhoneReadiness } from './phoneMachine'
+import { usePhoneMachine, type PhoneMachineState } from './phoneMachine'
 import '@/session/renderer/features/assistant/assistant-today.css'
 import './assistant-phone.css'
 
@@ -59,8 +58,6 @@ export type PhonePageProps = {
   cloudDeviceId: string | null
   /** 它住哪(云上 / 哪台电脑,那台在不在线)。 */
   home: AssistantHomePlace | null
-  /** 它家里此刻能不能读;云上收回着时要读的那一块由系统叫起来(PhoneMachineGate),住电脑 = 那台开着才读得到。 */
-  readiness: PhoneReadiness
   /** 读写它家里文件用的工作区(各格共用一份,❌ 每格各开一次)。 */
   machine: PhoneMachineState
   /** 把这句话(和要带上的文件)填进和它聊天的输入框并回到聊天:只填不发,人看过再发。 */
@@ -145,11 +142,10 @@ function MobileAssistantAppContent({
   const [ideasOpen, setIdeasOpen] = useState(false)
   const [chatColumn, setChatColumn] = useState<HTMLDivElement | null>(null)
   const chatShown = useReportChatOnScreen(visible && tab === 'chat' ? chatId : null) === chatId
-  const readiness = 'ready' as const
   const machine = usePhoneMachine(homeDeviceId, assistant.id, chatId)
   // 「+」里的「录制语音笔记」:手机只录和传到它家里(phoneVoiceRuntime),转写在电脑上点「开始转写」;它在休息时录音先留在手机上,❌ 替人叫醒。
   const { t: tVoice } = useTranslation('voiceNotes')
-  const voice = usePhoneVoiceNotes({ assistantId: assistant.id, deviceId: homeDeviceId, readiness, machine })
+  const voice = usePhoneVoiceNotes({ assistantId: assistant.id, deviceId: homeDeviceId, machine })
   const { disabled: voiceDisabled, start: voiceStart } = voice
   const back = backOf(route)
   // 安卓返回键:往下钻的页回上一层,别的格回聊天,聊天再退出(交给对话页那一层)。
@@ -174,15 +170,10 @@ function MobileAssistantAppContent({
 
   const name = assistant.display_name
   const typing = useAssistantTyping(chatId, assistant.id, name)
-  // 开通后递的「自定义」卡(照 dots):接在消息流末尾,点它 = 进资料页的自定义。
   const { user } = useAuth()
   const customizeOffered = useCustomizeCardOffered(user?.id)
-  const chatFooter = customizeOffered && user?.id ? (
-    <>
-      <AssistantCustomizeCard ownerUserId={user.id} name={name} onOpen={() => open({ tab: 'profile', sub: 'customize' })} />
-      {typing}
-    </>
-  ) : typing
+  const composerEntries = <AssistantComposerEntries assistantId={assistant.id} busy={false} onOpen={() => setIdeasOpen(true)}
+    customize={customizeOffered && user?.id ? { ownerUserId: user.id, name, onOpen: () => open({ tab: 'profile', sub: 'customize' }) } : undefined} />
   const reportInput = useRef<HTMLInputElement>(null)
   // 「+」里的:获取灵感(胶囊隐藏了也一直在)、录制语音笔记(正在录时置灰,录音条在聊天上面)、
   // 分析健康报告(选一份 PDF / 图片连同那句话排进输入框)。
@@ -194,7 +185,7 @@ function MobileAssistantAppContent({
     ],
     [t, tVoice, voiceDisabled, voiceStart],
   )
-  const page: PhonePageProps = { assistant, chatId, ownerName, homeDeviceId, cloudDeviceId, home, readiness, machine, askInChat, sub, go: (next) => open({ tab, sub: next ?? undefined }), open }
+  const page: PhonePageProps = { assistant, chatId, ownerName, homeDeviceId, cloudDeviceId, home, machine, askInChat, sub, go: (next) => open({ tab, sub: next ?? undefined }), open }
   const labels: Record<PhoneTab, string> = { chat: t('nav.chat'), today: t('nav.today'), tasks: t('nav.tasks'), memory: t('nav.memory'), profile: t('nav.profile') }
 
   // 它的主题色(小鸟身体的色相;照片头像没有 = 不写,走咕咕默认色),落在 `.ta-phone` 根上整页重算。
@@ -256,10 +247,9 @@ function MobileAssistantAppContent({
           activeTab="chats"
           mobile
           hidden={!chatShown}
-          chrome={{ placeholder: t('chat.placeholder', { name }), attachGlyph: <Plus />, attachMenu, typing: chatFooter }}
+          chrome={{ placeholder: t('chat.placeholder', { name }), attachGlyph: <Plus />, attachMenu, typing, composerHeader: composerEntries, hideRunningStatus: true }}
           {...chatHandlers}
         /></FilePreviewHost.Provider>
-        {tab === 'chat' ? <IdeasEntry assistantId={assistant.id} column={chatColumn} busy={false} onOpen={() => setIdeasOpen(true)} /> : null}
       </div>
       {/* 录音条:在 App 根上而不是聊天那一段里 —— 切到别的格也看得到「还在录」。 */}
       <PhoneVoiceBar voice={voice} name={name} column={chatColumn} onChat={tab === 'chat'} open={open} />

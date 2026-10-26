@@ -154,3 +154,15 @@ it('does not interpret a missing previously published file root as an empty coll
   await expect(publishAssistantPanelCollection(f.input)).rejects.toThrow('PANEL_RESOURCE_ROOT_MISSING')
   expect(f.rows.get('memory:note')?.deleted_at).toBeNull()
 })
+
+it('reconciles an observed local value after an owner edit has terminally failed', async () => {
+  const f = transport()
+  await publishAssistantPanelCollection(f.input)
+  f.input.collect.mockResolvedValue([{ key: 'note', data: { relativePath: 'note.md',title: 'actual local value' } }])
+  f.input.cloud.snapshot.mockImplementation(async () => ({ version: 1,revision: '9',items: [...f.rows.values()],application: [
+    { operationId: 'rejected-edit',revision: '9',domain: 'memory',resourceKey: 'note',status: 'failed',errorCode: 'EACCES',terminal: true },
+  ] }))
+  await publishAssistantPanelCollection(f.input)
+  expect(f.rows.get('memory:note')?.data.title).toBe('actual local value')
+  expect(f.rows.get('memory:__collection__')?.data.state).toBe('ready')
+})

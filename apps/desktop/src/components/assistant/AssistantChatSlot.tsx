@@ -20,7 +20,7 @@ import { ChatLineScope } from '@/store/chatLineScope'
 import type { AssistantDm } from './useAssistantDm'
 import { AssistantConversationProgress } from './AssistantConversationProgress'
 import { useAssistantTyping } from './useAssistantTyping'
-import { AssistantCustomizeCard } from './AssistantCustomizeCard'
+import { AssistantComposerEntries } from './AssistantComposerEntries'
 import { useCustomizeCardOffered } from '../../lib/assistantSetupState'
 import { useAuth } from '../../store/auth'
 import { appState } from '../../session/renderer/lib/stores/app-state'
@@ -128,15 +128,11 @@ function AssistantChatSlotContent({ dm, assistantId, assistantName, visible, ...
   useReportChatOnScreen(visible ? chatId : null)
   useAssistantDraft(chatId)
   const typing = useAssistantTyping(chatId, assistantId, assistantName)
-  // 开通后递的「自定义」卡(照 dots):接在消息流末尾,点它 = 打开资料页的自定义弹窗(会话页那棵树,经共享的导航 store)。
   const { user } = useAuth()
   const customizeOffered = useCustomizeCardOffered(user?.id)
-  const footer = customizeOffered && user?.id ? (
-    <>
-      <AssistantCustomizeCard ownerUserId={user.id} name={assistantName} onOpen={() => appState.navigation.navigate('assistant', { tab: 'profile', sub: 'customize' })} />
-      {typing}
-    </>
-  ) : typing
+  const { recording } = useVoiceNoteHandler()
+  const composerEntries = <AssistantComposerEntries assistantId={assistantId} busy={recording} onOpen={requestIdeas}
+    customize={customizeOffered && user?.id ? { ownerUserId: user.id, name: assistantName, onOpen: () => appState.navigation.navigate('assistant', { tab: 'profile', sub: 'customize' }) } : undefined} />
   // 点进「聊天」= 进入可输入语境,与对话页点进一条会话同一个 reason。
   useEffect(() => (visible && chatId ? scheduleComposerFocus('chat-entry') : undefined), [visible, chatId])
 
@@ -156,7 +152,7 @@ function AssistantChatSlotContent({ dm, assistantId, assistantName, visible, ...
         viewportKey={assistantSlotKey('chat')}
         activeTab="chats"
         hidden={!visible}
-        chrome={{ placeholder: t('chat.placeholder', { name: assistantName }), attachGlyph: <Plus />, attachMenu, typing: footer, hideRunningStatus: true }}
+        chrome={{ placeholder: t('chat.placeholder', { name: assistantName }), attachGlyph: <Plus />, attachMenu, typing, composerHeader: composerEntries, hideRunningStatus: true }}
         {...handlers}
       /></FilePreviewHost.Provider>
       {healthReport.input}

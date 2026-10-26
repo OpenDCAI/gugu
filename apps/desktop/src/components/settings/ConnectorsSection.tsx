@@ -18,12 +18,12 @@ type Where = 'cloud' | 'device' | 'other'
  */
 export function ConnectorsSection() {
   const { t } = useTranslation('assistant')
-  const { contact, home, cloudDeviceId } = useAssistantHome()
+  const { contact, home, cloudDeviceId, identityLoading } = useAssistantHome()
   const name = contact?.display_name ?? t('rail')
   const [where, setWhere] = useState<Where>('cloud')
   const cloud = home
     ? <SessionSettingsSection section="connectors" context={{ home, assistantName: name }} />
-    : <SettingsNote><LoadingIndicator size="inline" /></SettingsNote>
+    : <SettingsNote>{identityLoading ? <LoadingIndicator size="inline" /> : <span role="alert">{t('machine.identityFailed')}</span>}</SettingsNote>
 
   return (
     <SettingsPage data-testid="settings-connectors">

@@ -95,7 +95,7 @@
 .ta-phone-chat[hidden] { display: none; }
 .ta-phone .ta-chat { padding-top: 0; }
 /* 输入条下面就是咕咕底栏(它管安全区):这里 ❌ 再垫安全区、❌ 再画一道发丝线(手机聊天页那道线是给贴边底栏分界用的)。 */
-.ta-phone .ta-chat [data-chat-composer] { padding: 8px 12px !important; border-top: 0 !important; }
+.ta-phone .ta-chat [data-chat-composer] { padding: 0 12px 8px !important; border-top: 0 !important; }
 .ta-phone-body { flex: 1; min-height: 0; overflow-y: auto; overscroll-behavior-y: contain; padding: 12px 16px 24px; -webkit-overflow-scrolling: touch; }
 /* 空间足够时居中；短屏/键盘打开时从内容顶端滚动，不裁掉引导开头。 */
 .ta-phone-gate { display: flex; flex: 1; min-height: 0; flex-direction: column; overflow-y: auto; align-items: center; padding: 16px; }

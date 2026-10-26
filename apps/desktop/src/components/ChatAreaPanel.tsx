@@ -117,7 +117,7 @@ interface ChatAreaPanelProps {
   openNonce?: number
   onBack?: () => void
   /** #7199「助理」App 里那块:头栏只在搜索时出现(头像、搜索、设置在 App 自己那一排),输入框「和 X 聊天」+「+」;typing = 接在消息流末尾、取代运行条的「它在处理」。 */
-  chrome?: { placeholder: string; attachGlyph: ReactNode; attachMenu?: readonly ComposerAttachAction[]; typing?: ReactNode; hideRunningStatus?: boolean }
+  chrome?: { placeholder: string; attachGlyph: ReactNode; attachMenu?: readonly ComposerAttachAction[]; typing?: ReactNode; composerHeader?: ReactNode; hideRunningStatus?: boolean }
   /** Block tab-strip slots for actions, title, topics and right-panel tabs; absent on standalone/phone headers. */
   blockHost?: { actions: HTMLElement | null; title: HTMLElement | null; tabs: HTMLElement | null }
   onOpenUserChat?: (target: MemberProfileChatTarget) => void; onOpenSessionpageAgent?: (agentUserId: string, view?: 'code' | 'general') => Promise<void>; onOpenSessionpageAgentFile?: (agentUserId: string, path: string) => Promise<void>
@@ -1101,8 +1101,7 @@ function ChatAreaSurface({ viewportKey = 'chats', activeTab, navigationTarget = 
       ) : (
         // ChatBottomDock owns the shared desktop frame; keep phone padding and safe area unchanged.
         <div data-chat-composer="" className={mobile && blockHost ? `${sessionComposerDockBandClassName} pt-3` : undefined} style={{ background: mobile ? 'var(--bg-primary)' : undefined, padding: mobile ? (blockHost ? undefined : '8px 10px max(10px, env(safe-area-inset-bottom))') : 0, borderTop: mobile ? '1px solid var(--border-subtle)' : undefined, flexShrink: 0 }}>
-        {/* #1099: offline「唤醒 Agent」状态栏已删(ACP 发消息即触达自启)。removed 显提示栏。 */}
-        {/* agent 会话 composer 通知区：已注销 Agent 的禁用说明。 */}
+        {chrome?.composerHeader}
         {isAgentChat ? <AgentComposerNotices disabledReason={agentComposerDisabled ? (agentComposerDisabledReason ?? null) : null} agentUserId={activeChat?.peer_user_id ?? null} agentName={activeChatName} /> : null}
         <ChatMessageComposer
           beforeSend={createSessionpageChatSendPreflight(isAgentChat, activeChat?.peer_user_id, t('agent.taskpage.recoveryFailed.unknown'))}

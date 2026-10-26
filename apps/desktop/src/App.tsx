@@ -1,4 +1,3 @@
-import {installAssistantWorkShell} from './lib/assistantWorkShell'
 import { useCallback, useEffect, useState, useSyncExternalStore } from 'react'
 import { LoginPage } from './pages/LoginPage'
 import { MainLayout } from './layouts/MainLayout'
@@ -25,8 +24,12 @@ import { ThemeProvider } from './store/theme'
 import { rendererCommandEventName } from './lib/rendererCommandProtocol'
 import { sessionCoordinator } from './lib/sessionCoordinator'
 import { publishSelfIdentity } from './lib/selfIdentityBridge'
+import { installAssistantPanelHost } from './components/assistant/assistant-panel-host'
+
 import { platform } from './platform'
 import { type RendererRpcHandlers, useRendererRpcHandlers } from './rpc-renderer/rendererRpc'
+
+if (typeof window !== 'undefined') installAssistantPanelHost()
 
 // ── URL-based view detection ───────────────────────────────────────────────────
 
@@ -77,7 +80,6 @@ function AuthenticatedProduct({ user }: { user: AuthUser }) {
 }
 
 export default function App() {
-  useEffect(()=>installAssistantWorkShell(),[])
 
   const session = useSyncExternalStore(
     sessionCoordinator.subscribe,

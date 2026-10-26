@@ -8,6 +8,7 @@ function fixture() {
   const cloud = {
     pending: vi.fn<AssistantPanelClient['pending']>(async () => ({ revision: '1',changes: [change],notices: [] })),
     ack: vi.fn<AssistantPanelClient['ack']>(async (_assistant, _instance, operationId) => ({ operationId,revision: '1',status: 'applied' })),
+    reject: vi.fn<AssistantPanelClient['reject']>(async (_assistant,_instance,operationId,_errorCode) => ({ operationId,revision: '1',status: 'failed',terminal: true })),
     admit: vi.fn<AssistantPanelClient['admit']>(async () => ({ admitted: true,revision: '1' })),
   }
   const accepted = vi.fn(async () => {})
@@ -19,6 +20,21 @@ function fixture() {
 }
 
 describe('assistant panel admission', () => {
+  it('terminally rejects a persistent effect and delivers its explanation before admitting later work', async () => {
+    const world = fixture()
+    const later = { ...change,operation_id: 'later',resource_key: 'later',revision: '2' }
+    const notice = { ...change,operation_id: 'failure-notice',domain: 'notice',resource_key: 'failure',operation: 'notice' as const,
+      payload: { failure: { operationId: 'save',domain: 'memory',resourceKey: 'note',errorCode: 'EACCES' } } }
+    world.cloud.pending.mockResolvedValueOnce({ revision: '2',changes: [change,later],notices: [] })
+      .mockResolvedValue({ revision: '2',changes: [],notices: [notice] })
+    world.application.apply.mockImplementation(async item => { if (item.operation_id === 'save') throw Object.assign(new Error('permission denied'),{ code: 'EACCES' }) })
+    expect((await prepareAssistantPanelAdmission(world.input)).text).toContain('hello')
+    expect(world.application.apply.mock.calls.map(([row]) => row.operation_id)).toEqual(['save','save','save','later'])
+    expect(world.cloud.reject).toHaveBeenCalledExactlyOnceWith('assistant','runtime','save','EACCES')
+    expect(world.application.inform).toHaveBeenCalledWith(notice)
+    expect(world.cloud.pending).toHaveBeenCalledTimes(2)
+    expect(world.cloud.admit).toHaveBeenCalledOnce()
+  })
   it('retries a transient effect before admission and leaves notice consumption to the actual receipt', async () => {
     const world = fixture()
     world.application.apply.mockRejectedValueOnce(new Error('FILE_WRITE_FAILED'))
@@ -32,10 +48,11 @@ describe('assistant panel admission', () => {
     expect(world.accepted).toHaveBeenCalledOnce()
   })
 
-  it('identifies an unapplied resource after bounded retries and never admits stale state', async () => {
+  it('identifies an unsettled failure if its terminal receipt cannot be recorded', async () => {
     const world = fixture()
     world.application.apply.mockRejectedValue(new Error('FILE_WRITE_FAILED'))
-    await expect(prepareAssistantPanelAdmission(world.input)).rejects.toMatchObject({ domain: 'memory',resourceKey: 'note',code: 'FILE_WRITE_FAILED' })
+    world.cloud.reject.mockRejectedValue(new Error('network'))
+    await expect(prepareAssistantPanelAdmission(world.input)).rejects.toMatchObject({ domain: 'memory',resourceKey: 'note',code: 'CHANGE_ACK_UNAVAILABLE' })
     expect(world.application.apply).toHaveBeenCalledTimes(3)
     expect(world.cloud.admit).not.toHaveBeenCalled()
     expect(world.application.prepareText).not.toHaveBeenCalled()
@@ -44,7 +61,7 @@ describe('assistant panel admission', () => {
   it('recovers from a superseded save and fetches the newer removal before admission', async () => {
     const world = fixture()
     world.application.apply.mockImplementation(async row => { if (row.operation === 'save') throw new Error('BODY_READ_FAILED') })
-    world.cloud.ack.mockResolvedValueOnce({ operationId: 'save',revision: '1',status: 'superseded' })
+    world.cloud.reject.mockResolvedValueOnce({ operationId: 'save',revision: '1',status: 'superseded' })
     world.cloud.admit.mockRejectedValueOnce({ code: '40001' })
     world.cloud.pending.mockResolvedValueOnce({ revision: '1',changes: [change],notices: [] })
       .mockResolvedValueOnce({ revision: '2',changes: [{ ...change,operation_id: 'remove',operation: 'remove',revision: '2' }],notices: [] })

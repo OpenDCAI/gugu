@@ -12,7 +12,6 @@ import { readText, writeText } from '@/session/renderer/features/assistant/assis
 import { PageHead } from '@/session/renderer/features/assistant/assistant-ui-parts'
 import { useContactsStore } from '@/store/contactsContext'
 import type { PhonePageProps } from './MobileAssistantApp'
-import { PhoneMachineGate } from './PhoneMachineGate'
 import { ReadFailed, ReadingNow } from './PhoneMachineView'
 import { customizePlan } from './phoneProfileModel'
 import type { PhonePersona } from './usePhoneProfileData'
@@ -25,7 +24,7 @@ const log = rendererLogger('mobile/assistant')
  * 头像 +「换形象」(形象工坊)、名字、性格(预设 + 一段自己写的,留空清除),一个「保存」。
  * 名字、形象在咕咕身份上,随时能改;性格在它家里,在休息时那一块说清并给「叫醒它」(❌ 自己叫),名字照样能存。
  */
-export function PhoneCustomize({ assistant, readiness, machine, persona, go }: PhonePageProps & { persona: PhonePersona }) {
+export function PhoneCustomize({ assistant, machine, persona, go }: PhonePageProps & { persona: PhonePersona }) {
   const { t } = useTranslation('assistant')
   const { toast } = useToast()
   const { contacts, updateAgentProfile } = useContactsStore()
@@ -97,7 +96,7 @@ export function PhoneCustomize({ assistant, readiness, machine, persona, go }: P
       </Button>
       <div className="ta-phone-persona-fields">
         <label className="ta-field-label" htmlFor={`assistant-persona-${assistant.id}`}>{t('customize.character')}</label>
-        <PersonaGate readiness={readiness} machine={machine} persona={persona} name={assistant.display_name}>
+        <PersonaGate machine={machine} persona={persona}>
           <div className="ta-chips" role="group" aria-label={t('customize.character')}>
             {PERSONA_PRESETS.map((key) => (
               <Button variant="ghost" key={key} aria-pressed={preset === key} onClick={() => edit(setPreset)(preset === key ? null : key)} data-testid={`assistant-persona-${key}`}>
@@ -122,14 +121,12 @@ export function PhoneCustomize({ assistant, readiness, machine, persona, go }: P
   )
 }
 
-/** 性格那一块读到之前说清是哪一步:在休息 / 正在醒 / 连不上(PhoneMachineGate)→ 工作区没开好 / 读失败(带重试)→ 正在读。 */
+/** 性格读取失败时显示云端读取的原因。 */
 function PersonaGate({
-  readiness,
   machine,
   persona,
-  name,
   children,
-}: Pick<PhonePageProps, 'readiness' | 'machine'> & { persona: PhonePersona; name: string; children: ReactNode }) {
+}: Pick<PhonePageProps, 'machine'> & { persona: PhonePersona; children: ReactNode }) {
   const { t } = useTranslation('assistant')
   const body = (() => {
     if (machine.state === 'error') return <ReadFailed title={t('customize.loadFailed')} error={machine.error} onRetry={machine.retry} />
@@ -137,9 +134,5 @@ function PersonaGate({
     if (!persona.persona) return <ReadingNow />
     return children
   })()
-  return (
-    <PhoneMachineGate readiness={readiness} name={name}>
-      {body}
-    </PhoneMachineGate>
-  )
+  return body
 }

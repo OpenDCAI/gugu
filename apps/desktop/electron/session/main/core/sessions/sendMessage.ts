@@ -162,7 +162,7 @@ async function readSession(params: {
   return { ...row, provider: row.provider, config: row.config };
 }
 
-function readAcceptedMessage(messageId: string): AcceptedMessageReceipt | undefined {
+export function readAcceptedMessage(messageId: string): AcceptedMessageReceipt | undefined {
   return db
     .select({
       id: messages.id,

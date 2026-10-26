@@ -1,6 +1,7 @@
-import type { ReactNode } from 'react';
+import type { CSSProperties, ReactNode } from 'react';
 import { ChevronRight } from '@/lib/icons';
 import { cn } from '@/lib/cn';
+import { Avatar } from '@/components/Avatar';
 
 // #7199 「助理」App 的页面元件(类名见 assistant-today.css):页头、分段、一段标题 + 一张卡、
 // 卡里的行、两列的小卡、空态。各页只拼这些,❌ 各写各的圆角与间距。
@@ -80,21 +81,44 @@ export function AssistantRow({
   onClick,
   testId,
   chevron = true,
+  detailLines,
+  trailingInteractive = false,
 }: {
   leading?: ReactNode;
   title: ReactNode;
   detail?: ReactNode;
+  /** 说明行最多显示几行(默认一行截断);「关于你」那几行要多露一点内容。 */
+  detailLines?: number;
   trailing?: ReactNode;
   onClick?: () => void;
   testId?: string;
   chevron?: boolean;
+  /** A row action and its menu must be sibling buttons, never nested buttons. */
+  trailingInteractive?: boolean;
 }) {
+  if (onClick && trailingInteractive) return (
+    <div className="ta-row ta-row-split" data-testid={testId} data-divided={leading ? undefined : ''}>
+      <button type="button" onClick={onClick} className="ta-row-main">
+        {leading ? <span className="flex size-9 shrink-0 items-center justify-center">{leading}</span> : null}
+        <span className="ta-row-body">
+          <span className="ta-row-title">{title}</span>
+          {detail ? <span className="ta-row-sub" data-lines={detailLines} style={detailLines ? ({ '--ta-row-lines': detailLines } as CSSProperties) : undefined}>{detail}</span> : null}
+        </span>
+        {chevron && <span className="ta-row-chevron"><ChevronRight /></span>}
+      </button>
+      <span className="ta-row-meta">{trailing}</span>
+    </div>
+  );
   const body = (
     <>
       {leading ? <span className="flex size-9 shrink-0 items-center justify-center">{leading}</span> : null}
       <span className="ta-row-body">
         <span className="ta-row-title">{title}</span>
-        {detail ? <span className="ta-row-sub">{detail}</span> : null}
+        {detail ? (
+          <span className="ta-row-sub" data-lines={detailLines} style={detailLines ? ({ '--ta-row-lines': detailLines } as CSSProperties) : undefined}>
+            {detail}
+          </span>
+        ) : null}
       </span>
       {trailing ? <span className="ta-row-meta">{trailing}</span> : null}
       {onClick && chevron ? (
@@ -113,6 +137,14 @@ export function AssistantRow({
       {body}
     </div>
   );
+}
+
+/** 主人(登录的那个人)。 */
+export type AssistantOwner = { id: string; name: string; avatarUrl: string | null };
+
+/** 「关于你」那几行的行首:主人自己的头像(照个人介绍的通行做法:本人头像 + 标题 + 一句话)。认不出主人就不放行首,❌ 皇冠之类的装饰图标顶上。 */
+export function ownerLeading(owner: AssistantOwner | null | undefined): ReactNode {
+  return owner ? <Avatar name={owner.name} avatarUrl={owner.avatarUrl} seed={owner.id} size={36} /> : undefined;
 }
 
 /** 两列网格里的一张小卡(记忆「全部」:文件夹、录音笔记、一条记忆)。 */

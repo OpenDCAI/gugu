@@ -7,6 +7,7 @@ import { ArrowUpToLine, FileText, Heart, RefreshCw, Sparkles } from '@/lib/icons
 import { LoadingIndicator } from '@/lib/loading/LoadingIndicator'
 import { rendererLogger } from '@/lib/log'
 import { HEALTH_REPORT_ACCEPT, HealthBody, isHealthNote } from '@/session/renderer/features/assistant/assistant-health'
+import { memoryContentPreview } from '@/session/renderer/features/assistant/memory-content-preview'
 import type { MemoryEntry } from '@/session/renderer/features/assistant/assistant-machine-core'
 import { AssistantRow, AssistantSection, PageHead, Tile } from '@/session/renderer/features/assistant/assistant-ui-parts'
 import { nativePhoneActions } from '../phone-device/nativePhoneActions'
@@ -27,7 +28,7 @@ const HEALTH_DAYS = 7
  * ❌ 经云端问自己,也 ❌ 被「它在休息」挡住。读不到分几种如实说并给下一步(去授权 / 重试);
  * 下面「你的健康分析」(让它解读,只填不发;它记进记忆的 health_* 几条,醒着读到了才列)、「分析健康报告」(选文件排进聊天)。
  */
-export function PhoneHealth({ assistant, askInChat, go, healthNotes, readiness, machine }: PhonePageProps & {
+export function PhoneHealth({ assistant, askInChat, go, healthNotes, machine }: PhonePageProps & {
   healthNotes: PhoneRead<{ notes: MemoryEntry[] }> & { reload: () => void }
 }) {
   const { t } = useTranslation('assistant')
@@ -97,7 +98,7 @@ export function PhoneHealth({ assistant, askInChat, go, healthNotes, readiness, 
         }
         testId="assistant-health-analysis"
       >
-        <PhoneMachineView readiness={readiness} machine={machine} name={name}>
+        <PhoneMachineView machine={machine} name={name}>
           {() => (
             <ReadView read={healthNotes} failedTitle={t('memory.loadFailed')}>
               {({ notes }) => {
@@ -109,7 +110,8 @@ export function PhoneHealth({ assistant, askInChat, go, healthNotes, readiness, 
                     key={note.file}
                     leading={<FileText />}
                     title={note.title}
-                    detail={note.description || note.body.slice(0, 80)}
+                    detail={memoryContentPreview(note.body, 140)}
+                    detailLines={4}
                     onClick={() => go(`note:${note.file}`)}
                     testId={`assistant-health-note-${note.file}`}
                   />

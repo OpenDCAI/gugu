@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 import {act} from 'react'
-import {publishSelfIdentity} from '../../../../apps/desktop/src/lib/selfIdentityBridge'
+import type {AssistantPanelWindow,AssistantPanelBridge} from '../../../../apps/desktop/src/lib/assistantPanelBridge'
 import {QueryClient,QueryClientProvider} from '@tanstack/react-query'
 import {afterEach,beforeEach,expect,it,vi} from 'vitest'
 import {createReactHarness,renderWithAppProviders,clickElement} from '../../../support/testHarness'
@@ -16,8 +16,8 @@ vi.mock('../../../../apps/desktop/src/lib/agentPresenceStore',()=>({subscribeAge
 vi.mock('../../../../apps/desktop/src/store/devicesContext',()=>({useDevicesStore:()=>({devices:[],phones:[]})}))
 vi.mock('../../../../apps/desktop/src/session/shared/remote-sessions/session-directory',async original=>({...await original<object>(),useDirectoryDevices:()=>[],useLiveDeviceSessions:()=>{throw new Error('Task lists must not read device sessions')}}))
 let harness:ReturnType<typeof createReactHarness>
-beforeEach(()=>{harness=createReactHarness();publishSelfIdentity({userId:'owner',displayName:'Owner',guguNumber:null});cloud.list.mockReset().mockResolvedValue([{work_id:'work',title:'codex (2)',coordinator_session_id:'home-session',coordinator_device_id:'home',executors:[{session_id:'worker',device_id:'phone',agent_user_id:'executor'}],executor_outcomes:{},outcome:'completed',updated_at:'2026-10-26T08:00:00Z'}])})
-afterEach(()=>{harness.cleanup();publishSelfIdentity(null)})
+beforeEach(()=>{harness=createReactHarness();(window as AssistantPanelWindow).__GUGU_ASSISTANT_PANEL__={accountId:()=> 'owner',subscribeAccount:()=>()=>{}} as unknown as AssistantPanelBridge;cloud.list.mockReset().mockResolvedValue([{work_id:'work',title:'codex (2)',coordinator_session_id:'home-session',coordinator_device_id:'home',executors:[{session_id:'worker',device_id:'phone',agent_user_id:'executor'}],executor_outcomes:{},outcome:'completed',updated_at:'2026-10-26T08:00:00Z'}])})
+afterEach(()=>{harness.cleanup();delete (window as AssistantPanelWindow).__GUGU_ASSISTANT_PANEL__})
 it.each(['phone','desktop'])('%s reads an ended account task with no connected machine and opens its exact work',async shell=>{
  const assistant={id:'assistant',display_name:'咕咕',avatar:null,created_at:null}
  const common={assistant,chatId:'dm',ownerName:'Owner',home:{kind:'cloud',deviceId:'home'},homeDeviceId:'home',readiness:'unreachable',askInChat:vi.fn(),go:vi.fn()}

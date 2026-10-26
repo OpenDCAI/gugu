@@ -20,6 +20,7 @@ const mocks = vi.hoisted(() => ({
   ptyStopSession: vi.fn(),
   settleSessionExited: vi.fn(async (_params: { sessionId: string; projectId: string }): Promise<void> => undefined),
   sendMessage: vi.fn(),
+  readAcceptedMessage: vi.fn(),
   SessionDirectDeliveryError: class SessionDirectDeliveryError extends Error {
     readonly code = 'SESSION_DIRECT_NOT_LIVE';
     constructor(sessionId: string, reason = 'target session is not live') {
@@ -112,6 +113,7 @@ vi.mock('@main/core/pty/tmux-session-name', () => ({
 vi.mock('@main/lib/events', () => ({ events: { emit: mocks.emit, on: mocks.on } }));
 vi.mock('./sendMessage', () => ({
   sendMessage: mocks.sendMessage,
+  readAcceptedMessage: mocks.readAcceptedMessage,
   recordDeliveredSessionDirectMessage: mocks.recordDeliveredSessionDirectMessage,
   drainSessionMessageOutbox: mocks.drainSessionMessageOutbox,
   SessionDirectDeliveryError: mocks.SessionDirectDeliveryError,
@@ -273,6 +275,7 @@ describe('session orchestration', () => {
   afterEach(() => {
     fixture.close();
     mocks.db = undefined;
+    vi.unstubAllEnvs();
   });
 
   /** 这条会话的标题与「显式命名过的那个名字」——后者只在 config 上,前者两种来源同形。 */
@@ -360,6 +363,21 @@ describe('session orchestration', () => {
       const sent = mocks.sendMessage.mock.calls.at(-1)![0] as { sessionId: string; clientMessageId: string; text: string; kind: string };
       expect(sent).toMatchObject({ sessionId: 'caller', kind: 'session-direct' });
       expect(sent.text).toBe(`<app-envelope msg="${sent.clientMessageId}">keep warm</app-envelope>`);
+    });
+
+    it('keeps a scheduled retry on the stored receipt and preserves its original envelope', async () => {
+      const receipt = { id: '022ebf62-18b2-4d78-987e-ddb02dd04c46', at: '2026-10-26T07:00:00.000Z' };
+      mocks.sendMessage.mockRejectedValueOnce(new mocks.SessionDirectDeliveryError('caller', 'preparation unavailable'));
+      await expect(messageSessionFrom(envelope, 'caller', 'first text', { keyScope: 'automation:one', receipt }))
+        .rejects.toMatchObject({ code: 'SESSION_DIRECT_NOT_LIVE' });
+      const first = mocks.sendMessage.mock.calls.at(-1)![0] as { clientMessageId: string; text: string };
+      mocks.readAcceptedMessage.mockReturnValueOnce({ id: first.clientMessageId, sessionId: 'caller', content: first.text });
+      mocks.sendMessage.mockResolvedValueOnce({ id: first.clientMessageId, status: 'delivered' });
+      await expect(messageSessionFrom(() => 'changed envelope', 'caller', 'changed text', { keyScope: 'automation:one', receipt }))
+        .resolves.toEqual({ id: first.clientMessageId });
+      const second = mocks.sendMessage.mock.calls.at(-1)![0] as { clientMessageId: string; text: string };
+      expect(second.clientMessageId).toBe(first.clientMessageId);
+      expect(second.text).toBe(first.text);
     });
 
     it('a session that does not take it, or is not here: thrown with the reason', async () => {
@@ -738,6 +756,8 @@ describe('session orchestration', () => {
     });
 
     it('reuses exact inbox identity and envelope bytes when a phone retries an acknowledged-or-unknown failure notice', async () => {
+      // This assertion exercises the persisted timestamp, independent of the runner's timezone.
+      vi.stubEnv('TZ', 'Asia/Shanghai');
       mocks.sendMessage.mockResolvedValue({ id: 'm1', status: 'delivered' });
       const action = { action: 'message' as const, session_ids: ['caller'], text: '这次手机任务没能完成，网络连接持续超时。',
         delivery_id: '022ebf62-18b2-4d78-987e-ddb02dd04c46', delivery_at: '2026-10-26T07:00:00.000Z' };
@@ -745,7 +765,7 @@ describe('session orchestration', () => {
       const first = mocks.sendMessage.mock.calls.at(-1)![0];
       await runRemoteSessionAction(remoteCaller, action);
       expect(mocks.sendMessage.mock.calls.at(-1)![0]).toEqual(first);
-      expect(first.text).toContain('2026-10-26 15:00');
+      expect(first.text).toContain(formatDeliveryTimestamp(action.delivery_at));
       await runRemoteSessionAction({ ...remoteCaller, sessionId: 'another-sender' }, action);
       expect(mocks.sendMessage.mock.calls.at(-1)![0].clientMessageId).not.toBe(first.clientMessageId);
       await expect(runRemoteSessionAction(remoteCaller, { ...action, delivery_at: undefined })).rejects.toThrow(/original timestamp/);

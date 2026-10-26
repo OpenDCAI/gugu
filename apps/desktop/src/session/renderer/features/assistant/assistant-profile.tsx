@@ -3,21 +3,24 @@ import { useEffect, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { Avatar } from '@/components/Avatar';
 import { AssistantNameInline } from '@/components/assistant/AssistantNameInline';
-import { ChevronRight, Pencil } from '@/lib/icons';
+import { ChevronRight, Folder, Pencil, Plus } from '@/lib/icons';
 import { MarkdownRenderer } from '@renderer/lib/ui/markdown-renderer';
 import { UI_EVENTS } from '@/lib/uiEvents';
 import { readAssistantShellBridge } from '@/lib/assistantShellBridge';
 import type { ActiveSection } from '@gugu/core/shared/enums/settingsSectionModels';
 import type { AssistantPageProps } from './assistant-context';
-import { AssistantDiaryDetail, AssistantDiaryList, AssistantDiarySection } from './assistant-diary';
+import { AssistantDiaryDetail, AssistantDiaryList } from './assistant-diary';
 import { useTodayFeedView } from './assistant-today';
+import { useDirectory } from './assistant-data';
+import { RESOURCES_DIR_NAME } from './assistant-files';
+import { ResourceFiles } from './assistant-memory-page';
 import { CustomizeDialog, usePersona } from './assistant-personality';
 import { ShellSlot } from './assistant-shell';
 import { AssistantRow, AssistantSection, PageHead } from './assistant-ui';
 import { AssistantLibraryCard, AssistantLibraryVolume } from '@/components/assistant/AssistantLibraryVolume';
 
 /**
- * <它的名字> 这一格(资料页):头像(右下一支笔 = 自定义)、名字、「从某天起陪伴你」、性格胶囊、日记;
+ * <它的名字> 这一格(资料页):头像(右下一支笔 = 自定义)、名字、「从某天起陪伴你」、性格胶囊、给助理的资料;
  * 应用和连接状态直接展开,复用设置中的同一个连接组件;详情、授权也走原来的数据与操作。
  */
 function openSettings(section: ActiveSection) {
@@ -30,6 +33,7 @@ export const AssistantProfilePage = observer(function AssistantProfilePage({ con
   if (sub === 'settings') return <ShellPage slot="settings" title="nav.settings" />;
   if (sub === 'devices') return <ShellPage slot="devices" title="devices.title" />;
   if (sub === 'connectors') return <ShellPage slot="connectors" title="connectors.title" />;
+  if (sub === 'files' || sub.startsWith('files:')) return <ResourceFiles key={sub} context={context} trail={sub.startsWith('files:') ? sub.slice('files:'.length).split('/').filter(Boolean) : []} />;
   if (sub === 'diaries' || sub.startsWith('diary:')) return <DiaryPage context={context} sub={sub} />;
   // 「customize」= 开通后聊天里那张「自定义」卡点进来的:资料页上直接打开自定义弹窗,关掉回资料页。
   return <ProfileHome context={context} openCustomize={sub === 'customize'} />;
@@ -73,16 +77,20 @@ const ProfileHome = observer(function ProfileHome({ context, openCustomize = fal
   }, [openCustomize]);
   const { assistant } = context;
   const persona = usePersona(context);
-  const diaries = useTodayFeedView(context.chatId);
+  const resources = useDirectory(context.machine, context.machine?.paths.resourcesDir ?? null);
+  const fileCount = (resources.data ?? []).filter((entry) => !entry.name.startsWith('.')).length;
   const since = assistant.created_at
     ? new Intl.DateTimeFormat(i18n.language, { year: 'numeric', month: 'long', day: 'numeric' }).format(new Date(assistant.created_at))
     : null;
   const chip = persona.preset ? t(`customize.preset.${persona.preset}`) : persona.rest ? t('customize.custom') : t('customize.setCharacter');
   return (
     <div className="ta-page" data-testid="assistant-profile">
+      <div className="flex justify-end">
+        <button type="button" className="ta-circle" aria-label={t('files.upload')} title={t('files.upload')} onClick={() => context.go({ tab: 'profile', sub: 'files' })} data-testid="assistant-profile-add"><Plus /></button>
+      </div>
       <div className="ta-hero">
         <button type="button" className="ta-hero-avatar" onClick={() => setCustomizing(true)} aria-label={t('customize.title')} data-testid="assistant-profile-edit">
-          <Avatar name={assistant.display_name} avatarUrl={assistant.avatar} seed={assistant.id} size={72} isAgent harnessBadge={false} hoverPoke />
+          <Avatar name={assistant.display_name} avatarUrl={assistant.avatar} seed={assistant.id} size={72} canvasPaddingX={24} isAgent harnessBadge={false} hoverPoke />
           <span className="ta-hero-edit">
             <Pencil />
           </span>
@@ -97,13 +105,11 @@ const ProfileHome = observer(function ProfileHome({ context, openCustomize = fal
         </button>
       </div>
 
-      <AssistantDiarySection
-        view={diaries}
-        name={assistant.display_name}
-        askInChat={(draft) => context.askInChat(draft)}
-        open={(id) => context.go({ tab: 'profile', sub: `diary:${id}` })}
-        openAll={() => context.go({ tab: 'profile', sub: 'diaries' })}
-      />
+      <AssistantSection testId="assistant-profile-resources">
+        <AssistantRow leading={<Folder />} title={RESOURCES_DIR_NAME}
+          detail={resources.isSuccess ? t('memory.items', { n: fileCount }) : resources.isLoading ? t('library.loading') : t('library.failed')}
+          onClick={() => context.go({ tab: 'profile', sub: 'files' })} testId="assistant-profile-files" />
+      </AssistantSection>
 
       <AssistantSection title={t('connectors.title')} testId="assistant-profile-connectors" bare>
         <ShellSlot name="connectors" className="ta-skin ta-profile-connectors" />

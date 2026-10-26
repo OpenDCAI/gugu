@@ -75,7 +75,6 @@ const AuthorizationBrowser = createContext<(url: string) => void>(() => {})
 export function PhoneConnectorSetupPage({
   assistant,
   home,
-  readiness,
   homeDeviceId,
   integrations,
   id,
@@ -103,7 +102,7 @@ export function PhoneConnectorSetupPage({
     <div className="ta-page ta-phone-profile" data-testid="assistant-connector-setup">
       <PageHead title={view ? t('connectors.setup.title', { name: view.item.name }) : t('connectors.title')} />
       {browserFailed ? <p role="alert" className="ta-phone-error">{t('connectors.setup.openFailed')}<br />{browserFailed}</p> : null}
-      <CloudGate readiness={readiness} name={name} integrations={integrations}>
+      <CloudGate integrations={integrations}>
         {() =>
           !view || !rpc ? (
             <AssistantEmpty title={t('connectors.goneTitle')}>{t('connectors.gone')}</AssistantEmpty>

@@ -237,13 +237,16 @@ export function AssistantShellHost({ visible, ...chatHandlers }: { /** 会话页
       assistant: contact ? { id: contact.id, display_name: contact.display_name, avatar: contact.avatar, created_at: contact.created_at ?? null } : null,
       assistantState,
       ownerName: user?.nickname ?? null,
+      ownerId: user?.id ?? null,
+      ownerAvatar: user?.avatarUrl ?? null,
       chatId: dm.chatId,
+      chatReadFailed: !!dm.failed,
       home,
       setup,
       member,
       preparing,
     })
-  }, [cloudComputer?.available, cloudComputer?.loadError, localDeviceId, snapshot, contact, assistantState, user?.nickname, dm.chatId, home, setup, member, preparing])
+  }, [cloudComputer?.available, cloudComputer?.loadError, localDeviceId, snapshot, contact, assistantState, user?.nickname, user?.id, user?.avatarUrl, dm.chatId, dm.failed, home, setup, member, preparing])
 
   const shellSlots = readShellSlots()
   const slots = useSyncExternalStore(

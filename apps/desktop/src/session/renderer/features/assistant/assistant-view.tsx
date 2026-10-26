@@ -98,7 +98,7 @@ export const AssistantMainPanel = observer(function AssistantMainPanel() {
   useEffect(() => {
     if (localHome) void refreshLocalAssistantHome().catch(error => rendererLogger('assistant/home').warn({ error },'Local assistant instructions refresh failed'));
   },[localHome]);
-  const machine = useAssistantMachine(shell?.assistant?.id ?? null,shell?.chatId ?? null,home);
+  const machine = useAssistantMachine(shell?.assistant?.id ?? null,shell?.chatId ?? null,home,shell?.chatReadFailed);
   const [panelOpen, setPanelOpenState] = useState(readPanelOpen);
   const openedTask = useOpenedAssistantTaskChat();
   useEffect(() => {
@@ -161,6 +161,7 @@ export const AssistantMainPanel = observer(function AssistantMainPanel() {
   const context: AssistantContext = {
     assistant,
     ownerName: shell.ownerName,
+    owner: shell.ownerId ? { id: shell.ownerId, name: shell.ownerName ?? '', avatarUrl: shell.ownerAvatar ?? null } : null,
     chatId: shell.chatId,
     home,
     homeDeviceId: home.deviceId,
@@ -241,7 +242,7 @@ export const AssistantMainPanel = observer(function AssistantMainPanel() {
           </div>
           <ShellSlot name="chat" className="ta-chat" />
           <VoiceRecordingBar context={context} column={chatColumn} />
-          <AssistantIdeasLayer context={context} column={chatColumn} />
+          <AssistantIdeasLayer context={context} />
         </div>
         {filePreviewOpen ? <section className="ta-panel" data-testid="assistant-file-preview"><ShellSlot name="file-preview" className="min-h-0 flex-1" /></section> : panelOpen ? <AssistantPanel context={context} onCollapse={() => setPanelOpen(false)} /> : null}
       </div>

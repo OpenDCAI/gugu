@@ -7,6 +7,8 @@ import { assistantPaths } from '../../../../apps/desktop/src/session/renderer/fe
 import { clickElement, createReactHarness, renderWithAppProviders, typeInto } from '../../../support/testHarness'
 import '../../../../apps/desktop/src/i18n/registerAssistantCatalog'
 
+const savedNotice = vi.hoisted(() => vi.fn(async () => null))
+vi.mock('@/lib/assistantPanelBridge',() => ({ assistantPanelAccountId: () => null,requireAssistantPanelBridge: () => ({ queueNotice: savedNotice }) }))
 let harness: ReturnType<typeof createReactHarness>
 const notifications = vi.hoisted(() => new Set<(notice: unknown) => void>())
 vi.mock('../../../../apps/desktop/src/mobile/agent-watch/sessionpage-rpc', async importOriginal => ({
@@ -15,8 +17,8 @@ vi.mock('../../../../apps/desktop/src/mobile/agent-watch/sessionpage-rpc', async
     notifications.add(listener); return () => notifications.delete(listener)
   },
 }))
-beforeEach(() => { notifications.clear(); harness = createReactHarness() })
-afterEach(() => harness.cleanup())
+beforeEach(() => { savedNotice.mockClear(); notifications.clear(); harness = createReactHarness() })
+afterEach(() => { harness.cleanup(); vi.useRealTimers() })
 function fixture() {
   const volume = { kind: 'capabilities', name: 'capabilities', path: '/gugu/library/capabilities', index: '/gugu/library/capabilities' }
   const item = { id: 'calendar', name: '日历', description: '查看安排', group: '工作', path: '/gugu/library/capabilities/calendar', index: '/gugu/library/capabilities/calendar/index.json', modifiedAt: '2026-10-20T00:00:00Z' }
@@ -44,15 +46,18 @@ describe('Gugu structured capabilities', () => {
     expect(entry).toHaveBeenCalledWith('capabilities', 'calendar')
   })
   it('surfaces host failure and rejects the old unstructured response rather than showing false zero', async () => {
+    vi.useFakeTimers()
     const { machine, read } = fixture()
     read.mockRejectedValueOnce(new Error('private diagnostic sentinel')).mockResolvedValueOnce({ volume: null, content: null })
     await renderWithAppProviders(harness, <AssistantLibraryVolume assistantId="assistant" machine={machine} kind="capabilities" askInChat={vi.fn()} />)
-    await vi.waitFor(() => expect(harness.container.textContent).toContain('暂时读不到资源'))
+    await vi.waitFor(() => expect(harness.container.textContent).toContain('暂时读不到'))
     expect(harness.container.textContent).not.toContain('private diagnostic sentinel')
-    await clickElement([...harness.container.querySelectorAll('button')].find(node => node.textContent === '重试')!)
+    expect([...harness.container.querySelectorAll('button')].some(node => node.textContent === '重试')).toBe(false)
+    await act(async () => { await vi.advanceTimersByTimeAsync(5000) })
     await vi.waitFor(() => expect(read).toHaveBeenCalledTimes(2))
-    await vi.waitFor(() => expect(harness.container.textContent).toContain('暂时读不到资源'))
-    await clickElement([...harness.container.querySelectorAll('button')].find(node => node.textContent === '重试')!)
+    await vi.waitFor(() => expect(harness.container.textContent).toContain('暂时读不到'))
+    expect([...harness.container.querySelectorAll('button')].some(node => node.textContent === '重试')).toBe(false)
+    await act(async () => { await vi.advanceTimersByTimeAsync(5000) })
     await vi.waitFor(() => expect(harness.container.textContent).toContain('查看安排'))
   })
   it('counts real entries and does not send the owner to install AutoLibrary', async () => {
@@ -76,9 +81,8 @@ describe('Gugu structured capabilities', () => {
     expect(write).toHaveBeenLastCalledWith({ kind: 'capabilities', name: '会议记录', description: '', group: null, content: '' })
     await vi.waitFor(() => expect(read).toHaveBeenCalledTimes(2))
     const sent = appCall.mock.calls.filter(([verb]) => verb === 'dispatch')
-    expect(sent).toHaveLength(1)
-    expect(sent[0][1]).toMatchObject({ to: { agent: 'user:assistant' }, delivery: 'defer' })
-    expect(JSON.parse((sent[0][1] as unknown as { text: string }).text.split('\n')[1])).toMatchObject({ resource: 'capabilities', operation: 'created', id: 'calendar' })
+    expect(sent).toHaveLength(0)
+    expect(savedNotice).toHaveBeenCalledWith(expect.objectContaining({ resource: 'capabilities',operation: 'created',id: 'calendar' }),'assistant',null)
   })
 
   it('refreshes the open panel when the resource program notifies an Agent edit, without sending an echo', async () => {

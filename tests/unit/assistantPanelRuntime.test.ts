@@ -25,7 +25,7 @@ afterEach(() => { vi.useRealTimers(); calls.signals.length = 0; calls.domains.le
 it('aborts stalled cloud requests and releases admission after a bounded retry window', async () => {
   const cwd = await mkdtemp(join(tmpdir(),'panel-runtime-timeout-'))
   vi.useFakeTimers()
-  const runtime = createAssistantPanelRuntime({ getAuth: async () => ({ accessToken: 'fixture',userId: 'owner' }),
+  const runtime = createAssistantPanelRuntime({ locale: () => 'zh-CN',getAuth: async () => ({ accessToken: 'fixture',userId: 'owner' }),
     instanceId: () => 'runtime',deviceId: async () => 'device',local: {} as never,guguHome: cwd,kind: 'computer',env: {},failed: vi.fn(),
   })
   try {
@@ -43,7 +43,7 @@ it('aborts stalled cloud requests and releases admission after a bounded retry w
 it('publishes the other panel domains without a second device task directory',async()=>{
   calls.stalled=false
   const cwd=await mkdtemp(join(tmpdir(),'panel-no-task-snapshot-'))
-  const runtime=createAssistantPanelRuntime({getAuth:async()=>({accessToken:'fixture',userId:'owner'}),instanceId:()=> 'runtime',deviceId:async()=> 'device',local:{} as never,guguHome:cwd,kind:'computer',env:{},failed:vi.fn()})
+  const runtime=createAssistantPanelRuntime({getAuth:async()=>({accessToken:'fixture',userId:'owner'}),instanceId:()=> 'runtime',deviceId:async()=> 'device',local:{} as never,guguHome:cwd,kind:'computer',env:{},failed:vi.fn(),locale:()=> 'zh-CN'})
   try{
     await runtime.bind({sessionId:'session',assistantId:'assistant',ownerId:'owner',cwd})
     await runtime.publish('session')

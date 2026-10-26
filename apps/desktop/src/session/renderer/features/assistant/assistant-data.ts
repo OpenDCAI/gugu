@@ -1,7 +1,7 @@
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { AssistantPanelError } from '@gugu/core/cloud/assistantPanel';
 import { useEffect, useMemo } from 'react';
-import { getRendererSession } from '@/lib/sessionPublication';
+import { assistantPanelAccountId } from '@/lib/assistantPanelBridge';
 import { ASSISTANT_PANEL_CHANGED, useCloudAssistantFiles } from '@/components/assistant/assistant-panel-files';
 import { rpc } from '@renderer/lib/ipc';
 import { appState } from '@renderer/lib/stores/app-state';
@@ -31,7 +31,7 @@ export type MachineReadiness =
   /** 叫不醒、离线、版本不对:读不了,原因由页上那句说。 */
   | 'unreachable';
 
-export const assistantQueryKey = (deviceId: string, ...parts: unknown[]) => ['assistant', getRendererSession()?.user.id ?? '', deviceId, ...parts];
+export const assistantQueryKey = (deviceId: string, ...parts: unknown[]) => ['assistant', assistantPanelAccountId() ?? '', deviceId, ...parts];
 
 /**
  * 助理那条会话跑在哪个目录:会话目录里它自己那一行 → 那个项目的路径。读的是会话目录(列出不挂载),所以是 observer 里调。
@@ -47,7 +47,7 @@ export function assistantWorkdir(home: AssistantHomePlace, assistantId: string):
   return live ? { state: 'missing' } : { state: 'pending' };
 }
 
-export function useAssistantMachine(assistantId: string | null, chatId: string | null, home: AssistantHomePlace | null) {
+export function useAssistantMachine(assistantId: string | null, chatId: string | null, home: AssistantHomePlace | null, chatReadFailed = false) {
   const data = useCloudAssistantFiles(assistantId,chatId,home?.deviceId ?? null);
   const client = useQueryClient();
   useEffect(() => {
@@ -55,8 +55,9 @@ export function useAssistantMachine(assistantId: string | null, chatId: string |
     window.addEventListener(ASSISTANT_PANEL_CHANGED,changed);
     return () => window.removeEventListener(ASSISTANT_PANEL_CHANGED,changed);
   },[client]);
-  const error = useMemo(() => data ? null : new AssistantPanelError(home?.deviceId ? 'missing-identity' : 'missing-home','PANEL_IDENTITY_UNAVAILABLE'),[data,home?.deviceId]);
-  return { data,isLoading: false,error,refetch: () => data?.panel?.invalidate() };
+  const isLoading = !!assistantId && !!home?.deviceId && !chatId && !chatReadFailed;
+  const error = useMemo(() => data || isLoading ? null : new AssistantPanelError(home?.deviceId ? 'missing-identity' : 'missing-home','PANEL_IDENTITY_UNAVAILABLE'),[data,home?.deviceId,isLoading]);
+  return { data,isLoading,error,refetch: () => data?.panel?.invalidate() };
 }
 
 export function useInstructions(machine: AssistantMachine | undefined) {

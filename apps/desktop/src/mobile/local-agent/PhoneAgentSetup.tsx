@@ -1,75 +1,66 @@
-import { useEffect, useState } from 'react'
+import { useLayoutEffect, useRef, useState } from 'react'
 import { Button } from '@/components/ui/Button'
+import { IconButton } from '@/components/ui/IconButton'
 import { SettingsNote } from '@/components/settings/SettingsPrimitives'
-import { platform } from '@/platform'
-import { useSystemPermissionStates } from '@/lib/systemPermissions'
+import { ChevronLeft } from '@/lib/icons'
+import { systemPermissionRows, useSystemPermissionStates } from '@/lib/systemPermissions'
+import { PhoneCapabilityGroups } from '../phone-device/PhoneCapabilityGroups'
+import { PHONE_ACTION_GROUPS } from '../phone-device/phoneActionCatalog'
 import { PhoneAgentHostControl } from './PhoneAgentHostControl'
-import { PhoneAgentSetupPermission, PhoneAgentSetupTools } from './PhoneAgentSetupPermissions'
-import type { PhoneAgentSetupStep } from './PhoneAgentSetupState'
-import { PhoneSheetHandle } from '../PhoneSheetHandle'
+import { PhoneAgentSetupPermission } from './PhoneAgentSetupPermissions'
 import '../phone-device/phone-device.css'
 
-const STEPS: readonly PhoneAgentSetupStep[] = ['host', 'notifications', 'background', 'tools']
-const STEP_LABELS: Record<PhoneAgentSetupStep, string> = { host: '手机运行', notifications: '消息通知', background: '后台运行', tools: '手机能力' }
-const ACTIONS: Record<PhoneAgentSetupStep, string> = { host: '设置手机 Agent', notifications: '设置消息通知', background: '设置后台运行', tools: '选择手机能力' }
-const TITLES: Record<PhoneAgentSetupStep, string> = {
-  host: '让 Agent 在手机上做事',
-  notifications: '接收任务进展提醒',
-  background: '切走后，任务照常进行',
-  tools: '按需连接手机能力',
-}
-
-export function PhoneAgentSetup({ ownerId, initialStep, onStep, onFinish, onLater, saveError }: {
+/** One permission form; completion saves presentation state and never grants an unchecked capability. */
+export function PhoneAgentSetup({ ownerId, onFinish, onLater, saveError }: {
   ownerId: string
-  initialStep: PhoneAgentSetupStep
-  onStep: (step: PhoneAgentSetupStep) => void
   onFinish: () => void
   onLater: () => void
   saveError: string | null
 }) {
-  const [step, setStep] = useState(initialStep)
-  const { states, refresh } = useSystemPermissionStates(['notifications', 'batteryOptimization'])
-  const steps: PhoneAgentSetupStep[] = ['host',
-    ...(platform.systemPermissions.includes('notifications') ? ['notifications' as const] : []),
-    ...(platform.systemPermissions.includes('batteryOptimization') ? ['background' as const] : []), 'tools']
-  const granted = (item: PhoneAgentSetupStep) => item === 'notifications' ? states.notifications === 'granted'
-    : item === 'background' && states.batteryOptimization === 'granted'
-  const following = STEPS.slice(STEPS.indexOf(step) + 1).find((item) => steps.includes(item) && !granted(item)) ?? 'tools'
-  // Native permission changes can arrive after opening or returning from system settings.
-  useEffect(() => {
-    if ((step === 'notifications' && states.notifications === 'granted') || (step === 'background' && states.batteryOptimization === 'granted')) {
-      setStep(following)
-      onStep(following)
-    }
-  }, [step, states.notifications, states.batteryOptimization, following, onStep])
+  const rows = systemPermissionRows()
+  const { states, refresh } = useSystemPermissionStates(rows.map((row) => row.permission))
+  const [review, setReview] = useState(false)
+  const body = useRef<HTMLDivElement>(null)
+  const heading = useRef<HTMLHeadingElement>(null)
+  useLayoutEffect(() => {
+    if (body.current) body.current.scrollTop = 0
+    heading.current?.focus({ preventScroll: true })
+  }, [review])
   const next = () => {
-    if (step === 'tools') onFinish()
-    else { setStep(following); onStep(following) }
+    if (review) onFinish()
+    else setReview(true)
   }
   return (
-    <div className="gg-phone-setup" data-testid={`phone-agent-setup-${step}`}>
-      <PhoneSheetHandle onDismiss={onLater} />
-      <div className="gg-phone-setup-header">
+    <form className="gg-phone-setup" data-testid="phone-agent-setup-form" onSubmit={(event) => { event.preventDefault(); next() }}>
+      <header className="gg-phone-setup-header">
         <ol className="gg-phone-setup-progress" aria-label="设置步骤">
-          {steps.map((item, position) => (
-            <li key={item} aria-current={item === step ? 'step' : undefined}>
-              <span className="gg-phone-setup-progress-track" aria-hidden="true" />
-              <span>{position + 1} {STEP_LABELS[item]}</span>
-            </li>
-          ))}
+          <li aria-current={!review ? 'step' : undefined}>1 授权设置</li>
+          <li aria-current={review ? 'step' : undefined}>2 确认设置</li>
         </ol>
-        <h2 className="gg-phone-setup-heading">{TITLES[step]}</h2>
-      </div>
-      <div className="gg-phone-setup-body" key={step}>
-        {step === 'host' ? <PhoneAgentHostControl ownerId={ownerId} setup={{ onContinue: next, continueLabel: ACTIONS[following] }} />
-          : step === 'notifications' || step === 'background'
-            ? <PhoneAgentSetupPermission permission={step === 'notifications' ? 'notifications' : 'batteryOptimization'} state={states[step === 'notifications' ? 'notifications' : 'batteryOptimization']} onRefresh={refresh} />
-            : <PhoneAgentSetupTools ownerId={ownerId} />}
-        {saveError && <SettingsNote role="alert" tone="danger">{saveError}</SettingsNote>}
+        <h2 ref={heading} tabIndex={-1} id="phone-agent-setup-heading" className="gg-phone-setup-heading">{review ? '确认手机设置' : '设置这台手机'}</h2>
+        <p>{review ? '核对已开启的权限和连接。' : '按需授权，随时可改。'}</p>
+        {!review && <div className="gg-phone-setup-summary">{rows.length} 项系统权限 · {PHONE_ACTION_GROUPS.length} 类手机能力</div>}
+      </header>
+      <div ref={body} className={`gg-phone-setup-body${review ? ' gg-phone-setup-review' : ''}`} data-testid={review ? 'phone-agent-setup-review' : undefined}>
+        <section className="gg-phone-setup-section" aria-label="手机运行">
+          <h3>手机运行</h3>
+          <PhoneAgentHostControl ownerId={ownerId} setup summary={review} />
+        </section>
+        {rows.length > 0 && <section className="gg-phone-setup-section" aria-label="系统权限">
+          <h3>系统权限</h3>
+          <div className="gg-phone-setup-fields">
+            {rows.map(({ permission }) => <PhoneAgentSetupPermission key={permission} permission={permission} state={states[permission]} onRefresh={refresh} summary={review} />)}
+          </div>
+        </section>}
+        <PhoneCapabilityGroups ownerId={ownerId} context="setup" presentation={review ? 'summary' : 'inline'} />
       </div>
       <div className="gg-phone-setup-footer">
-        <Button variant="ghost" data-testid="phone-agent-setup-next" onClick={next}>{step === 'tools' ? '完成设置' : '稍后'}</Button>
+        {saveError && <SettingsNote role="alert" tone="danger">{saveError}</SettingsNote>}
+        <div className="gg-phone-setup-navigation">
+          <IconButton size="lg" className="gg-phone-setup-back" aria-label={review ? '返回授权设置' : '返回咕咕'} onClick={() => review ? setReview(false) : onLater()}><ChevronLeft /></IconButton>
+          <Button variant="primary" type="submit" data-testid={review ? 'phone-agent-setup-finish' : 'phone-agent-setup-next'}>{review ? '完成设置' : '下一步'}</Button>
+        </div>
       </div>
-    </div>
+    </form>
   )
 }

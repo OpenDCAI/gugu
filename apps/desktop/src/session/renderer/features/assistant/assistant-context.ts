@@ -4,6 +4,7 @@ import type { AssistantHomePlace } from '@/lib/assistantHome';
 import type { AssistantShellAssistant } from '@/lib/assistantShellBridge';
 import type { MachineReadiness } from './assistant-data';
 import type { AssistantMachine } from './assistant-machine';
+import type { AssistantOwner } from './assistant-ui-parts';
 
 /**
  * 右边面板顶上那一排胶囊(动态 / 任务 / 记忆 / 资料)。聊天不是一格:左边一整列就是它。
@@ -14,9 +15,10 @@ export type PanelTab = (typeof PANEL_TABS)[number];
 
 /**
  * 面板此刻是哪一页。`sub` = 往下钻到的子页(往下钻时左上出返回箭头):
- * - profile:`diaries`、`diary:<id>`、`devices`、`connectors`(连接列表也直接展开在资料首页;聊天工具在全局设置里)
+ * - today:`diary:<id>`
+ * - profile:`files`、`files:<相对路径>`、兼容 `diaries`、`diary:<id>`、`devices`、`connectors`(连接列表也直接展开在资料首页;聊天工具在全局设置里)
  * - tasks:`routine:<id>`
- * - memory:`note:<文件名>`、`files`、`files:<相对路径>`、`voice`、`voice:<id>`(一条语音笔记)
+ * - memory:`note:<文件名>`、`voice`、`voice:<id>`(一条语音笔记)
  */
 export type PanelRoute = { tab: PanelTab; sub?: string };
 
@@ -39,6 +41,8 @@ export function parentRoute(route: PanelRoute): PanelRoute | null {
 export type AssistantContext = {
   assistant: AssistantShellAssistant;
   ownerName: string | null;
+  /** 主人自己(记忆页「关于你」用他的头像打头);认不出 = null。 */
+  owner?: AssistantOwner | null;
   /** 和它的那条私聊(壳认出来的;还没认出来 = null):「今天」页读它文件夹里的 today.json。 */
   chatId: string | null;
   /** 执行宿主的位置；面板数据始终读取账号云端副本。 */

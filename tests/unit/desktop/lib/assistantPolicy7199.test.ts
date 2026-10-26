@@ -7,6 +7,7 @@ import {
   LEGACY_ASSISTANT_GUIDE_BEGIN,
   LEGACY_ASSISTANT_GUIDE_END,
   OWNER_PROFILE_INDEX_LINE,
+  assistantBrief,
   assistantGuide,
   assistantHomePaths,
   claudeProjectDirName,
@@ -16,10 +17,62 @@ import {
   withDeniedTools,
   withOwnerProfileIndex,
 } from '../../../../packages/core/src/shared/assistantPolicy'
+import { ASSISTANT_CONTEXT_CORE, ASSISTANT_TASK_EXECUTION, ASSISTANT_WORKFLOW } from '../../../../packages/core/src/shared/assistantWorkflow'
 import { splitInstructions } from '../../../../apps/desktop/src/session/renderer/features/assistant/assistant-files'
 
 // #7199 住云上(管家写)与住人自己的电脑上(客户端写)共用同一份说明、同一份初始化任务。
 describe('assistantGuide', () => {
+  it('uses names in ordinary memories and the dedicated profile format without growing the core', () => {
+    const prompts = [ASSISTANT_CONTEXT_CORE.join('\n'), ASSISTANT_WORKFLOW.join('\n')]
+    for (const kind of ['cloud', 'computer'] as const) {
+      prompts.push(assistantBrief(kind, '/assistant/reference.md', '/assistant/memory'), assistantGuide(kind))
+    }
+    for (const prompt of prompts) {
+      expect(prompt).toContain('普通记忆用称呼；关于你按专节写')
+      expect(prompt).toContain('私聊、早晚报、日程卡片用称呼或「你」')
+      expect(prompt).toContain('不用「主人」「用户」')
+    }
+    expect(ASSISTANT_CONTEXT_CORE.join('\n').length).toBeLessThanOrEqual(1272)
+  })
+
+  it('starts profiles with person-facing facts and proactively normalizes existing accounts', () => {
+    for (const kind of ['cloud', 'computer'] as const) {
+      const brief = assistantBrief(kind, '/assistant/reference.md', '/assistant/memory')
+      const guide = assistantGuide(kind)
+      expect(brief).toContain('读写记忆/每日首聊先检查关于你')
+      expect(brief).toContain('寒暄仅保留每日档案检查')
+      expect(guide).toContain('# 关于你（owner-profile.md）')
+      expect(guide).toContain('正文开头先用「你」写 1～3 句事实摘要')
+      expect(guide).toContain('身份、正在做的事、最近重点')
+      expect(guide).toContain('摘要不放规矩、推理或来源')
+      expect(guide).toContain('正文不用「主人」，也不用「他」指代本人')
+      expect(guide).toContain('行为约定移到已有的 feedback 约定记忆')
+      expect(guide).toContain('依据只放在最后单独一节')
+      expect(guide).toContain('已有账号同样检查，不合格式就自主整理')
+      expect(guide).toContain('不等本人要求整理，合规就不重写')
+    }
+  })
+
+  it('frames delegated work as tasks and tools without person-like worker terminology', () => {
+    const kinds = ['cloud', 'computer'] as const
+    const resident = kinds.map(kind => assistantBrief(kind, '/assistant/reference.md', '/assistant/memory'))
+    const guides = kinds.map(kind => assistantGuide(kind))
+    for (const prompt of [ASSISTANT_TASK_EXECUTION, ASSISTANT_CONTEXT_CORE.join('\n'), ASSISTANT_WORKFLOW.join('\n'), ASSISTANT_FIRST_TASK, ...resident, ...guides]) {
+      expect(prompt).not.toMatch(/执行者|同事|小弟|Task Agent|任务 [Aa]gent|子 agent/)
+    }
+    for (const prompt of [...resident, ...guides]) {
+      expect(prompt).toContain('我开了个任务去你 MacBook 上看一眼')
+    }
+    for (const prompt of resident) expect(prompt).toContain('任务是工具')
+    for (const prompt of guides) {
+      expect(prompt).toContain('全程只有你这一个身份，你不是某个项目里的任务')
+      expect(prompt).toContain('任务是你用的工具，不当成人来称呼')
+      expect(prompt).not.toContain('不作人称')
+    }
+    expect(ASSISTANT_TASK_EXECUTION).toContain('你在完成一项任务，不是个人助理')
+    expect(ASSISTANT_TASK_EXECUTION.length).toBeLessThanOrEqual(274)
+  })
+
   it('两种家都带头尾标记,界面那一侧(splitInstructions)认得出宿主维护的那一段', () => {
     for (const kind of ['cloud', 'computer'] as const) {
       const guide = assistantGuide(kind)

@@ -1,3 +1,5 @@
+import { i18n } from '@/i18n/runtime'
+import '@/i18n/registerAssistantCatalog'
 import type { AssistantHomePlace } from '@/lib/assistantHome'
 import { wakeCloudComputer } from '@/lib/cloudComputerStore'
 import { readCachedDevices } from '@/store/devicesCache'
@@ -9,15 +11,18 @@ import { machineRpc } from '../agent-watch/sessionpage-rpc'
 export function phoneAssistantAuthorization(deviceId: string, home: AssistantHomePlace | null) {
   const native = machineRpc(deviceId), ownerId = getRendererSession()?.user.id
   let preparing: Promise<void> | null = null
-  function assertOwner() { if (!ownerId || getRendererSession()?.user.id !== ownerId) throw new Error('Assistant account changed') }
+  function assertOwner() { if (!ownerId || getRendererSession()?.user.id !== ownerId) throw new Error(i18n.t('assistant:machine.accessFailed')) }
   async function prepare() {
     assertOwner()
     preparing ??= (async () => {
-      if (home?.kind === 'cloud') await wakeCloudComputer()
+      if (home?.kind === 'cloud') {
+        try { await wakeCloudComputer() }
+        catch (cause) { throw new Error(i18n.t('assistant:machine.authorizationUnavailable'), { cause }) }
+      }
       const deadline = Date.now() + 60_000
       while (!readCachedDevices().some(device => device.device_id === deviceId && device.is_online)) {
         assertOwner()
-        if (Date.now() > deadline) throw new Error('Authorization could not be prepared; please retry')
+        if (Date.now() > deadline) throw new Error(i18n.t('assistant:machine.authorizationUnavailable'))
         await new Promise(resolve => setTimeout(resolve,250))
       }
     })().catch(error => { preparing = null; throw error })

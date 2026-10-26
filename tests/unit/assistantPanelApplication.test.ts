@@ -112,3 +112,28 @@ it('applies an explicit recreation without allowing a late removal or an old sna
   expect(await readFile(note,'utf8')).toBe('New fact supplied by owner')
   expect(await runHook(assistantPanelRevocationHook(application.statePath),{ hook_event_name: 'PreToolUse',tool_name: 'Read',tool_input: { file_path: note } })).toBe('')
 })
+
+it.each(['zh-CN','en-US'])('persists one localized terminal failure until a native receipt and retains deletion revocation (%s)', async locale => {
+  const f = await fixture()
+  await f.application.apply(change('save'))
+  await (await f.application.prepareText('old')).accepted()
+  // A real cleanup failure after revocation: the index is a directory, so index rewriting fails.
+  await mkdir(f.paths.memoryIndex)
+  await expect(f.application.apply(change('remove'))).rejects.toThrow()
+  const failure: AssistantPanelChange = { ...change('remove'), operation: 'notice', domain: 'notice', operation_id: 'terminal-notice',
+    payload: { failure: { operationId: 'remove-memory', domain: 'memory', resourceKey: 'note', operation: 'remove', errorCode: 'EACCES' } } }
+  const restarted = createAssistantPanelApplication(f.binding, { ...f.deps, locale: () => locale })
+  await restarted.inform(failure); await restarted.inform(failure)
+  const request = await restarted.prepareText('next actual request')
+  expect(request.text.match(/assistant_panel_application_failed/g)).toHaveLength(1)
+  expect(request.text).toContain(locale === 'zh-CN' ? '没有读写权限' : 'Permission to read or write')
+  expect(request.text).not.toContain('permission denied')
+  const blocked = await runHook(assistantPanelRevocationHook(restarted.statePath), { hook_event_name: 'PreToolUse', tool_name: 'Read', tool_input: { file_path: join(f.paths.memoryDir,'note.md') } })
+  expect(JSON.parse(blocked).hookSpecificOutput.permissionDecision).toBe('deny')
+  const again = createAssistantPanelApplication(f.binding, { ...f.deps, locale: () => locale })
+  expect((await again.prepareText('still pending')).text).toContain('assistant_panel_application_failed')
+  await request.accepted()
+  expect((await again.prepareText('later')).text).toBe('later')
+  await again.inform(failure) // The cloud ack may have been lost before the native receipt.
+  expect((await again.prepareText('no replay')).text).toBe('no replay')
+})

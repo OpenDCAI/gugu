@@ -22,12 +22,12 @@ import { errorText, machineKey, usePhoneRead } from './usePhoneRead'
  * 醒着才读得到(❌ 自己叫醒)。
  */
 export function PhoneFiles(props: PhonePageProps & { trail: string[] }) {
-  const ready = props.readiness === 'ready' && props.machine.state === 'ready' ? props.machine.machine : null
+  const ready = props.machine.state === 'ready' ? props.machine.machine : null
   if (ready) return <ResourcePage key={`${machineKey(ready)}|${props.trail.join('/')}`} {...props} machine={ready} />
   return (
     <div className="ta-page" data-testid="assistant-files">
       <PageHead title={props.trail.at(-1) ?? RESOURCES_DIR_NAME} />
-      <PhoneMachineView readiness={props.readiness} machine={props.machine} name={props.assistant.display_name}>
+      <PhoneMachineView machine={props.machine} name={props.assistant.display_name}>
         {() => null}
       </PhoneMachineView>
     </div>

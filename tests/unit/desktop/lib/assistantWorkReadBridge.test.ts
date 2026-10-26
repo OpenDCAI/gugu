@@ -11,8 +11,17 @@ it('a second bundle reads through the authenticated shell while its own session 
  shellSession.publishRendererSession('SIGNED_IN',{user:{id:'owner'}} as Session)
  wire.rpc.mockImplementation(()=>({abortSignal:async()=>({data:{items:[],next_before:null},error:null})}))
  const shell=await import('../../../../apps/desktop/src/lib/assistantWorkShell')
- const close=shell.installAssistantWorkShell()
+ const panel=await import('../../../../apps/desktop/src/lib/assistantPanelBridge')
+ const target=window as import('../../../../apps/desktop/src/lib/assistantPanelBridge').AssistantPanelWindow
+ target.__GUGU_ASSISTANT_PANEL__={work:shell.assistantWorkReads,accountId:()=>shellSession.getRendererSession()?.user.id??null,
+  files:()=>{throw new Error('Unexpected file access')},personalAssistant:vi.fn(),privateChat:vi.fn(),queueNotice:vi.fn(),
+  subscribeAccount:listener=>shellSession.observeRendererSession(()=>listener()),subscribeChanges:(owner,listener)=>{
+   wire.listen(owner,'assistant_work_changed',listener,{});return ()=>{}
+  }} as import('../../../../apps/desktop/src/lib/assistantPanelBridge').AssistantPanelBridge
+ expect(panel.assistantPanelAccountId()).toBe('owner')
+ const close=()=>{delete target.__GUGU_ASSISTANT_PANEL__}
  try{
+  expect((window as Window&{__GUGU_ASSISTANT_PANEL__?:unknown}).__GUGU_ASSISTANT_PANEL__).toBeDefined()
   vi.resetModules()
   const otherSession=await import('../../../../apps/desktop/src/lib/sessionPublication')
   const reader=await import('../../../../apps/desktop/src/lib/assistantWork')

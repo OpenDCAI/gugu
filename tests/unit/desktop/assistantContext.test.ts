@@ -70,6 +70,8 @@ it.each(['computer', 'cloud'] as const)('keeps the complete %s handbook retrieva
     expect(brief).toContain('Owner instructions after')
     expect(brief).toContain('主人明确要求当作任务')
     expect(brief).toContain('宿主自动补齐执行约定')
+    expect(brief).toContain('读写记忆/每日首聊先检查关于你')
+    expect(full).toContain('已有账号同样检查，不合格式就自主整理')
     // Both the resident instructions and the on-demand handbook carry the owner-facing boundary.
     for (const text of [brief, full]) {
       expect(text).toContain('不展示会话、work、设备、job 的内部编号')

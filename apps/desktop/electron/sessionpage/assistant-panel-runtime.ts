@@ -24,7 +24,7 @@ type Binding = AssistantPanelHome & { sessionId: string }
 export function createAssistantPanelRuntime(deps: {
   getAuth(): Promise<Auth | null>; instanceId(): string | null; deviceId(): Promise<string>
   local: typeof assistantPanelLocal; guguHome: string; kind: AssistantHomeKind; env: NodeJS.ProcessEnv
-  failed(domain: string): void
+  failed(domain: string): void; locale(): string
 }) {
   const hostAuth = () => withBoundedOperation(2000,() => new Error('PANEL_AUTH_TIMEOUT'),() => deps.getAuth())
   const bindings = new Map<string, Binding>()
@@ -92,6 +92,7 @@ export function createAssistantPanelRuntime(deps: {
       return withBoundedOperation(5000,() => new Error('PANEL_BODY_TIMEOUT'),async () => readAssistantPanelBody(item,await access()))
     }
     const application = createAssistantPanelApplication(binding,{
+      locale: deps.locale,
       assertCurrent: async () => { await auth() },readBody,
       applyService: async change => applyAssistantPanelService(change,async () => deps.local.apply(change,change.operation === 'remove' || !change.payload.bodyItemId ? null : await readBody(change),
         (await deps.local.sessions(binding.ownerId)).filter(row => row.agentId === binding.assistantId).map(row => row.summary.conversationId),binding.ownerId),cloud),
@@ -105,7 +106,7 @@ export function createAssistantPanelRuntime(deps: {
         instance = deps.instanceId()
       }
       if (!instance) throw new Error('PANEL_RUNTIME_LEASE_UNAVAILABLE')
-      return prepareAssistantPanelAdmission({ assistant: binding.assistantId,instance,cloud,application,text })
+      return prepareAssistantPanelAdmission({ assistant: binding.assistantId,instance,cloud,application,text,locale: deps.locale() })
     }
     async function observations(domain: AssistantPanelDomain, previous: AssistantPanelItem[]): Promise<PanelObservation[]> {
       if (['memory','files','skills','personality','voice-notes'].includes(domain)) {

@@ -4,10 +4,12 @@ import { useTranslation } from 'react-i18next'
 import { Markdown } from '@/components/markdown/Markdown'
 import { useToast } from '@/components/toastContext'
 import { Button } from '@/components/ui/Button'
-import { Crown, Folder, Heart, Mic, Sparkles, SquarePen, Trash2 } from '@/lib/icons'
-import { RESOURCES_DIR_NAME, type MemoryKind } from '@/session/renderer/features/assistant/assistant-files'
+import { Folder, Heart, Mic, Sparkles, SquarePen, Trash2 } from '@/lib/icons'
+import { isOwnerProfileNote, RESOURCES_DIR_NAME, type MemoryKind } from '@/session/renderer/features/assistant/assistant-files'
 import { readMemoryNotes, type MemoryEntry } from '@/session/renderer/features/assistant/assistant-machine-core'
-import { AssistantEmpty, AssistantRow, AssistantSection, PageHead } from '@/session/renderer/features/assistant/assistant-ui-parts'
+import { AssistantEmpty, AssistantRow, AssistantSection, ownerLeading, PageHead } from '@/session/renderer/features/assistant/assistant-ui-parts'
+import { useAuth } from '@/store/auth'
+import { memoryContentPreview } from '@/session/renderer/features/assistant/memory-content-preview'
 import type { PhonePageProps } from './MobileAssistantApp'
 import { PhoneConfirmDialog } from './PhoneConfirmDialog'
 import { PhoneFiles } from './PhoneFiles'
@@ -43,8 +45,8 @@ function useTime() {
  * 记忆、语音笔记、资料都在它家里,醒着才读得到(❌ 自己叫醒);健康是这台手机自己的数据,它在休息也照样能点进去看。
  */
 export function PhoneMemory(props: PhonePageProps) {
-  const { sub, readiness, machine } = props
-  const ready = readiness === 'ready' && machine.state === 'ready' ? machine.machine : null
+  const { sub, machine } = props
+  const ready = machine.state === 'ready' ? machine.machine : null
   // 记忆那一夹各页共用一份读数(首页、一条的全文、健康页里它记的 health_* 几条)。
   const notes = usePhoneRead(ready ? `memory|${machineKey(ready)}` : null, () => readMemoryNotes(ready!), 'read memory')
   if (sub === 'library:workspace') return <PhoneLibraryVolume key={sub} {...props} kind="workspace" />
@@ -57,11 +59,11 @@ export function PhoneMemory(props: PhonePageProps) {
 
 function MemoryHome(props: PhonePageProps & { notes: NotesRead }) {
   const { t } = useTranslation('assistant')
-  const { assistant, readiness, machine, go, notes } = props
+  const { assistant, machine, go, notes } = props
   const name = assistant.display_name
   return (
     <div className="ta-page" data-testid="assistant-memory">
-      <PhoneMachineView readiness={readiness} machine={machine} name={name}>
+      <PhoneMachineView machine={machine} name={name}>
         {() => (
           <ReadView read={notes} failedTitle={t('memory.loadFailed')}>
             {(read) => <AboutYou {...props} notes={read.notes} />}
@@ -71,7 +73,7 @@ function MemoryHome(props: PhonePageProps & { notes: NotesRead }) {
       <AssistantSection title={t('library.workspace')}>
         <AssistantLibraryCard assistantId={assistant.id} machine={machine.state === 'ready' ? machine.machine : null} kind="workspace" onOpen={() => go('library:workspace')} />
       </AssistantSection>
-      {notes.state === 'ok' && readiness === 'ready' && notes.data.notes.some((entry) => entry.kind !== 'user') ? (
+      {notes.state === 'ok' && notes.data.notes.some((entry) => entry.kind !== 'user') ? (
         <AssistantSection title={t('library.memory')} bare testId="assistant-memory-all">
           <MemoryList {...props} notes={notes.data.notes} />
         </AssistantSection>
@@ -85,6 +87,8 @@ function MemoryHome(props: PhonePageProps & { notes: NotesRead }) {
 function AboutYou({ askInChat, go, notes }: PhonePageProps & { notes: MemoryEntry[] }) {
   const { t } = useTranslation('assistant')
   const time = useTime()
+  const { user } = useAuth()
+  const owner = user ? { id: user.id, name: user.nickname, avatarUrl: user.avatarUrl ?? null } : null
   const aboutYou = notes.filter((entry) => entry.kind === 'user')
   return (
     <AssistantSection title={t('library.longTerm')} testId="assistant-memory-about">
@@ -96,8 +100,8 @@ function AboutYou({ askInChat, go, notes }: PhonePageProps & { notes: MemoryEntr
           </Button>
         </div>
       ) : (
-        aboutYou.map(entry => <AssistantRow key={entry.file} leading={<Crown />} title={entry.title}
-          detail={entry.description || (entry.modifiedAt ? t('memory.updated', { time: time(entry.modifiedAt) }) : undefined)} onClick={() => go(`note:${entry.file}`)} />)
+        aboutYou.map(entry => <AssistantRow key={entry.file} leading={ownerLeading(owner)} title={isOwnerProfileNote(entry) ? t('memory.filter.user') : entry.title} detailLines={4}
+          detail={memoryContentPreview(entry.body) || (entry.modifiedAt ? t('memory.updated', { time: time(entry.modifiedAt) }) : undefined)} onClick={() => go(`note:${entry.file}`)} />)
       )}
     </AssistantSection>
   )
@@ -116,7 +120,8 @@ function MemoryList({ assistant, go, notes }: PhonePageProps & { notes: MemoryEn
           <AssistantRow
             key={entry.file}
             title={entry.title}
-            detail={entry.modifiedAt ? t('memory.updated', { time: time(entry.modifiedAt) }) : kindLabel(entry.kind, t, name)}
+            detail={memoryContentPreview(entry.body, 140) || (entry.modifiedAt ? t('memory.updated', { time: time(entry.modifiedAt) }) : kindLabel(entry.kind, t, name))}
+            detailLines={4}
             onClick={() => go(`note:${entry.file}`)}
             testId={`assistant-memory-${entry.file}`}
           />
@@ -126,9 +131,9 @@ function MemoryList({ assistant, go, notes }: PhonePageProps & { notes: MemoryEn
 }
 
 /** 本机健康不依赖助理连接；远端来源可以先打开，由各自页面说明实际连接状态。 */
-function MemorySources({ readiness, machine, go }: PhonePageProps) {
+function MemorySources({ machine, go }: PhonePageProps) {
   const { t } = useTranslation('assistant')
-  const ready = readiness === 'ready' && machine.state === 'ready' ? machine.machine : null
+  const ready = machine.state === 'ready' ? machine.machine : null
   const counts = usePhoneRead(ready ? `memory-counts|${machineKey(ready)}` : null, () => readMemoryCounts(ready!), 'count memory folders')
   const voice = counts.state === 'ok' ? counts.data.voice : null
   const files = counts.state === 'ok' ? counts.data.files : null
@@ -144,15 +149,15 @@ function MemorySources({ readiness, machine, go }: PhonePageProps) {
 /** 一条记忆的全文:正文、在对话中改(只填不发)、删(先确认;连同 MEMORY.md 里指向它的那一行),删完回首页重读。 */
 function MemoryNote(props: PhonePageProps & { file: string; notes: NotesRead }) {
   const { t } = useTranslation('assistant')
-  const { assistant, readiness, machine, notes, file } = props
-  const opened = readiness === 'ready' && machine.state === 'ready' ? machine.machine : null
+  const { assistant, machine, notes, file } = props
+  const opened = machine.state === 'ready' ? machine.machine : null
   const note = notes.state === 'ok' ? notes.data.notes.find((entry) => entry.file === file) ?? null : null
   if (opened && note) return <MemoryNoteBody {...props} machine={opened} note={note} />
   // 读到之前 / 读不到 / 已经不在了:页头先说是记忆,下面说清是哪一步。
   return (
     <div className="ta-page" data-testid="assistant-memory-detail">
       <PageHead title={t('nav.memory')} />
-      <PhoneMachineView readiness={readiness} machine={machine} name={assistant.display_name}>
+      <PhoneMachineView machine={machine} name={assistant.display_name}>
         {() => (
           <ReadView read={notes} failedTitle={t('memory.loadFailed')}>
             {() => <AssistantEmpty title={t('memory.goneTitle')}>{t('memory.gone')}</AssistantEmpty>}
@@ -169,15 +174,17 @@ function MemoryNoteBody({ assistant, askInChat, go, notes, machine, note }: Open
   const time = useTime()
   const [confirming, setConfirming] = useState(false)
   const name = assistant.display_name
+  const aboutMe = isOwnerProfileNote(note)
+  const title = aboutMe ? t('memory.filter.user') : note.title
   return (
     <div className="ta-page" data-testid="assistant-memory-detail">
-      <PageHead title={note.title} sub={[kindLabel(note.kind, t, name), note.modifiedAt ? t('memory.updated', { time: time(note.modifiedAt) }) : null].filter(Boolean).join(' · ')} />
+      <PageHead title={title} sub={[aboutMe ? null : kindLabel(note.kind, t, name), note.modifiedAt ? t('memory.updated', { time: time(note.modifiedAt) }) : null].filter(Boolean).join(' · ')} />
       <div className="ta-card ta-prose" data-testid="assistant-memory-body">
         <Markdown trust="chat" content={note.body || t('memory.noContent')} />
       </div>
       <p className="ta-page-sub ta-pad">{t('memory.createdBy', { name })}</p>
       <div className="ta-phone-row-actions">
-        <Button variant="ghost" className="ta-pill-btn" onClick={() => askInChat(t('memory.editPrompt', { name: note.title }))} data-testid="assistant-memory-edit">
+        <Button variant="ghost" className="ta-pill-btn" onClick={() => askInChat(aboutMe ? t('memory.editAboutMePrompt') : t('memory.editPrompt', { name: note.title }))} data-testid="assistant-memory-edit">
           <SquarePen />
           {t('memory.editInChat')}
         </Button>
@@ -189,7 +196,7 @@ function MemoryNoteBody({ assistant, askInChat, go, notes, machine, note }: Open
       <PhoneConfirmDialog
           open={confirming}
           title={t('memory.deleteTitle')}
-          body={t('memory.deleteBody', { name: note.title })}
+          body={t('memory.deleteBody', { name: title })}
           confirmLabel={t('common.delete')}
           failedText={t('memory.deleteFailed')}
           testId="assistant-memory-delete-dialog"

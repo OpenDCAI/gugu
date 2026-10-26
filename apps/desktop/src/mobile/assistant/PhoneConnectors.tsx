@@ -15,7 +15,6 @@ import { PluginIcon } from '@/session/renderer/lib/components/plugin-icon'
 import { PhoneDeviceActionsPage } from '../phone-device/PhoneDeviceActionsPage'
 import type { PhonePageProps } from './MobileAssistantApp'
 import { PhoneConfirmDialog } from './PhoneConfirmDialog'
-import { PhoneMachineGate } from './PhoneMachineGate'
 import { ReadingNow } from './PhoneMachineView'
 import {
   connectSub,
@@ -38,7 +37,7 @@ type Where = 'cloud' | 'device' | 'other'
  * - 本机 = 这台手机(装的咕咕:手机能做的事;网页版:说要在咕咕电脑 App 里连)。
  * - 其他设备 = 别的设备登记的动作,与桌面同一个组件。
  */
-export function PhoneConnectorsPage({ assistant, home, readiness, cloudDeviceId, go, integrations, embedded = false }: PhonePageProps & { integrations: Integrations; embedded?: boolean }) {
+export function PhoneConnectorsPage({ assistant, home, cloudDeviceId, go, integrations, embedded = false }: PhonePageProps & { integrations: Integrations; embedded?: boolean }) {
   const { t } = useTranslation('assistant')
   const [where, setWhere] = useState<Where>('cloud')
   const name = assistant.display_name
@@ -57,7 +56,7 @@ export function PhoneConnectorsPage({ assistant, home, readiness, cloudDeviceId,
       {where === 'cloud' ? (
         <>
           {!embedded ? <p className="ta-page-sub ta-pad">{home ? accountNoteFor(home, name, t) : t('connectors.pageSub', { name })}</p> : null}
-          <CloudGate readiness={readiness} name={name} integrations={integrations}>
+          <CloudGate integrations={integrations}>
             {(data) => <ConnectorLists data={data} open={(id) => go(`connector:${id}`)} connect={(id) => go(connectSub(id))} />}
           </CloudGate>
         </>
@@ -78,13 +77,9 @@ export function PhoneConnectorsPage({ assistant, home, readiness, cloudDeviceId,
 
 /** 云端那一份读到之前说清是哪一步:在休息 / 正在醒 / 连不上 → 读失败(带原因与重试)→ 正在读。❌ 读不到时画一个空列表。 */
 export function CloudGate({
-  readiness,
-  name,
   integrations,
   children,
 }: {
-  readiness: PhonePageProps['readiness']
-  name: string
   integrations: Integrations
   children: (data: PhoneIntegrations) => ReactNode
 }) {
@@ -94,11 +89,7 @@ export function CloudGate({
     if (!integrations.data) return <ReadingNow />
     return children(integrations.data)
   })()
-  return (
-    <PhoneMachineGate readiness={readiness} name={name}>
-      {body}
-    </PhoneMachineGate>
-  )
+  return body
 }
 
 export function ConnectorIcon({ integration, size }: { integration: IntegrationMetadata; size: number }) {
@@ -152,7 +143,7 @@ function ConnectorLists({ data, open, connect }: { data: PhoneIntegrations; open
  * 只有这条路手机上真走不通的才如实说去哪连(phone 网页版的浏览器授权:要 App),❌ 摆一个点了不连的钮。
  * 多账号(邮箱)与 GitHub 逐个列账号、逐个断开;单账号的一家一个「断开连接」。断开都先确认。
  */
-export function PhoneConnectorDetail({ assistant, readiness, homeDeviceId, machine, integrations, id, go }: PhonePageProps & { integrations: Integrations; id: string }) {
+export function PhoneConnectorDetail({ assistant, homeDeviceId, machine, integrations, id, go }: PhonePageProps & { integrations: Integrations; id: string }) {
   const { t } = useTranslation('assistant')
   const name = assistant.display_name
   const view = integrations.data && !integrations.error ? connectorDetail(integrations.data.items, integrations.data.configured, integrations.data.statuses, id) : null
@@ -164,7 +155,7 @@ export function PhoneConnectorDetail({ assistant, readiness, homeDeviceId, machi
     device: homeDeviceId,
     id,
     name: view?.item.name ?? id,
-    enabled: wantsAccounts && readiness === 'ready',
+    enabled: wantsAccounts,
     refreshKey: changes,
   })
   // 那台机器比多账号老:按单账号画(一个「断开连接」);读失败 / 还在读时不画它 —— 那个钮会一次断掉所有账号。
@@ -188,7 +179,7 @@ export function PhoneConnectorDetail({ assistant, readiness, homeDeviceId, machi
   return (
     <div className="ta-page ta-phone-profile" data-testid="assistant-connector-detail">
       <PageHead title={view?.item.name ?? t('connectors.title')} />
-      <CloudGate readiness={readiness} name={name} integrations={integrations}>
+      <CloudGate integrations={integrations}>
         {() =>
           view ? (
             <>
