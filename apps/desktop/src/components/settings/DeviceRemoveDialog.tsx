@@ -81,6 +81,7 @@ export function DeviceRemoveDialog({
     >
       <div className="flex flex-col gap-3 overflow-y-auto p-[18px]">
         <div className="text-[length:var(--font-title)] font-semibold text-[var(--fg)]">{t('devices.remove.title', { name: device.label })}</div>
+        {device.tier && <div className={body}>{t('devices.configurations')} · {device.tier}</div>}
         <div className={`${body} text-[var(--muted-fg)]`}>{consequence}</div>
         {model.kind === 'server' && !device.is_online && (
           <div className={`${body} text-[var(--muted-fg)]`}>{t('devices.remove.serverOffline')}</div>

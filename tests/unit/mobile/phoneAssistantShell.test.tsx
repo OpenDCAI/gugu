@@ -25,7 +25,7 @@ vi.mock('../../../apps/desktop/src/mobile/assistant/PhoneIdeas', () => ({ PhoneI
 vi.mock('../../../apps/desktop/src/mobile/assistant/PhoneToday', () => ({ PhoneToday: () => <div>today content</div> }))
 vi.mock('../../../apps/desktop/src/mobile/assistant/PhoneTasks', () => ({ PhoneTasks: () => <div>tasks content</div> }))
 vi.mock('../../../apps/desktop/src/mobile/assistant/PhoneMemory', () => ({ PhoneMemory: () => <div>memory content</div> }))
-vi.mock('../../../apps/desktop/src/mobile/assistant/PhoneProfile', () => ({ PhoneProfile: ({ go }: { go: (sub: string) => void }) => <button data-testid="open-devices" onClick={() => go('devices')}>devices</button> }))
+vi.mock('../../../apps/desktop/src/mobile/assistant/PhoneProfile', () => ({ PhoneProfile: ({ go }: { go: (sub: string) => void }) => <>{['devices', 'devices:this-phone', 'devices:offline', 'connectors', 'library:capabilities'].map(sub => <button key={sub} data-testid={`open-${sub}`} onClick={() => go(sub)}>{sub}</button>)}</> }))
 vi.mock('../../../apps/desktop/src/session/renderer/features/assistant/assistant-shell', () => ({ ShellSlot: () => null }))
 
 import { UI_EVENTS } from '../../../apps/desktop/src/lib/uiEvents'
@@ -63,10 +63,24 @@ it('changes internal pages without transitioning or replacing the shared header,
 it('keeps profile subpages inside the same header and restores the search action on return to chat', async () => {
   await h.render(<MobileAssistantApp {...props} />)
   const header = find('mobile-assistant-header')
+  const chat = find('retained-chat')
   const received = vi.fn()
   window.addEventListener(UI_EVENTS.openChatSearch, received)
   await clickElement(find('mobile-assistant-pill'))
-  await clickElement(find('open-devices'))
+  const expectProfileLocation = () => {
+    expect(find('mobile-assistant-pill').getAttribute('aria-pressed')).toBe('true')
+    for (const tab of ['chat', 'today', 'tasks', 'memory']) {
+      expect(find(`mobile-assistant-tab-${tab}`).getAttribute('aria-selected')).toBe('false')
+      expect(find(`mobile-assistant-tab-${tab}`).hasAttribute('data-selected')).toBe(false)
+    }
+    expect(find('mobile-assistant-header')).toBe(header)
+    expect(find('retained-chat')).toBe(chat)
+  }
+  expectProfileLocation()
+  for (const sub of ['devices', 'devices:this-phone', 'devices:offline', 'connectors', 'library:capabilities', 'devices']) {
+    await clickElement(find(`open-${sub}`))
+    expectProfileLocation()
+  }
   expect(find('mobile-assistant-app').getAttribute('data-sub')).toBe('devices')
   expect(find('mobile-assistant-header')).toBe(header)
   expect(find('mobile-assistant-back')).not.toBeNull()

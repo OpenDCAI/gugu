@@ -120,6 +120,7 @@
         <activity
             android:name=".HealthRationaleActivity"
             android:label="@string/health_rationale_title"
+            android:theme="@style/AppTheme.HealthRationale"
             android:exported="true">
             <intent-filter>
                 <action android:name="androidx.health.ACTION_SHOW_PERMISSIONS_RATIONALE" />

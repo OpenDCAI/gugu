@@ -54,6 +54,7 @@ import { libraryDeviceId } from '../assistant/assistant-library-client'
 import { cachedDevicesAccount } from '../../store/devicesCache'
 import { UI_EVENTS } from '../../lib/uiEvents'
 import { useSettingsDetail } from './SettingsDetailNavigation'
+import { DeviceMachineConfigurations, type DeviceConfigurationActions } from '../devices/DeviceMachineConfigurations'
 
 async function saveDevicePermission(channel: string, args: unknown, change: { action: string; enabled?: boolean; group?: string }): Promise<void> {
   const ipc = desktopIpc()
@@ -117,13 +118,14 @@ export function GroupIcon({ group, size }: { group: { id: string; icon?: string 
   )
 }
 
-export function DeviceActionsPage({ device, isThisDevice, onBack, embedded = false, panelNavigation = false }: { device: Device; isThisDevice: boolean; onBack?: () => void; embedded?: boolean; panelNavigation?: boolean }) {
+export function DeviceActionsPage({ device, isThisDevice, onBack, embedded = false, panelNavigation = false, configurations, configurationActions }: { device: Device; isThisDevice: boolean; onBack?: () => void; embedded?: boolean; panelNavigation?: boolean; configurations?: readonly Device[]; configurationActions?: DeviceConfigurationActions }) {
   const { t } = useTranslation('settings')
   const ipc = desktopIpc()
-  if (isThisDevice && ipc) return <ThisDeviceActions onBack={onBack} panelNavigation={panelNavigation} />
+  if (isThisDevice && ipc) return <ThisDeviceActions onBack={onBack} panelNavigation={panelNavigation}><DeviceMachineConfigurations devices={configurations} actions={configurationActions} /></ThisDeviceActions>
   return (
     <SettingsPage data-testid="settings-device-actions">
       {!embedded && <PageHeader panelNavigation={panelNavigation} navigationKey={`device:${device.device_id}`} title={t('devices.deviceActions.otherTitle', { name: device.label })} backLabel={t('devices.deviceActions.back')} onBack={onBack} />}
+      <DeviceMachineConfigurations devices={configurations} actions={configurationActions} />
       <OtherDeviceActions device={device} compact={embedded} />
     </SettingsPage>
   )
@@ -189,6 +191,7 @@ export function ThisDeviceActions({ onBack, bare = false, panelNavigation = fals
   if (!managePermissions) return (
     <SettingsPage data-testid="settings-device-actions">
       {header}
+      {children}
       <SettingsNote>{t('devices.deviceActions.thisNote')}</SettingsNote>
       {state.denyAll && <SettingsNote>{t('devices.deviceActions.denyAllOn')}</SettingsNote>}
       {connected.length ? <SettingsGroup title={t('devices.deviceActions.connected')}>
@@ -458,13 +461,13 @@ function OtherDeviceActions({ device, compact = false }: { device: Device; compa
     for (const a of actions ?? []) out.set(a.group, [...(out.get(a.group) ?? []), a])
     return [...out.entries()]
   }, [actions])
-  if (isPhoneDevice(device)) return <SettingsGroup title={device.label}><SettingsRow title={t('devices.kind.phone')} description={t('devices.phoneActions.localAgentOnly')} control={<Chip>{t(device.is_online ? 'devices.online' : 'devices.offline')}</Chip>} /></SettingsGroup>
+  if (isPhoneDevice(device)) return <SettingsGroup><SettingsRow title={t('devices.kind.phone')} description={t('devices.phoneActions.localAgentOnly')} control={<Chip>{t(device.is_online ? 'devices.online' : 'devices.offline')}</Chip>} /></SettingsGroup>
   if (!actions) return <SettingsNote>{t('devices.deviceActions.otherNone')}</SettingsNote>
   return (
     <>
       {!compact && <SettingsNote>{t('devices.deviceActions.otherNote')}</SettingsNote>}
       {!device.is_online && <SettingsNote tone="danger">{t('devices.deviceActions.otherOffline')}</SettingsNote>}
-      <SettingsGroup title={compact ? device.label : undefined}>
+      <SettingsGroup>
         {groups.map(([group, list]) => {
           const on = list.some((a) => a.available)
           const reason = list.find((a) => !a.available)?.unavailable_reason

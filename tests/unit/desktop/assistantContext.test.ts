@@ -7,6 +7,7 @@ import { assistantGuide, assistantHomePaths, assistantRecoveryContext } from '@g
 import { ASSISTANT_CONTEXT_CORE, ASSISTANT_TASK_EXECUTION } from '@gugu/core/shared/assistantWorkflow'
 import { openingAssistantIndex } from '../../../apps/desktop/electron/sessionpage/assistant-index-cache'
 import { boundedAssistantIndex } from '../../../apps/desktop/electron/sessionpage/assistant-index-format'
+import { GUGU_ACKNOWLEDGEMENT, GUGU_PLATFORM_BLOCK } from '../../../apps/desktop/electron/product-platform-prompt'
 import type { Materialization } from '../../../apps/desktop/electron/capability-bundle'
 import { assistantHomeTaskContext, personalAssistantContext, preparePersonalAssistantContext, refreshAssistantContext } from '../../../apps/desktop/electron/sessionpage/assistant-context'
 
@@ -109,6 +110,20 @@ it.each(['computer', 'cloud'] as const)('keeps the complete %s handbook retrieva
     expect(await readFile(join(cwd, 'memory.md'), 'utf8')).toBe('durable owner memory')
     if (kind === 'cloud') await expect(readFile(join(cwd, 'CLAUDE.md'))).rejects.toMatchObject({ code: 'ENOENT' })
   } finally { await rm(root, { recursive: true, force: true }) }
+})
+
+it('removes only the assistant acknowledgement duplicate from the actual custom system channel', () => {
+  const before = fixture()
+  before.sessionPrompt = `identity-before\n${GUGU_PLATFORM_BLOCK}\nidentity-after`
+  const after = personalAssistantContext(before, 'cloud')
+  const options = (after.sessionNewPatch!.meta!.claudeCode as { options: Record<string, unknown> }).options
+  const system = options.systemPrompt as { type: string; prompt: string }
+  expect(system.type).toBe('custom')
+  expect(system.prompt).not.toContain(GUGU_ACKNOWLEDGEMENT)
+  expect(system.prompt).toContain('identity-before')
+  expect(system.prompt).toContain('identity-after')
+  expect(system.prompt).toContain('Short. Lead with the answer')
+  expect(before.sessionPrompt).toContain(GUGU_ACKNOWLEDGEMENT)
 })
 
 it('loads the dedicated cloud home where the assistant guide and skills actually live', () => {
@@ -223,7 +238,7 @@ it('loads the assistant project and explicit Gugu tools without the host coding 
   expect(after.sessionPrompt).toBe(before.sessionPrompt)
   expect(options.systemPrompt).toMatchObject({ type: 'custom', snapshot: false })
   const prompt = (options.systemPrompt as { prompt: string }).prompt
-  expect(prompt).toContain('personal assistant in Gugu')
+  expect(prompt).toContain('Follow the owner’s instructions, the managed project instructions and the platform contract.')
   expect(prompt.split(before.sessionPrompt!).length).toBe(2)
   expect(after.spawnEnv).toBe(before.spawnEnv)
   expect((before.sessionNewPatch!.meta!.claudeCode as { options: object }).options).not.toHaveProperty('strictMcpConfig')
