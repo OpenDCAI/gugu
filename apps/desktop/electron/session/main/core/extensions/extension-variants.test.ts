@@ -65,6 +65,16 @@ describe('App variants use the installed App identity and the existing install t
     expect(service.grantedCapabilities('demo')).not.toContain('chat:relay');
   });
 
+  it('repairs an unreadable installed manifest while retaining its recorded approvals', () => {
+    const { source, manifest, save, service, fork, upstream, install } = setup();
+    manifest.permissions!.capabilities!.push('chat:relay');
+    save();
+    install(source, fork);
+    writeFileSync(path.join(service.get('demo').rootDir, 'manifest.json'), '{broken');
+    expect(() => install(service.variantDirectory('demo', 'upstream'), upstream)).not.toThrow();
+    expect(service.approvedManifest('demo').permissions?.capabilities).toContain('chat:relay');
+  });
+
   it('refuses a changed manifest before altering the active variant and removes variant copies on uninstall', () => {
     const { source, manifest, save, service, fork } = setup();
     const digest = service.inspectDirectory(source).manifestDigest;

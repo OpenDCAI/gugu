@@ -134,13 +134,13 @@ export function marketUpdatesFrom(
       if (fromMarket) summary.gone.push(id);
       continue;
     }
+    if (app.deprecated) summary.deprecated[id] = app.deprecated;
     if (forkBase !== undefined) {
       const behind = forkBehind(forkBase, app.versions);
       if (behind) (summary.forkBehind ??= {})[id] = behind;
       continue;
     }
     const offered = offeredById.get(id);
-    if (app.deprecated) summary.deprecated[id] = app.deprecated;
     const yanked = app.versions.find((entry) => entry.version === version)?.yanked;
     if (yanked) {
       summary.yanked[id] = {

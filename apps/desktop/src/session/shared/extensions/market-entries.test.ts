@@ -1,4 +1,5 @@
 import { describe, expect, it } from 'vitest';
+import type { MarketIndexVersion } from './market';
 import { autoUpdatesFrom, marketUpdatesFrom, pinsAutoUpdate } from './market-entries';
 
 // owner 10-19 (market Apps update by themselves, as VS Code's do): which version each App goes to, and when installing one
@@ -39,4 +40,16 @@ describe('marketUpdatesFrom: an App no longer in the market', () => {
     expect(told.gone).toEqual(['radar']);
     expect(told.updates).toEqual({});
   });
+});
+
+
+it('reports a fork falling behind without offering it an automatic replacement, and keeps upstream deprecation', () => {
+  const host = { platform: 'desktop' as const, appVersion: '0.2.60', apiVersionMin: 1, apiVersionMax: 99 };
+  const versions = ['1.0.0', '1.1.0', '1.2.0'].map((version, i) => ({ version, source: { commit: String(i).repeat(40) }, yanked: i === 1 ? { reason: 'withdrawn' } : null }) as MarketIndexVersion);
+  const deprecated = { note: 'No longer maintained', replacedBy: null };
+  const result = marketUpdatesFrom({ apps: [{ id: 'radar', deprecated, versions }] }, host, [{ id: 'radar', version: '1.0.0', forkBase: '1.0.0' }], '');
+  expect(result.forkBehind).toEqual({ radar: { upstream: '1.2.0', behind: 1, commit: '2'.repeat(40) } });
+  expect(result.updates).toEqual({});
+  expect(result.yanked).toEqual({});
+  expect(result.deprecated).toEqual({ radar: deprecated });
 });

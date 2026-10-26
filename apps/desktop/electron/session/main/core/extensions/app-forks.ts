@@ -147,7 +147,7 @@ export async function prepareForkVariant(sourceDir: string): Promise<ExtensionVa
   const versions = await cloudExtensionMarket().sourceVersions(fork.id);
   let base = fork.base;
   for (const row of versions.filter((entry) => !entry.yanked && entry.source.repo === fork.source.repo && entry.source.path === fork.source.path).sort((a, b) => compareExtensionVersions(a.version, b.version))) {
-    if (await git(fork.root, ['merge-base', commit, row.source.commit]).then((common) => common === row.source.commit, () => false)) base = row.version;
+    if (compareExtensionVersions(row.version, base) > 0 && await git(fork.root, ['merge-base', commit, row.source.commit]).then((common) => common === row.source.commit, () => false)) base = row.version;
   }
   const remotes = (await git(fork.root, ['remote'])).split('\n');
   const remote = remotes.includes('origin') ? await git(fork.root, ['remote', 'get-url', 'origin']) : '';
