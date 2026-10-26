@@ -1,4 +1,5 @@
 import type { RawMessageRow } from '@gugu/core/cloud/messageItem'
+import { retainMessageDeletion } from './messageHistory'
 import {
   createAccountRevisionRuntime,
   type AccountRevisionOperation,
@@ -186,6 +187,11 @@ export function createAccountRevisionCoordinator(
   for (const event of ACCOUNT_REVISION_EVENTS) {
     claimCounts.set(event, 0)
     runtime.register(event, (operation, transaction) => {
+      if (event === 'message_deleted') {
+        const { entityId } = readRevisionResourceKey(operation.payload, event)
+        if (!entityId) throw new Error('message_deleted revision requires entity_id')
+        retainMessageDeletion(repository, transaction, entityId)
+      }
       transaction.putView(operationKey(operation.revision), operation)
     })
   }

@@ -446,30 +446,30 @@ export function ChatProvider({ children, active = true }: { children: React.Reac
     if (!userId || !chatId) return
     const targetWindow = cache.history(chatId, viewport)
     try {
-      const changed = await targetWindow.load(direction, fetchChatHistoryPage(userId))
+      const changed = await targetWindow.load(direction, fetchChatHistoryPage(userId, getImRepository))
       const window = targetWindow.getSnapshot()
       if (changed && window.chatId) {
         if (direction === 'latest') cache.establishTail(window.chatId, window.messages)
         else cache.update(window.chatId, (rows) => mergeMessagesById(rows, window.messages, window.chatId!))
-        persistWindowToLocalSync(window.chatId, cache.get(window.chatId) ?? []); await revalidateWindowOverlays(window.chatId)
+        persistWindowToLocalSync(window.chatId, cache.get(window.chatId) ?? [])
       }
       if (direction !== 'older' && window.chatId) noteFreshMessageRead(window.chatId) // #7199 往新翻 / 回到最新成了:读得到最新的了
     } catch (err) {
       if (!isLifecycleCancellation(err)) console.error('[ChatStore] history page failed', err)
       throw err
     }
-  }, [userId, cache, noteFreshMessageRead, persistWindowToLocalSync, revalidateWindowOverlays])
+  }, [userId, cache, noteFreshMessageRead, persistWindowToLocalSync, getImRepository])
   const loadMessageAnchor = useCallback(async (messageId: string, targetChatId = activeChatIdRef.current, viewport?: ConversationViewport, commit?: UnreadLocatorCommit) => {
     if (!userId || !targetChatId) return
     const targetWindow = cache.history(targetChatId, viewport)
-    const changed = commit ? await targetWindow.restoreAnchor(async () => ({ messages: commit.rows, hasNewer: !commit.reachedTail })) : await restoreChatHistoryAnchor(targetWindow, userId, messageId)
+    const changed = commit ? await targetWindow.restoreAnchor(async () => ({ messages: commit.rows, hasNewer: !commit.reachedTail })) : await restoreChatHistoryAnchor(targetWindow, userId, messageId, getImRepository)
     if (changed) {
       const window = targetWindow.getSnapshot()
       if (!window.hasNewer) cache.establishTail(targetChatId, window.messages)
       else cache.update(targetChatId, (rows) => mergeMessagesById(rows, window.messages, targetChatId))
-      persistWindowToLocalSync(targetChatId, cache.get(targetChatId) ?? []); await revalidateWindowOverlays(targetChatId)
+      persistWindowToLocalSync(targetChatId, cache.get(targetChatId) ?? [])
     }
-  }, [userId, cache, persistWindowToLocalSync, revalidateWindowOverlays])
+  }, [userId, cache, persistWindowToLocalSync, getImRepository])
   const markMessageVisible = useCallback((message: MessageItem) => {
     const chatId = message.chat_id
     if (!userId || !cache.isObserved(chatId)) return

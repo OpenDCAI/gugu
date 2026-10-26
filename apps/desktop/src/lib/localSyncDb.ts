@@ -6,7 +6,7 @@ const DB_NAME = 'gugu.localSync.v1'
 // ⇒ 升级时丢掉缓存的消息窗口和从它们推出来的东西:`view`(消息窗口视图、账号修订记录)与 `sync_state`(修订游标 ——
 //   游标留着,会话列表就当本机已是最新、只拿空的消息仓推可见会话,列表变空,安卓实测)。游标归零 = 冷启动那条路:
 //   重新拿一次快照,打开会话时按新的选列取消息。会话、身份、成员、在线、发件箱照留。
-const SCHEMA_VERSION = 4
+const SCHEMA_VERSION = 5
 const LEGACY_CHAT_LIST_PREFIX = 'gugu.chatListCache.v2:'
 
 export const IM_STORE_NAMES = [
@@ -32,13 +32,15 @@ export class LocalImCacheError extends Error {
 }
 
 export type LocalImDbOperation =
-  | { type: 'put'; store: ImStoreName; value: LocalImRow }
-  | { type: 'delete'; store: ImStoreName; key: IDBValidKey }
+  | { type: 'put'; store: ImStoreName; value: LocalImRow; diskOnly?: boolean }
+  | { type: 'delete'; store: ImStoreName; key: IDBValidKey; memoryOnly?: boolean }
   | { type: 'clearAccount'; accountId: string }
 
 export interface LocalImDbAdapter {
   loadAccount(accountId: string): Promise<Record<ImStoreName, LocalImRow[]>>
   commit(operations: readonly LocalImDbOperation[]): Promise<void>
+  readMessage(accountId: string, id: string): Promise<LocalImRow | undefined>
+  readMessageRange(accountId: string, streamId: string, lower: number, upper: number, limit: number, ascending: boolean): Promise<LocalImRow[]>
   close(): void
 }
 
@@ -66,13 +68,22 @@ export function createMemoryLocalSyncDb(): LocalImDbAdapter {
       assertId(accountId, 'accountId')
       return Object.fromEntries(IM_STORE_NAMES.map((name) => [
         name,
-        [...stores[name].values()].filter((row) => row.accountId === accountId).map(cloneRow),
+        [...stores[name].values()].filter((row) => row.accountId === accountId && (name !== 'message' || row.resident !== 0)).map(cloneRow),
       ])) as Record<ImStoreName, LocalImRow[]>
     },
     async commit(operations) {
       const next = cloneMemoryStores(stores)
       applyMemoryOperations(next, operations)
       stores = next
+    },
+    async readMessage(accountId, id) {
+      const row = stores.message.get(serializeKey([accountId, id]))
+      return row ? cloneRow(row) : undefined
+    },
+    async readMessageRange(accountId, streamId, lower, upper, limit, ascending) {
+      const rows = [...stores.message.values()].filter((row) => row.accountId === accountId && row.streamId === streamId && Number(row.seq) >= lower && Number(row.seq) <= upper)
+      rows.sort((a, b) => (Number(a.seq) - Number(b.seq)) * (ascending ? 1 : -1))
+      return rows.slice(0, limit).map(cloneRow)
     },
     close() {},
   }
@@ -138,7 +149,10 @@ function applyMemoryOperations(stores: MemoryStores, operations: readonly LocalI
       stores[operation.store].set(serializeKey(keyForRow(operation.store, operation.value)), cloneRow(operation.value))
       continue
     }
-    stores[operation.store].delete(serializeKey(operation.key))
+    const key = serializeKey(operation.key)
+    const row = stores[operation.store].get(key)
+    if (operation.memoryOnly && row) stores[operation.store].set(key, { ...row, resident: 0 })
+    else stores[operation.store].delete(key)
   }
 }
 
@@ -164,6 +178,15 @@ function openDatabase(indexedDb: IDBFactory): Promise<IDBDatabase> {
       if (oldVersion === 3) {
         for (const name of ['message', 'stream', 'view', 'sync_state'] as const) transaction.objectStore(name).clear()
       }
+      if (oldVersion >= 3 && oldVersion < 5) {
+        const messages = transaction.objectStore('message')
+        if (!messages.indexNames.contains('accountResident')) messages.createIndex('accountResident', ['accountId', 'resident'])
+        const cursor = messages.openCursor()
+        cursor.onsuccess = () => {
+          const row = cursor.result
+          if (row) { row.update({ ...row.value, resident: 1 }); row.continue() }
+        }
+      }
     }
     request.onerror = () => reject(migrationError ?? request.error ?? new Error('Failed to open local IM database'))
     request.onblocked = () => reject(new Error('Local IM database upgrade is blocked by another open client'))
@@ -179,6 +202,7 @@ function createNormalizedStores(db: IDBDatabase): void {
     if (name === 'message') {
       store.createIndex('accountChatSeq', ['accountId', 'chatId', 'seq'])
       store.createIndex('accountStreamSeq', ['accountId', 'streamId', 'seq'])
+      store.createIndex('accountResident', ['accountId', 'resident'])
     }
     if (name === 'membership') store.createIndex('accountChat', ['accountId', 'chatId'])
   }
@@ -207,7 +231,7 @@ function migrateLegacyVersion(
       createNormalizedStores(db)
       for (const [store, values] of Object.entries(normalized) as [ImStoreName, LocalImRow[]][]) {
         const target = transaction.objectStore(store)
-        for (const value of values) target.put(value)
+        for (const value of values) target.put(store === 'message' ? { ...value, resident: 1 } : value)
       }
     } catch (error) {
       abort(error)
@@ -336,7 +360,10 @@ function createIndexedDbAdapter(db: IDBDatabase): LocalImDbAdapter {
       assertId(accountId, 'accountId')
       const transaction = db.transaction(IM_STORE_NAMES, 'readonly')
       const entries = await Promise.all(IM_STORE_NAMES.map(async (name) => {
-        const values = await requestResult<LocalImRow[]>(transaction.objectStore(name).index('accountId').getAll(accountId))
+        const store = transaction.objectStore(name)
+        const values = await requestResult<LocalImRow[]>(name === 'message'
+          ? store.index('accountResident').getAll([accountId, 1])
+          : store.index('accountId').getAll(accountId))
         return [name, values] as const
       }))
       await transactionDone(transaction)
@@ -377,6 +404,10 @@ function createIndexedDbAdapter(db: IDBDatabase): LocalImDbAdapter {
             } else if (operation.type === 'put') {
               assertId(operation.value.accountId, 'row.accountId')
               transaction.objectStore(operation.store).put(operation.value)
+            } else if (operation.memoryOnly) {
+              const store = transaction.objectStore(operation.store)
+              const read = store.get(operation.key)
+              read.onsuccess = () => { if (read.result) store.put({ ...read.result, resident: 0 }) }
             } else {
               transaction.objectStore(operation.store).delete(operation.key)
             }
@@ -389,6 +420,30 @@ function createIndexedDbAdapter(db: IDBDatabase): LocalImDbAdapter {
       const done = transactionDone(transaction)
       enqueue(0)
       await done.catch((error) => { throw enqueueError ?? error })
+    },
+    async readMessage(accountId, id) {
+      const transaction = db.transaction('message', 'readonly')
+      const done = transactionDone(transaction)
+      const row = await requestResult<LocalImRow | undefined>(transaction.objectStore('message').get([accountId, id]))
+      await done
+      return row ? validateCurrentRow('message', row, accountId) : undefined
+    },
+    async readMessageRange(accountId, streamId, lower, upper, limit, ascending) {
+      const transaction = db.transaction('message', 'readonly')
+      const done = transactionDone(transaction)
+      const range = IDBKeyRange.bound([accountId, streamId, lower], [accountId, streamId, upper])
+      const rows = await new Promise<LocalImRow[]>((resolve, reject) => {
+        const rows: LocalImRow[] = []
+        const request = transaction.objectStore('message').index('accountStreamSeq').openCursor(range, ascending ? 'next' : 'prev')
+        request.onerror = () => reject(request.error)
+        request.onsuccess = () => {
+          const cursor = request.result
+          if (!cursor || rows.length === limit) { resolve(rows); return }
+          try { rows.push(validateCurrentRow('message', cursor.value, accountId)); cursor.continue() } catch (error) { reject(error) }
+        }
+      })
+      await done
+      return rows
     },
     close: () => db.close(),
   }

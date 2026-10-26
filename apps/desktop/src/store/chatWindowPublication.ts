@@ -7,6 +7,7 @@ import { decideColdStartFetch, deltaResultRequiresDegrade } from '../lib/coldSta
 import { INITIAL_PAGE, NEWER_PAGE, maxMainlineSeq } from './chatMessageWindow'
 import { seedCacheFromDisk } from './chatDiskWindow'
 import { rendererLogger } from '../lib/log'
+import { readHistoryPage, retainHistoryPage } from '../lib/messageHistory'
 
 import { ChatWindowCache } from './chatWindowCache'
 import type { ChatHistoryWindow, FetchHistoryPage } from './chatHistoryWindow'
@@ -41,6 +42,7 @@ export async function openCachedChatWindow(options: {
     if (disk) { observer.painted(disk.rows, disk.hasMoreOlder); painted = true }
   }
   if (!observer.current()) return
+  if (painted && !navigator.onLine) { observer.ready(); return }
   const maxSeq = maxMainlineSeq(cache.get(chatId))
   const plan = decideColdStartFetch({
     hasCache: painted, maxSeq,
@@ -69,7 +71,7 @@ export async function openCachedChatWindow(options: {
     }
   }
   if (!painted) {
-    await options.history.load('latest', fetchChatHistoryPage(userId))
+    await options.history.load('latest', fetchChatHistoryPage(userId, options.getRepository))
     const window = options.history.getSnapshot()
     await finalize(window.messages, true, window.hasOlder)
   } else {
@@ -79,20 +81,33 @@ export async function openCachedChatWindow(options: {
 }
 
 /** The existing history controller owns both primary and scoped pagination. */
-export function fetchChatHistoryPage(userId: string): FetchHistoryPage {
-  return (chatId, way, cursor, limit) => way === 'newer'
-    ? chatService.getMessages(chatId, userId, 'loadNewer', limit, undefined, cursor)
-    : way === 'older' ? chatService.getMessages(chatId, userId, 'loadOlder', limit, cursor)
-      : chatService.getMessages(chatId, userId, 'initialLoad', limit)
+export function fetchChatHistoryPage(userId: string, getRepository?: () => Promise<AccountImRepository>): FetchHistoryPage {
+  return async (chatId, direction, cursor, limit) => {
+    const repository = await getRepository?.()
+    const query = { chatId, direction, cursor, limit }
+    const cached = repository ? await readHistoryPage(repository, query) : null
+    if (cached !== null) return cached
+    if (!navigator.onLine) throw new Error('This history has not been downloaded to this device. Connect to download it.')
+    let rowCount = 0
+    const rows = await chatService.getMessages(chatId, userId,
+      direction === 'newer' ? 'loadNewer' : direction === 'older' ? 'loadOlder' : 'initialLoad', limit,
+      direction === 'older' ? cursor : undefined, direction === 'newer' ? cursor : undefined, (count) => { rowCount = count })
+    if (repository) await retainHistoryPage(repository, query, rows, rowCount)
+    return rows
+  }
 }
 
-export function restoreChatHistoryAnchor(window: ChatHistoryWindow, userId: string, messageId: string): Promise<boolean> {
+export function restoreChatHistoryAnchor(window: ChatHistoryWindow, userId: string, messageId: string, getRepository?: () => Promise<AccountImRepository>): Promise<boolean> {
   return window.restoreAnchor(async (chatId) => {
-    const anchor = await chatService.getMessageById(messageId, userId)
+    const repository = await getRepository?.()
+    const local = await repository?.readMessage(messageId)
+    if (!local && !navigator.onLine) throw new Error('This history has not been downloaded to this device. Connect to download it.')
+    const anchor = local?.value ?? await chatService.getMessageById(messageId, userId)
     if (!anchor || anchor.chat_id !== chatId || anchor.thread_root_id) throw new Error('Saved conversation message is no longer available')
+    const fetch = fetchChatHistoryPage(userId, getRepository)
     const [older, newer] = await Promise.all([
-      chatService.getMessages(chatId, userId, 'loadOlder', 20, anchor.seq + 1),
-      chatService.getMessages(chatId, userId, 'loadNewer', 20, undefined, anchor.seq),
+      fetch(chatId, 'older', anchor.seq + 1, 20),
+      fetch(chatId, 'newer', anchor.seq, 20),
     ])
     const messages = mergeMessagesById(older, newer, chatId)
     if (!messages.some((row) => row.id === messageId)) throw new Error('Saved conversation message is no longer visible')

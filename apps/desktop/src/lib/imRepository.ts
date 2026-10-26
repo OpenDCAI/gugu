@@ -89,7 +89,8 @@ export interface ImRepositoryTransaction {
   putIdentity(value: unknown): void
   putChat(id: string, value: ChatItem, order?: number): void
   putMembership(chatId: string, identityId: string, value: EntityValue): void
-  putMessage(value: MessageItem): void
+  putMessage(value: MessageItem, diskOnly?: boolean): void
+  evictMessage(id: string): void
   putStream(id: string, chatId: string, kind: 'main' | 'thread', rootMessageId?: string | null): void
   putPresence(identityId: string, value: EntityValue): void
   putOutbox(value: OutboxRecord): void
@@ -106,6 +107,8 @@ export interface AccountImRepository {
   subscribe<T>(selector: Selector<T>, listener: Listener<T>): () => void
   reset(): Promise<void>
   close(): void
+  readMessage(id: string): Promise<MessageRow | undefined>
+  readMessageRange(streamId: string, lower: number, upper: number, limit: number, ascending: boolean): Promise<MessageRow[]>
 }
 
 /**
@@ -204,6 +207,16 @@ function createAccountRepository(
 
   return {
     accountId,
+    async readMessage(id) {
+      ensureOpen()
+      await writeChain
+      return await adapter.readMessage(accountId, id) as MessageRow | undefined
+    },
+    async readMessageRange(streamId, lower, upper, limit, ascending) {
+      ensureOpen()
+      await writeChain
+      return await adapter.readMessageRange(accountId, streamId, lower, upper, limit, ascending) as MessageRow[]
+    },
     snapshot() {
       ensureOpen()
       return current
@@ -213,7 +226,7 @@ function createAccountRepository(
       const run = writeChain.then(async () => {
         recordImTransaction()
         const operations: LocalImDbOperation[] = []
-        const transaction = createTransaction(accountId, operations)
+        const transaction = createTransaction(accountId, operations, current)
         const result = await mutate(transaction)
         validateOperations(accountId, operations)
         const applied = applyOperations(current, operations, accountId)
@@ -254,7 +267,7 @@ function createAccountRepository(
   }
 }
 
-function createTransaction(accountId: string, operations: LocalImDbOperation[]): ImRepositoryTransaction {
+function createTransaction(accountId: string, operations: LocalImDbOperation[], snapshot: ImRepositorySnapshot): ImRepositoryTransaction {
   const put = (store: ImStoreName, value: LocalImRow) => operations.push({ type: 'put', store, value })
   return {
     clear: () => operations.push({ type: 'clearAccount', accountId }),
@@ -269,12 +282,15 @@ function createTransaction(accountId: string, operations: LocalImDbOperation[]):
       identityId: nonEmpty(identityId, 'membership.identityId'),
       value,
     }),
-    putMessage(value) {
+    evictMessage: (id) => operations.push({ type: 'delete', store: 'message', key: [accountId, id], memoryOnly: true }),
+    putMessage(value, diskOnly = false) {
+      if (snapshot.view.some((row) => row.key === `history-deleted:${value.id}`)) return
       const chatId = nonEmpty(value.chat_id, 'message.chatId')
       const root = value.thread_root_id ?? null
       const streamId = messageStreamId(value)
       put('stream', { accountId, id: streamId, chatId, kind: root ? 'thread' : 'main', rootMessageId: root })
-      put('message', { accountId, id: nonEmpty(value.id, 'message.id'), chatId, streamId, seq: value.seq, value })
+      operations.push({ type: 'put', store: 'message', diskOnly,
+        value: { accountId, id: nonEmpty(value.id, 'message.id'), chatId, streamId, seq: value.seq, value, resident: diskOnly ? 0 : 1 } })
     },
     putStream: (id, chatId, kind, rootMessageId = null) => put('stream', {
       accountId,
@@ -350,12 +366,8 @@ export async function replaceMessageWindow(
   await repository.transaction((transaction) => {
     const persisted = messages.filter((message) => message.chat_id === chatId && message.seq >= 0)
     const ids = new Set(persisted.map((message) => message.id))
-    const streamIds = new Set(persisted.map(messageStreamId))
     for (const row of repository.snapshot().message) {
-      if (row.chatId === chatId && !ids.has(row.id)) transaction.delete('message', [repository.accountId, row.id])
-    }
-    for (const row of repository.snapshot().stream) {
-      if (row.chatId === chatId && !streamIds.has(row.id)) transaction.delete('stream', [repository.accountId, row.id])
+      if (row.chatId === chatId && !ids.has(row.id)) transaction.evictMessage(row.id)
     }
     for (const message of persisted) transaction.putMessage(message)
     transaction.putView(`message-window:${chatId}`, {
@@ -582,6 +594,10 @@ function applyOperations(
       effective.push(operation)
       continue
     }
+    if (operation.type === 'put' && operation.diskOnly) {
+      effective.push(operation)
+      continue
+    }
     const rows = rowsOf(operation.store)
     const key = JSON.stringify(operation.type === 'put' ? keyForRow(operation.store, operation.value) : operation.key)
     if (operation.type === 'put') {
@@ -590,8 +606,8 @@ function applyOperations(
       rows.set(key, structuredClone(operation.value))
       changed.add(operation.store)
       effective.push({ ...operation, value: rows.get(key)! })
-    } else if (rows.delete(key)) {
-      changed.add(operation.store)
+    } else {
+      if (rows.delete(key)) changed.add(operation.store)
       effective.push(operation)
     }
   }
