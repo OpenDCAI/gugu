@@ -53,8 +53,7 @@ import { autoApproveFromPermissionMode } from '@gugu/session-core/acp'
 import { classifyFatal, recordFatalSync } from './lib/fatal-triage'
 import { pathToFileURL } from 'node:url'
 import { appendFileSync, existsSync, mkdirSync, readFileSync, renameSync, writeFileSync } from 'fs'
-import { constants as osConstants, homedir, hostname, platform, setPriority } from 'os'
-import { spawn } from 'child_process'
+import { homedir, hostname, platform } from 'os'
 import { dirname, join, resolve, sep } from 'path'
 import { autoUpdater } from 'electron-updater'
 import windowStateStore from 'electron-window-state'
@@ -2468,7 +2467,7 @@ autoUpdater.autoInstallOnAppQuit = false
 // 显式写在这里:这一条属于产品承诺,不能靠默认值、更不能靠另一个模块的副作用。
 autoUpdater.autoRunAppAfterInstall = true
 
-// @@@5747 启动时清掉过期的更新缓存(装完之后那两份 172MB 的包不会自己走)。只清 pending/,
+// @@@5747 启动时清掉过期的 pending 和弃用的预解压目录,
 // 差分下载的底留着(updaterCache.ts @@@diff-base):装完常驻一份 —— Windows ≈200MB、mac ≈172MB;
 // 下好待装那段时间是底 + pending 两份。
 // 取的是 electron-updater 自己那套路径规则:baseCachePath + app-update.yml 里的 updaterCacheDirName。
@@ -2836,30 +2835,13 @@ const updateQuit = createUpdateQuit({
   markQuitIntent: () => {
     isQuitting = true
   },
-  // @@@win-silent-update - NSIS: /S skips the assisted wizard, --force-run relaunches after it; when this version was
-  // staged (@@@staged-update) the same invocation only swaps directories instead of installing.
-  // macOS ignores both arguments; AppImage reads only isForceRunAfter (already true via autoRunAppAfterInstall).
-  handOff: () => autoUpdater.quitAndInstall(true, true),
+  // NSIS shows installation progress and relaunches the app when installation finishes.
+  handOff: () => autoUpdater.quitAndInstall(false, true),
   quitApp: () => app.quit(),
   logInfo: (detail, message) => updaterLogger.info(detail, message),
   logWarn: (detail, message) => updaterLogger.warn(detail, message),
   logError: (detail, message) => updaterLogger.error(detail, message),
 })
-
-// @@@staged-update - Windows: the verified installer extracts the new version next to the install dir (`--stage`,
-// below normal priority) while this app keeps running; the restart then only swaps directories
-// (build-resources/nsis/staged-update.nsh). A failed stage just leaves the restart on the regular silent install.
-function stageWindowsUpdate(installer: string): Promise<void> {
-  return new Promise((resolve) => {
-    const started = Date.now()
-    const child = spawn(installer, ['--stage', '/S'], { windowsHide: true, stdio: 'ignore' })
-    if (child.pid) {
-      try { setPriority(child.pid, osConstants.priority.PRIORITY_BELOW_NORMAL) } catch { /* best effort */ }
-    }
-    child.once('error', (error) => { updaterLogger.warn({ error: String(error) }, '[updater] staging could not start'); resolve() })
-    child.once('exit', (code) => { updaterLogger.info({ code, ms: Date.now() - started }, '[updater] staged next version'); resolve() })
-  })
-}
 
 // 发现 → 静默下载 → 下好 → 按下安装的接线在 ./update-flow(检查失败与下载失败的分界写在那个文件头)。
 const updateFlow = createUpdateFlow({
@@ -2887,7 +2869,6 @@ const updateFlow = createUpdateFlow({
     start: startMacDmgDownload,
   },
   updateQuit,
-  prepareInstall: (file) => (process.platform === 'win32' && file ? stageWindowsUpdate(file) : Promise.resolve()),
   logInfo: (message, detail) => updaterLogger.info(detail ?? {}, message),
   logWarn: (message, detail) => updaterLogger.warn(detail ?? {}, message),
 })

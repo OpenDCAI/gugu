@@ -44,7 +44,7 @@ export interface UpdaterLike {
   onUpdateAvailable: (listener: (info: UpdateInfoLike) => void) => void
   onUpdateNotAvailable: (listener: (info: unknown) => void) => void
   onDownloadProgress: (listener: (progress: { percent: number }) => void) => void
-  onUpdateDownloaded: (listener: (event?: { downloadedFile?: string }) => void) => void
+  onUpdateDownloaded: (listener: () => void) => void
   onError: (listener: (error: Error) => void) => void
   checkForUpdates: () => Promise<unknown>
   downloadUpdate: () => Promise<unknown>
@@ -63,9 +63,6 @@ export interface UpdateFlowDeps {
   /** @@@663 mac ad-hoc 存量包的 dmg 半自动路径:用不用、怎么起(它自己报进度与结果)。 */
   dmg: { applies: (info: UpdateInfoLike | null) => boolean; start: () => void }
   updateQuit: Pick<UpdateQuit, 'installAfterDownload' | 'downloaded' | 'downloadFailed'>
-  /** @@@staged-update 下好的安装包先在后台把新版本准备好(Windows:解压到安装目录旁边),好了才算「下好」。
-   *  失败(包括 reject)照样算下好:重启时退回常规安装,只是慢一点,不是更新失败。 */
-  prepareInstall: (downloadedFile: string | undefined) => Promise<void>
   logInfo: (message: string, detail?: Record<string, unknown>) => void
   logWarn: (message: string, detail?: Record<string, unknown>) => void
 }
@@ -179,10 +176,7 @@ export function createUpdateFlow(deps: UpdateFlowDeps): UpdateFlow {
     deps.emit({ success: true, status: 'not-available', updateInfo: info, messageKey: 'about.updateUpToDate' })
   })
 
-  // @@@staged-update 准备期间仍算下载中:不出「重启更新」,周期检查也不会把同一版再下一遍。
-  deps.updater.onUpdateDownloaded((event) => {
-    void deps.prepareInstall(event?.downloadedFile).then(markDownloaded, markDownloaded)
-  })
+  deps.updater.onUpdateDownloaded(markDownloaded)
 
   function markDownloaded(): void {
     silentDownloadActive = false
