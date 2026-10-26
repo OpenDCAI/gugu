@@ -1,5 +1,6 @@
 import { useMemo } from 'react'
 import { mergeMessagesById } from '@gugu/core/shared/ui/messageListModels'
+import { isRoomChat } from '@gugu/core/shared/ui/chatModels'
 import type { MessageItem } from '@gugu/core/shared/types/chat'
 import type { AccountImRepository } from '../lib/imRepository'
 import { chatService } from '../lib/chat'
@@ -85,14 +86,15 @@ export function fetchChatHistoryPage(userId: string, getRepository?: () => Promi
   return async (chatId, direction, cursor, limit) => {
     const repository = await getRepository?.()
     const query = { chatId, direction, cursor, limit }
-    const cached = repository ? await readHistoryPage(repository, query) : null
+    // This experiment covers room mainlines and topics; private conversations keep their existing reader.
+    const retained = repository?.snapshot().chat.some((row) => row.id === chatId && isRoomChat(row.value.kind)) ? repository : undefined
+    const cached = retained ? await readHistoryPage(retained, query) : null
     if (cached !== null) return cached
-    if (!navigator.onLine) throw new HistoryNotDownloadedError()
-    let rowCount = 0
-    const rows = await chatService.getMessages(chatId, userId,
-      direction === 'newer' ? 'loadNewer' : direction === 'older' ? 'loadOlder' : 'initialLoad', limit,
-      direction === 'older' ? cursor : undefined, direction === 'newer' ? cursor : undefined, (count) => { rowCount = count })
-    if (repository) await retainHistoryPage(repository, query, rows, rowCount)
+    if (retained && !navigator.onLine) throw new HistoryNotDownloadedError()
+    const rows = await (direction === 'newer' ? chatService.getMessages(chatId, userId, 'loadNewer', limit, undefined, cursor)
+      : direction === 'older' ? chatService.getMessages(chatId, userId, 'loadOlder', limit, cursor)
+        : chatService.getMessages(chatId, userId, 'initialLoad', limit))
+    if (retained) await retainHistoryPage(retained, query, rows, rows.length)
     return rows
   }
 }

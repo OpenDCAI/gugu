@@ -343,8 +343,7 @@ export const chatService = {
     source: GetMessagesSource,
     limit = 60,
     beforeSeq?: number,
-    afterSeq?: number,
-    onPage?: (rowCount: number) => void,
+    afterSeq?: number
   ): Promise<MessageItem[]> {
     chatService._callCountsBySource[source] = (chatService._callCountsBySource[source] ?? 0) + 1
     // @@@msg-cache-incremental (#621) — `afterSeq` fetches the page strictly NEWER than that seq
@@ -363,7 +362,6 @@ export const chatService = {
     const { data: msgs, error } = await query.order('seq', { ascending }).limit(limit)
     if (error) throw new Error(error.message)
 
-    onPage?.(msgs?.length ?? 0)
     if (!msgs?.length) return []
 
     // messageItemFromRow is the shared mapping. Descending pages (initial/older) reverse to
@@ -372,6 +370,7 @@ export const chatService = {
     const items = (msgs as RawMessageRow[])
       .map((row) => messageItemFromRow(row, userId))
       .filter((m): m is MessageItem => m !== null)
+    if (items.length !== msgs.length) throw new Error('History page contains an unmapped message row')
     return ascending ? items : items.reverse()
   },
 
