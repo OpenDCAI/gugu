@@ -68,7 +68,7 @@ const STYLE = `
  */
 const PILL_MAX_PX = 168, PILL_GAP_PX = 8, MORE_PX = 52
 export function RunningBarSlot({ children }: { children: ReactNode }) {
-  return <div data-running-bar-slot="" className="flex h-[42px] shrink-0 items-center">{children}</div>
+  return <div data-running-bar-slot="" className="flex h-[42px] shrink-0 items-center"><div data-running-bar-content="" className="w-full">{children}</div></div>
 }
 // 桌面一行能放几个:全部放得下就全放(不超过 cap),否则留出 +N 的位置后能放几个放几个,至少 1 个。
 function fitCount(width: number, count: number, cap: number): number {
@@ -119,7 +119,7 @@ function RunningTokenItem({
       {...pressHandlers}
       onClick={() => onTokenClick?.(token.id)}
     >
-      <Chip appearance="filled" className="rtb-pill">
+      <Chip appearance="filled" className="rtb-pill" data-chat-dock-obstacle="">
         <Avatar name={displayName} avatarUrl={token.avatarUrl} seed={token.avatarSeed} size={overflow ? 16 : 'xs'} isAgent statusLabel="running" />
         <span className="rtb-nm">{displayName}</span>
         <span className={overflow ? 'rtb-v' : 'rtb-state'} style={overflow ? undefined : { animationDelay: `${index * 0.5}s` }}>
@@ -160,7 +160,7 @@ function MoreOverflow({
         onMouseEnter={openNow}
         onMouseLeave={closeSoon}
       >
-        <Chip appearance="filled" className="rtb-pill">+{tokens.length}</Chip>
+        <Chip appearance="filled" className="rtb-pill" data-chat-dock-obstacle="">+{tokens.length}</Chip>
       </Popover.Trigger>
       <Popover.Portal>
         <Popover.Positioner side="top" align="end" sideOffset={8} collisionPadding={8}>
