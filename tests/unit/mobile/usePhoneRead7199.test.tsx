@@ -8,7 +8,7 @@ import { createNode, createReactHarness, deferred } from '../../support/testHarn
 
 // 悄悄重读(语音笔记还在处理时每隔几秒再问一次)偶尔失败一次,不该让它从此不再刷新:
 // 否则「处理中」的笔记永远停在处理中(code-review #7277 第 2 条)。
-let latest: (PhoneRead<string> & { refresh: () => Promise<void> }) | null = null
+let latest: (PhoneRead<string> & { refresh: () => Promise<void>; reload: () => void }) | null = null
 function Probe({ read, pollMs }: { read: () => Promise<string>; pollMs: (data: string) => number | null }) {
   latest = usePhoneRead('key', read, 'test', pollMs)
   return null
@@ -114,4 +114,20 @@ describe('usePhoneRead polling', () => {
     expect(harness.container.querySelector('[role="alert"]')).toBeNull()
   })
 
+})
+
+// Explicit reload uses the same reader; it must not replace a known error/data with loading.
+it('keeps an error and previous data visible while a reload is unresolved', async () => {
+  vi.useFakeTimers()
+  const h = createReactHarness()
+  try {
+    const pending = deferred<string>()
+    const read = vi.fn<() => Promise<string>>().mockResolvedValueOnce('saved').mockReturnValueOnce(pending.promise)
+    await h.render(createNode(Probe,{ read,pollMs: () => null }))
+    await act(async () => { latest!.reload() })
+    expect(latest).toMatchObject({ state: 'ok',data: 'saved' })
+    await act(async () => { pending.reject(Object.assign(new Error('unprepared'),{ code: 'unprepared' })) })
+    await act(async () => { await vi.advanceTimersByTimeAsync(60_000) })
+    expect(latest).toMatchObject({ state: 'ok',data: 'saved',refreshError: { code: 'unprepared' } })
+  } finally { h.cleanup(); vi.useRealTimers() }
 })

@@ -174,3 +174,21 @@ describe('咕咕 · 连接应用 · 住在电脑上(非会员)', () => {
     expect(showSetup).toHaveBeenCalledWith(expect.objectContaining({ integration: 'notion', host: expect.objectContaining({ key: 'assistant-panel:owner:a1' }) }))
   })
 })
+
+it('keeps existing application rows visible when background refresh fails',async () => {
+  integrations.value=state()
+  await render()
+  integrations.value=state({hasList:false,listError:Object.assign(new Error('snapshot'),{code:'collection-unavailable'})})
+  await render()
+  expect(q('assistant-connector-feishu')).not.toBeNull()
+  expect(harness.container.querySelector('[role="status"]')).not.toBeNull()
+})
+it('ends an unresolved initial application read after fifteen seconds',async () => {
+  vi.useFakeTimers()
+  try {
+    integrations.value=state({integrations:[],hasList:false})
+    await render()
+    await act(async()=>{await vi.advanceTimersByTimeAsync(15_001)})
+    expect(harness.container.textContent).toContain('这部分内容暂时读不出来')
+  } finally { vi.useRealTimers() }
+})

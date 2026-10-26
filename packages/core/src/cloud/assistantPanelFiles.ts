@@ -1,6 +1,6 @@
 import { assistantPanelCollection, AssistantPanelError, type AssistantPanelClient, type AssistantPanelDomain, type AssistantPanelItem } from './assistantPanel'
 import { splitInstructions } from '../shared/assistantInstructions'
-import { ASSISTANT_PANEL_READ_TIMEOUT_MS, withAssistantPanelReadDeadline } from './assistantPanelRead'
+import { withAssistantPanelReadDeadline } from './assistantPanelRead'
 
 export const ASSISTANT_PANEL_PATHS = {
   instructions: '性格约定',memoryDir: '记忆',claudeMemoryDir: '记忆',memoryIndex: '记忆/MEMORY.md',
@@ -50,19 +50,10 @@ export function createAssistantPanelFiles(input: {
     } catch (error) { if (cached === current) cached = null; throw error }
   }
   const collectionStates = new Map<AssistantPanelDomain, 'ready' | 'unprepared' | 'error'>()
-  const unpreparedSince = new Map<AssistantPanelDomain, number>()
   async function collection(domain: AssistantPanelDomain) {
     const current = await snapshot()
     const result = assistantPanelCollection(current,domain,['tasks','capabilities','device-notes','integrations'].includes(domain) ? input.deviceId : undefined)
     collectionStates.set(domain,result.state)
-    if (result.state === 'unprepared') {
-      const since = unpreparedSince.get(domain) ?? Date.now()
-      unpreparedSince.set(domain,since)
-      if (Date.now() - since >= ASSISTANT_PANEL_READ_TIMEOUT_MS) {
-        collectionStates.set(domain,'error')
-        throw new AssistantPanelError('preparation-timeout','PANEL_PREPARATION_TIMEOUT',undefined,domain)
-      }
-    } else unpreparedSince.delete(domain)
     const failed = current.application.find(row => row.domain === domain && row.status === 'failed')
     if (failed) throw new AssistantPanelError('application-failed','PANEL_APPLICATION_FAILED',failed.resourceKey,domain)
     if (result.items.some(item => item.stale_at)) throw new AssistantPanelError('stale','PANEL_RESOURCE_STALE',undefined,domain)
