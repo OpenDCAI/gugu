@@ -48,18 +48,18 @@ export async function readAssistantPanelIntegration(panel: AssistantPanelFiles,i
   return { ...item,icon: integrationIcons[id] ?? item.icon }
 }
 
-/** Missing row descriptions are optional enrichment. Four workers avoid queuing
+/** Missing names and descriptions are optional enrichment. Four workers avoid queuing
  * a whole catalog ahead of the entry the person explicitly opens. */
 export async function enrichAssistantPanelIntegrations(panel: AssistantPanelFiles,items: readonly IntegrationMetadata[],locale: string,
-  updated: (id: string,description: string) => void,active: () => boolean = () => true): Promise<void> {
-  const missing = items.filter(item => item.metadataOnly && !item.description)
+  updated: (id: string,summary: Pick<IntegrationMetadata,'name' | 'description'>) => void,active: () => boolean = () => true): Promise<void> {
+  const missing = items.filter(item => item.metadataOnly && (!item.description || item.name === item.id))
   let next = 0
   await Promise.all(Array.from({ length: Math.min(4,missing.length) },async () => {
     while (active() && next < missing.length) {
       const item = missing[next++]!
       try {
         const detail = await readAssistantPanelIntegration(panel,item.id,locale)
-        if (active()) updated(item.id,detail.description ?? '')
+        if (active()) updated(item.id,{ name: detail.name,description: detail.description ?? item.description ?? '' })
       } catch { /* A missing description never hides its row or asks for a retry. */ }
     }
   }))
