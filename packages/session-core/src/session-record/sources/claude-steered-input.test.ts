@@ -12,6 +12,9 @@ import { createClaudeJsonlSource } from './claude-jsonl';
 // cycle with an inserted queued_command. Text, paths and identifiers are sanitized;
 // record order, input kinds, tool results and native stop boundaries are preserved.
 const FIXTURE = new URL('../__fixtures__/claude-steered-session.jsonl', import.meta.url);
+// Real final thinking/text rows share one message ID and both carry end_turn.
+// Reasoning text, paths, signatures and identifiers are sanitized.
+const FRAGMENTS = new URL('../__fixtures__/claude-final-fragments.jsonl', import.meta.url);
 const SESSION = 'claude-steered-session';
 const disposers: Array<() => void | Promise<void>> = [];
 
@@ -19,12 +22,13 @@ afterEach(async () => {
   while (disposers.length) await disposers.pop()!();
 });
 
-async function stage() {
+async function stage(fixture = FIXTURE) {
   const root = await mkdtemp(join(tmpdir(), 'claude-steered-'));
   disposers.push(() => rm(root, { recursive: true, force: true }));
-  const file = join(root, `${SESSION}.jsonl`);
-  const lines = (await readFile(FIXTURE, 'utf8')).trim().split('\n');
-  const source = () => createClaudeJsonlSource({ harness: 'claude', providerSessionId: SESSION, roots: [root] });
+  const lines = (await readFile(fixture, 'utf8')).trim().split('\n');
+  const providerSessionId = JSON.parse(lines[0]).sessionId as string;
+  const file = join(root, `${providerSessionId}.jsonl`);
+  const source = () => createClaudeJsonlSource({ harness: 'claude', providerSessionId, roots: [root] });
   return { file, lines, source };
 }
 
@@ -37,7 +41,40 @@ function expectNativeTurns(turns: readonly TranscriptTurn[]) {
   expect(tools).toEqual([expect.objectContaining({ status: 'done' }), expect.objectContaining({ status: 'done' })]);
 }
 
-describe('Claude native inserted input', () => {
+describe('Claude native turn boundaries', () => {
+  it.each([false, true])('keeps final fragments with one assistant ID in one native turn (resume: %s)', async resume => {
+    const { file, lines, source } = await stage(FRAGMENTS);
+    const cut = resume ? 2 : lines.length;
+    await writeFile(file, lines.slice(0, cut).join('\n') + '\n');
+    let timeline = await createSessionTimeline(source(), { sessionId: SESSION });
+    disposers.push(() => timeline.dispose());
+    if (resume) {
+      const archive = await timeline.archive!();
+      expect(archive).not.toBeNull();
+      timeline.dispose();
+      await appendFile(file, lines.slice(cut).join('\n') + '\n');
+      timeline = await createSessionTimeline(source(), { sessionId: SESSION, archive: archive! });
+    }
+    const turns = timeline.getSnapshot().turns;
+    expect(turns).toHaveLength(1);
+    expect(collectItems(turns).flatMap(item => item.kind === 'message' ? [item.text] : []))
+      .toEqual(['Please compute 13 + 24.', '37']);
+    expect(collectItems(turns).filter(item => item.kind === 'thinking')).toEqual([
+      expect.objectContaining({ text: 'Computing the sum.', status: 'done' })
+    ]);
+    expect(turns[0].outcome).toEqual({ kind: 'done', reason: 'end_turn' });
+  });
+
+  it('keeps a different assistant message after the boundary in its own turn', async () => {
+    const { file, lines, source } = await stage(FRAGMENTS);
+    const final = JSON.parse(lines[2]);
+    final.message.id += '-different';
+    await writeFile(file, [...lines.slice(0, 2), JSON.stringify(final)].join('\n') + '\n');
+    const timeline = await createSessionTimeline(source(), { sessionId: SESSION });
+    disposers.push(() => timeline.dispose());
+    expect(timeline.getSnapshot().turns).toHaveLength(2);
+  });
+
   it.each(['cold', 'before-insert', 'after-insert'] as const)('keeps native turns when reopened %s', async mode => {
     const { file, lines, source } = await stage();
     const insert = lines.findIndex(line => JSON.parse(line).attachment?.type === 'queued_command');

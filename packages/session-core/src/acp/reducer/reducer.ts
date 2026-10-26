@@ -1129,6 +1129,16 @@ function reduceState(s: ParserState, input: ReducerInput, deps: ReducerDeps): Pa
       ? backgroundCommandDone(resolvedEvent, t)
       : null;
 
+  // A provider can record one assistant message in several rows, including after
+  // its end marker. Its remaining fragments use the existing completed-turn tail.
+  const messageId = resolvedEvent.kind === 'thinking' || (resolvedEvent.kind === 'message' && resolvedEvent.role === 'assistant')
+    ? resolvedEvent.messageId : null;
+  const last = t.committed.at(-1);
+  if (!t.active && messageId && last?.items.some(item =>
+    (item.kind === 'thinking' && item.segmentId === messageId) ||
+    (item.kind === 'message' && item.role === 'assistant' && item.id === makeMessageId(last.id, messageId, 'assistant'))
+  )) return reduce(s, { kind: 'tail', event: resolvedEvent, at: input.at }, deps);
+
   // Lazy open: agent-initiated content with no active turn.
   if (!t.active) {
     t = openTurn(t, deps, 'agent', openedAt);
