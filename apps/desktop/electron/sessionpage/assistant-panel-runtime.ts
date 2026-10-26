@@ -122,12 +122,16 @@ export function createAssistantPanelRuntime(deps: {
         bytes: new TextEncoder().encode(row.content),contentType: 'text/plain',
       }))
       if (domain === 'integrations') return [
-        ...deps.local.integrationCatalog().map(row => ({ key: `catalog:${row.id}`,data: { providerId: row.id,configured: false },
+        ...deps.local.integrationCatalog().map(row => ({ key: `catalog:${row.id}`,data: { providerId: row.id,configured: false,displayName: row.en.name },
           bytes: new TextEncoder().encode(JSON.stringify({ version: 1,en: row.en,'zh-CN': row.zh })),contentType: 'application/json',
         })),
-        ...(await deps.local.integrations(binding.ownerId)).map(({ publicMetadata,...row }) => ({ key: JSON.stringify([row.providerId,row.accountId]),data: row,
-          bytes: new TextEncoder().encode(JSON.stringify(publicMetadata)),contentType: 'application/json',
-        })),
+        ...(await deps.local.integrations(binding.ownerId)).map(({ publicMetadata,...row }) => {
+          const checkedAt = typeof row.checkedAt === 'number' ? row.checkedAt : Date.parse(String(row.checkedAt ?? ''))
+          const { checkResult,checkedAt: _checkedAt,...metadata } = row
+          return { key: JSON.stringify([row.providerId,row.accountId]),data: { ...metadata,
+            ...(typeof publicMetadata.updatedAt === 'number' && checkedAt >= publicMetadata.updatedAt ? { checkResult,checkedAt: row.checkedAt } : {}) },
+            bytes: new TextEncoder().encode(JSON.stringify(publicMetadata)),contentType: 'application/json' }
+        }),
       ]
       const sessions = await deps.local.sessions(binding.ownerId)
       const own = sessions.filter(row => row.agentId === binding.assistantId).map(row => row.summary.conversationId)

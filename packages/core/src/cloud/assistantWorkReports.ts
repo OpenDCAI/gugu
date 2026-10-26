@@ -18,7 +18,8 @@ export async function enqueueAssistantWorkReport(deps:{
   id():string
 }, input:{assistantId:string;runtimeInstanceId:string;sessionId:string;deviceId:string;reasonCode?:'HOST_FAILURE';record:Record<string,unknown>}) {
   const report=reportSchema.parse(input.record.work_result)
-  const {data,error}=await deps.rpc('assistant_work_history',{p_assistant:input.assistantId,p_work_id:report.work_id,p_after:'0',p_limit:1})
+  const messageId=deps.id(),operationId=deps.id()
+  const {data,error}=await deps.rpc('assistant_work_history',{p_assistant:input.assistantId,p_work_id:report.work_id,p_after:'0',p_limit:100})
   if(error) throw Object.assign(new Error(error.message),{code:error.code})
   const checked=workSchema.safeParse((data as {work?:unknown}|null)?.work)
   if(!checked.success) throw fail('WORK_ROUTING_UNAVAILABLE')
@@ -37,14 +38,34 @@ export async function enqueueAssistantWorkReport(deps:{
   if(!matches || work.coordinator_session_id===input.sessionId) throw fail('WORK_COORDINATOR_MISMATCH')
   const text=input.record.text
   if(typeof text!=='string'||!text.trim()) throw new Error('message text is required')
+  // A commit can succeed before its acknowledgement times out. Recover its original file references;
+  // uploading again would change the operation hash even when the report IDs are stable.
+  let page=data as {events?:Record<string,unknown>[];next_after?:string|null}|null
+  let previous:Record<string,unknown>|undefined
+  const cursors=new Set<string>(['0'])
+  while(page) {
+    previous=page.events?.find(row=>row.message_id===messageId)
+    if(previous || !page.next_after) break
+    if(cursors.has(page.next_after)) throw fail('WORK_HISTORY_CURSOR_INVALID')
+    cursors.add(page.next_after)
+    const next=await deps.rpc('assistant_work_history',{p_assistant:input.assistantId,p_work_id:report.work_id,p_after:page.next_after,p_limit:100})
+    if(next.error) throw Object.assign(new Error(next.error.message),{code:next.error.code})
+    page=next.data as typeof page
+  }
+  if(previous && (previous.kind!==report.status || previous.from_session_id!==input.sessionId || previous.from_device_id!==input.deviceId
+    || previous.to_session_id!==work.coordinator_session_id || previous.to_device_id!==work.coordinator_device_id || previous.content!==text
+    || (previous.reason_code??null)!==(input.reasonCode??null))) throw fail('WORK_REPORT_ID_CONFLICT')
+  if(previous?.source_available===false) throw fail('SOURCE_UNAVAILABLE')
   let attachments:SessionAttachmentRef[]=[]
-  if(input.record.files!==undefined) {
+  if(previous) {
+    if(!Array.isArray(previous.attachment_refs)) throw fail('WORK_REPORT_ATTACHMENTS_UNAVAILABLE')
+    attachments=previous.attachment_refs as SessionAttachmentRef[]
+  } else if(input.record.files!==undefined) {
     const files=z.array(z.object({file_path:z.string().min(1),file_name:z.string().optional(),mime_type:z.string().optional()})).min(1).max(8).parse(input.record.files)
     attachments=await deps.prepare(files,{sessionId:work.coordinator_session_id,deviceId:work.coordinator_device_id,agentId:input.assistantId})
   }
-  const messageId=deps.id()
   const accepted=await enqueueAssistantWorkDelivery({rpc:deps.rpc},{
-    assistantId:input.assistantId,runtimeInstanceId:input.runtimeInstanceId,operationId:deps.id(),workId:work.work_id,task:null,
+    assistantId:input.assistantId,runtimeInstanceId:input.runtimeInstanceId,operationId,workId:work.work_id,task:null,
     events:[{message_id:messageId,kind:report.status,from_session_id:input.sessionId,from_device_id:input.deviceId,
       to_session_id:work.coordinator_session_id,to_device_id:work.coordinator_device_id,content:text,attachment_refs:attachments,...(input.reasonCode ? {reason_code:input.reasonCode} : {})}],
   })

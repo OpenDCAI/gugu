@@ -23,7 +23,7 @@ const bridge: AssistantPanelBridge = {
     }
     return createAssistantPanelFiles({ ownerId,assistantId,deviceId,cloud: assistantPanelCloud,
       assertCurrent: () => assertAssistantPanelOwner(ownerId),
-      readBody: item => readAssistantPanelBody(item,access()),
+      readBody: (item,signal) => readAssistantPanelBody(item,{ ...access(),signal }),
       upload: (name,bytes,contentType) => uploadAssistantPanelBody({ ...access(),name,bytes,contentType }),
       discard: async itemId => {
         assertAssistantPanelOwner(ownerId)

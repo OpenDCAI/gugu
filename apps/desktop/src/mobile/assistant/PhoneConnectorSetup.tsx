@@ -26,6 +26,7 @@ import { githubAuthDeviceCodeChannel } from '@/session/shared/events/githubEvent
 import { machineRpc, onMachineEvent } from '../agent-watch/sessionpage-rpc'
 import { phoneAssistantAuthorization } from './phoneAssistantAuthorization'
 import type { PhonePageProps } from './MobileAssistantApp'
+import { ReadFailed,ReadingNow } from './PhoneMachineView'
 import { CloudGate, ConnectorIcon } from './PhoneConnectors'
 import { createNativeFetch } from './phoneNativeFetch'
 import {
@@ -45,7 +46,7 @@ import {
   type SetupFailure,
 } from './phoneConnectorFlow'
 import { connectorDetail } from './phoneProfileModel'
-import type { usePhoneIntegrations } from './usePhoneProfileData'
+import { usePhoneIntegrationDetail,type usePhoneIntegrations } from './usePhoneProfileData'
 
 type Integrations = ReturnType<typeof usePhoneIntegrations>
 type MachineRpc = ReturnType<typeof machineRpc>
@@ -76,13 +77,16 @@ export function PhoneConnectorSetupPage({
   assistant,
   home,
   homeDeviceId,
+  machine,
   integrations,
   id,
   go,
 }: PhonePageProps & { integrations: Integrations; id: string }) {
   const { t } = useTranslation('assistant')
   const name = assistant.display_name
-  const view = integrations.data && !integrations.error ? connectorDetail(integrations.data.items, integrations.data.configured, integrations.data.statuses, id) : null
+  const selected = integrations.data?.items.find(item => item.id === id)
+  const detail = usePhoneIntegrationDetail(machine,selected)
+  const view = integrations.data && detail.data ? connectorDetail([detail.data],integrations.data.configured,integrations.data.statuses,id) : null
   const rpc = useMemo(() => (homeDeviceId ? phoneAssistantAuthorization(homeDeviceId,home) : null), [homeDeviceId,home])
   const [done, setDone] = useState<{ displayName?: string } | null>(null)
   const [browserFailed, setBrowserFailed] = useState<string | null>(null)
@@ -104,7 +108,7 @@ export function PhoneConnectorSetupPage({
       {browserFailed ? <p role="alert" className="ta-phone-error">{t('connectors.setup.openFailed')}<br />{browserFailed}</p> : null}
       <CloudGate integrations={integrations}>
         {() =>
-          !view || !rpc ? (
+          detail.error ? <ReadFailed title={t('connectors.loadFailed')} error={detail.error} onRetry={detail.reload} /> : detail.loading ? <ReadingNow /> : !view || !rpc ? (
             <AssistantEmpty title={t('connectors.goneTitle')}>{t('connectors.gone')}</AssistantEmpty>
           ) : done ? (
             <SetupDone item={view.item} displayName={done.displayName} finish={() => go(`connector:${view.item.id}`)} />

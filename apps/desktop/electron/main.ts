@@ -1,6 +1,6 @@
 import './browser-user-agent-bootstrap'
 import {assistantWorkHistoryPosition} from './assistant-work-history-position'
-import { randomUUID } from 'node:crypto'
+import { createDesktopWorkReportIds } from './assistant-work-report-ids'
 import { registerFileViewerMenus } from './file-viewer-context-menu'
 import { configuredEndpoint } from '@gugu/core/cloud/attachmentsApi'
 import { createDesktopFileAccess } from './desktopFileAccess'
@@ -4652,7 +4652,7 @@ app.whenReady().then(async () => {
             rpc: (name, args) => current.client.rpc(name, args),
             prepare: (files, target) => prepareFiles(files, [target]),
             resolveNumbers: async numbers => (await crossMachine().messageDeps(() => remoteCaller(auth, context), signal).locateAgents({userIds: [],numbers})).numberToUserId,
-            id: randomUUID,
+            id: createDesktopWorkReportIds(context.sessionId, report),
           }, {assistantId:assistant.agentId,runtimeInstanceId:current.runtimeInstanceId,deviceId:current.deviceId,sessionId:context.sessionId,record:report})
           void assistantWorkDeliveryHost().kick()
           return receipt

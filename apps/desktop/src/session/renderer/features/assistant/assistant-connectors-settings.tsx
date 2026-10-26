@@ -1,3 +1,6 @@
+import { useAssistantPanelIntegration } from '@/components/assistant/useAssistantPanelIntegration';
+import { assistantPanelFailure } from '@/components/assistant/assistant-panel-errors';
+import type { IntegrationMetadata } from '@renderer/features/integrations/integrations-provider';
 import { observer } from 'mobx-react-lite';
 import { useCallback, useState } from 'react';
 import { useTranslation } from 'react-i18next';
@@ -85,7 +88,7 @@ const HomeConnectorList = observer(function HomeConnectorList({ host, home, assi
           data-testid={`assistant-connector-${integration.id}`}
           leading={<IntegrationIcon provider={integration.id} icon={integration.icon} size={28} />}
           title={integration.name}
-          description={detail}
+          description={detail || '\u00a0'}
           control={
             <span className="flex items-center gap-2">
               <Chip tone={state === 'connected' ? 'ok' : state === 'needsReauth' || state === 'checkFailed' ? 'warn' : 'default'}>{t(`connectors.${state}`)}</Chip>
@@ -122,7 +125,7 @@ const ConnectorDetail = observer(function ConnectorDetail({
   host,
   home,
   assistantName,
-  integration,
+  integration: summary,
   state,
   account,
   onBack,
@@ -130,12 +133,14 @@ const ConnectorDetail = observer(function ConnectorDetail({
   host: LibraryHost;
   home: AssistantHomePlace;
   assistantName: string;
-  integration: { id: string; name: string; description?: string; icon?: unknown } | null;
+  integration: IntegrationMetadata | null;
   state: ConnectorState;
   account: string | null;
   onBack: () => void;
 }) {
   const { t } = useTranslation('assistant');
+  const detail = useAssistantPanelIntegration(host.assistantPanel,summary);
+  const integration = detail.data;
   const { isCheckingConfiguredConnections, configuredConnections } = useIntegrationsContext();
   const showIntegrationSetup = useShowModal('integrationSetupModal');
   const showConnectGitHub = useShowModal('githubConnectModal');
@@ -149,6 +154,7 @@ const ConnectorDetail = observer(function ConnectorDetail({
       </Button>
     </div>
   );
+  if (detail.error || detail.loading) return <SettingsPage>{back}<SettingsNote>{detail.error ? assistantPanelFailure(detail.error,t) : t('library.loading')}</SettingsNote></SettingsPage>;
   if (!integration)
     return (
       <SettingsPage>

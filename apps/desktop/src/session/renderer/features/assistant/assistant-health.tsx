@@ -1,3 +1,5 @@
+import { AssistantMemoryContent } from '@/components/assistant/AssistantMemoryContent'
+import { assistantPanelFailure } from '@/components/assistant/assistant-panel-errors'
 import { useRef, type ReactNode } from 'react';
 import { useTranslation } from 'react-i18next';
 import { ArrowUpToLine, FileText, Heart, Moon, Sparkles, Zap } from '@/lib/icons';
@@ -216,7 +218,8 @@ function Analysis({ context, t }: { context: AssistantContext; t: T }) {
       {healthNotes.length === 0 ? (
         <AssistantRow title={t('health.analysisEmpty', { name })} />
       ) : (
-        healthNotes.map((note) => (
+        healthNotes.map((entry) => (
+          <AssistantMemoryContent key={entry.file} machine={context.machine} entry={entry}>{(note,error) => (
           <AssistantRow
             key={note.file}
             leading={
@@ -225,11 +228,11 @@ function Analysis({ context, t }: { context: AssistantContext; t: T }) {
               </span>
             }
             title={note.title}
-            detail={memoryContentPreview(note.body, 140)}
+            detail={error ? assistantPanelFailure(error,t) : memoryContentPreview(note.body, 140)}
             detailLines={4}
             onClick={() => context.go({ tab: 'memory', sub: `note:${note.file}` })}
             testId={`assistant-health-note-${note.file}`}
-          />
+          />)}</AssistantMemoryContent>
         ))
       )}
     </AssistantSection>
