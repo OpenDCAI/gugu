@@ -24,7 +24,8 @@ export const ProjectsGroupLabel = observer(function ProjectsGroupLabel() {
   const { translate } = useSessionMessages()
 
   return (
-    <div className={sidebarGroupHeaderClass}>
+    <>
+    <div className={sidebarGroupHeaderClass} data-first-run-hint="collaboration" data-first-run-device="desktop">
       <SidebarGroupToggle
         label={translate('sidebar.projects')}
         count={sidebarStore.projectCount}
@@ -109,5 +110,7 @@ export const ProjectsGroupLabel = observer(function ProjectsGroupLabel() {
         </DropdownMenu>
       </div>
     </div>
+    <div data-first-run-hint-space="collaboration" />
+    </>
   )
 })

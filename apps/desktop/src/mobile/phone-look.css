@@ -56,7 +56,7 @@
   justify-content: center;
 }
 
-[data-phone-shell] :is([data-mobile-tab-page='chats'] [role='listbox'], .gg-partners-list) > .gg-list-row:has(+ .gg-list-row) > .gg-list-row-body::after {
+[data-phone-shell] :is([data-mobile-tab-page='chats'] [role='listbox'], .gg-partners-list) > .gg-list-row:is(:has(+ .gg-list-row), :has(+ [data-first-run-hint-space]:empty + .gg-list-row)) > .gg-list-row-body::after {
   content: '';
   position: absolute;
   inset-inline-start: 0;
