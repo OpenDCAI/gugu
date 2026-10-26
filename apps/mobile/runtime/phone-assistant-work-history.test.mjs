@@ -32,5 +32,10 @@ test('legacy phone admissions and confirmed results upload once as history witho
   await revoked.kick();revoked.close()
   assert.equal(grantsChecked>0,true)
   assert.equal(calls.filter(([name])=>name==='assistant_work_import').length,1)
+  let revokedDuringRead=false
+  const changed=createPhoneAssistantWorkHistory({...deps,cloud:{identity:{rpc:async(name,args)=>{if(name==='assistant_work_history')revokedDuringRead=true;return cloud.identity.rpc(name,args)}}},
+    authorize:async()=>{if(revokedDuringRead)throw Object.assign(new Error('revoked'),{code:'revoked'})}})
+  await changed.kick();changed.close()
+  assert.equal(calls.filter(([name])=>name==='assistant_work_import').length,1,'a permission revoked during cloud lookup must prevent upload')
  }finally{await rm(root,{recursive:true,force:true})}
 })

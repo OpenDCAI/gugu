@@ -22,10 +22,27 @@ export function createDesktopAssistantWorkHistory(deps:{
     const ctx=await deps.context()
     if(!ctx||stopped)return
     const current=async()=>{const next=await deps.context();return !stopped&&next?.ownerId===ctx.ownerId&&next.runtimeInstanceId===ctx.runtimeInstanceId}
+    const knownMessages=new Map<string,Set<string>>()
+    const knownWork=new Map<string,z.infer<typeof workSchema>>()
     const read=async(assistant:string,work:string)=>{
-      const {data,error}=await ctx.client.rpc('assistant_work_history',{p_assistant:assistant,p_work_id:work,p_after:'0',p_limit:1})
-      if(error){if(error.code==='42501'&&/Work is not available/.test(error.message))return null;throw error}
-      return workSchema.parse((data as {work?:unknown}|null)?.work)
+      const key=`${assistant}:${work}`,prior=knownWork.get(key)
+      if(prior)return prior
+      let cursor='0',row:z.infer<typeof workSchema>|null=null
+      const ids=new Set<string>()
+      for(;;){
+        if(!await current())return null
+        const {data,error}=await ctx.client.rpc('assistant_work_history',{p_assistant:assistant,p_work_id:work,p_after:cursor,p_limit:200})
+        if(error){if(error.code==='42501'&&/Work is not available/.test(error.message))return null;throw error}
+        const page=data as {work?:unknown;events?:Array<{message_id:string}>;next_after?:string|null}|null
+        row=workSchema.parse(page?.work)
+        if(!Array.isArray(page?.events))throw new Error('Invalid historical work events')
+        for(const event of page.events)ids.add(event.message_id)
+        if(!page.next_after)break
+        if(BigInt(page.next_after)<=BigInt(cursor))throw new Error('Historical work cursor did not advance')
+        cursor=page.next_after
+      }
+      knownWork.set(key,row!);knownMessages.set(key,ids)
+      return row
     }
     let after=0
     do {
@@ -66,10 +83,14 @@ export function createDesktopAssistantWorkHistory(deps:{
               content:segment[0].body,occurred_at:date(row.timestamp),receipt_kind:'received'}
           }
           if(!assistantId||!workId||!event||!await current())return
+          await read(assistantId,workId)
+          if(knownMessages.get(`${assistantId}:${workId}`)?.has(row.id)) {acknowledged.add(key);continue}
+          if(!await current())return
           const {data,error}=await ctx.client.rpc('assistant_work_import',{p_assistant:assistantId,p_runtime_instance_id:ctx.runtimeInstanceId,p_work_id:workId,p_task:task,p_events:[event]})
           if(error)throw error
           if(!(data as {event_ids?:string[]}|null)?.event_ids?.includes(row.id))throw new Error('Incomplete historical admission')
           acknowledged.add(key)
+          knownWork.delete(`${assistantId}:${workId}`)
         }catch(error){deps.warn({code:typeof (error as {code?:unknown})?.code==='string'?(error as {code:string}).code:'WORK_HISTORY_UNAVAILABLE'})}
       }
       if(!page.hasMore)return

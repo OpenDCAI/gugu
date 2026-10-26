@@ -32,3 +32,14 @@ it('does not copy old inbox contents into a later account identity bound to the 
  await host.kick();host.stop()
  expect(rpc).not.toHaveBeenCalled()
 })
+
+it('keeps an already uploaded message authoritative even if native delivery decorated the local body',async()=>{
+ const work={work_id:workId,assistant_user_id:assistant,title:'Work',coordinator_session_id:coordinator,coordinator_device_id:'desktop',executors:[{session_id:child,device_id:'desktop',agent_user_id:executor}]}
+ const rpc=vi.fn(async(name:string)=>name==='assistant_work_history'?{data:{work,events:[{message_id:dispatch}],next_after:null},error:null}:{data:{event_ids:[dispatch]},error:null})
+ const host=createDesktopAssistantWorkHistory({context:async()=>({ownerId:'owner',deviceId:'desktop',runtimeInstanceId:'runtime',client:{rpc}}),
+  receipts:async()=>({entries:[{id:dispatch,position:1,sessionId:child,title:'Work',timestamp:'2026-10-20T08:00:00Z',spawnedBySessionId:coordinator,spawnedByRemote:null,
+    content:envelope(dispatch,coordinator,`Decorated native request\n<gugu_work>\n${JSON.stringify({work_id:workId,coordinator:`session:${coordinator}`,report:'Report results'})}\n</gugu_work>`)}],cursor:1,hasMore:false}),
+  identity:async(session:string)=>({id:session===child?executor:assistant,createdAt:Date.parse('2026-10-19T08:00:00Z')}),assistant:async()=>assistant,warn:vi.fn()})
+ await host.kick();host.stop()
+ expect(rpc.mock.calls.map(([name])=>name)).toEqual(['assistant_work_history'])
+})
