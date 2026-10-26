@@ -4,8 +4,7 @@ import { useCallback, useEffect, useRef, useState } from 'react'
 import { rendererLogger } from '@/lib/log'
 import type { AssistantMachine } from '@/session/renderer/features/assistant/assistant-machine-core'
 import { ASSISTANT_PANEL_CHANGED } from '@/components/assistant/assistant-panel-events'
-import { AssistantPanelError } from '@gugu/core/cloud/assistantPanel'
-import { ASSISTANT_PANEL_READ_TIMEOUT_MS, isAssistantPanelReadRetryable, withAssistantPanelReadDeadline } from '@gugu/core/cloud/assistantPanelRead'
+import { isAssistantPanelReadRetryable, withAssistantPanelReadDeadline } from '@gugu/core/cloud/assistantPanelRead'
 
 const log = rendererLogger('mobile/assistant')
 
@@ -27,22 +26,20 @@ export function usePhoneRead<T>(
   what: string,
   pollMs?: (data: T) => number | null,
 ): PhoneRead<T> & { reload: () => void; refresh: () => Promise<void> } {
-  const [attempt, setAttempt] = useState(0)
   const [result, setResult] = useState<{ key: string; read: PhoneRead<T> } | null>(null)
   const readRef = useRef(read)
   readRef.current = read
   const pollRef = useRef(pollMs)
   pollRef.current = pollMs
-  const full = key === null ? null : `${key}#${attempt}`
+  const full = key
   const fullRef = useRef(full)
   fullRef.current = full
-  const refreshRef = useRef<{ key: string; run: () => Promise<void> } | null>(null)
+  const refreshRef = useRef<{ key: string; run: () => Promise<void>; reload: () => void } | null>(null)
   useEffect(() => {
     if (full === null) return
     let cancelled = false
     let request = 0
     let timer: ReturnType<typeof setTimeout> | undefined
-    let preparationTimer: ReturnType<typeof setTimeout> | undefined
     // 上一次读到后定的间隔:悄悄重读偶尔失败一次不该让它从此不再刷新(「处理中」就一直停在处理中),按同一个间隔接着排下一次。
     let lastInterval: number | null = null
     const run = async (quiet: boolean, explicit = false): Promise<void> => {
@@ -52,7 +49,6 @@ export function usePhoneRead<T>(
       try {
         const data = await withAssistantPanelReadDeadline(() => readRef.current())
         if (!active()) return
-        clearTimeout(preparationTimer)
         lastInterval = pollRef.current?.(data) ?? null
         setResult({ key: full, read: { state: 'ok', data } })
         if (lastInterval) timer = setTimeout(() => void run(true), lastInterval)
@@ -62,20 +58,11 @@ export function usePhoneRead<T>(
         setResult(previous => quiet && previous?.key === full && previous.read.state === 'ok'
           ? { ...previous,read: { ...previous.read,refreshError: error } } : { key: full,read: { state: 'error',error } })
         if (isAssistantPanelReadRetryable(error)) timer = setTimeout(() => void run(true),lastInterval ?? 5000)
-        if ((error as { code?: string }).code === 'unprepared') {
-          clearTimeout(preparationTimer)
-          preparationTimer = setTimeout(() => {
-            if (!active()) return
-            const failure = new AssistantPanelError('preparation-timeout','PANEL_PREPARATION_TIMEOUT')
-            setResult(previous => previous?.key === full && previous.read.state === 'ok'
-              ? { ...previous,read: { ...previous.read,refreshError: failure } } : { key: full,read: { state: 'error',error: failure } })
-          },ASSISTANT_PANEL_READ_TIMEOUT_MS)
-        }
         // A requested refresh must not turn a failed verification into a successful mutation.
         if (explicit) throw error
       }
     }
-    const refresher = { key: full, run: () => run(false, true) }
+    const refresher = { key: full, run: () => run(false, true),reload: () => { void run(true) } }
     refreshRef.current = refresher
     const changed = () => { void run(true) }
     window.addEventListener(ASSISTANT_PANEL_CHANGED,changed)
@@ -83,12 +70,11 @@ export function usePhoneRead<T>(
     return () => {
       cancelled = true
       clearTimeout(timer)
-      clearTimeout(preparationTimer)
       window.removeEventListener(ASSISTANT_PANEL_CHANGED,changed)
       if (refreshRef.current === refresher) refreshRef.current = null
     }
   }, [full, what])
-  const reload = useCallback(() => setAttempt((n) => n + 1), [])
+  const reload = useCallback(() => refreshRef.current?.reload(), [])
   // 改完后重读不闪回「在读」；失败交给页面重试，并让调用方知道尚未核对成功。
   const refresh = useCallback(async () => {
     const reader = refreshRef.current

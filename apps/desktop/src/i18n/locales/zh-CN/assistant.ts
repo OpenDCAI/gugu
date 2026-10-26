@@ -102,7 +102,6 @@ export default {
     "tooLarge": "这份资料超过了保存上限。",
     "unprepared": "还没整理好",
     "readTimedOut": "这部分内容暂时读不出来，系统会继续读取。",
-    "preparationFailed": "这部分内容还没有整理成功，暂时读不出来。",
     "collectionFailed": "暂时读不到这份资料，系统会自动再读。",
     "openFailed": "没打开{{name}}存东西的地方",
     "readFailed": "读取失败：{{message}}",

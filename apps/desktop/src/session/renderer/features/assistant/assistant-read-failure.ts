@@ -18,16 +18,11 @@ export function useAssistantReadError(loading: boolean, error: unknown, resource
   useEffect(() => {
     if (error) setRetained(previous => previous?.scope === scope && previous.error === error ? previous : { scope,error });
     else if (!loading) setRetained(null);
-    if ((error as { code?: string } | null)?.code === 'unprepared') {
-      const timer = setTimeout(() => setRetained({ scope,error: new AssistantPanelError('preparation-timeout','PANEL_PREPARATION_TIMEOUT') }),ASSISTANT_PANEL_READ_TIMEOUT_MS);
-      return () => clearTimeout(timer);
-    }
     if (!loading || error || retainedRef.current?.scope === scope && retainedRef.current.error) return;
     const timer = setTimeout(() => setRetained({ scope,error: new AssistantPanelError('read-timeout','PANEL_READ_TIMEOUT') }),ASSISTANT_PANEL_READ_TIMEOUT_MS);
     return () => clearTimeout(timer);
   },[loading,error,scope]);
-  return (current as { code?: string } | null)?.code === 'preparation-timeout' && (error as { code?: string } | null)?.code === 'unprepared'
-    ? current : error ?? current;
+  return error ?? current;
 }
 
 /** Read recovery only refreshes cloud state. It never prepares an execution host. */
