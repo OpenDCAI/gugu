@@ -4,19 +4,19 @@ import { framedHost } from '../../../../apps/desktop/src/session/app-runtime/fra
 import { APP_SESSION_FRAME_NAME } from '../../../../apps/desktop/src/session/shared/extensions/app-runtime-protocol'
 
 /**
- * owner 10-16 / 复核 #7300 要改 1: on the phone a page calls an App's program only from a session's tab (that session's
- * computer runs it). Anywhere else — a chat's panel — the phone has no program, and the verbs are missing, not refused:
- * an App tells the phone by `typeof gugu.callProgram` (全能搜索 does), as framed-host.ts promises.
+ * Explicit device calls do not require a task tab. Notifications still belong to the task's computer.
  */
 afterEach(() => {
   window.name = ''
 })
 
-describe('the phone frame host offers a program only in a session\'s tab', () => {
-  it('a chat\'s panel: no callProgram, no onProgramNotification — its own data verbs still there', () => {
+describe('the phone frame host supports explicit devices outside task tabs', () => {
+  it('a chat panel exposes callProgram and sessions, with notifications limited to task tabs', () => {
     window.name = ''
     const host = framedHost()
-    expect(typeof host.callProgram).toBe('undefined')
+    expect(typeof host.callProgram).toBe('function')
+    expect(typeof host.sessions?.index).toBe('function')
+    expect(typeof host.sessions?.read).toBe('function')
     expect(typeof host.onProgramNotification).toBe('undefined')
     expect(typeof host.readData).toBe('function')
   })

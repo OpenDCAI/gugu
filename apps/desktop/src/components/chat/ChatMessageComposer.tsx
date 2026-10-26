@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef } from 'react'
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef } from 'react'
 import { useTranslation } from 'react-i18next'
 import { formatAttachmentSize } from '@gugu/core/shared/ui/attachmentModels'
 import { ChatComposer, MessageProvider, type ComposerAttachment, type MentionItem, type PromptEditorRef } from '@gugu/session-ui/react/components'
@@ -11,7 +11,6 @@ import { rankMentionCandidates } from '@/lib/mentionRanking'
 import { useProjectGroupChats, useProjectGroupMembers } from '@/lib/projectGroupChatsBridge'
 import { AUTOMATION_TEST_IDS } from '@/lib/automationDom'
 import { UI_EVENTS } from '@/lib/uiEvents'
-import { APP_COMPOSE_EVENT } from '../../session/shared/extensions/app-runtime-protocol'
 import { SLASH_COMMANDS } from '@/lib/slashCommands'
 import { useContactsStore } from '../../store/contactsContext'
 import { useChatStore } from '../../store/chatContext'
@@ -52,18 +51,18 @@ export function ChatMessageComposer(props: ChatMessageComposerProps) {
   const { theme } = useTheme()
   const mobile = useMobileShell()
   const draft = useChatDraft(chatId)
-  const { text, setText, mentionTargets, setMentionTargets, attachments, setAttachments, flush } = draft
+  const { text, setText, mentionTargets, setMentionTargets, attachments, setAttachments } = draft
   const editorApiRef = useRef<PromptEditorRef | null>(null)
   const inputRef = useRef<HTMLElement | null>(null)
   const fileInputRef = useRef<HTMLInputElement>(null)
   const isMain = surface === 'main'
   const inChatSlot = useInChatSlot()
   const projectName = useChatSlotProjectName()
-  const takenOver = useComposerVerbTakeover(chatId, setText)
-  // 手机项目群的「新任务」(电脑上是 ComposerVerbs 换上会话页那一侧的框;手机就地换成新任务的框)。
-  const phoneTask = usePhoneNewTask({ chatId, enabled: mobile && isMain && !!isGroupChat, clear: () => { setText(''); editorApiRef.current?.clear() } })
+  const takenOver = useComposerVerbTakeover(chatId)
   const { contacts } = useContactsStore()
-  const { chats } = useChatStore()
+  const { chats, writeDraft, registerDraftEditor } = useChatStore('chats', 'writeDraft', 'registerDraftEditor')
+  // 手机项目群的「新任务」(电脑上是 ComposerVerbs 换上会话页那一侧的框;手机就地换成新任务的框)。
+  const phoneTask = usePhoneNewTask({ chatId, enabled: mobile && isMain && !!isGroupChat, clear: () => writeDraft(chatId, '') })
   const projectMembers = useProjectGroupMembers()
   const projectMemberIds = projectMembers.get(chats.find((chat) => chat.id === chatId)?.source_chat_id ?? chatId ?? '')
   const projectGroupChats = useProjectGroupChats()
@@ -117,10 +116,7 @@ export function ChatMessageComposer(props: ChatMessageComposerProps) {
   }, [setAttachments])
 
   useEffect(() => isMain ? registerComposerFocusTarget(() => inputRef.current) : undefined, [isMain])
-  useEffect(() => {
-    const editor = editorApiRef.current
-    if (editor && editor.getText() !== text) editor.setText(text)
-  }, [text, chatId])
+  useLayoutEffect(() => registerDraftEditor(chatId ?? null, () => editorApiRef.current), [chatId, registerDraftEditor])
   useEffect(() => {
     if (!mentionToInsert) return
     if (mainLine.reachable(mentionToInsert.id)) editorApiRef.current?.insertMention({ id: mentionToInsert.id, label: mentionToInsert.name, name: mentionToInsert.name, kind: 'custom' })
@@ -138,14 +134,6 @@ export function ChatMessageComposer(props: ChatMessageComposerProps) {
     window.addEventListener(UI_EVENTS.composerAttachFiles, attach)
     return () => window.removeEventListener(UI_EVENTS.composerAttachFiles, attach)
   }, [isMain, enqueueFiles])
-  useEffect(() => {
-    // App composition appends through the store; preserve typing in either composer surface first.
-    const beforeCompose = (event: Event) => {
-      if ((event as CustomEvent<{ chatId: string }>).detail?.chatId === chatId) flush()
-    }
-    window.addEventListener(APP_COMPOSE_EVENT, beforeCompose, true)
-    return () => window.removeEventListener(APP_COMPOSE_EVENT, beforeCompose, true)
-  }, [chatId, flush])
 
   const composerAttachments: ComposerAttachment[] = attachments.map((attachment) => ({
     id: attachment.id, name: attachment.file.name, kind: attachment.kind === 'image' ? 'image' : 'file',
@@ -175,9 +163,9 @@ export function ChatMessageComposer(props: ChatMessageComposerProps) {
           mentionProvider={mentionProvider} renderMentionIcon={renderMentionIcon} dataDropTypes={dataDropTypes} onDataDropped={onDataDropped}
           onFilesDropped={enqueueFiles} onImageFilesDropped={enqueueFiles}
           attachments={composerAttachments} onAttachmentsChange={(next) => { const kept = attachments.filter((file) => next.some((item) => item.id === file.id)); revokeAttachmentPreviewUrls(attachments.filter((file) => !kept.includes(file))); setAttachments(kept) }}
-          toolbarExtra={<><ComposerAttachButton glyph={attachGlyph} actions={phoneTask.action ? [...(attachMenu ?? []), phoneTask.action] : attachMenu} disabled={disabled} mobile={mobile} onPickFile={() => fileInputRef.current?.click()} />{isMain && !mobile && <ComposerVerbs chatId={chatId} isGroupChat={!!isGroupChat} draft={text} onCarried={() => setText('')} />}</>}
+          toolbarExtra={<><ComposerAttachButton glyph={attachGlyph} actions={phoneTask.action ? [...(attachMenu ?? []), phoneTask.action] : attachMenu} disabled={disabled} mobile={mobile} onPickFile={() => fileInputRef.current?.click()} />{isMain && !mobile && <ComposerVerbs chatId={chatId} isGroupChat={!!isGroupChat} draft={() => editorApiRef.current?.getText() ?? ''} onCarried={() => writeDraft(chatId, '')} />}</>}
           queryCommands={async (query) => SLASH_COMMANDS.filter((command) => command.trigger.slice(1).startsWith(query)).map((command) => ({ id: command.id, name: command.id, behavior: 'execute' as const }))}
-          onCommand={(item) => SLASH_COMMANDS.find((command) => command.id === item.id)?.run({ setText: (update) => editorApiRef.current?.setText(update(editorApiRef.current.getText())), clearText: () => editorApiRef.current?.clear() })}
+          onCommand={(item) => SLASH_COMMANDS.find((command) => command.id === item.id)?.run({ setText: (update) => writeDraft(chatId, update(editorApiRef.current?.getText() ?? '')), clearText: () => writeDraft(chatId, '') })}
           className={inChatSlot ? sessionComposerDockedWidthClassName : undefined} />
       </div>
     </MessageProvider>

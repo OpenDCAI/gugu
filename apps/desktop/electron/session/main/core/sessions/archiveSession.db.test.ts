@@ -283,7 +283,7 @@ describe('archiveSession', () => {
         ],
         unreached: [{ deviceId: 'dev-d', label: 'dev-d', detail: 'offline' }],
       }));
-      setOtherMachines({
+      setOtherMachines({ devices: async () => [], isThisDevice: async () => false, appSpawn: vi.fn(),
         sessions,
         archive: async (_deviceId, sessionId) => {
           archivedThere.push(sessionId);
@@ -314,7 +314,7 @@ describe('archiveSession', () => {
     it('那台机器收不动的那一条说出来,别的照收;问不到别的机器也说出来', async () => {
       insertSession('parent');
       insertSession('child', { parent: 'parent' });
-      setOtherMachines({
+      setOtherMachines({ devices: async () => [], isThisDevice: async () => false, appSpawn: vi.fn(),
         sessions: async () => ({ sessions: [remote('b-child', 'dev-b', 'parent')], unreached: [] }),
         archive: async () => {
           throw new Error('on "dev-b" (device:dev-b): failed to stop ACP conversation');
@@ -332,7 +332,7 @@ describe('archiveSession', () => {
       });
 
       insertSession('second');
-      setOtherMachines({
+      setOtherMachines({ devices: async () => [], isThisDevice: async () => false, appSpawn: vi.fn(),
         sessions: async () => {
           throw new Error('not signed in');
         },
@@ -350,7 +350,7 @@ describe('archiveSession', () => {
     it('不勾「连同子会话」就只动点名的这一条,别的机器一台都不问', async () => {
       insertSession('only');
       const sessions = vi.fn();
-      setOtherMachines({ sessions, archive: vi.fn(), appMessage, appReadFile, appCall });
+      setOtherMachines({ devices: async () => [], isThisDevice: async () => false, appSpawn: vi.fn(), sessions, archive: vi.fn(), appMessage, appReadFile, appCall });
       await archiveSession('p1', 'only');
       expect(sessions).not.toHaveBeenCalled();
     });
