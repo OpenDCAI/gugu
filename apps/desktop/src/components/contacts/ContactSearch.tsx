@@ -1,3 +1,4 @@
+import { groupDisplayName } from '@gugu/core/shared/ui/chatModels'
 import { Fragment, useMemo, useRef, useState, type KeyboardEvent, type ReactNode } from 'react'
 import { useTranslation } from 'react-i18next'
 import type { ContactGroupChat, ContactUser } from '@gugu/core/shared/types/contacts'
@@ -20,7 +21,7 @@ import { SectionLabel } from '../ui/SectionLabel'
 
 export function ContactGroupAvatar({ group, size }: { group: ContactGroupChat; size: 'sm' | 'md' | 'lg' | number }) {
   const { identitiesById } = useChatStore('identitiesById')
-  return <Avatar name={group.name} avatarUrl={group.avatar_url} variant="group" size={size} memberAvatars={group.member_user_ids?.flatMap((id) => identitiesById[id] ? [{ id, name: identitiesById[id].display_name, avatar: identitiesById[id].avatar }] : [])} />
+  return <Avatar name={groupDisplayName(group)} avatarUrl={group.avatar_url} variant="group" size={size} memberAvatars={group.member_user_ids?.flatMap((id) => identitiesById[id] ? [{ id, name: identitiesById[id].display_name, avatar: identitiesById[id].avatar }] : [])} />
 }
 
 export function SelectionCheckbox({ checked }: { checked: boolean }) {
@@ -138,7 +139,7 @@ export function ContactSearch({ query, onQuery, mobile = false, onScreen, head, 
     )
     if (row.kind === 'group') {
       const group = row.hit.item
-      return <ListRow key={group.id} {...common} data-group-id={group.id} leading={<ContactGroupAvatar group={group} size={avatarSize} />} title={<Marked text={group.name} hits={hit.field === 'title' ? hit.hits : []} />} subtitle={why} />
+      return <ListRow key={group.id} {...common} data-group-id={group.id} leading={<ContactGroupAvatar group={group} size={avatarSize} />} title={<Marked text={groupDisplayName(group)} hits={hit.field === 'title' ? hit.hits : []} />} subtitle={why} />
     }
     const contact = row.hit.item
     const picking = pick?.canPick(contact) ?? false

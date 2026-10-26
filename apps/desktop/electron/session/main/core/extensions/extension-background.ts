@@ -2,7 +2,8 @@ import { BrowserWindow } from 'electron';
 import { log } from '@main/lib/logger';
 import { extensionPartition, extensionResourceUrl } from '@shared/extensions/partition';
 import type { ExtensionManifest } from '@shared/extensions/manifest';
-import { BACKGROUND_PAGE_ARG } from '@shared/extensions/bridge-protocol';
+import { BACKGROUND_PAGE_ARG, EXTENSION_BRIDGE_EVENT_CHANNEL, type ExtensionHostEvent } from '@shared/extensions/bridge-protocol';
+import { serverExtensionBackground } from '../../../../server/extension-background';
 import { configureExtensionSession } from './extension-session';
 import { extensionsService } from './extensions-root';
 import { resolveExtensionBridgePreload } from './bridge-preload-path';
@@ -26,7 +27,13 @@ import type { ExtensionBundle } from './extension-protocol';
  * 于是自有 scheme 供文件、网络白名单、权限一律拒这三条与视图完全同源。窗口 `show: false`
  * 且不可见 —— 它是个执行环境,不是界面;界面是那些视图。
  */
-const backgrounds = new Map<string, BrowserWindow>();
+export interface BackgroundRuntime {
+  id: number;
+  isDestroyed(): boolean;
+  send(event: ExtensionHostEvent): void;
+  destroy(): void;
+}
+const backgrounds = new Map<string, BackgroundRuntime>();
 
 /**
  * 右键左栏「退出」了的 App(#7050,照 macOS 程序坞):还启用着,但**停着,直到有人再打开它**。
@@ -41,6 +48,11 @@ function startExtensionBackground(manifest: ExtensionManifest, bundle: Extension
 
   const existing = backgrounds.get(manifest.id);
   if (existing && !existing.isDestroyed()) return;
+
+  if (process.env.GUGU_SERVER_MODE === '1') {
+    backgrounds.set(manifest.id, serverExtensionBackground(bundle, backgroundEntry));
+    return;
+  }
 
   // 桥与 webview 那条同源(`webview-policy` 走的是同一个 resolver):后台页拿到的
   // `window.gugu` 必须和视图里那个是同一份,否则「同一个扩展」在两种载体上就是两套 API。
@@ -81,7 +93,12 @@ function startExtensionBackground(manifest: ExtensionManifest, bundle: Extension
     log.error('Extension background process gone', { extensionId: manifest.id, details });
   });
 
-  backgrounds.set(manifest.id, win);
+  backgrounds.set(manifest.id, {
+    id: win.webContents.id,
+    isDestroyed: () => win.isDestroyed(),
+    send: (event) => win.webContents.send(EXTENSION_BRIDGE_EVENT_CHANNEL, event),
+    destroy: () => win.destroy(),
+  });
   // 说出来:一个**看不见的常驻进程**被拉起来了,而它没有任何界面会证明自己在。
   // 不记这一条,「后台到底起没起」就只能靠猜 —— 排查时那等于没有证据。
   log.info('Extension background started', {
@@ -134,7 +151,15 @@ export function stopAllExtensionBackgrounds(): void {
 export function extensionBackgroundWebContentsId(extensionId: string): number | null {
   const win = backgrounds.get(extensionId);
   if (!win || win.isDestroyed()) return null;
-  return win.webContents.id;
+  return win.id;
+}
+
+/** Events use the same background lifecycle on both hosts; no Electron webContents exists on a server. */
+export function postExtensionBackground(id: number, event: ExtensionHostEvent): boolean {
+  const runtime = [...backgrounds.values()].find((candidate) => candidate.id === id && !candidate.isDestroyed());
+  if (!runtime) return false;
+  runtime.send(event);
+  return true;
 }
 
 /** Every background running now, `[extensionId, webContentsId]` — for an event each one hears as its own (agentsChanged). */

@@ -17,7 +17,7 @@ describe('通讯录「群聊」从会话投影派生', () => {
       row({ id: 'topic-1', kind: 'topic', member_user_ids: ['me'] }),
     ]
     expect(contactGroupChatsOf(chats)).toEqual([
-      { id: 'group-1', public_id: 7, kind: 'group', name: 'One', avatar_url: 'a.png', member_count: 2, is_muted: true, my_role: 'owner', member_user_ids: ['me', 'agent-a'] },
+      { id: 'group-1', public_id: 7, kind: 'group', name: 'One', alias: null, avatar_url: 'a.png', member_count: 2, is_muted: true, my_role: 'owner', member_user_ids: ['me', 'agent-a'] },
     ])
   })
 
