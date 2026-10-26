@@ -441,7 +441,7 @@ export const GroupTabContent = observer(function GroupTabContent({ chatId, tabId
       ) : null}
       {/* What the page on screen opens beside it (G1): over it here, the page kept for the way back. */}
       <AppPeekSlot sessionId={null} tabId={slot} narrow={mobile}>
-        {item.file && (!mobile || visible !== false) ? <MessageFilePreview fill tabbed={tabbed} mobile={mobile} message={item.message} onForward={onForward} file={{ kind: 'file', document: item.file.document, fileName: item.fileName ?? item.title, mimeType: item.file.contentType, sizeBytes: item.file.size, source: { kind: 'item', itemId: item.itemId!, version: item.file.version } }} onBack={backIsPanel ? close : undefined} full={full} onToggleFull={toggleFull} onClose={close} /> : null}
+        {item.file && (!mobile || visible !== false) ? <MessageFilePreview fill tabbed={tabbed} mobile={mobile} message={item.message} onForward={onForward} file={{ kind: 'file', document: item.file.document, fileName: item.fileName ?? item.title, mimeType: item.file.contentType, sizeBytes: item.file.size, source: { kind: 'item', itemId: item.itemId!, version: item.file.version } }} onBack={mobile || backIsPanel ? close : undefined} full={full} onToggleFull={toggleFull} onClose={close} /> : null}
         {desktop ? item.file || !kind ? null : (
           offerUnknown || offerFolds ? (
             <div className="min-h-0 flex-1" data-testid="group-app-slot-raw-folded" />

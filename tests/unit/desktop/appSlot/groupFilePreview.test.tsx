@@ -116,6 +116,24 @@ describe('unclaimed group files use the message preview from every entry', () =>
     expect(content).toHaveBeenCalledTimes(1); expect(boundary.read).not.toHaveBeenCalled()
     await harness.render(null); expect(urls.revoke).toHaveBeenCalledWith('blob:verified-project-video'); expect(dispose).toHaveBeenCalledTimes(1)
   })
+  it('the phone opens its chooser above the App page; cancelling keeps that page and picking preserves its Back link', async () => {
+    boundary.mobile = true
+    const folder = openPanelItem('preview-group', folderItem())
+    const file = { ...detail('md'), choice: { kind: 'choose' as const, suffix: '.md', candidates: [candidate] } }
+    await slot(file as never, true, { fromPage: true })
+    const chooser = () => document.querySelector('[role="dialog"] [data-testid="group-app-open-with"]')
+    expect(chooser()).not.toBeNull()
+    expect(harness.container.contains(chooser()), 'the chooser is portalled above the full-screen page').toBe(false)
+    await act(async () => window.dispatchEvent(new Event('gugu:native-back')))
+    expect(chooser()).toBeNull()
+    expect(shownPanelTab('preview-group')?.tabId).toBe(folder)
+    ask(file.chatId, { itemId: file.itemId, opener: file as never, fromPage: true })
+    await act(async () => document.querySelector<HTMLButtonElement>('[data-open-with="workspace.main"]')!.click())
+    expect(shownItem(file.chatId)).toMatchObject({ kind: 'workspace.main', itemId: file.itemId })
+    act(() => closeChatTab(file.chatId, shownPanelTab(file.chatId)!.tabId))
+    expect(shownPanelTab(file.chatId)?.tabId).toBe(folder)
+  })
+
   it.each([false, true])('ordinary openWith plays MP4 on the host (mobile=%s)', async (mobile) => {
     boundary.mobile = mobile
     const file = detail('mp4')
@@ -216,6 +234,18 @@ describe('unclaimed group files use the message preview from every entry', () =>
     await act(async () => close.click())
     expect(panelTabsOf('preview-group').some((tab) => tab.item.itemId === file.itemId)).toBe(false)
     expect(chatAlone('preview-group')).toBe(true)
+    expect(restore).toHaveBeenCalledTimes(1)
+  })
+
+  it('a phone message preview has Back and closes its tab before restoring the originating topic', async () => {
+    boundary.mobile = true
+    const restore = vi.fn(() => expect(chatAlone('preview-group')).toBe(true))
+    await slot(detail('exe'), true, { restore })
+    expect(harness.container.querySelector('button[aria-label="关闭预览"]')).toBeNull()
+    const back = harness.container.querySelector<HTMLButtonElement>('button[aria-label="返回"]')
+    expect(back).not.toBeNull()
+    await act(async () => back!.click())
+    expect(shownItem('preview-group')).toBeNull()
     expect(restore).toHaveBeenCalledTimes(1)
   })
 
