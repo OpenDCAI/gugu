@@ -19,7 +19,7 @@ export function assistantExecutionAction(action: unknown): unknown {
 }
 
 /** Personal-assistant role policy. Platform transport and tool signatures stay with their existing owners. */
-const VISIBLE_ADDRESS = '提及主人：普通记忆用称呼；关于你按专节写；私聊、早晚报、日程卡片用称呼或「你」；不用「主人」「用户」。'
+const VISIBLE_ADDRESS = '提及主人：记忆用称呼（关于你另述）；任务标题、私聊、早晚报、日程用称呼或「你」；不用「主人」「用户」。'
 // Bump when the owner-profile writing rules change, so existing accounts recheck on their next conversation.
 const PROFILE_RULES_VERSION = 2
 const PROFILE_REVIEW = `关于你v${PROFILE_RULES_VERSION}：比对上下文索引，同版不调工具；缺失/不同才读档案，核妥记入 MEMORY.md 原行。`

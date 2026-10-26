@@ -28,11 +28,25 @@ describe('assistantGuide', () => {
       prompts.push(assistantBrief(kind, '/assistant/reference.md', '/assistant/memory'), assistantGuide(kind))
     }
     for (const prompt of prompts) {
-      expect(prompt).toContain('普通记忆用称呼；关于你按专节写')
-      expect(prompt).toContain('私聊、早晚报、日程卡片用称呼或「你」')
+      expect(prompt).toContain('记忆用称呼（关于你另述）')
+      expect(prompt).toContain('私聊、早晚报、日程用称呼或「你」')
       expect(prompt).toContain('不用「主人」「用户」')
     }
     expect(ASSISTANT_CONTEXT_CORE.join('\n').length).toBeLessThanOrEqual(1272)
+  })
+
+  it('uses a name or you in new owner-visible task titles without growing resident instructions', () => {
+    const prompts = [ASSISTANT_CONTEXT_CORE.join('\n'), ASSISTANT_WORKFLOW.join('\n')]
+    for (const kind of ['cloud', 'computer'] as const) {
+      const brief = assistantBrief(kind, '/assistant/.gugu-assistant-reference.md', '/assistant/memory')
+      prompts.push(brief, assistantGuide(kind))
+      expect(brief.length).toBeLessThanOrEqual(kind === 'computer' ? 2106 : 2128)
+    }
+    for (const prompt of prompts) {
+      expect(prompt).toContain('任务标题、私聊、早晚报、日程用称呼或「你」')
+      expect(prompt).toContain('不用「主人」「用户」')
+    }
+    expect(ASSISTANT_CONTEXT_CORE.join('\n').length).toBeLessThanOrEqual(1262)
   })
 
   it('starts profiles with person-facing facts and proactively normalizes existing accounts', () => {
