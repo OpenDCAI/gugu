@@ -161,7 +161,7 @@ export function ChatMessageComposer(props: ChatMessageComposerProps) {
     inputRef: receiveInput, clearOnSubmit: false, enterBehavior: mobile ? 'newline' as const : 'submit' as const }
   return <ThemeProvider theme={theme} target="documentElement">
     <MessageProvider locale={resolvedLocale} translate={translateSessionMessage}>
-      <div title={disabledReason} data-chat-composer-host="" data-mobile-group={mobile && isGroupChat || undefined} data-phone-task={phoneTask.active || undefined} data-taken-over={takenOver || undefined} data-sending={sending} hidden={hidden}>
+      <div title={disabledReason} data-chat-composer-host="" data-mobile-group={mobile && isGroupChat || undefined} data-phone-task={phoneTask.active || undefined} data-sending={sending} hidden={hidden || takenOver}>
         <input ref={fileInputRef} type="file" multiple hidden onChange={(event) => { enqueueFiles(Array.from(event.target.files ?? [])); event.target.value = '' }} />
         <ChatComposerContextBands {...props} />
         <AgentMentionSelectionNotice members={members} mentionTargets={activeTargets} agentStatuses={agentStatuses} />

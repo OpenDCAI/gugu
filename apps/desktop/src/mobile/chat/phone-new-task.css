@@ -1,5 +1,4 @@
 /* 手机项目群派「新任务」(PhoneNewTask)。 */
-[data-chat-composer-host][data-taken-over] { display: none; }
 [data-chat-composer-host][data-phone-task] { position: relative; }
 
 /* 浮在群上的文件夹卡:电脑那一张按手机屏宽缩小;卡本身可点,周围不挡群。 */

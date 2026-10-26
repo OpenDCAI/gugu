@@ -25,6 +25,7 @@ import { ContactRowContextMenu, type ContactRowMenuActions } from './ContactRowA
 import { useRowContextMenu } from '../../hooks/useRowContextMenu'
 import { ShareAgentModal } from './ShareAgentModal'
 import { cn } from '@/lib/cn'
+import { rendererLogger } from '@/lib/log'
 import { chatPublicId, displayName, userPublicId } from '../../lib/contactsListSort'
 import {
   ct, detailBlockClass, detailBodyClass, detailCaptionClass, detailNoticeClass, detailPlaceholderClass, detailTitleClass,
@@ -60,7 +61,7 @@ function CommonGroups({
         if (!cancelled) setGroups(data)
       })
       .catch((err) => {
-        console.error('[ContactsPanel] load common group chats error', err)
+        rendererLogger('contacts/detail').error({ err }, 'load common group chats failed')
         if (!cancelled) {
           setGroups([])
           setError(err instanceof Error ? err.message : ct('commonGroups.loadFailed'))
