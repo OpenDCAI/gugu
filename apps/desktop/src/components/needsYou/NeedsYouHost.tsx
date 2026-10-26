@@ -40,7 +40,7 @@ export function NeedsYouHost() {
       </Button>
     </div>}
     {shown && <Sheet fullScreenMobile testId="needs-you-sheet" ariaLabel={t('needsYou.title')} onClose={() => setOpened(false)} zIndex="var(--z-settings-modal)" desktopWidth="520px">
-      <PaneHeader title={t('needsYou.title')} mobile={mobile} divider />
+      <PaneHeader title={t('needsYou.title')} mobile={mobile} divider actions={<Button variant="ghost" onClick={() => setOpened(false)}>{t('dialog.close')}</Button>} />
       <div className="flex min-h-0 flex-col gap-3 overflow-auto !p-4">
         {error && <p role="alert">{error}</p>}
         {tasks.map(item => <Button key={taskKey(item)} variant={taskKey(item) === selected ? 'secondary' : 'ghost'}
