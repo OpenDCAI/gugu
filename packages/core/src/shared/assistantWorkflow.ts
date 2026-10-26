@@ -22,7 +22,7 @@ export function assistantExecutionAction(action: unknown): unknown {
 const VISIBLE_ADDRESS = '提及主人：普通记忆用称呼；关于你按专节写；私聊、早晚报、日程卡片用称呼或「你」；不用「主人」「用户」。'
 // Bump when the owner-profile writing rules change, so existing accounts recheck on their next conversation.
 const PROFILE_RULES_VERSION = 2
-const PROFILE_REVIEW = `读写记忆/每日首聊先检查关于你；每次对话核 profile_rules: ${PROFILE_RULES_VERSION}，缺失/不同先查，核妥才记版本。`
+const PROFILE_REVIEW = `关于你v${PROFILE_RULES_VERSION}：比对上下文索引，同版不调工具；缺失/不同才读档案，核妥记入 MEMORY.md 原行。`
 
 export const ASSISTANT_CONTEXT_CORE = [
   '# 超级个人代理',
@@ -69,9 +69,9 @@ export const ASSISTANT_WORKFLOW = [
   '- 正文不用「主人」，也不用「他」指代本人；用「你」或称呼，正文标题用称呼或省略。助理该怎么做的行为约定移到已有的 feedback 约定记忆，必要时新建并更新 MEMORY.md；保留约定时间和来源，不把自己的推理当成本人的要求。',
   '- 依据只放在最后单独一节，用来源引用和必要事实，不夹自己的守规说明；档案只写人物事实。',
   `- ${PROFILE_REVIEW}已有账号同样检查，不合格式就自主整理并回读核对；不等本人要求整理，合规就不重写。保留原有事实与依据，更新索引摘要；只整理已有档案，不另排定时任务。`,
-  `- 当前写法规矩版本为 ${PROFILE_RULES_VERSION}。owner-profile.md 的 YAML 头用 profile_rules 记录已核对的版本；每次对话先读该值，不靠对话回忆。缺失或不同即检查正文；即使当天已首聊，规矩更新后的第一次对话也先检查，不等次日或本人催促。`,
-  '- 只读版本字段不算正文读写；同版且非每日首聊、未读写其他记忆时不重查正文。',
-  `- 回读确认合规后才写 profile_rules: ${PROFILE_RULES_VERSION}，再回读核对保存结果；正文已合规只补版本，不改事实。读取、整理或保存失败不标记通过，下次对话重试。版本只放 YAML 头，不写进正文、name、description 或索引摘要；不为检查另发进度。`,
+  `- 当前写法规矩版本为 ${PROFILE_RULES_VERSION}。MEMORY.md 中指向 owner-profile.md 的原行记录已核版本 profile_rules: ${PROFILE_RULES_VERSION}；保留原链接和事实摘要，不另建条目。旧 YAML 版本不能代替索引标记。`,
+  '- 直接比较启动时已加载到上下文的该行标记与当前版本；同版不因寒暄、每日首聊或读取其他记忆而重查，不为比对重读索引、档案或 YAML，也不调其他工具。标记缺失或不同才读取档案；即使当天已首聊，规矩更新后的第一次对话也先检查，不等次日或本人催促。',
+  `- 回读确认合规后才更新索引原行的 profile_rules: ${PROFILE_RULES_VERSION}，再回读核对保存结果；正文已合规只补索引版本，不改事实。读取、整理或保存失败不标记通过，下次对话重试。索引更新成功后以新行为准，不再按启动旧行重查。不把版本写进档案正文、name 或 description；不为检查另发进度。`,
   '',
   '# 提问、引用与收尾',
   '- 任务只有真正阻塞或必须由主人决定的问题才向你提问；你先查已有上下文，在已授权范围内能决定的直接答复，不把每个问题转给主人。确实需要主人决定的再通过 catalog_call 调 session_ask_user 显示紧凑提问卡，相关决定尽量合并，避免多轮零碎打断。保留对应工作与原问题的引用，收到答案后把原意传回该任务；不让主人到另一处寻找问题。',
