@@ -1,3 +1,5 @@
+import { z } from 'zod'
+import { registerSessionpageTools } from '../../../../apps/desktop/electron/mcp/sessionpage-tool-registrar'
 import { describe, expect, it, vi } from 'vitest'
 import { enqueueAssistantWorkReport } from '../../../../packages/core/src/cloud/assistantWorkReports'
 const id = 'b316d3b6-6556-4231-a750-460c79dacb92'
@@ -13,8 +15,20 @@ describe('work report queues before a sleeping coordinator can be contacted', ()
     const f=fixture()
     const receipt=await enqueueAssistantWorkReport(f,input)
     expect(receipt.recipients[0]?.status).toBe('accepted')
+    expect(receipt.recipients[0]?.session_id).toBe('home-session')
     expect(f.prepare).toHaveBeenCalledWith([{file_path:'/report.txt'}],{sessionId:'home-session',deviceId:'cloud',agentId:'assistant'})
     expect(f.rpc).toHaveBeenLastCalledWith('assistant_work_commit',expect.objectContaining({p_task:null,p_events:[expect.objectContaining({kind:'completed',to_device_id:'cloud',from_session_id:'child'})]}))
+  })
+  it('returns accepted through the real tool registrar without double-encoding session IDs', async () => {
+    const f=fixture()
+    type Handler=(args:unknown,extra:{signal:AbortSignal})=>Promise<{isError?:boolean;content:{text?:string}[]}>
+    let handler!:Handler
+    const server={registerTool:(_name:string,_def:unknown,run:Handler)=>{handler=run}}
+    registerSessionpageTools(server as never,[{name:'session_message',description:'message',schema:z.object({}),action:'message'}],
+      ()=>enqueueAssistantWorkReport(f,input),()=> 'unavailable',work=>work)
+    const result=await handler({},{signal:new AbortController().signal})
+    expect(result.isError).not.toBe(true)
+    expect(JSON.parse(result.content[0]!.text!).recipients[0]).toMatchObject({status:'accepted',session_id:'session:home-session'})
   })
   it('rejects a foreign executor before uploading a file', async () => {
     const f=fixture()
