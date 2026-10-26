@@ -29,12 +29,12 @@ export const ChatTabPortals = observer(function ChatTabPortals({ chatId, panel, 
     () => slots?.getSlots() ?? EMPTY,
   )
   const topicTab = topicTabOf(chatId)
-  const topicSlot = topicTab?.shown ? entries.get(chatTabSlotKey(chatId, topicTab.tabId)) : undefined
+  const topicSlot = topicTab ? entries.get(chatTabSlotKey(chatId, topicTab.tabId)) : undefined
   const infoTab = infoTabOf(chatId)
-  const infoSlot = infoTab?.shown ? entries.get(chatTabSlotKey(chatId, infoTab.tabId)) : undefined
+  const infoSlot = infoTab ? entries.get(chatTabSlotKey(chatId, infoTab.tabId)) : undefined
   return (
     <>
-      {panelTabsOf(chatId).filter((tab) => tab.shown).map((tab) => {
+      {panelTabsOf(chatId).map((tab) => {
         const element = entries.get(chatTabSlotKey(chatId, tab.tabId))
         return element ? createPortal(panel(tab), element, tab.tabId) : null
       })}

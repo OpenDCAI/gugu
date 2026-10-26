@@ -59,6 +59,8 @@ export type TopicSurface = {
   anchorsByMessageId: Map<string, TopicSummary[]>
   topics: TopicSummary[]
   reloadTopics: () => void
+  /** The open tab's conversation, retained while another tab is shown. */
+  topic: OpenTopic | null
   /** 右侧分栏里那条话题(null = 没开分栏)。 */
   splitTopic: OpenTopic | null
   splitLine: ChatConversation
@@ -106,18 +108,20 @@ export function useTopicSurface({
   )
   // 分栏是这条线页签条上的一枚(chat-tabs/chat-layouts):开着哪条话题、在不在屏上都由那里说,按来源线各记各的
   // (@@@3922 的 subject-scoped 由此而来:换了来源线读的就是另一条页签条)。
-  const splitTopic = useTabsReading((): OpenTopic | null => {
+  const tab = useTabsReading(() => {
     if (!chatId) return null
     const tab = topicTabOf(chatId)
     if (!tab) return null
     const up = embedded ? tab.shown : focusedChatTab(chatId)?.tabId === tab.tabId
-    return up ? { chatId: tab.topic.topicChatId, name: tab.topic.name } : null
+    return { topic: { chatId: tab.topic.topicChatId, name: tab.topic.name }, shown: up }
   }, [chatId, embedded])
+  const topic = tab?.topic ?? null
+  const splitTopic = tab?.shown ? topic : null
   const chatIdRef = useRef<string | null>(null)
   chatIdRef.current = chatId
-  const splitChatId = splitTopic?.chatId ?? null
+  const splitChatId = topic?.chatId ?? null
   const splitChatIdRef = useRef<string | null>(null)
-  splitChatIdRef.current = splitChatId
+  splitChatIdRef.current = splitTopic?.chatId ?? null
   const line = useChatConversation(splitChatId, conversations)
   const sendSplitMessage = line.sendMessage
 
@@ -182,6 +186,7 @@ export function useTopicSurface({
     anchorsByMessageId: bySourceMessageId,
     topics,
     reloadTopics,
+    topic,
     splitTopic,
     splitLine: line,
     openSplit,
