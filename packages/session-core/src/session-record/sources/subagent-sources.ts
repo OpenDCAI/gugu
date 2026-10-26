@@ -67,7 +67,7 @@ export function withSubagentSources(
     async start(events, resume) {
       sink = events;
       const saved = resume?.data as { nativeChildren?: number; root?: SessionRecordResume; children?: Record<string, SessionRecordResume> } | undefined;
-      childResumes = saved?.nativeChildren === 1 ? saved.children ?? {} : {};
+      childResumes = saved?.nativeChildren === 2 ? saved.children ?? {} : {};
       for (const id of Object.keys(childResumes)) childIds.add(id);
       await root.start({ ...events,
         onReset(reason) {
@@ -89,7 +89,7 @@ export function withSubagentSources(
             }) }]));
           }
         },
-      }, saved?.nativeChildren === 1 ? saved.root : resume);
+      }, saved?.nativeChildren === 2 ? saved.root : resume);
       initializing = false;
       await Promise.all([...childIds].map(ensureChild));
       await Promise.all(starting.values());
@@ -97,14 +97,15 @@ export function withSubagentSources(
     async catchUp() { if (replacement) return replacement.catchUp?.(); await root.catchUp?.(); await Promise.all(starting.values()); await Promise.all([...children.values()].map((child) => child.catchUp?.())); },
     async resumePoint() {
       if (replacement) return replacement.resumePoint!();
-      const point = await root.resumePoint!();
+      // The host starts archiving and immediately stops the source. Start every
+      // cursor read before yielding, while the child sources still own their readers.
+      const [point, childPoints] = await Promise.all([
+        root.resumePoint!(),
+        Promise.all([...children].map(async ([id, child]) => [id, await child.resumePoint?.()] as const)),
+      ]);
       if (!point) return null;
-      const childPoints: Record<string, SessionRecordResume> = {};
-      for (const [id, child] of children) {
-        const value = await child.resumePoint?.();
-        if (value) childPoints[id] = value;
-      }
-      return { data: { nativeChildren: 1, root: point, children: childPoints }, fingerprint: [point.fingerprint, ...Object.entries(childPoints).sort(([a], [b]) => a.localeCompare(b)).map(([id, value]) => `${id}:${value.fingerprint}`)].join('|') };
+      const savedChildren = Object.fromEntries(childPoints.filter((point): point is readonly [string, SessionRecordResume] => Boolean(point[1])));
+      return { data: { nativeChildren: 2, root: point, children: savedChildren }, fingerprint: [point.fingerprint, ...Object.entries(savedChildren).sort(([a], [b]) => a.localeCompare(b)).map(([id, value]) => `${id}:${value.fingerprint}`)].join('|') };
     },
     stop() { stopped = true; replacement?.stop(); root.stop(); stopChildren(); },
   };

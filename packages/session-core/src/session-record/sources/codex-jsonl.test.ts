@@ -102,9 +102,10 @@ describe('codex rollout 记录源', () => {
       expect.objectContaining({ outputText: 'NESTED_RESULT' }),
       expect.objectContaining({ outputText: 'CHILD_RESULT' }),
     ]));
-    const archive = await timeline.archive!();
-    expect(archive).not.toBeNull();
+    const pendingArchive = timeline.archive!();
     timeline.dispose();
+    const archive = await pendingArchive;
+    expect(archive).not.toBeNull();
     const reopened = await createSessionTimeline(createCodexJsonlSource({ harness: 'codex', providerSessionId: THREAD_ID, roots: [root] }), {
       sessionId: 'native-parent', archive: archive!,
     });

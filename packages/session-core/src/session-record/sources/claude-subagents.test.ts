@@ -75,8 +75,9 @@ describe('Claude native subagent records', () => {
     expect(items.filter((item) => item.kind === 'subagent-done-tool-call')).toEqual([
       expect.objectContaining({ outputText: 'NESTED_RESULT' }),
     ]);
-    const archive = await timeline.archive!();
+    const pendingArchive = timeline.archive!();
     timeline.dispose();
+    const archive = await pendingArchive;
     const reopened = await createSessionTimeline(createClaudeJsonlSource(locator), { sessionId: 'native-parent', archive: archive! });
     disposers.push(() => reopened.dispose());
     expect(reopened.getSnapshot().turns).toEqual(snapshot.turns);
@@ -93,6 +94,15 @@ describe('Claude native subagent records', () => {
       ],
     });
     expect(updated.filter((item) => item.kind === 'message')).toEqual(items.filter((item) => item.kind === 'message'));
+
+    // Older composite archives could lose child cursors during immediate disposal.
+    const stale = { ...archive!, resume: { ...archive!.resume,
+      data: { ...(archive!.resume.data as object), nativeChildren: 1, children: {} },
+    } };
+    const rebuilt = await createSessionTimeline(createClaudeJsonlSource(locator), { sessionId: 'native-parent', archive: stale });
+    disposers.push(() => rebuilt.dispose());
+    expect(rebuilt.getSnapshot().turns.flatMap((turn) => turn.items).find((item) => item.kind === 'spawn-subagent-tool-call'))
+      .toMatchObject({ agentStatus: 'completed', children: [expect.objectContaining({ toolCallId: 'child-step', status: 'done' }), expect.anything()] });
   });
 
   it('keeps a failed launch and ordinary completed tools without inventing a child identity', async () => {
