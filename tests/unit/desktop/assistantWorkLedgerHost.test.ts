@@ -1,6 +1,8 @@
 import { mkdtemp,readFile,rm } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
+import {z} from 'zod'
+import {registerSessionpageTools} from '../../../apps/desktop/electron/mcp/sessionpage-tool-registrar'
 import { afterEach,beforeEach,expect,it,vi } from 'vitest'
 import { coordinateAssistantAction,AssistantWorkStore } from '../../../apps/desktop/electron/sessionpage/assistant-work'
 import { installAssistantWorkLedgerHost,enqueueAssistantWorkMessage } from '../../../apps/desktop/electron/sessionpage/assistant-work-ledger'
@@ -53,4 +55,18 @@ it('retains the recovery reference when the account runtime is not available bef
   stop()
   await expect(coordinateAssistantAction({sessionId:'home-session',memoryDir:root,agentId:assistant},{action:'spawn',prompt:'request'},vi.fn())).rejects.toThrow('runtime is unavailable')
   expect(new AssistantWorkStore(root).list()).toHaveLength(1)
+})
+
+it('returns an accepted dispatch through the real tool registrar without double encoding session ids',async()=>{
+  rpc.mockImplementation(async(_n,a)=>({data:{work_id:a.p_work_id,event_ids:a.p_events.map((e:{message_id:string})=>e.message_id),outcome:'active',terminal_version:'0'},error:null}))
+  let call:(args:unknown,extra:{signal:AbortSignal})=>Promise<{isError?:boolean;content:unknown[]}>=undefined!
+  registerSessionpageTools({registerTool:(_name:unknown,_options:unknown,handler:typeof call)=>{call=handler}} as never,
+    [{name:'session_message',action:'message',description:'send',schema:z.object({to:z.array(z.string()),text:z.string()})}],
+    action=>coordinateAssistantAction({sessionId:'home-session',memoryDir:root,agentId:assistant},action,raw=>{
+      const a=raw as {assistant_work:Parameters<typeof enqueueAssistantWorkMessage>[0];text:string}
+      return enqueueAssistantWorkMessage(a.assistant_work,a.text,[],[{sessionId:'executor',deviceId:'worker'}])
+    }),()=>undefined,async work=>work)
+  const answer=await call({to:['session:executor'],text:'Task'},{signal:new AbortController().signal})
+  expect(answer.isError).not.toBe(true)
+  expect(JSON.stringify(answer.content)).toContain('accepted')
 })
