@@ -1,3 +1,5 @@
+import { assistantWorkIntentSchema,type AssistantWorkIntent } from '@gugu/core/shared/assistantWorkIntent';
+import { assistantWorkLedgerContext } from '../../../../sessionpage/assistant-work-ledger';
 import { withSessionAttachments, type SessionAttachmentRef } from '@gugu/core/cloud/sessionAttachments';
 import { isActivityAction, runActivityAction, type ActivityAction } from '../activity/actions';
 import { tabHygiene, type TabHygieneResult } from './tab-hygiene';
@@ -146,6 +148,7 @@ export type SessionAction =
   | { action: 'list_models'; harness?: string; transport?: SessionRuntime; force?: boolean }
   | {
       action: 'spawn';
+      assistant_work?: AssistantWorkIntent;
       prompt: string;
       source_link?: string;
       title?: string;
@@ -210,6 +213,7 @@ export type SessionAction =
 export type { SessionModel } from './session-model-fact';
 
 export type SessionSnapshot = {
+  assistant_work_target?: {session_id:string;device_id:string};
   session_id: string;
   source_links?: readonly string[];
   spawned_by_session_id: string | null;
@@ -908,6 +912,7 @@ async function spawnSession(
     prompt,
     title: action.title,
     sourceLink: action.source_link,
+    assistantWork: action.assistant_work,
     envelope: envelopeOf(await localEnvelopeSender(caller)),
     // 带 chat_id 开的子会话是派出去干活的:任务座位(不发入群提示)。
     ...(action.chat_id ? { birthGroup: { chatId: action.chat_id, asTask: true } } : {}),
@@ -938,6 +943,7 @@ async function spawnSession(
   });
   return {
     ...snapshot(row, {}, await sessionModel(row)),
+    ...(action.assistant_work ? {assistant_work_target:{session_id:row.id,device_id:(await assistantWorkLedgerContext()).deviceId}} : {}),
     // child 是本项目里生出来的，因此和 caller 同属这个群（[[agent-provisioning]] 的入群是它 session
     // start 的一步）。点名了别的项目时 child 入的是那个项目的群，caller 不在里面 ⇒ 只有点对点。
     //
@@ -1012,6 +1018,7 @@ async function createChildSession(input: {
   transport: SessionRuntime;
   prompt: string;
   sourceLink?: string;
+  assistantWork?: AssistantWorkIntent;
   title?: string;
   /** The first turn's envelope: the sending session's, or the App's. */
   envelope: DeliveryEnvelope;
@@ -1033,10 +1040,25 @@ async function createChildSession(input: {
   // permission prompts. Its autonomy is therefore decided here, once, before either transport sees it.
   // Keep the session-page composer's durable choice unchanged; only this delegated child is fully automatic.
 
-  const sessionId = randomUUID();
-  const messageId = randomUUID();
+  const intent=input.assistantWork ? assistantWorkIntentSchema.parse(input.assistantWork) : null;
+  const sessionId = intent?.child_session_id ?? randomUUID();
+  const messageId = intent?.message_id ?? randomUUID();
+  if(intent) {
+    const remote=input.relations.spawnedByRemote;
+    if(remote ? remote.sessionId!==intent.coordinator.session_id || remote.deviceId!==intent.coordinator.device_id
+      : input.relations.spawnedBySessionId!==intent.coordinator.session_id) throw new Error('Assistant work coordinator does not match the spawning session');
+    const [existing]=await db.select().from(sessions).where(eq(sessions.id,sessionId));
+    if(existing) {
+      const sameSender=remote ? existing.config?.spawnedByRemote?.sessionId===remote.sessionId && existing.config.spawnedByRemote.deviceId===remote.deviceId
+        : existing.spawnedBySessionId===input.relations.spawnedBySessionId;
+      if(!sameSender || existing.projectId!==projectId || existing.workspaceId!==input.workspaceId || existing.provider!==provider
+        || transportOf(existing)!==transport || existing.config?.firstUtterance!==prompt) throw new Error('Assistant work seat ID belongs to a different dispatch');
+      ledger.settle({sessionId});
+      return existing;
+    }
+  }
   const useProviderInitialPrompt =
-    transport === 'pty' && providerConsumesStartupPrompt(
+    !intent && transport === 'pty' && providerConsumesStartupPrompt(
       getPlugin(provider).capabilities.prompt,
       transport,
     );
@@ -1054,7 +1076,7 @@ async function createChildSession(input: {
   // spawn joins that same start, wakes up inside the gap, and the empty-cell guard (#4949) reported
   // a working child as "The engine could not start" (real Electron on dev: 4/4; the guard fired 37 ms
   // before the first turn began).
-  const initialQueue = transport === 'acp'
+  const initialQueue = !intent && transport === 'acp'
     ? [{ text: input.envelope(messageId, prompt), origin: 'communication' as const }]
     : undefined;
   signal?.throwIfAborted();
@@ -1103,6 +1125,12 @@ async function createChildSession(input: {
   }
   const [row] = await db.select().from(sessions).where(eq(sessions.id, sessionId));
   if (!row) throw new Error('spawned session disappeared before startup');
+  if(intent) {
+    // The coordinator commits this seat's first delivery with its ledger row.
+    // Only the account outbox may inject it or start the executor afterwards.
+    ledger.settle({sessionId});
+    return row;
+  }
   if (!initialPrompt && !initialQueue) {
     try {
       signal?.throwIfAborted();
@@ -2182,6 +2210,7 @@ async function spawnForRemoteCaller(
     prompt,
     title: action.title,
     sourceLink: action.source_link,
+    assistantWork: action.assistant_work,
     envelope: envelopeOf(remoteEnvelopeSender(caller)),
     ...(action.chat_id ? { birthGroup: { chatId: action.chat_id, asTask: true } } : {}),
     model: selection.kind === 'gugu'
@@ -2198,6 +2227,7 @@ async function spawnForRemoteCaller(
   });
   return {
     ...snapshot(row, {}, await sessionModel(row)),
+    ...(action.assistant_work ? {assistant_work_target:{session_id:row.id,device_id:(await assistantWorkLedgerContext()).deviceId}} : {}),
     // 发起方与 child 不在同一台机器、也不在同一个项目群里:往来只有点对点这一条。
     message_route: { tool: 'session_message', to: [encodeTypedId('session', row.id)] },
   };
