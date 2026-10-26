@@ -317,7 +317,7 @@ describe('连接页:浏览器授权', () => {
     const writeText = vi.fn(async () => undefined)
     Object.defineProperty(navigator, 'clipboard', { configurable: true, value: { writeText } })
     await startAuthorization()
-    vi.useFakeTimers()
+    vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] })
     try {
       await clickElement(q('assistant-connector-copy-auth-link')!)
       expect(writeText).toHaveBeenCalledWith(opened[0])
