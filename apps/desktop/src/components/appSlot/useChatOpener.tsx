@@ -1,6 +1,7 @@
 import type { MessageItem } from '@gugu/core/shared/types/chat'
 import { useCallback, useEffect, useRef, useState, type ReactNode } from 'react'
 import { useTranslation } from 'react-i18next'
+import { useMobileShell } from '../../hooks/useMobileShell'
 import { chatDb } from '../../lib/supabase'
 import { rendererLogger } from '../../lib/log'
 import { UI_EVENTS } from '../../lib/uiEvents'
@@ -10,6 +11,7 @@ import { displayNameOf } from '../../session/shared/extensions/file-openers'
 import { folderItem, type PanelItem } from '../../session/renderer/features/chats/chat-tabs/chat-panel-item'
 import { openPanelItem, shownPanelTab, takeChatAsk } from '../../session/renderer/features/chats/chat-tabs/chat-layouts'
 import { Button } from '../ui/Button'
+import { Sheet } from '../ui/Sheet'
 import { appsHere } from './appsHere'
 import { OpenWithPick } from './OpenWithPick'
 
@@ -37,6 +39,7 @@ function noteOpened(itemId: string): void {
  */
 export function useChatOpener(chatId: string | null): { overlay: ReactNode; openWith: (detail: AppOpenWithDetail, returnTo?: string) => void } {
   const { t } = useTranslation('messaging')
+  const mobile = useMobileShell()
   const asking = useRef(0)
   const [prompt, setPrompt] = useState<(AppOpenWithDetail & OpenFrom) | null>(null)
   /** 摩擦单 F51: the files of the App whose card was opened, when there are several. */
@@ -165,8 +168,8 @@ export function useChatOpener(chatId: string | null): { overlay: ReactNode; open
     }
   }, [chatId, openGroupFile, openResolved, show])
 
-  const overlay = chatId && (prompt?.choice.kind === 'choose' || unopened || (appFiles && appFiles.chatId === chatId)) ? (
-    <div className="absolute inset-x-0 top-0 z-30 flex flex-col gap-3 border-b border-[var(--border)] bg-[var(--bg-primary)] !p-4 shadow-lift" data-testid="group-app-open-with-sheet">
+  const content = chatId && (prompt?.choice.kind === 'choose' || unopened || (appFiles && appFiles.chatId === chatId)) ? (
+    <div className="flex flex-col gap-3 !p-4" data-testid="group-app-open-with-sheet">
       {unopened ? (
         <div className="flex items-center gap-2 text-[length:var(--font-caption)] text-[var(--text-error)]" data-testid="group-app-slot-unopened">
           {/* Why is in main's log; the person reads what can be the case here. */}
@@ -197,6 +200,12 @@ export function useChatOpener(chatId: string | null): { overlay: ReactNode; open
       ) : null}
     </div>
   ) : null
+  // A phone's folder/App fills the screen: the pick belongs above that page, in the shared Back stack.
+  const overlay = !content ? null : mobile ? (
+    <Sheet mobileFitContent onClose={() => { setPrompt(null); setAppFiles(null); setUnopened(null) }}>{content}</Sheet>
+  ) : (
+    <div className="absolute inset-x-0 top-0 z-30 border-b border-[var(--border)] bg-[var(--bg-primary)] shadow-lift">{content}</div>
+  )
 
   return { overlay, openWith }
 }

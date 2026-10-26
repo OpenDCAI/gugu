@@ -79,6 +79,24 @@ afterEach(() => {
 })
 
 describe('unclaimed group files use the message preview from every entry', () => {
+  it('the phone opens its chooser above the App page; cancelling keeps that page and picking preserves its Back link', async () => {
+    boundary.mobile = true
+    const folder = openPanelItem('preview-group', folderItem())
+    const file = { ...detail('md'), choice: { kind: 'choose' as const, suffix: '.md', candidates: [candidate] } }
+    await slot(file as never, true, { fromPage: true })
+    const chooser = () => document.querySelector('[role="dialog"] [data-testid="group-app-open-with"]')
+    expect(chooser()).not.toBeNull()
+    expect(harness.container.contains(chooser()), 'the chooser is portalled above the full-screen page').toBe(false)
+    await act(async () => window.dispatchEvent(new Event('gugu:native-back')))
+    expect(chooser()).toBeNull()
+    expect(shownPanelTab('preview-group')?.tabId).toBe(folder)
+    ask(file.chatId, { itemId: file.itemId, opener: file as never, fromPage: true })
+    await act(async () => document.querySelector<HTMLButtonElement>('[data-open-with="workspace.main"]')!.click())
+    expect(shownItem(file.chatId)).toMatchObject({ kind: 'workspace.main', itemId: file.itemId })
+    act(() => closeChatTab(file.chatId, shownPanelTab(file.chatId)!.tabId))
+    expect(shownPanelTab(file.chatId)?.tabId).toBe(folder)
+  })
+
   it.each([false, true])('ordinary openWith plays MP4 on the host (mobile=%s)', async (mobile) => {
     boundary.mobile = mobile
     const file = detail('mp4')
