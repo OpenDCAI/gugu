@@ -124,7 +124,7 @@ export type UnreadValue = ChatUnreadLocator & { chat_id: string }
 export type PresenceValue = { id: string; online: boolean }
 /** viewer-scoped 最后一条可见消息:gated 成员看到的活动可能与 chat 行不同。 */
 export type PreviewValue = { chat_id: string; created_at: string | null; preview: string | null; failure: AgentFailureReason | null }
-export type OverrideValue = { contact_user_id: string; alias: string | null }
+export type OverrideValue = { alias: string | null }
 
 export type EntityValue =
   | ChatValue | MembershipValue | IdentityValue | UnreadValue | PresenceValue | PreviewValue | OverrideValue
@@ -204,8 +204,9 @@ export function operationKeys(operation: ProjectionOperation): EntityKey[] {
     return [entityKey('chat', chatId), entityKey('preview', chatId), entityKey('unread', chatId)]
   }
   switch (event) {
-    case 'chat_changed':
     case 'chat_meta_changed':
+      return [entityKey('chat', chatId ?? ''), entityKey('preview', chatId ?? ''), entityKey('override', `group/${chatId ?? ''}`)]
+    case 'chat_changed':
       return [entityKey('chat', chatId ?? ''), entityKey('preview', chatId ?? '')]
     case 'message_created':
     case 'message_deleted':
@@ -405,7 +406,9 @@ export function missingDependencies(cache: ProjectionCache, viewerId: string): E
   for (const [key, cell] of cache) {
     const { family, id } = splitKey(key)
     if (family !== 'chat' || !cell.value) continue
-    for (const dependency of [entityKey('preview', id), entityKey('unread', id)]) {
+    const dependencies = [entityKey('preview', id), entityKey('unread', id)]
+    if ((cell.value as ChatValue).kind === 'group') dependencies.push(entityKey('override', `group/${id}`))
+    for (const dependency of dependencies) {
       if (!cache.has(dependency)) missing.add(dependency)
     }
   }
@@ -493,6 +496,7 @@ export function assemble(cache: ProjectionCache, viewerId: string): ChatItem[] {
       status: chat.status,
       peer_user_id: peerUserId,
       peer_alias: peerUserId ? (overrides.get(peerUserId)?.alias ?? null) : null,
+      alias: chat.kind === 'group' ? (overrides.get(`group/${chat.id}`)?.alias ?? null) : null,
       avatar: isRoomChat(chat.kind) ? (chat.avatar_url ?? null) : null,
       // 群成员引用与对端同一条规则:身份缺行的成员不进这一行(下一条 agent_changed 一到就补上)。从前原样带上
       // 全部成员 id,读侧 readCompleteCachedChats 发现一个没身份就把整份冷启动缓存作废 —— 会话列表每次冷启都空白。

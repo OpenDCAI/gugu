@@ -6,7 +6,7 @@ import {
   type SessionModelCapability,
 } from '@gugu/session-core/agents/plugins';
 import { CODEX_WIRE_API, harnessPlatform } from './platform';
-import { codexPlatformProviderConfigArgs } from './platform-provider-args';
+import { CODEX_PLATFORM_RETRY_CONFIG, codexPlatformProviderConfigArgs } from './platform-provider-args';
 
 /**
  * Codex addresses providers by a bare config key, so its platform provider gets an id
@@ -29,6 +29,8 @@ export interface CodexPlatformProviderBlock {
   base_url: string;
   env_key: string;
   wire_api: typeof CODEX_WIRE_API;
+  request_max_retries: number;
+  stream_max_retries: number;
 }
 
 export function codexPlatformProviderBlock(
@@ -40,6 +42,7 @@ export function codexPlatformProviderBlock(
     base_url: platformProvider.baseUrl,
     env_key: 'OPENAI_API_KEY',
     wire_api: CODEX_WIRE_API,
+    ...CODEX_PLATFORM_RETRY_CONFIG,
   };
 }
 

@@ -1,3 +1,4 @@
+import { useGroupDisplayName } from '../../hooks/useGroupDisplayName'
 import { useTranslation } from 'react-i18next'
 import type { GroupAvatarMember, GroupJoinMode } from '@gugu/core/shared/types/chat'
 import { Avatar } from '../Avatar'
@@ -61,6 +62,7 @@ export function GroupInviteCard({
   testId = 'group-invite-card',
 }: GroupInviteCardProps) {
   const { t } = useTranslation('contacts')
+  const name = useGroupDisplayName(group)
   const state = cardState(group, inviteLinkEnabled, joinTokenAvailable, joinError)
   const requestApproval = group.join_mode === 'approval'
   const actionable = (state === 'joinable' || state === 'failed') && onJoin != null
@@ -84,10 +86,10 @@ export function GroupInviteCard({
       data-density={density}
       style={{ display: 'flex', alignItems: 'center', gap: 12, width: '100%', minWidth: 0, padding: inline ? 12 : '12px 0', border: inline ? '1px solid var(--border-subtle)' : 'none', borderBottom: inline ? 'none' : '1px solid var(--border-subtle)', borderRadius: inline ? 'var(--radius-surface)' : 0, background: inline ? 'var(--bg-elevated)' : 'transparent' }}
     >
-      <Avatar avatarUrl={group.avatar_url ?? null} seed={group.id ?? String(group.public_id)} name={group.name} variant="group" size={inline ? 40 : 36} memberAvatars={group.member_avatars} />
+      <Avatar avatarUrl={group.avatar_url ?? null} seed={group.id ?? String(group.public_id)} name={name} variant="group" size={inline ? 40 : 36} memberAvatars={group.member_avatars} />
       <div style={{ flex: 1, minWidth: 0 }}>
         <div style={{ color: 'var(--text-primary)', fontSize: 'var(--font-body)', fontWeight: 600, lineHeight: 'var(--lh-body)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-          {group.name}
+          {name}
         </div>
         <div style={{ color: 'var(--text-secondary)', fontSize: 'var(--font-caption)', lineHeight: 'var(--lh-caption)', marginTop: 2 }}>
           {t('groupInvite.groupSummary', { number: group.public_id, count: group.member_count })}
@@ -108,7 +110,7 @@ export function GroupInviteCard({
       {actionable ? (
         <Button
           variant="primary" size="sm" disabled={joining}
-          aria-label={t('groupInvite.actionLabel', { action: actionLabel, group: group.name })}
+          aria-label={t('groupInvite.actionLabel', { action: actionLabel, group: name })}
           onClick={onJoin}
           className="shrink-0"
         >
@@ -117,7 +119,7 @@ export function GroupInviteCard({
       ) : inactiveAction === 'button' ? (
         <Button
           variant="secondary" size="sm" disabled
-          aria-label={t('groupInvite.actionLabel', { action: stateLabel[state], group: group.name })}
+          aria-label={t('groupInvite.actionLabel', { action: stateLabel[state], group: name })}
           className="shrink-0"
         >
           {stateLabel[state]}

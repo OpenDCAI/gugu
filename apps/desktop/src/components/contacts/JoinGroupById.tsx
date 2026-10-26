@@ -1,3 +1,4 @@
+import { useGroupDisplayName } from '../../hooks/useGroupDisplayName'
 import { useCallback, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import type { PublicGroupInviteGroup } from '@gugu/core/shared/types/contacts'
@@ -55,6 +56,7 @@ export function JoinGroupById({ headless }: { headless?: boolean }) {
   const [query, setQuery] = useState('')
   const [looking, setLooking] = useState(false)
   const [group, setGroup] = useState<PublicGroupInviteGroup | null>(null)
+  const groupName = useGroupDisplayName(group)
   const [notFound, setNotFound] = useState(false)
   const [joining, setJoining] = useState(false)
   const [joinError, setJoinError] = useState<string | null>(null)
@@ -133,7 +135,7 @@ export function JoinGroupById({ headless }: { headless?: boolean }) {
         {group && (
           <div data-testid="join-group-result" className={rowClass}>
             <div className="min-w-0 flex-1">
-              <div className={nameClass}>{group.name}</div>
+              <div className={nameClass}>{groupName}</div>
               <div className={metaClass}>
                 {t('joinGroup.summary', { number: group.public_id, count: group.member_count })}
               </div>

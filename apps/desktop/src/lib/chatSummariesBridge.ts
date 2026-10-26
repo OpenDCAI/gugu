@@ -9,6 +9,7 @@
 import { useSyncExternalStore } from 'react'
 
 export type ChatSummary = {
+  readonly alias?: string | null
   readonly hasMessages: boolean
   readonly name: string | null
   readonly kind: string | null
@@ -24,9 +25,10 @@ type Summaries = ReadonlyMap<string, ChatSummary>
 
 /** 壳:聊天列表那一份(整份替换;没变不通知)。 */
 export function publishChatSummaries(chats: readonly {
-  id: string; kind: string; name?: string | null; last_message_at?: string | null; last_message_preview?: string | null; source_chat_id?: string | null
+  id: string; kind: string; name?: string | null; alias?: string | null; last_message_at?: string | null; last_message_preview?: string | null; source_chat_id?: string | null
 }[]): void {
   const next: Summaries = new Map(chats.map((chat) => [chat.id, {
+    ...(chat.alias ? { alias: chat.alias } : {}),
     hasMessages: Boolean(chat.last_message_at),
     name: chat.name || null,
     kind: chat.kind,
@@ -36,7 +38,7 @@ export function publishChatSummaries(chats: readonly {
   const current = read()
   if (current && current.size === next.size && [...next].every(([id, summary]) => {
     const was = current.get(id)
-    return was !== undefined && (Object.keys(summary) as (keyof ChatSummary)[]).every((key) => was[key] === summary[key])
+    return was !== undefined && was.alias === summary.alias && (Object.keys(summary) as (keyof ChatSummary)[]).every((key) => was[key] === summary[key])
   })) return
   ;(window as unknown as Record<string, unknown>)[KEY] = next
   window.dispatchEvent(new Event(EVENT))

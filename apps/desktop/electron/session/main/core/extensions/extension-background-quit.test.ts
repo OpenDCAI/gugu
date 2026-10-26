@@ -3,6 +3,14 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 // #7050 左栏「退出」:后台与启用同生死的唯一例外 —— 退出了就停着,对账也不拉起,直到它再被打开。
 
 const windows: { destroyed: boolean }[] = [];
+const serverWindows: { destroyed: boolean; send: ReturnType<typeof vi.fn> }[] = [];
+vi.mock('../../../../server/extension-background', () => ({
+  serverExtensionBackground: () => {
+    const runtime = { id: 100 + serverWindows.length, destroyed: false, send: vi.fn(), isDestroyed: () => runtime.destroyed, destroy: () => { runtime.destroyed = true; } };
+    serverWindows.push(runtime);
+    return runtime;
+  },
+}));
 vi.mock('electron', () => ({
   BrowserWindow: class {
     destroyed = false;
@@ -38,12 +46,13 @@ vi.mock('./extensions-root', () => ({
   }),
 }));
 
-const { extensionBackgroundWebContentsId, extensionOpened, forgetQuit, quitExtension, quitExtensions, syncExtensionBackgrounds } =
+const { extensionBackgroundWebContentsId, extensionOpened, forgetQuit, quitExtension, quitExtensions, syncExtensionBackgrounds, postExtensionBackground } =
   await import('./extension-background');
 
 const running = () => extensionBackgroundWebContentsId('timer') !== null;
 
 beforeEach(() => {
+  vi.unstubAllEnvs();
   enabled.clear();
   syncExtensionBackgrounds();
   forgetQuit('timer');
@@ -52,6 +61,26 @@ beforeEach(() => {
 });
 
 describe('退出一个 App 的后台 (#7050)', () => {
+  it('uses the same singleton, event and stop lifecycle without an Electron window on a server', () => {
+    vi.stubEnv('GUGU_SERVER_MODE', '1');
+    const nativeCount = windows.length;
+    const serverCount = serverWindows.length;
+    syncExtensionBackgrounds();
+    syncExtensionBackgrounds();
+    expect(windows).toHaveLength(nativeCount);
+    expect(serverWindows).toHaveLength(serverCount + 1);
+    const runtime = serverWindows.at(-1)!;
+    const id = extensionBackgroundWebContentsId('timer')!;
+    expect(postExtensionBackground(id, { type: 'agentsChanged', agentIds: ['user:test'] })).toBe(true);
+    expect(runtime.send).toHaveBeenCalledWith({ type: 'agentsChanged', agentIds: ['user:test'] });
+    quitExtension('timer');
+    expect(runtime.destroyed).toBe(true);
+    expect(postExtensionBackground(id, { type: 'agentsChanged', agentIds: [] })).toBe(false);
+    syncExtensionBackgrounds();
+    expect(running()).toBe(false);
+    extensionOpened('timer');
+    expect(running()).toBe(true);
+  });
   it('退出就停,对账不拉起;再打开就作废并拉起', () => {
     syncExtensionBackgrounds();
     expect(running()).toBe(true);
