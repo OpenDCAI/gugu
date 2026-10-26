@@ -80,6 +80,8 @@ export async function callOnSessionMachine(
   const machine = typeof sessionId === 'string' ? await sessionMachine(sessionId)
     : await otherMachines().isThisDevice(sessionId.deviceId) ? null : sessionId;
   if (!machine) return { there: false };
+  const invalid = notOnSessionMachine(app.manifest, method, args);
+  if (invalid) throw invalid;
   if (workedByAgent && method === 'callProgram') {
     throw Object.assign(new Error('A page an agent works calls its program on this computer only; this session is on another machine'), { code: 'invalid' });
   }

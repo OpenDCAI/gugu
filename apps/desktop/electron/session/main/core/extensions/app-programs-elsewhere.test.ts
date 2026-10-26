@@ -71,7 +71,7 @@ it('the verbs done on the session machine are the table rows that say machine, e
 describe('the machine that has the session does the call', () => {
   it('calls a selected machine without finding or manufacturing a session', async () => {
     appCall.mockResolvedValue(OK);
-    const app = { extensionId: 'spexcode', manifest: { name: 'SpexCode', version: '0.7.0' } };
+    const app = { extensionId: 'spexcode', manifest: { name: 'SpexCode', version: '0.7.0', contributes: { tabs: [], mcpServers: [{ tools: 'tools.js' }] } } };
     expect(await elsewhere.callOnSessionMachine(app as Parameters<typeof elsewhere.callOnSessionMachine>[0], { deviceId: 'dev-there' }, 'callProgram', { name: 'graph' }, false)).toEqual({ there: true, value: OK });
     const sent = appCall.mock.calls[0]![2];
     expect(sent).toMatchObject({ device_id: 'dev-there', method: 'callProgram' });

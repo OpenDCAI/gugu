@@ -1422,10 +1422,8 @@ async function machineCall(caller: BridgeCaller, method: MachineVerb, args: Reco
   const { binding, extensionId } = caller;
   if (args.device !== undefined || binding?.sessionId) {
     const manifest = extensionsService().get(extensionId).manifest;
-    const { followsSessionMachine, appDeviceId, notOnSessionMachine } = await import('@shared/extensions/machine-call');
+    const { followsSessionMachine, appDeviceId } = await import('@shared/extensions/machine-call');
     if (args.device !== undefined) {
-      const invalid = notOnSessionMachine(manifest, method, args);
-      if (invalid) throw invalid;
       const { callOnSessionMachine } = await import('./app-programs-elsewhere');
       const { device, ...callArgs } = args;
       const done = await callOnSessionMachine({ extensionId, manifest }, { deviceId: appDeviceId(device) }, method, callArgs, binding?.operator.kind === 'agent');
