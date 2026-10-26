@@ -1,7 +1,6 @@
 import { rendererLogger } from '@/lib/log';
 import { messageForUser } from '@/lib/userFacingError';
-import { readCachedDevices } from '@/store/devicesCache';
-import { parseConversationLink } from '@gugu/core/shared/ui/guguLink';
+import { useDirectoryDevices, useLiveDeviceSessions } from '@/session/shared/remote-sessions/session-directory';
 import { observer } from 'mobx-react-lite';
 import { useMemo, useState } from 'react';
 import { useTranslation } from 'react-i18next';
@@ -24,7 +23,8 @@ import { isSpentOneTimeAutomation, type Automation } from '@shared/core/automati
 import type { AssistantContext, AssistantPageProps } from './assistant-context';
 import { reportAssistantAppChange } from '@/components/assistant/assistant-app-client';
 import { homeSessions, homeTarget, localHomeSessions } from './assistant-home-sessions';
-import { assistantDescendants, groupByDay, type ListedSession } from './assistant-lineage';
+import { assistantTasks, groupByDay } from './assistant-lineage';
+import { assistantTaskDeviceLabel, assistantTaskDirectory } from './assistant-task-directory';
 import { assistantRoutines, scheduleText } from './assistant-schedule';
 import { AssistantEmpty, AssistantRow, AssistantSection, MachineGate, PageHead, WideSegments } from './assistant-ui';
 
@@ -94,15 +94,10 @@ const TaskLists = observer(function TaskLists({ context }: AssistantPageProps) {
 /** 它的子 agent:所有别的机器(云电脑在内)会话目录里,父会话链上是它的那些。 */
 const SubAgents = observer(function SubAgents({ context }: AssistantPageProps) {
   const { t } = useTranslation('assistant');
-  // 别的机器的会话目录 + 住眼前这台时本机这一份(它和它派的子 agent 多半就在这台上)。
-  // The session renderer has its own React root; the shell's device context is not a provider here.
-  const localDeviceId = readCachedDevices().find((device) => device.is_current_device)?.device_id;
-  const listed: ListedSession[] = [
-    ...remoteHostsStore.allListedSessions(),
-    ...(localDeviceId ? localHomeSessions.sessions.map((summary) => ({ deviceId: localDeviceId, summary, live: localHomeSessions.loaded && !localHomeSessions.error })) : []),
-  ];
-  const descendants = assistantDescendants(listed, context.assistant.id);
-  const children = listed.filter((item) => item.summary.agent?.userId !== context.assistant.id && (descendants.includes(item) || item.summary.activitySourceLinks?.some((link) => parseConversationLink(link)?.chatId === context.chatId)));
+  const devices = useDirectoryDevices();
+  const live = useLiveDeviceSessions();
+  const listed = assistantTaskDirectory(devices, live, localHomeSessions);
+  const children = assistantTasks(listed, context.assistant.id, context.chatId);
   const groups = groupByDay(children, (item) => item.summary.lastInteractedAt, new Date());
   const cloudRead = homeSessions(context.home);
   if (children.length === 0) {
@@ -134,7 +129,7 @@ const SubAgents = observer(function SubAgents({ context }: AssistantPageProps) {
                 key={summary.conversationId}
                 testId={`assistant-subagent-${summary.conversationId}`}
                 title={formatSessionTitleForDisplay(summary.harness, summary.title)}
-                detail={deviceId === context.homeDeviceId ? null : remoteHostsStore.device(deviceId)?.label}
+                detail={assistantTaskDeviceLabel(devices, deviceId)}
                 trailing={
                   reading && reading.status !== 'idle' ? (
                     <AgentStatusIndicator status={reading.status} detail={reading.detail} />

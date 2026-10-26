@@ -45,7 +45,7 @@ import type { ProjectFolder } from '@shared/core/projects/project-folders';
 import { machineSessionListClient } from './machine-session-list';
 import {
   liveDeviceSessions,
-  retainDeviceSessions,
+  removeDeviceSessions,
   subscribeDeviceSessions,
   updateDeviceSessions,
   type DeviceSessions,
@@ -632,7 +632,7 @@ export class RemoteHostsStore {
   private forget(deviceId: string): void {
     this.listSyncs.get(deviceId)?.stop();
     this.listSyncs.delete(deviceId);
-    retainDeviceSessions([...this.hosts.keys()].filter((id) => id !== deviceId));
+    removeDeviceSessions(deviceId);
     this.linkOffs.get(deviceId)?.();
     this.linkOffs.delete(deviceId);
     this.accountSeenLive.delete(deviceId);

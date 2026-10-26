@@ -3,12 +3,13 @@ import { useTranslation } from 'react-i18next'
 import { Button } from '@/components/ui/Button'
 import { SegmentedTabs } from '@/components/ui/SegmentedTabs'
 import { Clock } from '@/lib/icons'
-import { assistantDescendants, groupByDay } from '@/session/renderer/features/assistant/assistant-lineage'
+import { assistantTasks, groupByDay } from '@/session/renderer/features/assistant/assistant-lineage'
+import { assistantTaskDeviceLabel, assistantTaskDirectory } from '@/session/renderer/features/assistant/assistant-task-directory'
 import { scheduleText } from '@/session/renderer/features/assistant/assistant-schedule'
 import { AssistantEmpty, AssistantRow, AssistantSection } from '@/session/renderer/features/assistant/assistant-ui-parts'
 import { formatSessionTitleForDisplay } from '@/session/shared/core/sessions/session-title-utils'
 import { openAssistantTaskChat } from '@/lib/assistantTaskChat'
-import { deviceSessionsOf, directoryRows, useLiveDeviceSessions } from '@/session/shared/remote-sessions/session-directory'
+import { deviceSessionsOf, useLiveDeviceSessions } from '@/session/shared/remote-sessions/session-directory'
 import { useDevicesStore } from '@/store/devicesContext'
 import { StatusGlyph } from '../agent-watch/StatusGlyph'
 import { sessionPresentation } from '../agent-watch/watch-status'
@@ -56,13 +57,14 @@ export function PhoneTasks(props: PhonePageProps) {
   )
 }
 
-function SubAgents({ assistant, homeDeviceId, cloudDeviceId, readiness, askInChat }: PhonePageProps) {
+function SubAgents({ assistant, chatId, homeDeviceId, readiness, askInChat }: PhonePageProps) {
   const { t } = useTranslation('assistant')
-  const { devices, loading, error } = useDevicesStore()
+  const { devices: hosts, phones = [], loading, error } = useDevicesStore()
+  const devices = useMemo(() => [...hosts, ...phones], [hosts, phones])
   const live = useLiveDeviceSessions()
   const online = useMemo(() => new Map(devices.map((device) => [device.device_id, device.is_online])), [devices])
-  const listed = directoryRows(devices, live).map(({ deviceId, session }) => ({ deviceId, summary: session }))
-  const children = assistantDescendants(listed, assistant.id)
+  const listed = assistantTaskDirectory(devices, live)
+  const children = assistantTasks(listed, assistant.id, chatId)
   const home = devices.find((device) => device.device_id === homeDeviceId) ?? null
   const homeRead = home ? deviceSessionsOf(home, live) : null
   if (children.length === 0) {
@@ -98,7 +100,7 @@ function SubAgents({ assistant, homeDeviceId, cloudDeviceId, readiness, askInCha
                 key={summary.conversationId}
                 testId={`assistant-subagent-${summary.conversationId}`}
                 title={formatSessionTitleForDisplay(summary.harness, summary.title)}
-                detail={deviceId === cloudDeviceId ? null : devices.find((device) => device.device_id === deviceId)?.label}
+                detail={assistantTaskDeviceLabel(devices, deviceId)}
                 trailing={<StatusGlyph presentation={sessionPresentation(summary, openable)} />}
                 // 点得开的那几行右边一个 ›(手机上一眼看出能点);点不开的只是一条记录。
                 chevron={opens}

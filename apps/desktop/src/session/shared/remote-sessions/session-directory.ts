@@ -30,13 +30,13 @@ const EMPTY: DeviceSessions = { projects: [], sessions: [], cached: true, loadin
 // Shell and session renderer can be separate module graphs in the same document.
 // Keep the single directory and its subscribers on that document, not in either bundle.
 type DirectoryRetry = { ownerId: string; run: () => void | Promise<void> }
-type DirectoryState = { live: Readonly<Record<string, DeviceSessions>>; listeners: Set<() => void>; retries: Map<string, DirectoryRetry> }
+type DirectoryState = { devices: readonly Device[]; live: Readonly<Record<string, DeviceSessions>>; listeners: Set<() => void>; retries: Map<string, DirectoryRetry> }
 const DIRECTORY_KEY = '__GUGU_SESSION_DIRECTORY__' as const
-const fallback: DirectoryState = { live: {}, listeners: new Set(), retries: new Map() }
+const fallback: DirectoryState = { devices: [], live: {}, listeners: new Set(), retries: new Map() }
 function directoryState(): DirectoryState {
   if (typeof window === 'undefined') return fallback
   const host = window as Window & { [DIRECTORY_KEY]?: DirectoryState }
-  const state = host[DIRECTORY_KEY] ??= { live: {}, listeners: new Set(), retries: new Map() }
+  const state = host[DIRECTORY_KEY] ??= { devices: [], live: {}, listeners: new Set(), retries: new Map() }
   state.retries ??= new Map()
   return state
 }
@@ -65,6 +65,30 @@ function publish(next: Readonly<Record<string, DeviceSessions>>): void {
 export function updateDeviceSessions(deviceId: string, patch: Partial<DeviceSessions>): void {
   const live = directoryState().live
   publish({ ...live, [deviceId]: { ...(live[deviceId] ?? EMPTY), ...patch } })
+}
+
+/** The shell publishes its existing account device list across the two React roots. No workspace capability is implied. */
+export function publishDirectoryDevices(devices: readonly Device[]): void {
+  const state = directoryState()
+  if (state.devices === devices) return
+  state.devices = devices
+  for (const listener of state.listeners) listener()
+}
+
+export function directoryDevices(): readonly Device[] {
+  return directoryState().devices
+}
+
+export function useDirectoryDevices(): readonly Device[] {
+  return useSyncExternalStore(subscribeDeviceSessions, directoryDevices)
+}
+
+/** Each synchronizer removes only the device it owns; computer cleanup must preserve phone summaries. */
+export function removeDeviceSessions(deviceId: string): void {
+  const live = directoryState().live
+  if (!(deviceId in live)) return
+  const { [deviceId]: _removed, ...remaining } = live
+  publish(remaining)
 }
 
 /** 只留在线机器的格;在线的留着,重订期间页面不闪空。 */
