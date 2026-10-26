@@ -1,4 +1,4 @@
-import { trimCursorPageForTransport, trimTurnsForTransport } from '@gugu/session-core/session-record';
+import { trimCursorPageForTransport } from '@gugu/session-core/session-record';
 import type { HistoryCursor } from '@gugu/session-core/acp/client';
 import type {
   AcpAttachmentError,
@@ -234,11 +234,12 @@ export function createAcpProcedures(runtime: AcpRuntime) {
     }): Result<HistoryPage, AcpGetHistoryError> {
       const result = runtime.getHistory(input.sessionId, input.before, input.limit, input.changedSince);
       if (!result.success) return result;
-      // Delta cursors must not advance past omitted changes; only pages drop older turns.
-      return ok(input.changedSince === undefined
-        ? trimCursorPageForTransport(result.data)
-        : { ...result.data, turns: trimTurnsForTransport(result.data.turns) });
-
+      const page = trimCursorPageForTransport(result.data);
+      // Reuse cursor reset when a reconnect gap exceeds a page. Never advance past
+      // omitted changes; bootstrap the latest page and leave older turns pageable.
+      return ok(input.changedSince !== undefined && page.turns.length < result.data.turns.length
+        ? { ...page, turns: [], nextCursor: null, reset: true }
+        : page);
     },
   };
 }

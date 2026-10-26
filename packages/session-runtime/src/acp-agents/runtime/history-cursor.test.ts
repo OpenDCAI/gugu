@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { makeAcpHarness, makeStartInput } from '../acp-test-support';
 import { AcpRuntime } from './runtime';
+import { createAcpProcedures } from '../api/procedures';
 
 async function started() {
   const h = makeAcpHarness();
@@ -10,6 +11,29 @@ async function started() {
 }
 
 describe('ACP history change cursor', () => {
+  it('resets an oversized reconnect gap instead of sending all missed turns in one delta', async () => {
+    const { rt } = await started();
+    const api = createAcpProcedures(rt);
+    const initial = api.getHistory({ sessionId: 'history', limit: 100 });
+    if (!initial.success) throw initial.error;
+    await rt.sendPrompt('history', { text: 'a'.repeat(90_000) });
+    await rt.sendPrompt('history', { text: 'b'.repeat(90_000) });
+    const delta = api.getHistory({ sessionId: 'history', limit: 100, changedSince: initial.data.cursor });
+    if (!delta.success) throw delta.error;
+    expect(delta.data.reset).toBe(true);
+    expect(delta.data.turns).toHaveLength(0);
+    expect(delta.data.nextCursor).toBeNull();
+    const latest = api.getHistory({ sessionId: 'history', limit: 100 });
+    if (!latest.success) throw latest.error;
+    expect(latest.data.turns).toHaveLength(1);
+    expect(latest.data.nextCursor).not.toBeNull();
+    const older = api.getHistory({ sessionId: 'history', limit: 100, before: latest.data.nextCursor! });
+    if (!older.success) throw older.error;
+    expect(older.data.turns).toHaveLength(1);
+    expect(older.data.turns[0]!.id).not.toBe(latest.data.turns[0]!.id);
+    await rt.stopSession('history');
+  });
+
   it('returns only newly committed turns and leaves the stored transcript isolated from the reply', async () => {
     const { rt } = await started();
     await rt.sendPrompt('history', { text: 'first' });
