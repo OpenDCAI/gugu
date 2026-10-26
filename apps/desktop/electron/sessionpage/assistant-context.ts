@@ -20,6 +20,7 @@ const ASSISTANT_SYSTEM_PROMPT = `You are a personal assistant in Gugu. Your mana
 export function assistantHomeTaskContext(capabilities: Materialization, cwd: string, guguHome: string): Materialization {
   if (resolve(cwd) !== resolve(guguHome, ASSISTANT_COMPUTER_WORKDIR_NAME)) return capabilities
   const materialized = personalAssistantContext(capabilities)
+  delete materialized.sessionNewPatch!.meta!.guguAssistant
   const claude = materialized.sessionNewPatch!.meta!.claudeCode as { options: Record<string, unknown> }
   const original = capabilities.sessionNewPatch?.meta?.claudeCode as { options?: { env?: Record<string, string> } } | undefined
   const env: Record<string, string> = { ...(claude.options.env as Record<string, string>), CLAUDE_CODE_DISABLE_AUTO_MEMORY: '1' }
@@ -116,6 +117,7 @@ export function personalAssistantContext(capabilities: Materialization, kind: As
       ...capabilities.sessionNewPatch,
       meta: {
         ...meta,
+        ...(startup ? { guguAssistant: { idleCompaction: true } } : {}),
         claudeCode: {
           ...claude,
           options: {

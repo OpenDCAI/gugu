@@ -112,6 +112,7 @@ import {
   type SessionsListModel,
 } from '../state/live-models';
 import type { AcpRuntimeDeps, AcpStartInput, SendPromptInput } from './types';
+import { IdleCompaction } from './idle-compaction';
 
 type StartupSettingDimension = 'model' | 'effort';
 
@@ -119,6 +120,7 @@ type StartupSettingDimension = 'model' | 'effort';
 const TRANSCRIPT_TICK_MS = 100;
 
 interface SessionRecordBase {
+  idleCompaction?: IdleCompaction;
   input: AcpStartInput;
   cell: SessionCell;
   live: SessionLiveModels;
@@ -244,6 +246,8 @@ export function sessionOpenMeta(input: AcpStartInput): { _meta?: Record<string, 
     input.sessionPromptCarrier === 'session-context' ? undefined : input.sessionPrompt?.trim();
   if (!input.sessionMeta && !platform) return {};
   const meta: Record<string, unknown> = { ...(input.sessionMeta ?? {}) };
+  // Trusted host scheduling policy is not provider configuration or model context.
+  delete meta.guguAssistant;
   if (platform) {
     const existing = meta.systemPrompt;
     const append = isRecord(existing) && typeof existing.append === 'string'
@@ -2090,6 +2094,7 @@ export class SessionManager implements InboundRouter {
       onDraftChanged: () => this.syncRecord(record),
       onAgentEvent: (phase) => {
         if (phase !== 'stop') return;
+        if (record.cell.isCompacting) return;
         this.runTurnEndHook(record);
         this.pullListedSessionTitle(record);
       },
@@ -2173,10 +2178,28 @@ export class SessionManager implements InboundRouter {
       },
     });
     this.cells.set(input.sessionId, record);
+    const assistant = input.sessionMeta?.guguAssistant;
+    if (input.providerId === 'claude' && isRecord(assistant) && assistant.idleCompaction === true) {
+      record.idleCompaction = new IdleCompaction(
+        () => ({ ...cell.idleCompactionState, idle: record.phase === 'ready' && cell.idleCompactionState.idle }),
+        async () => {
+          const before = cell.usage?.contextUsed ?? null;
+          const result = await cell.compactIfIdle();
+          if (!result.success) throw new Error(JSON.stringify(result.error));
+          if (result.data.compacted) this.deps.logger.info('SessionManager: compacted idle assistant', {
+            sessionId: input.sessionId, contextTokensBefore: before,
+          });
+        },
+        error => this.deps.logger.warn('SessionManager: idle assistant compaction failed', {
+          sessionId: input.sessionId, error: error instanceof Error ? error.message : String(error),
+        }),
+      );
+    }
     return record;
   }
 
   private disposeLostRecord(record: Extract<SessionRecord, { phase: 'lost' }>): void {
+    record.idleCompaction?.close();
     this.closedSessionHistories.set(record.input.sessionId, structuredClone(record.cell.history().committed));
     record.cell.dispose();
     if (this.cells.get(record.input.sessionId) === record) {
@@ -2449,6 +2472,7 @@ export class SessionManager implements InboundRouter {
     // 记录移除之后 cell 还会回调(被关掉的那一轮这时才落定)。会话已经不归这里管:再写就是给它凭空补回一条摘要,
     // 列表里多出一条「还活着」的会话,带着它最后那一轮的结局 —— 停掉的会话因此被读成 error。
     if (this.cells.get(record.input.sessionId) !== record) return;
+    record.idleCompaction?.update();
     const state = record.cell.sessionState;
     const previousState = record.lastSynced.sessionState;
     if (!sameQueuedPrompts(previousState?.queuedPrompts, state.queuedPrompts)) {
@@ -2593,6 +2617,7 @@ export class SessionManager implements InboundRouter {
     const record = this.cells.get(sessionId);
     if (!record) return;
     if (record.transcriptTick) clearTimeout(record.transcriptTick);
+    record.idleCompaction?.close();
     record.cell.dispose();
     if (record.processKey) this.unregisterRoutes(record.processKey, sessionId);
     this.cells.delete(sessionId);
