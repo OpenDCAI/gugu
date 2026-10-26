@@ -33,7 +33,11 @@ export const assistantPanelLocal = {
   async schedules(sessionIds: readonly string[]) {
     const summaries = new Map(listSessionSchedules().map(row => [row.id,row]))
     return (await automationsService.listAutomations()).filter(row => row.agentSessionId && sessionIds.includes(row.agentSessionId))
-      .map(row => ({ ...row,nextRunAt: summaries.get(row.id)?.nextRunAt ?? null,lastRun: summaries.get(row.id)?.lastRun ?? null }))
+      .map(row => {
+        const summary = summaries.get(row.id), last = summary?.lastRun
+        return { ...row,nextRunAt: summary?.nextRunAt ?? null,
+          lastRun: last ? { status: last.status,at: last.at,errorCode: last.error?.code ?? null } : null }
+      })
   },
   async library(kind: 'capabilities' | 'devices') {
     const volume = await readUserLibraryVolume(kind)

@@ -7,7 +7,7 @@ import { ASSISTANT_PANEL_CHANGED } from '@/components/assistant/assistant-panel-
 
 const log = rendererLogger('mobile/assistant')
 
-export type PhoneRead<T> = { state: 'loading' } | { state: 'ok'; data: T } | { state: 'error'; error: unknown }
+export type PhoneRead<T> = { state: 'loading' } | { state: 'ok'; data: T; refreshError?: unknown } | { state: 'error'; error: unknown }
 
 /** 同一个工作区(机器、项目、工作区、记忆夹)= 同一个键;重新打开过的工作区换键重读。 */
 export function machineKey(machine: AssistantMachine): string {
@@ -56,7 +56,7 @@ export function usePhoneRead<T>(
         if (!active()) return
         log.warn({ what, quiet, error: error instanceof Error ? error.message : String(error) }, 'assistant phone read failed')
         setResult(previous => quiet && previous?.key === full && previous.read.state === 'ok'
-          ? previous : { key: full,read: { state: 'error',error } })
+          ? { ...previous,read: { ...previous.read,refreshError: error } } : { key: full,read: { state: 'error',error } })
         timer = setTimeout(() => void run(true),lastInterval ?? 5000)
         // A requested refresh must not turn a failed verification into a successful mutation.
         if (explicit) throw error
