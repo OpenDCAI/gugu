@@ -1,7 +1,7 @@
 import { activitySignal } from '../activity/signals';
 import { randomUUID } from 'node:crypto';
 import { Cron } from 'croner';
-import { and, asc, desc, eq, inArray, isNotNull, isNull, or, sql } from 'drizzle-orm';
+import { and, asc, desc, eq, inArray, isNotNull, isNull, notInArray, or, sql } from 'drizzle-orm';
 import { getPlugin, isValidProviderId } from '@main/core/agents/plugin-registry';
 import { generateRandom } from '@main/core/sessions/name-generation/generateSessionName';
 import { db } from '@main/db/client';
@@ -777,7 +777,7 @@ export async function scheduleAutomationRun(input: {
   return run ?? null;
 }
 
-export async function listQueuedRuns(limit = 100): Promise<
+export async function listQueuedRuns(limit = 100, blockedSessions: readonly string[] = []): Promise<
   Array<{
     run: AutomationRun;
     automation: Automation;
@@ -791,6 +791,7 @@ export async function listQueuedRuns(limit = 100): Promise<
       and(
         eq(automationRuns.status, 'queued'),
         eq(automations.enabled, 1),
+        blockedSessions.length ? or(isNull(automations.agentSessionId),notInArray(automations.agentSessionId,[...blockedSessions])) : undefined,
         isNull(automations.deletedAt)
       )
     )

@@ -50,8 +50,12 @@ export function createAssistantPanelFiles(input: {
   }
   const collectionStates = new Map<AssistantPanelDomain, 'ready' | 'unprepared' | 'error'>()
   async function collection(domain: AssistantPanelDomain) {
-    const result = assistantPanelCollection(await snapshot(),domain,['tasks','capabilities','device-notes','integrations'].includes(domain) ? input.deviceId : undefined)
+    const current = await snapshot()
+    const result = assistantPanelCollection(current,domain,['tasks','capabilities','device-notes','integrations'].includes(domain) ? input.deviceId : undefined)
     collectionStates.set(domain,result.state)
+    const failed = current.application.find(row => row.domain === domain && row.status === 'failed')
+    if (failed) throw new AssistantPanelError('application-failed','PANEL_APPLICATION_FAILED',failed.resourceKey,domain)
+    if (result.items.some(item => item.stale_at)) throw new AssistantPanelError('stale','PANEL_RESOURCE_STALE',undefined,domain)
     if (result.state !== 'ready' && !(domain === 'voice-notes' && result.state === 'unprepared' && result.items.length > 0)) throw new AssistantPanelError(result.state === 'unprepared' ? 'unprepared' : 'collection-unavailable',
       result.state === 'unprepared' ? 'This collection has not been prepared yet' : 'This collection could not be read')
     return result.items
@@ -125,7 +129,8 @@ export function createAssistantPanelFiles(input: {
       : domain === 'files' ? { name,path: relative,kind: 'file',contentType,sizeBytes: value.length,modifiedAt }
       : domain === 'skills' ? { name: key,modifiedAt } : { noteId: relative.split('/')[0],kind: name }
     const body = await input.upload(name,value,contentType)
-    await commit(item,domain,key,'save',data,body,expectedRevision)
+    const previous = item ?? await input.cloud.resource(input.assistantId,domain,key) ?? undefined
+    await commit(previous,domain,key,'save',data,body,expectedRevision)
   }
   async function list(path: string): Promise<AssistantPanelFileEntry[]> {
     const { domain,relative,root } = route(path)
@@ -181,7 +186,8 @@ export function createAssistantPanelFiles(input: {
       if (!relative || item) return
       if (domain !== 'files' && domain !== 'voice-notes') throw new AssistantPanelError('invalid-path','This collection does not contain folders')
       const key = relative
-      await commit(undefined,domain,key,'save',domain === 'files' ? { name: relative.split('/').pop(),path: relative,kind: 'directory' }
+      const previous = await input.cloud.resource(input.assistantId,domain,key) ?? undefined
+      await commit(previous,domain,key,'save',domain === 'files' ? { name: relative.split('/').pop(),path: relative,kind: 'directory' }
         : { noteId: relative.split('/')[0],kind: 'directory' })
     },
     async rename(path: string, name: string) {

@@ -7,7 +7,7 @@ function fixture() {
   let owner = 'owner'
   const send = vi.fn(async (_assistant: string, change: ReturnType<typeof notice>) => ({ operationId: change.operationId,revision: '1',status: 'pending' as const }))
   const deps = { storage: { getItem: (key: string) => values.get(key) ?? null,setItem: (key: string, value: string) => { values.set(key,value) } },
-    accountId: () => owner,assistantId: vi.fn(async () => 'assistant'),send }
+    accountId: () => owner,assistantId: vi.fn(async (): Promise<string | null> => 'assistant'),send }
   return { deps,values,send,switchOwner: (next: string) => { owner = next } }
 }
 
@@ -58,4 +58,27 @@ describe('saved App change outbox', () => {
     world.values.set('gugu.assistant-panel.notices.v1:owner','{}')
     expect(() => outbox.hasPending('owner')).toThrow('could not be read')
   })
+})
+
+
+it('retains a notice until the account has an assistant instead of silently dropping it', async () => {
+  const f = fixture()
+  f.deps.assistantId.mockResolvedValueOnce(null)
+  const outbox = createAssistantPanelOutbox(f.deps)
+  await outbox.enqueue('owner',notice())
+  expect(outbox.hasPending('owner')).toBe(true)
+  expect(f.send).not.toHaveBeenCalled()
+  await outbox.flush('owner')
+  expect(f.send).toHaveBeenCalledOnce()
+  expect(outbox.hasPending('owner')).toBe(false)
+})
+
+it('retires a terminally invalid notice and continues with the following valid one', async () => {
+  const f = fixture()
+  f.send.mockRejectedValueOnce({ code: '22023',message: 'Invalid metadata' })
+  const outbox = createAssistantPanelOutbox(f.deps)
+  await expect(outbox.enqueue('owner',notice('invalid'))).resolves.toBeNull()
+  await outbox.enqueue('owner',notice('valid'))
+  expect(f.send.mock.calls.map(call => call[1].operationId)).toEqual(['invalid','valid'])
+  expect(outbox.hasPending('owner')).toBe(false)
 })

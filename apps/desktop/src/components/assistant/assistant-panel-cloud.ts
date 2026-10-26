@@ -8,7 +8,7 @@ import { assistantAppChangeSchema, type AssistantAppChange } from '@/session/sha
 
 const accountId = () => getRendererSession()?.user.id ?? null
 export const assistantPanelCloud = createAssistantPanelClient(async (name,args) => {
-  const { data,error } = await identityDb.rpc(name,args)
+  const { data,error } = await identityDb.rpc(name,args).abortSignal(AbortSignal.timeout(10_000))
   return { data,error }
 },accountId)
 
@@ -19,7 +19,7 @@ export function assertAssistantPanelOwner(expectedOwner: string | null): asserts
 async function personalAssistant(owner: string): Promise<string | null> {
   assertAssistantPanelOwner(owner)
   const { data,error } = await identityDb.from('agent_provisions').select('agent_user_id,device_id,member_key,phase,created_at')
-    .eq('owner_user_id',owner).eq('member_key','assistant')
+    .eq('owner_user_id',owner).eq('member_key','assistant').abortSignal(AbortSignal.timeout(10_000))
   assertAssistantPanelOwner(owner)
   if (error) throw new AssistantPanelError(error.code,'Could not read the personal assistant')
   return pickAssistant((data ?? []) as AssistantProvisionRow[])?.agentId ?? null

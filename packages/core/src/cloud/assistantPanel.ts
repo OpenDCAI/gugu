@@ -32,7 +32,7 @@ export type AssistantPanelTransport = (name: string, args: Record<string, unknow
 }>
 
 export class AssistantPanelError extends Error {
-  constructor(readonly code: string, message: string) { super(message); this.name = 'AssistantPanelError' }
+  constructor(readonly code: string, message: string, readonly resourceKey?: string, readonly domain?: string) { super(message); this.name = 'AssistantPanelError' }
 }
 const record = (value: unknown): value is Record<string, unknown> => !!value && typeof value === 'object' && !Array.isArray(value)
 const revision = (value: unknown): value is string => typeof value === 'string' && /^\d+$/.test(value)
@@ -46,6 +46,7 @@ export function parseAssistantPanelSnapshot(value: unknown, ownerId: string, ass
     if (!record(item) || item.assistant_user_id !== assistantId || item.owner_user_id !== ownerId
       || !domains.includes(String(item.domain)) || typeof item.resource_key !== 'string' || !revision(item.revision) || !record(item.data)
       || !nullableString(item.device_id) || !nullableString(item.body_item_id) || !nullableString(item.body_sha256)
+      || item.stale_at !== undefined && !nullableString(item.stale_at)
       || !nullableString(item.deleted_at) || !nullableString(item.observed_at) || typeof item.updated_at !== 'string'
       || (item.body_item_id !== null && item.body_sha256 === null)
       || (typeof item.body_sha256 === 'string' && !/^[0-9a-f]{64}$/.test(item.body_sha256))) return invalid()
@@ -71,7 +72,7 @@ export function assistantPanelCollection(snapshot: AssistantPanelSnapshot, domai
     && item.resource_key !== '__collection__' && !item.resource_key.startsWith('__collection__:')
     && (!deviceId || item.device_id === deviceId))
   if (marker && marker.data.state !== 'ready' && marker.data.state !== 'error') return invalid()
-  return { items, state: marker?.data.state === 'error' ? 'error' as const
+  return { items, state: marker?.stale_at || marker?.data.state === 'error' ? 'error' as const
     : marker?.data.state === 'ready' ? 'ready' as const : 'unprepared' as const }
 }
 

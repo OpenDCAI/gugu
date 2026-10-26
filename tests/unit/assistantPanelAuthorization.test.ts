@@ -1,3 +1,4 @@
+import { readAssistantPanelIntegrations } from '../../apps/desktop/src/components/assistant/assistant-panel-integrations'
 import { expect, it, vi } from 'vitest'
 import type { AssistantPanelFiles } from '@gugu/core/cloud/assistantPanelFiles'
 import type { LibraryHost } from '../../apps/desktop/src/session/renderer/features/library/library-host'
@@ -11,7 +12,7 @@ function fixture() {
     github: { auth: native,authCancel: native,listAccounts: native,importCliAccounts: native,onEvent: subscribe },
   } as unknown as LibraryHost
   const panel = { ownerId: 'owner',assistantId: 'assistant',assertCurrent: vi.fn(async () => {}),
-    collection: vi.fn(async () => []),body: vi.fn(),change: vi.fn(),save: vi.fn(),
+    collection: vi.fn(async () => []),snapshot: vi.fn(async () => ({ application: [] })),body: vi.fn(),change: vi.fn(),save: vi.fn(),
   } as unknown as AssistantPanelFiles
   const prepare = vi.fn(async () => {})
   return { native,subscribe,panel,prepare,host: assistantPanelLibraryHost(base,panel,prepare) }
@@ -49,4 +50,13 @@ it('does not send an authorization after account ownership changes during prepar
   await expect(f.host.integrations.authorize('github')).rejects.toThrow('Account changed')
   expect(f.prepare).toHaveBeenCalledOnce()
   expect(f.native).not.toHaveBeenCalled()
+})
+
+it('does not present an old credential check as an authorized account', async () => {
+  const rows = [{ resource_key: 'catalog:github',data: { providerId: 'github' } },
+    { resource_key: 'account',revision: '3',data: { providerId: 'github',configured: true,checkResult: 'ok',checkedAt: 10 } }]
+  const panel = { collection: async () => rows, snapshot: async () => ({ application: [] }),
+    body: async (row: typeof rows[number]) => new TextEncoder().encode(JSON.stringify(row.resource_key.startsWith('catalog:')
+      ? { version: 1,en: { id: 'github',name: 'GitHub',auth: { methods: [] },capabilities: {} } } : { updatedAt: 20 })) } as unknown as AssistantPanelFiles
+  expect((await readAssistantPanelIntegrations(panel,'en-US')).statuses.github?.connected).not.toBe(true)
 })

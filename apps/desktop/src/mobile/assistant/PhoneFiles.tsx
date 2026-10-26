@@ -75,14 +75,15 @@ function FolderView({
     setUploading(files[0]!.name)
     try {
       const outcome = await uploadResources(machine, trail, files, setUploading)
-      for (const rejected of outcome.rejected) toast(`${rejected.name}: ${rejected.reason === 'too_large' ? t('files.tooLarge') : t('files.unsupported')}`, 'error')
-      for (const failed of outcome.failed) toast(t('files.uploadFailed', { name: failed.name, message: failed.message }), 'error')
+      const failures = [...outcome.rejected.map(rejected => `${rejected.name}: ${rejected.reason === 'too_large' ? t('files.tooLarge') : t('files.unsupported')}`),
+        ...outcome.failed.map(failed => `${failed.name}: ${errorText(new Error(failed.message))}`)]
+      if (failures.length) toast(`${t('files.saveFailed')}\n${failures.join('\n')}`, 'error')
       if (outcome.done.length) {
         for (const name of outcome.done) await reportAssistantAppChange(machine, assistant.id, { resource: 'files', operation: 'saved',
           id: joinPath(machine.paths.resourcesDir, [...trail, name].join('/')), deviceId: machine.deviceId,
           after: { name, path: joinPath(machine.paths.resourcesDir, [...trail, name].join('/')) } })
         onUploaded([...new Set([...uploaded, ...outcome.done])])
-        toast(t('files.uploaded', { n: outcome.done.length }), 'success')
+        if (!failures.length) toast(t('files.uploaded', { n: outcome.done.length }), 'success')
         reload()
       }
     } catch (error) {

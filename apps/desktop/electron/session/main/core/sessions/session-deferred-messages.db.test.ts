@@ -108,22 +108,16 @@ describe('deferred messages: kept on the session, sent when it starts working', 
     expect(states()).toEqual([{ id: 'A', state: 'accepted' }]);
   });
 
-  it('keeps deferred context retryable when a required panel change fails before model admission', async () => {
-    storeDeferredMessage({ sessionId: 's1', id: 'A', text: 'APP-A' });
-    setSessionAdmissionPreparation(async () => { throw new Error('memory/note: FILE_WRITE_FAILED'); });
-    const send = vi.fn(async () => ({ declined: false, requestId: 'must-not-run' }));
-    await expect(withDeferredMessagesBeforeAdmission('s1', 'USER', send)).rejects.toMatchObject({ deliveryRejectedBeforeAdmission: true });
-    expect(send).not.toHaveBeenCalled();
-    expect(states()).toEqual([{ id: 'A', state: 'deferred' }]);
-    const accepted = vi.fn(async () => {});
-    setSessionAdmissionPreparation(async (_id, text) => ({ text: `MEMORY REVOKED\n${text}`, accepted }));
-    await withDeferredMessagesBeforeAdmission('s1', 'RETRY', async text => {
-      expect(text).toBe('MEMORY REVOKED\nAPP-A\n\nRETRY');
-      expect(accepted).not.toHaveBeenCalled();
-      return { declined: false, requestId: 'native-retry' };
+  it('does not consume or embed panel notices when a prompt is merely accepted into a queue', async () => {
+    storeDeferredMessage({ sessionId: 's1',id: 'A',text: 'APP-A' });
+    const accepted = vi.fn(async () => {}), prepare = vi.fn(async () => ({ text: 'MEMORY REVOKED',accepted }));
+    setSessionAdmissionPreparation(prepare);
+    await withDeferredMessagesBeforeAdmission('s1','QUEUED',async text => {
+      expect(text).toBe('APP-A\n\nQUEUED');
+      return { declined: false,requestId: 'runtime-queue' };
     });
-    expect(accepted).toHaveBeenCalledOnce();
-    expect(states()).toEqual([{ id: 'A', state: 'accepted' }]);
+    expect(prepare).not.toHaveBeenCalled();
+    expect(accepted).not.toHaveBeenCalled();
   });
 
   it('does not turn an accepted model request into a delivery failure if the preparation checkpoint cannot be saved', async () => {

@@ -1,13 +1,8 @@
-// #7199 助理 App 的数据:说明、记忆、资料都是它家里的文件(云上那台,或人自己的一台电脑)。
-// owner 10-17:Agent 没有休息这回事 —— 要读它家里的东西、它住的云端宿主正收回着,由系统叫起来(MachineGate 里
-// useWakeHomeForRead,每挂一次只叫一次),界面只说「正在连接」;与在聊天里发话、打开它上面的会话同一个动作
-// (remoteHostsStore.wakeCloudComputer)。
-// 读不到如实说是哪一步,❌ 显示一片空当成「什么都没有」。
 import { useQuery, useQueryClient } from '@tanstack/react-query';
-import { useEffect } from 'react';
+import { AssistantPanelError } from '@gugu/core/cloud/assistantPanel';
+import { useEffect, useMemo } from 'react';
 import { getRendererSession } from '@/lib/sessionPublication';
 import { ASSISTANT_PANEL_CHANGED, useCloudAssistantFiles } from '@/components/assistant/assistant-panel-files';
-import { remoteHostsStore } from '@renderer/features/remote-hosts/remote-hosts-store';
 import { rpc } from '@renderer/lib/ipc';
 import { appState } from '@renderer/lib/stores/app-state';
 import type { DirectoryEntry } from '@shared/core/fs/fs';
@@ -19,7 +14,7 @@ import {
   type SkillInfo,
 } from './assistant-files';
 import type { AssistantHomePlace } from '@/lib/assistantHome';
-import { homeSessions, homeTarget } from './assistant-home-sessions';
+import { homeSessions } from './assistant-home-sessions';
 import { isAssistantSession } from './assistant-lineage';
 import { listDirectory, readMemoryNotes, readText, type AssistantMachine, type MemoryEntry } from './assistant-machine';
 
@@ -35,38 +30,6 @@ export type MachineReadiness =
   | 'waiting'
   /** 叫不醒、离线、版本不对:读不了,原因由页上那句说。 */
   | 'unreachable';
-
-/**
- * 它家那台此刻能不能读(只读状态,❌ 叫醒)。observer 里调。
- * 住眼前这台电脑 = 一直能读(App 开着它就在);住另一台电脑 = 那台连得上才能读,关着 / 连不上就如实说读不了(没有「叫醒」这回事)。
- */
-export function homeReadiness(home: AssistantHomePlace | null): MachineReadiness {
-  if (!home) return 'waiting';
-  if (home.kind === 'cloud') return machineReadiness(home.deviceId);
-  if (homeTarget(home) === null) return 'ready';
-  const state = remoteHostsStore.connectionState(home.deviceId);
-  if (state === 'connected') return 'ready';
-  if ((state === 'connecting' || state === 'reconnecting' || state === null) && home.online) return 'waiting';
-  return 'unreachable';
-}
-
-/** 那台云电脑此刻能不能读(只读状态,❌ 叫醒)。observer 里读才跟着变;不是 React hook,录音机在 App 外头也现读。 */
-export function machineReadiness(deviceId: string | null): MachineReadiness {
-  const state = deviceId ? remoteHostsStore.connectionState(deviceId) : null;
-  if (state === 'connected') return 'ready';
-  if (state === 'asleep') return 'asleep';
-  if (state === 'waking' || state === 'connecting' || state === 'reconnecting' || state === null) return 'waiting';
-  return 'unreachable';
-}
-
-/** 同 `machineReadiness`(旧名,留给已有的调用方)。 */
-export const useMachineReadiness = machineReadiness;
-
-/** 人按了「叫醒它」。 */
-/** 叫醒它住的云端宿主;false = 没叫成(原因记在 remoteHostsStore.wakes),或这个宿主叫不了(老宿主,没记原因)。 */
-export function wakeAssistantMachine(deviceId: string): Promise<boolean> {
-  return remoteHostsStore.wakeCloudComputer(deviceId);
-}
 
 export const assistantQueryKey = (deviceId: string, ...parts: unknown[]) => ['assistant', getRendererSession()?.user.id ?? '', deviceId, ...parts];
 
@@ -92,7 +55,8 @@ export function useAssistantMachine(assistantId: string | null, chatId: string |
     window.addEventListener(ASSISTANT_PANEL_CHANGED,changed);
     return () => window.removeEventListener(ASSISTANT_PANEL_CHANGED,changed);
   },[client]);
-  return { data,isLoading: !data,error: null,refetch: () => data?.panel?.invalidate() };
+  const error = useMemo(() => data ? null : new AssistantPanelError(home?.deviceId ? 'missing-identity' : 'missing-home','PANEL_IDENTITY_UNAVAILABLE'),[data,home?.deviceId]);
+  return { data,isLoading: false,error,refetch: () => data?.panel?.invalidate() };
 }
 
 export function useInstructions(machine: AssistantMachine | undefined) {

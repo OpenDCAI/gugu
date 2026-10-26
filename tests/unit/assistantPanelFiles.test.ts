@@ -5,6 +5,7 @@ import { createAssistantPanelFiles } from '@gugu/core/cloud/assistantPanelFiles'
 
 function fixture() {
   let owner = 'owner', revision = 0, lose = false
+  const application: unknown[] = []
   const rows = new Map<string, AssistantPanelItem>(), bodies = new Map<string, Uint8Array>()
   const receipts = new Map<string, unknown>(), operations: string[] = []
   const put = (domain: AssistantPanelDomain,key: string,data: Record<string, unknown>) => {
@@ -13,7 +14,7 @@ function fixture() {
     rows.set(`${domain}:${key}`,row); return row
   }
   const cloud = createAssistantPanelClient(async (name,args) => {
-    if (name === 'assistant_panel_snapshot') return { data: { version: 1,revision: String(revision),items: [...rows.values()].filter(row => !row.deleted_at),application: [] },error: null }
+    if (name === 'assistant_panel_snapshot') return { data: { version: 1,revision: String(revision),items: [...rows.values()].filter(row => !row.deleted_at),application },error: null }
     const key = `${args.p_domain}:${args.p_resource_key}`
     if (name === 'assistant_panel_resource') return { data: { version: 1,item: rows.get(key) ?? null },error: null }
     if (name !== 'assistant_panel_commit') throw new Error(name)
@@ -39,7 +40,7 @@ function fixture() {
     readBody: async row => { const bytes = bodies.get(row.body_item_id!); if (!bytes) throw new Error('Body unavailable'); return bytes },
     upload,discard,changed: vi.fn(),
   })
-  return { panel,rows,put,discard,upload,operations,loseNextResponse: () => { lose = true },switchOwner: () => { owner = 'other' } }
+  return { panel,rows,put,application,discard,upload,operations,loseNextResponse: () => { lose = true },switchOwner: () => { owner = 'other' } }
 }
 
 it('keeps unprepared, empty and failed collections distinct', async () => {
@@ -91,4 +92,26 @@ it('refuses path escapes before any body upload', async () => {
     await expect(f.panel.write(path,new Uint8Array(),'text/plain')).rejects.toMatchObject({ code: 'invalid-path' })
   }
   expect(f.upload).not.toHaveBeenCalled()
+})
+
+it('allows an explicit new upload at a deleted path using the tombstone version and keeps stale drafts rejected', async () => {
+  const f = fixture()
+  f.put('files','__collection__',{ state: 'ready' })
+  await f.panel.write('给助理的资料/file.txt',new TextEncoder().encode('old'),'text/plain')
+  const old = f.rows.get('files:file.txt')!.revision
+  await f.panel.remove('给助理的资料/file.txt')
+  await f.panel.write('给助理的资料/file.txt',new TextEncoder().encode('new'),'text/plain')
+  expect(await f.panel.text('给助理的资料/file.txt')).toBe('new')
+  await expect(f.panel.write('给助理的资料/file.txt',new TextEncoder().encode('stale'),'text/plain',old)).rejects.toMatchObject({ code: '40001' })
+})
+
+it('reports stale and rejected host state instead of presenting it as current applied data', async () => {
+  const f = fixture()
+  f.put('personality','__collection__',{ state: 'ready' })
+  const row = f.put('personality','instructions',{ text: 'Desired agreement' })
+  row.stale_at = '2026-10-26'
+  await expect(f.panel.text('性格约定')).rejects.toMatchObject({ code: 'stale' })
+  row.stale_at = null; f.panel.invalidate()
+  f.application.push({ operationId: 'failed',revision: row.revision,domain: 'personality',resourceKey: 'instructions',status: 'failed',errorCode: 'EACCES' })
+  await expect(f.panel.text('性格约定')).rejects.toMatchObject({ code: 'application-failed',resourceKey: 'instructions' })
 })

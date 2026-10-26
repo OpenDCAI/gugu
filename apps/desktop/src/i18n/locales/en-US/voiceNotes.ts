@@ -94,9 +94,7 @@ export default {
     "discardBody": "What you've recorded won't be saved.",
     "discardConfirm": "Discard",
     "discardFailed": "Couldn't discard it. Try again.",
-    "heldConnecting": "Connecting to {{name}}. It will upload once connected.",
     "heldKept": " The recording is kept on your phone.",
-    "heldUnreachable": "Can't reach {{name}}. The recording is kept on your phone and will upload once it's reachable.",
     "sending": "Sending to {{name}}…",
     "uploaded": "Sent to {{name}}. Waiting to be transcribed"
   },

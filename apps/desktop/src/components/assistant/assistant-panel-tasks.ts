@@ -10,7 +10,7 @@ export async function readAssistantPanelTasks(panel: AssistantPanelFiles) {
   return snapshot.items.filter(row => row.domain === 'tasks' && !row.resource_key.startsWith('__collection__')).map(row => {
     if (typeof row.data.sessionId !== 'string' || typeof row.data.title !== 'string' || !row.device_id) throw new AssistantPanelError('invalid-response','Task address is missing')
     const observedAt = typeof row.data.statusObservedAt === 'string' ? Date.parse(row.data.statusObservedAt) : 0
-    return { id: row.data.sessionId,title: row.data.title,deviceId: row.device_id,
+    return { id: row.data.sessionId,title: row.data.title,harness: typeof row.data.harness === 'string' ? row.data.harness : '',unseen: row.data.unseen === true,deviceId: row.device_id,
       agentId: typeof row.data.agentId === 'string' ? row.data.agentId : null,
       lastInteractedAt: typeof row.data.lastInteractedAt === 'string' ? row.data.lastInteractedAt : null,
       status: row.data.status === 'working' && Date.now() - observedAt > 90_000 ? null : parseAgentStatusView({ status: row.data.status,detail: row.data.statusDetail }),

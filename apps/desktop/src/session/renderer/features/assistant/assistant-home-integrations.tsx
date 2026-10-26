@@ -100,7 +100,7 @@ export function accountNote(context: AssistantContext, t: (key: string, values?:
 export const HomeIntegrations = observer(function HomeIntegrations({ context, children }: { context: AssistantContext; children: ReactNode }) {
   const host = useHomeLibraryHost(context.home);
   return (
-    <MachineGate readiness={context.readiness} loading={false} error={null} onRetry={context.retryMachine}>
+    <MachineGate readiness={context.readiness} loading={context.machineLoading} error={context.machineError} onRetry={context.retryMachine}>
       <LibraryHostProvider value={host} key={host.key}>
         <IntegrationsProvider>{children}</IntegrationsProvider>
       </LibraryHostProvider>

@@ -6,12 +6,11 @@ import type { AppMessageReceipt } from '@gugu/session-core/session-record/contra
 import type { AssistantAppChange } from '../../session/shared/extensions/assistant-app';
 import type { AssistantPanelReceipt } from '@gugu/core/cloud/assistantPanel';
 import { libraryHost } from './assistant-library-client';
-import { queueAssistantAppChange } from './assistant-panel-cloud';
 import type { AssistantMachine } from '../../session/renderer/features/assistant/assistant-machine-core';
 import { rendererLogger } from '../../lib/log';
 import { cachedDevicesAccount } from '../../store/devicesCache';
 import { assistantPanelLibrary } from './assistant-panel-library';
-import { ASSISTANT_PANEL_CHANGED } from './assistant-panel-files';
+import { ASSISTANT_PANEL_CHANGED } from './assistant-panel-events';
 
 type ProgramNotification = { server: string; method: string; params?: unknown };
 export type AssistantAppMachine = Pick<AssistantMachine, 'rpc' | 'panel'>;
@@ -72,6 +71,7 @@ export async function publishAssistantAppChange(
   assistantId: string | undefined = undefined,
   expectedOwnerId = cachedDevicesAccount(),
 ): Promise<AssistantPanelReceipt | null> {
+  const { queueAssistantAppChange } = await import('./assistant-panel-cloud');
   return queueAssistantAppChange({ ...change, operationId: change.operationId ?? crypto.randomUUID() },assistantId,expectedOwnerId);
 }
 
@@ -81,6 +81,7 @@ export async function reportAssistantAppChange(
   change: Omit<AssistantAppChange, 'operationId'> & { operationId?: string },
   expectedOwnerId = cachedDevicesAccount(),
 ): Promise<void> {
+  if (machine?.panel && change.resource !== 'pending-work') return;
   void publishAssistantAppChange(machine, change, assistantId, expectedOwnerId).catch(() => {
     rendererLogger('assistant/app').warn({ operationId: change.operationId }, 'Saved App change publication deferred');
   });

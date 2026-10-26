@@ -279,17 +279,12 @@ export class AutomationScheduler {
   private async pumpQueue(blocked: Map<string, Error>): Promise<void> {
     while (this.slotPool.availableSlots > 0) {
       const capacity = this.slotPool.availableSlots;
-      const batch = await listQueuedRuns(capacity);
+      const batch = blocked.size ? await listQueuedRuns(capacity,[...blocked.keys()]) : await listQueuedRuns(capacity);
       if (batch.length === 0) return;
 
       let madeProgress = false;
       for (const entry of batch) {
         if (this.slotPool.availableSlots <= 0) return;
-        const preparationError = entry.automation.agentSessionId ? blocked.get(entry.automation.agentSessionId) : null;
-        if (preparationError) {
-          const failed = await markRunFailed(entry.run.id,{ step: 'deliver',code: 'panel_change_not_applied',message: preparationError.message });
-          this.callbacks.onRunStep(failed); madeProgress = true; continue;
-        }
 
         if (this.deletingAutomationIds.has(entry.automation.id)) {
           const skipped = await markRunSkipped(entry.run.id, {

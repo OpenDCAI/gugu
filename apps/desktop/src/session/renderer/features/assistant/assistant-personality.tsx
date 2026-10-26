@@ -1,3 +1,4 @@
+import { assistantPanelFailure } from '@/components/assistant/assistant-panel-errors';
 import { useCallback, useRef, useState } from 'react';
 import { observer } from 'mobx-react-lite';
 import { useTranslation } from 'react-i18next';
@@ -72,7 +73,7 @@ export function CustomizeDialog({ context, onClose }: { context: AssistantContex
       toast({ title: t('customize.saved') });
       onClose();
     } catch (cause) {
-      setError(t('customize.saveFailed', { message: cause instanceof Error ? cause.message : String(cause) }));
+      setError(t('customize.saveFailed', { message: assistantPanelFailure(cause,t) }));
     } finally {
       setSaving(false);
     }

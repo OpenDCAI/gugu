@@ -47,7 +47,7 @@ function transport() {
     }),
   } satisfies Pick<AssistantPanelClient, 'resource' | 'snapshot' | 'commit'>
   const input = { assistantId: 'assistant',instanceId: 'runtime',deviceId: 'device',domain: 'memory' as const,cloud,
-    collect: vi.fn<() => Promise<PanelObservation[]>>(async () => [{ key: 'note',data: { relativePath: 'note.md' },bytes: new TextEncoder().encode('private note') }]),
+    collect: vi.fn<(previous?: AssistantPanelItem[]) => Promise<PanelObservation[]>>(async () => [{ key: 'note',data: { relativePath: 'note.md' },bytes: new TextEncoder().encode('private note') }]),
     upload: vi.fn(async () => ({ itemId: 'body',sha256: createHash('sha256').update('private note').digest('hex') })),
     discard: vi.fn(async () => {}),revoke: vi.fn(async () => {}),
   }
@@ -129,5 +129,28 @@ it('never publishes an old local observation over a pending edit or an edit arri
   // not applied it to disk yet.
   f.input.collect.mockResolvedValue([])
   await publishAssistantPanelCollection(f.input)
+  expect(f.rows.get('memory:note')?.deleted_at).toBeNull()
+})
+
+it('keeps the collection readable when an owner edit wins while a body is uploading', async () => {
+  const f = transport()
+  await publishAssistantPanelCollection(f.input)
+  f.input.collect.mockResolvedValue([{ key: 'note',data: { relativePath: 'note.md',title: 'Local observation' },bytes: new TextEncoder().encode('old local observation') }])
+  f.input.upload.mockImplementation(async () => {
+    const row = f.rows.get('memory:note')!
+    f.rows.set('memory:note',{ ...row,revision: '100',data: { relativePath: 'note.md',title: 'Owner saved this' } })
+    return { itemId: 'late-body',sha256: createHash('sha256').update('old local observation').digest('hex') }
+  })
+  await expect(publishAssistantPanelCollection(f.input)).resolves.toBeUndefined()
+  expect(f.rows.get('memory:note')?.data.title).toBe('Owner saved this')
+  expect(f.rows.get('memory:__collection__')?.data.state).toBe('ready')
+  expect(f.input.discard).toHaveBeenCalledWith('late-body')
+})
+
+it('does not interpret a missing previously published file root as an empty collection', async () => {
+  const f = transport(), disk = await fixture()
+  await publishAssistantPanelCollection(f.input)
+  f.input.collect.mockImplementation(async (baseline = []) => collectAssistantPanelFiles(disk.binding,'memory',undefined,{ requireRoot: baseline.length > 0 }))
+  await expect(publishAssistantPanelCollection(f.input)).rejects.toThrow('PANEL_RESOURCE_ROOT_MISSING')
   expect(f.rows.get('memory:note')?.deleted_at).toBeNull()
 })

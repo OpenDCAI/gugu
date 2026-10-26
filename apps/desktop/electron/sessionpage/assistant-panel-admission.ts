@@ -25,42 +25,46 @@ export async function prepareAssistantPanelAdmission(input: {
   text: string; wait?: (milliseconds: number) => Promise<void>
 }): Promise<PanelPreparedAdmission> {
   const wait = input.wait ?? (milliseconds => new Promise(resolve => setTimeout(resolve,milliseconds)))
+  async function retry<T>(operation: () => Promise<T>): Promise<T> {
+    let failure: unknown
+    for (const pause of [0,150,450]) {
+      if (pause) await wait(pause)
+      try { return await operation() } catch (error) {
+        failure = error
+        if (['22023','54000','55000','40001'].includes(String((error as { code?: string }).code))) throw error
+      }
+    }
+    throw failure
+  }
   for (let pass = 0; pass < 12; pass++) {
-    const pending = await input.cloud.pending(input.assistant,input.instance)
-    // Informational metadata is independent of required resource effects. A
-    // failed append stays pending for another opportunity without blocking work.
+    const pending = await retry(() => input.cloud.pending(input.assistant,input.instance))
     for (const notice of pending.notices) {
       try {
         await input.application.inform(notice)
-        await input.cloud.ack(input.assistant,input.instance,notice.operation_id)
-      } catch { /* The durable non-blocking notice remains for the next turn. */ }
+        await retry(() => input.cloud.ack(input.assistant,input.instance,notice.operation_id))
+      } catch { /* Non-blocking metadata remains pending for another opportunity. */ }
     }
     for (const change of pending.changes) {
       let failed: unknown
-      let superseded = false
       for (const pause of [0,50,150]) {
         if (pause) await wait(pause)
-        try {
-          await input.application.apply(change)
-          const receipt = await input.cloud.ack(input.assistant,input.instance,change.operation_id)
-          superseded = receipt.status === 'superseded'
-          failed = undefined
-          break
-        } catch (error) {
-          failed = error
-          // A newer deletion may already have removed this obsolete save's body.
-          // Its acknowledgement is terminal and must not restore a failure.
-          try {
-            const receipt = await input.cloud.ack(input.assistant,input.instance,change.operation_id,errorCode(error))
-            if (receipt.status === 'superseded') { superseded = true; break }
-          } catch { failed = new Error('CHANGE_ACK_UNAVAILABLE') }
-        }
+        try { await input.application.apply(change); failed = undefined; break }
+        catch (error) { failed = error }
       }
-      if (superseded) break
+      // An effect and its receipt have different failure modes. In particular,
+      // losing a success response must never reapply it or publish a failure.
+      let receipt
+      try {
+        receipt = await retry(() => input.cloud.ack(input.assistant,input.instance,change.operation_id,
+          ...(failed ? [errorCode(failed)] : []) as [string?]))
+      } catch {
+        throw new AssistantPanelApplicationError(change.domain,change.resource_key,'CHANGE_ACK_UNAVAILABLE')
+      }
+      if (receipt.status === 'superseded') break
       if (failed) throw new AssistantPanelApplicationError(change.domain,change.resource_key,errorCode(failed))
     }
     try {
-      const admission = await input.cloud.admit(input.assistant,input.instance,pending.revision)
+      const admission = await retry(() => input.cloud.admit(input.assistant,input.instance,pending.revision))
       if (admission.admitted) return input.application.prepareText(input.text)
     } catch (error) {
       if ((error as { code?: string }).code !== '40001') throw error

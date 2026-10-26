@@ -21,7 +21,7 @@ function stable(value: unknown): string {
  * explicitly change its marker to error. */
 export async function publishAssistantPanelCollection(input: {
   assistantId: string; instanceId: string; deviceId: string; domain: AssistantPanelDomain; cloud: Pick<AssistantPanelClient, 'resource' | 'snapshot' | 'commit'>
-  collect(): Promise<PanelObservation[]>
+  collect(previous: AssistantPanelItem[]): Promise<PanelObservation[]>
   upload(observation: PanelObservation): Promise<{ itemId: string; sha256: string }>
   discard(itemId: string): Promise<void>
   revoke(item: AssistantPanelItem, observation: PanelObservation): Promise<void>
@@ -48,7 +48,7 @@ export async function publishAssistantPanelCollection(input: {
     const baseline = await input.cloud.snapshot(input.assistantId)
     const revisions = new Map(baseline.items.filter(row => row.domain === input.domain).map(row => [row.resource_key,row.revision]))
     const pending = new Set(baseline.application.filter(row => row.domain === input.domain).map(row => row.resourceKey))
-    const records = await input.collect()
+    const records = await input.collect(baseline.items.filter(row => row.domain === input.domain && !row.resource_key.startsWith('__collection__')))
     if (new Set(records.map(row => row.key)).size !== records.length) throw new Error('PANEL_DUPLICATE_RESOURCE')
     const seen = new Set<string>()
     for (const row of records) {
@@ -67,6 +67,7 @@ export async function publishAssistantPanelCollection(input: {
         // A deletion which won the version race must also remove the local copy.
         const latest = await input.cloud.resource(input.assistantId,input.domain,row.key)
         if (latest?.deleted_at) { await input.revoke(latest,row); continue }
+        if (['40001','55000'].includes(String((error as { code?: string }).code))) continue
         throw error
       }
     }
@@ -74,14 +75,18 @@ export async function publishAssistantPanelCollection(input: {
     for (const previous of snapshot.items.filter(row => row.domain === input.domain && !row.resource_key.startsWith('__collection__')
       && (!scoped || row.device_id === input.deviceId) && !seen.has(row.resource_key))) {
       if (pending.has(previous.resource_key) || revisions.get(previous.resource_key) !== previous.revision) continue
-      await commit(previous.resource_key,previous.revision,'remove',{})
+      try { await commit(previous.resource_key,previous.revision,'remove',{}) }
+      catch (error) { if (!['40001','55000'].includes(String((error as { code?: string }).code))) throw error }
     }
     const latest = await input.cloud.snapshot(input.assistantId)
     const count = latest.items.filter(row => row.domain === input.domain && !row.resource_key.startsWith('__collection__')
       && (!scoped || row.device_id === input.deviceId)).length
     const marker = await input.cloud.resource(input.assistantId,input.domain,markerKey)
     const data = { state: 'ready',schemaVersion: 1,itemCount: count }
-    if (marker?.stale_at || stable(marker?.data) !== stable(data)) await commit(markerKey,marker?.revision ?? '0','prepared',data)
+    if (marker?.stale_at || stable(marker?.data) !== stable(data)) {
+      try { await commit(markerKey,marker?.revision ?? '0','prepared',data) }
+      catch (error) { if (!['40001','55000'].includes(String((error as { code?: string }).code))) throw error }
+    }
   } catch (error) {
     try {
       const marker = await input.cloud.resource(input.assistantId,input.domain,markerKey)
@@ -94,7 +99,7 @@ export async function publishAssistantPanelCollection(input: {
 /** Complete file bodies, including nested folders. Symlinks and changing files
  * are errors, rather than an apparently complete empty/partial inventory. */
 export async function collectAssistantPanelFiles(binding: AssistantPanelHome, domain: 'memory' | 'files' | 'skills' | 'personality' | 'voice-notes',
-  identify: (domain: AssistantPanelDomain, path: string) => Promise<string> = async (_domain,path) => path): Promise<PanelObservation[]> {
+  identify: (domain: AssistantPanelDomain, path: string) => Promise<string> = async (_domain,path) => path, options: { requireRoot?: boolean } = {}): Promise<PanelObservation[]> {
   const paths = assistantHomePaths(binding.home,binding.cwd,binding.kind)
   const anchor = binding.kind === 'cloud' ? binding.home : binding.cwd
   if (domain === 'personality') {
@@ -111,7 +116,10 @@ export async function collectAssistantPanelFiles(binding: AssistantPanelHome, do
   async function walk(relative: string) {
     let entries
     try { entries = await readdir(relative ? await assistantPanelPath(root,relative,{ home: anchor }) : root,{ withFileTypes: true }) }
-    catch (error) { if ((error as NodeJS.ErrnoException).code !== 'ENOENT') throw error; return }
+    catch (error) { if ((error as NodeJS.ErrnoException).code !== 'ENOENT') throw error;
+      if (!relative && options.requireRoot) throw new Error('PANEL_RESOURCE_ROOT_MISSING');
+      if (relative) throw new Error('PANEL_RESOURCE_CHANGED');
+      return }
     for (const entry of entries.sort((a,b) => a.name.localeCompare(b.name))) {
       if (entry.name.startsWith('.') || domain === 'memory' && !relative && entry.name === 'voice-notes') continue
       const path = relative ? `${relative}/${entry.name}` : entry.name

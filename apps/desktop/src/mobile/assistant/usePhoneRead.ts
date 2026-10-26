@@ -1,3 +1,5 @@
+import { assistantPanelFailure } from '@/components/assistant/assistant-panel-errors'
+import { i18n } from '@/i18n'
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { rendererLogger } from '@/lib/log'
 import type { AssistantMachine } from '@/session/renderer/features/assistant/assistant-machine-core'
@@ -53,8 +55,9 @@ export function usePhoneRead<T>(
       } catch (error) {
         if (!active()) return
         log.warn({ what, quiet, error: error instanceof Error ? error.message : String(error) }, 'assistant phone read failed')
-        setResult({ key: full, read: { state: 'error', error } })
-        if (lastInterval) timer = setTimeout(() => void run(true), lastInterval)
+        setResult(previous => quiet && previous?.key === full && previous.read.state === 'ok'
+          ? previous : { key: full,read: { state: 'error',error } })
+        timer = setTimeout(() => void run(true),lastInterval ?? 5000)
         // A requested refresh must not turn a failed verification into a successful mutation.
         if (explicit) throw error
       }
@@ -82,5 +85,5 @@ export function usePhoneRead<T>(
 }
 
 export function errorText(error: unknown): string {
-  return error instanceof Error ? error.message : String(error)
+  return assistantPanelFailure(error,(key,values) => i18n.t(`assistant:${key}`,values))
 }

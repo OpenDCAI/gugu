@@ -26,6 +26,7 @@ import { connectorDetail, connectorGroups, thisDeviceView } from './phoneProfile
 import { usePhoneConnectorAccounts, type ConnectorAccountRow } from './usePhoneConnectorAccounts'
 import type { PhoneIntegrations, usePhoneIntegrations } from './usePhoneProfileData'
 import './phone-connector.css'
+import { ReadFailed } from './PhoneMachineView'
 import { reportAssistantAppChange } from '@/components/assistant/assistant-app-client'
 
 type Integrations = ReturnType<typeof usePhoneIntegrations>
@@ -89,19 +90,7 @@ export function CloudGate({
 }) {
   const { t } = useTranslation('assistant')
   const body = (() => {
-    if (integrations.error)
-      return (
-        <AssistantEmpty
-          title={t('connectors.loadFailed')}
-          action={
-            <Button variant="ghost" className="ta-pill-btn" onClick={integrations.retry} data-testid="assistant-connectors-retry">
-              {t('machine.retry')}
-            </Button>
-          }
-        >
-          <span role="alert">{integrations.error instanceof Error ? integrations.error.message : String(integrations.error)}</span>
-        </AssistantEmpty>
-      )
+    if (integrations.error) return <ReadFailed title={t('connectors.loadFailed')} error={integrations.error} onRetry={integrations.retry} />
     if (!integrations.data) return <ReadingNow />
     return children(integrations.data)
   })()
@@ -121,7 +110,7 @@ function ConnectorLists({ data, open, connect }: { data: PhoneIntegrations; open
   const { connected, available } = connectorGroups(data.items, data.configured, data.statuses, i18n.language)
   const row = ({ item, detail }: { item: IntegrationMetadata; detail: string }) => {
     const configured = !!data.configured[item.id]
-    const state = connectorState(configured, data.statuses?.[item.id], data.statusError)
+    const state = connectorState(configured, data.statuses?.[item.id], data.statusError,true)
     const canConnect = setupPlanOf(item, platform.kind).kind !== 'unavailable'
     return (
       <div className="ta-connector-row" key={item.id}>
@@ -182,7 +171,7 @@ export function PhoneConnectorDetail({ assistant, readiness, homeDeviceId, machi
   const listsAccounts = wantsAccounts && accounts.supported
   const [confirm, setConfirm] = useState<{ accountId: string | null; label: string } | null>(null)
   const status = view && integrations.data?.statuses ? integrations.data.statuses[view.item.id] : undefined
-  const state = connectorState(view?.connected, status, integrations.data?.statusError)
+  const state = connectorState(view?.connected, status, integrations.data?.statusError,true)
   const issueText = view && status && !status.connected && view.connected ? integrationErrorText(translateSessionMessage, view.item.name, status) : undefined
 
   const disconnect = async () => {
@@ -208,8 +197,8 @@ export function PhoneConnectorDetail({ assistant, readiness, homeDeviceId, machi
                 <span className="ta-tile-title">{view.item.name}</span>
                 <span className="ta-page-sub">{view.item.description}</span>
                 {plan && plan.kind !== 'unavailable' ? (
-                  <Button variant="ghost" className="ta-solid-btn" disabled={state === 'checking'} onClick={() => state === 'checkFailed' ? integrations.retry() : go(connectSub(view.item.id))} data-testid="assistant-connector-connect">
-                    {state === 'checkFailed' ? t('connectors.retryCheck') : view.connected ? (view.item.multiAccount || view.item.id === 'github' ? t('connectors.addAccount') : t('connectors.reconnect')) : t('connectors.connect')}
+                  <Button variant="ghost" className="ta-solid-btn" disabled={state === 'checking'} onClick={() => go(connectSub(view.item.id))} data-testid="assistant-connector-connect">
+                    {view.connected ? (view.item.multiAccount || view.item.id === 'github' ? t('connectors.addAccount') : t('connectors.reconnect')) : t('connectors.connect')}
                   </Button>
                 ) : (
                   <p className="ta-phone-connect-note" data-testid="assistant-connector-connect-note">
@@ -240,18 +229,7 @@ export function PhoneConnectorDetail({ assistant, readiness, homeDeviceId, machi
                   ))}
                 </AssistantSection>
               ) : null}
-              {listsAccounts && accounts.error ? (
-                <AssistantEmpty
-                  title={t('connectors.accountsFailed')}
-                  action={
-                    <Button variant="ghost" className="ta-pill-btn" onClick={accounts.reload} data-testid="assistant-connector-accounts-retry">
-                      {t('machine.retry')}
-                    </Button>
-                  }
-                >
-                  <span role="alert">{accounts.error instanceof Error ? accounts.error.message : String(accounts.error)}</span>
-                </AssistantEmpty>
-              ) : null}
+              {listsAccounts && accounts.error ? <ReadFailed title={t('connectors.accountsFailed')} error={accounts.error} onRetry={accounts.reload} /> : null}
               {view.connected && !listsAccounts ? (
                 <Button variant="ghost" className="ta-wide-btn" data-tone="danger" onClick={() => setConfirm({ accountId: null, label: view.item.name })} data-testid="assistant-connector-disconnect">
                   {t('connectors.disconnect')}

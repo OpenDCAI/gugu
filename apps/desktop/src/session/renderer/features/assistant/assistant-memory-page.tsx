@@ -1,5 +1,5 @@
 import { rendererLogger } from '@/lib/log';
-import { messageForUser } from '@/lib/userFacingError';
+import { assistantPanelFailure } from '@/components/assistant/assistant-panel-errors';
 import { useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { ArrowUpToLine, Crown, File, Folder, FolderPlus, Heart, Mic, MoreHorizontal, Plus, Sparkles, SquarePen, Trash2 } from '@/lib/icons';
@@ -136,7 +136,7 @@ function MemoryNoteDetail({ context, file }: { context: AssistantContext; file: 
       toast({ title: t('memory.deleted') });
       context.go({ tab: 'memory' });
     } catch (error) { rendererLogger('actions/assistant-memory-page').error({ error: error }, 'action failed');
-      toast({ title: t('memory.deleteFailed'), description: messageForUser(error), tier: 'error' });
+      toast({ title: t('memory.deleteFailed'), description: assistantPanelFailure(error,t), tier: 'error' });
     }
   };
   return (
@@ -218,7 +218,7 @@ function ResourceRow({
       await invalidate('dir');
       toast({ title: t('files.renamed') });
     } catch (error) { rendererLogger('actions/assistant-memory-page').error({ error: error }, 'action failed');
-      toast({ title: t('files.renameFailed'), description: messageForUser(error), tier: 'error' });
+      toast({ title: t('files.renameFailed'), description: assistantPanelFailure(error,t), tier: 'error' });
     }
   };
   const remove = async () => {
@@ -229,7 +229,7 @@ function ResourceRow({
       await invalidate('dir');
       toast({ title: folder ? t('files.folderDeleted') : t('files.fileDeleted') });
     } catch (error) { rendererLogger('actions/assistant-memory-page').error({ error: error }, 'action failed');
-      toast({ title: t('files.deleteFailed'), description: messageForUser(error), tier: 'error' });
+      toast({ title: t('files.deleteFailed'), description: assistantPanelFailure(error,t), tier: 'error' });
     }
   };
   if (renaming)
@@ -312,7 +312,7 @@ function ResourceFiles({ context, trail }: { context: AssistantContext; trail: s
   /** 资料夹在第一次用之前不存在:建一下再放东西。 */
   const ensureDir = async () => {
     const machine = context.machine!;
-    if (trail.length === 0) {
+    if (trail.length === 0 && !machine.panel) {
       const cut = machine.paths.resourcesDir.lastIndexOf('/');
       await makeFolder(machine, machine.paths.resourcesDir.slice(0, cut), machine.paths.resourcesDir.slice(cut + 1));
     }
@@ -322,13 +322,16 @@ function ResourceFiles({ context, trail }: { context: AssistantContext; trail: s
   const upload = async (files: FileList | null) => {
     if (!files?.length || !context.machine) return;
     const accepted: File[] = [];
+    const failed: string[] = [];
     for (const file of Array.from(files)) {
       const rejected = resourceRejection(file);
-      if (rejected) toast({ title: `${file.name}: ${rejected === 'too_large' ? t('files.tooLarge') : t('files.unsupported')}`, tier: 'error' });
+      if (rejected) failed.push(`${file.name}: ${rejected === 'too_large' ? t('files.tooLarge') : t('files.unsupported')}`);
       else accepted.push(file);
     }
-    if (!accepted.length) return;
-    const target = await ensureDir();
+    if (!accepted.length) { toast({ title: t('files.saveFailed'),description: failed.join('\n'),tier: 'error' }); return; }
+    let target: string;
+    try { target = await ensureDir(); }
+    catch (error) { toast({ title: t('files.saveFailed'),description: assistantPanelFailure(error,t),tier: 'error' }); return; }
     const done: string[] = [];
     for (const file of accepted) {
       setUploading(file.name);
@@ -338,14 +341,15 @@ function ResourceFiles({ context, trail }: { context: AssistantContext; trail: s
           id: savedPath, deviceId: context.homeDeviceId, after: { name: file.name, path: savedPath } });
         done.push(file.name);
       } catch (cause) {
-        toast({ title: t('files.uploadFailed', { name: file.name, message: cause instanceof Error ? cause.message : String(cause) }), tier: 'error' });
+        failed.push(`${file.name}: ${assistantPanelFailure(cause,t)}`);
       }
     }
     setUploading(null);
+    if (failed.length) toast({ title: t('files.saveFailed'),description: failed.join('\n'),tier: 'error' });
     await invalidate('dir');
     if (done.length) {
       setUploaded(done);
-      toast({ title: t('files.uploaded', { n: done.length }) });
+      if (!failed.length) toast({ title: t('files.uploaded', { n: done.length }) });
     }
   };
 
@@ -365,7 +369,7 @@ function ResourceFiles({ context, trail }: { context: AssistantContext; trail: s
       await invalidate('dir');
       toast({ title: t('files.folderCreated') });
     } catch (error) { rendererLogger('actions/assistant-memory-page').error({ error: error }, 'action failed');
-      toast({ title: t('files.folderCreateFailed'), description: messageForUser(error), tier: 'error' });
+      toast({ title: t('files.folderCreateFailed'), description: assistantPanelFailure(error,t), tier: 'error' });
     }
   };
 

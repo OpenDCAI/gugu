@@ -3,6 +3,7 @@ import { useTranslation } from 'react-i18next'
 import { OtherDeviceConnectors, ThisDeviceConnectors } from '../devices/AssistantDeviceConnectors'
 import { SessionSettingsSection } from '../sessionpage/SessionSettingsSection'
 import { SegmentedTabs } from '../ui/SegmentedTabs'
+import { LoadingIndicator } from '../../lib/loading/LoadingIndicator'
 import { useAssistantHome } from '../../lib/useAssistantHome'
 import { SettingsNote, SettingsPage } from './SettingsPrimitives'
 import '../../i18n/registerAssistantCatalog'
@@ -22,7 +23,7 @@ export function ConnectorsSection() {
   const [where, setWhere] = useState<Where>('cloud')
   const cloud = home
     ? <SessionSettingsSection section="connectors" context={{ home, assistantName: name }} />
-    : <SettingsNote>{t('machine.reading')}</SettingsNote>
+    : <SettingsNote><LoadingIndicator size="inline" /></SettingsNote>
 
   return (
     <SettingsPage data-testid="settings-connectors">

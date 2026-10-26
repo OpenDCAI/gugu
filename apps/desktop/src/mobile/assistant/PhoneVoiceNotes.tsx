@@ -101,7 +101,6 @@ function VoiceNotesList({ machine, go }: { machine: AssistantMachine; go: PhoneP
   )
   return (
     <>
-    {machine.panel?.collectionState('voice-notes') === 'unprepared' && read.state === 'ok' ? <p className="ta-field-hint" role="status">{ta('machine.historyUnprepared')}</p> : null}
     <ReadView read={read} failedTitle={ta('memory.voiceLoadFailed')}>
       {(items: PhoneVoiceItem[]) =>
         items.length === 0 ? (

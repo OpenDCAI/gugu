@@ -96,3 +96,19 @@ describe('assistant panel local effects', () => {
     expect(deps.readBody).toHaveBeenCalledTimes(1)
   })
 })
+
+it('applies an explicit recreation without allowing a late removal or an old snapshot to erase it', async () => {
+  const { application,paths,deps } = await fixture()
+  const original = change('save'); original.revision = '10'
+  await application.apply(original)
+  const removed = { ...change('remove'),revision: '11' }
+  await application.apply(removed)
+  deps.readBody.mockResolvedValue(new TextEncoder().encode('New fact supplied by owner'))
+  const recreation = { ...change('save'),operation_id: 'recreated',revision: '12',payload: { data: { relativePath: 'note.md' },recreated: true } }
+  await application.apply(recreation)
+  await application.apply(removed)
+  await application.apply(original)
+  const note = join(paths.memoryDir,'note.md')
+  expect(await readFile(note,'utf8')).toBe('New fact supplied by owner')
+  expect(await runHook(assistantPanelRevocationHook(application.statePath),{ hook_event_name: 'PreToolUse',tool_name: 'Read',tool_input: { file_path: note } })).toBe('')
+})

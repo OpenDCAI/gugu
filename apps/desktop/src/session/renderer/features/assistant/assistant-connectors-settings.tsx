@@ -43,11 +43,10 @@ const HomeConnectorList = observer(function HomeConnectorList({ host, home, assi
   const showIntegrationSetup = useShowModal('integrationSetupModal');
   const showConnectGitHub = useShowModal('githubConnectModal');
   const connect = (id: string) => id === 'github' ? showConnectGitHub({ host }) : showIntegrationSetup({ integration: id, host });
-  const stateFor = (id: string) => connectorState(hasConfiguredConnections ? !!configuredConnections[id] : undefined, checkedConnections[id], configuredConnectionsError ?? connectionCheckError);
+  const stateFor = (id: string) => connectorState(hasConfiguredConnections ? !!configuredConnections[id] : undefined, checkedConnections[id], configuredConnectionsError ?? connectionCheckError,host.assistantPanelExpected);
   const [openId, setOpenId] = useState<string | null>(null);
   const reload = useCallback(() => void reloadList(), [reloadList]);
   const failure = useReadFailure(hasList ? null : listError, host.remote?.deviceId ?? null, host.remote?.deviceLabel ?? '', reload);
-  if (!host.assistantPanelExpected && host.remote?.online === false) return <SettingsNote>{t('machine.unreachable', { name: assistantName })}</SettingsNote>;
   if (failure)
     return (
       <SettingsPage>
@@ -135,7 +134,7 @@ const ConnectorDetail = observer(function ConnectorDetail({
   onBack: () => void;
 }) {
   const { t } = useTranslation('assistant');
-  const { isCheckingConfiguredConnections, configuredConnections, reloadConnections } = useIntegrationsContext();
+  const { isCheckingConfiguredConnections, configuredConnections } = useIntegrationsContext();
   const showIntegrationSetup = useShowModal('integrationSetupModal');
   const showConnectGitHub = useShowModal('githubConnectModal');
   const where = homeWhere(home, t);
@@ -167,10 +166,10 @@ const ConnectorDetail = observer(function ConnectorDetail({
               variant={connected ? 'secondary' : 'primary'}
               size="sm"
               disabled={state === 'checking' || (isCheckingConfiguredConnections && !(integration.id in configuredConnections))}
-              onClick={() => state === 'checkFailed' ? reloadConnections() : (integration.id === 'github' ? showConnectGitHub({ host }) : showIntegrationSetup({ integration: integration.id, host }))}
+              onClick={() => integration.id === 'github' ? showConnectGitHub({ host }) : showIntegrationSetup({ integration: integration.id, host })}
               data-testid="assistant-connector-connect"
             >
-              {t(state === 'checkFailed' ? 'connectors.retryCheck' : connected ? 'connectors.manage' : state === 'notConnected' ? 'connectors.connect' : 'connectors.reconnect')}
+              {t(connected ? 'connectors.manage' : state === 'notConnected' ? 'connectors.connect' : 'connectors.reconnect')}
             </Button>
         </div>
       </SettingsGroup>

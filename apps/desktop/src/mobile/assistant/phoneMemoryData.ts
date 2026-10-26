@@ -148,7 +148,7 @@ export async function uploadResources(
     else accepted.push(file)
   }
   if (!accepted.length) return outcome
-  if (trail.length === 0) {
+  if (trail.length === 0 && !machine.panel) {
     const root = machine.paths.resourcesDir
     const split = root.lastIndexOf('/')
     await makeFolder(machine, root.slice(0, split) || '/', root.slice(split + 1))

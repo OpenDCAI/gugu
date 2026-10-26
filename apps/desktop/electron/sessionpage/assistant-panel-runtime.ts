@@ -2,13 +2,15 @@ import { homedir } from 'node:os'
 import { randomUUID } from 'node:crypto'
 import { watch, type FSWatcher } from 'node:fs'
 import { basename, dirname } from 'node:path'
+import { withBoundedOperation } from '@gugu/core/cloud/boundedOperation'
 import { createGuguSupabaseClient } from '@gugu/core/cloud/supabase'
-import { createAssistantPanelClient, type AssistantPanelChange, type AssistantPanelDomain } from '@gugu/core/cloud/assistantPanel'
+import { createAssistantPanelClient, type AssistantPanelChange, type AssistantPanelDomain, type AssistantPanelItem } from '@gugu/core/cloud/assistantPanel'
 import { readAssistantPanelBody, uploadAssistantPanelBody } from '@gugu/core/cloud/assistantPanelBodies'
 import type { AssistantHomeKind } from '@gugu/core/shared/assistantPolicy'
 import { assistantHomePaths } from '@gugu/core/shared/assistantPolicy'
 import { parseConversationLink } from '@gugu/core/shared/ui/guguLink'
 import type { assistantPanelLocal } from '../session/main/core/app/assistant-panel-local'
+import { applyAssistantPanelService } from './assistant-panel-service'
 import { localAgentForSession } from './sessionpage-session-agent'
 import { createAssistantPanelApplication, type AssistantPanelHome } from './assistant-panel-application'
 import { prepareAssistantPanelAdmission } from './assistant-panel-admission'
@@ -25,11 +27,12 @@ export function createAssistantPanelRuntime(deps: {
   local: typeof assistantPanelLocal; guguHome: string; kind: AssistantHomeKind; env: NodeJS.ProcessEnv
   failed(domain: string): void
 }) {
+  const hostAuth = () => withBoundedOperation(2000,() => new Error('PANEL_AUTH_TIMEOUT'),() => deps.getAuth())
   const bindings = new Map<string, Binding>()
   const runtimes = new Map<string, ReturnType<typeof runtime>>()
   const roles = new Map<string, boolean>()
   async function resolve(sessionId: string): Promise<Binding | null> {
-    const auth = await deps.getAuth()
+    const auth = await hostAuth()
     if (!auth) return null
     const known = bindings.get(sessionId)
     if (known?.ownerId === auth.userId) return known
@@ -40,9 +43,9 @@ export function createAssistantPanelRuntime(deps: {
     if (assistant === undefined) {
       const client = createGuguSupabaseClient({ schema: 'identity',headers: { Authorization: `Bearer ${auth.accessToken}` } })
       const { data,error } = await client.from('agent_provisions').select('agent_user_id').eq('owner_user_id',auth.userId)
-        .eq('agent_user_id',agent.gugu_user_id).eq('member_key','assistant').limit(1)
+        .eq('agent_user_id',agent.gugu_user_id).eq('member_key','assistant').limit(1).abortSignal(AbortSignal.timeout(2000))
       if (error) throw new Error('PANEL_ROLE_UNAVAILABLE')
-      if ((await deps.getAuth())?.userId !== auth.userId) throw new Error('PANEL_ACCOUNT_CHANGED')
+      if ((await hostAuth())?.userId !== auth.userId) throw new Error('PANEL_ACCOUNT_CHANGED')
       assistant = Boolean(data?.length)
       roles.set(key,assistant)
     }
@@ -62,47 +65,53 @@ export function createAssistantPanelRuntime(deps: {
       const next = tail.catch(() => undefined).then(work); tail = next; return next
     }
     async function auth(): Promise<Auth> {
-      const value = await deps.getAuth()
+      const value = await hostAuth()
       if (!value || value.userId !== binding.ownerId) throw new Error('PANEL_ACCOUNT_CHANGED')
       return value
     }
-    const cloud = createAssistantPanelClient(async (name,args) => {
+    const cloud = createAssistantPanelClient((name,args) => withBoundedOperation(2000,() => new Error('PANEL_CLOUD_TIMEOUT'),async signal => {
       const current = await auth()
       const client = createGuguSupabaseClient({ schema: 'identity',headers: { Authorization: `Bearer ${current.accessToken}` } })
-      const result = await client.rpc(name,args)
+      signal.throwIfAborted()
+      const result = await client.rpc(name,args).abortSignal(signal)
       await auth()
       return result
-    },() => binding.ownerId)
+    }),() => binding.ownerId)
     async function access() {
       const current = await auth()
       if (!chatId) {
         const client = createGuguSupabaseClient({ schema: 'chat',headers: { Authorization: `Bearer ${current.accessToken}` } })
-        const result = await client.rpc('open_dm',{ p_target_user_id: binding.assistantId })
+        const result = await client.rpc('open_dm',{ p_target_user_id: binding.assistantId }).abortSignal(AbortSignal.timeout(2000))
         if (result.error || typeof result.data !== 'string') throw new Error('PANEL_PRIVATE_FOLDER_UNAVAILABLE')
         await auth(); chatId = result.data
       }
-      return { token: current.accessToken,ownerId: binding.ownerId,chatId,accountId: async () => (await deps.getAuth())?.userId ?? null }
+      return { token: current.accessToken,ownerId: binding.ownerId,chatId,accountId: async () => (await hostAuth())?.userId ?? null }
     }
     async function readBody(change: AssistantPanelChange) {
       const item = await cloud.resource(binding.assistantId,change.domain as AssistantPanelDomain,change.resource_key)
       if (!item || item.deleted_at || item.body_item_id !== change.payload.bodyItemId || item.body_sha256 !== change.payload.bodySha256) throw new Error('PANEL_RESOURCE_SUPERSEDED')
-      return readAssistantPanelBody(item,await access())
+      return withBoundedOperation(5000,() => new Error('PANEL_BODY_TIMEOUT'),async () => readAssistantPanelBody(item,await access()))
     }
     const application = createAssistantPanelApplication(binding,{
       assertCurrent: async () => { await auth() },readBody,
-      applyService: async change => deps.local.apply(change,change.operation === 'remove' || !change.payload.bodyItemId ? null : await readBody(change),
-        (await deps.local.sessions(binding.ownerId)).filter(row => row.agentId === binding.assistantId).map(row => row.summary.conversationId),binding.ownerId),
+      applyService: async change => applyAssistantPanelService(change,async () => deps.local.apply(change,change.operation === 'remove' || !change.payload.bodyItemId ? null : await readBody(change),
+        (await deps.local.sessions(binding.ownerId)).filter(row => row.agentId === binding.assistantId).map(row => row.summary.conversationId),binding.ownerId),cloud),
       invalidate: () => invalidateAssistantIndex(deps.guguHome,binding.cwd,binding.kind,binding.ownerId),
     })
     async function prepare(text: string) {
-      const instance = deps.instanceId()
+      let instance = deps.instanceId()
+      for (const pause of [150,450]) {
+        if (instance) break
+        await new Promise(resolve => setTimeout(resolve,pause))
+        instance = deps.instanceId()
+      }
       if (!instance) throw new Error('PANEL_RUNTIME_LEASE_UNAVAILABLE')
       return prepareAssistantPanelAdmission({ assistant: binding.assistantId,instance,cloud,application,text })
     }
-    async function observations(domain: AssistantPanelDomain): Promise<PanelObservation[]> {
+    async function observations(domain: AssistantPanelDomain, previous: AssistantPanelItem[]): Promise<PanelObservation[]> {
       if (['memory','files','skills','personality','voice-notes'].includes(domain)) {
         const rows = await collectAssistantPanelFiles(binding,
-          domain as 'memory' | 'files' | 'skills' | 'personality' | 'voice-notes',application.identify)
+          domain as 'memory' | 'files' | 'skills' | 'personality' | 'voice-notes',application.identify,{ requireRoot: previous.length > 0 })
         if (domain !== 'personality') await application.remember(domain,rows.map(row => ({ key: row.key,
           path: String(domain === 'memory' ? row.data.relativePath : domain === 'files' ? row.data.path : domain === 'skills' ? `${row.key}/SKILL.md` : row.key),
         })))
@@ -116,7 +125,7 @@ export function createAssistantPanelRuntime(deps: {
         ...deps.local.integrationCatalog().map(row => ({ key: `catalog:${row.id}`,data: { providerId: row.id,configured: false },
           bytes: new TextEncoder().encode(JSON.stringify({ version: 1,en: row.en,'zh-CN': row.zh })),contentType: 'application/json',
         })),
-        ...(await deps.local.integrations()).map(({ publicMetadata,...row }) => ({ key: JSON.stringify([row.providerId,row.accountId]),data: row,
+        ...(await deps.local.integrations(binding.ownerId)).map(({ publicMetadata,...row }) => ({ key: JSON.stringify([row.providerId,row.accountId]),data: row,
           bytes: new TextEncoder().encode(JSON.stringify(publicMetadata)),contentType: 'application/json',
         })),
       ]
@@ -138,7 +147,7 @@ export function createAssistantPanelRuntime(deps: {
       return sessions.filter(row => !own.includes(row.summary.conversationId) && (children.has(row.summary.conversationId)
         || row.summary.activitySourceLinks?.some(link => chatId && parseConversationLink(link)?.chatId === chatId))).map(({ summary,agentId }) => ({ key: summary.conversationId,data: {
           agentId,sessionId: summary.conversationId,parentSessionId: summary.parentConversationId ?? null,assistantSessionIds: own,
-          title: summary.title,lastInteractedAt: summary.lastInteractedAt,status: summary.status?.status ?? summary.agentStatus,
+          title: summary.title,harness: summary.harness,unseen: summary.unseen,lastInteractedAt: summary.lastInteractedAt,status: summary.status?.status ?? summary.agentStatus,
           statusDetail: summary.status?.detail ?? null,statusObservedAt: new Date().toISOString(),sourceLinks: summary.activitySourceLinks ?? [],
         } }))
     }
@@ -161,13 +170,13 @@ export function createAssistantPanelRuntime(deps: {
     function publish(): Promise<void> {
       if (publication) return publication
       publication = (async () => {
-        if ((await deps.getAuth())?.userId !== binding.ownerId) { dispose(); return }
+        if ((await hostAuth())?.userId !== binding.ownerId) { dispose(); return }
         await serial(() => prepare(''))
         const instanceId = deps.instanceId()!, deviceId = await deps.deviceId()
         for (const domain of ['memory','personality','files','skills','voice-notes','tasks','schedules','capabilities','device-notes','integrations'] as const) {
           try {
             await publishAssistantPanelCollection({ assistantId: binding.assistantId,instanceId,deviceId,domain,cloud,
-              collect: () => observations(domain),
+              collect: previous => observations(domain,previous),
               upload: async row => uploadAssistantPanelBody({ ...await access(),name: `${row.key.split('/').pop() ?? domain}.bin`,bytes: row.bytes!,contentType: row.contentType ?? 'application/octet-stream' }),
               discard: async itemId => {
                 const current = await auth()
@@ -208,7 +217,7 @@ export function createAssistantPanelRuntime(deps: {
   }
   return {
     async bind(input: { sessionId: string; assistantId: string; ownerId: string; cwd: string }) {
-      if ((await deps.getAuth())?.userId !== input.ownerId) throw new Error('PANEL_ACCOUNT_CHANGED')
+      if ((await hostAuth())?.userId !== input.ownerId) throw new Error('PANEL_ACCOUNT_CHANGED')
       bindings.set(input.sessionId,{ ...input,home: homedir(),kind: deps.kind })
       const entry = (await current(input.sessionId))!
       await entry.application.prepareText('')

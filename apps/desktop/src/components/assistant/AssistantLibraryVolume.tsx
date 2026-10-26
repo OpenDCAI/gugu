@@ -17,6 +17,7 @@ import { assistantAppClient } from './assistant-app-client'
 import { ASSISTANT_PANEL_APP } from '../../session/shared/extensions/assistant-app'
 import { extensionProgramNotifiedChannel } from '../../session/shared/extensions/marketEvents'
 import { onMachineEvent as onRuntimeMachineEvent } from '../../session/renderer/lib/ipc'
+import { assistantPanelFailure } from './assistant-panel-errors'
 import { onMachineEvent } from '../../mobile/agent-watch/sessionpage-rpc'
 import { assistantPanelLibrary } from './assistant-panel-library'
 
@@ -90,7 +91,7 @@ function FileLibraryVolume({ machine, assistantId, kind, askInChat }: Omit<Libra
     {selected && <Button variant="ghost" className="ta-pill-btn self-start" onClick={() => setSelected(null)}>{t('library.backToIndex')}</Button>}
     {!selected && kind === 'devices' && (platform.capabilities.agentRuntime ? <ShellSlot name="devices" className="ta-skin" /> : <AssistantDevicesPage cloudDeviceId={null} />)}
     {!selected && <AssistantRow title={t('library.organize')} onClick={() => askInChat(t('library.setupPrompt', { kind: title }))} />}
-    {failed ? <AssistantEmpty action={<Button onClick={selected ? entry.reload : read.reload}>{t('machine.retry')}</Button>}>{t('library.failed')}</AssistantEmpty>
+    {failed ? <AssistantEmpty><span role="alert">{assistantPanelFailure(selected && entry.state === 'error' ? entry.error : read.state === 'error' ? read.error : null,t)}</span></AssistantEmpty>
       : loading ? <AssistantEmpty>{t('library.loading')}</AssistantEmpty>
       : opened ? <><p className="ta-page-sub">{opened.description}</p><div className="ta-card ta-prose" data-testid="assistant-library-content"><Markdown trust="chat" content={opened.content || t('library.emptyContent')} /></div></>
       : current?.items.length ? [...groups].map(([group, items]) => <AssistantSection key={group} title={group}>

@@ -95,8 +95,6 @@ export function IntegrationsProvider({ children }: { children: React.ReactNode }
   const [mutatingIntegrationIds, setMutatingIntegrationIds] = useState<Set<string>>(
     () => new Set()
   );
-  const [verificationError, setVerificationError] = useState<unknown>(null);
-  const [verifying, setVerifying] = useState(false);
 
   // 那台机器离线就不问(问不到,只会挂满超时)。
   const enabled = host.assistantPanelExpected ? !!host.assistantPanel || !!host.assistantPanelError : host.remote?.online !== false;
@@ -113,6 +111,7 @@ export function IntegrationsProvider({ children }: { children: React.ReactNode }
     staleTime: Infinity,
     refetchOnWindowFocus: false,
     enabled,
+    refetchInterval: host.assistantPanelExpected ? 30_000 : false,
     ...(remote ? { retry: false } : {}),
   });
 
@@ -127,6 +126,7 @@ export function IntegrationsProvider({ children }: { children: React.ReactNode }
     staleTime: 30_000,
     refetchOnWindowFocus: true,
     enabled,
+    refetchInterval: host.assistantPanelExpected ? 30_000 : false,
     ...(remote ? { retry: false } : {}),
   });
 
@@ -137,6 +137,7 @@ export function IntegrationsProvider({ children }: { children: React.ReactNode }
       staleTime: Infinity,
       refetchOnWindowFocus: false,
       enabled,
+    refetchInterval: host.assistantPanelExpected ? 30_000 : false,
       ...(remote ? { retry: false } : {}),
     });
   const configuredConnections = configuredData ?? {};
@@ -174,7 +175,7 @@ export function IntegrationsProvider({ children }: { children: React.ReactNode }
           const name = integrations.find((integration) => integration.id === integrationId)?.name ?? integrationId;
           return { success: false, error: integrationErrorText(translateSessionMessage, name, result) || fallbackError };
         }
-        await reportAssistantAppChange({ rpc: rpcOn(host.remote?.deviceId ?? null) }, undefined, {
+        if (!host.assistantPanelExpected || change.operation !== 'removed') await reportAssistantAppChange({ rpc: rpcOn(host.remote?.deviceId ?? null) }, undefined, {
           resource: 'integrations', operation: change.operation, id: change.id ?? integrationId, deviceId: host.remote?.deviceId,
           ...(change.operation === 'removed' ? {} : { after: { name: integrations.find(integration => integration.id === integrationId)?.name ?? integrationId } }),
         }, ownerId);
@@ -184,7 +185,7 @@ export function IntegrationsProvider({ children }: { children: React.ReactNode }
         invalidateStatuses();
       }
     },
-    [integrations, invalidateStatuses, setIntegrationMutating, host.remote?.deviceId]
+    [integrations, invalidateStatuses, setIntegrationMutating, host.remote?.deviceId,host.assistantPanelExpected]
   );
 
   const connectIntegration = useCallback(
@@ -282,21 +283,13 @@ export function IntegrationsProvider({ children }: { children: React.ReactNode }
         integrationById,
         connectionStatus,
         checkedConnections: statusData ?? {},
-        connectionCheckError: verificationError ?? connectionReadError,
+        connectionCheckError: connectionReadError,
         hasConfiguredConnections: configuredData !== undefined,
         configuredConnectionsError,
         configuredConnections,
         isCheckingConfiguredConnections,
-        isCheckingConnections: isCheckingConnections || verifying,
-        reloadConnections: host.assistantPanelExpected ? () => {
-          setVerificationError(null); setVerifying(true);
-          void (async () => {
-            await host.prepareAssistantAction?.();
-            const verified = await rpcOn(host.remote?.deviceId ?? null).integrations.checkAllConnections();
-            await host.assistantPanel?.snapshot();
-            queryClient.setQueryData(statusKey,verified);
-          })().catch(setVerificationError).finally(() => setVerifying(false));
-        } : invalidateStatuses,
+        isCheckingConnections: isCheckingConnections,
+        reloadConnections: invalidateStatuses,
         connectIntegration,
         disconnectIntegration,
         authorizeIntegration,

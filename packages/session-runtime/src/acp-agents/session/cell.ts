@@ -71,6 +71,7 @@ import type {
 } from './cell-deps';
 import { PermissionBroker, selectAutoApproveOption } from './permission-broker';
 import { RawAcpLog, type RawAcpEvent } from './raw-log';
+import { prepareNativePrompt } from './prompt-preparation';
 import { providerRejectedMissingSession } from './provider-admission';
 
 export interface AcpChatHistory {
@@ -1772,6 +1773,12 @@ export class SessionCell {
       const resolvedAttachments = await Promise.all(
         sendable.map((attachment) => this.deps.resolveAttachment(attachment))
       );
+      if (providerAdmission) this.providerAdmission = providerAdmission;
+      const preparing = prepareNativePrompt(this.sessionId);
+      const prepared = preparing ? await preparing : null;
+      const confirmPreparation = () => { void prepared?.accepted().catch(() => {
+        this.deps.logger.warn('Native prompt preparation checkpoint will retry', { sessionId: this.sessionId });
+      }); };
       // ③ 只在**第一次真正发出去的那一轮**随行,发完即清。放在最前面:它是这场会话的
       // 常驻背景,该在用户这一句之前被读到。
       // ⚠️ 在 await 之后、构造请求之前取并清空 —— 并发的第二轮不会再带上它。
@@ -1785,7 +1792,7 @@ export class SessionCell {
         data: attachment.data,
         mimeType: attachment.mimeType,
       }));
-      const turnContextBlocks = turnContext ? [{ type: 'text' as const, text: turnContext }] : [];
+      const turnContextBlocks = [prepared?.text,turnContext].filter((text): text is string => !!text).map(text => ({ type: 'text' as const,text }));
       const textBlocks = prompt.text ? [{ type: 'text' as const, text: prompt.text }] : [];
       const trailingBlocks =
         prompt.origin === undefined && prompt.hiddenContext
@@ -1829,6 +1836,7 @@ export class SessionCell {
           return retried;
         }
         recordUserMessage();
+        confirmPreparation();
         // `injected` is an admission receipt. The provider's output remains on the primary
         // prompt's ACP stream, so this call must not settle the cell turn.
         return ok({ queued: false });
@@ -1852,6 +1860,7 @@ export class SessionCell {
         }),
       ]) : nativePrompt);
       providerAdmission?.accept();
+      confirmPreparation();
       const anchor = (response._meta?.guguRevert as { before?: unknown } | undefined)?.before;
       if (!steered && typeof anchor === 'string' && anchor) {
         this.transcript.setRevertAnchor(messageId, anchor);

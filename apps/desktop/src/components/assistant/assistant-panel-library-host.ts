@@ -38,8 +38,11 @@ export function assistantPanelLibraryHost(base: LibraryHost, panel: AssistantPan
       if (typeof data.connectedAt !== 'number') throw new Error('Saved account metadata is unavailable')
       return { accountId: String(row.data.accountId),displayName: String(row.data.displayName ?? ''),connectedAt: data.connectedAt,isDefault: row.data.isDefault === true,fields: {} }
     })),
-    checkAccounts: async provider => (await accounts(provider)).filter(row => ['ok','connected','reauth','failed'].includes(String(row.data.checkResult)))
-      .map(row => ({ accountId: String(row.data.accountId),connected: row.data.checkResult === 'ok' || row.data.checkResult === 'connected' })),
+    checkAccounts: async provider => {
+      const state = await read()
+      return state.accounts.filter(row => row.data.providerId === provider && state.accountChecks.has(row.resource_key)).map(row => ({ accountId: String(row.data.accountId),
+        connected: state.accountChecks.get(row.resource_key)! }))
+    },
     disconnect,
     connect: async (...args) => { await prepareAction(); return base.integrations.connect(...args) },
     authorize: async (...args) => { await prepareAction(); return base.integrations.authorize(...args) },

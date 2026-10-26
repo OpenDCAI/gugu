@@ -1,5 +1,6 @@
+import { formatSessionTitleForDisplay } from '@shared/core/sessions/session-title-utils';
 import { rendererLogger } from '@/lib/log';
-import { messageForUser } from '@/lib/userFacingError';
+import { assistantPanelFailure } from '@/components/assistant/assistant-panel-errors';
 import { useDirectoryDevices } from '@/session/shared/remote-sessions/session-directory';
 import { assistantTaskDeviceLabel } from './assistant-task-directory';
 import { observer } from 'mobx-react-lite';
@@ -92,13 +93,13 @@ const SubAgents = observer(function SubAgents({ context }: AssistantPageProps) {
     queryFn: () => readAssistantPanelTasks(context.machine!.panel!) });
   const children = query.data ?? [];
   const groups = groupByDay(children,item => item.lastInteractedAt,new Date());
-  return <MachineGate readiness={context.readiness} loading={context.machineLoading || query.isLoading} error={query.error} onRetry={() => void query.refetch()}>
+  return <MachineGate readiness={context.readiness} loading={context.machineLoading || query.isLoading} error={context.machineError ?? query.error} onRetry={() => void query.refetch()}>
     {children.length === 0 ? <AssistantSection bare><AssistantEmpty title={t('tasks.emptyTitle')}
       action={<button type="button" className="ta-pill-btn" onClick={() => context.askInChat(t('tasks.createPrompt'))}>{t('tasks.create')}</button>} /></AssistantSection>
       : groups.map(group => <AssistantSection key={group.bucket} title={t(`tasks.day.${group.bucket}`)} testId={`assistant-tasks-${group.bucket}`}>
-        {group.items.map(task => <AssistantRow key={task.id} testId={`assistant-subagent-${task.id}`} title={task.title}
+        {group.items.map(task => <AssistantRow key={task.id} testId={`assistant-subagent-${task.id}`} title={formatSessionTitleForDisplay(task.harness,task.title)}
           detail={assistantTaskDeviceLabel(devices,task.deviceId)}
-          trailing={task.status && task.status.status !== 'idle' ? <AgentStatusIndicator status={task.status.status} detail={task.status.detail} /> : null}
+          trailing={task.status && task.status.status !== 'idle' ? <AgentStatusIndicator status={task.status.status} detail={task.status.detail} /> : task.unseen ? <span className="ta-unseen" aria-label={t('tasks.unseen')} /> : null}
           chevron={false} onClick={task.agentId ? () => openAssistantPanelTask(context.machine!.panel!,task) : undefined} />)}
       </AssistantSection>)}
   </MachineGate>;
@@ -144,7 +145,7 @@ const RoutineLists = observer(function RoutineLists({ context }: AssistantPagePr
     />
   );
   return (
-    <MachineGate readiness={context.readiness} loading={query.isLoading} error={query.error} onRetry={() => void query.refetch()}>
+    <MachineGate readiness={context.readiness} loading={context.machineLoading || query.isLoading} error={context.machineError ?? query.error} onRetry={() => void query.refetch()}>
       {routines.length === 0 ? (
         <AssistantSection bare>
           <AssistantEmpty
@@ -186,7 +187,7 @@ const RoutineDetail = observer(function RoutineDetail({ context, id }: { context
   const automation = routines.find((a) => a.id === id) ?? null;
   const scheduled = automation?.nextRunAt ?? null;
   return (
-    <MachineGate readiness={context.readiness} loading={query.isLoading} error={query.error} onRetry={() => void query.refetch()}>
+    <MachineGate readiness={context.readiness} loading={context.machineLoading || query.isLoading} error={context.machineError ?? query.error} onRetry={() => void query.refetch()}>
       {!automation ? (
         <AssistantEmpty title={t('routines.goneTitle')}>{t('routines.gone')}</AssistantEmpty>
       ) : (
@@ -216,7 +217,7 @@ const RoutineDetail = observer(function RoutineDetail({ context, id }: { context
                             id: automation.id, deviceId: context.homeDeviceId, before: { name: automation.name, active: automation.enabled }, after: { name: automation.name, active: enabled } });
                           toast({ title: enabled ? t('routines.enabledToast') : t('routines.disabledToast') });
                         },
-                        onError: (error) => { rendererLogger('actions/assistant-tasks').error({ error: error }, 'action failed'); toast({ title: t('routines.updateFailed'), description: messageForUser(error), tier: 'error' }); },
+                        onError: (error) => { rendererLogger('actions/assistant-tasks').error({ error: error }, 'action failed'); toast({ title: t('routines.updateFailed'), description: assistantPanelFailure(error,t), tier: 'error' }); },
                       }
                     )
                   }
@@ -254,7 +255,7 @@ const RoutineDetail = observer(function RoutineDetail({ context, id }: { context
                         toast({ title: t('routines.deleted') });
                         context.go({ tab: 'tasks' });
                       },
-                      onError: (error) => { rendererLogger('actions/assistant-tasks').error({ error: error }, 'action failed'); toast({ title: t('routines.deleteFailed'), description: messageForUser(error), tier: 'error' }); },
+                      onError: (error) => { rendererLogger('actions/assistant-tasks').error({ error: error }, 'action failed'); toast({ title: t('routines.deleteFailed'), description: assistantPanelFailure(error,t), tier: 'error' }); },
                     }),
                 })
               }

@@ -37,7 +37,13 @@ export function createAssistantPanelOutbox(deps: {
       if (!entry) return receipt
       const assistant = entry.assistantId ?? await deps.assistantId(owner)
       assertOwner(owner)
-      if (assistant) receipt = await deps.send(assistant,entry.notice)
+      if (!assistant) return receipt
+      try { receipt = await deps.send(assistant,entry.notice) }
+      catch (error) {
+        if (!['22023','23505','54000','55000','42501'].includes(String((error as { code?: string }).code))) throw error
+        // Metadata is informational. An invalid notice must not trap all later
+        // notices in an endless retry cycle after their source edits saved.
+      }
       assertOwner(owner)
       // Read again after the network operation: an intervening enqueue must stay.
       save(owner,read(owner).filter(next => next.notice.operationId !== entry.notice.operationId))

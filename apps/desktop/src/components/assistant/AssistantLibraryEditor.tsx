@@ -1,5 +1,5 @@
 import { rendererLogger } from '@/lib/log';
-import { messageForUser } from '@/lib/userFacingError';
+import { assistantPanelFailure } from '@/components/assistant/assistant-panel-errors';
 import { useRef, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import { Input } from '../../session/renderer/lib/ui/input'
@@ -40,7 +40,7 @@ export function AssistantLibraryEditor({ machine, assistantId, kind, entry, onCl
           ...(change ? { operationId: change.operationId, before: change.before, after: change.after }
             : { after: { name: saved.name, description: saved.description, group: saved.group } }) }, ownerId)
       onSaved()
-    } catch (error) { rendererLogger('actions/AssistantLibraryEditor').error({ error }, 'action failed'); setFailed(messageForUser(error)) }
+    } catch (error) { rendererLogger('actions/AssistantLibraryEditor').error({ error }, 'action failed'); setFailed(assistantPanelFailure(error,t)) }
     finally { setSaving(false) }
   }}>
     <PageHead title={t(entry ? 'library.edit' : 'library.add')} />

@@ -10,7 +10,7 @@ import { assistantPanelPath } from './assistant-panel-paths'
 
 type Notice = { operationId: string; resource: string; context: Record<string, unknown> }
 type LocalState = { version: 1; ownerId: string; assistantId: string; revokedPaths: string[]; revokedKeys: string[]; paths: Record<string, string[]>;
-  revokedResources?: Record<string, { domain: string; paths: string[] }>; notices: Notice[] }
+  appliedRevisions?: Record<string, string>; revokedResources?: Record<string, { domain: string; paths: string[] }>; notices: Notice[] }
 export type AssistantPanelHome = { assistantId: string; ownerId: string; cwd: string; home: string; kind: AssistantHomeKind }
 
 const keyOf = (change: AssistantPanelChange) => JSON.stringify([change.domain,change.resource_key])
@@ -102,7 +102,9 @@ export function createAssistantPanelApplication(binding: AssistantPanelHome, dep
     if (change.assistant_user_id !== binding.assistantId || change.owner_user_id !== binding.ownerId) throw new Error('PANEL_ACCOUNT_CHANGED')
     const value = await state(), key = keyOf(change), removed = change.operation === 'remove'
     const data = object(change.payload[removed ? 'before' : 'data'] ?? {})
-    if (!removed && value.revokedKeys.includes(key)) throw new Error('RESOURCE_DELETED')
+    if (BigInt(change.revision) < BigInt(value.appliedRevisions?.[key] ?? '0')) return
+    const recreated = change.payload.recreated === true
+    if (!removed && value.revokedKeys.includes(key) && !recreated) throw new Error('RESOURCE_DELETED')
     let text: string | undefined
     const root = rootOf(change.domain)
     if (root) {
@@ -132,7 +134,7 @@ export function createAssistantPanelApplication(binding: AssistantPanelHome, dep
         }
         delete value.paths[key]
       } else {
-        if (value.revokedPaths.some(path => path === target || target!.startsWith(`${path}${sep}`))) throw new Error('RESOURCE_DELETED')
+        if (value.revokedPaths.some(path => path !== target && target!.startsWith(`${path}${sep}`))) throw new Error('RESOURCE_DELETED')
         const previous = await Promise.all((value.paths[key] ?? []).map(path => assistantPanelPath(root,path,{ home: anchor })))
         const replaced = previous.filter(path => path !== target)
         if (replaced.length) {
@@ -153,6 +155,14 @@ export function createAssistantPanelApplication(binding: AssistantPanelHome, dep
         if ((change.domain === 'files' || change.domain === 'voice-notes') && data.kind === 'directory') await mkdir(target!,{ recursive: true,mode: 0o700 })
         else await replace(target!,await deps.readBody(change))
         value.paths[key] = [relative(root,target!).split('\\').join('/')]
+        // Owner intent supplies new content at this exact path. Sibling paths
+        // remain revoked; older revisions cannot delete this new generation.
+        value.revokedKeys = value.revokedKeys.filter(candidate => candidate !== key)
+        value.revokedPaths = value.revokedPaths.filter(path => path !== target)
+        for (const entry of Object.values(value.revokedResources ?? {})) {
+          const entryRoot = rootOf(entry.domain)
+          if (entryRoot) entry.paths = entry.paths.filter(path => resolve(entryRoot,path) !== target)
+        }
       }
     } else if (change.domain === 'personality') {
       text = removed ? '' : typeof data.text === 'string' ? data.text : new TextDecoder('utf-8',{ fatal: true }).decode(await deps.readBody(change))
@@ -161,6 +171,8 @@ export function createAssistantPanelApplication(binding: AssistantPanelHome, dep
       await atomicWriteText(target,composeInstructions(await optionalText(target),text))
     } else await deps.applyService(change)
     await deps.invalidate()
+    value.appliedRevisions ??= {}
+    value.appliedRevisions[key] = change.revision
     value.notices = value.notices.filter(entry => entry.resource !== key)
     value.notices.push({ operationId: change.operation_id,resource: key,context: {
       type: 'assistant_panel_change',operationId: change.operation_id,revision: change.revision,

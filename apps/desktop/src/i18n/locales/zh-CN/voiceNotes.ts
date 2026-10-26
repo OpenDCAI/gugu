@@ -94,9 +94,7 @@ export default {
     "discardBody": "已录下的内容不会保存。",
     "discardConfirm": "放弃",
     "discardFailed": "没能放弃，请再试一次。",
-    "heldConnecting": "正在连接{{name}}，连上就上传。",
     "heldKept": "录音先存在手机上。",
-    "heldUnreachable": "连不上{{name}}，录音先存在手机上，连上了就上传。",
     "sending": "正在传到{{name}}家里…",
     "uploaded": "已传到{{name}}家里，等转写"
   },

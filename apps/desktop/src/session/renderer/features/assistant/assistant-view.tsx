@@ -2,6 +2,9 @@ import '@/i18n/registerAssistantCatalog';
 import '@/i18n/registerSettingsCatalog';
 import '@/i18n/registerAgentsCatalog';
 import './assistant-today.css';
+import { refreshLocalAssistantHome } from '@/lib/assistantSetup';
+import { homeTarget } from './assistant-home-sessions';
+import { rendererLogger } from '@/lib/log';
 import { PanelRight } from 'lucide-react';
 import { observer } from 'mobx-react-lite';
 import { useEffect, useState, useSyncExternalStore, type ReactNode } from 'react';
@@ -91,6 +94,10 @@ export const AssistantMainPanel = observer(function AssistantMainPanel() {
   // 住眼前这台:它自己的会话、它派的子 agent 都是本机会话,开着 App 时问本机(别的机器的由会话目录同步)。
   // 住电脑:每次打开 App 把它家里宿主维护的那段说明刷到这一版(管家在云上每次唤醒做同一件事)。
   // 助理那条会话跑在哪个目录(它的记忆跟着那个目录走);会话目录是 observable,这里随它重算。
+  const localHome = home?.kind === 'computer' && homeTarget(home) === null;
+  useEffect(() => {
+    if (localHome) void refreshLocalAssistantHome().catch(error => rendererLogger('assistant/home').warn({ error },'Local assistant instructions refresh failed'));
+  },[localHome]);
   const machine = useAssistantMachine(shell?.assistant?.id ?? null,shell?.chatId ?? null,home);
   const [panelOpen, setPanelOpenState] = useState(readPanelOpen);
   const openedTask = useOpenedAssistantTaskChat();

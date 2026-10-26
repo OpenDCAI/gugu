@@ -1,3 +1,4 @@
+import { withBoundedOperation } from '@gugu/core/cloud/boundedOperation'
 import { hasSessionAdmissionPreparation, prepareSessionAdmission } from '../sessions/session-admission-preparation'
 import { listAutomations } from './repo'
 
@@ -11,10 +12,10 @@ export function prepareAgentScheduleChanges(): Promise<Map<string, Error>> {
   active = (async () => {
     const blocked = new Map<string, Error>()
     const sessions = new Set((await listAutomations()).flatMap(row => row.agentSessionId ? [row.agentSessionId] : []))
-    for (const sessionId of sessions) {
-      try { await prepareSessionAdmission(sessionId,'') }
+    await Promise.all([...sessions].map(async sessionId => {
+      try { await withBoundedOperation(3000,() => new Error('PANEL_PREPARATION_TIMEOUT'),() => prepareSessionAdmission(sessionId,'')) }
       catch (error) { blocked.set(sessionId,error instanceof Error ? error : new Error('PANEL_SCHEDULE_PREPARATION_FAILED')) }
-    }
+    }))
     return blocked
   })().finally(() => { active = null })
   return active

@@ -1,3 +1,4 @@
+import { panelIntegrationChecks } from './assistant-panel-integration-checks'
 import { eq } from 'drizzle-orm'
 import { db } from '@main/db/client'
 import { workspaces as workspaceTable } from '@main/db/schema'
@@ -38,10 +39,15 @@ export const assistantPanelLocal = {
     const volume = await readUserLibraryVolume(kind)
     return Promise.all(volume.items.map(item => readUserLibraryEntry(kind,item.id)))
   },
-  async integrations() {
+  async integrations(ownerId: string) {
     return (await Promise.all(integrationPluginRegistry.getAll().map(async plugin => {
       const providerId = plugin.metadata.id
-      return (await providerAccountRegistry.listAccounts(providerId)).map(account => ({
+      const accounts = await providerAccountRegistry.listAccounts(providerId)
+      const verified = accounts.length ? await panelIntegrationChecks(providerId,JSON.stringify(accounts.map(account => [account.accountId,account.updatedAt])),ownerId) : null
+      return accounts.map(account => ({
+        checkResult: verified?.checks.find(check => check.accountId === account.accountId)?.connected ? 'ok'
+          : verified?.checks.find(check => check.accountId === account.accountId)?.errorType === 'authorization_expired' ? 'reauth' : 'failed',
+        checkedAt: verified?.checkedAt ?? Date.now(),
         providerId,accountId: account.accountId,configured: true,isDefault: account.isDefault,
         displayName: account.meta?.displayName ?? account.meta?.login ?? account.accountId,
         publicMetadata: { version: 1,providerId,accountId: account.accountId,isDefault: account.isDefault,
@@ -76,7 +82,10 @@ export const assistantPanelLocal = {
     }
     if (change.domain === 'schedules') {
       const current = (await automationsService.listAutomations()).find(row => row.id === change.resource_key)
-      if (!current && removed) return
+      if (!current) {
+        if (removed) return
+        throw new Error('PANEL_RESOURCE_REMOVED')
+      }
       if (!current?.agentSessionId || !sessionIds.includes(current.agentSessionId)) throw new Error('PANEL_SCHEDULE_NOT_OWNED')
       if (removed) return automationsService.deleteAutomation(current.id)
       if (change.operation === 'enable' || change.operation === 'disable') {
