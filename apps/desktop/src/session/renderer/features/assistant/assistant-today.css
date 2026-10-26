@@ -152,7 +152,7 @@
 .ta-chat-actions {
   position: absolute;
   top: 10px;
-  right: 6px;
+  right: 16px; /* 和消息、输入框同一条右边线 */
   display: flex;
   gap: 8px;
 }
@@ -220,7 +220,16 @@
 .ta-chat > * { background: transparent !important; }
 .ta-chat [data-chat-area-header] { background: transparent !important; }
 /* 输入区那一块不要底色:输入条浮在渐变上;消息从头像那一排底下淡出来。 */
-.ta-chat [data-chat-composer] { background: transparent !important; padding: 8px 16px 16px !important; }
+/* 输入框和消息同一条边线:左右都离这一列 16px(dock 自己的 16,输入区不再另加一层);底边贴列底,和右边面板的底边对齐。 */
+.ta-chat [data-chat-composer] { background: transparent !important; padding: 0 !important; }
+.ta-chat [data-chat-bottom-dock] > div { padding-bottom: 0 !important; }
+.ta-chat [data-msg-id] > div { padding-inline: 16px !important; }
+/* 最后一条和输入框之间留 16px;露着「灵感」时再让出胶囊那一行(32 + 上下各 8),见下面 data-ideas-entry。 */
+.ta-chat-col [data-testid='chat-message-list'] { padding-bottom: 16px; }
+/* 面板里的任务聊天:同一条边线(消息、输入框离面板内沿 16px);输入框底下也留 16,不贴面板圆角。 */
+.ta-task-chat-slot [data-msg-id] > div { padding-inline: 16px !important; }
+.ta-task-chat-slot [data-chat-bottom-dock] > div:last-child { padding-bottom: 16px !important; }
+.ta-task-chat-slot [data-testid='chat-message-list'] { padding-bottom: 16px; }
 /* 输入条上方那句说明(云电脑休眠中…):做成一行居中的小字胶囊,不抢输入条。 */
 .ta-chat [data-composer-notice] {
   justify-content: center;
@@ -260,10 +269,11 @@
   flex-shrink: 0;
   align-items: center;
   justify-content: center;
-  padding-inline: 12px;
+  padding-inline: 16px;
 }
-.ta-panel-top > .ta-panel-back { position: absolute; left: 12px; }
-.ta-panel-top > .ta-panel-collapse { position: absolute; right: 12px; }
+/* 顶栏的圆钮和面板正文同一条边线(正文左右 16px)。 */
+.ta-panel-top > .ta-panel-back { position: absolute; left: 16px; }
+.ta-panel-top > .ta-panel-collapse { position: absolute; right: 16px; }
 .ta-panel-body {
   flex: 1;
   min-height: 0;
@@ -859,9 +869,11 @@ textarea.ta-input { min-height: 80px; resize: vertical; line-height: 1.5; }
 .ta-chat-col[data-ideas-entry] [data-testid='chat-message-list'],
 .ta-phone-chat[data-ideas-entry] [data-testid='chat-message-list'] { padding-bottom: 56px; }
 .ta-phone-chat { position: relative; }
+/* 胶囊右缘 = 输入框右缘:电脑上输入框离列边 16,手机上 20。 */
+.ta-phone-chat .ta-ideas-pill { right: 20px; }
 .ta-ideas-pill {
   position: absolute;
-  right: 21px;
+  right: 16px;
   z-index: 5;
   display: inline-flex;
   height: var(--control-h-md);

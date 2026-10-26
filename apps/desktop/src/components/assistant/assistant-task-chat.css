@@ -65,12 +65,14 @@
 .ta-task-panel-collapse {
   position: absolute;
   top: 10px;
-  right: 12px;
+  right: 16px;
   z-index: 5;
 }
 
+/* 标题栏和消息、输入框同一条边线(16px);右边让出收起钮 32 + 间隔 8 + 边距 16。 */
 .ta-panel .assistant-task-chat-window > .gg-pane-header {
-  padding-right: 52px;
+  padding-left: 16px;
+  padding-right: 56px;
 }
 
 .ta-panel-top[hidden],
