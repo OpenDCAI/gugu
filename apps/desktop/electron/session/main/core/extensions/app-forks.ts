@@ -150,7 +150,7 @@ export async function prepareForkVariant(sourceDir: string): Promise<ExtensionVa
     if (compareExtensionVersions(row.version, base) > 0 && await git(fork.root, ['merge-base', commit, row.source.commit]).then((common) => common === row.source.commit, () => false)) base = row.version;
   }
   const remotes = (await git(fork.root, ['remote'])).split('\n');
-  const remote = remotes.includes('origin') ? await git(fork.root, ['remote', 'get-url', 'origin']) : '';
+  const remote = remotes.includes('origin') ? await git(fork.root, ['config', '--get', 'remote.origin.url']) : '';
   const repo = /^https:\/\/github.com\/([^/]+\/[^/]+?)(?:\.git)?$/.exec(remote)?.[1] ?? null;
   return { name: fork.name, base, commit, repo, path: fork.source.path, dir: sourceDir, sha256, bytes: bytes.byteLength };
 }

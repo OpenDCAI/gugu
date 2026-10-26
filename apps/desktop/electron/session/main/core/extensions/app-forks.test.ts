@@ -86,6 +86,7 @@ it('reuses the connected GitHub account, creates one repository fork and pushes 
   const second = await createAppFork('demo', 'second');
   expect(first.repo).toBe('my-user/gugu-apps');
   expect(state.createForks).toBe(1);
+  expect((await prepareForkVariant(first.source_dir))?.repo).toBe('my-user/gugu-apps');
   for (const fork of [first, second]) {
     expect(execFileSync('git', ['--git-dir', bare, 'rev-parse', `refs/heads/${fork.branch}`], { encoding: 'utf8' }).trim()).toBe(fork.commit);
     expect(readFileSync(path.join(fork.git_dir, '.git', 'config'), 'utf8')).not.toContain('unit-test-token');
