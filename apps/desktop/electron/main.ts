@@ -451,6 +451,10 @@ import { registerSshLinkIpc } from './server/ssh-link-ipc'
 import { openCloudDeviceRpcPipe, openSshDeviceRpcPipe } from './device-rpc-requester'
 import { createDeviceRpcRequester } from '@gugu/core/cloud/deviceRpcRequester'
 import type { DeviceRpcHandlers } from '@gugu/core/cloud/deviceRpcResponder'
+import type { AssistantWorkRpcClient } from '@gugu/core/cloud/assistantWorkOutbox'
+import type { SessionAttachmentRef } from '@gugu/core/cloud/sessionAttachments'
+import { createAssistantWorkOutboxHost, type AssistantWorkOutboxHost } from './assistant-work-outbox'
+import { subscribeAuthenticatedElectronRealtimeChannel } from './realtime-channel'
 import { CrossMachineError, createCrossMachineSessions, type CrossMachineSessions } from './cross-machine-sessions'
 import { createActivitySummaryQuery } from './activity-summary-query'
 import type { RemoteSessionCaller } from '@gugu/session-core/session-record/contract'
@@ -1627,7 +1631,56 @@ function createPrimaryDeviceRpcHandlers(io?: { openTopicPublisher: OpenTopicPubl
   // MessagePreview(#6357)只挂咕咕云频道:它往 realtime topic 推,SSH 设备连接没有这条路。
   const base = bridge.createSessionpageSessionDeviceRpcHandlers(io ? { preview: messagePreviewHostDeps(io) } : undefined)
   // #7199 第二步:别的机器上的 agent 调这台电脑的单个动作(请执行 / 结果收到)。
-  return { ...base, handlers: { ...base.handlers, ...deviceActionsRuntime().rpcHandlers(), ...tunnelRpcHandlers(), ...desktopFiles.handlers(io ? 'realtime' : 'ssh') } }
+  return { ...base, handlers: { ...base.handlers, ...assistantWorkDeliveryHost().rpcHandlers(), ...deviceActionsRuntime().rpcHandlers(), ...tunnelRpcHandlers(), ...desktopFiles.handlers(io ? 'realtime' : 'ssh') } }
+}
+
+let assistantWorkOutbox: AssistantWorkOutboxHost | null = null
+function assistantWorkDeliveryHost(): AssistantWorkOutboxHost {
+  if (assistantWorkOutbox) return assistantWorkOutbox
+  const context = async () => {
+    const lease = deviceRuntimeHost?.getRuntimeLease()
+    const auth = await desktopAuthProvider().getAuth()
+    if (!lease || !auth?.accessToken || lease.ownerId !== auth.userId) return null
+    return { ...lease, client: makeIdentityClient(auth.accessToken) as unknown as AssistantWorkRpcClient }
+  }
+  const host = createAssistantWorkOutboxHost({
+    context,
+    prepareRemote: (deviceId) => crossMachine().ensureReachable(deviceId),
+    requestRemote: (deviceId, type, payload, signal) => crossMachineRequester!.call(deviceId, type, payload, { timeoutMs: 45_000, signal }),
+    deliverLocal: async (event) => {
+      const bridge = loadEmdashBridge()
+      if (!bridge) throw Object.assign(new Error('Session host is not ready'), { code: 'SESSION_HOST_NOT_READY' })
+      const status = event.kind === 'dispatch' ? undefined
+        : ['completed', 'cancelled', 'question'].includes(event.kind) ? event.kind : 'progress'
+      const caller: RemoteSessionCaller = {
+        deviceId: event.from_device_id, deviceLabel: null, sessionId: event.from_session_id,
+        agentUserId: null, name: event.kind === 'dispatch' ? '个人助理' : '任务执行者',
+        harness: null, transport: 'acp', model: null, platformModel: null,
+      }
+      const result = await bridge.runRemoteSessionAction(caller, {
+        action: 'message', session_ids: [event.to_session_id], text: event.content!,
+        client_message_id: event.message_id, client_message_at: event.platform_received_at,
+        attachments: event.attachment_refs as SessionAttachmentRef[] | undefined,
+        ...(status ? { work_result: { work_id: event.work_id, status } } : {}),
+      } as SessionAction) as { recipients: UnifiedRecipientResult[] }
+      const receipt = result.recipients.find(row => row.message_id === event.message_id)
+      return { admitted: receipt?.status === 'delivered', messageId: event.message_id }
+    },
+    subscribe: async (ownerId, changed) => {
+      const createChannel = () => supabase.channel(`gugu:user:${ownerId}:events`, { config: { private: true } })
+        .on('broadcast', { event: 'assistant_work_changed' }, changed)
+      const off = await subscribeAuthenticatedElectronRealtimeChannel({
+        realtime: supabase.realtime, removeChannel: channel => supabase.removeChannel(channel as ReturnType<typeof createChannel>),
+      }, createChannel(), {
+        label: `assistant-work:${ownerId}`, createChannel,
+        onStatus: status => { if (String(status).endsWith('SUBSCRIBED')) changed() },
+      })
+      return () => { void off() }
+    },
+    warn: detail => createLogger('assistant-work/outbox').warn(detail, 'Task delivery will reconcile from the cloud queue'),
+  })
+  app.once('will-quit', () => host.stop())
+  return (assistantWorkOutbox = host)
 }
 
 /**
@@ -1871,6 +1924,7 @@ function startDeviceRuntimeWhenRendererReady(): void {
   if (SERVER_MODE) setSessionBrowserBridge(browserMcpServersFor)
   deviceRuntimeHost ??= createDeviceRuntimeHostLoop({
     env: process.env,
+    onRuntimeLeaseRenewed: () => { void assistantWorkDeliveryHost().kick() },
     authProvider: hostAuthProvider,
     makeIdentityClient: (accessToken) =>
       makeIdentityClient(accessToken) as unknown as DeviceRuntimeIdentityClient,
