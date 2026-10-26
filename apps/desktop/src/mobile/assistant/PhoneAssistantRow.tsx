@@ -23,8 +23,11 @@ export function PhoneAssistantRow({ state, onOpen }: { state: PhoneAssistantStat
   const name = contact?.display_name ?? t('rail')
   const unread = chat?.unread_count ?? 0
   return (
+    <>
     <ListRow
       mobile
+      data-first-run-hint="assistant"
+      data-first-run-device="phone"
       role="option"
       aria-selected={false}
       data-testid={AUTOMATION_TEST_IDS.mobileAssistantNav}
@@ -38,5 +41,7 @@ export function PhoneAssistantRow({ state, onOpen }: { state: PhoneAssistantStat
       subtitle={chat ? chatPreviewText(chat) : undefined}
       trailing={unread > 0 ? <Chip tone="accent" shape="count">{unread > 99 ? '99+' : unread}</Chip> : undefined}
     />
+    <div data-first-run-hint-space="assistant" />
+    </>
   )
 }

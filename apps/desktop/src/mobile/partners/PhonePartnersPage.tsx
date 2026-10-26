@@ -233,9 +233,10 @@ export function PhonePartnersPage({
         <Pane paneRole="nav" mobile className="gg-partners">
           <HeaderSearch mobile active={active && !top} value={query} onChange={setQuery} placeholder={t('partners.search')} testId="phone-partners-search">
             {(searchButton) => (
-              <PaneHeader mobile titleLevel="page" title={t('shell.partnersMobile')} leading={<PhoneMeButton user={user} onOpen={onOpenMe} />} actions={searchButton} />
+              <PaneHeader mobile titleLevel="page" title={<span data-first-run-hint="collaboration" data-first-run-device="phone">{t('shell.partnersMobile')}</span>} leading={<PhoneMeButton user={user} onOpen={onOpenMe} />} actions={searchButton} />
             )}
           </HeaderSearch>
+          <div data-first-run-hint-space="collaboration" />
           <div className="gg-partners-scroll">
             {!searching ? (
               <div className="gg-partners-navrows">
