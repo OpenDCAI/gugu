@@ -461,13 +461,13 @@ function OtherDeviceActions({ device, compact = false }: { device: Device; compa
     for (const a of actions ?? []) out.set(a.group, [...(out.get(a.group) ?? []), a])
     return [...out.entries()]
   }, [actions])
-  if (isPhoneDevice(device)) return <SettingsGroup title={device.label}><SettingsRow title={t('devices.kind.phone')} description={t('devices.phoneActions.localAgentOnly')} control={<Chip>{t(device.is_online ? 'devices.online' : 'devices.offline')}</Chip>} /></SettingsGroup>
+  if (isPhoneDevice(device)) return <SettingsGroup><SettingsRow title={t('devices.kind.phone')} description={t('devices.phoneActions.localAgentOnly')} control={<Chip>{t(device.is_online ? 'devices.online' : 'devices.offline')}</Chip>} /></SettingsGroup>
   if (!actions) return <SettingsNote>{t('devices.deviceActions.otherNone')}</SettingsNote>
   return (
     <>
       {!compact && <SettingsNote>{t('devices.deviceActions.otherNote')}</SettingsNote>}
       {!device.is_online && <SettingsNote tone="danger">{t('devices.deviceActions.otherOffline')}</SettingsNote>}
-      <SettingsGroup title={compact ? device.label : undefined}>
+      <SettingsGroup>
         {groups.map(([group, list]) => {
           const on = list.some((a) => a.available)
           const reason = list.find((a) => !a.available)?.unavailable_reason

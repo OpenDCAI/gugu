@@ -62,7 +62,7 @@ it('shows same-machine tiers once on both phone and desktop, using the online ro
     const open = vi.fn()
     await renderWithAppProviders(harness, <AssistantDevicesPage cloudDeviceId={null} onOpenDevice={open} />)
     expect(find('assistant-device-acceptance')).toBeNull()
-    expect(find('assistant-device-beta')!.textContent).toContain('2 个配置')
+    expect(find('assistant-device-beta')!.textContent).toContain('2 个版本')
     await clickElement(find('assistant-device-beta')!)
     expect(open).toHaveBeenCalledWith('beta')
   }

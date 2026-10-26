@@ -105,9 +105,13 @@ export function useLinkNavigation(input: {
       const contact = state.contacts.find((row) => row.id === chat.peer_user_id)
       if (assistant?.assistant && contact?.type === 'agent' && contact.owner_user_id === state.ownerId
         && contact.id !== assistant.assistant.id) {
-        const {resolveAssistantWorkTarget}=await import('../lib/assistantWorkTarget')
-        task=await resolveAssistantWorkTarget(assistant.assistant.id,{agentId:contact.id})
-          ??readAssistantTaskChat(state.ownerId,contact.id)
+        // Choosing the known task viewport must not wait for its cloud reader to be ready.
+        const known=readAssistantTaskChat(state.ownerId,contact.id)
+        if(known?.assistantId===assistant.assistant.id)task=known
+        else {
+          const {resolveAssistantWorkTarget}=await import('../lib/assistantWorkTarget')
+          task=await resolveAssistantWorkTarget(assistant.assistant.id,{agentId:contact.id})
+        }
       }
       if (asked !== generation || current.current.ownerId !== state.ownerId) return
       let viewportKey: string | void
