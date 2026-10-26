@@ -10,6 +10,17 @@ function fixture(row = event) {
   return { receiver, read, deliver }
 }
 describe('work delivery receiver', () => {
+  it('joins concurrent wire replays until the actual admission settles', async () => {
+    const f = fixture(); const gate = Promise.withResolvers<void>();
+    f.deliver.mockImplementation(async () => { await gate.promise; return { messageId: 'message', admitted: true }; });
+    const ref = { assistant_id: 'agent', work_id: 'work', message_id: 'message' };
+    const first = f.receiver.receive(ref, 'owner');
+    await vi.waitFor(() => expect(f.deliver).toHaveBeenCalledTimes(1));
+    const second = f.receiver.receive(ref, 'owner');
+    try { await Promise.resolve(); await Promise.resolve(); expect(f.deliver).toHaveBeenCalledTimes(1); }
+    finally { gate.resolve(); await Promise.allSettled([first, second]); }
+    expect(f.deliver).toHaveBeenCalledOnce();
+  })
   it('reads the canonical cloud event and preserves its stable identity and timestamp', async () => {
     const f = fixture()
     await expect(f.receiver.receive({ assistant_id: 'agent', work_id: 'work', message_id: 'message' }, 'owner')).resolves.toEqual({ status: 'admitted', messageId: 'message' })

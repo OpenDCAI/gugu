@@ -14,14 +14,21 @@ const fail = (code: string) => Object.assign(new Error(code), { code })
 export function createAssistantWorkDeliveryReceiver(deps: {
   context(): Promise<{ ownerId: string; deviceId: string } | null>
   read(ref: AssistantWorkDeliveryReference): Promise<AssistantWorkDeliveryEvent | null>
-  deliver(event: AssistantWorkDeliveryEvent): Promise<{ admitted: boolean; messageId: string; receipt?: Record<string, unknown> }>
+  deliver(event: AssistantWorkDeliveryEvent, signal?: AbortSignal): Promise<{ admitted: boolean; messageId: string; receipt?: Record<string, unknown> }>
 }) {
+  type Admission = { status: 'admitted'; messageId: string; receipt?: Record<string, unknown> } | { status: 'pending' }
+  const admissions = new Map<string, Promise<Admission>>()
   return {
-    async receive(input: unknown, ownerId: string): Promise<{ status: 'admitted'; messageId: string; receipt?: Record<string, unknown> } | { status: 'pending' }> {
+    async receive(input: unknown, ownerId: string, signal?: AbortSignal): Promise<{ status: 'admitted'; messageId: string; receipt?: Record<string, unknown> } | { status: 'pending' }> {
       const context = await deps.context()
       if (!context || context.ownerId !== ownerId) throw fail('OWNER_CHANGED')
       const ref = input as AssistantWorkDeliveryReference | null
       if (!ref || ![ref.assistant_id, ref.work_id, ref.message_id].every(value => typeof value === 'string' && value.length > 0)) throw fail('INVALID_DELIVERY_REFERENCE')
+      signal?.throwIfAborted()
+      const key = JSON.stringify([ownerId, context.deviceId, ref.assistant_id, ref.work_id, ref.message_id])
+      const existing = admissions.get(key)
+      if (existing) return existing
+      const admitting = (async (): Promise<Admission> => {
       // Deliberately ignore any cached content/attachments supplied on the wire.
       const event = await deps.read({ assistant_id: ref.assistant_id, work_id: ref.work_id, message_id: ref.message_id })
       if (!event || event.message_id !== ref.message_id || event.work_id !== ref.work_id) throw fail('WORK_MESSAGE_NOT_FOUND')
@@ -30,8 +37,14 @@ export function createAssistantWorkDeliveryReceiver(deps: {
       if (current?.ownerId !== ownerId || current.deviceId !== context.deviceId) throw fail('OWNER_CHANGED')
       if (event.to_device_id !== context.deviceId) throw fail('WRONG_DEVICE')
       withSessionAttachments('', event.attachment_refs as SessionAttachmentRef[] | undefined)
-      const receipt = await deps.deliver(event)
+      signal?.throwIfAborted()
+      const receipt = await (signal ? deps.deliver(event, signal) : deps.deliver(event))
       return receipt.admitted && receipt.messageId === ref.message_id ? { status: 'admitted', messageId: ref.message_id, ...(receipt.receipt ? {receipt: receipt.receipt} : {}) } : { status: 'pending' }
+      })()
+      admissions.set(key, admitting)
+      const clean = () => { if (admissions.get(key) === admitting) admissions.delete(key) }
+      void admitting.then(clean, clean)
+      return admitting
     },
   }
 }
