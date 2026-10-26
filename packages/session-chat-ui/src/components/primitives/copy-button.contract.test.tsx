@@ -28,7 +28,7 @@ describe('clipboard rejection feedback', () => {
       expect(host.textContent).not.toContain('Copied');
       expect(logged).toHaveBeenCalledOnce();
       button.click();
-      await until('copy retry succeeds', () => button.getAttribute('aria-label') === 'Copy - Copied!');
+      await until('copy retry succeeds', () => button.getAttribute('aria-label') === 'Copy - Copied');
       expect(host.querySelector('[role="alert"]')).toBeNull();
       expect(write).toHaveBeenCalledTimes(2);
     });
