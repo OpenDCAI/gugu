@@ -29,7 +29,7 @@ function viewer() {
   return root
 }
 
-describe('native file viewer menu', () => {
+describe('host file viewer menu', () => {
   it('flushes pending composer input in capture before delivering the existing file-reference payload', async () => {
     vi.mocked(getRendererSession).mockReturnValue({ access_token: 'test-token', user: { id: 'owner' } } as ReturnType<typeof getRendererSession>)
     const detail = { chatId: 'chat', text: '> beta', refs: [{ label: 'file.md', link: 'gugu-file://file?v=2' }] }
@@ -100,9 +100,9 @@ describe('native file viewer menu', () => {
     const context: FileViewerMenuRequest & { viewerId: string } = { viewerId: 'image', requestId: 'image', action: 'snapshot', selection: { text: '' }, canSelectAll: false }
     const run = vi.fn()
     const image = fileViewerMenuTemplate(context, labels, run)
-    expect(image.filter(item => item.enabled === false).map(item => item.label)).toEqual(['Copy', 'Select all', 'Quote selection'])
-    expect(image.at(-1)?.label).toBe('Quote file')
+    expect(image.filter(item => item.type !== 'separator' && item.enabled === false).map(item => item.type !== 'separator' ? item.label : undefined)).toEqual(['Copy', 'Select all', 'Quote selection'])
+    expect((image.at(-1)?.type !== 'separator' ? (image.at(-1) as { label: string }).label : undefined)).toBe('Quote file')
     const editor = fileViewerMenuTemplate({ ...context, editable: true, selection: { text: 'source' }, canSelectAll: true }, labels, run)
-    expect(editor.filter(item => item.label).map(item => item.label)).toEqual(['Undo', 'Redo', 'Cut', 'Copy', 'Paste', 'Select all', 'Quote selection', 'Quote file'])
+    expect(editor.filter(item => item.type !== 'separator').map(item => item.type !== 'separator' ? item.label : undefined)).toEqual(['Undo', 'Redo', 'Cut', 'Copy', 'Paste', 'Select all', 'Quote selection', 'Quote file'])
   })
 })

@@ -1,6 +1,7 @@
 import { mkdtemp, realpath, rm, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { homedir, tmpdir } from 'node:os';
+import type { ContentMenuEntry } from '../../../../content-context-menu';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 const mocks = vi.hoisted(() => ({
@@ -9,11 +10,7 @@ const mocks = vi.hoisted(() => ({
   openExternal: vi.fn(),
   openPath: vi.fn(),
   showItemInFolder: vi.fn(),
-  menuPopup: vi.fn(),
-  menuBuildFromTemplate: vi.fn((template: Electron.MenuItemConstructorOptions[]) => ({
-    popup: mocks.menuPopup,
-    template,
-  })),
+  showMenu: vi.fn<(items: ContentMenuEntry[], position: unknown) => void>(),
   eventEmit: vi.fn(),
   // @@@electron44-clipboard (#4394) — 必须 resolve 一个 Promise:electron 44 起 clipboard.writeText
   // 是异步的,产品码会 await / .catch 它。mock 返回 undefined 就是拿旧同步 API 的口径当真值,
@@ -42,10 +39,9 @@ vi.mock('electron', () => ({
     openPath: mocks.openPath,
     showItemInFolder: mocks.showItemInFolder,
   },
-  Menu: {
-    buildFromTemplate: mocks.menuBuildFromTemplate,
-  },
 }));
+
+vi.mock('../../../../content-context-menu', () => ({ showContentContextMenu: mocks.showMenu }));
 
 vi.mock('@main/app/window', () => ({
   getMainWindow: vi.fn(),
@@ -242,26 +238,26 @@ describe('AppService.showTerminalContextMenu', () => {
       y: 20,
     });
 
-    const template = mocks.menuBuildFromTemplate.mock.calls[0]?.[0];
-    const copyItem = template?.find((item) => item.label === 'Copy');
+    const template = mocks.showMenu.mock.calls[0]?.[0];
+    const copyItem = template?.find((item) => item.type !== 'separator' && item.label === 'Copy');
 
-    expect(copyItem?.enabled).toBe(true);
-    copyItem?.click?.({} as Electron.MenuItem, undefined as never, undefined as never);
+    expect((copyItem?.type !== 'separator' && copyItem?.enabled)).toBe(true);
+    copyItem?.click?.();
 
     expect(mocks.clipboardWriteText).toHaveBeenCalledWith('  indented value\n');
   });
 
-  it('preserves link copying, terminal actions and native popup coordinates', () => {
+  it('preserves link copying, terminal actions and host menu coordinates', () => {
     appService.showTerminalContextMenu({ requestId: 'terminal', selectionText: '', linkText: ' https://example.com/ ', x: 10.2, y: 20.8 });
-    const template = mocks.menuBuildFromTemplate.mock.calls[0]![0];
-    expect(template.map(item => item.label ?? item.type)).toEqual(['Copy', 'Copy Link', 'Paste', 'separator', 'Select All', 'Clear']);
-    expect(template[0]!.enabled).toBe(false);
-    template[1]!.click?.({} as Electron.MenuItem, undefined as never, undefined as never);
+    const template = mocks.showMenu.mock.calls[0]![0];
+    expect(template.map(item => item.type === 'separator' ? item.type : item.label)).toEqual(['Copy', 'Copy Link', 'Paste', 'separator', 'Select All', 'Clear']);
+    expect((template[0]!.type !== 'separator' && template[0]!.enabled)).toBe(false);
+    template[1]!.click?.();
     expect(mocks.clipboardWriteText).toHaveBeenCalledWith('https://example.com/');
-    for (const index of [2, 4, 5]) template[index]!.click?.({} as Electron.MenuItem, undefined as never, undefined as never);
+    for (const index of [2, 4, 5]) template[index]!.click?.();
     expect(mocks.eventEmit.mock.calls.map(call => call[1])).toEqual([
       { requestId: 'terminal', action: 'paste' }, { requestId: 'terminal', action: 'select-all' }, { requestId: 'terminal', action: 'clear' },
     ]);
-    expect(mocks.menuPopup).toHaveBeenCalledWith({ window: undefined, x: 10, y: 21 });
+    expect(mocks.showMenu.mock.calls[0]![1]).toEqual({ window: undefined, x: 10, y: 21 });
   });
 });

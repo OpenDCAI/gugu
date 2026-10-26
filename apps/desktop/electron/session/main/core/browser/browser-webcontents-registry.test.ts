@@ -7,9 +7,9 @@ import { BrowserWebContentsRegistry, isSamePreviewNavigation } from './browser-w
 
 const sessionsByPartition = new Map<string, object>();
 
-const menuPopups = vi.hoisted(() => [] as unknown[]);
+const showMenu = vi.hoisted(() => vi.fn());
+vi.mock('../../../../content-context-menu', () => ({ showContentContextMenu: showMenu }));
 vi.mock('electron', () => ({
-  Menu: { buildFromTemplate: () => ({ popup: (options: unknown) => menuPopups.push(options) }) },
   session: {
     fromPartition: (partition: string) => {
       let value = sessionsByPartition.get(partition);
@@ -171,9 +171,11 @@ describe('BrowserWebContentsRegistry', () => {
     registry.registerSession({ browserId: 'browser-1', partition: PROFILE_PARTITION });
     const webContents = fakeWebContents();
     adopt(registry, 'browser-1', webContents);
-    menuPopups.length = 0;
+    showMenu.mockClear();
     webContents.emitEvent('context-menu', { preventDefault: vi.fn() }, { x: 5, y: 7, selectionText: 'hi', linkURL: '', srcURL: '', mediaType: 'none' });
-    expect(menuPopups).toEqual([{ window: PAGE_WINDOW, x: 45, y: 97 }]);
+    expect(showMenu.mock.calls[0]?.[1]).toEqual({ window: PAGE_WINDOW, x: 45, y: 97 });
+    const items = showMenu.mock.calls[0]?.[0];
+    expect(items.find((item: { id?: string }) => item.id === 'copy-link')).toMatchObject({ enabled: false });
   });
 
   it('allows OAuth popups as hardened windows and routes tab links in-app', () => {

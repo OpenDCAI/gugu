@@ -132,6 +132,7 @@ export function Menu({
         >
           <MenuPrimitive.Popup
             className={menuPopup}
+            data-occludes-browser-page
             aria-label={ariaLabel}
             style={{ minWidth: Math.max(minWidth, 0), padding: menuSurfacePadding, ...style }}
           >

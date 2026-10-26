@@ -20,6 +20,7 @@ import { FirstRunGate } from './components/firstRun/FirstRunGate'
 import { ShellErrorBoundary } from './components/ShellErrorBoundary'
 import { ReleaseNotesOpener } from './components/ReleaseNotesOpener'
 import { AppModalHost } from './components/appModal/AppModalHost'
+import { ContentContextMenuHost } from './components/ContentContextMenuHost'
 import { ThemeProvider } from './store/theme'
 import { rendererCommandEventName } from './lib/rendererCommandProtocol'
 import { sessionCoordinator } from './lib/sessionCoordinator'
@@ -70,6 +71,7 @@ function AuthenticatedProduct({ user }: { user: AuthUser }) {
         <SessionExpiredNotice />
         <ReleaseNotesOpener />
         <AppModalHost />
+        <ContentContextMenuHost />
       </ImagePreviewProvider>
     </ChatProvider>
   )

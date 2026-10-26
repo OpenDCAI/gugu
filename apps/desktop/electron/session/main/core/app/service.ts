@@ -5,7 +5,8 @@ import { extname, isAbsolute, join, resolve, sep } from 'node:path';
 import type { IDisposable, IInitializable } from '@gugu/session-shared';
 import { app, clipboard, dialog, shell } from 'electron';
 import { getMainWindow } from '@main/app/window';
-import { popupNativeTextMenu } from '../../../../native-text-menu';
+import { showContentContextMenu } from '../../../../content-context-menu';
+import { textContextMenuItems } from '../../../../text-context-menu';
 import { events } from '@main/lib/events';
 import { log } from '@main/lib/logger';
 import { buildExternalToolEnv } from '@main/utils/childProcessEnv';
@@ -338,7 +339,7 @@ class AppService implements IInitializable, IDisposable {
     const emitAction = (action: TerminalContextMenuAction) => {
       events.emit(terminalContextMenuActionChannel, { requestId: args.requestId, action });
     };
-    popupNativeTextMenu({
+    showContentContextMenu(textContextMenuItems({
       selectionText,
       actions: {
         copy: () => copyTextFireAndForget(selectionText),
@@ -347,7 +348,7 @@ class AppService implements IInitializable, IDisposable {
         selectAll: () => emitAction('select-all'),
         clear: () => emitAction('clear'),
       },
-    }, {
+    }), {
       window: getMainWindow() ?? undefined,
       x: Math.round(args.x),
       y: Math.round(args.y),
