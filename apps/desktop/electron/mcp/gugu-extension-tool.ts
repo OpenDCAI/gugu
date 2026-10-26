@@ -46,7 +46,7 @@ export const EXTENSION_TOOL_DEFS: readonly SessionpageToolDef[] = [
   {
     name: 'app_install',
     // 集体记忆对账第 7 条:D-17 重装没新增声明不弹框(extension-agent-actions.ts installPlan 的 asks),说明里补这半句。
-    description: 'Install an App on your owner\'s computer (this one, or another with device): from source_dir (app_create), a .guguext in a chat (source_message_id), or the market. For a chat App give chat_id and data too: one call makes its data file, checks the App on it, posts it to the chat as a card and returns the file\'s link. An App asking for capabilities waits for the person to confirm; reinstalling from the same folder with nothing new declared replaces it without asking.',
+    description: 'Install an App on your owner\'s computer (this one, or another with device): from source_dir (app_create), a .guguext in a chat (source_message_id), or the market. For a chat App give chat_id and data too: one call makes its data file, checks the App on it, posts it to the chat as a card and returns the file\'s link. An App asking for capabilities waits for the person to confirm; reinstalling from the same folder with nothing new declared replaces it without asking. Switching an App on belongs to the person on their App page; never edit installed files.',
     schema: z.object(APP_INSTALL_ARGS).strict().refine((args) => [args.source_dir, args.source_message_id, args.market].filter((given) => given !== undefined).length === 1, {
       message: 'app_install takes exactly one of source_dir, source_message_id or market',
     }).refine((args) => args.chat_id === undefined || args.source_message_id === undefined, {

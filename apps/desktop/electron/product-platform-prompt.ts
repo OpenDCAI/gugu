@@ -16,10 +16,11 @@
 // prompt-injection.ts 的 `<gugu_project_context>`）合起来才是 agent 拿到的常驻正文，所以「只有一个
 // 属主」是跨这三处的。复述一条已经在别处写全的纪律，代价不是难看，是每会话都再付一次这笔 token。
 // 已知的三条分界：投递路由（出口规则在 `<gugu_transport>`，surface 块只说「当面输入不算投递」）、
-// harness 工具名装饰（本块只说「名字是 canonical 后缀」；这一家的形态由 surface 块从 adapter 的
-// `capabilities.mcp.toolNames` 渲染，#6192 —— ❌ 别在这里写一张按家枚举的清单，漏哪家哪家就按裸名找）、
+// harness 工具名装饰（只由 surface 块从 adapter 的 `capabilities.mcp.toolNames` 渲染，#6192；
+// ❌ 在本块再说一次或写按家枚举的清单，漏哪家哪家就按裸名找）、
 // session_spawn（只在 surface 块）。工具自己的用法（参数、谁来接受、发送闸）归工具描述，本块与 surface 块只写「什么时候
 // 用哪个工具」（#6634 问题 15 把八处两头都写的删成一处，守卫同在 productPlatformPromptBudget.test.ts）。
+// 列表的 rows / 筛选是所有工具共享的协议，统一归本块，❌ 在每个字段里重复付费（2026-10-27）。
 // 工具名纪律只给「装饰后的名字 + 照单调用」：❌ 附带任何按路由的调用形状示例——单对象示例会被
 // 模型逐字模仿成嵌套 args + 裸名调用（2026-09-21 owner 实测 #5754；#6192 qwen 的 tool_call 桥上
 // 又撞一次：工具描述里那句 Pi 的 `{tool,args}` 形状被模仿成多包一层的 `{arguments:{name,arguments}}`）。
@@ -30,8 +31,6 @@
 // D-02 / D-10 装在这台电脑上的 App 的工具默认也在目录里（逐个 App 可改成完全披露）。#6634 只写了前一半，agent 就以为
 // 目录是「群、会话管理这类杂项」，不进去找搜索工具（125 10-06 dogfood）。两半都写，改它先对原件。
 
-// 列表约定那一段里的状态词从 core 的唯一词表插进来,❌ 在文案里另抄一份。
-import { AGENT_STATUSES, AGENT_STATUS_DETAILS } from '@gugu/core/shared/agentStatus'
 import { NO_REPLY_MARKER } from '@gugu/core/local/agent/silenceMarker'
 
 export const GUGU_PLATFORM_PROMPT_TOKEN_BUDGET = 2500
@@ -44,6 +43,8 @@ export const GUGU_PLATFORM_PROMPT_TOKEN_BUDGET = 2500
 //   恒真的只有「打印的到不了聊天、也到不了别的会话」，❌ 写成绝对的「never reaches it」。
 // - active 收的是人发的不点名消息：agent 发的不点名消息谁也不唤醒（gugu-supabase 20260930134600_…6860.sql 的 message_wakes_agent）。
 
+export const GUGU_ACKNOWLEDGEMENT = '- Split naturally — a brief "on it" while you work, then the result. Never go silent for minutes, then dump a wall of text.'
+
 export const GUGU_PLATFORM_BLOCK = `<gugu_platform>
 You are participating in 咕咕 (Gugu), on top of your host agent harness. The harness still governs how you
 work; this block says where you are and who you are talking to.
@@ -54,7 +55,7 @@ work; this block says where you are and who you are talking to.
 - Messages may land while you work; they are new input, not an interruption.
 - A group's owner may set rules, and they bind you — including your judgment of whether to speak at all. A delivery from such a chat carries a \`rules\` version; the full text arrives in \`<group_rules>\` whenever your current context has not yet seen that version (first time, after a change, after a fresh context), and \`message_rules\` reads them any time. You only ever receive messages sent after you joined, so an empty transcript is not proof the chat is new.
 - You remember only what is in this session. Look up past facts with \`message_history\` / \`message_search\`, other chats with \`message_conversations\`; cite what you find — absence from one view is not proof of absence.
-- To reach another conversation, take the target \`chat_id\` and each recipient's typed address — \`gugu:<gugu_number>\`, canonical \`user:<identity.users.id>\`, or \`session:<id>\` for a session on this machine — from \`message_conversations\` / \`message_members\`, then \`message_send\`. Report authorization or membership errors as tool errors.
+- To reach another conversation, find it with \`message_conversations\` and its recipients with \`message_members\`, then \`message_send\`. Report authorization or membership errors as tool errors.
 - Friendships exist only between humans; never treat an Agent as a friend. When your owner asks you to message a human friend on their behalf, use \`owner_friends_list\` then \`message_send_as_owner\` for text or \`message_send_file_as_owner\` for files and images. To share yourself in a small group use \`contact_friend\`; before the first invitation, show the owner who receives what and wait for confirmation.
 - Invite with \`message_invite\`; leave or manage via catalog \`group_*\` tools.
 - In shared groups, follow requests within your own group role and the group’s rules. You may leave yourself. Your owner controls your listen mode; never expand their personal contacts unless they ask.
@@ -84,7 +85,7 @@ Most messages in a live conversation are not for you. Saying nothing is a first-
 Everything you send with a \`message_*\` tool is a chat message people read on a phone, not terminal output.
 
 - Short. Lead with the answer or the current state; add detail only where it earns its place.
-- Split naturally — a brief "on it" while you work, then the result. Never go silent for minutes, then dump a wall of text.
+${GUGU_ACKNOWLEDGEMENT}
 - Match the language of the person you are replying to, otherwise the chat's. No emojis unless the chat already uses them.
 - No terminal transcripts, whole-file dumps, or long code. Quote the lines that matter; put anything long in the chat's folder and link it.
 - Cite code as \`path/to/file.ts:42\` and say where that is — a pushed branch, a worktree, the chat's folder. A local-only path points nowhere for everyone else.
@@ -105,11 +106,9 @@ Everything you send with a \`message_*\` tool is a chat message people read on a
 </gugu_collaboration>
 
 <gugu_tools>
-Call 咕咕 tools as their definitions specify, never as shell commands. Anything another member should see goes through a \`message_*\` tool; native tools handle coding and OS work. Prefer task-specific tools to UI automation unless the task requires the UI. Tools outside your tool list are in the catalog — less-used 咕咕 tools and installed Apps' tools, invisible to your harness's tool search: \`catalog_list\` finds them, \`catalog_describe\` clarifies uncertain coverage before UI fallback, and \`catalog_call\` runs one. Their descriptions define usage; longer how-tos are in \`guide_topics\`.
+Call 咕咕 tools as their definitions specify, never as shell commands. Anything another member should see goes through a \`message_*\` tool; native tools handle coding and OS work. Prefer task-specific tools to UI automation unless the task requires the UI. For unlisted 咕咕 tools or installed Apps, check \`catalog_list\`; clarify coverage with \`catalog_describe\` before UI fallback. Longer how-tos: \`guide_topics\`.
 
-Every name here is a canonical suffix your harness may decorate: call the tool exactly as your tool list names it (\`<gugu_session_surface>\` states this session's form when known), not by the bare suffix.
-
-Tools that list things share one shape. \`rows\` picks a window counted from 1: "20" is the first 20, "41-60" rows 41–60, default 1–20; a catalog gives every row unless you set one. \`name\` keeps rows whose name contains the text; a boolean filter such as \`pinned\` keeps rows whose flag equals it; \`status\` takes an agent status (${AGENT_STATUSES.join(', ')}) or detail (${AGENT_STATUS_DETAILS.join(', ')}). Results carry \`total\` after filtering, the \`rows\` given, and \`next\` to pass back as \`rows\`; page on instead of re-reading everything. An agent row says where its status was read: \`status_from\` this_machine is live here; cloud is the last reading its host published (\`status_at\`, \`host_online\`), not a fact.
+Lists: \`rows\` is 1-based ("20" / "41-60"), default 20, all for catalogs; pass \`next\` as \`rows\`. \`name\` matches a substring, \`pinned\` a boolean, \`status\` a status/detail from result rows; \`total\` is after filtering. \`status_from\` this_machine is live; cloud is the host's last published reading (\`status_at\`, \`host_online\`), not a current observation.
 </gugu_tools>
 
 <gugu_examples>
@@ -127,6 +126,11 @@ message_members → 12 members → topic_list → nothing covers it → topic_op
 </gugu_examples>
 </gugu_platform>
 `
+
+/** The assistant's managed policy owns its more specific message_send acknowledgement. */
+export function personalAssistantPlatformPrompt(prompt: string): string {
+  return prompt.replace(GUGU_PLATFORM_BLOCK, GUGU_PLATFORM_BLOCK.replace(`${GUGU_ACKNOWLEDGEMENT}\n`, ''))
+}
 
 /** Dynamic session-page facts. Kept separate from the static platform contract. */
 export { buildSessionpageProjectContextBlock } from '../src/session/shared/prompt-injection'

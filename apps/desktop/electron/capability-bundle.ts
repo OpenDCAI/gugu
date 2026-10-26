@@ -994,14 +994,7 @@ export function providerUsesSessionAcpSessionAdapter(providerId: string): boolea
 // session_* is deliberately absent from Gugu social/chat-driven ACP sessions. The explicit
 // distinction matters because several harnesses expose their own Task/Agent worker and the generic
 // platform routing rule otherwise classifies "start an agent" as ordinary work.
-const SESSION_SPAWN_ROUTING_RULE = `You are on the Gugu platform. Creating a Gugu session agent is a platform
-operation, not local work. Asked to create, start, spawn or make a Gugu agent/session/child — "start an
-agent", "起一个 agent", "创建一个小弟" — default to \`session_spawn\`. Harness-native \`Task\`, \`Agent\`,
-\`subagent\` or \`spawn_agent\` stay available when the request explicitly asks for an internal worker; such a
-worker is not a session agent — invisible, unable to receive Gugu session messages, dead when your turn ends
-— so do not substitute one for the other, never report one as a Gugu agent/session/child, and if you cannot
-start a requested Gugu session, say so and say why.
-The returned \`session_id\` is the stable product address.
+const SESSION_SPAWN_ROUTING_RULE = `For a persistent Gugu agent/session/child, use \`session_spawn\`. Only use a harness-internal worker when explicitly requested; it is not a session agent and cannot receive Gugu messages. Never substitute one for a requested Gugu session; report inability to start it and why.
 On a turn a person typed straight into this panel, when you create or materially change a file for them to
 inspect, call \`session_open_in_tab\` immediately after writing it instead of only reporting its path.`
 
@@ -1164,7 +1157,7 @@ function appLines(apps: readonly ExtensionCatalogApp[]): string[] {
 export const GUGU_APPS_SEARCH_LINE = [
   'An App not listed here may have been installed since, be switched off or be only in the market.',
   'Before you answer a message that names an App (「记账 App」) or a game, look it up with catalog_call app_search { query } — even when a tool of your own could do it (a device\'s calendar, hosting the game yourself): the person asked for the App, and a game\'s App keeps the game for everyone in the chat.',
-  'Installing an App or changing its version is app_install; switching one on is your owner\'s, on its 「App」 page. Never edit an App\'s installed files.',
+  'To install an App or change its version, use app_install.',
   '> (from Wei) 来一局狼人杀',
   'catalog_call app_search { query: "狼人杀" } → an App row → use its tools, or do what its next says',
 ].join('\n')
