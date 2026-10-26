@@ -7,6 +7,7 @@ import {
   LEGACY_ASSISTANT_GUIDE_BEGIN,
   LEGACY_ASSISTANT_GUIDE_END,
   OWNER_PROFILE_INDEX_LINE,
+  assistantBrief,
   assistantGuide,
   assistantHomePaths,
   claudeProjectDirName,
@@ -16,10 +17,31 @@ import {
   withDeniedTools,
   withOwnerProfileIndex,
 } from '../../../../packages/core/src/shared/assistantPolicy'
+import { ASSISTANT_CONTEXT_CORE, ASSISTANT_TASK_EXECUTION, ASSISTANT_WORKFLOW } from '../../../../packages/core/src/shared/assistantWorkflow'
 import { splitInstructions } from '../../../../apps/desktop/src/session/renderer/features/assistant/assistant-files'
 
 // #7199 住云上(管家写)与住人自己的电脑上(客户端写)共用同一份说明、同一份初始化任务。
 describe('assistantGuide', () => {
+  it('frames delegated work as tasks and tools without person-like worker terminology', () => {
+    const kinds = ['cloud', 'computer'] as const
+    const resident = kinds.map(kind => assistantBrief(kind, '/assistant/reference.md', '/assistant/memory'))
+    const guides = kinds.map(kind => assistantGuide(kind))
+    for (const prompt of [ASSISTANT_TASK_EXECUTION, ASSISTANT_CONTEXT_CORE.join('\n'), ASSISTANT_WORKFLOW.join('\n'), ASSISTANT_FIRST_TASK, ...resident, ...guides]) {
+      expect(prompt).not.toMatch(/执行者|同事|小弟|Task Agent|任务 [Aa]gent|子 agent/)
+    }
+    for (const prompt of [...resident, ...guides]) {
+      expect(prompt).toContain('我开了个任务去你 MacBook 上看一眼')
+    }
+    for (const prompt of resident) expect(prompt).toContain('任务是工具')
+    for (const prompt of guides) {
+      expect(prompt).toContain('全程只有你这一个身份，你不是某个项目里的任务')
+      expect(prompt).toContain('任务是你用的工具，不当成人来称呼')
+      expect(prompt).not.toContain('不作人称')
+    }
+    expect(ASSISTANT_TASK_EXECUTION).toContain('你在完成一项任务，不是个人助理')
+    expect(ASSISTANT_TASK_EXECUTION.length).toBeLessThanOrEqual(274)
+  })
+
   it('两种家都带头尾标记,界面那一侧(splitInstructions)认得出宿主维护的那一段', () => {
     for (const kind of ['cloud', 'computer'] as const) {
       const guide = assistantGuide(kind)
