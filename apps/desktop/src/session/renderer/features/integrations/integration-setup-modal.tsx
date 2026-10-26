@@ -129,7 +129,10 @@ function IntegrationBrowserAuthorization({
   // 以为已经取消之后,悄悄把账号连上。
   useEffect(
     () => () => {
-      if (waitingRef.current) cancelIntegrationAuthorization(integration);
+      if (waitingRef.current) {
+        waitingRef.current = false;
+        cancelIntegrationAuthorization(integration);
+      }
     },
     [cancelIntegrationAuthorization, integration]
   );
@@ -140,6 +143,7 @@ function IntegrationBrowserAuthorization({
     waitingRef.current = true;
     try {
       const result = await authorizeIntegration(integration);
+      if (!waitingRef.current) return;
       if (!result.success) {
         // @@@raw detail — 主进程/授权服务器给的失败原因原样展示。
         setError(result.error);
@@ -150,6 +154,8 @@ function IntegrationBrowserAuthorization({
         description: translate('integrations.connectedToastDescription'),
       });
       onSuccess();
+    } catch (failure) {
+      if (waitingRef.current) setError(failure instanceof Error ? failure.message : translate('integrations.connectFailed'));
     } finally {
       waitingRef.current = false;
       setWaiting(false);
@@ -419,7 +425,7 @@ function IntegrationSetupForm({
   onSuccess: () => void;
   onClose: () => void;
 }) {
-  const { translate } = useSessionMessages();
+  const { translate,locale } = useSessionMessages();
   const method = formMethod(metadata);
   const [values, setValues] = useState<Record<string, string>>(() =>
     initialFormValues(method?.fields ?? [], editAccount?.fields)
@@ -451,6 +457,7 @@ function IntegrationSetupForm({
       {...(editAccount ? { editAccountId: editAccount.accountId } : {})}
       getInput={() => formInputOf(method.fields, values)}
       canSubmit={canSubmit}
+      validationMessage={translate('integrations.missingRequiredFields',{ fields: method.fields.filter(field => field.required && !(editAccount && field.secret) && !values[field.id]?.trim()).map(field => field.label).join(locale === 'zh-CN' ? '、' : ', ') })}
       onSuccess={onSuccess}
       onClose={onClose}
     >
