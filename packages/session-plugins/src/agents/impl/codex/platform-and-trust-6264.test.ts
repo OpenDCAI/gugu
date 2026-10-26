@@ -39,6 +39,8 @@ describe('#6264 咕咕额度的 codex 会话不起 ChatGPT Apps 连接器', () =
         '-c', 'model_providers.p.base_url="u"',
         '-c', 'model_providers.p.env_key=OPENAI_API_KEY',
         '-c', 'model_providers.p.wire_api=responses',
+        '-c', 'model_providers.p.request_max_retries=0',
+        '-c', 'model_providers.p.stream_max_retries=7',
         '-c', 'features.apps=false',
       ]);
   });
