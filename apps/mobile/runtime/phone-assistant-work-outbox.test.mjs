@@ -1,12 +1,13 @@
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
+import { CloudComputerError } from '../../../packages/core/src/cloud/cloudComputer.ts'
 import { createPhoneAssistantWorkOutbox } from './phone-assistant-work-outbox.mjs'
-function fixture({ paused = false, obsolete = false, abandoned = false } = {}) {
+function fixture({ paused = false, obsolete = false, abandoned = false, controlError = null, target = 'cloud' } = {}) {
   let once = false
   const calls = []
-  const event = { assistant_user_id:'assistant',work_id:'work',message_id:'message',kind:'completed',from_session_id:'child',from_device_id:'phone',to_session_id:'home',to_device_id:'cloud',source_available:true,failed_attempts:0,attempts:1,lease_token:'lease',lease_remaining_ms:60000,age_ms:0,lease_until:new Date(Date.now()+60000).toISOString(),platform_received_at:new Date().toISOString(),terminal_version:'1' }
+  const event = { assistant_user_id:'assistant',work_id:'work',message_id:'message',kind:'completed',from_session_id:'child',from_device_id:'phone',to_session_id:'home',to_device_id:target,source_available:true,failed_attempts:0,attempts:1,lease_token:'lease',lease_remaining_ms:60000,age_ms:0,lease_until:new Date(Date.now()+60000).toISOString(),platform_received_at:new Date().toISOString(),terminal_version:'1' }
   const rpc = async (name,args) => { calls.push({name,args});return {data:name==='assistant_work_outbox_claim'?{events:once?[]:(once=true,[event])}:name==='assistant_work_notice_wake_claim'?{items:abandoned?[{anchor_message_id:'notice',coordinator_device_id:'cloud',lease_token:'notice-lease',lease_remaining_ms:60000}]:[]}:{},error:null} }
-  const state = async () => ({deviceId:'cloud',state:paused?'asleep':'awake'})
+  const state = async () => {if(controlError)throw controlError;return {deviceId:'cloud',state:paused?'asleep':'awake'}}
   const wake = async () => {calls.push({name:'wake'});paused=false}
   const call = async (device,type,ref) => { calls.push({name:type,device,ref});return obsolete?{error:{code:'unknown_method',message:'old'}}:{result:{status:'admitted',messageId:'message'}} }
   const host = createPhoneAssistantWorkOutbox({cloud:{identity:{rpc}},ownerId:'owner',deviceId:'phone',instanceId:'runtime',isReady:()=>true,requester:()=>({call}),receive:async()=>{throw new Error('Not local')},controller:{state,wake}})
@@ -47,4 +48,24 @@ test('restarts cannot bypass the six server-reserved notice wake attempts',async
     await host.kick();host.close()
   }
   assert.equal(wakes,6)
+})
+
+for(const [status,code] of [[503,'not_open'],[0,'network']]) {
+  test(`optional cloud control ${code} does not prevent delivery to a reachable Mac`,async()=>{
+    const {host,calls}=fixture({target:'mac',controlError:new CloudComputerError(status,code,'control unavailable')})
+    try {
+      await host.kick()
+      assert.equal(calls.find(c=>c.name==='assistantWork.deliver')?.device,'mac')
+      assert.equal(calls.find(c=>c.name==='assistant_work_outbox_settle')?.args.p_stage,'assistant_admitted')
+      assert.equal(calls.filter(c=>c.name==='wake').length,0)
+    } finally {host.close()}
+  })
+}
+test('cloud authorization errors are not treated as optional discovery failures',async()=>{
+  const {host,calls}=fixture({target:'mac',controlError:new CloudComputerError(401,'unauthorized','sign in required')})
+  try {
+    await host.kick()
+    assert.equal(calls.filter(c=>c.name==='assistantWork.deliver').length,0)
+    assert.deepEqual(calls.find(c=>c.name==='assistant_work_outbox_settle')?.args.p_receipt,{failure_observed:true})
+  } finally {host.close()}
 })

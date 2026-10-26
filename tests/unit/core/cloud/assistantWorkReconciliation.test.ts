@@ -28,6 +28,8 @@ describe('unfinished delivery reconciliation',()=>{
     const f=fixture();await f.reconciler.kick()
     expect(f.rpc).toHaveBeenCalledWith('assistant_work_commit',expect.objectContaining({p_events:[expect.objectContaining({kind:'failed',executor_session_id:'child',reason_code:'EXECUTOR_ENDED_WITHOUT_REPORT'})]}))
     expect(f.notify).not.toHaveBeenCalled()
+    const committed=f.rpc.mock.calls.find(([name])=>name==='assistant_work_commit')?.[1].p_events as Array<{content:string}>
+    expect(committed[0]?.content).not.toMatch(/主人|执行者/)
   })
   it('matches the typed prompt ID emitted by a real session-direct envelope', async () => {
     const envelope = buildSessionDirectEnvelope({ senderSessionId: 'home', senderTitle: 'Assistant', messageId: dispatch.message_id, content: 'Make the weather sheet', at: '2026-10-26 15:57 北京时间' })
