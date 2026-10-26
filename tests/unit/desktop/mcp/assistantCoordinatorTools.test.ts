@@ -21,6 +21,7 @@ const runtime = {
 it('keeps the dispatch contract below 500 tokens using a conservative UTF-8 byte bound', () => {
   expect(new TextEncoder().encode(ASSISTANT_TASK_EXECUTION).length).toBeLessThanOrEqual(500)
   expect(ASSISTANT_TASK_EXECUTION).not.toMatch(/主人|用户/)
+  expect(ASSISTANT_TASK_EXECUTION).toContain('本机路径')
   expect(ASSISTANT_TASK_EXECUTION).toContain('咕咕报错按 <gugu_work> 报')
   expect(ASSISTANT_TASK_EXECUTION).toContain('禁读咕咕程序、调试平台')
 })
