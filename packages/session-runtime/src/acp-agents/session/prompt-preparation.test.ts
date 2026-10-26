@@ -87,3 +87,24 @@ it('retains an already queued reminder when preparation fails and retries withou
   expect(JSON.stringify(vi.mocked(agent.prompt).mock.calls[1])).toContain('Due reminder')
   expect(cell.machine.queuedPrompts).toHaveLength(0)
 })
+
+it('keeps the submitted message visible while preparation is pending without claiming provider admission', async () => {
+  const { cell,agent } = fixture(), preparation = Promise.withResolvers<{ text: string; accepted(): Promise<void> }>()
+  setNativePromptPreparation(() => preparation.promise)
+  const sent = cell.promptDetached({ text: 'Waiting for preparation',origin: 'typed' })
+  expect(JSON.stringify(cell.history())).toContain('Waiting for preparation')
+  expect(agent.prompt).not.toHaveBeenCalled()
+  preparation.resolve({ text: '',accepted: async () => {} })
+  expect((await sent.admission).success).toBe(true)
+  await sent.completion
+})
+it.each(['prompt','queueBehindTurn'] as const)('%s preserves the next draft typed during preparation when the original message is admitted', async method => {
+  const { cell } = fixture(), preparation = Promise.withResolvers<{ text: string; accepted(): Promise<void> }>()
+  setNativePromptPreparation(() => preparation.promise)
+  cell.setPromptDraft({ rev: 1,input: { text: 'Submitted' } })
+  const sent = cell[method]({ text: 'Submitted',origin: 'typed' })
+  cell.setPromptDraft({ rev: 2,input: { text: 'Next unsent draft' } })
+  preparation.resolve({ text: '',accepted: async () => {} })
+  await sent
+  expect(cell.promptDraft?.text).toBe('Next unsent draft')
+})

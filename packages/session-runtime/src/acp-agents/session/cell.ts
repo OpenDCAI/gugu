@@ -504,6 +504,7 @@ export class SessionCell {
     opts?: { steerIfBusy?: boolean },
   ): Promise<Result<SessionPromptResult, AcpSendPromptError>> {
     const now = Date.now();
+    const submittedDraft = this.draft;
     return this.sendPromptInternal({
       id: crypto.randomUUID(),
       ...input,
@@ -513,7 +514,7 @@ export class SessionCell {
       ...opts,
       // Consume the submitted draft at admission. Completion can arrive minutes later,
       // when the composer already holds the person's next, unsent message (#7572).
-      onAdmission: (result) => { if (result.success) this.clearDraft(); },
+      onAdmission: (result) => { if (result.success && this.draft === submittedDraft) this.clearDraft(); },
     });
   }
 
@@ -588,6 +589,7 @@ export class SessionCell {
       const queued = this.queuePrompt(input);
       return queued.success ? ok({ queued: true }) : queued;
     }
+    const submittedDraft = this.draft;
     const { admission, completion } = this.promptDetached(input);
     completion.catch((error: unknown) => {
       this.deps.logger.error('SessionCell: queued prompt settlement threw', {
@@ -601,7 +603,7 @@ export class SessionCell {
       if (admitted.error.type === 'invalid_state') return { success: false, error: admitted.error };
       throw new Error(`SessionCell: queued prompt admission failed with ${admitted.error.type}`);
     }
-    this.clearDraft();
+    if (this.draft === submittedDraft) this.clearDraft();
     return ok({ queued: admitted.data.queued });
   }
 
@@ -1759,15 +1761,16 @@ export class SessionCell {
     };
     try {
       const preparing = prepareNativePrompt(this.sessionId);
-      // Without a host preparation hook retain synchronous admission and queue projection.
+      // Queue-to-transcript projection stays synchronous; preparation is still before admission.
+      if (started) recordPrompt();
       if (!preparing) {
         if (!providerAdmission && !opts?.skipAdmission) opts?.onAdmission?.(ok({ queued: false, ...(steered ? { steered: true } : {}) }));
-        recordPrompt();
+        if (!started) recordPrompt();
       }
       if (providerAdmission) this.providerAdmission = providerAdmission;
       const prepared = preparing ? await preparing : null;
       if (preparing) {
-        recordPrompt();
+        if (!started) recordPrompt();
         if (!providerAdmission && !opts?.skipAdmission) opts?.onAdmission?.(ok({ queued: false, ...(steered ? { steered: true } : {}) }));
       }
       this.preparationRetryDelay = 1500;
