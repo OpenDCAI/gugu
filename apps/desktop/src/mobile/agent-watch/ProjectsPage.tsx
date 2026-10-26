@@ -14,7 +14,7 @@ import { translateSessionMessage } from '@/session/renderer/localization/locale-
 import { usePhoneAssistantIdentity } from '../assistant/phoneAssistantIdentity'
 import { AgentWatchNote, AgentWatchScreen } from './AgentWatchChrome'
 import { OfflineNote } from './OfflineNote'
-import { SessionActionsSheet, SessionRow } from './SessionsPage'
+import { SessionActions, SessionRow } from './SessionsPage'
 import { assistantGroupIds, locateSession, sessionSections, type SessionNode, type SessionSection } from './session-sections'
 import { useMachineLabel } from './useMachineLabel'
 import { directoryMachines, visibleMachines } from './machine-list'
@@ -137,7 +137,7 @@ export function ProjectsPage({
   /** 点了「展开显示」的分区(收起的闲置家族全露)。 */
   const [moreOpen, toggleMore, setMore] = useStoredSet(MORE_KEY)
   /** 正在看管理动作的那条会话(行尾「…」打开的抽屉);null = 关着。 */
-  const [menuFor, setMenuFor] = useState<{ deviceId: string; session: SessionpageSessionSummary } | null>(null)
+  const [menuFor, setMenuFor] = useState<{ deviceId: string; session: SessionpageSessionSummary; anchor: Element } | null>(null)
 
   const sections = useMemo(
     () => sessionSections(sectionMachines, rows, { assistantId, homeIds }, { expanded: moreOpen, online }),
@@ -238,7 +238,7 @@ export function ProjectsPage({
           statusAvailable={phone ? hostAvailable : undefined}
           phoneHost={phone}
           onOpen={(session) => onOpenSession(deviceId, session)}
-          onMenu={(phone ? hostAvailable && cancellable : rowDevice?.is_online) ? (session) => setMenuFor({ deviceId, session }) : undefined}
+          onMenu={(phone ? hostAvailable && cancellable : rowDevice?.is_online) ? (session, anchor) => setMenuFor({ deviceId, session, anchor }) : undefined}
         />,
         ...(open ? renderTree(section, node.children, depth + 1, { deviceId, projectId }) : []),
       ]
@@ -372,8 +372,8 @@ export function ProjectsPage({
         )
       })}
 
-      <SessionActionsSheet
-          open={menuFor !== null}
+      <SessionActions
+          anchor={menuFor?.anchor ?? null}
           session={menuFor?.session ?? null}
           deviceId={menuFor?.deviceId ?? ''}
           phoneHost={!!menuFor && !!deviceOf.get(menuFor.deviceId) && isPhoneDevice(deviceOf.get(menuFor.deviceId)!)}
