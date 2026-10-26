@@ -28,12 +28,7 @@ import { usePhoneToday } from './usePhoneToday'
 import './phone-profile.css'
 import { AssistantLibraryCard } from '@/components/assistant/AssistantLibraryVolume'
 
-/**
- * <它的名字> 那一格(同桌面 assistant-profile,手机上头像通顶、没有页头):大头像(右下一支笔 = 自定义)、名字、
- * 「从某天起陪伴你」、性格胶囊、日记;直接展开应用连接和状态,设备与聊天工具点进去往下钻。
- * 改名、换形象、性格都在「自定义」那一页(手机上是推进来的一页,❌ 弹窗 / 底部抽屉)。
- * 设备、聊天工具是壳那棵树的组件(手机壳本来就在壳里,直接画),套 .ta-skin 换成助理 App 的卡与行。
- */
+/** Profile home: identity and three resource entries; details keep their existing routes. */
 export function PhoneProfile(props: PhonePageProps) {
   const { t } = useTranslation('assistant')
   const { assistant, chatId, askInChat, sub, go, machine, cloudDeviceId } = props
