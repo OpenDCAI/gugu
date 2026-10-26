@@ -54,6 +54,16 @@ describe('durable sparse history', () => {
     expect(await readHistoryPage(reopened, { chatId: 'group', direction: 'older', cursor: 12, limit: 2 })).toBeNull()
   })
 
+  it('keeps a covered historical page usable after a confirmed deletion shortens it', async () => {
+    const repository = await openImRepository('account', { adapter })
+    const query = { chatId: 'group', direction: 'older' as const, cursor: 104, limit: 3 }
+    const page = rows([101, 102, 103])
+    await retainHistoryPage(repository, query, page, 3)
+    await repository.transaction((tx) => retainMessageDeletion(repository, tx, 'group-102'))
+    expect((await readHistoryPage(repository, query))?.map((row) => row.seq)).toEqual([101, 103])
+    expect(await readHistoryPage(repository, { ...query, cursor: 101 })).toBeNull()
+  })
+
   it('commits no coverage if an authoritative row could not be mapped', async () => {
     const repository = await openImRepository('account', { adapter })
     const query = { chatId: 'group', direction: 'older' as const, cursor: 102, limit: 3 }

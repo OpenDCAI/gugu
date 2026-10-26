@@ -38,7 +38,9 @@ export async function readHistoryPage(repository: AccountImRepository, query: Hi
   const lower = ascending ? point : range.lower
   const upper = ascending ? range.upper : point
   const rows = await repository.readMessageRange(`main:${chatId}`, lower, upper, limit, ascending)
-  if (rows.length < limit && (ascending ? range.upper !== known.tail : range.lower !== 1)) return null
+  // A confirmed deletion can shorten an already covered page. Return its surviving
+  // bodies; an empty page may signal exhaustion only at a proven stream boundary.
+  if (rows.length === 0 && (ascending ? range.upper !== known.tail : range.lower !== 1)) return null
   const messages = rows.map((row) => row.value)
   return ascending ? messages : messages.reverse()
 }
