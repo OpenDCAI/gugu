@@ -181,7 +181,7 @@ describe('离开:先在那条上说 detached,经它开的窗口一并关掉', ()
     expect(sent.slice(-3).map((p) => p.name ?? p.type)).toEqual(['f1', 'f2', 'taskhost.call:reply'])
   })
 
-  it('订上过的这条断了、那时还有帧在途:离开(channel_lost),窗口一并关掉;没有在途的就等重订上接着发', async () => {
+  it('rejoins an interrupted subscription without treating missing ACKs as undelivered frames', async () => {
     const host = fakeHost()
     host.attach('askerAAAA1111')
     host.subOf('askerAAAA1111').onStatus('SUBSCRIBED')
@@ -195,33 +195,29 @@ describe('离开:先在那条上说 detached,经它开的窗口一并关掉', ()
     expect(types(host.channelOf('askerAAAA1111').sent).slice(-2)).toEqual(['taskhost.frame', 'taskhost.call:reply'])
     host.subOf('askerAAAA1111').onStatus('CHANNEL_ERROR')
     await host.settle()
-    expect(host.askers.ids()).toEqual([])
-    expect(host.closedWindows).toEqual(['askerAAAA1111'])
+    expect(host.askers.ids()).toEqual(['askerAAAA1111'])
+    expect(host.closedWindows).toEqual([])
   })
 })
 
-describe('背压:在途的不超过 inflightChars,确认回来再发下一批', () => {
-  it('额度用完就排着,确认一回来按原序接着发;单帧比额度大也照发', async () => {
-    const host = fakeHost({ inflightChars: 60 })
-    host.attach('askerAAAA1111')
-    host.subOf('askerAAAA1111').onStatus('SUBSCRIBED')
-    await host.settle()
-    const channel = host.channelOf('askerAAAA1111')
-    channel.reply = 'hold'
-    host.ask('askerAAAA1111', 'r1', { events: ['a'.repeat(100), 'b', 'c'] })
-    await host.settle()
-    // 第一帧本身就超额度:照发,后面的排着。
-    expect(channel.sent.map((p) => (p as { name?: string }).name).filter(Boolean)).toEqual(['a'.repeat(100)])
-    const names = () => channel.sent.map((p) => (p as { name?: string; type: string }).name ?? (p as { type: string }).type)
-    channel.held.shift()!('ok')
-    await host.settle()
-    // 额度 60 字:b 发出去以后 c 再进就超了,等 b 的确认。
-    expect(names().slice(-1)).toEqual(['b'])
-    channel.held.shift()!('ok')
-    await host.settle()
-    expect(names().slice(-2)).toEqual(['b', 'c'])
-    expect(host.askers.ids()).toEqual(['askerAAAA1111'])
-  })
+describe('ACK delivery does not gate frames or heartbeat replies', () => {
+  it('still answers a heartbeat and emits alive while delivered data ACKs are missing', async () => {
+    const host = fakeHost();
+    host.attach('askerAAAA1111');
+    host.subOf('askerAAAA1111').onStatus('SUBSCRIBED');
+    await host.settle();
+    const channel = host.channelOf('askerAAAA1111');
+    channel.reply = 'hold';
+    // The fake transport delivered this frame, but its acknowledgement is lost.
+    host.ask('askerAAAA1111', 'large', { events: ['x'.repeat(300 * 1024)] });
+    await host.settle();
+    host.ask('askerAAAA1111', 'heartbeat');
+    await host.settle();
+    host.askers.alive();
+    expect(channel.sent.some(frame => (frame as { request_id?: string }).request_id === 'heartbeat')).toBe(true);
+    expect(types(channel.sent)).toContain('taskhost.alive');
+    host.askers.dispose();
+  });
 
   it('idleMs 里一问都没有:离开(idle);离开之后这条上的推送丢掉,❌ 再发', async () => {
     const host = fakeHost({ idleMs: 1_000 })
@@ -305,14 +301,11 @@ describe('背压:在途的不超过 inflightChars,确认回来再发下一批', 
 })
 
 describe('alive', () => {
-  it('只在订上了、而且线上空着的时候发', async () => {
+  it('only sends on subscribed channels without waiting for data ACKs', async () => {
     const host = fakeHost()
     host.attach('askerAAAA1111')
     host.attach('askerBBBB2222')
     host.subOf('askerAAAA1111').onStatus('SUBSCRIBED')
-    host.askers.alive()
-    expect(types(host.channelOf('askerAAAA1111').sent)).toEqual(['taskhost.attach:reply'])
-    await host.settle()
     host.askers.alive()
     expect(types(host.channelOf('askerAAAA1111').sent)).toEqual(['taskhost.attach:reply', 'taskhost.alive'])
     expect(host.channelOf('askerBBBB2222').sent).toEqual([])
