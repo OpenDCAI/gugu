@@ -17,6 +17,10 @@ describe('unfinished delivery reconciliation',()=>{
     expect(f.rpc).toHaveBeenCalledWith('assistant_work_commit',expect.objectContaining({p_events:[expect.objectContaining({kind:'failed',executor_session_id:'child',reason_code:'EXECUTOR_ENDED_WITHOUT_REPORT'})]}))
     expect(f.notify).not.toHaveBeenCalled()
   })
+  it('does not let an older question hide a missing result after a later dispatch',async()=>{
+    const f=fixture([{kind:'question',from_session_id:'child',message_id:'old-question'},dispatch]);await f.reconciler.kick()
+    expect(f.rpc).toHaveBeenCalledWith('assistant_work_commit',expect.any(Object))
+  })
   it('does not equate idle or an older ended turn with task completion',async()=>{
     const f=fixture();f.inspect.mockResolvedValue({preview:{running:false,ended:{kind:'done'},entries:[]}})
     await f.reconciler.kick();expect(f.rpc).not.toHaveBeenCalled()
