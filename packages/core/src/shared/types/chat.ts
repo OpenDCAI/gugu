@@ -46,6 +46,8 @@ export interface ChatItem {
   status: ChatStatus
   peer_user_id?: string | null
   peer_alias?: string | null
+  /** Private group display name owned by the signed-in account. */
+  alias?: string | null
   avatar?: string | null
   member_user_ids?: string[]
   name: string

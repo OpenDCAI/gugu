@@ -3,7 +3,7 @@ import { page, userEvent } from 'vitest/browser'
 import { contact, createNode, createReactHarness, renderWithAppProviders } from '../../../../../../../tests/support/testHarness'
 import { until, untilStable } from '../../../../../../../tests/support/awaitCondition'
 import { ActionButton, FieldList, FieldRow } from '@/components/contactsDetailControls'
-import { ContactAliasSheet } from '@/components/contacts/ContactAliasSheet'
+import { AliasSheet } from '@/components/contacts/AliasSheet'
 import { ContactsSectionState } from '@/components/contacts/ContactsSectionState'
 import { AppErrorBoundary } from '@/components/AppErrorBoundary'
 import { ShellErrorBoundary } from '@/components/ShellErrorBoundary'
@@ -78,7 +78,7 @@ describe('remaining contact and error surfaces consume the master (#7333)', () =
     const updateContactAlias = vi.fn(async () => {})
     const onClose = vi.fn()
     const person = contact({ id: 'alias-person', display_name: '林知夏', alias: '原备注' })
-    await renderWithAppProviders(mount(), <ContactAliasSheet contact={person} onClose={onClose} />, { contacts: { updateContactAlias } })
+    await renderWithAppProviders(mount(), <AliasSheet name={person.display_name} alias={person.alias} seed={person.id} onSave={(alias) => updateContactAlias(person.id, alias)} onClose={onClose} />, { contacts: { updateContactAlias } })
     const input = document.querySelector<HTMLInputElement>(`[data-testid="${AUTOMATION_TEST_IDS.contactAliasSheetInput}"]`)!
     expect(input).not.toBeNull()
     expect(tier(byText('林知夏'))).toEqual({ size: 16, leading: 24 })

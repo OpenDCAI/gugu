@@ -1,3 +1,4 @@
+import { updateDisplayAlias } from './displayOverrides'
 import { messageForUser } from './userFacingError'
 import { dbPayload } from '@gugu/core/cloud/supabase'
 import { fetchInChunks, compareIsoDescNullsLast } from '@gugu/core/shared/inChunks'
@@ -68,7 +69,7 @@ async function fetchActiveGroupChats(ids: string[]): Promise<GroupChatRow[]> {
 }
 
 type ContactOverrideRow = {
-  contact_user_id: string
+  target_id: string
   alias: string | null
 }
 
@@ -92,13 +93,6 @@ type AgentProfileRow = {
 }
 
 type ContactUserRow = ContactUser & { local_path?: string | null }
-
-type ContactOverrideUpsert = {
-  owner_user_id: string
-  contact_user_id: string
-  alias: string
-  updated_at: string
-}
 
 type ContactGroupInsert = ContactGroupRow
 
@@ -482,15 +476,15 @@ export const contactsService = {
     // @@@owner-scoped fetch - moves large contact lists out of PostgREST URLs; RLS still bounds this to the current user's aliases.
     const { data: overrides, error: overridesError } = await identity()
       .from('contact_overrides')
-      .select('contact_user_id, alias')
-      .eq('owner_user_id', userId)
+      .select('target_id, alias')
+      .eq('owner_user_id', userId).eq('target_kind', 'contact')
 
     if (overridesError) throw new Error(messageForUser(overridesError), { cause: overridesError })
 
     const aliasById = new Map(
       ((overrides ?? []) as ContactOverrideRow[])
-        .filter((row) => contactIdSet.has(row.contact_user_id))
-        .map((row) => [row.contact_user_id, row.alias]),
+        .filter((row) => contactIdSet.has(row.target_id))
+        .map((row) => [row.target_id, row.alias]),
     )
 
     return enrichAgentMetadata([...usersById.values()].map((user) => ({
@@ -536,27 +530,11 @@ export const contactsService = {
   },
 
   async updateContactAlias(userId: string, contactUserId: string, alias: string): Promise<void> {
-    const nextAlias = alias.trim()
-    if (!nextAlias) {
-      const { error } = await identity()
-        .from('contact_overrides')
-        .delete()
-        .eq('owner_user_id', userId)
-        .eq('contact_user_id', contactUserId)
-      if (error) throw new Error(messageForUser(error), { cause: error })
-      return
+    try {
+      await updateDisplayAlias(userId, { kind: 'contact', id: contactUserId }, alias)
+    } catch (error) {
+      throw toUserFacingError(error, genericFailure())
     }
-
-    const { error } = await identity()
-      .from('contact_overrides')
-      .upsert(dbPayload<ContactOverrideUpsert>({
-        owner_user_id: userId,
-        contact_user_id: contactUserId,
-        alias: nextAlias,
-        updated_at: new Date().toISOString(),
-      }), { onConflict: 'owner_user_id,contact_user_id' })
-
-    if (error) throw new Error(messageForUser(error), { cause: error })
   },
 
   async removeContact(contactUserId: string): Promise<void> {

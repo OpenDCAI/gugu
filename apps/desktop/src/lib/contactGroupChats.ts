@@ -23,6 +23,7 @@ export function contactGroupChatsOf(chats: readonly ChatItem[]): ContactGroupCha
       public_id: chat.public_id ?? null,
       kind: 'group',
       name: chat.name,
+      alias: chat.alias ?? null,
       avatar_url: chat.avatar ?? null,
       member_count: chat.member_user_ids?.length ?? 0,
       is_muted: chat.is_muted === true,

@@ -43,8 +43,11 @@ export function decodeAccountSnapshot(value: unknown, accountId: string) {
   })
   const unread = mergeUnreadRows(snapshot.unread as Array<Record<string, unknown> & { chat_id: string }>)
   for (const chat of snapshot.chats) put('unread', chat.id, unread.get(String(chat.id)) ?? null)
-  const overrides = new Map(snapshot.overrides.map((value) => [value.contact_user_id, value]))
+  const overrides = new Map(snapshot.overrides.map((value) => [value.target_kind === 'group' ? `group/${value.target_id}` : value.contact_user_id, value]))
   for (const identity of snapshot.identities) put('override', identity.id, overrides.get(identity.id) ?? null)
+  for (const chat of snapshot.chats) {
+    if (chat.kind === 'group') put('override', `group/${chat.id}`, overrides.get(`group/${chat.id}`) ?? null)
+  }
   if (missingDependencies(cells, accountId).length > 0) throw new Error('account snapshot has incomplete identity or conversation closure')
   return { revision: snapshot.revision, cells: cells as ProjectionCache, presence: snapshot.presence }
 }

@@ -250,11 +250,11 @@ export function createChatProjection(viewerId: string): ChatProjection {
     },
     override: async (ids, signal) => {
       const { data, error } = await identityDb.from('contact_overrides')
-        .select('contact_user_id, alias').eq('owner_user_id', viewerId).abortSignal(signal)
+        .select('target_kind, target_id, alias').eq('owner_user_id', viewerId).abortSignal(signal)
       if (error) throw new Error(error.message)
       const byId = new Map<string, unknown>()
-      for (const row of (data ?? []) as Array<{ contact_user_id: string; alias: string | null }>) {
-        byId.set(row.contact_user_id, { contact_user_id: row.contact_user_id, alias: row.alias })
+      for (const row of (data ?? []) as Array<{ target_kind: string; target_id: string; alias: string | null }>) {
+        byId.set(row.target_kind === 'group' ? `group/${row.target_id}` : row.target_id, { alias: row.alias })
       }
       return indexExact(ids, byId)
     },
