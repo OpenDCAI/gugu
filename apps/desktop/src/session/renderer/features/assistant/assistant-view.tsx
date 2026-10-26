@@ -164,6 +164,7 @@ export const AssistantMainPanel = observer(function AssistantMainPanel() {
   const context: AssistantContext = {
     assistant,
     ownerName: shell.ownerName,
+    owner: shell.ownerId ? { id: shell.ownerId, name: shell.ownerName ?? '', avatarUrl: shell.ownerAvatar ?? null } : null,
     chatId: shell.chatId,
     home,
     homeDeviceId: home.deviceId,

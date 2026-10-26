@@ -2,7 +2,7 @@ import { rendererLogger } from '@/lib/log';
 import { messageForUser } from '@/lib/userFacingError';
 import { useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
-import { ArrowUpToLine, Crown, File, Folder, FolderPlus, Heart, Mic, MoreHorizontal, Plus, Sparkles, SquarePen, Trash2 } from '@/lib/icons';
+import { ArrowUpToLine, File, Folder, FolderPlus, Heart, Mic, MoreHorizontal, Plus, Sparkles, SquarePen, Trash2 } from '@/lib/icons';
 import { useToast } from '@renderer/lib/hooks/use-toast';
 import { useShowModal } from '@renderer/lib/modal/modal-provider';
 import { Button } from '@renderer/lib/ui/button';
@@ -14,7 +14,7 @@ import { folderNameProblem, joinPath, removeIndexEntry, resourceRejection, RESOU
 import { makeFolder, readText, removePath, renamePath, uploadFile, writeText } from './assistant-machine';
 import { useDirectory, useInvalidateAssistant, useMemoryNotes, type MemoryEntry } from './assistant-data';
 import type { AssistantContext, AssistantPageProps } from './assistant-context';
-import { AssistantEmpty, AssistantRow, AssistantSection, MachineGate, PageHead, Tile } from './assistant-ui';
+import { AssistantEmpty, AssistantRow, AssistantSection, MachineGate, ownerLeading, PageHead, Tile } from './assistant-ui';
 import { AssistantHealthPage } from './assistant-health';
 import { useVoiceNotes } from './voice-notes/voice-notes-data';
 import { VOICE_NOTE_SUB, VoiceNotesPage } from './voice-notes/voice-notes-pages';
@@ -77,7 +77,7 @@ function MemoryHome({ context }: { context: AssistantContext }) {
               </button>
             </div>
           ) : (
-            aboutYou.map(note => <AssistantRow key={note.file} leading={<Crown />} title={note.title}
+            aboutYou.map(note => <AssistantRow key={note.file} leading={ownerLeading(context.owner)} title={note.title}
               detail={note.description || (latest ? t('memory.updated', { time: time(latest) }) : undefined)}
               onClick={() => context.go({ tab: 'memory', sub: `note:${note.file}` })} />)
           )}

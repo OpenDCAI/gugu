@@ -4,10 +4,11 @@ import { useTranslation } from 'react-i18next'
 import { Markdown } from '@/components/markdown/Markdown'
 import { useToast } from '@/components/toastContext'
 import { Button } from '@/components/ui/Button'
-import { Crown, Folder, Heart, Mic, Sparkles, SquarePen, Trash2 } from '@/lib/icons'
+import { Folder, Heart, Mic, Sparkles, SquarePen, Trash2 } from '@/lib/icons'
 import { RESOURCES_DIR_NAME, type MemoryKind } from '@/session/renderer/features/assistant/assistant-files'
 import { readMemoryNotes, type MemoryEntry } from '@/session/renderer/features/assistant/assistant-machine-core'
-import { AssistantEmpty, AssistantRow, AssistantSection, PageHead } from '@/session/renderer/features/assistant/assistant-ui-parts'
+import { AssistantEmpty, AssistantRow, AssistantSection, ownerLeading, PageHead } from '@/session/renderer/features/assistant/assistant-ui-parts'
+import { useAuth } from '@/store/auth'
 import type { PhonePageProps } from './MobileAssistantApp'
 import { PhoneConfirmDialog } from './PhoneConfirmDialog'
 import { PhoneFiles } from './PhoneFiles'
@@ -85,6 +86,8 @@ function MemoryHome(props: PhonePageProps & { notes: NotesRead }) {
 function AboutYou({ askInChat, go, notes }: PhonePageProps & { notes: MemoryEntry[] }) {
   const { t } = useTranslation('assistant')
   const time = useTime()
+  const { user } = useAuth()
+  const owner = user ? { id: user.id, name: user.nickname, avatarUrl: user.avatarUrl ?? null } : null
   const aboutYou = notes.filter((entry) => entry.kind === 'user')
   return (
     <AssistantSection title={t('library.longTerm')} testId="assistant-memory-about">
@@ -96,7 +99,7 @@ function AboutYou({ askInChat, go, notes }: PhonePageProps & { notes: MemoryEntr
           </Button>
         </div>
       ) : (
-        aboutYou.map(entry => <AssistantRow key={entry.file} leading={<Crown />} title={entry.title}
+        aboutYou.map(entry => <AssistantRow key={entry.file} leading={ownerLeading(owner)} title={entry.title}
           detail={entry.description || (entry.modifiedAt ? t('memory.updated', { time: time(entry.modifiedAt) }) : undefined)} onClick={() => go(`note:${entry.file}`)} />)
       )}
     </AssistantSection>

@@ -4,6 +4,7 @@ import type { AssistantHomePlace } from '@/lib/assistantHome';
 import type { AssistantShellAssistant } from '@/lib/assistantShellBridge';
 import type { MachineReadiness } from './assistant-data';
 import type { AssistantMachine } from './assistant-machine';
+import type { AssistantOwner } from './assistant-ui-parts';
 
 /**
  * 右边面板顶上那一排胶囊(动态 / 任务 / 记忆 / 资料)。聊天不是一格:左边一整列就是它。
@@ -39,6 +40,8 @@ export function parentRoute(route: PanelRoute): PanelRoute | null {
 export type AssistantContext = {
   assistant: AssistantShellAssistant;
   ownerName: string | null;
+  /** 主人自己(记忆页「关于你」用他的头像打头);认不出 = null。 */
+  owner?: AssistantOwner | null;
   /** 和它的那条私聊(壳认出来的;还没认出来 = null):「今天」页读它文件夹里的 today.json。 */
   chatId: string | null;
   /**
