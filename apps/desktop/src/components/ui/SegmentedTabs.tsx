@@ -1,5 +1,5 @@
 import { cva } from 'class-variance-authority'
-import { useCallback, useId, useRef } from 'react'
+import { useCallback, useId, useRef, type ReactNode } from 'react'
 import { cn } from '@/lib/cn'
 import { useTranslation } from 'react-i18next'
 
@@ -80,6 +80,10 @@ export interface SegmentedTabItem<T extends string> {
    * 读屏会念成「好友 3」，听不出 3 是什么。
    */
   badge?: number
+  /** 标签字前面的小图标(手机对话页的话题那一枚:#)。 */
+  icon?: ReactNode
+  /** 标签字后面的状态标记;有它就不画计数角标(在跑的任务先说在跑,未读等它停了再说)。 */
+  marker?: ReactNode
 }
 
 export function SegmentedTabs<T extends string>({
@@ -151,10 +155,11 @@ export function SegmentedTabs<T extends string>({
             onClick={() => { onChange(item.value) }}
             aria-label={item.badge ? t('tabs.pending', { label: item.label, count: item.badge }) : undefined}
           >
+            {item.icon}
             {item.label}
-            {item.badge != null && item.badge > 0 && (
+            {item.marker ?? (item.badge != null && item.badge > 0 && (
               <span className={tabBadge} aria-hidden="true">{item.badge}</span>
-            )}
+            ))}
           </button>
         )
       })}

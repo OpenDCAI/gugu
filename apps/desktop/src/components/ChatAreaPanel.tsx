@@ -69,7 +69,7 @@ import { MessageList, type MessageListRowProps } from './chat/MessageList'
 import { useTaskChatRows } from './assistant/useTaskChatRows'
 import { MessageLoadFailure } from './chat/MessageLoadFailure'
 import { AgentFirstConversationEmpty } from './chat/AgentFirstConversationEmpty'
-import { MessageListSkeleton } from './chat/MessageListSkeleton'; import { ChatBottomDock } from './chat/ChatBottomDock'
+import { MessageListSkeleton } from './chat/MessageListSkeleton'; import { ChatBottomDock } from './chat/ChatBottomDock'; import { PhoneChatTabs } from '../mobile/chat/PhoneChatTabs'
 import { ChatHeaderActions } from './chat/ChatHeaderActions'
 import { useFollowingTail, useTailPinning } from './chat/useFollowingTail'
 import { useConversationScrollMemory } from './chat/useConversationScrollMemory'
@@ -796,7 +796,7 @@ function ChatAreaSurface({ viewportKey = 'chats', activeTab, navigationTarget = 
       onClose={topicSurface.closeSplit}
       embedded={Boolean(blockHost)}
       currentUserId={user?.id ?? null}
-      mobile={mobile}
+      mobile={mobile} inTab={mobile}
       onReaction={(id, emoji) => void topicSurface.splitLine.toggleReaction(id, emoji)
         .catch((error) => toast(t('message.actions.react'), 'error', safeFailureLine(String((error as Error)?.message ?? error))))}
       onForward={handleForward} visible={surfaceVisible}
@@ -827,7 +827,7 @@ function ChatAreaSurface({ viewportKey = 'chats', activeTab, navigationTarget = 
       {blockHost && <ChatBlockHead host={blockHost} actions={headerActions} chat={activeChat} name={activeChatName} avatar={activeChatAvatar} isAgent={isAgentChat} identitiesById={identitiesById} />}
       {blockTabs}
       {((!chrome && !blockHost) || searchMode) && <PaneHeader
-        divider={!agentHero} className={agentHero ? 'gg-agent-header' : undefined} data-chat-area-header=""
+        divider={!agentHero && !(mobile && topicSurface.topics.length > 0)} className={agentHero ? 'gg-agent-header' : undefined} data-chat-area-header=""
         mobile={mobile}
         style={{
           background: 'var(--bg-primary)',
@@ -942,7 +942,7 @@ function ChatAreaSurface({ viewportKey = 'chats', activeTab, navigationTarget = 
             </motion.div>
           )}
         </AnimatePresence>
-      </PaneHeader>}
+      </PaneHeader>}{mobile && !chrome && !blockHost && !searchMode ? <PhoneChatTabs topics={topicSurface.topics} messages={messages} current={topicSurface.splitTopic?.chatId ?? null} onPick={(topic) => topic ? topicSurface.openSplit({ chatId: topic.chat_id, name: topic.name }) : topicSurface.closeSplit()} /> : null}
 
       <div
         ref={attachPanelsRow}

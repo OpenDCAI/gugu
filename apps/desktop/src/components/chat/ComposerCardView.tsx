@@ -106,7 +106,7 @@ export function ComposerCardView({ card, isMine, isGroup, chatId, senderName, ti
  * 行尾那一格,和侧栏会话行同一枚字形(AgentStatusGlyph,同一个 presentAgentStatus):在跑 = 四个点在转、后台在跑 = 同一枚静止、
  * 需要你 = 琥珀点、出错 = 红点;做完(空闲)= 勾;归档 / 离线不画。
  */
-function TaskStatusMark({ status }: { status: AgentDisplayStatus | undefined }) {
+export function TaskStatusMark({ status }: { status: AgentDisplayStatus | undefined }) {
   const { t } = useTranslation('common')
   if (!status || status === 'pending' || status === 'removed' || status === 'offline') return null
   if (status === 'idle') return <Check role="img" aria-label={t('agentStatus.idle')} size={14} className="text-[var(--muted-fg)]" />

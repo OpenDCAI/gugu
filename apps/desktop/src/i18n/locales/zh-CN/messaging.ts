@@ -770,6 +770,10 @@ export default {
     "title": "发送到"
   },
   "topic": {
+    "phoneTabs": {
+      "group": "群聊",
+      "label": "群聊和话题"
+    },
     "anchor": {
       "lead": "话题",
       "separator": " · ",

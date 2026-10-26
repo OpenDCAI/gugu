@@ -1,0 +1,27 @@
+/* 手机对话页头下面那排页签(PhoneChatTabs):贴着页头,横着滑,不出滚动条;字与页边对齐 16。 */
+.gg-phone-chat-tabs {
+  flex-shrink: 0;
+  overflow-x: auto;
+  scrollbar-width: none;
+  padding-inline: var(--spacing-lg);
+  background: var(--bg-primary);
+}
+.gg-phone-chat-tabs::-webkit-scrollbar { display: none; }
+.gg-phone-chat-tabs .gg-segtabs { gap: var(--spacing-lg); width: max-content; min-width: 100%; }
+.gg-phone-chat-tabs .gg-segtab { white-space: nowrap; }
+
+/* 页签里话题那一枚的顶上一行:它从哪一条开出来(原型 v7.12 .v6-topic-src)。 */
+.gg-topic-tab-src {
+  flex-shrink: 0;
+  margin: var(--spacing-xs) var(--spacing-lg) var(--spacing-sm);
+  padding: var(--spacing-sm) var(--spacing-lg);
+  border-radius: var(--radius-surface);
+  background: var(--muted);
+  font-size: var(--font-body);
+  line-height: var(--lh-body);
+  color: var(--text-secondary);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.gg-topic-tab-src[data-gone] { color: var(--warn); }

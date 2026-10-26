@@ -770,6 +770,10 @@ export default {
     "title": "Send to"
   },
   "topic": {
+    "phoneTabs": {
+      "group": "Group",
+      "label": "Group and topics"
+    },
     "anchor": {
       "lead": "Topic",
       "separator": " · ",

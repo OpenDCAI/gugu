@@ -7,6 +7,7 @@ import { DUR_SLOW_MS, EASE_SPRING, tween } from '@/styles/motion'
 import { ChevronLeft, Paperclip, Search, Users, X } from '@/lib/icons'
 import type { MessageItem } from '@gugu/core/shared/types/chat'
 import { visibleDeliveryMessages } from '@gugu/core/shared/ui/systemNotice'
+import { composerCardPreview } from '@gugu/core/shared/ui/taskCardModels'
 import type { GroupRosterCandidate } from '@/lib/mention'
 import type { AgentStatusById } from './agentMentionStatusModels'
 import type { MemberProfileCardModel } from '../MemberProfileCard'
@@ -128,6 +129,11 @@ export type TopicSplitPaneProps = {
    * 宽窄由并排的分界管 —— 没有自己的拖拽边、也没有自己的收起钮。不给 = 对话页(自带拖拽边)、手机(整页)。
    */
   embedded?: boolean
+  /**
+   * 手机对话页那排页签里的一枚(owner 10-25「和桌面类似分 tab」,OpenDCAI/gugu#446):这一栏就盖在群的消息区上,
+   * 页头和页签条是群的,所以它自己没有页头,顶上只留一行「从哪一条开出来」;不滑进来。返回 = 回「群聊」那一枚。
+   */
+  inTab?: boolean
   // ⚠️ 下面几个是 MessageBubble 的**必填** props,而这一栏自己拿不到它们的实现
   // (表情/转发/删除都要 ChatAreaPanel 那层的 handler)。做成可选透传而不是在内部写死
   // no-op:不接时这几个动作在分栏里点了没反应 = 静默失败,接上就跟主线同口径。
@@ -171,6 +177,7 @@ const TOPIC_SPLIT_PANE_STYLE: React.CSSProperties = {
 // 手机上放不下两栏 ⇒ 整页盖住来源线(同 ChatSettingsPanel 的手机页)。来源线在下面不被挤窄,返回后停在原处。
 const TOPIC_PAGE_MOBILE_STYLE: React.CSSProperties = { position: 'fixed', inset: 'env(safe-area-inset-top) 0 0 0', zIndex: 'var(--z-modal)', background: 'var(--bg-primary)' }
 const TOPIC_PAGE_PANE_MOBILE_STYLE: React.CSSProperties = { ...TOPIC_SPLIT_PANE_STYLE, borderLeft: 'none' }
+const TOPIC_TAB_STYLE: React.CSSProperties = { position: 'absolute', inset: 0, zIndex: 1, background: 'var(--bg-primary)' }
 const TOPIC_SPLIT_HEADER_STYLE: React.CSSProperties = {
   display: 'flex',
   alignItems: 'flex-start',
@@ -234,6 +241,7 @@ export function TopicSplitPane({ viewportKey = 'topic', navigationTarget = false
   onForward, visible,
   onDelete,
   embedded = false,
+  inTab = false,
 }: TopicSplitPaneProps) {
   const { t } = useTranslation('messaging')
   // #6004: the projection owns membership and chat_members_changed refreshes. Read this topic's
@@ -444,10 +452,10 @@ export function TopicSplitPane({ viewportKey = 'topic', navigationTarget = false
     // ⇒ ❌ 不要给它套 AnimatePresence / 加 exit。
     <motion.div
       key={`topic-split-${topic.chatId}`}
-      initial={mobile ? { x: '100%' } : { x: 340, opacity: 0 }}
+      initial={inTab ? false : mobile ? { x: '100%' } : { x: 340, opacity: 0 }}
       animate={{ x: 0, opacity: 1 }}
       transition={tween(DUR_SLOW_MS, EASE_SPRING)}
-      style={mobile ? TOPIC_PAGE_MOBILE_STYLE : TOPIC_SPLIT_SHELL_STYLE}
+      style={inTab ? TOPIC_TAB_STYLE : mobile ? TOPIC_PAGE_MOBILE_STYLE : TOPIC_SPLIT_SHELL_STYLE}
     >
       <div
         ref={paneRef}
@@ -459,7 +467,7 @@ export function TopicSplitPane({ viewportKey = 'topic', navigationTarget = false
         {/* 这一条**常驻**:面板开着时它也在。曾经开面板就把它收起来,代价是
             ①「收起分栏」与另一颗切换键一起消失,②这一栏里再没有一个字说明你在哪条话题上
             (找茬第十轮)。嵌进来的那两个面板自带的头由 tokens.css 收掉,所以不会两条头叠着摆。 */}
-        {mobile ? (
+        {inTab ? <TopicTabSource preview={sourceMessagePreview} /> : mobile ? (
           <PaneHeader mobile divider title={headerTitle} actions={headerToggles} leading={(
             <IconButton size="lg" data-testid="topic-split-back" aria-label={t('common.back')} title={t('common.back')} onClick={goBack}><ChevronLeft /></IconButton>
           )} />
@@ -640,4 +648,15 @@ export function TopicSplitPane({ viewportKey = 'topic', navigationTarget = false
     </ResizablePane>
     </>
   )
+}
+
+/**
+ * 页签里那一枚的顶上:它从哪一条开出来(原型 v7.12 TopicPane)。任务的话题开在任务卡上,就写任务那句话;
+ * 来源还没读到 / 读不到 = 不画;来源被删了要说出来(同 TopicBreadcrumb 的四种值)。
+ */
+function TopicTabSource({ preview }: { preview: string | null | 'pending' | 'unreadable' }) {
+  const { t } = useTranslation('messaging')
+  if (preview === 'pending' || preview === 'unreadable') return null
+  const text = preview === null ? t('topic.breadcrumb.sourceDeleted') : composerCardPreview(preview)?.text ?? preview
+  return <div className="gg-topic-tab-src" data-testid="topic-tab-source" data-gone={preview === null || undefined}>{text}</div>
 }
