@@ -38,14 +38,14 @@ const md = { render: vi.fn((_element: Element, _text: string, _options: unknown)
 const gugu = {
   linkTo: vi.fn(async ({ file }: { file: { id: string } }) => `gugu-file://${file.id}`),
   setTabTitle: vi.fn(async () => {}),
-  getContext: vi.fn(async () => ({ chat: { id: 'chat-1', name: 'G', kind: 'group', groupId: 'chat-1' }, file: { chat: 'chat-1', id: 'plan' }, locale: 'en', capabilities: [] })),
+  getContext: vi.fn(async () => ({ chat: { id: 'chat-1', name: 'G', kind: 'group', groupId: 'chat-1' }, file: { chat: 'chat-1', id: 'plan' }, locale: 'en', capabilities: ['files:read'] })),
   onContextChanged: vi.fn(() => () => {}),
   codemirror: vi.fn(async () => ({ EditorView, basicSetup, markdown, markdownLanguage, view: cmView, state: cmState })),
   onLink: vi.fn(() => () => {}),
   markdown: vi.fn(async () => md),
   bind: { codemirror: vi.fn(() => () => {}) },
   files: {
-    list: vi.fn(async () => [entry]),
+    list: vi.fn(() => new Promise(() => {})),
     onChanged: vi.fn(() => () => {}),
     open: vi.fn(async () => file),
   },
@@ -63,6 +63,12 @@ beforeAll(async () => {
 })
 
 describe('workspace App: the preview is gugu.markdown()', () => {
+  test('a file page opens without listing or watching the hidden folder', () => {
+    expect(gugu.files.open).toHaveBeenCalled()
+    expect(gugu.files.list).not.toHaveBeenCalled()
+    expect(gugu.files.onChanged).not.toHaveBeenCalled()
+  })
+
   test('the file\'s text into the preview pane, as a document to read, with the file for its relative links', () => {
     expect(gugu.markdown).toHaveBeenCalledOnce()
     const [element, text, options] = md.render.mock.calls[0]!
