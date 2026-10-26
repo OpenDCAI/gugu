@@ -99,7 +99,7 @@ it('hides only the task with a visible agent pane and restores it when leaving',
   state.pages = [{ projectId: 'project', sessionId: 'task' }]
   await render()
   expect(document.querySelector('[data-testid="needs-you-trigger"]')).toBeNull()
-  setEmbedVisible(false)
+  await act(async () => setEmbedVisible(false))
   await render()
   expect(document.querySelector('[data-testid="needs-you-trigger"]')).not.toBeNull()
 })
