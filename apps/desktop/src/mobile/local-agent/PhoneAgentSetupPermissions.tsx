@@ -1,74 +1,65 @@
-import { rendererLogger } from '@/lib/log';
-import { messageForUser } from '@/lib/userFacingError';
 import { useState } from 'react'
 import { Button } from '@/components/ui/Button'
-import { SettingsGroup, SettingsNote, SettingsRow } from '@/components/settings/SettingsPrimitives'
-import { Bell, Zap } from '@/lib/icons'
-import { changeSystemPermission, useSystemPermissionStates } from '@/lib/systemPermissions'
-import { platform } from '@/platform'
-import type { SystemPermission, SystemPermissionState } from '@/platform/types'
+import { Sheet } from '@/components/ui/Sheet'
+import { SettingsNote } from '@/components/settings/SettingsPrimitives'
+import { rendererLogger } from '@/lib/log'
+import { messageForUser } from '@/lib/userFacingError'
+import { changeSystemPermission } from '@/lib/systemPermissions'
+import type { SystemPermissionState } from '@/platform/types'
 import { PhoneCapabilityGroups } from '../phone-device/PhoneCapabilityGroups'
+import { usePhoneDeviceSettings } from '../phone-device/phoneDeviceSettings'
+import { PhoneSheetHandle } from '../PhoneSheetHandle'
 
-const RECOMMENDED = ['notifications', 'batteryOptimization'] as const
-const STATE_TEXT: Record<SystemPermissionState, string> = { granted: '已开启', prompt: '未开启，可选', blocked: '未开启，去系统设置', unreadable: '查不到，去系统设置' }
-const BACKGROUND = {
-  notifications: { title: '消息通知', purpose: '任务完成、等待确认时提醒你。', icon: Bell },
-  batteryOptimization: { title: '后台运行', purpose: '减少切走或息屏后被系统暂停的情况。', icon: Zap },
-}
+type SetupPermission = 'notifications' | 'batteryOptimization'
+const SETTINGS_GUIDANCE = '可在系统的应用设置里找到咕咕，修改通知或电池限制。'
+const LABELS = { notifications: '开启消息通知', batteryOptimization: '允许后台运行' }
+const SETTINGS_LABELS = { notifications: '前往通知设置', batteryOptimization: '前往电池设置' }
 
-export function PhoneAgentSetupBackground() {
-  const { states, refresh, failed } = useSystemPermissionStates(RECOMMENDED)
-  const [pending, setPending] = useState<SystemPermission | null>(null)
+/** Opening and skipping only read state. The primary action explicitly requests permission. */
+export function PhoneAgentSetupPermission({ permission, state, onRefresh }: { permission: SetupPermission; state: SystemPermissionState | undefined; onRefresh: () => Promise<void> }) {
+  const [pending, setPending] = useState(false)
   const [error, setError] = useState<string | null>(null)
-  const act = async (permission: (typeof RECOMMENDED)[number], state: SystemPermissionState) => {
-    if (pending !== null || failed) return
-    setPending(permission)
+  const act = async () => {
+    if (pending) return
+    setPending(true)
     setError(null)
     try {
-      if (!(await changeSystemPermission(permission, state))) setError('没能打开系统设置。可在系统的应用设置里找到咕咕，修改通知或电池限制。')
-    } catch (error) {
-      rendererLogger('actions/PhoneAgentSetupPermissions').error({ error: error }, 'action failed')
-      setError(messageForUser(error))
+      if (!(await changeSystemPermission(permission, state ?? 'unreadable'))) setError(`没能打开系统设置。${SETTINGS_GUIDANCE}`)
+    } catch (cause) {
+      rendererLogger('actions/PhoneAgentSetupPermissions').error({ error: cause }, 'action failed')
+      setError(`${messageForUser(cause)} ${SETTINGS_GUIDANCE}`)
     } finally {
-      await refresh()
-      setPending(null)
+      await onRefresh()
+      setPending(false)
     }
   }
   return (
-    <>
-      <p className="gg-phone-setup-intro">按需要开启消息提醒和后台运行。不给也能使用基础任务，点击按钮才会申请。</p>
-      <SettingsGroup title="消息与后台" footer={<SettingsNote>系统关闭咕咕后，仍无法保证继续运行。</SettingsNote>}>
-        {RECOMMENDED.filter((permission) => platform.systemPermissions.includes(permission)).map((permission) => {
-          const Icon = BACKGROUND[permission].icon
-          return (
-            <SettingsRow
-              key={permission}
-              leading={<Icon className="size-5 gg-phone-setting-icon" aria-hidden="true" />}
-              title={BACKGROUND[permission].title}
-              description={BACKGROUND[permission].purpose}
-              control={(
-                <Button size="sm" disabled={failed || !states[permission] || pending !== null} data-testid={`phone-setup-${permission}`} onClick={() => void act(permission, states[permission]!)}>
-                  {pending === permission ? '正在设置' : states[permission] === 'granted' ? '管理' : '去设置'}
-                </Button>
-              )}
-            >
-              <div className="gg-phone-capability-status" role="status">{failed ? '读取系统权限失败' : states[permission] ? STATE_TEXT[states[permission]] : '正在读取系统状态'}</div>
-            </SettingsRow>
-          )
-        })}
-      </SettingsGroup>
-      {failed && <div className="gg-phone-permission-feedback" role="alert"><SettingsNote tone="danger">读取系统权限失败，也可以稍后设置。</SettingsNote><Button variant="ghost" size="sm" onClick={() => void refresh()}>重试</Button></div>}
+    <div className="gg-phone-setup-action">
+      <Button variant="primary" disabled={pending} data-testid={`phone-setup-${permission}`}
+        onClick={() => void act()}>
+        {pending ? '正在设置' : state === 'blocked' ? SETTINGS_LABELS[permission] : LABELS[permission]}
+      </Button>
       {error && <SettingsNote role="alert" tone="danger">{error}</SettingsNote>}
-    </>
+    </div>
   )
 }
 
-/** Opening this step only reads state. A category's explicit Connect action opts it in. */
+/** The guide shows one entry. Categories and explicit grants remain in their existing settings UI. */
 export function PhoneAgentSetupTools({ ownerId }: { ownerId: string }) {
+  const [open, setOpen] = useState(false)
+  const settings = usePhoneDeviceSettings(ownerId)
+  const selected = settings.enabled ? Object.values(settings.groups).filter(Boolean).length : 0
   return (
     <>
-      <p className="gg-phone-setup-intro">按用途连接手机能力；全部可选，未连接的能力不能被调用。</p>
-      <PhoneCapabilityGroups ownerId={ownerId} context="setup" />
+      <Button variant="primary" onClick={() => setOpen(true)} aria-haspopup="dialog" data-testid="phone-setup-choose-capabilities">
+        {selected ? '管理手机能力' : '选择手机能力'}
+      </Button>
+      {open && <Sheet onClose={() => setOpen(false)} ariaLabel="手机能力" mobileFitContent testId="phone-setup-capabilities">
+        <div className="gg-phone-capability-sheet">
+          <PhoneSheetHandle onDismiss={() => setOpen(false)} />
+          <div className="gg-phone-capability-sheet-body"><PhoneCapabilityGroups ownerId={ownerId} context="setup" /></div>
+        </div>
+      </Sheet>}
     </>
   )
 }

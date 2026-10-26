@@ -1,6 +1,7 @@
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
 import { createPhoneAgentCloud } from './phone-agent-cloud.mjs'
+import { createPhonePreparation } from './phone-agent-network.mjs'
 
 const ownerId = '68a158dd-1832-4671-ac02-ebde330d3d7a'
 const jwt = (claims, signature = 'one') => `${Buffer.from('{}').toString('base64url')}.${Buffer.from(JSON.stringify(claims)).toString('base64url')}.${signature}`
@@ -8,6 +9,62 @@ const now = Math.floor(Date.now() / 1000)
 const claims = { sub: ownerId, iat: now, exp: now + 3600 }
 const config = { ownerId, supabaseUrl: 'https://phone-host.invalid', supabaseAnonKey: 'public-anon', accessToken: jwt(claims), refreshToken: 'old-private-refresh' }
 const response = (data, status = 200) => new Response(JSON.stringify(data), { status, headers: { 'Content-Type': 'application/json' } })
+
+test('a real preparation fetch records its leaf operation and DNS cause, then retries without exposing credentials', async () => {
+  let issues = 0
+  const failures = []
+  const cloud = createPhoneAgentCloud(config, () => undefined, async (url) => {
+    if (String(url).endsWith('/auth/v1/user')) return response({ id: ownerId })
+    if (++issues === 1) throw new TypeError('fetch failed', { cause: Object.assign(new Error('private URL and token'), { code: 'ENOTFOUND' }) })
+    return response({ session_id: 'issued' })
+  }, { onRequestFailure: value => failures.push(value) })
+  try {
+    await cloud.start()
+    const prepare = createPhonePreparation({ signal: new AbortController().signal, retryDelayMs: 0, run: cloud.prepareRequest })
+    assert.equal((await prepare('model-access.issue', () => cloud.modelAccess({ action: 'issue' }))).session_id, 'issued')
+    assert.equal(issues, 2)
+    assert.deepEqual(failures, [{ operation: 'model-access.issue', phase: 'preparing', category: 'dns', code: 'ENOTFOUND', retryable: true }])
+    assert.doesNotMatch(JSON.stringify(failures), /private|https|token/)
+  } finally { await cloud.close() }
+})
+
+test('a reset while reading the preparation response body retries the same request', async () => {
+  let issues = 0
+  const failures = []
+  const cloud = createPhoneAgentCloud(config, () => undefined, async (url) => {
+    if (String(url).endsWith('/auth/v1/user')) return response({ id: ownerId })
+    if (++issues === 1) return new Response(new ReadableStream({ start(controller) {
+      controller.error(Object.assign(new Error('private response details'), { code: 'ECONNRESET' }))
+    } }))
+    return response({ session_id: 'issued' })
+  }, { onRequestFailure: value => failures.push(value) })
+  try {
+    await cloud.start()
+    const prepare = createPhonePreparation({ signal: new AbortController().signal, retryDelayMs: 0, run: cloud.prepareRequest })
+    assert.equal((await prepare('model-access.issue', () => cloud.modelAccess({ action: 'issue' }))).session_id, 'issued')
+    assert.equal(issues, 2)
+    assert.equal(failures[0].operation, 'model-access.issue')
+    assert.equal(failures[0].category, 'connection_reset')
+  } finally { await cloud.close() }
+})
+
+test('a model renewal timer does not inherit the expired preparation deadline', async () => {
+  let later
+  let renewSignal
+  const cloud = createPhoneAgentCloud(config, () => undefined, async (url, options) => {
+    if (String(url).endsWith('/auth/v1/user')) return response({ id: ownerId })
+    renewSignal = options.signal
+    return response({})
+  })
+  try {
+    await cloud.start()
+    await cloud.prepareRequest(() => {
+      later = new Promise((resolve, reject) => setTimeout(() => cloud.modelAccess({ action: 'renew' }).then(resolve, reject), 30))
+    }, { signal: AbortSignal.timeout(5), deadline: Date.now() + 5 })
+    await later
+    assert.equal(renewSignal.aborted, false)
+  } finally { await cloud.close() }
+})
 
 test('one refresh authority accepts a same-second rotation and never reuses the retired refresh token', async () => {
   const events = []

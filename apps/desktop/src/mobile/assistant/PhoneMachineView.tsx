@@ -1,13 +1,13 @@
+import { useReadFailure } from '@/session/renderer/features/assistant/assistant-read-failure'
 import type { ReactNode } from 'react'
 import { useTranslation } from 'react-i18next'
-import { Button } from '@/components/ui/Button'
 import { LoadingIndicator } from '@/lib/loading/LoadingIndicator'
 import type { AssistantMachine } from '@/session/renderer/features/assistant/assistant-machine-core'
 import { AssistantEmpty } from '@/session/renderer/features/assistant/assistant-ui-parts'
 import type { PhonePageProps } from './MobileAssistantApp'
 import { PhoneMachineGate } from './PhoneMachineGate'
 import type { PhoneMachineState, PhoneReadiness } from './phoneMachine'
-import { errorText, type PhoneRead } from './usePhoneRead'
+import { type PhoneRead } from './usePhoneRead'
 
 /** 门过了之后的页:工作区已经打开(❌ 再判 opening / error)。 */
 export type OpenedPageProps = Omit<PhonePageProps, 'machine'> & { machine: AssistantMachine }
@@ -29,7 +29,6 @@ export function PhoneMachineView({
 }) {
   const { t } = useTranslation('assistant')
   const inner = (() => {
-    if (machine.state === 'no-workdir') return <AssistantEmpty>{t('machine.noWorkdir', { name })}</AssistantEmpty>
     if (machine.state === 'error') return <ReadFailed title={t('machine.openFailed', { name })} error={machine.error} onRetry={machine.retry} />
     if (machine.state === 'opening') return <ReadingNow />
     return children(machine.machine)
@@ -56,19 +55,8 @@ export function ReadingNow({ label }: { label?: string }) {
 
 /** 读失败:标题说是哪一步没读到,下面一句原因,一个「重试」。 */
 export function ReadFailed({ title, error, onRetry }: { title: string; error: unknown; onRetry: () => void }) {
-  const { t } = useTranslation('assistant')
-  return (
-    <AssistantEmpty
-      title={title}
-      action={
-        <Button variant="ghost" className="ta-pill-btn" onClick={onRetry} data-testid="assistant-read-retry">
-          {t('machine.retry')}
-        </Button>
-      }
-    >
-      <span role="alert">{t('machine.readFailed', { message: errorText(error) })}</span>
-    </AssistantEmpty>
-  )
+  const failure = useReadFailure(error,null,'',onRetry)
+  return <AssistantEmpty title={title}><span role={failure?.tone === 'quiet' ? 'status' : 'alert'}>{failure?.text}</span></AssistantEmpty>
 }
 
 /** 一次读的三种结果:在读 / 读失败(说哪一步)/ 读到了交给 children。 */

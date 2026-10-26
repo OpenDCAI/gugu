@@ -1,0 +1,62 @@
+import { createAssistantPanelClient, AssistantPanelError } from '@gugu/core/cloud/assistantPanel'
+import { createAssistantPanelOutbox } from '@gugu/core/cloud/assistantPanelOutbox'
+import { pickAssistant, type AssistantProvisionRow } from '@gugu/core/shared/assistantProvision'
+import { identityDb } from '@/lib/supabase'
+import { getRendererSession, observeRendererSession } from '@/lib/sessionPublication'
+import { rendererLogger } from '@/lib/log'
+import { assistantAppChangeSchema, type AssistantAppChange } from '@/session/shared/extensions/assistant-app'
+
+const accountId = () => getRendererSession()?.user.id ?? null
+export const assistantPanelCloud = createAssistantPanelClient(async (name,args) => {
+  const { data,error } = await identityDb.rpc(name,args).abortSignal(AbortSignal.timeout(10_000))
+  return { data,error }
+},accountId)
+
+export function assertAssistantPanelOwner(expectedOwner: string | null): asserts expectedOwner is string {
+  if (!expectedOwner || accountId() !== expectedOwner) throw new AssistantPanelError('account-changed','Assistant panel account changed')
+}
+
+async function personalAssistant(owner: string): Promise<string | null> {
+  assertAssistantPanelOwner(owner)
+  const { data,error } = await identityDb.from('agent_provisions').select('agent_user_id,device_id,member_key,phase,created_at')
+    .eq('owner_user_id',owner).eq('member_key','assistant').abortSignal(AbortSignal.timeout(10_000))
+  assertAssistantPanelOwner(owner)
+  if (error) throw new AssistantPanelError(error.code,'Could not read the personal assistant')
+  return pickAssistant((data ?? []) as AssistantProvisionRow[])?.agentId ?? null
+}
+
+const outbox = createAssistantPanelOutbox({ storage: {
+  getItem: key => window.localStorage.getItem(key),setItem: (key,value) => window.localStorage.setItem(key,value),
+},accountId,assistantId: personalAssistant,
+  send: (assistant,notice) => assistantPanelCloud.notice(assistant,assistantAppChangeSchema.parse(notice)),
+})
+const log = rendererLogger('assistant/panel')
+let retry: ReturnType<typeof setTimeout> | undefined
+let delay = 1000
+
+/** Retries do not involve the execution host and never change the saved result. */
+async function flushNotices(): Promise<void> {
+  clearTimeout(retry)
+  const owner = accountId()
+  if (!owner) return
+  try { await outbox.flush(owner); delay = 1000 }
+  catch { log.warn({},'Saved App change publication will retry') }
+  try {
+    if (accountId() === owner && outbox.hasPending(owner)) {
+      retry = setTimeout(() => { void flushNotices() },delay)
+      delay = Math.min(delay * 2,60_000)
+    }
+  } catch { log.warn({},'Saved App change outbox could not be read') }
+}
+observeRendererSession(() => { delay = 1000; void flushNotices() })
+if (typeof window !== 'undefined') window.addEventListener('online',() => { delay = 1000; void flushNotices() })
+void flushNotices()
+
+export async function queueAssistantAppChange(
+  change: AssistantAppChange, assistantId: string | undefined, expectedOwnerId: string | null,
+) {
+  assertAssistantPanelOwner(expectedOwnerId)
+  const notice = assistantAppChangeSchema.parse(change)
+  try { return await outbox.enqueue(expectedOwnerId,notice,assistantId) }
+  finally { void flushNotices() }
+}

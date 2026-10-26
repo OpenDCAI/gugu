@@ -1,4 +1,5 @@
-import { useState, type ReactNode } from 'react'
+import { assistantPanelFailure } from '@/components/assistant/assistant-panel-errors';
+import { useRef, useState, type ReactNode } from 'react'
 import { useTranslation } from 'react-i18next'
 import { AgentSettingsModal } from '@/components/agentsettings/AgentSettingsModal'
 import { Avatar } from '@/components/Avatar'
@@ -8,7 +9,7 @@ import { Palette } from '@/lib/icons'
 import { rendererLogger } from '@/lib/log'
 import { composeInstructions, joinPersona, PERSONA_PRESETS, type PersonaPreset } from '@/session/renderer/features/assistant/assistant-files'
 import { readText, writeText } from '@/session/renderer/features/assistant/assistant-machine-core'
-import { AssistantEmpty, PageHead } from '@/session/renderer/features/assistant/assistant-ui-parts'
+import { PageHead } from '@/session/renderer/features/assistant/assistant-ui-parts'
 import { useContactsStore } from '@/store/contactsContext'
 import type { PhonePageProps } from './MobileAssistantApp'
 import { PhoneMachineGate } from './PhoneMachineGate'
@@ -36,6 +37,7 @@ export function PhoneCustomize({ assistant, readiness, machine, persona, go }: P
   const [preset, setPreset] = useState<PersonaPreset | null>(read?.preset ?? null)
   const [rest, setRest] = useState(read?.rest ?? '')
   const [touched, setTouched] = useState(false)
+  const revision = useRef<string | undefined>(undefined)
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState<string | null>(null)
   // 读到之前进来的:读到那一刻把读到的填进来(人还没动过的话)。
@@ -56,16 +58,16 @@ export function PhoneCustomize({ assistant, readiness, machine, persona, go }: P
       if (plan.writePersona && machine.state === 'ready') {
         const home = machine.machine
         // 写之前现读一遍:宿主维护那段取此刻的原文(进来之后它可能刚被升级过),❌ 用进来时读到的那份。
-        const current = (await readText(home, home.paths.instructions)) ?? ''
-        await writeText(home, home.paths.instructions, composeInstructions(current, joinPersona(preset, rest)))
-        await reportAssistantAppChange(home, assistant.id, { resource: 'personality', operation: 'edited',
+        const current = home.panel ? '' : (await readText(home, home.paths.instructions)) ?? ''
+        await writeText(home, home.paths.instructions, composeInstructions(current, joinPersona(preset, rest)),revision.current)
+        if (!home.panel) await reportAssistantAppChange(home, assistant.id, { resource: 'personality', operation: 'edited',
           id: home.paths.instructions, deviceId: home.deviceId, after: { path: home.paths.instructions } })
         persona.reload()
       }
       toast(t('customize.saved'), 'success')
       go(null)
     } catch (cause) {
-      const message = cause instanceof Error ? cause.message : String(cause)
+      const message = assistantPanelFailure(cause,t)
       log.warn({ error: message }, 'save assistant customization failed')
       setError(t('customize.saveFailed', { message }))
     } finally {
@@ -74,6 +76,7 @@ export function PhoneCustomize({ assistant, readiness, machine, persona, go }: P
   }
 
   const edit = <T,>(set: (value: T) => void) => (value: T) => {
+    if (!touched) revision.current = persona.revision
     setTouched(true)
     set(value)
   }
@@ -128,20 +131,9 @@ function PersonaGate({
   children,
 }: Pick<PhonePageProps, 'readiness' | 'machine'> & { persona: PhonePersona; name: string; children: ReactNode }) {
   const { t } = useTranslation('assistant')
-  const retry = (onRetry: () => void) => (
-    <Button variant="ghost" className="ta-pill-btn" onClick={onRetry} data-testid="assistant-persona-retry">
-      {t('machine.retry')}
-    </Button>
-  )
   const body = (() => {
-    if (machine.state === 'no-workdir') return <AssistantEmpty>{t('machine.noWorkdir', { name })}</AssistantEmpty>
     if (machine.state === 'error') return <ReadFailed title={t('customize.loadFailed')} error={machine.error} onRetry={machine.retry} />
-    if (persona.error)
-      return (
-        <AssistantEmpty title={t('customize.loadFailed')} action={retry(persona.reload)}>
-          <span role="alert">{persona.error instanceof Error ? persona.error.message : String(persona.error)}</span>
-        </AssistantEmpty>
-      )
+    if (persona.error) return <ReadFailed title={t('customize.loadFailed')} error={persona.error} onRetry={persona.reload} />
     if (!persona.persona) return <ReadingNow />
     return children
   })()

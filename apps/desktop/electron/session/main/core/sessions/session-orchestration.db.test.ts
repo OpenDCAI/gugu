@@ -736,6 +736,20 @@ describe('session orchestration', () => {
       expect(sent.text).toContain('from_id="session:remote-caller"');
     });
 
+    it('reuses exact inbox identity and envelope bytes when a phone retries an acknowledged-or-unknown failure notice', async () => {
+      mocks.sendMessage.mockResolvedValue({ id: 'm1', status: 'delivered' });
+      const action = { action: 'message' as const, session_ids: ['caller'], text: '这次手机任务没能完成，网络连接持续超时。',
+        delivery_id: '022ebf62-18b2-4d78-987e-ddb02dd04c46', delivery_at: '2026-10-26T07:00:00.000Z' };
+      await runRemoteSessionAction(remoteCaller, action);
+      const first = mocks.sendMessage.mock.calls.at(-1)![0];
+      await runRemoteSessionAction(remoteCaller, action);
+      expect(mocks.sendMessage.mock.calls.at(-1)![0]).toEqual(first);
+      expect(first.text).toContain('2026-10-26 15:00');
+      await runRemoteSessionAction({ ...remoteCaller, sessionId: 'another-sender' }, action);
+      expect(mocks.sendMessage.mock.calls.at(-1)![0].clientMessageId).not.toBe(first.clientMessageId);
+      await expect(runRemoteSessionAction(remoteCaller, { ...action, delivery_at: undefined })).rejects.toThrow(/original timestamp/);
+    });
+
     // owner 10-17:发信方自己说的发完以后去向与回的是哪条 —— 收件这台机器写上信封属性,正文不动;取值不对在投递前就拒。
     it('writes the sender\'s then / reply_to_message_id on the envelope, and refuses a then it does not know', async () => {
       mocks.sendMessage.mockResolvedValue({ id: 'm1', status: 'delivered' });

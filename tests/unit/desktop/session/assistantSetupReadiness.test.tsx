@@ -17,7 +17,7 @@ vi.mock('@renderer/features/remote-hosts/remote-hosts-store', () => ({ remoteHos
 vi.mock('@renderer/lib/layout/navigation-provider', () => ({ useParams: () => ({ params: {}, setParams: vi.fn() }) }))
 vi.mock('@/lib/assistantShellBridge', () => ({ readAssistantShellBridge: () => null, assistantSlotKey: (key: string) => key }))
 vi.mock('@/lib/assistantTaskChat', () => ({ useOpenedAssistantTaskChat: () => null, OPEN_ASSISTANT_TASK_CHAT: 'open-task', showAssistantTaskChat: vi.fn() }))
-vi.mock('@/lib/assistantSetup', () => ({ refreshLocalAssistantHome: vi.fn() }))
+vi.mock('@/lib/assistantSetup', () => ({ refreshLocalAssistantHome: vi.fn(async () => {}) }))
 vi.mock('@/components/Avatar', () => ({ Avatar: () => null }))
 vi.mock('@renderer/lib/components/titlebar/shell-titlebar', () => ({ ShellTitlebar: () => null }))
 vi.mock('../../../../apps/desktop/src/session/renderer/features/assistant/assistant-shell', async () => {
@@ -35,7 +35,7 @@ vi.mock('../../../../apps/desktop/src/session/renderer/features/assistant/assist
   homeReadiness: () => 'ready',
   useAssistantMachine: () => ({ data: null, isLoading: false, error: null }),
 }))
-vi.mock('../../../../apps/desktop/src/session/renderer/features/assistant/assistant-home-sessions', () => ({ localHomeSessions: { use: () => () => {} } }))
+vi.mock('../../../../apps/desktop/src/session/renderer/features/assistant/assistant-home-sessions', () => ({ homeTarget: (home: { thisDevice?: boolean }) => home.thisDevice ? null : 'remote',localHomeSessions: { use: () => () => {} } }))
 vi.mock('../../../../apps/desktop/src/session/renderer/features/assistant/assistant-setup-finish', () => ({
   AssistantSetupFinish: () => createElement('div', { 'data-testid': 'connect-apps' }),
 }))
@@ -93,4 +93,12 @@ it('does not apply an unrelated cloud failure to local setup', async () => {
   await render()
   expect(harness.container.querySelector('[data-slot="onboarding"]')).toBeNull()
   expect(harness.container.querySelector('[data-testid="connect-apps"]')).not.toBeNull()
+})
+
+it('refreshes managed instructions only for a local assistant home', async () => {
+  const { refreshLocalAssistantHome } = await import('@/lib/assistantSetup')
+  vi.mocked(refreshLocalAssistantHome).mockClear()
+  state.shell = { ...state.shell!,setup: null,home: { kind: 'computer',deviceId: 'local',thisDevice: true,label: 'Local',online: true,known: true } }
+  await render()
+  expect(refreshLocalAssistantHome).toHaveBeenCalledOnce()
 })

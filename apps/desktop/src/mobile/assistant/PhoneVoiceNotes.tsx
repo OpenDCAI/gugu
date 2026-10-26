@@ -100,6 +100,7 @@ function VoiceNotesList({ machine, go }: { machine: AssistantMachine; go: PhoneP
     voicePollMs(items.some((item) => item.view.kind === 'processing')),
   )
   return (
+    <>
     <ReadView read={read} failedTitle={ta('memory.voiceLoadFailed')}>
       {(items: PhoneVoiceItem[]) =>
         items.length === 0 ? (
@@ -124,6 +125,7 @@ function VoiceNotesList({ machine, go }: { machine: AssistantMachine; go: PhoneP
         )
       }
     </ReadView>
+    </>
   )
 }
 

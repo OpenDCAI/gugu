@@ -4,7 +4,8 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { AppDb } from '@main/db/client';
 import type { AutomationRun } from '@shared/core/automations/automation-run';
 import { AutomationScheduler, type SchedulerCallbacks } from './automation-scheduler';
-import { insertRun } from './repo';
+import { insertRun, setAutomationEnabled, skipQueuedCronRuns, softDeleteAutomation } from './repo';
+import { setSessionAdmissionPreparation } from '../sessions/session-admission-preparation';
 import { markRunDone } from './run-transitions';
 import type { AutomationRunExecutor } from './runtime';
 
@@ -203,12 +204,15 @@ function recordingCallbacks() {
 let fixture: Awaited<ReturnType<typeof openFixture>>;
 
 beforeEach(async () => {
+  setSessionAdmissionPreparation(null);
   vi.useFakeTimers();
   fixture = await openFixture('empty');
   mocks.db = fixture.db;
 });
 
-afterEach(() => {
+afterEach(async () => {
+  await vi.advanceTimersByTimeAsync(0);
+  setSessionAdmissionPreparation(null);
   fixture.close();
   mocks.db = undefined;
   vi.useRealTimers();
@@ -560,4 +564,90 @@ describe('AutomationScheduler worker error handling', () => {
     expect(row?.status).toBe('failed');
     expect(row?.error).toContain('boom');
   });
+});
+
+
+describe('assistant panel changes before schedule execution', () => {
+  function assistantSchedule(id: string, sessionId: string) {
+    seedAutomation(fixture,{ id });
+    fixture.sqlite.prepare('UPDATE automations SET agent_session_id = ? WHERE id = ?').run(sessionId,id);
+  }
+
+  it('applies a saved deletion before taking scheduler locks or starting a queued run', async () => {
+    seedProject(fixture);
+    assistantSchedule('removed','assistant-session');
+    const run = await insertTestRun('removed');
+    const executor = vi.fn(doneExecutor);
+    const scheduler = new AutomationScheduler(makeCallbacks(),executor);
+    setSessionAdmissionPreparation(async (sessionId,text) => {
+      expect(sessionId).toBe('assistant-session');
+      expect(await scheduler.beginAutomationDeletion('removed')).toBe(true);
+      await skipQueuedCronRuns('removed','automation_deleted');
+      await softDeleteAutomation('removed');
+      scheduler.endAutomationDeletion('removed');
+      return { text,assistantPanel: true,accepted: async () => {} };
+    });
+    await scheduler.drainQueue();
+    expect(executor).not.toHaveBeenCalled();
+    expect(getRunRow(fixture,run.id)?.status).toBe('skipped');
+  });
+
+  it('applies a saved disable before claiming queued work', async () => {
+    seedProject(fixture);
+    assistantSchedule('disabled','assistant-session');
+    const run = await insertTestRun('disabled');
+    const executor = vi.fn(doneExecutor);
+    setSessionAdmissionPreparation(async (_sessionId,text) => {
+      await setAutomationEnabled('disabled',false);
+      await skipQueuedCronRuns('disabled','disabled');
+      return { text,assistantPanel: true,accepted: async () => {} };
+    });
+    await new AutomationScheduler(makeCallbacks(),executor).drainQueue();
+    expect(executor).not.toHaveBeenCalled();
+    expect(getRunRow(fixture,run.id)?.status).toBe('skipped');
+  });
+
+  it('keeps a temporarily blocked reminder queued, runs unrelated work and retries after recovery', async () => {
+    seedProject(fixture);
+    assistantSchedule('blocked','assistant-session');
+    seedAutomation(fixture,{ id: 'ordinary' });
+    const blocked = await insertTestRun('blocked');
+    const ordinary = await insertTestRun('ordinary');
+    const completed = Promise.withResolvers<void>();
+    let recovered = false;
+    const executor: AutomationRunExecutor = async (automation,run,onStep) => {
+      if (!recovered) expect(automation.id).toBe('ordinary');
+      const result = await doneExecutor(automation,run,onStep); completed.resolve(); return result;
+    };
+    setSessionAdmissionPreparation(async () => { throw new Error('memory/deleted-note: LOCAL_DELETE_DENIED'); });
+    const record = recordingCallbacks();
+    const scheduler = new AutomationScheduler(record.callbacks,executor);
+    await scheduler.drainQueue();
+    await completed.promise;
+    expect(getRunRow(fixture,blocked.id)).toMatchObject({ status: 'queued' });
+    expect(getRunRow(fixture,ordinary.id)?.status).toBe('done');
+    recovered = true;
+    setSessionAdmissionPreparation(async (_sessionId,text) => ({ text,accepted: async () => {},assistantPanel: true }));
+    await scheduler.drainQueue();
+    await record.reached(blocked.id,'done');
+    expect(getRunRow(fixture,blocked.id)?.status).toBe('done');
+  });
+});
+
+
+it('bounds a stalled assistant preparation so an unrelated due task can still start', async () => {
+  seedProject(fixture);
+  seedAutomation(fixture,{ id: 'hung' });
+  fixture.sqlite.prepare('UPDATE automations SET agent_session_id = ? WHERE id = ?').run('hung-session','hung');
+  await insertTestRun('hung');
+  seedAutomation(fixture,{ id: 'independent' });
+  const independent = await insertTestRun('independent');
+  const executor = vi.fn(doneExecutor);
+  setSessionAdmissionPreparation(async () => new Promise(() => {}));
+  const scheduler = new AutomationScheduler(makeCallbacks(),executor);
+  const draining = scheduler.drainQueue();
+  await vi.advanceTimersByTimeAsync(3500);
+  expect(executor).toHaveBeenCalledOnce();
+  await draining;
+  expect(getRunRow(fixture,independent.id)?.status).toBe('done');
 });

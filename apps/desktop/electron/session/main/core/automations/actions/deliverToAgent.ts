@@ -12,6 +12,7 @@ import type { Automation } from '@shared/core/automations/automation';
 import type { AutomationRun } from '@shared/core/automations/automation-run';
 import { markRunDone, markRunFailed, type OnStepCompleted } from '../run-transitions';
 import { describeScheduleTime } from '../schedule-time';
+import { sessionUsesAssistantPanel } from '../../sessions/session-admission-preparation';
 
 /**
  * #7221 agent 给自己排的那一类到点:把当初那句交代原样送回建它的那条会话 —— 同一身份、同一段对话,
@@ -76,7 +77,8 @@ export async function executeAgentDelivery(
     return err('agent_gone');
   }
 
-  const text = run.agentConfigSnapshot.prompt.trim() || automation.agentConfig?.prompt?.trim() || '';
+  const text = sessionUsesAssistantPanel(sessionId) ? automation.agentConfig?.prompt?.trim() ?? ''
+    : run.agentConfigSnapshot.prompt.trim() || automation.agentConfig?.prompt?.trim() || '';
   if (!text) {
     const failed = await markRunFailed(run.id, { step: 'deliver', code: 'no_prompt' });
     onStepCompleted(failed);

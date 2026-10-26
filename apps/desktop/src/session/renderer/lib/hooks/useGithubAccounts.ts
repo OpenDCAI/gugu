@@ -21,11 +21,11 @@ function invalidateGitHubAccountState(queryClient: ReturnType<typeof useQueryCli
 export function useGitHubAccounts() {
   const host = useLibraryHost();
   return useQuery({
-    queryKey: host.remote ? [...GITHUB_ACCOUNTS_QUERY_KEY, host.key] : GITHUB_ACCOUNTS_QUERY_KEY,
+    queryKey: host.remote || host.assistantPanelExpected ? [...GITHUB_ACCOUNTS_QUERY_KEY, host.key] : GITHUB_ACCOUNTS_QUERY_KEY,
     queryFn: () => host.github.listAccounts(),
     staleTime: 30_000,
     refetchOnWindowFocus: true,
-    enabled: host.remote?.online !== false,
+    enabled: host.assistantPanelExpected ? !!host.assistantPanel : host.remote?.online !== false,
     ...(host.remote ? { retry: false } : {}),
   });
 }

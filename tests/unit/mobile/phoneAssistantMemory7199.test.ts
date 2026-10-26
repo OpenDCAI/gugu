@@ -188,7 +188,7 @@ describe('uploadResources', () => {
   it('住电脑时首次建夹、上传与分析路径都使用该助理的工作目录', async () => {
     const { machine, fs } = fakeMachine({})
     machine.paths = assistantPaths(HOME, WORKDIR, 'computer')
-    const create = vi.spyOn(machine.rpc.workspace.files, 'createEntry')
+    const create = vi.spyOn(machine.rpc!.workspace.files, 'createEntry')
     await uploadResources(machine, [], [new File(['你好'], 'a.txt')])
     expect(create).toHaveBeenCalledWith(expect.any(String), expect.any(String), WORKDIR, '给助理的资料', 'folder')
     expect(fs.has(`${HOME}/给助理的资料`), 'must not create the cloud layout for a computer assistant').toBe(false)
@@ -213,7 +213,7 @@ describe('uploadResources', () => {
 
   it('某一个写失败:记在 failed 里,其余照传', async () => {
     const { machine, fs } = fakeMachine({ [resources('报告/.keep')]: '' })
-    const files = machine.rpc.workspace.files as unknown as { writeChunk: (...args: unknown[]) => Promise<unknown> }
+    const files = machine.rpc!.workspace.files as unknown as { writeChunk: (...args: unknown[]) => Promise<unknown> }
     const original = files.writeChunk
     files.writeChunk = async (...args: unknown[]) => {
       const chunk = args[2] as { path: string }

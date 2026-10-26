@@ -1,4 +1,5 @@
 export default {
+  "resourceKinds": {"memory": "Memory", "personality": "Personality", "files": "Files", "skills": "Skills", "schedules": "Scheduled task", "integrations": "Application", "voice-notes": "Voice note", "capabilities": "Capability", "device-notes": "Device note", "tasks": "Task"},
   "library": {
     "saveFailed": "Could not save. Your input is preserved. If the entry changed elsewhere, reopen it before editing.",
     "emptyContent": "No instructions yet.",
@@ -9,7 +10,6 @@ export default {
     "entryName": "Name",
     "add": "Add entry",
     "edit": "Edit entry",
-    "savedNotificationFailed": "Saved; delivery of the update to your assistant is unconfirmed",
     "memory": "Memory", "workspace": "Projects", "capabilities": "Capabilities", "devices": "Devices",
     "loading": "Reading…", "failed": "Resources could not be read. Please retry.", "items": "{{count}} entries",
     "notConfigured": "Not configured yet", "setup": "Set up together", "organize": "Organize in chat", "backToIndex": "Back to index",
@@ -67,18 +67,17 @@ export default {
     "more": "More actions"
   },
   "machine": {
-    "connecting": "Connecting to {{name}}…",
-    "connectFailed": "Can't reach {{name}}: ",
-    "dropped": "Lost the connection to {{name}}.",
-    "reconnect": "Reconnect",
-    "unreachable": "Can't reach {{name}} right now. Check it under the gear.",
-    "computerOff": "{{name}} lives on {{device}} and is only around while it is on. It is off right now, so this can't load.",
-    "computerGone": "The computer {{name}} lives on is no longer among your devices, so this can't load.",
-    "noWorkdir": "Can't find {{name}}'s own session, so its files can't be read.",
+    "stale": "This resource has not been updated to its current version.",
+    "applicationFailed": "{{domain}} “{{resource}}” could not be applied. The system will continue processing it.",
+    "changed": "This item has changed. Reopen it before editing.",
+    "accessFailed": "Access to this resource could not be verified.",
+    "identityFailed": "The owner of this assistant resource could not be determined.",
+    "invalidResource": "The resource name or content is invalid.",
+    "tooLarge": "This resource exceeds the save limit.",
+    "unprepared": "Not prepared yet",
+    "collectionFailed": "This resource could not be read. It will refresh automatically.",
     "openFailed": "Couldn't open {{name}}'s files",
     "readFailed": "Couldn't read it: {{message}}",
-    "updating": "{{where}} is updating to the new version. This will show up on its own when it's done.",
-    "updateFailed": "{{where}} couldn't update to the new version.",
     "retry": "Retry"
   },
   "onboarding": {
@@ -417,7 +416,6 @@ export default {
     "unseen": "Has unseen results",
     "emptyTitle": "No tasks yet",
     "loadFailed": "Couldn't load tasks",
-    "notRead": "{{name}}'s tasks can only be read while it's awake."
   },
   "routines": {
     "loadFailed": "Couldn't load scheduled tasks. Try again shortly.",
@@ -452,22 +450,6 @@ export default {
     "gone": "It may have been deleted."
   },
   "memory": {
-    "pending": {
-      "title": "Unfinished work",
-      "count": "{{count}} items",
-      "note": "Clearing removes recovery entries without cancelling tasks.",
-      "retry": "Could not read. Retry",
-      "loading": "Loading…",
-      "empty": "No pending entries",
-      "uncertain": "Delivery needs verification",
-      "needsSource": "Source missing; cannot recover automatically",
-      "blocked": "Waiting for the device task host",
-      "question": "Waiting for your answer",
-      "executor": "Waiting for task results",
-      "source": "Original request",
-      "clear": "Clear entries",
-      "clearFailed": "Could not clear. Try again."
-    },
     "loadFailed": "Couldn't load memories. Try again shortly.",
     "aboutUserTitle": "What I know about {{owner}}",
     "updated": "Updated {{time}}",
@@ -615,6 +597,7 @@ export default {
     }
   },
   "files": {
+    "saveFailed": "Some files could not be saved.",
     "note": "Add files about you. They go into {{name}}'s “{{folder}}”, where it can read them anytime.",
     "upload": "Upload files",
     "uploading": "Uploading {{name}}…",
@@ -690,6 +673,8 @@ export default {
     "title": "Capabilities and connections"
   },
   "connectors": {
+    "unverified": "Not yet verified",
+    "prepareFailed": "Authorization preparation is unavailable.",
     "title": "Connected apps",
     "note": "Account services and data on your devices that {{name}} can use for you",
     "pageSub": "Connect services and data so {{name}} can help you better.",

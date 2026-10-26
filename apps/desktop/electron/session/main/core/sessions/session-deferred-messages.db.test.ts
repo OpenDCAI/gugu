@@ -25,6 +25,7 @@ import {
   withDeferredMessagesBeforeAdmission,
 } from './session-deferred-messages';
 import { setSessionMessageRouter } from './session-message-router';
+import { setSessionAdmissionPreparation } from './session-admission-preparation';
 
 type Status = { sessionId: string; reading: { status: string } | null };
 
@@ -65,6 +66,7 @@ describe('deferred messages: kept on the session, sent when it starts working', 
 
   afterEach(() => {
     setSessionMessageRouter(null);
+    setSessionAdmissionPreparation(null);
     fixture.close();
     mocks.db = undefined;
   });
@@ -103,6 +105,26 @@ describe('deferred messages: kept on the session, sent when it starts working', 
     await withDeferredMessagesBeforeAdmission('s1', 'RETRY', async text => {
       expect(text).toBe('APP-A\n\nRETRY'); return { declined: false, requestId: 'retry' };
     });
+    expect(states()).toEqual([{ id: 'A', state: 'accepted' }]);
+  });
+
+  it('does not consume or embed panel notices when a prompt is merely accepted into a queue', async () => {
+    storeDeferredMessage({ sessionId: 's1',id: 'A',text: 'APP-A' });
+    const accepted = vi.fn(async () => {}), prepare = vi.fn(async () => ({ text: 'MEMORY REVOKED',accepted }));
+    setSessionAdmissionPreparation(prepare);
+    await withDeferredMessagesBeforeAdmission('s1','QUEUED',async text => {
+      expect(text).toBe('APP-A\n\nQUEUED');
+      return { declined: false,requestId: 'runtime-queue' };
+    });
+    expect(prepare).not.toHaveBeenCalled();
+    expect(accepted).not.toHaveBeenCalled();
+  });
+
+  it('does not turn an accepted model request into a delivery failure if the preparation checkpoint cannot be saved', async () => {
+    storeDeferredMessage({ sessionId: 's1', id: 'A', text: 'APP-A' });
+    setSessionAdmissionPreparation(async (_id, text) => ({ text, accepted: async () => { throw new Error('Disk unavailable'); } }));
+    expect(await withDeferredMessagesBeforeAdmission('s1', 'USER', async () => ({ declined: false, requestId: 'accepted' })))
+      .toEqual({ declined: false, requestId: 'accepted' });
     expect(states()).toEqual([{ id: 'A', state: 'accepted' }]);
   });
 

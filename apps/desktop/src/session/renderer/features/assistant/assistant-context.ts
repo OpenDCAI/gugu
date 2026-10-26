@@ -41,17 +41,14 @@ export type AssistantContext = {
   ownerName: string | null;
   /** 和它的那条私聊(壳认出来的;还没认出来 = null):「今天」页读它文件夹里的 today.json。 */
   chatId: string | null;
-  /**
-   * 它住哪(owner 10-16:会员住云上、非会员住自己的电脑)。界面按这个说话:住云上 = 要读时由系统连它、只说「正在连接」(owner 10-17 ❌「休息中 / 叫醒它」);
-   * 住电脑 = 那台开着它才在,❌ 出「叫醒」、❌ 说「云」。
-   */
+  /** 执行宿主的位置；面板数据始终读取账号云端副本。 */
   home: AssistantHomePlace;
   /** 它家那台的设备 id(查询键、会话目录、已安排都按它)。 */
   homeDeviceId: string;
   /** 住云上时管家给的样子;住电脑 = null。 */
   snapshot: CloudComputerSnapshot | null;
   readiness: MachineReadiness;
-  /** 它家那台上读写文件用的工作区(assistant-machine.ts)。还没连上 = undefined。 */
+  /** 账号级面板读写接口；未能确定归属时为 undefined。 */
   machine: AssistantMachine | undefined;
   machineLoading: boolean;
   machineError: unknown;
@@ -64,5 +61,5 @@ export type AssistantContext = {
 
 export type AssistantPageProps = { context: AssistantContext };
 
-/** 页里的元件(MachineGate 的「叫醒它」)要拿到是哪台;各页仍以 props 收 context。 */
+/** 面板元件共享助理身份和云端读取状态;各页仍以 props 收 context。 */
 export const AssistantCtx = createContext<AssistantContext | null>(null);

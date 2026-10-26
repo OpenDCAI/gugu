@@ -97,6 +97,7 @@ function mtimeOf(entry: { modifiedAt?: unknown }): number | null {
 }
 
 export function machineFs(machine: AssistantMachine): HomeFs {
+  if (!machine.rpc) throw new Error('The explicit move requires its native source and destination')
   const files = machine.rpc.workspace.files;
   return {
     async list(dir) {
