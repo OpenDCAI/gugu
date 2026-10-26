@@ -506,6 +506,7 @@ export function createPaneTransport(
 
 /** 宿主拿到的那几个动作的形状。`requestLogin` / `requestTakeover` 只有云浏览器有(cloud/cloud-browser.ts)。 */
 export type AgentBrowserBridgeShape = {
+  closeSession?: (sessionId: string) => Promise<void>;
   states?: () => NonNullable<ExtensionAgentStatus['sessions']>;
   openTransport: (sessionId: string, signal?: AbortSignal) => Promise<AgentBrowserTransport>;
   toolStarting: (sessionId: string) => { ok: true } | { ok: false; message: string };
