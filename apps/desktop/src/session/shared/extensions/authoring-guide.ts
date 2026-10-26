@@ -928,8 +928,9 @@ When a person asks an App to do something it does not support, or its own code h
 offer to fork a version for them. Ask before starting: "This App does not support that yet.
 Shall I fork a version for you?" Do not work around its missing feature with shell commands,
 edit its installed files, or build a substitute. Check its tools and app_search first; a missing
-feature need not produce an error. Network, login, a stopped program, or permission trouble
-is not a reason to fork: resolve that trouble. Ask once; if they decline, do not ask again.
+feature need not produce an error. A fork cannot fix environment problems such as network,
+login, missing permission, a stopped program or an offline device: do not offer one for those.
+Ask once; if they decline, do not ask again.
 
 A fork is another variant of the SAME App. Only one variant runs on this computer at a time.
 Data, chat enablement and already granted permissions belong to the App, so switching code

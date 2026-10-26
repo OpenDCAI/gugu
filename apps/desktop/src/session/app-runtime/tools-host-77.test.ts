@@ -121,19 +121,14 @@ describe('an App\'s tools module, served as MCP by gugu (F77)', () => {
     expect(await client.callTool({ name: 'unfollow', arguments: {} })).toMatchObject({ isError: true, content: [{ text: 'no tool "unfollow" here; there are: follow, followers' }] });
   });
 
-  it('host refusals, Node system errors and a failed fetch do not suggest changing the App', async () => {
-    const refused = Object.assign(new Error('permission was revoked'), { code: 'forbidden' });
-    const offline = Object.assign(new Error('connect failed'), { code: 'ECONNREFUSED' });
-    const fetchFailed = new TypeError('fetch failed', { cause: offline });
-    for (const error of [refused, offline, fetchFailed]) {
-      const client = await served({
-        probe: { description: 'A host failure', inputSchema: { type: 'object', properties: {} }, run() { throw error; } },
-      });
-      expect(await client.callTool({ name: 'probe', arguments: {} })).toEqual({
-        content: [{ type: 'text', text: error.message }], isError: true,
-      });
-      await client.close();
-    }
+  it('an App error with a code still points to the guide', async () => {
+    const error = Object.assign(new Error('the requested view is unavailable'), { code: 'APP_VIEW' });
+    const client = await served({
+      probe: { description: 'An App failure', inputSchema: { type: 'object', properties: {} }, run() { throw error; } },
+    });
+    expect(await client.callTool({ name: 'probe', arguments: {} })).toEqual({
+      content: [{ type: 'text', text: `${error.message}\nIf the App lacks the requested behavior or has a bug, ask whether to fork a version (guide_read apps-fork).` }], isError: true,
+    });
   });
 
   /** 看板 N1 (170 10-19): an agent's tool call changed what the App's pages show, and nothing told them. */

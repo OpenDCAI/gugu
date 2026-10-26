@@ -102,12 +102,7 @@ export async function serveTools(tools: ReadonlyMap<string, AppTool>, transport:
       return text(typeof value === 'string' ? value : (JSON.stringify(value) ?? ''));
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
-      // Host refusals and Node system errors carry a code (fetch puts it on its cause).
-      // Keep those answers as they are; a fork cannot repair the environment.
-      const cause = error instanceof Error ? error.cause : undefined;
-      const coded = (typeof error === 'object' && error !== null && 'code' in error)
-        || (typeof cause === 'object' && cause !== null && 'code' in cause);
-      const hint = coded ? '' : '\nIf the App lacks the requested behavior or has a bug, ask whether to fork a version (guide_read apps-fork).';
+      const hint = '\nIf the App lacks the requested behavior or has a bug, ask whether to fork a version (guide_read apps-fork).';
       return { ...text(message + hint), isError: true };
     }
   });
