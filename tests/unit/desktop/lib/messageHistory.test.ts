@@ -8,6 +8,8 @@ import { chatService } from '../../../../apps/desktop/src/lib/chat'
 import { fetchChatHistoryPage, restoreChatHistoryAnchor } from '../../../../apps/desktop/src/store/chatWindowPublication'
 import { ChatHistoryWindow } from '../../../../apps/desktop/src/store/chatHistoryWindow'
 
+vi.mock('../../../../apps/desktop/src/lib/chat', () => ({ chatService: { getMessages: vi.fn(), getMessageById: vi.fn() } }))
+
 let adapter: LocalImDbAdapter
 beforeEach(async () => {
   vi.stubGlobal('IDBKeyRange', IDBKeyRange)
