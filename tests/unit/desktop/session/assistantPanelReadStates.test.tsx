@@ -50,3 +50,15 @@ it('retains the formatted title and unread indicator in cloud task rows', async 
   expect(harness.container.textContent).toContain('Codex (1)')
   expect(harness.container.querySelector('.ta-unseen')).not.toBeNull()
 })
+
+it('names a failed schedule read instead of rendering the empty schedule list', async () => {
+  const client = await render(context({ machineLoading: false,machine: { deviceId: 'home',panel: { collection: async () => { throw Object.assign(new Error('private server detail'),{ code: 'collection-unavailable' }) } } } as never }))
+  await clickElement(harness.container.querySelector<HTMLElement>('[data-testid="assistant-seg-scheduled"]')!)
+  await act(async () => {
+    await vi.waitFor(() => expect(client.isFetching()).toBe(0))
+    await new Promise(resolve => setTimeout(resolve,0))
+  })
+  expect(harness.container.textContent).toContain('routines.loadFailed')
+  expect(harness.container.textContent).not.toContain('routines.emptyTitle')
+  expect(harness.container.querySelector('[role="alert"]')).not.toBeNull()
+})

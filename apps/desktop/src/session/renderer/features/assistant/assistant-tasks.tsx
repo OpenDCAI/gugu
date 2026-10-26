@@ -3,6 +3,7 @@ import {useAssistantWorkOwnerId} from '@/lib/assistantWorkReadBridge';
 import { messageForUser } from '@/lib/userFacingError';
 import { formatSessionTitleForDisplay } from '@shared/core/sessions/session-title-utils';
 import { rendererLogger } from '@/lib/log';
+import { useReadFailure } from './assistant-read-failure';
 import { assistantPanelFailure } from '@/components/assistant/assistant-panel-errors';
 import { useDirectoryDevices } from '@/session/shared/remote-sessions/session-directory';
 import { assistantTaskDeviceLabel } from './assistant-task-directory';
@@ -131,6 +132,8 @@ const RoutineLists = observer(function RoutineLists({ context }: AssistantPagePr
   const { t, i18n } = useTranslation('assistant');
   const formatAt = useFormatAt();
   const { query, routines } = useAssistantRoutines(context);
+  const failure = useReadFailure(query.error,null,'',() => void query.refetch());
+  if (failure) return <AssistantEmpty title={t('routines.loadFailed')}><span role="alert">{failure.text}</span></AssistantEmpty>;
   const active = routines.filter((a) => a.enabled);
   const inactive = routines.filter((a) => !a.enabled);
   const row = (automation: Automation) => (

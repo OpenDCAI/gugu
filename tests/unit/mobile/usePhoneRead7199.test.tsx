@@ -1,4 +1,6 @@
 // @vitest-environment jsdom
+import { PhoneRoutineRead } from '../../../apps/desktop/src/mobile/assistant/PhoneRoutineRead'
+import '../../../apps/desktop/src/i18n/registerAssistantCatalog'
 import { act } from 'react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { usePhoneRead, type PhoneRead } from '../../../apps/desktop/src/mobile/assistant/usePhoneRead'
@@ -71,4 +73,22 @@ describe('usePhoneRead polling', () => {
     await act(async () => { await expect(latest!.refresh()).rejects.toThrow('verification unavailable') })
     expect(latest?.state).toBe('error')
   })
+  it('does not conceal a failed schedule refresh behind a previously empty collection', async () => {
+    const read = vi.fn<() => Promise<string[]>>().mockResolvedValueOnce([]).mockRejectedValueOnce(Object.assign(new Error('raw private diagnosis'),{ code: 'collection-unavailable' })).mockResolvedValueOnce(['recovered'])
+    function Routines() {
+      const result = usePhoneRead('schedules',read,'schedule regression',() => 1000)
+      return <PhoneRoutineRead read={result} directory={null}>{rows => rows.length ? <span>{rows.join(',')}</span> : <span data-testid="false-empty">no schedules</span>}</PhoneRoutineRead>
+    }
+    await harness.render(createNode(Routines,{}))
+    await act(async () => { await vi.advanceTimersByTimeAsync(0) })
+    expect(harness.container.querySelector('[data-testid="false-empty"]')).not.toBeNull()
+    await act(async () => { await vi.advanceTimersByTimeAsync(1000) })
+    expect(harness.container.querySelector('[role="alert"]')).not.toBeNull()
+    expect(harness.container.querySelector('[data-testid="false-empty"]')).toBeNull()
+    expect(harness.container.textContent).not.toContain('raw private diagnosis')
+    await act(async () => { await vi.advanceTimersByTimeAsync(1000) })
+    expect(harness.container.textContent).toContain('recovered')
+    expect(harness.container.querySelector('[role="alert"]')).toBeNull()
+  })
+
 })
