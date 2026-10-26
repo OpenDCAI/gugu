@@ -24,13 +24,24 @@ it('opens phone permissions before this phone has registered a device row', asyn
   expect(find('assistant-device-this-phone')).not.toBeNull()
 })
 
-it('shows the current phone once and keeps other device permissions reachable', async () => {
+it('shows the current phone once without advertising remote phone actions', async () => {
   const phone = { is_online: true, capabilities: { host_kind: 'phone', runtimes: [], terminals: [], host_runtime_capability: 0, actions: { actions: [] } } }
   state.phones = [{ ...phone, device_id: 'local', label: 'Current phone', is_current_device: true },
     { ...phone, device_id: 'other', label: 'Other phone' }]
   await renderWithAppProviders(harness, <AssistantDevicesPage cloudDeviceId={null} />)
   expect(find('assistant-device-this-phone')!.textContent).toContain('Current phone')
   expect(find('assistant-device-local')).toBeNull()
-  await clickElement(find('assistant-device-other')!)
-  expect(find('remote-permissions')!.textContent).toBe('Other phone')
+  expect(find('assistant-device-other')!.getAttribute('role')).not.toBe('button')
+  expect(find('assistant-device-other')!.textContent).not.toContain('已授权')
+  expect(find('remote-permissions')).toBeNull()
+})
+
+it('lets the phone shell own device detail navigation without an inner back header', async () => {
+  const open = vi.fn()
+  await renderWithAppProviders(harness, <AssistantDevicesPage cloudDeviceId={null} openedDeviceId={null} onOpenDevice={open} />)
+  await clickElement(find('assistant-device-this-phone')!)
+  expect(open).toHaveBeenCalledWith('this-phone')
+  await renderWithAppProviders(harness, <AssistantDevicesPage cloudDeviceId={null} openedDeviceId="this-phone" onOpenDevice={open} />)
+  expect(find('local-phone-permissions')).not.toBeNull()
+  expect(find('assistant-devices-back')).toBeNull()
 })

@@ -62,7 +62,7 @@ it.each(['computer', 'cloud'] as const)('keeps the complete %s handbook retrieva
     await mkdir(join(root, '.claude'))
     const instructions = assistantHomePaths(root, cwd, kind).instructions
     const full = assistantGuide(kind)
-    const outdated = full.replaceAll('profile_rules: 5', 'profile_rules: 1').replaceAll('关于你v3', '关于你v1')
+    const outdated = full.replaceAll('profile_rules: 6', 'profile_rules: 1').replaceAll('关于你v3', '关于你v1')
       .replace('你是个人助理', '你是主人的个人代理，电脑睡了或关了以后再处理')
     expect(outdated).toContain('profile_rules: 1')
     await writeFile(instructions, `Owner instructions before\n${outdated}\nOwner instructions after`)

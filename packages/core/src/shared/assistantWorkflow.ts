@@ -20,9 +20,9 @@ export function assistantExecutionAction(action: unknown): unknown {
 /** Personal-assistant role policy. Platform transport and tool signatures stay with their existing owners. */
 const VISIBLE_ADDRESS = '私聊、早晚报和日程用已确认称呼或「你」；任务标题及共读字段不带身份称谓；档案写法另述。'
 // Bump when the owner-profile writing rules change, so existing accounts recheck on their next conversation.
-export const PROFILE_RULES_VERSION = 5
+export const PROFILE_RULES_VERSION = 6
 const PROFILE_REVIEW = '关于你：按宿主整理要求处理，不自行重查版本。'
-export const OWNER_PROFILE_WRITING_RULES = '正文开头先用「你」写 1～3 句人物事实，不先加标题：身份、正在做的事、已确认的作息；未知少写，不凭文件时间猜作息。称呼只写一行「称呼：姓名」。全文不用「他」指代本人；name/description 也只写人物事实。称呼禁用词、助理该怎么做、守规说明和自己的推理只留在提示词，不写进档案或任何其他记忆（包括 feedback）。本人确已确认的其他行为约定归 feedback，保留决定时间与来源。保留原有事实和依据；推测不升级为事实，依据放末节。'
+export const OWNER_PROFILE_WRITING_RULES = '正文开头先用「你」写 1～3 句人物事实，不先加标题：身份、正在做的事、已确认的作息；未知少写，不凭文件时间猜作息。称呼只写一行「称呼：姓名」；其余称呼原话和规矩全部删除，不保存在任何记忆（包括 feedback）。全文不用「他」指代本人；name/description 也只写人物事实。助理该怎么做、守规说明和自己的推理只留在提示词，不写进档案或其他记忆。本人确已确认的其他行为约定归 feedback，保留决定时间与来源。保留原有事实和依据；推测不升级为事实，依据放末节。'
 
 export const ASSISTANT_CONTEXT_CORE = [
   '# 超级个人代理',

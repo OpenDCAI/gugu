@@ -202,15 +202,3 @@
 /* ── 底栏「咕咕」一格在还没有它时:默认咕咕淡一点 + 角上小「+」(底栏在 .ta-phone 之外,只读咕咕自己的 token) ── */
 .ta-phone-bar-gugu { position: relative; display: inline-flex; }
 .ta-phone-bar-gugu > :first-child { opacity: 0.5; }
-.ta-phone-bar-plus {
-  position: absolute;
-  right: -7px;
-  bottom: -4px;
-  display: grid;
-  place-items: center;
-  width: 14px;
-  height: 14px;
-  border-radius: var(--radius-circle);
-  background: var(--primary);
-  color: var(--primary-fg);
-}

@@ -18,15 +18,15 @@ export function PhoneAgentHostControl({ ownerId, setup, summary }: { ownerId: st
   const hostError = !settings.hostEnabled ? null
     : host?.error ?? (host?.status === 'failed' ? host.message : undefined)
       ?? (phone.link.state === 'error' ? phone.link.message : undefined)
-      ?? (host?.status === 'interrupted' ? '上次运行已中断，重新连接后可以在原对话里继续。' : null)
+      ?? (host?.status === 'interrupted' ? '上次任务已中断，可在原任务里继续。' : null)
   const statusText = changing === 'stop' ? '正在停止手机 Agent'
-    : changing === 'restart' ? '正在重新连接'
+    : changing === 'restart' ? '正在启动'
       : error ? '操作未完成'
         : !settings.hostEnabled ? (host?.status === 'stopped' ? '手机 Agent 已停止' : '未启用手机 Agent')
-          : ready ? '已连接，可以在这台手机上处理任务'
+          : ready ? '可处理任务'
             : host?.status === 'interrupted' ? '手机 Agent 已中断'
               : host?.status === 'stopped' ? '手机 Agent 已停止'
-                : failed ? '手机 Agent 连接失败' : '正在连接这台手机'
+                : failed ? '手机 Agent 启动失败' : '正在启动手机 Agent'
 
   const changeHost = async (kind: 'stop' | 'restart') => {
     if (changing) return
@@ -65,7 +65,7 @@ export function PhoneAgentHostControl({ ownerId, setup, summary }: { ownerId: st
           if (failed) void changeHost('restart')
           else if (settings.hostEnabled) void changeHost('stop')
           else { setError(null); setPhoneAgentHostEnabled(ownerId, true) }
-        }}>{changing ? '正在设置' : failed ? '重新连接' : settings.hostEnabled ? '停止运行' : '启用 Agent'}</Button>
+        }}>{changing ? '正在设置' : failed ? '重新启动' : settings.hostEnabled ? '停止运行' : '启用 Agent'}</Button>
       </div>
       {(error || hostError) && <SettingsNote tone="danger" role="alert">{error ?? hostError}</SettingsNote>}
     </div>
@@ -73,21 +73,19 @@ export function PhoneAgentHostControl({ ownerId, setup, summary }: { ownerId: st
 
   return (
     <SettingsGroup
-      title="手机 Agent"
       className="gg-phone-host-control"
       data-testid="phone-agent-host-settings"
       footer={error || hostError ? <SettingsNote tone="danger" role="alert">{error ?? hostError}</SettingsNote> : undefined}
     >
       <SettingsRow
-        title="在这台手机上运行 Agent"
-        description="新建任务时选择这台手机。手机能力按需授权。"
+        title="手机任务"
         stack
         control={(
           <div className="flex flex-wrap items-center gap-2">
             {settings.hostEnabled || changing
               ? <Button size="sm" disabled={!!changing} onClick={() => void changeHost('stop')}>停止手机 Agent</Button>
               : <Button size="sm" variant="primary" onClick={() => { setError(null); setPhoneAgentHostEnabled(ownerId, true) }}>启用手机 Agent</Button>}
-            {failed && <Button size="sm" disabled={!!changing} onClick={() => void changeHost('restart')}>重新连接</Button>}
+            {failed && <Button size="sm" disabled={!!changing} onClick={() => void changeHost('restart')}>重新启动</Button>}
           </div>
         )}
       >

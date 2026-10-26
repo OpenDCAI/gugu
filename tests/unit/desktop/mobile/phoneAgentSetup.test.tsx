@@ -39,6 +39,8 @@ vi.mock('../../../../apps/desktop/src/components/ui/Sheet', () => ({
   Sheet: ({ children, testId, fullScreenMobile }: { children: ReactNode; testId?: string; fullScreenMobile?: boolean }) => createElement('section', { role: 'dialog', 'data-testid': testId ?? 'phone-agent-setup', 'data-full-screen-mobile': fullScreenMobile }, children),
 }))
 
+vi.mock('../../../../apps/desktop/src/store/auth', () => ({ useAuth: () => ({ user: { id: mocks.owner } }) }))
+import { PhoneDeviceActionsPage } from '../../../../apps/desktop/src/mobile/phone-device/PhoneDeviceActionsPage'
 import { PhoneAgentSetupGate } from '../../../../apps/desktop/src/mobile/local-agent/PhoneAgentSetupGate'
 import { PhoneInstallationContext } from '../../../../apps/desktop/src/mobile/local-agent/PhoneInstallationContext'
 import { PhoneCapabilityGroups } from '../../../../apps/desktop/src/mobile/phone-device/PhoneCapabilityGroups'
@@ -314,5 +316,56 @@ describe('phone permission form', () => {
     await clickElement(byId('phone-device-group-calendar')!.querySelector<HTMLElement>('[role="button"]')!)
     expect(byId('phone-device-capability-calendar')).not.toBeNull()
     expect(mocks.runtimeRequest).not.toHaveBeenCalled()
+  })
+})
+
+describe('phone task permissions without a remote-device master', () => {
+  it('shows all categories without enabling the host or granting data on mount', async () => {
+    const owner = 'settings-without-master'
+    mocks.owner = owner
+    const harness = createReactHarness(); active.push(harness)
+    await harness.render(createNode(PhoneDeviceActionsPage))
+    expect(byId('phone-device-master')).toBeNull()
+    expect(harness.container.textContent).not.toMatch(/让助理用这台手机|正在连接|已连接，可以/)
+    for (const group of PHONE_ACTION_GROUPS) expect(byId(`phone-device-group-${group}`)).not.toBeNull()
+    for (const permission of mocks.permissions) expect(byId(`phone-device-system-${permission}`)).not.toBeNull()
+    expect(harness.container.querySelector('[role="dialog"]')).toBeNull()
+    expect(harness.container.textContent).not.toContain('权限设置')
+    expect(readPhoneDeviceSettings(owner)).toMatchObject({ enabled: false, hostEnabled: false })
+    expect(Object.values(effectiveGrants(readPhoneDeviceSettings(owner))).every(value => !value)).toBe(true)
+    expect(mocks.request).not.toHaveBeenCalled(); expect(mocks.runtimeRequest).not.toHaveBeenCalled()
+  })
+
+  it('authorizes only an explicitly chosen category from normal settings', async () => {
+    const owner = 'settings-one-category'
+    mocks.owner = owner
+    setPhoneActionGroup(owner, 'contacts', true); setPhoneDeviceEnabled(owner, false)
+    const harness = createReactHarness(); active.push(harness)
+    await harness.render(createNode(PhoneDeviceActionsPage))
+    await clickElement(byId('phone-device-group-calendar')!)
+    expect(readPhoneDeviceSettings(owner)).toMatchObject({ enabled: true, hostEnabled: false, groups: { calendar: true, contacts: false } })
+    expect(mocks.runtimeRequest).toHaveBeenCalledExactlyOnceWith({ permissions: ['calendar'] })
+    expect(document.querySelectorAll('[role="alert"]')).toHaveLength(0)
+  })
+
+  it('requests data and special permissions directly from their rows and refreshes after foreground', async () => {
+    const owner = 'settings-direct-permissions'; mocks.owner = owner
+    mocks.dataRequest.mockResolvedValue({ supported: true, images: true, videos: true })
+    const harness = createReactHarness(); active.push(harness)
+    await harness.render(createNode(PhoneDeviceActionsPage))
+    await clickElement(byId('phone-device-group-photos')!)
+    expect(mocks.dataRequest).toHaveBeenCalledExactlyOnceWith({ group: 'photos' })
+    await clickElement(byId('phone-device-group-notifications')!)
+    expect(mocks.nativeSettings).toHaveBeenLastCalledWith({ target: 'notification_listener' })
+    mocks.os = { ...osState(), special: { ...osState().special, notification_listener: true } }
+    const before = mocks.refresh.mock.calls.length
+    await act(async () => { for (const listener of mocks.foreground) listener() })
+    await waitForCondition(() => byId('phone-device-group-notifications')?.textContent?.includes('1/2') === true, 'fresh special permission state')
+    expect(mocks.refresh.mock.calls.length).toBeGreaterThan(before)
+    await clickElement(byId('phone-device-group-notifications')!)
+    expect(mocks.nativeSettings).toHaveBeenLastCalledWith({ target: 'dnd' })
+    await clickElement(byId('phone-device-system-camera')!)
+    expect(mocks.request).toHaveBeenCalledExactlyOnceWith('camera')
+    expect(readPhoneDeviceSettings(owner).hostEnabled).toBe(false)
   })
 })

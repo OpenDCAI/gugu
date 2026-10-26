@@ -12,6 +12,7 @@
 import { useCallback, useMemo, useState, type ReactNode } from 'react'
 import { useTranslation } from 'react-i18next'
 import type { Device } from '@gugu/core/shared/types/chat'
+import { isPhoneDevice } from '@gugu/core/cloud/devices'
 import type { DeviceActionSummary } from '@gugu/core/shared/deviceActions'
 import {
   DEVICE_ACTIONS_CHANNELS,
@@ -23,6 +24,7 @@ import {
 } from '../../lib/deviceActionsIpc'
 import { desktopIpc } from '../../platform/desktopIpc'
 import { platform } from '../../platform'
+import { messageForUser } from '../../lib/userFacingError'
 // 「这台电脑能做的事」的现读状态:与助理 App「能力 · 设备」那一行(AssistantDevicesPage)共用一份。
 import { useThisDeviceState } from '../../hooks/useThisDeviceActions'
 import { formatRelativeTime } from '../../lib/relativeTime'
@@ -62,12 +64,27 @@ import { cachedDevicesAccount } from '../../store/devicesCache'
 
 async function saveDevicePermission(channel: string, args: unknown, change: { action: string; enabled?: boolean; group?: string }): Promise<void> {
   const ipc = desktopIpc()
-  if (!ipc) return
+  if (!ipc) throw new Error('This device is unavailable')
   const ownerId = cachedDevicesAccount()
   await ipc.invoke(channel, args)
   const deviceId = libraryDeviceId(null)
   await reportAssistantAppChange(null, undefined, { resource: 'devices', operation: 'edited', section: 'permissions',
     id: deviceId ?? 'permission-settings', deviceId, after: change }, ownerId)
+}
+
+/** One error outlet for a committed permission change; success only refreshes real state. */
+async function updateDevicePermission(
+  args: Parameters<typeof saveDevicePermission>,
+  reload: () => void,
+  fail: (message: string | null) => void,
+): Promise<void> {
+  fail(null)
+  try {
+    await saveDevicePermission(...args)
+    reload()
+  } catch (error) {
+    fail(messageForUser(error))
+  }
 }
 
 const FALLBACK_ICONS: Record<string, IconComponent> = {
@@ -107,14 +124,14 @@ export function GroupIcon({ group, size }: { group: { id: string; icon?: string 
   )
 }
 
-export function DeviceActionsPage({ device, isThisDevice, onBack }: { device: Device; isThisDevice: boolean; onBack?: () => void }) {
+export function DeviceActionsPage({ device, isThisDevice, onBack, embedded = false }: { device: Device; isThisDevice: boolean; onBack?: () => void; embedded?: boolean }) {
   const { t } = useTranslation('settings')
   const ipc = desktopIpc()
   if (isThisDevice && ipc) return <ThisDeviceActions onBack={onBack} />
   return (
     <SettingsPage data-testid="settings-device-actions">
-      <PageHeader title={t('devices.deviceActions.otherTitle', { name: device.label })} backLabel={t('devices.deviceActions.back')} onBack={onBack} />
-      <OtherDeviceActions device={device} />
+      {!embedded && <PageHeader title={t('devices.deviceActions.otherTitle', { name: device.label })} backLabel={t('devices.deviceActions.back')} onBack={onBack} />}
+      <OtherDeviceActions device={device} compact={embedded} />
     </SettingsPage>
   )
 }
@@ -161,6 +178,8 @@ export function ThisDeviceActions({ onBack, bare = false }: { onBack?: () => voi
   const text = useDeviceActionGroupText()
   const { state, reload } = useThisDeviceState()
   const [openGroup, setOpenGroup] = useState<string | null>(null)
+  const [saveFailure, setSaveFailure] = useState<string | null>(null)
+  const save = (...args: Parameters<typeof saveDevicePermission>) => updateDevicePermission(args, reload, setSaveFailure)
 
   const header = bare ? null : (
     <PageHeader
@@ -197,7 +216,7 @@ export function ThisDeviceActions({ onBack, bare = false }: { onBack?: () => voi
   return (
     <SettingsPage data-testid="settings-device-actions">
       {header}
-      <SettingsNote>{t('devices.deviceActions.thisNote')}</SettingsNote>
+      {saveFailure && <SettingsNote role="alert" tone="danger">{t('devices.deviceActions.connectFailed', { message: saveFailure })}</SettingsNote>}
       {state.denyAll && <SettingsNote tone="danger" data-testid="settings-device-actions-deny-all-on">{t('devices.deviceActions.denyAllOn')}</SettingsNote>}
       {connected.length > 0 && <SettingsGroup title={t('devices.deviceActions.connected')} data-testid="settings-device-actions-connected">{connected.map(row)}</SettingsGroup>}
       {available.length > 0 && <SettingsGroup title={t('devices.deviceActions.available')} data-testid="settings-device-actions-available">{available.map(row)}</SettingsGroup>}
@@ -209,7 +228,7 @@ export function ThisDeviceActions({ onBack, bare = false }: { onBack?: () => voi
             <Toggle
               checked={state.denyAll}
               ariaLabel={t('devices.deviceActions.denyAll')}
-              onChange={(on) => { void saveDevicePermission(DEVICE_ACTIONS_CHANNELS.setDenyAll, on, { action: 'deny-all', enabled: on }).then(reload) }}
+              onChange={(on) => { void save(DEVICE_ACTIONS_CHANNELS.setDenyAll, on, { action: 'deny-all', enabled: on }) }}
             />
           )}
           data-testid="settings-device-actions-deny-all"
@@ -267,6 +286,7 @@ function GroupDetail({ group, denyAll, onBack, reload, backLabel }: { group: Dev
   const [busy, setBusy] = useState(false)
   const [failure, setFailure] = useState<{ message: string; settingsUrl?: string; restart?: true } | null>(null)
   const name = text.name(group.id)
+  const save = (...args: Parameters<typeof saveDevicePermission>) => updateDevicePermission(args, reload, message => setFailure(message ? { message } : null))
 
   const connect = useCallback(async () => {
     const ipc = desktopIpc()
@@ -282,17 +302,15 @@ function GroupDetail({ group, denyAll, onBack, reload, backLabel }: { group: Dev
         await reportAssistantAppChange(null, undefined, { resource: 'devices', operation: 'edited', section: 'permissions',
           id: deviceId ?? 'permission-settings', deviceId, after: { group: group.id, enabled: true } }, ownerId)
       }
+    } catch (error) {
+      setFailure({ message: messageForUser(error) })
     } finally {
       setBusy(false)
       reload()
     }
   }, [group.id, reload])
 
-  const disconnect = useCallback(async () => {
-    await saveDevicePermission(DEVICE_ACTIONS_CHANNELS.disconnect, group.id, { action: 'disconnect', group: group.id, enabled: false })
-    setFailure(null)
-    reload()
-  }, [group.id, reload])
+  const disconnect = () => save(DEVICE_ACTIONS_CHANNELS.disconnect, group.id, { action: 'disconnect', group: group.id, enabled: false })
 
   const settingsUrl = failure?.settingsUrl ?? (group.blocked?.reason === 'os_permission' ? group.settingsUrl : undefined)
   const problem = failure?.message ?? (group.connected ? group.blocked?.message : group.blocked?.reason === 'unsupported' ? group.blocked.message : undefined)
@@ -338,7 +356,7 @@ function GroupDetail({ group, denyAll, onBack, reload, backLabel }: { group: Dev
           </Button>
         )}
         {problem && (
-          <div className="mt-1 flex flex-col items-center gap-1 text-[var(--danger-fg,#d63838)]" data-testid="settings-device-action-connect-failed">
+          <div className="mt-1 flex flex-col items-center gap-1 text-[var(--danger-fg,#d63838)]" data-testid="settings-device-action-connect-failed" role="alert">
             <div>{failure ? t('devices.deviceActions.connectFailed', { message: problem }) : problem}</div>
             <div className="flex items-center gap-1">
               {settingsUrl && (
@@ -374,10 +392,9 @@ function GroupDetail({ group, denyAll, onBack, reload, backLabel }: { group: Dev
               <span className="text-[var(--muted-fg)]">{t('devices.deviceActions.actionsCount', { on: enabledCount, total: group.actions.length })}</span>
             </span>
           )}
-          note={t('devices.deviceActions.actionsNote')}
           footer={overrides > 0
             ? (
-                <Button variant="ghost" size="sm" onClick={() => { void saveDevicePermission(DEVICE_ACTIONS_CHANNELS.resetOverrides, undefined, { action: 'reset-overrides' }).then(reload) }} data-testid="settings-device-action-reset-overrides">
+                <Button variant="ghost" size="sm" onClick={() => { void save(DEVICE_ACTIONS_CHANNELS.resetOverrides, undefined, { action: 'reset-overrides' }) }} data-testid="settings-device-action-reset-overrides">
                   {t('devices.deviceActions.resetOverrides')}
                 </Button>
               )
@@ -385,7 +402,7 @@ function GroupDetail({ group, denyAll, onBack, reload, backLabel }: { group: Dev
           data-testid={`settings-device-action-tools-${group.id}`}
         >
           {group.actions.map((action) => (
-            <ActionRow key={action.name} action={action} english={english} disabled={!group.connected || denyAll} reload={reload} />
+            <ActionRow key={action.name} action={action} english={english} disabled={!group.connected || denyAll} save={save} />
           ))}
         </SettingsGroup>
       )}
@@ -393,7 +410,7 @@ function GroupDetail({ group, denyAll, onBack, reload, backLabel }: { group: Dev
   )
 }
 
-function ActionRow({ action, english, disabled, reload }: { action: DeviceActionsActionView; english: boolean; disabled: boolean; reload: () => void }) {
+function ActionRow({ action, english, disabled, save }: { action: DeviceActionsActionView; english: boolean; disabled: boolean; save: (...args: Parameters<typeof saveDevicePermission>) => Promise<void> }) {
   const { t } = useTranslation('settings')
   const policy = action.confirm === 'always' ? t('devices.deviceActions.confirmAlways') : action.confirm === 'on_conflict' ? t('devices.deviceActions.confirmOnConflict') : null
   return (
@@ -415,7 +432,7 @@ function ActionRow({ action, english, disabled, reload }: { action: DeviceAction
           <Toggle
             checked={action.enabled}
             ariaLabel={english ? action.titleEn : action.title}
-            onChange={(enabled) => { void saveDevicePermission(DEVICE_ACTIONS_CHANNELS.setActionEnabled, { action: action.name, enabled }, { action: action.name, enabled }).then(reload) }}
+            onChange={(enabled) => { void save(DEVICE_ACTIONS_CHANNELS.setActionEnabled, { action: action.name, enabled }, { action: action.name, enabled }) }}
           />
         </span>
       )}
@@ -423,7 +440,7 @@ function ActionRow({ action, english, disabled, reload }: { action: DeviceAction
   )
 }
 
-function OtherDeviceActions({ device }: { device: Device }) {
+function OtherDeviceActions({ device, compact = false }: { device: Device; compact?: boolean }) {
   const { t } = useTranslation('settings')
   const text = useDeviceActionGroupText()
   const actions = device.capabilities?.actions?.actions ?? null
@@ -432,22 +449,26 @@ function OtherDeviceActions({ device }: { device: Device }) {
     for (const a of actions ?? []) out.set(a.group, [...(out.get(a.group) ?? []), a])
     return [...out.entries()]
   }, [actions])
+  if (isPhoneDevice(device)) return <SettingsGroup title={device.label}><SettingsRow title={t('devices.kind.phone')} description={t('devices.phoneActions.localAgentOnly')} control={<Chip>{t(device.is_online ? 'devices.online' : 'devices.offline')}</Chip>} /></SettingsGroup>
   if (!actions) return <SettingsNote>{t('devices.deviceActions.otherNone')}</SettingsNote>
   return (
     <>
-      <SettingsNote>{t('devices.deviceActions.otherNote')}</SettingsNote>
+      {!compact && <SettingsNote>{t('devices.deviceActions.otherNote')}</SettingsNote>}
       {!device.is_online && <SettingsNote tone="danger">{t('devices.deviceActions.otherOffline')}</SettingsNote>}
-      <SettingsGroup>
+      <SettingsGroup title={compact ? device.label : undefined}>
         {groups.map(([group, list]) => {
           const on = list.some((a) => a.available)
           const reason = list.find((a) => !a.available)?.unavailable_reason
           return (
             <SettingsRow
               key={group}
+              data-testid={`settings-device-action-other-${group}`}
               leading={<GroupIcon group={{ id: group }} size="row" />}
               title={text.name(group)}
-              description={list.map((a) => a.title).join(' · ')}
-              control={on
+              description={compact ? undefined : list.map((a) => a.title).join(' · ')}
+              control={!device.is_online
+                ? <Chip>{t('devices.offline')}</Chip>
+                : on
                 ? <Chip tone="ok">{t('devices.deviceActions.availableNow')}</Chip>
                 : <Chip>{t(`devices.deviceActions.unavailable.${reason ?? 'not_granted'}`)}</Chip>}
             />
