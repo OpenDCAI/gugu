@@ -41,6 +41,7 @@ export async function switchExtensionVariant(id: string, name: string, consent?:
     return { installed: true as const, outcome: 'confirmed' as const, id, name: installed.manifest.name, version: installed.manifest.version, manifest: installed.manifest, rootDir: installed.rootDir, asked: false, announced: 'shown' as const };
   }
   const prepared = prepareVariant(service.variantDirectory(id, name), variant);
+  if (prepared.manifest.id !== id) throw new Error(`The cached variant is not App ${id}; reinstall the fork from its source_dir.`);
   const done = await installPrepared(prepared, consent ?? { kind: 'here' }, dependencies);
   const summary = { id, name: prepared.manifest.name, version: prepared.manifest.version };
   if (done.outcome !== 'confirmed') return { installed: false as const, ...summary, ...done };
