@@ -26,9 +26,23 @@ it.each([true, false])('waits for the mounted view before wiring the input and A
   })
   if (withRef) expect(input).toHaveBeenLastCalledWith(dom)
   expect(dom.hasAttribute('aria-expanded')).toBe(false)
+  const nextInput = vi.fn()
+  await harness.render(createElement(PromptEditor, { ...(withRef ? { inputRef: nextInput } : {}) }))
+  if (withRef) {
+    expect(input).toHaveBeenLastCalledWith(null)
+    expect(nextInput).toHaveBeenLastCalledWith(dom)
+  }
+  const extensions = lifecycle.options!.extensions as Array<{ name: string; options: { suggestion: { render: () => { onStart: (props: unknown) => void; onExit: () => void } } } }>
+  const suggestion = extensions.find((extension) => extension.name === 'mention')!.options.suggestion.render()
+  await act(async () => suggestion.onStart({ items: [{ id: 'agent', label: 'Agent' }], clientRect: () => new DOMRect(0, 0, 100, 20), command: () => {} }))
+  expect(dom.getAttribute('aria-expanded')).toBe('true')
+  expect(dom.getAttribute('aria-controls')).toBeTruthy()
+  expect(dom.getAttribute('aria-activedescendant')).toBeTruthy()
+  await act(async () => suggestion.onExit())
+  expect(dom.hasAttribute('aria-expanded')).toBe(false)
   await act(async () => {
     lifecycle.dom = null
     ;(lifecycle.options!.onUnmount as () => void)()
   })
-  if (withRef) expect(input).toHaveBeenLastCalledWith(null)
+  if (withRef) expect(nextInput).toHaveBeenLastCalledWith(null)
 })
