@@ -128,13 +128,13 @@ afterEach(() => {
 const render = (node: Parameters<typeof createNode>[0], props: Record<string, unknown>) => harness.render(createNode(I18nextProvider, { i18n }, createNode(node, props)))
 
 describe('直接展开的连接列表', () => {
-  it('未连接的应用直接去授权,查看这一行才去详情', async () => {
+  it('应用行只有一个操作，先打开详情，不重复标记未连接或混入设备授权', async () => {
     const page = pageProps('qq-mail')
     await render(PhoneConnectorsPage, { ...page.props, embedded: true })
     expect(q('assistant-connectors')!.querySelector('h1')).toBeNull()
-    expect(q('assistant-connector-qq-mail')!.textContent).toContain('未连接')
-    await clickElement(q('assistant-connect-qq-mail')!)
-    expect(page.go).toHaveBeenLastCalledWith('connector:qq-mail:connect')
+    expect(q('assistant-connector-qq-mail')!.textContent).not.toContain('未连接')
+    expect(q('assistant-connect-qq-mail')).toBeNull()
+    expect(q('assistant-connectors')!.querySelector('[role="tablist"]')).toBeNull()
     await clickElement(q('assistant-connector-qq-mail')!)
     expect(page.go).toHaveBeenLastCalledWith('connector:qq-mail')
   })
@@ -148,7 +148,7 @@ describe('直接展开的连接列表', () => {
     data.data.statuses = { 'qq-mail': { connected: false, errorType: 'authorization_expired', capabilities: { requiresRepositoryUrl: false, supportsIssueContext: false } } }
     await render(PhoneConnectorsPage, page.props)
     expect(q('assistant-connector-qq-mail')!.textContent).toContain('需要重新授权')
-    expect(q('assistant-connect-qq-mail')!.textContent).toContain('重新连接')
+    expect(q('assistant-connect-qq-mail')).toBeNull()
     data.data.statusError = new Error('service unreachable')
     await render(PhoneConnectorsPage, page.props)
     expect(q('assistant-connector-qq-mail')!.textContent).toContain('检查没通过')

@@ -1,10 +1,9 @@
 import { useState, type ReactNode } from 'react'
 import { useTranslation } from 'react-i18next'
-import { OtherDeviceConnectors, ThisDeviceConnectors } from '@/components/devices/AssistantDeviceConnectors'
 import { Button } from '@/components/ui/Button'
 import { Cloud } from '@/lib/icons'
 import { platform } from '@/platform'
-import { AssistantEmpty, AssistantRow, AssistantSection, PageHead, WideSegments } from '@/session/renderer/features/assistant/assistant-ui-parts'
+import { AssistantEmpty, AssistantRow, AssistantSection, PageHead } from '@/session/renderer/features/assistant/assistant-ui-parts'
 import { integrationErrorText } from '@/session/renderer/features/integrations/integration-display'
 import { connectorState } from '@/session/renderer/features/assistant/assistant-connector-status'
 import { accountNoteFor } from '@/session/renderer/features/assistant/assistant-home-integrations'
@@ -12,7 +11,6 @@ import { formMethodOf } from '@/session/renderer/features/integrations/integrati
 import type { IntegrationMetadata } from '@/session/renderer/features/integrations/integrations-provider'
 import { translateSessionMessage } from '@/session/renderer/localization/locale-store'
 import { PluginIcon } from '@/session/renderer/lib/components/plugin-icon'
-import { PhoneDeviceActionsPage } from '../phone-device/PhoneDeviceActionsPage'
 import type { PhonePageProps } from './MobileAssistantApp'
 import { PhoneConfirmDialog } from './PhoneConfirmDialog'
 import { ReadingNow } from './PhoneMachineView'
@@ -21,7 +19,7 @@ import {
   formatDay,
   setupPlanOf,
 } from './phoneConnectorFlow'
-import { connectorDetail, connectorGroups, thisDeviceView } from './phoneProfileModel'
+import { connectorDetail, connectorGroups } from './phoneProfileModel'
 import { usePhoneConnectorAccounts, type ConnectorAccountRow } from './usePhoneConnectorAccounts'
 import type { PhoneIntegrations, usePhoneIntegrations } from './usePhoneProfileData'
 import './phone-connector.css'
@@ -29,48 +27,17 @@ import { ReadFailed } from './PhoneMachineView'
 import { reportAssistantAppChange } from '@/components/assistant/assistant-app-client'
 
 type Integrations = ReturnType<typeof usePhoneIntegrations>
-type Where = 'cloud' | 'device' | 'other'
-
-/**
- * 连接应用(照桌面 assistant-capabilities,owner 10-15「连接要分清在哪」):三段 云端 / 本机 / 其他设备。
- * - 云端 = 有账号的服务,存在它家里(问那台的 integrations.*,醒着才问,❌ 自己叫醒);一行一家,点进去是详情。
- * - 本机 = 这台手机(装的咕咕:手机能做的事;网页版:说要在咕咕电脑 App 里连)。
- * - 其他设备 = 别的设备登记的动作,与桌面同一个组件。
- */
-export function PhoneConnectorsPage({ assistant, home, cloudDeviceId, go, integrations, embedded = false }: PhonePageProps & { integrations: Integrations; embedded?: boolean }) {
+/** Apps open their details before authorization; device access lives in the device section. */
+export function PhoneConnectorsPage({ assistant, home, go, integrations, embedded = false }: PhonePageProps & { integrations: Integrations; embedded?: boolean }) {
   const { t } = useTranslation('assistant')
-  const [where, setWhere] = useState<Where>('cloud')
   const name = assistant.display_name
   return (
-    <div className={embedded ? 'ta-phone-connectors-inline' : 'ta-page ta-phone-profile'} data-testid="assistant-connectors">
+    <div className={embedded ? 'ta-phone-connectors-inline' : 'ta-page ta-phone-profile ta-phone-connectors-page'} data-testid="assistant-connectors">
       {!embedded ? <PageHead title={t('connectors.title')} sub={t('connectors.pageSub', { name })} /> : null}
-      <WideSegments<Where>
-        items={[
-          { id: 'cloud', label: t('connectors.where.cloud') },
-          { id: 'device', label: t('connectors.where.device') },
-          { id: 'other', label: t('connectors.where.other') },
-        ]}
-        value={where}
-        onChange={setWhere}
-      />
-      {where === 'cloud' ? (
-        <>
-          {!embedded ? <p className="ta-page-sub ta-pad">{home ? accountNoteFor(home, name, t) : t('connectors.pageSub', { name })}</p> : null}
-          <CloudGate integrations={integrations}>
-            {(data) => <ConnectorLists data={data} open={(id) => go(`connector:${id}`)} connect={(id) => go(connectSub(id))} />}
-          </CloudGate>
-        </>
-      ) : (
-        <div className="ta-skin" key={where}>
-          {where === 'other' ? (
-            <OtherDeviceConnectors cloudDeviceId={cloudDeviceId} />
-          ) : thisDeviceView(platform.kind) === 'phone' ? (
-            <PhoneDeviceActionsPage />
-          ) : (
-            <ThisDeviceConnectors />
-          )}
-        </div>
-      )}
+      {!embedded ? <p className="ta-page-sub ta-pad">{home ? accountNoteFor(home, name, t) : t('connectors.pageSub', { name })}</p> : null}
+      <CloudGate integrations={integrations}>
+        {(data) => <ConnectorLists data={data} open={(id) => go(`connector:${id}`)} />}
+      </CloudGate>
     </div>
   )
 }
@@ -96,29 +63,23 @@ export function ConnectorIcon({ integration, size }: { integration: IntegrationM
   return integration.icon ? <PluginIcon id={integration.id} icon={integration.icon} size={size} /> : null
 }
 
-function ConnectorLists({ data, open, connect }: { data: PhoneIntegrations; open: (id: string) => void; connect: (id: string) => void }) {
+function ConnectorLists({ data, open }: { data: PhoneIntegrations; open: (id: string) => void }) {
   const { t, i18n } = useTranslation('assistant')
   const { connected, available } = connectorGroups(data.items, data.configured, data.statuses, i18n.language)
   const row = ({ item, detail }: { item: IntegrationMetadata; detail: string }) => {
     const configured = !!data.configured[item.id]
     const state = connectorState(configured, data.statuses?.[item.id], data.statusError,true)
-    const canConnect = setupPlanOf(item, platform.kind).kind !== 'unavailable'
     return (
-      <div className="ta-connector-row" key={item.id}>
         <AssistantRow
+          key={item.id}
           testId={`assistant-connector-${item.id}`}
-          leading={<ConnectorIcon integration={item} size={30} />}
+          leading={<ConnectorIcon integration={item} size={32} />}
           title={item.name}
           detail={detail}
-          trailing={<span className={state === 'connected' ? 'ta-ok' : state === 'needsReauth' || state === 'checkFailed' ? 'ta-phone-warn' : undefined}>{t(`connectors.${state}`)}</span>}
+          trailing={configured ? <span className={state === 'connected' ? 'ta-ok' : state === 'needsReauth' || state === 'checkFailed' ? 'ta-phone-warn' : undefined}>{t(`connectors.${state}`)}</span> : undefined}
+          chevron={!configured}
           onClick={() => open(item.id)}
         />
-        {canConnect && (!configured || state === 'needsReauth') ? (
-          <Button variant="ghost" className="ta-pill-btn" onClick={() => connect(item.id)} data-testid={`assistant-connect-${item.id}`}>
-            {t(configured ? 'connectors.reconnect' : 'connectors.connect')}
-          </Button>
-        ) : null}
-      </div>
     )
   }
   return (
