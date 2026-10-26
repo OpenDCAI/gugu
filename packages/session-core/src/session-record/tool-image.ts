@@ -1,10 +1,8 @@
-import type { ToolImage, ToolNode, TranscriptItem, TranscriptTurn } from '../acp/client';
+import type { ToolNode, TranscriptItem, TranscriptTurn } from '../acp/client';
 import { TOOL_IMAGE_FETCH_LIMIT } from './contract';
 
-/** 手机取图时宿主的回答:找到的那张,或者说清是哪一样没有(手机上画的样子不一样)。 */
-export type ToolImageLookup =
-  | { ok: true; image: ToolImage }
-  | { ok: false; code: 'no_such_item' | 'no_such_image' | 'too_large'; message: string };
+import type { ToolImageLookup } from '../acp/models/turns/tool-calls';
+export type { ToolImageLookup } from '../acp/models/turns/tool-calls';
 
 function isToolNode(item: TranscriptItem): item is ToolNode {
   return item.kind !== 'message' && item.kind !== 'thinking';
@@ -24,11 +22,7 @@ function findNode(nodes: readonly ToolNode[], itemId: string): ToolNode | null {
  * (记录被分叉、整份重读)和这一条没有那么多张是两回事,手机上画的样子不一样。
  */
 export function findToolImage(turns: readonly TranscriptTurn[], itemId: string, index: number): ToolImageLookup {
-  let node: ToolNode | null = null;
-  for (const turn of turns) {
-    node = findNode(turn.items.filter(isToolNode), itemId);
-    if (node) break;
-  }
+  const node = findToolItem(turns, itemId)?.node;
   if (!node) return { ok: false, code: 'no_such_item', message: `no tool item ${itemId} in this session` };
   const images = node.kind === 'tool-group' ? undefined : node.images;
   const image = Number.isInteger(index) && index >= 0 ? images?.[index] : undefined;
@@ -37,4 +31,14 @@ export function findToolImage(turns: readonly TranscriptTurn[], itemId: string, 
     return { ok: false, code: 'too_large', message: `picture #${index} is ${image.data.length} chars; over ${TOOL_IMAGE_FETCH_LIMIT}` };
   }
   return { ok: true, image };
+}
+
+
+/** The item and its original turn, before a transport projection. */
+export function findToolItem(turns: readonly TranscriptTurn[], itemId: string): { turn: TranscriptTurn; node: ToolNode } | null {
+  for (const turn of turns) {
+    const node = findNode(turn.items.filter(isToolNode), itemId);
+    if (node) return { turn, node };
+  }
+  return null;
 }

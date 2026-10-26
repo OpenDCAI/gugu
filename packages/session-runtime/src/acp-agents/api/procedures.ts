@@ -1,3 +1,4 @@
+import { trimCursorPageForTransport, trimTurnsForTransport } from '@gugu/session-core/session-record';
 import type { HistoryCursor } from '@gugu/session-core/acp/client';
 import type {
   AcpAttachmentError,
@@ -49,10 +50,11 @@ export function createAcpProcedures(runtime: AcpRuntime) {
     }): Promise<Result<{ providerSessionId: string }, AcpStartSessionError>> {
       return runtime.startSession(input.input);
     },
-    resumeSession(input: {
+    async resumeSession(input: {
       input: StartSessionInput & { providerSessionId: string };
     }): Promise<Result<ResumeResult, AcpResumeSessionError>> {
-      return runtime.resumeSession(input.input);
+      const result = await runtime.resumeSession(input.input);
+      return result.success ? ok(trimCursorPageForTransport(result.data)) : result;
     },
     stopSession(input: {
       sessionId: string;
@@ -221,13 +223,22 @@ export function createAcpProcedures(runtime: AcpRuntime) {
     deleteAttachment(input: { id: string }): Promise<Result<void, AcpAttachmentError>> {
       return runtime.deleteAttachment(input.id);
     },
+    getToolImage(input: { sessionId: string; itemId: string; index: number }) {
+      return ok(runtime.getToolImage(input.sessionId, input.itemId, input.index));
+    },
     getHistory(input: {
       sessionId: string;
       before?: number;
       limit: number;
       changedSince?: HistoryCursor;
     }): Result<HistoryPage, AcpGetHistoryError> {
-      return runtime.getHistory(input.sessionId, input.before, input.limit, input.changedSince);
+      const result = runtime.getHistory(input.sessionId, input.before, input.limit, input.changedSince);
+      if (!result.success) return result;
+      // Delta cursors must not advance past omitted changes; only pages drop older turns.
+      return ok(input.changedSince === undefined
+        ? trimCursorPageForTransport(result.data)
+        : { ...result.data, turns: trimTurnsForTransport(result.data.turns) });
+
     },
   };
 }

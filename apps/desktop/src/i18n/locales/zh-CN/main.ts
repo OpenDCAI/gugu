@@ -162,7 +162,7 @@ export default {
       "tooLarge": "图太大 · 在桌面上看"
     },
     "timeline": {
-      "outputTrimmed": "… 已截断 {{chars}} 字 · 在桌面上看完整输出",
+      "outputTrimmed": "… 此预览省略了 {{chars}} 字",
       "loading": "正在读取时间线…",
       "waitingRecord": "会话已开，正在等它写下第一行…",
       "empty": "这个会话还没有内容。",

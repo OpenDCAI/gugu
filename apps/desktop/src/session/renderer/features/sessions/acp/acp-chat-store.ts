@@ -30,6 +30,8 @@ import type {
   ComposerNotice,
   ComposerQueuedPrompt,
 } from '@gugu/session-ui/react/components';
+import { findToolItem } from '@gugu/session-core/session-record/tool-image';
+import { toolImageUrl } from '@gugu/session-core/acp/client';
 import { commandToken } from '@gugu/session-core/acp/commands';
 import { permissionWaitKind } from '@gugu/session-core/acp/models/permissions';
 import type { LiveSettingResult, PermissionWaitKind } from '@gugu/session-core/acp';
@@ -869,6 +871,29 @@ export class AcpChatStore {
       return result.data;
     } catch (error) {
       this._toastError('acpFailure.attachment', error);
+      return null;
+    }
+  }
+
+  async resolveToolImage(itemId: string, index: number): Promise<string | null> {
+    const generation = this._historyGeneration;
+    const stored = findToolItem(this._storedHistoryTurns, itemId)
+      ?? (this._olderSource === 'stored' ? findToolItem(this._olderHistoryTurns, itemId) : null);
+    try {
+      const result = stored
+        ? await rpc.sessions.getStoredToolImage({ sessionId: this.sessionId, seq: stored.turn.seq, itemId, index })
+        : await this.session?.getToolImage(itemId, index).then(result => {
+            if (!result.success) throw result.error;
+            return result.data;
+          });
+      if (this._disposed || generation !== this._historyGeneration) return null;
+      if (!result?.ok) {
+        if (result) log.warn('Tool image unavailable', { code: result.code });
+        return null;
+      }
+      return toolImageUrl(result.image);
+    } catch (error) {
+      log.warn('Failed to fetch tool image', { error });
       return null;
     }
   }

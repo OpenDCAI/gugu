@@ -2283,6 +2283,7 @@ export const AcpChatPanel = observer(function AcpChatPanel({
           arg.urls.map((url, index) => ({ url, alt: '', thumb: index === arg.index ? arg.thumb : undefined })),
           arg.index
         ),
+      resolveToolImage: (itemId, index) => store?.resolveToolImage(itemId, index) ?? Promise.resolve(null),
       resolveAttachment: (attachment) =>
         store ? resolveAttachmentDataUrl(store, attachment.id) : Promise.resolve(null),
       onViewMermaid: (arg) => {

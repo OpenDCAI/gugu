@@ -158,6 +158,10 @@ export class AcpLiveSession {
     return this.client.getHistory({ sessionId: this.sessionId, before, limit, ...(changedSince === undefined ? {} : { changedSince }) });
   }
 
+  getToolImage(itemId: string, index: number) {
+    return this.client.getToolImage({ sessionId: this.sessionId, itemId, index });
+  }
+
   exportTranscript(): Promise<Result<string, unknown>> {
     return this.client.exportACPTranscript({ sessionId: this.sessionId });
   }

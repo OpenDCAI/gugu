@@ -1,3 +1,4 @@
+import { findToolImage, type ToolImageLookup } from '@gugu/session-core/session-record';
 import { randomUUID } from 'node:crypto';
 import type { HistoryCursor } from '@gugu/session-core/acp/client';
 import { readdir, readFile } from 'node:fs/promises';
@@ -1715,6 +1716,14 @@ export class SessionManager implements InboundRouter {
       committed: structuredClone(this.closedSessionHistories.get(sessionId) ?? []),
       active: null,
     };
+  }
+
+  getToolImage(sessionId: string, itemId: string, index: number): ToolImageLookup {
+    const live = this.cells.get(sessionId);
+    const history = live ? live.cell.transcript.history : (this.closedSessionHistories.get(sessionId) ?? []);
+    const active = live?.cell.transcript.activeTurn;
+    // Inspect the authoritative turn, cloning only the requested image.
+    return structuredClone(findToolImage(active ? [...history, active] : history, itemId, index));
   }
 
   exportParsedTranscript(sessionId: string): Result<string, AcpExportTranscriptError> {

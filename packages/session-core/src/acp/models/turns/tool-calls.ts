@@ -16,6 +16,17 @@ export const toolImageSchema = z.object({
 });
 export type ToolImage = z.infer<typeof toolImageSchema>;
 
+/** One lazy tool picture, or the existing record lookup's precise refusal. */
+export const toolImageLookupSchema = z.discriminatedUnion('ok', [
+  z.object({ ok: z.literal(true), image: toolImageSchema }),
+  z.object({
+    ok: z.literal(false),
+    code: z.enum(['no_such_item', 'no_such_image', 'too_large']),
+    message: z.string(),
+  }),
+]);
+export type ToolImageLookup = z.infer<typeof toolImageLookupSchema>;
+
 /** 画这张图用的地址(桌面工具卡与手机工具卡同一个)。 */
 export function toolImageUrl(image: ToolImage): string {
   return `data:${image.mimeType};base64,${image.data}`;

@@ -1,3 +1,4 @@
+import { findToolImage, trimCursorPageForTransport, trimTurnsForTransport } from '@gugu/session-core/session-record';
 import { and, asc, desc, eq, gte, lt, sql } from 'drizzle-orm';
 import type { TranscriptTurn } from '@gugu/session-core/acp';
 import { db } from '@main/db/client';
@@ -177,11 +178,19 @@ export async function getStoredHistory(params: {
   /** 给了就改成「seq ≥ fromSeq 的全部行」,供界面开场补读用;与 before/limit 互斥。 */
   fromSeq?: number;
 }): Promise<StoredTurnPage> {
-  return readStoredTurns(params.sessionId, {
+  const page = await readStoredTurns(params.sessionId, {
     before: params.before,
     limit: params.limit,
     fromSeq: params.fromSeq,
   });
+  return params.fromSeq === undefined
+    ? trimCursorPageForTransport(page)
+    : { ...page, turns: trimTurnsForTransport(page.turns) };
+}
+
+export async function getStoredToolImage(params: { sessionId: string; seq: number; itemId: string; index: number }) {
+  const page = await readStoredTurns(params.sessionId, { before: params.seq + 1, limit: 1 });
+  return findToolImage(page.turns.filter(turn => turn.seq === params.seq), params.itemId, params.index);
 }
 
 export interface StoredTurnPage {

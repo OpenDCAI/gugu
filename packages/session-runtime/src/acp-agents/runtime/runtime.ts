@@ -219,6 +219,10 @@ export class AcpRuntime {
     return ok(this.manager.getHistory(sessionId, before, limit, changedSince));
   }
 
+  getToolImage(sessionId: string, itemId: string, index: number) {
+    return this.manager.getToolImage(sessionId, itemId, index);
+  }
+
   getChatHistory(sessionId: string): {
     committed: TranscriptTurn[];
     active: TranscriptTurn | null;
