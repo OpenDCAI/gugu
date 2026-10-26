@@ -1,5 +1,5 @@
 import { observer } from 'mobx-react-lite'
-import { useContext, useEffect, useRef } from 'react'
+import { useContext, useLayoutEffect, useRef } from 'react'
 import { useTranslation } from 'react-i18next'
 import { installedExtensionsStore } from '../../session/renderer/features/extensions/installed-extensions-store'
 import { extensionViewStore } from '../../session/renderer/features/extensions/extension-view-store'
@@ -28,7 +28,7 @@ export const ClaimedPage = observer(function ClaimedPage({ slotId, chatId, kind,
   // The resident layer draws a page only for an App it keeps (installed, switched on, listed in this window:
   // `residentTabContributions`): with none, the slot says so instead of staying blank (L4 09-29).
   const noPage = installedExtensionsStore.isLoaded && !installedExtensionsStore.residentTabContributions.some((entry) => entry.kind === kind)
-  useEffect(() => {
+  useLayoutEffect(() => {
     const element = boxRef.current
     if (!element) return
     // The same store the session page's slots claim (one module, two React roots): the root layer draws the page here.

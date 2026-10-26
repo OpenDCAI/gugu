@@ -46,6 +46,7 @@ import {
 import type {
   ExtensionHostAction,
   ExtensionHostActionOrigin,
+  ExtensionHostActionResult,
 } from '@shared/extensions/host-actions';
 import { fileSync } from '@main/core/extensions/file-sync';
 import { fileRefOf, isLocal, placeKey, placeOf, type AppFileEntry, type AppFileRef, type AppPlace, type LocalPlace, type PreparedChatFile } from '@shared/extensions/app-runtime-protocol';
@@ -303,8 +304,8 @@ function recordExtensionError(caller: BridgeCaller, message: string, level: 'err
  * slot alike; the renderer keeps it by page. A page drawn nowhere (`app_check`'s) has no header: the call succeeds.
  * It lasts as long as the document that said it: see `newDocument`.
  */
-function sayAboutPage(binding: SurfaceBinding, action: ExtensionHostAction): Promise<void> {
-  return binding.embedderId === null ? Promise.resolve() : deliver(binding, action);
+async function sayAboutPage(binding: SurfaceBinding, action: ExtensionHostAction): Promise<void> {
+  if (binding.embedderId !== null) await deliver(binding, action);
 }
 
 /**
@@ -936,7 +937,7 @@ export interface ExtensionBridgeHost {
   deliver(
     origin: ExtensionHostActionOrigin & { embedderId: number | null },
     action: ExtensionHostAction
-  ): Promise<void>;
+  ): Promise<ExtensionHostActionResult>;
   /**
    * Host-side facts main cannot compute on its own (language, theme) plus the
    * window state it can (fullscreen), read together so one call answers「用户此刻
@@ -969,7 +970,7 @@ function requireHost(): ExtensionBridgeHost {
 }
 
 /** Sends one action to the renderer that draws this surface: a tab of a task, or a slot in no task (`sessionId` null). */
-function deliver(binding: SurfaceBinding, action: ExtensionHostAction): Promise<void> {
+function deliver(binding: SurfaceBinding, action: ExtensionHostAction): Promise<ExtensionHostActionResult> {
   return requireHost().deliver(
     {
       extensionId: binding.extensionId,
@@ -1572,7 +1573,7 @@ async function dispatch(caller: BridgeCaller, method: ExtensionBridgeMethod, arg
             const { pickDispatchTarget } = await import('@main/core/extensions/extension-bridge-relay');
             return pickDispatchTarget(thePage(caller).embedderId, ask);
           },
-          draftInChat: (detail) => deliver(thePage(caller), { kind: 'compose', detail }),
+          draftInChat: async (detail) => { await deliver(thePage(caller), { kind: 'compose', detail }); },
           draftInSession: async (session, text) => {
             await bringSessionUp({ sessionId: session.id, projectId: session.projectId });
             await deliver(thePage(caller), { kind: 'compose', sessionId: session.id, text });
@@ -1788,14 +1789,35 @@ async function dispatch(caller: BridgeCaller, method: ExtensionBridgeMethod, arg
         // the host's preview there, so nothing is refused for want of an App.
         const ask = (args as { ask?: unknown }).ask === true;
         const peek = (args as { peek?: unknown }).peek === true;
-        const target = await files.openWithTarget(page, { ref: args.ref, ask, peek });
+        const ref = fileRefOf(args.ref);
+        // A live file already has its authorized replica. Show its existing tab before validating metadata again.
+        const opened = !ask && !peek && !args.at && !isLocal(ref) && 'id' in ref && shown.operator.kind === 'person'
+          ? [...bindings.entries()].filter(([id, binding]) => binding.itemId === ref.id && binding.chatId === shown.chatId
+            && (ref.chat === undefined || ref.chat === binding.chatId)
+            && binding.embedderId === shown.embedderId && binding.operator.kind === 'person' && fileSync.openCount(id) > 0)
+          : [];
+        const current = opened.length === 1 ? opened[0] : undefined;
+        const resumed = current && current[1].chatId ? await deliver(shown, {
+          kind: 'openChatFile', chatId: current[1].chatId, itemId: current[1].itemId!,
+          onlyIfOpen: `${current[1].extensionId}.${current[1].tabName}`,
+        }) : undefined;
+        let target: Awaited<ReturnType<typeof files.openWithTarget>>;
+        try {
+          target = await files.openWithTarget(page, { ref, ask, peek });
+        } catch (error) {
+          if (resumed && current && bindings.get(current[0]) === current[1]
+            && error instanceof files.AppFileError && (error.code === 'not-found' || error.code === 'denied')) {
+            void fileSync.revoke(current[0], 'removed-from-group', (grant) => grant.itemId === current[1].itemId);
+          }
+          throw error;
+        }
         if (target.kind === 'session') return undefined;
         if (target.kind === 'peek') return void (await deliver(shown, { kind: 'peek', target: target.target }));
         const choice = files.openerChoice(target.target.typedName, ask);
         const { chatId, itemId } = target.target;
         const place = placeFor(choice, (args as { at?: unknown }).at);
         if (place) deliverToOpeningPage(place.candidate.extensionId, placeLink(place.candidate, place.at, itemId), { chat: chatId }, itemId);
-        const detail = { ...target.target, choice };
+        const detail = { ...target.target, choice, ...(resumed && current ? { background: `${current[1].extensionId}.${current[1].tabName}` } : {}) };
         if (peek) return void (await deliver(shown, { kind: 'peek', target: { kind: 'chat', detail } }));
         await deliver(shown, { kind: 'openWith', detail });
         return undefined;
@@ -1813,7 +1835,7 @@ async function dispatch(caller: BridgeCaller, method: ExtensionBridgeMethod, arg
       ]);
       // `peek` (G1): the session's own page beside the page that asked, in its slot — found the same way.
       const bringUp = (args as { peek?: unknown }).peek === true
-        ? (session: { sessionId: string; projectId: string }) => deliver(thePage(caller), { kind: 'peek', target: { kind: 'session', ...session } })
+        ? async (session: { sessionId: string; projectId: string }) => { await deliver(thePage(caller), { kind: 'peek', target: { kind: 'session', ...session } }); }
         : bringSessionUp;
       await showSession(args.id, { projectHere: sessionHere, projectListed: listedSessionProject, bringUp });
       return undefined;

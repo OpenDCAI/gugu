@@ -1,6 +1,6 @@
 import { observer } from 'mobx-react-lite';
 import { reaction } from 'mobx';
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react';
 import { rpc } from '@renderer/lib/ipc';
 import { log } from '@renderer/utils/logger';
 import type { BrowserWebviewElement } from '@renderer/features/browser/browser-webview-types';
@@ -314,7 +314,7 @@ const ExtensionPage = observer(function ExtensionPage({
   );
 
   // 认领方一换(切会话 / 换 tab / 聊天栏换会话)→ 重新指向 + 重新摆位。
-  useEffect(
+  useLayoutEffect(
     () =>
       reaction(
         () => claimOf(),
@@ -325,7 +325,7 @@ const ExtensionPage = observer(function ExtensionPage({
   );
 
   // 摆位与尺寸汇报:跟着认领方那一格走;一格都没有就藏起来。
-  useEffect(
+  useLayoutEffect(
     () =>
       reaction(
         () => claimOf(),
