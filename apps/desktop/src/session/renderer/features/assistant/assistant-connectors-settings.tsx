@@ -107,7 +107,7 @@ const ConnectorDetail = observer(function ConnectorDetail({ host, home, assistan
     {configured ? <SettingsGroup data-testid="assistant-connector-connection">
       <SettingsRow title={t('connectors.status')} control={<span className="gg-settings-row-value">{t(`connectors.${state}`)}</span>} />
       {accountName ? <SettingsRow title={t('connectors.account')} control={<span className="gg-settings-row-value">{accountName}</span>} /> : null}
-      <SettingsRow><Button size="sm" variant="danger" disabled={isIntegrationMutating?.(app.id)} data-testid="assistant-connector-disconnect" onClick={() => showConfirm({
+      <SettingsRow><Button size="sm" variant="danger" className="self-start" disabled={isIntegrationMutating?.(app.id)} data-testid="assistant-connector-disconnect" onClick={() => showConfirm({
         title: t('connectors.disconnectTitle', { name: app.name }),
         description: t('connectors.disconnectBody', { name: app.name, assistant: assistantName }),
         confirmLabel: t('connectors.disconnect'),
