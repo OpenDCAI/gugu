@@ -115,33 +115,36 @@ export async function createAppFork(id: string, requestedName?: string) {
   service.retainUpstream(id, { name: 'upstream', base: version, commit: source.commit, repo: source.repo, path: source.path, dir: null, sha256: row.sha256, bytes: row.bytes });
   let repo: string | null = null;
   if (account) {
-    const client = await getOctokit('github.com', { accountId: account.accountId });
-    if (!client.success) throw new Error(client.error.message);
-    const [owner, repository] = source.repo.split('/') as [string, string];
-    repo = `${account.login}/${repository}`;
-    if (repo !== source.repo) {
-      try {
-        const own = await client.data.repos.get({ owner: account.login, repo: repository });
-        if (own.data.parent?.full_name !== source.repo && own.data.source?.full_name !== source.repo) throw new Error(`${repo} already exists and is not a fork of ${source.repo}; rename that repository before retrying app_create.`);
-      } catch (error) {
-        if ((error as { status?: number }).status !== 404) throw error;
-        await client.data.repos.createFork({ owner, repo: repository });
-        // GitHub forks asynchronously; wait for the exact Git object before pushing (GitHub documents up to 5 min).
-        for (let attempt = 0; ; attempt++) {
-          try {
-            await client.data.git.getCommit({ owner: account.login, repo: repository, commit_sha: source.commit });
-            break;
-          } catch (error) {
-            if (![404, 409].includes((error as { status?: number }).status ?? 0) || attempt >= 60) throw error;
-            await delay(5_000);
+    try {
+      const client = await getOctokit('github.com', { accountId: account.accountId });
+      if (!client.success) throw new Error(client.error.message);
+      const [owner, repository] = source.repo.split('/') as [string, string];
+      repo = `${account.login}/${repository}`;
+      if (repo !== source.repo) {
+        try {
+          const own = await client.data.repos.get({ owner: account.login, repo: repository });
+          if (own.data.parent?.full_name !== source.repo && own.data.source?.full_name !== source.repo) throw new Error(`${repo} already exists and is not a fork of ${source.repo}; rename that repository before retrying app_create.`);
+        } catch (error) {
+          if ((error as { status?: number }).status !== 404) throw error;
+          await client.data.repos.createFork({ owner, repo: repository });
+          // GitHub forks asynchronously; wait for the exact Git object before pushing (GitHub documents up to 5 min).
+          for (let attempt = 0; ; attempt++) {
+            try {
+              await client.data.git.getCommit({ owner: account.login, repo: repository, commit_sha: source.commit });
+              break;
+            } catch (error) {
+              if (![404, 409].includes((error as { status?: number }).status ?? 0) || attempt >= 60) throw error;
+              await delay(5_000);
+            }
           }
         }
       }
+      const remotes = (await git(root, ['remote'])).split('\n');
+      await git(root, ['remote', remotes.includes('origin') ? 'set-url' : 'add', 'origin', `https://github.com/${repo}.git`]);
+      await git(root, ['push', '-u', 'origin', branch], token);
+    } catch (error) {
+      throw new Error(`The local fork is ready at ${sourceDir}, but GitHub setup did not finish. Fix the GitHub error and retry app_create with the same fork_of and name: ${error instanceof Error ? error.message : String(error)}`);
     }
-    const remotes = (await git(root, ['remote'])).split('\n');
-    await git(root, ['remote', remotes.includes('origin') ? 'set-url' : 'add', 'origin', `https://github.com/${repo}.git`]);
-    try { await git(root, ['push', '-u', 'origin', branch], token); }
-    catch (error) { throw new Error(`The local fork is ready at ${sourceDir}, but its GitHub branch was not pushed. Fix the GitHub error and retry app_create with the same fork_of and name: ${error instanceof Error ? error.message : String(error)}`); }
   }
   return { id, name, source_dir: sourceDir, git_dir: root, branch, repo, base: existing?.base ?? version, commit: await git(root, ['rev-parse', 'HEAD']), next: `Edit source_dir, keep the App id and data format, then app_install {source_dir:${JSON.stringify(sourceDir)}} to activate this variant. Read guide apps-fork.` };
 }
