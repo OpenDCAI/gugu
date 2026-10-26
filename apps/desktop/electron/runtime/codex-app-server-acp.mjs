@@ -13,6 +13,7 @@ import { spawnOwnedChild } from '../../../../packages/session-core/src/exec/owne
 import { codexReasoningText } from '../../../../packages/core/src/shared/reasoningText.mjs'
 import { unifiedDiffTexts, withoutTrailingNewline } from '../../../../packages/core/src/shared/unifiedDiff.mjs'
 import { createCodexSubagents } from './codex-subagents.mjs'
+import { CODEX_AUTONOMY_BY_MODE, CODEX_PERMISSION_MODES } from '../../../../packages/session-plugins/src/agents/impl/codex/permission-modes.ts'
 
 const codexBin = process.env.GUGU_CODEX_BIN?.trim()
 if (!codexBin) {
@@ -2599,10 +2600,16 @@ async function handleAcpRequest(message) {
     }
     // codex app-server 的 `thread/settings/update`:给**已加载**线程排队一次 next-turn
     // 设置的部分更新,不起轮次、不加 transcript 条目(app-server README)。
-    // `permissions` 就是按 id 选 profile,与 `sandboxPolicy` 互斥 —— 只传前者。
+    // `permissions` selects the sandbox profile; approvalPolicy must change with it.
     // ⚠️ 它只认内存里的线程(load_thread → get_thread 只查内存表),所以必须在
     //    thread/start / thread/resume 之后调用,established 那个前置判断不能去掉。
-    await appRequest('thread/settings/update', { threadId: sessionId, permissions: wanted })
+    const mode = Object.entries(CODEX_PERMISSION_MODES).find(([, profile]) => profile.id === wanted)?.[0]
+    const autonomy = CODEX_AUTONOMY_BY_MODE[mode]
+    await appRequest('thread/settings/update', {
+      threadId: sessionId,
+      permissions: wanted,
+      ...(autonomy ? { approvalPolicy: autonomy.approvalPolicy } : {}),
+    })
     selectedPermissionProfile = wanted || null
     // 切权限档的回包也要带上 model / thought_level 两组 —— 只回 mode 一组,
     // 宿主的 deriveConfigGroups 会把没报的那两组读成 null,界面上模型与推理档当场消失。
