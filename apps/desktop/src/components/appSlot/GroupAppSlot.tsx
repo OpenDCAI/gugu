@@ -620,7 +620,7 @@ export const GroupAppSlot = observer(function GroupAppSlot(props: GroupAppSlotPr
       ) : null}
       {update && held === updateKey && updateFailed ? (
         <div className="border-b border-[var(--border)] !px-3 !py-1 text-[length:var(--font-caption)] text-[var(--text-error)]" data-testid="group-app-slot-update-failed">
-          {updateFailed}
+          {t('chatArea.openWith.installFailed')}<br />{updateFailed}
         </div>
       ) : null}
       {unopened ? (
@@ -648,7 +648,7 @@ export const GroupAppSlot = observer(function GroupAppSlot(props: GroupAppSlotPr
           </div>
           {offerFailed ? (
             <div className="text-[length:var(--font-caption)] text-[var(--text-error)]" data-testid="group-app-slot-offer-failed">
-              {offerFailed}
+              {t('chatArea.openWith.installFailed')}<br />{offerFailed}
             </div>
           ) : null}
           <div className="flex items-center gap-2">

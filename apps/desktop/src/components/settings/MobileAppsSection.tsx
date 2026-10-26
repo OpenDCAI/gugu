@@ -53,7 +53,7 @@ const MobileAppsContent = observer(function MobileAppsContent() {
   const [detail, setDetail] = useState<MarketListItem | null>(null)
   const [pending, setPending] = useState<Record<string, ExtensionPendingAction>>({})
   const inFlight = useRef(false)
-  const [failed, setFailed] = useState<string | null>(null)
+  const [failed, setFailed] = useState<{ title: string; cause: string } | null>(null)
   const [layer, setLayer] = useState<HTMLDivElement | null>(null)
   const sentinel = useRef<HTMLDivElement | null>(null)
   const rows = phoneMarketRows(catalog.data?.entries ?? [], query.trim())
@@ -62,14 +62,14 @@ const MobileAppsContent = observer(function MobileAppsContent() {
   useEffect(() => {
     void phoneApps.ready().catch((error: unknown) => {
       log.error({ error: String(error) }, 'Phone Apps unreadable')
-      setFailed(messageForUser(error))
+      setFailed({ title: translate('extensions.loadFailed'), cause: messageForUser(error) })
     })
     const off = phoneApps.market.onRefreshed((result) => {
       if (result.outcome === 'changed') void client.invalidateQueries({ queryKey: MARKET_KEY })
     })
     void phoneApps.market.refresh()
     return off
-  }, [client])
+  }, [client, translate])
 
   useEffect(() => {
     const node = sentinel.current
@@ -99,11 +99,11 @@ const MobileAppsContent = observer(function MobileAppsContent() {
       const result = await run()
       if (!result.success) {
         log.error({ id, error: result.error }, 'Phone App action failed')
-        setFailed(messageForUser(result.error))
+        setFailed({ title: translate('extensions.installFailed'), cause: messageForUser(result.error) })
       }
     } catch (error) {
       log.error({ id, error: String(error) }, 'Phone App action failed')
-      setFailed(messageForUser(error))
+      setFailed({ title: translate('extensions.installFailed'), cause: messageForUser(error) })
     } finally {
       inFlight.current = false
       setPending({})
@@ -121,7 +121,7 @@ const MobileAppsContent = observer(function MobileAppsContent() {
       if (kind) void followLink({ kind: 'app', extensionId: item.manifest.id, tab: kind.slice(item.manifest.id.length + 1), path: '', query: {}, place: null })
     }
   }
-  const error = failed ? <SettingsNote tone="danger" role="alert">{translate('extensions.installFailed')}<br />{failed}</SettingsNote> : null
+  const error = failed ? <SettingsNote tone="danger" role="alert">{failed.title}<br />{failed.cause}</SettingsNote> : null
   const installed = detail ? store.manifests.find((manifest) => manifest.id === detail.manifest.id) : undefined
 
   return (
