@@ -253,15 +253,15 @@
   padding: 4px 12px !important;
   font-size: var(--font-caption) !important;
 }
-/* 顶上从头像那一排底下淡出来;底下到输入框(或它上面那颗胶囊)的上沿为止:输入框底下、两侧那条空地不露出滚过去的消息。
-   --chat-dock-avatar-h 是 ChatBottomDock 实测的「输入框上沿到列底」的高度。 */
+/* 顶上从头像那一排底下淡出来;底下在输入框(或它上面那颗胶囊)的上沿之前 24px 淡完:输入框底下、两侧那条空地不露出滚过去的消息,
+   也不在上沿硬切一刀(硬切会把气泡和字截成一道锯齿)。--chat-dock-avatar-h 是 ChatBottomDock 实测的「输入框上沿到列底」的高度。 */
 .ta-chat [data-testid='chat-message-list'] {
-  -webkit-mask-image: linear-gradient(to bottom, transparent 0, #000 28px, #000 calc(100% - var(--chat-dock-avatar-h, 0px)), transparent calc(100% - var(--chat-dock-avatar-h, 0px)));
-  mask-image: linear-gradient(to bottom, transparent 0, #000 28px, #000 calc(100% - var(--chat-dock-avatar-h, 0px)), transparent calc(100% - var(--chat-dock-avatar-h, 0px)));
+  -webkit-mask-image: linear-gradient(to bottom, transparent 0, #000 28px, #000 calc(100% - var(--chat-dock-avatar-h, 0px) - 24px), transparent calc(100% - var(--chat-dock-avatar-h, 0px)));
+  mask-image: linear-gradient(to bottom, transparent 0, #000 28px, #000 calc(100% - var(--chat-dock-avatar-h, 0px) - 24px), transparent calc(100% - var(--chat-dock-avatar-h, 0px)));
 }
 .ta-task-chat-slot [data-testid='chat-message-list'] {
-  -webkit-mask-image: linear-gradient(to bottom, #000 calc(100% - var(--chat-dock-avatar-h, 0px)), transparent calc(100% - var(--chat-dock-avatar-h, 0px)));
-  mask-image: linear-gradient(to bottom, #000 calc(100% - var(--chat-dock-avatar-h, 0px)), transparent calc(100% - var(--chat-dock-avatar-h, 0px)));
+  -webkit-mask-image: linear-gradient(to bottom, #000 calc(100% - var(--chat-dock-avatar-h, 0px) - 24px), transparent calc(100% - var(--chat-dock-avatar-h, 0px)));
+  mask-image: linear-gradient(to bottom, #000 calc(100% - var(--chat-dock-avatar-h, 0px) - 24px), transparent calc(100% - var(--chat-dock-avatar-h, 0px)));
 }
 
 /* 输入区复用聊天页的三段式组件与尺寸，多行输入不另套圆角容器。 */
