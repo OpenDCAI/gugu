@@ -1,6 +1,5 @@
 import { WebContentsView, type BrowserWindow, type BrowserWindowConstructorOptions, type WebContents, type WebPreferences } from 'electron'
 import { hardenWebPreferences } from './devtools-lock'
-import { forwardWindowSeen } from './animation-visibility'
 
 /**
  * #77 浮在网页之上的那几块(agent 的鼠标、快捷消息、构建角标)是咕咕窗口里叠在最上面的几层 view,❌ 另开子窗。
@@ -65,7 +64,6 @@ export function openWindowLayer(
   } = {},
 ): WebContentsView {
   const { webContents } = content
-  forwardWindowSeen(host, webContents)
   const view = new WebContentsView({ webContents, webPreferences: content.webPreferences })
   view.setBackgroundColor('#00000000')
   view.setVisible(false)

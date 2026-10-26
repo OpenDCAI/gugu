@@ -1,5 +1,5 @@
 import { useContext, useEffect, useRef, useState } from 'react';
-import { isAnimationWindowVisible, observeAnimationViewport, subscribeAnimationWindowVisibility } from '@gugu/session-shared/animation-visibility';
+import { observeAnimationViewport } from '@gugu/session-shared/animation-visibility';
 import { PageShownContext } from '@renderer/app/recent-session-pages';
 
 const FRAMES_1 = ['⠋', '⠙', '⠹', '⠸', '⠼', '⠴', '⠦', '⠧', '⠇', '⠏'];
@@ -54,21 +54,18 @@ export function CLISpinner({
   useEffect(() => {
     const host = element.current;
     if (!animate || !shown || !host) return;
-    const doc = host.ownerDocument;
-    let inViewport = false;
-    let interval: ReturnType<typeof setInterval> | undefined;
-    const sync = () => {
-      clearInterval(interval);
+    const view: Window = host.ownerDocument.defaultView!;
+    let interval: number | undefined;
+    const stopViewport = observeAnimationViewport(host, (visible) => {
+      view.clearInterval(interval);
       interval = undefined;
-      if (inViewport && isAnimationWindowVisible(doc)) {
-        interval = setInterval(() => {
+      if (visible) {
+        interval = view.setInterval(() => {
           setIndex((index) => (index + 1) % (variant === '1' ? FRAMES_1.length : FRAMES_2.length));
         }, 80);
       }
-    };
-    const stopWindow = subscribeAnimationWindowVisibility(sync, doc);
-    const stopViewport = observeAnimationViewport(host, (visible) => { inViewport = visible; sync(); });
-    return () => { clearInterval(interval); stopViewport(); stopWindow(); };
+    });
+    return () => { view.clearInterval(interval); stopViewport(); };
   }, [variant, animate, shown]);
 
   return (

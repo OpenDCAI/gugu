@@ -14,7 +14,7 @@
  * 定格(still):给只能放 <img> 的地方,用同一个引擎、同一份 GL 画一帧静止的样子,转成一张图。
  */
 import { rendererLogger } from '@/lib/log'
-import { isAnimationWindowVisible, observeAnimationViewport, subscribeAnimationWindowVisibility } from '@gugu/session-shared/animation-visibility'
+import { observeAnimationViewport } from '@gugu/session-shared/animation-visibility'
 import { clamp } from './geometry'
 import { GuguEngine } from './engine'
 import { drawAvatar, drawnLook, glPasses, lookDiff, paintGL, Crop, DrawOpts, FrameShape, Slots } from './draw'
@@ -160,25 +160,21 @@ class Runtime {
   /** 循环停着或在等计时器时马上跑一帧(窗口露出来、头像进了视口、指针在动、来了新头像):停的时候不记时间,接上时不补那一段 */
   private wake = () => {
     if (!this.ready) return
-    const view = this.visibleWindow()
+    const view = [...this.handles].find((h) => h.visible)?.canvas.ownerDocument.defaultView ?? null
     if (this.raf && this.rafWindow === view) return
     if (this.raf) {
       this.rafWindow?.cancelAnimationFrame(this.raf)
       this.raf = 0
     }
+    this.rafWindow = view
     if (this.idle) {
       // 循环还活着,只是在等计时器:提前醒,时间接着记
       clearTimeout(this.idle)
       this.idle = null
     } else this.last = 0
     if (view) {
-      this.rafWindow = view
       this.raf = view.requestAnimationFrame(this.loop)
     }
-  }
-
-  private visibleWindow(): Window | null {
-    return [...this.handles].find((h) => h.visible && isAnimationWindowVisible(h.canvas.ownerDocument))?.canvas.ownerDocument.defaultView ?? null
   }
 
   /** 用上这一份 GL:盯住它的上下文,已经用到的角色把素材载进去(旧上下文的纹理随它作废) */
@@ -284,7 +280,7 @@ class Runtime {
       outfit: new OutfitDraw(ch),
       opts,
       dpr,
-      visible: true,
+      visible: false,
       stopVisibility: () => {},
       rect: null,
       rectAt: 0,
@@ -294,12 +290,10 @@ class Runtime {
       next: []
     }
     this.handles.add(h)
-    const stopViewport = observeAnimationViewport(canvas, (visible) => {
+    h.stopVisibility = observeAnimationViewport(canvas, (visible) => {
       h.visible = visible
       this.wake()
     }, '80px')
-    const stopWindow = subscribeAnimationWindowVisibility(this.wake, canvas.ownerDocument)
-    h.stopVisibility = () => { stopViewport(); stopWindow() }
     this.wake()
     return h
   }
@@ -327,7 +321,7 @@ class Runtime {
     // 没人看得见就停:窗口藏起来、一只都不在视口里
     this.raf = 0
     this.idle = null
-    if (!this.ready || !this.visibleWindow()) return
+    if (!this.ready || ![...this.handles].some((h) => h.visible)) return
     let fast = false
     const dt = this.last ? (ms - this.last) / 1000 : 1 / 60
     this.last = ms
@@ -343,7 +337,7 @@ class Runtime {
     let nextWake = Infinity
     for (const h of this.handles) {
       // An inert consumer keeps its first ready frame; a still-loading initial frame must finish first.
-      if (!h.visible || !isAnimationWindowVisible(h.canvas.ownerDocument) || (h.canvas.closest('[inert]') && h.drawnWith !== '' && !h.drawnWith.startsWith('none|'))) continue
+      if (!h.visible || (h.canvas.closest('[inert]') && h.drawnWith !== '' && !h.drawnWith.startsWith('none|'))) continue
       // 素材还在路上：先不画（避免一闪而过的空画面）；这次没载下来：用 2D 定格画着,等重试
       const gl = this.gl && this.gl.has(h.ch.id) ? this.gl : null
       if (this.gl && !gl && !this.texFailed.has(h.ch.id)) continue
@@ -391,10 +385,7 @@ class Runtime {
     }
     this.flush(batch)
     this.workEma = this.workEma * 0.9 + (performance.now() - w0) * 0.1
-    if (fast) {
-      this.rafWindow = this.visibleWindow()
-      if (this.rafWindow) this.raf = this.rafWindow.requestAnimationFrame(this.loop)
-    }
+    if (fast && this.rafWindow) this.raf = this.rafWindow.requestAnimationFrame(this.loop)
     else this.idle = setTimeout(() => this.loop(performance.now()), Math.max(1, Math.min(nextWake, SLOW_TICK_MS - (ms % SLOW_TICK_MS))))
   }
 

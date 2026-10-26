@@ -628,6 +628,7 @@ pinDesktopPointerMedia(app.commandLine)
 // @@@win-overlay-scrollbar Windows 上让 Chromium 画悬浮滚动条(会话页树的 scrollbar-width: thin 默认是常驻带箭头的 10px 经典条)。
 // 同样必须在 app ready 前追加;`enable-features` 只在这一处写,细节见 windows-overlay-scrollbars.ts。
 enableOverlayScrollbars(app.commandLine)
+forwardWindowSeen()
 // @@@devtools-lock — 必须在任何窗口创建之前注册 'web-contents-created',否则主窗口漏在守卫外面。
 installDevtoolsLock((url) => {
   // 走到这里说明前面几层漏了 —— 这是要查的 bug,不是正常态,所以留证不静默。
@@ -1573,7 +1574,6 @@ function createWindow(loadContents = true): void {
   mainWindow.on('unmaximize', () => mainWindow?.webContents.send('window:maximized-changed', false))
   // 上面关了 backgroundThrottling,最小化、收进托盘时页面照样「看得见」、rAF 照跑:由这里告诉界面,小鸟据此停画。
   // macOS 实测遮挡不触发 windowSeen，最小化才触发；不能拿 show / hide 当遮挡检测。
-  forwardWindowSeen(mainWindow)
 
   // window.open:咕咕子窗口(一块会话 / 一个 App 单独成窗、快速聊天小窗)放行,其余交给系统浏览器。
   quickChat ??= installQuickChat({ mainWindow: () => mainWindow, focusMain: focusMainWindow, supported: !SERVER_MODE })

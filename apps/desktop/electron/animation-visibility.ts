@@ -1,27 +1,25 @@
-import type { BrowserWindow, WebContents } from 'electron'
+import { app, webContents, type WebContents } from 'electron'
 import { ANIMATION_WINDOW_SEEN_EVENT } from '@gugu/session-shared/animation-visibility'
 import { createLogger } from './lib/logger'
 
-/** The same native window signal also reaches portal/layer documents without a preload. */
-export function forwardWindowSeen(host: BrowserWindow, contents: WebContents = host.webContents): void {
-  const sync = () => {
-    if (host.isDestroyed() || contents.isDestroyed()) return
+/** Install before creating windows; layers and portals use their actual native owner. */
+export function forwardWindowSeen(): void {
+  const send = (contents: WebContents) => {
+    if (contents.isDestroyed()) return
+    const host = contents.getOwnerBrowserWindow()
+    if (!host || host.isDestroyed()) return
     const seen = host.isVisible() && !host.isMinimized()
     void contents.executeJavaScript(`window.dispatchEvent(new CustomEvent(${JSON.stringify(ANIMATION_WINDOW_SEEN_EVENT)}, { detail: ${seen} }))`)
       .catch((error: unknown) => {
         if (!contents.isDestroyed()) createLogger('ui/animation-visibility').error({ err: error }, 'Window animation visibility could not be delivered')
       })
   }
-  host.on('minimize', sync)
-  host.on('hide', sync)
-  host.on('restore', sync)
-  host.on('show', sync)
-  contents.on('did-finish-load', sync)
-  contents.once('destroyed', () => {
-    host.removeListener('minimize', sync)
-    host.removeListener('hide', sync)
-    host.removeListener('restore', sync)
-    host.removeListener('show', sync)
+  app.on('web-contents-created', (_, contents) => contents.on('did-finish-load', () => send(contents)))
+  app.on('browser-window-created', (_, host) => {
+    const sync = () => {
+      for (const contents of webContents.getAllWebContents())
+        if (!contents.isDestroyed() && contents.getOwnerBrowserWindow() === host) send(contents)
+    }
+    for (const event of ['minimize', 'hide', 'restore', 'show'] as const) host.on(event, sync)
   })
-  sync()
 }

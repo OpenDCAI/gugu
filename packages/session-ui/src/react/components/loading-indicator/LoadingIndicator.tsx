@@ -5,7 +5,7 @@ import { useLayoutEffect, useRef, type CSSProperties, type Ref } from 'react'
 import lottie, { type AnimationItem } from 'lottie-web/build/player/lottie_light'
 import { loadingAnimationData } from './loading-animation.data'
 import './LoadingIndicator.css'
-import { isAnimationWindowVisible, observeAnimationViewport, subscribeAnimationWindowVisibility } from '@gugu/session-shared/animation-visibility'
+import { observeAnimationViewport } from '@gugu/session-shared/animation-visibility'
 
 /**
  * 咕咕唯一的加载态。冷启动、会话页骨架、TUI 起会话、ACP 拉历史、开工作区 —— 全都用这一个。
@@ -95,23 +95,18 @@ export function LoadingIndicator(props: LoadingIndicatorProps) {
       animationData: structuredClone(loadingAnimationData),
     })
 
-    let stopWindow: (() => void) | undefined
     let stopViewport: (() => void) | undefined
     if (reduced) {
       animation.goToAndStop(0, true)
     } else {
-      let inViewport = false
-      const sync = () => {
-        if (inViewport && isAnimationWindowVisible(host.ownerDocument)) animation.play()
+      stopViewport = observeAnimationViewport(host, (visible) => {
+        if (visible) animation.play()
         else animation.pause()
-      }
-      stopWindow = subscribeAnimationWindowVisibility(sync, host.ownerDocument)
-      stopViewport = observeAnimationViewport(host, (visible) => { inViewport = visible; sync() })
+      })
     }
 
     return () => {
       stopViewport?.()
-      stopWindow?.()
       animation.destroy()
     }
   }, [])

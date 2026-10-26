@@ -5,7 +5,7 @@ import { MotionPlayer, type Pt } from '@renderer/lib/vendor/cua-cursor-motion';
 import { browserAgentCursorChannel } from '@shared/events/browserEvents';
 import type { BrowserCursorInput } from '@shared/browser-cursor-input';
 import { agentBrowserState } from './agent-browser-state';
-import { isAnimationWindowVisible, subscribeAnimationWindowVisibility } from '@gugu/session-shared/animation-visibility';
+import { observeAnimationViewport } from '@gugu/session-shared/animation-visibility';
 
 /** 每个页签上 agent 的鼠标最后停在哪。画布随 agent 停手消失,下次从这里接着飞。 */
 const lastPoint = new Map<string, Pt>();
@@ -91,22 +91,18 @@ export const AgentBrowserCursor = observer(function AgentBrowserCursor({
       const player = playerRef.current;
       if (!player) return;
       // A hidden decorative cursor must not leave an agent waiting for arrival.
-      const point = lastPoint.get(browserId) ?? player.pos;
-      player.place(point);
-      lastPoint.set(browserId, point);
+      player.place(lastPoint.get(browserId) ?? player.pos);
       player.destroy();
       playerRef.current = null;
     };
-    const sync = () => {
-      if (!isAnimationWindowVisible(canvas.ownerDocument)) { stop(); return; }
+    const stopViewport = observeAnimationViewport(canvas, (visible) => {
+      if (!visible) { stop(); return; }
       if (playerRef.current) return;
       const player = new MotionPlayer(canvas);
       player.place(lastPoint.get(browserId) ?? { x: canvas.clientWidth / 2, y: canvas.clientHeight / 2 });
       playerRef.current = player;
-    };
-    const stopWindow = subscribeAnimationWindowVisibility(sync, canvas.ownerDocument);
-    sync();
-    return () => { stopWindow(); stop(); };
+    });
+    return () => { stopViewport(); stop(); };
   }, [browserId, shown, sized]);
 
   useEffect(

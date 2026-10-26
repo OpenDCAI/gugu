@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 import { expect, it, vi } from 'vitest'
-import { ANIMATION_WINDOW_SEEN_EVENT, isAnimationWindowVisible, observeAnimationViewport, subscribeAnimationWindowVisibility } from '@gugu/session-shared/animation-visibility'
+import { ANIMATION_WINDOW_SEEN_EVENT, isAnimationWindowVisible, observeAnimationViewport } from '@gugu/session-shared/animation-visibility'
 
 it('shares root window state and viewport observers without reading styles or observing ancestors', () => {
   const observers: Array<{ intersect: (entries: Array<{ target: Element; isIntersecting: boolean }>) => void; rootMargin: string; unobserve: ReturnType<typeof vi.fn> }> = []
@@ -19,8 +19,7 @@ it('shares root window state and viewport observers without reading styles or ob
   const third = document.createElement('canvas')
   first.checkVisibility = () => { throw new Error('Visibility must not force style resolution') }
   first.getBoundingClientRect = () => { throw new Error('Visibility must not force layout') }
-  const text = vi.fn(), avatar = vi.fn(), wake = vi.fn()
-  const stopWindow = subscribeAnimationWindowVisibility(wake)
+  const text = vi.fn(), avatar = vi.fn()
   const stopText = observeAnimationViewport(first, text)
   const stopAvatar = observeAnimationViewport(second, avatar, '80px')
   const stopThird = observeAnimationViewport(third, vi.fn(), '80px')
@@ -33,10 +32,9 @@ it('shares root window state and viewport observers without reading styles or ob
     window.dispatchEvent(new CustomEvent(ANIMATION_WINDOW_SEEN_EVENT, { detail: false }))
     expect(isAnimationWindowVisible()).toBe(false)
     expect(document.documentElement.style.getPropertyValue('--gugu-animation-window-paused')).toBe('paused')
-    expect(wake).toHaveBeenCalledTimes(1)
-    // Window changes update one inherited CSS state, without visiting every label.
-    expect(text).toHaveBeenCalledTimes(1)
-    expect(avatar).toHaveBeenCalledTimes(1)
+    // The one shared policy pauses JavaScript consumers as well as CSS clocks.
+    expect(text).toHaveBeenLastCalledWith(false)
+    expect(avatar).toHaveBeenLastCalledWith(false)
     window.dispatchEvent(new CustomEvent(ANIMATION_WINDOW_SEEN_EVENT, { detail: true }))
     hidden = true
     document.dispatchEvent(new Event('visibilitychange'))
@@ -44,6 +42,8 @@ it('shares root window state and viewport observers without reading styles or ob
     hidden = false
     document.dispatchEvent(new Event('visibilitychange'))
     expect(isAnimationWindowVisible()).toBe(true)
+    expect(text).toHaveBeenLastCalledWith(true)
+    expect(avatar).toHaveBeenLastCalledWith(true)
     expect(document.documentElement.style.getPropertyValue('--gugu-animation-window-paused')).toBe('initial')
     observers[0].intersect([{ target: first, isIntersecting: false }])
     expect(text).toHaveBeenLastCalledWith(false)
@@ -54,7 +54,7 @@ it('shares root window state and viewport observers without reading styles or ob
     expect(text).not.toHaveBeenCalled()
     expect(observers[0].unobserve).toHaveBeenCalledWith(first)
   } finally {
-    stopText(); stopAvatar(); stopThird(); stopWindow()
+    stopText(); stopAvatar(); stopThird()
     vi.restoreAllMocks()
     vi.unstubAllGlobals()
   }
@@ -74,34 +74,55 @@ it('keeps portal window state and viewport observers in the element owner docume
     } })
   }
   const first = docs[0].createElement('span'), second = docs[1].createElement('span')
-  const firstViewport = vi.fn(), secondViewport = vi.fn(), firstWindow = vi.fn(), secondWindow = vi.fn()
-  const stops = [subscribeAnimationWindowVisibility(firstWindow, docs[0]), subscribeAnimationWindowVisibility(secondWindow, docs[1]),
-    observeAnimationViewport(first, firstViewport), observeAnimationViewport(second, secondViewport)]
+  const firstViewport = vi.fn(), secondViewport = vi.fn()
+  const stops = [observeAnimationViewport(first, firstViewport), observeAnimationViewport(second, secondViewport)]
   try {
     expect(observers.map((observer) => observer.doc)).toEqual(docs)
+    isAnimationWindowVisible()
+    observers[0].intersect([{ target: first, isIntersecting: true }])
+    observers[1].intersect([{ target: second, isIntersecting: true }])
+    firstViewport.mockClear(); secondViewport.mockClear()
     window.dispatchEvent(new CustomEvent(ANIMATION_WINDOW_SEEN_EVENT, { detail: false }))
     expect(isAnimationWindowVisible()).toBe(false)
     expect(docs.map((doc) => isAnimationWindowVisible(doc))).toEqual([true, true])
-    expect(firstWindow).not.toHaveBeenCalled()
-    observers[0].intersect([{ target: first, isIntersecting: true }])
-    expect(firstViewport).toHaveBeenLastCalledWith(true)
+    expect(firstViewport).not.toHaveBeenCalled()
     expect(secondViewport).not.toHaveBeenCalled()
     docs[0].defaultView!.dispatchEvent(new CustomEvent(ANIMATION_WINDOW_SEEN_EVENT, { detail: false }))
     expect(docs.map((doc) => isAnimationWindowVisible(doc))).toEqual([false, true])
     expect(docs[0].documentElement.style.getPropertyValue('--gugu-animation-window-paused')).toBe('paused')
     expect(docs[1].documentElement.style.getPropertyValue('--gugu-animation-window-paused')).toBe('initial')
-    expect(firstWindow).toHaveBeenCalledTimes(1)
-    expect(secondWindow).not.toHaveBeenCalled()
+    expect(firstViewport).toHaveBeenLastCalledWith(false)
+    expect(secondViewport).not.toHaveBeenCalled()
     docs[0].defaultView!.dispatchEvent(new CustomEvent(ANIMATION_WINDOW_SEEN_EVENT, { detail: true }))
     expect(isAnimationWindowVisible(docs[0])).toBe(true)
+    expect(firstViewport).toHaveBeenLastCalledWith(true)
     stops[0]()
-    firstWindow.mockClear()
+    firstViewport.mockClear()
     docs[0].defaultView!.dispatchEvent(new CustomEvent(ANIMATION_WINDOW_SEEN_EVENT, { detail: false }))
-    expect(firstWindow).not.toHaveBeenCalled()
+    expect(firstViewport).not.toHaveBeenCalled()
   } finally {
     stops.forEach((stop) => stop())
     window.dispatchEvent(new CustomEvent(ANIMATION_WINDOW_SEEN_EVENT, { detail: true }))
     frames.forEach((frame) => frame.remove())
     vi.restoreAllMocks()
   }
+})
+
+it('keeps the existing no-IntersectionObserver viewport behavior while still stopping on native hide', () => {
+  const frame = document.createElement('iframe')
+  document.body.append(frame)
+  const doc = frame.contentDocument!
+  vi.spyOn(doc, 'hidden', 'get').mockReturnValue(false)
+  const changed = vi.fn()
+  const stop = observeAnimationViewport(doc.createElement('span'), changed)
+  try {
+    expect(changed).toHaveBeenLastCalledWith(true)
+    doc.defaultView!.dispatchEvent(new CustomEvent(ANIMATION_WINDOW_SEEN_EVENT, { detail: false }))
+    expect(changed).toHaveBeenLastCalledWith(false)
+    doc.defaultView!.dispatchEvent(new CustomEvent(ANIMATION_WINDOW_SEEN_EVENT, { detail: true }))
+    expect(changed).toHaveBeenLastCalledWith(true)
+    stop(); changed.mockClear()
+    doc.defaultView!.dispatchEvent(new CustomEvent(ANIMATION_WINDOW_SEEN_EVENT, { detail: false }))
+    expect(changed).not.toHaveBeenCalled()
+  } finally { stop(); frame.remove(); vi.restoreAllMocks() }
 })

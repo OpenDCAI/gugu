@@ -89,13 +89,18 @@ describe('CLISpinner animate', () => {
   });
 
   it('uses the shared viewport observer to stop and restart offscreen motion', () => {
+    const iframe = document.createElement('iframe');
+    document.body.append(iframe);
+    const doc = iframe.contentDocument!;
+    vi.spyOn(doc, 'hidden', 'get').mockReturnValue(false);
+    doc.body.append(container);
     let intersect!: IntersectionObserverCallback;
     const unobserve = vi.fn();
-    vi.stubGlobal('IntersectionObserver', class {
+    Object.defineProperty(doc.defaultView!, 'IntersectionObserver', { configurable: true, value: class {
       constructor(callback: IntersectionObserverCallback) { intersect = callback; }
       observe() {}
       unobserve = unobserve;
-    });
+    } });
     render({});
     const target = container.firstElementChild!;
     expect(vi.getTimerCount()).toBe(0);
@@ -109,6 +114,8 @@ describe('CLISpinner animate', () => {
     act(() => root.render(null));
     expect(unobserve).toHaveBeenCalledWith(target);
     expect(vi.getTimerCount()).toBe(0);
+    document.body.append(container);
+    iframe.remove();
   });
 
   it('uses its portal document rather than the hidden main document', () => {
@@ -118,10 +125,13 @@ describe('CLISpinner animate', () => {
     document.body.append(iframe);
     const portalDoc = iframe.contentDocument!;
     vi.spyOn(portalDoc, 'hidden', 'get').mockReturnValue(false);
+    const timer = vi.spyOn(portalDoc.defaultView!, 'setInterval').mockImplementation(window.setInterval.bind(window));
+    vi.spyOn(portalDoc.defaultView!, 'clearInterval').mockImplementation(window.clearInterval.bind(window));
     act(() => root.render(null));
     portalDoc.body.append(container);
     render({});
     expect(new Set(sample(3)).size).toBeGreaterThan(1);
+    expect(timer).toHaveBeenCalled();
     act(() => portalDoc.defaultView!.dispatchEvent(new CustomEvent(ANIMATION_WINDOW_SEEN_EVENT, { detail: false })));
     expect(vi.getTimerCount()).toBe(0);
     act(() => portalDoc.defaultView!.dispatchEvent(new CustomEvent(ANIMATION_WINDOW_SEEN_EVENT, { detail: true })));
