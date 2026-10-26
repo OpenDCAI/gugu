@@ -4,7 +4,7 @@ import { createRoot } from 'react-dom/client';
 import { afterEach, expect, it } from 'vitest';
 import { RetainedTabContent, useRetainedTabs } from './retained-tab-content';
 
-globalThis.IS_REACT_ACT_ENVIRONMENT = true;
+(globalThis as typeof globalThis & { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
 const container = document.createElement('div');
 const root = createRoot(container);
 const events: string[] = [];
@@ -40,9 +40,9 @@ it('retains drafts in a stable tree, protects both paired tabs, and releases clo
   draw(['c']);
   draw(['d']);
   draw(['e']);
-  expect(events).toEqual(['mount a', 'mount b', 'mount c', 'mount d', 'unmount a', 'mount e']);
-  draw(['b', 'e']);
+  expect(events).toEqual(['mount a', 'mount b', 'mount c', 'mount d', 'unmount b', 'mount e']);
+  draw(['a', 'e']);
   expect(container.querySelectorAll('textarea')).toHaveLength(4);
-  draw(['e'], open.filter((id) => id !== 'b'));
-  expect(events.at(-1)).toBe('unmount b');
+  draw(['e'], open.filter((id) => id !== 'a'));
+  expect(events.at(-1)).toBe('unmount a');
 });

@@ -252,7 +252,7 @@ async function applyContext(ctx) {
   // which picks the most specific claim; .md and plain .json are this App's). The host's header then has
   // the way back, so this page's own Back is not drawn; going back takes the file away again.
   document.body.classList.toggle('host-opened', !!ctx.file)
-  if (ctx.file && state.current?.entry.id !== ctx.file.id) await openHanded()
+  if (ctx.file && state.current?.entry.id !== ctx.file.id && state.opening?.id !== ctx.file.id) await openHanded()
   else if (!ctx.file && previous?.file) {
     closeCurrent()
     document.body.classList.remove('show-doc')
@@ -877,7 +877,7 @@ async function openHanded() {
   closeCurrent()
   document.body.classList.add('show-doc')
   try {
-    const file = await gugu.files.open(state.ctx.file)
+    const [file] = await Promise.all([gugu.files.open(state.ctx.file), previewKit()])
     if (state.opening !== token) {
       file.close()
       return
