@@ -956,7 +956,7 @@ export function materializeCodexSessionBundle(
   const usesAcpChannel = ctx.surface === 'acp';
   const threadConfig = ctx.surface === 'app-server'
     ? (() => {
-        const entries: Array<readonly [string, unknown]> = [];
+        const entries: Array<readonly [string, unknown]> = [['tools.update_plan.enabled', true]];
         for (const server of bundle.mcpServers) {
           const key = mcpConfigKey(server.name);
           // 问题 9:咕咕发的 server 不逐次问(Codex 缺省按注解判,没注解就问)。

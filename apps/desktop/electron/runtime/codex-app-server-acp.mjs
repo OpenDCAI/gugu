@@ -801,6 +801,7 @@ async function startApp(servers) {
 async function startAppOnce(servers) {
   const mcp = mcpConfig(servers)
   appServerThreadConfig = mcp.config
+  appServerThreadConfig['tools.update_plan.enabled'] = true
   const reasoningSummary = process.env.GUGU_CODEX_REASONING_SUMMARY?.trim()
   if (reasoningSummary) {
     // Codex ACP is a thin bridge: argv belongs to the adapter process, while
@@ -1396,6 +1397,17 @@ function onAppNotification(message) {
     sessionUpdate({
       sessionUpdate: 'agent_thought_chunk',
       content: { type: 'text', text: `${previous !== undefined && previous !== part ? '\n\n' : ''}${String(params.delta ?? '')}` },
+    })
+    return
+  }
+  if (method === 'turn/plan/updated') {
+    sessionUpdate({
+      sessionUpdate: 'plan',
+      entries: params.plan.map(({ step, status }) => ({
+        content: step,
+        status: status === 'inProgress' ? 'in_progress' : status,
+        priority: 'medium',
+      })),
     })
     return
   }

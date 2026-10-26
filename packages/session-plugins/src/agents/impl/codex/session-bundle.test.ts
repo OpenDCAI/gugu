@@ -44,6 +44,7 @@ describe('problem 9: gugu-delivered MCP servers are not asked about call by call
       }),
     );
     expect(result.threadConfig).toMatchObject({
+      'tools.update_plan.enabled': true,
       'mcp_servers.gugu.default_tools_approval_mode': 'approve',
       'mcp_servers.quiet_probe_quiet.default_tools_approval_mode': 'approve',
     });
