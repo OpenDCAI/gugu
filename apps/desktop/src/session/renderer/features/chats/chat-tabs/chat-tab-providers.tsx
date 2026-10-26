@@ -153,12 +153,12 @@ const PanelTabDragPreview = observer(function PanelTabDragPreview({ tab }: { tab
  */
 const ShellTabSlots = observer(function ShellTabSlots({ host, ctx, kind }: TabContentProps & { kind: string }) {
   const chatId = chatIdOfView(ctx);
-  const tabs = host.resolvedTabs.filter((tab) => tab.kind === kind);
+  const tabs = host.resolvedTabs;
   const retained = useRetainedTabs(tabs.map((tab) => tab.tabId), tabs.filter((tab) => tab.isActive).map((tab) => tab.tabId));
   const place = useContext(PairPlacementContext);
   return (
     <>
-      {tabs.filter((tab) => retained.has(tab.tabId)).map((tab) => (
+      {tabs.filter((tab) => tab.kind === kind && retained.has(tab.tabId)).map((tab) => (
         <ShellTabSlot key={tab.tabId} chatId={chatId} tab={tab} host={host} style={tab.isActive ? place?.(tab.tabId) ?? undefined : undefined} />
       ))}
     </>

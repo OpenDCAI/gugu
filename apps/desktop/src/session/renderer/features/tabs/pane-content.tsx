@@ -186,7 +186,7 @@ export const PaneContent = observer(function PaneContent({
             const pairedTabId = layerTabId(def.kind);
             const isActive = pair ? pairedTabId !== null : unavailableActiveTab === null && activeKind === def.kind;
             const placesPair = def.kind === selfPlacedKind;
-            const host = placesPair ? pane : slotViews.rest;
+            const host = def.placesPairItself ? pane : slotViews.rest;
             return (
               <ContentLayer
                 key={def.kind}
