@@ -8,6 +8,7 @@ export type WorkReconciliationEvent = {
   message_id:string;kind:string;work_id?:string;assistant_user_id?:string;from_session_id?:string;from_device_id?:string;
   to_session_id?:string;to_device_id?:string;platform_received_at?:string;executor_admitted_at?:string|null;
   assistant_admitted_at?:string|null;owner_delivered_at?:string|null;terminal_origin?:string|null;reason_code?:string|null;
+  executor_session_id?:string|null;
   abandonment_notified_at?:string|null;abandoned_reason_code?:string|null
 }
 export type WorkOwnerReceiptProof = {eventId:string;chatId:string;messageId:string}
@@ -16,11 +17,13 @@ export type ExecutorDeliveryProof = {preview?:{running?:boolean;ended?:{kind?:st
 const RECONCILIATION_GRACE_MS=120_000
 const failureReason = (code:string|undefined|null) => {
   if(code==='EXECUTOR_ENDED_WITHOUT_REPORT') return '执行已经结束，但没有交回结果'
+  if(code==='LEGACY_REPORT_MISSING') return '这件事一直没有交回结果'
   if(code==='EXECUTOR_FAILED') return '执行时出了错，结果没有交回'
   if(code==='HOST_FAILURE') return '执行中断了，结果没有交回'
   if(code==='EXECUTOR_CANCELLED_WITHOUT_REPORT') return '执行被中断，结果没有交回'
   if(code==='SOURCE_UNAVAILABLE') return '原来的内容已无法读取'
-  if(code==='DELIVERY_HOST_OUTDATED') return '接收设备的版本不兼容'
+  if(code==='DELIVERY_HOST_OUTDATED'||code==='UNKNOWN_METHOD') return '接收设备的版本不兼容'
+  if(code==='DEVICE_UNREACHABLE'||code==='DEVICE_OFFLINE') return '一直无法联系到接收设备'
   if(code?.includes('TIMEOUT')||code==='DELIVERY_EXPIRED') return '接收设备一直没有应答'
   if(code?.includes('AUTH')||code?.includes('PERMISSION')) return '没有取得接收权限'
   return '交付没有成功，具体原因尚未确认'
@@ -79,7 +82,11 @@ export function createAssistantWorkReconciler(deps:{
     for(const event of events) {
       const inferredFailure=event.kind==='failed'&&event.terminal_origin==='coordinator'
       const hostFailure=event.kind==='progress'&&event.reason_code==='HOST_FAILURE'
-      if((inferredFailure||hostFailure)&&event.assistant_admitted_at&&!delivered.has(event.message_id)) await notify(ctx,event,work,'result')
+      const targetId=inferredFailure?event.executor_session_id:event.from_session_id
+      const nativeTerminal=targetId?work.executor_outcomes[targetId]:undefined
+      const superseded=['completed','cancelled'].includes(work.outcome)
+        || (nativeTerminal?.origin==='executor'&&['completed','cancelled','failed'].includes(nativeTerminal.status))
+      if((inferredFailure||hostFailure)&&!superseded&&event.assistant_admitted_at&&!delivered.has(event.message_id)) await notify(ctx,event,work,'result')
     }
     if(work.outcome!=='active') { deps.clean(work); return }
     for(const target of work.executors) {

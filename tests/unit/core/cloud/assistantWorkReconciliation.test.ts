@@ -63,6 +63,14 @@ describe('unfinished delivery reconciliation',()=>{
     expect(f.notify).not.toHaveBeenCalled()
     expect(f.rpc).toHaveBeenCalledWith('assistant_work_owner_delivered',expect.objectContaining({p_message_id:'failure'}))
   })
+  it('does not notify obsolete inferred or host failures superseded by a real executor terminal',async()=>{
+    for(const event of [{kind:'failed',terminal_origin:'coordinator',executor_session_id:'child'},
+      {kind:'progress',reason_code:'HOST_FAILURE',from_session_id:'child'}]) {
+      const f=fixture([{...event,message_id:'obsolete',assistant_admitted_at:'2026-10-26T08:00:00Z'}])
+      f.works.mockResolvedValue([{...work,executor_outcomes:{child:{status:'completed',origin:'executor'}}}])
+      await f.reconciler.kick();expect(f.notify).not.toHaveBeenCalled()
+    }
+  })
   it('posts one stable plain failure notice only after assistant admission and records the separate receipt',async()=>{
     const f=fixture([dispatch,{message_id:'failed',kind:'failed',terminal_origin:'coordinator',reason_code:'EXECUTOR_ENDED_WITHOUT_REPORT',assistant_admitted_at:new Date(now-10000).toISOString(),owner_delivered_at:null}])
     await f.reconciler.kick();await f.reconciler.kick()
