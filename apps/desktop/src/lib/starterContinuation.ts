@@ -202,7 +202,7 @@ export async function clearCancelledStarter(
 /**
  * 重启后的补落:把**已绑定群**的指针逐条落进该群草稿槽,落成功才清理。返回落了几条。
  *
- * 未绑定群的指针**原样留着** —— 那正是它存在的意义(群还没建成,operation 可续跑)。`setDraft` 抛错时**不清理**:
+ * 未绑定群的指针**原样留着** —— 那正是它存在的意义(群还没建成,operation 可续跑)。`writeDraft` 抛错时**不清理**:
  * 草稿没真落下去就当成落了,等于丢掉用户编辑的开场任务。❌ 永不代用户发送。
  *
  * #7175 「现在是谁」读已发布的渲染层会话,还没有就是 ''(启动降级、登出途中):下面那句「未登录就跳过」才真的起作用,
@@ -210,7 +210,7 @@ export async function clearCancelledStarter(
  * 没有任何开场任务也弹「Could not restore the opening task」。
  */
 export async function landPendingStarters(
-  setDraft: (chatId: string, text: string) => void,
+  writeDraft: (chatId: string, text: string) => void,
   getOwnerUserId: () => Promise<string> = async () => getRendererSession()?.user.id ?? '',
   getOperation: (operationId: string) => Promise<AgentProvisionOperation | null> = getProvisionOperation,
   isCurrent: () => boolean = () => true,
@@ -251,7 +251,7 @@ export async function landPendingStarters(
       }
     }
     if (!isCurrent()) return landed
-    setDraft(groupChatId, record.starter)                    // 原样文本,❌ 不 trim
+    writeDraft(groupChatId, record.starter)                    // 原样文本,❌ 不 trim
     if (!isCurrent()) return landed
     starterContinuationStore.clear(ownerUserId, record.operationId, 'draft-landed')
     landed += 1

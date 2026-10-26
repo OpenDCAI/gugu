@@ -135,6 +135,8 @@ export interface PromptEditorRef {
   getText(): string;
   /** Replace the editor contents with serialized plain text. */
   setText(text: string): void;
+  /** Insert serialized paragraphs at a document boundary without replacing existing content. */
+  insertText(text: string, position: 'start' | 'end'): void;
   /** Imperatively insert a mention node at the current cursor position. */
   insertMention(item: MentionItem): void;
   /** Ensure a mention node exists at the start of the editor, replacing duplicates. */

@@ -50,7 +50,7 @@ import {
   writeStoredChatListPaneWidth,
 } from './ResizableChatListPaneStorage'
 import { AuthUser } from '../store/auth'
-import { appendToDraft, useChatStore } from '../store/chatContext'
+import { useChatStore } from '../store/chatContext'
 import { sendAttachmentBatch } from '../components/chat/sendAttachmentBatch'
 import { SharePosterDialog } from '../components/SharePosterDialog'
 import { ExtensionConsentSheet } from '../components/extensionBundle/ExtensionConsentSheet'
@@ -203,10 +203,10 @@ function InnerLayout({
     upsertChat,
     appendMessage,
     sendMessageToChat,
-    setDraft,
+    writeDraft,
     draftAttachments,
     setDraftAttachments,
-  } = useChatStore('chats', 'activeChatId', 'setActiveChatId', 'refreshChats', 'upsertChat', 'appendMessage', 'sendMessageToChat', 'setDraft', 'draftAttachments', 'setDraftAttachments')
+  } = useChatStore('chats', 'activeChatId', 'setActiveChatId', 'refreshChats', 'upsertChat', 'appendMessage', 'sendMessageToChat', 'writeDraft', 'draftAttachments', 'setDraftAttachments')
   // A compose's images join the attachments already queued for its chat.
   const draftAttachmentsRef = useRef(draftAttachments)
   draftAttachmentsRef.current = draftAttachments
@@ -718,7 +718,7 @@ function InnerLayout({
       if (!detail) return
       const placed = (chatId: string) => {
         const text = [detail.text, ...(detail.refs ?? []).map(filePillText)].filter(Boolean).join('\n')
-        if (text) setDraft(chatId, (draft) => appendToDraft(draft, text))
+        if (text) writeDraft(chatId, { at: 'end', text })
         if (detail.images?.length) {
           const images = detail.images.map((image) => ({
             id: crypto.randomUUID(),
@@ -760,7 +760,7 @@ function InnerLayout({
       window.removeEventListener(APP_OPEN_IN_CHAT_EVENT, onOpenInChat)
       window.removeEventListener(UI_EVENTS.openApp, onOpenInChat)
     }
-  }, [focusComposerForUserEntry, openChatTarget, setDraft, setDraftAttachments, t, toast, user.id])
+  }, [focusComposerForUserEntry, openChatTarget, writeDraft, setDraftAttachments, t, toast, user.id])
 
 
   // 选中变化 ⇒ shell 让位(收草稿面、移动壳下钻)。这条集中反应兜住只写得到 store 的入口(App 层的宿主),
@@ -881,7 +881,7 @@ function InnerLayout({
       (chat.kind === 'dm' || chat.kind === 'ai') && chat.peer_user_id === target.id
     ))
     if (existing) {
-      if (draft) setDraft(existing.id, () => draft)
+      if (draft) writeDraft(existing.id, draft)
       if (openChatBlock(existing.id, 'profile-chat')) {
         void refreshChats()
         return
@@ -910,7 +910,7 @@ function InnerLayout({
     try {
       const chatId = await chatService.getOrCreateDM(user.id, target.id)
       upsertChat(createOptimisticDmChat(chatId, target.id))
-      if (draft) setDraft(chatId, () => draft)
+      if (draft) writeDraft(chatId, draft)
       if (openChatBlock(chatId, 'profile-chat')) {
         void refreshChats()
         return

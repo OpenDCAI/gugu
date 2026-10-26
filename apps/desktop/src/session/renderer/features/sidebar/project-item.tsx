@@ -1,4 +1,4 @@
-import { FolderClosed, Plus, ShieldAlert, Trash2, TriangleAlert } from '@/lib/icons'
+import { FolderClosed, Plus, ShieldAlert, TriangleAlert } from '@/lib/icons'
 import { observer } from 'mobx-react-lite';
 import React, { useCallback, useEffect } from 'react';
 import { useConfirmDeleteProject } from '@renderer/features/projects/hooks/use-confirm-delete-project';
@@ -21,12 +21,7 @@ import { isScreenView, showBesideOnScreen } from '@renderer/app/screen-layout-ac
 import { readComposerVerb, setComposerVerb } from '@/lib/composerVerbBridge';
 import { prepareProjectTask } from '@renderer/features/projects/project-task-entry';
 import { composerDrafts, projectDraftKey } from '@renderer/features/sessions/composer-drafts';
-import {
-  ContextMenu,
-  ContextMenuContent,
-  ContextMenuItem,
-  ContextMenuTrigger,
-} from '@renderer/lib/ui/context-menu';
+import { ProjectRowContextMenu } from '@/components/chat/ProjectRowContextMenu';
 import { Tooltip, TooltipContent, TooltipTrigger } from '@renderer/lib/ui/tooltip';
 import { cn } from '@renderer/utils/utils';
 import { machineRegistry } from '@renderer/lib/machine-routing';
@@ -215,8 +210,15 @@ export const SidebarProjectItem = observer(function SidebarProjectItem({
 
   return (
     // 代位的是那台机器的任务工作区,移除它会让那些会话无处可挂:这一行没有「移除」菜单。
-    <ContextMenu disabled={!!standInDevice || assistantHome}>
-      <ContextMenuTrigger>
+    <ProjectRowContextMenu disabled={!!standInDevice || assistantHome} chatId={groupChatId}
+      onRemove={() => {
+        void confirmDeleteProject({
+          projectId,
+          projectLabel: project.name ?? translate('projects.fallbackName'),
+          onDeleted: () => { if (isProjectActive) navigate('home'); },
+        });
+      }}>
+
         <SidebarMenuRow
           // @@@sidebar-row-metrics — 与会话行同一套列:[车道][图标][标题]。
           // 原来是 `px-1` + 迷你钮内的 4px 把字形顶到 20px 那条内容列上;现在车道自己占掉前 20px,
@@ -329,25 +331,7 @@ export const SidebarProjectItem = observer(function SidebarProjectItem({
             </Tooltip>
           )}
         </SidebarMenuRow>
-      </ContextMenuTrigger>
-      <ContextMenuContent>
-        <ContextMenuItem
-          variant="destructive"
-          onClick={() => {
-            void confirmDeleteProject({
-              projectId,
-              projectLabel: project.name ?? translate('projects.fallbackName'),
-              onDeleted: () => {
-                if (isProjectActive) navigate('home');
-              },
-            });
-          }}
-        >
-          <Trash2 className="size-4" />
-          {translate('projects.titlebar.remove')}
-        </ContextMenuItem>
-      </ContextMenuContent>
-    </ContextMenu>
+    </ProjectRowContextMenu>
   );
 });
 

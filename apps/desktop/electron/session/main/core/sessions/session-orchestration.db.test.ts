@@ -159,7 +159,7 @@ import {
 } from './session-orchestration';
 import type { RemoteSessionCaller, SessionpageSessionSummary } from '@gugu/session-core/session-record/contract';
 import { sessionChangedChannel } from '@shared/core/sessions/sessionEvents';
-import { setOtherMachines } from './session-family';
+import { setOtherMachines, type OtherMachines } from './session-family';
 import {
   REMOTE_PANE_NO_EXTENSIONS,
   REMOTE_PANE_PAGE_NOT_FILE,
@@ -468,6 +468,22 @@ describe('session orchestration', () => {
     function appRow(id: string) {
       return fixture.sqlite.prepare('SELECT provider, runtime, project_id, workspace_id, spawned_by_extension_id, parent_session_id FROM sessions WHERE id = ?').get(id);
     }
+
+    it('starts on the explicitly named computer through the existing App RPC, without a local task', async () => {
+      const appSpawn = vi.fn<OtherMachines['appSpawn']>(async () => ({ agentId: 'user:remote-agent' }));
+      setOtherMachines({
+        devices: async () => [], isThisDevice: async () => false, appSpawn,
+        sessions: async () => ({ sessions: [], unreached: [] }), archive: vi.fn(),
+        appMessage: vi.fn(), appReadFile: vi.fn(), appCall: vi.fn(),
+      });
+      try {
+        expect(await spawnSessionForApp({ extensionId: 'context', extensionName: 'Context', envelope, prompt: 'inspect', device: 'device:remote', project: '/remote/project', harness: 'codex' })).toEqual({ agentId: 'user:remote-agent' });
+        expect(appSpawn).toHaveBeenCalledWith({ extensionId: 'context', extensionName: 'Context' }, 'remote', {
+          action: 'spawn', prompt: 'inspect', spawn: expect.objectContaining({ project: '/remote/project', harness: 'codex' }),
+        });
+        expect(appSpawn.mock.calls[0]?.[2]?.spawn).not.toHaveProperty('device');
+      } finally { setOtherMachines(null); }
+    });
 
     it('naming nothing: the engine and shape the new-session memory holds — in the home project; started before it answers', async () => {
       project2Root();
@@ -2037,7 +2053,7 @@ describe('session_set_parent', () => {
 
   it('records a parent on another machine in config, and drops the older nested mark so it is read only once', async () => {
     seed('visitor', null, null, { version: '1', type: 'acp', spawnedByRemote: { deviceId: 'dev-old', sessionId: 'old-parent', nested: true } });
-    setOtherMachines({
+    setOtherMachines({ devices: async () => [], isThisDevice: async () => false, appSpawn: vi.fn(),
       sessions: async () => ({
         sessions: [{ deviceId: 'dev-far', label: 'far box', session: { conversationId: 'far', projectId: 'p-far', parentConversationId: null } as SessionpageSessionSummary }],
         unreached: [],

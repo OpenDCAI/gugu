@@ -145,7 +145,7 @@ describe('ChatAreaPanel hosted in a block (gugu-dev#181)', () => {
   }
 
   it('an empty project keeps its home in the chat column while its info opens beside it', async () => {
-    publishChatSummaries([{ id: 'group-1', kind: 'group', name: 'Settings project', last_message_at: null }])
+    publishChatSummaries([{ id: 'group-1', kind: 'group', unread_count: 0, name: 'Settings project', last_message_at: null }])
     try {
       await renderPanel({ actions, title, tabs: null }, 'group', false, true)
       const home = harness.container.querySelector('[data-chat-part="empty"]')
