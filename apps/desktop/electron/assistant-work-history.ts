@@ -12,7 +12,7 @@ const date=(raw:string)=>new Date(/(?:Z|[+-]\d\d:\d\d)$/.test(raw)?raw:`${raw.re
 export function createDesktopAssistantWorkHistory(deps:{
   context():Promise<AssistantWorkHostContext|null>
   receipts(after:number):Promise<{entries:Receipt[];cursor:number;hasMore:boolean}>
-  agentId(session:string,owner:string):Promise<string|null>
+  identity(session:string,owner:string):Promise<{id:string;createdAt:number}|null>
   assistant(ctx:AssistantWorkHostContext):Promise<string|null>
   warn(detail:{code:string}):void
 }) {
@@ -35,14 +35,17 @@ export function createDesktopAssistantWorkHistory(deps:{
         const key=`${ctx.ownerId}:${row.id}`
         if(acknowledged.has(key))continue
         try {
-          const agentId=await deps.agentId(row.sessionId,ctx.ownerId)
-          if(!agentId)continue
+          const identity=await deps.identity(row.sessionId,ctx.ownerId)
+          const occurred=date(row.timestamp)
+          if(!identity || !Number.isFinite(identity.createdAt) || Date.parse(occurred)<Math.floor(identity.createdAt/1000)*1000)continue
+          const agentId=identity.id
           const segment=readDeliveryEnvelope(row.content)?.segments
           if(segment?.length!==1||segment[0]?.facts?.route!=='session-direct')continue
           const sender=segment[0].facts.fromId?.replace(/^session:/,'')
           if(!sender||segment[0].facts.messageId?.replace(/^msg:/,'')!==row.id)continue
           const remote=row.spawnedByRemote?.sessionId===sender?row.spawnedByRemote:null
-          const senderAgent=remote?.agentUserId??await deps.agentId(sender,ctx.ownerId)
+          const senderIdentity=remote ? null : await deps.identity(sender,ctx.ownerId)
+          const senderAgent=remote?.agentUserId??(senderIdentity && Date.parse(occurred)>=Math.floor(senderIdentity.createdAt/1000)*1000 ? senderIdentity.id : null)
           const caller=senderAgent?{sessionId:sender,deviceId:remote?.deviceId??ctx.deviceId,agentUserId:senderAgent}:null
           const dispatch=caller?legacyAssistantDispatch({deviceId:ctx.deviceId,agent:{sessionId:row.sessionId,agentUserId:agentId,displayName:row.title,caller},
             job:{id:row.id,prompt:row.content,createdAt:date(row.timestamp),route:{kind:'session-direct',caller,sourceMessageId:row.id}}}):null

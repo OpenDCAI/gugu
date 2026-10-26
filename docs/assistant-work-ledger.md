@@ -1,0 +1,23 @@
+# Account assistant work ledger
+
+The desktop assistant panel and phone task panel read account RPCs instead of device directories. `useAssistantWorkTasks(ownerId,assistantId)` is the shared list/presence projection; `useTaskChatRows` reads the selected work's account history. Finished tasks survive directory removal and host sleep. Existing typography, task row titles, harness and unread markers remain. An older task link with no work ID resolves only assignments matching its original assistant/executor addresses, also through account reads.
+
+Work outcome is independent of agent presence: idle does not complete a task. Live tool/token output remains the native task viewer's optional connection and is not copied into this ledger. Cloud history failures retain the existing rows and retry in the background; there is no device retry banner or synchronization label.
+
+## Writes and ownership
+
+The two backend tables are `identity.assistant_work` and `identity.assistant_work_events`. The latter is also the sole durable delivery queue. Dispatch prepares a stable empty executor seat before atomically creating work and its first event. The model starts only after durable event admission. Message, operation, child-session and work IDs survive retries. `enqueueAssistantWorkDelivery` and `enqueueAssistantWorkReport` return accepted, never delivered.
+
+Codex114 owns the shared enqueue/claim/settle pump, reachability-aware wakeup, reconciliation and owner receipts. This branch integrates that shared code and supplies dispatch hooks, the account projections and Android native host routing. Internal replay carries the original `client_message_id` and timestamp and bypasses the ledger write hook. Old hosts lacking `assistantWork.prepare` or `assistantWork.deliver` fail explicitly.
+
+Android and desktop/server hosts can upload their own acknowledged old receipts on natural startup/heartbeat. This is background migration, never a panel-to-device read. Original work/message IDs and occurrence time are retained; historical events are admitted facts and never reenter the delivery queue. The phone reads only actual Pi tool-call/result pairs accompanied by its durable successful send receipt, rechecks data permissions, and preserves native file references. The desktop reader exposes accepted SQLite inbox receipts through the existing host bridge and checks the account's identity registration time. Missing or ambiguous evidence is skipped. No completion is inferred from model final prose or idle.
+
+The backend closes imported waiting work older than24 hours as a coordinator inference with `LEGACY_REPORT_MISSING`; a real late executor result still prevails. Former assistant homes require owned historical provisioning/move evidence. Host failures use progress plus trusted `HOST_FAILURE`, so runtime errors do not masquerade as an executor's terminal report. The platform owner notice and real owner delivery remain separate receipts.
+
+## Validation and remaining acceptance
+
+Targeted checks cover the cloud read contract, original references/visibility, stable dispatch/receipts, account history, desktop/phone task lists without connected machines, legacy links, durable old admissions, permission revocation, native file reports, runtime recovery, reconciliation and successful owner posts from the same native turn. All behavior changes were introduced with failing cases before implementation.
+
+The isolated my-laptop backend fixture is API35421/DB35422. Backend dev includes reviewed legacy import, expiry and former-home fixes (`10ac594`); a fresh integrated installation and30 ledger tests passed. Desktop SQLite history export has5 passing tests; panel/list/history UI has18 passing tests; reconciliation/owner-receipt/hook checks have22 passing tests. The canonical phoneRuntime compilation regression passed and includes native host startup, files, stable IDs, permissions and recovery. Shared ledger/outbox checks passed separately. Full TypeScript and targeted lint are required for the final submitted head.
+
+Actual three-end acceptance is still pending. The35421 community fixture lacks platform model-access/billing and a paired model gateway, plus phone-reachable HTTPS. The live54321 stack is a shared development stack and was not changed. A complete trial must point the isolated desktop profile, execution host, phone, file functions and paired model gateway at the same selected local backend, then verify a real model turn, exact file bytes and ledger reads with the executor disconnected. Unit/SQL success does not substitute for this acceptance. No owner desktop profile, cloud runtime or phone has been repointed by this branch.

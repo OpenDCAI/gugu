@@ -386,6 +386,7 @@ import {
 import { GUGU_PLATFORM_BLOCK, buildSessionpageProjectContextBlock } from './product-platform-prompt'
 import {
   guguAgentUserIdForSession,
+  localAgentForSession,
   resolveRuntimeForkSource,
 } from './sessionpage/sessionpage-session-agent'
 import { writeCapabilityLoadReport } from './capability-report-store'
@@ -1697,7 +1698,10 @@ function assistantWorkDeliveryHost(): AssistantWorkOutboxHost {
   })
   const history=createDesktopAssistantWorkHistory({context,
     receipts:async after=>loadEmdashBridge()?.readAssistantWorkReceipts(after)??{entries:[],cursor:after,hasMore:false},
-    agentId:(session,owner)=>guguAgentUserIdForSession(session,process.env,owner),
+    identity:async(session,owner)=>{
+      const record=await localAgentForSession(session,process.env,owner)
+      return record?.gugu_user_id ? {id:record.gugu_user_id,createdAt:record.created_at*1000} : null
+    },
     assistant:async current=>(await resolveAssistant(current))?.agentId??null,
     warn:detail=>createLogger('assistant-work/history').warn(detail,'Historical work will be checked on the next host cycle'),
   })

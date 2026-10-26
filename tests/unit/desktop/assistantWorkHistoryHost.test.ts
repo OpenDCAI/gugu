@@ -13,7 +13,7 @@ it('uploads only original locally accepted receipts without live providers or a 
   {id:result,position:2,sessionId:coordinator,title:'Assistant',timestamp:'2026-10-20 08:02:00',spawnedBySessionId:null,spawnedByRemote:null,
   content:envelope(result,child,`A verified result\n<gugu_work_result>\n${JSON.stringify({work_id:workId,status:'completed'})}\n</gugu_work_result>`)}]
  const host=createDesktopAssistantWorkHistory({context:async()=>({ownerId:'owner',deviceId:'desktop',runtimeInstanceId:'runtime',client:{rpc}}),
-  receipts:async()=>({entries,cursor:2,hasMore:false}),agentId:async(session:string)=>session===child?executor:session===coordinator?assistant:null,
+  receipts:async()=>({entries,cursor:2,hasMore:false}),identity:async(session:string)=>({id:session===child?executor:assistant,createdAt:Date.parse('2026-10-19T08:00:00Z')}),
   assistant:async()=>assistant,warn:vi.fn()})
  await host.kick();await host.kick();host.stop()
  const imports=rpc.mock.calls.filter(([name])=>name==='assistant_work_import')
@@ -21,4 +21,14 @@ it('uploads only original locally accepted receipts without live providers or a 
  expect(imports[0]![1]).toMatchObject({p_work_id:workId,p_events:[{message_id:dispatch,kind:'dispatch',receipt_kind:'received'}]})
  expect(imports[1]![1]).toMatchObject({p_events:[{message_id:result,kind:'completed',occurred_at:'2026-10-20T08:02:00.000Z',receipt_kind:'received'}]})
  expect(rpc.mock.calls.some(([name])=>name.includes('outbox')||name==='assistant_work_commit')).toBe(false)
+})
+
+it('does not copy old inbox contents into a later account identity bound to the same session',async()=>{
+ const rpc=vi.fn()
+ const host=createDesktopAssistantWorkHistory({context:async()=>({ownerId:'later-owner',deviceId:'desktop',runtimeInstanceId:'runtime',client:{rpc}}),
+  receipts:async()=>({entries:[{id:dispatch,position:1,sessionId:child,title:'Old work',timestamp:'2026-10-20T08:00:00Z',spawnedBySessionId:coordinator,spawnedByRemote:null,
+    content:envelope(dispatch,coordinator,`Private original request\n<gugu_work>\n${JSON.stringify({work_id:workId,coordinator:`session:${coordinator}`,report:'Report results'})}\n</gugu_work>`)}],cursor:1,hasMore:false}),
+  identity:async()=>({id:executor,createdAt:Date.parse('2026-10-21T08:00:00Z')}),assistant:async()=>assistant,warn:vi.fn()})
+ await host.kick();host.stop()
+ expect(rpc).not.toHaveBeenCalled()
 })

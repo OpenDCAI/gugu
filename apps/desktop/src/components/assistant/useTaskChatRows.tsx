@@ -22,17 +22,20 @@ export function useTaskChatRows(messages: readonly MessageItem[], ownerId: strin
   const [projection,setProjection] = useState<{ key: string; entries: TaskExchange[] } | null>(null)
   const [history,setHistory] = useState({ key: '',count: 80 })
   useEffect(() => {
-    if (!task?.workId || !ownerId || !visible) return
+    if (!task || !ownerId || !visible) return
     let alive = true,version = 0,failures = 0
     let retry: ReturnType<typeof setTimeout> | undefined
     const refresh = async () => {
       clearTimeout(retry)
       const current = ++version
       try {
-        const events = await assistantWorkCloud.historyAll(task.assistantId,task.workId!)
+        const workIds=task.workId ? [task.workId] : (await assistantWorkCloud.listAll(task.assistantId))
+          .filter(work=>work.executors.some(target=>target.session_id===task.task.sessionId && target.device_id===task.task.deviceId)
+            && task.assistants.some(home=>home.sessionId===work.coordinator_session_id && home.deviceId===work.coordinator_device_id)).map(work=>work.work_id)
+        const pages=await Promise.all(workIds.map(async workId=>assistantWorkExchanges(await assistantWorkCloud.historyAll(task.assistantId,workId),workId)))
         if (!alive || current !== version) return
         // Replace, rather than merge, so deleted original sources disappear after revalidation.
-        const entries = assistantWorkExchanges(events,task.workId!)
+        const entries=pages.flat()
         failures = 0
         cache.set(key,entries)
         setProjection({ key,entries })
