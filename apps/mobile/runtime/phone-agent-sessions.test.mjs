@@ -6,6 +6,7 @@ import { join } from 'node:path'
 import { createHash, randomUUID } from 'node:crypto'
 import { openPhoneAgentStore } from './phone-agent-store.mjs'
 import { registerArtifact } from './phone-agent-files.mjs'
+import { createPhoneAssistantWork } from './phone-assistant-work.mjs'
 import { createPhoneSessionTools } from './phone-agent-sessions.mjs'
 
 async function fixture() {
@@ -34,32 +35,50 @@ async function fixture() {
     if (String(url).endsWith('/session-revoke')) return Response.json({ ok: true })
     throw new Error('Unexpected HTTP route')
   } }
-  const tools = createPhoneSessionTools({ agent, job, store, cloud: { attachmentEndpoint: async () => endpoint }, deviceId: 'this-phone', requester: {},
+  const queued = new Map()
+  agent.assistantWork = {assistant_id:receiver.agentUserId}
+  const cloud = { attachmentEndpoint: async () => endpoint, identity: {rpc:async(name,args)=>{
+    if(name==='assistant_work_history')return {data:{work:{work_id:args.p_work_id,assistant_user_id:receiver.agentUserId,
+      coordinator_session_id:receiver.sessionId,coordinator_device_id:'this-phone',executors:[{session_id:agent.sessionId,device_id:'this-phone'}]},events:[]},error:null}
+    if(name==='assistant_work_commit'){
+      for(const event of args.p_events){
+        if(queued.has(event.message_id))assert.deepEqual(queued.get(event.message_id),event)
+        queued.set(event.message_id,event)
+      }
+      return {data:{work_id:args.p_work_id,event_ids:args.p_events.map(e=>e.message_id),outcome:'completed',terminal_version:'1'},error:null}
+    }
+    throw new Error(`Unexpected work RPC: ${name}`)
+  }} }
+  const work = createPhoneAssistantWork({ownerId:store.state.ownerId,deviceId:'this-phone',instanceId:randomUUID(),cloud,store,isReady:()=>true,invoke:async()=>{throw new Error('Report must not be directly delivered')},kick:()=>{}})
+  const tools = createPhoneSessionTools({ agent, job, store, cloud, work, deviceId: 'this-phone', requester: {},
     authorize: async (_groups, file) => { if (!permission) throw new Error('permission revoked'); if (file) assert.deepEqual(file.permissionRequirements, [{ permissions: ['READ_MEDIA_IMAGES'] }]) },
     invoke: async (_method, [_caller, action]) => {
       delivered.push(action)
       return { recipients: [{ to: `session:${receiver.sessionId}`, status: 'delivered' }] }
     }, emit: () => undefined,
   })
-  return { store, artifact, receiver, bytes, requests, delivered, send: tools.find(tool => tool.name === 'session_message'), revoke: () => { permission = false }, failSecond: () => { failSecond = true }, close: () => rm(root, { recursive: true, force: true }) }
+  return { store, artifact, receiver, bytes, requests, delivered, queued, send: tools.find(tool => tool.name === 'session_message'), revoke: () => { permission = false }, failSecond: () => { failSecond = true }, close: () => rm(root, { recursive: true, force: true }) }
 }
 
-test('phone session_message uploads original bytes and durably delivers scoped references; retries reuse the receipt', async () => {
+test('phone session_message uploads original bytes and queues scoped work references; retries reuse the same event', async () => {
   const fx = await fixture()
   try {
     const work = { work_id: randomUUID(), status: 'completed' }
     const args = { to: [`session:${fx.receiver.sessionId}`], text: 'complete original', files: [{ file_path: fx.artifact.file_path }], work_result: work }
-    await fx.send.execute('call-one', args); await fx.send.execute('call-one', args)
+    const first = await fx.send.execute('call-one', args); const second = await fx.send.execute('call-one', args)
+    assert.equal(first.details.status,'accepted'); assert.deepEqual(second.details,first.details)
     assert.equal(fx.requests.filter(([url]) => url.endsWith('/session-commit')).length, 1)
     assert.deepEqual(Buffer.from(await fx.requests.find(([url]) => url === 'https://objects.invalid/upload')[1].body.arrayBuffer()), fx.bytes)
     const commit = JSON.parse(fx.requests.find(([url]) => url.endsWith('/session-commit'))[1].body)
     assert.deepEqual(commit.recipient_user_ids, [fx.receiver.agentUserId])
-    assert.equal(fx.delivered[0].attachments[0].attachment_id, commit.attachment_id)
-    assert.deepEqual(fx.delivered[0].work_result, work)
-    assert.equal(JSON.stringify(fx.delivered).includes(fx.bytes.toString('base64')), false)
+    assert.equal(fx.queued.size,1)
+    assert.equal([...fx.queued.values()][0].attachment_refs[0].attachment_id,commit.attachment_id)
+    assert.equal([...fx.queued.values()][0].kind,'completed')
+    assert.equal(JSON.stringify([...fx.queued.values()]).includes(fx.bytes.toString('base64')), false)
     fx.revoke()
     await assert.rejects(fx.send.execute('call-one', args), /permission revoked/)
-    assert.equal(fx.delivered.length, 2)
+    assert.equal(fx.delivered.length, 0)
+    assert.equal(fx.queued.size,1)
   } finally { await fx.close() }
 })
 
