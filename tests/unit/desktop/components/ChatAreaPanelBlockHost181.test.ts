@@ -86,6 +86,38 @@ const header = () => harness.container.querySelector('[data-chat-area-header]')
 const membersButtonIn = (root: ParentNode) => root.querySelector(`[data-testid="${AUTOMATION_TEST_IDS.chatHeaderMembersButton}"]`)
 
 describe('ChatAreaPanel hosted in a block (gugu-dev#181)', () => {
+  for (const mobile of [false, true]) {
+    it(`#492 ${mobile ? 'phone' : 'desktop block'}: More > Settings reaches the root of the existing info tab in one action`, async () => {
+      const slot = document.body.appendChild(document.createElement('div'))
+      installShellSlots()
+      try {
+        await renderPanel(mobile ? undefined : { actions, title, tabs: null }, 'group', mobile)
+        await act(async () => { openInfoTab('group-1', 'members') })
+        const info = infoTabOf('group-1')!
+        if (!mobile) await act(async () => { readShellSlots()!.setSlot(chatTabSlotKey('group-1', info.tabId), slot) })
+        expect(document.querySelector('[data-group-settings-page="members"]')).not.toBeNull()
+        await act(async () => { showChatOnly('group-1') })
+        const root = mobile ? harness.container : actions
+        const more = root.querySelector<HTMLElement>(`[data-testid="${AUTOMATION_TEST_IDS.chatHeaderMoreButton}"]`)
+        expect(more, 'More stays reachable independently of installed Apps').not.toBeNull()
+        await clickElement(more!)
+        const settings = document.querySelector<HTMLElement>(`[data-testid="${AUTOMATION_TEST_IDS.groupMenuSettings}"]`)
+        expect(settings, 'settings is offered independently of installed Apps').not.toBeNull()
+        await clickElement(settings!)
+        expect(infoTabOf('group-1')?.tabId, 'reuse the same info tab').toBe(info.tabId)
+        expect(document.querySelector('[data-group-settings-page="main"]'), 'no intermediate members page').not.toBeNull()
+        expect(document.querySelector('[data-group-settings-page="members"]')).toBeNull()
+      } finally {
+        await act(async () => {
+          const info = infoTabOf('group-1')
+          if (info) readShellSlots()?.setSlot(chatTabSlotKey('group-1', info.tabId), null)
+          closeInfoTab('group-1')
+        })
+        slot.remove()
+      }
+    })
+  }
+
   it('an empty project keeps its home in the chat column while its info opens beside it', async () => {
     publishChatSummaries([{ id: 'group-1', kind: 'group', name: 'Settings project', last_message_at: null }])
     try {

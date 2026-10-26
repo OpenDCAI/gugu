@@ -33,7 +33,7 @@ export const CHAT_INFO_TAB_KIND = 'chat-info';
 
 export type ChatTabState = { chatId: string };
 export type ChatTopicState = { topicChatId: string; name: string };
-export type ChatInfoState = { group: boolean; page?: 'members' | 'announcement'; at?: number };
+export type ChatInfoState = { group: boolean; page?: 'main' | 'members' | 'announcement'; at?: number };
 
 /** A list of rows: as wide as the drawers it replaces (spec session-page「并排」: a page declares its width beside the chat). */
 const CHAT_INFO_SIDE_WIDTH = 360;
