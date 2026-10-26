@@ -2766,6 +2766,13 @@ describe('AcpRuntime session manager', () => {
     expect(updates).toHaveLength(2);
     expect(updates.at(-1)).toMatchObject({ delta: { chunk: ' world' } });
 
+    // Output already has its own log; metadata must not replay the whole buffer.
+    terminal.pushOutput('x'.repeat(100_000));
+    expect(log.snapshot().data.text.length).toBe(100_011);
+    expect(rt.getTerminals('conv-terminal')[0]?.output.length).toBe(100_011);
+    const metadata = rt.sessionLiveModels('conv-terminal')?.states.terminals.snapshot().data;
+    expect(JSON.stringify(metadata).length).toBeLessThan(8192);
+
     terminal.triggerExit({ exitCode: 0, signal: null });
     expect(rt.sessionLiveModels('conv-terminal')?.states.terminals.snapshot().data).toMatchObject([
       { terminalId: created.terminalId, exitStatus: { exitCode: 0, signal: null } },

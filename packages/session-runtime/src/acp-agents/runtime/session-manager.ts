@@ -1783,7 +1783,8 @@ export class SessionManager implements InboundRouter {
   syncTerminals(sessionId: string): void {
     const record = this.cells.get(sessionId);
     if (!record) return;
-    const terminals = this.getTerminals(sessionId);
+    // Output already has its own live log; metadata must not replay the accumulated buffer.
+    const terminals = this.getTerminals(sessionId).map((terminal) => ({ ...terminal, output: '' }));
     publishLiveModelState(record.live.states.terminals, terminals, record.lastSynced.terminals);
     record.lastSynced.terminals = terminals;
   }
