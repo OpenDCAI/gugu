@@ -103,7 +103,7 @@ export function createAssistantWorkReconciler(deps:{
       const preview=proof?.preview
       if(preview?.running!==false||!['done','error','cancelled'].includes(preview.ended?.kind??'')||preview.error) continue
       const latestPrompt=preview.entries?.filter(e=>e.kind==='prompt').at(-1)
-      if(latestPrompt?.messageId!==dispatch.message_id) continue
+      if(latestPrompt?.messageId?.replace(/^msg:/,'')!==dispatch.message_id.replace(/^msg:/,'')) continue
       const reason=preview.ended!.kind==='error'?'EXECUTOR_FAILED'
         : preview.ended!.kind==='cancelled'?'EXECUTOR_CANCELLED_WITHOUT_REPORT':'EXECUTOR_ENDED_WITHOUT_REPORT'
       if(!await current(ctx)) return

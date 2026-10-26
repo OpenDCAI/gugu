@@ -7,15 +7,15 @@ const event = (extra: Partial<ClaimedAssistantWorkEvent> = {}): ClaimedAssistant
   message_id: 'message', work_id: 'work', kind: 'completed', from_session_id: 'executor', from_device_id: 'phone',
   to_session_id: 'assistant', to_device_id: 'cloud', content: 'A result', attachment_refs: [], source_available: true,
   lease_token: 'lease', lease_until: '2026-10-26T01:01:00Z', platform_received_at: '2026-10-26T01:00:00Z',
-  failed_attempts: 0, attempts: 1, terminal_version: '1', ...extra,
+  failed_attempts: 0, attempts: 1, terminal_version: '1', lease_remaining_ms: 60_000, age_ms: 0, ...extra,
 })
-function fixture(events = [event()]) {
+function fixture(events = [event()], localNow = Date.parse('2026-10-26T01:00:00Z')) {
   let claimed = false
   const rpc = vi.fn(async (name: string, _args: Record<string, unknown>, _context?: typeof context): Promise<{ data: unknown; error: { code?: string; message: string } | null }> => ({ data: name === 'assistant_work_outbox_claim'
     ? { events: claimed ? [] : (claimed = true, events) } : {}, error: null }))
   const deliver = vi.fn(async (row: ReturnType<typeof event>, _signal: AbortSignal) => ({ status: 'admitted' as const, messageId: row.message_id }))
   const warn = vi.fn()
-  const pump = createAssistantWorkOutboxPump({ context: async () => context, rpc, deliver, warn, now: () => Date.parse('2026-10-26T01:00:00Z') })
+  const pump = createAssistantWorkOutboxPump({ context: async () => context, rpc, deliver, warn, now: () => localNow })
   return { pump, rpc, deliver, warn }
 }
 afterEach(() => { vi.useRealTimers() })
@@ -42,6 +42,17 @@ describe('one account work outbox', () => {
     const f = fixture(); await f.pump.kick()
     expect(f.rpc).toHaveBeenCalledWith('assistant_work_outbox_settle', expect.objectContaining({ p_message_id: 'message', p_lease_token: 'lease', p_stage: 'assistant_admitted' }), context)
   })
+  it('binds executor identity only for dispatch, never for report admission', async () => {
+    for (const kind of ['dispatch', 'completed'] as const) {
+      const f = fixture([event({ kind })])
+      f.deliver.mockResolvedValue({ status: 'admitted', messageId: 'message', receipt: { agent_user_id: 'actual-executor' } } as never)
+      await f.pump.kick()
+      expect(f.rpc).toHaveBeenCalledWith('assistant_work_outbox_settle', expect.objectContaining({
+        p_stage: kind === 'dispatch' ? 'executor_admitted' : 'assistant_admitted',
+        p_receipt: kind === 'dispatch' ? { agent_user_id: 'actual-executor' } : {},
+      }), context)
+    }
+  })
   it('does not mistake recipient pending for admission', async () => {
     const f = fixture(); f.deliver.mockResolvedValue({ status: 'pending' } as never); await f.pump.kick()
     expect(f.rpc).toHaveBeenCalledWith('assistant_work_outbox_settle', expect.objectContaining({ p_stage: 'retry', p_error_code: 'NOT_ADMITTED' }), context)
@@ -60,9 +71,26 @@ describe('one account work outbox', () => {
     expect(f.rpc).toHaveBeenCalledWith('assistant_work_outbox_settle', expect.objectContaining({ p_stage: 'abandoned', p_error_code: 'DEVICE_OFFLINE' }), context)
   })
   it('abandons after 24 hours even if no other runtime attempted it', async () => {
-    const f = fixture([event({ platform_received_at: '2026-10-25T01:00:00Z' })]); await f.pump.kick()
+    const f = fixture([event({ platform_received_at: '2026-10-25T01:00:00Z', age_ms: 86_400_000 })]); await f.pump.kick()
     expect(f.deliver).not.toHaveBeenCalled()
     expect(f.rpc).toHaveBeenCalledWith('assistant_work_outbox_settle', expect.objectContaining({ p_stage: 'abandoned', p_error_code: 'DELIVERY_EXPIRED' }), context)
+  })
+  it.each([-55_000, 86_400_000])('uses server budgets despite a device clock skew of %i ms', async skew => {
+    const f = fixture([event()], Date.parse('2026-10-26T01:00:00Z') + skew)
+    await f.pump.kick()
+    expect(f.deliver).toHaveBeenCalledOnce()
+    expect(f.rpc.mock.calls.some(([name, args]) => name === 'assistant_work_outbox_settle' && args.p_stage === 'abandoned')).toBe(false)
+  })
+  it('uses server age rather than a future platform timestamp on a slow device', async () => {
+    const f = fixture([event({ age_ms: 86_400_000, platform_received_at: '2026-10-27T01:00:00Z' })])
+    await f.pump.kick()
+    expect(f.deliver).not.toHaveBeenCalled()
+    expect(f.rpc).toHaveBeenCalledWith('assistant_work_outbox_settle', expect.objectContaining({ p_stage: 'abandoned', p_error_code: 'DELIVERY_EXPIRED' }), context)
+  })
+  it('will not deliver when the server lease has expired even if the local clock says otherwise', async () => {
+    const f = fixture([event({ lease_remaining_ms: 0 })])
+    await f.pump.kick()
+    expect(f.deliver).not.toHaveBeenCalled()
   })
   it('leaves an unreachable receiver in the same cloud queue with bounded retry delay', async () => {
     const f = fixture(); f.deliver.mockRejectedValue(Object.assign(Error('private detail'), { code: 'DEVICE_OFFLINE' })); await f.pump.kick()
