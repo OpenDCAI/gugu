@@ -964,7 +964,7 @@ async function insertImages(current, images, anchor) {
     current.view.dispatch({ changes: { from: at, insert: text }, selection: { anchor: at + text.length } })
     current.view.focus()
   } catch (error) {
-    if (state.current === current) showBanner(fmt(error.code === 'too-large' ? state.t.uploadTooLarge : state.t.failed, { e: error.message }), 'error')
+    if (state.current === current) showBanner(fmt(error.code === 'too-large' ? state.t.uploadTooLarge : state.t.failed, { e: error.message }), 'error', true)
   }
 }
 
