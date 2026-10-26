@@ -55,6 +55,7 @@ export function AliasSheet({ name, alias, avatarUrl, seed, group = false, onSave
           onChange={(e) => setDraft(e.target.value)}
           onKeyDown={(e) => { if (e.key === 'Enter') void save() }}
           placeholder={t('profile.notSet')}
+          aria-label={t('profile.alias')}
           maxLength={80}
           autoFocus
           disabled={saving}

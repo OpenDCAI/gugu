@@ -533,7 +533,7 @@ export const contactsService = {
     try {
       await updateDisplayAlias(userId, { kind: 'contact', id: contactUserId }, alias)
     } catch (error) {
-      throw toUserFacingError(error, genericFailure())
+      throw new Error(messageForUser(error), { cause: error })
     }
   },
 

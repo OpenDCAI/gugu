@@ -75,7 +75,7 @@ describe('remaining contact and error surfaces consume the master (#7333)', () =
   })
 
   it('the real alias sheet has 16/24 title and 14/20 input, and still saves the typed alias', async () => {
-    const updateContactAlias = vi.fn(async () => {})
+    const updateContactAlias = vi.fn<(id: string, alias: string) => Promise<void>>(async () => {})
     const onClose = vi.fn()
     const person = contact({ id: 'alias-person', display_name: '林知夏', alias: '原备注' })
     await renderWithAppProviders(mount(), <AliasSheet name={person.display_name} alias={person.alias} seed={person.id} onSave={(alias) => updateContactAlias(person.id, alias)} onClose={onClose} />, { contacts: { updateContactAlias } })
