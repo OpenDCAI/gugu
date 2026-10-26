@@ -17,9 +17,8 @@ export async function prepareAssistantProfileReview(admission: PanelPreparedAdmi
   if (!unavailable && current === String(PROFILE_RULES_VERSION)) return admission
   const review = [
     '<gugu_profile_review>',
-    ...(unavailable ? ['宿主无法核对版本。'] : []),
-    '本轮先整理owner-profile.md：正文先用「你」写1～3句身份、近况和已确认作息，不加标题；称呼仅一行。全文不用「他」；助理规矩与推理不进档案；本人确认约定归feedback，保留事实、日期和来源。',
-    `回读合规后才在MEMORY.md原档案行记profile_rules:${PROFILE_RULES_VERSION}，再回读索引；失败不标通过。不新建档案、不发进度，随后回复本轮消息。`,
+    ...(unavailable ? ['未核。'] : []),
+    `本轮整理owner-profile.md：正文先用「你」写1～3句已证身份、近况、作息，不加标题；勿凭mtime推作息，未知省略。称呼仅「称呼：姓名」，不附聊天规矩。全文不用「他」；助理规矩、推理不入档，已确认约定移到feedback；事实、日期、来源保留，依据放末节。回读合规才在MEMORY.md原行记profile_rules:${PROFILE_RULES_VERSION}并回读；读写失败不标通过。不新建档案、不发进度，随后答本轮消息。`,
     '</gugu_profile_review>',
   ].join('\n')
   return { ...admission, trailingText: [admission.trailingText, review].filter(Boolean).join('\n\n') }
