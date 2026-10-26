@@ -442,7 +442,7 @@ function ChatRow({ chat, agentStatus, isActive, topicsExpanded, onToggleTopics, 
             </>
           ) : preview
         }
-        trailing={
+        trailing={(!mobile || tag || chat.is_muted || chat.unread_count > 0) ? (
           <>
             {/* @@@ui-ruler 设备名 / 群聊 chip 放第二行右侧,不和名字抢标题行——名字优先保完整
                 (原来「论文助手」被 MacBook Pro chip 挤成一个字)。 */}
@@ -458,7 +458,7 @@ function ChatRow({ chat, agentStatus, isActive, topicsExpanded, onToggleTopics, 
               </Chip>
             )}
           </>
-        }
+        ) : undefined}
       />
 
       {/* Context menu — portalled to body */}

@@ -47,6 +47,38 @@
 
 [data-phone-shell] .gg-list-row-body { gap: var(--spacing-xs); }
 [data-phone-shell] :is(.gg-list-row-line, .gg-section-label) { gap: var(--spacing-sm); }
+
+/* 消息与伙伴使用同一条内缩分隔线：从实际文字起点到屏幕右缘，分组末行不画。
+   线贴行底，不额外占高度；空预览的标题仍随头像垂直居中(owner 10-26 试用反馈)。 */
+[data-phone-shell] :is([data-mobile-tab-page='chats'] [role='listbox'], .gg-partners-list) > .gg-list-row > .gg-list-row-body {
+  position: relative;
+  align-self: stretch;
+  justify-content: center;
+}
+
+[data-phone-shell] :is([data-mobile-tab-page='chats'] [role='listbox'], .gg-partners-list) > .gg-list-row:has(+ .gg-list-row) > .gg-list-row-body::after {
+  content: '';
+  position: absolute;
+  inset-inline-start: 0;
+  inset-inline-end: calc(-1 * var(--spacing-lg));
+  bottom: calc(-1 * var(--spacing-sm));
+  height: 1px;
+  background: var(--border-subtle);
+  pointer-events: none;
+}
+
+[data-phone-shell] .gg-partners-navrow { position: relative; }
+[data-phone-shell] .gg-partners-navrow:has(+ .gg-partners-navrow)::after {
+  content: '';
+  position: absolute;
+  inset-inline-start: calc(var(--spacing-sm) + var(--icon-lg) + var(--spacing-lg));
+  inset-inline-end: calc(-1 * var(--spacing-sm));
+  bottom: 0;
+  height: 1px;
+  background: var(--border-subtle);
+  pointer-events: none;
+}
+
 [data-phone-shell] .gg-pane-actions { gap: var(--spacing-xs); }
 [data-phone-shell] .ta-seg { padding: var(--spacing-xs); gap: var(--spacing-xs); }
 [data-phone-shell] .gg-chip { padding: 0 var(--spacing-sm); }

@@ -27,6 +27,8 @@ it('phone shows one source row, aggregates topic unread before search, and updat
   await render(true)
   expect([...h.container.querySelectorAll<HTMLElement>('[data-chat-row]')].map(el => el.dataset.chatRow)).toEqual(['group'])
   expect(row().textContent).toContain('10')
+  expect(row().querySelectorAll('.gg-list-row-line')).toHaveLength(1)
+  expect(row().querySelector('.gg-list-row-line .gg-list-row-trailing')?.textContent).toContain('10')
   expect(h.container.querySelector('[data-topic-subrow]')).toBeNull()
   await clickElement(h.container.querySelector('[data-header-search-open]')!)
   const search = h.container.querySelector<HTMLInputElement>('[data-header-search-field] input')!
@@ -34,12 +36,14 @@ it('phone shows one source row, aggregates topic unread before search, and updat
   expect(row().textContent).toContain('10')
   await render(true, [source, { ...topic, unread_count: 0 }, orphan])
   expect(row().textContent).not.toContain('10')
+  expect(row().querySelectorAll('.gg-list-row-line')).toHaveLength(1)
   expect(row().textContent).toContain('2')
   expect(source.unread_count).toBe(2)
 })
 
 it('desktop keeps the indented topic and separate unread counts', async () => {
   await render(false)
+  expect(row().querySelectorAll('.gg-list-row-line')).toHaveLength(2)
   expect(h.container.querySelector('[data-topic-subrow="task-topic"]')?.textContent).toContain('8')
   expect(row().textContent).toContain('2')
   expect(row().textContent).not.toContain('10')
