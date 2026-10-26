@@ -70,7 +70,7 @@
 }
 
 /* 标题栏和消息、输入框同一条边线(16px);右边让出收起钮 32 + 间隔 8 + 边距 16。 */
-.ta-panel .assistant-task-chat-window > .gg-pane-header {
+.ta-panel .assistant-task-chat-window .task-chat-conversation > .gg-pane-header {
   padding-left: 16px;
   padding-right: 56px;
 }

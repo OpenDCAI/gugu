@@ -16,6 +16,7 @@ import { useAssistantDm } from './useAssistantDm'
 import type { AssistantChatHandlers } from './AssistantChatSlot'
 import { assistantSlotKey } from '../../lib/assistantShellBridge'
 import { TaskChatScope } from './TaskChatScope'
+import { TaskChatFilePreviewHost } from './TaskChatFilePreviewHost'
 import './assistant-task-chat.css'
 
 /** The task pane's own conversation, alongside the personal assistant. */
@@ -30,7 +31,7 @@ export function AssistantTaskChatWindow({ agent, onClose, ...handlers }: {
   useEffect(() => dm.chatId ? scheduleComposerFocus('chat-entry', { mobileShell: mobile }) : undefined, [dm.chatId, mobile])
   return (
       <section className="assistant-task-chat-window ta-skin" aria-label={agent.display_name} data-testid="assistant-task-chat-window">
-        <PaneHeader title={agent.display_name} mobile={mobile} divider
+        <TaskChatFilePreviewHost mobile={mobile}><PaneHeader title={agent.display_name} mobile={mobile} divider
           leading={<><IconButton aria-label={t('panel.back')} onClick={onClose} data-testid="assistant-task-chat-close"><ChevronLeft /></IconButton><Avatar name={agent.display_name} seed={agent.id} avatarUrl={agent.avatar} size="sm" isAgent still harnessBadge={false} /></>}
           actions={<>
             {dm.chatId && <IconButton aria-label={t('top.search')} onClick={() => window.dispatchEvent(new CustomEvent(UI_EVENTS.openChatSearch, { detail: { chatId: dm.chatId, viewportKey: assistantSlotKey('task-chat') } }))}><Search /></IconButton>}
@@ -42,7 +43,7 @@ export function AssistantTaskChatWindow({ agent, onClose, ...handlers }: {
               {dm.failed
                 ? <><p>{t('chat.openFailed', { name: agent.display_name })}<br />{dm.failed.error}</p><Button onClick={dm.retry}>{t('machine.retry')}</Button></>
                 : <LoadingIndicator size="panel" ariaLabel={t('chat.opening', { name: agent.display_name })} />}
-            </div>}
+            </div>}</TaskChatFilePreviewHost>
       </section>
   )
 }

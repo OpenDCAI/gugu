@@ -267,7 +267,7 @@ const MessageListRow = memo(function MessageListRow({
       )}
       {/* @@@multi-select (#988) — 多选态：行首勾选框 + 整行点击切换选中；内层气泡 pointer-events:none
           全面禁交互（连带隐藏悬浮操作条/菜单/长按）。非多选态原样渲染。 */}
-      {row.type === 'task-exchange' ? <TaskExchangeBubble message={msg} recipientUserId={row.recipientUserId} mobile={mobile} /> : selectMode ? (
+      {row.type === 'task-exchange' ? <TaskExchangeBubble message={msg} recipientUserId={row.recipientUserId} mobile={mobile} onOpenFile={onOpenFile} /> : selectMode ? (
         <div
           data-message-select-row={msg.id}
           onClick={() => onToggleSelect(msg.id)}
