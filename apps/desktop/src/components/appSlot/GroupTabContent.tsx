@@ -4,7 +4,7 @@ import { reaction } from 'mobx'
 import { observer } from 'mobx-react-lite'
 import { useEffect, useRef, useState } from 'react'
 import { useTranslation } from 'react-i18next'
-import { ChevronLeft, Maximize2, Minimize2, MoreHorizontal, X } from '@/lib/icons'
+import { ChevronLeft, MoreHorizontal, X } from '@/lib/icons'
 import { useAuth } from '../../store/auth'
 import { declaredMenuCommands, declaredToolbarCommands, runExtensionCommand } from '../../session/renderer/features/extensions/extension-commands'
 import { extensionSurfaceStore, extensionTabTitle } from '../../session/renderer/features/extensions/extension-surface-store'
@@ -35,11 +35,11 @@ import { ClaimedPage } from './ClaimedPage'
 import { peekStore } from '../../session/renderer/features/extensions/peek-store'
 import { extensionViewStore } from '../../session/renderer/features/extensions/extension-view-store'
 import { ExtensionTabPane } from '../../session/renderer/features/extensions/extension-tab-pane'
+import { ExtensionTabToolbar } from '../../session/renderer/features/extensions/extension-tab-toolbar'
 import { PhoneAppFrame } from './PhoneAppFrame'
 import { updateUnasked } from './updateUnasked'
 import { useSlotMakesWay } from './useSlotMakesWay'
 import { rendererLogger } from '../../lib/log'
-import { cn } from '@/lib/cn'
 import { appNameOf, enabledApps, rememberedOpener } from './openerChoice'
 
 const log = rendererLogger('app-slot/group')
@@ -311,13 +311,11 @@ export const GroupTabContent = observer(function GroupTabContent({ chatId, tabId
       frameCommand.current?.(commandId)
     }
   }
-  // In a window the page's own pane draws its commands (ExtensionTabPane); the row keeps the rest.
+  // The phone's page header draws them; in a strip the task's command bar does, in a window the page's own pane (ExtensionTabPane).
   const toolbar = kind && !inWindow ? declaredToolbarCommands(kind) : []
   const inline = toolbar.slice(0, INLINE_COMMANDS)
   const folded = [...toolbar.slice(INLINE_COMMANDS), ...(kind && !inWindow ? declaredMenuCommands(kind) : [])]
   const shown = extensionSurfaceStore.said(null, slot)
-  const full = tabbed && panelFull(chatId, tabId)
-  const toggleFull = tabbed && !mobile && !inWindow ? () => setPanelFull(chatId, tabId, !full) : undefined
   const windowApp = inWindow && kind ? parseExtensionTabKind(kind)?.extensionId ?? null : null
   useEffect(() => {
     if (windowApp && kind && !item.itemId) extensionViewStore.forgetIdle(kind)
@@ -339,29 +337,22 @@ export const GroupTabContent = observer(function GroupTabContent({ chatId, tabId
   const badge = shown.badge
   const hasBadge = badge !== null && badge !== ''
   const appError = shown.error
-  // Match the task split-pane toolbar's actions without changing the existing button geometry.
-  const headerButtonColors = mobile || !tabbed ? undefined : '!text-foreground-muted hover:!text-foreground hover:!bg-row-hover active:!bg-row-press'
   const backButton = backIsPanel ? (
-    <IconButton className={headerButtonColors} size={mobile ? 'lg' : 'sm'} data-testid="group-app-slot-back" onClick={close} aria-label={t('chatArea.openWith.back')}>
+    <IconButton size={mobile ? 'lg' : 'sm'} data-testid="group-app-slot-back" onClick={close} aria-label={t('chatArea.openWith.back')}>
       <ChevronLeft />
     </IconButton>
   ) : null
-  const closeButton = <IconButton className={headerButtonColors} size={mobile ? 'lg' : 'sm'} data-testid="group-app-slot-close" onClick={close} aria-label={t('common.close')}><X /></IconButton>
-  const fullButton = toggleFull ? (
-    <IconButton className={headerButtonColors} size="sm" data-testid="group-app-slot-full" aria-pressed={full} onClick={toggleFull} aria-label={t(full ? 'chatArea.openWith.restore' : 'chatArea.openWith.maximize')} title={t(full ? 'chatArea.openWith.restore' : 'chatArea.openWith.maximize')}>
-      {full ? <Minimize2 /> : <Maximize2 />}
-    </IconButton>
-  ) : null
+  const closeButton = <IconButton size={mobile ? 'lg' : 'sm'} data-testid="group-app-slot-close" onClick={close} aria-label={t('common.close')}><X /></IconButton>
   const commands = (
     <>
       {inline.map((command) => (
-        <Button className={headerButtonColors} key={command.id} size="sm" variant="ghost" data-command={command.id} onClick={() => runCommand(command.id)}>
+        <Button key={command.id} size="sm" variant="ghost" data-command={command.id} onClick={() => runCommand(command.id)}>
           {command.title}
         </Button>
       ))}
       {folded.length > 0 ? (
         <DropdownMenu.Root>
-          <DropdownMenu.Trigger className={cn('gg-ghost', headerButtonColors)} data-testid="group-app-slot-more" aria-label={t('chatArea.openWith.more')}>
+          <DropdownMenu.Trigger className="gg-ghost" data-testid="group-app-slot-more" aria-label={t('chatArea.openWith.more')}>
             <MoreHorizontal size={16} />
           </DropdownMenu.Trigger>
           <DropdownMenu.Content align="end">
@@ -381,17 +372,11 @@ export const GroupTabContent = observer(function GroupTabContent({ chatId, tabId
       {appError ? <AppErrorMark error={appError} onToggle={() => setErrorShown((open) => !open)} testId="group-app-slot-error" /> : null}
     </>
   )
-  const slimRow = Boolean(backButton) || inline.length + folded.length > 0 || hasBadge || Boolean(appError) || fullButton !== null
   const frames = [...backChain(chatId, tabId), ...(offerUnknown || offerFolds ? [] : [{ tabId, item }])].filter((entry) => entry.item.kind !== null)
   return (
     <div className="relative flex h-full min-h-0 flex-1 flex-col" data-testid="group-app-slot" data-app-kind={kind} data-chat-tab={tabId}>
-      {item.file ? null : tabbed ? (slimRow ? (
-        <div className="flex h-9 shrink-0 items-center gap-1 border-b border-border bg-background-secondary-1 px-2" data-testid="group-app-slot-bar">
-          {backButton}
-          {marks}
-          <span className="ml-auto flex items-center gap-1">{commands}{fullButton}</span>
-        </div>
-      ) : null) : <PaneHeader
+      {/* 页签里(owner 10-26 选 A):页签就是标题、×、角标和出错,最大化长在页签上;App 声明的按钮同任务页一条(没声明就没有这一行)。 */}
+      {item.file ? null : tabbed ? (kind && !inWindow ? <ExtensionTabToolbar tabKind={kind} sessionId={null} tabId={slot} /> : null) : <PaneHeader
         title={<span title={heading.tooltip}>{heading.label}</span>}
         divider
         // 手机上是一整页:页头和别的手机页同一档(peek 盖上来时也是这一档,一个页头)。
@@ -448,7 +433,7 @@ export const GroupTabContent = observer(function GroupTabContent({ chatId, tabId
       ) : null}
       {/* What the page on screen opens beside it (G1): over it here, the page kept for the way back. */}
       <AppPeekSlot sessionId={null} tabId={slot} narrow={mobile}>
-        {item.file && (!mobile || visible !== false) ? <MessageFilePreview fill tabbed={tabbed} mobile={mobile} message={item.message} onForward={onForward} file={{ kind: 'file', document: item.file.document, fileName: item.fileName ?? item.title, mimeType: item.file.contentType, sizeBytes: item.file.size, source: { kind: 'item', itemId: item.itemId!, version: item.file.version } }} onBack={mobile || backIsPanel ? close : undefined} full={full} onToggleFull={toggleFull} onClose={close} /> : null}
+        {item.file && (!mobile || visible !== false) ? <MessageFilePreview fill tabbed={tabbed} mobile={mobile} message={item.message} onForward={onForward} file={{ kind: 'file', document: item.file.document, fileName: item.fileName ?? item.title, mimeType: item.file.contentType, sizeBytes: item.file.size, source: { kind: 'item', itemId: item.itemId!, version: item.file.version } }} onBack={mobile || backIsPanel ? close : undefined} onClose={close} /> : null}
         {desktop ? item.file || !kind ? null : (
           offerUnknown || offerFolds ? (
             <div className="min-h-0 flex-1" data-testid="group-app-slot-raw-folded" />

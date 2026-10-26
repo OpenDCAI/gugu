@@ -56,7 +56,7 @@ async function readPreview(file: PreviewFile, kind: DocumentPreviewKind): Promis
 }
 
 /** The host's preview wherever a file opens: messages, the chat's folder and an App's peek. */
-export function MessageFilePreview({ file, mobile = false, fill = false, tabbed = false, message, onForward, onBack, full, onToggleFull, onClose }: { file: PreviewFile; mobile?: boolean; fill?: boolean; tabbed?: boolean; message?: MessageItem; onForward?: (message: MessageItem) => void; onBack?: () => void; full?: boolean; onToggleFull?: () => void; onClose: () => void }) {
+export function MessageFilePreview({ file, mobile = false, fill = false, tabbed = false, message, onForward, onBack, onClose }: { file: PreviewFile; mobile?: boolean; fill?: boolean; tabbed?: boolean; message?: MessageItem; onForward?: (message: MessageItem) => void; onBack?: () => void; onClose: () => void }) {
   const { t } = useTranslation('messaging')
   const { toast } = useToast()
   const kind = classifyDocumentPreview(file)
@@ -110,5 +110,5 @@ export function MessageFilePreview({ file, mobile = false, fill = false, tabbed 
   const download = () => void previewBytes(file).then((blob) => downloadBlob(blob, file.fileName)).catch((error) => { fileOpenLog.error({ error }, 'preview file download failed'); toast(t('chatArea.downloadFailed'), 'error', messageForUser(error)) })
   const actions = messageActionItems({ isMine: false, isRetracted: !!message?.retracted_at, content: message?.content ?? null, onForward: message && onForward ? () => onForward(message) : undefined, onDownload: download }, t)
   if (kind === 'image' && !read?.error) return null
-  return <MessageFilePreviewPanel contentRef={contentRef} fill={fill} tabbed={tabbed} mobile={mobile} file={file} kind={kind} content={read?.content ?? null} videoUrl={read?.videoUrl} onVideoError={renewVideo} loading={kind !== 'unsupported' && read === null} error={read?.error} onBack={onBack} full={full} onToggleFull={onToggleFull} onClose={onClose} actions={actions} onOpenExternal={kind === 'unsupported' || file.document ? undefined : openExternal} />
+  return <MessageFilePreviewPanel contentRef={contentRef} fill={fill} tabbed={tabbed} mobile={mobile} file={file} kind={kind} content={read?.content ?? null} videoUrl={read?.videoUrl} onVideoError={renewVideo} loading={kind !== 'unsupported' && read === null} error={read?.error} onBack={onBack} onClose={onClose} actions={actions} onOpenExternal={kind === 'unsupported' || file.document ? undefined : openExternal} />
 }

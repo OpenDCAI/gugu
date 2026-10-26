@@ -126,7 +126,7 @@ export const PaneContent = observer(function PaneContent({
   const vertical = slots?.vertical ?? false;
   const extent = vertical ? pane.dimensions?.height : pane.dimensions?.width;
   const minShare = extent ? Math.min(0.5, (vertical ? MIN_PANE_HEIGHT_PX : MIN_PANE_WIDTH_PX) / extent) : 0;
-  const split = pair ? `${(Math.min(1 - minShare, Math.max(minShare, pair.ratio)) * 100).toFixed(3)}%` : null;
+  const split = pair ? `${(Math.min(1 - minShare, Math.max(minShare, pane.pairShare)) * 100).toFixed(3)}%` : null;
   const slotStyle = (tabId: string): CSSProperties => {
     const first = slots?.first === tabId;
     if (!vertical) return first ? { top: 0, bottom: 0, left: 0, width: split! } : { top: 0, bottom: 0, left: split!, right: 0 };
@@ -339,7 +339,7 @@ const PairDivider = observer(function PairDivider({
       }
       style={vertical ? { top: at } : { left: at }}
       onPointerDown={onPointerDown}
-      onDoubleClick={() => pane.setPairRatio(0.5)}
+      onDoubleClick={() => pane.setPairRatio(null)}
     />
   );
 });

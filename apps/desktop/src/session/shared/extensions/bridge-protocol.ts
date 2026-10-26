@@ -62,8 +62,10 @@ export const EXTENSION_THEME_CHANNEL = 'gugu-ext:theme';
  * `compose`, `send`, `messageAgent` and `spawnAgent` are gone (a call to one says where it went, `DISPATCH_GONE`). An App
  * that dispatches says 15, so a client before it is handed the App's last version for 14. The oldest supported stays
  * (manifest.ts): an App that never handed anything to anyone runs as it did.
+ * 16 (10-26, owner「根据该页面自己的声明」): a tab's `sideWidth` says how wide its page is beside a chat or a task's
+ * conversation. Earlier strict schemas refuse the field: the market hands those clients the App's last version for 15.
  */
-export const EXTENSION_API_VERSION = 15;
+export const EXTENSION_API_VERSION = 16;
 
 /**
  * The page `app_check` runs is started with this argument (摩擦单 F5, F69): it says how often it wrote, set presence and

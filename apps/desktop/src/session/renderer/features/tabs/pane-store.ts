@@ -43,15 +43,16 @@ export type PairEdge = 'left' | 'right' | 'top' | 'bottom';
  * agent 打开时是对话)和另一页(`side`),同一条页签条上连成一对。之后点别的页签、再拖进来一页,换掉的都是 `side`。
  * `sideAt` = 另一页摆在哪一边;`ratio` = 前一页(左 / 上)占几成。
  */
-export type TabPair = { anchor: string; side: string; sideAt: PairEdge; ratio: number };
+export type TabPair = { anchor: string; side: string; sideAt: PairEdge; ratio: number | null };
 
 const OPPOSITE_EDGE: Record<PairEdge, PairEdge> = { left: 'right', right: 'left', top: 'bottom', bottom: 'top' };
 export const isVerticalPairEdge = (edge: PairEdge): boolean => edge === 'top' || edge === 'bottom';
 /** 另一页摆在前一格(左 / 上)。 */
 const sideLeads = (edge: PairEdge): boolean => edge === 'left' || edge === 'top';
 
-/** 换了摆法、前一格换了一页:比例翻过来,两页各自的宽窄照旧(ratio 记的是前一格占几成)。 */
-function ratioKeepingWidths(before: TabPair, after: TabPair): number {
+/** 换了摆法、前一格换了一页:比例翻过来,两页各自的宽窄照旧(ratio 记的是前一格占几成;null = 照页面自己声明的宽)。 */
+function ratioKeepingWidths(before: TabPair, after: TabPair): number | null {
+  if (before.ratio === null) return null;
   return sideLeads(before.sideAt) === sideLeads(after.sideAt) ? before.ratio : 1 - before.ratio;
 }
 
@@ -146,6 +147,8 @@ export interface PaneSplitter {
   windowOpener?(tabId: string): (() => void) | null;
   /** 挪到这条会话的另一格(走格子的先后:后一格,没有就前一格);只有这一格 = null。 */
   moveToOtherPane?(tabId: string): (() => void) | null;
+  /** 这一格里的对话那一枚(「开在对话旁边」的那一枚,PaneLayoutStore.setPairAnchor);不在这一格 = null。 */
+  pairAnchorTab?(): string | null;
 }
 
 export class PaneStore<R extends TabRegistry = TabRegistry>
@@ -436,7 +439,7 @@ export class PaneStore<R extends TabRegistry = TabRegistry>
       if (otherFocused) this.activeTabId = tabId;
       return;
     }
-    this.pair = { anchor: anchorId, side: tabId, sideAt: 'right', ratio: this.pair?.ratio ?? 0.5 };
+    this.pair = { anchor: anchorId, side: tabId, sideAt: 'right', ratio: null };
     this._placeAdjacent(this.pair);
   }
 
@@ -470,7 +473,7 @@ export class PaneStore<R extends TabRegistry = TabRegistry>
     } else {
       const anchor = this._partnerFor(tabId);
       if (!anchor || !this._canPair(anchor, tabId)) return false;
-      this.pair = { anchor, side: tabId, sideAt: edge, ratio: 0.5 };
+      this.pair = { anchor, side: tabId, sideAt: edge, ratio: null };
     }
     this._placeAdjacent(this.pair!);
     this.splitDeclined = false;
@@ -501,7 +504,7 @@ export class PaneStore<R extends TabRegistry = TabRegistry>
     if (!roomForTwo(this.dimensions, false)) return;
     // 左右照页签条上的先后:靠前那枚不挪,另一枚挨过去(对话打头就还在打头、还在左边)。
     const otherFirst = this.tabOrder.indexOf(other) < this.tabOrder.indexOf(current);
-    this.pair = { anchor: current, side: other, sideAt: otherFirst ? 'left' : 'right', ratio: 0.5 };
+    this.pair = { anchor: current, side: other, sideAt: otherFirst ? 'left' : 'right', ratio: null };
     this._placeAdjacent(this.pair, otherFirst ? 'side' : 'anchor');
     this.splitDeclined = false;
   }
@@ -520,10 +523,30 @@ export class PaneStore<R extends TabRegistry = TabRegistry>
     return at === -1 ? undefined : (this.tabOrder[at - 1] ?? this.tabOrder[at + 1]);
   }
 
-  /** 拖中间那条分界:前一页(左 / 上)占几成(两边各守最窄 / 最矮由拖的那一侧按像素卡住)。 */
-  setPairRatio(ratio: number): void {
-    if (!this.pair || !Number.isFinite(ratio)) return;
-    this.pair = { ...this.pair, ratio: Math.min(0.9, Math.max(0.1, ratio)) };
+  /** 拖中间那条分界:前一页(左 / 上)占几成(两边各守最窄 / 最矮由拖的那一侧按像素卡住)。null = 回到页面自己声明的宽(双击分界)。 */
+  setPairRatio(ratio: number | null): void {
+    if (!this.pair || (ratio !== null && !Number.isFinite(ratio))) return;
+    this.pair = { ...this.pair, ratio: ratio === null ? null : Math.min(0.9, Math.max(0.1, ratio)) };
+  }
+
+  /**
+   * 前一页(左 / 上)此刻占几成:拖过 = 拖成的那样;没拖过 = 声明了宽的那页(sideWidth,另一页优先)照它的像素、至多一半,
+   * 都没声明 = 一半一半(两页对等)。
+   */
+  get pairShare(): number {
+    const pair = this.livePair;
+    if (!pair) return 0.5;
+    if (pair.ratio !== null) return pair.ratio;
+    const extent = isVerticalPairEdge(pair.sideAt) ? this.dimensions?.height : this.dimensions?.width;
+    const declared = [pair.side, pair.anchor].map((tabId) => ({ tabId, px: this._sideWidthOf(tabId) })).find((it) => it.px !== undefined);
+    if (!declared || !extent) return 0.5;
+    const share = Math.min(0.5, declared.px! / extent);
+    return declared.tabId === this.pairSlots!.first ? share : 1 - share;
+  }
+
+  private _sideWidthOf(tabId: string): number | undefined {
+    const entry = this.entries.get(tabId);
+    return entry && this.registry.has(entry.kind) ? this.registry.get(entry.kind).sideWidth?.(entry.state as never) : undefined;
   }
 
   /**
@@ -536,7 +559,7 @@ export class PaneStore<R extends TabRegistry = TabRegistry>
       // 页签条打头那枚(通常是对话)不挪走:它摆到前一格(左 / 上),钉住的那页挨到它后面,被顶下来的留在原处。
       const sideAt: PairEdge = isVerticalPairEdge(pair.sideAt) ? 'top' : 'left';
       const next = { ...pair, side: tabId, sideAt };
-      this.pair = { ...next, ratio: ratioKeepingWidths(pair, next) };
+      this.pair = { ...next, ratio: this._ratioForNewSide(pair, tabId) === null ? null : ratioKeepingWidths(pair, next) };
       this._placeAdjacent(this.pair, 'side');
     } else {
       const from = this.tabOrder.indexOf(tabId);
@@ -547,11 +570,19 @@ export class PaneStore<R extends TabRegistry = TabRegistry>
         order[from] = old;
         this.tabOrder = order;
       }
-      this.pair = { ...pair, side: tabId };
+      this.pair = { ...pair, side: tabId, ratio: this._ratioForNewSide(pair, tabId) };
       this._placeAdjacent(this.pair);
     }
     // 和人点 × 一样先问一句(有没存的东西会问):被否了就留成一枚普通页签,❌ 悄悄扔掉。
     if (closePreview && this.entries.get(old)?.isPreview) void this._requestClose(old, false);
+  }
+
+  /**
+   * 另一页换成 `tabId`:换进来的(或被顶下来的)那页声明了自己的宽,就照新的这页来,❌ 接着用上一页拖出来的比例;
+   * 两页都是对等的(都没声明)才留着拖过的比例。
+   */
+  private _ratioForNewSide(pair: TabPair, tabId: string): number | null {
+    return this._sideWidthOf(tabId) === undefined && this._sideWidthOf(pair.side) === undefined ? pair.ratio : null;
   }
 
   /** 一对在页签条上挨着,先后和屏上一样(左 / 上那页在前)。`keep` 那枚不动,另一枚挪到它旁边。 */
@@ -716,7 +747,7 @@ export class PaneStore<R extends TabRegistry = TabRegistry>
         ? {
             anchorTabId: pair.anchor,
             sideTabId: pair.side,
-            ratio: pair.ratio,
+            ...(pair.ratio === null ? {} : { share: pair.ratio }),
             // 只在不是默认那种(另一页在右)时记,旧存档读回来照旧是左右并排。
             ...(pair.sideAt === 'right' ? {} : { sideAt: pair.sideAt }),
           }
@@ -879,6 +910,17 @@ export class PaneStore<R extends TabRegistry = TabRegistry>
     return this.inSplitLayout && this.pairSplitBlocked(tabId, 'right') === null;
   }
 
+  tabFill(tabId: string): { full: boolean; toggle: () => void } | null {
+    const anchor = this._layoutSplitter?.pairAnchorTab?.() ?? null;
+    if (!anchor || tabId === anchor) return null;
+    const pair = this.livePair;
+    if (pair && this.pairShown && (tabId === pair.anchor || tabId === pair.side)) {
+      return { full: false, toggle: () => runInAction(() => { this.separatePair(); this._focus(tabId); }) };
+    }
+    if (!this.splitDeclined || this.resolvedActiveTabId !== tabId || !this._canPair(anchor, tabId) || !roomForTwo(this.dimensions, false)) return null;
+    return { full: true, toggle: () => runInAction(() => { this.splitDeclined = false; this.pairWith(anchor, tabId); this._focus(tabId); }) };
+  }
+
   tabWindowOpener(tabId: string): (() => void) | null {
     return this._layoutSplitter?.windowOpener?.(tabId) ?? null;
   }
@@ -1026,7 +1068,7 @@ export class PaneStore<R extends TabRegistry = TabRegistry>
       // 存下来的一对照原样回来;那枚页签这回没认出来(App 还没登记),livePair 不认它,登记上了又是一对。
       const pair = snapshot.pair;
       this.pair = pair
-        ? { anchor: pair.anchorTabId, side: pair.sideTabId, sideAt: pair.sideAt ?? 'right', ratio: pair.ratio ?? 0.5 }
+        ? { anchor: pair.anchorTabId, side: pair.sideTabId, sideAt: pair.sideAt ?? 'right', ratio: pair.share ?? null }
         : null;
       // 合成一条页签条的旧存档里,两格屏上那两页不一定挨着:读回来就让它们挨着(一对在页签条上始终连着)。
       if (this.pair) this._placeAdjacent(this.pair);

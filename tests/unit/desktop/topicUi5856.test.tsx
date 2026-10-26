@@ -31,6 +31,7 @@ const { TopicBreadcrumb } = await import('../../../apps/desktop/src/components/c
 const { TopicSplitPane } = await import('../../../apps/desktop/src/components/chat/TopicSplitPane')
 const { installedExtensionsStore } = await import('../../../apps/desktop/src/session/renderer/features/extensions/installed-extensions-store')
 const { EXTENSION_API_VERSION, parseExtensionManifest } = await import('../../../apps/desktop/src/session/shared/extensions/manifest')
+const { closeInfoTab, infoTabOf } = await import('../../../apps/desktop/src/session/renderer/features/chats/chat-tabs/chat-layouts')
 const { UI_EVENTS } = await import('../../../apps/desktop/src/lib/uiEvents')
 const { quotePrefixOf, canSourceTopic, maxTopicSplitWidthForAvailableWidth, TOPIC_SPLIT_MIN_WIDTH, TOPIC_SPLIT_MAX_WIDTH } = await import('../../../apps/desktop/src/components/chat/topicSplitModels')
 const { chatDisplayName } = await import('@gugu/core/shared/ui/chatModels')
@@ -301,20 +302,16 @@ describe('TopicSplitPane 是分栏，不是话题的开关', () => {
   }
 
   for (const layout of ['desktop', 'phone', 'tab'] as const) {
-    it(`${layout}: topic settings request the source conversation, not a separate topic settings page`, async () => {
-      const requests: unknown[] = []
-      const receive = (event: Event) => requests.push((event as CustomEvent).detail)
-      window.addEventListener(UI_EVENTS.openChatDetailsDrawer, receive)
-      try {
-        await renderWithAppProviders(harness, createNode(TopicSplitPane, { ...baseProps, mobile: layout === 'phone', embedded: layout === 'tab' }))
-        await clickElement(harness.container.querySelector<HTMLElement>('[data-testid="topic-split-more"]')!)
-        const settings = document.querySelector<HTMLElement>('[data-testid="group-menu-settings"]')
-        expect(settings, 'settings stay reachable from the real topic pane').not.toBeNull()
-        await clickElement(settings!)
-        expect(requests).toEqual([{ chatId: 'source-1', page: 'settings' }])
-      } finally {
-        window.removeEventListener(UI_EVENTS.openChatDetailsDrawer, receive)
-      }
+    it(`${layout}: topic settings open the source conversation's info tab, not a separate topic settings page`, async () => {
+      closeInfoTab('source-1')
+      await renderWithAppProviders(harness, createNode(TopicSplitPane, { ...baseProps, mobile: layout === 'phone', embedded: layout === 'tab' }))
+      await clickElement(harness.container.querySelector<HTMLElement>('[data-testid="topic-split-more"]')!)
+      const settings = document.querySelector<HTMLElement>('[data-testid="group-menu-settings"]')
+      expect(settings, 'the info stays reachable from the real topic pane').not.toBeNull()
+      expect(infoTabOf('source-1')).toBeNull()
+      await clickElement(settings!)
+      expect(infoTabOf('source-1')).not.toBeNull()
+      expect(infoTabOf('topic-1')).toBeNull()
     })
   }
 
@@ -725,7 +722,7 @@ describe('TopicSplitPane 是分栏，不是话题的开关', () => {
         await renderWithAppProviders(harness, createNode(TopicSplitPane, { ...baseProps, currentUserId: null, mobile }))
         await clickElement(harness.container.querySelector('[data-testid="topic-split-more"]') as HTMLElement)
         const rows = [...document.querySelectorAll<HTMLElement>('[role=menuitem]')].map((row) => row.querySelector('.gg-menu-item-label')?.textContent)
-        expect(rows).toEqual(mobile ? ['搜索消息', '附件', '设置', '海龟汤'] : ['搜索消息', '设置', '海龟汤'])
+        expect(rows).toEqual(mobile ? ['搜索消息', '附件', '会话信息', '海龟汤'] : ['搜索消息', '会话信息', '海龟汤'])
         await clickElement(document.querySelector('[data-testid="chat-header-menu-app"]') as HTMLElement)
         expect(asked).toHaveBeenCalledWith({ extensionId: 'turtle-soup', chatId: 'source-1' })
       } finally {
