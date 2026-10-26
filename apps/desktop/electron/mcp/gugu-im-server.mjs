@@ -1783,9 +1783,9 @@ async function handleConv(args, deps) {
 }
 
 // ── topic_ ── 话题:从一条已有消息长出来的独立工作线(product spec)。
-// 这一域只有「开 / 列」两个自己的动作 —— 话题**就是一条 chat**,所以收发消息、看历史、查成员都走
+// 话题的开、列、删走独立命令；收发消息、看历史、查成员都走
 // 既有的 message_* / topic_members,❌ 不为话题另造一套收发工具(造了就是第二条会漂移的路)。
-// 删除不在这一域里:spec「不能删话题。删是人的动作」。
+// 删除由数据库同时核验当前 agent 的来源群管理权和逐字确认名。
 async function handleTopic(args, deps) {
   if (args.action === 'open') {
     const sourceChatId = await requireChat(args, deps)
@@ -1857,6 +1857,18 @@ async function handleTopic(args, deps) {
       p_as_user_id: deps.context.agentId,
     })
     return Array.isArray(rows) ? rows : []
+  }
+  if (args.action === 'delete') {
+    const chatId = await assertIsTopic(args, deps, 'topic_delete')
+    const row = await deps.restRpc('archive_topic_as', {
+      p_chat_id: chatId,
+      p_as_user_id: deps.context.agentId,
+      p_confirm_name: args.confirm_name,
+    })
+    if (row?.chat_id !== chatId || row?.status !== 'archived') {
+      throw new Error('topic_delete: database did not confirm topic deletion')
+    }
+    return JSON.stringify(row)
   }
   throw new Error(`gugu_topic: unknown action ${args.action}`)
 }
@@ -2423,11 +2435,11 @@ export const TOOL_DEFS = [
     handler: (args, deps) => handleFile({ ...args, action: 'download-attachment' }, deps),
   },
   // ── topic_ ── 话题:从一条已有消息长出来的独立工作线。它本身就是一条 chat,所以收发/读历史仍走
-  // message_*;这一域只补「开」「列」「看成员」「拉人」四个动作。❌ 没有删除:删是人的动作(spec)。
+  // message_*；删除必须由来源群管理员带上当前名称，由数据库校验。
   {
     name: 'topic_open',
     writer: true,
-    description: 'Open a topic from a message. Only participants are notified. Use its chat_id for messages; files and Apps use the source chat. Only a person can delete it.',
+    description: 'Open a topic from a message. Only participants are notified. Use its chat_id for messages; files and Apps use the source chat. Deletion: topic_delete in the catalog requires source-group management authority and the exact current name.',
     schema: z.object({
       chat_id: chatIdSchema.describe('The source chat.'),
       source_message_id: z.string().trim().min(1).describe('A message of chat_id (msg:<uuid>).'),
@@ -2449,6 +2461,16 @@ export const TOOL_DEFS = [
       keep: (row, args) => args.participating === undefined || row.is_participant === args.participating,
     },
     handler: (args, deps) => handleTopic({ ...args, action: 'list' }, deps),
+  },
+  {
+    name: 'topic_delete',
+    writer: true,
+    description: 'Delete a topic for everyone. You must be an owner/admin of its source group and confirm_name must exactly match its current name, including case and whitespace. The database enforces both checks.',
+    schema: z.object({
+      chat_id: chatIdSchema.describe('The topic itself, from topic_list.'),
+      confirm_name: z.string().min(1).describe('The exact current topic name. Do not trim, normalize or change it.'),
+    }),
+    handler: (args, deps) => handleTopic({ ...args, action: 'delete' }, deps),
   },
   {
     name: 'topic_members',
