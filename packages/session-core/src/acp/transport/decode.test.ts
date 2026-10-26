@@ -7,6 +7,11 @@ import { decodeSessionUpdate, decodeV2SessionUpdate } from './decode';
 // The boundary retains canonical content and distinguishes absent fields from explicit null.
 const fixtures: { name: string; update: unknown; event: NormalizedEvent }[] = [
   {
+    name: 'a replayed v2 inserted message stays inside its native turn',
+    update: { sessionUpdate: 'user_message', messageId: 'inserted', content: [{ type: 'text', text: 'also print pwd' }], _meta: { guguSteering: true } },
+    event: { kind: 'message', role: 'user', messageId: 'inserted', text: 'also print pwd', contentMode: 'replace', content: [{ type: 'text', text: 'also print pwd' }], steering: true, _meta: { guguSteering: true } },
+  },
+  {
     name: 'user message without a native id retains its revert anchor',
     update: { sessionUpdate: 'user_message_chunk', content: { type: 'text', text: 'edit this' }, _meta: { guguRevertAnchor: 'anchor' } },
     event: { kind: 'message', role: 'user', messageId: null, text: 'edit this', content: [{ type: 'text', text: 'edit this' }], contentMode: 'append', revertAnchor: 'anchor' },

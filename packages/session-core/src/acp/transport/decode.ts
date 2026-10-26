@@ -506,6 +506,7 @@ function decodeEntityContentUpdate(update: SessionUpdate): NormalizedEvent | nul
       kind: raw.sessionUpdate === 'agent_thought' ? 'thinking' : 'message',
       ...(raw.sessionUpdate === 'agent_thought' ? {} : { role: raw.sessionUpdate === 'user_message' ? 'user' : 'assistant' }),
       messageId: raw.messageId, text: messageContentText(content ?? []), contentMode: 'replace',
+      ...(raw.sessionUpdate === 'user_message' && raw._meta?.guguSteering === true ? { steering: true } : {}),
       ...(typeof raw._meta?.guguRevertAnchor === 'string' ? { revertAnchor: raw._meta.guguRevertAnchor } : {}),
       ...(content !== undefined ? { content } : {}),
       ...(raw._meta !== undefined ? { _meta: raw._meta } : {}),
