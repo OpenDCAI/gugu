@@ -170,6 +170,7 @@ export default {
   },
   "devices": {
     "phoneActions": {
+      "notificationsAndDnd": "通知与勿扰",
       "readFailed": "读取系统权限失败",
       "statusUnknown": "未读取",
       "localAgentOnly": "仅这台手机上的任务 Agent 可使用。",

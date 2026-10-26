@@ -89,8 +89,9 @@ export function PhonePermissionsList({ ownerId }: { ownerId: string }) {
   return <SettingsGroup title="本机任务权限" presentation="navigation" data-testid="phone-permissions-list" footer={feedback ? <SettingsNote role="alert" tone="danger">{feedback}</SettingsNote> : undefined}>
     {PHONE_ACTION_GROUPS.map(group => {
       const state = groupStatus(group)
-      return <SettingsRow key={group} title={t(`devices.deviceActions.group.${group}`)} data-testid={`phone-device-group-${group}`}
-        aria-label={`${t(`devices.deviceActions.group.${group}`)}，${state}`} aria-disabled={busy !== null || (!!os && unsupported(group, os))}
+      const title = group === 'notifications' ? t('devices.phoneActions.notificationsAndDnd') : t(`devices.deviceActions.group.${group}`)
+      return <SettingsRow key={group} title={title} data-testid={`phone-device-group-${group}`}
+        aria-label={`${title}，${state}`} aria-disabled={busy !== null || (!!os && unsupported(group, os))}
         control={<><span className="gg-settings-row-value">{state}</span><ChevronRight className="size-4" aria-hidden="true" /></>}
         onClick={() => {
           if (busy || (os && unsupported(group, os))) return
