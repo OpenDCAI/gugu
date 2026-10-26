@@ -15,6 +15,7 @@ import { beforeAll, describe, expect, test, vi } from 'vitest'
 const entry = {
   id: 'plan', chat: 'chat-1', name: 'plan.md', displayName: 'plan', contentType: 'text/markdown', type: 'text', size: 9,
   createdAt: '2026-10-25T01:00:00Z', updatedAt: null, createdBy: { id: 'u1', name: 'A', kind: 'human' }, sourceMessageIds: [],
+  detailsPending: true,
 }
 const changes = new Set<(event: { local: boolean; entry?: true }) => void>()
 const changed = (event: { local: boolean; entry?: true }) => { for (const fn of changes) fn(event) }
@@ -36,18 +37,20 @@ const file = {
 }
 
 const md = { render: vi.fn((_element: Element, _text: string, _options: unknown) => {}) }
-const context = { chat: { id: 'chat-1', name: 'G', kind: 'group', groupId: 'chat-1' }, file: { chat: 'chat-1', id: 'plan' }, locale: 'en', capabilities: ['files:read'] }
+const context = { chat: { id: 'chat-1', name: 'G', kind: 'group', groupId: 'chat-1' }, file: { chat: 'chat-1', id: 'plan' }, locale: 'en', capabilities: ['files:read', 'files:write'] }
+let contextChanged = (_ctx: typeof context) => {}
 const gugu = {
   linkTo: vi.fn(async ({ file }: { file: { id: string } }) => `gugu-file://${file.id}`),
   setTabTitle: vi.fn(async () => {}),
   getContext: vi.fn(async () => context),
-  onContextChanged: vi.fn((handler: (ctx: typeof context) => void) => { handler(context); return () => {} }),
+  onContextChanged: vi.fn((handler: typeof contextChanged) => { contextChanged = handler; handler(context); return () => {} }),
   codemirror: vi.fn(async () => ({ EditorView, basicSetup, markdown, markdownLanguage, view: cmView, state: cmState })),
   onLink: vi.fn(() => () => {}),
   markdown: vi.fn(async () => md),
   bind: { codemirror: vi.fn(() => () => {}) },
   files: {
-    list: vi.fn(() => new Promise(() => {})),
+    list: vi.fn(async () => [entry]),
+    rename: vi.fn(async (_entry: typeof entry, _name: string) => {}),
     onChanged: vi.fn(() => () => {}),
     open: vi.fn(async () => { await Promise.resolve(); return file }),
   },
@@ -82,10 +85,32 @@ describe('workspace App: the preview is gugu.markdown()', () => {
 
   test('entry decorations update the information line without re-rendering the preview', () => {
     md.render.mockClear()
-    file.entry = { ...entry, createdBy: { ...entry.createdBy, name: 'Hydrated creator' } }
+    file.entry = { ...entry, detailsPending: false, createdBy: { ...entry.createdBy, name: 'Hydrated creator' } }
     changed({ local: false, entry: true })
     expect(document.getElementById('doc-info')!.textContent).toContain('Hydrated creator')
     expect(md.render).not.toHaveBeenCalled()
+  })
+
+  test('decoration arriving after a rename cannot replace the newer entry', async () => {
+    const pending = { ...entry, id: 'renamed-file' }
+    file.entry = pending
+    contextChanged({ ...context, file: { chat: 'chat-1', id: pending.id } })
+    await vi.waitFor(() => expect(gugu.files.open).toHaveBeenCalledTimes(2))
+    await vi.waitFor(() => expect(document.getElementById('doc-info')!.hidden).toBe(true))
+    const renamed = { ...pending, name: 'renamed.md', detailsPending: false, createdBy: { ...entry.createdBy, name: 'Current creator' } }
+    gugu.files.list.mockResolvedValueOnce([renamed])
+    document.getElementById('more')!.click()
+    const rename = [...document.querySelectorAll<HTMLButtonElement>('#menu button')].find((button) => button.textContent === 'Rename')!
+    rename.click()
+    const input = document.querySelector<HTMLInputElement>('#doc-title .rename-input')!
+    input.value = renamed.name
+    input.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter' }))
+    await vi.waitFor(() => expect(document.getElementById('doc-title')!.textContent).toBe(renamed.name))
+    expect(gugu.files.rename).toHaveBeenLastCalledWith(pending, renamed.name)
+    file.entry = { ...pending, detailsPending: false, createdBy: { ...entry.createdBy, name: 'Stale creator' } }
+    changed({ local: false, entry: true })
+    expect(document.getElementById('doc-info')!.textContent).toContain('Current creator')
+    expect(document.getElementById('doc-info')!.textContent).not.toContain('Stale creator')
   })
 
   test('rendered again when the file changes (debounced), with what it says now', async () => {

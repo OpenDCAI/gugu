@@ -1245,7 +1245,7 @@ function mountJson(current) {
 function watchStatus(current) {
   const { file } = current
   current.offs.push(file.onChange((event) => {
-    if (!event.entry || state.current !== current) return
+    if (!event.entry || state.current !== current || !current.entry.detailsPending) return
     current.entry = file.entry
     state.shown = current.entry
     renderDocInfo(current.entry)
