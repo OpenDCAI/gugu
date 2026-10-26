@@ -19,7 +19,7 @@ import './phone-device.css'
 const log = rendererLogger('mobile/phone-capabilities')
 
 /** The settings page and installation guide share both permission actions and their real OS state. */
-export function PhoneCapabilityGroups({ ownerId, context = 'settings' }: { ownerId: string; context?: 'settings' | 'setup' }) {
+export function PhoneCapabilityGroups({ ownerId, context = 'settings', presentation = 'sheet' }: { ownerId: string; context?: 'settings' | 'setup'; presentation?: 'sheet' | 'inline' }) {
   const { t } = useTranslation('settings')
   const settings = usePhoneDeviceSettings(ownerId)
   const reportChoice = usePhonePermissionReporter(ownerId)
@@ -76,11 +76,12 @@ export function PhoneCapabilityGroups({ ownerId, context = 'settings' }: { owner
 
   return (
     <div className="gg-phone-capabilities">
-      <SettingsGroup title="手机能力" note="按需连接，你自己的 Agent 才能使用。随时可以关闭。">
+      <SettingsGroup title="手机能力" note={presentation === 'inline' ? '仅连接你要用的能力，系统会逐项询问。' : '按需连接，你自己的 Agent 才能使用。随时可以关闭。'}>
         {PHONE_ACTION_GROUPS.map((group) => (
           <PhoneCapabilityRow
             key={group}
             group={group}
+            presentation={presentation}
             connected={settings.enabled && settings.groups[group]}
             os={os}
             readState={readState}

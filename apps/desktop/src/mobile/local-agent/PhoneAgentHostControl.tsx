@@ -7,7 +7,7 @@ import { phoneAgentAvailable } from './nativeAgent'
 import '../phone-device/phone-device.css'
 
 /** Hosting is a device setting; Agent creation and conversations stay in their existing flows. */
-export function PhoneAgentHostControl({ ownerId, setup }: { ownerId: string; setup?: { onContinue: () => void; continueLabel: string } }) {
+export function PhoneAgentHostControl({ ownerId, setup }: { ownerId: string; setup?: boolean }) {
   const phone = usePhoneDevice()
   const settings = usePhoneDeviceSettings(ownerId)
   const [changing, setChanging] = useState<'stop' | 'restart' | null>(null)
@@ -45,13 +45,19 @@ export function PhoneAgentHostControl({ ownerId, setup }: { ownerId: string; set
   if (!phoneAgentAvailable()) return null
 
   if (setup) return (
-    <div className="gg-phone-setup-action">
-      <Button variant="primary" disabled={!!changing} data-testid="phone-setup-enable-host" onClick={() => {
-        if (failed) void changeHost('restart')
-        else if (settings.hostEnabled) setup.onContinue()
-        else { setError(null); setPhoneAgentHostEnabled(ownerId, true) }
-      }}>{changing ? '正在重新连接' : failed ? '重新连接手机 Agent' : settings.hostEnabled ? setup.continueLabel : '启用手机 Agent'}</Button>
-      {settings.hostEnabled && !ready && !hostError && !error && <SettingsNote role="status">{statusText}</SettingsNote>}
+    <div className="gg-phone-setup-field" data-state={ready ? 'granted' : undefined}>
+      <div className="gg-phone-setup-field-main">
+        <div className="gg-phone-setup-field-copy">
+          <span className="gg-phone-setup-field-title">手机 Agent</span>
+          <span className="gg-phone-setup-field-purpose">在这台手机上处理任务</span>
+          {settings.hostEnabled && <span className="gg-phone-host-status" role="status">{statusText}</span>}
+        </div>
+        <Button size="sm" disabled={!!changing} data-testid="phone-setup-enable-host" onClick={() => {
+          if (failed) void changeHost('restart')
+          else if (settings.hostEnabled) void changeHost('stop')
+          else { setError(null); setPhoneAgentHostEnabled(ownerId, true) }
+        }}>{changing ? '正在设置' : failed ? '重新连接' : settings.hostEnabled ? '停止运行' : '启用 Agent'}</Button>
+      </div>
       {(error || hostError) && <SettingsNote tone="danger" role="alert">{error ?? hostError}</SettingsNote>}
     </div>
   )

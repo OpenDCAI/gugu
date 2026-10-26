@@ -87,8 +87,6 @@ export function PhoneAgentSetupGate({ ownerId, children }: { ownerId: string; ch
             <PhoneAgentSetup
               key={`${ownerId}:${currentSetup.installId}`}
               ownerId={ownerId}
-              initialStep={currentSetup.progress.completed ? 'host' : currentSetup.progress.step}
-              onStep={(step) => save({ step, dismissed: false, completed: false })}
               onFinish={() => { if (save({ step: 'tools', dismissed: true, completed: true })) setVisible(false) }}
               onLater={dismiss}
               saveError={error}
