@@ -1,4 +1,4 @@
-import { panelIntegrationChecks } from './assistant-panel-integration-checks'
+import { integrationAccountSignature,panelIntegrationChecks } from './assistant-panel-integration-checks'
 import { eq } from 'drizzle-orm'
 import { db } from '@main/db/client'
 import { workspaces as workspaceTable } from '@main/db/schema'
@@ -43,22 +43,23 @@ export const assistantPanelLocal = {
     const volume = await readUserLibraryVolume(kind)
     return Promise.all(volume.items.map(item => readUserLibraryEntry(kind,item.id)))
   },
-  async integrations(ownerId: string) {
+  async integrations(ownerId: string,onVerified?: () => void) {
     return (await Promise.all(integrationPluginRegistry.getAll().map(async plugin => {
       const providerId = plugin.metadata.id
       const accounts = await providerAccountRegistry.listAccounts(providerId)
-      const verified = accounts.length ? await panelIntegrationChecks(providerId,JSON.stringify(accounts.map(account => [account.accountId,account.updatedAt])),ownerId) : null
-      return accounts.map(account => ({
-        checkResult: verified?.checks.find(check => check.accountId === account.accountId)?.connected ? 'ok'
-          : verified?.checks.find(check => check.accountId === account.accountId)?.errorType === 'authorization_expired' ? 'reauth' : 'failed',
-        checkedAt: verified?.checkedAt ?? Date.now(),
-        providerId,accountId: account.accountId,configured: true,isDefault: account.isDefault,
-        displayName: account.meta?.displayName ?? account.meta?.login ?? account.accountId,
-        publicMetadata: { version: 1,providerId,accountId: account.accountId,isDefault: account.isDefault,
-          connectedAt: account.createdAt,updatedAt: account.updatedAt,host: account.meta?.host,login: account.meta?.login,
-          avatarUrl: account.meta?.avatarUrl,credentialSource: account.meta?.credentialSource,displayName: account.meta?.displayName,
-        },
-      }))
+      const verified = panelIntegrationChecks(providerId,integrationAccountSignature(accounts),ownerId,onVerified)
+      return accounts.map(account => {
+        const check = verified && verified.checkedAt >= account.updatedAt ? verified.checks.find(check => check.accountId === account.accountId) : undefined
+        return {
+          ...(check ? { checkResult: check.connected ? 'ok' : check.errorType === 'authorization_expired' ? 'reauth' : 'failed',checkedAt: verified!.checkedAt } : {}),
+          providerId,accountId: account.accountId,configured: true,isDefault: account.isDefault,
+          displayName: account.meta?.displayName ?? account.meta?.login ?? account.accountId,
+          publicMetadata: { version: 1,providerId,accountId: account.accountId,isDefault: account.isDefault,
+            connectedAt: account.createdAt,updatedAt: account.updatedAt,host: account.meta?.host,login: account.meta?.login,
+            avatarUrl: account.meta?.avatarUrl,credentialSource: account.meta?.credentialSource,displayName: account.meta?.displayName,
+          },
+        }
+      })
     }))).flat()
   },
   integrationCatalog() {
