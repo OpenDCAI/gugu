@@ -984,7 +984,8 @@ export const extensionsController = createRPCController({
   uninstall: async (args: { extensionId: string }) => {
     try {
       extensionsService().uninstall(args.extensionId);
-      // Publish the removed capability before asynchronous storage cleanup can yield to a heartbeat.
+      // F87: open group pages list again with the removed App's file claims withdrawn; device capability follows too,
+      // before asynchronous storage cleanup can yield to a heartbeat.
       void notifyInstalledAppsChanged();
       // Its tabs may still be open. Unbound in the same tick as the delete, so no callback of theirs
       // runs against an extension that is gone — and app_check's kept pages of it go.
