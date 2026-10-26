@@ -1,5 +1,5 @@
 import {AssistantWorkTaskRead} from '@/components/assistant/AssistantWorkTaskRead';
-import {useAuth} from '@/store/auth';
+import {useAssistantWorkOwnerId} from '@/lib/assistantWorkReadBridge';
 import { messageForUser } from '@/lib/userFacingError';
 import { formatSessionTitleForDisplay } from '@shared/core/sessions/session-title-utils';
 import { rendererLogger } from '@/lib/log';
@@ -92,8 +92,8 @@ const TaskLists = observer(function TaskLists({ context }: AssistantPageProps) {
 const SubAgents = observer(function SubAgents({ context }: AssistantPageProps) {
   const devices = useDirectoryDevices();
   const { t } = useTranslation('assistant');
-  const {user}=useAuth();
-  const read=useAssistantWorkTasks(user?.id,context.assistant.id);
+  const ownerId=useAssistantWorkOwnerId();
+  const read=useAssistantWorkTasks(ownerId,context.assistant.id);
   return <AssistantWorkTaskRead read={read} failedTitle={t('tasks.loadFailed')}>{children=>children.length === 0 ? <AssistantSection bare><AssistantEmpty title={t('tasks.emptyTitle')}
       action={<button type="button" className="ta-pill-btn" onClick={() => context.askInChat(t('tasks.createPrompt'))}>{t('tasks.create')}</button>} /></AssistantSection>
       : groupByDay(children,item => item.lastInteractedAt,new Date()).map(group => <AssistantSection key={group.bucket} title={t(`tasks.day.${group.bucket}`)} testId={`assistant-tasks-${group.bucket}`}>

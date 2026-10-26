@@ -1,3 +1,4 @@
+import {installAssistantWorkShell} from './lib/assistantWorkShell'
 import { useCallback, useEffect, useState, useSyncExternalStore } from 'react'
 import { LoginPage } from './pages/LoginPage'
 import { MainLayout } from './layouts/MainLayout'
@@ -76,6 +77,8 @@ function AuthenticatedProduct({ user }: { user: AuthUser }) {
 }
 
 export default function App() {
+  useEffect(()=>installAssistantWorkShell(),[])
+
   const session = useSyncExternalStore(
     sessionCoordinator.subscribe,
     sessionCoordinator.getSnapshot,

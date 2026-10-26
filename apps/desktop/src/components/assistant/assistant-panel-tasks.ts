@@ -1,7 +1,7 @@
 import { useEffect,useState } from 'react'
 import type { AssistantWorkTask } from '@gugu/core/cloud/assistantWork'
 import { assistantWorkCloud,watchAssistantWork } from '../../lib/assistantWork'
-import { getAgentPresenceSnapshot,subscribeAgentPresence } from '../../lib/agentPresenceStore'
+import {assistantWorkPresence as getAgentPresenceSnapshot,subscribeAssistantWorkPresence as subscribeAgentPresence} from '../../lib/assistantWorkReadBridge'
 import { OPEN_ASSISTANT_TASK_CHAT,type AssistantTaskChat } from '../../lib/assistantTaskChat'
 import { assistantWorkTasks,assistantWorkStatus } from './assistant-work-projection'
 import { rendererLogger } from '../../lib/log'
