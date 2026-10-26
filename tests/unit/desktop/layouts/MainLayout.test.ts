@@ -11,7 +11,7 @@ import { ToastContext } from '../../../../apps/desktop/src/components/toastConte
 import { clickElement, createNode, createReactHarness } from '../../../support/testHarness'
 import type { SessionpageMessageHost } from '../../../../apps/desktop/src/session/shared/sessionpage-message-host'
 import { chatOnScreen } from '../../../../apps/desktop/src/lib/onScreenChat'
-import { groupSlotMemory } from '../../../../apps/desktop/src/components/appSlot/groupSlotMemory'
+import { takeChatAsk } from '../../../../apps/desktop/src/session/renderer/features/chats/chat-tabs/chat-layouts'
 import { drainTopicSplitRequest } from '../../../../apps/desktop/src/lib/topicSplitRequest'
 import { APP_OPEN_WITH_EVENT, APP_OPEN_IN_CHAT_EVENT, APP_COMPOSE_EVENT } from '../../../../apps/desktop/src/session/shared/extensions/app-runtime-protocol'
 import { rememberAssistantTaskChat } from '../../../../apps/desktop/src/lib/assistantTaskChat'
@@ -935,8 +935,8 @@ describe('MainLayout: files.openWith', () => {
     if (blocks) expect(sessionPageViewRequests.openChat).toHaveBeenCalledWith('source', false)
     else expect(chatStoreMock.setActiveChatId).toHaveBeenCalledWith('source')
     expect(drainTopicSplitRequest('source')).toBeNull()
-    expect(groupSlotMemory.take('source')).toEqual({ itemId: 'F1', restore })
-    expect(groupSlotMemory.take('topic-file')).toBeNull()
+    expect(takeChatAsk('source')).toEqual({ itemId: 'F1', restore })
+    expect(takeChatAsk('topic-file')).toBeNull()
   })
 
   it('the file\'s chat comes up and its panel is asked for the file, with the host\'s answer', async () => {
@@ -945,7 +945,7 @@ describe('MainLayout: files.openWith', () => {
     await act(async () => { window.dispatchEvent(new CustomEvent(APP_OPEN_WITH_EVENT, { detail })) })
     // 桌面上对话是会话页这屏的一块:请会话页把它摆出来。
     expect(sessionPageViewRequests.openChat).toHaveBeenCalledWith('g-open', false)
-    expect(groupSlotMemory.take('g-open'), 'a page asked: what it opens has that page as its 上一页').toEqual({ itemId: 'F1', opener: detail, fromPage: true })
+    expect(takeChatAsk('g-open'), 'a page asked: what it opens has that page as its 上一页').toEqual({ itemId: 'F1', opener: detail, fromPage: true })
   })
 
   it('a message file request keeps its originating message for the native preview actions', async () => {
@@ -955,7 +955,7 @@ describe('MainLayout: files.openWith', () => {
     const restore = vi.fn()
     fileOwner.mockResolvedValue({ data: { chat_id: 'g-open' }, error: null })
     await act(async () => { await openLinkTarget({ kind: 'file', itemId: 'F1' }, { message: message as never, restore }) })
-    expect(groupSlotMemory.take('g-open')).toEqual({ itemId: 'F1', message, restore })
+    expect(takeChatAsk('g-open')).toEqual({ itemId: 'F1', message, restore })
   })
 
   it('a chat the person is not in: said, and nothing asked of any panel', async () => {
@@ -965,7 +965,7 @@ describe('MainLayout: files.openWith', () => {
     expect(toast).toHaveBeenCalledTimes(1)
     expect(chatStoreMock.setActiveChatId).not.toHaveBeenCalled()
     expect(sessionPageViewRequests.openChat).not.toHaveBeenCalled()
-    expect(groupSlotMemory.take('g-open')).toBeNull()
+    expect(takeChatAsk('g-open')).toBeNull()
   })
 })
 
@@ -996,7 +996,7 @@ describe('MainLayout: personal assistant destinations', () => {
       })
       expect(navigate).toHaveBeenCalledWith('assistant')
       expect(chatStoreMock.setActiveChatId).not.toHaveBeenCalled()
-      if ('itemId' in detail) expect((groupSlotMemory.take('personal-dm') as { itemId?: string } | null)?.itemId).toBe('personal-file')
+      if ('itemId' in detail) expect((takeChatAsk('personal-dm') as { itemId?: string } | null)?.itemId).toBe('personal-file')
       if ('text' in detail) expect(chatStoreMock.setDraft).toHaveBeenCalledWith('personal-dm', expect.any(Function))
     } finally { navigate.mockRestore() }
   })
@@ -1012,7 +1012,7 @@ describe('MainLayout: personal assistant destinations', () => {
     await act(async () => { await openLinkTarget({ kind: 'file', itemId: 'phone-file' }) })
     expect(harness.container.querySelector('[data-mobile-tab-page="assistant"]')?.hasAttribute('inert')).toBe(false)
     expect(harness.container.querySelector('nav')).not.toBeNull()
-    expect((groupSlotMemory.take('personal-dm') as { itemId?: string } | null)?.itemId).toBe('phone-file')
+    expect((takeChatAsk('personal-dm') as { itemId?: string } | null)?.itemId).toBe('phone-file')
   })
 })
 
@@ -1051,8 +1051,8 @@ describe('MainLayout: an App requested from a topic uses the shared source slot'
     })
     expect(resourceChat).toHaveBeenLastCalledWith('layout-token', 'topic-app', 'user-1')
     expect(sessionPageViewRequests.openChat).toHaveBeenCalledWith('source-app', false)
-    expect(groupSlotMemory.take('source-app')).toEqual({ app: 'board' })
-    expect(groupSlotMemory.take('topic-app')).toBeNull()
+    expect(takeChatAsk('source-app')).toEqual({ app: 'board' })
+    expect(takeChatAsk('topic-app')).toBeNull()
     expect(drainTopicSplitRequest('source-app')).toBeNull()
   })
 })

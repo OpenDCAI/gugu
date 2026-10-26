@@ -1,12 +1,10 @@
 // @vitest-environment jsdom
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import { act, createElement } from 'react'
+import { act } from 'react'
 import { createReactHarness } from '../../../support/testHarness'
 import { until } from '../../../support/awaitCondition'
-import { GroupAppSlot } from '../../../../apps/desktop/src/components/appSlot/GroupAppSlot'
-import { groupSlotMemory } from '../../../../apps/desktop/src/components/appSlot/groupSlotMemory'
 import { installedExtensionsStore, type InstalledExtensionsList } from '../../../../apps/desktop/src/session/renderer/features/extensions/installed-extensions-store'
-import { AuthContext } from '../../../../apps/desktop/src/store/auth'
+import { ask, chatTabs, shownItem } from './chatTabsHarness'
 
 /**
  * #7257 (review 5): the panel offers the App for a JSON file open in Workspace (F, deck.deck.json); 「安装」 is pressed, and while it
@@ -82,21 +80,20 @@ afterEach(() => {
 /** A task boundary: every microtask the answer let go has run (not a wall-clock wait). */
 const settled = () => new Promise<void>((done) => setTimeout(done, 0))
 const offer = () => harness.container.querySelector<HTMLElement>('[data-testid="group-app-slot-offer"]')
-const on = (chatId: string) => groupSlotMemory.opened(chatId)?.itemId ?? null
-const panel = (chatId: string, itemId: string, request: number) =>
-  harness.render(
-    createElement(AuthContext.Provider, { value: { user: { id: 'user-1' } } as never },
-      createElement(GroupAppSlot, { chatId, onClose: vi.fn(), asked: { chatId, itemId, request } })),
-  )
+const on = (chatId: string) => shownItem(chatId)?.itemId ?? null
+async function panel(chatId: string, itemId: string) {
+  await harness.render(chatTabs({ chatId }))
+  ask(chatId, { itemId })
+}
 /** F asked for, the panel offers Slides for it, 「安装」 pressed: the install on its way. */
-async function offeredAndPressed(chatId: string, request: number) {
-  await panel(chatId, 'item-f', request)
+async function offeredAndPressed(chatId: string) {
+  await panel(chatId, 'item-f')
   await until('the panel offers Slides for F', () => offer() !== null)
   await act(async () => harness.container.querySelector<HTMLButtonElement>('[data-testid="group-app-slot-offer-install"]')!.click())
   await until('the install is on its way', () => gates.has('install'))
 }
-async function clickG(chatId: string, request: number) {
-  await panel(chatId, 'item-g', request)
+async function clickG(chatId: string) {
+  await panel(chatId, 'item-g')
   await until('G is asked of the host', () => gates.has('G'))
 }
 const letGo = (name: string) =>
@@ -107,8 +104,8 @@ const letGo = (name: string) =>
 
 describe('an App installed for a file, and another pill clicked while it installs: the later ask wins (#7257)', () => {
   it('G answered, then the install done: G stays — F does not take the panel back', async () => {
-    await offeredAndPressed('offer-1', 7_257_101)
-    await clickG('offer-1', 7_257_102)
+    await offeredAndPressed('offer-1')
+    await clickG('offer-1')
     await letGo('G')
     expect(on('offer-1')).toBe('item-g')
     await letGo('install')
@@ -117,19 +114,19 @@ describe('an App installed for a file, and another pill clicked while it install
   }, 60_000)
 
   it('the install done, then G answered: G — the install does not open F over the later ask', async () => {
-    await offeredAndPressed('offer-2', 7_257_111)
-    await clickG('offer-2', 7_257_112)
+    await offeredAndPressed('offer-2')
+    await clickG('offer-2')
     await letGo('install')
     await settled()
-    expect(groupSlotMemory.opened('offer-2'), 'F stays in Workspace until G answers; installing does not take over the later ask').toMatchObject({ itemId: 'item-f', kind: 'workspace.main' })
+    expect(on('offer-2'), 'F stays on screen until G answers; installing does not take over the later ask').toBe('item-f')
     await letGo('G')
     expect(on('offer-2'), '对照:524a00eb92 装完才取序号，停在 F,G 被丢').toBe('item-g')
   }, 60_000)
 
   it('control: nothing asked while it installs — F opens in the App just installed', async () => {
-    await offeredAndPressed('offer-3', 7_257_121)
+    await offeredAndPressed('offer-3')
     await letGo('install')
-    await until('F opened in Slides', () => groupSlotMemory.opened('offer-3')?.kind === 'slides.main')
+    await until('F opened in Slides', () => shownItem('offer-3')?.kind === 'slides.main')
     expect(on('offer-3')).toBe('item-f')
   }, 60_000)
 })

@@ -3,6 +3,7 @@ import { composerSlotClass, composerSlotInnerClass } from '@gugu/session-chat-ui
 
 /** 底部那一摞的实测高度,挂在它所在的那一栏上;消息流末尾(MessageList)和空态占位都按它让位。 */
 const CHAT_DOCK_HEIGHT_VAR = '--chat-dock-h'
+const CHAT_DOCK_AVATAR_HEIGHT_VAR = '--chat-dock-avatar-h'
 
 /**
  * The desktop composer uses the same slot frame as ACP tasks.
@@ -17,15 +18,30 @@ const CHAT_DOCK_HEIGHT_VAR = '--chat-dock-h'
  */
 export function ChatBottomDock({ floating, reserve, above, children }: { floating: boolean; reserve: boolean; above?: ReactNode; children: ReactNode }) {
   const ref = useRef<HTMLDivElement | null>(null)
+  const hasAbove = Boolean(above)
   useLayoutEffect(() => {
     const el = ref.current, column = el?.parentElement
     if (!floating || !el || !column) return
-    const report = () => column.style.setProperty(CHAT_DOCK_HEIGHT_VAR, `${el.offsetHeight}px`)
+    // The reserved running row stays stable even when empty. Avatars avoid only
+    // the cards that are actually present, using this same height observation.
+    const input = el.lastElementChild as HTMLElement
+    const preview = hasAbove ? el.querySelector<HTMLElement>('[data-running-bar-content]') : null
+    const report = () => {
+      let top = input.offsetTop
+      for (const pill of el.querySelectorAll<HTMLElement>('[data-chat-dock-obstacle]')) {
+        let offset = 0
+        for (let node: HTMLElement | null = pill; node && node !== el; node = node.offsetParent as HTMLElement | null) offset += node.offsetTop
+        top = Math.min(top, offset)
+      }
+      column.style.setProperty(CHAT_DOCK_HEIGHT_VAR, `${el.offsetHeight}px`)
+      column.style.setProperty(CHAT_DOCK_AVATAR_HEIGHT_VAR, `${el.offsetHeight - top}px`)
+    }
     report()
     const observer = new ResizeObserver(report)
     observer.observe(el)
-    return () => { observer.disconnect(); column.style.removeProperty(CHAT_DOCK_HEIGHT_VAR) }
-  }, [floating])
+    if (preview) observer.observe(preview)
+    return () => { observer.disconnect(); column.style.removeProperty(CHAT_DOCK_HEIGHT_VAR); column.style.removeProperty(CHAT_DOCK_AVATAR_HEIGHT_VAR) }
+  }, [floating, hasAbove])
   if (!floating) return <>{above}{children}</>
   return (
     <>

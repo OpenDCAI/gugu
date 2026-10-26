@@ -6,7 +6,7 @@
 // 分栏里的那条话题**是一条真的 chat**,所以它有自己的一条「线」(useChatConversation:消息窗口 + 已读水位),
 // 与老 thread 面板的根本差别就在这:老面板是同一个 chat 里的一段过滤视图,新分栏是另一条线。
 // 线的实时与主区 activeChat 走同一份 subscribeChatLineRevisions(#6470),❌ 在这里另听线级事件。
-import { useCallback, useRef, useState } from 'react'
+import { useCallback, useRef } from 'react'
 import type { ChatItem, MessageItem, TopicSummary } from '@gugu/core/shared/types/chat'
 import type { AccountRevisionEvent, AccountRevisionListener } from '@/lib/accountRevisionCoordinator'
 import { topicService } from '@/lib/topics'
@@ -15,6 +15,8 @@ import { topicsSourceChatId, useTopicsOfChat } from './useTopics'
 import { useChatConversation, type ChatConversation } from '@/store/useChatConversation'
 import { rendererLogger } from '@/lib/log'
 import { topicNameFromMessage } from '@/components/chat/topicAnchorModels'
+import { useTabsReading } from '@/components/appSlot/useTabsReading'
+import { closeTopicTab, focusedChatTab, hideTopicTab, openTopicTab, topicTabOf } from '@/session/renderer/features/chats/chat-tabs/chat-layouts'
 
 const topicSurfaceLog = rendererLogger('chat/topic-surface')
 
@@ -33,6 +35,11 @@ type UseTopicSurfaceArgs = {
    */
   onCreateFailed: (error: unknown) => void
   subscribeAccountRevision: (event: AccountRevisionEvent, listener: AccountRevisionListener) => () => void
+  /**
+   * The chat is drawn in a block, whose strip has the topic as a tab beside the group's (on screen when either half of
+   * the pair is it); else (the phone) the topic is up only while it is the page in front.
+   */
+  embedded: boolean
 }
 
 /** 事件载荷里的 chat_id —— 形状坏了就当没这条,❌ 不因为一条脏事件把整个订阅拆了。 */
@@ -77,6 +84,7 @@ export function useTopicSurface({
   closeRightSurfaces,
   subscribeAccountRevision,
   onCreateFailed,
+  embedded,
 }: UseTopicSurfaceArgs): TopicSurface {
   const { conversations } = useChatStore('conversations')
   const chatId = chat?.id ?? null
@@ -96,13 +104,15 @@ export function useTopicSurface({
     topicsSourceChatId(chat),
     subscribeChatChanged,
   )
-  // @@@3922 分栏也是「关于某条线」的读数:它贴着来源线开,来源线一换它就不该再显示。
-  // 状态与它所属的来源线存在一起(subject-scoped),渲染期收口 —— 靠副作用清空永远慢一帧,
-  // 那一帧里 A 线的分栏会挂在 B 线的旁边。
-  const [splitState, setSplitState] = useState<{ forChatId: string | null; topic: OpenTopic | null }>(
-    { forChatId: null, topic: null },
-  )
-  const splitTopic = splitState.forChatId === chatId ? splitState.topic : null
+  // 分栏是这条线页签条上的一枚(chat-tabs/chat-layouts):开着哪条话题、在不在屏上都由那里说,按来源线各记各的
+  // (@@@3922 的 subject-scoped 由此而来:换了来源线读的就是另一条页签条)。
+  const splitTopic = useTabsReading((): OpenTopic | null => {
+    if (!chatId) return null
+    const tab = topicTabOf(chatId)
+    if (!tab) return null
+    const up = embedded ? tab.shown : focusedChatTab(chatId)?.tabId === tab.tabId
+    return up ? { chatId: tab.topic.topicChatId, name: tab.topic.name } : null
+  }, [chatId, embedded])
   const chatIdRef = useRef<string | null>(null)
   chatIdRef.current = chatId
   const splitChatId = splitTopic?.chatId ?? null
@@ -113,21 +123,24 @@ export function useTopicSurface({
 
   const openSplit = useCallback(
     (topic: OpenTopic, toggle = false) => {
-      // Sidebar reactivation closes the split; other open requests only update its name.
+      const source = chatIdRef.current
+      if (!source) return
+      // Sidebar reactivation puts the split away; other open requests only update its name.
       // ❌ 不走 closeRightSurfaces(#6404:那一路曾把分栏的消息清空、
       // 而同一批里又设回同一条 ⇒ 拉取不重跑 ⇒ 分栏开着但一条消息都没有)。
       if (splitChatIdRef.current === topic.chatId) {
-        setSplitState({ forChatId: chatIdRef.current, topic: toggle ? null : topic })
+        if (toggle) hideTopicTab(source)
+        else openTopicTab(source, { topicChatId: topic.chatId, name: topic.name })
         return
       }
       closeRightSurfaces()
-      setSplitState({ forChatId: chatIdRef.current, topic })
+      openTopicTab(source, { topicChatId: topic.chatId, name: topic.name })
     },
     [closeRightSurfaces],
   )
 
   const closeSplit = useCallback(() => {
-    setSplitState({ forChatId: null, topic: null })
+    if (chatIdRef.current) closeTopicTab(chatIdRef.current)
   }, [])
 
   const sendInSplit = useCallback(

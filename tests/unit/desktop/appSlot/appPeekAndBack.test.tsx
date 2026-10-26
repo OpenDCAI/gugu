@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import { act, createElement, useState } from 'react'
+import { act, createElement } from 'react'
 import { createReactHarness } from '../../../support/testHarness'
 import { until } from '../../../support/awaitCondition'
 
@@ -22,29 +22,39 @@ vi.mock('../../../../apps/desktop/src/components/extensionBundle/sharedPackages'
   subscribeSharedPackages: () => () => {},
 }))
 
-const { GroupAppSlot } = await import('../../../../apps/desktop/src/components/appSlot/GroupAppSlot')
-const { folderTab, groupSlotMemory } = await import('../../../../apps/desktop/src/components/appSlot/groupSlotMemory')
+const { ask, chatTabs, shownItem } = await import('./chatTabsHarness')
+const { folderItem, isFolderItem } = await import('../../../../apps/desktop/src/session/renderer/features/chats/chat-tabs/chat-panel-item')
+const { chatAlone, closeChatTab, openPanelItem, panelTabsOf, shownPanelTab } = await import('../../../../apps/desktop/src/session/renderer/features/chats/chat-tabs/chat-layouts')
 const { AppPeekSlot } = await import('../../../../apps/desktop/src/components/appSlot/AppPeekSlot')
 const { ClaimedPage } = await import('../../../../apps/desktop/src/components/appSlot/ClaimedPage')
 const { peekStore } = await import('../../../../apps/desktop/src/session/renderer/features/extensions/peek-store')
 const { installedExtensionsStore } = await import('../../../../apps/desktop/src/session/renderer/features/extensions/installed-extensions-store')
-const { APP_SLOT_EVENT } = await import('../../../../apps/desktop/src/session/shared/extensions/app-runtime-protocol')
-const { AuthContext } = await import('../../../../apps/desktop/src/store/auth')
+const { extensionViewStore } = await import('../../../../apps/desktop/src/session/renderer/features/extensions/extension-view-store')
 
 const board = { id: 'kanban', name: 'Kanban', version: '1.0.0', apiVersion: 3, entry: 'index.html', contributes: { tabs: [{ name: 'board', title: 'Kanban' }] } }
 const pdf = { extensionId: 'pdf', tabKind: 'pdf.viewer', tabTitle: 'PDF', app: { name: 'PDF' }, onlyTab: true, suffix: '.pdf' }
 
 let harness: ReturnType<typeof createReactHarness>
+/** The claims and releases slots make on the resident layer's store, by slot. */
 const slotEvents: { type: string; slotId: string }[] = []
-const onSlot = (event: Event) => {
-  const { type, slotId } = (event as CustomEvent<{ type: string; slotId: string }>).detail
-  slotEvents.push({ type, slotId })
-}
+const slotOfToken = new Map<number, string>()
+const spies: { mockRestore(): void }[] = []
 const original = { checkVisibility: HTMLElement.prototype.checkVisibility, rect: HTMLElement.prototype.getBoundingClientRect }
 beforeEach(() => {
   harness = createReactHarness()
   slotEvents.length = 0
-  window.addEventListener(APP_SLOT_EVENT, onSlot)
+  const claim = extensionViewStore.claim.bind(extensionViewStore)
+  const release = extensionViewStore.release.bind(extensionViewStore)
+  spies.push(vi.spyOn(extensionViewStore, 'claim').mockImplementation((kind, target) => {
+    const token = claim(kind, target)
+    slotOfToken.set(token, target.tabId)
+    slotEvents.push({ type: 'claim', slotId: target.tabId })
+    return token
+  }))
+  spies.push(vi.spyOn(extensionViewStore, 'release').mockImplementation((kind, token) => {
+    slotEvents.push({ type: 'release', slotId: slotOfToken.get(token) ?? '?' })
+    release(kind, token)
+  }))
   // Seen while no ancestor hides it (what the browser answers), at a panel's size.
   HTMLElement.prototype.checkVisibility = function (this: HTMLElement) {
     return !this.closest('.invisible')
@@ -54,144 +64,142 @@ beforeEach(() => {
 })
 afterEach(() => {
   harness.cleanup()
-  window.removeEventListener(APP_SLOT_EVENT, onSlot)
+  for (const spy of spies.splice(0)) spy.mockRestore()
   HTMLElement.prototype.checkVisibility = original.checkVisibility
   HTMLElement.prototype.getBoundingClientRect = original.rect
   act(() => installedExtensionsStore.applyList({ extensions: [], invalid: [] } as never))
 })
 
+const button = (testId: string) => harness.container.querySelector<HTMLButtonElement>(`[data-testid="${testId}"]`)
+
 describe('G2: back from a file opened by an App goes back to that App', () => {
   it('a file its page opened goes back to the App; the App, opened from the chat, has no Back and closes to the chat', async () => {
     const chatId = 'back-1'
-    const onClose = vi.fn()
-    const slot = (props: Record<string, unknown>) =>
-      createElement(AuthContext.Provider, { value: { user: { id: 'user-1' } } as never },
-        createElement(GroupAppSlot, { chatId, onClose, ...props }))
-    await harness.render(slot({ asked: { chatId, app: 'kanban', request: 9101 } }))
-    const app = groupSlotMemory.opened(chatId)
-    expect(app?.kind).toBe('kanban.board')
-    expect(groupSlotMemory.tabs(chatId), '对照:父提交在它前面多一枚文件夹(null)').toEqual([app])
+    await harness.render(chatTabs({ chatId }))
+    ask(chatId, { app: 'kanban' })
+    const app = shownPanelTab(chatId)
+    expect(app?.item.kind).toBe('kanban.board')
+    expect(panelTabsOf(chatId).map((tab) => tab.tabId), '对照:父提交在它前面多一枚文件夹(null)').toEqual([app!.tabId])
     const opener = { chatId, itemId: 'deck', name: 'deck.pdf', typedName: 'deck.pdf', choice: { kind: 'one', candidate: pdf } }
-    await harness.render(slot({ asked: { chatId, itemId: 'deck', request: 9102, opener, fromPage: true, from: app } }))
-    expect(groupSlotMemory.opened(chatId)).toMatchObject({ kind: 'pdf.viewer', itemId: 'deck' })
-    act(() => (harness.container.querySelector('[data-testid="group-app-slot-back"]') as HTMLButtonElement).click())
-    expect(groupSlotMemory.opened(chatId)?.kind).toBe('kanban.board')
-    expect(onClose).not.toHaveBeenCalled()
-    expect(harness.container.querySelector('[data-testid="group-app-slot-back"]'), 'opened straight from the chat: no 上一页').toBeNull()
-    act(() => (harness.container.querySelector('[data-testid="group-app-slot-close"]') as HTMLButtonElement).click())
-    expect(groupSlotMemory.opened(chatId)).toBeNull()
-    expect(onClose).toHaveBeenCalledTimes(1)
+    ask(chatId, { itemId: 'deck', opener: opener as never, fromPage: true })
+    expect(shownItem(chatId)).toMatchObject({ kind: 'pdf.viewer', itemId: 'deck' })
+    act(() => button('group-app-slot-back')!.click())
+    expect(shownPanelTab(chatId)?.tabId).toBe(app!.tabId)
+    expect(button('group-app-slot-back'), 'opened straight from the chat: no 上一页').toBeNull()
+    act(() => button('group-app-slot-close')!.click())
+    expect(shownItem(chatId)).toBeNull()
+    expect(chatAlone(chatId)).toBe(true)
   })
 
-  it('an App opened while another tab is shown: no Back, and closing it shows that tab again', async () => {
+  it('an App opened while another tab is shown: no Back, and closing it leaves the chat with that tab kept (as a task\'s side page)', async () => {
     const chatId = 'app-from-object'
-    const previous = { kind: 'pdf.viewer', itemId: 'source', title: 'source.pdf', opening: 9112 }
-    groupSlotMemory.open(chatId, previous)
-    const onClose = vi.fn()
-    await harness.render(createElement(AuthContext.Provider, { value: { user: { id: 'user-1' } } as never },
-      createElement(GroupAppSlot, { chatId, onClose, asked: { chatId, app: 'kanban', request: 9113 } })))
-    expect(harness.container.querySelector('[data-testid="group-app-slot-back"]')).toBeNull()
-    act(() => (harness.container.querySelector('[data-testid="group-app-slot-close"]') as HTMLButtonElement).click())
-    expect(groupSlotMemory.opened(chatId)).toBe(previous)
-    expect(onClose).not.toHaveBeenCalled()
+    const previous = openPanelItem(chatId, { kind: 'pdf.viewer', itemId: 'source', title: 'source.pdf' })!
+    await harness.render(chatTabs({ chatId }))
+    ask(chatId, { app: 'kanban' })
+    expect(shownItem(chatId)?.kind).toBe('kanban.board')
+    expect(button('group-app-slot-back')).toBeNull()
+    act(() => button('group-app-slot-close')!.click())
+    expect(chatAlone(chatId)).toBe(true)
+    expect(panelTabsOf(chatId).map((tab) => tab.tabId)).toEqual([previous])
   })
 })
 
 describe('tabbed group panel expansion', () => {
   it.each([false, true])('expands and restores the current page (App=%s)', async (app) => {
     const chatId = `expand-panel-${app}`
-    const onClose = vi.fn()
-    function Panel() {
-      const [full, setFull] = useState(false)
-      return createElement(AuthContext.Provider, { value: { user: { id: 'user-1' } } as never },
-        createElement(GroupAppSlot, {
-          chatId, onClose, tabbed: true, full,
-          onToggleFull: () => setFull((value) => !value),
-          asked: { chatId, app: app ? 'kanban' : 'workspace', request: app ? 9120 : 9121 },
-        }))
-    }
-    await harness.render(createElement(Panel))
-    const opened = groupSlotMemory.opened(chatId)
-    const toggle = () => harness.container.querySelector<HTMLButtonElement>('[data-testid="group-app-slot-full"]')!
+    await harness.render(chatTabs({ chatId, tabbed: true }))
+    ask(chatId, { app: app ? 'kanban' : 'workspace' })
+    const opened = shownPanelTab(chatId)
+    expect(app ? opened?.item.kind : isFolderItem(opened?.item)).toBe(app ? 'kanban.board' : true)
+    const toggle = () => button('group-app-slot-full')!
     expect(toggle()).not.toBeNull()
     act(() => toggle().click())
     expect(toggle().getAttribute('aria-pressed')).toBe('true')
     act(() => toggle().click())
     expect(toggle().getAttribute('aria-pressed')).toBe('false')
-    expect(groupSlotMemory.opened(chatId)).toBe(opened)
-    expect(onClose).not.toHaveBeenCalled()
+    expect(shownPanelTab(chatId)?.tabId).toBe(opened?.tabId)
+    expect(chatAlone(chatId)).toBe(false)
   })
 })
 
 describe('message attachment entry', () => {
-  const slot = (chatId: string, props: Record<string, unknown>) =>
-    createElement(AuthContext.Provider, { value: { user: { id: 'user-1' } } as never },
-      createElement(GroupAppSlot, { chatId, onClose: vi.fn(), ...props }))
-  const file = (chatId: string, itemId: string) => ({ chatId, itemId, name: `${itemId}.pdf`, typedName: `${itemId}.pdf`, choice: { kind: 'one', candidate: pdf } })
+  const file = (chatId: string, itemId: string) => ({ chatId, itemId, name: `${itemId}.pdf`, typedName: `${itemId}.pdf`, choice: { kind: 'one', candidate: pdf } }) as never
 
-  it.each([false, true])('a message file has Close without Back and restores its caller (tabbed=%s)', async (tabbed) => {
-    const chatId = `message-entry-${tabbed}`
+  it('a message file has Close without Back and restores its caller', async () => {
+    const chatId = 'message-entry'
     const restore = vi.fn()
-    const onClose = vi.fn()
-    await harness.render(slot(chatId, { tabbed, onClose, asked: { chatId, itemId: 'message-file', request: tabbed ? 9202 : 9201, restore, opener: file(chatId, 'message-file') } }))
-    expect(harness.container.querySelector('[data-testid="group-app-slot-back"]')).toBeNull()
-    const close = harness.container.querySelector('[data-testid="group-app-slot-close"]') as HTMLButtonElement
+    await harness.render(chatTabs({ chatId }))
+    ask(chatId, { itemId: 'message-file', restore, opener: file(chatId, 'message-file') })
+    expect(button('group-app-slot-back')).toBeNull()
+    const close = button('group-app-slot-close')
     expect(close).not.toBeNull()
-    act(() => close.click())
-    expect(onClose).toHaveBeenCalledTimes(1)
+    act(() => close!.click())
     expect(restore).toHaveBeenCalledTimes(1)
-    expect(groupSlotMemory.tabs(chatId).some((item) => item?.itemId === 'message-file')).toBe(false)
+    expect(chatAlone(chatId)).toBe(true)
+    expect(panelTabsOf(chatId).some((tab) => tab.item.itemId === 'message-file')).toBe(false)
+  })
+
+  it('in a block a message file has neither Back nor Close of its own (its tab is its ×); closing it restores its caller', async () => {
+    const chatId = 'message-entry-tabbed'
+    const restore = vi.fn()
+    await harness.render(chatTabs({ chatId, tabbed: true }))
+    ask(chatId, { itemId: 'message-file', restore, opener: file(chatId, 'message-file') })
+    expect(button('group-app-slot-back')).toBeNull()
+    expect(button('group-app-slot-close')).toBeNull()
+    act(() => closeChatTab(chatId, shownPanelTab(chatId)!.tabId))
+    expect(restore).toHaveBeenCalledTimes(1)
+    expect(panelTabsOf(chatId)).toEqual([])
   })
 
   it('the same file from a folder keeps Back and returns to its list', async () => {
     const chatId = 'folder-entry'
-    const onClose = vi.fn()
-    const folder = folderTab()
-    groupSlotMemory.open(chatId, folder)
-    await harness.render(slot(chatId, { onClose, asked: { chatId, itemId: 'message-file', request: 9203, opener: file(chatId, 'message-file'), fromPage: true, from: folder } }))
-    act(() => (harness.container.querySelector('[data-testid="group-app-slot-back"]') as HTMLButtonElement).click())
-    expect(groupSlotMemory.opened(chatId)).toBe(folder)
-    expect(onClose).not.toHaveBeenCalled()
+    const folder = openPanelItem(chatId, folderItem())!
+    await harness.render(chatTabs({ chatId }))
+    ask(chatId, { itemId: 'message-file', opener: file(chatId, 'message-file'), fromPage: true })
+    act(() => button('group-app-slot-back')!.click())
+    expect(shownPanelTab(chatId)?.tabId).toBe(folder)
+    expect(chatAlone(chatId)).toBe(false)
   })
 
   it('an App opened from a message keeps its internal trail before closing to the message', async () => {
     const chatId = 'message-trail'
     const restore = vi.fn()
-    const onClose = vi.fn()
-    await harness.render(slot(chatId, { onClose, asked: { chatId, itemId: 'first', request: 9204, restore, opener: file(chatId, 'first') } }))
-    await harness.render(slot(chatId, { onClose, asked: { chatId, itemId: 'second', request: 9205, opener: file(chatId, 'second'), fromPage: true, from: groupSlotMemory.opened(chatId) } }))
-    act(() => (harness.container.querySelector('[data-testid="group-app-slot-back"]') as HTMLButtonElement).click())
-    expect(groupSlotMemory.opened(chatId)?.itemId).toBe('first')
+    await harness.render(chatTabs({ chatId }))
+    ask(chatId, { itemId: 'first', restore, opener: file(chatId, 'first') })
+    ask(chatId, { itemId: 'second', opener: file(chatId, 'second'), fromPage: true })
+    act(() => button('group-app-slot-back')!.click())
+    expect(shownItem(chatId)?.itemId).toBe('first')
     expect(restore).not.toHaveBeenCalled()
-    expect(harness.container.querySelector('[data-testid="group-app-slot-back"]')).toBeNull()
-    act(() => (harness.container.querySelector('[data-testid="group-app-slot-close"]') as HTMLButtonElement).click())
+    expect(button('group-app-slot-back')).toBeNull()
+    act(() => button('group-app-slot-close')!.click())
     expect(restore).toHaveBeenCalledTimes(1)
   })
 
   it('the host preview also closes a message attachment instead of showing the folder', async () => {
     const chatId = 'message-raw'
     const restore = vi.fn()
-    const onClose = vi.fn()
-    await harness.render(slot(chatId, { onClose, asked: { chatId, itemId: 'raw', request: 9206, restore, opener: {
+    await harness.render(chatTabs({ chatId }))
+    ask(chatId, { itemId: 'raw', restore, opener: {
       chatId, itemId: 'raw', name: 'raw.opaque', typedName: 'raw.opaque', choice: { kind: 'none' },
       file: { document: false, contentType: 'application/octet-stream', version: 1, size: 3 },
-    } } }))
+    } as never })
     const header = harness.container.querySelector('[data-testid="message-file-preview-panel"] header')!
     expect(header.querySelectorAll('button')).toHaveLength(1)
     act(() => (header.querySelector('button') as HTMLButtonElement).click())
-    expect(onClose).toHaveBeenCalledTimes(1)
     expect(restore).toHaveBeenCalledTimes(1)
+    expect(chatAlone(chatId)).toBe(true)
   })
 
   it('choosing an App for a message file keeps the message entry', async () => {
     const chatId = 'message-choice'
     const restore = vi.fn()
-    await harness.render(slot(chatId, { asked: { chatId, itemId: 'choice', request: 9207, restore, opener: {
-      ...file(chatId, 'choice'), choice: { kind: 'choose', suffix: '.pdf', candidates: [pdf] },
-    } } }))
+    await harness.render(chatTabs({ chatId }))
+    ask(chatId, { itemId: 'choice', restore, opener: {
+      ...(file(chatId, 'choice') as object), choice: { kind: 'choose', suffix: '.pdf', candidates: [pdf] },
+    } as never })
     act(() => (harness.container.querySelector('[data-open-with="pdf.viewer"]') as HTMLButtonElement).click())
-    expect(harness.container.querySelector('[data-testid="group-app-slot-back"]')).toBeNull()
-    act(() => (harness.container.querySelector('[data-testid="group-app-slot-close"]') as HTMLButtonElement).click())
+    expect(button('group-app-slot-back')).toBeNull()
+    act(() => button('group-app-slot-close')!.click())
     expect(restore).toHaveBeenCalledTimes(1)
   })
 })
