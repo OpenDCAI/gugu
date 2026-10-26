@@ -1,3 +1,5 @@
+import { parseMemoryNote } from '../shared/assistantMemory'
+import { queuedAssistantPanelBody } from './assistantPanelBodyQueue'
 import { assistantPanelCollection, AssistantPanelError, type AssistantPanelClient, type AssistantPanelDomain, type AssistantPanelItem } from './assistantPanel'
 import { splitInstructions } from '../shared/assistantInstructions'
 import { withAssistantPanelReadDeadline } from './assistantPanelRead'
@@ -27,7 +29,7 @@ function route(path: string) {
 export function createAssistantPanelFiles(input: {
   assistantId: string; deviceId: string; ownerId: string; cloud: AssistantPanelClient
   assertCurrent(): void | Promise<void>
-  readBody(item: AssistantPanelItem): Promise<Uint8Array>
+  readBody(item: AssistantPanelItem, signal?: AbortSignal): Promise<Uint8Array>
   upload(name: string, bytes: Uint8Array, contentType: string): Promise<{ itemId: string; sha256: string }>
   discard(itemId: string): Promise<void>
   changed(): void
@@ -85,9 +87,9 @@ export function createAssistantPanelFiles(input: {
     const key = `${item.body_item_id}:${item.body_sha256}`
     const cached = bodies.get(key)
     if (cached) return cached.slice()
-    const result = await input.readBody(item)
+    const result = await queuedAssistantPanelBody(`${input.ownerId}:${input.assistantId}:${key}`,signal => input.readBody(item,signal))
     await input.assertCurrent()
-    if (result.length <= 32 * 1024 * 1024) {
+    if (!bodies.has(key) && result.length <= 32 * 1024 * 1024) {
       while (bodyBytes + result.length > 32 * 1024 * 1024 && bodies.size) {
         const oldest = bodies.keys().next().value!
         bodyBytes -= bodies.get(oldest)!.length; bodies.delete(oldest)
@@ -126,7 +128,8 @@ export function createAssistantPanelFiles(input: {
     }
     const key = item?.resource_key ?? (domain === 'voice-notes' ? relative : domain === 'skills' ? relative.replace(/\/SKILL\.md$/,'') : relative)
     const modifiedAt = new Date().toISOString()
-    const data = domain === 'memory' ? { relativePath: relative,title: name,modifiedAt,kind: 'file' }
+    const memory = domain === 'memory' ? parseMemoryNote(name,new TextDecoder().decode(value)) : null
+    const data = domain === 'memory' ? { relativePath: relative,title: memory!.title,modifiedAt,kind: relative === 'owner-profile.md' ? 'user' : memory!.kind }
       : domain === 'files' ? { name,path: relative,kind: 'file',contentType,sizeBytes: value.length,modifiedAt }
       : domain === 'skills' ? { name: key,modifiedAt } : { noteId: relative.split('/')[0],kind: name }
     const body = await input.upload(name,value,contentType)

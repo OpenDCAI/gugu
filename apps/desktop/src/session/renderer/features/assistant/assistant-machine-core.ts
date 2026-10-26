@@ -166,7 +166,7 @@ export function nativeRpc(machine: AssistantMachine): MachineRpc {
   return machine.rpc;
 }
 
-export type MemoryEntry = MemoryNote & { path: string; modifiedAt: string | null };
+export type MemoryEntry = MemoryNote & { path: string; modifiedAt: string | null; contentPending?: boolean; contentRevision?: string };
 
 function entryTime(entry: DirectoryEntry): string | null {
   const value = (entry as { modifiedAt?: unknown }).modifiedAt;
@@ -178,6 +178,19 @@ function entryTime(entry: DirectoryEntry): string | null {
 
 /** 它的记忆夹:每条一个 .md(新改的在前),外加索引 MEMORY.md;夹子还没有 = 空。 */
 export async function readMemoryNotes(machine: AssistantMachine): Promise<{ notes: MemoryEntry[]; index: string | null }> {
+  if (machine.panel) {
+    const rows = await machine.panel.collection('memory')
+    const notes = rows.filter(row => typeof row.data.relativePath === 'string' && !String(row.data.relativePath).includes('/')
+      && /\.md$/i.test(String(row.data.relativePath)) && !['MEMORY.md','working-context.md'].includes(String(row.data.relativePath)))
+      .map(row => {
+        const file = String(row.data.relativePath)
+        const kind = file === 'owner-profile.md' ? 'user' : ['user','feedback','project','reference','other'].includes(String(row.data.kind)) ? row.data.kind as MemoryNote['kind'] : 'reference'
+        return { file,title: String(row.data.title ?? file),description: '',kind,body: '',path: joinPath(machine.paths.memoryDir,file),
+          modifiedAt: typeof row.data.modifiedAt === 'string' ? row.data.modifiedAt : row.updated_at,contentPending: true,contentRevision: row.revision }
+      })
+    notes.sort((a,b) => b.modifiedAt.localeCompare(a.modifiedAt))
+    return { notes,index: null }
+  }
   const [entries, index] = await Promise.all([listDirectory(machine, machine.paths.memoryDir), readText(machine, machine.paths.memoryIndex)]);
   const hints = memoryIndexHints(index ?? '');
   // The recovery pointer belongs to the coordinator, not the person's memory cards.
@@ -191,4 +204,10 @@ export async function readMemoryNotes(machine: AssistantMachine): Promise<{ note
   );
   notes.sort((a, b) => (b.modifiedAt ?? '').localeCompare(a.modifiedAt ?? ''));
   return { notes, index };
+}
+
+export async function readMemoryEntry(machine: AssistantMachine,entry: MemoryEntry): Promise<MemoryEntry> {
+  const text = await readText(machine,entry.path)
+  if (text === null) throw new AssistantFileError('deleted','PANEL_MEMORY_UNAVAILABLE')
+  return { ...entry,...parseMemoryNote(entry.file,text,{ title: entry.title,kind: entry.kind }),contentPending: false }
 }

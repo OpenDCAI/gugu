@@ -52,3 +52,28 @@ describe('work report queues before a sleeping coordinator can be contacted', ()
     expect(f.prepare).not.toHaveBeenCalled()
   })
 })
+
+it('reuses committed attachment references when retrying after the report acknowledgement was lost', async () => {
+  const f=fixture()
+  const attachment={attachment_id:'original-file',file_name:'report.txt',sha256:'a'.repeat(64),size_bytes:18,content_type:'text/plain'}
+  f.prepare.mockResolvedValueOnce([attachment] as never).mockResolvedValueOnce([{...attachment,attachment_id:'new-file'}] as never)
+  let stored:Record<string,unknown>|undefined
+  let event:Record<string,unknown>|undefined
+  f.rpc.mockImplementation(async(name,args)=>{
+    if(name==='assistant_work_history')return {data:{work,events:event?[{...event,source_available:true}]:[]},error:null} as never
+    if(!stored){stored=args;event=(args.p_events as Record<string,unknown>[])[0];return {data:null,error:{code:'NETWORK',message:'commit reply lost'}} as never}
+    if(JSON.stringify(args)!==JSON.stringify(stored))return {data:null,error:{code:'23505',message:'same operation has different attachment bytes'}} as never
+    return {data:{work_id:id,event_ids:[id],outcome:'completed',terminal_version:'1'},error:null} as never
+  })
+  await expect(enqueueAssistantWorkReport(f,input)).rejects.toMatchObject({code:'NETWORK'})
+  await expect(enqueueAssistantWorkReport(f,input)).resolves.toMatchObject({status:'accepted'})
+  expect(f.prepare).toHaveBeenCalledTimes(1)
+})
+
+it('does not replay a report whose cloud source became invisible', async () => {
+  const f=fixture()
+  f.rpc.mockResolvedValueOnce({data:{work,events:[{message_id:id,kind:'completed',from_session_id:'child',from_device_id:'phone',to_session_id:'home-session',to_device_id:'cloud',content:'done',attachment_refs:[],source_available:false}]},error:null} as never)
+  await expect(enqueueAssistantWorkReport(f,input)).rejects.toMatchObject({code:'SOURCE_UNAVAILABLE'})
+  expect(f.prepare).not.toHaveBeenCalled()
+  expect(f.rpc).toHaveBeenCalledTimes(1)
+})

@@ -134,3 +134,25 @@ it('reports stale and rejected host state instead of presenting it as current ap
   f.application.push({ operationId: 'failed',revision: row.revision,domain: 'personality',resourceKey: 'instructions',status: 'failed',errorCode: 'EACCES' })
   await expect(f.panel.text('性格约定')).rejects.toMatchObject({ code: 'application-failed',resourceKey: 'instructions' })
 })
+
+it('limits body downloads across file views to four and deduplicates the same saved body', async () => {
+  let active=0,peak=0
+  const release: Array<() => void>=[]
+  const readBody=vi.fn(async () => {
+    active++;peak=Math.max(peak,active)
+    await new Promise<void>(resolve => release.push(resolve))
+    active--;return new Uint8Array([1])
+  })
+  const f=fixture()
+  const input={ownerId:'owner',assistantId:'assistant',deviceId:'home',cloud:{} as Parameters<typeof createAssistantPanelFiles>[0]['cloud'],assertCurrent:()=>{},readBody,upload:f.upload,discard:f.discard,changed:()=>{}}
+  const a=createAssistantPanelFiles(input),b=createAssistantPanelFiles(input)
+  const rows=Array.from({length:10},(_,i)=>({...f.put('files',String(i),{}),body_item_id:String(i),body_sha256:String(i)}))
+  const pending=rows.map((row,i)=>(i%2?a:b).body(row))
+  const duplicate=b.body(rows[0]!)
+  await vi.waitFor(()=>expect(active).toBeGreaterThan(0))
+  expect(peak).toBeLessThanOrEqual(4)
+  while(release.length || active) { release.splice(0).forEach(resolve=>resolve());await new Promise(resolve=>setTimeout(resolve,0)) }
+  await Promise.all([...pending,duplicate])
+  expect(peak).toBeLessThanOrEqual(4)
+  expect(readBody).toHaveBeenCalledTimes(10)
+})

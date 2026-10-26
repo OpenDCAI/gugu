@@ -59,7 +59,7 @@ function createdFromId(id: string): string {
 /** 读一条;交给助理之后、它写好了而 note.json 还没改(写的那一端已经不在)→ 顺手把标题抄回去。 */
 async function readNote(machine: AssistantMachine, id: string, now: number): Promise<VoiceNoteItem> {
   const dir = voiceNoteDir(machine, id);
-  const meta = parseVoiceNoteMeta((await readText(machine, joinPath(dir, VOICE_NOTE_META_FILE))) ?? '');
+  const meta = parseVoiceNoteMeta((await readText(machine, joinPath(dir, VOICE_NOTE_META_FILE)).catch(error => { if (['account-changed','signed-out'].includes(error?.code)) throw error; return null })) ?? '');
   if (!meta) {
     return {
       id,
@@ -71,7 +71,7 @@ async function readNote(machine: AssistantMachine, id: string, now: number): Pro
   }
   let summary: string | null | undefined;
   if (meta.status === 'summarizing' || meta.status === 'failed') {
-    const text = await readText(machine, joinPath(dir, VOICE_NOTE_SUMMARY_FILE));
+    const text = await readText(machine, joinPath(dir, VOICE_NOTE_SUMMARY_FILE)).catch(error => { if (['account-changed','signed-out'].includes(error?.code)) throw error; return null });
     summary = text?.trim() ? summaryTitle(text) : undefined;
     if (summary !== undefined && !voiceJobs.get(id)) {
       const ready = { ...meta, status: 'ready' as const, title: summary || null, failure: null, updatedAt: new Date(now).toISOString() };
@@ -109,7 +109,7 @@ export function useVoiceNotes(machine: AssistantMachine | undefined) {
       const entries = await listDirectory(m, voiceNotesDir(m));
       const dirs = entries.filter((entry) => entry.type === 'directory' && !entry.name.startsWith('.'));
       const now = Date.now();
-      return mapLimit(dirs, 6, (entry) => readNote(m, entry.name, now));
+      return mapLimit(dirs, 4, (entry) => readNote(m, entry.name, now));
     },
     enabled: !!machine,
     retry: retryAssistantPanelRead,
