@@ -88,7 +88,7 @@ export const ChatHeaderActions = observer(function ChatHeaderActions({
   if (picker.chatId !== activeChatId) setPicker({ chatId: activeChatId, open: false })
   const openApps = () => { onCloseHeaderMenu(); setPicker({ chatId: activeChatId, open: true }) }
   return (
-    <Popover.Root open={picker.open} modal={false} onOpenChange={(open) => setPicker({ chatId: activeChatId, open })}>
+    <Popover.Root open={picker.open && !mobile} modal={false} onOpenChange={(open) => setPicker({ chatId: activeChatId, open })}>
       {groupId && !compactRoom && <>
         <span ref={pinsRef} className="flex items-center gap-[2px]">
           {pinnedApps.slice(0, capacity).map((app) => <IconButton key={app.extensionId} data-testid={AUTOMATION_TEST_IDS.chatHeaderPinnedApp} data-app-id={app.extensionId} aria-label={app.name} title={app.name} onClick={() => openApp(app.extensionId, groupId)}><RailAppIcon app={app} className="gg-sidebar-launch-icon" /></IconButton>)}
