@@ -4,6 +4,7 @@ import { readDeliveryEnvelope } from '@gugu/core/local/agent/deliveryEnvelope';
 export type TaskExchange = {
   id: string;
   position: number;
+  sourceMessageId?: string | null;
   fromSessionId: string;
   toSessionId: string;
   content: string;

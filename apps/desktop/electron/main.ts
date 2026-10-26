@@ -1,4 +1,6 @@
 import './browser-user-agent-bootstrap'
+import {assistantWorkHistoryPosition} from './assistant-work-history-position'
+import { randomUUID } from 'node:crypto'
 import { registerFileViewerMenus } from './file-viewer-context-menu'
 import { configuredEndpoint } from '@gugu/core/cloud/attachmentsApi'
 import { createDesktopFileAccess } from './desktopFileAccess'
@@ -190,6 +192,14 @@ import {
   type GuguIdentity,
 } from '@gugu/core/local/agent/deliveryEnvelope'
 import { handleUnifiedSessionMessage, type UnifiedRecipientResult } from './unified-session-message'
+import {createDesktopAssistantWorkHistory} from './assistant-work-history'
+import { installAssistantWorkLedgerHost, enqueueAssistantWorkMessage } from './sessionpage/assistant-work-ledger'
+import { createAssistantWorkNoticeWakePump } from '@gugu/core/cloud/assistantWorkNoticeWake'
+import { isOwnerReceiptEvent } from '@gugu/core/cloud/assistantWorkReconciliation'
+import { assistantWorkCoordinator } from '@gugu/core/cloud/assistantWorkRouting'
+import { createDesktopAssistantWorkReconciler } from './assistant-work-reconciliation'
+import { enqueueAssistantWorkReport } from '@gugu/core/cloud/assistantWorkReports'
+import { pickAssistant, type AssistantProvisionRow } from '@gugu/core/shared/assistantProvision'
 import { landTaskCardFirstTurn } from './sessionpage/task-card-first-turn'
 import { withQuestionCard } from './sessionpage/question-card'
 import {
@@ -367,7 +377,7 @@ import { applySessionMaterialization } from './session-materialization'
 import { assistantHomeTaskContext, preparePersonalAssistantContext } from './sessionpage/assistant-context'
 import { startupDiscovery } from './sessionpage/startup-discovery'
 import { createAssistantPanelRuntime } from './sessionpage/assistant-panel-runtime'
-import { assistantWorkBinding } from './sessionpage/assistant-work'
+import { assistantWorkBinding, assistantWorkForAgent } from './sessionpage/assistant-work'
 import { createStableMcpPersistence, persistedMcpGrantCount, sessionpageSessionOfGrantKey } from './stable-mcp-persistence'
 import type { GuguMcpHostPersistence } from './gugu-mcp-host'
 import {
@@ -382,6 +392,7 @@ import {
 import { GUGU_PLATFORM_BLOCK, buildSessionpageProjectContextBlock } from './product-platform-prompt'
 import {
   guguAgentUserIdForSession,
+  localAgentForSession,
   resolveRuntimeForkSource,
 } from './sessionpage/sessionpage-session-agent'
 import { writeCapabilityLoadReport } from './capability-report-store'
@@ -451,6 +462,10 @@ import { registerSshLinkIpc } from './server/ssh-link-ipc'
 import { openCloudDeviceRpcPipe, openSshDeviceRpcPipe } from './device-rpc-requester'
 import { createDeviceRpcRequester } from '@gugu/core/cloud/deviceRpcRequester'
 import type { DeviceRpcHandlers } from '@gugu/core/cloud/deviceRpcResponder'
+import type { AssistantWorkRpcClient } from '@gugu/core/cloud/assistantWorkOutbox'
+import type { SessionAttachmentRef, SessionFileInput } from '@gugu/core/cloud/sessionAttachments'
+import { createAssistantWorkOutboxHost, type AssistantWorkOutboxHost } from './assistant-work-outbox'
+import { subscribeAuthenticatedElectronRealtimeChannel } from './realtime-channel'
 import { CrossMachineError, createCrossMachineSessions, type CrossMachineSessions } from './cross-machine-sessions'
 import { createActivitySummaryQuery } from './activity-summary-query'
 import type { RemoteSessionCaller } from '@gugu/session-core/session-record/contract'
@@ -1627,7 +1642,154 @@ function createPrimaryDeviceRpcHandlers(io?: { openTopicPublisher: OpenTopicPubl
   // MessagePreview(#6357)只挂咕咕云频道:它往 realtime topic 推,SSH 设备连接没有这条路。
   const base = bridge.createSessionpageSessionDeviceRpcHandlers(io ? { preview: messagePreviewHostDeps(io) } : undefined)
   // #7199 第二步:别的机器上的 agent 调这台电脑的单个动作(请执行 / 结果收到)。
-  return { ...base, handlers: { ...base.handlers, ...deviceActionsRuntime().rpcHandlers(), ...tunnelRpcHandlers(), ...desktopFiles.handlers(io ? 'realtime' : 'ssh') } }
+  return { ...base, handlers: { ...base.handlers, ...assistantWorkDeliveryHost().rpcHandlers(), ...deviceActionsRuntime().rpcHandlers(), ...tunnelRpcHandlers(), ...desktopFiles.handlers(io ? 'realtime' : 'ssh') } }
+}
+
+let assistantWorkOutbox: AssistantWorkOutboxHost | null = null
+function assistantWorkDeliveryHost(): AssistantWorkOutboxHost {
+  if (assistantWorkOutbox) return assistantWorkOutbox
+  const context = async () => {
+    const lease = deviceRuntimeHost?.getRuntimeLease()
+    const auth = await desktopAuthProvider().getAuth()
+    if (!lease || !auth?.accessToken || lease.ownerId !== auth.userId) return null
+    return { ...lease, client: makeIdentityClient(auth.accessToken) as unknown as AssistantWorkRpcClient }
+  }
+  let assistantCache: {ownerId:string;until:number;value:ReturnType<typeof pickAssistant>} | null = null
+  const resolveAssistant = async (current:import('./assistant-work-outbox').AssistantWorkHostContext) => {
+      if (assistantCache?.ownerId === current.ownerId && assistantCache.until > Date.now()) return assistantCache.value
+      const auth = await desktopAuthProvider().getAuth()
+      if (!auth?.accessToken || auth.userId !== current.ownerId) return null
+      const {data,error} = await makeIdentityClient(auth.accessToken).from('agent_provisions').select('agent_user_id,device_id,member_key,phase,created_at')
+        .eq('owner_user_id',current.ownerId).eq('member_key','assistant')
+      if (error) throw error
+      const value = pickAssistant((data ?? []) as AssistantProvisionRow[])
+      assistantCache = {ownerId:current.ownerId,until:Date.now()+60000,value}
+      return value
+  }
+  const reconciler = createDesktopAssistantWorkReconciler({
+    context,assistant:async current=>{
+      const value=await resolveAssistant(current)
+      if(!value||value.deviceId!==current.deviceId) return null
+      const target=await readSessionpageOpenTarget(value.agentId)
+      return target?.sessionId ? {...value,sessionId:target.sessionId} : null
+    },
+    inspect: async (current, work, target) => {
+      const bridge = loadEmdashBridge()
+      if (!bridge) return null
+      const coordinator=assistantWorkCoordinator(work)
+      if (!coordinator) return null
+      const caller: RemoteSessionCaller = {deviceId:current.deviceId,deviceLabel:null,sessionId:coordinator.session_id,
+        agentUserId:current.assistantId,name:'个人助理',harness:null,transport:'acp',model:null,platformModel:null}
+      const signal = AbortSignal.timeout(5000)
+      if (target.device_id === current.deviceId) return bridge.runRemoteSessionAction(caller,{action:'get',session_id:target.session_id},signal) as Promise<import('@gugu/core/cloud/assistantWorkReconciliation').ExecutorDeliveryProof>
+      const devices = await crossMachine().listDeviceRows()
+      if (!devices.find(row => row.device_id === target.device_id)?.online) return null
+      return crossMachine().runOnDevice(target.device_id,caller,{action:'get',session_id:target.session_id},signal) as Promise<import('@gugu/core/cloud/assistantWorkReconciliation').ExecutorDeliveryProof>
+    },
+    ownerReceipts: async (current,work,events) => {
+      const pending=events.filter(event=>isOwnerReceiptEvent(event)&&event.assistant_admitted_at&&!event.owner_delivered_at)
+      if(!pending.length) return []
+      const bridge=loadEmdashBridge()
+      const auth=await desktopAuthProvider().getAuth()
+      if(!bridge||!auth?.accessToken||auth.userId!==current.ownerId) return []
+      const coordinator=assistantWorkCoordinator(work)
+      if(!coordinator) return []
+      const chatId=await openOwnerDirectChatForAgent(current.assistantId,auth.accessToken,process.env)
+      return bridge.readAssistantWorkOwnerReceipts(coordinator.session_id,pending,{chatId,ownerId:current.ownerId})
+    },
+    notify: async (current,key,text) => {
+      const auth = await desktopAuthProvider().getAuth()
+      if (!auth?.accessToken || auth.userId !== current.ownerId) throw new Error('Account changed')
+      const chatId = await openOwnerDirectChatForAgent(current.assistantId,auth.accessToken,process.env)
+      const {error} = await makeChatClient(auth.accessToken).rpc('send_message_idempotent',{
+        p_message_id:key,p_chat_id:chatId,p_sender_user_id:current.assistantId,p_to_user_ids:[current.ownerId],p_content:text,p_content_type:'text',
+        p_reply_to_message_id:null,p_thread_root_id:null,p_is_thread_root:false,p_is_whisper:false,
+      })
+      if (error) throw error
+      return {chatId,messageId:key}
+    },
+    verifyOwnerPost: async (current,posted) => {
+      const auth=await desktopAuthProvider().getAuth()
+      if(!auth?.accessToken||auth.userId!==current.ownerId) return false
+      const {data,error}=await makeChatClient(auth.accessToken).from('messages_view').select('id')
+        .eq('id',posted.messageId).eq('chat_id',posted.chatId).eq('sender_user_id',current.assistantId)
+        .is('deleted_at',null).is('retracted_at',null).not('deleted_for_user_ids','cs',JSON.stringify([current.ownerId])).maybeSingle()
+      if(error) throw error
+      return data?.id===posted.messageId
+    },
+    clean: work => assistantWorkForAgent(work.assistant_user_id)?.remove(work.work_id),
+    warn: detail => createLogger('assistant-work/reconcile').warn(detail,'Task handoff reconciliation will retry'),
+  })
+  const history=createDesktopAssistantWorkHistory({context,
+    checkpoint:assistantWorkHistoryPosition(resolveGuguHome(process.env)),
+    receipts:async (after,retry)=>loadEmdashBridge()?.readAssistantWorkReceipts(after,retry)??{entries:[],cursor:after,hasMore:false},
+    identity:async(session,owner)=>{
+      const record=await localAgentForSession(session,process.env,owner)
+      return record?.gugu_user_id ? {id:record.gugu_user_id,createdAt:record.created_at*1000} : null
+    },
+    assistant:async current=>(await resolveAssistant(current))?.agentId??null,
+    warn:detail=>createLogger('assistant-work/history').warn(detail,'Historical work will be checked on the next host cycle'),
+  })
+  const noticeWake=createAssistantWorkNoticeWakePump({
+    context,
+    rpc: async (name,args,claimed) => {
+      const live=await context()
+      if(!live||live.ownerId!==claimed.ownerId||live.runtimeInstanceId!==claimed.runtimeInstanceId) throw new Error('Notice account changed')
+      return live.client.rpc(name,args)
+    },
+    wake: (home,signal) => crossMachine().ensureReachable(home,signal),
+    request: async (home,signal) => {
+      const response=await crossMachineRequester!.call(home,'assistantWork.reconcile',{}, {timeoutMs:5000,signal})
+      if(response.error) throw response.error
+    },
+    warn: detail => createLogger('assistant-work/notice').warn(detail,'Task notice home could not be reached'),
+
+  })
+  const host = createAssistantWorkOutboxHost({
+    context,
+    afterDrain: async () => {
+      void history.kick()
+      await reconciler.kick()
+      await noticeWake.kick()
+    },
+    prepareRemote: (deviceId, signal) => crossMachine().ensureReachable(deviceId, signal),
+    requestRemote: (deviceId, type, payload, signal) => crossMachineRequester!.call(deviceId, type, payload, { timeoutMs: 45_000, signal }),
+    deliverLocal: async (event, signal) => {
+      const bridge = loadEmdashBridge()
+      if (!bridge) throw Object.assign(new Error('Session host is not ready'), { code: 'SESSION_HOST_NOT_READY' })
+      const status = event.kind === 'dispatch' ? undefined
+        : ['completed', 'cancelled', 'question'].includes(event.kind) ? event.kind : 'progress'
+      const caller: RemoteSessionCaller = {
+        deviceId: event.from_device_id, deviceLabel: null, sessionId: event.from_session_id,
+        agentUserId: null, name: event.kind === 'dispatch' ? '个人助理' : '任务',
+        harness: null, transport: 'acp', model: null, platformModel: null,
+      }
+      const result = await bridge.runRemoteSessionAction(caller, {
+        action: 'message', session_ids: [event.to_session_id], text: event.content!,
+        client_message_id: event.message_id, client_message_at: event.platform_received_at,
+        attachments: event.attachment_refs as SessionAttachmentRef[] | undefined,
+        ...(status ? { work_result: { work_id: event.work_id, status } } : {}),
+      } as SessionAction, signal) as { recipients: UnifiedRecipientResult[] }
+      const receipt = result.recipients.find(row => row.message_id === event.message_id)
+      const agentId = receipt?.status === 'delivered' ? await guguAgentUserIdForSession(event.to_session_id, process.env) : null
+      return { admitted: receipt?.status === 'delivered', messageId: event.message_id, ...(agentId ? {receipt: {agent_user_id: agentId}} : {}) }
+    },
+    subscribe: async (ownerId, changed) => {
+      const createChannel = () => supabase.channel(`gugu:user:${ownerId}:events`, { config: { private: true } })
+        .on('broadcast', { event: 'assistant_work_changed' }, changed)
+      const off = await subscribeAuthenticatedElectronRealtimeChannel({
+        realtime: supabase.realtime, removeChannel: channel => supabase.removeChannel(channel as ReturnType<typeof createChannel>),
+      }, createChannel(), {
+        label: `assistant-work:${ownerId}`, createChannel,
+        onStatus: status => { if (String(status).endsWith('SUBSCRIBED')) changed() },
+      })
+      return () => { void off() }
+    },
+    warn: detail => createLogger('assistant-work/outbox').warn(detail, 'Task delivery will reconcile from the cloud queue'),
+  })
+  const offLedger = installAssistantWorkLedgerHost({ context, kick: () => host.kick() })
+  app.once('will-quit', () => { offLedger(); history.stop(); reconciler.stop(); noticeWake.stop(); host.stop() })
+  return (assistantWorkOutbox = host)
 }
 
 /**
@@ -1871,6 +2033,7 @@ function startDeviceRuntimeWhenRendererReady(): void {
   if (SERVER_MODE) setSessionBrowserBridge(browserMcpServersFor)
   deviceRuntimeHost ??= createDeviceRuntimeHostLoop({
     env: process.env,
+    onRuntimeLeaseRenewed: () => { void assistantWorkDeliveryHost().kick() },
     authProvider: hostAuthProvider,
     makeIdentityClient: (accessToken) =>
       makeIdentityClient(accessToken) as unknown as DeviceRuntimeIdentityClient,
@@ -3405,20 +3568,23 @@ function crossMachine(): CrossMachineSessions {
         throw error
       }
     },
-    wakeCloudComputer: async (deviceId) => {
+    wakeCloudComputer: async (deviceId, signal) => {
+      signal?.throwIfAborted()
       const client = await cloudComputerClient()
       if (!client) return false
       // 先认它是不是这个账号的云电脑:问不到管家 = 不知道 ⇒ 照普通离线说(❌ 把一台离线的笔记本说成「云电脑醒不来」)。
       try {
-        if ((await client.state()).deviceId !== deviceId) return false
+        if ((await client.state(signal)).deviceId !== deviceId) return false
       } catch (error) {
         createLogger('cloud-computer').warn({ deviceId, err: String((error as Error)?.message ?? error) }, 'cloud computer state unavailable; treating the device as plainly offline')
         return false
       }
       const auth = await requireAuth()
+      signal?.throwIfAborted()
       const outcome = await wakeCloudComputerUntilOnline({
         client,
         deviceId,
+        signal,
         isOnline: async (id) => (await listDevices(makeIdentityClient(auth.accessToken) as unknown as DeviceTableClient, auth.userId))
           .some((row) => row.device_id === id && row.is_online),
       })
@@ -4340,8 +4506,10 @@ app.whenReady().then(async () => {
             : (invokeRendererAuth('getSessionOwner', { waitMs }) as Promise<BootOwnerAnswer>),
         ms,
       )
-    const sessionMessageRouter = async (sessionId: string, message: SessionMessage) => {
+    const sessionMessageRouter = async (sessionId: string, message: SessionMessage, signal?: AbortSignal) => {
+      signal?.throwIfAborted()
       const ready = await sessionpagePlatformRecovery?.ensureReady(sessionId, `session-message:${message.kind ?? 'ordinary'}`)
+      signal?.throwIfAborted()
       if (ready?.status === 'failed') {
         createLogger('session-message').error({ sessionId, messageId: message.id, error: ready.error }, 'platform credential recovery failed; message remains pending')
         return {
@@ -4351,6 +4519,7 @@ app.whenReady().then(async () => {
         }
       }
       const attempt = async () => {
+        signal?.throwIfAborted()
         const result = await localDelivery.tryInjectSessionMessage(sessionId, message)
         return result === false ? 'not-live' as const : result
       }
@@ -4358,7 +4527,7 @@ app.whenReady().then(async () => {
       if (message.kind === 'session-direct') {
         // #6546 冷目标:与收件箱同一个唤醒入口,等准入后再投一次;叫不醒带着原因报回发送方。
         try {
-          accepted = await localDelivery.injectWithWake(sessionId, attempt)
+          accepted = await localDelivery.injectWithWake(sessionId, attempt, signal)
         } catch (error) {
           if (!(error instanceof SessionWakeError)) throw error
           return { status: 'not-ready' as const, reason: `target session not live — ${error.message}` }
@@ -4442,16 +4611,16 @@ app.whenReady().then(async () => {
       signal: AbortSignal,
     ): Promise<unknown> => {
       signal.throwIfAborted()
-      return handleUnifiedSessionMessage(record, {
-        prepareFiles: async (files, targets) => {
-          await crossMachine().assertFileHandoffSupported(targets.flatMap(target => target.deviceId ? [target.deviceId] : []))
+      const prepareFiles = async (files: SessionFileInput[], targets: Array<{sessionId: string; deviceId?: string; agentId?: string}>) => {
+          await crossMachine().assertFileHandoffSupported(targets.flatMap(target => target.deviceId && !target.agentId ? [target.deviceId] : []))
           const sender = await senderBinding(context, auth.userId)
           if (!sender.guguAgentUserId || !auth.accessToken) throw new Error('Session file handoff requires an Agent identity')
           const caller = await remoteCaller(auth, context)
           const remotePeers = new Map<string, Array<Record<string, unknown>>>()
           const recipients: string[] = []
           for (const target of targets) {
-            let agentId: string | null = null
+            let agentId: string | null = target.agentId ?? null
+            if (agentId) { recipients.push(agentId); continue }
             if (!target.deviceId) agentId = await guguAgentUserIdForSession(target.sessionId, process.env)
             else {
               if (!remotePeers.has(target.deviceId)) remotePeers.set(target.deviceId, await crossMachine().runOnDevice(target.deviceId, caller, { action: 'peers' }, signal) as Array<Record<string, unknown>>)
@@ -4465,6 +4634,28 @@ app.whenReady().then(async () => {
           const endpoint = configuredEndpoint(auth.accessToken)
           signal.throwIfAborted()
           return uploadSessionFiles(endpoint, files, { agentId: sender.guguAgentUserId, sessionId: context.sessionId, recipients, beforeCommit: async () => signal.throwIfAborted() })
+      }
+      return handleUnifiedSessionMessage(record, {
+        prepareFiles,
+        localDeviceId: () => crossMachine().thisDevice().then(row => row.deviceId),
+        enqueueWork: enqueueAssistantWorkMessage,
+        enqueueReport: async report => {
+          const current = await assistantWorkDeliveryHost().context()
+          if (!current || current.ownerId !== auth.userId) throw new Error('Work account changed')
+          const identity = makeIdentityClient(auth.accessToken!)
+          const { data, error } = await identity.from('agent_provisions').select('agent_user_id,device_id,member_key,phase,created_at')
+            .eq('owner_user_id', auth.userId).eq('member_key', 'assistant')
+          if (error) throw error
+          const assistant = pickAssistant((data ?? []) as AssistantProvisionRow[])
+          if (!assistant) throw new Error('Personal assistant is not available')
+          const receipt = await enqueueAssistantWorkReport({
+            rpc: (name, args) => current.client.rpc(name, args),
+            prepare: (files, target) => prepareFiles(files, [target]),
+            resolveNumbers: async numbers => (await crossMachine().messageDeps(() => remoteCaller(auth, context), signal).locateAgents({userIds: [],numbers})).numberToUserId,
+            id: randomUUID,
+          }, {assistantId:assistant.agentId,runtimeInstanceId:current.runtimeInstanceId,deviceId:current.deviceId,sessionId:context.sessionId,record:report})
+          void assistantWorkDeliveryHost().kick()
+          return receipt
         },
         graphMessage: async (sessionIds, text, said) => await emdash.runSessionAction(
           context,
@@ -4939,7 +5130,7 @@ app.whenReady().then(async () => {
         disposeSession: async (sessionId) => {
           await teardownSessionpageSessionRuntimes(sessionId)
           await primaryGuguMcpHost?.revoke(sessionpageSurfaceKey(sessionId))
-          await closeSessionBrowserTools(sessionId)
+          await closeSessionBrowserTools(sessionId, emdash.emdashAgentBrowser())
           forgetSessionAppScope(sessionpageSurfaceKey(sessionId))
         },
         env: process.env,

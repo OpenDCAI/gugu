@@ -5,6 +5,7 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { randomUUID } from 'node:crypto'
 import { EventEmitter } from 'node:events'
+import { buildSessionDirectEnvelope } from '../../../packages/core/src/local/agent/deliveryEnvelope.ts'
 import { startPhoneAgentHost } from './phone-agent-host.mjs'
 import { bindAgentEntry, createAgentEntry } from './agent-entry.mjs'
 import { createPhoneProvisioner } from './phone-agent-provision.mjs'
@@ -1255,4 +1256,153 @@ test('parent EOF during a requested host stop waits for the same persistence and
     await bound.close()
     await fx.close()
   }
+})
+
+test('account work prepare provisions a stable dormant phone seat without admitting or running the task', async () => {
+  let turns=0
+  const fx=await fixture(async()=>{turns++;return {status:'done',text:'[NO_REPLY]'}})
+  const caller={sessionId:randomUUID(),deviceId:'coordinator-device',name:'Assistant',harness:'pi',platformModel:'platform:free',transport:'acp'}
+  const intent={version:1,assistant_id:randomUUID(),work_id:randomUUID(),operation_id:randomUUID(),message_id:randomUUID(),child_session_id:randomUUID(),coordinator:{session_id:caller.sessionId,device_id:caller.deviceId},title:'Task',continuation:false}
+  try {
+    const action={action:'spawn',harness:'pi',prompt:'Only run after account enqueue',assistant_work:intent}
+    const seat=await fx.host.invoke('assistantWork.prepare',[caller,action],'first-connection')
+    assert.equal(seat.session_id,intent.child_session_id)
+    assert.deepEqual(seat.assistant_work_target,{session_id:intent.child_session_id,device_id:deviceId})
+    assert.equal((await fx.host.invoke('assistantWork.prepare',[caller,action],'second-connection')).session_id,seat.session_id)
+    assert.equal(fx.commands.length,1)
+    assert.equal(turns,0)
+    const journal=JSON.parse(await readFile(join(fx.root,'hosts',ownerId,'host.json'),'utf8'))
+    assert.deepEqual(Object.values(journal.jobs),[])
+  } finally {await fx.close()}
+})
+
+test('account work delivery rereads cloud text and reuses its stable id on the phone',async()=>{
+  let turns=0
+  const fx=await fixture(async()=>{turns++;return {status:'done',text:'[NO_REPLY]'}})
+  try {
+    const created=await fx.host.invoke('sessionTimeline.sessionCreate',[{harness:'pi',prompt:'first',clientRequestId:randomUUID()}],'create')
+    await until(()=>turns===1,fx.events)
+    const ref={assistant_id:randomUUID(),work_id:randomUUID(),message_id:randomUUID()}
+    const old=fx.cloud.identity.rpc
+    fx.cloud.identity.rpc=async(name,args)=> name==='assistant_work_history' ? {data:{events:[{...ref,kind:'dispatch',from_session_id:randomUUID(),from_device_id:'coordinator',to_session_id:created.conversationId,to_device_id:deviceId,source_available:true,content:'Fresh cloud task',attachment_refs:[],platform_received_at:'2026-10-26T08:00:00Z'}],next_after:null},error:null} : old(name,args)
+    const received=await fx.host.invoke('assistantWork.deliver',[{...ref,content:'Untrusted wire text'}],'wire-one')
+    assert.equal(received.status,'admitted')
+    assert.equal(received.messageId,ref.message_id)
+    await fx.host.invoke('assistantWork.deliver',[ref],'wire-two')
+    await until(()=>turns===2,fx.events)
+    const journal=JSON.parse(await readFile(join(fx.root,'hosts',ownerId,'host.json'),'utf8'))
+    assert.match(journal.jobs[ref.message_id].prompt,/Fresh cloud task/)
+    assert.doesNotMatch(journal.jobs[ref.message_id].prompt,/Untrusted wire/)
+    assert.match(journal.jobs[ref.message_id].prompt,/2026-10-26/)
+    assert.equal(turns,2)
+  }finally{await fx.close()}
+})
+
+test('cancelling a cold phone work delivery during cloud read never admits its first input',async()=>{
+  let turns=0,release,reading
+  const gate=new Promise(resolve=>{release=resolve})
+  const entered=new Promise(resolve=>{reading=resolve})
+  const fx=await fixture(async()=>{turns++;return {status:'done',text:'[NO_REPLY]'}})
+  const caller={sessionId:randomUUID(),deviceId:'home',name:'Assistant',harness:'pi',platformModel:'platform:free',transport:'acp'}
+  const intent={version:1,assistant_id:randomUUID(),work_id:randomUUID(),operation_id:randomUUID(),message_id:randomUUID(),child_session_id:randomUUID(),coordinator:{session_id:caller.sessionId,device_id:caller.deviceId},title:'Task',continuation:false}
+  try {
+    await fx.host.invoke('assistantWork.prepare',[caller,{action:'spawn',harness:'pi',prompt:'Wait for delivery',assistant_work:intent}],'prepare-cancel')
+    const old=fx.cloud.identity.rpc
+    fx.cloud.identity.rpc=async(name,args)=>{
+      if(name!=='assistant_work_history') return old(name,args)
+      reading();await gate
+      return {data:{events:[{work_id:intent.work_id,message_id:intent.message_id,kind:'dispatch',from_session_id:caller.sessionId,from_device_id:caller.deviceId,to_session_id:intent.child_session_id,to_device_id:deviceId,source_available:true,content:'Must not run',attachment_refs:[],platform_received_at:new Date().toISOString()}],next_after:null},error:null}
+    }
+    const controller=new AbortController()
+    const delivery=fx.host.invoke('assistantWork.deliver',[{assistant_id:intent.assistant_id,work_id:intent.work_id,message_id:intent.message_id}],'cancel-deliver',{kind:'device-rpc',signal:controller.signal})
+    await entered;controller.abort(new Error('Delivery cancelled'));release()
+    await assert.rejects(delivery,/Delivery cancelled/)
+    const journal=JSON.parse(await readFile(join(fx.root,'hosts',ownerId,'host.json'),'utf8'))
+    assert.equal(journal.jobs[intent.message_id],undefined)
+    assert.equal(turns,0)
+  } finally {release();await fx.close()}
+})
+
+test('a phone work result enters the account queue while its coordinator device is unavailable',async()=>{
+  let reportResult
+  const fx=await fixture(async(_command,hooks)=>{
+    reportResult=await hooks.extraTools.find(tool=>tool.name==='session_message').execute('result-call',{to:[`session:${caller.sessionId}`],text:'Verified result',work_result:{work_id:intent.work_id,status:'completed'}})
+    return {status:'done',text:'[NO_REPLY]'}
+  })
+  const caller={sessionId:randomUUID(),deviceId:'sleeping-home',agentUserId:randomUUID(),name:'Assistant',harness:'pi',platformModel:'platform:free',transport:'acp'}
+  const intent={version:1,assistant_id:caller.agentUserId,work_id:randomUUID(),operation_id:randomUUID(),message_id:randomUUID(),child_session_id:randomUUID(),coordinator:{session_id:caller.sessionId,device_id:caller.deviceId},title:'Task',continuation:false}
+  const old=fx.cloud.identity.rpc
+  fx.cloud.identity.rpc=async(name,args)=>{
+    fx.calls.push([name,args])
+    if(name==='assistant_work_history')return {data:{work:{work_id:intent.work_id,assistant_user_id:intent.assistant_id,coordinator_session_id:caller.sessionId,coordinator_device_id:caller.deviceId,executors:[{session_id:intent.child_session_id,device_id:deviceId}]},events:[{work_id:intent.work_id,message_id:intent.message_id,kind:'dispatch',from_session_id:caller.sessionId,from_device_id:caller.deviceId,to_session_id:intent.child_session_id,to_device_id:deviceId,source_available:true,content:'Do the task',attachment_refs:[],platform_received_at:new Date().toISOString()}],next_after:null},error:null}
+    if(name==='assistant_work_commit')return {data:{work_id:args.p_work_id,event_ids:args.p_events.map(e=>e.message_id),outcome:'completed',terminal_version:'1'},error:null}
+    return old(name,args)
+  }
+  try{
+    await fx.host.invoke('assistantWork.prepare',[caller,{action:'spawn',harness:'pi',prompt:'Do the task',assistant_work:intent}],'prepare')
+    await fx.host.invoke('assistantWork.deliver',[{assistant_id:intent.assistant_id,work_id:intent.work_id,message_id:intent.message_id}],'deliver')
+    await until(()=>Boolean(reportResult),fx.events)
+    assert.equal(reportResult.details.status,'accepted')
+    const queued=fx.calls.find(([name])=>name==='assistant_work_commit')[1]
+    assert.equal(queued.p_events[0].kind,'completed')
+    assert.equal(queued.p_events[0].to_device_id,'sleeping-home')
+    assert.equal(fx.sessionReplies.length,0)
+  }finally{await fx.close()}
+})
+
+
+test('startup imports acknowledged legacy work and queues host failure through the sole account outbox', async () => {
+  const workId=randomUUID(),messageId=randomUUID(),sessionId=randomUUID(),assistantId=randomUUID(),coordinator=randomUUID()
+  const caller={sessionId:coordinator,deviceId:'home',agentUserId:assistantId}
+  const task={work_id:workId,assistant_user_id:assistantId,coordinator_session_id:coordinator,coordinator_device_id:'home',executors:[{session_id:sessionId,device_id:deviceId}]}
+  let imported=false
+  const fx=await fixture(async()=>{throw new Error('historical failed work must not rerun')},{prepare:async({root,cloud})=>{
+    const rpc=cloud.identity.rpc
+    cloud.identity.rpc=async(name,args)=>{
+      if(name==='assistant_work_history') return imported ? {data:{work:task,events:[],next_after:null},error:null} : {data:null,error:{code:'42501',message:'Work is not available to this account'}}
+      if(name==='assistant_work_import'){imported=true;return {data:{event_ids:args.p_events.map(row=>row.message_id)},error:null}}
+      if(name==='assistant_work_commit'){cloud.workEvents??=[];cloud.workEvents.push(args.p_events[0]);return {data:{work_id:workId,event_ids:args.p_events.map(row=>row.message_id),outcome:'active',terminal_version:'0'},error:null}}
+      return rpc(name,args)
+    }
+    const body=`Original task\n\n<gugu_work>\n${JSON.stringify({work_id:workId,coordinator:`session:${coordinator}`,report:'Report results'})}\n</gugu_work>`
+    const directory=join(root,'hosts',ownerId);await mkdir(directory,{recursive:true})
+    await writeFile(join(directory,'host.json'),JSON.stringify({version:1,ownerId,agents:{[agentId]:{agentUserId:agentId,sessionId,displayName:'Legacy task',status:'error',caller,modelId:'free'}},jobs:{[messageId]:{id:messageId,agentUserId:agentId,status:'failed',createdAt:'2026-10-20T08:00:00Z',finishedAt:'2026-10-20T08:01:00Z',error:'这次手机任务没能完成，网络连接反复中断。',sent:[],route:{kind:'session-direct',caller,sourceMessageId:messageId},prompt:buildSessionDirectEnvelope({senderSessionId:coordinator,senderTitle:'Assistant',messageId,content:body,at:'2026-10-20T08:00:00Z'})}},outbox:{},requests:{},leases:{}}))
+  }})
+  try{
+    await until(()=>fx.cloud.workEvents?.length===1,fx.events)
+    assert.equal(imported,true)
+    assert.equal(fx.cloud.workEvents[0].kind,'progress')
+    assert.equal(fx.cloud.workEvents[0].reason_code,'HOST_FAILURE')
+    assert.equal(fx.cloud.workEvents[0].content,'这次手机任务没能完成，平台已单独发出失败说明，不用再转告。')
+    assert.doesNotMatch(fx.cloud.workEvents[0].content,/网络连接|主人/)
+    assert.equal(fx.sessionReplies.length,0)
+    const journal=JSON.parse(await readFile(join(fx.root,'hosts',ownerId,'host.json'),'utf8'))
+    assert.equal(journal.jobs[messageId].failureNotice,undefined)
+    await fx.host.handle({type:'configure',config:fx.config})
+    assert.equal(fx.cloud.workEvents.length,1)
+  }finally{await fx.close()}
+})
+
+test('session get exposes native running and terminal proof for the exact latest admitted prompt',async()=>{
+ let finish
+ const gate=new Promise(resolve=>{finish=resolve})
+ const fx=await fixture(async()=>{await gate;return {status:'done',text:'[NO_REPLY]'}})
+ const caller={sessionId:randomUUID(),deviceId:'coordinator'}
+ const messageId=randomUUID()
+ try{
+  const created=await fx.host.invoke('sessionTimeline.sessionCreate',[{harness:'pi',prompt:'Initial task',clientRequestId:randomUUID()}],'create-proof')
+  await until(()=>Boolean(fx.host.state().execution),fx.events)
+  const get=()=>fx.host.invoke('agentSession.get',[caller,{action:'get',session_id:created.conversationId}],'proof')
+  const running=await get()
+  assert.equal(running.preview.running,true)
+  assert.equal(running.preview.ended,null)
+  finish()
+  await until(()=>fx.host.state().sessions.some(row=>row.sessionId===created.conversationId&&row.lastJobStatus==='done'),fx.events)
+  await fx.host.invoke('agentSession.message',[caller,{action:'message',session_ids:[created.conversationId],text:'Next original prompt',client_message_id:messageId,client_message_at:'2026-10-26T08:00:00Z'}],'next-proof')
+  await until(()=>fx.host.state().sessions.some(row=>row.sessionId===created.conversationId&&row.lastJobStatus==='done'),fx.events)
+  const ended=await get()
+  assert.equal(ended.preview.running,false)
+  assert.equal(ended.preview.ended.kind,'done')
+  assert.equal(ended.preview.entries.at(-1).messageId,messageId)
+ }finally{finish();await fx.close()}
 })

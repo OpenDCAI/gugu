@@ -1,17 +1,10 @@
 import { useTranslation } from 'react-i18next'
-import { Bell, Settings } from '@/lib/icons'
+import { Users } from '@/lib/icons'
 import { AUTOMATION_TEST_IDS } from '@/lib/automationDom'
 import { MenuItem } from '../ui/Menu'
 
-/** The same conversation actions in the header and the tab's context menu. */
-export function ChatDetailsMenuItems({ isGroupChat, onOpenSettings, onOpenAnnouncement }: {
-  isGroupChat: boolean
-  onOpenSettings: () => void
-  onOpenAnnouncement: () => void
-}) {
+/** The chat's info (members, announcement, settings: one tab, owner 10-26), the same item in each menu that offers it. */
+export function ChatDetailsMenuItems({ isGroupChat, onOpenInfo }: { isGroupChat: boolean; onOpenInfo: () => void }) {
   const { t } = useTranslation('messaging')
-  return <>
-    {isGroupChat && <MenuItem render={<button type="button" />} nativeButton data-testid={AUTOMATION_TEST_IDS.groupMenuAnnouncement} onClick={onOpenAnnouncement} icon={<Bell size={16} />}>{t('header.announcement')}</MenuItem>}
-    <MenuItem render={<button type="button" />} nativeButton data-testid={AUTOMATION_TEST_IDS.groupMenuSettings} onClick={onOpenSettings} icon={<Settings size={16} />}>{t('common.settings')}</MenuItem>
-  </>
+  return <MenuItem render={<button type="button" />} nativeButton data-testid={AUTOMATION_TEST_IDS.groupMenuSettings} onClick={onOpenInfo} icon={<Users size={16} />}>{t(isGroupChat ? 'header.groupInfo' : 'header.chatInfo')}</MenuItem>
 }

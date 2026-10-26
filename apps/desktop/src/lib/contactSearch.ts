@@ -1,3 +1,4 @@
+import { groupDisplayName } from '@gugu/core/shared/ui/chatModels'
 import type { ChatItem } from '@gugu/core/shared/types/chat'
 import type { ContactGroupChat, ContactUser } from '@gugu/core/shared/types/contacts'
 import { displayName } from './contactsListSort'
@@ -82,8 +83,8 @@ export function searchContacts(
     return hit ? [hit] : []
   }), displayName, (contact) => contact.id, recentAt)
   const groupHits = ranked(groups.flatMap((group) => {
-    const hit = bestHit(group, [['title', group.name], ['number', group.public_id == null ? null : String(group.public_id)]], query, key)
+    const hit = bestHit(group, [['title', groupDisplayName(group)], ['original', group.alias?.trim() ? group.name : null], ['number', group.public_id == null ? null : String(group.public_id)]], query, key)
     return hit ? [hit] : []
-  }), (group) => group.name, (group) => group.id, recentAt)
+  }), groupDisplayName, (group) => group.id, recentAt)
   return { people: contactHits(people), agents: contactHits(agents), groups: groupHits }
 }

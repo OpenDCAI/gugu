@@ -22,7 +22,8 @@ export function buildBubbleStyle(
     width: 'fit-content',
     maxWidth: '100cqw',
     minWidth: '44px',
-    padding: '8px 12px',
+    // 手机 8×16(v7.12「间距只用 4/8/16/24」,owner 10-26);桌面不动。
+    padding: compactMobile ? '8px 16px' : '8px 12px',
     // #7333 IM 人聊 / IM agent 的气泡正文是「消息与长段正文」那一档(16/24,用户裁决),不是紧凑界面的 14/20。
     // 桌面与手机同一档(≥ #1787 的移动 14 下限)。
     fontSize: 'var(--font-prose)',

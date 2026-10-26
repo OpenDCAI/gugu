@@ -1,3 +1,5 @@
+import { assistantWorkIntentSchema,type AssistantWorkIntent } from '@gugu/core/shared/assistantWorkIntent';
+import { assistantWorkLedgerContext } from '../../../../sessionpage/assistant-work-ledger';
 import { withSessionAttachments, type SessionAttachmentRef } from '@gugu/core/cloud/sessionAttachments';
 import { isActivityAction, runActivityAction, type ActivityAction } from '../activity/actions';
 import { tabHygiene, type TabHygieneResult } from './tab-hygiene';
@@ -52,8 +54,6 @@ import { fileOpenersFor } from '@shared/extensions/file-openers';
 import { agentStatusWriter } from '@main/core/agent-status/agent-status-writer';
 import { LocalExecutionContext } from '@main/core/execution-context/local-execution-context';
 import { killTmuxSession, listTmuxSessionNames, makeTmuxSessionName } from '@main/core/pty/tmux-session-name';
-import { projectManager } from '@main/core/projects/project-manager';
-import { resolveTmuxEnabled } from '@main/core/projects/settings/resolve-tmux-enabled';
 import { makePtySessionId } from '@shared/core/pty/ptySessionId';
 import { sessionsAliveInTmux } from '@main/core/sessions/session-process';
 import {
@@ -147,6 +147,7 @@ export type SessionAction =
   | { action: 'list_models'; harness?: string; transport?: SessionRuntime; force?: boolean }
   | {
       action: 'spawn';
+      assistant_work?: AssistantWorkIntent;
       prompt: string;
       source_link?: string;
       title?: string;
@@ -169,6 +170,9 @@ export type SessionAction =
       delivery_id?: string; delivery_at?: string; // Host-owned durable retry identity; not a model tool argument.
       attachments?: SessionAttachmentRef[];
       work_result?: WorkReport;
+      /** Internal account-outbox receipt; one destination only. Never generated again during retry. */
+      client_message_id?: string;
+      client_message_at?: string;
       /** Bare conversation ids, already decoded from `session:` typed entries at the host boundary. */
       session_ids: string[];
       text: string;
@@ -208,6 +212,7 @@ export type SessionAction =
 export type { SessionModel } from './session-model-fact';
 
 export type SessionSnapshot = {
+  assistant_work_target?: {session_id:string;device_id:string};
   session_id: string;
   source_links?: readonly string[];
   spawned_by_session_id: string | null;
@@ -397,14 +402,14 @@ function sessionDirectEnvelope(
   sender: EnvelopeSender,
   messageId: string,
   text: string,
-  said: Pick<Extract<SessionAction, { action: 'message' }>, 'then' | 'reply_to_message_id' | 'delivery_at'> = {},
+  said: Pick<Extract<SessionAction, { action: 'message' }>, 'then' | 'reply_to_message_id' | 'delivery_at' | 'client_message_at'> = {},
 ): string {
   return buildSessionDirectEnvelope({
     senderSessionId: sender.sessionId,
     senderTitle: sender.title,
     messageId,
     content: text,
-    at: formatDeliveryTimestamp(said.delivery_at ?? new Date().toISOString()),
+    at: formatDeliveryTimestamp(said.client_message_at ?? said.delivery_at ?? new Date().toISOString()),
     then: said.then,
     inReplyTo: said.reply_to_message_id,
   });
@@ -495,7 +500,7 @@ async function stopSessionTransport(target: SessionRow, onlyIfIdle = false): Pro
     // ❌ 为了停去挂载:挂载(连已挂载的快路径在内)会广播 session:provisioned,渲染层据此把会话准备起来、
     // 复原标签、按原会话把进程拉起来 —— 停了等于重启(#4377 mac1 实测:停后 0.1 s 内 `--resume` 重生)。
     const mounted = resolveSession(target.projectId, target.id);
-    if (mounted) await mounted.sessions.stopSession(target.id);
+    if (mounted?.sessions.ownsSession(target.id)) await mounted.sessions.stopSession(target.id);
     else await stopUnattachedTmuxSession(target);
   }
   // 停在启动途中:起动门随之关上 —— 停掉的会话不是「再等等就好」。
@@ -505,12 +510,10 @@ async function stopSessionTransport(target: SessionRow, onlyIfIdle = false): Pro
 /**
  * 没挂载的会话,引擎仍可能在 tmux 里跑:账号进程重启后接回是懒的,还没被叫到的会话宿主手里没有它。
  * 按 tmux 列表(与接回同一个判据)找到就杀,并照常落「被打断」。❌ 当成「没有东西可停」回成功,让 tmux 里的引擎照跑
- * (10-08 三例:e2143d72、9cad5445、38b46f1a)。只在这个项目开着 tmux 时去问:没装 tmux 的机器不因为问不到而停不掉。
+ * (10-08 三例:e2143d72、9cad5445、38b46f1a)。当前项目设置不能证明旧引擎是否还活着:设置可能已改,项目也可能尚未打开。
+ * 与接回和回收扫描一样,只认咕咕自己的 tmux 套接字里的实际会话。
  */
 async function stopUnattachedTmuxSession(target: SessionRow): Promise<void> {
-  const project = projectManager.getProject(target.projectId);
-  if (!project) throw new Error(`project ${target.projectId} is not open; cannot tell whether session ${target.id} runs in tmux`);
-  if (!(await resolveTmuxEnabled(project.settings, target.projectId))) return;
   const ctx = new LocalExecutionContext();
   if (!sessionsAliveInTmux(await listTmuxSessionNames(ctx)).has(target.id)) return;
   await killTmuxSession(ctx, makeTmuxSessionName(makePtySessionId(target.projectId, target.id, target.id)));
@@ -906,6 +909,7 @@ async function spawnSession(
     prompt,
     title: action.title,
     sourceLink: action.source_link,
+    assistantWork: action.assistant_work,
     envelope: envelopeOf(await localEnvelopeSender(caller)),
     // 带 chat_id 开的子会话是派出去干活的:任务座位(不发入群提示)。
     ...(action.chat_id ? { birthGroup: { chatId: action.chat_id, asTask: true } } : {}),
@@ -936,6 +940,7 @@ async function spawnSession(
   });
   return {
     ...snapshot(row, {}, await sessionModel(row)),
+    ...(action.assistant_work ? {assistant_work_target:{session_id:row.id,device_id:(await assistantWorkLedgerContext()).deviceId}} : {}),
     // child 是本项目里生出来的，因此和 caller 同属这个群（[[agent-provisioning]] 的入群是它 session
     // start 的一步）。点名了别的项目时 child 入的是那个项目的群，caller 不在里面 ⇒ 只有点对点。
     //
@@ -1010,6 +1015,7 @@ async function createChildSession(input: {
   transport: SessionRuntime;
   prompt: string;
   sourceLink?: string;
+  assistantWork?: AssistantWorkIntent;
   title?: string;
   /** The first turn's envelope: the sending session's, or the App's. */
   envelope: DeliveryEnvelope;
@@ -1031,10 +1037,25 @@ async function createChildSession(input: {
   // permission prompts. Its autonomy is therefore decided here, once, before either transport sees it.
   // Keep the session-page composer's durable choice unchanged; only this delegated child is fully automatic.
 
-  const sessionId = randomUUID();
-  const messageId = randomUUID();
+  const intent=input.assistantWork ? assistantWorkIntentSchema.parse(input.assistantWork) : null;
+  const sessionId = intent?.child_session_id ?? randomUUID();
+  const messageId = intent?.message_id ?? randomUUID();
+  if(intent) {
+    const remote=input.relations.spawnedByRemote;
+    if(remote ? remote.sessionId!==intent.coordinator.session_id || remote.deviceId!==intent.coordinator.device_id
+      : input.relations.spawnedBySessionId!==intent.coordinator.session_id) throw new Error('Assistant work coordinator does not match the spawning session');
+    const [existing]=await db.select().from(sessions).where(eq(sessions.id,sessionId));
+    if(existing) {
+      const sameSender=remote ? existing.config?.spawnedByRemote?.sessionId===remote.sessionId && existing.config.spawnedByRemote.deviceId===remote.deviceId
+        : existing.spawnedBySessionId===input.relations.spawnedBySessionId;
+      if(!sameSender || existing.projectId!==projectId || existing.workspaceId!==input.workspaceId || existing.provider!==provider
+        || transportOf(existing)!==transport || existing.config?.firstUtterance!==prompt) throw new Error('Assistant work seat ID belongs to a different dispatch');
+      ledger.settle({sessionId});
+      return existing;
+    }
+  }
   const useProviderInitialPrompt =
-    transport === 'pty' && providerConsumesStartupPrompt(
+    !intent && transport === 'pty' && providerConsumesStartupPrompt(
       getPlugin(provider).capabilities.prompt,
       transport,
     );
@@ -1052,7 +1073,7 @@ async function createChildSession(input: {
   // spawn joins that same start, wakes up inside the gap, and the empty-cell guard (#4949) reported
   // a working child as "The engine could not start" (real Electron on dev: 4/4; the guard fired 37 ms
   // before the first turn began).
-  const initialQueue = transport === 'acp'
+  const initialQueue = !intent && transport === 'acp'
     ? [{ text: input.envelope(messageId, prompt), origin: 'communication' as const }]
     : undefined;
   signal?.throwIfAborted();
@@ -1101,6 +1122,12 @@ async function createChildSession(input: {
   }
   const [row] = await db.select().from(sessions).where(eq(sessions.id, sessionId));
   if (!row) throw new Error('spawned session disappeared before startup');
+  if(intent) {
+    // The coordinator commits this seat's first delivery with its ledger row.
+    // Only the account outbox may inject it or start the executor afterwards.
+    ledger.settle({sessionId});
+    return row;
+  }
   if (!initialPrompt && !initialQueue) {
     try {
       signal?.throwIfAborted();
@@ -1720,6 +1747,10 @@ function checkedMessage(
     throw new Error(`reply_to_message_id must be a msg:<uuid> as a delivery's msg gives it (got ${JSON.stringify(action.reply_to_message_id).slice(0, 80)})`);
   }
   if (action.work_result !== undefined) workReportSchema.parse(action.work_result);
+  if (action.client_message_id !== undefined && (!/^[0-9a-f]{8}(?:-[0-9a-f]{4}){3}-[0-9a-f]{12}$/i.test(action.client_message_id)
+    || action.session_ids.length !== 1 || !action.client_message_at || !Number.isFinite(Date.parse(action.client_message_at)))) {
+    throw new Error('Account outbox delivery requires one recipient, a stable UUID and timestamp');
+  }
   const targets = [...new Set(action.session_ids)].map((sessionId) =>
     assertMessageableTarget(rows, callerSessionId, resolveSessionRow(rows, sessionId)),
   );
@@ -1757,7 +1788,7 @@ async function sendSessionMessage(
   const recipients: SessionDirectRecipientResult[] = [];
   for (const target of targets) {
     signal?.throwIfAborted();
-    const messageId = sessionDirectMessageId(keyScope, target.id, action);
+    const messageId = action.client_message_id ?? sessionDirectMessageId(keyScope, target.id, action);
     if (action.source_link) await rememberActivitySource(target.id, action.source_link);
     // 附带:目标已经在运行中就当场按普通发送投出;否则存下来(不叫醒),等它进入运行中那一刻再投(session-deferred-messages.ts)。
     if (plan && 'defer' in plan && !sessionIsWorking(target.id)) {
@@ -1774,23 +1805,27 @@ async function sendSessionMessage(
         clientMessageId: messageId,
         text: envelope(messageId, text),
         kind: 'session-direct',
+        ...(signal ? { signal } : {}),
         ...(plan && 'queue' in plan ? { delivery: plan.queue } : {}),
       });
+      const admitted = result.status === 'delivered' || (action.client_message_id !== undefined && result.status === 'accepted');
       recipients.push({
         to: encodeTypedId('session', target.id),
-        status: result.status === 'delivered' ? 'delivered' : 'failed',
+        status: admitted ? 'delivered' : 'failed',
         message_id: result.id,
-        ...(result.status === 'delivered'
+        ...(admitted
           ? {}
           : {
               error: result.status === 'outcome-unknown'
                 // 耐久收据停在 dispatching = **仍在飞**,不是失败。塌成 failed 会诱发重发,
                 // 所以它有自己的码;调用方要重试得先自己判幂等。
                 ? { code: 'SESSION_DIRECT_OUTCOME_UNKNOWN', message: 'delivery is still in flight — the durable receipt has not settled' }
-                : { code: 'SESSION_DIRECT_DELIVERY_FAILED', message: `delivery ended in status ${result.status}` },
+                : result.status === 'queued'
+                  ? { code: 'SESSION_DIRECT_QUEUED', message: 'message is durably queued but has not been admitted' }
+                  : { code: 'SESSION_DIRECT_DELIVERY_FAILED', message: `delivery ended in status ${result.status}` },
             }),
       });
-      if (result.status === 'delivered' && report && keyScope.startsWith('session:')) {
+      if (admitted && report && keyScope.startsWith('session:')) {
         try { receiveAssistantWorkReport(target.id, keyScope.slice('session:'.length), report, result.id); }
         catch (error) { log.error('assistant result received but recovery metadata could not be updated', { sessionId: target.id, error: String(error) }); }
       }
@@ -2179,6 +2214,7 @@ async function spawnForRemoteCaller(
     prompt,
     title: action.title,
     sourceLink: action.source_link,
+    assistantWork: action.assistant_work,
     envelope: envelopeOf(remoteEnvelopeSender(caller)),
     ...(action.chat_id ? { birthGroup: { chatId: action.chat_id, asTask: true } } : {}),
     model: selection.kind === 'gugu'
@@ -2195,6 +2231,7 @@ async function spawnForRemoteCaller(
   });
   return {
     ...snapshot(row, {}, await sessionModel(row)),
+    ...(action.assistant_work ? {assistant_work_target:{session_id:row.id,device_id:(await assistantWorkLedgerContext()).deviceId}} : {}),
     // 发起方与 child 不在同一台机器、也不在同一个项目群里:往来只有点对点这一条。
     message_route: { tool: 'session_message', to: [encodeTypedId('session', row.id)] },
   };

@@ -1,5 +1,5 @@
 {
   "repository": "OpenDCAI/gugu-supabase",
-  "ref": "9a56dc7f4911d650a524030f7ff4be8f8891f56c",
-  "status": "Assistant panel cloud state and terminal failed outcomes merged in OpenDCAI/gugu-supabase#43 and #49."
+  "ref": "53b9d04085071dfaf88070c05f6d0edabc510707",
+  "status": "Assistant panel cloud state, terminal failed outcomes and topic archival merged in OpenDCAI/gugu-supabase#43, #48 and #49."
 }

@@ -16,11 +16,13 @@ export function taskChatWindow(rows: ChatListRowItem[], count: number): { rows: 
 export function taskChatRows(messages: readonly MessageItem[], exchanges: readonly TaskExchange[], task: AssistantTaskChat | null, query: string): ChatListRowItem[] {
   const rows: ChatListRowItem[] = visibleDeliveryMessages(messages).map((message) => ({ type: 'message', message }))
   if (!task) return rows
+  const original = new Set(messages.map(message => message.id))
   const seen = new Set<string>()
   for (const entry of exchanges) {
     const fromAssistant = task.assistants.some((assistant) => assistant.sessionId === entry.fromSessionId)
     const toAssistant = task.assistants.some((assistant) => assistant.sessionId === entry.toSessionId)
     if (!(fromAssistant && entry.toSessionId === task.task.sessionId) && !(toAssistant && entry.fromSessionId === task.task.sessionId)) continue
+    if (entry.sourceMessageId && original.has(entry.sourceMessageId)) continue
     if (seen.has(entry.id) || (query && !entry.content.toLowerCase().includes(query.toLowerCase()))) continue
     seen.add(entry.id)
     rows.push({

@@ -8,7 +8,6 @@ import { createAssistantPanelClient, type AssistantPanelChange, type AssistantPa
 import { readAssistantPanelBody, uploadAssistantPanelBody } from '@gugu/core/cloud/assistantPanelBodies'
 import type { AssistantHomeKind } from '@gugu/core/shared/assistantPolicy'
 import { assistantHomePaths } from '@gugu/core/shared/assistantPolicy'
-import { parseConversationLink } from '@gugu/core/shared/ui/guguLink'
 import type { assistantPanelLocal } from '../session/main/core/app/assistant-panel-local'
 import { applyAssistantPanelService } from './assistant-panel-service'
 import { localAgentForSession } from './sessionpage-session-agent'
@@ -136,21 +135,7 @@ export function createAssistantPanelRuntime(deps: {
         title: row.name,nextRunAt: row.nextRunAt,lastRun: row.lastRun,prompt: row.agentConfig?.prompt ?? '',at: row.triggerConfig?.at ?? null,cron: row.triggerConfig?.expr ?? null,
         tz: row.triggerConfig?.tz ?? null,enabled: row.enabled,
       } }))
-      await access()
-      const children = new Set(own)
-      for (let pass = 0; pass < sessions.length; pass++) {
-        let added = false
-        for (const row of sessions) if (row.summary.parentConversationId && children.has(row.summary.parentConversationId) && !children.has(row.summary.conversationId)) {
-          children.add(row.summary.conversationId); added = true
-        }
-        if (!added) break
-      }
-      return sessions.filter(row => !own.includes(row.summary.conversationId) && (children.has(row.summary.conversationId)
-        || row.summary.activitySourceLinks?.some(link => chatId && parseConversationLink(link)?.chatId === chatId))).map(({ summary,agentId }) => ({ key: summary.conversationId,data: {
-          agentId,sessionId: summary.conversationId,parentSessionId: summary.parentConversationId ?? null,assistantSessionIds: own,
-          title: summary.title,harness: summary.harness,unseen: summary.unseen,lastInteractedAt: summary.lastInteractedAt,status: summary.status?.status ?? summary.agentStatus,
-          statusDetail: summary.status?.detail ?? null,statusObservedAt: new Date().toISOString(),sourceLinks: summary.activitySourceLinks ?? [],
-        } }))
+      return []
     }
     function observeFiles() {
       const paths = assistantHomePaths(binding.home,binding.cwd,binding.kind)
@@ -174,7 +159,7 @@ export function createAssistantPanelRuntime(deps: {
         if ((await hostAuth())?.userId !== binding.ownerId) { dispose(); return }
         await serial(() => prepare(''))
         const instanceId = deps.instanceId()!, deviceId = await deps.deviceId()
-        for (const domain of ['memory','personality','files','skills','voice-notes','tasks','schedules','capabilities','device-notes','integrations'] as const) {
+        for (const domain of ['memory','personality','files','skills','voice-notes','schedules','capabilities','device-notes','integrations'] as const) {
           try {
             await publishAssistantPanelCollection({ assistantId: binding.assistantId,instanceId,deviceId,domain,cloud,
               collect: previous => observations(domain,previous),

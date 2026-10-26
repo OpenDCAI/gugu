@@ -1,3 +1,4 @@
+import { assistantWorkReads } from '@/lib/assistantWorkShell'
 import { createAssistantPanelFiles } from '@gugu/core/cloud/assistantPanelFiles'
 import { readAssistantPanelBody, uploadAssistantPanelBody } from '@gugu/core/cloud/assistantPanelBodies'
 import { AssistantPanelError } from '@gugu/core/cloud/assistantPanel'
@@ -9,6 +10,7 @@ import { assistantPanelCloud, assistantPrivateChat, assertAssistantPanelOwner, p
 import { ASSISTANT_PANEL_CHANGED } from './assistant-panel-events'
 
 const bridge: AssistantPanelBridge = {
+  work: assistantWorkReads,
   accountId: () => getRendererSession()?.user.id ?? null,
   subscribeAccount: listener => observeRendererSession(() => listener()),
   files({ ownerId,assistantId,chatId,deviceId }) {
@@ -32,9 +34,11 @@ const bridge: AssistantPanelBridge = {
       changed: () => window.dispatchEvent(new CustomEvent(ASSISTANT_PANEL_CHANGED,{ detail: { ownerId,assistantId,deviceId } })),
     })
   },
-  subscribeChanges(ownerId,listener) {
+  subscribeChanges(ownerId,listener,domain='panel') {
     assertAssistantPanelOwner(ownerId)
-    const handle = subscribePrivateUserEventBus(ownerId,'assistant_panel_changed',listener)
+    const handle = domain==='work'
+      ? subscribePrivateUserEventBus(ownerId,'assistant_work_changed',listener,{onSubscribed:()=>listener()})
+      : subscribePrivateUserEventBus(ownerId,'assistant_panel_changed',listener)
     return () => unsubscribePrivateUserEventBus(handle)
   },
   personalAssistant,

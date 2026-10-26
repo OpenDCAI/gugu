@@ -790,7 +790,7 @@ describe('claude jsonl 记录源', () => {
     const bounds = boundaryEntries(all);
     // 这份真实记录里 stop_reason 是 end_turn 的只有一条，tool_use 有四条。
     expect(bounds).toHaveLength(1);
-    expect(bounds[0].boundary).toEqual({ kind: 'turn_end', stopReason: 'end_turn' });
+    expect(bounds[0].boundary).toEqual({ kind: 'turn_end', stopReason: 'end_turn', messageId: 'msg_011CdFv9eLCAotLSMjdcKP5A' });
     expect(bounds[0].key.endsWith('#end')).toBe(true);
 
     // 阳性对照：这份记录里确实有 tool_use 的 assistant 记录 —— 上面那个 1 不是"整条通道没跑起来"。

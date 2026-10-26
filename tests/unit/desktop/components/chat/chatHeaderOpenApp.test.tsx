@@ -42,19 +42,17 @@ async function openMenu(mobile: boolean) {
     isRoomChat: true,
     searchMode: false,
     folderShown: false,
-    memberListOpen: false,
+    infoShown: false,
     showHeaderMenu: true,
     mobile,
     moreButtonRef: createRef<HTMLButtonElement>(),
     onEnterSearchMode: vi.fn(),
     onOpenFolder: vi.fn(),
     onCloseWorkspacePanel: vi.fn(),
-    onOpenSettingsDrawer: vi.fn(),
-    onOpenMemberList: vi.fn(),
-    onCloseRightSurfaces: vi.fn(),
+    onOpenInfo: vi.fn(),
+    onCloseInfo: vi.fn(),
     onToggleHeaderMenu: vi.fn(),
     onCloseHeaderMenu: vi.fn(),
-    onOpenAnnouncement: vi.fn(),
   }), { chat: { activeChatId: 'g', chats: [{ id: 'g', kind: 'group' }] as never } })
   const entry = mobile
     ? [...document.querySelectorAll<HTMLElement>('[role="menuitem"]')].find((el) => el.textContent === '群 Apps')!

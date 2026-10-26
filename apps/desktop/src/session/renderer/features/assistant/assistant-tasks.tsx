@@ -1,19 +1,18 @@
+import {AssistantWorkTaskRead} from '@/components/assistant/AssistantWorkTaskRead';
+import {useAssistantWorkOwnerId} from '@/lib/assistantWorkReadBridge';
 import { messageForUser } from '@/lib/userFacingError';
 import { formatSessionTitleForDisplay } from '@shared/core/sessions/session-title-utils';
 import { rendererLogger } from '@/lib/log';
 import { isAssistantPanelReadRetryable, retryAssistantPanelRead } from '@gugu/core/cloud/assistantPanelRead';
 import { assistantPanelFailure } from '@/components/assistant/assistant-panel-errors';
-import { isAgentHostDevice } from '@gugu/core/cloud/devices';
-import { useDirectoryDevices, useLiveDeviceSessions, usePhoneTaskDirectory, deviceSessionsOf } from '@/session/shared/remote-sessions/session-directory';
-import { assistantTaskDeviceLabel, assistantTaskDirectory } from './assistant-task-directory';
+import { useDirectoryDevices } from '@/session/shared/remote-sessions/session-directory';
+import { assistantTaskDeviceLabel } from './assistant-task-directory';
 import { observer } from 'mobx-react-lite';
-import { useEffect, useState } from 'react';
+import { useState } from 'react';
 import { useMutation, useQuery } from '@tanstack/react-query';
 import { assistantQueryKey } from './assistant-data';
 import { assistantPanelRoutines } from '@/components/assistant/assistant-panel-routines';
-import { openAssistantTaskChat } from '@/lib/assistantTaskChat';
-import { localHomeSessions } from './assistant-home-sessions';
-import { remoteAgentStatus } from '@renderer/features/sidebar/session-groups';
+import { useAssistantWorkTasks, openAssistantPanelTask } from '@/components/assistant/assistant-panel-tasks';
 import { useTranslation } from 'react-i18next';
 import { AlignJustify, Clock, Plus, Trash2 } from '@/lib/icons';
 import { AgentStatusIndicator } from '@renderer/lib/components/agent-status-indicator';
@@ -23,7 +22,7 @@ import { Switch } from '@renderer/lib/ui/switch';
 import { isSpentOneTimeAutomation, type Automation } from '@shared/core/automations/automation';
 import type { AssistantContext, AssistantPageProps } from './assistant-context';
 import { reportAssistantAppChange } from '@/components/assistant/assistant-app-client';
-import { assistantTasks, groupByDay } from './assistant-lineage';
+import { groupByDay } from './assistant-lineage';
 import { scheduleText } from './assistant-schedule';
 import { AssistantEmpty, AssistantRow, AssistantSection, MachineGate, PageHead, WideSegments } from './assistant-ui';
 
@@ -90,31 +89,21 @@ const TaskLists = observer(function TaskLists({ context }: AssistantPageProps) {
   );
 });
 
-/** 它的子 agent:所有别的机器(云电脑在内)会话目录里,父会话链上是它的那些。 */
+/** 账号级派活账本;执行设备离线或目录撤下不影响任务记录。 */
 const SubAgents = observer(function SubAgents({ context }: AssistantPageProps) {
-  usePhoneTaskDirectory();
-  useEffect(() => localHomeSessions.use(),[]);
-  const devices = useDirectoryDevices(), live = useLiveDeviceSessions();
+  const devices = useDirectoryDevices();
   const { t } = useTranslation('assistant');
-  const listed = assistantTaskDirectory(devices,live,localHomeSessions);
-  const children = assistantTasks(listed,context.assistant.id,context.chatId);
-  const groups = groupByDay(children,item => item.summary.lastInteractedAt,new Date());
-  const reads = devices.filter(device => device.is_online && isAgentHostDevice(device)).map(device => deviceSessionsOf(device,live));
-  const error = reads.find(read => read.error)?.error ?? null;
-  return <MachineGate readiness={context.readiness} loading={children.length === 0 && (devices.length === 0 || reads.some(read => read.loading))}
-    error={children.length === 0 ? error : null} onRetry={() => {}}>
-    {children.length === 0 ? <AssistantSection bare><AssistantEmpty title={t('tasks.emptyTitle')}
+  const ownerId=useAssistantWorkOwnerId();
+  const read=useAssistantWorkTasks(ownerId,context.assistant.id);
+  return <AssistantWorkTaskRead read={read} failedTitle={t('tasks.loadFailed')}>{children=>children.length === 0 ? <AssistantSection bare><AssistantEmpty title={t('tasks.emptyTitle')}
       action={<button type="button" className="ta-pill-btn" onClick={() => context.askInChat(t('tasks.createPrompt'))}>{t('tasks.create')}</button>} /></AssistantSection>
-      : groups.map(group => <AssistantSection key={group.bucket} title={t(`tasks.day.${group.bucket}`)} testId={`assistant-tasks-${group.bucket}`}>
-        {group.items.map(item => {
-          const { summary,deviceId,live } = item, reading = remoteAgentStatus(summary,live);
-          return <AssistantRow key={summary.conversationId} testId={`assistant-subagent-${summary.conversationId}`} title={formatSessionTitleForDisplay(summary.harness,summary.title)}
-            detail={assistantTaskDeviceLabel(devices,deviceId)}
-            trailing={reading && reading.status !== 'idle' ? <AgentStatusIndicator status={reading.status} detail={reading.detail} /> : summary.unseen ? <span className="ta-unseen" aria-label={t('tasks.unseen')} /> : null}
-            chevron={false} onClick={summary.agent?.userId ? () => openAssistantTaskChat(context.assistant.id,item,listed) : undefined} />;
-        })}
+      : groupByDay(children,item => item.lastInteractedAt,new Date()).map(group => <AssistantSection key={group.bucket} title={t(`tasks.day.${group.bucket}`)} testId={`assistant-tasks-${group.bucket}`}>
+        {group.items.map(task => <AssistantRow key={task.key} testId={`assistant-subagent-${task.id}`} title={formatSessionTitleForDisplay(task.harness ?? '',task.title)}
+          detail={assistantTaskDeviceLabel(devices,task.deviceId)}
+          trailing={task.status && task.status.status !== 'idle' ? <AgentStatusIndicator status={task.status.status} detail={task.status.detail} /> : task.unseen ? <span className="ta-unseen" aria-label={t('tasks.unseen')} /> : null}
+          chevron={false} onClick={task.agentId ? () => openAssistantPanelTask({assistantId:context.assistant.id},task) : undefined} />)}
       </AssistantSection>)}
-  </MachineGate>;
+  </AssistantWorkTaskRead>;
 });
 
 /**

@@ -32,7 +32,7 @@ export function AssistantTaskChatOpener({ visible, ...handlers }: { visible: boo
     let generation = 0
     const open = (event: Event) => {
       const request = (event as CustomEvent<AssistantTaskChat>).detail
-      if (!user || pending === request.taskAgentId) return
+      if (!user || pending === `${request.taskAgentId}:${request.workId ?? "legacy"}`) return
       const current = ++generation
       const show = (identities: readonly ContactUser[]) => {
         const owned = (id: string) => identities.find(contact => contact.id === id && contact.type === 'agent' && contact.owner_user_id === user.id)
@@ -49,7 +49,7 @@ export function AssistantTaskChatOpener({ visible, ...handlers }: { visible: boo
       }
       // A newly created agent reaches the session directory before the contacts snapshot.
       // Read its canonical identity, rather than treating a stale cache as a failed creation.
-      pending = request.taskAgentId
+      pending = `${request.taskAgentId}:${request.workId ?? "legacy"}`
       void readRequiredDisplayIdentities(missing).then(identities => {
         if (alive && current === generation) show([...contacts, ...identities])
       }).catch((error: unknown) => {

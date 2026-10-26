@@ -1,4 +1,5 @@
 import { useSyncExternalStore } from 'react'
+import type { AssistantWorkReads } from './assistantWorkReadBridge'
 import { AssistantPanelError, type AssistantPanelReceipt } from '@gugu/core/cloud/assistantPanel'
 import type { AssistantPanelFiles } from '@gugu/core/cloud/assistantPanelFiles'
 import type { AssistantAppChange } from '@/session/shared/extensions/assistant-app'
@@ -6,10 +7,11 @@ import type { AssistantAppChange } from '@/session/shared/extensions/assistant-a
 /** The shell owns authentication and cloud effects. Session-page bundles receive
  * operations and public account identity, never credentials or an AuthContext. */
 export interface AssistantPanelBridge {
+  work?: AssistantWorkReads
   accountId(): string | null
   subscribeAccount(listener: () => void): () => void
   files(input: { ownerId: string; assistantId: string; chatId: string; deviceId: string }): AssistantPanelFiles
-  subscribeChanges(ownerId: string, listener: () => void): () => void
+  subscribeChanges(ownerId: string, listener: (payload?: unknown) => void, domain?: 'panel' | 'work'): () => void
   personalAssistant(ownerId: string): Promise<string | null>
   privateChat(ownerId: string, assistantId: string): Promise<string>
   queueNotice(change: AssistantAppChange, assistantId: string | undefined, ownerId: string | null): Promise<AssistantPanelReceipt | null>

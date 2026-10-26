@@ -8,6 +8,7 @@ import { migrateStrandedLifecycleOutbox } from './migrate-lifecycle-outbox';
 export type SessionMessageRouter = (
   sessionId: string,
   message: SessionMessage & { delivery?: SessionMessageDelivery },
+  signal?: AbortSignal,
 ) => Promise<
   | { status: 'not-ready'; preserve?: boolean; reason?: string }
   | { status: 'accepted'; messageId: string; nativeReceiptId?: string }

@@ -2605,3 +2605,5 @@ export function sessionpageBusyForVersionSwitch(): boolean {
 export function setSessionpageLogFileOwner(ownerUserId: string | null): string | undefined {
   return setLogFileOwner(ownerUserId)
 }
+
+export {readAssistantWorkReceipts} from '@main/core/session-timeline/task-exchanges'

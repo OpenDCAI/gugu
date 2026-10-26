@@ -45,6 +45,11 @@ export const CODEX_ACTOR_AUTHORIZATION_SWITCH = 'gugu-image-generation-switch';
  */
 export const CODEX_STANDALONE_SEARCH_ROUTE = PLATFORM_STANDALONE_SEARCH_ROUTE;
 
+// HTTP retries emit no app-server notification. Use the visible stream retry loop instead.
+// Codex defaults (4 HTTP retries nested in 5 stream retries) allow 30 attempts with ~24.2s
+// of local backoff. Seven stream retries allow 8 attempts with ~25.4s of local backoff.
+export const CODEX_PLATFORM_RETRY_CONFIG = { request_max_retries: 0, stream_max_retries: 7 } as const;
+
 export function codexImageGenerationGranted(routes: PlatformCallableRoutes | undefined): boolean {
   return routes?.[CODEX_IMAGE_GENERATION_ROUTE]?.includes(CODEX_IMAGE_GENERATION_MODEL) ?? false;
 }
@@ -94,6 +99,7 @@ export function codexPlatformProviderConfigArgs(input: {
     '-c', `model_providers.${id}.base_url=${JSON.stringify(input.baseUrl)}`,
     '-c', `model_providers.${id}.env_key=OPENAI_API_KEY`,
     '-c', `model_providers.${id}.wire_api=${CODEX_WIRE_API}`,
+    ...Object.entries(CODEX_PLATFORM_RETRY_CONFIG).flatMap(([key, value]) => ['-c', `model_providers.${id}.${key}=${value}`]),
     ...codexImageGenerationArgs(id, input.callableRoutes, input.model?.trim()),
     // Explicitly select standalone search even without the image-generation actor header.
     // The remote TUI must receive this same block: its thread configuration overrides the server's.

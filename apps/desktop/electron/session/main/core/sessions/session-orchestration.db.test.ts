@@ -1,3 +1,4 @@
+import { installAssistantWorkLedgerHost } from '../../../../sessionpage/assistant-work-ledger';
 import { formatDeliveryTimestamp } from '@gugu/core/local/agent/deliveryEnvelope';
 import { openFixture } from '@tooling/utils/db';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
@@ -29,7 +30,7 @@ const mocks = vi.hoisted(() => ({
   recordDeliveredSessionDirectMessage: vi.fn(),
   drainSessionMessageOutbox: vi.fn(),
   /** 挂载着的会话(按会话 id):pty 会话的进程经它起停。 */
-  mounted: new Map<string, { sessionPath: string | undefined; sessions: { startSession: unknown; stopSession: unknown; sendMessage: unknown } }>(),
+  mounted: new Map<string, { sessionPath: string | undefined; sessions: { startSession: unknown; stopSession: unknown; sendMessage: unknown; ownsSession: (id: string) => boolean } }>(),
   ensureSessionMounted: vi.fn(),
   installedExtensions: [] as Array<{
     manifest: { id: string; contributes: { tabs: Array<{ name: string; title?: string; opensFiles?: { session?: string[]; chat?: string[] } }> } };
@@ -307,6 +308,7 @@ describe('session orchestration', () => {
         startSession: mocks.ptyStartSession,
         stopSession: mocks.ptyStopSession,
         sendMessage: vi.fn(),
+        ownsSession: () => true,
       },
     });
   }
@@ -598,6 +600,24 @@ describe('session orchestration', () => {
       return row.config ? (JSON.parse(row.config) as Record<string, unknown>) : {};
     }
 
+    it('prepares one stable dormant account-work seat without delivering or starting its first turn', async () => {
+      project2Root();
+      const stop=installAssistantWorkLedgerHost({context:async()=>({ownerId:'owner',runtimeInstanceId:'runtime',deviceId:'device-b',client:{rpc:async()=>({data:null,error:null})}}),kick:()=>{}});
+      const intent={version:1 as const,assistant_id:'10000000-0000-4000-8000-000000000001',work_id:'10000000-0000-4000-8000-000000000002',operation_id:'10000000-0000-4000-8000-000000000003',message_id:'10000000-0000-4000-8000-000000000004',child_session_id:'10000000-0000-4000-8000-000000000005',coordinator:{session_id:'remote-caller',device_id:'device-a'},title:'Task',continuation:false};
+      try {
+        const action={action:'spawn' as const,prompt:'Run after account acceptance',project_id:'project-2',assistant_work:intent};
+        const first=await runRemoteSessionAction(remoteCaller,action) as {session_id:string;assistant_work_target:unknown};
+        expect(first.session_id).toBe(intent.child_session_id);
+        expect(first.assistant_work_target).toMatchObject({session_id:intent.child_session_id,device_id:'device-b'});
+        await runRemoteSessionAction(remoteCaller,action);
+        expect(childRows()).toHaveLength(1);
+        expect(mocks.startSession).not.toHaveBeenCalled();
+        expect(mocks.ptyStartSession).not.toHaveBeenCalled();
+        expect(mocks.sendMessage).not.toHaveBeenCalled();
+        expect(mocks.recordDeliveredSessionDirectMessage).not.toHaveBeenCalled();
+      } finally {stop();}
+    });
+
     it('spawns a child nested under the caller on the other machine, recorded in config, and answers to its session id', async () => {
       project2Root();
       const result = (await runRemoteSessionAction(remoteCaller, {
@@ -752,6 +772,18 @@ describe('session orchestration', () => {
       await expect(runRemoteSessionAction(remoteCaller, { ...action, delivery_at: undefined })).rejects.toThrow(/original timestamp/);
     });
 
+    it('keeps the cloud message pending until native acceptance and formats its original time locally', async () => {
+      const id = '8ff7b564-892b-4aa5-9d49-a85c1d5cb9ea';
+      mocks.sendMessage.mockImplementation(async (params) => ({ id: params.clientMessageId, status: 'queued' }));
+      const action = { action: 'message', session_ids: ['caller'], text: 'ready', client_message_id: id, client_message_at: '2026-10-26T01:00:00Z' } as const;
+      const first = await runRemoteSessionAction(remoteCaller, action as never);
+      const second = await runRemoteSessionAction(remoteCaller, action as never);
+      expect(mocks.sendMessage.mock.calls.slice(-2).map(([params]) => params.clientMessageId)).toEqual([id, id]);
+      expect(mocks.sendMessage.mock.calls.at(-1)![0].text).toContain(`at="${formatDeliveryTimestamp(action.client_message_at)}"`);
+      expect(first).toEqual({ recipients: [expect.objectContaining({ to: 'session:caller', status: 'failed', message_id: id, error: {code:'SESSION_DIRECT_QUEUED',message:expect.any(String)} })] });
+      expect(second).toEqual(first);
+    });
+
     // owner 10-17:发信方自己说的发完以后去向与回的是哪条 —— 收件这台机器写上信封属性,正文不动;取值不对在投递前就拒。
     it('writes the sender\'s then / reply_to_message_id on the envelope, and refuses a then it does not know', async () => {
       mocks.sendMessage.mockResolvedValue({ id: 'm1', status: 'delivered' });
@@ -896,21 +928,32 @@ describe('session orchestration', () => {
         expect(mocks.settleSessionExited).not.toHaveBeenCalled();
       });
 
-      it('does not ask tmux when the project runs without tmux: nothing to stop', async () => {
-        mocks.tmuxEnabled.mockImplementation(async () => false);
+      it('stops the tmux engine even when the task mount exists but has not reattached its process', async () => {
+        mount(cold.sessionId);
+        mocks.mounted.get(cold.sessionId)!.sessions.ownsSession = () => false;
+        mocks.tmuxSessionNames.add(coldTmuxName);
 
         await expect(stopExactSessionpageSession(cold)).resolves.toBe(true);
-        expect(mocks.listTmuxSessionNames).not.toHaveBeenCalled();
-        expect(mocks.killTmuxSession).not.toHaveBeenCalled();
+        expect(mocks.killTmuxSession).toHaveBeenCalledExactlyOnceWith(expect.anything(), coldTmuxName);
+        expect(mocks.ptyStopSession).not.toHaveBeenCalled();
         expect(mocks.ensureSessionMounted).not.toHaveBeenCalled();
       });
 
-      it('fails loudly when its project is not open: whether it runs in tmux cannot be told', async () => {
-        mocks.openProjects = new Set();
+      it('stops the surviving engine even if the project now runs without tmux', async () => {
+        mocks.tmuxEnabled.mockImplementation(async () => false);
+        mocks.tmuxSessionNames.add(coldTmuxName);
 
-        await expect(stopExactSessionpageSession(cold)).rejects.toThrow(/project project-1 is not open/);
-        expect(mocks.listTmuxSessionNames).not.toHaveBeenCalled();
-        expect(mocks.killTmuxSession).not.toHaveBeenCalled();
+        await expect(stopExactSessionpageSession(cold)).resolves.toBe(true);
+        expect(mocks.killTmuxSession).toHaveBeenCalledExactlyOnceWith(expect.anything(), coldTmuxName);
+        expect(mocks.ensureSessionMounted).not.toHaveBeenCalled();
+      });
+
+      it('stops a surviving engine without requiring its project to be opened first', async () => {
+        mocks.openProjects = new Set();
+        mocks.tmuxSessionNames.add(coldTmuxName);
+
+        await expect(stopExactSessionpageSession(cold)).resolves.toBe(true);
+        expect(mocks.killTmuxSession).toHaveBeenCalledExactlyOnceWith(expect.anything(), coldTmuxName);
       });
     });
 

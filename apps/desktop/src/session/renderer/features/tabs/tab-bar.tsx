@@ -224,6 +224,7 @@ export function TabStripShell({
     return () => observer.disconnect();
   }, []);
   return (
+    <>
     <div
       ref={barRef}
       // 页签条的空白处拖窗口,三个平台、每种块都一样(项目块、对话块、App 块原先这里什么都没有);
@@ -273,5 +274,7 @@ export function TabStripShell({
       {overflowSlot}
       {actionsSlot}
     </div>
+    <div data-first-run-hint-space="topics" />
+    </>
   );
 }

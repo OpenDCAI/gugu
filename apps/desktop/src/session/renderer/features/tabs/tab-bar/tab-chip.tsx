@@ -80,6 +80,8 @@ export interface TabChipProps extends Omit<ComponentPropsWithoutRef<'div'>, 'tit
   /** 关不掉的页签(项目块的项目群那一枚)不给这两样:没有关闭钮,状态照画。 */
   closeLabel?: string;
   onClose?: () => void;
+  /** 关闭钮前面的一颗钮(并排那一页的「占满 / 还原」):只在页签够宽(full)时画,窄了走双击和右键。 */
+  actionSlot?: ReactNode;
 }
 
 /**
@@ -107,6 +109,7 @@ export function TabChip({
   statusSlot,
   closeLabel,
   onClose,
+  actionSlot,
   className,
   ...rest
 }: TabChipProps) {
@@ -182,6 +185,7 @@ export function TabChip({
             {hint ? <span className="ml-1 text-xs text-foreground-muted">{hint}</span> : null}
           </TabTitle>
         )}
+        {density.value === 'full' ? actionSlot : null}
         {/* 窄到只剩图标的活动页签:关闭钮也浮起来,图标居中(全名在悬浮提示里)。非活动的那种没有钮,状态照画。 */}
         {noClose || !onClose ? (
           statusSlot ? <div className="relative flex size-5 shrink-0 items-center justify-center">{statusSlot}</div> : null

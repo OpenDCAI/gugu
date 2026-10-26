@@ -205,12 +205,13 @@ describe('群成员 / 群公告是设置栈里的一页', () => {
   it.each([
     ['group-settings-members', 'members'],
     ['group-settings-announcement', 'announcement'],
-  ])('桌面:%s 进去有返回也有关闭,返回回到一级页', async (testId, target) => {
+  ])('桌面:%s 进去只有返回(群信息是页签,关它的是页签上的 ×),返回回到一级页', async (testId, target) => {
     const props = await renderDrawer('member-1')
     expect(backButton()).toBeNull()
+    expect(closeButton()).toBeNull()
     await click(q(`[data-testid="${testId}"]`))
     expect(page()).toBe(target)
-    expect(closeButton()).not.toBeNull()
+    expect(closeButton()).toBeNull()
     await click(backButton())
     expect(page()).toBe('main')
     expect(props.onClose).not.toHaveBeenCalled()
@@ -261,5 +262,14 @@ describe('#6418 群聊设置 —— 二级页', () => {
     await click(buttons[buttons.length - 1] as HTMLElement)
     expect(props.onLeaveGroup).toHaveBeenCalledTimes(1)
     expect(confirmSpy).not.toHaveBeenCalled()
+  })
+})
+
+describe('群信息页签从成员钮进:落在那一页,返回回到一级页', () => {
+  it.each(['members', 'announcement'] as const)('initialPage=%s', async (initialPage) => {
+    await renderDrawer('member-1', { initialPage }, false)
+    await waitForCondition(() => page() === initialPage, 'opened at its page')
+    await click(q('[aria-label="返回"]'))
+    expect(page()).toBe('main')
   })
 })

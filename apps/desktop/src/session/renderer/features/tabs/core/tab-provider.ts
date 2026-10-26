@@ -179,6 +179,13 @@ export interface TabProvider<
   placesPairItself?: boolean;
 
   /**
+   * How wide (px) this page wants to be beside another, as the narrow one of a pair (spec session-page「并排」: a group's
+   * info, its folder, an App's page beside its chat). None: the two are peers, half each. The pair keeps it until the
+   * divider is dragged; at most half the pane.
+   */
+  sideWidth?(state: S): number | undefined;
+
+  /**
    * Normalize/validate open args, perform synchronous side-effects
    * (e.g. create a browser session), and return the initial serializable state.
    * Return null to abort the open.

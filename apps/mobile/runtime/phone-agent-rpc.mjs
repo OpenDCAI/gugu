@@ -133,6 +133,10 @@ export async function startPhoneAgentRpc({ cloud, ownerId, deviceId, invoke, pro
         let result = peer.requests.get(request.request_id)
         if (!result) {
           result = (async () => {
+            if(request.type==='assistantWork.deliver') {
+              try { return {result:await invoke('assistantWork.deliver',[request.payload],request.request_id)} }
+              catch(error) {return {error:{code:error.code ?? 'work_delivery_failed',message:error.message}}}
+            }
             if (request.type === 'taskhost.call') {
               const body = request.payload
               if (!body || typeof body.channel !== 'string' || !Array.isArray(body.args)) return { error: { code: 'invalid_payload', message: 'channel 和 args 是必填的' } }

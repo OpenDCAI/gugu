@@ -80,6 +80,7 @@ function AuthenticatedProduct({ user }: { user: AuthUser }) {
 }
 
 export default function App() {
+
   const session = useSyncExternalStore(
     sessionCoordinator.subscribe,
     sessionCoordinator.getSnapshot,

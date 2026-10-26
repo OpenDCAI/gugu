@@ -10,15 +10,19 @@ import type { PaneStore } from '@renderer/features/tabs/pane-store';
 import { createTabView } from '@renderer/features/tabs/tab-view-factory';
 import { TabViewPersistor } from '@renderer/features/tabs/tab-view-persistor';
 import { viewStateCache } from '@renderer/lib/stores/view-state-cache';
+import { readChatSummary } from '@/lib/chatSummariesBridge';
 import { panelItemKey, type PanelItem } from './chat-panel-item';
 import { keepRestore, takeRestore } from './chat-tab-restores';
 import {
+  CHAT_INFO_TAB_KIND,
   CHAT_PANEL_TAB_KIND,
   CHAT_TAB_KIND,
   CHAT_TOPIC_TAB_KIND,
+  chatInfoTabProvider,
   chatPanelTabProvider,
   chatTabProvider,
   chatTopicTabProvider,
+  type ChatInfoState,
   type ChatTopicState,
 } from './chat-tab-providers';
 
@@ -26,7 +30,7 @@ import {
  * A chat's strip, on the same engine as a task's (spec session-page「并排」): the chat is its first tab, as a task's
  * conversation is; what opens beside it pairs with it, left or right, above or below; separated, either fills the block.
  */
-export const chatTabView = createTabView([chatTabProvider, chatPanelTabProvider, chatTopicTabProvider] as const, {
+export const chatTabView = createTabView([chatTabProvider, chatPanelTabProvider, chatTopicTabProvider, chatInfoTabProvider] as const, {
   // Kept as a task's tabs are (`chat:<id>:tabs` in view-state).
   makePersistor: (ctx) => new TabViewPersistor(ctx.viewId),
 });
@@ -122,12 +126,12 @@ export function chatAlone(chatId: string): boolean {
 }
 
 /** The tab holding focus — on the phone and in a window without a strip, the one page shown. */
-export function focusedChatTab(chatId: string): { tabId: string; kind: 'chat' | 'panel' | 'topic' } | null {
+export function focusedChatTab(chatId: string): { tabId: string; kind: 'chat' | 'panel' | 'topic' | 'info' } | null {
   const pane = paneOf(chatLayoutOf(chatId));
   const tabId = pane.resolvedActiveTabId;
   const kind = tabId ? pane.entries.get(tabId)?.kind : undefined;
   if (!tabId || !kind) return null;
-  return { tabId, kind: kind === CHAT_PANEL_TAB_KIND ? 'panel' : kind === CHAT_TOPIC_TAB_KIND ? 'topic' : 'chat' };
+  return { tabId, kind: kind === CHAT_PANEL_TAB_KIND ? 'panel' : kind === CHAT_TOPIC_TAB_KIND ? 'topic' : kind === CHAT_INFO_TAB_KIND ? 'info' : 'chat' };
 }
 
 /** The tab a closed tab goes back to (its 上一页), while that is still open. */
@@ -242,6 +246,28 @@ export const closeTopicTab = action(function closeTopicTab(chatId: string): void
  */
 export const hideTopicTab = action(function hideTopicTab(chatId: string): void {
   if (topicTabOf(chatId)?.shown) closeTopicTab(chatId);
+});
+
+/** The chat's info tab (members, announcement, settings), and whether it is on screen. */
+export function infoTabOf(chatId: string): { tabId: string; info: ChatInfoState; shown: boolean } | null {
+  const found = tabsOf(chatLayoutOf(chatId)).find(({ tab }) => tab.kind === CHAT_INFO_TAB_KIND);
+  return found ? { tabId: found.tab.tabId, info: found.pane.entries.get(found.tab.tabId)!.state as ChatInfoState, shown: found.tab.isActive } : null;
+}
+
+/**
+ * The chat's info beside it (its members' button, its tab's menu, a command): open already, it comes forward — at `page`
+ * when one is asked for, else as it is.
+ */
+export const openInfoTab = action(function openInfoTab(chatId: string, page?: ChatInfoState['page']): void {
+  const open = infoTabOf(chatId);
+  const group = readChatSummary(chatId)?.kind === 'group';
+  chatLayoutOf(chatId).open(CHAT_INFO_TAB_KIND, page || !open ? { group, page, at: Date.now() } : open.info, { beside: true, overrideState: true });
+});
+
+/** The info tab leaves the strip (its members' button pressed again). */
+export const closeInfoTab = action(function closeInfoTab(chatId: string): void {
+  const tab = infoTabOf(chatId);
+  if (tab) paneHolding(chatLayoutOf(chatId), tab.tabId)?.closeTab(tab.tabId);
 });
 
 /** Every group file open in a tab, in any chat: the folder's revisions read their names. */

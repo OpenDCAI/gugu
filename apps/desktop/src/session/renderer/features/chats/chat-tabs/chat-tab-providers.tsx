@@ -1,13 +1,15 @@
 import { observer } from 'mobx-react-lite';
 import { createContext, useCallback, useContext, useSyncExternalStore, type ReactNode } from 'react';
 import { useTranslation } from 'react-i18next';
-import { Folder, MessageSquare, Paperclip } from '@/lib/icons';
+import { Folder, MessageSquare, Paperclip, Users } from '@/lib/icons';
 import { chatTabSlotKey, readShellSlots } from '@/lib/shellSlots';
 import { readChatSummary, subscribeChatSummaries } from '@/lib/chatSummariesBridge';
 import { chatFolderNameKeyOf } from '@/components/chat/chatFolderName';
 import { RailAppIcon } from '@/components/RailAppIcon';
 import { extensionSurfaceStore, extensionTabTitle } from '@renderer/features/extensions/extension-surface-store';
 import { installedExtensionsStore } from '@renderer/features/extensions/installed-extensions-store';
+import { declaredMenuCommands, runExtensionCommand } from '@renderer/features/extensions/extension-commands';
+import { ExtensionTabBadge } from '@renderer/features/extensions/extension-tab-badge';
 import type { TabHost } from '@renderer/features/tabs/core/tab-host';
 import type { ResolvedTab, TabBarItemProps, TabContentProps, TabEntry, TabResource, TabViewContext } from '@renderer/features/tabs/core/tab-provider';
 import { createTabProvider } from '@renderer/features/tabs/core/tab-provider-registry';
@@ -23,9 +25,18 @@ export const CHAT_TAB_KIND = 'chat';
 export const CHAT_PANEL_TAB_KIND = 'chat-panel';
 /** The topic open beside its group (topics.md): one at a time; opening another shows that one in its place. */
 export const CHAT_TOPIC_TAB_KIND = 'chat-topic';
+/**
+ * The chat's info (owner 10-26: one place for what the chat is — its members, announcement, settings): a tab like the
+ * folder's, one a chat; `page` is where it was opened at (the members' button: their list), `at` tells two opens apart.
+ */
+export const CHAT_INFO_TAB_KIND = 'chat-info';
 
 export type ChatTabState = { chatId: string };
 export type ChatTopicState = { topicChatId: string; name: string };
+export type ChatInfoState = { group: boolean; page?: 'members' | 'announcement'; at?: number };
+
+/** A list of rows: as wide as the drawers it replaces (spec session-page「并排」: a page declares its width beside the chat). */
+const CHAT_INFO_SIDE_WIDTH = 360;
 
 /** The chat a strip belongs to (its place, `chat-layouts`). */
 export const chatIdOfView = (ctx: TabViewContext): string => (ctx.place?.kind === 'chat' ? ctx.place.chatId : '');
@@ -109,14 +120,21 @@ const PanelTabItem = observer(function PanelTabItem({ tab, host, ctx }: TabBarIt
   const item = stateOf<PanelItem>(tab);
   const chatId = chatIdOfView(ctx);
   const { label, hint, tooltip } = usePanelPresentation(chatId, tab.tabId, item);
+  const surface = extensionSurfaceStore.said(null, groupPageSlot(chatId, tab.tabId));
   const ownBlock = useContext(ChatTabHostContext)?.ownBlock;
   // 「单独一块」(spec session-page「一屏几块」,同任务里 App 那一枚):这张页自己占一块,贴在这一块右边;这个对话里就不留它了。
-  const kindCommands = item.kind && ownBlock
-    ? [{ id: `${tab.tabId}:own-block`, label: translateSessionMessage('extensions.ownBlock'), group: 'extension', run: () => ownBlock(tab.tabId) }]
+  // App 声明的菜单命令跟在后面,同任务里的 App 页签(工具栏那一行去掉了,owner 10-26 选 A)。
+  const kindCommands = item.kind
+    ? [
+        ...(ownBlock ? [{ id: `${tab.tabId}:own-block`, label: translateSessionMessage('extensions.ownBlock'), group: 'extension', run: () => ownBlock(tab.tabId) }] : []),
+        ...declaredMenuCommands(item.kind).map((command) => ({
+          id: `${tab.tabId}:${command.id}`, label: command.title, group: 'extension', run: () => runExtensionCommand(null, groupPageSlot(chatId, tab.tabId), command.id),
+        })),
+      ]
     : [];
   return (
     <div className="contents" data-panel-tab={isFolderItem(item) ? 'folder' : (item.kind ?? 'preview')}>
-      <GenericTabItem tab={tab} host={host} ctx={ctx} label={label} hint={hint} tooltip={tooltip} preSlot={<PanelIcon item={item} />} kindCommands={kindCommands} />
+      <GenericTabItem tab={tab} host={host} ctx={ctx} label={label} hint={hint} tooltip={tooltip} hasError={surface.error !== null} preSlot={<PanelIcon item={item} />} statusSlot={<ExtensionTabBadge badge={surface.badge} />} kindCommands={kindCommands} />
     </div>
   );
 });
@@ -156,6 +174,9 @@ export const chatPanelTabProvider = createTabProvider<typeof CHAT_PANEL_TAB_KIND
   kind: CHAT_PANEL_TAB_KIND,
   mount: 'single',
   resourceKey: panelItemKey,
+  // An App's own page beside the chat is as wide as its manifest says (`sideWidth`); a file, in it or the host's preview, is
+  // the chat's peer: half each.
+  sideWidth: (item) => (item.kind && !item.itemId ? installedExtensionsStore.sideWidth(item.kind) : undefined),
   // The host's preview holds a message and a file version of this moment: gone with the window, as before.
   isPersistent: (item) => item.kind !== null,
   initialize: stateResource,
@@ -196,4 +217,34 @@ export const chatTopicTabProvider = createTabProvider<typeof CHAT_TOPIC_TAB_KIND
   TabBarItem: TopicTabItem,
   TabBarItemDragPreview: ({ tab }) => <GenericTabDragPreview preSlot={<MessageSquare size={14} />} label={stateOf<ChatTopicState>(tab).name} />,
   TabContent: TopicTabContent,
+});
+
+const useInfoLabel = (tab: ResolvedTab) => useTranslation('messaging').t(stateOf<ChatInfoState>(tab).group ? 'header.groupInfo' : 'header.chatInfo');
+
+const InfoTabItem = observer(function InfoTabItem({ tab, host, ctx }: TabBarItemProps<TabResource>) {
+  return (
+    <div className="contents" data-info-tab="">
+      <GenericTabItem tab={tab} host={host} ctx={ctx} label={useInfoLabel(tab)} preSlot={<Users size={14} />} />
+    </div>
+  );
+});
+
+const InfoTabDragPreview = observer(function InfoTabDragPreview({ tab }: { tab: ResolvedTab }) {
+  return <GenericTabDragPreview preSlot={<Users size={14} />} label={useInfoLabel(tab)} />;
+});
+
+function InfoTabContent(props: TabContentProps) {
+  return <ShellTabSlots {...props} kind={CHAT_INFO_TAB_KIND} />;
+}
+
+export const chatInfoTabProvider = createTabProvider<typeof CHAT_INFO_TAB_KIND, ChatInfoState, TabResource>({
+  kind: CHAT_INFO_TAB_KIND,
+  mount: 'single',
+  resourceKey: () => 'info',
+  sideWidth: () => CHAT_INFO_SIDE_WIDTH,
+  initialize: stateResource,
+  dispose: () => {},
+  TabBarItem: InfoTabItem,
+  TabBarItemDragPreview: InfoTabDragPreview,
+  TabContent: InfoTabContent,
 });

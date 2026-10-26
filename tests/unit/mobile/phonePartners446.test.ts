@@ -1,0 +1,150 @@
+import { describe, expect, it } from 'vitest'
+import type { ChatItem, Device } from '@gugu/core/shared/types/chat'
+import type { ContactUser } from '@gugu/core/shared/types/contacts'
+import type { DeviceProject } from '@gugu/core/shared/types/deviceProject'
+import type { SessionpageSessionSummary } from '@gugu/session-core/session-record/contract'
+import {
+  newProjectPath,
+  partnerFriends,
+  partnerProjects,
+  projectAgents,
+  projectNameProblem,
+  projectSessions,
+  projectTopics,
+  runningCount,
+} from '../../../apps/desktop/src/mobile/partners/partnersModel'
+
+function project(localProjectId: string, name: string, createdAt: string, chatId: string | null, groupRepresentative = false): DeviceProject {
+  return { localProjectId, name, rootPath: `/work/${name}`, createdAt, chatId, groupRepresentative, folders: [] }
+}
+
+function device(deviceId: string, projects: DeviceProject[]): Pick<Device, 'device_id' | 'projects'> {
+  return { device_id: deviceId, projects }
+}
+
+function contact(id: string, fields: Partial<ContactUser> = {}): ContactUser {
+  return { id, display_name: id, avatar: null, bio: null, type: 'human', ...fields }
+}
+
+function session(conversationId: string, projectId: string, fields: Partial<SessionpageSessionSummary> = {}): SessionpageSessionSummary {
+  return { conversationId, projectId, title: conversationId, harness: 'claude', runtime: 'acp', agentStatus: null, lastInteractedAt: null, supported: true, ...fields }
+}
+
+// 手机「伙伴」(owner 10-26,OpenDCAI/gugu#446):项目记在账号上、不归哪台机器;朋友 = 人 + 别人的 agent。
+describe('partnerProjects', () => {
+  it('merges the local projects bound to one group across machines into one project', () => {
+    const projects = partnerProjects([
+      device('mac', [project('p-mac', 'gugu', '2026-10-02T00:00:00.000Z', 'chat-gugu', true)]),
+      device('server', [project('p-server', 'gugu-server', '2026-10-01T00:00:00.000Z', 'chat-gugu')]),
+    ])
+    expect(projects).toHaveLength(1)
+    // 名字与封面跟代表的那一个;建的时间取最早那台。
+    expect(projects[0]).toMatchObject({ key: 'chat-gugu', chatId: 'chat-gugu', name: 'gugu', coverId: 'p-mac', createdAt: '2026-10-01T00:00:00.000Z' })
+    expect(projects[0].members).toEqual([{ deviceId: 'mac', localProjectId: 'p-mac' }, { deviceId: 'server', localProjectId: 'p-server' }])
+  })
+
+  it('keeps a project without a group as its own row, keyed by machine and local id', () => {
+    const projects = partnerProjects([device('mac', [project('p1', 'notes', '2026-10-01T00:00:00.000Z', null)])])
+    expect(projects.map((row) => row.key)).toEqual(['mac:p1'])
+    expect(projects[0].chatId).toBeNull()
+  })
+
+  it('lists projects in creation order, not by activity', () => {
+    const projects = partnerProjects([
+      device('mac', [
+        project('late', 'late', '2026-10-20T00:00:00.000Z', 'c-late'),
+        project('early', 'early', '2026-09-01T00:00:00.000Z', 'c-early'),
+      ]),
+      device('server', [project('mid', 'mid', '2026-10-05T00:00:00.000Z', null)]),
+    ])
+    expect(projects.map((row) => row.name)).toEqual(['early', 'mid', 'late'])
+  })
+
+  it('takes the earliest project for name and cover when no machine marks a representative', () => {
+    const [merged] = partnerProjects([
+      device('a', [project('pa', 'second', '2026-10-02T00:00:00.000Z', 'c')]),
+      device('b', [project('pb', 'first', '2026-10-01T00:00:00.000Z', 'c')]),
+    ])
+    expect(merged).toMatchObject({ name: 'first', coverId: 'pb' })
+  })
+})
+
+describe('partnerFriends', () => {
+  it('is people plus other owners’ agents, never my own agents', () => {
+    const me = 'me'
+    const friends = partnerFriends(
+      [contact('张三'), contact('my-agent', { type: 'agent', owner_user_id: me })],
+      [contact('their-agent', { type: 'agent', owner_user_id: 'someone' }), contact('mine-again', { type: 'agent', owner_user_id: me })],
+      me,
+    )
+    expect(friends.map((friend) => friend.id).sort()).toEqual(['their-agent', '张三'].sort())
+  })
+
+  it('does not list one person twice', () => {
+    const friends = partnerFriends([contact('a')], [contact('a', { type: 'agent', owner_user_id: 'x' })], 'me')
+    expect(friends).toHaveLength(1)
+  })
+
+  it('orders by how the name reads', () => {
+    const friends = partnerFriends([contact('c', { display_name: '周' }), contact('a', { display_name: '陈' }), contact('b', { display_name: '林' })], [], 'me')
+    expect(friends.map((friend) => friend.display_name)).toEqual(['陈', '林', '周'])
+  })
+})
+
+describe('project address book', () => {
+  const group = { member_user_ids: ['me', 'agent-b', 'someone-else', 'agent-a'] }
+  const mine = new Map([['agent-a', contact('agent-a', { type: 'agent', owner_user_id: 'me' })], ['agent-b', contact('agent-b', { type: 'agent', owner_user_id: 'me' })]])
+
+  it('lists my agents in the group in the group’s order, then agents only seen in this project’s sessions', () => {
+    const sessions = [
+      { session: session('s1', 'p', { agent: { userId: 'agent-a' }, title: 'old', lastInteractedAt: '2026-10-01T00:00:00Z' }) },
+      { session: session('s2', 'p', { agent: { userId: 'agent-a' }, title: 'fix login', lastInteractedAt: '2026-10-03T00:00:00Z' }) },
+      { session: session('s3', 'p', { agent: { userId: 'fresh' }, title: 'brand new' }) },
+    ]
+    const agents = projectAgents(group, mine, sessions)
+    expect(agents.map((agent) => agent.id)).toEqual(['agent-b', 'agent-a', 'fresh'])
+    expect(agents.find((agent) => agent.id === 'agent-a')?.work).toBe('fix login')
+    expect(agents.find((agent) => agent.id === 'fresh')?.contact).toBeNull()
+  })
+
+  it('gathers each machine’s sessions of this project only', () => {
+    const sessions = projectSessions(
+      { members: [{ deviceId: 'mac', localProjectId: 'p-mac' }, { deviceId: 'server', localProjectId: 'p-server' }] },
+      (deviceId) => deviceId === 'mac'
+        ? [session('a', 'p-mac', { status: { status: 'working', detail: 'running' } }), session('b', 'other')]
+        : [session('c', 'p-server')],
+    )
+    expect(sessions.map(({ session: row }) => row.conversationId)).toEqual(['a', 'c'])
+    expect(runningCount(sessions)).toBe(1)
+  })
+
+  it('shows the group’s topics that are not a task’s, oldest first', () => {
+    const chat = (id: string, fields: Partial<ChatItem>): ChatItem => ({
+      id, kind: 'topic', status: 'active', name: id, created_at: '2026-10-01T00:00:00Z', last_message_at: null, last_message_preview: null,
+      unread_count: 0, pinned_message_id: null, last_read_seq: 0, next_message_seq: 0, ...fields,
+    } as ChatItem)
+    const topics = projectTopics('g', [
+      chat('later', { source_chat_id: 'g', created_at: '2026-10-05T00:00:00Z' }),
+      chat('task', { source_chat_id: 'g' }),
+      chat('earlier', { source_chat_id: 'g', created_at: '2026-10-02T00:00:00Z' }),
+      chat('elsewhere', { source_chat_id: 'other' }),
+      chat('g', { kind: 'group', source_chat_id: null }),
+    ], new Set(['task']))
+    expect(topics.map((topic) => topic.id)).toEqual(['earlier', 'later'])
+    expect(projectTopics(null, [], new Set())).toEqual([])
+  })
+})
+
+describe('new project', () => {
+  it('makes a new empty folder named after the project in the machine’s projects directory', () => {
+    expect(newProjectPath('/Users/me/Documents', '咕咕')).toBe('/Users/me/Documents/咕咕')
+    expect(newProjectPath('/Users/me/Documents/', 'x')).toBe('/Users/me/Documents/x')
+  })
+
+  it('takes the same names the computer’s 新建项目 takes', () => {
+    expect(projectNameProblem('  ')).toBe('empty')
+    expect(projectNameProblem('a/b')).toBe('invalid')
+    expect(projectNameProblem('..')).toBe('invalid')
+    expect(projectNameProblem('新项目')).toBeNull()
+  })
+})

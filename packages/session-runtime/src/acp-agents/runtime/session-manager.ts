@@ -2163,6 +2163,7 @@ export class SessionManager implements InboundRouter {
         return turnFailure
           ? {
               turnFailure: {
+                ...(turnFailure.fromPromptResponse ? { fromPromptResponse: turnFailure.fromPromptResponse } : {}),
                 ...(turnFailure.fromAgentMessage ? { fromAgentMessage: turnFailure.fromAgentMessage } : {}),
                 watchesStderr: Boolean(turnFailure.fromStderrLine),
               },
