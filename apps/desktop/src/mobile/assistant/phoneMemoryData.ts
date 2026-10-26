@@ -19,6 +19,7 @@ import {
 export async function deleteMemoryNote(machine: AssistantMachine, entry: Pick<MemoryEntry, 'path' | 'file'>, onRemoved?: () => Promise<void>): Promise<void> {
   await removePath(machine, entry.path)
   await onRemoved?.()
+  if (machine.panel) return
   const index = await readText(machine, machine.paths.memoryIndex)
   if (index === null) return
   const next = removeIndexEntry(index, entry.file)
@@ -79,6 +80,16 @@ export type ResourceView =
 
 /** 看一个文件:不是文本 / 太大如实说,❌ 当成空文件。 */
 export async function readFileForView(machine: AssistantMachine, path: string): Promise<FileContentView> {
+  if (machine.panel) {
+    const data = await machine.panel.bytes(path)
+    if (!data) throw new AssistantFileError('missing','The file no longer exists')
+    if (data.length > VIEW_MAX_BYTES) return { kind: 'too-large',size: data.length }
+    try {
+      const text = new TextDecoder('utf-8',{ fatal: true }).decode(data)
+      return text.includes('\0') ? { kind: 'binary' } : { kind: 'text',text }
+    } catch { return { kind: 'binary' } }
+  }
+  if (!machine.rpc) throw new AssistantFileError('unavailable','File access is unavailable')
   const result = await machine.rpc.workspace.files.readExternalFile(machine.projectId, machine.workspaceId, path, VIEW_MAX_BYTES)
   if (!result.success) throw new AssistantFileError(result.error.type, 'message' in result.error ? String(result.error.message) : result.error.type)
   if (result.data.truncated) return { kind: 'too-large', size: result.data.totalSize }

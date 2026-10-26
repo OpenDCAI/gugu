@@ -10,6 +10,7 @@ export { recordConfirmedDeviceSleep } from '../session/main/core/activity/collec
 export {
   bootEmdashModule,
   setSessionAdmissionPreparation,
+  assistantPanelLocal,
   readCurrentActivityInput,
   disposeEmdashModule,
   emdashRpcRouter,

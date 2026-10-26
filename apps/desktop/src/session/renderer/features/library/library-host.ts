@@ -24,6 +24,7 @@ import type {
   InstallSourceVersions,
 } from '@shared/core/agents/agent-payload';
 import type { ProviderCustomConfig } from '@shared/core/app-settings';
+import type { AssistantPanelFiles } from '@gugu/core/cloud/assistantPanelFiles';
 
 /** 与本机 `rpc.agents.*` 同名同参的那几个(资源库「智能体」一页用到的全部)。 */
 export type LibraryAgentsRpc = {
@@ -95,6 +96,10 @@ export type LibraryRemoteDevice = {
 };
 
 export type LibraryHost = {
+  assistantPanel?: AssistantPanelFiles;
+  assistantPanelExpected?: boolean;
+  assistantPanelError?: unknown;
+  prepareAssistantAction?: () => Promise<void>;
   /** 缓存键里区分机器的那一段:本机 `local`,别的机器 `remote:<deviceId>`。 */
   key: string;
   agents: LibraryAgentsRpc;

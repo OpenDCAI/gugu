@@ -47,7 +47,7 @@ const HomeConnectorList = observer(function HomeConnectorList({ host, home, assi
   const [openId, setOpenId] = useState<string | null>(null);
   const reload = useCallback(() => void reloadList(), [reloadList]);
   const failure = useReadFailure(hasList ? null : listError, host.remote?.deviceId ?? null, host.remote?.deviceLabel ?? '', reload);
-  if (host.remote?.online === false) return <SettingsNote>{t('machine.unreachable', { name: assistantName })}</SettingsNote>;
+  if (!host.assistantPanelExpected && host.remote?.online === false) return <SettingsNote>{t('machine.unreachable', { name: assistantName })}</SettingsNote>;
   if (failure)
     return (
       <SettingsPage>

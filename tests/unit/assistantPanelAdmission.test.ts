@@ -62,4 +62,16 @@ describe('assistant panel admission', () => {
     expect(world.cloud.ack).toHaveBeenCalledTimes(1)
     expect(world.cloud.admit).toHaveBeenCalledOnce()
   })
+
+  it('retries lost acknowledgements and reports the exact resource if acknowledgements remain unavailable', async () => {
+    const transient = fixture()
+    transient.cloud.ack.mockRejectedValueOnce(new Error('network')).mockRejectedValueOnce(new Error('network'))
+    await expect(prepareAssistantPanelAdmission(transient.input)).resolves.toMatchObject({ text: expect.stringContaining('hello') })
+    expect(transient.application.apply).toHaveBeenCalledTimes(2)
+    const failed = fixture()
+    failed.cloud.ack.mockRejectedValue(new Error('network'))
+    await expect(prepareAssistantPanelAdmission(failed.input)).rejects.toMatchObject({ domain: 'memory',resourceKey: 'note',code: 'CHANGE_ACK_UNAVAILABLE' })
+    expect(failed.application.apply).toHaveBeenCalledTimes(3)
+    expect(failed.cloud.admit).not.toHaveBeenCalled()
+  })
 })

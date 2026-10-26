@@ -1,4 +1,4 @@
-import { useMemo, useState, type ReactNode } from 'react'
+import { useState, type ReactNode } from 'react'
 import { useTranslation } from 'react-i18next'
 import { OtherDeviceConnectors, ThisDeviceConnectors } from '@/components/devices/AssistantDeviceConnectors'
 import { Button } from '@/components/ui/Button'
@@ -12,7 +12,6 @@ import { formMethodOf } from '@/session/renderer/features/integrations/integrati
 import type { IntegrationMetadata } from '@/session/renderer/features/integrations/integrations-provider'
 import { translateSessionMessage } from '@/session/renderer/localization/locale-store'
 import { PluginIcon } from '@/session/renderer/lib/components/plugin-icon'
-import { machineRpc } from '../agent-watch/sessionpage-rpc'
 import { PhoneDeviceActionsPage } from '../phone-device/PhoneDeviceActionsPage'
 import type { PhonePageProps } from './MobileAssistantApp'
 import { PhoneConfirmDialog } from './PhoneConfirmDialog'
@@ -20,9 +19,7 @@ import { PhoneMachineGate } from './PhoneMachineGate'
 import { ReadingNow } from './PhoneMachineView'
 import {
   connectSub,
-  disconnectIntegration,
   formatDay,
-  removeGithubAccount,
   setupPlanOf,
 } from './phoneConnectorFlow'
 import { connectorDetail, connectorGroups, thisDeviceView } from './phoneProfileModel'
@@ -166,7 +163,7 @@ function ConnectorLists({ data, open, connect }: { data: PhoneIntegrations; open
  * 只有这条路手机上真走不通的才如实说去哪连(phone 网页版的浏览器授权:要 App),❌ 摆一个点了不连的钮。
  * 多账号(邮箱)与 GitHub 逐个列账号、逐个断开;单账号的一家一个「断开连接」。断开都先确认。
  */
-export function PhoneConnectorDetail({ assistant, readiness, homeDeviceId, integrations, id, go }: PhonePageProps & { integrations: Integrations; id: string }) {
+export function PhoneConnectorDetail({ assistant, readiness, homeDeviceId, machine, integrations, id, go }: PhonePageProps & { integrations: Integrations; id: string }) {
   const { t } = useTranslation('assistant')
   const name = assistant.display_name
   const view = integrations.data && !integrations.error ? connectorDetail(integrations.data.items, integrations.data.configured, integrations.data.statuses, id) : null
@@ -174,6 +171,7 @@ export function PhoneConnectorDetail({ assistant, readiness, homeDeviceId, integ
   const wantsAccounts = !!view && view.connected && (view.item.id === 'github' || view.item.multiAccount)
   const [changes, setChanges] = useState(0)
   const accounts = usePhoneConnectorAccounts({
+    machine: machine.state === 'ready' ? machine.machine : null,
     device: homeDeviceId,
     id,
     name: view?.item.name ?? id,
@@ -183,16 +181,17 @@ export function PhoneConnectorDetail({ assistant, readiness, homeDeviceId, integ
   // 那台机器比多账号老:按单账号画(一个「断开连接」);读失败 / 还在读时不画它 —— 那个钮会一次断掉所有账号。
   const listsAccounts = wantsAccounts && accounts.supported
   const [confirm, setConfirm] = useState<{ accountId: string | null; label: string } | null>(null)
-  const rpc = useMemo(() => (homeDeviceId ? machineRpc(homeDeviceId) : null), [homeDeviceId])
   const status = view && integrations.data?.statuses ? integrations.data.statuses[view.item.id] : undefined
   const state = connectorState(view?.connected, status, integrations.data?.statusError)
   const issueText = view && status && !status.connected && view.connected ? integrationErrorText(translateSessionMessage, view.item.name, status) : undefined
 
   const disconnect = async () => {
-    if (!view || !rpc || !confirm) return
-    if (view.item.id === 'github' && confirm.accountId) await removeGithubAccount((accountId) => rpc.github.removeAccount(accountId), confirm.accountId)
-    else await disconnectIntegration((integrationId, accountId) => rpc.integrations.disconnect(integrationId, accountId), view.item.id, confirm.accountId ?? undefined)
-    await reportAssistantAppChange({ rpc }, assistant.id, { resource: 'integrations', operation: 'removed', section: 'accounts',
+    if (!view || machine.state !== 'ready' || !machine.machine.panel || !confirm) return
+    const panel = machine.machine.panel
+    const rows = await panel.collection('integrations')
+    for (const row of rows.filter(row => row.data.providerId === view.item.id && typeof row.data.accountId === 'string'
+      && (!confirm.accountId || row.data.accountId === confirm.accountId))) await panel.change(row,'remove')
+    await reportAssistantAppChange(machine.machine, assistant.id, { resource: 'integrations', operation: 'removed', section: 'accounts',
       id: confirm.accountId ? `${view.item.id}:${confirm.accountId}` : view.item.id, deviceId: homeDeviceId ?? undefined })
   }
   const credentialLike = !!view && !!formMethodOf(view.item)

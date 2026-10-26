@@ -100,6 +100,7 @@ function itemTitle(t: (key: string) => string, item: { title: string | null }, v
 /** 列表:按周分组,一行一条,点进去看那一条。 */
 function VoiceNotesList({ context }: { context: AssistantContext }) {
   const { t } = useTranslation('voiceNotes');
+  const { t: ta } = useTranslation('assistant');
   const time = useNoteTime();
   const notes = useVoiceNotes(context.machine);
   const jobs = useVoiceJobs();
@@ -129,6 +130,7 @@ function VoiceNotesList({ context }: { context: AssistantContext }) {
         error={context.machineError ?? notes.error}
         onRetry={() => (context.machineError ? context.retryMachine() : void notes.refetch())}
       >
+        {context.machine?.panel?.collectionState('voice-notes') === 'unprepared' && notes.data?.length ? <p className="ta-field-hint" role="status">{ta('machine.historyUnprepared')}</p> : null}
         {items.length === 0 ? (
           <div className="ta-card">
             <AssistantEmpty

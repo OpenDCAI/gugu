@@ -304,6 +304,20 @@ it('uses a native context hook while retaining explicit string and preset system
   }
 })
 
+it('installs the deleted-file guard without replacing the native prompt or conversation', () => {
+  const base = { index: 'fresh-index', guguHome: '/home/gugu' }
+  const before = personalAssistantContext(fixture(), 'computer', base)
+  const after = personalAssistantContext(fixture(), 'computer', { ...base, panelStatePath: '/private/memory/.panel-state.json' })
+  const options = (value: Materialization) => (value.sessionNewPatch!.meta!.claudeCode as { options: Record<string, unknown> }).options
+  expect(options(after).systemPrompt).toEqual(options(before).systemPrompt)
+  expect(after.sessionPrompt).toEqual(before.sessionPrompt)
+  const hooks = JSON.parse(after.artifacts!.find(file => file.path.endsWith('/hooks/hooks.json'))!.content).hooks
+  expect(hooks.PreToolUse).toContainEqual(expect.objectContaining({ matcher: 'Read|Write|Edit' }))
+  const guard = after.artifacts!.find(file => file.path.endsWith('/revocation.cjs'))!
+  expect(guard.mode).toBe(0o600)
+  expect(guard.content).toContain('/private/memory/.panel-state.json')
+})
+
 it('delivers a large resource collection as one bounded native hook output with explicit omissions', () => {
   const lines = ['<gugu_resource_index>', JSON.stringify({ account: 'user:owner' }), JSON.stringify({ source: 'projects',
     read: { tool: 'project_list' }, items: Array.from({ length: 180 }, (_, i) => ({

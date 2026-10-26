@@ -1,14 +1,8 @@
-import { useEffect, useState } from 'react'
-import type { AssistantHomeKind } from '@gugu/core/shared/assistantPolicy'
 import type { Device } from '@gugu/core/shared/types/chat'
-import { rendererLogger } from '@/lib/log'
-import { isAssistantSession } from '@/session/renderer/features/assistant/assistant-lineage'
-import { openMachineWith, type AssistantMachine, type MachineRpc } from '@/session/renderer/features/assistant/assistant-machine-core'
-import { deviceSessionsOf, useLiveDeviceSessions } from '@/session/shared/remote-sessions/session-directory'
+import { useCloudAssistantFiles } from '@/components/assistant/assistant-panel-files'
+import { type AssistantMachine, type MachineRpc } from '@/session/renderer/features/assistant/assistant-machine-core'
 import { useDevicesStore } from '@/store/devicesContext'
-import { machineRpc } from '../agent-watch/sessionpage-rpc'
 
-const log = rendererLogger('mobile/assistant')
 
 /** 它家那台此刻能不能读:醒着 / 收回着(云上的才有,要读就由系统叫起来)/ 正在起来 / 连不上(离线、还没有这台;住电脑 = 那台没开)。 */
 export type PhoneReadiness = 'ready' | 'asleep' | 'waking' | 'unreachable'
@@ -58,37 +52,7 @@ export type PhoneMachineState =
  * 在它家那台上拿到读它文件用的工作区:它自己那条会话所在的项目(手机壳没有会话页的项目表,❌ 另挂主目录项目),
  * 主目录问那台机器。问的是手机壳的那条线(machineRpc),与桌面同一组动词。醒着才问。
  */
-export function usePhoneMachine(homeDeviceId: string | null, assistantId: string, readiness: PhoneReadiness, kind: AssistantHomeKind = 'cloud'): PhoneMachineState {
-  const live = useLiveDeviceSessions()
-  const device = useCloudDevice(homeDeviceId)
-  const listed = device ? deviceSessionsOf(device, live) : null
-  const own = listed?.sessions.find((session) => isAssistantSession(session, assistantId)) ?? null
-  const workdir = own ? listed?.projects.find((project) => project.id === own.projectId)?.path ?? null : null
-  const projectId = own?.projectId ?? null
-  const [attempt, setAttempt] = useState(0)
-  const [opened, setOpened] = useState<{ key: string; result: PhoneMachineState } | null>(null)
-  const key = `${homeDeviceId}|${kind}|${projectId}|${workdir}|${attempt}`
-  useEffect(() => {
-    if (readiness !== 'ready' || !homeDeviceId || !projectId || !workdir) return
-    let cancelled = false
-    const rpc: MachineRpc = machineRpc(homeDeviceId)
-    void (async () => {
-      try {
-        const home = await rpc.app.getHomeDirectory()
-        // 云上:读写落在主目录项目的工作区(记忆夹在助理工作目录之外);住电脑:它的一切都在它自己的工作目录里,用那个项目。
-        const workspaceProjectId = kind === 'cloud' ? await homeProjectIdOn(rpc, home) : projectId
-        const machine = await openMachineWith(rpc, { deviceId: homeDeviceId, projectId: workspaceProjectId, home, workdir, kind })
-        if (!cancelled) setOpened({ key, result: { state: 'ready', machine } })
-      } catch (error) {
-        log.warn({ error: error instanceof Error ? error.message : String(error) }, 'open assistant machine failed')
-        if (!cancelled) setOpened({ key, result: { state: 'error', error, retry: () => setAttempt((n) => n + 1) } })
-      }
-    })()
-    return () => {
-      cancelled = true
-    }
-  }, [readiness, homeDeviceId, projectId, workdir, kind, key])
-  if (readiness === 'ready' && listed && !listed.loading && !own) return { state: 'no-workdir' }
-  if (opened?.key === key) return opened.result
-  return { state: 'opening' }
+export function usePhoneMachine(homeDeviceId: string | null, assistantId: string, chatId: string): PhoneMachineState {
+  const machine = useCloudAssistantFiles(assistantId,chatId,homeDeviceId)
+  return machine ? { state: 'ready',machine } : { state: 'opening' }
 }

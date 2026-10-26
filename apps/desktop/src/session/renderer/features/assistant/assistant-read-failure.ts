@@ -45,6 +45,8 @@ export function useReadFailure(error: unknown, deviceId: string | null, where: s
     }
   }, [outdated, version, reload]);
   if (!error) return null;
+  if ((error as { code?: string }).code === 'unprepared') return { text: t('machine.unprepared'),tone: 'quiet',retry: reload };
+  if ((error as { code?: string }).code === 'collection-unavailable') return { text: t('machine.collectionFailed'),tone: 'danger',retry: reload };
   if (outdated && deviceId) {
     const retry = () =>
       void remoteHostsStore.matchServerVersion(deviceId, { retry: true }).then((requested) => setRefused(requested ? null : asked));

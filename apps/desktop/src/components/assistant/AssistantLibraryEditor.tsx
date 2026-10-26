@@ -11,6 +11,7 @@ import type { UserLibraryEntry, UserLibraryKind } from '../../session/shared/use
 import { assistantAppProgram, reportAssistantAppChange } from './assistant-app-client'
 import { libraryDeviceId } from './assistant-library-client'
 import { cachedDevicesAccount } from '../../store/devicesCache'
+import { assistantPanelLibrary } from './assistant-panel-library'
 
 export function AssistantLibraryEditor({ machine, assistantId, kind, entry, onClose, onSaved }: {
   assistantId: string;
@@ -29,8 +30,10 @@ export function AssistantLibraryEditor({ machine, assistantId, kind, entry, onCl
     event.preventDefault(); if (!name.trim() || saving) return
     setSaving(true); setFailed('')
     try {
-      const saved = await assistantAppProgram<UserLibraryEntry>(machine, 'library_write', { kind, name: name.trim(), description, group: group.trim() || null, content,
-        ...(entry ? { id: entry.id, expectedModifiedAt: entry.modifiedAt } : {}) }, ownerId)
+      const changeInput = { kind, name: name.trim(), description, group: group.trim() || null, content,
+        ...(entry ? { id: entry.id, expectedModifiedAt: entry.modifiedAt } : {}) }
+      const saved = machine?.panel ? await assistantPanelLibrary(machine.panel).save(changeInput)
+        : await assistantAppProgram<UserLibraryEntry>(machine, 'library_write', changeInput, ownerId)
       const change = saved.activity?.at(-1)
       if (assistantId) await reportAssistantAppChange(machine, assistantId, { resource: kind === 'capabilities' ? 'capabilities' : 'device-notes',
           operation: entry ? 'edited' : 'created', id: saved.id, deviceId: libraryDeviceId(machine),

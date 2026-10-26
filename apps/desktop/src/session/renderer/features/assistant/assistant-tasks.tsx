@@ -1,31 +1,24 @@
 import { rendererLogger } from '@/lib/log';
 import { messageForUser } from '@/lib/userFacingError';
-import { useDirectoryDevices, useLiveDeviceSessions, usePhoneTaskDirectory } from '@/session/shared/remote-sessions/session-directory';
+import { useDirectoryDevices } from '@/session/shared/remote-sessions/session-directory';
+import { assistantTaskDeviceLabel } from './assistant-task-directory';
 import { observer } from 'mobx-react-lite';
-import { useMemo, useState } from 'react';
+import { useState } from 'react';
+import { useMutation, useQuery } from '@tanstack/react-query';
+import { assistantQueryKey } from './assistant-data';
+import { assistantPanelRoutines } from '@/components/assistant/assistant-panel-routines';
+import { readAssistantPanelTasks, openAssistantPanelTask } from '@/components/assistant/assistant-panel-tasks';
 import { useTranslation } from 'react-i18next';
 import { AlignJustify, Clock, Plus, Trash2 } from '@/lib/icons';
-import {
-  AutomationsHostProvider,
-  createMachineAutomationsHost,
-  LOCAL_AUTOMATIONS_HOST,
-} from '@renderer/features/automations/automations-host';
-import { useAutomations, useScheduledAutomationRun } from '@renderer/features/automations/use-automations';
-import { remoteHostsStore } from '@renderer/features/remote-hosts/remote-hosts-store';
-import { formatSessionTitleForDisplay } from '@renderer/features/sessions/session-title-utils';
-import { remoteAgentStatus } from '@renderer/features/sidebar/session-groups';
 import { AgentStatusIndicator } from '@renderer/lib/components/agent-status-indicator';
-import { openAssistantTaskChat } from '@/lib/assistantTaskChat';
 import { useToast } from '@renderer/lib/hooks/use-toast';
 import { useShowModal } from '@renderer/lib/modal/modal-provider';
 import { Switch } from '@renderer/lib/ui/switch';
 import { isSpentOneTimeAutomation, type Automation } from '@shared/core/automations/automation';
 import type { AssistantContext, AssistantPageProps } from './assistant-context';
 import { reportAssistantAppChange } from '@/components/assistant/assistant-app-client';
-import { homeSessions, homeTarget, localHomeSessions } from './assistant-home-sessions';
-import { assistantTasks, groupByDay } from './assistant-lineage';
-import { assistantTaskDeviceLabel, assistantTaskDirectory } from './assistant-task-directory';
-import { assistantRoutines, scheduleText } from './assistant-schedule';
+import { groupByDay } from './assistant-lineage';
+import { scheduleText } from './assistant-schedule';
 import { AssistantEmpty, AssistantRow, AssistantSection, MachineGate, PageHead, WideSegments } from './assistant-ui';
 
 /**
@@ -93,60 +86,22 @@ const TaskLists = observer(function TaskLists({ context }: AssistantPageProps) {
 
 /** 它的子 agent:所有别的机器(云电脑在内)会话目录里,父会话链上是它的那些。 */
 const SubAgents = observer(function SubAgents({ context }: AssistantPageProps) {
-  usePhoneTaskDirectory();
-  const { t } = useTranslation('assistant');
   const devices = useDirectoryDevices();
-  const live = useLiveDeviceSessions();
-  const listed = assistantTaskDirectory(devices, live, localHomeSessions);
-  const children = assistantTasks(listed, context.assistant.id, context.chatId);
-  const groups = groupByDay(children, (item) => item.summary.lastInteractedAt, new Date());
-  const cloudRead = homeSessions(context.home);
-  if (children.length === 0) {
-    return (
-      <AssistantSection bare>
-        <AssistantEmpty
-          title={t('tasks.emptyTitle')}
-          action={
-            <button type="button" className="ta-pill-btn" onClick={() => context.askInChat(t('tasks.createPrompt'))}>
-              {t('tasks.create')}
-            </button>
-          }
-        >
-          {cloudRead.sessions.length === 0 && context.readiness !== 'ready'
-            ? t('tasks.notRead', { name: context.assistant.display_name })
-            : null}
-        </AssistantEmpty>
-      </AssistantSection>
-    );
-  }
-  return (
-    <>
-      {groups.map((group) => (
-        <AssistantSection key={group.bucket} title={t(`tasks.day.${group.bucket}`)} testId={`assistant-tasks-${group.bucket}`}>
-          {group.items.map(({ summary, live, deviceId }) => {
-            const reading = remoteAgentStatus(summary, live);
-            return (
-              <AssistantRow
-                key={summary.conversationId}
-                testId={`assistant-subagent-${summary.conversationId}`}
-                title={formatSessionTitleForDisplay(summary.harness, summary.title)}
-                detail={assistantTaskDeviceLabel(devices, deviceId)}
-                trailing={
-                  reading && reading.status !== 'idle' ? (
-                    <AgentStatusIndicator status={reading.status} detail={reading.detail} />
-                  ) : summary.unseen ? (
-                    <span className="ta-unseen" aria-label={t('tasks.unseen')} />
-                  ) : null
-                }
-                chevron={false}
-                onClick={summary.agent?.userId ? () => openAssistantTaskChat(context.assistant.id, { deviceId, summary }, listed) : undefined}
-              />
-            );
-          })}
-        </AssistantSection>
-      ))}
-    </>
-  );
+  const { t } = useTranslation('assistant');
+  const query = useQuery({ queryKey: assistantQueryKey(context.homeDeviceId,'tasks'),enabled: !!context.machine?.panel,
+    queryFn: () => readAssistantPanelTasks(context.machine!.panel!) });
+  const children = query.data ?? [];
+  const groups = groupByDay(children,item => item.lastInteractedAt,new Date());
+  return <MachineGate readiness={context.readiness} loading={context.machineLoading || query.isLoading} error={query.error} onRetry={() => void query.refetch()}>
+    {children.length === 0 ? <AssistantSection bare><AssistantEmpty title={t('tasks.emptyTitle')}
+      action={<button type="button" className="ta-pill-btn" onClick={() => context.askInChat(t('tasks.createPrompt'))}>{t('tasks.create')}</button>} /></AssistantSection>
+      : groups.map(group => <AssistantSection key={group.bucket} title={t(`tasks.day.${group.bucket}`)} testId={`assistant-tasks-${group.bucket}`}>
+        {group.items.map(task => <AssistantRow key={task.id} testId={`assistant-subagent-${task.id}`} title={task.title}
+          detail={assistantTaskDeviceLabel(devices,task.deviceId)}
+          trailing={task.status && task.status.status !== 'idle' ? <AgentStatusIndicator status={task.status.status} detail={task.status.detail} /> : null}
+          chevron={false} onClick={task.agentId ? () => openAssistantPanelTask(context.machine!.panel!,task) : undefined} />)}
+      </AssistantSection>)}
+  </MachineGate>;
 });
 
 /**
@@ -155,19 +110,14 @@ const SubAgents = observer(function SubAgents({ context }: AssistantPageProps) {
  * 云电脑上 agent 排的都算它的 —— 云电脑上住的就是它。人自己在云电脑上建的(没有 agentSessionId)不在这里。
  */
 function useAssistantRoutines(context: AssistantContext) {
-  const { automations, setEnabled, destroy } = useAutomations();
-  const sessions = homeSessions(context.home).sessions;
-  const routines = useMemo(
-    () =>
-      assistantRoutines(
-        automations.data ?? [],
-        new Map(sessions.map((s) => [s.conversationId, s.agent?.userId ?? null])),
-        context.assistant.id,
-        context.home.kind === 'cloud'
-      ),
-    [automations.data, sessions, context.assistant.id, context.home.kind]
-  );
-  return { query: automations, routines, setEnabled, destroy };
+  const api = context.machine?.panel ? assistantPanelRoutines(context.machine.panel) : null;
+  const query = useQuery({ queryKey: assistantQueryKey(context.homeDeviceId,'schedules'),enabled: !!api,queryFn: () => api!.list() });
+  const setEnabled = useMutation({ mutationFn: async ({ id,enabled }: { id: string; enabled: boolean }) => {
+    await api!.setEnabled(id,enabled,query.data?.find(row => row.id === id)?.panelRevision);
+  },onSuccess: () => { void query.refetch(); } });
+  const destroy = useMutation({ mutationFn: async (id: string) => { await api!.remove(id,query.data?.find(row => row.id === id)?.panelRevision); },
+    onSuccess: () => { void query.refetch(); } });
+  return { query,routines: query.data ?? [],setEnabled,destroy };
 }
 
 function useFormatAt() {
@@ -234,7 +184,7 @@ const RoutineDetail = observer(function RoutineDetail({ context, id }: { context
   const formatAt = useFormatAt();
   const { query, routines, setEnabled, destroy } = useAssistantRoutines(context);
   const automation = routines.find((a) => a.id === id) ?? null;
-  const scheduled = useScheduledAutomationRun(id).data?.scheduledAt ?? null;
+  const scheduled = automation?.nextRunAt ?? null;
   return (
     <MachineGate readiness={context.readiness} loading={query.isLoading} error={query.error} onRetry={() => void query.refetch()}>
       {!automation ? (
@@ -319,17 +269,6 @@ const RoutineDetail = observer(function RoutineDetail({ context, id }: { context
   );
 });
 
-function RoutinesHost({ context, children }: { context: AssistantContext; children: React.ReactNode }) {
-  const local = homeTarget(context.home) === null;
-  const device = local ? null : remoteHostsStore.device(context.homeDeviceId);
-  // 那台的 label 是沙箱主机名(iZbp…),❌ 给人看:说到它就说它本人(用户看不到它住在哪)。
-  const label = context.assistant.display_name;
-  const online = context.readiness === 'ready';
-  const lastSeenAt = device?.lastSeenAt ?? null;
-  // 住眼前这台:就是本机的「已安排」(❌ 绕远程连自己)。
-  const host = useMemo(
-    () => (local ? LOCAL_AUTOMATIONS_HOST : createMachineAutomationsHost({ deviceId: context.homeDeviceId, deviceLabel: label, online, lastSeenAt })),
-    [local, context.homeDeviceId, label, online, lastSeenAt]
-  );
-  return <AutomationsHostProvider value={host}>{children}</AutomationsHostProvider>;
+function RoutinesHost({ children }: { context: AssistantContext; children: React.ReactNode }) {
+  return <>{children}</>;
 }

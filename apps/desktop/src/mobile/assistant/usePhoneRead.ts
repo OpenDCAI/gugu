@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { rendererLogger } from '@/lib/log'
 import type { AssistantMachine } from '@/session/renderer/features/assistant/assistant-machine-core'
+import { ASSISTANT_PANEL_CHANGED } from '@/components/assistant/assistant-panel-events'
 
 const log = rendererLogger('mobile/assistant')
 
@@ -14,7 +15,7 @@ export function machineKey(machine: AssistantMachine): string {
 /**
  * 手机壳里没有 react-query:读一次、记下是哪一把键的读数(键变了 ❌ 拿旧读数冒充),失败如实交出去由页面说是哪一步。
  * `key` 为 null = 此刻不该读(它在休息、工作区还没打开)。`reload` 从头再读(先回到「在读」);
- * `pollMs` 按读到的东西定下一次悄悄重读(语音笔记还在处理时),悄悄重读失败只记日志、留着上一次的读数。
+ * `pollMs` 按读到的东西定下一次悄悄重读(语音笔记还在处理时),悄悄重读失败也如实显示，并继续安排刷新。
  */
 export function usePhoneRead<T>(
   key: string | null,
@@ -52,18 +53,21 @@ export function usePhoneRead<T>(
       } catch (error) {
         if (!active()) return
         log.warn({ what, quiet, error: error instanceof Error ? error.message : String(error) }, 'assistant phone read failed')
-        if (!quiet) setResult({ key: full, read: { state: 'error', error } })
-        else if (lastInterval) timer = setTimeout(() => void run(true), lastInterval)
+        setResult({ key: full, read: { state: 'error', error } })
+        if (lastInterval) timer = setTimeout(() => void run(true), lastInterval)
         // A requested refresh must not turn a failed verification into a successful mutation.
         if (explicit) throw error
       }
     }
     const refresher = { key: full, run: () => run(false, true) }
     refreshRef.current = refresher
+    const changed = () => { void run(true) }
+    window.addEventListener(ASSISTANT_PANEL_CHANGED,changed)
     void run(false)
     return () => {
       cancelled = true
       clearTimeout(timer)
+      window.removeEventListener(ASSISTANT_PANEL_CHANGED,changed)
       if (refreshRef.current === refresher) refreshRef.current = null
     }
   }, [full, what])

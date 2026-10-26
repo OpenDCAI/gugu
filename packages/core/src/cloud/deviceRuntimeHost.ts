@@ -184,6 +184,8 @@ export interface DeviceRuntimeHostDebugSnapshot {
 }
 
 export interface DeviceRuntimeHost {
+  /** Identity of this live publisher's existing database lease. */
+  readonly instanceId: string
   tickOnce: () => Promise<DeviceRuntimeHostTickResult>
   /**
    * 登录态变了(登录 / 换号 / 登出)⇒ 立刻跑一轮,❌ 别让对账节拍去「发现」一个本来就有事件的事实。
@@ -1447,6 +1449,7 @@ export function createDeviceRuntimeHostLoop(
 
   return {
     // 停了(或正在停)就不再起新的一轮:那一轮会重新订阅、到点写一拍「在线」,把停机时标的离线又翻回去。
+    instanceId,
     tickOnce: () => (stopped ? Promise.resolve({ skipped: true }) : tickOnce('event')),
     notifyAuthChanged: notifyWork,
     notifyCommandsChanged: () => {

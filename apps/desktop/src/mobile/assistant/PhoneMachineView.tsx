@@ -57,6 +57,7 @@ export function ReadingNow({ label }: { label?: string }) {
 /** 读失败:标题说是哪一步没读到,下面一句原因,一个「重试」。 */
 export function ReadFailed({ title, error, onRetry }: { title: string; error: unknown; onRetry: () => void }) {
   const { t } = useTranslation('assistant')
+  const code = (error as { code?: string })?.code
   return (
     <AssistantEmpty
       title={title}
@@ -66,7 +67,8 @@ export function ReadFailed({ title, error, onRetry }: { title: string; error: un
         </Button>
       }
     >
-      <span role="alert">{t('machine.readFailed', { message: errorText(error) })}</span>
+      <span role={code === 'unprepared' ? 'status' : 'alert'}>{code === 'unprepared' ? t('machine.unprepared') : code === 'collection-unavailable'
+        ? t('machine.collectionFailed') : t('machine.readFailed', { message: errorText(error) })}</span>
     </AssistantEmpty>
   )
 }

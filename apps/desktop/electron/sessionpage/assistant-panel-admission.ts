@@ -50,8 +50,10 @@ export async function prepareAssistantPanelAdmission(input: {
           failed = error
           // A newer deletion may already have removed this obsolete save's body.
           // Its acknowledgement is terminal and must not restore a failure.
-          const receipt = await input.cloud.ack(input.assistant,input.instance,change.operation_id,errorCode(error))
-          if (receipt.status === 'superseded') { superseded = true; break }
+          try {
+            const receipt = await input.cloud.ack(input.assistant,input.instance,change.operation_id,errorCode(error))
+            if (receipt.status === 'superseded') { superseded = true; break }
+          } catch { failed = new Error('CHANGE_ACK_UNAVAILABLE') }
         }
       }
       if (superseded) break

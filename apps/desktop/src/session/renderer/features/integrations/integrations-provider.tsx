@@ -1,3 +1,4 @@
+import { ASSISTANT_PANEL_CHANGED } from '@/components/assistant/assistant-panel-events';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import React, { createContext, useCallback, useContext, useEffect, useMemo, useState, useSyncExternalStore } from 'react';
 import { useLibraryHost } from '@renderer/features/library/library-host';
@@ -83,14 +84,22 @@ export function IntegrationsProvider({ children }: { children: React.ReactNode }
   const queryClient = useQueryClient();
   const host = useLibraryHost();
   const api = host.integrations;
+  useEffect(() => {
+    if (!host.assistantPanelExpected) return;
+    const refresh = () => { void queryClient.invalidateQueries({ predicate: query => query.queryKey.includes(host.key) }); };
+    window.addEventListener(ASSISTANT_PANEL_CHANGED,refresh);
+    return () => window.removeEventListener(ASSISTANT_PANEL_CHANGED,refresh);
+  },[host.assistantPanelExpected,host.key,queryClient]);
   const remote = !!host.remote;
   const statusKey = useMemo(() => [...ISSUE_CONNECTION_STATUS_QUERY_KEY, host.key] as const, [host.key]);
   const [mutatingIntegrationIds, setMutatingIntegrationIds] = useState<Set<string>>(
     () => new Set()
   );
+  const [verificationError, setVerificationError] = useState<unknown>(null);
+  const [verifying, setVerifying] = useState(false);
 
   // 那台机器离线就不问(问不到,只会挂满超时)。
-  const enabled = host.remote?.online !== false;
+  const enabled = host.assistantPanelExpected ? !!host.assistantPanel || !!host.assistantPanelError : host.remote?.online !== false;
   // 插件的中英两份由那台机器的主进程按这台桌面的界面语言解析成字符串;换语言重取。
   const locale = useSyncExternalStore(subscribeSessionLocale, () => getSessionLocaleSnapshot().resolvedLocale);
   const {
@@ -112,7 +121,7 @@ export function IntegrationsProvider({ children }: { children: React.ReactNode }
     if (!remote) registerIssueMentionIcons(integrations);
   }, [integrations, remote]);
 
-  const { data: statusData, error: connectionCheckError, isFetching: isCheckingConnections } = useQuery({
+  const { data: statusData, error: connectionReadError, isFetching: isCheckingConnections } = useQuery({
     queryKey: statusKey,
     queryFn: () => api.checkAllConnections(),
     staleTime: 30_000,
@@ -273,13 +282,21 @@ export function IntegrationsProvider({ children }: { children: React.ReactNode }
         integrationById,
         connectionStatus,
         checkedConnections: statusData ?? {},
-        connectionCheckError,
+        connectionCheckError: verificationError ?? connectionReadError,
         hasConfiguredConnections: configuredData !== undefined,
         configuredConnectionsError,
         configuredConnections,
         isCheckingConfiguredConnections,
-        isCheckingConnections,
-        reloadConnections: invalidateStatuses,
+        isCheckingConnections: isCheckingConnections || verifying,
+        reloadConnections: host.assistantPanelExpected ? () => {
+          setVerificationError(null); setVerifying(true);
+          void (async () => {
+            await host.prepareAssistantAction?.();
+            const verified = await rpcOn(host.remote?.deviceId ?? null).integrations.checkAllConnections();
+            await host.assistantPanel?.snapshot();
+            queryClient.setQueryData(statusKey,verified);
+          })().catch(setVerificationError).finally(() => setVerifying(false));
+        } : invalidateStatuses,
         connectIntegration,
         disconnectIntegration,
         authorizeIntegration,

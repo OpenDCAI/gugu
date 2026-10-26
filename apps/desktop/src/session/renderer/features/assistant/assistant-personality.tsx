@@ -1,4 +1,4 @@
-import { useCallback, useState } from 'react';
+import { useCallback, useRef, useState } from 'react';
 import { observer } from 'mobx-react-lite';
 import { useTranslation } from 'react-i18next';
 import { LoadingIndicator } from '@/lib/loading/LoadingIndicator';
@@ -11,7 +11,6 @@ import { composeInstructions, joinPersona, PERSONA_PRESETS, splitPersona, type P
 import { readText, writeText } from './assistant-machine';
 import { useInstructions, useInvalidateAssistant } from './assistant-data';
 import { useReadFailure } from './assistant-read-failure';
-import { useWakeHomeForRead } from './assistant-ui';
 import type { AssistantContext } from './assistant-context';
 import { reportAssistantAppChange } from '@/components/assistant/assistant-app-client';
 
@@ -37,6 +36,7 @@ export function CustomizeDialog({ context, onClose }: { context: AssistantContex
   const [preset, setPreset] = useState<PersonaPreset | null>(persona.preset);
   const [rest, setRest] = useState(persona.rest);
   const [touched, setTouched] = useState(false);
+  const revision = useRef<string | undefined>(undefined);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
   // 读到之前打开的:读到那一刻把读到的填进来(人还没动过的话)。
@@ -45,6 +45,7 @@ export function CustomizeDialog({ context, onClose }: { context: AssistantContex
     setRest(persona.rest);
   }
   const edit = <T,>(set: (value: T) => void) => (value: T) => {
+    if (!touched) revision.current = persona.instructions.data?.revision;
     setTouched(true);
     set(value);
   };
@@ -62,9 +63,9 @@ export function CustomizeDialog({ context, onClose }: { context: AssistantContex
       if (touched && personaReadable) {
         const machine = context.machine!;
         // 写之前现读一遍:管家那段取此刻的原文(打开对话框之后它可能刚被升级过)。
-        const current = (await readText(machine, machine.paths.instructions)) ?? '';
-        await writeText(machine, machine.paths.instructions, composeInstructions(current, joinPersona(preset, rest)));
-        await reportAssistantAppChange(machine, context.assistant.id, { resource: 'personality', operation: 'edited',
+        const current = machine.panel ? '' : (await readText(machine, machine.paths.instructions)) ?? '';
+        await writeText(machine, machine.paths.instructions, composeInstructions(current, joinPersona(preset, rest)),revision.current);
+        if (!machine.panel) await reportAssistantAppChange(machine, context.assistant.id, { resource: 'personality', operation: 'edited',
           id: machine.paths.instructions, deviceId: context.homeDeviceId, after: { path: machine.paths.instructions } });
         await invalidate('instructions');
       }
@@ -151,15 +152,13 @@ const PersonaPending = observer(function PersonaPending({
   instructions: ReturnType<typeof usePersona>['instructions'];
 }) {
   const { t } = useTranslation('assistant');
-  const { t: tc } = useTranslation('common');
   const name = context.assistant.display_name;
-  const wake = useWakeHomeForRead(context.home.kind === 'cloud' ? context.homeDeviceId : null, context.readiness);
   const readError = context.readiness === 'ready' ? context.machineError ?? instructions.error : null;
   const machineError = Boolean(context.machineError);
   const { retryMachine } = context;
   const { refetch } = instructions;
   const reread = useCallback(() => (machineError ? retryMachine() : void refetch()), [machineError, retryMachine, refetch]);
-  const failure = useReadFailure(readError, context.homeDeviceId, name, reread);
+  const failure = useReadFailure(readError, null, name, reread);
   if (failure)
     return (
       <div className="ta-input ta-page-sub flex items-center justify-between gap-3">
@@ -173,34 +172,9 @@ const PersonaPending = observer(function PersonaPending({
         ) : null}
       </div>
     );
-  if ((wake.failure || wake.dropped) && context.readiness !== 'ready')
-    return (
-      <div className="ta-input ta-page-sub flex items-center justify-between gap-3">
-        <span role={wake.failure ? 'alert' : 'status'}>
-          {wake.failure ? (
-            <>
-              {t('machine.connectFailed', { name })}
-              {tc(`cloudComputer.reason.${wake.failure}`)}
-            </>
-          ) : (
-            t('machine.dropped', { name })
-          )}
-        </span>
-        <button type="button" className="ta-pill-btn" onClick={wake.retry}>
-          {wake.failure ? t('machine.retry') : t('machine.reconnect')}
-        </button>
-      </div>
-    );
   return (
     <div className="ta-input ta-page-sub flex items-center gap-2">
-      {context.readiness === 'unreachable' || (wake.unsupported && context.readiness !== 'ready') ? (
-        <span>{t('machine.unreachable', { name })}</span>
-      ) : (
-        <>
-          <LoadingIndicator size="inline" />
-          {context.readiness === 'ready' ? null : <span>{t('machine.connecting', { name })}</span>}
-        </>
-      )}
+      <LoadingIndicator size="inline" />
     </div>
   );
 });

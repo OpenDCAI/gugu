@@ -127,7 +127,7 @@ function MemoryNoteDetail({ context, file }: { context: AssistantContext; file: 
       await reportAssistantAppChange(machine, context.assistant.id, { resource: 'memory', operation: 'removed',
         id: entry.path, deviceId: context.homeDeviceId, before: { name: entry.title, path: entry.path } });
       // 索引里指向它的那一行一起拿掉(MEMORY.md 是助理每次开工读的目录)。
-      const index = await readText(machine, machine.paths.memoryIndex);
+      const index = machine.panel ? null : await readText(machine, machine.paths.memoryIndex);
       if (index !== null) {
         const next = removeIndexEntry(index, entry.file);
         if (next !== index) await writeText(machine, machine.paths.memoryIndex, next);

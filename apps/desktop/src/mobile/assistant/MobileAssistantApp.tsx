@@ -37,7 +37,7 @@ import { phoneNextRoute, phoneParentRoute, type PhoneParentRoute } from './phone
 import { PhoneToday } from './PhoneToday'
 import { PhoneVoiceBar } from './PhoneVoiceBar'
 import { usePhoneVoiceNotes } from './phoneVoiceRuntime'
-import { readinessOf, useCloudDevice, usePhoneMachine, type PhoneMachineState, type PhoneReadiness } from './phoneMachine'
+import { usePhoneMachine, type PhoneMachineState, type PhoneReadiness } from './phoneMachine'
 import '@/session/renderer/features/assistant/assistant-today.css'
 import './assistant-phone.css'
 
@@ -145,8 +145,8 @@ function MobileAssistantAppContent({
   const [ideasOpen, setIdeasOpen] = useState(false)
   const [chatColumn, setChatColumn] = useState<HTMLDivElement | null>(null)
   const chatShown = useReportChatOnScreen(visible && tab === 'chat' ? chatId : null) === chatId
-  const readiness = readinessOf(useCloudDevice(homeDeviceId))
-  const machine = usePhoneMachine(homeDeviceId, assistant.id, readiness, home?.kind ?? 'cloud')
+  const readiness = 'ready' as const
+  const machine = usePhoneMachine(homeDeviceId, assistant.id, chatId)
   // 「+」里的「录制语音笔记」:手机只录和传到它家里(phoneVoiceRuntime),转写在电脑上点「开始转写」;它在休息时录音先留在手机上,❌ 替人叫醒。
   const { t: tVoice } = useTranslation('voiceNotes')
   const voice = usePhoneVoiceNotes({ assistantId: assistant.id, deviceId: homeDeviceId, readiness, machine })

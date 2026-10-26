@@ -61,6 +61,7 @@ export type VoiceNotesContext = {
   /** 现读(❌ 用助理 App 最后一次渲染时的那个):离开 App 之后云电脑睡了 / 醒了这里也知道。 */
   readiness: () => MachineReadiness;
   wake: () => void;
+  prepareSummary?: () => Promise<{ session: { projectId: string; sessionId: string }; memoryDir: string }>;
   /** 云电脑上的文件变了:让列表 / 详情重读。 */
   invalidate: () => void;
 };
@@ -318,7 +319,7 @@ async function saveMeta(job: Job, machine: AssistantMachine, patch: Partial<Voic
 async function ensureCreated(job: Job, machine: AssistantMachine) {
   if (job.created) return;
   const root = await makeFolder(machine, machine.paths.memoryDir, VOICE_NOTES_DIR);
-  if ((await readText(machine, joinPath(root, VOICE_NOTES_README_FILE))) === null)
+  if (machine.panel || (await readText(machine, joinPath(root, VOICE_NOTES_README_FILE))) === null)
     await writeText(machine, joinPath(root, VOICE_NOTES_README_FILE), voiceNotesReadme());
   const dir = await makeFolder(machine, root, job.id);
   await makeFolder(machine, dir, VOICE_NOTE_AUDIO_DIR);
@@ -328,6 +329,11 @@ async function ensureCreated(job: Job, machine: AssistantMachine) {
 
 /** 云电脑上的一段录音读回来(这一窗口里没有它的字节时:重试、换了电脑)。 */
 async function readBinary(machine: AssistantMachine, path: string): Promise<Blob> {
+  if (machine.panel) {
+    const bytes = await machine.panel.bytes(path);
+    if (!bytes) throw new Error('The recording no longer exists');
+    return new Blob([bytes.slice().buffer]);
+  }
   const parts: BlobPart[] = [];
   let offset = 0;
   for (;;) {
@@ -373,11 +379,12 @@ function assistantSession(ctx: VoiceNotesContext): { projectId: string; sessionI
 }
 
 async function requestSummary(job: Job, machine: AssistantMachine, ctx: VoiceNotesContext) {
-  const session = assistantSession(ctx);
-  if (!session) throw new StepFailure('summarize', 'assistant-session-missing');
   await saveMeta(job, machine, { status: 'summarizing', summaryRequestedAt: new Date().toISOString(), failure: null });
-  const dir = voiceNoteDir(machine, job.id);
   try {
+    const execution = await ctx.prepareSummary?.();
+    const session = execution?.session ?? assistantSession(ctx);
+    if (!session) throw new StepFailure('summarize', 'assistant-session-missing');
+    const dir = execution ? joinPath(joinPath(execution.memoryDir, VOICE_NOTES_DIR), job.id) : voiceNoteDir(machine, job.id);
     await rpcOn(homeTarget(ctx.home)).sessions.sendMessage({
       projectId: session.projectId,
       sessionId: session.sessionId,

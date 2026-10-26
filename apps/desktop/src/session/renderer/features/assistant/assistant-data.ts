@@ -4,6 +4,9 @@
 // (remoteHostsStore.wakeCloudComputer)。
 // 读不到如实说是哪一步,❌ 显示一片空当成「什么都没有」。
 import { useQuery, useQueryClient } from '@tanstack/react-query';
+import { useEffect } from 'react';
+import { getRendererSession } from '@/lib/sessionPublication';
+import { ASSISTANT_PANEL_CHANGED, useCloudAssistantFiles } from '@/components/assistant/assistant-panel-files';
 import { remoteHostsStore } from '@renderer/features/remote-hosts/remote-hosts-store';
 import { rpc } from '@renderer/lib/ipc';
 import { appState } from '@renderer/lib/stores/app-state';
@@ -18,7 +21,7 @@ import {
 import type { AssistantHomePlace } from '@/lib/assistantHome';
 import { homeSessions, homeTarget } from './assistant-home-sessions';
 import { isAssistantSession } from './assistant-lineage';
-import { listDirectory, openAssistantMachine, readMemoryNotes, readText, type AssistantMachine, type MemoryEntry } from './assistant-machine';
+import { listDirectory, readMemoryNotes, readText, type AssistantMachine, type MemoryEntry } from './assistant-machine';
 
 export type { MemoryEntry } from './assistant-machine';
 import { TODAY_FILE_NAME, TODAY_REFRESH_MS, TodayReadError, todayReadOf, type TodayRead } from './assistant-today-file';
@@ -65,7 +68,7 @@ export function wakeAssistantMachine(deviceId: string): Promise<boolean> {
   return remoteHostsStore.wakeCloudComputer(deviceId);
 }
 
-export const assistantQueryKey = (deviceId: string, ...parts: unknown[]) => ['assistant', deviceId, ...parts];
+export const assistantQueryKey = (deviceId: string, ...parts: unknown[]) => ['assistant', getRendererSession()?.user.id ?? '', deviceId, ...parts];
 
 /**
  * 助理那条会话跑在哪个目录:会话目录里它自己那一行 → 那个项目的路径。读的是会话目录(列出不挂载),所以是 observer 里调。
@@ -81,22 +84,23 @@ export function assistantWorkdir(home: AssistantHomePlace, assistantId: string):
   return live ? { state: 'missing' } : { state: 'pending' };
 }
 
-export function useAssistantMachine(home: AssistantHomePlace | null, readiness: MachineReadiness, workdir: string | null) {
-  return useQuery({
-    queryKey: assistantQueryKey(home?.deviceId ?? '', 'machine', home?.kind, workdir),
-    queryFn: () => openAssistantMachine(home!, workdir!),
-    enabled: !!home && !!workdir && readiness === 'ready',
-    staleTime: Infinity,
-    retry: 1,
-  });
+export function useAssistantMachine(assistantId: string | null, chatId: string | null, home: AssistantHomePlace | null) {
+  const data = useCloudAssistantFiles(assistantId,chatId,home?.deviceId ?? null);
+  const client = useQueryClient();
+  useEffect(() => {
+    const changed = () => { void client.invalidateQueries({ queryKey: ['assistant'] }); };
+    window.addEventListener(ASSISTANT_PANEL_CHANGED,changed);
+    return () => window.removeEventListener(ASSISTANT_PANEL_CHANGED,changed);
+  },[client]);
+  return { data,isLoading: !data,error: null,refetch: () => data?.panel?.invalidate() };
 }
 
 export function useInstructions(machine: AssistantMachine | undefined) {
-  return useQuery<InstructionsParts & { raw: string }>({
+  return useQuery<InstructionsParts & { raw: string; revision?: string }>({
     queryKey: assistantQueryKey(machine?.deviceId ?? '', 'instructions'),
     queryFn: async () => {
       const raw = (await readText(machine!, machine!.paths.instructions)) ?? '';
-      return { ...splitInstructions(raw), raw };
+      return { ...splitInstructions(raw), raw, revision: machine?.panel?.revision(machine.paths.instructions) };
     },
     enabled: !!machine,
   });

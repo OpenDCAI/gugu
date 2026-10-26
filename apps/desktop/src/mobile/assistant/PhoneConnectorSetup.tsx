@@ -24,6 +24,7 @@ import type { IntegrationMetadata } from '@/session/renderer/features/integratio
 import { translateSessionMessage } from '@/session/renderer/localization/locale-store'
 import { githubAuthDeviceCodeChannel } from '@/session/shared/events/githubEvents'
 import { machineRpc, onMachineEvent } from '../agent-watch/sessionpage-rpc'
+import { phoneAssistantAuthorization } from './phoneAssistantAuthorization'
 import type { PhonePageProps } from './MobileAssistantApp'
 import { CloudGate, ConnectorIcon } from './PhoneConnectors'
 import { createNativeFetch } from './phoneNativeFetch'
@@ -73,6 +74,7 @@ const AuthorizationBrowser = createContext<(url: string) => void>(() => {})
  */
 export function PhoneConnectorSetupPage({
   assistant,
+  home,
   readiness,
   homeDeviceId,
   integrations,
@@ -82,7 +84,7 @@ export function PhoneConnectorSetupPage({
   const { t } = useTranslation('assistant')
   const name = assistant.display_name
   const view = integrations.data && !integrations.error ? connectorDetail(integrations.data.items, integrations.data.configured, integrations.data.statuses, id) : null
-  const rpc = useMemo(() => (homeDeviceId ? machineRpc(homeDeviceId) : null), [homeDeviceId])
+  const rpc = useMemo(() => (homeDeviceId ? phoneAssistantAuthorization(homeDeviceId,home) : null), [homeDeviceId,home])
   const [done, setDone] = useState<{ displayName?: string } | null>(null)
   const [browserFailed, setBrowserFailed] = useState<string | null>(null)
   const openInBrowser = useCallback((url: string) => {

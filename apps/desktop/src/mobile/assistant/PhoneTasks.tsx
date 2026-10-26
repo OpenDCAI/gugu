@@ -1,23 +1,20 @@
-import { useMemo, useState } from 'react'
+import { useState } from 'react'
+import { presentAgentStatus } from '@gugu/core/shared/agentStatusPresentation'
+import { readAssistantPanelTasks, openAssistantPanelTask } from '@/components/assistant/assistant-panel-tasks'
+import { machineKey, usePhoneRead } from './usePhoneRead'
 import { useTranslation } from 'react-i18next'
 import { Button } from '@/components/ui/Button'
 import { SegmentedTabs } from '@/components/ui/SegmentedTabs'
 import { Clock } from '@/lib/icons'
-import { isAgentHostDevice } from '@gugu/core/cloud/devices'
-import { assistantTasks, groupByDay } from '@/session/renderer/features/assistant/assistant-lineage'
-import { assistantTaskDeviceLabel, assistantTaskDirectory } from '@/session/renderer/features/assistant/assistant-task-directory'
+import { assistantTaskDeviceLabel } from '@/session/renderer/features/assistant/assistant-task-directory'
+import { groupByDay } from '@/session/renderer/features/assistant/assistant-lineage'
 import { scheduleText } from '@/session/renderer/features/assistant/assistant-schedule'
 import { AssistantEmpty, AssistantRow, AssistantSection } from '@/session/renderer/features/assistant/assistant-ui-parts'
-import { formatSessionTitleForDisplay } from '@/session/shared/core/sessions/session-title-utils'
-import { openAssistantTaskChat } from '@/lib/assistantTaskChat'
-import { deviceSessionsOf, useLiveDeviceSessions } from '@/session/shared/remote-sessions/session-directory'
 import { useDevicesStore } from '@/store/devicesContext'
 import { StatusGlyph } from '../agent-watch/StatusGlyph'
-import { sessionPresentation } from '../agent-watch/watch-status'
-import { DeviceDirectoryRetry } from '../agent-watch/DeviceDirectoryRetry'
 import type { PhonePageProps } from './MobileAssistantApp'
 import { PhoneMachineGate } from './PhoneMachineGate'
-import { ReadingNow } from './PhoneMachineView'
+import { ReadView } from './PhoneMachineView'
 import { PhoneRoutineRead } from './PhoneRoutineRead'
 import { PhoneRoutineDetail } from './PhoneRoutineDetail'
 import { usePhoneRoutines } from './usePhoneRoutines'
@@ -58,64 +55,24 @@ export function PhoneTasks(props: PhonePageProps) {
   )
 }
 
-function SubAgents({ assistant, chatId, homeDeviceId, readiness, askInChat }: PhonePageProps) {
+function SubAgents({ machine, askInChat }: PhonePageProps) {
   const { t } = useTranslation('assistant')
-  const { devices: hosts, phones = [], loading, error } = useDevicesStore()
-  const devices = useMemo(() => [...hosts, ...phones], [hosts, phones])
-  const live = useLiveDeviceSessions()
-  const online = useMemo(() => new Map(devices.map((device) => [device.device_id, device.is_online])), [devices])
-  const listed = assistantTaskDirectory(devices, live)
-  const children = assistantTasks(listed, assistant.id, chatId)
-  const home = devices.find((device) => device.device_id === homeDeviceId) ?? null
-  const homeRead = home ? deviceSessionsOf(home, live) : null
-  if (children.length === 0) {
-    if (error) return <AssistantEmpty title={t('tasks.loadFailed')} action={<DeviceDirectoryRetry />}><span role="alert">{error}</span></AssistantEmpty>
-    if (loading) return <ReadingNow />
-    if (readiness !== 'ready' || !home) return <PhoneMachineGate readiness={readiness === 'ready' ? 'unreachable' : readiness} name={assistant.display_name}>{null}</PhoneMachineGate>
-    const unread = devices.filter((device) => device.is_online && isAgentHostDevice(device)).map((device) => deviceSessionsOf(device, live))
-    const errors = unread.flatMap((read) => read.error ? [read.error] : [])
-    if (errors.length) return <AssistantEmpty title={t('tasks.loadFailed')}><span role="alert">{errors.join(' · ')}</span></AssistantEmpty>
-    if (!homeRead || unread.some((read) => read.loading || read.cached)) return <ReadingNow />
-    return (
-      <AssistantSection bare>
-        <AssistantEmpty
-          title={t('tasks.emptyTitle')}
-          action={
-            <Button variant="ghost" className="ta-pill-btn" onClick={() => askInChat(t('tasks.createPrompt'))}>
-              {t('tasks.create')}
-            </Button>
-          }
-        />
-      </AssistantSection>
-    )
-  }
-  return (
-    <>
-      {groupByDay(children, (item) => item.summary.lastInteractedAt, new Date()).map((group) => (
-        <AssistantSection key={group.bucket} title={t(`tasks.day.${group.bucket}`)} testId={`assistant-tasks-${group.bucket}`}>
-          {group.items.map(({ deviceId, summary, live }) => {
-            const opens = !!summary.agent?.userId
-            const openable = online.get(deviceId) === true && opens
-            return (
-              <AssistantRow
-                key={summary.conversationId}
-                testId={`assistant-subagent-${summary.conversationId}`}
-                title={formatSessionTitleForDisplay(summary.harness, summary.title)}
-                detail={assistantTaskDeviceLabel(devices, deviceId)}
-                trailing={<StatusGlyph presentation={sessionPresentation(summary, live && openable)} />}
-                // 点得开的那几行右边一个 ›(手机上一眼看出能点);点不开的只是一条记录。
-                chevron={opens}
-                onClick={opens ? () => openAssistantTaskChat(assistant.id, { deviceId, summary }, listed) : undefined}
-              />
-            )
-          })}
-        </AssistantSection>
-      ))}
-    </>
-  )
+  const { devices: hosts,phones = [] } = useDevicesStore()
+  const devices = [...hosts,...phones]
+  const ready = machine.state === 'ready' ? machine.machine : null
+  const read = usePhoneRead(ready ? `tasks|${machineKey(ready)}` : null,() => readAssistantPanelTasks(ready!.panel!),'read assistant tasks')
+  return <ReadView read={read} failedTitle={t('tasks.loadFailed')}>{children => children.length === 0
+    ? <AssistantSection bare><AssistantEmpty title={t('tasks.emptyTitle')} action={<Button variant="ghost" className="ta-pill-btn"
+      onClick={() => askInChat(t('tasks.createPrompt'))}>{t('tasks.create')}</Button>} /></AssistantSection>
+    : groupByDay(children,item => item.lastInteractedAt,new Date()).map(group => <AssistantSection key={group.bucket}
+      title={t(`tasks.day.${group.bucket}`)} testId={`assistant-tasks-${group.bucket}`}>
+      {group.items.map(task => <AssistantRow key={task.id} testId={`assistant-subagent-${task.id}`} title={task.title}
+        detail={assistantTaskDeviceLabel(devices,task.deviceId)}
+        trailing={<StatusGlyph presentation={presentAgentStatus({ reading: task.status,unseen: false })} />}
+        chevron={!!task.agentId} onClick={task.agentId ? () => openAssistantPanelTask(ready!.panel!,task) : undefined} />)}
+    </AssistantSection>)}</ReadView>
 }
 
-/** 它排的定时任务:进行中 / 已停用两段,一行一个(右边说什么时候),点一条往下钻看详情。 */
 function Routines(props: PhonePageProps) {
   const { assistant, readiness, askInChat, go } = props
   const { t, i18n } = useTranslation('assistant')
