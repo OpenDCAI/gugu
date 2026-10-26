@@ -1817,7 +1817,7 @@ async function dispatch(caller: BridgeCaller, method: ExtensionBridgeMethod, arg
         const { chatId, itemId } = target.target;
         const place = placeFor(choice, (args as { at?: unknown }).at);
         if (place) deliverToOpeningPage(place.candidate.extensionId, placeLink(place.candidate, place.at, itemId), { chat: chatId }, itemId);
-        const detail = { ...target.target, choice, ...(resumed && current ? { background: `${current[1].extensionId}.${current[1].tabName}` } : {}) };
+        const detail = { ...target.target, choice, ...(resumed ? { background: true } : {}) };
         if (peek) return void (await deliver(shown, { kind: 'peek', target: { kind: 'chat', detail } }));
         await deliver(shown, { kind: 'openWith', detail });
         return undefined;

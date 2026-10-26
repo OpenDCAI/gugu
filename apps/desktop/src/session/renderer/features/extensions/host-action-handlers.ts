@@ -43,7 +43,6 @@ import { isEmbedVisible } from '@renderer/lib/portal-container';
 import { askInShell, closeInShell, installConsentPrompt } from './install-consent';
 import { revealSessionpage } from '@/hooks/useSessionpageReveal';
 import { closeAppModal, focusAppModalClose, showAppModal } from '@/components/appModal/appModal';
-import { displayNameOf } from '@shared/extensions/file-openers';
 
 /**
  * Performs the actions main has already decided an extension is allowed to take.
@@ -208,12 +207,9 @@ function perform(sessionId: string | null, tabId: string, action: ExtensionHostA
     case 'showMessage':
       return openLinkTarget({ kind: 'chat', chatId: action.detail.chatId, messageId: action.detail.messageId });
     case 'openWith':
-      if (action.detail.background) return import('@renderer/features/chats/chat-tabs/chat-layouts').then(({ panelTabsOf, replacePanelItem }) => {
+      if (action.detail.background) return import('@renderer/features/chats/chat-tabs/chat-layouts').then(({ updateFileNames }) => {
         const detail = action.detail;
-        const tab = panelTabsOf(detail.chatId).find((entry) => entry.item.itemId === detail.itemId && entry.item.kind === detail.background);
-        if (tab) replacePanelItem(detail.chatId, tab.tabId, { ...tab.item,
-          title: detail.choice.kind === 'one' ? displayNameOf(detail.name, detail.choice.candidate.suffix) : detail.name,
-          fileName: detail.name, typedName: detail.typedName });
+        updateFileNames([{ id: detail.itemId, filename: detail.name, content_type: detail.file.contentType }], installedExtensionsStore.manifests);
       });
       window.dispatchEvent(new CustomEvent(APP_OPEN_WITH_EVENT, { detail: action.detail }));
       return;

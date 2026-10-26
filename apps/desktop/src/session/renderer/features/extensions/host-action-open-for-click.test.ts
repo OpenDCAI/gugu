@@ -4,10 +4,10 @@ import { UI_EVENTS } from '@/lib/uiEvents';
 import { APP_OPEN_WITH_EVENT } from '@shared/extensions/app-runtime-protocol';
 import type { PanelItem } from '@renderer/features/chats/chat-tabs/chat-panel-item';
 
-const { tabs, showChatTab, replacePanelItem } = vi.hoisted(() => ({
-  tabs: [] as { tabId: string; inWindow: boolean; item: PanelItem }[], showChatTab: vi.fn(), replacePanelItem: vi.fn(),
+const { tabs, showChatTab, updateFileNames } = vi.hoisted(() => ({
+  tabs: [] as { tabId: string; inWindow: boolean; item: PanelItem }[], showChatTab: vi.fn(), updateFileNames: vi.fn(),
 }));
-vi.mock('@renderer/features/chats/chat-tabs/chat-layouts', () => ({ panelTabsOf: () => tabs, showChatTab, replacePanelItem }));
+vi.mock('@renderer/features/chats/chat-tabs/chat-layouts', () => ({ panelTabsOf: () => tabs, showChatTab, updateFileNames }));
 
 const navigate = vi.fn();
 vi.mock('@renderer/lib/stores/app-state', () => ({ appState: { navigation: { navigate } } }));
@@ -65,11 +65,11 @@ describe('showing an already-open file while its metadata is checked', () => {
     window.addEventListener(APP_OPEN_WITH_EVENT, dispatched);
     try {
       await applyExtensionHostAction({ origin, action: { kind: 'openWith', detail: {
-        background: 'workspace.main', chatId: 'chat', itemId: 'file', name: 'renamed.md', typedName: 'renamed.md',
+        background: true, chatId: 'chat', itemId: 'file', name: 'renamed.md', typedName: 'renamed.md',
         file: { document: true, contentType: 'text/markdown', version: 2, size: 5 },
         choice: { kind: 'one', candidate: { extensionId: 'workspace', tabKind: 'workspace.main', tabTitle: 'Files', app: { name: 'Files' }, onlyTab: true, suffix: '.md' } },
       } } });
-      expect(replacePanelItem).toHaveBeenCalledWith('chat', 'held', { kind: 'workspace.main', itemId: 'file', title: 'renamed', fileName: 'renamed.md', typedName: 'renamed.md' });
+      expect(updateFileNames).toHaveBeenCalledWith([{ id: 'file', filename: 'renamed.md', content_type: 'text/markdown' }], expect.any(Array));
       expect(showChatTab).not.toHaveBeenCalled();
       expect(navigate).not.toHaveBeenCalled();
       expect(dispatched).not.toHaveBeenCalled();

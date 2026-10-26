@@ -72,7 +72,7 @@ describe('an already-open live file is shown before metadata validation', () => 
     presented({ chat: CHAT });
     expect(await pending).toMatchObject({ ok: true });
     expect(openWithTarget).toHaveBeenCalledTimes(1);
-    expect(actions().at(-1)).toMatchObject({ kind: 'openWith', detail: { background: 'pdf.viewer' } });
+    expect(actions().at(-1)).toMatchObject({ kind: 'openWith', detail: { background: true } });
   });
 
   it('uses the ordinary opener when the tab was closed but its native page is still idle', async () => {

@@ -441,7 +441,7 @@ export type HostToFrame =
 export const APP_OPEN_WITH_EVENT = 'gugu:app-open-with';
 export interface AppOpenWithDetail {
   /** Refresh this already-open App tab after it was shown; never activate a late validation result. */
-  background?: string;
+  background?: boolean;
   /** Host-only, one-shot authorization carried to the file's binding. Contains no document content. */
   opening?: PreparedChatFile;
   chatId: string;
