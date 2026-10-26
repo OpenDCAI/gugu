@@ -11,6 +11,10 @@ it.each([new TypeError('fetch failed'),new AssistantPanelError('read-timeout','t
   expect(retryAssistantPanelRead(0,error)).toBe(true)
   expect(retryAssistantPanelRead(2,error)).toBe(false)
 })
+it.each(['500','502','503','504'])('recovers a server HTTP error carried as code %s', code => {
+  expect(retryAssistantPanelRead(0,new AssistantPanelError(code,'private server detail'))).toBe(true)
+  expect(retryAssistantPanelRead(2,new AssistantPanelError(code,'private server detail'))).toBe(false)
+})
 it.each([new SyntaxError('invalid stored metadata'),new TypeError('panel.collection is not a function'),new Error('invalid configuration')])('does not retry non-transport failures', error => {
   expect(isAssistantPanelReadRetryable(error)).toBe(false)
 })

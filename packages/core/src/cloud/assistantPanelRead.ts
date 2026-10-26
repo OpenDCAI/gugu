@@ -6,7 +6,7 @@ export const ASSISTANT_PANEL_READ_TIMEOUT_MS = 15_000
 export function isAssistantPanelReadRetryable(error: unknown): boolean {
   if (!error) return true
   const { code,status,name,message } = error as { code?: string; status?: number; name?: string; message?: string }
-  if (code) return ['read-timeout','transport-failed','unavailable','PGRST003'].includes(code) || /^08/.test(code)
+  if (code) return ['read-timeout','transport-failed','unavailable','PGRST003'].includes(code) || /^08/.test(code) || /^5\d{2}$/.test(code)
   return (status !== undefined && status >= 500) || ['AbortError','TimeoutError','NetworkError'].includes(name ?? '')
     || name === 'TypeError' && /fetch|network|load failed/i.test(message ?? '')
 }
