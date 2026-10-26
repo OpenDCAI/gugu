@@ -5,7 +5,7 @@ import { APP_OPEN_WITH_EVENT } from '@shared/extensions/app-runtime-protocol';
 import { groupPageSlot, type PanelItem } from '@renderer/features/chats/chat-tabs/chat-panel-item';
 
 const { tabs, showChatTab, updateFileNames } = vi.hoisted(() => ({
-  tabs: [] as { tabId: string; inWindow: boolean; item: PanelItem }[], showChatTab: vi.fn(), updateFileNames: vi.fn(),
+  tabs: [] as { tabId: string; inWindow: boolean; shown?: boolean; item: PanelItem }[], showChatTab: vi.fn(), updateFileNames: vi.fn(),
 }));
 vi.mock('@renderer/features/chats/chat-tabs/chat-layouts', () => ({ panelTabsOf: () => tabs, showChatTab, updateFileNames }));
 
@@ -45,7 +45,7 @@ describe("a click that opens the App's own page brings the task page forward", (
 
 describe('showing an already-open file while its metadata is checked', () => {
   const origin = { extensionId: 'workspace', sessionId: null, tabId: groupPageSlot('chat', 'folder') };
-  beforeEach(() => { tabs.push({ tabId: 'folder', inWindow: false, item: { kind: 'workspace.main', title: 'Group folder' } }); });
+  beforeEach(() => { tabs.push({ tabId: 'folder', inWindow: false, shown: true, item: { kind: 'workspace.main', title: 'Group folder' } }); });
   it('activates the existing file in a background window without resolving its link again', async () => {
     tabs.push({ tabId: 'held', inWindow: false, item: { kind: 'workspace.main', itemId: 'file', title: 'old' } });
     vi.spyOn(document, 'visibilityState', 'get').mockReturnValue('hidden');
@@ -65,6 +65,13 @@ describe('showing an already-open file while its metadata is checked', () => {
   it('leaves a file in another chat to the ordinary opener that brings its chat up', async () => {
     tabs.push({ tabId: 'held', inWindow: false, item: { kind: 'workspace.main', itemId: 'file', title: 'old' } });
     expect(await applyExtensionHostAction({ origin: { ...origin, tabId: groupPageSlot('other-chat', 'folder') }, action: { kind: 'openChatFile', chatId: 'chat', itemId: 'file', onlyIfOpen: 'workspace.main' } })).toBeUndefined();
+    expect(showChatTab).not.toHaveBeenCalled();
+  });
+
+  it('does not reuse an originating tab that is no longer shown', async () => {
+    tabs[0]!.shown = false;
+    tabs.push({ tabId: 'held', inWindow: false, item: { kind: 'workspace.main', itemId: 'file', title: 'old' } });
+    expect(await applyExtensionHostAction({ origin, action: { kind: 'openChatFile', chatId: 'chat', itemId: 'file', onlyIfOpen: 'workspace.main' } })).toBeUndefined();
     expect(showChatTab).not.toHaveBeenCalled();
   });
 
