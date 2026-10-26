@@ -53,5 +53,6 @@ it('keeps the last published connection during a failed cloud refresh and applie
  expect(state.getAttribute('data-state')).toBe('notConnected')
  // A new credential result is still authoritative even though an earlier read failed.
  await act(async()=>{await client.setQueryData(['issues:connection-status','panel:owner:assistant','configured'],{dingtalk:true})})
+ await waitForCondition(()=>state.getAttribute('data-state')==='needsReauth','published authorization failure')
  expect(state.getAttribute('data-state')).toBe('needsReauth')
 })
