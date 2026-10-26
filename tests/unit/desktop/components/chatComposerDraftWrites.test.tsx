@@ -6,7 +6,7 @@ import { createReactHarness, renderWithAppProviders } from '../../../support/tes
 import { readComposer, writeComposer } from '../../../support/composerEditor'
 import { plainTextDoc, serializeDoc } from '../../../../packages/session-ui/src/react/components/prompt-editor/serialize'
 import { useChatStore, useTextDraftStore, ChatStoreProvider } from '../../../../apps/desktop/src/store/chatContext'
-import { chat, chatStore, clickElement } from '../../../support/testHarness'
+import { chat, chatStore, clickElement, device } from '../../../support/testHarness'
 import { setComposerVerb, takeComposerCarry } from '../../../../apps/desktop/src/lib/composerVerbBridge'
 import { ChatLineScope } from '../../../../apps/desktop/src/store/chatLineScope'
 import { ShareIntakeContent } from '../../../../apps/desktop/src/mobile/share-intake/ShareIntakeSheet'
@@ -16,6 +16,10 @@ import { installAssistantShellBridge, readAssistantShellBridge } from '../../../
 import { MobileAssistantApp } from '../../../../apps/desktop/src/mobile/assistant/MobileAssistantApp'
 import { i18n } from '../../../../apps/desktop/src/i18n'
 import { InChatSlot } from '../../../../apps/desktop/src/lib/shellSlots'
+import { DevicesContext, useDevicesStore } from '../../../../apps/desktop/src/store/devicesContext'
+import { startPhoneNewTask } from '../../../../apps/desktop/src/mobile/chat/PhoneNewTask'
+import * as taskDispatch from '../../../../apps/desktop/src/mobile/agent-watch/createTaskInGroup'
+import * as sessionRpc from '../../../../apps/desktop/src/mobile/agent-watch/sessionpage-rpc'
 
 let harness: ReturnType<typeof createReactHarness>
 const input = () => harness.container.querySelector<HTMLElement>('[data-testid="chat-composer"]')!
@@ -95,6 +99,31 @@ describe('chat editor draft writes', () => {
     await clickElement(harness.container.querySelector<HTMLElement>('[data-testid="composer-verb-task"]')!)
     expect(takeComposerCarry('chat')).toBe('current document')
     expect(readComposer(input())).toBe('')
+  })
+
+  it('clears the same live editor after a phone task is accepted', async () => {
+    const width = Object.getOwnPropertyDescriptor(window, 'innerWidth')!
+    Object.defineProperty(window, 'innerWidth', { configurable: true, value: 412 })
+    const created = vi.spyOn(taskDispatch, 'createTaskInGroup').mockResolvedValue({ sessionId: 'session', topicChatId: 'topic' })
+    vi.spyOn(sessionRpc, 'fetchCreateOptions').mockResolvedValue({ projects: [], lastUsed: null, harnesses: [
+      { id: 'codex', name: 'Codex', status: 'available', watchable: true, sessionViews: ['general'], permissionModes: ['full-access'] },
+    ] })
+    function Host() {
+      const base = useDevicesStore()
+      return <DevicesContext.Provider value={{ ...base, devices: [device('machine', [], { projects: [{
+        localProjectId: 'project', name: 'Project', rootPath: '/project', createdAt: '2026-10-26T00:00:00Z', chatId: 'chat', groupRepresentative: true,
+        folders: [{ workspaceId: 'workspace', kind: 'root', path: '/project', attachedAt: null }],
+      }] })] }}><ChatMessageComposer chatId="chat" isGroupChat onSend={async () => {}} /></DevicesContext.Provider>
+    }
+    try {
+      await renderWithAppProviders(harness, <Host />)
+      await act(async () => { writeComposer(input(), 'phone task draft'); startPhoneNewTask('chat') })
+      await clickElement(harness.container.querySelector<HTMLElement>('[data-testid="project-folder-paper"]')!)
+      await send()
+      expect(created).toHaveBeenCalledWith(expect.objectContaining({ chatId: 'chat', prompt: 'phone task draft' }))
+      expect(readComposer(input())).toBe('')
+      expect(harness.container.querySelector('[data-testid="phone-task-tag"]')).toBeNull()
+    } finally { Object.defineProperty(window, 'innerWidth', width) }
   })
 
   it('hydrates closed-chat writes once and preserves each chat on switching', async () => {
