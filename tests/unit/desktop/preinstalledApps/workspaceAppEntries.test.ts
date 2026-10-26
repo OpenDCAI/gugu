@@ -262,6 +262,13 @@ describe('workspace App as a file manager: the host picks the App', () => {
     expect($('menu').hidden).toBe(true)
     const input = document.querySelector('[data-id="cfg"] .rename-input') as HTMLInputElement
     expect(input.value).toBe('cfg.json')
+    input.value = 'unfinished.json'
+    const links = gugu.linkTo.mock.calls.length
+    contextChanged({ ...context })
+    await Promise.resolve()
+    expect(document.querySelector('[data-id="cfg"] .rename-input')).toBe(input)
+    expect(input.value).toBe('unfinished.json')
+    expect(gugu.linkTo.mock.calls.length).toBe(links)
     input.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape' }))
     await vi.waitFor(() => expect(document.querySelector('[data-id="cfg"] .rename-input')).toBe(null))
 

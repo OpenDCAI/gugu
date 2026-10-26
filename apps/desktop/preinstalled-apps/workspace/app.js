@@ -259,7 +259,8 @@ async function applyContext(ctx) {
   }
   if (!inGroup && !ctx.file) showDocMessage(state.t.noWorkspace)
   else if (!canRead() && !ctx.file) showDocMessage(state.t.denied)
-  renderList()
+  // Layout and visibility reports change context too; they must not rebuild every row or erase a rename draft.
+  if (previous && (previous.locale !== ctx.locale || !!previous.file !== !!ctx.file || previous.capabilities?.join('\0') !== ctx.capabilities?.join('\0'))) renderList()
 }
 
 function renderChrome() {
@@ -906,7 +907,6 @@ async function openHanded() {
     if (state.opening === token) showDocMessage(error.code === 'denied' ? state.t.denied : fmt(state.t.failed, { e: error.message }))
   } finally {
     if (state.opening === token) state.opening = null
-    renderList()
   }
 }
 
