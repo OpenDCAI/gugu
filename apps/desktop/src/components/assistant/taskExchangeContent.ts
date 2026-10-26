@@ -1,19 +1,18 @@
 import type { ParsedAttachment } from '@gugu/core/shared/ui/attachmentModels'
+import { taskProtocolText } from '@gugu/core/shared/ui/taskProtocolText'
 
 const ATTACHMENTS = /(?:^|\n)附件（原件引用与校验信息；仅元数据）：/g
 const uuid = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
 
 /** A view of the producer's trailing protocol blocks; never modifies the durable exchange or Agent input. */
 export function taskExchangeContent(content: string): { text: string; files: ParsedAttachment[]; invalidAttachments: boolean } {
-  let text = content.trimEnd()
-  const protocol = /(?:^|\n)<(gugu_work(?:_result)?)>\s*\n?[\s\S]*?\n?<\/\1>\s*$/
-  for (let block = protocol.exec(text); block; block = protocol.exec(text)) text = text.slice(0, block.index).trimEnd()
+  let text = taskProtocolText(content)
   const marker = [...text.matchAll(ATTACHMENTS)].at(-1)
   if (!marker) return { text, files: [], invalidAttachments: false }
   const raw = text.slice(marker.index + marker[0].length).trim()
   // Only the actual appended metadata block is protocol; quoted examples and inline mentions are ordinary prose.
   if ((!raw.startsWith('[') && !raw.startsWith('{')) || raw.endsWith('```')) return { text, files: [], invalidAttachments: false }
-  text = text.slice(0, marker.index).trimEnd()
+  text = taskProtocolText(text.slice(0, marker.index))
   try {
     const refs: unknown = JSON.parse(raw)
     if (!Array.isArray(refs) || refs.length === 0 || refs.length > 8) throw new Error('Invalid attachment references')

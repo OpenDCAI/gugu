@@ -21,6 +21,7 @@ import { SenderAvatarProvider } from '@session-chat/lib/sender-avatar';
 import { AppNameProvider } from '@session-chat/lib/app-name';
 import { ChatNameProvider } from '@session-chat/lib/chat-name';
 import { createSignal } from 'solid-js';
+import { assistantExecutionAction, ASSISTANT_TASK_EXECUTION } from '@gugu/core/shared/assistantWorkflow';
 
 const WIDTH = 640;
 const ENVELOPE = `<gugu_delivery route="chat" arrival="Sent to you through 咕咕; reply with message_reply" from="Alice" from_id="user:alice" chat="7" chat_kind="group" msg="msg:m-1" at="2026-09-03 12:00">
@@ -181,6 +182,17 @@ describe('delivery card contract (#4874)', () => {
     expect(r.bodyText).toContain('review');
     expect(r.bodyText).not.toContain('gugu_delivery');
     expect(r.boxBorder).toBe('0px');
+  });
+
+  it('renders a dispatched task without exposing its host execution context, retaining model input', async () => {
+    const action = assistantExecutionAction({ action: 'spawn', prompt: '整理读书会支出。' }) as { prompt: string };
+    const envelope = `<gugu_delivery route="session-direct" from="咕咕" from_id="session:parent" msg="msg:work"><![CDATA[${action.prompt}]]></gugu_delivery>`;
+    const r = await mount(SINGLE, false, envelope);
+    expect(action.prompt).toContain(ASSISTANT_TASK_EXECUTION);
+    expect(r.bodyText).toContain('整理读书会支出。');
+    expect(r.bodyText).not.toContain('任务执行约定');
+    expect(r.bodyText).not.toContain('gugu_task_context');
+    expect(r.computed).toBe(r.dom);
   });
 
   it('a quoted card reads as its words, not the JSON it is stored as (gugu-dev#181)', async () => {

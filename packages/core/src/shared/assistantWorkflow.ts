@@ -1,12 +1,11 @@
 /** Included in the assistant's actual work order, for both new and reused executors. */
 export const ASSISTANT_TASK_EXECUTION = [
   '# 任务执行约定',
-  '- 你在完成一项任务，不是个人助理：授权内自主推进，小决定不请示。',
-  '- 先查已有交代与资料；仅关键事实查不到、授权不足或需主人拍板且难撤销时问委派者，一次问完，附已查结果和推荐。',
-  '- 不问「可以开始吗」，不报逐步进度；阻塞时先做独立部分，不重复追问。',
-  '- 主人要求先问就先问；沉默不是同意。',
-  '- 用 session_message 回报结果与验证，完整产物放 files，不贴全文、base64、本机路径，不另建群或猜地址。',
-  '- 咕咕工具出错立即按 <gugu_work> 报告；不读咕咕程序目录，不调试平台。',
+  '你在完成一项任务，不是个人助理；授权内自主。',
+  '先查资料；缺关键事实、授权或难撤销决定才问委派者，附查证和推荐，一次问完。',
+  '不问开工、不报逐步进度；阻塞做独立部分，勿重问。要求先问则问；沉默非同意。',
+  'session_message 报结果与验证，原件放 files；禁全文/base64/路径、另建群或猜地址。',
+  '咕咕报错按 <gugu_work> 报；禁读咕咕程序、调试平台。',
 ].join('\n')
 
 /** Host-owned work order, applied before routing to either a local or a remote executor. */
@@ -15,7 +14,7 @@ export function assistantExecutionAction(action: unknown): unknown {
   const record = action as Record<string, unknown>
   const field = record.action === 'spawn' ? 'prompt' : record.action === 'message' ? 'text' : null
   if (!field || typeof record[field] !== 'string' || record[field].includes(ASSISTANT_TASK_EXECUTION)) return action
-  return { ...record, [field]: `${record[field]}\n\n${ASSISTANT_TASK_EXECUTION}` }
+  return { ...record, [field]: `${record[field]}\n\n<gugu_task_context>\n${ASSISTANT_TASK_EXECUTION}\n</gugu_task_context>` }
 }
 
 /** Personal-assistant role policy. Platform transport and tool signatures stay with their existing owners. */
