@@ -7,7 +7,7 @@ import { act, createElement, useState } from 'react'
 import { createReactHarness } from '../../../support/testHarness'
 import { installShellSlots } from '../../../../apps/desktop/src/lib/shellSlots'
 import { folderItem } from '../../../../apps/desktop/src/session/renderer/features/chats/chat-tabs/chat-panel-item'
-import { chatLayoutOf, closeChatTab, closeTopicTab, openPanelItem, openTopicTab, showChatOnly } from '../../../../apps/desktop/src/session/renderer/features/chats/chat-tabs/chat-layouts'
+import { chatLayoutOf, closeChatTab, closeInfoTab, closeTopicTab, infoTabOf, openInfoTab, openPanelItem, openTopicTab, showChatOnly } from '../../../../apps/desktop/src/session/renderer/features/chats/chat-tabs/chat-layouts'
 import { chatPanelTabProvider } from '../../../../apps/desktop/src/session/renderer/features/chats/chat-tabs/chat-tab-providers'
 import { ChatTabPage } from '../../../../apps/desktop/src/components/appSlot/ChatTabHosts'
 
@@ -45,6 +45,7 @@ describe('a chat\'s phone page', () => {
       chatId,
       panel: (tab) => createElement('article', null, tab.item.title),
       topic: () => createElement('article', null, 'Topic'),
+      info: () => null,
     }))
     expect(harness.container.textContent).toBe('')
     await act(async () => openPanelItem(chatId, { kind: 'kanban.board', title: 'Board' }))
@@ -70,6 +71,7 @@ describe('a chat\'s phone page', () => {
       chatId,
       panel: (tab) => createElement(Panel, { title: tab.item.title }),
       topic: () => null,
+      info: () => null,
     }))
     const board = await act(async () => openPanelItem(chatId, { kind: 'kanban.board', title: 'Board' }))
     expect(harness.container.textContent).toBe('Board:1')
@@ -78,6 +80,34 @@ describe('a chat\'s phone page', () => {
     await act(async () => closeChatTab(chatId, file!))
     expect(harness.container.textContent).toBe('Board:1')
     await act(async () => closeChatTab(chatId, board!))
+    expect(harness.container.textContent).toBe('')
+  })
+})
+
+describe('a chat\'s info is one of its tabs (owner 10-26)', () => {
+  it('opens beside the chat at the page asked for, and once: opened again it comes forward', async () => {
+    const chatId = 'info-tab'
+    await act(async () => openInfoTab(chatId, 'members'))
+    const first = infoTabOf(chatId)!
+    expect(first.shown).toBe(true)
+    expect(first.info.page).toBe('members')
+    await act(async () => openPanelItem(chatId, folderItem()))
+    expect(infoTabOf(chatId)?.shown, 'the folder takes the place beside the chat').toBe(false)
+    await act(async () => openInfoTab(chatId))
+    expect(infoTabOf(chatId)?.tabId, 'still one info tab').toBe(first.tabId)
+    expect(infoTabOf(chatId)?.shown).toBe(true)
+    expect(infoTabOf(chatId)?.info.page, 'brought forward as it was').toBe('members')
+    await act(async () => closeInfoTab(chatId))
+    expect(infoTabOf(chatId)).toBeNull()
+  })
+
+  it('on the phone it is the page in front', async () => {
+    const chatId = 'info-phone'
+    await harness.render(createElement(ChatTabPage, { chatId, panel: () => null, topic: () => null, info: () => createElement('article', null, 'Info') }))
+    expect(harness.container.textContent).toBe('')
+    await act(async () => openInfoTab(chatId))
+    expect(harness.container.textContent).toBe('Info')
+    await act(async () => closeInfoTab(chatId))
     expect(harness.container.textContent).toBe('')
   })
 })

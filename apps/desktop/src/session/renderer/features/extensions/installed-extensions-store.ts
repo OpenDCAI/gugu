@@ -18,6 +18,9 @@ import type { ExtensionOrigin } from '@shared/extensions/upgrade';
  * render entries without an await on every menu open. Refs #2374.
  */
 
+/** The host's settings page for an App (`hostPage: 'settings'`) is a form of rows: as narrow as a chat's info. */
+const HOST_SETTINGS_SIDE_WIDTH = 360;
+
 export interface ExtensionTabContributionEntry {
   /** Tab kind under which this contribution registers: `<extensionId>.<tabName>`. */
   kind: ExtensionTabKind;
@@ -25,6 +28,8 @@ export interface ExtensionTabContributionEntry {
   extensionName: string;
   title: string;
   hostSettings?: boolean;
+  /** Its width beside another page (manifest `sideWidth`; the host's settings page is a narrow form): none = half. */
+  sideWidth?: number;
   /**
    * Host-produced PNG for this tab, or null for the generic mark. A data URL
    * rather than a path: the bytes are re-encoded in main precisely so the
@@ -116,6 +121,11 @@ export class InstalledExtensionsStore {
     return tab && (this.mainTabOf(tab.extensionId)?.kind === kind ? tab.extensionName : tab.title);
   }
 
+  /** How wide this App page is beside another (`sideWidth`); undefined: half, a peer. */
+  sideWidth(kind: string): number | undefined {
+    return this.allTabContributions.find((entry) => entry.kind === kind)?.sideWidth;
+  }
+
   /** Every declared tab, preinstalled Apps' included — what a lookup by kind reads. */
   get allTabContributions(): ExtensionTabContributionEntry[] {
     return this.manifests.flatMap((manifest) => {
@@ -126,6 +136,7 @@ export class InstalledExtensionsStore {
         extensionName: name,
         title: tab.hostPage ? name : tab.title,
         hostSettings: tab.hostPage === 'settings',
+        sideWidth: tab.hostPage === 'settings' ? HOST_SETTINGS_SIDE_WIDTH : tab.sideWidth,
         iconDataUrl: this.icons[extensionTabKind(manifest.id, tab.name)] ?? null,
         enabled: this.isEnabled(manifest.id),
         preinstalled: this.isPreinstalled(manifest.id),

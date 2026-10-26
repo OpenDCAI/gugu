@@ -124,7 +124,6 @@ export const AUTOMATION_TEST_IDS = {
   groupAnnouncementPostButton: 'group-announcement-post-button',
   groupAnnouncementCard: 'group-announcement-card',
   groupHeaderMenu: 'group-header-menu',
-  groupMenuAnnouncement: 'group-menu-announcement',
   groupMenuSettings: 'group-menu-settings',
   settingsModelPane: 'settings-model-pane',
   // #886 contact row context-menu items

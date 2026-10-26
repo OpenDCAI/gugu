@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { useCallback, useMemo, useRef, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import type { CSSProperties, ReactNode } from 'react'
 import { buildGroupInviteShareUrl } from '../../lib/groupInviteShareUrl'
@@ -21,6 +21,7 @@ import { GroupSettingsManagePage } from './GroupSettingsManagePage'
 import { MemberListPanel, type MemberListPanelProps } from './MemberListPanel'
 import { AnnouncementDrawer } from './AnnouncementDrawer'
 import { useGroupChatSettings } from './useGroupChatSettings'
+import { useSettingsPages } from './useSettingsPages'
 import { MemberInviteLink, SettingsNavRow, SettingsPageFrame, SettingsPageHead } from './groupSettingsUi'
 import {
   settingsBodyStyle,
@@ -31,11 +32,7 @@ import {
   settingsTextareaStyle,
 } from './groupSettingsStyles'
 
-// @@@6418 群聊设置抽屉 = 一个页面栈。成员相关的一切(看、找、邀请、改角色、移出、倾听模式)归群成员面板(与 👥 同一个
-// MemberListPanel),一级页只留一行入口 ⇒ 不再有第二份名单(#2178 的头像网格)与第二套成员操作。一级页:群资料 / 成员入口 /
-// 公告·规则·描述 / 聊天(查找·通知·置顶·清空,与单聊同一份) / 群管理入口 / 离开·解散。群成员、群公告、群管理(仅群主/管理员)、
-// 规则、描述各是一页,页头同一个、返回回一级页。所有改动即时生效,没有底部「保存」。
-type SettingsPage = 'main' | 'members' | 'announcement' | 'manage' | 'rules' | 'description'
+// @@@6418 群聊设置 = 一个页面栈(useSettingsPages):成员、公告、群管理、规则、描述各是一页。
 
 const profileRowStyle: CSSProperties = { display: 'flex', alignItems: 'center', gap: 12, marginBottom: 8 }
 const avatarFrameStyle: CSSProperties = {
@@ -70,7 +67,9 @@ function firstLine(text: string | null | undefined): string | null {
 
 export function GroupMembersSection({
   chat,
+  initialPage,
   snapshot,
+  snapshotError,
   currentUserId,
   onReload,
   onClose,
@@ -84,7 +83,10 @@ export function GroupMembersSection({
   onClearMessages,
 }: {
   chat: ChatItem
+  /** Opened at the members' list or the announcement (the info tab's members button); back: the first page. */
+  initialPage?: 'members' | 'announcement'
   snapshot: GroupCollabSnapshot
+  snapshotError?: MemberListPanelProps['error']
   currentUserId: string | null
   onReload: () => Promise<void>
   onClose: () => void
@@ -104,11 +106,7 @@ export function GroupMembersSection({
   const { identitiesById } = useChatStore('identitiesById')
   const { toast } = useToast()
   const mobileShell = useMobileShell()
-  const [pages, setPages] = useState<SettingsPage[]>(['main'])
-  const page = pages[pages.length - 1]
-  const push = useCallback((next: SettingsPage) => setPages((stack) => [...stack, next]), [])
-  const pop = useCallback(() => setPages((stack) => (stack.length > 1 ? stack.slice(0, -1) : stack)), [])
-  useEffect(() => { setPages(['main']) }, [chatId])
+  const { page, push, pop } = useSettingsPages(chatId, initialPage)
 
   const { settings, error: settingsError, setError: setSettingsError, update, setAvatarUrl } = useGroupChatSettings(chatId)
   const viewerRole = useMemo(
@@ -206,10 +204,10 @@ export function GroupMembersSection({
   const canExit = viewerRole !== 'owner' || Boolean(onDissolveGroup)
   const groupName = settings?.name ?? chat.name ?? null
 
-  const subHead = (title: ReactNode, action?: ReactNode) => <SettingsPageHead title={title} action={action} onBack={pop} onClose={onClose} mobile={mobileShell} />
+  const subHead = (title: ReactNode, action?: ReactNode) => <SettingsPageHead title={title} action={action} onBack={pop} onClose={mobileShell ? onClose : undefined} mobile={mobileShell} />
   let content: ReactNode
   if (page === 'members') {
-    content = <MemberListPanel chatId={chatId} chatKind="group" snapshot={snapshot} onReload={onReload} onOpenUserChat={onOpenUserChat} onWhisper={onWhisper} head={subHead} />
+    content = <MemberListPanel chatId={chatId} chatKind="group" snapshot={snapshot} error={snapshotError} onReload={onReload} onOpenUserChat={onOpenUserChat} onWhisper={onWhisper} head={subHead} />
   } else if (page === 'announcement') {
     content = <AnnouncementDrawer chatId={chatId} isAdmin={viewerIsManager} head={subHead} />
   } else if (page === 'manage' && settings) {
@@ -258,7 +256,8 @@ export function GroupMembersSection({
     const preview = unifiedMembers.slice(0, MEMBER_PREVIEW_COUNT)
     content = (
       <>
-        <SettingsPageHead title={t('group.settings.title')} onClose={onClose} mobile={mobileShell} />
+        {/* 桌面上群信息是一枚页签:它自己就是标题和 ×,只有二级页画返回;手机整页照旧左上返回 = 关。 */}
+        {mobileShell ? <SettingsPageHead title={t('group.settings.title')} onClose={onClose} mobile /> : null}
         <div style={bodyStyle}>
           <div style={profileRowStyle}>
             {/* .gi 52px 群头像。@@@group-avatar (#1164 G1):manager 点击/拖入更换;非 manager 只读。 */}
