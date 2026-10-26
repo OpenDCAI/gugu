@@ -102,4 +102,19 @@ describe('FrontendPty streams live output only while shown', () => {
     pty.unmount();
     expect(liveDataListener).toBeNull();
   });
+
+  it('does not retry a rejected subscription inside its own completion handler', async () => {
+    const { FrontendPty } = await getPtyModule();
+    const target = document.createElement('div');
+    target.setAttribute('data-test-terminal', '');
+    document.body.appendChild(target);
+    const pty = new FrontendPty('terminal');
+    pty.mount(target);
+    let subscriptions = 0;
+    invoke.mockImplementation((channel: string) => channel === 'pty.subscribe'
+      ? ++subscriptions === 1 ? Promise.reject(new Error('host offline')) : new Promise(() => {})
+      : Promise.resolve({ success: true, data: {} }));
+    await expect(pty.connect()).rejects.toThrow('host offline');
+    expect(subscriptions).toBe(1);
+  });
 });

@@ -396,10 +396,13 @@ export class FrontendPty {
    * the reply is in the snapshot, and the batches after it are emitted after the reply.
    */
   connect(): Promise<void> {
-    this.connecting ??= this.attachStream().finally(() => {
+    this.connecting ??= this.attachStream().then(() => {
       this.connecting = null;
       this.connectedOnce = true;
       this.syncStream();
+    }, (error: unknown) => {
+      this.connecting = null;
+      throw error;
     });
     return this.connecting;
   }
@@ -410,7 +413,7 @@ export class FrontendPty {
     if (this.mounted && this.shown && this.viewportVisible && isAnimationWindowVisible(this.ownedContainer.ownerDocument)) {
       if (!this.streaming && !this.connecting) {
         this.terminal.reset();
-        void this.connect();
+        void this.connect().catch((error: unknown) => log.warn('FrontendPty: stream could not resume', { error: String(error) }));
       }
     } else {
       this.stopStream();

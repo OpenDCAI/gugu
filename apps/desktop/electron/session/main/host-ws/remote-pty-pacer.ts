@@ -44,6 +44,7 @@ export function createRemotePtyPacer(deps: {
   let tokens = REMOTE_PTY_BURST;
   let refilledAt = now();
   let disposed = false;
+  let draining: Promise<void> | null = null;
 
   const refill = () => {
     const t = now();
@@ -108,6 +109,11 @@ export function createRemotePtyPacer(deps: {
   return {
     outgoing(message, send) {
       if (disposed) return;
+      // A final screen is asynchronous. Keep frames emitted after its exit in order too.
+      const deliver: Send = (frame) => {
+        if (draining) void draining.then(() => { if (!disposed) send(frame); });
+        else send(frame);
+      };
       if (message.t === 'event' && message.channel.startsWith(PTY_DATA_PREFIX) && typeof message.data === 'string') {
         let stream = streams.get(message.channel);
         if (!stream) streams.set(message.channel, (stream = { pending: '', timer: null, behind: false }));
@@ -117,13 +123,39 @@ export function createRemotePtyPacer(deps: {
           const current = stream;
           stream.timer = setTimeout(() => {
             current.timer = null;
-            flush(message.channel, current, send);
+            flush(message.channel, current, deliver);
           }, REMOTE_PTY_FLUSH_MS);
         }
         return;
       }
-      for (const [channel, stream] of streams) flush(channel, stream, send);
-      send(message);
+      for (const [channel, stream] of streams) flush(channel, stream, deliver);
+      if (message.t === 'event' && message.channel.startsWith('pty:exit.')) {
+        const channel = PTY_DATA_PREFIX + message.channel.slice('pty:exit.'.length);
+        const stream = streams.get(channel);
+        if (stream?.behind) {
+          if (stream.timer !== null) clearTimeout(stream.timer);
+          streams.delete(channel);
+          // Capture now: the registry removes an ordinary terminal's screen after emitting exit.
+          // Flush one final screen, charging its bytes to the same bucket instead of losing it.
+          const snapshot = deps.screenSnapshot(channel.slice(PTY_DATA_PREFIX.length)).catch((error: unknown) => {
+            log.warn('[remote-pty] final screen snapshot failed', { channel, error: String(error) });
+            return null;
+          });
+          const finished = Promise.all([draining, snapshot]).then(([, screen]) => {
+            if (disposed) return;
+            if (screen) {
+              const data = FULL_RESET + screen.data + screen.live;
+              refill();
+              tokens -= Buffer.byteLength(data, 'utf8');
+              send({ t: 'event', channel, data });
+            }
+          }).then(() => { if (!disposed) send(message); });
+          draining = finished;
+          void finished.then(() => { if (draining === finished) draining = null; });
+          return;
+        }
+      }
+      deliver(message);
     },
     unsubscribe(channel) {
       const stream = streams.get(channel);

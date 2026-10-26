@@ -43,6 +43,39 @@ describe('remote pty pacer (@@@remote-pty-pacer)', () => {
     expect(sent).toEqual([pty('last lines'), { t: 'event', channel: 'pty:exit.p1', data: { exitCode: 0 } }]);
   });
 
+  it('captures the final screen before exit removes a flooding terminal', async () => {
+    let exited = false;
+    const finalScreen = vi.fn(async () => exited ? null : {
+      data: 'FINAL-RESULT', live: '', size: { cols: 80, rows: 24 },
+    });
+    const pacer = createRemotePtyPacer({ screenSnapshot: finalScreen, now: () => t });
+    const exit: HostWsServerMessage = { t: 'event', channel: 'pty:exit.p1', data: { exitCode: 0 } };
+    pacer.outgoing(pty('x'.repeat(REMOTE_PTY_BURST + 1)), send);
+    pacer.outgoing(exit, send);
+    // Registry unregisters the screen synchronously after emitting pty:exit.
+    exited = true;
+    await advance(REMOTE_PTY_FLUSH_MS * 2);
+    expect(sent).toEqual([pty('\x1bcFINAL-RESULT'), exit]);
+    pacer.dispose();
+  });
+
+  it('keeps later frames behind an asynchronous final screen', async () => {
+    let release!: (snapshot: { data: string; live: string; size: { cols: number; rows: number } }) => void;
+    const pacer = createRemotePtyPacer({
+      screenSnapshot: () => new Promise((resolve) => { release = resolve; }), now: () => t,
+    });
+    const exit: HostWsServerMessage = { t: 'event', channel: 'pty:exit.p1', data: { exitCode: 0 } };
+    const next: HostWsServerMessage = { t: 'event', channel: 'pty:started', data: { id: 'p1' } };
+    pacer.outgoing(pty('x'.repeat(REMOTE_PTY_BURST + 1)), send);
+    pacer.outgoing(exit, send);
+    pacer.outgoing(next, send);
+    expect(sent).toEqual([]);
+    release({ data: 'FINAL', live: '', size: { cols: 80, rows: 24 } });
+    await advance(0);
+    expect(sent).toEqual([pty('\x1bcFINAL'), exit, next]);
+    pacer.dispose();
+  });
+
   it('falling behind drops the backlog and sends a reset plus the current screen; output during the snapshot is in it', async () => {
     let release!: () => void;
     const slowSnapshot = vi.fn((_id: string) => new Promise<{ data: string; live: string; size: { cols: number; rows: number } }>((resolve) => {
