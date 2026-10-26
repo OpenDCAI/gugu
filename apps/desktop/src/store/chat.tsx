@@ -15,6 +15,7 @@ import {
   replaceChatRows,
   type AccountImRepository,
 } from '../lib/imRepository'
+import { retainHistoryRevalidation } from '../lib/messageHistory'
 import { closeImRepository, publishMessageWindow, subscribeIdentities } from '../lib/chatMessageWindowPublication'
 import { readCompleteCachedChats } from '../lib/chatSnapshotPublication'
 import { createChatListProjectionLedger, useChatProjectionBinding } from './chatListProjection'
@@ -372,9 +373,12 @@ export function ChatProvider({ children, active = true }: { children: React.Reac
       const ids = cached.filter((m) => m.seq >= 0).map((m) => m.id)
       if (ids.length === 0) return
       try {
-        const revalidation = await chatService.revalidateWindow(ids, userId)
+        const [revalidation, repository] = await Promise.all([chatService.revalidateWindow(ids, userId), getImRepository()])
         if (epoch !== getMessageSnapshotEpoch(chatId) || imRepositoryScope.disposed) return
         const queriedIds = new Set(ids)
+        const next = applyMessageWindowRevalidation(cache.rows(chatId), queriedIds, revalidation)
+        await retainHistoryRevalidation(repository, next, queriedIds, revalidation.presentIds)
+        if (epoch !== getMessageSnapshotEpoch(chatId) || imRepositoryScope.disposed) return
         setMessagesAndCache((rows) => applyMessageWindowRevalidation(rows, queriedIds, revalidation), chatId)
         persistWindowToLocalSync(chatId, cache.get(chatId) ?? [])
       } catch (err) {
@@ -382,7 +386,7 @@ export function ChatProvider({ children, active = true }: { children: React.Reac
         if (throwOnError) throw err
       }
     },
-    [cache, getMessageSnapshotEpoch, imRepositoryScope, persistWindowToLocalSync, setMessagesAndCache, userId],
+    [cache, getImRepository, getMessageSnapshotEpoch, imRepositoryScope, persistWindowToLocalSync, setMessagesAndCache, userId],
   )
   const refreshMessages = useCallback(async (chatId = activeChatIdRef.current ?? undefined) => {
     if (!chatId || !userId) return

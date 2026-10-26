@@ -338,6 +338,32 @@ describe('打开会话的第一帧', () => {
     harness.cleanup()
   })
 
+  it('persists edits and authoritative absences from a nonresident history viewport', async () => {
+    const { retainHistoryPage } = await import('../../../../apps/desktop/src/lib/messageHistory')
+    const room = { ...chatA, kind: 'group' as const, next_message_seq: 10001 }
+    projectionStub.rows = [room, chatB]
+    await repository.transaction((tx) => tx.putChat('chatA', room))
+    const page = Array.from({ length: 40 }, (_, i) => message({ id: `old-${i + 81}`, chat_id: 'chatA', seq: i + 81, content: 'before edit' }))
+    await retainHistoryPage(repository, { chatId: 'chatA', direction: 'older', cursor: 121, limit: 40 }, page, 40)
+    const tail = message({ id: 'tail', chat_id: 'chatA', seq: 10000 })
+    await replaceMessageWindow(repository, 'chatA', [tail], true)
+    messagesByChat.chatA = [tail]; network.resolve()
+    const harness = await mount(createElement(ScopedProbe, { chatId: 'chatA' }))
+    try {
+      await vi.waitFor(() => expect(scopedLines.get('chatA')?.messages.map((row) => row.id)).toContain('tail'), WAIT)
+      vi.mocked(chatService.revalidateWindow).mockImplementation(async (ids) => ({
+        overlays: new Map(), mutations: new Map([['old-100', { content: 'after edit', content_type: 'text', retracted_at: null }]]),
+        presentIds: new Set(ids.filter((id) => id !== 'old-102')),
+      }))
+      await act(async () => { await scopedLines.get('chatA')!.loadMessageAnchor('old-100') })
+      expect(scopedLines.get('chatA')!.messages.find((row) => row.id === 'old-100')?.content).toBe('after edit')
+      expect(scopedLines.get('chatA')!.messages.some((row) => row.id === 'old-102')).toBe(false)
+      expect((await repository.readMessage('old-100'))?.value.content).toBe('after edit')
+      expect(await repository.readMessage('old-102')).toBeUndefined()
+      expect(repository.snapshot().message.some((row) => row.id === 'old-100')).toBe(false)
+    } finally { harness.cleanup() }
+  })
+
   it('does not attach the previous chat’s watermarks to bodies painted before the new watermarks arrive', async () => {
     network.resolve()
     const watermarks = deferred<Record<string, number>>()

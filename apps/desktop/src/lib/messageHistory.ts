@@ -81,3 +81,15 @@ export function retainMessageDeletion(repository: AccountImRepository, transacti
   const seqs = repository.snapshot().message.filter((other) => other.streamId === row.streamId && other.id !== id).map((row) => row.seq)
   transaction.putView(key, { ...window, oldestSeq: seqs.length ? Math.min(...seqs) : 0, maxSeq: seqs.length ? Math.max(...seqs) : 0 })
 }
+
+
+/** Revalidation changes every queried body, including nonresident history viewports. */
+export function retainHistoryRevalidation(repository: AccountImRepository, messages: MessageItem[], queriedIds: ReadonlySet<string>, presentIds: ReadonlySet<string>): Promise<void> {
+  return repository.transaction((transaction) => {
+    const resident = new Set(repository.snapshot().message.map((row) => row.id))
+    for (const id of queriedIds) if (!presentIds.has(id)) transaction.delete('message', [repository.accountId, id])
+    for (const row of messages) {
+      if (row.seq >= 0 && queriedIds.has(row.id) && presentIds.has(row.id)) transaction.putMessage(row, !resident.has(row.id))
+    }
+  })
+}
