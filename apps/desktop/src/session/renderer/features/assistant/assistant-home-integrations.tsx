@@ -60,10 +60,16 @@ export function useHomeLibraryHost(home: AssistantHomePlace): LibraryHost {
   const prepare = useCallback(async () => {
     if (local) return;
     remoteHostsStore.start();
-    if (home.kind === 'cloud' && !await remoteHostsStore.wakeCloudComputer(deviceId)) throw new Error(t('connectors.prepareFailed'));
+    if (home.kind === 'cloud' && !await remoteHostsStore.wakeCloudComputer(deviceId)) {
+      const failure = remoteHostsStore.wakeFailure(deviceId);
+      const key = failure?.code === 'credits_exhausted' ? 'authorizationCreditsExhausted'
+        : failure?.code === 'membership_expired' ? 'authorizationMembershipExpired'
+          : failure?.reason === 'timeout' ? 'authorizationTimedOut' : 'authorizationUnavailable';
+      throw new Error(t(`connectors.${key}`));
+    }
     remoteHostsStore.reconnect(deviceId);
     try { await when(() => remoteHostsStore.connectionState(deviceId) === 'connected',{ timeout: 60_000 }); }
-    catch { throw new Error(t('connectors.prepareFailed')); }
+    catch { throw new Error(t('connectors.authorizationTimedOut')); }
   },[local,home.kind,deviceId,t]);
   return useMemo(() => assistantPanelLibraryHost(base,machine?.panel,prepare,folder.error ?? identity.error),[base,machine,prepare,folder.error,identity.error]);
 }

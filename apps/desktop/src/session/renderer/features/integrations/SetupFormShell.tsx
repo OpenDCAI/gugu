@@ -20,6 +20,7 @@ type SetupFormShellProps = {
   editAccountId?: string;
   getInput: () => IntegrationFormInput;
   canSubmit: boolean;
+  validationMessage: string;
   onSuccess: () => void;
   onClose: () => void;
   children: ReactNode;
@@ -30,6 +31,7 @@ export function SetupFormShell({
   editAccountId,
   getInput,
   canSubmit,
+  validationMessage,
   onSuccess,
   onClose,
   children,
@@ -41,6 +43,8 @@ export function SetupFormShell({
   const isMutating = isIntegrationMutating(providerId);
 
   const handleSubmit = async () => {
+    if (isMutating) return;
+    if (!canSubmit) { setError(validationMessage); return; }
     setError(null);
 
     try {
@@ -76,7 +80,7 @@ export function SetupFormShell({
           {translate('common.cancel')}
         </Button>
         {/* 「授权配置」:「保存并连接」→「正在验证…」(连上之前要真去对方那边核一遍)。 */}
-        <ConfirmButton onClick={() => void handleSubmit()} disabled={!canSubmit || isMutating}>
+        <ConfirmButton onClick={() => void handleSubmit()} disabled={isMutating}>
           {isMutating && <LoadingIndicator size="inline" className="mr-2" />}
           {isMutating ? translate('integrations.credentialsVerifying') : translate('integrations.credentialsSubmit')}
         </ConfirmButton>
