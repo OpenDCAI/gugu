@@ -402,7 +402,7 @@ export default {
   "emoji": {
     "moreReactions": "More reactions",
     "workStatus": "Work status",
-    "frequent": "Frequently used",
+    "reactions": "Reactions",
     "quickReactions": "Quick reactions",
     "reactWith": "React with {{emoji}}"
   },

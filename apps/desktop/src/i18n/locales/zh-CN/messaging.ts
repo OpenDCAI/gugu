@@ -402,7 +402,7 @@ export default {
   "emoji": {
     "moreReactions": "更多表情",
     "workStatus": "工作状态",
-    "frequent": "常用",
+    "reactions": "表态",
     "quickReactions": "快速回应",
     "reactWith": "回应 {{emoji}}"
   },
