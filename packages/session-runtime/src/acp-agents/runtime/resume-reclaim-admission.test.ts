@@ -183,7 +183,7 @@ describe('bounded native admission', () => {
   });
 
   it('ends a silent first prompt once, reports timeout, and tears down its provider before another turn', async () => {
-    const { h, rt, api } = await setup();
+    const { h, rt, api } = await setup(true);
     const child = h.lastChild;
     h.agent.prompt.mockImplementationOnce(() => new Promise(() => {}));
     vi.useFakeTimers();

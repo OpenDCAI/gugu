@@ -954,20 +954,15 @@ describe('AcpRuntime session manager', () => {
     expect(onPlatformSessionClosed).toHaveBeenCalledWith('platform-exit', 'access-exit');
   });
 
-  it('keeps a session managed when provider close fails so stop can be retried', async () => {
+  it('stops the process even when provider close fails, then removes its live record', async () => {
     const { h, rt, sessionId } = await startHarness('conv-close-failure');
     h.agent.closeSession.mockRejectedValueOnce(new Error('provider refused close'));
-
-    const failed = await rt.stopSession(sessionId);
-    expect(failed).toEqual(
-      expect.objectContaining({ success: false, error: expect.objectContaining({ type: 'stop_failed' }) })
-    );
-    expect(rt.sessionLiveModels(sessionId)).toBeDefined();
 
     await expect(rt.stopSession(sessionId)).resolves.toEqual({
       success: true,
       data: undefined,
     });
+    expect(h.lastChild.kill).toHaveBeenCalledWith('SIGTERM');
     expect(rt.sessionLiveModels(sessionId)).toBeNull();
   });
 

@@ -603,7 +603,7 @@ export function createStartOwningClient(client: ContractClient<AcpRuntimeApiCont
   async function finishClosingProcess(sessionId: string): Promise<void> {
     const owner = await detachedClient.adapterProvenance({ sessionId });
     if (!owner?.closing) return;
-    const stopped = await client.stopSession({ sessionId }, undefined as never);
+    const stopped = await stopWorker({ sessionId }, undefined as never);
     if (!stopped.success) throw new Error(`ACP process teardown did not complete: ${stopped.error.message ?? stopped.error.type}`);
     await closeRuntimeForkOwnershipForRuntimeSession(sessionId);
     await releaseEmdashPlatformSession(sessionId);
@@ -739,11 +739,33 @@ export function createStartOwningClient(client: ContractClient<AcpRuntimeApiCont
   //    (它的结果是「起来了」,它手里那张平台票已经被停会话结清)。
   const startsInFlight = new Map<string, StartOperation>();
   const stopsInFlight = new Map<string, ReturnType<typeof client.stopSession>>();
+  const conditionalStops = new Set<string>();
+  async function stopWorker(input: Parameters<typeof client.stopSession>[0], meta: Parameters<typeof client.stopSession>[1]) {
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    try {
+      return await Promise.race([
+        client.stopSession(input, meta),
+        new Promise<never>((_resolve, reject) => {
+          timer = setTimeout(() => reject(new Error('ACP worker stop timed out after 12000ms')), 12_000);
+        }),
+      ]);
+    } catch (error) {
+      log.warn('acp stop: worker teardown failed', { sessionId: input.sessionId, error: String(error) });
+      return acpErr.stopFailed({ name: 'StopFailed', message: String(error) });
+    } finally { if (timer) clearTimeout(timer); }
+  }
+  async function waitForStop(sessionId: string): Promise<void> {
+    const stopping = stopsInFlight.get(sessionId);
+    if (!stopping) return;
+    const result = await stopping;
+    if (!result.success && await detachedClient.adapterProvenance({ sessionId }) !== null) {
+      throw new Error(`ACP process teardown did not complete: ${result.error.message ?? result.error.type}`);
+    }
+  }
   const startOnce = async (input: StartCall[0], meta: StartCall[1]): Promise<StartOperation> => {
     const sessionId = input.input.sessionId;
     // Teardown owns credentials too: do not prepare a replacement while its old stop can revoke it.
-    const stopping = stopsInFlight.get(sessionId);
-    if (stopping) await stopping;
+    while (stopsInFlight.has(sessionId)) await waitForStop(sessionId);
     const inFlight = startsInFlight.get(sessionId);
     if (inFlight) return inFlight;
     const prepared = prepareStart(input);
@@ -760,6 +782,48 @@ export function createStartOwningClient(client: ContractClient<AcpRuntimeApiCont
       if (startsInFlight.get(sessionId) === operation) startsInFlight.delete(sessionId);
     };
     void operation.result.then(clear, clear);
+    return operation;
+  };
+
+  const stopSession: typeof client.stopSession = (input, meta) => {
+    const pending = stopsInFlight.get(input.sessionId);
+    if (pending) {
+      // An unconditional user stop must still run when idle reclamation declines.
+      if (!input.onlyIfIdle && conditionalStops.has(input.sessionId)) {
+        return pending.then(() => stopSession(input, meta));
+      }
+      return pending;
+    }
+    const inFlight = startsInFlight.get(input.sessionId);
+    if (!input.onlyIfIdle && inFlight) inFlight.stopped = true;
+    if (input.onlyIfIdle) conditionalStops.add(input.sessionId);
+    const operation = Promise.resolve().then(async () => {
+      const idleStop = input.onlyIfIdle ? await stopWorker(input, meta) : null;
+      if (idleStop && !idleStop.success) {
+        if (await detachedClient.adapterProvenance({ sessionId: input.sessionId }) === null) {
+          await closeRuntimeForkOwnershipForRuntimeSession(input.sessionId);
+          await releaseEmdashPlatformSession(input.sessionId);
+        }
+        return idleStop;
+      }
+      if (inFlight) inFlight.stopped = true;
+      if (startsInFlight.get(input.sessionId) === inFlight) startsInFlight.delete(input.sessionId);
+      const { closeSessionBrowserTools } = await import('../../../../../browser-agent-mcp');
+      const [result] = await Promise.all([idleStop ?? stopWorker(input, meta), closeSessionBrowserTools(input.sessionId)]);
+      // Lost replies do not retain credentials after the worker proves the process is gone.
+      if (!result.success && await detachedClient.adapterProvenance({ sessionId: input.sessionId }) !== null) return result;
+      await closeRuntimeForkOwnershipForRuntimeSession(input.sessionId);
+      await releaseEmdashPlatformSession(input.sessionId);
+      if (inFlight) await settleStoppedStart(input.sessionId, inFlight.projectId);
+      return result;
+    });
+    stopsInFlight.set(input.sessionId, operation);
+    const clear = (): void => {
+      if (stopsInFlight.get(input.sessionId) !== operation) return;
+      stopsInFlight.delete(input.sessionId);
+      conditionalStops.delete(input.sessionId);
+    };
+    void operation.then(clear, clear);
     return operation;
   };
 
@@ -831,37 +895,9 @@ export function createStartOwningClient(client: ContractClient<AcpRuntimeApiCont
       return client.setModelOption(input, meta);
     },
     startSession: async (input, meta) => (await startOnce(input, meta)).result,
-    stopSession: (input, meta) => {
-      const pending = stopsInFlight.get(input.sessionId);
-      if (pending) return pending;
-      const inFlight = startsInFlight.get(input.sessionId);
-      if (!input.onlyIfIdle && inFlight) inFlight.stopped = true;
-      // Publish the barrier before invoking the worker; a wake at any await joins it.
-      const operation = Promise.resolve().then(async () => {
-        const idleStop = input.onlyIfIdle ? await client.stopSession(input, meta) : null;
-        if (idleStop && !idleStop.success) return idleStop;
-        if (inFlight) inFlight.stopped = true;
-        if (startsInFlight.get(input.sessionId) === inFlight) startsInFlight.delete(input.sessionId);
-        const { closeSessionBrowserTools } = await import('../../../../../browser-agent-mcp');
-        const closingBrowser = closeSessionBrowserTools(input.sessionId);
-        const [result] = await Promise.all([idleStop ?? client.stopSession(input, meta), closingBrowser]);
-        // A live process that has not stopped still owns its ticket.
-        if (!result.success) return result;
-        await closeRuntimeForkOwnershipForRuntimeSession(input.sessionId);
-        await releaseEmdashPlatformSession(input.sessionId);
-        if (inFlight) await settleStoppedStart(input.sessionId, inFlight.projectId);
-        return result;
-      });
-      stopsInFlight.set(input.sessionId, operation);
-      const clear = (): void => {
-        if (stopsInFlight.get(input.sessionId) === operation) stopsInFlight.delete(input.sessionId);
-      };
-      void operation.then(clear, clear);
-      return operation;
-    },
+    stopSession,
     resumeSession: async (input, meta) => {
-      const stopping = stopsInFlight.get(input.input.sessionId);
-      if (stopping) await stopping;
+      while (stopsInFlight.has(input.input.sessionId)) await waitForStop(input.input.sessionId);
       await finishClosingProcess(input.input.sessionId);
       // 重开同样要带注入 —— 见 withEmdashPlatformInjection 抬头那段:漏在这里,首轮正常、重开翻车。
       const resumeFacts = await readSessionInjectionFacts(input.input);
