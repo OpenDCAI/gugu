@@ -1,6 +1,6 @@
 import { createRPCNamespace, createRPCRouter } from '@shared/lib/ipc/rpc';
 import { agentsController } from './core/agents/controller';
-import { agentSessionController } from './core/sessions/agent-session-controller';
+import { agentSessionController, assistantWorkController } from './core/sessions/agent-session-controller';
 import { appController } from './core/app/controller';
 import { automationsController } from './core/automations/controller';
 import { browserController } from './core/browser/controller';
@@ -43,6 +43,7 @@ export const rpcRouter = createRPCRouter({
   agents: agentsController,
   // agent 的 session_* 跨机器动作:别的机器经 `taskhost.call` 交给这台执行。
   agentSession: agentSessionController,
+  assistantWork: assistantWorkController,
   app: appController,
   automations: automationsController,
   appSettings: appSettingsController,
