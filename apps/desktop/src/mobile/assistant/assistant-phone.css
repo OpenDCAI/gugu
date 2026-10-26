@@ -61,6 +61,9 @@
   color: var(--ta-fg);
 }
 .ta-phone-head { gap: 4px; }
+/* Keep the search lane on every tab so the shared header never changes shape. */
+.ta-phone-head .gg-pane-actions { flex: none; width: var(--control-h-touch); }
+.ta-phone-head .gg-pane-actions > [hidden] { display: none; }
 .ta-phone-head .ta-phone-identity { width: var(--control-h-touch); justify-content: center; border-radius: var(--radius-circle); }
 .ta-phone-head .ta-phone-identity[aria-pressed='true'] { background: var(--ta-seg-active); }
 
