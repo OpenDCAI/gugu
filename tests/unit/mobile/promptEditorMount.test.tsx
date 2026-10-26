@@ -6,7 +6,8 @@ import { PromptEditor } from '../../../packages/session-ui/src/react/components/
 
 // TipTap keeps the editor while a suspended EditorContent has no view. Its view.dom getter throws in that interval.
 const lifecycle = vi.hoisted(() => ({ options: null as Record<string, unknown> | null, dom: null as HTMLElement | null }))
-vi.mock('@tiptap/react', async (original) => {
+// Resolve from the package that declares TipTap, so the mock and production import have the same module id.
+vi.mock('../../../packages/session-ui/node_modules/@tiptap/react', async (original) => {
   const actual = await original<typeof import('@tiptap/react')>()
   const editor = { get view() { if (!lifecycle.dom) throw new Error('The editor view is not available'); return { dom: lifecycle.dom } } }
   return { ...actual, useEditor: (options: Record<string, unknown>) => { lifecycle.options = options; return editor }, EditorContent: () => null }
