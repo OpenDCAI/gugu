@@ -325,6 +325,11 @@ Needs \`agents:read\` (or \`agents:read:all\` / \`agents:read:all-machines\`, wh
   you care about. Ids are filtered to your declared scope, so plain
   \`agents:read\` hears only of the ones you started; only this computer's, even with \`:all-machines\`.
   A deleted agent does NOT arrive here: that channel does not exist yet.
+- \`listAgents({ report: true })\` reads the same scope and returns \`{ agents, unreached, checkedAt }\` instead of the
+  array. Every row adds \`statusFrom: 'this_machine' | 'device'\` and \`statusAt\` (ISO observation time, not the
+  task's sorting time). \`unreached\` names computers not read (\`deviceId, label, detail\`; a null deviceId means
+  the remote listing itself failed). An agent missing from an unreached computer is **unknown**, not deleted.
+  Cross-device monitoring polls this report; change events above remain local.
 
 Needs \`agents:history\` (or \`agents:history:all\`):
 

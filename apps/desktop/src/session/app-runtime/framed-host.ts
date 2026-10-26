@@ -63,7 +63,7 @@ const PROGRAM: ReadonlySet<HostMember> = new Set<HostMember>([
  */
 export function messageHost(
   transport: { post(message: FrameToHost): void; listen(handler: (message: unknown) => void): void },
-  flags: { framed?: true; program?: true; session?: true },
+  flags: { framed?: true; program?: true; session?: true; background?: true },
 ): GuguHost & Record<string, unknown> {
   let seq = 0;
   const pending = new Map<number, { resolve: (value: unknown) => void; reject: (reason: unknown) => void }>();
@@ -90,10 +90,10 @@ export function messageHost(
       pending.set(id, { resolve, reject });
       transport.post({ m: APP_FRAME_MARKER, t: 'call', id, method, args });
     });
-  const offers = (member: HostMember) => (flags.program ? PROGRAM.has(member) : PHONE.has(member) || (!!flags.session && IN_SESSION.has(member)));
+  const offers = (member: HostMember) => flags.background || (flags.program ? PROGRAM.has(member) : PHONE.has(member) || (!!flags.session && IN_SESSION.has(member)));
   return {
     apiVersion: EXTENSION_API_VERSION,
     ...flags,
-    ...hostMembers(flags.program ? 'program' : 'page', offers, call, events.on),
+    ...hostMembers(flags.background ? 'background' : flags.program ? 'program' : 'page', offers, call, events.on),
   } as GuguHost & Record<string, unknown>;
 }

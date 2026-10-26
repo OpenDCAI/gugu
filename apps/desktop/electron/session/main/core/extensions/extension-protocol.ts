@@ -45,7 +45,8 @@ export interface ExtensionBundle {
  */
 export function setupExtensionProtocol(
   session: Pick<Session, 'protocol'>,
-  currentBundle: () => ExtensionBundle
+  currentBundle: () => ExtensionBundle,
+  fetchFile: (file: string) => Promise<Response> = (file) => net.fetch(pathToFileURL(file).toString()),
 ): void {
   const { protocol } = session;
   if (protocol.isProtocolHandled(EXTENSION_SCHEME)) return;
@@ -86,7 +87,7 @@ export function setupExtensionProtocol(
       return new Response('not found', { status: 404, headers: { 'Content-Security-Policy': csp } });
     }
 
-    const response = await net.fetch(pathToFileURL(resolved).toString());
+    const response = await fetchFile(resolved);
     const headers = new Headers(response.headers);
     headers.set('Content-Security-Policy', csp);
     // An App document gets the runtime's script tag first (`injectAppRuntime`), the same
