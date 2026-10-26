@@ -8,7 +8,7 @@ export function ChatLineScope({ chatId, children, onNavigate }: {
 }) {
   const store = useChatStore()
   const line = useChatConversation(chatId, store.conversations)
-  return createElement(ChatStoreProvider, { value: { ...store, ...line, activeChatId: chatId,
+  return createElement(ChatStoreProvider, { draftWriter: store, value: { ...store, ...line, activeChatId: chatId,
     activeChat: store.chats.find((chat) => chat.id === chatId) ?? null,
     setActiveChatId: onNavigate ?? store.setActiveChatId } }, children)
 }

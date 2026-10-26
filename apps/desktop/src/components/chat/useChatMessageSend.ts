@@ -9,11 +9,13 @@ import { safeFailureLine } from '@/session/renderer/features/sessions/gugu-reaso
 import { useToast } from '../toastContext'
 import { revokeAttachmentPreviewUrls, withPreviewUrl, type ChatDraft, type MentionTarget } from './useChatDraft'
 import type { ChatMessageComposerProps } from './chatComposerModels'
+import { useChatStore } from '../../store/chatContext'
 
 /** Chat delivery owns recipients and rollback; the shared editor only submits its document. */
 export function useChatMessageSend(props: ChatMessageComposerProps, draft: ChatDraft, members: MentionCandidate[], activeMentionTargets: MentionTarget[], inputRef: RefObject<HTMLElement | null>) {
   const { onSend, beforeSend, onSendAttachments, quoteContent, onQuoteConsumed, chatId, isGroupChat, disabled, disabledReason, whisperTarget, onExitWhisper } = props
-  const { text, attachments, clear, flush, setText, setMentionTargets, setAttachments, persistTo } = draft
+  const { text, attachments, clear, flush, setMentionTargets, setAttachments, persistTo } = draft
+  const { writeDraft } = useChatStore('writeDraft')
   const { t } = useTranslation('messaging')
   const { toast } = useToast()
   const [sending, setSending] = useState(false)
@@ -109,7 +111,7 @@ export function useChatMessageSend(props: ChatMessageComposerProps, draft: ChatD
       if (activeChatIdRef.current === (chatId ?? null)) {
         // Reuse the same File objects but mint fresh preview URLs (the old ones may already be revoked).
         // 合并而非覆盖:多件逐一上传的空档里用户可能又加了附件、又打了字,整体替换会把它们吞掉。
-        setText((current) => (current.trim() ? `${typed}\n${current}` : typed))
+        writeDraft(chatId, { at: 'start', text: typed })
         setMentionTargets((current) => [...restoredMentions, ...current.filter((m) => !restoredMentions.some((r) => r.userId === m.userId))])
         setAttachments((current) => [...unsentAttachments.map(withPreviewUrl), ...current])
       } else if (chatId) {
@@ -122,7 +124,7 @@ export function useChatMessageSend(props: ChatMessageComposerProps, draft: ChatD
       sendingRef.current = false
       setSending(false)
     }
-  }, [beforeSend, chatId, text, attachments, activeMentionTargets, members, rosterNameIndex, isGroupChat, onSend, onSendAttachments, quoteContent, onQuoteConsumed, t, toast, disabled, disabledReason, whisperTarget, onExitWhisper, setText, setMentionTargets, setAttachments, clear, persistTo, flush, inputRef])
+  }, [beforeSend, chatId, text, attachments, activeMentionTargets, members, rosterNameIndex, isGroupChat, onSend, onSendAttachments, quoteContent, onQuoteConsumed, t, toast, disabled, disabledReason, whisperTarget, onExitWhisper, writeDraft, setMentionTargets, setAttachments, clear, persistTo, flush, inputRef])
 
   return { sending, handleSend }
 }
