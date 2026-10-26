@@ -17,7 +17,7 @@ import { toast } from '@renderer/lib/hooks/use-toast';
 import { useNavigate } from '@renderer/lib/layout/navigation-provider';
 import { PageHeader } from '@renderer/lib/components/page-header';
 import { log } from '@renderer/utils/logger';
-import { rpc, rpcOn } from '@renderer/lib/ipc';
+import { rpcOn } from '@renderer/lib/ipc';
 import { installAgreedOn } from '@shared/extensions/install-agreed-on';
 import { useShowModal } from '@renderer/lib/modal/modal-provider';
 import type { ConsentPrompt } from '@renderer/features/extensions/extension-consent';
