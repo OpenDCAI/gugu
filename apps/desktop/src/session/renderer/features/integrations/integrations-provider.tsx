@@ -104,9 +104,8 @@ export function IntegrationsProvider({ children }: { children: React.ReactNode }
   // 插件的中英两份由那台机器的主进程按这台桌面的界面语言解析成字符串;换语言重取。
   const locale = useSyncExternalStore(subscribeSessionLocale, () => getSessionLocaleSnapshot().resolvedLocale);
   const {
-    data: rawIntegrations = EMPTY_INTEGRATION_SUMMARIES,
+    data: listData,
     error: listError,
-    isFetched: listFetched,
     refetch: refetchList,
   } = useQuery({
     queryKey: [...INTEGRATIONS_LIST_QUERY_KEY, host.key, locale],
@@ -119,7 +118,7 @@ export function IntegrationsProvider({ children }: { children: React.ReactNode }
     ...(host.assistantPanelExpected ? { retry: retryAssistantPanelRead,refetchOnWindowFocus: (query: { state: { error: unknown } }) => isAssistantPanelReadRetryable(query.state.error) } : remote ? { retry: false } : {}),
   });
 
-  const integrations = useAssistantIntegrationSummaries(host.assistantPanel,rawIntegrations,locale);
+  const integrations = useAssistantIntegrationSummaries(host.assistantPanel,listData ?? EMPTY_INTEGRATION_SUMMARIES,locale);
 
   useEffect(() => {
     // @issue 的图标是聊天里用的,聊天只跟本机那一份走。
@@ -294,9 +293,9 @@ export function IntegrationsProvider({ children }: { children: React.ReactNode }
         integrationById,
         connectionStatus,
         checkedConnections: statusData ?? {},
-        connectionCheckError: connectionReadError,
+        connectionCheckError: host.assistantPanelExpected && statusData !== undefined ? null : connectionReadError,
         hasConfiguredConnections: configuredData !== undefined,
-        configuredConnectionsError,
+        configuredConnectionsError: host.assistantPanelExpected && configuredData !== undefined ? null : configuredConnectionsError,
         configuredConnections,
         isCheckingConfiguredConnections,
         isCheckingConnections: isCheckingConnections,
@@ -310,7 +309,7 @@ export function IntegrationsProvider({ children }: { children: React.ReactNode }
         readCliProgress,
         isIntegrationMutating,
         listError,
-        hasList: listFetched && !listError,
+        hasList: listData !== undefined,
         reloadList: () => void refetchList(),
       }}
     >

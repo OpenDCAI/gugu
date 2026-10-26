@@ -5,8 +5,9 @@ import {afterEach,beforeEach,expect,it,vi} from 'vitest'
 import {createReactHarness,waitForCondition} from '../../../support/testHarness'
 import {ASSISTANT_PANEL_CHANGED} from '../../../../apps/desktop/src/components/assistant/assistant-panel-events'
 import {IntegrationsProvider,useIntegrationsContext} from '../../../../apps/desktop/src/session/renderer/features/integrations/integrations-provider'
+import {connectorState} from '../../../../apps/desktop/src/session/renderer/features/assistant/assistant-connector-status'
 import {assistantApplicationCounts} from '../../../../apps/desktop/src/components/assistant/assistant-app-connections'
-const f=vi.hoisted(()=>({connected:false,host:null as unknown}))
+const f=vi.hoisted(()=>({connected:false,readFails:false,host:null as unknown}))
 vi.mock('@renderer/features/library/library-host',()=>({useLibraryHost:()=>f.host}))
 vi.mock('@renderer/lib/chat/chat-mention-provider',()=>({registerIssueMentionIcons:vi.fn()}))
 vi.mock('@/components/assistant/assistant-app-client',()=>({reportAssistantAppChange:vi.fn(async()=>{})}))
@@ -17,12 +18,12 @@ function Probe(){
  const v=useIntegrationsContext()
  connect=()=>v.connectIntegration('dingtalk',{})
  const count=assistantApplicationCounts(v.integrations,v.configuredConnections,v.checkedConnections,null).connected
- return <div data-testid="state">{v.checkedConnections.dingtalk?.connected?'connected':'off'}|{String(v.configuredConnections.dingtalk===true)}|{count}</div>
+ return <div data-testid="state" data-state={connectorState(v.configuredConnections.dingtalk,v.checkedConnections.dingtalk,v.connectionCheckError ?? v.configuredConnectionsError,true)} data-has-list={v.hasList}>{v.checkedConnections.dingtalk?.connected?'connected':'off'}|{String(v.configuredConnections.dingtalk===true)}|{count}</div>
 }
 beforeEach(()=>{
- f.connected=false;h=createReactHarness();client=new QueryClient({defaultOptions:{queries:{gcTime:0,retry:false}}})
+ f.connected=false;f.readFails=false;h=createReactHarness();client=new QueryClient({defaultOptions:{queries:{gcTime:0,retry:false}}})
  f.host={key:'panel:owner:assistant',assistantPanelExpected:true,assistantPanel:{invalidate:vi.fn(()=>window.dispatchEvent(new Event(ASSISTANT_PANEL_CHANGED)))},integrations:{
-  list:async()=>items,checkAllConnections:async()=>({dingtalk:{connected:f.connected}}),checkConfiguredConnections:async()=>({dingtalk:f.connected}),connect:async()=>{f.connected=true;return{success:true}},
+  list:async()=>{if(f.readFails)throw Error('snapshot unavailable');return items},checkAllConnections:async()=>{if(f.readFails)throw Error('snapshot unavailable');return {dingtalk:{connected:f.connected,errorType:f.connected?undefined:'authorization_expired'}}},checkConfiguredConnections:async()=>{if(f.readFails)throw Error('snapshot unavailable');return {dingtalk:f.connected}},connect:async()=>{f.connected=true;return{success:true}},
  }}
 })
 afterEach(()=>{h.cleanup();client.clear()})
@@ -37,4 +38,20 @@ it('receives another surface’s connection publication without reopening the pa
  await mount()
  await act(async()=>{f.connected=true;window.dispatchEvent(new Event(ASSISTANT_PANEL_CHANGED))})
  await waitForCondition(()=>h.container.textContent==='connected|true|1','updated connection state')
+})
+
+it('keeps the last published connection during a failed cloud refresh and applies a later authorization failure',async()=>{
+ await mount()
+ await act(async()=>{await connect()})
+ await waitForCondition(()=>h.container.textContent==='connected|true|1','connected')
+ await act(async()=>{f.readFails=true;await client.invalidateQueries()})
+ const state=h.container.querySelector('[data-testid="state"]')!
+ expect(state.getAttribute('data-state')).toBe('connected')
+ expect(state.getAttribute('data-has-list')).toBe('true')
+ await act(async()=>{f.readFails=false;f.connected=false;await client.invalidateQueries()})
+ await waitForCondition(()=>h.container.textContent==='off|false|0','published disconnect')
+ expect(state.getAttribute('data-state')).toBe('notConnected')
+ // A new credential result is still authoritative even though an earlier read failed.
+ await act(async()=>{await client.setQueryData(['issues:connection-status','panel:owner:assistant','configured'],{dingtalk:true})})
+ expect(state.getAttribute('data-state')).toBe('needsReauth')
 })
