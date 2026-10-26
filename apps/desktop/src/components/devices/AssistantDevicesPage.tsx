@@ -29,6 +29,7 @@ import { PhoneDeviceActionsPage } from '../../mobile/phone-device/PhoneDeviceAct
 import { ConnectMoreDevices } from './ConnectMoreDevices'
 import { PhoneGlyph } from './assistantDeviceUi'
 import { useDeviceActionGroupText } from '../settings/deviceActionGroupText'
+import { platform } from '../../platform'
 
 export function AssistantDevicesPage({ cloudDeviceId }: { cloudDeviceId: string | null }) {
   const { t } = useTranslation('settings')
@@ -37,11 +38,13 @@ export function AssistantDevicesPage({ cloudDeviceId }: { cloudDeviceId: string 
   const snapshot = cloudComputer?.snapshot ?? null
   const cloudId = cloudDeviceId ?? snapshot?.deviceId ?? null
   const all = useMemo(() => sortAssistantDevices(withoutAssistantHome([...devices, ...(phones ?? [])], cloudId)), [devices, phones, cloudId])
+  const thisPhone = platform.kind === 'capacitor'
+  const currentPhone = all.find(device => device.is_current_device && isPhoneDevice(device))
   const { state: thisActions } = useThisDeviceState()
   const [open, setOpen] = useState<string | null>(null)
 
   const opened = open ? all.find((d) => d.device_id === open) ?? null : null
-  if (opened?.is_current_device && isPhoneDevice(opened)) {
+  if ((thisPhone && open === 'this-phone') || (opened?.is_current_device && isPhoneDevice(opened))) {
     return (
       <SettingsPage data-testid="assistant-this-phone-actions">
         <div className="flex items-center gap-2">
@@ -74,8 +77,12 @@ export function AssistantDevicesPage({ cloudDeviceId }: { cloudDeviceId: string 
   return (
     <SettingsPage data-testid="assistant-devices">
       <SettingsGroup>
-        {all.length === 0 && <SettingsRow description={t('devices.assistantPage.empty')} />}
-        {all.map((device) => {
+        {thisPhone && <SettingsRow data-testid="assistant-device-this-phone" leading={<PhoneGlyph />}
+          title={<span className="flex items-center gap-2">{currentPhone?.label ?? t('devices.assistantPage.phoneTitle')}<Chip tone="accent">{t('devices.current')}</Chip></span>}
+          description={currentPhone ? grants(currentPhone) : undefined} control={<ChevronRight size={16} />}
+          onClick={() => setOpen('this-phone')} />}
+        {!thisPhone && all.length === 0 && <SettingsRow description={t('devices.assistantPage.empty')} />}
+        {all.filter(device => !(thisPhone && device.is_current_device && isPhoneDevice(device))).map((device) => {
           const kind = deviceKind(device, cloudId)
           const summary = grants(device)
           return (
