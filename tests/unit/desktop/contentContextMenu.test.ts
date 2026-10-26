@@ -5,7 +5,7 @@ import { CONTENT_CONTEXT_MENU_ACTION, CONTENT_CONTEXT_MENU_OPEN, type ContentMen
 
 function host() {
   const send = vi.fn()
-  const webContents = { send, setIgnoreMenuShortcuts: vi.fn(), isDestroyed: () => false } as unknown as WebContents
+  const webContents = { send, on: vi.fn(), setIgnoreMenuShortcuts: vi.fn(), isDestroyed: () => false } as unknown as WebContents
   return { webContents, send, window: { webContents } as BrowserWindow }
 }
 

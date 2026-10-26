@@ -4,11 +4,19 @@ import { CONTENT_CONTEXT_MENU_ACTION, CONTENT_CONTEXT_MENU_OPEN, type ContentCon
 
 export type ContentMenuEntry = ContentMenuItem & { click?: () => void };
 const pending = new WeakMap<WebContents, { requestId: string; items: ContentMenuEntry[] }>();
+const observed = new WeakSet<WebContents>();
 
 /** Actions and selection snapshots stay in the trusted host, scoped to the requesting window. */
 export function showContentContextMenu(items: ContentMenuEntry[], position: { window?: BrowserWindow; x: number; y: number }): void {
   const target = position.window?.webContents;
   if (!target || target.isDestroyed()) throw new Error('Content menu host window is unavailable');
+  if (!observed.has(target)) {
+    observed.add(target);
+    target.on('render-process-gone', () => {
+      pending.delete(target);
+      if (!target.isDestroyed()) target.setIgnoreMenuShortcuts(false);
+    });
+  }
   const requestId = randomUUID();
   pending.set(target, { requestId, items });
   // The application Edit menu must not consume a shortcut before the themed menu can use its snapshot.

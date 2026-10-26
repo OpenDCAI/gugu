@@ -103,6 +103,6 @@ describe('host file viewer menu', () => {
     expect(image.filter(item => item.type !== 'separator' && item.enabled === false).map(item => item.type !== 'separator' ? item.label : undefined)).toEqual(['Copy', 'Select all', 'Quote selection'])
     expect((image.at(-1)?.type !== 'separator' ? (image.at(-1) as { label: string }).label : undefined)).toBe('Quote file')
     const editor = fileViewerMenuTemplate({ ...context, editable: true, selection: { text: 'source' }, canSelectAll: true }, labels, run)
-    expect(editor.filter(item => item.type !== 'separator').map(item => item.type !== 'separator' ? item.label : undefined)).toEqual(['Undo', 'Redo', 'Cut', 'Copy', 'Paste', 'Select all', 'Quote selection', 'Quote file'])
+    expect(editor.filter(item => item.type !== 'separator').map(item => item.label)).toEqual(['Undo', 'Redo', 'Cut', 'Copy', 'Paste', 'Select all', 'Quote selection', 'Quote file'])
   })
 })
