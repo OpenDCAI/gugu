@@ -134,7 +134,7 @@ export function installDeviceSessionHost(options: { appVersion: () => string }):
 
 type ClientLink = {
   receive: (seq: number, pieces: SessionHostPiece[]) => void;
-  close: () => void;
+  close: (reason?: string) => void;
 };
 
 /**
@@ -180,7 +180,7 @@ export function createSessionHostDeviceRpcHandlers(options: { host?: () => Frame
     asker: DeviceRpcAskerContext | undefined,
     callerId: string | undefined,
   ): void => {
-    clients.get(client)?.close();
+    clients.get(client)?.close('replaced');
     const refreshReport = reportDesktop(desktop);
     let frameCb: ((frame: string | Uint8Array) => void) | null = null;
     let closeCb: (() => void) | null = null;
@@ -210,19 +210,20 @@ export function createSessionHostDeviceRpcHandlers(options: { host?: () => Frame
           queueMicrotask(flush);
         }
       },
-      close: () => shut(),
+      close: (reason) => shut(reason),
       onFrame: (cb) => (frameCb = cb),
       onClose: (cb) => (closeCb = cb),
     };
-    const shut = () => {
+    const shut = (reason = 'client close') => {
       if (closed) return;
       closed = true;
+      log.warn('[session-host-device] client closed', { client, reason });
       stopWatchingAsker?.();
       if (clients.get(client) === link) clients.delete(client);
       closeCb?.();
     };
     // #7233 开它的发问端那条线没了(宿主空闲关 / 让位 / 收摊):帧推不过去了,窗口一并关掉;发问端重新报到后会重开一条。
-    const stopWatchingAsker = asker?.onDetached(() => shut());
+    const stopWatchingAsker = asker?.onDetached(() => shut('asker detached'));
     const link: ClientLink = {
       receive: (seq, pieces) => {
         refreshReport();
@@ -233,7 +234,6 @@ export function createSessionHostDeviceRpcHandlers(options: { host?: () => Frame
     clients.set(client, link);
     frameHost.attach(socket, { remote: `device:${client.slice(0, 8)}`, policy: remoteInvokePolicyForCaller(callerId) });
   };
-
   const readClient = (payload: unknown): string | null => {
     const client = (payload as { client?: unknown } | null)?.client;
     return typeof client === 'string' && /^[A-Za-z0-9_-]{8,64}$/.test(client) ? client : null;
@@ -305,7 +305,7 @@ export function createSessionHostDeviceRpcHandlers(options: { host?: () => Frame
   return {
     handlers,
     dispose: () => {
-      for (const link of [...clients.values()]) link.close();
+      for (const link of [...clients.values()]) link.close('handler disposed');
       clients.clear();
     },
   };
