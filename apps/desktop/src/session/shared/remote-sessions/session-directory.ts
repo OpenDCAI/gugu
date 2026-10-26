@@ -42,6 +42,8 @@ function directoryState(): DirectoryState {
   const host = window as Window & { [DIRECTORY_KEY]?: DirectoryState }
   const state = host[DIRECTORY_KEY] ??= newDirectory()
   state.retries ??= new Map()
+  state.phoneReaders ??= 0
+  state.demandListeners ??= new Set()
   return state
 }
 
