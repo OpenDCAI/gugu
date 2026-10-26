@@ -46,7 +46,7 @@ beforeEach(() => {
   vi.clearAllMocks()
   const values = new Map<string, string>()
   vi.stubGlobal('localStorage', { get length() { return values.size }, key: (index: number) => [...values.keys()][index] ?? null, getItem: (key: string) => values.get(key) ?? null, setItem: (key: string, value: string) => { values.set(key, value) } })
-  phoneInstallId('owned-install')
+  phoneInstallId('owned-install', 'owned-registration')
   test.ownerId = crypto.randomUUID()
   test.state = { ownerId: test.ownerId, status: 'stopped', ready: false, sessions: [] }
   test.stopHost.mockResolvedValue(undefined)
@@ -61,7 +61,7 @@ beforeEach(() => {
   test.update.mockReturnValue(updateQuery)
   test.updated.mockResolvedValue({ error: null })
   test.remove.mockResolvedValue(undefined)
-  test.deviceInfo.mockResolvedValue({ manufacturer: 'Test', brand: 'Test', model: 'Phone', android: '15', sdk: 35, rom: null, device_name: null, app_version: 'test', package: 'app.gugu.chat.test', install_key: 'owned-install' })
+  test.deviceInfo.mockResolvedValue({ manufacturer: 'Test', brand: 'Test', model: 'Phone', android: '15', sdk: 35, rom: null, device_name: null, app_version: 'test', package: 'app.gugu.chat.test', install_key: 'owned-install', registration_id: 'owned-registration' })
   test.checkPermissions.mockResolvedValue({ calendar: 'granted' })
   test.rpcHost.mockReturnValue({ beat: () => {}, dispose: () => {} })
   test.subscribe.mockImplementation((create) => create())
@@ -119,7 +119,7 @@ describe('one phone endpoint owns registration and RPC', () => {
   })
 
   it('keeps the real device row offline when a stopped native host has persisted Agents', async () => {
-    const deviceId = phoneDeviceId(phoneInstallId('owned-install'), test.ownerId)
+    const deviceId = phoneDeviceId(phoneInstallId('owned-install', 'owned-registration'), test.ownerId)
     test.state = { ownerId: test.ownerId, deviceId, ready: false, status: 'stopped', sessions: [{ sessionId: 'session-1', agentUserId: 'agent-1', displayName: 'Phone task', chatId: 'real-dm', status: 'idle', modelId: 'test-model' }] }
     await stopPhoneAgentHost(test.ownerId)
     expect(test.remove).not.toHaveBeenCalled()
@@ -131,7 +131,7 @@ describe('one phone endpoint owns registration and RPC', () => {
   })
 
   it('still removes an action-only phone without task history', async () => {
-    const deviceId = phoneDeviceId(phoneInstallId('owned-install'), test.ownerId)
+    const deviceId = phoneDeviceId(phoneInstallId('owned-install', 'owned-registration'), test.ownerId)
     await expect(disconnectPhoneDevice(test.ownerId)).resolves.toEqual({ removed: true })
     expect(test.remove).toHaveBeenCalledWith(deviceId)
     expect(test.select).not.toHaveBeenCalled()

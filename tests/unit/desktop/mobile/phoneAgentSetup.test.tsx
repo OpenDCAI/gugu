@@ -14,7 +14,7 @@ const mocks = vi.hoisted(() => ({
 vi.mock('../../../../apps/desktop/src/lib/myAssistant', () => ({ useMyAssistant: () => ({ agentId: null, provisionDeviceId: null, loading: false, error: null }) }))
 vi.mock('../../../../apps/desktop/src/mobile/local-agent/nativeAgent', () => ({ phoneAgentAvailable: () => mocks.available }))
 vi.mock('../../../../apps/desktop/src/mobile/phone-device/nativePhoneActions', () => ({
-  HEALTH_TYPES: ['steps', 'sleep'], nativePhoneActions: { deviceInfo: async () => ({ install_key: mocks.installKey }), requestPermissions: mocks.runtimeRequest, healthRequest: mocks.healthRequest, openSettings: mocks.nativeSettings },
+  HEALTH_TYPES: ['steps', 'sleep'], nativePhoneActions: { deviceInfo: async () => ({ install_key: mocks.installKey, registration_id: `registration-${mocks.installKey}` }), requestPermissions: mocks.runtimeRequest, healthRequest: mocks.healthRequest, openSettings: mocks.nativeSettings },
 }))
 vi.mock('../../../../apps/desktop/src/mobile/phone-device/phoneDataActions', async original => ({
   ...await original<typeof import('../../../../apps/desktop/src/mobile/phone-device/phoneDataActions')>(), nativePhoneData: { request: mocks.dataRequest },
@@ -68,7 +68,7 @@ describe('single phone permissions destination', () => {
     expect(byId('phone-permissions-list')).toBeNull()
     expect(document.querySelectorAll('[data-testid^="phone-setup-group-"]')).toHaveLength(0)
     await clickElement(byId('phone-agent-setup-finish')!)
-    expect(readPhoneAgentSetup(mocks.owner, phoneInstallId(mocks.installKey)).completed).toBe(true)
+    expect(readPhoneAgentSetup(mocks.owner, phoneInstallId(mocks.installKey, `registration-${mocks.installKey}`)).completed).toBe(true)
     expect(readPhoneDeviceSettings(mocks.owner)).toMatchObject({ enabled: false, hostEnabled: false })
     expect(mocks.request).not.toHaveBeenCalled(); expect(mocks.runtimeRequest).not.toHaveBeenCalled()
   })
@@ -96,7 +96,7 @@ describe('single phone permissions destination', () => {
     mocks.installKey = 'another-install'; await renderGate(); expect(byId('phone-agent-setup-form')).not.toBeNull()
   })
   it('reopens correctly after switching owners with different request counts', async () => {
-    const previous = 'previous-owner', current = 'current-owner', install = phoneInstallId(mocks.installKey)
+    const previous = 'previous-owner', current = 'current-owner', install = phoneInstallId(mocks.installKey, `registration-${mocks.installKey}`)
     savePhoneAgentSetup(previous, install, { step: 'tools', completed: true, dismissed: true }); savePhoneAgentSetup(current, install, { step: 'tools', completed: true, dismissed: true })
     const h = await renderGate(previous)
     await waitForCondition(() => byId('main-product')?.dataset.owner === previous, 'previous account loaded')
