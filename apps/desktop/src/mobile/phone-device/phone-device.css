@@ -124,6 +124,28 @@ div.gg-phone-setup-header {
   gap: var(--spacing-md);
   padding: 24px 16px 16px;
 }
+ol.gg-phone-setup-progress {
+  display: grid;
+  grid-auto-flow: column;
+  grid-auto-columns: minmax(0, 1fr);
+  gap: var(--spacing-sm);
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+.gg-phone-setup-progress li {
+  display: flex;
+  flex-direction: column;
+  gap: var(--spacing-xs);
+  min-width: 0;
+  color: var(--muted-fg);
+  font-size: var(--phone-font-note);
+  line-height: var(--lh-body);
+  white-space: nowrap;
+}
+.gg-phone-setup-progress-track { height: 2px; border-radius: var(--radius-control); background: var(--border); }
+.gg-phone-setup-progress li[aria-current='step'] { color: var(--fg); }
+.gg-phone-setup-progress li[aria-current='step'] .gg-phone-setup-progress-track { background: var(--fg); }
 .gg-phone-setup-heading {
   margin: 0;
   color: var(--fg);

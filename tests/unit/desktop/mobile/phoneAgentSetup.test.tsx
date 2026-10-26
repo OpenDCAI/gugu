@@ -12,7 +12,7 @@ const mocks = vi.hoisted(() => ({
   permissions: ['notifications', 'batteryOptimization', 'camera'], host: null as PhoneAgentHostState | null, restartHost: vi.fn(),
   owner: 'setup-owner', installKey: 'native-install-a', available: true,
   runtimeRequest: vi.fn(async () => ({})), dataRequest: vi.fn(async () => ({})), healthRequest: vi.fn(), nativeSettings: vi.fn(async () => undefined),
-  check: vi.fn(async () => 'prompt'), request: vi.fn(async () => 'blocked'), settings: vi.fn(async () => true),
+  check: vi.fn(async (_permission: string) => 'prompt'), request: vi.fn(async () => 'blocked'), settings: vi.fn(async () => true),
   foreground: [] as Array<() => void>,
   os: null as PhoneOsState | null,
   refresh: vi.fn(async () => undefined),
@@ -238,6 +238,47 @@ describe('phone installation guide', () => {
 })
 
 describe('minimal phone setup actions', () => {
+  it('keeps the original permission action usable when the native state cannot be read', async () => {
+    mocks.check.mockRejectedValue(new Error('native check unavailable'))
+    await renderGate('unknown-notification-state-owner')
+    await clickElement(byId('phone-agent-setup-next')!)
+    expect(byId('phone-setup-notifications')?.textContent).toBe('开启消息通知')
+    expect(byId('phone-setup-notifications')?.hasAttribute('disabled')).toBe(false)
+    expect(document.querySelector('[role="alert"]')).toBeNull()
+    await clickElement(byId('phone-setup-notifications')!)
+    expect(mocks.settings).toHaveBeenCalledWith('notifications')
+    expect(byId('phone-setup-notifications')?.textContent).toBe('开启消息通知')
+    expect(document.querySelector('[role="alert"]')).toBeNull()
+    await clickElement(byId('phone-agent-setup-next')!)
+    expect(byId('phone-setup-batteryOptimization')?.textContent).toBe('允许后台运行')
+    await clickElement(byId('phone-setup-batteryOptimization')!)
+    expect(mocks.settings).toHaveBeenCalledWith('batteryOptimization')
+  })
+
+  it('skips permission steps that the system already reports as granted', async () => {
+    mocks.check.mockResolvedValue('granted')
+    await renderGate('already-granted-owner')
+    await clickElement(byId('phone-agent-setup-next')!)
+    expect(byId('phone-agent-setup-tools')).not.toBeNull()
+    expect(byId('phone-agent-setup-notifications')).toBeNull()
+    expect(byId('phone-agent-setup-background')).toBeNull()
+    expect(mocks.request).not.toHaveBeenCalled()
+    expect(mocks.settings).not.toHaveBeenCalled()
+  })
+
+  it('shows the remaining setup stages and moves the current marker without claiming a grant', async () => {
+    await renderGate('visible-setup-progress-owner')
+    const progress = () => document.querySelector('[aria-label="设置步骤"]')!
+    expect(progress().querySelectorAll('li')).toHaveLength(4)
+    expect(progress().textContent).toMatch(/1 手机运行.*2 消息通知.*3 后台运行.*4 手机能力/)
+    expect(progress().querySelector('[aria-current="step"]')?.textContent).toBe('1 手机运行')
+    await clickElement(byId('phone-agent-setup-next')!)
+    expect(progress().querySelectorAll('[aria-current="step"]')).toHaveLength(1)
+    expect(progress().querySelector('[aria-current="step"]')?.textContent).toBe('2 消息通知')
+    expect(readPhoneDeviceSettings('visible-setup-progress-owner')).toMatchObject({ enabled: false, hostEnabled: false })
+    expect(mocks.request).not.toHaveBeenCalled()
+  })
+
   it('keeps host failures inline and retries without advancing the guide', async () => {
     const owner = 'host-failure-owner'
     mocks.host = { ownerId: owner, ready: false, status: 'failed', error: 'host could not start', sessions: [] }
@@ -260,10 +301,12 @@ describe('minimal phone setup actions', () => {
     mocks.request.mockResolvedValueOnce('granted')
     mocks.check.mockResolvedValue('granted')
     await clickElement(byId('phone-setup-notifications')!)
-    expect(byId('phone-setup-notifications')?.textContent).toBe('选择手机能力')
-    await clickElement(byId('phone-setup-notifications')!)
     expect(byId('phone-agent-setup-tools')).not.toBeNull()
     expect(byId('phone-agent-setup-background')).toBeNull()
+    const stages = document.querySelector('[aria-label="设置步骤"]')!
+    expect(stages.querySelectorAll('li')).toHaveLength(3)
+    expect(stages.textContent).not.toContain('后台运行')
+    expect(stages.querySelector('[aria-current="step"]')?.textContent).toBe('3 手机能力')
   })
 
   it('can skip every step without enabling hosting, tools, or system permissions', async () => {
@@ -288,20 +331,23 @@ describe('minimal phone setup actions', () => {
     mocks.settings.mockResolvedValueOnce(false)
     await clickElement(byId('phone-setup-notifications')!)
     expect(mocks.settings).toHaveBeenCalledWith('notifications')
-    expect(document.querySelector('[role="alert"]')?.textContent).toContain('没能打开系统设置')
+    expect(document.querySelector('[role="alert"]')?.textContent).toContain('系统的应用设置里找到咕咕')
+    expect(document.querySelector('[role="alert"]')?.textContent).not.toContain('稍后重试')
+    mocks.settings.mockRejectedValueOnce(new Error('settings unavailable'))
+    await clickElement(byId('phone-setup-notifications')!)
+    expect(document.querySelector('[role="alert"]')?.textContent).toContain('系统的应用设置里找到咕咕')
     await clickElement(byId('phone-agent-setup-next')!)
     expect(byId('phone-agent-setup-background')).not.toBeNull()
   })
 
-  it('uses the refreshed system grant before showing the next action', async () => {
+  it('automatically leaves a granted permission step after refreshing the system state', async () => {
     await renderGate('notification-granted-owner')
     await clickElement(byId('phone-agent-setup-next')!)
     await waitForCondition(() => byId('phone-setup-notifications')?.hasAttribute('disabled') === false, 'notification state')
     mocks.request.mockResolvedValueOnce('granted')
-    mocks.check.mockResolvedValue('granted')
+    mocks.check.mockImplementation(async (permission) => permission === 'notifications' ? 'granted' : 'prompt')
     await clickElement(byId('phone-setup-notifications')!)
-    expect(byId('phone-setup-notifications')?.textContent).toBe('设置后台运行')
-    await clickElement(byId('phone-setup-notifications')!)
+    expect(byId('phone-agent-setup-notifications')).toBeNull()
     expect(byId('phone-agent-setup-background')).not.toBeNull()
     expect(mocks.request).toHaveBeenCalledTimes(1)
   })
