@@ -10,13 +10,13 @@ import {OPEN_ASSISTANT_TASK_CHAT} from '../../../../apps/desktop/src/lib/assista
 import type {PhonePageProps} from '../../../../apps/desktop/src/mobile/assistant/MobileAssistantApp'
 import type {AssistantContext} from '../../../../apps/desktop/src/session/renderer/features/assistant/assistant-context'
 import '../../../../apps/desktop/src/i18n/registerAssistantCatalog'
-const cloud=vi.hoisted(()=>({list:vi.fn(),refresh:null as null|(()=>void)}))
+const cloud=vi.hoisted(()=>({list:vi.fn(),schedules:vi.fn(),refresh:null as null|(()=>void)}))
 vi.mock('../../../../apps/desktop/src/lib/assistantWork',()=>({assistantWorkCloud:{listAll:cloud.list},watchAssistantWork:(_o:string,_a:string,refresh:()=>void)=>{cloud.refresh=refresh;return ()=>{}}}))
 vi.mock('../../../../apps/desktop/src/lib/agentPresenceStore',()=>({subscribeAgentPresence:()=>()=>{},getAgentPresenceSnapshot:()=>({reading:{status:'idle',detail:'done'},payload:{agentType:'codex'},local:{unseen:true}})}))
 vi.mock('../../../../apps/desktop/src/store/devicesContext',()=>({useDevicesStore:()=>({devices:[],phones:[]})}))
 vi.mock('../../../../apps/desktop/src/session/shared/remote-sessions/session-directory',async original=>({...await original<object>(),useDirectoryDevices:()=>[],useLiveDeviceSessions:()=>{throw new Error('Task lists must not read device sessions')}}))
 let harness:ReturnType<typeof createReactHarness>
-beforeEach(()=>{harness=createReactHarness();(window as AssistantPanelWindow).__GUGU_ASSISTANT_PANEL__={accountId:()=> 'owner',subscribeAccount:()=>()=>{}} as unknown as AssistantPanelBridge;cloud.list.mockReset().mockResolvedValue([{work_id:'work',title:'codex (2)',coordinator_session_id:'home-session',coordinator_device_id:'home',executors:[{session_id:'worker',device_id:'phone',agent_user_id:'executor'}],executor_outcomes:{},outcome:'completed',updated_at:'2026-10-26T08:00:00Z'}])})
+beforeEach(()=>{harness=createReactHarness();(window as AssistantPanelWindow).__GUGU_ASSISTANT_PANEL__={accountId:()=> 'owner',subscribeAccount:()=>()=>{},subscribeChanges:()=>()=>{},files:()=>({paths:{memoryDir:'memory'},collection:cloud.schedules})} as unknown as AssistantPanelBridge;cloud.schedules.mockReset().mockResolvedValue([]);cloud.list.mockReset().mockResolvedValue([{work_id:'work',title:'codex (2)',coordinator_session_id:'home-session',coordinator_device_id:'home',executors:[{session_id:'worker',device_id:'phone',agent_user_id:'executor'}],executor_outcomes:{},outcome:'completed',updated_at:'2026-10-26T08:00:00Z'}])})
 afterEach(()=>{harness.cleanup();delete (window as AssistantPanelWindow).__GUGU_ASSISTANT_PANEL__})
 it.each(['phone','desktop'])('%s can open a dispatched task before its agent identity is admitted',async shell=>{
  const assistantId=`pending-${shell}`

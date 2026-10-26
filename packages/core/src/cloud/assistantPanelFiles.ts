@@ -3,6 +3,7 @@ import { queuedAssistantPanelBody } from './assistantPanelBodyQueue'
 import { assistantPanelCollection, AssistantPanelError, type AssistantPanelClient, type AssistantPanelDomain, type AssistantPanelItem } from './assistantPanel'
 import { splitInstructions } from '../shared/assistantInstructions'
 import { withAssistantPanelReadDeadline } from './assistantPanelRead'
+import type { AssistantPanelReadCache } from './assistantPanelCache'
 
 export const ASSISTANT_PANEL_PATHS = {
   instructions: '性格约定',memoryDir: '记忆',claudeMemoryDir: '记忆',memoryIndex: '记忆/MEMORY.md',
@@ -33,12 +34,39 @@ export function createAssistantPanelFiles(input: {
   upload(name: string, bytes: Uint8Array, contentType: string): Promise<{ itemId: string; sha256: string }>
   discard(itemId: string): Promise<void>
   changed(): void
+  cache?: AssistantPanelReadCache
 }) {
   let cached: { at: number; value: ReturnType<AssistantPanelClient['snapshot']> } | null = null
   const versions = new Map<string, string>()
   const bodies = new Map<string, Uint8Array>()
+  const openedIntegrationBodies = new Set<string>()
   let bodyBytes = 0
-  const invalidate = () => { cached = null; input.changed() }
+  const peekSnapshot = () => input.cache?.peekSnapshot()
+  const bodyKey = (item: AssistantPanelItem) => `${item.body_item_id}:${item.body_sha256}`
+  const bodyIsCurrent = (item: AssistantPanelItem) => {
+    const latest = peekSnapshot()
+    return !latest || latest.items.some(row => row.domain === item.domain && row.resource_key === item.resource_key && bodyKey(row) === bodyKey(item))
+  }
+  const peekBody = (item: AssistantPanelItem) => bodyIsCurrent(item) ? input.cache?.peekBody(item) : undefined
+  const invalidate = () => { cached = null; input.changed(); if (input.cache) void snapshot().catch(() => undefined) }
+  let warming = false, warmAgain = false
+  async function warmBodies() {
+    if (!input.cache) return
+    if (warming) { warmAgain = true; return }
+    warming = true
+    try { do {
+      warmAgain = false
+      const missing = (peekSnapshot()?.items ?? []).filter(item => item.body_item_id
+        && (['capabilities','device-notes'].includes(item.domain) || item.domain === 'integrations' && openedIntegrationBodies.has(item.resource_key)) && !peekBody(item))
+      let next = 0
+      await Promise.all(Array.from({length:Math.min(4,missing.length)},async () => {
+        while (next < missing.length) {
+          const item = missing[next++]!
+          try { await body(item); input.changed() } catch { /* An optional background fill never blocks a list. */ }
+        }
+      }))
+    } while (warmAgain) } finally { warming = false }
+  }
   async function snapshot() {
     await input.assertCurrent()
     if (!cached || Date.now() - cached.at > 1000) cached = { at: Date.now(),value: withAssistantPanelReadDeadline(() => input.cloud.snapshot(input.assistantId)) }
@@ -46,8 +74,13 @@ export function createAssistantPanelFiles(input: {
     try {
       const result = await current.value
       await input.assertCurrent()
+      // An application directory never starts catalog downloads. Once a detail
+      // was opened, keep that persisted copy current on later cloud changes.
+      for (const item of peekSnapshot()?.items ?? []) if (item.domain === 'integrations' && peekBody(item)) openedIntegrationBodies.add(item.resource_key)
+      input.cache?.saveSnapshot(result)
       const live = new Set(result.items.filter(row => row.body_item_id).map(row => `${row.body_item_id}:${row.body_sha256}`))
       for (const [key,value] of bodies) if (!live.has(key)) { bodies.delete(key); bodyBytes -= value.length }
+      void warmBodies()
       return result
     } catch (error) { if (cached === current) cached = null; throw error }
   }
@@ -84,11 +117,15 @@ export function createAssistantPanelFiles(input: {
   }
   async function body(item: AssistantPanelItem) {
     await input.assertCurrent()
+    if (!bodyIsCurrent(item)) throw new AssistantPanelError('missing','PANEL_RESOURCE_REMOVED')
+    if (item.domain === 'integrations') openedIntegrationBodies.add(item.resource_key)
     const key = `${item.body_item_id}:${item.body_sha256}`
-    const cached = bodies.get(key)
+    const cached = peekBody(item) ?? bodies.get(key)
     if (cached) return cached.slice()
     const result = await queuedAssistantPanelBody(`${input.ownerId}:${input.assistantId}:${key}`,signal => input.readBody(item,signal))
     await input.assertCurrent()
+    if (!bodyIsCurrent(item)) throw new AssistantPanelError('missing','PANEL_RESOURCE_REMOVED')
+    input.cache?.saveBody(item,result)
     if (!bodies.has(key) && result.length <= 32 * 1024 * 1024) {
       while (bodyBytes + result.length > 32 * 1024 * 1024 && bodies.size) {
         const oldest = bodies.keys().next().value!
@@ -107,6 +144,7 @@ export function createAssistantPanelFiles(input: {
     for (let attempt = 0; attempt < 3; attempt++) {
       try {
         const receipt = await input.cloud.commit(input.assistantId,change)
+        if (operation === 'remove') input.cache?.forget(domain,key,receipt.revision)
         invalidate()
         return receipt
       } catch (failure) {
@@ -161,7 +199,7 @@ export function createAssistantPanelFiles(input: {
     return [...entries.values()].sort((a,b) => a.name.localeCompare(b.name))
   }
   return {
-    assistantId: input.assistantId,ownerId: input.ownerId,deviceId: input.deviceId,paths: ASSISTANT_PANEL_PATHS,snapshot,collection,invalidate,list,bytes,
+    assistantId: input.assistantId,ownerId: input.ownerId,deviceId: input.deviceId,paths: ASSISTANT_PANEL_PATHS,snapshot,peekSnapshot,peekBody,collection,invalidate,list,bytes,
     assertCurrent: input.assertCurrent,
     body,
     collectionState: (domain: AssistantPanelDomain) => collectionStates.get(domain),

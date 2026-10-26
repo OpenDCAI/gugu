@@ -79,9 +79,10 @@ describe('DevicesSection interaction', () => {
       device({ device_id: 'active', machine_id: 'same-mac', tier: 'beta' })] })
     await act(async () => { root.render(createElement(DevicesContext.Provider, { value }, createElement(DevicesSection))) })
     expect(container.querySelectorAll('[data-testid="settings-device-row"]')).toHaveLength(1)
+    expect(container.querySelector('[data-testid="settings-device-version-count"]')?.textContent).toBe('2 个版本')
     await openMenuItem('settings-device-open-actions')
     const configurations = container.querySelector('[data-testid="device-machine-configurations"]')!
-    expect(configurations.textContent).toContain('beta')
+    expect(configurations.textContent).toContain('咕咕 Beta')
     expect(configurations.textContent).toContain('acceptance-tasks431')
     expect(configurations.querySelectorAll('.gg-settings-row[data-testid^="device-configuration-"]')).toHaveLength(2)
     expect(value.remove).not.toHaveBeenCalled()

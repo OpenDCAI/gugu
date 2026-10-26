@@ -68,6 +68,8 @@ const log = rendererLogger('devices')
 // ❌ 出现「· 咕咕 0.2.51」那种孤零零挂在行首的分隔符。第一项(状态)用同宽的左内边距占位。
 const META_SEP = "before:inline-block before:w-4 before:text-center before:content-['·']"
 
+const DEVICE_LIST_CLASS = 'flex flex-col rounded-[var(--radius-document)] bg-foreground/[0.025] p-1 dark:bg-foreground/[0.04]'
+
 type DialogState =
   | { kind: 'remove'; device: Device; removing: boolean; failed: string }
   | { kind: 'uninstall'; device: Device }
@@ -312,7 +314,7 @@ export function DevicesSection({
       )}
 
       {showTools && (
-        <div className="flex flex-wrap items-center gap-2">
+        <div className="flex flex-wrap items-center gap-2" data-testid="settings-devices-tools">
           <SearchField
             className="min-w-[180px] flex-1"
             value={query}
@@ -327,13 +329,13 @@ export function DevicesSection({
       )}
 
       <div
-        className={cn('flex flex-col rounded-[var(--radius-document)] bg-foreground/[0.025] p-1 dark:bg-foreground/[0.04]', visibleActive.length === 0 && 'hidden')}
+        className={cn(DEVICE_LIST_CLASS, visibleActive.length === 0 && 'hidden')}
         role="list"
       >
         {visibleActive.map(renderRow)}
       </div>
 
-      <DeviceMachineArchive count={visibleArchived.length}>{visibleArchived.map(renderRow)}</DeviceMachineArchive>
+      <DeviceMachineArchive count={visibleArchived.length} listClassName={DEVICE_LIST_CLASS}>{visibleArchived.map(renderRow)}</DeviceMachineArchive>
 
       {showTools && visible.length === 0 && (
         <div className="text-[length:var(--font-body)] text-[var(--muted-fg)]" data-testid="settings-devices-no-match">{t('devices.noMatch')}</div>
@@ -658,6 +660,7 @@ function DeviceRow({
           {model.kind !== 'this' && <span className={META_SEP} data-testid="settings-device-kind">{t(`devices.kind.${model.kind}`)}</span>}
           {model.system && <span className={META_SEP}>{model.system}</span>}
           {version && <span className={META_SEP}>{version}</span>}
+          {configurationCount > 1 && <span className={META_SEP} data-testid="settings-device-version-count">{t('devices.configurationCount', { count: configurationCount })}</span>}
           {/* #6264 root 跑的 server:上面的智能体能改整台机器,如实写出来(隧道装的也看得到)。 */}
           {model.kind === 'server' && device.capabilities?.runs_as_root && (
             <span className={META_SEP} title={t('devices.runsAsRootHint')} data-testid="settings-device-runs-as-root">{t('devices.runsAsRoot')}</span>

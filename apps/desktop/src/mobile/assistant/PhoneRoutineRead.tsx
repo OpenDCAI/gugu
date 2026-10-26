@@ -6,7 +6,7 @@ import { AssistantEmpty } from '@/session/renderer/features/assistant/assistant-
 import { ReadView } from './PhoneMachineView'
 import type { PhoneRead } from './usePhoneRead'
 
-/** Reading computer schedules also needs the directory that identifies their creating agents. */
+/** Account schedules expose their own read result, independently of host routing. */
 export function PhoneRoutineRead<T>({ read, directory: _directory, children }: {
   read: PhoneRead<T> & { reload: () => void }
   directory: DeviceSessions | null | undefined
