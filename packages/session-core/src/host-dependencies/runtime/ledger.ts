@@ -42,7 +42,7 @@ export type HostDependencyLedgerEntry = {
   installRecord: InstallRecord | null;
   lastCustom?: CustomTarget | null;
   /**
-   * 这一家**真跑起来时**那份环境(#5702)。版本探测用它,所以「面板上显示的装没装 / 什么版本」
+   * 这一家**真跑起来时**那份环境(#5702)。路径解析和版本探测共用它,所以「面板上显示的装没装 / 什么版本」
    * 和用户按下开始时是同一个环境里的答案 —— 算它要读用户在设置里填的东西,那在主进程。
    */
   probeEnv?: Record<string, string>;
