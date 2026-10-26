@@ -107,13 +107,15 @@ describe('#6921 令牌能调 codex 的出图模型 ⇒ 给 gugu_platform 加开�
     }
   });
 
-  it('不带 callable_routes 时 provider 声明与改动前逐字一致', () => {
+  it('不带 callable_routes 时只带基础 provider 声明和可见重试配置', () => {
     expect(providerArgs()).toEqual([
       '-c', 'model_provider=gugu_platform',
       '-c', 'model_providers.gugu_platform.name="Gugu 平台额度"',
       '-c', 'model_providers.gugu_platform.base_url="http://127.0.0.1:1/relay/v1"',
       '-c', 'model_providers.gugu_platform.env_key=OPENAI_API_KEY',
       '-c', 'model_providers.gugu_platform.wire_api=responses',
+      '-c', 'model_providers.gugu_platform.request_max_retries=0',
+      '-c', 'model_providers.gugu_platform.stream_max_retries=7',
       '-c', 'features.apps=false',
     ]);
   });
