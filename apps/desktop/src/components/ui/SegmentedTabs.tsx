@@ -35,7 +35,8 @@ const tabVariants = cva(
           'data-[selected]:bg-[var(--muted)] data-[selected]:text-[var(--text-primary)]',
         ),
         underline: cn(
-          '-mb-px px-0.5 py-2 border-b-2 border-b-transparent',
+          // border-solid:底座那个 border-none 是 border-style,不覆盖它下划线就永远是 0 宽(选中的那枚只剩字变深)。
+          '-mb-px px-0.5 py-2 border-solid border-b-2 border-b-transparent',
           '[&:hover:not([data-selected])]:text-[var(--text-primary)]',
           'data-[selected]:border-b-[var(--primary)] data-[selected]:text-[var(--text-primary)]',
         ),
