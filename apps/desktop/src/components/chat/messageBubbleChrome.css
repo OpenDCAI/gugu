@@ -55,3 +55,19 @@
 .msg-time-room .gg-md > :is(ul, ol):last-child > li:last-child:has(> p:last-child)::after { content: none; }
 /* 正文以代码块、表格、图之类收尾:末行没有文字可挂,时间另起一行。 */
 .msg-time-room:has(.gg-md > :last-child:not(p, h1, h2, h3, h4, h5, h6, ul, ol, blockquote)) { padding-bottom: var(--lh-caption); }
+
+/* 组尾那条(或单独一条)的小尾巴,长在头像那一侧的下角(照 Telegram)。底色跟气泡走(inherit 到气泡的内联 background);
+   右边 6px 与气泡重叠,盖住那个 --radius-bubble-joined 的小圆角,接缝处不露缝。我方气泡镜像到右侧。 */
+[data-bubble-tail]::before {
+  content: '';
+  position: absolute;
+  bottom: 0;
+  left: -8px;
+  width: 14px;
+  height: 17px;
+  background: inherit;
+  -webkit-mask: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 14 17'%3E%3Cpath d='M8 0C8 9 5 14 0 17H14V0Z'/%3E%3C/svg%3E") no-repeat;
+  mask: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 14 17'%3E%3Cpath d='M8 0C8 9 5 14 0 17H14V0Z'/%3E%3C/svg%3E") no-repeat;
+  pointer-events: none;
+}
+[data-bubble-tail='mine']::before { left: auto; right: -8px; transform: scaleX(-1); }
