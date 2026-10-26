@@ -213,14 +213,14 @@ function drawImages(root: HTMLElement, gugu: LinkVerbs, file: unknown): void {
 
 // ── render ──
 
-type Rendered = { target: Element; root: HTMLElement; text: string; options: RenderOptions };
+type Rendered = { target: Element; root: HTMLElement; text: string; options: RenderOptions; gugu: LinkVerbs };
 /** Per element rendered into, and back from its root: weak, so a page that renders into many elements keeps none alive. */
 const byTarget = new WeakMap<Element, Rendered>();
 const byRoot = new WeakMap<Element, Rendered>();
 const ROOT_MARK = 'data-gugu-markdown';
 
-function paint(entry: Rendered, gugu: LinkVerbs): void {
-  const { target, root, text, options } = entry;
+function paint(entry: Rendered): void {
+  const { target, root, text, options, gugu } = entry;
   root.className = `gg-md gg-md--${options.density}`;
   // Start with the transcript's sanitized chips, then resolve only file images through the authorized files API.
   // `sourceLines`: each block says the text's lines it came from (`data-line="3-5"`): a page finds a line's block by it.
@@ -234,12 +234,12 @@ function paint(entry: Rendered, gugu: LinkVerbs): void {
 
 let themeWatch: MutationObserver | null = null;
 /** A diagram is drawn for the page's theme: when the person switches it, the documents on the page are drawn again. */
-function watchTheme(gugu: LinkVerbs): void {
+function watchTheme(): void {
   if (themeWatch) return;
   themeWatch = new MutationObserver(() => {
     for (const root of document.querySelectorAll(`[${ROOT_MARK}]`)) {
       const entry = byRoot.get(root);
-      if (entry) paint(entry, gugu);
+      if (entry) paint(entry);
     }
   });
   themeWatch.observe(document.documentElement, { attributes: true, attributeFilter: ['data-gugu-theme'] });
@@ -255,7 +255,7 @@ export function renderer(gugu: LinkVerbs) {
     if (!entry) {
       const root = document.createElement('div');
       root.setAttribute(ROOT_MARK, '');
-      const made: Rendered = { target, root, text, options: given };
+      const made: Rendered = { target, root, text, options: given, gugu };
       root.addEventListener('click', (event) => {
         const link = (event.target as Element | null)?.closest?.('a[href]');
         if (!link || !root.contains(link)) return;
@@ -268,8 +268,8 @@ export function renderer(gugu: LinkVerbs) {
     }
     entry.text = text;
     entry.options = given;
-    paint(entry, gugu);
-    watchTheme(gugu);
+    paint(entry);
+    watchTheme();
   };
 }
 
