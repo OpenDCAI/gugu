@@ -2,7 +2,11 @@
 // (App 体检 10-17 #15):顶层描述预算 → registerTool → 出错包成 isError → 交宿主计时(trackRequest:耗时与超 10 s
 // 告警,grant 关闭时等它跑完)。参数怎么解码、结果怎么写成 content,是各域自己的事(`run`)。
 import { z } from 'zod'
+import { randomUUID } from 'node:crypto'
 import { assertMcpToolDescriptionWithinBudget } from './mcp-tool-description-budget.mjs'
+import { runWithGuguToolInvocation } from './tool-call-context.mjs'
+
+const connectionScopes = new WeakMap()
 
 /**
  * `def.permissive`:注册时只认一个对象 —— SDK 在回调之前先按注册的 schema 校验,常见的 harness 式写错(`{to,message}`)
@@ -10,14 +14,17 @@ import { assertMcpToolDescriptionWithinBudget } from './mcp-tool-description-bud
  * 不认识的键点名拒 —— 静默删掉更糟:agent 以为说了的话没生效(#6840)。tools/list 广告的仍是真 schema(advertisedTool)。
  */
 export function registerGuguTool(server, def, run, track) {
+  if (!connectionScopes.has(server)) connectionScopes.set(server, randomUUID())
   // @@@mcp-description-budget 顶层描述超 Claude Code 预算 ⇒ 注册即抛(尾巴静默消失比起不来更糟)。
   assertMcpToolDescriptionWithinBudget(def.name, def.description)
   server.registerTool(
     def.name,
     { description: def.description, inputSchema: def.permissive ? z.record(z.unknown()) : def.schema },
-    async (rawArgs, { signal }) => {
+    async (rawArgs, extra) => {
       try {
-        const work = run(def.permissive ? strictArgs(def, rawArgs) : rawArgs, signal)
+        // Transport metadata stays out of model arguments and follows auth/dispatch awaits.
+        const work = runWithGuguToolInvocation(extra, connectionScopes.get(server), () =>
+          run(def.permissive ? strictArgs(def, rawArgs) : rawArgs, extra.signal))
         return await track(work, def.name)
       } catch (error) {
         // MCP 约定：工具错误走 isError,让 agent 看得到原因并自处理。

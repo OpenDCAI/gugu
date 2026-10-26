@@ -57,7 +57,7 @@ function FileLibraryCard({ machine, assistantId, kind, onOpen }: Omit<CardProps,
   const read = usePhoneRead(sourceKey(machine, kind, assistantId), () => readVolume(machine, kind), 'read Gugu library')
   useLibraryNotifications(machine, kind, read.refresh)
   const detail = kind === 'devices' ? t('library.deviceAccess') : read.state === 'loading' ? t('library.loading')
-    : read.state === 'error' ? t('library.failed') : t('library.items', { count: read.data.items.length })
+    : read.state === 'error' ? t('library.failed') : read.data.items.length ? t('library.items', { count: read.data.items.length }) : undefined
   return <AssistantRow leading={kind === 'devices' ? <Monitor /> : <Sparkles />} title={t(`library.${kind}`)} detail={detail}
     onClick={onOpen} testId={`assistant-library-${kind}`} />
 }

@@ -54,6 +54,7 @@ export function PhoneProfile(props: PhonePageProps) {
     return (
       // 设备那一页(AssistantDevicesPage)自己带标题和说明,这里不再叠一层(与桌面同)。
       <div className="ta-page ta-phone-profile" data-testid="assistant-slot-devices">
+        <PageHead title={t('library.devices')} />
         <div className="ta-skin">
           <AssistantDevicesPage cloudDeviceId={cloudDeviceId} />
         </div>
@@ -128,7 +129,7 @@ function ProfileHome({
       </AssistantSection>
       <AssistantSection title={t('capabilities.title')} testId="assistant-capabilities">
         <AssistantLibraryCard assistantId={assistant.id} machine={machine.state === 'ready' ? machine.machine : null} kind="capabilities" onOpen={() => go('library:capabilities')} />
-        <AssistantLibraryCard assistantId={assistant.id} machine={machine.state === 'ready' ? machine.machine : null} kind="devices" onOpen={() => go('library:devices')} />
+        <AssistantLibraryCard assistantId={assistant.id} machine={machine.state === 'ready' ? machine.machine : null} kind="devices" onOpen={() => go('devices')} />
         <AssistantRow title={t('channels.title')} detail={t('channels.note', { name })} onClick={() => go('channels')} testId="assistant-open-channels" />
       </AssistantSection>
       {/* 它自己的设置:从前是页头的齿轮,页头只剩一行后(owner 10-26)从资料进。 */}
