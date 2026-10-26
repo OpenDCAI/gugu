@@ -1297,6 +1297,31 @@ test('account work delivery rereads cloud text and reuses its stable id on the p
   }finally{await fx.close()}
 })
 
+test('cancelling a cold phone work delivery during cloud read never admits its first input',async()=>{
+  let turns=0,release,reading
+  const gate=new Promise(resolve=>{release=resolve})
+  const entered=new Promise(resolve=>{reading=resolve})
+  const fx=await fixture(async()=>{turns++;return {status:'done',text:'[NO_REPLY]'}})
+  const caller={sessionId:randomUUID(),deviceId:'home',name:'Assistant',harness:'pi',platformModel:'platform:free',transport:'acp'}
+  const intent={version:1,assistant_id:randomUUID(),work_id:randomUUID(),operation_id:randomUUID(),message_id:randomUUID(),child_session_id:randomUUID(),coordinator:{session_id:caller.sessionId,device_id:caller.deviceId},title:'Task',continuation:false}
+  try {
+    await fx.host.invoke('assistantWork.prepare',[caller,{action:'spawn',harness:'pi',prompt:'Wait for delivery',assistant_work:intent}],'prepare-cancel')
+    const old=fx.cloud.identity.rpc
+    fx.cloud.identity.rpc=async(name,args)=>{
+      if(name!=='assistant_work_history') return old(name,args)
+      reading();await gate
+      return {data:{events:[{work_id:intent.work_id,message_id:intent.message_id,kind:'dispatch',from_session_id:caller.sessionId,from_device_id:caller.deviceId,to_session_id:intent.child_session_id,to_device_id:deviceId,source_available:true,content:'Must not run',attachment_refs:[],platform_received_at:new Date().toISOString()}],next_after:null},error:null}
+    }
+    const controller=new AbortController()
+    const delivery=fx.host.invoke('assistantWork.deliver',[{assistant_id:intent.assistant_id,work_id:intent.work_id,message_id:intent.message_id}],'cancel-deliver',{kind:'device-rpc',signal:controller.signal})
+    await entered;controller.abort(new Error('Delivery cancelled'));release()
+    await assert.rejects(delivery,/Delivery cancelled/)
+    const journal=JSON.parse(await readFile(join(fx.root,'hosts',ownerId,'host.json'),'utf8'))
+    assert.equal(journal.jobs[intent.message_id],undefined)
+    assert.equal(turns,0)
+  } finally {release();await fx.close()}
+})
+
 test('a phone work result enters the account queue while its coordinator device is unavailable',async()=>{
   let reportResult
   const fx=await fixture(async(_command,hooks)=>{
