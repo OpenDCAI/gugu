@@ -1,7 +1,6 @@
 import { fileSearchOf, folderOf, placeOf, type AppFileEntry, type AppFileOpened, type AppPlace } from '@shared/extensions/app-runtime-protocol';
 import { guguError, refOf, type GuguHost } from './host';
 import { askingMain, fileKey, openFiles, OpenFile } from './open-file';
-import { countsOf } from './check-counts';
 
 export { bindText } from './text-binding';
 
@@ -33,16 +32,7 @@ function withinDeadline(openFile: OpenFile, connecting: Promise<void>): Promise<
  * ones alike; `close()` lets go of one handle, and the replica goes with the last (摩擦单 F46: two opens
  * shared one object, and the first `close()` took the file from under the second).
  */
-export async function openFile(host: GuguHost, requested: Promise<AppFileOpened>): Promise<object> {
-  // The check's page (摩擦单 F69) says when its opens settle: the check reads the page only after (F5).
-  const counts = countsOf(host);
-  counts?.opened();
-  try {
-    return await openNow(host, requested);
-  } finally {
-    counts?.openSettled();
-  }
-}
+export { openNow as openFile };
 
 async function openNow(host: GuguHost, requested: Promise<AppFileOpened>): Promise<object> {
   // Counted until its answer has taken its handle: a replica let go of meanwhile waits for it (摩擦单 F115).

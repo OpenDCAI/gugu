@@ -20,3 +20,16 @@ it('starts the authorized file request while its runtime loads, and hands that s
   expect(await result).toBe(handle);
   expect(openFile).toHaveBeenCalledOnce();
 });
+
+it('settles a fast metadata refusal and reports it even while the runtime is still loading', async () => {
+  let loaded!: (module: FilesModule) => void;
+  const runtime = new Promise<FilesModule>((resolve) => { loaded = resolve; });
+  const report = vi.fn(async () => undefined);
+  const gugu = createGugu({
+    appFiles: { open: async () => { throw Object.assign(new Error('gone'), { code: 'not-found' }); } },
+    reportError: vi.fn(), checkPage: { report },
+  } as never, { files: () => runtime }) as { files: { open(file: unknown): Promise<object> } };
+  await expect(gugu.files.open({ id: 'file' })).rejects.toMatchObject({ code: 'not-found' });
+  expect(report).toHaveBeenLastCalledWith(expect.objectContaining({ opens: 1, opensSettled: 1 }));
+  loaded({ openFile: async (_host: unknown, requested: Promise<object>) => requested } as unknown as FilesModule);
+});
