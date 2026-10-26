@@ -33,7 +33,13 @@ export function ContentContextMenuHost() {
       if (item.enabled !== false) finish(menu.requestId, item.id)
     }
     window.addEventListener('keydown', keydown, true)
-    return () => window.removeEventListener('keydown', keydown, true)
+    const blur = () => finish(menu.requestId)
+    window.addEventListener('blur', blur)
+    return () => {
+      window.removeEventListener('keydown', keydown, true)
+      window.removeEventListener('blur', blur)
+      finish(menu.requestId)
+    }
   }, [finish, menu])
 
   if (!menu) return null

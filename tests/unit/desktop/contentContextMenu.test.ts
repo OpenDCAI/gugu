@@ -5,7 +5,7 @@ import { CONTENT_CONTEXT_MENU_ACTION, CONTENT_CONTEXT_MENU_OPEN, type ContentMen
 
 function host() {
   const send = vi.fn()
-  const webContents = { send, isDestroyed: () => false } as unknown as WebContents
+  const webContents = { send, setIgnoreMenuShortcuts: vi.fn(), isDestroyed: () => false } as unknown as WebContents
   return { webContents, send, window: { webContents } as BrowserWindow }
 }
 
@@ -30,6 +30,7 @@ describe('host content menu actions', () => {
     act({ sender: first.webContents }, { requestId: model.requestId, actionId: 'quote' })
     act({ sender: first.webContents }, { requestId: model.requestId, actionId: 'quote' })
     expect(click).toHaveBeenCalledOnce()
+    expect(first.webContents.setIgnoreMenuShortcuts).toHaveBeenLastCalledWith(false)
   })
 
   it('rejects stale and disabled actions, and releases a dismissed menu', () => {
