@@ -6,6 +6,7 @@ import { machineKey, usePhoneRead } from './usePhoneRead'
 export function usePhoneRoutines({ machine }: Pick<PhonePageProps, 'assistant' | 'home' | 'homeDeviceId' | 'readiness' | 'machine'>) {
   const ready = machine.state === 'ready' ? machine.machine : null
   const api = ready?.panel ? assistantPanelRoutines(ready.panel) : null
-  const read = usePhoneRead(api && ready ? `routines|${machineKey(ready)}` : null,() => api!.list(),'list routines')
+  const stored = usePhoneRead(api && ready ? `routines|${machineKey(ready)}` : null,() => api!.list(),'list routines')
+  const read = machine.state === 'error' ? { ...stored,state: 'error' as const,error: machine.error } : stored
   return { read,routines: read.state === 'ok' ? read.data : [],directory: null,api }
 }

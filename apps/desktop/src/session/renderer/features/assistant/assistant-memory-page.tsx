@@ -1,3 +1,4 @@
+import { messageForUser } from '@/lib/userFacingError';
 import { rendererLogger } from '@/lib/log';
 import { assistantPanelFailure } from '@/components/assistant/assistant-panel-errors';
 import { useRef, useState } from 'react';
@@ -134,7 +135,7 @@ function MemoryNoteDetail({ context, file }: { context: AssistantContext; file: 
       toast({ title: t('memory.deleted') });
       context.go({ tab: 'memory' });
     } catch (error) { rendererLogger('actions/assistant-memory-page').error({ error: error }, 'action failed');
-      toast({ title: t('memory.deleteFailed'), description: assistantPanelFailure(error,t), tier: 'error' });
+      toast({ title: t('memory.deleteFailed'), description: messageForUser(assistantPanelFailure(error,t)), tier: 'error' });
     }
   };
   return (
@@ -216,7 +217,7 @@ function ResourceRow({
       await invalidate('dir');
       toast({ title: t('files.renamed') });
     } catch (error) { rendererLogger('actions/assistant-memory-page').error({ error: error }, 'action failed');
-      toast({ title: t('files.renameFailed'), description: assistantPanelFailure(error,t), tier: 'error' });
+      toast({ title: t('files.renameFailed'), description: messageForUser(assistantPanelFailure(error,t)), tier: 'error' });
     }
   };
   const remove = async () => {
@@ -227,7 +228,7 @@ function ResourceRow({
       await invalidate('dir');
       toast({ title: folder ? t('files.folderDeleted') : t('files.fileDeleted') });
     } catch (error) { rendererLogger('actions/assistant-memory-page').error({ error: error }, 'action failed');
-      toast({ title: t('files.deleteFailed'), description: assistantPanelFailure(error,t), tier: 'error' });
+      toast({ title: t('files.deleteFailed'), description: messageForUser(assistantPanelFailure(error,t)), tier: 'error' });
     }
   };
   if (renaming)
@@ -329,7 +330,7 @@ function ResourceFiles({ context, trail }: { context: AssistantContext; trail: s
     if (!accepted.length) { toast({ title: t('files.saveFailed'),description: failed.join('\n'),tier: 'error' }); return; }
     let target: string;
     try { target = await ensureDir(); }
-    catch (error) { toast({ title: t('files.saveFailed'),description: assistantPanelFailure(error,t),tier: 'error' }); return; }
+    catch (error) { toast({ title: t('files.saveFailed'),description: messageForUser(assistantPanelFailure(error,t)),tier: 'error' }); return; }
     const done: string[] = [];
     for (const file of accepted) {
       setUploading(file.name);
@@ -367,7 +368,7 @@ function ResourceFiles({ context, trail }: { context: AssistantContext; trail: s
       await invalidate('dir');
       toast({ title: t('files.folderCreated') });
     } catch (error) { rendererLogger('actions/assistant-memory-page').error({ error: error }, 'action failed');
-      toast({ title: t('files.folderCreateFailed'), description: assistantPanelFailure(error,t), tier: 'error' });
+      toast({ title: t('files.folderCreateFailed'), description: messageForUser(assistantPanelFailure(error,t)), tier: 'error' });
     }
   };
 

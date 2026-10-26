@@ -17,6 +17,8 @@ import { clickElement, createNode, createReactHarness, deferred, waitForConditio
 
 const ui = vi.hoisted(() => ({ platformKind: 'capacitor' as 'capacitor' | 'web', rpc: null as unknown, listeners: [] as Array<(data: unknown) => void> }))
 
+vi.mock('../../../apps/desktop/src/mobile/assistant/phoneAssistantAuthorization',() => ({ phoneAssistantAuthorization: () => ui.rpc }))
+vi.mock('../../../apps/desktop/src/components/assistant/assistant-app-client',() => ({ reportAssistantAppChange: vi.fn(async () => {}) }))
 vi.mock('../../../apps/desktop/src/platform', () => ({ platform: { get kind() { return ui.platformKind } } }))
 vi.mock('../../../apps/desktop/src/mobile/agent-watch/sessionpage-rpc', () => ({
   machineRpc: () => ui.rpc,
@@ -72,7 +74,19 @@ function pageProps(id: string, options: { configured?: Record<string, boolean>; 
   return {
     retry,
     go,
-    props: { assistant, chatId: 'chat-1', ownerName: null, homeDeviceId: "cloud-1", readiness: 'ready', machine: { state: 'opening' }, askInChat: vi.fn(), sub: `connector:${id}`, go, open: vi.fn(), integrations, id } as Record<string, unknown>,
+    props: { assistant, chatId: 'chat-1', ownerName: null, homeDeviceId: "cloud-1", readiness: 'ready', machine: { state: 'ready',machine: { deviceId: 'cloud-1',projectId: 'panel',workspaceId: 'dm',paths: { memoryDir: 'memory' },panel: {
+      collection: async () => {
+        const rows = id === 'github' ? await rpc.github.listAccounts() : await rpc.integrations.accounts(id)
+        return (rows.length ? rows : options.configured?.[id] && !catalog.find(item => item.id === id)?.multiAccount ? [{ accountId: 'default' }] : []).map((raw: unknown) => {
+          const row = raw as { accountId: string; displayName?: string; login?: string }
+          return { resource_key: row.accountId,data: { providerId: id,accountId: row.accountId,displayName: row.displayName ?? row.login ?? row.accountId } }
+        })
+      },change: async (row: { data: { providerId: string; accountId: string } }) => {
+        const result = (row.data.providerId === 'github' ? await rpc.github.removeAccount(row.data.accountId)
+          : await rpc.integrations.disconnect(row.data.providerId,row.data.accountId === 'default' ? undefined : row.data.accountId)) as { success: boolean; error?: string }
+        if (!result.success) throw new Error('Cloud removal could not be saved')
+      },
+    } } }, askInChat: vi.fn(), sub: `connector:${id}`, go, open: vi.fn(), integrations, id } as Record<string, unknown>,
   }
 }
 
@@ -128,7 +142,7 @@ describe('直接展开的连接列表', () => {
   it('有凭据但尚未检查、授权已过期、检查失败分别显示真实状态', async () => {
     const page = pageProps('qq-mail', { configured: { 'qq-mail': true } })
     await render(PhoneConnectorsPage, page.props)
-    expect(q('assistant-connector-qq-mail')!.textContent).toContain('正在检查')
+    expect(q('assistant-connector-qq-mail')!.textContent).toContain('尚未验证')
     expect(q('assistant-connector-qq-mail')!.textContent).not.toContain('已连接')
     const data = page.props.integrations as { data: PhoneIntegrations }
     data.data.statuses = { 'qq-mail': { connected: false, errorType: 'authorization_expired', capabilities: { requiresRepositoryUrl: false, supportsIssueContext: false } } }
@@ -210,7 +224,8 @@ describe('详情页', () => {
     rpc.integrations.accounts.mockRejectedValue(new Error('link closed'))
     const page = pageProps('qq-mail', { configured: { 'qq-mail': true } })
     await render(PhoneConnectorDetail, page.props)
-    await waitForCondition(() => q('assistant-connector-accounts-retry') !== null, 'retry shown')
+    await waitForCondition(() => document.querySelector('[role="alert"]') !== null, 'read failure shown')
+    expect(q('assistant-connector-accounts-retry')).toBeNull()
     expect(q('assistant-connector-disconnect')).toBeNull()
   })
 
@@ -218,7 +233,8 @@ describe('详情页', () => {
     rpc.integrations.accounts.mockRejectedValue(Object.assign(new Error('unknown method'), { code: 'unknown_method' }))
     const page = pageProps('qq-mail', { configured: { 'qq-mail': true } })
     await render(PhoneConnectorDetail, page.props)
-    await waitForCondition(() => q('assistant-connector-disconnect') !== null, 'single-account disconnect shown')
+    await waitForCondition(() => document.querySelector('[role="alert"]') !== null, 'cloud account read failed')
+    expect(q('assistant-connector-disconnect')).toBeNull()
     expect(qa('assistant-connector-account')).toHaveLength(0)
   })
 

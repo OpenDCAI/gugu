@@ -1,3 +1,4 @@
+import { withBoundedOperation } from './boundedOperation'
 import { createGuguSupabaseClient } from './supabase'
 import { configuredEndpoint, placeAttachment, uploadAttachmentBytes } from './attachmentsApi'
 import { cloudFileProviders } from './fileProviders'
@@ -17,12 +18,19 @@ async function sha256(bytes: Uint8Array): Promise<string> {
   return [...new Uint8Array(digest)].map(byte => byte.toString(16).padStart(2,'0')).join('')
 }
 
+/** Every network stage has a deadline, including direct object bytes. */
+function panelEndpoint(token: string) {
+  return { ...configuredEndpoint(token),fetch: ((url,init) => withBoundedOperation(30_000,() => new AssistantPanelError('body-timeout','PANEL_BODY_TIMEOUT'),signal => fetch(url,{ ...init,
+    signal: AbortSignal.any([signal,...(init?.signal ? [init.signal] : [])]),
+  }))) as typeof fetch }
+}
+
 /** The existing private file upload/place path; it sends no chat message. */
 export async function uploadAssistantPanelBody(input: AssistantPanelBodyAccess & {
   name: string; bytes: Uint8Array; contentType: string
 }): Promise<{ itemId: string; sha256: string }> {
   await assertOwner(input)
-  const endpoint = configuredEndpoint(input.token)
+  const endpoint = panelEndpoint(input.token)
   const digest = await sha256(input.bytes)
   const staging = await uploadAttachmentBytes(endpoint,{
     bytes: input.bytes,name: input.name,contentType: input.contentType,
@@ -56,7 +64,7 @@ export async function readAssistantPanelBody(item: AssistantPanelItem, input: As
     async put(key,index,bytes) { chunks.set(`${key}:${index}`,bytes.slice()) },
     async clear(key) { for (const entry of chunks.keys()) if (entry.startsWith(`${key}:`)) chunks.delete(entry) },
   }
-  const provider = cloudFileProviders({ endpoint: async () => { await assertOwner(input); return configuredEndpoint(input.token) },
+  const provider = cloudFileProviders({ endpoint: async () => { await assertOwner(input); return panelEndpoint(input.token) },
     cache,sink: async size => createCachedFileSink(cache,size),
   })
   const resolve = createFileResolver({ ...provider,local: async () => null,ssh: async () => null,
