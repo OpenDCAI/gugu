@@ -356,7 +356,7 @@ import {
   createBrowserAppProgram,
   type BrowserAgentMcpHost,
 } from './browser-agent-mcp'
-import { createComputerUsePreview, type ComputerUsePreview } from './computer-use-program'
+import { createComputerUsePreview, installedComputerUseApps, type ComputerUsePreview } from './computer-use-program'
 import { sessionOf as computerSessionOf } from './device-actions/families/computer'
 import { connectedSessionIntegrations } from './session/main/core/integrations/session-integrations'
 import { connectedCliSkills } from './session/main/core/integrations/cli/cli-integrations'
@@ -5882,15 +5882,7 @@ app.whenReady().then(async () => {
         if (!SERVER_MODE) {
           // #7317 Computer Use 的「电脑」页签:看的是 agent 经设备动作做的每一步电脑控制;App 的程序只给它的页面 preview_state。
           const programs = emdash.emdashExtensionPrograms()
-          // The Computer Use Apps installed here whose pages may reach their program (the same refusal their pages get). Read
-          // at most once a second: listing the installed programs reads every App's files, and a step asks twice.
-          let apps: { at: number; list: ReturnType<typeof programs.installed> } | null = null
-          const computerUseApps = () => {
-            if (!apps || Date.now() - apps.at > 1_000) {
-              apps = { at: Date.now(), list: programs.installed().filter((program) => program.native === 'computer-use' && !programs.agentToolsRefusal(program.extensionId)) }
-            }
-            return apps.list
-          }
+          const computerUseApps = installedComputerUseApps(programs, emdash.emdashOnInstalledAppsChanged)
           computerUsePreviewInstance = createComputerUsePreview({
             nativeCursor: process.platform === 'darwin',
             peek: (target, options) => deviceActionsRuntime().peekWindow(target, options),
@@ -5905,7 +5897,6 @@ app.whenReady().then(async () => {
           computerUseOn = () => computerUseApps().length > 0
           let computerUseWas = false
           const computerUseSwitched = () => {
-            apps = null
             const on = computerUseOn()
             if (on === computerUseWas) return
             computerUseWas = on
