@@ -1,3 +1,4 @@
+import { messageForUser } from '@/lib/userFacingError';
 import type { AppSettings } from '@shared/core/app-settings';
 import { toast } from '@renderer/lib/hooks/use-toast';
 import { log } from '@renderer/utils/logger';
@@ -41,7 +42,7 @@ export function stopAsking(
   updateAppSettingsRequest('interface', next).catch((error: unknown) => {
     // 写不进去就要说:否则下一次又弹,用户以为自己勾了个假的。
     log.error(`${failure.logTag} 保存「不再询问」失败`, { field, error: String(error) });
-    toast({ title: failure.title, description: failure.description, variant: 'destructive' });
+    toast({ title: failure.title, description: messageForUser(error), variant: 'destructive' });
     invalidateAppSettingsKey('interface');
   });
 }

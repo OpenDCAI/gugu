@@ -1,3 +1,4 @@
+import { messageForUser } from '@/lib/userFacingError';
 import { useEffect, useRef, useState, type CSSProperties, type KeyboardEvent } from 'react'
 import { useTranslation } from 'react-i18next'
 import type { AgentStatusLabel } from '@gugu/core/shared/agentStatusPresentation'
@@ -182,7 +183,7 @@ export function AgentLookEditor({
       later(() => setCelebrating(false), 2600)
     } catch (err) {
       log.error({ err: String((err as Error)?.message ?? err) }, 'saving agent look failed')
-      toast(t('settings.look.saveFailed'), 'error')
+      toast(t('settings.look.saveFailed'), 'error', messageForUser(err))
     } finally {
       setSaving(false)
     }

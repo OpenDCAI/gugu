@@ -1,3 +1,4 @@
+import { messageForUser } from '@/lib/userFacingError';
 import { safeFailureLine } from '@/session/renderer/features/sessions/gugu-reason'
 /**
  * 群邀请一族 —— 从 ContactsPanel 抽出。
@@ -67,13 +68,13 @@ function GroupInviteQr({ group }: { group: ContactGroupChat }) {
         console.error('[ContactsPanel] group invite token fetch failed', error)
         if (!cancelled) {
           setJoinToken(null)
-          setQrError(t('sharing.qrFailed'))
+          setQrError(messageForUser(error))
         }
       })
     return () => {
       cancelled = true
     }
-  }, [group.id, hasGroupNumber, t])
+  }, [group.id, hasGroupNumber])
 
   const payloadText = useMemo(() => {
     if (!hasGroupNumber || !joinToken) return null
@@ -105,13 +106,13 @@ function GroupInviteQr({ group }: { group: ContactGroupChat }) {
         console.error('[ContactsPanel] group invite QR generation failed', error)
         if (!cancelled) {
           setQrDataUrl(null)
-          setQrError(t('sharing.qrFailed'))
+          setQrError(messageForUser(error))
         }
       })
     return () => {
       cancelled = true
     }
-  }, [payloadText, t])
+  }, [payloadText])
 
   // @@@qr-share-as-image - "复制二维码内容" used to copy the QR payload as a TEXT LINK, which is
   const handleCopy = useCallback(async () => {
@@ -136,7 +137,7 @@ function GroupInviteQr({ group }: { group: ContactGroupChat }) {
       downloadDataUrl(dataUrl, safeName)
       toast(t('groupInvite.qrSaved'), 'success')
     } catch (error) {
-      toast(t('groupInvite.qrExportFailed'), 'error')
+      toast(t('groupInvite.qrExportFailed'), 'error', messageForUser(error))
       console.error('QR image export failed:', error)
     }
   }, [payloadText, group.name, t, toast])
@@ -254,7 +255,7 @@ function GroupInviteQr({ group }: { group: ContactGroupChat }) {
                     await navigator.clipboard.writeText(payloadText)
                     toast(t('groupInvite.linkCopied'), 'success')
                   } catch (error) {
-                    toast(safeFailureLine(String((error as Error)?.message ?? error)), 'error')
+                    toast(t('groupInvite.copyFailed'), 'error', safeFailureLine(String((error as Error)?.message ?? error)))
                   }
                 }}
               >

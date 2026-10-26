@@ -20,7 +20,7 @@ export function MessageLoadFailure({ error, onRetry, inline }: { error: Error; o
     // 有的平台不支持时是同步抛的:包进 promise 链里一起接住。
     void Promise.resolve().then(() => platform.writeClipboardText(error.message)).then(
       () => toast(t('message.copied'), 'success'),
-      (cause) => toast(safeFailureLine(String((cause as Error)?.message ?? cause)), 'error'),
+      (cause) => toast(t('actions.copyFailed', { ns: 'common' }), 'error', safeFailureLine(String((cause as Error)?.message ?? cause))),
     )
   }
   const retry = () => {

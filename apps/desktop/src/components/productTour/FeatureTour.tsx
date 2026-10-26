@@ -1,3 +1,5 @@
+import { messageForUser } from '@/lib/userFacingError';
+import { rendererLogger } from '@/lib/log';
 import { useEffect, useRef, useState, type ReactNode } from 'react'
 import { useTranslation } from 'react-i18next'
 import { Dialog } from '../ui/Dialog'
@@ -51,7 +53,7 @@ function FeatureFilm({ index }: { index: number }) {
   const video = useRef<HTMLVideoElement>(null)
   const [time, setTime] = useState(0)
   const [duration, setDuration] = useState(0)
-  const [failed, setFailed] = useState(false)
+  const [failed, setFailed] = useState('')
   const [autoplay] = useState(() => !window.matchMedia('(prefers-reduced-motion: reduce)').matches)
   const [playing, setPlaying] = useState(autoplay)
   useEffect(() => {
@@ -68,20 +70,20 @@ function FeatureFilm({ index }: { index: number }) {
   const replay = () => {
     const player = video.current
     if (!player) return
-    setFailed(false)
+    setFailed('')
     if (player.error) player.load()
     player.currentTime = 0
-    void player.play().then(() => setPlaying(true)).catch(() => { setFailed(true); setPlaying(false) })
+    void player.play().then(() => setPlaying(true)).catch((error: unknown) => { rendererLogger('product-tour/film').error({ error }, 'film playback failed'); setFailed(messageForUser(error)); setPlaying(false) })
   }
   const togglePlay = () => {
     const player = video.current
     if (!player) return
-    if (player.paused) void player.play().then(() => setPlaying(true)).catch(() => { setFailed(true); setPlaying(false) })
+    if (player.paused) void player.play().then(() => setPlaying(true)).catch((error: unknown) => { rendererLogger('product-tour/film').error({ error }, 'film playback failed'); setFailed(messageForUser(error)); setPlaying(false) })
     else { player.pause(); setPlaying(false) }
   }
   return <section aria-label={t(`feature.${TOUR_FEATURES[index]}.title`)}>
     <video className="product-tour-film" ref={video} src={films[index]} poster={posters[index]} muted playsInline autoPlay={autoplay}
-      preload="metadata" aria-describedby="product-tour-film-caption" onError={() => { setFailed(true); setPlaying(false) }}
+      preload="metadata" aria-describedby="product-tour-film-caption" onError={(event) => { const error = event.currentTarget.error; rendererLogger('product-tour/film').error({ error }, 'film load failed'); setFailed(messageForUser(error)); setPlaying(false) }}
       onLoadedMetadata={(event) => setDuration(event.currentTarget.duration)}
       onPlay={() => setPlaying(true)} onPause={() => setPlaying(false)} onEnded={() => setPlaying(false)}
       onTimeUpdate={(event) => setTime(event.currentTarget.currentTime)}>
@@ -97,6 +99,6 @@ function FeatureFilm({ index }: { index: number }) {
       if (video.current) video.current.currentTime = next
       setTime(next)
     }} /><span>{Math.floor(time)}s / {Math.floor(duration)}s</span></div>
-    {failed && <p role="alert" className="product-tour-error">{t('filmFailed')} <Button variant="ghost" onClick={replay}>{t('retry')}</Button></p>}
+    {failed && <p role="alert" className="product-tour-error">{failed} <Button variant="ghost" onClick={replay}>{t('retry')}</Button></p>}
   </section>
 }

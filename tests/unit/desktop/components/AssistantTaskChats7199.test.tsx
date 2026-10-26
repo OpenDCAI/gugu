@@ -130,7 +130,7 @@ describe('assistant task rows open the task chat on both shells', () => {
     await renderWithAppProviders(harness, <AssistantTaskChatOpener visible onOpenUserChat={open} />, { contacts: { contacts }, toast })
     act(() => openAssistantTaskChat('assistant', mocks.rows[1]!, mocks.rows))
     expect(open).not.toHaveBeenCalled()
-    expect(toast).toHaveBeenCalledWith(expect.any(String), 'error')
+    expect(toast).toHaveBeenCalledWith(expect.any(String), 'error', 'Task identity is not owned by the signed-in account')
   })
   it('opens a newly spawned agent before its contacts snapshot arrives, after checking its canonical owner', async () => {
     let finish!: (contacts: unknown[]) => void
@@ -151,7 +151,7 @@ describe('assistant task rows open the task chat on both shells', () => {
     const contacts = [{ ...assistant, bio: null, type: 'agent' as const, owner_user_id: 'user-1' }]
     await renderWithAppProviders(harness, <AssistantTaskChatOpener visible />, { contacts: { contacts }, toast })
     act(() => openAssistantTaskChat('assistant', mocks.rows[1]!, mocks.rows))
-    await vi.waitFor(() => expect(toast).toHaveBeenCalledWith(expect.any(String), 'error'))
+    await vi.waitFor(() => expect(toast).toHaveBeenCalledWith(expect.any(String), 'error', 'Task identity is not owned by the signed-in account'))
     expect(document.querySelector('[data-testid="assistant-task-chat-window"]')).toBeNull()
   })
 })

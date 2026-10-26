@@ -13,7 +13,6 @@ import { useTranslation } from 'react-i18next'
 import { cn } from '@/lib/cn'
 import { useChatStore } from '../store/chatContext'
 import { chatService } from '../lib/chat'
-import { UserFacingError } from '../lib/userFacingError'
 import { rendererLogger } from '../lib/log'
 import type { ManagedGroupJoinRequest } from '../lib/groupJoinRequests'
 import { awaitsMe, friendRequestStatusKey, type FriendRequestEntry } from '../lib/requestHistory'
@@ -248,7 +247,7 @@ function GroupJoinRequestItem({ request, onDecided }: { request: ManagedGroupJoi
       await onDecided()
     } catch (cause) {
       joinRequestLog.error({ requestId: request.id, chatId: request.group.id, error: String(cause) }, 'group join decision failed')
-      setError(cause instanceof UserFacingError ? cause.message : messageForUser(cause, t('groupJoinRequests.failed')))
+      setError(messageForUser(cause))
     } finally {
       setLoading(false)
     }
@@ -422,7 +421,7 @@ export function NewFriendsPanel({ onOpenGroupChat, onBack }: { onOpenGroupChat?:
 
       {requestsStatus === 'error' && (
         <div role="alert" className="mx-4 mb-3 text-sm text-[var(--danger)]">
-          {messageForUser(new Error(requestsError ?? ''), t('common.loadFailed'))}
+          {messageForUser(new Error(requestsError ?? ''))}
           <Button variant="ghost" size="sm" className="ml-2 underline" onClick={() => void refreshRequests()}>{t('common.retry')}</Button>
         </div>
       )}
@@ -439,7 +438,7 @@ export function NewFriendsPanel({ onOpenGroupChat, onBack }: { onOpenGroupChat?:
               <div style={styleSectionLabel}>{t('groupJoinRequests.title')}</div>
               {groupJoinRequestsError ? (
                 <div role="alert" style={styleRowError}>
-                  {messageForUser(new Error(groupJoinRequestsError), t('groupJoinRequests.loadFailed'))}
+                  {messageForUser(new Error(groupJoinRequestsError))}
                   <Button variant="ghost" size="sm" className="ml-2 underline" onClick={() => void refreshGroupJoinRequests()}>{t('common.retry')}</Button>
                 </div>
               ) : null}

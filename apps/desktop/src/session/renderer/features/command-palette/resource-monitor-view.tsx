@@ -1,3 +1,5 @@
+import { rendererLogger } from '@/lib/log';
+import { messageForUser } from '@/lib/userFacingError';
 import { Check, ChevronRight, Copy, Folder, Terminal, X } from '@/lib/icons'
 import { GitBranch } from 'lucide-react'
 import { observer } from 'mobx-react-lite';
@@ -41,8 +43,8 @@ export const ResourceMonitorView = observer(function ResourceMonitorView({ snaps
     setChangingDiagnostics(true);
     try {
       await store.setInternals(!store.internals);
-    } catch {
-      toast({ title: translate('resourceMonitor.diagnosticsFailed'), tier: 'error' });
+    } catch (error) { rendererLogger('actions/resource-monitor-view').error({ error: error }, 'action failed');
+      toast({ title: translate('resourceMonitor.diagnosticsFailed'), description: messageForUser(error), tier: 'error' });
     } finally {
       setChangingDiagnostics(false);
     }
@@ -366,7 +368,9 @@ function CopyReportButton({
         setCopied(false);
         resetRef.current = null;
       }, 1500);
-    } catch {
+    } catch (error) {
+      rendererLogger('actions/resource-monitor-view').error({ error: error }, 'action failed');
+      toast({ title: translate('task.copyFailed'), description: messageForUser(error), tier: 'error' });
       setCopied(false);
     }
   }, [snapshot, groups]);

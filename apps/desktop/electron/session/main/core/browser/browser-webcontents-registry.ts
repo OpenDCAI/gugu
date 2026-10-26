@@ -199,24 +199,20 @@ export class BrowserWebContentsRegistry {
 
   async captureScreenshotToClipboard(browserId: string): Promise<boolean> {
     const webContents = this.webContentsByBrowserId.get(browserId);
-    if (!webContents || webContents.isDestroyed()) return false;
-    try {
-      const image = await webContents.capturePage();
-      if (image.isEmpty()) return false;
-      // @@@electron44-clipboard (#4394) — electron 44 用 W3C ClipboardItem 取代了 clipboard.writeImage。
-      // 必须 await:旧的同步 writeImage 一返回就保证系统剪贴板已写好,而新 API 的 promise 没落地前
-      // 剪贴板还是旧内容——不 await 就会「截图成功但粘出来是上一张」。
-      // new Uint8Array(...) 不是多余的一步:toPNG() 给的是 Node Buffer(底层可能是 SharedArrayBuffer),
-      // 而 BlobPart 只收 ArrayBuffer 支撑的视图 —— 直接塞 Buffer 编译不过。
-      await clipboard.write([
-        new ClipboardItem({
-          'image/png': new Blob([new Uint8Array(image.toPNG())], { type: 'image/png' }),
-        }),
-      ]);
-      return true;
-    } catch {
-      return false;
-    }
+    if (!webContents || webContents.isDestroyed()) throw new Error('Browser is no longer available');
+    const image = await webContents.capturePage();
+    if (image.isEmpty()) throw new Error('Browser screenshot is empty');
+    // @@@electron44-clipboard (#4394) — electron 44 用 W3C ClipboardItem 取代了 clipboard.writeImage。
+    // 必须 await:旧的同步 writeImage 一返回就保证系统剪贴板已写好,而新 API 的 promise 没落地前
+    // 剪贴板还是旧内容——不 await 就会「截图成功但粘出来是上一张」。
+    // new Uint8Array(...) 不是多余的一步:toPNG() 给的是 Node Buffer(底层可能是 SharedArrayBuffer),
+    // 而 BlobPart 只收 ArrayBuffer 支撑的视图 —— 直接塞 Buffer 编译不过。
+    await clipboard.write([
+      new ClipboardItem({
+        'image/png': new Blob([new Uint8Array(image.toPNG())], { type: 'image/png' }),
+      }),
+    ]);
+    return true;
   }
 
   async clearData(browserId: string, kind: BrowserDataClearKind = 'storage'): Promise<boolean> {
@@ -415,13 +411,13 @@ async function clearPartitionBrowsingData(
  * 下面这些调用点都在**同步**的事件/菜单回调里,整条链改 async 代价过大;但两件事不能将就:
  *   · 顺序 —— 「已复制」的广播必须等写入真的落地再发,先 emit 会让 UI 报了成功而剪贴板还是旧内容;
  *   · rejection —— 裸调用的失败会变成 unhandled rejection,一声不响。
- * 所以统一走这里:成功才跑 onCopied,失败记 warn。
+ * 所以统一走这里:成功才跑 onCopied,失败记 error。
  */
 function copyTextThenNotify(text: string, onCopied?: () => void): void {
   void clipboard.writeText(text).then(
     () => onCopied?.(),
     (error: unknown) => {
-      log.warn('clipboard.writeText failed', { error: String(error) });
+      log.error('clipboard.writeText failed', { error: String(error) });
     },
   );
 }

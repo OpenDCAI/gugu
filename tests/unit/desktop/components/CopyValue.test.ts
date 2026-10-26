@@ -20,7 +20,7 @@ describe('copy failure cause', () => {
     expect(writeText).toHaveBeenCalledWith('copy me')
     const reason = 'Clipboard denied [path] [redacted token]'
     if (feedback === 'inline') expect(harness.container.querySelector('[aria-live]')?.textContent).toBe(reason)
-    else expect(toast).toHaveBeenCalledWith(reason, 'error')
+    else expect(toast).toHaveBeenCalledWith('复制失败', 'error', reason)
     expect(invoke).toHaveBeenCalledWith('log:write', expect.objectContaining({ level: 'error', msg: 'clipboard copy failed' }))
   })
 })

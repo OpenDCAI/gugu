@@ -9,7 +9,7 @@ import type { ToastTier } from '../lib/toastTiers'
 export type ToastType = ToastTier
 
 export interface ToastContextValue {
-  toast: (message: string, type?: ToastType) => void
+  toast: (message: string, type?: ToastType, description?: string) => void
 }
 
 export const ToastContext = createContext<ToastContextValue>({ toast: () => {} })

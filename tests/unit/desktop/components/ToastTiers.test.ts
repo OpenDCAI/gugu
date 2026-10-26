@@ -170,12 +170,12 @@ describe('主 app 的 toast(message, type) 入口', () => {
     harness = createReactHarness()
     function Emit({ type }: { type: ToastType }) {
       const { toast } = useContext(ToastContext)
-      useEffect(() => { toast('主 app 的提示', type) }, [toast, type])
+      useEffect(() => { toast('主 app 的提示', type, 'Clipboard write permission denied') }, [toast, type])
       return null
     }
     for (const type of ['success', 'info', 'warning', 'error'] as const) {
       await harness.render(createElement(ToastProvider, null, createElement(Emit, { type })))
-      expect(sonner[type], type).toHaveBeenCalledWith('主 app 的提示', expect.objectContaining({ duration: TOAST_DWELL_MS[type] }))
+      expect(sonner[type], type).toHaveBeenCalledWith('主 app 的提示', expect.objectContaining({ duration: TOAST_DWELL_MS[type], description: 'Clipboard write permission denied' }))
     }
   })
 })

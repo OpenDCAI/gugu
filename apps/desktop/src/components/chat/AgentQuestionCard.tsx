@@ -1,3 +1,5 @@
+import { rendererLogger } from '@/lib/log';
+import { messageForUser } from '@/lib/userFacingError';
 import { Button } from '../ui/Button'
 import { useEffect, useState } from 'react'
 import { useTranslation } from 'react-i18next'
@@ -50,7 +52,7 @@ export function AgentQuestionCard({ scope, settlement, unavailable = false, mobi
       const result = await respond(draft.answers)
       if (result.accepted) { setAccepted(true); drafts.delete(key) }
       else { setObserved(result.settlement); toast(t('question.noLongerWaiting'), 'info') }
-    } catch { toast(t('question.failed'), 'error') }
+    } catch (error) { rendererLogger('actions/AgentQuestionCard').error({ error: error }, 'action failed'); toast(t('question.failed'), 'error', messageForUser(error)) }
     finally { setBusy(false) }
   }
   return <section className="agent-question-card" aria-label={t('question.title')} data-mobile={mobile || undefined} data-testid="agent-question-card" aria-busy={busy}>

@@ -1,3 +1,4 @@
+import { messageForUser } from '@/lib/userFacingError';
 import { Sheet } from '../components/ui/Sheet'
 import { PaneHeader } from '../components/ui/Pane'
 import { RightPanelBackButton } from '../components/chat/RightPanel'
@@ -978,7 +979,7 @@ function InnerLayout({
       if (!detail?.agentUserId) return
       const contact = contacts.find((c) => c.id === detail.agentUserId)
       const name = contact?.alias?.trim() || contact?.display_name || detail.agentUserId
-      toast(t('shell.toast.taskDeliverFailed', { name }), 'error')
+      toast(t('shell.toast.taskDeliverFailed', { name }), 'error', messageForUser(detail.error))
     }
     window.addEventListener(UI_EVENTS.sessionpageDeliverFailed, handleSessionpageDeliverFailed)
     return () => window.removeEventListener(UI_EVENTS.sessionpageDeliverFailed, handleSessionpageDeliverFailed)
@@ -1075,7 +1076,7 @@ function InnerLayout({
     } catch (err) {
       // 点了「发消息」却开不了会话(断网、库拒绝…):❌ 留一个没人接的 rejection 让按钮看着像坏了(#6832)。
       openChatLog.error({ targetId: target.id, error: String(err) }, 'getOrCreateDM failed')
-      toast(t('shell.toast.openChatFailed'), 'error')
+      toast(t('shell.toast.openChatFailed'), 'error', messageForUser(err))
     } finally {
       switchingRef.current = false
     }

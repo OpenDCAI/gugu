@@ -1,3 +1,4 @@
+import { messageForUser } from '@/lib/userFacingError';
 import { useEffect, useState, type KeyboardEvent } from 'react'
 import { messageFileRefOf, parseAttachmentContent } from '@gugu/core/shared/ui/attachmentModels'
 import { Download } from '@/lib/icons'
@@ -72,7 +73,7 @@ export function ExtensionForwardHost() {
     const packed = await rpc.extensions.packInstalled({ extensionId: request.extensionId })
     if (!packed.success || !packed.data) {
       log.error({ extensionId: request.extensionId, error: packed.error }, 'packing an extension to forward failed')
-      throw new Error(t('extensions.forwardFailed'))
+      throw new Error(messageForUser(packed.error), { cause: packed.error })
     }
     const file = new File([packed.data.bytes], packed.data.fileName, { type: packed.data.mimeType })
     for (const chatId of targetChatIds) await sendFileToChat(file, { chatId, senderId: user.id })
@@ -83,7 +84,7 @@ export function ExtensionForwardHost() {
     const result = await rpc.extensions.packInstalled({ extensionId: request.extensionId, save: true })
     if (!result.success) {
       log.error({ extensionId: request.extensionId, error: result.error }, 'exporting an extension failed')
-      toast(t('extensions.exportFailed'), 'error')
+      toast(t('extensions.exportFailed'), 'error', messageForUser(result.error))
     } else if (result.data?.saved) {
       toast(t('extensions.exported', { path: result.data.saved }), 'success')
     }

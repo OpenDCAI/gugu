@@ -1,3 +1,5 @@
+import { rendererLogger } from '@/lib/log';
+import { messageForUser } from '@/lib/userFacingError';
 import React, { useCallback, useEffect, useState } from 'react';
 import { Markdown, type MarkdownDensity } from '@/components/markdown/Markdown';
 import { confirmOpenExternalLink } from '@renderer/lib/open-external-link';
@@ -26,7 +28,7 @@ const ResolvedImage: React.FC<{
   resolveImage: (src: string) => Promise<string | null>;
 }> = ({ src, alt, resolveImage }) => {
   const [dataUrl, setDataUrl] = useState<string | null>(null);
-  const [error, setError] = useState(false);
+  const [error, setError] = useState('');
 
   useEffect(() => {
     let cancelled = false;
@@ -34,10 +36,10 @@ const ResolvedImage: React.FC<{
       .then((result) => {
         if (cancelled) return;
         if (result) setDataUrl(result);
-        else setError(true);
+        else setError(`Image not found: ${src}`);
       })
-      .catch(() => {
-        if (!cancelled) setError(true);
+      .catch((cause: unknown) => {
+        if (!cancelled) { rendererLogger('markdown/image').error({ error: cause }, 'image resolution failed'); setError(messageForUser(cause)); }
       });
     return () => {
       cancelled = true;
@@ -45,7 +47,7 @@ const ResolvedImage: React.FC<{
   }, [src, resolveImage]);
 
   if (error) {
-    return <span className="text-foreground-muted inline-block text-xs">[Image not found: {src}]</span>;
+    return <span className="text-foreground-muted inline-block text-xs">[{error}]</span>;
   }
   if (!dataUrl) {
     return <span className="text-foreground-muted inline-block text-xs">Loading image...</span>;

@@ -68,10 +68,11 @@ describe('group invitation owner consent', () => {
   })
   it('does not present failed loading as an empty inbox', async () => {
     await renderWithAppProviders(harness, createNode(NewFriendsPanel), {
-      contacts: { groupInvitations: [], requestsStatus: 'error', requestsError: 'network unavailable' },
+      contacts: { groupInvitations: [], requestsStatus: 'error', requestsError: 'network unavailable /Users/test/private sk-synthetic-secret\nstack detail' },
     })
     expect(harness.container.querySelector('[role="alert"]')).not.toBeNull()
-    expect(harness.container.textContent).not.toContain('network unavailable')
+    expect(harness.container.textContent).toContain('network unavailable [path] [redacted token]')
+    expect(harness.container.textContent).not.toContain('/Users/test/private')
     expect(harness.container.textContent).not.toContain('暂无待处理的群邀请')
   })
 })

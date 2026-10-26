@@ -378,7 +378,7 @@ describe('MessageBubble touch menu', () => {
     const toast = vi.fn()
     await renderMessage(toast)
     await openMenuAndCopy()
-    expect(toast).toHaveBeenCalledWith('clipboard denied [path] [redacted token]', 'error')
+    expect(toast).toHaveBeenCalledWith('复制失败', 'error', 'clipboard denied [path] [redacted token]')
   })
   it('exposes working copy, quote and more actions below a private agent answer without hovering', async () => {
     const writeText = vi.fn().mockResolvedValue(undefined)

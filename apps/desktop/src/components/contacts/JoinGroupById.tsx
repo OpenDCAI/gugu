@@ -73,13 +73,13 @@ export function JoinGroupById({ headless }: { headless?: boolean }) {
       if (res.group) setGroup(res.group)
       else setNotFound(true)
     } catch (err) {
-      // 原因进日志,文案只留用户能照做的下一步(user-copy-leak 守卫钉的就是这条)。
+      // 原因进日志,提示复用去敏后的同一原因。
       joinGroupLog.error({ publicId: parsedId, error: String(err) }, 'lookup public group failed')
-      toast(messageForUser(err, t('joinGroup.lookupFailed')), 'error')
+      toast(t('joinGroup.lookupFailed'), 'error', messageForUser(err))
     } finally {
       setLooking(false)
     }
-  }, [idValid, looking, parsedId, t, toast])
+  }, [idValid, looking, parsedId, toast, t])
 
   const handleJoin = useCallback(async () => {
     if (!group || joining) return
@@ -97,7 +97,7 @@ export function JoinGroupById({ headless }: { headless?: boolean }) {
       toast(res.status === 'joined' ? t('joinGroup.alreadyMember') : t('joinGroup.requested'), 'success')
     } catch (err) {
       joinGroupLog.error({ publicId: group.public_id, error: String(err) }, 'group join request failed')
-      setJoinError(messageForUser(err, t('joinGroup.requestFailedFallback')))
+      setJoinError(messageForUser(err))
     } finally {
       setJoining(false)
     }

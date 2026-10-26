@@ -1,3 +1,4 @@
+import { messageForUser } from '@/lib/userFacingError';
 import './catalog'
 import './product-tour.css'
 import { useRef, useState } from 'react'
@@ -17,7 +18,7 @@ export function ProductTour({ userId, initial, onDone }: { userId: string; initi
   const { t } = useTranslation('productTour')
   const [position, setPosition] = useState<ProductTourPosition>(initial ?? { phase: 'modules', index: 0 })
   const [busy, setBusy] = useState(false)
-  const [error, setError] = useState(false)
+  const [error, setError] = useState<string | null>(null)
   const saveTail = useRef(Promise.resolve())
   const rail = position.phase === 'modules' ? TOUR_MODULES[position.index] : null
   const target = useTourAnchor(rail, true)
@@ -33,29 +34,29 @@ export function ProductTour({ userId, initial, onDone }: { userId: string; initi
         .catch(() => undefined)
         .then(() => saveProductTourPosition(userId, next))
         .catch((cause) => {
-          log.warn({ error: String(cause) }, 'save product tour progress failed')
+          log.error({ error: String(cause) }, 'save product tour progress failed')
           setPosition((current) => current.phase === next.phase && current.index === next.index ? previous : current)
-          setError(true)
+          setError(messageForUser(cause))
         })
       return
     }
     setBusy(true)
-    setError(false)
+    setError(null)
     try {
       // A pending position write must finish before marking the account's tour complete.
       await saveTail.current
       await finishFirstRun()
       onDone()
     } catch (cause) {
-      log.warn({ error: String(cause) }, 'finish product tour failed')
-      setError(true)
+      log.error({ error: String(cause) }, 'finish product tour failed')
+      setError(messageForUser(cause))
     } finally {
       setBusy(false)
     }
   }
   const previous = previousProductTourPosition(position)
   const controls = <>
-    {error && <p role="alert" className="product-tour-error">{t('saveFailed')}</p>}
+    {error && <p role="alert" className="product-tour-error">{error}</p>}
     <footer className="product-tour-actions">
       <Button variant="ghost" disabled={busy} onClick={() => void go(null)}>{t('skip')}</Button>
       <div>

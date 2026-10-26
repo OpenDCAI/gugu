@@ -1,3 +1,5 @@
+import { rendererLogger } from '@/lib/log';
+import { messageForUser } from '@/lib/userFacingError';
 import { useState } from 'react'
 import { Button } from '@/components/ui/Button'
 import { SettingsGroup, SettingsNote, SettingsRow } from '@/components/settings/SettingsPrimitives'
@@ -24,8 +26,9 @@ export function PhoneAgentSetupBackground() {
     setError(null)
     try {
       if (!(await changeSystemPermission(permission, state))) setError('没能打开系统设置。可在系统的应用设置里找到咕咕，修改通知或电池限制。')
-    } catch {
-      setError('授权没有完成。可以继续使用，稍后在「我的 → 权限」里设置。')
+    } catch (error) {
+      rendererLogger('actions/PhoneAgentSetupPermissions').error({ error: error }, 'action failed')
+      setError(messageForUser(error))
     } finally {
       await refresh()
       setPending(null)

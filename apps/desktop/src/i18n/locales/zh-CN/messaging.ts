@@ -510,7 +510,6 @@ export default {
       "agentFloodTopics": "话题阈值",
       "agentFloodTopicsFailed": "话题列表未能加载。",
       "agentFloodPermissionsFailed": "话题管理权限未能加载，暂时只读。",
-      "agentFloodLoadFailed": "阈值未能加载，请重新打开设置。",
       "agentFloodSaveFailed": "阈值保存失败，请重试。",
       "agentFloodThreshold": "Agent 超过这个数就全员转被动",
       "agentFloodThresholdAria": "Agent 超过几个转被动",
