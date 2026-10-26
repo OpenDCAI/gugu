@@ -14,7 +14,7 @@ import type { GuguHost } from './host';
  */
 export function framedHost(): GuguHost & Record<string, unknown> {
   const parent = window.parent;
-  // A session's tab names its frame (SessionAppFrame): only there is there a computer whose program a page can call.
+  // A task tab also receives its computer's program notifications; explicit device calls work from any page.
   const inSession = window.name === APP_SESSION_FRAME_NAME;
   // This document's start, ahead of its first call: the outer page lets go of what the frame's previous document held.
   parent.postMessage({ m: APP_FRAME_MARKER, t: 'hello' } satisfies FrameToHost, '*');
