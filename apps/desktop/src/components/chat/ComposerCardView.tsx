@@ -41,7 +41,7 @@ export function ComposerCardHead({ type, agentUserId }: { type: ComposerCard['ty
  * gugu-dev#181 任务卡 / 已安排卡:一个面、三行 —— 是什么(右上时刻)、原话、交给谁(行尾一个状态标记,与侧栏同一套读数)。
  * 量值照聊天里的兄弟卡(App 安装包卡:12px 圆角、1px 边、12px 内边距、行距 8px);❌ 上下两截、❌ 另起状态条。
  */
-export function ComposerCardView({ card, isMine, isGroup, chatId, senderName, time, memberProfiles }: {
+export function ComposerCardView({ card, isMine, isGroup, chatId, senderName, time, memberProfiles, onOpenTopic }: {
   card: Exclude<ComposerCard, QuestionCard>
   isMine: boolean
   isGroup: boolean
@@ -51,6 +51,11 @@ export function ComposerCardView({ card, isMine, isGroup, chatId, senderName, ti
   memberProfiles?: Record<string, MemberProfileCardModel>
   /** 发出的时刻(卡头右上;群里自己发的那条没有名字时刻那一行)。 */
   time: string
+  /**
+   * 手机:点任务卡 = 切到它那枚页签(它开在这张卡上的话题;owner 10-26「任务那枚页签 = 话题,从任务卡开」)。
+   * 谁的卡都能点 —— 话题跟着群,群里的人都看得见;过程在派它的那台电脑上,话题里是它每一轮说的话。
+   */
+  onOpenTopic?: () => void
 }) {
   const { t } = useTranslation('messaging')
   const { user } = useAuth()
@@ -61,7 +66,7 @@ export function ComposerCardView({ card, isMine, isGroup, chatId, senderName, ti
   const seated = !!task && !!memberProfiles?.[task.agentUserId] && memberProfiles[task.agentUserId]!.membership !== 'former'
   const join = useMyAgentJoin(owned && isGroup && !seated ? chatId : null, task?.agentUserId ?? null)
   const status = useAgentDisplayStatuses(task ? [task.agentUserId] : [])[task?.agentUserId ?? '']
-  const openable = task && owned
+  const openable = task && (owned || onOpenTopic)
   const Root = openable ? 'button' : 'div'
   return (
     <Root
@@ -69,7 +74,7 @@ export function ComposerCardView({ card, isMine, isGroup, chatId, senderName, ti
       data-testid="composer-card"
       data-card-type={card.type}
       title={openable ? t('message.taskCard.open') : undefined}
-      onClick={openable ? () => openTaskCardSession(task, place.local) : undefined}
+      onClick={openable ? () => (onOpenTopic ? onOpenTopic() : openTaskCardSession(task, place.local)) : undefined}
       className="box-border flex w-[300px] max-w-full flex-col gap-2 rounded-xl border border-[var(--border)] bg-[var(--bg-primary)] p-3 text-left enabled:cursor-pointer enabled:hover:border-[var(--border-strong)]"
     >
       <span className="flex h-6 items-center gap-2">
