@@ -1,3 +1,4 @@
+import {useAuth} from '@/store/auth';
 import { messageForUser } from '@/lib/userFacingError';
 import { formatSessionTitleForDisplay } from '@shared/core/sessions/session-title-utils';
 import { rendererLogger } from '@/lib/log';
@@ -9,7 +10,7 @@ import { useState } from 'react';
 import { useMutation, useQuery } from '@tanstack/react-query';
 import { assistantQueryKey } from './assistant-data';
 import { assistantPanelRoutines } from '@/components/assistant/assistant-panel-routines';
-import { readAssistantPanelTasks, openAssistantPanelTask } from '@/components/assistant/assistant-panel-tasks';
+import { useAssistantWorkTasks, openAssistantPanelTask } from '@/components/assistant/assistant-panel-tasks';
 import { useTranslation } from 'react-i18next';
 import { AlignJustify, Clock, Plus, Trash2 } from '@/lib/icons';
 import { AgentStatusIndicator } from '@renderer/lib/components/agent-status-indicator';
@@ -86,22 +87,22 @@ const TaskLists = observer(function TaskLists({ context }: AssistantPageProps) {
   );
 });
 
-/** 它的子 agent:所有别的机器(云电脑在内)会话目录里,父会话链上是它的那些。 */
+/** 账号级派活账本;执行设备离线或目录撤下不影响任务记录。 */
 const SubAgents = observer(function SubAgents({ context }: AssistantPageProps) {
   const devices = useDirectoryDevices();
   const { t } = useTranslation('assistant');
-  const query = useQuery({ queryKey: assistantQueryKey(context.homeDeviceId,'tasks'),enabled: !!context.machine?.panel,
-    queryFn: () => readAssistantPanelTasks(context.machine!.panel!) });
-  const children = query.data ?? [];
+  const {user}=useAuth();
+  const read=useAssistantWorkTasks(user?.id,context.assistant.id);
+  const children=read.state==='ok' ? read.data : [];
   const groups = groupByDay(children,item => item.lastInteractedAt,new Date());
-  return <MachineGate readiness={context.readiness} loading={context.machineLoading || query.isLoading} error={context.machineError ?? query.error} onRetry={() => void query.refetch()}>
+  return <MachineGate readiness="ready" loading={read.state==='loading'} error={read.state==='error' ? read.error : null} onRetry={read.reload}>
     {children.length === 0 ? <AssistantSection bare><AssistantEmpty title={t('tasks.emptyTitle')}
       action={<button type="button" className="ta-pill-btn" onClick={() => context.askInChat(t('tasks.createPrompt'))}>{t('tasks.create')}</button>} /></AssistantSection>
       : groups.map(group => <AssistantSection key={group.bucket} title={t(`tasks.day.${group.bucket}`)} testId={`assistant-tasks-${group.bucket}`}>
-        {group.items.map(task => <AssistantRow key={task.id} testId={`assistant-subagent-${task.id}`} title={formatSessionTitleForDisplay(task.harness,task.title)}
+        {group.items.map(task => <AssistantRow key={task.key} testId={`assistant-subagent-${task.id}`} title={formatSessionTitleForDisplay(task.harness ?? '',task.title)}
           detail={assistantTaskDeviceLabel(devices,task.deviceId)}
           trailing={task.status && task.status.status !== 'idle' ? <AgentStatusIndicator status={task.status.status} detail={task.status.detail} /> : task.unseen ? <span className="ta-unseen" aria-label={t('tasks.unseen')} /> : null}
-          chevron={false} onClick={task.agentId ? () => openAssistantPanelTask(context.machine!.panel!,task) : undefined} />)}
+          chevron={false} onClick={task.agentId ? () => openAssistantPanelTask({assistantId:context.assistant.id},task) : undefined} />)}
       </AssistantSection>)}
   </MachineGate>;
 });

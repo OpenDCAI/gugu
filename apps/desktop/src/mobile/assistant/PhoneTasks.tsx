@@ -1,8 +1,8 @@
 import { formatSessionTitleForDisplay } from '@/session/shared/core/sessions/session-title-utils'
 import { useState } from 'react'
 import { presentAgentStatus } from '@gugu/core/shared/agentStatusPresentation'
-import { readAssistantPanelTasks, openAssistantPanelTask } from '@/components/assistant/assistant-panel-tasks'
-import { machineKey, usePhoneRead } from './usePhoneRead'
+import { useAssistantWorkTasks, openAssistantPanelTask } from '@/components/assistant/assistant-panel-tasks'
+import {useAuth} from '@/store/auth'
 import { useTranslation } from 'react-i18next'
 import { Button } from '@/components/ui/Button'
 import { SegmentedTabs } from '@/components/ui/SegmentedTabs'
@@ -15,13 +15,13 @@ import { useDevicesStore } from '@/store/devicesContext'
 import { StatusGlyph } from '../agent-watch/StatusGlyph'
 import type { PhonePageProps } from './MobileAssistantApp'
 import { PhoneMachineGate } from './PhoneMachineGate'
-import { ReadView, ReadFailed } from './PhoneMachineView'
+import { ReadView } from './PhoneMachineView'
 import { PhoneRoutineRead } from './PhoneRoutineRead'
 import { PhoneRoutineDetail } from './PhoneRoutineDetail'
 import { usePhoneRoutines } from './usePhoneRoutines'
 
 /**
- * 「任务」那一格:[任务 | 定时] 两段。任务 = 它派出去的子 agent(各台机器的会话目录里,父会话链上是它的),
+ * 「任务」那一格:[任务 | 定时] 两段。任务 = 账号账本里它派出去的工作,
  * 按日期分组,点一条直接打开任务 Agent 的聊天,带上与个人助理的协作消息;
  * 定时 = 它家里「已安排」里它给自己排的,点一条往下钻到 `routine:<id>`(能停能删,改时间交给它)。新建交给它:往聊天里填一句。
  */
@@ -56,22 +56,21 @@ export function PhoneTasks(props: PhonePageProps) {
   )
 }
 
-function SubAgents({ machine, askInChat }: PhonePageProps) {
+function SubAgents({ assistant, askInChat }: PhonePageProps) {
   const { t } = useTranslation('assistant')
   const { devices: hosts,phones = [] } = useDevicesStore()
   const devices = [...hosts,...phones]
-  const ready = machine.state === 'ready' ? machine.machine : null
-  const read = usePhoneRead(ready ? `tasks|${machineKey(ready)}` : null,() => readAssistantPanelTasks(ready!.panel!),'read assistant tasks')
-  if (machine.state === 'error') return <ReadFailed title={t('tasks.loadFailed')} error={machine.error} onRetry={machine.retry} />
+  const {user}=useAuth()
+  const read=useAssistantWorkTasks(user?.id,assistant.id)
   return <ReadView read={read} failedTitle={t('tasks.loadFailed')}>{children => children.length === 0
     ? <AssistantSection bare><AssistantEmpty title={t('tasks.emptyTitle')} action={<Button variant="ghost" className="ta-pill-btn"
       onClick={() => askInChat(t('tasks.createPrompt'))}>{t('tasks.create')}</Button>} /></AssistantSection>
     : groupByDay(children,item => item.lastInteractedAt,new Date()).map(group => <AssistantSection key={group.bucket}
       title={t(`tasks.day.${group.bucket}`)} testId={`assistant-tasks-${group.bucket}`}>
-      {group.items.map(task => <AssistantRow key={task.id} testId={`assistant-subagent-${task.id}`} title={formatSessionTitleForDisplay(task.harness,task.title)}
+      {group.items.map(task => <AssistantRow key={task.key} testId={`assistant-subagent-${task.id}`} title={formatSessionTitleForDisplay(task.harness ?? '',task.title)}
         detail={assistantTaskDeviceLabel(devices,task.deviceId)}
         trailing={<StatusGlyph presentation={presentAgentStatus({ reading: task.status,unseen: task.unseen })} />}
-        chevron={!!task.agentId} onClick={task.agentId ? () => openAssistantPanelTask(ready!.panel!,task) : undefined} />)}
+        chevron={!!task.agentId} onClick={task.agentId ? () => openAssistantPanelTask({assistantId:assistant.id},task) : undefined} />)}
     </AssistantSection>)}</ReadView>
 }
 
