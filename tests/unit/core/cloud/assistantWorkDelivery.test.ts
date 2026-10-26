@@ -15,6 +15,11 @@ describe('work delivery receiver', () => {
     await expect(f.receiver.receive({ assistant_id: 'agent', work_id: 'work', message_id: 'message' }, 'owner')).resolves.toEqual({ status: 'admitted', messageId: 'message' })
     expect(f.deliver).toHaveBeenCalledWith(expect.objectContaining({ message_id: 'message', content: 'current result', platform_received_at: '2026-10-26T00:00:00Z' }))
   })
+  it('preserves the receiver identity binding from actual admission', async () => {
+    const f = fixture()
+    f.deliver.mockResolvedValue({messageId:'message',admitted:true,receipt:{agent_user_id:'agent-child'}} as never)
+    await expect(f.receiver.receive({assistant_id:'agent',work_id:'work',message_id:'message'},'owner')).resolves.toMatchObject({status:'admitted',receipt:{agent_user_id:'agent-child'}})
+  })
   it('does not use the sender cached body after its source becomes invisible', async () => {
     const f = fixture({ ...event, source_available: false, content: null } as never)
     await expect(f.receiver.receive({ assistant_id: 'agent', work_id: 'work', message_id: 'message', content: 'old cached result' }, 'owner')).rejects.toMatchObject({ code: 'SOURCE_UNAVAILABLE' })

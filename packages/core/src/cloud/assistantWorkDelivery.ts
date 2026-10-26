@@ -14,10 +14,10 @@ const fail = (code: string) => Object.assign(new Error(code), { code })
 export function createAssistantWorkDeliveryReceiver(deps: {
   context(): Promise<{ ownerId: string; deviceId: string } | null>
   read(ref: AssistantWorkDeliveryReference): Promise<AssistantWorkDeliveryEvent | null>
-  deliver(event: AssistantWorkDeliveryEvent): Promise<{ admitted: boolean; messageId: string }>
+  deliver(event: AssistantWorkDeliveryEvent): Promise<{ admitted: boolean; messageId: string; receipt?: Record<string, unknown> }>
 }) {
   return {
-    async receive(input: unknown, ownerId: string): Promise<{ status: 'admitted'; messageId: string } | { status: 'pending' }> {
+    async receive(input: unknown, ownerId: string): Promise<{ status: 'admitted'; messageId: string; receipt?: Record<string, unknown> } | { status: 'pending' }> {
       const context = await deps.context()
       if (!context || context.ownerId !== ownerId) throw fail('OWNER_CHANGED')
       const ref = input as AssistantWorkDeliveryReference | null
@@ -31,7 +31,7 @@ export function createAssistantWorkDeliveryReceiver(deps: {
       if (event.to_device_id !== context.deviceId) throw fail('WRONG_DEVICE')
       withSessionAttachments('', event.attachment_refs as SessionAttachmentRef[] | undefined)
       const receipt = await deps.deliver(event)
-      return receipt.admitted && receipt.messageId === ref.message_id ? { status: 'admitted', messageId: ref.message_id } : { status: 'pending' }
+      return receipt.admitted && receipt.messageId === ref.message_id ? { status: 'admitted', messageId: ref.message_id, ...(receipt.receipt ? {receipt: receipt.receipt} : {}) } : { status: 'pending' }
     },
   }
 }
