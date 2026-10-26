@@ -1,4 +1,5 @@
 import { describe, expect, it, vi } from 'vitest'
+import { buildSessionDirectEnvelope, readDeliveryEnvelope } from '../../../../packages/core/src/local/agent/deliveryEnvelope'
 import { createAssistantWorkReconciler, type WorkReconciliationContext, type WorkReconciliationEvent } from '../../../../packages/core/src/cloud/assistantWorkReconciliation'
 const now=Date.parse('2026-10-26T08:00:00Z')
 const work={work_id:'work',assistant_user_id:'assistant',title:'天气表格',coordinator_session_id:'home',coordinator_device_id:'cloud',executors:[{session_id:'child',device_id:'phone'}],outcome:'active',executor_outcomes:{}}
@@ -16,6 +17,15 @@ describe('unfinished delivery reconciliation',()=>{
     const f=fixture();await f.reconciler.kick()
     expect(f.rpc).toHaveBeenCalledWith('assistant_work_commit',expect.objectContaining({p_events:[expect.objectContaining({kind:'failed',executor_session_id:'child',reason_code:'EXECUTOR_ENDED_WITHOUT_REPORT'})]}))
     expect(f.notify).not.toHaveBeenCalled()
+  })
+  it('matches the typed prompt ID emitted by a real session-direct envelope', async () => {
+    const envelope = buildSessionDirectEnvelope({ senderSessionId: 'home', senderTitle: 'Assistant', messageId: dispatch.message_id, content: 'Make the weather sheet', at: '2026-10-26 15:57 北京时间' })
+    const messageId = readDeliveryEnvelope(envelope)!.segments[0]!.facts!.messageId!
+    expect(messageId).toBe('msg:dispatch')
+    const f = fixture()
+    f.inspect.mockResolvedValue({ preview: { running: false, ended: { kind: 'done' }, entries: [{ kind: 'prompt', messageId }] } })
+    await f.reconciler.kick()
+    expect(f.rpc).toHaveBeenCalledWith('assistant_work_commit', expect.objectContaining({ p_events: [expect.objectContaining({ reason_code: 'EXECUTOR_ENDED_WITHOUT_REPORT' })] }))
   })
   it('does not let an older question hide a missing result after a later dispatch',async()=>{
     const f=fixture([{kind:'question',from_session_id:'child',message_id:'old-question'},dispatch]);await f.reconciler.kick()
