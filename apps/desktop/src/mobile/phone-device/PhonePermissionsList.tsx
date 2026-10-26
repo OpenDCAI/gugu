@@ -12,8 +12,8 @@ import { readPhoneOsState, refreshPhoneDevice, usePhoneDevice } from './phoneDev
 import { PHONE_PERMISSION_ROWS, type PhonePermissionRow } from './phonePermissionRows'
 import { usePhonePermissionReporter } from './usePhonePermissionReporter'
 
-const SYSTEM_NAMES = { notifications: '通知', batteryOptimization: '后台运行', camera: '相机', fileAccess: '文件访问' }
-const SYSTEM_PURPOSES = { notifications: '接收任务进展和聊天新消息', batteryOptimization: '切走后继续处理任务', camera: '扫码加好友、进群', fileAccess: '打开你选择的项目目录' }
+const SYSTEM_NAMES = { notifications: '通知', batteryOptimization: '后台运行', camera: '相机', microphone: '麦克风', fileAccess: '文件访问' }
+const SYSTEM_PURPOSES = { notifications: '接收任务进展和聊天新消息', batteryOptimization: '切走后继续处理任务', camera: '扫码加好友、进群', microphone: '发语音消息', fileAccess: '打开你选择的项目目录' }
 function unsupported(group: PhoneActionGroup, os: PhoneOsState): boolean {
   return group === 'alarm' ? !os.special.alarm_app : group === 'health' ? !os.health.supported : ['sms', 'recordings', 'photos'].includes(group) && !os.data?.supported
 }

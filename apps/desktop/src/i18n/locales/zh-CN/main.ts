@@ -456,6 +456,8 @@ export default {
       "batteryOptimization": "后台运行",
       "batteryOptimizationPurpose": "用来在你切走咕咕之后仍然第一时间提醒你；点一下把咕咕移出系统的电池优化名单",
       "camera": "相机",
+      "microphone": "麦克风",
+      "microphonePurpose": "发语音消息",
       "cameraPurpose": "用来扫码加好友、进群",
       "fileAccess": "文件与文件夹访问",
       "fileAccessPurpose": "用来打开你电脑上的项目目录",
