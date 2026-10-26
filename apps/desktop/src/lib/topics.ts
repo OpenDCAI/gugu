@@ -10,7 +10,7 @@ import { currentGroupAdmin } from './groupAdmin'
 //   · 参与者维护 —— 归数据库触发器(说话/被 @ 当场入列),客户端 ❌ 不许直写 chat_members。
 //   · 沉降 —— 纯列表位置,由 last_message_at 派生,不落任何状态位。
 import type { TopicSummary } from '@gugu/core/shared/types/chat'
-import { chatDb } from './supabase'
+import { chatDb, getCurrentAuthUserId } from './supabase'
 
 export type CreateTopicInput = {
   sourceChatId: string
@@ -56,6 +56,18 @@ export type TopicSourceState =
   | { kind: 'gone' }
 
 export const topicService = {
+  /** Topic deletion is a human action, authorized against its source conversation. */
+  async archiveTopic(chatId: string): Promise<void> {
+    const { data, error } = await chatDb.rpc('archive_topic_as', {
+      p_chat_id: chatId,
+      p_as_user_id: await getCurrentAuthUserId(),
+    })
+    if (error) throw new Error(error.message)
+    if (data?.chat_id !== chatId || data?.status !== 'archived') {
+      throw new Error('archive_topic_as: database did not confirm topic deletion')
+    }
+  },
+
   /**
    * 从一条已有消息开一条话题。一步完成 —— ❌ 没有成员勾选、没有可见性开关、没有确认按钮。
    * 必须有来源:服务端校验来源线存在、我在里面、来源消息真属于它,话题上不许再开话题。
