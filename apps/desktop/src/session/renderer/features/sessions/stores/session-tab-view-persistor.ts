@@ -1,8 +1,5 @@
 import type { SessionTabContext } from '@renderer/features/tabs/core/session-tab-context';
-import type { TabPersistenceAdapter } from '@renderer/features/tabs/persistence';
-import { rpc } from '@renderer/lib/ipc';
-import { snapshotRegistry } from '@renderer/lib/stores/snapshot-registry';
-import { viewStateCache } from '@renderer/lib/stores/view-state-cache';
+import { TabViewPersistor } from '@renderer/features/tabs/tab-view-persistor';
 import {
   isBuiltInTabKind,
   type TabDescriptor,
@@ -11,49 +8,12 @@ import {
 } from '@shared/view-state';
 import { resolveWorkspacePath } from './workspace-path';
 
-/**
- * Persistence adapter for a single session's tab layout.
- *
- * Writes to a dedicated key `session:${viewId}:tabs` so the tab state is
- * independent of the aggregate `session:${viewId}` blob. On first load it falls
- * back to the legacy aggregate and eager-writes the dedicated key so that
- * existing users keep their tabs after upgrading.
- */
-export class SessionTabViewPersistor implements TabPersistenceAdapter {
-  private readonly _key: string;
-  private readonly _legacyKey: string;
-
-  constructor(private readonly _ctx: SessionTabContext) {
-    this._key = `session:${_ctx.viewId}:tabs`;
-    this._legacyKey = `session:${_ctx.viewId}`;
-  }
-
-  load(fallback?: unknown): TabGroupsSnapshot | null {
-    // Prefer the dedicated key when already populated.
-    const dedicated = viewStateCache.peek(this._key);
-    if (dedicated) {
-      return normalizeTabGroupsSnapshot(dedicated as TabGroupsSnapshot, this._ctx.workspacePath);
-    }
-
-    // Fall back to the legacy aggregate for users migrating from an older build.
-    const aggregate = (fallback ?? viewStateCache.peek(this._legacyKey)) as
-      | SessionViewSnapshot
-      | undefined;
-
-    const migrated = migrateLegacyTabs(aggregate);
-    if (!migrated) return null;
-
-    // Eager-write so the dedicated key is populated before the next aggregate
-    // save (which no longer includes tabGroups).
-    viewStateCache.set(this._key, migrated);
-    void rpc.viewState.save(this._key, migrated);
-
-    return normalizeTabGroupsSnapshot(migrated, this._ctx.workspacePath);
-  }
-
-  start(getSnapshot: () => TabGroupsSnapshot): () => void {
-    return snapshotRegistry.register(this._key, getSnapshot);
-  }
+/** Task-only normalization and migration; persistence itself is shared by all tab hosts. */
+export function createSessionTabPersistor(ctx: SessionTabContext): TabViewPersistor {
+  return new TabViewPersistor(`session:${ctx.viewId}`, {
+    normalize: (snapshot) => normalizeTabGroupsSnapshot(snapshot, ctx.workspacePath),
+    migrate: (aggregate) => migrateLegacyTabs(aggregate as SessionViewSnapshot | undefined),
+  });
 }
 
 function normalizeTabGroupsSnapshot(
@@ -78,13 +38,13 @@ function normalizeTabDescriptor(
 ): TabDescriptor {
   const persistedKind = (tab as { kind: string }).kind;
   if (persistedKind !== 'extension' && !isBuiltInTabKind(persistedKind)) {
-    const { kind: extensionKind, tabId, isPreview, ...state } = tab as unknown as {
+    const { kind: extensionKind, tabId, isPreview, returnTo, ...state } = tab as unknown as TabDescriptor & {
       kind: string;
       tabId: string;
       isPreview: boolean;
       [key: string]: unknown;
     };
-    return { kind: 'extension', extensionKind, tabId, isPreview, state };
+    return { kind: 'extension', extensionKind, tabId, isPreview, state, ...(returnTo ? { returnTo } : {}) };
   }
   if (tab.kind === 'file' && !tab.isExternal) {
     return { ...tab, path: resolveWorkspacePath(workspacePath, tab.path) };

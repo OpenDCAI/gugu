@@ -1,6 +1,8 @@
 import type React from 'react';
 import type { CommandId } from '@shared/commands';
+import type { TabReturnTo } from '@shared/view-state';
 import type { TabBarItemProps, TabContentProps } from './tab-host';
+import type { TabOpenOptions } from './tab-provider-registry';
 
 /**
  * Plain-data identity for a single open tab.
@@ -12,6 +14,8 @@ export interface TabEntry<S = unknown> {
   readonly tabId: string;
   /** Mutable so the engine can promote a preview to a stable tab (handle.pin()). */
   isPreview: boolean;
+  /** Engine navigation metadata, independent of the provider's state. */
+  returnTo?: TabReturnTo;
   /**
    * Reactive, serializable domain state for this tab.
    * Mutated in-place; the snapshot serializer reads it directly (no per-kind hook).
@@ -70,7 +74,7 @@ export interface TabHandle {
   open(
     kind: string,
     args: Record<string, unknown>,
-    config?: { target?: OpenTarget; preview?: boolean; overrideState?: boolean }
+    config?: TabOpenOptions
   ): void;
 }
 
@@ -106,6 +110,10 @@ export type TabCloseRequest = { alone: boolean };
 export interface TabViewContext {
   /** Stable identifier for the view that owns this pane (e.g. conversationId). */
   viewId: string;
+  /** The host's place, for providers shared by task and chat views. */
+  place?:
+    | { kind: 'session'; sessionId: string; projectId: string }
+    | { kind: 'chat'; chatId: string };
 }
 
 /**
