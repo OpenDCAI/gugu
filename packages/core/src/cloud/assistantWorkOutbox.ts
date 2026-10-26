@@ -103,12 +103,15 @@ export function createAssistantWorkOutboxPump(deps: {
   /** Uses the existing session delivery route with this exact message ID, including any necessary cloud wake. */
   deliver(event: ClaimedAssistantWorkEvent, signal: AbortSignal): Promise<AssistantWorkAdmission>
   warn?(detail: { code: string; messageId?: string }): void
+  unavailable?(context: AssistantWorkOutboxContext, failure: {code:string}, signal: AbortSignal): Promise<void>
   now?: () => number
 }) {
   let flight: Promise<void> | null = null
   let again = false
   let stopped = false
   const active = new Set<AbortController>()
+  const reported = new Set<string>()
+  let failedContext: AssistantWorkOutboxContext | null = null
 
   const settle = async (ctx: AssistantWorkOutboxContext, event: ClaimedAssistantWorkEvent, stage: string, code?: string, receipt?: Record<string, unknown>) => {
     // Owner changes or stopped runtime instances cannot settle a previous owner's claim.
@@ -175,8 +178,10 @@ export function createAssistantWorkOutboxPump(deps: {
   const drain = async () => {
     do {
       again = false
+      failedContext = null
       const ctx = await deps.context()
       if (stopped || !ctx) return
+      failedContext = ctx
       const claimStartedAt = performance.now()
       const result = await call({ rpc: (name, args) => deps.rpc(name, args, ctx) }, 'assistant_work_outbox_claim', {
         p_runtime_instance_id: ctx.runtimeInstanceId, p_limit: 20, p_lease_seconds: 60,
@@ -208,7 +213,28 @@ export function createAssistantWorkOutboxPump(deps: {
       if (stopped) return Promise.resolve()
       again = true
       if (flight) return flight
-      const running = drain().catch(error => { deps.warn?.({ code: errorCode(error) }) })
+      const running = drain().catch(async error => {
+        const code=errorCode(error)
+        deps.warn?.({code})
+        let timer:ReturnType<typeof setTimeout>|undefined
+        const controller=new AbortController()
+        active.add(controller)
+        try {
+          await Promise.race([(async()=>{
+            const ctx=failedContext,current=await deps.context()
+            controller.signal.throwIfAborted()
+            if(stopped || !deps.unavailable || !ctx || current?.ownerId!==ctx.ownerId || current.runtimeInstanceId!==ctx.runtimeInstanceId) return
+            const key=JSON.stringify([ctx.ownerId,ctx.runtimeInstanceId,code])
+            if(reported.has(key)) return
+            await deps.unavailable(ctx,{code},controller.signal)
+            reported.add(key)
+          })(),new Promise<never>((_,reject)=>{
+            timer=setTimeout(()=>{controller.abort(new Error('Work availability notice deadline exceeded'));reject(controller.signal.reason)},8000)
+            controller.signal.addEventListener('abort',()=>reject(controller.signal.reason),{once:true})
+          })])
+        } catch { deps.warn?.({code:'WORK_OUTBOX_NOTICE_UNAVAILABLE'}) }
+        finally { if(timer!==undefined) clearTimeout(timer);active.delete(controller) }
+      })
       flight = running.finally(() => { flight = null })
       return flight
     },

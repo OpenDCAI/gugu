@@ -21,6 +21,7 @@ export function createAssistantWorkOutboxHost(deps: {
   subscribe(ownerId: string, changed: () => void): Promise<() => void>
   afterDrain?: () => Promise<void>
   warn(detail: { code: string; messageId?: string }): void
+  unavailable?(context: AssistantWorkOutboxContext, failure: {code: string}, signal: AbortSignal): Promise<void>
 }) {
   let subscriptionOwner: string | null = null
   let unsubscribe: (() => void) | null = null
@@ -56,7 +57,7 @@ export function createAssistantWorkOutboxHost(deps: {
     deliver: deps.deliverLocal,
   })
   const pump = createAssistantWorkOutboxPump({
-    context: deps.context, rpc, warn: deps.warn,
+    context: deps.context, rpc, warn: deps.warn, unavailable: deps.unavailable,
     deliver: async (event, signal): Promise<AssistantWorkAdmission> => {
       const current = await deps.context()
       if (!current || !event.assistant_user_id) throw Object.assign(new Error('Outbox context unavailable'), { code: 'OUTBOX_CONTEXT_UNAVAILABLE' })

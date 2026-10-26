@@ -1,6 +1,7 @@
 import './browser-user-agent-bootstrap'
 import {assistantWorkHistoryPosition} from './assistant-work-history-position'
 import { createDesktopWorkReportIds } from './assistant-work-report-ids'
+import { createAssistantWorkAvailabilityNotifier } from '@gugu/core/cloud/assistantWorkAvailability'
 import { registerFileViewerMenus } from './file-viewer-context-menu'
 import { configuredEndpoint } from '@gugu/core/cloud/attachmentsApi'
 import { createDesktopFileAccess } from './desktopFileAccess'
@@ -1747,6 +1748,29 @@ function assistantWorkDeliveryHost(): AssistantWorkOutboxHost {
   })
   const host = createAssistantWorkOutboxHost({
     context,
+    unavailable: createAssistantWorkAvailabilityNotifier({
+      context,
+      assistant: async claimed => {
+        const current = await context()
+        if (!current || current.ownerId !== claimed.ownerId || current.runtimeInstanceId !== claimed.runtimeInstanceId) throw new Error('Task notice account changed')
+        return (await resolveAssistant(current))?.agentId ?? null
+      },
+      rpc: async (current, name, args, signal) => {
+        const auth = await desktopAuthProvider().getAuth()
+        if (!auth?.accessToken || auth.userId !== current.ownerId) throw new Error('Task notice account changed')
+        return makeChatClient(auth.accessToken).rpc(name, args).abortSignal(signal)
+      },
+      visible: async (current, post, signal) => {
+        const auth = await desktopAuthProvider().getAuth()
+        if (!auth?.accessToken || auth.userId !== current.ownerId) return false
+        const {data, error} = await makeChatClient(auth.accessToken).from('messages_view').select('id')
+          .eq('id', post.messageId).eq('chat_id', post.chatId).eq('sender_user_id', post.assistantId)
+          .is('deleted_at', null).is('retracted_at', null).not('deleted_for_user_ids', 'cs', JSON.stringify([current.ownerId]))
+          .abortSignal(signal).maybeSingle()
+        if (error) throw error
+        return data?.id === post.messageId
+      },
+    }),
     afterDrain: async () => {
       void history.kick()
       await reconciler.kick()
