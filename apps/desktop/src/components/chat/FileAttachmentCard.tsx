@@ -1,6 +1,8 @@
 import { Download, FileText } from '@/lib/icons'
 import { formatAttachmentSize, type AttachmentMeta } from '@gugu/core/shared/ui/attachmentModels'
 import { Button } from '../ui/Button'
+import { useTranslation } from 'react-i18next'
+import { attachmentTypeKey } from './attachmentType'
 
 interface FileAttachmentCardProps {
   file: Pick<AttachmentMeta, 'fileName' | 'sizeBytes' | 'mimeType'> & { kind?: AttachmentMeta['kind'] }
@@ -15,6 +17,9 @@ interface FileAttachmentCardProps {
 
 /** The canonical document attachment surface used by messages and history. */
 export function FileAttachmentCard({ file, isMine = false, details, versionLabel, onOpen, onDownload, downloadLabel }: FileAttachmentCardProps) {
+  const { t } = useTranslation('messaging')
+  const type = attachmentTypeKey(file)
+  const metadata = [versionLabel, formatAttachmentSize(file.sizeBytes), type ? t(`attachmentView.types.${type}`) : null].filter(Boolean).join(' · ')
   const accent = isMine ? 'var(--text-on-bubble-strong)' : 'var(--text-link)'
   const muted = isMine ? 'var(--text-on-bubble-muted)' : 'var(--text-tertiary)'
   return (
@@ -32,7 +37,7 @@ export function FileAttachmentCard({ file, isMine = false, details, versionLabel
         </div>
         <div className="flex min-w-0 flex-col gap-1">
           <span className="overflow-hidden text-ellipsis whitespace-nowrap text-[length:var(--font-body)] font-semibold" style={{ color: accent }}>{file.fileName}</span>
-          <span className="text-[length:var(--font-caption)]" style={{ color: muted }}>{details ?? `${versionLabel ? `${versionLabel} · ` : ''}${formatAttachmentSize(file.sizeBytes)}${file.mimeType ? ` · ${file.mimeType}` : ''}`}</span>
+          <span className="text-[length:var(--font-caption)]" style={{ color: muted }}>{details ?? metadata}</span>
         </div>
       </Button>
       {onDownload && (
