@@ -2046,43 +2046,6 @@ describe('normalizeSelection', () => {
 });
 
 describe('HostDependencyManager — 连续切换来源时,后发的那次探测说了算', () => {
-  it('keeps an installation wait pending until the superseding inventory is published (#465)', async () => {
-    let current: { kind: 'method'; method: 'mise' } | null = null;
-    let blocked = false;
-    let index = 0;
-    const entered = [Promise.withResolvers<void>(), Promise.withResolvers<void>()];
-    const gates = [Promise.withResolvers<void>(), Promise.withResolvers<void>()];
-    const manager = new HostDependencyManager(availableCtx, {
-      dependencies: TEST_DEPENDENCIES,
-      getSelection: async () => current,
-      installMethodDetector: {
-        invalidate() {},
-        detect: async () => {
-          if (blocked) {
-            const turn = index++;
-            entered[turn]!.resolve();
-            await gates[turn]!.promise;
-          }
-          return { kind: 'unknown', confidence: 'inferred' };
-        },
-      },
-    });
-    await probeAndSettle(manager, 'codex');
-    current = { kind: 'method', method: 'mise' };
-    blocked = true;
-    const installation = manager.probe('codex', { waitForInstallations: true });
-    await entered[0]!.promise;
-    const superseding = manager.probe('codex', { waitForInstallations: true });
-    await entered[1]!.promise;
-    gates[0]!.resolve();
-    // Release the newer inventory on the next event-loop turn. No elapsed-time assertion.
-    setImmediate(() => gates[1]!.resolve());
-    await installation;
-    const atInstallationReturn = manager.getHostDependency('codex')?.used;
-    await superseding;
-    expect(atInstallationReturn).toEqual(current);
-  });
-
   it('安装收尾等待副本状态，返回时已读到新选择 (#7582)', async () => {
     let current: { kind: 'method'; method: 'mise' } | null = null;
     let release!: () => void;

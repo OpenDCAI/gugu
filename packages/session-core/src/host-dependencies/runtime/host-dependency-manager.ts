@@ -312,8 +312,8 @@ export class HostDependencyManager<Ctx extends IExecutionContext = IExecutionCon
   private readonly runInstallCommand: InstallCommandRunner;
   private readonly connectionId: string | undefined;
   private readonly getSelection: (depId: DependencyId) => Promise<HostDependencySelection | null>;
-  /** The latest inventory build is both its generation marker and its publication barrier. */
-  private readonly hostBuilds = new Map<DependencyId, Promise<void>>();
+  /** 每个依赖最近一次开始构建 HostDependency 的序号 —— 只有最新那一趟能落盘和广播。 */
+  private readonly hostBuildGeneration = new Map<DependencyId, number>();
   private readonly getInstallRecord: (depId: DependencyId) => Promise<InstallRecord | null>;
   private readonly getLastCustom: (depId: DependencyId) => Promise<CustomTarget | null>;
   private readonly setInstallRecord: (
@@ -598,84 +598,79 @@ export class HostDependencyManager<Ctx extends IExecutionContext = IExecutionCon
    * latestVersion/updateAvailable are always null/false here; the application
    * layer enriches them after receiving the emitted event.
    */
-  private buildAndStoreHostDependency(
+  private async buildAndStoreHostDependency(
     id: DependencyId,
     descriptor: DependencyDescriptor,
     fullState: DependencyState | null,
     _probeResult: ProbeResult | null,
   ): Promise<void> {
-    // Register before starting work, so a superseded caller can await the build
-    // that will actually publish instead of returning an older cached reading (#465).
-    const build: Promise<void> = Promise.resolve().then(async () => {
-      const hostId = this.connectionId ?? 'local';
-      const selection = await this.getSelection(id);
-      const used: SelectedSource = resolveSelectedSource(selection);
+    const hostId = this.connectionId ?? 'local';
+    // 后发的那一趟说了算。选择读在开头,列副本要跑每一份的 --version(秒级),连着切两次来源时
+    // 先发的那一趟可能最后才回来 —— 不拦它,它会把「在用」写回旧的选择再广播出去
+    // (owner 2026-09-22 真机:点回「咕咕管理」,已存进去了,面板却停在「本机找到的」)。
+    const generation = (this.hostBuildGeneration.get(id) ?? 0) + 1;
+    this.hostBuildGeneration.set(id, generation);
+    const selection = await this.getSelection(id);
+    const used: SelectedSource = resolveSelectedSource(selection);
 
-      // Enumerate all discovered installations
-      const installations = await this.enumerateInstallations(id, descriptor, fullState);
+    // Enumerate all discovered installations
+    const installations = await this.enumerateInstallations(id, descriptor, fullState);
 
-      // Pinned override: include the authoritative binary even when it is not on PATH.
-      if (
-        selection?.kind === 'pinned' &&
-        !installations.some((installation) => installation.realpath === selection.realpath)
-      ) {
-        installations.push(await this.probePinnedSource(descriptor, selection.realpath));
+    // Pinned override: include the authoritative binary even when it is not on PATH.
+    if (
+      selection?.kind === 'pinned' &&
+      !installations.some((installation) => installation.realpath === selection.realpath)
+    ) {
+      installations.push(await this.probePinnedSource(descriptor, selection.realpath));
+    }
+
+    // Path override: probe when explicitly selected or previously saved
+    if (selection?.kind === 'path') {
+      installations.push(await this.probeOverrideSource(descriptor, 'path', selection.path));
+    }
+
+    // CLI override: probe when explicitly selected or previously saved
+    if (selection?.kind === 'cli') {
+      installations.push(await this.probeOverrideSource(descriptor, 'cli', selection.command));
+    }
+
+    // 没选中自定义路径时,上一次指定的那条也照样探一遍 —— 面板上「自定义路径」那一行要能显示它、
+    // 点一下切回去(owner 2026-09-22)。它不是 PATH 上的,`isActive` 为 false,不影响「自动」选谁。
+    if (selection?.kind !== 'path' && selection?.kind !== 'cli') {
+      const last = await this.getLastCustom(id);
+      if (last?.kind === 'path' && last.path) {
+        installations.push(await this.probeOverrideSource(descriptor, 'path', last.path));
+      } else if (last?.kind === 'cli' && last.command) {
+        installations.push(await this.probeOverrideSource(descriptor, 'cli', last.command));
       }
+    }
 
-      // Path override: probe when explicitly selected or previously saved
-      if (selection?.kind === 'path') {
-        installations.push(await this.probeOverrideSource(descriptor, 'path', selection.path));
-      }
+    // After the override entries are in, so an off-PATH pinned copy is eligible too. That copy is
+    // the whole point of the record: a mirror install the user then pinned is exactly the case
+    // where falling back to the official registry makes the update prompt disappear.
+    await this.applyInstallRecord(id, installations, descriptor);
+    // 记录回放之后再抄 —— 这样手动指定那一行连「咕咕装的」也一并抄得到。
+    inheritTwinProvenance(installations, descriptor);
 
-      // CLI override: probe when explicitly selected or previously saved
-      if (selection?.kind === 'cli') {
-        installations.push(await this.probeOverrideSource(descriptor, 'cli', selection.command));
-      }
+    const hostDependency: HostDependency = {
+      hostId,
+      dependencyId: id,
+      installations,
+      used,
+    };
 
-      // 没选中自定义路径时,上一次指定的那条也照样探一遍 —— 面板上「自定义路径」那一行要能显示它、
-      // 点一下切回去(owner 2026-09-22)。它不是 PATH 上的,`isActive` 为 false,不影响「自动」选谁。
-      if (selection?.kind !== 'path' && selection?.kind !== 'cli') {
-        const last = await this.getLastCustom(id);
-        if (last?.kind === 'path' && last.path) {
-          installations.push(await this.probeOverrideSource(descriptor, 'path', last.path));
-        } else if (last?.kind === 'cli' && last.command) {
-          installations.push(await this.probeOverrideSource(descriptor, 'cli', last.command));
-        }
-      }
-
-      // After the override entries are in, so an off-PATH pinned copy is eligible too. That copy is
-      // the whole point of the record: a mirror install the user then pinned is exactly the case
-      // where falling back to the official registry makes the update prompt disappear.
-      await this.applyInstallRecord(id, installations, descriptor);
-      // 记录回放之后再抄 —— 这样手动指定那一行连「咕咕装的」也一并抄得到。
-      inheritTwinProvenance(installations, descriptor);
-
-      const hostDependency: HostDependency = {
-        hostId,
-        dependencyId: id,
-        installations,
-        used,
-      };
-
-      // 期间又起了一趟更新的 —— 这一趟的读数已经过时,交给后发的那趟去存、去广播。
-      const latest = this.hostBuilds.get(id);
-      if (latest !== build) {
-        await latest;
-        return;
-      }
-      this.hostState.set(id, hostDependency);
-      this.logReading(id, hostDependency);
-      const currentState = this.state.get(id);
-      if (!currentState) return;
-      this.onStatusUpdated.emit({
-        id,
-        state: currentState,
-        connectionId: this.connectionId,
-        hostDependency,
-      });
+    // 期间又起了一趟更新的 —— 这一趟的读数已经过时,交给后发的那趟去存、去广播。
+    if (this.hostBuildGeneration.get(id) !== generation) return;
+    this.hostState.set(id, hostDependency);
+    this.logReading(id, hostDependency);
+    const currentState = this.state.get(id);
+    if (!currentState) return;
+    this.onStatusUpdated.emit({
+      id,
+      state: currentState,
+      connectionId: this.connectionId,
+      hostDependency,
     });
-    this.hostBuilds.set(id, build);
-    return build;
   }
 
   /**
