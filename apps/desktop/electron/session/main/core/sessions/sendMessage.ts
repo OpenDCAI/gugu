@@ -20,6 +20,7 @@ import {
 import { mapSessionRowToSession } from './utils';
 import { getSessionMessageRouter, setSessionMessageOutboxDrain } from './session-message-router';
 import { isNoLocalMessageEncodingError } from './impl/keystroke-injection';
+import { sessionDirectMessageIdentity } from './session-direct-message-identity';
 
 /**
  * 认领者声明「这条消息在任何字节到达 provider 之前就被拒了」(结构标记,❌ 不用 instanceof:会话页 bundle 与
@@ -185,7 +186,9 @@ function receiptState(
   if (
     receipt.id !== expected.id
     || receipt.sessionId !== expected.sessionId
-    || receipt.content !== expected.text
+    || (kind === 'session-direct'
+      ? sessionDirectMessageIdentity(receipt.content,expected.id) !== sessionDirectMessageIdentity(expected.text,expected.id)
+      : receipt.content !== expected.text)
     || receipt.sender !== 'user'
   ) {
     throw new Error(`message receipt ${expected.id} conflicts with existing message bytes`);
@@ -539,7 +542,7 @@ export async function sendMessage(params: SendSessionMessageParams): Promise<Sen
   params.signal?.throwIfAborted();
   if (params.kind !== 'session-direct' || params.queuedStartupDelegation) return sendMessageOnce(params);
   const key = params.clientMessageId.trim();
-  const signature = JSON.stringify([params.projectId, params.sessionId, params.text.trim(), params.delivery ?? null]);
+  const signature = JSON.stringify([params.projectId, params.sessionId, sessionDirectMessageIdentity(params.text.trim(),key), params.delivery ?? null]);
   const existing = directAdmissions.get(key);
   if (existing) {
     if (existing.signature !== signature) throw new Error('message identity reused with different delivery content');
