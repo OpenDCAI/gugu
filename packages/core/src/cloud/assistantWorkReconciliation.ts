@@ -135,7 +135,7 @@ export function createAssistantWorkReconciler(deps:{
       await enqueueAssistantWorkDelivery(ctx.client,{assistantId:ctx.assistantId,runtimeInstanceId:ctx.runtimeInstanceId,operationId:key,workId:work.work_id,task:null,
         events:[{message_id:key,kind:'failed',from_session_id:coordinator.session_id,from_device_id:coordinator.device_id,
           to_session_id:work.coordinator_session_id,to_device_id:work.coordinator_device_id,executor_session_id:target.session_id,reason_code:reason,
-          content:`任务没有交回结果：${failureReason(reason)}。这是平台对账记录，平台会直接给你一次失败说明，请勿重复通知；任务迟到的真实结果仍需正常交付。`}]})
+          content:`任务没有交回结果：${failureReason(reason)}。平台已单独发出失败说明，不用再转告；迟到的真实结果仍照常交付。`}]})
     }
   }
   const run=async()=>{
