@@ -50,8 +50,20 @@ it('fills optional descriptions one by one with four workers and ignores a broke
  expect(peak).toBe(4)
  expect(updated).toHaveBeenCalledTimes(8)
  expect(updated).not.toHaveBeenCalledWith('p0',expect.anything())
- expect(updated).toHaveBeenCalledWith('p8','Description p8')
+ expect(updated).toHaveBeenCalledWith('p8',{name:'p8',description:'Description p8'})
  expect(items).toHaveLength(9)
+})
+
+it('fills a legacy catalog name even when its description is already present',async()=>{
+ const {enrichAssistantPanelIntegrations}=await import('../../apps/desktop/src/components/assistant/assistant-panel-integrations')
+ const rows=[{resource_key:'catalog:qq-mail',data:{providerId:'qq-mail',description:'Saved description'}}]
+ const body=vi.fn(async()=>new TextEncoder().encode(JSON.stringify({version:1,'zh-CN':{id:'qq-mail',name:'QQ 邮箱',auth:{methods:[]}}})))
+ const panel={collection:async()=>rows,snapshot:async()=>({application:[]}),body} as unknown as AssistantPanelFiles
+ const items=(await readAssistantPanelIntegrations(panel,'zh-CN')).items,updated=vi.fn()
+ expect(body).not.toHaveBeenCalled()
+ await enrichAssistantPanelIntegrations(panel,items,'zh-CN',updated)
+ expect(body).toHaveBeenCalledTimes(1)
+ expect(updated).toHaveBeenCalledWith('qq-mail',{name:'QQ 邮箱',description:'Saved description'})
 })
 
 it('treats a malformed description as only that entry being unreadable',async()=>{
