@@ -58,7 +58,7 @@ describe('what a page says about itself: one rule to keep it and to read it', ()
     expect(extensionSurfaceStore.said(null, 'panel-slot').title).toBeNull();
   });
 
-  it('a page opened for a file is its own: kept under its own slot, the group’s page untouched', () => {
+  it('a file has its own resident presentation; closing forgets its slot, while another slot reads the live page', () => {
     const chatId = 'chat-say-2';
     extensionViewStore.claim('board.main', { tabId: 'slot-2', chatId, element: el() });
     extensionViewStore.claim('board.main', { tabId: 'slot-2#1', chatId, itemId: 'item-1', element: el() });
@@ -67,7 +67,10 @@ describe('what a page says about itself: one rule to keep it and to read it', ()
     expect(extensionSurfaceStore.sharedState(residentPageKey('board.main', residentPlace({ chatId }))).title).toBeNull();
     expect(extensionSurfaceStore.said(null, 'slot-2').title).toBeNull();
     extensionSurfaceStore.forget(null, 'slot-2#1');
+    expect(extensionViewStore.pageOfSlot(null, 'slot-2#1')).toBeNull();
     expect(extensionSurfaceStore.said(null, 'slot-2#1').title).toBeNull();
+    extensionViewStore.claim('board.main', { tabId: 'slot-2#2', chatId, itemId: 'item-1', element: el() });
+    expect(extensionSurfaceStore.said(null, 'slot-2#2').title).toBe('plan.board');
   });
 
   it('control — a task’s tab, the way it always went: its resident page by page, a tab that is no page’s by the tab', () => {

@@ -1,5 +1,5 @@
 import { observer } from 'mobx-react-lite';
-import { createContext, useCallback, useContext, useSyncExternalStore, type ReactNode } from 'react';
+import { createContext, useCallback, useContext, useSyncExternalStore, type CSSProperties, type ReactNode } from 'react';
 import { useTranslation } from 'react-i18next';
 import { Folder, MessageSquare, Paperclip, Users } from '@/lib/icons';
 import { chatTabSlotKey, readShellSlots } from '@/lib/shellSlots';
@@ -18,6 +18,8 @@ import { parseExtensionTabKind } from '@shared/extensions/manifest';
 import { groupPageSlot, isFolderItem, panelItemKey, type PanelItem } from './chat-panel-item';
 import { takeRestore } from './chat-tab-restores';
 import { translateSessionMessage } from '@renderer/localization/locale-store';
+import { PairPlacementContext } from '@renderer/features/tabs/pair-placement-context';
+import { RetainedTabContent, useRetainedTabs } from '@renderer/features/tabs/retained-tab-content';
 
 /** The chat itself: its messages and composer, first in its strip, never closed. */
 export const CHAT_TAB_KIND = 'chat';
@@ -145,25 +147,29 @@ const PanelTabDragPreview = observer(function PanelTabDragPreview({ tab }: { tab
 });
 
 /**
- * One slot per tab of this kind on screen (either half of a pair): the shell draws what the tab shows into it
+ * One stable slot per recently viewed tab (either half of a pair): the shell draws what the tab shows into it
  * (components/chat/ChatTabPortals.tsx), in its own tree and contexts — the chat's state, the App's offer and update bar,
- * the topic's line. A tab not on screen has no slot, so nothing of it is drawn (an App's own page stays in its layer).
+ * the topic's line. The task pane's bounded retention keeps its React tree and state when another tab is shown.
  */
 const ShellTabSlots = observer(function ShellTabSlots({ host, ctx, kind }: TabContentProps & { kind: string }) {
   const chatId = chatIdOfView(ctx);
-  const shown = host.resolvedTabs.filter((tab) => tab.kind === kind && tab.isActive);
+  const tabs = host.resolvedTabs;
+  const retained = useRetainedTabs(tabs.map((tab) => tab.tabId), tabs.filter((tab) => tab.isActive).map((tab) => tab.tabId));
+  const place = useContext(PairPlacementContext);
   return (
     <>
-      {shown.map((tab) => (
-        <ShellTabSlot key={tab.tabId} chatId={chatId} tabId={tab.tabId} />
+      {tabs.filter((tab) => tab.kind === kind && retained.has(tab.tabId)).map((tab) => (
+        <ShellTabSlot key={tab.tabId} chatId={chatId} tab={tab} host={host} style={tab.isActive ? place?.(tab.tabId) ?? undefined : undefined} />
       ))}
     </>
   );
 });
 
-function ShellTabSlot({ chatId, tabId }: { chatId: string; tabId: string }) {
+function ShellTabSlot({ chatId, tab, host, style }: { chatId: string; tab: ResolvedTab; host: TabHost; style?: CSSProperties }) {
+  const { tabId } = tab;
   const ref = useCallback((element: HTMLDivElement | null) => readShellSlots()?.setSlot(chatTabSlotKey(chatId, tabId), element), [chatId, tabId]);
-  return <div ref={ref} className="absolute inset-0 flex min-h-0 min-w-0 flex-col" data-chat-tab-slot={tabId} />;
+  const focus = tab.isFocused ? undefined : () => host.setActiveTab(tabId);
+  return <RetainedTabContent ref={ref} visible={tab.isActive} style={style} className="absolute inset-0 flex min-h-0 min-w-0 flex-col" data-chat-tab-slot={tabId} data-pane-tab={tabId} onPointerDownCapture={focus} onFocusCapture={focus} />;
 }
 
 function PanelTabContent(props: TabContentProps) {
@@ -172,6 +178,7 @@ function PanelTabContent(props: TabContentProps) {
 
 export const chatPanelTabProvider = createTabProvider<typeof CHAT_PANEL_TAB_KIND, PanelItem, TabResource>({
   kind: CHAT_PANEL_TAB_KIND,
+  placesPairItself: true,
   mount: 'single',
   resourceKey: panelItemKey,
   // An App's own page beside the chat is as wide as its manifest says (`sideWidth`); a file, in it or the host's preview, is
@@ -208,6 +215,7 @@ function TopicTabContent(props: TabContentProps) {
 
 export const chatTopicTabProvider = createTabProvider<typeof CHAT_TOPIC_TAB_KIND, ChatTopicState, TabResource>({
   kind: CHAT_TOPIC_TAB_KIND,
+  placesPairItself: true,
   mount: 'single',
   resourceKey: () => 'topic',
   // As before: the topic beside a group is this window's; a restart opens the group alone.
@@ -239,6 +247,7 @@ function InfoTabContent(props: TabContentProps) {
 
 export const chatInfoTabProvider = createTabProvider<typeof CHAT_INFO_TAB_KIND, ChatInfoState, TabResource>({
   kind: CHAT_INFO_TAB_KIND,
+  placesPairItself: true,
   mount: 'single',
   resourceKey: () => 'info',
   sideWidth: () => CHAT_INFO_SIDE_WIDTH,

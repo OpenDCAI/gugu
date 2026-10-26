@@ -1,6 +1,7 @@
 // @vitest-environment jsdom
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { act } from 'react'
+import { toJS } from 'mobx'
 import { createReactHarness } from '../../../support/testHarness'
 import { folderItem } from '../../../../apps/desktop/src/session/renderer/features/chats/chat-tabs/chat-panel-item'
 import { openPanelItem } from '../../../../apps/desktop/src/session/renderer/features/chats/chat-tabs/chat-layouts'
@@ -48,6 +49,18 @@ const detailOf = (chatId: string, itemId: string) => ({
 const askFile = (chatId: string, opener: ReturnType<typeof detailOf>) => ask(chatId, { itemId: opener.itemId, opener: opener as never })
 
 describe('a file opened in a group\'s panel is kept for 最近打开, once', () => {
+  it('carries an opening once without putting it or its callback into a tab snapshot', async () => {
+    await harness.render(chatTabs({ chatId: 'g-opening' }))
+    const opening = { entry: { id: 'once' }, epoch: 1, actor: 'person', expiresAt: 123 }
+    askFile('g-opening', { ...detailOf('g-opening', 'once'), opening } as never)
+    const item = shownItem('g-opening')!
+    const snapshot = structuredClone(toJS(item))
+    expect(snapshot).not.toHaveProperty('takeOpening')
+    expect(snapshot).not.toHaveProperty('opening')
+    expect(item.takeOpening!()).toEqual(opening)
+    expect(item.takeOpening!()).toBeUndefined()
+  })
+
   it('opened: one workspace_note_open with its id; shown again when the person comes back: no other', async () => {
     await harness.render(chatTabs({ chatId: 'g-note' }))
     askFile('g-note', detailOf('g-note', 'F1'))

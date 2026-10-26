@@ -1,5 +1,6 @@
 import { describe, expect, it, vi } from 'vitest';
 import { ExtensionGuestBinding } from './extension-guest-binding';
+import type { PreparedChatFile } from '@shared/extensions/app-runtime-protocol';
 
 const pending = () => {
   let resolve!: (value: { success: boolean }) => void;
@@ -10,6 +11,32 @@ const pending = () => {
 const target = { tabId: 'tab', sessionId: 'session' };
 
 describe('App guest binding belongs to the live webContents (#7514)', () => {
+  it('carries the one-shot opening in the existing bind and does not replay it on a later move', async () => {
+    const bind = vi.fn().mockResolvedValue({ success: true });
+    const retarget = vi.fn().mockResolvedValue({ success: true });
+    const lifecycle = new ExtensionGuestBinding({ bind, retarget });
+    const opening = { entry: { id: 'file' } } as PreparedChatFile;
+    lifecycle.ready(8);
+    await lifecycle.aim({ ...target, itemId: 'file', opening });
+    await lifecycle.aim({ ...target, itemId: 'file' });
+    expect(bind).toHaveBeenCalledExactlyOnceWith(8, { ...target, itemId: 'file', opening });
+    await lifecycle.aim({ ...target, itemId: 'other' });
+    expect(retarget).toHaveBeenCalledExactlyOnceWith(8, { ...target, itemId: 'other' });
+  });
+
+  it('reclaims an unchanged binding without another IPC call, while a changed target is retargeted', async () => {
+    const bind = vi.fn().mockResolvedValue({ success: true });
+    const retarget = vi.fn().mockResolvedValue({ success: true });
+    const lifecycle = new ExtensionGuestBinding({ bind, retarget });
+    lifecycle.ready(8);
+    await lifecycle.aim(target);
+    await lifecycle.aim({ ...target });
+    expect(bind).toHaveBeenCalledOnce();
+    expect(retarget).not.toHaveBeenCalled();
+    await lifecycle.aim({ ...target, itemId: 'file' });
+    expect(retarget).toHaveBeenCalledExactlyOnceWith(8, { ...target, itemId: 'file' });
+  });
+
   it('ignores a destroyed guest completing its bind after another guest is ready', async () => {
     const old = pending();
     const next = pending();

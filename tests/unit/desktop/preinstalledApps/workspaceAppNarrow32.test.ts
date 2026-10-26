@@ -151,7 +151,11 @@ describe('workspace App in a narrow pane (F32)', () => {
 
   test('an open Markdown uses the existing inline rename field, preserving it through revisions and handling cancel and failure', async () => {
     const changed = (gugu.onContextChanged.mock.calls[0] as unknown as [(ctx: unknown) => void])[0]
-    const file = { type: 'text', entry: entries[1], readOnly: false, close: vi.fn() }
+    const file = {
+      type: 'text', entry: entries[1], readOnly: false, close: vi.fn(), status: 'online',
+      onChange: () => () => {}, onStatus: () => () => {},
+      presence: { onChange: () => () => {}, others: [] },
+    }
     gugu.files.open.mockResolvedValueOnce(file as never)
     changed({ ...context, file: { chat: 'chat-1', id: 'plan' } })
     await vi.waitFor(() => expect(shown()).toBe('plan.md'))

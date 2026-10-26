@@ -28,6 +28,7 @@ import {
   type ChatPeekFile,
   type LocalPlace,
   type SyncRevokeReason,
+  type PreparedChatFile,
 } from './app-runtime-protocol';
 import { fileOpenersFor } from './file-openers';
 import type { ExtensionManifest } from './manifest';
@@ -213,12 +214,10 @@ function storageClient(token: string) {
 
 type Claimant = FilesPlatform['claimant'];
 
-function entryOf(row: ItemRow, people: ReadonlyMap<string, AppFilePerson>, claimant: Claimant, deletable: ReadonlySet<string>): AppFileEntry {
+function entryOf(row: ItemRow, claimant: Claimant): AppFileEntry {
   const file = { name: row.filename, contentType: row.content_type };
   const folder = row.kind === 'folder';
-  // Who opens it and how its name reads come from the one answer for its kind (`typedFileName`, 摩擦单 F41 / F39). No App opens a folder.
-  const claim = folder ? null : (claimant?.(typedFileName(file)) ?? null);
-  return {
+  return claimEntry({
     id: row.id,
     chat: row.chat_id,
     name: row.filename,
@@ -228,33 +227,40 @@ function entryOf(row: ItemRow, people: ReadonlyMap<string, AppFilePerson>, claim
     path: row.path,
     systemRole: row.system_role === 'attachments' ? 'attachments' : null,
     suffix: folder ? '' : fileSuffixOf(file),
-    displayName: claim ? displayNameOf(row.filename, claim.suffix) : row.filename,
-    claimedBy: claim?.app ?? null,
+    displayName: row.filename,
+    claimedBy: null,
     size: row.size_bytes ?? null,
     version: row.version ?? null,
     createdAt: row.created_at ?? null,
     updatedAt: row.updated_at ?? null,
     createdBy: row.created_by
-      ? (people.get(row.created_by) ?? { id: personId(row.created_by), name: row.created_by.slice(0, 8), kind: 'human' })
+      ? { id: personId(row.created_by), name: row.created_by.slice(0, 8), kind: 'human' }
       : { id: '', name: '', kind: 'system' },
     updatedBy: row.updated_by
-      ? (people.get(row.updated_by) ?? { id: personId(row.updated_by), name: row.updated_by.slice(0, 8), kind: 'human' })
+      ? { id: personId(row.updated_by), name: row.updated_by.slice(0, 8), kind: 'human' }
       : null,
     sourceMessageIds: row.source_message_ids ?? [],
-    canDelete: deletable.has(row.id),
-  };
+    canDelete: false,
+  }, claimant);
+}
+
+/** Resolve presentation only for an entry being used, not for a pending file-opening message. */
+function claimEntry(entry: AppFileEntry, claimant: Claimant): AppFileEntry {
+  if (!claimant || entry.type === 'folder') return entry;
+  const claim = claimant(typedFileName({ name: entry.name, contentType: entry.contentType }));
+  return { ...entry, displayName: claim ? displayNameOf(entry.name, claim.suffix) : entry.name, claimedBy: claim?.app ?? null };
 }
 
 /**
  * Who created or last edited each file, by name and kind, in one read. An author whose profile is gone (an erased
  * account) keeps a shortened id rather than a blank — the old panel's rule (#1709).
  */
-async function peopleOf(token: string, rows: readonly ItemRow[], identities: Identities): Promise<Map<string, AppFilePerson>> {
-  const ids = [...new Set(rows.flatMap((row) => [row.created_by, row.updated_by]).filter((id): id is string => !!id))];
+async function peopleOf(token: string, entries: readonly AppFileEntry[], identities: Identities): Promise<Map<string, AppFilePerson>> {
+  const ids = [...new Set(entries.flatMap((entry) => [entry.createdBy?.id, entry.updatedBy?.id]).filter((id): id is string => !!id).map((id) => id.replace(/^user:/, '')))];
   const people = new Map<string, AppFilePerson>();
   if (ids.length === 0) return people;
   for (const user of await identities(token, ids)) {
-    people.set(user.id, { id: personId(user.id), name: user.name || user.id.slice(0, 8), kind: user.kind });
+    people.set(personId(user.id), { id: personId(user.id), name: user.name || user.id.slice(0, 8), kind: user.kind });
   }
   return people;
 }
@@ -355,14 +361,23 @@ export async function extensionChatOf(
  * may delete it — the database's answer (`workspace_deletable_as`, the rule its delete keeps), one read for the batch.
  */
 async function entriesOf(token: string, rows: readonly ItemRow[], platform: Pick<FilesPlatform, 'claimant' | 'identities'>, actor: string): Promise<AppFileEntry[]> {
-  if (rows.length === 0) return [];
+  return entryDetails(token, rows.map((row) => entryOf(row, platform.claimant)), platform.identities, actor);
+}
+
+async function entryDetails(token: string, entries: readonly AppFileEntry[], identities: Identities, actor: string): Promise<AppFileEntry[]> {
+  if (entries.length === 0) return [];
   const [people, deletable] = await Promise.all([
-    peopleOf(token, rows, platform.identities),
-    agentRows(token, 'workspace_deletable_as', { p_item_ids: rows.map((row) => row.id), p_as_user_id: actor }),
+    peopleOf(token, entries, identities),
+    agentRows(token, 'workspace_deletable_as', { p_item_ids: entries.map((entry) => entry.id), p_as_user_id: actor }),
   ]);
   // A set of ids, as PostgREST answers a SETOF uuid.
   const mayDelete = new Set(deletable as unknown as string[]);
-  return rows.map((row) => entryOf(row, people, platform.claimant, mayDelete));
+  return entries.map(({ detailsPending: _pending, ...entry }) => ({
+    ...entry,
+    createdBy: entry.createdBy ? people.get(entry.createdBy.id) ?? entry.createdBy : null,
+    updatedBy: entry.updatedBy ? people.get(entry.updatedBy.id) ?? entry.updatedBy : null,
+    canDelete: mayDelete.has(entry.id),
+  }));
 }
 
 /** Every row of a chat, newest first, as `actor` (the person, or the agent a program works for) sees them. */
@@ -427,7 +442,9 @@ export type ChatFileRef = Exclude<AppFileRef, LocalPlace>;
 /** One row by its id, as `actor` sees it: not there and not theirs read the same (null). */
 async function itemById(token: string, itemId: string, actor: string): Promise<ItemRow | null> {
   if (!UUID.test(itemId)) return null;
-  const { data, error } = await chatClient(token).rpc('workspace_get_as', { p_item_id: itemId, p_as_user_id: actor });
+  // This reader uses metadata only. The live document is read by file sync, never from inline_text.
+  const { data, error } = await chatClient(token).rpc('workspace_get_as', { p_item_id: itemId, p_as_user_id: actor })
+    .select('id,chat_id,kind,filename,content_type,size_bytes,pointer,source_message_ids,created_by,updated_by,version,created_at,updated_at,epoch,parent_id,system_role,path');
   if (error) {
     if (codeOf(error) === 'not-found') return null;
     throw new AppFileError(codeOf(error), error.message);
@@ -573,7 +590,7 @@ export function createAppFiles(platform: FilesPlatform) {
     if (!metadata || !r.item_id || !r.chat_id || !r.version) { await file.dispose(); throw new AppFileError('failed', 'Local file publication metadata is unavailable'); }
     if (ref.chat !== undefined && ref.chat !== r.chat_id) { await file.dispose(); throw new AppFileError('invalid', 'The file is in another chat'); }
     const row: ItemRow = { ...metadata, id: r.item_id, chat_id: r.chat_id, filename: r.file_name, content_type: r.content_type, size_bytes: r.size_bytes, version: r.version, kind: 'file', epoch: 0, pointer: null, system_role: null };
-    return { file, entry: entryOf(row, new Map(), platform.claimant, new Set()), self: { userId: personId(file.reader.actorId), name: selfNames.get(file.reader.actorId) ?? '' } };
+    return { file, entry: entryOf(row, platform.claimant), self: { userId: personId(file.reader.actorId), name: selfNames.get(file.reader.actorId) ?? '' } };
   }
   const bytesOf = async (file: FileHandle) => (await fileBlob(file)).arrayBuffer();
 
@@ -597,6 +614,9 @@ export function createAppFiles(platform: FilesPlatform) {
     if (removed.error) platform.warn(left, { pointers, error: removed.error.message });
   };
   const entryOne = async (token: string, row: ItemRow, actor: string): Promise<AppFileEntry> => (await entriesOf(token, [row], platform, actor))[0]!;
+  const openingOf = (row: ItemRow, actor: string): { opening?: PreparedChatFile } => row.kind === 'document'
+    ? { opening: { entry: entryOf(row, undefined), epoch: row.epoch, actor, expiresAt: Date.now() + 5_000 } }
+    : {};
 
   async function selfName(token: string, userId: string): Promise<string> {
     const known = selfNames.get(userId);
@@ -613,14 +633,20 @@ export function createAppFiles(platform: FilesPlatform) {
     return { userId: personId(userId), name: await selfName(token, userId) };
   }
 
-  async function open(surface: FileSurface, args: { ref: ChatFileRef; readOnly?: boolean }): Promise<AppFileOpened> {
+  async function open(surface: FileSurface, args: { ref: ChatFileRef; readOnly?: boolean; deferDetails?: boolean; expectedVersion?: number }, opening?: PreparedChatFile): Promise<AppFileOpened> {
     const local = await localFile(surface, args.ref);
     if (local) return { entry: local.entry, docName: '', access: 'ro', self: local.self, bytes: await bytesOf(local.file) };
     const { token, userId } = await platform.account();
-    const { row, handedOver } = await resolve(surface, { token, userId }, args.ref);
-    if (row.kind === 'folder') throw notAFile(row);
+    const actor = surface.asAgent ?? userId;
+    const usable = opening && opening.expiresAt > Date.now() && opening.actor === actor && surface.itemId === opening.entry.id && 'id' in args.ref && args.ref.id === opening.entry.id && (args.ref.chat === undefined || args.ref.chat === opening.entry.chat) && (args.expectedVersion === undefined || args.expectedVersion === opening.entry.version);
+    if (opening && !usable) platform.warn('File opening authorization was not used; reading the file again', { item: opening.entry.id, expired: opening.expiresAt <= Date.now(), version: args.expectedVersion !== undefined && args.expectedVersion !== opening.entry.version });
+    const resolved = usable ? null : await resolve(surface, { token, userId }, args.ref);
+    const row = resolved?.row;
+    if (row?.kind === 'folder') throw notAFile(row);
+    const entry = usable ? claimEntry(opening.entry, platform.claimant) : entryOf(row!, platform.claimant);
+    const handedOver = usable || resolved!.handedOver;
     // A stored file (an image, a clip, a sound) opens read-only, as its bytes: there is no document to edit or sync.
-    const stored = row.kind !== 'document';
+    const stored = !!row && row.kind !== 'document';
     let access: Grant['access'];
     let needs: Grant['needs'];
     if (handedOver) {
@@ -635,14 +661,15 @@ export function createAppFiles(platform: FilesPlatform) {
     } else {
       throw new AppFileError('denied', 'Not permitted: opening a file other than the one this page was opened for needs "files:read" or "files:write"');
     }
-    const actor = surface.asAgent ?? userId;
     const self = { userId: personId(actor), name: await selfName(token, actor) };
-    if (stored) return { entry: await entryOne(token, row, actor), docName: '', access, self, bytes: await bytesOf((await fileFor(surface, { id: row.id }, row.version))!) };
-    if (typeof row.epoch !== 'number') throw new AppFileError('failed', `${row.filename}: the server did not say which version of the file is open`);
-    const docName = `${row.id}@${row.epoch}`;
+    if (stored) return { entry: await entryOne(token, row!, actor), docName: '', access, self, bytes: await bytesOf((await fileFor(surface, { id: row!.id }, row!.version))!) };
+    const epoch = usable ? opening.epoch : row!.epoch;
+    if (typeof epoch !== 'number') throw new AppFileError('failed', `${entry.name}: the server did not say which version of the file is open`);
+    const docName = `${entry.id}@${epoch}`;
     const page = platform.sync.pageFor(surface.pageId, surface.extensionId);
-    platform.sync.grant(page, { docName, itemId: row.id, access, needs, ...(surface.asAgent ? { asAgent: surface.asAgent } : {}) });
-    return { entry: await entryOne(token, row, actor), docName, access, self };
+    const details = async () => (await entryDetails(token, [entry], platform.identities, actor))[0]!;
+    platform.sync.grant(page, { docName, itemId: entry.id, access, needs, ...(surface.asAgent ? { asAgent: surface.asAgent } : {}), ...(args.deferDetails ? { details } : {}) });
+    return { entry: args.deferDetails ? { ...entry, detailsPending: true } : await details(), docName, access, self };
   }
 
   /** A file the page may read: the one handed to it, or any other with `files:read`/`:write`. */
@@ -789,7 +816,7 @@ export function createAppFiles(platform: FilesPlatform) {
       const row = await itemById(token, String(itemId), userId);
       if (row && row.chat_id !== chatId) chatId = await resourceChatIdOf(token, chatId, userId);
       if (!row || row.chat_id !== chatId) throw new AppFileError('not-found', 'No such file in this chat');
-      return { chatId: row.chat_id, itemId: row.id, name: row.filename, typedName: typedFileName({ name: row.filename, contentType: row.content_type }), file: { document: row.kind === 'document', contentType: row.content_type, version: row.version, size: row.size_bytes ?? 0 } };
+      return { chatId: row.chat_id, itemId: row.id, name: row.filename, typedName: typedFileName({ name: row.filename, contentType: row.content_type }), file: { document: row.kind === 'document', contentType: row.content_type, version: row.version, size: row.size_bytes ?? 0 }, ...openingOf(row, userId) };
     },
 
     /**
@@ -1107,11 +1134,20 @@ export function createAppFiles(platform: FilesPlatform) {
      * 「用 X 打开」: which file, in which chat — gated like saving it. Who opens it is the host's to work out from the
      * claims (file-openers.ts `chooseOpener`).
      */
-    async openTarget(surface: FileSurface, args: { ref: ChatFileRef }): Promise<{ chatId: string; itemId: string; name: string; typedName: string; file: ChatPeekFile }> {
+    async openTarget(surface: FileSurface, args: { ref: ChatFileRef }): Promise<{ chatId: string; itemId: string; name: string; typedName: string; file: ChatPeekFile; opening?: PreparedChatFile }> {
       const { token, userId } = await platform.account();
-      const row = await readable(surface, { token, userId }, args.ref, 'opening');
-      const file = { document: row.kind === 'document', contentType: row.content_type, version: row.version, size: row.size_bytes ?? 0 };
-      return { chatId: row.chat_id, itemId: row.id, name: row.filename, typedName: typedFileName({ name: row.filename, contentType: row.content_type }), file };
+      // The later open needs this same sync identity. Read it with the authorization, before the guest starts.
+      const [target] = await Promise.all([
+        // Stamp the authorization when it arrives; a slow identity lookup must not extend its lifetime.
+        readable(surface, { token, userId }, args.ref, 'opening').then((row) => ({
+          chatId: row.chat_id, itemId: row.id, name: row.filename,
+          typedName: typedFileName({ name: row.filename, contentType: row.content_type }),
+          file: { document: row.kind === 'document', contentType: row.content_type, version: row.version, size: row.size_bytes ?? 0 },
+          ...openingOf(row, surface.asAgent ?? userId),
+        })),
+        selfName(token, surface.asAgent ?? userId),
+      ]);
+      return target;
     },
 
     /**
