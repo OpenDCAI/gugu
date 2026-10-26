@@ -8,6 +8,32 @@ import {
   type TranscriptFrame
 } from '../transcriptSource'
 import { isDeliveryEnvelope } from '../deliveryEnvelope'
+import { contextText, contextToolRefs, type ContextFrame } from './contextProjection'
+
+function codexContext(entry: Record<string, unknown>, record: CodexRecord): ContextFrame {
+  const payload = asRecord(entry.payload)
+  const loaded: NonNullable<ContextFrame['loaded']> = []
+  if (entry.type === 'session_meta') {
+    const text = contextText(payload?.base_instructions)
+    if (text !== null) loaded.push({ path: null, kind: 'base-instructions', scope: 'Global', chars: text.length, truncated: false, at: record.timestamp })
+  }
+  const visit = (value: unknown) => {
+    if (Array.isArray(value)) { value.forEach(visit); return }
+    const object = asRecord(value)
+    if (!object) return
+    const agents = asRecord(object.agents_md)
+    if (agents && typeof agents.directory === 'string') {
+      const text = contextText(agents.text)
+      if (text !== null) loaded.push({ path: `${agents.directory.replace(/[\\/]$/, '')}/AGENTS.md`, kind: 'instruction-file', scope: 'Project', chars: text.length, truncated: false, at: record.timestamp })
+    }
+    Object.values(object).forEach(visit)
+  }
+  // Inspect only world_state metadata, never the tool outputs or reasoning records that share this file.
+  if (entry.type === 'world_state' || payload?.type === 'world_state') visit(payload ?? entry.world_state)
+  else if (payload?.world_state !== undefined) visit(payload.world_state)
+  else if (entry.world_state !== undefined) visit(entry.world_state)
+  return { loaded, refs: record.item?.kind === 'tool_call' ? contextToolRefs(record.item.name, record.item.input) : [] }
+}
 
 // Codex 的本机会话：`~/.codex/sessions/<年>/<月>/<日>/rollout-<时间>-<sessionId>.jsonl`。
 // 与 claude 的两处结构差异：
@@ -165,15 +191,16 @@ export const codexTranscriptSource: JsonlTranscriptSourceSpec = {
 
   recordsDir: 'sessions',
 
-  readFrame(entry): TranscriptFrame | null {
+  readFrame(entry, view): TranscriptFrame | null {
     const record = readCodexRecord(entry)
+    const context = view === 'context' ? { context: codexContext(entry, record) } : {}
     if (record.meta) {
       const { providerSessionId, cwd, sidechain } = record.meta
-      return { providerSessionId, cwd, ...(sidechain ? { sidechain: true } : {}) }
+      return { providerSessionId, cwd, ...context, ...(sidechain ? { sidechain: true } : {}) }
     }
     // 摘录只要对话正文：工具调用/结果/思考一律不算。
-    if (record.item?.kind !== 'text') return null
+    if (record.item?.kind !== 'text') return view === 'context' ? context : null
     const content = cleanText(record.item.text)
-    return content ? { turn: { role: record.item.role, content, createdAt: record.timestamp } } : null
+    return content ? { ...context, turn: { role: record.item.role, content, createdAt: record.timestamp } } : view === 'context' ? context : null
   }
 }

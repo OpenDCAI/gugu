@@ -550,7 +550,7 @@ export class PaneStore<R extends TabRegistry = TabRegistry>
   }
 
   /**
-   * 另一页换成 `tabId`:两枚在页签条上对调位置(照 Chrome 的 Swap,一对始终挨着),
+   * 另一页换成 `tabId`:只把新页挪到钉住的那页旁边,其余页签保留相对次序。
    * 被顶下来的是瞄一眼那种就收掉 —— 瞄一眼的意思就是不留(spec session-page「并排」)。
    */
   private _replaceSide(pair: TabPair, tabId: string, closePreview = true): void {
@@ -562,14 +562,6 @@ export class PaneStore<R extends TabRegistry = TabRegistry>
       this.pair = { ...next, ratio: this._ratioForNewSide(pair, tabId) === null ? null : ratioKeepingWidths(pair, next) };
       this._placeAdjacent(this.pair, 'side');
     } else {
-      const from = this.tabOrder.indexOf(tabId);
-      const to = this.tabOrder.indexOf(old);
-      if (from !== -1 && to !== -1) {
-        const order = [...this.tabOrder];
-        order[to] = tabId;
-        order[from] = old;
-        this.tabOrder = order;
-      }
       this.pair = { ...pair, side: tabId, ratio: this._ratioForNewSide(pair, tabId) };
       this._placeAdjacent(this.pair);
     }
@@ -587,13 +579,18 @@ export class PaneStore<R extends TabRegistry = TabRegistry>
 
   /** 一对在页签条上挨着,先后和屏上一样(左 / 上那页在前)。`keep` 那枚不动,另一枚挪到它旁边。 */
   private _placeAdjacent(pair: TabPair, keep: 'anchor' | 'side' = 'anchor'): void {
-    if (!this.tabOrder.includes(pair.anchor) || !this.tabOrder.includes(pair.side)) return;
+    const order = this._adjacentOrder(this.tabOrder, pair, keep);
+    if (order.some((id, i) => id !== this.tabOrder[i])) this.tabOrder = order;
+  }
+
+  private _adjacentOrder(current: string[], pair: TabPair, keep: 'anchor' | 'side'): string[] {
+    if (!current.includes(pair.anchor) || !current.includes(pair.side)) return current;
     const [fixed, moving] = keep === 'anchor' ? [pair.anchor, pair.side] : [pair.side, pair.anchor];
-    const order = this.tabOrder.filter((id) => id !== moving);
+    const order = current.filter((id) => id !== moving);
     const at = order.indexOf(fixed);
     const movingFirst = sideLeads(pair.sideAt) === (keep === 'anchor');
     order.splice(movingFirst ? at : at + 1, 0, moving);
-    if (order.some((id, i) => id !== this.tabOrder[i])) this.tabOrder = order;
+    return order;
   }
 
   /** 页签插进来可能落在一对中间:让它们重新挨着。 */
@@ -871,11 +868,18 @@ export class PaneStore<R extends TabRegistry = TabRegistry>
   }
 
   reorderTabs(fromIndex: number, toIndex: number): void {
+    this.tabOrder = this.previewTabOrder(fromIndex, toIndex);
+  }
+
+  /** The strip previews this exact move while dragging; persistence changes only on drop. */
+  previewTabOrder(fromIndex: number, toIndex: number): string[] {
     const dragged = this.tabOrder[fromIndex];
-    reorderTabIds(this, fromIndex, toIndex);
+    const next: TabOrderState = { tabOrder: [...this.tabOrder], activeTabId: this.activeTabId };
+    if (dragged === undefined || toIndex < 0 || toIndex >= next.tabOrder.length) return next.tabOrder;
+    reorderTabIds(next, fromIndex, toIndex);
     // 一对始终挨着(照 Chrome):拖其中一枚,它落在松手处、另一枚跟过去 —— 要拆开走两枚中间那颗钮、右键「拆开」或 ⌘\。
     const pair = this.livePair;
-    if (pair) this._placeAdjacent(pair, dragged === pair.side ? 'side' : 'anchor');
+    return pair ? this._adjacentOrder(next.tabOrder, pair, dragged === pair.side ? 'side' : 'anchor') : next.tabOrder;
   }
 
   setNextTabActive(): void {
@@ -1213,7 +1217,7 @@ export class PaneStore<R extends TabRegistry = TabRegistry>
     if (returnId && returnId !== id && this.entries.has(returnId) && this.shownTabIds.includes(id)) {
       const pair = this.livePair;
       if (pair && this.pairShown && returnId !== pair.anchor && returnId !== pair.side && this._canPair(pair.anchor, returnId)) {
-        // Same swap as selecting the previous page; this close already owns the outgoing preview's disposal.
+        // As when selecting the previous page; this close already owns the outgoing preview's disposal.
         this._replaceSide(pair, returnId, false);
       }
       this._focus(returnId);

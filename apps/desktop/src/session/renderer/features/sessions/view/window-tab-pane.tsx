@@ -4,6 +4,9 @@ import { auxLeadingReserve, PutBackButton } from '@renderer/app/aux-window-host'
 import { auxWindows } from '@renderer/app/aux-windows';
 import { PaneContent } from '@renderer/features/tabs/pane-content';
 import { PaneProvider } from '@renderer/features/tabs/pane-context';
+import { tabDropTarget } from '@renderer/features/tabs/tab-bar/tab-motion';
+import { TabDragOverlay } from '@renderer/features/tabs/tab-bar/tab-drag-preview';
+import { PaneLayoutProvider } from '@renderer/features/tabs/pane-layout-context';
 import type { PaneLayoutStore } from '@renderer/features/tabs/pane-layout-store';
 import { ShellTitlebarDragRegion } from '@renderer/lib/components/titlebar/shell-titlebar';
 import { SessionContentGate } from '../main-panel';
@@ -40,7 +43,7 @@ export const WindowTabPaneContent = observer(function WindowTabPaneContent({ win
 
   // 窗里只有这一格:拖页签只在这条页签条里换顺序。
   const handleDragEnd = (event: DragEndEvent) => {
-    const over = event.over ? String(event.over.id) : null;
+    const over = tabDropTarget(event);
     if (!over) return;
     const order = group.pane.tabOrder;
     const from = order.indexOf(String(event.active.id));
@@ -62,6 +65,7 @@ export const WindowTabPaneContent = observer(function WindowTabPaneContent({ win
           />
         </div>
       </PaneProvider>
+      <PaneLayoutProvider paneLayout={paneLayout}><TabDragOverlay /></PaneLayoutProvider>
     </DndContext>
   );
 });

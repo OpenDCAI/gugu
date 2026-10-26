@@ -1,5 +1,5 @@
 import { eq, sql } from 'drizzle-orm';
-import type { AppCallAction, AppMessageOptions, AppMessageReceipt, AppReadFileAction, SessionpageSessionSummary, UnreachedMachine } from '@gugu/session-core/session-record/contract';
+import type { AppCallAction, AppMessageOptions, AppMessageReceipt, AppReadFileAction, AppSpawnAction, SessionpageSessionSummary, UnreachedMachine } from '@gugu/session-core/session-record/contract';
 import { db } from '@main/db/client';
 import { sessions } from '@main/db/schema';
 import { events } from '@main/lib/events';
@@ -27,6 +27,9 @@ type Linked = FamilyMember & { parentId: string | null };
  * 别的机器,由宿主接上(列会话、收一条,与手机同一套方法;App 发一条消息);没接上(单测、单机)= 只有本机。
  */
 export type OtherMachines = {
+  devices(): Promise<Array<{ deviceId: string; label: string; online: boolean; thisMachine: boolean }>>;
+  isThisDevice(deviceId: string): Promise<boolean>;
+  appSpawn(app: { extensionId: string; extensionName: string }, deviceId: string, action: AppSpawnAction): Promise<{ agentId: string }>;
   /** 别的机器上的会话(界面那份列表的整行);够不着的报在 unreached。`since` 之前就离线的机器不报,null = 都报。 */
   sessions(since: string | null): Promise<{
     sessions: Array<{ deviceId: string; label: string; session: SessionpageSessionSummary }>;
