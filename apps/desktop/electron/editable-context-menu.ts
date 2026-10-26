@@ -41,7 +41,11 @@ export async function captureEditableContext(contents: WebContents, frame: WebFr
   if (!snapshot) throw new Error('The editable menu target is unavailable');
   const restore = async (action?: HistoryAction) => {
     if (contents.isDestroyed() || frame.isDestroyed()) throw new Error('The editable menu source was closed');
-    contents.focus();
+    // Electron WebContents.focus() intentionally does nothing for guests; focus their embedding frame.
+    const host = contents.hostWebContents;
+    if (host) {
+      if (!await host.mainFrame.executeJavaScript(`(() => { const view=[...document.querySelectorAll('webview')].find(view=>view.getWebContentsId()===${contents.id});if(!view)return false;view.focus();return true; })()`, true)) throw new Error('The editable menu guest was removed');
+    } else contents.focus();
     if (!await frame.executeJavaScript(`globalThis[${JSON.stringify(key)}]?.(${JSON.stringify(action)})`, true)) throw new Error('The editable menu target was removed');
   };
   return {

@@ -75,6 +75,25 @@ describe('editable content menus', () => {
     close()
   })
 
+  it('focuses the embedding webview before restoring and editing a guest frame', async () => {
+    const { contents, frame, other, paste } = source()
+    const view = document.createElement('webview')
+    const order: string[] = []
+    Object.assign(view, { getWebContentsId: () => 42, focus: () => order.push('guest-frame-focus') })
+    document.body.append(view)
+    Object.assign(contents, {
+      id: 42,
+      hostWebContents: { mainFrame: frame },
+      paste: () => { order.push('paste'); paste() },
+    })
+    const captured = await captureEditableContext(contents, frame, vi.fn())
+    other.focus()
+    await captured.run('paste')
+    expect(order).toEqual(['guest-frame-focus', 'paste'])
+    expect(contents.focus).not.toHaveBeenCalled()
+    captured.close()
+  })
+
   it('does not edit a different field after the original target is removed', async () => {
     const { target, other, frame, contents, paste } = source()
     const captured = await captureEditableContext(contents, frame, vi.fn())
