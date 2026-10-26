@@ -440,7 +440,7 @@ export async function startPhoneAgentHost(initialConfig, { runTurn, cancelTurn, 
   async function flushFailureNotices() {
     if (deliveringFailures || stopped || signingOut || !rpcHost) return deliveringFailures
     deliveringFailures = (async () => {
-      await workHistory?.kick()
+      void workHistory?.kick()
       for (const job of Object.values(store.state.jobs)) {
         const notice = job.failureNotice
         const agent = store.state.agents[job.agentUserId]

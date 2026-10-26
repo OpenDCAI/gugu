@@ -1,4 +1,5 @@
 // @vitest-environment jsdom
+import {act} from 'react'
 import {QueryClient,QueryClientProvider} from '@tanstack/react-query'
 import {afterEach,beforeEach,expect,it,vi} from 'vitest'
 import {createReactHarness,renderWithAppProviders,clickElement} from '../../../support/testHarness'
@@ -8,8 +9,8 @@ import {OPEN_ASSISTANT_TASK_CHAT} from '../../../../apps/desktop/src/lib/assista
 import type {PhonePageProps} from '../../../../apps/desktop/src/mobile/assistant/MobileAssistantApp'
 import type {AssistantContext} from '../../../../apps/desktop/src/session/renderer/features/assistant/assistant-context'
 import '../../../../apps/desktop/src/i18n/registerAssistantCatalog'
-const cloud=vi.hoisted(()=>({list:vi.fn()}))
-vi.mock('../../../../apps/desktop/src/lib/assistantWork',()=>({assistantWorkCloud:{listAll:cloud.list},watchAssistantWork:()=>()=>{}}))
+const cloud=vi.hoisted(()=>({list:vi.fn(),refresh:null as null|(()=>void)}))
+vi.mock('../../../../apps/desktop/src/lib/assistantWork',()=>({assistantWorkCloud:{listAll:cloud.list},watchAssistantWork:(_o:string,_a:string,refresh:()=>void)=>{cloud.refresh=refresh;return ()=>{}}}))
 vi.mock('../../../../apps/desktop/src/lib/agentPresenceStore',()=>({subscribeAgentPresence:()=>()=>{},getAgentPresenceSnapshot:()=>({reading:{status:'idle',detail:'done'},payload:{agentType:'codex'},local:{unseen:true}})}))
 vi.mock('../../../../apps/desktop/src/store/devicesContext',()=>({useDevicesStore:()=>({devices:[],phones:[]})}))
 vi.mock('../../../../apps/desktop/src/session/shared/remote-sessions/session-directory',async original=>({...await original<object>(),useDirectoryDevices:()=>[],useLiveDeviceSessions:()=>{throw new Error('Task lists must not read device sessions')}}))
@@ -25,10 +26,17 @@ it.each(['phone','desktop'])('%s reads an ended account task with no connected m
  try{
   await renderWithAppProviders(harness,<QueryClientProvider client={new QueryClient({defaultOptions:{queries:{retry:false}}})}>{shell==='phone'?<PhoneTasks {...phone}/>:<AssistantTasksPage context={desktop}/>}</QueryClientProvider>,{auth:{id:'owner'}})
   await vi.waitFor(()=>expect(harness.container.querySelector('[data-testid="assistant-subagent-worker"]')).not.toBeNull())
-  const row=harness.container.querySelector<HTMLElement>('[data-testid="assistant-subagent-worker"]')!
   expect(harness.container.textContent).not.toContain('Host asleep')
   expect(cloud.list).toHaveBeenCalledWith('assistant')
-  await clickElement(row)
+  cloud.list.mockRejectedValueOnce(Object.assign(new Error('private server detail'),{code:'503'})).mockResolvedValue([{work_id:'work',title:'Recovered task',coordinator_session_id:'home-session',coordinator_device_id:'home',executors:[{session_id:'worker',device_id:'phone',agent_user_id:'executor'}],executor_outcomes:{},outcome:'completed',updated_at:'2026-10-26T08:00:00Z'}])
+  await act(async()=>cloud.refresh?.())
+  expect(harness.container.querySelector('[data-testid="assistant-subagent-worker"]')).not.toBeNull()
+  expect(harness.container.querySelector('[role="alert"]')).not.toBeNull()
+  expect(harness.container.textContent).not.toContain('private server detail')
+  await act(async()=>{await new Promise(resolve=>setTimeout(resolve,1600))})
+  expect(harness.container.textContent).toContain('Recovered task')
+  expect(harness.container.querySelector('[role="alert"]')).toBeNull()
+  await clickElement(harness.container.querySelector<HTMLElement>('[data-testid="assistant-subagent-worker"]')!)
   expect(opened.mock.calls[0][0].detail).toMatchObject({workId:'work',taskAgentId:'executor',assistants:[{deviceId:'home',sessionId:'home-session'}]})
  }finally{window.removeEventListener(OPEN_ASSISTANT_TASK_CHAT,opened)}
 })

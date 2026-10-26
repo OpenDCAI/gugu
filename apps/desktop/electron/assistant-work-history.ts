@@ -3,6 +3,7 @@ import {readDeliveryEnvelope} from '@gugu/core/local/agent/deliveryEnvelope'
 import {legacyAssistantDispatch,type HistoricalWorkEvent} from '@gugu/core/shared/assistantWorkHistory'
 import type {AssistantWorkHostContext} from './assistant-work-outbox'
 
+export type WorkHistoryPosition={after:number;retry:number[]}
 type Receipt={id:string;position:number;sessionId:string;content:string;timestamp:string;title:string;spawnedBySessionId:string|null;spawnedByRemote:{sessionId:string;deviceId:string;agentUserId?:string}|null}
 const resultSchema=z.object({work_id:z.uuid(),status:z.enum(['progress','question','completed','cancelled'])})
 const workSchema=z.object({work_id:z.uuid(),assistant_user_id:z.string(),title:z.string(),coordinator_session_id:z.string(),coordinator_device_id:z.string(),
@@ -11,13 +12,14 @@ const date=(raw:string)=>new Date(/(?:Z|[+-]\d\d:\d\d)$/.test(raw)?raw:`${raw.re
 /** Awake desktop/server hosts migrate their own accepted inbox; panels only read the account. */
 export function createDesktopAssistantWorkHistory(deps:{
   context():Promise<AssistantWorkHostContext|null>
-  receipts(after:number):Promise<{entries:Receipt[];cursor:number;hasMore:boolean}>
+  receipts(after:number,retry?:number[]):Promise<{entries:Receipt[];cursor:number;hasMore:boolean;pending?:number[]}>
+  checkpoint?:{read(owner:string):Promise<WorkHistoryPosition>;write(owner:string,value:WorkHistoryPosition):Promise<void>}
   identity(session:string,owner:string):Promise<{id:string;createdAt:number}|null>
   assistant(ctx:AssistantWorkHostContext):Promise<string|null>
   warn(detail:{code:string}):void
 }) {
   let flight:Promise<void>|null=null,stopped=false
-  const acknowledged=new Set<string>()
+  const acknowledged=new Set<string>(),positions=new Map<string,WorkHistoryPosition>()
   const run=async()=>{
     const ctx=await deps.context()
     if(!ctx||stopped)return
@@ -44,9 +46,14 @@ export function createDesktopAssistantWorkHistory(deps:{
       knownWork.set(key,row!);knownMessages.set(key,ids)
       return row
     }
-    let after=0
+    const saved=await deps.checkpoint?.read(ctx.ownerId)??positions.get(ctx.ownerId)??{after:0,retry:[]}
+    let after=saved.after,first=true
+    const retry=new Set(saved.retry)
     do {
-      const page=await deps.receipts(after)
+      const selected=first?[...retry].slice(0,32):[];first=false
+      const page=await deps.receipts(after,selected)
+      for(const position of selected)retry.delete(position)
+      for(const position of page.pending??[])retry.add(position)
       for(const row of page.entries) {
         if(!await current())return
         const key=`${ctx.ownerId}:${row.id}`
@@ -54,7 +61,8 @@ export function createDesktopAssistantWorkHistory(deps:{
         try {
           const identity=await deps.identity(row.sessionId,ctx.ownerId)
           const occurred=date(row.timestamp)
-          if(!identity || !Number.isFinite(identity.createdAt) || Date.parse(occurred)<Math.floor(identity.createdAt/1000)*1000)continue
+          if(!identity){retry.add(row.position);continue}
+          if(!Number.isFinite(identity.createdAt) || Date.parse(occurred)<Math.floor(identity.createdAt/1000)*1000)continue
           const agentId=identity.id
           const segment=readDeliveryEnvelope(row.content)?.segments
           if(segment?.length!==1||segment[0]?.facts?.route!=='session-direct')continue
@@ -75,7 +83,8 @@ export function createDesktopAssistantWorkHistory(deps:{
             if(!assistantId||agentId!==assistantId)continue
             const work=await read(assistantId,report.work_id)
             const executor=work?.executors.find(target=>target.session_id===sender)
-            if(!work||!executor?.agent_user_id||work.coordinator_session_id!==row.sessionId||work.coordinator_device_id!==ctx.deviceId)continue
+            if(!work){retry.add(row.position);continue}
+            if(!executor?.agent_user_id||work.coordinator_session_id!==row.sessionId||work.coordinator_device_id!==ctx.deviceId)continue
             workId=work.work_id
             task={title:work.title,coordinator_session_id:work.coordinator_session_id,coordinator_device_id:work.coordinator_device_id,
               executors:work.executors.filter((target):target is {session_id:string;device_id:string;agent_user_id:string}=>Boolean(target.agent_user_id))}
@@ -91,11 +100,15 @@ export function createDesktopAssistantWorkHistory(deps:{
           if(!(data as {event_ids?:string[]}|null)?.event_ids?.includes(row.id))throw new Error('Incomplete historical admission')
           acknowledged.add(key)
           knownWork.delete(`${assistantId}:${workId}`)
-        }catch(error){deps.warn({code:typeof (error as {code?:unknown})?.code==='string'?(error as {code:string}).code:'WORK_HISTORY_UNAVAILABLE'})}
+        }catch(error){retry.add(row.position);deps.warn({code:typeof (error as {code?:unknown})?.code==='string'?(error as {code:string}).code:'WORK_HISTORY_UNAVAILABLE'})}
       }
-      if(!page.hasMore)return
-      if(page.cursor<=after)throw new Error('Historical receipt cursor did not advance')
+      if(page.cursor<after||page.hasMore&&page.cursor===after)throw new Error('Historical receipt cursor did not advance')
       after=page.cursor
+      if(!await current())return
+      const checkpoint={after,retry:[...retry]}
+      await deps.checkpoint?.write(ctx.ownerId,checkpoint)
+      positions.set(ctx.ownerId,checkpoint)
+      if(!page.hasMore)return
     }while(await current())
   }
   return {kick():Promise<void>{

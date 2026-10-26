@@ -52,7 +52,7 @@ export function createPhoneAssistantWork({ ownerId,deviceId,instanceId,cloud,sto
       delete job.failureNotice
       if(job.hostFailureReported || job.sent?.length) return true
       const result=await api.enqueueReport({agent:{...agent,assistantWork:{assistant_id:work.assistantId}},job,callId:'host-failure',reasonCode:'HOST_FAILURE',
-        record:{to:[`session:${work.task.coordinator_session_id}`],text:`${job.error??'手机任务执行中断。'}\n平台会直接通知主人，请勿重复通知。`,work_result:{work_id:work.workId,status:'progress'}},
+        record:{to:[`session:${work.task.coordinator_session_id}`],text:'这次手机任务未能完成。失败说明会直接发给你。',work_result:{work_id:work.workId,status:'progress'}},
         prepare:async()=>[]})
       job.hostFailureReported={message_id:result.event_ids[0]}
       await store.save()

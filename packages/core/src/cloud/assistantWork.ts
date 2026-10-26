@@ -55,21 +55,41 @@ export function createAssistantWorkClient(transport: AssistantWorkTransport,acco
   }
   async function list(assistantId: string,before: string | null = null,limit = 100) {
     return request('assistant_work_list',{ p_assistant: assistantId,p_before: before,p_limit: limit },(value,owner) => {
-      const result = z.object({ items: z.array(taskSchema),next_before: sequence.nullable() }).safeParse(value)
-      if (!result.success || result.data.items.some(row => row.owner_user_id !== owner || row.assistant_user_id !== assistantId
-        || BigInt(row.created_seq) <= 0n || before !== null && BigInt(row.created_seq) >= BigInt(before))) return invalid()
-      const { items,next_before } = result.data
-      if (next_before !== null && (items.length === 0 || next_before !== items.at(-1)!.created_seq)) return invalid()
-      return result.data
+      const result = z.object({ items: z.array(z.unknown()),next_before: sequence.nullable() }).safeParse(value)
+      if (!result.success) return invalid()
+      const raw=result.data.items,items:AssistantWorkTask[]=[]
+      for(const [index,row] of raw.entries()) {
+        const scope=z.object({owner_user_id:id,assistant_user_id:id}).safeParse(row)
+        if(scope.success&&(scope.data.owner_user_id!==owner||scope.data.assistant_user_id!==assistantId))return invalid()
+        const parsed=taskSchema.safeParse(row)
+        if(!parsed.success){console.warn('[assistant-work] Skipping malformed task row',{index,code:'invalid-row'});continue}
+        if(BigInt(parsed.data.created_seq)<=0n || before!==null&&BigInt(parsed.data.created_seq)>=BigInt(before))return invalid()
+        items.push(parsed.data)
+      }
+      const next_before=result.data.next_before
+      const last=z.object({created_seq:sequence}).safeParse(raw.at(-1))
+      if(next_before!==null&&(raw.length===0||BigInt(next_before)<=0n||before!==null&&BigInt(next_before)>=BigInt(before)
+        ||last.success&&next_before!==last.data.created_seq))return invalid()
+      return {items,next_before}
     })
   }
   async function history(assistantId: string,workId: string,after = '0',limit = 100) {
     return request('assistant_work_history',{ p_assistant: assistantId,p_work_id: workId,p_after: after,p_limit: limit },(value,owner) => {
-      const result = z.object({ events: z.array(eventSchema),next_after: sequence.nullable() }).safeParse(value)
-      if (!result.success || result.data.events.some(row => row.owner_user_id !== owner || row.work_id !== workId || BigInt(row.seq) <= BigInt(after))) return invalid()
-      const { events,next_after } = result.data
-      if (next_after !== null && (events.length === 0 || next_after !== events.at(-1)!.seq)) return invalid()
-      return result.data
+      const result = z.object({ events: z.array(z.unknown()),next_after: sequence.nullable() }).safeParse(value)
+      if (!result.success) return invalid()
+      const raw=result.data.events,events:AssistantWorkEvent[]=[]
+      for(const [index,row] of raw.entries()) {
+        const scope=z.object({owner_user_id:id,work_id:id}).safeParse(row)
+        if(scope.success&&(scope.data.owner_user_id!==owner||scope.data.work_id!==workId))return invalid()
+        const parsed=eventSchema.safeParse(row)
+        if(!parsed.success){console.warn('[assistant-work] Skipping malformed history row',{index,code:'invalid-row'});continue}
+        if(BigInt(parsed.data.seq)<=BigInt(after))return invalid()
+        events.push(parsed.data)
+      }
+      const next_after=result.data.next_after
+      const last=z.object({seq:sequence}).safeParse(raw.at(-1))
+      if(next_after!==null&&(raw.length===0||BigInt(next_after)<=BigInt(after)||last.success&&next_after!==last.data.seq))return invalid()
+      return {events,next_after}
     })
   }
   return { list,history,

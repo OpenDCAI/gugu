@@ -398,7 +398,7 @@ export default {
   "tasks": {
     "closeChat": "Close task chat",
     "agent": "Agent",
-    "chatUnavailable": "The task agent is not available yet. Refresh and try again.",
+    "chatUnavailable": "This task is currently unavailable.",
     "collaborationLoading": "Loading the assistant’s collaboration with this task agent…",
     "collaborationUnavailable": "The complete collaboration history is currently unavailable.",
     "collaborationReady": "Includes assistant collaboration history",

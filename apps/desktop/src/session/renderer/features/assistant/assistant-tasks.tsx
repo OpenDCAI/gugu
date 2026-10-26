@@ -1,3 +1,4 @@
+import {AssistantWorkTaskRead} from '@/components/assistant/AssistantWorkTaskRead';
 import {useAuth} from '@/store/auth';
 import { messageForUser } from '@/lib/userFacingError';
 import { formatSessionTitleForDisplay } from '@shared/core/sessions/session-title-utils';
@@ -93,18 +94,15 @@ const SubAgents = observer(function SubAgents({ context }: AssistantPageProps) {
   const { t } = useTranslation('assistant');
   const {user}=useAuth();
   const read=useAssistantWorkTasks(user?.id,context.assistant.id);
-  const children=read.state==='ok' ? read.data : [];
-  const groups = groupByDay(children,item => item.lastInteractedAt,new Date());
-  return <MachineGate readiness="ready" loading={read.state==='loading'} error={read.state==='error' ? read.error : null} onRetry={read.reload}>
-    {children.length === 0 ? <AssistantSection bare><AssistantEmpty title={t('tasks.emptyTitle')}
+  return <AssistantWorkTaskRead read={read} failedTitle={t('tasks.loadFailed')}>{children=>children.length === 0 ? <AssistantSection bare><AssistantEmpty title={t('tasks.emptyTitle')}
       action={<button type="button" className="ta-pill-btn" onClick={() => context.askInChat(t('tasks.createPrompt'))}>{t('tasks.create')}</button>} /></AssistantSection>
-      : groups.map(group => <AssistantSection key={group.bucket} title={t(`tasks.day.${group.bucket}`)} testId={`assistant-tasks-${group.bucket}`}>
+      : groupByDay(children,item => item.lastInteractedAt,new Date()).map(group => <AssistantSection key={group.bucket} title={t(`tasks.day.${group.bucket}`)} testId={`assistant-tasks-${group.bucket}`}>
         {group.items.map(task => <AssistantRow key={task.key} testId={`assistant-subagent-${task.id}`} title={formatSessionTitleForDisplay(task.harness ?? '',task.title)}
           detail={assistantTaskDeviceLabel(devices,task.deviceId)}
           trailing={task.status && task.status.status !== 'idle' ? <AgentStatusIndicator status={task.status.status} detail={task.status.detail} /> : task.unseen ? <span className="ta-unseen" aria-label={t('tasks.unseen')} /> : null}
           chevron={false} onClick={task.agentId ? () => openAssistantPanelTask({assistantId:context.assistant.id},task) : undefined} />)}
       </AssistantSection>)}
-  </MachineGate>;
+  </AssistantWorkTaskRead>;
 });
 
 /**

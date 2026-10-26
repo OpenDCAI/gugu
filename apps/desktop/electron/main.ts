@@ -1,4 +1,5 @@
 import './browser-user-agent-bootstrap'
+import {assistantWorkHistoryPosition} from './assistant-work-history-position'
 import { randomUUID } from 'node:crypto'
 import { registerFileViewerMenus } from './file-viewer-context-menu'
 import { configuredEndpoint } from '@gugu/core/cloud/attachmentsApi'
@@ -1697,7 +1698,8 @@ function assistantWorkDeliveryHost(): AssistantWorkOutboxHost {
     warn: detail => createLogger('assistant-work/reconcile').warn(detail,'Task handoff reconciliation will retry'),
   })
   const history=createDesktopAssistantWorkHistory({context,
-    receipts:async after=>loadEmdashBridge()?.readAssistantWorkReceipts(after)??{entries:[],cursor:after,hasMore:false},
+    checkpoint:assistantWorkHistoryPosition(resolveGuguHome(process.env)),
+    receipts:async (after,retry)=>loadEmdashBridge()?.readAssistantWorkReceipts(after,retry)??{entries:[],cursor:after,hasMore:false},
     identity:async(session,owner)=>{
       const record=await localAgentForSession(session,process.env,owner)
       return record?.gugu_user_id ? {id:record.gugu_user_id,createdAt:record.created_at*1000} : null
@@ -1708,7 +1710,7 @@ function assistantWorkDeliveryHost(): AssistantWorkOutboxHost {
   const host = createAssistantWorkOutboxHost({
     context,
     afterDrain: async () => {
-      await history.kick()
+      void history.kick()
       await reconciler.kick()
       // Any awake account runtime can resume the home needed to post an abandoned delivery notice.
       const current = await context()
@@ -1733,7 +1735,7 @@ function assistantWorkDeliveryHost(): AssistantWorkOutboxHost {
         : ['completed', 'cancelled', 'question'].includes(event.kind) ? event.kind : 'progress'
       const caller: RemoteSessionCaller = {
         deviceId: event.from_device_id, deviceLabel: null, sessionId: event.from_session_id,
-        agentUserId: null, name: event.kind === 'dispatch' ? '个人助理' : '任务执行者',
+        agentUserId: null, name: event.kind === 'dispatch' ? '个人助理' : '任务',
         harness: null, transport: 'acp', model: null, platformModel: null,
       }
       const result = await bridge.runRemoteSessionAction(caller, {

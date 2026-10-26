@@ -18,6 +18,26 @@ const event = () => ({ owner_user_id: owner,work_id: work,message_id: message,se
   owner_delivered_at: null,owner_chat_id: null,owner_message_id: null,delivery_state: 'pending' })
 
 describe('account assistant work client', () => {
+  it('skips a malformed task without losing the following page cursor',async()=>{
+    const warn=vi.spyOn(console,'warn').mockImplementation(()=>{})
+    try {
+      const transport=vi.fn().mockResolvedValueOnce({data:{items:[row(work,'3'),{...row(message,'2'),executors:null}],next_before:'2'},error:null})
+        .mockResolvedValueOnce({data:{items:[row(operation,'1')],next_before:null},error:null})
+      expect((await createAssistantWorkClient(transport,()=>owner).listAll(assistant)).map(r=>r.work_id)).toEqual([work,operation])
+      expect(transport.mock.calls[1]![1].p_before).toBe('2')
+      expect(warn).toHaveBeenCalledOnce()
+    } finally {warn.mockRestore()}
+  })
+  it('skips a malformed history row and advances even when the whole page is malformed',async()=>{
+    const warn=vi.spyOn(console,'warn').mockImplementation(()=>{})
+    try {
+      const transport=vi.fn().mockResolvedValueOnce({data:{events:[{...event(),attachment_refs:'bad'}],next_after:'2'},error:null})
+        .mockResolvedValueOnce({data:{events:[{...event(),seq:'3'}],next_after:null},error:null})
+      expect(await createAssistantWorkClient(transport,()=>owner).historyAll(assistant,work)).toHaveLength(1)
+      expect(transport.mock.calls[1]![1].p_after).toBe('2')
+      expect(warn).toHaveBeenCalledOnce()
+    } finally {warn.mockRestore()}
+  })
   it('reads all task pages directly from the cloud with lossless bigint cursors', async () => {
     const other = '10000000-0000-4000-8000-000000000006'
     const transport = vi.fn().mockResolvedValueOnce({ data: { items: [row(work,'9007199254740994')],next_before: '9007199254740994' },error: null })

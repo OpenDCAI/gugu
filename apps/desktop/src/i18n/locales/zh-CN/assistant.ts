@@ -398,7 +398,7 @@ export default {
   "tasks": {
     "closeChat": "关闭任务聊天",
     "agent": "Agent",
-    "chatUnavailable": "暂未读到这个任务的 Agent，请刷新后重试。",
+    "chatUnavailable": "暂时无法读取这个任务。",
     "collaborationLoading": "正在读取助理与任务 Agent 的协作记录…",
     "collaborationUnavailable": "暂时无法读取完整的协作记录。",
     "collaborationReady": "含个人助理的协作记录",

@@ -9,6 +9,7 @@ import { taskChatRows, taskChatWindow } from './taskChatRows'
 import { Button } from '../ui/Button'
 import { rendererLogger } from '../../lib/log'
 import './assistant-task-chat.css'
+import {assistantWorkRefresh} from './assistant-work-refresh'
 
 const log = rendererLogger('assistant/task-chat')
 
@@ -19,43 +20,44 @@ export function useTaskChatRows(messages: readonly MessageItem[], ownerId: strin
   const task = useSyncExternalStore(subscribeAssistantTaskChats, () => readAssistantTaskChat(ownerId, agentId))
   const { t } = useTranslation('assistant')
   const key = task ? JSON.stringify([ownerId,task]) : ''
-  const [projection,setProjection] = useState<{ key: string; entries: TaskExchange[] } | null>(null)
+  const [projection,setProjection] = useState<{ key: string; entries: TaskExchange[];error?:unknown } | null>(null)
   const [history,setHistory] = useState({ key: '',count: 80 })
   useEffect(() => {
     if (!task || !ownerId || !visible) return
-    let alive = true,version = 0,failures = 0
+    let alive = true,failures = 0
     let retry: ReturnType<typeof setTimeout> | undefined
-    const refresh = async () => {
+    const pending = assistantWorkRefresh(async () => {
       clearTimeout(retry)
-      const current = ++version
       try {
         const workIds=task.workId ? [task.workId] : (await assistantWorkCloud.listAll(task.assistantId))
           .filter(work=>work.executors.some(target=>target.session_id===task.task.sessionId && target.device_id===task.task.deviceId)
             && task.assistants.some(home=>home.sessionId===work.coordinator_session_id && home.deviceId===work.coordinator_device_id)).map(work=>work.work_id)
         const pages=await Promise.all(workIds.map(async workId=>assistantWorkExchanges(await assistantWorkCloud.historyAll(task.assistantId,workId),workId)))
-        if (!alive || current !== version) return
+        if (!alive) return
         // Replace, rather than merge, so deleted original sources disappear after revalidation.
         const entries=pages.flat()
         failures = 0
         cache.set(key,entries)
         setProjection({ key,entries })
       } catch (error) {
-        if (alive && current === version) {
+        if (alive) {
+          setProjection({key,entries:cache.get(key)??EMPTY,error})
           log.warn({ error },'account collaboration read failed')
-          retry=setTimeout(()=>{void refresh()},Math.min(30_000,1000 * 2 ** Math.min(5,failures++)))
+          retry=setTimeout(()=>{void pending.refresh()},Math.min(30_000,1000 * 2 ** Math.min(5,failures++)))
         }
       }
-    }
-    const stop = watchAssistantWork(ownerId,task.assistantId,() => { void refresh() })
-    void refresh()
-    return () => { alive = false; clearTimeout(retry); stop() }
+    })
+    const stop = watchAssistantWork(ownerId,task.assistantId,() => { void pending.refresh() })
+    void pending.refresh()
+    return () => { alive = false; pending.close(); clearTimeout(retry); stop() }
   },[key,visible,ownerId,task])
   const exchanges = projection?.key === key ? projection.entries : cache.get(key) ?? EMPTY
   const allRows = useMemo(() => taskChatRows(messages, exchanges, task, query), [messages, exchanges, task, query])
   const count = query ? Infinity : history.key === key ? history.count : 80
   const { rows, earlier } = useMemo(() => taskChatWindow(allRows, count), [allRows, count])
   const listedMessages = useMemo(() => rows.map((row) => row.message), [rows])
-  const notice = earlier > 0 ? <div className="task-chat-notice"><Button variant="ghost" size="sm"
-    onClick={() => setHistory({ key,count: count + 80 })}>{t('tasks.collaborationOlder')}</Button></div> : null
+  const unavailable=projection?.key===key&&projection.error
+  const notice = <>{unavailable ? <div className="task-chat-notice" role="status">{t('tasks.collaborationUnavailable')}</div> : null}{earlier > 0 ? <div className="task-chat-notice"><Button variant="ghost" size="sm"
+    onClick={() => setHistory({ key,count: count + 80 })}>{t('tasks.collaborationOlder')}</Button></div> : null}</>
   return { rows, listedMessages, notice, threeParty: task !== null }
 }

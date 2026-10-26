@@ -14,8 +14,7 @@ import { AssistantEmpty, AssistantRow, AssistantSection } from '@/session/render
 import { useDevicesStore } from '@/store/devicesContext'
 import { StatusGlyph } from '../agent-watch/StatusGlyph'
 import type { PhonePageProps } from './MobileAssistantApp'
-import { PhoneMachineGate } from './PhoneMachineGate'
-import { ReadView } from './PhoneMachineView'
+import {AssistantWorkTaskRead} from '@/components/assistant/AssistantWorkTaskRead'
 import { PhoneRoutineRead } from './PhoneRoutineRead'
 import { PhoneRoutineDetail } from './PhoneRoutineDetail'
 import { usePhoneRoutines } from './usePhoneRoutines'
@@ -62,7 +61,7 @@ function SubAgents({ assistant, askInChat }: PhonePageProps) {
   const devices = [...hosts,...phones]
   const {user}=useAuth()
   const read=useAssistantWorkTasks(user?.id,assistant.id)
-  return <ReadView read={read} failedTitle={t('tasks.loadFailed')}>{children => children.length === 0
+  return <AssistantWorkTaskRead read={read} failedTitle={t('tasks.loadFailed')}>{children => children.length === 0
     ? <AssistantSection bare><AssistantEmpty title={t('tasks.emptyTitle')} action={<Button variant="ghost" className="ta-pill-btn"
       onClick={() => askInChat(t('tasks.createPrompt'))}>{t('tasks.create')}</Button>} /></AssistantSection>
     : groupByDay(children,item => item.lastInteractedAt,new Date()).map(group => <AssistantSection key={group.bucket}
@@ -71,17 +70,16 @@ function SubAgents({ assistant, askInChat }: PhonePageProps) {
         detail={assistantTaskDeviceLabel(devices,task.deviceId)}
         trailing={<StatusGlyph presentation={presentAgentStatus({ reading: task.status,unseen: task.unseen })} />}
         chevron={!!task.agentId} onClick={task.agentId ? () => openAssistantPanelTask({assistantId:assistant.id},task) : undefined} />)}
-    </AssistantSection>)}</ReadView>
+    </AssistantSection>)}</AssistantWorkTaskRead>
 }
 
 function Routines(props: PhonePageProps) {
-  const { assistant, readiness, askInChat, go } = props
+  const { assistant, askInChat, go } = props
   const { t, i18n } = useTranslation('assistant')
   const { read, routines, directory } = usePhoneRoutines(props)
   const formatAt = (at: number) =>
     new Intl.DateTimeFormat(i18n.language, { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit', hour12: false }).format(at)
   return (
-    <PhoneMachineGate readiness={readiness} name={assistant.display_name}>
       <PhoneRoutineRead read={read} directory={directory}>
         {() =>
           routines.length === 0 ? (
@@ -116,6 +114,5 @@ function Routines(props: PhonePageProps) {
           )
         }
       </PhoneRoutineRead>
-    </PhoneMachineGate>
   )
 }

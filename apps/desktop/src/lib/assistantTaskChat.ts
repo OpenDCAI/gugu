@@ -31,7 +31,10 @@ export function readAssistantTaskChat(ownerId: string | undefined, agentId: stri
   if (!ownerId || !agentId) return null
   const opened = registry().opened
   if (opened?.ownerId === ownerId && opened.request.taskAgentId === agentId) return opened.request
-  return [...registry().entries.values()].reverse().find(task => task.taskAgentId === agentId && registry().entries.get(taskKey(ownerId,task)) === task) ?? null
+  const legacy=registry().entries.get(`${ownerId}:${agentId}:legacy`)
+  if(legacy)return legacy
+  const matches=[...registry().entries].filter(([key,task])=>key.startsWith(`${ownerId}:`)&&task.taskAgentId===agentId)
+  return matches.length===1?matches[0]![1]:null
 }
 function loadOwner(ownerId: string): void {
   const data = registry()

@@ -35,6 +35,7 @@ export function createPhoneAssistantWorkHistory({root,store,cloud,deviceId,insta
   const run=async()=>{
     if(!current()) return
     const imported=store.state.workHistoryImported??={}
+    const completed=store.state.workHistoryJobs??={}
     const groups=new Map()
     for(const job of Object.values(store.state.jobs)) {
       if(!current()) return
@@ -42,22 +43,30 @@ export function createPhoneAssistantWorkHistory({root,store,cloud,deviceId,insta
       if(!agent) continue
       const work=legacyAssistantDispatch({agent,job,deviceId})
       if(!work) continue
+      const settled=['done','failed','interrupted','cancelled'].includes(job.status)
+      const signature=JSON.stringify([job.status,job.finishedAt,job.contextEpoch,job.record?.path??agent.record?.path,job.sent??[]])
+      const previous=completed[job.id]
+      if(settled&&previous?.signature===signature&&previous.events.every(id=>imported[id]))continue
       try {
         const authorizeJob=()=>authorize([...new Set([...(agent.dataProof?.groups??[]),...(job.inputDataProof?.groups??[]),...(job.usedGroups??[])])],{sessionId:agent.sessionId,permissionRequirements:[...(agent.dataProof?.permissionRequirements??[]),...(job.inputDataProof?.permissionRequirements??[]),...(job.permissionRequirements??[])]})
         await authorizeJob()
         const files=callId=>Array.from({length:8},(_,index)=>store.state.sessionFileOutbox?.[stableId('session-file',job.id,callId,index)]?.reference).filter(Boolean)
-        const events=[work.event,...legacyAssistantReports(work,job,await records(agent,job),files)].filter(event=>!imported[event.message_id])
-        if(!events.length) continue
-        const group=groups.get(work.workId)??{work,events:new Map(),authorizations:[]}
+        const original=[work.event,...legacyAssistantReports(work,job,await records(agent,job),files)]
+        const events=original.filter(event=>!imported[event.message_id])
+        const checkpoint={signature,events:original.map(event=>event.message_id)}
+        if(!events.length){if(settled){completed[job.id]=checkpoint;await store.save()}continue}
+        const group=groups.get(work.workId)??{work,events:new Map(),authorizations:[],jobs:[]}
         if(group.work.task.coordinator_session_id!==work.task.coordinator_session_id || group.work.task.coordinator_device_id!==work.task.coordinator_device_id) throw new Error('Historical coordinator changed')
         for(const executor of work.task.executors) if(!group.work.task.executors.some(row=>row.session_id===executor.session_id)) group.work.task.executors.push(executor)
         group.authorizations.push(authorizeJob)
+        if(settled)group.jobs.push({id:job.id,checkpoint})
         for(const event of events) group.events.set(event.message_id,event)
         groups.set(work.workId,group)
       } catch(error) {warn({code:error.code??'HISTORY_RECORD_UNAVAILABLE'})}
     }
-    for(const {work,events,authorizations} of groups.values()) {
+    for(const {work,events,authorizations,jobs} of groups.values()) {
       if(!current()) return
+      try {
       let after='0'
       for(;;) {
         const {data,error}=await cloud.identity.rpc('assistant_work_history',{p_assistant:work.assistantId,p_work_id:work.workId,p_after:after,p_limit:200})
@@ -83,7 +92,9 @@ export function createPhoneAssistantWorkHistory({root,store,cloud,deviceId,insta
         for(const event of batch) imported[event.message_id]=true
         await store.save()
       }
-      if(!missing.length) await store.save()
+      for(const job of jobs)completed[job.id]=job.checkpoint
+      await store.save()
+      }catch(error){warn({code:error.code??'HISTORY_IMPORT_FAILED'})}
     }
   }
   return {kick(){
