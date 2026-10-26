@@ -56,6 +56,21 @@ it('hands the click authorization to the bound file without reading its row twic
   expect(warn).not.toHaveBeenCalled();
 });
 
+it('reads the existing sync identity alongside click authorization, then reuses it for the guest', async () => {
+  let resolveRow!: (value: { data: typeof row[]; error: null }) => void;
+  rpc.mockImplementationOnce(() => {
+    const requested = new Promise<{ data: typeof row[]; error: null }>((resolve) => { resolveRow = resolve; });
+    return Object.assign(requested, { select: vi.fn((_columns: string) => requested) });
+  });
+  const requested = files.openTarget(page, { ref: { id: ITEM } });
+  await vi.waitFor(() => expect(identities).toHaveBeenCalledWith('token', [PERSON]));
+  resolveRow({ data: [row], error: null });
+  const target = await requested;
+  await files.open(page, { ref: { chat: CHAT, id: ITEM }, deferDetails: true }, target.opening);
+  expect(identities).toHaveBeenCalledOnce();
+  expect(rpc.mock.calls.map(([name]) => name)).toEqual(['workspace_get_as']);
+});
+
 it.each(['expiry', 'version', 'actor', 'guest'] as const)('rechecks the original authorized reader on %s mismatch and records it', async (mismatch) => {
   const { opening } = await files.openTarget(page, { ref: { id: ITEM } });
   if (mismatch === 'expiry') opening!.expiresAt = 0;
