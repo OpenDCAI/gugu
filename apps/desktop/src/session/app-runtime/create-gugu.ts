@@ -74,7 +74,12 @@ export function createGugu(
     });
   // Every call names where its file is (真源原则 13): an entry or `ctx.file` carries it, a place says it.
   const files = Object.freeze({
-    open: (file: unknown, options?: { readOnly?: boolean }) => loadFiles().then((m) => m.openFile(host, file, options)),
+    open: (file: unknown, options?: { readOnly?: boolean }) => withRef(file, (ref) => {
+      const requested = host.appFiles.open({ ref, ...(options?.readOnly === true ? { readOnly: true } : {}) });
+      const opening = loadFiles().then((m) => m.openFile(host, requested));
+      // Observe a fast refusal even while the runtime is still loading.
+      return Promise.all([opening, requested]).then(([opened]) => opened);
+    }),
     list: (place: unknown) => loadFiles().then((m) => m.listEntries(host, place)),
     /** Across every chat the reader is in, needing `files:read`: by a piece of the path, newest first; what this person opened last. */
     search: (options?: unknown) => loadFiles().then((m) => m.searchEntries(host, options)),

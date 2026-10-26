@@ -342,7 +342,7 @@ export async function loadPage<File>(type: 'text' | 'json' = 'text', options: { 
     clipboard: { writeText: async () => undefined },
     ...(options.checkPage ? { checkPage: { report: vi.fn(async (_counts: unknown) => undefined) } } : {}),
   };
-  const open = () => openFile(host as never, { id: 'item-1' }) as Promise<File>;
+  const open = () => openFile(host as never, host.appFiles.open()) as Promise<File>;
   return { service, host, open, STALL_MS, internals, bindText };
 }
 
