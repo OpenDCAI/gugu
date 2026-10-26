@@ -29,13 +29,13 @@ it('downloads only the selected application body, and a failed detail leaves the
   expect(body).toHaveBeenCalledTimes(2)
 })
 
-it('uses built-in icons and snapshot descriptions without downloading bodies',async()=>{
+it('uses built-in localized copy and icons without downloading bodies',async()=>{
  const {integrationIcons}=await import('@gugu/session-plugins/integration-icons')
  const body=vi.fn()
  const panel={collection:async()=>[{resource_key:'catalog:github',data:{providerId:'github',displayName:'GitHub',description:'Saved description'}}],snapshot:async()=>({application:[]}),body} as unknown as AssistantPanelFiles
  const result=await readAssistantPanelIntegrations(panel,'en-US')
  expect(result.items[0]!.icon).toEqual(integrationIcons.github)
- expect(result.items[0]!.description).toBe('Saved description')
+ expect(result.items[0]!.description).toBe('Work on GitHub issues and PRs')
  expect(body).not.toHaveBeenCalled()
 })
 it('fills optional descriptions one by one with four workers and ignores a broken description',async()=>{
@@ -50,28 +50,55 @@ it('fills optional descriptions one by one with four workers and ignores a broke
  expect(peak).toBe(4)
  expect(updated).toHaveBeenCalledTimes(8)
  expect(updated).not.toHaveBeenCalledWith('p0',expect.anything())
- expect(updated).toHaveBeenCalledWith('p8',{name:'p8',description:'Description p8'})
+ expect(updated).toHaveBeenCalledWith('p8',{name:'App 8',description:'Description p8'})
  expect(items).toHaveLength(9)
 })
 
 it('fills a legacy catalog name even when its description is already present',async()=>{
  const {enrichAssistantPanelIntegrations}=await import('../../apps/desktop/src/components/assistant/assistant-panel-integrations')
- const rows=[{resource_key:'catalog:qq-mail',data:{providerId:'qq-mail',description:'Saved description'}}]
- const body=vi.fn(async()=>new TextEncoder().encode(JSON.stringify({version:1,'zh-CN':{id:'qq-mail',name:'QQ 邮箱',auth:{methods:[]}}})))
+ const rows=[{resource_key:'catalog:custom-mail',data:{providerId:'custom-mail',description:'Saved description'}}]
+ const body=vi.fn(async()=>new TextEncoder().encode(JSON.stringify({version:1,'zh-CN':{id:'custom-mail',name:'公司邮箱',auth:{methods:[]}}})))
  const panel={collection:async()=>rows,snapshot:async()=>({application:[]}),body} as unknown as AssistantPanelFiles
  const items=(await readAssistantPanelIntegrations(panel,'zh-CN')).items,updated=vi.fn()
  expect(body).not.toHaveBeenCalled()
  await enrichAssistantPanelIntegrations(panel,items,'zh-CN',updated)
  expect(body).toHaveBeenCalledTimes(1)
- expect(updated).toHaveBeenCalledWith('qq-mail',{name:'QQ 邮箱',description:'Saved description'})
+ expect(updated).toHaveBeenCalledWith('custom-mail',{name:'公司邮箱',description:'Saved description'})
 })
 
-it('treats a malformed description as only that entry being unreadable',async()=>{
+it('treats a malformed unknown description as only that entry being unreadable',async()=>{
  const {enrichAssistantPanelIntegrations}=await import('../../apps/desktop/src/components/assistant/assistant-panel-integrations')
- const rows=[{resource_key:'catalog:github',data:{providerId:'github',displayName:'GitHub'}}]
- const panel={collection:async()=>rows,snapshot:async()=>({application:[]}),body:async()=>new TextEncoder().encode(JSON.stringify({version:1,en:{id:'github',name:'GitHub',description:{bad:true},auth:{methods:[]}}}))} as unknown as AssistantPanelFiles
+ const rows=[{resource_key:'catalog:custom',data:{providerId:'custom',displayName:'Company app'}}]
+ const panel={collection:async()=>rows,snapshot:async()=>({application:[]}),body:async()=>new TextEncoder().encode(JSON.stringify({version:1,en:{id:'custom',name:'Company app',description:{bad:true},auth:{methods:[]}}}))} as unknown as AssistantPanelFiles
  const items=(await readAssistantPanelIntegrations(panel,'en-US')).items,updated=vi.fn()
  await enrichAssistantPanelIntegrations(panel,items,'en-US',updated)
  expect(updated).not.toHaveBeenCalled()
- expect(items[0]!.name).toBe('GitHub')
+ expect(items[0]!.name).toBe('Company app')
+})
+
+it('renders built-in localized names and descriptions even if every first body download fails',async () => {
+ const rows=['feishu','dingtalk','wecom','tencent-docs','tencent-meeting','dida'].map(id=>({resource_key:`catalog:${id}`,data:{providerId:id,displayName:id}}))
+ const body=vi.fn(async()=>{throw new TypeError('download unavailable')})
+ const panel={collection:async()=>rows,snapshot:async()=>({application:[]}),body} as unknown as AssistantPanelFiles
+ const zh=await readAssistantPanelIntegrations(panel,'zh-CN')
+ expect(zh.items.map(item=>item.name)).toEqual(['飞书','钉钉','企业微信','腾讯文档','腾讯会议','滴答清单'])
+ expect(zh.items.every(item=>!!item.description)).toBe(true)
+ const en=await readAssistantPanelIntegrations(panel,'en-US')
+ expect(en.items.map(item=>item.name)).toEqual(['Feishu','DingTalk','WeCom','Tencent Docs','Tencent Meeting','Dida365'])
+ expect(en.items.every(item=>!!item.description)).toBe(true)
+ const {enrichAssistantPanelIntegrations}=await import('../../apps/desktop/src/components/assistant/assistant-panel-integrations')
+ await enrichAssistantPanelIntegrations(panel,zh.items,'zh-CN',vi.fn())
+ expect(body).not.toHaveBeenCalled()
+})
+
+it('keeps an unknown catalog display name and never uses its id as a name after enrichment fails',async()=>{
+ const rows=[{resource_key:'catalog:custom',data:{providerId:'custom',displayName:'Company app'}},{resource_key:'catalog:unnamed',data:{providerId:'unnamed',displayName:'unnamed'}}]
+ const panel={collection:async()=>rows,snapshot:async()=>({application:[]}),body:async()=>{throw new TypeError('download unavailable')}} as unknown as AssistantPanelFiles
+ const result=await readAssistantPanelIntegrations(panel,'zh-CN')
+ expect(result.items.map(item=>item.name)).toEqual(['Company app','应用'])
+ const {enrichAssistantPanelIntegrations}=await import('../../apps/desktop/src/components/assistant/assistant-panel-integrations')
+ const updated=vi.fn()
+ await enrichAssistantPanelIntegrations(panel,result.items,'zh-CN',updated)
+ expect(updated).not.toHaveBeenCalled()
+ expect(result.items.every(item=>item.name!==item.id)).toBe(true)
 })

@@ -1,3 +1,4 @@
+import { summary } from './summary';
 import { verifyCliConnectionRecord } from '../../helpers/cli-connection';
 import { defineIntegrationPlugin, registerIntegrationPluginBehavior } from '../../plugin';
 import { icon } from './icon';
@@ -11,11 +12,8 @@ import { icon } from './icon';
 const plugin = defineIntegrationPlugin(
   {
     id: 'dingtalk',
-    name: '钉钉',
-    description: {
-      en: 'DingTalk contacts, chats, calendar, to-dos, approvals and docs',
-      'zh-CN': '钉钉的通讯录、群聊、日程、待办、审批和文档',
-    },
+    name: summary.name['zh-CN'],
+    description: summary.description,
     websiteUrl: 'https://www.dingtalk.com',
     abilities: [
       { en: 'Look up colleagues and departments', 'zh-CN': '查同事、查部门' },

@@ -1,3 +1,4 @@
+import { summary } from './summary';
 import { verifyHostedMcpCredentials } from '../../helpers/hosted-mcp';
 import { defineIntegrationPlugin, registerIntegrationPluginBehavior } from '../../plugin';
 import { icon } from './icon';
@@ -13,8 +14,8 @@ export const TENCENT_DOCS_MCP_URL = 'https://docs.qq.com/openapi/mcp';
 const plugin = defineIntegrationPlugin(
   {
     id: 'tencent-docs',
-    name: '腾讯文档',
-    description: { en: 'Create and edit Tencent Docs', 'zh-CN': '新建、读取和编辑腾讯文档' },
+    name: summary.name['zh-CN'],
+    description: summary.description,
     websiteUrl: 'https://docs.qq.com',
     abilities: [
       { en: 'Create, read and edit Tencent Docs', 'zh-CN': '新建、读取和编辑腾讯文档' },

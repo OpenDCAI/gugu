@@ -1,3 +1,4 @@
+import { summary } from './summary';
 import type { VerifyResult } from '../../capabilities/auth';
 import { defineIntegrationPlugin, registerIntegrationPluginBehavior } from '../../plugin';
 import { verifyGitHubCredentials } from './client';
@@ -6,8 +7,8 @@ import { icon } from './icon';
 const plugin = defineIntegrationPlugin(
   {
     id: 'github',
-    name: 'GitHub',
-    description: { en: 'Work on GitHub issues and PRs', 'zh-CN': '处理 GitHub issue 和 PR' },
+    name: summary.name['zh-CN'],
+    description: summary.description,
     websiteUrl: 'https://github.com',
   },
   {
