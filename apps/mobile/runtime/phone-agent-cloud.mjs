@@ -41,6 +41,11 @@ export function createPhoneAgentCloud(config, onSession, fetcher = fetch, { onRe
       const response = await fetcher(input, { ...init, signal })
       if (!response.ok) {
         const failure = phoneRequestFailure(null, response.status)
+        const retryAfter = response.headers.get('retry-after')
+        if (retryAfter) {
+          const retryAt = /^\d+(?:\.\d+)?$/.test(retryAfter) ? Date.now() + Number(retryAfter) * 1_000 : Date.parse(retryAfter)
+          if (Number.isFinite(retryAt) && retryAt > Date.now()) failure.retryAt = retryAt
+        }
         if (scope) scope.failure = failure
         onRequestFailure({ operation, phase: scope ? 'preparing' : 'runtime', ...failure })
       } else if (scope) {
