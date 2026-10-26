@@ -2,6 +2,28 @@ import { test } from 'node:test'
 import assert from 'node:assert/strict'
 import { CloudComputerError } from '../../../packages/core/src/cloud/cloudComputer.ts'
 import { createPhoneAssistantWorkOutbox } from './phone-assistant-work-outbox.mjs'
+test('a failed phone claim produces one verified owner message through ordinary chat without waking a device',async()=>{
+  const posts=new Map();let wakes=0,checks=0
+  const query=(data)=>({select(){return this},eq(){return this},is(){return this},not(){return this},abortSignal(){return this},
+    then(resolve){resolve({data,error:null})},maybeSingle(){checks++;return Promise.resolve({data:{id:[...posts.keys()][0]},error:null})}})
+  const cloud={
+    identity:{rpc:async(name)=>name==='assistant_work_outbox_claim'?{data:null,error:{code:'PGRST202',message:'private schema detail'}}:{data:{items:[]},error:null},
+      from:()=>query([{agent_user_id:'assistant',device_id:'home',member_key:'assistant',phase:'ready',created_at:'2026-10-26T00:00:00Z'}])},
+    chat:{rpc:(name,args)=>({abortSignal:async()=>{
+      if(name==='open_dm')return {data:'dm',error:null}
+      posts.set(args.p_message_id,args);return {data:[{id:args.p_message_id}],error:null}
+    }}),from:()=>query(null)},
+  }
+  const host=createPhoneAssistantWorkOutbox({cloud,ownerId:'owner',deviceId:'phone',instanceId:'runtime',isReady:()=>true,
+    requester:()=>({call:async()=>{throw new Error('must not attach')}}),receive:async()=>{throw new Error('must not deliver')},
+    controller:{state:async()=>{wakes++;return {state:'asleep',deviceId:'home'}}}})
+  try {await host.kick();await host.kick()} finally {host.close()}
+  assert.equal(posts.size,1)
+  assert.equal(checks,1)
+  assert.equal(wakes,0)
+  assert.equal([...posts.values()][0].p_to_user_ids[0],'owner')
+  assert.ok(!JSON.stringify([...posts.values()]).includes('private schema'))
+})
 function fixture({ paused = false, obsolete = false, abandoned = false, controlError = null, target = 'cloud' } = {}) {
   let once = false
   const calls = []

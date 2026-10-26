@@ -15,8 +15,9 @@ function fixture(events = [event()], localNow = Date.parse('2026-10-26T01:00:00Z
     ? { events: claimed ? [] : (claimed = true, events) } : {}, error: null }))
   const deliver = vi.fn(async (row: ReturnType<typeof event>, _signal: AbortSignal) => ({ status: 'admitted' as const, messageId: row.message_id }))
   const warn = vi.fn()
-  const pump = createAssistantWorkOutboxPump({ context: async () => context, rpc, deliver, warn, now: () => localNow })
-  return { pump, rpc, deliver, warn }
+  const unavailable = vi.fn(async (_ctx: typeof context, _failure: {code:string}, _signal: AbortSignal) => undefined)
+  const pump = createAssistantWorkOutboxPump({ context: async () => context, rpc, deliver, warn, unavailable, now: () => localNow })
+  return { pump, rpc, deliver, warn, unavailable, setNow: (value:number) => {localNow=value} }
 }
 afterEach(() => { vi.useRealTimers() })
 describe('one account work outbox', () => {
@@ -154,4 +155,44 @@ describe('one account work outbox', () => {
     await f.pump.kick()
     expect(f.deliver.mock.calls.map(([row])=>row.message_id)).toEqual(['batch-1','batch-2'])
   })
+})
+
+it('reports persistent claim failure once instead of silently stopping delivery', async () => {
+  const f=fixture()
+  f.rpc.mockResolvedValue({data:null,error:{code:'PGRST202',message:'private missing schema details'}})
+  await f.pump.kick();await f.pump.kick()
+  expect(f.unavailable).toHaveBeenCalledOnce()
+  expect(f.unavailable).toHaveBeenCalledWith(context,{code:'PGRST202',day:'2026-10-26'},expect.any(AbortSignal))
+  expect(JSON.stringify(f.unavailable.mock.calls)).not.toContain('private')
+})
+
+it('bounds a silent availability notice and keeps later queue retries usable', async () => {
+  vi.useFakeTimers()
+  const f=fixture()
+  let aborted=false
+  f.rpc.mockResolvedValue({data:null,error:{code:'PGRST202',message:'missing schema'}})
+  f.unavailable.mockImplementation(async (_ctx,_failure,signal)=>{signal.addEventListener('abort',()=>{aborted=true});await new Promise<void>(()=>{})})
+  const first=f.pump.kick()
+  await vi.advanceTimersByTimeAsync(8001)
+  await first
+  expect(aborted).toBe(true)
+  f.rpc.mockResolvedValue({data:{events:[]},error:null})
+  await f.pump.kick()
+  expect(f.rpc).toHaveBeenCalledTimes(2)
+  f.pump.stop()
+})
+
+it('warns again for a new failure on the next Beijing day, but not another error on the same day',async()=>{
+  const f=fixture()
+  const failure=()=>f.rpc.mockResolvedValue({data:null,error:{code:'PGRST202',message:'missing'}})
+  f.setNow(Date.parse('2026-10-26T15:59:00Z'));failure()
+  await f.pump.kick()
+  // A second error on the same date is still one owner notice.
+  f.rpc.mockResolvedValue({data:null,error:{code:'NETWORK',message:'another detail'}})
+  await f.pump.kick()
+  expect(f.unavailable).toHaveBeenCalledOnce()
+  f.rpc.mockResolvedValue({data:{events:[]},error:null});await f.pump.kick()
+  f.setNow(Date.parse('2026-10-26T16:01:00Z'));failure()
+  await f.pump.kick()
+  expect(f.unavailable).toHaveBeenCalledTimes(2)
 })

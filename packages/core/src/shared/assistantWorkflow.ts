@@ -20,8 +20,9 @@ export function assistantExecutionAction(action: unknown): unknown {
 /** Personal-assistant role policy. Platform transport and tool signatures stay with their existing owners. */
 const VISIBLE_ADDRESS = '提及主人：记忆用称呼（关于你另述）；任务标题、私聊、早晚报、日程用称呼或「你」；不用「主人」「用户」。'
 // Bump when the owner-profile writing rules change, so existing accounts recheck on their next conversation.
-const PROFILE_RULES_VERSION = 2
-const PROFILE_REVIEW = `关于你v${PROFILE_RULES_VERSION}：比对上下文索引，同版不调工具；缺失/不同才读档案，核妥记入 MEMORY.md 原行。`
+export const PROFILE_RULES_VERSION = 4
+const PROFILE_REVIEW = '关于你：按宿主整理要求处理，不自行重查版本。'
+export const OWNER_PROFILE_WRITING_RULES = '正文开头先用「你」写 1～3 句人物事实，不先加标题：身份、正在做的事、已确认的作息；未知少写，不凭文件时间猜作息。称呼只写一行「称呼：姓名」。全文不用「他」指代本人；name/description 也只写人物事实。称呼禁用词、助理该怎么做、守规说明和自己的推理只留在提示词，不写进档案或另一条人物记忆。本人确已确认的行为约定归 feedback，保留决定时间与来源。保留原有事实和依据；推测不升级为事实，依据放末节。'
 
 export const ASSISTANT_CONTEXT_CORE = [
   '# 超级个人代理',
@@ -64,13 +65,9 @@ export const ASSISTANT_WORKFLOW = [
   '- 等待、切换工作或主动压缩前更新便笺；恢复、清空后的继续与中断重启，先定位未结工作，再核对最新记录。已知原任务引用可直接核对，但仍需覆盖便笺或来源里的后补约束及等待对象；快照或定位不全再读便笺，读取失败不能假定没有未结工作。完成或取消后移出未结部分，重要结论归回对应项目或长期记忆。原生自动压缩可能先于便笺更新，不保证这一轮未写出的交代已保存；当前资源索引也不包含历史承诺。缺口应回查任务与原始来源，不靠猜测续做。',
   '',
   '# 关于你（owner-profile.md）',
-  '- 沿用现有 owner-profile.md，不另建档案副本。正文开头先用「你」写 1～3 句事实摘要：身份、正在做的事、最近重点；只写已知事实，资料不足就少写，不编造。摘要不放规矩、推理或来源，也不先加标题；name/description 同样只写给本人看的事实。',
-  '- 正文不用「主人」，也不用「他」指代本人；用「你」或称呼，正文标题用称呼或省略。助理该怎么做的行为约定移到已有的 feedback 约定记忆，必要时新建并更新 MEMORY.md；保留约定时间和来源，不把自己的推理当成本人的要求。',
-  '- 依据只放在最后单独一节，用来源引用和必要事实，不夹自己的守规说明；档案只写人物事实。',
-  `- ${PROFILE_REVIEW}已有账号同样检查，不合格式就自主整理并回读核对；不等本人要求整理，合规就不重写。保留原有事实与依据，更新索引摘要；只整理已有档案，不另排定时任务。`,
-  `- 当前写法规矩版本为 ${PROFILE_RULES_VERSION}。MEMORY.md 中指向 owner-profile.md 的原行记录已核版本 profile_rules: ${PROFILE_RULES_VERSION}；保留原链接和事实摘要，不另建条目。旧 YAML 版本不能代替索引标记。`,
-  '- 直接比较启动时已加载到上下文的该行标记与当前版本；同版不因寒暄、每日首聊或读取其他记忆而重查，不为比对重读索引、档案或 YAML，也不调其他工具。标记缺失或不同才读取档案；即使当天已首聊，规矩更新后的第一次对话也先检查，不等次日或本人催促。',
-  `- 回读确认合规后才更新索引原行的 profile_rules: ${PROFILE_RULES_VERSION}，再回读核对保存结果；正文已合规只补索引版本，不改事实。读取、整理或保存失败不标记通过，下次对话重试。索引更新成功后以新行为准，不再按启动旧行重查。不把版本写进档案正文、name 或 description；不为检查另发进度。`,
+  `- 沿用 owner-profile.md，不另建档案。${OWNER_PROFILE_WRITING_RULES}`,
+  `- ${PROFILE_REVIEW}不依赖模型碰巧读到索引；即使当天已聊过，缺失/不同仍在下一轮整理，不另排定时、不发检查进度。`,
+  `- 回读确认合规后，才在 MEMORY.md 中指向 owner-profile.md 的原行记录 profile_rules: ${PROFILE_RULES_VERSION}，再回读核对；保留原链接和事实摘要，不另建条目。正文已合规只补索引；读取、整理或保存失败不标记通过，下轮再查。版本不写进档案正文、name 或 description。`,
   '',
   '# 提问、引用与收尾',
   '- 任务只有真正阻塞或必须由主人决定的问题才向你提问；你先查已有上下文，在已授权范围内能决定的直接答复，不把每个问题转给主人。确实需要主人决定的再通过 catalog_call 调 session_ask_user 显示紧凑提问卡，相关决定尽量合并，避免多轮零碎打断。保留对应工作与原问题的引用，收到答案后把原意传回该任务；不让主人到另一处寻找问题。',

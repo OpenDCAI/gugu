@@ -1,4 +1,4 @@
-import { mkdtemp, rm } from 'node:fs/promises'
+import { mkdtemp, mkdir, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterEach, expect, it, vi } from 'vitest'
@@ -24,6 +24,22 @@ vi.mock('@gugu/core/cloud/supabase',() => ({ createGuguSupabaseClient: () => ({
   },
 }) }))
 afterEach(() => { vi.useRealTimers(); calls.signals.length = 0; calls.domains.length=0; calls.stalled=true; calls.collectIntegrations=false; calls.hold=null })
+
+it('prepares stale profiles at each actual personal-assistant turn, independently of native startup', async () => {
+  calls.stalled = false
+  const cwd = await mkdtemp(join(tmpdir(), 'panel-profile-review-')), memory = join(cwd, '.claude', 'memory')
+  const runtime = createAssistantPanelRuntime({ getAuth: async () => ({ accessToken: 'fixture', userId: 'owner' }), instanceId: () => 'runtime', deviceId: async () => 'device', local: {} as never, guguHome: cwd, kind: 'computer', env: {}, failed: vi.fn(), locale: () => 'zh-CN' })
+  try {
+    await mkdir(memory, { recursive: true })
+    await writeFile(join(memory, 'owner-profile.md'), '姓名：测试')
+    await writeFile(join(memory, 'MEMORY.md'), '- [关于你](owner-profile.md) profile_rules: 2')
+    await runtime.bind({ sessionId: 'session', assistantId: 'assistant', ownerId: 'owner', cwd })
+    expect((await runtime.prepare('session', 'hi')).trailingText).toContain('本轮整理')
+    expect((await runtime.prepare('session', 'hi')).trailingText).toContain('本轮整理')
+    await writeFile(join(memory, 'MEMORY.md'), '- [关于你](owner-profile.md) profile_rules: 4')
+    expect((await runtime.prepare('session', 'hi')).text).toBe('')
+  } finally { runtime.dispose(); await rm(cwd, { recursive: true, force: true }) }
+})
 
 it('aborts stalled cloud requests and releases admission after a bounded retry window', async () => {
   const cwd = await mkdtemp(join(tmpdir(),'panel-runtime-timeout-'))

@@ -1,5 +1,6 @@
 import { DeviceRpcTimeoutError, DeviceRpcChannelError } from './deviceRpcRequester'
 import { assistantWorkDeliveryTarget, type AssistantWorkAddress } from './assistantWorkRouting'
+import { assistantWorkAvailabilityDay } from './assistantWorkAvailability'
 
 /** Account events are the only durable delivery queue. This module keeps no local message copy. */
 export type AssistantWorkRpcClient = {
@@ -103,12 +104,16 @@ export function createAssistantWorkOutboxPump(deps: {
   /** Uses the existing session delivery route with this exact message ID, including any necessary cloud wake. */
   deliver(event: ClaimedAssistantWorkEvent, signal: AbortSignal): Promise<AssistantWorkAdmission>
   warn?(detail: { code: string; messageId?: string }): void
+  unavailable?(context: AssistantWorkOutboxContext, failure: {code:string;day:string}, signal: AbortSignal): Promise<void>
   now?: () => number
 }) {
   let flight: Promise<void> | null = null
   let again = false
   let stopped = false
   const active = new Set<AbortController>()
+  const reported = new Set<string>()
+  let failedContext: AssistantWorkOutboxContext | null = null
+  let failureStart: {ownerId:string;day:string} | null = null
 
   const settle = async (ctx: AssistantWorkOutboxContext, event: ClaimedAssistantWorkEvent, stage: string, code?: string, receipt?: Record<string, unknown>) => {
     // Owner changes or stopped runtime instances cannot settle a previous owner's claim.
@@ -175,13 +180,16 @@ export function createAssistantWorkOutboxPump(deps: {
   const drain = async () => {
     do {
       again = false
+      failedContext = null
       const ctx = await deps.context()
       if (stopped || !ctx) return
+      failedContext = ctx
       const claimStartedAt = performance.now()
       const result = await call({ rpc: (name, args) => deps.rpc(name, args, ctx) }, 'assistant_work_outbox_claim', {
         p_runtime_instance_id: ctx.runtimeInstanceId, p_limit: 20, p_lease_seconds: 60,
       }) as { events?: ClaimedAssistantWorkEvent[] } | null
       if (!Array.isArray(result?.events)) throw Object.assign(new Error('Invalid outbox claim'), { code: 'INVALID_OUTBOX_CLAIM' })
+      failureStart = null
       // A target's next message cannot overtake an unadmitted predecessor. Separate targets keep two lanes.
       const targets=new Map<string,ClaimedAssistantWorkEvent[]>()
       for(const event of result.events) {
@@ -208,7 +216,29 @@ export function createAssistantWorkOutboxPump(deps: {
       if (stopped) return Promise.resolve()
       again = true
       if (flight) return flight
-      const running = drain().catch(error => { deps.warn?.({ code: errorCode(error) }) })
+      const running = drain().catch(async error => {
+        const code=errorCode(error)
+        deps.warn?.({code})
+        let timer:ReturnType<typeof setTimeout>|undefined
+        const controller=new AbortController()
+        active.add(controller)
+        try {
+          await Promise.race([(async()=>{
+            const ctx=failedContext,current=await deps.context()
+            controller.signal.throwIfAborted()
+            if(stopped || !deps.unavailable || !ctx || current?.ownerId!==ctx.ownerId || current.runtimeInstanceId!==ctx.runtimeInstanceId) return
+            if(failureStart?.ownerId!==ctx.ownerId) failureStart={ownerId:ctx.ownerId,day:assistantWorkAvailabilityDay((deps.now??Date.now)())}
+            const day=failureStart.day,key=JSON.stringify([ctx.ownerId,day])
+            if(reported.has(key)) return
+            await deps.unavailable(ctx,{code,day},controller.signal)
+            reported.add(key)
+          })(),new Promise<never>((_,reject)=>{
+            timer=setTimeout(()=>{controller.abort(new Error('Work availability notice deadline exceeded'));reject(controller.signal.reason)},8000)
+            controller.signal.addEventListener('abort',()=>reject(controller.signal.reason),{once:true})
+          })])
+        } catch { deps.warn?.({code:'WORK_OUTBOX_NOTICE_UNAVAILABLE'}) }
+        finally { if(timer!==undefined) clearTimeout(timer);active.delete(controller) }
+      })
       flight = running.finally(() => { flight = null })
       return flight
     },
