@@ -127,3 +127,38 @@ it('uses product names for public versions while retaining development and unkno
     expect(versions.querySelector(`[data-testid="device-configuration-version-${index}"] .gg-settings-row-title`)?.textContent).toBe(title)
   }
 })
+
+
+it('keeps grants separate when selecting another version and never changes a permission', async () => {
+  const base = device(true)
+  const beta = { ...base, device_id: 'beta', tier: 'beta' }
+  const production = { ...base, device_id: 'production', tier: 'production', capabilities: { ...base.capabilities,
+    actions: { actions: [{ name: 'calendar.list', title: 'Calendar', group: 'calendar', available: false, unavailable_reason: 'not_granted' }] } } } as Device
+  await h.render(<DeviceActionsPage device={production} isThisDevice={false} embedded configurations={[beta, production]} />)
+  const selected = (id: string) => h.container.querySelector<HTMLElement>(`[data-testid="device-configuration-${id}"]`)!
+  const calendar = () => h.container.querySelector('[data-testid="settings-device-action-other-calendar"]')!.textContent
+  expect(selected('production').getAttribute('aria-pressed')).toBe('true')
+  expect(calendar()).toContain('未授权')
+  await clickElement(selected('beta'))
+  expect(selected('beta').getAttribute('aria-pressed')).toBe('true')
+  expect(selected('production').getAttribute('aria-pressed')).toBe('false')
+  expect(calendar()).toContain('可用')
+  await clickElement(selected('production'))
+  expect(calendar()).toContain('未授权')
+  expect(mocks.invoke).not.toHaveBeenCalled()
+})
+
+it('uses native grants only for the app version that is actually running here', async () => {
+  mocks.state.groups = [{ id: 'calendar', connected: true, blocked: null, actions: [] }]
+  const local = { ...device(true), device_id: 'local', tier: 'production', is_current_device: true }
+  const beta = { ...device(true), device_id: 'beta', tier: 'beta', is_current_device: false, capabilities: { ...device(true).capabilities,
+    actions: { actions: [{ name: 'calendar.list', title: 'Calendar', group: 'calendar', available: false, unavailable_reason: 'not_granted' }] } } } as Device
+  await h.render(<DeviceActionsPage device={local} isThisDevice configurations={[local, beta]} />)
+  expect(h.container.querySelector('[data-testid="device-granted-calendar"]')).not.toBeNull()
+  await clickElement(h.container.querySelector<HTMLElement>('[data-testid="device-configuration-beta"]')!)
+  expect(h.container.querySelector('[data-testid="device-granted-calendar"]')).toBeNull()
+  expect(h.container.querySelector('[data-testid="settings-device-action-other-calendar"]')!.textContent).toContain('未授权')
+  await clickElement(h.container.querySelector<HTMLElement>('[data-testid="device-configuration-local"]')!)
+  expect(h.container.querySelector('[data-testid="device-granted-calendar"]')).not.toBeNull()
+  expect(mocks.invoke).not.toHaveBeenCalled()
+})
