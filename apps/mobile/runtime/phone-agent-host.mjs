@@ -151,7 +151,8 @@ export async function startPhoneAgentHost(initialConfig, { runTurn, cancelTurn, 
     catch (error) { return { ...row, unsupportedReason: error.message } }
   }
 
-  const admit = async (input) => {
+  const admit = async (input,signal) => {
+    signal?.throwIfAborted()
     if (stopped || signingOut) throw new Error('手机宿主正在停止，未接收新任务')
     const proof = input.inputDataProof
     let admitted = input
@@ -164,6 +165,7 @@ export async function startPhoneAgentHost(initialConfig, { runTurn, cancelTurn, 
       agent.dataProof = { groups: [...new Set([...(agent.dataProof?.groups ?? []), ...proof.groups])], permissionRequirements: uniqueProofs(agent.dataProof?.permissionRequirements, proof.permissionRequirements) }
       admitted = { ...input, inputDataProof: structuredClone(proof), usedGroups: [...proof.groups], permissionRequirements: uniqueProofs(proof.permissionRequirements), contextEpoch: agent.contextEpoch }
     }
+    signal?.throwIfAborted()
     const job = await admitPhoneJob(store, admitted)
     // Start after the admission Promise lets the reader commit its read receipt.
     setImmediate(() => { void drain().catch((error) => warn(error.message)) })
@@ -502,7 +504,8 @@ export async function startPhoneAgentHost(initialConfig, { runTurn, cancelTurn, 
   workPump=createPhoneAssistantWorkOutbox({cloud,ownerId,deviceId,instanceId,isReady:()=>ready && !stopped && !signingOut,requester:()=>rpcHost?.requester,receive:work.receive,warn:detail=>warn(`work delivery: ${detail.code}`)})
   const invoke = async (channel, args, requestId, source = { kind: 'device-rpc' }) => {
     if (!ready || stopped || signingOut) throw Object.assign(new Error('手机宿主尚未就绪'), { code: 'host_not_ready' })
-    if(channel==='assistantWork.deliver') return work.receive(args[0])
+    source.signal?.throwIfAborted()
+    if(channel==='assistantWork.deliver') return work.receive(args[0],source.signal)
     const configuredSkills = await skills.invoke(channel, args, requestId, source)
     if (configuredSkills) return configuredSkills.value
     const attached = await attachments.invoke(channel, args)
@@ -534,6 +537,7 @@ export async function startPhoneAgentHost(initialConfig, { runTurn, cancelTurn, 
         return stopPhoneSession({ cancel: () => cancel(agent), running: () => activeJob?.agentUserId === agent.agentUserId, snapshot: () => snapshot(agent) })
       }
       if (name === 'message') {
+        source.signal?.throwIfAborted()
         const content = withSessionAttachments(required(action.text, 'text'), action.attachments)
         if (!Array.isArray(action.session_ids) || !action.session_ids.length) throw new Error('session_ids is required')
         if (action.delivery === 'defer') throw new Error('手机宿主暂不支持 defer 消息')
@@ -542,7 +546,7 @@ export async function startPhoneAgentHost(initialConfig, { runTurn, cancelTurn, 
         for (const agent of targets) {
           const id = action.client_message_id ? uuid(action.client_message_id,'client_message_id') : stableId('phone-session-message', requestId, agent.sessionId)
           agent.knownSessions ??= {}; agent.knownSessions[caller.sessionId] = caller.deviceId
-          await admit({ id, agentUserId: agent.agentUserId, ...(inputDataProof ? { inputDataProof } : {}), prompt: buildSessionDirectEnvelope({ senderSessionId: caller.sessionId, senderTitle: caller.name, messageId: id, content, at: formatDeliveryTimestamp(action.client_message_at ?? new Date().toISOString()), then: action.then, inReplyTo: action.reply_to_message_id }), route: { kind: 'session-direct', caller, sourceMessageId: id } })
+          await admit({ id, agentUserId: agent.agentUserId, ...(inputDataProof ? { inputDataProof } : {}), prompt: buildSessionDirectEnvelope({ senderSessionId: caller.sessionId, senderTitle: caller.name, messageId: id, content, at: formatDeliveryTimestamp(action.client_message_at ?? new Date().toISOString()), then: action.then, inReplyTo: action.reply_to_message_id }), route: { kind: 'session-direct', caller, sourceMessageId: id } },source.signal)
           recipients.push({ to: `session:${agent.sessionId}`, status: 'delivered', message_id: id })
         }
         return { recipients }

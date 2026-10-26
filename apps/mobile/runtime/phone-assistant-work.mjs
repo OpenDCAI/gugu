@@ -19,17 +19,17 @@ export function createPhoneAssistantWork({ ownerId,deviceId,instanceId,cloud,sto
         after=data.next_after
       }
     },
-    deliver:async event=>{
+    deliver:async (event,signal)=>{
       const answer=await invoke('agentSession.message',[{sessionId:event.from_session_id,deviceId:event.from_device_id},
         {action:'message',session_ids:[event.to_session_id],text:event.content,attachments:event.attachment_refs,
-          client_message_id:event.message_id,client_message_at:event.platform_received_at}],event.message_id)
+          client_message_id:event.message_id,client_message_at:event.platform_received_at}],event.message_id,{kind:'device-rpc',signal})
       const admitted=answer?.recipients?.some(row=>row.message_id===event.message_id && row.status==='delivered')===true
       const agent=Object.values(store.state.agents).find(row=>row.sessionId===event.to_session_id)
       return {admitted,messageId:event.message_id,...(admitted && agent ? {receipt:{agent_user_id:agent.agentUserId}} : {})}
     },
   })
   return {
-    receive:ref=>receiver.receive(ref,ownerId),
+    receive:(ref,signal)=>receiver.receive(ref,ownerId,signal),
     async enqueueReport({agent,job,callId,record,prepare}) {
       const assistantId=agent.assistantWork?.assistant_id ?? agent.caller?.agentUserId
       if(!assistantId) throw new Error('Assistant task routing is not available')
