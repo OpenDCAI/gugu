@@ -7,11 +7,15 @@ import { createPaneDimensionSink, PaneDimensionProvider } from '@renderer/featur
 import { PaneSizingContextProvider } from './pane-sizing-context';
 import type { FrontendPty } from './pty';
 import { usePty } from './use-pty';
+import { notifyPtyOutput } from '../session-output-observers';
 
 const resize = vi.hoisted(() => vi.fn());
+const eventOn = vi.hoisted(() => vi.fn());
+const sendInput = vi.hoisted(() => vi.fn());
+vi.mock('./send-terminal-input', () => ({ sendTerminalInput: sendInput }));
 vi.mock('@renderer/lib/ipc', () => ({
   rpc: { pty: { resize }, appSettings: { get: async () => ({}) } },
-  events: { on: () => () => {} },
+  events: { on: eventOn },
 }));
 vi.mock('@renderer/lib/hotkeys/dispatch-matching-hotkeys', () => ({ dispatchMatchingHotkeys: () => false }));
 vi.mock('@renderer/utils/logger', () => ({ log: { warn: vi.fn() } }));
@@ -21,6 +25,8 @@ let root: Root;
 let dom: JSDOM;
 let pty: FrontendPty;
 let hostSize: number[];
+let dataSubscriptions: number;
+let handleInput: (data: string) => void;
 const sink = createPaneDimensionSink();
 
 function TerminalPane() {
@@ -50,6 +56,13 @@ async function focus(target: EventTarget, type: string) {
 describe('terminal activation reasserts the visible pane grid', () => {
   beforeEach(() => {
     vi.useFakeTimers();
+    dataSubscriptions = 0;
+    sendInput.mockReset();
+    eventOn.mockImplementation((channel: { name: string }) => {
+      if (channel.name !== 'pty:data') return () => {};
+      dataSubscriptions += 1;
+      return () => { dataSubscriptions -= 1; };
+    });
     dom = new JSDOM('<div id="root"></div>');
     vi.stubGlobal('window', dom.window);
     vi.stubGlobal('document', dom.window.document);
@@ -69,7 +82,7 @@ describe('terminal activation reasserts the visible pane grid', () => {
       },
       mount: (target: HTMLElement) => target.appendChild(ownedContainer),
       unmount: () => ownedContainer.remove(),
-      attachInputHandler: () => () => {},
+      attachInputHandler: (handler: (data: string) => void) => { handleInput = handler; return () => {}; },
       setTheme() {}, setShown() {},
     } as unknown as FrontendPty;
     hostSize = [];
@@ -108,4 +121,22 @@ describe('terminal activation reasserts the visible pane grid', () => {
     await focus(window, 'focus');
     expect(resize).not.toHaveBeenCalled();
   });
+  it('does not keep a remote output subscription for startup detection while hidden', async () => {
+    await show(true);
+    await show(false);
+    expect(dataSubscriptions).toBe(0);
+  });
+
+  it('suppresses focus reports until this terminal has produced live output', async () => {
+    await show(true);
+    handleInput('\x1b[I');
+    expect(sendInput).not.toHaveBeenCalled();
+    notifyPtyOutput('another-terminal', 'ready');
+    handleInput('\x1b[O');
+    expect(sendInput).not.toHaveBeenCalled();
+    notifyPtyOutput('remote-task', 'ready');
+    handleInput('\x1b[I');
+    expect(sendInput).toHaveBeenLastCalledWith('remote-task', '\x1b[I');
+  });
+
 });
