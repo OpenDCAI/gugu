@@ -220,6 +220,7 @@ export class MotionPlayer {
   private raf = 0;
   private moves = 0;
   private readonly g: CanvasRenderingContext2D;
+  private readonly view: Window;
 
   constructor(
     readonly canvas: HTMLCanvasElement,
@@ -228,7 +229,10 @@ export class MotionPlayer {
     const g = canvas.getContext('2d');
     if (!g) throw new Error('canvas 2d context unavailable');
     this.g = g;
-    this.raf = requestAnimationFrame(this.frame);
+    const view = canvas.ownerDocument.defaultView;
+    if (!view) throw new Error('cursor canvas has no window');
+    this.view = view;
+    this.raf = view.requestAnimationFrame(this.frame);
   }
 
   /** Put the cursor at rest on `p` without motion. */
@@ -273,7 +277,7 @@ export class MotionPlayer {
   }
 
   destroy(): void {
-    cancelAnimationFrame(this.raf);
+    this.view.cancelAnimationFrame(this.raf);
   }
 
   private frame = (now: number) => {
@@ -281,7 +285,7 @@ export class MotionPlayer {
     this.last = now;
     this.tick(dt * this.timeScale);
     this.paint();
-    this.raf = requestAnimationFrame(this.frame);
+    this.raf = this.view.requestAnimationFrame(this.frame);
   };
 
   private tick(dt: number) {

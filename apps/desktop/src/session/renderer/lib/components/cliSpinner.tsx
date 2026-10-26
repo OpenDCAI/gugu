@@ -1,4 +1,6 @@
-import { useEffect, useState } from 'react';
+import { useContext, useEffect, useRef, useState } from 'react';
+import { isAnimationWindowVisible, observeAnimationViewport, subscribeAnimationWindowVisibility } from '@gugu/session-shared/animation-visibility';
+import { PageShownContext } from '@renderer/app/recent-session-pages';
 
 const FRAMES_1 = ['⠋', '⠙', '⠹', '⠸', '⠼', '⠴', '⠦', '⠧', '⠇', '⠏'];
 const FRAMES_2 = [
@@ -46,17 +48,31 @@ export function CLISpinner({
   animate?: boolean;
 }) {
   const [index, setIndex] = useState(0);
+  const element = useRef<HTMLSpanElement>(null);
+  const shown = useContext(PageShownContext);
 
   useEffect(() => {
-    if (!animate) return;
-    const interval = setInterval(() => {
-      setIndex((index + 1) % (variant === '1' ? FRAMES_1.length : FRAMES_2.length));
-    }, 80);
-    return () => clearInterval(interval);
-  }, [index, variant, animate]);
+    const host = element.current;
+    if (!animate || !shown || !host) return;
+    const doc = host.ownerDocument;
+    let inViewport = false;
+    let interval: ReturnType<typeof setInterval> | undefined;
+    const sync = () => {
+      clearInterval(interval);
+      interval = undefined;
+      if (inViewport && isAnimationWindowVisible(doc)) {
+        interval = setInterval(() => {
+          setIndex((index) => (index + 1) % (variant === '1' ? FRAMES_1.length : FRAMES_2.length));
+        }, 80);
+      }
+    };
+    const stopWindow = subscribeAnimationWindowVisibility(sync, doc);
+    const stopViewport = observeAnimationViewport(host, (visible) => { inViewport = visible; sync(); });
+    return () => { clearInterval(interval); stopViewport(); stopWindow(); };
+  }, [variant, animate, shown]);
 
   return (
-    <span className="text-foreground/60" data-animate={animate ? undefined : 'false'}>
+    <span ref={element} className="text-foreground/60" data-animate={animate ? undefined : 'false'}>
       {!animate ? CLI_SPINNER_PAUSED_FRAME : variant === '1' ? FRAMES_1[index] : FRAMES_2[index]}
     </span>
   );

@@ -59,3 +59,49 @@ it('shares root window state and viewport observers without reading styles or ob
     vi.unstubAllGlobals()
   }
 })
+
+it('keeps portal window state and viewport observers in the element owner document', () => {
+  const frames = [document.createElement('iframe'), document.createElement('iframe')]
+  frames.forEach((frame) => document.body.append(frame))
+  const docs = frames.map((frame) => frame.contentDocument!)
+  const observers: Array<{ doc: Document; intersect: (entries: Array<{ target: Element; isIntersecting: boolean }>) => void }> = []
+  for (const doc of docs) {
+    vi.spyOn(doc, 'hidden', 'get').mockReturnValue(false)
+    Object.defineProperty(doc.defaultView!, 'IntersectionObserver', { configurable: true, value: class {
+      constructor(intersect: (entries: Array<{ target: Element; isIntersecting: boolean }>) => void) { observers.push({ doc, intersect }) }
+      observe() {}
+      unobserve() {}
+    } })
+  }
+  const first = docs[0].createElement('span'), second = docs[1].createElement('span')
+  const firstViewport = vi.fn(), secondViewport = vi.fn(), firstWindow = vi.fn(), secondWindow = vi.fn()
+  const stops = [subscribeAnimationWindowVisibility(firstWindow, docs[0]), subscribeAnimationWindowVisibility(secondWindow, docs[1]),
+    observeAnimationViewport(first, firstViewport), observeAnimationViewport(second, secondViewport)]
+  try {
+    expect(observers.map((observer) => observer.doc)).toEqual(docs)
+    window.dispatchEvent(new CustomEvent(ANIMATION_WINDOW_SEEN_EVENT, { detail: false }))
+    expect(isAnimationWindowVisible()).toBe(false)
+    expect(docs.map((doc) => isAnimationWindowVisible(doc))).toEqual([true, true])
+    expect(firstWindow).not.toHaveBeenCalled()
+    observers[0].intersect([{ target: first, isIntersecting: true }])
+    expect(firstViewport).toHaveBeenLastCalledWith(true)
+    expect(secondViewport).not.toHaveBeenCalled()
+    docs[0].defaultView!.dispatchEvent(new CustomEvent(ANIMATION_WINDOW_SEEN_EVENT, { detail: false }))
+    expect(docs.map((doc) => isAnimationWindowVisible(doc))).toEqual([false, true])
+    expect(docs[0].documentElement.style.getPropertyValue('--gugu-animation-window-paused')).toBe('paused')
+    expect(docs[1].documentElement.style.getPropertyValue('--gugu-animation-window-paused')).toBe('initial')
+    expect(firstWindow).toHaveBeenCalledTimes(1)
+    expect(secondWindow).not.toHaveBeenCalled()
+    docs[0].defaultView!.dispatchEvent(new CustomEvent(ANIMATION_WINDOW_SEEN_EVENT, { detail: true }))
+    expect(isAnimationWindowVisible(docs[0])).toBe(true)
+    stops[0]()
+    firstWindow.mockClear()
+    docs[0].defaultView!.dispatchEvent(new CustomEvent(ANIMATION_WINDOW_SEEN_EVENT, { detail: false }))
+    expect(firstWindow).not.toHaveBeenCalled()
+  } finally {
+    stops.forEach((stop) => stop())
+    window.dispatchEvent(new CustomEvent(ANIMATION_WINDOW_SEEN_EVENT, { detail: true }))
+    frames.forEach((frame) => frame.remove())
+    vi.restoreAllMocks()
+  }
+})

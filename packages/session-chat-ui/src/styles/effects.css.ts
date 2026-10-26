@@ -86,7 +86,6 @@ export const textShimmerClip = style({
 // Opposite glyph transforms keep text still.
 // Complementary masks plus additive blending preserve glyph alpha, so the
 // moving light does not double the antialiased edges or make the text bolder.
-const shimmerPlayState = 'var(--gugu-animation-window-paused, var(--gugu-animation-surface-paused, var(--chat-shimmer-viewport-paused, running)))';
 const sweep = {
   position: 'absolute',
   top: 0,
@@ -96,7 +95,6 @@ const sweep = {
   maskSize: '50% 100%',
   maskRepeat: 'repeat',
   animation: `${shimmerSweep} 1s steps(20, end) forwards`,
-  animationPlayState: shimmerPlayState,
 } as const;
 
 export const textShimmerBaseSweep = style({
@@ -120,7 +118,6 @@ export const textShimmerInk = style({
   color: vars.fgPassive,
   WebkitTextFillColor: vars.fgPassive,
   animation: `${shimmerInk} 1s steps(20, end) forwards`,
-  animationPlayState: shimmerPlayState,
   '::before': { content: 'attr(data-shimmer-text)' },
 });
 

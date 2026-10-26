@@ -1,4 +1,3 @@
-import { ANIMATION_WINDOW_SEEN_EVENT } from '@gugu/session-shared/animation-visibility'
 
 export const UI_EVENTS = {
   closeContextMenus: '__close_context_menus',
@@ -43,8 +42,6 @@ export const UI_EVENTS = {
   sessionpageShareAgent: '__sessionpage_share_agent',
   // 设置「关于」与会话页报障入口共用同一个全局反馈弹窗(product spec)。
   sessionpageOpenFeedback: '__sessionpage_open_feedback',
-  // 主窗看不看得见(detail: boolean,主进程报,见 mainUiEvents):小鸟看不见就停画(agentAvatar/engine/runtime.ts)。
-  windowSeen: ANIMATION_WINDOW_SEEN_EVENT,
   // 会话页要打开设置(⌘, / 应用菜单 / 命令面板 / 浏览器工具栏):设置是壳的弹窗(product spec),
   // detail = { section?: ActiveSection },缺省落在「账户」。
   openSettings: '__open_settings',

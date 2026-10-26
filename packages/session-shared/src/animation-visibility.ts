@@ -1,60 +1,73 @@
 /** Desktop keeps backgroundThrottling disabled; the host reports minimize/tray visibility. */
 export const ANIMATION_WINDOW_SEEN_EVENT = '__window_seen'
 
-let windowSeen = true
-let listening = false
-const windowListeners = new Set<() => void>()
-const viewports = new Map<string, {
+const listening = new WeakSet<Document>()
+const viewports = new WeakMap<Document, Map<string, {
   observer: IntersectionObserver
   changed: Map<Element, (visible: boolean) => void>
-}>()
+}>>()
 
-function listen() {
-  if (listening) return
-  listening = true
+function listen(doc: Document) {
+  if (listening.has(doc)) return
+  listening.add(doc)
+  let windowSeen = true
   const sync = () => {
     // Inherited through shadow roots too. 'initial' unsets the custom property,
     // letting each surface/viewport supply its own pause state in CSS.
-    document.documentElement.style.setProperty('--gugu-animation-window-paused',
-      isAnimationWindowVisible() ? 'initial' : 'paused')
-    for (const changed of windowListeners) changed()
+    doc.documentElement.style.setProperty('--gugu-animation-window-paused',
+      !doc.hidden && windowSeen ? 'initial' : 'paused')
   }
-  document.addEventListener('visibilitychange', sync)
-  window.addEventListener(ANIMATION_WINDOW_SEEN_EVENT, (event) => {
+  doc.addEventListener('visibilitychange', sync)
+  doc.defaultView?.addEventListener(ANIMATION_WINDOW_SEEN_EVENT, (event) => {
     windowSeen = (event as CustomEvent<boolean>).detail
     sync()
   })
   sync()
 }
 
-export function isAnimationWindowVisible(): boolean {
-  return !document.hidden && windowSeen
+export function isAnimationWindowVisible(doc = document): boolean {
+  listen(doc)
+  return !doc.hidden && doc.documentElement.style.getPropertyValue('--gugu-animation-window-paused') !== 'paused'
 }
 
-export function subscribeAnimationWindowVisibility(changed: () => void): () => void {
-  listen()
-  windowListeners.add(changed)
-  return () => { windowListeners.delete(changed) }
+export function subscribeAnimationWindowVisibility(changed: () => void, doc = document): () => void {
+  listen(doc)
+  // A portal is painted in its own document, even when its component runs in
+  // the opener. Subscribe to that document's existing signals, not the opener.
+  const notify = () => changed()
+  doc.addEventListener('visibilitychange', notify)
+  doc.defaultView?.addEventListener(ANIMATION_WINDOW_SEEN_EVENT, notify)
+  return () => {
+    doc.removeEventListener('visibilitychange', notify)
+    doc.defaultView?.removeEventListener(ANIMATION_WINDOW_SEEN_EVENT, notify)
+  }
 }
 
 /** One viewport observer per margin; no ancestor observers or synchronous style/geometry reads. */
 export function observeAnimationViewport(element: HTMLElement, changed: (visible: boolean) => void, rootMargin = '0px'): () => void {
-  listen()
+  const doc = element.ownerDocument
+  listen(doc)
   // Preserve the existing old-WebView behavior: without IO, draw on screen.
-  if (typeof IntersectionObserver === 'undefined') {
+  const Observer = doc.defaultView?.IntersectionObserver
+  if (!Observer) {
     changed(true)
     return () => {}
   }
-  let viewport = viewports.get(rootMargin)
+  let margins = viewports.get(doc)
+  if (!margins) {
+    margins = new Map()
+    viewports.set(doc, margins)
+  }
+  let viewport = margins.get(rootMargin)
   if (!viewport) {
     const callbacks = new Map<Element, (visible: boolean) => void>()
     viewport = {
       changed: callbacks,
-      observer: new IntersectionObserver((entries) => {
+      observer: new Observer((entries) => {
         for (const entry of entries) callbacks.get(entry.target)?.(entry.isIntersecting)
       }, { rootMargin }),
     }
-    viewports.set(rootMargin, viewport)
+    margins.set(rootMargin, viewport)
   }
   viewport.changed.set(element, changed)
   viewport.observer.observe(element)

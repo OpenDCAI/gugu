@@ -4,6 +4,7 @@ import { TRAFFIC_LIGHT_POSITION } from '@shared/window-chrome-native'
 import { hardenWebPreferences } from './devtools-lock'
 import { openBuildTagLayer } from './build-tag-window'
 import { serveWindowLayers, windowLayerOptions, windowLayerResponse } from './window-layers'
+import { forwardWindowSeen } from './animation-visibility'
 
 /**
  * 咕咕的子窗口(一整块会话、一个 App 单独成窗,照 VS Code 的浮动编辑器窗口):渲染层 `window.open` 一扇同源空白窗,
@@ -96,6 +97,7 @@ export function attachAuxWindows(main: BrowserWindow, backgroundColor: () => str
   main.webContents.on('did-create-window', (child, { frameName }) => {
     if (!frameName || !isAuxWindowRequest('about:blank', frameName)) return
     children.add(child)
+    forwardWindowSeen(child)
     child.on('closed', () => children.delete(child))
     const own = ownWindows.find((entry) => entry.name === frameName)
     if (own) {

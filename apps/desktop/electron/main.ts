@@ -159,6 +159,7 @@ import { createChatChannelsClient } from '@gugu/core/cloud/chatChannels'
 import type { SessionMessage } from '@shared/core/sessions/sessions'
 import { TRAFFIC_LIGHT_POSITION } from '@shared/window-chrome-native'
 import { attachAuxWindows } from './aux-window'
+import { forwardWindowSeen } from './animation-visibility'
 import { installQuickChat, type QuickChat } from './quick-chat-window'
 import { installAssistantHome } from './assistant-home'
 import { receivePhoneDeviceFile } from './phone-device-file'
@@ -1572,10 +1573,7 @@ function createWindow(loadContents = true): void {
   mainWindow.on('unmaximize', () => mainWindow?.webContents.send('window:maximized-changed', false))
   // 上面关了 backgroundThrottling,最小化、收进托盘时页面照样「看得见」、rAF 照跑:由这里告诉界面,小鸟据此停画。
   // macOS 实测遮挡不触发 windowSeen，最小化才触发；不能拿 show / hide 当遮挡检测。
-  mainWindow.on('minimize', () => sendUiEvent(MAIN_UI_EVENTS.windowSeen, false))
-  mainWindow.on('hide', () => sendUiEvent(MAIN_UI_EVENTS.windowSeen, false))
-  mainWindow.on('restore', () => sendUiEvent(MAIN_UI_EVENTS.windowSeen, true))
-  mainWindow.on('show', () => sendUiEvent(MAIN_UI_EVENTS.windowSeen, true))
+  forwardWindowSeen(mainWindow)
 
   // window.open:咕咕子窗口(一块会话 / 一个 App 单独成窗、快速聊天小窗)放行,其余交给系统浏览器。
   quickChat ??= installQuickChat({ mainWindow: () => mainWindow, focusMain: focusMainWindow, supported: !SERVER_MODE })
