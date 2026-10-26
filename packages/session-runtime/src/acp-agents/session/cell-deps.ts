@@ -5,6 +5,7 @@ import type {
   LiveSettingsCapability,
 } from '@gugu/session-core/agents/plugins';
 import type { AcpSendPromptError } from '@gugu/session-core/acp';
+import type { PromptResponse } from '@agentclientprotocol/sdk';
 import type { Result } from '@gugu/session-shared';
 import type { Logger } from '@gugu/session-shared/logger';
 
@@ -88,6 +89,7 @@ export interface SessionCellDeps {
   midTurnSteer?: 'interrupt-at-tool-boundary';
   /** 这一家「失败报成正常结束」的识别(插件 `acp.turnFailure`,语义见那里)。 */
   turnFailure?: {
+    fromPromptResponse?: (response: PromptResponse) => string | null;
     fromAgentMessage?: (text: string) => string | null;
     /** 还会从 stderr 报(晚到的那一行要等一下)。 */
     watchesStderr: boolean;

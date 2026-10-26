@@ -62,6 +62,20 @@ async function flushDrains(): Promise<void> {
 }
 
 describe('SessionCell prompts', () => {
+  it('settles a native prompt response failure as an error and clears it before recovery', async () => {
+    const { cell, agent } = makeCell(undefined, {
+      turnFailure: { fromPromptResponse: (response: { _meta?: { failure?: string } }) => response._meta?.failure ?? null, watchesStderr: false },
+    });
+    agent.prompt = vi.fn().mockResolvedValueOnce({ stopReason: 'end_turn', _meta: { failure: 'API Error: 529 fixture overloaded' } })
+      .mockResolvedValueOnce({ stopReason: 'end_turn' });
+    await cell.prompt({ text: 'fail' });
+    expect(cell.history().committed.at(-1)!.outcome).toEqual({
+      kind: 'error', reason: 'prompt_failed', detail: 'API Error: 529 fixture overloaded', said: 'API Error: 529 fixture overloaded',
+    });
+    await cell.prompt({ text: 'recover' });
+    expect(cell.history().committed.at(-1)!.outcome.kind).toBe('done');
+  });
+
   it('does not project a non-permission stable modes mirror into session config', () => {
     const { cell } = makeCell(undefined, { sessionModes: 'none' });
     const modes = {
