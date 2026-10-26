@@ -77,7 +77,7 @@ function MemoryHome({ context }: { context: AssistantContext }) {
               </button>
             </div>
           ) : (
-            aboutYou.map(note => <AssistantRow key={note.file} leading={ownerLeading(context.owner)} title={note.title}
+            aboutYou.map(note => <AssistantRow key={note.file} leading={ownerLeading(context.owner)} title={note.title} detailLines={4}
               detail={note.description || (latest ? t('memory.updated', { time: time(latest) }) : undefined)}
               onClick={() => context.go({ tab: 'memory', sub: `note:${note.file}` })} />)
           )}

@@ -99,7 +99,7 @@ function AboutYou({ askInChat, go, notes }: PhonePageProps & { notes: MemoryEntr
           </Button>
         </div>
       ) : (
-        aboutYou.map(entry => <AssistantRow key={entry.file} leading={ownerLeading(owner)} title={entry.title}
+        aboutYou.map(entry => <AssistantRow key={entry.file} leading={ownerLeading(owner)} title={entry.title} detailLines={4}
           detail={entry.description || (entry.modifiedAt ? t('memory.updated', { time: time(entry.modifiedAt) }) : undefined)} onClick={() => go(`note:${entry.file}`)} />)
       )}
     </AssistantSection>

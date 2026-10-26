@@ -1,4 +1,4 @@
-import type { ReactNode } from 'react';
+import type { CSSProperties, ReactNode } from 'react';
 import { ChevronRight } from '@/lib/icons';
 import { cn } from '@/lib/cn';
 import { Avatar } from '@/components/Avatar';
@@ -81,10 +81,13 @@ export function AssistantRow({
   onClick,
   testId,
   chevron = true,
+  detailLines,
 }: {
   leading?: ReactNode;
   title: ReactNode;
   detail?: ReactNode;
+  /** 说明行最多显示几行(默认一行截断);「关于你」那几行要多露一点内容。 */
+  detailLines?: number;
   trailing?: ReactNode;
   onClick?: () => void;
   testId?: string;
@@ -95,7 +98,11 @@ export function AssistantRow({
       {leading ? <span className="flex size-9 shrink-0 items-center justify-center">{leading}</span> : null}
       <span className="ta-row-body">
         <span className="ta-row-title">{title}</span>
-        {detail ? <span className="ta-row-sub">{detail}</span> : null}
+        {detail ? (
+          <span className="ta-row-sub" data-lines={detailLines} style={detailLines ? ({ '--ta-row-lines': detailLines } as CSSProperties) : undefined}>
+            {detail}
+          </span>
+        ) : null}
       </span>
       {trailing ? <span className="ta-row-meta">{trailing}</span> : null}
       {onClick && chevron ? (
