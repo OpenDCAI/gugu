@@ -1357,3 +1357,27 @@ test('startup imports acknowledged legacy work and queues host failure through t
     assert.equal(fx.cloud.workEvents.length,1)
   }finally{await fx.close()}
 })
+
+test('session get exposes native running and terminal proof for the exact latest admitted prompt',async()=>{
+ let finish
+ const gate=new Promise(resolve=>{finish=resolve})
+ const fx=await fixture(async()=>{await gate;return {status:'done',text:'[NO_REPLY]'}})
+ const caller={sessionId:randomUUID(),deviceId:'coordinator'}
+ const messageId=randomUUID()
+ try{
+  const created=await fx.host.invoke('sessionTimeline.sessionCreate',[{harness:'pi',prompt:'Initial task',clientRequestId:randomUUID()}],'create-proof')
+  await until(()=>Boolean(fx.host.state().execution),fx.events)
+  const get=()=>fx.host.invoke('agentSession.get',[caller,{action:'get',session_id:created.conversationId}],'proof')
+  const running=await get()
+  assert.equal(running.preview.running,true)
+  assert.equal(running.preview.ended,null)
+  finish()
+  await until(()=>fx.host.state().sessions.some(row=>row.sessionId===created.conversationId&&row.lastJobStatus==='done'),fx.events)
+  await fx.host.invoke('agentSession.message',[caller,{action:'message',session_ids:[created.conversationId],text:'Next original prompt',client_message_id:messageId,client_message_at:'2026-10-26T08:00:00Z'}],'next-proof')
+  await until(()=>fx.host.state().sessions.some(row=>row.sessionId===created.conversationId&&row.lastJobStatus==='done'),fx.events)
+  const ended=await get()
+  assert.equal(ended.preview.running,false)
+  assert.equal(ended.preview.ended.kind,'done')
+  assert.equal(ended.preview.entries.at(-1).messageId,messageId)
+ }finally{finish();await fx.close()}
+})

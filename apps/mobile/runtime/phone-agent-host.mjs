@@ -8,7 +8,7 @@ import { processPendingDeviceCommandsOnce, reportRuntimeInstanceHeartbeat, recov
 import { createAgentRuntimeStateReporter } from '../../../packages/core/src/cloud/agentRuntimeStateReporter.ts'
 import { handleAgentCreateDeviceCommand, resolveGuguIds } from '../../../packages/core/src/local/agent/deviceCommandRuntime.ts'
 import { pullAgentInbox, unreadRowFromRpc } from '../../../packages/core/src/local/agent/agentInboxReader.ts'
-import { buildSessionDirectEnvelope, formatDeliveryTimestamp } from '../../../packages/core/src/local/agent/deliveryEnvelope.ts'
+import { buildSessionDirectEnvelope, readDeliveryEnvelope, formatDeliveryTimestamp } from '../../../packages/core/src/local/agent/deliveryEnvelope.ts'
 import { setCoreLoggerFactory } from '../../../packages/core/src/log.ts'
 import { REMOTE_PROTOCOL_VERSION, MIN_CLIENT_PROTOCOL } from '../../../packages/core/src/cloud/serverMachineHealth.ts'
 import { createPhoneAgentCloud } from './phone-agent-cloud.mjs'
@@ -126,7 +126,15 @@ export async function startPhoneAgentHost(initialConfig, { runTurn, cancelTurn, 
     if (!data || data.type !== 'agent' || data.owner_user_id !== ownerId || data.device_id !== deviceId) throw new Error('Agent 不属于当前账号和这台手机')
     return data
   }
-  const snapshot = (agent) => ({ session_id: agent.sessionId, agent_user_id: agent.agentUserId, chat_id: agent.chatId, birth_group: agent.birthGroup ? { chat_id: agent.birthGroup.chatId, status: agent.birthGroup.status, ...(agent.birthGroup.error ? { error: agent.birthGroup.error } : {}) } : null, spawned_by_session_id: agent.caller?.sessionId ?? null, ...(agent.caller ? { spawned_by_device_id: agent.caller.deviceId } : {}), parent_session_id: agent.caller?.sessionId ?? null, project_id: projectId, title: agent.displayName, provider_id: 'pi', transport: 'acp', status: agent.status, detail: agent.status === 'working' ? 'running' : agent.status === 'needs_user' ? 'question' : agent.status === 'error' ? null : 'plain', model: { source: 'gugu', id: agent.modelId, spawn_model_id: `platform:${agent.modelId}` }, pinned: false, last_active_at: agent.lastActiveAt ?? null, runtime: null, message_route: { tool: 'session_message', to: [`session:${agent.sessionId}`] }, preview: { ended: agent.lastError ? 'error' : 'plain', entries: [] } })
+  const preview = (agent) => {
+    const job=lastJob(agent.agentUserId)
+    const running=Object.values(store.state.jobs).some(row=>row.agentUserId===agent.agentUserId&&['queued','running'].includes(row.status))
+    const kind=!running&&job?.finishedAt?{done:'done',failed:'error',interrupted:'error',cancelled:'cancelled'}[job.status]:null
+    const envelope=job?readDeliveryEnvelope(job.prompt):null
+    const messageId=(envelope?.segments?.at(-1)?.facts?.messageId??job?.route?.sourceMessageId??job?.id)?.replace(/^msg:/,'')
+    return {running,ended:kind?{kind}:null,entries:messageId?[{kind:'prompt',messageId}]:[]}
+  }
+  const snapshot = (agent) => ({ session_id: agent.sessionId, agent_user_id: agent.agentUserId, chat_id: agent.chatId, birth_group: agent.birthGroup ? { chat_id: agent.birthGroup.chatId, status: agent.birthGroup.status, ...(agent.birthGroup.error ? { error: agent.birthGroup.error } : {}) } : null, spawned_by_session_id: agent.caller?.sessionId ?? null, ...(agent.caller ? { spawned_by_device_id: agent.caller.deviceId } : {}), parent_session_id: agent.caller?.sessionId ?? null, project_id: projectId, title: agent.displayName, provider_id: 'pi', transport: 'acp', status: agent.status, detail: agent.status === 'working' ? 'running' : agent.status === 'needs_user' ? 'question' : agent.status === 'error' ? null : 'plain', model: { source: 'gugu', id: agent.modelId, spawn_model_id: `platform:${agent.modelId}` }, pinned: false, last_active_at: agent.lastActiveAt ?? null, runtime: null, message_route: { tool: 'session_message', to: [`session:${agent.sessionId}`] }, preview: preview(agent) })
   const authorizeReply = async (groups, message) => {
     if (stopped || signingOut) throw Object.assign(new Error('手机宿主已停止，未交付任务数据'), { code: 'host_not_ready' })
     const currentAgent = store.state.agents[activeJob?.agentUserId]
