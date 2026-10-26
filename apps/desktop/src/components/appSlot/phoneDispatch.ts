@@ -1,8 +1,10 @@
-import type { AppMessageAction, AppSpawnAction } from '@gugu/session-core/session-record/contract'
-import { agentViewOf, type ListedSession } from '../../session/shared/extensions/agent-view'
+import type { AppMessageAction, AppSpawnAction, UnreachedMachine } from '@gugu/session-core/session-record/contract'
+import { agentReport, agentViewOf, type ListedSession } from '../../session/shared/extensions/agent-view'
+import type { ExtensionAgentView } from '../../session/shared/extensions/bridge-protocol'
 import { rendererLogger } from '../../lib/log'
 import { isAssistantHome } from '../../lib/assistantHome'
 import { readCachedDevices } from '../../store/devicesCache'
+import { appDeviceId } from '../../session/shared/extensions/machine-call'
 import { directoryRows, liveDeviceSessions, rowOpens } from '../../session/shared/remote-sessions/session-directory'
 import { visibleMachines, workspaceDevices } from '../../mobile/agent-watch/machine-list'
 import { APP_SHOW_SESSION_EVENT, type AppShowSessionDetail } from '../../session/shared/extensions/app-runtime-protocol'
@@ -39,11 +41,16 @@ export function phoneDispatch(app: { extensionId: string; extensionName: string 
     }))
     const rows: Array<ListedSession & { deviceId: string }> = []
     const unread: string[] = []
+    const unreached: UnreachedMachine[] = []
     answers.forEach((answer, index) => {
       if (answer.status === 'fulfilled') rows.push(...answer.value)
-      else unread.push(computers[index]!.label)
+      else {
+        const device = computers[index]!
+        unread.push(device.label)
+        unreached.push({ deviceId: device.device_id, label: device.label, detail: answer.reason instanceof Error ? answer.reason.message : String(answer.reason) })
+      }
     })
-    return { rows, unread }
+    return { rows, unread, unreached }
   }
   const locate = async (agent: string) => {
     const { rows, unread } = await read()
@@ -51,10 +58,15 @@ export function phoneDispatch(app: { extensionId: string; extensionName: string 
     if (row) return row
     throw new AppSendError(unread.length ? 'failed' : 'not-found', `${agent} is not in your computers' current agent lists${unread.length ? ` (not read: ${unread.join(', ')})` : ''}`)
   }
-  const listAgents = async () => {
-    const { rows, unread } = await read()
+  function listAgents(): Promise<ExtensionAgentView[]>
+  function listAgents(report: true): Promise<ReturnType<typeof agentReport>>
+  async function listAgents(report?: true) {
+    const { rows, unread, unreached } = await read()
     if (unread.length) rendererLogger('app-slot/phone-dispatch').warn({ extensionId: app.extensionId, machines: unread }, 'listAgents: computers were not read')
-    return viewsOf(rows, app.extensionId, capabilities)
+    const agents = viewsOf(rows, app.extensionId, capabilities)
+    if (!report) return agents
+    const all = grantedReach(capabilities, 'agents:read') === 'all-machines'
+    return agentReport(agents, all ? unreached : [], all ? readCachedDevices().map(({ device_id, label, is_online }) => ({ deviceId: device_id, label, online: is_online, thisMachine: false })) : [])
   }
   const request = async <A extends AppMessageAction | AppSpawnAction>(deviceId: string, action: A) => {
     const { appCallOn } = await import('../../mobile/agent-watch/sessionpage-rpc')
@@ -77,9 +89,10 @@ export function phoneDispatch(app: { extensionId: string; extensionName: string 
       return { agent: agent.agent, ...receipt }
     },
     async spawn(prompt, spawn, selectedDevice) {
-      const deviceId = selectedDevice ?? spawnOn
+      const { device, ...options } = spawn
+      const deviceId = selectedDevice ?? (device !== undefined ? appDeviceId(device) : spawnOn)
       if (!deviceId || !visibleMachines(workspaceDevices(readCachedDevices()), (device) => isAssistantHome(device, null)).some((device) => device.device_id === deviceId && device.is_online)) throw new AppSendError('failed', 'No online computer is available to start this agent')
-      const receipt = await request(deviceId, { action: 'spawn', prompt, spawn })
+      const receipt = await request(deviceId, { action: 'spawn', prompt, spawn: options })
       return receipt.agentId
     },
   }

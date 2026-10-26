@@ -14,7 +14,6 @@ import {
   SESSION_HISTORY_STATUSES,
   SESSION_HOME_SECTION_KEY,
   displaySessionTitle,
-  isSessionHomeDirectory,
   type SessionHistoryDirectoryPage,
   type SessionHistoryDirectoryParams,
   type SessionHistoryDirectoryRow,
@@ -24,7 +23,7 @@ import {
   type SessionHistorySort,
 } from '@shared/core/session-history/session-history';
 import { sessionParentId } from '@main/core/sessions/utils';
-import { findRepoRoot } from './repo-root';
+import { createLocalGroupOf } from './local-session-group';
 
 // spec session-page「会话历史」(#6083):把咕咕自己的会话(活跃 + 已归档)与本机引擎磁盘上还没导入的会话
 // 合成**一张表**,筛 / 排全在这里做完再切页;目录视图(默认)= 同一份筛选结果按目录聚合,一目录一节,
@@ -252,23 +251,10 @@ async function collect(params: SessionHistoryParams): Promise<Collected> {
   // 咕咕项目只收**它自己那个仓库之内**的原件:项目路径是 cwd 或 cwd 的上级,且不高出 cwd 所在仓库的根
   // (不在仓库里时 = 就是 cwd 本身)。❌ 纯前缀匹配 —— 一个路径是 /Users 的项目会把它底下几千条原件全吞掉
   // (mac1 2026-09-24 读数:一节 3424 条)。
-  const projectPaths = [...new Map(guguJoined.map((j) => [j.projectPath, j])).values()]
-    .filter((j) => !isImplicitSessionHomeProjectId(j.session.projectId))
-    .map((j) => ({ path: j.projectPath, label: j.projectName }))
-    .sort((a, b) => b.path.length - a.path.length);
-  // 两种分隔符都认:transcript 里的 cwd 是引擎写的,Windows 上是反斜杠,而项目路径也可能被 POSIX 化。
-  const isAtOrUnder = (path: string, base: string) =>
-    path === base || path.startsWith(`${base}/`) || path.startsWith(`${base}\\`);
-  const sessionHomeGroup = { path: SESSION_HOME_SECTION_KEY, label: null };
-  const localGroupOf = (directory: string | null) => {
-    if (!directory) return null;
-    if (isSessionHomeDirectory(directory)) return sessionHomeGroup;
-    const boundary = findRepoRoot(directory) ?? directory;
-    const project = projectPaths.find(
-      (candidate) => isAtOrUnder(directory, candidate.path) && isAtOrUnder(candidate.path, boundary)
-    );
-    return project ?? { path: boundary, label: null };
-  };
+  const localGroupOf = createLocalGroupOf(guguJoined.map((j) => ({
+    projectId: j.session.projectId, projectPath: j.projectPath, projectName: j.projectName,
+  })));
+  const sessionHomeGroup = { key: SESSION_HOME_SECTION_KEY, label: null };
   // 一个项目一节(设计同事 2026-09-23 参照页:节名是「gugu」,❌ 每个 worktree 目录各一节)。
   // 咕咕行直接认它自己的项目(工作区 worktree 常常不在项目路径之下,按前缀猜会猜丢);本机行按仓库归。
   const guguProjectOf = new Map(
@@ -276,12 +262,12 @@ async function collect(params: SessionHistoryParams): Promise<Collected> {
       `gugu:${j.session.id}`,
       isImplicitSessionHomeProjectId(j.session.projectId)
         ? sessionHomeGroup
-        : { path: j.projectPath, label: j.projectName },
+        : { key: j.projectPath, label: j.projectName },
     ])
   );
   const groupOf = (row: SessionHistoryRow) => {
     const project = guguProjectOf.has(row.key) ? guguProjectOf.get(row.key)! : localGroupOf(row.directory);
-    return project ? { key: project.path, projectName: project.label } : { key: null, projectName: null };
+    return { key: project.key, projectName: project.label };
   };
 
   const countsBySource = emptyCounts(SESSION_HISTORY_SOURCES);

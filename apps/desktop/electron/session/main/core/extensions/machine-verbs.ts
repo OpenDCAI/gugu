@@ -17,6 +17,8 @@ const text = (value: unknown) => (typeof value === 'string' ? value : '');
 const invalid = (message: string) => Object.assign(new Error(message), { code: 'invalid' });
 
 export const machineVerbs = {
+  sessionsIndex: async (_extensionId, args) => (await import('./app-sessions')).indexSessionsForApp(args),
+  sessionsRead: async (_extensionId, args) => (await import('./app-sessions')).readSessionForApp(args),
   readData: async (extensionId, args) => readExtensionData(extensionDataRoot(extensionId), text(args.path)),
   listData: async (extensionId, args) => listExtensionData(extensionDataRoot(extensionId), text(args.path) || '.'),
   writeData: async (extensionId, args) => {
