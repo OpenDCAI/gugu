@@ -487,7 +487,6 @@ async function renderChatArea(chatState: {
   messages: MessageItem[]
   messagesError?: Error | null
   refreshMessages?: (chatId?: string) => Promise<void>
-  setDraft?: ChatContextValue['setDraft']
   activeChatId?: string
   setActiveChatId?: ChatContextValue['setActiveChatId']
   mobile?: boolean
@@ -556,15 +555,14 @@ describe('消息读失败', () => {
   })
 
   it('阴控:没有读失败、零消息 = 首次对话欢迎页,不出读失败;点建议句按这条线预填输入框', async () => {
-    const setDraft = vi.fn()
-    await renderChatArea({ activeChat: agentChat(), messages: [], messagesError: null, setDraft })
+    await renderChatArea({ activeChat: agentChat(), messages: [], messagesError: null })
 
     expect(harness.container.querySelector('[data-testid="chat-load-failed"]')).toBeNull()
     const empty = harness.container.querySelector('[data-testid="agent-first-conversation-empty"]')
     expect(empty).not.toBeNull()
     const pick = [...empty!.querySelectorAll<HTMLElement>('button')].find((b) => b.textContent === '介绍一下你自己')
     await clickElement(pick!)
-    expect(setDraft).toHaveBeenCalledWith('chat-1', '介绍一下你自己')
+    expect(readComposer(harness.container.querySelector('[data-testid="chat-composer"]'))).toBe('介绍一下你自己')
   })
 })
 

@@ -12,12 +12,22 @@
  *   预览的新截图可能缩过,页面按比例放。整桌面坐标(scope desktop)、zoom 图里的坐标、按元素点的:不给,❌ 猜。
  */
 import type { CallToolResult, Tool } from '@modelcontextprotocol/sdk/types.js'
-import type { ExtensionProgram, NativeAppProgram } from '@main/core/extensions/extension-programs'
+import type { ExtensionProgram, ExtensionPrograms, NativeAppProgram } from '@main/core/extensions/extension-programs'
 import type { WindowCursor } from './device-actions/native/cua-window-cursor'
 import { log } from '@main/lib/logger'
 
 export const PREVIEW_TOOL = 'preview_state'
 export const PREVIEW_CHANGED = 'notifications/computer-use/changed'
+
+/** The preview and device capability share one list, refreshed by the installed-App change event. */
+export function installedComputerUseApps(
+  programs: Pick<ExtensionPrograms, 'installed' | 'agentToolsRefusal'>,
+  onChanged: (listener: () => void) => unknown,
+): () => ExtensionProgram[] {
+  let apps: ExtensionProgram[] | null = null
+  onChanged(() => { apps = null })
+  return () => apps ??= programs.installed().filter((program) => program.native === 'computer-use' && !programs.agentToolsRefusal(program.extensionId))
+}
 
 /** 一步电脑控制怎么结束的:设备动作的结果(`device_call` 原样交回 agent 的那份)。 */
 export type StepResult = { ok: true; data?: unknown } | { ok: false; code: string; message: string }
