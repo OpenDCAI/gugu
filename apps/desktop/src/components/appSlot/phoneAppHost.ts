@@ -1,10 +1,10 @@
+import { fileBlob } from '@gugu/core/shared/fileResolver'
 import { guguLink, guguLinkScheme, linkTargetOf, type GuguLinkTarget } from '@gugu/core/shared/ui/guguLink'
 import { openLinkWith } from '../../session/shared/extensions/open-link'
 import { openLinkTarget } from '../../lib/guguLinks'
 import { resourceChatIdOf } from '../../session/shared/extensions/app-files-core'
 import { readCachedDevices } from '../../store/devicesCache'
 import { listedSession, liveDeviceSessions } from '../../session/shared/remote-sessions/session-directory'
-import { fetchBlob } from '../../lib/download'
 import { rendererLogger } from '../../lib/log'
 import { platform } from '../../platform'
 import { getRendererAccessToken } from '../../lib/sessionPublication'
@@ -187,6 +187,12 @@ const askForumConsent = (detail: AppForumConsentDetail) => {
 }
 
 const files = createAppFiles({
+  async resolveFile(ref, actorId, options) {
+    if (options.localOnly) return null;
+    if (!('id' in ref)) throw new AppFileError('invalid', 'A stored file must be resolved by its id');
+    const { resolveFile, fileReader, fileReadSignal } = await import('../../lib/fileAccess');
+    return resolveFile({ item_id: ref.id, ...(options.version ? { version: options.version } : {}) }, fileReader(actorId), { signal: fileReadSignal() });
+  },
   // Who opens a group file of this kind here — the same choice a tap makes (摩擦单 F39).
   claimant(typedName) {
     const candidate = claimantOf(typedName, appsHereNow(), 'chat', phoneApps.remembered)
@@ -696,7 +702,7 @@ export function hostAppFrame(
         return files.downloadSource(surface(), { ref: chatRef(args.ref) }).then(async (source) => {
           // The one save every 「保存」 takes (platform.saveFile: the system's 「保存到…」 on the phone), under the file's
           // own name — a file in OSS has a link named by its hash (#7290). Cancelled in the system picker = false.
-          const blob = source.kind === 'file' ? await fetchBlob(source.url) : new Blob([source.text], { type: 'text/plain;charset=utf-8' })
+          const blob = source.kind === 'file' ? await fileBlob(source.file) : new Blob([source.text], { type: 'text/plain;charset=utf-8' })
           return (await platform.saveFile(blob, source.name)).saved
         })
       // The App's own data folder and program: in a session they are its computer's (owner 10-16「程序跟着数据」), done

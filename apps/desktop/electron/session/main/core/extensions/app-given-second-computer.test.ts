@@ -19,7 +19,7 @@ const state = vi.hoisted(() => ({
 }));
 
 vi.mock('@main/core/extensions/extensions-root', () => ({ extensionsService: () => state.service }));
-vi.mock('@main/core/extensions/account-token', () => ({
+vi.mock('@main/core/extensions/account-token', async (importOriginal) => ({ ...(await importOriginal<object>()),
   // A signed-in account: the access token's subject is owner-1.
   currentAccountAccessToken: async () => `h.${Buffer.from(JSON.stringify({ sub: 'owner-1' })).toString('base64url')}.s`,
 }));

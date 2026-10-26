@@ -27,6 +27,7 @@ export {
   // @@@sessionpage TASKPAGE-FUSION — a project's display name, so the host can name the gugu group it
   // mirrors that project onto (spec ⑨「项目 = 群」) without deep-importing the session backend's projects/DB layer.
   emdashProjectName,
+  emdashProjectRoot,
   emdashTakeBirthGroup,
   // 资源库 → MCP:这条任务带上的那几台(会话能力包的桥问它)。
   emdashLibraryMcpForSession,

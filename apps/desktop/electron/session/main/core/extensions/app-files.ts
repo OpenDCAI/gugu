@@ -1,11 +1,11 @@
 import * as fs from 'node:fs/promises';
 import * as path from 'node:path';
-import { BrowserWindow, dialog, net, type WebContents } from 'electron';
+import { BrowserWindow, dialog, type WebContents } from 'electron';
 import { userIdFromSupabaseAccessToken } from '@gugu/core';
-import { configuredEndpoint, fetchAttachmentUrls } from '@gugu/core/cloud/attachmentsApi';
+import { attachmentFileRef } from '@gugu/core/shared/ui/attachmentModels';
 import { createGuguSupabaseClient } from '@gugu/core/cloud/supabase';
-import { createAttachmentResolver } from '@gugu/core/shared/attachmentUrls';
 import { fetchInChunks } from '@gugu/core/shared/inChunks';
+import { writeFileHandle } from '@gugu/core/local/files/fileSnapshots';
 import {
   AppFileError,
   contentTypeOf,
@@ -35,7 +35,7 @@ import {
   type PeekTarget,
 } from '@shared/extensions/app-runtime-protocol';
 import { extensionsService } from '@main/core/extensions/extensions-root';
-import { currentAccountAccessToken } from '@main/core/extensions/account-token';
+import { currentAccountAccessToken, resolveAccountFile, publishAccountFile } from '@main/core/extensions/account-token';
 import { fileServiceUrl, fileSync, localFileService } from '@main/core/extensions/file-sync';
 import { createLocalAppFiles, type LocalSurface } from '@main/core/extensions/local-files';
 import { readElsewhere } from '@main/core/extensions/app-files-elsewhere';
@@ -106,7 +106,6 @@ export interface DesktopFilePage {
   asAgent?: string | null;
 }
 
-const DOWNLOAD_TIMEOUT_MS = 120_000;
 
 /** The account signed in here: its token and id; null when nobody is. */
 async function signedIn(): Promise<{ token: string; userId: string } | null> {
@@ -129,6 +128,8 @@ async function accounts(token: string, ids: readonly string[]) {
 }
 
 const files = createAppFiles({
+  resolveFile: resolveAccountFile,
+  publishFile: publishAccountFile,
   async account() {
     const me = await signedIn();
     if (!me) throw new AppFileError('failed', 'Not signed in');
@@ -155,7 +156,6 @@ const files = createAppFiles({
     });
   },
   filesUrl: fileServiceUrl,
-  fetchBytes: (url) => net.fetch(url),
   warn: (message, data) => log.warn(`[app-files] ${message}`, data ?? {}),
 });
 
@@ -179,11 +179,11 @@ export const packageReads: PackageReads = {
     if (error) throw new AppFileError('failed', error.message);
     return (data as unknown as PackageMessageRow | null) ?? null;
   },
-  async sign(source) {
-    const me = await signedIn();
-    if (!me) throw new AppFileError('failed', 'Not signed in');
-    const link = await createAttachmentResolver((refs) => fetchAttachmentUrls(configuredEndpoint(me.token), refs)).resolve(source);
-    return link.status === 'ready' ? link.url : null;
+  async open(source) {
+    const ref = attachmentFileRef(source);
+    if (!ref) return null;
+    const file = await resolveAccountFile(ref);
+    return file?.status === 'ready' ? file : null;
   },
 };
 
@@ -498,7 +498,7 @@ export async function downloadAppFile(page: DesktopFilePage, args: { ref?: unkno
   const window = owner ? BrowserWindow.fromWebContents(owner) : null;
   const options = { defaultPath: source.name };
   const target = window ? await dialog.showSaveDialog(window, options) : await dialog.showSaveDialog(options);
-  if (target.canceled || !target.filePath) return false;
+  if (target.canceled || !target.filePath) { if (source.kind === 'file') await source.file.dispose(); return false; }
   if (source.kind === 'text') {
     await fs.writeFile(target.filePath, source.text, 'utf8');
     return true;
@@ -507,8 +507,6 @@ export async function downloadAppFile(page: DesktopFilePage, args: { ref?: unkno
     await fs.writeFile(target.filePath, source.bytes);
     return true;
   }
-  const response = await fetch(source.url, { signal: AbortSignal.timeout(DOWNLOAD_TIMEOUT_MS) });
-  if (!response.ok) throw new AppFileError('failed', `Download failed: HTTP ${response.status}`);
-  await fs.writeFile(target.filePath, new Uint8Array(await response.arrayBuffer()));
+  await writeFileHandle(source.file, target.filePath);
   return true;
 }

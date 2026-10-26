@@ -3,10 +3,12 @@ import { X } from '@/lib/icons'
 import { displayAgentReferences } from '@/lib/mentionMdast'
 import { IconButton } from '../ui/IconButton'
 import type { ChatMessageComposerProps } from './chatComposerModels'
+import { FileStorageNotice } from './FileStorageNotice'
 
-export function ChatComposerContextBands({ quoteContent, onQuoteConsumed, whisperTarget, onExitWhisper }: ChatMessageComposerProps) {
+export function ChatComposerContextBands({ chatId, isGroupChat, hidden, quoteContent, onQuoteConsumed, whisperTarget, onExitWhisper }: ChatMessageComposerProps) {
   const { t } = useTranslation('messaging')
   return <>
+    {chatId && isGroupChat && !hidden && <FileStorageNotice chatId={chatId} />}
     {whisperTarget && <div className="flex items-center gap-2 rounded-[var(--radius-control)] bg-[var(--bg-primary)] px-2 py-1">
       <span className="flex-1 text-[length:var(--font-caption)] text-[var(--faint-fg)]">{t('composer.whisperBanner', { name: whisperTarget.displayName })}</span>
       <IconButton size="sm" aria-label={t('composer.exitWhisper')} onClick={onExitWhisper}><X /></IconButton>

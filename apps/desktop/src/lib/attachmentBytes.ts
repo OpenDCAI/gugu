@@ -1,19 +1,24 @@
-// 渲染层取附件字节(桌面 + 手机同一份):链接由 core 的 createAttachmentResolver 给(按批调 attachments/urls),
-// 字节进 Cache Storage —— 新消息按内容的 sha256 存(同一张图在十个群里也只下一次;签名过期不影响已存的字节),
-// 老消息(正文里的公开 URL)按 URL 存。缩略图另存一份。❌ Electron 缓存目录 / 自定义协议、❌ Service Worker:
-// 只有这一条路(统筹 161 10-16 定)。CDN 要回 Access-Control-Allow-Origin,fetch 才读得到字节。
 import { useCallback, useEffect, useState } from 'react'
-import { createAttachmentResolver, type AttachmentLink } from '@gugu/core/shared/attachmentUrls'
-import type { AttachmentSource } from '@gugu/core/shared/ui/attachmentModels'
-import { fetchAttachmentUrls } from '@gugu/core/cloud/attachmentsApi'
-import { attachmentsEndpoint } from './attachmentsEndpoint'
+import { fileBlob, type FileHandle, type FileMetadata, type FileRevision } from '@gugu/core/shared/fileResolver'
+import { fileSha256 } from '@gugu/core/shared/fileCipher'
+import { attachmentFileRef, type AttachmentSource } from '@gugu/core/shared/ui/attachmentModels'
+import { resolveFile, fileReader, fileReadSignal, attachmentCache, attachmentCacheOrigin } from './fileAccess'
 import { platform } from '../platform'
 
-const CACHE_NAME = 'gugu-attachments-v1'
-/** Cache Storage 的键要是 URL:内容寻址的用一个不会真去请求的地址。 */
-const CACHE_ORIGIN = 'https://attachments.gugu.invalid'
-
-export const attachmentResolver = createAttachmentResolver(async (refs) => fetchAttachmentUrls(await attachmentsEndpoint(), refs))
+export async function resolveAttachment(source: AttachmentSource) {
+  const ref = attachmentFileRef(source)
+  return ref ? resolveFile(ref, fileReader(), { signal: fileReadSignal() }) : { status: 'gone' as const, sha256: null }
+}
+export async function attachmentMetadata(source: AttachmentSource): Promise<FileMetadata> {
+  const file = await resolveAttachment(source)
+  if (file.status !== 'ready') return file
+  await file.dispose(); return { status: 'ready', revision: file.revision }
+}
+export async function attachmentPreview(source: AttachmentSource) {
+  const ref = attachmentFileRef(source)
+  return ref ? resolveFile(ref, fileReader(), { purpose: 'preview', signal: fileReadSignal() }) : { status: 'gone' as const, sha256: null }
+}
+const fullKey = (accountId: string, sha: string) => `${attachmentCacheOrigin}/account/${encodeURIComponent(accountId)}/sha256/${sha}`
 
 export type AttachmentVariant = 'full' | 'thumb'
 
@@ -22,34 +27,34 @@ export function sourceKeyOf(source: AttachmentSource): string {
   return source.kind === 'url' ? `url:${source.url}` : source.kind === 'item' ? `item:${source.itemId}@${source.version}` : source.kind === 'message' ? `msg:${source.messageId}` : 'gone'
 }
 
-function cacheKey(link: AttachmentLink, variant: AttachmentVariant): string {
-  const thumb = variant === 'thumb' && link.thumbUrl ? '/thumb' : ''
-  return link.sha256 ? `${CACHE_ORIGIN}/sha256/${link.sha256}${thumb}` : `${CACHE_ORIGIN}/url/${encodeURIComponent(link.url)}${thumb}`
-}
+export type AttachmentBytes = { status: 'ready'; blob: Blob; link: FileRevision } | { status: 'gone' | 'expired' }
 
-export type AttachmentBytes = { status: 'ready'; blob: Blob; link: AttachmentLink } | { status: 'gone' }
-
-/** 取一个附件的字节:先看本机缓存,没有就按签名链接下,存进缓存。取不到就抛(调用方显示「暂时打不开 · 重试」)。 */
-export async function attachmentBytes(source: AttachmentSource, variant: AttachmentVariant = 'full', onLink?: (link: AttachmentLink) => void): Promise<AttachmentBytes> {
-  const resolved = await attachmentResolver.resolve(source)
-  if (resolved.status === 'gone') return resolved
-  onLink?.(resolved)
-  const key = cacheKey(resolved, variant)
-  const cache = await caches.open(CACHE_NAME)
-  const hit = await cache.match(key)
-  if (hit) return { status: 'ready', blob: await hit.blob(), link: resolved }
-  const from = variant === 'thumb' && resolved.thumbUrl ? resolved.thumbUrl : resolved.url
-  const response = await fetch(from)
-  if (!response.ok) throw new Error(`attachment ${response.status}`)
-  await cache.put(key, response.clone())
-  return { status: 'ready', blob: await response.blob(), link: resolved }
+/** Thumbnails only display; original blobs are created exclusively from a fully verified file handle. */
+export async function attachmentBytes(source: AttachmentSource, variant: AttachmentVariant = 'full', onLink?: (link: FileRevision) => void): Promise<AttachmentBytes> {
+  if (variant === 'thumb') {
+    const preview = await attachmentPreview(source)
+    if (preview.status !== 'ready') return preview
+    try {
+      onLink?.(preview.revision)
+      const blob = await preview.content()
+      if (!(blob instanceof Blob)) throw new Error('Expected an image preview')
+      return { status: 'ready', blob, link: preview.revision }
+    } finally { await preview.dispose() }
+  }
+  const file = await resolveAttachment(source)
+  if (file.status !== 'ready') return file
+  onLink?.(file.revision)
+  const blob = await fileBlob(file)
+  await (await attachmentCache()).put(fullKey(file.reader.accountId, file.revision.sha256), new Response(blob))
+  return { status: 'ready', blob, link: file.revision }
 }
 
 export type AttachmentView =
   /** link:签好了、字节还在路上(气泡按宽高先留位置)。 */
-  | { status: 'loading'; link?: AttachmentLink }
-  | { status: 'ready'; objectUrl: string; link: AttachmentLink }
+  | { status: 'loading'; link?: FileRevision }
+  | { status: 'ready'; objectUrl: string; link: FileRevision }
   | { status: 'gone' }
+  | { status: 'expired' }
   | { status: 'failed' }
 
 /**
@@ -68,7 +73,7 @@ export function useAttachmentObjectUrl(source: AttachmentSource, variant: Attach
     attachmentBytes(source, variant, (link) => alive && setView({ status: 'loading', link })).then(
       (bytes) => {
         if (!alive) return
-        if (bytes.status === 'gone') return setView({ status: 'gone' })
+        if (bytes.status !== 'ready') return setView({ status: bytes.status })
         objectUrl = URL.createObjectURL(bytes.blob)
         setView({ status: 'ready', objectUrl, link: bytes.link })
       },
@@ -81,7 +86,6 @@ export function useAttachmentObjectUrl(source: AttachmentSource, variant: Attach
     // eslint-disable-next-line react-hooks/exhaustive-deps -- sourceKey 就是 source 的身份
   }, [sourceKey, variant, attempt, enabled])
   const retry = useCallback(() => {
-    attachmentResolver.forget(source)
     setAttempt((n) => n + 1)
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [sourceKey])
@@ -91,7 +95,7 @@ export function useAttachmentObjectUrl(source: AttachmentSource, variant: Attach
 /** 文件预览取原图,进全 app 唯一的看图器;等待期间已离开的预览不再打开。 */
 export async function openAttachmentImage(source: AttachmentSource, alt: string, isCurrent: () => boolean, quote?: () => Promise<void> | void): Promise<void> {
   const bytes = await attachmentBytes(source)
-  if (bytes.status === 'gone') throw new Error('attachment is gone')
+  if (bytes.status !== 'ready') throw new Error(bytes.status)
   const { openImageViewer } = await import('./imageViewer')
   if (!isCurrent()) return
   openImageViewer([{ url: URL.createObjectURL(bytes.blob), alt, quote }])
@@ -100,24 +104,26 @@ export async function openAttachmentImage(source: AttachmentSource, alt: string,
 /** 下载一个附件(同一份缓存);条目删了就抛。 */
 export async function downloadAttachment(source: AttachmentSource, fileName: string): Promise<void> {
   const bytes = await attachmentBytes(source)
-  if (bytes.status === 'gone') throw new Error('attachment is gone')
+  if (bytes.status !== 'ready') throw new Error(bytes.status)
   const { downloadBlob } = await import('./download')
   await downloadBlob(bytes.blob, fileName)
 }
 
-/** 交给系统应用打开:桌面给字节(同一份缓存),安卓给签名链接(原生自己下),网页开新标签页 —— 宿主挑它要的那一样。 */
+/** Only the original capability can cross the system-open boundary. */
 export async function openAttachmentInSystemApp(source: AttachmentSource, fileName: string): Promise<void> {
   if (!platform.capabilities.externalFileOpen) throw new Error('External file open is unavailable on this platform')
-  await platform.openRemoteFile({
-    bytes: async () => {
-      const bytes = await attachmentBytes(source)
-      if (bytes.status === 'gone') throw new Error('attachment is gone')
-      return bytes.blob
-    },
-    url: async () => {
-      const link = await attachmentResolver.resolve(source)
-      if (link.status === 'gone') throw new Error('attachment is gone')
-      return link.url
-    },
-  }, fileName)
+  const file = await resolveAttachment(source)
+  if (file.status !== 'ready') throw new Error(file.status)
+  await openFileHandle(file, fileName)
+}
+export const openFileHandle = (file: FileHandle, fileName: string) => platform.openRemoteFile(file, fileName)
+
+/** Reads only an existing full-size local copy; never signs or downloads. ACL is checked by the caller. */
+export async function cachedAttachmentCopy(sha256: string | null): Promise<Blob | null> {
+  if (!sha256 || !/^[0-9a-f]{64}$/.test(sha256)) return null
+  const hit = await (await attachmentCache()).match(fullKey(fileReader().accountId, sha256))
+  if (!hit) return null
+  const blob = await hit.blob(), hash = fileSha256.create(), reader = blob.stream().getReader()
+  for (;;) { const chunk = await reader.read(); if (chunk.done) break; hash.update(chunk.value) }
+  return Array.from(hash.digest(), byte => byte.toString(16).padStart(2, '0')).join('') === sha256 ? blob : null
 }

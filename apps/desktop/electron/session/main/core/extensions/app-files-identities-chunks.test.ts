@@ -14,7 +14,7 @@ const asked: string[][] = [];
 
 vi.mock('electron', () => ({ BrowserWindow: {}, dialog: {} }));
 vi.mock('@main/core/extensions/extensions-root', () => ({ extensionsService: () => ({}) }));
-vi.mock('@main/core/extensions/account-token', () => ({ currentAccountAccessToken: async () => null }));
+vi.mock('@main/core/extensions/account-token', async (importOriginal) => ({ ...(await importOriginal<object>()), currentAccountAccessToken: async () => null }));
 vi.mock('@main/core/extensions/file-sync', () => ({ fileSync: {}, fileServiceUrl: () => 'http://files.invalid', localFileService: {} }));
 vi.mock('@main/core/extensions/extension-icon', () => ({ renderExtensionIcon: () => null }));
 vi.mock('@gugu/core/cloud/supabase', () => ({

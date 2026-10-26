@@ -16,17 +16,13 @@
  * pull_agent_inbox RPC 里收口)。并发触发由 per-agent coalescing single-flight 合并
  * (内存,不持有任何跨进程/跨崩溃真值:进程死,守卫与工作同死,游标未推进,重启重拉)。
  */
-import { join } from 'node:path'
-import { createHash, randomUUID } from 'node:crypto'
-import { mkdir, rename, writeFile } from 'node:fs/promises'
+import { createHash } from 'node:crypto'
+import type { FileRef } from '../../shared/fileResolver'
 import { getSupabaseAnonKey, getSupabaseUrl } from '../../cloud/config'
 import { resolveListenModeDefault } from '../../cloud/listenMode'
 import type { ChatKind } from '../../shared/types/chat'
-import { parseAttachmentContent, type AttachmentSource } from '../../shared/ui/attachmentModels'
-import { createAttachmentResolver } from '../../shared/attachmentUrls'
+import { parseAttachmentContent } from '../../shared/ui/attachmentModels'
 import { attachmentFolderLine } from '../../shared/attachmentFolderLine'
-import { configuredEndpoint, fetchAttachmentUrls } from '../../cloud/attachmentsApi'
-import { resolveGuguHome } from '../state/paths'
 import {
   buildAgentDeliveryEnvelope,
   buildAgentMentionContext,
@@ -183,10 +179,11 @@ export interface AgentInboxReaderDeps {
   onOutcome?: (outcome: { agentUserId: string; ok: boolean }) => void
   /** Product-level audit: one callback per injectBatch, recording the rows seen together. */
   onBatch?: (batch: { agentUserId: string; rows: number; units: number }) => void
-  /** injectable:附件下载到本机(默认:老消息走 chat-media 公开链接,新消息经 attachments/urls 签;单测注入避免网络)。 */
+  /** The host exports a verified original through the canonical resolver, as this inbox agent. */
   downloadAttachment?: (
-    source: AttachmentSource,
+    ref: FileRef,
     fileName: string,
+    agentUserId: string,
   ) => Promise<SavedAttachment>
   nowIso?: () => string
 }
@@ -308,49 +305,6 @@ type InlineImage = { data: string; mimeType: string; fileName: string; localPath
 type SavedAttachment = { bytes: Uint8Array; localPath: string }
 
 /** 一次下载最多等这么久:签名、CDN 卡住时这一行照样交下去(文件那一支说没存下),不卡住整批。 */
-const ATTACHMENT_FETCH_TIMEOUT_MS = 60_000
-
-async function downloadAttachment(
-  source: AttachmentSource,
-  fileName: string,
-  who: { accessToken: string | undefined; agentUserId: string; env: NodeJS.ProcessEnv },
-): Promise<SavedAttachment> {
-  const timed = (input: RequestInfo | URL, init?: RequestInit) => fetch(input, { ...init, signal: AbortSignal.timeout(ATTACHMENT_FETCH_TIMEOUT_MS) })
-  let response: Response
-  if (source.kind === 'url') {
-    const parsed = new URL(source.url)
-    const expected = new URL(getSupabaseUrl())
-    if (parsed.origin !== expected.origin || parsed.pathname.split('/').slice(0, 6).join('/') !== `/storage/v1/object/public/chat-media`) {
-      throw new Error('chat attachment URL is outside the configured chat-media bucket')
-    }
-    response = await timed(source.url, {
-      headers: {
-        apikey: getSupabaseAnonKey(),
-        ...(who.accessToken ? { Authorization: `Bearer ${who.accessToken}` } : {}),
-      },
-    })
-  } else {
-    // 新式附件:以这个 agent 的身份签(attachments/urls 按 agent 是不是成员判),再按签好的 CDN 链接下。
-    if (!who.accessToken) throw new Error('chat attachment needs a signed link, and this agent has no access token')
-    const endpoint = { ...configuredEndpoint(who.accessToken), fetch: timed as typeof fetch }
-    const link = await createAttachmentResolver((refs) => fetchAttachmentUrls(endpoint, refs, who.agentUserId)).resolve(source)
-    if (link.status === 'gone') throw new Error('chat attachment is gone (deleted, or not visible to this agent)')
-    response = await timed(link.url)
-  }
-  if (!response.ok) throw new Error(`chat attachment download failed (${response.status})`)
-  const bytes = Buffer.from(await response.arrayBuffer())
-  // 本地文件按内容起名:同一份字节在几个群里也只存一份。先写临时文件再改名:两个 agent 同时收同一份字节时,谁也读不到写了一半的。
-  const safeName = fileName.replace(/[^A-Za-z0-9._-]+/g, '_') || 'attachment'
-  const digest = createHash('sha256').update(bytes).digest('hex').slice(0, 24)
-  const dir = join(resolveGuguHome(who.env), 'chat-media')
-  const localPath = join(dir, `${digest}-${safeName}`)
-  await mkdir(dir, { recursive: true })
-  const partial = `${localPath}.${randomUUID()}.partial`
-  await writeFile(partial, bytes, { mode: 0o600 })
-  await rename(partial, localPath)
-  return { bytes, localPath }
-}
-
 export type DisclosureRow = { agentUserId: string; chatId: string; threadRootId: string | null; key: string; reason: AgentFailureReason }
 
 /**
@@ -761,9 +715,10 @@ async function prepareMessage(
     }
   }
   const attachment = parseAttachmentContent(row.content, { id: row.id, file_item_id: row.fileItemId, file_version: row.fileVersion, file_blob_id: row.fileBlobId })
-  const download = deps.downloadAttachment
-    ?? ((source: AttachmentSource, fileName: string) =>
-      downloadAttachment(source, fileName, { accessToken: deps.accessToken, agentUserId, env }))
+  const download = (_source: unknown, fileName: string) => {
+    if (!deps.downloadAttachment) throw new Error('Verified attachment reader is not installed')
+    return deps.downloadAttachment({ message_id: row.id }, fileName, agentUserId)
+  }
   // 条目已删(gone):没有字节可给,正文(名字、大小)照原样交下去。
   let attachments: InlineImage[] | undefined
   if (attachment?.kind === 'image' && attachment.source.kind !== 'gone') {

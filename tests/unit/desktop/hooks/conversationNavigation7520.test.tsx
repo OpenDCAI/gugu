@@ -8,8 +8,9 @@ import { openLinkTarget } from '../../../../apps/desktop/src/lib/guguLinks'
 import type { GuguLinkTarget } from '@gugu/core/shared/ui/guguLink'
 import { until } from '../../../support/awaitCondition'
 
-const mocked = vi.hoisted(() => ({ lookup: vi.fn(), file: vi.fn(), reveal: vi.fn(), task: null as unknown }))
+const mocked = vi.hoisted(() => ({ lookup: vi.fn(), file: vi.fn(), local: vi.fn(), reveal: vi.fn(), task: null as unknown }))
 vi.mock('react-i18next', async (original) => ({ ...await original<typeof import('react-i18next')>(), useTranslation: () => ({ t: (key: string) => key }) }))
+vi.mock('../../../../apps/desktop/src/lib/fileAccess', async original => ({ ...await original<typeof import('../../../../apps/desktop/src/lib/fileAccess')>(), localFileRevision: mocked.local }))
 vi.mock('../../../../apps/desktop/src/lib/chat', () => ({ chatService: { getMessageById: mocked.lookup } }))
 vi.mock('../../../../apps/desktop/src/hooks/useSourceMessageReveal', () => ({ askReveal: mocked.reveal }))
 vi.mock('../../../../apps/desktop/src/lib/assistantShellBridge', () => ({ readAssistantShellBridge: () => ({ getSnapshot: () => ({ assistant: { id: 'assistant' }, chatId: 'aaaaaaaa-bbbb-4ccc-8ddd-eeeeeeeeeeee' }) }) }))
@@ -40,6 +41,7 @@ function request(target: GuguLinkTarget) {
 const click = (chatId: string) => request({ kind: 'chat', chatId, messageId })
 beforeEach(async () => {
   vi.resetAllMocks()
+  mocked.local.mockResolvedValue(null)
   openAssistant.mockImplementation((tasks: boolean) => tasks ? 'assistant:task-chat' : 'assistant:chat')
   mocked.task = { assistantId: 'assistant', taskAgentId: 'task', task: { deviceId: 'device', sessionId: 'session' }, assistants: [] }
   mocked.lookup.mockResolvedValue({ chat_id: assistantChat })
@@ -111,6 +113,19 @@ describe('file links use the same shell request', () => {
     await act(async () => { held.get(second)!(); await (second === a ? openedA : openedB) })
     expect(openFile).toHaveBeenCalledOnce()
     expect(openFile).toHaveBeenCalledWith(assistantChat, { kind: 'file', itemId: b }, expect.anything())
+  })
+  it('routes a real local revision without a cloud workspace lookup', async () => {
+    mocked.local.mockResolvedValueOnce({ source: 'local', chat_id: assistantChat })
+    const target = { kind: 'file' as const, itemId: a, version: 1 }
+    await act(async () => { await request(target) })
+    expect(mocked.local).toHaveBeenCalledWith(a)
+    expect(mocked.file).not.toHaveBeenCalled()
+    expect(openFile).toHaveBeenCalledWith(assistantChat, target, expect.anything())
+  })
+  it('refuses a local revision whose group is unavailable without a cloud fallback', async () => {
+    mocked.local.mockResolvedValueOnce({ source: 'local', chat_id: 'not-in-chat-list' })
+    await act(async () => { await expect(request({ kind: 'file', itemId: a })).rejects.toThrow('links.unavailable') })
+    expect(mocked.file).not.toHaveBeenCalled(); expect(openFile).not.toHaveBeenCalled()
   })
   it('preserves the file position, version and caller restore callback', async () => {
     mocked.file.mockResolvedValue({ data: { chat_id: assistantChat } })

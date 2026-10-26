@@ -2035,6 +2035,7 @@ export async function emdashProjectName(projectId: string): Promise<string | nul
   const project = await getProjectById(projectId)
   return project?.name ?? null
 }
+export async function emdashProjectRoot(projectId: string): Promise<string | null> { return (await getProjectById(projectId))?.path ?? null }
 /** The chat a conversation's agent was born in, taken at its first mint (birth-groups.ts). */
 export async function emdashTakeBirthGroup(sessionId: string): Promise<BirthGroup | null> {
   return (await import('@main/core/sessions/birth-groups')).takeBirthGroup(sessionId)
