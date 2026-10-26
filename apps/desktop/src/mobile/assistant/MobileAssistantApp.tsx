@@ -1,5 +1,4 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type CSSProperties } from 'react'
-import { navigateMobile } from '../navigateMobile'
 import { useTranslation } from 'react-i18next'
 import { inferAttachmentKind } from '@gugu/core/shared/ui/attachmentModels'
 import { Button } from '@/components/ui/Button'
@@ -77,11 +76,6 @@ function backOf(route: PhoneRoute): PhoneRoute | null {
   return parent ? { tab: route.tab, sub: parent.sub } : null
 }
 
-function routeDepth(route: PhoneRoute): number {
-  const parent = phoneParentRoute(route)
-  return parent ? 1 + routeDepth(parent) : 0
-}
-
 /** 「分析健康报告」收的文件(与健康页同一份:报告多是 PDF 或拍照 / 截图)。 */
 const HEALTH_REPORT_ACCEPT = 'application/pdf,image/*'
 
@@ -128,8 +122,9 @@ function MobileAssistantAppContent({
   }, [])
   const open = useCallback((target: PhoneRoute) => {
     const next = phoneNextRoute(route, target)
-    const change = routeDepth(next) - routeDepth(route)
-    navigateMobile(() => setRoute(next), change < 0 ? 'pop' : change > 0 ? 'push' : 'replace')
+    // The assistant already owns one phone layer. Internal routes update its
+    // content without snapshotting and cross-fading the persistent header/chat.
+    setRoute(next)
   }, [route])
   const tab = route.tab
   const opened = useOpenedAssistantTaskChat()
@@ -230,11 +225,11 @@ function MobileAssistantAppContent({
             />
           </div>
         }
-        actions={tab === 'chat' ? (
-          <IconButton size="lg" aria-label={t('top.search')} onClick={() => window.dispatchEvent(new CustomEvent(UI_EVENTS.openChatSearch, { detail: { chatId, viewportKey: "assistant" } }))} data-testid="mobile-assistant-search">
+        actions={(
+          <IconButton size="lg" hidden={tab !== 'chat'} aria-label={t('top.search')} onClick={() => window.dispatchEvent(new CustomEvent(UI_EVENTS.openChatSearch, { detail: { chatId, viewportKey: "assistant" } }))} data-testid="mobile-assistant-search">
             <Search />
           </IconButton>
-        ) : null}
+        )}
       />
       <div id={`assistant-${assistant.id}-chat`} role="tabpanel" aria-label={labels.chat} className="ta-phone-chat ta-chat" hidden={tab !== 'chat'} ref={setChatColumn}>
         <FilePreviewHost.Provider value={{}}><ChatAreaPanel viewportKey="assistant"
