@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef, useState, type CSSProperties } from 'react'
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type CSSProperties } from 'react'
 import { useTranslation } from 'react-i18next'
 import { inferAttachmentKind } from '@gugu/core/shared/ui/attachmentModels'
 import { Button } from '@/components/ui/Button'
@@ -19,7 +19,7 @@ import { appendDraft } from '@/lib/assistantDraft'
 import type { AssistantHomePlace } from '@/lib/assistantHome'
 import { assistantTintHue, assistantTintStyle } from '@/lib/assistantTint'
 import { scheduleComposerFocus } from '@/lib/focusComposer'
-import { ArrowUpToLine, ChevronLeft, Mic, Plus, Search, Sparkles } from '@/lib/icons'
+import { ArrowUpToLine, ChevronLeft, Mic, Paperclip, Search, Sparkles } from '@/lib/icons'
 import { useReportChatOnScreen } from '@/lib/onScreenChat'
 import { UI_EVENTS } from '@/lib/uiEvents'
 import { showAssistantTaskChat, useOpenedAssistantTaskChat } from '@/lib/assistantTaskChat'
@@ -133,6 +133,12 @@ function MobileAssistantAppContent({
   }, [opened, assistant.id])
   const taskChat = tab === 'tasks' && opened?.request.assistantId === assistant.id
   const sub = route.sub ?? null
+  const pageBody = useRef<HTMLElement | null>(null)
+  const pageScroll = useRef(new Map<string, number>())
+  const pageKey = `${tab}:${sub ?? ''}`
+  useLayoutEffect(() => {
+    if (pageBody.current) pageBody.current.scrollTop = pageScroll.current.get(pageKey) ?? 0
+  }, [pageKey])
   useEffect(() => {
     if (chatRequest > 0) setRoute({ tab: 'chat' })
   }, [chatRequest])
@@ -143,7 +149,7 @@ function MobileAssistantAppContent({
   const [chatColumn, setChatColumn] = useState<HTMLDivElement | null>(null)
   const chatShown = useReportChatOnScreen(visible && tab === 'chat' ? chatId : null) === chatId
   const machine = usePhoneMachine(homeDeviceId, assistant.id, chatId)
-  // 「+」里的「录制语音笔记」:手机只录和传到它家里(phoneVoiceRuntime),转写在电脑上点「开始转写」;它在休息时录音先留在手机上,❌ 替人叫醒。
+  // 「+」里的「录制语音笔记」:手机只录和传到它家里(phoneVoiceRuntime),转写在电脑上点「开始转写」;上传失败时录音保留在手机上。
   const { t: tVoice } = useTranslation('voiceNotes')
   const voice = usePhoneVoiceNotes({ assistantId: assistant.id, deviceId: homeDeviceId, machine })
   const { disabled: voiceDisabled, start: voiceStart } = voice
@@ -238,7 +244,7 @@ function MobileAssistantAppContent({
           activeTab="chats"
           mobile
           hidden={!chatShown}
-          chrome={{ placeholder: t('chat.placeholder', { name }), attachGlyph: <Plus />, attachMenu, typing, composerHeader: composerEntries, hideRunningStatus: true }}
+          chrome={{ placeholder: t('chat.placeholder', { name }), attachGlyph: <Paperclip />, attachMenu, typing, composerHeader: composerEntries, hideRunningStatus: true }}
           {...chatHandlers}
         /></FilePreviewHost.Provider>
       </div>
@@ -258,7 +264,7 @@ function MobileAssistantAppContent({
       />
       {ideasOpen ? <PhoneIdeas assistant={assistant} chatId={chatId} askInChat={askInChat} onClose={() => setIdeasOpen(false)} /> : null}
       {tab === 'chat' ? null : (
-        <main id={`assistant-${assistant.id}-${tab}`} role="tabpanel" aria-label={labels[tab]} className="ta-phone-body" data-testid={`mobile-assistant-${tab}`} hidden={taskChat}>
+        <main id={`assistant-${assistant.id}-${tab}`} role="tabpanel" aria-label={labels[tab]} className="ta-phone-body" ref={pageBody} onScroll={(event) => pageScroll.current.set(pageKey, event.currentTarget.scrollTop)} data-testid={`mobile-assistant-${tab}`} hidden={taskChat}>
           {tab === 'today' ? <PhoneToday {...page} /> : null}
           {tab === 'tasks' ? <PhoneTasks {...page} /> : null}
           {tab === 'memory' ? <PhoneMemory {...page} /> : null}

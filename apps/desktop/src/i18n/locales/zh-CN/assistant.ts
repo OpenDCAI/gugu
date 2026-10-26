@@ -527,7 +527,7 @@ export default {
     "emptyStateTitle": "让健康状况一目了然",
     "emptyStateSubtitle": "连接健康数据，在一处查看睡眠、恢复、活动等信息。",
     "state": {
-      "noPhone": "在手机上的咕咕里打开 我的 → 这台手机，打开「让助理用这台手机」，再连上「健康」。",
+      "noPhone": "在手机的权限设置中允许读取健康数据。",
       "oldApp": "{{device}} 上的咕咕版本太旧，还读不了健康数据。更新后再试。",
       "offline": "{{device}} 现在离线（最后在线 {{time}}）。打开手机上的咕咕后重试。",
       "offlineNever": "{{device}} 现在离线。打开手机上的咕咕后重试。",

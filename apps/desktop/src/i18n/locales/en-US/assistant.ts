@@ -527,7 +527,7 @@ export default {
     "emptyStateTitle": "Your health at a glance",
     "emptyStateSubtitle": "Connect your health data to see sleep, recovery, activity and more in one place.",
     "state": {
-      "noPhone": "In 咕咕 on your phone, open Me → This phone, turn on \"Let the assistant use this phone\", then connect Health.",
+      "noPhone": "Allow health data access in the phone’s permission settings.",
       "oldApp": "咕咕 on {{device}} is too old to read health data. Update it and try again.",
       "offline": "{{device}} is offline (last seen {{time}}). Open 咕咕 on the phone and try again.",
       "offlineNever": "{{device}} is offline. Open 咕咕 on the phone and try again.",

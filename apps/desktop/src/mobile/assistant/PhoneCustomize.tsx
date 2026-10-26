@@ -3,7 +3,6 @@ import { useRef, useState, type ReactNode } from 'react'
 import { useTranslation } from 'react-i18next'
 import { AgentSettingsModal } from '@/components/agentsettings/AgentSettingsModal'
 import { Avatar } from '@/components/Avatar'
-import { useToast } from '@/components/toastContext'
 import { Button } from '@/components/ui/Button'
 import { Palette } from '@/lib/icons'
 import { rendererLogger } from '@/lib/log'
@@ -26,7 +25,6 @@ const log = rendererLogger('mobile/assistant')
  */
 export function PhoneCustomize({ assistant, machine, persona, go }: PhonePageProps & { persona: PhonePersona }) {
   const { t } = useTranslation('assistant')
-  const { toast } = useToast()
   const { contacts, updateAgentProfile } = useContactsStore()
   const contact = contacts.find((candidate) => candidate.id === assistant.id) ?? null
   const read = persona.error ? null : persona.persona
@@ -63,7 +61,6 @@ export function PhoneCustomize({ assistant, machine, persona, go }: PhonePagePro
           id: home.paths.instructions, deviceId: home.deviceId, after: { path: home.paths.instructions } })
         persona.reload()
       }
-      toast(t('customize.saved'), 'success')
       go(null)
     } catch (cause) {
       const message = assistantPanelFailure(cause,t)

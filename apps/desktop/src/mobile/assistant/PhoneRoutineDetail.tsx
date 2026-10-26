@@ -55,7 +55,6 @@ export function PhoneRoutineDetail(props: PhonePageProps & { id: string }) {
       await reportAssistantAppChange(props.machine.state === 'ready' ? props.machine.machine : undefined, assistant.id, { resource: 'schedules', operation: 'edited',
         id: automation.id, deviceId: homeDeviceId, before: { name: automation.name, active: automation.enabled }, after: { name: automation.name, active: on } })
       await read.refresh()
-      toast(on ? t('routines.enabledToast') : t('routines.disabledToast'), 'success')
     } catch (error) {
       log.error({ error: errorText(error) }, 'set routine enabled failed')
       toast(t('routines.updateFailed'), 'error', messageForUser(error))
@@ -127,7 +126,6 @@ export function PhoneRoutineDetail(props: PhonePageProps & { id: string }) {
                       await api!.remove(automation.id,automation.panelRevision)
                       await reportAssistantAppChange(props.machine.state === 'ready' ? props.machine.machine : undefined, assistant.id, { resource: 'schedules', operation: 'removed',
                         id: automation.id, deviceId: homeDeviceId!, before: { name: automation.name, active: automation.enabled } })
-                      toast(t('routines.deleted'), 'success')
                     }}
                   />
 

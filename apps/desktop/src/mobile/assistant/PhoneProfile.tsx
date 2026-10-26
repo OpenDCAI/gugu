@@ -1,20 +1,24 @@
 import { AssistantNameInline } from '../../components/assistant/AssistantNameInline'
 import { useTranslation } from 'react-i18next'
 import { useContactsStore } from '../../store/contactsContext'
+import { useDevicesStore } from '../../store/devicesContext'
+import { withoutAssistantHome } from '@/lib/assistantHome'
 import { Button } from '@/components/ui/Button'
 import { Avatar } from '@/components/Avatar'
 import { Markdown } from '@/components/markdown/Markdown'
 import { ChatChannelsPanel } from '@/components/settings/channels/ChatChannelsPanel'
 import { AssistantSettingsPage } from '@/components/assistant/AssistantSettingsPage'
 import { AssistantDevicesPage } from '@/components/devices/AssistantDevicesPage'
-import { ChevronRight, Pencil } from '@/lib/icons'
-import { AssistantDiaryDetail, AssistantDiaryList, AssistantDiarySection } from '@/session/renderer/features/assistant/assistant-diary'
+import { ChevronRight, Link, Monitor, Pencil } from '@/lib/icons'
+import { AssistantDiaryDetail, AssistantDiaryList } from '@/session/renderer/features/assistant/assistant-diary'
 import { AssistantRow, AssistantSection, PageHead } from '@/session/renderer/features/assistant/assistant-ui-parts'
 import type { PhonePageProps } from './MobileAssistantApp'
 import { PhoneConnectorDetail, PhoneConnectorsPage } from './PhoneConnectors'
 import { PhoneConnectorSetupPage } from './PhoneConnectorSetup'
 import { PhoneCustomize } from './PhoneCustomize'
 import { PhoneLibraryVolume } from './PhoneLibraryVolume'
+import { PhoneFiles } from './PhoneFiles'
+import { filesTrail } from './phoneMemoryData'
 import { parseConnectorSub } from './phoneConnectorFlow'
 import { personaChipKey } from './phoneProfileModel'
 import { usePhoneIntegrations, usePhonePersona, type PhonePersona } from './usePhoneProfileData'
@@ -42,6 +46,7 @@ export function PhoneProfile(props: PhonePageProps) {
     <AssistantSettingsPage onOpenPage={(tab) => props.open({ tab })} onOpenSection={(section) => go(section)} />
   </div></div>
 
+  if (sub === 'files' || sub?.startsWith('files:')) return <PhoneFiles key={sub} {...props} trail={filesTrail(sub)} />
   if (sub === 'customize') return <PhoneCustomize {...props} persona={persona} />
   if (sub === 'connectors') return <PhoneConnectorsPage {...props} integrations={integrations} />
   if (sub?.startsWith('connector:')) {
@@ -50,13 +55,12 @@ export function PhoneProfile(props: PhonePageProps) {
     if (route?.view === 'connect') return <PhoneConnectorSetupPage {...props} integrations={integrations} id={route.id} />
     return <PhoneConnectorDetail {...props} integrations={integrations} id={route?.id ?? sub.slice('connector:'.length)} />
   }
-  if (sub === 'devices')
+  if (sub === 'devices' || sub?.startsWith('devices:'))
     return (
       // 设备那一页(AssistantDevicesPage)自己带标题和说明,这里不再叠一层(与桌面同)。
       <div className="ta-page ta-phone-profile" data-testid="assistant-slot-devices">
-        <PageHead title={t('library.devices')} />
         <div className="ta-skin">
-          <AssistantDevicesPage cloudDeviceId={cloudDeviceId} />
+          <AssistantDevicesPage cloudDeviceId={cloudDeviceId} openedDeviceId={sub.startsWith('devices:') ? sub.slice('devices:'.length) : null} onOpenDevice={(id) => go(id ? `devices:${id}` : 'devices')} />
         </div>
       </div>
     )
@@ -82,26 +86,26 @@ export function PhoneProfile(props: PhonePageProps) {
         renderMarkdown={(markdown) => <Markdown trust="chat" content={markdown} />}
       />
     )
-  return <ProfileHome {...props} persona={persona} diaries={diaries} integrations={integrations} />
+  return <ProfileHome {...props} persona={persona} integrations={integrations} />
 }
 
 function ProfileHome({
   assistant,
-  ownerName,
-  askInChat,
   go,
   persona,
-  diaries,
   integrations,
   ...props
-}: PhonePageProps & { persona: PhonePersona; diaries: ReturnType<typeof usePhoneToday>; integrations: ReturnType<typeof usePhoneIntegrations> }) {
+}: PhonePageProps & { persona: PhonePersona; integrations: ReturnType<typeof usePhoneIntegrations> }) {
   const { machine } = props
   const { updateAgentProfile } = useContactsStore()
-  const { t, i18n } = useTranslation('assistant')
+  const { t } = useTranslation('assistant')
   const name = assistant.display_name
-  const since = assistant.created_at
-    ? new Intl.DateTimeFormat(i18n.language, { year: 'numeric', month: 'long', day: 'numeric' }).format(new Date(assistant.created_at))
-    : null
+  const devices = useDevicesStore()
+  const deviceCount = withoutAssistantHome([...devices.devices, ...(devices.phones ?? [])], props.cloudDeviceId ?? null).length
+  const integrationCount = integrations.data ? Object.values(integrations.data.configured).filter(Boolean).length : null
+  const appsDetail = integrations.error ? t('connectors.loadFailed') : integrationCount === null ? t('library.loading')
+    : `${t('connectors.savedGroup')} · ${t('memory.items', { n: integrationCount })}`
+  const devicesDetail = devices.error ? t('library.failed') : devices.loading ? t('library.loading') : t('memory.items', { n: deviceCount })
   return (
     <div className="ta-page ta-phone-profile" data-testid="assistant-profile">
       <div className="ta-hero ta-phone-hero">
@@ -114,27 +118,17 @@ function ProfileHome({
         <h1 className="ta-hero-name" data-testid="assistant-name">
           <AssistantNameInline key={assistant.id} name={name} onCommit={(name) => updateAgentProfile(assistant.id, { name })} />
         </h1>
-        {since ? <p className="ta-hero-since">{t('header.since', { date: since, name: ownerName || t('header.you') })}</p> : null}
-        {/* 性格在它家里,在休息时读不到:只说「性格」,❌ 说成「设置性格」(它可能早有性格);点进去自定义那页说清怎么读。 */}
+        {/* 性格未读到时保留中性名称，不把读取失败当作尚未设置。 */}
         <Button variant="ghost" className="ta-chip" onClick={() => go('customize')} data-testid="assistant-character-chip">
           {t(personaChipKey(persona.persona))}
           <ChevronRight />
         </Button>
       </div>
 
-      <AssistantDiarySection view={diaries} name={name} askInChat={askInChat} open={(id) => go(`diary:${id}`)} openAll={() => go('diaries')} />
-
-      <AssistantSection title={t('connectors.title')} testId="assistant-profile-connectors" bare>
-        <PhoneConnectorsPage {...props} assistant={assistant} ownerName={ownerName} askInChat={askInChat} go={go} integrations={integrations} embedded />
-      </AssistantSection>
-      <AssistantSection title={t('capabilities.title')} testId="assistant-capabilities">
+      <AssistantSection testId="assistant-profile-entries">
+        <AssistantRow leading={<Link />} title={t('connectors.title')} detail={appsDetail} onClick={() => go('connectors')} testId="assistant-open-connectors" />
+        <AssistantRow leading={<Monitor />} title={t('library.devices')} detail={devicesDetail} onClick={() => go('devices')} testId="assistant-library-devices" />
         <AssistantLibraryCard assistantId={assistant.id} machine={machine.state === 'ready' ? machine.machine : null} kind="capabilities" onOpen={() => go('library:capabilities')} />
-        <AssistantLibraryCard assistantId={assistant.id} machine={machine.state === 'ready' ? machine.machine : null} kind="devices" onOpen={() => go('devices')} />
-        <AssistantRow title={t('channels.title')} detail={t('channels.note', { name })} onClick={() => go('channels')} testId="assistant-open-channels" />
-      </AssistantSection>
-      {/* 它自己的设置:从前是页头的齿轮,页头只剩一行后(owner 10-26)从资料进。 */}
-      <AssistantSection testId="assistant-profile-settings">
-        <AssistantRow title={t('nav.settings')} onClick={() => go('settings')} testId="assistant-open-settings" />
       </AssistantSection>
     </div>
   )

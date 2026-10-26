@@ -51,8 +51,8 @@ export function PhoneCapabilityRow({ group, connected, os, readState, busy, erro
   const locationOff = locationGranted && !os?.special.location_enabled
   const healthGranted = os?.health.granted_types.length ?? 0
   const healthBackgroundMissing = group === 'health' && os?.health.background_supported && !os.health.background_granted
-  const status = readState === 'failed' ? '读取系统权限失败'
-    : !readable ? '正在读取系统状态'
+  const status = readState === 'failed' ? t('devices.phoneActions.statusUnknown')
+    : !readable ? t('devices.loading')
       : unsupported ? t('devices.deviceActions.statusUnsupported')
         : !connected ? t('devices.deviceActions.statusNotConnected')
           : missing.length > 0 ? '已选择，尚缺系统授权'

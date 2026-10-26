@@ -5,10 +5,9 @@ import './phone-memory.css'
 import { useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import { Markdown } from '@/components/markdown/Markdown'
-import { useToast } from '@/components/toastContext'
 import { Button } from '@/components/ui/Button'
-import { Folder, Heart, Mic, Sparkles, SquarePen, Trash2 } from '@/lib/icons'
-import { isOwnerProfileNote, RESOURCES_DIR_NAME, type MemoryKind } from '@/session/renderer/features/assistant/assistant-files'
+import { Heart, Mic, Sparkles, SquarePen, Trash2 } from '@/lib/icons'
+import { isOwnerProfileNote, type MemoryKind } from '@/session/renderer/features/assistant/assistant-files'
 import { readMemoryNotes, type MemoryEntry } from '@/session/renderer/features/assistant/assistant-machine-core'
 import { AssistantEmpty, AssistantRow, AssistantSection, ownerLeading, PageHead } from '@/session/renderer/features/assistant/assistant-ui-parts'
 import { useAuth } from '@/store/auth'
@@ -103,7 +102,7 @@ function AboutYou({ askInChat, go, notes, machine }: PhonePageProps & { notes: M
           </Button>
         </div>
       ) : (
-        aboutYou.map(row => <AssistantMemoryContent key={row.file} machine={machine.state === 'ready' ? machine.machine : undefined} entry={row}>{(entry,error) => <AssistantRow leading={ownerLeading(owner)} title={isOwnerProfileNote(entry) ? t('memory.filter.user') : entry.title} detailLines={4}
+        aboutYou.map(row => <AssistantMemoryContent key={row.file} machine={machine.state === 'ready' ? machine.machine : undefined} entry={row}>{(entry,error) => <AssistantRow leading={owner?.avatarUrl ? ownerLeading(owner) : undefined} title={isOwnerProfileNote(entry) ? t('memory.filter.user') : entry.title} detailLines={4}
           detail={error ? assistantPanelFailure(error,t) : memoryContentPreview(entry.body) || (entry.modifiedAt ? t('memory.updated', { time: time(entry.modifiedAt) }) : undefined)} onClick={() => go(`note:${entry.file}`)} />}</AssistantMemoryContent>)
       )}
     </AssistantSection>
@@ -140,12 +139,10 @@ function MemorySources({ machine, go }: PhonePageProps) {
   const ready = machine.state === 'ready' ? machine.machine : null
   const counts = usePhoneRead(ready ? `memory-counts|${machineKey(ready)}` : null, () => readMemoryCounts(ready!), 'count memory folders')
   const voice = counts.state === 'ok' ? counts.data.voice : null
-  const files = counts.state === 'ok' ? counts.data.files : null
   return (
     <AssistantSection title={t('library.sources')}>
       <AssistantRow leading={<Heart />} title={t('health.title')} onClick={() => go('health')} testId="assistant-memory-health" />
       <AssistantRow leading={<Mic />} title={t('memory.voiceNotes')} detail={voice === null ? t('memory.voiceNotesCount') : t('memory.items', { n: voice })} onClick={() => go('voice')} testId="assistant-memory-voice" />
-      <AssistantRow leading={<Folder />} title={RESOURCES_DIR_NAME} detail={files === null ? undefined : t('memory.items', { n: files })} onClick={() => go('files')} testId="assistant-memory-files" />
     </AssistantSection>
   )
 }
@@ -174,7 +171,6 @@ function MemoryNote(props: PhonePageProps & { file: string; notes: NotesRead }) 
 
 function MemoryNoteBody({ assistant, askInChat, go, notes, machine, note }: OpenedPageProps & { notes: NotesRead; note: MemoryEntry }) {
   const { t } = useTranslation('assistant')
-  const { toast } = useToast()
   const time = useTime()
   const [confirming, setConfirming] = useState(false)
   const name = assistant.display_name
@@ -209,7 +205,6 @@ function MemoryNoteBody({ assistant, askInChat, go, notes, machine, note }: Open
           onConfirm={async () => {
             await deleteMemoryNote(machine, note, () => reportAssistantAppChange(machine, assistant.id, { resource: 'memory', operation: 'removed',
               id: note.path, deviceId: machine.deviceId, before: { name: note.title, path: note.path } }))
-            toast(t('memory.deleted'), 'success')
           }}
         />
 
