@@ -65,6 +65,7 @@ describe('a resident page moved to another file (摩擦单 F115)', () => {
 
   it('a new file surface uses the live person context without another normalization request', async () => {
     await bindExtensionSurface({ webContentsId: PAGE, extensionId: 'workspace', tabId: 'slot-2', tabKind: 'workspace.main', chatId: CHAT, itemId: CFG });
+    updateExtensionSurfaceLayout(PAGE, { visible: true, width: 440, height: 700 });
     expect(resourceChat).not.toHaveBeenCalled();
     expect(contexts().at(-1)).toMatchObject({ file: { chat: CHAT, id: CFG } });
   });
