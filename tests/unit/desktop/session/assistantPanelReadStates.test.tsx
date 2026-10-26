@@ -42,7 +42,7 @@ it('retains the formatted title and unread indicator in directory task rows', as
   directory.rows = [{ deviceId: 'home',live: false,summary: { conversationId: 'assistant-session',agent: { userId: 'assistant' } } },{ deviceId: 'home',live: false,summary: { conversationId: 'task',parentConversationId: 'assistant-session',agent: { userId: 'task-agent' },title: 'codex (1)',harness: 'codex',unseen: true,agentStatus: 'idle' } }]
   const marker = { domain: 'tasks',resource_key: '__collection__:home',device_id: 'home',data: { state: 'ready' } }
   const item = { domain: 'tasks',resource_key: 'task',device_id: 'home',data: { sessionId: 'task',title: 'codex (1)',harness: 'codex',unseen: true,status: 'idle' } }
-  const client = await render(context({ machineLoading: false,machine: { deviceId: 'home',panel: { deviceId: 'home',snapshot: async () => ({ items: [marker,item],application: [] }) } } as never }))
+  const client = await render(context({ machineLoading: false,machine: { deviceId: 'home',panel: { deviceId: 'home',collection: async () => [],snapshot: async () => ({ items: [marker,item],application: [] }) } } as never }))
   await clickElement(harness.container.querySelector<HTMLElement>('[data-testid="assistant-seg-tasks"]')!)
   await act(async () => { await vi.waitFor(() => expect(client.isFetching()).toBe(0)) })
   expect(harness.container.textContent).toContain('Codex (1)')

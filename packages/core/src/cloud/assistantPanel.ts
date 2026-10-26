@@ -81,7 +81,13 @@ export function createAssistantPanelClient(transport: AssistantPanelTransport, a
   async function request<T>(assistant: string, name: string, args: Record<string, unknown>, parse: (data: unknown, owner: string) => T): Promise<T> {
     const owner = accountId()
     if (!owner) throw new AssistantPanelError('signed-out','Not signed in')
-    const answer = await transport(name,{ p_assistant: assistant,...args })
+    let answer: Awaited<ReturnType<AssistantPanelTransport>>
+    try { answer = await transport(name,{ p_assistant: assistant,...args }) }
+    catch (error) {
+      if (accountId() !== owner) throw new AssistantPanelError('account-changed','Assistant panel account changed')
+      if (error instanceof AssistantPanelError) throw error
+      throw new AssistantPanelError('transport-failed','PANEL_TRANSPORT_FAILED')
+    }
     if (accountId() !== owner) throw new AssistantPanelError('account-changed','Assistant panel account changed')
     if (answer.error) throw new AssistantPanelError(answer.error.code ?? 'unavailable',answer.error.message)
     return parse(answer.data,owner)

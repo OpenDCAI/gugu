@@ -1,3 +1,4 @@
+import { isAssistantPanelReadRetryable, retryAssistantPanelRead } from '@gugu/core/cloud/assistantPanelRead';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { AssistantPanelError } from '@gugu/core/cloud/assistantPanel';
 import { useEffect, useMemo } from 'react';
@@ -68,6 +69,8 @@ export function useInstructions(machine: AssistantMachine | undefined) {
       return { ...splitInstructions(raw), raw, revision: machine?.panel?.revision(machine.paths.instructions) };
     },
     enabled: !!machine,
+    retry: retryAssistantPanelRead,
+    refetchOnWindowFocus: query => isAssistantPanelReadRetryable(query.state.error),
   });
 }
 
@@ -77,6 +80,8 @@ export function useMemoryNotes(machine: AssistantMachine | undefined) {
     queryKey: assistantQueryKey(machine?.deviceId ?? '', 'memory'),
     queryFn: () => readMemoryNotes(machine!),
     enabled: !!machine,
+    retry: retryAssistantPanelRead,
+    refetchOnWindowFocus: query => isAssistantPanelReadRetryable(query.state.error),
   });
 }
 
@@ -98,6 +103,8 @@ export function useOwnSkills(machine: AssistantMachine | undefined) {
       return skills.filter((s): s is SkillEntry => s !== null).sort((a, b) => a.name.localeCompare(b.name));
     },
     enabled: !!machine,
+    retry: retryAssistantPanelRead,
+    refetchOnWindowFocus: query => isAssistantPanelReadRetryable(query.state.error),
   });
 }
 
@@ -106,6 +113,8 @@ export function useDirectory(machine: AssistantMachine | undefined, dir: string 
     queryKey: assistantQueryKey(machine?.deviceId ?? '', 'dir', dir),
     queryFn: () => listDirectory(machine!, dir!),
     enabled: !!machine && !!dir,
+    retry: retryAssistantPanelRead,
+    refetchOnWindowFocus: query => isAssistantPanelReadRetryable(query.state.error),
   });
 }
 

@@ -4,6 +4,8 @@ import { useCallback, useEffect, useRef, useState } from 'react'
 import { rendererLogger } from '@/lib/log'
 import type { AssistantMachine } from '@/session/renderer/features/assistant/assistant-machine-core'
 import { ASSISTANT_PANEL_CHANGED } from '@/components/assistant/assistant-panel-events'
+import { AssistantPanelError } from '@gugu/core/cloud/assistantPanel'
+import { ASSISTANT_PANEL_READ_TIMEOUT_MS, isAssistantPanelReadRetryable, withAssistantPanelReadDeadline } from '@gugu/core/cloud/assistantPanelRead'
 
 const log = rendererLogger('mobile/assistant')
 
@@ -40,6 +42,7 @@ export function usePhoneRead<T>(
     let cancelled = false
     let request = 0
     let timer: ReturnType<typeof setTimeout> | undefined
+    let preparationTimer: ReturnType<typeof setTimeout> | undefined
     // 上一次读到后定的间隔:悄悄重读偶尔失败一次不该让它从此不再刷新(「处理中」就一直停在处理中),按同一个间隔接着排下一次。
     let lastInterval: number | null = null
     const run = async (quiet: boolean, explicit = false): Promise<void> => {
@@ -47,8 +50,9 @@ export function usePhoneRead<T>(
       const current = ++request
       const active = () => !cancelled && fullRef.current === full && current === request
       try {
-        const data = await readRef.current()
+        const data = await withAssistantPanelReadDeadline(() => readRef.current())
         if (!active()) return
+        clearTimeout(preparationTimer)
         lastInterval = pollRef.current?.(data) ?? null
         setResult({ key: full, read: { state: 'ok', data } })
         if (lastInterval) timer = setTimeout(() => void run(true), lastInterval)
@@ -57,7 +61,16 @@ export function usePhoneRead<T>(
         log.warn({ what, quiet, error: error instanceof Error ? error.message : String(error) }, 'assistant phone read failed')
         setResult(previous => quiet && previous?.key === full && previous.read.state === 'ok'
           ? { ...previous,read: { ...previous.read,refreshError: error } } : { key: full,read: { state: 'error',error } })
-        timer = setTimeout(() => void run(true),lastInterval ?? 5000)
+        if (isAssistantPanelReadRetryable(error)) timer = setTimeout(() => void run(true),lastInterval ?? 5000)
+        if ((error as { code?: string }).code === 'unprepared') {
+          clearTimeout(preparationTimer)
+          preparationTimer = setTimeout(() => {
+            if (!active()) return
+            const failure = new AssistantPanelError('preparation-timeout','PANEL_PREPARATION_TIMEOUT')
+            setResult(previous => previous?.key === full && previous.read.state === 'ok'
+              ? { ...previous,read: { ...previous.read,refreshError: failure } } : { key: full,read: { state: 'error',error: failure } })
+          },ASSISTANT_PANEL_READ_TIMEOUT_MS)
+        }
         // A requested refresh must not turn a failed verification into a successful mutation.
         if (explicit) throw error
       }
@@ -70,6 +83,7 @@ export function usePhoneRead<T>(
     return () => {
       cancelled = true
       clearTimeout(timer)
+      clearTimeout(preparationTimer)
       window.removeEventListener(ASSISTANT_PANEL_CHANGED,changed)
       if (refreshRef.current === refresher) refreshRef.current = null
     }

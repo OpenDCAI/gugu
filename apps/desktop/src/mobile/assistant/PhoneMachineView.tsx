@@ -1,4 +1,5 @@
-import { useReadFailure } from '@/session/renderer/features/assistant/assistant-read-failure'
+import { useAssistantReadError, useReadFailure } from '@/session/renderer/features/assistant/assistant-read-failure'
+import { assistantPanelFailure } from '@/components/assistant/assistant-panel-errors'
 import type { ReactNode } from 'react'
 import { useTranslation } from 'react-i18next'
 import { LoadingIndicator } from '@/lib/loading/LoadingIndicator'
@@ -51,7 +52,11 @@ export function ReadFailed({ title, error, onRetry }: { title: string; error: un
 
 /** 一次读的三种结果:在读 / 读失败(说哪一步)/ 读到了交给 children。 */
 export function ReadView<T>({ read, failedTitle, children }: { read: PhoneRead<T> & { reload: () => void }; failedTitle: string; children: (data: T) => ReactNode }) {
-  if (read.state === 'loading') return <ReadingNow />
-  if (read.state === 'error') return <ReadFailed title={failedTitle} error={read.error} onRetry={read.reload} />
+  const { t } = useTranslation('assistant')
+  const error = useAssistantReadError(read.state === 'loading',read.state === 'error' ? read.error : null)
+  // usePhoneRead owns recovery. A second retry timer here used to reset its
+  // entire attempt key, hiding each error behind another initial spinner.
+  if (error) return <AssistantEmpty title={failedTitle}><span role="alert">{assistantPanelFailure(error,t)}</span></AssistantEmpty>
+  if (read.state !== 'ok') return <ReadingNow />
   return <>{children(read.data)}</>
 }

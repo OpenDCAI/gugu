@@ -1,3 +1,4 @@
+import { isAssistantPanelReadRetryable, retryAssistantPanelRead } from '@gugu/core/cloud/assistantPanelRead';
 // #7199 语音笔记的读:云电脑上 <记忆夹>/voice-notes/ 每条一个文件夹(格式见 @gugu/core/shared/voiceNotes),
 // 再叠上这一窗口里正在跑的那几条的进度(voice-note-jobs)—— 本机跑着的以本机为准,别处录的看文件。
 import { useQuery } from '@tanstack/react-query';
@@ -111,7 +112,9 @@ export function useVoiceNotes(machine: AssistantMachine | undefined) {
       return mapLimit(dirs, 6, (entry) => readNote(m, entry.name, now));
     },
     enabled: !!machine,
-    refetchInterval: (query) => (anyProcessing(query.state.data) ? 5_000 : 30_000),
+    retry: retryAssistantPanelRead,
+    refetchOnWindowFocus: query => isAssistantPanelReadRetryable(query.state.error),
+    refetchInterval: (query) => !isAssistantPanelReadRetryable(query.state.error) ? false : (anyProcessing(query.state.data) ? 5_000 : 30_000),
   });
 }
 
@@ -133,7 +136,9 @@ export function useVoiceNote(machine: AssistantMachine | undefined, id: string) 
       return { item, summary: summary?.trim() ? summary : null, lines: transcript ? parseTranscript(transcript) : [] };
     },
     enabled: !!machine && !!id,
-    refetchInterval: (query) => (query.state.data?.item.view.kind === 'processing' ? 5_000 : false),
+    retry: retryAssistantPanelRead,
+    refetchOnWindowFocus: query => isAssistantPanelReadRetryable(query.state.error),
+    refetchInterval: (query) => !isAssistantPanelReadRetryable(query.state.error) ? false : (query.state.data?.item.view.kind === 'processing' ? 5_000 : false),
   });
 }
 

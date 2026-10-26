@@ -1,3 +1,4 @@
+import { retryAssistantPanelRead } from '@gugu/core/cloud/assistantPanelRead';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { useLibraryHost } from '@renderer/features/library/library-host';
 import { rpcOn } from '@renderer/lib/ipc';
@@ -26,7 +27,7 @@ export function useGitHubAccounts() {
     staleTime: 30_000,
     refetchOnWindowFocus: true,
     enabled: host.assistantPanelExpected ? !!host.assistantPanel : host.remote?.online !== false,
-    ...(host.remote ? { retry: false } : {}),
+    ...(host.assistantPanelExpected ? { retry: retryAssistantPanelRead } : host.remote ? { retry: false } : {}),
   });
 }
 

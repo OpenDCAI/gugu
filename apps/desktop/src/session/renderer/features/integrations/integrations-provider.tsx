@@ -1,3 +1,4 @@
+import { isAssistantPanelReadRetryable, retryAssistantPanelRead } from '@gugu/core/cloud/assistantPanelRead';
 import { ASSISTANT_PANEL_CHANGED } from '@/components/assistant/assistant-panel-events';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import React, { createContext, useCallback, useContext, useEffect, useMemo, useState, useSyncExternalStore } from 'react';
@@ -111,8 +112,8 @@ export function IntegrationsProvider({ children }: { children: React.ReactNode }
     staleTime: Infinity,
     refetchOnWindowFocus: false,
     enabled,
-    refetchInterval: host.assistantPanelExpected ? 30_000 : false,
-    ...(remote ? { retry: false } : {}),
+    refetchInterval: query => host.assistantPanelExpected && isAssistantPanelReadRetryable(query.state.error) ? 30_000 : false,
+    ...(host.assistantPanelExpected ? { retry: retryAssistantPanelRead,refetchOnWindowFocus: (query: { state: { error: unknown } }) => isAssistantPanelReadRetryable(query.state.error) } : remote ? { retry: false } : {}),
   });
 
   useEffect(() => {
@@ -126,8 +127,8 @@ export function IntegrationsProvider({ children }: { children: React.ReactNode }
     staleTime: 30_000,
     refetchOnWindowFocus: true,
     enabled,
-    refetchInterval: host.assistantPanelExpected ? 30_000 : false,
-    ...(remote ? { retry: false } : {}),
+    refetchInterval: query => host.assistantPanelExpected && isAssistantPanelReadRetryable(query.state.error) ? 30_000 : false,
+    ...(host.assistantPanelExpected ? { retry: retryAssistantPanelRead,refetchOnWindowFocus: (query: { state: { error: unknown } }) => isAssistantPanelReadRetryable(query.state.error) } : remote ? { retry: false } : {}),
   });
 
   const { data: configuredData, error: configuredConnectionsError, isFetching: isCheckingConfiguredConnections } =
@@ -137,8 +138,8 @@ export function IntegrationsProvider({ children }: { children: React.ReactNode }
       staleTime: Infinity,
       refetchOnWindowFocus: false,
       enabled,
-    refetchInterval: host.assistantPanelExpected ? 30_000 : false,
-      ...(remote ? { retry: false } : {}),
+    refetchInterval: query => host.assistantPanelExpected && isAssistantPanelReadRetryable(query.state.error) ? 30_000 : false,
+      ...(host.assistantPanelExpected ? { retry: retryAssistantPanelRead,refetchOnWindowFocus: (query: { state: { error: unknown } }) => isAssistantPanelReadRetryable(query.state.error) } : remote ? { retry: false } : {}),
     });
   const configuredConnections = configuredData ?? {};
 
