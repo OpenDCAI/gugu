@@ -2674,7 +2674,7 @@ describe('write tools refuse unknown keys (#6840)', () => {
     const { tools } = await client.listTools()
     const writers = (TOOL_DEFS as Array<{ name: string; writer?: boolean }>).filter((def) => def.writer).map((def) => def.name)
     // Includes both delegated text and attachment writers; workspace writers live in the folder App.
-    expect(writers).toHaveLength(21)
+    expect(writers).toHaveLength(22)
     for (const name of writers) {
       expect(tools.find((tool) => tool.name === name)?.inputSchema, name).toMatchObject({ additionalProperties: false })
     }

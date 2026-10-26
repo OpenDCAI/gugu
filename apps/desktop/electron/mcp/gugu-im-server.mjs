@@ -1859,6 +1859,9 @@ async function handleTopic(args, deps) {
     return Array.isArray(rows) ? rows : []
   }
   if (args.action === 'delete') {
+    if (typeof args.confirm_name !== 'string' || args.confirm_name.length === 0) {
+      throw new Error('topic_delete: confirm_name is required and must be the exact current topic name')
+    }
     const chatId = await assertIsTopic(args, deps, 'topic_delete')
     const row = await deps.restRpc('archive_topic_as', {
       p_chat_id: chatId,
@@ -2439,7 +2442,7 @@ export const TOOL_DEFS = [
   {
     name: 'topic_open',
     writer: true,
-    description: 'Open a topic from a message. Only participants are notified. Use its chat_id for messages; files and Apps use the source chat. Deletion: topic_delete in the catalog requires source-group management authority and the exact current name.',
+    description: 'Open a topic from a message. Only participants are notified. Messages use its chat_id; files and Apps use the source chat. Deletion: catalog topic_delete.',
     schema: z.object({
       chat_id: chatIdSchema.describe('The source chat.'),
       source_message_id: z.string().trim().min(1).describe('A message of chat_id (msg:<uuid>).'),
