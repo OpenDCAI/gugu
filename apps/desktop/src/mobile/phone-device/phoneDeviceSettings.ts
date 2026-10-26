@@ -124,28 +124,21 @@ function clearInstallationChoices(): void {
   if (failure) throw failure
 }
 
-/**
- * 这次安装的标识(machine_id):卸载重装才变。device_id 再按账号分开 —— 设备行的主键全库唯一,
- * 同一台手机换个号登录不能撞上上一个号的那一行。
- */
-export function phoneInstallId(installKey: string | null = null, previousInstallKey?: string | null): string {
+/** Legacy origin cache is a migration hint; the native host's committed registration takes precedence. */
+export function cachedPhoneInstallation(): { cachedInstallId: string | null; cachedBinding: string | null } {
+  return { cachedInstallId: localStorage.getItem(INSTALL_KEY), cachedBinding: localStorage.getItem(INSTALL_BOUND_KEY) }
+}
+
+/** Cache the native registration; a restored WebView cannot carry consent to another installation. */
+export function phoneInstallId(installKey: string, registrationId: string, previousInstallKey?: string | null): string {
+  if (!installKey?.trim() || !registrationId?.trim()) throw new Error('无法读取这台手机的原生设备登记。请更新手机安装包后重试。')
   try {
-    const existing = localStorage.getItem(INSTALL_KEY)
     const boundTo = localStorage.getItem(INSTALL_BOUND_KEY)
-    // A missing native binding cannot prove that legacy consent belongs to this phone.
-    // Same-install upgrades retain their choices; a new/unverifiable install opts in again.
-    if (existing && (!installKey || boundTo === installKey)) return existing
-    // Only native no-backup continuity evidence may bridge the old device-key format.
-    // Restored WebView data alone must never supply this migration authority.
-    if (existing && installKey && previousInstallKey && boundTo === previousInstallKey) {
-      localStorage.setItem(INSTALL_BOUND_KEY, installKey)
-      return existing
-    }
-    if (installKey) clearInstallationChoices()
-    const created = crypto.randomUUID()
-    localStorage.setItem(INSTALL_KEY, created)
-    if (installKey) localStorage.setItem(INSTALL_BOUND_KEY, installKey)
-    return created
+    if (boundTo !== installKey && (!previousInstallKey || boundTo !== previousInstallKey)) clearInstallationChoices()
+    // An origin can cache the native result, but it can never choose or rotate the registration.
+    localStorage.setItem(INSTALL_KEY, registrationId)
+    localStorage.setItem(INSTALL_BOUND_KEY, installKey)
+    return registrationId
   } catch {
     throw new Error('这台手机存不下设备标识(localStorage 不可用),没法登记成设备')
   }

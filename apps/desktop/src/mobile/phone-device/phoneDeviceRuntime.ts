@@ -45,6 +45,7 @@ import { createPhoneDeviceRpcHost } from './phoneDeviceRpcHost'
 import type { JoinDeviceTopic } from '@gugu/core/cloud/deviceRpcAttach'
 import { readPhoneDataStatus } from './phoneDataActions'
 import { phoneDeviceRow } from './phoneDeviceRow'
+import { readPhoneInstallation } from './phoneInstallation'
 import {
   effectiveGrants,
   groupGranted,
@@ -360,11 +361,10 @@ export function startPhoneDevice(options: {
         collecting = false
         syncCollecting()
       }
-      const nextInfo = await nativePhoneActions.deviceInfo()
+      const installation = await readPhoneInstallation(userId)
       if (!alive) return
-      info = nextInfo
-      if (!info.install_key?.trim()) throw new Error('无法读取这台手机的原生安装标识。')
-      installId = phoneInstallId(info.install_key, info.previous_install_key)
+      info = installation
+      installId = phoneInstallId(info.install_key ?? '', info.registration_id ?? '', info.previous_install_key)
       deviceId = phoneDeviceId(installId, userId)
       if (!embeddedHost) rpcHost = createPhoneDeviceRpcHost({ userId, deviceId, provider, join,
         replyShared: async (payload) => { if (!channel) return; await channel.send({ type: 'broadcast', event: 'broadcast', payload }) },
