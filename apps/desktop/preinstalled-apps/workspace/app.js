@@ -226,6 +226,9 @@ async function previewKit() {
   return state.md
 }
 
+// A Workspace page starts when its folder or file is opened. Prepare its existing reader while it awaits context.
+const previewReady = previewKit().then((md) => ({ md }), (error) => ({ error }))
+
 // GFM (tables, strikethrough, task items).
 function markdownSupport(cm) {
   return cm.markdown({ base: cm.markdownLanguage })
@@ -878,8 +881,6 @@ async function openHanded() {
   closeCurrent()
   document.body.classList.add('show-doc')
   try {
-    // Prepare the reader during sync. JSON and stored files do not wait for a reader they never use.
-    const preview = previewKit().then((md) => ({ md }), (error) => ({ error }))
     const file = await gugu.files.open(state.ctx.file)
     if (state.opening !== token) {
       file.close()
@@ -901,7 +902,7 @@ async function openHanded() {
     showDoc(file.entry)
     watchStatus(current)
     watchPresence(current)
-    if (file.type === 'text') await mountText(current, preview)
+    if (file.type === 'text') await mountText(current, previewReady)
     else mountJson(current)
   } catch (error) {
     if (state.opening === token) showDocMessage(error.code === 'denied' ? state.t.denied : fmt(state.t.failed, { e: error.message }))

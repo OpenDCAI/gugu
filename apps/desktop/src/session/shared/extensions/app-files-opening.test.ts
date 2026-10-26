@@ -17,17 +17,18 @@ const rpc = vi.fn((name: string) => {
 vi.mock('@gugu/core/cloud/supabase', () => ({ createGuguSupabaseClient: () => ({ rpc }) }));
 const { createAppFiles } = await import('./app-files-core');
 const identities = vi.fn(async () => [{ id: PERSON, name: 'Creator', kind: 'human' as const, avatar: null }]);
+const claimant = vi.fn(() => ({ suffix: '.md', app: { id: 'workspace', name: 'Folder', icon: null } }));
 const warn = vi.fn();
 const grant = vi.fn<(page: unknown, grant: Grant) => void>();
 const page = { pageId: 7, extensionId: 'workspace', itemId: ITEM };
 let files: ReturnType<typeof createAppFiles>;
 
 beforeEach(() => {
-  rpc.mockClear(); identities.mockClear(); warn.mockClear(); grant.mockClear();
+  rpc.mockClear(); claimant.mockClear(); identities.mockClear(); warn.mockClear(); grant.mockClear();
   files = createAppFiles({
     account: async () => ({ token: 'token', userId: PERSON }), hasCapability: () => true,
     sync: { pageFor: () => ({}), grant, ungrant: vi.fn(), revoke: vi.fn() } as never,
-    identities, faces: async () => ({}), filesUrl: () => 'http://files.invalid', warn,
+    claimant, identities, faces: async () => ({}), filesUrl: () => 'http://files.invalid', warn,
   });
 });
 
@@ -38,11 +39,14 @@ it('hands the click authorization to the bound file without reading its row twic
   expect(columns).toContain('epoch');
   expect(columns).toContain('updated_by');
   expect(columns).not.toContain('inline_text');
+  expect(claimant).not.toHaveBeenCalled();
   expect(JSON.stringify(target.opening)).not.toContain('must-not-cross');
   expect(JSON.stringify(target.opening)).not.toContain('DOCUMENT MUST NOT CROSS');
   const opened = await files.open(page, { ref: { chat: CHAT, id: ITEM }, expectedVersion: 3, deferDetails: true }, target.opening);
   expect(opened).toMatchObject({ docName: `${ITEM}@2`, access: 'rw', entry: { detailsPending: true, canDelete: false } });
   expect(rpc.mock.calls.map(([name]) => name)).toEqual(['workspace_get_as']);
+  expect(claimant).toHaveBeenCalledOnce();
+  expect(opened.entry.claimedBy).toMatchObject({ id: 'workspace' });
   // Only the sync identity is needed to render. Author/delete decoration waits for the page's acknowledgement.
   expect(identities).toHaveBeenCalledTimes(1);
   const decorated = await grant.mock.calls[0]![1].details!();

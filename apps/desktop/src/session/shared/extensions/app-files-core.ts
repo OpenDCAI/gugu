@@ -217,9 +217,7 @@ type Claimant = FilesPlatform['claimant'];
 function entryOf(row: ItemRow, claimant: Claimant): AppFileEntry {
   const file = { name: row.filename, contentType: row.content_type };
   const folder = row.kind === 'folder';
-  // Who opens it and how its name reads come from the one answer for its kind (`typedFileName`, 摩擦单 F41 / F39). No App opens a folder.
-  const claim = folder ? null : (claimant?.(typedFileName(file)) ?? null);
-  return {
+  return claimEntry({
     id: row.id,
     chat: row.chat_id,
     name: row.filename,
@@ -229,8 +227,8 @@ function entryOf(row: ItemRow, claimant: Claimant): AppFileEntry {
     path: row.path,
     systemRole: row.system_role === 'attachments' ? 'attachments' : null,
     suffix: folder ? '' : fileSuffixOf(file),
-    displayName: claim ? displayNameOf(row.filename, claim.suffix) : row.filename,
-    claimedBy: claim?.app ?? null,
+    displayName: row.filename,
+    claimedBy: null,
     size: row.size_bytes ?? null,
     version: row.version ?? null,
     createdAt: row.created_at ?? null,
@@ -243,7 +241,14 @@ function entryOf(row: ItemRow, claimant: Claimant): AppFileEntry {
       : null,
     sourceMessageIds: row.source_message_ids ?? [],
     canDelete: false,
-  };
+  }, claimant);
+}
+
+/** Resolve presentation only for an entry being used, not for a pending file-opening message. */
+function claimEntry(entry: AppFileEntry, claimant: Claimant): AppFileEntry {
+  if (!claimant || entry.type === 'folder') return entry;
+  const claim = claimant(typedFileName({ name: entry.name, contentType: entry.contentType }));
+  return { ...entry, displayName: claim ? displayNameOf(entry.name, claim.suffix) : entry.name, claimedBy: claim?.app ?? null };
 }
 
 /**
@@ -610,7 +615,7 @@ export function createAppFiles(platform: FilesPlatform) {
   };
   const entryOne = async (token: string, row: ItemRow, actor: string): Promise<AppFileEntry> => (await entriesOf(token, [row], platform, actor))[0]!;
   const openingOf = (row: ItemRow, actor: string): { opening?: PreparedChatFile } => row.kind === 'document'
-    ? { opening: { entry: entryOf(row, platform.claimant), epoch: row.epoch, actor, expiresAt: Date.now() + 5_000 } }
+    ? { opening: { entry: entryOf(row, undefined), epoch: row.epoch, actor, expiresAt: Date.now() + 5_000 } }
     : {};
 
   async function selfName(token: string, userId: string): Promise<string> {
@@ -638,7 +643,7 @@ export function createAppFiles(platform: FilesPlatform) {
     const resolved = usable ? null : await resolve(surface, { token, userId }, args.ref);
     const row = resolved?.row;
     if (row?.kind === 'folder') throw notAFile(row);
-    const entry = usable ? opening.entry : entryOf(row!, platform.claimant);
+    const entry = usable ? claimEntry(opening.entry, platform.claimant) : entryOf(row!, platform.claimant);
     const handedOver = usable || resolved!.handedOver;
     // A stored file (an image, a clip, a sound) opens read-only, as its bytes: there is no document to edit or sync.
     const stored = !!row && row.kind !== 'document';

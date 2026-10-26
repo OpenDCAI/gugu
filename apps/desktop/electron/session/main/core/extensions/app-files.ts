@@ -426,9 +426,8 @@ export function appChatFile(chatId: string, extensionId: string) {
  * own ways in (an App card's 「Open」, a file link).
  */
 export function openerChoice(typedName: string, ask = false) {
-  const service = extensionsService();
-  const manifests = service.list().extensions.filter((entry) => service.isEnabled(entry.manifest.id)).map((entry) => entry.manifest);
-  const defaults = service.openWithDefaults();
+  const manifests = enabledApps().map((entry) => entry.manifest);
+  const defaults = extensionsService().openWithDefaults();
   return chatOpenerChoice(typedName, manifests, 'chat', (key) => defaults[key] ?? null, ask);
 }
 
