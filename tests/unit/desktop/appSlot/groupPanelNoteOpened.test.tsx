@@ -1,6 +1,7 @@
 // @vitest-environment jsdom
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { act } from 'react'
+import { toJS } from 'mobx'
 import { createReactHarness } from '../../../support/testHarness'
 import { folderItem } from '../../../../apps/desktop/src/session/renderer/features/chats/chat-tabs/chat-panel-item'
 import { openPanelItem } from '../../../../apps/desktop/src/session/renderer/features/chats/chat-tabs/chat-layouts'
@@ -53,7 +54,7 @@ describe('a file opened in a group\'s panel is kept for 最近打开, once', () 
     const opening = { entry: { id: 'once' }, epoch: 1, actor: 'person', expiresAt: 123 }
     askFile('g-opening', { ...detailOf('g-opening', 'once'), opening } as never)
     const item = shownItem('g-opening')!
-    const snapshot = structuredClone(item)
+    const snapshot = structuredClone(toJS(item))
     expect(snapshot).not.toHaveProperty('takeOpening')
     expect(snapshot).not.toHaveProperty('opening')
     expect(item.takeOpening!()).toEqual(opening)
