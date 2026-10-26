@@ -2239,6 +2239,9 @@ export class AcpChatStore {
       ? await this._rereadStoredRows(olderRevised.map((turn) => turn.id))
       : [];
     if (generation !== this._historyGeneration) return null;
+    // Concurrent commit/child reconciliations can finish in reverse order. A stale count is
+    // not a revert: keep the newer turns and cursor already applied by the other request.
+    if (this._runtimeCursor?.epoch === changes.data.cursor.epoch && this._runtimeCursor.seq > changes.data.cursor.seq) return null;
     runInAction(() => {
       this._runtimeTurns = [...bySeq.values()].sort((a, b) => a.seq - b.seq);
       this._runtimeCursor = changes.data.cursor;

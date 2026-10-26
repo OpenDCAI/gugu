@@ -345,6 +345,25 @@ describe('@@@history-change-cursor:每提交一轮只取改动游标之后的那
     await internals._refreshHistory();
     expect(committedIds(store)).toEqual(['s0', 'r5']);
   });
+
+  it('keeps the newer history when concurrent delta replies arrive out of order', async () => {
+    const { store, internals, runtime } = opened(1, 1);
+    runtime.append(turn('r1', 1));
+    const olderReply = await runtime.session.getHistory(undefined, 100, internals._runtimeCursor!);
+    let release!: (value: typeof olderReply) => void;
+    const getHistory = runtime.session.getHistory;
+    let calls = 0;
+    runtime.session.getHistory = (...args) => ++calls === 1
+      ? new Promise((resolve) => { release = resolve; }) : getHistory(...args);
+    const first = internals._refreshHistory();
+    runtime.append(turn('r2', 2));
+    await internals._refreshHistory();
+    release(olderReply);
+    await first;
+    expect(committedIds(store)).toEqual(['s0', 'r1', 'r2']);
+    expect(internals._runtimeCursor).toEqual({ epoch: 'runtime', seq: 3 });
+    store.dispose();
+  });
 });
 
 describe('reopening a host pipe resumes the retained transcript', () => {

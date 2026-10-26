@@ -1,4 +1,4 @@
-import { findToolImage, type ToolImageLookup } from '@gugu/session-core/session-record';
+import { findToolImage, trimItemsForTransport, type ToolImageLookup } from '@gugu/session-core/session-record';
 import { randomUUID } from 'node:crypto';
 import type { HistoryCursor } from '@gugu/session-core/acp/client';
 import { readdir, readFile } from 'node:fs/promises';
@@ -2512,7 +2512,9 @@ export class SessionManager implements InboundRouter {
     publishLiveModelState(record.live.states.agents, agentSnapshot, record.lastSynced.agents);
     record.lastSynced.agents = agentSnapshot;
 
-    const activeTurn = record.cell.transcript.activeTurn;
+    const sourceTurn = record.cell.transcript.activeTurn;
+    const items = sourceTurn ? trimItemsForTransport(sourceTurn.items) : null;
+    const activeTurn = sourceTurn && items !== sourceTurn.items ? { ...sourceTurn, items: items! } : sourceTurn;
     publishLiveModelState(record.live.states.activeTurn, activeTurn, record.lastSynced.activeTurn);
     record.lastSynced.activeTurn = activeTurn;
 

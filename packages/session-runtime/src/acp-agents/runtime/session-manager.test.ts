@@ -1028,6 +1028,37 @@ describe('AcpRuntime session manager', () => {
     await prompt;
   });
 
+  it('projects active tool output just like history while retaining the on-demand original', async () => {
+    const { h, rt, client, providerSessionId } = await startHarness('conv-live-picture');
+    let finish!: (value: { stopReason: 'end_turn' }) => void;
+    h.agent.prompt = vi.fn(() => new Promise<{ stopReason: 'end_turn' }>((resolve) => { finish = resolve; }));
+    const prompt = rt.sendPrompt('conv-live-picture', { text: 'take a screenshot' });
+    const live = rt.sessionLiveModels('conv-live-picture');
+    if (!live) throw new Error('expected live models');
+    const image = { mimeType: 'image/png', data: 'x'.repeat(1_048_577) };
+    await client.sessionUpdate({ sessionId: providerSessionId, update: {
+      sessionUpdate: 'tool_call', toolCallId: 'picture', title: 'Screenshot', kind: 'other',
+      status: 'completed', content: [
+        { type: 'content', content: { type: 'text', text: 'y'.repeat(100_000) } },
+        { type: 'content', content: { type: 'image', ...image } },
+      ],
+    } as SessionUpdate });
+    await until('tool result is published', () => JSON.stringify(live.states.activeTurn.snapshot().data).includes('Screenshot'));
+    const projected = live.states.activeTurn.snapshot().data;
+    const item = projected?.items.find(node => 'toolCallId' in node && node.toolCallId === 'picture');
+    if (!item) throw new Error('tool picture missing');
+    try {
+      expect('images' in item).toBe(false);
+      expect(item).toMatchObject({ imageRefs: [{ mimeType: image.mimeType, chars: image.data.length }] });
+      expect(JSON.stringify(projected).length).toBeLessThan(20_000);
+      expect(rt.getToolImage('conv-live-picture', item.id, 0)).toEqual({ ok: true, image });
+    } finally {
+      finish({ stopReason: 'end_turn' });
+      await prompt;
+      await rt.stopSession('conv-live-picture');
+    }
+  });
+
   it('publishes usage updates through live models', async () => {
     const { rt, client, providerSessionId } = await startHarness('conv-usage');
     const live = rt.sessionLiveModels('conv-usage');
