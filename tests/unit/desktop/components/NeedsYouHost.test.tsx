@@ -5,6 +5,8 @@ import type { Settlement } from '@gugu/session-core/session-record/contract'
 import { createReactHarness, renderWithAppProviders } from '../../../support/testHarness'
 import { showPhoneAppView } from '../../../../apps/desktop/src/components/appSlot/phoneAppState'
 import { setEmbedVisible } from '../../../../apps/desktop/src/session/renderer/lib/portal-container'
+import { NeedsYouSlot } from '../../../../apps/desktop/src/components/needsYou/NeedsYouSlot'
+import { installShellSlots } from '../../../../apps/desktop/src/lib/shellSlots'
 import { NeedsYouHost } from '../../../../apps/desktop/src/components/needsYou/NeedsYouHost'
 
 const state = vi.hoisted(() => ({ tasks: [] as unknown[], settlements: {} as Record<string, unknown>, link: 'ok', mobile: false, pages: [] as { projectId: string; sessionId: string }[], wholePage: true, tab: 'acp-chat' }))
@@ -27,6 +29,7 @@ vi.mock('@/mobile/agent-watch/TimelineView', () => ({ SettlementCard: ({ settlem
 let harness: ReturnType<typeof createReactHarness>
 beforeEach(() => {
   vi.clearAllMocks()
+  installShellSlots()
   state.tasks = [{ deviceId: 'server', machine: 'Remote host', local: false, session: { conversationId: 'task', title: 'Install Reader', projectId: 'project', runtime: 'pty', supported: true } }]
   state.settlements = { install: { itemId: 'install', kind: 'permission', title: 'Review Reader', state: 'pending', host: { kind: 'app-install', payload: { request: {} } } } }
   state.link = 'ok'
@@ -38,7 +41,7 @@ beforeEach(() => {
   harness = createReactHarness()
 })
 afterEach(() => harness.cleanup())
-const render = () => renderWithAppProviders(harness, <><main>Group conversation</main><NeedsYouHost /></>)
+const render = () => renderWithAppProviders(harness, <><main>Group conversation<NeedsYouSlot /></main><NeedsYouHost /></>)
 async function open() {
   await render()
   await act(async () => { document.querySelector<HTMLButtonElement>('[data-testid="needs-you-trigger"]')!.click() })
@@ -159,4 +162,9 @@ it('keeps the phone request while a session App replaces the timeline', async ()
     await open()
     expect(document.querySelector('[data-item-id="install"]')).not.toBeNull()
   } finally { await act(async () => leave()) }
+})
+
+it('has no floating entry on a page without a composer slot', async () => {
+  await renderWithAppProviders(harness, <><main>Settings</main><NeedsYouHost /></>)
+  expect(document.querySelector('[data-testid="needs-you-trigger"]')).toBeNull()
 })

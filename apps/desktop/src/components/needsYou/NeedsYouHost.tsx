@@ -21,6 +21,8 @@ import { appInstallAskOf } from '@/session/shared/extensions/host-actions'
 import { observer } from 'mobx-react-lite'
 import { followLink } from '@/lib/guguLinks'
 import { ArrowRight } from '@/lib/icons'
+import { installShellSlots, readShellSlots } from '@/lib/shellSlots'
+import { NEEDS_YOU_SLOT_PREFIX } from './NeedsYouSlot'
 import { readPhoneAppView, onPhoneAppState } from '../appSlot/phoneAppState'
 import { sessionPageOnScreen, sessionPagesOnScreen } from '@/session/renderer/app/sessions-on-screen'
 import { getSessionView } from '@/session/renderer/features/sessions/stores/session-selectors'
@@ -28,6 +30,10 @@ import { isEmbedVisible, subscribeEmbedVisibility } from '@/session/renderer/lib
 import { useNeedsYouTasks, type NeedsYouTask } from './useNeedsYouTasks'
 import '@/i18n/registerMobileWorkspaceCatalog'
 import '@/mobile/agent-watch/agent-watch.css'
+
+installShellSlots()
+
+const EMPTY_SLOTS: ReadonlyMap<string, HTMLElement> = new Map()
 
 function taskKey(task: NeedsYouTask): string {
   return `${task.deviceId}/${task.session.conversationId}`
@@ -40,6 +46,8 @@ export const NeedsYouHost = observer(function NeedsYouHost() {
   const { tasks: waiting, error } = useNeedsYouTasks()
   const phone = useSyncExternalStore(onPhoneAppState, readPhoneAppView)
   const embedded = useSyncExternalStore(subscribeEmbedVisibility, isEmbedVisible)
+  const slots = readShellSlots()
+  const entries = useSyncExternalStore(listener => slots?.subscribeSlots(listener) ?? (() => undefined), () => slots?.getSlots() ?? EMPTY_SLOTS)
   // Reuse the actual task route and active pane entries. A file/App tab has no approval card.
   const shownSessions = mobile
     ? phone.panes.some(pane => pane.activeTab?.kind === 'session') ? [phone.activeSessionId] : []
@@ -55,13 +63,13 @@ export const NeedsYouHost = observer(function NeedsYouHost() {
   const shown = opened && tasks.length > 0
   // Closing after the last wait also resets the next visit, without retaining a hidden dialog.
   if (opened && tasks.length === 0) setOpened(false)
-  return createPortal(<>
-    {tasks.length > 0 && <div role="status" aria-live="polite" className="fixed right-4 bottom-4 z-[var(--z-settings-modal)] data-[mobile]:bottom-[calc(72px+env(safe-area-inset-bottom))]" data-mobile={mobile || undefined}>
+  return <>
+    {tasks.length > 0 && [...entries].filter(([key]) => key.startsWith(NEEDS_YOU_SLOT_PREFIX)).map(([key, element]) => createPortal(<div role="status" aria-live="polite" data-chat-dock-obstacle="">
       <Button data-testid="needs-you-trigger" onClick={() => setOpened(true)} aria-haspopup="dialog" aria-expanded={shown}>
         <AgentNeedsUserGlyph size={16} />{t('needsYou.count', { count: tasks.length })}
       </Button>
-    </div>}
-    {shown && <Sheet fullScreenMobile testId="needs-you-sheet" ariaLabel={t('needsYou.title')} onClose={() => setOpened(false)} zIndex="var(--z-settings-modal)" desktopWidth="520px">
+    </div>, element, key))}
+    {shown && createPortal(<Sheet fullScreenMobile testId="needs-you-sheet" ariaLabel={t('needsYou.title')} onClose={() => setOpened(false)} zIndex="var(--z-settings-modal)" desktopWidth="520px">
       <PaneHeader title={<h2 className="gg-pane-title">{t('needsYou.title')}<span className="!ml-2 text-[length:var(--font-body)] font-normal text-[var(--text-secondary)]">{tasks.length}</span></h2>} mobile={mobile} divider actions={<Button variant="ghost" onClick={() => setOpened(false)}>{t('dialog.close')}</Button>} />
       <div className="flex min-h-0 flex-col gap-3 overflow-auto !p-4">
         {error && <p role="alert">{error}</p>}
@@ -81,8 +89,8 @@ export const NeedsYouHost = observer(function NeedsYouHost() {
         </div>
         {task && <PendingTask key={taskKey(task)} task={task} onOpenTask={() => { setOpened(false); followLink({ kind: 'session', sessionId: task.session.conversationId }) }} />}
       </div>
-    </Sheet>}
-  </>, document.body)
+    </Sheet>, document.body)}
+  </>
 })
 
 function PendingTask({ task, onOpenTask }: { task: NeedsYouTask; onOpenTask: () => void }) {
