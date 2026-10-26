@@ -1,7 +1,7 @@
 import type { AssistantPanelChange, AssistantPanelClient } from '@gugu/core/cloud/assistantPanel'
 import { panelApplicationFailure } from '@gugu/core/shared/assistantPanelFailure'
 
-export type PanelPreparedAdmission = { text: string; beforeText?: string; accepted(): Promise<void> }
+export type PanelPreparedAdmission = { text: string; beforeText?: string; accepted(): Promise<void>; rejected?(): Promise<void> }
 export type PanelApplication = {
   /** The local effect and its durable structured notice must both precede ack. */
   apply(change: AssistantPanelChange): Promise<void>

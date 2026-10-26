@@ -1,7 +1,7 @@
 import { z } from 'zod'
 import { isAgentHostDevice } from '@gugu/core/cloud/devices'
 import type { AssistantLocalSource } from './assistant-local-index'
-import { boundedAssistantIndex } from './assistant-index-format'
+import { ASSISTANT_INDEX_LIMIT, boundedAssistantIndex } from './assistant-index-format'
 
 const deviceSchema = z.object({
   device_id: z.string(), label: z.string().nullable(), platform: z.string().nullable(),
@@ -29,6 +29,8 @@ export interface AssistantStartupIndexDeps {
   accountId(): Promise<string | null>
   run(action: { action: string; [key: string]: unknown }, signal: AbortSignal): Promise<unknown>
   localSources?: () => Promise<AssistantLocalSource[]>
+  observed?: (lines: string[], account: string) => Promise<number | undefined>
+  overflow?: (index: string, account: string) => Promise<string>
   now?: () => Date
   timeoutMs?: number
 }
@@ -131,7 +133,12 @@ export async function assistantStartupIndex(deps: AssistantStartupIndexDeps): Pr
   lines.push('项目、能力与设备资料（按所属设备读取，不包含全文）：', ...scoped.flat())
   lines.push(...await localSources)
   if (await deps.accountId() !== account) throw new Error('Assistant startup index: account changed during collection')
-  return boundedAssistantIndex([...lines, '</gugu_resource_index>'])
+  const version = await deps.observed?.(lines, account)
+  if (version !== undefined) lines.push(json({ source: 'resource_version', version }))
+  const complete = [...lines, '</gugu_resource_index>']
+  const full = complete.join('\n')
+  const details = full.length > ASSISTANT_INDEX_LIMIT ? await deps.overflow?.(full, account) : undefined
+  return boundedAssistantIndex(complete, details)
 
   async function collectDevice(device: string | undefined, scope: Record<string, unknown>): Promise<string[]> {
     const target = device ? { device } : {}

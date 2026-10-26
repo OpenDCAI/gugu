@@ -204,3 +204,29 @@ it('omits complete records with discovery pointers when even device summaries ex
   expect(omission.omitted_records).toBeDefined()
   expect(index.endsWith('</gugu_resource_index>')).toBe(true)
 })
+
+
+it('retains every configured integration when device and note metadata exhaust the budget', async () => {
+  const deps = fixture()
+  const original = deps.run.getMockImplementation()!
+  deps.run.mockImplementation((action, signal) => action.action === 'devices'
+    ? Promise.resolve(Array.from({ length: 80 }, (_, i) => ({ ...mac, device_id: `computer-${i}`, online: false })))
+    : original(action, signal))
+  const overflow = vi.fn(async (_index: string, _account: string) => '/isolated/remaining-index.md')
+  const index = await assistantStartupIndex({ ...deps, overflow, localSources: async () => [{
+    source: 'integrations', status: 'read', read: 'catalog_list', items: [
+      { id: 'dingtalk:default', name: '钉钉', modifiedAt: '2026-10-27T02:46:43Z' },
+      { id: 'feishu:work', name: '飞书', modifiedAt: '2026-10-26T02:46:43Z' },
+    ],
+  }] })
+  const row = records(index).find(row => row.source === 'integrations')!
+  expect(row.items?.map(item => item.id)).toEqual(['dingtalk:default', 'feishu:work'])
+  expect(row).not.toHaveProperty('omitted_items')
+  expect(index).not.toContain('"integrations":1')
+  expect(index.length).toBeLessThanOrEqual(6000)
+  expect(index).toContain('其余见 /isolated/remaining-index.md')
+  expect(overflow).toHaveBeenCalledOnce()
+  expect(overflow.mock.calls[0]?.[0].length).toBeGreaterThan(6000)
+  expect(overflow.mock.calls[0]?.[0]).toContain('computer-79')
+  expect(overflow.mock.calls[0]?.[1]).toBe('owner-a')
+})

@@ -255,7 +255,7 @@ export function createDesktopGuguMcpHost(persistence?: GuguMcpHostPersistence): 
             if (!read) throw new Error('Personal assistant context is unavailable')
             return read()
           } } : {}),
-        })
+        }, initial.personalAssistant && initial.kind === 'social' ? initial.guguHome : undefined)
         registerGuguActivityTools(server, sessionDispatcher, trackRequest)
         // #7221 schedule_* 与 session_* 同一个分派器:给自己排的已安排只作用于这条会话。
         registerGuguScheduleTools(server, sessionDispatcher, trackRequest)

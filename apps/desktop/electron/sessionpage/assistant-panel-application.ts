@@ -41,6 +41,7 @@ export function createAssistantPanelApplication(binding: AssistantPanelHome, dep
   readBody(change: AssistantPanelChange): Promise<Uint8Array>
   applyService(change: AssistantPanelChange): Promise<void>
   invalidate(): Promise<void>
+  resourceChanged?(operationId: string, notice: Record<string, unknown>): Promise<boolean>
   locale?(): string
 }): PanelApplication & { statePath: string; identify(domain: string, path: string): Promise<string>; remember(domain: string, rows: Array<{ key: string; path: string }>): Promise<void> } {
   const paths = assistantHomePaths(binding.home,binding.cwd,binding.kind)
@@ -112,6 +113,7 @@ export function createAssistantPanelApplication(binding: AssistantPanelHome, dep
       return
     }
     const notice = object(change.payload.notice)
+    if (await deps.resourceChanged?.(change.operation_id, notice)) return
     const resource = `notice:${JSON.stringify([notice.resource,notice.id])}`
     value.notices = value.notices.filter(entry => entry.resource !== resource)
     value.notices.push({ operationId: change.operation_id,resource,context: { type: 'assistant_app_change',...notice } })
@@ -194,7 +196,10 @@ export function createAssistantPanelApplication(binding: AssistantPanelHome, dep
     value.appliedRevisions ??= {}
     value.appliedRevisions[key] = change.revision
     value.notices = value.notices.filter(entry => entry.resource !== key)
-    value.notices.push({ operationId: change.operation_id,resource: key,context: {
+    const resourceChanged = await deps.resourceChanged?.(change.operation_id, { resource: change.domain,
+      id: data.relativePath ?? change.resource_key, deviceId: change.device_id,
+      operation: removed ? 'removed' : 'saved', [removed ? 'before' : 'after']: data })
+    if (!resourceChanged) value.notices.push({ operationId: change.operation_id,resource: key,context: {
       type: 'assistant_panel_change',operationId: change.operation_id,revision: change.revision,
       domain: change.domain,resourceKey: change.resource_key,operation: change.operation,
       ...(removed ? { instruction: change.domain === 'memory' ? '这条记忆已被主人删除，不再作为依据。' : '这条资料已被主人删除，不再作为依据。' } : {}),

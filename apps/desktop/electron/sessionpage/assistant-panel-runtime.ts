@@ -14,7 +14,8 @@ import { localAgentForSession } from './sessionpage-session-agent'
 import { createAssistantPanelApplication, type AssistantPanelHome } from './assistant-panel-application'
 import { prepareAssistantPanelAdmission, type PanelPreparedAdmission } from './assistant-panel-admission'
 import { prepareAssistantProfileReview } from './assistant-profile-review'
-import { invalidateAssistantIndex } from './assistant-index-cache'
+import { assistantResourceChanges } from './assistant-resource-changes'
+import { invalidateAssistantIndex, stopAssistantIndexRefresh } from './assistant-index-cache'
 import { collectAssistantPanelFiles, publishAssistantPanelCollection, type PanelObservation } from './assistant-panel-publisher'
 
 type Auth = { accessToken: string; userId: string }
@@ -93,8 +94,10 @@ export function createAssistantPanelRuntime(deps: {
       if (!item || item.deleted_at || item.body_item_id !== change.payload.bodyItemId || item.body_sha256 !== change.payload.bodySha256) throw new Error('PANEL_RESOURCE_SUPERSEDED')
       return withBoundedOperation(5000,() => new Error('PANEL_BODY_TIMEOUT'),async () => readAssistantPanelBody(item,await access()))
     }
+    const resources = assistantResourceChanges(deps.guguHome, binding.ownerId)
     const application = createAssistantPanelApplication(binding,{
       locale: deps.locale,
+      resourceChanged: (operation, notice) => resources.notice(operation, notice),
       assertCurrent: async () => { await auth() },readBody,
       applyService: async change => applyAssistantPanelService(change,async () => deps.local.apply(change,change.operation === 'remove' || !change.payload.bodyItemId ? null : await readBody(change),
         (await deps.local.sessions(binding.ownerId)).filter(row => row.agentId === binding.assistantId).map(row => row.summary.conversationId),binding.ownerId),cloud),
@@ -206,8 +209,19 @@ export function createAssistantPanelRuntime(deps: {
     }
     observeFiles()
     return { application,dispose,
-      prepare: (text: string) => serial(async () => prepareAssistantProfileReview(await prepare(text),
-        assistantHomePaths(binding.home,binding.cwd,binding.kind).memoryDir)),
+      prepare: (text: string) => serial(async () => {
+        const prepared = await prepareAssistantProfileReview(await prepare(text),
+          assistantHomePaths(binding.home,binding.cwd,binding.kind).memoryDir)
+        const changes = await resources.prepare().catch(() => {
+          deps.failed('resources')
+          return { text: '', accepted: async () => {}, rejected: async () => {} }
+        })
+        return { ...prepared,
+          beforeText: [changes.text, prepared.beforeText].filter(Boolean).join('\n\n') || undefined,
+          accepted: async () => { await prepared.accepted(); await changes.accepted() },
+          rejected: async () => { await changes.rejected(); await prepared.rejected?.() },
+        }
+      }),
       publish,
     }
   }
@@ -232,6 +246,6 @@ export function createAssistantPanelRuntime(deps: {
       return entry ? { ...await entry.prepare(text),assistantPanel: true as const } : { text,accepted: async () => {} }
     },
     async publish(sessionId: string) { await (await current(sessionId))?.publish() },
-    dispose() { for (const entry of runtimes.values()) entry.dispose(); runtimes.clear(); bindings.clear(); roles.clear() },
+    dispose() { for (const entry of runtimes.values()) entry.dispose(); runtimes.clear(); bindings.clear(); roles.clear(); stopAssistantIndexRefresh(deps.guguHome) },
   }
 }

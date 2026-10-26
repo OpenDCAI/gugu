@@ -2,11 +2,11 @@ import { mkdtemp, readFile, readdir, rm } from 'node:fs/promises'
 import { join } from 'node:path'
 import { tmpdir } from 'node:os'
 import { afterEach, expect, it, vi } from 'vitest'
-import { invalidateAssistantIndex, openingAssistantIndex } from '../../../apps/desktop/electron/sessionpage/assistant-index-cache'
+import { invalidateAssistantIndex, openingAssistantIndex, stopAssistantIndexRefresh } from '../../../apps/desktop/electron/sessionpage/assistant-index-cache'
 import type { AssistantStartupIndexDeps } from '../../../apps/desktop/electron/sessionpage/assistant-startup-index'
 
 const roots: string[] = []
-afterEach(async () => { await Promise.all(roots.splice(0).map(root => rm(root, { recursive: true, force: true }))) })
+afterEach(async () => { await Promise.all(roots.splice(0).map(root => { stopAssistantIndexRefresh(root); return rm(root, { recursive: true, force: true }) })) })
 async function fixture() {
   const root = await mkdtemp(join(tmpdir(), 'assistant-opening-')); roots.push(root)
   let owner = 'owner-a'

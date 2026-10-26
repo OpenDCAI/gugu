@@ -1762,6 +1762,8 @@ export class SessionCell {
         this.emitTranscriptChanged();
       }
     };
+    let rejectPreparation: (() => Promise<void>) | undefined;
+    let preparationAccepted = false;
     try {
       const preparing = prepareNativePrompt(this.sessionId);
       // Queue-to-transcript projection stays synchronous; preparation is still before admission.
@@ -1772,6 +1774,7 @@ export class SessionCell {
       }
       if (providerAdmission) this.providerAdmission = providerAdmission;
       const prepared = preparing ? await preparing : null;
+      rejectPreparation = prepared?.rejected;
       if (preparing) {
         if (!started) recordPrompt();
         if (!providerAdmission && !opts?.skipAdmission) opts?.onAdmission?.(ok({ queued: false, ...(steered ? { steered: true } : {}) }));
@@ -1783,7 +1786,7 @@ export class SessionCell {
       const resolvedAttachments = await Promise.all(
         sendable.map((attachment) => this.deps.resolveAttachment(attachment))
       );
-      const confirmPreparation = () => { void prepared?.accepted().catch(() => {
+      const confirmPreparation = () => { preparationAccepted = true; void prepared?.accepted().catch(() => {
         this.deps.logger.warn('Native prompt preparation checkpoint will retry', { sessionId: this.sessionId });
       }); };
       // ③ 只在**第一次真正发出去的那一轮**随行,发完即清。放在最前面:它是这场会话的
@@ -1919,6 +1922,9 @@ export class SessionCell {
       }
       return ok({ queued: false });
     } catch (e) {
+      if (!preparationAccepted) await rejectPreparation?.().catch(() => {
+        this.deps.logger.warn('Resource change reservation release failed', { sessionId: this.sessionId });
+      });
       const beforeTurn = providerAdmission !== null && this.providerAdmission === providerAdmission;
       const preparationRefused = (e as { deliveryRejectedBeforeAdmission?: unknown } | null)?.deliveryRejectedBeforeAdmission === true;
       const refusal = preparationRefused || beforeTurn && providerRejectedMissingSession(e);

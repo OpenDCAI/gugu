@@ -13,7 +13,7 @@ export type AssistantLocalSource = {
 /** Metadata only: these rows never carry memory, personality or credential bodies. */
 export async function assistantLocalIndex(
   cwd: string, kind: AssistantHomeKind, home = homedir(),
-  integrations: () => Promise<NonNullable<AssistantLocalSource['items']>> = configuredIntegrations,
+  integrations: () => Promise<NonNullable<AssistantLocalSource['items']>> = async () => { throw new Error('Integration metadata source is unavailable') },
 ): Promise<AssistantLocalSource[]> {
   const paths = assistantHomePaths(home, cwd, kind)
   async function source(
@@ -44,21 +44,4 @@ export async function assistantLocalIndex(
     source('assistant_files', `Read/Glob: ${paths.resourcesDir}; 此处只索引顶层条目，子目录按需读取。`, () => directory(paths.resourcesDir, false)),
     source('integrations', 'catalog_list：已保存的集成账号配置；不等于已通过实时连通或授权验证，使用前按相应工具核实。', integrations),
   ])
-}
-
-async function configuredIntegrations(): Promise<NonNullable<AssistantLocalSource['items']>> {
-  const [{ integrationPluginRegistry }, { providerAccountRegistry }] = await Promise.all([
-    import('@gugu/session-plugins/integrations'),
-    import('../session/main/core/provider-accounts/provider-account-registry-instance'),
-  ])
-  const lists = await Promise.all(integrationPluginRegistry.getAll().map(async plugin => {
-    const provider = plugin.metadata.id
-    // Read the registry's metadata, never resolve/decrypt credentials just to
-    // tell the assistant that the owner changed a stored account.
-    return (await providerAccountRegistry.listAccounts(provider)).map(account => ({
-      id: `${provider}:${account.accountId}`, name: provider,
-      modifiedAt: new Date(account.updatedAt).toISOString(), isDefault: account.isDefault,
-    }))
-  }))
-  return lists.flat()
 }
