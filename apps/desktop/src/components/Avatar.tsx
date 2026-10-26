@@ -31,6 +31,8 @@ export interface AvatarProps {
   harnessBadge?: boolean
   // 鼠标移上去小鸟就被拍一拍(只对会动的小鸟生效;照片 / 真人 / 群不变)。单聊头栏那只大头像用。
   hoverPoke?: boolean
+  /** Extra drawing room for the assistant figure; layout and custom-photo size stay unchanged. */
+  canvasPaddingX?: number
   // The assistant can use its still poster in dense rows. Ordinary agents are always static SVGs.
   still?: boolean
   variant?: 'default' | 'group'
@@ -233,6 +235,7 @@ export function Avatar({
   statusLabel,
   harnessBadge = true,
   hoverPoke = false,
+  canvasPaddingX = 0,
   still = false,
   variant = 'default',
   imageMatteColor,
@@ -383,7 +386,7 @@ export function Avatar({
         </div>
       ) : agentDefault ? (
         assistant ? (
-          <AssistantDefaultAvatar id={identityKey} avatar={normalized} name={name} size={px} still={still} hoverPoke={hoverPoke}
+          <AssistantDefaultAvatar id={identityKey} avatar={normalized} name={name} size={px} still={still} hoverPoke={hoverPoke} canvasPaddingX={canvasPaddingX}
             state={statusLabel ?? (agentStatus ? labelOfDisplayStatus(agentStatus) : null)} />
         ) : <BoringAgentAvatar id={identityKey} name={name} size={px} />
       ) : generatedUrl ? (

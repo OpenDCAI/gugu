@@ -9,6 +9,8 @@ import { dayOf, feedOrder, TodayReadError, type TodayBatch, type TodayRead, type
 import { AssistantEmpty, AssistantSection } from './assistant-ui-parts';
 
 const log = rendererLogger('assistant/today');
+// Owner deferred tracking widgets; keep their implementation without exposing an entry.
+const SHOW_TRACKING_WIDGETS = false;
 
 type T = ReturnType<typeof useTranslation<'assistant'>>['t'];
 
@@ -27,6 +29,7 @@ export type TodayFeedProps = {
   onAddWidget: () => void;
   /** 日程进展「来源」里的「管理连接器」;没有那一页的一端不给。 */
   onManageConnectors?: () => void;
+  onOpenDiary?: (id: string) => void;
 };
 
 /**
@@ -36,7 +39,7 @@ export type TodayFeedProps = {
  * 日程进展固定在最上面(钉在当天最上面)。
  * 各个按钮都不弹表单:往聊天里填一句,人看过再发。
  */
-export function AssistantTodayFeed({ view, assistantName: name, ownerName, askInChat, renderMarkdown, onAddWidget, onManageConnectors }: TodayFeedProps) {
+export function AssistantTodayFeed({ view, assistantName: name, ownerName, askInChat, renderMarkdown, onAddWidget, onManageConnectors, onOpenDiary }: TodayFeedProps) {
   const { t } = useTranslation('assistant');
   const error = view.state === 'error' ? view.error : null;
   useEffect(() => {
@@ -104,7 +107,7 @@ export function AssistantTodayFeed({ view, assistantName: name, ownerName, askIn
         </div>
         {day}
         <BriefButton {...parts} />
-        <Widgets widgets={widgets} onAdd={onAddWidget} {...parts} />
+        {SHOW_TRACKING_WIDGETS && <Widgets widgets={widgets} onAdd={onAddWidget} {...parts} />}
         <p className="ta-page-sub ta-pad text-center">{t('today.feedEnd')}</p>
       </div>
     );
@@ -113,7 +116,7 @@ export function AssistantTodayFeed({ view, assistantName: name, ownerName, askIn
   return (
     <div className="ta-page" data-testid="assistant-today">
       {day}
-      <Widgets widgets={widgets} onAdd={onAddWidget} {...parts} />
+      {SHOW_TRACKING_WIDGETS && <Widgets widgets={widgets} onAdd={onAddWidget} {...parts} />}
       <BriefButton {...parts} />
       {batches.map((batch) => (
         <AssistantSection
@@ -123,7 +126,7 @@ export function AssistantTodayFeed({ view, assistantName: name, ownerName, askIn
           bare
           testId={`assistant-today-batch-${batch.id}`}
         >
-          <BatchCards batch={batch} {...parts} />
+          <BatchCards batch={batch} onOpenDiary={onOpenDiary} {...parts} />
         </AssistantSection>
       ))}
       <p className="ta-page-sub ta-pad text-center">{t('today.feedEnd')}</p>
@@ -232,7 +235,7 @@ function WidgetCard({ widget, askInChat, renderMarkdown, t }: Omit<Parts, 'name'
   );
 }
 
-function BatchCards({ batch, name, askInChat, renderMarkdown, t }: Parts & { batch: TodayBatch }) {
+function BatchCards({ batch, name, askInChat, renderMarkdown, t, onOpenDiary }: Parts & { batch: TodayBatch; onOpenDiary?: (id: string) => void }) {
   if (batch.cards.length === 0) {
     return <div className="ta-card ta-page-sub">{t('today.inChat', { name })}</div>;
   }
@@ -240,7 +243,9 @@ function BatchCards({ batch, name, askInChat, renderMarkdown, t }: Parts & { bat
     <div className="ta-today-cards">
       {batch.cards.map((card) => (
         <div key={card.id} className="ta-card ta-today-card" data-testid={`assistant-today-card-${card.id}`}>
-          <span className="ta-tile-title">{card.title}</span>
+          {batch.kind === 'diary' && onOpenDiary
+            ? <button type="button" className="ta-tile-title text-left" onClick={() => onOpenDiary(batch.id)} data-testid={`assistant-open-diary-${batch.id}`}>{card.title}</button>
+            : <span className="ta-tile-title">{card.title}</span>}
           {card.markdown ? <div className="ta-prose">{renderMarkdown(card.markdown)}</div> : null}
           <div>
             <button type="button" className="ta-pill-btn" onClick={() => askInChat(t('today.askPrompt', { title: card.title }))}>
