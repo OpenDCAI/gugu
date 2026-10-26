@@ -1,3 +1,4 @@
+import { assistantWorkNoticeReason } from './assistantWorkNoticeReason'
 import { enqueueAssistantWorkDelivery, type AssistantWorkRpcClient } from './assistantWorkOutbox'
 
 export type ReconciledWork = {
@@ -15,19 +16,12 @@ export type WorkOwnerReceiptProof = {eventId:string;chatId:string;messageId:stri
 export type WorkReconciliationContext = {ownerId:string;runtimeInstanceId:string;deviceId:string;assistantId:string;client:AssistantWorkRpcClient}
 export type ExecutorDeliveryProof = {preview?:{running?:boolean;ended?:{kind?:string;reason?:string}|null;entries?:Array<{kind:string;messageId?:string|null}>;error?:unknown}}
 const RECONCILIATION_GRACE_MS=120_000
-const failureReason = (code:string|undefined|null) => {
-  if(code==='EXECUTOR_ENDED_WITHOUT_REPORT') return '执行已经结束，但没有交回结果'
-  if(code==='LEGACY_REPORT_MISSING') return '这件事一直没有交回结果'
-  if(code==='EXECUTOR_FAILED') return '执行时出了错，结果没有交回'
-  if(code==='HOST_FAILURE') return '执行中断了，结果没有交回'
-  if(code==='EXECUTOR_CANCELLED_WITHOUT_REPORT') return '执行被中断，结果没有交回'
-  if(code==='SOURCE_UNAVAILABLE') return '原来的内容已无法读取'
-  if(code==='DELIVERY_HOST_OUTDATED'||code==='UNKNOWN_METHOD') return '接收设备的版本不兼容'
-  if(code==='DEVICE_UNREACHABLE'||code==='DEVICE_OFFLINE') return '一直无法联系到接收设备'
-  if(code?.includes('TIMEOUT')||code==='DELIVERY_EXPIRED') return '接收设备一直没有应答'
-  if(code?.includes('AUTH')||code?.includes('PERMISSION')) return '没有取得接收权限'
-  return '交付没有成功，具体原因尚未确认'
-}
+export const isOwnerReceiptEvent=(event:WorkReconciliationEvent)=>['completed','failed','cancelled','question'].includes(event.kind)
+const failureReason = (code:string|undefined|null) => ({
+  REPORT_MISSING:'这件事没有交回结果',EXECUTION_FAILED:'执行时出了错，结果没有交回',INTERRUPTED:'执行中断了，结果没有交回',
+  SOURCE_UNAVAILABLE:'原来的内容已无法读取',INCOMPATIBLE:'接收设备的版本不兼容',UNREACHABLE:'一直无法联系到接收设备',
+  NO_RESPONSE:'接收设备一直没有应答',PERMISSION:'没有取得接收权限',DELIVERY_FAILED:'交付没有成功，具体原因尚未确认',
+}[assistantWorkNoticeReason(code)]!)
 
 /** Only definite native endings justify an inference; idle, long silence and missing records do not. */
 export function createAssistantWorkReconciler(deps:{
@@ -38,6 +32,7 @@ export function createAssistantWorkReconciler(deps:{
   inspect(ctx:WorkReconciliationContext,work:ReconciledWork,target:{session_id:string;device_id:string}):Promise<ExecutorDeliveryProof|null>
   ownerReceipts?(ctx:WorkReconciliationContext,work:ReconciledWork,events:WorkReconciliationEvent[]):Promise<WorkOwnerReceiptProof[]>
   notify(ctx:WorkReconciliationContext,key:string,text:string):Promise<{chatId:string;messageId:string}>
+  verifyOwnerPost(ctx:WorkReconciliationContext,posted:{chatId:string;messageId:string}):Promise<boolean>
   clean(work:ReconciledWork):void
   stableId(key:string):Promise<string>
   warn(detail:{code:string}):void
@@ -46,23 +41,33 @@ export function createAssistantWorkReconciler(deps:{
   let flight:Promise<void>|null=null
   let stopped=false
   const now=deps.now??Date.now
+  const postedNotices=new Map<string,{chatId:string;messageId:string}>()
   const current=async(ctx:WorkReconciliationContext)=>{
     const next=await deps.context()
     return !stopped&&next?.ownerId===ctx.ownerId&&next.runtimeInstanceId===ctx.runtimeInstanceId
   }
   const receipt=async(ctx:WorkReconciliationContext,event:WorkReconciliationEvent,kind:'result'|'abandonment_notice',posted:{chatId:string;messageId:string})=>{
-    if(!await current(ctx)) return
+    if(!await current(ctx)||!await deps.verifyOwnerPost(ctx,posted)) return false
     const {error}=await ctx.client.rpc('assistant_work_owner_delivered',{p_assistant:ctx.assistantId,p_runtime_instance_id:ctx.runtimeInstanceId,
       p_message_id:event.message_id,p_owner_chat_id:posted.chatId,p_owner_message_id:posted.messageId,p_receipt_kind:kind})
     if(error) throw error
+    return true
   }
   const notify=async(ctx:WorkReconciliationContext,event:WorkReconciliationEvent,work:ReconciledWork,kind:'result'|'abandonment_notice')=>{
-    const key=await deps.stableId(`work-notice:${event.message_id}:${kind}`)
+    const reason=failureReason(kind==='result'?event.reason_code:event.abandoned_reason_code)
+    const category=assistantWorkNoticeReason(kind==='result'?event.reason_code:event.abandoned_reason_code)
+    const key=await deps.stableId(`work-notice:${ctx.assistantId}:${work.work_id}:${category}`)
     if(!await current(ctx)) return
-    const text=`「${work.title}」这件没能交回：${failureReason(kind==='result'?event.reason_code:event.abandoned_reason_code)}。`
+    const text=`「${work.title}」有结果或问题没能交回：${reason}。`
     // The committed idempotent owner message is the proof. Losing its RPC reply cannot produce another notice.
-    const posted=await deps.notify(ctx,key,text)
-    await receipt(ctx,event,kind,posted)
+    let posted=postedNotices.get(key)
+    if(!posted) {
+      posted=await deps.notify(ctx,key,text)
+      if(!await deps.verifyOwnerPost(ctx,posted)) return false
+      if(postedNotices.size>=1024) postedNotices.delete(postedNotices.keys().next().value!)
+      postedNotices.set(key,posted)
+    }
+    return receipt(ctx,event,kind,posted)
   }
   const reconcileWork=async(ctx:WorkReconciliationContext,work:ReconciledWork)=>{
     if(work.assistant_user_id!==ctx.assistantId||work.coordinator_device_id!==ctx.deviceId) return
@@ -71,12 +76,13 @@ export function createAssistantWorkReconciler(deps:{
     // Only a committed post from the same native report turn can prove owner delivery.
     // Native history is durable, so a lost receipt RPC is retried without a second outbox.
     if(deps.ownerReceipts) {
-      const proofs=await deps.ownerReceipts(ctx,work,events)
+      const eligible=events.filter(isOwnerReceiptEvent)
+      const proofs=eligible.length?await deps.ownerReceipts(ctx,work,eligible):[]
       for(const proof of proofs) {
         const event=events.find(e=>e.message_id===proof.eventId&&e.assistant_admitted_at&&!e.owner_delivered_at)
         if(!event) continue
-        await receipt(ctx,event,'result',proof)
-        delivered.add(event.message_id)
+        try { if(await receipt(ctx,event,'result',proof)) delivered.add(event.message_id) }
+        catch { deps.warn({code:'WORK_OWNER_RECEIPT_UNAVAILABLE'}) }
       }
     }
     for(const event of events) {
@@ -86,9 +92,22 @@ export function createAssistantWorkReconciler(deps:{
       const nativeTerminal=targetId?work.executor_outcomes[targetId]:undefined
       const superseded=['completed','cancelled'].includes(work.outcome)
         || (nativeTerminal?.origin==='executor'&&['completed','cancelled','failed'].includes(nativeTerminal.status))
-      if((inferredFailure||hostFailure)&&!superseded&&event.assistant_admitted_at&&!delivered.has(event.message_id)) await notify(ctx,event,work,'result')
+      if(superseded) continue
+      if(hostFailure&&targetId&&!events.some(e=>e.kind==='failed'&&e.terminal_origin==='coordinator'&&e.executor_session_id===targetId&&e.reason_code==='HOST_FAILURE')) {
+        const key=await deps.stableId(`host-failure:${work.work_id}:${event.message_id}`)
+        await enqueueAssistantWorkDelivery(ctx.client,{assistantId:ctx.assistantId,runtimeInstanceId:ctx.runtimeInstanceId,operationId:key,workId:work.work_id,task:null,
+          events:[{message_id:key,kind:'failed',from_session_id:work.coordinator_session_id,from_device_id:ctx.deviceId,to_session_id:work.coordinator_session_id,to_device_id:ctx.deviceId,executor_session_id:targetId,reason_code:'HOST_FAILURE',
+            content:'任务运行已中断。这是平台推断的失败，平台会直接通知你，请勿重复通知；迟到的真实结果仍需正常交付。'}]})
+      }
+      if(inferredFailure&&event.assistant_admitted_at&&!delivered.has(event.message_id)) {
+        try { if(await notify(ctx,event,work,'result')) delivered.add(event.message_id) }
+        catch { deps.warn({code:'WORK_NOTICE_NOT_COMMITTED'}) }
+      }
     }
-    if(work.outcome!=='active') { deps.clean(work); return }
+    if(work.outcome!=='active') {
+      if(!events.some(e=>isOwnerReceiptEvent(e)&&e.assistant_admitted_at&&!delivered.has(e.message_id))) deps.clean(work)
+      return
+    }
     for(const target of work.executors) {
       if(work.executor_outcomes[target.session_id]) continue
       const dispatchIndex=events.findLastIndex(e=>e.kind==='dispatch'&&e.to_session_id===target.session_id)
@@ -124,9 +143,13 @@ export function createAssistantWorkReconciler(deps:{
     }
     for(const event of await deps.abandoned(ctx)) {
       const home=event.kind==='dispatch'?event.from_device_id:event.to_device_id
-      if(event.assistant_user_id!==ctx.assistantId||home!==ctx.deviceId||event.abandonment_notified_at) continue
+      if(event.assistant_user_id!==ctx.assistantId||home!==ctx.deviceId||event.abandonment_notified_at||!isOwnerReceiptEvent(event)) continue
       const work=works.find(w=>w.work_id===event.work_id)
-      if(!work) continue
+      if(!work||event.owner_delivered_at) continue
+      const targetId=event.executor_session_id??event.from_session_id
+      const actual=targetId?work.executor_outcomes[targetId]:undefined
+      if((event.terminal_origin==='coordinator'||event.kind==='question')
+        && (['completed','cancelled'].includes(work.outcome)||actual?.origin==='executor')) continue
       try { await notify(ctx,event,work,'abandonment_notice') }
       catch { deps.warn({code:'WORK_NOTICE_NOT_COMMITTED'}) }
     }

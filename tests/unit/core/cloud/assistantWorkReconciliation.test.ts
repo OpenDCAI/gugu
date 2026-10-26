@@ -9,7 +9,7 @@ function fixture(events:WorkReconciliationEvent[]=[dispatch]) {
   const inspect=vi.fn(async()=>({preview:{running:false,ended:{kind:'done'},entries:[{kind:'prompt',messageId:'dispatch'}]}}))
   const notify=vi.fn(async(_ctx:WorkReconciliationContext,_key:string,_text:string)=>({chatId:'dm',messageId:'notice'}))
   const clean=vi.fn()
-  const f={context:async()=>({ownerId:'owner',runtimeInstanceId:'runtime',deviceId:'cloud',assistantId:'assistant',client:{rpc}}),works:vi.fn(async()=>[work]),history:vi.fn(async()=>events),abandoned:vi.fn(async()=>[]),ownerReceipts:vi.fn(async()=>[] as Array<{eventId:string;chatId:string;messageId:string}>),inspect,notify,clean,stableId:async(k:string)=>k,warn:vi.fn(),now:()=>now}
+  const f={context:async()=>({ownerId:'owner',runtimeInstanceId:'runtime',deviceId:'cloud',assistantId:'assistant',client:{rpc}}),works:vi.fn(async()=>[work]),history:vi.fn(async()=>events),abandoned:vi.fn(async()=>[]),ownerReceipts:vi.fn(async()=>[] as Array<{eventId:string;chatId:string;messageId:string}>),verifyOwnerPost:vi.fn(async()=>true),inspect,notify,clean,stableId:async(k:string)=>k,warn:vi.fn(),now:()=>now}
   return {...f,rpc,reconciler:createAssistantWorkReconciler(f)}
 }
 describe('unfinished delivery reconciliation',()=>{
@@ -43,17 +43,16 @@ describe('unfinished delivery reconciliation',()=>{
     const f=fixture([dispatch,{kind:'completed',from_session_id:'child',message_id:'result'}]);await f.reconciler.kick()
     expect(f.inspect).not.toHaveBeenCalled();expect(f.rpc).not.toHaveBeenCalled()
   })
-  it('keeps a durable host failure as progress and does not infer another terminal failure',async()=>{
+  it('uses trusted host failure evidence without another native inspection',async()=>{
     const f=fixture([dispatch,{kind:'progress',from_session_id:'child',message_id:'host-failure',reason_code:'HOST_FAILURE'}])
     await f.reconciler.kick()
-    expect(f.inspect).not.toHaveBeenCalled();expect(f.rpc).not.toHaveBeenCalled();expect(f.notify).not.toHaveBeenCalled()
+    expect(f.inspect).not.toHaveBeenCalled();expect(f.notify).not.toHaveBeenCalled()
   })
-  it('notifies an admitted host failure once using its own committed event receipt',async()=>{
+  it('turns trusted host interruption evidence into a coordinator inference before notifying',async()=>{
     const f=fixture([dispatch,{kind:'progress',from_session_id:'child',message_id:'host-failure',reason_code:'HOST_FAILURE',assistant_admitted_at:new Date(now-10000).toISOString()}])
     await f.reconciler.kick()
-    expect(f.notify).toHaveBeenCalledOnce()
-    expect(f.rpc).toHaveBeenCalledWith('assistant_work_owner_delivered',expect.objectContaining({p_message_id:'host-failure',p_receipt_kind:'result'}))
-    expect(f.rpc.mock.calls.some(([name])=>name==='assistant_work_commit')).toBe(false)
+    expect(f.notify).not.toHaveBeenCalled()
+    expect(f.rpc).toHaveBeenCalledWith('assistant_work_commit',expect.objectContaining({p_events:[expect.objectContaining({kind:'failed',executor_session_id:'child',reason_code:'HOST_FAILURE'})]}))
   })
   it('recovers an actual owner post receipt even after the task completed, without reposting',async()=>{
     const f=fixture([{kind:'completed',message_id:'result',assistant_admitted_at:'2026-10-26T08:00:00Z'}])
@@ -66,12 +65,12 @@ describe('unfinished delivery reconciliation',()=>{
     expect(f.rpc).toHaveBeenCalledWith('assistant_work_owner_delivered',expect.objectContaining({p_message_id:'result',p_owner_message_id:'actual-owner-post'}))
     expect(f.notify).not.toHaveBeenCalled();expect(f.clean).toHaveBeenCalledOnce()
   })
-  it('does not repeat a host-failure notice already committed in the report turn',async()=>{
+  it('does not treat progress as a result requiring native owner receipt scans',async()=>{
     const f=fixture([{kind:'progress',message_id:'failure',reason_code:'HOST_FAILURE',assistant_admitted_at:'2026-10-26T08:00:00Z'}])
     f.ownerReceipts.mockResolvedValue([{eventId:'failure',chatId:'dm',messageId:'actual-owner-post'}])
     await f.reconciler.kick()
     expect(f.notify).not.toHaveBeenCalled()
-    expect(f.rpc).toHaveBeenCalledWith('assistant_work_owner_delivered',expect.objectContaining({p_message_id:'failure'}))
+    expect(f.ownerReceipts).not.toHaveBeenCalled()
   })
   it('does not notify obsolete inferred or host failures superseded by a real executor terminal',async()=>{
     for(const event of [{kind:'failed',terminal_origin:'coordinator',executor_session_id:'child'},
@@ -84,7 +83,7 @@ describe('unfinished delivery reconciliation',()=>{
   it('posts one stable plain failure notice only after assistant admission and records the separate receipt',async()=>{
     const f=fixture([dispatch,{message_id:'failed',kind:'failed',terminal_origin:'coordinator',reason_code:'EXECUTOR_ENDED_WITHOUT_REPORT',assistant_admitted_at:new Date(now-10000).toISOString(),owner_delivered_at:null}])
     await f.reconciler.kick();await f.reconciler.kick()
-    expect(f.notify.mock.calls[0]).toEqual(f.notify.mock.calls[1])
+    expect(f.notify).toHaveBeenCalledOnce()
     expect(f.notify.mock.calls[0]?.[2]).toMatch(/天气表格.*没有交回结果/)
     expect(f.notify.mock.calls[0]?.[2]).not.toMatch(/work|session|runtime/)
     expect(f.rpc).toHaveBeenCalledWith('assistant_work_owner_delivered',expect.objectContaining({p_receipt_kind:'result',p_owner_message_id:'notice'}))
@@ -98,5 +97,39 @@ describe('unfinished delivery reconciliation',()=>{
     const f=fixture([]);f.abandoned.mockResolvedValue([{message_id:'lost',work_id:'work',assistant_user_id:'assistant',kind:'completed',to_device_id:'cloud',abandoned_reason_code:'DELIVERY_TIMEOUT'}] as never)
     await f.reconciler.kick()
     expect(f.rpc).toHaveBeenCalledWith('assistant_work_owner_delivered',expect.objectContaining({p_receipt_kind:'abandonment_notice'}))
+  })
+  it('ignores abandoned ordinary progress and groups terminal notices by work and reason',async()=>{
+    const f=fixture([])
+    f.abandoned.mockResolvedValue(['progress','completed','question','failed'].map((kind,index)=>({kind,message_id:`lost-${index}`,work_id:'work',assistant_user_id:'assistant',to_device_id:'cloud',abandoned_reason_code:'DELIVERY_TIMEOUT'})) as never)
+    await f.reconciler.kick()
+    expect(f.notify).toHaveBeenCalledOnce()
+    expect(f.notify.mock.calls[0]?.[1]).toContain('work-notice:assistant:work:')
+    expect(f.rpc.mock.calls.filter(([name])=>name==='assistant_work_owner_delivered')).toHaveLength(3)
+  })
+  it('refuses missing owner posts and isolates one receipt failure from later proofs',async()=>{
+    const f=fixture(['one','two'].map(message_id=>({kind:'completed',message_id,assistant_admitted_at:'2026-10-26T08:00:00Z'})))
+    f.works.mockResolvedValue([{...work,outcome:'completed'}])
+    f.ownerReceipts.mockResolvedValue([{eventId:'one',chatId:'dm',messageId:'post-one'},{eventId:'two',chatId:'dm',messageId:'post-two'}])
+    f.rpc.mockResolvedValueOnce({data:null,error:{message:'temporary'}} as never)
+    await f.reconciler.kick()
+    expect(f.rpc.mock.calls.filter(([name])=>name==='assistant_work_owner_delivered')).toHaveLength(2)
+    expect(f.verifyOwnerPost).toHaveBeenCalledTimes(2)
+    const missing=fixture([])
+    missing.abandoned.mockResolvedValue([{kind:'completed',message_id:'lost',work_id:'work',assistant_user_id:'assistant',to_device_id:'cloud',abandoned_reason_code:'DELIVERY_TIMEOUT'}] as never)
+    missing.verifyOwnerPost.mockResolvedValue(false)
+    await missing.reconciler.kick()
+    expect(missing.rpc.mock.calls.some(([name])=>name==='assistant_work_owner_delivered')).toBe(false)
+  })
+  it('never posts an abandoned inference or question after a real executor result superseded it',async()=>{
+    const f=fixture([])
+    f.works.mockResolvedValue([{...work,outcome:'completed',executor_outcomes:{child:{status:'completed',origin:'executor'}}}])
+    f.abandoned.mockResolvedValue([{kind:'failed',terminal_origin:'coordinator',executor_session_id:'child'},{kind:'question',from_session_id:'child'}].map((event,index)=>({...event,message_id:`old-${index}`,work_id:'work',assistant_user_id:'assistant',to_device_id:'cloud',abandoned_reason_code:'DELIVERY_TIMEOUT'})) as never)
+    await f.reconciler.kick();expect(f.notify).not.toHaveBeenCalled()
+  })
+  it('does not recommit a host failure already represented by a coordinator terminal event',async()=>{
+    const f=fixture([{kind:'progress',from_session_id:'child',message_id:'host-failure',reason_code:'HOST_FAILURE'},
+      {kind:'failed',executor_session_id:'child',terminal_origin:'coordinator',message_id:'inference',reason_code:'HOST_FAILURE'}])
+    f.works.mockResolvedValue([{...work,outcome:'failed',executor_outcomes:{child:{status:'failed',origin:'coordinator'}}}])
+    await f.reconciler.kick();expect(f.rpc.mock.calls.some(([name])=>name==='assistant_work_commit')).toBe(false)
   })
 })

@@ -1,4 +1,5 @@
 import { createAssistantWorkOutboxPump } from '../../../packages/core/src/cloud/assistantWorkOutbox.ts'
+import { createAssistantWorkNoticeWakePump } from '../../../packages/core/src/cloud/assistantWorkNoticeWake.ts'
 import { createCloudComputerClient } from '../../../packages/core/src/cloud/cloudComputer.ts'
 
 /** The phone consumes the same cloud event queue; it keeps no second durable outbox. */
@@ -6,7 +7,6 @@ export function createPhoneAssistantWorkOutbox({ cloud, ownerId, deviceId, insta
   let closed = false
   let controller = controllerOverride ?? null
   let flight = null
-  const closing = new AbortController()
   const context = async () => !closed && isReady() ? { ownerId, deviceId, runtimeInstanceId: instanceId } : null
   const prepare = async (target, signal) => {
     if (!controller) {
@@ -16,13 +16,15 @@ export function createPhoneAssistantWorkOutbox({ cloud, ownerId, deviceId, insta
     // Device presence may remain online while frozen. Only the control plane identifies this cloud machine.
     let state = await controller.state(signal)
     if (state.deviceId !== target || state.state === 'awake') return
+    signal.throwIfAborted()
     await controller.wake()
+    signal.throwIfAborted()
     while (state.state !== 'awake') {
       signal.throwIfAborted()
       await new Promise((resolve, reject) => {
         const done = () => { clearTimeout(timer); signal.removeEventListener('abort', aborted); resolve() }
         const aborted = () => { clearTimeout(timer); signal.removeEventListener('abort', aborted); reject(signal.reason) }
-        const timer = setTimeout(done, 250)
+        const timer = setTimeout(done, 1000)
         signal.addEventListener('abort', aborted, { once: true })
       })
       state = await controller.state(signal)
@@ -35,7 +37,7 @@ export function createPhoneAssistantWorkOutbox({ cloud, ownerId, deviceId, insta
     deliver: async (event, signal) => {
       const ref = { assistant_id: event.assistant_user_id, work_id: event.work_id, message_id: event.message_id }
       if (!ref.assistant_id) throw Object.assign(new Error('Work assistant is missing'), { code: 'INVALID_OUTBOX_EVENT' })
-      if (event.to_device_id === deviceId) return receive(ref)
+      if (event.to_device_id === deviceId) return receive(ref, signal)
       await prepare(event.to_device_id, signal)
       const client = requester()
       if (!client || closed || !isReady()) throw Object.assign(new Error('Phone delivery host is not ready'), { code: 'DELIVERY_NOT_READY' })
@@ -44,27 +46,21 @@ export function createPhoneAssistantWorkOutbox({ cloud, ownerId, deviceId, insta
       return result.result?.status === 'admitted' && result.result.messageId === event.message_id ? result.result : { status: 'pending' }
     },
   })
-  const reconcile = async () => {
-    await pump.kick()
-    if (!await context()) return
-    const {data,error} = await cloud.identity.rpc('assistant_work_abandoned',{p_runtime_instance_id:instanceId,p_limit:100})
-    if (error) throw error
-    if (!Array.isArray(data?.events)) throw new Error('Invalid abandoned work list')
-    const homes = new Set(data.events.map(event => event.kind === 'dispatch' ? event.from_device_id : event.to_device_id))
-    const signal = AbortSignal.any([closing.signal,AbortSignal.timeout(45000)])
-    for (const home of homes) {
-      if (!home || home === deviceId) continue
-      await prepare(home,signal)
-      if (!await context()) return
-      const client = requester()
-      if (!client) throw new Error('Delivery channel unavailable')
-      const response = await client.call(home,'assistantWork.reconcile',{}, {timeoutMs:5000,signal})
-      if (response.error) throw new Error('Work home could not reconcile delivery')
-    }
-  }
+  const noticeWake = createAssistantWorkNoticeWakePump({
+    context, rpc: (name,args) => cloud.identity.rpc(name,args), warn,
+    wake: prepare,
+    request: async (home,signal) => {
+      if(!await context()) throw new Error('Phone account changed')
+      const client=requester()
+      if(!client) throw new Error('Delivery channel unavailable')
+      const response=await client.call(home,'assistantWork.reconcile',{}, {timeoutMs:5000,signal})
+      if(response.error) throw response.error
+    },
+  })
+  const reconcile = async () => { await pump.kick(); await noticeWake.kick() }
   return { kick() {
     if (closed) return Promise.resolve()
     if (!flight) flight = reconcile().catch(() => warn({code:'WORK_NOTICE_RECONCILIATION_UNAVAILABLE'})).finally(() => {flight = null})
     return flight
-  }, close() { closed = true; closing.abort(); pump.stop() } }
+  }, close() { closed = true; noticeWake.stop(); pump.stop() } }
 }

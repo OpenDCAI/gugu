@@ -57,6 +57,22 @@ describe('one account work outbox', () => {
     const f = fixture(); f.deliver.mockResolvedValue({ status: 'pending' } as never); await f.pump.kick()
     expect(f.rpc).toHaveBeenCalledWith('assistant_work_outbox_settle', expect.objectContaining({ p_stage: 'retry', p_error_code: 'NOT_ADMITTED' }), context)
   })
+  it('releases pending or unknown delivery without counting a real failure', async () => {
+    for (const code of [null, 'SESSION_DIRECT_OUTCOME_UNKNOWN', 'QUEUED', 'DEVICE_OFFLINE', 'DELIVERY_TIMEOUT']) {
+      const f = fixture([event({ attempts: 6 })])
+      if (code) f.deliver.mockRejectedValue(Object.assign(new Error('not a proven failure'), { code }))
+      else f.deliver.mockResolvedValue({ status: 'pending' } as never)
+      await f.pump.kick()
+      expect(f.rpc).toHaveBeenCalledWith('assistant_work_outbox_settle', expect.objectContaining({
+        p_stage: 'retry', p_receipt: { failure_observed: false }, p_retry_after_seconds: 160,
+      }), context)
+    }
+  })
+  it('counts a definite receiver rejection as an observed failure', async () => {
+    const f = fixture();f.deliver.mockRejectedValue(Object.assign(new Error('unsupported'), { code: 'UNKNOWN_METHOD' }))
+    await f.pump.kick()
+    expect(f.rpc).toHaveBeenCalledWith('assistant_work_outbox_settle', expect.objectContaining({p_stage:'retry',p_receipt:{failure_observed:true}}),context)
+  })
   it('never delivers cached text when the source is no longer visible', async () => {
     const f = fixture([event({ source_available: false, content: null })]); await f.pump.kick()
     expect(f.deliver).not.toHaveBeenCalled()

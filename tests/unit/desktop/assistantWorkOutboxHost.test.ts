@@ -28,6 +28,12 @@ describe('account delivery host',()=>{
     expect(f.rpc).toHaveBeenCalledWith('assistant_work_outbox_settle',expect.objectContaining({p_receipt:{}}))
     host.stop()
   })
+  it('passes the same cancellation signal through remote preparation and local delivery',async()=>{
+    const remote=fixture('phone');const remoteHost=createAssistantWorkOutboxHost(remote.deps);await remoteHost.kick();remoteHost.stop()
+    expect(remote.prepareRemote).toHaveBeenCalledWith('phone',expect.any(AbortSignal))
+    const local=fixture();const localHost=createAssistantWorkOutboxHost(local.deps);await localHost.kick();localHost.stop()
+    expect(local.deliverLocal).toHaveBeenCalledWith(expect.objectContaining({message_id:'message'}),expect.any(AbortSignal))
+  })
   it('transmits only a cloud reference, after the remote wake path',async()=>{
     const f=fixture('phone');const host=createAssistantWorkOutboxHost(f.deps);await host.kick()
     expect(f.requestRemote).toHaveBeenCalledWith('phone','assistantWork.deliver',{assistant_id:'assistant',work_id:'work',message_id:'message'},expect.any(AbortSignal))
