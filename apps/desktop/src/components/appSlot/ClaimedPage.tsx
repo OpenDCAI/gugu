@@ -23,6 +23,8 @@ export const ClaimedPage = observer(function ClaimedPage({ slotId, chatId, kind,
   // A covered slot keeps its claim for the way back.
   const coveredRef = useRef(false)
   coveredRef.current = useContext(PeekCovered)
+  const openingRef = useRef(takeOpening)
+  openingRef.current = takeOpening
   // The resident layer draws a page only for an App it keeps (installed, switched on, listed in this window:
   // `residentTabContributions`): with none, the slot says so instead of staying blank (L4 09-29).
   const noPage = installedExtensionsStore.isLoaded && !installedExtensionsStore.residentTabContributions.some((entry) => entry.kind === kind)
@@ -40,7 +42,7 @@ export const ClaimedPage = observer(function ClaimedPage({ slotId, chatId, kind,
       const want = visible()
       if (want === (token !== null) || (!want && coveredRef.current)) return
       if (want) {
-        token = extensionViewStore.claim(kind, { tabId: slotId, chatId, element, ...(itemId ? { itemId } : {}), takeOpening })
+        token = extensionViewStore.claim(kind, { tabId: slotId, chatId, element, ...(itemId ? { itemId } : {}), takeOpening: () => openingRef.current?.() })
         if (prepareFile) extensionViewStore.prepareFile(kind)
       }
       else if (token !== null) {
@@ -60,7 +62,7 @@ export const ClaimedPage = observer(function ClaimedPage({ slotId, chatId, kind,
       restyled.disconnect()
       if (token !== null) extensionViewStore.release(kind, token)
     }
-  }, [chatId, kind, itemId, slotId, prepareFile, takeOpening])
+  }, [chatId, kind, itemId, slotId, prepareFile])
   return (
     <div ref={boxRef} className="min-h-0 flex-1">
       {noPage ? (

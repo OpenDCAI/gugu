@@ -437,7 +437,9 @@ export type ChatFileRef = Exclude<AppFileRef, LocalPlace>;
 /** One row by its id, as `actor` sees it: not there and not theirs read the same (null). */
 async function itemById(token: string, itemId: string, actor: string): Promise<ItemRow | null> {
   if (!UUID.test(itemId)) return null;
-  const { data, error } = await chatClient(token).rpc('workspace_get_as', { p_item_id: itemId, p_as_user_id: actor });
+  // This reader uses metadata only. The live document is read by file sync, never from inline_text.
+  const { data, error } = await chatClient(token).rpc('workspace_get_as', { p_item_id: itemId, p_as_user_id: actor })
+    .select('id,chat_id,kind,filename,content_type,size_bytes,pointer,source_message_ids,created_by,updated_by,version,created_at,updated_at,epoch,parent_id,system_role,path');
   if (error) {
     if (codeOf(error) === 'not-found') return null;
     throw new AppFileError(codeOf(error), error.message);

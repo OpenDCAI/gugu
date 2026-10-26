@@ -1,3 +1,4 @@
+import { rpcQuery } from '../../../../../../tests/helpers/rpcQuery';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 /**
@@ -47,7 +48,7 @@ function door(name: string, args: Record<string, unknown>): { data: unknown; err
 }
 
 vi.mock('@gugu/core/cloud/supabase', () => ({
-  createGuguSupabaseClient: () => ({ from: () => { throw new Error('read through the doors') }, rpc: async (name: string, args: Record<string, unknown>) => door(name, args) }),
+  createGuguSupabaseClient: () => ({ from: () => { throw new Error('read through the doors') }, rpc: rpcQuery(async (name: string, args: Record<string, unknown>) => door(name, args)) }),
 }));
 
 const { createAppFiles } = await import('./app-files-core');

@@ -10,7 +10,10 @@ const row = {
   source_message_ids: [], parent_id: null, system_role: null, path: 'note.md', epoch: 2, version: 3,
   pointer: 'must-not-cross', inline_text: 'DOCUMENT MUST NOT CROSS',
 };
-const rpc = vi.fn(async (name: string) => ({ data: name === 'workspace_deletable_as' ? [ITEM] : [row], error: null }));
+const rpc = vi.fn((name: string) => {
+  const result = Promise.resolve({ data: name === 'workspace_deletable_as' ? [ITEM] : [row], error: null });
+  return Object.assign(result, { select: vi.fn((_columns: string) => result) });
+});
 vi.mock('@gugu/core/cloud/supabase', () => ({ createGuguSupabaseClient: () => ({ rpc }) }));
 const { createAppFiles } = await import('./app-files-core');
 const identities = vi.fn(async () => [{ id: PERSON, name: 'Creator', kind: 'human' as const, avatar: null }]);
@@ -31,6 +34,10 @@ beforeEach(() => {
 it('hands the click authorization to the bound file without reading its row twice or carrying content', async () => {
   const target = await files.openTarget(page, { ref: { id: ITEM } });
   expect(rpc.mock.calls.map(([name]) => name)).toEqual(['workspace_get_as']);
+  const columns = rpc.mock.results[0]!.value.select.mock.calls[0]![0].split(',');
+  expect(columns).toContain('epoch');
+  expect(columns).toContain('updated_by');
+  expect(columns).not.toContain('inline_text');
   expect(JSON.stringify(target.opening)).not.toContain('must-not-cross');
   expect(JSON.stringify(target.opening)).not.toContain('DOCUMENT MUST NOT CROSS');
   const opened = await files.open(page, { ref: { chat: CHAT, id: ITEM }, expectedVersion: 3, deferDetails: true }, target.opening);
