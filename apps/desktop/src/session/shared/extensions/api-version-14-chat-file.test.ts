@@ -57,7 +57,7 @@ const { EXTENSION_API_VERSION, safeParseExtensionManifest, parseExtensionManifes
 const files = createAppFiles({
   account: async () => ({ token: 'token', userId: PERSON }),
   hasCapability: () => true,
-  sync: { pageFor: () => ({}), grant: () => undefined, revoke: () => undefined, ungrant: () => undefined } as never,
+  sync: { ensureFor: () => undefined, pageFor: () => ({}), grant: () => undefined, revoke: () => undefined, ungrant: () => undefined } as never,
   claimant: () => null,
   identities: async () => [],
   faces: async () => ({}),

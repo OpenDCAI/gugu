@@ -99,7 +99,7 @@ describe('getContext().chat (extensionChatOf)', () => {
     const files = createAppFiles({
       account: async () => ({ token: 'token', userId: A }),
       hasCapability: () => true,
-      sync: {} as never,
+      sync: { ensureFor: () => undefined,} as never,
       identities: people.identities,
       faces: async () => ({}),
       filesUrl: () => 'http://files.invalid',
@@ -123,7 +123,7 @@ describe('getContext().chat.members[].avatar', () => {
     const files = createAppFiles({
       account: async () => ({ token: 'token', userId: A }),
       hasCapability: () => true,
-      sync: {} as never,
+      sync: { ensureFor: () => undefined,} as never,
       identities: async (_token, ids) => ids.map((id) => ({ id, name: id === A ? 'A' : 'B', avatar: id === A ? 'upload-1' : null, kind: 'human' as const })),
       faces,
       filesUrl: () => 'http://files.invalid',
