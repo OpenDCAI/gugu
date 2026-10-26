@@ -269,7 +269,9 @@ export class ExtensionsService {
     const identity = appIdentityOf({ manifest, origin, publisher });
     const grants = this.grantsFile.read();
     const previousIdentity = this.identityOf(manifest.id);
-    const previous = previousIdentity && identity && appKey(previousIdentity) === appKey(identity) && this.isInstalled(manifest.id) ? this.approvedManifest(manifest.id).permissions : undefined;
+    const previous = previousIdentity && identity && appKey(previousIdentity) === appKey(identity)
+      ? grants[appKey(identity)] ?? this.list().extensions.find((entry) => entry.manifest.id === manifest.id)?.manifest.permissions
+      : undefined;
     const approved = {
       capabilities: [...new Set([...(previous?.capabilities ?? []), ...(manifest.permissions?.capabilities ?? [])])],
       network: [...new Set([...(previous?.network ?? []), ...(manifest.permissions?.network ?? [])])],

@@ -4,6 +4,7 @@ import * as fs from 'node:fs';
 import * as path from 'node:path';
 import { z } from 'zod';
 import { variantNameSchema, type ExtensionVariant } from '@shared/extensions/variants';
+import { isGuguOwnApp } from '@shared/extensions/first-run';
 import { compareExtensionVersions } from '@shared/extensions/manifest';
 import { bundleEntryRejection, type MarketCodeSource } from '@shared/extensions/market';
 import { getGitExecutable } from '../utils/exec';
@@ -81,7 +82,7 @@ export async function createAppFork(id: string, requestedName?: string) {
   checkedSource(source);
   const root = path.join(appSourcesRoot(), `${id}@${name}`);
   const sourceDir = path.join(root, source.path);
-  const branch = source.repo === 'shuxueshuxue/gugu-apps' ? `fork/${id}/${name}` : `gugu-fork/${name}`;
+  const branch = isGuguOwnApp(source) ? `fork/${id}/${name}` : `gugu-fork/${name}`;
   const [{ githubAccountService }, { githubApiAuthService }, { getOctokit }] = await Promise.all([
     import('../github/accounts/github-account-service-instance'), import('../github/services/github-api-auth-service-instance'), import('../github/services/octokit-provider'),
   ]);
@@ -97,8 +98,8 @@ export async function createAppFork(id: string, requestedName?: string) {
   if (!existing) {
     try {
       await git(appSourcesRoot(), ['clone', '--no-checkout', '--origin', 'upstream',
-        ...(source.repo === 'shuxueshuxue/gugu-apps' ? ['--filter=blob:none', '--sparse'] : []), `https://github.com/${source.repo}.git`, root], token);
-      if (source.repo === 'shuxueshuxue/gugu-apps') await git(root, ['sparse-checkout', 'set', '--', `sources/${id}`], token);
+        ...(isGuguOwnApp(source) ? ['--filter=blob:none', '--sparse'] : []), `https://github.com/${source.repo}.git`, root], token);
+      if (isGuguOwnApp(source)) await git(root, ['sparse-checkout', 'set', '--', `sources/${id}`], token);
       await git(root, ['fetch', 'upstream', source.commit], token);
       await git(root, ['checkout', '-b', branch, source.commit], token);
       const manifest = service.inspectDirectory(sourceDir).manifest;
