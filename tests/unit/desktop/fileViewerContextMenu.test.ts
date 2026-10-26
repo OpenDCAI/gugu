@@ -1,8 +1,8 @@
 // @vitest-environment jsdom
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { bindFileViewerMenu } from '@/components/preview/file-viewer-menu'
-import { type FileViewerMenuRequest } from '@/session/shared/preview/file-viewer-menu'
-import { fileViewerMenuTemplate, viewerActionScript, viewerContextScript } from '../../../apps/desktop/electron/file-viewer-context-menu'
+import { type FileViewerMenuRequest, fileViewerMenuItems } from '@/session/shared/preview/file-viewer-menu'
+import { viewerActionScript, viewerContextScript } from '../../../apps/desktop/electron/file-viewer-context-menu'
 import { quoteChatFile } from '@/components/preview/quote-preview-file'
 import { composeInChat } from '@/session/shared/extensions/app-send-core'
 import { getRendererSession } from '@/lib/sessionPublication'
@@ -99,10 +99,10 @@ describe('host file viewer menu', () => {
   it('disables selection-only operations for images and preserves editing actions for source editors', () => {
     const context: FileViewerMenuRequest & { viewerId: string } = { viewerId: 'image', requestId: 'image', action: 'snapshot', selection: { text: '' }, canSelectAll: false }
     const run = vi.fn()
-    const image = fileViewerMenuTemplate(context, labels, run)
+    const image = fileViewerMenuItems(context, labels, run)
     expect(image.filter(item => item.type !== 'separator' && item.enabled === false).map(item => item.type !== 'separator' ? item.label : undefined)).toEqual(['Copy', 'Select all', 'Quote selection'])
     expect((image.at(-1)?.type !== 'separator' ? (image.at(-1) as { label: string }).label : undefined)).toBe('Quote file')
-    const editor = fileViewerMenuTemplate({ ...context, editable: true, selection: { text: 'source' }, canSelectAll: true }, labels, run)
+    const editor = fileViewerMenuItems({ ...context, editable: true, selection: { text: 'source' }, canSelectAll: true }, labels, run)
     expect(editor.filter(item => item.type !== 'separator').map(item => item.label)).toEqual(['Undo', 'Redo', 'Cut', 'Copy', 'Paste', 'Select all', 'Quote selection', 'Quote file'])
   })
 })

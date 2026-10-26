@@ -1,4 +1,5 @@
-import { showContentContextMenu, type ContentMenuEntry } from '../../../../content-context-menu';
+import { showContentContextMenu } from '../../../../content-context-menu';
+import type { ContentMenuEntry } from '@shared/content-context-menu';
 import {
   clipboard,
   ClipboardItem,

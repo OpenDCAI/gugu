@@ -7,6 +7,8 @@ export type ContentMenuItem =
   | { type: 'separator' }
   | { type?: 'item'; id: string; label: string; enabled?: boolean; hotkey?: Hotkey; icon?: 'quote' | 'file' };
 
+export type ContentMenuEntry = ContentMenuItem & { click?: () => void };
+
 export interface ContentContextMenu {
   requestId: string;
   x: number;

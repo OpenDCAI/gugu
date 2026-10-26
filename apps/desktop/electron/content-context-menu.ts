@@ -1,8 +1,7 @@
 import { randomUUID } from 'node:crypto';
 import type { BrowserWindow, IpcMain, WebContents } from 'electron';
-import { CONTENT_CONTEXT_MENU_ACTION, CONTENT_CONTEXT_MENU_OPEN, type ContentContextMenu, type ContentMenuAction, type ContentMenuItem } from '../src/session/shared/content-context-menu';
+import { CONTENT_CONTEXT_MENU_ACTION, CONTENT_CONTEXT_MENU_OPEN, type ContentContextMenu, type ContentMenuAction, type ContentMenuEntry } from '../src/session/shared/content-context-menu';
 
-export type ContentMenuEntry = ContentMenuItem & { click?: () => void };
 const pending = new WeakMap<WebContents, { requestId: string; items: ContentMenuEntry[] }>();
 const observed = new WeakSet<WebContents>();
 

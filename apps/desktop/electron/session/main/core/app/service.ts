@@ -6,7 +6,7 @@ import type { IDisposable, IInitializable } from '@gugu/session-shared';
 import { app, clipboard, dialog, shell } from 'electron';
 import { getMainWindow } from '@main/app/window';
 import { showContentContextMenu } from '../../../../content-context-menu';
-import { textContextMenuItems } from '../../../../text-context-menu';
+import { textContextMenuItems } from '@shared/text-context-menu';
 import { events } from '@main/lib/events';
 import { log } from '@main/lib/logger';
 import { buildExternalToolEnv } from '@main/utils/childProcessEnv';

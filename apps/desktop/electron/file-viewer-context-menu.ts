@@ -1,19 +1,7 @@
 import { randomUUID } from 'node:crypto';
 import { BrowserWindow, clipboard, type App, type ContextMenuParams, type WebContents } from 'electron';
-import { showContentContextMenu, type ContentMenuEntry } from './content-context-menu';
-import { textContextMenuItems, type TextContextMenu } from './text-context-menu';
-import { FILE_VIEWER_ATTRIBUTE, FILE_VIEWER_MENU_EVENT, type FileViewerMenuAction, type FileViewerMenuRequest } from '../src/session/shared/preview/file-viewer-menu';
-
-export interface FileViewerMenuLabels {
-  copy: string;
-  selectAll: string;
-  quoteSelection: string;
-  quoteFile: string;
-  undo: string;
-  redo: string;
-  cut: string;
-  paste: string;
-}
+import { showContentContextMenu } from './content-context-menu';
+import { FILE_VIEWER_ATTRIBUTE, FILE_VIEWER_MENU_EVENT, type FileViewerMenuAction, type FileViewerMenuRequest, type FileViewerMenuLabels, fileViewerMenuItems } from '../src/session/shared/preview/file-viewer-menu';
 
 type Context = FileViewerMenuRequest & { viewerId: string };
 
@@ -35,25 +23,6 @@ export function viewerActionScript(context: Context, action: FileViewerMenuActio
     root.dispatchEvent(new CustomEvent(${JSON.stringify(FILE_VIEWER_MENU_EVENT)},{detail:${JSON.stringify({ ...context, action })}}));
     return true;
   })()`;
-}
-
-function fileMenu(context: Context, labels: FileViewerMenuLabels, run: (action: FileViewerMenuAction | 'copy') => void) {
-  const options: TextContextMenu = {
-    labels, selectionText: context.selection.text, canSelectAll: context.canSelectAll,
-    actions: { copy: () => run('copy'), selectAll: () => run('select-all'), ...(context.editable ? {
-      undo: () => run('undo'), redo: () => run('redo'), cut: () => run('cut'), paste: () => run('paste'),
-    } : {}) },
-  };
-  const extra: ContentMenuEntry[] = [
-    { id: 'quote-selection', icon: 'quote', label: labels.quoteSelection, enabled: context.selection.text.length > 0, click: () => run('quote-selection') },
-    { id: 'quote-file', icon: 'file', label: labels.quoteFile, click: () => run('quote-file') },
-  ];
-  return { options, extra };
-}
-
-export function fileViewerMenuTemplate(context: Context, labels: FileViewerMenuLabels, run: (action: FileViewerMenuAction | 'copy') => void): ContentMenuEntry[] {
-  const { options, extra } = fileMenu(context, labels, run);
-  return textContextMenuItems(options, extra);
 }
 
 export function registerFileViewerMenus(app: App, labels: () => FileViewerMenuLabels, report: (error: unknown) => void): void {
@@ -92,7 +61,7 @@ async function showFileViewerMenu(contents: WebContents, params: ContextMenuPara
     };
     void perform().catch(report);
   };
-  showContentContextMenu(fileViewerMenuTemplate(context, labels, run), {
+  showContentContextMenu(fileViewerMenuItems(context, labels, run), {
     window: BrowserWindow.fromWebContents(contents.hostWebContents ?? contents) ?? undefined,
     x: params.x,
     y: params.y,
