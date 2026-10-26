@@ -1,6 +1,10 @@
 import { isAbsolute, resolve } from 'node:path';
+import { eq } from 'drizzle-orm';
 import { TRANSCRIPT_SOURCE_IDS, type TranscriptSource } from '@gugu/core/shared/types/transcripts';
+import { db } from '@main/db/client';
+import { projects, sessions } from '@main/db/schema';
 import { getLocalSessionSource } from '@main/core/session-import/host-source';
+import { createLocalGroupOf } from '@main/core/session-history/local-session-group';
 import { projectRootFolder } from '@main/core/projects/operations/project-folders';
 import { sessionPageNumber, type AppSessionIndex } from '@shared/extensions/app-sessions';
 
@@ -25,10 +29,15 @@ export async function indexSessionsForApp(args: Record<string, unknown>): Promis
       cwd = root.path;
     }
   }
-  const page = await getLocalSessionSource().list({ engine: source, cwd, offset, limit });
+  const [page, sessionProjects] = await Promise.all([
+    getLocalSessionSource().list({ engine: source, cwd, offset, limit }),
+    db.select({ projectId: sessions.projectId, projectPath: projects.path, projectName: projects.name })
+      .from(sessions).innerJoin(projects, eq(projects.id, sessions.projectId)),
+  ]);
+  const localGroupOf = createLocalGroupOf(sessionProjects);
   const next = offset + page.rows.length;
   return {
-    rows: page.rows.map(({ engine, ...row }) => ({ source: engine, ...row })),
+    rows: page.rows.map(({ engine, ...row }) => ({ source: engine, ...row, group: localGroupOf(row.cwd) })),
     total: page.matched, pending: page.pending, stale: page.stale,
     nextOffset: next < page.matched ? next : null,
   };

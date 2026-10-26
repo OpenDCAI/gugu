@@ -31,6 +31,7 @@ vi.mock('@main/core/session-import/host-source', () => ({
   hasLocalSessionSource: () => mocks.hasLocal,
   getLocalSessionSource: () => ({ list: mocks.list }),
 }));
+vi.mock('@main/core/projects/operations/project-folders', () => ({ projectRootFolder: vi.fn() }));
 
 // 仓库根的真磁盘判法由 repo-root.test.ts 钉住;这里给一张假表,只测「按仓库归节」的规则。
 vi.mock('./repo-root', () => ({
@@ -43,6 +44,7 @@ vi.mock('./repo-root', () => ({
 }));
 
 const { listSessionHistory, listSessionHistoryDirectories, toEpochMs } = await import('./list-session-history');
+const { indexSessionsForApp } = await import('../extensions/app-sessions');
 
 const T = (iso: string) => Date.parse(iso);
 
@@ -265,6 +267,13 @@ describe('listSessionHistory', () => {
     expect(Object.keys(sections)).toEqual(expect.arrayContaining(['/scratch/a', '/scratch/b']));
     // 按节筛与节同一个口径:选 /code/tool 看得到两个子目录里的会话。
     expect((await listSessionHistory({ directory: '/code/tool' })).matched).toBe(2);
+    expect((await indexSessionsForApp({})).rows.map(({ providerSessionId, group }) => ({ providerSessionId, group }))).toEqual([
+      { providerSessionId: 'W1', group: { key: '/repo', label: 'Repo' } },
+      { providerSessionId: 'T1', group: { key: '/code/tool', label: null } },
+      { providerSessionId: 'T2', group: { key: '/code/tool', label: null } },
+      { providerSessionId: 'S1', group: { key: '/scratch/a', label: null } },
+      { providerSessionId: 'S2', group: { key: '/scratch/b', label: null } },
+    ]);
   });
 
   it('咕咕项目不吞它仓库之外的原件:路径是 /Users 的项目只收 cwd 就是 /Users 的那条', async () => {
@@ -284,6 +293,9 @@ describe('listSessionHistory', () => {
     const users = page.rows.find((row) => row.key === '/Users')!;
     expect(keys(users.sessions)).toEqual(['local:/home/me/.claude/projects/x/H1.jsonl', 'gugu:u']);
     expect(page.rows.map((row) => row.key)).toEqual(expect.arrayContaining(['/Users/me/proj', '/Users/me/scratch']));
+    expect((await indexSessionsForApp({})).rows.map(({ group }) => group)).toEqual([
+      { key: '/Users/me/proj', label: null }, { key: '/Users/me/scratch', label: null }, { key: '/Users', label: 'Users' },
+    ]);
     // 阴控:同一个 cwd 若就在 /Users 这个仓库里,它就该归项目 —— 证明上面没归进去是「仓库边界」的功劳,不是项目认不出。
     mocks.repoRoots = { '/repo': '/repo', '/Users': '/Users' };
     const inside = await listSessionHistoryDirectories({ sessionsPerDirectory: 10 });
@@ -316,6 +328,10 @@ describe('listSessionHistory', () => {
     expect((await listSessionHistory()).rows.find((row) => row.key.endsWith('K1.jsonl'))!.directory).toBe('/Users/me/gugu-6386-profile/task-home');
     expect((await listSessionHistory({ directory: SESSION_HOME_SECTION_KEY })).matched).toBe(3);
     expect(page.directories).toContainEqual({ directory: SESSION_HOME_SECTION_KEY, projectName: null, count: 3 });
+    expect((await indexSessionsForApp({})).rows.map(({ group }) => group)).toEqual([
+      { key: SESSION_HOME_SECTION_KEY, label: null }, { key: SESSION_HOME_SECTION_KEY, label: null },
+      { key: '/Users/me/task-homework', label: null },
+    ]);
   });
 
   it('项目下拉的候选列出全部目录,不截成前几个', async () => {
