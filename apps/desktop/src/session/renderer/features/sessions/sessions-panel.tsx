@@ -40,7 +40,6 @@ import { useSessionStartupFailure } from './use-session-startup-failure';
 import { useSessionSchedules } from '@renderer/features/automations/use-session-schedules';
 import { machineRegistry } from '@renderer/lib/machine-routing';
 import { SessionScheduleChip } from './session-schedule-chip';
-import { SessionPermissionHint } from './session-permission-hint';
 
 export const SessionsPanel = observer(function SessionsPanel() {
   const { translate } = useSessionMessages();
@@ -269,7 +268,6 @@ export const SessionsPanel = observer(function SessionsPanel() {
                           data-testid="session-terminal-loading"
                         />
                       )}
-                      {activeSession && <SessionPermissionHint projectId={activeSession.data.projectId} />}
                     </div>
                   )
                 ) : registryFailure ? (

@@ -59,6 +59,7 @@ export interface ContactGroupChat {
   public_id?: number | null
   kind: 'group'
   name: string
+  alias?: string | null
   avatar_url: string | null
   status?: ChatStatus
   group_prompt?: string | null

@@ -1,0 +1,1 @@
+Published bundles use the market runner's collation.

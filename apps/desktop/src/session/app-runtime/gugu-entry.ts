@@ -10,6 +10,7 @@ import {
 } from '@shared/extensions/app-runtime-protocol';
 import { createGugu } from './create-gugu';
 import { framedHost } from './framed-host';
+import { backgroundHost } from './background-host';
 import type { GuguHost } from './host';
 
 /**
@@ -37,7 +38,7 @@ declare global {
 function install(): void {
   withoutPageDialogs();
   // The desktop preload's bridge; in an iframe of the outer gugu page (the phone), postMessage.
-  const raw = window.__guguHost ?? (window.parent !== window ? framedHost() : undefined);
+  const raw = window.__guguHost ?? (window.__guguBackgroundPost ? backgroundHost() : window.parent !== window ? framedHost() : undefined);
   // A page with no host is not an App surface. Loud: a gugu that half-exists is worse.
   if (!raw) throw new Error('gugu: this page has no host bridge');
   // The theme before the look (ui.css picks its palette by it): the first paint is in it, not in the OS's. ui.js follows

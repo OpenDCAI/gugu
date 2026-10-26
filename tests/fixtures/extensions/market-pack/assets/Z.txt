@@ -1,0 +1,1 @@
+Uppercase sorts after lowercase in the market packer.

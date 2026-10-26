@@ -1,3 +1,4 @@
+import { groupDisplayName } from '@gugu/core/shared/ui/chatModels';
 import { readChatSummary } from '@/lib/chatSummariesBridge';
 import { projectGroupsStore } from '@renderer/features/projects/stores/project-groups-store';
 import { getProjectStore, projectDisplayName } from '@renderer/features/projects/stores/project-selectors';
@@ -8,5 +9,7 @@ import { getProjectStore, projectDisplayName } from '@renderer/features/projects
  */
 export function chatDisplayName(chatId: string): string | null {
   const projectId = projectGroupsStore.projectOfChat(chatId);
-  return (projectId ? projectDisplayName(getProjectStore(projectId)) : null) ?? readChatSummary(chatId)?.name ?? null;
+  const summary = readChatSummary(chatId);
+  const name = (projectId ? projectDisplayName(getProjectStore(projectId)) : null) ?? summary?.name;
+  return name ? groupDisplayName({ name, alias: summary?.alias }) : null;
 }

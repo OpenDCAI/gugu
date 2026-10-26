@@ -1,3 +1,4 @@
+import { groupDisplayName } from '@gugu/core/shared/ui/chatModels'
 import { useCallback, useEffect, useMemo, useState, type ReactNode } from 'react'
 import { AgentSettingsModal } from './agentsettings/AgentSettingsModal'
 import { chatPublicId, displayName, sortContactsPinnedFirst, sortGroupChatsPinnedFirst, userPublicId } from '../lib/contactsListSort'
@@ -104,7 +105,6 @@ interface ContactsPanelProps {
 }
 type LeftSel = 'contacts' | 'new_friends' | 'add_friend' | 'group_chats' | 'agent_library' | `group:${string}`
 type MobileContactsPane = 'nav' | 'index' | 'detail'
-
 const ct = i18n.getFixedT(null, 'contacts')
 
 // @@@ui-ruler 本地样式副本(rowBase / meta / name / sharedTag / reqBadge / section* / cpane*)已按角色
@@ -443,7 +443,7 @@ function GroupSectionRow({
         selected={selected}
         pinned={pinned}
         leading={<ContactGroupAvatar group={group} size="sm" />}
-        title={group.name}
+        title={groupDisplayName(group)}
         /* show member count like design's group row .st-dot.off — 静态灰点(非 agent 态),用 offline 档 */
         subtitle={
           <span className={agentContactRowStatusClass('offline')}>
@@ -725,7 +725,7 @@ function CpaneGroupHeader({
       <div className={cpaneAvatarClass}>
         <ContactGroupAvatar group={group} size={96} />
       </div>
-      <div className={cpaneNameClass}>{group.name}</div>
+      <div className={cpaneNameClass}>{groupDisplayName(group)}</div>
       {/* group status: member count, no dot per design noStatus class */}
       <div className={cpaneStatusClass}>{ct('panel.memberCount', { count: group.member_count })}</div>
       <div className={cpaneActionsClass}>
@@ -1328,7 +1328,7 @@ function GroupChatRow({
         pinned={pinned}
         emphasis={selected}
         leading={<ContactGroupAvatar group={group} size="sm" />}
-        title={group.name}
+        title={groupDisplayName(group)}
         subtitle={
           <>
             {kindLabel} · {publicId ? `${ct('groupInvite.groupNumber', { number: publicId })} · ` : ''}
@@ -1423,7 +1423,7 @@ function GroupChatDetailPane({
             <Users size={28} />
           </div>
           <div className="min-w-0 flex-1">
-            <h2 className={detailTitleClass}>{group.name}</h2>
+            <h2 className={detailTitleClass}>{groupDisplayName(group)}</h2>
             <div className="!mt-2 flex flex-wrap items-center gap-2">
               <Chip>{densityText}</Chip>
               <span className="text-sm text-[var(--muted-fg)]">
