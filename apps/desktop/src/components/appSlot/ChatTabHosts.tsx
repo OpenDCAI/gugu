@@ -45,8 +45,13 @@ export const ChatTabPortals = observer(function ChatTabPortals({ chatId, panel, 
  * is its back. A tab and the 上一页 it goes back to are one page here (`key`: the first of them), so going back finds that
  * page as it was (G2: a phone frame is not kept anywhere else).
  */
-export const ChatTabPage = observer(function ChatTabPage({ chatId, panel }: { chatId: string; panel: (tab: ChatPanelTab) => ReactNode }) {
+export const ChatTabPage = observer(function ChatTabPage({ chatId, panel, topic }: {
+  chatId: string
+  panel: (tab: ChatPanelTab) => ReactNode
+  topic: () => ReactNode
+}) {
   const focused = focusedChatTab(chatId)
+  if (focused?.kind === 'topic') return <>{topic()}</>
   const tab = focused?.kind === 'panel' ? panelTabOf(chatId, focused.tabId) : null
   if (!tab) return null
   let root = tab.tabId

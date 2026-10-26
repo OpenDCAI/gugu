@@ -362,8 +362,8 @@ function ChatAreaSurface({ viewportKey = 'chats', activeTab, navigationTarget = 
   }, [activeChatId, inBlock])
   const handleOpenFolder = useCallback(() => { if (activeChatId) { closeRightSurfaces(); openPanelItem(activeChatId, folderItem()) } }, [activeChatId, closeRightSurfaces])
   const handleCloseWorkspacePanel = useCallback(() => { if (activeChatId && tabs.folder) closeChatTab(activeChatId, tabs.folder.tabId) }, [activeChatId, tabs.folder])
-  // In a block what each tab on screen shows goes into the slot the strip's engine left for it (the topic too); else in place.
-  const inTabs = (topicPane: ReactNode) => blockHost && activeChatId ? <ChatTabPortals chatId={activeChatId} panel={panelContent} topic={() => topicPane} /> : topicPane
+  // A block draws its shown tabs in the engine's slots; without a strip, one focused page covers the chat (topics too).
+  const inTabs = (topicPane: ReactNode) => !activeChatId ? null : blockHost ? <ChatTabPortals chatId={activeChatId} panel={panelContent} topic={() => topicPane} /> : <ChatTabPage chatId={activeChatId} panel={(tab) => mobile ? <RightPanel>{panelContent(tab)}</RightPanel> : <div className="absolute inset-0 z-20 flex flex-col bg-[var(--bg-primary)]">{panelContent(tab)}</div>} topic={() => topicPane} />
   const panelContent = (tab: ChatPanelTab) => activeChatId ? <GroupTabContent chatId={activeChatId} tabId={tab.tabId} item={tab.item} tabbed={Boolean(blockHost)} inWindow={tab.inWindow} mobile={mobile} visible={surfaceVisible} onForward={handleForward} onOpenWith={opener.openWith} /> : null
 
   const topicSurface = useTopicSurface({
@@ -759,6 +759,45 @@ function ChatAreaSurface({ viewportKey = 'chats', activeTab, navigationTarget = 
     </>
   )
 
+  const topicPane = topicSurface.splitTopic && (
+    <TopicSplitPane
+      viewportKey={`${viewportKey}:topic`} navigationTarget={navigationTarget}
+      topic={topicSurface.splitTopic} sourceChatId={activeChatId!}
+      messages={topicSurface.splitLine.messages} history={topicSurface.splitLine}
+      loading={topicSurface.splitLine.loadingMessages}
+      memberProfiles={messageMemberProfiles}
+      visibleChats={chats}
+      sourceMessagePreview={topicSourceMessagePreview}
+      focusComposerToken={splitFocusToken}
+      memberReadSeqs={topicSurface.splitLine.memberReadSeqs}
+      onOpenFile={(file) => {
+        const split = topicSurface.splitTopic; openFilePreview(file, undefined, split ? () => topicSurface.openSplit(split) : undefined)
+      }}
+      onDownloadFile={(file) => {
+        void downloadAttachment(file.source, file.fileName).catch((error) => toast(t('chatArea.downloadFailed'), 'error', safeFailureLine(String((error as Error)?.message ?? error))))
+      }}
+      mentionMembers={splitMentionMembers}
+      onSend={topicSurface.sendInSplit}
+      onSendAttachments={topicSurface.sendAttachmentsInSplit}
+      agentStatuses={groupAgentStatuses}
+      runningTokens={mobile ? groupRunTokens : undefined}
+      runningPreviewChatId={activeChatId}
+      onOpenMemberProfile={Object.keys(messageMemberProfiles).length > 0
+        ? (member, anchor, side) => openMessageMemberProfile(member, anchor, side, 'aside')
+        : undefined}
+      onOpenAttachment={(file, message) => { const split = topicSurface.splitTopic; openFilePreview(file, message, split ? () => topicSurface.openSplit(split) : undefined) }}
+      onClose={topicSurface.closeSplit}
+      embedded={Boolean(blockHost)}
+      currentUserId={user?.id ?? null}
+      mobile={mobile}
+      onReaction={(id, emoji) => void topicSurface.splitLine.toggleReaction(id, emoji)
+        .catch((error) => toast(t('message.actions.react'), 'error', safeFailureLine(String((error as Error)?.message ?? error))))}
+      onForward={handleForward} visible={surfaceVisible}
+      onDelete={(id) => void topicSurface.splitLine.deleteMessage(id)
+        .catch((error) => toast(t('message.actions.delete'), 'error', safeFailureLine(String((error as Error)?.message ?? error))))}
+    />
+  )
+
   return (
     <div ref={surfaceElement} data-chat-surface={activeChatId}
       style={{
@@ -1098,8 +1137,7 @@ function ChatAreaSurface({ viewportKey = 'chats', activeTab, navigationTarget = 
         </div>}
         </div>
 
-        {/* No strip here (the phone, the assistant's window): the tab in front is a whole page over the chat; its own back layer leads out. */}
-        {!blockHost && activeChatId ? <ChatTabPage chatId={activeChatId} panel={(tab) => mobile ? <RightPanel key="workspace-panel">{panelContent(tab)}</RightPanel> : <div className="absolute inset-0 z-20 flex flex-col bg-[var(--bg-primary)]">{panelContent(tab)}</div>} /> : null}
+        {inTabs(topicPane)}
 
         {filePreview.panel}
 
@@ -1145,9 +1183,6 @@ function ChatAreaSurface({ viewportKey = 'chats', activeTab, navigationTarget = 
           </RightPanel>
         ) : null}
 
-        {/* @@@5856 话题分栏 —— 来源那条线留在左边继续能看能发,话题在右边独立收发。
-            它取代了原来的群 thread 面板:那是同一个 chat 里的过滤视图,这是**另一条线**。
-            与 workspace/history/成员列表 同槽位互斥(统一走 closeRightSurfaces)。 */}
         {/* @@@5856 成员列表 —— 头栏 👥 的落点。群与话题同一个面板:两者都有自己的成员名单,
             话题的那份可以比来源窄。与工作区/历史/话题分栏 同槽位互斥。 */}
         {memberListOpen && isRoomChatSurface && activeChatId && activeChat && (
@@ -1164,44 +1199,6 @@ function ChatAreaSurface({ viewportKey = 'chats', activeTab, navigationTarget = 
           </RightPanel>
         )}
 
-        {inTabs(topicSurface.splitTopic && (
-          <TopicSplitPane
-            viewportKey={`${viewportKey}:topic`} navigationTarget={navigationTarget}
-            topic={topicSurface.splitTopic} sourceChatId={activeChatId!}
-            messages={topicSurface.splitLine.messages} history={topicSurface.splitLine}
-            loading={topicSurface.splitLine.loadingMessages}
-            memberProfiles={messageMemberProfiles}
-            visibleChats={chats}
-            sourceMessagePreview={topicSourceMessagePreview}
-            focusComposerToken={splitFocusToken}
-            memberReadSeqs={topicSurface.splitLine.memberReadSeqs}
-            onOpenFile={(file) => {
-              const split = topicSurface.splitTopic; openFilePreview(file, undefined, split ? () => topicSurface.openSplit(split) : undefined)
-            }}
-            onDownloadFile={(file) => {
-              void downloadAttachment(file.source, file.fileName).catch((error) => toast(t('chatArea.downloadFailed'), 'error', safeFailureLine(String((error as Error)?.message ?? error))))
-            }}
-            mentionMembers={splitMentionMembers}
-            onSend={topicSurface.sendInSplit}
-            onSendAttachments={topicSurface.sendAttachmentsInSplit}
-            agentStatuses={groupAgentStatuses}
-            runningTokens={mobile ? groupRunTokens : undefined}
-            runningPreviewChatId={activeChatId}
-            onOpenMemberProfile={Object.keys(messageMemberProfiles).length > 0
-              ? (member, anchor, side) => openMessageMemberProfile(member, anchor, side, 'aside')
-              : undefined}
-            onOpenAttachment={(file, message) => { const split = topicSurface.splitTopic; openFilePreview(file, message, split ? () => topicSurface.openSplit(split) : undefined) }}
-            onClose={topicSurface.closeSplit}
-            embedded={Boolean(blockHost)}
-            currentUserId={user?.id ?? null}
-            mobile={mobile}
-            onReaction={(id, emoji) => void topicSurface.splitLine.toggleReaction(id, emoji)
-              .catch((error) => toast(t('message.actions.react'), 'error', safeFailureLine(String((error as Error)?.message ?? error))))}
-            onForward={handleForward} visible={surfaceVisible}
-            onDelete={(id) => void topicSurface.splitLine.deleteMessage(id)
-              .catch((error) => toast(t('message.actions.delete'), 'error', safeFailureLine(String((error as Error)?.message ?? error))))}
-          />
-        ))}
 
       </div>
       {shownMessageProfile ? (
