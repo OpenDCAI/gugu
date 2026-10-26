@@ -192,6 +192,7 @@ import {
 } from '@gugu/core/local/agent/deliveryEnvelope'
 import { handleUnifiedSessionMessage, type UnifiedRecipientResult } from './unified-session-message'
 import { installAssistantWorkLedgerHost, enqueueAssistantWorkMessage } from './sessionpage/assistant-work-ledger'
+import { createDesktopAssistantWorkReconciler } from './assistant-work-reconciliation'
 import { enqueueAssistantWorkReport } from '@gugu/core/cloud/assistantWorkReports'
 import { pickAssistant, type AssistantProvisionRow } from '@gugu/core/shared/assistantProvision'
 import { landTaskCardFirstTurn } from './sessionpage/task-card-first-turn'
@@ -371,7 +372,7 @@ import { applySessionMaterialization } from './session-materialization'
 import { assistantHomeTaskContext, preparePersonalAssistantContext } from './sessionpage/assistant-context'
 import { startupDiscovery } from './sessionpage/startup-discovery'
 import { createAssistantPanelRuntime } from './sessionpage/assistant-panel-runtime'
-import { assistantWorkBinding } from './sessionpage/assistant-work'
+import { assistantWorkBinding, assistantWorkForAgent } from './sessionpage/assistant-work'
 import { createStableMcpPersistence, persistedMcpGrantCount, sessionpageSessionOfGrantKey } from './stable-mcp-persistence'
 import type { GuguMcpHostPersistence } from './gugu-mcp-host'
 import {
@@ -1647,8 +1648,63 @@ function assistantWorkDeliveryHost(): AssistantWorkOutboxHost {
     if (!lease || !auth?.accessToken || lease.ownerId !== auth.userId) return null
     return { ...lease, client: makeIdentityClient(auth.accessToken) as unknown as AssistantWorkRpcClient }
   }
+  let assistantCache: {ownerId:string;until:number;value:ReturnType<typeof pickAssistant>} | null = null
+  const reconciler = createDesktopAssistantWorkReconciler({
+    context,
+    assistant: async current => {
+      if (assistantCache?.ownerId === current.ownerId && assistantCache.until > Date.now()) return assistantCache.value
+      const auth = await desktopAuthProvider().getAuth()
+      if (!auth?.accessToken || auth.userId !== current.ownerId) return null
+      const {data,error} = await makeIdentityClient(auth.accessToken).from('agent_provisions').select('agent_user_id,device_id,member_key,phase,created_at')
+        .eq('owner_user_id',current.ownerId).eq('member_key','assistant')
+      if (error) throw error
+      const value = pickAssistant((data ?? []) as AssistantProvisionRow[])
+      assistantCache = {ownerId:current.ownerId,until:Date.now()+60000,value}
+      return value
+    },
+    inspect: async (current, work, target) => {
+      const bridge = loadEmdashBridge()
+      if (!bridge) return null
+      const caller: RemoteSessionCaller = {deviceId:current.deviceId,deviceLabel:null,sessionId:work.coordinator_session_id,
+        agentUserId:current.assistantId,name:'个人助理',harness:null,transport:'acp',model:null,platformModel:null}
+      const signal = AbortSignal.timeout(5000)
+      if (target.device_id === current.deviceId) return bridge.runRemoteSessionAction(caller,{action:'get',session_id:target.session_id},signal) as Promise<import('@gugu/core/cloud/assistantWorkReconciliation').ExecutorDeliveryProof>
+      const devices = await crossMachine().listDeviceRows()
+      if (!devices.find(row => row.device_id === target.device_id)?.online) return null
+      return crossMachine().runOnDevice(target.device_id,caller,{action:'get',session_id:target.session_id},signal) as Promise<import('@gugu/core/cloud/assistantWorkReconciliation').ExecutorDeliveryProof>
+    },
+    notify: async (current,key,text) => {
+      const auth = await desktopAuthProvider().getAuth()
+      if (!auth?.accessToken || auth.userId !== current.ownerId) throw new Error('Account changed')
+      const chatId = await openOwnerDirectChatForAgent(current.assistantId,auth.accessToken,process.env)
+      const {error} = await makeChatClient(auth.accessToken).rpc('send_message_idempotent',{
+        p_message_id:key,p_chat_id:chatId,p_sender_user_id:current.assistantId,p_to_user_ids:[current.ownerId],p_content:text,p_content_type:'text',
+        p_reply_to_message_id:null,p_thread_root_id:null,p_is_thread_root:false,p_is_whisper:false,
+      })
+      if (error) throw error
+      return {chatId,messageId:key}
+    },
+    clean: work => assistantWorkForAgent(work.assistant_user_id)?.remove(work.work_id),
+    warn: detail => createLogger('assistant-work/reconcile').warn(detail,'Task handoff reconciliation will retry'),
+  })
   const host = createAssistantWorkOutboxHost({
     context,
+    afterDrain: async () => {
+      await reconciler.kick()
+      // Any awake account runtime can resume the home needed to post an abandoned delivery notice.
+      const current = await context()
+      if (!current) return
+      const {data,error} = await current.client.rpc('assistant_work_abandoned',{p_runtime_instance_id:current.runtimeInstanceId,p_limit:100})
+      if (error) throw error
+      const homes = new Set(((data as {events?:Array<{kind:string;from_device_id:string;to_device_id:string}>})?.events ?? [])
+        .map(event => event.kind === 'dispatch' ? event.from_device_id : event.to_device_id))
+      for (const home of homes) {
+        if (home === current.deviceId) continue
+        await crossMachine().ensureReachable(home)
+        const response = await crossMachineRequester!.call(home,'assistantWork.reconcile',{}, {timeoutMs:5000})
+        if (response.error) throw new Error('Work home could not reconcile delivery')
+      }
+    },
     prepareRemote: (deviceId) => crossMachine().ensureReachable(deviceId),
     requestRemote: (deviceId, type, payload, signal) => crossMachineRequester!.call(deviceId, type, payload, { timeoutMs: 45_000, signal }),
     deliverLocal: async (event) => {
@@ -1668,7 +1724,8 @@ function assistantWorkDeliveryHost(): AssistantWorkOutboxHost {
         ...(status ? { work_result: { work_id: event.work_id, status } } : {}),
       } as SessionAction) as { recipients: UnifiedRecipientResult[] }
       const receipt = result.recipients.find(row => row.message_id === event.message_id)
-      return { admitted: receipt?.status === 'delivered', messageId: event.message_id }
+      const agentId = receipt?.status === 'delivered' ? await guguAgentUserIdForSession(event.to_session_id, process.env) : null
+      return { admitted: receipt?.status === 'delivered', messageId: event.message_id, ...(agentId ? {receipt: {agent_user_id: agentId}} : {}) }
     },
     subscribe: async (ownerId, changed) => {
       const createChannel = () => supabase.channel(`gugu:user:${ownerId}:events`, { config: { private: true } })
@@ -1684,7 +1741,7 @@ function assistantWorkDeliveryHost(): AssistantWorkOutboxHost {
     warn: detail => createLogger('assistant-work/outbox').warn(detail, 'Task delivery will reconcile from the cloud queue'),
   })
   const offLedger = installAssistantWorkLedgerHost({ context, kick: () => host.kick() })
-  app.once('will-quit', () => { offLedger(); host.stop() })
+  app.once('will-quit', () => { offLedger(); reconciler.stop(); host.stop() })
   return (assistantWorkOutbox = host)
 }
 
