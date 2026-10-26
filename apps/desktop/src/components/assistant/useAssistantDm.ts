@@ -8,7 +8,7 @@ import { useChatStore } from '../../store/chatContext'
 
 const dmLog = rendererLogger('assistant/chat')
 
-export type AssistantDm = { chatId: string | null; failed: boolean; error?: string; retry: () => void }
+export type AssistantDm = { chatId: string | null; failed: { error: string } | null; retry: () => void }
 
 /**
  * #7199 和个人助理的那条私聊;还没有就建一条(与通讯录「发消息」同一个 getOrCreateDM)。
@@ -42,5 +42,5 @@ export function useAssistantDm(assistantId: string | null): AssistantDm {
     return () => { cancelled = true }
   }, [existing, userId, assistantId, attempt, upsertChat, refreshChats])
   const chatId = existing ?? (assistantId && created?.agentId === assistantId ? created.chatId : null)
-  return { chatId, failed: chatId === null && failedAttempt?.attempt === attempt, error: chatId === null && failedAttempt?.attempt === attempt ? failedAttempt.error : undefined, retry: () => setAttempt((n) => n + 1) }
+  return { chatId, failed: chatId === null && failedAttempt?.attempt === attempt ? failedAttempt : null, retry: () => setAttempt((n) => n + 1) }
 }

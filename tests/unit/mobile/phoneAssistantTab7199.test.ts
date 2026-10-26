@@ -22,7 +22,7 @@ describe('mobileTabs', () => {
 })
 
 const NONE = { loading: false, agentId: null, error: null }
-const base = { found: false, chatId: null, chatFailed: false, retryChat: () => {}, snapshot: null, cloudKnown: false, cloudLoadFailed: false, identity: NONE }
+const base = { found: false, chatId: null, chatFailed: null, retryChat: () => {}, snapshot: null, cloudKnown: false, cloudLoadFailed: false, identity: NONE }
 const snapshot = (state: CloudComputerSnapshot['state'], deviceId: string | null = 'cloud-1') => ({ state, deviceId }) as CloudComputerSnapshot
 
 // 那一格还打不开聊天时说是哪一步:读不到 ≠ 没开通 ≠ 没有它(规定「入口」「它是谁」两节)。
@@ -34,7 +34,7 @@ describe('phoneAssistantStage', () => {
   it('says the chat is opening, or could not be opened (with a retry)', () => {
     expect(phoneAssistantStage({ ...base, found: true }).stage).toBe('chat-opening')
     const retry = () => {}
-    expect(phoneAssistantStage({ ...base, found: true, chatFailed: true, retryChat: retry })).toEqual({ stage: 'chat-failed', retry })
+    expect(phoneAssistantStage({ ...base, found: true, chatFailed: { error: 'network denied' }, retryChat: retry })).toEqual({ stage: 'chat-failed', error: 'network denied', retry })
   })
 
   it('does not turn an unread or unreadable state into onboarding', () => {

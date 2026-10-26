@@ -277,7 +277,6 @@ export function AssistantShellHost({ visible, ...chatHandlers }: { /** 会话页
         assistantState={assistantState}
         chatId={dm.chatId}
         chatFailed={dm.failed}
-        chatError={dm.error}
         retryChat={dm.retry}
       />
     </>

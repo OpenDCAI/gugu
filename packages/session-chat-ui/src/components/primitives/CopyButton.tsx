@@ -12,7 +12,8 @@
 import { Show } from 'solid-js';
 import { IconCheck, IconCopy } from './icons';
 import { createClipboard } from './use-clipboard';
-import { copyButtonInline, copyButtonOverlay, copyFailureText } from './copy-button.css';
+import { useCommands } from '../contexts/CommandsContext';
+import { copyButtonInline, copyButtonOverlay } from './copy-button.css';
 import { useChatTranslator, type ChatTranslationKey } from '@session-chat/localization';
 
 export type CopyButtonProps = {
@@ -30,8 +31,9 @@ export type CopyButtonProps = {
 };
 
 export function CopyButton(props: CopyButtonProps) {
+  const commands = useCommands();
+  const { copied, copy } = createClipboard((error) => commands().onCopyError?.(error));
   const translate = useChatTranslator();
-  const { copied, failed, copy } = createClipboard(translate);
   /**
    * 可访问名与可见标签的**单一来源**。
    *
@@ -41,7 +43,7 @@ export function CopyButton(props: CopyButtonProps) {
    * 现在两处都从这里取值，那个分叉在结构上不可能再出现。
    */
   const label = () => translate(props.labelKey ?? 'transcript.copy');
-  const ariaLabel = () => failed() ?? (copied() ? `${label()} - ${translate('transcript.copied')}` : label());
+  const ariaLabel = () => (copied() ? `${label()} - ${translate('transcript.copied')}` : label());
 
   if (props.variant === 'overlay') {
     return (
@@ -49,11 +51,8 @@ export function CopyButton(props: CopyButtonProps) {
         type="button"
         class={copyButtonOverlay}
         aria-label={ariaLabel()}
-        title={ariaLabel()}
-        data-copy-failed={failed() ? '' : undefined}
         onClick={() => copy(props.text)}
       >
-        <Show when={failed()}><span class={copyFailureText} role="alert">{failed()}</span></Show>
         <Show when={copied()} fallback={<IconCopy />}>
           <IconCheck />
         </Show>
@@ -66,14 +65,12 @@ export function CopyButton(props: CopyButtonProps) {
       type="button"
       class={copyButtonInline}
       aria-label={ariaLabel()}
-        title={ariaLabel()}
-        data-copy-failed={failed() ? '' : undefined}
       onClick={() => copy(props.text)}
     >
       <Show when={copied()} fallback={<IconCopy />}>
         <IconCheck />
       </Show>
-      <span class={copyFailureText} role={failed() ? 'alert' : undefined}>{failed() ?? (copied() ? translate('transcript.copied') : label())}</span>
+      <span>{copied() ? translate('transcript.copied') : label()}</span>
     </button>
   );
 }

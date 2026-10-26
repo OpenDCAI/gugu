@@ -1,5 +1,4 @@
 /** @jsxImportSource solid-js */
-import { copyFailureText } from '@session-chat/components/primitives/copy-button.css';
 import { Show } from 'solid-js';
 import { useCommands } from '@session-chat/components/contexts/CommandsContext';
 import { IconCheck, IconCopy, IconEdit } from '@session-chat/components/primitives/icons';
@@ -35,13 +34,12 @@ export function UserMessageActions(props: {
       {/* Virtual rows are reused: copy feedback belongs to this message ID. */}
       <Show when={props.itemId} keyed>
         {(itemId) => {
-          const { copied, failed, copy } = createClipboard(translate);
-          const copyLabel = () => failed() ?? (copied() ? translate('transcript.copied') : translate('transcript.copyMessage'));
+          const { copied, copy } = createClipboard((error) => commands().onCopyError?.(error));
+          const copyLabel = () => copied() ? translate('transcript.copied') : translate('transcript.copyMessage');
           return <>
             <button type="button" class={userMessageActionButton}
               aria-label={copyLabel()} title={copyLabel()}
               onClick={(event) => { event.stopPropagation(); copy(props.text); }}>
-              <Show when={failed()}><span class={copyFailureText} role="alert">{failed()}</span></Show>
               <Show when={copied()} fallback={<IconCopy />}><IconCheck /></Show>
             </button>
             <Show when={!props.readOnly && !props.generating && commands().onEditMessage && commands().canRevertMessage?.(itemId)}>

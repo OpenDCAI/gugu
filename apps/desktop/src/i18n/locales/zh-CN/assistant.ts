@@ -934,7 +934,6 @@ export default {
     "unreadableTitle": "暂时认不出你的咕咕",
     "unreadable": "到咕咕里看一眼，稍后再按一次快捷键。",
     "chatFailedTitle": "和{{name}}的聊天没打开",
-    "chatFailed": "可能是网络断了一下。",
     "opening": "正在打开和{{name}}的聊天…",
     "emptyTitle": "和{{name}}说点什么吧",
     "empty": "说完按 Enter 发出；Shift + Enter 换行。",

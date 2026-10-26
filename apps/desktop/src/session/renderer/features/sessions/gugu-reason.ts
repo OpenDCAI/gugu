@@ -1,12 +1,5 @@
-import { safeFailureLine as formatFailureLine } from '@gugu/session-core/lib';
 import { translateSessionMessage } from '@renderer/localization/locale-store';
-// 原因 → 一句话 + 一个按钮(#7103「谁拒绝谁说话」,product spec「被拒时谁说话」)。
-// 新建框、起任务那一页、私聊横幅、通用模式那一行、弹窗、别的电脑上的失败都读这一张,❌ 在别处再按原因写一句、再配一套按钮。
-// 原因码与去敏规则共用;传输层断连在共享出口换成界面的说明。
-//
-// 分界按失败从哪一层来(主进程在那一层按错误类型定好):咕咕这一侧(model-access、平台凭证、咕咕本机自己判的)
-// 一律带原因码到这里,不带原因的在那一层就成了 `service-unavailable`(「咕咕这边出错了」);咕咕以外(harness 起不来、
-// provider 报错、自带模型)不带码,照 #4657 递拒绝方的原话 —— 去掉路径与令牌,只截一行。
+// All user-facing failures share the reason catalog and redacted first-line exit below.
 import { guguReasonInText, guguReasonOf, type GuguCatalogReason } from '@gugu/session-core/session-record/contract';
 import type { SessionMessageKey } from '@renderer/localization/messages';
 
@@ -97,9 +90,19 @@ export function reasonActions(kind: GuguCatalogReason, handlers: GuguReasonHandl
   }
 }
 
-/** Shared redaction and transport wording; keep the renderer entry for existing callers. */
+const MAX_FAILURE_LINE_LENGTH = 280;
+
+/** 拒绝方原话的第一行:保留它说的事,去掉路径、profile、令牌与栈。 */
 export function safeFailureLine(message: string): string {
-  return formatFailureLine(message, () => translateSessionMessage('taskError.connectionLost'));
+  const firstLine = message
+    .split(/\r?\n/, 1)[0]!
+    .replace(/^Error invoking remote method '[^']+':\s*(?:Error:\s*)?/, '')
+    .replace(/^Error:\s*/, '')
+    .replace(/(?:\/Users\/|\/home\/|[A-Za-z]:\\)[^\s,)]+/g, '[path]')
+    .replace(/(?:eyJ[A-Za-z0-9._-]+|(?<![A-Za-z0-9])(?:sk-|ghp_|github_pat_|xox[baprs]-)[A-Za-z0-9_-]+)/g, '[redacted token]')
+    .trim();
+  if (firstLine === 'Wire transport disconnected') return translateSessionMessage('taskError.connectionLost');
+  return firstLine.slice(0, MAX_FAILURE_LINE_LENGTH);
 }
 
 /** 这次失败带没带咕咕这一侧的原因码;null = 咕咕以外的失败,说拒绝方的原话。 */
@@ -116,12 +119,4 @@ export function failureText(message: string, translate: Translate, modelName?: s
   const reason = failureReason(message);
   if (reason) return guguReasonText(reason, translate, modelName);
   return safeFailureLine(message) || guguReasonText('service-unavailable', translate);
-}
-
-/**
- * 按构造就是咕咕自己这一侧的失败(恢复协调器、本机运行时、宿主 IPC、这个 store 自己):带码就按码,
- * 不带码时保留去敏后的实际原因。
- */
-export function guguFailureText(message: string, translate: Translate): string {
-  return failureText(message, translate);
 }

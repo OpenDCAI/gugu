@@ -46,8 +46,6 @@ const fallbackMessages = {
   'transcript.viewImage': 'View image: {name}',
   'transcript.viewAttachment': 'Open attachment: {name}',
   'transcript.copy': 'Copy',
-  'transcript.copyFailed': 'Could not copy',
-  'taskError.connectionLost': 'The connection to the machine was lost. Try again when it reconnects.',
   'transcript.copyCode': 'Copy code',
   'transcript.copyMessage': 'Copy message',
   'transcript.copied': 'Copied',

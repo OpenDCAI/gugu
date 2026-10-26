@@ -15,7 +15,7 @@ describe('Quick chat viewport lifetime', () => {
     const row = (seq: number) => message({ id: `quick-${seq}`, chat_id: 'quick', seq, content: `arriving ${seq}` })
     windows.write('quick', () => [row(1)])
     const render = (visible: boolean) => renderWithAppProviders(harness!, createNode(QuickChat, {
-      assistant: null, assistantState: 'found', chatId: 'quick', chatFailed: false, retryChat: () => {},
+      assistant: null, assistantState: 'found', chatId: 'quick', chatFailed: null, retryChat: () => {},
       visible, shortcut: 'test', onClose: () => {}, onOpenMain: () => {},
     }), { chat: { conversations: windows.conversations } })
     await render(true)

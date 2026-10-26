@@ -36,15 +36,10 @@ const buttonBase = style({
   opacity: 0,
   transition: 'opacity 150ms ease',
   userSelect: 'none',
-  maxWidth: '100%',
-  whiteSpace: 'nowrap',
-  overflow: 'hidden',
-  textOverflow: 'ellipsis',
   color: vars.fgPassive,
   selectors: {
     '&:hover': { color: vars.fg },
     '&:focus-visible': { opacity: 1 },
-    '&[data-copy-failed]': { opacity: 1 },
   },
 });
 
@@ -77,5 +72,3 @@ export const copyButtonInline = style([
     },
   },
 ]);
-
-export const copyFailureText = style({ minWidth: 0, overflow: 'hidden', whiteSpace: 'nowrap', textOverflow: 'ellipsis' });

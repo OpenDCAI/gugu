@@ -63,7 +63,6 @@ export function usePhoneAssistant(enabled: boolean): PhoneAssistantState {
       found: !!contact,
       chatId,
       chatFailed: dm.failed,
-      chatError: dm.error,
       retryChat: dm.retry,
       snapshot,
       // 管家还没问到 = 还不知道(❌ 当成「这里没开放」);问过了:没开放、有快照、没问到(有原因)都是知道了。

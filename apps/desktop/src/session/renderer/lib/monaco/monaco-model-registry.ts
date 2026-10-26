@@ -846,19 +846,9 @@ export class MonacoModelRegistry {
       // Outside the workspace the write goes through writeExternalFile: `writeFile` is gated
       // to stay inside the workspace, which is the right leash for an agent's plan and the
       // wrong one for a person saving a file on their own machine (#5585).
-      const result = buf.external
-        ? await workspaceRpc(buf.projectId).files.writeExternalFile(
-            buf.projectId,
-            buf.workspaceId,
-            buf.filePath,
-            content
-          )
-        : await workspaceRpc(buf.projectId).files.writeFile(
-            buf.projectId,
-            buf.workspaceId,
-            buf.filePath,
-            content
-          );
+      const files = workspaceRpc(buf.projectId).files;
+      const write = buf.external ? files.writeExternalFile : files.writeFile;
+      const result = await write(buf.projectId, buf.workspaceId, buf.filePath, content);
       if (!result.success) {
         // 盘上那份在你上次读到之后被别人改过(别的机器的写入带着版本标记,对不上就拒):重读一次,那边的改动
         // 并进你的缓冲区(与本机外部改动同一条路,两边都留),再把并好的写下去 —— 这就是你按的那一下 ⌘S。
