@@ -1,4 +1,10 @@
 export default {
+  "needsYou": {
+    "title": "需要你处理",
+    "count": "需要你处理 · {{count}}",
+    "loading": "正在读取请求…",
+    "openTask": "打开任务"
+  },
   "actions": {
     "copiedAgentId": "已复制 Agent ID",
     "copiedGuguNumber": "已复制咕咕号",

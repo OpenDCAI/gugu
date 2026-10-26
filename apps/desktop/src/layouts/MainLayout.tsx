@@ -54,6 +54,7 @@ import { SharePosterDialog } from '../components/SharePosterDialog'
 import { ExtensionConsentSheet } from '../components/extensionBundle/ExtensionConsentSheet'
 import { ExtensionForwardHost } from '../components/extensionBundle/ExtensionForwardHost'
 import { useSessionpageReveal } from '../hooks/useSessionpageReveal'
+import { NeedsYouHost } from '../components/needsYou/NeedsYouHost'
 import { AgentSharePopover } from '../components/sessionpage/AgentSharePopover'
 import { SESSIONPAGE_SHARE_ANCHOR_SELECTOR } from '../lib/sessionpageShareAnchor'
 import { readSessionpageViewRequestBridge } from '../lib/sessionpageViewRequestBridge'
@@ -1559,6 +1560,7 @@ function InnerLayout({
       <ExtensionForwardHost />
       {/* 摩擦单 F6: an install is consented to here, over whatever view is on screen. */}
       <ExtensionConsentSheet />
+      <NeedsYouHost />
 
       {/* @@@822 frameless 自绘窗口控制(Windows/Linux 右上角 min/max/close);Mac/web 自渲染为 null。
           ⚠️ **必须挂在整棵壳的最后** —— Electron 把 Blink 收集到的 drag / no-drag 矩形按 **DOM 序**

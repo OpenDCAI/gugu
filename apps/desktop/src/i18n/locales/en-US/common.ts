@@ -1,4 +1,10 @@
 export default {
+  "needsYou": {
+    "title": "Needs you",
+    "count": "Needs you · {{count}}",
+    "loading": "Reading the request…",
+    "openTask": "Open task"
+  },
   "actions": {
     "copiedAgentId": "Agent ID copied",
     "copiedGuguNumber": "Gugu ID copied",
