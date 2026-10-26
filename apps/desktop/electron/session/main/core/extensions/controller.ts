@@ -243,6 +243,7 @@ export const extensionsController = createRPCController({
    * can never hand one extension another's grants.
    */
   bindSurface: async (args: {
+    opening?: import('@shared/extensions/app-runtime-protocol').PreparedChatFile;
     webContentsId: number;
     extensionId: string;
     /** Absent for a surface in no task (a group's side panel, L3). */
@@ -400,6 +401,7 @@ export const extensionsController = createRPCController({
    * 与 bindSurface 分开:bind 只在这张页第一次出现时做一次;之后每切一次会话走这条。
    */
   retargetSurface: async (args: {
+    opening?: import('@shared/extensions/app-runtime-protocol').PreparedChatFile;
     webContentsId: number;
     sessionId?: string;
     tabId: string;

@@ -48,7 +48,7 @@ import type {
   ExtensionHostActionOrigin,
 } from '@shared/extensions/host-actions';
 import { fileSync } from '@main/core/extensions/file-sync';
-import { fileRefOf, isLocal, placeKey, placeOf, type AppFileEntry, type AppFileRef, type AppPlace, type LocalPlace } from '@shared/extensions/app-runtime-protocol';
+import { fileRefOf, isLocal, placeKey, placeOf, type AppFileEntry, type AppFileRef, type AppPlace, type LocalPlace, type PreparedChatFile } from '@shared/extensions/app-runtime-protocol';
 import { placeFor, placeLink, type FileOpenerCandidate } from '@shared/extensions/file-openers';
 import type { FilePlace } from '@gugu/core/shared/ui/guguLink';
 import { rosterMoved, type MemberChange } from '@shared/extensions/app-files-core';
@@ -74,6 +74,7 @@ import { changedGroupFiles, resourceChatOf, type DesktopFilePage } from '@main/c
 
 /** What the host knows about one live extension surface. */
 interface SurfaceBinding {
+  opening?: PreparedChatFile;
   extensionId: string;
   /**
    * The session this surface is drawn in (a session's tab) — `null` for one in none (a chat's panel, the dock). A fact
@@ -170,6 +171,11 @@ function hearOn(webContentsId: number): (event: ExtensionHostEvent) => void {
 
 function pageCaller(binding: SurfaceBinding, webContentsId: number): BridgeCaller {
   const filePage = () => ({
+    takeOpening: () => {
+      const opening = binding.opening;
+      delete binding.opening;
+      return opening;
+    },
     pageId: webContentsId,
     extensionId: binding.extensionId,
     handed: handedFileOf(binding),
@@ -504,6 +510,7 @@ function waitForBinding(webContentsId: number): Promise<void> {
 }
 
 export async function bindExtensionSurface(input: {
+  opening?: PreparedChatFile;
   webContentsId: number;
   extensionId: string;
   /** Absent for a surface that is not in a session (a chat's side panel, the dock). */
@@ -550,6 +557,7 @@ export async function bindExtensionSurface(input: {
     fileSync.revoke(input.webContentsId, 'unbound');
   }
   bindings.set(input.webContentsId, {
+    ...(input.opening ? { opening: input.opening } : {}),
     extensionId: sessionExtensionId,
     sessionId: input.sessionId ?? null,
     tabId: input.tabId,
@@ -733,6 +741,7 @@ export function currentOrLastSession(): { sessionId: string; projectId: string }
  * 尺寸留着:新的一格换完会再报一次,一样大就什么都不推,不一样大才再推一次(摩擦单 F115:原来清零,每换一次都推两遍)。
  */
 export async function retargetExtensionSurface(input: {
+  opening?: PreparedChatFile;
   webContentsId: number;
   sessionId?: string;
   tabId: string;
@@ -758,6 +767,7 @@ export async function retargetExtensionSurface(input: {
   binding.projectId = null;
   binding.chatId = await surfaceResourceChat(input.chatId, binding.operator);
   binding.itemId = input.itemId ?? null;
+  binding.opening = input.opening;
   pushContext(input.webContentsId);
   // Moved to a file a pill or a link is waiting to open: its place is this page's now.
   if (fileOf(binding) !== null && fileOf(binding) !== was) flushQueuedSurfaceEvents(input.webContentsId, binding, true);
@@ -1070,7 +1080,7 @@ async function sessionMachineOf(sessionId: string): Promise<SessionMachine | nul
 
 /** The file this page was opened for (`ctx.file`), named where it lives. */
 function handedFileOf(binding: SurfaceBinding): (AppFileRef & { id: string }) | null {
-  if (binding.chatId && binding.itemId) return { chat: binding.chatId, id: binding.itemId };
+  if (binding.chatId && binding.itemId) return { chat: binding.chatId, id: binding.itemId, ...(binding.opening ? { version: binding.opening.entry.version } : {}) };
   if (binding.sessionId && binding.filePath) return { session: binding.sessionId, id: binding.filePath };
   if (binding.projectId && binding.filePath) return { project: binding.projectId, id: binding.filePath };
   return null;

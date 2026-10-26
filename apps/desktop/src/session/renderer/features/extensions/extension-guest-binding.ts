@@ -1,4 +1,7 @@
+import type { PreparedChatFile } from '@shared/extensions/app-runtime-protocol';
+
 export interface ExtensionGuestTarget {
+  opening?: PreparedChatFile;
   tabId: string;
   sessionId?: string;
   chatId?: string;
@@ -41,7 +44,7 @@ export class ExtensionGuestBinding {
       }
       const reply = await (previous ? this.dispatch.retarget : this.dispatch.bind)(guest.webContentsId, target);
       if (this.guest !== guest) return null;
-      if (reply.success) guest.target = { ...target };
+      if (reply.success) guest.target = { tabId: target.tabId, sessionId: target.sessionId, chatId: target.chatId, itemId: target.itemId };
       return { ...reply, webContentsId: guest.webContentsId };
     });
     guest.tail = work.catch(() => undefined);

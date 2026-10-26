@@ -79,7 +79,8 @@ export function createGugu(
       const counts = countsOf(host);
       counts?.opened();
       return withRef(file, (ref) => {
-        const requested = host.appFiles.open({ ref, ...(options?.readOnly === true ? { readOnly: true } : {}) });
+        const entry = (file as { entry?: { version?: unknown }; version?: unknown } | null)?.entry ?? file as { version?: unknown } | null;
+        const requested = host.appFiles.open({ ref, ...(!host.program ? { deferDetails: true } : {}), ...(typeof entry?.version === 'number' ? { expectedVersion: entry.version } : {}), ...(options?.readOnly === true ? { readOnly: true } : {}) });
         const opening = loadFiles().then((m) => m.openFile(host, requested));
         // Observe a fast refusal even while the runtime is still loading.
         return Promise.all([opening, requested]).then(([opened]) => opened);

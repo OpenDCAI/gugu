@@ -55,7 +55,10 @@ export function useChatOpener(chatId: string | null): { overlay: ReactNode; open
   }, [chatId])
 
   const show = useCallback((target: string, item: PanelItem, from: OpenFrom) => {
-    openPanelItem(target, { ...item, ...(from.message ? { message: from.message } : {}) }, { ...(from.returnTo ? { returnTo: from.returnTo } : {}), ...(from.restore ? { restore: from.restore } : {}) })
+    const shown = { ...item, ...(from.message ? { message: from.message } : {}) }
+    // A pending message is not tab state: neither JSON nor structured-clone snapshots carry it.
+    if (item.takeOpening) Object.defineProperty(shown, 'takeOpening', { value: item.takeOpening, enumerable: false })
+    openPanelItem(target, shown, { ...(from.returnTo ? { returnTo: from.returnTo } : {}), ...(from.restore ? { restore: from.restore } : {}) })
     if (item.itemId) noteOpened(item.itemId)
   }, [])
 
@@ -70,7 +73,10 @@ export function useChatOpener(chatId: string | null): { overlay: ReactNode; open
       }
       if (detail.choice.kind === 'one') {
         const { candidate } = detail.choice
-        show(detail.chatId, { kind: candidate.tabKind, itemId: detail.itemId, title: displayNameOf(detail.name, candidate.suffix), fileName: detail.name, typedName: detail.typedName }, from)
+        let opening = detail.opening
+        delete detail.opening
+        const takeOpening = () => { const taken = opening; opening = undefined; return taken }
+        show(detail.chatId, { kind: candidate.tabKind, itemId: detail.itemId, title: displayNameOf(detail.name, candidate.suffix), fileName: detail.name, typedName: detail.typedName, takeOpening }, from)
         return
       }
       setPrompt({ ...detail, ...from })

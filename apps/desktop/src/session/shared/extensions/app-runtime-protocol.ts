@@ -130,7 +130,10 @@ export type SyncToPage =
    * A session working copy's file taken back as `deleted` is on the disk again (`git checkout`, an undo): the page opens
    * it again (`files.reopen`, the next generation) and is online (摩擦单 F92). Never sent for a group's file.
    */
-  | { t: 'back'; docName: string };
+  | { t: 'back'; docName: string }
+  /** Decorations of the authorized entry, read after the page has painted its document. */
+  | { t: 'entry'; docName: string; entry: AppFileEntry }
+  | { t: 'entry-error'; docName: string; message: string };
 
 export type SyncToMain =
   /**
@@ -143,7 +146,8 @@ export type SyncToMain =
    * the whole state as one Yjs update, opaque to main. `null` clears it. If the page goes
    * away still holding one, main delivers it when it can (`L3-runtime-interface.md` §3.4-5).
    */
-  | { t: 'will'; docName: string; update: ArrayBuffer | null };
+  | { t: 'will'; docName: string; update: ArrayBuffer | null }
+  | { t: 'entry'; docName: string };
 
 // ─── files.* over the bridge ─────────────────────────────────────────────────
 
@@ -302,6 +306,8 @@ export function fileSearchOf(value: unknown): AppFileSearch {
 
 /** A file as the page sees it (`GuguFileEntry`) — itself a ref: `{ chat, id }` or `{ session, id }`. */
 export interface AppFileEntry {
+  /** Author names and delete-menu eligibility are still being read; the file itself is already authorized. */
+  detailsPending?: boolean;
   /** A chat file: its item id. A working-copy file: its path there (POSIX). */
   id: string;
   /** Where it lives: exactly one of these (`AppPlace`). */
@@ -434,6 +440,8 @@ export type HostToFrame =
  */
 export const APP_OPEN_WITH_EVENT = 'gugu:app-open-with';
 export interface AppOpenWithDetail {
+  /** Host-only, one-shot authorization carried to the file's binding. Contains no document content. */
+  opening?: PreparedChatFile;
   chatId: string;
   itemId: string;
   name: string;
@@ -537,6 +545,14 @@ export interface AppFileOpened {
    * for it (`docName` is empty); the page hands them over as `f.blob()`.
    */
   bytes?: ArrayBuffer;
+}
+
+/** The click's authorized document metadata, consumed by exactly one bound file open. */
+export interface PreparedChatFile {
+  entry: AppFileEntry;
+  epoch: number;
+  actor: string;
+  expiresAt: number;
 }
 
 /** The suffix a content type stands for (摩擦单 F41), `''` for a type that names none (bytes: `application/octet-stream`). */

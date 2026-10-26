@@ -33,6 +33,7 @@ import {
   type LocalPlace,
   type ChatPeekFile,
   type PeekTarget,
+  type PreparedChatFile,
 } from '@shared/extensions/app-runtime-protocol';
 import { extensionsService } from '@main/core/extensions/extensions-root';
 import { currentAccountAccessToken, resolveAccountFile, publishAccountFile } from '@main/core/extensions/account-token';
@@ -100,6 +101,7 @@ export { AppFileError, type FileSurface };
  * call for it, or a page it works (owner 10-14).
  */
 export interface DesktopFilePage {
+  takeOpening?: () => PreparedChatFile | undefined;
   pageId: number;
   extensionId: string;
   handed: (AppFileRef & { id: string }) | null;
@@ -259,14 +261,14 @@ const withId = (ref: AppFileRef, what: string): AppFileRef & { id: string } => {
   return ref;
 };
 
-export async function openAppFile(page: DesktopFilePage, args: { ref?: unknown; readOnly?: boolean }): Promise<AppFileOpened> {
+export async function openAppFile(page: DesktopFilePage, args: { ref?: unknown; readOnly?: boolean; deferDetails?: boolean; expectedVersion?: number }): Promise<AppFileOpened> {
   const ref = fileRefOf(args.ref);
   const readOnly = args.readOnly === true ? { readOnly: true } : {};
   const elsewhere = isChat(ref) ? null : await fileElsewhere(page, ref as LocalFileRef);
   // Another machine's file comes as its bytes, read only, whatever it is: no live document across machines.
   if (elsewhere) return { entry: elsewhere.entry, docName: '', access: 'ro', self: await files.self(), bytes: elsewhere.bytes.slice().buffer };
   return isChat(ref)
-    ? files.open(chatSurface(page), { ref, ...readOnly })
+    ? files.open(chatSurface(page), { ref, ...readOnly, deferDetails: args.deferDetails === true, ...(typeof args.expectedVersion === 'number' ? { expectedVersion: args.expectedVersion } : {}) }, page.takeOpening?.())
     : local.open(await localFolder(page, ref), { ref: ref as LocalFileRef, ...readOnly });
 }
 
@@ -440,7 +442,7 @@ export async function openWithTarget(
   page: DesktopFilePage,
   args: { ref?: unknown; ask?: boolean; peek?: boolean },
 ): Promise<
-  | { kind: 'chat'; target: { chatId: string; itemId: string; name: string; typedName: string; file: ChatPeekFile } }
+  | { kind: 'chat'; target: { chatId: string; itemId: string; name: string; typedName: string; file: ChatPeekFile; opening?: PreparedChatFile } }
   | { kind: 'session' }
   | { kind: 'peek'; target: Extract<PeekTarget, { kind: 'local' }> }
 > {

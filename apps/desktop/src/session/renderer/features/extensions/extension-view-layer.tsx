@@ -241,6 +241,7 @@ const ExtensionPage = observer(function ExtensionPage({
         tabId: claim?.tabId ?? `${kind}:prepared`,
         ...(claim?.chatId ? { chatId: claim.chatId } : {}),
         ...(claim?.itemId ? { itemId: claim.itemId } : {}),
+        ...(claim?.takeOpening ? { opening: claim.takeOpening() } : {}),
       };
       void guestBinding.aim(target)
         .then((result) => {

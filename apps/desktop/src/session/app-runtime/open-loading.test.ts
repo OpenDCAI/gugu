@@ -10,7 +10,7 @@ it('starts the authorized file request while its runtime loads, and hands that s
     files: { open(file: unknown, options?: { readOnly: boolean }): Promise<object> };
   };
   const result = gugu.files.open({ id: 'file' }, { readOnly: true });
-  expect(open).toHaveBeenCalledExactlyOnceWith({ ref: { id: 'file' }, readOnly: true });
+  expect(open).toHaveBeenCalledExactlyOnceWith({ ref: { id: 'file' }, readOnly: true, deferDetails: true });
   const handle = {};
   const openFile = vi.fn(async (_host: unknown, answer: Promise<unknown>) => {
     expect(await answer).toBe(requested);

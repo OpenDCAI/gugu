@@ -899,10 +899,10 @@ async function openHanded() {
     state.current = current
     bindFileMenu(current)
     showDoc(file.entry)
-    if (file.type === 'text') await mountText(current, preview)
-    else mountJson(current)
     watchStatus(current)
     watchPresence(current)
+    if (file.type === 'text') await mountText(current, preview)
+    else mountJson(current)
   } catch (error) {
     if (state.opening === token) showDocMessage(error.code === 'denied' ? state.t.denied : fmt(state.t.failed, { e: error.message }))
   } finally {
@@ -924,7 +924,8 @@ async function mountText(current, preview) {
     md.render($('preview'), file.text, { density: 'comfortable', frontmatter: true, sourceLines: true, file: current.entry })
     previewMarks()
   }
-  current.offs.push(file.onChange(debounce(render, 120)))
+  const changed = debounce(render, 120)
+  current.offs.push(file.onChange((event) => { if (!event.entry) changed() }))
   render()
   // Reading does not wait for the source editor's module and construction.
   await new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(resolve)))
@@ -1213,8 +1214,8 @@ function mountJson(current) {
       document.body.classList.remove('json-dirty')
       hideBanner()
     }
-    current.offs.push(file.onChange(({ local }) => {
-      if (local) return
+    current.offs.push(file.onChange(({ local, entry }) => {
+      if (local || entry) return
       if (dirty) showBanner(state.t.jsonRemote, 'info')
       else load()
     }))
@@ -1242,6 +1243,12 @@ function mountJson(current) {
 }
 function watchStatus(current) {
   const { file } = current
+  current.offs.push(file.onChange((event) => {
+    if (!event.entry || state.current !== current) return
+    current.entry = file.entry
+    state.shown = current.entry
+    renderDocInfo(current.entry)
+  }))
   const show = (status) => {
     if (state.current !== current) return
     const t = state.t
@@ -1320,7 +1327,7 @@ function showEntry(entry) {
   $('open-with').hidden = !entry
   $('more').hidden = !entry
   closeMenu()
-  renderDocInfo(entry)
+  renderDocInfo(entry?.detailsPending ? null : entry)
 }
 
 // Under the header: creation, editing, and the messages the file came from. The App cannot read those

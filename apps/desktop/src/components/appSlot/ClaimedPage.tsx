@@ -4,6 +4,7 @@ import { useTranslation } from 'react-i18next'
 import { installedExtensionsStore } from '../../session/renderer/features/extensions/installed-extensions-store'
 import { extensionViewStore } from '../../session/renderer/features/extensions/extension-view-store'
 import { PeekCovered } from './peekCovered'
+import type { PreparedChatFile } from '../../session/shared/extensions/app-runtime-protocol'
 
 /** What in an ancestor can hide the slot without moving or resizing it (`RETAINED_SURFACE_HIDDEN_STYLE`). */
 const HIDING_ATTRIBUTES = ['style', 'class', 'hidden', 'inert']
@@ -16,7 +17,7 @@ const HIDING_ATTRIBUTES = ['style', 'class', 'hidden', 'inert']
  * watches its own box and every ancestor's hiding attributes, and claims while it is visible,
  * releases while it is not — the same for the App's own page and a page opened for a file.
  */
-export const ClaimedPage = observer(function ClaimedPage({ slotId, chatId, kind, itemId, prepareFile = false }: { slotId: string; chatId: string; kind: string; itemId?: string; prepareFile?: boolean }) {
+export const ClaimedPage = observer(function ClaimedPage({ slotId, chatId, kind, itemId, prepareFile = false, takeOpening }: { slotId: string; chatId: string; kind: string; itemId?: string; prepareFile?: boolean; takeOpening?: () => PreparedChatFile | undefined }) {
   const { t } = useTranslation('messaging')
   const boxRef = useRef<HTMLDivElement | null>(null)
   // A covered slot keeps its claim for the way back.
@@ -39,7 +40,7 @@ export const ClaimedPage = observer(function ClaimedPage({ slotId, chatId, kind,
       const want = visible()
       if (want === (token !== null) || (!want && coveredRef.current)) return
       if (want) {
-        token = extensionViewStore.claim(kind, { tabId: slotId, chatId, element, ...(itemId ? { itemId } : {}) })
+        token = extensionViewStore.claim(kind, { tabId: slotId, chatId, element, ...(itemId ? { itemId } : {}), takeOpening })
         if (prepareFile) extensionViewStore.prepareFile(kind)
       }
       else if (token !== null) {
@@ -59,7 +60,7 @@ export const ClaimedPage = observer(function ClaimedPage({ slotId, chatId, kind,
       restyled.disconnect()
       if (token !== null) extensionViewStore.release(kind, token)
     }
-  }, [chatId, kind, itemId, slotId, prepareFile])
+  }, [chatId, kind, itemId, slotId, prepareFile, takeOpening])
   return (
     <div ref={boxRef} className="min-h-0 flex-1">
       {noPage ? (

@@ -1,4 +1,5 @@
 import { action, makeObservable, observable } from 'mobx';
+import type { PreparedChatFile } from '@shared/extensions/app-runtime-protocol';
 
 /**
  * 常驻扩展的页住在根层(extension-view-layer);会话里那一格、它的整页、群右栏那一格只是它此刻落在哪里。
@@ -21,6 +22,7 @@ import { action, makeObservable, observable } from 'mobx';
  * 文件页同样常驻,按地方与文件各一份:回来时保留编辑器和同步副本,从不把另一份文件交给旧页。
  */
 export interface ExtensionViewClaim {
+  takeOpening?: () => PreparedChatFile | undefined;
   /** 认领方的身份;释放时核对,免得后来者被先前者的卸载误伤。 */
   token: number;
   /** The session this slot is in — absent for a slot in no session (a chat's side panel, the dock). */

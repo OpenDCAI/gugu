@@ -1,6 +1,7 @@
 import { fileSearchOf, folderOf, placeOf, type AppFileEntry, type AppFileOpened, type AppPlace } from '@shared/extensions/app-runtime-protocol';
 import { guguError, refOf, type GuguHost } from './host';
 import { askingMain, fileKey, openFiles, OpenFile } from './open-file';
+import { syncLink } from './sync-link';
 
 export { bindText } from './text-binding';
 
@@ -39,12 +40,17 @@ async function openNow(host: GuguHost, requested: Promise<AppFileOpened>): Promi
   const answered = askingMain();
   let handle: object;
   let ready: Promise<void>;
+  let detailsOf: string | undefined;
   try {
     const opened = await requested;
+    if (opened.entry.detailsPending) detailsOf = opened.docName;
     if (opened.bytes) return storedFile(opened.entry, opened.bytes);
     const id = fileKey(opened.entry);
     const existing = openFiles.get(id);
-    if (existing && existing.status !== 'gone') return existing.handle();
+    if (existing && existing.status !== 'gone') {
+      if (detailsOf) entryAfterPaint(detailsOf);
+      return existing.handle();
+    }
     let pending = opening.get(id);
     if (!pending) {
       const openFile = new OpenFile(host, opened);
@@ -70,7 +76,13 @@ async function openNow(host: GuguHost, requested: Promise<AppFileOpened>): Promi
     answered();
   }
   await ready;
+  if (detailsOf) entryAfterPaint(detailsOf);
   return handle;
+}
+
+/** The App's await continuation paints its document before the second frame. No new IPC or file read. */
+function entryAfterPaint(docName: string): void {
+  requestAnimationFrame(() => requestAnimationFrame(() => syncLink().post({ t: 'entry', docName })));
 }
 
 /**
