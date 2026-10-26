@@ -44,9 +44,8 @@ export function withSubagentSources(
             sessionUpdate: 'subagent_state_update', subagentSessionId: id,
             state: entry.boundary.kind === 'turn_failed' ? 'failed' : entry.boundary.kind === 'turn_aborted' ? 'cancelled' : 'completed',
           }) }];
-          const inner = entry.update._meta?.['gugu.draftSessionUpdate'] as { sessionUpdate?: string; parentToolCallId?: string } | undefined;
-          if (inner?.sessionUpdate === 'subagent_spawned' && !inner.parentToolCallId) inner.parentToolCallId = id;
-          if (inner) return [entry];
+          const inner = entry.update._meta?.['gugu.draftSessionUpdate'] as { sessionUpdate?: string } | undefined;
+          if (inner && inner.sessionUpdate !== 'subagent_spawned') return [entry];
           if (entry.update.sessionUpdate === 'user_message_chunk') return [{ key: entry.key, at: entry.at, update: subagentUpdate({
             sessionUpdate: 'subagent_state_update', subagentSessionId: id, state: 'running', canCancel: false,
           }) }];
