@@ -18,7 +18,7 @@ import { PhoneRoutineDetail } from './PhoneRoutineDetail'
 import { usePhoneRoutines } from './usePhoneRoutines'
 
 /**
- * 「任务」那一格:[任务 | 定时] 两段。任务 = 账号账本里它派出去的工作,
+ * 「任务」同页展示派出去的工作与定时任务。任务 = 账号账本里它派出去的工作,
  * 按日期分组,点一条直接打开任务 Agent 的聊天,带上与个人助理的协作消息;
  * 定时 = 它家里「已安排」里它给自己排的,点一条往下钻到 `routine:<id>`(能停能删,改时间交给它)。新建交给它:往聊天里填一句。
  */
