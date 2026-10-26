@@ -34,3 +34,17 @@ test('an abandoned delivery resumes the coordinator so its separate failure noti
   const {host,calls}=fixture({abandoned:true})
   try {await host.kick();assert.equal(calls.filter(c=>c.name==='assistantWork.reconcile').length,1)} finally {host.close()}
 })
+
+test('restarts cannot bypass the six server-reserved notice wake attempts',async()=>{
+  let credits=0,wakes=0
+  const notice={anchor_message_id:'notice',coordinator_device_id:'home',lease_token:'lease',lease_remaining_ms:60000}
+  const rpc=async(name)=>({data:name==='assistant_work_outbox_claim'?{events:[]}
+    :name==='assistant_work_notice_wake_claim'?{items:credits<6?(credits++,[notice]):[]}
+    :name==='assistant_work_abandoned'?{events:[{message_id:'notice',kind:'completed',to_device_id:'home'}]}:{},error:null})
+  for(let restart=0;restart<10;restart++) {
+    const host=createPhoneAssistantWorkOutbox({cloud:{identity:{rpc}},ownerId:'owner',deviceId:'phone',instanceId:`runtime-${restart}`,isReady:()=>true,requester:()=>({call:async()=>({})}),receive:async()=>({status:'pending'}),
+      controller:{state:async()=>({state:'asleep',deviceId:'home'}),wake:async()=>{wakes++;throw new Error('network unavailable')}}})
+    await host.kick();host.close()
+  }
+  assert.equal(wakes,6)
+})
