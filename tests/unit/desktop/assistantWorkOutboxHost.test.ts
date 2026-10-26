@@ -14,6 +14,15 @@ function fixture(target='cloud') {
   return {deps,rpc,deliverLocal,prepareRemote,requestRemote,subscribe,warn}
 }
 describe('account delivery host',()=>{
+  it('reports a failed claim through the availability route without waking a receiver',async()=>{
+    const f=fixture(),unavailable=vi.fn(async()=>{})
+    f.rpc.mockResolvedValue({data:null,error:{code:'PGRST202',message:'missing migration'}} as never)
+    const host=createAssistantWorkOutboxHost({...f.deps,unavailable})
+    try {await host.kick();await host.kick()} finally {host.stop()}
+    expect(unavailable).toHaveBeenCalledOnce()
+    expect(f.prepareRemote).not.toHaveBeenCalled()
+    expect(f.requestRemote).not.toHaveBeenCalled()
+  })
   it('wakes only the projected current home when the historical target has moved',async()=>{
     const f=fixture('old-home');let claimed=false
     const row={...event,to_device_id:'old-home',delivery_target:{device_id:'new-home',session_id:'new-session'}}

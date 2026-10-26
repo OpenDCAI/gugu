@@ -66,7 +66,7 @@ describe('assistantGuide', () => {
       expect(guide).toContain('保留原有事实和依据')
       expect(guide).toContain('缺失/不同仍在下一轮整理')
       expect(guide).toContain('回读确认合规后')
-      expect(guide).toContain('profile_rules: 3')
+      expect(guide).toContain('profile_rules: 4')
       expect(guide).toContain('失败不标记通过，下轮再查')
       expect(guide).not.toContain('比对上下文索引')
     }

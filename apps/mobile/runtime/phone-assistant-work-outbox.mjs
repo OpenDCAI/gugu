@@ -2,6 +2,8 @@ import { createAssistantWorkOutboxPump } from '../../../packages/core/src/cloud/
 import { createAssistantWorkNoticeWakePump } from '../../../packages/core/src/cloud/assistantWorkNoticeWake.ts'
 import { CloudComputerError, createCloudComputerClient } from '../../../packages/core/src/cloud/cloudComputer.ts'
 import { assistantWorkDeliveryTarget } from '../../../packages/core/src/cloud/assistantWorkRouting.ts'
+import { createAssistantWorkAvailabilityNotifier } from '../../../packages/core/src/cloud/assistantWorkAvailability.ts'
+import { pickAssistant } from '../../../packages/core/src/shared/assistantProvision.ts'
 
 /** The phone consumes the same cloud event queue; it keeps no second durable outbox. */
 export function createPhoneAssistantWorkOutbox({ cloud, ownerId, deviceId, instanceId, isReady, requester, receive, controller: controllerOverride, warn = () => {} }) {
@@ -42,6 +44,24 @@ export function createPhoneAssistantWorkOutbox({ cloud, ownerId, deviceId, insta
   }
   const pump = createAssistantWorkOutboxPump({
     context, rpc: (name, args) => cloud.identity.rpc(name, args), warn,
+    unavailable: createAssistantWorkAvailabilityNotifier({
+      context,
+      assistant: async (_ctx, signal) => {
+        const {data, error} = await cloud.identity.from('agent_provisions').select('agent_user_id,device_id,member_key,phase,created_at')
+          .eq('owner_user_id', ownerId).eq('member_key', 'assistant').abortSignal(signal)
+        if (error) throw error
+        return pickAssistant(data ?? [])?.agentId ?? null
+      },
+      rpc: (_ctx, name, args, signal) => cloud.chat.rpc(name, args).abortSignal(signal),
+      visible: async (_ctx, post, signal) => {
+        const {data, error} = await cloud.chat.from('messages_view').select('id')
+          .eq('id', post.messageId).eq('chat_id', post.chatId).eq('sender_user_id', post.assistantId)
+          .is('deleted_at', null).is('retracted_at', null).not('deleted_for_user_ids', 'cs', JSON.stringify([ownerId]))
+          .abortSignal(signal).maybeSingle()
+        if (error) throw error
+        return data?.id === post.messageId
+      },
+    }),
     deliver: async (event, signal) => {
       const ref = { assistant_id: event.assistant_user_id, work_id: event.work_id, message_id: event.message_id }
       if (!ref.assistant_id) throw Object.assign(new Error('Work assistant is missing'), { code: 'INVALID_OUTBOX_EVENT' })

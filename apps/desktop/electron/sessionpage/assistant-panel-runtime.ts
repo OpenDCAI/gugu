@@ -60,6 +60,7 @@ export function createAssistantPanelRuntime(deps: {
     let tail: Promise<unknown> = Promise.resolve()
     let publication: Promise<void> | null = null
     let scheduled: ReturnType<typeof setTimeout> | undefined
+    let republish = false, disposed = false
     const watchers = new Map<string, FSWatcher>()
     const serial = <T>(work: () => Promise<T>): Promise<T> => {
       const next = tail.catch(() => undefined).then(work); tail = next; return next
@@ -126,7 +127,7 @@ export function createAssistantPanelRuntime(deps: {
         ...deps.local.integrationCatalog().map(row => ({ key: `catalog:${row.id}`,data: { providerId: row.id,configured: false,displayName: row.en.name },
           bytes: new TextEncoder().encode(JSON.stringify({ version: 1,en: row.en,'zh-CN': row.zh })),contentType: 'application/json',
         })),
-        ...(await deps.local.integrations(binding.ownerId)).map(({ publicMetadata,...row }) => {
+        ...(await deps.local.integrations(binding.ownerId,schedulePublication)).map(({ publicMetadata,...row }) => {
           const checkedAt = typeof row.checkedAt === 'number' ? row.checkedAt : Date.parse(String(row.checkedAt ?? ''))
           const { checkResult,checkedAt: _checkedAt,...metadata } = row
           return { key: JSON.stringify([row.providerId,row.accountId]),data: { ...metadata,
@@ -150,13 +151,23 @@ export function createAssistantPanelRuntime(deps: {
           watchers.set(root,watch(root,{ recursive: root !== dirname(paths.instructions) },(_event,file) => {
             const name = file ? basename(String(file)) : ''
             if (name.startsWith('.') || name.endsWith('.tmp') || root === dirname(paths.instructions) && name !== basename(paths.instructions)) return
-            clearTimeout(scheduled)
-            scheduled = setTimeout(() => { void publish().catch(() => deps.failed('panel')) },250)
-            scheduled.unref()
+            schedulePublication()
           }))
           watchers.get(root)!.on('error',() => { watchers.get(root)?.close(); watchers.delete(root); deps.failed('panel') })
         } catch { /* A new collection may not have a directory yet; retry after publication. */ }
       }
+    }
+    function schedulePublication() {
+      if (disposed) return
+      republish = true
+      if (publication) return
+      clearTimeout(scheduled)
+      scheduled = setTimeout(() => {
+        if (publication) return // Its finally schedules the outstanding update.
+        republish = false
+        void publish().catch(() => deps.failed('panel'))
+      },250)
+      scheduled.unref()
     }
     function publish(): Promise<void> {
       if (publication) return publication
@@ -181,13 +192,14 @@ export function createAssistantPanelRuntime(deps: {
           } catch { deps.failed(domain) }
         }
         observeFiles()
-      })().finally(() => { publication = null })
+      })().finally(() => { publication = null; if (republish) schedulePublication() })
       return publication
     }
     // The existing host is already running. This timer cannot start or wake it.
     const refresh = setInterval(() => { void publish().catch(() => deps.failed('panel')) },30_000)
     refresh.unref()
     function dispose() {
+      disposed = true; republish = false
       clearInterval(refresh); clearTimeout(scheduled)
       for (const watcher of watchers.values()) watcher.close()
       watchers.clear()
