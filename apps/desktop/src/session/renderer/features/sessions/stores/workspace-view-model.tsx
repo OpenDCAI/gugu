@@ -1,3 +1,6 @@
+import { translateSessionMessage } from '@renderer/localization/locale-store';
+import { toast } from '@renderer/lib/hooks/use-toast';
+import { messageForUser } from '@/lib/userFacingError';
 import type { ILifecycle } from '@gugu/session-shared';
 import { computed, makeAutoObservable, observable, reaction, runInAction } from 'mobx';
 import { DefaultSessionSeeder } from '@renderer/features/sessions/default-session-seeder';
@@ -626,6 +629,7 @@ export class WorkspaceViewModel implements ILifecycle, WorkspaceSurface {
       return terminal.id;
     } catch (error) {
       log.error('Failed to create terminal:', error);
+      toast({ title: translateSessionMessage('terminal.createFailed'), description: messageForUser(error), tier: 'error' });
       return undefined;
     } finally {
       runInAction(() => {

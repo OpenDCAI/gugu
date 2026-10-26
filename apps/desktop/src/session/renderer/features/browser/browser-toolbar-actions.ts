@@ -51,7 +51,7 @@ export function clearBrowserData(
 
       toast({
         title: translate('browser.clearDataFailed'),
-        description: translate('browser.clearDataFailedDetail'),
+        description: result.error ? messageForUser(result.error) : translate('browser.clearDataFailedDetail'),
         variant: 'destructive',
       });
     })
@@ -59,9 +59,7 @@ export function clearBrowserData(
       console.error('Failed to clear browser data', error);
       toast({
         title: translate('browser.clearDataFailed'),
-        // An underlying runtime error message is raw diagnostic text.
-        description:
-          error instanceof Error ? error.message : translate('browser.clearDataRequestFailed'),
+        description: messageForUser(error),
         variant: 'destructive',
       });
     });

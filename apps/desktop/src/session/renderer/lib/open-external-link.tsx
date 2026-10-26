@@ -39,6 +39,8 @@ export function confirmOpenExternalLink(url: string, onError?: (error: unknown) 
         return;
       }
       void rpc.app.openExternal(normalizedUrl).catch((error) => {
+        log.error('opening an external link failed', { error });
+        toast({ title: translateSessionMessage('externalLink.openFailed'), description: messageForUser(error), tier: 'error' });
         onError?.(error);
       });
     },
@@ -57,6 +59,8 @@ export function openExternalLinkInBrowser(url: string, onError?: (error: unknown
   const normalizedUrl = normalizeExternalHttpUrl(url);
   if (!HTTP_URL_PATTERN.test(normalizedUrl)) return;
   void rpc.app.openExternal(normalizedUrl).catch((error) => {
+    log.error('opening an external link failed', { error });
+    toast({ title: translateSessionMessage('externalLink.openFailed'), description: messageForUser(error), tier: 'error' });
     onError?.(error);
   });
 }

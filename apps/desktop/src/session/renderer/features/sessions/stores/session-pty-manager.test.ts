@@ -179,14 +179,14 @@ describe('SessionPtyManager 的失败提示', () => {
     expect(sessionStartupFailureBridge.describe('')).toEqual({ text: '咕咕这边出错了。', retryable: true });
   });
 
-  // 恢复失败按构造是咕咕这一侧的(恢复协调器):不带码的原文 ❌ 当原话递出去(#7103 评审 F1)。
-  it('咕咕这一侧的失败(origin=gugu)不带码也说「咕咕这边出错了」;登录失效可以再起一次', async () => {
+  // Uncoded failures preserve the cause; explicit reason codes keep their guidance.
+  it('咕咕这一侧的不带码失败保留原因;登录失效可以再起一次', async () => {
     await i18n.changeLanguage('zh-CN');
     expect(sessionStartupFailureBridge.describe('gateway rejected replacement credential', 'gugu')).toEqual({
-      text: '咕咕这边出错了。',
+      text: 'gateway rejected replacement credential',
       retryable: true,
     });
-    // 阳控:同一句不说是咕咕这一侧时,照原话递(上面那一条判的是 origin 起了作用)。
+    // The same uncoded cause is preserved regardless of origin.
     expect(sessionStartupFailureBridge.describe('gateway rejected replacement credential').text).toBe('gateway rejected replacement credential');
     expect(sessionStartupFailureBridge.describe("Error invoking remote method 'pty:start': Error: gugu-models:signed-out")).toEqual({
       text: '咕咕的登录已失效，重新登录后再发一次。',

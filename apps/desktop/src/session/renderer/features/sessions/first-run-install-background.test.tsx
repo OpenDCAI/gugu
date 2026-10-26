@@ -6,7 +6,7 @@ import { FirstRunInstallProvider } from '@/components/firstRun/FirstRunInstallPr
 import { useFirstRunInstaller } from '@/components/firstRun/first-run-install-context';
 
 const f = vi.hoisted(() => ({ install: vi.fn(), status: vi.fn() }));
-vi.mock('react-i18next', () => ({ useTranslation: () => ({ t: (key: string) => key }) }));
+vi.mock('react-i18next', async (importOriginal) => ({ ...(await importOriginal<typeof import('react-i18next')>()), useTranslation: () => ({ t: (key: string) => key }) }));
 vi.mock('@renderer/lib/stores/use-agent-installation-statuses', () => ({
   useAgentInstallationStatuses: () => ({ installAsync: f.install }), useAgentInstallProgress: () => null,
 }));

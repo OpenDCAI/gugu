@@ -1,3 +1,4 @@
+import { messageForUser } from '@/lib/userFacingError';
 import { Plus, RefreshCw } from '@/lib/icons'
 import { LoadingIndicator } from '@/lib/loading/LoadingIndicator'
 import { observer } from 'mobx-react-lite';
@@ -107,14 +108,14 @@ export const PullRequestsSection = observer(function PullRequestsSection({
       if (!result.success) {
         toast({
           title: translate('pr.refreshFailed'),
-          description: pullRequestErrorMessage(result.error),
+          description: messageForUser(pullRequestErrorMessage(result.error)),
           variant: 'destructive',
         });
       }
     } catch (error) {
       toast({
         title: translate('pr.refreshFailed'),
-        description: error instanceof Error ? error.message : String(error),
+        description: messageForUser(error),
         variant: 'destructive',
       });
     }

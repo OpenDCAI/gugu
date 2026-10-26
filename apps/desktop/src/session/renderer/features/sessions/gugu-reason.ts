@@ -1,10 +1,5 @@
-// 原因 → 一句话 + 一个按钮(#7103「谁拒绝谁说话」,product spec「被拒时谁说话」)。
-// 新建框、起任务那一页、私聊横幅、通用模式那一行、弹窗、别的电脑上的失败都读这一张,❌ 在别处再按原因写一句、再配一套按钮。
-// 纯模块(只依赖原因码与文案键;话由调用方的 translate 说),失败账本也读得了它。
-//
-// 分界按失败从哪一层来(主进程在那一层按错误类型定好):咕咕这一侧(model-access、平台凭证、咕咕本机自己判的)
-// 一律带原因码到这里,不带原因的在那一层就成了 `service-unavailable`(「咕咕这边出错了」);咕咕以外(harness 起不来、
-// provider 报错、自带模型)不带码,照 #4657 递拒绝方的原话 —— 去掉路径与令牌,只截一行。
+import { translateSessionMessage } from '@renderer/localization/locale-store';
+// All user-facing failures share the reason catalog and redacted first-line exit below.
 import { guguReasonInText, guguReasonOf, type GuguCatalogReason } from '@gugu/session-core/session-record/contract';
 import type { SessionMessageKey } from '@renderer/localization/messages';
 
@@ -106,6 +101,7 @@ export function safeFailureLine(message: string): string {
     .replace(/(?:\/Users\/|\/home\/|[A-Za-z]:\\)[^\s,)]+/g, '[path]')
     .replace(/(?:eyJ[A-Za-z0-9._-]+|(?<![A-Za-z0-9])(?:sk-|ghp_|github_pat_|xox[baprs]-)[A-Za-z0-9_-]+)/g, '[redacted token]')
     .trim();
+  if (firstLine === 'Wire transport disconnected') return translateSessionMessage('taskError.connectionLost');
   return firstLine.slice(0, MAX_FAILURE_LINE_LENGTH);
 }
 
@@ -123,12 +119,4 @@ export function failureText(message: string, translate: Translate, modelName?: s
   const reason = failureReason(message);
   if (reason) return guguReasonText(reason, translate, modelName);
   return safeFailureLine(message) || guguReasonText('service-unavailable', translate);
-}
-
-/**
- * 按构造就是咕咕自己这一侧的失败(恢复协调器、本机运行时、宿主 IPC、这个 store 自己):带码就按码,
- * 不带码就是「咕咕这边出错了」,原文只进日志 —— ❌ 当成别人的原话递出去。
- */
-export function guguFailureText(message: string, translate: Translate): string {
-  return guguReasonText(failureReason(message) ?? 'service-unavailable', translate);
 }

@@ -10,6 +10,14 @@ import { enUSAgentStatusMessages, zhCNAgentStatusMessages } from './messages-age
 import { enUSAppSettingsMessages, zhCNAppSettingsMessages } from './messages-app-settings';
 
 const enUSCoreMessages = {
+  'taskError.connectionLost': 'The connection to the machine was lost. Try again when it reconnects.',
+  'terminal.createFailed': 'Could not open terminal',
+  'externalLink.openFailed': 'Could not open link',
+  'github.authFailed': 'Could not sign in to GitHub',
+  'sidebar.addProjectFailed': 'Could not add project',
+  'sidebar.dropFolderRequired': 'Drop a folder to add a project.',
+  'sidebar.dropGitRequired': '{name} is not a Git repository.',
+  'resourceMonitor.popupBlocked': 'The monitor window was blocked by the browser.',
   'common.back': 'Back',
   'common.cancel': 'Cancel',
   'common.save': 'Save',
@@ -867,7 +875,6 @@ const enUSCoreMessages = {
   'sidebar.nestedAtTop': '“{child}” no longer sits under another task',
   'sidebar.nestNotReached': 'Could not check sessions on: {machines}',
   'sidebar.nestFailed': 'Could not move “{child}”',
-  'sidebar.nestFailedHint': 'Try again once the machines both tasks run on are online.',
   'sidebar.nestCycleHint': '“{parent}” already sits under it (perhaps through an archived task), so this would make a loop.',
   'sidebar.statusUnavailable': "This harness's terminal tasks don't report status",
   'sidebar.statusSourceFault': "This task's status source is broken: interrupting it with Esc may not update its status",
@@ -931,6 +938,14 @@ const enUSCoreMessages = {
 type CoreSessionMessageKey = keyof typeof enUSCoreMessages;
 
 const zhCNCoreMessages: Record<CoreSessionMessageKey, string> = {
+  'taskError.connectionLost': '与机器的连接已断开，请在重新连上后再试。',
+  'terminal.createFailed': '终端没能打开',
+  'externalLink.openFailed': '链接没能打开',
+  'github.authFailed': '没能登录 GitHub',
+  'sidebar.addProjectFailed': '没能添加项目',
+  'sidebar.dropFolderRequired': '请拖入文件夹来添加项目。',
+  'sidebar.dropGitRequired': '{name} 不是 Git 仓库。',
+  'resourceMonitor.popupBlocked': '浏览器阻止了监视窗弹出。',
   'common.back': '返回',
   'common.cancel': '取消',
   'common.save': '保存',
@@ -1727,7 +1742,6 @@ const zhCNCoreMessages: Record<CoreSessionMessageKey, string> = {
   'sidebar.nestedAtTop': '「{child}」不再挂在别的会话下面',
   'sidebar.nestNotReached': '这几台机器没够着，上面的会话没查到：{machines}',
   'sidebar.nestFailed': '「{child}」没挂上',
-  'sidebar.nestFailedHint': '等两条会话所在的机器都在线时再拖一次。',
   'sidebar.nestCycleHint': '「{parent}」本来就在它下面(中间可能隔着已归档的会话),挂上去会绕成一个圈。',
   'sidebar.statusUnavailable': '这个 harness 的终端会话没有状态回传',
   'sidebar.statusSourceFault': '这个任务的状态来源失效:按 Esc 打断后状态可能不会更新',

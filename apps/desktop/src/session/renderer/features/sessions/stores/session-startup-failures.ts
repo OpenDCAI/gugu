@@ -24,7 +24,7 @@
 // 不做去抖 —— 失败是终态,它消失的途径只有上面两条。
 
 import type { RuntimeUpgradeRequirement } from '@shared/core/sessions/runtime-upgrade';
-import { failureReason, failureText, guguFailureText, guguReasonCopy } from '../gugu-reason';
+import { failureReason, failureText, guguReasonCopy } from '../gugu-reason';
 import { translateSessionMessage } from '@renderer/localization/locale-store';
 
 export interface SessionStartupFailure {
@@ -46,16 +46,9 @@ type Entry = SessionStartupFailure & { retry: () => void };
 export interface SessionStartupFailureBridge {
   snapshot(): readonly SessionStartupFailure[];
   subscribe(listener: () => void): () => void;
-  /**
-   * 对该会话重来一次 hydrate。返回 false = 账本里已经没有这条(标签页刚关掉、或别处已重试),
-   * 读者的界面会随快照一起收敛,不必再做什么;❌ 不 throw —— 那是一次合法的竞态,不是编程错误。
-   */
+  /** Rehydrate; false means the entry disappeared during a legitimate race. */
   retry(sessionId: string): boolean;
-  /**
-   * 这次失败给人看的那一句(按任务页那一侧的界面语言,与任务页内容区同一句,#7103 同一次失败只说一次),
-   * 以及重试能不能改变它 —— 不能的(要换模型 / 开会员)去路在任务页上。登录失效算能:在别处登好了回来再起一次。
-   * `origin: 'gugu'` = 按构造就是咕咕这一侧的失败(恢复协调器):不带码的说「咕咕这边出错了」,❌ 当原话递出去。
-   */
+  /** Display the reason catalog or the sanitized actual cause; keep the legacy origin argument compatible. */
   describe(message: string, origin?: 'gugu'): { text: string; retryable: boolean };
 }
 
@@ -125,11 +118,11 @@ export const sessionStartupFailureBridge: SessionStartupFailureBridge = {
   snapshot: sessionStartupFailures.snapshot,
   subscribe: sessionStartupFailures.subscribe,
   retry: sessionStartupFailures.retry,
-  describe: (message, origin) => {
+  describe: (message) => {
     const reason = failureReason(message);
     const action = reason ? guguReasonCopy(reason).action : 'retry';
     return {
-      text: (origin === 'gugu' ? guguFailureText : failureText)(message, translateSessionMessage),
+      text: failureText(message, translateSessionMessage),
       retryable: action === 'retry' || action === 'sign-in',
     };
   },

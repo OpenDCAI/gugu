@@ -1,3 +1,4 @@
+import { messageForUser } from '@/lib/userFacingError';
 import { LoadingIndicator } from '@/lib/loading/LoadingIndicator'
 import '@/i18n/registerVoiceNotesCatalog';
 import './voice-notes.css';
@@ -37,6 +38,7 @@ export function useStartVoiceNote(): (meeting?: VoiceNoteMeta['meeting']) => Pro
     async (meeting) => {
       const outcome = await startVoiceNote(meeting);
       if (outcome === 'started') return true;
+      const cause = voiceRecorder.getSnapshot().cause;
       voiceRecorder.clearError();
       if (outcome === 'mic_denied')
         toast({
@@ -46,7 +48,7 @@ export function useStartVoiceNote(): (meeting?: VoiceNoteMeta['meeting']) => Pro
         });
       else if (outcome === 'mic_missing') toast({ title: t('mic.missing'), tier: 'error' });
       else if (outcome === 'busy') toast({ title: t('mic.busy'), tier: 'info' });
-      else if (outcome !== 'no_assistant' && outcome !== 'cancelled') toast({ title: t('mic.failed'), tier: 'error' });
+      else if (outcome !== 'no_assistant' && outcome !== 'cancelled') toast({ title: t('mic.failed'), description: messageForUser(cause), tier: 'error' });
       return false;
     },
     [t, toast]
