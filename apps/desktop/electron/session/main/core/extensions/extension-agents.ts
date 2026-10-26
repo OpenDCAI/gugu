@@ -76,7 +76,7 @@ const agentIdOf = (session: SessionpageSessionSummary) => (session.agent ? `user
 
 /**
  * The one place that decides which agents a scope covers on this computer — the listing, every range check and
- * messageAgent all read it, so「能看见谁」has one answer (两处各算一次,漂了的那次一定是放行的那次)。
+ * dispatch to an agent all read it, so「能看见谁」has one answer (两处各算一次,漂了的那次一定是放行的那次)。
  * 行就是界面那份会话列表(`listSessions`:本机库 + 名录,不碰 ACP 运行时)。
  * `own` = 这个 App 自己起的(真源原则 13:位置不决定能力);`all` / `all-machines` = 这台机器上的全部。
  */
@@ -386,7 +386,7 @@ export async function stopAgentForExtension(options: {
 }
 
 /**
- * `gugu.spawnAgent(prompt, { title, harness, model, transport, project, chat })`: a new agent — a session of its own —
+ * `gugu.dispatch(prompt, { to: { new: true }, spawn: { title, harness, model, transport, project, chat } })`: a new agent — a session of its own —
  * started as the person starts one, through the one spawn core `session_spawn` uses (`spawnSessionForApp`): where and on
  * what the call names, else what the person's new-session box would pick; never from the session a page sits in (真源原则 13).
  *

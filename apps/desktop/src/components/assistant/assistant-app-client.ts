@@ -17,7 +17,7 @@ type ProgramNotification = { server: string; method: string; params?: unknown };
 export type AssistantAppMachine = Pick<AssistantMachine, 'rpc'>;
 type PanelAPI = {
   listAgents(): Promise<{ agents: ExtensionAgentView[]; unreached: unknown[] }>;
-  messageAgent(agentId: string, text: string, options: { defer: true }): Promise<AppMessageReceipt>;
+  dispatch(text: string, options: { to: { agent: string }; delivery: 'defer' }): Promise<AppMessageReceipt>;
   callProgram(name: string, args?: Record<string, unknown>, server?: string): Promise<CallToolResult>;
   onProgramNotification(listener: (event: ProgramNotification) => void): () => void;
 };
@@ -25,7 +25,7 @@ type PanelAPI = {
 /** Native React App surface, using the Extension API's member table and wire, without a second SDK. */
 export function assistantAppClient(machine: AssistantAppMachine | null | undefined, expectedOwnerId = cachedDevicesAccount(), onHomeDevice = false) {
   const hub = hostEventHub();
-  const api = hostMembers('page', name => ['listAgents', 'messageAgent', 'callProgram', 'onProgramNotification'].includes(name),
+  const api = hostMembers('page', name => ['listAgents', 'dispatch', 'callProgram', 'onProgramNotification'].includes(name),
     async (verb, args) => {
       const host = onHomeDevice ? machine?.rpc.app : libraryHost(machine);
       if (!host) throw new Error('Assistant App host is unavailable');
@@ -54,8 +54,8 @@ export async function publishAssistantAppChange(
     if (!assistantId && listed.unreached.length) throw new Error('Personal assistant device could not be read');
     if (!assistantId) return null;
   }
-  return app.messageAgent(`user:${assistantId}`,
-    assistantAppChangeText({ ...change, operationId: change.operationId ?? crypto.randomUUID() }), { defer: true });
+  return app.dispatch(assistantAppChangeText({ ...change, operationId: change.operationId ?? crypto.randomUUID() }),
+    { to: { agent: `user:${assistantId}` }, delivery: 'defer' });
 }
 
 /** Call after a successful state mutation. A failed delivery must not turn a committed save into a fake save failure. */

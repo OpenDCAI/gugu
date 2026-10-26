@@ -103,7 +103,7 @@ function leaveAppPage(extensionId: string): void {
  * 再点它、或从「+」放进来,就从头开始 —— 主进程在它的页被要的那一刻撤销退出、拉起后台。
  *
  * 「摆着的地方」:它在某条会话里的那一枚(拿走它的摆放,那条会话自己就收掉,#7052)、它的整页
- * (正看着就回到任务)、群右栏里开着它的那一格(GroupAppSlot 看到退出了自己关)。收完之后,藏着活的页一并销毁。
+ * (正看着就回到任务)、群里开着它的那个页签(GroupTabContent 看到退出了自己关)。收完之后,藏着活的页一并销毁。
  */
 export async function quitApp(extensionId: string): Promise<void> {
   const store = installedExtensionsStore;

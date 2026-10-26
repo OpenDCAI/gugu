@@ -138,9 +138,8 @@ export function useSidebarSessions(): readonly SidebarSessionLine[] {
   return useSyncExternalStore(subscribeSessions, () => read<readonly SidebarSessionLine[]>(SESSIONS_KEY) ?? NO_SESSIONS, () => NO_SESSIONS)
 }
 
-/** `show-chat-alone`: a block's chat tab clicked (gugu-dev#181 第 ⑥ 步) — that chat's right side gives the chat its room. */
 export type ShellChatDialog = 'create-group' | 'add-contact'
-export type ShellChatAction = ShellChatDialog | { kind: 'show-chat-alone'; chatId: string }
+export type ShellChatAction = ShellChatDialog
 
 const ACTION_KEY = '__GUGU_SIDEBAR_CHAT_ACTION__'
 const ACTION_EVENT = 'gugu:sidebar-chat-action'
@@ -153,7 +152,7 @@ export function requestShellChatAction(action: ShellChatAction): void {
   write(ACTION_KEY, ACTION_EVENT, action)
 }
 
-/** 壳:取走一个还没办、归自己办的请求(侧栏那份对话列表办弹窗,聊天区办自己那个群的);取一次就没了。 */
+/** 壳:取走一个还没办、归自己办的请求(侧栏那份对话列表办弹窗);取一次就没了。 */
 export function takeShellChatAction<A extends ShellChatAction>(mine: (action: ShellChatAction) => action is A): A | null {
   const action = read<ShellChatAction>(ACTION_KEY)
   if (!action || !mine(action)) return null

@@ -28,9 +28,9 @@ export const HOST_CALLS = {
   /** How wide the answer is was settled at install, never at the call: no scope argument (behavior tab-extensions). */
   listAgents: { verb: 'listAgents', pack: () => ({}) },
   readAgentHistory: { verb: 'readAgentHistory', pack: (agentId: string, before?: number) => ({ agentId, ...(before === undefined ? {} : { before }) }) },
-  spawnAgent: { verb: 'spawnAgent', pack: (prompt: string, options?: Record<string, unknown>) => ({ prompt, ...options }) },
   stopAgent: { verb: 'stopAgent', pack: (agentId: string) => ({ agentId }) },
-  send: { verb: 'send' },
+  /** `gugu.dispatch(text, options)` (15): the one way to hand something to someone; `images` arrive as bytes (create-gugu.ts). */
+  dispatch: { verb: 'dispatch', pack: (text: string, options?: Record<string, unknown>) => ({ ...options, text }) },
   // A chat's messages (`chat:read`): each call names its chat, as a file call names its place.
   'messages.history': { verb: 'messagesHistory' },
   'messages.search': { verb: 'messagesSearch' },
@@ -51,7 +51,6 @@ export const HOST_CALLS = {
   'forum.award': { verb: 'forumAward', pack: (postId: string, awards: unknown) => ({ postId, awards }) },
   'forum.subscribe': { verb: 'forumSubscribe', pack: (target: string) => ({ target }) },
   'forum.unsubscribe': { verb: 'forumUnsubscribe', pack: (target: string) => ({ target }) },
-  messageAgent: { verb: 'messageAgent', pack: (agentId: string, text: string, options?: Record<string, unknown>) => ({ agentId, text, ...options }) },
   readData: { verb: 'readData', pack: (path: string) => ({ path }) },
   writeData: { verb: 'writeData', pack: (path: string, content: string) => ({ path, content }) },
   listData: { verb: 'listData', pack: (dir = '.') => ({ path: dir }) },
@@ -66,7 +65,6 @@ export const HOST_CALLS = {
   setTabBadge: { verb: 'setTabBadge', pack: (badge: number | string | null) => ({ badge }) },
   sendToBackground: { verb: 'sendToBackground', pack: (message: unknown) => ({ message }) },
   broadcastToViews: { verb: 'broadcastToViews', pack: (message: unknown) => ({ message }) },
-  compose: { verb: 'compose', pack: (text: string, where?: Record<string, unknown>) => ({ text, ...where }) },
   showMessage: { verb: 'showMessage', pack: (id: string) => ({ id }) },
   showSession: { verb: 'showSession', pack: (id: string, options?: { peek?: boolean }) => ({ id, ...(options?.peek === true ? { peek: true } : {}) }) },
   'clipboard.writeText': { verb: 'clipboardWriteText', pack: (text: string) => ({ text }) },

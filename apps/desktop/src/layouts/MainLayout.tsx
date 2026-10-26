@@ -88,7 +88,7 @@ import { requestTopicSplit } from '../lib/topicSplitRequest'
 import type { CreateContextBirthGroup } from '../lib/agentCreateContextBridge'
 import { platform } from '../platform'
 import { useToast } from '../components/toastContext'
-import { groupSlotMemory } from '../components/appSlot/groupSlotMemory'
+import { askChat } from '../session/renderer/features/chats/chat-tabs/chat-layouts'
 import { filePillText } from '../components/markdown/filePills'
 import { APP_COMPOSE_EVENT, APP_OPEN_IN_CHAT_EVENT, APP_OPEN_WITH_EVENT, type AppComposeDetail, type AppOpenInChatDetail, type AppOpenWithDetail } from '../session/shared/extensions/app-runtime-protocol'
 import { chatSlotKey } from '../lib/shellSlots'
@@ -495,8 +495,8 @@ function InnerLayout({
     return topic ? `${viewportKey ?? 'chats'}:topic` : viewportKey ?? 'chats'
   }, [openChatBlock, setActiveChatId])
   useLinkNavigation({ ownerId: user.id, chats, contacts,
-    openFile: (chatId, target, source) => { openChatTarget(chatId); groupSlotMemory.ask(chatId, { itemId: target.itemId, ...(target.at ? { at: target.at } : {}), ...(source.message ? { message: source.message } : {}), ...(source.restore ? { restore: source.restore } : {}) }) },
-    openApp: (chatId, extensionId, tab) => { openChatTarget(chatId); groupSlotMemory.ask(chatId, { app: extensionId, ...(tab ? { tab } : {}) }) },
+    openFile: (chatId, target, source) => { openChatTarget(chatId); askChat(chatId, { itemId: target.itemId, ...(target.at ? { at: target.at } : {}), ...(source.message ? { message: source.message } : {}), ...(source.restore ? { restore: source.restore } : {}) }) },
+    openApp: (chatId, extensionId, tab) => { openChatTarget(chatId); askChat(chatId, { app: extensionId, ...(tab ? { tab } : {}) }) },
     openOwnApp: (extensionId, tab) => { const page = installedExtensionsStore.allTabContributions.find((entry) => entry.kind === `${extensionId}.${tab}`); if (!page) throw new Error('App tab is unavailable'); setOpenedPhoneApp({ kind: page.kind, name: page.extensionName }) },
     openProject: (projectId) => { setOpenedPhoneApp(null); setActiveTab('tasks'); appState.navigation.navigate('project', { projectId }) },
     openChat: openChatTarget,
@@ -863,7 +863,7 @@ function InnerLayout({
       window.dispatchEvent(new CustomEvent(UI_EVENTS.chatAsked, { detail: { chatId: chat.id } }))
       return true
     }
-    // gugu.compose into a chat the call named — from a page anywhere, the phone's too: after that chat's draft, the chat
+    // a gugu.dispatch draft into a chat — from a page anywhere, the phone's too: after that chat's draft, the chat
     // up and its composer focused (the slot of that chat, if open, gets out of the way: useSlotMakesWay).
     const onCompose = (event: Event) => {
       const detail = (event as CustomEvent<AppComposeDetail>).detail
@@ -889,7 +889,7 @@ function InnerLayout({
     // up — the one on screen stays — and its panel opens it as the host resolved it, the way a link to it opens.
     const onOpenWith = (event: Event) => {
       const detail = (event as CustomEvent<AppOpenWithDetail>).detail
-      if (detail) bringUp(detail.chatId, (chatId) => groupSlotMemory.ask(chatId, { itemId: detail.itemId, opener: detail, fromPage: true }), true)
+      if (detail) bringUp(detail.chatId, (chatId) => askChat(chatId, { itemId: detail.itemId, opener: detail, fromPage: true }), true)
     }
     // A card's Open action names a chat: it comes up, and its panel opens the App (ChatAreaPanel takes it).
     const onOpenInChat = (event: Event) => {
@@ -899,7 +899,7 @@ function InnerLayout({
       const token = getRendererAccessToken()
       if (!token) { toast(t('groupFile.notInGroup'), 'error'); return }
       void resourceChatIdOf(token, named, user.id)
-        .then((chatId) => bringUp(chatId, (id) => groupSlotMemory.ask(id, { app: detail.extensionId }), true))
+        .then((chatId) => bringUp(chatId, (id) => askChat(id, { app: detail.extensionId }), true))
         .catch((error: unknown) => toast(error instanceof Error ? error.message : String(error), 'error'))
     }
     window.addEventListener(APP_COMPOSE_EVENT, onCompose)

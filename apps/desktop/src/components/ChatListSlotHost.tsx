@@ -11,7 +11,8 @@ import { splitSunkTopics } from './chatListTopicNesting'
 import { nextChatId } from './chat-list-keyboard-nav'
 import { readSessionpageViewRequestBridge } from '../lib/sessionpageViewRequestBridge'
 import { requestTopicSplit } from '../lib/topicSplitRequest'
-import { groupSlotMemory } from './appSlot/groupSlotMemory'
+import { useTabsReading } from './appSlot/useTabsReading'
+import { topicTabOf } from '../session/renderer/features/chats/chat-tabs/chat-layouts'
 
 installShellSlots()
 
@@ -46,7 +47,7 @@ export function ProjectTopics({ sourceChatId }: { sourceChatId: string }) {
   const [focusedId, setFocusedId] = useState<string | null>(null)
   const list = useRef<HTMLDivElement>(null)
   const focusedChat = useSidebarChatView().focusedChatId
-  const activeTopic = useSyncExternalStore(groupSlotMemory.subscribe, () => groupSlotMemory.topic(sourceChatId))
+  const activeTopic = useTabsReading(() => { const tab = topicTabOf(sourceChatId); return tab ? { chatId: tab.topic.topicChatId, shown: tab.shown } : null }, [sourceChatId])
   const topics = chats.filter((chat) => chat.kind === 'topic' && chat.source_chat_id === sourceChatId).sort(compareChatsByActivityDesc)
   const isSunk = (topic: ChatItem) => isSunkTopic(topic, Date.now()) && topic.id !== activeTopic?.chatId
   const { live } = splitSunkTopics(topics, isSunk, undefined, expanded)

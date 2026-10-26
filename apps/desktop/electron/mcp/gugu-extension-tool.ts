@@ -29,7 +29,7 @@ export const EXTENSION_TOOL_DEFS: readonly SessionpageToolDef[] = [
       '  f.presence.set(pos)  // per-frame state; the file: events, results (a catch)',
       '  let members = (await gugu.getContext()).chat?.members ?? []  // { id, name, kind }: pick, never copy',
       '  // f.onChange(renderShared): render($("#shared"), html`…`) — inputs of file values too, rows by data-key; drafts, bind.text boxes: #controls',
-      '  // wake only the agent it concerns: gugu.send(member.id, "your move", { refs: [{ file: f.entry }] }) — state stays in the file; manifest.permissions.capabilities ["chat:relay"]',
+      '  // wake only the agent it concerns: gugu.dispatch("your move", { to: { chat, member: member.id }, refs: [{ file: f.entry }] }) — state stays in the file; manifest.permissions.capabilities ["chat:relay"]',
       '  // agents follow: a tool in tools.js, run(args, { agent }) — guide apps-programs',
       'Then app_install with chat_id, data (in the chat already: {item_id}, never a copy). Own pages: manifest.contributes.tabs + files["<name>.html"]. Text file: gugu.bind.text(textarea, f).',
     ].join('\n'),

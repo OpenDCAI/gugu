@@ -7,7 +7,7 @@
 // 清理放在**启动时**而不是安装后:安装那一刻进程正在死,再去删几百兆是给退出加风险;
 // 而新版本起来之后,缓存里那份「待装的包」已经是过去式,判据也最硬 —— 它不比正在跑的这一版新。
 //
-// @@@diff-base 只删 `pending/`,❌ 删整个目录。目录顶层那一份是**下一次差分下载的底**:
+// @@@diff-base 清 pending 和弃用的 staged 子目录,保留整个缓存的顶层。那一份是**下一次差分下载的底**:
 //   - Windows NSIS:`installer.exe`,由新版安装器在安装时把自己拷过来(app-builder-lib
 //     templates/nsis/include/installer.nsh 的 `copyFile "$EXEPATH" …\installer.exe`);
 //   - mac zip:`update.zip`,由 MacUpdater 在下载完成时拷过来;
@@ -17,6 +17,7 @@
 // 代价:装完之后常驻一份底(Windows ≈200MB、mac ≈172MB);下好待装那段时间是底 + pending 两份,
 // 装完下一次启动回到一份。
 import { existsSync, readFileSync, rmSync } from 'node:fs'
+import { rm } from 'node:fs/promises'
 import { homedir } from 'node:os'
 import { join } from 'node:path'
 
@@ -139,7 +140,8 @@ export function readStagedVersion(cacheDir: string): string | null {
 }
 
 /**
- * 清掉过期的待装包(`pending/`),留着差分下载的底(见文件头 @@@diff-base)。返回是否真的删了(给日志用)。
+ * 清掉过期的待装包(`pending/`),留着差分下载的底。返回是否清掉 pending。
+ * 弃用的预解压目录异步删除,避免清几千个文件挡住新版本首屏。
  * 任何异常都吞掉:清理失败只是白占盘,❌ 不该让它挡住应用启动。
  */
 export function purgeStaleUpdaterCache(opts: {
@@ -148,6 +150,9 @@ export function purgeStaleUpdaterCache(opts: {
   log?: (message: string, meta: Record<string, unknown>) => void
 }): boolean {
   const { cacheDir, runningVersion } = opts
+  void rm(join(cacheDir, 'staged'), { recursive: true, force: true }).catch((error) => {
+    opts.log?.('[updater] 清更新缓存失败(只是白占盘,不影响启动)', { cacheDir, error: String(error) })
+  })
   const pendingDir = join(cacheDir, 'pending')
   if (!existsSync(pendingDir)) return false
   const stagedVersion = readStagedVersion(cacheDir)

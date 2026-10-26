@@ -1,7 +1,7 @@
 // @@@5747 装完之后清缓存。实测那次更新之后本机留了 348MB(同一个包存了两遍),而版本已经装好了。
 // 这里钉的是那条判据本身——它有一侧特别贵:**误删一份刚下好的新包 = 用户白下 172MB**,
 // 所以「比我新就留着」必须在各种版本号形状下都成立,尤其是预发布段要按数字比而不是按字典序。
-import { describe, expect, it, afterEach } from 'vitest'
+import { describe, expect, it, afterEach, vi } from 'vitest'
 import { mkdtempSync, mkdirSync, writeFileSync, rmSync, existsSync, chmodSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
@@ -172,6 +172,26 @@ describe('#5846 版本号得从文件名里取 —— update-info.json 里根本
 // 61.1/62.1/63.1 三次更新全是 `Cannot download differentially … ENOENT …\gugu-beta-updater\installer.exe`,
 // 198MB 整包重下。这里按 electron-updater 6.8.3 / app-builder-lib 26.15.3 的真实文件布局造目录。
 describe('@@@diff-base 清 pending 时留着差分下载的底', () => {
+  it.each([false, true])('清掉旧版预解压目录,保留差分底和更新的 pending(hasPending=%s)', async (hasPending) => {
+    const dir = mkdtempSync(join(tmpdir(), 'gugu-updcache-extracted-'))
+    dirs.push(dir)
+    mkdirSync(join(dir, 'staged'))
+    writeFileSync(join(dir, 'staged', '.staged-version'), '0.2.58-beta.1032.1')
+    writeFileSync(join(dir, 'staged', 'gugu-beta.exe'), 'old extracted app')
+    writeFileSync(join(dir, 'installer.exe'), 'base')
+    writeFileSync(join(dir, 'current.blockmap'), 'map')
+    if (hasPending) {
+      mkdirSync(join(dir, 'pending'))
+      writeFileSync(join(dir, 'pending', 'update-info.json'), JSON.stringify({ version: '0.2.60' }))
+      writeFileSync(join(dir, 'pending', 'gugu-0.2.60-x64.exe'), 'new download')
+    }
+    expect(purgeStaleUpdaterCache({ cacheDir: dir, runningVersion: '0.2.59' })).toBe(false)
+    await vi.waitFor(() => expect(existsSync(join(dir, 'staged'))).toBe(false))
+    expect(existsSync(join(dir, 'installer.exe'))).toBe(true)
+    expect(existsSync(join(dir, 'current.blockmap'))).toBe(true)
+    expect(existsSync(join(dir, 'pending', 'gugu-0.2.60-x64.exe'))).toBe(hasPending)
+  })
+
   it('Windows NSIS:安装器自己拷来的 installer.exe 与 current.blockmap 留着,装完的那份 pending 删掉', () => {
     const dir = mkdtempSync(join(tmpdir(), 'gugu-updcache-diffbase-'))
     dirs.push(dir)

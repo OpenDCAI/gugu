@@ -29,11 +29,12 @@ import {
 } from './screen-layout-actions';
 import { ChatPartSlot, ChatSlot } from '@renderer/lib/chat-slot';
 import { ChatTabMenuItems } from '@renderer/features/chats/chat-tab-menu-items';
-import { requestShellChatAction } from '@/lib/sidebarChatsBridge';
+import { ChatPanes, ChatTabChip } from '@renderer/features/chats/chat-tabs/chat-panes';
+import { openPanelItem } from '@renderer/features/chats/chat-tabs/chat-layouts';
 import { requestTopicSplit } from '@/lib/topicSplitRequest';
 import { ComposerVerbDock } from '@renderer/features/sessions/task-dispatch-composer';
 import { ProjectBlock } from './project-block';
-import { screenLayout } from './screen-layout';
+import { screenLayout, type ScreenBlockContent } from './screen-layout';
 import { clearDraggedScreenContent, getDraggedScreenContent, hasDraggedScreenContent, setDraggedScreenContent } from '@renderer/lib/drag-screen-content';
 
 /**
@@ -153,6 +154,7 @@ const BlockSlot = observer(function BlockSlot({ blockId }: { blockId: string }) 
         />
       ) : null}
       {block?.kind === 'chat' ? <ChatBlock blockId={blockId} chatId={block.chatId} /> : null}
+      {block?.kind === 'chat-app' ? <ChatAppBlock blockId={blockId} content={block} /> : null}
     </div>
   );
 });
@@ -167,39 +169,37 @@ const ChatBlock = observer(function ChatBlock({ blockId, chatId }: { blockId: st
   const { translate } = useSessionMessages();
   const { isLeftOpen } = useWorkspaceLayoutContext();
   const corners = screenLayout.corners(blockId);
+  const focused = screenLayout.focusedBlockId === blockId;
   return (
-    <>
-      <TabStripShell
-        reserveShellRestoreLane={corners.topLeft && !isLeftOpen}
-        actionsSlot={
-          <TabBarActionRow atWindowEdge={corners.topRight}>
-            <ChatPartSlot chatId={chatId} part="actions" className="flex items-center" />
-            {screenLayout.order.length > 1 ? <CloseBlockButton blockId={blockId} /> : null}
-          </TabBarActionRow>
-        }
-      >
-        <TabSlot data-chat-block-tab={chatId}>
-          <ContextMenu>
-            <ContextMenuTrigger className="flex h-full w-full min-w-0">
-              <TabChip
-                isActive
-                isFocusedPane={screenLayout.focusedBlockId === blockId}
-                label={translate('sidebar.chats')}
-                labelSlot={<ChatPartSlot chatId={chatId} part="title" className="flex min-w-0 flex-1" />}
-                onClick={() => requestShellChatAction({ kind: 'show-chat-alone', chatId })}
-              />
-            </ContextMenuTrigger>
-            <ContextMenuContent finalFocus={false} className="min-w-40">
-              <ChatTabMenuItems chatId={chatId} />
-            </ContextMenuContent>
-          </ContextMenu>
-        </TabSlot>
-        <ChatPartSlot chatId={chatId} part="tabs" className="contents" />
-      </TabStripShell>
-      <ChatSlot chatId={chatId} className="flex min-h-0 min-w-0 flex-1 flex-col" />
-      {/* 对话的输入框选了「新任务 / 定时任务」:那个框收起,这里换上对应的框(结果回这个对话)。 */}
-      <ComposerVerbDock chatId={chatId} />
-    </>
+    <ChatPanes
+      chatId={chatId}
+      blockId={blockId}
+      reserveShellRestoreLane={corners.topLeft && !isLeftOpen}
+      actionsSlot={
+        <TabBarActionRow atWindowEdge={corners.topRight}>
+          <ChatPartSlot chatId={chatId} part="actions" className="flex items-center" />
+          {screenLayout.order.length > 1 ? <CloseBlockButton blockId={blockId} /> : null}
+        </TabBarActionRow>
+      }
+      chip={({ tab, host }) => (
+        <ChatTabChip
+          tab={tab}
+          host={host}
+          focused={focused}
+          data-chat-block-tab={chatId}
+          label={translate('sidebar.chats')}
+          labelSlot={<ChatPartSlot chatId={chatId} part="title" className="flex min-w-0 flex-1" />}
+          menu={<ChatTabMenuItems chatId={chatId} />}
+        />
+      )}
+      body={
+        <>
+          <ChatSlot chatId={chatId} className="flex min-h-0 min-w-0 flex-1 flex-col" />
+          {/* 对话的输入框选了「新任务 / 定时任务」:那个框收起,这里换上对应的框(结果回这个对话)。 */}
+          <ComposerVerbDock chatId={chatId} />
+        </>
+      }
+    />
   );
 });
 
@@ -262,6 +262,58 @@ const AppBlock = observer(function AppBlock({ blockId, tabKind }: { blockId: str
       </TabStripShell>
       <div className="min-h-0 flex-1">
         <ExtensionSharedSlot tabKind={tabKind} tabId={`screen:${blockId}`} />
+      </div>
+    </>
+  );
+});
+
+/**
+ * 一个对话里的一张 App 页单独占一块(从那个对话的页签条上拖到一块的边上、页签右键「单独一块」):和 App 那一块一样摆,
+ * 页仍是那个对话的那张(context 里还是那个群,一辈子不换群,摩擦单 F48)。× = 放回那个对话的页签条。
+ */
+const ChatAppBlock = observer(function ChatAppBlock({ blockId, content }: { blockId: string; content: Extract<ScreenBlockContent, { kind: 'chat-app' }> }) {
+  const { translate } = useSessionMessages();
+  const { isLeftOpen } = useWorkspaceLayoutContext();
+  const { chatId, tabKind, itemId, title } = content;
+  const contribution = installedExtensionsStore.allTabContributions.find((entry) => entry.kind === tabKind);
+  const slot = `screen:${blockId}`;
+  const { label, tooltip } = extensionTabTitle(extensionSurfaceStore.said(null, slot), itemId ? title : (installedExtensionsStore.tabTitle(tabKind) ?? title));
+  const corners = screenLayout.corners(blockId);
+  const multi = screenLayout.order.length > 1;
+  const putBack = () => {
+    closeScreenBlock(blockId);
+    openPanelItem(chatId, { kind: tabKind, title, ...(itemId ? { itemId, fileName: title } : {}) });
+  };
+  return (
+    <>
+      <TabStripShell
+        reserveShellRestoreLane={corners.topLeft && !isLeftOpen}
+        leadingSlot={
+          <BlockGrip
+            label={translate('screen.gripApp')}
+            onDragStart={(event) => setDraggedScreenContent(event.dataTransfer, content, event.currentTarget.closest<HTMLElement>('.session-tab-bar'))}
+          />
+        }
+        actionsSlot={
+          <TabBarActionRow atWindowEdge={corners.topRight}>
+            {multi ? <CloseBlockButton blockId={blockId} /> : null}
+          </TabBarActionRow>
+        }
+      >
+        <TabSlot data-chat-app-block-tab={tabKind}>
+          <TabChip
+            isActive
+            isFocusedPane={screenLayout.focusedBlockId === blockId}
+            label={label}
+            title={tooltip}
+            preSlot={<ExtensionMark iconDataUrl={contribution?.iconDataUrl} />}
+            closeLabel={translate('task.closeTab', { label })}
+            onClose={putBack}
+          />
+        </TabSlot>
+      </TabStripShell>
+      <div className="min-h-0 flex-1">
+        <ExtensionSharedSlot tabKind={tabKind} tabId={slot} chatId={chatId} {...(itemId ? { itemId } : {})} />
       </div>
     </>
   );

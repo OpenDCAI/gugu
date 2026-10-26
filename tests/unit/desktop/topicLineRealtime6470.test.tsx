@@ -35,6 +35,8 @@ vi.mock('../../../apps/desktop/src/lib/chat', () => ({
 }))
 
 const { useTopicSurface } = await import('../../../apps/desktop/src/hooks/useTopicSurface')
+// The topic open beside a group is its tab (chat-tabs), kept for the window: each case starts with none.
+const { closeTopicTab } = await import('../../../apps/desktop/src/session/renderer/features/chats/chat-tabs/chat-layouts')
 type Surface = ReturnType<typeof useTopicSurface>
 
 function topic(): TopicSummary {
@@ -70,6 +72,7 @@ function Probe() {
     closeRightSurfaces: () => {},
     subscribeAccountRevision,
     onCreateFailed: () => {},
+    embedded: true,
   })
   return null
 }
@@ -106,7 +109,10 @@ beforeEach(() => {
   revalidateWindow.mockReset().mockImplementation(async (ids) => ({ overlays: new Map(), mutations: new Map(), presentIds: new Set(ids) }))
   harness = createReactHarness()
 })
-afterEach(() => harness.cleanup())
+afterEach(() => {
+  harness.cleanup()
+  closeTopicTab('chat-A')
+})
 
 describe('#6470 话题里 @ agent,它读了 ⇒ 不刷新、不重进,已读当场翻', () => {
   it('被 @ 进来的 agent 进分母,它的逐条读行到达后环翻成 1/1、发送态翻成已读', async () => {

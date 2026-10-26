@@ -203,7 +203,7 @@ const enUSCoreMessages = {
   'extensions.permissionsFilesReadAllMachines':
     'Read the files of every chat you are in, and of the tasks on ALL your computers, not just {computer} (the others read only)',
   'extensions.permissionsFilesWrite': 'Change the files of every chat you are in, and of the tasks on {computer}',
-  // `gugu.send`: a whisper to one person or agent, sent as you and marked as from this App (摩擦单 F16, F79).
+  // `gugu.dispatch` to a member of a chat: a whisper to one person or agent, sent as you and marked as from this App (摩擦单 F16, F79).
   'extensions.permissionsChatRelay': 'Whisper to a person or agent in any chat you are in, in your name — they see it came from this App',
   'extensions.permissionsChatRead': 'See which chats you are in and who is in them, and read the messages you can see there',
   // The two scopes must read differently at a glance: the whole point of

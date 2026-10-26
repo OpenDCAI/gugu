@@ -9,8 +9,8 @@ import { rendererLogger } from '../../lib/log'
 import { platform } from '../../platform'
 import { getRendererAccessToken } from '../../lib/sessionPublication'
 import { AppFileError, contentTypeOf, createAppFiles, rosterMoved, tooLargeError, type ChatFileRef, type FileSurface, type MemberChange } from '../../session/shared/extensions/app-files-core'
-import { AppSendError, composeInChat, composeNamesPlace, createAppSend, pickComposePlace, type AppSendPlatform } from '../../session/shared/extensions/app-send-core'
-import { pickComposeTarget } from '../chat/composeTargetAsk'
+import { AppSendError, dispatchFromApp, type AppSendPlatform } from '../../session/shared/extensions/app-send-core'
+import { pickDispatchTarget } from '../chat/dispatchAsk'
 import { chatOf, createAppMessages } from '../../session/shared/extensions/app-messages-core'
 import { createAppForum, type ForumChannel } from '../../session/shared/extensions/app-forum-core'
 import { dataClient } from '../../lib/supabase'
@@ -154,7 +154,7 @@ function appsHereNow(): ExtensionManifest[] {
   return installedExtensionsStore.manifests.filter((manifest) => installedExtensionsStore.isEnabled(manifest.id))
 }
 
-/** `gugu.send` (摩擦单 F16) and `gugu.compose`: the desktop's answers (`app-send-core.ts`), as the person signed in to this page. */
+/** `gugu.dispatch` (15): the desktop's answer (`app-send-core.ts`), as the person signed in to this page. */
 const sendPlatform: AppSendPlatform = {
   async account() {
     const token = getRendererAccessToken()
@@ -163,7 +163,6 @@ const sendPlatform: AppSendPlatform = {
     return { token, userId }
   },
 }
-const sendFromApp = createAppSend(sendPlatform)
 /** `gugu.messages`: the desktop's answer (`app-messages-core.ts`), as the person signed in to this page. */
 const messagesForApp = createAppMessages(sendPlatform)
 /** A forum channel on this page's realtime client (signed in as the person; re-subscribed when it drops). */
@@ -561,9 +560,20 @@ export function hostAppFrame(
       }
       case 'clipboardWriteText':
         return navigator.clipboard.writeText(pageArgument('clipboardWriteText', args))
-      case 'send':
-        // A whisper in the person's name, via this App, in the chat the call names (F16).
-        return sendFromApp(hosted.binding.extensionId, { to: args.to, text: args.text, chat: args.chat, refs: args.refs, about: args.about })
+      case 'dispatch':
+        // The desktop's answer, with this page's sheet and the chat shell's composer. The person's agents are their
+        // computers': a phone does not reach them yet, so the sheet offers none and a call naming one is not found here.
+        return dispatchFromApp(
+          {
+            ...sendPlatform,
+            pick: pickDispatchTarget,
+            // Use the same capture-before-append ordering as the desktop host.
+            draftInChat: async (detail) => void document.dispatchEvent(new CustomEvent<AppComposeDetail>(APP_COMPOSE_EVENT, { detail, bubbles: true })),
+          },
+          hosted.binding.extensionId,
+          args,
+          { chat: chat ? { id: chat.id, name: chat.name, members: members ?? [] } : null, preselect: null },
+        )
       case 'messagesHistory':
         return messagesForApp.history(args)
       case 'messagesSearch':
@@ -587,7 +597,7 @@ export function hostAppFrame(
       case 'forumBlock':
         return forumForApp.block(args.userId, args.on)
       case 'forumAssign':
-        return forumForApp.assignDraft(args.postId, args.agentId).then((draft) => askForumConsent({ type: 'assign', draft }))
+        return forumForApp.assign(args.postId, args.agentId, pickDispatchTarget)
       case 'forumPost':
         return args.bounty === undefined || args.bounty === null
           ? forumForApp.postPlain(args)
@@ -604,19 +614,6 @@ export function hostAppFrame(
         forumWatches.get(target)?.()
         forumWatches.delete(target)
         return Promise.resolve(undefined)
-      }
-      case 'compose': {
-        // Into the composer of the chat the call names, as on the desktop (the chat shell takes it): the person sends it.
-        // A phone has no sessions: one named is not here. Naming none, the person picks a chat in the shell's sheet.
-        if (args.session !== undefined && args.session !== null) refused('not-found', 'No sessions on the phone')
-        return (async () => {
-          const picked = composeNamesPlace(args) ? null : await pickComposePlace(args, () => pickComposeTarget({ tasks: false, current: null }))
-          if (picked && 'cancelled' in picked) return picked
-          const detail = await composeInChat(sendPlatform, { text: args.text, chat: args.chat, refs: args.refs, about: args.about, images: args.images, ...picked })
-          // Use the same capture-before-append ordering as the desktop host.
-          document.dispatchEvent(new CustomEvent<AppComposeDetail>(APP_COMPOSE_EVENT, { detail, bubbles: true }))
-          return picked ?? undefined
-        })()
       }
       case 'showMessage':
         return files.messageToShow(args as never).then((detail) => hooks.showMessage(detail))

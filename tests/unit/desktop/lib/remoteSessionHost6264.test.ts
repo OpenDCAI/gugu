@@ -159,7 +159,7 @@ describe('remote task host pipe over device RPC', () => {
     pipe.send('{"t":"hb"}')
     await flush()
     await flush()
-    expect(reasons).toEqual(['frame rejected: not_open'])
+    expect(reasons).toEqual(['frame rejected: not_open (client client00000001)'])
   })
 
   it('closes when the channel comes back after a drop (pushes in the gap are gone)', async () => {
@@ -336,7 +336,7 @@ describe('heartbeat-only batches are a liveness probe on the desktop (#156)', ()
     pipe.send('{"t":"hb"}', 'heartbeat')
     await flush()
     await flush()
-    expect(closed).toEqual(['frame not delivered'])
+    expect(closed).toEqual([`frame not delivered: Error: no reply to taskhost.frame within ${HEARTBEAT_REPLY_TIMEOUT_MS} ms (asked twice) (client client00000001)`])
   })
 
   it('no answer to the probe, but the machine was heard from meanwhile: the link stays (it is busy, not gone)', async () => {

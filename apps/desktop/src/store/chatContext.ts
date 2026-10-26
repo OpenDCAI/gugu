@@ -249,7 +249,7 @@ export function dropChatKey<T>(setState: Dispatch<SetStateAction<Record<string, 
   })
 }
 
-/** Text put in a composer other than by typing (a share, an App's `gugu.compose`): after the draft, on a line of its own. */
+/** Text put in a composer other than by typing (a share, an App's `gugu.dispatch` draft): after the draft, on a line of its own. */
 export function appendToDraft(draft: string, text: string): string {
   return draft.trim() ? `${draft}\n${text}` : text
 }

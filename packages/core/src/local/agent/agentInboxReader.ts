@@ -71,7 +71,7 @@ export interface AgentInboxUnreadRow {
   contentType: string | null
   toUserIds: string[] | null
   isWhisper: boolean
-  /** App 以人的名义送来的那一行(`gugu.send`,#6835):App 的 extension id。 */
+  /** App 以人的名义送来的那一行(`gugu.dispatch`,#6835):App 的 extension id。 */
   viaApp?: string | null
   /**
    * #7290 附件消息指向群文件夹的条目与版本(新式附件);条目删了 ⇒ itemId 为 null。从 pull_agent_inbox_v2 来的行一定带着

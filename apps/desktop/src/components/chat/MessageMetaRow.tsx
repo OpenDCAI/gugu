@@ -13,7 +13,7 @@ import { chatDisplayName } from '@gugu/core/shared/ui/chatModels'
 // @@@2017 — 一条消息气泡下方的**元指示行**:小号、非正文的注记(不是消息内容本身)。
 // 各类注记都渲染成气泡列(flex column,见 MessageBubble 父容器)里各自独占一行的小字:
 //   · Agent 代发 —— 对方只见 AI 发送;发送人可见具体 Agent 并跳回其对话。
-//   · App 代发 —— #6835 App 用 gugu.send 以人的名义发的消息(via_app 非空)。发送人自己看到「由『X』App 代你发送」,
+//   · App 代发 —— #6835 App 用 gugu.dispatch 以人的名义发的消息(via_app 非空)。发送人自己看到「由『X』App 代你发送」,
 //     别人(悄悄话的收件人)看到「由『X』App 代 A 发送」:不然人会以为那句是 A 亲手打的。判据只有 via_app 一个,
 //     看的人是不是发送人只决定文案;手机和桌面同一条。
 //   · 定向兜底徽标 —— **只兜底**「to_user_ids 有 X、正文却缺 @X」的旧数据(#2010 发送时一致性校验前的历史

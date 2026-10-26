@@ -64,10 +64,9 @@ vi.mock('@main/core/extensions/extension-agents', () => ({
   listAgentsForExtension: (options: { scope: 'own' | 'all' | 'all-machines' }) => listAgentsForExtension(options),
   stopAgentForExtension: (options: { agentId: string; visibleAgents: Map<string, string> }) => stopAgentForExtension(options),
 }));
-const messageAgentFromApp = vi.fn(async () => ({ id: 'm-1' }));
+const dispatchForApp = vi.fn(async () => ({ to: { agent: LANE_A }, id: 'm-1' }));
 vi.mock('@main/core/extensions/extension-send', () => ({
-  sendFromApp: vi.fn(),
-  messageAgentFromApp: (...args: unknown[]) => messageAgentFromApp(...(args as [])),
+  dispatchForApp: (...args: unknown[]) => dispatchForApp(...(args as [])),
 }));
 const warn = vi.fn();
 vi.mock('@main/lib/logger', () => ({ log: { warn: (...args: unknown[]) => warn(...args), error: vi.fn(), info: vi.fn() } }));
@@ -85,7 +84,7 @@ beforeEach(async () => {
   visibleAgentsForExtension.mockClear();
   listAgentsForExtension.mockClear();
   stopAgentForExtension.mockClear();
-  messageAgentFromApp.mockClear();
+  dispatchForApp.mockClear();
   warn.mockClear();
   await bindExtensionSurface({ webContentsId: TAB, extensionId: 'keeper', sessionId: 'task-1', tabId: 'tab-1', tabKind: 'keeper.main' });
 });
@@ -128,15 +127,17 @@ describe('the background page lists agents as every page does (L12)', () => {
 });
 
 describe('the background page drives the agents it may see', () => {
-  it('messageAgent: the agent it names, told directly — the door asked for agents:control', async () => {
-    expect(await call(BACKGROUND, 'messageAgent', { agentId: LANE_A, text: 'keep warm' })).toEqual({
+  it('dispatch to an agent it names: told directly — the door asked for agents:control; no target is a page\'s (its sheet)', async () => {
+    expect(await call(BACKGROUND, 'dispatch', { to: { agent: LANE_A }, text: 'keep warm' })).toEqual({
       ok: false,
       code: 'denied',
       message: 'Not permitted: this App does not have "agents:control"',
     });
     granted.add('agents:control:all');
-    expect(await call(BACKGROUND, 'messageAgent', { agentId: LANE_A, text: 'keep warm' })).toEqual({ ok: true, value: { id: 'm-1' } });
-    expect(messageAgentFromApp).toHaveBeenCalledWith('keeper', { agentId: LANE_A, text: 'keep warm' }, {});
+    expect(await call(BACKGROUND, 'dispatch', { to: { agent: LANE_A }, text: 'keep warm' })).toEqual({ ok: true, value: { to: { agent: LANE_A }, id: 'm-1' } });
+    expect(dispatchForApp).toHaveBeenCalledWith('keeper', { to: { agent: LANE_A }, text: 'keep warm' }, { chat: null, session: null }, expect.objectContaining({ pick: expect.any(Function) }));
+    // The background page has no gesture, so never the sheet.
+    expect(await call(BACKGROUND, 'dispatch', { text: 'keep warm' })).toMatchObject({ ok: false, code: 'denied', message: expect.stringContaining('gesture') });
   });
 
   it('stopAgent by user:<uuid>; the narrow tier does not reach an agent it did not start', async () => {

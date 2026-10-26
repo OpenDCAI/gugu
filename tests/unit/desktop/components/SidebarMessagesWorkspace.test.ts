@@ -28,7 +28,7 @@ async function clickMessages() {
 }
 
 describe('Messages returns to the shared screen', () => {
-  const contents: ScreenBlockContent[] = [
+  const contents: Exclude<ScreenBlockContent, { kind: 'chat-app' }>[] = [
     { kind: 'chat', chatId: 'chat-1' },
     { kind: 'project', projectId: 'project-1' },
     { kind: 'session', projectId: 'project-1', sessionId: 'session-1' },

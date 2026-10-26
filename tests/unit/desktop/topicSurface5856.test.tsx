@@ -46,6 +46,8 @@ vi.mock('../../../apps/desktop/src/lib/chatMessageWriter', () => ({
 }))
 
 const { useTopicSurface } = await import('../../../apps/desktop/src/hooks/useTopicSurface')
+// The topic open beside a group is its tab (chat-tabs), kept for the window: each case starts with none.
+const { closeTopicTab } = await import('../../../apps/desktop/src/session/renderer/features/chats/chat-tabs/chat-layouts')
 type Surface = ReturnType<typeof useTopicSurface>
 
 function topic(overrides: Partial<TopicSummary> = {}): TopicSummary {
@@ -82,6 +84,7 @@ function Probe({ chatKind = 'group' }: { chatKind?: 'group' | 'topic' }) {
     closeRightSurfaces: () => {},
     subscribeAccountRevision,
     onCreateFailed,
+    embedded: true,
   })
   return null
 }
@@ -104,7 +107,10 @@ beforeEach(() => {
   sendScopedMessage.mockReset().mockResolvedValue('client-id')
   harness = createReactHarness()
 })
-afterEach(() => harness.cleanup())
+afterEach(() => {
+  harness.cleanup()
+  closeTopicTab('chat-A')
+})
 
 async function mount() {
   await renderWithAppProviders(harness, createNode(Probe, {}), { chat: sendingFixture() })

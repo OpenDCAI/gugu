@@ -1202,7 +1202,7 @@ async function spawnModelSelection(
 }
 
 /**
- * `gugu.spawnAgent(prompt, { title, harness, model, transport, project, chat })`: an App starts a session of its own as the
+ * `gugu.dispatch(prompt, { to: { new: true }, spawn })`: an App starts a session of its own as the
  * person starts one — where it names (`project`: an id, or a folder here; none: this machine's home project), on what it
  * names (`harness`, `model`, `transport`, the words `session_spawn` takes), else as the person's new session would be
  * (`newSessionEngine`, `newSessionMemory`); born in `chat` when it names one. The one spawn core `session_spawn` uses; the first turn is
@@ -1815,7 +1815,7 @@ async function sendSessionMessage(
 }
 
 /**
- * 不是会话的发信方(这台电脑上的 App:不在 chat 里的 `gugu.send`)告诉一条会话一件事:与
+ * 不是会话的发信方(这台电脑上的 App:不在 chat 里的 `gugu.dispatch`)告诉一条会话一件事:与
  * `session_message` 的 `session:` 腿同一条投递 —— 收不进就照常唤醒(停过的、被回收的,带着历史接回来)再投。
  * 发起方会话只在 agent 操作 App 页面时有(`from`,它不能发给自己);否则与别的机器上的发起方一样是 null。信封由发信方
  * 那一侧给,这里只管投。送达回 message id,否则带原因抛。
