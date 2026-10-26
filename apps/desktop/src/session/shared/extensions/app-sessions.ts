@@ -1,8 +1,9 @@
 import type { ImportedTranscript, LocalTranscriptSession, TranscriptContext, TranscriptSource } from '@gugu/core/shared/types/transcripts';
 
 /** External CLI history uses the host's source IDs and parser, including its exclusion of subagents. */
-export type AppSessionIndexOptions = { project?: string; source?: TranscriptSource; offset?: number; limit?: number; device?: string };
-export type AppSessionIndex = { rows: Array<LocalTranscriptSession & { group: { key: string | null; label: string | null } }>; total: number; pending: number; stale: boolean; nextOffset: number | null };
+export type AppSessionGroup = { key: string | null; label: string | null; repositoryUrl?: string };
+export type AppSessionIndexOptions = { project?: string; source?: TranscriptSource; offset?: number; limit?: number; device?: string; groupPaths?: string[] };
+export type AppSessionIndex = { rows: Array<LocalTranscriptSession & { group: AppSessionGroup }>; groups: Array<{ path: string; group: AppSessionGroup }>; total: number; pending: number; stale: boolean; nextOffset: number | null };
 export type AppSessionReadOptions = { filePath: string; source: TranscriptSource; offset?: number; limit?: number; view?: 'conversation' | 'context'; device?: string };
 export type AppSessionTranscript = ImportedTranscript & { total: number; nextOffset: number | null };
 export type AppSessionRead = AppSessionTranscript | TranscriptContext;

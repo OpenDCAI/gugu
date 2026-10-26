@@ -276,9 +276,11 @@ export const EXTENSION_GUIDE_SESSIONS = `# External session history and observed
 
 Needs \`agents:history:all\` (API 17, including external CLI sessions):
 
-- \`gugu.sessions.index({ project?, source?, offset?, limit?, device? })\` →
-  \`{ rows, total, pending, stale, nextOffset }\`. Rows: \`{ source, providerSessionId, title, cwd, updatedAt, sizeBytes, filePath, group: { key, label } }\`.
+- \`gugu.sessions.index({ project?, source?, offset?, limit?, device?, groupPaths? })\` →
+  \`{ rows, groups, total, pending, stale, nextOffset }\`. Rows: \`{ source, providerSessionId, title, cwd, updatedAt, sizeBytes, filePath, group: { key, label, repositoryUrl? } }\`.
   Grouping matches task history: repository/worktree, registered project, or \`gugu:task-home\` for standalone tasks; unknown cwd has a null key.
+  \`groupPaths\` accepts absolute directories, including zero-task paths; \`groups:[{path,group}]\` uses the same grouping.
+  \`repositoryUrl\` is the normalized origin from registered project remotes or native Git; absent means no cross-machine repository identity.
   Sources are \`claude-code\` / \`codex\`; subagents are excluded by the host's import parser.
   \`project\` is a project id or absolute cwd on that machine, matched exactly; worktrees are separate.
   \`pending > 0\`: indexing is incomplete; call again. Page with offset/limit; default 100 rows.
