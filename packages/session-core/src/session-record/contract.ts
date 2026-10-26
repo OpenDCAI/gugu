@@ -119,6 +119,7 @@ export const RECORD_KEY_BOUNDARY_SUFFIX = '#end';
  *   qwen     → `system/branch_checkpoint`(ACP 腿上以 `end_turn` 结束才写;终端腿没有结束记号)
  *   pi       → assistant 消息的 `stopReason`（`toolUse` 同 claude 的 `tool_use`;`aborted` = 打断）
  */
+/** The ending message ID also identifies fragments recorded after that end. */
 export type RecordBoundary = { messageId?: string } & (
   /** 正常收尾。`stopReason` 是 provider 自己的说法，映射到 ACP 的那五种。 */
   | { kind: 'turn_end'; stopReason?: 'end_turn' | 'max_tokens' | 'max_turn_requests' | 'refusal' }
