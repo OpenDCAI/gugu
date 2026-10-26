@@ -121,11 +121,14 @@ div.gg-phone-capability-sheet-body { display: flex; flex-direction: column; min-
   background: var(--bg);
 }
 .gg-phone-setup-header { position: relative; flex: none; padding: max(24px, env(safe-area-inset-top)) var(--spacing-2xl) var(--spacing-lg); text-align: center; }
-.gg-phone-setup-close { position: absolute; top: max(12px, env(safe-area-inset-top)); right: var(--spacing-md); border-radius: var(--radius-circle); }
+.gg-phone-setup-progress { display: flex; gap: var(--spacing-lg); margin: 0 0 var(--spacing-lg); padding: 0; list-style: none; text-align: left; color: var(--muted-fg); font-size: var(--font-caption); line-height: var(--lh-body); }
+.gg-phone-setup-progress > li { flex: 1; padding-bottom: var(--spacing-sm); border-bottom: 1px solid var(--border); }
+.gg-phone-setup-progress > li[aria-current='step'] { color: var(--fg); border-color: var(--fg); }
 .gg-phone-setup-heading { margin: 0; color: var(--fg); font-size: var(--font-size-xl); line-height: var(--lh-page); font-weight: var(--font-weight-semibold); }
+.gg-phone-setup-heading:focus { outline: none; }
 .gg-phone-setup-header > p { margin: var(--spacing-xs) 0 0; color: var(--muted-fg); font-size: var(--font-body); line-height: var(--lh-body); }
 .gg-phone-setup-summary { margin-top: var(--spacing-md); color: var(--muted-fg); font-size: var(--font-caption); line-height: var(--lh-body); }
-div.gg-phone-setup-body { display: flex; flex: 1 1 auto; flex-direction: column; gap: var(--spacing-2xl); min-height: 0; padding: 0 var(--spacing-xl) var(--spacing-2xl); overflow-y: auto; overscroll-behavior: contain; }
+div.gg-phone-setup-body { display: flex; flex: 1 1 auto; flex-direction: column; gap: var(--spacing-2xl); min-height: 0; padding: 0 var(--spacing-xl) var(--spacing-2xl); overflow-y: auto; overflow-anchor: none; overscroll-behavior: contain; }
 .gg-phone-setup-body > * { flex: none; }
 .gg-phone-setup-section > h3 { margin: 0 0 var(--spacing-sm); color: var(--muted-fg); font-size: var(--font-body); line-height: var(--lh-body); font-weight: var(--font-weight-medium); }
 .gg-phone-setup-fields { display: flex; flex-direction: column; gap: var(--spacing-sm); }
@@ -149,8 +152,16 @@ div.gg-phone-setup-body { display: flex; flex: 1 1 auto; flex-direction: column;
 .gg-phone-setup .gg-settings-card > .gg-phone-setup-field + .gg-phone-setup-field { margin-top: var(--spacing-sm); }
 .gg-phone-setup .gg-phone-capabilities .gg-section-label { color: var(--muted-fg); font-size: var(--font-body); }
 .gg-phone-setup .gg-phone-capabilities .gg-settings-note { font-size: var(--phone-font-note); }
-.gg-phone-setup-footer { display: flex; flex: none; flex-direction: column; gap: var(--spacing-sm); padding: var(--spacing-md) var(--spacing-xl) var(--spacing-lg); background: var(--bg); border-top: 1px solid var(--border); }
-.gg-phone-setup-footer > [data-slot='button'] { width: 100%; min-height: 56px; border-radius: var(--phone-setup-pill); font-size: var(--font-prose); font-weight: var(--font-weight-medium); }
+.gg-phone-setup-footer { display: flex; flex: none; flex-direction: column; gap: var(--spacing-sm); padding: var(--spacing-md) var(--spacing-xl) var(--spacing-lg); background: var(--bg); }
+.gg-phone-setup-navigation { display: flex; gap: var(--spacing-md); align-items: center; }
+.gg-phone-setup-back[data-slot='icon-button'] { flex: none; min-width: 56px; min-height: 56px; border-radius: var(--radius-circle); color: var(--fg); }
+.gg-phone-setup-navigation > [data-slot='button'] { flex: 1; min-height: 56px; border-radius: var(--phone-setup-pill); font-size: var(--font-prose); font-weight: var(--font-weight-medium); }
+.gg-phone-setup-review .gg-phone-setup-field { border: 0; border-bottom: 1px solid var(--border); border-radius: 0; background: transparent; }
+.gg-phone-setup-review .gg-phone-setup-field-main { min-height: 48px; padding: var(--spacing-sm) 0; }
+.gg-phone-setup-review .gg-phone-setup-field-title { font-weight: var(--font-weight-regular); }
+.gg-phone-setup-review .gg-phone-capability-status { text-align: right; max-width: 50vw; }
+.gg-phone-setup-review .gg-phone-setup-host-summary .gg-phone-setup-field-main { grid-template-columns: auto minmax(0, 1fr); }
+.gg-phone-setup-review .gg-settings-card > .gg-phone-setup-field + .gg-phone-setup-field { margin-top: 0; }
 .gg-phone-setup-unavailable { justify-content: center; padding: var(--spacing-2xl); }
 @media (max-width: 359px) {
   div.gg-phone-setup-body, .gg-phone-setup-footer { padding-inline: var(--spacing-lg); }

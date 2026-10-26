@@ -13,7 +13,7 @@ const PURPOSES: Record<SystemPermission, string> = { notifications: '接收任�
 const SETTINGS_LABELS: Record<SystemPermission, string> = { notifications: '前往通知设置', batteryOptimization: '前往电池设置', camera: '前往相机设置', fileAccess: '前往文件设置' }
 
 /** Opening and skipping only read state. The primary action explicitly requests permission. */
-export function PhoneAgentSetupPermission({ permission, state, onRefresh }: { permission: SystemPermission; state: SystemPermissionState | undefined; onRefresh: () => Promise<void> }) {
+export function PhoneAgentSetupPermission({ permission, state, onRefresh, summary }: { permission: SystemPermission; state: SystemPermissionState | undefined; onRefresh: () => Promise<void>; summary?: boolean }) {
   const [pending, setPending] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const act = async () => {
@@ -34,11 +34,11 @@ export function PhoneAgentSetupPermission({ permission, state, onRefresh }: { pe
   return (
     <div className="gg-phone-setup-field" data-state={granted ? 'granted' : undefined}>
       <div className="gg-phone-setup-field-main">
-        <div className="gg-phone-setup-field-copy"><span className="gg-phone-setup-field-title">{TITLES[permission]}</span><span className="gg-phone-setup-field-purpose">{PURPOSES[permission]}</span></div>
-        {granted ? <span className="gg-phone-setup-field-status" role="status">已开启</span> : <Button size="sm" variant="secondary" disabled={pending} data-testid={`phone-setup-${permission}`}
+        <div className="gg-phone-setup-field-copy"><span className="gg-phone-setup-field-title">{TITLES[permission]}</span>{!summary && <span className="gg-phone-setup-field-purpose">{PURPOSES[permission]}</span>}</div>
+        {granted || summary ? <span className="gg-phone-setup-field-status" role="status">{granted ? '已开启' : !state || state === 'unreadable' ? '状态未知' : '未开启'}</span> : <Button size="sm" variant="secondary" disabled={pending} data-testid={`phone-setup-${permission}`}
           onClick={() => void act()}>{pending ? '正在设置' : state === 'blocked' ? SETTINGS_LABELS[permission] : LABELS[permission]}</Button>}
       </div>
-      {error && <SettingsNote role="alert" tone="danger">{error}</SettingsNote>}
+      {!summary && error && <SettingsNote role="alert" tone="danger">{error}</SettingsNote>}
     </div>
   )
 }

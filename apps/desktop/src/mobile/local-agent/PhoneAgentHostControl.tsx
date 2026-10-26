@@ -7,7 +7,7 @@ import { phoneAgentAvailable } from './nativeAgent'
 import '../phone-device/phone-device.css'
 
 /** Hosting is a device setting; Agent creation and conversations stay in their existing flows. */
-export function PhoneAgentHostControl({ ownerId, setup }: { ownerId: string; setup?: boolean }) {
+export function PhoneAgentHostControl({ ownerId, setup, summary }: { ownerId: string; setup?: boolean; summary?: boolean }) {
   const phone = usePhoneDevice()
   const settings = usePhoneDeviceSettings(ownerId)
   const [changing, setChanging] = useState<'stop' | 'restart' | null>(null)
@@ -43,6 +43,15 @@ export function PhoneAgentHostControl({ ownerId, setup }: { ownerId: string; set
   }
 
   if (!phoneAgentAvailable()) return null
+
+  if (summary) return (
+    <div className="gg-phone-setup-field gg-phone-setup-host-summary">
+      <div className="gg-phone-setup-field-main">
+        <span className="gg-phone-setup-field-title">手机 Agent</span>
+        <span className="gg-phone-capability-status" role="status">{statusText}</span>
+      </div>
+    </div>
+  )
 
   if (setup) return (
     <div className="gg-phone-setup-field" data-state={ready ? 'granted' : undefined}>

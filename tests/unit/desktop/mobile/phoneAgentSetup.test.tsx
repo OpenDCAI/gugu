@@ -83,6 +83,37 @@ describe('phone permission form', () => {
     expect(mocks.request).not.toHaveBeenCalled(); expect(mocks.runtimeRequest).not.toHaveBeenCalled(); expect(mocks.nativeSettings).not.toHaveBeenCalled()
   })
 
+  it('uses the reference back and next controls, reviews real choices, and returns without losing them', async () => {
+    const owner = 'form-review-navigation-owner'
+    mocks.check.mockImplementation(async (permission) => permission === 'notifications' ? 'granted' : permission === 'camera' ? 'unreadable' : 'prompt')
+    await renderGate(owner)
+    expect(document.querySelector('.gg-phone-setup-navigation')?.querySelectorAll('button').length).toBe(2)
+    expect(document.querySelector('[aria-current="step"]')?.textContent).toBe('1 授权设置')
+    expect(byId('phone-agent-setup-finish')).toBeNull()
+    await clickElement(byId('phone-setup-connect-calendar')!)
+    const requests = mocks.runtimeRequest.mock.calls.length
+    await clickElement(byId('phone-agent-setup-next')!)
+    expect(byId('phone-agent-setup-review')).not.toBeNull()
+    expect(document.querySelector('[aria-current="step"]')?.textContent).toBe('2 确认设置')
+    expect(byId('phone-agent-setup-review')?.querySelector('button')).toBeNull()
+    expect(byId('phone-agent-setup-review')?.textContent).toContain('消息提醒已开启')
+    expect(byId('phone-agent-setup-review')?.textContent).toContain('相机状态未知')
+    expect(byId('phone-setup-group-calendar')?.textContent).toContain('已选择，尚缺系统授权')
+    expect(mocks.runtimeRequest).toHaveBeenCalledTimes(requests)
+    expect(mocks.request).not.toHaveBeenCalled()
+    expect(readPhoneAgentSetup(owner, phoneInstallId(mocks.installKey)).completed).toBe(false)
+    await clickElement(document.querySelector<HTMLElement>('[aria-label="返回授权设置"]')!)
+    expect(byId('phone-agent-setup-review')).toBeNull()
+    expect(readPhoneDeviceSettings(owner).groups.calendar).toBe(true)
+    expect(byId('phone-setup-capability-calendar')).not.toBeNull()
+    expect(byId('phone-setup-notifications')).toBeNull()
+    await clickElement(byId('phone-agent-setup-next')!)
+    await clickElement(byId('phone-agent-setup-finish')!)
+    expect(document.querySelector('[role="dialog"]')).toBeNull()
+    expect(readPhoneAgentSetup(owner, phoneInstallId(mocks.installKey)).completed).toBe(true)
+    expect(mocks.runtimeRequest).toHaveBeenCalledTimes(requests)
+  })
+
   it('enables hosting only after the explicit host action and never grants phone data with it', async () => {
     const owner = 'form-host-opt-in-owner'
     await renderGate(owner)
@@ -96,6 +127,7 @@ describe('phone permission form', () => {
   it('completion does not enable unchecked choices or request any permissions', async () => {
     const owner = 'form-optional-owner'
     await renderGate(owner)
+    await clickElement(byId('phone-agent-setup-next')!)
     await clickElement(byId('phone-agent-setup-finish')!)
     expect(document.querySelector('[role="dialog"]')).toBeNull()
     expect(readPhoneAgentSetup(owner, phoneInstallId(mocks.installKey)).completed).toBe(true)
@@ -106,7 +138,7 @@ describe('phone permission form', () => {
   it('remembers dismissal on this installation and shows a new phone the ungranted form', async () => {
     const owner = 'form-skip-install-owner'
     const first = await renderGate(owner)
-    await clickElement(document.querySelector<HTMLElement>('[aria-label="关闭设置"]')!)
+    await clickElement(document.querySelector<HTMLElement>('[aria-label="返回咕咕"]')!)
     first.cleanup(); active.splice(active.indexOf(first), 1)
     const same = await renderGate(owner)
     await waitForCondition(() => byId('main-product')?.dataset.owner === owner, 'installation loaded')
@@ -136,7 +168,7 @@ describe('phone permission form', () => {
     const harness = await renderGate(previous)
     await waitForCondition(() => byId('main-product')?.dataset.owner === previous, 'previous binding ready')
     await act(async () => { openPhoneAgentSetup(previous); openPhoneAgentSetup(previous) })
-    await clickElement(document.querySelector<HTMLElement>('[aria-label="关闭设置"]')!)
+    await clickElement(document.querySelector<HTMLElement>('[aria-label="返回咕咕"]')!)
     await harness.render(createNode(PhoneAgentSetupGate, { ownerId: current, children: createElement(Product) }))
     await waitForCondition(() => byId('main-product')?.dataset.owner === current, 'current binding ready')
     expect(document.querySelector('[role="dialog"]')).toBeNull()
@@ -182,7 +214,7 @@ describe('phone permission form', () => {
     await clickElement(byId('phone-setup-notifications')!)
     expect(document.querySelector('[role="alert"]')?.textContent).toContain('系统的应用设置里找到咕咕')
     expect(document.querySelector('[role="alert"]')?.textContent).not.toContain('稍后重试')
-    expect(byId('phone-agent-setup-finish')?.hasAttribute('disabled')).toBe(false)
+    expect(byId('phone-agent-setup-next')?.hasAttribute('disabled')).toBe(false)
   })
 
   it('connects only the explicit capability and does not restore disabled choices', async () => {
@@ -202,6 +234,7 @@ describe('phone permission form', () => {
     await renderGate('form-unreadable-capability-owner')
     await waitForCondition(() => byId('phone-setup-connect-calendar')?.hasAttribute('disabled') === true, 'safe disabled connection')
     expect(mocks.runtimeRequest).not.toHaveBeenCalled()
+    await clickElement(byId('phone-agent-setup-next')!)
     await clickElement(byId('phone-agent-setup-finish')!)
     expect(document.querySelector('[role="dialog"]')).toBeNull()
   })
@@ -249,6 +282,7 @@ describe('phone permission form', () => {
       if (key.startsWith('gugu.phoneAgentSetup.v1:')) throw new Error('storage unavailable')
       setItem.call(this, key, value)
     })
+    await clickElement(byId('phone-agent-setup-next')!)
     await clickElement(byId('phone-agent-setup-finish')!)
     expect(document.querySelector('[role="alert"]')?.textContent).toContain('storage unavailable')
     expect(readPhoneAgentSetup(owner, phoneInstallId(mocks.installKey)).completed).toBe(false)

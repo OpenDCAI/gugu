@@ -26,7 +26,7 @@ const SETUP_PURPOSES: Record<PhoneActionGroup, string> = {
 
 export function PhoneCapabilityRow({ group, connected, os, readState, busy, error, testPrefix, onAction, onRetry, presentation = 'sheet' }: {
   group: PhoneActionGroup
-  presentation?: 'sheet' | 'inline'
+  presentation?: 'sheet' | 'inline' | 'summary'
   connected: boolean
   os: PhoneOsState | null
   readState: PhoneCapabilityReadState
@@ -61,6 +61,14 @@ export function PhoneCapabilityRow({ group, connected, os, readState, busy, erro
   const openSettings = (target: PhoneSettingsTarget, name: string) => onAction({ kind: 'settings', target, name })
   const detailsId = `${testPrefix}-details-${group}`
   const connect = () => { if (presentation === 'inline') setOpen(true); onAction({ kind: 'connect' }) }
+  if (presentation === 'summary') return (
+    <div className="gg-phone-setup-field" data-testid={`${testPrefix}-group-${group}`}>
+      <div className="gg-phone-setup-field-main">
+        <span className="gg-phone-setup-field-title">{title}</span>
+        <span className="gg-phone-capability-status" data-tone={tone} role="status">{status}</span>
+      </div>
+    </div>
+  )
   const connection = connected ? (
     <Button size="sm" variant="ghost" disabled={busy !== null} aria-label={`${title}，断开连接`} data-testid={`${testPrefix}-disconnect-${group}`} onClick={() => onAction({ kind: 'disconnect' })}>
       {t('devices.deviceActions.disconnect')}

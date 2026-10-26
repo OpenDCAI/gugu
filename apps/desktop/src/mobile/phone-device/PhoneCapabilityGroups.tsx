@@ -19,7 +19,7 @@ import './phone-device.css'
 const log = rendererLogger('mobile/phone-capabilities')
 
 /** The settings page and installation guide share both permission actions and their real OS state. */
-export function PhoneCapabilityGroups({ ownerId, context = 'settings', presentation = 'sheet' }: { ownerId: string; context?: 'settings' | 'setup'; presentation?: 'sheet' | 'inline' }) {
+export function PhoneCapabilityGroups({ ownerId, context = 'settings', presentation = 'sheet' }: { ownerId: string; context?: 'settings' | 'setup'; presentation?: 'sheet' | 'inline' | 'summary' }) {
   const { t } = useTranslation('settings')
   const settings = usePhoneDeviceSettings(ownerId)
   const reportChoice = usePhonePermissionReporter(ownerId)
@@ -76,7 +76,7 @@ export function PhoneCapabilityGroups({ ownerId, context = 'settings', presentat
 
   return (
     <div className="gg-phone-capabilities">
-      <SettingsGroup title="手机能力" note={presentation === 'inline' ? '仅连接你要用的能力，系统会逐项询问。' : '按需连接，你自己的 Agent 才能使用。随时可以关闭。'}>
+      <SettingsGroup title="手机能力" note={presentation === 'summary' ? undefined : presentation === 'inline' ? '仅连接你要用的能力，系统会逐项询问。' : '按需连接，你自己的 Agent 才能使用。随时可以关闭。'}>
         {PHONE_ACTION_GROUPS.map((group) => (
           <PhoneCapabilityRow
             key={group}
@@ -93,13 +93,13 @@ export function PhoneCapabilityGroups({ ownerId, context = 'settings', presentat
           />
         ))}
       </SettingsGroup>
-      {readState === 'failed' && (
+      {presentation !== 'summary' && readState === 'failed' && (
         <div className="gg-phone-permission-feedback" role="alert">
           <SettingsNote tone="danger">读取系统权限失败，暂时无法连接或授权。</SettingsNote>
           <Button size="sm" variant="ghost" onClick={() => void refresh()}>重试</Button>
         </div>
       )}
-      <div className="gg-phone-capability-details">
+      {presentation !== 'summary' && <div className="gg-phone-capability-details">
         <Button variant="ghost" size="sm" aria-haspopup="dialog" onClick={() => setDetailsOpen(true)}>
           权限与使用说明
           <ChevronRight className="size-4" aria-hidden="true" />
@@ -116,7 +116,7 @@ export function PhoneCapabilityGroups({ ownerId, context = 'settings', presentat
             </div>
           </div>
         </Sheet>}
-      </div>
+      </div>}
     </div>
   )
 }
