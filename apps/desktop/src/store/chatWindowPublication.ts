@@ -88,9 +88,11 @@ export function fetchChatHistoryPage(userId: string, getRepository?: () => Promi
     const query = { chatId, direction, cursor, limit }
     // This experiment covers room mainlines and topics; private conversations keep their existing reader.
     const retained = repository?.snapshot().chat.some((row) => row.id === chatId && isRoomChat(row.value.kind)) ? repository : undefined
-    const cached = retained ? await readHistoryPage(retained, query) : null
-    if (cached !== null) return cached
-    if (retained && !navigator.onLine) throw new HistoryNotDownloadedError()
+    if (retained && !navigator.onLine) {
+      const cached = await readHistoryPage(retained, query)
+      if (cached !== null) return cached
+      throw new HistoryNotDownloadedError()
+    }
     const rows = await (direction === 'newer' ? chatService.getMessages(chatId, userId, 'loadNewer', limit, undefined, cursor)
       : direction === 'older' ? chatService.getMessages(chatId, userId, 'loadOlder', limit, cursor)
         : chatService.getMessages(chatId, userId, 'initialLoad', limit))

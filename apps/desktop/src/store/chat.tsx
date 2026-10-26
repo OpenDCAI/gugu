@@ -451,14 +451,14 @@ export function ChatProvider({ children, active = true }: { children: React.Reac
       if (changed && window.chatId) {
         if (direction === 'latest') cache.establishTail(window.chatId, window.messages)
         else cache.update(window.chatId, (rows) => mergeMessagesById(rows, window.messages, window.chatId!))
-        persistWindowToLocalSync(window.chatId, cache.get(window.chatId) ?? [])
+        persistWindowToLocalSync(window.chatId, cache.get(window.chatId) ?? []); if (navigator.onLine) await revalidateWindowOverlays(window.chatId)
       }
       if (direction !== 'older' && window.chatId) noteFreshMessageRead(window.chatId) // #7199 往新翻 / 回到最新成了:读得到最新的了
     } catch (err) {
       if (!isLifecycleCancellation(err)) console.error('[ChatStore] history page failed', err)
       throw err
     }
-  }, [userId, cache, noteFreshMessageRead, persistWindowToLocalSync, getImRepository])
+  }, [userId, cache, noteFreshMessageRead, persistWindowToLocalSync, getImRepository, revalidateWindowOverlays])
   const loadMessageAnchor = useCallback(async (messageId: string, targetChatId = activeChatIdRef.current, viewport?: ConversationViewport, commit?: UnreadLocatorCommit) => {
     if (!userId || !targetChatId) return
     const targetWindow = cache.history(targetChatId, viewport)
@@ -467,9 +467,9 @@ export function ChatProvider({ children, active = true }: { children: React.Reac
       const window = targetWindow.getSnapshot()
       if (!window.hasNewer) cache.establishTail(targetChatId, window.messages)
       else cache.update(targetChatId, (rows) => mergeMessagesById(rows, window.messages, targetChatId))
-      persistWindowToLocalSync(targetChatId, cache.get(targetChatId) ?? [])
+      persistWindowToLocalSync(targetChatId, cache.get(targetChatId) ?? []); if (navigator.onLine) await revalidateWindowOverlays(targetChatId)
     }
-  }, [userId, cache, persistWindowToLocalSync, getImRepository])
+  }, [userId, cache, persistWindowToLocalSync, getImRepository, revalidateWindowOverlays])
   const markMessageVisible = useCallback((message: MessageItem) => {
     const chatId = message.chat_id
     if (!userId || !cache.isObserved(chatId)) return
