@@ -341,6 +341,8 @@ export interface IAcpBehavior {
    * 连这句都没有,只在 stderr 留一行「Agent run failed: …」(2026-09-24 实测)。
    */
   turnFailure?: {
+    /** Consumes AIR sessionFailure metadata on a completed prompt; advertising it requires this reader. */
+    fromPromptResponse?(response: PromptResponse): string | null;
     /**
      * 进程 stderr 的一行 ⇒ 失败说明;不是 ⇒ null。这一家的报错本身就说明是凭据不能用(MiMo 的
      * `Invalid API Key`)时带 `signInRequired`,界面才给得出「去登录」这一步。
