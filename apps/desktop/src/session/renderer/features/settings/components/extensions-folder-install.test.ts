@@ -37,7 +37,7 @@ const h = vi.hoisted(() => {
     installFromFolder: vi.fn(),
     uninstall: vi.fn(async () => ({ success: true })),
   };
-  return { manifest, api, clipboard: vi.fn(async () => undefined), ranking: vi.fn(async () => ({ data: [], error: null })), showConfirm: vi.fn(), pickFolder: vi.fn(async () => '/tmp/notes-next') };
+  return { manifest, api, clipboard: vi.fn(async (_text: string) => undefined), ranking: vi.fn(async () => ({ data: [], error: null })), showConfirm: vi.fn(), pickFolder: vi.fn(async () => '/tmp/notes-next') };
 });
 
 vi.mock('@/lib/supabase', () => ({ chatDb: { rpc: h.ranking } }));
@@ -628,6 +628,7 @@ describe('市场页 (#7059)', () => {
 describe('App variant switching uses the existing install consent', () => {
   let dom: JSDOM;
   let root: Root;
+  let queryClient: QueryClient;
   let active: string;
   let asks: boolean;
   const originalList = h.api.list.getMockImplementation();
@@ -652,6 +653,7 @@ describe('App variant switching uses the existing install consent', () => {
     for (const key of ['window', 'document', 'HTMLElement', 'HTMLInputElement', 'Element', 'Node', 'Event', 'navigator', 'MutationObserver'] as const) vi.stubGlobal(key, dom.window[key]);
     vi.stubGlobal('getComputedStyle', dom.window.getComputedStyle.bind(dom.window));
     root = createRoot(doc().querySelector('#root')!);
+    queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
     h.api.list.mockResolvedValue({ success: true, data: { extensions: [h.manifest('1.0.0')], invalid: [], icons: {}, disabled: [] } });
     h.api.variants.mockImplementation(async () => ({ success: true, data: { active, variants, behind: null } }));
     h.api.switchVariant.mockImplementation(async (_id: string, name: string, consent: { kind: string }) => {
@@ -663,6 +665,7 @@ describe('App variant switching uses the existing install consent', () => {
   });
   afterEach(() => {
     act(() => root.unmount());
+    queryClient.clear();
     dom.window.close();
     vi.unstubAllGlobals();
     h.api.list.mockImplementation(originalList!);
@@ -672,11 +675,16 @@ describe('App variant switching uses the existing install consent', () => {
   });
 
   async function openVariantList() {
-    await act(async () => root.render(React.createElement(SessionLocalizationProvider, null, React.createElement(ExtensionsSettingsCard))));
+    await render();
     await showInstalled(dom);
     await until('the installed Notes row', () => !!doc().querySelector('[data-testid="extension-row-notes"]'));
     await press('[data-testid="extension-row-notes"] .mk-name');
     await until('the Notes variants', () => !!doc().querySelector('[data-testid="app-variant-upstream"]'));
+  }
+
+  async function render() {
+    await act(async () => root.render(React.createElement(QueryClientProvider, { client: queryClient },
+      React.createElement(SessionLocalizationProvider, null, React.createElement(ExtensionsSettingsCard)))));
   }
 
   it('switches without a dialog when no new permission is needed, then reads the active variant again', async () => {
@@ -704,7 +712,7 @@ describe('App variant switching uses the existing install consent', () => {
   it('copies the exact upstream commit from the installed row without navigating away', async () => {
     const commit = 'c'.repeat(40);
     h.api.marketUpdates.mockResolvedValue({ success: true, data: { checkedAt: '2026-10-26T00:00:00Z', updates: {}, yanked: {}, deprecated: {}, forkBehind: { notes: { upstream: '1.2.0', behind: 2, commit } } } });
-    await act(async () => root.render(React.createElement(SessionLocalizationProvider, null, React.createElement(ExtensionsSettingsCard))));
+    await render();
     await showInstalled(dom);
     await until('the fork update prompt link', () => !!doc().querySelector('[data-testid="extension-row-notes"] .xp-link'));
     await press('[data-testid="extension-row-notes"] .xp-link');
