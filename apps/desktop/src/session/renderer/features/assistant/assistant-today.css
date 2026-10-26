@@ -226,8 +226,9 @@
 /* 电脑上底边落在右边面板的内容线上(面板 1px 边 + 16 内距):面板里开着任务聊天时,两个输入框上下齐平。 */
 .ta-chat-col [data-chat-bottom-dock] > div { padding-bottom: 17px !important; }
 .ta-chat [data-msg-id] > div { padding-inline: 16px !important; }
-/* 最后一条和输入框之间留 16px;露着「灵感」时再让出胶囊那一行(32 + 上下各 8),见下面 data-ideas-entry。 */
-.ta-chat-col [data-testid='chat-message-list'] { padding-bottom: 16px; }
+/* 消息到输入区留 16px；工具行由 dock 的实测高度统一让位，不再额外预留一行。 */
+.ta-chat-col [data-testid='chat-message-list'],
+.ta-phone-chat [data-testid='chat-message-list'] { padding-bottom: 16px; }
 /* 面板里的任务聊天:同一条边线(消息、输入框离面板内沿 16px);输入框底下也留 16,不贴面板圆角。 */
 .ta-task-chat-slot [data-msg-id] > div { padding-inline: 16px !important; }
 .ta-task-chat-slot [data-chat-bottom-dock] > div:last-child { padding-bottom: 16px !important; }
@@ -886,15 +887,14 @@ textarea.ta-input { min-height: 80px; resize: vertical; line-height: 1.5; }
 .ta-discover-compose { display: flex; flex-direction: column; gap: 8px; }
 
 /* ── 灵感:输入框右上一颗白底渐变胶囊;面板里分组的卡,一张 = emoji + 两行标题 + 两行说明。 ── */
-.ta-chat-col[data-ideas-entry] [data-testid='chat-message-list'],
-.ta-phone-chat[data-ideas-entry] [data-testid='chat-message-list'] { padding-bottom: 56px; }
+/* The dock measures this row together with the composer; an empty row has no height or gap. */
+.ta-composer-entries { display: flex; min-width: 0; align-items: center; gap: 8px; margin-bottom: 8px; }
+.ta-composer-entries:empty { display: none; }
+.ta-composer-entries > .ta-customize-card { flex: 0 1 auto; }
+.ta-composer-entries > .ta-ideas-pill { margin-inline-start: auto; flex: none; }
 .ta-phone-chat { position: relative; }
-/* 胶囊右缘 = 输入框右缘:电脑上输入框离列边 16,手机上 20。 */
-.ta-phone-chat .ta-ideas-pill { right: 20px; }
+.ta-ideas-pill { right: 20px; }
 .ta-ideas-pill {
-  position: absolute;
-  right: 16px;
-  z-index: 5;
   display: inline-flex;
   height: var(--control-h-md);
   align-items: center;
@@ -909,6 +909,7 @@ textarea.ta-input { min-height: 80px; resize: vertical; line-height: 1.5; }
   color: var(--ta-fg);
   cursor: pointer;
 }
+.ta-phone .ta-ideas-pill { height: var(--control-h-touch); }
 .ta-ideas-pill:hover { background: linear-gradient(120deg, var(--ta-tint-soft), var(--ta-tint-wash)), var(--ta-composer-bg); }
 .ta-ideas-pill svg { width: 16px; height: 16px; }
 .ta-ideas { display: flex; min-height: 0; flex-direction: column; gap: 16px; }

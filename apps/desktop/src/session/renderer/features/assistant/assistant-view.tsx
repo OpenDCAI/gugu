@@ -245,7 +245,7 @@ export const AssistantMainPanel = observer(function AssistantMainPanel() {
           </div>
           <ShellSlot name="chat" className="ta-chat" />
           <VoiceRecordingBar context={context} column={chatColumn} />
-          <AssistantIdeasLayer context={context} column={chatColumn} />
+          <AssistantIdeasLayer context={context} />
         </div>
         {filePreviewOpen ? <section className="ta-panel" data-testid="assistant-file-preview"><ShellSlot name="file-preview" className="min-h-0 flex-1" /></section> : panelOpen ? <AssistantPanel context={context} onCollapse={() => setPanelOpen(false)} /> : null}
       </div>

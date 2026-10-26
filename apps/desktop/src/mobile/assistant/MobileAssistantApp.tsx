@@ -9,7 +9,7 @@ import { SegmentedTabs } from '@/components/ui/SegmentedTabs'
 import { Avatar } from '@/components/Avatar'
 import { ChatAreaPanel } from '@/components/ChatAreaPanel'
 import { FilePreviewHost } from '@/components/chat/filePreviewHost'
-import { AssistantCustomizeCard } from '@/components/assistant/AssistantCustomizeCard'
+import { AssistantComposerEntries } from '@/components/assistant/AssistantComposerEntries'
 import { useCustomizeCardOffered } from '@/lib/assistantSetupState'
 import { useAuth } from '@/store/auth'
 import type { AssistantChatHandlers } from '@/components/assistant/AssistantChatSlot'
@@ -19,7 +19,6 @@ import { useBackLayer } from '@/components/ui/sheetStack'
 import { appendDraft } from '@/lib/assistantDraft'
 import type { AssistantHomePlace } from '@/lib/assistantHome'
 import { assistantTintHue, assistantTintStyle } from '@/lib/assistantTint'
-import { IdeasEntry } from '@/session/renderer/features/assistant/assistant-ideas'
 import { scheduleComposerFocus } from '@/lib/focusComposer'
 import { ArrowUpToLine, ChevronLeft, Mic, Plus, Search, Settings, Sparkles } from '@/lib/icons'
 import { useReportChatOnScreen } from '@/lib/onScreenChat'
@@ -174,15 +173,10 @@ function MobileAssistantAppContent({
 
   const name = assistant.display_name
   const typing = useAssistantTyping(chatId, assistant.id, name)
-  // 开通后递的「自定义」卡(照 dots):接在消息流末尾,点它 = 进资料页的自定义。
   const { user } = useAuth()
   const customizeOffered = useCustomizeCardOffered(user?.id)
-  const chatFooter = customizeOffered && user?.id ? (
-    <>
-      <AssistantCustomizeCard ownerUserId={user.id} name={name} onOpen={() => open({ tab: 'profile', sub: 'customize' })} />
-      {typing}
-    </>
-  ) : typing
+  const composerEntries = <AssistantComposerEntries assistantId={assistant.id} busy={false} onOpen={() => setIdeasOpen(true)}
+    customize={customizeOffered && user?.id ? { ownerUserId: user.id, name, onOpen: () => open({ tab: 'profile', sub: 'customize' }) } : undefined} />
   const reportInput = useRef<HTMLInputElement>(null)
   // 「+」里的:获取灵感(胶囊隐藏了也一直在)、录制语音笔记(正在录时置灰,录音条在聊天上面)、
   // 分析健康报告(选一份 PDF / 图片连同那句话排进输入框)。
@@ -256,10 +250,9 @@ function MobileAssistantAppContent({
           activeTab="chats"
           mobile
           hidden={!chatShown}
-          chrome={{ placeholder: t('chat.placeholder', { name }), attachGlyph: <Plus />, attachMenu, typing: chatFooter }}
+          chrome={{ placeholder: t('chat.placeholder', { name }), attachGlyph: <Plus />, attachMenu, typing, composerHeader: composerEntries, hideRunningStatus: true }}
           {...chatHandlers}
         /></FilePreviewHost.Provider>
-        {tab === 'chat' ? <IdeasEntry assistantId={assistant.id} column={chatColumn} busy={false} onOpen={() => setIdeasOpen(true)} /> : null}
       </div>
       {/* 录音条:在 App 根上而不是聊天那一段里 —— 切到别的格也看得到「还在录」。 */}
       <PhoneVoiceBar voice={voice} name={name} column={chatColumn} onChat={tab === 'chat'} open={open} />
