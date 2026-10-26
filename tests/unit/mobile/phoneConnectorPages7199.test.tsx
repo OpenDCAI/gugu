@@ -145,6 +145,11 @@ describe('直接展开的连接列表', () => {
     expect(q('assistant-connector-qq-mail')!.textContent).toContain('尚未验证')
     expect(q('assistant-connector-qq-mail')!.textContent).not.toContain('已连接')
     const data = page.props.integrations as { data: PhoneIntegrations }
+    data.data.statuses = { 'qq-mail': { connected: true, capabilities: { requiresRepositoryUrl: false, supportsIssueContext: false } } }
+    await render(PhoneConnectorsPage, page.props)
+    expect(q('assistant-connectors')!.querySelector('section')).toBe(q('assistant-connectors-connected'))
+    expect(q('assistant-connectors-connected')!.querySelector('h2')!.textContent).toBe('已连接')
+    expect(q('assistant-connectors-connected')!.contains(q('assistant-connector-qq-mail'))).toBe(true)
     data.data.statuses = { 'qq-mail': { connected: false, errorType: 'authorization_expired', capabilities: { requiresRepositoryUrl: false, supportsIssueContext: false } } }
     await render(PhoneConnectorsPage, page.props)
     expect(q('assistant-connector-qq-mail')!.textContent).toContain('需要重新授权')

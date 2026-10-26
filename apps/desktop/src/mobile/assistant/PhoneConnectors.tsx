@@ -66,6 +66,8 @@ export function ConnectorIcon({ integration, size }: { integration: IntegrationM
 function ConnectorLists({ data, open }: { data: PhoneIntegrations; open: (id: string) => void }) {
   const { t, i18n } = useTranslation('assistant')
   const { connected, available } = connectorGroups(data.items, data.configured, data.statuses, i18n.language)
+  const verified = connected.filter(({ item }) => connectorState(true, data.statuses?.[item.id], data.statusError, true) === 'connected')
+  const saved = connected.filter(({ item }) => connectorState(true, data.statuses?.[item.id], data.statusError, true) !== 'connected')
   const row = ({ item, detail }: { item: IntegrationMetadata; detail: string }) => {
     const configured = !!data.configured[item.id]
     const state = connectorState(configured, data.statuses?.[item.id], data.statusError,true)
@@ -76,17 +78,22 @@ function ConnectorLists({ data, open }: { data: PhoneIntegrations; open: (id: st
           leading={<ConnectorIcon integration={item} size={32} />}
           title={item.name}
           detail={detail}
-          trailing={configured ? <span className={state === 'connected' ? 'ta-ok' : state === 'needsReauth' || state === 'checkFailed' ? 'ta-phone-warn' : undefined}>{t(`connectors.${state}`)}</span> : undefined}
-          chevron={!configured}
+          trailing={configured && state !== 'connected' ? <span className={state === 'needsReauth' || state === 'checkFailed' ? 'ta-phone-warn' : undefined}>{t(`connectors.${state}`)}</span> : undefined}
+          chevron={!configured || state === 'connected'}
           onClick={() => open(item.id)}
         />
     )
   }
   return (
     <>
-      {connected.length ? (
-        <AssistantSection title={t('connectors.savedGroup')} testId="assistant-connectors-connected">
-          {connected.map(row)}
+      {verified.length ? (
+        <AssistantSection title={t('connectors.connected')} testId="assistant-connectors-connected">
+          {verified.map(row)}
+        </AssistantSection>
+      ) : null}
+      {saved.length ? (
+        <AssistantSection title={t('connectors.savedGroup')} testId="assistant-connectors-saved">
+          {saved.map(row)}
         </AssistantSection>
       ) : null}
       {available.length ? (
