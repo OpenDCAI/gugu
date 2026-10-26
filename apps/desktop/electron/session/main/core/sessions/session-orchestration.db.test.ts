@@ -1,4 +1,5 @@
 import { installAssistantWorkLedgerHost } from '../../../../sessionpage/assistant-work-ledger';
+import { formatDeliveryTimestamp } from '@gugu/core/local/agent/deliveryEnvelope';
 import { openFixture } from '@tooling/utils/db';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { SessionPaneTab } from '@gugu/session-core/session-record/contract';
