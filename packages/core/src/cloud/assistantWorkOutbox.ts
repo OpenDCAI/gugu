@@ -113,11 +113,16 @@ export function createAssistantWorkOutboxPump(deps: {
     // Owner changes or stopped runtime instances cannot settle a previous owner's claim.
     const current = await deps.context()
     if (stopped || current?.ownerId !== ctx.ownerId || current.runtimeInstanceId !== ctx.runtimeInstanceId) return
+    const observedFailure = stage === 'retry' && !new Set([
+      'NOT_ADMITTED', 'SESSION_DIRECT_OUTCOME_UNKNOWN', 'SESSION_DIRECT_QUEUED', 'SESSION_DIRECT_NOT_LIVE', 'QUEUED', 'DEVICE_UNREACHABLE', 'DEVICE_OFFLINE',
+      'SESSION_DEVICE_OFFLINE', 'SESSION_DEVICE_UNREACHABLE', 'SESSION_DEVICE_NO_ANSWER', 'DELIVERY_NOT_READY', 'SESSION_HOST_NOT_READY', 'DELIVERY_TIMEOUT', 'WORK_RPC_TIMEOUT',
+    ]).has(code ?? '')
+    const backoffAttempts = observedFailure ? event.failed_attempts : Math.max(0, event.attempts - 1)
     await call({ rpc: (name, args) => deps.rpc(name, args, ctx) }, 'assistant_work_outbox_settle', {
       p_runtime_instance_id: ctx.runtimeInstanceId, p_message_id: event.message_id, p_lease_token: event.lease_token,
       p_stage: stage, ...(code ? { p_error_code: code } : {}),
-      p_retry_after_seconds: Math.min(300, 5 * 2 ** Math.min(6, event.failed_attempts)),
-      p_receipt: receipt ?? {},
+      p_retry_after_seconds: Math.min(300, 5 * 2 ** Math.min(6, backoffAttempts)),
+      p_receipt: stage === 'retry' ? { failure_observed: observedFailure } : receipt ?? {},
     })
   }
 

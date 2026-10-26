@@ -14,8 +14,8 @@ export type AssistantWorkHostContext = AssistantWorkOutboxContext & { client: As
 /** The host owns only transport. Task creation/terminal commits are installed by the ledger bridge. */
 export function createAssistantWorkOutboxHost(deps: {
   context(): Promise<AssistantWorkHostContext | null>
-  deliverLocal(event: AssistantWorkDeliveryEvent): Promise<{ admitted: boolean; messageId: string; receipt?: Record<string, unknown> }>
-  prepareRemote(deviceId: string): Promise<void>
+  deliverLocal(event: AssistantWorkDeliveryEvent, signal?: AbortSignal): Promise<{ admitted: boolean; messageId: string; receipt?: Record<string, unknown> }>
+  prepareRemote(deviceId: string, signal: AbortSignal): Promise<void>
   requestRemote(deviceId: string, type: string, payload: unknown, signal: AbortSignal): Promise<DeviceRpcResponse<unknown>>
   subscribe(ownerId: string, changed: () => void): Promise<() => void>
   afterDrain?: () => Promise<void>
@@ -62,8 +62,8 @@ export function createAssistantWorkOutboxHost(deps: {
       const reference: AssistantWorkDeliveryReference = {
         assistant_id: event.assistant_user_id, work_id: event.work_id, message_id: event.message_id,
       }
-      if (event.to_device_id === current.deviceId) return receiver.receive(reference, current.ownerId)
-      await deps.prepareRemote(event.to_device_id)
+      if (event.to_device_id === current.deviceId) return receiver.receive(reference, current.ownerId, signal)
+      await deps.prepareRemote(event.to_device_id, signal)
       signal.throwIfAborted()
       const response = await deps.requestRemote(event.to_device_id, ASSISTANT_WORK_DELIVERY_RPC, reference, signal)
       if (response.error) throw Object.assign(new Error(response.error.message), {

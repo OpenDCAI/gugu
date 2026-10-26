@@ -103,7 +103,7 @@ export type CrossMachineDeps = {
    * #7199 离线的那台要是这个账号的云电脑:叫醒它、等它上线(true);不是云电脑 = false。醒不来抛 CloudComputerWakeError。
    * 休眠中 ≠ 离线(规定草稿 cloud-computer),所以这一格在「离线就拒绝」之前问。
    */
-  wakeCloudComputer?(deviceId: string): Promise<boolean>
+  wakeCloudComputer?(deviceId: string, signal?: AbortSignal): Promise<boolean>
 }
 
 /** 对端答 `agentSession.*` 时用到的宿主能力。 */
@@ -138,7 +138,8 @@ export function createCrossMachineSessions(deps: CrossMachineDeps) {
     `${describe(device)} 没有启用任务宿主。请主人在那台设备上开启任务宿主后重试；其他设备不能代调它的原生能力。`)
 
   /** 那台机器此刻能不能接 —— 不能就在发出去之前说清为什么。 */
-  const reachable = async (deviceId: string, requireTaskRuntime = true): Promise<Device> => {
+  const reachable = async (deviceId: string, requireTaskRuntime = true, signal?: AbortSignal, allowWake = false): Promise<Device> => {
+    signal?.throwIfAborted()
     const { thisDeviceId, rows } = await devices()
     if (deviceId === thisDeviceId) throw new CrossMachineError('SESSION_DEVICE_IS_THIS_MACHINE', `device:${deviceId} is this machine`)
     const device = rows.find((row) => row.device_id === deviceId)
@@ -149,11 +150,14 @@ export function createCrossMachineSessions(deps: CrossMachineDeps) {
     const cloud = await deps.cloudComputerState?.().catch(() => null)
     const pausedCloud = cloud?.deviceId === deviceId && ['asleep', 'waking', 'error', 'provisioning'].includes(cloud.state)
     if (!device.is_online || pausedCloud) {
+      if (!allowWake) throw new CrossMachineError('SESSION_DEVICE_OFFLINE', `${describe(device)} is offline or paused; no wake was requested`)
       // #7199 睡着的云电脑:先叫醒,醒了照常发出去;醒不来就说是哪台、为什么。
       let woke = false
       try {
-        woke = (await deps.wakeCloudComputer?.(deviceId)) ?? false
+        woke = (await (signal ? deps.wakeCloudComputer?.(deviceId, signal) : deps.wakeCloudComputer?.(deviceId))) ?? false
+        signal?.throwIfAborted()
       } catch (error) {
+        if (signal?.aborted) throw error
         throw new CrossMachineError(
           'SESSION_DEVICE_WAKE_FAILED',
           `${describe(device)} is your cloud computer and could not be woken (${error instanceof Error ? error.message : String(error)}); nothing was sent there`,
@@ -211,11 +215,11 @@ export function createCrossMachineSessions(deps: CrossMachineDeps) {
   }
 
   const call = async (deviceId: string, caller: RemoteCaller, action: Action, signal?: AbortSignal): Promise<unknown> =>
-    request(await reachable(deviceId, !('kind' in caller)), action.action === 'spawn' && action.assistant_work ? 'assistantWork.prepare' : `agentSession.${action.action}`, [caller, action], remoteActionTimeoutMs(action), action.action, signal)
+    request(await reachable(deviceId, !('kind' in caller), signal, action.action === 'message' || action.action === 'spawn'), action.action === 'spawn' && action.assistant_work ? 'assistantWork.prepare' : `agentSession.${action.action}`, [caller, action], remoteActionTimeoutMs(action), action.action, signal)
 
   const assertFileHandoffSupported = async (deviceIds: string[]) => {
     for (const id of new Set(deviceIds)) {
-      const device = await reachable(id)
+      const device = await reachable(id, true, undefined, true)
       const protocol = device.capabilities.remote_protocol
       if (typeof protocol !== 'number' || protocol < 11) throw new CrossMachineError(
         'SESSION_DEVICE_OUTDATED', `Update 咕咕 on ${describe(device)} before sending session files; nothing was uploaded or sent there`,
@@ -333,10 +337,10 @@ export function createCrossMachineSessions(deps: CrossMachineDeps) {
     },
     thisDeviceId: deps.thisDeviceId,
     assertReachable: async (deviceIds) => {
-      for (const deviceId of deviceIds) await reachable(deviceId)
+      for (const deviceId of deviceIds) await reachable(deviceId, true, undefined, true)
     },
     sessionsOfAgents: async (deviceId, userIds) => {
-      const device = await reachable(deviceId)
+      const device = await reachable(deviceId, true, undefined, true)
       const listed = await request(device, 'sessionTimeline.sessionsList', [], 30_000, 'listing') as SessionpageSessionsListResult
       // 行上不带 agent 的是协议 7 之前的老宿主:认不出它的 agent,当场说太旧(❌ 说成「不是你的 agent」)。
       if (listed.sessions.some((session) => session.agent === undefined)) {
@@ -478,7 +482,7 @@ export function createCrossMachineSessions(deps: CrossMachineDeps) {
         session_titles: Object.fromEntries((d.session_digest ?? []).map(s => [s.conversationId, s.title])) }))
     },
     thisDevice,
-    ensureReachable: async (deviceId: string) => { await reachable(deviceId) },
+    ensureReachable: async (deviceId: string, signal?: AbortSignal) => { await reachable(deviceId, true, signal, true); signal?.throwIfAborted() },
     isThisDevice: async (deviceId: string) => deviceId === await deps.thisDeviceId(),
     call,
     locateSessions,
