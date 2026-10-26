@@ -574,7 +574,8 @@ export function hostAppFrame(
       case 'listAgents': {
         const manifest = installedExtensionsStore.manifestFor(hosted.binding.extensionId)
         if (!manifest) refused('not-installed', 'This App is not installed')
-        return phoneDispatch({ extensionId: manifest.id, extensionName: manifest.name }, hosted.binding.capabilities, {}).listAgents()
+        const dispatch = phoneDispatch({ extensionId: manifest.id, extensionName: manifest.name }, hosted.binding.capabilities, {})
+        return args.report === true ? dispatch.listAgents(true) : dispatch.listAgents()
       }
       case 'dispatch': {
         const manifest = installedExtensionsStore.manifestFor(hosted.binding.extensionId)

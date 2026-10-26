@@ -296,19 +296,16 @@ Needs \`agents:history:all\` (API 17, including external CLI sessions):
 
 export const EXTENSION_GUIDE_AGENTS = `# Seeing and driving agents from your page
 
-These \`window.gugu\` verbs reach this computer's agents; \`:all-machines\` read and control also reach the person's
-other computers. readAgentHistory stays local; sessions.index/read can name a device. Each tier is its own capability,
-consented to on its own; the rest of the API is in \`apps-page\`. Phones have getAppState, its change event, listAgents, onAgentsChanged and dispatch (below). Where your page is
-plays no part: the plain words reach the agents you started, \`:all\` every one here. Work that watches agents
-with no page open — a clock — goes in the background page.
+These \`window.gugu\` verbs reach agents by consented scope, independent of page location: plain words reach agents you
+started, \`:all\` everyone here, \`:all-machines\` other computers too. readAgentHistory stays local; sessions.index/read
+can name a device. Other APIs: \`apps-page\`. Monitoring without an open page belongs in the background page.
 
 Free — what the app is showing:
 
 - \`getAppState()\` → what the APP is showing, as opposed to where you sit:
   \`{ windowFocused, activeSessionId, activeProjectId, panes: [{ paneId, focused, activeTab: { tabId, kind, agentId?, filePath? } | null }] }\`.
-  \`activeProjectId\`: the project, ungated — ❌ not fished out of \`listAgents\` (that needs \`agents:read\`, an agent in the pane and a second call).
-  **\`panes\` is a list because the workspace panel splits** — ❌ never \`panes[0]\`; walk them, \`focused\` holds the
-  keyboard. \`kind\` is the host's own word, NOT a closed set (Apps register kinds too) — ignore unknown ones.
+  \`activeProjectId\` is ungated. Walk \`panes\`: the workspace splits, so never assume \`panes[0]\` is focused.
+  \`focused\` holds the keyboard; \`kind\` is open-ended (Apps register kinds), so ignore unknown ones.
   \`agentId\` needs \`agents:read\`, \`filePath\` needs \`files:read\`; absent means "not granted", not "not that sort of tab".
   \`panes\` says what is OPEN, not painted: a zero-width pane or a collapsed panel still lists its tab. For whether YOUR OWN
   surface is on screen read \`getContext().layout.visible\`; per-pane visibility is not exposed.
@@ -332,25 +329,23 @@ Needs \`agents:read\` (or \`agents:read:all\` / \`agents:read:all-machines\`, wh
   \`contextTokens\` is the context its engine last reported in use — what its next turn reads back.
   \`rateLimit\` is the account limit its engine last reported: \`{ status: 'allowed' | 'allowed_warning' |
   'rejected', resetsAt, window, utilization }\` — back off at a warning, resume after \`resetsAt\`.
-- Scope is NOT an argument. \`agents:read\` answers with the agents you started
-  (\`spawnedByThisExtension: true\`, each in a session of its own); \`agents:read:all\` with every
-  one on the machine — the agent of your page's session (\`ctx.session.agentId\`) among them. Which one you
-  get was settled when the user installed you. \`agents:read:all-machines\` adds the agents on the person's other
-  online computers (\`deviceId\`/\`deviceLabel\`; \`null\` = here), live fields \`null\`; offline or too-old ones absent. Declare only ONE word of a family — two is refused by the schema.
+- Scope comes from installation consent, never an argument: \`agents:read\` sees agents you started
+  (\`spawnedByThisExtension:true\`); \`:all\` sees everyone here; \`:all-machines\` adds other online computers
+  (\`deviceId\`/\`deviceLabel\`; \`null\` = here), with null live counters. Offline/old machines are absent from agent rows.
+  Declare ONE word per capability family; the schema refuses two.
 - \`transport\` is \`'acp'\` (a chat panel) or \`'pty'\` (a terminal). **Live counters are \`null\` unless that agent is
   open right now**: \`isGenerating\`, \`pendingPermissionCount\`, \`queuedPromptCount\`, \`contextTokens\`,
   \`rateLimit\` and \`lastActionAt\` are \`null\` for every terminal agent and for any panel agent not open now. \`null\` means
   "cannot be asked", NOT zero: a "0 waiting" badge drawn from a \`null\` is a lie.
-- \`pendingPermissionCount > 0\` means that agent is blocked on a human. That plus a stale
-  \`updatedAt\` is the whole "who is waiting?" question, answered without reading anything.
-- \`onAgentsChanged(fn)\` → these agents moved: started, stopped, began generating, finished, now
-  waiting on a human. **Ids only**: call \`listAgents()\` for the details of the ones
-  you care about. Ids are filtered to your declared scope, so plain
-  \`agents:read\` hears only of the ones you started; only this computer's, even with \`:all-machines\`.
-  A deleted agent does NOT arrive here: that channel does not exist yet.
-- \`listAgents({ report: true })\` → \`{ agents, unreached, checkedAt }\`, same scope. Rows add \`statusFrom\`
+- \`pendingPermissionCount > 0\` means the agent is waiting for a human.
+- \`onAgentsChanged(fn)\` gives scoped local agent IDs for status changes; call \`listAgents()\` for details.
+  It reports neither deletions nor remote changes, even with \`:all-machines\`; poll for those.
+- \`listAgents({ report: true })\` → \`{ agents, devices, unreached, checkedAt }\`, same scope. Rows add \`statusFrom\`
   (\`this_machine\` / \`device\`) and ISO \`statusAt\` (observation time). \`unreached\`: \`{ deviceId, label, detail }\`;
   null deviceId means remote listing failed. Missing there is unknown, not deleted. Poll for remote changes.
+  With \`agents:read:all-machines\`, \`devices\` is the host machine directory, including zero-task machines:
+  \`[{deviceId,label,online,thisMachine,checkedAt}]\`. Other scopes receive \`[]\`. IDs are raw; call with \`device:<id>\`.
+  \`thisMachine\` identifies this native host; always false on phones. The directory includes zero-task hosts.
 
 Needs \`agents:history\` (or \`agents:history:all\`):
 

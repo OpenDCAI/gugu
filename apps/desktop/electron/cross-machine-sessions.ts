@@ -443,6 +443,10 @@ export function createCrossMachineSessions(deps: CrossMachineDeps) {
   }
 
   return {
+    devices: async () => {
+      const { thisDeviceId, rows } = await devices()
+      return rows.map(({ device_id, label, is_online }) => ({ deviceId: device_id, label, online: is_online, thisMachine: device_id === thisDeviceId }))
+    },
     async listDeviceRows() {
       const [{ thisDeviceId, rows }, cloud] = await Promise.all([
         devices(),

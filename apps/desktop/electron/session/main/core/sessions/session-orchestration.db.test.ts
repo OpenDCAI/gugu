@@ -471,7 +471,7 @@ describe('session orchestration', () => {
     it('starts on the explicitly named computer through the existing App RPC, without a local task', async () => {
       const appSpawn = vi.fn<OtherMachines['appSpawn']>(async () => ({ agentId: 'user:remote-agent' }));
       setOtherMachines({
-        isThisDevice: async () => false, appSpawn,
+        devices: async () => [], isThisDevice: async () => false, appSpawn,
         sessions: async () => ({ sessions: [], unreached: [] }), archive: vi.fn(),
         appMessage: vi.fn(), appReadFile: vi.fn(), appCall: vi.fn(),
       });
@@ -2041,7 +2041,7 @@ describe('session_set_parent', () => {
 
   it('records a parent on another machine in config, and drops the older nested mark so it is read only once', async () => {
     seed('visitor', null, null, { version: '1', type: 'acp', spawnedByRemote: { deviceId: 'dev-old', sessionId: 'old-parent', nested: true } });
-    setOtherMachines({ isThisDevice: async () => false, appSpawn: vi.fn(),
+    setOtherMachines({ devices: async () => [], isThisDevice: async () => false, appSpawn: vi.fn(),
       sessions: async () => ({
         sessions: [{ deviceId: 'dev-far', label: 'far box', session: { conversationId: 'far', projectId: 'p-far', parentConversationId: null } as SessionpageSessionSummary }],
         unreached: [],

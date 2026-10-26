@@ -53,6 +53,7 @@ import { placeFor, placeLink, type FileOpenerCandidate } from '@shared/extension
 import type { FilePlace } from '@gugu/core/shared/ui/guguLink';
 import { rosterMoved, type MemberChange } from '@shared/extensions/app-files-core';
 import { coalescedReads } from '@shared/extensions/coalesced-reads';
+import { agentReport } from '@shared/extensions/agent-view';
 import { changedGroupFiles, resourceChatOf, type DesktopFilePage } from '@main/core/extensions/app-files';
 
 /**
@@ -1679,13 +1680,14 @@ async function dispatch(caller: BridgeCaller, method: ExtensionBridgeMethod, arg
       // 范围在这里定,而且只在这里定:门禁查的是窄的那个词,宽窄之差不体现为「能不能调」,而体现为「答得多宽」。
       // 惰性 import:静态引它会把会话/DB/日志整条栈拖进桥的模块图;桥是每次 IPC 都要过的路,它的依赖越少越好。
       const { listAgentsForExtension } = await import('@main/core/extensions/extension-agents');
-      const { agents, unreached } = await listAgentsForExtension({ scope: agentScope(extensionId, 'agents:read'), extensionId });
+      const scope = agentScope(extensionId, 'agents:read');
+      const { agents, unreached } = await listAgentsForExtension({ scope, extensionId });
       // 问不到的机器(离线、太旧、没回话)不在清单里,记一条,❌ 静默。
       for (const machine of unreached) log.warn('listAgents: another machine was not read', { extensionId, ...machine });
       // Monitoring must distinguish an unreachable computer from a removed agent. Scope and rows stay the same.
       if (args.report === true) {
-        const checkedAt = new Date().toISOString();
-        return { agents: agents.map((agent) => ({ ...agent, statusFrom: agent.deviceId === null ? 'this_machine' : 'device', statusAt: checkedAt })), unreached, checkedAt };
+        const devices = scope === 'all-machines' ? await (await import('@main/core/sessions/session-family')).otherMachines().devices() : [];
+        return agentReport(agents, unreached, devices);
       }
       return agents;
     }
