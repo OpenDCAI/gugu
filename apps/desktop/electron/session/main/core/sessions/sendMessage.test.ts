@@ -665,6 +665,26 @@ describe('session-direct live-only delivery', () => {
     setRow({ version: '1', type: 'acp' });
   });
 
+  it('joins a concurrent replay of a session-direct message while the first router is still starting', async () => {
+    const gate = Promise.withResolvers<void>();
+    const router = vi.fn(async (_id: string, message: { id: string }) => { await gate.promise; return { status: 'accepted' as const, messageId: message.id }; });
+    setSessionMessageRouter(router);
+    const params = { ...target, clientMessageId: 'concurrent-replay', text: 'one original message', kind: 'session-direct' as const };
+    const first = sendMessage(params);
+    await vi.waitFor(() => expect(router).toHaveBeenCalledTimes(1));
+    const second = sendMessage(params);
+    try {
+      await Promise.resolve(); await Promise.resolve();
+      expect(router).toHaveBeenCalledTimes(1);
+    } finally { gate.resolve(); await Promise.allSettled([first, second]); }
+    expect(state.receipts.filter(row => row.id === params.clientMessageId)).toHaveLength(1);
+  });
+  it('does not begin a cancelled session-direct admission', async () => {
+    const router = vi.fn(); setSessionMessageRouter(router);
+    const controller = new AbortController(); controller.abort(new Error('delivery cancelled'));
+    await expect(sendMessage({ ...target, clientMessageId: 'cancelled-before-start', text: 'no bytes', kind: 'session-direct', signal: controller.signal })).rejects.toThrow('delivery cancelled');
+    expect(router).not.toHaveBeenCalled();
+  });
   it('injects a live session synchronously and records only the recipient timeline row', async () => {
     const router = vi.fn(async (_sessionId: string, message: { id: string }) => ({
       status: 'accepted' as const,

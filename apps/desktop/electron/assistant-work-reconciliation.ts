@@ -20,9 +20,11 @@ export function createDesktopAssistantWorkReconciler(deps:{
   inspect(ctx:WorkReconciliationContext,work:ReconciledWork,target:{session_id:string;device_id:string}):Promise<ExecutorDeliveryProof|null>
   ownerReceipts?(ctx:WorkReconciliationContext,work:ReconciledWork,events:WorkReconciliationEvent[]):Promise<WorkOwnerReceiptProof[]>
   notify(ctx:WorkReconciliationContext,key:string,text:string):Promise<{chatId:string;messageId:string}>
+  verifyOwnerPost(ctx:WorkReconciliationContext,posted:{chatId:string;messageId:string}):Promise<boolean>
   clean(work:ReconciledWork):void
   warn(detail:{code:string}):void
 }) {
+  let cursor:{ownerId:string;assistantId:string;before:string|null}|null=null
   return createAssistantWorkReconciler({
     context:async()=>{
       const ctx=await deps.context()
@@ -31,16 +33,11 @@ export function createDesktopAssistantWorkReconciler(deps:{
       return assistant?.deviceId===ctx.deviceId?{...ctx,assistantId:assistant.agentId}:null
     },
     works:async(ctx)=>{
-      const rows:ReconciledWork[]=[]
-      let before:string|null=null
-      for(let page=0;page<20;page++) {
-        const result=await rpc(ctx,'assistant_work_list',{p_assistant:ctx.assistantId,p_before:before,p_limit:100})
-        if(!Array.isArray(result.items)) throw new Error('Invalid work list')
-        rows.push(...result.items as ReconciledWork[])
-        if(!result.next_before) return rows
-        before=String(result.next_before)
-      }
-      throw new Error('Work reconciliation page limit exceeded')
+      const before=cursor?.ownerId===ctx.ownerId&&cursor.assistantId===ctx.assistantId?cursor.before:null
+      const result=await rpc(ctx,'assistant_work_list',{p_assistant:ctx.assistantId,p_before:before,p_limit:100,p_reconcile_only:true})
+      if(!Array.isArray(result.items)) throw new Error('Invalid work list')
+      cursor={ownerId:ctx.ownerId,assistantId:ctx.assistantId,before:result.next_before?String(result.next_before):null}
+      return result.items as ReconciledWork[]
     },
     history:async(ctx,work)=>{
       const events:WorkReconciliationEvent[]=[]
@@ -59,6 +56,6 @@ export function createDesktopAssistantWorkReconciler(deps:{
       if(!Array.isArray(result.events)) throw new Error('Invalid abandoned work list')
       return result.events as WorkReconciliationEvent[]
     },
-    inspect:deps.inspect,ownerReceipts:deps.ownerReceipts,notify:deps.notify,clean:deps.clean,warn:deps.warn,stableId,
+    inspect:deps.inspect,ownerReceipts:deps.ownerReceipts,notify:deps.notify,verifyOwnerPost:deps.verifyOwnerPost,clean:deps.clean,warn:deps.warn,stableId,
   })
 }

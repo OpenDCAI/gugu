@@ -43,6 +43,8 @@ export interface SendSessionMessageParams {
   queuedStartupDelegation?: boolean;
   /** session-direct only: the sender's `delivery: 'queue'` / `key` (ACP targets; callers refuse terminals first). */
   delivery?: SessionMessageDelivery;
+  /** Local admission lifetime; never persisted or sent to the provider. */
+  signal?: AbortSignal;
 }
 
 export type SendSessionMessageResult = {
@@ -532,7 +534,26 @@ async function drain(params: {
  * recipient outbox row for the common inbox reader. Startup delegation and ordinary messages
  * retain the existing durable outbox behavior.
  */
-export async function sendMessage(
+const directAdmissions = new Map<string, { signature: string; flight: Promise<SendSessionMessageResult> }>();
+export async function sendMessage(params: SendSessionMessageParams): Promise<SendSessionMessageResult> {
+  params.signal?.throwIfAborted();
+  if (params.kind !== 'session-direct' || params.queuedStartupDelegation) return sendMessageOnce(params);
+  const key = params.clientMessageId.trim();
+  const signature = JSON.stringify([params.projectId, params.sessionId, params.text.trim(), params.delivery ?? null]);
+  const existing = directAdmissions.get(key);
+  if (existing) {
+    if (existing.signature !== signature) throw new Error('message identity reused with different delivery content');
+    return existing.flight;
+  }
+  const flight = sendMessageOnce(params);
+  const admission = { signature, flight };
+  directAdmissions.set(key, admission);
+  const clean = () => { if (directAdmissions.get(key) === admission) directAdmissions.delete(key); };
+  void flight.then(clean, clean);
+  return flight;
+}
+
+async function sendMessageOnce(
   params: SendSessionMessageParams,
 ): Promise<SendSessionMessageResult> {
   const text = params.text.trim();
@@ -574,12 +595,13 @@ export async function sendMessage(
     if (!router) {
       throw new SessionDirectDeliveryError(params.sessionId, 'no session message router is installed');
     }
+    params.signal?.throwIfAborted();
     const receipt = await router(params.sessionId, {
       id: clientMessageId,
       text,
       kind: 'session-direct',
       ...(params.delivery ? { delivery: params.delivery } : {}),
-    });
+    }, params.signal);
     if (receipt.status === 'not-ready') {
       // The outbox keeps text only: a kept message with `delivery` would later go out the default way — into the
       // current turn, its key lost. So it is not kept; the sender is told now and sends it again.
