@@ -203,7 +203,6 @@ export function createExtensionTabProvider(
       // last title some earlier session happened to leave behind.
       const sessionId = ctx.place?.kind === 'session' ? ctx.place.sessionId : null;
       extensionSurfaceStore.forget(sessionId, entry.tabId);
-      extensionViewStore.forgetSlot(sessionId, entry.tabId);
       resource.dispose();
     },
 
