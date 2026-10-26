@@ -25,6 +25,8 @@ it('reads a successfully empty shared directory while its host is offline', asyn
   expect(cloud.native).not.toHaveBeenCalled()
 })
 it('does not turn an unread shared directory into an empty list', async () => {
+  directory.devices = [{ ...directory.devices[0]!,is_online: true }]
+  publishDirectoryDevices(directory.devices)
   updateDeviceSessions('home',{ loading: true,cached: true })
   await renderWithAppProviders(harness,<PhoneTasks {...page()} />)
   await vi.waitFor(() => expect(harness.container.querySelector('[data-testid="loading-indicator"]')).not.toBeNull())
