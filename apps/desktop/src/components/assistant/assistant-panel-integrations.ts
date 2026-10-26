@@ -4,6 +4,7 @@ import type { AssistantPanelFiles } from '@gugu/core/cloud/assistantPanelFiles'
 import { assistantPanelCollection,AssistantPanelError,type AssistantPanelItem } from '@gugu/core/cloud/assistantPanel'
 import type { ConnectionStatus } from '@/session/shared/issue-providers'
 import type { IntegrationMetadata } from '@/session/renderer/features/integrations/integrations-provider'
+import { assistantAccountDisplayName } from './assistant-app-connections'
 
 /** Catalogs and saved account metadata come from the same complete cloud
  * collection. Reading authorization status never verifies credentials. */
@@ -55,11 +56,14 @@ function parseAssistantPanelIntegrations(rows: AssistantPanelItem[],snapshot: Sn
     const saved = accounts.filter(row => row.data.providerId === item.id && row.data.configured === true)
     configured[item.id] = saved.length > 0
     const primary = saved.find(row => row.data.isDefault === true) ?? saved[0]
+    const metadata = primary?.data.publicMetadata as Record<string, unknown> | undefined
+    const accountName = assistantAccountDisplayName(metadata?.displayName) ?? assistantAccountDisplayName(metadata?.login)
+      ?? assistantAccountDisplayName(primary?.data.displayName)
     const result = primary && accountChecks.has(primary.resource_key) ? primary.data.checkResult : undefined
     if (result === 'ok' || result === 'connected' || result === 'reauth' || result === 'failed') statuses[item.id] = {
       connected: result === 'ok' || result === 'connected',capabilities: item.capabilities,
       ...(result === 'reauth' ? { errorType: 'authorization_expired' as const } : {}),
-      ...(typeof primary?.data.displayName === 'string' ? { displayName: primary.data.displayName } : {}),
+      ...(accountName ? { displayName: accountName } : {}),
     }
   }
   return { items,configured,statuses,accounts,accountChecks }

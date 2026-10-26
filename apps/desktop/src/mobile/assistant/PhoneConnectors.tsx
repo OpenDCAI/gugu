@@ -148,7 +148,7 @@ export function PhoneConnectorDetail({ assistant, homeDeviceId, machine, integra
                 onConnect={() => go(connectSub(view.item.id))}
                 actionNote={plan?.kind === 'unavailable' ? <span className="ta-phone-connect-note" data-testid="assistant-connector-connect-note">{t(plan.reason === 'needs-app' ? 'connectors.connectInApp' : 'connectors.connectOnDesktop', { name: view.item.name })}</span> : undefined}
                 disabled={state === 'checking'} />
-              {view.connected ? <AssistantSection title={t('connectors.connection', { name: view.item.name })}>
+              {view.connected ? <AssistantSection testId="assistant-connector-connection">
                 <AssistantRow
                   title={t('connectors.status')}
                   detail={issueText}
@@ -159,6 +159,11 @@ export function PhoneConnectorDetail({ assistant, homeDeviceId, machine, integra
                   }
                 />
                 {view.account && !listsAccounts ? <AssistantRow title={t('connectors.account')} trailing={view.account} /> : null}
+                {!listsAccounts ? <AssistantRow title={
+                  <Button variant="ghost" className="ta-pill-btn" data-tone="danger" onClick={() => setConfirm({ accountId: null, label: view.item.name })} data-testid="assistant-connector-disconnect">
+                    {t('connectors.disconnect')}
+                  </Button>
+                } /> : null}
               </AssistantSection> : null}
               {listsAccounts && accounts.accounts?.length ? (
                 <AssistantSection title={t('connectors.accounts')} testId="assistant-connector-accounts">
@@ -168,11 +173,6 @@ export function PhoneConnectorDetail({ assistant, homeDeviceId, machine, integra
                 </AssistantSection>
               ) : null}
               {listsAccounts && accounts.error ? <ReadFailed title={t('connectors.accountsFailed')} error={accounts.error} onRetry={accounts.reload} /> : null}
-              {view.connected && !listsAccounts ? (
-                <Button variant="ghost" className="ta-wide-btn" data-tone="danger" onClick={() => setConfirm({ accountId: null, label: view.item.name })} data-testid="assistant-connector-disconnect">
-                  {t('connectors.disconnect')}
-                </Button>
-              ) : null}
               <PhoneConfirmDialog
                   open={confirm !== null}
                   title={confirm?.accountId ? t('connectors.disconnectAccountTitle', { account: confirm?.label ?? '' }) : t('connectors.disconnectTitle', { name: view.item.name })}

@@ -1,6 +1,7 @@
 import {assistantPanelCollection,type AssistantPanelItem} from '@gugu/core/cloud/assistantPanel'
 import type { AssistantMachine } from '@/session/renderer/features/assistant/assistant-machine-core'
 import { machineKey, usePhoneRead } from './usePhoneRead'
+import { assistantAccountDisplayName } from '@/components/assistant/assistant-app-connections'
 
 export type ConnectorAccountRow = { accountId: string; label: string; connectedAt: number | null }
 export type PhoneConnectorAccounts = { accounts: ConnectorAccountRow[] | null; supported: boolean; error: unknown; reload(): void }
@@ -10,7 +11,7 @@ export function usePhoneConnectorAccounts({ machine,id,name,enabled,refreshKey }
   machine: AssistantMachine | null; device: string | null; id: string; name: string; enabled: boolean; refreshKey: number
 }): PhoneConnectorAccounts {
   const parse = (rows: AssistantPanelItem[]) => rows.filter(row => row.data.providerId === id && typeof row.data.accountId === 'string').map(row => ({
-    accountId: row.data.accountId as string,label: typeof row.data.displayName === 'string' ? row.data.displayName : name,connectedAt: null,
+    accountId: row.data.accountId as string,label: assistantAccountDisplayName(row.data.displayName) ?? name,connectedAt: null,
   }))
   const initial = () => {
     const snapshot = machine?.panel?.peekSnapshot?.()

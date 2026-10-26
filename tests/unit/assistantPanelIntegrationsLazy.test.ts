@@ -1,6 +1,19 @@
 import { expect,it,vi } from 'vitest'
 import type { AssistantPanelFiles } from '@gugu/core/cloud/assistantPanelFiles'
 import { readAssistantPanelIntegrations } from '../../apps/desktop/src/components/assistant/assistant-panel-integrations'
+it.each([
+  { displayName: 'default', metadata: undefined, expected: undefined },
+  { displayName: 'default', metadata: { login: 'ada@example.com' }, expected: 'ada@example.com' },
+  { displayName: 'default', metadata: { displayName: '研究团队' }, expected: '研究团队' },
+  { displayName: ' Ada ', metadata: undefined, expected: 'Ada' },
+])('keeps account identity separate from legacy credential labels: $expected', async ({ displayName, metadata, expected }) => {
+  const rows = [
+    { resource_key: 'catalog:dingtalk', data: { providerId: 'dingtalk' } },
+    { resource_key: 'account', observed_at: '2026-10-26', data: { providerId: 'dingtalk', accountId: 'default', configured: true, checkResult: 'ok', checkedAt: 50, displayName, publicMetadata: metadata } },
+  ]
+  const panel = { collection: async () => rows, snapshot: async () => ({ application: [] }) } as unknown as AssistantPanelFiles
+  expect((await readAssistantPanelIntegrations(panel, 'zh-CN')).statuses.dingtalk?.displayName).toBe(expected)
+})
 it('shows all catalog names and account states without downloading any body',async () => {
   const body=vi.fn(async () => { throw new Error('one unavailable body') })
   const rows=Array.from({ length:21 },(_,i)=>({ resource_key:`catalog:p${i}`,data:{providerId:`p${i}`,displayName:`App ${i}`} }))

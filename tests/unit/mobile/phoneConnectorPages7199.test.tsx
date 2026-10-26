@@ -164,6 +164,22 @@ describe('直接展开的连接列表', () => {
 })
 
 describe('详情页', () => {
+  it.each(['default', '', '  '])('已连接详情隐藏内部账号名 %j，断开操作留在状态卡片行内', async (displayName) => {
+    const page = pageProps('dingtalk', { configured: { dingtalk: true }, statuses: { dingtalk: { connected: true, displayName, capabilities: { requiresRepositoryUrl: false, supportsIssueContext: false } } } })
+    await render(PhoneConnectorDetail, page.props)
+    const card = q('assistant-connector-connection')!
+    expect(card).not.toBeNull()
+    expect(card.querySelector('h2')).toBeNull()
+    expect(card.textContent).not.toContain('账号')
+    expect(card.textContent).not.toContain('default')
+    expect(q('assistant-connector-disconnect')!.closest('.ta-row')).not.toBeNull()
+  })
+
+  it('已连接详情保留真实账号或组织名', async () => {
+    const page = pageProps('dingtalk', { configured: { dingtalk: true }, statuses: { dingtalk: { connected: true, displayName: '研究团队', capabilities: { requiresRepositoryUrl: false, supportsIssueContext: false } } } })
+    await render(PhoneConnectorDetail, page.props)
+    expect(q('assistant-connector-connection')!.textContent).toContain('研究团队')
+  })
   it('飞书只显示实际存在的读写连接，不臆造聊天连接或开放状态', async () => {
     const page = pageProps('feishu')
     await render(PhoneConnectorDetail, page.props)

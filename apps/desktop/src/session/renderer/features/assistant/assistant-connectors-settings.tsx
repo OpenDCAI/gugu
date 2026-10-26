@@ -1,7 +1,7 @@
 import { isAssistantPanelReadRetryable } from '@gugu/core/cloud/assistantPanelRead';
 import { useAssistantPanelIntegration } from '@/components/assistant/useAssistantPanelIntegration';
 import { assistantPanelFailure } from '@/components/assistant/assistant-panel-errors';
-import { assistantConnectedApps, type AssistantConnectedApp } from '@/components/assistant/assistant-app-connections';
+import { assistantAccountDisplayName, assistantConnectedApps, type AssistantConnectedApp } from '@/components/assistant/assistant-app-connections';
 import { useChatChannels } from '@/components/settings/channels/useChatChannels';
 import { WechatAppConnection } from '@/components/settings/channels/WechatAppConnection';
 import { AppConnectionHero,AppConnectionListPlaceholder } from '@/components/assistant/AppConnectionHero';
@@ -92,6 +92,7 @@ const ConnectorDetail = observer(function ConnectorDetail({ host, home, assistan
   const showConfirm = useShowModal('confirmActionModal');
   const where = homeWhere(home, t);
   const configured = !!configuredConnections[app.id];
+  const accountName = assistantAccountDisplayName(account);
   return <SettingsPage data-testid="assistant-connector-detail">
     {!panelNavigation ? <div><Button variant="ghost" size="sm" onClick={onBack} data-testid="assistant-connector-back"><ChevronLeft size={16} aria-hidden />{t('connectors.title')}</Button></div> : null}
     <PageHead title={integration?.name ?? app.name} />
@@ -103,10 +104,10 @@ const ConnectorDetail = observer(function ConnectorDetail({ host, home, assistan
         onConnect={() => app.id === 'github' ? showConnectGitHub({ host }) : showIntegrationSetup({ integration: app.id, host })} />
       {detail.error && !integration ? <SettingsNote role="alert">{assistantPanelFailure(detail.error, t)}</SettingsNote> : null}
     </> : null}
-    {configured ? <SettingsGroup title={t('connectors.connection', { name: integration?.name ?? app.name })}>
+    {configured ? <SettingsGroup data-testid="assistant-connector-connection">
       <SettingsRow title={t('connectors.status')} control={<span className="gg-settings-row-value">{t(`connectors.${state}`)}</span>} />
-      {account ? <SettingsRow title={t('connectors.account')} control={<span className="gg-settings-row-value">{account}</span>} /> : null}
-      <Button size="sm" variant="danger" className="self-start" disabled={isIntegrationMutating?.(app.id)} data-testid="assistant-connector-disconnect" onClick={() => showConfirm({
+      {accountName ? <SettingsRow title={t('connectors.account')} control={<span className="gg-settings-row-value">{accountName}</span>} /> : null}
+      <SettingsRow><Button size="sm" variant="danger" disabled={isIntegrationMutating?.(app.id)} data-testid="assistant-connector-disconnect" onClick={() => showConfirm({
         title: t('connectors.disconnectTitle', { name: app.name }),
         description: t('connectors.disconnectBody', { name: app.name, assistant: assistantName }),
         confirmLabel: t('connectors.disconnect'),
@@ -114,7 +115,7 @@ const ConnectorDetail = observer(function ConnectorDetail({ host, home, assistan
           setDisconnectError('');
           void disconnectIntegration(app.id).then(result => { if (!result.success) setDisconnectError(assistantPanelFailure(result.error, t)); }, error => setDisconnectError(assistantPanelFailure(error, t)));
         },
-      })}>{t('connectors.disconnect')}</Button>
+      })}>{t('connectors.disconnect')}</Button></SettingsRow>
       {disconnectError ? <SettingsNote role="alert" tone="danger">{disconnectError}</SettingsNote> : null}
     </SettingsGroup> : null}
     {app.id === 'wechat' ? <WechatAppConnection /> : null}

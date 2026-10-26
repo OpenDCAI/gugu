@@ -57,7 +57,7 @@ export const assistantPanelLocal = {
         return {
           ...(check ? { checkResult: check.connected ? 'ok' : check.errorType === 'authorization_expired' ? 'reauth' : 'failed',checkedAt: verified!.checkedAt } : {}),
           providerId,accountId: account.accountId,configured: true,isDefault: account.isDefault,
-          displayName: account.meta?.displayName ?? account.meta?.login ?? account.accountId,
+          displayName: account.meta?.displayName ?? account.meta?.login,
           publicMetadata: { version: 1,providerId,accountId: account.accountId,isDefault: account.isDefault,
             connectedAt: account.createdAt,updatedAt: account.updatedAt,host: account.meta?.host,login: account.meta?.login,
             avatarUrl: account.meta?.avatarUrl,credentialSource: account.meta?.credentialSource,displayName: account.meta?.displayName,

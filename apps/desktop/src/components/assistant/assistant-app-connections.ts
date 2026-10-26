@@ -5,6 +5,12 @@ import type { ConnectorState } from '@/session/renderer/features/assistant/assis
 export type ApplicationConnectionState = ConnectorState | 'paused' | 'retrying'
 export type AssistantConnectedApp = { id: string; name: string; description: string; integration?: IntegrationMetadata; state: ApplicationConnectionState; saved: boolean }
 
+/** Legacy snapshots used the internal default credential key as an account name. */
+export function assistantAccountDisplayName(value: unknown): string | null {
+  const name = typeof value === 'string' ? value.trim() : ''
+  return name && name !== 'default' ? name : null
+}
+
 /** Normalize each provider's real connection state before displaying, counting or sorting apps. */
 export function assistantConnectedApps(items: readonly IntegrationMetadata[], services: ChatChannelList | null,
   applicationName: (id: ChatChannelKind) => string, wechatDescription: string,

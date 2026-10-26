@@ -121,6 +121,25 @@ describe('咕咕 · 连接应用 · 云端', () => {
     expect(q('assistant-connector-connect')!.textContent).toBe('管理连接')
   })
 
+  it.each(['default', '', '  '])('已连接但只有内部账号名 %j：不显示账号行，断开操作放进卡片行', async (displayName) => {
+    integrations.value = state({ connectionStatus: { feishu: { displayName } } })
+    await render()
+    await clickElement(q('assistant-connector-feishu')!)
+    const card = q('assistant-connector-connection')!
+    expect(card).not.toBeNull()
+    expect(card.querySelector('.gg-section-label')).toBeNull()
+    expect(card.textContent).not.toContain('账号')
+    expect(card.textContent).not.toContain('default')
+    expect(q('assistant-connector-disconnect')!.closest('.gg-settings-row')).not.toBeNull()
+  })
+
+  it('已连接详情保留实际账号或组织名', async () => {
+    integrations.value = state({ connectionStatus: { feishu: { displayName: '研究团队' } } })
+    await render()
+    await clickElement(q('assistant-connector-feishu')!)
+    expect(q('assistant-connector-connection')!.textContent).toContain('研究团队')
+  })
+
   it('每行只有一个详情入口，不再逐行放连接按钮或未连接状态', async () => {
     integrations.value = state()
     await render()
