@@ -22,7 +22,7 @@ afterEach(async () => { await harness.cleanup(); vi.unstubAllGlobals() })
 describe('avatar boundary follows visible dock cards, independently of the reserved running row', () => {
   it('uses one observer for all four bar states, including preview changes that leave dock height unchanged', async () => {
     const render = (reply: boolean, preview: boolean) => harness.render(createElement('div', { 'data-column': '' },
-      createElement(ChatBottomDock, { floating: true, reserve: false,
+      createElement(ChatBottomDock, { reserve: false,
         above: createElement(RunningBarSlot, { children: preview ? createElement('span', { 'data-chat-dock-obstacle': '' }, 'running') : null }),
         children: createElement('div', null, reply ? 'reply and input' : 'input'),
       })))
@@ -52,15 +52,20 @@ describe('avatar boundary follows visible dock cards, independently of the reser
     expect(column.style.getPropertyValue('--chat-dock-avatar-h')).toBe('')
   })
 
-  it('leaves the non-floating phone stack in normal flow without measuring or publishing a dock offset', async () => {
-    await harness.render(createElement(ChatBottomDock, { floating: false, reserve: false, above: createElement('div', null, 'preview'), children: createElement('div', null, 'input') }))
-    expect(observers).toHaveLength(0)
-    expect(harness.container.querySelector('[data-chat-bottom-dock]')).toBeNull()
-    expect(harness.container.textContent).toBe('previewinput')
+  it('reserves the same measured dock height for a phone viewport and an empty conversation', async () => {
+    await harness.render(createElement('div', { 'data-column': '', style: { width: 390 } },
+      createElement(ChatBottomDock, { reserve: true, above: createElement(RunningBarSlot, { children: null }), children: createElement('div', null, 'input') })))
+    const column = harness.container.querySelector<HTMLElement>('[data-column]')!
+    const dock = column.querySelector<HTMLElement>('[data-chat-bottom-dock]')!
+    Object.defineProperty(dock, 'offsetHeight', { get: () => 124 })
+    await act(async () => observers[0].report())
+    expect(column.style.getPropertyValue('--chat-dock-h')).toBe('124px')
+    expect(column.querySelector('[aria-hidden]')?.className).toContain('h-[var(--chat-dock-h,0px)]')
+    expect(dock.textContent).toBe('input')
   })
 
   it('observes the running content when switching from a human DM to a group without remounting the dock', async () => {
-    const render = (group: boolean) => harness.render(createElement(ChatBottomDock, { floating: true, reserve: false,
+    const render = (group: boolean) => harness.render(createElement(ChatBottomDock, { reserve: false,
       above: group && createElement(RunningBarSlot, { children: null }), children: createElement('div', null, 'input') }))
     await render(false)
     expect(observers[0].targets).toHaveLength(1)
