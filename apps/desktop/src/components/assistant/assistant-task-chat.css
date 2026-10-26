@@ -91,3 +91,5 @@
   gap: var(--spacing-md);
   color: var(--muted-fg);
 }
+
+.assistant-task-cloud-history { flex: 1; min-height: 0; overflow: auto; padding-block: var(--spacing-sm); }

@@ -61,8 +61,9 @@ function reachable(deviceId: string): boolean {
   const device = readCachedDevices().find((row) => row.device_id === deviceId)
   const snapshot = getCloudComputerState().snapshot
   const cloud = snapshot?.deviceId === deviceId ? snapshot.state : device?.cloud_computer
-  return !!device && remoteHostReachable({
-    isOnline: device.is_online,
+  // An empty/unfinished device directory is unknown, not proof of an offline host.
+  return remoteHostReachable({
+    isOnline: device?.is_online !== false,
     directTerminal: false,
     ...(cloud === 'awake' || cloud === 'asleep' || cloud === 'waking' ? { cloudComputer: cloud } : {}),
   })

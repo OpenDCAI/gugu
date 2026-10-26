@@ -18,10 +18,12 @@ const runtime = {
   env: { GUGU_HOME: '/tmp/gugu-assistant-role-test' },
 }
 
-it('keeps the contract appended on every dispatch within 300 characters', () => {
-  expect(ASSISTANT_TASK_EXECUTION.length).toBeLessThanOrEqual(300)
-  expect(ASSISTANT_TASK_EXECUTION).toContain('咕咕工具出错立即按 <gugu_work> 报告')
-  expect(ASSISTANT_TASK_EXECUTION).toContain('不读咕咕程序目录，不调试平台')
+it('keeps the dispatch contract below 500 tokens using a conservative UTF-8 byte bound', () => {
+  expect(new TextEncoder().encode(ASSISTANT_TASK_EXECUTION).length).toBeLessThanOrEqual(500)
+  expect(ASSISTANT_TASK_EXECUTION).not.toMatch(/主人|用户/)
+  expect(ASSISTANT_TASK_EXECUTION).toContain('本机路径')
+  expect(ASSISTANT_TASK_EXECUTION).toContain('咕咕报错按 <gugu_work> 报')
+  expect(ASSISTANT_TASK_EXECUTION).toContain('禁读咕咕程序、调试平台')
 })
 
 beforeEach(() => { host = createDesktopGuguMcpHost(); run.mockClear() })
@@ -136,7 +138,7 @@ it('host adds the actual execution contract to spawn and reuse', async () => {
     const result = await client.callTool({ name: tool, arguments: args })
     expect(result).not.toMatchObject({ isError: true })
     const actual = run.mock.calls.at(-1)![0] as Record<string, unknown>
-    expect(actual[field]).toBe(`${field === 'prompt' ? args.prompt : args.text}\n\n${ASSISTANT_TASK_EXECUTION}`)
+    expect(actual[field]).toBe(`${field === 'prompt' ? args.prompt : args.text}\n\n<gugu_task_context>\n${ASSISTANT_TASK_EXECUTION}\n</gugu_task_context>`)
     expect(actual.source_link).toBe(source)
     if (field === 'prompt') expect(actual.device).toBe('remote')
     else expect(actual.to).toEqual(['session:existing'])

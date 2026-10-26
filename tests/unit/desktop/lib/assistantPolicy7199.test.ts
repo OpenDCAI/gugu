@@ -111,7 +111,7 @@ describe('assistantGuide', () => {
       expect(prompt).not.toContain('不作人称')
     }
     expect(ASSISTANT_TASK_EXECUTION).toContain('你在完成一项任务，不是个人助理')
-    expect(ASSISTANT_TASK_EXECUTION.length).toBeLessThanOrEqual(274)
+    expect(new TextEncoder().encode(ASSISTANT_TASK_EXECUTION).length).toBeLessThanOrEqual(500)
   })
 
   it('两种家都带头尾标记,界面那一侧(splitInstructions)认得出宿主维护的那一段', () => {
