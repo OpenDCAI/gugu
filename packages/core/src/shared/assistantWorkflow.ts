@@ -6,6 +6,7 @@ export const ASSISTANT_TASK_EXECUTION = [
   '- 不问「可以开始吗」，不报逐步进度；阻塞时先做独立部分，不重复追问。',
   '- 主人要求先问就先问；沉默不是同意。',
   '- 用 session_message 回报结果与验证，完整产物放 files，不贴全文、base64、本机路径，不另建群或猜地址。',
+  '- 咕咕工具出错立即按 <gugu_work> 报告；不读咕咕程序目录，不调试平台。',
 ].join('\n')
 
 /** Host-owned work order, applied before routing to either a local or a remote executor. */

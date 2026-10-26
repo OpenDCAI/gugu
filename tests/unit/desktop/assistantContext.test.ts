@@ -70,6 +70,17 @@ it.each(['computer', 'cloud'] as const)('keeps the complete %s handbook retrieva
     expect(brief).toContain('Owner instructions after')
     expect(brief).toContain('主人明确要求当作任务')
     expect(brief).toContain('宿主自动补齐执行约定')
+    // Both the resident instructions and the on-demand handbook carry the owner-facing boundary.
+    for (const text of [brief, full]) {
+      expect(text).toContain('不展示会话、work、设备、job 的内部编号')
+      expect(text).toContain('Pi 运行时、ACP')
+      expect(text).toContain('用任务标题、设备名和可点击链接')
+      expect(text).toContain('不说「我猜」')
+      expect(text).toContain('不请主人核对完整 ID')
+      expect(text).toContain('先查原记录')
+      expect(text).toContain('仍查不到就说明已知事实与缺口')
+      expect(text).toContain('做好了但交不回')
+    }
     expect(brief).toContain("Don't ask by default")
     expect(brief).toContain('主人明确要求先问后做时照办')
     expect(brief).toContain('缺授权的花钱、对外发送、删除或改动')
