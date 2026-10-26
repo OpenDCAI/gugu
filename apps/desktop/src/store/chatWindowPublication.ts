@@ -7,7 +7,7 @@ import { decideColdStartFetch, deltaResultRequiresDegrade } from '../lib/coldSta
 import { INITIAL_PAGE, NEWER_PAGE, maxMainlineSeq } from './chatMessageWindow'
 import { seedCacheFromDisk } from './chatDiskWindow'
 import { rendererLogger } from '../lib/log'
-import { readHistoryPage, retainHistoryPage } from '../lib/messageHistory'
+import { HistoryNotDownloadedError, readHistoryPage, retainHistoryPage } from '../lib/messageHistory'
 
 import { ChatWindowCache } from './chatWindowCache'
 import type { ChatHistoryWindow, FetchHistoryPage } from './chatHistoryWindow'
@@ -87,7 +87,7 @@ export function fetchChatHistoryPage(userId: string, getRepository?: () => Promi
     const query = { chatId, direction, cursor, limit }
     const cached = repository ? await readHistoryPage(repository, query) : null
     if (cached !== null) return cached
-    if (!navigator.onLine) throw new Error('This history has not been downloaded to this device. Connect to download it.')
+    if (!navigator.onLine) throw new HistoryNotDownloadedError()
     let rowCount = 0
     const rows = await chatService.getMessages(chatId, userId,
       direction === 'newer' ? 'loadNewer' : direction === 'older' ? 'loadOlder' : 'initialLoad', limit,
@@ -101,7 +101,7 @@ export function restoreChatHistoryAnchor(window: ChatHistoryWindow, userId: stri
   return window.restoreAnchor(async (chatId) => {
     const repository = await getRepository?.()
     const local = await repository?.readMessage(messageId)
-    if (!local && !navigator.onLine) throw new Error('This history has not been downloaded to this device. Connect to download it.')
+    if (!local && !navigator.onLine) throw new HistoryNotDownloadedError()
     const anchor = local?.value ?? await chatService.getMessageById(messageId, userId)
     if (!anchor || anchor.chat_id !== chatId || anchor.thread_root_id) throw new Error('Saved conversation message is no longer available')
     const fetch = fetchChatHistoryPage(userId, getRepository)

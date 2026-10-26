@@ -2,6 +2,8 @@ import { useCallback, useEffect, useRef, type MutableRefObject } from 'react'
 import type { FlowListHandle } from '../lib/flowList'
 import { resolveSourceMessageScroll, type ScrollableRow } from '../lib/sourceMessageScroll'
 import { UI_EVENTS } from '../lib/uiEvents'
+import { HistoryNotDownloadedError } from '../lib/messageHistory'
+import { useToast } from '../components/toastContext'
 
 /** `gugu.showMessage` in a chat not on screen (MainLayout brings it up): the message its list goes to when it shows it. */
 const askedReveals = new Map<string, string>()
@@ -35,6 +37,7 @@ export function useSourceMessageReveal(input: {
   onNavigate?: () => void
 }): (messageId: string) => void {
   const { activeChatId, viewportKey, navigationTarget = false, enabled = true, ready = true, rows, listRef, isAtBottomRef, setFollowingTail, setFlashMessageId, flashTimerRef, revealMessage, onMissing } = input
+  const { toast } = useToast()
   const onNavigateRef = useRef(input.onNavigate)
   onNavigateRef.current = input.onNavigate
   const tokenRef = useRef(0)
@@ -64,9 +67,13 @@ export function useSourceMessageReveal(input: {
     }
     revealMessage(messageId).then(
       () => { if (tokenRef.current === token) flash(messageId) },
-      () => { if (tokenRef.current === token) onMissingRef.current() },
+      (error: unknown) => {
+        if (tokenRef.current !== token) return
+        if (error instanceof HistoryNotDownloadedError) toast(error.message, 'error')
+        else onMissingRef.current()
+      },
     )
-  }, [flash, isAtBottomRef, listRef, revealMessage, rows, setFollowingTail])
+  }, [flash, isAtBottomRef, listRef, revealMessage, rows, setFollowingTail, toast])
 
   // 卸载时取消挂起的 flash 定时器(1.4s 内切 chat 会先卸载,避免 dangling timer)。定时器是和未读定位共用的那一个,
   // 这里一并清。

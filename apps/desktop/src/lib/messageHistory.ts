@@ -7,6 +7,10 @@ export type HistoryPageQuery = { chatId: string; direction: 'older' | 'newer' | 
 const coverageKey = (chatId: string) => `history:main:${chatId}`
 const deletedKey = (id: string) => `history-deleted:${id}`
 
+export class HistoryNotDownloadedError extends Error {
+  constructor() { super('This history has not been downloaded to this device. Connect to download it.') }
+}
+
 function coverage(repository: AccountImRepository, chatId: string): Coverage {
   return imSelectors.view(coverageKey(chatId))(repository.snapshot()) as Coverage | undefined ?? { ranges: [], tail: null }
 }
