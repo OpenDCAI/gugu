@@ -106,7 +106,6 @@ function marketStaleTime(iso: string, locale: string): string {
   ).format(at);
 }
 
-const errorMessage = messageForUser;
 
 const GROUP_LABEL = {
   attention: 'extensions.groupAttention',
@@ -265,7 +264,7 @@ export const ExtensionsSettingsCard = observer(function ExtensionsSettingsCard()
       setInventory('error');
       toast({
         title: translateRef.current('extensions.loadFailed'),
-        description: errorMessage(error),
+        description: messageForUser(error),
         tier: 'error',
         action: { label: translateRef.current('extensions.retry'), onClick: () => void refresh() },
       });
@@ -560,7 +559,7 @@ export const ExtensionsSettingsCard = observer(function ExtensionsSettingsCard()
       } catch (error) {
         toast({
           title: translateRef.current('extensions.installFailed'),
-          description: errorMessage(error),
+          description: messageForUser(error),
           tier: 'error',
           action: {
             label: translateRef.current('extensions.retry'),
@@ -624,7 +623,7 @@ export const ExtensionsSettingsCard = observer(function ExtensionsSettingsCard()
     } catch (error) {
       toast({
         title: translate('extensions.installFailed'),
-        description: errorMessage(error),
+        description: messageForUser(error),
         tier: 'error',
       });
     } finally {
@@ -707,7 +706,7 @@ export const ExtensionsSettingsCard = observer(function ExtensionsSettingsCard()
       // still refuses if what it reads changed underneath.
       toast({
         title: translateRef.current('extensions.installFailed'),
-        description: errorMessage(error),
+        description: messageForUser(error),
         tier: 'error',
         action: {
           label: translateRef.current('extensions.retry'),
@@ -759,7 +758,7 @@ export const ExtensionsSettingsCard = observer(function ExtensionsSettingsCard()
       }));
       toast({
         title: translateRef.current('extensions.permissionChangeFailed'),
-        description: errorMessage(error),
+        description: messageForUser(error),
         tier: 'error',
         action: {
           label: translateRef.current('extensions.retry'),
@@ -869,7 +868,7 @@ export const ExtensionsSettingsCard = observer(function ExtensionsSettingsCard()
     } catch (error) {
       toast({
         title: translate('extensions.uninstallFailed'),
-        description: errorMessage(error),
+        description: messageForUser(error),
         tier: 'error',
         action: { label: translate('extensions.retry'), onClick: () => void uninstall(app) },
       });

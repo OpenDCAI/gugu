@@ -76,17 +76,17 @@
   },
   {
     "rule": "copy-leaks-raw-error-field",
-    "file": "apps/desktop/electron/session/main/core/sessions/impl/local-session.ts",
-    "count": 1
-  },
-  {
-    "rule": "copy-leaks-raw-error-field",
     "file": "apps/desktop/electron/session/main/core/extensions/extensions-service.ts",
     "count": 1
   },
   {
     "rule": "copy-leaks-raw-error-field",
     "file": "apps/desktop/electron/session/main/core/github/services/github-host-service.ts",
+    "count": 1
+  },
+  {
+    "rule": "copy-leaks-raw-error-field",
+    "file": "apps/desktop/electron/session/main/core/sessions/impl/local-session.ts",
     "count": 1
   },
   {
@@ -111,13 +111,8 @@
   },
   {
     "rule": "copy-leaks-raw-error-field",
-    "file": "apps/desktop/src/store/chatOutbox.ts",
-    "count": 2
-  },
-  {
-    "rule": "copy-leaks-raw-error-field",
-    "file": "apps/desktop/src/store/contacts.tsx",
-    "count": 2
+    "file": "apps/desktop/src/session/renderer/features/sessions/stores/git-worktree-store.ts",
+    "count": 1
   },
   {
     "rule": "copy-leaks-raw-error-field",
@@ -126,8 +121,13 @@
   },
   {
     "rule": "copy-leaks-raw-error-field",
-    "file": "apps/desktop/src/session/renderer/features/sessions/stores/git-worktree-store.ts",
-    "count": 1
+    "file": "apps/desktop/src/store/chatOutbox.ts",
+    "count": 2
+  },
+  {
+    "rule": "copy-leaks-raw-error-field",
+    "file": "apps/desktop/src/store/contacts.tsx",
+    "count": 2
   },
   {
     "rule": "copy-leaks-raw-error-field",
@@ -161,6 +161,21 @@
   },
   {
     "rule": "copy-leaks-raw-error-slot",
+    "file": "apps/desktop/src/session/renderer/features/sessions/diff-view/changes-panel/components/commit-card.tsx",
+    "count": 1
+  },
+  {
+    "rule": "copy-leaks-raw-error-slot",
+    "file": "apps/desktop/src/session/renderer/features/sessions/git-action-handlers.ts",
+    "count": 2
+  },
+  {
+    "rule": "copy-leaks-raw-error-slot",
+    "file": "apps/desktop/src/session/renderer/features/sessions/stores/project-sessions-store.ts",
+    "count": 1
+  },
+  {
+    "rule": "copy-leaks-raw-error-slot",
     "file": "apps/desktop/src/session/renderer/features/settings/components/BrowserSettingsCard.tsx",
     "count": 4
   },
@@ -171,72 +186,7 @@
   },
   {
     "rule": "copy-leaks-raw-error-slot",
-    "file": "apps/desktop/src/session/renderer/features/settings/components/GitHubAccountsSection.tsx",
-    "count": 2
-  },
-  {
-    "rule": "copy-leaks-raw-error-slot",
     "file": "apps/desktop/src/session/renderer/features/settings/components/KeyboardSettingsCard.tsx",
-    "count": 1
-  },
-  {
-    "rule": "copy-leaks-raw-error-slot",
-    "file": "apps/desktop/src/session/renderer/features/sidebar/sidebar-session-item.tsx",
-    "count": 1
-  },
-  {
-    "rule": "copy-leaks-raw-error-slot",
-    "file": "apps/desktop/src/session/renderer/features/sidebar/use-sidebar-drop.ts",
-    "count": 1
-  },
-  {
-    "rule": "copy-leaks-raw-error-slot",
-    "file": "apps/desktop/src/session/renderer/features/sessions/diff-view/changes-panel/components/commit-card.tsx",
-    "count": 1
-  },
-  {
-    "rule": "copy-leaks-raw-error-slot",
-    "file": "apps/desktop/src/session/renderer/features/sessions/diff-view/changes-panel/components/pr-entry/pr-entry.tsx",
-    "count": 1
-  },
-  {
-    "rule": "copy-leaks-raw-error-slot",
-    "file": "apps/desktop/src/session/renderer/features/sessions/diff-view/changes-panel/pr-section.tsx",
-    "count": 2
-  },
-  {
-    "rule": "copy-leaks-raw-error-slot",
-    "file": "apps/desktop/src/session/renderer/features/sessions/editor/editor-file-tree.tsx",
-    "count": 2
-  },
-  {
-    "rule": "copy-leaks-raw-error-slot",
-    "file": "apps/desktop/src/session/renderer/features/sessions/git-action-handlers.ts",
-    "count": 2
-  },
-  {
-    "rule": "copy-leaks-raw-error-slot",
-    "file": "apps/desktop/src/session/renderer/features/sessions/start-side-session.ts",
-    "count": 1
-  },
-  {
-    "rule": "copy-leaks-raw-error-slot",
-    "file": "apps/desktop/src/session/renderer/features/sessions/stores/project-sessions-store.ts",
-    "count": 1
-  },
-  {
-    "rule": "copy-leaks-raw-error-slot",
-    "file": "apps/desktop/src/session/renderer/lib/components/github-device-flow-modal.tsx",
-    "count": 1
-  },
-  {
-    "rule": "copy-leaks-raw-error-slot",
-    "file": "apps/desktop/src/session/renderer/lib/components/titlebar/open-in-menu.tsx",
-    "count": 2
-  },
-  {
-    "rule": "copy-leaks-raw-error-slot",
-    "file": "apps/desktop/src/session/renderer/lib/providers/github-context-provider.tsx",
     "count": 1
   }
 ]

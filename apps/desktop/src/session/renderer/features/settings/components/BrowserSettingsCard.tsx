@@ -114,7 +114,7 @@ export function BrowserSettingsCard() {
     } catch (error) {
       toast({
         title: translate('browserSettings.clearBrowsingDataFailed'),
-        description: errorMessage(error),
+        description: messageForUser(error),
         variant: 'destructive',
       });
     } finally {
@@ -604,7 +604,7 @@ async function clearProfileStorageAndReload(
   } catch (error) {
     toast({
       title: translate('browserSettings.clearProfileStorageFailed'),
-      description: errorMessage(error),
+      description: messageForUser(error),
       variant: 'destructive',
     });
   }
@@ -650,8 +650,8 @@ async function deleteProfileAfterStorageClear({
     toast({
       title: translate('browserSettings.deleteProfileFailed'),
       description: storageCleared
-        ? translate('browserSettings.deleteProfileStillListed', { detail: errorMessage(error) })
-        : errorMessage(error),
+        ? translate('browserSettings.deleteProfileStillListed', { detail: messageForUser(error) })
+        : messageForUser(error),
       variant: 'destructive',
     });
   }
@@ -662,10 +662,6 @@ function reloadBrowserSessionsForProfile(profileId: string): void {
     if (session.profileId !== profileId) continue;
     browserControlsRegistry.get(session.browserId)?.adapter?.reload();
   }
-}
-
-function errorMessage(error: unknown): string {
-  return messageForUser(error);
 }
 
 function makeProfileId(name: string, profiles: readonly BrowserProfile[]): string {

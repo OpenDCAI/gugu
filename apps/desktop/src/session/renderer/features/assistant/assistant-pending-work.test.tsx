@@ -17,7 +17,7 @@ const call = vi.hoisted(() => vi.fn(async (name: string) => {
 const client = vi.hoisted(() => vi.fn(() => ({ callProgram: call, onProgramNotification: () => () => undefined })));
 vi.mock('@/store/devicesCache', () => ({ cachedDevicesAccount: () => 'owner' }));
 vi.mock('@/components/assistant/assistant-app-client', () => ({ assistantAppClient: client, reportAssistantAppChange: change }));
-vi.mock('react-i18next', () => ({ useTranslation: () => ({ t: (key: string, data?: { count: number }) => data ? `${key}:${data.count}` : key }) }));
+vi.mock('react-i18next', async (importOriginal) => ({ ...(await importOriginal<typeof import('react-i18next')>()), useTranslation: () => ({ t: (key: string, data?: { count: number }) => data ? `${key}:${data.count}` : key }) }));
 vi.mock('@renderer/lib/ui/markdown-renderer', () => ({ MarkdownRenderer: ({ content }: { content: string }) => <p>{content}</p> }));
 vi.mock('./assistant-ui', () => ({ AssistantSection: ({ children }: { children: React.ReactNode }) => <section>{children}</section>,
   AssistantEmpty: ({ children }: { children: React.ReactNode }) => <p>{children}</p> }));

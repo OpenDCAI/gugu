@@ -65,7 +65,6 @@ export const enUSProjectMessages = {
   'browser.screenshotFailed': 'Could not capture screenshot',
   'browser.clearDataFailed': 'Could not clear browser data',
   'browser.clearDataFailedDetail': 'This browser tab is no longer open.',
-  'browser.clearDataRequestFailed': 'The browser data request failed.',
   'browser.clearStorageTitle': 'Clear browser storage?',
   'browser.clearStorageDescription':
     'This clears cookies, local storage, IndexedDB, and cache for {profileLabel}. Browser tabs using the same storage boundary will be signed out.',
@@ -280,7 +279,6 @@ export const zhCNProjectMessages: Record<ProjectMessageKey, string> = {
   'browser.screenshotFailed': '无法截图',
   'browser.clearDataFailed': '无法清除浏览器数据',
   'browser.clearDataFailedDetail': '这个浏览器页签已经关闭。',
-  'browser.clearDataRequestFailed': '清除浏览器数据的请求失败。',
   'browser.clearStorageTitle': '清除浏览器存储？',
   'browser.clearStorageDescription':
     '这会清除 {profileLabel} 的 Cookie、本地存储、IndexedDB 和缓存。使用同一存储边界的浏览器标签页将被登出。',

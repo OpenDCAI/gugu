@@ -335,7 +335,6 @@ export const enUSCapabilityMessages = {
     'This deletes cached images and files for every in-app browser profile. Pages may load more slowly the next time you open them.',
   'browserSettings.confirmCacheAction': 'Delete cached files',
   'browserSettings.clearBrowsingDataFailed': 'Could not clear browsing data',
-  'browserSettings.clearBrowsingDataFailedHint': 'Try again, or reload the browser view manually.',
   'browserSettings.clearProfileStorageTitle': 'Clear {name} browser storage?',
   'browserSettings.clearProfileStorageDescription':
     'This clears cookies, local storage, IndexedDB, and cache for this profile. Browser tabs using it will be signed out.',
@@ -348,8 +347,6 @@ export const enUSCapabilityMessages = {
     'This removes the profile and clears its cookies, local storage, IndexedDB, and cache.',
   'browserSettings.deleteProfileAction': 'Delete Profile',
   'browserSettings.deleteProfileFailed': 'Could not delete browser profile',
-  'browserSettings.deleteProfileKept':
-    'The profile storage could not be cleared, so the profile was kept.',
   'browserSettings.deleteProfileStillListed':
     'Storage was cleared, but the profile is still listed. {detail}',
 
@@ -1169,7 +1166,6 @@ export const zhCNCapabilityMessages: Record<CapabilityMessageKey, string> = {
     '这会删除所有应用内浏览器配置缓存的图片和文件。下次打开这些页面可能会变慢。',
   'browserSettings.confirmCacheAction': '删除缓存文件',
   'browserSettings.clearBrowsingDataFailed': '无法清除浏览数据',
-  'browserSettings.clearBrowsingDataFailedHint': '请重试，或手动重新加载浏览器视图。',
   'browserSettings.clearProfileStorageTitle': '清除浏览器配置 {name} 的存储？',
   'browserSettings.clearProfileStorageDescription':
     '这会清除该配置的 cookie、local storage、IndexedDB 和缓存。使用它的浏览器标签页会退出登录。',
@@ -1181,7 +1177,6 @@ export const zhCNCapabilityMessages: Record<CapabilityMessageKey, string> = {
     '这会移除该配置，并清除它的 cookie、local storage、IndexedDB 和缓存。',
   'browserSettings.deleteProfileAction': '删除配置',
   'browserSettings.deleteProfileFailed': '无法删除浏览器配置',
-  'browserSettings.deleteProfileKept': '该配置的存储未能清除，因此配置被保留。',
   'browserSettings.deleteProfileStillListed': '存储已清除，但该配置仍在列表中。{detail}',
 
   // ── 设置 · 智能体页 ─────────────────────────────────────────────────────────
