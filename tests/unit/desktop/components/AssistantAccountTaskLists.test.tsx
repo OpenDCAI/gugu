@@ -51,6 +51,6 @@ it.each(['phone','desktop'])('%s reads an ended account task with no connected m
   expect(harness.container.textContent).toContain('Recovered task')
   expect(harness.container.querySelector('[role="alert"]')).toBeNull()
   await clickElement(harness.container.querySelector<HTMLElement>('[data-testid="assistant-subagent-worker"]')!)
-  expect(opened.mock.calls[0][0].detail).toMatchObject({workId:'work',taskAgentId:'executor',assistants:[{deviceId:'home',sessionId:'home-session'}]})
+  expect(opened.mock.calls[0][0].detail).toMatchObject({workId:'work',outcome:'completed',taskAgentId:'executor',assistants:[{deviceId:'home',sessionId:'home-session'}]})
  }finally{window.removeEventListener(OPEN_ASSISTANT_TASK_CHAT,opened)}
 })

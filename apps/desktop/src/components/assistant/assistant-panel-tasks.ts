@@ -21,7 +21,7 @@ export async function readAssistantPanelTasks(scope:Scope) {
 }
 export type AssistantPanelTask = ReturnType<typeof rows>[number]
 export function openAssistantPanelTask(scope:Pick<Scope,'assistantId'>,task:AssistantPanelTask) {
-  const detail:AssistantTaskChat={workId:task.workId,title:task.title,assistantId:scope.assistantId,taskAgentId:task.agentId,
+  const detail:AssistantTaskChat={workId:task.workId,title:task.title,outcome:task.outcome,assistantId:scope.assistantId,taskAgentId:task.agentId,
     task:{deviceId:task.deviceId,sessionId:task.id},assistants:task.assistants}
   window.dispatchEvent(new CustomEvent(OPEN_ASSISTANT_TASK_CHAT,{detail}))
 }
