@@ -56,7 +56,7 @@ export function PhoneTasks(props: PhonePageProps) {
   )
 }
 
-function SubAgents({ assistant, chatId, homeDeviceId, askInChat }: PhonePageProps) {
+function SubAgents({ assistant, chatId, homeDeviceId, machine, askInChat }: PhonePageProps) {
   usePhoneTaskDirectory()
   const { t } = useTranslation('assistant')
   const { devices: hosts, phones = [], loading, error } = useDevicesStore()
@@ -69,11 +69,12 @@ function SubAgents({ assistant, chatId, homeDeviceId, askInChat }: PhonePageProp
   const homeRead = home ? deviceSessionsOf(home, live) : null
   if (children.length === 0) {
     if (error) return <ReadFailed title={t('tasks.loadFailed')} error={error} onRetry={() => {}} />
+    if (machine.state === 'error') return <ReadFailed title={t('tasks.loadFailed')} error={machine.error} onRetry={machine.retry} />
     if (loading) return <ReadingNow />
     const unread = devices.filter((device) => device.is_online && isAgentHostDevice(device)).map((device) => deviceSessionsOf(device, live))
     const errors = unread.flatMap((read) => read.error ? [read.error] : [])
     if (errors.length) return <ReadFailed title={t('tasks.loadFailed')} error={errors[0]} onRetry={() => {}} />
-    if (!homeRead || unread.some((read) => read.loading)) return <ReadingNow />
+    if (!homeRead || homeRead.loading || unread.some((read) => read.loading)) return <ReadingNow />
     return (
       <AssistantSection bare>
         <AssistantEmpty

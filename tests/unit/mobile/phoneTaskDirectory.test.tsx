@@ -6,25 +6,28 @@ import { PhoneTasks } from '../../../apps/desktop/src/mobile/assistant/PhoneTask
 import { PhoneRoutineDetail } from '../../../apps/desktop/src/mobile/assistant/PhoneRoutineDetail'
 import { usePhoneRoutines } from '../../../apps/desktop/src/mobile/assistant/usePhoneRoutines'
 import type { PhonePageProps } from '../../../apps/desktop/src/mobile/assistant/MobileAssistantApp'
-import { createReactHarness, renderWithAppProviders } from '../../support/testHarness'
+import { publishDirectoryDevices, retainDeviceSessions, updateDeviceSessions } from '../../../apps/desktop/src/session/shared/remote-sessions/session-directory'
+import type { Device } from '@gugu/core/shared/types/chat'
+import { createReactHarness, renderWithAppProviders, device } from '../../support/testHarness'
 const cloud = vi.hoisted(() => ({ snapshot: vi.fn(),collection: vi.fn(),native: vi.fn(() => { throw new Error('Unexpected device read') }) }))
-vi.mock('@/store/devicesContext',() => ({ useDevicesStore: () => ({ devices: [],phones: [] }) }))
+const directory = vi.hoisted(() => ({ devices: [] as Device[] }))
+vi.mock('@/store/devicesContext',() => ({ useDevicesStore: () => ({ devices: directory.devices,phones: [] }) }))
 vi.mock('@/mobile/agent-watch/sessionpage-rpc',() => ({ machineRpc: cloud.native }))
 let harness: ReturnType<typeof createReactHarness>
 const page = () => ({ assistant: { id: 'assistant',display_name: '咕咕',avatar: null,created_at: null },chatId: 'dm',ownerName: 'Owner',
   home: { kind: 'cloud',deviceId: 'home' },homeDeviceId: 'home',readiness: 'ready',machine: { state: 'ready',machine: { deviceId: 'home',projectId: 'panel',workspaceId: 'dm',paths: { memoryDir: 'memory' },
     panel: { assistantId: 'assistant',deviceId: 'home',snapshot: cloud.snapshot,collection: cloud.collection } } },askInChat: vi.fn(),sub: null,go: vi.fn(),open: vi.fn() }) as unknown as PhonePageProps
-beforeEach(() => { harness = createReactHarness(); cloud.native.mockClear(); cloud.collection.mockReset().mockResolvedValue([]); cloud.snapshot.mockReset().mockResolvedValue({ version: 1,revision: '1',application: [],items: [{ domain: 'tasks',resource_key: '__collection__:home',device_id: 'home',data: { state: 'ready' } }] }) })
-afterEach(() => harness.cleanup())
-it('reads a successfully empty account task list while its host is offline', async () => {
+beforeEach(() => { harness = createReactHarness(); directory.devices = [device('home',[],{ is_online: false })]; retainDeviceSessions([]); publishDirectoryDevices(directory.devices); updateDeviceSessions('home',{ projects: [],sessions: [],loading: false,cached: false,error: null }); cloud.native.mockClear(); cloud.collection.mockReset().mockResolvedValue([]); cloud.snapshot.mockReset().mockResolvedValue({ version: 1,revision: '1',application: [],items: [{ domain: 'tasks',resource_key: '__collection__:home',device_id: 'home',data: { state: 'ready' } }] }) })
+afterEach(() => { harness.cleanup(); retainDeviceSessions([]); publishDirectoryDevices([]) })
+it('reads a successfully empty shared directory while its host is offline', async () => {
   await renderWithAppProviders(harness,<PhoneTasks {...page()} />)
   await vi.waitFor(() => expect(harness.container.textContent).toContain('还没有任务'))
   expect(cloud.native).not.toHaveBeenCalled()
 })
-it('does not turn an unprepared cloud task index into an empty list', async () => {
-  cloud.snapshot.mockResolvedValue({ version: 1,revision: '0',application: [],items: [] })
+it('does not turn an unread shared directory into an empty list', async () => {
+  updateDeviceSessions('home',{ loading: true,cached: true })
   await renderWithAppProviders(harness,<PhoneTasks {...page()} />)
-  await vi.waitFor(() => expect(harness.container.textContent).toContain('还没整理好'))
+  await vi.waitFor(() => expect(harness.container.querySelector('[data-testid="loading-indicator"]')).not.toBeNull())
   expect(harness.container.textContent).not.toContain('还没有任务')
 })
 it('uses the existing keyboard-enabled task tabs', async () => {
