@@ -28,11 +28,11 @@ export type AssistantPanelNotice = {
   deviceId?: string; section?: string; before?: object; after?: object
 }
 export type AssistantPanelTransport = (name: string, args: Record<string, unknown>) => Promise<{
-  data: unknown; error: { message: string; code?: string } | null
+  data: unknown; error: { message: string; code?: string } | null; status?: number
 }>
 
 export class AssistantPanelError extends Error {
-  constructor(readonly code: string, message: string, readonly resourceKey?: string, readonly domain?: string) { super(message); this.name = 'AssistantPanelError' }
+  constructor(readonly code: string, message: string, readonly resourceKey?: string, readonly domain?: string, readonly status?: number) { super(message); this.name = 'AssistantPanelError' }
 }
 const record = (value: unknown): value is Record<string, unknown> => !!value && typeof value === 'object' && !Array.isArray(value)
 const revision = (value: unknown): value is string => typeof value === 'string' && /^\d+$/.test(value)
@@ -89,7 +89,7 @@ export function createAssistantPanelClient(transport: AssistantPanelTransport, a
       throw new AssistantPanelError('transport-failed','PANEL_TRANSPORT_FAILED')
     }
     if (accountId() !== owner) throw new AssistantPanelError('account-changed','Assistant panel account changed')
-    if (answer.error) throw new AssistantPanelError(answer.error.code ?? 'unavailable',answer.error.message)
+    if (answer.error) throw new AssistantPanelError(answer.error.code ?? 'unavailable',answer.error.message,undefined,undefined,answer.status)
     return parse(answer.data,owner)
   }
   const receipt = (data: unknown): AssistantPanelReceipt => {
