@@ -10,6 +10,8 @@ const { tabs, showChatTab, updateFileNames } = vi.hoisted(() => ({
 vi.mock('@renderer/features/chats/chat-tabs/chat-layouts', () => ({ panelTabsOf: () => tabs, showChatTab, updateFileNames }));
 
 const navigate = vi.fn();
+const chatOnScreen = vi.fn((): string | null => 'chat');
+vi.mock('@/lib/onScreenChat', () => ({ chatOnScreen }));
 vi.mock('@renderer/lib/stores/app-state', () => ({ appState: { navigation: { navigate } } }));
 vi.mock('@renderer/features/projects/stores/project-selectors', () => ({
   getProjectManagerStore: () => ({ projects: new Map() }),
@@ -22,7 +24,7 @@ vi.mock('./extension-surface-store', () => ({
 }));
 
 const { applyExtensionHostAction } = await import('./host-action-handlers');
-beforeEach(() => { vi.clearAllMocks(); tabs.length = 0; });
+beforeEach(() => { vi.clearAllMocks(); tabs.length = 0; chatOnScreen.mockReturnValue('chat'); });
 afterEach(() => vi.unstubAllGlobals());
 
 /**
@@ -57,6 +59,13 @@ describe('showing an already-open file while its metadata is checked', () => {
     expect(await applyExtensionHostAction({ origin, action: { kind: 'openChatFile', chatId: 'chat', itemId: 'file', onlyIfOpen: 'workspace.main' } })).toBeUndefined();
     expect(showChatTab).not.toHaveBeenCalled();
     expect(navigate).not.toHaveBeenCalled();
+  });
+
+  it('leaves a file in another chat to the ordinary opener that brings its chat up', async () => {
+    tabs.push({ tabId: 'held', inWindow: false, item: { kind: 'workspace.main', itemId: 'file', title: 'old' } });
+    chatOnScreen.mockReturnValue(null);
+    expect(await applyExtensionHostAction({ origin, action: { kind: 'openChatFile', chatId: 'chat', itemId: 'file', onlyIfOpen: 'workspace.main' } })).toBeUndefined();
+    expect(showChatTab).not.toHaveBeenCalled();
   });
 
   it('refreshes only the existing tab without activating a late result or bringing its chat up', async () => {

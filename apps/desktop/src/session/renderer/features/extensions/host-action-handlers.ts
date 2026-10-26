@@ -43,6 +43,7 @@ import { isEmbedVisible } from '@renderer/lib/portal-container';
 import { askInShell, closeInShell, installConsentPrompt } from './install-consent';
 import { revealSessionpage } from '@/hooks/useSessionpageReveal';
 import { closeAppModal, focusAppModalClose, showAppModal } from '@/components/appModal/appModal';
+import { chatOnScreen } from '@/lib/onScreenChat';
 
 /**
  * Performs the actions main has already decided an extension is allowed to take.
@@ -98,6 +99,7 @@ function openForClick(action: ExtensionHostAction): ExtensionHostActionResult | 
       { const opened = openApp(action.extensionId, action.tab); revealSessionpage(); return opened; }
     case 'openChatFile':
       if (action.onlyIfOpen) return import('@renderer/features/chats/chat-tabs/chat-layouts').then(({ panelTabsOf, showChatTab }) => {
+        if (chatOnScreen() !== action.chatId) return;
         const tab = panelTabsOf(action.chatId).find((entry) => !entry.inWindow && entry.item.itemId === action.itemId && entry.item.kind === action.onlyIfOpen);
         if (!tab) return;
         showChatTab(action.chatId, tab.tabId);
