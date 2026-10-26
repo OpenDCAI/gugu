@@ -125,3 +125,24 @@ it('does not register read actions and preserves an ordinary message result', as
   expect(await coordinateAssistantAction({ sessionId: 'parent', memoryDir: root }, action, run)).toBe(action)
   expect(new AssistantWorkStore(root).list()).toEqual([])
 })
+
+it.each(['spawn', 'message'] as const)('%s tells executors to escalate delivery failures before investigating the platform', async action => {
+  const run = vi.fn<(action: unknown) => Promise<unknown>>(async () => action === 'spawn' ? { session_id: 'child' }
+    : { recipients: [{ to: 'session:child', status: 'delivered', message_id: 'dispatch-receipt' }] })
+  await coordinateAssistantAction({ sessionId: 'parent', memoryDir: root },
+    action === 'spawn' ? { action, prompt: 'Make a report.' }
+      : { action, to: ['session:child'], text: 'Continue the report.' }, run)
+  const dispatched = run.mock.calls[0][0] as Record<string, string>
+  const text = dispatched[action === 'spawn' ? 'prompt' : 'text']
+  const contract = JSON.parse(text.split('<gugu_work>\n')[1].split('\n</gugu_work>')[0])
+  expect(contract.coordinator).toBe('session:parent')
+  expect(contract.work_id).toBe(new AssistantWorkStore(root).list()[0].id)
+  const report = contract.report as string
+  expect(report).toContain('verify result before completed; a failed delivery is progress, never completed')
+  expect(report).toContain('Gugu messaging/upload/reporting fails, immediately report progress')
+  expect(report).toContain('work done or partial, failed step, observed cause category')
+  expect(report).toContain('permission/network/validation/unknown')
+  expect(report).toContain('if done say "做好了但交不回"')
+  expect(report).toContain('If reporting also fails, preserve this notice in the task reply and stop')
+  expect(report).toContain('Never read Gugu program directories or debug/repair the platform')
+})

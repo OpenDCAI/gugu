@@ -20,6 +20,8 @@ const runtime = {
 
 it('keeps the contract appended on every dispatch within 300 characters', () => {
   expect(ASSISTANT_TASK_EXECUTION.length).toBeLessThanOrEqual(300)
+  expect(ASSISTANT_TASK_EXECUTION).toContain('咕咕工具出错立即按 <gugu_work> 报告')
+  expect(ASSISTANT_TASK_EXECUTION).toContain('不读咕咕程序目录，不调试平台')
 })
 
 beforeEach(() => { host = createDesktopGuguMcpHost(); run.mockClear() })

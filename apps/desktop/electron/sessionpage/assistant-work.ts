@@ -145,6 +145,12 @@ export function registerAssistantQuestion(sessionId: string, questionId: string,
   store.confirm(id, [], [], questionId)
 }
 
+const EXECUTOR_REPORT = [
+  'session_message to=[coordinator] text=summary work_result={work_id,status:progress|question|completed|cancelled}; verify result before completed; a failed delivery is progress, never completed.',
+  'If Gugu messaging/upload/reporting fails, immediately report progress: work done or partial, failed step, observed cause category (permission/network/validation/unknown); if done say "做好了但交不回"; do not infer causes.',
+  'If reporting also fails, preserve this notice in the task reply and stop; retain artifacts. Never read Gugu program directories or debug/repair the platform to resolve these tool failures.',
+].join(' ')
+
 /** Wrap only an explicitly identified assistant's dispatcher, before either local or remote routing. */
 export async function coordinateAssistantAction(binding: AssistantWorkBinding, action: unknown,
   run: (action: unknown) => Promise<unknown>): Promise<unknown> {
@@ -162,7 +168,7 @@ export async function coordinateAssistantAction(binding: AssistantWorkBinding, a
     Array.isArray(record.to) ? record.to.filter((value): value is string => typeof value === 'string') : [],
     typeof record.work_id === 'string' ? record.work_id : undefined)
   const dispatched = field ? { ...record, [field]: `${record[field]}\n\n<gugu_work>\n${JSON.stringify({ work_id: id,
-    coordinator: `session:${binding.sessionId}`, report: 'session_message work_result={work_id,status:progress|question|completed|cancelled}; only report completed after verifying the requested result.' })}\n</gugu_work>` } : action
+    coordinator: `session:${binding.sessionId}`, report: EXECUTOR_REPORT })}\n</gugu_work>` } : action
   try {
     const result = await run(dispatched)
     const out = result as { session_id?: string; recipients?: Array<{ to: string; session_id?: string; status: string; message_id?: string }>; state?: string; question_id?: string }

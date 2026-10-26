@@ -1,14 +1,13 @@
 import { useState } from 'react'
 import { Button } from '@/components/ui/Button'
 import { SettingsGroup, SettingsNote, SettingsRow } from '@/components/settings/SettingsPrimitives'
-import { Bot } from '@/lib/icons'
 import { restartPhoneAgentHost, stopPhoneAgentHost, usePhoneDevice } from '../phone-device/phoneDeviceRuntime'
 import { setPhoneAgentHostEnabled, usePhoneDeviceSettings } from '../phone-device/phoneDeviceSettings'
 import { phoneAgentAvailable } from './nativeAgent'
 import '../phone-device/phone-device.css'
 
 /** Hosting is a device setting; Agent creation and conversations stay in their existing flows. */
-export function PhoneAgentHostControl({ ownerId }: { ownerId: string }) {
+export function PhoneAgentHostControl({ ownerId, setup }: { ownerId: string; setup?: { onContinue: () => void; continueLabel: string } }) {
   const phone = usePhoneDevice()
   const settings = usePhoneDeviceSettings(ownerId)
   const [changing, setChanging] = useState<'stop' | 'restart' | null>(null)
@@ -45,6 +44,18 @@ export function PhoneAgentHostControl({ ownerId }: { ownerId: string }) {
 
   if (!phoneAgentAvailable()) return null
 
+  if (setup) return (
+    <div className="gg-phone-setup-action">
+      <Button variant="primary" disabled={!!changing} data-testid="phone-setup-enable-host" onClick={() => {
+        if (failed) void changeHost('restart')
+        else if (settings.hostEnabled) setup.onContinue()
+        else { setError(null); setPhoneAgentHostEnabled(ownerId, true) }
+      }}>{changing ? '正在重新连接' : failed ? '重新连接手机 Agent' : settings.hostEnabled ? setup.continueLabel : '启用手机 Agent'}</Button>
+      {settings.hostEnabled && !ready && !hostError && !error && <SettingsNote role="status">{statusText}</SettingsNote>}
+      {(error || hostError) && <SettingsNote tone="danger" role="alert">{error ?? hostError}</SettingsNote>}
+    </div>
+  )
+
   return (
     <SettingsGroup
       title="手机 Agent"
@@ -53,7 +64,6 @@ export function PhoneAgentHostControl({ ownerId }: { ownerId: string }) {
       footer={error || hostError ? <SettingsNote tone="danger" role="alert">{error ?? hostError}</SettingsNote> : undefined}
     >
       <SettingsRow
-        leading={<Bot className="size-5 gg-phone-setting-icon" aria-hidden="true" />}
         title="在这台手机上运行 Agent"
         description="新建任务时选择这台手机。手机能力按需授权。"
         stack

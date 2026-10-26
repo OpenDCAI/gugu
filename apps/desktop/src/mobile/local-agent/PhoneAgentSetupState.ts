@@ -1,8 +1,8 @@
-export type PhoneAgentSetupStep = 'host' | 'background' | 'tools'
+export type PhoneAgentSetupStep = 'host' | 'notifications' | 'background' | 'tools'
 export interface PhoneAgentSetupProgress { step: PhoneAgentSetupStep; dismissed: boolean; completed: boolean }
 
 const PREFIX = 'gugu.phoneAgentSetup.v1:'
-const steps: readonly PhoneAgentSetupStep[] = ['host', 'background', 'tools']
+const steps: readonly PhoneAgentSetupStep[] = ['host', 'notifications', 'background', 'tools']
 const requests = new Map<string, number>()
 const listeners = new Set<() => void>()
 

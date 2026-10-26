@@ -1,5 +1,6 @@
+import { AutomationAgentAvatar } from './AutomationAgentAvatar';
 import cronstrue from 'cronstrue';
-import { Bot, CheckCircle2, Clock, Folder, MinusCircle, XCircle, type IconComponent } from '@/lib/icons'
+import { CheckCircle2, Clock, Folder, MinusCircle, XCircle, type IconComponent } from '@/lib/icons'
 import { observer } from 'mobx-react-lite';
 import {
   useLatestAutomationRun,
@@ -120,7 +121,7 @@ export const AutomationRow = observer(function AutomationRow({
                   automation.agentSession.gone ? 'text-foreground-destructive/80' : 'text-foreground-muted'
                 )}
               >
-                <Bot className="size-3 shrink-0" />
+                <AutomationAgentAvatar sessionId={automation.agentSessionId} />
                 <span className="min-w-0 truncate">
                   {automation.agentSession.gone
                     ? translate('automations.byAgentGone')

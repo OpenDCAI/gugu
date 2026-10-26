@@ -15,6 +15,26 @@ function rig() {
   return { transport, pages, link: (open: boolean) => link(open), receive: vi.fn(), state: vi.fn() }
 }
 describe('task collaboration stream lifecycle', () => {
+  it('returns from a task safely when the unavailable native bridge throws synchronously during unsubscribe', async () => {
+    const r = rig()
+    vi.mocked(r.transport.unsubscribe).mockImplementation(() => { throw new Error('electronAPI.invoke is unavailable for sessionTimeline.taskExchangesUnsubscribe') })
+    const stop = startTaskExchangeReader(r.transport, { conversationId: 'task', fromSessionId: 'assistant' }, r.receive, r.state)
+    await vi.waitFor(() => expect(r.state).toHaveBeenLastCalledWith('ready'))
+    expect(() => { stop(); stop() }).not.toThrow()
+    await Promise.resolve(); await Promise.resolve()
+    expect(r.pages.size).toBe(0)
+    expect(r.transport.unsubscribe).toHaveBeenCalledTimes(1)
+  })
+  it('keeps the read failure visible even if synchronous cleanup fails too', async () => {
+    const r = rig()
+    vi.mocked(r.transport.subscribe).mockImplementation(() => { throw new Error('native read is unavailable') })
+    vi.mocked(r.transport.unsubscribe).mockImplementation(() => { throw new Error('native unsubscribe is unavailable') })
+    const stop = startTaskExchangeReader(r.transport, { conversationId: 'task', fromSessionId: 'assistant' }, r.receive, r.state)
+    await vi.waitFor(() => expect(r.state).toHaveBeenLastCalledWith('unavailable', expect.objectContaining({ message: 'native read is unavailable' })))
+    expect(r.receive).not.toHaveBeenCalled()
+    expect(r.pages.size).toBe(0)
+    expect(stop).not.toThrow()
+  })
   it('installs the push listener before asking for history and reads all pages', async () => {
     const r = rig()
     vi.mocked(r.transport.subscribe).mockImplementation(async ({ subscriptionId }) => {
