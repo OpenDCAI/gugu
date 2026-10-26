@@ -271,6 +271,7 @@ describe('session orchestration', () => {
   afterEach(() => {
     fixture.close();
     mocks.db = undefined;
+    vi.unstubAllEnvs();
   });
 
   /** 这条会话的标题与「显式命名过的那个名字」——后者只在 config 上,前者两种来源同形。 */
@@ -718,6 +719,8 @@ describe('session orchestration', () => {
     });
 
     it('reuses exact inbox identity and envelope bytes when a phone retries an acknowledged-or-unknown failure notice', async () => {
+      // This assertion exercises the persisted timestamp, independent of the runner's timezone.
+      vi.stubEnv('TZ', 'Asia/Shanghai');
       mocks.sendMessage.mockResolvedValue({ id: 'm1', status: 'delivered' });
       const action = { action: 'message' as const, session_ids: ['caller'], text: '这次手机任务没能完成，网络连接持续超时。',
         delivery_id: '022ebf62-18b2-4d78-987e-ddb02dd04c46', delivery_at: '2026-10-26T07:00:00.000Z' };

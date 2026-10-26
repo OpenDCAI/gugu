@@ -475,14 +475,25 @@ export function setSessionIntegrationSkillBridge(bridge: (() => Promise<Extensio
   sessionIntegrationSkillBridge = bridge
 }
 
+/** Host-owned search; availability is read after the platform injector has finished. */
+let sessionWebSearchBridge: ((sessionId: string) => import('./mcp/gugu-web-search-tool').SessionWebSearch) | null = null
+
+export function setSessionWebSearchBridge(bridge: typeof sessionWebSearchBridge): void {
+  sessionWebSearchBridge = bridge
+}
+
 export async function buildSessionBundle(
   deps: BuildSessionBundleDeps,
 ): Promise<SessionCapabilityBundle> {
+  const searchSessionId = sessionpageSessionOfGrantKey(deps.socialBridgeDeps.grantKey)
   const socialBridge = await buildSocialBridge(
     deps.runtime,
     deps.agentUserId,
     deps.threadRootId,
-    deps.socialBridgeDeps,
+    {
+      ...deps.socialBridgeDeps,
+      ...(sessionWebSearchBridge && searchSessionId ? { webSearch: sessionWebSearchBridge(searchSessionId) } : {}),
+    },
   )
   const integrations = sessionIntegrationBridge
     ? await sessionIntegrationBridge(deps.socialBridgeDeps.grantKey, deps.agentUserId)
