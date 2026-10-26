@@ -428,7 +428,7 @@ export default {
     "chatUnavailable": "暂时无法读取这个任务。",
     "starting": "正在开始",
     "liveWaking": "正在唤醒，实时记录会自动接上。",
-    "liveUnavailable": "实时记录暂时无法连接：{{reason}}",
+    "liveUnavailable": "实时记录暂时无法连接",
     "liveTimedOut": "没有及时连上执行设备。",
     "liveDisconnected": "执行设备的连接已断开。",
     "liveDeviceOffline": "执行设备目前不在线。",

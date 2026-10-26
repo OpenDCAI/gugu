@@ -428,7 +428,7 @@ export default {
     "chatUnavailable": "This task is currently unavailable.",
     "starting": "Starting",
     "liveWaking": "Waking the device. Live records will connect automatically.",
-    "liveUnavailable": "Live records are unavailable: {{reason}}",
+    "liveUnavailable": "Live records are unavailable",
     "liveTimedOut": "The execution device did not connect in time.",
     "liveDisconnected": "The execution device disconnected.",
     "liveDeviceOffline": "The execution device is offline.",
