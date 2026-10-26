@@ -200,7 +200,7 @@ describe('file citations share the composer document with the words', () => {
 
   it('keeps the reply above the editor and sends its relation alongside inline file citations', async () => {
     const onSend = vi.fn(async (_content: string, _opts?: unknown) => {})
-    await mount(onSend, 'group-1', { messageId: 'message-1', senderName: 'Alice', content: '原消息' })
+    await mount(onSend, 'group-1', { messageId: 'message-1', senderName: 'Alice', content: '原消息', source: { sender_user_id: 'alice', to_user_ids: null, is_whisper: false } })
     await draft(deckToken)
     expect(container.textContent).toContain('原消息')
     expect(textarea().textContent).not.toContain('原消息')
