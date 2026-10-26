@@ -1,5 +1,5 @@
 {
   "repository": "OpenDCAI/gugu-supabase",
-  "ref": "e27dca6f4525c7f1cdbc2c683a87c2c6bb7d354e",
-  "status": "File lifecycle and project transfer support with optional link throttling merged in OpenDCAI/gugu-supabase#41 and #42."
+  "ref": "9a56dc7f4911d650a524030f7ff4be8f8891f56c",
+  "status": "Assistant panel cloud state and terminal failed outcomes merged in OpenDCAI/gugu-supabase#43 and #49."
 }

@@ -30,12 +30,12 @@ import { AssistantLibraryCard } from '@/components/assistant/AssistantLibraryVol
  */
 export function PhoneProfile(props: PhonePageProps) {
   const { t } = useTranslation('assistant')
-  const { assistant, chatId, askInChat, sub, go, machine, readiness, homeDeviceId, cloudDeviceId } = props
+  const { assistant, chatId, askInChat, sub, go, machine, cloudDeviceId } = props
   const name = assistant.display_name
   const diaries = usePhoneToday(chatId)
   const persona = usePhonePersona(machine)
   const connectors = !sub || sub === 'connectors' || !!sub.startsWith('connector:')
-  const integrations = usePhoneIntegrations(homeDeviceId, readiness, connectors)
+  const integrations = usePhoneIntegrations(machine, connectors)
   if (sub === 'library:capabilities' || sub === 'library:devices') return <PhoneLibraryVolume key={sub} {...props} kind={sub === 'library:capabilities' ? 'capabilities' : 'devices'} />
 
   if (sub === 'settings') return <div className="ta-page ta-phone-profile"><PageHead title={t('nav.settings')} /><div className="ta-skin">

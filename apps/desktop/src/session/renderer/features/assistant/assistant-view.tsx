@@ -1,8 +1,10 @@
-import { remoteHostsStore } from '@renderer/features/remote-hosts/remote-hosts-store';
 import '@/i18n/registerAssistantCatalog';
 import '@/i18n/registerSettingsCatalog';
 import '@/i18n/registerAgentsCatalog';
 import './assistant-today.css';
+import { refreshLocalAssistantHome } from '@/lib/assistantSetup';
+import { homeTarget } from './assistant-home-sessions';
+import { rendererLogger } from '@/lib/log';
 import { PanelRight } from 'lucide-react';
 import { observer } from 'mobx-react-lite';
 import { useEffect, useState, useSyncExternalStore, type ReactNode } from 'react';
@@ -23,10 +25,8 @@ import {
   type PanelRoute,
   type PanelTab,
 } from './assistant-context';
-import { assistantWorkdir, homeReadiness, useAssistantMachine } from './assistant-data';
-import { localHomeSessions } from './assistant-home-sessions';
+import { useAssistantMachine } from './assistant-data';
 import { AssistantSetupFinish } from './assistant-setup-finish';
-import { refreshLocalAssistantHome } from '@/lib/assistantSetup';
 import { assistantTintHue, assistantTintStyle } from '@/lib/assistantTint';
 import { ASSISTANT_PAGES } from './assistant-pages';
 import { ShellSlot, useAssistantShell } from './assistant-shell';
@@ -90,18 +90,15 @@ export const AssistantMainPanel = observer(function AssistantMainPanel() {
   const home = shell?.assistant ? shell.home : null;
   // 住云上:管家给的样子(休眠中 / 正在唤醒 / 运行中);住电脑 = 没有这一份。
   const snapshot = home?.kind === 'cloud' ? shell?.cloud ?? null : null;
-  const readiness = homeReadiness(home);
+  const readiness = 'ready' as const;
   // 住眼前这台:它自己的会话、它派的子 agent 都是本机会话,开着 App 时问本机(别的机器的由会话目录同步)。
-  const localHome = home?.kind === 'computer' && home.thisDevice;
-  useEffect(() => localHomeSessions.use(), []);
-  useEffect(() => remoteHostsStore.start(), []);
   // 住电脑:每次打开 App 把它家里宿主维护的那段说明刷到这一版(管家在云上每次唤醒做同一件事)。
-  useEffect(() => {
-    if (localHome) void refreshLocalAssistantHome().catch(() => undefined);
-  }, [localHome]);
   // 助理那条会话跑在哪个目录(它的记忆跟着那个目录走);会话目录是 observable,这里随它重算。
-  const workdir = home && shell?.assistant ? assistantWorkdir(home, shell.assistant.id) : null;
-  const machine = useAssistantMachine(home, readiness, workdir?.state === 'found' ? workdir.path : null);
+  const localHome = home?.kind === 'computer' && homeTarget(home) === null;
+  useEffect(() => {
+    if (localHome) void refreshLocalAssistantHome().catch(error => rendererLogger('assistant/home').warn({ error },'Local assistant instructions refresh failed'));
+  },[localHome]);
+  const machine = useAssistantMachine(shell?.assistant?.id ?? null,shell?.chatId ?? null,home,shell?.chatReadFailed);
   const [panelOpen, setPanelOpenState] = useState(readPanelOpen);
   const openedTask = useOpenedAssistantTaskChat();
   useEffect(() => {
@@ -171,8 +168,8 @@ export const AssistantMainPanel = observer(function AssistantMainPanel() {
     snapshot,
     readiness,
     machine: machine.data,
-    machineLoading: machine.isLoading || (readiness === 'ready' && workdir?.state === 'pending'),
-    machineError: machine.error ?? (readiness === 'ready' && workdir?.state === 'missing' ? new Error(t('machine.noWorkdir', { name: assistant.display_name })) : null),
+    machineLoading: machine.isLoading,
+    machineError: machine.error,
     retryMachine: () => void machine.refetch(),
     route,
     go,

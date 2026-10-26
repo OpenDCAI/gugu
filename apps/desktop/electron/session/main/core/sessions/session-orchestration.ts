@@ -106,6 +106,7 @@ import type { AgentScheduleAction } from '../automations/agent-schedules';
 import { sessionModelFromDecision, type SessionModel } from './session-model-fact';
 import {
   recordDeliveredSessionDirectMessage,
+  readAcceptedMessage,
   sendMessage,
   SessionDirectDeliveryError,
 } from './sendMessage';
@@ -1830,22 +1831,26 @@ export async function messageSessionFrom(
   /** `queue` / `key` exactly as `session_message` takes them; `keyScope` names the sender (`app:<id>`). */
   options: AppMessageOptions,
 ): Promise<{ id: string; deferred?: true }> {
-  const { recipients } = await sendSessionMessage(options.from ?? null, envelope, appMessage(sessionId, text, options), options.keyScope, await allSessionRows());
+  const action = appMessage(sessionId, text, options);
+  const stored = options.receipt ? readAcceptedMessage(sessionDirectMessageId(options.keyScope, sessionId, action)) : undefined;
+  const durableEnvelope: DeliveryEnvelope = stored ? () => stored.content : envelope;
+  const { recipients } = await sendSessionMessage(options.from ?? null, durableEnvelope, action, options.keyScope, await allSessionRows());
   const [result] = recipients;
   if (result?.status === 'failed' || !result?.message_id) {
-    throw new Error(result?.error?.message ?? `the message to session ${sessionId} was not delivered`);
+    throw Object.assign(new Error(result?.error?.message ?? `the message to session ${sessionId} was not delivered`), { code: result?.error?.code });
   }
   return { id: result.message_id, ...(result.status === 'deferred' ? { deferred: true as const } : {}) };
 }
 
 /** `from`: the session of the agent that works the App's page (owner 10-14) — it is the one telling, so not itself. */
-type AppMessageOptions = { delivery?: 'queue' | 'defer'; key?: string; keyScope: string; from?: string };
+type AppMessageOptions = { delivery?: 'queue' | 'defer'; key?: string; keyScope: string; from?: string; receipt?: { id: string; at: string } };
 
 function appMessage(sessionId: string, text: string, options: AppMessageOptions): Extract<SessionAction, { action: 'message' }> {
   return {
     action: 'message',
     session_ids: [sessionId],
     text,
+    ...(options.receipt ? { delivery_id: options.receipt.id, delivery_at: options.receipt.at } : {}),
     ...(options.delivery ? { delivery: options.delivery } : {}),
     ...(options.key !== undefined ? { key: options.key } : {}),
   };

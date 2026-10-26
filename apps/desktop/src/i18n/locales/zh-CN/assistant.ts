@@ -1,4 +1,5 @@
 export default {
+  "resourceKinds": {"memory": "记忆", "personality": "性格约定", "files": "资料", "skills": "技能", "schedules": "定时任务", "integrations": "应用", "voice-notes": "语音笔记", "capabilities": "能力", "device-notes": "设备说明", "tasks": "任务"},
   "library": {
     "saveFailed": "保存失败，输入已保留。若条目已被修改，请重新打开后再编辑。",
     "emptyContent": "还没有补充说明。",
@@ -9,9 +10,8 @@ export default {
     "entryName": "名称",
     "add": "添加条目",
     "edit": "编辑条目",
-    "savedNotificationFailed": "已保存，暂未确认助理收到变更",
     "memory": "记忆", "workspace": "项目", "capabilities": "能力", "devices": "设备",
-    "loading": "正在读取…", "failed": "暂时读不到资源，请重试", "items": "{{count}} 条记录",
+    "loading": "正在读取…", "failed": "暂时读不到资源，系统会自动再读", "items": "{{count}} 条记录",
     "notConfigured": "还没有配置", "setup": "一起设置", "organize": "在对话中整理", "backToIndex": "返回目录",
     "setupNote": "按用途分组整理，每项保留自己的说明与索引。", "emptyIndex": "还没有资料条目，可以直接添加，也可以在对话中一起整理。",
     "setupPrompt": "请读取咕咕已有的{{kind}}条目和实际连接状态，帮我按用途分组整理说明与索引。已有条目直接沿用，缺少的按我的需要建立。不存密码或令牌，不把说明当作已授权。",
@@ -67,18 +67,18 @@ export default {
     "more": "更多操作"
   },
   "machine": {
-    "connecting": "正在连接{{name}}…",
-    "connectFailed": "连不上{{name}}：",
-    "dropped": "和{{name}}的连接断了。",
-    "reconnect": "重新连接",
-    "unreachable": "现在连不上{{name}}，这一块暂时读不到。去齿轮里看看它怎么了。",
-    "computerOff": "{{name}}住在{{device}}上，那台开着它才在。现在那台没开，这一块暂时读不到。",
-    "computerGone": "{{name}}住的那台电脑不在你的设备里了，这一块读不到。",
-    "noWorkdir": "找不到{{name}}自己的会话，读不到它存的东西。",
+    "stale": "这份资料尚未更新到当前版本。",
+    "applicationFailed": "{{domain}}「{{resource}}」未能应用。",
+    "changed": "这项内容已被修改，请重新打开后编辑。",
+    "authorizationUnavailable": "这次授权未能开始：执行环境暂时不可用。",
+    "accessFailed": "暂时无法验证这份资料的访问权限。",
+    "identityFailed": "暂时无法确定这位助理的资料归属。",
+    "invalidResource": "这项资料的名称或内容不符合要求。",
+    "tooLarge": "这份资料超过了保存上限。",
+    "unprepared": "还没整理好",
+    "collectionFailed": "暂时读不到这份资料，系统会自动再读。",
     "openFailed": "没打开{{name}}存东西的地方",
     "readFailed": "读取失败：{{message}}",
-    "updating": "{{where}}正在更新到新版本，好了这里会自己出来。",
-    "updateFailed": "{{where}}没能更新到新版本。",
     "retry": "重试"
   },
   "onboarding": {
@@ -417,7 +417,6 @@ export default {
     "unseen": "有没看过的结果",
     "emptyTitle": "还没有任务",
     "loadFailed": "任务列表没读到",
-    "notRead": "{{name}}醒着时才读得到它开的任务。"
   },
   "routines": {
     "loadFailed": "定时任务没读到，稍后再试。",
@@ -600,6 +599,7 @@ export default {
     }
   },
   "files": {
+    "saveFailed": "部分文件未能保存。",
     "note": "添加与你有关的文件，放进{{name}}的「{{folder}}」里，它随时能看。",
     "upload": "上传文件",
     "uploading": "正在上传 {{name}}…",
@@ -675,6 +675,8 @@ export default {
     "title": "能力与连接"
   },
   "connectors": {
+    "unverified": "尚未验证",
+    "prepareFailed": "暂时无法完成授权准备。",
     "title": "连接应用",
     "note": "账号服务和设备上的数据，{{name}}替你干活时用得上",
     "pageSub": "连接服务与数据，让{{name}}更好地帮你。",
@@ -687,7 +689,6 @@ export default {
     "cloudNote": "授权保存在：{{name}}的云设备。换设备登录、你的电脑关着也能用。",
     "connectedGroup": "已连接",
     "savedGroup": "已添加",
-    "retryCheck": "重新检查",
     "manage": "管理连接",
     "availableGroup": "可用",
     "connect": "连接",

@@ -71,6 +71,7 @@ import type {
 } from './cell-deps';
 import { PermissionBroker, selectAutoApproveOption } from './permission-broker';
 import { RawAcpLog, type RawAcpEvent } from './raw-log';
+import { prepareNativePrompt } from './prompt-preparation';
 import { providerRejectedMissingSession } from './provider-admission';
 
 export interface AcpChatHistory {
@@ -173,6 +174,8 @@ export class SessionCell {
   /** 宿主要求关掉这条会话(stop / 删除 / 换运行时)。之后线断了是我们断的,在飞的那一轮是被停下,不是失败。 */
   private closeRequested = false;
   private providerAdmission: { accept: () => void } | null = null;
+  private preparationRetryTimer: ReturnType<typeof setTimeout> | undefined;
+  private preparationRetryDelay = 1500;
   private reverting = false;
   private activeTurnCompletion: Promise<void> | null = null;
   /** agent 自己报状态(见 AcpAgentConnection.reportsState)。 */
@@ -501,6 +504,7 @@ export class SessionCell {
     opts?: { steerIfBusy?: boolean },
   ): Promise<Result<SessionPromptResult, AcpSendPromptError>> {
     const now = Date.now();
+    const submittedDraft = this.draft;
     return this.sendPromptInternal({
       id: crypto.randomUUID(),
       ...input,
@@ -510,7 +514,7 @@ export class SessionCell {
       ...opts,
       // Consume the submitted draft at admission. Completion can arrive minutes later,
       // when the composer already holds the person's next, unsent message (#7572).
-      onAdmission: (result) => { if (result.success) this.clearDraft(); },
+      onAdmission: (result) => { if (result.success && this.draft === submittedDraft) this.clearDraft(); },
     });
   }
 
@@ -585,6 +589,7 @@ export class SessionCell {
       const queued = this.queuePrompt(input);
       return queued.success ? ok({ queued: true }) : queued;
     }
+    const submittedDraft = this.draft;
     const { admission, completion } = this.promptDetached(input);
     completion.catch((error: unknown) => {
       this.deps.logger.error('SessionCell: queued prompt settlement threw', {
@@ -598,7 +603,7 @@ export class SessionCell {
       if (admitted.error.type === 'invalid_state') return { success: false, error: admitted.error };
       throw new Error(`SessionCell: queued prompt admission failed with ${admitted.error.type}`);
     }
-    this.clearDraft();
+    if (this.draft === submittedDraft) this.clearDraft();
     return ok({ queued: admitted.data.queued });
   }
 
@@ -1383,6 +1388,7 @@ export class SessionCell {
   }
 
   dispose(): void {
+    if (this.preparationRetryTimer) clearTimeout(this.preparationRetryTimer);
     this.permissions.drain(this.machine.pendingPermissions);
   }
 
@@ -1691,7 +1697,6 @@ export class SessionCell {
         if (admissionTimer) clearTimeout(admissionTimer);
         if (!opts?.skipAdmission) opts?.onAdmission?.(ok({ queued: false }));
       } } : null;
-    if (!providerAdmission && !opts?.skipAdmission) opts?.onAdmission?.(ok({ queued: false, ...(steered ? { steered: true } : {}) }));
     if (started && !steered) {
       this.openTurnCompletion();
       const envelope = this.makeTurnEnvelope();
@@ -1747,31 +1752,37 @@ export class SessionCell {
       });
       this.emitTranscriptChanged();
     };
-    // 原生插话要等 agent 受理(`injected`)才算发出:它回 `promptRequired` 时这句还没进去(#7087)。
-    if (!nativeSteer) recordUserMessage();
-    // 转录里画成它自己的一行(来自哪个扩展由信封写明),跟在这一句后面、同属这一轮 ——
-    // `steering` 让它不另开一轮(一轮只由人/投递的那一句开),请求里它是一个块(见 turnContextBlocks)。
-    if (turnContext) {
-      this.transcript.pushEvent({
-        kind: 'message',
-        role: 'user',
-        messageId: `${messageId}-context`,
-        text: turnContext,
-        steering: true,
-      });
-      this.emitTranscriptChanged();
-    }
+    const recordPrompt = () => {
+      if (!nativeSteer) recordUserMessage();
+      if (turnContext) {
+        this.transcript.pushEvent({ kind: 'message', role: 'user', messageId: `${messageId}-context`, text: turnContext, steering: true });
+        this.emitTranscriptChanged();
+      }
+    };
     try {
-      // 按路径带的图(`local-file`:另一台机器发来的附件、首轮随启动队列带的附件)只在 agent
-      // **声明收图片**时才变成图片块 —— 那一句正文里本来就有这件附件的路径 mention,不收图的 agent
-      // 照样读得到它。发送的这一刻 agent 已经握过手,这里的判据是它自己报的那一份(#6264)。
-      // 上传来的附件(`attachment`)不在此列:它们没有路径兜底,宿主发之前已经按同一判据分过路。
+      const preparing = prepareNativePrompt(this.sessionId);
+      // Queue-to-transcript projection stays synchronous; preparation is still before admission.
+      if (started) recordPrompt();
+      if (!preparing) {
+        if (!providerAdmission && !opts?.skipAdmission) opts?.onAdmission?.(ok({ queued: false, ...(steered ? { steered: true } : {}) }));
+        if (!started) recordPrompt();
+      }
+      if (providerAdmission) this.providerAdmission = providerAdmission;
+      const prepared = preparing ? await preparing : null;
+      if (preparing) {
+        if (!started) recordPrompt();
+        if (!providerAdmission && !opts?.skipAdmission) opts?.onAdmission?.(ok({ queued: false, ...(steered ? { steered: true } : {}) }));
+      }
+      this.preparationRetryDelay = 1500;
       const sendable = (prompt.attachments ?? []).filter(
         (attachment) => attachment.type !== 'local-file' || this.acceptsImagePrompts
       );
       const resolvedAttachments = await Promise.all(
         sendable.map((attachment) => this.deps.resolveAttachment(attachment))
       );
+      const confirmPreparation = () => { void prepared?.accepted().catch(() => {
+        this.deps.logger.warn('Native prompt preparation checkpoint will retry', { sessionId: this.sessionId });
+      }); };
       // ③ 只在**第一次真正发出去的那一轮**随行,发完即清。放在最前面:它是这场会话的
       // 常驻背景,该在用户这一句之前被读到。
       // ⚠️ 在 await 之后、构造请求之前取并清空 —— 并发的第二轮不会再带上它。
@@ -1785,7 +1796,7 @@ export class SessionCell {
         data: attachment.data,
         mimeType: attachment.mimeType,
       }));
-      const turnContextBlocks = turnContext ? [{ type: 'text' as const, text: turnContext }] : [];
+      const turnContextBlocks = [prepared?.text,turnContext].filter((text): text is string => !!text).map(text => ({ type: 'text' as const,text }));
       const textBlocks = prompt.text ? [{ type: 'text' as const, text: prompt.text }] : [];
       const trailingBlocks =
         prompt.origin === undefined && prompt.hiddenContext
@@ -1829,6 +1840,7 @@ export class SessionCell {
           return retried;
         }
         recordUserMessage();
+        confirmPreparation();
         // `injected` is an admission receipt. The provider's output remains on the primary
         // prompt's ACP stream, so this call must not settle the cell turn.
         return ok({ queued: false });
@@ -1852,6 +1864,7 @@ export class SessionCell {
         }),
       ]) : nativePrompt);
       providerAdmission?.accept();
+      confirmPreparation();
       const anchor = (response._meta?.guguRevert as { before?: unknown } | undefined)?.before;
       if (!steered && typeof anchor === 'string' && anchor) {
         this.transcript.setRevertAnchor(messageId, anchor);
@@ -1900,7 +1913,8 @@ export class SessionCell {
       return ok({ queued: false });
     } catch (e) {
       const beforeTurn = providerAdmission !== null && this.providerAdmission === providerAdmission;
-      const refusal = beforeTurn && providerRejectedMissingSession(e);
+      const preparationRefused = (e as { deliveryRejectedBeforeAdmission?: unknown } | null)?.deliveryRejectedBeforeAdmission === true;
+      const refusal = preparationRefused || beforeTurn && providerRejectedMissingSession(e);
       // Native auth/network/quota failures belong to this turn. Return its receipt so the inbox
       // advances once and the completion channel reports the original cause, rather than requeueing.
       if (beforeTurn && !refusal) providerAdmission.accept();
@@ -1911,15 +1925,27 @@ export class SessionCell {
         this.deps.logger.warn('SessionCell: provider refused a prompt before admission', { sessionId: this.sessionId });
         // No provider update was received: this was never a turn. Restore only our
         // tentative projection, before any failed turn can reach durable history.
-        this.transcript.restoreState(transcriptBeforePrompt);
+        if (!preparationRefused || started) this.transcript.restoreState(transcriptBeforePrompt);
         this.pendingTurnContext = new Map([...turnContextBeforePrompt, ...this.pendingTurnContext]);
         if (sessionContextBeforePrompt && this.pendingSessionContext !== sessionContextBeforePrompt) {
           this.pendingSessionContext = [sessionContextBeforePrompt, this.pendingSessionContext].filter(Boolean).join('\n\n');
         }
-        this.applyEvent({ type: 'PromptRefused' });
-        this.closeTurnCompletion();
+        if (started) { this.applyEvent({ type: 'PromptRefused' }); this.closeTurnCompletion(); }
+        else if (steered && !nativeSteer) this.steerInFlight -= 1;
+        if (preparationRefused && opts?.fromQueue) {
+          this.dispatch({ type: 'QueuePrompt',prompt });
+          if (this.preparationRetryTimer) clearTimeout(this.preparationRetryTimer);
+          this.preparationRetryTimer = setTimeout(() => {
+            this.preparationRetryTimer = undefined;
+            if (!this.closeRequested && this.machine.phase.kind === 'ready'
+              && this.machine.queuedPrompts.some(row => row.id === prompt.id)) {
+              this.releaseQueueAfterEdit();
+            }
+          },this.preparationRetryDelay);
+          this.preparationRetryDelay = Math.min(this.preparationRetryDelay * 2,30_000);
+        }
         this.emitTranscriptChanged();
-        return acpErr.sessionNotFound(this.sessionId);
+        return preparationRefused ? acpErr.sessionBusy(e instanceof Error ? e.message : '') : acpErr.sessionNotFound(this.sessionId);
       }
       const cause = toSerializedError(e);
       const err = acpErr.promptFailed(cause);

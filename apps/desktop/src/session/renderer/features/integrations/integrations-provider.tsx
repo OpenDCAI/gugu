@@ -1,3 +1,4 @@
+import { ASSISTANT_PANEL_CHANGED } from '@/components/assistant/assistant-panel-events';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import React, { createContext, useCallback, useContext, useEffect, useMemo, useState, useSyncExternalStore } from 'react';
 import { useLibraryHost } from '@renderer/features/library/library-host';
@@ -83,6 +84,12 @@ export function IntegrationsProvider({ children }: { children: React.ReactNode }
   const queryClient = useQueryClient();
   const host = useLibraryHost();
   const api = host.integrations;
+  useEffect(() => {
+    if (!host.assistantPanelExpected) return;
+    const refresh = () => { void queryClient.invalidateQueries({ predicate: query => query.queryKey.includes(host.key) }); };
+    window.addEventListener(ASSISTANT_PANEL_CHANGED,refresh);
+    return () => window.removeEventListener(ASSISTANT_PANEL_CHANGED,refresh);
+  },[host.assistantPanelExpected,host.key,queryClient]);
   const remote = !!host.remote;
   const statusKey = useMemo(() => [...ISSUE_CONNECTION_STATUS_QUERY_KEY, host.key] as const, [host.key]);
   const [mutatingIntegrationIds, setMutatingIntegrationIds] = useState<Set<string>>(
@@ -90,7 +97,7 @@ export function IntegrationsProvider({ children }: { children: React.ReactNode }
   );
 
   // 那台机器离线就不问(问不到,只会挂满超时)。
-  const enabled = host.remote?.online !== false;
+  const enabled = host.assistantPanelExpected ? !!host.assistantPanel || !!host.assistantPanelError : host.remote?.online !== false;
   // 插件的中英两份由那台机器的主进程按这台桌面的界面语言解析成字符串;换语言重取。
   const locale = useSyncExternalStore(subscribeSessionLocale, () => getSessionLocaleSnapshot().resolvedLocale);
   const {
@@ -104,6 +111,7 @@ export function IntegrationsProvider({ children }: { children: React.ReactNode }
     staleTime: Infinity,
     refetchOnWindowFocus: false,
     enabled,
+    refetchInterval: host.assistantPanelExpected ? 30_000 : false,
     ...(remote ? { retry: false } : {}),
   });
 
@@ -112,12 +120,13 @@ export function IntegrationsProvider({ children }: { children: React.ReactNode }
     if (!remote) registerIssueMentionIcons(integrations);
   }, [integrations, remote]);
 
-  const { data: statusData, error: connectionCheckError, isFetching: isCheckingConnections } = useQuery({
+  const { data: statusData, error: connectionReadError, isFetching: isCheckingConnections } = useQuery({
     queryKey: statusKey,
     queryFn: () => api.checkAllConnections(),
     staleTime: 30_000,
     refetchOnWindowFocus: true,
     enabled,
+    refetchInterval: host.assistantPanelExpected ? 30_000 : false,
     ...(remote ? { retry: false } : {}),
   });
 
@@ -128,6 +137,7 @@ export function IntegrationsProvider({ children }: { children: React.ReactNode }
       staleTime: Infinity,
       refetchOnWindowFocus: false,
       enabled,
+    refetchInterval: host.assistantPanelExpected ? 30_000 : false,
       ...(remote ? { retry: false } : {}),
     });
   const configuredConnections = configuredData ?? {};
@@ -165,7 +175,7 @@ export function IntegrationsProvider({ children }: { children: React.ReactNode }
           const name = integrations.find((integration) => integration.id === integrationId)?.name ?? integrationId;
           return { success: false, error: integrationErrorText(translateSessionMessage, name, result) || fallbackError };
         }
-        await reportAssistantAppChange({ rpc: rpcOn(host.remote?.deviceId ?? null) }, undefined, {
+        if (!host.assistantPanelExpected || change.operation !== 'removed') await reportAssistantAppChange({ rpc: rpcOn(host.remote?.deviceId ?? null) }, undefined, {
           resource: 'integrations', operation: change.operation, id: change.id ?? integrationId, deviceId: host.remote?.deviceId,
           ...(change.operation === 'removed' ? {} : { after: { name: integrations.find(integration => integration.id === integrationId)?.name ?? integrationId } }),
         }, ownerId);
@@ -175,7 +185,7 @@ export function IntegrationsProvider({ children }: { children: React.ReactNode }
         invalidateStatuses();
       }
     },
-    [integrations, invalidateStatuses, setIntegrationMutating, host.remote?.deviceId]
+    [integrations, invalidateStatuses, setIntegrationMutating, host.remote?.deviceId,host.assistantPanelExpected]
   );
 
   const connectIntegration = useCallback(
@@ -273,12 +283,12 @@ export function IntegrationsProvider({ children }: { children: React.ReactNode }
         integrationById,
         connectionStatus,
         checkedConnections: statusData ?? {},
-        connectionCheckError,
+        connectionCheckError: connectionReadError,
         hasConfiguredConnections: configuredData !== undefined,
         configuredConnectionsError,
         configuredConnections,
         isCheckingConfiguredConnections,
-        isCheckingConnections,
+        isCheckingConnections: isCheckingConnections,
         reloadConnections: invalidateStatuses,
         connectIntegration,
         disconnectIntegration,

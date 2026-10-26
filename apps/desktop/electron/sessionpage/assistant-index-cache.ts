@@ -9,7 +9,31 @@ import { startupDiscovery } from './startup-discovery'
 
 type Snapshot = { account: string; cwd: string; kind: AssistantHomeKind; observedAt: string; index: string }
 const refreshing = new Map<string, Promise<void>>()
+const cacheGeneration = new Map<string, number>()
+const cacheWrites = new Map<string, Promise<void>>()
 const log = createLogger('assistant-index')
+
+function mutateSnapshot(path: string, work: () => Promise<void>): Promise<void> {
+  const result = (cacheWrites.get(path) ?? Promise.resolve()).catch(() => undefined).then(work)
+  const settled = result.then(() => undefined,() => undefined)
+  cacheWrites.set(path,settled)
+  void settled.finally(() => { if (cacheWrites.get(path) === settled) cacheWrites.delete(path) })
+  return result
+}
+
+function snapshotPath(guguHome: string, cwd: string, kind: AssistantHomeKind, account: string): string {
+  const key = createHash('sha256').update(JSON.stringify({ account,cwd: resolve(cwd),kind })).digest('hex')
+  return join(guguHome,'assistant-context',`${key}.json`)
+}
+
+/** Invalidates only the derived inventory cache. Native history and its prefix
+ * remain intact; an older in-flight refresh cannot recreate the removed index. */
+export async function invalidateAssistantIndex(guguHome: string, cwd: string, kind: AssistantHomeKind, account: string): Promise<void> {
+  const path = snapshotPath(guguHome,cwd,kind,account)
+  cacheGeneration.set(path,(cacheGeneration.get(path) ?? 0) + 1)
+  refreshing.delete(path)
+  await mutateSnapshot(path,() => rm(path,{ force: true }))
+}
 
 /** Discovery is data, not the tool surface. Never hold the first model request for remote inventories. */
 export async function openingAssistantIndex(
@@ -18,8 +42,7 @@ export async function openingAssistantIndex(
   const account = await deps.accountId()
   if (!account) throw new Error('Assistant startup index: owner is not authenticated')
   const directory = resolve(cwd)
-  const key = createHash('sha256').update(JSON.stringify({ account, cwd: directory, kind })).digest('hex')
-  const path = join(guguHome, 'assistant-context', `${key}.json`)
+  const path = snapshotPath(guguHome,cwd,kind,account)
   let cached: Snapshot | null = null
   try {
     const value = JSON.parse(await readFile(path, 'utf8')) as Snapshot
@@ -35,16 +58,20 @@ export async function openingAssistantIndex(
   }
   if (await deps.accountId() !== account) throw new Error('Assistant startup index: account changed before opening')
   if (!refreshing.has(path)) {
+    const generation = cacheGeneration.get(path) ?? 0
     const refresh = startupDiscovery.schedule(async () => {
       const index = await assistantStartupIndex(deps)
       if (await deps.accountId() !== account) throw new Error('Assistant startup index: account changed before saving')
       const value: Snapshot = { account, cwd: directory, kind, observedAt: (deps.now?.() ?? new Date()).toISOString(), index }
-      await mkdir(dirname(path), { recursive: true, mode: 0o700 })
-      const temporary = `${path}.${randomUUID()}.tmp`
-      try {
-        await writeFile(temporary, `${JSON.stringify(value)}\n`, { mode: 0o600 })
-        await rename(temporary, path)
-      } finally { await rm(temporary, { force: true }) }
+      await mutateSnapshot(path,async () => {
+        if ((cacheGeneration.get(path) ?? 0) !== generation) return
+        await mkdir(dirname(path), { recursive: true, mode: 0o700 })
+        const temporary = `${path}.${randomUUID()}.tmp`
+        try {
+          await writeFile(temporary, `${JSON.stringify(value)}\n`, { mode: 0o600 })
+          await rename(temporary, path)
+        } finally { await rm(temporary, { force: true }) }
+      })
     }).catch(() => {
       log.warn({}, 'Background discovery failed; opening snapshot remains unverified')
     }).finally(() => { if (refreshing.get(path) === refresh) refreshing.delete(path) })

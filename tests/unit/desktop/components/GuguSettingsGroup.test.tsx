@@ -18,7 +18,7 @@ vi.mock('../../../../apps/desktop/src/platform', async (importOriginal) => {
     }),
   }
 })
-vi.mock('../../../../apps/desktop/src/lib/myAssistant', () => ({ useMyAssistantContact: () => mine.value }))
+vi.mock('../../../../apps/desktop/src/lib/myAssistant', () => ({ useMyAssistantContact: () => ({ homeDeviceId: 'cloud-1',...mine.value }) }))
 
 vi.mock('../../../../apps/desktop/src/components/assistant/AssistantShellHost', () => ({
   AssistantStatusGroups: ({ assistantName }: { assistantName: string }) => createElement('div', { 'data-testid': 'status-groups' }, assistantName),
@@ -181,7 +181,7 @@ describe('咕咕组 · 连接应用', () => {
   it('醒着:云端那段交给会话页画,带上它住的那台和它现在的名字;本机 / 其他设备是设备页那批组件', async () => {
     mine.value = { contact: CONTACT, agentId: 'a1', loading: false, error: null }
     await render(createNode(ConnectorsSection, {}), awake)
-    expect(sessionSection.props).toMatchObject({ section: 'connectors', context: { cloudDeviceId: 'cloud-1', assistantName: '小咕' } })
+    expect(sessionSection.props).toMatchObject({ section: 'connectors', context: { home: { kind: 'cloud',deviceId: 'cloud-1' }, assistantName: '小咕' } })
     const tabs = [...harness.container.querySelectorAll<HTMLElement>('[role="tab"]')]
     expect(tabs.map((tab) => tab.textContent)).toEqual(['云端', '本机', '其他设备'])
     await clickElement(tabs[1])
@@ -201,25 +201,18 @@ describe('咕咕组 · 连接应用', () => {
     expect(wake).not.toHaveBeenCalled()
   })
 
-  it('宿主收回着:云端那段由系统连它(只叫一次),说「正在连接」,没有「叫醒它」也不说休息(owner 10-17)', async () => {
-    // 叫醒在路上(管家还没回):这一段说「正在连接」。
-    wake.mockImplementationOnce(() => new Promise<void>(() => {}))
-    mine.value = { contact: CONTACT, agentId: 'a1', loading: false, error: null }
-    await render(createNode(ConnectorsSection, {}), asleep)
-    expect(sessionSection.props).toBeNull()
-    expect(wake).toHaveBeenCalledTimes(1)
-    expect(q('settings-connectors-connecting')?.textContent).toContain('正在连接')
-    expect(q('settings-connectors-wake')).toBeNull()
-    expect(harness.container.textContent).not.toMatch(/休息|叫醒/)
+  it('serves account application settings while the host sleeps without showing a connection gate', async () => {
+    mine.value = { contact: CONTACT,agentId: 'a1',loading: false,error: null }
+    await render(createNode(ConnectorsSection,{}),asleep)
+    expect(sessionSection.props).toMatchObject({ section: 'connectors',context: { home: { deviceId: 'cloud-1' } } })
+    expect(wake).not.toHaveBeenCalled()
+    expect(harness.container.textContent).not.toMatch(/正在连接|连不上|重新连接/)
+    expect(q('settings-connectors-retry')).toBeNull()
   })
-
-  it('宿主收回着、叫不起来:说连不上和那一类原因,点重试再叫一次', async () => {
-    wake.mockRejectedValueOnce(new Error('boom'))
-    mine.value = { contact: CONTACT, agentId: 'a1', loading: false, error: null }
-    await render(createNode(ConnectorsSection, {}), asleep)
-    await vi.waitFor(() => expect(q('settings-connectors-connect-failed')).not.toBeNull())
-    expect(q('settings-connectors-connect-failed')?.textContent).toContain('连不上')
-    await clickElement(q('settings-connectors-retry')!)
-    expect(wake).toHaveBeenCalledTimes(2)
+  it('does not prepare a host after a previous wake failure', async () => {
+    mine.value = { contact: CONTACT,agentId: 'a1',loading: false,error: null }
+    await render(createNode(ConnectorsSection,{}),{ ...asleep,loadError: 'unavailable' } as never)
+    expect(sessionSection.props).not.toBeNull()
+    expect(wake).not.toHaveBeenCalled()
   })
 })

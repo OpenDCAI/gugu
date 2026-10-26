@@ -24,8 +24,12 @@ import { ThemeProvider } from './store/theme'
 import { rendererCommandEventName } from './lib/rendererCommandProtocol'
 import { sessionCoordinator } from './lib/sessionCoordinator'
 import { publishSelfIdentity } from './lib/selfIdentityBridge'
+import { installAssistantPanelHost } from './components/assistant/assistant-panel-host'
+
 import { platform } from './platform'
 import { type RendererRpcHandlers, useRendererRpcHandlers } from './rpc-renderer/rendererRpc'
+
+if (typeof window !== 'undefined') installAssistantPanelHost()
 
 // ── URL-based view detection ───────────────────────────────────────────────────
 

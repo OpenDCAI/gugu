@@ -10,10 +10,8 @@ import { rendererLogger } from '@/lib/log'
 import { scheduleText } from '@/session/renderer/features/assistant/assistant-schedule'
 import { AssistantEmpty, AssistantRow, AssistantSection, PageHead } from '@/session/renderer/features/assistant/assistant-ui-parts'
 import { isSpentOneTimeAutomation } from '@/session/shared/core/automations/automation'
-import { machineRpc } from '../agent-watch/sessionpage-rpc'
 import type { PhonePageProps } from './MobileAssistantApp'
 import { PhoneConfirmDialog } from './PhoneConfirmDialog'
-import { PhoneMachineGate } from './PhoneMachineGate'
 import { PhoneRoutineRead } from './PhoneRoutineRead'
 import { usePhoneRoutines } from './usePhoneRoutines'
 import { errorText, usePhoneRead } from './usePhoneRead'
@@ -34,8 +32,8 @@ export function PhoneRoutineDetail(props: PhonePageProps & { id: string }) {
   const { t, i18n } = useTranslation('assistant')
   const { toast } = useToast()
   const formatAt = useFormatAt()
-  const { assistant, homeDeviceId, readiness, askInChat, go, id } = props
-  const { read, routines, directory } = usePhoneRoutines(props)
+  const { assistant, homeDeviceId, askInChat, go, id } = props
+  const { read, routines, directory, api } = usePhoneRoutines(props)
   const automation = routines.find((routine) => routine.id === id) ?? null
   /** 拨了开关、那台还没答:先按拨的样子画,答了再按读到的。 */
   const [pending, setPending] = useState<boolean | null>(null)
@@ -43,8 +41,8 @@ export function PhoneRoutineDetail(props: PhonePageProps & { id: string }) {
   const [confirming, setConfirming] = useState(false)
   const enabled = pending ?? automation?.enabled ?? false
   const next = usePhoneRead(
-    readiness === 'ready' && homeDeviceId && automation?.enabled ? `routine-next|${homeDeviceId}|${id}|${automation.updatedAt}` : null,
-    () => machineRpc(homeDeviceId!).automations.getNextScheduledRun(id),
+    homeDeviceId && automation?.enabled ? `routine-next|${homeDeviceId}|${id}|${automation.updatedAt}` : null,
+    () => api!.next(id),
     'next routine run',
   )
   const nextAt = next.state === 'ok' ? next.data?.scheduledAt ?? null : null
@@ -53,8 +51,8 @@ export function PhoneRoutineDetail(props: PhonePageProps & { id: string }) {
     toggling.current = true
     setPending(on)
     try {
-      await machineRpc(homeDeviceId).automations.setAutomationEnabled(automation.id, on)
-      await reportAssistantAppChange({ rpc: machineRpc(homeDeviceId) }, assistant.id, { resource: 'schedules', operation: 'edited',
+      await api!.setEnabled(automation.id,on,automation.panelRevision)
+      await reportAssistantAppChange(props.machine.state === 'ready' ? props.machine.machine : undefined, assistant.id, { resource: 'schedules', operation: 'edited',
         id: automation.id, deviceId: homeDeviceId, before: { name: automation.name, active: automation.enabled }, after: { name: automation.name, active: on } })
       await read.refresh()
       toast(on ? t('routines.enabledToast') : t('routines.disabledToast'), 'success')
@@ -69,7 +67,7 @@ export function PhoneRoutineDetail(props: PhonePageProps & { id: string }) {
   return (
     <div className="ta-page" data-testid="assistant-routine-detail">
       <PageHead title={automation?.name ?? t('routines.title')} sub={automation ? t('routines.by', { name: assistant.display_name }) : undefined} />
-      <PhoneMachineGate readiness={readiness} name={assistant.display_name}>
+      <>
         <PhoneRoutineRead read={read} directory={directory}>
           {() =>
             !automation ? (
@@ -126,8 +124,8 @@ export function PhoneRoutineDetail(props: PhonePageProps & { id: string }) {
                     onClose={() => setConfirming(false)}
                     onConfirmed={() => go(null)}
                     onConfirm={async () => {
-                      await machineRpc(homeDeviceId!).automations.deleteAutomation(automation.id)
-                      await reportAssistantAppChange({ rpc: machineRpc(homeDeviceId!) }, assistant.id, { resource: 'schedules', operation: 'removed',
+                      await api!.remove(automation.id,automation.panelRevision)
+                      await reportAssistantAppChange(props.machine.state === 'ready' ? props.machine.machine : undefined, assistant.id, { resource: 'schedules', operation: 'removed',
                         id: automation.id, deviceId: homeDeviceId!, before: { name: automation.name, active: automation.enabled } })
                       toast(t('routines.deleted'), 'success')
                     }}
@@ -137,7 +135,7 @@ export function PhoneRoutineDetail(props: PhonePageProps & { id: string }) {
             )
           }
         </PhoneRoutineRead>
-      </PhoneMachineGate>
+      </>
     </div>
   )
 }

@@ -18,7 +18,7 @@ export function useIntegrationAccounts(
   { check = true }: { check?: boolean } = {}
 ) {
   const host = useLibraryHost();
-  const enabled = configured && host.remote?.online !== false;
+  const enabled = configured && (host.assistantPanelExpected ? !!host.assistantPanel : host.remote?.online !== false);
   const base = [...ISSUE_CONNECTION_STATUS_QUERY_KEY, host.key, 'accounts', integrationId] as const;
 
   const accounts = useQuery({

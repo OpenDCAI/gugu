@@ -26,7 +26,7 @@ const machine: AssistantMachine = {
 const page = (): PhonePageProps => ({
   assistant: { id: 'assistant', display_name: '咕咕', avatar: null, created_at: null },
   chatId: 'assistant-dm', ownerName: 'Owner', home: { kind: 'cloud', deviceId: 'home' },
-  machine: { state: 'ready', machine }, homeDeviceId: 'home', cloudDeviceId: 'home', readiness: 'ready',
+  machine: { state: 'ready', machine }, homeDeviceId: 'home', cloudDeviceId: 'home',
   askInChat: vi.fn(), sub: null, go: vi.fn(), open: vi.fn(),
 })
 

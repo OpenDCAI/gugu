@@ -1,3 +1,5 @@
+import { useQuery } from '@tanstack/react-query';
+import { requireAssistantPanelBridge, useAssistantPanelAccountId } from '@/lib/assistantPanelBridge';
 import { observer } from 'mobx-react-lite';
 import { useCallback, useMemo, type ReactNode } from 'react';
 import { useTranslation } from 'react-i18next';
@@ -11,6 +13,10 @@ import type { AssistantContext } from './assistant-context';
 import { connectorOrder } from './assistant-connector-order';
 import { homeTarget } from './assistant-home-sessions';
 import { useReadFailure } from './assistant-read-failure';
+import { when } from 'mobx';
+import { useAssistantShell } from './assistant-shell';
+import { useCloudAssistantFiles } from '@/components/assistant/assistant-panel-files';
+import { assistantPanelLibraryHost } from '@/components/assistant/assistant-panel-library-host';
 import { AssistantEmpty, AssistantRow, AssistantSection, MachineGate } from './assistant-ui';
 
 /**
@@ -29,7 +35,7 @@ export function useHomeLibraryHost(home: AssistantHomePlace): LibraryHost {
   const online = device?.isOnline ?? false;
   const lastSeenAt = device?.lastSeenAt ?? null;
   const hostKind = device?.hostKind;
-  return useMemo(
+  const base = useMemo(
     () =>
       local
         ? LOCAL_LIBRARY_HOST
@@ -38,6 +44,27 @@ export function useHomeLibraryHost(home: AssistantHomePlace): LibraryHost {
           ),
     [local, deviceId, label, online, lastSeenAt, hostKind]
   );
+  const shell = useAssistantShell();
+  const owner = useAssistantPanelAccountId();
+  const identity = useQuery({ queryKey: ['assistant-panel-identity',owner],enabled: !!owner && !shell?.assistant?.id,
+    queryFn: () => requireAssistantPanelBridge().personalAssistant(owner!),staleTime: Infinity });
+  const assistantId = shell?.assistant?.id ?? identity.data ?? null;
+  const folder = useQuery({
+    queryKey: ['assistant-panel-folder',owner,assistantId],enabled: !!owner && !!assistantId && !shell?.chatId,
+    queryFn: async () => {
+      return requireAssistantPanelBridge().privateChat(owner!,assistantId!);
+    },staleTime: Infinity,
+  });
+  const machine = useCloudAssistantFiles(assistantId,shell?.chatId ?? folder.data ?? null,home.deviceId);
+  const prepare = useCallback(async () => {
+    if (local) return;
+    remoteHostsStore.start();
+    if (home.kind === 'cloud' && !await remoteHostsStore.wakeCloudComputer(deviceId)) throw new Error(t('connectors.prepareFailed'));
+    remoteHostsStore.reconnect(deviceId);
+    try { await when(() => remoteHostsStore.connectionState(deviceId) === 'connected',{ timeout: 60_000 }); }
+    catch { throw new Error(t('connectors.prepareFailed')); }
+  },[local,home.kind,deviceId,t]);
+  return useMemo(() => assistantPanelLibraryHost(base,machine?.panel,prepare,folder.error ?? identity.error),[base,machine,prepare,folder.error,identity.error]);
 }
 
 /** 点一家直接弹它的连接框(引导里那一步:不往下钻详情页)。要在 HomeIntegrations 里头用。 */
@@ -69,7 +96,7 @@ export function accountNote(context: AssistantContext, t: (key: string, values?:
 export const HomeIntegrations = observer(function HomeIntegrations({ context, children }: { context: AssistantContext; children: ReactNode }) {
   const host = useHomeLibraryHost(context.home);
   return (
-    <MachineGate readiness={context.readiness} loading={false} error={null} onRetry={context.retryMachine}>
+    <MachineGate readiness={context.readiness} loading={context.machineLoading} error={context.machineError} onRetry={context.retryMachine}>
       <LibraryHostProvider value={host} key={host.key}>
         <IntegrationsProvider>{children}</IntegrationsProvider>
       </LibraryHostProvider>
