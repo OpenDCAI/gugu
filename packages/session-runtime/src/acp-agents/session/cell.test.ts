@@ -73,7 +73,7 @@ describe('SessionCell prompts', () => {
       kind: 'error', reason: 'prompt_failed', detail: 'API Error: 529 fixture overloaded', said: 'API Error: 529 fixture overloaded',
     });
     await cell.prompt({ text: 'recover' });
-    expect(cell.history().committed.at(-1)!.outcome.kind).toBe('done');
+    expect(cell.history().committed.at(-1)!.outcome?.kind).toBe('done');
   });
 
   it('does not project a non-permission stable modes mirror into session config', () => {
