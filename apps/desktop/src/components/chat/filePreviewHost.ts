@@ -4,4 +4,6 @@ import { createContext } from 'react'
 export const FilePreviewHost = createContext<{
   target?: HTMLElement | null
   onOpenChange?: (open: boolean) => void
+  /** A file replaces this conversation's pane; Back returns to the mounted chat. */
+  chatNavigation?: boolean
 } | null>(null)

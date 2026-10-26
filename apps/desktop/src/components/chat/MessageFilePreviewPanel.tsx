@@ -38,9 +38,11 @@ export interface MessageFilePreviewPanelProps {
   fill?: boolean
   /** The host tab already carries this file name and its close button. */
   tabbed?: boolean
+  /** Reuse the task conversation's header and Back affordance. */
+  chatNavigation?: boolean
 }
 
-export function MessageFilePreviewPanel({ contentRef, file, videoUrl, onVideoError, kind, content, loading, error, loadingLabel, loadingFraction, actions = [], onOpenExternal, onBack, full, onToggleFull, onClose, mobile = false, fill = false, tabbed = false }: MessageFilePreviewPanelProps) {
+export function MessageFilePreviewPanel({ contentRef, file, videoUrl, onVideoError, kind, content, loading, error, loadingLabel, loadingFraction, actions = [], onOpenExternal, onBack, full, onToggleFull, onClose, mobile = false, fill = false, tabbed = false, chatNavigation = false }: MessageFilePreviewPanelProps) {
   const { t } = useTranslation('messaging')
   // 手机页头第二行:扩展名 + 大小(「HTML · 791 B」);大小还不知道就只写扩展名。❌ MIME 原文。
   const type = attachmentTypeKey(file)
@@ -51,7 +53,10 @@ export function MessageFilePreviewPanel({ contentRef, file, videoUrl, onVideoErr
   return (
     <aside data-testid="message-file-preview-panel" data-preview-kind={kind} style={{ width: mobile || fill ? '100%' : 'clamp(380px, 38vw, 520px)', height: '100%', flexShrink: 0, display: 'flex', flexDirection: 'column', overflow: 'hidden', borderLeft: mobile ? undefined : '1px solid var(--border-subtle)', background: 'var(--bg-primary)' }}>
       {/* 手机左上返回、右上消息动作;桌面从 App/列表打开时左上返回;页签内的 × 关闭当前文件。 */}
-      {tabbed && !mobile ? (
+      {chatNavigation && !mobile ? (
+        <PaneHeader title={file.fileName} divider
+          leading={<IconButton aria-label={t('common.back')} onClick={onBack ?? onClose}><ChevronLeft /></IconButton>} />
+      ) : tabbed && !mobile ? (
         <div className="flex h-9 shrink-0 items-center gap-1 border-b border-[var(--border)] px-2" data-testid="message-file-preview-tab-bar">
           {onBack ? <IconButton size="sm" aria-label={t('common.back')} onClick={onBack}><ChevronLeft /></IconButton> : null}
           {fullButton}
