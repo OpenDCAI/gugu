@@ -5,7 +5,7 @@ import { assistantConnectedApps, chatAppConnected, assistantApplicationCounts } 
 
 it('shows only implemented connection types instead of treating provider enum values as capabilities', () => {
   const integrations = [{ id: 'feishu', name: '飞书', description: '文档' }, { id: 'dingtalk', name: '钉钉' }] as IntegrationMetadata[]
-  const chats = { kinds: ['wechat'], channels: [] } as ChatChannelList
+  const chats: ChatChannelList = { kinds: ['wechat'], channels: [], suggestedAgentId: null }
   const apps = assistantConnectedApps(integrations, chats, kind => kind, '聊天')
   expect(apps.map(app => app.id)).toEqual(['feishu', 'dingtalk', 'wechat'])
   expect(apps[0]!.chatKind).toBeUndefined()
