@@ -8,7 +8,7 @@ import { registerComposerFocusTarget, scheduleComposerFocus } from '@/lib/focusC
 import { activeMentionPicks, MENTION_ALL_USER_ID, type MentionCandidate } from '@/lib/mention'
 import { isMentionQueryActive } from '@/lib/mentionMatch'
 import { rankMentionCandidates } from '@/lib/mentionRanking'
-import { useProjectGroupMembers } from '@/lib/projectGroupChatsBridge'
+import { useProjectGroupChats, useProjectGroupMembers } from '@/lib/projectGroupChatsBridge'
 import { AUTOMATION_TEST_IDS } from '@/lib/automationDom'
 import { UI_EVENTS } from '@/lib/uiEvents'
 import { APP_COMPOSE_EVENT } from '../../session/shared/extensions/app-runtime-protocol'
@@ -33,6 +33,7 @@ import { parseGroupFileLink } from '@gugu/core/shared/ui/guguLink'
 import { ChatComposerContextBands } from './ChatComposerContextBands'
 import { AgentMentionOptionLabel, AgentMentionSelectionNotice } from './AgentMentionStatusNotice'
 import { mentionOptionStatusProps } from './agentMentionStatusModels'
+import { projectGroupMainLine } from './projectGroupMentionModels'
 import type { ChatMessageComposerProps } from './chatComposerModels'
 export type { ComposerAttachAction } from './ComposerAttachButton'
 
@@ -62,12 +63,15 @@ export function ChatMessageComposer(props: ChatMessageComposerProps) {
   const { chats } = useChatStore()
   const projectMembers = useProjectGroupMembers()
   const projectMemberIds = projectMembers.get(chats.find((chat) => chat.id === chatId)?.source_chat_id ?? chatId ?? '')
+  const projectGroupChats = useProjectGroupChats()
+  const mainLine = useMemo(() => projectGroupMainLine(groupMembers,
+    chatId && projectGroupChats.has(chatId) ? projectMembers.get(chatId) ?? [] : null), [groupMembers, chatId, projectGroupChats, projectMembers])
   const members = useMemo<MentionCandidate[]>(() => isGroupChat ? [
-    { id: '__all__', name: t('composer.mentionAll'), type: 'all' },
-    ...groupMembers.filter((member) => member.id !== currentUserId).map((member) => ({ ...member, alias: contacts.find((contact) => contact.id === member.id)?.alias })),
-  ] : [], [isGroupChat, groupMembers, currentUserId, contacts, t])
+    ...(mainLine.mentionAll ? [{ id: '__all__', name: t('composer.mentionAll'), type: 'all' as const }] : []),
+    ...mainLine.roster.filter((member) => member.id !== currentUserId).map((member) => ({ ...member, alias: contacts.find((contact) => contact.id === member.id)?.alias })),
+  ] : [], [isGroupChat, mainLine, currentUserId, contacts, t])
   const activeTargets = activeMentionPicks(text, mentionTargets, members)
-  const { sending, handleSend } = useChatMessageSend(props, draft, members, activeTargets, inputRef)
+  const { sending, handleSend } = useChatMessageSend({ ...props, groupMembers: mainLine.roster }, draft, members, activeTargets, inputRef)
   const { byEngine, renderMentionIcon: renderSessionMentionIcon } = useSessionAgentCreationTools()
   const renderMentionIcon = useCallback<NonNullable<Parameters<typeof ChatComposer>[0]['renderMentionIcon']>>((attrs) => {
     if (attrs.id === MENTION_ALL_USER_ID) return <Avatar name={attrs.name ?? attrs.label} size={14} variant="group"
@@ -116,9 +120,9 @@ export function ChatMessageComposer(props: ChatMessageComposerProps) {
   }, [text, chatId])
   useEffect(() => {
     if (!mentionToInsert) return
-    editorApiRef.current?.insertMention({ id: mentionToInsert.id, label: mentionToInsert.name, name: mentionToInsert.name, kind: 'custom' })
+    if (mainLine.reachable(mentionToInsert.id)) editorApiRef.current?.insertMention({ id: mentionToInsert.id, label: mentionToInsert.name, name: mentionToInsert.name, kind: 'custom' })
     onMentionInserted?.()
-  }, [mentionToInsert, onMentionInserted])
+  }, [mentionToInsert, onMentionInserted, mainLine])
   useEffect(() => {
     if (quoteContent) scheduleComposerFocus('quote-attached', { target: () => inputRef.current })
   }, [quoteContent])
