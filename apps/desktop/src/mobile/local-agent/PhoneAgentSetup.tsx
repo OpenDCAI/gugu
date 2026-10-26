@@ -6,7 +6,9 @@ import { useSystemPermissionStates } from '@/lib/systemPermissions'
 import { PhoneAgentHostControl } from './PhoneAgentHostControl'
 import { PhoneAgentSetupPermission, PhoneAgentSetupTools } from './PhoneAgentSetupPermissions'
 import type { PhoneAgentSetupStep } from './PhoneAgentSetupState'
-import { PhoneSheetHandle } from '../PhoneSheetHandle'
+import { IconButton } from '@/components/ui/IconButton'
+import { ArrowLeft, X } from '@/lib/icons'
+import { PhoneAgentSetupVisual } from './PhoneAgentSetupVisual'
 import '../phone-device/phone-device.css'
 
 const STEPS: readonly PhoneAgentSetupStep[] = ['host', 'notifications', 'background', 'tools']
@@ -42,32 +44,36 @@ export function PhoneAgentSetup({ ownerId, initialStep, onStep, onFinish, onLate
       onStep(following)
     }
   }, [step, states.notifications, states.batteryOptimization, following, onStep])
+  const previous = STEPS.slice(0, STEPS.indexOf(step)).reverse().find((item) => steps.includes(item) && !granted(item))
+  const moveBack = () => { if (previous) { setStep(previous); onStep(previous) } else onLater() }
+  const index = steps.indexOf(step)
   const next = () => {
     if (step === 'tools') onFinish()
     else { setStep(following); onStep(following) }
   }
   return (
     <div className="gg-phone-setup" data-testid={`phone-agent-setup-${step}`}>
-      <PhoneSheetHandle onDismiss={onLater} />
-      <div className="gg-phone-setup-header">
-        <ol className="gg-phone-setup-progress" aria-label="设置步骤">
-          {steps.map((item, position) => (
-            <li key={item} aria-current={item === step ? 'step' : undefined}>
-              <span className="gg-phone-setup-progress-track" aria-hidden="true" />
-              <span>{position + 1} {STEP_LABELS[item]}</span>
-            </li>
-          ))}
-        </ol>
-        <h2 className="gg-phone-setup-heading">{TITLES[step]}</h2>
+      <div className="gg-phone-setup-topbar">
+        <IconButton size="lg" className="gg-phone-setup-back" aria-label={previous ? '上一步' : '关闭设置'} onClick={moveBack}>
+          {previous ? <ArrowLeft /> : <X />}
+        </IconButton>
+        <div className="gg-phone-setup-progress" role="progressbar" aria-label="设置步骤"
+          aria-valuemin={1} aria-valuemax={steps.length} aria-valuenow={index + 1}
+          aria-valuetext={`第 ${index + 1} 步，共 ${steps.length} 步：${STEP_LABELS[step]}`}>
+          <span style={{ width: `${(index + 1) / steps.length * 100}%` }} />
+        </div>
+        <span className="gg-phone-setup-count" aria-hidden="true">{index + 1} / {steps.length}</span>
       </div>
       <div className="gg-phone-setup-body" key={step}>
+        <h2 id="phone-agent-setup-heading" className="gg-phone-setup-heading">{TITLES[step]}</h2>
+        <PhoneAgentSetupVisual step={step} />
+      </div>
+      <div className="gg-phone-setup-footer">
+        {saveError && <SettingsNote role="alert" tone="danger">{saveError}</SettingsNote>}
         {step === 'host' ? <PhoneAgentHostControl ownerId={ownerId} setup={{ onContinue: next, continueLabel: ACTIONS[following] }} />
           : step === 'notifications' || step === 'background'
             ? <PhoneAgentSetupPermission permission={step === 'notifications' ? 'notifications' : 'batteryOptimization'} state={states[step === 'notifications' ? 'notifications' : 'batteryOptimization']} onRefresh={refresh} />
             : <PhoneAgentSetupTools ownerId={ownerId} />}
-        {saveError && <SettingsNote role="alert" tone="danger">{saveError}</SettingsNote>}
-      </div>
-      <div className="gg-phone-setup-footer">
         <Button variant="ghost" data-testid="phone-agent-setup-next" onClick={next}>{step === 'tools' ? '完成设置' : '稍后'}</Button>
       </div>
     </div>

@@ -107,81 +107,82 @@ div.gg-phone-capability-sheet-body { display: flex; flex-direction: column; min-
 .gg-phone-notification-scope p > span,
 .gg-phone-notification-scope p.gg-phone-capability-notice { font-size: var(--phone-font-note); line-height: var(--lh-body); color: var(--muted-fg); }
 
-/* The Sheet owns its existing modal behavior; only the body scrolls inside this guide. */
+/* Full-page onboarding: one question, the Gugu portrait, and a stable bottom action. */
 div.gg-phone-setup {
+  --phone-setup-pill: 999px;
   display: flex;
   flex: 1 1 auto;
   flex-direction: column;
   min-width: 0;
   min-height: 0;
-  max-height: calc(85dvh - env(safe-area-inset-bottom));
+  height: 100%;
   overflow: hidden;
+  background: linear-gradient(180deg, color-mix(in oklab, var(--live) 5%, var(--card)), var(--card) 42%);
 }
-div.gg-phone-setup-header {
-  display: flex;
-  flex: none;
-  flex-direction: column;
-  gap: var(--spacing-md);
-  padding: 24px 16px 16px;
-}
-ol.gg-phone-setup-progress {
+div.gg-phone-setup-topbar {
   display: grid;
-  grid-auto-flow: column;
-  grid-auto-columns: minmax(0, 1fr);
-  gap: var(--spacing-sm);
-  list-style: none;
-  margin: 0;
-  padding: 0;
+  grid-template-columns: var(--control-h-touch) minmax(0, 1fr) auto;
+  align-items: center;
+  gap: var(--spacing-lg);
+  flex: none;
+  padding: max(var(--spacing-lg), env(safe-area-inset-top)) var(--spacing-2xl) 0;
 }
-.gg-phone-setup-progress li {
-  display: flex;
-  flex-direction: column;
-  gap: var(--spacing-xs);
-  min-width: 0;
-  color: var(--muted-fg);
-  font-size: var(--phone-font-note);
-  line-height: var(--lh-body);
-  white-space: nowrap;
-}
-.gg-phone-setup-progress-track { height: 2px; border-radius: var(--radius-control); background: var(--border); }
-.gg-phone-setup-progress li[aria-current='step'] { color: var(--fg); }
-.gg-phone-setup-progress li[aria-current='step'] .gg-phone-setup-progress-track { background: var(--fg); }
+.gg-phone-setup-back { border-radius: var(--radius-circle); }
+.gg-phone-setup-progress { height: 3px; overflow: hidden; border-radius: var(--phone-setup-pill); background: var(--border); }
+.gg-phone-setup-progress > span { display: block; height: 100%; border-radius: inherit; background: var(--fg); }
+.gg-phone-setup-count { color: var(--muted-fg); font-size: var(--font-caption); font-variant-numeric: tabular-nums; white-space: nowrap; }
 .gg-phone-setup-heading {
+  flex: none;
   margin: 0;
   color: var(--fg);
   font-size: var(--font-size-xl);
   line-height: var(--lh-page);
-  font-weight: var(--font-weight-medium);
+  font-weight: var(--font-weight-semibold);
+  text-align: center;
+  text-wrap: balance;
 }
 div.gg-phone-setup-body {
   display: flex;
   flex: 1 1 auto;
   flex-direction: column;
-  gap: var(--spacing-2xl);
   min-height: 0;
-  padding: 0 16px 24px;
+  padding: clamp(24px, 6dvh, 56px) var(--spacing-2xl) var(--spacing-2xl);
   overflow-y: auto;
   overscroll-behavior: contain;
-  container: gg-settings / inline-size;
 }
-.gg-phone-setup-body > * { flex-shrink: 0; }
+.gg-phone-setup-visual { display: flex; flex: 1 0 auto; flex-direction: column; align-items: center; justify-content: center; gap: var(--spacing-2xl); min-height: 220px; }
+.gg-phone-setup-portrait { width: clamp(144px, 28dvh, 232px); height: auto; object-fit: contain; }
+.gg-phone-setup-visual[data-step='notifications'] .gg-phone-setup-portrait { width: clamp(120px, 21dvh, 176px); }
+.gg-phone-setup-notification { width: 100%; max-width: 304px; padding: var(--spacing-lg) var(--spacing-xl); border: 1px solid var(--border); border-radius: var(--radius-dialog); background: var(--card); box-shadow: none; }
+.gg-phone-setup-notification-heading { display: flex; justify-content: space-between; gap: var(--spacing-sm); margin-bottom: var(--spacing-md); font-size: var(--font-caption); color: var(--muted-fg); }
+.gg-phone-setup-notification-title { font-size: var(--font-prose); line-height: var(--lh-prose); color: var(--fg); font-weight: var(--font-weight-medium); }
+.gg-phone-setup-notification-copy { margin-top: var(--spacing-xs); color: var(--muted-fg); font-size: var(--font-body); line-height: var(--lh-body); }
+.gg-phone-setup-scene-label { color: var(--muted-fg); font-size: var(--font-body); line-height: var(--lh-body); }
+.gg-phone-setup-capability-preview { display: flex; gap: var(--spacing-2xl); color: var(--muted-fg); font-size: var(--font-body); line-height: var(--lh-body); }
 div.gg-phone-setup-footer {
   display: flex;
   flex: none;
   flex-direction: column;
-  gap: var(--spacing-md);
-  padding: 16px;
-  border-top: 0;
-  background: var(--modal-bg);
+  gap: var(--spacing-sm);
+  padding: var(--spacing-lg) var(--spacing-2xl) var(--spacing-lg);
+  background: var(--card);
 }
 div.gg-phone-setup-action { display: flex; flex-direction: column; gap: var(--spacing-md); }
-.gg-phone-setup-body > [data-slot='button'],
+.gg-phone-setup-footer > [data-slot='button'],
 .gg-phone-setup-action > [data-slot='button'] { width: 100%; }
-.gg-phone-setup-footer > [data-slot='button'] { width: 100%; }
-
+.gg-phone-setup-footer [data-slot='button'][data-variant='primary'] { min-height: 56px; border-radius: var(--phone-setup-pill); font-size: var(--font-prose); font-weight: var(--font-weight-medium); }
+.gg-phone-setup-footer > [data-slot='button'][data-variant='ghost'] { color: var(--muted-fg); }
+.gg-phone-setup-unavailable { justify-content: center; padding: var(--spacing-2xl); }
+@media (max-height: 650px) {
+  div.gg-phone-setup-body { padding-top: var(--spacing-2xl); padding-bottom: var(--spacing-md); }
+  .gg-phone-setup-visual { min-height: 160px; gap: var(--spacing-lg); }
+  .gg-phone-setup-portrait { width: 152px; }
+  .gg-phone-setup-visual[data-step='notifications'] .gg-phone-setup-portrait { width: 104px; }
+}
 @media (max-width: 359px) {
-  div.gg-phone-setup-header,
-  div.gg-phone-setup-footer { padding-inline: var(--spacing-lg); }
+  div.gg-phone-setup-topbar { gap: var(--spacing-md); }
+  div.gg-phone-setup-topbar,
+  div.gg-phone-setup-footer,
   div.gg-phone-setup-body { padding-inline: var(--spacing-lg); }
   div.gg-phone-capability-row { padding-inline: 0; column-gap: var(--spacing-sm); }
   .gg-phone-capability-row .gg-settings-row-control > [data-slot='button'] { padding-inline: var(--spacing-sm); }

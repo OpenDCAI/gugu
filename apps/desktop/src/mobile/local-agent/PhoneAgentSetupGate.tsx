@@ -82,7 +82,7 @@ export function PhoneAgentSetupGate({ ownerId, children }: { ownerId: string; ch
     <PhoneInstallationContext.Provider value={currentSetup ? ownerId : null}>
       {children}
       {phoneAgentAvailable() && visible && (
-        <Sheet onClose={dismiss} ariaLabel="设置这台手机上的 Agent" mobileFitContent testId="phone-agent-setup">
+        <Sheet onClose={dismiss} ariaLabel="设置这台手机上的 Agent" titleId="phone-agent-setup-heading" fullScreenMobile testId="phone-agent-setup">
           {currentSetup ? (
             <PhoneAgentSetup
               key={`${ownerId}:${currentSetup.installId}`}
@@ -94,8 +94,8 @@ export function PhoneAgentSetupGate({ ownerId, children }: { ownerId: string; ch
               saveError={error}
             />
           ) : (
-            <SettingsPage className="p-5">
-              <h2 className="text-lg font-semibold">设置这台手机上的 Agent</h2>
+            <SettingsPage className="gg-phone-setup gg-phone-setup-unavailable">
+              <h2 id="phone-agent-setup-heading" className="gg-phone-setup-heading">暂时无法打开手机设置</h2>
               <SettingsNote role="alert">{error}</SettingsNote>
               <div className="flex gap-2">
                 <Button onClick={() => setRetry((value) => value + 1)}>重试</Button>

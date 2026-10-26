@@ -36,7 +36,7 @@ vi.mock('../../../../apps/desktop/src/platform', () => ({ platform: {
   subscribeAppForeground: (listener: () => void) => { mocks.foreground.push(listener); return () => { mocks.foreground = mocks.foreground.filter((value) => value !== listener) } },
 } }))
 vi.mock('../../../../apps/desktop/src/components/ui/Sheet', () => ({
-  Sheet: ({ children, testId }: { children: ReactNode; testId?: string }) => createElement('section', { role: 'dialog', 'data-testid': testId ?? 'phone-agent-setup' }, children),
+  Sheet: ({ children, testId, fullScreenMobile }: { children: ReactNode; testId?: string; fullScreenMobile?: boolean }) => createElement('section', { role: 'dialog', 'data-testid': testId ?? 'phone-agent-setup', 'data-full-screen-mobile': fullScreenMobile }, children),
 }))
 
 import { PhoneAgentSetupGate } from '../../../../apps/desktop/src/mobile/local-agent/PhoneAgentSetupGate'
@@ -78,7 +78,7 @@ describe('phone installation guide', () => {
     await waitForCondition(() => byId('main-product')?.dataset.owner === previous, 'previous install binding ready')
     await act(async () => { openPhoneAgentSetup(previous); openPhoneAgentSetup(previous) })
     await waitForCondition(() => !!byId('phone-agent-setup-host'), 'previous guide opened')
-    await clickElement(document.querySelector<HTMLElement>('[aria-label="关闭面板"]')!)
+    await clickElement(document.querySelector<HTMLElement>('[aria-label="关闭设置"]')!)
     await harness.render(createNode(PhoneAgentSetupGate, { ownerId: current, children: createElement(Product) }))
     await waitForCondition(() => byId('main-product')?.dataset.owner === current, 'current install binding ready')
     expect(document.querySelector('[role="dialog"]')).toBeNull()
@@ -144,8 +144,8 @@ describe('phone installation guide', () => {
   it('remembers a skip for this account and install, but a restored different phone sees the guide', async () => {
     const owner = 'skip-per-install-owner'
     const first = await renderGate(owner)
-    await waitForCondition(() => !!document.querySelector('[aria-label="关闭面板"]'), 'guide ready')
-    await clickElement(document.querySelector<HTMLElement>('[aria-label="关闭面板"]')!)
+    await waitForCondition(() => !!document.querySelector('[aria-label="关闭设置"]'), 'guide ready')
+    await clickElement(document.querySelector<HTMLElement>('[aria-label="关闭设置"]')!)
     first.cleanup(); active.splice(active.indexOf(first), 1)
     const same = await renderGate(owner)
     await waitForCondition(() => !!localStorage.getItem('gugu.phoneDevice.install'), 'install read')
@@ -185,7 +185,7 @@ describe('phone installation guide', () => {
     await waitForCondition(() => !!byId('phone-agent-setup-host'), 'corrupt record shown honestly')
     expect(document.querySelector('[role="alert"]')?.textContent).toContain('JSON')
     expect(readPhoneDeviceSettings(owner)).toMatchObject({ enabled: false, hostEnabled: false })
-    await clickElement(document.querySelector<HTMLElement>('[aria-label="关闭面板"]')!)
+    await clickElement(document.querySelector<HTMLElement>('[aria-label="关闭设置"]')!)
     expect(readPhoneAgentSetup(owner, installId).dismissed).toBe(true)
   })
 
@@ -269,12 +269,16 @@ describe('minimal phone setup actions', () => {
   it('shows the remaining setup stages and moves the current marker without claiming a grant', async () => {
     await renderGate('visible-setup-progress-owner')
     const progress = () => document.querySelector('[aria-label="设置步骤"]')!
-    expect(progress().querySelectorAll('li')).toHaveLength(4)
-    expect(progress().textContent).toMatch(/1 手机运行.*2 消息通知.*3 后台运行.*4 手机能力/)
-    expect(progress().querySelector('[aria-current="step"]')?.textContent).toBe('1 手机运行')
+    expect(document.querySelector('[role="dialog"]')?.getAttribute('data-full-screen-mobile')).toBe('true')
+    expect(progress().getAttribute('aria-valuemax')).toBe('4')
+    expect(progress().getAttribute('aria-valuenow')).toBe('1')
+    expect(progress().getAttribute('aria-valuetext')).toContain('手机运行')
     await clickElement(byId('phone-agent-setup-next')!)
-    expect(progress().querySelectorAll('[aria-current="step"]')).toHaveLength(1)
-    expect(progress().querySelector('[aria-current="step"]')?.textContent).toBe('2 消息通知')
+    expect(progress().getAttribute('aria-valuenow')).toBe('2')
+    expect(progress().getAttribute('aria-valuetext')).toContain('消息通知')
+    await clickElement(document.querySelector<HTMLElement>('[aria-label="上一步"]')!)
+    expect(byId('phone-agent-setup-host')).not.toBeNull()
+    expect(progress().getAttribute('aria-valuenow')).toBe('1')
     expect(readPhoneDeviceSettings('visible-setup-progress-owner')).toMatchObject({ enabled: false, hostEnabled: false })
     expect(mocks.request).not.toHaveBeenCalled()
   })
@@ -304,9 +308,9 @@ describe('minimal phone setup actions', () => {
     expect(byId('phone-agent-setup-tools')).not.toBeNull()
     expect(byId('phone-agent-setup-background')).toBeNull()
     const stages = document.querySelector('[aria-label="设置步骤"]')!
-    expect(stages.querySelectorAll('li')).toHaveLength(3)
-    expect(stages.textContent).not.toContain('后台运行')
-    expect(stages.querySelector('[aria-current="step"]')?.textContent).toBe('3 手机能力')
+    expect(stages.getAttribute('aria-valuemax')).toBe('3')
+    expect(stages.getAttribute('aria-valuenow')).toBe('3')
+    expect(stages.getAttribute('aria-valuetext')).toContain('手机能力')
   })
 
   it('can skip every step without enabling hosting, tools, or system permissions', async () => {
