@@ -7,7 +7,7 @@ import { platform } from '../../platform'
 import { useChatStore } from '../../store/chatContext'
 import { rpc } from '../../session/renderer/lib/ipc'
 import { installedExtensionsStore } from '../../session/renderer/features/extensions/installed-extensions-store'
-import { groupSlotMemory } from '../appSlot/groupSlotMemory'
+import { openFileIds, updateFileNames } from '../../session/renderer/features/chats/chat-tabs/chat-layouts'
 
 const log = rendererLogger('chat/extension-workspace-revisions')
 
@@ -30,7 +30,7 @@ export function useExtensionWorkspaceRevisions(): void {
       if (platform.capabilities.agentRuntime) void rpc.extensions.groupWorkspaceChanged({ changes }).catch((error: unknown) => {
         log.warn({ error: error instanceof Error ? error.message : String(error) }, 'telling App pages their group workspace changed failed')
       })
-      const open = groupSlotMemory.fileIds()
+      const open = openFileIds()
       await Promise.all(changes.map(async ({ chatId, itemIds }) => {
         const ids = itemIds.filter((id) => open.has(id))
         if (ids.length === 0) return
@@ -39,7 +39,7 @@ export function useExtensionWorkspaceRevisions(): void {
           if (error) throw error
           return data
         })
-        groupSlotMemory.updateFileNames(files, installedExtensionsStore.manifests)
+        updateFileNames(files, installedExtensionsStore.manifests)
       }))
     })
     // 摩擦单 F36: who is in the chat is part of an App page's context; the same bus says when a member row changed, and

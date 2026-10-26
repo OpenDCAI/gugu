@@ -30,7 +30,9 @@ export type ScreenBlockContent =
   | ({ kind: 'session' } & ScreenSession)
   | { kind: 'app'; tabKind: string }
   | { kind: 'project'; projectId: string }
-  | { kind: 'chat'; chatId: string };
+  | { kind: 'chat'; chatId: string }
+  /** 一个对话里的一张 App 页(那个对话的那张,或为它的一个文件开的),从那个对话的页签条上拿出来单独占一块。 */
+  | { kind: 'chat-app'; chatId: string; tabKind: string; itemId?: string; title: string };
 
 /** 能单独开成一扇窗的:会话、App(项目、对话这一轮只在主窗里)。 */
 export type WindowableContent = Extract<ScreenBlockContent, { kind: 'session' | 'app' }>;
@@ -49,6 +51,8 @@ export function contentKey(content: ScreenBlockContent): string {
       return blockKey.project(content.projectId);
     case 'chat':
       return blockKey.chat(content.chatId);
+    case 'chat-app':
+      return blockKey.chatApp(content.chatId, content.tabKind, content.itemId);
   }
 }
 
@@ -517,7 +521,7 @@ function asContent(target: ScreenSession | ScreenBlockContent): ScreenBlockConte
 }
 
 function isBlockContent(value: unknown): value is ScreenBlockContent {
-  const block = value as Partial<{ kind: string; projectId: string; sessionId: string; tabKind: string; chatId: string }> | null;
+  const block = value as Partial<{ kind: string; projectId: string; sessionId: string; tabKind: string; chatId: string; title: string }> | null;
   if (!block || typeof block !== 'object') return false;
   switch (block.kind) {
     case 'session':
@@ -528,6 +532,8 @@ function isBlockContent(value: unknown): value is ScreenBlockContent {
       return typeof block.projectId === 'string';
     case 'chat':
       return typeof block.chatId === 'string';
+    case 'chat-app':
+      return typeof block.chatId === 'string' && typeof block.tabKind === 'string' && typeof block.title === 'string';
     default:
       return false;
   }

@@ -100,8 +100,7 @@ export async function fitBrowserPageToPane(
   if (pageLayoutWidthPx === undefined) return;
 
   const paneWidthPx = webview.getBoundingClientRect().width;
-  // 面板收起/隐藏时元素是 0 宽,这时候算出来的是「缩到 25%」。❌ 别在量不到宽度时下手 ——
-  // 同一条闸分栏那边也有(side-panel-split.tsx 的 groupMeasured)。
+  // 面板收起/隐藏时元素是 0 宽,这时候算出来的是「缩到 25%」。❌ 别在量不到宽度时下手。
   if (paneWidthPx <= 0) return;
   const fitted = browserFitZoomFactor({ paneWidthPx, pageLayoutWidthPx });
   // null = 装得下。此时要回到 100%(面板被拖宽了),而不是停在上一次缩出来的比例。

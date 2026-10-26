@@ -1,9 +1,8 @@
 import type { MessageItem } from '@gugu/core/shared/types/chat'
-import type { OpenedWith } from '@/components/appSlot/groupSlotMemory'
 // @vitest-environment jsdom
-import { act, createElement, Fragment, useLayoutEffect, useState } from 'react'
+import { act, createElement, useLayoutEffect } from 'react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import { chat, createReactHarness, renderWithAppProviders } from '../../../support/testHarness'
+import { createReactHarness } from '../../../support/testHarness'
 import { until } from '../../../support/awaitCondition'
 
 const boundary = vi.hoisted(() => ({
@@ -18,8 +17,6 @@ const boundary = vi.hoisted(() => ({
   preview: vi.fn(),
   previewContents: new Map<string, string>(),
 }))
-// No topic is open in these file-preview cases; keep the topic's full message runtime outside this boundary.
-vi.mock('@/components/chat/TopicSplitPane', () => ({ TopicTab: () => null }))
 vi.mock('@/components/preview/html-preview-registration', () => ({ registerHtmlPreview: boundary.preview }))
 vi.mock('@/platform', () => ({ platform: { kind: 'electron', capabilities: { appUpdates: false, notifications: false, rendererCommandBridge: false } } }))
 vi.mock('@/hooks/useMobileShell', () => ({ useMobileShell: () => boundary.mobile }))
@@ -37,23 +34,24 @@ vi.mock('@/components/appSlot/appsHere', () => ({
 }))
 vi.mock('@/components/extensionBundle/sharedPackages', () => ({ sharedPackagesOf: async () => new Map(), subscribeSharedPackages: () => () => {} }))
 
-const { GroupAppSlot } = await import('@/components/appSlot/GroupAppSlot')
-const { GroupPanelTabs } = await import('@/components/appSlot/GroupPanelTabs')
 const { AppPeek } = await import('@/components/appSlot/AppPeek')
-const { folderTab, groupSlotMemory } = await import('@/components/appSlot/groupSlotMemory')
+const { ask, chatTabs, shownItem } = await import('./chatTabsHarness')
+const { folderItem, isFolderItem } = await import('@/session/renderer/features/chats/chat-tabs/chat-panel-item')
+const { chatAlone, closeChatTab, openPanelItem, panelTabsOf, shownPanelTab } = await import('@/session/renderer/features/chats/chat-tabs/chat-layouts')
 const { installedExtensionsStore } = await import('@/session/renderer/features/extensions/installed-extensions-store')
-const { AuthContext } = await import('@/store/auth')
 const { appsHere } = await import('@/components/appSlot/appsHere')
 const workspace = { id: 'workspace', name: '文件夹', version: '0.2.53', apiVersion: 3, entry: 'index.html', contributes: { tabs: [{ name: 'main', title: '文件夹', opensFiles: { chat: ['.md', '.json'] } }] } }
 const candidate = { extensionId: 'workspace', tabKind: 'workspace.main', tabTitle: '文件夹', app: { name: '文件夹' }, onlyTab: true, suffix: '.md' }
 let harness: ReturnType<typeof createReactHarness>
 const checkVisibility = HTMLElement.prototype.checkVisibility
-let request = 766300
 const detail = (suffix: string) => ({ chatId: 'preview-group', itemId: `file-${suffix}`, name: `report.${suffix}`, typedName: `report.${suffix}`, file: { document: false, contentType: suffix === 'html' ? 'text/html' : suffix === 'mp4' ? 'video/mp4' : 'application/octet-stream', version: 3, size: 1024 }, choice: { kind: 'none' as const } })
-const slot = (opener: ReturnType<typeof detail>, supplied = true, extra: { visible?: boolean; message?: MessageItem; tabbed?: boolean; restore?: () => void; from?: OpenedWith } = {}) => createElement(AuthContext.Provider, { value: { user: { id: 'viewer' } } as never }, createElement(GroupAppSlot, {
-  chatId: opener.chatId, onClose: boundary.close, visible: extra.visible ?? true, tabbed: extra.tabbed, onForward: boundary.forward,
-  asked: { chatId: opener.chatId, itemId: opener.itemId, request: ++request, ...(extra.restore ? { restore: extra.restore } : {}), ...(extra.message ? { message: extra.message } : {}), ...(supplied ? { opener } : {}), ...(extra.from ? { fromPage: true as const, from: extra.from } : {}) },
-}))
+/** The chat's tabs drawn, then the file asked of it — a link's (no answer in hand: `supplied` false), or with its host's answer. */
+const slot = async (opener: ReturnType<typeof detail>, supplied = true, extra: { visible?: boolean; message?: MessageItem; tabbed?: boolean; restore?: () => void; fromPage?: boolean } = {}) => {
+  await harness.render(chatTabs({ chatId: opener.chatId, visible: extra.visible ?? true, tabbed: extra.tabbed, mobile: boundary.mobile, onForward: boundary.forward }, 'viewer'))
+  ask(opener.chatId, { itemId: opener.itemId, ...(extra.restore ? { restore: extra.restore } : {}), ...(extra.message ? { message: extra.message } : {}), ...(supplied ? { opener: opener as never } : {}), ...(extra.fromPage ? { fromPage: true as const } : {}) })
+}
+const redraw = (chatId: string, extra: { visible?: boolean } = {}) =>
+  harness.render(chatTabs({ chatId, visible: extra.visible ?? true, mobile: boundary.mobile, onForward: boundary.forward }, 'viewer'))
 beforeEach(() => {
   harness = createReactHarness()
   HTMLElement.prototype.checkVisibility = () => false
@@ -70,7 +68,7 @@ beforeEach(() => {
   boundary.read.mockResolvedValue({ status: 'ready', blob: { text: async () => '<h1>lane report</h1>', arrayBuffer: async () => new ArrayBuffer(4) } })
   boundary.document.mockResolvedValue({ text: '<h1>live report</h1>' })
   boundary.save.mockResolvedValue(undefined)
-  for (const item of [...groupSlotMemory.tabs('preview-group')]) groupSlotMemory.close('preview-group', item)
+  for (const tab of panelTabsOf('preview-group')) closeChatTab('preview-group', tab.tabId)
   act(() => installedExtensionsStore.applyList({ extensions: [workspace], invalid: [] } as never))
 })
 afterEach(() => {
@@ -84,7 +82,7 @@ describe('unclaimed group files use the message preview from every entry', () =>
   it.each([false, true])('ordinary openWith plays MP4 on the host (mobile=%s)', async (mobile) => {
     boundary.mobile = mobile
     const file = detail('mp4')
-    await harness.render(slot(file))
+    await slot(file)
     await until('the existing video player is ready', () => harness.container.querySelector('video') !== null)
     const video = harness.container.querySelector('video')!
     expect(video.src).toBe('https://media.test/signed.mp4')
@@ -100,7 +98,7 @@ describe('unclaimed group files use the message preview from every entry', () =>
   it('a file link and an App card resolve HTML through the same host preview', async () => {
     const file = detail('html')
     vi.mocked(appsHere!.groupFileOpener).mockResolvedValue({ success: true, data: file })
-    await harness.render(slot(file, false))
+    await slot(file, false)
     await until('the report HTML is drawn', () => boundary.previewContents.get(harness.container.querySelector('iframe')?.getAttribute('src') ?? '')?.includes('lane report') === true)
     expect(appsHere!.groupFileOpener).toHaveBeenCalledWith({ chatId: file.chatId, itemId: file.itemId })
     expect(harness.container.querySelector('iframe')?.getAttribute('sandbox')).toBe('allow-scripts')
@@ -116,7 +114,7 @@ describe('unclaimed group files use the message preview from every entry', () =>
 
   it('unsupported exe shows details and downloads only when asked, without opening it', async () => {
     const file = detail('exe')
-    await harness.render(slot(file))
+    await slot(file)
     expect(harness.container.querySelector('[data-preview-kind="unsupported"]')).not.toBeNull()
     expect(harness.container.textContent).toContain('report.exe')
     expect(boundary.read).not.toHaveBeenCalled()
@@ -129,86 +127,64 @@ describe('unclaimed group files use the message preview from every entry', () =>
 
   it('a claimed markdown file still opens in the folder App, without fetching a host preview', async () => {
     const file = { ...detail('md'), choice: { kind: 'one' as const, candidate } }
-    await harness.render(slot(file as never))
-    expect(groupSlotMemory.opened(file.chatId)).toMatchObject({ kind: 'workspace.main', itemId: file.itemId })
+    await slot(file as never)
+    expect(shownItem(file.chatId)).toMatchObject({ kind: 'workspace.main', itemId: file.itemId })
     expect(harness.container.querySelector('[data-testid="message-file-preview-panel"]')).toBeNull()
     expect(boundary.read).not.toHaveBeenCalled()
   })
 
   it.each([false, true])('back restores the App a preview was opened from without closing the panel (mobile=%s)', async (mobile) => {
     boundary.mobile = mobile
-    const source = { kind: 'workspace.main', itemId: 'notes', title: 'notes.md', typedName: 'notes.md', opening: 7663 }
-    groupSlotMemory.open('preview-group', source)
-    await harness.render(slot(detail('exe'), true, { from: source }))
-    expect(groupSlotMemory.opened('preview-group')?.kind).toBeNull()
+    openPanelItem('preview-group', { kind: 'workspace.main', itemId: 'notes', title: 'notes.md', typedName: 'notes.md' })
+    await slot(detail('exe'), true, { fromPage: true })
+    expect(shownItem('preview-group')?.kind).toBeNull()
     const back = harness.container.querySelector<HTMLButtonElement>('button[aria-label="返回"]')
     expect(back).not.toBeNull()
     await act(async () => back!.click())
-    expect(groupSlotMemory.opened('preview-group')).toMatchObject({ kind: 'workspace.main', itemId: 'notes' })
-    expect(boundary.close).not.toHaveBeenCalled()
+    expect(shownItem('preview-group')).toMatchObject({ kind: 'workspace.main', itemId: 'notes' })
+    expect(chatAlone('preview-group')).toBe(false)
   })
 
   it.each([false, true])('back from the folder preview restores the list and keeps the panel open (mobile=%s)', async (mobile) => {
     boundary.mobile = mobile
-    const folder = folderTab()
-    groupSlotMemory.open('preview-group', folder)
-    await harness.render(slot(detail('exe'), true, { from: folder }))
+    const folder = openPanelItem('preview-group', folderItem())
+    await slot(detail('exe'), true, { fromPage: true })
     const back = harness.container.querySelector<HTMLButtonElement>('button[aria-label="返回"]')
     expect(back).not.toBeNull()
     await act(async () => back!.click())
-    expect(groupSlotMemory.opened('preview-group')).toBe(folder)
+    expect(shownPanelTab('preview-group')?.tabId).toBe(folder)
+    expect(isFolderItem(shownItem('preview-group'))).toBe(true)
     expect(harness.container.querySelector('[data-testid="message-file-preview-panel"]')).toBeNull()
     expect(harness.container.querySelector('[data-testid="group-app-slot"]')).not.toBeNull()
-    expect(boundary.close).not.toHaveBeenCalled()
-  })
-
-  it('a binary tab has only its file name, without treating the source folder as its App title', async () => {
-    await renderWithAppProviders(harness, createElement(Fragment, null,
-      createElement(GroupPanelTabs, { chatId: 'preview-group', onShowPanel: vi.fn(), onClosePanel: boundary.close, onShowTopic: vi.fn(), onShowChatAlone: vi.fn() }),
-      slot(detail('bin'), true, { tabbed: true }),
-    ), { chat: { chats: [chat({ id: 'preview-group', kind: 'group' })] } })
-    const chip = harness.container.querySelector('[data-panel-tab="preview"] [data-tab-label]')!
-    expect(chip.getAttribute('data-tab-label')).toBe('report.bin')
-    expect(chip.getAttribute('title')).toBe('report.bin')
   })
 
   it('the tabbed binary preview closes only its object, keeping the source tab and one host header', async () => {
-    const source = { kind: 'workspace.main', itemId: 'notes', title: 'notes.md', opening: 17401 }
-    groupSlotMemory.open('preview-group', source)
+    const source = openPanelItem('preview-group', { kind: 'workspace.main', itemId: 'notes', title: 'notes.md' })
     const file = detail('exe')
-    await harness.render(slot(file, true, { tabbed: true, from: source }))
+    await slot(file, true, { tabbed: true, fromPage: true })
     expect(harness.container.querySelector('header')).toBeNull()
     const bar = harness.container.querySelector('[data-testid="message-file-preview-tab-bar"]')!
     const close = bar.lastElementChild as HTMLButtonElement
     await act(async () => close.click())
-    expect(groupSlotMemory.opened('preview-group')).toBe(source)
-    expect(groupSlotMemory.tabs('preview-group').some((item) => item?.itemId === file.itemId)).toBe(false)
-    expect(boundary.close).not.toHaveBeenCalled()
+    expect(shownPanelTab('preview-group')?.tabId).toBe(source)
+    expect(panelTabsOf('preview-group').some((tab) => tab.item.itemId === file.itemId)).toBe(false)
   })
 
   it('a message entry has Close, removes its object and then restores the original message', async () => {
     const restore = vi.fn()
     const file = detail('exe')
-    await harness.render(slot(file, true, { tabbed: true, restore }))
+    await slot(file, true, { tabbed: true, restore })
     expect(harness.container.querySelector('button[aria-label="返回"]')).toBeNull()
     const close = harness.container.querySelector('[data-testid="message-file-preview-tab-bar"]')!.lastElementChild as HTMLButtonElement
     await act(async () => close.click())
-    expect(groupSlotMemory.tabs('preview-group').some((item) => item?.itemId === file.itemId)).toBe(false)
-    expect(boundary.close).toHaveBeenCalledTimes(1)
+    expect(panelTabsOf('preview-group').some((tab) => tab.item.itemId === file.itemId)).toBe(false)
+    expect(chatAlone('preview-group')).toBe(true)
     expect(restore).toHaveBeenCalledTimes(1)
   })
 
-  it.each([false, true])('expands and restores a group HTML preview without replacing its page (tabbed=%s)', async (tabbed) => {
+  it('expands and restores a group HTML preview in a block without replacing its page', async () => {
     const file = detail('html')
-    const asked = { chatId: file.chatId, itemId: file.itemId, request: ++request, opener: file }
-    function Preview() {
-      const [full, setFull] = useState(false)
-      return createElement(AuthContext.Provider, { value: { user: { id: 'viewer' } } as never }, createElement(GroupAppSlot, {
-        chatId: file.chatId, onClose: boundary.close,
-        asked, full, tabbed, onToggleFull: () => setFull((value) => !value),
-      }))
-    }
-    await harness.render(createElement(Preview))
+    await slot(file, true, { tabbed: true })
     await until('HTML is ready before expanding', () => boundary.previewContents.get(harness.container.querySelector('iframe')?.getAttribute('src') ?? '')?.includes('lane report') === true)
     const page = harness.container.querySelector('iframe')
     const expand = harness.container.querySelector<HTMLButtonElement>('button[aria-label="面板全屏"]')
@@ -219,35 +195,40 @@ describe('unclaimed group files use the message preview from every entry', () =>
     await act(async () => restore!.click())
     expect(harness.container.querySelector('button[aria-label="面板全屏"]')?.getAttribute('aria-pressed')).toBe('false')
     expect(harness.container.querySelector('iframe')).toBe(page)
-    expect(harness.container.querySelectorAll('header')).toHaveLength(tabbed ? 0 : 1)
-    expect(groupSlotMemory.opened(file.chatId)?.itemId).toBe(file.itemId)
+    expect(harness.container.querySelectorAll('header')).toHaveLength(0)
+    expect(shownItem(file.chatId)?.itemId).toBe(file.itemId)
     expect(boundary.read).toHaveBeenCalledTimes(1)
-    expect(boundary.close).not.toHaveBeenCalled()
+    expect(chatAlone(file.chatId)).toBe(false)
+  })
+
+  it('outside a block a group HTML preview has no full switch (no strip to fill)', async () => {
+    await slot(detail('html'))
+    expect(harness.container.querySelector('button[aria-label="面板全屏"]')).toBeNull()
   })
 
   it.each([false, true])('an App arriving during a later file ask never takes over it (later answer first=%s)', async (answerFirst) => {
     const file = detail('exe')
-    await harness.render(slot(file))
+    await slot(file)
     let answer!: (value: never) => void
     vi.mocked(appsHere!.groupFileOpener).mockImplementationOnce(() => new Promise((resolve) => { answer = resolve }))
     const later = { ...detail('md'), choice: { kind: 'one' as const, candidate } }
-    await harness.render(slot(later as never, false))
+    ask(later.chatId, { itemId: later.itemId })
     const release = async () => act(async () => answer({ success: true, data: later } as never))
     if (answerFirst) await release()
     const app = { ...workspace, id: 'exe-reader', contributes: { tabs: [{ name: 'main', title: 'Reader', opensFiles: { chat: ['.exe'] } }] } }
     await act(async () => installedExtensionsStore.applyList({ extensions: [workspace, app], invalid: [] } as never))
-    expect(groupSlotMemory.opened(file.chatId)?.kind).not.toBe('exe-reader.main')
+    expect(shownItem(file.chatId)?.itemId, 'the later ask is not answered by the App arriving').toBe(answerFirst ? later.itemId : file.itemId)
     if (!answerFirst) await release()
-    expect(groupSlotMemory.opened(file.chatId)).toMatchObject({ kind: 'workspace.main', itemId: later.itemId })
+    expect(shownItem(file.chatId)).toMatchObject({ kind: 'workspace.main', itemId: later.itemId })
   })
 
   it('an enabled App arriving while a preview is open takes over the same file', async () => {
     const file = detail('exe')
-    await harness.render(slot(file))
+    await slot(file)
     expect(harness.container.querySelector('[data-preview-kind="unsupported"]')).not.toBeNull()
     const app = { ...workspace, id: 'exe-reader', contributes: { tabs: [{ name: 'main', title: 'Reader', opensFiles: { chat: ['.exe'] } }] } }
     await act(async () => installedExtensionsStore.applyList({ extensions: [workspace, app], invalid: [] } as never))
-    expect(groupSlotMemory.opened(file.chatId)).toMatchObject({ kind: 'exe-reader.main', itemId: file.itemId })
+    expect(shownItem(file.chatId)).toMatchObject({ kind: 'exe-reader.main', itemId: file.itemId })
     expect(harness.container.querySelector('[data-preview-kind="unsupported"]')).toBeNull()
   })
 
@@ -266,7 +247,8 @@ describe('unclaimed group files use the message preview from every entry', () =>
 
   it.each([false, true])('a collaborative HTML document uses the existing live document reader (peek=%s)', async (peek) => {
     const file = { ...detail('html'), file: { ...detail('html').file, document: true } }
-    await harness.render(peek ? createElement(AppPeek, { target: { kind: 'chat', detail: file }, slotKey: 'live-document', beside: false, onClose: vi.fn() }) : slot(file))
+    if (peek) await harness.render(createElement(AppPeek, { target: { kind: 'chat', detail: file }, slotKey: 'live-document', beside: false, onClose: vi.fn() }))
+    else await slot(file)
     await until('live document rendered', () => boundary.previewContents.get(harness.container.querySelector('iframe')?.getAttribute('src') ?? '')?.includes('live report') === true)
     expect(boundary.document).toHaveBeenCalledWith({ id: file.itemId })
     expect(boundary.signed).not.toHaveBeenCalled()
@@ -277,7 +259,7 @@ describe('unclaimed group files use the message preview from every entry', () =>
 
   it('group message previews retain the originating message forward action', async () => {
     const message = { id: 'original-message', content: 'attachment', retracted_at: null } as MessageItem
-    await harness.render(slot(detail('exe'), true, { message }))
+    await slot(detail('exe'), true, { message })
     await act(async () => harness.container.querySelector<HTMLButtonElement>('button[aria-label="转发"]')!.click())
     expect(boundary.forward).toHaveBeenCalledWith(message)
     expect(boundary.read).not.toHaveBeenCalled()
@@ -286,11 +268,11 @@ describe('unclaimed group files use the message preview from every entry', () =>
   it('a retained hidden mobile chat unmounts its native player while keeping the file for return', async () => {
     boundary.mobile = true
     const file = detail('mp4')
-    await harness.render(slot(file))
+    await slot(file)
     await until('video started in visible chat', () => harness.container.querySelector('video') !== null)
-    await harness.render(slot(file, true, { visible: false }))
+    await redraw(file.chatId, { visible: false })
     expect(harness.container.querySelector('video')).toBeNull()
-    expect(groupSlotMemory.opened('preview-group')?.itemId).toBe('file-mp4')
+    expect(shownItem('preview-group')?.itemId).toBe('file-mp4')
   })
 
 })

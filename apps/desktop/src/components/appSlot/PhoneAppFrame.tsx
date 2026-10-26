@@ -30,7 +30,7 @@ interface FramedPage {
 }
 
 /**
- * One App frame on the phone, wherever it is drawn — a chat's panel (GroupAppSlot), a session's tab, an App's own page
+ * One App frame on the phone, wherever it is drawn — a chat's tab (GroupTabContent), a session's tab, an App's own page
  * (SessionAppFrame): one host, one set of what it hears, so a page answers the same in each.
  *
  * The App is what the phone's App store has installed now (`installedExtensionsStore`): updated, the frame reloads on the
