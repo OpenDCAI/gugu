@@ -67,7 +67,7 @@ describe('App variants', () => {
   it('disables switching while the host cannot change the App', async () => {
     await render(true);
     const choices = container.querySelectorAll<HTMLButtonElement>('[role="radio"]');
-    expect([...choices].every((choice) => choice.disabled)).toBe(true);
+    expect([...choices].map((choice) => choice.getAttribute('aria-disabled'))).toEqual(['true', 'true']);
     await act(async () => choices[0]!.click());
     expect(onSwitch).not.toHaveBeenCalled();
   });
