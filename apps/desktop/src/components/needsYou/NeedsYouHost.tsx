@@ -16,7 +16,6 @@ import { openTaskCardSession } from '../chat/openTaskCardSession'
 import { useNeedsYouTasks, type NeedsYouTask } from './useNeedsYouTasks'
 import '@/i18n/registerMobileWorkspaceCatalog'
 import '@/mobile/agent-watch/agent-watch.css'
-import './needs-you.css'
 
 function taskKey(task: NeedsYouTask): string {
   return `${task.deviceId}/${task.session.conversationId}`
@@ -35,7 +34,7 @@ export function NeedsYouHost() {
   // Closing after the last wait also resets the next visit, without retaining a hidden dialog.
   if (opened && tasks.length === 0) setOpened(false)
   return createPortal(<>
-    {tasks.length > 0 && <div className="needs-you-trigger" data-mobile={mobile || undefined}>
+    {tasks.length > 0 && <div role="status" aria-live="polite" className="fixed right-4 bottom-4 z-[var(--z-settings-modal)] data-[mobile]:bottom-[calc(72px+env(safe-area-inset-bottom))]" data-mobile={mobile || undefined}>
       <Button data-testid="needs-you-trigger" onClick={() => setOpened(true)} aria-haspopup="dialog" aria-expanded={shown}>
         <AgentNeedsUserGlyph size={16} />{t('needsYou.count', { count: tasks.length })}
       </Button>
