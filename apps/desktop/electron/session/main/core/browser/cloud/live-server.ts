@@ -173,6 +173,12 @@ export class CloudBrowserLiveServer {
     this.server?.close();
   }
 
+  watching(sessionId?: string): boolean {
+    const tabId = sessionId === undefined ? null : this.browser.tabIdForSession(sessionId);
+    return [...this.clients.values()].some((client) => client.framesEnabled
+      && (sessionId === undefined ? !!this.viewedTab(client) : !!tabId && this.viewedTab(client) === tabId));
+  }
+
   // ── 连接 ──────────────────────────────────────────────────────────────────
 
   private accept(socket: WebSocket): void {
