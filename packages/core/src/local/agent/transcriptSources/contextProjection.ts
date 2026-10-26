@@ -20,7 +20,7 @@ export function contextToolRefs(name: string, input: unknown): string[] {
   const direct = asRecord(input)
   const paths = typeof direct?.file_path === 'string' ? [direct.file_path] : []
   // Absolute/home/relative paths, plus plain filenames. Quoted structured file_path stays intact above.
-  const pattern = /(?:[A-Za-z]:[\\/]|~[\\/]|\.{1,2}[\\/]|\/)[^\s"'`<>|;&]+|[\w.-]+\.(?:md|toml|json|ya?ml)\b/g
+  const pattern = /(?<![\w:/])(?:(?:[A-Za-z]:[\\/]|~[\\/]|\.{1,2}[\\/]|\/)[^\s"'`<>|;&]+|[\w.-]+(?:[\\/][^\s"'`<>|;&]+)+|[\w.-]+\.(?:md|toml|json|ya?ml)\b)/g
   for (const text of strings) for (const match of text.matchAll(pattern)) paths.push(match[0].replace(/[),]+$/, ''))
   return [...new Set(paths)]
 }

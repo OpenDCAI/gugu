@@ -44,7 +44,7 @@ describe('the existing transcript parser context view', () => {
       { type: 'session_meta', payload: { id: 'codex-main', cwd: '/project', base_instructions: { text: 'base private text' } } },
       { type: 'world_state', payload: { full: true, state: { agents_md: { directory: '/project', text: 'project private text' }, model: 'ignored' } } },
       { type: 'response_item', payload: { type: 'message', role: 'user', content: [{ type: 'input_text', text: 'Inspect the project' }] } },
-      { type: 'response_item', payload: { type: 'function_call', call_id: 't', name: 'exec_command', arguments: JSON.stringify({ cmd: 'cat /project/AGENTS.md /project/AGENTS.md' }) } },
+      { type: 'response_item', payload: { type: 'function_call', call_id: 't', name: 'exec_command', arguments: JSON.stringify({ cmd: 'cat /project/AGENTS.md /project/AGENTS.md docs/MEMORY.md; curl https://example.invalid/private.md?token=hidden' }) } },
       { type: 'response_item', payload: { type: 'function_call_output', call_id: 't', output: '/never/output.md' } },
       { type: 'response_item', payload: { type: 'reasoning', summary: [{ text: '/never/reasoning.md' }] } },
     ])
@@ -53,7 +53,7 @@ describe('the existing transcript parser context view', () => {
       { path: null, kind: 'base-instructions', scope: 'Global', chars: 17, truncated: false, at },
       { path: '/project/AGENTS.md', kind: 'instruction-file', scope: 'Project', chars: 20, truncated: false, at },
     ])
-    expect(context.refs).toEqual(['/project/AGENTS.md'])
+    expect(context.refs).toEqual(['/project/AGENTS.md', 'docs/MEMORY.md'])
     expect(context.nested).toEqual([])
     expect(JSON.stringify(context)).not.toMatch(/private|output|reasoning/)
     expect((await readLocalTranscript(path, 'codex', options)).turns).toEqual([{ role: 'user', content: 'Inspect the project', createdAt: at }])
