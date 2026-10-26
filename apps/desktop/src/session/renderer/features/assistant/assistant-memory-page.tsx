@@ -16,6 +16,7 @@ import { useDirectory, useInvalidateAssistant, useMemoryNotes, type MemoryEntry 
 import type { AssistantContext, AssistantPageProps } from './assistant-context';
 import { AssistantEmpty, AssistantRow, AssistantSection, MachineGate, ownerLeading, PageHead, Tile } from './assistant-ui';
 import { AssistantHealthPage } from './assistant-health';
+import { memoryContentPreview } from './memory-content-preview';
 import { useVoiceNotes } from './voice-notes/voice-notes-data';
 import { VOICE_NOTE_SUB, VoiceNotesPage } from './voice-notes/voice-notes-pages';
 import { AssistantLibraryCard, AssistantLibraryVolume } from '@/components/assistant/AssistantLibraryVolume';
@@ -47,7 +48,6 @@ function MemoryHome({ context }: { context: AssistantContext }) {
   const all = notes.data?.notes ?? [];
   const aboutYou = all.filter((n) => n.kind === 'user');
   const others = all.filter((n) => n.kind !== 'user');
-  const latest = aboutYou.map((n) => n.modifiedAt).filter(Boolean).sort().at(-1) ?? null;
   const voice = useVoiceNotes(context.machine);
   const voiceCount = voice.data?.length ?? 0;
   return (
@@ -69,7 +69,7 @@ function MemoryHome({ context }: { context: AssistantContext }) {
             </div>
           ) : (
             aboutYou.map(note => <AssistantRow key={note.file} leading={ownerLeading(context.owner)} title={isOwnerProfileNote(note) ? t('memory.filter.user') : note.title} detailLines={4}
-              detail={note.description || (latest ? t('memory.updated', { time: time(latest) }) : undefined)}
+              detail={memoryContentPreview(note.body) || (note.modifiedAt ? t('memory.updated', { time: time(note.modifiedAt) }) : undefined)}
               onClick={() => context.go({ tab: 'memory', sub: `note:${note.file}` })} />)
           )}
         </AssistantSection>
@@ -83,7 +83,7 @@ function MemoryHome({ context }: { context: AssistantContext }) {
                 key={note.file}
                 title={note.title}
                 sub={note.modifiedAt ? t('memory.updated', { time: time(note.modifiedAt) }) : kindLabel(note.kind, t, name)}
-                preview={note.description || note.body.slice(0, 140)}
+                preview={memoryContentPreview(note.body, 140)}
                 onClick={() => context.go({ tab: 'memory', sub: `note:${note.file}` })}
                 testId={`assistant-memory-${note.file}`}
               />

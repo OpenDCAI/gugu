@@ -5,6 +5,7 @@ import { useToast } from '@renderer/lib/hooks/use-toast';
 import type { BaselineStatus, HealthNight, HealthSignal, HealthSummary, HealthWorkout } from '@gugu/core/shared/healthSummary';
 import type { AssistantContext, AssistantPageProps } from './assistant-context';
 import { useMemoryNotes } from './assistant-data';
+import { memoryContentPreview } from './memory-content-preview';
 import { AssistantEmpty, AssistantRow, AssistantSection, PageHead, Tile } from './assistant-ui';
 
 type T = ReturnType<typeof useTranslation<'assistant'>>['t'];
@@ -224,7 +225,8 @@ function Analysis({ context, t }: { context: AssistantContext; t: T }) {
               </span>
             }
             title={note.title}
-            detail={note.description || note.body.slice(0, 80)}
+            detail={memoryContentPreview(note.body, 140)}
+            detailLines={4}
             onClick={() => context.go({ tab: 'memory', sub: `note:${note.file}` })}
             testId={`assistant-health-note-${note.file}`}
           />

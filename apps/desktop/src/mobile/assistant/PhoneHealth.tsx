@@ -7,6 +7,7 @@ import { ArrowUpToLine, FileText, Heart, RefreshCw, Sparkles } from '@/lib/icons
 import { LoadingIndicator } from '@/lib/loading/LoadingIndicator'
 import { rendererLogger } from '@/lib/log'
 import { HEALTH_REPORT_ACCEPT, HealthBody, isHealthNote } from '@/session/renderer/features/assistant/assistant-health'
+import { memoryContentPreview } from '@/session/renderer/features/assistant/memory-content-preview'
 import type { MemoryEntry } from '@/session/renderer/features/assistant/assistant-machine-core'
 import { AssistantRow, AssistantSection, PageHead, Tile } from '@/session/renderer/features/assistant/assistant-ui-parts'
 import { nativePhoneActions } from '../phone-device/nativePhoneActions'
@@ -109,7 +110,8 @@ export function PhoneHealth({ assistant, askInChat, go, healthNotes, readiness, 
                     key={note.file}
                     leading={<FileText />}
                     title={note.title}
-                    detail={note.description || note.body.slice(0, 80)}
+                    detail={memoryContentPreview(note.body, 140)}
+                    detailLines={4}
                     onClick={() => go(`note:${note.file}`)}
                     testId={`assistant-health-note-${note.file}`}
                   />
