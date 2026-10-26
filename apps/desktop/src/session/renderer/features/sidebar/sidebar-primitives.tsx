@@ -110,17 +110,17 @@ export const sidebarRowShortcutClass =
  * 的一片空。现在两层认的是同一个 `group/row-actions`(声明在 `sidebarRowActionsSlotClass` 上),
  * 一层亮的条件就是另一层灭的条件,不会再出现两层同时缺席的缝。
  *
- * 隐去用的是 opacity 而不是不渲染(与 `sidebarRowShortcutClass` 同一条):那一格照旧占位,
- * 指针进出时标题的截断宽度不会抖。
+ * 两层都保留挂载以便键盘能到达按钮;只有此刻可见的那层参与宽度布局。
+ * 静止时标题只让出时间/状态的宽度,悬浮或按钮获得焦点时才让出动作的实际宽度。
  */
 export const sidebarRowActionsSlotClass =
   'group/row-actions relative ml-2 flex h-6 shrink-0 items-center justify-end';
 
 export const sidebarRowHoverActionsClass =
-  'pointer-events-none absolute inset-y-0 right-0 z-10 flex translate-x-1 items-center justify-end gap-1 opacity-0 transition-opacity duration-[var(--dur-fast,120ms)] ease-out group-hover/row:pointer-events-auto group-hover/row:translate-x-0 group-hover/row:opacity-100 group-focus-within/row-actions:pointer-events-auto group-focus-within/row-actions:translate-x-0 group-focus-within/row-actions:opacity-100';
+  'pointer-events-none absolute inset-y-0 right-0 z-10 flex translate-x-1 items-center justify-end gap-1 opacity-0 transition-opacity duration-[var(--dur-fast,120ms)] ease-out group-hover/row:relative group-hover/row:pointer-events-auto group-hover/row:translate-x-0 group-hover/row:opacity-100 group-focus-within/row-actions:relative group-focus-within/row-actions:pointer-events-auto group-focus-within/row-actions:translate-x-0 group-focus-within/row-actions:opacity-100';
 
 export const sidebarRowRestActionsClass =
-  'pointer-events-none flex shrink-0 items-center justify-end opacity-100 transition-opacity duration-[var(--dur-fast,120ms)] group-hover/row:opacity-0 group-focus-within/row-actions:opacity-0';
+  'pointer-events-none inset-y-0 right-0 flex shrink-0 items-center justify-end opacity-100 transition-opacity duration-[var(--dur-fast,120ms)] group-hover/row:absolute group-hover/row:opacity-0 group-focus-within/row-actions:absolute group-focus-within/row-actions:opacity-0';
 
 export const SidebarContainer = React.forwardRef<
   HTMLDivElement,
