@@ -1,9 +1,8 @@
-import { messageForUser } from '@/lib/userFacingError';
 import { useState, useEffect, useMemo, useRef, useCallback, type KeyboardEventHandler, type ReactNode } from 'react'
 import { useTranslation } from 'react-i18next'
-import { BellOff, CheckCircle, Checklist, ChevronDown, ChevronRight, FolderClosed, MessageCircle, MessageSquare, Pin, Plus, SquarePen, Trash, UserRound, Users, X, Zap, type IconComponent } from '@/lib/icons'
+import { BellOff, Checklist, ChevronDown, ChevronRight, FolderClosed, MessageCircle, MessageSquare, Plus, SquarePen, UserRound, Users, X, Zap } from '@/lib/icons'
 import { Sheet } from './ui/Sheet'
-import { DropdownMenu, Menu, MenuItem } from './ui/Menu'
+import { DropdownMenu, MenuItem } from './ui/Menu'
 import { PaneEmptyState } from './ui/PaneEmptyState'
 import { SearchField } from './ui/SearchField'
 import { HeaderSearch } from './ui/HeaderSearch'
@@ -19,9 +18,8 @@ import { isDuplicateAssistantChat } from '../lib/assistantChatList'
 import { useProjectGroupChats } from '../lib/projectGroupChatsBridge'
 import { useAssistantWorkrooms } from './assistant/useAssistantWorkrooms'
 import { useChatStore } from '../store/chatContext'
-import { markAllChatsReadAndRefresh } from '../lib/chatUnreadLocator'
+import { ChatRowContextMenu } from './chat/ChatRowContextMenu'
 import { chatPreviewText } from '../lib/agentTurnFailure'
-import { useToast } from './toastContext'
 import { formatCalendarDay } from '../lib/calendarTime'
 import { CreateGroupChatForm, MEMBER_PICKER_SHEET } from './CreateGroupChatModal'
 import { AddFriendSearch } from './AddFriendSearch'
@@ -131,18 +129,6 @@ const ADD_FRIEND_BODY_STYLE: React.CSSProperties = { position: 'relative', displ
 const ADD_FRIEND_HEADER_STYLE: React.CSSProperties = { display: 'flex', alignItems: 'center', padding: '14px 16px 10px', borderBottom: '1px solid var(--border-color)' }
 const ADD_FRIEND_TITLE_STYLE: React.CSSProperties = { flex: 1, fontSize: 'var(--font-title)', lineHeight: 'var(--lh-title)', fontWeight: 600, color: 'var(--text-primary)' } // #7333 弹层标题 16/24
 
-// ── Chat row context menu ──────────────────────────────────────────────────────
-
-interface ChatRowMenuProps {
-  x: number
-  y: number
-  chat: ChatItem
-  onClose: () => void
-  onPin: () => void
-  onSetNotificationLevel: (level: NotificationLevel) => void
-  onDelete: () => void
-}
-
 // @@@5856 「更早」分段头:一行低调的可点条,不做成折叠箭头家具。
 const SUNK_SECTION_STYLE: React.CSSProperties = {
   width: '100%',
@@ -154,67 +140,6 @@ const SUNK_SECTION_STYLE: React.CSSProperties = {
   // #7333 标注档 12/18:Button 自带 leading-none,不写行高这一行就是 12/12。
   fontSize: 'var(--font-caption)',
   lineHeight: 'var(--lh-caption)',
-}
-
-// 会话右键菜单 —— 按设计稿 #ctxmenu：置顶 / 关闭通知 / 全部标为已读 / 删除（带原图标）。
-function ChatRowContextMenu({ x, y, chat, onClose, onPin, onSetNotificationLevel, onDelete }: ChatRowMenuProps) {
-  const { t } = useTranslation('messaging')
-  const { chats, refreshChats } = useChatStore('chats', 'refreshChats')
-  const { toast } = useToast()
-  const currentLevel = chat.notification_level ?? 'all'
-
-  const items: { label: string; icon: IconComponent; danger?: boolean; disabled?: boolean; testId?: string; onClick: () => void }[] = [
-    {
-      label: chat.is_pinned ? t('chatList.unpin') : t('chatList.pin'),
-      icon: Pin,
-      onClick: () => { onPin(); onClose() },
-    },
-    {
-      label: currentLevel === 'none' ? t('chatList.enableNotifications') : t('chatList.disableNotifications'),
-      icon: BellOff,
-      onClick: () => {
-        onSetNotificationLevel(currentLevel === 'none' ? 'all' : 'none')
-        onClose()
-      },
-    },
-    {
-      label: t('chatList.markAllRead'),
-      icon: CheckCircle,
-      testId: 'chat-row-mark-all-read',
-      disabled: !chats.some((row) => row.unread_count > 0),
-      onClick: () => {
-        onClose()
-        void markAllChatsReadAndRefresh({ chats, refresh: refreshChats })
-          .then(({ failedChats, error }) => { if (failedChats > 0) toast(t('chatList.markAllReadPartial', { count: failedChats }), 'error', messageForUser(error)) })
-          .catch((error: unknown) => {
-            chatListLog.error({ error: String(error) }, 'mark all read failed')
-            toast(t('chatList.markAllReadFailed'), 'error', messageForUser(error))
-          })
-      },
-    },
-    {
-      label: t('chatList.delete'),
-      icon: Trash,
-      danger: true,
-      onClick: () => {
-        onClose()
-        void Promise.resolve().then(onDelete).catch((error: unknown) => {
-          chatListLog.error({ error: String(error), chatId: chat.id }, 'delete chat failed')
-          toast(t('chatList.deleteFailed'), 'error', messageForUser(error))
-        })
-      },
-    },
-  ]
-
-  return (
-    <Menu x={x} y={y} minWidth={160} onClose={onClose}>
-      {items.map((item) => (
-        <MenuItem key={item.label} danger={item.danger} disabled={item.disabled} data-testid={item.testId} icon={<item.icon size={15} />} onClick={item.onClick}>
-          {item.label}
-        </MenuItem>
-      ))}
-    </Menu>
-  )
 }
 
 // ── Chat row ───────────────────────────────────────────────────────────────────

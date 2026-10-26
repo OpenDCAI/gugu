@@ -263,6 +263,8 @@ export default {
     "emptyHint": "Use “New Agent” above to start your first conversation",
     "emptyHintMobile": "Create an agent from the Projects tab to start your first conversation",
     "enableNotifications": "Enable notifications",
+    "markRead": "Mark as read",
+    "removeProject": "Remove Project",
     "markAllRead": "Mark all as read",
     "markAllReadFailed": "Could not mark chats as read. Try again.",
     "markAllReadPartial": "{{count}} chats could not be marked as read. Try again.",
