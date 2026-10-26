@@ -60,6 +60,7 @@ export function createAssistantWorkReconciler(deps:{
   }
   const reconcileWork=async(ctx:WorkReconciliationContext,work:ReconciledWork)=>{
     if(work.assistant_user_id!==ctx.assistantId||work.coordinator_device_id!==ctx.deviceId) return
+    if(work.outcome==='completed'||work.outcome==='cancelled') { deps.clean(work);return }
     const events=await deps.history(ctx,work)
     for(const event of events) {
       if(event.kind==='failed'&&event.terminal_origin==='coordinator'&&event.assistant_admitted_at&&!event.owner_delivered_at) await notify(ctx,event,work,'result')
@@ -67,10 +68,11 @@ export function createAssistantWorkReconciler(deps:{
     if(work.outcome!=='active') { deps.clean(work); return }
     for(const target of work.executors) {
       if(work.executor_outcomes[target.session_id]) continue
-      const dispatch=events.filter(e=>e.kind==='dispatch'&&e.to_session_id===target.session_id).at(-1)
+      const dispatchIndex=events.findLastIndex(e=>e.kind==='dispatch'&&e.to_session_id===target.session_id)
+      const dispatch=events[dispatchIndex]
       if(!dispatch?.executor_admitted_at||!dispatch.platform_received_at) continue
       // A durable report already received by the platform must be delivered, never replaced by a failure.
-      const reports=events.filter(e=>e.from_session_id===target.session_id&&e.kind!=='dispatch')
+      const reports=events.slice(dispatchIndex+1).filter(e=>e.from_session_id===target.session_id&&e.kind!=='dispatch')
       if(reports.some(e=>['completed','cancelled','failed','question','blocked'].includes(e.kind))) continue
       const lastAt=Math.max(Date.parse(dispatch.platform_received_at),...reports.map(e=>Date.parse(e.platform_received_at??'')))
       if(!Number.isFinite(lastAt)||now()-lastAt<RECONCILIATION_GRACE_MS) continue
