@@ -81,9 +81,11 @@ const ConnectorDetail = observer(function ConnectorDetail({ host, home, assistan
   const { t } = useTranslation('assistant');
   const detail = useAssistantPanelIntegration(host.assistantPanel, app.integration ?? null);
   const integration = detail.data;
-  const { isCheckingConfiguredConnections, configuredConnections } = useIntegrationsContext();
+  const { isCheckingConfiguredConnections, configuredConnections, disconnectIntegration, isIntegrationMutating } = useIntegrationsContext();
+  const [disconnectError, setDisconnectError] = useState('');
   const showIntegrationSetup = useShowModal('integrationSetupModal');
   const showConnectGitHub = useShowModal('githubConnectModal');
+  const showConfirm = useShowModal('confirmActionModal');
   const where = homeWhere(home, t);
   const configured = !!configuredConnections[app.id];
   return <SettingsPage data-testid="assistant-connector-detail">
@@ -104,6 +106,16 @@ const ConnectorDetail = observer(function ConnectorDetail({ host, home, assistan
     {configured ? <SettingsGroup title={t('connectors.connection', { name: integration?.name ?? app.name })}>
       <SettingsRow title={t('connectors.status')} control={<span className="gg-settings-row-value">{t(`connectors.${state}`)}</span>} />
       {account ? <SettingsRow title={t('connectors.account')} control={<span className="gg-settings-row-value">{account}</span>} /> : null}
+      <Button size="sm" variant="danger" className="self-start" disabled={isIntegrationMutating?.(app.id)} data-testid="assistant-connector-disconnect" onClick={() => showConfirm({
+        title: t('connectors.disconnectTitle', { name: app.name }),
+        description: t('connectors.disconnectBody', { name: app.name, assistant: assistantName }),
+        confirmLabel: t('connectors.disconnect'),
+        onSuccess: () => {
+          setDisconnectError('');
+          void disconnectIntegration(app.id).then(result => { if (!result.success) setDisconnectError(assistantPanelFailure(result.error, t)); }, error => setDisconnectError(assistantPanelFailure(error, t)));
+        },
+      })}>{t('connectors.disconnect')}</Button>
+      {disconnectError ? <SettingsNote role="alert" tone="danger">{disconnectError}</SettingsNote> : null}
     </SettingsGroup> : null}
     {app.chatKind ? <ChannelAppConnection kind={app.chatKind} name={integration?.name ?? app.name} /> : null}
     {app.integration ? <SettingsGroup title={t('connectors.usableOn')}>

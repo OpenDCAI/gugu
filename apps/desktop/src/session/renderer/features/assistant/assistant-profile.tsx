@@ -81,7 +81,7 @@ const ProfileHome = observer(function ProfileHome({ context, openCustomize = fal
   const panel = context.machine?.panel;
   const apps = usePhoneRead(panel ? `profile-apps|${context.assistant.id}` : null, () => readAssistantPanelIntegrations(panel!, i18n.language), 'read application connections');
   const chat = useChatChannels();
-  const connectedCount = apps.state === 'ok' ? assistantConnectedApps(apps.data.items, chat.list, id => id, '').filter(app => chatAppConnected(app) || apps.data.statuses[app.id]?.connected).length : null;
+  const connectedCount = apps.state === 'ok' && (chat.status === 'ready' || chat.status === 'not_open') ? assistantConnectedApps(apps.data.items, chat.list, id => id, '').filter(app => chatAppConnected(app) || apps.data.statuses[app.id]?.connected).length : null;
   const since = assistant.created_at
     ? new Intl.DateTimeFormat(i18n.language, { year: 'numeric', month: 'long', day: 'numeric' }).format(new Date(assistant.created_at))
     : null;
