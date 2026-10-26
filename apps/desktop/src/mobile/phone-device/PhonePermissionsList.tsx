@@ -5,11 +5,11 @@ import { ChevronRight } from '@/lib/icons'
 import { changeSystemPermission, systemPermissionRows, useSystemPermissionStates } from '@/lib/systemPermissions'
 import { messageForUser } from '@/lib/userFacingError'
 import { platform } from '@/platform'
-import { PHONE_ACTION_GROUPS, missingRequirements, type PhoneActionGroup, type PhoneOsState } from './phoneActionCatalog'
+import { PHONE_ACTION_GROUPS, missingRequirements, requirementGranted, type PhoneActionGroup, type PhoneOsState } from './phoneActionCatalog'
 import { HEALTH_TYPES } from './nativePhoneActions'
 import { connectPhoneActionGroupChoice, readPhoneDeviceSettings, setPhoneActionGroup, usePhoneDeviceSettings } from './phoneDeviceSettings'
 import { openPhonePermissionSettings, requestPhoneRequirement } from './phonePermissionActions'
-import { refreshPhoneDevice, usePhoneDevice } from './phoneDeviceRuntime'
+import { readPhoneOsState, refreshPhoneDevice, usePhoneDevice } from './phoneDeviceRuntime'
 import { usePhonePermissionReporter } from './usePhonePermissionReporter'
 
 const SYSTEM_NAMES = { notifications: '消息提醒', batteryOptimization: '后台运行', camera: '相机', fileAccess: '文件访问' }
@@ -55,16 +55,20 @@ export function PhonePermissionsList({ ownerId }: { ownerId: string }) {
       report('group-enabled', false, group)
       return
     }
-    connectPhoneActionGroupChoice(ownerId, group)
     const missing = missingRequirements(group, os)
     // Special access pages must be opened individually. Another tap requests the next missing permission.
-    if (missing.length) await requestPhoneRequirement(missing[0], os)
+    if (missing.length) {
+      await requestPhoneRequirement(missing[0], os)
+      const latest = await readPhoneOsState()
+      if (!requirementGranted(missing[0], latest)) return
+    }
     else if (!selected) { /* Existing OS grants need only this explicit local task choice. */ }
     else if (group === 'health') {
       if (os.health.granted_types.length < HEALTH_TYPES.length) await requestPhoneRequirement('health_connect', os)
       else await openPhonePermissionSettings('health')
     } else if (group === 'location' && !os.special.location_enabled) await openPhonePermissionSettings('location')
     else if (group !== 'alarm') await openPhonePermissionSettings(group === 'notifications' ? 'notification_listener' : 'app')
+    if (!selected) connectPhoneActionGroupChoice(ownerId, group)
     if (readPhoneDeviceSettings(ownerId).groups[group]) report('group-enabled', true, group)
   }
   const groupStatus = (group: PhoneActionGroup) => {

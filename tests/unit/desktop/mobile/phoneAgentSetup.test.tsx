@@ -28,6 +28,7 @@ vi.mock('../../../../apps/desktop/src/mobile/phone-device/phoneDataActions', asy
 })
 vi.mock('../../../../apps/desktop/src/mobile/phone-device/phoneDeviceRuntime', () => ({
   usePhoneDevice: () => ({ os: mocks.os, host: mocks.host, link: { state: 'off' } }),
+  readPhoneOsState: async () => mocks.os,
   refreshPhoneDevice: mocks.refresh, stopPhoneAgentHost: vi.fn(), restartPhoneAgentHost: mocks.restartHost,
 }))
 vi.mock('../../../../apps/desktop/src/platform', () => ({ platform: {
@@ -342,6 +343,7 @@ describe('phone task permissions without a remote-device master', () => {
     setPhoneActionGroup(owner, 'contacts', true); setPhoneDeviceEnabled(owner, false)
     const harness = createReactHarness(); active.push(harness)
     await harness.render(createNode(PhoneDeviceActionsPage))
+    mocks.runtimeRequest.mockImplementationOnce(async () => { mocks.os!.runtime.calendar = 'granted'; return {} })
     await clickElement(byId('phone-device-group-calendar')!)
     expect(readPhoneDeviceSettings(owner)).toMatchObject({ enabled: true, hostEnabled: false, groups: { calendar: true, contacts: false } })
     expect(mocks.runtimeRequest).toHaveBeenCalledExactlyOnceWith({ permissions: ['calendar'] })
@@ -355,6 +357,7 @@ describe('phone task permissions without a remote-device master', () => {
     await harness.render(createNode(PhoneDeviceActionsPage))
     await clickElement(byId('phone-device-group-photos')!)
     expect(mocks.dataRequest).toHaveBeenCalledExactlyOnceWith({ group: 'photos' })
+    mocks.nativeSettings.mockImplementationOnce(async () => { mocks.os!.special.notification_listener = true })
     await clickElement(byId('phone-device-group-notifications')!)
     expect(mocks.nativeSettings).toHaveBeenLastCalledWith({ target: 'notification_listener' })
     mocks.os = { ...osState(), special: { ...osState().special, notification_listener: true } }
@@ -367,5 +370,17 @@ describe('phone task permissions without a remote-device master', () => {
     await clickElement(byId('phone-device-system-camera')!)
     expect(mocks.request).toHaveBeenCalledExactlyOnceWith('camera')
     expect(readPhoneDeviceSettings(owner).hostEnabled).toBe(false)
+  })
+
+  it('does not commit a phone data grant when Android rejects the request', async () => {
+    const owner = 'settings-photos-denied'; mocks.owner = owner
+    mocks.dataRequest.mockResolvedValue({ supported: true, images: false, videos: false, selected: false })
+    const harness = createReactHarness(); active.push(harness)
+    await harness.render(createNode(PhoneDeviceActionsPage))
+    await clickElement(byId('phone-device-group-photos')!)
+    expect(mocks.dataRequest).toHaveBeenCalledExactlyOnceWith({ group: 'photos' })
+    expect(mocks.nativeSettings).toHaveBeenCalledExactlyOnceWith({ target: 'app' })
+    expect(readPhoneDeviceSettings(owner)).toMatchObject({ enabled: false, groups: { photos: false } })
+    expect(byId('phone-device-group-photos')?.textContent).toContain('未授权')
   })
 })
