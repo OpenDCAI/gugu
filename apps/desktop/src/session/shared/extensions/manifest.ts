@@ -271,6 +271,12 @@ const tabContributionSchema = z.strictObject({
    */
   chatFile: z.string().trim().min(1).max(128).regex(/^[^/\\]+$/, { message: 'a file name at the top of the chat folder, without folders' }).optional(),
   /**
+   * API 16 (owner 10-26): how wide (px) this tab's page is beside a chat or a task's conversation — a form of rows about 360,
+   * a list about 480. The host gives it that much, at most half, until the person drags the divider. None: the page is the
+   * conversation's peer, half each.
+   */
+  sideWidth: z.number().int().min(280).max(960).optional(),
+  /**
    * The icon of each kind of file this tab opens, by its claim in `opensFiles`: `{ ".md": "md.png" }` — what a file list
    * draws next to such a file (owner 10-17: a markdown file drawn with the folder App's own icon reads as a folder). The
    * same rules as `icon`: raster, re-encoded by the host. A claim without one is drawn with the host's generic file mark,
@@ -625,6 +631,7 @@ export const extensionManifestSchema = z
           ctx.addIssue({ code: 'custom', path: ['contributes', 'tabs', index, 'fileIcons', claim], message: `"${claim}" is not one of this tab's opensFiles claims (${claims.join(', ') || 'none'}): fileIcons are keyed by them` });
         }
       }
+      if (tab.sideWidth !== undefined && manifest.apiVersion < 16) ctx.addIssue({ code: 'custom', path: ['apiVersion'], message: 'sideWidth requires apiVersion 16' });
       if (tab.chatFile !== undefined) {
         if (manifest.apiVersion < 14) ctx.addIssue({ code: 'custom', path: ['apiVersion'], message: 'chatFile requires apiVersion 14' });
         const chatClaims = claimedSuffixes(tab, 'chat');

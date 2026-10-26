@@ -4,7 +4,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { act } from 'react'
 import { composerSlotClass, composerSlotInnerClass } from '@gugu/session-chat-ui/composer-layout'
-import { UI_EVENTS } from '../../../../apps/desktop/src/lib/uiEvents'
 import { ChatAreaPanel } from '../../../../apps/desktop/src/components/ChatAreaPanel'
 import { AUTOMATION_TEST_IDS } from '../../../../apps/desktop/src/lib/automationDom'
 import { chat, clickElement, createNode, createReactHarness, displayIdentity, renderWithAppProviders } from '../../../support/testHarness'
@@ -12,7 +11,7 @@ import { openImRepository, type AccountImRepository } from '../../../../apps/des
 import { createMemoryLocalSyncDb } from '../../../../apps/desktop/src/lib/localSyncDb'
 import { chatTabSlotKey, InChatSlot, installShellSlots, readShellSlots } from '../../../../apps/desktop/src/lib/shellSlots'
 import { isFolderItem } from '../../../../apps/desktop/src/session/renderer/features/chats/chat-tabs/chat-panel-item'
-import { closeChatTab, focusedChatTab, panelTabsOf, showChatOnly, showChatTab, shownPanelTab } from '../../../../apps/desktop/src/session/renderer/features/chats/chat-tabs/chat-layouts'
+import { closeChatTab, closeInfoTab, focusedChatTab, infoTabOf, openInfoTab, panelTabsOf, showChatOnly, showChatTab, shownPanelTab } from '../../../../apps/desktop/src/session/renderer/features/chats/chat-tabs/chat-layouts'
 import { publishChatSummaries } from '../../../../apps/desktop/src/lib/chatSummariesBridge'
 
 const { getImRepositoryMock } = vi.hoisted(() => ({ getImRepositoryMock: vi.fn() }))
@@ -88,15 +87,18 @@ const header = () => harness.container.querySelector('[data-chat-area-header]')
 const membersButtonIn = (root: ParentNode) => root.querySelector(`[data-testid="${AUTOMATION_TEST_IDS.chatHeaderMembersButton}"]`)
 
 describe('ChatAreaPanel hosted in a block (gugu-dev#181)', () => {
-  it('an empty project keeps its home in the chat column while group settings can open beside it', async () => {
+  it('an empty project keeps its home in the chat column while its info opens beside it', async () => {
     publishChatSummaries([{ id: 'group-1', kind: 'group', name: 'Settings project', last_message_at: null }])
-    await renderPanel({ actions, title, tabs: null }, 'group', false, true)
-    const home = harness.container.querySelector('[data-chat-part="empty"]')
-    expect(home, 'the project home has a place inside the same conversation surface').not.toBeNull()
-    await clickElement(actions.querySelector<HTMLElement>(`[data-testid="${AUTOMATION_TEST_IDS.chatHeaderMoreButton}"]`)!)
-    await clickElement(document.querySelector<HTMLElement>(`[data-testid="${AUTOMATION_TEST_IDS.groupMenuSettings}"]`)!)
-    expect(harness.container.querySelector('[data-testid="chat-settings-panel"]')).not.toBeNull()
-    expect(harness.container.contains(home)).toBe(true)
+    try {
+      await renderPanel({ actions, title, tabs: null }, 'group', false, true)
+      const home = harness.container.querySelector('[data-chat-part="empty"]')
+      expect(home, 'the project home has a place inside the same conversation surface').not.toBeNull()
+      await clickElement(membersButtonIn(actions) as HTMLElement)
+      expect(infoTabOf('group-1')?.shown, 'the group info is a tab beside the chat').toBe(true)
+      expect(harness.container.contains(home)).toBe(true)
+    } finally {
+      await act(async () => { closeInfoTab('group-1') })
+    }
   })
   it('without blockHost keeps its own header with the title and the action icons', async () => {
     await renderPanel()
@@ -114,29 +116,54 @@ describe('ChatAreaPanel hosted in a block (gugu-dev#181)', () => {
     expect(title.textContent).toContain('设计评审')
   })
 
+  // owner 10-26:成员、公告、设置合成一枚「群信息」页签。群从成员钮进(落在成员那一页),私聊从 ⋯ 进;每种形态都打得开。
   for (const layout of ['header', 'block', 'phone'] as const) {
     for (const kind of ['group', 'dm', 'ai'] as const) {
-      it(`${layout} ${kind}: More opens this conversation's settings without installed or pinned Apps`, async () => {
+      it(`${layout} ${kind}: this conversation's info opens without installed or pinned Apps`, async () => {
         const hosted = layout === 'block'
-        await renderPanel(hosted ? { actions, title, tabs: null } : undefined, kind, layout === 'phone')
-        const more = (hosted ? actions : harness.container).querySelector<HTMLElement>(`[data-testid="${AUTOMATION_TEST_IDS.chatHeaderMoreButton}"]`)
-        expect(more, 'settings have a visible menu trigger in every layout').not.toBeNull()
-        await clickElement(more!)
-        const settings = document.querySelector<HTMLElement>(`[data-testid="${AUTOMATION_TEST_IDS.groupMenuSettings}"]`)
-        expect(settings).not.toBeNull()
-        await clickElement(settings!)
-        expect(harness.container.querySelector('[data-testid="chat-settings-panel"]')).not.toBeNull()
+        try {
+          await renderPanel(hosted ? { actions, title, tabs: null } : undefined, kind, layout === 'phone')
+          const root = hosted ? actions : harness.container
+          if (kind === 'group') {
+            await clickElement(membersButtonIn(root) as HTMLElement)
+          } else {
+            const more = root.querySelector<HTMLElement>(`[data-testid="${AUTOMATION_TEST_IDS.chatHeaderMoreButton}"]`)
+            expect(more, 'a private chat reaches its info from More').not.toBeNull()
+            await clickElement(more!)
+            await clickElement(document.querySelector<HTMLElement>(`[data-testid="${AUTOMATION_TEST_IDS.groupMenuSettings}"]`)!)
+          }
+          expect(infoTabOf('group-1')?.info.page).toBe(kind === 'group' ? 'members' : undefined)
+          // Without a strip the tab in front is a page over the chat; in a block it is drawn into its slot (below).
+          if (!hosted) expect(harness.container.querySelector('[data-testid="chat-settings-panel"]')).not.toBeNull()
+        } finally {
+          await act(async () => { closeInfoTab('group-1') })
+        }
       })
     }
   }
 
-  it('a tab menu asks one chat for its settings: only that chat\'s panel opens them', async () => {
-    await renderPanel({ actions, title, tabs: null })
-    const before = harness.container.textContent?.length ?? 0
-    await act(async () => { window.dispatchEvent(new CustomEvent(UI_EVENTS.openChatDetailsDrawer, { detail: { chatId: 'another-group', page: 'settings' } })) })
-    expect(harness.container.textContent?.length, 'another chat was named: this panel stays as it was').toBe(before)
-    await act(async () => { window.dispatchEvent(new CustomEvent(UI_EVENTS.openChatDetailsDrawer, { detail: { chatId: 'group-1', page: 'settings' } })) })
-    expect(harness.container.textContent?.length ?? 0, 'its own chat was named: the settings open').toBeGreaterThan(before)
+  it('in a block the info tab is drawn into the slot its strip left, and only its own chat opens it', async () => {
+    const slot = document.body.appendChild(document.createElement('div'))
+    installShellSlots()
+    try {
+      await renderPanel({ actions, title, tabs: null })
+      await act(async () => { openInfoTab('another-group') })
+      expect(infoTabOf('group-1'), 'another chat was named: this chat has no info tab').toBeNull()
+      await act(async () => { openInfoTab('group-1') })
+      const info = infoTabOf('group-1')!
+      expect(info.shown).toBe(true)
+      await act(async () => { readShellSlots()!.setSlot(chatTabSlotKey('group-1', info.tabId), slot) })
+      expect(slot.querySelector('[data-testid="chat-settings-panel"]')).not.toBeNull()
+      expect(slot.querySelector('[aria-label="关闭"]'), 'the tab is its title and its ×').toBeNull()
+    } finally {
+      await act(async () => {
+        const info = infoTabOf('group-1')
+        if (info) readShellSlots()?.setSlot(chatTabSlotKey('group-1', info.tabId), null)
+        closeInfoTab('group-1')
+        closeInfoTab('another-group')
+      })
+      slot.remove()
+    }
   })
 
   it('in a block the strip gets the「+」for the group folder and Apps (第 ⑥ 步); the chat page has no strip and none', async () => {

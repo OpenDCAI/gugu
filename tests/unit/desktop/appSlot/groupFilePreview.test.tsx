@@ -37,7 +37,7 @@ vi.mock('@/components/extensionBundle/sharedPackages', () => ({ sharedPackagesOf
 const { AppPeek } = await import('@/components/appSlot/AppPeek')
 const { ask, chatTabs, shownItem } = await import('./chatTabsHarness')
 const { folderItem, isFolderItem } = await import('@/session/renderer/features/chats/chat-tabs/chat-panel-item')
-const { chatAlone, closeChatTab, openPanelItem, panelTabsOf, shownPanelTab } = await import('@/session/renderer/features/chats/chat-tabs/chat-layouts')
+const { chatAlone, chatLayoutOf, closeChatTab, openPanelItem, panelFull, panelTabsOf, shownPanelTab } = await import('@/session/renderer/features/chats/chat-tabs/chat-layouts')
 const { installedExtensionsStore } = await import('@/session/renderer/features/extensions/installed-extensions-store')
 const { appsHere } = await import('@/components/appSlot/appsHere')
 const workspace = { id: 'workspace', name: '文件夹', version: '0.2.53', apiVersion: 3, entry: 'index.html', contributes: { tabs: [{ name: 'main', title: '文件夹', opensFiles: { chat: ['.md', '.json'] } }] } }
@@ -78,6 +78,13 @@ afterEach(() => {
   HTMLElement.prototype.checkVisibility = checkVisibility
   act(() => installedExtensionsStore.applyList({ extensions: [], invalid: [] } as never))
 })
+
+/** What the tab's × does in the strip: the engine asks the tab, and its close hands back what opened it. */
+async function closeFromTab(chatId: string) {
+  const tab = shownPanelTab(chatId)!
+  await act(async () => { chatLayoutOf(chatId).groups[0]!.pane.requestCloseTab(tab.tabId) })
+  await act(async () => { await new Promise((resolve) => setTimeout(resolve, 0)) })
+}
 
 describe('unclaimed group files use the message preview from every entry', () => {
   it('renews an expired video preview after a late Range failure, preserving position without downloading the original', async () => {
@@ -217,10 +224,10 @@ describe('unclaimed group files use the message preview from every entry', () =>
     const source = openPanelItem('preview-group', { kind: 'workspace.main', itemId: 'notes', title: 'notes.md' })
     const file = detail('exe')
     await slot(file, true, { tabbed: true, fromPage: true })
+    // In a block the tab is the file's name, its × and its maximize: no header, no row of its own.
     expect(harness.container.querySelector('header')).toBeNull()
-    const bar = harness.container.querySelector('[data-testid="message-file-preview-tab-bar"]')!
-    const close = bar.lastElementChild as HTMLButtonElement
-    await act(async () => close.click())
+    expect(harness.container.querySelector('button[aria-label="关闭"]')).toBeNull()
+    await closeFromTab(file.chatId)
     expect(shownPanelTab('preview-group')?.tabId).toBe(source)
     expect(panelTabsOf('preview-group').some((tab) => tab.item.itemId === file.itemId)).toBe(false)
   })
@@ -230,8 +237,7 @@ describe('unclaimed group files use the message preview from every entry', () =>
     const file = detail('exe')
     await slot(file, true, { tabbed: true, restore })
     expect(harness.container.querySelector('button[aria-label="返回"]')).toBeNull()
-    const close = harness.container.querySelector('[data-testid="message-file-preview-tab-bar"]')!.lastElementChild as HTMLButtonElement
-    await act(async () => close.click())
+    await closeFromTab(file.chatId)
     expect(panelTabsOf('preview-group').some((tab) => tab.item.itemId === file.itemId)).toBe(false)
     expect(chatAlone('preview-group')).toBe(true)
     expect(restore).toHaveBeenCalledTimes(1)
@@ -254,13 +260,12 @@ describe('unclaimed group files use the message preview from every entry', () =>
     await slot(file, true, { tabbed: true })
     await until('HTML is ready before expanding', () => boundary.previewContents.get(harness.container.querySelector('iframe')?.getAttribute('src') ?? '')?.includes('lane report') === true)
     const page = harness.container.querySelector('iframe')
-    const expand = harness.container.querySelector<HTMLButtonElement>('button[aria-label="面板全屏"]')
-    expect(expand).not.toBeNull()
-    await act(async () => expand!.click())
-    const restore = harness.container.querySelector<HTMLButtonElement>('button[aria-label="还原面板"]')
-    expect(restore?.getAttribute('aria-pressed')).toBe('true')
-    await act(async () => restore!.click())
-    expect(harness.container.querySelector('button[aria-label="面板全屏"]')?.getAttribute('aria-pressed')).toBe('false')
+    const tabId = shownPanelTab(file.chatId)!.tabId
+    const fill = () => chatLayoutOf(file.chatId).groups[0]!.pane.tabFill(tabId)!
+    await act(async () => fill().toggle())
+    expect(panelFull(file.chatId, tabId)).toBe(true)
+    await act(async () => fill().toggle())
+    expect(panelFull(file.chatId, tabId)).toBe(false)
     expect(harness.container.querySelector('iframe')).toBe(page)
     expect(harness.container.querySelectorAll('header')).toHaveLength(0)
     expect(shownItem(file.chatId)?.itemId).toBe(file.itemId)

@@ -1,0 +1,1 @@
+{"id":"market-pack","name":"Market pack","version":"1.0.0","apiVersion":16,"platforms":["desktop"],"entry":"index.html","contributes":{"tabs":[{"name":"main","title":"Market pack"}]}}

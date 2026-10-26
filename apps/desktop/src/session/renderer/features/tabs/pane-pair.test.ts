@@ -121,7 +121,7 @@ describe('并排:agent 打开的开在对话右边', () => {
     layout.open('file', { id: 'a.ts' }, { beside: true, activate: false });
     expect(shown()).toEqual(['term:t1']);
     expect(pane.activeTabId).toBe(idOf('term', 't1'));
-    expect(pane.livePair).toEqual({ anchor: chatTabId, side: idOf('file', 'a.ts'), sideAt: 'right', ratio: 0.5 });
+    expect(pane.livePair).toEqual({ anchor: chatTabId, side: idOf('file', 'a.ts'), sideAt: 'right', ratio: null });
     pane.setActiveTab(chatTabId);
     expect(shown()).toEqual(['chat:conv', 'file:a.ts']);
   });
@@ -223,7 +223,7 @@ describe('并排:agent 打开的开在对话右边', () => {
     layout.open('file', { id: 'a.ts' }, { beside: true, activate: false });
     pane.setPairRatio(0.6);
     const saved = layout.snapshot;
-    expect(saved.groups[0].tabManager.pair).toEqual({ anchorTabId: chatTabId, sideTabId: idOf('file', 'a.ts'), ratio: 0.6 });
+    expect(saved.groups[0].tabManager.pair).toEqual({ anchorTabId: chatTabId, sideTabId: idOf('file', 'a.ts'), share: 0.6 });
     const { layout: restored } = setup();
     restored.restoreSnapshot(saved);
     expect(restored.groups[0].pane.livePair).toEqual({ anchor: chatTabId, side: idOf('file', 'a.ts'), sideAt: 'right', ratio: 0.6 });
@@ -313,7 +313,7 @@ describe('并排:审阅补的几条', () => {
     layout.open('file', { id: 'a.ts' }, { beside: true, activate: false });
     registry.unregister('file');
     expect(pane.livePair).toBeNull();
-    expect(layout.snapshot.groups[0].tabManager.pair).toEqual({ anchorTabId: chatTabId, sideTabId: idOf('file', 'a.ts'), ratio: 0.5 });
+    expect(layout.snapshot.groups[0].tabManager.pair).toEqual({ anchorTabId: chatTabId, sideTabId: idOf('file', 'a.ts') });
   });
 
   it('瞄一眼的被顶下来也先问一句:被否了就留成普通页签,❌ 悄悄扔掉', async () => {
@@ -521,7 +521,7 @@ describe('并排:手动分屏、拆开', () => {
     expect(layout.groups).toHaveLength(1);
     const pane = layout.groups[0].pane;
     expect(pane.tabOrder).toEqual(['c', 'p', 't']);
-    expect(pane.livePair).toEqual({ anchor: 'c', side: 'p', sideAt: 'bottom', ratio: 0.7 });
+    expect(pane.livePair).toEqual({ anchor: 'c', side: 'p', sideAt: 'bottom', ratio: null });
     expect(pane.activeTabId).toBe('p');
   });
 
@@ -632,5 +632,73 @@ describe('并排:同一种页签时另一页单独挂一份内容', () => {
     expect(rest.shownTabIds).toEqual(pane.shownTabIds);
     // 只改列出来的几样:原型上的 toString 之类照原样取。
     expect(() => String(rest)).not.toThrow();
+  });
+});
+
+describe('并排:页面自己声明在对话旁边多宽(sideWidth,owner 10-26)', () => {
+  function declared() {
+    const sized = (kind: string, px: number) => ({ ...provider(kind, 'single'), sideWidth: () => px });
+    const registry = createTabRegistry([provider('chat', 'single'), sized('folder', 480), sized('info', 360), provider('file', 'single')] as const);
+    const layout = new PaneLayoutStore(registry, ctx);
+    layout.open('chat', { id: 'conv' });
+    const group = layout.groups[0];
+    const chatTabId = group.pane.tabOrder[0];
+    layout.setPairAnchor(() => ({ paneId: group.paneId, tabId: chatTabId }));
+    const pane = group.pane as PaneStore;
+    pane.setDimensions(1600, 900);
+    const sideWidth = () => Math.round((1 - pane.pairShare) * 1600);
+    return { layout, pane, chatTabId, sideWidth };
+  }
+
+  it('声明了宽的那页照它的像素;两页对等(都没声明)一半一半;至多一半', () => {
+    const { layout, pane, sideWidth } = declared();
+    layout.open('folder', { id: 'f' }, { beside: true });
+    expect(sideWidth()).toBe(480);
+    layout.open('file', { id: 'a.md' }, { beside: true });
+    expect(pane.pairShare).toBe(0.5);
+    pane.setDimensions(600, 900);
+    layout.open('folder', { id: 'f' }, { beside: true });
+    expect(pane.pairShare).toBe(0.5);
+  });
+
+  it('文件夹 → 群信息 → 文件夹:换进来的页用它自己声明的宽,❌ 接着用上一页拖出来的比例;双击分界回到声明', () => {
+    const { layout, pane, sideWidth } = declared();
+    layout.open('folder', { id: 'f' }, { beside: true });
+    pane.setPairRatio(0.5);
+    expect(sideWidth()).toBe(800);
+    layout.open('info', { id: 'i' }, { beside: true });
+    expect(sideWidth()).toBe(360);
+    layout.open('folder', { id: 'f' }, { beside: true });
+    expect(sideWidth()).toBe(480);
+    pane.setPairRatio(0.6);
+    expect(sideWidth()).toBe(640);
+    pane.setPairRatio(null);
+    expect(sideWidth()).toBe(480);
+  });
+
+  it('没拖过的存档不记比例,读回来照声明;10-26 之前存的 ratio 一律不读(断代),也照声明', () => {
+    const { layout, pane, chatTabId } = declared();
+    layout.open('folder', { id: 'f' }, { beside: true });
+    const saved = layout.snapshot;
+    expect(saved.groups[0].tabManager.pair).not.toHaveProperty('share');
+    const old = { ...saved, groups: [{ ...saved.groups[0], tabManager: { ...saved.groups[0].tabManager, pair: { anchorTabId: chatTabId, sideTabId: pane.livePair!.side, ratio: 0.62 } as never } }] };
+    const again = declared();
+    again.layout.restoreSnapshot(old);
+    again.layout.groups[0].pane.setDimensions(1600, 900);
+    expect(again.layout.groups[0].pane.livePair?.ratio).toBeNull();
+    expect(Math.round((1 - again.layout.groups[0].pane.pairShare) * 1600)).toBe(480);
+  });
+
+  it('页签上的「最大化 / 还原」:并排那一页 = 拆开它占满;拆开后点着的它 = 回到对话旁边;对话那一枚没有', () => {
+    const { layout, pane, chatTabId } = declared();
+    layout.open('folder', { id: 'f' }, { beside: true });
+    const side = pane.livePair!.side;
+    expect(pane.tabFill(chatTabId)).toBeNull();
+    expect(pane.tabFill(side)?.full).toBe(false);
+    pane.tabFill(side)!.toggle();
+    expect(pane.shownTabIds).toEqual([side]);
+    expect(pane.tabFill(side)?.full).toBe(true);
+    pane.tabFill(side)!.toggle();
+    expect(pane.shownTabIds).toEqual([chatTabId, side]);
   });
 });

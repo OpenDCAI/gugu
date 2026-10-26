@@ -8,6 +8,7 @@
 // 线的实时与主区 activeChat 走同一份 subscribeChatLineRevisions(#6470),❌ 在这里另听线级事件。
 import { useCallback, useRef } from 'react'
 import type { ChatItem, MessageItem, TopicSummary } from '@gugu/core/shared/types/chat'
+import { parseComposerCard } from '@gugu/core/shared/ui/taskCardModels'
 import type { AccountRevisionEvent, AccountRevisionListener } from '@/lib/accountRevisionCoordinator'
 import { topicService } from '@/lib/topics'
 import { useChatStore } from '@/store/chatContext'
@@ -161,10 +162,16 @@ export function useTopicSurface({
       try {
         const source = sourceMessages.current.find((message) => message.id === sourceMessageId)
         if (!source) throw new Error('Topic source message is not in the current message window')
+        if (source.content_type === 'card' && parseComposerCard(source.content)?.type === 'task') {
+          const existing = (await topicService.listTopicsOfChat(chatId)).find((topic) => topic.source_message_id === sourceMessageId)
+          if (existing) { openSplit({ chatId: existing.chat_id, name: existing.name }); return }
+        }
         const created = await topicService.createTopic({
           sourceChatId: chatId,
           sourceMessageId,
-          name: source.content_type === 'text' ? topicNameFromMessage(source.content) : null,
+          // 任务卡上开的话题(手机点卡、老卡还没有话题时)叫任务那句话,❌ 落成服务端的默认名。
+          name: source.content_type === 'text' ? topicNameFromMessage(source.content)
+            : source.content_type === 'card' ? topicNameFromMessage(parseComposerCard(source.content)?.text) : null,
         })
         reloadTopics()
         openSplit({ chatId: created.chat_id, name: created.name })

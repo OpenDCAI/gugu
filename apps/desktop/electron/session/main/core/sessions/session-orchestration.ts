@@ -52,8 +52,6 @@ import { fileOpenersFor } from '@shared/extensions/file-openers';
 import { agentStatusWriter } from '@main/core/agent-status/agent-status-writer';
 import { LocalExecutionContext } from '@main/core/execution-context/local-execution-context';
 import { killTmuxSession, listTmuxSessionNames, makeTmuxSessionName } from '@main/core/pty/tmux-session-name';
-import { projectManager } from '@main/core/projects/project-manager';
-import { resolveTmuxEnabled } from '@main/core/projects/settings/resolve-tmux-enabled';
 import { makePtySessionId } from '@shared/core/pty/ptySessionId';
 import { sessionsAliveInTmux } from '@main/core/sessions/session-process';
 import {
@@ -495,7 +493,7 @@ async function stopSessionTransport(target: SessionRow, onlyIfIdle = false): Pro
     // ❌ 为了停去挂载:挂载(连已挂载的快路径在内)会广播 session:provisioned,渲染层据此把会话准备起来、
     // 复原标签、按原会话把进程拉起来 —— 停了等于重启(#4377 mac1 实测:停后 0.1 s 内 `--resume` 重生)。
     const mounted = resolveSession(target.projectId, target.id);
-    if (mounted) await mounted.sessions.stopSession(target.id);
+    if (mounted?.sessions.ownsSession(target.id)) await mounted.sessions.stopSession(target.id);
     else await stopUnattachedTmuxSession(target);
   }
   // 停在启动途中:起动门随之关上 —— 停掉的会话不是「再等等就好」。
@@ -505,12 +503,10 @@ async function stopSessionTransport(target: SessionRow, onlyIfIdle = false): Pro
 /**
  * 没挂载的会话,引擎仍可能在 tmux 里跑:账号进程重启后接回是懒的,还没被叫到的会话宿主手里没有它。
  * 按 tmux 列表(与接回同一个判据)找到就杀,并照常落「被打断」。❌ 当成「没有东西可停」回成功,让 tmux 里的引擎照跑
- * (10-08 三例:e2143d72、9cad5445、38b46f1a)。只在这个项目开着 tmux 时去问:没装 tmux 的机器不因为问不到而停不掉。
+ * (10-08 三例:e2143d72、9cad5445、38b46f1a)。当前项目设置不能证明旧引擎是否还活着:设置可能已改,项目也可能尚未打开。
+ * 与接回和回收扫描一样,只认咕咕自己的 tmux 套接字里的实际会话。
  */
 async function stopUnattachedTmuxSession(target: SessionRow): Promise<void> {
-  const project = projectManager.getProject(target.projectId);
-  if (!project) throw new Error(`project ${target.projectId} is not open; cannot tell whether session ${target.id} runs in tmux`);
-  if (!(await resolveTmuxEnabled(project.settings, target.projectId))) return;
   const ctx = new LocalExecutionContext();
   if (!sessionsAliveInTmux(await listTmuxSessionNames(ctx)).has(target.id)) return;
   await killTmuxSession(ctx, makeTmuxSessionName(makePtySessionId(target.projectId, target.id, target.id)));

@@ -4939,7 +4939,7 @@ app.whenReady().then(async () => {
         disposeSession: async (sessionId) => {
           await teardownSessionpageSessionRuntimes(sessionId)
           await primaryGuguMcpHost?.revoke(sessionpageSurfaceKey(sessionId))
-          await closeSessionBrowserTools(sessionId)
+          await closeSessionBrowserTools(sessionId, emdash.emdashAgentBrowser())
           forgetSessionAppScope(sessionpageSurfaceKey(sessionId))
         },
         env: process.env,

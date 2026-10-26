@@ -51,6 +51,7 @@ import {
 } from '@gugu/session-core/acp';
 import type { Result } from '@gugu/session-shared';
 import { ok, toSerializedError } from '@gugu/session-shared';
+import { redactAll } from '@gugu/session-shared/logger';
 import { invokesCommand } from '@gugu/session-core/acp/commands';
 import { classifyTurnFailure, refusedTurnOutcome } from './turn-failure';
 import {
@@ -1586,6 +1587,8 @@ export class SessionCell {
         kind: 'error',
         reason: 'prompt_failed',
         detail: failure,
+        ...(this.deps.turnFailure?.fromPromptResponse && this.providerTurnFailure
+          ? { said: redactAll(this.providerTurnFailure.split('\n')[0]!) } : {}),
         ...(stderrFailure && this.providerTurnSignIn ? { signInRequired: true } : {}),
       };
     }
@@ -1865,6 +1868,8 @@ export class SessionCell {
       ]) : nativePrompt);
       providerAdmission?.accept();
       confirmPreparation();
+      const reportedFailure = this.deps.turnFailure?.fromPromptResponse?.(response);
+      if (reportedFailure) this.providerTurnFailure = reportedFailure;
       const anchor = (response._meta?.guguRevert as { before?: unknown } | undefined)?.before;
       if (!steered && typeof anchor === 'string' && anchor) {
         this.transcript.setRevertAnchor(messageId, anchor);

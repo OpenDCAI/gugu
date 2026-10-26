@@ -19,8 +19,6 @@ export const UI_EVENTS = {
   // #6091 会话页「重命名」弹窗改了自有 agent 的名字后广播 { agentUserId, displayName }:通讯录据此重新拉一遍,
   // 聊天页 / 资料卡 / 分享浮层读的都是通讯录那一份,❌ 让它们挂着旧名等 realtime。
   ownedAgentRenamed: '__owned_agent_renamed',
-  // 打开某个对话的设置抽屉 / 群公告(detail = ChatDetailsRequest):块页签的右键菜单(gugu-dev#181)。只有那个对话的那块面答。
-  openChatDetailsDrawer: '__chat_open_details_drawer',
   quoteMessage: '__chat_quote_message',
   // @@@5856 这是个 **window 级**事件,而同一扇窗里现在有两个输入框(主线 + 话题分栏)。
   // 两份都听 ⇒ 一次 attach 同时进两个待发队列。所以只有主输入框(InputArea 的 surface='main')登记它 ——
@@ -57,6 +55,7 @@ export const UI_EVENTS = {
   // #7199「助理」App 顶上那一排的「搜索」:摆在眼前的那块聊天面进入搜索(与 Alt+F 同一个动作)。
   openContact: '__open_contact',
   openChatSearch: '__open_chat_search',
+  openPhoneListSearch: '__open_phone_list_search',
   sessionpageShareAgentUnavailable: '__sessionpage_share_agent_unavailable',
   // #6646 会话页要人当场决定一件事(装扩展的同意框就画在它里面):不在任务 tab 上就切过去。
   sessionpageReveal: '__sessionpage_reveal',
@@ -72,5 +71,3 @@ export const UI_EVENTS = {
   // #6646 扩展详情里点了「转发」:聊天壳用同一个转发页把这个扩展发出去(detail = ExtensionForwardRequest)。
   forwardExtension: '__forward_extension',
 } as const
-
-export type ChatDetailsRequest = { chatId: string; page: 'settings' | 'announcement' }

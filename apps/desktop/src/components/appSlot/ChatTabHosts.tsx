@@ -5,7 +5,7 @@ import { useTranslation } from 'react-i18next'
 import { Folder, Plus } from '@/lib/icons'
 import { chatTabSlotKey, readShellSlots } from '../../lib/shellSlots'
 import { folderItem } from '../../session/renderer/features/chats/chat-tabs/chat-panel-item'
-import { focusedChatTab, openPanelItem, panelTabOf, panelTabsOf, returnToOf, topicTabOf, type ChatPanelTab } from '../../session/renderer/features/chats/chat-tabs/chat-layouts'
+import { focusedChatTab, infoTabOf, openPanelItem, panelTabOf, panelTabsOf, returnToOf, topicTabOf, type ChatPanelTab } from '../../session/renderer/features/chats/chat-tabs/chat-layouts'
 import { useChatFolderName } from '../chat/chatFolderName'
 import { OpenAppMenuItems } from '../chat/OpenAppMenuItems'
 import { IconButton } from '../ui/IconButton'
@@ -17,10 +17,11 @@ const EMPTY: ReadonlyMap<string, HTMLElement> = new Map()
  * In a block, each tab of the chat that is on screen has a slot the session page's engine left for it (chat-tab-providers'
  * ShellTabSlots): what it shows is drawn into it here, in the chat's own tree — its state, its Apps, its topic line.
  */
-export const ChatTabPortals = observer(function ChatTabPortals({ chatId, panel, topic }: {
+export const ChatTabPortals = observer(function ChatTabPortals({ chatId, panel, topic, info }: {
   chatId: string
   panel: (tab: ChatPanelTab) => ReactNode
   topic: () => ReactNode
+  info: () => ReactNode
 }) {
   const slots = readShellSlots()
   const entries = useSyncExternalStore(
@@ -29,6 +30,8 @@ export const ChatTabPortals = observer(function ChatTabPortals({ chatId, panel, 
   )
   const topicTab = topicTabOf(chatId)
   const topicSlot = topicTab?.shown ? entries.get(chatTabSlotKey(chatId, topicTab.tabId)) : undefined
+  const infoTab = infoTabOf(chatId)
+  const infoSlot = infoTab?.shown ? entries.get(chatTabSlotKey(chatId, infoTab.tabId)) : undefined
   return (
     <>
       {panelTabsOf(chatId).filter((tab) => tab.shown).map((tab) => {
@@ -36,6 +39,7 @@ export const ChatTabPortals = observer(function ChatTabPortals({ chatId, panel, 
         return element ? createPortal(panel(tab), element, tab.tabId) : null
       })}
       {topicTab && topicSlot ? createPortal(topic(), topicSlot, topicTab.tabId) : null}
+      {infoTab && infoSlot ? createPortal(info(), infoSlot, infoTab.tabId) : null}
     </>
   )
 })
@@ -45,13 +49,15 @@ export const ChatTabPortals = observer(function ChatTabPortals({ chatId, panel, 
  * is its back. A tab and the 上一页 it goes back to are one page here (`key`: the first of them), so going back finds that
  * page as it was (G2: a phone frame is not kept anywhere else).
  */
-export const ChatTabPage = observer(function ChatTabPage({ chatId, panel, topic }: {
+export const ChatTabPage = observer(function ChatTabPage({ chatId, panel, topic, info }: {
   chatId: string
   panel: (tab: ChatPanelTab) => ReactNode
   topic: () => ReactNode
+  info: () => ReactNode
 }) {
   const focused = focusedChatTab(chatId)
   if (focused?.kind === 'topic') return <>{topic()}</>
+  if (focused?.kind === 'info') return <>{info()}</>
   const tab = focused?.kind === 'panel' ? panelTabOf(chatId, focused.tabId) : null
   if (!tab) return null
   let root = tab.tabId

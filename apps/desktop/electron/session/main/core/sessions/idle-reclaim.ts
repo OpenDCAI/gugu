@@ -11,9 +11,9 @@ export const IDLE_RECLAIM_TICK_MS = 60_000;
 
 export type ReclaimTarget = { projectId: string; sessionId: string };
 
-/** 此刻进程还在跑的一条会话。 */
+/** 此刻仍持有引擎进程或浏览器页的一条会话。 */
 export type LiveSession = ReclaimTarget & {
-  runtime: 'acp' | 'pty';
+  runtime: 'acp' | 'pty' | 'browser';
   /** ACP:运行时摘要说它静止(没有在飞的轮、待批准、排队的句、后台任务),且适配器能按原 session 接回来。 */
   acpAtRest?: boolean;
 };
@@ -22,13 +22,13 @@ export type LiveSession = ReclaimTarget & {
 export type SessionFacts = {
   /** 状态写入者写下的基础态;null = 没有状态源。 */
   status: string | null;
-  /** 停了再起会接回原来那条对话(ACP 另看 `acpAtRest`)。 */
+  /** 停了再起会接回原来那条对话(ACP 另看 `acpAtRest`);只释放浏览器页时没有引擎要续跑。 */
   resumable: boolean;
 };
 
 export type IdleReclaimDeps = {
   now(): number;
-  listLive(): LiveSession[];
+  listLive(): LiveSession[] | Promise<LiveSession[]>;
   /** 会话行的事实;行已不在返回 null。 */
   facts(sessionId: string): SessionFacts | null;
   /** 这条会话在屏上(或是最后显示的那条)—— 人在看,不回收。 */
@@ -37,7 +37,7 @@ export type IdleReclaimDeps = {
   watchedRemotely(sessionId: string): boolean;
   /** 开着终端 shell 的会话(用户自己的进程,卸下挂载会连带停掉)。 */
   sessionsWithLiveTerminals(): ReadonlySet<string>;
-  stop(target: ReclaimTarget): Promise<void>;
+  stop(target: ReclaimTarget, runtime: LiveSession['runtime']): Promise<void>;
   /** 进程已停:让渲染层把这条会话放回未打开的样子。 */
   reclaimed(target: ReclaimTarget): void;
   log(event: 'reclaimed' | 'failed', fields: Record<string, unknown>): void;
@@ -80,8 +80,8 @@ export class IdleReclaimer {
   }
 
   private async sweep(): Promise<ReclaimTarget[]> {
+    const live = await this.deps.listLive();
     const now = this.deps.now();
-    const live = this.deps.listLive();
     const liveIds = new Set(live.map((entry) => entry.sessionId));
     // 进程不在了(被停、退出)的会话不再计时;下次起来重新算。
     for (const id of [...this.idleSince.keys()]) if (!liveIds.has(id)) this.idleSince.delete(id);
@@ -103,10 +103,10 @@ export class IdleReclaimer {
       if (idleMs < IDLE_RECLAIM_AFTER_MS) continue;
       if (this.deps.onScreen(entry.sessionId) || withTerminals.has(entry.sessionId)) continue;
       if (this.deps.watchedRemotely(entry.sessionId)) continue;
-      if (!facts.resumable || (entry.runtime === 'acp' && !entry.acpAtRest)) continue;
+      if (entry.runtime !== 'browser' && (!facts.resumable || (entry.runtime === 'acp' && !entry.acpAtRest))) continue;
       const target = { projectId: entry.projectId, sessionId: entry.sessionId };
       try {
-        await this.deps.stop(target);
+        await this.deps.stop(target, entry.runtime);
       } catch (error) {
         this.deps.log('failed', { ...target, runtime: entry.runtime, error: error instanceof Error ? error.message : String(error) });
         continue;

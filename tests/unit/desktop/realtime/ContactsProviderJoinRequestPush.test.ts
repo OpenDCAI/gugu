@@ -66,7 +66,7 @@ function Capture() {
 
 const flush = () => act(async () => { await Promise.resolve(); await Promise.resolve(); await Promise.resolve() })
 
-const myGroup: ContactGroupChat = { id: 'g-1', public_id: null, kind: 'group', name: '合作方群', avatar_url: null, member_count: 2, is_muted: false, my_role: 'owner', member_user_ids: ['user-1', 'user-2'] }
+const myGroup: ContactGroupChat = { id: 'g-1', public_id: null, kind: 'group', name: '合作方群', alias: null, avatar_url: null, member_count: 2, is_muted: false, my_role: 'owner', member_user_ids: ['user-1', 'user-2'] }
 const agentAsks: ManagedGroupJoinRequest = {
   id: 'r-1',
   chat_id: 'g-1',
