@@ -16,8 +16,9 @@ it('filters pending reconciliation before paging and resumes a bounded page on t
   reconciler.stop()
 })
 
-it('binds the real current coordinator before reading tasks, once per runtime/session',async()=>{
-  const rpc=vi.fn(async(name:string)=>({data:name==='assistant_work_list'?{items:[],next_before:null}:{events:[]},error:null}))
+it('binds before every reconciliation pass so a later imported work is not skipped after an initial empty bind',async()=>{
+  let binds=0
+  const rpc=vi.fn(async(name:string)=>({data:name==='assistant_work_list'?{items:[],next_before:null}:name==='assistant_work_coordinator_bind'?{bound_count:binds++===0?0:1}:{events:[]},error:null}))
   let sessionId='actual-gugu-session'
   const reconciler=createDesktopAssistantWorkReconciler({
     context:async()=>({ownerId:'owner',runtimeInstanceId:'runtime',deviceId:'cloud',client:{rpc}}),
@@ -26,9 +27,9 @@ it('binds the real current coordinator before reading tasks, once per runtime/se
   })
   await reconciler.kick();await reconciler.kick()
   expect(rpc).toHaveBeenCalledWith('assistant_work_coordinator_bind',{p_assistant:'assistant',p_runtime_instance_id:'runtime',p_session_id:'actual-gugu-session'})
-  expect(rpc.mock.calls.filter(([name])=>name==='assistant_work_coordinator_bind')).toHaveLength(1)
+  expect(rpc.mock.calls.filter(([name])=>name==='assistant_work_coordinator_bind')).toHaveLength(2)
   expect(rpc.mock.calls[0]?.[0]).toBe('assistant_work_coordinator_bind')
   sessionId='new-gugu-session';await reconciler.kick()
-  expect(rpc.mock.calls.filter(([name])=>name==='assistant_work_coordinator_bind')).toHaveLength(2)
+  expect(rpc.mock.calls.filter(([name])=>name==='assistant_work_coordinator_bind')).toHaveLength(3)
   reconciler.stop()
 })
