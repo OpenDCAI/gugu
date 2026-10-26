@@ -21,7 +21,7 @@ import {
 } from './phoneConnectorFlow'
 import { connectorDetail, connectorGroups } from './phoneProfileModel'
 import { usePhoneConnectorAccounts, type ConnectorAccountRow } from './usePhoneConnectorAccounts'
-import type { PhoneIntegrations, usePhoneIntegrations } from './usePhoneProfileData'
+import { usePhoneIntegrationDetail,type PhoneIntegrations,type usePhoneIntegrations } from './usePhoneProfileData'
 import './phone-connector.css'
 import { ReadFailed } from './PhoneMachineView'
 import { reportAssistantAppChange } from '@/components/assistant/assistant-app-client'
@@ -77,7 +77,8 @@ function ConnectorLists({ data, open }: { data: PhoneIntegrations; open: (id: st
           testId={`assistant-connector-${item.id}`}
           leading={<ConnectorIcon integration={item} size={32} />}
           title={item.name}
-          detail={detail}
+          detail={detail || <span aria-hidden="true">&nbsp;</span>}
+          detailLines={1}
           trailing={configured && state !== 'connected' ? <span className={state === 'needsReauth' || state === 'checkFailed' ? 'ta-phone-warn' : undefined}>{t(`connectors.${state}`)}</span> : undefined}
           chevron={!configured || state === 'connected'}
           onClick={() => open(item.id)}
@@ -114,7 +115,9 @@ function ConnectorLists({ data, open }: { data: PhoneIntegrations; open: (id: st
 export function PhoneConnectorDetail({ assistant, homeDeviceId, machine, integrations, id, go }: PhonePageProps & { integrations: Integrations; id: string }) {
   const { t } = useTranslation('assistant')
   const name = assistant.display_name
-  const view = integrations.data && !integrations.error ? connectorDetail(integrations.data.items, integrations.data.configured, integrations.data.statuses, id) : null
+  const selected = integrations.data?.items.find(item => item.id === id)
+  const detail = usePhoneIntegrationDetail(machine,selected)
+  const view = integrations.data && detail.data ? connectorDetail([detail.data],integrations.data.configured,integrations.data.statuses,id) : null
   const plan = view ? setupPlanOf(view.item, platform.kind) : null
   const wantsAccounts = !!view && view.connected && (view.item.id === 'github' || view.item.multiAccount)
   const [changes, setChanges] = useState(0)
@@ -149,7 +152,7 @@ export function PhoneConnectorDetail({ assistant, homeDeviceId, machine, integra
       <PageHead title={view?.item.name ?? t('connectors.title')} />
       <CloudGate integrations={integrations}>
         {() =>
-          view ? (
+          detail.error ? <ReadFailed title={t('connectors.loadFailed')} error={detail.error} onRetry={detail.reload} /> : detail.loading ? <ReadingNow /> : view ? (
             <>
               <div className="ta-card ta-connector-hero">
                 <ConnectorIcon integration={view.item} size={56} />

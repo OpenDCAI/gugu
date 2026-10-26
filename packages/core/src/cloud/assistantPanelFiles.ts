@@ -1,6 +1,8 @@
+import { parseMemoryNote } from '../shared/assistantMemory'
+import { queuedAssistantPanelBody } from './assistantPanelBodyQueue'
 import { assistantPanelCollection, AssistantPanelError, type AssistantPanelClient, type AssistantPanelDomain, type AssistantPanelItem } from './assistantPanel'
 import { splitInstructions } from '../shared/assistantInstructions'
-import { ASSISTANT_PANEL_READ_TIMEOUT_MS, withAssistantPanelReadDeadline } from './assistantPanelRead'
+import { withAssistantPanelReadDeadline } from './assistantPanelRead'
 
 export const ASSISTANT_PANEL_PATHS = {
   instructions: '性格约定',memoryDir: '记忆',claudeMemoryDir: '记忆',memoryIndex: '记忆/MEMORY.md',
@@ -27,7 +29,7 @@ function route(path: string) {
 export function createAssistantPanelFiles(input: {
   assistantId: string; deviceId: string; ownerId: string; cloud: AssistantPanelClient
   assertCurrent(): void | Promise<void>
-  readBody(item: AssistantPanelItem): Promise<Uint8Array>
+  readBody(item: AssistantPanelItem, signal?: AbortSignal): Promise<Uint8Array>
   upload(name: string, bytes: Uint8Array, contentType: string): Promise<{ itemId: string; sha256: string }>
   discard(itemId: string): Promise<void>
   changed(): void
@@ -50,19 +52,10 @@ export function createAssistantPanelFiles(input: {
     } catch (error) { if (cached === current) cached = null; throw error }
   }
   const collectionStates = new Map<AssistantPanelDomain, 'ready' | 'unprepared' | 'error'>()
-  const unpreparedSince = new Map<AssistantPanelDomain, number>()
   async function collection(domain: AssistantPanelDomain) {
     const current = await snapshot()
     const result = assistantPanelCollection(current,domain,['tasks','capabilities','device-notes','integrations'].includes(domain) ? input.deviceId : undefined)
     collectionStates.set(domain,result.state)
-    if (result.state === 'unprepared') {
-      const since = unpreparedSince.get(domain) ?? Date.now()
-      unpreparedSince.set(domain,since)
-      if (Date.now() - since >= ASSISTANT_PANEL_READ_TIMEOUT_MS) {
-        collectionStates.set(domain,'error')
-        throw new AssistantPanelError('preparation-timeout','PANEL_PREPARATION_TIMEOUT',undefined,domain)
-      }
-    } else unpreparedSince.delete(domain)
     const failed = current.application.find(row => row.domain === domain && row.status === 'failed')
     if (failed) throw new AssistantPanelError('application-failed','PANEL_APPLICATION_FAILED',failed.resourceKey,domain)
     if (result.items.some(item => item.stale_at)) throw new AssistantPanelError('stale','PANEL_RESOURCE_STALE',undefined,domain)
@@ -94,9 +87,9 @@ export function createAssistantPanelFiles(input: {
     const key = `${item.body_item_id}:${item.body_sha256}`
     const cached = bodies.get(key)
     if (cached) return cached.slice()
-    const result = await input.readBody(item)
+    const result = await queuedAssistantPanelBody(`${input.ownerId}:${input.assistantId}:${key}`,signal => input.readBody(item,signal))
     await input.assertCurrent()
-    if (result.length <= 32 * 1024 * 1024) {
+    if (!bodies.has(key) && result.length <= 32 * 1024 * 1024) {
       while (bodyBytes + result.length > 32 * 1024 * 1024 && bodies.size) {
         const oldest = bodies.keys().next().value!
         bodyBytes -= bodies.get(oldest)!.length; bodies.delete(oldest)
@@ -135,7 +128,8 @@ export function createAssistantPanelFiles(input: {
     }
     const key = item?.resource_key ?? (domain === 'voice-notes' ? relative : domain === 'skills' ? relative.replace(/\/SKILL\.md$/,'') : relative)
     const modifiedAt = new Date().toISOString()
-    const data = domain === 'memory' ? { relativePath: relative,title: name,modifiedAt,kind: 'file' }
+    const memory = domain === 'memory' ? parseMemoryNote(name,new TextDecoder().decode(value)) : null
+    const data = domain === 'memory' ? { relativePath: relative,title: memory!.title,modifiedAt,kind: relative === 'owner-profile.md' ? 'user' : memory!.kind }
       : domain === 'files' ? { name,path: relative,kind: 'file',contentType,sizeBytes: value.length,modifiedAt }
       : domain === 'skills' ? { name: key,modifiedAt } : { noteId: relative.split('/')[0],kind: name }
     const body = await input.upload(name,value,contentType)

@@ -7,7 +7,7 @@ import { createFileResolver } from '../shared/fileResolver'
 import { AssistantPanelError, type AssistantPanelItem } from './assistantPanel'
 
 export type AssistantPanelBodyAccess = {
-  token: string; ownerId: string; chatId: string; accountId(): string | null | Promise<string | null>
+  signal?: AbortSignal; token: string; ownerId: string; chatId: string; accountId(): string | null | Promise<string | null>
 }
 async function assertOwner(input: AssistantPanelBodyAccess): Promise<void> {
   if (await input.accountId() !== input.ownerId) throw new AssistantPanelError('account-changed','Assistant panel account changed')
@@ -19,9 +19,9 @@ async function sha256(bytes: Uint8Array): Promise<string> {
 }
 
 /** Every network stage has a deadline, including direct object bytes. */
-function panelEndpoint(token: string) {
+function panelEndpoint(token: string, parentSignal?: AbortSignal) {
   return { ...configuredEndpoint(token),fetch: ((url,init) => withBoundedOperation(30_000,() => new AssistantPanelError('body-timeout','PANEL_BODY_TIMEOUT'),signal => fetch(url,{ ...init,
-    signal: AbortSignal.any([signal,...(init?.signal ? [init.signal] : [])]),
+    signal: AbortSignal.any([signal,...(parentSignal ? [parentSignal] : []),...(init?.signal ? [init.signal] : [])]),
   }))) as typeof fetch }
 }
 
@@ -52,11 +52,11 @@ export async function readAssistantPanelBody(item: AssistantPanelItem, input: As
   if (item.deleted_at) throw new AssistantPanelError('deleted','This resource has been deleted')
   if (!item.body_item_id || !item.body_sha256) throw new AssistantPanelError('body-unavailable','Assistant panel resource content is unavailable')
   const client = createGuguSupabaseClient({ schema: 'chat',headers: { Authorization: `Bearer ${input.token}` } })
-  const { data,error } = await client.rpc('workspace_get_as',{ p_item_id: item.body_item_id,p_as_user_id: input.ownerId }).abortSignal(AbortSignal.timeout(2000))
+  const { data,error,status } = await client.rpc('workspace_get_as',{ p_item_id: item.body_item_id,p_as_user_id: input.ownerId }).abortSignal(AbortSignal.any([AbortSignal.timeout(2000),...(input.signal ? [input.signal] : [])]))
   await assertOwner(input)
   const file = Array.isArray(data) ? data[0] as Record<string, unknown> | undefined : undefined
   if (error || !file || file.chat_id !== input.chatId || file.kind !== 'file' || typeof file.version !== 'number') {
-    throw new AssistantPanelError(error?.code ?? 'body-unavailable','Assistant panel resource content could not be read')
+    throw new AssistantPanelError(error?.code ?? 'body-unavailable','Assistant panel resource content could not be read',undefined,undefined,status)
   }
   const chunks = new Map<string, Uint8Array>()
   const cache: FileChunkCache = {
@@ -64,7 +64,7 @@ export async function readAssistantPanelBody(item: AssistantPanelItem, input: As
     async put(key,index,bytes) { chunks.set(`${key}:${index}`,bytes.slice()) },
     async clear(key) { for (const entry of chunks.keys()) if (entry.startsWith(`${key}:`)) chunks.delete(entry) },
   }
-  const provider = cloudFileProviders({ endpoint: async () => { await assertOwner(input); return panelEndpoint(input.token) },
+  const provider = cloudFileProviders({ endpoint: async () => { await assertOwner(input); return panelEndpoint(input.token,input.signal) },
     cache,sink: async size => createCachedFileSink(cache,size),
   })
   const resolve = createFileResolver({ ...provider,local: async () => null,ssh: async () => null,

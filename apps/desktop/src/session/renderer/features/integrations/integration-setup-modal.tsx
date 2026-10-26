@@ -1,3 +1,6 @@
+import { useAssistantPanelIntegration } from '@/components/assistant/useAssistantPanelIntegration';
+import { assistantPanelFailure } from '@/components/assistant/assistant-panel-errors';
+import { useTranslation } from 'react-i18next';
 import { rendererLogger } from '@/lib/log';
 import { messageForUser } from '@/lib/userFacingError';
 import { CheckCircle, Copy, ExternalLink, Eye, EyeOff, Info } from '@/lib/icons'
@@ -56,7 +59,9 @@ export function IntegrationSetupModal({ host, ...props }: Props) {
 function IntegrationSetupModalBody({ integration, editAccount, onSuccess, onClose }: Omit<Props, 'host'>) {
   const { integrationById } = useIntegrationsContext();
   const { translate } = useSessionMessages();
-  const metadata = integrationById[integration];
+  const { t } = useTranslation('assistant');
+  const detail = useAssistantPanelIntegration(useLibraryHost().assistantPanel,integrationById[integration]);
+  const metadata = detail.data;
 
   return (
     <>
@@ -69,6 +74,7 @@ function IntegrationSetupModalBody({ integration, editAccount, onSuccess, onClos
             : translate('integrations.setupTitle')}
         </DialogTitle>
       </DialogHeader>
+      {detail.error ? <p role="alert">{assistantPanelFailure(detail.error,t)}</p> : detail.loading ? <LoadingIndicator size="inline" /> : null}
       {metadata ? (
         cliMethod(metadata) ? (
           <IntegrationCliLogin

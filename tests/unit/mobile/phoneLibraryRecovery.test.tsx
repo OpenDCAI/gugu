@@ -36,14 +36,14 @@ describe('phone library recovery', () => {
     expect(harness.container.querySelector('[data-testid="assistant-connecting"]')).toBeNull()
   })
 
-  it('recovers a cloud read automatically without exposing diagnostics or a retry button', async () => {
+  it('does not install another retry timer in a read failure view', async () => {
     vi.useFakeTimers()
     const retry = vi.fn()
     await renderWithAppProviders(harness, <PhoneLibraryVolume {...base} kind="capabilities" machine={{ state: 'error', error: new TypeError('Failed to fetch workspace unavailable'), retry }} />)
     expect(harness.container.querySelector('[role="alert"]')?.textContent).not.toContain('workspace unavailable')
     expect(harness.container.querySelector('[data-testid="assistant-read-retry"]')).toBeNull()
     await act(async () => { await vi.advanceTimersByTimeAsync(1500) })
-    expect(retry).toHaveBeenCalledTimes(1)
+    expect(retry).not.toHaveBeenCalled()
     vi.useRealTimers()
     await renderWithAppProviders(harness, <PhoneLibraryVolume {...base} kind="capabilities" machine={{ state: 'ready', machine }} />)
     expect(harness.container.querySelector('[data-testid="file-book-reader"]')?.getAttribute('data-machine')).toBe('home')

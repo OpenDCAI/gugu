@@ -123,7 +123,7 @@ function VoiceNotesList({ context }: { context: AssistantContext }) {
           </button>
         }
       />
-      <MachineGate
+      <MachineGate hasData={items.length > 0}
         readiness={context.readiness}
         loading={context.machineLoading || notes.isLoading}
         error={context.machineError ?? notes.error}
@@ -362,7 +362,7 @@ function VoiceNoteDetail({ context, id }: { context: AssistantContext; id: strin
   };
 
   return (
-    <MachineGate
+    <MachineGate hasData={!!note.data || !!localJob}
       readiness={context.readiness}
       loading={!localJob && (context.machineLoading || note.isLoading)}
       error={localJob ? null : context.machineError ?? note.error}

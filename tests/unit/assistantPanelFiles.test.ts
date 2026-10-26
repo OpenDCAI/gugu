@@ -52,14 +52,14 @@ it('keeps unprepared, empty and failed collections distinct', async () => {
   await expect(f.panel.list('记忆')).rejects.toMatchObject({ code: 'collection-unavailable' })
 })
 
-it('turns preparation which has not completed in fifteen seconds into a read failure and recovers on publication', async () => {
+it('keeps a returned unprepared state quiet indefinitely and recovers on publication', async () => {
   vi.useFakeTimers()
   try {
     const f = fixture()
     await expect(f.panel.collection('schedules')).rejects.toMatchObject({ code: 'unprepared' })
     await vi.advanceTimersByTimeAsync(15_001)
-    await expect(f.panel.collection('schedules')).rejects.toMatchObject({ code: 'preparation-timeout',domain: 'schedules' })
-    expect(f.panel.collectionState('schedules')).toBe('error')
+    await expect(f.panel.collection('schedules')).rejects.toMatchObject({ code: 'unprepared' })
+    expect(f.panel.collectionState('schedules')).toBe('unprepared')
     f.put('schedules','__collection__',{ state: 'ready' }); f.panel.invalidate()
     expect(await f.panel.collection('schedules')).toEqual([])
     expect(f.panel.collectionState('schedules')).toBe('ready')
@@ -75,6 +75,11 @@ it('shows a newly saved voice note before old-account backfill, without claiming
   expect(await f.panel.text('记忆/voice-notes/new-note/summary.md')).toBeNull()
   expect(await f.panel.list('记忆/voice-notes')).toMatchObject([{ name: 'new-note',type: 'directory' }])
   expect(f.panel.collectionState('voice-notes')).toBe('unprepared')
+  vi.useFakeTimers()
+  try {
+    await vi.advanceTimersByTimeAsync(60_000)
+    expect(await f.panel.list('记忆/voice-notes')).toHaveLength(1)
+  } finally { vi.useRealTimers() }
   f.put('voice-notes','__collection__',{ state: 'error' }); f.panel.invalidate()
   await expect(f.panel.list('记忆/voice-notes')).rejects.toMatchObject({ code: 'collection-unavailable' })
 })
@@ -128,4 +133,26 @@ it('reports stale and rejected host state instead of presenting it as current ap
   row.stale_at = null; f.panel.invalidate()
   f.application.push({ operationId: 'failed',revision: row.revision,domain: 'personality',resourceKey: 'instructions',status: 'failed',errorCode: 'EACCES' })
   await expect(f.panel.text('性格约定')).rejects.toMatchObject({ code: 'application-failed',resourceKey: 'instructions' })
+})
+
+it('limits body downloads across file views to four and deduplicates the same saved body', async () => {
+  let active=0,peak=0
+  const release: Array<() => void>=[]
+  const readBody=vi.fn(async () => {
+    active++;peak=Math.max(peak,active)
+    await new Promise<void>(resolve => release.push(resolve))
+    active--;return new Uint8Array([1])
+  })
+  const f=fixture()
+  const input={ownerId:'owner',assistantId:'assistant',deviceId:'home',cloud:{} as Parameters<typeof createAssistantPanelFiles>[0]['cloud'],assertCurrent:()=>{},readBody,upload:f.upload,discard:f.discard,changed:()=>{}}
+  const a=createAssistantPanelFiles(input),b=createAssistantPanelFiles(input)
+  const rows=Array.from({length:10},(_,i)=>({...f.put('files',String(i),{}),body_item_id:String(i),body_sha256:String(i)}))
+  const pending=rows.map((row,i)=>(i%2?a:b).body(row))
+  const duplicate=b.body(rows[0]!)
+  await vi.waitFor(()=>expect(active).toBeGreaterThan(0))
+  expect(peak).toBeLessThanOrEqual(4)
+  while(release.length || active) { release.splice(0).forEach(resolve=>resolve());await new Promise(resolve=>setTimeout(resolve,0)) }
+  await Promise.all([...pending,duplicate])
+  expect(peak).toBeLessThanOrEqual(4)
+  expect(readBody).toHaveBeenCalledTimes(10)
 })

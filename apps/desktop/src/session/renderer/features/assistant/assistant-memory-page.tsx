@@ -1,3 +1,5 @@
+import { LoadingIndicator } from '@/lib/loading/LoadingIndicator';
+import { AssistantMemoryContent } from '@/components/assistant/AssistantMemoryContent';
 import { messageForUser } from '@/lib/userFacingError';
 import { rendererLogger } from '@/lib/log';
 import { assistantPanelFailure } from '@/components/assistant/assistant-panel-errors';
@@ -54,7 +56,7 @@ function MemoryHome({ context }: { context: AssistantContext }) {
   return (
     <div className="ta-page" data-testid="assistant-memory">
       <PageHead title={t('nav.memory')} />
-      <MachineGate
+      <MachineGate hasData={all.length > 0}
         readiness={context.readiness}
         loading={context.machineLoading || notes.isLoading}
         error={context.machineError ?? notes.error}
@@ -69,9 +71,9 @@ function MemoryHome({ context }: { context: AssistantContext }) {
               </button>
             </div>
           ) : (
-            aboutYou.map(note => <AssistantRow key={note.file} leading={ownerLeading(context.owner)} title={isOwnerProfileNote(note) ? t('memory.filter.user') : note.title} detailLines={4}
-              detail={memoryContentPreview(note.body) || (note.modifiedAt ? t('memory.updated', { time: time(note.modifiedAt) }) : undefined)}
-              onClick={() => context.go({ tab: 'memory', sub: `note:${note.file}` })} />)
+            aboutYou.map(entry => <AssistantMemoryContent key={entry.file} machine={context.machine} entry={entry}>{(note,error) => <AssistantRow leading={ownerLeading(context.owner)} title={isOwnerProfileNote(note) ? t('memory.filter.user') : note.title} detailLines={4}
+              detail={error ? assistantPanelFailure(error,t) : memoryContentPreview(note.body) || (note.modifiedAt ? t('memory.updated', { time: time(note.modifiedAt) }) : undefined)}
+              onClick={() => context.go({ tab: 'memory', sub: `note:${note.file}` })} />}</AssistantMemoryContent>)
           )}
         </AssistantSection>
         <AssistantSection title={t('library.workspace')}>
@@ -79,15 +81,16 @@ function MemoryHome({ context }: { context: AssistantContext }) {
         </AssistantSection>
         {others.length > 0 && <AssistantSection title={t('library.memory')} bare testId="assistant-memory-all">
           <div className="ta-grid">
-            {others.map((note) => (
+            {others.map((entry) => (
+              <AssistantMemoryContent key={entry.file} machine={context.machine} entry={entry}>{(note,error) => (
               <Tile
                 key={note.file}
                 title={note.title}
                 sub={note.modifiedAt ? t('memory.updated', { time: time(note.modifiedAt) }) : kindLabel(note.kind, t, name)}
-                preview={memoryContentPreview(note.body, 140)}
+                preview={error ? assistantPanelFailure(error,t) : memoryContentPreview(note.body, 140)}
                 onClick={() => context.go({ tab: 'memory', sub: `note:${note.file}` })}
                 testId={`assistant-memory-${note.file}`}
-              />
+              />)}</AssistantMemoryContent>
             ))}
           </div>
         </AssistantSection>}
@@ -129,7 +132,7 @@ function MemoryNoteDetail({ context, file }: { context: AssistantContext; file: 
     }
   };
   return (
-    <MachineGate
+    <MachineGate hasData={!!note}
       readiness={context.readiness}
       loading={context.machineLoading || notes.isLoading}
       error={context.machineError ?? notes.error}
@@ -144,7 +147,7 @@ function MemoryNoteDetail({ context, file }: { context: AssistantContext; file: 
             sub={[isOwnerProfileNote(note) ? null : kindLabel(note.kind, t, context.assistant.display_name), note.modifiedAt ? t('memory.updated', { time: time(note.modifiedAt) }) : null].filter(Boolean).join(' · ')}
           />
           <div className="ta-card ta-prose" data-testid="assistant-memory-body">
-            <MarkdownRenderer content={note.body || t('memory.noContent')} />
+            <AssistantMemoryContent machine={context.machine} entry={note}>{(current,error,loading) => error ? <span role="alert">{assistantPanelFailure(error,t)}</span> : loading ? <LoadingIndicator size="inline" /> : <MarkdownRenderer content={current.body || t('memory.noContent')} />}</AssistantMemoryContent>
           </div>
           <p className="ta-page-sub ta-pad">{t('memory.createdBy', { name: context.assistant.display_name })}</p>
           <div className="flex flex-wrap gap-2">
@@ -400,7 +403,7 @@ export function ResourceFiles({ context, trail }: { context: AssistantContext; t
           ) : null
         }
       />
-      <MachineGate
+      <MachineGate hasData={(listing.data?.length ?? 0) > 0}
         readiness={context.readiness}
         loading={context.machineLoading || listing.isLoading}
         error={context.machineError ?? listing.error}

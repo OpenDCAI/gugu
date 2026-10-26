@@ -76,7 +76,8 @@ export function updateDeviceSessions(deviceId: string, patch: Partial<DeviceSess
   publish({ ...live, [deviceId]: next })
 }
 
-/** Only a mounted desktop task pane requests polling; leaving the pane releases the last reader. */
+/** Explicit summary consumers, such as the member picker, retain phone reads.
+ * Account task panes do not retain this directory; the last consumer releases it. */
 export function requestPhoneTaskDirectory(): () => void {
   const state = directoryState()
   state.phoneReaders += 1

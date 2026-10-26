@@ -1,3 +1,6 @@
+import { useAssistantPanelIntegration } from '@/components/assistant/useAssistantPanelIntegration';
+import { assistantPanelFailure } from '@/components/assistant/assistant-panel-errors';
+import type { IntegrationMetadata } from '@renderer/features/integrations/integrations-provider';
 import { observer } from 'mobx-react-lite';
 import { useCallback, useState } from 'react';
 import { useTranslation } from 'react-i18next';
@@ -13,7 +16,7 @@ import { useShowModal } from '@renderer/lib/modal/modal-provider';
 import { connectorOrder } from './assistant-connector-order';
 import { accountNoteFor, homeWhere, useHomeLibraryHost } from './assistant-home-integrations';
 import { connectorState, type ConnectorState } from './assistant-connector-status';
-import { useReadFailure } from './assistant-read-failure';
+import { useAssistantReadError, useReadFailure } from './assistant-read-failure';
 
 /**
  * 全局设置「咕咕 → 连接应用」里「云端」那一段(owner 10-16:只有一个设置,咕咕的设置是它的一组):
@@ -46,8 +49,9 @@ const HomeConnectorList = observer(function HomeConnectorList({ host, home, assi
   const stateFor = (id: string) => connectorState(hasConfiguredConnections ? !!configuredConnections[id] : undefined, checkedConnections[id], configuredConnectionsError ?? connectionCheckError,host.assistantPanelExpected);
   const [openId, setOpenId] = useState<string | null>(null);
   const reload = useCallback(() => void reloadList(), [reloadList]);
-  const failure = useReadFailure(hasList ? null : listError, host.remote?.deviceId ?? null, host.remote?.deviceLabel ?? '', reload);
-  if (failure)
+  const readError = useAssistantReadError(!hasList && !integrations.length,listError,host.key);
+  const failure = useReadFailure(readError, host.remote?.deviceId ?? null, host.remote?.deviceLabel ?? '', reload);
+  if (failure && !integrations.length)
     return (
       <SettingsPage>
         <SettingsNote tone={failure.tone === 'danger' ? 'danger' : undefined}>{failure.text}</SettingsNote>
@@ -58,7 +62,7 @@ const HomeConnectorList = observer(function HomeConnectorList({ host, home, assi
         ) : null}
       </SettingsPage>
     );
-  if (!hasList) return <SettingsNote>{t('connectors.checking')}</SettingsNote>;
+  if (!hasList && !integrations.length) return <SettingsNote>{t('connectors.checking')}</SettingsNote>;
   if (openId) {
     const integration = integrations.find((i) => i.id === openId) ?? null;
     return (
@@ -84,7 +88,7 @@ const HomeConnectorList = observer(function HomeConnectorList({ host, home, assi
           data-testid={`assistant-connector-${integration.id}`}
           leading={<IntegrationIcon provider={integration.id} icon={integration.icon} size={28} />}
           title={integration.name}
-          description={detail}
+          description={detail || '\u00a0'}
           control={
             <span className="flex items-center gap-2">
               <Chip tone={state === 'connected' ? 'ok' : state === 'needsReauth' || state === 'checkFailed' ? 'warn' : 'default'}>{t(`connectors.${state}`)}</Chip>
@@ -103,6 +107,7 @@ const HomeConnectorList = observer(function HomeConnectorList({ host, home, assi
   };
   return (
     <SettingsPage data-testid="assistant-connectors-cloud">
+      {failure ? <SettingsNote><span role="status">{failure.text}</span></SettingsNote> : null}
       <SettingsNote className="ta-connector-location-note">{accountNoteFor(home, assistantName, t)}</SettingsNote>
       {connected.length ? (
         <SettingsGroup title={t('connectors.savedGroup')} data-testid="assistant-connectors-connected">
@@ -120,7 +125,7 @@ const ConnectorDetail = observer(function ConnectorDetail({
   host,
   home,
   assistantName,
-  integration,
+  integration: summary,
   state,
   account,
   onBack,
@@ -128,12 +133,14 @@ const ConnectorDetail = observer(function ConnectorDetail({
   host: LibraryHost;
   home: AssistantHomePlace;
   assistantName: string;
-  integration: { id: string; name: string; description?: string; icon?: unknown } | null;
+  integration: IntegrationMetadata | null;
   state: ConnectorState;
   account: string | null;
   onBack: () => void;
 }) {
   const { t } = useTranslation('assistant');
+  const detail = useAssistantPanelIntegration(host.assistantPanel,summary);
+  const integration = detail.data;
   const { isCheckingConfiguredConnections, configuredConnections } = useIntegrationsContext();
   const showIntegrationSetup = useShowModal('integrationSetupModal');
   const showConnectGitHub = useShowModal('githubConnectModal');
@@ -147,6 +154,7 @@ const ConnectorDetail = observer(function ConnectorDetail({
       </Button>
     </div>
   );
+  if (detail.error || detail.loading) return <SettingsPage>{back}<SettingsNote>{detail.error ? assistantPanelFailure(detail.error,t) : t('library.loading')}</SettingsNote></SettingsPage>;
   if (!integration)
     return (
       <SettingsPage>
