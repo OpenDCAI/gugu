@@ -7,14 +7,13 @@ import { findChrome, chromeArgs } from '../session/main/core/browser/cloud/chrom
 import { setupExtensionProtocol, type ExtensionBundle } from '../session/main/core/extensions/extension-protocol';
 import type { BackgroundRuntime } from '../session/main/core/extensions/extension-background';
 import { decideExtensionRequest, applyExtensionCorsGrant, extensionCorsRequest } from '../session/main/core/extensions/extension-network-policy';
-import { backgroundWire } from '../../src/session/shared/extensions/background-wire';
+import { backgroundWire, BACKGROUND_HOST_EVENT } from '../../src/session/shared/extensions/background-wire';
 import { APP_FRAME_MARKER, type FrameToHost, type HostToFrame } from '../../src/session/shared/extensions/app-runtime-protocol';
 import type { ExtensionHostEvent } from '../../src/session/shared/extensions/bridge-protocol';
 import { log } from '../session/main/lib/logger';
 import { extensionsService } from '../session/main/core/extensions/extensions-root';
 
 let nextId = 1;
-const EVENT = 'gugu-background-host';
 const mime: Record<string, string> = { '.js': 'text/javascript', '.mjs': 'text/javascript', '.css': 'text/css', '.html': 'text/html', '.htm': 'text/html', '.json': 'application/json', '.svg': 'image/svg+xml', '.png': 'image/png', '.wasm': 'application/wasm' };
 
 /** The same installed HTML, App runtime, bridge and resource policy, in a browser with no window. */
@@ -29,7 +28,7 @@ export function serverExtensionBackground(bundle: ExtensionBundle, entry: string
   const own = (url: string) => new URL(url).origin === origin;
   const post = async (frame: HostToFrame) => {
     if (!page || destroyed) return;
-    await page.evaluate(({ name, data }) => window.dispatchEvent(new CustomEvent(name, { detail: data })), { name: EVENT, data: backgroundWire(frame, true) });
+    await page.evaluate(({ name, data }) => window.dispatchEvent(new CustomEvent(name, { detail: data })), { name: BACKGROUND_HOST_EVENT, data: backgroundWire(frame, true) });
   };
   const tell = (frame: HostToFrame) => { void post(frame).catch((error: unknown) => log.error('Server App background event failed', { extensionId: bundle.extensionId, error })); };
   const runtime: BackgroundRuntime = {

@@ -1,8 +1,6 @@
 import { APP_FRAME_MARKER, SYNC_PORT_REQUEST, SYNC_PORT_WINDOW_MESSAGE, type FrameToHost, type HostToFrame } from '@shared/extensions/app-runtime-protocol';
-import { backgroundWire } from '@shared/extensions/background-wire';
+import { backgroundWire, BACKGROUND_HOST_EVENT } from '@shared/extensions/background-wire';
 import { messageHost } from './framed-host';
-
-export const BACKGROUND_HOST_EVENT = 'gugu-background-host';
 
 declare global {
   interface Window {

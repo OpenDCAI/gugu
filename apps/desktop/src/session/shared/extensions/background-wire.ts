@@ -1,3 +1,5 @@
+export const BACKGROUND_HOST_EVENT = 'gugu-background-host';
+
 /** JSON transports (Chromium's host binding) carry the same binary bridge values as IPC. */
 export function backgroundWire(value: unknown, encode: boolean): unknown {
   if (encode && value instanceof ArrayBuffer) return { guguBackgroundBytes: [...new Uint8Array(value)] };
