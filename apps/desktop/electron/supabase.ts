@@ -1,7 +1,8 @@
 import { createGuguSupabaseClient } from '@gugu/core/cloud/supabase'
 import { net } from 'electron'
 import WebSocket from 'ws'
-import { reconnectElectronRealtimeChannels } from './realtime-channel'
+import { pauseElectronRealtimeChannels, reconnectElectronRealtimeChannels } from './realtime-channel'
+import { createLogger } from './lib/logger'
 
 // #5331 主进程里所有云往返共用 Chromium 的连接池:已用过的空闲连接保活约 5 分钟,不像 Node 全局 fetch
 // (undici 默认 keepAliveTimeout 4 s)那样在两次新建会话之间断掉、下一发重握 0.95 s 的 TLS。
@@ -34,17 +35,42 @@ export async function refreshElectronSupabaseAuth(): Promise<void> {
 
 /** A suspended kernel preserves sockets that the server has already dropped.
  * Close them proactively; inbox REST reconciliation runs independently. */
-export async function resumeElectronSupabaseRealtime(): Promise<void> {
-  if (!cachedSupabase) return
-  // Realtime swallows access-token callback failures and reuses its cached JWT.
-  // Refresh through the account owner outside that callback before any new join;
-  // a suspended host's wall clock is not sufficient proof that its ticket is live.
-  const token = await currentAccessToken?.(true)
-  if (!token) throw new Error('Account authentication is unavailable after resume')
-  await cachedSupabase.realtime.setAuth(token)
-  await cachedSupabase.realtime.disconnect()
-  await reconnectElectronRealtimeChannels()
-  cachedSupabase.realtime.connect()
+let resumeFlight: Promise<void> | null = null
+export function resumeElectronSupabaseRealtime(): Promise<void> {
+  if (resumeFlight) return resumeFlight
+  const client = cachedSupabase, account = currentAccessToken
+  if (!client || !account) return Promise.resolve()
+  const run = (async () => {
+    const release = pauseElectronRealtimeChannels()
+    try {
+      await client.realtime.disconnect()
+      let attempt = 0
+      while (cachedSupabase === client && currentAccessToken === account) {
+        try {
+          // Realtime catches callback errors and reuses its cached JWT. Refresh
+          // outside that callback, with normal channel retries held behind us.
+          const token = await account(true)
+          if (currentAccessToken !== account || !token) return // signed out/replaced
+          await client.realtime.setAuth(token)
+          release()
+          await reconnectElectronRealtimeChannels()
+          client.realtime.connect()
+          return
+        } catch (error) {
+          const retryMs = [1_000, 2_000, 5_000, 10_000, 30_000][Math.min(attempt++, 4)]!
+          // No token or exception text: upstream errors can carry credentials.
+          createLogger('host-resume/auth').warn({ attempt, retryMs, reason: error instanceof Error ? error.name : 'unknown' }, 'Resume ticket renewal will retry')
+          await new Promise<void>(resolve => {
+            const timer = setTimeout(resolve, retryMs)
+            timer.unref?.()
+          })
+        }
+      }
+    } finally { release() }
+  })()
+  const tracked = run.finally(() => { if (resumeFlight === tracked) resumeFlight = null })
+  resumeFlight = tracked
+  return tracked
 }
 
 let cachedSupabase: ElectronSupabaseClient | null = null

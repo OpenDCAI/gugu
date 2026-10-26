@@ -19,7 +19,7 @@ afterEach(async () => {
   bindElectronSupabaseAuth(async () => null)
 })
 
-it('renews the account ticket before rejoining a real isolated private channel after suspension', async () => {
+it('recovers the private channel when renewal first fails after wake and later succeeds', async () => {
   const server = new WebSocketServer({ port: 0, host: '127.0.0.1' })
   await new Promise<void>(resolve => server.once('listening', resolve))
   const address = server.address() as { port: number }
@@ -42,8 +42,12 @@ it('renews the account ticket before rejoining a real isolated private channel a
   // The retained token is still cached by Realtime. Account refresh is owned by
   // the host; a library reconnect must not get to join before that refresh.
   let refreshed = false
+  let renewals = 0
   provider.mockImplementation(async forceRefresh => {
-    if (forceRefresh) refreshed = true
+    if (forceRefresh) {
+      if (++renewals === 1) throw new Error('isolated network is not ready after wake')
+      refreshed = true
+    }
     return refreshed ? 'fresh-ticket' : 'retained-ticket'
   })
   bindElectronSupabaseAuth(provider)
@@ -70,6 +74,7 @@ it('renews the account ticket before rejoining a real isolated private channel a
     await resumeElectronSupabaseRealtime()
     await waitFor('SUBSCRIBED')
     expect(provider).toHaveBeenCalledWith(true)
+    expect(renewals).toBe(2)
     expect(joins).toEqual(['retained-ticket', 'fresh-ticket'])
     // Closing the retained socket itself reports CHANNEL_ERROR. New joins must
     // all carry the renewed ticket, rather than repeatedly being rejected.
@@ -82,11 +87,16 @@ it('renews the account ticket before rejoining a real isolated private channel a
   }
 })
 
-it('does not rebuild channels using the SDK cached ticket when account renewal fails', async () => {
+it('stops recovery when its account provider is replaced without retaining the old socket', async () => {
+  vi.useFakeTimers()
   bindElectronSupabaseAuth(async () => { throw new Error('isolated refresh failed') })
   const disconnect = vi.spyOn(supabase.realtime, 'disconnect')
   try {
-    await expect(resumeElectronSupabaseRealtime()).rejects.toThrow('isolated refresh failed')
-    expect(disconnect).not.toHaveBeenCalled()
-  } finally { disconnect.mockRestore() }
+    const recovery = resumeElectronSupabaseRealtime()
+    await vi.advanceTimersByTimeAsync(1)
+    expect(disconnect).toHaveBeenCalled()
+    bindElectronSupabaseAuth(async () => null)
+    await vi.advanceTimersByTimeAsync(1_000)
+    await recovery
+  } finally { disconnect.mockRestore(); vi.useRealTimers() }
 })
