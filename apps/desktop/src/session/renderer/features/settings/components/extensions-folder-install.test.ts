@@ -23,6 +23,8 @@ const h = vi.hoisted(() => {
   const offline = async () => ({ success: false, error: 'offline' });
   const api = {
     list: vi.fn(answer({ extensions: [manifest('1.0.0')], invalid: [], icons: {}, disabled: [] })),
+    variants: vi.fn(answer({ active: 'upstream', variants: [], behind: null })),
+    switchVariant: vi.fn(),
     revoked: vi.fn(answer({ notes: ['files:read'] })),
     agentStatus: vi.fn(answer({})),
     marketUpdates: vi.fn(answer({ checkedAt: '2026-09-28T00:00:00.000Z', updates: {}, yanked: {}, deprecated: {} })),

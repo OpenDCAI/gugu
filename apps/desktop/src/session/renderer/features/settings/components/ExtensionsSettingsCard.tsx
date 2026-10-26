@@ -29,6 +29,7 @@ import { AppMarketContent, type AppMarketState } from '@renderer/features/extens
 import { appLifecycle } from '@renderer/features/extensions/panel/app-lifecycle';
 import type { AppLifecycle } from '@renderer/features/extensions/panel/app-lifecycle-button';
 import { AppProductPage, listOf, type ExtensionDetailSubject } from '@renderer/features/extensions/panel/app-product-page';
+import { appForkPrompt, type AppVariantRow } from '@renderer/features/extensions/panel/app-variant-list';
 import { InstalledAppRow } from '@renderer/features/extensions/panel/app-rows';
 import {
   InstalledRowNoticeLine,
@@ -67,6 +68,7 @@ import type { MarketRefreshed } from '@shared/extensions/market-snapshot';
 import { marketHome } from '@shared/extensions/market-home';
 import { chatDb } from '@/lib/supabase';
 import type { ExtensionManifest } from '@shared/extensions/manifest';
+import type { AppVariantsResult, ForkBehind } from '@shared/extensions/variants';
 import { remoteHostsStore } from '@renderer/features/remote-hosts/remote-hosts-store';
 
 /**
@@ -226,6 +228,7 @@ export const ExtensionsSettingsCard = observer(function ExtensionsSettingsCard()
 
   // #6387 各扩展给 agent 的程序:几个会话在用、最近一次没起来的原因。随清单一起读。
   const [agentStatus, setAgentStatus] = useState<Record<string, ExtensionAgentStatus>>({});
+  const [variantStates, setVariantStates] = useState<Record<string, AppVariantsResult>>({});
 
   const refresh = useCallback(async () => {
     try {
@@ -249,6 +252,12 @@ export const ExtensionsSettingsCard = observer(function ExtensionsSettingsCard()
       const agents = await api.agentStatus();
       if (!agents.success || !agents.data) throw new Error(agents.error ?? 'agent status unreadable');
       setAgentStatus(agents.data);
+      const variants = await Promise.all(store.manifests.map(async ({ id }) => {
+        const result = await api.variants(id);
+        if (!result.success || !result.data) throw new Error(result.error ?? 'App variants unreadable');
+        return [id, result.data] as const;
+      }));
+      setVariantStates(Object.fromEntries(variants));
       setInventoryError(null);
       setInventory('ready');
     } catch (error) {
@@ -573,6 +582,39 @@ export const ExtensionsSettingsCard = observer(function ExtensionsSettingsCard()
     [showConfirm]
   );
 
+  const switchVariant = async (manifest: ExtensionManifest, name: string) => {
+    if (inFlight.current[manifest.id]) return;
+    beginPending(manifest.id, 'inspecting');
+    try {
+      const handed = await api.switchVariant(manifest.id, name, { kind: 'return' });
+      if (!handed.success || !handed.data) throw new Error(handed.error ?? 'App variant unreadable');
+      if (handed.data.outcome !== 'ask') { await refresh(); return; }
+      const { ask, asks } = handed.data;
+      const complete = (enableIn?: string[]) => installing(
+        ask.manifest,
+        () => api.switchVariant(manifest.id, name, { kind: 'given', digest: ask.manifestDigest, ...(enableIn ? { enableIn } : {}) }),
+        () => void switchVariant(manifest, name),
+      );
+      if (!asks) { await complete(); return; }
+      const machine = remoteRef.current?.deviceLabel;
+      const prompt = installConsentPrompt(machine ? { ...ask, machine } : ask, ask.manifest);
+      await askToInstall(prompt, ask.manifestDigest, ask.places, complete, machine);
+    } catch (error) {
+      toast({ title: translateRef.current('extensions.switchFailed'), description: messageForUser(error), tier: 'error' });
+    } finally {
+      endPending(manifest.id);
+    }
+  };
+
+  const copyForkPrompt = async (manifest: ExtensionManifest, variant: AppVariantRow, update?: ForkBehind) => {
+    try {
+      await rpc.app.clipboardWriteText(appForkPrompt({ id: manifest.id, name: localizedManifestText(manifest, locale).name }, variant, update));
+      toast({ title: translate('extensions.promptCopied') });
+    } catch (error) {
+      toast({ title: translate('task.copyFailed'), description: messageForUser(error), tier: 'error' });
+    }
+  };
+
   /**
    * One way to ask, for every install here: with 「给哪些 agent」 (D-30) in the shell's sheet, else in the session page's own
    * dialog. `agreed` runs on a yes; this resolves once the shell's sheet is answered (the dialog answers on its own).
@@ -891,7 +933,7 @@ export const ExtensionsSettingsCard = observer(function ExtensionsSettingsCard()
     if (!updates) return null;
     if (updates.yanked[extensionId]) return 'yanked';
     if (updates.deprecated[extensionId]) return 'deprecated';
-    if (updates.updates[extensionId]) return 'update';
+    if (updates.updates[extensionId] || updates.forkBehind?.[extensionId]) return 'update';
     return null;
   };
   const noticeOf = (manifest: ExtensionManifest): InstalledRowNotice | undefined => {
@@ -903,6 +945,8 @@ export const ExtensionsSettingsCard = observer(function ExtensionsSettingsCard()
     if (deprecated) {
       return { kind: 'deprecated', note: deprecated.note, replacedBy: deprecated.replacedBy };
     }
+    const behind = updates.forkBehind?.[manifest.id];
+    if (behind) return { kind: 'forkBehind', ...behind };
     const update = updates.updates[manifest.id];
     if (update) return { kind: 'update', version: update.version, releaseNotes: update.releaseNotes };
     // No longer in the market: said on its row, not counted as something to do (there is nothing to do).
@@ -1065,6 +1109,8 @@ export const ExtensionsSettingsCard = observer(function ExtensionsSettingsCard()
   /** 已安装那一行名字下面那一句:有新版 / 撤回、停维(带下一步)/ 程序没起来 / 收回了几项 / 简介。 */
   const installedLine = (manifest: ExtensionManifest): ReactNode => {
     const notice = noticeOf(manifest);
+    const variants = variantStates[manifest.id];
+    const active = variants?.variants.find((variant) => variant.name === variants.active);
     if (notice?.kind === 'update') return <span>{translate('extensions.rowHasUpdate', { version: notice.version })}</span>;
     if (notice) {
       return (
@@ -1076,6 +1122,7 @@ export const ExtensionsSettingsCard = observer(function ExtensionsSettingsCard()
             translate={translate}
             onInstallVersion={(version) => void installFromShelf({ extensionId: manifest.id, version }, manifest.id)}
             onBrowseReplacement={() => notice.kind === 'deprecated' && notice.replacedBy && browseReplacement(notice.replacedBy)}
+            onCopyForkPrompt={active && notice.kind === 'forkBehind' ? () => void copyForkPrompt(manifest, active, notice) : undefined}
           />
         </span>
       );
@@ -1136,6 +1183,9 @@ export const ExtensionsSettingsCard = observer(function ExtensionsSettingsCard()
             readOnly={!!notice?.readOnly}
             justInstalled={justInstalled === detail.manifest.id && Boolean(installed)}
             notice={installed ? noticeOf(installed) : undefined}
+            variants={installed ? variantStates[installed.id] : undefined}
+            onSwitchVariant={installed ? (name) => void switchVariant(installed, name) : undefined}
+            onCopyForkPrompt={installed ? (variant, update) => void copyForkPrompt(installed, variant, update) : undefined}
             revoked={installed ? (revoked[installed.id] ?? []) : []}
             pendingPermissions={installed ? pendingPermissionsOf(installed.id) : []}
             agentStatus={installed ? agentStatus[installed.id] : undefined}
@@ -1335,7 +1385,7 @@ export const ExtensionsSettingsCard = observer(function ExtensionsSettingsCard()
                       <InstalledAppRow
                         key={manifest.id}
                         id={manifest.id}
-                        name={localizedManifestText(manifest, locale).name}
+                        name={`${localizedManifestText(manifest, locale).name}${variantStates[manifest.id]?.active && variantStates[manifest.id]!.active !== 'upstream' ? ` · ${variantStates[manifest.id]!.active}` : ''}`}
                         version={manifest.version}
                         line={installedLine(manifest)}
                         iconUrl={store.appIcons[manifest.id]}

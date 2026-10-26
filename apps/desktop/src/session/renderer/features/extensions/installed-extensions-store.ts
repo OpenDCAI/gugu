@@ -234,6 +234,7 @@ export class InstalledExtensionsStore {
     if (!this.updates) return 0;
     const ids = new Set<string>([
       ...Object.keys(this.updates.updates).filter((id) => this.isEnabled(id)),
+      ...Object.keys(this.updates.forkBehind ?? {}).filter((id) => this.isEnabled(id)),
       ...Object.keys(this.updates.yanked),
       ...Object.keys(this.updates.deprecated),
     ]);

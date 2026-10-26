@@ -1,13 +1,14 @@
 import { RadioGroup, RadioGroupItem } from '@renderer/lib/ui/radio-group';
+import type { ExtensionVariant, ForkBehind } from '@shared/extensions/variants';
 import type { SessionTranslate } from '../extension-consent';
 
 /** The fields this list displays; the host remains the owner of variant state. */
-export type AppVariantRow = { name: string; base: string; dir: string | null };
+export type AppVariantRow = Pick<ExtensionVariant, 'name' | 'base' | 'dir'>;
 
 export function appForkPrompt(
   app: { id: string; name: string },
   variant: AppVariantRow,
-  update?: { upstream: string; behind: number; commit: string },
+  update?: ForkBehind,
 ): string {
   const source = variant.dir ? ` Source directory: ${JSON.stringify(variant.dir)}.` : '';
   const subject = `${app.name} (${app.id}), fork ${JSON.stringify(variant.name)}.${source}`;
