@@ -36,13 +36,13 @@ const h = vi.hoisted(() => {
     installFromFolder: vi.fn(),
     uninstall: vi.fn(async () => ({ success: true })),
   };
-  return { manifest, api, clipboard: vi.fn(async (_text: string) => undefined), ranking: vi.fn(async () => ({ data: [], error: null })), showConfirm: vi.fn(), pickFolder: vi.fn(async () => '/tmp/notes-next') };
+  return { manifest, api, ranking: vi.fn(async () => ({ data: [], error: null })), showConfirm: vi.fn(), pickFolder: vi.fn(async () => '/tmp/notes-next') };
 });
 
 vi.mock('@/lib/supabase', () => ({ chatDb: { rpc: h.ranking } }));
 
 vi.mock('@renderer/lib/ipc', () => ({
-  rpc: { extensions: {}, app: { clipboardWriteText: h.clipboard } },
+  rpc: { extensions: {} },
   rpcOn: () => ({}),
   events: { on: () => () => undefined },
   onMachineEvent: () => () => undefined,
@@ -720,18 +720,5 @@ describe('App variant switching uses the existing install consent', () => {
     const prompt = h.showConfirm.mock.calls[0]![0] as { onSuccess: () => void };
     await act(async () => prompt.onSuccess());
     expect(h.api.switchVariant).toHaveBeenLastCalledWith('notes', 'upstream', { kind: 'given', digest: 'variant-digest' });
-  });
-
-  it('copies the exact upstream commit from the installed row without navigating away', async () => {
-    const commit = 'c'.repeat(40);
-    h.api.marketUpdates.mockResolvedValue({ success: true, data: { checkedAt: '2026-10-26T00:00:00Z', updates: {}, yanked: {}, deprecated: {}, forkBehind: { notes: { upstream: '1.2.0', behind: 2, commit } } } });
-    await render();
-    await showInstalled(dom);
-    await until('the fork update prompt link', () => !!doc().querySelector('[data-testid="extension-row-notes"] .xp-link'));
-    await press('[data-testid="extension-row-notes"] .xp-link');
-    expect(h.clipboard).toHaveBeenCalledOnce();
-    expect(h.clipboard.mock.calls[0]![0]).toContain(commit);
-    expect(h.clipboard.mock.calls[0]![0]).toContain('/work/notes@timeline');
-    expect(doc().querySelector('[data-testid="extensions-store"]')).not.toBeNull();
   });
 });

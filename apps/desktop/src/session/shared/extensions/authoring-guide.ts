@@ -991,7 +991,7 @@ App's detail page. No fork or data copying is needed to switch.
 ## Bring in an upstream update
 
 The App's row shows the upstream version and how many releases the active fork is behind.
-Its "Copy prompt" gives the App, variant, working directory and the target's exact commit.
+Pin the target to that upstream version's published commit.
 Read that repo's status first; preserve uncommitted work. Fetch \`upstream\` and merge the
 specified commit with git's three-way merge, resolving conflicts in the fork. Before merging,
 find its merge-base with the fork's HEAD and read the fork's diff from that base. List the
