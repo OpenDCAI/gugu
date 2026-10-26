@@ -2,7 +2,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { UI_EVENTS } from '@/lib/uiEvents';
 import { APP_OPEN_WITH_EVENT } from '@shared/extensions/app-runtime-protocol';
-import type { PanelItem } from '@renderer/features/chats/chat-tabs/chat-panel-item';
+import { groupPageSlot, type PanelItem } from '@renderer/features/chats/chat-tabs/chat-panel-item';
 
 const { tabs, showChatTab, updateFileNames } = vi.hoisted(() => ({
   tabs: [] as { tabId: string; inWindow: boolean; item: PanelItem }[], showChatTab: vi.fn(), updateFileNames: vi.fn(),
@@ -10,8 +10,6 @@ const { tabs, showChatTab, updateFileNames } = vi.hoisted(() => ({
 vi.mock('@renderer/features/chats/chat-tabs/chat-layouts', () => ({ panelTabsOf: () => tabs, showChatTab, updateFileNames }));
 
 const navigate = vi.fn();
-const chatOnScreen = vi.fn((): string | null => 'chat');
-vi.mock('@/lib/onScreenChat', () => ({ chatOnScreen }));
 vi.mock('@renderer/lib/stores/app-state', () => ({ appState: { navigation: { navigate } } }));
 vi.mock('@renderer/features/projects/stores/project-selectors', () => ({
   getProjectManagerStore: () => ({ projects: new Map() }),
@@ -24,8 +22,8 @@ vi.mock('./extension-surface-store', () => ({
 }));
 
 const { applyExtensionHostAction } = await import('./host-action-handlers');
-beforeEach(() => { vi.clearAllMocks(); tabs.length = 0; chatOnScreen.mockReturnValue('chat'); });
-afterEach(() => vi.unstubAllGlobals());
+beforeEach(() => { vi.clearAllMocks(); tabs.length = 0; });
+afterEach(() => { vi.unstubAllGlobals(); vi.restoreAllMocks(); });
 
 /**
  * R A/B 10-06: a banner's or a link's click that names no place opens the App's own page, which lives on the task
@@ -46,9 +44,12 @@ describe("a click that opens the App's own page brings the task page forward", (
 });
 
 describe('showing an already-open file while its metadata is checked', () => {
-  const origin = { extensionId: 'workspace', sessionId: null, tabId: 'folder' };
-  it('activates the existing file, then acknowledges presentation without resolving its link again', async () => {
+  const origin = { extensionId: 'workspace', sessionId: null, tabId: groupPageSlot('chat', 'folder') };
+  beforeEach(() => { tabs.push({ tabId: 'folder', inWindow: false, item: { kind: 'workspace.main', title: 'Group folder' } }); });
+  it('activates the existing file in a background window without resolving its link again', async () => {
     tabs.push({ tabId: 'held', inWindow: false, item: { kind: 'workspace.main', itemId: 'file', title: 'old' } });
+    vi.spyOn(document, 'visibilityState', 'get').mockReturnValue('hidden');
+    vi.spyOn(document, 'hasFocus').mockReturnValue(false);
     vi.stubGlobal('requestAnimationFrame', (callback: FrameRequestCallback) => { queueMicrotask(() => callback(0)); return 1; });
     expect(await applyExtensionHostAction({ origin, action: { kind: 'openChatFile', chatId: 'chat', itemId: 'file', onlyIfOpen: 'workspace.main' } })).toEqual({ chat: 'chat' });
     expect(showChatTab).toHaveBeenCalledWith('chat', 'held');
@@ -63,8 +64,7 @@ describe('showing an already-open file while its metadata is checked', () => {
 
   it('leaves a file in another chat to the ordinary opener that brings its chat up', async () => {
     tabs.push({ tabId: 'held', inWindow: false, item: { kind: 'workspace.main', itemId: 'file', title: 'old' } });
-    chatOnScreen.mockReturnValue(null);
-    expect(await applyExtensionHostAction({ origin, action: { kind: 'openChatFile', chatId: 'chat', itemId: 'file', onlyIfOpen: 'workspace.main' } })).toBeUndefined();
+    expect(await applyExtensionHostAction({ origin: { ...origin, tabId: groupPageSlot('other-chat', 'folder') }, action: { kind: 'openChatFile', chatId: 'chat', itemId: 'file', onlyIfOpen: 'workspace.main' } })).toBeUndefined();
     expect(showChatTab).not.toHaveBeenCalled();
   });
 
