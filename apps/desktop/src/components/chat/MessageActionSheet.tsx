@@ -1,11 +1,12 @@
 import { useTranslation } from 'react-i18next'
 import { useRef } from 'react'
+import { messageMenuModel, type MessageMenuCapabilities } from '@gugu/core/shared/ui/messageMenuModel'
 import { EmojiQuickPicker } from './EmojiQuickPicker'
 import { Button } from '../ui/Button'
 import { Sheet } from '../ui/Sheet'
 import { messageActionItems, type MessageActionTarget } from './messageActionItems'
 
-type MessageActionSheetProps = MessageActionTarget & {
+type MessageActionSheetProps = MessageActionTarget & MessageMenuCapabilities & {
   onReact: (emoji: string) => void
   onReply: () => void
   onClose: () => void
@@ -16,8 +17,9 @@ type MessageActionSheetProps = MessageActionTarget & {
  * 手机上长按消息打开的动作面板:表情回应 + 回复(桌面在悬停条上,手机没有悬停)+ 与桌面菜单同一份动作。
  * 做成 Sheet:遮罩、Esc、安卓返回键都走它的关闭路径,会话页退走前它先被返回键关掉。
  */
-export function MessageActionSheet({ onReact, onClose, selectableText, ...target }: MessageActionSheetProps) {
+export function MessageActionSheet({ hasHoverBar, onReact, onClose, selectableText, ...target }: MessageActionSheetProps) {
   const { t } = useTranslation('messaging')
+  const { showReactions } = messageMenuModel({ hasHoverBar })
   const textRef = useRef<HTMLDivElement>(null)
   const selectedText = () => {
     const selection = window.getSelection()
@@ -34,7 +36,7 @@ export function MessageActionSheet({ onReact, onClose, selectableText, ...target
             onCopy={(event) => { const text = selectedText(); if (text && target.onCopy) { event.preventDefault(); target.onCopy(text) } }}
           >{selectableText}</div>
         </> : null}
-        <EmojiQuickPicker onPick={onReact} onClose={onClose} disabled={target.isRetracted}>
+        <EmojiQuickPicker onPick={onReact} onClose={onClose} disabled={target.isRetracted || !showReactions}>
           <div className="flex flex-col border-t border-[var(--border-subtle)] pt-2">
             {rows.map((item) => (
               <Button
