@@ -59,10 +59,10 @@ export function dispatchTargetOf(to: unknown): DispatchTarget | null {
  * step is theirs — else the one the named target's delivery always needed. A bad `to` needs none: the call says what is wrong.
  */
 export function dispatchNeeds(args: { to?: unknown; draft?: unknown; spawn?: unknown }): ExtensionCapability | null {
+  if (named((args.spawn as { device?: unknown } | null)?.device)) return 'agents:control:all-machines';
   if (args.draft === true || !named(args.to) || typeof args.to !== 'object') return null;
   const to = args.to as { member?: unknown; agent?: unknown; new?: unknown };
   if (named(to.member)) return 'chat:relay';
-  if (to.new === true && named((args.spawn as { device?: unknown } | null)?.device)) return 'agents:control:all-machines';
   if (named(to.agent) || to.new === true) return 'agents:control';
   return null;
 }

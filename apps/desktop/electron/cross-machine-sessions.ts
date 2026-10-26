@@ -523,6 +523,7 @@ export function parseAgentSessionRequest(
     if (name === 'spawn') {
       try {
         const checked = dispatchCallOf({ text: action.prompt, to: { new: true }, spawn: action.spawn })
+        if (checked.spawn.device !== undefined) return { error: 'an App spawn is already routed to its device; spawn.device must be absent' }
         return {
           caller: { kind: 'app', deviceId, deviceLabel: text('deviceLabel'), extensionId, extensionName },
           action: { action: 'spawn', prompt: checked.text, spawn: checked.spawn },

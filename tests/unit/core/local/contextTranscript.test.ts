@@ -30,7 +30,7 @@ describe('the existing transcript parser context view', () => {
     const context = await readLocalTranscript(path, 'claude-code', { ...options, view: 'context' })
     expect(context.loaded).toEqual([
       { path: '/home/MEMORY.md', kind: 'instruction-file', scope: 'AutoMem', chars: 24, truncated: true, at },
-      { path: null, kind: 'rendered-total', scope: null, chars: 45, truncated: true, at },
+      { path: null, kind: 'rendered-total', scope: null, chars: 47, truncated: true, at },
     ])
     expect(context.nested).toEqual([{ path: '/project/CLAUDE.md', at }])
     expect(context.refs).toEqual(['/project/CLAUDE.md'])

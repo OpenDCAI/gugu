@@ -79,7 +79,7 @@ export function phoneDispatch(app: { extensionId: string; extensionName: string 
     },
     async spawn(prompt, spawn, selectedDevice) {
       const { device, ...options } = spawn
-      const deviceId = device !== undefined ? appDeviceId(device) : selectedDevice ?? spawnOn
+      const deviceId = selectedDevice ?? (device !== undefined ? appDeviceId(device) : spawnOn)
       if (!deviceId || !visibleMachines(workspaceDevices(readCachedDevices()), (device) => isAssistantHome(device, null)).some((device) => device.device_id === deviceId && device.is_online)) throw new AppSendError('failed', 'No online computer is available to start this agent')
       const receipt = await request(deviceId, { action: 'spawn', prompt, spawn: options })
       return receipt.agentId

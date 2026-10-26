@@ -42,10 +42,10 @@ in chats. Tools-only Apps need no HTML: \`apps-settings\` explains their host se
 
 More \`guide_read\` topics:
 - \`apps-page\` — the \`window.gugu\` API your page calls: the same wherever it is, and what each host has.
-- \`apps-agents\` — what the app is showing, and seeing and driving the person's agents.
-- \`apps-sessions\` — external CLI session index, normalized conversation and context metadata on a chosen computer (API 17).
+- \`apps-agents\` — app state and agents.
+- \`apps-sessions\` — external CLI history and context (API 17).
 - \`apps-programs\` — your own tools for agents (MCP programs, skills), called from your page too.
-- \`apps-files\` — \`gugu.files\`: a chat's files and a session's working copy, edited live together.
+- \`apps-files\` — \`gugu.files\`: chat files and working copies, edited live.
 - \`apps-editors\` — an editor (a textarea, CodeMirror), keeping others' letters.
 - \`apps-together\` — several people in one App at once: presence, a game loop, secrets.
 - \`apps-messages\` — your chats, who is in them, their messages.
@@ -473,11 +473,10 @@ export const follow = {
 
 Free — your own programs and data folder:
 
-- \`callProgram(tool, args?, { server?, device? })\` → calls a tool of your own MCP program and resolves its
-  result (\`{ content, structuredContent?, isError? }\`). Only tools whose \`_meta.ui.visibility\`
-  includes \`"app"\` (MCP Apps; absent: both): mark agent-only tools
-  \`["model"]\`, and page-only ones \`["app"]\` — agents never see those. \`server\` only when you
-  run several (the older server string still works). \`device:'device:<id>'\` chooses a computer without a task (API 17). Stamped \`"gugu/caller": "app"\`, the tab's session and its working copy, and on a page an agent
+- \`callProgram(tool, args?, { server?, device? })\` → your MCP tool's \`{ content, structuredContent?, isError? }\`.
+  \`_meta.ui.visibility\` must include \`"app"\` (absent: both); \`["model"]\` hides it from pages, \`["app"]\` from agents.
+  \`server\` selects one of several (a server string also works); API 17 \`device:'device:<id>'\` chooses a computer without a task.
+  Stamped \`"gugu/caller": "app"\`, the tab's session and its working copy, and on a page an agent
   works its \`"gugu/agent"\`. Refused while \`agents:tools\` is off.
   A tab of a session on another computer (\`ctx.session.deviceId\`) runs it THERE:
   \`not-installed\`, \`version-mismatch\`, \`unavailable\` (offline, too old, or silent 75 s: it may have run);
