@@ -1,4 +1,5 @@
 import './browser-user-agent-bootstrap'
+import { randomUUID } from 'node:crypto'
 import { registerFileViewerMenus } from './file-viewer-context-menu'
 import { configuredEndpoint } from '@gugu/core/cloud/attachmentsApi'
 import { createDesktopFileAccess } from './desktopFileAccess'
@@ -190,6 +191,9 @@ import {
   type GuguIdentity,
 } from '@gugu/core/local/agent/deliveryEnvelope'
 import { handleUnifiedSessionMessage, type UnifiedRecipientResult } from './unified-session-message'
+import { installAssistantWorkLedgerHost, enqueueAssistantWorkMessage } from './sessionpage/assistant-work-ledger'
+import { enqueueAssistantWorkReport } from '@gugu/core/cloud/assistantWorkReports'
+import { pickAssistant, type AssistantProvisionRow } from '@gugu/core/shared/assistantProvision'
 import { landTaskCardFirstTurn } from './sessionpage/task-card-first-turn'
 import { withQuestionCard } from './sessionpage/question-card'
 import {
@@ -452,7 +456,7 @@ import { openCloudDeviceRpcPipe, openSshDeviceRpcPipe } from './device-rpc-reque
 import { createDeviceRpcRequester } from '@gugu/core/cloud/deviceRpcRequester'
 import type { DeviceRpcHandlers } from '@gugu/core/cloud/deviceRpcResponder'
 import type { AssistantWorkRpcClient } from '@gugu/core/cloud/assistantWorkOutbox'
-import type { SessionAttachmentRef } from '@gugu/core/cloud/sessionAttachments'
+import type { SessionAttachmentRef, SessionFileInput } from '@gugu/core/cloud/sessionAttachments'
 import { createAssistantWorkOutboxHost, type AssistantWorkOutboxHost } from './assistant-work-outbox'
 import { subscribeAuthenticatedElectronRealtimeChannel } from './realtime-channel'
 import { CrossMachineError, createCrossMachineSessions, type CrossMachineSessions } from './cross-machine-sessions'
@@ -1679,7 +1683,8 @@ function assistantWorkDeliveryHost(): AssistantWorkOutboxHost {
     },
     warn: detail => createLogger('assistant-work/outbox').warn(detail, 'Task delivery will reconcile from the cloud queue'),
   })
-  app.once('will-quit', () => host.stop())
+  const offLedger = installAssistantWorkLedgerHost({ context, kick: () => host.kick() })
+  app.once('will-quit', () => { offLedger(); host.stop() })
   return (assistantWorkOutbox = host)
 }
 
@@ -4496,16 +4501,16 @@ app.whenReady().then(async () => {
       signal: AbortSignal,
     ): Promise<unknown> => {
       signal.throwIfAborted()
-      return handleUnifiedSessionMessage(record, {
-        prepareFiles: async (files, targets) => {
-          await crossMachine().assertFileHandoffSupported(targets.flatMap(target => target.deviceId ? [target.deviceId] : []))
+      const prepareFiles = async (files: SessionFileInput[], targets: Array<{sessionId: string; deviceId?: string; agentId?: string}>) => {
+          await crossMachine().assertFileHandoffSupported(targets.flatMap(target => target.deviceId && !target.agentId ? [target.deviceId] : []))
           const sender = await senderBinding(context, auth.userId)
           if (!sender.guguAgentUserId || !auth.accessToken) throw new Error('Session file handoff requires an Agent identity')
           const caller = await remoteCaller(auth, context)
           const remotePeers = new Map<string, Array<Record<string, unknown>>>()
           const recipients: string[] = []
           for (const target of targets) {
-            let agentId: string | null = null
+            let agentId: string | null = target.agentId ?? null
+            if (agentId) { recipients.push(agentId); continue }
             if (!target.deviceId) agentId = await guguAgentUserIdForSession(target.sessionId, process.env)
             else {
               if (!remotePeers.has(target.deviceId)) remotePeers.set(target.deviceId, await crossMachine().runOnDevice(target.deviceId, caller, { action: 'peers' }, signal) as Array<Record<string, unknown>>)
@@ -4519,6 +4524,28 @@ app.whenReady().then(async () => {
           const endpoint = configuredEndpoint(auth.accessToken)
           signal.throwIfAborted()
           return uploadSessionFiles(endpoint, files, { agentId: sender.guguAgentUserId, sessionId: context.sessionId, recipients, beforeCommit: async () => signal.throwIfAborted() })
+      }
+      return handleUnifiedSessionMessage(record, {
+        prepareFiles,
+        localDeviceId: () => crossMachine().thisDevice().then(row => row.deviceId),
+        enqueueWork: enqueueAssistantWorkMessage,
+        enqueueReport: async report => {
+          const current = await assistantWorkDeliveryHost().context()
+          if (!current || current.ownerId !== auth.userId) throw new Error('Work account changed')
+          const identity = makeIdentityClient(auth.accessToken!)
+          const { data, error } = await identity.from('agent_provisions').select('agent_user_id,device_id,member_key,phase,created_at')
+            .eq('owner_user_id', auth.userId).eq('member_key', 'assistant')
+          if (error) throw error
+          const assistant = pickAssistant((data ?? []) as AssistantProvisionRow[])
+          if (!assistant) throw new Error('Personal assistant is not available')
+          const receipt = await enqueueAssistantWorkReport({
+            rpc: (name, args) => current.client.rpc(name, args),
+            prepare: (files, target) => prepareFiles(files, [target]),
+            resolveNumbers: async numbers => (await crossMachine().messageDeps(() => remoteCaller(auth, context), signal).locateAgents({userIds: [],numbers})).numberToUserId,
+            id: randomUUID,
+          }, {assistantId:assistant.agentId,runtimeInstanceId:current.runtimeInstanceId,deviceId:current.deviceId,sessionId:context.sessionId,record:report})
+          void assistantWorkDeliveryHost().kick()
+          return receipt
         },
         graphMessage: async (sessionIds, text, said) => await emdash.runSessionAction(
           context,
