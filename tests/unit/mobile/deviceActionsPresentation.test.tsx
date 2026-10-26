@@ -30,6 +30,7 @@ it('does not mark a cached available action as usable while the device is offlin
   expect(row.textContent).toContain('离线')
   expect(row.textContent).not.toContain('可用')
   expect(h.container.querySelector('[data-testid="settings-device-actions-back"]')).toBeNull()
+  expect(h.container.textContent).not.toContain('Remote')
   await h.render(<DeviceActionsPage device={device(true)} isThisDevice={false} embedded />)
   expect(h.container.querySelector('[data-testid="settings-device-action-other-calendar"]')?.textContent).toContain('可用')
 })
