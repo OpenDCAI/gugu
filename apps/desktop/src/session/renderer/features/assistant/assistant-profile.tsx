@@ -3,33 +3,32 @@ import { useEffect, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { Avatar } from '@/components/Avatar';
 import { AssistantNameInline } from '@/components/assistant/AssistantNameInline';
-import { ChevronRight, Folder, Pencil, Plus } from '@/lib/icons';
+import { ChevronRight, Link, Monitor, Pencil } from '@/lib/icons';
 import { MarkdownRenderer } from '@renderer/lib/ui/markdown-renderer';
-import { UI_EVENTS } from '@/lib/uiEvents';
 import { readAssistantShellBridge } from '@/lib/assistantShellBridge';
-import type { ActiveSection } from '@gugu/core/shared/enums/settingsSectionModels';
 import type { AssistantPageProps } from './assistant-context';
 import { AssistantDiaryDetail, AssistantDiaryList } from './assistant-diary';
 import { useTodayFeedView } from './assistant-today';
-import { useDirectory } from './assistant-data';
-import { RESOURCES_DIR_NAME } from './assistant-files';
 import { ResourceFiles } from './assistant-memory-page';
 import { CustomizeDialog, usePersona } from './assistant-personality';
-import { ShellSlot } from './assistant-shell';
+import { ShellSlot, useAssistantShell } from './assistant-shell';
+import { useAssistantPanelPage } from '@/lib/assistantPanelPage';
+import { usePhoneRead } from '@/mobile/assistant/usePhoneRead';
+import { readAssistantPanelIntegrations } from '@/components/assistant/assistant-panel-integrations';
+import { useChatChannels } from '@/components/settings/channels/useChatChannels';
+import { assistantConnectedApps, chatAppConnected } from '@/components/assistant/assistant-app-connections';
 import { AssistantRow, AssistantSection, PageHead } from './assistant-ui';
 import { AssistantLibraryCard, AssistantLibraryVolume } from '@/components/assistant/AssistantLibraryVolume';
 
 /**
- * <它的名字> 这一格(资料页):头像(右下一支笔 = 自定义)、名字、「从某天起陪伴你」、性格胶囊、给助理的资料;
- * 应用和连接状态直接展开,复用设置中的同一个连接组件;详情、授权也走原来的数据与操作。
+ * <它的名字> 这一格(资料页):头像、名字、性格胶囊,以及连接应用、设备、能力三个入口;
+ * 应用入口复用设置中的同一个连接组件;详情、授权也走原来的数据与操作。
  */
-function openSettings(section: ActiveSection) {
-  window.dispatchEvent(new CustomEvent(UI_EVENTS.openSettings, { detail: { section } }));
-}
 
 export const AssistantProfilePage = observer(function AssistantProfilePage({ context }: AssistantPageProps) {
   const sub = context.route.sub ?? '';
-  if (sub === 'library:capabilities' || sub === 'library:devices') return <AssistantLibraryVolume key={sub} assistantId={context.assistant.id} machine={context.machine} kind={sub === 'library:capabilities' ? 'capabilities' : 'devices'} askInChat={context.askInChat} />;
+  if (sub === 'library:capabilities') return <AssistantLibraryVolume key={sub} assistantId={context.assistant.id} machine={context.machine} kind='capabilities' askInChat={context.askInChat} />;
+  if (sub === 'library:devices') return <ShellPage slot="devices" title="devices.title" />;
   if (sub === 'settings') return <ShellPage slot="settings" title="nav.settings" />;
   if (sub === 'devices') return <ShellPage slot="devices" title="devices.title" />;
   if (sub === 'connectors') return <ShellPage slot="connectors" title="connectors.title" />;
@@ -59,10 +58,11 @@ function DiaryPage({ context, sub }: AssistantPageProps & { sub: string }) {
 /** 设备:壳那棵树里的组件(设置里同一份逻辑与数据),画进格子、在这里换助理 App 的样子(.ta-skin)。 */
 function ShellPage({ slot, title }: { slot: 'devices' | 'connectors' | 'settings'; title: string }) {
   const { t } = useTranslation('assistant');
+  const innerPage = useAssistantPanelPage();
   return (
     <div className="ta-page" data-testid={`assistant-slot-${slot}`}>
       {/* 页头(大标题);头一句说明由壳那一侧的组件带(让 X 帮你操作以下设备)。 */}
-      <PageHead title={t(title)} />
+      {!innerPage && <PageHead title={t(title)} />}
       <ShellSlot name={slot} className="ta-skin" />
     </div>
   );
@@ -77,17 +77,17 @@ const ProfileHome = observer(function ProfileHome({ context, openCustomize = fal
   }, [openCustomize]);
   const { assistant } = context;
   const persona = usePersona(context);
-  const resources = useDirectory(context.machine, context.machine?.paths.resourcesDir ?? null);
-  const fileCount = (resources.data ?? []).filter((entry) => !entry.name.startsWith('.')).length;
+  const shell = useAssistantShell();
+  const panel = context.machine?.panel;
+  const apps = usePhoneRead(panel ? `profile-apps|${context.assistant.id}` : null, () => readAssistantPanelIntegrations(panel!, i18n.language), 'read application connections');
+  const chat = useChatChannels();
+  const connectedCount = apps.state === 'ok' ? assistantConnectedApps(apps.data.items, chat.list, id => id, '').filter(app => chatAppConnected(app) || apps.data.statuses[app.id]?.connected).length : null;
   const since = assistant.created_at
     ? new Intl.DateTimeFormat(i18n.language, { year: 'numeric', month: 'long', day: 'numeric' }).format(new Date(assistant.created_at))
     : null;
   const chip = persona.preset ? t(`customize.preset.${persona.preset}`) : persona.rest ? t('customize.custom') : t('customize.setCharacter');
   return (
     <div className="ta-page" data-testid="assistant-profile">
-      <div className="flex justify-end">
-        <button type="button" className="ta-circle" aria-label={t('files.upload')} title={t('files.upload')} onClick={() => context.go({ tab: 'profile', sub: 'files' })} data-testid="assistant-profile-add"><Plus /></button>
-      </div>
       <div className="ta-hero">
         <button type="button" className="ta-hero-avatar" onClick={() => setCustomizing(true)} aria-label={t('customize.title')} data-testid="assistant-profile-edit">
           <Avatar name={assistant.display_name} avatarUrl={assistant.avatar} seed={assistant.id} size={72} canvasPaddingX={24} isAgent harnessBadge={false} hoverPoke />
@@ -105,24 +105,11 @@ const ProfileHome = observer(function ProfileHome({ context, openCustomize = fal
         </button>
       </div>
 
-      <AssistantSection testId="assistant-profile-resources">
-        <AssistantRow leading={<Folder />} title={RESOURCES_DIR_NAME}
-          detail={resources.isSuccess ? t('memory.items', { n: fileCount }) : resources.isLoading ? t('library.loading') : t('library.failed')}
-          onClick={() => context.go({ tab: 'profile', sub: 'files' })} testId="assistant-profile-files" />
-      </AssistantSection>
-
-      <AssistantSection title={t('connectors.title')} testId="assistant-profile-connectors" bare>
-        <ShellSlot name="connectors" className="ta-skin ta-profile-connectors" />
-      </AssistantSection>
-      <AssistantSection title={t('capabilities.title')} testId="assistant-capabilities">
+      <AssistantSection testId="assistant-profile-entries">
+        <AssistantRow leading={<Link />} title={t('connectors.title')} detail={connectedCount === null ? undefined : t('connectors.connectedCount', { count: connectedCount })}
+          onClick={() => context.go({ tab: 'profile', sub: 'connectors' })} testId="assistant-profile-connectors" />
+        <AssistantRow leading={<Monitor />} title={t('library.devices')} detail={shell?.deviceCount === undefined ? undefined : t('connectors.deviceCount', { count: shell.deviceCount })} onClick={() => context.go({ tab: 'profile', sub: 'devices' })} testId="assistant-library-devices" />
         <AssistantLibraryCard assistantId={context.assistant.id} machine={context.machine} kind="capabilities" onOpen={() => context.go({ tab: 'profile', sub: 'library:capabilities' })} />
-        <AssistantLibraryCard assistantId={context.assistant.id} machine={context.machine} kind="devices" onOpen={() => context.go({ tab: 'profile', sub: 'library:devices' })} />
-        <AssistantRow
-          title={t('channels.title')}
-          detail={t('channels.note', { name: assistant.display_name })}
-          onClick={() => openSettings('channels')}
-          testId="assistant-open-channels"
-        />
       </AssistantSection>
 
       {customizing ? (

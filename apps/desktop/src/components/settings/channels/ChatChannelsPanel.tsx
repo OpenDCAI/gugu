@@ -139,7 +139,7 @@ function DefaultChannelPicker({ channels, onPick }: { channels: ChatChannel[]; o
   )
 }
 
-function ConnectedChannels({ client, list, apply }: { client: ChatChannelsClient; list: ChatChannelList; apply: (next: ChatChannelList) => void }) {
+export function ConnectedChannels({ client, list, apply }: { client: ChatChannelsClient; list: ChatChannelList; apply: (next: ChatChannelList) => void }) {
   const { t } = useTranslation('settings')
   const agents = useOwnedAgents()
   const time = useTimeLabel()
