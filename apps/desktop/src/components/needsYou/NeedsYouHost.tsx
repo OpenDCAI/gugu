@@ -40,10 +40,12 @@ function taskKey(task: NeedsYouTask): string {
 }
 
 /** One actionable entrance to the existing pending settlements, over every shell page. */
-export const NeedsYouHost = observer(function NeedsYouHost() {
+export const NeedsYouHost = observer(function NeedsYouHost({ onNeedsUserChange }: { onNeedsUserChange?: (waiting: boolean) => void }) {
   const { t } = useTranslation()
   const mobile = useMobileShell()
   const { tasks: waiting, error } = useNeedsYouTasks()
+  const needsUser = waiting.length > 0
+  useEffect(() => { onNeedsUserChange?.(needsUser) }, [onNeedsUserChange, needsUser])
   const phone = useSyncExternalStore(onPhoneAppState, readPhoneAppView)
   const embedded = useSyncExternalStore(subscribeEmbedVisibility, isEmbedVisible)
   const slots = readShellSlots()

@@ -44,7 +44,6 @@ import { useOpenNewSessionOnDeviceHost } from '../components/sessionpage/openNew
 import { MobileCreatePage } from '../components/MobileAgentCreatePage'
 import { AcpAgentCreateComposer } from '../components/AcpAgentCreateComposer'
 import type { ActiveSection } from '@gugu/core/shared/enums/settingsSectionModels'
-import type { AgentAttention } from '@gugu/core/shared/agentStatus'
 import { ResizableChatListPane } from './ResizableChatListPane'
 import {
   readStoredChatListPaneWidth,
@@ -165,7 +164,7 @@ function InnerLayout({
   useSessionpageReveal(setActiveTab)
   // @@@sessionpage otty-state — the most urgent way a 会话页 agent is blocked on the human (needs_user over error),
   // pushed from the session backend; dots the 消息 rail cell so a stuck agent is visible without opening the session page.
-  const [sessionAttention, setSessionAttention] = useState<AgentAttention>(null)
+  const [needsUser, setNeedsUser] = useState(false)
   const [mobilePane, setMobilePane] = useState<'list' | 'chat'>('list')
   const [settingsModalOpen, setSettingsModalOpen] = useState(false)
   // @@@1507 设置面板初始 section;侧栏「额度」直接开到 quota,齿轮入口回 account。
@@ -850,18 +849,6 @@ function InnerLayout({
     return () => window.removeEventListener(UI_EVENTS.sessionpageDeliverFailed, handleSessionpageDeliverFailed)
   }, [contacts, t])
 
-  // @@@sessionpage otty-state — the consolidated attention from the session backend (agents blocked on the human).
-  // Drives the 消息 rail dot. main broadcasts on subscribe + on every change.
-  useEffect(() => {
-    const handleSessionpageAttention = (event: Event) => {
-      const detail = (event as CustomEvent).detail
-      if (detail !== null && detail !== 'needs_user' && detail !== 'error') throw new Error(`unexpected session attention: ${String(detail)}`)
-      setSessionAttention(detail)
-    }
-    window.addEventListener(UI_EVENTS.sessionpageAttention, handleSessionpageAttention)
-    return () => window.removeEventListener(UI_EVENTS.sessionpageAttention, handleSessionpageAttention)
-  }, [])
-
   // @@@sessionpage 分享 — 会话页头部点了「分享这个 agent 的名片」:main 只转达 agentUserId + 名字,咕咕号与
   // 头像从**通讯录同一份数据**取(自有 agent 就在 contacts 里),再交给既有的 SharePosterDialog 出卡片 ——
   // 与「群里点 agent 头像 → 名片 → 分享」走的是同一个组件、同一种 QR,不另做一套。
@@ -1201,7 +1188,7 @@ function InnerLayout({
           onTabChange={selectTab}
           settingsOpen={settingsModalOpen}
           pendingContactsCount={pendingRequestCount}
-          sessionAttention={sessionAttention}
+          sessionAttention={needsUser ? 'needs_user' : null}
         />
       )}
 
@@ -1475,7 +1462,7 @@ function InnerLayout({
       <ExtensionForwardHost />
       {/* 摩擦单 F6: an install is consented to here, over whatever view is on screen. */}
       <ExtensionConsentSheet />
-      <NeedsYouHost />
+      <NeedsYouHost onNeedsUserChange={setNeedsUser} />
 
       {/* @@@822 frameless 自绘窗口控制(Windows/Linux 右上角 min/max/close);Mac/web 自渲染为 null。
           ⚠️ **必须挂在整棵壳的最后** —— Electron 把 Blink 收集到的 drag / no-drag 矩形按 **DOM 序**

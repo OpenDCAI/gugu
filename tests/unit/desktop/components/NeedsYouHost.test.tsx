@@ -168,3 +168,14 @@ it('has no floating entry on a page without a composer slot', async () => {
   await renderWithAppProviders(harness, <><main>Settings</main><NeedsYouHost /></>)
   expect(document.querySelector('[data-testid="needs-you-trigger"]')).toBeNull()
 })
+
+it('reports waiting tasks to the existing rail even when the current task has its own approval', async () => {
+  const onNeedsUserChange = vi.fn()
+  state.pages = [{ projectId: 'project', sessionId: 'task' }]
+  await renderWithAppProviders(harness, <NeedsYouHost onNeedsUserChange={onNeedsUserChange} />)
+  expect(onNeedsUserChange).toHaveBeenLastCalledWith(true)
+  expect(document.querySelector('[data-testid="needs-you-trigger"]')).toBeNull()
+  state.tasks = []
+  await renderWithAppProviders(harness, <NeedsYouHost onNeedsUserChange={onNeedsUserChange} />)
+  expect(onNeedsUserChange).toHaveBeenLastCalledWith(false)
+})
