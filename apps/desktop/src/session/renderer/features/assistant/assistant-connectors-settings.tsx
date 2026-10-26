@@ -1,8 +1,9 @@
 import { useAssistantPanelIntegration } from '@/components/assistant/useAssistantPanelIntegration';
 import { assistantPanelFailure } from '@/components/assistant/assistant-panel-errors';
-import { assistantConnectedApps, chatAppConnected, type AssistantConnectedApp } from '@/components/assistant/assistant-app-connections';
+import { assistantConnectedApps, type AssistantConnectedApp } from '@/components/assistant/assistant-app-connections';
 import { useChatChannels } from '@/components/settings/channels/useChatChannels';
-import { ChannelAppConnection } from '@/components/settings/channels/ChannelAppConnection';
+import { WechatAppConnection } from '@/components/settings/channels/WechatAppConnection';
+import { AppConnectionHero,AppConnectionListPlaceholder } from '@/components/assistant/AppConnectionHero';
 import { ChannelBrandIcon } from '@/components/settings/channels/ChannelBrandIcon';
 import { useAssistantPanelBack } from '@/lib/assistantPanelPage';
 import { observer } from 'mobx-react-lite';
@@ -46,17 +47,18 @@ const HomeConnectorList = observer(function HomeConnectorList({ host, home, assi
   const reload = useCallback(() => void reloadList(), [reloadList]);
   const readError = useAssistantReadError(!hasList && !integrations.length, listError, host.key);
   const failure = useReadFailure(readError, host.remote?.deviceId ?? null, host.remote?.deviceLabel ?? '', reload);
-  const apps = assistantConnectedApps(connectorOrder(integrations, i18n.language), chats.list, kind => settings(`channels.${kind}`), t('connectors.chatDescription'));
+  const apps = assistantConnectedApps(connectorOrder(integrations, i18n.language), chats.list, kind => settings(`channels.${kind}`), t('connectors.wechatDescription'), stateFor, configuredConnections);
   if (openId) {
     const app = apps.find(item => item.id === openId);
     return app ? <ConnectorDetail host={host} home={home} assistantName={assistantName} app={app} state={stateFor(openId)} account={connectionStatus[openId]?.displayName ?? null} panelNavigation={panelNavigation} onBack={() => setOpenId(null)} /> : null;
   }
   if (!hasList && !integrations.length) return <SettingsPage>
-    <SettingsNote tone={failure?.tone === 'danger' ? 'danger' : undefined}>{failure?.text ?? t('connectors.checking')}</SettingsNote>
+    <AppConnectionListPlaceholder />
+    <SettingsNote tone={failure?.tone === 'danger' ? 'danger' : undefined}>{failure?.text}</SettingsNote>
     {failure?.retry ? <div><Button size="sm" onClick={failure.retry}>{t('machine.retry')}</Button></div> : null}
   </SettingsPage>;
-  const isConnected = (app: AssistantConnectedApp) => chatAppConnected(app) || !!app.integration && stateFor(app.id) === 'connected';
-  const isSaved = (app: AssistantConnectedApp) => !!configuredConnections[app.id] || !!app.channel;
+  const isConnected = (app: AssistantConnectedApp) => app.state === 'connected';
+  const isSaved = (app: AssistantConnectedApp) => app.saved;
   const groups = [
     { key: 'connected', title: t('connectors.connectedGroup'), items: apps.filter(isConnected) },
     { key: 'saved', title: t('connectors.savedGroup'), items: apps.filter(app => !isConnected(app) && isSaved(app)) },
@@ -67,9 +69,9 @@ const HomeConnectorList = observer(function HomeConnectorList({ host, home, assi
     <SettingsNote className="ta-connector-location-note">{accountNoteFor(home, assistantName, t)}</SettingsNote>
     {groups.filter(group => group.items.length).map(group => <SettingsGroup key={group.key} title={group.title} data-testid={`assistant-connectors-${group.key}`}>
       {group.items.map(app => <SettingsRow key={app.id} data-testid={`assistant-connector-${app.id}`} className="ta-application-row"
-        leading={app.integration ? <IntegrationIcon provider={app.id} icon={app.integration.icon} size={32} /> : app.chatKind ? <ChannelBrandIcon kind={app.chatKind} size={32} /> : undefined}
+        leading={app.integration ? <IntegrationIcon provider={app.id} icon={app.integration.icon} size={32} /> : app.id === 'wechat' ? <ChannelBrandIcon kind="wechat" size={32} /> : undefined}
         title={app.name} description={app.description || <span aria-hidden="true">&nbsp;</span>}
-        control={group.key === 'saved' ? <span className="gg-settings-row-value">{t(`connectors.${app.integration ? stateFor(app.id) : app.channel?.health.state === 'starting' ? 'checking' : 'needsReauth'}`)}</span> : <ChevronRight size={16} className="gg-settings-row-chevron" aria-hidden />}
+        control={group.key === 'saved' ? <span className="gg-settings-row-value">{t(`connectors.${app.state}`)}</span> : <ChevronRight size={16} className="gg-settings-row-chevron" aria-hidden />}
         onClick={() => setOpenId(app.id)} />)}
     </SettingsGroup>)}
   </SettingsPage>;
@@ -91,18 +93,14 @@ const ConnectorDetail = observer(function ConnectorDetail({ host, home, assistan
   return <SettingsPage data-testid="assistant-connector-detail">
     {!panelNavigation ? <div><Button variant="ghost" size="sm" onClick={onBack} data-testid="assistant-connector-back"><ChevronLeft size={16} aria-hidden />{t('connectors.title')}</Button></div> : null}
     <PageHead title={integration?.name ?? app.name} />
-    {app.integration ? <SettingsGroup title={app.id === 'feishu' || app.chatKind ? t('connectors.readWritePurpose', { app: integration?.name ?? app.name }) : undefined}>
-      {detail.error || detail.loading ? <SettingsNote role={detail.error ? 'alert' : undefined}>{detail.error ? assistantPanelFailure(detail.error, t) : t('library.loading')}</SettingsNote>
-        : integration ? <div className="ta-connector-hero">
-          <IntegrationIcon provider={integration.id} icon={integration.icon as never} size={56} />
-          {integration.description ? <p>{integration.description}</p> : null}
-          <Button variant={state === 'connected' ? 'secondary' : 'primary'} size="sm"
-            disabled={state === 'checking' || (isCheckingConfiguredConnections && !(integration.id in configuredConnections))}
-            onClick={() => integration.id === 'github' ? showConnectGitHub({ host }) : showIntegrationSetup({ integration: integration.id, host })} data-testid="assistant-connector-connect">
-            {t(state === 'connected' ? 'connectors.manage' : configured ? 'connectors.reconnect' : 'connectors.connect')}
-          </Button>
-        </div> : <SettingsNote>{t('connectors.gone')}</SettingsNote>}
-    </SettingsGroup> : null}
+    {app.integration ? <>
+      <AppConnectionHero icon={<IntegrationIcon provider={app.id} icon={(integration ?? app.integration).icon as never} size={56} />}
+        description={(integration ?? app.integration).description} loading={detail.loading}
+        label={t(state === 'connected' ? 'connectors.manage' : configured ? 'connectors.reconnect' : 'connectors.connect')}
+        disabled={state === 'checking' || (isCheckingConfiguredConnections && !(app.id in configuredConnections))}
+        onConnect={() => app.id === 'github' ? showConnectGitHub({ host }) : showIntegrationSetup({ integration: app.id, host })} />
+      {detail.error && !integration ? <SettingsNote role="alert">{assistantPanelFailure(detail.error, t)}</SettingsNote> : null}
+    </> : null}
     {configured ? <SettingsGroup title={t('connectors.connection', { name: integration?.name ?? app.name })}>
       <SettingsRow title={t('connectors.status')} control={<span className="gg-settings-row-value">{t(`connectors.${state}`)}</span>} />
       {account ? <SettingsRow title={t('connectors.account')} control={<span className="gg-settings-row-value">{account}</span>} /> : null}
@@ -117,7 +115,7 @@ const ConnectorDetail = observer(function ConnectorDetail({ host, home, assistan
       })}>{t('connectors.disconnect')}</Button>
       {disconnectError ? <SettingsNote role="alert" tone="danger">{disconnectError}</SettingsNote> : null}
     </SettingsGroup> : null}
-    {app.chatKind ? <ChannelAppConnection kind={app.chatKind} name={integration?.name ?? app.name} /> : null}
+    {app.id === 'wechat' ? <WechatAppConnection /> : null}
     {app.integration ? <SettingsGroup title={t('connectors.usableOn')}>
       {home.kind === 'cloud' ? <SettingsRow leading={<Cloud size={16} />} title={where} description={t('connectors.cloudWhereNote', { name: assistantName })} />
         : <SettingsRow leading={<Monitor size={16} />} title={where} description={t('connectors.accountWhereNote', { name: assistantName, device: where })} />}

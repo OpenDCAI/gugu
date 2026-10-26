@@ -7,9 +7,9 @@ import { readAssistantPanelIntegration } from './assistant-panel-integrations'
 
 export function useAssistantPanelIntegration(panel: AssistantPanelFiles | undefined,summary: IntegrationMetadata | null | undefined) {
   const { resolvedLocale } = useLocale()
-  const query = useQuery({ queryKey: ['assistant',panel?.ownerId,panel?.assistantId,'integration-detail',summary?.id,resolvedLocale],
-    queryFn: () => withAssistantPanelReadDeadline(() => readAssistantPanelIntegration(panel!,summary!.id,resolvedLocale)),
-    enabled: !!panel && summary?.metadataOnly === true,retry: retryAssistantPanelRead,
+  const query = useQuery({ queryKey: ['assistant',panel?.ownerId,panel?.assistantId,'integration-detail',summary?.id,summary?.catalogVersion,resolvedLocale],
+    queryFn: () => withAssistantPanelReadDeadline(() => readAssistantPanelIntegration(panel!,summary!.id,resolvedLocale,summary?.catalogVersion)),
+    enabled: !!panel && summary?.metadataOnly === true,staleTime: summary?.catalogVersion ? Infinity : 0,retry: retryAssistantPanelRead,
     refetchOnWindowFocus: q => isAssistantPanelReadRetryable(q.state.error),
     refetchInterval: q => q.state.error && isAssistantPanelReadRetryable(q.state.error) ? 30_000 : false,
   })

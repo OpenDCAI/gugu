@@ -47,8 +47,8 @@ const plugin = defineIntegrationPlugin(
           login: 'device-link',
           prerequisite: {
             text: {
-              en: 'Your organization admin must first turn on CLI access: DingTalk Developer Platform → CLI Access Management → Enable. If it is off, the DingTalk page lets you send the admin a request.',
-              'zh-CN': '需要组织管理员先开启「CLI 访问」：钉钉开发者后台 → CLI 访问管理 → 开启。没开的话，授权页上可以点「立即申请」通知管理员。',
+              en: 'Ask your organization admin to allow access, then confirm authorization in DingTalk.',
+              'zh-CN': '请先让组织管理员允许访问，再在钉钉确认授权。',
             },
             url: 'https://open-dev.dingtalk.com',
           },

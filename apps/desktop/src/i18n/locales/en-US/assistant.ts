@@ -708,13 +708,12 @@ export default {
     "title": "Capabilities and connections"
   },
   "connectors": {
+    "wechatDescription": "Talk to Gugu in WeChat",
+    "paused": "Paused",
+    "retrying": "Reconnecting",
     "savedCount": "{{count}} added",
     "connectedCount": "{{count}} connected",
     "deviceCount": "{{count}} devices",
-    "readWritePurpose": "Let it read and write {{app}}",
-    "chatPurpose": "Find it in {{app}}",
-    "chatDescription": "Chat with your assistant",
-    "chatUnavailable": "Chat connections are not available for this app yet.",
     "unverified": "Not yet verified",
     "prepareFailed": "Authorization preparation is unavailable.",
     "authorizationUnavailable": "The cloud service needed for authorization is unavailable.",
@@ -772,7 +771,7 @@ export default {
     "disconnectAccountBody": "Only {{account}} is disconnected; other accounts are not affected.",
     "setup": {
       "downloadProgress": "Download progress",
-      "progressUnreadable": "Download progress is unavailable; installation is still running.",
+      "progressUnreadable": "Preparing the connection…",
       "installing": "Verifying and installing…",
       "downloading": "Preparing download…",
       "downloadBytes": "Downloaded {{received}} / {{total}} MB",

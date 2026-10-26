@@ -20,7 +20,7 @@ import type { IntegrationFormInput } from './types';
 export const ISSUE_CONNECTION_STATUS_QUERY_KEY = ['issues:connection-status'] as const;
 export const INTEGRATIONS_LIST_QUERY_KEY = ['integrations:list'] as const;
 
-export type IntegrationMetadata = Awaited<ReturnType<typeof rpc.integrations.list>>[number] & { metadataOnly?: true; summaryNameMissing?: boolean };
+export type IntegrationMetadata = Awaited<ReturnType<typeof rpc.integrations.list>>[number] & { metadataOnly?: true; summaryNameMissing?: boolean; catalogVersion?: string };
 export type CliLoginStartResult = Awaited<ReturnType<typeof rpc.integrations.cliLoginStart>>;
 export type CliLoginWaitResult = Awaited<ReturnType<typeof rpc.integrations.cliLoginWait>>;
 
@@ -147,8 +147,11 @@ export function IntegrationsProvider({ children }: { children: React.ReactNode }
   const configuredConnections = configuredData ?? {};
 
   const invalidateStatuses = useCallback(() => {
+    // A completed authorization invalidates both the file snapshot and all visible consumers.
+    // The host's subsequent publication uses the same event when authorization finishes elsewhere.
+    host.assistantPanel?.invalidate();
     void queryClient.invalidateQueries({ queryKey: statusKey });
-  }, [queryClient, statusKey]);
+  }, [queryClient, statusKey, host.assistantPanel]);
 
   const setIntegrationMutating = useCallback((integrationId: string, isMutating: boolean) => {
     setMutatingIntegrationIds((current) => {

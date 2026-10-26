@@ -18,7 +18,7 @@ export async function readAssistantPanelIntegrations(panel: AssistantPanelFiles,
   const snapshot = await panel.snapshot()
   const catalog = rows.filter(row => row.resource_key.startsWith('catalog:'))
   const items: IntegrationMetadata[] = catalog.map(row => ({
-    id: String(row.data.providerId),...integrationListCopy(String(row.data.providerId),row.data.displayName,row.data.description,locale),
+    id: String(row.data.providerId),catalogVersion: row.body_sha256 ?? row.revision,...integrationListCopy(String(row.data.providerId),row.data.displayName,row.data.description,locale),
     websiteUrl: '',features: [],disconnectCredentialLabel: undefined,
     capabilities: { requiresRepositoryUrl: false,supportsIssueContext: false },auth: { methods: [] },
     icon: integrationIcons[String(row.data.providerId)] ?? { kind: 'svg',variants: [] },abilities: [],playbooks: [],multiAccount: false,metadataOnly: true,
@@ -46,14 +46,35 @@ export async function readAssistantPanelIntegrations(panel: AssistantPanelFiles,
   return { items,configured,statuses,accounts,accountChecks }
 }
 
-/** Only the selected catalog entry needs its localized setup description. */
-export async function readAssistantPanelIntegration(panel: AssistantPanelFiles,id: string,locale: string): Promise<IntegrationMetadata> {
+type DetailEntry = { version: string | undefined; promise: Promise<IntegrationMetadata>; value?: IntegrationMetadata }
+const integrationDetails = new WeakMap<AssistantPanelFiles, Map<string, DetailEntry>>()
+export function cachedAssistantPanelIntegration(panel: AssistantPanelFiles | undefined,id: string | undefined,locale: string,version: string | undefined) {
+  if (!panel || !id || !version) return undefined
+  const entry = integrationDetails.get(panel)?.get(`${id}|${locale}`)
+  return entry?.version === version ? entry.value : undefined
+}
+
+/** Content versions share an in-flight read and a parsed result; account state is never cached here. */
+export async function readAssistantPanelIntegration(panel: AssistantPanelFiles,id: string,locale: string,version?: string): Promise<IntegrationMetadata> {
+  const key = `${id}|${locale}`
+  const entries = integrationDetails.get(panel) ?? new Map<string, DetailEntry>()
+  integrationDetails.set(panel,entries)
+  const previous = entries.get(key)
+  if (version && previous?.version === version) return previous.promise
   const row = (await panel.collection('integrations')).find(row => row.resource_key === `catalog:${id}`)
   if (!row) throw new Error('PANEL_INTEGRATION_UNAVAILABLE')
-  const data = JSON.parse(new TextDecoder('utf-8',{ fatal: true }).decode(await panel.body(row)))
-  const item = data[locale === 'zh-CN' ? 'zh-CN' : 'en'] as IntegrationMetadata
-  if (data.version !== 1 || !item || item.id !== id || typeof item.name !== 'string' || item.description !== undefined && typeof item.description !== 'string' || !Array.isArray(item.auth?.methods)) throw new Error('PANEL_INTEGRATION_UNAVAILABLE')
-  return { ...item,...integrationListCopy(id,item.name === id ? row.data.displayName : item.name,item.description,locale),icon: integrationIcons[id] ?? item.icon }
+  const actualVersion = row.body_sha256 ?? row.revision
+  const current = entries.get(key)
+  if (actualVersion && current?.version === actualVersion) return current.promise
+  const entry: DetailEntry = { version: actualVersion, promise: Promise.resolve().then(async () => {
+    const data = JSON.parse(new TextDecoder('utf-8',{ fatal: true }).decode(await panel.body(row)))
+    const item = data[locale === 'zh-CN' ? 'zh-CN' : 'en'] as IntegrationMetadata
+    if (data.version !== 1 || !item || item.id !== id || typeof item.name !== 'string' || item.description !== undefined && typeof item.description !== 'string' || !Array.isArray(item.auth?.methods)) throw new Error('PANEL_INTEGRATION_UNAVAILABLE')
+    return { ...item,...integrationListCopy(id,item.name === id ? row.data.displayName : item.name,item.description,locale),icon: integrationIcons[id] ?? item.icon }
+  }) }
+  entries.set(key,entry)
+  try { entry.value = await entry.promise; return entry.value }
+  catch (error) { if (entries.get(key) === entry) entries.delete(key); throw error }
 }
 
 /** Missing names and descriptions are optional enrichment. Four workers avoid queuing
@@ -66,7 +87,7 @@ export async function enrichAssistantPanelIntegrations(panel: AssistantPanelFile
     while (active() && next < missing.length) {
       const item = missing[next++]!
       try {
-        const detail = await readAssistantPanelIntegration(panel,item.id,locale)
+        const detail = await readAssistantPanelIntegration(panel,item.id,locale,item.catalogVersion)
         if (active()) updated(item.id,{ name: detail.name,description: detail.description || item.description || '' })
       } catch { /* A missing description never hides its row or asks for a retry. */ }
     }

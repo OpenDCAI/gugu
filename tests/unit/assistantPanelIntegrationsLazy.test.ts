@@ -102,3 +102,24 @@ it('keeps an unknown catalog display name and never uses its id as a name after 
  expect(updated).not.toHaveBeenCalled()
  expect(result.items.every(item=>item.name!==item.id)).toBe(true)
 })
+
+
+it('shares selected metadata reads and invalidates only a changed content version or locale',async () => {
+ const {readAssistantPanelIntegration,cachedAssistantPanelIntegration}=await import('../../apps/desktop/src/components/assistant/assistant-panel-integrations')
+ let version='one'
+ const collection=vi.fn(async()=>[{resource_key:'catalog:custom',body_sha256:version,data:{providerId:'custom'}}])
+ const body=vi.fn(async()=>new TextEncoder().encode(JSON.stringify({version:1,en:{id:'custom',name:'Company app',auth:{methods:[]}},'zh-CN':{id:'custom',name:'公司应用',auth:{methods:[]}}})))
+ const panel={collection,body} as unknown as AssistantPanelFiles
+ await Promise.all([readAssistantPanelIntegration(panel,'custom','en-US','one'),readAssistantPanelIntegration(panel,'custom','en-US','one')])
+ expect(body).toHaveBeenCalledTimes(1)
+ expect(cachedAssistantPanelIntegration(panel,'custom','en-US','one')?.name).toBe('Company app')
+ const reads=collection.mock.calls.length
+ await readAssistantPanelIntegration(panel,'custom','en-US','one')
+ expect(collection).toHaveBeenCalledTimes(reads)
+ version='two'
+ expect(cachedAssistantPanelIntegration(panel,'custom','en-US','two')).toBeUndefined()
+ await readAssistantPanelIntegration(panel,'custom','en-US','two')
+ await readAssistantPanelIntegration(panel,'custom','zh-CN','two')
+ expect(body).toHaveBeenCalledTimes(3)
+ expect(cachedAssistantPanelIntegration({...panel} as AssistantPanelFiles,'custom','en-US','two')).toBeUndefined()
+})

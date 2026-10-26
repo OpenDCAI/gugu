@@ -708,13 +708,12 @@ export default {
     "title": "能力与连接"
   },
   "connectors": {
+    "wechatDescription": "在微信里和咕咕聊天",
+    "paused": "已暂停",
+    "retrying": "正在恢复",
     "savedCount": "已添加 {{count}} 个",
     "connectedCount": "已连接 {{count}} 个",
     "deviceCount": "{{count}} 台设备",
-    "readWritePurpose": "让它读写{{app}}",
-    "chatPurpose": "在{{app}}里找到它",
-    "chatDescription": "和咕咕聊天",
-    "chatUnavailable": "此应用暂未开放聊天连接",
     "unverified": "尚未验证",
     "prepareFailed": "暂时无法完成授权准备。",
     "authorizationUnavailable": "暂时无法使用授权所需的云端服务。",
@@ -772,7 +771,7 @@ export default {
     "disconnectAccountBody": "只会断开 {{account}}，其他账号不受影响。",
     "setup": {
       "downloadProgress": "下载进度",
-      "progressUnreadable": "暂时读不到下载进度，安装仍在进行。",
+      "progressUnreadable": "正在准备连接…",
       "installing": "正在校验并安装…",
       "downloading": "正在准备下载…",
       "downloadBytes": "已下载 {{received}} / {{total}} MB",

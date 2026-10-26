@@ -7,7 +7,7 @@ import {
   systemPermissionRows,
   useSystemPermissionStates,
 } from '../../lib/systemPermissions'
-import { ChevronRight } from '@/lib/icons'
+import { Bell, Image, File, Gauge, Mic, ChevronRight } from '@/lib/icons'
 import { SettingsGroup, SettingsNote, SettingsPage, SettingsRow } from './SettingsPrimitives'
 import { platform } from '@/platform'
 import { useAuth } from '@/store/auth'
@@ -92,6 +92,7 @@ function SystemPermissionsSection() {
               aria-disabled={state === undefined || pending !== null}
               data-testid={`settings-permission-${row.permission}`}
               data-permission-state={state}
+              leading={(() => { const Icon = { notifications: Bell, camera: Image, microphone: Mic, fileAccess: File, batteryOptimization: Gauge }[row.permission]; return <span className="grid size-7 shrink-0 place-items-center rounded-[var(--radius-control)] bg-foreground/[0.06]"><Icon size={16} /></span> })()}
               title={t(row.labelKey)}
               description={t(row.purposeKey)}
               // 与「我的」入口列表同一种行尾:状态 + ›,整行可点。

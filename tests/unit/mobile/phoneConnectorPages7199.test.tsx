@@ -52,6 +52,7 @@ function makeRpc() {
       accounts: vi.fn(async (_id: string): Promise<unknown[]> => []),
       cliLoginStart: vi.fn(async (_id: string): Promise<unknown> => ({ success: true, prompt: { kind: 'device-link', url: 'https://login.dingtalk.com/?user_code=AB-12', code: 'AB-12' } })),
       cliLoginWait: vi.fn(async (_id: string): Promise<unknown> => ({ status: 'connected' })),
+      cliLoginProgress: vi.fn(async () => null),
       cancelAuthorization: vi.fn(async (_id: string): Promise<unknown> => undefined),
     },
     github: {
@@ -76,6 +77,7 @@ function pageProps(id: string, options: { configured?: Record<string, boolean>; 
     retry,
     go,
     props: { assistant, chatId: 'chat-1', ownerName: null, homeDeviceId: "cloud-1", readiness: 'ready', machine: { state: 'ready',machine: { deviceId: 'cloud-1',projectId: 'panel',workspaceId: 'dm',paths: { memoryDir: 'memory' },panel: {
+      invalidate: vi.fn(),
       collection: async () => {
         const rows = id === 'github' ? await rpc.github.listAccounts() : await rpc.integrations.accounts(id)
         return (rows.length ? rows : options.configured?.[id] && !catalog.find(item => item.id === id)?.multiAccount ? [{ accountId: 'default' }] : []).map((raw: unknown) => {
@@ -166,7 +168,7 @@ describe('详情页', () => {
     const page = pageProps('feishu')
     await render(PhoneConnectorDetail, page.props)
     await waitForCondition(() => !!q('assistant-connector-connect'), 'Feishu data detail loaded')
-    expect(q('assistant-connector-detail')!.textContent).toContain('让它读写飞书')
+    expect(q('assistant-connector-detail')!.textContent).not.toContain('让它读写飞书')
     expect(q('assistant-app-chat-feishu')).toBeNull()
     expect(q('assistant-connector-detail')!.textContent).not.toContain('在飞书里找到它')
     expect(q('assistant-connector-detail')!.textContent).not.toContain('此应用暂未开放聊天连接')

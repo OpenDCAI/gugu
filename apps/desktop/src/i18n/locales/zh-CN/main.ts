@@ -465,7 +465,7 @@ export default {
       "off": "未开启",
       "offPrompt": "未开启，点击开启",
       "offBlocked": "未开启，去系统设置开启",
-      "unknown": "查不到，去系统设置看",
+      "unknown": "去系统设置查看",
       "settingsUnreachable": "跳不到系统设置。请自己打开系统设置，找到咕咕，把「{{name}}」打开。",
       "readFailed": "读不到系统的权限状态，请回到这一页再看一次。"
     },

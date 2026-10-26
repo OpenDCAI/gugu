@@ -4,7 +4,7 @@ import { splitInstructions, splitPersona } from '@/session/renderer/features/ass
 import { readText } from '@/session/renderer/features/assistant/assistant-machine-core'
 import type { IntegrationMetadata } from '@/session/renderer/features/integrations/integrations-provider'
 import type { ConnectionStatus } from '@/session/shared/issue-providers'
-import { readAssistantPanelIntegrations,readAssistantPanelIntegration } from '@/components/assistant/assistant-panel-integrations'
+import { cachedAssistantPanelIntegration,readAssistantPanelIntegrations,readAssistantPanelIntegration } from '@/components/assistant/assistant-panel-integrations'
 import { machineKey, usePhoneRead } from './usePhoneRead'
 import type { PhoneMachineState } from './phoneMachine'
 import type { Persona } from './phoneProfileModel'
@@ -62,9 +62,10 @@ export function usePhoneIntegrations(machine: PhoneMachineState, active: boolean
 export function usePhoneIntegrationDetail(machine: PhoneMachineState,summary: IntegrationMetadata | null | undefined) {
   const { resolvedLocale } = useLocale()
   const panel = machine.state === 'ready' ? machine.machine.panel : undefined
-  const read = usePhoneRead(panel && summary?.metadataOnly ? `integration-detail|${panel.ownerId}|${panel.assistantId}|${summary.id}|${resolvedLocale}` : null,
-    () => readAssistantPanelIntegration(panel!,summary!.id,resolvedLocale),'read selected application')
-  return { data: summary?.metadataOnly ? read.state === 'ok' ? read.data : null : summary,
-    error: summary?.metadataOnly && read.state === 'error' ? read.error : null,
-    loading: summary?.metadataOnly === true && read.state === 'loading',reload: read.reload }
+  const cached = cachedAssistantPanelIntegration(panel,summary?.id,resolvedLocale,summary?.catalogVersion)
+  const read = usePhoneRead(panel && summary?.metadataOnly && !cached ? `integration-detail|${panel.ownerId}|${panel.assistantId}|${summary.id}|${summary.catalogVersion ?? ''}|${resolvedLocale}` : null,
+    () => readAssistantPanelIntegration(panel!,summary!.id,resolvedLocale,summary?.catalogVersion),'read selected application')
+  return { data: summary?.metadataOnly ? cached ?? (read.state === 'ok' ? read.data : null) : summary,
+    error: !cached && summary?.metadataOnly && read.state === 'error' ? read.error : null,
+    loading: summary?.metadataOnly === true && !cached && read.state === 'loading',reload: read.reload }
 }

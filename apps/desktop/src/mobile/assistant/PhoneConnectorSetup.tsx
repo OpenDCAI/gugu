@@ -97,7 +97,8 @@ export function PhoneConnectorSetupPage({
   const connected = (displayName?: string) => {
     if (rpc) void reportAssistantAppChange({ rpc }, assistant.id, { resource: 'integrations', operation: 'saved', id,
       deviceId: homeDeviceId ?? undefined, after: { name: view?.item.name ?? id } })
-    // 连上了:重读一遍连接状态,回详情页时已是「已连接 + 账号」。
+    // Clear the shared snapshot too; an immediate read must not reuse pre-authorization state.
+    if (machine.state === 'ready') machine.machine.panel?.invalidate()
     integrations.retry()
     setDone({ ...(displayName ? { displayName } : {}) })
   }

@@ -215,7 +215,7 @@ export function ThisDeviceActions({ onBack, bare = false, panelNavigation = fals
         </span>
       )}
       description={text.description(group.id)}
-      control={<ChevronRight size={16} />}
+      control={<><span className="gg-settings-row-value">{t(group.blocked ? group.blocked.reason === 'os_permission' ? 'devices.deviceActions.statusBlocked' : 'devices.deviceActions.statusUnsupported' : group.connected ? 'devices.deviceActions.statusConnected' : 'devices.deviceActions.statusNotConnected')}</span><ChevronRight size={16} /></>}
       onClick={() => setOpenGroup(group.id)}
     />
   )

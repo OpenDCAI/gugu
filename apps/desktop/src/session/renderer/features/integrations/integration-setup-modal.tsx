@@ -3,7 +3,7 @@ import { assistantPanelFailure } from '@/components/assistant/assistant-panel-er
 import { useTranslation } from 'react-i18next';
 import { rendererLogger } from '@/lib/log';
 import { messageForUser } from '@/lib/userFacingError';
-import { CheckCircle, Copy, ExternalLink, Eye, EyeOff, Info } from '@/lib/icons'
+import { CheckCircle, Copy, ExternalLink, Eye, EyeOff } from '@/lib/icons'
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useToast } from '@renderer/lib/hooks/use-toast';
 import { type BaseModalProps } from '@renderer/lib/modal/modal-provider';
@@ -66,7 +66,7 @@ function IntegrationSetupModalBody({ integration, editAccount, onSuccess, onClos
   return (
     <>
       <DialogHeader className="flex-col items-start gap-1" showCloseButton={false}>
-        <DialogTitle>
+        <DialogTitle className="leading-6">
           {metadata
             ? translate(editAccount ? 'integrations.editCredentialsTitle' : 'integrations.connectTitleFor', {
                 name: metadata.name,
@@ -337,36 +337,16 @@ function IntegrationCliLogin({
           )
         ) : (
           <>
-            <p className="text-sm text-foreground-muted">
-              {remote
+            <p className="text-sm leading-6 text-foreground-muted">
+              {method.prerequisite?.text ?? (remote
                 ? translate('integrations.cliDescriptionOnDevice', { name: metadata.name, device: remote.deviceLabel })
-                : translate('integrations.cliDescription', { name: metadata.name })}
+                : translate('integrations.cliDescription', { name: metadata.name }))}
+              {method.prerequisite?.url ? <Button variant="link" size="xs" className="ml-1 h-auto p-0 text-xs" onClick={() => openUrl(method.prerequisite!.url!)}>
+                {translate('integrations.cliPrerequisiteLink')}<ExternalLink className="ml-1 size-3" />
+              </Button> : null}
             </p>
-            {method.prerequisite ? (
-              <div className="flex items-start gap-2 rounded-lg border border-border bg-background-secondary px-3 py-2">
-                <Info className="h-4 w-4 shrink-0 text-foreground-muted" />
-                <div className="grid gap-1">
-                  {/* @@@raw prerequisite copy — 插件元数据里的中英两份,主进程已按界面语言挑好。 */}
-                  <p className="text-xs text-foreground">{method.prerequisite.text}</p>
-                  {method.prerequisite.url ? (
-                    <Button
-                      variant="link"
-                      size="xs"
-                      className="h-auto justify-start p-0 text-xs"
-                      onClick={() => openUrl(method.prerequisite!.url!)}
-                    >
-                      {translate('integrations.cliPrerequisiteLink')}
-                      <ExternalLink className="ml-1 h-3 w-3" />
-                    </Button>
-                  ) : null}
-                </div>
-              </div>
-            ) : null}
             {phase === 'starting' ? (
-              <div className="grid gap-2">
-                <p className="text-xs text-foreground-muted">{translate('integrations.cliPreparing', { name: metadata.name })}</p>
-                <CliInstallProgress read={readProgress} />
-              </div>
+              <CliInstallProgress read={readProgress} />
             ) : null}
           </>
         )}

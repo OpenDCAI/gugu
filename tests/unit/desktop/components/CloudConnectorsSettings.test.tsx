@@ -203,7 +203,7 @@ it('disconnects only the data purpose after confirmation, leaving chat managemen
   await render()
   await clickElement(q('assistant-connector-feishu')!)
   expect(q('assistant-app-chat-feishu')).toBeNull()
-  expect(harness.container.textContent).toContain('让它读写飞书')
+  expect(harness.container.textContent).not.toContain('让它读写飞书')
   expect(harness.container.textContent).not.toContain('此应用暂未开放聊天连接')
   await clickElement(q('assistant-connector-disconnect')!)
   expect(disconnectIntegration).not.toHaveBeenCalled()
