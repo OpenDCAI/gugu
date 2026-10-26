@@ -1015,7 +1015,7 @@ async function cite(current = state.current, picks = state.picks, held = state.h
   }
 }
 
-// Register each file surface with the host's native menu. Cite keeps the App's existing refs/line fingerprints.
+// The shared content menu keeps the App's existing refs/line fingerprints and editor history.
 function bindFileMenu(current) {
   for (const id of ['editor', 'preview']) {
     const root = $(id)
@@ -1026,7 +1026,8 @@ function bindFileMenu(current) {
         const picks = (id === 'editor' ? !picksInPreview : picksInPreview) ? [...state.picks] : []
         pending = { requestId: detail.requestId, picks, held: [...state.held], source: { entry: { ...current.entry }, file: { type: current.file.type, text: current.file.text } } }
         detail.selection = { text: picks.map(pick => pick.text).join('\n') }
-        detail.editable = false
+        detail.editable = id === 'editor' && !!current.view && !current.view.state.readOnly
+        if (detail.editable && current.file.type !== 'text') detail.editorHistory = { undo: state.cm.commands.undoDepth(current.view.state) > 0, redo: state.cm.commands.redoDepth(current.view.state) > 0 }
         detail.customSelectAll = id === 'editor'
       } else if (pending?.requestId === detail.requestId) {
         const captured = pending
@@ -1034,6 +1035,9 @@ function bindFileMenu(current) {
         if (detail.action === 'select-all') {
           current.view?.dispatch({ selection: { anchor: 0, head: current.view.state.doc.length } })
           current.view?.focus()
+        } else if (detail.action === 'undo' || detail.action === 'redo') {
+          current.view?.focus()
+          if (current.view && !current.view.state.readOnly) state.cm.commands[detail.action](current.view)
         } else if (detail.action === 'quote-selection' || detail.action === 'quote-file') {
           void cite(captured.source, captured.picks, captured.held, detail.action === 'quote-file')
         }

@@ -14,6 +14,7 @@ export interface FileViewerSnapshot {
   edit?: (action: FileViewerEditAction) => void;
   editable?: boolean;
   enabled?: FileViewerMenuRequest['enabled'];
+  editorHistory?: FileViewerMenuRequest['editorHistory'];
 }
 
 /** A single binding per viewer; callbacks and editor selections are captured before the menu takes focus. */
@@ -36,6 +37,10 @@ export function bindFileViewerMenu(
       detail.customEditing = Boolean(current.edit);
       if (current.editable !== undefined) detail.editable = current.editable;
       if (current.enabled) detail.enabled = { ...detail.enabled, ...current.enabled };
+      if (current.editorHistory) {
+        if (!current.edit) throw new Error('Editor history requires its editing commands');
+        detail.editorHistory = current.editorHistory;
+      }
       return;
     }
     if (!pending || pending.requestId !== detail.requestId) return;

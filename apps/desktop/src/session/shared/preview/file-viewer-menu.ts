@@ -1,9 +1,10 @@
 import { textContextMenuItems, type TextContextMenu } from '../text-context-menu';
 import type { ContentMenuEntry } from '../content-context-menu';
+import type { EditorMenuHistory } from '@gugu/session-shared/content-menu';
 
 /** The host file menu addresses the viewer that was right-clicked, including App pages. */
 export const FILE_VIEWER_ATTRIBUTE = 'data-gugu-file-viewer';
-export const FILE_VIEWER_MENU_EVENT = 'gugu:file-viewer-menu';
+export { CONTENT_MENU_EVENT as FILE_VIEWER_MENU_EVENT } from '@gugu/session-shared/content-menu';
 
 export interface FileViewerSelection {
   text: string;
@@ -22,6 +23,7 @@ export interface FileViewerMenuRequest {
   customEditing?: boolean;
   editable?: boolean;
   enabled?: TextContextMenu['enabled'];
+  editorHistory?: EditorMenuHistory;
 }
 
 export interface FileViewerMenuLabels {
@@ -35,9 +37,10 @@ export interface FileViewerMenuLabels {
   paste: string;
 }
 
-export function fileViewerMenuItems(context: FileViewerMenuRequest, labels: FileViewerMenuLabels, run: (action: FileViewerMenuAction | 'copy') => void | Promise<void>) {
+export function fileViewerMenuItems(context: FileViewerMenuRequest, labels: FileViewerMenuLabels, run: (action: FileViewerMenuAction | 'copy') => void | Promise<void>, editorHistory?: TextContextMenu['editorHistory']) {
   const options: TextContextMenu = {
     labels, selectionText: context.selection.text, canSelectAll: context.canSelectAll, enabled: context.enabled,
+    editorHistory: editorHistory ?? (context.editorHistory ? { enabled: context.editorHistory, undo: () => run('undo'), redo: () => run('redo') } : undefined),
     actions: { copy: () => run('copy'), selectAll: () => run('select-all'), ...(context.editable ? {
       undo: () => run('undo'), redo: () => run('redo'), cut: () => run('cut'), paste: () => run('paste'),
     } : {}) },

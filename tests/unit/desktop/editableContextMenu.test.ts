@@ -4,6 +4,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest'
 import { registerFileViewerMenus } from '../../../apps/desktop/electron/file-viewer-context-menu'
 import { captureEditableContext } from '../../../apps/desktop/electron/editable-context-menu'
 import type { ContentMenuEntry } from '@/session/shared/content-context-menu'
+import { CONTENT_MENU_EVENT } from '@gugu/session-shared/content-menu'
 
 const showMenu = vi.hoisted(() => vi.fn())
 vi.mock('../../../apps/desktop/electron/content-context-menu', () => ({ showContentContextMenu: showMenu }))
@@ -39,7 +40,18 @@ function source() {
 
 describe('editable content menus', () => {
   it('opens the shared menu for an unmarked input and restores its captured selection before host paste', async () => {
-    const { contents, frame, other, paste } = source()
+    const { target, contents, frame, other, paste } = source()
+    const undo = vi.fn()
+    const nativeUndo = vi.fn()
+    Object.assign(contents, { undo: nativeUndo })
+    target.addEventListener(CONTENT_MENU_EVENT, event => {
+      if ((event as CustomEvent).detail.action === 'snapshot') (event as CustomEvent).detail.editorHistory = { undo: true, redo: false }
+      else {
+        expect(document.activeElement).toBe(target)
+        undo()
+        event.preventDefault()
+      }
+    })
     const opened = Promise.withResolvers<{ items: ContentMenuEntry[]; close: () => void }>()
     showMenu.mockImplementation((items: ContentMenuEntry[], _position: unknown, close: () => void) => opened.resolve({ items, close }))
     let created!: (event: unknown, contents: WebContents) => void
@@ -51,8 +63,12 @@ describe('editable content menus', () => {
     const { items, close } = await opened.promise
     const edits = items.filter(item => item.type !== 'separator')
     expect(edits.map(item => item.id)).toEqual(['undo', 'redo', 'cut', 'copy', 'paste', 'selectAll'])
-    expect(edits.find(item => item.id === 'undo')?.enabled).toBe(false)
-    expect(edits.find(item => item.id === 'redo')?.enabled).toBe(true)
+    expect(edits.find(item => item.id === 'undo')?.enabled).toBe(true)
+    expect(edits.find(item => item.id === 'redo')?.enabled).toBe(false)
+    other.focus()
+    await edits.find(item => item.id === 'undo')?.click?.()
+    expect(undo).toHaveBeenCalledOnce()
+    expect(nativeUndo).not.toHaveBeenCalled()
     other.focus()
     await edits.find(item => item.id === 'paste')?.click?.()
     expect(paste).toHaveBeenCalledOnce()

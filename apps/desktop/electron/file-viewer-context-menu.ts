@@ -65,7 +65,7 @@ async function showFileViewerMenu(contents: WebContents, params: ContextMenuPara
         await frame.executeJavaScript(`(() => { const root=${root};if(!root)return;const range=document.createRange();range.selectNodeContents(root.querySelector('[data-file-selection]')||root);const s=getSelection();s.removeAllRanges();s.addRange(range); })()`, true);
         return;
       }
-      if (!context.customEditing && (action === 'undo' || action === 'redo' || action === 'cut' || action === 'paste')) {
+      if (!context.customEditing && !(context.editorHistory && (action === 'undo' || action === 'redo')) && (action === 'undo' || action === 'redo' || action === 'cut' || action === 'paste')) {
         if (!editing) throw new Error('The editable file target is unavailable');
         await editing.run(action);
         return;
@@ -74,5 +74,5 @@ async function showFileViewerMenu(contents: WebContents, params: ContextMenuPara
     };
     return perform().catch(report);
   };
-  showContentContextMenu(fileViewerMenuItems(context, labels, run), position, editing?.close);
+  showContentContextMenu(fileViewerMenuItems(context, labels, run, editing?.editorHistory), position, editing?.close);
 }

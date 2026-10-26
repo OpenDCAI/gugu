@@ -14,6 +14,7 @@
  */
 
 import { useUiPortalContainerOrBody } from '@session-ui/react/lib/portal-container';
+import { CONTENT_MENU_EVENT, type ContentMenuRequest } from '@gugu/session-shared/content-menu';
 import { cx } from '@session-ui/styles/utilities/cx';
 import { EditorContent, useEditor } from '@tiptap/react';
 import { Slice } from '@tiptap/pm/model';
@@ -452,6 +453,17 @@ export const PromptEditor = forwardRef<PromptEditorRef, PromptEditorProps>(funct
 
   // Keep stable ref to editor.
   editorRef.current = editor;
+
+  useEffect(() => {
+    if (!editor || !editorDom) return;
+    const snapshot = (event: Event) => {
+      const detail = (event as CustomEvent<ContentMenuRequest>).detail;
+      if (detail.action === 'snapshot') detail.editorHistory = { undo: editor.isEditable && editor.can().undo(), redo: editor.isEditable && editor.can().redo() };
+      else if (editor.commands[detail.action]()) event.preventDefault();
+    };
+    editorDom.addEventListener(CONTENT_MENU_EVENT, snapshot);
+    return () => editorDom.removeEventListener(CONTENT_MENU_EVENT, snapshot);
+  }, [editor, editorDom]);
 
   useImperativeHandle(ref, () => ({
     focus(position) {

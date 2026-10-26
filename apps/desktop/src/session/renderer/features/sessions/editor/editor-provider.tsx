@@ -125,7 +125,8 @@ export const EditorProvider = observer(function EditorProvider({
         quote: (selection) => quoteWorkspaceFile(sessionView.projectId, sessionId, path, selection),
         selectAll: () => { focusCaptured(); editor.setSelection(model.getFullModelRange()); },
         editable,
-        enabled: { undo: editable && model.canUndo(), redo: editable && model.canRedo(), cut: editable && !range.isEmpty(), copy: !range.isEmpty(), selectAll: model.getValueLength() > 0 },
+        enabled: { cut: editable && !range.isEmpty(), copy: !range.isEmpty(), selectAll: model.getValueLength() > 0 },
+        editorHistory: { undo: editable && model.canUndo(), redo: editable && model.canRedo() },
         edit: (action) => {
           focusCaptured();
           editor.trigger('file-context-menu', action === 'cut' ? 'editor.action.clipboardCutAction' : action === 'paste' ? 'editor.action.clipboardPasteAction' : action, null);
