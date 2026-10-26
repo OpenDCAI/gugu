@@ -544,7 +544,7 @@ export async function bindExtensionSurface(input: {
   const filePath = await workspaceRelativeFile(input.sessionId ? { session: input.sessionId } : projectId ? { project: projectId } : null, input.filePath);
   // Bound again for another group or file (the host normally retargets instead): the open files the
   // page holds were granted under the old binding, so they go, as in `retargetExtensionSurface`.
-  const chatId = input.chatId ? await resourceChatOf(input.chatId, { asAgent: input.operator?.kind === 'agent' ? input.operator.id.replace(/^user:/, '') : null }) : null;
+  const chatId = await surfaceResourceChat(input.chatId, input.operator);
   const previous = bindings.get(input.webContentsId);
   if (previous && (previous.chatId !== chatId || previous.itemId !== (input.itemId ?? null))) {
     fileSync.revoke(input.webContentsId, 'unbound');
@@ -756,7 +756,7 @@ export async function retargetExtensionSurface(input: {
   binding.tabId = input.tabId;
   binding.filePath = filePath;
   binding.projectId = null;
-  binding.chatId = input.chatId ? await resourceChatOf(input.chatId, { asAgent: binding.operator.kind === 'agent' ? binding.operator.id.replace(/^user:/, '') : null }) : null;
+  binding.chatId = await surfaceResourceChat(input.chatId, binding.operator);
   binding.itemId = input.itemId ?? null;
   pushContext(input.webContentsId);
   // Moved to a file a pill or a link is waiting to open: its place is this page's now.
@@ -987,6 +987,14 @@ async function bringSessionUp(session: { sessionId: string; projectId: string })
  * (the window says so, `chatMembersChanged`); every page of the chat is then told (`onContextChanged`).
  */
 const chatsDrawnIn = new Map<string, { chat: ExtensionChat | null; members: NonNullable<ExtensionHostContext['chat']>['members'] }>();
+
+/** A person's live chat context already names its resource container. Agent membership is checked as that agent. */
+async function surfaceResourceChat(chatId: string | undefined, operator?: ExtensionOperator): Promise<string | null> {
+  if (!chatId) return null;
+  const asAgent = operator?.kind === 'agent' ? operator.id.replace(/^user:/, '') : null;
+  const chat = asAgent ? undefined : chatsDrawnIn.get(chatId)?.chat;
+  return chat?.id ?? resourceChatOf(chatId, { asAgent });
+}
 
 async function readChatMembers(chatId: string): Promise<void> {
   if (![...bindings.values()].some((binding) => binding.chatId === chatId)) {
