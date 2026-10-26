@@ -1,3 +1,4 @@
+import type { HistoryCursor } from '@gugu/session-core/acp/client';
 import type {
   AcpAttachmentError,
   AcpCancelTurnError,
@@ -224,8 +225,9 @@ export function createAcpProcedures(runtime: AcpRuntime) {
       sessionId: string;
       before?: number;
       limit: number;
+      changedSince?: HistoryCursor;
     }): Result<HistoryPage, AcpGetHistoryError> {
-      return runtime.getHistory(input.sessionId, input.before, input.limit);
+      return runtime.getHistory(input.sessionId, input.before, input.limit, input.changedSince);
     },
   };
 }

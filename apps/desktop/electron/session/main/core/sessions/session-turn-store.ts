@@ -174,7 +174,7 @@ export async function getStoredHistory(params: {
   sessionId: string;
   before?: number;
   limit?: number;
-  /** 给了就改成「seq ≥ fromSeq 的全部行」,供界面每轮对账用;与 before/limit 互斥。 */
+  /** 给了就改成「seq ≥ fromSeq 的全部行」,供界面开场补读用;与 before/limit 互斥。 */
   fromSeq?: number;
 }): Promise<StoredTurnPage> {
   return readStoredTurns(params.sessionId, {
@@ -204,8 +204,8 @@ export async function readStoredTurns(
   options: { before?: number; limit?: number; fromSeq?: number } = {}
 ): Promise<StoredTurnPage> {
   if (options.fromSeq !== undefined) {
-    // 「开场那一页的第一行一直到最新」—— 每轮对账用。❌ 不分页:这一段 = 开场那页 + 本次面板期间新增的,
-    // 有界;分页取反而会在两次取之间被新写进来的行错开。
+    // 「开场那一页之后新落库的行」—— 开场时补读一次用(acp-chat-store `_reloadStoredTail`)。❌ 不分页:这一段只是
+    // 开场那一刻前后落库的那几行,有界;分页取反而会在两次取之间被新写进来的行错开。
     const rows = await db
       .select({
         seq: sessionTurns.seq,

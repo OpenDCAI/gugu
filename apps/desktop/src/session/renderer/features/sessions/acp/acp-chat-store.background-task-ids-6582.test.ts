@@ -76,8 +76,7 @@ type Internal = {
   _subscribeLiveSession: (session: unknown) => void;
   _runBootstrap: () => Promise<void>;
   _refreshHistory: (options?: { preserveLiveTurn?: boolean }) => Promise<void>;
-  _runtimeTurnsFrom: () => Promise<unknown>;
-  _reloadStoredTail: () => Promise<void>;
+  _mergeRuntimeChanges: () => Promise<unknown>;
 };
 
 let seq = 0;
@@ -140,8 +139,7 @@ describe('#6582 runningBackgroundTaskIds', () => {
     const live = { id: 'child-completion', seq: 1, initiator: 'agent' as const, items: [] };
     session.activeTurn.push(live);
     store.chatState.transcript.activeTurn.set(live);
-    vi.spyOn(internal, '_runtimeTurnsFrom').mockResolvedValue({ success: true, data: { turns: [], nextCursor: null } });
-    vi.spyOn(internal, '_reloadStoredTail').mockResolvedValue(undefined);
+    vi.spyOn(internal, '_mergeRuntimeChanges').mockResolvedValue(null);
     await internal._refreshHistory({ preserveLiveTurn: true });
     expect(store.chatState.transcript.state.activeTurnSnapshot?.id).toBe(live.id);
     store.dispose();

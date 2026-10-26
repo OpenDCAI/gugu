@@ -1,3 +1,5 @@
+import { randomUUID } from 'node:crypto';
+import type { HistoryCursor } from '@gugu/session-core/acp/client';
 import { readdir, readFile } from 'node:fs/promises';
 import os from 'node:os';
 import type {
@@ -218,6 +220,11 @@ function collectToolNodes(nodes: readonly TranscriptItem[], out: Array<{ id: str
 export interface HistoryPage {
   turns: TranscriptTurn[];
   nextCursor: number | null;
+  /** 此刻的改动游标:下一次带着它问 `changedSince`,只拿这之后新增或改过的回合(@@@history-change-cursor)。 */
+  cursor: HistoryCursor;
+  reset: boolean;
+  /** 此刻已提交的回合数:比手里的少 = 有回合被拿掉了(回退 / 分叉)。 */
+  count: number;
 }
 
 /**
@@ -358,6 +365,12 @@ export class SessionManager implements InboundRouter {
   private readonly invalidatingProcesses = new Map<string, Promise<void>>();
   /** Terminal transcript retained for the session page after an abnormal provider exit (spec boundary). */
   private readonly closedSessionHistories = new Map<string, TranscriptTurn[]>();
+  /**
+   * @@@history-change-cursor — 每条会话一个改动游标:已提交的每一轮(按对象身份)记下它是在第几次改动时出现的。
+   * reducer 不原地改回合:新增的、改过的轮都是新对象,于是「游标之后有哪些轮」= 没见过的对象 + 记号比游标大的对象。
+   * 界面每提交一轮只取这一段(远程看的人每一字节都经咕咕云中转,10-26 事故里是每轮重读整份 7 MB)。
+   */
+  private readonly historyRevs = new Map<string, { epoch: string; rev: number; of: WeakMap<TranscriptTurn, number> }>();
   /** Suppress the cell's close callback while onProcessClosed owns cleanup ordering. */
   private readonly processingProcessClose = new Set<string>();
   /** A deliberate stop must not be reclassified as an abnormal provider failure. */
@@ -1716,12 +1729,28 @@ export class SessionManager implements InboundRouter {
     return ok(record.cell.exportRawLog());
   }
 
-  getHistory(sessionId: string, before?: number, limit = 50): HistoryPage {
-    const turns = this.getChatHistory(sessionId).committed;
+  /**
+   * 一页已提交的回合(由旧到新),或者 `changedSince` 给了时:那个游标之后新增或改过的全部回合(不分页 —— 它们就是
+   * 这段时间里新产生的内容)。只克隆交出去的那几轮,❌ 为了取一页把整份历史克隆一遍。
+   */
+  getHistory(sessionId: string, before?: number, limit = 50, changedSince?: HistoryCursor): HistoryPage {
+    const live = this.cells.get(sessionId);
+    const turns: readonly TranscriptTurn[] = live ? live.cell.transcript.history : (this.closedSessionHistories.get(sessionId) ?? []);
+    let tracker = this.historyRevs.get(sessionId);
+    if (!tracker) this.historyRevs.set(sessionId, (tracker = { epoch: randomUUID(), rev: 0, of: new WeakMap() }));
+    for (const turn of turns) if (!tracker.of.has(turn)) tracker.of.set(turn, ++tracker.rev);
+    const marks = tracker.of;
+    const head = { cursor: { epoch: tracker.epoch, seq: tracker.rev }, count: turns.length, reset: false };
+    if (changedSince !== undefined) {
+      if (changedSince.epoch !== tracker.epoch || changedSince.seq > tracker.rev) {
+        return { turns: [], nextCursor: null, ...head, reset: true };
+      }
+      return { turns: structuredClone(turns.filter((turn) => marks.get(turn)! > changedSince.seq)), nextCursor: null, ...head };
+    }
     const filtered = before === undefined ? turns : turns.filter((turn) => turn.seq < before);
     const page = [...filtered].sort((a, b) => b.seq - a.seq).slice(0, limit);
     const nextCursor = page.length === limit ? page.at(-1)!.seq : null;
-    return { turns: page.reverse(), nextCursor };
+    return { turns: structuredClone(page.reverse()), nextCursor, ...head };
   }
 
   getSessionState(sessionId: string): SessionState {
@@ -2578,6 +2607,7 @@ export class SessionManager implements InboundRouter {
   private deleteSessionSummary(sessionId: string): void {
     this.recentActions.delete(sessionId)
     this.closedSessionHistories.delete(sessionId)
+    this.historyRevs.delete(sessionId)
     this.sessionsList.states.list.produce((draft) => {
       delete draft[sessionId];
     });
