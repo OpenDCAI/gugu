@@ -1077,3 +1077,70 @@ test('parent EOF during a requested host stop waits for the same persistence and
     await fx.close()
   }
 })
+
+test('account work prepare provisions a stable dormant phone seat without admitting or running the task', async () => {
+  let turns=0
+  const fx=await fixture(async()=>{turns++;return {status:'done',text:'[NO_REPLY]'}})
+  const caller={sessionId:randomUUID(),deviceId:'coordinator-device',name:'Assistant',harness:'pi',platformModel:'platform:free',transport:'acp'}
+  const intent={version:1,assistant_id:randomUUID(),work_id:randomUUID(),operation_id:randomUUID(),message_id:randomUUID(),child_session_id:randomUUID(),coordinator:{session_id:caller.sessionId,device_id:caller.deviceId},title:'Task',continuation:false}
+  try {
+    const action={action:'spawn',harness:'pi',prompt:'Only run after account enqueue',assistant_work:intent}
+    const seat=await fx.host.invoke('assistantWork.prepare',[caller,action],'first-connection')
+    assert.equal(seat.session_id,intent.child_session_id)
+    assert.deepEqual(seat.assistant_work_target,{session_id:intent.child_session_id,device_id:deviceId})
+    assert.equal((await fx.host.invoke('assistantWork.prepare',[caller,action],'second-connection')).session_id,seat.session_id)
+    assert.equal(fx.commands.length,1)
+    assert.equal(turns,0)
+    const journal=JSON.parse(await readFile(join(fx.root,'hosts',ownerId,'host.json'),'utf8'))
+    assert.deepEqual(Object.values(journal.jobs),[])
+  } finally {await fx.close()}
+})
+
+test('account work delivery rereads cloud text and reuses its stable id on the phone',async()=>{
+  let turns=0
+  const fx=await fixture(async()=>{turns++;return {status:'done',text:'[NO_REPLY]'}})
+  try {
+    const created=await fx.host.invoke('sessionTimeline.sessionCreate',[{harness:'pi',prompt:'first',clientRequestId:randomUUID()}],'create')
+    await until(()=>turns===1,fx.events)
+    const ref={assistant_id:randomUUID(),work_id:randomUUID(),message_id:randomUUID()}
+    const old=fx.cloud.identity.rpc
+    fx.cloud.identity.rpc=async(name,args)=> name==='assistant_work_history' ? {data:{events:[{...ref,kind:'dispatch',from_session_id:randomUUID(),from_device_id:'coordinator',to_session_id:created.conversationId,to_device_id:deviceId,source_available:true,content:'Fresh cloud task',attachment_refs:[],platform_received_at:'2026-10-26T08:00:00Z'}],next_after:null},error:null} : old(name,args)
+    const received=await fx.host.invoke('assistantWork.deliver',[{...ref,content:'Untrusted wire text'}],'wire-one')
+    assert.equal(received.status,'admitted')
+    assert.equal(received.messageId,ref.message_id)
+    await fx.host.invoke('assistantWork.deliver',[ref],'wire-two')
+    await until(()=>turns===2,fx.events)
+    const journal=JSON.parse(await readFile(join(fx.root,'hosts',ownerId,'host.json'),'utf8'))
+    assert.match(journal.jobs[ref.message_id].prompt,/Fresh cloud task/)
+    assert.doesNotMatch(journal.jobs[ref.message_id].prompt,/Untrusted wire/)
+    assert.match(journal.jobs[ref.message_id].prompt,/2026-10-26/)
+    assert.equal(turns,2)
+  }finally{await fx.close()}
+})
+
+test('a phone work result enters the account queue while its coordinator device is unavailable',async()=>{
+  let reportResult
+  const fx=await fixture(async(_command,hooks)=>{
+    reportResult=await hooks.extraTools.find(tool=>tool.name==='session_message').execute('result-call',{to:[`session:${caller.sessionId}`],text:'Verified result',work_result:{work_id:intent.work_id,status:'completed'}})
+    return {status:'done',text:'[NO_REPLY]'}
+  })
+  const caller={sessionId:randomUUID(),deviceId:'sleeping-home',agentUserId:randomUUID(),name:'Assistant',harness:'pi',platformModel:'platform:free',transport:'acp'}
+  const intent={version:1,assistant_id:caller.agentUserId,work_id:randomUUID(),operation_id:randomUUID(),message_id:randomUUID(),child_session_id:randomUUID(),coordinator:{session_id:caller.sessionId,device_id:caller.deviceId},title:'Task',continuation:false}
+  const old=fx.cloud.identity.rpc
+  fx.cloud.identity.rpc=async(name,args)=>{
+    fx.calls.push([name,args])
+    if(name==='assistant_work_history')return {data:{work:{work_id:intent.work_id,assistant_user_id:intent.assistant_id,coordinator_session_id:caller.sessionId,coordinator_device_id:caller.deviceId,executors:[{session_id:intent.child_session_id,device_id:deviceId}]},events:[{work_id:intent.work_id,message_id:intent.message_id,kind:'dispatch',from_session_id:caller.sessionId,from_device_id:caller.deviceId,to_session_id:intent.child_session_id,to_device_id:deviceId,source_available:true,content:'Do the task',attachment_refs:[],platform_received_at:new Date().toISOString()}],next_after:null},error:null}
+    if(name==='assistant_work_commit')return {data:{work_id:args.p_work_id,event_ids:args.p_events.map(e=>e.message_id),outcome:'completed',terminal_version:'1'},error:null}
+    return old(name,args)
+  }
+  try{
+    await fx.host.invoke('assistantWork.prepare',[caller,{action:'spawn',harness:'pi',prompt:'Do the task',assistant_work:intent}],'prepare')
+    await fx.host.invoke('assistantWork.deliver',[{assistant_id:intent.assistant_id,work_id:intent.work_id,message_id:intent.message_id}],'deliver')
+    await until(()=>Boolean(reportResult),fx.events)
+    assert.equal(reportResult.details.status,'accepted')
+    const queued=fx.calls.find(([name])=>name==='assistant_work_commit')[1]
+    assert.equal(queued.p_events[0].kind,'completed')
+    assert.equal(queued.p_events[0].to_device_id,'sleeping-home')
+    assert.equal(fx.sessionReplies.length,0)
+  }finally{await fx.close()}
+})
