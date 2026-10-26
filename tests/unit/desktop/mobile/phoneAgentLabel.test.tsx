@@ -28,11 +28,11 @@ describe('phone agent identity presentation', () => {
     expect(harness.container.textContent).not.toMatch(/手机 Agent|Phone Agent/)
   })
 
-  it('uses the known phone host for its label and generic icon even after that host stops', async () => {
+  it('keeps the known phone label without a generic glyph even after that host stops', async () => {
     await show('phone-agent', 'phone')
     const icon = harness.container.querySelector('[role="img"]')!
     expect(icon.getAttribute('aria-label')).toMatch(/手机 Agent|Phone Agent/)
-    expect(icon.querySelector(':scope > svg')).not.toBeNull()
+    expect(icon.querySelector('svg')).toBeNull()
     expect(harness.container.textContent).not.toMatch(/\bpi\b/i)
   })
 

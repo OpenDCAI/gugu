@@ -388,3 +388,7 @@ div.gg-settings-identity {
   font-size: var(--font-heading);
   line-height: var(--lh-heading);
 }
+
+/* Iconless entries keep the same text column as their siblings. */
+.gg-settings-nav-spacer { display: block; width: var(--icon-sm); height: var(--icon-sm); }
+.gg-settings-nav-pane[data-mobile] .gg-settings-nav-spacer { width: var(--icon-lg); height: var(--icon-lg); }

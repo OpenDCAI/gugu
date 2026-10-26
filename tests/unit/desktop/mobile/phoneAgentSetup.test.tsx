@@ -5,9 +5,11 @@ vi.mock('../../../../apps/desktop/src/lib/myAssistant', () => ({
   useMyAssistant: () => ({ agentId: null, provisionDeviceId: null, loading: false, error: null }),
 }))
 import { clickElement, createNode, createReactHarness, waitForCondition } from '../../../support/testHarness'
+import type { PhoneAgentHostState } from '../../../../apps/desktop/src/mobile/local-agent/nativeAgent'
 import type { PhoneOsState } from '../../../../apps/desktop/src/mobile/phone-device/phoneActionCatalog'
 
 const mocks = vi.hoisted(() => ({
+  permissions: ['notifications', 'batteryOptimization', 'camera'], host: null as PhoneAgentHostState | null, restartHost: vi.fn(),
   owner: 'setup-owner', installKey: 'native-install-a', available: true,
   runtimeRequest: vi.fn(async () => ({})), dataRequest: vi.fn(async () => ({})), healthRequest: vi.fn(), nativeSettings: vi.fn(async () => undefined),
   check: vi.fn(async () => 'prompt'), request: vi.fn(async () => 'blocked'), settings: vi.fn(async () => true),
@@ -25,11 +27,11 @@ vi.mock('../../../../apps/desktop/src/mobile/phone-device/phoneDataActions', asy
   return { ...actual, nativePhoneData: { request: mocks.dataRequest } }
 })
 vi.mock('../../../../apps/desktop/src/mobile/phone-device/phoneDeviceRuntime', () => ({
-  usePhoneDevice: () => ({ os: mocks.os, host: null, link: { state: 'off' } }),
-  refreshPhoneDevice: mocks.refresh, stopPhoneAgentHost: vi.fn(), restartPhoneAgentHost: vi.fn(),
+  usePhoneDevice: () => ({ os: mocks.os, host: mocks.host, link: { state: 'off' } }),
+  refreshPhoneDevice: mocks.refresh, stopPhoneAgentHost: vi.fn(), restartPhoneAgentHost: mocks.restartHost,
 }))
 vi.mock('../../../../apps/desktop/src/platform', () => ({ platform: {
-  kind: 'capacitor', systemPermissions: ['notifications', 'batteryOptimization', 'camera'],
+  kind: 'capacitor', systemPermissions: mocks.permissions,
   checkSystemPermission: mocks.check, requestSystemPermission: mocks.request, openSystemPermissionSettings: mocks.settings,
   subscribeAppForeground: (listener: () => void) => { mocks.foreground.push(listener); return () => { mocks.foreground = mocks.foreground.filter((value) => value !== listener) } },
 } }))
@@ -61,6 +63,7 @@ async function renderGate(ownerId: string) {
   return harness
 }
 beforeEach(() => {
+  mocks.permissions.splice(0, mocks.permissions.length, 'notifications', 'batteryOptimization', 'camera'); mocks.host = null
   vi.clearAllMocks(); localStorage.clear(); mocks.installKey = 'native-install-a'; mocks.available = true; mocks.os = osState(); mocks.foreground = []
   mocks.check.mockResolvedValue('prompt'); mocks.request.mockResolvedValue('blocked'); mocks.runtimeRequest.mockResolvedValue({}); mocks.refresh.mockResolvedValue(undefined)
 })
@@ -75,7 +78,7 @@ describe('phone installation guide', () => {
     await waitForCondition(() => byId('main-product')?.dataset.owner === previous, 'previous install binding ready')
     await act(async () => { openPhoneAgentSetup(previous); openPhoneAgentSetup(previous) })
     await waitForCondition(() => !!byId('phone-agent-setup-host'), 'previous guide opened')
-    await clickElement(byId('phone-agent-setup-later')!)
+    await clickElement(document.querySelector<HTMLElement>('[aria-label="关闭面板"]')!)
     await harness.render(createNode(PhoneAgentSetupGate, { ownerId: current, children: createElement(Product) }))
     await waitForCondition(() => byId('main-product')?.dataset.owner === current, 'current install binding ready')
     expect(document.querySelector('[role="dialog"]')).toBeNull()
@@ -88,7 +91,7 @@ describe('phone installation guide', () => {
     const owner = 'completion-save-failure-owner'
     await renderGate(owner)
     await waitForCondition(() => !!byId('phone-agent-setup-next'), 'guide loaded')
-    await clickElement(byId('phone-agent-setup-next')!); await clickElement(byId('phone-agent-setup-next')!)
+    await clickElement(byId('phone-agent-setup-next')!); await clickElement(byId('phone-agent-setup-next')!); await clickElement(byId('phone-agent-setup-next')!)
     const setItem = localStorage.setItem
     const saved = vi.spyOn(localStorage, 'setItem').mockImplementation(function (this: Storage, key: string, value: string) {
       if (key.startsWith('gugu.phoneAgentSetup.v1:')) throw new Error('storage unavailable')
@@ -128,6 +131,8 @@ describe('phone installation guide', () => {
     await clickElement(byId('phone-setup-notifications')!)
     expect(mocks.request).toHaveBeenCalledWith('notifications')
     await clickElement(byId('phone-agent-setup-next')!)
+    expect(byId('phone-agent-setup-background')).not.toBeNull()
+    await clickElement(byId('phone-agent-setup-next')!)
     expect(byId('phone-agent-setup-tools')).not.toBeNull()
     expect(mocks.runtimeRequest).not.toHaveBeenCalled()
     await clickElement(byId('phone-agent-setup-next')!)
@@ -139,8 +144,8 @@ describe('phone installation guide', () => {
   it('remembers a skip for this account and install, but a restored different phone sees the guide', async () => {
     const owner = 'skip-per-install-owner'
     const first = await renderGate(owner)
-    await waitForCondition(() => !!byId('phone-agent-setup-later'), 'guide ready')
-    await clickElement(byId('phone-agent-setup-later')!)
+    await waitForCondition(() => !!document.querySelector('[aria-label="关闭面板"]'), 'guide ready')
+    await clickElement(document.querySelector<HTMLElement>('[aria-label="关闭面板"]')!)
     first.cleanup(); active.splice(active.indexOf(first), 1)
     const same = await renderGate(owner)
     await waitForCondition(() => !!localStorage.getItem('gugu.phoneDevice.install'), 'install read')
@@ -180,7 +185,7 @@ describe('phone installation guide', () => {
     await waitForCondition(() => !!byId('phone-agent-setup-host'), 'corrupt record shown honestly')
     expect(document.querySelector('[role="alert"]')?.textContent).toContain('JSON')
     expect(readPhoneDeviceSettings(owner)).toMatchObject({ enabled: false, hostEnabled: false })
-    await clickElement(byId('phone-agent-setup-later')!)
+    await clickElement(document.querySelector<HTMLElement>('[aria-label="关闭面板"]')!)
     expect(readPhoneAgentSetup(owner, installId).dismissed).toBe(true)
   })
 
@@ -191,6 +196,7 @@ describe('phone installation guide', () => {
     const harness = createReactHarness(); active.push(harness)
     await harness.render(createNode(PhoneAgentSetupTools, { ownerId: owner }))
     expect(mocks.runtimeRequest).not.toHaveBeenCalled()
+    await clickElement(byId('phone-setup-choose-capabilities')!)
     await clickElement(byId('phone-setup-group-calendar')!.querySelector<HTMLElement>('[role="button"]')!)
     await clickElement(byId('phone-setup-connect-calendar')!)
     expect(mocks.runtimeRequest).toHaveBeenCalledWith({ permissions: ['calendar'] })
@@ -206,7 +212,8 @@ describe('phone installation guide', () => {
     mocks.refresh.mockRejectedValue(new Error('native permission check failed'))
     await renderGate('unreadable-permission-owner')
     await waitForCondition(() => !!byId('phone-agent-setup-next'), 'guide ready')
-    await clickElement(byId('phone-agent-setup-next')!); await clickElement(byId('phone-agent-setup-next')!)
+    await clickElement(byId('phone-agent-setup-next')!); await clickElement(byId('phone-agent-setup-next')!); await clickElement(byId('phone-agent-setup-next')!)
+    await clickElement(byId('phone-setup-choose-capabilities')!)
     await clickElement(byId('phone-setup-group-calendar')!.querySelector<HTMLElement>('[role="button"]')!)
     await waitForCondition(() => byId('phone-setup-connect-calendar')?.hasAttribute('disabled') === true, 'unsafe action disabled')
     expect(byId('phone-agent-setup-next')?.hasAttribute('disabled')).toBe(false)
@@ -218,6 +225,7 @@ describe('phone installation guide', () => {
     const harness = createReactHarness(); active.push(harness)
     await harness.render(createNode(PhoneAgentSetupTools, { ownerId: 'permission-sheet-owner' }))
     expect(byId('phone-setup-connect-notifications')).toBeNull()
+    await clickElement(byId('phone-setup-choose-capabilities')!)
     await clickElement(byId('phone-setup-group-notifications')!.querySelector<HTMLElement>('[role="button"]')!)
     const sheet = byId('phone-setup-capability-notifications')!
     expect(sheet.textContent).toContain('通知读取 · 未授权')
@@ -226,5 +234,75 @@ describe('phone installation guide', () => {
     expect(mocks.runtimeRequest).not.toHaveBeenCalled()
     expect(mocks.nativeSettings).not.toHaveBeenCalled()
     expect(readPhoneDeviceSettings('permission-sheet-owner')).toMatchObject({ enabled: false, groups: { notifications: false } })
+  })
+})
+
+describe('minimal phone setup actions', () => {
+  it('keeps host failures inline and retries without advancing the guide', async () => {
+    const owner = 'host-failure-owner'
+    mocks.host = { ownerId: owner, ready: false, status: 'failed', error: 'host could not start', sessions: [] }
+    mocks.restartHost.mockRejectedValueOnce(new Error('retry failed'))
+    await renderGate(owner)
+    await clickElement(byId('phone-setup-enable-host')!)
+    expect(document.querySelector('[role="alert"]')?.textContent).toBe('host could not start')
+    expect(byId('phone-setup-enable-host')?.textContent).toBe('重新连接手机 Agent')
+    await clickElement(byId('phone-setup-enable-host')!)
+    expect(mocks.restartHost).toHaveBeenCalledWith(owner)
+    expect(document.querySelector('[role="alert"]')?.textContent).toBe('retry failed')
+    expect(byId('phone-agent-setup-host')).not.toBeNull()
+  })
+
+  it('skips unsupported system settings and names the real next action', async () => {
+    mocks.permissions.splice(0, mocks.permissions.length, 'notifications')
+    await renderGate('notifications-only-owner')
+    await clickElement(byId('phone-agent-setup-next')!)
+    await waitForCondition(() => byId('phone-setup-notifications')?.hasAttribute('disabled') === false, 'notification state')
+    mocks.request.mockResolvedValueOnce('granted')
+    mocks.check.mockResolvedValue('granted')
+    await clickElement(byId('phone-setup-notifications')!)
+    expect(byId('phone-setup-notifications')?.textContent).toBe('选择手机能力')
+    await clickElement(byId('phone-setup-notifications')!)
+    expect(byId('phone-agent-setup-tools')).not.toBeNull()
+    expect(byId('phone-agent-setup-background')).toBeNull()
+  })
+
+  it('can skip every step without enabling hosting, tools, or system permissions', async () => {
+    const owner = 'skip-every-step-owner'
+    await renderGate(owner)
+    for (let step = 0; step < 4; step++) await clickElement(byId('phone-agent-setup-next')!)
+    expect(document.querySelector('[role="dialog"]')).toBeNull()
+    expect(readPhoneDeviceSettings(owner)).toMatchObject({ enabled: false, hostEnabled: false })
+    expect(mocks.request).not.toHaveBeenCalled()
+    expect(mocks.runtimeRequest).not.toHaveBeenCalled()
+    expect(mocks.settings).not.toHaveBeenCalled()
+  })
+
+  it('keeps a denied notification request optional and opens settings on the next explicit action', async () => {
+    await renderGate('notification-denial-owner')
+    await clickElement(byId('phone-agent-setup-next')!)
+    await waitForCondition(() => byId('phone-setup-notifications')?.hasAttribute('disabled') === false, 'notification state')
+    mocks.check.mockResolvedValue('blocked')
+    await clickElement(byId('phone-setup-notifications')!)
+    expect(byId('phone-setup-notifications')?.textContent).toBe('前往通知设置')
+    expect(mocks.settings).not.toHaveBeenCalled()
+    mocks.settings.mockResolvedValueOnce(false)
+    await clickElement(byId('phone-setup-notifications')!)
+    expect(mocks.settings).toHaveBeenCalledWith('notifications')
+    expect(document.querySelector('[role="alert"]')?.textContent).toContain('没能打开系统设置')
+    await clickElement(byId('phone-agent-setup-next')!)
+    expect(byId('phone-agent-setup-background')).not.toBeNull()
+  })
+
+  it('uses the refreshed system grant before showing the next action', async () => {
+    await renderGate('notification-granted-owner')
+    await clickElement(byId('phone-agent-setup-next')!)
+    await waitForCondition(() => byId('phone-setup-notifications')?.hasAttribute('disabled') === false, 'notification state')
+    mocks.request.mockResolvedValueOnce('granted')
+    mocks.check.mockResolvedValue('granted')
+    await clickElement(byId('phone-setup-notifications')!)
+    expect(byId('phone-setup-notifications')?.textContent).toBe('设置后台运行')
+    await clickElement(byId('phone-setup-notifications')!)
+    expect(byId('phone-agent-setup-background')).not.toBeNull()
+    expect(mocks.request).toHaveBeenCalledTimes(1)
   })
 })

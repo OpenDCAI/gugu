@@ -89,8 +89,7 @@ div.gg-phone-permission-feedback { display: flex; align-items: center; flex-wrap
 div.gg-phone-capability-details { margin-top: calc(-1 * var(--spacing-md)); }
 .gg-phone-capability-details > [data-slot='button'] { margin-inline-start: calc(-1 * var(--spacing-md)); }
 div.gg-phone-capability-prose { display: flex; flex-direction: column; gap: var(--spacing-md); padding-top: var(--spacing-sm); }
-.gg-phone-capability-prose p,
-p.gg-phone-setup-intro {
+.gg-phone-capability-prose p {
   margin: 0;
   font-size: var(--font-prose);
   line-height: var(--lh-prose);
@@ -125,37 +124,13 @@ div.gg-phone-setup-header {
   gap: var(--spacing-md);
   padding: 24px 16px 16px;
 }
-.gg-phone-setup-eyebrow {
-  margin: 0;
-  color: var(--muted-fg);
-  font-size: var(--phone-font-note);
-  line-height: var(--lh-body);
-}
 .gg-phone-setup-heading {
   margin: 0;
   color: var(--fg);
   font-size: var(--font-size-xl);
   line-height: var(--lh-page);
-  font-weight: var(--font-weight-semibold);
+  font-weight: var(--font-weight-medium);
 }
-ol.gg-phone-setup-steps {
-  display: flex;
-  gap: var(--spacing-md);
-  list-style: none;
-  margin: 0;
-  padding: 0;
-}
-.gg-phone-setup-steps li {
-  flex: 1;
-  min-width: 0;
-  color: var(--muted-fg);
-  font-size: var(--phone-font-note);
-  line-height: var(--lh-body);
-  border: 0;
-  border-radius: var(--radius-control);
-  padding: 8px;
-}
-.gg-phone-setup-steps li[aria-current='step'] { color: var(--fg); background: var(--phone-surface); font-weight: var(--font-weight-medium); }
 div.gg-phone-setup-body {
   display: flex;
   flex: 1 1 auto;
@@ -177,9 +152,10 @@ div.gg-phone-setup-footer {
   border-top: 0;
   background: var(--modal-bg);
 }
-div.gg-phone-setup-actions { display: flex; align-items: center; gap: var(--spacing-sm); }
-.gg-phone-setup-actions > [data-slot='button'] { min-height: var(--control-h-touch); min-width: 0; }
-.gg-phone-setup-actions > [data-variant='primary'] { margin-inline-start: auto; }
+div.gg-phone-setup-action { display: flex; flex-direction: column; gap: var(--spacing-md); }
+.gg-phone-setup-body > [data-slot='button'],
+.gg-phone-setup-action > [data-slot='button'] { width: 100%; }
+.gg-phone-setup-footer > [data-slot='button'] { width: 100%; }
 
 @media (max-width: 359px) {
   div.gg-phone-setup-header,
