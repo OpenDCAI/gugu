@@ -69,7 +69,8 @@ async function render(hidden: boolean, openNonce: number) {
   })
 }
 
-const topicPage = () => harness.container.querySelector('[data-testid="topic-split-back"]')
+// 手机上话题是对话页那排页签里的一枚(#446):没有自己的页头和返回钮,认它自己那一栏。
+const topicPage = () => harness.container.querySelector('[data-testid="topic-split-pane"]')
 
 describe('手机从列表点回同一个群的话题行,话题页要出来', () => {
   it('a repeated sidebar request closes the split and a third request opens it again', async () => {

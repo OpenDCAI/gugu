@@ -3,33 +3,12 @@
  * 内容组件沿用桌面助理的数据与动作，手机表面、字阶和触控尺寸收在 #7333 母版上。
  */
 
-/* 只覆盖手机助理，桌面助理的历史皮肤不从这里改写。亮暗主题共用语义 token。 */
+/* 只覆盖手机助理的字阶、触控尺寸和形状;颜色(渐变底、玻璃、气泡)照 assistant-today.css 那一套,
+   和手机全线同一个底(owner 10-26,OpenDCAI/gugu#446)。 */
 .ta-phone,
 [data-theme='light'] .ta-phone {
-  --ta-app-bg: var(--bg);
-  --ta-panel-bg: var(--bg);
   --phone-font-note: var(--phone-font-caption, calc((var(--font-caption) + var(--font-body)) / 2));
   --phone-surface: color-mix(in oklab, var(--muted) 36%, var(--bg));
-  --ta-panel-border: transparent;
-  --ta-glass: var(--phone-surface);
-  --ta-glass-strong: var(--muted);
-  --ta-glass-hover: var(--hover);
-  --ta-glass-edge: transparent;
-  --ta-glass-fx: none;
-  --ta-glass-blur: 0px;
-  --ta-seg-bg: transparent;
-  --ta-seg-active: var(--muted);
-  --ta-circle-bg: var(--muted);
-  --ta-circle-shadow: none;
-  --ta-divider: transparent;
-  --ta-composer-bg: var(--card);
-  --ta-bubble-mine: var(--muted);
-  --ta-bubble-other: transparent;
-  --ta-chip-bg: var(--selected);
-  --ta-chip-fg: var(--fg);
-  --ta-tint-wash: var(--hover);
-  --ta-tint-soft: var(--selected);
-  --ta-tint-ink: var(--fg);
   --ta-radius-panel: var(--radius-surface);
   --ta-radius-card: var(--radius-surface);
   --ta-radius-control: var(--radius-control);
@@ -65,7 +44,7 @@
   color: var(--ta-fg);
 }
 
-/* ── 页头是共用的 PaneHeader(见 MobileAssistantApp):这里只管左边「头像 + 名字」那一块。 ── */
+/* ── 页头是共用的 PaneHeader(见 MobileAssistantApp),一行:返回 · 它的头像 · 分段 · 搜索。 ── */
 
 .ta-phone-identity {
   display: inline-flex;
@@ -81,51 +60,70 @@
   letter-spacing: inherit;
   color: var(--ta-fg);
 }
-.ta-phone-identity-name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.ta-phone-head { gap: 4px; }
+.ta-phone-head .ta-phone-identity { width: var(--control-h-touch); justify-content: center; border-radius: var(--radius-circle); }
+.ta-phone-head .ta-phone-identity[aria-pressed='true'] { background: var(--ta-seg-active); }
 
-/* 页内导航复用 SegmentedTabs 的键盘/读屏行为。窄屏保留完整文字，可横向滚动。 */
-.ta-phone-seg { flex-shrink: 0; margin: 0 16px 8px; min-width: 0; }
-.ta-phone-seg[hidden] { display: none; }
-.ta-phone-seg .gg-segtabs { overflow-x: auto; scrollbar-width: thin; padding-block: 4px; }
-.ta-phone-seg .gg-segtab { flex: 1 0 auto; min-width: var(--control-h-touch); min-height: var(--control-h-touch); justify-content: center; white-space: nowrap; }
+/* 页内导航复用 SegmentedTabs 的键盘/读屏行为,摆在页头中间占满余下的宽;窄屏保留完整文字，可横向滚动。 */
+.ta-phone-seg { flex: 1 1 auto; min-width: 0; margin: 0 4px; }
+/* 分段是透出渐变的玻璃胶囊,选中那段吃 --ta-seg-active(同 .ta-seg)。 */
+.ta-phone-seg .gg-segtabs {
+  overflow-x: auto;
+  scrollbar-width: none;
+  justify-content: flex-start;
+  gap: 4px;
+  padding: 4px;
+  border-radius: var(--radius-capsule);
+  background: var(--ta-seg-bg);
+  box-shadow: var(--ta-glass-fx);
+  -webkit-backdrop-filter: blur(var(--ta-glass-blur));
+  backdrop-filter: blur(var(--ta-glass-blur));
+}
+.ta-phone-seg .gg-segtabs::-webkit-scrollbar { display: none; }
+.ta-phone-seg .gg-segtab { flex: 1 0 auto; min-height: 36px; padding: 4px 8px; border-radius: var(--radius-capsule); justify-content: center; white-space: nowrap; font-size: var(--font-body); }
+.ta-phone-seg .gg-segtab[data-selected] { background: var(--ta-seg-active); color: var(--fg); }
+@media (max-width: 380px) { .ta-phone-seg .gg-segtab { padding: 4px; } .ta-phone-head .gg-pane-actions { gap: 0; } }
+@media (max-width: 340px) { .ta-phone-seg { margin: 0; } .ta-phone-seg .gg-segtab { font-size: var(--font-caption); } }
 
 /* ── 中间:聊天常驻(只藏不卸),别的格在一个滚动体里。 ── */
 
 .ta-phone-chat { display: flex; flex: 1; min-height: 0; min-width: 0; }
 .ta-phone-chat[hidden] { display: none; }
 .ta-phone .ta-chat { padding-top: 0; }
-/* 输入条下面就是咕咕底栏(它管安全区):这里 ❌ 再垫安全区、❌ 再画一道发丝线(手机聊天页那道线是给贴边底栏分界用的)。 */
-.ta-phone .ta-chat [data-chat-composer] { padding: 8px 12px !important; border-top: 0 !important; }
-.ta-phone-body { flex: 1; min-height: 0; overflow-y: auto; overscroll-behavior-y: contain; padding: 12px 16px 24px; -webkit-overflow-scrolling: touch; }
+/* 这一层没有底栏(owner 10-26):输入条自己垫安全区;❌ 再画一道发丝线(手机聊天页那道线是给贴边底栏分界用的)。 */
+.ta-phone .ta-chat [data-chat-composer] { padding: 8px 8px max(8px, env(safe-area-inset-bottom)) !important; border-top: 0 !important; }
+.ta-phone-body { flex: 1; min-height: 0; overflow-y: auto; overscroll-behavior-y: contain; padding: 8px 16px 24px; -webkit-overflow-scrolling: touch; }
 /* 空间足够时居中；短屏/键盘打开时从内容顶端滚动，不裁掉引导开头。 */
 .ta-phone-gate { display: flex; flex: 1; min-height: 0; flex-direction: column; overflow-y: auto; align-items: center; padding: 16px; }
 .ta-phone-gate > .ta-intro,
 .ta-phone-gate > .ta-onb-slot { flex-shrink: 0; margin-block: auto; }
 
-/* ── 各格里手机才有的几样 ── */
+/* ── 各格里手机才有的几样(间距只用 4/8/16/24) ── */
 
 .ta-phone-actions { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
 .ta-phone-actions .ta-seg-wide { flex: 1 1 200px; min-width: 0; }
 .ta-phone-hero { padding: 8px 0 16px; }
 
 .ta-phone .ta-page { gap: 24px; }
-.ta-phone .ta-page-head { align-items: flex-start; flex-wrap: wrap; gap: 12px; padding-inline: 0; }
+.ta-phone .ta-page-head { align-items: flex-start; flex-wrap: wrap; gap: 8px; padding-inline: 0; }
 .ta-phone .ta-page-head > button { max-width: 100%; }
 .ta-phone .ta-page-title { overflow-wrap: anywhere; }
 .ta-phone .ta-page-sub { margin-top: 4px; overflow-wrap: anywhere; }
 .ta-phone .ta-section-title { padding-inline: 0; font-size: var(--font-prose); line-height: var(--lh-prose); color: var(--fg); }
 .ta-phone .ta-section > .flex { flex-wrap: wrap; gap: 8px; }
 .ta-phone .ta-card,
+.ta-phone .ta-tile { border: 0; }
+/* 权限、资料和设置是开放分组,不套卡(去除卡片套卡片);卡和磁贴是透出渐变的玻璃(assistant-today.css)。 */
 .ta-phone .ta-card-list,
-.ta-phone .ta-tile,
 .ta-phone .ta-skin .gg-settings-card {
   border: 0;
+  border-radius: 0;
+  background: transparent;
   -webkit-backdrop-filter: none;
   backdrop-filter: none;
   box-shadow: none;
+  overflow: visible;
 }
-.ta-phone .ta-card-list,
-.ta-phone .ta-skin .gg-settings-card { background: transparent; border-radius: 0; overflow: visible; }
 .ta-phone .ta-card .ta-card { padding: 0; background: transparent; }
 .ta-phone .ta-row + .ta-row::before { content: none; }
 .ta-phone .ta-skin .gg-settings-row + .gg-settings-row { border-top: 0; }
@@ -135,22 +133,22 @@
 .ta-phone .ta-skin .gg-settings-row-description { font-size: var(--phone-font-note); line-height: var(--lh-body); }
 .ta-phone .ta-seg-wide { gap: 4px; padding: 0; border-radius: var(--radius-control); background: transparent; backdrop-filter: none; box-shadow: none; }
 .ta-phone .ta-seg-wide button { min-width: 0; min-height: var(--control-h-touch); gap: 8px; font-size: var(--font-body); line-height: var(--lh-body); }
-.ta-phone .ta-seg-wide button[aria-selected='true'] { background: var(--muted); }
-.ta-phone .ta-row { min-height: 56px; gap: 12px; border-radius: var(--radius-control); }
+.ta-phone .ta-seg-wide button[aria-selected='true'] { background: var(--ta-seg-active); }
+.ta-phone .ta-row { min-height: 56px; gap: 16px; border-radius: var(--radius-control); }
 .ta-phone .ta-row-sub { display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; white-space: normal; overflow-wrap: anywhere; }
 .ta-phone .ta-row-meta { max-width: 45%; gap: 4px; color: var(--muted-fg); text-align: right; overflow-wrap: anywhere; }
 .ta-phone .ta-tile { gap: 8px; padding: 16px; }
 .ta-phone .ta-tile-title { white-space: normal; overflow-wrap: anywhere; }
 .ta-phone .ta-tile-icon { border-radius: 0; background: transparent; box-shadow: none; }
-.ta-phone .ta-empty { padding: 24px 12px; font-size: var(--font-prose); line-height: var(--lh-prose); overflow-wrap: anywhere; }
-.ta-phone .ta-banner { flex-wrap: wrap; gap: 12px; }
+.ta-phone .ta-empty { padding: 24px 16px; font-size: var(--font-prose); line-height: var(--lh-prose); overflow-wrap: anywhere; }
+.ta-phone .ta-banner { flex-wrap: wrap; gap: 8px; }
 .ta-phone .ta-today-hello { background: transparent; padding: 0; }
 .ta-phone .ta-day { padding: 16px; }
 .ta-phone .ta-day-source-btn,
 .ta-phone .ta-day-more,
 .ta-phone .ta-day-btn { min-height: var(--control-h-touch); }
 .ta-phone .ta-day-divider::after { content: none; }
-.ta-phone-empty-body { display: flex; flex-direction: column; align-items: flex-start; gap: 12px; padding: 16px; }
+.ta-phone-empty-body { display: flex; flex-direction: column; align-items: flex-start; gap: 8px; padding: 16px; }
 .ta-phone .ta-prose,
 .ta-phone .ta-intro-body { font-size: var(--font-prose); line-height: var(--lh-prose); }
 
@@ -163,9 +161,9 @@
 .ta-phone .ta-chips button { min-height: var(--control-h-touch); height: auto; white-space: normal; }
 .ta-phone .ta-pill-btn,
 .ta-phone .ta-wide-btn { border-radius: var(--radius-control); }
-.ta-phone .ta-chips button { background: var(--phone-surface); border: 0; }
-.ta-phone .ta-chips button[aria-pressed='true'] { background: var(--selected); color: var(--fg); }
-.ta-phone .ta-input { min-height: var(--control-h-touch); border: 0; border-radius: var(--radius-control); background: var(--phone-surface); box-shadow: none; }
+.ta-phone .ta-chips button { background: var(--ta-glass); border: 0; }
+.ta-phone .ta-chips button[aria-pressed='true'] { background: var(--ta-seg-active); color: var(--fg); }
+.ta-phone .ta-input { min-height: var(--control-h-touch); border: 0; border-radius: var(--radius-control); background: var(--ta-glass); box-shadow: var(--ta-glass-fx); }
 .ta-phone textarea.ta-input { min-height: 144px; font-size: var(--font-prose); line-height: var(--lh-prose); }
 
 /* 确认框经 Portal 出去，需显式使用手机皮肤，仍由原 Dialog 管焦点/返回。 */

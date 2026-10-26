@@ -22,7 +22,7 @@ import { sessionPresentation } from './watch-status'
 import { agentStatusText } from '@/lib/agentStatusText'
 import { agentStatusColorVar } from '@gugu/core/shared/agentStatusPresentation'
 import { useAgentWatchSession } from './useAgentWatchSession'
-import { SessionActionsSheet } from './SessionsPage'
+import { SessionActions } from './SessionsPage'
 import { MobileModeMenu } from './MobileModeMenu'
 import { useMachineLabel } from './useMachineLabel'
 import { SessionAppFrame } from '@/components/appSlot/SessionAppFrame'
@@ -75,7 +75,7 @@ export function SessionTimelinePage({
   const { issue: wakeIssue, dropped: wakeDropped, retry: retryWake } = useCloudComputerWake(device)
   const cloudAsleep = device.cloud_computer === 'asleep' || device.cloud_computer === 'waking'
   const [appliedDraft, setAppliedDraft] = useState<typeof draft>(undefined)
-  const [menuOpen, setMenuOpen] = useState(false)
+  const [menuAnchor, setMenuAnchor] = useState<Element | null>(null)
   // owner 10-16 The App this page shows instead of the timeline, picked from the mode button; null = the timeline.
   const [appKind, setAppKind] = useState<string | null>(initialAppKind ?? null)
   useEffect(() => showPhoneAppView({
@@ -181,7 +181,7 @@ export function SessionTimelinePage({
         onOpenApp={setAppKind}
       /> : null}
       {online ? (
-        <IconButton size="md" aria-label={t('agentWatch.sessions.menu')} data-testid="agent-watch-session-page-menu" onClick={() => setMenuOpen(true)}>
+        <IconButton size="md" aria-label={t('agentWatch.sessions.menu')} data-testid="agent-watch-session-page-menu" onClick={(event) => setMenuAnchor(event.currentTarget)}>
           <MoreHorizontal />
         </IconButton>
       ) : null}
@@ -267,12 +267,12 @@ export function SessionTimelinePage({
         />
       ) : null}
 
-      <SessionActionsSheet
-          open={menuOpen}
+      <SessionActions
+          anchor={menuAnchor}
           session={session}
           deviceId={device.device_id}
           phoneHost={phoneHost}
-          onClose={() => setMenuOpen(false)}
+          onClose={() => setMenuAnchor(null)}
           onArchived={onBack}
         />
     </AgentWatchScreen>

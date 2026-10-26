@@ -73,18 +73,11 @@
 .ta-onb .ta-input:focus-visible { outline: 2px solid var(--fg); outline-offset: 2px; }
 .ta-onb-swatches { width: min(300px, 100%); align-self: center; }
 
-/* 能力介绍是文字列表，图标不再套装饰底块。 */
-.ta-onb-intro { display: flex; width: 100%; flex-direction: column; gap: 20px; margin: 8px 0 0; padding: 0; list-style: none; text-align: left; }
+/* 助理单独在上,下面两项对应这台设备的入口。 */
+.ta-onb-intro-gugu { display: flex; width: 100%; flex-direction: column; gap: 4px; text-align: left; }
+.ta-onb-intro-gugu p { margin: 0; }
+.ta-onb-intro { display: grid; width: 100%; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 20px; margin: 4px 0 0; padding: 16px 0 0; border-top: 1px solid var(--border); list-style: none; text-align: left; }
 .ta-onb-intro-row { display: flex; align-items: flex-start; gap: 12px; }
-.ta-onb-intro-icon {
-  display: inline-flex;
-  flex: none;
-  height: 24px;
-  width: 24px;
-  align-items: center;
-  justify-content: center;
-  color: var(--muted-fg);
-}
 .ta-onb-intro-text { display: flex; min-width: 0; flex-direction: column; gap: 4px; }
 .ta-onb-actions-stack { flex-direction: column; align-items: stretch; }
 .ta-onb-primary { width: 100%; }
@@ -93,6 +86,10 @@
 
 /* 首次引导是整页(登录之后、主界面之前):卡片居中,底色同咕咕中性底。 */
 .ta-first-run { display: flex; min-height: 100dvh; width: 100%; align-items: center; justify-content: center; padding: 24px 16px; background: var(--page); overflow-y: auto; }
+.ta-first-run-overlay { position: fixed; inset: 0; z-index: var(--z-modal); height: 100dvh; }
+@media (max-width: 719px) {
+  .ta-onb-intro { grid-template-columns: minmax(0, 1fr); gap: 16px; }
+}
 
 /* 开通后聊天里的「自定义」卡(AssistantCustomizeCard):接在消息流末尾,一颗胶囊按钮 + 一个小叉,照 dots「自定义你的 dot ›」。 */
 .ta-customize-card { display: flex; align-items: center; gap: 6px; padding: 4px 16px 12px; }

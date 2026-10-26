@@ -187,8 +187,8 @@ test('main renderer search fields share one visual contract', async ({ page }, t
   // ⚠️ 按 testid 找,❌ 别按 placeholder:通讯录那个框在桌面写「搜索联系人」、在移动壳写
   // 「搜索联系人和 Agent」(ContactsNav 与桌面侧栏各给各的),按文案定位在窄屏必然落空。
   await page.getByTestId('mobile-messages-nav').click()
-  // 手机上框收在页头(ui/HeaderSearch):先点会话列表页头的放大镜。
-  await page.locator('[data-mobile-tab-page="chats"] [data-header-search-open]').click()
+  // The root list opens its header search field from the floating phone search button.
+  await page.getByTestId('phone-list-search').click()
   const mobileSearch = page.getByTestId('chat-list-search-input')
   await expect(mobileSearch, '移动壳会话列表的搜索框应可见').toBeVisible({ timeout: 30_000 })
   const mobileReading = await readSearchMetrics('messages-mobile', mobileSearch)
