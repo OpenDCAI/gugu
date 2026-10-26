@@ -404,7 +404,7 @@ export const PromptEditor = forwardRef<PromptEditorRef, PromptEditorProps>(funct
         'data-placeholder': placeholder,
         enterkeyhint: enterBehavior === 'newline' ? 'enter' : 'send',
       },
-      // Let the host claim long text first; otherwise restore canonical mentions at the selection.
+      // Let the host claim long text first; otherwise paste literal text and restore canonical mentions.
       // Open paragraph edges preserve inline placement, just like ProseMirror's normal text paste.
       // File clipboard entries keep using the outer attachment handler.
       handlePaste: (view, event) => {
@@ -413,7 +413,6 @@ export const PromptEditor = forwardRef<PromptEditorRef, PromptEditorProps>(funct
         if (!text) return false;
         if (onPasteTextRef.current?.(text) === true) return true;
         const doc = plainTextDoc(text, mentionProviderRef.current?.resolve);
-        if (!doc.content.some((block) => block.content?.some((node) => node.type === 'mention'))) return false;
         const slice = Slice.maxOpen(view.state.schema.nodeFromJSON(doc).content);
         view.dispatch(view.state.tr.replaceSelection(slice).setMeta('paste', true).setMeta('uiEvent', 'paste'));
         return true;
