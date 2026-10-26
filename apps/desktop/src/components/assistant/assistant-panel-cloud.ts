@@ -8,8 +8,8 @@ import { assistantAppChangeSchema, type AssistantAppChange } from '@/session/sha
 
 const accountId = () => getRendererSession()?.user.id ?? null
 export const assistantPanelCloud = createAssistantPanelClient(async (name,args) => {
-  const { data,error } = await identityDb.rpc(name,args).abortSignal(AbortSignal.timeout(10_000))
-  return { data,error }
+  const { data,error,status } = await identityDb.rpc(name,args).abortSignal(AbortSignal.timeout(10_000))
+  return { data,error,status }
 },accountId)
 
 export function assertAssistantPanelOwner(expectedOwner: string | null): asserts expectedOwner is string {

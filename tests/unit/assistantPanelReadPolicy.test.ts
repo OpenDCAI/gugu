@@ -1,9 +1,18 @@
 import { afterEach, expect, it, vi } from 'vitest'
-import { AssistantPanelError } from '@gugu/core/cloud/assistantPanel'
+import { AssistantPanelError, createAssistantPanelClient } from '@gugu/core/cloud/assistantPanel'
 import { isAssistantPanelReadRetryable, retryAssistantPanelRead, withAssistantPanelReadDeadline } from '@gugu/core/cloud/assistantPanelRead'
 import { deferred } from '../support/testHarness'
 
 afterEach(() => vi.useRealTimers())
+it.each([[0,'ENOTFOUND'],[0,'ECONNRESET'],[503,'gateway_unavailable']] as const)('preserves RPC transport status %s with SDK code %s', async (status,code) => {
+  const client = createAssistantPanelClient(async () => ({ data: null,error: { code,message: 'private transport diagnosis' },status }),() => 'owner')
+  const error = await client.snapshot('assistant').catch(error => error)
+  expect(error).toMatchObject({ code,status })
+  expect(isAssistantPanelReadRetryable(error)).toBe(true)
+})
+it.each(['unprepared','collection-unavailable','application-failed','stale','54000'])('does not retry snapshot fact %s even with a server status', code => {
+  expect(isAssistantPanelReadRetryable(Object.assign(new AssistantPanelError(code,'fixed fact'),{ status: 500 }))).toBe(false)
+})
 it.each(['unprepared','preparation-timeout','collection-unavailable','application-failed','stale','signed-out','42501','invalid-response','22023','54000'])('never retries fixed state %s', code => {
   expect(isAssistantPanelReadRetryable(new AssistantPanelError(code,'private detail'))).toBe(false)
 })
