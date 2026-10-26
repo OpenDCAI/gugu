@@ -109,7 +109,7 @@ function fakeCloud() {
   return { cloud, commands, calls, messages, inboxRows, devices, users }
 }
 
-async function fixture(runTurn, { nativeCall = async () => ({ ok: true }), cancelTurn = () => true, actionFactory = async () => ({ tools: () => [], confirmationForMessage: () => null, cancel: async () => undefined }), prepare = async () => undefined, onRpcStart = () => undefined } = {}) {
+async function fixture(runTurn, { nativeCall = async () => ({ ok: true }), cancelTurn = () => true, actionFactory = async () => ({ tools: () => [], confirmationForMessage: () => null, cancel: async () => undefined }), prepare = async () => undefined, onRpcStart = () => undefined, onSessionReply = () => undefined } = {}) {
   const root = await mkdtemp(join(tmpdir(), 'gugu-phone-host-'))
   const previousHome = process.env.GUGU_AGENT_HOME
   process.env.GUGU_AGENT_HOME = root
@@ -118,7 +118,7 @@ async function fixture(runTurn, { nativeCall = async () => ({ ok: true }), cance
   const sessionReplies = []
   let authChanged
   let connectivityChanged
-  const config = { ownerId, deviceId, installId, supabaseUrl: 'https://test.invalid', supabaseAnonKey: 'public', accessToken: 'private', refreshToken: 'private', grants: { calendar: true, photos: true }, deviceRow: { device_id: deviceId, user_id: ownerId, label: '测试手机', capabilities: { actions: { v: 1, actions: [] } } } }
+  const config = { ownerId, deviceId, installId, supabaseUrl: 'https://test.invalid', supabaseAnonKey: 'public', accessToken: 'private', refreshToken: 'private', grants: { calendar: true, photos: true }, deviceRow: { device_id: deviceId, user_id: ownerId, label: '测试手机', hostname: 'test-phone', platform: 'android', capabilities: { actions: { v: 1, actions: [] } } } }
   await prepare({ root, ...fake, events })
   const host = await startPhoneAgentHost(config, {
     runTurn, cancelTurn, emit: (event) => events.push(event), nativeCall,
@@ -132,6 +132,7 @@ async function fixture(runTurn, { nativeCall = async () => ({ ok: true }), cance
         call: async (_device, _type, body) => {
           if (body.channel === 'agentSession.locate') return { result: { value: { session_ids: body.args[1].session_ids } } }
           sessionReplies.push(body)
+          await onSessionReply(body)
           return { result: { value: { recipients: [{ to: `session:${body.args[1].session_ids[0]}`, status: 'delivered', message_id: randomUUID() }] } } }
         },
       } }
@@ -146,6 +147,84 @@ const until = async (predicate, events) => {
     await new Promise((resolve) => setTimeout(resolve, 10))
   }
 }
+
+test('a first preparation request failure recovers in the same task and returns exactly one result to the assistant', async () => {
+  let issues = 0, turns = 0
+  const caller = { sessionId: 'edb18513-6477-4c4d-8766-049227046427', deviceId: 'acceptance-computer', name: '个人助理', harness: 'pi', platformModel: 'platform:free', transport: 'acp' }
+  const fx = await fixture(async (command, hooks) => {
+    turns++
+    await hooks.extraTools.find(tool => tool.name === 'session_message').execute('one-result', { to: [`session:${caller.sessionId}`], text: '1073', reply_to_message_id: command.prompt.match(/msg="(msg:[^"]+)/)[1] })
+    return { status: 'done', text: '结果已交回' }
+  }, { prepare: ({ cloud, devices }) => {
+    devices.push({ device_id: caller.deviceId, user_id: ownerId, label: '验收电脑', hostname: 'acceptance-computer', platform: 'darwin', status: 'online', last_seen_at: new Date().toISOString(), capabilities: { runtimes: ['pi'], host_runtime_capability: 1 } })
+    const access = cloud.modelAccess
+    cloud.modelAccess = body => {
+      if (body.action === 'issue' && ++issues === 1) throw new TypeError('fetch failed', { cause: Object.assign(new Error('private endpoint'), { code: 'ENOTFOUND' }) })
+      return access(body)
+    }
+  } })
+  try {
+    await fx.host.invoke('agentSession.spawn', [caller, { action: 'spawn', harness: 'pi', prompt: '算 37 乘 29，把结果交给我' }], 'preparation-recovery')
+    await until(() => issues === 1, fx.events)
+    assert.equal(fx.host.state().execution.phase, 'preparing')
+    assert.equal(fx.host.state().sessions[0].status, 'working')
+    await until(() => fx.host.state().sessions[0]?.lastJobStatus === 'done', fx.events)
+    assert.equal(issues, 2)
+    assert.equal(turns, 1)
+    assert.equal(fx.sessionReplies.length, 1)
+    assert.equal(fx.sessionReplies[0].args[1].text, '1073')
+    assert.equal(fx.events.some(event => event.type === 'turn_failed'), false)
+    const journal = JSON.parse(await readFile(join(fx.root, 'hosts', ownerId, 'host.json'), 'utf8'))
+    assert.equal(Object.values(journal.jobs)[0].preparationFailures[0].code, 'ENOTFOUND')
+    assert.doesNotMatch(JSON.stringify(journal.requestFailures), /private endpoint|https/)
+  } finally { await fx.close() }
+})
+
+test('an exhausted preparation failure is disclosed once; a lost delivery acknowledgment survives restart with the same identity', async () => {
+  const caller = { sessionId: 'edb18513-6477-4c4d-8766-049227046427', deviceId: 'acceptance-computer', name: '个人助理', harness: 'pi', platformModel: 'platform:free', transport: 'acp' }
+  let attempts = 0, turns = 0, journal, original
+  const fx = await fixture(async () => { turns++; throw new Error('must not run the model') }, {
+    prepare: ({ cloud }) => {
+      const access = cloud.modelAccess
+      cloud.modelAccess = body => {
+        if (body.action === 'issue') { attempts++; throw new TypeError('fetch failed', { cause: Object.assign(new Error('private endpoint'), { code: 'ECONNRESET' }) }) }
+        return access(body)
+      }
+    },
+    onSessionReply: () => { throw new Error('acknowledgment lost') },
+  })
+  try {
+    await fx.host.invoke('agentSession.spawn', [caller, { action: 'spawn', harness: 'pi', prompt: '执行一次任务' }], 'preparation-exhausted')
+    await until(async () => {
+      const state = JSON.parse(await readFile(join(fx.root, 'hosts', ownerId, 'host.json'), 'utf8'))
+      return Object.values(state.jobs).some(job => job.failureNotice?.nextAttemptAt)
+    }, fx.events)
+    assert.equal(attempts, 3)
+    assert.equal(turns, 0)
+    assert.equal(fx.sessionReplies.length, 1)
+    original = fx.sessionReplies[0].args[1]
+    assert.equal(original.text, '这次手机任务没能完成，网络连接反复中断。')
+    assert.doesNotMatch(original.text, /job|fetch|重发|[\da-f]{8}-/)
+    journal = JSON.parse(await readFile(join(fx.root, 'hosts', ownerId, 'host.json'), 'utf8'))
+    const job = Object.values(journal.jobs)[0]
+    assert.equal(job.status, 'failed')
+    assert.equal(job.error, original.text)
+    assert.equal(job.failureNotice.status, 'pending')
+    job.failureNotice.nextAttemptAt = new Date(0).toISOString() // The recovery interval has elapsed on restart.
+  } finally { await fx.close() }
+  const recovered = await fixture(async () => { turns++; throw new Error('must not replay the failed task') }, { prepare: async ({ root }) => {
+    const directory = join(root, 'hosts', ownerId)
+    await mkdir(directory, { recursive: true })
+    await writeFile(join(directory, 'host.json'), JSON.stringify(journal))
+  } })
+  try {
+    await until(() => recovered.sessionReplies.length === 1, recovered.events)
+    assert.deepEqual(recovered.sessionReplies[0].args[1], original)
+    assert.equal(turns, 0)
+    await until(async () => Object.values(JSON.parse(await readFile(join(recovered.root, 'hosts', ownerId, 'host.json'), 'utf8')).jobs)[0].failureNotice.status === 'sent', recovered.events)
+    assert.equal(recovered.sessionReplies.length, 1)
+  } finally { await recovered.close() }
+})
 
 async function recordTurn(command, hooks, text) {
   const directory = join(process.env.GUGU_AGENT_HOME, command.sessionId, command.contextEpoch, 'sessions')
