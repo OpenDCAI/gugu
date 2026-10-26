@@ -621,12 +621,9 @@ export default {
       "mac": "Connect your Mac",
       "windows": "Connect a Windows PC",
       "linux": "Connect a Linux computer",
-      "iphone": "Connect your iPhone",
       "android": "Connect your Android phone",
-      "browser": "Connect the browser extension",
       "server": "Add a server",
       "serverHint": "Install 咕咕 server over SSH so agents can run there",
-      "comingSoon": "Coming soon",
       "requirement": {
         "mac": "macOS · Apple silicon or Intel",
         "windows": "Windows 10 or later · x64",

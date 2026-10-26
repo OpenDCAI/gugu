@@ -4,7 +4,7 @@ export const GUGU_ANDROID_DOWNLOAD_URL =
 
 /**
  * #7199「连接更多设备」的下载地址:正式通道 latest(与官网下载菜单同一组,10-15 逐个实测 200)。
- * 只列真出包的平台;iPhone、浏览器插件没有包,界面上写「即将推出」,❌ 编一个地址。
+ * 只列真出包的平台;没有包的平台不显示连接入口,❌ 编一个地址。
  */
 export const GUGU_DOWNLOAD_URLS = {
   macArm64: 'https://download.gugu.nextmind.space/releases/mac/latest/gugu-mac-arm64.dmg',

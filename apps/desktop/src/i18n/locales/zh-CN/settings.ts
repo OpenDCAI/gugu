@@ -621,12 +621,9 @@ export default {
       "mac": "连接你的 Mac",
       "windows": "连接 Windows 电脑",
       "linux": "连接 Linux 电脑",
-      "iphone": "连接你的 iPhone",
       "android": "连接你的安卓手机",
-      "browser": "连接浏览器插件",
       "server": "添加一台服务器",
       "serverHint": "经 SSH 装上咕咕 server，智能体能在上面运行",
-      "comingSoon": "即将推出",
       "requirement": {
         "mac": "macOS · Apple 芯片或 Intel 芯片",
         "windows": "Windows 10 及以上 · x64",
