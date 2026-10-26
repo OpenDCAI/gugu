@@ -250,6 +250,8 @@ export default {
     "createTask": "新建任务",
     "createAgent": "新建 Agent",
     "createGroup": "新建群聊",
+    "createGroupMobile": "发起群聊",
+    "newProject": "新项目",
     "delete": "删除",
     "disableNotifications": "关闭通知",
     "draft": "[草稿]",

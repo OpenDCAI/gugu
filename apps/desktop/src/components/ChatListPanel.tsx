@@ -1,7 +1,7 @@
 import { messageForUser } from '@/lib/userFacingError';
 import { useState, useEffect, useMemo, useRef, useCallback, type KeyboardEventHandler, type ReactNode } from 'react'
 import { useTranslation } from 'react-i18next'
-import { BellOff, CheckCircle, Checklist, ChevronDown, ChevronRight, MessageCircle, MessageSquare, Pin, Plus, SquarePen, Trash, X, Zap, type IconComponent } from '@/lib/icons'
+import { BellOff, CheckCircle, Checklist, ChevronDown, ChevronRight, FolderClosed, MessageCircle, MessageSquare, Pin, Plus, SquarePen, Trash, UserRound, Users, X, Zap, type IconComponent } from '@/lib/icons'
 import { Sheet } from './ui/Sheet'
 import { DropdownMenu, Menu, MenuItem } from './ui/Menu'
 import { PaneEmptyState } from './ui/PaneEmptyState'
@@ -99,6 +99,8 @@ interface ChatListPanelProps {
   leadChatId?: string | null
   /** 手机页头左上角(自己的头像 →「我的」)。 */
   headerLeading?: ReactNode
+  /** 手机右上「写」菜单里的「新项目」(#446)。 */
+  onNewProject?: () => void
 }
 
 const CHAT_LIST_PLUS_BUTTON_SELECTOR = AUTOMATION_TEST_IDS.chatListPlusButton
@@ -503,13 +505,21 @@ interface PlusMenuItemsProps {
   onGroupChat: () => void
   onAddFriend: () => void
   onScan?: () => void
+  /** 手机(v7.12 稿 NewMenu,#446):有它时菜单是 发起群聊 / 新项目 / 添加联系人,新任务在项目群里派。 */
+  onNewProject?: () => void
   mobile?: boolean
 }
 
-function PlusMenuItems({ onSessionCreate, onGroupChat, onAddFriend, onScan, mobile = false }: PlusMenuItemsProps) {
+function PlusMenuItems({ onSessionCreate, onGroupChat, onAddFriend, onScan, onNewProject, mobile = false }: PlusMenuItemsProps) {
   const { t } = useTranslation('messaging')
+  const phoneItems = onNewProject ? [
+    { testid: 'plus-menu-create-group', icon: <Users size={15} />, label: t('chatList.createGroupMobile'), onClick: onGroupChat },
+    { testid: 'plus-menu-new-project', icon: <FolderClosed size={15} />, label: t('chatList.newProject'), onClick: onNewProject },
+    { testid: 'plus-menu-add-friend', icon: <UserRound size={15} />, label: t('chatList.addContact'), onClick: onAddFriend },
+  ] : null
   // design line 592: 新建群聊 (contacts icon) + 添加联系人 (add-person icon)
   const items = [
+    ...(phoneItems ?? [
     ...(onSessionCreate
       ? [{
           testid: AUTOMATION_TEST_IDS.mobileSessionCreateAction,
@@ -550,6 +560,7 @@ function PlusMenuItems({ onSessionCreate, onGroupChat, onAddFriend, onScan, mobi
       label: t('chatList.addContact'),
       onClick: onAddFriend,
     },
+    ]),
     // @@@scan-frame-icon (#537) — gated on barcodeScan capability; not in design dropdown but kept for native-scan devices
     ...(onScan && platform.capabilities.barcodeScan
       ? [{
@@ -597,6 +608,7 @@ export function ChatListPanel({
   lead,
   leadChatId = null,
   headerLeading,
+  onNewProject,
 }: ChatListPanelProps) {
   const inSidebar = placement === 'sidebar'
   const sidebarView = useSidebarChatView()
@@ -1095,6 +1107,7 @@ export function ChatListPanel({
                     onGroupChat={() => setShowGroupModal(true)}
                     onAddFriend={() => setShowAddFriendModal(true)}
                     onScan={onScan}
+                    onNewProject={onNewProject ? () => { setShowPlusMenu(false); onNewProject() } : undefined}
                     mobile={mobile}
                   />
                 </DropdownMenu.Content>

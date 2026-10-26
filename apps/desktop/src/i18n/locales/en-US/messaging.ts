@@ -250,6 +250,8 @@ export default {
     "createTask": "New task",
     "createAgent": "New Agent",
     "createGroup": "New group chat",
+    "createGroupMobile": "New group chat",
+    "newProject": "New project",
     "delete": "Delete",
     "disableNotifications": "Mute notifications",
     "draft": "[Draft]",
