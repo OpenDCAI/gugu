@@ -37,3 +37,19 @@ export function taskExchangeRecorded(conversationId: string): void {
     try { watcher.changed(); } catch (error) { log.warn('Task exchange projection failed after delivery was committed', { conversationId, error: String(error) }); }
   }
 }
+
+
+/** A host-only migration reader. It never starts providers or serves a panel request. */
+export function readAssistantWorkReceipts(after=0) {
+  if(!Number.isSafeInteger(after)||after<0) throw new Error('Invalid historical receipt cursor')
+  const position=sql<number>`${messages}.rowid`
+  const rows=db.select({id:messages.id,position,sessionId:messages.sessionId,content:messages.content,timestamp:messages.timestamp,
+    metadata:messages.metadata,title:sessions.title,config:sessions.config,spawnedBySessionId:sessions.spawnedBySessionId})
+    .from(messages).innerJoin(sessions,eq(sessions.id,messages.sessionId)).where(gt(position,after)).orderBy(position).limit(PAGE_SIZE).all()
+  return {entries:rows.flatMap(({metadata,config,...row})=>{
+    try {
+      const receipt=JSON.parse(metadata??'null')
+      return receipt?.kind==='session-direct' && receipt.state==='accepted' ? [{...row,spawnedByRemote:config?.spawnedByRemote??null}] : []
+    }catch{return []}
+  }),cursor:rows.at(-1)?.position??after,hasMore:rows.length===PAGE_SIZE}
+}

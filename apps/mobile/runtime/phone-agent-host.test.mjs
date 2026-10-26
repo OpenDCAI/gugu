@@ -5,6 +5,7 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { randomUUID } from 'node:crypto'
 import { EventEmitter } from 'node:events'
+import { buildSessionDirectEnvelope } from '../../../packages/core/src/local/agent/deliveryEnvelope.ts'
 import { startPhoneAgentHost } from './phone-agent-host.mjs'
 import { bindAgentEntry, createAgentEntry } from './agent-entry.mjs'
 import { createPhoneProvisioner } from './phone-agent-provision.mjs'
@@ -1321,5 +1322,37 @@ test('a phone work result enters the account queue while its coordinator device 
     assert.equal(queued.p_events[0].kind,'completed')
     assert.equal(queued.p_events[0].to_device_id,'sleeping-home')
     assert.equal(fx.sessionReplies.length,0)
+  }finally{await fx.close()}
+})
+
+
+test('startup imports acknowledged legacy work and queues host failure through the sole account outbox', async () => {
+  const workId=randomUUID(),messageId=randomUUID(),sessionId=randomUUID(),assistantId=randomUUID(),coordinator=randomUUID()
+  const caller={sessionId:coordinator,deviceId:'home',agentUserId:assistantId}
+  const task={work_id:workId,assistant_user_id:assistantId,coordinator_session_id:coordinator,coordinator_device_id:'home',executors:[{session_id:sessionId,device_id:deviceId}]}
+  let imported=false
+  const fx=await fixture(async()=>{throw new Error('historical failed work must not rerun')},{prepare:async({root,cloud})=>{
+    const rpc=cloud.identity.rpc
+    cloud.identity.rpc=async(name,args)=>{
+      if(name==='assistant_work_history') return imported ? {data:{work:task,events:[],next_after:null},error:null} : {data:null,error:{code:'42501',message:'Work is not available to this account'}}
+      if(name==='assistant_work_import'){imported=true;return {data:{event_ids:args.p_events.map(row=>row.message_id)},error:null}}
+      if(name==='assistant_work_commit'){cloud.workEvents??=[];cloud.workEvents.push(args.p_events[0]);return {data:{work_id:workId,event_ids:args.p_events.map(row=>row.message_id),outcome:'active',terminal_version:'0'},error:null}}
+      return rpc(name,args)
+    }
+    const body=`Original task\n\n<gugu_work>\n${JSON.stringify({work_id:workId,coordinator:`session:${coordinator}`,report:'Report results'})}\n</gugu_work>`
+    const directory=join(root,'hosts',ownerId);await mkdir(directory,{recursive:true})
+    await writeFile(join(directory,'host.json'),JSON.stringify({version:1,ownerId,agents:{[agentId]:{agentUserId:agentId,sessionId,displayName:'Legacy task',status:'error',caller,modelId:'free'}},jobs:{[messageId]:{id:messageId,agentUserId:agentId,status:'failed',createdAt:'2026-10-20T08:00:00Z',finishedAt:'2026-10-20T08:01:00Z',error:'这次手机任务没能完成，网络连接反复中断。',sent:[],route:{kind:'session-direct',caller,sourceMessageId:messageId},prompt:buildSessionDirectEnvelope({senderSessionId:coordinator,senderTitle:'Assistant',messageId,content:body,at:'2026-10-20T08:00:00Z'})}},outbox:{},requests:{},leases:{}}))
+  }})
+  try{
+    await until(()=>fx.cloud.workEvents?.length===1,fx.events)
+    assert.equal(imported,true)
+    assert.equal(fx.cloud.workEvents[0].kind,'progress')
+    assert.equal(fx.cloud.workEvents[0].reason_code,'HOST_FAILURE')
+    assert.equal(fx.cloud.workEvents[0].content,'这次手机任务没能完成，网络连接反复中断。\n平台会直接通知主人，请勿重复通知。')
+    assert.equal(fx.sessionReplies.length,0)
+    const journal=JSON.parse(await readFile(join(fx.root,'hosts',ownerId,'host.json'),'utf8'))
+    assert.equal(journal.jobs[messageId].failureNotice,undefined)
+    await fx.host.handle({type:'configure',config:fx.config})
+    assert.equal(fx.cloud.workEvents.length,1)
   }finally{await fx.close()}
 })

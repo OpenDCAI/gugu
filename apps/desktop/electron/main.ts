@@ -191,6 +191,7 @@ import {
   type GuguIdentity,
 } from '@gugu/core/local/agent/deliveryEnvelope'
 import { handleUnifiedSessionMessage, type UnifiedRecipientResult } from './unified-session-message'
+import {createDesktopAssistantWorkHistory} from './assistant-work-history'
 import { installAssistantWorkLedgerHost, enqueueAssistantWorkMessage } from './sessionpage/assistant-work-ledger'
 import { createDesktopAssistantWorkReconciler } from './assistant-work-reconciliation'
 import { enqueueAssistantWorkReport } from '@gugu/core/cloud/assistantWorkReports'
@@ -1647,9 +1648,7 @@ function assistantWorkDeliveryHost(): AssistantWorkOutboxHost {
     return { ...lease, client: makeIdentityClient(auth.accessToken) as unknown as AssistantWorkRpcClient }
   }
   let assistantCache: {ownerId:string;until:number;value:ReturnType<typeof pickAssistant>} | null = null
-  const reconciler = createDesktopAssistantWorkReconciler({
-    context,
-    assistant: async current => {
+  const resolveAssistant = async (current:import('./assistant-work-outbox').AssistantWorkHostContext) => {
       if (assistantCache?.ownerId === current.ownerId && assistantCache.until > Date.now()) return assistantCache.value
       const auth = await desktopAuthProvider().getAuth()
       if (!auth?.accessToken || auth.userId !== current.ownerId) return null
@@ -1659,7 +1658,9 @@ function assistantWorkDeliveryHost(): AssistantWorkOutboxHost {
       const value = pickAssistant((data ?? []) as AssistantProvisionRow[])
       assistantCache = {ownerId:current.ownerId,until:Date.now()+60000,value}
       return value
-    },
+  }
+  const reconciler = createDesktopAssistantWorkReconciler({
+    context,assistant:resolveAssistant,
     inspect: async (current, work, target) => {
       const bridge = loadEmdashBridge()
       if (!bridge) return null
@@ -1685,9 +1686,16 @@ function assistantWorkDeliveryHost(): AssistantWorkOutboxHost {
     clean: work => assistantWorkForAgent(work.assistant_user_id)?.remove(work.work_id),
     warn: detail => createLogger('assistant-work/reconcile').warn(detail,'Task handoff reconciliation will retry'),
   })
+  const history=createDesktopAssistantWorkHistory({context,
+    receipts:async after=>loadEmdashBridge()?.readAssistantWorkReceipts(after)??{entries:[],cursor:after,hasMore:false},
+    agentId:(session,owner)=>guguAgentUserIdForSession(session,process.env,owner),
+    assistant:async current=>(await resolveAssistant(current))?.agentId??null,
+    warn:detail=>createLogger('assistant-work/history').warn(detail,'Historical work will be checked on the next host cycle'),
+  })
   const host = createAssistantWorkOutboxHost({
     context,
     afterDrain: async () => {
+      await history.kick()
       await reconciler.kick()
       // Any awake account runtime can resume the home needed to post an abandoned delivery notice.
       const current = await context()
@@ -1739,7 +1747,7 @@ function assistantWorkDeliveryHost(): AssistantWorkOutboxHost {
     warn: detail => createLogger('assistant-work/outbox').warn(detail, 'Task delivery will reconcile from the cloud queue'),
   })
   const offLedger = installAssistantWorkLedgerHost({ context, kick: () => host.kick() })
-  app.once('will-quit', () => { offLedger(); reconciler.stop(); host.stop() })
+  app.once('will-quit', () => { offLedger(); history.stop(); reconciler.stop(); host.stop() })
   return (assistantWorkOutbox = host)
 }
 

@@ -1,0 +1,24 @@
+import {expect,it,vi} from 'vitest'
+import {buildSessionDirectEnvelope} from '@gugu/core/local/agent/deliveryEnvelope'
+import {createDesktopAssistantWorkHistory} from '../../../apps/desktop/electron/assistant-work-history'
+const assistant='10000000-0000-4000-8000-000000000001',executor='10000000-0000-4000-8000-000000000002',coordinator='10000000-0000-4000-8000-000000000003',child='10000000-0000-4000-8000-000000000004',workId='10000000-0000-4000-8000-000000000005'
+const dispatch='10000000-0000-4000-8000-000000000006',result='10000000-0000-4000-8000-000000000007'
+const envelope=(id:string,sender:string,content:string)=>buildSessionDirectEnvelope({senderSessionId:sender,senderTitle:'Agent',messageId:id,content,at:'2026-10-20T08:00:00Z'})
+it('uploads only original locally accepted receipts without live providers or a second delivery',async()=>{
+ const work={work_id:workId,assistant_user_id:assistant,title:'Old work',coordinator_session_id:coordinator,coordinator_device_id:'desktop',executors:[{session_id:child,device_id:'desktop',agent_user_id:executor}]}
+ let stored=false
+ const rpc=vi.fn(async(name:string,args:Record<string,unknown>)=>name==='assistant_work_history' ? {data:stored?{work,events:[],next_after:null}:null,error:stored?null:{code:'42501',message:'Work is not available to this account'}} : (stored=true,{data:{event_ids:(args.p_events as {message_id:string}[]).map(e=>e.message_id)},error:null}))
+ const entries=[{id:dispatch,position:1,sessionId:child,title:'Old work',timestamp:'2026-10-20 08:00:00',spawnedBySessionId:coordinator,spawnedByRemote:null,
+  content:envelope(dispatch,coordinator,`Old request\n<gugu_work>\n${JSON.stringify({work_id:workId,coordinator:`session:${coordinator}`,report:'Report results'})}\n</gugu_work>`)},
+  {id:result,position:2,sessionId:coordinator,title:'Assistant',timestamp:'2026-10-20 08:02:00',spawnedBySessionId:null,spawnedByRemote:null,
+  content:envelope(result,child,`A verified result\n<gugu_work_result>\n${JSON.stringify({work_id:workId,status:'completed'})}\n</gugu_work_result>`)}]
+ const host=createDesktopAssistantWorkHistory({context:async()=>({ownerId:'owner',deviceId:'desktop',runtimeInstanceId:'runtime',client:{rpc}}),
+  receipts:async()=>({entries,cursor:2,hasMore:false}),agentId:async(session:string)=>session===child?executor:session===coordinator?assistant:null,
+  assistant:async()=>assistant,warn:vi.fn()})
+ await host.kick();await host.kick();host.stop()
+ const imports=rpc.mock.calls.filter(([name])=>name==='assistant_work_import')
+ expect(imports).toHaveLength(2)
+ expect(imports[0]![1]).toMatchObject({p_work_id:workId,p_events:[{message_id:dispatch,kind:'dispatch',receipt_kind:'received'}]})
+ expect(imports[1]![1]).toMatchObject({p_events:[{message_id:result,kind:'completed',occurred_at:'2026-10-20T08:02:00.000Z',receipt_kind:'received'}]})
+ expect(rpc.mock.calls.some(([name])=>name.includes('outbox')||name==='assistant_work_commit')).toBe(false)
+})

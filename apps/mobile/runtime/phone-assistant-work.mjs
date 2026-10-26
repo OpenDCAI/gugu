@@ -1,5 +1,6 @@
 import { createAssistantWorkDeliveryReceiver } from '../../../packages/core/src/cloud/assistantWorkDelivery.ts'
 import { enqueueAssistantWorkReport } from '../../../packages/core/src/cloud/assistantWorkReports.ts'
+import { legacyAssistantDispatch } from '../../../packages/core/src/shared/assistantWorkHistory.ts'
 import { stableId } from './phone-agent-store.mjs'
 
 /** Uses only the shared account queue. No local delivery payload or second retry journal. */
@@ -28,9 +29,10 @@ export function createPhoneAssistantWork({ ownerId,deviceId,instanceId,cloud,sto
       return {admitted,messageId:event.message_id,...(admitted && agent ? {receipt:{agent_user_id:agent.agentUserId}} : {})}
     },
   })
-  return {
+  const api={
+    correlation:(agent,job)=>legacyAssistantDispatch({agent,job,deviceId}),
     receive:ref=>receiver.receive(ref,ownerId),
-    async enqueueReport({agent,job,callId,record,prepare}) {
+    async enqueueReport({agent,job,callId,record,prepare,reasonCode}) {
       const assistantId=agent.assistantWork?.assistant_id ?? agent.caller?.agentUserId
       if(!assistantId) throw new Error('Assistant task routing is not available')
       let sequence=0
@@ -40,9 +42,22 @@ export function createPhoneAssistantWork({ ownerId,deviceId,instanceId,cloud,sto
           if(error) throw new Error(error.message)
           return new Map((data??[]).map(row=>[row.gugu_number,row.id]))
         },id:()=>stableId('phone-work-report',job.id,callId,sequence++)},
-      {assistantId,runtimeInstanceId:instanceId,sessionId:agent.sessionId,deviceId,record})
+      {assistantId,runtimeInstanceId:instanceId,sessionId:agent.sessionId,deviceId,record,reasonCode})
       kick()
       return result
     },
+    async enqueueHostFailure(agent,job) {
+      const work=api.correlation(agent,job)
+      if(!work) return false
+      delete job.failureNotice
+      if(job.hostFailureReported || job.sent?.length) return true
+      const result=await api.enqueueReport({agent:{...agent,assistantWork:{assistant_id:work.assistantId}},job,callId:'host-failure',reasonCode:'HOST_FAILURE',
+        record:{to:[`session:${work.task.coordinator_session_id}`],text:`${job.error??'手机任务执行中断。'}\n平台会直接通知主人，请勿重复通知。`,work_result:{work_id:work.workId,status:'progress'}},
+        prepare:async()=>[]})
+      job.hostFailureReported={message_id:result.event_ids[0]}
+      await store.save()
+      return true
+    },
   }
+  return api
 }

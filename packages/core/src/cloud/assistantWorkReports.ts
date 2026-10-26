@@ -16,7 +16,7 @@ export async function enqueueAssistantWorkReport(deps:{
   prepare(files:SessionFileInput[],target:{sessionId:string;deviceId:string;agentId:string}):Promise<SessionAttachmentRef[]>
   resolveNumbers(numbers:number[]):Promise<Map<number,string>>
   id():string
-}, input:{assistantId:string;runtimeInstanceId:string;sessionId:string;deviceId:string;record:Record<string,unknown>}) {
+}, input:{assistantId:string;runtimeInstanceId:string;sessionId:string;deviceId:string;reasonCode?:'HOST_FAILURE';record:Record<string,unknown>}) {
   const report=reportSchema.parse(input.record.work_result)
   const {data,error}=await deps.rpc('assistant_work_history',{p_assistant:input.assistantId,p_work_id:report.work_id,p_after:'0',p_limit:1})
   if(error) throw Object.assign(new Error(error.message),{code:error.code})
@@ -46,7 +46,7 @@ export async function enqueueAssistantWorkReport(deps:{
   const accepted=await enqueueAssistantWorkDelivery({rpc:deps.rpc},{
     assistantId:input.assistantId,runtimeInstanceId:input.runtimeInstanceId,operationId:deps.id(),workId:work.work_id,task:null,
     events:[{message_id:messageId,kind:report.status,from_session_id:input.sessionId,from_device_id:input.deviceId,
-      to_session_id:work.coordinator_session_id,to_device_id:work.coordinator_device_id,content:text,attachment_refs:attachments}],
+      to_session_id:work.coordinator_session_id,to_device_id:work.coordinator_device_id,content:text,attachment_refs:attachments,...(input.reasonCode ? {reason_code:input.reasonCode} : {})}],
   })
   return {...accepted,route:'session-direct' as const,recipients:[{to:address,session_id:work.coordinator_session_id,status:'accepted' as const,message_id:messageId}]}
 }

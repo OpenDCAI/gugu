@@ -26,7 +26,7 @@ const eventSchema = z.object({
   content: z.string().nullable(),attachment_refs: z.array(attachmentSchema),
   source_chat_id: z.string().nullable(),source_message_id: z.string().nullable(),source_available: z.boolean(),
   reason_code: z.string().nullable().optional(),terminal_origin: z.enum(['executor','coordinator']).nullable().optional(),
-  terminal_version: sequence,platform_received_at: at,
+  terminal_version: sequence,platform_received_at: at,occurred_at: at.nullable().optional(),
   executor_admitted_at: at.nullable(),assistant_admitted_at: at.nullable(),owner_delivered_at: at.nullable(),
   owner_chat_id: z.string().nullable(),owner_message_id: z.string().nullable(),
   delivery_state: z.enum(['pending','claimed','admitted','abandoned']),

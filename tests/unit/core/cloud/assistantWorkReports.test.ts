@@ -30,6 +30,11 @@ describe('work report queues before a sleeping coordinator can be contacted', ()
     expect(result.isError).not.toBe(true)
     expect(JSON.parse(result.content[0]!.text!).recipients[0]).toMatchObject({status:'accepted',session_id:'session:home-session'})
   })
+  it('keeps host failure evidence separate from executor terminal outcomes', async () => {
+    const f=fixture()
+    await enqueueAssistantWorkReport(f,{...input,reasonCode:'HOST_FAILURE',record:{to:input.record.to,text:'手机任务网络中断。',work_result:{work_id:id,status:'progress'}}})
+    expect(f.rpc).toHaveBeenLastCalledWith('assistant_work_commit',expect.objectContaining({p_events:[expect.objectContaining({kind:'progress',reason_code:'HOST_FAILURE'})]}))
+  })
   it('rejects a foreign executor before uploading a file', async () => {
     const f=fixture()
     await expect(enqueueAssistantWorkReport(f,{...input,sessionId:'intruder'})).rejects.toMatchObject({code:'WORK_EXECUTOR_MISMATCH'})

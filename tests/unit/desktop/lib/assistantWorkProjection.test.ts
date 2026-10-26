@@ -21,5 +21,6 @@ describe('account work view',() => {
     expect(rows[0]).toMatchObject({ id: 'event',sourceMessageId: 'original',fromSessionId: 'worker',toSessionId: 'home' })
     expect(rows[0]!.content).toContain(file.attachment_id)
     expect(rows[0]!.content).toContain('Finished')
+    expect(assistantWorkExchanges([{...event,occurred_at:'2026-10-20T08:00:00Z'}],'work-a')[0]!.createdAt).toBe('2026-10-20T08:00:00Z')
   })
 })

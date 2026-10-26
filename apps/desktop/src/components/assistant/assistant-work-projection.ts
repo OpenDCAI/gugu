@@ -26,6 +26,6 @@ export function assistantWorkExchanges(events: readonly AssistantWorkEvent[],wor
     const files = event.attachment_refs.filter((ref): ref is SessionAttachmentRef => 'attachment_id' in ref)
     return { id: event.message_id,position: index,sourceMessageId: event.source_message_id,
       fromSessionId: event.from_session_id,toSessionId: event.to_session_id,
-      content: withSessionAttachments(event.content!,files),createdAt: event.platform_received_at }
+      content: withSessionAttachments(event.content!,files),createdAt: event.occurred_at ?? event.platform_received_at }
   })
 }

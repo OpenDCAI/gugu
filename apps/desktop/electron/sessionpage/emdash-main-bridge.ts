@@ -60,6 +60,7 @@ export {
   // agent 的 session_* 跨机器(owner 2026-09-30):别的机器发来的动作、本机发起方的自述、「这个 id 在不在本机」。
   // 同 runEmdashExtensionAction 那条教训:漏在这张清单外只会在真有人跨机器时才炸。
   runRemoteSessionAction,
+  readAssistantWorkReceipts,
   sessionCallerFacts,
   localSessionIds,
   // 宿主的唤醒入口要读它:引擎进程在不在跑、归宿主还是 tmux(漏在这里只会在唤醒时才发现)。

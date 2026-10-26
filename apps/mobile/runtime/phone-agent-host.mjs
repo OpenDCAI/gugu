@@ -1,4 +1,5 @@
 import { createPhoneAssistantWorkOutbox } from './phone-assistant-work-outbox.mjs'
+import { createPhoneAssistantWorkHistory } from './phone-assistant-work-history.mjs'
 import { createPhoneAssistantWork } from './phone-assistant-work.mjs'
 import { randomUUID } from 'node:crypto'
 import { mkdir } from 'node:fs/promises'
@@ -53,6 +54,7 @@ export async function startPhoneAgentHost(initialConfig, { runTurn, cancelTurn, 
   let signingOut = false
   let rpcHost = null
   let workPump = null
+  let workHistory = null
   let heartbeatTimer = null
   let reconciliationTimer = null
   let commandTick = null
@@ -88,7 +90,7 @@ export async function startPhoneAgentHost(initialConfig, { runTurn, cancelTurn, 
     const wasReady = ready
     ready = startupComplete && authenticated && rpcConnected && heartbeatHealthy && !stopped && !signingOut
     publish()
-    if (ready && !wasReady) setImmediate(() => { void drain().catch((error) => warn(error.message)); void workPump?.kick().catch(error=>warn(error.message)) })
+    if (ready && !wasReady) setImmediate(() => { void drain().catch((error) => warn(error.message)); void workPump?.kick().catch(error=>warn(error.message)); void workHistory?.kick() })
   }
   const restoreLogger = setCoreLoggerFactory((scope) => Object.fromEntries(['debug', 'info', 'warn', 'error'].map((level) => [level, (_fields, message) => emit({ type: 'host_log', ownerId, level, message: `${scope}: ${message}` })])))
   const recordRequestFailure = (failure) => {
@@ -418,8 +420,8 @@ export async function startPhoneAgentHost(initialConfig, { runTurn, cancelTurn, 
         await store.save(); await deliverPhoneOutbox(cloud, store, id).catch((failure) => warn(failure.message))
       }
       if (job.route?.kind === 'session-direct' && !job.sent?.length && !stopped && !signingOut) {
-        // Transitional local outbox: remove when the account task ledger emits durable failed events.
-        job.failureNotice ??= { id: stableId('phone-session-failure', job.id), text: failureText, status: 'pending', createdAt: new Date().toISOString() }
+        // Ordinary session messages retain their existing receipt. Correlated work uses only the cloud queue.
+        if (!work.correlation(agent,job)) job.failureNotice ??= { id: stableId('phone-session-failure', job.id), text: failureText, status: 'pending', createdAt: new Date().toISOString() }
         await store.save()
       }
     } finally {
@@ -438,9 +440,17 @@ export async function startPhoneAgentHost(initialConfig, { runTurn, cancelTurn, 
   async function flushFailureNotices() {
     if (deliveringFailures || stopped || signingOut || !rpcHost) return deliveringFailures
     deliveringFailures = (async () => {
+      await workHistory?.kick()
       for (const job of Object.values(store.state.jobs)) {
         const notice = job.failureNotice
         const agent = store.state.agents[job.agentUserId]
+        if (agent && ['failed','interrupted','cancelled'].includes(job.status) && !job.sent?.length && work.correlation(agent,job)) {
+          try {
+            await authorizeReply([...new Set([...(agent.dataProof?.groups??[]),...(job.usedGroups??[])])],{sessionId:agent.sessionId,permissionRequirements:uniqueProofs(agent.dataProof?.permissionRequirements,job.permissionRequirements)})
+            await work.enqueueHostFailure(agent,job)
+          } catch(error) { warn(`work failure admission: ${error.code??'UNAVAILABLE'}`) }
+          continue
+        }
         if (!agent || notice?.status !== 'pending' || stopped || signingOut || Date.parse(notice.nextAttemptAt ?? '') > Date.now()) continue
         try {
           await sendSession(agent, [job.route.caller.sessionId], notice.text, { reply_to_message_id: `msg:${job.route.sourceMessageId}`, delivery_id: notice.id, delivery_at: notice.createdAt }, notice.id)
@@ -492,6 +502,7 @@ export async function startPhoneAgentHost(initialConfig, { runTurn, cancelTurn, 
   const work=createPhoneAssistantWork({ownerId,deviceId,instanceId,cloud,store,isReady:()=>ready && !stopped && !signingOut,
     invoke:(...args)=>invoke(...args),kick:()=>{void workPump?.kick().catch(error=>warn(error.message))}})
   workPump=createPhoneAssistantWorkOutbox({cloud,ownerId,deviceId,instanceId,isReady:()=>ready && !stopped && !signingOut,requester:()=>rpcHost?.requester,receive:work.receive,warn:detail=>warn(`work delivery: ${detail.code}`)})
+  workHistory=createPhoneAssistantWorkHistory({root,store,cloud,deviceId,instanceId,isReady:()=>ready && !stopped && !signingOut,authorize:authorizeReply,warn:detail=>warn(`work history: ${detail.code}`)})
   const invoke = async (channel, args, requestId, source = { kind: 'device-rpc' }) => {
     if (!ready || stopped || signingOut) throw Object.assign(new Error('手机宿主尚未就绪'), { code: 'host_not_ready' })
     if(channel==='assistantWork.deliver') return work.receive(args[0])
@@ -600,6 +611,8 @@ export async function startPhoneAgentHost(initialConfig, { runTurn, cancelTurn, 
       }
       lastHeartbeatAt = Date.now(); heartbeatHealthy = true; healthErrors.heartbeat = null; updateReadiness()
       void workPump?.kick().catch(error=>warn(error.message))
+      void workHistory?.kick()
+      void flushFailureNotices().catch(()=>warn('work failure recovery unavailable'))
       for (const agent of agents()) await report(agent).catch((error) => warn(error.message))
     })().catch((error) => {
       if (!stopped && !signingOut) { heartbeatHealthy = false; healthErrors.heartbeat = { message: error.message, code: error.code ?? null }; updateReadiness() }
@@ -626,7 +639,7 @@ export async function startPhoneAgentHost(initialConfig, { runTurn, cancelTurn, 
     // host_stop and native pipe EOF can arrive while the first cleanup is awaiting I/O.
     // Every caller must join it; EOF may terminate the process as soon as close resolves.
     closing = (async () => {
-      await Promise.allSettled([draining, commandTick, heartbeating, deliveringFailures, rpcHost?.close()])
+      await Promise.allSettled([draining, commandTick, heartbeating, deliveringFailures, workHistory?.close(), rpcHost?.close()])
       await withdrawHostCapability().catch((error) => warn(`撤销手机宿主运行能力失败: ${error.message}`))
       for (const agent of agents()) await report(agent, false).catch((error) => warn(error.message))
       await timelines.close(); await cloud.close(); await store.flush(); restoreLogger(); publish()
