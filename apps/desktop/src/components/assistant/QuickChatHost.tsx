@@ -15,9 +15,8 @@ const log = rendererLogger('assistant/quick-chat')
 type Mounted = { win: Window; root: HTMLElement }
 
 /**
- * #7199「快速聊天」在主窗这一侧的那一半:登录着就预先开好那扇小窗(同源子窗,主进程照 quick-chat-window.ts 配外观、藏着),
- * 按快捷键时主进程直接把它摆出来 —— 不等加载。界面由这里画进去(同一份登录、数据、实时)。
- * 小窗被真关了(主窗重载会关掉所有子窗)/ 还没开时按快捷键:主进程说一声 open,这里重开一扇。
+ * #7199「快速聊天」的同源子窗由第一次 open 请求创建,主进程沿现有 pendingShow 摆出它。
+ * 隐藏后继续复用同一扇窗、同一份登录和数据;主窗重载或子窗关闭后,下一次 open 再创建。
  * 只在桌面版:网页与手机没有全局快捷键,也没有子窗。
  */
 export function QuickChatHost({
@@ -44,7 +43,7 @@ export function QuickChatHost({
   mountedRef.current = mounted
 
   useLayoutEffect(() => {
-    if (!ipc) return
+    if (!ipc || generation === 0) return
     const win = window.open('about:blank', QUICK_CHAT_WINDOW_NAME, 'width=520,height=680')
     if (!win) {
       log.warn({}, '快速聊天的小窗没开出来')
