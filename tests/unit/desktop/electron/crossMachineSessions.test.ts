@@ -595,3 +595,12 @@ describe('a sleeping cloud computer', () => {
     expect((await xm.listDeviceRows()).map((row) => row.device_id)).toEqual(['dev-a', 'dev-b', 'dev-c'])
   })
 })
+
+
+it('prepares a dormant work seat only through the dedicated capability and never falls back to old spawn', async () => {
+  const { xm, call } = makeCrossMachine(async (_device, channel) => channel === 'assistantWork.prepare'
+    ? { error: { code: 'unknown_method', message: 'No handler registered for assistantWork.prepare' } } : { result: { started: true } })
+  await expect(xm.runOnDevice('dev-b', CALLER, { action: 'spawn', assistant_work: { version: 1 }, prompt: 'task' })).rejects.toMatchObject({ code: 'SESSION_DEVICE_OUTDATED' })
+  expect(call).toHaveBeenCalledOnce()
+  expect(call.mock.calls[0]?.[1]).toBe('assistantWork.prepare')
+})
