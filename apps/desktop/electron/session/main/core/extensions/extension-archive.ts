@@ -34,9 +34,8 @@ export async function packExtensionArchive(
   const root = path.resolve(sourceDir);
   const zip = new JSZip();
   for (const file of bundleFiles(root)) {
-    // A fixed date: zip stores modification times, and the fingerprint must depend on the files alone.
-    // 1980 is the earliest a zip entry can hold; anything before it wraps around to 2098.
-    zip.file(path.relative(root, file).split(path.sep).join('/'), fs.readFileSync(file), { date: new Date(Date.UTC(1980, 0, 1)) });
+    // Match the market's packDir bytes, including its epoch date and absence of directory entries.
+    zip.file(path.relative(root, file).split(path.sep).join('/'), fs.readFileSync(file), { date: new Date(0), createFolders: false });
   }
   const bytes = await zip.generateAsync({ type: 'nodebuffer', compression: 'DEFLATE', compressionOptions: { level: 9 } });
   return { bytes, sha256: sha256(bytes), manifest: report.inspected.manifest };
@@ -86,11 +85,11 @@ function sha256(bytes: Uint8Array): string {
   return createHash('sha256').update(bytes).digest('hex');
 }
 
-/** Every file to pack, in code-point order; the packer skips what the market packer skips. */
+/** Every file to pack, in the market publisher's recursive en-US order, skipping the same names. */
 function bundleFiles(root: string): string[] {
   const files: string[] = [];
   const walk = (dir: string) => {
-    const entries = fs.readdirSync(dir, { withFileTypes: true }).sort((a, b) => (a.name < b.name ? -1 : a.name > b.name ? 1 : 0));
+    const entries = fs.readdirSync(dir, { withFileTypes: true }).sort((a, b) => a.name.localeCompare(b.name, 'en-US'));
     for (const entry of entries) {
       if (BUNDLE_SKIP_NAMES.has(entry.name)) continue;
       const full = path.join(dir, entry.name);
