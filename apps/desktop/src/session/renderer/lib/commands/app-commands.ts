@@ -110,9 +110,8 @@ function createAppCommandProvider(): CommandProvider {
       commands.push({
         ...toggleThemeDef,
         execute() {
-          // @@@task-fusion (#2802) — 从前这里走会话页自己的 app-settings(异步、可能失败,
-          // 所以有个失败 toast)。主题收敛成 `<html data-theme>` 一份真值后,翻转就是一次 DOM
-          // 写入:同步、不会失败,失败分支跟着一起删。
+          // The main process settles native appearance before the shared DOM theme changes.
+          // Rejections reach the shell's existing error ring and main-process renderer log.
           void toggleHostTheme();
         },
       });

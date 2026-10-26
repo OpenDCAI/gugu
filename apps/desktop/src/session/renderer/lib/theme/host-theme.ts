@@ -210,7 +210,7 @@ export function nextHostTheme(current: EffectiveTheme): EffectiveTheme {
   return current === 'emlight' ? 'emdark' : 'emlight';
 }
 
-/** 翻转主题,返回翻到的那个。DOM 写入,不会失败。 */
+/** Settle native appearance, then publish and return the new theme. */
 export async function toggleHostTheme(): Promise<EffectiveTheme> {
   const next = nextHostTheme(readHostTheme());
   await writeHostTheme(next);

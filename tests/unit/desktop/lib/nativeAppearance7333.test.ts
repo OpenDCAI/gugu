@@ -1,5 +1,9 @@
 // @vitest-environment jsdom
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+const nativeFailureLog = vi.hoisted(() => vi.fn())
+vi.mock('../../../../apps/desktop/electron/lib/logger', () => ({
+  createLogger: () => ({ error: nativeFailureLog }),
+}))
 import {
   applyNativeThemePreference,
   installNativeAppearanceSync,
@@ -50,6 +54,28 @@ describe('native appearance follows the theme preference on mac (#7333)', () => 
       ipcMain: { handle: (channel, listener) => { if (channel === WINDOW_THEME_PREFERENCE_CHANNEL) handler = listener } },
     })
     expect(() => handler!({ sender: {} }, 'sepia')).toThrow(/light \/ dark \/ system/)
+    expect(nativeFailureLog).toHaveBeenCalledWith(
+      { error: expect.stringContaining('sepia') },
+      '主题偏好同步失败',
+    )
+  })
+
+  it('logs and rethrows a native failure so invoke rejects with the original cause', () => {
+    const denied = new Error('native appearance denied')
+    let handler: ((event: { sender: unknown }, ...args: unknown[]) => unknown) | null = null
+    installNativeAppearanceSync({
+      platform: 'darwin',
+      nativeTheme: {
+        themeSource: 'system',
+        get shouldUseDarkColors(): boolean { throw denied },
+      },
+      ipcMain: { handle: (_channel, listener) => { handler = listener } },
+    })
+    expect(() => handler!({ sender: {} }, 'light')).toThrow(denied)
+    expect(nativeFailureLog).toHaveBeenCalledWith(
+      { error: 'Error: native appearance denied' },
+      '主题偏好同步失败',
+    )
   })
 })
 

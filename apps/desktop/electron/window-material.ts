@@ -115,7 +115,12 @@ export function applyNativeThemePreference(platform: NodeJS.Platform, theme: Nat
 
 /** Apply the preference before answering with the actual native appearance. */
 export function installNativeAppearanceSync(deps: { platform: NodeJS.Platform; nativeTheme: NativeAppearanceTheme; ipcMain: WindowMaterialIpc }): void {
-  deps.ipcMain.handle(WINDOW_THEME_PREFERENCE_CHANNEL, (_event, preference) =>
-    applyNativeThemePreference(deps.platform, deps.nativeTheme, preference),
-  )
+  deps.ipcMain.handle(WINDOW_THEME_PREFERENCE_CHANNEL, (_event, preference) => {
+    try {
+      return applyNativeThemePreference(deps.platform, deps.nativeTheme, preference)
+    } catch (error) {
+      logger.error({ error: String(error) }, '主题偏好同步失败')
+      throw error
+    }
+  })
 }

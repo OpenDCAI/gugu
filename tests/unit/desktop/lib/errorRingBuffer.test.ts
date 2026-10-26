@@ -27,4 +27,23 @@ describe('errorRingBuffer console.error hook', () => {
     expect(() => console.error('boundary report', poison)).not.toThrow()
     expect(sink).toHaveBeenCalledWith('boundary report', poison)
   })
+
+  it('records an unhandled native-theme rejection and forwards its cause to the main log', () => {
+    const previous = window.electronAPI
+    const invoke = vi.fn().mockResolvedValue(undefined)
+    window.electronAPI = { ...previous, invoke } as typeof window.electronAPI
+    const reason = new Error('Error invoking remote method: native appearance denied')
+    try {
+      window.dispatchEvent(Object.assign(new Event('unhandledrejection'), { reason }))
+      expect(recentErrors().at(-1)).toMatchObject({
+        kind: 'unhandledrejection', message: `Error: ${reason.message}`,
+      })
+      expect(invoke).toHaveBeenCalledWith('log:write', expect.objectContaining({
+        scope: 'error-ring', level: 'error', msg: `Error: ${reason.message}`,
+        fields: expect.objectContaining({ kind: 'unhandledrejection', stack: reason.stack }),
+      }))
+    } finally {
+      window.electronAPI = previous
+    }
+  })
 })
