@@ -105,4 +105,16 @@ describe('host file viewer menu', () => {
     const editor = fileViewerMenuItems({ ...context, editable: true, selection: { text: 'source' }, canSelectAll: true }, labels, run)
     expect(editor.filter(item => item.type !== 'separator').map(item => item.label)).toEqual(['Undo', 'Redo', 'Cut', 'Copy', 'Paste', 'Select all', 'Quote selection', 'Quote file'])
   })
+
+  it('uses an editor snapshot for custom undo state without losing the host clipboard capabilities', () => {
+    const root = viewer()
+    const dispose = bindFileViewerMenu(root, () => ({ quote: vi.fn(), editable: true, edit: vi.fn(), enabled: { undo: false, redo: true, copy: true } }), vi.fn())
+    const context = execute(viewerContextScript({ x: 0, y: 0, isEditable: true, editFlags: { canUndo: true, canRedo: false, canCopy: false, canCut: true, canPaste: false, canSelectAll: true, canDelete: true, canEditRichly: true } }, 'editor', { text: 'beta' }))
+    const items = fileViewerMenuItems(context, labels, vi.fn()).filter(item => item.type !== 'separator')
+    expect(items.find(item => item.id === 'undo')?.enabled).toBe(false)
+    expect(items.find(item => item.id === 'redo')?.enabled).toBe(true)
+    expect(items.find(item => item.id === 'copy')?.enabled).toBe(true)
+    expect(items.find(item => item.id === 'paste')?.enabled).toBe(false)
+    dispose()
+  })
 })

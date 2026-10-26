@@ -3,11 +3,13 @@ import type { ContentMenuEntry } from './content-context-menu';
 
 const LABELS = { undo: 'Undo', redo: 'Redo', cut: 'Cut', copy: 'Copy', copyLink: 'Copy Link', paste: 'Paste', selectAll: 'Select All', clear: 'Clear' };
 type Action = keyof typeof LABELS;
+export type TextEditAction = Exclude<Action, 'copyLink' | 'clear'>;
 export interface TextContextMenu {
   selectionText: string;
   labels?: Partial<typeof LABELS>;
-  actions: Partial<Record<Action, () => void>>;
+  actions: Partial<Record<Action, () => void | Promise<void>>>;
   canSelectAll?: boolean;
+  enabled?: Partial<Record<Action, boolean>>;
 }
 
 /** One editing model for terminals and file viewers; each host supplies its editing actions. */
@@ -16,7 +18,7 @@ export function textContextMenuItems(options: TextContextMenu, extra: ContentMen
   const selected = options.selectionText.length > 0;
   const item = (action: Action, hotkey?: Hotkey, enabled = true): ContentMenuEntry[] => {
     const click = options.actions[action];
-    return click ? [{ id: action, label: labels[action], hotkey, enabled, click }] : [];
+    return click ? [{ id: action, label: labels[action], hotkey, enabled: enabled && options.enabled?.[action] !== false, click }] : [];
   };
   return [
     ...item('undo', 'Mod+Z'), ...item('redo', 'Mod+Shift+Z'),

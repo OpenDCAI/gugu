@@ -71,7 +71,6 @@ function AuthenticatedProduct({ user }: { user: AuthUser }) {
         <SessionExpiredNotice />
         <ReleaseNotesOpener />
         <AppModalHost />
-        <ContentContextMenuHost />
       </ImagePreviewProvider>
     </ChatProvider>
   )
@@ -143,6 +142,7 @@ export default function App() {
     return (
       <ThemeProvider>
         <ToastProvider>
+          <ContentContextMenuHost />
           <AuthContext.Provider value={authContextValue}>
             <AgentJoinRoute agentId={agentJoinId} user={user} authLoading={loading} />
           </AuthContext.Provider>
@@ -162,6 +162,7 @@ export default function App() {
       <ThemeProvider>
         <Tooltip.Provider>
           <ToastProvider>
+            <ContentContextMenuHost />
             <AuthContext.Provider value={authContextValue}>
               <LoginPage />
             </AuthContext.Provider>
@@ -175,6 +176,7 @@ export default function App() {
     <ThemeProvider>
       <Tooltip.Provider>
         <ToastProvider>
+          <ContentContextMenuHost />
           <AuthContext.Provider value={authContextValue}>
             {/* 新账号先走一遍首次引导(product spec,#7348);老账号 / 走完的直接进主界面 */}
             <FirstRunGate key={user.id} user={user}>

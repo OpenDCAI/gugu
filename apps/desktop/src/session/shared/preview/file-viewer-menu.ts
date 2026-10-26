@@ -21,6 +21,7 @@ export interface FileViewerMenuRequest {
   customSelectAll?: boolean;
   customEditing?: boolean;
   editable?: boolean;
+  enabled?: TextContextMenu['enabled'];
 }
 
 export interface FileViewerMenuLabels {
@@ -34,9 +35,9 @@ export interface FileViewerMenuLabels {
   paste: string;
 }
 
-export function fileViewerMenuItems(context: FileViewerMenuRequest, labels: FileViewerMenuLabels, run: (action: FileViewerMenuAction | 'copy') => void) {
+export function fileViewerMenuItems(context: FileViewerMenuRequest, labels: FileViewerMenuLabels, run: (action: FileViewerMenuAction | 'copy') => void | Promise<void>) {
   const options: TextContextMenu = {
-    labels, selectionText: context.selection.text, canSelectAll: context.canSelectAll,
+    labels, selectionText: context.selection.text, canSelectAll: context.canSelectAll, enabled: context.enabled,
     actions: { copy: () => run('copy'), selectAll: () => run('select-all'), ...(context.editable ? {
       undo: () => run('undo'), redo: () => run('redo'), cut: () => run('cut'), paste: () => run('paste'),
     } : {}) },

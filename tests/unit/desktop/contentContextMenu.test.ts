@@ -13,7 +13,7 @@ function actionHandler() {
   const handle = vi.fn()
   registerContentContextMenus({ handle } as unknown as IpcMain)
   expect(handle.mock.calls[0][0]).toBe(CONTENT_CONTEXT_MENU_ACTION)
-  return handle.mock.calls[0][1] as (event: { sender: WebContents }, input: ContentMenuAction) => void
+  return handle.mock.calls[0][1] as (event: { sender: WebContents }, input: ContentMenuAction) => Promise<void>
 }
 
 describe('host content menu actions', () => {
@@ -46,5 +46,21 @@ describe('host content menu actions', () => {
     act({ sender: owner.webContents }, { requestId: dismissed })
     act({ sender: owner.webContents }, { requestId: dismissed, actionId: 'copy' })
     expect(click).not.toHaveBeenCalled()
+  })
+
+  it('keeps the captured source alive until an async action completes and disposes replacements and dismissals', async () => {
+    const owner = host(), act = actionHandler(), close = vi.fn(), replacementClose = vi.fn()
+    const action = Promise.withResolvers<void>()
+    showContentContextMenu([{ id: 'paste', label: 'Paste', click: () => action.promise }], { window: owner.window, x: 0, y: 0 }, close)
+    const running = act({ sender: owner.webContents }, { requestId: owner.send.mock.lastCall![1].requestId, actionId: 'paste' })
+    expect(close).not.toHaveBeenCalled()
+    action.resolve()
+    await running
+    expect(close).toHaveBeenCalledOnce()
+    showContentContextMenu([], { window: owner.window, x: 0, y: 0 }, close)
+    showContentContextMenu([], { window: owner.window, x: 0, y: 0 }, replacementClose)
+    expect(close).toHaveBeenCalledTimes(2)
+    await act({ sender: owner.webContents }, { requestId: owner.send.mock.lastCall![1].requestId })
+    expect(replacementClose).toHaveBeenCalledOnce()
   })
 })

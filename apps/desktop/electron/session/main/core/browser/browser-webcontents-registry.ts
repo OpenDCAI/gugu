@@ -1,4 +1,5 @@
 import { showContentContextMenu } from '../../../../content-context-menu';
+import { showEditableContextMenu } from '../../../../editable-context-menu';
 import type { ContentMenuEntry } from '@shared/content-context-menu';
 import {
   clipboard,
@@ -307,6 +308,14 @@ export class BrowserWebContentsRegistry {
 
     webContents.on('context-menu', (event, params) => {
       event.preventDefault();
+      const window = placement.window();
+      const origin = placement.origin();
+      const position = { window: window ?? undefined, x: origin.x + params.x, y: origin.y + params.y };
+      if (params.isEditable) {
+        const report = (error: unknown) => log.error('Browser editing menu failed', { error: String(error) });
+        void showEditableContextMenu(webContents, params, position, report).catch(report);
+        return;
+      }
       const selectionText = (params.selectionText ?? '').trim();
       if (!selectionText) {
         clearWebviewSelection(webContents);
@@ -355,13 +364,7 @@ export class BrowserWebContentsRegistry {
       ];
 
       // 右键的坐标是网页自己的;菜单弹在网页所在的窗口上,换成窗口内容区的坐标。
-      const window = placement.window();
-      const origin = placement.origin();
-      showContentContextMenu(template, {
-        ...(window ? { window } : {}),
-        x: origin.x + params.x,
-        y: origin.y + params.y,
-      });
+      showContentContextMenu(template, position);
     });
 
     webContents.on('did-create-window', (window) => {

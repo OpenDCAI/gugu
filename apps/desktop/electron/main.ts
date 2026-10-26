@@ -159,7 +159,7 @@ import { cloudComputerEnabled, officialServicesEnabled } from '@gugu/core/cloud/
 import { createChatChannelsClient } from '@gugu/core/cloud/chatChannels'
 import type { SessionMessage } from '@shared/core/sessions/sessions'
 import { TRAFFIC_LIGHT_POSITION } from '@shared/window-chrome-native'
-import { attachAuxWindows } from './aux-window'
+import { attachAuxWindows, isOwnPage } from './aux-window'
 import { installQuickChat, type QuickChat } from './quick-chat-window'
 import { installAssistantHome } from './assistant-home'
 import { receivePhoneDeviceFile } from './phone-device-file'
@@ -635,8 +635,8 @@ installDevtoolsLock((url) => {
 })
 registerContentContextMenus(ipcMain)
 registerFileViewerMenus(app, () => currentHostCatalog().fileViewerMenu, (error) => {
-  processGoneLogger.error({ error: String(error) }, 'File context menu failed')
-})
+  processGoneLogger.error({ error: String(error) }, 'Content context menu failed')
+}, (host) => isOwnPage(host.getURL(), mainWindow?.webContents.getURL() ?? ''))
 // @@@gugu-tier - inlined at build time by vite (define in vite.config.mts), default 'production'.
 declare const __GUGU_TIER__: string
 declare const __GUGU_BUILD_DISTRIBUTION__: string

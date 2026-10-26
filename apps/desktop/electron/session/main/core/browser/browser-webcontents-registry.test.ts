@@ -8,7 +8,9 @@ import { BrowserWebContentsRegistry, isSamePreviewNavigation } from './browser-w
 const sessionsByPartition = new Map<string, object>();
 
 const showMenu = vi.hoisted(() => vi.fn());
+const showEditableMenu = vi.hoisted(() => vi.fn(async () => {}));
 vi.mock('../../../../content-context-menu', () => ({ showContentContextMenu: showMenu }));
+vi.mock('../../../../editable-context-menu', () => ({ showEditableContextMenu: showEditableMenu }));
 vi.mock('electron', () => ({
   session: {
     fromPartition: (partition: string) => {
@@ -222,6 +224,18 @@ describe('BrowserWebContentsRegistry', () => {
       disposition: 'new-window',
     } as Parameters<typeof handler>[0]);
     expect(blocked.action).toBe('deny');
+  });
+
+  it('uses the shared editable menu and the native page placement for input fields', () => {
+    const registry = new BrowserWebContentsRegistry();
+    registry.registerSession({ browserId: 'editable-browser', partition: PROFILE_PARTITION });
+    const contents = fakeWebContents();
+    adopt(registry, 'editable-browser', contents);
+    showMenu.mockClear();
+    const params = { x: 5, y: 7, isEditable: true };
+    contents.emitEvent('context-menu', { preventDefault: vi.fn() }, params);
+    expect(showEditableMenu).toHaveBeenLastCalledWith(contents, params, { window: PAGE_WINDOW, x: 45, y: 97 }, expect.any(Function));
+    expect(showMenu).not.toHaveBeenCalled();
   });
 
   it('switches popup webContents user agent during Google auth navigations', () => {
