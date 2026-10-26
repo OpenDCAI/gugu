@@ -26,7 +26,7 @@ const entry = {
   id: 'plan', chat: 'chat-1', name: 'plan.md', displayName: 'plan', contentType: 'text/markdown', type: 'text', size: 9,
   createdAt: null, updatedAt: null, createdBy: null, sourceMessageIds: [],
 }
-let changed: () => void = () => {}
+let changed: (event: { local: boolean; entry?: true }) => void = () => {}
 let statusChanged: (status: string) => void = () => {}
 const file = {
   entry,
@@ -35,7 +35,7 @@ const file = {
   status: 'online',
   saved: true,
   text: TEXT,
-  onChange: vi.fn((handler: () => void) => {
+  onChange: vi.fn((handler: (event: { local: boolean; entry?: true }) => void) => {
     changed = handler
     return () => {}
   }),
@@ -112,7 +112,7 @@ async function edit(change: { from: number; to?: number; insert: string }) {
   view().dispatch({ changes: change })
   file.text = view().state.doc.toString()
   md.render.mockClear()
-  changed()
+  changed({ local: false })
   await until('the preview is drawn again', () => md.render.mock.calls.length > 0)
 }
 

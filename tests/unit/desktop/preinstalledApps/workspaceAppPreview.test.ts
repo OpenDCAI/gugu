@@ -14,9 +14,10 @@ import { beforeAll, describe, expect, test, vi } from 'vitest'
 
 const entry = {
   id: 'plan', chat: 'chat-1', name: 'plan.md', displayName: 'plan', contentType: 'text/markdown', type: 'text', size: 9,
-  createdAt: null, updatedAt: null, createdBy: { id: 'u1', name: 'A', kind: 'human' }, sourceMessageIds: [],
+  createdAt: '2026-10-25T01:00:00Z', updatedAt: null, createdBy: { id: 'u1', name: 'A', kind: 'human' }, sourceMessageIds: [],
 }
-let changed: () => void = () => {}
+const changes = new Set<(event: { local: boolean; entry?: true }) => void>()
+const changed = (event: { local: boolean; entry?: true }) => { for (const fn of changes) fn(event) }
 const file = {
   entry,
   type: 'text',
@@ -24,9 +25,9 @@ const file = {
   status: 'online',
   saved: true,
   text: '# 计划\n\n$E = mc^2$',
-  onChange: vi.fn((handler: () => void) => {
-    changed = handler
-    return () => {}
+  onChange: vi.fn((handler: (event: { local: boolean; entry?: true }) => void) => {
+    changes.add(handler)
+    return () => changes.delete(handler)
   }),
   onStatus: vi.fn(() => () => {}),
   onRefused: vi.fn(() => () => {}),
@@ -79,10 +80,18 @@ describe('workspace App: the preview is gugu.markdown()', () => {
     expect(options).toEqual({ density: 'comfortable', frontmatter: true, sourceLines: true, file: entry })
   })
 
+  test('entry decorations update the information line without re-rendering the preview', () => {
+    md.render.mockClear()
+    file.entry = { ...entry, createdBy: { ...entry.createdBy, name: 'Hydrated creator' } }
+    changed({ local: false, entry: true })
+    expect(document.getElementById('doc-info')!.textContent).toContain('Hydrated creator')
+    expect(md.render).not.toHaveBeenCalled()
+  })
+
   test('rendered again when the file changes (debounced), with what it says now', async () => {
     md.render.mockClear()
     file.text = '# 计划 v2'
-    changed()
+    changed({ local: false })
     await vi.waitFor(() => expect(md.render).toHaveBeenCalledOnce())
     expect(md.render.mock.calls[0]![1]).toBe('# 计划 v2')
   })
