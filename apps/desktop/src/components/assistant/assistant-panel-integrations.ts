@@ -1,7 +1,7 @@
 import { integrationIcons } from '@gugu/session-plugins/integration-icons'
 import { builtinIntegrationSummary } from '@gugu/session-plugins/integration-summaries'
 import type { AssistantPanelFiles } from '@gugu/core/cloud/assistantPanelFiles'
-import { assistantPanelCollection,type AssistantPanelItem } from '@gugu/core/cloud/assistantPanel'
+import { assistantPanelCollection,AssistantPanelError,type AssistantPanelItem } from '@gugu/core/cloud/assistantPanel'
 import type { ConnectionStatus } from '@/session/shared/issue-providers'
 import type { IntegrationMetadata } from '@/session/renderer/features/integrations/integrations-provider'
 
@@ -15,9 +15,23 @@ export function integrationListCopy(id: string,name: unknown,description: unknow
     description: typeof description === 'string' ? description : '',summaryNameMissing }
 }
 export async function readAssistantPanelIntegrations(panel: AssistantPanelFiles, locale: string) {
-  const rows = await panel.collection('integrations')
+  const rows = await integrationRows(panel)
   const snapshot = await panel.snapshot()
   return parseAssistantPanelIntegrations(rows,snapshot,locale)
+}
+async function integrationRows(panel: AssistantPanelFiles): Promise<AssistantPanelItem[]> {
+  try { return await panel.collection('integrations') }
+  catch (error) {
+    // A publication failure does not erase previously published applications.
+    const rows = assistantPanelCollection(await panel.snapshot(),'integrations',panel.deviceId).items
+    if (!rows.some(row => row.resource_key.startsWith('catalog:'))) throw error
+    return rows
+  }
+}
+function assertCatalogReadable(snapshot: Snapshot | undefined,row: AssistantPanelItem) {
+  if (row.stale_at) throw new AssistantPanelError('stale','PANEL_RESOURCE_STALE')
+  if (snapshot?.application.some(change => change.domain === 'integrations' && change.resourceKey === row.resource_key && change.status === 'failed'))
+    throw new AssistantPanelError('application-failed','PANEL_APPLICATION_FAILED')
 }
 type Snapshot = Awaited<ReturnType<AssistantPanelFiles['snapshot']>>
 function parseAssistantPanelIntegrations(rows: AssistantPanelItem[],snapshot: Snapshot,locale: string) {
@@ -73,13 +87,16 @@ export function peekAssistantPanelIntegration(panel: AssistantPanelFiles | undef
   if (!row) return undefined
   const bytes = panel.peekBody?.(row)
   if (!bytes) return undefined
-  try { return parseIntegrationBody(row,id,locale,bytes) } catch { return undefined }
+  try { assertCatalogReadable(snapshot,row); return parseIntegrationBody(row,id,locale,bytes) } catch { return undefined }
 }
 
 type DetailEntry = { version: string | undefined; promise: Promise<IntegrationMetadata>; value?: IntegrationMetadata }
 const integrationDetails = new WeakMap<AssistantPanelFiles, Map<string, DetailEntry>>()
 export function cachedAssistantPanelIntegration(panel: AssistantPanelFiles | undefined,id: string | undefined,locale: string,version: string | undefined) {
   if (!panel || !id || !version) return undefined
+  const snapshot = panel.peekSnapshot?.()
+  const row = snapshot?.items.find(item => item.domain === 'integrations' && item.resource_key === `catalog:${id}`)
+  try { if (row) assertCatalogReadable(snapshot,row) } catch { return undefined }
   const entry = integrationDetails.get(panel)?.get(`${id}|${locale}`)
   return entry?.version === version ? entry.value : undefined
 }
@@ -89,10 +106,14 @@ export async function readAssistantPanelIntegration(panel: AssistantPanelFiles,i
   const key = `${id}|${locale}`
   const entries = integrationDetails.get(panel) ?? new Map<string, DetailEntry>()
   integrationDetails.set(panel,entries)
+  const snapshot = panel.peekSnapshot?.()
+  const localRow = snapshot?.items.find(item => item.domain === 'integrations' && item.resource_key === `catalog:${id}`)
+  if (localRow) assertCatalogReadable(snapshot,localRow)
   const previous = entries.get(key)
   if (version && previous?.version === version) return previous.promise
-  const row = (await panel.collection('integrations')).find(row => row.resource_key === `catalog:${id}`)
+  const row = (await integrationRows(panel)).find(row => row.resource_key === `catalog:${id}`)
   if (!row) throw new Error('PANEL_INTEGRATION_UNAVAILABLE')
+  assertCatalogReadable(panel.peekSnapshot?.(),row)
   const actualVersion = row.body_sha256 ?? row.revision
   const current = entries.get(key)
   if (actualVersion && current?.version === actualVersion) return current.promise

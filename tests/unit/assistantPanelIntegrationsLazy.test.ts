@@ -139,3 +139,20 @@ it('parses an existing local catalog, account state and selected body synchronou
  expect(network).not.toHaveBeenCalled()
  expect(peekAssistantPanelIntegration({...panel,peekBody:()=>undefined} as AssistantPanelFiles,'custom','en-US')).toBeUndefined()
 })
+
+it('reads a valid published catalog after a collection publication error without accepting rejected account changes',async()=>{
+ const {readAssistantPanelIntegration}=await import('../../apps/desktop/src/components/assistant/assistant-panel-integrations')
+ const row={domain:'integrations',device_id:'device',resource_key:'catalog:custom',body_sha256:'v1',data:{providerId:'custom',displayName:'Company app'}}
+ const account={domain:'integrations',device_id:'device',resource_key:'account',observed_at:'2026-10-27',data:{providerId:'custom',configured:true,checkResult:'ok',checkedAt:50}}
+ const snapshot={version:1,revision:'1',items:[row,account,{domain:'integrations',device_id:'device',resource_key:'__collection__:device',data:{state:'error'}}],application:[{domain:'integrations',resourceKey:'account',status:'failed'}]}
+ const body=vi.fn(async()=>new TextEncoder().encode(JSON.stringify({version:1,en:{id:'custom',name:'Company app',auth:{methods:[]}}})))
+ const panel={deviceId:'device',collection:async()=>{throw Error('collection failed')},snapshot:async()=>snapshot,peekSnapshot:()=>snapshot,body} as unknown as AssistantPanelFiles
+ expect((await readAssistantPanelIntegrations(panel,'en-US')).statuses.custom).toBeUndefined()
+ expect(await readAssistantPanelIntegration(panel,'custom','en-US')).toMatchObject({name:'Company app'})
+ expect(body).toHaveBeenCalledOnce()
+ row.body_sha256='v2';Object.assign(row,{stale_at:'2026-10-27'})
+ await expect(readAssistantPanelIntegration(panel,'custom','en-US','v2')).rejects.toMatchObject({code:'stale'})
+ Object.assign(row,{stale_at:null});snapshot.application.push({domain:'integrations',resourceKey:'catalog:custom',status:'failed'})
+ await expect(readAssistantPanelIntegration(panel,'custom','en-US','v2')).rejects.toMatchObject({code:'application-failed'})
+ expect(body).toHaveBeenCalledOnce()
+})

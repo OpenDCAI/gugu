@@ -144,7 +144,7 @@ export function PhoneConnectorDetail({ assistant, homeDeviceId, machine, integra
       </> : (
             <>
               <AppConnectionHero icon={<ConnectorIcon integration={view.item} size={56} />} description={view.item.description}
-                label={view.connected ? t(view.item.multiAccount || view.item.id === 'github' ? 'connectors.addAccount' : 'connectors.reconnect') : t('connectors.connect')}
+                label={t(state === 'connected' ? 'connectors.manage' : view.connected ? 'connectors.reconnect' : 'connectors.connect')}
                 onConnect={() => go(connectSub(view.item.id))}
                 actionNote={plan?.kind === 'unavailable' ? <span className="ta-phone-connect-note" data-testid="assistant-connector-connect-note">{t(plan.reason === 'needs-app' ? 'connectors.connectInApp' : 'connectors.connectOnDesktop', { name: view.item.name })}</span> : undefined}
                 disabled={state === 'checking'} />
