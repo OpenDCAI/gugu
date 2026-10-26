@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react'
+import { useEffect, useRef, useState, useSyncExternalStore } from 'react'
 import { useTranslation } from 'react-i18next'
 import { createPortal } from 'react-dom'
 import { useMobileShell } from '@/hooks/useMobileShell'
@@ -12,7 +12,12 @@ import { Sheet } from '../ui/Sheet'
 import { PaneHeader } from '../ui/Pane'
 import { closeInShell } from '@/session/renderer/features/extensions/install-consent'
 import { appInstallAskOf } from '@/session/shared/extensions/host-actions'
-import { openTaskCardSession } from '../chat/openTaskCardSession'
+import { observer } from 'mobx-react-lite'
+import { followLink } from '@/lib/guguLinks'
+import { readPhoneAppView, onPhoneAppState } from '../appSlot/phoneAppState'
+import { sessionPagesOnScreen } from '@/session/renderer/app/sessions-on-screen'
+import { getSessionView } from '@/session/renderer/features/sessions/stores/session-selectors'
+import { isEmbedVisible, subscribeEmbedVisibility } from '@/session/renderer/lib/portal-container'
 import { useNeedsYouTasks, type NeedsYouTask } from './useNeedsYouTasks'
 import '@/i18n/registerMobileWorkspaceCatalog'
 import '@/mobile/agent-watch/agent-watch.css'
@@ -22,10 +27,20 @@ function taskKey(task: NeedsYouTask): string {
 }
 
 /** One actionable entrance to the existing pending settlements, over every shell page. */
-export function NeedsYouHost() {
+export const NeedsYouHost = observer(function NeedsYouHost() {
   const { t } = useTranslation()
   const mobile = useMobileShell()
-  const { tasks, error } = useNeedsYouTasks()
+  const { tasks: waiting, error } = useNeedsYouTasks()
+  const phone = useSyncExternalStore(onPhoneAppState, readPhoneAppView)
+  const embedded = useSyncExternalStore(subscribeEmbedVisibility, isEmbedVisible)
+  // Reuse the actual task route and active pane entries. A file/App tab has no approval card.
+  const shownSessions = mobile
+    ? phone.panes.some(pane => pane.activeTab?.kind === 'session') ? [phone.activeSessionId] : []
+    : embedded ? sessionPagesOnScreen().filter(page => getSessionView(page.projectId, page.sessionId)?.paneLayout.groups.some(({ pane }) => {
+      const entry = pane.activeEntry
+      return (entry?.kind === 'session' || entry?.kind === 'acp-chat') && (entry.state as { sessionId?: string }).sessionId === page.sessionId
+    })).map(page => page.sessionId) : []
+  const tasks = waiting.filter(task => !(task.session.supported && shownSessions.includes(task.session.conversationId)))
   const { identitiesById } = useChatStore('identitiesById')
   const [opened, setOpened] = useState(false)
   const [selected, setSelected] = useState<string | null>(null)
@@ -48,11 +63,11 @@ export function NeedsYouHost() {
           <span className="flex min-w-0 flex-1 flex-col text-left"><span className="truncate">{identitiesById[item.session.agent?.userId ?? '']?.display_name || item.session.title}</span>
             <span className="text-[length:var(--font-caption)] text-[var(--text-secondary)]">{item.machine}</span></span>
         </Button>)}
-        {task && <PendingTask key={taskKey(task)} task={task} onOpenTask={() => { setOpened(false); openTaskCardSession({ projectId: task.session.projectId, sessionId: task.session.conversationId }, task.local) }} />}
+        {task && <PendingTask key={taskKey(task)} task={task} onOpenTask={() => { setOpened(false); followLink({ kind: 'session', sessionId: task.session.conversationId }) }} />}
       </div>
     </Sheet>}
   </>, document.body)
-}
+})
 
 function PendingTask({ task, onOpenTask }: { task: NeedsYouTask; onOpenTask: () => void }) {
   const { t } = useTranslation()
@@ -74,6 +89,6 @@ function PendingTask({ task, onOpenTask }: { task: NeedsYouTask; onOpenTask: () 
     {ready && pending.map(settlement => <SettlementCard key={settlement.itemId} settlement={settlement} runtime={task.session.runtime}
       machine={task.local ? undefined : task.machine} busy={read.respondingItemId === settlement.itemId}
       onRespond={input => { void read.respond(input).catch(() => undefined) }} />)}
-    <Button variant="ghost" onClick={onOpenTask}>{t('needsYou.openTask')}</Button>
+    <Button variant="ghost" data-testid="needs-you-open-page" onClick={onOpenTask}>{t('needsYou.openPage')}</Button>
   </section>
 }

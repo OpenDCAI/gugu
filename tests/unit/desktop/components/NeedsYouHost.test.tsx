@@ -3,9 +3,12 @@ import { act, type ReactNode } from 'react'
 import { afterEach, beforeEach, expect, it, vi } from 'vitest'
 import type { Settlement } from '@gugu/session-core/session-record/contract'
 import { createReactHarness, renderWithAppProviders } from '../../../support/testHarness'
+import { showPhoneAppView } from '../../../../apps/desktop/src/components/appSlot/phoneAppState'
+import { setEmbedVisible } from '../../../../apps/desktop/src/session/renderer/lib/portal-container'
 import { NeedsYouHost } from '../../../../apps/desktop/src/components/needsYou/NeedsYouHost'
 
-const state = vi.hoisted(() => ({ tasks: [] as unknown[], settlements: {} as Record<string, unknown>, link: 'ok', mobile: false }))
+const state = vi.hoisted(() => ({ tasks: [] as unknown[], settlements: {} as Record<string, unknown>, link: 'ok', mobile: false, pages: [] as { projectId: string; sessionId: string }[], tab: 'acp-chat' }))
+const followLink = vi.hoisted(() => vi.fn())
 const close = vi.hoisted(() => vi.fn())
 const respond = vi.hoisted(() => vi.fn(async () => undefined))
 const timeline = vi.hoisted(() => vi.fn((..._args: unknown[]) => ({ timeline: { settlements: state.settlements }, phase: 'ready', link: state.link, respond })))
@@ -13,7 +16,9 @@ vi.mock('@/components/needsYou/useNeedsYouTasks', () => ({ useNeedsYouTasks: () 
 vi.mock('@/hooks/useMobileShell', () => ({ useMobileShell: () => state.mobile }))
 vi.mock('@/mobile/agent-watch/use-timeline-session', () => ({ useTimelineSession: timeline }))
 vi.mock('@/components/assistant/assistantTimelineClient', () => ({ assistantTimelineClient: () => ({}) }))
-vi.mock('@/components/chat/openTaskCardSession', () => ({ openTaskCardSession: vi.fn() }))
+vi.mock('@/lib/guguLinks', () => ({ followLink }))
+vi.mock('@/session/renderer/app/sessions-on-screen', () => ({ sessionPagesOnScreen: () => state.pages }))
+vi.mock('@/session/renderer/features/sessions/stores/session-selectors', () => ({ getSessionView: () => ({ paneLayout: { groups: [{ pane: { activeEntry: { kind: state.tab, state: { sessionId: 'task' } } } }] } }) }))
 vi.mock('@/session/renderer/features/extensions/install-consent', () => ({ closeInShell: close }))
 vi.mock('@/components/ui/Sheet', () => ({ Sheet: ({ children }: { children: ReactNode }) => <div role="dialog">{children}</div> }))
 vi.mock('@/mobile/agent-watch/TimelineView', () => ({ SettlementCard: ({ settlement, onRespond }: { settlement: Settlement; onRespond: (answer: unknown) => void }) =>
@@ -22,10 +27,13 @@ vi.mock('@/mobile/agent-watch/TimelineView', () => ({ SettlementCard: ({ settlem
 let harness: ReturnType<typeof createReactHarness>
 beforeEach(() => {
   vi.clearAllMocks()
-  state.tasks = [{ deviceId: 'server', machine: 'Remote host', local: false, session: { conversationId: 'task', title: 'Install Reader', projectId: 'project', runtime: 'pty' } }]
+  state.tasks = [{ deviceId: 'server', machine: 'Remote host', local: false, session: { conversationId: 'task', title: 'Install Reader', projectId: 'project', runtime: 'pty', supported: true } }]
   state.settlements = { install: { itemId: 'install', kind: 'permission', title: 'Review Reader', state: 'pending', host: { kind: 'app-install', payload: { request: {} } } } }
   state.link = 'ok'
   state.mobile = false
+  state.pages = []
+  state.tab = 'acp-chat'
+  setEmbedVisible(true)
   harness = createReactHarness()
 })
 afterEach(() => harness.cleanup())
@@ -77,4 +85,49 @@ it('records a phone answer using the existing mobile responder identity', async 
   state.mobile = true
   await open()
   expect(timeline.mock.calls.at(-1)?.[1]).toBe('mobile')
+})
+
+it.each([false, true])('opens the existing session link and closes review (mobile=%s)', async mobile => {
+  state.mobile = mobile
+  await open()
+  await act(async () => { document.querySelector<HTMLButtonElement>('[data-testid="needs-you-open-page"]')!.click() })
+  expect(followLink).toHaveBeenCalledWith({ kind: 'session', sessionId: 'task' })
+  expect(document.querySelector('[role="dialog"]')).toBeNull()
+  expect(respond).not.toHaveBeenCalled()
+})
+it('hides only the task with a visible agent pane and restores it when leaving', async () => {
+  state.pages = [{ projectId: 'project', sessionId: 'task' }]
+  await render()
+  expect(document.querySelector('[data-testid="needs-you-trigger"]')).toBeNull()
+  setEmbedVisible(false)
+  await render()
+  expect(document.querySelector('[data-testid="needs-you-trigger"]')).not.toBeNull()
+})
+it('keeps the global request when the task shows a file or App instead of its agent', async () => {
+  state.pages = [{ projectId: 'project', sessionId: 'task' }]
+  state.tab = 'file'
+  await open()
+  expect(document.querySelector('[data-item-id="install"]')).not.toBeNull()
+})
+it('keeps requests for other tasks while hiding the current task', async () => {
+  state.pages = [{ projectId: 'project', sessionId: 'other' }]
+  await open()
+  expect(document.querySelector('[data-item-id="install"]')).not.toBeNull()
+})
+it('uses the phone timeline route and restores the pending request on exit', async () => {
+  state.mobile = true
+  await render()
+  let leave!: () => void
+  await act(async () => { leave = showPhoneAppView({ activeSessionId: 'task', activeProjectId: 'project', panes: [{ paneId: 'workspace', focused: true, activeTab: { tabId: 'task', kind: 'session' } }] }) })
+  expect(document.querySelector('[data-testid="needs-you-trigger"]')).toBeNull()
+  await act(async () => leave())
+  expect(document.querySelector('[data-testid="needs-you-trigger"]')).not.toBeNull()
+})
+it('keeps the phone request while a session App replaces the timeline', async () => {
+  state.mobile = true
+  const leave = showPhoneAppView({ activeSessionId: 'task', activeProjectId: 'project', panes: [{ paneId: 'workspace', focused: true, activeTab: { tabId: 'app', kind: 'app:reader' } }] })
+  try {
+    await open()
+    expect(document.querySelector('[data-item-id="install"]')).not.toBeNull()
+  } finally { await act(async () => leave()) }
 })

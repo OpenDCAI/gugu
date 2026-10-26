@@ -3,7 +3,7 @@ export default {
     "title": "Needs you",
     "count": "Needs you · {{count}}",
     "loading": "Reading the request…",
-    "openTask": "Open task"
+    "openPage": "Go to page"
   },
   "actions": {
     "copiedAgentId": "Agent ID copied",
