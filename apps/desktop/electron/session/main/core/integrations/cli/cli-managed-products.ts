@@ -1,6 +1,6 @@
 import { execFile } from 'node:child_process';
 import { createHash } from 'node:crypto';
-import { createReadStream, createWriteStream } from 'node:fs';
+import { createReadStream, createWriteStream, existsSync } from 'node:fs';
 import fs from 'node:fs/promises';
 import path from 'node:path';
 import { Transform } from 'node:stream';
@@ -19,11 +19,10 @@ export const DWS_LINUX_PRODUCT = {
   archiveBytes: 19563250, bin: 'dws', requiredSkill: 'dws/SKILL.md',
 };
 export function managedProductRoot(tool: IntegrationCliTool, platform: CliPlatform): string | undefined {
-  if (process.env.GUGU_CLOUD_COMPUTER !== '1' || tool !== 'dws') return;
-  if (platform !== 'linux-x64') throw new Error('Managed CLI product is not available for this platform');
+  if (process.env.GUGU_CLOUD_COMPUTER !== '1' || tool !== 'dws' || platform !== 'linux-x64') return;
   const root = process.env.GUGU_CLI_PRODUCT_ROOT || '/mnt/gugu-cli-products';
   if (!path.isAbsolute(root)) throw new Error('Managed CLI product root must be absolute');
-  return root;
+  return existsSync(path.join(root, `${DWS_LINUX_PRODUCT.sha256}.tgz`)) ? root : undefined;
 }
 
 export async function installManagedProduct(

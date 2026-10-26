@@ -4,10 +4,10 @@ import fs from 'node:fs/promises';
 import path from 'node:path';
 import { tmpdir } from 'node:os';
 import { afterEach, expect, it, vi } from 'vitest';
-import { installManagedProduct } from './cli-managed-products';
+import { DWS_LINUX_PRODUCT, installManagedProduct, managedProductRoot } from './cli-managed-products';
 
 let root: string;
-afterEach(async () => { vi.unstubAllGlobals(); if (root) await fs.rm(root, { recursive: true, force: true }); });
+afterEach(async () => { vi.unstubAllGlobals(); vi.unstubAllEnvs(); if (root) await fs.rm(root, { recursive: true, force: true }); });
 async function fixture() {
   root = await fs.mkdtemp(path.join(tmpdir(), 'gugu-cli-products-'));
   const source = path.join(root, 'product'); await fs.mkdir(path.join(source, 'bin'), { recursive: true });
@@ -34,8 +34,20 @@ it('rejects changed bytes before extraction', async () => {
   await expect(installManagedProduct(root, product, stage, () => {})).rejects.toThrow('integrity mismatch');
   await expect(fs.stat(path.join(stage, 'bin/dws'))).rejects.toMatchObject({ code: 'ENOENT' });
 });
-it('does not fall back to a public origin when the mount is unavailable', async () => {
+it('rejects a selected product disappearing before its copy without switching origins', async () => {
   const product = await fixture(); const fetch = vi.fn(); vi.stubGlobal('fetch', fetch);
   await expect(installManagedProduct(path.join(root, 'unmounted'), product, path.join(root, 'stage'), () => {})).rejects.toThrow();
   expect(fetch).not.toHaveBeenCalled();
+});
+
+it('keeps the original installer available for an unmounted account or another platform', async () => {
+  await fixture(); vi.stubEnv('GUGU_CLOUD_COMPUTER','1'); vi.stubEnv('GUGU_CLI_PRODUCT_ROOT',path.join(root,'not-mounted'));
+  expect(managedProductRoot('dws','linux-x64')).toBeUndefined();
+  expect(managedProductRoot('dws','linux-arm64')).toBeUndefined();
+  vi.stubEnv('GUGU_CLI_PRODUCT_ROOT',root);
+  // Only the release product itself opts into the managed path.
+  expect(managedProductRoot('dws','linux-x64')).toBeUndefined();
+  await fs.writeFile(path.join(root,DWS_LINUX_PRODUCT.sha256+'.tgz'),'release product present');
+  expect(managedProductRoot('dws','linux-x64')).toBe(root);
+  expect(managedProductRoot('dws','linux-arm64')).toBeUndefined();
 });
