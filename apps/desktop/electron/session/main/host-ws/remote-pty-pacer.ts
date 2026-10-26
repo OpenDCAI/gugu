@@ -1,7 +1,8 @@
 // @@@remote-pty-pacer — 别的电脑经「设备连接」看着的终端:实时输出合帧、限速,落后太多就改发最新一屏。
 //
-// 本机窗口收终端输出不花钱;别的电脑收,每一字节都经咕咕云中转(devdb 出口,10-26 实测一个持续刷屏的终端
-// 80 KB/s,和别的流量一起把出口打满,所有人的 ack / 心跳跟着超时)。所以这条连接上:
+// Device-connection frames share a finite link: coalescing alone does not bound a flooding terminal's bytes.
+// This layer handles pty:data events only; ACP terminal LiveLogs/tool updates are separate streams.
+// SSH/cloud routing stays with the existing device link. On this connection:
 // - 每 REMOTE_PTY_FLUSH_MS 把同一个终端攒下的输出合成一帧发(本机是 16 ms 一帧);
 // - 整条连接一个令牌桶:平均 REMOTE_PTY_BYTES_PER_SEC,允许 REMOTE_PTY_BURST 的突发;
 // - 一帧放不下 = 落后了:丢掉攒着的输出,等到一屏所需的预算,发「整屏重置 + 此刻这一屏」(主进程那块屏幕的快照,pty-screen.ts)。

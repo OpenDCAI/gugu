@@ -190,7 +190,7 @@ export async function getStoredHistory(params: {
 
 export async function getStoredToolImage(params: { sessionId: string; seq: number; itemId: string; index: number }) {
   const page = await readStoredTurns(params.sessionId, { before: params.seq + 1, limit: 1 });
-  return findToolImage(page.turns.filter(turn => turn.seq === params.seq), params.itemId, params.index);
+  return findToolImage(page.turns.filter(turn => turn.seq === params.seq), params.itemId, params.index, Number.POSITIVE_INFINITY);
 }
 
 export interface StoredTurnPage {

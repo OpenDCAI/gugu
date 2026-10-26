@@ -33,7 +33,7 @@ export function toolImageUrl(image: ToolImage): string {
 }
 
 /**
- * 发给手机那一份里的一张图:只说有这么一张、多大(base64 字数),图本身不带(transport-trim)。手机滚到它时
+ * 历史传输投影里的一张图:只说有这么一张、多大(base64 字数),图本身不带(transport-trim)。界面滚到它时
  * 按 (会话, 条目, 第几张) 去机器上取(`sessionTimeline.sessionToolImage`)。
  */
 export const toolImageRefSchema = z.object({
@@ -59,7 +59,7 @@ export interface BaseToolCallItem {
   outputText?: string;
   /** 工具交回来的图(ACP `content` 里的 image 块),见 `ToolImage`。 */
   images?: ToolImage[];
-  /** 发给手机那一份里替代 `images` 的那一格:每张图的类型和大小,图要另取。见 `ToolImageRef`。 */
+  /** 历史传输投影里替代 `images` 的那一格:每张图的类型和大小,图要另取。见 `ToolImageRef`。 */
   imageRefs?: ToolImageRef[];
   /**
    * 这次调用**留下了一个还在跑的后台任务**(claude 的 `run_in_background` Bash、
@@ -74,12 +74,8 @@ export interface BaseToolCallItem {
   parentToolCallId?: string;
   children?: ToolNode[];
   /**
-   * 这条调用的内容在**发给手机的路上**被裁掉了多少字(#5014 审计,见
-   * `session-record/transport-trim.ts`)。桌面读的是同一份记录、不裁 —— 所以这一格
-   * 只会在手机端出现,由手机据此显示「已截断 · 桌面看完整」。
-   *
-   * ⚠️ 它是**传输层的痕迹**,不是记录里的事实:同一条调用在桌面上没有这一格。
-   * 留着它是因为「看不出来的截断」就是一个错的读数 —— 人会以为输出到此为止。
+   * Shared phone/desktop history preview: characters omitted by transport-trim.
+   * The source record stays complete; this metadata lets the tool card disclose the cropped preview.
    */
   trimmedChars?: number;
 }

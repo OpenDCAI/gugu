@@ -95,13 +95,15 @@ export function serverMachineNotices(
   capabilities: Pick<DeviceCapabilities, 'host_kind' | 'server_disk' | 'server_rollback' | 'remote_protocol' | 'min_client_protocol'> | null | undefined,
   own: { protocol: number; minServer: number } = { protocol: REMOTE_PROTOCOL_VERSION, minServer: MIN_SERVER_PROTOCOL },
 ): ServerMachineNotice[] {
-  if (!capabilities || capabilities.host_kind !== 'server') return []
+  if (!capabilities) return []
   const notices: ServerMachineNotice[] = []
   if (capabilities.min_client_protocol !== undefined && capabilities.min_client_protocol > own.protocol) {
     notices.push({ kind: 'desktop-too-old' })
   } else if (serverProtocolTooOld(capabilities.remote_protocol, { unknownIsTooOld: false, minServer: own.minServer })) {
     notices.push({ kind: 'server-too-old' })
   }
+  // Protocol windows apply to every task host; disk/update notices belong to headless servers.
+  if (capabilities.host_kind !== 'server') return notices
   const disk = capabilities.server_disk
   if (disk && disk.free_bytes < SERVER_DISK_LOW_BYTES) notices.push({ kind: 'disk-low', freeBytes: disk.free_bytes })
   const rollback = capabilities.server_rollback

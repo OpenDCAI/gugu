@@ -67,6 +67,13 @@ describe('侧栏那颗点:设备状况 + 到它任务页宿主的线(#6264 一�
   });
 });
 
+describe('protocol mismatch is terminal while the peer heartbeat remains online', () => {
+  it.each(['desktop-too-old', 'server-too-old'] as const)('%s does not remain Connecting', kind => {
+    expect(machineConnectionState({ device: device({ notices: [{ kind }] }), link: 'connecting', synced: false }))
+      .toBe('outdated');
+  });
+});
+
 describe('#137 重连提示里「第几次」的数', () => {
   it('每次从没在拨进到在拨算一次;同一次拨里线状态重复通知不算;连通了清零', () => {
     let dials = 0;

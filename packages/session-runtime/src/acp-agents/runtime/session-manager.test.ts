@@ -1449,6 +1449,35 @@ describe('AcpRuntime session manager', () => {
     expect(exported.data).not.toContain('ghost-command');
   });
 
+  it('fetches a full desktop tool picture from retained history after the runtime closes', async () => {
+    const h = makeAcpHarness();
+    const rt = new AcpRuntime(h.deps);
+    const image = { mimeType: 'image/png', data: 'x'.repeat(1_048_577) };
+    h.agent.loadSession = vi.fn(async () => {
+      await h.client().sessionUpdate({
+        sessionId: 'session-picture',
+        update: {
+          sessionUpdate: 'tool_call', toolCallId: 'picture', title: 'Screenshot', kind: 'other',
+          status: 'completed', content: [{ type: 'content', content: { type: 'image', ...image } }],
+        } as SessionUpdate,
+      });
+      return {};
+    });
+    const resumed = await rt.resumeSession({
+      ...makeStartInput({ sessionId: 'conv-picture' }), providerSessionId: 'session-picture',
+    });
+    expect(isOk(resumed)).toBe(true);
+    const item = rt.getChatHistory('conv-picture').committed.flatMap(turn => turn.items)
+      .find(entry => 'toolCallId' in entry && entry.toolCallId === 'picture');
+    if (!item) throw new Error('replayed tool picture missing');
+    expect(rt.getToolImage('conv-picture', item.id, 0)).toEqual({ ok: true, image });
+    await rt.stopSession('conv-picture');
+    const fetched = rt.getToolImage('conv-picture', item.id, 0);
+    expect(fetched).toEqual({ ok: true, image });
+    if (fetched.ok) fetched.image.data = 'changed by reader';
+    expect(rt.getToolImage('conv-picture', item.id, 0)).toEqual({ ok: true, image });
+  });
+
   it('returns a resume result with replayed history', async () => {
     const h = makeAcpHarness();
     const rt = new AcpRuntime(h.deps);

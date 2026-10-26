@@ -1723,7 +1723,7 @@ export class SessionManager implements InboundRouter {
     const history = live ? live.cell.transcript.history : (this.closedSessionHistories.get(sessionId) ?? []);
     const active = live?.cell.transcript.activeTurn;
     // Inspect the authoritative turn, cloning only the requested image.
-    return structuredClone(findToolImage(active ? [...history, active] : history, itemId, index));
+    return structuredClone(findToolImage(active ? [...history, active] : history, itemId, index, Number.POSITIVE_INFINITY));
   }
 
   exportParsedTranscript(sessionId: string): Result<string, AcpExportTranscriptError> {
