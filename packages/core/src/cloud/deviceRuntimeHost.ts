@@ -138,6 +138,8 @@ export interface DeviceRuntimeHostOptions {
    * 「跟着当下登录走」的东西。回调抛错只 warn,❌ 不拖垮 tick。
    */
   onOwnerEstablished?: (ownerUserId: string, previousOwnerUserId: string | null) => Promise<void> | void
+  /** Account delivery shares this runtime's existing lease and reconciliation cadence. */
+  onRuntimeLeaseRenewed?: () => void
   // @@@scheduled-tasks (#987) - 评估 owner 的到期定时任务并经 ACP deliver 触发（electron 注入实现，
   // 内部用全量 client 建 gateway 调 runDueScheduledTasks）。best-effort，异常不影响设备命令。
   // 返回**最早的未来到期时刻**:宿主据此挂一次性定时器、到点才再扫,❌ 不搭任何 tick 的车。
@@ -184,6 +186,7 @@ export interface DeviceRuntimeHostDebugSnapshot {
 }
 
 export interface DeviceRuntimeHost {
+  getRuntimeLease: () => { ownerId: string; deviceId: string; runtimeInstanceId: string } | null
   tickOnce: () => Promise<DeviceRuntimeHostTickResult>
   /**
    * 登录态变了(登录 / 换号 / 登出)⇒ 立刻跑一轮,❌ 别让对账节拍去「发现」一个本来就有事件的事实。
@@ -804,7 +807,10 @@ export function createDeviceRuntimeHostLoop(
       if (heartbeatSynced) lastHeartbeatAt = currentTime
       // @@@5912 currentTime 是 tick **开始**时captured 的;一条 deliver 能让这一轮跑几分钟,
       // 期间独立续租那条腿已经把 lastLeaseRenewAt 推得更新了 —— 直接赋值会把它倒回去。取大者。
-      if (!leaseRenewalFresh) lastLeaseRenewAt = Math.max(lastLeaseRenewAt ?? 0, currentTime)
+      if (!leaseRenewalFresh) {
+        lastLeaseRenewAt = Math.max(lastLeaseRenewAt ?? 0, currentTime)
+        options.onRuntimeLeaseRenewed?.()
+      }
       // @@@5912 legacy / 陈旧行清理从「每拍一次」降成一个**周期闸**,与孤儿恢复、activity 对账同一种形状。
       // ⚠️ 它**不是**「一次就够」:清理的判据本身带时间(同 hostname 的 legacy 行要租约过期 2 分钟、
       // 陈旧行要 30 天没上线),所以同一个 owner 下答案会随时间改口 —— 一台还活着的兄弟实例在本宿主
@@ -1009,6 +1015,7 @@ export function createDeviceRuntimeHostLoop(
         options.operationTimeouts,
       )
       lastLeaseRenewAt = nowMs()
+      options.onRuntimeLeaseRenewed?.()
       reportDeviceLeaseSweepAge(reading)
     } catch (error) {
       if (handleAuthExpired(error)) return
@@ -1446,6 +1453,10 @@ export function createDeviceRuntimeHostLoop(
   }
 
   return {
+    getRuntimeLease: () => !stopped && activeOwnerUserId && lastDeviceId && lastLeaseRenewAt !== null
+      && nowMs() - lastLeaseRenewAt < RUNTIME_INSTANCE_STALE_MS
+      ? { ownerId: activeOwnerUserId, deviceId: lastDeviceId, runtimeInstanceId: instanceId }
+      : null,
     // 停了(或正在停)就不再起新的一轮:那一轮会重新订阅、到点写一拍「在线」,把停机时标的离线又翻回去。
     tickOnce: () => (stopped ? Promise.resolve({ skipped: true }) : tickOnce('event')),
     notifyAuthChanged: notifyWork,

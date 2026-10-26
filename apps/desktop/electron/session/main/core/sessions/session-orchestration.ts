@@ -166,6 +166,9 @@ export type SessionAction =
       action: 'message';
       attachments?: SessionAttachmentRef[];
       work_result?: WorkReport;
+      /** Internal account-outbox receipt; one destination only. Never generated again during retry. */
+      client_message_id?: string;
+      client_message_at?: string;
       /** Bare conversation ids, already decoded from `session:` typed entries at the host boundary. */
       session_ids: string[];
       text: string;
@@ -394,14 +397,14 @@ function sessionDirectEnvelope(
   sender: EnvelopeSender,
   messageId: string,
   text: string,
-  said: Pick<Extract<SessionAction, { action: 'message' }>, 'then' | 'reply_to_message_id'> = {},
+  said: Pick<Extract<SessionAction, { action: 'message' }>, 'then' | 'reply_to_message_id' | 'client_message_at'> = {},
 ): string {
   return buildSessionDirectEnvelope({
     senderSessionId: sender.sessionId,
     senderTitle: sender.title,
     messageId,
     content: text,
-    at: formatDeliveryTimestamp(new Date().toISOString()),
+    at: said.client_message_at ?? formatDeliveryTimestamp(new Date().toISOString()),
     then: said.then,
     inReplyTo: said.reply_to_message_id,
   });
@@ -1717,6 +1720,10 @@ function checkedMessage(
     throw new Error(`reply_to_message_id must be a msg:<uuid> as a delivery's msg gives it (got ${JSON.stringify(action.reply_to_message_id).slice(0, 80)})`);
   }
   if (action.work_result !== undefined) workReportSchema.parse(action.work_result);
+  if (action.client_message_id !== undefined && (!/^[0-9a-f]{8}(?:-[0-9a-f]{4}){3}-[0-9a-f]{12}$/i.test(action.client_message_id)
+    || action.session_ids.length !== 1 || !action.client_message_at || !Number.isFinite(Date.parse(action.client_message_at)))) {
+    throw new Error('Account outbox delivery requires one recipient, a stable UUID and timestamp');
+  }
   const targets = [...new Set(action.session_ids)].map((sessionId) =>
     assertMessageableTarget(rows, callerSessionId, resolveSessionRow(rows, sessionId)),
   );
@@ -1754,7 +1761,7 @@ async function sendSessionMessage(
   const recipients: SessionDirectRecipientResult[] = [];
   for (const target of targets) {
     signal?.throwIfAborted();
-    const messageId = randomUUID();
+    const messageId = action.client_message_id ?? randomUUID();
     if (action.source_link) await rememberActivitySource(target.id, action.source_link);
     // 附带:目标已经在运行中就当场按普通发送投出;否则存下来(不叫醒),等它进入运行中那一刻再投(session-deferred-messages.ts)。
     if (plan && 'defer' in plan && !sessionIsWorking(target.id)) {
@@ -1773,11 +1780,12 @@ async function sendSessionMessage(
         kind: 'session-direct',
         ...(plan && 'queue' in plan ? { delivery: plan.queue } : {}),
       });
+      const admitted = result.status === 'delivered' || (action.client_message_id !== undefined && ['queued', 'accepted'].includes(result.status));
       recipients.push({
         to: encodeTypedId('session', target.id),
-        status: result.status === 'delivered' ? 'delivered' : 'failed',
+        status: admitted ? 'delivered' : 'failed',
         message_id: result.id,
-        ...(result.status === 'delivered'
+        ...(admitted
           ? {}
           : {
               error: result.status === 'outcome-unknown'
@@ -1787,7 +1795,7 @@ async function sendSessionMessage(
                 : { code: 'SESSION_DIRECT_DELIVERY_FAILED', message: `delivery ended in status ${result.status}` },
             }),
       });
-      if (result.status === 'delivered' && report && keyScope.startsWith('session:')) {
+      if (admitted && report && keyScope.startsWith('session:')) {
         try { receiveAssistantWorkReport(target.id, keyScope.slice('session:'.length), report, result.id); }
         catch (error) { log.error('assistant result received but recovery metadata could not be updated', { sessionId: target.id, error: String(error) }); }
       }
