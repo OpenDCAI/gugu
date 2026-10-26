@@ -16,7 +16,7 @@ const HIDING_ATTRIBUTES = ['style', 'class', 'hidden', 'inert']
  * watches its own box and every ancestor's hiding attributes, and claims while it is visible,
  * releases while it is not — the same for the App's own page and a page opened for a file.
  */
-export const ClaimedPage = observer(function ClaimedPage({ slotId, chatId, kind, itemId }: { slotId: string; chatId: string; kind: string; itemId?: string }) {
+export const ClaimedPage = observer(function ClaimedPage({ slotId, chatId, kind, itemId, prepareFile = false }: { slotId: string; chatId: string; kind: string; itemId?: string; prepareFile?: boolean }) {
   const { t } = useTranslation('messaging')
   const boxRef = useRef<HTMLDivElement | null>(null)
   // A covered slot keeps its claim for the way back.
@@ -38,7 +38,10 @@ export const ClaimedPage = observer(function ClaimedPage({ slotId, chatId, kind,
     const sync = () => {
       const want = visible()
       if (want === (token !== null) || (!want && coveredRef.current)) return
-      if (want) token = extensionViewStore.claim(kind, { tabId: slotId, chatId, element, ...(itemId ? { itemId } : {}) })
+      if (want) {
+        token = extensionViewStore.claim(kind, { tabId: slotId, chatId, element, ...(itemId ? { itemId } : {}) })
+        if (prepareFile) extensionViewStore.prepareFile(kind)
+      }
       else if (token !== null) {
         extensionViewStore.release(kind, token)
         token = null
@@ -56,7 +59,7 @@ export const ClaimedPage = observer(function ClaimedPage({ slotId, chatId, kind,
       restyled.disconnect()
       if (token !== null) extensionViewStore.release(kind, token)
     }
-  }, [chatId, kind, itemId, slotId])
+  }, [chatId, kind, itemId, slotId, prepareFile])
   return (
     <div ref={boxRef} className="min-h-0 flex-1">
       {noPage ? (

@@ -19,6 +19,30 @@ const bound = (token: number) => {
 };
 
 describe('常驻页的落点登记', () => {
+  it('prepares only one empty guest and gives it exactly one file, inside the existing idle limit', () => {
+    const kind = 'prepared-files.main';
+    const folder = bound(extensionViewStore.claim(kind, { tabId: 'folder', chatId: 'group', element: el() }));
+    extensionViewStore.prepareFile(kind);
+    const empty = pagesOf(kind).find((page) => page.empty)!;
+    extensionViewStore.prepareFile(kind);
+    expect(pagesOf(kind).filter((page) => page.empty)).toHaveLength(1);
+    const file = bound(extensionViewStore.claim(kind, { tabId: 'file', chatId: 'group', itemId: 'first', element: el() }));
+    const first = pagesOf(kind).find((page) => page.itemId === 'first')!;
+    expect(first.id).toBe(empty.id);
+    expect(first.empty).toBeUndefined();
+    extensionViewStore.release(kind, file);
+    for (let index = 0; index < 10; index++) {
+      extensionViewStore.prepareFile(kind);
+      const token = bound(extensionViewStore.claim(kind, { tabId: 'next', chatId: 'group', itemId: `next-${index}`, element: el() }));
+      expect(pagesOf(kind).find((page) => page.itemId === `next-${index}`)!.id).not.toBe(first.id);
+      extensionViewStore.release(kind, token);
+      expect(pagesOf(kind).length).toBeLessThanOrEqual(RESIDENT_PAGES_KEPT + 1);
+    }
+    extensionViewStore.release(kind, folder);
+    extensionViewStore.forgetIdle(kind);
+    expect(pagesOf(kind)).toHaveLength(0);
+  });
+
   it('keeps a host page alive when moving away, without inventing a guest webContents', () => {
     const kind = 'tool-app.settings';
     const token = extensionViewStore.claim(kind, { tabId: 'host-page', element: el() });

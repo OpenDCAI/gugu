@@ -26,7 +26,8 @@ import { ExtensionGuestBinding } from './extension-guest-binding';
  * 而不是再准备一次。但它只在**第一次有格要它**时才建(从入口打开、以后的 dock):
  * ❌ 装好就起一张谁也没要的隐藏页(摩擦单 F3)。
  *
- * 文件页按地方与文件各一张,同样常驻,一生不换文件:第一次绑定就带上文件,回来仍是那一张。
+ * 文件页按地方与文件各一张,同样常驻,一生不换文件。打开群文件夹时预热的一张空页也算在闲置上限里,
+ * 第一次接上文件后就固定为那份文件的页,回来仍是那一张。
  */
 export const ExtensionViewLayer = observer(function ExtensionViewLayer() {
   const layerRef = useRef<HTMLDivElement | null>(null);
@@ -55,12 +56,13 @@ export const ExtensionViewLayer = observer(function ExtensionViewLayer() {
         const contribution = enabled.get(page.kind);
         return contribution ? (
           <ExtensionPage
-            key={page.key}
+            key={page.id}
             kind={page.kind}
             extensionId={contribution.extensionId}
             layerRef={layerRef}
             pageKey={page.key}
             itemId={page.itemId}
+            empty={page.empty}
             managed={contribution.hostSettings}
           />
         ) : null;
@@ -148,6 +150,7 @@ const ExtensionPage = observer(function ExtensionPage({
   layerRef,
   pageKey,
   itemId,
+  empty = false,
   managed = false,
 }: {
   kind: string;
@@ -155,12 +158,17 @@ const ExtensionPage = observer(function ExtensionPage({
   layerRef: React.RefObject<HTMLDivElement | null>;
   pageKey?: string;
   itemId?: string;
+  empty?: boolean;
   managed?: boolean;
 }) {
   const claimOf = useCallback(
     () => pageKey === undefined ? undefined : extensionViewStore.claims.get(pageKey),
     [pageKey]
   );
+  const claimReader = useRef(claimOf);
+  claimReader.current = claimOf;
+  const preparing = useRef(empty);
+  preparing.current = empty;
   const [surface, setSurface] = useState<Surface | null>(null);
   const boxRef = useRef<HTMLDivElement | null>(null);
   /** 整格大小的那层,在裁剪框里按偏移摆;webview 填满它。 */
@@ -211,7 +219,7 @@ const ExtensionPage = observer(function ExtensionPage({
       .catch((error: unknown) => log.warn('Failed to report extension surface layout:', error));
   }, [guestBinding]);
 
-  /** 把页交给此刻的认领方:第一次是 bind,之后每换一格是 retarget。没有认领方就只记账。 */
+  /** 把页交给此刻的认领方。空页先绑定到无群、无文件的上下文,第一次交给文件后便不再换文件。 */
   const aimAt = useCallback(
     (claim: ExtensionViewClaim | undefined) => {
       if (managed) {
@@ -226,13 +234,13 @@ const ExtensionPage = observer(function ExtensionPage({
         extensionSurfaceStore.setWebContentsId(previous.sessionId, previous.tabId, null);
         registeredRef.current = null;
       }
-      if (!claim) return;
+      if (!claim && !preparing.current) return;
       const target = {
         // A group's side panel is in no task: the binding says so by leaving it out.
-        ...(claim.sessionId ? { sessionId: claim.sessionId } : {}),
-        tabId: claim.tabId,
-        ...(claim.chatId ? { chatId: claim.chatId } : {}),
-        ...(claim.itemId ? { itemId: claim.itemId } : {}),
+        ...(claim?.sessionId ? { sessionId: claim.sessionId } : {}),
+        tabId: claim?.tabId ?? `${kind}:prepared`,
+        ...(claim?.chatId ? { chatId: claim.chatId } : {}),
+        ...(claim?.itemId ? { itemId: claim.itemId } : {}),
       };
       void guestBinding.aim(target)
         .then((result) => {
@@ -242,6 +250,7 @@ const ExtensionPage = observer(function ExtensionPage({
             return;
           }
           const { webContentsId } = result;
+          if (!claim) return;
           // The slot that claimed it can now reach this page (its header's toolbar / menu, 摩擦单 F13).
           extensionViewStore.setSurface(claim.token, webContentsId);
           // 这期间又指向别处了:登记表归最新那次管,这次的落地只算 bind 成功,别的不写。
@@ -262,7 +271,7 @@ const ExtensionPage = observer(function ExtensionPage({
           log.warn('Extension surface binding failed:', error);
         });
     },
-    [guestBinding, layerRef, report, managed]
+    [guestBinding, layerRef, report, managed, kind]
   );
 
   const attachWebview = useCallback(
@@ -280,7 +289,7 @@ const ExtensionPage = observer(function ExtensionPage({
         // binding reply after Electron has already replaced the guest (#7514).
         guestBinding.ready(element.getWebContentsId());
         guestReadyRef.current = element;
-        aimAt(claimOf());
+        aimAt(claimReader.current());
       };
       // guest 崩了:旧的 webContents id 作废,绑定也作废。重载一次,dom-ready 会再来一遍、重新 bind;
       // ❌ 不能留着一个死 id 等下一次认领去 retarget —— 那只会换来一条 warn 和一格永远的空白。
@@ -300,7 +309,7 @@ const ExtensionPage = observer(function ExtensionPage({
         element.removeEventListener('render-process-gone', gone);
       };
     },
-    [aimAt, claimOf, guestBinding, kind]
+    [aimAt, guestBinding, kind]
   );
 
   // 认领方一换(切会话 / 换 tab / 聊天栏换会话)→ 重新指向 + 重新摆位。
