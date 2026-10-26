@@ -5,6 +5,7 @@ import type { DecorationSet, EditorView as View, ViewUpdate } from '@codemirror/
 import { afterEach, describe, expect, it } from 'vitest';
 import { codemirror } from './codemirror-entry';
 import { loadPage, until } from './fake-file-service';
+import { CONTENT_MENU_EVENT, type ContentMenuSnapshot } from '@gugu/session-shared/content-menu';
 
 /**
  * 摩擦单 F25: `gugu.codemirror()` hands out the platform's CodeMirror modules whole — an App draws `**x**` bold with its
@@ -38,7 +39,7 @@ describe('gugu.codemirror(): the modules whole, one copy (F25)', () => {
   });
 
   it('an App\'s own Decoration and ViewPlugin draw **x** bold on the editor bound to a shared file, as others type', async () => {
-    const { open } = await loadPage<TextFile>('text');
+    const { open, service } = await loadPage<TextFile>('text');
     // The page's runtime as loadPage made it (modules reset): its binding knows the files it opened.
     const { codemirror: cm, bindCodemirror } = await import('./codemirror-entry');
     const file = await open();
@@ -63,9 +64,23 @@ describe('gugu.codemirror(): the modules whole, one copy (F25)', () => {
     await until(() => view.state.doc.toString() === 'plan: **ship** today');
     expect(marked()).toEqual(['**ship**']);
     // A change that does not come from this editor (as another person's or an agent's arrives): the decoration follows.
-    file.insert(file.text.length, ' and **test**');
+    await until(() => service.keys.size === 1);
+    service.write([...service.docs.keys()][0], ' and **test**');
     await until(() => marked().length === 2);
     expect(marked()).toEqual(['**ship**', '**test**']);
+    const history = () => {
+      const detail: ContentMenuSnapshot = { action: 'snapshot' };
+      view.contentDOM.dispatchEvent(new CustomEvent(CONTENT_MENU_EVENT, { detail }));
+      return detail.editorHistory;
+    };
+    expect(history()).toEqual({ undo: false, redo: false });
+    view.dispatch({ changes: { from: view.state.doc.length, insert: ' local' } });
+    expect(history()).toEqual({ undo: true, redo: false });
+    view.contentDOM.dispatchEvent(new CustomEvent(CONTENT_MENU_EVENT, { detail: { action: 'undo' }, cancelable: true }));
+    expect(view.state.doc.toString()).toBe('plan: **ship** today and **test**');
+    expect(history()).toEqual({ undo: false, redo: true });
+    view.contentDOM.dispatchEvent(new CustomEvent(CONTENT_MENU_EVENT, { detail: { action: 'redo' }, cancelable: true }));
+    expect(view.state.doc.toString()).toBe('plan: **ship** today and **test** local');
     unbind();
     view.destroy();
     file.close();

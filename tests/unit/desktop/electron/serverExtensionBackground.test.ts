@@ -15,6 +15,8 @@ vi.mock('../../../../apps/desktop/electron/session/main/core/extensions/file-syn
 vi.mock('../../../../apps/desktop/electron/session/main/lib/logger', () => ({ log: { info: vi.fn(), error: vi.fn() } }));
 
 import { serverExtensionBackground } from '../../../../apps/desktop/electron/server/extension-background';
+import { APP_FRAME_MARKER } from '../../../../apps/desktop/src/session/shared/extensions/app-runtime-protocol';
+import { answerCall } from '../../../../apps/desktop/electron/session/main/core/extensions/extension-bridge';
 
 beforeEach(() => { launch.mockReset(); });
 
@@ -34,4 +36,18 @@ it('waits for a retired background to release its partition before reopening the
   second.destroy();
   expect(first.isDestroyed()).toBe(true);
   expect(second.isDestroyed()).toBe(true);
+});
+
+it('uses the same background file scope for resource calls', async () => {
+  const frame: { url(): string } = { url: () => page.goto.mock.calls[0]![0] as string };
+  const page = { on: vi.fn(), exposeBinding: vi.fn(), goto: vi.fn(), mainFrame: () => frame, evaluate: vi.fn() };
+  launch.mockResolvedValueOnce({ close: async () => {}, route: vi.fn(), routeWebSocket: vi.fn(), pages: () => [page], on: vi.fn() });
+  const runtime = serverExtensionBackground({ extensionId: 'resource-timer', rootDir: '/apps/timer', networkHosts: [] }, 'background.html');
+  await vi.waitFor(() => expect(page.goto).toHaveBeenCalledOnce());
+  const receive = page.exposeBinding.mock.calls[0]![1];
+  await receive({ frame }, { m: APP_FRAME_MARKER, t: 'call', id: 1, method: 'filesList', args: { place: { chat: 'chat' } } });
+  const caller = vi.mocked(answerCall).mock.calls.at(-1)![0];
+  expect(caller.resourcePage).toBe(caller.filePage);
+  expect(caller.resourcePage({ place: { chat: 'chat' } })).toEqual({ pageId: runtime.id, extensionId: 'resource-timer', handed: null });
+  runtime.destroy();
 });

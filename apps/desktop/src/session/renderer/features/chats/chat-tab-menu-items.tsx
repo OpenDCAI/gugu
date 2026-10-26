@@ -11,7 +11,7 @@ export const ChatTabMenuItems = observer(function ChatTabMenuItems({ chatId }: {
   const apps = installedExtensionsStore.openableApps;
   return (
     <>
-      <ChatDetailsMenuItems isGroupChat={readChatSummary(chatId)?.kind === 'group'} onOpenInfo={() => openInfoTab(chatId)} />
+      <ChatDetailsMenuItems isGroupChat={readChatSummary(chatId)?.kind === 'group'} onOpenInfo={() => openInfoTab(chatId, readChatSummary(chatId)?.kind === 'group' ? 'main' : undefined)} />
       {apps.length > 0 && <ContextMenuSeparator />}
       {apps.map((app) => (
         <ContextMenuItem key={app.extensionId} className="flex items-center gap-2" onClick={() => openApp(app.extensionId, chatId)}>

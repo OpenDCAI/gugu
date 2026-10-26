@@ -1,3 +1,4 @@
+import { rpcQuery } from '../../../../../../tests/helpers/rpcQuery';
 import { createHash } from 'node:crypto';
 import { cloudFileProviders } from '@gugu/core/cloud/fileProviders';
 import { createFileResolver } from '@gugu/core/shared/fileResolver';
@@ -36,13 +37,13 @@ vi.mock('@gugu/core/cloud/supabase', () => ({
       const query = { select: () => query, eq: () => query, maybeSingle: async () => ({ data: row, error: null }) };
       return query;
     },
-    rpc: async (name: string, args: Record<string, unknown>) => {
+    rpc: rpcQuery(async (name: string, args: Record<string, unknown>) => {
       // Who may delete what is the folder's to say; here, everyone may delete everything.
       if (name === 'workspace_deletable_as') return { data: args.p_item_ids, error: null };
       if (name === 'workspace_get_as') return { data: [row], error: null };
       if (name === 'workspace_version_as') return { data: [{ n: args.p_n, pointer: null, inline_text: null, content_type: 'application/pdf' }], error: null };
       return { data: null, error: { message: `no fake for ${name}` } };
-    },
+    }),
     storage: {
       from: () => ({
         createSignedUrl: async (pointer: string) => {

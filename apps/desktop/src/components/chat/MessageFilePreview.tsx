@@ -68,7 +68,7 @@ export function MessageFilePreview({ file, mobile = false, fill = false, tabbed 
       quote: async (selection) => {
         if (file.source.kind === 'item') return quoteChatFile(file.source.itemId, file.source.version, selection)
         const { UI_EVENTS } = await import('@/lib/uiEvents')
-        window.dispatchEvent(new CustomEvent(UI_EVENTS.quoteMessage, { detail: { messageId: message!.id, senderName: file.fileName, content: selection ? selectedTextQuote(selection) : file.fileName } }))
+        window.dispatchEvent(new CustomEvent(UI_EVENTS.quoteMessage, { detail: { messageId: message!.id, source: message, senderName: file.fileName, content: selection ? selectedTextQuote(selection) : file.fileName } }))
       },
       canSelectAll: kind !== 'image' && kind !== 'video' && kind !== 'unsupported',
     }), (error) => toast(error instanceof Error ? error.message : String(error), 'error'))

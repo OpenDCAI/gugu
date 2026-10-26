@@ -1,5 +1,5 @@
 {
   "repository": "OpenDCAI/gugu-supabase",
-  "ref": "529c73a5c637ddcde1e896b260052aa32de86225",
-  "status": "Topic archival with source-conversation authority and exact-name confirmation for Agent managers, merged in OpenDCAI/gugu-supabase#48."
+  "ref": "7cef0ae08b4c988ec32678b6ab14e9e1101b3490",
+  "status": "Actor-scoped message history includes whisper privacy metadata, merged in OpenDCAI/gugu-supabase#52."
 }

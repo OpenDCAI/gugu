@@ -1,5 +1,5 @@
 import type { MessageItem } from '@gugu/core/shared/types/chat';
-import type { ChatPeekFile } from '@shared/extensions/app-runtime-protocol';
+import type { ChatPeekFile, PreparedChatFile } from '@shared/extensions/app-runtime-protocol';
 import { parseExtensionTabKind } from '@shared/extensions/manifest';
 
 /** The preinstalled workspace App's tab (apps/desktop/preinstalled-apps/workspace, `WORKSPACE_APP_ID`): with no file, the chat's folder. */
@@ -11,6 +11,8 @@ export const WORKSPACE_APP_KIND = 'workspace.main';
  * in the App that opens it; no App claims it (`kind: null`): the host's preview.
  */
 export interface PanelItem {
+  /** A transient message, never serialized: the click's authorization is consumed at the first guest binding. */
+  takeOpening?: () => PreparedChatFile | undefined;
   /** `<extensionId>.<tab>`; null: no App claims the file, the host's file preview. */
   kind: string | null;
   /** The file it shows; none for an App's own page (the folder is one). */

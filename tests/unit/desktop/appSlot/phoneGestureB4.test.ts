@@ -3,6 +3,7 @@ import type { SessionpageSessionSummary } from '@gugu/session-core/session-recor
 import { retainDeviceSessions, updateDeviceSessions } from '../../../../apps/desktop/src/session/shared/remote-sessions/session-directory'
 import { showPhoneAppView } from '../../../../apps/desktop/src/components/appSlot/phoneAppState'
 // @vitest-environment jsdom
+import { rpcQuery } from '../../../helpers/rpcQuery'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { hostAppFrame, type PhoneAppBinding } from '../../../../apps/desktop/src/components/appSlot/phoneAppHost'
 import { PHONE_CAPABILITIES } from '../../../../apps/desktop/src/components/appSlot/phoneApps'
@@ -38,12 +39,12 @@ vi.mock('@gugu/core/cloud/supabase', () => ({
     }
     // The folder's doors, as the person: the deck by its id, who may delete what (everyone, everything).
     // (Built when asked: this client is made while the module loads, before DECK is.)
-    const rpc = async (name: string, args: Record<string, unknown>) =>
+    const rpc = rpcQuery(async (name: string, args: Record<string, unknown>) =>
       name === 'chat_facts'
         ? { data: [{ id: args.p_chat_id, kind: 'group', source_chat_id: null }], error: null }
         : name === 'workspace_deletable_as'
         ? { data: args.p_item_ids, error: null }
-        : { data: [{ id: DECK, chat_id: CHAT, kind: 'file', filename: 'deck.pptx', version: 3, parent_id: null, system_role: null, path: 'deck.pptx' }], error: null }
+        : { data: [{ id: DECK, chat_id: CHAT, kind: 'file', filename: 'deck.pptx', version: 3, parent_id: null, system_role: null, path: 'deck.pptx' }], error: null })
     return { from: () => query, rpc }
   },
 }))

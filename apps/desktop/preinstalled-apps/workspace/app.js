@@ -226,6 +226,9 @@ async function previewKit() {
   return state.md
 }
 
+// A Workspace page starts when its folder or file is opened. Prepare its existing reader while it awaits context.
+const previewReady = previewKit().then((md) => ({ md }), (error) => ({ error }))
+
 // GFM (tables, strikethrough, task items).
 function markdownSupport(cm) {
   return cm.markdown({ base: cm.markdownLanguage })
@@ -242,24 +245,25 @@ async function applyContext(ctx) {
   const inGroup = !!ctx.chat
   // A page the host opened for one file (F3: its own page, bound to that file for life) shows that file only.
   document.body.classList.toggle('no-list', !inGroup || !canRead() || !!ctx.file)
-  if (previous?.chat?.id !== ctx.chat?.id) {
+  if (previous?.chat?.id !== ctx.chat?.id || !!previous?.file !== !!ctx.file) {
     // Adds, deletes and renames in this chat's workspace (§2.4: fed from workspace_changed) — every call names its chat.
     state.unwatch?.()
-    state.unwatch = inGroup && canRead() ? gugu.files.onChanged({ chat: ctx.chat.id }, heard) : null
-    if (inGroup && canRead()) await refreshList()
+    state.unwatch = inGroup && canRead() && !ctx.file ? gugu.files.onChanged({ chat: ctx.chat.id }, heard) : null
+    if (inGroup && canRead() && !ctx.file) await refreshList()
   }
   // The host hands this page a file when it picked this App for it (真源 §2.6: a click goes to the host,
   // which picks the most specific claim; .md and plain .json are this App's). The host's header then has
   // the way back, so this page's own Back is not drawn; going back takes the file away again.
   document.body.classList.toggle('host-opened', !!ctx.file)
-  if (ctx.file && state.current?.entry.id !== ctx.file.id) await openHanded()
+  if (ctx.file && state.current?.entry.id !== ctx.file.id && state.opening?.id !== ctx.file.id) await openHanded()
   else if (!ctx.file && previous?.file) {
     closeCurrent()
     document.body.classList.remove('show-doc')
   }
   if (!inGroup && !ctx.file) showDocMessage(state.t.noWorkspace)
   else if (!canRead() && !ctx.file) showDocMessage(state.t.denied)
-  renderList()
+  // Layout and visibility reports change context too; they must not rebuild every row or erase a rename draft.
+  if (previous && (previous.locale !== ctx.locale || !!previous.file !== !!ctx.file || previous.capabilities?.join('\0') !== ctx.capabilities?.join('\0'))) renderList()
 }
 
 function renderChrome() {
@@ -896,28 +900,24 @@ async function openHanded() {
     state.current = current
     bindFileMenu(current)
     showDoc(file.entry)
-    if (file.type === 'text') await mountText(current)
-    else mountJson(current)
     watchStatus(current)
     watchPresence(current)
+    if (file.type === 'text') await mountText(current, previewReady)
+    else mountJson(current)
   } catch (error) {
     if (state.opening === token) showDocMessage(error.code === 'denied' ? state.t.denied : fmt(state.t.failed, { e: error.message }))
   } finally {
     if (state.opening === token) state.opening = null
-    renderList()
   }
 }
 
-async function mountText(current) {
-  const [cm, md] = await Promise.all([editorKit(), previewKit()])
+async function mountText(current, preview) {
+  const prepared = await preview
+  if ('error' in prepared) throw prepared.error
+  const { md } = prepared
+  if (state.current !== current) return
   const { file } = current
   document.body.dataset.kind = 'text'
-  current.marks = lineMarks(cm)
-  current.view = new cm.EditorView({
-    parent: $('editor'),
-    extensions: [cm.basicSetup, markdownSupport(cm), cm.EditorView.lineWrapping, editorTheme(cm), selectionWatch(cm), current.marks.extension],
-  })
-  current.unbind = gugu.bind.codemirror(current.view, file)
   // Others' words (`chat`): raw HTML stays text, nothing loads; a relative link opens the file beside this one. Each
   // block says its lines (`sourceLines`): a selection there is cited by them, a pill's lines are found there.
   const render = () => {
@@ -925,8 +925,19 @@ async function mountText(current) {
     md.render($('preview'), file.text, { density: 'comfortable', frontmatter: true, sourceLines: true, file: current.entry })
     previewMarks()
   }
-  current.offs.push(file.onChange(debounce(render, 120)))
+  const changed = debounce(render, 120)
+  current.offs.push(file.onChange((event) => { if (!event.entry) changed() }))
   render()
+  // Reading does not wait for the source editor's module and construction.
+  await new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(resolve)))
+  const cm = await editorKit()
+  if (state.current !== current) return
+  current.marks = lineMarks(cm)
+  current.view = new cm.EditorView({
+    parent: $('editor'),
+    extensions: [cm.basicSetup, markdownSupport(cm), cm.EditorView.lineWrapping, editorTheme(cm), selectionWatch(cm), current.marks.extension],
+  })
+  current.unbind = gugu.bind.codemirror(current.view, file)
   showPlace()
 }
 
@@ -1015,7 +1026,7 @@ async function cite(current = state.current, picks = state.picks, held = state.h
   }
 }
 
-// Register each file surface with the host's native menu. Cite keeps the App's existing refs/line fingerprints.
+// The shared content menu keeps the App's existing refs/line fingerprints and editor history.
 function bindFileMenu(current) {
   for (const id of ['editor', 'preview']) {
     const root = $(id)
@@ -1026,7 +1037,8 @@ function bindFileMenu(current) {
         const picks = (id === 'editor' ? !picksInPreview : picksInPreview) ? [...state.picks] : []
         pending = { requestId: detail.requestId, picks, held: [...state.held], source: { entry: { ...current.entry }, file: { type: current.file.type, text: current.file.text } } }
         detail.selection = { text: picks.map(pick => pick.text).join('\n') }
-        detail.editable = false
+        detail.editable = id === 'editor' && !!current.view && !current.view.state.readOnly
+        if (detail.editable && current.file.type !== 'text') detail.editorHistory = { undo: state.cm.commands.undoDepth(current.view.state) > 0, redo: state.cm.commands.redoDepth(current.view.state) > 0 }
         detail.customSelectAll = id === 'editor'
       } else if (pending?.requestId === detail.requestId) {
         const captured = pending
@@ -1034,6 +1046,9 @@ function bindFileMenu(current) {
         if (detail.action === 'select-all') {
           current.view?.dispatch({ selection: { anchor: 0, head: current.view.state.doc.length } })
           current.view?.focus()
+        } else if (detail.action === 'undo' || detail.action === 'redo') {
+          current.view?.focus()
+          if (current.view && !current.view.state.readOnly) state.cm.commands[detail.action](current.view)
         } else if (detail.action === 'quote-selection' || detail.action === 'quote-file') {
           void cite(captured.source, captured.picks, captured.held, detail.action === 'quote-file')
         }
@@ -1204,8 +1219,8 @@ function mountJson(current) {
       document.body.classList.remove('json-dirty')
       hideBanner()
     }
-    current.offs.push(file.onChange(({ local }) => {
-      if (local) return
+    current.offs.push(file.onChange(({ local, entry }) => {
+      if (local || entry) return
       if (dirty) showBanner(state.t.jsonRemote, 'info')
       else load()
     }))
@@ -1233,6 +1248,12 @@ function mountJson(current) {
 }
 function watchStatus(current) {
   const { file } = current
+  current.offs.push(file.onChange((event) => {
+    if (!event.entry || state.current !== current || !current.entry.detailsPending) return
+    current.entry = file.entry
+    state.shown = current.entry
+    renderDocInfo(current.entry)
+  }))
   const show = (status) => {
     if (state.current !== current) return
     const t = state.t
@@ -1311,7 +1332,7 @@ function showEntry(entry) {
   $('open-with').hidden = !entry
   $('more').hidden = !entry
   closeMenu()
-  renderDocInfo(entry)
+  renderDocInfo(entry?.detailsPending ? null : entry)
 }
 
 // Under the header: creation, editing, and the messages the file came from. The App cannot read those

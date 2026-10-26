@@ -124,6 +124,15 @@ describe('同 key 是同一条:原地更新,不叠', () => {
     expect(lastOptions(sonner)).toMatchObject({ duration: Infinity, closeButton: true })
   })
 
+  it('retires an expired keyed notice before notifying its owner', () => {
+    const expired = vi.fn(() => notify({ key: 'expiry-callback', title: 'new notice', tier: 'error' }))
+    notify({ key: 'expiry-callback', title: 'first notice', tier: 'error', onAutoClose: expired })
+    const old = lastOptions(sonner.error)
+    old.onAutoClose?.()
+    expect(expired).toHaveBeenCalledTimes(1)
+    expect(lastOptions(sonner.error).id).not.toBe(old.id)
+  })
+
   it('ongoing 的提示不点击穿透:它带着关闭钮,得点得到', () => {
     notify({ key: 'k', title: 'wait', tier: 'info', ongoing: true })
     expect(lastOptions(sonner.info).className).toBeUndefined()

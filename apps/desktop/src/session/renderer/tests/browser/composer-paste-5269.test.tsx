@@ -9,7 +9,7 @@
  */
 import { createRoot, type Root } from 'react-dom/client'
 import { afterEach, describe, expect, it } from 'vitest'
-import { ChatComposer, PASTED_TEXT_AS_FILE_MIN_CHARS } from '@gugu/session-ui/react/components'
+import { ChatComposer, PASTED_TEXT_AS_FILE_MIN_CHARS, type PromptEditorRef } from '@gugu/session-ui/react/components'
 import { SessionLocalizationProvider } from '@renderer/localization/localization-provider'
 import '@/styles/tokens.css'
 import '@renderer/index.css'
@@ -57,10 +57,11 @@ const mounted = () => host?.querySelector('[contenteditable="true"]') != null
 const pasteCaptureDone = (editable: HTMLElement) =>
   editable.parentElement?.querySelector(':scope > [style*="-10000px"]') == null
 
-function paste(text?: string, file?: File) {
+function paste(text?: string, file?: File, html?: string) {
   const dt = new DataTransfer()
   if (file) dt.items.add(file)
   if (text !== undefined) dt.setData('text/plain', text)
+  if (html !== undefined) dt.setData('text/html', html)
   const editable = host!.querySelector<HTMLElement>('[contenteditable="true"]')!
   editable.focus()
   const event = new ClipboardEvent('paste', { clipboardData: dt, bubbles: true, cancelable: true })
@@ -71,6 +72,41 @@ function paste(text?: string, file?: File) {
 const longText = 'x'.repeat(PASTED_TEXT_AS_FILE_MIN_CHARS + 1)
 
 describe('composer paste (#5269)', () => {
+  const url = 'https://www.recode.cat/cli/auth?state=cw479-test&p=claude'
+  it.each([
+    ['plain text', undefined],
+    ['an HTML link title', `<a href="${url.replace('&', '&amp;')}">Recode sign-in</a>`],
+  ])('keeps the original URL when the clipboard includes %s', async (_format, html) => {
+    const submitted: string[] = []
+    const editor: { current: PromptEditorRef | null } = { current: null }
+    mount({ editorApiRef: editor, onSubmit: (text: string) => submitted.push(text) })
+    await until('编辑器挂载', () => mounted() && editor.current != null)
+    const { editable } = paste(url, undefined, html)
+    await until('粘贴已进入正文', () => !!editor.current?.getText())
+
+    expect(editor.current!.getText()).toBe(url)
+    editable.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', code: 'Enter', bubbles: true, cancelable: true }))
+    await until('原样链接已提交', () => submitted.length > 0)
+    expect(submitted).toEqual([url])
+  })
+
+  it('restores a canonical file reference through the existing mention provider', async () => {
+    const editor: { current: PromptEditorRef | null } = { current: null }
+    const path = '/workspace/report.md'
+    const text = `Check @[report.md](${path})`
+    mount({ editorApiRef: editor, mentionProvider: {
+      search: async () => [],
+      resolve: (target: string, label: string) => target === path
+        ? { id: target, label: target, name: label, kind: 'file' } : null,
+    } })
+    await until('编辑器挂载', () => mounted() && editor.current != null)
+    const { editable } = paste(text, undefined, '<a href="/workspace/report.md">Report</a>')
+
+    await until('文件引用已绘制', () => editable.querySelector(`[data-mention-id="${path}"]`) != null)
+    expect(editable.querySelector(`[data-mention-id="${path}"]`)).not.toBeNull()
+    expect(editor.current!.getText()).toBe(text)
+  })
+
   it('长文本 → 一个 .txt 文件，正文不进编辑器', async () => {
     const seen = mount({ onFilesDropped: (f: File[]) => seen.files.push(f) })
     await until('编辑器挂载', () => mounted())

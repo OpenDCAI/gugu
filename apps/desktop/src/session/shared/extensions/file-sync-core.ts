@@ -16,6 +16,7 @@ import {
   type SyncRevokeReason,
   type SyncToMain,
   type SyncToPage,
+  type AppFileEntry,
 } from './app-runtime-protocol';
 
 /**
@@ -50,6 +51,8 @@ export const LOCAL_DOC_PREFIX = 'wc:';
 export const isLocalDoc = (docName: string) => docName.startsWith(LOCAL_DOC_PREFIX);
 
 export interface Grant {
+  /** One read of the entry's decorations after the page has painted. Gone when requested or when the grant ends. */
+  details?: () => Promise<AppFileEntry>;
   docName: string;
   itemId: string;
   access: 'rw' | 'ro';
@@ -439,6 +442,19 @@ export class FileSyncRelay {
       return;
     }
     const message = data as SyncToMain;
+    if (message?.t === 'entry') {
+      const grant = page.grants.get(message.docName);
+      const details = grant?.details;
+      if (!grant || !details || grant.lettingGo) return;
+      delete grant.details;
+      void details().then((entry) => {
+        if (page.grants.get(message.docName) === grant && !grant.lettingGo) this.post(page, { t: 'entry', docName: message.docName, entry });
+      }, (error: unknown) => {
+        this.platform.warn('File entry details could not be read', { item: grant.itemId, message: error instanceof Error ? error.message : String(error) });
+        if (page.grants.get(message.docName) === grant && !grant.lettingGo) this.post(page, { t: 'entry-error', docName: message.docName, message: error instanceof Error ? error.message : String(error) });
+      });
+      return;
+    }
     if (message?.t === 'hello') {
       this.hello(page);
       return;
