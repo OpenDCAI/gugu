@@ -147,7 +147,7 @@ const RoutineLists = observer(function RoutineLists({ context }: AssistantPagePr
     />
   );
   return (
-    <MachineGate hasData={query.data !== undefined && routines.length > 0} readiness={context.readiness} loading={context.machineLoading || query.isLoading} error={context.machineError ?? query.error} onRetry={() => void query.refetch()}>
+    <MachineGate failedTitle={t('routines.loadFailed')} hasData={query.data !== undefined && routines.length > 0} readiness={context.readiness} loading={context.machineLoading || query.isLoading} error={context.machineError ?? query.error} onRetry={() => void query.refetch()}>
       {routines.length === 0 ? (
         <AssistantSection bare>
           <AssistantEmpty
