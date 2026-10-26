@@ -203,7 +203,7 @@ export const ProjectFolderCard = observer(function ProjectFolderCard({
   onAddMachine?: () => void;
   /** 从 Finder 拖进来的文件夹(一个 File;取路径由调用方决定 —— 别的机器上的项目不能拿这台电脑的路径)。 */
   onDropFolder: (file: File) => void;
-  /** 浮在群聊上面(项目块里开新任务,gugu-dev#181):一浮出来就摊开,提示换成「直接打字或按 Esc 就收起」。 */
+  /** 浮在群聊上面(项目块里开新任务,gugu-dev#181):一浮出来就摊开,提示换成「按 Esc 收起」;打字不收(owner 10-26)。 */
   floating?: boolean;
 }) {
   const { translate } = useSessionMessages();
