@@ -4652,7 +4652,7 @@ app.whenReady().then(async () => {
             rpc: (name, args) => current.client.rpc(name, args),
             prepare: (files, target) => prepareFiles(files, [target]),
             resolveNumbers: async numbers => (await crossMachine().messageDeps(() => remoteCaller(auth, context), signal).locateAgents({userIds: [],numbers})).numberToUserId,
-            id: createDesktopWorkReportIds(context.sessionId, report),
+            id: createDesktopWorkReportIds(context.sessionId),
           }, {assistantId:assistant.agentId,runtimeInstanceId:current.runtimeInstanceId,deviceId:current.deviceId,sessionId:context.sessionId,record:report})
           void assistantWorkDeliveryHost().kick()
           return receipt
