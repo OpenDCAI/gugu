@@ -131,6 +131,10 @@ function ProfileHome({
         <AssistantLibraryCard assistantId={assistant.id} machine={machine.state === 'ready' ? machine.machine : null} kind="devices" onOpen={() => go('library:devices')} />
         <AssistantRow title={t('channels.title')} detail={t('channels.note', { name })} onClick={() => go('channels')} testId="assistant-open-channels" />
       </AssistantSection>
+      {/* 它自己的设置:从前是页头的齿轮,页头只剩一行后(owner 10-26)从资料进。 */}
+      <AssistantSection testId="assistant-profile-settings">
+        <AssistantRow title={t('nav.settings')} onClick={() => go('settings')} testId="assistant-open-settings" />
+      </AssistantSection>
     </div>
   )
 }

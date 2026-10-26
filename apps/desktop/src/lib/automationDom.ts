@@ -75,7 +75,6 @@ export const AUTOMATION_TEST_IDS = {
   sidebarAssistantNav: 'sidebar-assistant-nav',
   sidebarSettingsNav: 'sidebar-settings-nav',
   mobileAssistantNav: 'mobile-assistant-nav',
-  mobileSessionsNav: 'mobile-sessions-nav',
   mobileMessagesNav: 'mobile-messages-nav',
   mobileSessionCreateAction: 'mobile-session-create-action',
   mobileContactsNav: 'mobile-contacts-nav',
