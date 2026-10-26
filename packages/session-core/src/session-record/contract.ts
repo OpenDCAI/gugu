@@ -494,7 +494,7 @@ export type AppMessageOptions = { delivery?: 'queue' | 'defer'; key?: string };
 export type AppMessageReceipt = { id: string; deferred?: true };
 /** An App starts an agent on another computer through the same App spawn core. */
 export type AppSpawnAction = { action: 'spawn'; prompt: string; spawn: {
-  title?: string; harness?: string; model?: string; transport?: 'acp' | 'pty'; project?: string; chat?: string;
+  title?: string; harness?: string; model?: string; transport?: 'acp' | 'pty'; project?: string; chat?: string; device?: string;
 } };
 /** App 调用方给一条会话发消息(会话 id 由发起方从那台机器的会话列表里取)。 */
 export type AppMessageAction = { action: 'message'; session_ids: [string]; text: string } & AppMessageOptions;
@@ -510,7 +510,9 @@ export type AppReadFileAction = { action: 'read_file'; session_id: string; path:
 export type AppCallAction = {
   action: 'app_call';
   call_id: string;
-  session_id: string;
+  session_id?: string;
+  /** Explicit machine target when the call is not attached to a session. Exactly one target is present. */
+  device_id?: string;
   version: string;
   method: string;
   args: Record<string, unknown>;

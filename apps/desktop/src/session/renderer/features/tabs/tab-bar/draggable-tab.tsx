@@ -1,4 +1,5 @@
 import { useDraggable, useDroppable } from '@dnd-kit/core';
+import { useRef } from 'react';
 import { TabSlot } from './tab-chip';
 
 export function DraggableTab({
@@ -11,7 +12,8 @@ export function DraggableTab({
   pairRole?: 'start' | 'end';
   children: React.ReactNode;
 }) {
-  const { attributes, listeners, setNodeRef: setDragRef } = useDraggable({ id });
+  const data = useRef<{ tabReorderTarget?: string }>({});
+  const { attributes, listeners, setNodeRef: setDragRef, isDragging } = useDraggable({ id, data: data.current });
   const { setNodeRef: setDropRef, isOver } = useDroppable({ id });
 
   return (
@@ -25,6 +27,8 @@ export function DraggableTab({
       {...attributes}
       {...listeners}
       data-tab-pair={pairRole}
+      data-tab-dragging={isDragging || undefined}
+      style={{ opacity: isDragging ? 0 : undefined }}
     >
       {isOver && <DropIndicator />}
       {children}

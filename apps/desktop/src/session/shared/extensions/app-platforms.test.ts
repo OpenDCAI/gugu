@@ -25,7 +25,7 @@ describe('App platform boundaries', () => {
 
   it('distinguishes phone agent features from an unavailable human capability, using every capability once', () => {
     expect(Object.keys(PHONE_CAPABILITY_SUPPORT).sort()).toEqual([...EXTENSION_CAPABILITIES].sort());
-    expect(PHONE_CAPABILITIES).toEqual(['files:read', 'files:read:all-machines', 'files:write', 'chat:relay', 'chat:read', 'agents:read', 'agents:read:all-machines', 'agents:control', 'agents:control:all-machines']);
+    expect(PHONE_CAPABILITIES).toEqual(['files:read', 'files:read:all-machines', 'files:write', 'chat:relay', 'chat:read', 'agents:read', 'agents:read:all-machines', 'agents:history:all', 'agents:control', 'agents:control:all-machines']);
     expect(appPlatformProblems({ ...manifest('1.0.0', ['phone']), permissions: { capabilities: ['agents:tools'] } })).toEqual([]);
     expect(appPlatformProblems({ ...manifest('1.0.0', ['phone']), permissions: { capabilities: ['notifications'] } })).toContain('platforms: phone does not support notifications');
     expect(appPlatformProblems({ ...manifest('1.0.0', ['desktop']), permissions: { capabilities: ['notifications'] } })).toEqual([]);

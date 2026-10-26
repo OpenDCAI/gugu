@@ -129,7 +129,7 @@ export function createGugu(
   // `files.onChanged`) are host halves.
   const api: Record<string, unknown> = {};
   for (const [key, value] of Object.entries(raw)) {
-    if (['appFiles', 'chats', 'checkPage', 'clipboard', 'messages', 'forum', 'framed', 'program', 'projects', 'theme', 'onFilesChanged', 'onForumChanged', 'modal', 'onModalFocus'].includes(key)) continue;
+    if (['appFiles', 'chats', 'checkPage', 'clipboard', 'messages', 'forum', 'framed', 'program', 'projects', 'sessions', 'theme', 'onFilesChanged', 'onForumChanged', 'modal', 'onModalFocus'].includes(key)) continue;
     api[key] = typeof value === 'function' && verbs.has(key) ? coded(value as (...args: never[]) => unknown) : value;
   }
   api.files = files;
@@ -188,6 +188,7 @@ export function createGugu(
   if (raw.chats) api.chats = Object.freeze({ list: coded(raw.chats.list), members: coded(raw.chats.members) });
   // `gugu.projects` (`files:read`): this computer's projects — a phone has none, and no member.
   if (raw.projects) api.projects = Object.freeze({ list: coded(raw.projects.list) });
+  if (raw.sessions) api.sessions = Object.freeze({ index: coded(raw.sessions.index), read: coded(raw.sessions.read) });
   // `gugu.forum` (9): a page's. `onChanged(target, fn)`: one subscription per post (or 'feed') with the host, however many
   // handlers, as `files.onChanged` watches a place; one the host refuses is reported as the App's error.
   if (raw.forum && raw.onForumChanged) {
