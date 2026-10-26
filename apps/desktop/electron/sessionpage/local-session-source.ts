@@ -4,6 +4,8 @@ import { createLocalSessionIndex, engineIdForAgentType, readLocalTranscript, TRA
 import type { LocalSessionIndex, TranscriptScanOptions, TranscriptSource } from '@gugu/core'
 import { nativeHomeRoots } from '@gugu/session-core/agents/plugins/helpers'
 import { requireNativeHome } from '@gugu/session-plugins/agents'
+import type { AppSessionRead, AppSessionReadOptions } from '../../src/session/shared/extensions/app-sessions'
+import { sessionPageNumber } from '../../src/session/shared/extensions/app-sessions'
 
 // @@@sessionpage 导入本机会话 (spec session-page-import)：宿主侧的实现，注入给会话页。
 //
@@ -18,6 +20,9 @@ import { requireNativeHome } from '@gugu/session-plugins/agents'
 type LocalSessionEngine = TranscriptSource
 
 type ListParams = {
+  cwd?: string
+  filePath?: string
+  offset?: number
   engine?: LocalSessionEngine
   query?: string
   limit?: number
@@ -27,6 +32,7 @@ type ListParams = {
 
 /** 与会话页后端侧 `LocalSessionSource` 结构一致；类型在模块边界上按结构对接，不跨包 import。 */
 export type HostLocalSessionSource = {
+  read(params: AppSessionReadOptions): Promise<AppSessionRead>
   list(params: ListParams): Promise<{
     rows: Array<{
       engine: LocalSessionEngine
@@ -85,7 +91,7 @@ export function transcriptScanOptions(
   return { nativeHomes }
 }
 
-export function createHostLocalSessionSource(userDataPath: string): HostLocalSessionSource {
+export function createHostLocalSessionSource(userDataPath: string, scanOptions: TranscriptScanOptions = transcriptScanOptions()): HostLocalSessionSource {
   let index: LocalSessionIndex | null = null
   let disposed = false
   let disposePromise: Promise<void> | null = null
@@ -95,7 +101,7 @@ export function createHostLocalSessionSource(userDataPath: string): HostLocalSes
   const getIndex = (): LocalSessionIndex => {
     if (disposed) throw new Error('Local session source is shutting down')
     index ??= createLocalSessionIndex({
-      ...transcriptScanOptions(),
+      ...scanOptions,
       cacheFilePath: join(userDataPath, 'taskpage-local-session-index.json'),
       signal: controller.signal,
     })
@@ -117,6 +123,9 @@ export function createHostLocalSessionSource(userDataPath: string): HostLocalSes
     list(params) {
       return run(async () => {
         const query = {
+          cwd: params.cwd,
+          filePath: params.filePath,
+          offset: params.offset,
           source: params.engine,
           query: params.query,
           limit: params.limit,
@@ -146,13 +155,28 @@ export function createHostLocalSessionSource(userDataPath: string): HostLocalSes
       })
     },
 
+    read(params) {
+      return run(async () => {
+        const indexed = await getIndex().readCachedPage({ source: params.source, filePath: params.filePath, limit: 1 })
+        if (indexed.rows.length !== 1) throw Object.assign(new Error('Read a filePath returned by sessions.index first'), { code: 'not-found' })
+        const options = { ...scanOptions, signal: controller.signal }
+        if (params.view === 'context') return readLocalTranscript(params.filePath, params.source, { ...options, view: 'context' })
+        const transcript = await readLocalTranscript(params.filePath, params.source, options)
+        const offset = sessionPageNumber(params.offset, 'offset', 0)
+        const limit = sessionPageNumber(params.limit, 'limit', 50)
+        const turns = transcript.turns.slice(offset, offset + limit)
+        const next = offset + turns.length
+        return { ...transcript, turns, total: transcript.turns.length, nextOffset: next < transcript.turns.length ? next : null }
+      })
+    },
+
     preview(params) {
       return run(async () => {
         // readLocalTranscript 自带扫描根围栏：渲染层递上来的路径必须落在该引擎 spec 声明的
         // 扫描根内（各家原生配置根下的记录目录，见 `transcriptScanOptions`），否则抛错
         // ——导入面板不能变成任意文件读取器。
         const transcript = await readLocalTranscript(params.filePath, params.engine, {
-          ...transcriptScanOptions(),
+          ...scanOptions,
           signal: controller.signal,
         })
         return {

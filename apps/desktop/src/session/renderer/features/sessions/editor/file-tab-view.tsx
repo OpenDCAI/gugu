@@ -75,7 +75,7 @@ const FileContent = observer(function FileContent({ host, ctx }: TabContentProps
         onTreeVisibleChange={setTreeVisible}
       />
       {bufferUri ? <FileDeletedNotice bufferUri={bufferUri} projectId={(ctx as SessionTabContext).projectId} /> : null}
-      <ResizablePanelGroup orientation="horizontal" id="file-tab-split" className="min-h-0 flex-1">
+      <ResizablePanelGroup orientation="horizontal" className="min-h-0 flex-1">
         <ResizablePanel id="file-tab-content" minSize="140px" className="relative min-w-0 overflow-hidden">
           <RetainedTabContent
             className="absolute inset-0"

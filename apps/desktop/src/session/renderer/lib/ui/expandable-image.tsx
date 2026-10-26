@@ -1,9 +1,7 @@
-import { Expand } from '@/lib/icons'
 import { openImageFromThumb } from '@/lib/imageViewer';
 import type React from 'react';
 import { useRef } from 'react';
 import { Button } from '@renderer/lib/ui/button';
-import { Tooltip, TooltipContent, TooltipTrigger } from '@renderer/lib/ui/tooltip';
 import { cn } from '@renderer/utils/utils';
 import { ContainedImage } from './contained-image';
 
@@ -36,33 +34,22 @@ export function ExpandableImage({
     <span
       className={cn('group/image relative inline-block max-w-full align-top', containerClassName)}
     >
-      <Tooltip>
-        <TooltipTrigger
-          render={
-            <Button
-              type="button"
-              variant="secondary"
-              size="icon-xs"
-              aria-label="Expand image"
-              className="absolute top-1 right-1 z-10 opacity-0 shadow-sm transition-opacity group-hover/image:opacity-100 focus-visible:opacity-100"
-              onClick={openImage}
-            >
-              <Expand className="size-3" />
-            </Button>
-          }
+      <Button
+        type="button"
+        variant="ghost"
+        aria-label="Expand image"
+        className="block h-auto max-w-full cursor-zoom-in border-0 bg-transparent p-0 hover:bg-transparent"
+        onClick={openImage}
+      >
+        <ContainedImage
+          ref={imageRef}
+          src={src}
+          alt={imageAlt}
+          className={className}
+          data-image-viewer-src={src}
+          {...props}
         />
-        <TooltipContent side="left" align="end">
-          Expand image
-        </TooltipContent>
-      </Tooltip>
-      <ContainedImage
-        ref={imageRef}
-        src={src}
-        alt={imageAlt}
-        className={className}
-        data-image-viewer-src={src}
-        {...props}
-      />
+      </Button>
     </span>
   );
 }

@@ -48,7 +48,7 @@ export const TopicMoreMenu = observer(function TopicMoreMenu({ chatId, mobile, i
       />
       <DropdownMenu.Content side="bottom" align="end" sideOffset={4} className="min-w-[148px]">
         {items}
-        <ChatDetailsMenuItems isGroupChat={Boolean(groupId)} onOpenInfo={() => openInfoTab(chatId)} />
+        <ChatDetailsMenuItems isGroupChat={Boolean(groupId)} onOpenInfo={() => openInfoTab(chatId, groupId ? 'main' : undefined)} />
         {groupId ? <>
           <MenuItem icon={<LayoutGrid size={16} />} onClick={() => { setMenuOpen(false); setAppsOpen(true) }}>{t('header.groupApps')}</MenuItem>
           <OpenAppMenuItems chatId={groupId} apps={pinned} separated />

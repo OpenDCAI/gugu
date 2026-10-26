@@ -119,13 +119,14 @@ export const RECORD_KEY_BOUNDARY_SUFFIX = '#end';
  *   qwen     → `system/branch_checkpoint`(ACP 腿上以 `end_turn` 结束才写;终端腿没有结束记号)
  *   pi       → assistant 消息的 `stopReason`（`toolUse` 同 claude 的 `tool_use`;`aborted` = 打断）
  */
-export type RecordBoundary =
+/** The ending message ID also identifies fragments recorded after that end. */
+export type RecordBoundary = { messageId?: string } & (
   /** 正常收尾。`stopReason` 是 provider 自己的说法，映射到 ACP 的那五种。 */
   | { kind: 'turn_end'; stopReason?: 'end_turn' | 'max_tokens' | 'max_turn_requests' | 'refusal' }
   /** 被打断（用户 ESC、进程被杀）。 */
   | { kind: 'turn_aborted' }
   /** 没做完：harness 自己记下的报错（claude 的 `isApiErrorMessage` 行）。 */
-  | { kind: 'turn_failed' };
+  | { kind: 'turn_failed' });
 
 /**
  * 一条解码后的记录。`key` 是跨来源身份键：同一件事从两个来源各报一次也只算一次。
@@ -493,7 +494,7 @@ export type AppMessageOptions = { delivery?: 'queue' | 'defer'; key?: string };
 export type AppMessageReceipt = { id: string; deferred?: true };
 /** An App starts an agent on another computer through the same App spawn core. */
 export type AppSpawnAction = { action: 'spawn'; prompt: string; spawn: {
-  title?: string; harness?: string; model?: string; transport?: 'acp' | 'pty'; project?: string; chat?: string;
+  title?: string; harness?: string; model?: string; transport?: 'acp' | 'pty'; project?: string; chat?: string; device?: string;
 } };
 /** App 调用方给一条会话发消息(会话 id 由发起方从那台机器的会话列表里取)。 */
 export type AppMessageAction = { action: 'message'; session_ids: [string]; text: string } & AppMessageOptions;
@@ -509,7 +510,9 @@ export type AppReadFileAction = { action: 'read_file'; session_id: string; path:
 export type AppCallAction = {
   action: 'app_call';
   call_id: string;
-  session_id: string;
+  session_id?: string;
+  /** Explicit machine target when the call is not attached to a session. Exactly one target is present. */
+  device_id?: string;
   version: string;
   method: string;
   args: Record<string, unknown>;
@@ -913,6 +916,13 @@ export type SessionpageSessionCreateRequest = {
   effort?: string;
   /** 生在哪个群里(群成员里「新建 Agent」):它的身份第一次建出来时进这个群,群规照常生效。老宿主不认这一格。 */
   chatId?: string;
+  /**
+   * 派任务(gugu-dev#181):第一句由那台机器落成这个对话里的一张任务卡,agent 进群坐任务座位(与 `chatId` 同给);
+   * 项目群里卡上开一条话题,agent 回在话题里(OpenDCAI/gugu#446)。老宿主不认这一格。
+   */
+  taskChatId?: string;
+  /** 在项目的哪个文件夹里开工(那台机器上的绝对路径或 `~` 开头),须是这个项目的文件夹;不给 = 项目根目录。老宿主不认这一格。 */
+  cwd?: string;
 };
 
 /** 建成了：手机拿这两个 id 直接跳进新会话的时间线。 */
@@ -922,6 +932,8 @@ export type SessionpageSessionCreateResult = {
   title: string;
   /** 手机宿主返回的真实入群结果；身份创建成功与入群成功分别表达。 */
   birthGroup?: { chatId: string; status: 'joined' | 'pending_approval' | 'failed'; error?: string } | null;
+  /** 派任务时那张卡的消息 id(在 `taskChatId` 那个对话里;项目群里话题从它开出来)。老宿主不带这一格。 */
+  taskMessageId?: string;
   /**
    * 会话行已经写下了,但 agent 没起来(原因码见 `remoteFailureKind`)。发起方照样进这条会话:
    * 第一句话在转录里,失败原因是其后的一行、可以再试一次 —— ❌ 留一条点不开的死行。老宿主不带这一格。

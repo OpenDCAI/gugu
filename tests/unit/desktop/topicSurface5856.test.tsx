@@ -245,3 +245,16 @@ it.each(['system', 'attachment'] as const)('keeps server naming for a %s source'
   await act(async () => { await surface!.openTopicFromMessage(source.id) })
   expect(createTopic).toHaveBeenCalledWith({ sourceChatId: 'chat-A', sourceMessageId: source.id, name: null })
 })
+
+it('opens the existing task topic when its card is tapped again without making a second entry', async () => {
+  const source = message({ id: 'task-card', content_type: 'card', content: JSON.stringify({
+    v: 1, type: 'task', text: 'Check the project', agentUserId: 'agent', agentName: 'Claude',
+    sessionId: 'session', projectId: 'project', deviceId: 'mac', machineLabel: 'Mac',
+  }) })
+  sourceMessages = [source]
+  listTopicsOfChat.mockResolvedValue([topic({ source_message_id: source.id })])
+  await mount()
+  await act(async () => { await surface!.openTopicFromMessage(source.id) })
+  expect(createTopic).not.toHaveBeenCalled()
+  expect(surface?.splitTopic).toEqual({ chatId: 'topic-1', name: '分片下载失败' })
+})

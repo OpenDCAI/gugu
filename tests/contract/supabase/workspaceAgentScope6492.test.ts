@@ -256,11 +256,15 @@ describe('topic resources use the source container through the real App SDK and 
     expect((await db.query('SELECT user_id FROM chat.chat_members WHERE chat_id=$1 AND user_id=$2', [topic, w.agent])).rows).toEqual([])
   })
 
-  it('an agent in the source works with its owner outside; leaving the source removes file access', async () => {
+  it('a legacy agent-only source seat retains file access until the agent leaves', async () => {
     const w = await world(true)
     await join(w)
     const topic = await topicOf(w.group, w.peer)
     await db.query('DELETE FROM chat.chat_members WHERE chat_id=$1 AND user_id=$2', [w.group, w.owner])
+    expect((await db.query('SELECT user_id FROM chat.chat_members WHERE chat_id=$1 AND user_id=$2', [w.group, w.agent])).rows).toEqual([])
+    // New owner departures carry their Agents; restore the legacy Agent-only group
+    // seat to retain actor-scoped access coverage for existing memberships.
+    await db.query("INSERT INTO chat.chat_members(chat_id,user_id,role) VALUES ($1,$2,'member')", [w.group, w.agent])
     const { files, surface } = agentFiles(w)
     const made = await files.create(topic, { name: 'agent-source.md', content: 'Actor membership' }, { asAgent: w.agent })
     expect(await files.resourceChat(topic, { asAgent: w.agent })).toBe(w.group)

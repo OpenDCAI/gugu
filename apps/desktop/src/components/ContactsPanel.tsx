@@ -1,40 +1,29 @@
 import { groupDisplayName } from '@gugu/core/shared/ui/chatModels'
 import { useCallback, useEffect, useMemo, useState, type ReactNode } from 'react'
 import { AgentSettingsModal } from './agentsettings/AgentSettingsModal'
-import { chatPublicId, displayName, sortContactsPinnedFirst, sortGroupChatsPinnedFirst, userPublicId } from '../lib/contactsListSort'
+import { chatPublicId, displayName, sortContactsPinnedFirst, sortGroupChatsPinnedFirst } from '../lib/contactsListSort'
 import {
-  agentContactAvatarBadgeClass, agentContactPresentation,
+  agentContactPresentation,
   useShownAgentContactStatus,
   agentContactRowDotClass,
-  agentContactRowStatusClass,
-  type AgentContactTone
+  agentContactRowStatusClass
 } from './contactAgentTone'
 import { Collapse } from './ui/Collapse'
 import { PaneEmptyState } from './ui/PaneEmptyState'
 // @@@ui-ruler 通讯录只消费原语:列/列头 → Pane/PaneHeader、行 → ListRow、图标钮 → IconButton、
 // 分区标签 → SectionLabel、小标签/计数 → Chip。几何一律来自 tokens.css 的那把尺子。
-// ⚠️ 本文件已有一个来自 contactsDetailControls 的 IconButton(详情面板 28px 钮),故原语按 UiIconButton 引入。
 import { Sheet } from './ui/Sheet'
 import { Pane, PaneHeader } from './ui/Pane'
 import { navigateMobile } from '@/mobile/navigateMobile'
 import { ListRow } from './ui/ListRow'
-import { IconButton as UiIconButton } from './ui/IconButton'
-import { useBackLayer } from './ui/sheetStack'
 import { SectionLabel } from './ui/SectionLabel'
 import { Chip } from './ui/Chip'
 import {
   Bot, ChevronDown, ChevronRight,
-  BellOff,
   Check,
-  ChevronLeft,
-  Eye,
-  EyeOff,
-  Mail,
   MessageCircle,
   Pencil,
   Plus,
-  Power,
-  SquareTerminal,
   Tag,
   Trash2,
   UserPlus,
@@ -48,15 +37,16 @@ import { useAuth } from '../store/auth'
 import { NewFriendsPanel } from './NewFriendsPanel'
 import { AddFriendSearch } from './AddFriendSearch'
 import { ContactsHeaderActions } from './contacts/AddContactMenu'
-import { ActionButton, AgentContactStatusChip, FieldList, FieldRow, IconButton } from './contactsDetailControls'
+import { ActionButton, FieldList, FieldRow, IconButton } from './contactsDetailControls'
 import { Avatar } from './Avatar'; import { AgentContactStatusMark } from './AgentContactStatusMark'
 import { CopyValue } from './CopyValue'
 import { CreateGroupChatForm, MEMBER_PICKER_SHEET } from './CreateGroupChatModal'
 import { ContactsPersonSectionState, ContactsGroupSectionState } from './contacts/ContactsSectionState'
 import { ContactsDeviceSections } from './contacts/ContactsDeviceSections'
+import { contactsAreEmpty } from './contacts/contactsByDevice'
+import { sidebarCountClass } from '../session/renderer/features/sidebar/sidebar-primitives'
 import { ContactGroupAvatar, ContactSearch, SelectionCheckbox } from './contacts/ContactSearch'
 import { ContactsListDock } from './contacts/ContactsListDock'
-import { OwnedAgentNameEditor } from './contacts/OwnedAgentNameEditor'
 import { Button } from './ui/Button'
 import { useToast } from './toastContext'
 import type { ContactGroup, ContactGroupChat, ContactUser } from '@gugu/core/shared/types/contacts'
@@ -68,13 +58,12 @@ import { closeIfMyAssistant } from '../lib/assistantClose'
 import { getGroupRoleLabel } from '@gugu/core/shared/enums/groupRoleModels'
 import { useAgentDisplayStatus } from '../hooks/useAgentDisplayStatus'
 import { AUTOMATION_TEST_IDS } from '../lib/automationDom'
-import { platform } from '../platform'
 import type { GroupMemberItem } from '@gugu/core/shared/types/chat'
 import type { QrScanRoute } from '../lib/qrScanRoute'
 // @@@1397 群邀请 QR 与可复制链接同口径：都走 buildGroupInviteShareUrl(VITE_GUGU_WEB_URL/invite 落地页)，
 // 不再让 QR 单独编码 Android 下载页基址 → 扫码/点链都落同一 env 域名(app.gugu.nextmind.space)。
-import { AgentContactProfileCard, PersonAliasField, PersonContactProfileCard } from './contacts/ContactProfileCard'
-import { commonGroupForAgent, requestStateForAgent, type AgentRequestState } from './contacts/agentContactRequest'
+import { AgentContactProfileCard, PersonContactProfileCard } from './contacts/ContactProfileCard'
+import { commonGroupForAgent, requestStateForAgent } from './contacts/agentContactRequest'
 import {
   ContactRowContextMenu,
   ContactRowDeleteButton,
@@ -86,9 +75,14 @@ import { TagEmptyDetail, TagMemberEditorDetail } from './contacts/TagDetail'
 import { GroupInviteJoinModal, GroupInviteQrShare } from './contacts/GroupInvite'
 import { ContactsIndex } from './contacts/ContactsIndex'
 import { useTranslation } from 'react-i18next'
-import { formatDate, i18n } from '../i18n'
 import { cn } from '@/lib/cn'
 import { messageForUser } from '../lib/userFacingError'
+import { ContactDetail, GroupChatRow, PaneBackButton } from './contacts/ContactDetail'
+import {
+  agentAvatarClass, boltClass, cpaneActionsClass, cpaneAvatarClass, cpaneCardClass, cpaneNameClass, cpaneStatusClass, ct,
+  detailCaptionClass, detailCardRowClass, detailPlaceholderClass, detailSectionClass, detailTitleClass, groupChatListCountLabel,
+  groupChatListTitle, groupChatSummaryLabel, inlineInputClass, rowAvatarClass, rowKeyActivate, sectionChevronClass, sectionLabelClass
+} from './contacts/contactsPanelStyles'
 // #855 契约：GroupJoinConfirmDialog 曾从本模块导出，实现搬走后仍从这里透出，外部 import 不受影响。
 export { GroupJoinConfirmDialog } from './contacts/GroupInvite'
 interface ContactsPanelProps {
@@ -103,97 +97,6 @@ interface ContactsPanelProps {
 }
 type LeftSel = 'contacts' | 'new_friends' | 'add_friend' | 'group_chats' | 'agent_library' | `group:${string}`
 type MobileContactsPane = 'nav' | 'index' | 'detail'
-const ct = i18n.getFixedT(null, 'contacts')
-
-// @@@ui-ruler 本地样式副本(rowBase / meta / name / sharedTag / reqBadge / section* / cpane*)已按角色
-// 收口进原语,这里只剩原语不管的那点:头像壳(agent 状态角标挂在它的 ::after 上)、⚡ 标记、
-// 分区标签的 chevron 与加号、资料卡排版。几何一律取 tokens,❌ 字面量像素。
-const rowAvatarClass =
-  'gg-c-av flex h-[var(--avatar-sm)] w-[var(--avatar-sm)] shrink-0 items-center justify-center overflow-hidden rounded-full'
-const boltClass = 'gg-c-bolt flex shrink-0 text-[var(--agent-bolt)]'
-const sectionLabelClass = 'gg-c-sec-h !mt-3'
-// 资料卡(cpane):头像 --avatar-xl(96)、名字 --font-size-xl、状态 --font-body。
-const cpaneCardClass = 'gg-c-cpane-card flex flex-col items-center animate-[ggCNaPop_var(--dur-med)_var(--ease)_both]'
-const cpaneAvatarClass =
-  'gg-c-cpane-av flex h-[var(--avatar-xl)] w-[var(--avatar-xl)] shrink-0 items-center justify-center overflow-hidden rounded-[var(--radius-xl)]'
-const cpaneNameClass = 'gg-c-cpane-name !mt-5 flex items-center gap-2 text-xl font-semibold text-[var(--fg)]'
-const cpaneStatusClass = 'gg-c-cpane-status !mt-2 flex items-center gap-2 text-sm text-[var(--muted-fg)]'
-const cpaneActionsClass = 'gg-c-cpane-acts !mt-6 flex gap-3'
-// 行内改名/备注输入:控件高与 Button/Field 同一把尺子(--control-h-md)。
-const inlineInputClass =
-  'h-[var(--control-h-md)] min-w-0 flex-1 rounded-[var(--radius-control)] border border-[var(--border)] bg-[var(--input-bg)] !px-2 text-sm text-[var(--fg)] outline-none'
-// 详情面里的说明/分节标题(内容读文,--font-body)。
-const detailCaptionClass = 'text-[length:var(--font-body)] text-[var(--muted-fg)]'
-const detailBlockClass = '!mt-6 max-w-[620px]'
-// 详情面里的一行提示条(加载中/为空/出错):控件高一档,圆角与卡片同 --r。
-const detailNoticeClass =
-  'flex min-h-[var(--control-h-lg)] items-center rounded-[var(--radius-control)] border border-[var(--border)] bg-[var(--input-bg)] !px-3 text-[length:var(--font-body)] text-[var(--muted-fg)]'
-// 详情面里的卡片行(公开 Agent / 群成员):同一内距、同一圆角、同一边框。
-const detailCardRowClass =
-  'flex min-h-[var(--control-h-touch)] min-w-0 items-center gap-3 rounded-[var(--radius-control)] border border-[var(--border)] bg-[var(--input-bg)] !p-2'
-// 详情面里的强调小标(Agent / 群密度):药丸小标,与 Chip 同一档。
-const detailTitleClass = 'text-lg font-semibold text-[var(--fg)] [overflow-wrap:anywhere]'
-const detailPlaceholderClass = 'flex flex-1 items-center justify-center text-sm text-[var(--muted-fg)]'
-const detailSectionClass = (mobile?: boolean) => (mobile ? '!px-4 !py-5' : '!px-6 !py-6')
-const detailBodyClass = (mobile?: boolean) =>
-  cn(
-    'flex-1 overflow-y-auto overflow-x-hidden',
-    mobile ? '!px-4 !pt-4 !pb-[max(24px,env(safe-area-inset-bottom))]' : '!px-6 !py-6',
-  )
-
-/** 移动壳详情页的返回键:列头 leading 槽,44 触控命中框(#4292);安卓返回键走同一个 onBack。 */
-function PaneBackButton({ label, onBack }: { label: string; onBack: () => void }) {
-  useBackLayer(onBack)
-  return <UiIconButton aria-label={label} onClick={onBack}><ChevronLeft /></UiIconButton>
-}
-
-const sectionChevronClass = (collapsed: boolean) =>
-  cn(
-    'gg-c-sec-chev flex shrink-0 transition-transform duration-[var(--dur-med)] [transition-timing-function:var(--ease)]',
-    collapsed && '-rotate-90',
-  )
-
-const agentAvatarClass = (tone: AgentContactTone | null) => cn(rowAvatarClass, agentContactAvatarBadgeClass(tone))
-
-/** ListRow 的根是 div(行里要嵌删除钮,按钮不能嵌按钮),键盘可达性靠 role/tabIndex + Enter/Space 补齐。 */
-const rowKeyActivate = (activate: () => void) => (event: React.KeyboardEvent<HTMLDivElement>) => {
-  if (event.key !== 'Enter' && event.key !== ' ') return
-  event.preventDefault()
-  activate()
-}
-
-function formatDateTime(value?: string | null): string {
-  if (!value) return ct('common.unknown')
-  const date = new Date(value)
-  if (Number.isNaN(date.getTime())) return ct('common.unknown')
-  return formatDate(date, {
-    year: 'numeric',
-    month: '2-digit',
-    day: '2-digit',
-    hour: '2-digit',
-    minute: '2-digit'
-  })
-}
-
-function getAgentProjectPath(contact: ContactUser): string | null {
-  if (contact.project_path) return contact.project_path
-  const match = contact.bio?.match(/项目目录：\s*([^·]+)/)
-  return match?.[1]?.trim() || null
-}
-
-// @@@1514 channel 概念已抹除(并入 group)：agent 分享会话即普通 group。
-// @@@1787 分组措辞统一用「群组」(桌面三段 sidebar: Agent/个人/群组)。
-function groupChatListTitle(): string {
-  return ct('panel.groupSectionTitle')
-}
-
-function groupChatListCountLabel(count: number): string {
-  return ct('panel.groupCount', { count })
-}
-
-function groupChatSummaryLabel(count: number): string {
-  return ct('panel.groupCountSummary', { count })
-}
 
 // @@@qr-share-as-image - save a data-URL image (e.g. the exported group-invite QR) as a downloaded
 // file, used as the fallback when clipboard image write is unavailable.
@@ -460,7 +363,6 @@ function GroupSectionRow({
   )
 }
 
-// ── ContactsThreeSectionSidebar ───────────────────────────────────────────────
 // Replaces ContactsNav + ContactsIndex for desktop. Single scrollable sidebar with
 // 3 collapsible sections: Agent / 个人 / 群组.
 function ContactsThreeSectionSidebar({
@@ -624,9 +526,8 @@ function ContactsThreeSectionSidebar({
           onKeyDown={rowKeyActivate(onSelectNewFriends)}
         />
 
-        {/* #5019 设备段(本机 → 其他设备 → 咕咕云)→ 个人 → 群组(没有我 agent 的群);分段逻辑见 contacts/ContactsDeviceSections。 */}
         <ContactsDeviceSections
-          agents={sortedAgents}
+          agents={sortedAgents} people={sortedHumans}
           groups={sortGroupChatsPinnedFirst(groupChats, isGroupPinned)}
           currentUserId={currentUserId}
           onCreateAgent={onCreateAgent}
@@ -656,11 +557,11 @@ function ContactsThreeSectionSidebar({
           )}
           personSection={
             <>
-              {/* 个人 section */}
               <SectionLabel
                 interactive
                 className={sectionLabelClass}
                 leading={<span className={sectionChevronClass(personCollapsed)}><ChevronDown size={16} /></span>}
+                trailing={personCollapsed ? <span className={sidebarCountClass}>{sortedHumans.length}</span> : undefined}
                 onClick={() => setPersonCollapsed((v) => !v)}
               >
                 {ct('panel.contactSectionTitle')}
@@ -679,7 +580,7 @@ function ContactsThreeSectionSidebar({
                     menu={buildRowMenu(c)}
                   />
                 ))}
-                <ContactsPersonSectionState isEmpty={sortedHumans.length === 0} onAddContact={() => onSelectAddFriend('contact')} />
+                <ContactsPersonSectionState isEmpty={contactsAreEmpty(sortedHumans, sortedAgents, groupChats)} onAddContact={() => onSelectAddFriend('contact')} />
               </Collapse>
             </>
           }
@@ -901,455 +802,6 @@ function ContactsNav({
       </div>
       </ContactSearch>
     </Pane>
-  )
-}
-
-function CommonGroups({
-  contactId,
-  getCommonGroupChats,
-  onOpenGroupChat
-}: {
-  contactId: string
-  getCommonGroupChats: (contactId: string) => Promise<ContactGroupChat[]>
-  onOpenGroupChat?: (group: ContactGroupChat) => void
-}) {
-  const [groups, setGroups] = useState<ContactGroupChat[]>([])
-  const [loading, setLoading] = useState(false)
-  const [error, setError] = useState<string | null>(null)
-
-  useEffect(() => {
-    let cancelled = false
-    setLoading(true)
-    setError(null)
-    getCommonGroupChats(contactId)
-      .then((data) => {
-        if (!cancelled) setGroups(data)
-      })
-      .catch((err) => {
-        console.error('[ContactsPanel] load common group chats error', err)
-        if (!cancelled) {
-          setGroups([])
-          setError(err instanceof Error ? err.message : ct('commonGroups.loadFailed'))
-        }
-      })
-      .finally(() => {
-        if (!cancelled) setLoading(false)
-      })
-    return () => {
-      cancelled = true
-    }
-  }, [contactId, getCommonGroupChats])
-
-  return (
-    <div className={detailBlockClass}>
-      <div className={cn(detailCaptionClass, '!mb-2')}>{ct('commonGroups.title')}</div>
-      {loading ? (
-        <div className={detailNoticeClass}>{ct('commonGroups.loading')}</div>
-      ) : error ? (
-        <div role="alert" className={cn(detailNoticeClass, 'text-[var(--danger)]')}>{error}</div>
-      ) : groups.length === 0 ? (
-        <div className={detailNoticeClass}>{ct('commonGroups.empty')}</div>
-      ) : (
-        <div className="overflow-hidden rounded-[var(--radius-control)] border border-[var(--border)] bg-[var(--input-bg)]">
-          {groups.map((group) => (
-            <GroupChatRow
-              key={group.id}
-              group={group}
-              selected={false}
-              onSelect={() => onOpenGroupChat?.(group)}
-              cardId={group.id}
-            />
-          ))}
-        </div>
-      )}
-    </div>
-  )
-}
-
-function HumanDetail({
-  contact,
-  onSwitchToChat,
-  onOpenGroupChat,
-  getCommonGroupChats
-}: {
-  contact: ContactUser
-  onSwitchToChat?: (target: ContactUser) => void
-  onOpenGroupChat?: (group: ContactGroupChat) => void
-  getCommonGroupChats: (contactId: string) => Promise<ContactGroupChat[]>
-}) {
-  const name = displayName(contact)
-  const hasFields = Boolean(contact.email || contact.bio)
-
-  return (
-    <>
-      <div className="flex items-start gap-4">
-        <Avatar name={contact.display_name} avatarUrl={contact.avatar} seed={contact.id} size="lg" />
-        <div className="min-w-0 flex-1">
-          <h2 className={detailTitleClass}>{name}</h2>
-          {contact.alias ? (
-            <div className={cn(detailCaptionClass, '!mt-1')}>
-              {ct('profile.originalName')}：{contact.display_name}
-            </div>
-          ) : null}
-          {contact.email ? (
-            <div className="!mt-2 flex items-center gap-2 text-sm text-[var(--muted-fg)]">
-              <Mail size={14} />
-              <span>{contact.email}</span>
-            </div>
-          ) : null}
-          <PersonAliasField contact={contact} />
-        </div>
-      </div>
-
-      <div className="!mt-4 flex flex-wrap gap-2">
-        <ActionButton
-          primary
-          icon={<MessageCircle size={15} />}
-          label={ct('common.sendMessage')} testId={AUTOMATION_TEST_IDS.contactsDetailSendMessageButton}
-          onClick={() => onSwitchToChat?.(contact)}
-        />
-      </div>
-
-      <FieldList className={detailBlockClass}>
-        <FieldRow
-          label={ct('common.guguNumber')}
-          value={
-            userPublicId(contact) ? (
-              <CopyValue value={userPublicId(contact)!} message={ct('common.copiedGuguNumber')} />
-            ) : (
-              ct('common.unassigned')
-            )
-          }
-        />
-        {hasFields && contact.email ? <FieldRow label={ct('profile.email')} value={contact.email} /> : null}
-        {hasFields && contact.bio ? <FieldRow label={ct('profile.bio')} value={contact.bio} /> : null}
-      </FieldList>
-
-      <CommonGroups
-        contactId={contact.id}
-        getCommonGroupChats={getCommonGroupChats}
-        onOpenGroupChat={onOpenGroupChat}
-      />
-    </>
-  )
-}
-
-function AgentDetail({
-  contact,
-  humanContacts,
-  onSwitchToChat,
-  onOpenGroupChat,
-  onSetAgentPublic,
-  onSetAgentDesiredStatus,
-  requestState,
-  onRequest,
-  commonGroup,
-  getCommonGroupChats
-}: {
-  contact: ContactUser
-  humanContacts: ContactUser[]
-  onSwitchToChat?: (target: ContactUser) => void
-  onOpenGroupChat?: (group: ContactGroupChat) => void
-  onSetAgentPublic: (agentId: string, agentPublic: boolean) => Promise<void>
-  onSetAgentDesiredStatus: (agentId: string, desiredStatus: 'online' | 'offline') => Promise<void>
-  requestState: AgentRequestState | null
-  onRequest?: () => void
-  commonGroup: ContactGroupChat | null
-  getCommonGroupChats: (contactId: string) => Promise<ContactGroupChat[]>
-}) {
-  const { user } = useAuth()
-  const [showShareModal, setShowShareModal] = useState(false)
-  const [visibilitySaving, setVisibilitySaving] = useState(false)
-  const { status, presence, opening, openRuntime: handleOpenRuntime } = useAgentDisplayStatus(contact.id)
-  const { tone: statusTone, label: statusLabel } = useShownAgentContactStatus(contact.id, status, presence.presentation) // #7199
-  const desiredStatus = contact.desired_status === 'offline' ? 'offline' : 'online'
-  const isOwned = Boolean(user?.id && contact.owner_user_id === user.id)
-  const sourceText = isOwned ? ct('profile.ownedSource') : contact.owner_user_id ? ct('profile.otherOwnerSource') : ct('common.unknown')
-  const [desiredStatusSaving, setDesiredStatusSaving] = useState(false)
-  const { allowsLiveActions } = agentContactPresentation(status)
-  const requestLabel = requestState === 'requested'
-    ? ct('commonGroups.requested')
-    : requestState === 'requesting'
-      ? ct('commonGroups.requesting')
-      : ct('commonGroups.requestJoin')
-  const canOpenCommonGroup = Boolean(!isOwned && commonGroup && onOpenGroupChat)
-  useEffect(() => {
-    if (allowsLiveActions) return
-    setShowShareModal(false)
-  }, [allowsLiveActions])
-  const togglePublic = async () => {
-    if (!isOwned || !allowsLiveActions || visibilitySaving) return
-    setVisibilitySaving(true)
-    try {
-      await onSetAgentPublic(contact.id, !contact.agent_public)
-    } finally {
-      setVisibilitySaving(false)
-    }
-  }
-  const toggleDesiredStatus = async () => {
-    if (!isOwned || !allowsLiveActions || desiredStatusSaving) return
-    setDesiredStatusSaving(true)
-    try {
-      await onSetAgentDesiredStatus(contact.id, desiredStatus === 'offline' ? 'online' : 'offline')
-    } finally {
-      setDesiredStatusSaving(false)
-    }
-  }
-
-  return (
-    <>
-      <div className="flex items-start gap-4">
-        <Avatar name={contact.display_name} avatarUrl={contact.avatar} seed={contact.id} size="lg" isAgent />
-        <div className="min-w-0 flex-1">
-          <div className="flex flex-wrap items-center gap-2">
-            <OwnedAgentNameEditor key={contact.id} agentId={contact.id} name={contact.display_name} ownerUserId={contact.owner_user_id} status={status} className={detailTitleClass}>
-              <h2>{contact.display_name}</h2>
-            </OwnedAgentNameEditor>
-            <Chip>{ct('common.agent')}</Chip>
-            <AgentContactStatusChip agentId={contact.id} tone={statusTone} label={statusLabel} />
-          </div>
-          {contact.bio ? (
-            <p className="!mt-2 max-w-[620px] text-sm text-[var(--muted-fg)]">
-              {contact.bio}
-            </p>
-          ) : null}
-        </div>
-      </div>
-
-      {(allowsLiveActions && isOwned) || canOpenCommonGroup || (!commonGroup && requestState) ? <div className="!mt-4 flex flex-wrap gap-2">
-        {allowsLiveActions && isOwned ? <ActionButton
-          primary
-          icon={<MessageCircle size={15} />}
-          label={ct('common.sendMessage')} testId={AUTOMATION_TEST_IDS.contactsDetailSendMessageButton}
-          onClick={() => onSwitchToChat?.(contact)}
-        /> : null}
-        {!isOwned && commonGroup && onOpenGroupChat ? (
-          <ActionButton
-            primary
-            icon={<MessageCircle size={15} />}
-            label={ct('commonGroups.open')}
-            onClick={() => onOpenGroupChat?.(commonGroup)}
-          />
-        ) : null}
-        {!isOwned && !commonGroup && requestState ? (
-          <ActionButton
-            primary={requestState === 'available'}
-            icon={<UserPlus size={15} />}
-            label={requestLabel}
-            disabled={requestState !== 'available'}
-            onClick={requestState === 'available' ? onRequest : undefined}
-          />
-        ) : null}
-        {isOwned ? (
-          <ActionButton
-            icon={<UserPlus size={15} />}
-            label={ct('profile.inviteToAgent')}
-            onClick={() => setShowShareModal(true)}
-          />
-        ) : null}
-        {isOwned ? (
-          <ActionButton
-            icon={contact.agent_public ? <EyeOff size={15} /> : <Eye size={15} />}
-            label={visibilitySaving ? ct('profile.saving') : contact.agent_public ? ct('profile.setPrivate') : ct('profile.setPublic')}
-            disabled={visibilitySaving}
-            onClick={togglePublic}
-          />
-        ) : null}
-        {isOwned ? (
-          <ActionButton
-            icon={<Power size={15} />}
-            label={
-              desiredStatusSaving ? ct('profile.saving') : desiredStatus === 'offline' ? ct('profile.setOnline') : ct('profile.setOffline')
-            }
-            disabled={desiredStatusSaving}
-            onClick={toggleDesiredStatus}
-          />
-        ) : null}
-        {platform.capabilities.agentRuntime && isOwned ? (
-          <ActionButton
-            icon={<SquareTerminal size={15} />}
-            label={opening ? ct('profile.opening') : ct('profile.openRuntime')}
-            disabled={opening}
-            onClick={handleOpenRuntime}
-            testId={AUTOMATION_TEST_IDS.contactAgentRuntimeOpenButton}
-          />
-        ) : null}
-      </div> : null}
-
-      <FieldList className={detailBlockClass}>
-        <FieldRow
-          label={ct('common.guguNumber')}
-          value={
-            userPublicId(contact) ? (
-              <CopyValue value={userPublicId(contact)!} message={ct('common.copiedGuguNumber')} />
-            ) : (
-              ct('common.unassigned')
-            )
-          }
-        />
-        {statusLabel ? <FieldRow label={ct('profile.currentStatus')} value={statusLabel} /> : null}
-        {allowsLiveActions ? <FieldRow label={ct('profile.desiredStatus')} value={desiredStatus === 'offline' ? ct('profile.manualOffline') : ct('profile.online')} /> : null}
-        <FieldRow label={ct('profile.source')} value={sourceText} />
-        <FieldRow label={ct('profile.createdAt')} value={formatDateTime(contact.created_at)} />
-        {allowsLiveActions ? (
-          <FieldRow
-            label={ct('profile.publicStatus')}
-            value={contact.agent_public ? ct('profile.publicValue') : ct('profile.privateValue')}
-          />
-        ) : null}
-        <FieldRow label={ct('profile.projectPath')} value={getAgentProjectPath(contact) ?? ct('profile.unconfigured')} />
-        {contact.email ? <FieldRow label={ct('profile.email')} value={contact.email} /> : null}
-        {contact.bio ? <FieldRow label={ct('profile.bio')} value={contact.bio} /> : null}
-      </FieldList>
-      <CommonGroups
-        contactId={contact.id}
-        getCommonGroupChats={getCommonGroupChats}
-        onOpenGroupChat={onOpenGroupChat}
-      />
-      {showShareModal ? (
-        <ShareAgentModal
-          agent={contact}
-          contacts={humanContacts}
-          onClose={() => setShowShareModal(false)}
-          onOpenGroupChat={onOpenGroupChat}
-        />
-      ) : null}
-    </>
-  )
-}
-
-function ContactDetail({
-  contact,
-  humanContacts,
-  sentRequestIds,
-  requestingAgentId,
-  groupChats,
-  mobile = false,
-  onBack,
-  onSwitchToChat,
-  onOpenGroupChat,
-  onRequestAgent,
-  onSetAgentPublic,
-  onSetAgentDesiredStatus,
-  getCommonGroupChats
-}: {
-  contact: ContactUser | null
-  humanContacts: ContactUser[]
-  sentRequestIds: Set<string>
-  requestingAgentId: string | null
-  groupChats: ContactGroupChat[]
-  mobile?: boolean
-  onBack?: () => void
-  onSwitchToChat?: (target: ContactUser) => void
-  onOpenGroupChat?: (group: ContactGroupChat) => void
-  onRequestAgent: (agent: ContactUser) => Promise<void>
-  onSetAgentPublic: (agentId: string, agentPublic: boolean) => Promise<void>
-  onSetAgentDesiredStatus: (agentId: string, desiredStatus: 'online' | 'offline') => Promise<void>
-  getCommonGroupChats: (contactId: string) => Promise<ContactGroupChat[]>
-}) {
-  const { user } = useAuth()
-  const commonAgentGroup = contact?.type === 'agent' ? commonGroupForAgent(contact.id, groupChats) : null
-  const agentRequestState = contact?.type === 'agent'
-    ? requestStateForAgent({
-        agent: contact,
-        currentUserId: user?.id,
-        commonGroup: commonAgentGroup,
-        sentRequestIds,
-        requestingAgentId,
-      })
-    : null
-  return (
-    <Pane paneRole="detail" mobile={mobile}>
-      {/* @@@1238-top 详情列头与会话头同高同线(--pane-header-h + divider),标题走 PaneHeader 的字阶。 */}
-      <PaneHeader
-        divider
-        mobile={mobile}
-        title={contact ? displayName(contact) : ct('panel.contactDetail')}
-        leading={mobile && onBack ? <PaneBackButton label={ct('panel.backToContactList')} onBack={onBack} /> : undefined}
-      />
-
-      {contact ? (
-        <div className={detailBodyClass(mobile)}>
-          {contact.type === 'agent' ? (
-            <AgentDetail
-              contact={contact}
-              humanContacts={humanContacts}
-              onSwitchToChat={onSwitchToChat}
-              onOpenGroupChat={onOpenGroupChat}
-              onSetAgentPublic={onSetAgentPublic}
-              onSetAgentDesiredStatus={onSetAgentDesiredStatus}
-              requestState={agentRequestState}
-              onRequest={() => onRequestAgent(contact)}
-              commonGroup={commonAgentGroup}
-              getCommonGroupChats={getCommonGroupChats}
-            />
-          ) : (
-            <HumanDetail
-              contact={contact}
-              onSwitchToChat={onSwitchToChat}
-              onOpenGroupChat={onOpenGroupChat}
-              getCommonGroupChats={getCommonGroupChats}
-            />
-          )}
-        </div>
-      ) : (
-        <div className={detailPlaceholderClass}>{ct('panel.selectContactDetail')}</div>
-      )}
-    </Pane>
-  )
-}
-
-function GroupChatRow({
-  group,
-  selected,
-  pinned = false,
-  onSelect,
-  cardId,
-  menu,
-}: {
-  group: ContactGroupChat
-  selected: boolean
-  pinned?: boolean
-  onSelect: () => void
-  cardId?: string
-  menu?: ContactRowMenuActions
-}) {
-  const { menuPos, onContextMenu, closeMenu } = useRowContextMenu()
-  const kindLabel = ct('common.groupChat')
-  const publicId = chatPublicId(group)
-  return (
-    <>
-      <ListRow
-        role="button"
-        tabIndex={0}
-        data-common-group-card={cardId}
-        className="!rounded-none border-b border-[var(--border)]"
-        selected={selected}
-        pinned={pinned}
-        emphasis={selected}
-        leading={<ContactGroupAvatar group={group} size="sm" />}
-        title={groupDisplayName(group)}
-        subtitle={
-          <>
-            {kindLabel} · {publicId ? `${ct('groupInvite.groupNumber', { number: publicId })} · ` : ''}
-            {ct('groupDetail.memberCount', { count: group.member_count })}
-          </>
-        }
-        trailing={
-          group.is_muted ? (
-            <span aria-label={ct('groupDetail.muted')} title={ct('groupDetail.muted')} className="flex text-[var(--muted-fg)]">
-              <BellOff size={14} strokeWidth={1.8} aria-hidden="true" />
-            </span>
-          ) : undefined
-        }
-        onClick={onSelect}
-        onKeyDown={rowKeyActivate(onSelect)}
-        onContextMenu={menu ? onContextMenu : undefined}
-      />
-      {menu && menuPos ? (
-        <ContactRowContextMenu x={menuPos.x} y={menuPos.y} onClose={closeMenu} {...menu} />
-      ) : null}
-    </>
   )
 }
 

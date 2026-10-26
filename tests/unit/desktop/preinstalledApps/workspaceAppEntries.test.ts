@@ -145,9 +145,10 @@ describe('workspace App: what the old workspace panel did', () => {
     gugu.files.open.mockResolvedValueOnce({ type: 'binary', entry, close: vi.fn() } as never)
     contextChanged({ ...context, locale: 'en', file: { chat: 'chat-1', id: entry.id } })
     await vi.waitFor(() => expect(app().shown).toBe('plan.md'))
-    expect([...$('doc-info').querySelectorAll('.file-activity')].map((line) => line.textContent)).toEqual([
-      'Created by 张三 · 1 hour ago', 'Edited · 1 minute ago',
-    ])
+    const activity = $('doc-info').querySelector<HTMLElement>('.file-activity')!
+    expect(activity.textContent).toBe('Created by 张三 · 1 hour ago · Edited · 1 minute ago')
+    expect(activity.title).toBe(activity.textContent)
+    expect($('doc-info').querySelectorAll('.file-activity')).toHaveLength(1)
     contextChanged({ ...context })
     await vi.waitFor(() => expect(app().shown).toBe(null))
   })
@@ -166,7 +167,7 @@ describe('workspace App: what the old workspace panel did', () => {
     gugu.files.open.mockResolvedValueOnce({ type: 'binary', entry, close: vi.fn() } as never)
     contextChanged({ ...context, locale, file: { chat: 'chat-1', id: entry.id! } })
     await vi.waitFor(() => expect(app().shown).toBe('plan.md'))
-    expect([...$('doc-info').querySelectorAll('.file-activity')].map((line) => line.textContent)).toContain(expected)
+    expect($('doc-info').querySelector('.file-activity')!.textContent).toContain(expected)
     contextChanged({ ...context })
     filesChanged({ kind: 'entries', entries: [entries[0]], gone: [] })
     await vi.waitFor(() => expect(app().shown).toBe(null))

@@ -225,22 +225,21 @@ describe('the IM chat list in the master\'s roles (#7333)', () => {
     expect(onChatSelected).not.toHaveBeenCalled();
   });
 
-  it('mobile row clicks navigate while only the chevron changes topic visibility', async () => {
+  it('mobile rows navigate without topic sub-rows, and include topic unread in the group', async () => {
     const onChatSelected = vi.fn();
     const root = await renderList('grp-1', onChatSelected, true);
     const source = () => root.querySelector<HTMLElement>('[data-chat-row="grp-1"]')!;
     const title = () => source().querySelector<HTMLElement>('.gg-list-row-title')!;
 
     await userEvent.click(title());
-    expect(source().getAttribute('aria-expanded')).toBe('true');
-    expect(root.querySelector('[data-topic-subrow="t-live"]')).not.toBeNull();
+    expect(source().hasAttribute('aria-expanded')).toBe(false);
+    expect(source().querySelector('button[aria-expanded]')).toBeNull();
+    expect(root.querySelector('[data-topic-subrow]')).toBeNull();
+    expect(source().querySelector('.gg-chip[data-tone="accent"]')?.textContent).toBe('1');
     expect(onChatSelected).toHaveBeenCalledExactlyOnceWith('composer');
 
-    await userEvent.click(source().querySelector<HTMLButtonElement>('button[aria-expanded]')!);
-    await until('mobile disclosure collapses topics', () => source().getAttribute('aria-expanded') === 'false');
-    expect(onChatSelected).toHaveBeenCalledTimes(1);
     await userEvent.click(title());
-    expect(source().getAttribute('aria-expanded')).toBe('false');
+    expect(root.querySelector('[data-topic-subrow]')).toBeNull();
     expect(onChatSelected).toHaveBeenCalledTimes(2);
   });
 

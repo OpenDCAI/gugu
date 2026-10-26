@@ -27,7 +27,7 @@ const mocks = vi.hoisted(() => ({
   recordDeliveredSessionDirectMessage: vi.fn(),
   drainSessionMessageOutbox: vi.fn(),
   /** 挂载着的会话(按会话 id):pty 会话的进程经它起停。 */
-  mounted: new Map<string, { sessionPath: string | undefined; sessions: { startSession: unknown; stopSession: unknown; sendMessage: unknown } }>(),
+  mounted: new Map<string, { sessionPath: string | undefined; sessions: { startSession: unknown; stopSession: unknown; sendMessage: unknown; ownsSession: (id: string) => boolean } }>(),
   ensureSessionMounted: vi.fn(),
   installedExtensions: [] as Array<{
     manifest: { id: string; contributes: { tabs: Array<{ name: string; title?: string; opensFiles?: { session?: string[]; chat?: string[] } }> } };
@@ -159,7 +159,7 @@ import {
 } from './session-orchestration';
 import type { RemoteSessionCaller, SessionpageSessionSummary } from '@gugu/session-core/session-record/contract';
 import { sessionChangedChannel } from '@shared/core/sessions/sessionEvents';
-import { setOtherMachines } from './session-family';
+import { setOtherMachines, type OtherMachines } from './session-family';
 import {
   REMOTE_PANE_NO_EXTENSIONS,
   REMOTE_PANE_PAGE_NOT_FILE,
@@ -303,6 +303,7 @@ describe('session orchestration', () => {
         startSession: mocks.ptyStartSession,
         stopSession: mocks.ptyStopSession,
         sendMessage: vi.fn(),
+        ownsSession: () => true,
       },
     });
   }
@@ -467,6 +468,22 @@ describe('session orchestration', () => {
     function appRow(id: string) {
       return fixture.sqlite.prepare('SELECT provider, runtime, project_id, workspace_id, spawned_by_extension_id, parent_session_id FROM sessions WHERE id = ?').get(id);
     }
+
+    it('starts on the explicitly named computer through the existing App RPC, without a local task', async () => {
+      const appSpawn = vi.fn<OtherMachines['appSpawn']>(async () => ({ agentId: 'user:remote-agent' }));
+      setOtherMachines({
+        devices: async () => [], isThisDevice: async () => false, appSpawn,
+        sessions: async () => ({ sessions: [], unreached: [] }), archive: vi.fn(),
+        appMessage: vi.fn(), appReadFile: vi.fn(), appCall: vi.fn(),
+      });
+      try {
+        expect(await spawnSessionForApp({ extensionId: 'context', extensionName: 'Context', envelope, prompt: 'inspect', device: 'device:remote', project: '/remote/project', harness: 'codex' })).toEqual({ agentId: 'user:remote-agent' });
+        expect(appSpawn).toHaveBeenCalledWith({ extensionId: 'context', extensionName: 'Context' }, 'remote', {
+          action: 'spawn', prompt: 'inspect', spawn: expect.objectContaining({ project: '/remote/project', harness: 'codex' }),
+        });
+        expect(appSpawn.mock.calls[0]?.[2]?.spawn).not.toHaveProperty('device');
+      } finally { setOtherMachines(null); }
+    });
 
     it('naming nothing: the engine and shape the new-session memory holds — in the home project; started before it answers', async () => {
       project2Root();
@@ -861,21 +878,32 @@ describe('session orchestration', () => {
         expect(mocks.settleSessionExited).not.toHaveBeenCalled();
       });
 
-      it('does not ask tmux when the project runs without tmux: nothing to stop', async () => {
-        mocks.tmuxEnabled.mockImplementation(async () => false);
+      it('stops the tmux engine even when the task mount exists but has not reattached its process', async () => {
+        mount(cold.sessionId);
+        mocks.mounted.get(cold.sessionId)!.sessions.ownsSession = () => false;
+        mocks.tmuxSessionNames.add(coldTmuxName);
 
         await expect(stopExactSessionpageSession(cold)).resolves.toBe(true);
-        expect(mocks.listTmuxSessionNames).not.toHaveBeenCalled();
-        expect(mocks.killTmuxSession).not.toHaveBeenCalled();
+        expect(mocks.killTmuxSession).toHaveBeenCalledExactlyOnceWith(expect.anything(), coldTmuxName);
+        expect(mocks.ptyStopSession).not.toHaveBeenCalled();
         expect(mocks.ensureSessionMounted).not.toHaveBeenCalled();
       });
 
-      it('fails loudly when its project is not open: whether it runs in tmux cannot be told', async () => {
-        mocks.openProjects = new Set();
+      it('stops the surviving engine even if the project now runs without tmux', async () => {
+        mocks.tmuxEnabled.mockImplementation(async () => false);
+        mocks.tmuxSessionNames.add(coldTmuxName);
 
-        await expect(stopExactSessionpageSession(cold)).rejects.toThrow(/project project-1 is not open/);
-        expect(mocks.listTmuxSessionNames).not.toHaveBeenCalled();
-        expect(mocks.killTmuxSession).not.toHaveBeenCalled();
+        await expect(stopExactSessionpageSession(cold)).resolves.toBe(true);
+        expect(mocks.killTmuxSession).toHaveBeenCalledExactlyOnceWith(expect.anything(), coldTmuxName);
+        expect(mocks.ensureSessionMounted).not.toHaveBeenCalled();
+      });
+
+      it('stops a surviving engine without requiring its project to be opened first', async () => {
+        mocks.openProjects = new Set();
+        mocks.tmuxSessionNames.add(coldTmuxName);
+
+        await expect(stopExactSessionpageSession(cold)).resolves.toBe(true);
+        expect(mocks.killTmuxSession).toHaveBeenCalledExactlyOnceWith(expect.anything(), coldTmuxName);
       });
     });
 
@@ -2025,7 +2053,7 @@ describe('session_set_parent', () => {
 
   it('records a parent on another machine in config, and drops the older nested mark so it is read only once', async () => {
     seed('visitor', null, null, { version: '1', type: 'acp', spawnedByRemote: { deviceId: 'dev-old', sessionId: 'old-parent', nested: true } });
-    setOtherMachines({
+    setOtherMachines({ devices: async () => [], isThisDevice: async () => false, appSpawn: vi.fn(),
       sessions: async () => ({
         sessions: [{ deviceId: 'dev-far', label: 'far box', session: { conversationId: 'far', projectId: 'p-far', parentConversationId: null } as SessionpageSessionSummary }],
         unreached: [],

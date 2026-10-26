@@ -11,6 +11,8 @@ import { usePaneContext } from '@renderer/features/tabs/pane-context';
 import { PaneDropZone } from './tab-bar/draggable-tab';
 import { SESSION_TAB_HEIGHT_PX } from './tab-bar/tab-chip';
 import { isUnavailableTabResource, UnavailableTabBarItem } from './unavailable-tab';
+import { TabStripMotion } from './tab-bar/tab-motion';
+import { useTabOrderPreview } from './tab-bar/use-tab-order-preview';
 
 export const TabBar = observer(function TabBar({
   tabTrailingSlot,
@@ -35,15 +37,8 @@ export const TabBar = observer(function TabBar({
   const resolvedTabs = pane.resolvedTabs;
 
   const scrollContainerRef = useRef<HTMLDivElement>(null);
-
-  useEffect(() => {
-    const id = pane.activeTabId;
-    if (!id || !scrollContainerRef.current) return;
-    const el = scrollContainerRef.current.querySelector<HTMLElement>(
-      `[data-tabid="${CSS.escape(id)}"]`
-    );
-    el?.scrollIntoView({ behavior: 'instant', inline: 'nearest', block: 'nearest' });
-  }, [pane.activeTabId]);
+  const order = useTabOrderPreview(pane, scrollContainerRef);
+  const tabsById = new Map(resolvedTabs.map((tab) => [tab.tabId, tab]));
 
   // 放不下了没有:滚动区尺寸变了、页签数变了才重算(ResizeObserver,❌ 定时量)。
   const [overflowing, setOverflowing] = useState(false);
@@ -101,7 +96,10 @@ export const TabBar = observer(function TabBar({
       leadingReservePx={leadingReservePx}
       leadingSlot={leadingSlot}
     >
-      {resolvedTabs.map((tab) => {
+      <TabStripMotion scroller={scrollContainerRef} order={order.join('\0')} activeTabId={pane.activeTabId}>
+      {order.map((id) => {
+        const tab = tabsById.get(id);
+        if (!tab) return null;
         if (isUnavailableTabResource(tab.resource) || !pane.registry.has(tab.kind)) {
           return <UnavailableTabBarItem key={tab.tabId} tab={tab} host={pane} />;
         }
@@ -109,6 +107,7 @@ export const TabBar = observer(function TabBar({
         const TabItemComponent = def.TabBarItem;
         return <TabItemComponent key={tab.tabId} tab={tab} host={pane} ctx={pane.ctx} />;
       })}
+      </TabStripMotion>
     </TabStripShell>
   );
 });
@@ -224,6 +223,7 @@ export function TabStripShell({
     return () => observer.disconnect();
   }, []);
   return (
+    <>
     <div
       ref={barRef}
       // 页签条的空白处拖窗口,三个平台、每种块都一样(项目块、对话块、App 块原先这里什么都没有);
@@ -273,5 +273,7 @@ export function TabStripShell({
       {overflowSlot}
       {actionsSlot}
     </div>
+    <div data-first-run-hint-space="topics" />
+    </>
   );
 }

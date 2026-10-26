@@ -111,6 +111,7 @@ export default {
     },
     "sessions": {
       "loadFailed": "Could not load tasks",
+      "actionFailed": "That did not go through",
       "ungrouped": "No project",
       "menu": "More",
       "cancel": "Cancel",
@@ -518,7 +519,8 @@ export default {
     "back": "Back",
     "chats": "Chats",
     "contacts": "Contacts (⌘2)",
-    "contactsMobile": "Contacts",
+    "messagesMobile": "Messages",
+    "partnersMobile": "Partners",
     "errors": {
       "createFieldsMissing": "A message, name, or device required to create the Agent is missing",
       "createInProgress": "An Agent is already being created. Reopen the creation page to view its progress.",
@@ -594,7 +596,9 @@ export default {
       "shareNoGuguNumber": "{{name}} does not have a Gugu ID yet, so a card cannot be created.",
       "shareUnavailable": "This task does not have an agent identity that can be shared yet.",
       "taskCreated": "Task created",
-      "taskDeliverFailed": "Message not delivered to {{name}} because the task is not running.",
+      "taskDeliverFailed": "Message not delivered to {{name}}.",
+      "taskDeliverFailedCount_one": "{{count}} message not delivered to {{name}}.",
+      "taskDeliverFailedCount_other": "{{count}} messages not delivered to {{name}}.",
       "unownedAgentDm": "You cannot message someone else’s Agent privately. Work with it in a shared group."
     },
     "update": {
@@ -624,6 +628,35 @@ export default {
       "restartNow": "Restart and update",
       "retry": "Retry"
     },
+  },
+  "partners": {
+    "search": "Search",
+    "noResults": "No results",
+    "projects": "Projects · {{count}}",
+    "friends": "Friends · {{count}}",
+    "rooms": "Chats · {{count}}",
+    "agents": "Agents · {{count}}",
+    "groupChat": "Group chat",
+    "assistant": "Personal assistant",
+    "groupOffline": "The computer with this project is offline",
+    "groupUnavailable": "Couldn't open the project group",
+    "newProject": {
+      "title": "New project",
+      "name": "Project name",
+      "create": "Create",
+      "machine": "Computer",
+      "folder": "Folder",
+      "newFolder": "New folder",
+      "existingFolder": "Existing folder",
+      "pickFolder": "Choose folder",
+      "offline": "Offline",
+      "noMachine": "No computer is online",
+      "readingDirectory": "Reading this computer's projects folder",
+      "noDefaultDirectory": "This computer has no default projects folder",
+      "invalidName": "A project name can't contain / \\ : * ? \" < > |",
+      "pathTaken": "This folder is taken by “{{name}}”",
+      "failed": "Couldn't create the project"
+    }
   },
   "widget": {
     "empty": "No content"

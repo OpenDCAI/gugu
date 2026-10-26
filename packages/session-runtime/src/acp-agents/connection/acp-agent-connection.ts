@@ -188,7 +188,7 @@ export async function createAcpAgentConnection(
     // 应用退出都会销毁 `scope` ⇒ 上面那条 cleanup 发 SIGTERM ⇒ `processClosed` 落定 ⇒
     // 这里以「退出」这个事实结束。见 spec harness-capability-adapters「启动只等事实」。
     const initialized = await Promise.race([
-      initializeAgent(connection, host),
+      initializeAgent(connection, host, behavior),
       processClosed.then(failClosedBeforeReady),
     ]);
     const supportsLoadSession = initialized.agentCapabilities?.loadSession === true;
@@ -379,7 +379,8 @@ type SubagentAwareInitializeRequest = Omit<
   };
 };
 
-function initializeAgent(agent: AcpAgentApi, host: AcpAgentProcessHost) {
+function initializeAgent(agent: AcpAgentApi, host: AcpAgentProcessHost, behavior: IAcpBehavior) {
+  const sessionFailure = behavior.turnFailure?.fromPromptResponse ? ['sessionFailure'] : [];
   const request: SubagentAwareInitializeRequest = {
     protocolVersion: 1,
     clientInfo: { name: 'gugu', version: '1' },
@@ -470,7 +471,8 @@ function initializeAgent(agent: AcpAgentApi, host: AcpAgentProcessHost) {
               /**
                * v2 的后台任务扩展(`_async_task_*` 与 `_session/async_task/stop`)。v2 的子智能体是
                * 标准的子会话(取消走 `session/cancel`),后台命令没有标准形态,靠这个具名扩展。
-               * ⚠️ v2 上❌ 声明 AIR:AIR 客户端拿到的是 AIR 的子智能体形态,v2 那一层发不出来。
+               * v2 不声明 AIR:命名空间本身就会让桥选择 v1 的 subagent_spawned,
+               * 即使只声明 sessionFailure。AIR 扩展只支持 v1(#503)。
                */
               asyncTasks: {},
             }
@@ -478,7 +480,7 @@ function initializeAgent(agent: AcpAgentApi, host: AcpAgentProcessHost) {
               jetbrains: {
                 air: {
                   version: 1,
-                  capabilities: ['nativeSubagentSessions', 'asyncTasks'],
+                  capabilities: ['nativeSubagentSessions', 'asyncTasks', ...sessionFailure],
                 },
               },
             }),

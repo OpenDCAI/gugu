@@ -10,10 +10,10 @@ export type SettingsPage = 'main' | 'members' | 'announcement' | 'manage' | 'rul
  * The group info's page stack. Opened at `initialPage` (the members' button: their list), its back is the first page;
  * another chat, or another open of the tab (the caller keys it), starts over.
  */
-export function useSettingsPages(chatId: string, initialPage?: 'members' | 'announcement') {
-  const [pages, setPages] = useState<SettingsPage[]>(() => (initialPage ? ['main', initialPage] : ['main']))
+export function useSettingsPages(chatId: string, initialPage?: 'main' | 'members' | 'announcement') {
+  const [pages, setPages] = useState<SettingsPage[]>(() => (initialPage && initialPage !== 'main' ? ['main', initialPage] : ['main']))
   const push = useCallback((next: SettingsPage) => setPages((stack) => [...stack, next]), [])
   const pop = useCallback(() => setPages((stack) => (stack.length > 1 ? stack.slice(0, -1) : stack)), [])
-  useEffect(() => { setPages(initialPage ? ['main', initialPage] : ['main']) }, [chatId, initialPage])
+  useEffect(() => { setPages(initialPage && initialPage !== 'main' ? ['main', initialPage] : ['main']) }, [chatId, initialPage])
   return { page: pages[pages.length - 1], push, pop }
 }

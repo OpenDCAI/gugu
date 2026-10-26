@@ -14,6 +14,7 @@ import { codexReasoningText } from '../../../../packages/core/src/shared/reasoni
 import { unifiedDiffTexts, withoutTrailingNewline } from '../../../../packages/core/src/shared/unifiedDiff.mjs'
 import { createCodexSubagents } from './codex-subagents.mjs'
 import { CODEX_AUTONOMY_BY_MODE, CODEX_PERMISSION_MODES } from '../../../../packages/session-plugins/src/agents/impl/codex/permission-modes.ts'
+import { redactAll } from '../../../../packages/session-shared/src/logger/redact.ts'
 
 const codexBin = process.env.GUGU_CODEX_BIN?.trim()
 if (!codexBin) {
@@ -1347,6 +1348,15 @@ function onAppNotification(message) {
   // app-server also publishes spawned agents' events. Only this thread owns the ACP session;
   // mixing child deltas here fragments messages/thinking and can overwrite the parent's state.
   if (params.threadId && params.threadId !== sessionId) return
+  if (method === 'error' && params.willRetry === true) {
+    // Codex owns both the retry count and cause. Preserve its warning through the existing
+    // ACP notice path; final errors still settle the prompt via turn/completed below.
+    const title = [params.error?.message, params.error?.additionalDetails]
+      .filter((value) => typeof value === 'string' && value.trim())
+      .join(': ')
+    if (title) sessionUpdate({ sessionUpdate: 'notice', severity: 'warning', title: redactAll(title) })
+    return
+  }
   if (method === 'thread/tokenUsage/updated') {
     emitUsageUpdate(params)
     return

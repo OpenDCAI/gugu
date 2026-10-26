@@ -46,7 +46,7 @@ interface ChatHeaderActionsProps {
   onOpenFolder: () => void
   onCloseWorkspacePanel: () => void
   /** The chat's info beside it; the members' button opens it at their list. */
-  onOpenInfo: (page?: 'members') => void
+  onOpenInfo: (page?: 'main' | 'members') => void
   onCloseInfo: () => void
   onToggleHeaderMenu: () => void
   onCloseHeaderMenu: () => void
@@ -145,9 +145,8 @@ export const ChatHeaderActions = observer(function ChatHeaderActions({
           {memberCount !== undefined && <span data-member-count="">{memberCount}</span>}
         </IconButton>
       )}
-      {/* ⋯ 更多操作 — @@@1161 moreActions 下拉。群信息(公告、设置)由成员钮进,桌面群聊只剩放不下的钉住 App 时才有它;
-          单聊 = 搜索 + 会话信息 + App;手机群聊页头收起的搜索 / 文件夹 / 群 Apps。Agent 设置从点页头名字进。 */}
-      {(compactRoom || !isRoomChat || overflow.length > 0) && <DropdownMenu.Root
+      {/* Settings stays reachable from More in every layout, independently of pinned Apps. */}
+      <DropdownMenu.Root
         open={showHeaderMenu}
         modal={false}
         onOpenChange={(open) => {
@@ -189,13 +188,13 @@ export const ChatHeaderActions = observer(function ChatHeaderActions({
                   onClick={onEnterSearchMode}
                   icon={<Search size={16} />}
                 >{t('header.searchChat')}</MenuItem>}
-            {!isRoomChat && <ChatDetailsMenuItems isGroupChat={false} onOpenInfo={() => onOpenInfo()} />}
+            <ChatDetailsMenuItems isGroupChat={isGroupChat} onOpenInfo={() => isGroupChat ? onOpenInfo('main') : onOpenInfo()} />
             {/* 「在本群打开」的常驻入口:话题的分栏与手机整页同一份(OpenAppMenuItems)。 */}
             {groupId ? <OpenAppMenuItems chatId={groupId} apps={overflow} separated /> : activeChatId && <OpenAppMenuItems chatId={activeChatId} separated />}
             {groupId && compactRoom && <MenuItem onClick={openApps} icon={<LayoutGrid size={16} />}>{t('header.groupApps')}</MenuItem>}
           </DropdownMenu.Content>
         )}
-      </DropdownMenu.Root>}
+      </DropdownMenu.Root>
       {groupId && picker.open && <GroupAppsPicker chatId={groupId} pins={pins} mobile={mobile} anchor={compactRoom ? moreButtonRef : appsButton} onClose={() => setPicker({ chatId: activeChatId, open: false })} />}
     </Popover.Root>
   )

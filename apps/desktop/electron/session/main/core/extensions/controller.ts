@@ -795,6 +795,7 @@ export const extensionsController = createRPCController({
       // Capabilities need no reload: the bridge asks for the granted set on every
       // call, so a withdrawn capability stops working on the next call either way.
       reloadExtensionSurfaces(installed.manifest.id);
+      void notifyInstalledAppsChanged();
       return { success: true, data: { revoked: service.revokedPermissions(args.extensionId) } };
     } catch (error) {
       log.error('Failed to change extension permission:', error);
@@ -912,6 +913,7 @@ export const extensionsController = createRPCController({
     try {
       const data = extensionsService().setSettings(args.extensionId, args.settings);
       void retireExtensionPrograms(args.extensionId).catch((error: unknown) => log.warn('App program did not retire after settings changed:', error));
+      void notifyInstalledAppsChanged();
       return { success: true as const, data };
     } catch (error) {
       return { success: false as const, error: error instanceof Error ? error.message : String(error) };
@@ -984,6 +986,9 @@ export const extensionsController = createRPCController({
   uninstall: async (args: { extensionId: string }) => {
     try {
       extensionsService().uninstall(args.extensionId);
+      // F87: open group pages list again with the removed App's file claims withdrawn; device capability follows too,
+      // before asynchronous storage cleanup can yield to a heartbeat.
+      void notifyInstalledAppsChanged();
       // Its tabs may still be open. Unbound in the same tick as the delete, so no callback of theirs
       // runs against an extension that is gone — and app_check's kept pages of it go.
       unbindExtensionSurfaces(args.extensionId);
@@ -1003,8 +1008,6 @@ export const extensionsController = createRPCController({
       syncExtensionBackgrounds();
       // #6264 卸载也可能来自另一台桌面(设备 RPC):这台的窗口据此撤下 provider,开着的 tab 退回占位。
       events.emit(extensionsInventoryChangedChannel, { extensionId: args.extensionId });
-      // 摩擦单 F87: its files are nobody's to open now — open group pages list again.
-      void notifyInstalledAppsChanged();
       return { success: true };
     } catch (error) {
       log.error('Failed to uninstall extension:', error);

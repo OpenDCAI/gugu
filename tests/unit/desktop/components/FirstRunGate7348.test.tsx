@@ -11,8 +11,10 @@ const io = vi.hoisted(() => ({
   writeOccupation: vi.fn(async () => undefined),
   finishFirstRun: vi.fn(async () => '2026-10-16T00:00:00Z'),
   requestAssistantSetupHandoff: vi.fn(),
+  startFirstRunHints: vi.fn(async () => undefined),
 }))
 vi.mock('../../../../apps/desktop/src/lib/firstRun', () => io)
+vi.mock('../../../../apps/desktop/src/lib/firstRunHints', () => ({ startFirstRunHints: io.startFirstRunHints, readFirstRunHints: vi.fn(async () => null), dismissFirstRunHints: vi.fn() }))
 const auth = vi.hoisted(() => ({ updateNickname: vi.fn(async () => ({ success: true })), updateAvatar: vi.fn() }))
 vi.mock('../../../../apps/desktop/src/lib/auth', () => ({ authService: auth }))
 const installer = vi.hoisted(() => ({ mounted: vi.fn() }))
@@ -202,6 +204,22 @@ describe('first run gate (#7348)', () => {
     } finally {
       second.cleanup()
     }
+  })
+
+  it('does not finish the intro if enrolling account hint progress fails', async () => {
+    io.readFirstRunProgress.mockResolvedValue({ stage: 'intro', occupation: { key: 'design' } })
+    io.startFirstRunHints.mockRejectedValueOnce(new Error('hint progress unavailable'))
+    const harness = await renderGate()
+    try {
+      await waitForCondition(() => !!byTestId(harness.container, 'assistant-intro-later'), 'intro')
+      await clickElement(byTestId(harness.container, 'assistant-intro-later')!)
+      await waitForCondition(() => !!harness.container.querySelector('[role="alert"]'), 'enrollment failure')
+      expect(io.finishFirstRun).not.toHaveBeenCalled()
+      expect(byTestId(harness.container, 'main-product')).toBeNull()
+      await clickElement(byTestId(harness.container, 'assistant-intro-later')!)
+      await waitForCondition(() => !!byTestId(harness.container, 'main-product'), 'enrollment retry')
+      expect(io.finishFirstRun).toHaveBeenCalledOnce()
+    } finally { harness.cleanup() }
   })
 
   it('a failed finish keeps you on the intro and says it did not save (❌ silently entering the product)', async () => {
