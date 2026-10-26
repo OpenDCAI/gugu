@@ -1,3 +1,4 @@
+import { rpcQuery } from '../../../../../../tests/helpers/rpcQuery';
 import { randomUUID } from 'node:crypto';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
@@ -94,7 +95,7 @@ async function rpc(name: string, args: Row) {
 vi.mock('@gugu/core/cloud/supabase', () => ({
   createGuguSupabaseClient: () => ({
     from: table,
-    rpc,
+    rpc: rpcQuery(rpc),
     storage: {
       from: () => ({
         remove: async (pointers: string[]) => (removed.push(...pointers), { error: null }),

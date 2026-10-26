@@ -278,9 +278,8 @@ export const MessageBubble = memo(function MessageBubble({
     }
   }, [showMenu, showMoreMenu, showEmojiPicker])
 
-  // 同一份动作:桌面挂在悬停条 ⋯ 与右键菜单上,手机挂在长按面板上。每个动作做完就关掉打开它的那个面。
   const messageActions = (close: () => void) => ({
-    isMine: msg.is_mine, isRetracted: !!msg.retracted_at, content: msg.content, onClose: close,
+    isMine: msg.is_mine, isRetracted: !!msg.retracted_at, content: msg.content, hasHoverBar: !compactMobile, onClose: close,
     onReply: () => { onQuote(msg); close() },
     onReact: (emoji: string) => { onReaction(msg.id, emoji); close() },
     onQuoteSelection: menuSelection && msg.content_type === 'text' ? () => { onQuote({ ...msg, content: menuSelection }); close() } : undefined,

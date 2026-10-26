@@ -53,7 +53,7 @@ export function useChatMessageSend(props: ChatMessageComposerProps, draft: ChatD
     const sendOptions = whisperTarget
       ? {
           toUserIds: [whisperTarget.userId],
-          replyToMessageId: null as string | null,
+          replyToMessageId,
           isWhisper: true,
         }
       : {

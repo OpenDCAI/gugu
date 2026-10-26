@@ -1,4 +1,5 @@
 // @vitest-environment jsdom
+import { rpcQuery } from '../../../helpers/rpcQuery'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { hostAppFrame } from '../../../../apps/desktop/src/components/appSlot/phoneAppHost'
 import { APP_FRAME_MARKER, SYNC_PORT_WINDOW_MESSAGE } from '../../../../apps/desktop/src/session/shared/extensions/app-runtime-protocol'
@@ -23,10 +24,10 @@ vi.mock('@gugu/core/cloud/supabase', () => ({
     return {
       from: () => query,
       // The live notes file, as the person reads it by its id; theirs to delete.
-      rpc: async (name: string, args: Record<string, unknown>) =>
+      rpc: rpcQuery(async (name: string, args: Record<string, unknown>) =>
         name === 'workspace_deletable_as'
           ? { data: args.p_item_ids, error: null }
-          : { data: [{ id: NOTES, chat_id: CHAT, kind: 'document', filename: 'notes.json', version: 1, epoch: 1, parent_id: null, system_role: null, path: 'notes.json' }], error: null },
+          : { data: [{ id: NOTES, chat_id: CHAT, kind: 'document', filename: 'notes.json', version: 1, epoch: 1, parent_id: null, system_role: null, path: 'notes.json' }], error: null }),
     }
   },
 }))

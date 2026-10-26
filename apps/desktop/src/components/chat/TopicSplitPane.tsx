@@ -100,9 +100,9 @@ export type TopicSplitPaneProps = {
    * ⚠️ ❌ 不许拿来源线那份顶上:画出来的是另一条线的读数,而错的环比没有环更坏。
    */
   memberReadSeqs: Record<string, number>
-  onSend: (text: string, toUserIds: readonly string[] | null, replyToMessageId: string | null) => Promise<void>
+  onSend: (text: string, toUserIds: readonly string[] | null, replyToMessageId: string | null, isWhisper?: boolean) => Promise<void>
   /** 发附件。回形针在 ChatMessageComposer 里是无条件画的,不接这一口 = 挂得上发不出去。 */
-  onSendAttachments: (files: File[], opts?: { toUserIds?: string[] | null; caption?: string; onSent?: (file: File, index: number) => void }) => Promise<void>
+  onSendAttachments: (files: File[], opts?: { toUserIds?: string[] | null; isWhisper?: boolean; caption?: string; onSent?: (file: File, index: number) => void }) => Promise<void>
   /**
    * 能在这一栏里 @ 到的人 = **来源线**的名册。spec:「招 agent 同理——建完之后 @ 它,它就进来了」,
    * 而服务端只放行来源线的成员,所以候选集就取来源线的,❌ 不取话题当前那几个(那样永远拉不进新人)。
@@ -273,7 +273,7 @@ export function TopicSplitPane({ viewportKey = 'topic', navigationTarget = false
     })
     return () => cancelAnimationFrame(frame)
   }, [focusComposerToken, mobile])
-  const [quoted, setQuoted] = useState<{ forChatId: string; messageId: string; senderName: string; content: string } | null>(null)
+  const [quoted, setQuoted] = useState<{ forChatId: string; messageId: string; senderName: string; content: string; source: MessageItem } | null>(null)
   const activeQuote = quoted?.forChatId === topic.chatId ? quoted : null
   // Attachments stay in the topic pane, alongside its members entry.
   const [filesForChatId, setFilesForChatId] = useState<string | null>(null)
@@ -373,7 +373,7 @@ export function TopicSplitPane({ viewportKey = 'topic', navigationTarget = false
     onShowMessage: showMessage,
     onQuote: (msg) => setQuoted({
       forChatId: topic.chatId,
-      messageId: msg.id,
+      messageId: msg.id, source: msg,
       senderName: memberProfiles[msg.sender_user_id ?? '']?.displayName ?? '',
       content: quotePrefixOf(msg),
     }),
@@ -587,10 +587,10 @@ export function TopicSplitPane({ viewportKey = 'topic', navigationTarget = false
           mentionToInsert={mentionToInsert}
           onMentionInserted={() => setMentionToInsert(null)}
           onSend={async (content, opts) => {
-            await onSend(content, opts?.toUserIds ?? null, opts?.replyToMessageId ?? null)
+            await onSend(content, opts?.toUserIds ?? null, opts?.replyToMessageId ?? null, opts?.isWhisper)
           }}
           onSendAttachments={async (files, opts) => {
-            await onSendAttachments(files, { toUserIds: opts?.toUserIds ?? null, caption: opts?.caption, onSent: opts?.onSent })
+            await onSendAttachments(files, opts)
           }}
           placeholder={t('topic.pane.composerPlaceholder')}
           quoteContent={activeQuote}
@@ -604,8 +604,8 @@ export function TopicSplitPane({ viewportKey = 'topic', navigationTarget = false
           // ❌ 故意不接的几个,逐条说清楚为什么这一栏不需要(❌ 不是“忘了”):
           //   · beforeSend / disabled / disabledReason —— agent 私聊专用(会话页会话恢复前置与禁用态),
           //     话题是场所型会话,这三个在主线也只在 isAgentChat 时才有值。
-          //   · whisperTarget / onExitWhisper —— 悋悋话的入口在成员卡片上;话题里能不能悋悋话
-          //     spec 没说,❌ 不在这里自己拍板。
+          //   · whisperTarget / onExitWhisper —— 成员卡片的主动入口在主线;
+          //     回复的私密性与显式退出由共用 composer 自己处理。
         />
         </div>
         </ChatBottomDock>

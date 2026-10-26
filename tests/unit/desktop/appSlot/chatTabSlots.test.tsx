@@ -1,15 +1,18 @@
 // @vitest-environment jsdom
-// What a chat's tab shows is drawn by the shell into a slot the strip's engine leaves for it, only while the tab is on
-// screen. The slot follows the strip as it changes after mount — the first build drew a slot only for tabs already on
+// What a chat's tab shows is drawn into a stable, bounded slot in the strip's engine. The slot follows the strip after
+// mount — the first build drew a slot only for tabs already on
 // screen when the content mounted (its slots were not an observer), so a block opened before its folder stayed empty.
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import { act, createElement, useState } from 'react'
 import { createReactHarness } from '../../../support/testHarness'
 import { installShellSlots } from '../../../../apps/desktop/src/lib/shellSlots'
 import { folderItem } from '../../../../apps/desktop/src/session/renderer/features/chats/chat-tabs/chat-panel-item'
-import { chatLayoutOf, closeChatTab, closeInfoTab, closeTopicTab, infoTabOf, openInfoTab, openPanelItem, openTopicTab, showChatOnly } from '../../../../apps/desktop/src/session/renderer/features/chats/chat-tabs/chat-layouts'
+import { chatLayoutOf, closeChatTab, closeInfoTab, closeTopicTab, infoTabOf, openInfoTab, openPanelItem, openTopicTab, showChatOnly, showChatTab } from '../../../../apps/desktop/src/session/renderer/features/chats/chat-tabs/chat-layouts'
 import { chatPanelTabProvider } from '../../../../apps/desktop/src/session/renderer/features/chats/chat-tabs/chat-tab-providers'
-import { ChatTabPage } from '../../../../apps/desktop/src/components/appSlot/ChatTabHosts'
+import { ChatTabPage, ChatTabPortals } from '../../../../apps/desktop/src/components/appSlot/ChatTabHosts'
+import { PaneContent } from '../../../../apps/desktop/src/session/renderer/features/tabs/pane-content'
+import { PaneContext } from '../../../../apps/desktop/src/session/renderer/features/tabs/pane-context'
+import { KEPT_HIDDEN_TABS } from '../../../../apps/desktop/src/session/renderer/features/tabs/retained-tab-content'
 
 let harness: ReturnType<typeof createReactHarness>
 beforeEach(() => {
@@ -29,11 +32,56 @@ describe('the slots of a chat\'s panel tabs', () => {
     const folder = await act(async () => openPanelItem(chatId, folderItem()))
     expect(slots()).toEqual([folder])
     const board = await act(async () => openPanelItem(chatId, { kind: 'kanban.board', title: 'Board' }))
-    expect(slots(), 'the board took the place beside the chat; the folder, not on screen, has none').toEqual([board])
+    expect(slots().sort(), 'the folder keeps its slot while the board is shown').toEqual([folder, board].sort())
     await act(async () => showChatOnly(chatId))
-    expect(slots(), 'the chat focused, the pair still on screen').toEqual([board])
+    expect(slots().sort(), 'the chat focused, the pair still on screen').toEqual([folder, board].sort())
     await act(async () => closeChatTab(chatId, board!))
-    expect(slots(), 'closed: the chat alone').toEqual([])
+    expect(slots(), 'the closed board releases its slot').toEqual([folder])
+    await act(async () => closeChatTab(chatId, folder!))
+    expect(slots()).toEqual([])
+  })
+
+  it('keeps portal drafts and both halves of a pair in place, with the same bound as task tabs', async () => {
+    const chatId = 'retained-chat-portals'
+    const group = chatLayoutOf(chatId).groups[0]!
+    const pane = group.pane
+    const folder = await act(async () => openPanelItem(chatId, folderItem()))
+    await harness.render(createElement('div', null,
+      createElement(PaneContext.Provider, { value: { paneId: group.paneId, pane, isFocusedPane: true } }, createElement(PaneContent, { hideTabBar: true })),
+      createElement(ChatTabPortals, {
+        chatId,
+        panel: (tab) => createElement('textarea', { 'data-draft': tab.tabId, defaultValue: tab.item.title }),
+        topic: () => createElement('textarea', { 'data-topic-draft': '', defaultValue: 'topic' }),
+        info: () => createElement('textarea', { 'data-info-draft': '', defaultValue: 'info' }),
+      }),
+    ))
+    const draft = harness.container.querySelector<HTMLTextAreaElement>(`[data-draft="${folder}"]`)!
+    draft.value = 'unfinished folder draft'
+    draft.scrollTop = 42
+    const board = await act(async () => openPanelItem(chatId, { kind: 'kanban.board', title: 'Board' }))
+    expect(harness.container.querySelector(`[data-draft="${folder}"]`)).toBe(draft)
+    expect(draft.closest<HTMLElement>('[data-chat-tab-slot]')!.style.contentVisibility).toBe('hidden')
+    await act(async () => showChatTab(chatId, folder!))
+    expect([draft.value, draft.scrollTop]).toEqual(['unfinished folder draft', 42])
+    await act(async () => { pane.separatePair(); pane.setActiveTab(folder!); pane.splitTab(board!, 'right') })
+    const boardDraft = harness.container.querySelector<HTMLTextAreaElement>(`[data-draft="${board}"]`)!
+    expect(harness.container.querySelectorAll(`[data-draft="${board}"]`)).toHaveLength(1)
+    expect(draft.closest<HTMLElement>('[data-chat-tab-slot]')!.style.left).toBe('0px')
+    expect(boardDraft.closest<HTMLElement>('[data-chat-tab-slot]')!.style.left).toBe('50%')
+    await act(async () => boardDraft.focus())
+    expect(pane.resolvedActiveTabId).toBe(board)
+    await act(async () => pane.separatePair())
+    await act(async () => openTopicTab(chatId, { topicChatId: 'retained-topic', name: 'Topic' }))
+    const topicDraft = harness.container.querySelector<HTMLTextAreaElement>('[data-topic-draft]')!
+    topicDraft.value = 'unfinished topic draft'
+    await act(async () => openInfoTab(chatId))
+    expect(harness.container.querySelector('[data-topic-draft]')).toBe(topicDraft)
+    expect(topicDraft.value).toBe('unfinished topic draft')
+    for (let index = 0; index < KEPT_HIDDEN_TABS + 2; index++) {
+      await act(async () => openPanelItem(chatId, { kind: 'workspace.main', itemId: `file-${index}`, title: `file-${index}` }))
+    }
+    expect(slots()).toHaveLength(KEPT_HIDDEN_TABS + 1)
+    expect(harness.container.querySelector(`[data-draft="${folder}"]`)).toBeNull()
   })
 })
 

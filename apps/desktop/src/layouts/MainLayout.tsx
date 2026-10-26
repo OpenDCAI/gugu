@@ -1,4 +1,5 @@
 import { messageForUser } from '@/lib/userFacingError';
+import { notify } from '../lib/notices'
 import { Sheet } from '../components/ui/Sheet'
 import { PaneHeader } from '../components/ui/Pane'
 import { RightPanelBackButton } from '../components/chat/RightPanel'
@@ -819,20 +820,35 @@ function InnerLayout({
     return () => window.removeEventListener(UI_EVENTS.agentStream, handleTurnFailed)
   }, [notificationSettings.agentEvents, notificationSettings.sound])
 
-  // @@@sessionpage fail-loud VISIBLE (#6) — 会话页 agent 投递失败的可见反馈。fail-loud 的负向
-  // 结果(会话未运行 → 投递 THROW)以前只落主进程日志/聊天流失败条,而用户多在「任务」tab、看不到那条 → 补一条
-  // toast 让它被看见。不静默、不回退(与后端 fail-loud 语义一致)。
+  const failedDeliveries = useRef(new Map<string, Set<string>>())
+  // One notice per task, with the actual cause and distinct source messages while it is visible.
   useEffect(() => {
     const handleSessionpageDeliverFailed = (event: Event) => {
-      const detail = (event as CustomEvent).detail as { agentUserId?: string; error?: string } | undefined
+      const detail = (event as CustomEvent).detail as { agentUserId?: string; messageId?: string | null; error?: string } | undefined
       if (!detail?.agentUserId) return
-      const contact = contacts.find((c) => c.id === detail.agentUserId)
-      const name = contact?.alias?.trim() || contact?.display_name || detail.agentUserId
-      toast(t('shell.toast.taskDeliverFailed', { name }), 'error', messageForUser(detail.error))
+      const agentId = detail.agentUserId
+      const messages = failedDeliveries.current.get(agentId) ?? new Set<string>()
+      failedDeliveries.current.set(agentId, messages)
+      if (detail.messageId) messages.add(detail.messageId)
+      const clear = () => {
+        if (failedDeliveries.current.get(agentId) === messages) failedDeliveries.current.delete(agentId)
+      }
+      const contact = contacts.find((c) => c.id === agentId)
+      const name = contact?.alias?.trim() || contact?.display_name || agentId
+      notify({
+        key: `sessionpage-delivery:${agentId}`,
+        title: messageForUser(detail.error),
+        description: messages.size
+          ? t('shell.toast.taskDeliverFailedCount', { name, count: messages.size })
+          : t('shell.toast.taskDeliverFailed', { name }),
+        tier: 'error',
+        onDismiss: clear,
+        onAutoClose: clear,
+      })
     }
     window.addEventListener(UI_EVENTS.sessionpageDeliverFailed, handleSessionpageDeliverFailed)
     return () => window.removeEventListener(UI_EVENTS.sessionpageDeliverFailed, handleSessionpageDeliverFailed)
-  }, [contacts, t, toast])
+  }, [contacts, t])
 
   // @@@sessionpage otty-state — the consolidated attention from the session backend (agents blocked on the human).
   // Drives the 消息 rail dot. main broadcasts on subscribe + on every change.

@@ -403,6 +403,7 @@ export default {
     },
     "disabled": "You cannot send messages in this chat",
     "exitWhisper": "Exit whisper mode",
+    "replyUnavailable": "The original message is unavailable. Cancel the reply to send a new message.",
     "file": "File",
     "memberType": {
       "agent": "Agent",

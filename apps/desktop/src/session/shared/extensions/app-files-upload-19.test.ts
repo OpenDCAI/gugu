@@ -1,3 +1,4 @@
+import { rpcQuery } from '../../../../../../tests/helpers/rpcQuery';
 import type { FilesPlatform } from './app-files-core';
 import { verifiedFileHandle } from '../../../../../../tests/helpers/verifiedFileHandle';
 import { randomUUID } from 'node:crypto';
@@ -28,7 +29,7 @@ vi.mock('@gugu/core/cloud/supabase', () => ({
   createGuguSupabaseClient: () => ({
     // The workspace_*_as door (G5): whoever acts, their own membership — the person is in CHAT, an agent only where
     // `agentChats` says; a row written in their name.
-    rpc: async (name: string, args: Row) => {
+    rpc: rpcQuery(async (name: string, args: Row) => {
       // Who may delete what is the folder's to say; here, everyone may delete everything.
       if (name === 'workspace_deletable_as') return { data: args.p_item_ids, error: null };
       rpcs.push({ name, args });
@@ -48,7 +49,7 @@ vi.mock('@gugu/core/cloud/supabase', () => ({
         parent_id: null, system_role: null, path: args.p_title };
       rows.push(row);
       return { data: [row], error: null };
-    },
+    }),
   }),
 }));
 // The attachments function: upload keeps the bytes under a staging key; place makes the file (as the server would, in the
