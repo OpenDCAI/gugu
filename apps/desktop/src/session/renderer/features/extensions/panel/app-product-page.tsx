@@ -186,6 +186,7 @@ export function AppProductPage({
   };
 }) {
   const { manifest, installed, cloud } = subject;
+  const activeVariant = variants?.variants.find((variant) => variant.name === variants.active);
   // 没点过切换就跟界面语言(界面语言换了也跟着换);点过的那一格还在就用它。
   const languages = manifestLanguages(manifest, locale);
   const [picked, setPicked] = useState<string | null>(null);
@@ -746,7 +747,7 @@ export function AppProductPage({
         </div>
       ) : null}
       {installed && notice && notice.kind !== 'update' ? (
-        <fieldset disabled={readOnly} className="contents">
+        <fieldset disabled={readOnly && notice.kind !== 'forkBehind'} className="contents">
           <div className={cn('mk-banner', notice.kind !== 'forkBehind' && 'is-warn')}>
             <InstalledRowNoticeLine
               notice={notice}
@@ -754,8 +755,8 @@ export function AppProductPage({
               translate={translate}
               onInstallVersion={(version) => onInstallVersion({ extensionId: installed.id, version })}
               onBrowseReplacement={() => onBrowseReplacement?.(installed.id)}
-              onCopyForkPrompt={notice.kind === 'forkBehind' && variants && onCopyForkPrompt
-                ? () => { const active = variants.variants.find((variant) => variant.name === variants.active); if (active) onCopyForkPrompt(active, notice); }
+              onCopyForkPrompt={notice.kind === 'forkBehind' && activeVariant && onCopyForkPrompt
+                ? () => onCopyForkPrompt(activeVariant, notice)
                 : undefined}
             />
           </div>
