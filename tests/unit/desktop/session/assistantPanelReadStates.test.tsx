@@ -5,7 +5,7 @@ import { afterEach, beforeEach, expect, it, vi } from 'vitest'
 import { clickElement, createReactHarness } from '../../../support/testHarness'
 import type { AssistantContext } from '../../../../apps/desktop/src/session/renderer/features/assistant/assistant-context'
 vi.mock('react-i18next',async importOriginal => ({ ...(await importOriginal<typeof import('react-i18next')>()),useTranslation: () => ({ t: (key: string) => key,i18n: { language: 'en-US' } }) }))
-vi.mock('@/lib/sessionPublication',() => ({ getRendererSession: () => ({ user: { id: 'owner' } }) }))
+vi.mock('@/lib/sessionPublication',async original => ({ ...await original<object>(),getRendererSession: () => ({ user: { id: 'owner' } }) }))
 const directory = vi.hoisted(() => ({ rows: [] as unknown[] }))
 vi.mock('@/session/shared/remote-sessions/session-directory',() => ({ useDirectoryDevices: () => [],useLiveDeviceSessions: () => ({}),usePhoneTaskDirectory: () => {},deviceSessionsOf: () => ({}) }))
 vi.mock('../../../../apps/desktop/src/session/renderer/features/assistant/assistant-task-directory',() => ({ assistantTaskDeviceLabel: () => 'home',assistantTaskDirectory: () => directory.rows }))
