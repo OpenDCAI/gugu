@@ -32,7 +32,8 @@ vi.mock('../../../apps/desktop/src/lib/identityReadAdapter', () => ({
 }))
 
 const { chatService } = await import('../../../apps/desktop/src/lib/chat')
-const { MemberListPanel } = await import('../../../apps/desktop/src/components/chat/MemberListPanel')
+const { MemberListPanelFixture: MemberListPanel } = await import('../../support/MemberListPanelFixture')
+const { MemberListPanel: ControlledMemberListPanel } = await import('../../../apps/desktop/src/components/chat/MemberListPanel')
 
 const getGroupCollab = vi.mocked(chatService.getGroupCollab)
 const listJoinRequests = vi.mocked(chatService.listGroupJoinRequests)
@@ -76,6 +77,24 @@ beforeEach(() => {
 afterEach(() => { harness.cleanup(); vi.clearAllMocks() })
 
 const head = (title: ReactNode, actions: ReactNode) => createNode(Fragment, null, title, actions)
+
+describe('member drawer uses the conversation snapshot', () => {
+  const identitiesById = Object.fromEntries(IDENTITIES.map((identity) => [identity.id, identity]))
+  it('renders known names, roles and agent metadata while the refresh is pending, including on reopen', async () => {
+    const refresh = vi.fn(() => new Promise<void>(() => {}))
+    const render = () => renderWithAppProviders(harness, createNode(ControlledMemberListPanel, {
+      chatId: 'chat-1', chatKind: 'group', head, snapshot: SNAPSHOT, onReload: refresh,
+    }), { auth: { id: 'owner-1' }, chat: { identitiesById }, contacts: { contacts: [] } })
+    await render()
+    expect(harness.container.querySelector('[data-member-row="owner-1"]')?.textContent).toContain('群主甲')
+    expect(harness.container.querySelector('[data-member-row="codex"]')?.textContent).toContain('gpt-5.4')
+    await harness.render(null)
+    await render()
+    expect(harness.container.querySelector('[data-member-row="codex"]')?.textContent).toContain('gpt-5.4')
+    expect(refresh).toHaveBeenCalledTimes(2)
+    expect(getGroupCollab).not.toHaveBeenCalled()
+  })
+})
 let revisionListeners: Array<{ event: unknown; listener: (operations: { revision: string; event: string; payload: unknown }[]) => void }> = []
 async function renderPanel(viewerId = 'owner-1', chatId = 'chat-1') {
   revisionListeners = []
@@ -189,28 +208,6 @@ describe('#6418 群成员面板 —— 资料卡与管理', () => {
   it('普通成员看不到任何 ⋯ 管理钮', async () => {
     await renderPanel('member-2')
     expect(q('[data-testid="member-list-panel"] button[aria-label^="管理"]')).toBeNull()
-  })
-})
-
-describe('名册跟着 chat_members 的修订重读(不靠宿主换 key 重挂)', () => {
-  const fire = async (chatId: string) => {
-    const membership = revisionListeners.filter((entry) => entry.event === 'chat_members_changed')
-    expect(membership).toHaveLength(1)
-    await act(async () => { membership[0]!.listener([{ revision: '1', event: 'chat_members_changed', payload: { chat_id: chatId, user_id: 'agent-1' } }]); await Promise.resolve() })
-  }
-
-  it('本群成员行变了(如撤回刷屏把档位改回):重读名册', async () => {
-    await renderPanel('owner-1')
-    const before = getGroupCollab.mock.calls.length
-    await fire('chat-1')
-    expect(getGroupCollab.mock.calls.length).toBe(before + 1)
-  })
-
-  it('反例:别的群的成员变动不触发重读', async () => {
-    await renderPanel('owner-1')
-    const before = getGroupCollab.mock.calls.length
-    await fire('chat-2')
-    expect(getGroupCollab.mock.calls.length).toBe(before)
   })
 })
 

@@ -331,12 +331,23 @@ export default {
     "newerInFolder": "文件夹里有新版",
     "retry": "重试"
   },
+  "dispatchPick": {
+    "myAgents": "我的 agent",
+    "title": "交给谁",
+    "search": "搜索成员、任务或对话",
+    "chatAgents": "{{chat}} 的 agent",
+    "chatPeople": "{{chat}} 的成员",
+    "new": "新建",
+    "newAgent": "新的 agent",
+    "empty": "没有可选的对象",
+    "send": "发送",
+    "text": "要发出的内容",
+    "textPlaceholder": "写上要做什么",
+    "visible": "群里所有人可见（默认只有对方看得到）"
+  },
   "composePick": {
     "title": "选择发送位置",
-    "search": "搜索对话或任务",
     "chats": "对话",
-    "tasks": "我的任务",
-    "empty": "没有可选的对话或任务",
     "action": "放入输入框"
   },
   "composer": {
@@ -510,7 +521,6 @@ export default {
       "agentFloodTopics": "话题阈值",
       "agentFloodTopicsFailed": "话题列表未能加载。",
       "agentFloodPermissionsFailed": "话题管理权限未能加载，暂时只读。",
-      "agentFloodLoadFailed": "阈值未能加载，请重新打开设置。",
       "agentFloodSaveFailed": "阈值保存失败，请重试。",
       "agentFloodThreshold": "Agent 超过这个数就全员转被动",
       "agentFloodThresholdAria": "Agent 超过几个转被动",
@@ -643,12 +653,16 @@ export default {
     "view": "查看 {{title}}"
   },
   "message": {
-    "myAgentSuffix": "（我的 agent）",
-    "agentOwnerUnavailableSuffix": "（主人信息不可用）",
+    "myAgentTag": "我的 agent",
+    "agentOwnerUnavailableTag": "主人信息不可用",
+    "agentOwnerTag": "{{owner}} 的 agent",
     "agentOwnerSuffix": "（{{owner}} 的 agent）",
     "actions": {
       "comingSoon": "即将开放",
       "copy": "复制文本",
+      "copyLink": "复制链接",
+      "openLink": "打开链接",
+      "selectText": "选择文本",
       "delete": "删除",
       "edit": "编辑",
       "forward": "转发",
@@ -656,6 +670,7 @@ export default {
       "openTopic": "开话题",
       "react": "表情回应",
       "reply": "回复",
+      "quoteSelection": "引用选中文字",
       "select": "多选"
     },
     "attachment": "[附件]",

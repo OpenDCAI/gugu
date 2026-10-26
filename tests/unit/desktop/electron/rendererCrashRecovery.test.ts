@@ -3,6 +3,7 @@ import {
   RENDERER_CRASH_LIMIT,
   RENDERER_CRASH_WINDOW_MS,
   createMainRendererGoneHandler,
+  createMainRendererResponsivenessLog,
   decideRendererGone,
   type CrashDialogChoice,
 } from '../../../../apps/desktop/electron/renderer-crash-recovery'
@@ -136,3 +137,45 @@ describe('主窗口渲染进程没了:main.ts 接上的那一层', () => {
   })
 })
 
+
+// 主窗口渲染进程卡住(不回应)又恢复:记下开始时刻、卡了多久、当时的渲染进程与 GPU 进程,❌ 别的动作。
+describe('主窗口渲染进程不回应', () => {
+  function rig(gpu: { pid: number; workingSetKb?: number; cpuPercent?: number } | null = { pid: 77, workingSetKb: 1024, cpuPercent: 3 }) {
+    let now = Date.parse('2026-10-25T14:34:30.000Z')
+    const lines: Array<{ level: string; fields: Record<string, unknown>; msg: string }> = []
+    const log = createMainRendererResponsivenessLog({
+      now: () => now,
+      rendererPid: () => 4242,
+      gpuProcess: () => gpu,
+      log: {
+        warn: (fields, msg) => lines.push({ level: 'warn', fields, msg }),
+        info: (fields, msg) => lines.push({ level: 'info', fields, msg }),
+      },
+    })
+    return { log, lines, advance: (ms: number) => { now += ms } }
+  }
+
+  it('卡住时记一行开始(时刻、渲染进程、GPU 进程),恢复时记一行卡了多久', () => {
+    const r = rig()
+    r.log.onUnresponsive()
+    r.advance(660_000)
+    r.log.onResponsive()
+    expect(r.lines).toEqual([
+      { level: 'warn', msg: '主窗口渲染进程不回应', fields: { since: '2026-10-25T14:34:30.000Z', rendererPid: 4242, gpuProcess: { pid: 77, workingSetKb: 1024, cpuPercent: 3 } } },
+      { level: 'info', msg: '主窗口渲染进程恢复回应', fields: { since: '2026-10-25T14:34:30.000Z', durationMs: 660_000, rendererPid: 4242, gpuProcess: { pid: 77, workingSetKb: 1024, cpuPercent: 3 } } },
+    ])
+  })
+
+  it('卡住期间重复的 unresponsive 只记第一次,时长从第一次算;没卡过的 responsive 不记', () => {
+    const r = rig(null)
+    r.log.onResponsive()
+    r.log.onUnresponsive()
+    r.advance(5_000)
+    r.log.onUnresponsive()
+    r.advance(5_000)
+    r.log.onResponsive()
+    expect(r.lines.map((l) => l.msg)).toEqual(['主窗口渲染进程不回应', '主窗口渲染进程恢复回应'])
+    expect(r.lines[0].fields.gpuProcess).toBeNull()
+    expect(r.lines[1].fields.durationMs).toBe(10_000)
+  })
+})

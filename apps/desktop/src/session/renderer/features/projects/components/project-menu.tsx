@@ -24,14 +24,12 @@ import { ChatTabMenuItems } from '@renderer/features/chats/chat-tab-menu-items'
 import { OpenInMenuItems, useOpenInTargets } from '@renderer/lib/components/titlebar/open-in-menu'
 import { isGitHubDotComHost, parseRepositoryRef } from '@shared/repository-ref'
 
-const MountedProjectMenu = observer(function MountedProjectMenu({
+const MountedProjectMenuItems = observer(function MountedProjectMenuItems({
   projectId,
-  chatId,
-  children
+  chatId
 }: {
   projectId: string
   chatId: string | null
-  children: ReactNode
 }) {
   const { navigate } = useNavigate()
   const { translate } = useSessionMessages()
@@ -47,9 +45,7 @@ const MountedProjectMenu = observer(function MountedProjectMenu({
   const repoLabel = repository?.nameWithOwner ?? remoteUrl?.replace(/^https?:\/\//, '')
 
   return (
-    <ContextMenu>
-      <ContextMenuTrigger className="flex h-full w-full min-w-0">{children}</ContextMenuTrigger>
-      <ContextMenuContent finalFocus={false} className="min-w-40">
+    <>
         {chatId ? (
           <>
             <ChatTabMenuItems chatId={chatId} />
@@ -83,8 +79,7 @@ const MountedProjectMenu = observer(function MountedProjectMenu({
           <Trash2 className="size-4" />
           {translate('projects.titlebar.remove')}
         </ContextMenuItem>
-      </ContextMenuContent>
-    </ContextMenu>
+    </>
   )
 })
 
@@ -94,7 +89,20 @@ const MountedProjectMenu = observer(function MountedProjectMenu({
  * 隐藏的内部项目(task-home)不是用户的项目,不出菜单(见 session-home-project-constants)。
  */
 export const ProjectTabMenu = observer(function ProjectTabMenu({ projectId, chatId, children }: { projectId: string; chatId: string | null; children: ReactNode }) {
-  const mounted = asMounted(getProjectStore(projectId))
-  if (!mounted || isImplicitSessionHomeProject({ id: projectId })) return <>{children}</>
-  return <MountedProjectMenu projectId={projectId} chatId={chatId}>{children}</MountedProjectMenu>
+  if (!projectHasMenu(projectId)) return <>{children}</>
+  return (
+    <ContextMenu>
+      <ContextMenuTrigger className="flex h-full w-full min-w-0">{children}</ContextMenuTrigger>
+      <ContextMenuContent finalFocus={false} className="min-w-40">
+        <MountedProjectMenuItems projectId={projectId} chatId={chatId} />
+      </ContextMenuContent>
+    </ContextMenu>
+  )
+})
+
+const projectHasMenu = (projectId: string) => !!asMounted(getProjectStore(projectId)) && !isImplicitSessionHomeProject({ id: projectId })
+
+/** The same menu's items, for a strip whose project tab is the project's group (the chat's own tab carries the menu). */
+export const ProjectMenuItems = observer(function ProjectMenuItems({ projectId, chatId }: { projectId: string; chatId: string }) {
+  return projectHasMenu(projectId) ? <MountedProjectMenuItems projectId={projectId} chatId={chatId} /> : <ChatTabMenuItems chatId={chatId} />
 })

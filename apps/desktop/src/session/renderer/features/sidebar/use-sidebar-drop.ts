@@ -1,3 +1,4 @@
+import { messageForUser } from '@/lib/userFacingError';
 import { useCallback, useRef, useState } from 'react';
 import { getProjectManagerStore } from '@renderer/features/projects/stores/project-selectors';
 import { getDraggedFilePaths, hasDraggedFiles } from '@renderer/lib/drag-files';
@@ -93,7 +94,7 @@ export function useSidebarDrop() {
             log.error('Failed to add dropped project:', err);
             toast({
               title: 'Cannot add project',
-              description: `Failed to add ${basenameFromAnyPath(filePath)} as a project.`,
+              description: messageForUser(err),
               variant: 'destructive',
             });
             return null;

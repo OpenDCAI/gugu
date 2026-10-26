@@ -7,7 +7,7 @@ import type { AttachmentKind } from '@gugu/core/shared/ui/attachmentModels'
 import type { ThreadScope } from './threadScope'
 import type { AccountImRepository } from '../lib/imRepository'
 import type { DisplayIdentity } from '../lib/displayIdentity'
-import type { OpenableUnreadTarget } from '../lib/chatUnreadLocator'
+import type { CapturedUnreadEntry } from '../lib/chatUnreadLocator'
 import type { AccountRevisionEvent, AccountRevisionListener } from '../lib/accountRevisionCoordinator'
 
 export type RefreshChatsOptions = {
@@ -98,7 +98,7 @@ export interface ChatContextValue {
   openThread: (rootId: string | null) => void
   // @@@6530 列表点开有未读的会话停在最新处;unreadEntry = 这次打开时的第一条未读(「↑ N 条新消息」),jumpToUnreadEntry 跳过去。
   openUnreadChat: (chatId: string, alreadyOpen?: boolean) => Promise<void>
-  unreadEntry?: OpenableUnreadTarget | null
+  unreadEntry?: CapturedUnreadEntry | null
   jumpToUnreadEntry: (viewport?: HTMLElement | null) => Promise<void>
   setActiveChatId: (id: string | null) => void
   // @@@threads — threadRootId 非空时这条消息发进该话题（thread_root_id），不刷主时间线。
@@ -249,7 +249,7 @@ export function dropChatKey<T>(setState: Dispatch<SetStateAction<Record<string, 
   })
 }
 
-/** Text put in a composer other than by typing (a share, an App's `gugu.compose`): after the draft, on a line of its own. */
+/** Text put in a composer other than by typing (a share, an App's `gugu.dispatch` draft): after the draft, on a line of its own. */
 export function appendToDraft(draft: string, text: string): string {
   return draft.trim() ? `${draft}\n${text}` : text
 }

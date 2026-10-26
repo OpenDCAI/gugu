@@ -25,7 +25,7 @@ import { diffTabProvider } from './diff-view/diff-tab-provider';
 import { reviewTabProvider } from './diff-view/review-tab-provider';
 import { fileBrowserTabProvider } from './editor/file-browser-tab-provider';
 import { fileTabProvider } from './editor/file-tab-provider';
-import { SessionTabViewPersistor } from './stores/session-tab-view-persistor';
+import { createSessionTabPersistor } from './stores/session-tab-view-persistor';
 import { terminalTabProvider } from './terminals/terminal-tab-provider';
 import { remotePortsTabProvider } from '../remote-hosts/workspace/remote-ports-tab';
 
@@ -43,7 +43,7 @@ export const sessionTabView = createTabView(
     // #6264 别的机器上的会话才有的「端口」(照 VS Code Ports 视图);本机会话的清单里没有这一项。
     remotePortsTabProvider
   ] as const,
-  { makePersistor: (ctx) => new SessionTabViewPersistor(ctx as SessionTabContext) }
+  { makePersistor: (ctx) => createSessionTabPersistor(ctx as SessionTabContext) }
 );
 
 type SessionRegistry = typeof sessionTabView.registry;

@@ -24,7 +24,7 @@ function fixture() {
   const entry = vi.fn().mockResolvedValue({ ...item, content: '# Original instructions' })
   const write = vi.fn().mockResolvedValue({ ...item, content: '' })
   const appCall = vi.fn(async (verb: string, args: { name: string; arguments: Record<string, unknown> }) => {
-    if (verb === 'messageAgent') return { id: 'durable-message', deferred: true }
+    if (verb === 'dispatch') return { to: { agent: 'user:assistant' }, id: 'durable-message', deferred: true }
     if (verb === 'callProgram' && args.name === 'library_write') return { content: [], structuredContent: { result: await write(args.arguments) } }
     throw new Error('Unexpected App call')
   })
@@ -75,9 +75,9 @@ describe('Gugu structured capabilities', () => {
     await vi.waitFor(() => expect(write).toHaveBeenCalledTimes(2))
     expect(write).toHaveBeenLastCalledWith({ kind: 'capabilities', name: '会议记录', description: '', group: null, content: '' })
     await vi.waitFor(() => expect(read).toHaveBeenCalledTimes(2))
-    const sent = appCall.mock.calls.filter(([verb]) => verb === 'messageAgent')
+    const sent = appCall.mock.calls.filter(([verb]) => verb === 'dispatch')
     expect(sent).toHaveLength(1)
-    expect(sent[0][1]).toMatchObject({ agentId: 'user:assistant', defer: true })
+    expect(sent[0][1]).toMatchObject({ to: { agent: 'user:assistant' }, delivery: 'defer' })
     expect(JSON.parse((sent[0][1] as unknown as { text: string }).text.split('\n')[1])).toMatchObject({ resource: 'capabilities', operation: 'created', id: 'calendar' })
   })
 
@@ -90,7 +90,7 @@ describe('Gugu structured capabilities', () => {
       for (const receive of notifications) receive({ extensionId: 'gugu.assistant', server: 'resources', method: 'notifications/resources/updated', params: { resource: 'capabilities' } })
     })
     await vi.waitFor(() => expect(harness.container.textContent).toContain('Agent 保存的简介'))
-    expect(appCall.mock.calls.filter(([verb]) => verb === 'messageAgent')).toHaveLength(0)
+    expect(appCall.mock.calls.filter(([verb]) => verb === 'dispatch')).toHaveLength(0)
   })
 
   it('drops the previous assistant editor and its draft when account identity changes', async () => {

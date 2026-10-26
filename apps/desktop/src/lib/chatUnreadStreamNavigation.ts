@@ -6,6 +6,7 @@ import {
   openStreamAtLocator as runOpenStreamAtLocator,
   requestUnreadMessageReveal,
   type OpenableUnreadTarget,
+  type CapturedUnreadEntry,
 } from './chatUnreadLocator'
 import { getUnreadLocatorWindow } from './chatUnreadLocatorMessages'
 import {
@@ -37,8 +38,16 @@ export function useChatUnreadStreamNavigation(deps: Deps) {
   const chatOpenInFlightRef = useRef(new Set<string>())
   const chatOpenWaitersRef = useRef(new Map<string, Set<{ resolve: () => void; reject: (error: Error) => void }>>())
   const locatorNavigationRef = useRef(new Map<HTMLElement | 'primary', OpenableUnreadTarget & { epoch: number }>())
-  const [unreadEntries, setUnreadEntries] = useState<Record<string, OpenableUnreadTarget & { epoch: number }>>({})
+  const [unreadEntries, setUnreadEntries] = useState<Record<string, CapturedUnreadEntry & { epoch: number }>>({})
   useEffect(() => () => { locatorNavigationRef.current.clear() }, [deps.user?.id])
+
+  const consumeUnreadEntry = useCallback((chatId: string, locator: ChatUnreadLocator) => {
+    setUnreadEntries((previous) => {
+      if (previous[chatId]?.locator !== locator) return previous
+      const { [chatId]: _consumed, ...remaining } = previous
+      return remaining
+    })
+  }, [])
 
   const settleChatOpen = useCallback((chatId: string, error?: Error) => {
     const waiters = chatOpenWaitersRef.current.get(chatId)
@@ -126,11 +135,7 @@ export function useChatUnreadStreamNavigation(deps: Deps) {
           assertCurrent()
           await requestUnreadMessageReveal(currentTarget, isCurrent, viewport, commit)
           // A confirmed entry is consumed before the read RPC: it must not discard a later reading anchor.
-          setUnreadEntries((previous) => {
-            if (!saved || previous[chatId]?.locator !== saved) return previous
-            const { [chatId]: _consumed, ...remaining } = previous
-            return remaining
-          })
+          if (saved) consumeUnreadEntry(chatId, saved)
         },
         markRead: async (currentTarget, commit) => { assertCurrent(); await markStreamRead(currentTarget.chatId, currentTarget.locator.stream_id, commit.readSeq, currentTarget.locator.thread_root_id) },
         refreshChats: () => { assertCurrent(); return deps.loadChats({ acceptEmpty: true }) },
@@ -142,17 +147,18 @@ export function useChatUnreadStreamNavigation(deps: Deps) {
     } finally {
       if (locatorNavigationRef.current.get(viewportTarget) === target) locatorNavigationRef.current.delete(viewportTarget)
     }
-  }, [deps, waitForChatOpen])
+  }, [deps, waitForChatOpen, consumeUnreadEntry])
 
   // @@@6530 微信式打开:有未读的会话也停在最新处,与已读会话同一条路(尾部对账落定时水位提交到尾、角标清零)。
   // 第一条未读只记下来给「↑ N 条新消息」,点了才走上面的定位;话题流未读、当前会话再点仍直接定位。
   const captureUnreadEntry = useCallback((chatId: string) => {
     const locator = deps.chatsRef.current.find((chat) => chat.id === chatId)?.unread_locator
     if (locator?.message_id && locator.message_seq != null) {
-      const entry = { chatId, epoch: getMessageSnapshotEpoch(chatId), locator: { ...locator, message_id: locator.message_id, message_seq: locator.message_seq } }
+      const saved = { ...locator, message_id: locator.message_id, message_seq: locator.message_seq }
+      const entry = { chatId, epoch: getMessageSnapshotEpoch(chatId), locator: saved, onSeen: () => consumeUnreadEntry(chatId, saved) }
       setUnreadEntries((previous) => ({ ...previous, [chatId]: entry }))
     }
-  }, [deps.chatsRef, getMessageSnapshotEpoch])
+  }, [deps.chatsRef, getMessageSnapshotEpoch, consumeUnreadEntry])
   const openUnreadChat = useCallback(async (chatId: string, alreadyOpen = deps.activeChatIdRef.current === chatId): Promise<void> => {
     const locator = deps.chatsRef.current.find((chat) => chat.id === chatId)?.unread_locator
     if (locator && (locator.stream_kind === 'thread' || alreadyOpen)) return openStreamAtLocator(chatId)

@@ -15,12 +15,14 @@ describe('MessageSendStatus', () => {
     const discardSend = vi.fn()
     await renderWithAppProviders(
       harness,
-      createNode(MessageSendStatus, { state: 'failed', messageId: 'message-1' }),
+      createNode(MessageSendStatus, { state: 'failed', messageId: 'message-1', reason: 'Recipient left /Users/test/private sk-synthetic-secret\nstack detail' }),
       { chat: { retrySend, discardSend } },
     )
     const trigger = document.body.querySelector('[data-testid="message-send-failed"]') as HTMLElement
+    expect(trigger.title).toBe('Recipient left [path] [redacted token]')
     await clickElement(trigger)
     expect(document.body.querySelector('[role="menu"][aria-label="未送达消息操作"]')).not.toBeNull()
+    expect(document.body.querySelector('[data-testid="message-send-failed-menu"]')?.textContent).toContain('Recipient left [path] [redacted token]')
     const retry = document.body.querySelector('[data-testid="message-send-retry"]') as HTMLElement
     await clickElement(retry)
     expect(retrySend).toHaveBeenCalledWith('message-1')

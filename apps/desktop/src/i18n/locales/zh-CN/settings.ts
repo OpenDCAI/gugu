@@ -971,6 +971,7 @@ export default {
       "colSessions": "会话",
       "colTime": "时间",
       "colTokens": "Tokens",
+      "inputOutputTokens": "输入 / 输出 Tokens",
       "cache": "缓存",
       "consumption": "消耗分布",
       "copied": "已复制",

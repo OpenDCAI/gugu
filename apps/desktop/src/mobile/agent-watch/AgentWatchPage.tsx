@@ -1,3 +1,4 @@
+import { messageForUser } from '@/lib/userFacingError';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import type { Device } from '@gugu/core/shared/types/chat'
@@ -184,8 +185,8 @@ export function AgentWatchPage({
         onCreated={(session, firstPrompt, result) => {
           const phone = isPhoneDevice(device)
           if (phone && result?.birthGroup?.status === 'failed') {
-            log.warn({ deviceId: device.device_id, sessionId: session.conversationId, chatId: result.birthGroup.chatId, reason: result.birthGroup.error ?? null }, 'phone agent created but group join failed')
-            toast(tWorkspace('groupJoinFailed'), 'error')
+            log.error({ deviceId: device.device_id, sessionId: session.conversationId, chatId: result.birthGroup.chatId, reason: result.birthGroup.error ?? null }, 'phone agent created but group join failed')
+            toast(tWorkspace('groupJoinFailed'), 'error', messageForUser(result.birthGroup.error))
           }
           const groupId = phone ? result?.birthGroup?.chatId : birthGroup?.chatId
           if (groupId && onOpenGroupChat && (!phone || result?.birthGroup?.status === 'joined' || result?.birthGroup?.status === 'pending_approval')) {

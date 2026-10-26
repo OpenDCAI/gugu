@@ -82,7 +82,7 @@ gugu.onContextChanged((context) => {
   renderShared()
 })
 // An agent should act (a card assigned, a move made)? Wake the one it concerns, never every agent:
-// gugu.send(card.owner, 'Card "…" is yours', { refs: [{ file: f.entry }] }) — needs manifest permissions chat:relay.
+// gugu.dispatch('Card "…" is yours', { to: { chat, member: card.owner }, refs: [{ file: f.entry }] }) — needs manifest permissions chat:relay.
 
 function setup() {
   // A box whose value is this person's — a draft not yet submitted, a gugu.bind.text box — goes into #controls ONCE:

@@ -607,6 +607,7 @@ export function decodeSessionUpdate(update: SessionUpdate): NormalizedEvent {
         messageId: update.messageId ?? null,
         text: update.content.text,
         ...(typeof update._meta?.guguRevertAnchor === 'string' ? { revertAnchor: update._meta.guguRevertAnchor } : {}),
+        ...(update._meta?.guguSteering === true ? { steering: true } : {}),
       };
     }
 

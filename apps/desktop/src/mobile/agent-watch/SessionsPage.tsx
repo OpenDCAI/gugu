@@ -207,7 +207,6 @@ export function SessionRow({
       className="gg-list-row gg-row gg-aw-item"
       data-mobile=""
       data-emphasis={presentation?.emphasis || undefined}
-      data-pinned={session.isPinned || undefined}
       aria-disabled={openable ? undefined : true}
       disabled={!openable}
       data-session-id={session.conversationId}

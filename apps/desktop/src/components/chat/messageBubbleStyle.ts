@@ -9,9 +9,16 @@ import type { CSSProperties } from 'react'
 export function buildBubbleStyle(
   isMine: boolean,
   isWhisper: boolean,
-  compactMobile: boolean
+  compactMobile: boolean,
+  joinedPrev = false,
 ): CSSProperties {
+  // 照 Telegram:离头像远的一侧两角都是大圆角;靠头像一侧,上角在挨着同组上一条时收小,下角总是小的 ——
+  // 组里中间几条挨着下一条,组尾那条由尾巴(messageBubbleChrome.css 的 [data-bubble-tail])盖住这个角。
+  const big = 'var(--radius-bubble)', joined = 'var(--radius-bubble-joined)'
+  const top = joinedPrev ? joined : big
+  const borderRadius = isMine ? `${big} ${top} ${joined} ${big}` : `${top} ${big} ${big} ${joined}`
   return {
+    position: 'relative', // 右下角的时间(BubbleTime inline)钉在气泡自己身上
     width: 'fit-content',
     maxWidth: '100cqw',
     minWidth: '44px',
@@ -29,11 +36,9 @@ export function buildBubbleStyle(
     ...(compactMobile
       ? { userSelect: 'none', WebkitUserSelect: 'none', WebkitTouchCallout: 'none' }
       : {}),
-    // @@@bubble-style - 无边框的纯灰填充 + --radius-bubble(#7333:20)圆角、靠头像侧单角收 5px。
-    // own 深一档 / other 浅一档(#7333 起都是纯灰),去边框。
-    ...(isMine
-      ? { background: 'var(--bubble-mine)', borderRadius: 'var(--radius-bubble-sent)' }
-      : { background: 'var(--bubble-other)', borderRadius: 'var(--radius-bubble-received)' }),
+    // @@@bubble-style - 无边框的纯灰填充;own 深一档 / other 浅一档(#7333 起都是纯灰)。圆角见上。
+    background: isMine ? 'var(--bubble-mine)' : 'var(--bubble-other)',
+    borderRadius,
     // @@@whisper (#820) — whisper 气泡: 背景 var(--muted) + 文字 var(--muted-fg)（SSOT `.whisper .bub` L134）。
     // @@@933-mopup 补 color:--muted-fg(SSOT 有、原缺)。虚线边框/opacity 是 gugu 自加(SSOT 无,见 PR flag),本轮暂留。
     ...(isWhisper

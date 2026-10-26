@@ -164,7 +164,8 @@ const enUSCoreMessages = {
   'extensions.bundleCardInstalledOn': 'Installed on {machine}.',
   'extensions.bundleCardNotInstalledOn': 'Not installed on {machine}.',
   'extensions.needsDesktop': 'Requires Gugu Desktop',
-  'extensions.phoneAgentsUnavailable': 'Agent features are unavailable on phones.',
+  'extensions.phoneAgentCapabilitiesLabel': 'App capabilities on phones',
+  'extensions.phoneAgentCapabilitiesInfo': 'These capabilities require installing and authorizing this App in Gugu Desktop. They are not enabled by installing this App on a phone:',
   'extensions.platformVersionUnavailable': 'This version is not available for this device.',
   'extensions.bundleCardElsewhere': 'This App needs what only a computer has — use it on the computer.',
   'extensions.bundleCardOpensInSessions': 'Installed — it opens its files in a task.',
@@ -202,7 +203,7 @@ const enUSCoreMessages = {
   'extensions.permissionsFilesReadAllMachines':
     'Read the files of every chat you are in, and of the tasks on ALL your computers, not just {computer} (the others read only)',
   'extensions.permissionsFilesWrite': 'Change the files of every chat you are in, and of the tasks on {computer}',
-  // `gugu.send`: a whisper to one person or agent, sent as you and marked as from this App (摩擦单 F16, F79).
+  // `gugu.dispatch` to a member of a chat: a whisper to one person or agent, sent as you and marked as from this App (摩擦单 F16, F79).
   'extensions.permissionsChatRelay': 'Whisper to a person or agent in any chat you are in, in your name — they see it came from this App',
   'extensions.permissionsChatRead': 'See which chats you are in and who is in them, and read the messages you can see there',
   // The two scopes must read differently at a glance: the whole point of
@@ -1083,7 +1084,8 @@ const zhCNCoreMessages: Record<CoreSessionMessageKey, string> = {
   'extensions.bundleCardInstalledOn': '已装到「{machine}」。',
   'extensions.bundleCardNotInstalledOn': '「{machine}」上没有装。',
   'extensions.needsDesktop': '请在电脑上使用',
-  'extensions.phoneAgentsUnavailable': '在手机上，agent 相关功能不可用。',
+  'extensions.phoneAgentCapabilitiesLabel': '手机端的 App 能力',
+  'extensions.phoneAgentCapabilitiesInfo': '以下能力需要在电脑端安装并授权此 App 才能使用。在手机端安装此 App 不会启用这些能力：',
   'extensions.platformVersionUnavailable': '此版本不适用于这台设备。',
   'extensions.bundleCardElsewhere': '这个 App 要用只有电脑上才有的能力，请在电脑上用。',
   'extensions.bundleCardOpensInSessions': '装好了，它在会话里打开它的文件。',

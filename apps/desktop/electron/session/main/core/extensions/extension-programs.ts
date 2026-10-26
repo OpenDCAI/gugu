@@ -136,7 +136,7 @@ type FormatSchema = Record<string, { format?: unknown; items?: { format?: unknow
 /**
  * One handed argument as the text it names: a string as sent, with two other spellings of the same thing —
  * - a file as its `gugu-file://<id>` link (片场试演 10-12: a writer handed the table as the link the round's message carries,
- *   the very link `gugu.send` writes) is that id — handed, checked as the agent, and reaching the program as the id;
+ *   the very link `gugu.dispatch` writes) is that id — handed, checked as the agent, and reaching the program as the id;
  * - a chat named by the number people see may come as a JSON number (A/B 10-12: Codex sent 211178 bare) and is that number's
  *   text — handed, checked as the agent, and made the chat's id like the same number in quotes.
  * Anything else names nothing: it is handed nothing and reaches the program as sent.
@@ -183,7 +183,7 @@ function withHandedIds(tool: Tool | undefined, args: Record<string, unknown> | u
 
 /**
  * 摩擦单 F16 Who called, as every id an App sees (F35): the agent's `user:<uuid>`, the same on every machine — what
- * `gugu.send` takes and a group's `members` list. A program keeps it (a card's follower) and wakes that agent later.
+ * `gugu.dispatch` takes and a group's `members` list. A program keeps it (a card's follower) and wakes that agent later.
  */
 export const AGENT_META_KEY = 'gugu/agent';
 /** #6615 问题 11 The caller's session — the same key its pages' calls carry. */
@@ -203,7 +203,7 @@ export interface Caller {
 }
 
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
-/** The caller's `user:<uuid>`; nothing for an id that is not one (a program must be able to hand it to `gugu.send`). */
+/** The caller's `user:<uuid>`; nothing for an id that is not one (a program must be able to hand it to `gugu.dispatch`). */
 export function agentAddress(agentUserId: string | undefined): string | null {
   const bare = agentUserId?.replace(/^user:/, '');
   return bare && UUID.test(bare) ? `user:${bare}` : null;

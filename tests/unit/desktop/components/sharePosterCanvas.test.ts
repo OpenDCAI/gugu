@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 import { afterEach, describe, expect, it, vi } from 'vitest'
-import { drawSharePoster } from '../../../../apps/desktop/src/components/sharePosterCanvas'
+import { copyPosterToClipboard, drawSharePoster } from '../../../../apps/desktop/src/components/sharePosterCanvas'
 function canvasContext() {
   const gradient = { addColorStop: vi.fn() }
   return {
@@ -43,6 +43,18 @@ function drawWithContext(memberAvatarUrls: unknown[], images = new Map<string, H
   return context
 }
 afterEach(() => vi.restoreAllMocks())
+it('preserves the clipboard rejection after encoding the poster as a resolved PNG blob', async () => {
+  const error = new Error('Clipboard permission denied')
+  const write = vi.fn().mockRejectedValue(error)
+  vi.stubGlobal('navigator', { clipboard: { write } })
+  vi.stubGlobal('ClipboardItem', class { constructor(readonly data: Record<string, Blob>) {} })
+  const blob = new Blob(['png'], { type: 'image/png' })
+  const canvas = { toBlob: (callback: BlobCallback) => callback(blob) } as HTMLCanvasElement
+  try {
+    await expect(copyPosterToClipboard(canvas)).rejects.toBe(error)
+    expect(write).toHaveBeenCalledWith([expect.objectContaining({ data: { 'image/png': blob } })])
+  } finally { vi.unstubAllGlobals() }
+})
 describe('share poster canonical avatar slots', () => {
   it('diagnoses an invalid sentinel string and preserves its explicit poster slot', () => {
     const errors = vi.spyOn(console, 'error').mockImplementation(() => {})

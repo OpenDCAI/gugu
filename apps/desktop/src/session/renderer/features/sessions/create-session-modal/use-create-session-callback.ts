@@ -1,3 +1,5 @@
+import { translateSessionMessage } from '@renderer/localization/locale-store';
+import { messageForUser } from '@/lib/userFacingError';
 import { useCallback, useRef, useState } from 'react';
 import { getSessionManagerStore } from '@renderer/features/sessions/stores/session-selectors';
 import {
@@ -11,7 +13,6 @@ import { shellPort } from '@renderer/lib/shell-port';
 import type { NavigateFnTyped } from '@renderer/lib/layout/navigation-provider';
 import { log } from '@renderer/utils/logger';
 import { toast } from '@renderer/lib/hooks/use-toast';
-import { translateSessionMessage } from '@renderer/localization/locale-store';
 import { sessionpageLegOfView } from '@shared/core/sessions/sessions';
 import type { SessionpageAgentAddress } from '@shared/sessionpage-message-host';
 import { sessionpageMessageHost } from '@renderer/lib/sessionpage-message-host';
@@ -337,8 +338,8 @@ export function useCreateSessionCallback({
       // once the session exists, not awaited: a first line that fails still leaves a started session to remember, so its
       // retry needs no second write.
       void initialSession.rememberStartedConfiguration().catch((error: unknown) => {
-        log.warn('remember the started configuration failed', { error: error instanceof Error ? error.message : String(error) });
-        toast({ title: translateSessionMessage('task.newSessionMemoryNotSaved'), tier: 'warning' });
+        log.error('remember the started configuration failed', { error: error instanceof Error ? error.message : String(error) });
+        toast({ title: translateSessionMessage('task.newSessionMemoryNotSaved'), description: messageForUser(error), tier: 'warning' });
       });
       // 字节早就落好了,库里那一行要等会话真的存在(外键)。补登记失败不阻断这一轮:附件照样
       // 到得了 agent(mention 指的是盘上那个真文件),只是少一行记录 —— 那种目录下次启动会被

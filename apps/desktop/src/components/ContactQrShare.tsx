@@ -1,3 +1,4 @@
+import { messageForUser } from '@/lib/userFacingError';
 import { useEffect, useMemo, useState } from 'react'
 import QRCode from 'qrcode'
 import { createContactQrPayload, createGuguQrScanUrl } from '@gugu/core/shared/qrPayload'
@@ -33,13 +34,13 @@ export function ContactQrShare({ guguNumber }: { guguNumber: number | null | und
         console.error('[ContactQrShare] QR generation failed', error)
         if (!cancelled) {
           setQrDataUrl(null)
-          setQrError(t('sharing.qrFailed'))
+          setQrError(messageForUser(error))
         }
       })
     return () => {
       cancelled = true
     }
-  }, [payloadText, t])
+  }, [payloadText])
 
   if (!payloadText) {
     return <div style={{ fontSize: 'var(--font-body)', color: 'var(--text-tertiary)' }}>{t('friendSearch.guguNumberUnassigned')}</div>

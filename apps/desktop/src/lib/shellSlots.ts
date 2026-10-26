@@ -57,6 +57,9 @@ export function readShellSlots(w: Window = window): ShellSlots | null {
 export const CHAT_SLOT_PREFIX = 'chat:'
 export const chatSlotKey = (chatId: string) => `${CHAT_SLOT_PREFIX}${chatId}`
 
+export const PROJECT_TOPICS_SLOT_PREFIX = 'project-topics:'
+export const projectTopicsSlotKey = (chatId: string) => `${PROJECT_TOPICS_SLOT_PREFIX}${chatId}`
+
 /**
  * 同一个对话在块的页签条上的几格(gugu-dev#181:块里没有群聊头,头上那些东西挪到页签条):
  * `actions` = 右端那排图标(搜索、群文件夹、成员、历史、⋯),`title` = 对话块第一枚页签上的头像和名字,
@@ -65,6 +68,13 @@ export const chatSlotKey = (chatId: string) => `${CHAT_SLOT_PREFIX}${chatId}`
  */
 export type ChatPart = 'actions' | 'title' | 'tabs' | 'empty'
 export const chatPartSlotKey = (part: ChatPart, chatId: string) => `chat-${part}:${chatId}`
+
+/**
+ * 对话块里一枚页签此刻在屏上的那一格(群文件夹、App、文件、话题):会话页的页签引擎留格子,壳把这一枚的内容画进来
+ * (components/chat/ChatTabPortals.tsx)。只有在屏上的页签有格子。
+ */
+const CHAT_TAB_SLOT_PREFIX = 'chat-tab:'
+export const chatTabSlotKey = (chatId: string, tabId: string) => `${CHAT_TAB_SLOT_PREFIX}${chatId}/${tabId}`
 
 /**
  * 这个对话是不是画在会话页的格子里(项目块、对话块,gugu-dev#181):ChatSlotHost 给它包上;不在格子里 = null。

@@ -13,8 +13,8 @@ export function ToastProvider({ children }: { children: React.ReactNode }) {
   const { t } = useTranslation('common')
   const value = useMemo(
     () => ({
-      toast: (message: string, type: ToastType = 'info') => {
-        notify({ title: message, tier: type })
+      toast: (message: string, type: ToastType = 'info', description?: string) => {
+        notify({ title: message, description, tier: type })
       },
     }),
     []

@@ -7,7 +7,7 @@
     "productivity"
   ],
   "version": "0.1.0",
-  "apiVersion": 12,
+  "apiVersion": 15,
   "platforms": ["desktop"],
   "engines": {
     "gugu": ">=0.2.40"

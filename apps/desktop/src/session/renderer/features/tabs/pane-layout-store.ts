@@ -597,11 +597,13 @@ export class PaneLayoutStore<R extends TabRegistry = TabRegistry> {
         if (!existing) continue;
         if (!previewFlag) existing.isPreview = false;
         if (overrideStateFlag) existing.state = initialState;
+        if (config?.returnTo) existing.returnTo = config.returnTo;
         if (anchorGroup || (config?.activate ?? true)) this.windowRevealer?.(windowPane.paneId);
         return;
       }
       for (const g of this.groups) {
         const existing = g.pane.findSingleMountEntry(kind, key);
+        if (existing && config?.returnTo) existing.returnTo = config.returnTo;
         if (existing && anchor && anchorGroup) {
           if (!previewFlag) existing.isPreview = false;
           if (overrideStateFlag) existing.state = initialState;
@@ -646,6 +648,7 @@ export class PaneLayoutStore<R extends TabRegistry = TabRegistry> {
         isPreview: previewFlag,
         overrideState: overrideStateFlag,
         activate: false,
+        returnTo: config?.returnTo,
       });
       if (!tabId) return;
       anchorGroup.pane.pairWith(anchor.tabId, tabId);
@@ -662,6 +665,7 @@ export class PaneLayoutStore<R extends TabRegistry = TabRegistry> {
     targetPane.openWithState(kind, initialState, {
       isPreview: previewFlag,
       overrideState: overrideStateFlag,
+      returnTo: config?.returnTo,
       // 要开在对话旁边、却没有对话可并排 = 照常开,照常就是切过去(❌ 开成一枚屏上看不见的后台页签);
       // 用户拆开过就按调用方说的(agent 打开的不切走)。
       activate: config?.beside && !declinedGroup ? true : (config?.activate ?? true),

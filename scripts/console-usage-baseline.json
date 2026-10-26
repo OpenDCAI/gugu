@@ -87,7 +87,7 @@
   {
     "rule": "console-member",
     "file": "apps/desktop/src/components/ChatAreaPanel.tsx",
-    "count": 4
+    "count": 2
   },
   {
     "rule": "console-member",
@@ -98,11 +98,6 @@
     "rule": "console-member",
     "file": "apps/desktop/src/components/ContactsPanel.tsx",
     "count": 2
-  },
-  {
-    "rule": "console-member",
-    "file": "apps/desktop/src/components/CopyValue.tsx",
-    "count": 1
   },
   {
     "rule": "console-member",

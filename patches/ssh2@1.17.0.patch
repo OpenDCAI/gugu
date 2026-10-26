@@ -1,0 +1,76 @@
+diff --git a/lib/client.js b/lib/client.js
+index 7291c2c..7ec5c0d 100644
+--- a/lib/client.js
++++ b/lib/client.js
+@@ -625,17 +625,22 @@ class Client extends EventEmitter {
+           if (channel._waitWindow) {
+             channel._waitWindow = false;
+ 
+-            if (channel._chunk) {
+-              channel._write(channel._chunk, null, channel._chunkcb);
+-            } else if (channel._chunkcb) {
+-              channel._chunkcb();
+-            } else if (channel._chunkErr) {
+-              channel.stderr._write(channel._chunkErr,
+-                                    null,
+-                                    channel._chunkcbErr);
+-            } else if (channel._chunkcbErr) {
+-              channel._chunkcbErr();
+-            }
++            // Take both waiting writes before resuming: a chunk left in place
++            // would be written again on a later adjust, and stderr waiting
++            // behind stdout would never be resumed.
++            const { _chunk: chunk, _chunkcb: cb } = channel;
++            const { _chunkErr: chunkErr, _chunkcbErr: cbErr } = channel;
++            channel._chunk = channel._chunkcb = undefined;
++            channel._chunkErr = channel._chunkcbErr = undefined;
++
++            if (chunk)
++              channel._write(chunk, null, cb);
++            else if (cb)
++              cb();
++            if (chunkErr)
++              channel.stderr._write(chunkErr, null, cbErr);
++            else if (cbErr)
++              cbErr();
+           }
+         },
+         CHANNEL_SUCCESS: (p, recipient) => {
+diff --git a/lib/server.js b/lib/server.js
+index 306d658..76855b9 100644
+--- a/lib/server.js
++++ b/lib/server.js
+@@ -781,17 +781,22 @@ class Client extends EventEmitter {
+           if (channel._waitWindow) {
+             channel._waitWindow = false;
+ 
+-            if (channel._chunk) {
+-              channel._write(channel._chunk, null, channel._chunkcb);
+-            } else if (channel._chunkcb) {
+-              channel._chunkcb();
+-            } else if (channel._chunkErr) {
+-              channel.stderr._write(channel._chunkErr,
+-                                    null,
+-                                    channel._chunkcbErr);
+-            } else if (channel._chunkcbErr) {
+-              channel._chunkcbErr();
+-            }
++            // Take both waiting writes before resuming: a chunk left in place
++            // would be written again on a later adjust, and stderr waiting
++            // behind stdout would never be resumed.
++            const { _chunk: chunk, _chunkcb: cb } = channel;
++            const { _chunkErr: chunkErr, _chunkcbErr: cbErr } = channel;
++            channel._chunk = channel._chunkcb = undefined;
++            channel._chunkErr = channel._chunkcbErr = undefined;
++
++            if (chunk)
++              channel._write(chunk, null, cb);
++            else if (cb)
++              cb();
++            if (chunkErr)
++              channel.stderr._write(chunkErr, null, cbErr);
++            else if (cbErr)
++              cbErr();
+           }
+         },
+         CHANNEL_SUCCESS: (p, recipient) => {

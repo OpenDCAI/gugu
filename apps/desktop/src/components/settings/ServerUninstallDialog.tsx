@@ -1,3 +1,4 @@
+import { messageForUser } from '@/lib/userFacingError';
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import type { Device } from '@gugu/core/shared/types/chat'
@@ -44,7 +45,7 @@ export function ServerUninstallDialog({
   agents: BoundAgentsState
   onCascadeChange: (value: boolean) => void
   /** 卸完之后把它从列表移除;返回是否成功。 */
-  onRemove: () => Promise<boolean>
+  onRemove: () => Promise<void>
   /** 连不上 / 已经没装:改走「只移除」。 */
   onRemoveOnly: () => void
   onClose: () => void
@@ -53,7 +54,7 @@ export function ServerUninstallDialog({
   const [runId, setRunId] = useState<string | null>(null)
   const [states, setStates] = useState<Record<string, ServerUninstallState>>({})
   const [unknownMachine, setUnknownMachine] = useState(false)
-  const [removed, setRemoved] = useState<boolean | null>(null)
+  const [removed, setRemoved] = useState<true | string | null>(null)
   const runIdRef = useRef<string | null>(null)
   const removeStarted = useRef(false)
 
@@ -94,16 +95,15 @@ export function ServerUninstallDialog({
   const state = runId ? states[runId] ?? null : null
   const phase = state?.phase ?? (unknownMachine ? null : 'inspecting')
 
-  // 那台机器吐出来的原文只进日志,界面只说发生了什么、下一步怎么办。
   useEffect(() => {
-    if (state?.failure) log.warn({ reason: state.failure.reason, detail: state.failure.detail ?? null, target: state.target }, 'server uninstall failed')
+    if (state?.failure) log.error({ reason: state.failure.reason, detail: state.failure.detail ?? null, target: state.target }, 'server uninstall failed')
   }, [state?.failure, state?.target])
 
   // 卸完 ⇒ 从列表移除(带上智能体的级联选择)。
   useEffect(() => {
     if (phase !== 'done' || removeStarted.current) return
     removeStarted.current = true
-    void onRemove().then(setRemoved, () => setRemoved(false))
+    void onRemove().then(() => setRemoved(true), (error: unknown) => setRemoved(messageForUser(error)))
   }, [phase, onRemove])
 
   const answer = useCallback((value: string | null) => {
@@ -180,13 +180,13 @@ export function ServerUninstallDialog({
 
         {phase === 'done' && removed !== null && (
           <div className={`${body} text-[var(--fg)]`}>
-            {removed ? t('devices.uninstall.done', { target: state?.target ?? address }) : t('devices.uninstall.doneButNotRemoved', { target: state?.target ?? address })}
+            {removed === true ? t('devices.uninstall.done', { target: state?.target ?? address }) : removed}
           </div>
         )}
 
         {phase === 'failed' && state?.failure && (
           <div className={`${body} text-[var(--danger)]`}>
-            {t('devices.uninstall.failed', { reason: t(reasonKey(state.failure.reason)) })}
+            {state.failure.detail ? messageForUser(state.failure.detail) : t('devices.uninstall.failed', { reason: t(reasonKey(state.failure.reason)) })}
           </div>
         )}
 

@@ -1,4 +1,4 @@
-import { lazy, memo, Suspense, useEffect, useRef, useState } from 'react'
+import { memo, useEffect, useRef, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import { useToast } from '../toastContext'; import { downloadAttachment } from '../../lib/attachmentBytes'
 import { motion, AnimatePresence } from 'framer-motion'; import { MediaAttachmentBubble } from './MediaAttachmentBubble'; import { GroupAvatarSlot } from './StickyGroupAvatar'
@@ -14,7 +14,7 @@ import { MemberProfileAvatarButton } from '../MemberProfileAvatarButton'
 import type { MemberProfileCardModel } from '../MemberProfileCard'
 import type { MemberProfileSide } from '../memberProfileModels'
 import { COLOR_MUTED, readReceiptLabel } from './chatPresentation'
-import { MessageSendStatus } from './MessageSendStatus'
+import { MessageSendStatus } from './MessageSendStatus'; import { safeFailureLine } from '@/session/renderer/features/sessions/gugu-reason'
 import { Markdown } from '../markdown/Markdown'; import { classifyFileLink } from '@gugu/core/shared/ui/guguLink'
 import { buildBubbleStyle } from './messageBubbleStyle'
 import { WidgetCard, type Widget } from './WidgetCard'
@@ -22,25 +22,17 @@ import { ComposerCardView } from './ComposerCardView'
 import { QuestionCardView } from './QuestionCardView'
 import { MessageQuote } from './MessageQuote'
 import { parseComposerCard } from '@gugu/core/shared/ui/taskCardModels'
-import { Menu, MenuItem, type MenuAnchorProps } from '../ui/Menu'
-import { Ellipsis, Reply, Smile, type IconComponent } from '@/lib/icons'
-const EmojiQuickPicker = lazy(() => import('./EmojiQuickPicker').then((module) => ({ default: module.EmojiQuickPicker })))
+import { HoverActionBar } from './HoverActionBar'
+import { DeferredEmojiQuickPicker, DeferredMessageActionSheet } from './messageActionModules'
+import { MsgMoreMenu } from './MsgMoreMenu'
 import { canSourceTopic } from './topicSplitModels' // @@@5856 与顶栏那颗按钮共用同一个判据,❌ 不再写第二份
-const MessageActionSheet = lazy(() => import('./MessageActionSheet').then((module) => ({ default: module.MessageActionSheet }))); import { messageActionItems, type MessageActionTarget } from './messageActionItems'
 import { highlightText } from './highlightText'
 import { SystemMessageNotice } from './SystemMessageNotice'
 import { AgentAnswerActions } from './AgentAnswerActions'
-/** 时间戳「留 DOM 不留像素」：合组消息、或上方刚有时间分隔线时用它——移动端无 hover 读不到 title，读屏 / e2e 仍取得到。 */
-const VISUALLY_HIDDEN: React.CSSProperties = { position: 'absolute', width: 1, height: 1, overflow: 'hidden', clipPath: 'inset(50%)', whiteSpace: 'nowrap' }
-
-/** #1323 模块3 — 每条消息的 HH:mm 时间戳(SSOT .who .w)。本地时区,与 TanchorCard 同口径。 */
-function fmtMsgTime(iso: string): string {
-  const d = new Date(iso)
-  return `${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}`
-}
+import { BubbleSender, BubbleTime } from './MessageBubbleChrome'; import { fmtMsgTime } from './messageRowTime'
 
 /** The composer's quote (`> [SenderName]: QuotedText\nReplyText`, InputArea) into quote + reply parts. Any other `> `
- *  start is a markdown blockquote (one put in by gugu.compose, an agent quoting): rendered as markdown, not taken apart. */
+ *  start is a markdown blockquote (one put in by a gugu.dispatch draft, an agent quoting): rendered as markdown, not taken apart. */
 function parseQuotedContent(
   content: string,
 ): { senderName: string; quoteText: string; replyText: string } | null {
@@ -211,10 +203,10 @@ interface BubbleProps {
   // @@@multi-select (#988) — 提供则 More 菜单「多选」项可用 → 进入多选模式并预选本消息。
   // 多选态的勾选框/选中底色/行点击在 MessageListRow 包裹层处理（pointer-events:none 禁用本气泡交互）。
   onEnterSelectMode?: (msg: MessageItem) => void
-  // 连续消息合组（父层按「同发送者 + 无时间分隔线切断」判定）：true 时隐藏头像与名字/时间行、收紧行距，
-  // 只留气泡。头像位置用等宽 spacer 占住，保证组内气泡与组首对齐。
+  // 连续消息合组（父层按「同发送者 + 无时间分隔线切断」判定）：true 时气泡里不再写名字、收紧行距；
+  // 头像位置用等宽 spacer 占住，保证组内气泡与组首对齐。
   groupedWithPrev?: boolean; groupedWithNext?: boolean // 下一条也属于这一组 ⇒ 头像不画在这里,画在组尾(Telegram 式,见 GroupAvatarSlot)
-  // 本条上方刚渲染了时间分隔线：名字/时间行不再重复同一个时间（群聊仍显发送者名），时间节点走 VISUALLY_HIDDEN。
+  // 气泡右下角不写时间(流式预览:回合还没落成一条消息)。
   hideTime?: boolean
   // 父层对每条本人消息都传 true（#2098 逐条已读：主列/话题视图均 showReadReceipt={is_mine}）→ 各自挂环；
   // 是否真渲染由气泡内门（is_mine + !retracted + 非 sending/failed + 有收件人）逐条决定；read=0 挂空环 = 已发出未读(#5649)。
@@ -247,27 +239,24 @@ export const MessageBubble = memo(function MessageBubble({
 }: BubbleProps) {
   const { t } = useTranslation('messaging')
   const { toast } = useToast()
-  // @@@copy-fail-loud (#1123) — clipboard.writeText 是 Promise；原代码未 await/未 catch → 失败时是
-  //   unhandled rejection、菜单照常关，用户以为复制成功。await + try/catch，成功/失败都给反馈。
-  const handleCopyText = async () => {
+  const handleCopyText = async (content = msg.content ?? '') => {
     try {
-      await navigator.clipboard.writeText(msg.content ?? '')
+      await navigator.clipboard.writeText(content)
       toast(t('message.copied'), 'success')
-    } catch {
-      toast(t('message.copyFailed'), 'error')
+    } catch (error) {
+      toast(t('actions.copyFailed', { ns: 'common' }), 'error', safeFailureLine(String((error as Error)?.message ?? error)))
     }
   }
-  // Right-click / long-press context menu (kept for backward compat; opens same More menu)
   const [showMenu, setShowMenu] = useState(false)
   const [menuPos, setMenuPos] = useState({ x: 0, y: 0 })
-  // Hover action bar More menu / emoji quick-picker — both anchor to their own button element
-  // (Base UI re-measures it while the list scrolls), ❌ a getBoundingClientRect snapshot.
   const [showMoreMenu, setShowMoreMenu] = useState(false)
   const [showEmojiPicker, setShowEmojiPicker] = useState(false)
-  // Hover state for showing the action bar (design: .msg:hover .msg-actions{display:flex})
   const [isRowHovered, setIsRowHovered] = useState(false)
   const moreButtonRef = useRef<HTMLButtonElement>(null)
   const reactButtonRef = useRef<HTMLButtonElement>(null)
+  const bubbleRef = useRef<HTMLDivElement>(null)
+  const [menuLink, setMenuLink] = useState<HTMLAnchorElement | null>(null)
+  const [menuSelection, setMenuSelection] = useState('')
   const { user } = useAuth()
   const voiceAttachment = msg.content_type === 'attachment'
     ? parseVoiceAttachmentContent(msg.content)
@@ -291,23 +280,36 @@ export const MessageBubble = memo(function MessageBubble({
   }, [showMenu, showMoreMenu, showEmojiPicker])
 
   // 同一份动作:桌面挂在悬停条 ⋯ 与右键菜单上,手机挂在长按面板上。每个动作做完就关掉打开它的那个面。
-  const messageActions = (close: () => void): MessageActionTarget & { onClose: () => void } => ({
+  const messageActions = (close: () => void) => ({
     isMine: msg.is_mine, isRetracted: !!msg.retracted_at, content: msg.content, onClose: close,
-    onCopy: () => { void handleCopyText(); close() },
+    onReply: () => { onQuote(msg); close() },
+    onReact: (emoji: string) => { onReaction(msg.id, emoji); close() },
+    onQuoteSelection: menuSelection && msg.content_type === 'text' ? () => { onQuote({ ...msg, content: menuSelection }); close() } : undefined,
+    onCopy: (content = menuSelection || undefined) => { void handleCopyText(content); close() },
+    onCopyLink: menuLink ? () => { void handleCopyText(menuLink.href); close() } : undefined,
+    onOpenLink: menuLink ? () => { menuLink.click(); close() } : undefined,
     onForward: () => { onForward(msg); close() },
-    onDownload: mediaAttachment && mediaAttachment.source.kind !== 'gone' ? () => { void downloadAttachment(mediaAttachment.source, mediaAttachment.fileName).catch(() => toast(t('chatArea.downloadFailed'), 'error')); close() } : undefined,
+    onDownload: mediaAttachment && mediaAttachment.source.kind !== 'gone' ? () => { void downloadAttachment(mediaAttachment.source, mediaAttachment.fileName).catch((error) => toast(t('chatArea.downloadFailed'), 'error', safeFailureLine(String((error as Error)?.message ?? error)))); close() } : undefined,
     onDelete: () => { onDelete(msg.id); close() },
     onSelect: onEnterSelectMode ? () => { onEnterSelectMode(msg); close() } : undefined,
     onOpenTopic: onOpenTopic && canSourceTopic(msg) ? () => { onOpenTopic(msg.id); close() } : undefined,
   })
 
+  const captureMenuSelection = () => {
+    const selection = window.getSelection()
+    setMenuSelection(selection && bubbleRef.current?.contains(selection.anchorNode) && bubbleRef.current.contains(selection.focusNode) ? selection.toString() : '')
+  }
+
   const openMenuAt = (x: number, y: number) => {
+    captureMenuSelection()
     document.dispatchEvent(new CustomEvent(UI_EVENTS.closeContextMenus))
     setMenuPos({ x, y })
     setShowMenu(true)
   }
 
   const openMoreMenuFromButton = () => {
+    captureMenuSelection()
+    setMenuLink(null)
     document.dispatchEvent(new CustomEvent(UI_EVENTS.closeContextMenus))
     setShowMoreMenu(true)
   }
@@ -332,12 +334,11 @@ export const MessageBubble = memo(function MessageBubble({
 
   // gugu-dev#181 任务卡自己就是一个面,❌ 再套一层气泡。
   const card = msg.content_type === 'card' ? parseComposerCard(msg.content) : null
-  const bubbleStyle = card ? { maxWidth: '100cqw' } : buildBubbleStyle(msg.is_mine, !!msg.is_whisper, compactMobile)
+  const bubbleStyle = card ? { maxWidth: '100cqw' } : buildBubbleStyle(msg.is_mine, !!msg.is_whisper, compactMobile, groupedWithPrev)
 
   const avatarName = memberProfile?.displayName ?? ''
   const avatarUrl = memberProfile?.avatar ?? null
   const avatarIsAgent = memberProfile?.type === 'agent' || (!msg.is_mine && isAgent)
-  const agentOwnerSuffix = memberProfile?.type === 'agent' ? memberProfile.ownerUserId && memberProfile.ownerUserId === user?.id ? t('message.myAgentSuffix') : memberProfile.ownerDisplayName ? t('message.agentOwnerSuffix', { owner: memberProfile.ownerDisplayName }) : t('message.agentOwnerUnavailableSuffix') : null
   // @@@avatar-status-badge (#793 rollout) - the agent sender's status lives on its memberProfile
   // (populated for both group agents and the DM peer in ChatAreaPanel's messageMemberProfiles).
   // Pass it through so the avatar shows the unified status corner badge.
@@ -347,6 +348,11 @@ export const MessageBubble = memo(function MessageBubble({
   const canOpenProfile = !!memberProfile && !!onOpenMemberProfile
 
   if (msg.content_type === 'system') return <SystemMessageNotice message={msg} senderName={avatarName} />
+  const showSender = isGroup && !msg.is_mine && !groupedWithPrev && !card
+  // 时间在气泡右下角:正文是文字 ⇒ 和最后一行同一行;引用回复、附件、小组件 ⇒ 单独占最后一行。任务卡自己的行尾写着时间。
+  const showTime = !hideTime && !card
+  const timeInline = isRetracted || (msg.content_type === 'text' && !parseQuotedContent(msg.content ?? '')?.replyText)
+  const timeRoom = `"${fmtMsgTime(msg.created_at)}"`
 
   return (
     <div
@@ -399,35 +405,6 @@ export const MessageBubble = memo(function MessageBubble({
           gap: '3px',
         }}
       >
-        {/* @@@1323-m3 .who(SSOT L128):received = 发送者名(.n 12/500/--muted-fg)+ 时间戳(.w 11/--faint-fg);
-            own = 仅时间戳(SSOT own .who 只有 .w,无名,row-reverse)。原 gugu 只有 received 名、无时间戳。
-            合组的后续消息整行隐藏（名字/时间只在组首出现一次），时间以 title 提示保留可查。 */}
-        {!groupedWithPrev && (
-          <div
-            data-message-who="true"
-            style={{
-              display: 'flex',
-              flexDirection: msg.is_mine ? 'row-reverse' : 'row',
-              alignItems: 'center',
-              gap: 'var(--spacing-sm)',
-              padding: '0 2px', maxWidth: '100%', // 列是 flex-start:本行按内容取宽,不封顶 nowrap 长名会撑出列
-              // @@@933-mopup SSOT `.who{margin-bottom:4px}` L127。时间被分隔线接管、又没有发送者名时整行是空的,连这 4px 也不留。
-              marginBottom: hideTime && !(isGroup && !msg.is_mine) ? 0 : 'var(--spacing-xs)',
-            }}
-          >
-            {/* @@@1484 仅群聊显发送者名;DM/ai 1:1 头部已知对方,显名是群聊样式误用(QA Round1 #1479)。长名先让:名字截断,归属标记不让位。 */}
-            {!msg.is_mine && isGroup && (
-              <span data-message-sender-name="true" style={{ display: 'flex', minWidth: 0, fontSize: 'var(--font-caption)', lineHeight: 'var(--lh-caption)', fontWeight: 500, color: 'var(--muted-fg)' }}>
-                <span className="truncate">{memberProfile?.displayName ?? ''}</span>
-                {agentOwnerSuffix && <span data-message-agent-owner="true" className="shrink-0 max-w-full overflow-hidden text-ellipsis whitespace-pre text-[var(--faint-fg)] font-normal">{agentOwnerSuffix}</span>}
-              </span>
-            )}
-            <span data-message-time="true" style={hideTime ? VISUALLY_HIDDEN : { fontSize: 'var(--font-caption)', lineHeight: 'var(--lh-caption)', color: 'var(--faint-fg)' }}>
-              {fmtMsgTime(msg.created_at)}
-            </span>
-          </div>
-        )}
-
         {/* @@@whisper (#820) — 悄悄话标签（设计稿 .whisper .lbl:标注字号 + --faint-fg; display:flex; align-items:center; gap:4px）
             is_mine=true → 「悄悄话给 {name} · 仅你与对方可见」；received → 「悄悄话 · 仅你可见」 */}
         {msg.is_whisper && (
@@ -458,7 +435,7 @@ export const MessageBubble = memo(function MessageBubble({
           {/* Hover action bar (.msg:hover .msg-actions{display:flex}) —— 只在桌面外壳:手机上消息操作走长按面板(下面 showMenu
               的手机分支),而且手机上等不到 pointerleave,一次点按置上的 hover 会让它一直浮着(#6850)。 */}
           <HoverActionBar
-            isMine={msg.is_mine}
+            isMine={msg.is_mine} anchorRef={bubbleRef}
             isRetracted={isRetracted}
             isVisible={!streaming && !compactMobile && (isRowHovered || showMoreMenu || showEmojiPicker)}
             reactButtonRef={reactButtonRef}
@@ -468,7 +445,7 @@ export const MessageBubble = memo(function MessageBubble({
             onMore={openMoreMenuFromButton}
           />
           {msg.is_mine && !msg.retracted_at && sendState && (
-            <MessageSendStatus state={sendState} messageId={msg.id} />
+            <MessageSendStatus state={sendState} messageId={msg.id} reason={msg.local_send_error} />
           )}
 
           {/* @@@1345 逐成员读回执做成进度圆环(替文字)：本人已发消息显示 ○ 环(填充比例=已读%)，
@@ -500,24 +477,24 @@ export const MessageBubble = memo(function MessageBubble({
           )}
 
           <div
+            ref={bubbleRef}
             data-testid={AUTOMATION_TEST_IDS.messageBubbleActionTarget}
-            style={bubbleStyle}
-            // 合组消息隐藏了名字/时间行，时间挪进 hover 提示，保持可查。
-            title={groupedWithPrev ? fmtMsgTime(msg.created_at) : undefined}
+            style={bubbleStyle} data-bubble-tail={!card && !msg.is_whisper && !groupedWithNext ? (msg.is_mine ? 'mine' : 'other') : undefined}
             {...longPress}
+            onPointerDownCapture={(e) => setMenuLink(e.target instanceof Element ? e.target.closest<HTMLAnchorElement>('a[href]') : null)}
             onContextMenu={(e) => {
               e.preventDefault()
               e.stopPropagation()
               openMenuAt(e.clientX, e.clientY)
             }}
           >
-            {/* 合组消息隐藏了 .who 行；时间戳保留一个视觉隐藏节点（见 VISUALLY_HIDDEN）。 */}
-            {groupedWithPrev && <span data-message-time="true" style={VISUALLY_HIDDEN}>{fmtMsgTime(msg.created_at)}</span>}
+            {/* 名字只在群里收到的、一组的第一条上(DM 头栏已经说了是谁);任务卡自己写着是谁发的。 */}
+            {showSender && <BubbleSender member={memberProfile} senderId={msg.sender_user_id} />}
             {isRetracted ? (
               // #1323 模块3 — 撤回文字 --text-tertiary→--muted-fg(原偏淡)
-              <span style={{ color: 'var(--muted-fg)', fontStyle: 'italic' }}>{t('message.retracted')}</span>
+              <span className="msg-time-room-inline" style={{ color: 'var(--muted-fg)', fontStyle: 'italic', '--msg-time-room': timeRoom } as React.CSSProperties}>{t('message.retracted')}</span>
             ) : (
-              <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-start', gap: '4px' }}>
+              <div className={timeInline ? 'msg-time-room' : undefined} style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-start', gap: '4px', '--msg-time-room': timeRoom } as React.CSSProperties}>
                 {msg.reply_to_message_id && <MessageQuote onShowMessage={onShowMessage} msg={msg} quoterIsAgent={avatarIsAgent} memberProfiles={memberProfiles} />}
                 {card?.type === 'question' ? (
                   <QuestionCardView card={card} chatId={msg.chat_id} messageId={msg.id} agentUserId={msg.sender_user_id ?? ''} time={fmtMsgTime(msg.created_at)} />
@@ -554,7 +531,7 @@ export const MessageBubble = memo(function MessageBubble({
                   )
                 ) : (() => {
                   const raw = msg.content ?? ''
-                  if (highlight) return <span>{highlightText(raw, highlight)}</span> // 包一层:外面是引用块那一列(flex 列),裸的文字段和 <mark> 会各占一行
+                  if (highlight) return <span className="msg-time-room-inline">{highlightText(raw, highlight)}</span> // 包一层:外面是引用块那一列(flex 列),裸的文字段和 <mark> 会各占一行
                   const quoted = parseQuotedContent(raw)
                   if (quoted && quoted.replyText) {
                     return (
@@ -593,6 +570,7 @@ export const MessageBubble = memo(function MessageBubble({
                 })()}
               </div>
             )}
+            {showTime && <BubbleTime iso={msg.created_at} isMine={msg.is_mine} inline={timeInline} />}
           </div>
         </div>
 
@@ -612,22 +590,21 @@ export const MessageBubble = memo(function MessageBubble({
       {showMoreMenu && <MsgMoreMenu anchor={moreButtonRef} {...messageActions(() => setShowMoreMenu(false))} />}
 
       {/* ── 右键:指针处的同一份菜单。手机长按:底部面板(Sheet 进返回键栈、带遮罩,关闭路径由它保证) ── */}
-      {showMenu && <Suspense fallback={null}>{compactMobile ? (
-        <MessageActionSheet
+      {showMenu && (compactMobile ? (
+        <DeferredMessageActionSheet
+          selectableText={msg.content_type === 'text' ? msg.content ?? undefined : undefined}
           {...messageActions(() => setShowMenu(false))}
-          onReply={() => { onQuote(msg); setShowMenu(false) }}
-          onReact={(emoji) => { onReaction(msg.id, emoji); setShowMenu(false) }}
         />
-      ) : <MsgMoreMenu x={menuPos.x} y={menuPos.y} {...messageActions(() => setShowMenu(false))} />}</Suspense>}
+      ) : <MsgMoreMenu x={menuPos.x} y={menuPos.y} {...messageActions(() => setShowMenu(false))} />)}
 
       {/* ── Emoji quick-picker (hover-bar "Add emoji" button) ── */}
-      {showEmojiPicker && <Suspense fallback={null}>
-        <EmojiQuickPicker
+      {showEmojiPicker && (
+        <DeferredEmojiQuickPicker
           anchor={reactButtonRef}
           onPick={(emoji) => { onReaction(msg.id, emoji); setShowEmojiPicker(false) }}
           onClose={() => setShowEmojiPicker(false)}
         />
-      </Suspense>}
+      )}
     </div>
   )
 })
@@ -665,157 +642,5 @@ function ReactionBar({ reactions, isMine, onToggle }: {
         ))}
       </AnimatePresence>
     </div>
-  )
-}
-
-/* ─────────────────────────────────────────────────────────────────────────────
-   HoverActionBar — design .msg-actions / .ma-b (lines 121-125 of index.html)
-
-   Values copied verbatim:
-     .msg-actions: position:absolute; top:-15px; display:none→flex on hover;
-       gap:2px; background:var(--bg); border:1px solid rgba(0,0,0,.04);
-       border-radius:var(--radius-capsule); padding:3px; box-shadow:0 6px 12px rgba(0,0,0,.12); z-index:var(--z-float)
-     .msg.agent .msg-actions: right:0; left:auto
-     .msg.own   .msg-actions: left:0;  right:auto
-     .ma-b: width:32px; height:32px; border:none; background:transparent;
-       border-radius:var(--radius-capsule); display:grid; place-items:center;
-       color:var(--muted-fg); cursor:pointer
-     .ma-b:hover: background:var(--hover); color:var(--fg)
-     .ma-b svg: width:20px; height:20px
-   gugu token mapping: --muted-fg→var(--text-secondary), --hover→var(--menu-item-hover),
-     --fg→var(--menu-fg), --bg→var(--menu-bg), --r-pill→999px
-   ──────────────────────────────────────────────────────────────────────────── */
-
-// @@@msg-actions-anchor (#1142) - In the design the bar anchors to `.msg` (the full row whose top is
-// the sender/time `.who` line ABOVE the bubble), so the design's top:-15px clears the bubble. Here
-// the position:relative anchor wraps only the bubble row (sender name is rendered above it), so
-// top:-15px landed inside the bubble and overlapped the text. bottom:100% pins the bar's bottom edge
-// to the bubble's top edge — sitting fully above the bubble regardless of bubble size, matching the
-// design's "bar above bubble" result against this tighter anchor.
-const MA_BAR_STYLE: React.CSSProperties = {
-  position: 'absolute',
-  bottom: '100%',
-  marginBottom: '2px',
-  display: 'flex',
-  gap: '2px',
-  background: 'var(--menu-bg)',
-  border: '1px solid var(--border)',
-  borderRadius: 'var(--radius-capsule)',
-  padding: '3px',
-  boxShadow: 'var(--shadow-lift)', // @@@shadow-lift (Refs #6105) 原来是全目录唯一一处自写的浮层阴影数值
-  zIndex: 'var(--z-float)',
-}
-
-// @@@3079 border / background / color / cursor / transition 全部交给 .gg-ghost。
-// ❌ 别把它们写回内联:内联优先级高于类,写回去 .gg-ghost 的 hover/active 就永远不生效
-// —— 这正是原来必须手写 onMouseEnter 直改 style 的原因。这里只留几何。
-const MA_BUTTON_STYLE: React.CSSProperties = {
-  width: '32px',
-  height: '32px',
-  borderRadius: 'var(--radius-capsule)',
-  display: 'grid',
-  placeItems: 'center',
-  flexShrink: 0,
-}
-
-/* SVG override: design .ma-b svg{width:20px;height:20px} */
-const MA_SVG_WRAPPER_STYLE: React.CSSProperties = {
-  display: 'flex',
-  width: '20px',
-  height: '20px',
-  alignItems: 'center',
-  justifyContent: 'center',
-  pointerEvents: 'none',
-}
-
-function MaButton({
-  title,
-  icon: Icon,
-  onClick,
-  buttonRef,
-}: {
-  title: string
-  icon: IconComponent
-  onClick: () => void
-  buttonRef?: React.RefObject<HTMLButtonElement | null>
-}) {
-  return (
-    <button
-      ref={buttonRef}
-      type="button"
-      title={title}
-      // @@@3079 .gg-ghost 就是 tokens.css 里为「消息工具条」这类图标钮定义的那一档:
-      // hover / active / disabled 齐全,转场走 --dur-fast。原来手写的两个 handler 只有 hover 一态,
-      // 按下毫无反馈;而且它直改 element.style,React 一旦重渲染就把内联值刷回去。
-      className="gg-ghost"
-      style={MA_BUTTON_STYLE}
-      onClick={(e) => { e.stopPropagation(); onClick() }}
-    >
-      <span style={MA_SVG_WRAPPER_STYLE}>
-        <Icon size={16} />
-      </span>
-    </button>
-  )
-}
-
-function HoverActionBar({
-  isMine,
-  isRetracted,
-  isVisible,
-  reactButtonRef,
-  moreButtonRef,
-  onReact,
-  onReply,
-  onMore,
-}: {
-  isMine: boolean
-  isRetracted: boolean
-  isVisible: boolean
-  reactButtonRef: React.RefObject<HTMLButtonElement | null>
-  moreButtonRef: React.RefObject<HTMLButtonElement | null>
-  onReact: () => void
-  onReply: () => void
-  onMore: () => void
-}) {
-  const { t } = useTranslation('messaging')
-  if (isRetracted) return null
-
-  /* Design: agent→right:0,left:auto  /  own→left:0,right:auto  */
-  const posStyle: React.CSSProperties = isMine
-    ? { left: 0, right: 'auto' }
-    : { right: 0, left: 'auto' }
-
-  /* Design: .msg:hover .msg-actions{display:flex} / else display:none */
-  const visStyle: React.CSSProperties = isVisible
-    ? { display: 'flex' }
-    : { display: 'none' }
-
-  return (
-    <div
-      style={{ ...MA_BAR_STYLE, ...posStyle, ...visStyle }}
-    >
-      <MaButton title={t('message.actions.react')} icon={Smile} onClick={onReact} buttonRef={reactButtonRef} />
-      <MaButton title={t('message.actions.reply')} icon={Reply} onClick={onReply} />
-      <MaButton title={t('message.actions.more')} icon={Ellipsis} onClick={onMore} buttonRef={moreButtonRef} />
-    </div>
-  )
-}
-
-/* MsgMoreMenu — design #msgmenu:动作表见 MessageActionSheet 的 messageActionItems(与手机长按面板同一份)。
-   引用在悬停条的「回复」上;撤回不在设计稿里。 */
-type MsgMoreMenuProps = MenuAnchorProps & MessageActionTarget & { onClose: () => void }
-
-function MsgMoreMenu({ isMine, isRetracted, content, onCopy, onForward, onDownload, onDelete, onSelect, onOpenTopic, onClose, ...anchor }: MsgMoreMenuProps) {
-  const { t } = useTranslation('messaging')
-  // 翻转/平移全交给 Base UI(它量真实弹层);❌ 按条数估高再手算上翻。
-  return (
-    <Menu {...anchor} minWidth={180} onClose={onClose}>
-      {messageActionItems({ isMine, isRetracted, content, onCopy, onForward, onDownload, onDelete, onSelect, onOpenTopic }, t).map((item) => (
-        <MenuItem key={item.key} icon={<item.icon size={15} />} disabled={item.disabled} danger={item.danger} title={item.title}
-          onClick={item.onSelect ? () => { item.onSelect?.(); onClose() } : undefined}>
-          {item.label}
-        </MenuItem>
-      ))}
-    </Menu>
   )
 }

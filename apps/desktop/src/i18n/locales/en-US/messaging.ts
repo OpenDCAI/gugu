@@ -331,12 +331,23 @@ export default {
     "newerInFolder": "Newer version in the folder",
     "retry": "Retry"
   },
+  "dispatchPick": {
+    "myAgents": "My agents",
+    "title": "Hand to",
+    "search": "Search members, tasks or chats",
+    "chatAgents": "Agents in {{chat}}",
+    "chatPeople": "People in {{chat}}",
+    "new": "New",
+    "newAgent": "A new agent",
+    "empty": "No one to hand it to",
+    "send": "Send",
+    "text": "What will be sent",
+    "textPlaceholder": "Say what to do",
+    "visible": "Visible to everyone in the chat (by default only they see it)"
+  },
   "composePick": {
     "title": "Choose where to send",
-    "search": "Search chats and tasks",
     "chats": "Chats",
-    "tasks": "My tasks",
-    "empty": "No chats or tasks to choose",
     "action": "Add to composer"
   },
   "composer": {
@@ -510,7 +521,6 @@ export default {
       "agentFloodTopics": "Topic thresholds",
       "agentFloodTopicsFailed": "Could not load topics.",
       "agentFloodPermissionsFailed": "Could not load topic permissions. Read-only for now.",
-      "agentFloodLoadFailed": "Could not load the threshold. Reopen settings to retry.",
       "agentFloodSaveFailed": "Could not save the threshold. Please try again.",
       "agentFloodThreshold": "Turn agents passive past this many",
       "agentFloodThresholdAria": "How many agents before they all turn passive",
@@ -643,12 +653,16 @@ export default {
     "view": "View {{title}}"
   },
   "message": {
-    "myAgentSuffix": " (my agent)",
-    "agentOwnerUnavailableSuffix": " (owner unavailable)",
+    "myAgentTag": "my agent",
+    "agentOwnerUnavailableTag": "owner unavailable",
+    "agentOwnerTag": "{{owner}}'s agent",
     "agentOwnerSuffix": " ({{owner}}'s agent)",
     "actions": {
       "comingSoon": "Coming soon",
       "copy": "Copy text",
+      "copyLink": "Copy link",
+      "openLink": "Open link",
+      "selectText": "Select text",
       "delete": "Delete",
       "edit": "Edit",
       "forward": "Forward",
@@ -656,6 +670,7 @@ export default {
       "openTopic": "Open a topic",
       "react": "React",
       "reply": "Reply",
+      "quoteSelection": "Quote selection",
       "select": "Select"
     },
     "attachment": "[Attachment]",

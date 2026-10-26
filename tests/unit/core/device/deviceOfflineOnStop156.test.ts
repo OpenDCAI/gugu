@@ -59,8 +59,9 @@ describe('#156 停机时设备行当场标离线', () => {
       if (table !== 'gugu_devices') return real
       return {
         ...real,
-        upsert: () => new Promise((resolve) => { land = () => { order.push('heartbeat'); resolve({ data: null, error: null }) } }),
-        update: (value: unknown) => ({ eq: async (column: string, id: string) => { order.push('offline'); return (real.update as (v: unknown) => { eq: (c: string, i: string) => unknown })(value).eq(column, id) } }),
+        update: (value: { status: string }) => value.status === 'online'
+          ? { eq: () => ({ select: () => new Promise((resolve) => { land = () => { order.push('heartbeat'); resolve({ data: [{ runtimes: [] }], error: null }) } }) }) }
+          : { eq: async (column: string, id: string) => { order.push('offline'); return (real.update as (v: unknown) => { eq: (c: string, i: string) => unknown })(value).eq(column, id) } },
       }
     }
     await vi.waitFor(() => expect(land).not.toBeNull())
@@ -124,9 +125,9 @@ describe('#156 停机时设备行当场标离线', () => {
     const { host, client } = await hostWith('after-stop')
     await host.tickOnce()
     await host.stop()
-    const upserts = client.upserts.length
+    const from = vi.spyOn(client, 'from')
     expect(await host.tickOnce()).toEqual({ skipped: true })
-    expect(client.upserts).toHaveLength(upserts)
+    expect(from).not.toHaveBeenCalled()
   })
 
   it('停下时已经没有登录态:不写,也不报错', async () => {

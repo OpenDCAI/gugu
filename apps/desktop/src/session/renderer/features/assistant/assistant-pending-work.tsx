@@ -1,3 +1,5 @@
+import { messageForUser } from '@/lib/userFacingError';
+import { rendererLogger } from '@/lib/log';
 import { useQuery } from '@tanstack/react-query';
 import { useEffect, useMemo, useState } from 'react';
 import { useTranslation } from 'react-i18next';
@@ -12,14 +14,14 @@ import type { AssistantContext } from './assistant-context';
 export function AssistantPendingWork({ context }: { context: AssistantContext }) {
   const { t } = useTranslation('assistant');
   const [clearing, setClearing] = useState(false);
-  const [clearError, setClearError] = useState(false);
+  const [clearError, setClearError] = useState('');
   const ownerId = cachedDevicesAccount();
   const app = useMemo(() => assistantAppClient(context.machine, ownerId, true), [context.machine, ownerId]);
   const query = useQuery({
     queryKey: ['assistant-pending-work', ownerId, context.homeDeviceId], enabled: !!context.machine,
     queryFn: async () => {
       const result = await app.callProgram('assistant_work_list');
-      if (result.isError) throw new Error('Pending work could not be read');
+      if (result.isError) throw new Error(result.content.filter(block => block.type === 'text').map(block => block.text).join('\n'), { cause: result });
       return pendingAssistantWorkSchema.parse(result.structuredContent?.result).items;
     },
   });
@@ -31,19 +33,19 @@ export function AssistantPendingWork({ context }: { context: AssistantContext })
     });
   }, [app, context.machine, ownerId, query.refetch]);
   const clear = async () => {
-    setClearing(true); setClearError(false);
+    setClearing(true); setClearError('');
     try {
       const result = await app.callProgram('assistant_work_clear');
-      if (result.isError) throw new Error('Pending work could not be cleared');
+      if (result.isError) throw new Error(result.content.filter(block => block.type === 'text').map(block => block.text).join('\n'), { cause: result });
       await query.refetch();
       await reportAssistantAppChange(context.machine, context.assistant.id, { resource: 'pending-work', operation: 'removed', id: 'pending-work' });
-    } catch { setClearError(true); }
+    } catch (error) { rendererLogger('assistant/pending-work').error({ error }, 'clear pending work failed'); setClearError(messageForUser(error)); }
     finally { setClearing(false); }
   };
   return (
     <AssistantSection title={t('memory.pending.title')} testId="assistant-pending-work">
       <details>
-        <summary className="ta-page-sub cursor-pointer">{query.data ? t('memory.pending.count', { count: query.data.length }) : t(query.isError ? 'memory.pending.retry' : 'memory.pending.loading')}</summary>
+        <summary className="ta-page-sub cursor-pointer">{query.data ? t('memory.pending.count', { count: query.data.length }) : query.isError ? messageForUser(query.error) : t('memory.pending.loading')}</summary>
         <p className="ta-page-sub my-2">{t('memory.pending.note')}</p>
         {query.isError ? <button type="button" className="ta-pill-btn" onClick={() => void query.refetch()}>{t('memory.pending.retry')}</button>
           : query.isLoading ? <p className="ta-page-sub">{t('memory.pending.loading')}</p>
@@ -56,7 +58,7 @@ export function AssistantPendingWork({ context }: { context: AssistantContext })
                 </div>
               ))}
         {query.data?.length ? <button type="button" className="ta-pill-btn mt-2" disabled={clearing} onClick={() => void clear()}>{t('memory.pending.clear')}</button> : null}
-        {clearError ? <p role="alert" className="ta-page-sub">{t('memory.pending.clearFailed')}</p> : null}
+        {clearError ? <p role="alert" className="ta-page-sub">{clearError}</p> : null}
       </details>
     </AssistantSection>
   );

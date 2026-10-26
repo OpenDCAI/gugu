@@ -49,7 +49,7 @@ it('reads from the assistant home and clearing forgets entries through the App w
 it('does not display a fabricated zero while the recovery state is unreadable', async () => {
   state.fail = true;
   await open();
-  expect(container.querySelector('summary')?.textContent).toBe('memory.pending.retry');
+  expect(container.querySelector('summary')?.textContent).toBe('read failed');
   expect(container.textContent).not.toContain('memory.pending.count:0');
 });
 it('shows a refused device task with its original requirement and source instead of an executor wait', async () => {

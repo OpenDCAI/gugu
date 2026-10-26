@@ -2,7 +2,7 @@ import { observer } from 'mobx-react-lite'
 import { useContext, useEffect, useRef } from 'react'
 import { useTranslation } from 'react-i18next'
 import { installedExtensionsStore } from '../../session/renderer/features/extensions/installed-extensions-store'
-import { APP_SLOT_EVENT, type AppSlotEventDetail } from '../../session/shared/extensions/app-runtime-protocol'
+import { extensionViewStore } from '../../session/renderer/features/extensions/extension-view-store'
 import { PeekCovered } from './peekCovered'
 
 /** What in an ancestor can hide the slot without moving or resizing it (`RETAINED_SURFACE_HIDDEN_STYLE`). */
@@ -16,7 +16,7 @@ const HIDING_ATTRIBUTES = ['style', 'class', 'hidden', 'inert']
  * watches its own box and every ancestor's hiding attributes, and claims while it is visible,
  * releases while it is not — the same for the App's own page and a page opened for a file.
  */
-export const ClaimedPage = observer(function ClaimedPage({ slotId, chatId, kind, itemId, opening }: { slotId: string; chatId: string; kind: string; itemId?: string; opening?: number }) {
+export const ClaimedPage = observer(function ClaimedPage({ slotId, chatId, kind, itemId }: { slotId: string; chatId: string; kind: string; itemId?: string }) {
   const { t } = useTranslation('messaging')
   const boxRef = useRef<HTMLDivElement | null>(null)
   // A page opened for a file goes when its claim does (extension-view-store): covered, the slot keeps it for the way back.
@@ -28,8 +28,8 @@ export const ClaimedPage = observer(function ClaimedPage({ slotId, chatId, kind,
   useEffect(() => {
     const element = boxRef.current
     if (!element) return
-    const send = (detail: AppSlotEventDetail) => window.dispatchEvent(new CustomEvent(APP_SLOT_EVENT, { detail }))
-    let claimed = false
+    // The same store the session page's slots claim (one module, two React roots): the root layer draws the page here.
+    let token: number | null = null
     const visible = () => {
       if (!element.isConnected || !element.checkVisibility({ visibilityProperty: true, opacityProperty: true })) return false
       const box = element.getBoundingClientRect()
@@ -37,10 +37,12 @@ export const ClaimedPage = observer(function ClaimedPage({ slotId, chatId, kind,
     }
     const sync = () => {
       const want = visible()
-      if (want === claimed || (!want && coveredRef.current)) return
-      claimed = want
-      if (want) send({ type: 'claim', slotId, kind, chatId, element, ...(itemId ? { itemId } : {}) })
-      else send({ type: 'release', slotId })
+      if (want === (token !== null) || (!want && coveredRef.current)) return
+      if (want) token = extensionViewStore.claim(kind, { tabId: slotId, chatId, element, ...(itemId ? { itemId } : {}) })
+      else if (token !== null) {
+        extensionViewStore.release(kind, token)
+        token = null
+      }
     }
     sync()
     const resized = new ResizeObserver(sync)
@@ -52,10 +54,9 @@ export const ClaimedPage = observer(function ClaimedPage({ slotId, chatId, kind,
     return () => {
       resized.disconnect()
       restyled.disconnect()
-      if (claimed) send({ type: 'release', slotId })
+      if (token !== null) extensionViewStore.release(kind, token)
     }
-    // `opening`: a new open of the same file is a new claim, so a new page (摩擦单 F28).
-  }, [chatId, kind, itemId, opening, slotId])
+  }, [chatId, kind, itemId, slotId])
   return (
     <div ref={boxRef} className="min-h-0 flex-1">
       {noPage ? (

@@ -408,9 +408,9 @@
      同一个"lg"两个值,那正是 #6103 审计里六套刻度的来路。
      ⚠️ 删掉之后 `var(--r-lg)` 是 computed-value-time 无效 ⇒ border-radius 静默落回 0(方角),
      不报错。所以它不会炸,会**直角化** —— 看到哪儿突然出现方角,先来这里对名字。 */
-  /* @@@bubble-radius - thread 档大圆角、靠头像侧单角收成 5px */
-  --radius-bubble-sent: var(--radius-bubble) 5px var(--radius-bubble) var(--radius-bubble);
-  --radius-bubble-received: 5px var(--radius-bubble) var(--radius-bubble) var(--radius-bubble);
+  /* @@@bubble-radius - 消息气泡照 Telegram:四角 --radius-bubble,靠头像那一侧和同组上一条/下一条挨着的角收成这一档,
+     组尾那条的头像侧下角再长出小尾巴(messageBubbleStyle.ts + messageBubbleChrome.css)。 */
+  --radius-bubble-joined: 6px;
 
   /* @@@menu — 统一下拉菜单,值见设计稿 (.menu/.mi)。
      :root = 深色（设计稿 [data-theme=dark] 的值）；浅色覆盖见 [data-theme=light]。容器项高 36px / 图标 20px。 */

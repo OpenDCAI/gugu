@@ -48,7 +48,7 @@ vi.mock('../../../apps/desktop/src/lib/topics', () => ({
 
 const { chatService, GroupCollabEmptyError } = await import('../../../apps/desktop/src/lib/chat')
 const { topicService } = await import('../../../apps/desktop/src/lib/topics')
-const { MemberListPanel } = await import('../../../apps/desktop/src/components/chat/MemberListPanel')
+const { MemberListPanelFixture: MemberListPanel } = await import('../../support/MemberListPanelFixture')
 const { AgentFloodSystemNotice } = await import('../../../apps/desktop/src/components/chat/AgentFloodSystemNotice')
 
 const getGroupCollab = vi.mocked(chatService.getGroupCollab)
@@ -181,7 +181,7 @@ describe('#5999 话题手动邀请', () => {
     await renderInvitation(send)
     await click('[role="checkbox"][aria-label="别人的 Agent"]')
     await click('[data-testid="topic-member-invite-confirm"]')
-    expect(document.querySelector('[role="alert"]')?.textContent).toContain('邀请未完成')
+    expect(document.querySelector('[role="alert"]')?.textContent).toContain('network unavailable')
     expect(document.querySelector('[role="checkbox"][aria-label="别人的 Agent"]')?.getAttribute('aria-checked')).toBe('true')
     expect(getGroupCollab).toHaveBeenCalledTimes(1)
     await click('[data-testid="topic-member-invite-confirm"]')
@@ -596,7 +596,7 @@ describe('#5999 群设置只管群自己的阈值，私聊设置管话题阈值'
     getGroupCollab.mockRejectedValue(new Error('network unavailable'))
     await renderSettings()
     expect(inputs()).toHaveLength(0)
-    expect(harness.container.querySelector('[role="alert"]')?.textContent).toContain('话题管理权限未能加载')
+    expect(harness.container.querySelector('[role="alert"]')?.textContent).toContain('network unavailable')
   })
   it('保存失败回到已保存值，且显示可见失败反馈', async () => {
     seedSettings()
@@ -605,6 +605,6 @@ describe('#5999 群设置只管群自己的阈值，私聊设置管话题阈值'
     await change(inputs()[0], '4')
     expect(inputs()[0].value).toBe('9')
     expect(inputs()[0].disabled).toBe(false)
-    expect(toast).toHaveBeenCalledWith('阈值保存失败，请重试。', 'error')
+    expect(toast).toHaveBeenCalledWith('阈值保存失败，请重试。', 'error', 'permission denied')
   })
 })

@@ -3,7 +3,7 @@ import { useEffect, useRef, useState, type MouseEvent } from 'react';
 import { Button } from '@renderer/lib/ui/button';
 import { Tooltip, TooltipContent, TooltipTrigger } from '@renderer/lib/ui/tooltip';
 import { cn } from '@renderer/utils/utils';
-import { copyPrUrl } from './pr-url-copy';
+import { copyExternalLink } from '@renderer/lib/open-external-link';
 
 interface PrUrlCopyButtonProps {
   url: string;
@@ -23,7 +23,7 @@ export function PrUrlCopyButton({ url, className }: PrUrlCopyButtonProps) {
 
   const handleCopy = async (event: MouseEvent<HTMLButtonElement>) => {
     event.stopPropagation();
-    const copySucceeded = await copyPrUrl(url);
+    const copySucceeded = await copyExternalLink(url, 'PR URL copied');
     if (!copySucceeded) {
       if (resetTimerRef.current !== null) {
         window.clearTimeout(resetTimerRef.current);
