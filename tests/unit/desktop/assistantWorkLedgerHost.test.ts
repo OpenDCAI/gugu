@@ -65,7 +65,7 @@ it('returns an accepted dispatch through the real tool registrar without double 
     action=>coordinateAssistantAction({sessionId:'home-session',memoryDir:root,agentId:assistant},action,raw=>{
       const a=raw as {assistant_work:Parameters<typeof enqueueAssistantWorkMessage>[0];text:string}
       return enqueueAssistantWorkMessage(a.assistant_work,a.text,[],[{sessionId:'executor',deviceId:'worker'}])
-    }),()=>undefined,async work=>work)
+    }),()=>'unavailable',async work=>work)
   const answer=await call({to:['session:executor'],text:'Task'},{signal:new AbortController().signal})
   expect(answer.isError).not.toBe(true)
   expect(JSON.stringify(answer.content)).toContain('accepted')

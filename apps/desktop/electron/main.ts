@@ -1670,6 +1670,15 @@ function assistantWorkDeliveryHost(): AssistantWorkOutboxHost {
       if (!devices.find(row => row.device_id === target.device_id)?.online) return null
       return crossMachine().runOnDevice(target.device_id,caller,{action:'get',session_id:target.session_id},signal) as Promise<import('@gugu/core/cloud/assistantWorkReconciliation').ExecutorDeliveryProof>
     },
+    ownerReceipts: async (current,work,events) => {
+      const pending=events.filter(event=>event.kind!=='dispatch'&&event.assistant_admitted_at&&!event.owner_delivered_at)
+      if(!pending.length) return []
+      const bridge=loadEmdashBridge()
+      const auth=await desktopAuthProvider().getAuth()
+      if(!bridge||!auth?.accessToken||auth.userId!==current.ownerId) return []
+      const chatId=await openOwnerDirectChatForAgent(current.assistantId,auth.accessToken,process.env)
+      return bridge.readAssistantWorkOwnerReceipts(work.coordinator_session_id,pending,{chatId,ownerId:current.ownerId})
+    },
     notify: async (current,key,text) => {
       const auth = await desktopAuthProvider().getAuth()
       if (!auth?.accessToken || auth.userId !== current.ownerId) throw new Error('Account changed')

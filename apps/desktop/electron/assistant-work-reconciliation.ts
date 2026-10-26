@@ -1,5 +1,5 @@
 import { createHash } from 'node:crypto'
-import { createAssistantWorkReconciler, type ExecutorDeliveryProof, type ReconciledWork, type WorkReconciliationContext, type WorkReconciliationEvent } from '@gugu/core/cloud/assistantWorkReconciliation'
+import { createAssistantWorkReconciler, type ExecutorDeliveryProof, type ReconciledWork, type WorkReconciliationContext, type WorkReconciliationEvent, type WorkOwnerReceiptProof } from '@gugu/core/cloud/assistantWorkReconciliation'
 import type { AssistantWorkHostContext } from './assistant-work-outbox'
 
 const stableId=async(key:string)=>{
@@ -18,6 +18,7 @@ export function createDesktopAssistantWorkReconciler(deps:{
   context():Promise<AssistantWorkHostContext|null>
   assistant(ctx:AssistantWorkHostContext):Promise<{agentId:string;deviceId:string}|null>
   inspect(ctx:WorkReconciliationContext,work:ReconciledWork,target:{session_id:string;device_id:string}):Promise<ExecutorDeliveryProof|null>
+  ownerReceipts?(ctx:WorkReconciliationContext,work:ReconciledWork,events:WorkReconciliationEvent[]):Promise<WorkOwnerReceiptProof[]>
   notify(ctx:WorkReconciliationContext,key:string,text:string):Promise<{chatId:string;messageId:string}>
   clean(work:ReconciledWork):void
   warn(detail:{code:string}):void
@@ -58,6 +59,6 @@ export function createDesktopAssistantWorkReconciler(deps:{
       if(!Array.isArray(result.events)) throw new Error('Invalid abandoned work list')
       return result.events as WorkReconciliationEvent[]
     },
-    inspect:deps.inspect,notify:deps.notify,clean:deps.clean,warn:deps.warn,stableId,
+    inspect:deps.inspect,ownerReceipts:deps.ownerReceipts,notify:deps.notify,clean:deps.clean,warn:deps.warn,stableId,
   })
 }
