@@ -1,3 +1,4 @@
+// @vitest-environment jsdom
 import { act, type ReactNode } from 'react'
 import { afterEach, beforeEach, expect, it, vi } from 'vitest'
 import type { Settlement } from '@gugu/session-core/session-record/contract'
