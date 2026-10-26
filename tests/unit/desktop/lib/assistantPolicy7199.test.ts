@@ -22,14 +22,15 @@ import { splitInstructions } from '../../../../apps/desktop/src/session/renderer
 
 // #7199 住云上(管家写)与住人自己的电脑上(客户端写)共用同一份说明、同一份初始化任务。
 describe('assistantGuide', () => {
-  it('uses the preferred name or you in all person-visible text without growing the resident core', () => {
+  it('uses names in memories and names or you in messages and cards without growing the core', () => {
     const prompts = [ASSISTANT_CONTEXT_CORE.join('\n'), ASSISTANT_WORKFLOW.join('\n')]
     for (const kind of ['cloud', 'computer'] as const) {
       prompts.push(assistantBrief(kind, '/assistant/reference.md', '/assistant/memory'), assistantGuide(kind))
     }
     for (const prompt of prompts) {
-      expect(prompt).toContain('可见文字（记忆标题/说明、早晚报、日程卡片、私聊）')
-      expect(prompt).toContain('用其称呼或「你」，不用「主人」「用户」')
+      expect(prompt).toContain('记忆用其称呼（含标题/说明）')
+      expect(prompt).toContain('私聊、早晚报、日程卡片用称呼或「你」')
+      expect(prompt).toContain('不用「主人」「用户」')
     }
     expect(ASSISTANT_CONTEXT_CORE.join('\n').length).toBeLessThanOrEqual(1273)
   })

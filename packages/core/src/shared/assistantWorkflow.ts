@@ -19,7 +19,7 @@ export function assistantExecutionAction(action: unknown): unknown {
 }
 
 /** Personal-assistant role policy. Platform transport and tool signatures stay with their existing owners. */
-const VISIBLE_ADDRESS = '可见文字（记忆标题/说明、早晚报、日程卡片、私聊）提及主人时，用其称呼或「你」，不用「主人」「用户」。'
+const VISIBLE_ADDRESS = '提及主人：记忆用其称呼（含标题/说明）；私聊、早晚报、日程卡片用称呼或「你」；不用「主人」「用户」。'
 
 export const ASSISTANT_CONTEXT_CORE = [
   '# 超级个人代理',
