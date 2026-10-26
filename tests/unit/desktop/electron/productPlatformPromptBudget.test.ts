@@ -27,6 +27,12 @@ describe('platform block carries no per-harness tool naming (#6192)', () => {
     expect(GUGU_PLATFORM_BLOCK).not.toMatch(/mcp__|gugu_<tool>|Pi `|Claude `|Codex `/)
     expect(GUGU_PLATFORM_BLOCK).not.toContain('canonical suffix')
     expect(guguSessionSurfaceBlock('acp', 'claude', true)).toContain("follow that tool definition's invocation form")
+    const fallback = 'Call the tool exactly as your tool list names it, not by the bare suffix.'
+    expect(GUGU_PLATFORM_BLOCK).not.toContain(fallback)
+    for (const provider of ['amp', 'antigravity']) {
+      expect(guguSessionSurfaceBlock('acp', provider, true).split(fallback)).toHaveLength(2)
+      expect(guguSessionSurfaceBlock('acp', provider, false)).not.toContain(fallback)
+    }
   })
 })
 
@@ -68,6 +74,13 @@ describe('a routing or usage sentence has one owner (#6634 问题 15)', () => {
 })
 
 describe('tool usage belongs to schemas and assistant duplicates keep one owner', () => {
+  it('retains product-specific delegation triggers and the catalog search boundary', () => {
+    const surface = guguSessionSurfaceBlock('acp', 'claude', true)
+    expect(surface).toContain('「起一个 agent」「创建一个小弟」')
+    expect(surface).toContain('Never substitute one for a requested Gugu session')
+    expect(GUGU_PLATFORM_BLOCK).toContain("these tools are invisible to your harness's tool search")
+  })
+
   it('keeps the shared list contract once in the platform instead of repeating it in fields', () => {
     expect(GUGU_PLATFORM_BLOCK).toContain('`rows` is 1-based ("20" / "41-60"), default 20, all for catalogs')
     expect(GUGU_PLATFORM_BLOCK).toContain('pass `next` as `rows`')
