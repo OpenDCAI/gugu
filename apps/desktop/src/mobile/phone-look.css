@@ -1,0 +1,76 @@
+/* 手机全线的样子(owner 10-26 审 v7.12 稿,OpenDCAI/gugu#446):
+   一个底 —— 咕咕页那套渐变(--ta-panel-bg;壳上挂 data-ta-scope,--ta-* 处处可用);底栏、搜索框、卡是透出底色的玻璃;
+   两边说的话都包气泡(咕咕页那套 --ta-bubble-*)。间距只用 4/8/16/24,嵌套圆角 外 = 内 + 内距。
+   状态色(运行中、等你、未读)不降饱和:只用在几像素的小点和角标上。全在 [data-phone-shell] 下,电脑不动。 */
+
+[data-phone-shell] {
+  --bubble-mine: var(--ta-bubble-mine);
+  --bubble-other: var(--ta-bubble-other);
+  --bubble-own: var(--ta-bubble-mine);
+  --bubble-agent: var(--ta-bubble-other);
+}
+
+/* ── 玻璃:底栏、搜索框 ── */
+
+[data-phone-shell] [data-phone-tabbar] {
+  border-top: 1px solid var(--ta-glass-edge);
+  background: var(--ta-glass);
+  -webkit-backdrop-filter: blur(var(--ta-glass-blur));
+  backdrop-filter: blur(var(--ta-glass-blur));
+}
+
+[data-phone-shell] [data-slot='search-field'] {
+  padding-inline: var(--spacing-sm);
+  border-color: transparent;
+  background: var(--ta-glass);
+  box-shadow: var(--ta-glass-fx);
+}
+
+/* ── 输入框:回形针 | 胶囊 | 发送,没有底色、没有分隔线,浮在渐变上;胶囊里 8×16。 ── */
+
+[data-phone-shell] [data-slot='composer'][data-mobile] [data-slot='composer-bar'] {
+  padding: 0;
+  border-color: transparent;
+  background: transparent;
+  box-shadow: none;
+}
+
+[data-phone-shell] [data-slot='composer'][data-mobile] [data-slot='composer-input'] {
+  align-items: center;
+  padding: var(--spacing-sm) var(--spacing-lg);
+  border-radius: var(--radius-capsule);
+  background: var(--ta-composer-bg);
+  box-shadow: var(--ta-composer-shadow);
+}
+
+/* ── 间距:只用 4/8/16/24(列表行本身的 8 / 16 在 tokens.css 的 .gg-list-row[data-mobile]) ── */
+
+[data-phone-shell] .gg-list-row-body { gap: var(--spacing-xs); }
+[data-phone-shell] :is(.gg-list-row-line, .gg-section-label) { gap: var(--spacing-sm); }
+[data-phone-shell] .gg-pane-actions { gap: var(--spacing-xs); }
+[data-phone-shell] .ta-seg { padding: var(--spacing-xs); gap: var(--spacing-xs); }
+[data-phone-shell] .gg-chip { padding: 0 var(--spacing-sm); }
+[data-phone-shell] .gg-chip[data-shape='count'] { padding: 0 var(--spacing-xs); }
+[data-phone-shell] .gap-1\.5 { gap: var(--spacing-sm); }
+/* 组件里写死的 6px 间隔(行内 style)→ 8。 */
+[data-phone-shell] [style*='gap: 6px'] { gap: var(--spacing-sm) !important; }
+[data-phone-shell] .aui-tool-group-trigger { padding-block: var(--spacing-xs) !important; }
+
+/* 卡(批准 / 确认 / 任务卡):内距 16,外圆角 = 里面按钮 8 + 16 = 24;卡里的按钮左右 16。 */
+[data-phone-shell] :is(.gg-aw .gg-aw-card, .rounded-xl.border.p-3) {
+  padding: var(--spacing-lg);
+  border-radius: 24px;
+}
+[data-phone-shell] :is(.gg-aw-card, .rounded-xl.border) .px-3 { padding-inline: var(--spacing-lg); }
+
+/* ── 项目 / 任务那几页(agent-watch):和群聊同一片渐变;自己的话是咕咕那种气泡;
+      等你批准的卡琥珀叠在实底上(不然透过渐变发灰),办完的卡和提示是玻璃。 ── */
+
+[data-phone-shell] :is(.gg-aw, .gg-aw-thread-host, .gg-aw .aui-thread-viewport-footer) { background: transparent; }
+[data-phone-shell] .gg-aw .gg-aw-thread-host .aui-user-message-content { background: var(--ta-bubble-mine); }
+[data-phone-shell] .gg-aw .gg-aw-card[data-state='pending'] { background: linear-gradient(var(--warn-tint), var(--warn-tint)), var(--card); }
+[data-phone-shell] .gg-aw :is(.gg-aw-card[data-state='resolved'], .gg-aw-card[data-state='cancelled'], .gg-aw-note:not([data-tone]), .gg-aw-offline) {
+  border-color: transparent;
+  background: var(--ta-glass);
+  box-shadow: var(--ta-glass-fx);
+}

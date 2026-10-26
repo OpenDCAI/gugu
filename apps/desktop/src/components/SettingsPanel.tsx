@@ -209,7 +209,7 @@ export function SettingsPanel({ mobile = false, inline = false, onClose, initial
       <div
         data-testid={AUTOMATION_TEST_IDS.settingsPanel}
         aria-label={t('settings.my')}
-        style={{ display: 'flex', flexDirection: 'column', flex: 1, minWidth: 0, minHeight: 0, background: 'var(--bg)' }}
+        style={{ display: 'flex', flexDirection: 'column', flex: 1, minWidth: 0, minHeight: 0, background: mobile ? 'transparent' : 'var(--bg)' }}
       >
         {card}
       </div>

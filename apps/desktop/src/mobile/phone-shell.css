@@ -1,33 +1,34 @@
-/* Handset composition. Desktop surfaces keep their existing geometry and tokens. */
-[data-mobile-group] [data-slot='composer-bar'] {
+/* Handset composition. Desktop surfaces keep their existing geometry and tokens.
+   One row on every phone composer — attach | input | send (v7.12, owner 10-26); a group composer keeps it outside the shell too. */
+:is([data-mobile-group], [data-phone-shell] [data-slot='composer'][data-mobile]) [data-slot='composer-bar'] {
   display: grid;
   grid-template-columns: var(--control-h-touch) minmax(0, 1fr) var(--control-h-touch);
   align-items: end;
   padding: var(--spacing-xs);
 }
 
-[data-mobile-group] [data-slot='composer-attachments'] {
+:is([data-mobile-group], [data-phone-shell] [data-slot='composer'][data-mobile]) [data-slot='composer-attachments'] {
   grid-column: 1 / -1;
   padding: var(--spacing-xs);
 }
 
-[data-mobile-group] [data-slot='composer-input'] {
+:is([data-mobile-group], [data-phone-shell] [data-slot='composer'][data-mobile]) [data-slot='composer-input'] {
   grid-column: 2;
   grid-row: 2;
   min-height: var(--control-h-touch);
   padding: var(--spacing-sm);
 }
 
-[data-mobile-group] :is([data-slot='composer-toolbar'], [data-slot='composer-actions-start'], [data-slot='composer-actions-end']) {
+:is([data-mobile-group], [data-phone-shell] [data-slot='composer'][data-mobile]) :is([data-slot='composer-toolbar'], [data-slot='composer-actions-start'], [data-slot='composer-actions-end']) {
   display: contents;
 }
 
-[data-mobile-group] [data-slot='composer-actions-start'] > button {
+:is([data-mobile-group], [data-phone-shell] [data-slot='composer'][data-mobile]) [data-slot='composer-actions-start'] > button {
   grid-column: 1;
   grid-row: 2;
 }
 
-[data-mobile-group] [data-slot='composer-actions-end'] > button {
+:is([data-mobile-group], [data-phone-shell] [data-slot='composer'][data-mobile]) [data-slot='composer-actions-end'] > button {
   grid-column: 3;
   grid-row: 2;
 }
@@ -42,14 +43,14 @@
 
 [data-phone-shell] .gg-pane[data-mobile] {
   border: 0;
-  background: var(--bg);
+  background: transparent;
 }
 
 [data-phone-shell] .gg-pane-header[data-mobile] {
   min-height: 64px;
   padding-inline: var(--spacing-lg);
   border-bottom: 0;
-  background: var(--bg);
+  background: transparent;
 }
 
 [data-phone-shell] .gg-pane-header .gg-pane-heading-title[data-title-level='page'] {
@@ -78,7 +79,7 @@
 }
 
 [data-phone-shell] .gg-settings-body {
-  gap: var(--spacing-xl);
+  gap: var(--spacing-2xl);
 }
 
 [data-phone-shell] .gg-settings-group .gg-settings-card {
@@ -89,7 +90,7 @@
 
 [data-phone-shell] .gg-settings-group .gg-settings-row {
   min-height: 56px;
-  padding: var(--spacing-md) 0;
+  padding: var(--spacing-lg) 0;
   border: 0;
 }
 
@@ -130,5 +131,5 @@
   min-width: 0;
   min-height: 0;
   overflow: hidden;
-  background: var(--bg-primary);
+  background: var(--ta-panel-bg);
 }

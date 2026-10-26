@@ -1692,7 +1692,7 @@ body.barcode-scanner-active #root {
   user-select: none;
   position: relative;
 }
-.gg-list-row[data-mobile] { padding: 10px; gap: 12px; }
+.gg-list-row[data-mobile] { padding: 8px; gap: 16px; } /* 手机:列表容器 8 + 行 8 = 头像左边 16;头像到文字 16(v7.12,owner 10-26) */
 /* #7333 导航行(侧栏、设置左栏):胶囊。普通列表行(联系人、成员)不挂这个变体,保持控件档圆角。 */
 .gg-list-row[data-variant='nav'] { border-radius: var(--radius-capsule); padding-inline: var(--spacing-md); }
 .gg-list-row-leading { flex-shrink: 0; display: flex; position: relative; }
