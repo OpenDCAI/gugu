@@ -56,7 +56,7 @@ export type TopicSourceState =
   | { kind: 'gone' }
 
 export const topicService = {
-  /** Topic deletion is a human action, authorized against its source conversation. */
+  /** Archive as the signed-in human; the backend checks source-conversation authority. */
   async archiveTopic(chatId: string): Promise<void> {
     const { data, error } = await chatDb.rpc('archive_topic_as', {
       p_chat_id: chatId,
