@@ -56,7 +56,8 @@ export function NeedsYouHost() {
 
 function PendingTask({ task, onOpenTask }: { task: NeedsYouTask; onOpenTask: () => void }) {
   const { t } = useTranslation()
-  const read = useTimelineSession(assistantTimelineClient(task.local), 'needs-you', task.deviceId, task.session.conversationId, true)
+  const mobile = useMobileShell()
+  const read = useTimelineSession(assistantTimelineClient(task.local), mobile ? 'mobile' : 'desktop', task.deviceId, task.session.conversationId, true)
   const ready = read.phase === 'ready' && read.link === 'ok'
   const previousInstalls = useRef<string[]>([])
   // The host's timeout and answers on another device withdraw the same permission sheet here.

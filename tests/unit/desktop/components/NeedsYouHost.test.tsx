@@ -5,12 +5,13 @@ import type { Settlement } from '@gugu/session-core/session-record/contract'
 import { createReactHarness, renderWithAppProviders } from '../../../support/testHarness'
 import { NeedsYouHost } from '../../../../apps/desktop/src/components/needsYou/NeedsYouHost'
 
-const state = vi.hoisted(() => ({ tasks: [] as unknown[], settlements: {} as Record<string, unknown>, link: 'ok' }))
+const state = vi.hoisted(() => ({ tasks: [] as unknown[], settlements: {} as Record<string, unknown>, link: 'ok', mobile: false }))
 const close = vi.hoisted(() => vi.fn())
 const respond = vi.hoisted(() => vi.fn(async () => undefined))
+const timeline = vi.hoisted(() => vi.fn((..._args: unknown[]) => ({ timeline: { settlements: state.settlements }, phase: 'ready', link: state.link, respond })))
 vi.mock('@/components/needsYou/useNeedsYouTasks', () => ({ useNeedsYouTasks: () => ({ tasks: state.tasks, error: null }) }))
-vi.mock('@/hooks/useMobileShell', () => ({ useMobileShell: () => false }))
-vi.mock('@/mobile/agent-watch/use-timeline-session', () => ({ useTimelineSession: () => ({ timeline: { settlements: state.settlements }, phase: 'ready', link: state.link, respond }) }))
+vi.mock('@/hooks/useMobileShell', () => ({ useMobileShell: () => state.mobile }))
+vi.mock('@/mobile/agent-watch/use-timeline-session', () => ({ useTimelineSession: timeline }))
 vi.mock('@/components/assistant/assistantTimelineClient', () => ({ assistantTimelineClient: () => ({}) }))
 vi.mock('@/components/chat/openTaskCardSession', () => ({ openTaskCardSession: vi.fn() }))
 vi.mock('@/session/renderer/features/extensions/install-consent', () => ({ closeInShell: close }))
@@ -24,6 +25,7 @@ beforeEach(() => {
   state.tasks = [{ deviceId: 'server', machine: 'Remote host', local: false, session: { conversationId: 'task', title: 'Install Reader', projectId: 'project', runtime: 'pty' } }]
   state.settlements = { install: { itemId: 'install', kind: 'permission', title: 'Review Reader', state: 'pending', host: { kind: 'app-install', payload: { request: {} } } } }
   state.link = 'ok'
+  state.mobile = false
   harness = createReactHarness()
 })
 afterEach(() => harness.cleanup())
@@ -38,6 +40,7 @@ it('opens the same pending settlement over a group without navigating away', asy
   expect(document.querySelector('[role="dialog"]')?.textContent).toContain('Review Reader')
   await act(async () => { document.querySelector<HTMLButtonElement>('[data-item-id="install"]')!.click() })
   expect(respond).toHaveBeenCalledWith({ itemId: 'install', kind: 'permission', optionId: 'allow' })
+  expect(timeline.mock.calls.at(-1)?.[1]).toBe('desktop')
 })
 it('withdraws an open install sheet when its host cancels or another screen answers', async () => {
   await open()
@@ -69,4 +72,9 @@ it('uses the same pending surface for questions and tool approvals', async () =>
   await open()
   expect(document.querySelector('[data-item-id="question"]')).not.toBeNull()
   expect(document.querySelector('[data-item-id="tool"]')).not.toBeNull()
+})
+it('records a phone answer using the existing mobile responder identity', async () => {
+  state.mobile = true
+  await open()
+  expect(timeline.mock.calls.at(-1)?.[1]).toBe('mobile')
 })
