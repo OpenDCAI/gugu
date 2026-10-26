@@ -1744,7 +1744,7 @@ function assistantWorkDeliveryHost(): AssistantWorkOutboxHost {
         : ['completed', 'cancelled', 'question'].includes(event.kind) ? event.kind : 'progress'
       const caller: RemoteSessionCaller = {
         deviceId: event.from_device_id, deviceLabel: null, sessionId: event.from_session_id,
-        agentUserId: null, name: event.kind === 'dispatch' ? '个人助理' : '任务执行者',
+        agentUserId: null, name: event.kind === 'dispatch' ? '个人助理' : '任务',
         harness: null, transport: 'acp', model: null, platformModel: null,
       }
       const result = await bridge.runRemoteSessionAction(caller, {

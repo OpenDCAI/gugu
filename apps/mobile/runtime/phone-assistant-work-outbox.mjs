@@ -1,6 +1,6 @@
 import { createAssistantWorkOutboxPump } from '../../../packages/core/src/cloud/assistantWorkOutbox.ts'
 import { createAssistantWorkNoticeWakePump } from '../../../packages/core/src/cloud/assistantWorkNoticeWake.ts'
-import { createCloudComputerClient } from '../../../packages/core/src/cloud/cloudComputer.ts'
+import { CloudComputerError, createCloudComputerClient } from '../../../packages/core/src/cloud/cloudComputer.ts'
 import { assistantWorkDeliveryTarget } from '../../../packages/core/src/cloud/assistantWorkRouting.ts'
 
 /** The phone consumes the same cloud event queue; it keeps no second durable outbox. */
@@ -15,7 +15,14 @@ export function createPhoneAssistantWorkOutbox({ cloud, ownerId, deviceId, insta
       controller = createCloudComputerClient({ baseUrl: `${cloud.root}/functions/v1/cloud-computer`, accessToken: cloud.token, anonKey: endpoint.anonKey, requestTimeoutMs: 8000 })
     }
     // Device presence may remain online while frozen. Only the control plane identifies this cloud machine.
-    let state = await controller.state(signal)
+    let state
+    try { state = await controller.state(signal) }
+    catch (error) {
+      signal.throwIfAborted()
+      // Optional cloud discovery cannot prevent delivery to another reachable device.
+      if (error instanceof CloudComputerError && ['not_open', 'network'].includes(error.code)) return
+      throw error
+    }
     if (state.deviceId !== target || state.state === 'awake') return
     signal.throwIfAborted()
     await controller.wake()
