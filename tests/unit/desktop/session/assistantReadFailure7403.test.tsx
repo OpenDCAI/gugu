@@ -15,7 +15,7 @@ const show = (error: unknown) => harness.render(createElement(Probe,{ error }))
 beforeEach(() => { harness = createReactHarness(); vi.useFakeTimers(); reload.mockReset(); native.matchServerVersion.mockReset() })
 afterEach(() => { harness.cleanup(); vi.useRealTimers() })
 it('recovers an initial read automatically without preparing or updating an execution host', async () => {
-  await show(Object.assign(new Error('private transport detail'),{ code: 'unknown_method' }))
+  await show(Object.assign(new Error('private transport detail'),{ code: 'transport-failed' }))
   expect(result?.text).toContain('machine.collectionFailed')
   expect(result?.text).not.toContain('private transport detail')
   expect(result?.retry).toBeNull()
@@ -25,11 +25,14 @@ it('recovers an initial read automatically without preparing or updating an exec
 })
 it.each([
   ['unprepared','unprepared','quiet'],['42501','accessFailed','danger'],['stale','stale','danger'],['40001','changed','danger'],
+  ['collection-unavailable','collectionFailed','danger'],['application-failed','applicationFailed','danger'],['unknown_method','collectionFailed','danger'],
 ])('explains %s without displaying a raw service error', async (code,key,tone) => {
   await show(Object.assign(new Error('SQL /private/file'),{ code }))
   expect(result).toMatchObject({ tone,retry: null })
   expect(result?.text).toContain(`machine.${key}`)
   expect(result?.text).not.toContain('SQL')
+  await act(async () => { await vi.advanceTimersByTimeAsync(30_000) })
+  expect(reload).not.toHaveBeenCalled()
 })
 it('identifies the resource whose committed change was rejected', async () => {
   await show(Object.assign(new Error('EACCES'),{ code: 'application-failed',domain: 'memory',resourceKey: 'note.md' }))
@@ -37,7 +40,7 @@ it('identifies the resource whose committed change was rejected', async () => {
   expect(result?.text).toContain('resourceKinds.memory')
 })
 it('clears recovery when the read succeeds', async () => {
-  await show(new Error('network')); await show(null)
+  await show(new TypeError('network')); await show(null)
   await act(async () => { await vi.advanceTimersByTimeAsync(30_000) })
   expect(reload).not.toHaveBeenCalled(); expect(result).toBeNull()
 })

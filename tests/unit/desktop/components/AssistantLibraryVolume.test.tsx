@@ -48,7 +48,7 @@ describe('Gugu structured capabilities', () => {
   it('surfaces host failure and rejects the old unstructured response rather than showing false zero', async () => {
     vi.useFakeTimers()
     const { machine, read } = fixture()
-    read.mockRejectedValueOnce(new Error('private diagnostic sentinel')).mockResolvedValueOnce({ volume: null, content: null })
+    read.mockRejectedValueOnce(new TypeError('Failed to fetch private diagnostic sentinel')).mockResolvedValueOnce({ volume: null, content: null })
     await renderWithAppProviders(harness, <AssistantLibraryVolume assistantId="assistant" machine={machine} kind="capabilities" askInChat={vi.fn()} />)
     await vi.waitFor(() => expect(harness.container.textContent).toContain('暂时读不到'))
     expect(harness.container.textContent).not.toContain('private diagnostic sentinel')
@@ -58,6 +58,12 @@ describe('Gugu structured capabilities', () => {
     await vi.waitFor(() => expect(harness.container.textContent).toContain('暂时读不到'))
     expect([...harness.container.querySelectorAll('button')].some(node => node.textContent === '重试')).toBe(false)
     await act(async () => { await vi.advanceTimersByTimeAsync(5000) })
+    expect(read).toHaveBeenCalledTimes(2)
+    // Malformed stored content is not a transport failure. It stays failed
+    // until the resource publisher reports a real change.
+    await act(async () => {
+      for (const receive of notifications) receive({ extensionId: 'gugu.assistant',server: 'resources',method: 'notifications/resources/updated',params: { resource: 'capabilities' } })
+    })
     await vi.waitFor(() => expect(harness.container.textContent).toContain('查看安排'))
   })
   it('counts real entries and does not send the owner to install AutoLibrary', async () => {
