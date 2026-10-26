@@ -270,12 +270,20 @@ describe('详情页', () => {
     expect(rpc.integrations.disconnect).not.toHaveBeenCalled()
   })
 
-  it('网页版上浏览器授权的服务:如实说要 App,❌ 摆一个必败的连接钮', async () => {
+  it.each(['tencent-docs', 'notion'])('网页版上浏览器授权的服务 %s:如实说要 App,❌ 摆一个必败的连接钮', async (id) => {
     ui.platformKind = 'web'
-    const page = pageProps('tencent-docs')
+    const page = pageProps(id)
     await render(PhoneConnectorDetail, page.props)
     expect(q('assistant-connector-connect')).toBeNull()
     expect(q('assistant-connector-connect-note')).not.toBeNull()
+    if (id === 'notion') expect(q('assistant-connector-connect-note')!.textContent).toContain('连接 Notion')
+  })
+
+  it('Notion in the phone App offers its real connect action instead of telling people to enter the App', async () => {
+    const page = pageProps('notion')
+    await render(PhoneConnectorDetail, page.props)
+    expect(q('assistant-connector-connect')?.textContent).toBe('连接')
+    expect(q('assistant-connector-connect-note')).toBeNull()
   })
 })
 

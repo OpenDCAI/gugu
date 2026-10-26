@@ -755,7 +755,7 @@ export default {
     "connectOnDesktop": "在咕咕电脑 App 的「助理」里连接",
     "reconnectOnDesktop": "要重新连接，去咕咕电脑 App 的「助理」",
     "loadFailed": "没读到连接应用",
-    "connectInApp": "要在咕咕手机 App 或电脑 App 里连接{{name}}",
+    "connectInApp": "要在咕咕手机 App 或电脑 App 里连接 {{name}}",
     "addAccount": "添加另一个账号",
     "accounts": "账号",
     "accountsFailed": "没读到已连接的账号",
