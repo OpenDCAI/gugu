@@ -576,6 +576,20 @@ describe('a sleeping cloud computer', () => {
     expect(rows.find((row) => row.device_id === 'dev-b')).not.toHaveProperty('cloud_computer')
   })
 
+  it('wakes a paused cloud computer even when the device row still says online', async () => {
+    const order: string[] = []
+    const wakeCloudComputer = vi.fn(async () => { order.push('wake'); return true })
+    const { xm, call } = makeCrossMachine(async () => { order.push('deliver'); return { result: { ok: true } } }, {
+      listDevices: async () => [device('dev-a', 'this box', true), device('dev-c', 'cloud', true)],
+      cloudComputerState: async () => ({ state: 'asleep', deviceId: 'dev-c', error: null, since: null }),
+      wakeCloudComputer,
+    })
+    await xm.call('dev-c', CALLER, { action: 'message', session_ids: ['assistant'], text: 'result' })
+    expect(wakeCloudComputer).toHaveBeenCalledOnce()
+    expect(call).toHaveBeenCalledOnce()
+    expect(order).toEqual(['wake', 'deliver'])
+  })
+
   it('session_devices still lists machines when the manager cannot be reached', async () => {
     const { xm } = makeCrossMachine(undefined, { cloudComputerState: async () => { throw new Error('down') } })
     expect((await xm.listDeviceRows()).map((row) => row.device_id)).toEqual(['dev-a', 'dev-b', 'dev-c'])
