@@ -136,6 +136,10 @@ public class GuguPhoneActionsPlugin extends Plugin {
         out.put("package", getContext().getPackageName());
         out.put("install_key", installation.key);
         if (installation.previousKey != null) out.put("previous_install_key", installation.previousKey);
+        if (call.getString("ownerId") != null) {
+            try { out.put("registration_id", GuguPhoneRegistration.resolve(getContext(), installation, call.getString("ownerId"), call.getString("cachedInstallId"), call.getString("cachedBinding"))); }
+            catch (Exception error) { call.reject("无法迁移这台手机的设备登记，请重试", "failed"); return; }
+        }
         call.resolve(out);
     }
 

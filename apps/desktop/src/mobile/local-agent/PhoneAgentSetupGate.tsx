@@ -5,7 +5,7 @@ import { Button } from '@/components/ui/Button'
 import { Sheet } from '@/components/ui/Sheet'
 import { SettingsNote, SettingsPage } from '@/components/settings/SettingsPrimitives'
 import { platform } from '@/platform'
-import { nativePhoneActions } from '../phone-device/nativePhoneActions'
+import { readPhoneInstallation } from '../phone-device/phoneInstallation'
 import { phoneInstallId } from '../phone-device/phoneDeviceSettings'
 import { phoneAgentAvailable } from './nativeAgent'
 import { PhoneAgentSetup } from './PhoneAgentSetup'
@@ -27,11 +27,10 @@ export function PhoneAgentSetupGate({ ownerId, children }: { ownerId: string; ch
     let alive = true
     setError(null)
     setVisible(false)
-    void nativePhoneActions.deviceInfo().then((info) => {
+    void readPhoneInstallation(ownerId).then((info) => {
       if (!alive) return
-      if (!info.install_key?.trim()) throw new Error('无法读取这台手机的原生安装标识。')
+      const installId = phoneInstallId(info.install_key ?? '', info.registration_id ?? '', info.previous_install_key)
       // Rebind a restored WebView installation to the actual native device before reading progress.
-      const installId = phoneInstallId(info.install_key, info.previous_install_key)
       if (!alive) return
       try {
         const progress = readPhoneAgentSetup(ownerId, installId)

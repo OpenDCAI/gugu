@@ -21,6 +21,8 @@ export interface PhoneDeviceInfo {
   install_key: string | null
   /** 原生持有旧安装连续性证据时提供的一次格式迁移别名，不能由网页存储推断。 */
   previous_install_key?: string | null
+  /** Canonical native no-backup registration; only returned for an authenticated owner request. */
+  registration_id?: string
 }
 
 /** 那几样要去系统设置里开的(运行时权限之外)。 */
@@ -151,7 +153,7 @@ export type DndMode = 'off' | 'priority' | 'alarms' | 'silent'
 interface GuguPhoneActionsPlugin {
   checkPermissions(): Promise<Record<PhonePermissionAlias, PermissionState>>
   requestPermissions(options: { permissions: PhoneRuntimePermission[] }): Promise<Record<PhonePermissionAlias, PermissionState>>
-  deviceInfo(): Promise<PhoneDeviceInfo>
+  deviceInfo(input?: { ownerId: string; cachedInstallId: string | null; cachedBinding: string | null }): Promise<PhoneDeviceInfo>
   specialStatus(): Promise<PhoneSpecialStatus>
   openSettings(options: { target: PhoneSettingsTarget }): Promise<void>
   /** 「通知与勿扰」连着才记新通知;断开当场清空原生那边记下的。 */

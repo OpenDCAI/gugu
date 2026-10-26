@@ -20,7 +20,7 @@ const mocks = vi.hoisted(() => ({
 vi.mock('../../../../apps/desktop/src/mobile/local-agent/nativeAgent', () => ({ phoneAgentAvailable: () => mocks.available }))
 vi.mock('../../../../apps/desktop/src/mobile/phone-device/nativePhoneActions', () => ({
   HEALTH_TYPES: ['steps', 'sleep'],
-  nativePhoneActions: { deviceInfo: async () => ({ install_key: mocks.installKey }), requestPermissions: mocks.runtimeRequest, healthRequest: mocks.healthRequest, openSettings: mocks.nativeSettings },
+  nativePhoneActions: { deviceInfo: async () => ({ install_key: mocks.installKey, registration_id: `registration-${mocks.installKey}` }), requestPermissions: mocks.runtimeRequest, healthRequest: mocks.healthRequest, openSettings: mocks.nativeSettings },
 }))
 vi.mock('../../../../apps/desktop/src/mobile/phone-device/phoneDataActions', async (original) => {
   const actual = await original<typeof import('../../../../apps/desktop/src/mobile/phone-device/phoneDataActions')>()
@@ -101,7 +101,7 @@ describe('phone permission form', () => {
     expect(byId('phone-setup-group-calendar')?.textContent).toContain('已选择，尚缺系统授权')
     expect(mocks.runtimeRequest).toHaveBeenCalledTimes(requests)
     expect(mocks.request).not.toHaveBeenCalled()
-    expect(readPhoneAgentSetup(owner, phoneInstallId(mocks.installKey)).completed).toBe(false)
+    expect(readPhoneAgentSetup(owner, phoneInstallId(mocks.installKey, `registration-${mocks.installKey}`)).completed).toBe(false)
     await clickElement(document.querySelector<HTMLElement>('[aria-label="返回授权设置"]')!)
     expect(byId('phone-agent-setup-review')).toBeNull()
     expect(readPhoneDeviceSettings(owner).groups.calendar).toBe(true)
@@ -110,7 +110,7 @@ describe('phone permission form', () => {
     await clickElement(byId('phone-agent-setup-next')!)
     await clickElement(byId('phone-agent-setup-finish')!)
     expect(document.querySelector('[role="dialog"]')).toBeNull()
-    expect(readPhoneAgentSetup(owner, phoneInstallId(mocks.installKey)).completed).toBe(true)
+    expect(readPhoneAgentSetup(owner, phoneInstallId(mocks.installKey, `registration-${mocks.installKey}`)).completed).toBe(true)
     expect(mocks.runtimeRequest).toHaveBeenCalledTimes(requests)
   })
 
@@ -130,7 +130,7 @@ describe('phone permission form', () => {
     await clickElement(byId('phone-agent-setup-next')!)
     await clickElement(byId('phone-agent-setup-finish')!)
     expect(document.querySelector('[role="dialog"]')).toBeNull()
-    expect(readPhoneAgentSetup(owner, phoneInstallId(mocks.installKey)).completed).toBe(true)
+    expect(readPhoneAgentSetup(owner, phoneInstallId(mocks.installKey, `registration-${mocks.installKey}`)).completed).toBe(true)
     expect(readPhoneDeviceSettings(owner)).toMatchObject({ enabled: false, hostEnabled: false })
     expect(mocks.request).not.toHaveBeenCalled(); expect(mocks.runtimeRequest).not.toHaveBeenCalled(); expect(mocks.settings).not.toHaveBeenCalled()
   })
@@ -151,7 +151,7 @@ describe('phone permission form', () => {
   })
 
   it('opens the complete form for legacy saved steps without inheriting another account progress', async () => {
-    const installId = phoneInstallId(mocks.installKey)
+    const installId = phoneInstallId(mocks.installKey, `registration-${mocks.installKey}`)
     savePhoneAgentSetup('legacy-form-owner', installId, { step: 'tools', dismissed: true, completed: false })
     expect(readPhoneAgentSetup('separate-form-owner', installId).dismissed).toBe(false)
     await renderGate('legacy-form-owner')
@@ -162,7 +162,7 @@ describe('phone permission form', () => {
   })
 
   it('reopens on the first request after switching accounts with different request counts', async () => {
-    const installId = phoneInstallId(mocks.installKey)
+    const installId = phoneInstallId(mocks.installKey, `registration-${mocks.installKey}`)
     const previous = 'previous-form-owner', current = 'current-form-owner'
     for (const owner of [previous, current]) savePhoneAgentSetup(owner, installId, { step: 'tools', dismissed: true, completed: true })
     const harness = await renderGate(previous)
@@ -285,7 +285,7 @@ describe('phone permission form', () => {
     await clickElement(byId('phone-agent-setup-next')!)
     await clickElement(byId('phone-agent-setup-finish')!)
     expect(document.querySelector('[role="alert"]')?.textContent).toContain('storage unavailable')
-    expect(readPhoneAgentSetup(owner, phoneInstallId(mocks.installKey)).completed).toBe(false)
+    expect(readPhoneAgentSetup(owner, phoneInstallId(mocks.installKey, `registration-${mocks.installKey}`)).completed).toBe(false)
     saved.mockRestore()
     await clickElement(byId('phone-agent-setup-finish')!)
     expect(document.querySelector('[role="dialog"]')).toBeNull()
