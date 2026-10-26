@@ -44,13 +44,23 @@ function escapeInEditor(): void {
   editor.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true, cancelable: true }));
 }
 
-describe('the floating folder card and Escape', () => {
+describe('the floating folder card, typing and Escape', () => {
   it('puts the card away and keeps that Escape from the keyboard navigation', () => {
     const hideCard = vi.fn();
     act(() => root.render(<Dock cardShown hideCard={hideCard} />));
     escapeInEditor();
     expect(hideCard).toHaveBeenCalledTimes(1);
     expect(navSaw).toEqual([]);
+  });
+
+  it('keeps the card while typing and sends the keys to the new-task box (owner 10-26)', () => {
+    const hideCard = vi.fn();
+    act(() => root.render(<Dock cardShown hideCard={hideCard} />));
+    const editor = container.querySelector('[data-testid="editor"]') as HTMLElement;
+    editor.focus();
+    editor.dispatchEvent(new KeyboardEvent('keydown', { key: 'd', bubbles: true, cancelable: true }));
+    expect(hideCard).not.toHaveBeenCalled();
+    expect(document.activeElement).toBe(editor);
   });
 
   it('leaves Escape to the keyboard navigation when no card floats', () => {

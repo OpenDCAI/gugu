@@ -114,7 +114,8 @@ export const ProjectBlock = observer(function ProjectBlock({
 /**
  * 在项目里开新任务(gugu-dev#181「输入框」):框原地换成新任务的框(与项目首页同一个,ProjectTaskComposer),项目的文件夹卡
  * 浮到群聊上面 —— 整片统一淡下去、虚一点,卡和输入框在最上面同一层(输入框不被盖住)。点一张文件夹 = 新任务从那里开工,
- * 卡让开;直接打字、按 Esc,卡也让开。点卡旁边的空白不让开(owner 10-23:点空了不该把这一页退掉)。卡就是项目首页那一张(useProjectFolderStage),❌ 另画一份。
+ * 卡让开;按 Esc 卡也让开。打字不让开(owner 10-26「一打字，彩色文件夹就消失了，这不对」),框里本来就有字也照样浮着。
+ * 点卡旁边的空白不让开(owner 10-23:点空了不该把这一页退掉)。卡就是项目首页那一张(useProjectFolderStage),❌ 另画一份。
  */
 const ProjectTaskDock = observer(function ProjectTaskDock({ chatId, projectId }: { chatId: string; projectId: string }) {
   const { translate } = useSessionMessages();
@@ -124,8 +125,8 @@ const ProjectTaskDock = observer(function ProjectTaskDock({ chatId, projectId }:
     if (carried) composerDrafts.set(projectDraftKey(projectId), carried);
     return null;
   });
-  // 框里已经有字(群里写着带过来的、新建会话页选项目带过来的)= 卡一开始就让开,与打了字同一个道理(核对 #37)。
-  const [cardShown, setCardShown] = useState(() => !composerDrafts.get(projectDraftKey(projectId)).trim());
+  // 框里已经有字(群里写着带过来的、新建会话页选项目带过来的)也照样浮着:打字不收卡,带过来的字同理(owner 10-26)。
+  const [cardShown, setCardShown] = useState(true);
   const stage = useProjectFolderStage(projectId, { floating: true, onChosen: () => setCardShown(false) });
   const dockRef = useRef<HTMLDivElement>(null);
   useFloatingCardKeys(cardShown, () => setCardShown(false), dockRef);
