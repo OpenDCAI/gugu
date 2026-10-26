@@ -9,6 +9,7 @@
 // 它们说的是「这几格怎么搭配」,不是「这一格是什么」。
 import { z } from 'zod';
 import { EXTENSION_STEP_SCHEMA } from './extension-check';
+import { variantNameSchema } from './variants';
 import { EXTENSION_TEMPLATES } from './templates';
 
 /**
@@ -26,8 +27,9 @@ export const manifestFragmentSchema = z
 export const APP_CREATE_ARGS = {
   // F81 Left out: this computer's App folder (appSourcesRoot), not the working copy.
   target_dir: z.string().min(1).describe('Default: outside the working copy.').optional(),
-  id: z.string().min(1),
-  name: z.string().min(1),
+  fork_of: z.string().min(1).describe('Fork this installed App, at its exact installed source commit; name is the variant name.').optional(),
+  id: z.string().min(1).optional(),
+  name: z.string().min(1).optional(),
   version: z.string().min(1).optional(),
   // F11 A ready-made App (its tab, page and files), or your own tabs in `manifest` — one of the two.
   template: z.enum(EXTENSION_TEMPLATES).optional(),
@@ -55,6 +57,7 @@ export const appInstallDataSchema = z.object({
 }).describe('The chat\'s data file; one already there under that name is kept.');
 
 export const APP_INSTALL_ARGS = {
+  variant: variantNameSchema.describe('With market: switch this installed App to a named variant (upstream is the original).').optional(),
   source_dir: z.string().min(1).describe('The App\'s folder, as app_create returned it.').optional(),
   // #6646 The host reads the message as this agent and installs it as `install_attachment`; it never reaches the plain install.
   source_message_id: z.string().min(1).describe('Instead: the chat message (msg:…) whose .guguext to install.').optional(),

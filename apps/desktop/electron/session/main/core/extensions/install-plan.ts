@@ -8,15 +8,15 @@ import type { ExtensionsService } from './extensions-service';
  * (`installExtensionFromMarket`: the Apps page, a group's offer, the first-run set, an agent's `app_install { market }`).
  * The rule itself is shared with the phone (upgrade.ts `installAsks`).
  */
-export function installPlan(service: ExtensionsService, manifest: ExtensionManifest, origin: 'folder' | 'market' = 'folder') {
+export function installPlan(service: ExtensionsService, manifest: ExtensionManifest, origin: 'folder' | 'market' | 'fork' = 'folder') {
   const displaced = service.list().extensions.find((entry) => entry.manifest.id === manifest.id);
   const revokedPermissions = displaced ? service.revokedPermissions(manifest.id) : [];
   const { newlyAsked, asks } = installAsks({
-    installed: displaced?.manifest,
+    installed: displaced ? service.approvedManifest(manifest.id) : undefined,
     installedOrigin: displaced ? service.origins()[manifest.id] : undefined,
     revokedPermissions,
     candidate: manifest,
     origin,
   });
-  return { displaced, revokedPermissions, newlyAsked, asks };
+  return { displaced, approved: displaced ? service.approvedManifest(manifest.id) : undefined, revokedPermissions, newlyAsked, asks };
 }

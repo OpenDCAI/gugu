@@ -106,6 +106,7 @@ export interface MarketPrepared {
   source: MarketCodeSource;
   releaseNotes: string;
   sha256: string;
+  bytes?: number;
 }
 
 /** 解开的包落在哪儿。dot 前缀,与安装 staging 同一套「扫描永远看不见」的约定。 */
@@ -237,6 +238,14 @@ export class CloudExtensionMarket {
    * 一个扩展当前给这台机器的那一版(装着的扩展开详情、更新确认框要它的更新说明)。不在市场上就 null。
    * `fresh` = 安装(app_install)查它:咕咕开着时新上架的 App,手上那份里还没有。
    */
+  async sourceVersions(extensionId: string) {
+    return (await this.app(extensionId))?.versions ?? [];
+  }
+
+  async sourceVersion(extensionId: string, version: string) {
+    return (await this.sourceVersions(extensionId)).find((row) => row.version === version) ?? null;
+  }
+
   async entry(extensionId: string, fresh = false): Promise<CloudMarketEntry | null> {
     const app = await this.app(extensionId, fresh);
     if (!app) return null;
@@ -271,7 +280,7 @@ export class CloudExtensionMarket {
    * 只读、只比对;❌ 不下载、❌ 不安装 —— 与 app 更新的 spec 同构。读的是和市场页同一份目录(手上那份):
    * 后台取回来变了,界面让市场页和这里一起重读,两边永远是同一刻。
    */
-  async updatesFor(installed: readonly { id: string; version: string; fromMarket?: boolean }[]): Promise<MarketUpdatesSummary> {
+  async updatesFor(installed: readonly { id: string; version: string; fromMarket?: boolean; forkBase?: string }[]): Promise<MarketUpdatesSummary> {
     const summary: MarketUpdatesSummary = {
       checkedAt: new Date(this.now()).toISOString(),
       updates: {},
@@ -358,7 +367,7 @@ export class CloudExtensionMarket {
           `Bundle contains ${parsed.manifest.id}@${parsed.manifest.version}, not ${extensionId}@${version}`
         );
       }
-      return { sourceDir: target, source: row.source, releaseNotes: row.releaseNotes, sha256: row.sha256 };
+      return { sourceDir: target, source: row.source, releaseNotes: row.releaseNotes, sha256: row.sha256, bytes: row.bytes };
     } catch (error) {
       this.unpacking.delete(target);
       fs.rmSync(target, { recursive: true, force: true });
@@ -390,7 +399,7 @@ export class CloudExtensionMarket {
     if (!row) return null;
     const sourceDir = path.join(this.options.heldRoot, row.sha256);
     if (!fs.existsSync(path.join(sourceDir, EXTENSION_MANIFEST_FILENAME))) return null;
-    return { sourceDir, source: row.source, releaseNotes: row.releaseNotes, sha256: row.sha256 };
+    return { sourceDir, source: row.source, releaseNotes: row.releaseNotes, sha256: row.sha256, bytes: row.bytes };
   }
 
   /** 用完的一份(装好了、没装上、人说了不装):不管它在 staging 还是留着的地方,都删掉。 */

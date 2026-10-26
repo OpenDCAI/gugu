@@ -36,6 +36,8 @@ import {
   quitExtensions,
   syncExtensionBackgrounds,
 } from '@main/core/extensions/extension-background';
+import { extensionVariants, prepareVariant, switchExtensionVariant } from './extension-variants';
+import { prepareForkVariant } from './app-forks';
 import { installPlan } from '@main/core/extensions/install-plan';
 import type { HandedConsent } from '@shared/extensions/install-consent-flow';
 import { installPrepared } from '@main/core/extensions/install-prepared';
@@ -120,6 +122,14 @@ function readBundleReadme(rootDir: string): string | null {
  * the first thing that happens to a bundle the user has not agreed to. Refs #2374.
  */
 export const extensionsController = createRPCController({
+  variants: async (id: string) => {
+    try { return { success: true as const, data: await extensionVariants(id) }; }
+    catch (error) { return { success: false as const, error: error instanceof Error ? error.message : String(error) }; }
+  },
+  switchVariant: async (id: string, name: string, consent?: HandedConsent) => {
+    try { return { success: true as const, data: await switchExtensionVariant(id, name, consent) }; }
+    catch (error) { return { success: false as const, error: error instanceof Error ? error.message : String(error) }; }
+  },
   openLink: async (args: { target: import('@gugu/core/shared/ui/guguLink').GuguLinkTarget }) =>
     (await import('./gugu-links')).openLink(args.target),
   list: async () => {
@@ -622,6 +632,7 @@ export const extensionsController = createRPCController({
           id: entry.manifest.id,
           version: entry.manifest.version,
           fromMarket: origins[entry.manifest.id] === 'market',
+          ...(origins[entry.manifest.id] === 'fork' ? { forkBase: extensionsService().variants(entry.manifest.id).variants.find((variant) => variant.name === extensionsService().variants(entry.manifest.id).active)?.base } : {}),
         }));
       // 定点问装着的这几个,读和市场页同一份目录;「现在的」那份由打开页面时的 marketRefresh 去取。
       const summary = await cloudExtensionMarket().updatesFor(installed);
@@ -705,9 +716,11 @@ export const extensionsController = createRPCController({
     try {
       const service = extensionsService();
       const { manifest, manifestDigest } = service.inspectDirectory(args.sourceDir);
-      const plan = installPlan(service, manifest, 'folder');
+      const variant = await prepareForkVariant(args.sourceDir);
+      const preparedVariant = variant ? prepareVariant(args.sourceDir, variant) : null;
+      const plan = installPlan(service, manifest, variant ? 'fork' : 'folder');
       const given = await import('@main/core/extensions/app-given');
-      const done = await installPrepared({
+      const done = await installPrepared(preparedVariant ?? {
         dir: args.sourceDir,
         manifest,
         manifestDigest,
@@ -715,7 +728,7 @@ export const extensionsController = createRPCController({
         // A folder's App is the account installing it (app-identity.ts).
         publisher: await (await import('@main/core/extensions/app-files')).folderPublisher(),
         asks: plan.asks,
-        sheet: { installed: plan.displaced?.manifest, revokedPermissions: plan.revokedPermissions },
+        sheet: { installed: plan.approved, revokedPermissions: plan.revokedPermissions },
         places: { first: !plan.displaced, identity: await given.ownInstallIdentity(manifest.id, 'folder') },
       }, args.consent);
       return { success: true, data: done.outcome === 'confirmed' ? { outcome: done.outcome, manifest: done.installed.manifest } : done };
