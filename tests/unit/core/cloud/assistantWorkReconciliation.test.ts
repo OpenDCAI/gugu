@@ -13,6 +13,17 @@ function fixture(events:WorkReconciliationEvent[]=[dispatch]) {
   return {...f,rpc,reconciler:createAssistantWorkReconciler(f)}
 }
 describe('unfinished delivery reconciliation',()=>{
+  it('reconciles a task from a former home using the current coordinator while preserving original report addresses',async()=>{
+    const f=fixture([dispatch])
+    f.works.mockResolvedValue([{...work,coordinator_session_id:'former-session',coordinator_device_id:'former-device',coordinator_current:{session_id:'current-session',device_id:'cloud'}}] as never)
+    f.inspect.mockResolvedValue({preview:{running:false,ended:{kind:'done'},entries:[{kind:'prompt',messageId:dispatch.message_id}]}})
+    await f.reconciler.kick()
+    expect(f.rpc).toHaveBeenCalledWith('assistant_work_commit',expect.objectContaining({p_events:[expect.objectContaining({from_session_id:'current-session',from_device_id:'cloud',to_session_id:'former-session',to_device_id:'former-device'})]}))
+  })
+  it('does not inspect or notify an unbound moved coordinator',async()=>{
+    const f=fixture([dispatch]);f.works.mockResolvedValue([{...work,coordinator_current:null}] as never)
+    await f.reconciler.kick();expect(f.inspect).not.toHaveBeenCalled();expect(f.ownerReceipts).not.toHaveBeenCalled();expect(f.notify).not.toHaveBeenCalled()
+  })
   it('records an inference only after the admitted dispatch is confirmed ended without a report',async()=>{
     const f=fixture();await f.reconciler.kick()
     expect(f.rpc).toHaveBeenCalledWith('assistant_work_commit',expect.objectContaining({p_events:[expect.objectContaining({kind:'failed',executor_session_id:'child',reason_code:'EXECUTOR_ENDED_WITHOUT_REPORT'})]}))

@@ -16,7 +16,7 @@ async function rpc(ctx:WorkReconciliationContext,name:string,args:Record<string,
 /** Account projection reads stay outside model tools and reuse the host's existing lease cadence. */
 export function createDesktopAssistantWorkReconciler(deps:{
   context():Promise<AssistantWorkHostContext|null>
-  assistant(ctx:AssistantWorkHostContext):Promise<{agentId:string;deviceId:string}|null>
+  assistant(ctx:AssistantWorkHostContext):Promise<{agentId:string;deviceId:string;sessionId:string}|null>
   inspect(ctx:WorkReconciliationContext,work:ReconciledWork,target:{session_id:string;device_id:string}):Promise<ExecutorDeliveryProof|null>
   ownerReceipts?(ctx:WorkReconciliationContext,work:ReconciledWork,events:WorkReconciliationEvent[]):Promise<WorkOwnerReceiptProof[]>
   notify(ctx:WorkReconciliationContext,key:string,text:string):Promise<{chatId:string;messageId:string}>
@@ -25,12 +25,24 @@ export function createDesktopAssistantWorkReconciler(deps:{
   warn(detail:{code:string}):void
 }) {
   let cursor:{ownerId:string;assistantId:string;before:string|null}|null=null
+  let bound:string|null=null
   return createAssistantWorkReconciler({
     context:async()=>{
       const ctx=await deps.context()
       if(!ctx) return null
       const assistant=await deps.assistant(ctx)
-      return assistant?.deviceId===ctx.deviceId?{...ctx,assistantId:assistant.agentId}:null
+      if(assistant?.deviceId!==ctx.deviceId||!assistant.sessionId) return null
+      const key=JSON.stringify([ctx.ownerId,ctx.runtimeInstanceId,ctx.deviceId,assistant.agentId,assistant.sessionId])
+      if(bound!==key) {
+        const {error}=await ctx.client.rpc('assistant_work_coordinator_bind',{
+          p_assistant:assistant.agentId,p_runtime_instance_id:ctx.runtimeInstanceId,p_session_id:assistant.sessionId,
+        })
+        if(error) throw error
+        const current=await deps.context()
+        if(current?.ownerId!==ctx.ownerId||current.runtimeInstanceId!==ctx.runtimeInstanceId||current.deviceId!==ctx.deviceId) return null
+        bound=key
+      }
+      return {...ctx,assistantId:assistant.agentId}
     },
     works:async(ctx)=>{
       const before=cursor?.ownerId===ctx.ownerId&&cursor.assistantId===ctx.assistantId?cursor.before:null

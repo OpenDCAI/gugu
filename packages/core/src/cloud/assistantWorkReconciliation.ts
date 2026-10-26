@@ -1,7 +1,9 @@
 import { assistantWorkNoticeReason } from './assistantWorkNoticeReason'
 import { enqueueAssistantWorkDelivery, type AssistantWorkRpcClient } from './assistantWorkOutbox'
+import { assistantWorkCoordinator, type AssistantWorkAddress } from './assistantWorkRouting'
 
 export type ReconciledWork = {
+  coordinator_current?: AssistantWorkAddress | null
   work_id:string;assistant_user_id:string;title:string;coordinator_session_id:string;coordinator_device_id:string;
   executors:Array<{session_id:string;device_id:string}>;outcome:string;executor_outcomes:Record<string,{status:string;origin?:string}>
 }
@@ -72,7 +74,8 @@ export function createAssistantWorkReconciler(deps:{
     return receipt(ctx,event,kind,posted)
   }
   const reconcileWork=async(ctx:WorkReconciliationContext,work:ReconciledWork)=>{
-    if(work.assistant_user_id!==ctx.assistantId||work.coordinator_device_id!==ctx.deviceId) return
+    const coordinator=assistantWorkCoordinator(work)
+    if(work.assistant_user_id!==ctx.assistantId||coordinator?.device_id!==ctx.deviceId) return
     const events=await deps.history(ctx,work)
     const delivered=new Set(events.filter(event=>event.owner_delivered_at).map(event=>event.message_id))
     // Only a committed post from the same native report turn can prove owner delivery.
@@ -98,7 +101,7 @@ export function createAssistantWorkReconciler(deps:{
       if(hostFailure&&targetId&&!events.some(e=>e.kind==='failed'&&e.terminal_origin==='coordinator'&&e.executor_session_id===targetId&&e.reason_code==='HOST_FAILURE')) {
         const key=await deps.stableId(`host-failure:${work.work_id}:${event.message_id}`)
         await enqueueAssistantWorkDelivery(ctx.client,{assistantId:ctx.assistantId,runtimeInstanceId:ctx.runtimeInstanceId,operationId:key,workId:work.work_id,task:null,
-          events:[{message_id:key,kind:'failed',from_session_id:work.coordinator_session_id,from_device_id:ctx.deviceId,to_session_id:work.coordinator_session_id,to_device_id:ctx.deviceId,executor_session_id:targetId,reason_code:'HOST_FAILURE',
+          events:[{message_id:key,kind:'failed',from_session_id:coordinator.session_id,from_device_id:coordinator.device_id,to_session_id:work.coordinator_session_id,to_device_id:work.coordinator_device_id,executor_session_id:targetId,reason_code:'HOST_FAILURE',
             content:'任务运行已中断。这是平台推断的失败，平台会直接通知你，请勿重复通知；迟到的真实结果仍需正常交付。'}]})
       }
       if(inferredFailure&&event.assistant_admitted_at&&!delivered.has(event.message_id)) {
@@ -130,8 +133,8 @@ export function createAssistantWorkReconciler(deps:{
       if(!await current(ctx)) return
       const key=await deps.stableId(`missing-report:${work.work_id}:${target.session_id}:${dispatch.message_id}`)
       await enqueueAssistantWorkDelivery(ctx.client,{assistantId:ctx.assistantId,runtimeInstanceId:ctx.runtimeInstanceId,operationId:key,workId:work.work_id,task:null,
-        events:[{message_id:key,kind:'failed',from_session_id:work.coordinator_session_id,from_device_id:ctx.deviceId,
-          to_session_id:work.coordinator_session_id,to_device_id:ctx.deviceId,executor_session_id:target.session_id,reason_code:reason,
+        events:[{message_id:key,kind:'failed',from_session_id:coordinator.session_id,from_device_id:coordinator.device_id,
+          to_session_id:work.coordinator_session_id,to_device_id:work.coordinator_device_id,executor_session_id:target.session_id,reason_code:reason,
           content:`任务没有交回结果：${failureReason(reason)}。这是平台对账记录，平台会直接给主人一次失败说明，请勿重复通知；执行者迟到的真实结果仍需正常交付。`}]})
     }
   }
@@ -144,10 +147,11 @@ export function createAssistantWorkReconciler(deps:{
       catch { deps.warn({code:'WORK_RECONCILIATION_FAILED'}) }
     }
     for(const event of await deps.abandoned(ctx)) {
-      const home=event.kind==='dispatch'?event.from_device_id:event.to_device_id
-      if(event.assistant_user_id!==ctx.assistantId||home!==ctx.deviceId||event.abandonment_notified_at||!isAbandonmentNoticeEvent(event)) continue
+      if(event.assistant_user_id!==ctx.assistantId||event.abandonment_notified_at||!isAbandonmentNoticeEvent(event)) continue
       const work=works.find(w=>w.work_id===event.work_id)
       if(!work||event.owner_delivered_at) continue
+      const coordinator=assistantWorkCoordinator(work)
+      if(coordinator?.device_id!==ctx.deviceId) continue
       const targetId=event.executor_session_id??(event.kind==='dispatch'?event.to_session_id:event.from_session_id)
       const actual=targetId?work.executor_outcomes[targetId]:undefined
       if((event.terminal_origin==='coordinator'||event.kind==='question'||event.kind==='dispatch')
@@ -156,7 +160,7 @@ export function createAssistantWorkReconciler(deps:{
         if(event.kind==='dispatch'&&targetId&&await current(ctx)) {
           const key=await deps.stableId(`dispatch-failure:${work.work_id}:${event.message_id}`)
           await enqueueAssistantWorkDelivery(ctx.client,{assistantId:ctx.assistantId,runtimeInstanceId:ctx.runtimeInstanceId,operationId:key,workId:work.work_id,task:null,
-            events:[{message_id:key,kind:'failed',from_session_id:work.coordinator_session_id,from_device_id:ctx.deviceId,to_session_id:work.coordinator_session_id,to_device_id:ctx.deviceId,executor_session_id:targetId,reason_code:event.abandoned_reason_code??'DELIVERY_FAILED',
+            events:[{message_id:key,kind:'failed',from_session_id:coordinator.session_id,from_device_id:coordinator.device_id,to_session_id:work.coordinator_session_id,to_device_id:work.coordinator_device_id,executor_session_id:targetId,reason_code:event.abandoned_reason_code??'DELIVERY_FAILED',
               content:'任务派发未取得受理回执。这是协调者推断，平台会直接发送一条失败说明给账号本人，请勿重复通知；迟到的真实结果仍需正常交付。'}]})
         }
         await notify(ctx,event,work,'abandonment_notice')

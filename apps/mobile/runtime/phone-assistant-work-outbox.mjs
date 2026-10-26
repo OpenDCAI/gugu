@@ -1,6 +1,7 @@
 import { createAssistantWorkOutboxPump } from '../../../packages/core/src/cloud/assistantWorkOutbox.ts'
 import { createAssistantWorkNoticeWakePump } from '../../../packages/core/src/cloud/assistantWorkNoticeWake.ts'
 import { createCloudComputerClient } from '../../../packages/core/src/cloud/cloudComputer.ts'
+import { assistantWorkDeliveryTarget } from '../../../packages/core/src/cloud/assistantWorkRouting.ts'
 
 /** The phone consumes the same cloud event queue; it keeps no second durable outbox. */
 export function createPhoneAssistantWorkOutbox({ cloud, ownerId, deviceId, instanceId, isReady, requester, receive, controller: controllerOverride, warn = () => {} }) {
@@ -37,11 +38,13 @@ export function createPhoneAssistantWorkOutbox({ cloud, ownerId, deviceId, insta
     deliver: async (event, signal) => {
       const ref = { assistant_id: event.assistant_user_id, work_id: event.work_id, message_id: event.message_id }
       if (!ref.assistant_id) throw Object.assign(new Error('Work assistant is missing'), { code: 'INVALID_OUTBOX_EVENT' })
-      if (event.to_device_id === deviceId) return receive(ref, signal)
-      await prepare(event.to_device_id, signal)
+      const target = assistantWorkDeliveryTarget(event)
+      if (!target) return { status: 'pending' }
+      if (target.device_id === deviceId) return receive(ref, signal)
+      await prepare(target.device_id, signal)
       const client = requester()
       if (!client || closed || !isReady()) throw Object.assign(new Error('Phone delivery host is not ready'), { code: 'DELIVERY_NOT_READY' })
-      const result = await client.call(event.to_device_id, 'assistantWork.deliver', ref, { timeoutMs: 30000, signal })
+      const result = await client.call(target.device_id, 'assistantWork.deliver', ref, { timeoutMs: 30000, signal })
       if (result.error) throw Object.assign(new Error('Receiver rejected work delivery'), { code: result.error.code === 'unknown_method' ? 'DELIVERY_HOST_OUTDATED' : result.error.code })
       return result.result?.status === 'admitted' && result.result.messageId === event.message_id ? result.result : { status: 'pending' }
     },
