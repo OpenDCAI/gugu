@@ -754,7 +754,8 @@ function appInstallFrom(fromDevice: string, action: Record<string, unknown>): Re
 function desktopAuthProvider(): RuntimeAuthProvider {
   return (authProvider ??= createPushedRuntimeAuthProvider(() => pushedHumanAuth))
 }
-bindElectronSupabaseAuth(async () => (await desktopAuthProvider().getAuth())?.accessToken ?? null)
+bindElectronSupabaseAuth(async (forceRefresh) =>
+  (await desktopAuthProvider().getAuth({ forceRefresh }))?.accessToken ?? null)
 let primaryGuguMcpHost: DesktopGuguMcpHost | null = null
 
 function hasPersistedMcpGrants(name: string): boolean {
