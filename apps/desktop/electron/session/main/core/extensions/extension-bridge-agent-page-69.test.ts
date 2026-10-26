@@ -111,6 +111,12 @@ describe('the check’s page works as its operator (摩擦单 F69, owner 10-14)'
     expect(clipboard.writeText).toHaveBeenCalledWith('hi');
   });
 
+  it('a real page receives a rejected native clipboard write instead of a false success', async () => {
+    const { clipboard } = await import('electron');
+    vi.mocked(clipboard.writeText).mockRejectedValueOnce(new Error('Clipboard write permission denied'));
+    expect(await call(REAL, 'clipboardWriteText', { text: 'hi' })).toMatchObject({ ok: false, message: expect.stringContaining('Clipboard write permission denied') });
+  });
+
   it('an App dialog requested by a check page is handed back to its agent', async () => {
     const args = { id: 'new-card', entry: 'new.html', title: 'New card', data: { column: 'todo' } };
     expect(await call(CHECK, 'modalOpen', args)).toEqual({ ok: true, value: null });

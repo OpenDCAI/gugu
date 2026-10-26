@@ -1,3 +1,4 @@
+import { useTranslation } from 'react-i18next'
 import type { MessageItem } from '@gugu/core/shared/types/chat'
 import { AnimatePresence, motion } from 'framer-motion'
 import { useCallback, useContext, useEffect, useRef, useState } from 'react'
@@ -14,14 +15,15 @@ export type { PreviewFile } from './MessageFilePreview'
 
 const fileOpenLog = rendererLogger('chat/file-open')
 
-export function useMessageFilePreview({ mobile, visible, closeRightSurfaces, toast, downloadFailed, onForward }: {
+export function useMessageFilePreview({ mobile, visible, closeRightSurfaces, toast, onForward }: {
   mobile: boolean
   visible: boolean
   closeRightSurfaces: () => void
-  toast: (message: string, kind: 'error') => void
-  downloadFailed: string
+  toast: (message: string, kind: 'error', description?: string) => void
   onForward: (message: MessageItem) => void
 }) {
+  const { t } = useTranslation('messaging')
+  const downloadFailed = t('chatArea.downloadFailed')
   const host = useContext(FilePreviewHost)
   const hosted = host !== null
   const onOpenChange = host?.onOpenChange
@@ -38,7 +40,7 @@ export function useMessageFilePreview({ mobile, visible, closeRightSurfaces, toa
     if (!hosted && file.source.kind === 'item' && platform.kind !== 'web') {
       void openLinkTarget({ kind: 'file', itemId: file.source.itemId }, { message, restore }).catch((error) => {
         fileOpenLog.error({ error }, 'opening the group file failed')
-        toast(messageForUser(error, downloadFailed), 'error')
+        toast(downloadFailed, 'error', messageForUser(error))
       })
       return
     }

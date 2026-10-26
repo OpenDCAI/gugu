@@ -70,7 +70,7 @@ it('a successful confirmation navigates only after exit; a failure stays open', 
   }
   await h.render(createNode(Parent)); await frame()
   await clickElement(document.querySelector('[data-testid="confirm-confirm"]')!)
-  expect(document.querySelector('[role="alert"]')?.textContent).toBe('Retry')
+  expect(document.querySelector('[role="alert"]')?.textContent).toBe('Offline')
   expect(navigate).not.toHaveBeenCalled()
   await clickElement(document.querySelector('[data-testid="confirm-confirm"]')!)
   const popup = document.querySelector<HTMLElement>('[data-testid="confirm"]')!

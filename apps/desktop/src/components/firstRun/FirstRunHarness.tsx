@@ -1,3 +1,5 @@
+import { rendererLogger } from '@/lib/log';
+import { messageForUser } from '@/lib/userFacingError';
 import { useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import { useQueryClient } from '@tanstack/react-query'
@@ -38,8 +40,9 @@ export function FirstRunHarness({ userId, onDone }: { userId: string; onDone: ()
       await writeFirstRunHarness(userId, selected)
       installInBackground(selected)
       onDone()
-    } catch {
-      setError(t('firstRun.saveFailed'))
+    } catch (error) {
+      rendererLogger('actions/FirstRunHarness').error({ error: error }, 'action failed')
+      setError(messageForUser(error))
     } finally {
       setSaving(false)
     }

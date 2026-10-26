@@ -245,7 +245,7 @@ export function useProjectFolders(rowId: string, memberIds: readonly string[] = 
     async (folder: ProjectFolder): Promise<boolean> => {
       const ownerId = cachedDevicesAccount();
       const result = await rpc.projects.detachProjectFolder(folder.projectId, folder.workspaceId);
-      if (!result.success) return false;
+      if (!result.success) throw new Error(result.error.message, { cause: result.error });
       void reportAssistantAppChange({ rpc }, undefined, { resource: 'projects', operation: 'edited', section: 'folders', id: folder.projectId,
         deviceId: machineRegistry.machineOf(folder.projectId) ?? undefined, before: { path: folder.path } }, ownerId);
       if (freshFolders.get(rowId) === folder.workspaceId) {

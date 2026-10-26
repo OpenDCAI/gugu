@@ -37,6 +37,9 @@ vi.mock('@/components/chat/MessageFilePreviewPanel', () => ({
       React.createElement('button', { 'data-testid': 'preview-external', onClick: onOpenExternal })),
 }))
 
+const previewToast = vi.hoisted(() => vi.fn())
+vi.mock('@/components/toastContext', () => ({ useToast: () => ({ toast: previewToast }) }))
+
 const { useMessageFilePreview } = await import('@/components/chat/useMessageFilePreview')
 
 function deferred<T>() {
@@ -68,7 +71,6 @@ describe('useMessageFilePreview', () => {
       visible,
       closeRightSurfaces, onForward,
       toast: vi.fn(),
-      downloadFailed: 'download failed',
     })
     openPreview = preview.open
     closePreview = preview.close
@@ -301,4 +303,16 @@ describe('useMessageFilePreview', () => {
     await act(async () => { (container.querySelector('[data-testid="preview-close"]') as HTMLElement).click() })
     expect(restore).toHaveBeenCalledTimes(1)
   })
+  it.each(['download', 'external'])('keeps the sanitized %s failure cause', async (action) => {
+    bytesMocks.attachmentBytes.mockResolvedValue(bytesOf(async () => 'readable'))
+    await act(async () => { root.render(React.createElement(Probe)); await Promise.resolve() })
+    await act(async () => { openPreview?.(file); await Promise.resolve() })
+    const error = new Error('Attachment access denied /Users/test/private sk-synthetic-secret\nstack detail')
+    if (action === 'download') bytesMocks.attachmentBytes.mockRejectedValue(error)
+    else bytesMocks.openAttachmentInSystemApp.mockRejectedValue(error)
+    previewToast.mockClear()
+    await act(async () => { (container.querySelector(`[data-testid="preview-${action}"]`) as HTMLElement).click(); await Promise.resolve() })
+    expect(previewToast).toHaveBeenCalledWith('无法下载文件', 'error', 'Attachment access denied [path] [redacted token]')
+  })
+
 })

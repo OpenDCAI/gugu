@@ -1,3 +1,6 @@
+import { messageForUser } from '@/lib/userFacingError';
+import { safeFailureLine } from '../../sessions/gugu-reason';
+import { log } from '@renderer/utils/logger';
 import '@/i18n/registerVoiceNotesCatalog';
 import './voice-notes.css';
 import { useEffect, useMemo, useState, useSyncExternalStore } from 'react';
@@ -224,8 +227,8 @@ function VoiceNoteDetail({ context, id }: { context: AssistantContext; id: strin
       await invalidate('voice');
       toast({ title: t('deleted') });
       context.go({ tab: 'memory', sub: VOICE_NOTE_SUB });
-    } catch {
-      toast({ title: t('deleteFailed'), tier: 'error' });
+    } catch (error) { log.error({ error: error }, 'action failed');
+      toast({ title: t('deleteFailed'), description: messageForUser(error), tier: 'error' });
     }
   };
   const confirmRemove = () =>
@@ -241,8 +244,8 @@ function VoiceNoteDetail({ context, id }: { context: AssistantContext; id: strin
     try {
       await retryVoiceNote(id);
       await invalidate('voice');
-    } catch {
-      toast({ title: t('retryFailed'), tier: 'error' });
+    } catch (error) { log.error({ error: error }, 'action failed');
+      toast({ title: t('retryFailed'), description: messageForUser(error), tier: 'error' });
     } finally {
       setRetrying(false);
     }
@@ -251,16 +254,17 @@ function VoiceNoteDetail({ context, id }: { context: AssistantContext; id: strin
     try {
       await navigator.clipboard.writeText(summaryBody(data?.summary ?? ''));
       toast({ title: t('summaryCopied') });
-    } catch {
-      toast({ title: t('copyFailed'), tier: 'error' });
+    } catch (error) {
+      log.error({ error }, 'voice note summary copy failed');
+      toast({ title: t('copyFailed'), description: safeFailureLine(String((error as Error)?.message ?? error)), tier: 'error' });
     }
   };
   const exportNote = async () => {
-    const saved = await rpc.app
-      .saveTextFile({ title: t('exportTitle'), defaultPath: exportFileName(title), content: exportMarkdown({ title, summary: data?.summary ?? null, lines: data?.lines ?? [] }) })
-      .catch(() => null);
-    if (!saved?.success) toast({ title: t('exportFailed'), tier: 'error' });
-    else if (saved.path) toast({ title: t('exported') });
+    try {
+      const saved = await rpc.app.saveTextFile({ title: t('exportTitle'), defaultPath: exportFileName(title), content: exportMarkdown({ title, summary: data?.summary ?? null, lines: data?.lines ?? [] }) });
+      if (!saved.success) { log.error('voice note export failed', { error: saved.error }); toast({ title: t('exportFailed'), description: messageForUser(saved.error), tier: 'error' }); }
+      else if (saved.path) toast({ title: t('exported') });
+    } catch (error) { log.error('voice note export failed', { error }); toast({ title: t('exportFailed'), description: messageForUser(error), tier: 'error' }); }
   };
 
   const sub = [

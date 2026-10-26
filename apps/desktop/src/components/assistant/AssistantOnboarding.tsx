@@ -1,3 +1,4 @@
+import { messageForUser } from '@/lib/userFacingError';
 import './assistant-onboarding.css'
 import { useCallback, useEffect, useState } from 'react'
 import { useTranslation } from 'react-i18next'
@@ -9,7 +10,6 @@ import { Button } from '../ui/Button'
 import { LoadingIndicator } from '@/lib/loading/LoadingIndicator'
 import { BODY_COLORS } from '../agentAvatar/engine/identity'
 import {
-  AssistantSetupError,
   claimCloudAssistant,
   draftAvatarUrl,
   pendingLocalAssistant,
@@ -83,10 +83,10 @@ export function AssistantOnboarding({
     return { ...draft, owner: { preferredName: ownerName?.trim() ?? '', about: label ? t('setup.ownerOccupation', { occupation: label }) : '' } }
   }, [draft, ownerName, ownerUserId, t, tMain])
   const [busy, setBusy] = useState<Busy>(null)
-  const [error, setError] = useState<{ kind: 'still-starting' | 'failed' } | null>(null)
+  const [error, setError] = useState<string | null>(null)
   const [cloudFailure, setCloudFailure] = useState<CloudComputerActionFailure | null>(null)
   const [member, setMember] = useState<boolean | null>(null)
-  const [memberError, setMemberError] = useState(false)
+  const [memberError, setMemberError] = useState<string | null>(null)
   const [memberAttempt, setMemberAttempt] = useState(0)
   const hue = BODY_COLORS[draft.color]?.hue ?? 268
   const displayName = draft.name.trim() || t('setup.namePlaceholder')
@@ -98,7 +98,7 @@ export function AssistantOnboarding({
     try {
       record = pendingLocalAssistant(ownerUserId)
     } catch (e) {
-      log.warn({ error: String(e) }, 'read pending local assistant failed')
+      log.error({ error: String(e) }, 'read pending local assistant failed')
       return
     }
     if (!record) return
@@ -108,8 +108,8 @@ export function AssistantOnboarding({
       .then(() => reloadMyAssistant(ownerUserId))
       .catch((e: unknown) => {
         writeSetupStep(ownerUserId, null)
-        setError({ kind: e instanceof AssistantSetupError && e.kind === 'still-starting' ? 'still-starting' : 'failed' })
-        log.warn({ error: String(e) }, 'resume local assistant failed')
+        setError(messageForUser(e))
+        log.error({ error: String(e) }, 'resume local assistant failed')
       })
       .finally(() => setBusy(null))
   }, [ownerUserId, localDeviceId])
@@ -118,12 +118,12 @@ export function AssistantOnboarding({
   useEffect(() => {
     if (!cloudEnabled || step !== 'home' || member !== null) return
     let cancelled = false
-    setMemberError(false)
+    setMemberError(null)
     getMembership()
       .then((m) => !cancelled && setMember(!!m && m.tier !== 'free'))
       .catch((e: unknown) => {
-        log.warn({ error: String(e) }, 'read membership failed')
-        if (!cancelled) setMemberError(true)
+        log.error({ error: String(e) }, 'read membership failed')
+        if (!cancelled) setMemberError(messageForUser(e))
       })
     return () => {
       cancelled = true
@@ -158,8 +158,8 @@ export function AssistantOnboarding({
       reloadMyAssistant(ownerUserId)
     } catch (e) {
       writeSetupStep(ownerUserId, null)
-      setError({ kind: e instanceof AssistantSetupError && e.kind === 'still-starting' ? 'still-starting' : 'failed' })
-      log.warn({ error: String(e) }, 'set up assistant on this computer failed')
+      setError(messageForUser(e))
+      log.error({ error: String(e) }, 'set up assistant on this computer failed')
     } finally {
       setBusy(null)
     }
@@ -205,7 +205,7 @@ export function AssistantOnboarding({
           <AssistantSetupIdentity draft={draft} onChange={setDraft} onBack={() => setStep('intro')} onContinue={() => setStep('home')} />
         ) : memberError ? (
           <>
-            <p className="ta-onb-error" role="alert">{t('setup.membershipUnreadable')}</p>
+            <p className="ta-onb-error" role="alert">{memberError}</p>
             <Button onClick={() => setMemberAttempt((attempt) => attempt + 1)}>{t('setup.retry')}</Button>
           </>
         ) : (
@@ -249,7 +249,7 @@ function HomeChoice({
   cloudAvailable: boolean
   canHostHere: boolean
   busy: Busy
-  error: { kind: 'still-starting' | 'failed' } | null
+  error: string | null
   cloudFailure: CloudComputerActionFailure | null
   onCloud: () => void
   onComputer: () => void
@@ -331,7 +331,7 @@ function HomeChoice({
       {cloudCheck.error && <p className="ta-onb-error" role="alert">{tc(`cloudComputer.reason.${cloudComputerFailureKind(cloudCheck.error)}`)}</p>}
       {error ? (
         <p className="ta-onb-error" role="alert" data-testid="assistant-setup-error">
-          {error.kind === 'still-starting' ? t('setup.stillStarting', { name }) : t('setup.failed')}
+          {error}
         </p>
       ) : null}
       {cloudFailure ? <CloudComputerRefusal failure={cloudFailure} prefixKey="devices.cloud.provisionFailed" onUpgrade={openMembership} /> : null}

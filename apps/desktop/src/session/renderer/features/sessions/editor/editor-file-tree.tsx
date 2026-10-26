@@ -1,3 +1,5 @@
+import { safeFailureLine } from '../gugu-reason';
+import { log } from '@renderer/utils/logger';
 // 会话工作区的文件树 —— 一棵,不管会话在哪台机器上(#6264:别的机器上的会话同一棵树,数据经工作区后端来)。
 // 动作照 VS Code 资源管理器:新建文件 / 新建文件夹(行内输入框)、重命名(行内,F2)、删除(Delete / ⌘⌫)、
 // 复制内容 / 路径 / 相对路径、在访达中显示(只有这台电脑上的)、从访达拖进来;别的机器上的还有「下载…」「上传文件…」,
@@ -310,16 +312,14 @@ const FileTreeRow = observer(function FileTreeRow({
       const result = await workspaceRpc(projectId).files.readFile(projectId, workspaceId, node.path, MAX_COPY_FILE_BYTES);
       if (!result.success) {
         toast({
-          title: translate('task.copyFailed'),
-          description: resultErrorMessage(result.error, translate('fileTree.unknownError')),
+          title: translate('task.copyFailed'), description: safeFailureLine(resultErrorMessage(result.error, translate('fileTree.unknownError'))),
           variant: 'destructive',
         });
         return;
       }
       if (result.data.truncated || result.data.binary) {
         toast({
-          title: translate('task.copyFailed'),
-          description: translate(result.data.binary ? 'fileTree.cantShow' : 'fileTree.fileTooLarge'),
+          title: translate('task.copyFailed'), description: translate(result.data.binary ? 'fileTree.cantShow' : 'fileTree.fileTooLarge'),
           variant: 'destructive',
         });
         return;
@@ -327,9 +327,9 @@ const FileTreeRow = observer(function FileTreeRow({
       await rpc.app.clipboardWriteText(result.data.content);
       toast({ title: translate('fileTree.fileCopied') });
     } catch (error) {
+      log.error({ error }, 'file tree copy failed');
       toast({
-        title: translate('task.copyFailed'),
-        description: error instanceof Error ? error.message : translate('fileTree.copyFileFailedDetail'),
+        title: translate('task.copyFailed'), description: safeFailureLine(String((error as Error)?.message ?? error)),
         variant: 'destructive',
       });
     }
@@ -340,9 +340,9 @@ const FileTreeRow = observer(function FileTreeRow({
       await rpc.app.clipboardWriteText(text);
       toast({ title: done });
     } catch (error) {
+      log.error({ error }, 'file tree copy failed');
       toast({
-        title: translate('task.copyFailed'),
-        description: error instanceof Error ? error.message : translate('fileTree.copyPathFailedDetail'),
+        title: translate('task.copyFailed'), description: safeFailureLine(String((error as Error)?.message ?? error)),
         variant: 'destructive',
       });
     }
@@ -352,8 +352,7 @@ const FileTreeRow = observer(function FileTreeRow({
     const result = await workspaceRpc(projectId).files.getAbsolutePath(projectId, workspaceId, node.path);
     if (!result.success) {
       toast({
-        title: translate('task.copyFailed'),
-        description: resultErrorMessage(result.error, translate('fileTree.unknownError')),
+        title: translate('task.copyFailed'), description: safeFailureLine(resultErrorMessage(result.error, translate('fileTree.unknownError'))),
         variant: 'destructive',
       });
       return;

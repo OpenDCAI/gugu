@@ -111,8 +111,7 @@ describe('first run gate (#7348)', () => {
     const harness = await renderGate()
     try {
       await waitForCondition(() => !!byTestId(harness.container, 'first-run-unreadable'), 'unreadable screen')
-      // 原因进日志,屏上只说读不到 + 重试(仓库的文案规则:❌ 把内部失败描述拼进用户文案)
-      expect(harness.container.textContent).not.toContain('permission denied for table users')
+      expect(harness.container.textContent).toContain('permission denied for table users')
       expect(byTestId(harness.container, 'first-run-retry')).not.toBeNull()
       expect(byTestId(harness.container, 'main-product')).toBeNull()
       expect(byTestId(harness.container, 'first-run-profile')).toBeNull()
@@ -213,7 +212,7 @@ describe('first run gate (#7348)', () => {
       await waitForCondition(() => !!byTestId(harness.container, 'assistant-intro-later'), 'later link')
       await clickElement(byTestId(harness.container, 'assistant-intro-later')!)
       await waitForCondition(() => !!harness.container.querySelector('[role="alert"]'), 'error shown')
-      expect(harness.container.textContent).not.toContain('network down')
+      expect(harness.container.textContent).toContain('network down')
       expect(byTestId(harness.container, 'main-product')).toBeNull()
       expect(byTestId(harness.container, 'assistant-intro-later')).not.toBeNull()
       expect(io.rememberFirstRunDone).not.toHaveBeenCalled()

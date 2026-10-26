@@ -1,3 +1,5 @@
+import { rendererLogger } from '@/lib/log';
+import { messageForUser } from '@/lib/userFacingError';
 import { useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import type { ChatChannel, ChatChannelKind, ChatChannelList, ChatChannelsClient } from '@gugu/core/cloud/chatChannels'
@@ -46,13 +48,13 @@ function HealthLine({ channel }: { channel: ChatChannel }) {
 function DisconnectDialog({ onCancel, onConfirm }: { onCancel: () => void; onConfirm: () => Promise<void> }) {
   const { t } = useTranslation('settings')
   const [busy, setBusy] = useState(false)
-  const [failed, setFailed] = useState(false)
+  const [failed, setFailed] = useState('')
   return (
     <Sheet onClose={onCancel} desktopWidth="400px" desktopMaxHeight="80vh" mobileFitContent ariaLabel={t('channels.disconnectConfirm.title')} testId="wechat-disconnect-dialog" zIndex="var(--z-settings-modal)">
       <div className="flex flex-col gap-3 p-[18px]">
         <div className="text-[length:var(--font-title)] font-semibold text-[var(--fg)]">{t('channels.disconnectConfirm.title')}</div>
         <div className={`${body} text-[var(--muted-fg)]`}>{t('channels.disconnectConfirm.body')}</div>
-        {failed ? <div className={`${body} text-[var(--danger)]`}>{t('channels.disconnectConfirm.failed')}</div> : null}
+        {failed ? <div className={`${body} text-[var(--danger)]`}>{failed}</div> : null}
         <div className="flex justify-end gap-2">
           <Button size="sm" onClick={onCancel}>{t('channels.disconnectConfirm.cancel')}</Button>
           <Button
@@ -62,12 +64,12 @@ function DisconnectDialog({ onCancel, onConfirm }: { onCancel: () => void; onCon
             data-testid="wechat-disconnect-confirm"
             onClick={() => {
               setBusy(true)
-              setFailed(false)
+              setFailed('')
               onConfirm().then(
                 () => setBusy(false),
-                () => {
+                (error: unknown) => {
                   setBusy(false)
-                  setFailed(true)
+                  rendererLogger('actions/ChatChannelsPanel').error({ error }, 'action failed'); setFailed(messageForUser(error))
                 },
               )
             }}
@@ -142,17 +144,17 @@ function ConnectedChannels({ client, list, apply }: { client: ChatChannelsClient
   const agents = useOwnedAgents()
   const time = useTimeLabel()
   const [confirmDisconnect, setConfirmDisconnect] = useState<ChatChannelKind | null>(null)
-  const [failed, setFailed] = useState(false)
+  const [failed, setFailed] = useState('')
   const run = (action: Promise<ChatChannelList>) => {
-    setFailed(false)
-    action.then(apply, () => setFailed(true))
+    setFailed('')
+    action.then(apply, (error: unknown) => { rendererLogger('actions/ChatChannelsPanel').error({ error }, 'action failed'); setFailed(messageForUser(error)) })
   }
   const wechat = list.channels.find((c) => c.kind === 'wechat') ?? null
   if (!wechat) return null
   const agentName = wechat.agentId ? (agents.find((agent) => agent.id === wechat.agentId)?.display_name ?? null) : null
   return (
     <>
-      <SettingsGroup title={t('channels.connected')} footer={failed ? <SettingsNote tone="danger">{t('channels.actionFailed')}</SettingsNote> : undefined}>
+      <SettingsGroup title={t('channels.connected')} footer={failed ? <SettingsNote tone="danger">{failed}</SettingsNote> : undefined}>
         <SettingsRow
           data-testid="wechat-channel-connected"
           leading={<ChannelBrandIcon kind="wechat" size={28} />}
@@ -210,7 +212,7 @@ function ConnectedChannels({ client, list, apply }: { client: ChatChannelsClient
  */
 export function ChatChannelsPanel() {
   const { t } = useTranslation('settings')
-  const { client, list, status, refresh, apply } = useChatChannels()
+  const { client, list, status, error, refresh, apply } = useChatChannels()
   const [connecting, setConnecting] = useState(false)
 
   if (status === 'not_open' || !client) {
@@ -227,7 +229,7 @@ export function ChatChannelsPanel() {
       <SettingsNote>{t('channels.intro')}</SettingsNote>
       {status === 'failed' ? (
         <SettingsNote tone="danger" data-testid="channels-load-failed">
-          {t('channels.loadFailed')}{' '}
+          {error}{' '}
           <Button size="sm" variant="ghost" onClick={() => void refresh()}>{t('channels.reload')}</Button>
         </SettingsNote>
       ) : null}

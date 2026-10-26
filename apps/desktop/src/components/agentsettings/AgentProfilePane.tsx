@@ -1,3 +1,4 @@
+import { messageForUser } from '@/lib/userFacingError';
 import { useEffect, useRef, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import { rendererLogger } from '../../lib/log'
@@ -82,7 +83,7 @@ export function AgentProfilePane({ agent, onClose, onOpenTab }: AgentSettingsPan
       setPreviewUrl(null)
       setPendingFile(null)
       console.error('[AgentProfilePane] failed to save agent profile', err)
-      toast(t('settings.profile.saveFailed'), 'error')
+      toast(t('settings.profile.saveFailed'), 'error', messageForUser(err))
     } finally {
       setSaving(false)
     }
@@ -100,7 +101,7 @@ export function AgentProfilePane({ agent, onClose, onOpenTab }: AgentSettingsPan
       onClose?.()
     } catch (err) {
       profileLog.error({ err: String((err as Error)?.message ?? err) }, 'delete agent failed')
-      toast(t('settings.profile.deleteFailed'), 'error')
+      toast(t('settings.profile.deleteFailed'), 'error', messageForUser(err))
       setRemoving(false)
     }
   }

@@ -1,3 +1,4 @@
+import { messageForUser } from '@/lib/userFacingError';
 import { useLayoutEffect, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import type { MachineLimitRefusal } from '@gugu/core/cloud/machineLimit'
@@ -38,7 +39,7 @@ export function ServerLoginApproveSheet({ code, onDone }: { code: string | null;
       (error: unknown) => {
         if (!alive) return
         const message = error instanceof Error ? error.message : String(error)
-        log.warn({ error: message }, 'server-login view failed')
+        log.error({ error: message }, 'server-login view failed')
         setView({ kind: 'failed', message: message === 'not_found' ? t('devices.approveServer.notFound') : t('devices.approveServer.loadFailed') })
       },
     )
@@ -53,8 +54,8 @@ export function ServerLoginApproveSheet({ code, onDone }: { code: string | null;
         setView({ kind: 'final', state: decision.state, hostname: request.machine.hostname, refusal: decision.refusal })
       },
     ).catch((error: unknown) => {
-      log.warn({ error: error instanceof Error ? error.message : String(error) }, 'server-login decide failed')
-      setView({ kind: 'request', request, busy: false, error: t('devices.approveServer.decideFailed') })
+      log.error({ error: error instanceof Error ? error.message : String(error) }, 'server-login decide failed')
+      setView({ kind: 'request', request, busy: false, error: messageForUser(error) })
     })
   }
 

@@ -207,7 +207,7 @@
   {
     "rule": "copy-leaks-raw-error-slot",
     "file": "apps/desktop/src/session/renderer/features/sessions/editor/editor-file-tree.tsx",
-    "count": 6
+    "count": 2
   },
   {
     "rule": "copy-leaks-raw-error-slot",

@@ -32,7 +32,6 @@ vi.mock('@renderer/utils/logger', () => ({ log: { error: mocks.logError, warn: m
 vi.mock('@renderer/lib/hooks/use-toast', () => ({ toast: mocks.toast }));
 
 const { useCreateSessionCallback } = await import('./use-create-session-callback');
-const { translateSessionMessage } = await import('@renderer/localization/locale-store');
 
 type HookResult = ReturnType<typeof useCreateSessionCallback>;
 let latest: HookResult | undefined;
@@ -402,9 +401,8 @@ describe('useCreateSessionCallback ordinary messaging', () => {
     expect(mocks.localSendMessage).toHaveBeenCalledWith(expect.objectContaining({ text: 'make one task' }));
     expect(mocks.navigate).toHaveBeenCalledWith('session', expect.objectContaining({ projectId: 'project-1' }));
     expect(mocks.onClose).toHaveBeenCalled();
-    expect(mocks.logError).not.toHaveBeenCalled();
-    expect(mocks.logWarn).toHaveBeenCalledWith('remember the started configuration failed', { error: 'settings unavailable' });
-    expect(mocks.toast).toHaveBeenCalledWith({ title: translateSessionMessage('task.newSessionMemoryNotSaved'), tier: 'warning' });
+    expect(mocks.logError).toHaveBeenCalledWith('remember the started configuration failed', { error: 'settings unavailable' });
+    expect(mocks.toast).toHaveBeenCalledWith({ title: 'Couldn’t save defaults', description: 'settings unavailable', tier: 'warning' });
   });
 
   it('retries the same created task and stable id after an ambiguous router failure', async () => {

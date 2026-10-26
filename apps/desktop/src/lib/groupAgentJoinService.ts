@@ -1,7 +1,7 @@
+import { messageForUser } from './userFacingError'
 import { i18n } from '@/i18n'
 import { chatDb } from './supabase'
 import { currentGroupAdmin } from './groupAdmin'
-import { toUserFacingError } from './userFacingError'
 import {
   groupJoinDenialKey,
   latestAgentJoinRequestStatus,
@@ -11,12 +11,12 @@ import {
 
 export type { GroupAgentJoinOutcome }
 
-/** 库里入群判定的拒绝 → 产品文案;认不出的走通用失败文案。❌ 把数据库原文贴给用户。 */
+/** 库里已知的入群拒绝用现有产品文案;其余保留拒绝方的原因。 */
 export function groupJoinError(error: { message: string }): Error {
   const key = groupJoinDenialKey(error.message)
   return key
     ? new Error(i18n.t(key, { ns: 'messaging' }), { cause: error })
-    : toUserFacingError(error, i18n.t('group.join.denied.generic', { ns: 'messaging' }))
+    : new Error(messageForUser(error), { cause: error })
 }
 
 /**
@@ -39,6 +39,6 @@ export async function addGroupAgent(chatId: string, agentUserId: string, role: s
 /** 我替自己的 agent 发起过的入群请求(待审 / 已批准 / 已拒绝),每个 agent 取最近一条。 */
 export async function listMyAgentJoinRequests(chatId: string): Promise<Map<string, AgentJoinRequestStatus>> {
   const { data, error } = await chatDb.rpc('list_my_agent_join_requests', { p_chat_id: chatId })
-  if (error) throw toUserFacingError(error, i18n.t('group.join.denied.generic', { ns: 'messaging' }))
+  if (error) throw new Error(messageForUser(error), { cause: error })
   return latestAgentJoinRequestStatus((data ?? []) as Array<{ agent_user_id: string; status: string }>)
 }

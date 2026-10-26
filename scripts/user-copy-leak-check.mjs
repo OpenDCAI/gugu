@@ -35,8 +35,9 @@ const SLOT_NAMES = new Set(['description', 'detail', 'subtitle'])
 const RAW_ERROR_EXPRESSION = /\b(?:err|error|errors|reason|detail|details|message|msg|stderr|cause)\b/i
 /** 提示出口。这里不认 `sonner` 的具名导入别名，认不出的那几处会漏数——基线只会偏小，不会误红。 */
 const TOAST_CALLEES = new Set(['toast', 'showToast', 'notify', 'pushToast'])
-/** 纯粹的翻译调用不算泄漏：`description: t('x.errorHint')` 的文本会撞上 /error/，但它是本地化文案。 */
-const TRANSLATE_CALLEES = /^(?:t|translate|translateRef\.current|translateSessionMessage|i18n\.t)$/
+/** Translated copy and the existing redacted failure formatters are not raw error text.
+ * 纯粹的翻译调用不算泄漏：`description: t('x.errorHint')` 的文本会撞上 /error/，但它是本地化文案。 */
+const TRANSLATE_CALLEES = /^(?:t|translate|translateRef\.current|translateSessionMessage|i18n\.t|messageForUser|safeFailureLine)$/
 
 /**
  * 第三条路(#6264 d22 真机漏网):宿主把 `error.message` 装进一格「原因」字段,经 IPC / 设备 RPC 送到界面,

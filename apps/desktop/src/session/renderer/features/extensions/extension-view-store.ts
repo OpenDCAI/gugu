@@ -162,7 +162,7 @@ class ExtensionViewStore {
   }
 
   /** 那一格被关掉了。 */
-  forgetSlot(sessionId: string, tabId: string): void {
+  forgetSlot(sessionId: string | null, tabId: string): void {
     this.slotPages.delete(slotKey(sessionId, tabId));
   }
 

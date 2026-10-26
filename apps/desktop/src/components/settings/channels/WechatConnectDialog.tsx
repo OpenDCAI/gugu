@@ -1,3 +1,5 @@
+import { messageForUser } from '@/lib/userFacingError';
+import { rendererLogger } from '@/lib/log';
 import { useEffect, useRef, useState, type FormEvent } from 'react'
 import QRCode from 'qrcode'
 import { useTranslation } from 'react-i18next'
@@ -122,7 +124,7 @@ export function WechatConnectDialog({
   const { t } = useTranslation('settings')
   const agents = useOwnedAgents()
   const [view, setView] = useState<ChatChannelLogin | null>(null)
-  const [requestFailed, setRequestFailed] = useState(false)
+  const [requestFailed, setRequestFailed] = useState('')
   const [attempt, setAttempt] = useState(0)
   const refreshedFor = useRef(-1)
   const connected = view?.phase === 'connected'
@@ -131,10 +133,10 @@ export function WechatConnectDialog({
   useEffect(() => {
     let alive = true
     setView(null)
-    setRequestFailed(false)
+    setRequestFailed('')
     client.startLogin('wechat').then(
       (next) => alive && setView(next),
-      () => alive && setRequestFailed(true),
+      (error: unknown) => { rendererLogger('settings/channels').error({ error }, 'login request failed'); if (alive) setRequestFailed(messageForUser(error)) },
     )
     return () => {
       alive = false
@@ -146,12 +148,12 @@ export function WechatConnectDialog({
     const timer = setTimeout(() => {
       client.loginView('wechat').then(
         // 管家那边这一轮没了(重启过):当作请求失败,让人重来,❌ 一直转圈。
-        (next) => (next ? setView(next) : setRequestFailed(true)),
-        () => setRequestFailed(true),
+        (next) => (next ? setView(next) : setRequestFailed(t('channels.actionFailed'))),
+        (error: unknown) => { rendererLogger('settings/channels').error({ error }, 'channel request failed'); setRequestFailed(messageForUser(error)) },
       )
     }, POLL_MS)
     return () => clearTimeout(timer)
-  }, [client, view, requestFailed])
+  }, [client, view, requestFailed, t])
 
   useEffect(() => {
     if (!connected || refreshedFor.current === attempt) return
@@ -169,7 +171,7 @@ export function WechatConnectDialog({
   if (requestFailed) {
     content = (
       <div className="flex w-full flex-col items-center gap-3" data-testid="wechat-connect-request-failed">
-        <div className={`${body} text-center text-[var(--fg)]`}>{t('channels.actionFailed')}</div>
+        <div className={`${body} text-center text-[var(--fg)]`}>{requestFailed}</div>
         <Button size="sm" variant="primary" onClick={retry}>{t('channels.dialog.retry')}</Button>
       </div>
     )
@@ -182,7 +184,7 @@ export function WechatConnectDialog({
           <span className={`${body} text-[var(--fg)]`}>{t('channels.agentLabel')}</span>
           <ChannelAgentPicker
             agentId={channel?.agentId ?? null}
-            onPick={(id) => void client.setAgent('wechat', id).then(apply, () => setRequestFailed(true))}
+            onPick={(id) => void client.setAgent('wechat', id).then(apply, (error: unknown) => { rendererLogger('settings/channels').error({ error }, 'channel request failed'); setRequestFailed(messageForUser(error)) })}
             testId="wechat-connect-agent-picker"
           />
         </div>
@@ -215,7 +217,7 @@ export function WechatConnectDialog({
       </div>
     )
   } else if (view.phase === 'verify') {
-    content = <VerifyForm wrong={view.wrongCode} onSubmit={(code) => void client.submitVerifyCode('wechat', code).then(setView, () => setRequestFailed(true))} />
+    content = <VerifyForm wrong={view.wrongCode} onSubmit={(code) => void client.submitVerifyCode('wechat', code).then(setView, (error: unknown) => { rendererLogger('settings/channels').error({ error }, 'channel request failed'); setRequestFailed(messageForUser(error)) })} />
   } else {
     content = <FailedView view={view} onRetry={retry} />
   }

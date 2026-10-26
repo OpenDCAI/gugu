@@ -1,3 +1,5 @@
+import { rendererLogger } from '@/lib/log';
+import { messageForUser } from '@/lib/userFacingError';
 import { readCachedDevices } from '@/store/devicesCache';
 import { parseConversationLink } from '@gugu/core/shared/ui/guguLink';
 import { observer } from 'mobx-react-lite';
@@ -268,7 +270,7 @@ const RoutineDetail = observer(function RoutineDetail({ context, id }: { context
                             id: automation.id, deviceId: context.homeDeviceId, before: { name: automation.name, active: automation.enabled }, after: { name: automation.name, active: enabled } });
                           toast({ title: enabled ? t('routines.enabledToast') : t('routines.disabledToast') });
                         },
-                        onError: () => toast({ title: t('routines.updateFailed'), tier: 'error' }),
+                        onError: (error) => { rendererLogger('actions/assistant-tasks').error({ error: error }, 'action failed'); toast({ title: t('routines.updateFailed'), description: messageForUser(error), tier: 'error' }); },
                       }
                     )
                   }
@@ -306,7 +308,7 @@ const RoutineDetail = observer(function RoutineDetail({ context, id }: { context
                         toast({ title: t('routines.deleted') });
                         context.go({ tab: 'tasks' });
                       },
-                      onError: () => toast({ title: t('routines.deleteFailed'), tier: 'error' }),
+                      onError: (error) => { rendererLogger('actions/assistant-tasks').error({ error: error }, 'action failed'); toast({ title: t('routines.deleteFailed'), description: messageForUser(error), tier: 'error' }); },
                     }),
                 })
               }

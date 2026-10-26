@@ -14,7 +14,7 @@ import { MemberProfileAvatarButton } from '../MemberProfileAvatarButton'
 import type { MemberProfileCardModel } from '../MemberProfileCard'
 import type { MemberProfileSide } from '../memberProfileModels'
 import { COLOR_MUTED, readReceiptLabel } from './chatPresentation'
-import { MessageSendStatus } from './MessageSendStatus'
+import { MessageSendStatus } from './MessageSendStatus'; import { safeFailureLine } from '@/session/renderer/features/sessions/gugu-reason'
 import { Markdown } from '../markdown/Markdown'; import { classifyFileLink } from '@gugu/core/shared/ui/guguLink'
 import { buildBubbleStyle } from './messageBubbleStyle'
 import { WidgetCard, type Widget } from './WidgetCard'
@@ -243,8 +243,8 @@ export const MessageBubble = memo(function MessageBubble({
     try {
       await navigator.clipboard.writeText(content)
       toast(t('message.copied'), 'success')
-    } catch {
-      toast(t('message.copyFailed'), 'error')
+    } catch (error) {
+      toast(t('actions.copyFailed', { ns: 'common' }), 'error', safeFailureLine(String((error as Error)?.message ?? error)))
     }
   }
   const [showMenu, setShowMenu] = useState(false)
@@ -289,7 +289,7 @@ export const MessageBubble = memo(function MessageBubble({
     onCopyLink: menuLink ? () => { void handleCopyText(menuLink.href); close() } : undefined,
     onOpenLink: menuLink ? () => { menuLink.click(); close() } : undefined,
     onForward: () => { onForward(msg); close() },
-    onDownload: mediaAttachment && mediaAttachment.source.kind !== 'gone' ? () => { void downloadAttachment(mediaAttachment.source, mediaAttachment.fileName).catch(() => toast(t('chatArea.downloadFailed'), 'error')); close() } : undefined,
+    onDownload: mediaAttachment && mediaAttachment.source.kind !== 'gone' ? () => { void downloadAttachment(mediaAttachment.source, mediaAttachment.fileName).catch((error) => toast(t('chatArea.downloadFailed'), 'error', safeFailureLine(String((error as Error)?.message ?? error)))); close() } : undefined,
     onDelete: () => { onDelete(msg.id); close() },
     onSelect: onEnterSelectMode ? () => { onEnterSelectMode(msg); close() } : undefined,
     onOpenTopic: onOpenTopic && canSourceTopic(msg) ? () => { onOpenTopic(msg.id); close() } : undefined,
@@ -334,7 +334,7 @@ export const MessageBubble = memo(function MessageBubble({
 
   // gugu-dev#181 任务卡自己就是一个面,❌ 再套一层气泡。
   const card = msg.content_type === 'card' ? parseComposerCard(msg.content) : null
-  const bubbleStyle = card ? { maxWidth: '100cqw' } : buildBubbleStyle(msg.is_mine, !!msg.is_whisper, compactMobile)
+  const bubbleStyle = card ? { maxWidth: '100cqw' } : buildBubbleStyle(msg.is_mine, !!msg.is_whisper, compactMobile, groupedWithPrev)
 
   const avatarName = memberProfile?.displayName ?? ''
   const avatarUrl = memberProfile?.avatar ?? null
@@ -445,7 +445,7 @@ export const MessageBubble = memo(function MessageBubble({
             onMore={openMoreMenuFromButton}
           />
           {msg.is_mine && !msg.retracted_at && sendState && (
-            <MessageSendStatus state={sendState} messageId={msg.id} />
+            <MessageSendStatus state={sendState} messageId={msg.id} reason={msg.local_send_error} />
           )}
 
           {/* @@@1345 逐成员读回执做成进度圆环(替文字)：本人已发消息显示 ○ 环(填充比例=已读%)，
@@ -479,7 +479,7 @@ export const MessageBubble = memo(function MessageBubble({
           <div
             ref={bubbleRef}
             data-testid={AUTOMATION_TEST_IDS.messageBubbleActionTarget}
-            style={bubbleStyle}
+            style={bubbleStyle} data-bubble-tail={!card && !msg.is_whisper && !groupedWithNext ? (msg.is_mine ? 'mine' : 'other') : undefined}
             {...longPress}
             onPointerDownCapture={(e) => setMenuLink(e.target instanceof Element ? e.target.closest<HTMLAnchorElement>('a[href]') : null)}
             onContextMenu={(e) => {

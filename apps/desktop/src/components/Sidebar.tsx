@@ -1,3 +1,5 @@
+import { rendererLogger } from '@/lib/log';
+import { messageForUser } from '@/lib/userFacingError';
 import { useSyncExternalStore } from 'react'
 import type { AgentAttention } from '@gugu/core/shared/agentStatus'
 import { observer } from 'mobx-react-lite'
@@ -231,7 +233,7 @@ const AppsOnRail = observer(function AppsOnRail({ sessionsShown, showSessions }:
     if (appId) openApp(appId)
     else appState.navigation.navigate('apps')
   }
-  const dockFailed = () => toast(t('shell.appDockFailed'), 'error')
+  const dockFailed = (error: unknown) => { rendererLogger('actions/Sidebar').error({ error: error }, 'action failed'); toast(t('shell.appDockFailed'), 'error', messageForUser(error)) }
   const reorder = ({ active, over }: DragEndEvent) => {
     const dock = installedExtensionsStore.dock
     if (!over || active.id === over.id) return
@@ -278,7 +280,7 @@ const AppsOnRail = observer(function AppsOnRail({ sessionsShown, showSessions }:
                   onOpen={() => open(app.extensionId)}
                   onOpenInWindow={() => openAppInWindow(app.extensionId)}
                   onUnpin={() => void unpinFromDock(app.extensionId).catch(dockFailed)}
-                  onQuit={() => void quitApp(app.extensionId).catch(() => toast(t('shell.appQuitFailed'), 'error'))}
+                  onQuit={() => void quitApp(app.extensionId).catch((error) => { rendererLogger('actions/Sidebar').error({ error: error }, 'action failed'); return toast(t('shell.appQuitFailed'), 'error', messageForUser(error)); })}
                 />
               ))}
             </div>
@@ -358,7 +360,7 @@ function AssistantRailTop({ active, onOpen }: { active: boolean; onOpen: () => v
       className="gg-sidebar-item-avatar"
       icon={(
         entry === 'preparing' || entry === 'loading' ? <LoadingIndicator size="inline" /> : <>
-          <span className="gg-sidebar-assistant-face" data-dim={entry !== 'found' || undefined}>
+          <span className="gg-sidebar-assistant-face" data-dim={entry !== 'found' || undefined} inert={!active}>
             {assistant
               ? <Avatar name={assistant.display_name} avatarUrl={assistant.avatar} seed={assistant.id} size={40} isAgent harnessBadge={false} imageMatteColor="var(--nav-rail)" />
               : <AssistantDefaultAvatar id="assistant-intro" name={t('rail')} look={DEFAULT_ASSISTANT_LOOK} size={40} still />}

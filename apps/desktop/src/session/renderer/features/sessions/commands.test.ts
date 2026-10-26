@@ -60,7 +60,7 @@ const mocks = vi.hoisted(() => ({
     { projectId: 'project-1', sessionId: 'conversation-1' },
     { projectId: 'project-1', sessionId: 'conversation-2' },
   ],
-  writeText: vi.fn(() => Promise.resolve()),
+  clipboardWriteText: vi.fn(() => Promise.resolve({ success: true })),
 }));
 
 vi.mock('@renderer/features/browser/browser-controls-registry', () => ({
@@ -125,6 +125,7 @@ vi.mock('@renderer/lib/ipc', () => ({
   rpc: {
     app: {
       openExternal: mocks.openExternal,
+      clipboardWriteText: mocks.clipboardWriteText,
     },
   },
 }));
@@ -239,12 +240,7 @@ describe('createSessionCommandProvider', () => {
       id: 'conversation-1',
       isPinned: false,
     });
-    Object.defineProperty(navigator, 'clipboard', {
-      configurable: true,
-      value: {
-        writeText: mocks.writeText,
-      },
-    });
+
   });
 
   it('only exposes catalogued command ids', () => {
@@ -342,7 +338,7 @@ describe('createSessionCommandProvider', () => {
     expect(mocks.reload).toHaveBeenCalledWith();
     expect(mocks.focusUrl).toHaveBeenCalledWith();
     expect(mocks.openExternal).toHaveBeenCalledWith('https://example.com/');
-    expect(mocks.writeText).toHaveBeenCalledWith('https://example.com/');
+    expect(mocks.clipboardWriteText).toHaveBeenCalledWith('https://example.com/');
   });
 
   it.each([

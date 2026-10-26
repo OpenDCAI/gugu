@@ -1,3 +1,5 @@
+import { i18n } from '@/i18n';
+import { messageForUser } from '@/lib/userFacingError';
 import { hostEventHub, hostMembers } from '../../session/shared/extensions/host-calls';
 import type { ExtensionHostEvent } from '../../session/shared/extensions/bridge-protocol';
 import type { ExtensionAgentView } from '../../session/shared/extensions/bridge-protocol';
@@ -7,7 +9,6 @@ import { assistantAppChangeText, type AssistantAppChange } from '../../session/s
 import { libraryHost } from './assistant-library-client';
 import { readAssistantShellBridge } from '../../lib/assistantShellBridge';
 import type { AssistantMachine } from '../../session/renderer/features/assistant/assistant-machine-core';
-import { i18n } from '../../i18n';
 import { toast } from '../../session/renderer/lib/hooks/use-toast';
 import { rendererLogger } from '../../lib/log';
 import { cachedDevicesAccount } from '../../store/devicesCache';
@@ -35,7 +36,8 @@ export function assistantAppClient(machine: AssistantAppMachine | null | undefin
 
 export async function assistantAppProgram<T>(machine: AssistantAppMachine | null | undefined, name: string, args?: Record<string, unknown>, expectedOwnerId = cachedDevicesAccount()): Promise<T> {
   const result = await assistantAppClient(machine, expectedOwnerId).callProgram(name, args);
-  if (result.isError || !result.structuredContent || !('result' in result.structuredContent)) throw new Error('Assistant App program did not return a result');
+  if (result.isError) throw new Error(result.content.filter(block => block.type === 'text').map(block => block.text).join('\n'), { cause: result });
+  if (!result.structuredContent || !('result' in result.structuredContent)) throw new Error('Assistant App program did not return a result');
   return result.structuredContent.result as T;
 }
 
@@ -64,7 +66,7 @@ export async function reportAssistantAppChange(
 ): Promise<void> {
   try { await publishAssistantAppChange(machine, change, assistantId, expectedOwnerId); }
   catch (error) {
-    rendererLogger('assistant/app').warn({ error: String(error), operationId: change.operationId }, 'App state message delivery unconfirmed');
-    toast({ title: i18n.t('library.savedNotificationFailed', { ns: 'assistant' }), tier: 'warning' });
+    rendererLogger('assistant/app').error({ error: String(error), operationId: change.operationId }, 'App state message delivery unconfirmed');
+    toast({ title: i18n.t('library.savedNotificationFailed', { ns: 'assistant' }), description: messageForUser(error), tier: 'warning' });
   }
 }

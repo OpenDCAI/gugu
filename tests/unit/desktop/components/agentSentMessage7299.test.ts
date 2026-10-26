@@ -53,7 +53,7 @@ describe('AI-sent message attribution (#7299)', () => {
     const toast = vi.fn(), select = vi.fn()
     await renderWithAppProviders(harness, createNode(AgentSentBadge, { source }), { toast, chat: { setActiveChatId: select } })
     await act(async () => { harness.container.querySelector<HTMLButtonElement>('button')!.click() })
-    expect(toast).toHaveBeenCalledWith('无法打开代发 Agent 的对话', 'error')
+    expect(toast).toHaveBeenCalledWith('无法打开代发 Agent 的对话', 'error', 'unavailable')
     expect(select).not.toHaveBeenCalled()
     expect(harness.container.querySelector<HTMLButtonElement>('button')!.disabled).toBe(false)
   })

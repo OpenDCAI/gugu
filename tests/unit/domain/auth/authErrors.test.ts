@@ -11,10 +11,10 @@ describe('userVisibleAuthError', () => {
     )
   })
 
-  it('does not expose unknown raw English GoTrue messages', () => {
+  it('keeps unknown authentication causes while redacting secrets', () => {
     expect(
-      userVisibleAuthError({ message: 'Unexpected auth backend failure' }, '验证失败，请稍后重试')
-    ).toBe('验证失败，请稍后重试')
+      userVisibleAuthError({ message: 'Unexpected auth backend failure' })
+    ).toBe('Unexpected auth backend failure')
   })
 
   it('keeps common request errors readable', () => {

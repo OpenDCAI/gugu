@@ -1,3 +1,5 @@
+import { rendererLogger } from '@/lib/log'
+import { safeFailureLine } from '@/session/renderer/features/sessions/gugu-reason'
 /**
  * AgentSharePane — "分享" pane (data-aset="share-act")
  *
@@ -169,12 +171,12 @@ export function ExtPanel({ agent }: { agent: ContactUser }) {
       setCopied(true)
       setError(null)
       setTimeout(() => setCopied(false), 1800)
-    } catch {
-      // fail-loud (#1124): clipboard may be unavailable/denied — never swallow silently;
-      // tell the user and fall back to the selectable plaintext link shown above.
-      setError(t('settings.share.copyFailed'))
+    } catch (error) {
+      const reason = String((error as Error)?.message ?? error)
+      rendererLogger('clipboard').error({ error: reason }, 'copy agent link failed')
+      setError(safeFailureLine(reason))
     }
-  }, [shareUrl, t])
+  }, [shareUrl])
 
   // fail-loud:未配置公开 web 基址(公开入口未部署)→ 不展示假链接/假 QR。
   if (!shareUrl) {

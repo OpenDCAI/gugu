@@ -11,8 +11,8 @@ import { awaitFact } from '../../../support/awaitFact'
 // 问题 12 —— 新线程的咕咕工具只走 MCP 那一份。
 //
 // 桥不再在 thread/start / fork 上声明 #3551 的动态工具(同一组工具的第二份,每轮多 8.8KB);换成线程层的两条配置:
-// `mcp_servers.gugu.required`(首轮等咕咕 MCP 起好,codex 对可选 server 首次只等 1 秒)与
-// `features.code_mode.direct_only_tool_namespaces`(物化器点名的那几台 —— 声明了 alwaysLoad 的,咕咕的在内 —— 不进 exec 沙箱)。
+// `mcp_servers.gugu.required` waits for startup; omit_tools_from keeps the core catalog out of deferred loading.
+// Only library services and full-disclosure Apps retain the materializer's direct-only namespaces.
 // 09-29 之前开的线程把动态工具存在 rollout 元数据里、resume 时 codex 原样恢复,模型仍可能调;桥不再接这条兼容链
 // (owner 10-04「宁可破坏性也不要多条链路」):它们的 `item/tool/call` 得到一条 -32601,模型看得见这次失败,这一轮照常结束。
 
@@ -91,8 +91,8 @@ afterEach(async () => {
 })
 
 // The materializer names the namespaces codex hands the model directly (codex session-bundle codexDirectNamespaces);
-// a gugu-only session gets just gugu's.
-function start(env: Record<string, string> = { GUGU_CODEX_DIRECT_TOOL_NAMESPACES: '["mcp__gugu"]' }) {
+// a gugu-only session clears that list and uses Codex's native execution surface.
+function start(env: Record<string, string> = { GUGU_CODEX_DIRECT_TOOL_NAMESPACES: '[]' }) {
   const raw = join(tmpdir(), `codex-tool-surface-3551-${process.pid}-${Date.now()}`)
   mkdirSync(raw, { recursive: true })
   dir = realpathSync(raw)
@@ -132,7 +132,7 @@ async function open(rig: ReturnType<typeof start>, mcpServers: unknown[]) {
 }
 
 describe('问题 12 codex ACP bridge: gugu tools reach new threads through MCP only', () => {
-  it('a new thread declares no dynamic tools and asks for the gugu MCP server as required, outside code mode', async () => {
+  it('a new thread uses one required MCP catalog without forcing it outside code mode', async () => {
     const rig = start()
     await open(rig, [GUGU_SERVER])
     const started = rig.records().find((r) => r.method === 'thread/start')!
@@ -140,7 +140,8 @@ describe('问题 12 codex ACP bridge: gugu tools reach new threads through MCP o
     expect(started.params?.config).toMatchObject({
       'mcp_servers.gugu.url': GUGU_SERVER.url,
       'mcp_servers.gugu.required': true,
-      'features.code_mode.direct_only_tool_namespaces': ['mcp__gugu'],
+      'mcp_servers.gugu.omit_tools_from': ['deferred'],
+      'features.code_mode.direct_only_tool_namespaces': [],
     })
   })
 
@@ -152,7 +153,8 @@ describe('问题 12 codex ACP bridge: gugu tools reach new threads through MCP o
     expect(forked.params).not.toHaveProperty('dynamicTools')
     expect(forked.params?.config).toMatchObject({
       'mcp_servers.gugu.required': true,
-      'features.code_mode.direct_only_tool_namespaces': ['mcp__gugu'],
+      'mcp_servers.gugu.omit_tools_from': ['deferred'],
+      'features.code_mode.direct_only_tool_namespaces': [],
     })
   })
 
@@ -164,10 +166,11 @@ describe('问题 12 codex ACP bridge: gugu tools reach new threads through MCP o
   })
 
   it('the namespaces outside code mode are exactly the ones the materializer names (10-06)', async () => {
-    const rig = start({ GUGU_CODEX_DIRECT_TOOL_NAMESPACES: '["mcp__gugu","mcp__gw_probe_a"]' })
+    const rig = start({ GUGU_CODEX_DIRECT_TOOL_NAMESPACES: '["mcp__gw_probe_a"]' })
     await open(rig, [GUGU_SERVER, { name: 'gw-probe-a', url: 'http://127.0.0.1:9/mcp/ext', headers: [] }])
     const config = rig.records().find((r) => r.method === 'thread/start')!.params?.config ?? {}
-    expect(config['features.code_mode.direct_only_tool_namespaces']).toEqual(['mcp__gugu', 'mcp__gw_probe_a'])
+    expect(config['features.code_mode.direct_only_tool_namespaces']).toEqual(['mcp__gw_probe_a'])
+    expect(config).not.toHaveProperty(['mcp_servers.gw_probe_a.omit_tools_from'])
   })
 
   it('nothing named, nothing set: a server the person configured stays as codex has it', async () => {
