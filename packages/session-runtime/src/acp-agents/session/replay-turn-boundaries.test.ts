@@ -6,7 +6,6 @@ import { SessionCell } from './cell';
 function cell() {
   const value = new SessionCell({ sessionId: 'replay', projectId: 'project', providerId: 'claude', acpSessionId: 'provider',
     agent: new FakeAcpAgent(), logger: noopLogger, resolveAttachment: async () => ({ data: '', mimeType: 'image/png' }) });
-  value.applySessionReady();
   value.setReportsState(true);
   return value;
 }

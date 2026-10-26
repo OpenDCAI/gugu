@@ -70,9 +70,11 @@ describe('Claude native subagent records', () => {
     expect(items.find((item) => item.kind === 'spawn-subagent-tool-call')).toMatchObject({
       status: 'done', agentStatus: 'running', reasoningText: 'CHILD_THOUGHT',
       children: [expect.objectContaining({ toolCallId: 'child-step', status: 'running' }),
-        expect.objectContaining({ kind: 'spawn-subagent-tool-call', agentStatus: 'completed', outputText: 'NESTED_RESULT' }),
-        expect.objectContaining({ kind: 'subagent-done-tool-call' })],
+        expect.objectContaining({ kind: 'spawn-subagent-tool-call', agentStatus: 'completed', outputText: 'NESTED_RESULT' })],
     });
+    expect(items.filter((item) => item.kind === 'subagent-done-tool-call')).toEqual([
+      expect.objectContaining({ outputText: 'NESTED_RESULT' }),
+    ]);
     const archive = await timeline.archive!();
     timeline.dispose();
     const reopened = await createSessionTimeline(createClaudeJsonlSource(locator), { sessionId: 'native-parent', archive: archive! });
@@ -88,7 +90,6 @@ describe('Claude native subagent records', () => {
       agentStatus: 'completed', outputText: 'CHILD_RESULT', children: [
         expect.objectContaining({ toolCallId: 'child-step', status: 'done', outputText: 'SHELL_RESULT' }),
         expect.objectContaining({ kind: 'spawn-subagent-tool-call' }),
-        expect.objectContaining({ kind: 'subagent-done-tool-call' }),
       ],
     });
     expect(updated.filter((item) => item.kind === 'message')).toEqual(items.filter((item) => item.kind === 'message'));

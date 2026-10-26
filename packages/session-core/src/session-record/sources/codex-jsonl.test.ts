@@ -96,9 +96,9 @@ describe('codex rollout 记录源', () => {
     const launch = all.find((item) => item.kind === 'spawn-subagent-tool-call');
     expect(launch).toMatchObject({ agentStatus: 'completed', outputText: 'CHILD_RESULT', reasoningText: 'CHILD_THOUGHT',
       children: [expect.objectContaining({ toolCallId: 'child-step' }),
-        expect.objectContaining({ kind: 'spawn-subagent-tool-call', agentStatus: 'completed', outputText: 'NESTED_RESULT' }),
-        expect.objectContaining({ kind: 'subagent-done-tool-call' })] });
+        expect.objectContaining({ kind: 'spawn-subagent-tool-call', agentStatus: 'completed', outputText: 'NESTED_RESULT' })] });
     expect(all.filter((item) => item.kind === 'subagent-done-tool-call')).toEqual([
+      expect.objectContaining({ outputText: 'NESTED_RESULT' }),
       expect.objectContaining({ outputText: 'CHILD_RESULT' }),
     ]);
     const archive = await timeline.archive!();
@@ -123,6 +123,7 @@ describe('codex rollout 记录源', () => {
       expect.objectContaining({ agentStatus: 'completed', outputText: 'FOLLOW_UP_RESULT' }),
     ]);
     expect(afterFollowup.filter((item) => item.kind === 'subagent-done-tool-call')).toEqual([
+      expect.objectContaining({ outputText: 'NESTED_RESULT' }),
       expect.objectContaining({ outputText: 'FOLLOW_UP_RESULT' }),
     ]);
     expect(afterFollowup.filter((item) => item.kind === 'message' && item.role === 'assistant')).toEqual([
