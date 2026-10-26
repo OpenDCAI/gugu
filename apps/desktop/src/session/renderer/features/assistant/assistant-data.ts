@@ -93,6 +93,8 @@ export function useOwnSkills(machine: AssistantMachine | undefined) {
     queryKey: assistantQueryKey(machine?.deviceId ?? '', 'skills'),
     queryFn: async () => {
       const m = machine!;
+      if (m.panel) return (await m.panel.collection('skills')).map(row => ({ dir: row.resource_key,name: String(row.data.name ?? row.resource_key),
+        description: String(row.data.description ?? ''),body: '',path: joinPath(m.paths.skillsDir,row.resource_key),modifiedAt: String(row.data.modifiedAt ?? row.updated_at) }))
       const dirs = (await listDirectory(m, m.paths.skillsDir)).filter((e) => e.type === 'directory');
       const skills = await Promise.all(
         dirs.map(async (dir) => {

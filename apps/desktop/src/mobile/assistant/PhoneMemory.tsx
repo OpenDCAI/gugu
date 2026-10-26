@@ -1,3 +1,6 @@
+import { AssistantMemoryContent } from '@/components/assistant/AssistantMemoryContent'
+import { assistantPanelFailure } from '@/components/assistant/assistant-panel-errors'
+import { LoadingIndicator } from '@/lib/loading/LoadingIndicator'
 import './phone-memory.css'
 import { useState } from 'react'
 import { useTranslation } from 'react-i18next'
@@ -84,7 +87,7 @@ function MemoryHome(props: PhonePageProps & { notes: NotesRead }) {
 }
 
 /** 「我对你的了解」:它记下的关于你的那几条(点一条看全文);一条没有时给「更快设置记忆」(只往聊天里填一句)。 */
-function AboutYou({ askInChat, go, notes }: PhonePageProps & { notes: MemoryEntry[] }) {
+function AboutYou({ askInChat, go, notes, machine }: PhonePageProps & { notes: MemoryEntry[] }) {
   const { t } = useTranslation('assistant')
   const time = useTime()
   const { user } = useAuth()
@@ -100,15 +103,15 @@ function AboutYou({ askInChat, go, notes }: PhonePageProps & { notes: MemoryEntr
           </Button>
         </div>
       ) : (
-        aboutYou.map(entry => <AssistantRow key={entry.file} leading={ownerLeading(owner)} title={isOwnerProfileNote(entry) ? t('memory.filter.user') : entry.title} detailLines={4}
-          detail={memoryContentPreview(entry.body) || (entry.modifiedAt ? t('memory.updated', { time: time(entry.modifiedAt) }) : undefined)} onClick={() => go(`note:${entry.file}`)} />)
+        aboutYou.map(row => <AssistantMemoryContent key={row.file} machine={machine.state === 'ready' ? machine.machine : undefined} entry={row}>{(entry,error) => <AssistantRow leading={ownerLeading(owner)} title={isOwnerProfileNote(entry) ? t('memory.filter.user') : entry.title} detailLines={4}
+          detail={error ? assistantPanelFailure(error,t) : memoryContentPreview(entry.body) || (entry.modifiedAt ? t('memory.updated', { time: time(entry.modifiedAt) }) : undefined)} onClick={() => go(`note:${entry.file}`)} />}</AssistantMemoryContent>)
       )}
     </AssistantSection>
   )
 }
 
 /** 其余记忆按条目显示；独立来源入口不依赖这一组是否读到。 */
-function MemoryList({ assistant, go, notes }: PhonePageProps & { notes: MemoryEntry[] }) {
+function MemoryList({ assistant, go, notes, machine }: PhonePageProps & { notes: MemoryEntry[] }) {
   const { t } = useTranslation('assistant')
   const time = useTime()
   const name = assistant.display_name
@@ -116,15 +119,16 @@ function MemoryList({ assistant, go, notes }: PhonePageProps & { notes: MemoryEn
     <div className="ta-phone-memory-list">
       {notes
         .filter((entry) => entry.kind !== 'user')
-        .map((entry) => (
+        .map((row) => (
+          <AssistantMemoryContent key={row.file} machine={machine.state === 'ready' ? machine.machine : undefined} entry={row}>{(entry,error) => (
           <AssistantRow
             key={entry.file}
             title={entry.title}
-            detail={memoryContentPreview(entry.body, 140) || (entry.modifiedAt ? t('memory.updated', { time: time(entry.modifiedAt) }) : kindLabel(entry.kind, t, name))}
+            detail={error ? assistantPanelFailure(error,t) : memoryContentPreview(entry.body, 140) || (entry.modifiedAt ? t('memory.updated', { time: time(entry.modifiedAt) }) : kindLabel(entry.kind, t, name))}
             detailLines={4}
             onClick={() => go(`note:${entry.file}`)}
             testId={`assistant-memory-${entry.file}`}
-          />
+          />)}</AssistantMemoryContent>
         ))}
     </div>
   )
@@ -180,7 +184,7 @@ function MemoryNoteBody({ assistant, askInChat, go, notes, machine, note }: Open
     <div className="ta-page" data-testid="assistant-memory-detail">
       <PageHead title={title} sub={[aboutMe ? null : kindLabel(note.kind, t, name), note.modifiedAt ? t('memory.updated', { time: time(note.modifiedAt) }) : null].filter(Boolean).join(' · ')} />
       <div className="ta-card ta-prose" data-testid="assistant-memory-body">
-        <Markdown trust="chat" content={note.body || t('memory.noContent')} />
+        <AssistantMemoryContent machine={machine} entry={note}>{(current,error,loading) => error ? <span role="alert">{assistantPanelFailure(error,t)}</span> : loading ? <LoadingIndicator size="inline" /> : <Markdown trust="chat" content={current.body || t('memory.noContent')} />}</AssistantMemoryContent>
       </div>
       <p className="ta-page-sub ta-pad">{t('memory.createdBy', { name })}</p>
       <div className="ta-phone-row-actions">

@@ -1,3 +1,5 @@
+import { AssistantMemoryContent } from '@/components/assistant/AssistantMemoryContent'
+import { assistantPanelFailure } from '@/components/assistant/assistant-panel-errors'
 import { Capacitor } from '@capacitor/core'
 import { useRef, useState } from 'react'
 import { useTranslation } from 'react-i18next'
@@ -105,16 +107,17 @@ export function PhoneHealth({ assistant, askInChat, go, healthNotes, machine }: 
                 const analysis = notes.filter((note) => isHealthNote(note.file))
                 return analysis.length === 0 ? (
                   <p className="ta-card-text ta-page-sub">{t('health.analysisEmpty', { name })}</p>
-                ) : analysis.map((note) => (
+                ) : analysis.map((entry) => (
+                  <AssistantMemoryContent key={entry.file} machine={machine.state === 'ready' ? machine.machine : undefined} entry={entry}>{(note,error) => (
                   <AssistantRow
                     key={note.file}
                     leading={<FileText />}
                     title={note.title}
-                    detail={memoryContentPreview(note.body, 140)}
+                    detail={error ? assistantPanelFailure(error,t) : memoryContentPreview(note.body, 140)}
                     detailLines={4}
                     onClick={() => go(`note:${note.file}`)}
                     testId={`assistant-health-note-${note.file}`}
-                  />
+                  />)}</AssistantMemoryContent>
                 ))
               }}
             </ReadView>
