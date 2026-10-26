@@ -21,10 +21,10 @@ const electronRealtime = {
 // requirement (no hardcoded fallback) is enforced on first real use, not at
 // import time.
 type ElectronSupabaseClient = ReturnType<typeof createGuguSupabaseClient>
-let currentAccessToken: (() => Promise<string | null>) | null = null
+let currentAccessToken: ((forceRefresh?: boolean) => Promise<string | null>) | null = null
 
 /** 账号拥有登录态;频道只从这里现取,不能各自保存一枚令牌去改整条共享连接。 */
-export function bindElectronSupabaseAuth(provider: () => Promise<string | null>): void {
+export function bindElectronSupabaseAuth(provider: (forceRefresh?: boolean) => Promise<string | null>): void {
   currentAccessToken = provider
 }
 
@@ -36,6 +36,12 @@ export async function refreshElectronSupabaseAuth(): Promise<void> {
  * Close them proactively; inbox REST reconciliation runs independently. */
 export async function resumeElectronSupabaseRealtime(): Promise<void> {
   if (!cachedSupabase) return
+  // Realtime swallows access-token callback failures and reuses its cached JWT.
+  // Refresh through the account owner outside that callback before any new join;
+  // a suspended host's wall clock is not sufficient proof that its ticket is live.
+  const token = await currentAccessToken?.(true)
+  if (!token) throw new Error('Account authentication is unavailable after resume')
+  await cachedSupabase.realtime.setAuth(token)
   await cachedSupabase.realtime.disconnect()
   await reconnectElectronRealtimeChannels()
   cachedSupabase.realtime.connect()

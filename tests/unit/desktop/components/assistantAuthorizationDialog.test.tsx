@@ -20,7 +20,7 @@ import { IntegrationSetupModal } from '../../../../apps/desktop/src/session/rend
 beforeEach(()=>{fixture.online=false})
 function setup(id:string,prepare=vi.fn(async()=>{})){
  const native=vi.fn(async()=>({success:true as const,connected:true as const}))
- const host=assistantPanelLibraryHost({key:'remote',remote:{deviceId:'cloud',deviceLabel:'云端',online:false},integrations:{connect:native,authorize:native,cliLoginStart:native,cancelAuthorization:vi.fn()},github:{}} as unknown as LibraryHost,
+ const host=assistantPanelLibraryHost({key:'remote',remote:{deviceId:'cloud',deviceLabel:'云端',online:false},integrations:{connect:native,authorize:native,cliLoginStart:native,cancelAuthorization:vi.fn(),checkConfiguredConnections:async()=>({})},github:{}} as unknown as LibraryHost,
   {ownerId:'owner',assistantId:'assistant',assertCurrent:async()=>{}} as unknown as AssistantPanelFiles,prepare)
  fixture.host=host
  fixture.metadata=buildIntegrationListPayload('zh-CN').find(item=>item.id===id)
