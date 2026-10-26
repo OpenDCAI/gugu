@@ -117,7 +117,13 @@ describe('chat editor draft writes', () => {
   })
 
   it('reuses the account writer inside a scoped group or assistant conversation', async () => {
-    await renderWithAppProviders(harness, <><Actions /><ChatLineScope chatId="chat"><ChatMessageComposer chatId="chat" onSend={async () => {}} /></ChatLineScope></>)
+    let scoped!: ReturnType<typeof useChatStore>
+    function ScopeActions() { scoped = useChatStore(); return null }
+    await renderWithAppProviders(harness, <><Actions /><ChatLineScope chatId="chat"><ScopeActions /><ChatMessageComposer chatId="chat" onSend={async () => {}} /></ChatLineScope></>,
+      { chat: { activeChatId: null, activeChat: null, chats: [chat({ id: 'chat', kind: 'group' })] } })
+    expect(scoped.activeChatId).toBe('chat')
+    expect(scoped.activeChat?.id).toBe('chat')
+    expect(store.activeChatId).toBeNull()
     await act(async () => { writeComposer(input(), 'unsaved'); store.writeDraft('chat', { at: 'end', text: 'from outside the scope' }) })
     expect(readComposer(input())).toBe('unsaved\nfrom outside the scope')
   })
