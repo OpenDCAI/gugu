@@ -84,7 +84,6 @@ export type ClaimedAssistantWorkEvent = AssistantWorkEventInput & {
 export type AssistantWorkOutboxContext = { ownerId: string; runtimeInstanceId: string; deviceId: string }
 export type AssistantWorkAdmission = { status: 'admitted'; messageId: string; receipt?: Record<string, unknown> } | { status: 'pending' }
 export const ASSISTANT_WORK_DELIVERY_MAX_AGE_MS = 24 * 60 * 60 * 1000
-export const ASSISTANT_WORK_DELIVERY_MAX_FAILURES = 100
 export const ASSISTANT_WORK_DELIVERY_BUDGET_MS = 45_000
 
 function errorCode(error: unknown): string {
@@ -136,7 +135,7 @@ export function createAssistantWorkOutboxPump(deps: {
       || !Number.isInteger(event.failed_attempts) || event.failed_attempts < 0
     if (invalid) { deps.warn?.({ code: 'INVALID_OUTBOX_EVENT' }); return false }
     if (!event.source_available) { await settle(ctx,event,'abandoned','SOURCE_UNAVAILABLE');return true }
-    if (event.failed_attempts >= ASSISTANT_WORK_DELIVERY_MAX_FAILURES) { await settle(ctx,event,'abandoned',event.last_error_code??'DELIVERY_ATTEMPTS_EXHAUSTED');return true }
+    // Older deployed servers count deferred/offline retries as failures too. Only the server age decides expiry.
     if (event.age_ms + Math.max(0, performance.now() - claimStartedAt) >= ASSISTANT_WORK_DELIVERY_MAX_AGE_MS) { await settle(ctx,event,'abandoned','DELIVERY_EXPIRED');return true }
     if (!assistantWorkDeliveryTarget(event)) { await settle(ctx,event,'retry','DELIVERY_NOT_READY');return false }
     const budget = Math.min(ASSISTANT_WORK_DELIVERY_BUDGET_MS, event.lease_remaining_ms - Math.max(0, performance.now() - claimStartedAt) - 5000)
