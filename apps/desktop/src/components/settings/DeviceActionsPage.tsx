@@ -209,7 +209,9 @@ export function ThisDeviceActions({ onBack, bare = false, panelNavigation = fals
   const selected = openGroup ? state.groups.find((g) => g.id === openGroup) ?? null : null
   if (selected) return <GroupDetail settingsNavigation={bare} panelNavigation={panelNavigation} group={selected} denyAll={state.denyAll} onBack={() => setOpenGroup(null)} reload={reload} backLabel={backLabel} />
 
-  const available = state.groups.filter((g) => !g.connected)
+  const available = state.groups.filter((g) => !g.connected && !g.blocked)
+  const systemBlocked = state.groups.filter((g) => !g.connected && g.blocked?.reason === 'os_permission')
+  const unsupported = state.groups.filter((g) => !g.connected && g.blocked && g.blocked.reason !== 'os_permission')
   const row = (group: DeviceActionsGroupView) => (
     <SettingsRow
       key={group.id}
@@ -231,11 +233,12 @@ export function ThisDeviceActions({ onBack, bare = false, panelNavigation = fals
     <SettingsPage data-testid="settings-device-actions">
       {header}
       {children}
-      <SettingsNote>{t('devices.deviceActions.thisNote')}</SettingsNote>
       {saveFailure && <SettingsNote role="alert" tone="danger">{t('devices.deviceActions.connectFailed', { message: saveFailure })}</SettingsNote>}
       {state.denyAll && <SettingsNote tone="danger" data-testid="settings-device-actions-deny-all-on">{t('devices.deviceActions.denyAllOn')}</SettingsNote>}
       {connected.length > 0 && <SettingsGroup title={t('devices.deviceActions.connected')} data-testid="settings-device-actions-connected">{connected.map(row)}</SettingsGroup>}
       {available.length > 0 && <SettingsGroup title={t('devices.deviceActions.statusNotConnected')} data-testid="settings-device-actions-available">{available.map(row)}</SettingsGroup>}
+      {systemBlocked.length > 0 && <SettingsGroup title={t('devices.deviceActions.statusBlocked')} data-testid="settings-device-actions-system-blocked">{systemBlocked.map(row)}</SettingsGroup>}
+      {unsupported.length > 0 && <SettingsGroup title={t('devices.deviceActions.statusUnsupported')} data-testid="settings-device-actions-unsupported">{unsupported.map(row)}</SettingsGroup>}
       <SettingsGroup>
         <SettingsRow
           title={t('devices.deviceActions.denyAll')}

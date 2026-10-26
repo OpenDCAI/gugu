@@ -1533,7 +1533,7 @@ export const zhCNCapabilityMessages: Record<CapabilityMessageKey, string> = {
   'prompts.updated': '提示词已更新',
   'prompts.editLabel': '编辑 {title}',
   'prompts.deleteLabel': '删除 {title}',
-  'integrations.connectTitleFor': '连接 {name}',
+  'integrations.connectTitleFor': '连接{name}',
   'integrations.connectAction': '连接',
   'integrations.requiredFieldSuffix': ' *',
   'integrations.missingRequiredFields': '请先填写{fields}。',

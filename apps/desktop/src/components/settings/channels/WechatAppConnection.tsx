@@ -18,7 +18,7 @@ export function WechatAppConnection() {
   const available = !!state.client && !!state.list?.kinds.includes('wechat')
   return <>
     <AppConnectionHero icon={<ChannelBrandIcon kind="wechat" size={56} />} description={t('connectors.wechatDescription')}
-      loading={state.status === 'loading'} disabled={!available} label={t(connected ? 'connectors.reconnect' : 'connectors.connect')}
+      loading={state.status === 'loading'} disabled={!available} label={t(connected ? 'connectors.manage' : 'connectors.connect')}
       onConnect={() => setConnecting(true)} />
     {state.status === 'failed' || state.status === 'not_open' ? <SettingsNote role="alert">{state.error || t('connectors.loadFailed')}<Button variant="ghost" size="sm" onClick={() => void state.refresh()}>{t('machine.retry')}</Button></SettingsNote> : null}
     {connected && state.client && state.list ? <ConnectedChannels client={state.client} list={state.list} apply={state.apply} /> : null}

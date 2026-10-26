@@ -71,7 +71,6 @@ function SystemPermissionsSection() {
 
   const systemPermissions = (
     <>
-      <SettingsNote>{t('settings.permissions.intro')}</SettingsNote>
       <SettingsGroup
         footer={(
           <>

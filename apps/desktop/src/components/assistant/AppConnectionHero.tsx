@@ -11,7 +11,7 @@ export function AppConnectionHero({ icon, description, loading = false, label, o
     <div className="ta-app-connection-description">{description || <span className="ta-connection-placeholder ta-connection-placeholder-description" aria-hidden="true" />}</div>
     <div className="ta-app-connection-action">{loading
       ? <span className="ta-connection-placeholder ta-connection-placeholder-action" aria-hidden="true" data-testid="app-connection-action-pending" />
-      : actionNote ?? <Button variant="ghost" className="ta-solid-btn" disabled={disabled} onClick={onConnect} data-testid={testId}>{label}</Button>}</div>
+      : actionNote ?? <Button variant="primary" size="xl" className="ta-app-connection-button" disabled={disabled} onClick={onConnect} data-testid={testId}>{label}</Button>}</div>
   </div>
 }
 

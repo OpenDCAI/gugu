@@ -1,3 +1,4 @@
+import { isAssistantPanelReadRetryable } from '@gugu/core/cloud/assistantPanelRead';
 import { useAssistantPanelIntegration } from '@/components/assistant/useAssistantPanelIntegration';
 import { assistantPanelFailure } from '@/components/assistant/assistant-panel-errors';
 import { assistantConnectedApps, type AssistantConnectedApp } from '@/components/assistant/assistant-app-connections';
@@ -45,7 +46,8 @@ const HomeConnectorList = observer(function HomeConnectorList({ host, home, assi
   const [openId, setOpenId] = useState<string | null>(null);
   useAssistantPanelBack(panelNavigation && openId ? `connector:${openId}` : null, () => setOpenId(null));
   const reload = useCallback(() => void reloadList(), [reloadList]);
-  const readError = useAssistantReadError(!hasList && !integrations.length, listError, host.key);
+  const visibleListError = integrations.length && isAssistantPanelReadRetryable(listError) ? null : listError;
+  const readError = useAssistantReadError(!hasList && !integrations.length, visibleListError, host.key);
   const failure = useReadFailure(readError, host.remote?.deviceId ?? null, host.remote?.deviceLabel ?? '', reload);
   const apps = assistantConnectedApps(connectorOrder(integrations, i18n.language), chats.list, kind => settings(`channels.${kind}`), t('connectors.wechatDescription'), stateFor, configuredConnections);
   if (openId) {

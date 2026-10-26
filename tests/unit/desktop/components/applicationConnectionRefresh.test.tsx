@@ -23,7 +23,7 @@ function Probe(){
 beforeEach(()=>{
  f.connected=false;f.readFails=false;h=createReactHarness();client=new QueryClient({defaultOptions:{queries:{gcTime:0,retry:false}}})
  f.host={key:'panel:owner:assistant',assistantPanelExpected:true,assistantPanel:{invalidate:vi.fn(()=>window.dispatchEvent(new Event(ASSISTANT_PANEL_CHANGED)))},integrations:{
-  list:async()=>{if(f.readFails)throw Error('snapshot unavailable');return items},checkAllConnections:async()=>{if(f.readFails)throw Error('snapshot unavailable');return {dingtalk:{connected:f.connected,errorType:f.connected?undefined:'authorization_expired'}}},checkConfiguredConnections:async()=>{if(f.readFails)throw Error('snapshot unavailable');return {dingtalk:f.connected}},connect:async()=>{f.connected=true;return{success:true}},
+  list:async()=>{if(f.readFails)throw Object.assign(Error('snapshot unavailable'),{code:'transport-failed'});return items},checkAllConnections:async()=>{if(f.readFails)throw Object.assign(Error('snapshot unavailable'),{code:'transport-failed'});return {dingtalk:{connected:f.connected,errorType:f.connected?undefined:'authorization_expired'}}},checkConfiguredConnections:async()=>{if(f.readFails)throw Object.assign(Error('snapshot unavailable'),{code:'transport-failed'});return {dingtalk:f.connected}},connect:async()=>{f.connected=true;return{success:true}},
  }}
 })
 afterEach(()=>{h.cleanup();client.clear()})
