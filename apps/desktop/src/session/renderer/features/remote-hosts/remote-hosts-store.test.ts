@@ -131,6 +131,12 @@ describe('心跳说那台机器在时,线要不要现在重开', () => {
     expect(linkNeedsReopen(device(), 'closed', client('closed', null))).toBe(true);
   });
 
+  it('does not reopen a rejected viewer version on every online heartbeat', () => {
+    expect(linkNeedsReopen(device({ notices: [{ kind: 'desktop-too-old' }] }), 'closed', client('closed', null))).toBe(false);
+    // An upgraded peer that no longer requires a newer viewer can reconnect normally.
+    expect(linkNeedsReopen(device({ notices: [] }), 'closed', client('closed', null))).toBe(true);
+  });
+
   it('对面太旧、设备行报的版本已经换了(咕咕 server 换完版):开着的旧线扔掉重开,❌ 等下一拍心跳', () => {
     expect(linkNeedsReopen(device({ version: '0.2.53' }), 'tooOld', client('open', '0.2.52'))).toBe(true);
   });

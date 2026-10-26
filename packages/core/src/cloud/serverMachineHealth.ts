@@ -56,7 +56,7 @@ export const REMOTE_PROTOCOL_VERSION = 12
  * 纯文字、任务控制与窗口不变，两个通用下沿仍为9。
  *
  * 12(历史按改动游标取,10-26 devdb 出口事故):会话页对账不再每提交一轮重读整份历史,改成带着改动游标
- * (`getHistory` 的 `changedSince`,应答带 `rev` / `count`)只取新增 / 改过的那几轮(@@@history-change-cursor)。
+ * (`getHistory` 的 `changedSince`,应答带 `cursor` / `count`)只取新增 / 改过的那几轮(@@@history-change-cursor)。
  * Both ends require protocol 12: a new desktop cannot reconcile an old host's history; an old desktop
  * would keep rereading full pages from a new host. Reject both version mismatches through the existing
  * client_outdated / server_outdated path, on cloud and SSH alike, rather than retaining the old transfer.

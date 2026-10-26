@@ -693,11 +693,12 @@ export class RemoteHostsStore {
  * 刚从离线回来的(`cameBack`):正在开的那一次是离线时发出去的,对面没人接,要等满超时 —— 作废它,立刻重开。
  */
 export function linkNeedsReopen(
-  device: Pick<RemoteHostDevice, 'version'>,
+  device: Pick<RemoteHostDevice, 'version' | 'notices'>,
   link: MachineLinkState,
   client: Pick<SessionHostClient, 'state' | 'hello'>,
   cameBack = false
 ): boolean {
+  if (device.notices?.some(notice => notice.kind === 'desktop-too-old')) return false;
   if (client.state() === 'closed') return true;
   if (client.state() === 'connecting') return cameBack;
   const helloVersion = client.hello()?.appVersion;
