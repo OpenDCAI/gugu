@@ -512,7 +512,8 @@ export default {
     "back": "返回",
     "chats": "对话",
     "contacts": "联系人 (⌘2)",
-    "contactsMobile": "联系人",
+    "messagesMobile": "消息",
+    "partnersMobile": "伙伴",
     "errors": {
       "createFieldsMissing": "创建 Agent 所需的消息、名称或设备缺失",
       "createInProgress": "Agent 正在创建。请重新打开创建页查看进度。",

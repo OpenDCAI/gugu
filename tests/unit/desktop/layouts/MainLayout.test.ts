@@ -17,7 +17,7 @@ import { APP_OPEN_WITH_EVENT, APP_OPEN_IN_CHAT_EVENT, APP_COMPOSE_EVENT } from '
 import { rememberAssistantTaskChat } from '../../../../apps/desktop/src/lib/assistantTaskChat'
 import { installAssistantShellBridge, publishAssistantShell } from '../../../../apps/desktop/src/lib/assistantShellBridge'
 import { appState } from '../../../../apps/desktop/src/session/renderer/lib/stores/app-state'
-import { SIDEBAR_TABS, mobileTabs } from '@gugu/core/shared/enums/sidebarTabModels'
+import { MOBILE_TABS } from '@gugu/core/shared/enums/sidebarTabModels'
 const taskRoute = vi.hoisted(() => ({ contacts: [] as unknown[] }))
 const revealRoute = vi.hoisted(() => ({ asked: vi.fn() }))
 vi.mock('../../../../apps/desktop/src/hooks/useSourceMessageReveal', async (original) => {
@@ -116,11 +116,17 @@ vi.mock('../../../../apps/desktop/src/components/ChatListPanel', async () => {
     ChatListPanel: ({
       onChatSelected,
       onOpenAgentCreateDraft,
+      lead,
+      headerLeading,
     }: {
       onChatSelected?: () => void
       onOpenAgentCreateDraft?: () => void
+      lead?: React.ReactNode
+      headerLeading?: React.ReactNode
     }) => (
       React.createElement('div', null,
+        headerLeading,
+        lead,
         React.createElement('button', { type: 'button', 'data-testid': 'mock-chat-row', onClick: onChatSelected }, 'chat-list-panel'),
         onOpenAgentCreateDraft
           ? React.createElement('button', { type: 'button', 'data-testid': 'mock-chat-create-agent', onClick: onOpenAgentCreateDraft }, 'create agent')
@@ -360,6 +366,17 @@ async function renderMainLayoutWithToast(toast = vi.fn()) {
 function chatSurfaceOf(container: HTMLElement): HTMLElement | null {
   // 聊天区 → 创建面常驻外壳 → 正文槽 → 聊天面。
   return (container.querySelector('[data-testid="mock-chat-area"]')?.parentElement?.parentElement?.parentElement as HTMLElement | null) ?? null
+}
+// 手机上推在列表首页上的一层(咕咕 / 项目 / 我的,PhoneLayer)此刻在不在最上面。
+function layerOpen(testId: string): boolean {
+  return document.querySelector(`[data-testid="${testId}"]`)?.hasAttribute('data-open') ?? false
+}
+// 安卓返回键(同 ui/sheetStack.ts 的 NATIVE_BACK_EVENT)。
+async function nativeBack() {
+  await act(async () => {
+    window.dispatchEvent(new CustomEvent('gugu:native-back'))
+    await Promise.resolve()
+  })
 }
 describe('MainLayout', () => {
   it('wires every data owner and the shell marker to the real activation prop', async () => {
@@ -656,13 +673,15 @@ describe('MainLayout', () => {
     platformMock.kind = 'capacitor'
     platformMock.capabilities.sessionHost = false
     await harness.render(createNode(MainLayout, { user: { id: 'user-1', email: 'user@example.com', nickname: 'User' } }))
-    expect(agentWatchProbe.rootMounts, 'mounted on the chats tab, before the tasks tab was ever opened').toBe(1)
+    expect(agentWatchProbe.rootMounts, 'mounted on the chats tab, before the tasks layer was ever opened').toBe(1)
     const nav = (id: string) => harness.container.querySelector(`[data-testid="${id}"]`) as HTMLElement
-    await clickElement(nav(AUTOMATION_TEST_IDS.mobileSessionsNav))
-    expect(harness.container.querySelector('[data-testid="mock-agent-watch-page"]'), 'positive control: the tasks page did open').toBeTruthy()
     await clickElement(nav(AUTOMATION_TEST_IDS.mobileContactsNav))
-    // #6730 起会话页是横滑分页器里的一页,切走也挂着(相邻页要看得见),只被告知已离开、自己回到根上。
+    await clickElement(harness.container.querySelector('[data-testid="mock-contacts-create-agent"]') as HTMLElement)
+    expect(harness.container.querySelector('[data-testid="mock-agent-watch-page"]')?.getAttribute('data-active'), 'positive control: the tasks layer did open').toBe('true')
+    await nativeBack()
+    // 推进来的一层退回后常驻只藏,只被告知已离开、自己回到根上。
     expect(harness.container.querySelector('[data-testid="mock-agent-watch-page"]')?.getAttribute('data-active')).toBe('false')
+    expect(layerOpen('mobile-sessions-layer')).toBe(false)
     await clickElement(nav(AUTOMATION_TEST_IDS.mobileMessagesNav))
     expect(agentWatchProbe.rootMounts).toBe(1)
     expect(agentWatchProbe.rootUnmounts, 'no tab switch may tear the subscription down').toBe(0)
@@ -697,75 +716,91 @@ describe('MainLayout', () => {
     expect(chatOnScreen(), 'back on the chats tab, but on the list').toBeNull()
     expect(chatArea().getAttribute('data-hidden')).toBe('true')
   })
-  // #6730 横滑分页器:四页顺序与底部 tab 栏同一份(SIDEBAR_TABS),只有当前页可交互。
+  // #6730 横滑分页器:页的顺序与底部 tab 栏同一份(MOBILE_TABS「消息 / 伙伴」,owner 10-26 #446),只有当前页可交互。
   it('lays the mobile tab pages out in the tab bar order, with only the active page interactive', async () => {
     platformMock.kind = 'capacitor'
     platformMock.capabilities.sessionHost = false
     await harness.render(createNode(MainLayout, { user: { id: 'user-1', email: 'user@example.com', nickname: 'User' } }))
     const pages = [...harness.container.querySelectorAll<HTMLElement>('[data-mobile-tab-pager] > [data-mobile-tab-page]')]
-    expect(pages.map((page) => page.dataset.mobileTabPage)).toEqual(SIDEBAR_TABS)
-    const navIds = [AUTOMATION_TEST_IDS.mobileSessionsNav, AUTOMATION_TEST_IDS.mobileMessagesNav, AUTOMATION_TEST_IDS.mobileContactsNav, AUTOMATION_TEST_IDS.mobileProfileNav]
+    expect(pages.map((page) => page.dataset.mobileTabPage)).toEqual(MOBILE_TABS)
+    const navIds = [AUTOMATION_TEST_IDS.mobileMessagesNav, AUTOMATION_TEST_IDS.mobileContactsNav]
     const buttons = [...harness.container.querySelectorAll<HTMLElement>('nav button')]
     expect(buttons.map((button) => button.dataset.testid)).toEqual(navIds)
     expect(pages.filter((page) => !page.hasAttribute('inert')).map((page) => page.dataset.mobileTabPage)).toEqual(['chats'])
     expect(harness.container.querySelector('[data-testid="mock-contacts-panel"]'), 'a neighbour page is mounted so a drag can reveal it').toBeTruthy()
+    expect(buttons[0].textContent).toContain('消息')
+    expect(buttons[1].textContent).toContain('伙伴')
   })
-  // #7199 owner 10-16「助理是咕咕底栏里的一格」:开得了个人助理时它排第一(分页器与底栏同一份顺序),咕咕底栏一直在。
-  it('puts the assistant first in the pager and the tab bar when it is available', async () => {
+  // 「我的」不占底栏一格(owner 10-26):「消息」页头左上角自己的头像推进来,没有底栏;返回回到列表首页。
+  it('opens 我的 from the header avatar as a pushed layer without the tab bar', async () => {
+    platformMock.kind = 'capacitor'
+    platformMock.capabilities.sessionHost = false
+    await harness.render(createNode(MainLayout, { user: { id: 'user-1', email: 'user@example.com', nickname: 'User' } }))
+    expect(harness.container.querySelector(`nav [data-testid="${AUTOMATION_TEST_IDS.mobileProfileNav}"]`), 'not a tab bar cell').toBeNull()
+    await clickElement(harness.container.querySelector(`[data-testid="${AUTOMATION_TEST_IDS.mobileProfileNav}"]`) as HTMLElement)
+    expect(layerOpen('mobile-settings-layer')).toBe(true)
+    expect(harness.container.querySelector('nav')).toBeNull()
+    const pages = [...harness.container.querySelectorAll<HTMLElement>('[data-mobile-tab-pager] > [data-mobile-tab-page]')]
+    expect(pages.every((page) => page.hasAttribute('inert')), 'the list underneath is covered').toBe(true)
+    await nativeBack()
+    expect(layerOpen('mobile-settings-layer')).toBe(false)
+    expect(harness.container.querySelector('nav')).not.toBeNull()
+    expect(pages.filter((page) => !page.hasAttribute('inert')).map((page) => page.dataset.mobileTabPage)).toEqual(['chats'])
+  })
+  // #7199 咕咕不单占一格(owner 10-26「成为会话首个」):它是「消息」置顶第一行,点开整屏推进来、没有底栏,返回回到「消息」。
+  it('pins 咕咕 as the first row of 消息 and pushes it full screen without the tab bar', async () => {
     platformMock.kind = 'capacitor'
     platformMock.capabilities.sessionHost = false
     phoneAssistantMock.state.available = true
     phoneAssistantMock.state.assistant = { id: 'agent-1', display_name: '小咕', avatar: null, created_at: null }
     await harness.render(createNode(MainLayout, { user: { id: 'user-1', email: 'user@example.com', nickname: 'User' } }))
     const pages = [...harness.container.querySelectorAll<HTMLElement>('[data-mobile-tab-pager] > [data-mobile-tab-page]')]
-    expect(pages.map((page) => page.dataset.mobileTabPage)).toEqual(mobileTabs(true))
-    const buttons = [...harness.container.querySelectorAll<HTMLElement>('nav button')]
-    expect(buttons.map((button) => button.dataset.testid)).toEqual([
-      AUTOMATION_TEST_IDS.mobileAssistantNav,
-      AUTOMATION_TEST_IDS.mobileSessionsNav,
+    expect(pages.map((page) => page.dataset.mobileTabPage)).toEqual(MOBILE_TABS)
+    expect([...harness.container.querySelectorAll<HTMLElement>('nav button')].map((button) => button.dataset.testid)).toEqual([
       AUTOMATION_TEST_IDS.mobileMessagesNav,
       AUTOMATION_TEST_IDS.mobileContactsNav,
-      AUTOMATION_TEST_IDS.mobileProfileNav,
     ])
-    // 格名固定「咕咕」(owner 10-16),不跟着它改名;进去之后页头才是它自己的名字。
-    expect(buttons[0].textContent, 'the cell name is fixed').toContain('咕咕')
-    expect(buttons[0].textContent).not.toContain('小咕')
-    expect(buttons[1].textContent, 'the old 任务 cell is 项目 now').toContain('项目')
-    // 冷启动仍落在对话列表,❌ 因为多了一格就换了落地页。
+    const row = harness.container.querySelector<HTMLElement>(`[data-mobile-tab-page="chats"] [data-testid="${AUTOMATION_TEST_IDS.mobileAssistantNav}"]`)!
+    expect(row, 'the first row of 消息').toBeTruthy()
+    expect(row.textContent, 'its row carries its own name').toContain('小咕')
     expect(pages.filter((page) => !page.hasAttribute('inert')).map((page) => page.dataset.mobileTabPage)).toEqual(['chats'])
-    await clickElement(buttons[0])
-    expect(pages.filter((page) => !page.hasAttribute('inert')).map((page) => page.dataset.mobileTabPage)).toEqual(['assistant'])
+    const request = () => Number((harness.container.querySelector('[data-testid="mock-assistant-tab"]') as HTMLElement).dataset.chatRequest)
+    const before = request()
+    await clickElement(row)
+    expect(layerOpen('mobile-assistant-layer')).toBe(true)
     expect((harness.container.querySelector('[data-testid="mock-assistant-tab"]') as HTMLElement).dataset.visible).toBe('true')
-    expect(harness.container.querySelector('nav'), 'the tab bar stays while the assistant is on screen').toBeTruthy()
+    expect(request(), 'lands on its chat segment').toBeGreaterThan(before)
+    expect(harness.container.querySelector('nav'), 'no tab bar on a pushed page').toBeNull()
+    await nativeBack()
+    expect(layerOpen('mobile-assistant-layer')).toBe(false)
+    expect(harness.container.querySelector('nav')).not.toBeNull()
+    expect(pages.filter((page) => !page.hasAttribute('inert')).map((page) => page.dataset.mobileTabPage)).toEqual(['chats'])
   })
-  it('opens the assistant tab when global settings requests its phone connectors', async () => {
+  it('opens the assistant layer when global settings requests its phone connectors', async () => {
     platformMock.kind = 'capacitor'
     platformMock.capabilities.sessionHost = false
     phoneAssistantMock.state.available = true
     phoneAssistantMock.state.assistant = { id: 'agent-1', display_name: '小咕', avatar: null, created_at: null }
     await harness.render(createNode(MainLayout, { user: { id: 'user-1', email: 'user@example.com', nickname: 'User' } }))
     await act(async () => { window.dispatchEvent(new Event(UI_EVENTS.openAssistantConnectors)) })
-    expect(harness.container.querySelector('[data-mobile-tab-page="assistant"]')?.hasAttribute('inert')).toBe(false)
+    expect(layerOpen('mobile-assistant-layer')).toBe(true)
     expect(harness.container.querySelector('[data-testid="mock-assistant-tab"]')?.getAttribute('data-visible')).toBe('true')
   })
-  // owner 10-16「得考虑最开始没有创建咕咕的新用户」:没有它,这一格照样在,图标是淡一点的默认咕咕 + 小「+」,点进去是安家引导。
-  it('keeps the assistant cell first for a new user with no assistant, and marks it as the place to set one up', async () => {
+  // owner 10-16「得考虑最开始没有创建咕咕的新用户」:没有它,那一行照样在,头像是淡一点的默认咕咕 + 小「+」,点进去是安家引导。
+  it('keeps the 咕咕 row first for a new user with no assistant, and marks it as the place to set one up', async () => {
     platformMock.kind = 'capacitor'
     platformMock.capabilities.sessionHost = false
     phoneAssistantMock.state.available = true
     phoneAssistantMock.state.assistant = null
     phoneAssistantMock.state.stage = { stage: 'onboarding' }
     await harness.render(createNode(MainLayout, { user: { id: 'user-1', email: 'user@example.com', nickname: 'User' } }))
-    const pages = [...harness.container.querySelectorAll<HTMLElement>('[data-mobile-tab-pager] > [data-mobile-tab-page]')]
-    expect(pages.map((page) => page.dataset.mobileTabPage)).toEqual(mobileTabs(true))
-    const first = harness.container.querySelector<HTMLElement>('nav button')!
-    expect(first.dataset.testid).toBe(AUTOMATION_TEST_IDS.mobileAssistantNav)
-    expect(first.textContent).toContain('咕咕')
-    const icon = first.querySelector<HTMLElement>('[data-testid="mobile-assistant-nav-default"]')
+    const row = harness.container.querySelector<HTMLElement>(`[data-testid="${AUTOMATION_TEST_IDS.mobileAssistantNav}"]`)!
+    expect(row.textContent).toContain('咕咕')
+    const icon = row.querySelector<HTMLElement>('[data-testid="mobile-assistant-nav-default"]')
     expect(icon, 'the default 咕咕 icon').toBeTruthy()
     expect(icon!.hasAttribute('data-fresh'), 'a small + while there is no assistant yet').toBe(true)
-    await clickElement(first)
-    expect(pages.filter((page) => !page.hasAttribute('inert')).map((page) => page.dataset.mobileTabPage)).toEqual(['assistant'])
+    await clickElement(row)
+    expect(layerOpen('mobile-assistant-layer')).toBe(true)
   })
   it('shows the plain default 咕咕 (no +) while it is still being read', async () => {
     platformMock.kind = 'capacitor'
@@ -774,16 +809,16 @@ describe('MainLayout', () => {
     phoneAssistantMock.state.assistant = null
     phoneAssistantMock.state.stage = { stage: 'identity' }
     await harness.render(createNode(MainLayout, { user: { id: 'user-1', email: 'user@example.com', nickname: 'User' } }))
-    const icon = harness.container.querySelector<HTMLElement>('nav [data-testid="mobile-assistant-nav-default"]')
+    const icon = harness.container.querySelector<HTMLElement>(`[data-testid="${AUTOMATION_TEST_IDS.mobileAssistantNav}"] [data-testid="mobile-assistant-nav-default"]`)
     expect(icon).toBeTruthy()
     expect(icon!.hasAttribute('data-fresh'), '❌ say "set it up" before knowing there is none').toBe(false)
   })
-  it('has no assistant cell where the assistant cannot be opened', async () => {
+  it('has no 咕咕 row where the assistant cannot be opened', async () => {
     platformMock.kind = 'capacitor'
     platformMock.capabilities.sessionHost = false
     await harness.render(createNode(MainLayout, { user: { id: 'user-1', email: 'user@example.com', nickname: 'User' } }))
     const pages = [...harness.container.querySelectorAll<HTMLElement>('[data-mobile-tab-pager] > [data-mobile-tab-page]')]
-    expect(pages.map((page) => page.dataset.mobileTabPage)).toEqual(SIDEBAR_TABS)
+    expect(pages.map((page) => page.dataset.mobileTabPage)).toEqual(MOBILE_TABS)
     expect(harness.container.querySelector(`[data-testid="${AUTOMATION_TEST_IDS.mobileAssistantNav}"]`)).toBeNull()
     expect(harness.container.querySelector('[data-testid="mock-assistant-tab"]')).toBeNull()
   })
@@ -802,8 +837,8 @@ describe('MainLayout', () => {
     expect(harness.container.querySelector('nav')).toBeTruthy()
     input.remove()
   })
-  // 对话列表里点和它的私聊 = 切到助理那一格,❌ 在对话页里另开一屏(owner:「点进去成两个 app 了」)。
-  it('opens the assistant cell, not the chat page, when its private chat is picked from the list', async () => {
+  // 点和它的私聊(通知、链接、搜索)= 推进咕咕那一层,❌ 在对话页里另开一屏(owner:「点进去成两个 app 了」)。
+  it('opens the assistant layer, not the chat page, when its private chat is picked', async () => {
     platformMock.kind = 'capacitor'
     platformMock.capabilities.sessionHost = false
     phoneAssistantMock.state.available = true
@@ -818,18 +853,19 @@ describe('MainLayout', () => {
     const request = () => Number((harness.container.querySelector('[data-testid="mock-assistant-tab"]') as HTMLElement).dataset.chatRequest)
     const before = request()
     await clickElement(harness.container.querySelector('[data-testid="mock-chat-row"]') as HTMLElement)
-    expect(live()).toEqual(['assistant'])
-    expect(request(), 'the cell is told to land on its chat segment').toBeGreaterThan(before)
+    expect(layerOpen('mobile-assistant-layer')).toBe(true)
+    expect(live(), 'the list underneath is covered').toEqual([])
+    expect(request(), 'the layer is told to land on its chat segment').toBeGreaterThan(before)
     expect(chatOnScreen(), 'the chat page does not also claim the chat as seen').toBeNull()
     const target = (id: string) => harness.container.querySelector(`[data-testid="${id}"]`)?.getAttribute('data-navigation-target')
     expect(target('mock-assistant-tab')).toBe('true')
     expect(target('mock-chat-area')).toBe('false')
     // A remains the main selection while its list is shown; an unread arrival then reopens A via this same route.
-    await clickElement(harness.container.querySelector(`[data-testid="${AUTOMATION_TEST_IDS.mobileMessagesNav}"]`) as HTMLElement)
+    await nativeBack()
     expect(live()).toEqual(['chats'])
     const previousRequest = request()
     await clickElement(harness.container.querySelector('[data-testid="mock-chat-row"]') as HTMLElement)
-    expect(live()).toEqual(['assistant'])
+    expect(layerOpen('mobile-assistant-layer')).toBe(true)
     expect(request()).toBeGreaterThan(previousRequest)
     expect(target('mock-assistant-tab')).toBe('true')
     expect(target('mock-chat-area')).toBe('false')
@@ -847,20 +883,20 @@ describe('MainLayout', () => {
       scrollLeft = value
       await act(async () => { pager.dispatchEvent(new Event('scroll')) })
     }
-    await scrollTo(585)
+    await scrollTo(195)
     expect(page('contacts').hasAttribute('inert'), 'half-way between pages is not a switch').toBe(true)
     expect(page('chats').hasAttribute('inert')).toBe(false)
     // owner 10-07:选中态不切,tab 栏的亮暗却已经跟着手指走到两格中间。
     const position = () => (harness.container.querySelector('nav') as HTMLElement).style.getPropertyValue('--gg-tab-position')
-    expect(position(), 'the tab bar gets the continuous position while dragging').toBe('1.5')
-    await scrollTo(780)
+    expect(position(), 'the tab bar gets the continuous position while dragging').toBe('0.5')
+    await scrollTo(390)
     expect(page('contacts').hasAttribute('inert')).toBe(false)
     expect(page('chats').hasAttribute('inert')).toBe(true)
-    expect(position()).toBe('2')
-    await clickElement(harness.container.querySelector(`[data-testid="${AUTOMATION_TEST_IDS.mobileProfileNav}"]`) as HTMLElement)
-    expect(scrollLeft, 'a tab tap jumps the pager to that page').toBe(1170)
-    expect(page('settings').hasAttribute('inert')).toBe(false)
-    expect(position(), 'a tab tap lights that tab at once').toBe('3')
+    expect(position()).toBe('1')
+    await clickElement(harness.container.querySelector(`[data-testid="${AUTOMATION_TEST_IDS.mobileMessagesNav}"]`) as HTMLElement)
+    expect(scrollLeft, 'a tab tap jumps the pager to that page').toBe(0)
+    expect(page('chats').hasAttribute('inert')).toBe(false)
+    expect(position(), 'a tab tap lights that tab at once').toBe('0')
   })
   it('locks horizontal paging while a full-screen sub-page is open', async () => {
     platformMock.kind = 'capacitor'
@@ -878,23 +914,22 @@ describe('MainLayout', () => {
     })
     expect(pager.style.overflowX).toBe('auto')
   })
-  // 「我的」常驻在分页器里:离开后再直达某个 section(充值 → 用量),落在那个 section 上,❌ 停在上次看的那页。
-  it('reopens the retained settings page on the section a deep link asks for', async () => {
+  // 「我的」那一层常驻只藏:退回后再直达某个 section(充值 → 用量),落在那个 section 上,❌ 停在上次看的那页。
+  it('reopens the retained settings layer on the section a deep link asks for', async () => {
     platformMock.kind = 'capacitor'
     platformMock.capabilities.sessionHost = false
     await harness.render(createNode(MainLayout, { user: { id: 'user-1', email: 'user@example.com', nickname: 'User' } }))
-    const settings = () => harness.container.querySelector('[data-mobile-tab-page="settings"] [data-testid="mock-settings-panel"]') as HTMLElement
+    const settings = () => harness.container.querySelector('[data-testid="mobile-settings-layer"] [data-testid="mock-settings-panel"]') as HTMLElement
     const recharge = () => act(async () => { rechargeProbe.onRecharge?.() })
     await recharge()
     expect(settings().getAttribute('data-section')).toBe('usage')
     await clickElement(harness.container.querySelector('[data-testid="mock-settings-pick-about"]') as HTMLElement)
     expect(settings().getAttribute('data-section'), 'positive control: the user moved on inside the panel').toBe('about')
-    await act(async () => {
-      window.dispatchEvent(new CustomEvent('gugu:native-back'))
-      await Promise.resolve()
-    })
-    await clickElement(harness.container.querySelector(`[data-testid="${AUTOMATION_TEST_IDS.mobileMessagesNav}"]`) as HTMLElement)
-    expect(settings().getAttribute('data-section'), 'off its tab the page is back at its root').toBe('account')
+    await nativeBack()
+    expect(layerOpen('mobile-settings-layer'), 'the first back only leaves the detail page').toBe(true)
+    await nativeBack()
+    expect(layerOpen('mobile-settings-layer')).toBe(false)
+    expect(settings().getAttribute('data-section'), 'once it is closed the layer is back at its root').toBe('account')
     await recharge()
     expect(settings().getAttribute('data-section')).toBe('usage')
   })
@@ -1001,7 +1036,7 @@ describe('MainLayout: personal assistant destinations', () => {
     } finally { navigate.mockRestore() }
   })
 
-  it('opens the same file in the phone Gugu cell with its tab bar present', async () => {
+  it('opens the same file in the phone Gugu layer, without the tab bar', async () => {
     platformMock.kind = 'capacitor'
     platformMock.capabilities.sessionHost = false
     phoneAssistantMock.state.available = true
@@ -1010,8 +1045,8 @@ describe('MainLayout: personal assistant destinations', () => {
     chatStoreMock.chats = [{ id: 'personal-dm', kind: 'dm' } as never]
     await renderMainLayoutWithToast()
     await act(async () => { await openLinkTarget({ kind: 'file', itemId: 'phone-file' }) })
-    expect(harness.container.querySelector('[data-mobile-tab-page="assistant"]')?.hasAttribute('inert')).toBe(false)
-    expect(harness.container.querySelector('nav')).not.toBeNull()
+    expect(harness.container.querySelector('[data-testid="mobile-assistant-layer"]')?.hasAttribute('data-open')).toBe(true)
+    expect(harness.container.querySelector('nav')).toBeNull()
     expect((takeChatAsk('personal-dm') as { itemId?: string } | null)?.itemId).toBe('phone-file')
   })
 })

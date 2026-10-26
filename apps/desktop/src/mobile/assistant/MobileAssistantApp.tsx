@@ -21,7 +21,7 @@ import type { AssistantHomePlace } from '@/lib/assistantHome'
 import { assistantTintHue, assistantTintStyle } from '@/lib/assistantTint'
 import { IdeasEntry } from '@/session/renderer/features/assistant/assistant-ideas'
 import { scheduleComposerFocus } from '@/lib/focusComposer'
-import { ArrowUpToLine, ChevronLeft, Mic, Plus, Search, Settings, Sparkles } from '@/lib/icons'
+import { ArrowUpToLine, ChevronLeft, Mic, Plus, Search, Sparkles } from '@/lib/icons'
 import { useReportChatOnScreen } from '@/lib/onScreenChat'
 import { UI_EVENTS } from '@/lib/uiEvents'
 import { showAssistantTaskChat, useOpenedAssistantTaskChat } from '@/lib/assistantTaskChat'
@@ -43,7 +43,9 @@ import './assistant-phone.css'
 
 export const PHONE_TABS = ['chat', 'today', 'tasks', 'memory', 'profile'] as const
 export type PhoneTab = (typeof PHONE_TABS)[number]
-/** 此刻摆着哪一页:某一格(往下钻到 `sub`)。齿轮不是这里的一页:它直接开到「我的 → 咕咕」那一组(全局设置里的一组,❌ 第二个设置页)。 */
+/** 页头分段里的几格;「资料」不占一格,点页头它的头像就是(owner 10-26 改版稿)。 */
+const PHONE_SEGMENTS = PHONE_TABS.filter((id) => id !== 'profile')
+/** 此刻摆着哪一页:某一格(往下钻到 `sub`)。 */
 export type PhoneRoute = PhoneParentRoute<PhoneTab>
 
 export type PhoneAssistant = { id: string; display_name: string; avatar: string | null; created_at: string | null }
@@ -87,10 +89,10 @@ function routeDepth(route: PhoneRoute): number {
 const HEALTH_REPORT_ACCEPT = 'application/pdf,image/*'
 
 /**
- * #7199 手机底栏「助理」那一格里的助理 App(owner 10-16:「点进去成两个 app 了」⇒ 咕咕底栏一直在,❌ 第二排底栏、❌ 只有返回箭头当出口):
- * 默认是和它的聊天;页顶一排分段 聊天 / 动态 / 任务 / 记忆 / <它的名字>(与桌面右边面板那排同一套),一次点到。
- * 页头:它的头像 + 名字(点了去 <它的名字> 那一格),右边「搜索聊天记录」(聊天时)与齿轮(直接开到「我的 → 咕咕」:它的名字 / 形象 / 状态 / 积分 / 休息 / 关闭)。
- * 往下钻的页左上出返回箭头回上一层;安卓返回键:往下钻的页回上一层,别的格回聊天。
+ * #7199 手机上的助理 App:「消息」置顶第一行推进来的整屏一层,没有底栏(owner 10-26,OpenDCAI/gugu#446,取代 10-16「咕咕底栏一直在」)。
+ * 默认是和它的聊天。页头一行(owner 10-26:「header 占一点 footer 占一点 中间没多少空间」):
+ * 返回 · 它的头像(点了去「资料」,它自己的设置也在那里)· 分段 聊天 / 动态 / 任务 / 记忆 · 搜索聊天记录(聊天时)。
+ * 往下钻的页左上返回回上一层,顶层的返回回「消息」;安卓返回键:往下钻的页回上一层,别的格回聊天,聊天再退回「消息」。
  * 聊天就是和它的那条私聊(对话列表点它也是切到这里),整套聊天面常驻(切到别的格只藏起来:草稿、滚动位置都在);只有聊天那一段摆在眼前才算「在看」。
  * 底色、卡片、字号读 `--ta-*`(助理主页收到咕咕自己的 token 上),手机里 ❌ 自己写颜色。
  */
@@ -103,6 +105,7 @@ function MobileAssistantAppContent({
   home,
   visible,
   chatRequest, navigationTarget,
+  onExit,
   ...chatHandlers
 }: {
   chatId: string
@@ -116,6 +119,8 @@ function MobileAssistantAppContent({
   /** 每变一次 = 别处打开了和它的私聊:落在聊天那一段。 */
   chatRequest: number
   navigationTarget?: boolean
+  /** 顶层的返回:退回「消息」。 */
+  onExit?: () => void
 } & AssistantChatHandlers) {
   const { t } = useTranslation('assistant')
   const [route, setRoute] = useState<PhoneRoute>({ tab: 'chat' })
@@ -152,7 +157,7 @@ function MobileAssistantAppContent({
   const voice = usePhoneVoiceNotes({ assistantId: assistant.id, deviceId: homeDeviceId, readiness, machine })
   const { disabled: voiceDisabled, start: voiceStart } = voice
   const back = backOf(route)
-  // 安卓返回键:往下钻的页回上一层,别的格回聊天,聊天再退出(交给对话页那一层)。
+  // 安卓返回键:往下钻的页回上一层,别的格回聊天,聊天再退出(交给外壳:退回「消息」)。
   useBackLayer(() => taskChat ? showAssistantTaskChat(null) : open(back ?? { tab: 'chat' }), visible && tab !== 'chat')
 
   // 「问问它」这类:回到聊天并唤起键盘(人要接着打字);点分段里的「聊天」只切过去,不弹键盘(手机壳惯例)。
@@ -203,52 +208,43 @@ function MobileAssistantAppContent({
   return (
     <PhoneHomeContext.Provider value={home}>
     <div className="ta-phone" data-testid="mobile-assistant-app" data-tab={tab} data-sub={sub ?? ''} style={tint}>
-      {/* 页头与对话 / 联系人 / 我的同一个 PaneHeader(owner 10-16:每一格页头同一个样子,左边是这一格的名字,右边最多两个钮):
-          左 = 它的头像 + 名字(点了去 <名字> 那一段;往下钻的页最左多一个返回箭头),右 = 搜索(聊天段)+ 齿轮。 */}
+      {/* 页头一行,与「消息」「伙伴」同一个 PaneHeader:返回(往下钻的页回上一层,顶层回「消息」)· 它的头像(去「资料」)· 分段 · 搜索(聊天段)。 */}
       <PaneHeader
         mobile
-        titleLevel={back ? 'panel' : 'page'}
+        className="ta-phone-head"
         data-testid="mobile-assistant-header" hidden={taskChat}
         leading={
-          back ? (
-            <IconButton size="lg" aria-label={`${t('panel.back')} · ${labels[back.tab]}`} onClick={() => open(back)} data-testid="mobile-assistant-back">
-              <ChevronLeft />
-            </IconButton>
-          ) : undefined
-        }
-        title={
-          <Button variant="ghost" className="ta-phone-identity" onClick={() => open({ tab: 'profile' })} aria-label={t('top.profile', { name })} data-testid="mobile-assistant-pill">
-            <Avatar name={name} avatarUrl={assistant.avatar} seed={assistant.id} size={28} isAgent harnessBadge={false} />
-            <span className="ta-phone-identity-name">{name}</span>
-          </Button>
-        }
-        actions={
           <>
-            {tab === 'chat' ? (
-              <IconButton size="lg" aria-label={t('top.search')} onClick={() => window.dispatchEvent(new CustomEvent(UI_EVENTS.openChatSearch, { detail: { chatId, viewportKey: "assistant" } }))} data-testid="mobile-assistant-search">
-                <Search />
+            {back ? (
+              <IconButton size="lg" aria-label={`${t('panel.back')} · ${labels[back.tab]}`} onClick={() => open(back)} data-testid="mobile-assistant-back">
+                <ChevronLeft />
+              </IconButton>
+            ) : onExit ? (
+              <IconButton size="lg" aria-label={t('panel.back')} onClick={onExit} data-testid="mobile-assistant-exit">
+                <ChevronLeft />
               </IconButton>
             ) : null}
-            {/* 齿轮直接开到「我的 → 咕咕」那一组(owner 10-16:咕咕的设置是全局设置里的一组,❌ 第二个设置页)。 */}
-            <IconButton
-              size="lg"
-              aria-label={t('top.settings')}
-              onClick={() => open({ tab: 'profile', sub: 'settings' })}
-              data-testid="mobile-assistant-gear"
-            >
-              <Settings />
-            </IconButton>
+            <Button variant="ghost" className="ta-phone-identity" aria-pressed={tab === 'profile'} onClick={() => open({ tab: 'profile' })} aria-label={t('top.profile', { name })} data-testid="mobile-assistant-pill">
+              <Avatar name={name} avatarUrl={assistant.avatar} seed={assistant.id} size={28} isAgent harnessBadge={false} />
+            </Button>
           </>
         }
+        title={
+          <div className="ta-phone-seg">
+            <SegmentedTabs
+              ariaLabel={name}
+              value={tab}
+              onChange={(id) => { showAssistantTaskChat(null); open({ tab: id }) }}
+              items={PHONE_SEGMENTS.map((id) => ({ value: id, label: labels[id], panelId: `assistant-${assistant.id}-${id}`, testId: `mobile-assistant-tab-${id}` }))}
+            />
+          </div>
+        }
+        actions={tab === 'chat' ? (
+          <IconButton size="lg" aria-label={t('top.search')} onClick={() => window.dispatchEvent(new CustomEvent(UI_EVENTS.openChatSearch, { detail: { chatId, viewportKey: "assistant" } }))} data-testid="mobile-assistant-search">
+            <Search />
+          </IconButton>
+        ) : null}
       />
-      <div className="ta-phone-seg" hidden={taskChat}>
-        <SegmentedTabs
-          ariaLabel={name}
-          value={tab}
-          onChange={(id) => { showAssistantTaskChat(null); open({ tab: id }) }}
-          items={PHONE_TABS.map((id) => ({ value: id, label: labels[id], panelId: `assistant-${assistant.id}-${id}`, testId: `mobile-assistant-tab-${id}` }))}
-        />
-      </div>
       <div id={`assistant-${assistant.id}-chat`} role="tabpanel" aria-label={labels.chat} className="ta-phone-chat ta-chat" hidden={tab !== 'chat'} ref={setChatColumn}>
         <FilePreviewHost.Provider value={{}}><ChatAreaPanel viewportKey="assistant"
           chatId={chatId}
@@ -256,7 +252,7 @@ function MobileAssistantAppContent({
           activeTab="chats"
           mobile
           hidden={!chatShown}
-          chrome={{ placeholder: t('chat.placeholder', { name }), attachGlyph: <Plus />, attachMenu, typing: chatFooter }}
+          chrome={{ placeholder: t('chat.placeholder', { name }), attachGlyph: <Plus />, attachMenu, typing: chatFooter, hideRunningStatus: true }}
           {...chatHandlers}
         /></FilePreviewHost.Provider>
         {tab === 'chat' ? <IdeasEntry assistantId={assistant.id} column={chatColumn} busy={false} onOpen={() => setIdeasOpen(true)} /> : null}

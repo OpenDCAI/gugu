@@ -518,7 +518,8 @@ export default {
     "back": "Back",
     "chats": "Chats",
     "contacts": "Contacts (⌘2)",
-    "contactsMobile": "Contacts",
+    "messagesMobile": "Messages",
+    "partnersMobile": "Partners",
     "errors": {
       "createFieldsMissing": "A message, name, or device required to create the Agent is missing",
       "createInProgress": "An Agent is already being created. Reopen the creation page to view its progress.",

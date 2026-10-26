@@ -1618,7 +1618,8 @@ body.barcode-scanner-active #root {
 
 /* Existing page snapshots keep the tab bar and live document interactive. */
 :root[data-mobile-direction] { view-transition-name: none; }
-:root[data-mobile-direction] [data-mobile-tab-page]:not([inert]) { view-transition-name: mobile-page; }
+/* 推进来的一层盖着时它是这一页,底下分页器的页都 inert(一页只能有一个 mobile-page,重名整次过场作废)。 */
+:root[data-mobile-direction] :is([data-mobile-tab-page]:not([inert]), [data-phone-layer][data-open]) { view-transition-name: mobile-page; }
 :root[data-mobile-direction]::view-transition { pointer-events: none; }
 ::view-transition-group(mobile-page), ::view-transition-old(mobile-page), ::view-transition-new(mobile-page),
 .gg-mobile-motion, .gg-sheet-content[data-sheet-mobile='true'], .gg-sheet-backdrop[data-sheet-mobile='true'] {
