@@ -211,7 +211,7 @@ export function createCrossMachineSessions(deps: CrossMachineDeps) {
   }
 
   const call = async (deviceId: string, caller: RemoteCaller, action: Action, signal?: AbortSignal): Promise<unknown> =>
-    request(await reachable(deviceId, !('kind' in caller)), `agentSession.${action.action}`, [caller, action], remoteActionTimeoutMs(action), action.action, signal)
+    request(await reachable(deviceId, !('kind' in caller)), action.action === 'spawn' && action.assistant_work ? 'assistantWork.prepare' : `agentSession.${action.action}`, [caller, action], remoteActionTimeoutMs(action), action.action, signal)
 
   const assertFileHandoffSupported = async (deviceIds: string[]) => {
     for (const id of new Set(deviceIds)) {

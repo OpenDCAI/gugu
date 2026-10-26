@@ -1,4 +1,5 @@
 import { AGENT_SESSION_ACTIONS, type AgentSessionActionName } from '@gugu/session-core/session-record/contract';
+import { assistantWorkIntentSchema } from '@gugu/core/shared/assistantWorkIntent';
 import { createRPCController } from '@shared/lib/ipc/rpc';
 
 /** 怎么答 `agentSession.<动作>`(形状、调用方、执行)由宿主主进程接上,与 `setOtherMachines` 同一个做法。 */
@@ -17,3 +18,15 @@ export const agentSessionController = createRPCController(
     return host(name, caller, action);
   }])) as Record<AgentSessionActionName, (caller: unknown, action: unknown) => Promise<unknown>>,
 );
+
+
+/** Separate capability: an older host must reject before accidentally starting an executor. */
+export const assistantWorkController = createRPCController({
+  prepare(caller: unknown, raw: unknown) {
+    const action = raw as Record<string, unknown> | null;
+    if (!action || action.action !== 'spawn' || (caller as { kind?: unknown })?.kind === 'app') throw new Error('Work preparation requires an agent spawn');
+    assistantWorkIntentSchema.parse(action.assistant_work);
+    if (!host) throw Object.assign(new Error('Task host is not ready'), { code: 'host_not_ready' });
+    return host('spawn', caller, action);
+  },
+});
