@@ -62,3 +62,15 @@ it('keeps account application state in the same durable store and never exposes 
  expect(restarted.accountState('other','wechat',valid).peek()).toBeUndefined()
  f.setOwner('owner');expect(copy.peek()).toEqual({channels:['connected']});await restarted.flush()
 })
+
+it('keeps an unopened application list free of catalog body downloads, then refreshes only a previously opened detail',async()=>{
+ const f=fixture(),manager=f.manager();await manager.ready;const cache=manager.files('owner','assistant')
+ let current=snapshot();const readBody=vi.fn(async()=>new TextEncoder().encode('detail'))
+ const panel=createAssistantPanelFiles({ownerId:'owner',assistantId:'assistant',deviceId:'home',cache,assertCurrent:()=>{},changed:vi.fn(),
+   cloud:{snapshot:async()=>current} as never,readBody,upload:vi.fn(),discard:vi.fn()})
+ await panel.snapshot();await new Promise(resolve=>setTimeout(resolve,30));expect(readBody).not.toHaveBeenCalled()
+ await panel.body(item);expect(readBody).toHaveBeenCalledOnce()
+ const next={...item,revision:'2',body_item_id:'body-new',body_sha256:'b'.repeat(64)};current=snapshot([next],'2')
+ panel.invalidate();await vi.waitFor(()=>expect(readBody).toHaveBeenCalledTimes(2))
+ expect(new TextDecoder().decode(panel.peekBody(next))).toBe('detail');await manager.flush()
+})

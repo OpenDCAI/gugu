@@ -39,6 +39,7 @@ export function createAssistantPanelFiles(input: {
   let cached: { at: number; value: ReturnType<AssistantPanelClient['snapshot']> } | null = null
   const versions = new Map<string, string>()
   const bodies = new Map<string, Uint8Array>()
+  const openedIntegrationBodies = new Set<string>()
   let bodyBytes = 0
   const peekSnapshot = () => input.cache?.peekSnapshot()
   const bodyKey = (item: AssistantPanelItem) => `${item.body_item_id}:${item.body_sha256}`
@@ -55,7 +56,8 @@ export function createAssistantPanelFiles(input: {
     warming = true
     try { do {
       warmAgain = false
-      const missing = (peekSnapshot()?.items ?? []).filter(item => item.body_item_id && ['integrations','capabilities','device-notes'].includes(item.domain) && !peekBody(item))
+      const missing = (peekSnapshot()?.items ?? []).filter(item => item.body_item_id
+        && (['capabilities','device-notes'].includes(item.domain) || item.domain === 'integrations' && openedIntegrationBodies.has(item.resource_key)) && !peekBody(item))
       let next = 0
       await Promise.all(Array.from({length:Math.min(4,missing.length)},async () => {
         while (next < missing.length) {
@@ -72,6 +74,9 @@ export function createAssistantPanelFiles(input: {
     try {
       const result = await current.value
       await input.assertCurrent()
+      // An application directory never starts catalog downloads. Once a detail
+      // was opened, keep that persisted copy current on later cloud changes.
+      for (const item of peekSnapshot()?.items ?? []) if (item.domain === 'integrations' && peekBody(item)) openedIntegrationBodies.add(item.resource_key)
       input.cache?.saveSnapshot(result)
       const live = new Set(result.items.filter(row => row.body_item_id).map(row => `${row.body_item_id}:${row.body_sha256}`))
       for (const [key,value] of bodies) if (!live.has(key)) { bodies.delete(key); bodyBytes -= value.length }
@@ -113,6 +118,7 @@ export function createAssistantPanelFiles(input: {
   async function body(item: AssistantPanelItem) {
     await input.assertCurrent()
     if (!bodyIsCurrent(item)) throw new AssistantPanelError('missing','PANEL_RESOURCE_REMOVED')
+    if (item.domain === 'integrations') openedIntegrationBodies.add(item.resource_key)
     const key = `${item.body_item_id}:${item.body_sha256}`
     const cached = peekBody(item) ?? bodies.get(key)
     if (cached) return cached.slice()
