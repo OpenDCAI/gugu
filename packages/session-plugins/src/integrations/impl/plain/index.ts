@@ -1,3 +1,4 @@
+import { summary } from './summary';
 import type { VerifyResult } from '../../capabilities/auth';
 import { defineIntegrationPlugin, registerIntegrationPluginBehavior } from '../../plugin';
 import { verifyPlainCredentials } from './client';
@@ -6,8 +7,8 @@ import { icon } from './icon';
 const plugin = defineIntegrationPlugin(
   {
     id: 'plain',
-    name: 'Plain',
-    description: { en: 'Work on Plain threads', 'zh-CN': '处理 Plain 客服对话' },
+    name: summary.name['zh-CN'],
+    description: summary.description,
     websiteUrl: 'https://www.plain.com',
   },
   {

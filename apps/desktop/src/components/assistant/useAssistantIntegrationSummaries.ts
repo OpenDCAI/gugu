@@ -1,7 +1,8 @@
 import { useCallback,useEffect,useSyncExternalStore } from 'react'
 import type { AssistantPanelFiles } from '@gugu/core/cloud/assistantPanelFiles'
 import type { IntegrationMetadata } from '@/session/renderer/features/integrations/integrations-provider'
-import { enrichAssistantPanelIntegrations } from './assistant-panel-integrations'
+import { builtinIntegrationSummary } from '@gugu/session-plugins/integration-summaries'
+import { enrichAssistantPanelIntegrations,integrationListCopy } from './assistant-panel-integrations'
 
 export const EMPTY_INTEGRATION_SUMMARIES: IntegrationMetadata[] = []
 type Summary = Pick<IntegrationMetadata,'name' | 'description'>
@@ -20,7 +21,7 @@ export function useAssistantIntegrationSummaries(panel: AssistantPanelFiles | un
   useSyncExternalStore(subscribe,snapshot,snapshot)
   useEffect(() => {
     if (!panel) return
-    const missing = items.filter(item => item.metadataOnly && (!item.description || item.name === item.id) && !cache.summaries.has(item.id) && !cache.pending.has(item.id))
+    const missing = items.filter(item => item.metadataOnly && !builtinIntegrationSummary(item.id,locale) && (!item.description || item.name === item.id || item.summaryNameMissing) && !cache.summaries.has(item.id) && !cache.pending.has(item.id))
     if (!missing.length) return
     for (const item of missing) cache.pending.add(item.id)
     // List refreshes and remounts share this bounded enrichment, rather than
@@ -32,8 +33,7 @@ export function useAssistantIntegrationSummaries(panel: AssistantPanelFiles | un
   },[panel,items,locale,cache])
   return items.map(item => {
     const summary = cache.summaries.get(item.id)
-    return !summary || !item.metadataOnly ? item : { ...item,
-      name: item.name === item.id ? summary.name : item.name,description: item.description || summary.description,
-    }
+    const name = summary && item.metadataOnly && (item.summaryNameMissing || item.name === item.id) ? summary.name : item.name
+    return { ...item,...integrationListCopy(item.id,name,item.description || summary?.description,locale) }
   })
 }
