@@ -177,12 +177,7 @@
   {
     "rule": "copy-leaks-raw-error-slot",
     "file": "apps/desktop/src/session/renderer/features/settings/components/BrowserSettingsCard.tsx",
-    "count": 4
-  },
-  {
-    "rule": "copy-leaks-raw-error-slot",
-    "file": "apps/desktop/src/session/renderer/features/settings/components/ExtensionsSettingsCard.tsx",
-    "count": 6
+    "count": 1
   },
   {
     "rule": "copy-leaks-raw-error-slot",
