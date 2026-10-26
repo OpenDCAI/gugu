@@ -1,5 +1,6 @@
 import './browser-user-agent-bootstrap'
 import { registerFileViewerMenus } from './file-viewer-context-menu'
+import { registerContentContextMenus } from './content-context-menu'
 import { configuredEndpoint } from '@gugu/core/cloud/attachmentsApi'
 import { createDesktopFileAccess } from './desktopFileAccess'
 import { createNativeFileHost, registerNativeFileIpc } from './nativeFileHost'
@@ -158,7 +159,7 @@ import { cloudComputerEnabled, officialServicesEnabled } from '@gugu/core/cloud/
 import { createChatChannelsClient } from '@gugu/core/cloud/chatChannels'
 import type { SessionMessage } from '@shared/core/sessions/sessions'
 import { TRAFFIC_LIGHT_POSITION } from '@shared/window-chrome-native'
-import { attachAuxWindows } from './aux-window'
+import { attachAuxWindows, isOwnPage } from './aux-window'
 import { installQuickChat, type QuickChat } from './quick-chat-window'
 import { installAssistantHome } from './assistant-home'
 import { receivePhoneDeviceFile } from './phone-device-file'
@@ -632,9 +633,10 @@ installDevtoolsLock((url) => {
   // 走到这里说明前面几层漏了 —— 这是要查的 bug,不是正常态,所以留证不静默。
   devtoolsLockLogger.error({ url }, 'DevTools 在锁定态下被打开,已强制关闭')
 })
+registerContentContextMenus(ipcMain)
 registerFileViewerMenus(app, () => currentHostCatalog().fileViewerMenu, (error) => {
-  processGoneLogger.error({ error: String(error) }, 'File context menu failed')
-})
+  processGoneLogger.error({ error: String(error) }, 'Content context menu failed')
+}, (host) => isOwnPage(host.getURL(), mainWindow?.webContents.getURL() ?? ''))
 // @@@gugu-tier - inlined at build time by vite (define in vite.config.mts), default 'production'.
 declare const __GUGU_TIER__: string
 declare const __GUGU_BUILD_DISTRIBUTION__: string
