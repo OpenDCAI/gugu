@@ -1,14 +1,5 @@
-/**
- * #7199「设置 → 设备 → 这台电脑能做的事」:
- * - 列表:「已授权 / 可用」两组,一行 = 图标 + 名称 + 一行说明 + ›,连没连全看所在分组(行上不放按钮);
- *   底下是「全部拒绝」与「最近调用」(这台电脑最近被助理调用过什么)。
- * - 点一行进详情:大图标 + 说明 + 「连接」(一个按钮兼管系统授权,第一次会弹系统的授权框;系统不让就当场说去哪打开)/ 右上「断开连接」;
- *   「xx 连接」里是状态与连接时间;「能做的事」里每个动作一个开关(「工具权限」),关掉的那一个助理就调不了。
- * - 别的设备:只读显示它登记的动作与可不可用;要开关得在那台设备上改(授权只存在那台设备上)。
- *
- * 两个落点:「助理」App 的「能力 · 设备」页挂 DeviceCapabilitiesPage(按 deviceId,返回键可选);
- * 「设置 → 设备」里的兼容入口挂 DeviceActionsPage。分组名用 useDeviceActionGroupText(文案在 settings 命名空间)。
- */
+import { useAssistantPanelBack } from '@/lib/assistantPanelPage'
+/** Device pages summarize grants; only Settings → Permissions enables editing. */
 import { useCallback, useMemo, useState, type ReactNode } from 'react'
 import { useTranslation } from 'react-i18next'
 import type { Device } from '@gugu/core/shared/types/chat'
@@ -61,6 +52,7 @@ import { useDeviceActionGroupText } from './deviceActionGroupText'
 import { reportAssistantAppChange } from '../assistant/assistant-app-client'
 import { libraryDeviceId } from '../assistant/assistant-library-client'
 import { cachedDevicesAccount } from '../../store/devicesCache'
+import { UI_EVENTS } from '../../lib/uiEvents'
 
 async function saveDevicePermission(channel: string, args: unknown, change: { action: string; enabled?: boolean; group?: string }): Promise<void> {
   const ipc = desktopIpc()
@@ -124,22 +116,19 @@ export function GroupIcon({ group, size }: { group: { id: string; icon?: string 
   )
 }
 
-export function DeviceActionsPage({ device, isThisDevice, onBack, embedded = false }: { device: Device; isThisDevice: boolean; onBack?: () => void; embedded?: boolean }) {
+export function DeviceActionsPage({ device, isThisDevice, onBack, embedded = false, panelNavigation = false }: { device: Device; isThisDevice: boolean; onBack?: () => void; embedded?: boolean; panelNavigation?: boolean }) {
   const { t } = useTranslation('settings')
   const ipc = desktopIpc()
-  if (isThisDevice && ipc) return <ThisDeviceActions onBack={onBack} />
+  if (isThisDevice && ipc) return <ThisDeviceActions onBack={onBack} panelNavigation={panelNavigation} />
   return (
     <SettingsPage data-testid="settings-device-actions">
-      {!embedded && <PageHeader title={t('devices.deviceActions.otherTitle', { name: device.label })} backLabel={t('devices.deviceActions.back')} onBack={onBack} />}
+      {!embedded && <PageHeader panelNavigation={panelNavigation} navigationKey={`device:${device.device_id}`} title={t('devices.deviceActions.otherTitle', { name: device.label })} backLabel={t('devices.deviceActions.back')} onBack={onBack} />}
       <OtherDeviceActions device={device} compact={embedded} />
     </SettingsPage>
   )
 }
 
-/**
- * 「助理」App · 能力 · 设备 里的一页:一台设备能被助理做的事。deviceId 缺省 = 这台电脑。
- * 这台电脑 = 可连接 / 断开 / 逐个开关;别的设备 = 只读(授权只存在那台设备上)。onBack 不给就不画返回键(外壳自己有导航)。
- */
+/** Compatibility route: local and remote device pages both summarize grants. */
 export function DeviceCapabilitiesPage({ deviceId, onBack }: { deviceId?: string; onBack?: () => void }) {
   const { t } = useTranslation('settings')
   const { devices, loading } = useDevicesStore()
@@ -152,7 +141,9 @@ export function DeviceCapabilitiesPage({ deviceId, onBack }: { deviceId?: string
   return <DeviceActionsPage device={device} isThisDevice={device.is_current_device === true} onBack={onBack} />
 }
 
-function PageHeader({ title, subtitle, backLabel, onBack, trailing, testId }: { title: ReactNode; subtitle?: ReactNode; backLabel: string; onBack?: () => void; trailing?: ReactNode; testId?: string }) {
+function PageHeader({ title, subtitle, backLabel, onBack, trailing, testId, panelNavigation = false, navigationKey }: { panelNavigation?: boolean; navigationKey?: string; title: ReactNode; subtitle?: ReactNode; backLabel: string; onBack?: () => void; trailing?: ReactNode; testId?: string }) {
+  useAssistantPanelBack(panelNavigation && onBack ? navigationKey ?? String(title) : null, onBack ?? (() => {}))
+  if (panelNavigation) return <div className="flex flex-col gap-1"><div className="flex items-center gap-2"><h1 className="ta-page-title min-w-0 flex-1">{title}</h1>{trailing}</div>{subtitle ? <SettingsNote>{subtitle}</SettingsNote> : null}</div>
   return (
     <div className="flex flex-col gap-1">
       <div className="flex items-center gap-2">
@@ -170,10 +161,10 @@ function PageHeader({ title, subtitle, backLabel, onBack, trailing, testId }: { 
   )
 }
 
-/**
- * `bare` = 嵌在别人的页里(助理 App「连接应用 · 本机」那一段):不画自己的标题,详情页的返回写回「连接应用」。
- */
-export function ThisDeviceActions({ onBack, bare = false }: { onBack?: () => void; bare?: boolean }) {
+/** Only PermissionsSection opts into editing; legacy device routes stay read-only. */
+export function ThisDeviceActions({ onBack, bare = false, panelNavigation = false, managePermissions = false, backLabel, children }: {
+  onBack?: () => void; bare?: boolean; panelNavigation?: boolean; managePermissions?: boolean; backLabel?: string; children?: ReactNode
+}) {
   const { t } = useTranslation('settings')
   const text = useDeviceActionGroupText()
   const { state, reload } = useThisDeviceState()
@@ -183,18 +174,33 @@ export function ThisDeviceActions({ onBack, bare = false }: { onBack?: () => voi
 
   const header = bare ? null : (
     <PageHeader
-      title={t('devices.deviceActions.thisTitle')}
+      title={t('devices.deviceActions.thisTitle')} panelNavigation={panelNavigation} navigationKey="device:this-computer"
       backLabel={t('devices.deviceActions.back')}
       onBack={onBack}
     />
   )
-  if (!state) return <SettingsPage data-testid="settings-device-actions">{header}<SettingsNote>{t('devices.loading')}</SettingsNote></SettingsPage>
-  if (!state.supported) return <SettingsPage data-testid="settings-device-actions">{header}<SettingsNote>{t('devices.deviceActions.unsupported')}</SettingsNote></SettingsPage>
-
-  const selected = openGroup ? state.groups.find((g) => g.id === openGroup) ?? null : null
-  if (selected) return <GroupDetail group={selected} denyAll={state.denyAll} onBack={() => setOpenGroup(null)} reload={reload} backLabel={bare ? t('devices.connectors.back') : undefined} />
+  const permissionLink = <SettingsGroup><SettingsRow title={t('devices.deviceActions.managePermissions')} control={<ChevronRight size={16} />} data-testid="device-open-permissions"
+    onClick={() => window.dispatchEvent(new CustomEvent(UI_EVENTS.openSettings, { detail: { section: 'permissions' } }))} /></SettingsGroup>
+  if (!state) return <SettingsPage data-testid="settings-device-actions">{header}{children}<SettingsNote>{t('devices.loading')}</SettingsNote>{!managePermissions && permissionLink}</SettingsPage>
+  if (!state.supported) return <SettingsPage data-testid="settings-device-actions">{header}{children}<SettingsNote>{t('devices.deviceActions.unsupported')}</SettingsNote>{!managePermissions && permissionLink}</SettingsPage>
 
   const connected = state.groups.filter((g) => g.connected)
+  if (!managePermissions) return (
+    <SettingsPage data-testid="settings-device-actions">
+      {header}
+      <SettingsNote>{t('devices.deviceActions.thisNote')}</SettingsNote>
+      {state.denyAll && <SettingsNote>{t('devices.deviceActions.denyAllOn')}</SettingsNote>}
+      {connected.length ? <SettingsGroup title={t('devices.deviceActions.connected')}>
+        {connected.map(group => <SettingsRow key={group.id} leading={<GroupIcon group={group} size="row" />} title={text.name(group.id)}
+          data-testid={`device-granted-${group.id}`} control={group.blocked ? <Chip tone="warn">{t(group.blocked.reason === 'os_permission' ? 'devices.deviceActions.statusBlocked' : 'devices.deviceActions.statusUnsupported')}</Chip> : undefined} />)}
+      </SettingsGroup> : <SettingsNote>{t('devices.assistantPage.noneGranted')}</SettingsNote>}
+      {permissionLink}
+    </SettingsPage>
+  )
+
+  const selected = openGroup ? state.groups.find((g) => g.id === openGroup) ?? null : null
+  if (selected) return <GroupDetail panelNavigation={panelNavigation} group={selected} denyAll={state.denyAll} onBack={() => setOpenGroup(null)} reload={reload} backLabel={backLabel} />
+
   const available = state.groups.filter((g) => !g.connected)
   const row = (group: DeviceActionsGroupView) => (
     <SettingsRow
@@ -216,10 +222,11 @@ export function ThisDeviceActions({ onBack, bare = false }: { onBack?: () => voi
   return (
     <SettingsPage data-testid="settings-device-actions">
       {header}
+      {children}
       {saveFailure && <SettingsNote role="alert" tone="danger">{t('devices.deviceActions.connectFailed', { message: saveFailure })}</SettingsNote>}
       {state.denyAll && <SettingsNote tone="danger" data-testid="settings-device-actions-deny-all-on">{t('devices.deviceActions.denyAllOn')}</SettingsNote>}
       {connected.length > 0 && <SettingsGroup title={t('devices.deviceActions.connected')} data-testid="settings-device-actions-connected">{connected.map(row)}</SettingsGroup>}
-      {available.length > 0 && <SettingsGroup title={t('devices.deviceActions.available')} data-testid="settings-device-actions-available">{available.map(row)}</SettingsGroup>}
+      {available.length > 0 && <SettingsGroup title={t('devices.deviceActions.statusNotConnected')} data-testid="settings-device-actions-available">{available.map(row)}</SettingsGroup>}
       <SettingsGroup>
         <SettingsRow
           title={t('devices.deviceActions.denyAll')}
@@ -279,7 +286,7 @@ function RecentCalls({ state }: { state: DeviceActionsState }) {
   )
 }
 
-function GroupDetail({ group, denyAll, onBack, reload, backLabel }: { group: DeviceActionsGroupView; denyAll: boolean; onBack: () => void; reload: () => void; backLabel?: string }) {
+function GroupDetail({ group, denyAll, onBack, reload, backLabel, panelNavigation = false }: { panelNavigation?: boolean; group: DeviceActionsGroupView; denyAll: boolean; onBack: () => void; reload: () => void; backLabel?: string }) {
   const { t, i18n } = useTranslation('settings')
   const text = useDeviceActionGroupText()
   const english = i18n.language.startsWith('en')
@@ -326,7 +333,7 @@ function GroupDetail({ group, denyAll, onBack, reload, backLabel }: { group: Dev
   return (
     <SettingsPage data-testid={`settings-device-action-detail-${group.id}`}>
       <PageHeader
-        title={name}
+        title={name} panelNavigation={panelNavigation} navigationKey={`device-group:${group.id}`}
         backLabel={backLabel ?? t('devices.deviceActions.thisTitle')}
         onBack={onBack}
         testId="settings-device-action-detail-back"

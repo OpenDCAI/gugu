@@ -1,3 +1,5 @@
+import { assistantApplicationCounts } from '@/components/assistant/assistant-app-connections'
+import { useChatChannels } from '@/components/settings/channels/useChatChannels'
 import { AssistantNameInline } from '../../components/assistant/AssistantNameInline'
 import { useTranslation } from 'react-i18next'
 import { useContactsStore } from '../../store/contactsContext'
@@ -102,10 +104,10 @@ function ProfileHome({
   const name = assistant.display_name
   const devices = useDevicesStore()
   const deviceCount = withoutAssistantHome([...devices.devices, ...(devices.phones ?? [])], props.cloudDeviceId ?? null).length
-  const integrationCount = integrations.data ? Object.values(integrations.data.configured).filter(Boolean).length : null
-  const appsDetail = integrations.error ? t('connectors.loadFailed') : integrationCount === null ? t('library.loading')
-    : `${t('connectors.savedGroup')} · ${t('memory.items', { n: integrationCount })}`
-  const devicesDetail = devices.error ? t('library.failed') : devices.loading ? t('library.loading') : t('memory.items', { n: deviceCount })
+  const chats = useChatChannels()
+  const counts = integrations.data && (chats.status === 'ready' || chats.status === 'not_open') ? assistantApplicationCounts(integrations.data.items, integrations.data.configured, integrations.data.statuses, chats.list) : null
+  const appsDetail = integrations.error ? t('connectors.loadFailed') : !counts ? undefined : t(counts.saved > counts.connected ? 'connectors.savedCount' : 'connectors.connectedCount', { count: counts.saved > counts.connected ? counts.saved : counts.connected })
+  const devicesDetail = devices.error ? t('library.failed') : devices.loading ? t('library.loading') : t('connectors.deviceCount', { count: deviceCount })
   return (
     <div className="ta-page ta-phone-profile" data-testid="assistant-profile">
       <div className="ta-hero ta-phone-hero">

@@ -5,6 +5,7 @@ import type { PhonePageProps } from '../../../apps/desktop/src/mobile/assistant/
 import { clickElement, createReactHarness } from '../../support/testHarness'
 
 vi.mock('../../../apps/desktop/src/store/contactsContext', () => ({ useContactsStore: () => ({ updateAgentProfile: vi.fn() }) }))
+vi.mock('../../../apps/desktop/src/components/settings/channels/useChatChannels', () => ({ useChatChannels: () => ({ state: 'not_open', data: null }) }))
 vi.mock('../../../apps/desktop/src/store/devicesContext', () => ({ useDevicesStore: () => ({ devices: [], phones: [], loading: false, error: null }) }))
 vi.mock('../../../apps/desktop/src/mobile/assistant/usePhoneToday', () => ({ usePhoneToday: () => ({ state: 'ok', data: null }) }))
 vi.mock('../../../apps/desktop/src/mobile/assistant/usePhoneProfileData', async original => ({

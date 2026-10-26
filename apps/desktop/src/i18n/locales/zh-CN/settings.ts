@@ -226,6 +226,7 @@ export default {
       "entryHint": "管理本机任务的工具权限",
       "menu": "能做的事",
       "back": "设备",
+      "managePermissions": "前往权限设置",
       "thisTitle": "这台电脑能做的事",
       "thisNote": "仅这台电脑上的任务 Agent 可使用已授权能力。",
       "connected": "已授权",

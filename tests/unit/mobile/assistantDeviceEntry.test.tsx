@@ -3,16 +3,16 @@ import { afterEach, beforeEach, expect, it, vi } from 'vitest'
 import { AssistantDevicesPage } from '../../../apps/desktop/src/components/devices/AssistantDevicesPage'
 import { createReactHarness, clickElement, renderWithAppProviders } from '../../support/testHarness'
 
-const state = vi.hoisted(() => ({ phones: [] as unknown[], devices: [] as unknown[] }))
-vi.mock('../../../apps/desktop/src/platform', () => ({ platform: { kind: 'capacitor', capabilities: {} } }))
+const state = vi.hoisted(() => ({ phones: [] as unknown[], devices: [] as unknown[], kind: 'capacitor' }))
+vi.mock('../../../apps/desktop/src/platform', () => ({ platform: { get kind() { return state.kind }, capabilities: {} } }))
 vi.mock('../../../apps/desktop/src/store/devicesContext', () => ({ useDevicesStore: () => state }))
 vi.mock('../../../apps/desktop/src/hooks/useThisDeviceActions', () => ({ useThisDeviceState: () => ({ state: null }) }))
 vi.mock('../../../apps/desktop/src/mobile/phone-device/PhoneDeviceActionsPage', () => ({ PhoneDeviceActionsPage: () => <div data-testid="local-phone-permissions" /> }))
 vi.mock('../../../apps/desktop/src/components/devices/ConnectMoreDevices', () => ({ ConnectMoreDevices: () => null }))
-vi.mock('../../../apps/desktop/src/components/settings/DeviceActionsPage', () => ({ DeviceActionsPage: ({ device }: { device: { label: string } }) => <div data-testid="remote-permissions">{device.label}</div> }))
+vi.mock('../../../apps/desktop/src/components/settings/DeviceActionsPage', () => ({ ThisDeviceActions: () => <div data-testid="local-computer-permissions" />, DeviceActionsPage: ({ device }: { device: { label: string } }) => <div data-testid="remote-permissions">{device.label}</div> }))
 
 let harness: ReturnType<typeof createReactHarness>
-beforeEach(() => { harness = createReactHarness(); state.phones = []; state.devices = [] })
+beforeEach(() => { harness = createReactHarness(); state.phones = []; state.devices = []; state.kind = 'capacitor' })
 afterEach(() => harness.cleanup())
 const find = (id: string) => harness.container.querySelector<HTMLElement>(`[data-testid="${id}"]`)
 
@@ -44,4 +44,11 @@ it('lets the phone shell own device detail navigation without an inner back head
   await renderWithAppProviders(harness, <AssistantDevicesPage cloudDeviceId={null} openedDeviceId="this-phone" onOpenDevice={open} />)
   expect(find('local-phone-permissions')).not.toBeNull()
   expect(find('assistant-devices-back')).toBeNull()
+})
+
+it('keeps desktop authorization reachable before device registration', async () => {
+  state.kind = 'electron'
+  await renderWithAppProviders(harness, <AssistantDevicesPage cloudDeviceId={null} panelNavigation />)
+  await clickElement(find('assistant-device-this-computer')!)
+  expect(find('local-computer-permissions')).not.toBeNull()
 })

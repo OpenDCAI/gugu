@@ -708,6 +708,7 @@ export default {
     "title": "Capabilities and connections"
   },
   "connectors": {
+    "savedCount": "{{count}} added",
     "connectedCount": "{{count}} connected",
     "deviceCount": "{{count}} devices",
     "readWritePurpose": "Let it read and write {{app}}",

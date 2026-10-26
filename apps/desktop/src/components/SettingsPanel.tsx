@@ -48,7 +48,7 @@ const sectionsFor = (mobile: boolean): ActiveSection[] =>
   SETTINGS_SECTIONS.filter(
     (section) =>
       (section !== 'usage' || officialServicesEnabled()) &&
-      (section !== 'permissions' || platform.systemPermissions.length > 0) &&
+      (section !== 'permissions' || platform.kind === 'electron' || platform.systemPermissions.length > 0) &&
       (section !== 'apps' || platform.kind === 'capacitor') &&
       (section !== 'phone' || platform.kind === 'capacitor') &&
       (!SESSION_HOST_SETTINGS_SECTIONS.includes(section) || (mobile && section === 'connectors') || (!mobile && platform.capabilities.sessionHost)),

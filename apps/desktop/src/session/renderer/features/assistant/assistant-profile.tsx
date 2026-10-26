@@ -16,7 +16,7 @@ import { useAssistantPanelPage } from '@/lib/assistantPanelPage';
 import { usePhoneRead } from '@/mobile/assistant/usePhoneRead';
 import { readAssistantPanelIntegrations } from '@/components/assistant/assistant-panel-integrations';
 import { useChatChannels } from '@/components/settings/channels/useChatChannels';
-import { assistantConnectedApps, chatAppConnected } from '@/components/assistant/assistant-app-connections';
+import { assistantApplicationCounts } from '@/components/assistant/assistant-app-connections';
 import { AssistantRow, AssistantSection, PageHead } from './assistant-ui';
 import { AssistantLibraryCard, AssistantLibraryVolume } from '@/components/assistant/AssistantLibraryVolume';
 
@@ -81,8 +81,7 @@ const ProfileHome = observer(function ProfileHome({ context, openCustomize = fal
   const panel = context.machine?.panel;
   const apps = usePhoneRead(panel ? `profile-apps|${context.assistant.id}` : null, () => readAssistantPanelIntegrations(panel!, i18n.language), 'read application connections');
   const chat = useChatChannels();
-  const connectedCount = apps.state === 'ok' && (chat.status === 'ready' || chat.status === 'not_open') ? assistantConnectedApps(apps.data.items, chat.list, id => id, '').filter(app => chatAppConnected(app) || apps.data.statuses[app.id]?.connected).length : null;
-  const since = assistant.created_at
+  const counts = apps.state === 'ok' && (chat.status === 'ready' || chat.status === 'not_open') ? assistantApplicationCounts(apps.data.items, apps.data.configured, apps.data.statuses, chat.list) : null;
     ? new Intl.DateTimeFormat(i18n.language, { year: 'numeric', month: 'long', day: 'numeric' }).format(new Date(assistant.created_at))
     : null;
   const chip = persona.preset ? t(`customize.preset.${persona.preset}`) : persona.rest ? t('customize.custom') : t('customize.setCharacter');
@@ -98,7 +97,6 @@ const ProfileHome = observer(function ProfileHome({ context, openCustomize = fal
         <h1 className="ta-hero-name" data-testid="assistant-name">
           <AssistantNameInline key={assistant.id} name={assistant.display_name} onCommit={async (name) => { const actions = readAssistantShellBridge()?.getActions(); if (!actions) throw new Error('assistant shell unavailable'); await actions.renameAssistant(name); }} />
         </h1>
-        {since ? <p className="ta-hero-since">{t('header.since', { date: since, name: context.ownerName || t('header.you') })}</p> : null}
         <button type="button" className="ta-chip mt-3" onClick={() => setCustomizing(true)} data-testid="assistant-character-chip">
           {chip}
           <ChevronRight />
@@ -106,7 +104,7 @@ const ProfileHome = observer(function ProfileHome({ context, openCustomize = fal
       </div>
 
       <AssistantSection testId="assistant-profile-entries">
-        <AssistantRow leading={<Link />} title={t('connectors.title')} detail={connectedCount === null ? undefined : t('connectors.connectedCount', { count: connectedCount })}
+        <AssistantRow leading={<Link />} title={t('connectors.title')} detail={!counts ? undefined : t(counts.saved > counts.connected ? 'connectors.savedCount' : 'connectors.connectedCount', { count: counts.saved > counts.connected ? counts.saved : counts.connected })}
           onClick={() => context.go({ tab: 'profile', sub: 'connectors' })} testId="assistant-profile-connectors" />
         <AssistantRow leading={<Monitor />} title={t('library.devices')} detail={shell?.deviceCount === undefined ? undefined : t('connectors.deviceCount', { count: shell.deviceCount })} onClick={() => context.go({ tab: 'profile', sub: 'devices' })} testId="assistant-library-devices" />
         <AssistantLibraryCard assistantId={context.assistant.id} machine={context.machine} kind="capabilities" onOpen={() => context.go({ tab: 'profile', sub: 'library:capabilities' })} />

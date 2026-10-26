@@ -708,6 +708,7 @@ export default {
     "title": "能力与连接"
   },
   "connectors": {
+    "savedCount": "已添加 {{count}} 个",
     "connectedCount": "已连接 {{count}} 个",
     "deviceCount": "{{count}} 台设备",
     "readWritePurpose": "让它读写{{app}}",

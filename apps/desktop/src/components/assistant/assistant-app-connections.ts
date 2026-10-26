@@ -16,3 +16,11 @@ export function assistantConnectedApps(items: readonly IntegrationMetadata[], ch
 }
 
 export const chatAppConnected = (app: AssistantConnectedApp) => app.channel?.health.state === 'running'
+
+export function assistantApplicationCounts(items: readonly IntegrationMetadata[], configured: Record<string, boolean | undefined>, statuses: Record<string, { connected: boolean } | undefined> | null | undefined, chats: ChatChannelList | null) {
+  const apps = assistantConnectedApps(items, chats, kind => kind, '')
+  return {
+    connected: apps.filter(app => chatAppConnected(app) || statuses?.[app.id]?.connected).length,
+    saved: apps.filter(app => configured[app.id] || app.channel).length,
+  }
+}

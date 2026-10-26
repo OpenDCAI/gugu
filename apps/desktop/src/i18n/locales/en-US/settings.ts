@@ -226,6 +226,7 @@ export default {
       "entryHint": "Manage tool permissions for tasks on this computer",
       "menu": "What it can do",
       "back": "Devices",
+      "managePermissions": "Manage permissions",
       "thisTitle": "What this computer can do",
       "thisNote": "Only task Agents on this computer can use authorized tools.",
       "connected": "Connected",
