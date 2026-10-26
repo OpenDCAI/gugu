@@ -515,13 +515,14 @@ export class HostDependencyManager<Ctx extends IExecutionContext = IExecutionCon
 
     // Try each command in order; stop once we get PATH hits to avoid mixing
     // different binary names (e.g., claude-code vs claude).
+    const probeEnv = await this.resolveProbeEnv(descriptor);
     let allPaths: string[] = [];
     for (const command of descriptor.commands) {
-      allPaths = await resolveAllCommandPaths(command, this.ctx, this.platform);
+      allPaths = await resolveAllCommandPaths(command, this.ctx, this.platform, probeEnv);
       if (allPaths.length > 0) break;
     }
     if (allPaths.length === 0) {
-      allPaths = await resolveKnownPaths(descriptor.knownPaths?.[this.platform] ?? [], this.ctx, this.platform);
+      allPaths = await resolveKnownPaths(descriptor.knownPaths?.[this.platform] ?? [], this.ctx, this.platform, probeEnv);
     }
 
     const pending = this.pendingInstall.get(id);
@@ -841,7 +842,7 @@ export class HostDependencyManager<Ctx extends IExecutionContext = IExecutionCon
     descriptor: DependencyDescriptor,
     pinnedRealpath: string,
   ): Promise<Installation> {
-    const resolvedPinnedPath = await resolveCommandPath(pinnedRealpath, this.ctx, this.platform);
+    const resolvedPinnedPath = await resolveCommandPath(pinnedRealpath, this.ctx, this.platform, await this.resolveProbeEnv(descriptor));
     if (!resolvedPinnedPath) {
       return {
         id: pinnedRealpath,
@@ -898,7 +899,7 @@ export class HostDependencyManager<Ctx extends IExecutionContext = IExecutionCon
     const versionArgs = descriptor.versionArgs ?? ['--version'];
 
     if (kind === 'path') {
-      const pathExists = await resolveCommandPath(value, this.ctx, this.platform);
+      const pathExists = await resolveCommandPath(value, this.ctx, this.platform, await this.resolveProbeEnv(descriptor));
       if (pathExists) {
         const realpath = await resolveRealpath(pathExists, this.ctx, this.platform);
         const pathProbe = await runVersionProbe(value, value, versionArgs, this.ctx, {
@@ -933,7 +934,7 @@ export class HostDependencyManager<Ctx extends IExecutionContext = IExecutionCon
     }
 
     // cli
-    const cliPath = await resolveCommandPath(value, this.ctx, this.platform);
+    const cliPath = await resolveCommandPath(value, this.ctx, this.platform, await this.resolveProbeEnv(descriptor));
     if (cliPath) {
       const realpath = await resolveRealpath(cliPath, this.ctx, this.platform);
       const cliProbe = await runVersionProbe(value, cliPath, versionArgs, this.ctx, {
@@ -1396,7 +1397,7 @@ export class HostDependencyManager<Ctx extends IExecutionContext = IExecutionCon
     const state = await this.probe(id);
     this.onExecutableInvalidated.emit({ id });
 
-    if (targetPath ? await resolveCommandPath(targetPath, this.ctx, this.platform) : state.status !== 'missing') {
+    if (targetPath ? await resolveCommandPath(targetPath, this.ctx, this.platform, await this.resolveProbeEnv(descriptor)) : state.status !== 'missing') {
       this.logOperation('uninstall', 'failed', id, { error: 'still-present', targetPath });
       return err({ type: 'still-present', id });
     }
@@ -1441,11 +1442,14 @@ export class HostDependencyManager<Ctx extends IExecutionContext = IExecutionCon
   }
 
   private async resolveFirstPath(descriptor: DependencyDescriptor): Promise<string | null> {
+    // Discovery and version probes share the host's current environment. A worker's
+    // inherited PATH predates installations completed after it was started (#465).
+    const probeEnv = await this.resolveProbeEnv(descriptor);
     for (const command of descriptor.commands) {
-      const path = await resolveCommandPath(command, this.ctx, this.platform);
+      const path = await resolveCommandPath(command, this.ctx, this.platform, probeEnv);
       if (path) return path;
     }
-    const known = await resolveKnownPaths(descriptor.knownPaths?.[this.platform] ?? [], this.ctx, this.platform);
+    const known = await resolveKnownPaths(descriptor.knownPaths?.[this.platform] ?? [], this.ctx, this.platform, probeEnv);
     return known[0] ?? null;
   }
 
