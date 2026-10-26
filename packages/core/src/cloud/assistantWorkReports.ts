@@ -48,5 +48,5 @@ export async function enqueueAssistantWorkReport(deps:{
     events:[{message_id:messageId,kind:report.status,from_session_id:input.sessionId,from_device_id:input.deviceId,
       to_session_id:work.coordinator_session_id,to_device_id:work.coordinator_device_id,content:text,attachment_refs:attachments}],
   })
-  return {...accepted,route:'session-direct' as const,recipients:[{to:address,session_id:`session:${work.coordinator_session_id}`,status:'accepted' as const,message_id:messageId}]}
+  return {...accepted,route:'session-direct' as const,recipients:[{to:address,session_id:work.coordinator_session_id,status:'accepted' as const,message_id:messageId}]}
 }
