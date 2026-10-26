@@ -18,7 +18,7 @@ export function assistantWorkStatus(outcome: string,reading: AgentStatusView | n
   if (outcome === 'completed') return { status: 'idle',detail: 'done' }
   if (outcome === 'failed') return { status: 'error',detail: null }
   if (outcome === 'cancelled') return null
-  return reading
+  return reading?.status === 'idle' ? { status:'idle',detail:'plain' } : reading
 }
 
 export function assistantWorkExchanges(events: readonly AssistantWorkEvent[],workId: string): Array<TaskExchange & { sourceMessageId: string | null }> {

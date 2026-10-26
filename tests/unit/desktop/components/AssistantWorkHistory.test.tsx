@@ -40,3 +40,10 @@ it('selects distinct work for the same executor and replaces removed source cont
   await act(async()=>cloud.refresh?.())
   await vi.waitFor(()=>expect(harness.container.textContent).not.toContain('work-b'))
 })
+it('recovers a transient account read in the background without a retry button',async()=>{
+  cloud.history.mockRejectedValueOnce(new Error('Transient account connection')).mockResolvedValue([event('work-retry','Recovered cloud history')])
+  rememberAssistantTaskChat('owner',request('work-retry'))
+  await renderWithAppProviders(harness,<View />)
+  await vi.waitFor(()=>expect(harness.container.textContent).toContain('Recovered cloud history'),{timeout:2500})
+  expect(harness.container.querySelector('button')).toBeNull()
+})

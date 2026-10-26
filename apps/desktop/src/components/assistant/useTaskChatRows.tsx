@@ -23,22 +23,30 @@ export function useTaskChatRows(messages: readonly MessageItem[], ownerId: strin
   const [history,setHistory] = useState({ key: '',count: 80 })
   useEffect(() => {
     if (!task?.workId || !ownerId || !visible) return
-    let alive = true,version = 0
+    let alive = true,version = 0,failures = 0
+    let retry: ReturnType<typeof setTimeout> | undefined
     const refresh = async () => {
+      clearTimeout(retry)
       const current = ++version
       try {
         const events = await assistantWorkCloud.historyAll(task.assistantId,task.workId!)
         if (!alive || current !== version) return
         // Replace, rather than merge, so deleted original sources disappear after revalidation.
         const entries = assistantWorkExchanges(events,task.workId!)
+        failures = 0
         cache.set(key,entries)
         setProjection({ key,entries })
-      } catch (error) { if (alive && current === version) log.warn({ error },'account collaboration read failed') }
+      } catch (error) {
+        if (alive && current === version) {
+          log.warn({ error },'account collaboration read failed')
+          retry=setTimeout(()=>{void refresh()},Math.min(30_000,1000 * 2 ** Math.min(5,failures++)))
+        }
+      }
     }
     const stop = watchAssistantWork(ownerId,task.assistantId,() => { void refresh() })
     void refresh()
-    return () => { alive = false; stop() }
-  },[key,visible])
+    return () => { alive = false; clearTimeout(retry); stop() }
+  },[key,visible,ownerId,task])
   const exchanges = projection?.key === key ? projection.entries : cache.get(key) ?? EMPTY
   const allRows = useMemo(() => taskChatRows(messages, exchanges, task, query), [messages, exchanges, task, query])
   const count = query ? Infinity : history.key === key ? history.count : 80
