@@ -1122,6 +1122,36 @@ describe('三态判决与失败面', () => {
     }
   })
 
+  it.each([
+    ['ECONNRESET', 'network'], ['401 Unauthorized', 'authentication'], ['insufficient_quota', 'quota'],
+  ])('settles a native failure before first output once, with its cause and no re-delivery: %s', async (cause, reason) => {
+    const { AcpRuntime, createAcpProcedures } = await import('@gugu/session-runtime/acp-agents')
+    const { makeAcpHarness, makeStartInput } = await import('../../../../packages/session-runtime/src/acp-agents/acp-test-support')
+    const h = makeAcpHarness()
+    const runtime = new AcpRuntime(h.deps)
+    const api = createAcpProcedures(runtime)
+    const cloud = seed()
+    const notices: Array<{ reason: string }> = []
+    try {
+      await runtime.startSession(makeStartInput())
+      h.agent.prompt.mockRejectedValueOnce(new Error(cause))
+      const { deps } = makeDeps(cloud, { inject: async input => {
+        const result = await api.promptDetached({ sessionId: 'conv-1', prompt: { text: input.text, origin: 'communication' } })
+        return result.declined ? 'not-live' : {
+          verdict: 'accepted', completion: api.waitPromptDetached({ requestId: result.requestId }).then(() => undefined),
+        }
+      }, postDisclosure: async input => { notices.push(input) } })
+      const accepted = await pullAgentInbox(AGENT, deps)
+      await accepted.completion!.catch(() => {})
+      expect(notices).toEqual([expect.objectContaining({ reason })])
+      expect(cloud.markReadCalls).toHaveLength(1)
+      expect((await pullAgentInbox(AGENT, deps)).injected).toBe(0)
+      expect(h.agent.prompt).toHaveBeenCalledTimes(1)
+      expect(runtime.sessionsListLiveModel().states.list.snapshot().data['conv-1'])
+        .toMatchObject({ isGenerating: false, lastTurnOutcome: 'errored' })
+    } finally { await runtime.dispose() }
+  })
+
   it('describes an unaccepted retained message as pending, and a later successful admission consumes it once', async () => {
     const post = vi.fn<typeof fetch>(async () => new Response('', { status: 201 }))
     vi.stubGlobal('fetch', post)

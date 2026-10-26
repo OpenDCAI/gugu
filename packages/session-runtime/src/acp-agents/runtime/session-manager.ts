@@ -381,14 +381,14 @@ export class SessionManager implements InboundRouter {
 
   start(input: AcpStartInput): Promise<Result<{ providerSessionId: string }, AcpStartSessionError>> {
     const stopping = this.stoppingSessions.get(input.sessionId);
-    if (stopping) return stopping.then(result => result.success
-      ? this.start(input)
-      : acpErr.initializeFailed(toSerializedError(result.error)));
+    if (stopping) return stopping.then(() => this.start(input));
     const starting = this.startingSessions.get(input.sessionId);
     if (starting) return starting;
 
     const existing = this.cells.get(input.sessionId);
-    if (existing?.closing) return Promise.resolve(acpErr.initializeFailed(toSerializedError(new Error('Session process is still stopping'))));
+    if (existing?.closing) return this.stop(input.sessionId).then(result => result.success
+      ? this.start(input)
+      : acpErr.initializeFailed(toSerializedError(result.error)));
     if (existing && existing.phase !== 'lost') {
       return Promise.resolve(ok({ providerSessionId: existing.cell.acpSessionId }));
     }
@@ -1309,11 +1309,12 @@ export class SessionManager implements InboundRouter {
     sessionId: string,
     record: SessionRecord & { phase: 'ready' },
   ): Promise<Result<void, AcpStopSessionError>> {
-    let stopPending = false;
     const alreadyStopping = this.intentionalProcessCloses.has(record.processKey);
     this.intentionalProcessCloses.add(record.processKey);
+    let providerClosed = alreadyStopping;
     try {
       if (!alreadyStopping) await record.cell.closeSession();
+      providerClosed = true;
       this.deps.promptQueueStore?.clear(sessionId);
       await record.connectionLease.value.stopProcess();
       this.removeRecord(sessionId, false, true);
@@ -1321,13 +1322,14 @@ export class SessionManager implements InboundRouter {
       return ok();
     } catch (error) {
       if (typeof error === 'object' && error !== null && 'code' in error && error.code === 'stop_pending') {
-        stopPending = true;
         return acpErr.stopPending();
       }
       return acpErr.stopFailed(toSerializedError(error));
     } finally {
-      if (!stopPending) this.intentionalProcessCloses.delete(record.processKey);
-      if (!stopPending && this.cells.get(sessionId) === record) {
+      // Once session/close succeeded this record cannot be made live again. Keep its closing
+      // state until actual exit or a later wake retries teardown, including signal errors.
+      if (!providerClosed) this.intentionalProcessCloses.delete(record.processKey);
+      if (!providerClosed && this.cells.get(sessionId) === record) {
         record.closing = false;
         this.syncRecord(record);
       }
@@ -2071,10 +2073,10 @@ export class SessionManager implements InboundRouter {
    * 都包含自身 id，因此停止后重新启动必须取得新的 adapter 进程；key 与 pid 一并给出，便于
    * 诊断是否真的建立了新的进程归属。
    */
-  adapterProvenance(sessionId: string): { connectionKey: string; pid: number | null } | null {
+  adapterProvenance(sessionId: string): { connectionKey: string; pid: number | null; closing?: true } | null {
     const record = this.cells.get(sessionId);
     if (!record || record.phase !== 'ready') return null;
-    return { connectionKey: record.processKey, pid: record.connectionLease.value.pid };
+    return { connectionKey: record.processKey, pid: record.connectionLease.value.pid, ...(record.closing ? { closing: true as const } : {}) };
   }
 
   /**

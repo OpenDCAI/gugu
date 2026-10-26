@@ -790,7 +790,7 @@ export class SessionCell {
       // ACP does not require providers to implement session/close. Once the provider
       // explicitly reports that unsupported method, the host-owned connection scope
       // remains the authoritative teardown path. Other close errors stay fail-loud.
-      if (isUnsupportedSessionClose(error)) return;
+      if (isUnsupportedSessionClose(error) || providerRejectedMissingSession(error)) return;
       // 没关成,会话照旧在管(stop 可重试):之后的失败照实分类。
       this.closeRequested = false;
       throw error;
@@ -1282,6 +1282,7 @@ export class SessionCell {
   private onAgentState(state: 'running' | 'requires_action' | 'idle'): void {
     if (!this.reportsState) return;
     if (state !== 'idle') {
+      this.providerAdmission?.accept();
       this.idleReported = false;
       if (this.machine.phase.kind === 'ready') this.applyEvent({ type: 'WorkStarted' });
       return;
@@ -1670,10 +1671,12 @@ export class SessionCell {
     // #6387 受理结果说清是「开了一轮」还是「插进了在飞的那一轮」—— 投递方要如实告诉扩展。
     // A provider-side missing session is a refusal before a turn, not a completed inbox delivery.
     // Queue ownership is already durable; a new communication turn waits for native progress.
+    let admissionTimer: ReturnType<typeof setTimeout> | undefined;
     const providerAdmission: { accept: () => void } | null = started && !steered && prompt.origin === 'communication' && opts?.onAdmission
       ? { accept: () => {
         if (this.providerAdmission !== providerAdmission) return;
         this.providerAdmission = null;
+        if (admissionTimer) clearTimeout(admissionTimer);
         if (!opts?.skipAdmission) opts?.onAdmission?.(ok({ queued: false }));
       } } : null;
     if (!providerAdmission && !opts?.skipAdmission) opts?.onAdmission?.(ok({ queued: false, ...(steered ? { steered: true } : {}) }));
@@ -1820,7 +1823,20 @@ export class SessionCell {
       }
 
       if (providerAdmission) this.providerAdmission = providerAdmission;
-      const response = await this.agent.prompt(promptRequest);
+      const nativePrompt = this.agent.prompt(promptRequest);
+      const response = await (providerAdmission ? Promise.race([
+        nativePrompt,
+        new Promise<never>((_resolve, reject) => {
+          admissionTimer = setTimeout(() => {
+            if (this.providerAdmission !== providerAdmission) return;
+            // No native progress in the same budget as reconnect admission. End this one turn,
+            // then the procedure owner tears its process down; it must never block the inbox forever.
+            void Promise.resolve().then(() => this.agent.cancel({ sessionId: this.acpSessionId }))
+              .catch(error => this.deps.logger.warn('SessionCell: silent prompt cancellation failed', { sessionId: this.sessionId, error: String(error) }));
+            reject(Object.assign(new Error('Native prompt admission timed out after 60000ms'), { code: 'prompt_admission_timeout' }));
+          }, 60_000);
+        }),
+      ]) : nativePrompt);
       providerAdmission?.accept();
       const anchor = (response._meta?.guguRevert as { before?: unknown } | undefined)?.before;
       if (!steered && typeof anchor === 'string' && anchor) {
@@ -1870,8 +1886,11 @@ export class SessionCell {
       return ok({ queued: false });
     } catch (e) {
       const beforeTurn = providerAdmission !== null && this.providerAdmission === providerAdmission;
-      if (beforeTurn) this.providerAdmission = null;
       const refusal = beforeTurn && providerRejectedMissingSession(e);
+      // Native auth/network/quota failures belong to this turn. Return its receipt so the inbox
+      // advances once and the completion channel reports the original cause, rather than requeueing.
+      if (beforeTurn && !refusal) providerAdmission.accept();
+      if (beforeTurn && refusal) this.providerAdmission = null;
       const cause = toSerializedError(e);
       const err = acpErr.promptFailed(cause);
       this.deps.logger.error('SessionCell: prompt failed', {
@@ -1946,6 +1965,8 @@ export class SessionCell {
         }
       }
       return refusal ? acpErr.sessionNotFound(this.sessionId) : err;
+    } finally {
+      if (admissionTimer) clearTimeout(admissionTimer);
     }
   }
 

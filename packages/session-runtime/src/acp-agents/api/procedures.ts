@@ -78,12 +78,22 @@ export function createAcpProcedures(runtime: AcpRuntime) {
         }
         throw new Error(started.error.message);
       }
+      const completion = started.data.completion.then(async result => {
+        if (!result.success && 'cause' in result.error && result.error.cause?.code === 'prompt_admission_timeout') {
+          // A silent request still owns its transport. Stop it before a later prompt can reuse it;
+          // stop_pending remains closing and can be retried, rather than claiming the process exited.
+          await runtime.stopSession(input.sessionId);
+        }
+        return result;
+      });
+      void completion.catch(() => undefined);
       const admission = await started.data.admission;
       if (!admission.success) {
-        void started.data.completion.catch(() => undefined);
         if (admission.error.type === 'conversation_not_found') {
           const stopped = await runtime.stopSession(input.sessionId);
-          if (!stopped.success) throw new Error(stopped.error.message ?? 'Provider session teardown did not complete');
+          if (!stopped.success && !runtime.adapterProvenance(input.sessionId)?.closing) {
+            throw new Error(stopped.error.message ?? 'Provider session teardown did not complete');
+          }
           return { requestId: '', queued: false, declined: true, missing: true };
         }
         // 会话此刻不收(原位回退进行中,#7308):调用方留着消息,等它收的那一刻再投。
@@ -93,11 +103,9 @@ export function createAcpProcedures(runtime: AcpRuntime) {
         throw new Error(errorMessage(admission.error));
       }
       const requestId = randomUUID();
-      // Attach a rejection consumer at storage time. The wait RPC is a separate wire call and may
-      // arrive after the provider has already failed; leaving this promise bare creates an
-      // unhandled-rejection window before waitPromptDetached can consume it.
-      void started.data.completion.catch(() => undefined);
-      detachedPrompts.set(requestId, started.data.completion);
+      // The completion has been observed since creation; wait is a separate RPC that can arrive
+      // after the provider has already failed.
+      detachedPrompts.set(requestId, completion);
       return {
         requestId,
         queued: admission.data.queued,
@@ -167,7 +175,7 @@ export function createAcpProcedures(runtime: AcpRuntime) {
     },
     adapterProvenance(input: {
       sessionId: string;
-    }): { connectionKey: string; pid: number | null } | null {
+    }): { connectionKey: string; pid: number | null; closing?: true } | null {
       return runtime.adapterProvenance(input.sessionId);
     },
     announceSession(input: Parameters<AcpRuntime['announceSession']>[0]): { delivered: boolean } {
