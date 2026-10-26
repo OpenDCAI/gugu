@@ -411,7 +411,7 @@ function sessionDirectEnvelope(
     senderTitle: sender.title,
     messageId,
     content: text,
-    at: said.client_message_at ?? formatDeliveryTimestamp(said.delivery_at ?? new Date().toISOString()),
+    at: formatDeliveryTimestamp(said.client_message_at ?? said.delivery_at ?? new Date().toISOString()),
     then: said.then,
     inReplyTo: said.reply_to_message_id,
   });
@@ -1809,9 +1809,10 @@ async function sendSessionMessage(
         clientMessageId: messageId,
         text: envelope(messageId, text),
         kind: 'session-direct',
+        ...(signal ? { signal } : {}),
         ...(plan && 'queue' in plan ? { delivery: plan.queue } : {}),
       });
-      const admitted = result.status === 'delivered' || (action.client_message_id !== undefined && ['queued', 'accepted'].includes(result.status));
+      const admitted = result.status === 'delivered' || (action.client_message_id !== undefined && result.status === 'accepted');
       recipients.push({
         to: encodeTypedId('session', target.id),
         status: admitted ? 'delivered' : 'failed',
@@ -1823,7 +1824,9 @@ async function sendSessionMessage(
                 // 耐久收据停在 dispatching = **仍在飞**,不是失败。塌成 failed 会诱发重发,
                 // 所以它有自己的码;调用方要重试得先自己判幂等。
                 ? { code: 'SESSION_DIRECT_OUTCOME_UNKNOWN', message: 'delivery is still in flight — the durable receipt has not settled' }
-                : { code: 'SESSION_DIRECT_DELIVERY_FAILED', message: `delivery ended in status ${result.status}` },
+                : result.status === 'queued'
+                  ? { code: 'SESSION_DIRECT_QUEUED', message: 'message is durably queued but has not been admitted' }
+                  : { code: 'SESSION_DIRECT_DELIVERY_FAILED', message: `delivery ended in status ${result.status}` },
             }),
       });
       if (admitted && report && keyScope.startsWith('session:')) {

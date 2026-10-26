@@ -192,6 +192,8 @@ import {
 } from '@gugu/core/local/agent/deliveryEnvelope'
 import { handleUnifiedSessionMessage, type UnifiedRecipientResult } from './unified-session-message'
 import { installAssistantWorkLedgerHost, enqueueAssistantWorkMessage } from './sessionpage/assistant-work-ledger'
+import { createAssistantWorkNoticeWakePump } from '@gugu/core/cloud/assistantWorkNoticeWake'
+import { isOwnerReceiptEvent } from '@gugu/core/cloud/assistantWorkReconciliation'
 import { createDesktopAssistantWorkReconciler } from './assistant-work-reconciliation'
 import { enqueueAssistantWorkReport } from '@gugu/core/cloud/assistantWorkReports'
 import { pickAssistant, type AssistantProvisionRow } from '@gugu/core/shared/assistantProvision'
@@ -1674,7 +1676,7 @@ function assistantWorkDeliveryHost(): AssistantWorkOutboxHost {
       return crossMachine().runOnDevice(target.device_id,caller,{action:'get',session_id:target.session_id},signal) as Promise<import('@gugu/core/cloud/assistantWorkReconciliation').ExecutorDeliveryProof>
     },
     ownerReceipts: async (current,work,events) => {
-      const pending=events.filter(event=>event.kind!=='dispatch'&&event.assistant_admitted_at&&!event.owner_delivered_at)
+      const pending=events.filter(event=>isOwnerReceiptEvent(event)&&event.assistant_admitted_at&&!event.owner_delivered_at)
       if(!pending.length) return []
       const bridge=loadEmdashBridge()
       const auth=await desktopAuthProvider().getAuth()
@@ -1693,30 +1695,41 @@ function assistantWorkDeliveryHost(): AssistantWorkOutboxHost {
       if (error) throw error
       return {chatId,messageId:key}
     },
+    verifyOwnerPost: async (current,posted) => {
+      const auth=await desktopAuthProvider().getAuth()
+      if(!auth?.accessToken||auth.userId!==current.ownerId) return false
+      const {data,error}=await makeChatClient(auth.accessToken).from('messages_view').select('id')
+        .eq('id',posted.messageId).eq('chat_id',posted.chatId).eq('sender_user_id',current.assistantId)
+        .is('deleted_at',null).is('retracted_at',null).not('deleted_for_user_ids','cs',JSON.stringify([current.ownerId])).maybeSingle()
+      if(error) throw error
+      return data?.id===posted.messageId
+    },
     clean: work => assistantWorkForAgent(work.assistant_user_id)?.remove(work.work_id),
     warn: detail => createLogger('assistant-work/reconcile').warn(detail,'Task handoff reconciliation will retry'),
+  })
+  const noticeWake=createAssistantWorkNoticeWakePump({
+    context,
+    rpc: async (name,args,claimed) => {
+      const live=await context()
+      if(!live||live.ownerId!==claimed.ownerId||live.runtimeInstanceId!==claimed.runtimeInstanceId) throw new Error('Notice account changed')
+      return live.client.rpc(name,args)
+    },
+    wake: (home,signal) => crossMachine().ensureReachable(home,signal),
+    request: async (home,signal) => {
+      const response=await crossMachineRequester!.call(home,'assistantWork.reconcile',{}, {timeoutMs:5000,signal})
+      if(response.error) throw response.error
+    },
+    warn: detail => createLogger('assistant-work/notice').warn(detail,'Task notice home could not be reached'),
   })
   const host = createAssistantWorkOutboxHost({
     context,
     afterDrain: async () => {
       await reconciler.kick()
-      // Any awake account runtime can resume the home needed to post an abandoned delivery notice.
-      const current = await context()
-      if (!current) return
-      const {data,error} = await current.client.rpc('assistant_work_abandoned',{p_runtime_instance_id:current.runtimeInstanceId,p_limit:100})
-      if (error) throw error
-      const homes = new Set(((data as {events?:Array<{kind:string;from_device_id:string;to_device_id:string}>})?.events ?? [])
-        .map(event => event.kind === 'dispatch' ? event.from_device_id : event.to_device_id))
-      for (const home of homes) {
-        if (home === current.deviceId) continue
-        await crossMachine().ensureReachable(home)
-        const response = await crossMachineRequester!.call(home,'assistantWork.reconcile',{}, {timeoutMs:5000})
-        if (response.error) throw new Error('Work home could not reconcile delivery')
-      }
+      await noticeWake.kick()
     },
-    prepareRemote: (deviceId) => crossMachine().ensureReachable(deviceId),
+    prepareRemote: (deviceId, signal) => crossMachine().ensureReachable(deviceId, signal),
     requestRemote: (deviceId, type, payload, signal) => crossMachineRequester!.call(deviceId, type, payload, { timeoutMs: 45_000, signal }),
-    deliverLocal: async (event) => {
+    deliverLocal: async (event, signal) => {
       const bridge = loadEmdashBridge()
       if (!bridge) throw Object.assign(new Error('Session host is not ready'), { code: 'SESSION_HOST_NOT_READY' })
       const status = event.kind === 'dispatch' ? undefined
@@ -1731,7 +1744,7 @@ function assistantWorkDeliveryHost(): AssistantWorkOutboxHost {
         client_message_id: event.message_id, client_message_at: event.platform_received_at,
         attachments: event.attachment_refs as SessionAttachmentRef[] | undefined,
         ...(status ? { work_result: { work_id: event.work_id, status } } : {}),
-      } as SessionAction) as { recipients: UnifiedRecipientResult[] }
+      } as SessionAction, signal) as { recipients: UnifiedRecipientResult[] }
       const receipt = result.recipients.find(row => row.message_id === event.message_id)
       const agentId = receipt?.status === 'delivered' ? await guguAgentUserIdForSession(event.to_session_id, process.env) : null
       return { admitted: receipt?.status === 'delivered', messageId: event.message_id, ...(agentId ? {receipt: {agent_user_id: agentId}} : {}) }
@@ -1750,7 +1763,7 @@ function assistantWorkDeliveryHost(): AssistantWorkOutboxHost {
     warn: detail => createLogger('assistant-work/outbox').warn(detail, 'Task delivery will reconcile from the cloud queue'),
   })
   const offLedger = installAssistantWorkLedgerHost({ context, kick: () => host.kick() })
-  app.once('will-quit', () => { offLedger(); reconciler.stop(); host.stop() })
+  app.once('will-quit', () => { offLedger(); reconciler.stop(); noticeWake.stop(); host.stop() })
   return (assistantWorkOutbox = host)
 }
 
@@ -3530,20 +3543,23 @@ function crossMachine(): CrossMachineSessions {
         throw error
       }
     },
-    wakeCloudComputer: async (deviceId) => {
+    wakeCloudComputer: async (deviceId, signal) => {
+      signal?.throwIfAborted()
       const client = await cloudComputerClient()
       if (!client) return false
       // 先认它是不是这个账号的云电脑:问不到管家 = 不知道 ⇒ 照普通离线说(❌ 把一台离线的笔记本说成「云电脑醒不来」)。
       try {
-        if ((await client.state()).deviceId !== deviceId) return false
+        if ((await client.state(signal)).deviceId !== deviceId) return false
       } catch (error) {
         createLogger('cloud-computer').warn({ deviceId, err: String((error as Error)?.message ?? error) }, 'cloud computer state unavailable; treating the device as plainly offline')
         return false
       }
       const auth = await requireAuth()
+      signal?.throwIfAborted()
       const outcome = await wakeCloudComputerUntilOnline({
         client,
         deviceId,
+        signal,
         isOnline: async (id) => (await listDevices(makeIdentityClient(auth.accessToken) as unknown as DeviceTableClient, auth.userId))
           .some((row) => row.device_id === id && row.is_online),
       })
@@ -4465,8 +4481,10 @@ app.whenReady().then(async () => {
             : (invokeRendererAuth('getSessionOwner', { waitMs }) as Promise<BootOwnerAnswer>),
         ms,
       )
-    const sessionMessageRouter = async (sessionId: string, message: SessionMessage) => {
+    const sessionMessageRouter = async (sessionId: string, message: SessionMessage, signal?: AbortSignal) => {
+      signal?.throwIfAborted()
       const ready = await sessionpagePlatformRecovery?.ensureReady(sessionId, `session-message:${message.kind ?? 'ordinary'}`)
+      signal?.throwIfAborted()
       if (ready?.status === 'failed') {
         createLogger('session-message').error({ sessionId, messageId: message.id, error: ready.error }, 'platform credential recovery failed; message remains pending')
         return {
@@ -4476,6 +4494,7 @@ app.whenReady().then(async () => {
         }
       }
       const attempt = async () => {
+        signal?.throwIfAborted()
         const result = await localDelivery.tryInjectSessionMessage(sessionId, message)
         return result === false ? 'not-live' as const : result
       }
@@ -4483,7 +4502,7 @@ app.whenReady().then(async () => {
       if (message.kind === 'session-direct') {
         // #6546 冷目标:与收件箱同一个唤醒入口,等准入后再投一次;叫不醒带着原因报回发送方。
         try {
-          accepted = await localDelivery.injectWithWake(sessionId, attempt)
+          accepted = await localDelivery.injectWithWake(sessionId, attempt, signal)
         } catch (error) {
           if (!(error instanceof SessionWakeError)) throw error
           return { status: 'not-ready' as const, reason: `target session not live — ${error.message}` }
