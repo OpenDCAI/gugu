@@ -471,10 +471,10 @@ function initializeAgent(agent: AcpAgentApi, host: AcpAgentProcessHost, behavior
               /**
                * v2 的后台任务扩展(`_async_task_*` 与 `_session/async_task/stop`)。v2 的子智能体是
                * 标准的子会话(取消走 `session/cancel`),后台命令没有标准形态,靠这个具名扩展。
-               * v2 不声明 AIR 的子智能体能力; sessionFailure 只在终态消费者就位后单独声明。
+               * v2 不声明 AIR:命名空间本身就会让桥选择 v1 的 subagent_spawned,
+               * 即使只声明 sessionFailure。AIR 扩展只支持 v1(#503)。
                */
               asyncTasks: {},
-              ...(sessionFailure.length ? { jetbrains: { air: { version: 1, capabilities: sessionFailure } } } : {}),
             }
           : {
               jetbrains: {
