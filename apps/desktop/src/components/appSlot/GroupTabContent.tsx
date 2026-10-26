@@ -440,7 +440,7 @@ export const GroupTabContent = observer(function GroupTabContent({ chatId, tabId
           ) : windowApp ? (
             <div className="min-h-0 flex-1"><ExtensionTabPane extensionId={windowApp} tabKind={kind} sessionId={null} tabId={slot} chatId={chatId} {...(item.itemId ? { itemId: item.itemId } : {})} /></div>
           ) : (
-            <ClaimedPage slotId={slot} chatId={chatId} kind={kind} itemId={item.itemId} prepareFile={isFolderItem(item)} takeOpening={item.takeOpening} />
+            <ClaimedPage slotId={slot} chatId={chatId} kind={kind} itemId={item.itemId} takeOpening={item.takeOpening} />
           )
         ) : (
           <>

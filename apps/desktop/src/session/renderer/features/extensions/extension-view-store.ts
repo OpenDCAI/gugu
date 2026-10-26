@@ -42,14 +42,11 @@ export interface ExtensionViewClaim {
 
 /** 一张常驻页:哪个 App 的哪一类 tab,住在哪个地方。 */
 export interface ExtensionResidentPage {
-  /** The physical guest's identity, retained when an empty page takes its first file. */
-  id: number;
   key: string;
   kind: string;
   /** 群、每任务一份的任务或 App;文件页再带文件的 id。页的一生不变。 */
   place: string;
   itemId?: string;
-  empty?: boolean;
 }
 
 /** 每个 App 最多留几张没人看的常驻页(有格正认领着的不算,也从不销毁)。 */
@@ -70,7 +67,6 @@ export function residentPageKey(kind: string, place: string): string {
 
 let nextToken = 1;
 let nextUse = 1;
-let nextPage = 1;
 
 function slotKey(sessionId: string | null | undefined, tabId: string): string {
   return `${sessionId ?? ''}\u0000${tabId}`;
@@ -104,7 +100,7 @@ class ExtensionViewStore {
   private readonly boundPages = new Set<string>();
 
   constructor() {
-    makeObservable(this, { claim: action, prepareFile: action, release: action, forgetOpened: action, forgetIdle: action, forgetSlot: action });
+    makeObservable(this, { claim: action, release: action, forgetOpened: action, forgetIdle: action, forgetSlot: action });
   }
 
   /** The page now drawing this claim is bound (the layer says so). A claim already released: nothing to note. */
@@ -135,9 +131,7 @@ class ExtensionViewStore {
     const place = residentPlace(claim);
     const key = residentPageKey(kind, place);
     if (!this.residentPages.has(key)) {
-      const empty = claim.itemId ? this.residentPages.get(residentPageKey(kind, 'empty')) : undefined;
-      if (empty) this.drop(empty.key);
-      this.residentPages.set(key, { id: empty?.id ?? nextPage++, key, kind, place, ...(claim.itemId ? { itemId: claim.itemId } : {}) });
+      this.residentPages.set(key, { key, kind, place, ...(claim.itemId ? { itemId: claim.itemId } : {}) });
     }
     this.usedAt.set(key, nextUse++);
     const stack = this.stacks.get(key) ?? [];
@@ -148,14 +142,6 @@ class ExtensionViewStore {
     this.slotPages.set(slotKey(target.sessionId, target.tabId), key);
     this.evict(kind);
     return token;
-  }
-
-  /** Only when the person opens the group folder: one empty guest, inside the same idle-page limit. */
-  prepareFile(kind: string): void {
-    const key = residentPageKey(kind, 'empty');
-    if (!this.residentPages.has(key)) this.residentPages.set(key, { id: nextPage++, key, kind, place: 'empty', empty: true });
-    this.usedAt.set(key, nextUse++);
-    this.evict(kind);
   }
 
   /** 这一格是哪张常驻页的落点(哪怕此刻没在前台)—— 宿主动作(标题 / 角标 / 报错)按此决定记到哪。 */
