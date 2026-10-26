@@ -41,6 +41,6 @@ export async function enqueueAssistantWorkMessage(raw:AssistantWorkIntent,text:s
   // A local kick failure cannot undo or obscure an already committed cloud acceptance.
   try { void Promise.resolve(installed?.kick()).catch(()=>undefined) } catch { /* The runtime pump also observes the account event. */ }
   return { ...accepted,route:'session-direct' as const,recipients:targets.map((target,index)=>({
-    to:`session:${target.sessionId}`,session_id:`session:${target.sessionId}`,status:'accepted' as const,message_id:events[index]!.message_id,
+    to:`session:${target.sessionId}`,session_id:target.sessionId,status:'accepted' as const,message_id:events[index]!.message_id,
   })) }
 }
