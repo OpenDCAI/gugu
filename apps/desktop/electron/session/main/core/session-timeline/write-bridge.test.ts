@@ -135,6 +135,12 @@ describe('确认 ACP 引擎活着（参数与审批入口）', () => {
     await bridge.ensureAcpSessionLive(target.id);
     expect(state.calls).toEqual(['wake']);
 
+    state.calls = [];
+    state.summaries = { s: { ...summary('ready'), closing: true } };
+    expect(await bridge.acpSessionLive('conv-1')).toBe(false);
+    await bridge.ensureAcpSessionLive(target.id);
+    expect(state.calls).toEqual(['wake']);
+
     // 编号 5:适配器自己退了(lost)也不活 —— 唤醒接回原会话再投,❌ 直接投进死掉的适配器。
     state.calls = [];
     state.summaries = { s: summary('lost') };

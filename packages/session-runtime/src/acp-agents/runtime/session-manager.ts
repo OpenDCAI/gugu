@@ -119,6 +119,7 @@ type StartupSettingDimension = 'model' | 'effort';
 const TRANSCRIPT_TICK_MS = 100;
 
 interface SessionRecordBase {
+  closing?: boolean;
   input: AcpStartInput;
   cell: SessionCell;
   live: SessionLiveModels;
@@ -362,6 +363,7 @@ export class SessionManager implements InboundRouter {
   private readonly processingProcessClose = new Set<string>();
   /** A deliberate stop must not be reclassified as an abnormal provider failure. */
   private readonly intentionalProcessCloses = new Set<string>();
+  private readonly stoppingSessions = new Map<string, Promise<Result<void, AcpStopSessionError>>>();
   /** Starts whose owner stopped them mid-flight: their failure names the step that was abandoned. */
   private readonly abandonedStarts = new Set<string>();
   /**
@@ -378,10 +380,15 @@ export class SessionManager implements InboundRouter {
   ) {}
 
   start(input: AcpStartInput): Promise<Result<{ providerSessionId: string }, AcpStartSessionError>> {
+    const stopping = this.stoppingSessions.get(input.sessionId);
+    if (stopping) return stopping.then(result => result.success
+      ? this.start(input)
+      : acpErr.initializeFailed(toSerializedError(result.error)));
     const starting = this.startingSessions.get(input.sessionId);
     if (starting) return starting;
 
     const existing = this.cells.get(input.sessionId);
+    if (existing?.closing) return Promise.resolve(acpErr.initializeFailed(toSerializedError(new Error('Session process is still stopping'))));
     if (existing && existing.phase !== 'lost') {
       return Promise.resolve(ok({ providerSessionId: existing.cell.acpSessionId }));
     }
@@ -1099,6 +1106,7 @@ export class SessionManager implements InboundRouter {
   async prompt(input: SendPromptInput): Promise<Result<{ queued: boolean }, AcpSendPromptError>> {
     const record = this.cells.get(input.sessionId);
     if (!record) return acpErr.sessionNotFound(input.sessionId);
+    if (record.closing) return acpErr.sessionBusy('Session is closing; resume it after teardown');
     if (record.phase === 'lost') {
       return acpErr.invalidState(
         `Session '${input.sessionId}' lost its ACP adapter: ${record.loss.message}; reconnect before sending`
@@ -1114,6 +1122,7 @@ export class SessionManager implements InboundRouter {
   }, AcpSendPromptError> {
     const record = this.cells.get(input.sessionId);
     if (!record) return acpErr.sessionNotFound(input.sessionId);
+    if (record.closing) return acpErr.sessionBusy('Session is closing; resume it after teardown');
     if (record.phase === 'lost') {
       return acpErr.invalidState(
         `Session '${input.sessionId}' lost its ACP adapter: ${record.loss.message}; reconnect before sending`
@@ -1131,6 +1140,7 @@ export class SessionManager implements InboundRouter {
     startInput?: AcpStartInput,
   ): Promise<Result<{ queued: boolean }, AcpQueuePromptError>> {
     let record = this.cells.get(input.sessionId);
+    if (record?.closing) return acpErr.invalidState('Session is closing; resume it after teardown');
     if (!record && startInput) {
       if (startInput.sessionId !== input.sessionId) {
         return acpErr.invalidState(
@@ -1252,8 +1262,18 @@ export class SessionManager implements InboundRouter {
     return record.cell.setPromptDraft(draft);
   }
 
-  async stop(sessionId: string): Promise<Result<void, AcpStopSessionError>> {
+  async stop(sessionId: string, onlyIfIdle = false): Promise<Result<void, AcpStopSessionError>> {
+    const pending = this.stoppingSessions.get(sessionId);
+    if (pending) return pending;
     let record = this.cells.get(sessionId);
+    if (onlyIfIdle && record) {
+      const state = record.cell.sessionState;
+      if (record.phase !== 'ready' || state.lifecycle !== 'ready' || state.isGenerating
+        || state.pendingPermissions.length > 0 || state.queuedPrompts.length > 0
+        || state.backgroundAgentCount > 0 || state.backgroundCommandCount > 0) {
+        return acpErr.stopFailed(toSerializedError(new Error('Session is no longer idle; reclamation declined')));
+      }
+    }
     if (!record) {
       // 一次起不来的启动只留下摘要(`lost` + start-failed),没有 record。停止 / 删除这条会话时它也得走,
       // 否则状态投影会一直说 error,会话编排一直当它 lost —— 连会话删了都还在。
@@ -1275,6 +1295,20 @@ export class SessionManager implements InboundRouter {
       record = this.cells.get(sessionId);
     }
     if (!record || record.phase !== 'ready') return ok();
+    // Withdraw admission synchronously, before session/close can remove the provider-side id.
+    record.closing = true;
+    this.syncRecord(record);
+    const operation = this.stopReadyRecord(sessionId, record);
+    this.stoppingSessions.set(sessionId, operation);
+    try { return await operation; } finally {
+      if (this.stoppingSessions.get(sessionId) === operation) this.stoppingSessions.delete(sessionId);
+    }
+  }
+
+  private async stopReadyRecord(
+    sessionId: string,
+    record: SessionRecord & { phase: 'ready' },
+  ): Promise<Result<void, AcpStopSessionError>> {
     let stopPending = false;
     const alreadyStopping = this.intentionalProcessCloses.has(record.processKey);
     this.intentionalProcessCloses.add(record.processKey);
@@ -1293,6 +1327,10 @@ export class SessionManager implements InboundRouter {
       return acpErr.stopFailed(toSerializedError(error));
     } finally {
       if (!stopPending) this.intentionalProcessCloses.delete(record.processKey);
+      if (!stopPending && this.cells.get(sessionId) === record) {
+        record.closing = false;
+        this.syncRecord(record);
+      }
     }
   }
 
@@ -2509,6 +2547,7 @@ export class SessionManager implements InboundRouter {
       projectId: input.projectId,
       providerId: input.providerId,
       lifecycle: state.lifecycle,
+      ...(this.cells.get(input.sessionId)?.closing ? { closing: true } : {}),
       isGenerating: state.isGenerating,
       lastStopReason: cell?.sessionState.lastStopReason ?? null,
       lastTurnOutcome: cell?.sessionState.lastTurnOutcome ?? 'none',

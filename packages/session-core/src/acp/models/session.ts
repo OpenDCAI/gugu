@@ -173,6 +173,8 @@ export const sessionSummarySchema = z.object({
   projectId: z.string(),
   providerId: z.string(),
   lifecycle: sessionLifecycleSchema,
+  /** Admission is withdrawn before provider teardown; the process may still be exiting. */
+  closing: z.boolean().optional(),
   /** UI affordance, includes background agents. Status reads `lifecycle` instead (park). */
   isGenerating: z.boolean(),
   lastStopReason: stopReasonSchema.nullable(),
