@@ -39,6 +39,7 @@ import { TurnProcessMessage, TurnProcessToggleProvider } from './turn-process-me
 import { attachmentMentions, sessionAttachmentAdapter } from './composer-attachments'
 import { sessionAttachmentRpc } from './sessionpage-rpc'
 import { PhoneTaskDraftRecovery } from '../local-agent/PhoneTaskDraftRecovery'
+import { appendToDraft } from '@/store/chatContext'
 
 /**
  * 手机任务时间线复用 assistant-ui Thread 的消息仓库、滚动、附件和发送行为。
@@ -339,7 +340,7 @@ export function AgentThread({
     appliedDraft.current = draft
     const composer = runtime.thread.composer
     const text = composer.getState().text
-    composer.setText(text.trim() ? `${text}\n${draft.text}` : draft.text)
+    composer.setText(appendToDraft(text, draft.text))
     onDraftApplied?.()
   }, [draft, runtime, onDraftApplied])
   const hostRef = useRef<HTMLDivElement | null>(null)

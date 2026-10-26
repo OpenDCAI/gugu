@@ -5,7 +5,7 @@ import type { ToolImage } from '@gugu/session-core/acp/client'
 import { rendererLogger } from '@/lib/log'
 import { readCachedDevices } from '@/store/devicesCache'
 import { translateSessionMessage } from '@renderer/localization/locale-store'
-import { appCallWaitMs, type AppCallAction, type AppMessageAction, type AppMessageReceipt, type AppSpawnAction, type RemoteAppCaller } from '@gugu/session-core/session-record/contract'
+import { appCallWaitMs, type AppCallAction, type AppMessageAction, type AppMessageReceipt, type AppSpawnAction } from '@gugu/session-core/session-record/contract'
 import { callDeviceRpc } from '@/lib/deviceRpc'
 import { openPhoneSessionHostPipe } from '@/lib/remoteSessionHost'
 import { SESSION_HOST_RPC } from '@/session/shared/lib/ipc/session-host-device-frames'
@@ -124,21 +124,18 @@ function once(deviceId: string) {
  * owner 10-16 An App page on the phone, in a session on this machine, has one of its calls that follow the session's
  * machine (its data folder, its program) done there — the cross-machine App call the desktop makes (`agentSession.app_call`,
  * one question and answer). The wait is the desktop's (`remoteActionTimeoutMs`): a program call, its program's own request
- * bound (60 s) and the way back. A machine too old to have it answers `unknown_method` / no handler.
+ * bound (60 s) and the way back; dispatch uses the same route with the desktop's wake/start waits. A machine too old to have it answers `unknown_method` / no handler.
  */
-export async function appCallOn(deviceId: string, caller: unknown, action: AppCallAction): Promise<unknown> {
-  const reply = await callDeviceRpc<{ value: unknown }>(deviceId, SESSION_HOST_RPC.call, { channel: 'agentSession.app_call', args: [caller, action] }, { timeoutMs: appCallWaitMs(action) })
-  if (reply.error) throw new SessionpageRpcError(reply.error.code, reply.error.message)
-  return reply.result?.value
-}
+type PhoneAppAction = AppCallAction | AppMessageAction | AppSpawnAction
+type PhoneAppAnswer<A> = A extends AppSpawnAction ? { agentId: string } : A extends AppMessageAction ? AppMessageReceipt : unknown
 
-/** Dispatch uses the existing App-authenticated action routes, with the desktop's waits for wake/start. */
-export async function appDispatchOn<A extends AppMessageAction | AppSpawnAction>(deviceId: string, caller: RemoteAppCaller, action: A): Promise<A extends AppSpawnAction ? { agentId: string } : AppMessageReceipt> {
-  const reply = await callDeviceRpc<{ value: A extends AppSpawnAction ? { agentId: string } : AppMessageReceipt }>(deviceId, SESSION_HOST_RPC.call,
-    { channel: `agentSession.${action.action}`, args: [caller, action] }, { timeoutMs: action.action === 'spawn' ? 90_000 : 180_000 })
+export async function appCallOn<A extends PhoneAppAction>(deviceId: string, caller: unknown, action: A): Promise<PhoneAppAnswer<A>> {
+  const timeoutMs = action.action === 'app_call' ? appCallWaitMs(action) : action.action === 'spawn' ? 90_000 : 180_000
+  const reply = await callDeviceRpc<{ value: PhoneAppAnswer<A> }>(deviceId, SESSION_HOST_RPC.call,
+    { channel: `agentSession.${action.action}`, args: [caller, action] }, { timeoutMs })
   if (reply.error) throw new SessionpageRpcError(reply.error.code, reply.error.message)
-  if (!reply.result) throw new SessionpageRpcError('failed', 'The computer returned no dispatch receipt')
-  return reply.result.value
+  if (!reply.result && action.action !== 'app_call') throw new SessionpageRpcError('failed', 'The computer returned no dispatch receipt')
+  return reply.result?.value as PhoneAppAnswer<A>
 }
 
 /** A push of that machine's on a channel of its own (e.g. `extensions.program.notified`), heard through its window. */

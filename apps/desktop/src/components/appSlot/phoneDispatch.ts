@@ -57,8 +57,8 @@ export function phoneDispatch(app: { extensionId: string; extensionName: string 
     return viewsOf(rows, app.extensionId, capabilities)
   }
   const request = async <A extends AppMessageAction | AppSpawnAction>(deviceId: string, action: A) => {
-    const { appDispatchOn } = await import('../../mobile/agent-watch/sessionpage-rpc')
-    return appDispatchOn(deviceId, phoneAppCaller(app), action)
+    const { appCallOn } = await import('../../mobile/agent-watch/sessionpage-rpc')
+    return appCallOn(deviceId, phoneAppCaller(app), action)
   }
   const agents: NonNullable<AppDispatchPlatform['agents']> = {
     async draft(agent: DispatchAgent, text) {

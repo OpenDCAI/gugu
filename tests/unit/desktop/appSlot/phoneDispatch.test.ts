@@ -8,7 +8,7 @@ import { APP_SHOW_SESSION_EVENT } from '../../../../apps/desktop/src/session/sha
 import { phoneDispatch } from '../../../../apps/desktop/src/components/appSlot/phoneDispatch'
 const rpc = vi.hoisted(() => vi.fn())
 const lists = vi.hoisted(() => vi.fn())
-vi.mock('../../../../apps/desktop/src/mobile/agent-watch/sessionpage-rpc', () => ({ appDispatchOn: rpc, fetchSessionsList: lists }))
+vi.mock('../../../../apps/desktop/src/mobile/agent-watch/sessionpage-rpc', () => ({ appCallOn: rpc, fetchSessionsList: lists }))
 const AGENT = 'user:22222222-2222-4222-8222-222222222222'
 const app = { extensionId: 'board', extensionName: 'Board' }
 const device = (id: string, online = true): Device => ({ device_id: id, label: id, hostname: id, platform: 'darwin', status: 'online', is_online: online, last_seen_at: '2026-10-26T01:00:00Z', capabilities: { terminals: [], runtimes: [] } }) as Device
