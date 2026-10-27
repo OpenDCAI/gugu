@@ -20,7 +20,7 @@ it('omits external sharing when the public URL is not configured and keeps forwa
 
 it('retains working external links, copy and publishing without a fee promise', async () => {
   vi.stubEnv('VITE_GUGU_WEB_URL', 'https://share.example.test')
-  const publish = vi.spyOn(contactsService, 'setAgentPublic').mockResolvedValue(undefined)
+  const publish = vi.spyOn(contactsService, 'setAgentPublic').mockResolvedValue({ ...agent, agent_public: true })
   const copy = vi.fn().mockResolvedValue(undefined)
   Object.defineProperty(navigator, 'clipboard', { configurable: true, value: { writeText: copy } })
   await render()

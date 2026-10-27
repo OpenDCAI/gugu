@@ -43,7 +43,7 @@ export function ReferralCard() {
           <span>{t('referral.inviteDescription')}</span>
         </div>
       </div>
-      <div className="na-referral">
+      <div className="na-referral" data-read-failed={failed.length > 0 && !inviteUrl || undefined}>
         <div className="na-referral-stats na-referral-stats-frame">
           {failed.length ? <div role="alert" className="na-referral-read-error">
             <span>{t('referral.readFailed', { items: new Intl.ListFormat(i18n.language).format(failed.map(part => t(`referral.readPart.${part}`))) })}</span>

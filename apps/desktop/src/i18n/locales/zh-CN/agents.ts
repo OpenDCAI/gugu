@@ -370,7 +370,7 @@ export default {
     },
     "profile": {
       "pause": "暂停 Agent",
-      "pauseHint": "开启后，该 Agent 将停止响应群聊、其他私聊、Webhook 与定时任务。只有你与它的一对一私聊仍可触发它。",
+      "pauseHint": "暂停后只回应你和它的私聊。",
       "pauseFailed": "没能更改暂停状态，请重试。",
       "avatar": "头像",
       "bio": "简介",

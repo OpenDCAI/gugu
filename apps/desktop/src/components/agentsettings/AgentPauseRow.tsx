@@ -5,6 +5,7 @@ import { useContactsStore } from '../../store/contactsContext'
 import { rendererLogger } from '../../lib/log'
 import { SettingsRow } from '../settings/SettingsPrimitives'
 import { Switch } from '../ui/Switch'
+import './AgentPauseRow.css'
 
 export function AgentPauseRow({ agent }: { agent: ContactUser }) {
   const { t } = useTranslation('agents')
@@ -20,7 +21,7 @@ export function AgentPauseRow({ agent }: { agent: ContactUser }) {
     catch (error) { rendererLogger('agents/pause').error({ error }, 'pause agent failed'); setFailed(true) }
     finally { setBusy(false) }
   }
-  return <SettingsRow data-testid="agent-profile-pause" title={t('settings.profile.pause')}
+  return <SettingsRow className="gg-agent-pause-row" data-testid="agent-profile-pause" title={t('settings.profile.pause')}
     description={failed ? <span role="alert">{t('settings.profile.pauseFailed')}</span> : t('settings.profile.pauseHint')}
     control={<Switch checked={paused} disabled={busy} aria-label={t('settings.profile.pause')} onCheckedChange={() => void change()} />} />
 }

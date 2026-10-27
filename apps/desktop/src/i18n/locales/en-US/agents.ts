@@ -370,7 +370,7 @@ export default {
     },
     "profile": {
       "pause": "Pause Agent",
-      "pauseHint": "When enabled, this Agent stops responding to groups, other direct messages, webhooks, and scheduled tasks. Only your direct message can trigger it.",
+      "pauseHint": "When paused, only responds to your direct messages.",
       "pauseFailed": "Could not change this Agent's paused state. Try again.",
       "avatar": "Avatar",
       "bio": "Bio",

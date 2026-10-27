@@ -327,6 +327,8 @@
 .na-referral-stats-frame { min-height: var(--control-h-sm); align-items: center; }
 .na-referral-link-frame { min-height: var(--control-h-md); }
 .na-referral-read-error { display: flex; align-items: center; gap: var(--spacing-sm); }
+.na-referral[data-read-failed] { position: relative; }
+.na-referral[data-read-failed] .na-referral-read-error { position: absolute; inset: 16px 20px; }
 .na-referral-stat-skeleton { display: inline-block; width: 92px; height: var(--lh-body); vertical-align: middle; }
 .na-referral-field-skeleton { flex: 1; min-width: 0; background: var(--muted); }
 .na-referral-copy-skeleton { display: inline-flex; align-items: center; justify-content: center; gap: 6px; min-height: var(--control-h-md); padding: 0 12px; border: 1px solid transparent; border-radius: var(--radius-control); font-size: var(--font-body); font-weight: var(--font-weight-medium); line-height: 1; white-space: nowrap; pointer-events: none; }
