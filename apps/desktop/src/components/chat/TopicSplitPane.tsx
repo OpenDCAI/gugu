@@ -7,6 +7,7 @@ import { DUR_SLOW_MS, EASE_SPRING, tween } from '@/styles/motion'
 import { ChevronLeft, Paperclip, Search, Users, X } from '@/lib/icons'
 import type { MessageItem } from '@gugu/core/shared/types/chat'
 import { visibleDeliveryMessages } from '@gugu/core/shared/ui/systemNotice'
+import { useQueuedMessageIds } from '../../hooks/useQueuedMessageIds'
 import { composerCardPreview } from '@gugu/core/shared/ui/taskCardModels'
 import type { GroupRosterCandidate } from '@/lib/mention'
 import type { AgentStatusById } from './agentMentionStatusModels'
@@ -324,9 +325,10 @@ export function TopicSplitPane({ viewportKey = 'topic', navigationTarget = false
   // 已读环有 —— 水位由 useChatConversation 按**这条话题**自己拉,拉不到时是空表(空表就不出环)。
   const search = useChatSearch(topic.chatId, visible !== false && !filesOpen && !membersOpen, messages, paneRef, viewportKey)
   const { searchMode, searchQuery, isFiltering, displayedMessages } = search
+  const queuedIds = useQueuedMessageIds(messages, memberReadSeqs)
   const rows = useMemo<ChatListRowItem[]>(
-    () => visibleDeliveryMessages(displayedMessages, messages).map((message) => ({ type: 'message' as const, message })),
-    [displayedMessages, messages],
+    () => visibleDeliveryMessages(displayedMessages).map((message) => ({ type: 'message' as const, message })),
+    [displayedMessages],
   )
   const listRef = useRef<FlowListHandle | null>(null)
   const isAtBottomRef = useRef(true)
@@ -361,7 +363,7 @@ export function TopicSplitPane({ viewportKey = 'topic', navigationTarget = false
     messages,
     isFiltering,
     mobile,
-    memberReadSeqs,
+    memberReadSeqs, queuedIds,
     isAgentChat: false,
     // 话题是多人线 ⇒ 与群同口径,收到的气泡上方显发送者名。
     isGroupChat: true,
@@ -393,7 +395,7 @@ export function TopicSplitPane({ viewportKey = 'topic', navigationTarget = false
     onToggleSelect: noop,
     onEnterSelectMode: undefined,
     flashMessageId,
-  }), [showMessage, rows, messages, mobile, memberReadSeqs, memberProfiles, onOpenMemberProfile, onOpenAttachment, onShowReadReceipt, onReaction, onForward, onDelete, topic.chatId, flashMessageId, history, visible, isFiltering, searchQuery])
+  }), [showMessage, rows, messages, mobile, memberReadSeqs, queuedIds, memberProfiles, onOpenMemberProfile, onOpenAttachment, onShowReadReceipt, onReaction, onForward, onDelete, topic.chatId, flashMessageId, history, visible, isFiltering, searchQuery])
 
   // 手机页只有左上返回一个出口:子视图(附件/成员)开着先退回话题,否则收起话题回来源线。
   const goBack = filesOpen ? () => setFilesForChatId(null) : membersOpen ? () => setMembersOpen(false) : onClose

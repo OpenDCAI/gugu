@@ -79,6 +79,8 @@ export interface MessageListRowProps {
   /** #1708 命中「来源消息跳转」时高亮闪烁的消息 id。 */
   flashMessageId: string | null | undefined
   memberReadSeqs: Record<string, number>
+  /** My messages an agent has not taken yet (useQueuedMessageIds): 「发送中」 until it reads them. */
+  queuedIds: ReadonlySet<string>
   isAgentChat: boolean
   // 私聊/AI 没有 thread surface；群聊 thread 由右侧 panel 承载。
   isGroupChat: boolean
@@ -153,7 +155,7 @@ const MessageListRow = memo(function MessageListRow({
   mobile,
   highlight,
   flashMessageId,
-  memberReadSeqs,
+  memberReadSeqs, queuedIds,
   isAgentChat,
   isGroupChat,
   threeParty,
@@ -206,7 +208,7 @@ const MessageListRow = memo(function MessageListRow({
 
   const isSelected = selectedIds.has(msg.id)
   const readReceipt = computeReadReceipt(msg, memberReadSeqs) // @@@1577 M5 A6 — 单次派生,原同行同参调两次
-  const sendState = computeSendState(msg, memberReadSeqs)
+  const sendState = queuedIds.has(msg.id) ? 'queued' : computeSendState(msg, memberReadSeqs)
 
   // 连续消息合组：同一发送者、无时间分隔线切断、双方都是普通消息时，后续消息隐藏头像+名字/时间行，
   // 只留气泡（间距也收紧）。搜索态(isFiltering)结果不连续，不合组。whisper 形态特殊，不参与合组。

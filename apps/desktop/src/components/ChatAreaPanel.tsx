@@ -18,7 +18,7 @@ import { useAuth } from '../store/auth'
 import { AgentSettingsModal } from './agentsettings/AgentSettingsModal'
 import type { AgentConversationActivity, GroupCollabSnapshot, MessageItem } from '@gugu/core/shared/types/chat'
 import { chatService } from '../lib/chat'
-import { useUnreadLocatorNavigation } from '../hooks/useUnreadLocatorNavigation'
+import { useUnreadLocatorNavigation } from '../hooks/useUnreadLocatorNavigation'; import { useQueuedMessageIds } from '../hooks/useQueuedMessageIds'
 import { useSourceMessageReveal } from '../hooks/useSourceMessageReveal'
 import { useChatHistoryPagination } from './chat/useChatHistoryPagination'
 import { useGroupCollabRemovedAgentGate } from '../hooks/useGroupCollabRemovedAgentGate'
@@ -484,7 +484,7 @@ function ChatAreaSurface({ viewportKey = 'chats', activeTab, navigationTarget = 
     })
   }, [deleteMessage])
 
-  const { rows: chatListRows, listedMessages, notice: taskChatNotice, threeParty } = useTaskChatRows(displayedMessages, user?.id, activeChat?.peer_user_id, surfaceVisible, isFiltering ? searchQuery : '')
+  const { rows: chatListRows, listedMessages, notice: taskChatNotice, threeParty } = useTaskChatRows(displayedMessages, user?.id, activeChat?.peer_user_id, surfaceVisible, isFiltering ? searchQuery : ''); const queuedIds = useQueuedMessageIds(messages, memberReadSeqs)
   const chatResetKey = `${activeChatId ?? ''}#${openNonce ?? 0}#${messageWindow?.viewVersion ?? 0}`
   const { scrollerEl, scrollerRef, setScrollerRef, prepareForSavedPosition, isPreservingPosition, forgetSavedPosition, openLocation, revealMessage } = useConversationScrollMemory({
     chatId: activeChatId, viewportKey, activationKey: activeChatId ?? '', enabled: !isFiltering, discardSaved: !!unreadEntry,
@@ -611,7 +611,7 @@ function ChatAreaSurface({ viewportKey = 'chats', activeTab, navigationTarget = 
     mobile,
     highlight: isFiltering ? searchQuery : undefined,
     flashMessageId,
-    memberReadSeqs,
+    memberReadSeqs, queuedIds,
     isAgentChat,
     isGroupChat: isRoomChatSurface,
     memberProfiles: messageMemberProfiles,
@@ -644,7 +644,7 @@ function ChatAreaSurface({ viewportKey = 'chats', activeTab, navigationTarget = 
     isFiltering,
     mobile,
     searchQuery,
-    memberReadSeqs,
+    memberReadSeqs, queuedIds,
     isAgentChat,
     isRoomChatSurface,
     messageMemberProfiles,

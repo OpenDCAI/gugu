@@ -739,6 +739,7 @@ export default {
       "failed": "Not delivered",
       "failedActions": "Undelivered message actions",
       "failedHint": "Not delivered. Click to retry or discard.",
+      "queued": "Sending. Your assistant will reply when ready.",
       "sending": "Sending"
     },
     "showQuoted": "Go to the quoted message",
