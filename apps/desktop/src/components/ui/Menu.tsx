@@ -128,6 +128,8 @@ export function Menu({
           collisionPadding={8}
           // 放不下就翻到另一侧(下 → 上),沿边平移对齐;与 EmojiQuickPicker 同一套。
           collisionAvoidance={{ side: 'flip', align: 'shift', fallbackAxisSide: 'none' }}
+          // 两侧都放不下(手机长按一条比屏幕剩余空间还高的气泡)就压着锚点滑回屏内,❌ 翻到屏幕外。
+          sticky
           style={{ zIndex }}
         >
           <MenuPrimitive.Popup
