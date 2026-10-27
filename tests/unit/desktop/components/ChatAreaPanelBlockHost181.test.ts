@@ -113,7 +113,7 @@ describe('ChatAreaPanel hosted in a block (gugu-dev#181)', () => {
   })
 
   for (const mobile of [false, true]) {
-    it(`#492 ${mobile ? 'phone' : 'desktop block'}: More > Settings reaches the root of the existing info tab in one action`, async () => {
+    it(`#492 ${mobile ? 'phone' : 'desktop block'}: Settings reaches the root of the existing info tab in one action`, async () => {
       const slot = document.body.appendChild(document.createElement('div'))
       installShellSlots()
       try {
@@ -125,8 +125,8 @@ describe('ChatAreaPanel hosted in a block (gugu-dev#181)', () => {
         await act(async () => { showChatOnly('group-1') })
         const root = mobile ? harness.container : actions
         const more = root.querySelector<HTMLElement>(`[data-testid="${AUTOMATION_TEST_IDS.chatHeaderMoreButton}"]`)
-        expect(more, 'More stays reachable independently of installed Apps').not.toBeNull()
-        await clickElement(more!)
+        expect(!!more, 'only the mobile multi-action header keeps More').toBe(mobile)
+        if (more) await clickElement(more)
         const settings = document.querySelector<HTMLElement>(`[data-testid="${AUTOMATION_TEST_IDS.groupMenuSettings}"]`)
         expect(settings, 'settings is offered independently of installed Apps').not.toBeNull()
         await clickElement(settings!)

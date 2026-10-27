@@ -3,7 +3,7 @@ import { observer } from 'mobx-react-lite'
 import { useTranslation } from 'react-i18next'
 import { useChatStore } from '../../store/chatContext'
 import { useChatFolderName } from './chatFolderName'
-import { Folder, LayoutGrid, MoreHorizontal, Search, Users } from '@/lib/icons'
+import { Folder, LayoutGrid, MoreHorizontal, Search, Settings, Users } from '@/lib/icons'
 import { AUTOMATION_TEST_IDS } from '../../lib/automationDom'
 import { IconButton } from '../ui/IconButton'
 import { Popover } from '../ui/Popover'
@@ -81,6 +81,7 @@ export const ChatHeaderActions = observer(function ChatHeaderActions({
   const pinnedApps = pins.ids.flatMap((id) => apps.find((app) => app.extensionId === id) ?? [])
   const { ref: pinsRef, capacity } = useHeaderAppCapacity(pinnedApps.length, compactRoom || !groupId)
   const overflow = pinnedApps.slice(capacity)
+  const directSettings = isGroupChat && !compactRoom && overflow.length === 0
   const appsButton = useRef<HTMLButtonElement>(null)
   const [picker, setPicker] = useState({ chatId: activeChatId, open: false })
   if (picker.chatId !== activeChatId) setPicker({ chatId: activeChatId, open: false })
@@ -145,8 +146,12 @@ export const ChatHeaderActions = observer(function ChatHeaderActions({
           {memberCount !== undefined && <span data-member-count="">{memberCount}</span>}
         </IconButton>
       )}
-      {/* Settings stays reachable from More in every layout, independently of pinned Apps. */}
-      <DropdownMenu.Root
+      {directSettings ? <IconButton
+        data-testid={AUTOMATION_TEST_IDS.groupMenuSettings}
+        aria-label={t('group.settings.title')}
+        title={t('group.settings.title')}
+        onClick={() => { onCloseHeaderMenu(); onOpenInfo('main') }}
+      ><Settings /></IconButton> : <DropdownMenu.Root
         open={showHeaderMenu}
         modal={false}
         onOpenChange={(open) => {
@@ -194,7 +199,7 @@ export const ChatHeaderActions = observer(function ChatHeaderActions({
             {groupId && compactRoom && <MenuItem onClick={openApps} icon={<LayoutGrid size={16} />}>{t('header.groupApps')}</MenuItem>}
           </DropdownMenu.Content>
         )}
-      </DropdownMenu.Root>
+      </DropdownMenu.Root>}
       {groupId && picker.open && <GroupAppsPicker chatId={groupId} pins={pins} mobile={mobile} anchor={compactRoom ? moreButtonRef : appsButton} onClose={() => setPicker({ chatId: activeChatId, open: false })} />}
     </Popover.Root>
   )

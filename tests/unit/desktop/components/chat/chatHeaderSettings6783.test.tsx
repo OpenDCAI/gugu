@@ -46,8 +46,8 @@ describe('#6783 页头 = 这个聊天自己的信息', () => {
     })
     it(`group (${mobile ? 'phone' : 'desktop'}): Settings opens the root; Members keeps its own direct destination`, async () => {
       const onOpenInfo = await renderHeader({ isGroupChat: true, mobile })
-      expect(menuInfo()?.textContent).toBe('群设置')
-      expect(document.querySelector('[data-testid="chat-header-more-button"]')).not.toBeNull()
+      expect(mobile ? menuInfo()?.textContent : menuInfo()?.getAttribute('aria-label')).toBe('群设置')
+      expect(document.querySelector('[data-testid="chat-header-more-button"]') !== null).toBe(mobile)
       await clickElement(menuInfo()!)
       expect(onOpenInfo).toHaveBeenCalledWith('main')
       expect(document.querySelector('[data-testid="group-menu-announcement"]')).toBeNull()

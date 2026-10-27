@@ -116,8 +116,8 @@ describe('personal group App shortcuts', () => {
       await header('g1', 'user-1', false)
       await vi.waitFor(() => expect(document.querySelector('[data-testid="chat-header-pinned-app"]')).not.toBeNull())
       const actions = [...document.querySelectorAll('[data-tabbar-actions] button')].map((button) => button.getAttribute('aria-label'))
-      // Settings remains reachable through More even when every pinned App fits.
-      expect(actions).toEqual(['board', 'calendar', '群 Apps', '在对话中搜索', '群文件夹', '成员列表', '更多操作'])
+      // With no overflow, Settings is the only remaining action and opens directly.
+      expect(actions).toEqual(['board', 'calendar', '群 Apps', '在对话中搜索', '群文件夹', '成员列表', '群设置'])
     } finally { bounds.mockRestore() }
   })
 
