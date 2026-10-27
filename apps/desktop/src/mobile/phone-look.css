@@ -98,7 +98,9 @@
   box-shadow: var(--ta-glass-fx);
 }
 
-/* ── 输入框:回形针 | 胶囊 | 发送,没有底色、没有分隔线,浮在渐变上;胶囊里 8×16。 ── */
+/* ── 输入框:回形针 | 胶囊 | 发送,没有底色、没有分隔线,浮在渐变上;胶囊里 8×16。
+      圆角是单行高的一半(单行 = 胶囊);多行长高后是圆角矩形 —— ❌ --radius-capsule:
+      9999px 会把四五行高的框压成一个圆(owner 10-28 手机试用「输入框怎么还能是圆形」)。 ── */
 
 [data-phone-shell] [data-slot='composer'][data-mobile] [data-slot='composer-bar'] {
   padding: 0;
@@ -110,7 +112,7 @@
 [data-phone-shell] [data-slot='composer'][data-mobile] [data-slot='composer-input'] {
   align-items: center;
   padding: var(--spacing-sm) var(--spacing-lg);
-  border-radius: var(--radius-capsule);
+  border-radius: calc(var(--control-h-touch) / 2);
   background: var(--ta-composer-bg);
   box-shadow: var(--ta-composer-shadow);
 }
