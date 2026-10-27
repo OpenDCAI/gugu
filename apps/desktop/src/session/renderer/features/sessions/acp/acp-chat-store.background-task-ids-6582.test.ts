@@ -18,6 +18,18 @@ vi.mock('@renderer/lib/acp/runtime-client', () => ({
   getAcpRuntimeClient: async () => ({ queuePrompt: vi.fn() }),
 }));
 vi.mock('@renderer/lib/hooks/use-toast', () => ({ toast: () => {} }));
+// 这个 project 里 `solid-js` 解析成服务端版(没有响应式),看不到画面上那一刻;改为记下每次写转录时是否在 batch 里。
+const solidBatch = vi.hoisted(() => ({ depth: 0 }));
+vi.mock('solid-js', async (importOriginal) => {
+  const solid = await importOriginal<typeof import('solid-js')>();
+  return {
+    ...solid,
+    batch: <T,>(fn: () => T): T => {
+      solidBatch.depth += 1;
+      try { return solid.batch(fn); } finally { solidBatch.depth -= 1; }
+    },
+  };
+});
 
 type StoreModule = typeof import('./acp-chat-store');
 type Store = InstanceType<StoreModule['AcpChatStore']>;
@@ -142,6 +154,28 @@ describe('#6582 runningBackgroundTaskIds', () => {
     vi.spyOn(internal, '_mergeRuntimeChanges').mockResolvedValue(null);
     await internal._refreshHistory({ preserveLiveTurn: true });
     expect(store.chatState.transcript.state.activeTurnSnapshot?.id).toBe(live.id);
+    store.dispose();
+  });
+
+  it('子任务进度对账时，清掉活动轮与放回活动轮是转录的同一次更新（否则这一轮的行全被卸掉重挂，流式文字整段重新淡入）', async () => {
+    const { store, session } = attachedStore(readyState);
+    const internal = store as unknown as Internal;
+    const live = { id: 'parent-follow-up', seq: 2, initiator: 'user' as const, items: [] };
+    session.activeTurn.push(live);
+    store.chatState.transcript.activeTurn.set(live);
+    vi.spyOn(internal, '_mergeRuntimeChanges').mockResolvedValue(null);
+    const writes: string[] = [];
+    const { transcript } = store.chatState;
+    const seed = transcript.history.seed.bind(transcript.history);
+    const set = transcript.activeTurn.set.bind(transcript.activeTurn);
+    vi.spyOn(transcript.history, 'seed').mockImplementation((turns) => { writes.push(`seed@${solidBatch.depth}`); seed(turns); });
+    vi.spyOn(transcript.activeTurn, 'set').mockImplementation((turn, status) => {
+      writes.push(`set:${turn?.id ?? null}@${solidBatch.depth}`);
+      set(turn, status);
+    });
+    await internal._refreshHistory({ preserveLiveTurn: true });
+    expect(writes).toEqual(['seed@1', `set:${live.id}@1`]);
+    expect(transcript.state.activeTurnSnapshot?.id).toBe(live.id);
     store.dispose();
   });
 
