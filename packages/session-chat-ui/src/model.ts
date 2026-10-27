@@ -1,4 +1,6 @@
 import type { HookNotice } from './lib/hook-notice';
+import type { BackgroundCommandEntry } from './lib/background-command-roster';
+import type { SubagentRosterEntry } from './lib/subagent-roster';
 import type { DeliveryReading } from '@gugu/core/local/agent/deliveryEnvelope';
 import type {
   AcpPermissionRequest,
@@ -601,6 +603,23 @@ export type SessionConditionCode =
 
 export type SessionCondition = Omit<SessionConditionItem, 'kind' | 'id' | 'hasVisibleHistory'>;
 
+/**
+ * 还在跑的后台任务 —— 主智能体起的后台命令、派出去的子智能体 —— 贴在消息列表**最后一行**。
+ *
+ * owner 2026-10-27:右上角「摘要」按钮去掉,后台任务直接放进主对话。它们不挂住这一轮(后台命令轮当场收口、
+ * 进程照跑),所以「还有东西在跑」只能由列表末尾这一行来说;点开就地展开成一张逐行的单子,能停、能收起。
+ *
+ * 与 `session-condition` 同族:视图按此刻的状态当场造出来,❌ 不进历史 —— 跑完、停掉、收起,这一行就没了。
+ */
+export type BackgroundTasksItem = {
+  kind: 'background-tasks';
+  id: string;
+  commands: readonly BackgroundCommandEntry[];
+  subagents: readonly SubagentRosterEntry[];
+  /** 单子展开着没有(人点那一行切换;默认收着)。 */
+  expanded: boolean;
+};
+
 /** Successful file edits presented once below a settled turn's reply. */
 export type FileChangeSummaryItem = {
   kind: 'file-change-summary';
@@ -611,6 +630,7 @@ export type FileChangeSummaryItem = {
 
 export type SyntheticItem =
   | SessionConditionItem
+  | BackgroundTasksItem
   | TurnOutcomeItem
   | OpenedOutputItem
   | FileChangeSummaryItem

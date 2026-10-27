@@ -617,7 +617,10 @@ export function ChatRoot(props: ChatRootProps) {
     // ⚠️ 有「当前状态」要说时这一档不能空手返回 —— 那一行就贴在这一档的末尾。
     // 没有活动轮也没有待发提示时，它是这一档**唯一**的一行（会话起不来时正是这种情形）。
     const condition = state().session.state.condition;
-    if ((!at || at.items.length === 0) && !pendingPrompt && !condition)
+    // 后台任务那一行同理:轮早就收口了、命令还在跑,这一档也不能空手返回。
+    const tasks = state().session.state.backgroundTasks;
+    const background = tasks.commands.length > 0 || tasks.subagents.length > 0;
+    if ((!at || at.items.length === 0) && !pendingPrompt && !condition && !background)
       return [] as ReturnType<typeof flattenTier>;
     if ((!at || at.items.length === 0) && !pendingPrompt) {
       return flattenTier(

@@ -17,3 +17,6 @@ export { PlanCompletedIcon } from './icons/PlanCompletedIcon';
 export { PlanInProgressIcon } from './icons/PlanInProgressIcon';
 export { PlanPendingIcon } from './icons/PlanPendingIcon';
 export { IconChevronDown, IconChevronRight, IconDocument, IconGlobe, IconImage } from './icons/OutputIcons';
+export { IconSquareTerminal } from './icons/IconSquareTerminal';
+export { IconUser } from './icons/IconUser';
+export { IconX } from './icons/IconX';

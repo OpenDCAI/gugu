@@ -21,7 +21,10 @@ import type {
   MentionItem,
   PromptEditorRef,
 } from '@gugu/session-ui/react/components';
+import { autorun } from 'mobx';
 import { observer, useObserver } from 'mobx-react-lite';
+import { collectBackgroundCommands, collectSubagents } from '@renderer/features/sessions/view/background-task-rosters';
+import { dismissSubagent } from '@renderer/features/sessions/view/subagent-dismissals';
 import { useCallback, useContext, useEffect, useMemo, useRef, useState, type RefObject } from 'react';
 import { PageShownContext } from '@renderer/app/recent-session-pages';
 import { nativeChatAppearance } from '@renderer/lib/chat/native-chat-appearance.css';
@@ -2130,6 +2133,21 @@ export const AcpChatPanel = observer(function AcpChatPanel({
     setCondition(condition);
   }, [store, store?.loadError, providerId, cliAuthMethod, openAgentAccount, translate, navigate, signInExpired, signInMissing, signInAgain, agent?.name, membershipLock]);
 
+  /**
+   * 还在跑的后台命令与子智能体 → 消息列表末尾那一行(owner 2026-10-27:去掉右上角「摘要」卡,后台任务放进主对话)。
+   * 收集逻辑与从前那张卡同一套(`background-task-rosters.ts`):每来一条消息、运行时报的在跑集合变了、人按了 ×,重算一次;
+   * 内容没变,转录那一格自己会挡住(`sameBackgroundTasks`)。
+   */
+  useEffect(() => {
+    if (!store) return;
+    return autorun(() => {
+      store.chatState.session.setBackgroundTasks({
+        commands: collectBackgroundCommands(store.sessionId, translate('transcript.backgroundCommand')),
+        subagents: collectSubagents(store.sessionId, translate('transcript.subagent')),
+      });
+    });
+  }, [store, translate]);
+
   useMarkSeenWhenShown(sessionStore, useContext(PageShownContext) && !store?.isTransient);
 
   useEffect(() => {
@@ -2338,6 +2356,11 @@ export const AcpChatPanel = observer(function AcpChatPanel({
               }
             });
         }
+      },
+      // 列表末尾那一行后台任务上的两颗键(原来在右上角「摘要」卡里)。停 = 真停;× = 只收起,它照旧在跑。
+      onStopBackgroundTask: ({ stopId }) => store?.stopSubagent(stopId),
+      onDismissBackgroundTask: ({ entryId }) => {
+        if (store) dismissSubagent(store.sessionId, entryId);
       },
     }),
     [store, conversationAgentName, historyActionsEnabled, messageEdit, messageEditPending, handleViewerOpen, translate, membershipLock?.modelName, outputMenu.commands]

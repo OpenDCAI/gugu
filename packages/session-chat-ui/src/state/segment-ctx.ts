@@ -3,7 +3,7 @@ import type { ChatCaches } from '@session-chat/core/caches';
 import { isDoubleColumnLayout } from '@session-chat/core/layout/preset';
 import type { SegmentCtx } from '@session-chat/core/units';
 import type { ChatState } from './chat-state';
-import { turnDiscardedId } from './flatten';
+import { BACKGROUND_TASKS_TOGGLE, turnDiscardedId } from './flatten';
 
 /**
  * The one SegmentCtx the transcript is flattened with. The engine renders with it and find searches with it,
@@ -32,5 +32,10 @@ export function segmentCtxFor(context: ChatContext, state: ChatState, caches: Ch
     terminalExitStatus: (terminalId: string) => state.session.state.terminalExitStatus(terminalId),
     // 这条会话此刻的状态 —— 只有 active 档会读它(flatten 在那一档的末尾发出这一行)。
     condition: () => state.session.state.condition,
+    backgroundTasks: () => {
+      const tasks = state.session.state.backgroundTasks;
+      if (tasks.commands.length === 0 && tasks.subagents.length === 0) return null;
+      return { ...tasks, expanded: state.viewState.isCollapsed(BACKGROUND_TASKS_TOGGLE) };
+    },
   };
 }

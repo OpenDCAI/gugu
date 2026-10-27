@@ -79,6 +79,15 @@ const fallbackMessages = {
   'transcript.mcp': 'MCP',
   'transcript.fetch': 'Fetch',
   'transcript.subagent': 'Subagent',
+  // 列表末尾那一行:还在跑的后台命令 / 子智能体(右上角「摘要」卡去掉之后,它们住在这儿)。
+  'transcript.backgroundCommand': 'Background command',
+  'transcript.backgroundTasks.label': 'Background · {parts}',
+  'transcript.backgroundTasks.commands': '{count} commands',
+  'transcript.backgroundTasks.subagents': '{count} subagents',
+  'transcript.backgroundTasks.steps': '{count} steps',
+  'transcript.backgroundTasks.stopCommand': 'Stop this background command',
+  'transcript.backgroundTasks.stopSubagent': 'Stop this subagent',
+  'transcript.backgroundTasks.dismiss': 'Remove from list (does not stop it)',
   // 转录里这一行是 tool call 形态:一个动词 + 它干了什么(owner 2026-09-05)。
   'transcript.subagentSpawn': 'Launch subagent',
   'transcript.tool': 'Tool',

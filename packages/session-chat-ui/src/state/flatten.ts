@@ -429,6 +429,20 @@ export function flattenTier(
     }
   }
 
+  // 还在跑的后台任务 —— 同样只在 active 档发,贴在列表末尾(在「此刻的状态」那一行之上:
+  // 会话出了状况时,最后一句该是那句状况)。
+  const background = ctx.active ? ctx.backgroundTasks?.() : null;
+  if (background) {
+    processItem({
+      kind: 'background-tasks',
+      // 只有一行,id 不随条目变:单子里多一条、少一条都是同一行在长短,❌ 换一行重挂。
+      id: BACKGROUND_TASKS_ID,
+      commands: background.commands,
+      subagents: background.subagents,
+      expanded: background.expanded,
+    });
+  }
+
   // 这条会话此刻的状态 —— 贴在整个列表**最后一行**（spec `session-always-openable`）。
   //
   // ⚠️ 只在 active 档发：那是最后一档，发在 committed 档会把它埋进历史中间。
@@ -462,6 +476,11 @@ export function toolRunId(turnId: string, firstItemId: string): string {
  * 只是换一个后缀分开命名空间 —— 于是收尾行那颗按钮只要带上 `data-collapse-id`，
  * 走的就是 ChatRoot 里既有的那条点击委派，不必再开一条通路，也不必让宿主接一个回调。
  */
+/** 列表末尾那一行后台任务的 unit id。 */
+export const BACKGROUND_TASKS_ID = 'background-tasks';
+/** 那一行单子展开 / 收起的开关 id(走 ChatRoot 既有的 `data-collapse-id` 点击委派)。 */
+export const BACKGROUND_TASKS_TOGGLE = `${BACKGROUND_TASKS_ID}:open`;
+
 export function turnDiscardedId(turnId: string): string {
   return `${turnId}:discarded`;
 }
