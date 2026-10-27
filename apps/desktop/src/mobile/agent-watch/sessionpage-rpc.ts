@@ -235,6 +235,19 @@ export function cancelSessionTurn(deviceId: string, sessionId: string): Promise<
   return value(rpc(deviceId).sessionTimeline.sessionCancel({ conversationId: sessionId }))
 }
 
+/**
+ * 运行时说还在跑的后台命令(#6582 的筛子,`null` = 那台机器的运行时没报这一格、不筛)。
+ * 老版本电脑没有这条路由 ⇒ 抛;调用方当作「不知道」(不筛、没有停止键),同桌面遇到旧运行时。
+ */
+export function fetchBackgroundTasks(deviceId: string, sessionId: string): Promise<{ runningCommandTaskIds: string[] | null }> {
+  return value(rpc(deviceId).sessionTimeline.sessionBackgroundTasks({ conversationId: sessionId }))
+}
+
+/** 停一个后台任务:命令给 asyncTaskId,子智能体给派它的 tool_use id(同桌面那一行的停止键)。 */
+export function stopBackgroundTask(deviceId: string, sessionId: string, stopId: string): Promise<{ stopped: true }> {
+  return value(rpc(deviceId).sessionTimeline.sessionStopBackgroundTask({ conversationId: sessionId, stopId }))
+}
+
 /** 重命名 / 置顶 / 归档(桌面侧栏同三条)。 */
 export function updateSession(
   deviceId: string,
