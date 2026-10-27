@@ -13,6 +13,7 @@ import { phoneTimelineClient } from '@/mobile/local-agent/phoneTimelineClient'
 import type { AgentAttention } from '@gugu/core/shared/agentStatus'
 import { AgentNeedsUserGlyph } from '../AgentNeedsUserGlyph'
 import { Button } from '../ui/Button'
+import { IconButton } from '../ui/IconButton'
 import { ListRow } from '../ui/ListRow'
 import { SectionLabel } from '../ui/SectionLabel'
 import { Sheet } from '../ui/Sheet'
@@ -22,7 +23,7 @@ import { closeInShell } from '@/session/renderer/features/extensions/install-con
 import { appInstallAskOf } from '@/session/shared/extensions/host-actions'
 import { observer } from 'mobx-react-lite'
 import { followLink } from '@/lib/guguLinks'
-import { ArrowRight } from '@/lib/icons'
+import { ArrowRight, X } from '@/lib/icons'
 import { installShellSlots, readShellSlots } from '@/lib/shellSlots'
 import { NEEDS_YOU_LIST_SLOT_PREFIX, NEEDS_YOU_SLOT_PREFIX } from './NeedsYouSlot'
 import { SidebarSessionLineRow } from '../SidebarSessionLineRow'
@@ -81,7 +82,7 @@ export const NeedsYouHost = observer(function NeedsYouHost({ onAttentionChange }
       </Button>
     </div>, element, key))}
     {shown && <Sheet fullScreenMobile testId="needs-you-sheet" ariaLabel={t('needsYou.title')} onClose={() => setOpened(false)} zIndex="var(--z-settings-modal)" desktopWidth="520px">
-      <PaneHeader title={<h2 className="gg-pane-title">{t('needsYou.title')}<span className="!ml-2 text-[length:var(--font-body)] font-normal text-[var(--text-secondary)]">{tasks.length}</span></h2>} mobile={mobile} divider actions={<Button variant="ghost" onClick={() => setOpened(false)}>{t('dialog.close')}</Button>} />
+      <PaneHeader title={<h2 className="gg-pane-title">{t('needsYou.title')}<span className="!ml-2 text-[length:var(--font-body)] font-normal text-[var(--text-secondary)]">{tasks.length}</span></h2>} mobile={mobile} divider actions={<IconButton aria-label={t('dialog.close')} onClick={() => setOpened(false)}><X size={18} aria-hidden="true" /></IconButton>} />
       <div className="flex min-h-0 flex-col gap-3 overflow-auto !p-4">
         {error && <p role="alert">{error}</p>}
         <div>
