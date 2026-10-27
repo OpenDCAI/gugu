@@ -179,6 +179,9 @@ it('share intake, mixed: text + 3 images + 25 files keep the text and the thumbn
   mount(<Sheet open onClose={() => {}} fullScreenMobile testId="share-intake-sheet"><ShareIntakeContent share={{ text, files: [...images, ...files], failures: [] }} onDone={() => {}} /></Sheet>);
   await until('the chat row is rendered', () => sheet('share-intake-sheet')?.querySelector('[data-share-target]') != null);
   const box = sheet('share-intake-sheet')!;
+  // A translating entrance can round a 56px DOMRect to 55.99993896484375.
+  // Measure the settled surface; keep the exact minimum-size assertions below.
+  await until('the share sheet entrance finishes', () => box.getAnimations().every(animation => animation.playState === 'finished'));
   const textBox = box.querySelector<HTMLElement>('.gg-si-text')!;
   const thumbs = box.querySelector<HTMLElement>('.gg-si-thumbs')!;
   expect.soft(textBox.getBoundingClientRect().height, 'the text keeps its three lines').toBeGreaterThanOrEqual(3 * parseFloat(getComputedStyle(textBox).fontSize));

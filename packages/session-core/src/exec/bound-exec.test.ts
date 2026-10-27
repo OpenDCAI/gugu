@@ -52,6 +52,12 @@ describe('BoundExec', () => {
     });
   });
 
+  it('preserves the native cause when an executable cannot be spawned', async () => {
+    const file = path.join(tmpdir(), 'gugu-nonexistent-executable', 'git');
+    await expect(createBoundExec({ file, cwd: process.cwd() }).exec(['--version']))
+      .rejects.toMatchObject({ file, exitCode: null, cause: { code: 'ENOENT' } });
+  });
+
   it('uses the configured executable path', async () => {
     const dir = await mkdtemp(path.join(tmpdir(), 'emdash-shared-exec-bin-'));
     const logPath = path.join(dir, 'calls.log');

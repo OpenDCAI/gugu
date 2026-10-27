@@ -27,9 +27,9 @@ afterEach(() => {
   vi.unstubAllGlobals()
 })
 describe('MessageBubble touch menu', () => {
-  it('renders previously loaded reactions in the same commit when reopening the menu', async () => {
-    await renderMessage(undefined, false)
-    await contextMenu()
+  it('renders previously loaded mobile reactions in the same commit when reopening the menu', async () => {
+    await renderMessage(undefined, true)
+    await longPress()
     await act(() => { document.dispatchEvent(new CustomEvent(UI_EVENTS.closeContextMenus)) })
     expect(document.querySelector('[role="menu"]')).toBeNull()
     await act(() => {
@@ -38,7 +38,7 @@ describe('MessageBubble touch menu', () => {
     })
   })
   it('copies a text selection made inside the mobile menu\'s select-text view', async () => {
-    const writeText = vi.fn(async () => {})
+    const writeText = vi.fn(async (_text: string) => {})
     Object.defineProperty(navigator, 'clipboard', { value: { writeText }, configurable: true })
     const toast = vi.fn()
     await renderMessage(toast)
@@ -53,7 +53,7 @@ describe('MessageBubble touch menu', () => {
     expect(toast).toHaveBeenCalledWith('已复制', 'success')
   })
   it('routes native in-menu Copy through the same clipboard feedback', async () => {
-    const writeText = vi.fn(async () => {})
+    const writeText = vi.fn(async (_text: string) => {})
     Object.defineProperty(navigator, 'clipboard', { value: { writeText }, configurable: true })
     const toast = vi.fn()
     await renderMessage(toast)
@@ -67,16 +67,27 @@ describe('MessageBubble touch menu', () => {
     expect(writeText).toHaveBeenCalledWith('hello')
     expect(toast).toHaveBeenCalledWith('已复制', 'success')
   })
-  it('copies only the URL when long-pressing a link', async () => {
-    const writeText = vi.fn(async () => {})
+  it('keeps external-link copying without resource actions on ordinary messages', async () => {
+    const writeText = vi.fn(async (_text: string) => {})
     Object.defineProperty(navigator, 'clipboard', { value: { writeText }, configurable: true })
     const toast = vi.fn()
     await renderMessage(toast, true, vi.fn(), { content: 'before https://example.com/path?copy=1025 after' })
     await longPress(messageBubble().querySelector('a')!)
     expect(document.querySelector('[data-testid="message-action-openLink"]')).not.toBeNull()
+    expect(document.querySelector('[data-testid="message-action-copy-resource-url"]')).toBeNull()
+    expect(document.querySelector('[data-testid="message-action-send-resource-url"]')).toBeNull()
     await clickElement(document.querySelector('[data-testid="message-action-copyLink"]')!)
-    expect(writeText).toHaveBeenCalledWith('https://example.com/path?copy=1025')
-    expect(toast).toHaveBeenCalledWith('已复制', 'success')
+    expect(writeText).toHaveBeenLastCalledWith('https://example.com/path?copy=1025')
+  })
+  it('offers one resource pair for an attachment file and copies its pinned version', async () => {
+    const writeText = vi.fn(async (_text: string) => {})
+    Object.defineProperty(navigator, 'clipboard', { value: { writeText }, configurable: true })
+    await renderMessage(undefined, true, vi.fn(), { content: '[附件] notes.txt (text/plain)\n[Size] 12\n[Kind] file', file: { id: '12345678-1234-1234-1234-123456789abc', version: 3 } })
+    await longPress()
+    expect(document.querySelectorAll('[data-testid="message-action-copy-resource-url"]')).toHaveLength(1)
+    expect(document.querySelectorAll('[data-testid="message-action-send-resource-url"]')).toHaveLength(1)
+    await clickElement(document.querySelector('[data-testid="message-action-copy-resource-url"]')!)
+    expect(writeText).toHaveBeenCalledWith('gugu-file://12345678-1234-1234-1234-123456789abc?v=3')
   })
   it('opens a link through its existing anchor action', async () => {
     await renderMessage(undefined, true, vi.fn(), { content: 'before https://example.com/path after' })
@@ -100,11 +111,11 @@ describe('MessageBubble touch menu', () => {
     expect(onQuote).toHaveBeenCalledWith(expect.objectContaining({ id: 'msg-1', content: 'hello from mobile' }))
     expect(document.querySelector('[role="menu"]')).toBeNull()
   })
-  it('keeps frequency-ordered reactions in the desktop menu and calls the existing reaction action', async () => {
+  it('keeps frequency-ordered mobile reactions and calls the existing reaction action', async () => {
     localStorage.setItem('gugu.reaction-frequency', JSON.stringify({ '🚀': 9, '👀': 3 }))
     const onReaction = vi.fn()
-    await renderMessage(undefined, false, onReaction)
-    await contextMenu()
+    await renderMessage(undefined, true, onReaction)
+    await longPress()
     const group = document.querySelector('[role="group"][aria-label="快速回应"]')!
     const buttons = [...group.querySelectorAll<HTMLButtonElement>('[role="menuitem"]')]
     expect(buttons.map((button) => button.textContent)).toEqual(['🚀', '👀', '👍', '❤️', '😂', '✅', ''])
@@ -114,7 +125,7 @@ describe('MessageBubble touch menu', () => {
     expect(document.querySelector('[role="menu"]')).toBeNull()
   })
   it('copies the captured message selection after menu focus clears the DOM selection', async () => {
-    const writeText = vi.fn(async () => {})
+    const writeText = vi.fn(async (_text: string) => {})
     Object.defineProperty(navigator, 'clipboard', { value: { writeText }, configurable: true })
     await renderMessage(undefined, false)
     selectMessageText('hello')
@@ -133,7 +144,7 @@ describe('MessageBubble touch menu', () => {
     expect(onQuote).toHaveBeenCalledWith(expect.objectContaining({ id: 'msg-1', content: 'hello' }))
   })
   it('ignores a selection outside the message and retains whole-message copying', async () => {
-    const writeText = vi.fn(async () => {})
+    const writeText = vi.fn(async (_text: string) => {})
     Object.defineProperty(navigator, 'clipboard', { value: { writeText }, configurable: true })
     await renderMessage(undefined, false)
     const outside = document.createTextNode('unrelated selection')
@@ -350,17 +361,28 @@ describe('MessageBubble touch menu', () => {
     expect(liftEnd.defaultPrevented, '长按的松手不取消 ⇒ 合成的 click 落到菜单外或某一行上').toBe(true)
     expect(document.body.querySelector('[data-testid="message-action-menu"]')).not.toBeNull()
   })
-  it('desktop right click keeps one pointer menu with reply, existing actions and no sheet', async () => {
-    await renderMessage(undefined, false)
-    await contextMenu()
-    expect(document.body.querySelector('[data-testid="message-action-selectText"]'), '桌面能直接选字,不给「选择文本」').toBeNull()
-    expect(document.body.querySelectorAll('[role="menu"]')).toHaveLength(1)
-    const items = [...document.body.querySelectorAll('[role="menuitem"]')].filter((el) => !el.closest('[role="group"]')).map((el) => el.textContent?.trim())
-    expect(items).toEqual(['回复', '复制文本', '转发', '删除'])
+  it.each(['context', 'more'])('keeps desktop %s menus action-only while retaining the hover reaction entry', async (entry) => {
+    const onQuote = vi.fn()
+    await renderMessage(undefined, false, vi.fn(), { onQuote })
+    const row = messageBubble().closest('[data-message-bubble-row]')!
+    const over = new MouseEvent('pointerover', { bubbles: true })
+    Object.defineProperty(over, 'pointerType', { value: 'mouse' })
+    await act(async () => { row.dispatchEvent(over); row.dispatchEvent(new MouseEvent('mouseenter')); vi.advanceTimersByTime(TOOLTIP_OPEN_DELAY_MS) })
+    expect(document.querySelector('button[title="表情回应"]')).not.toBeNull()
+    if (entry === 'more') await clickElement(document.querySelector('[data-testid="message-hover-actions"] button[aria-label="更多"]')!)
+    else await contextMenu()
+    expect(document.querySelector('[data-testid="message-action-selectText"]')).toBeNull()
+    expect(document.querySelectorAll('[role="menu"]')).toHaveLength(1)
+    expect(document.querySelector('[aria-label="快速回应"]')).toBeNull()
+    expect(document.querySelector('[aria-label="更多表情"]')).toBeNull()
+    expect([...document.querySelectorAll('[role="menuitem"]')].map((el) => el.textContent?.trim())).toEqual(['回复', '复制文本', '转发', '删除'])
+    await clickElement(menuItem('回复'))
+    expect(onQuote).toHaveBeenCalledWith(expect.objectContaining({ id: 'msg-1' }))
+    expect(document.querySelector('[role="menu"]')).toBeNull()
   })
-  it('expands More inside the desktop menu without dismissing it or opening another surface', async () => {
-    await renderMessage(undefined, false)
-    await contextMenu()
+  it('expands More inside the mobile menu without dismissing it or opening another surface', async () => {
+    await renderMessage(undefined, true)
+    await longPress()
     await clickElement(document.querySelector('[aria-label="更多表情"]') as HTMLElement)
     await act(async () => { await vi.dynamicImportSettled() })
     expect(document.querySelectorAll('[role="menu"]')).toHaveLength(1)
@@ -421,6 +443,7 @@ async function renderMessage(
   onReaction = vi.fn(),
   options: {
     content?: string
+    file?: { id: string; version: number }
     isMine?: boolean
     isAgent?: boolean
     isGroup?: boolean
@@ -438,6 +461,7 @@ async function renderMessage(
       msg: message({
         id: 'msg-1',
         content: options.content ?? 'hello from mobile',
+        ...(options.file ? { content_type: 'attachment', file_item_id: options.file.id, file_version: options.file.version } as const : {}),
         is_mine: isMine,
         sender_user_id: 'sender-1',
         created_at: '2026-05-24T00:00:00.000Z',

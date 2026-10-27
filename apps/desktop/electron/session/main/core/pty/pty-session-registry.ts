@@ -230,11 +230,11 @@ export class PtySessionRegistry {
    * 新一代的第一个字节起就在,它的快照涵盖新一代已经到的全部输出,一字不漏。等的时候注销了 ⇒ 交已切到的这份
    * (退出前最后那几句在里面)。一开始就没有屏幕(还没起 PTY / 已注销)⇒ null。
    */
-  private async currentSnapshot(ptySessionId: string): Promise<PtyScreenSnapshot | null> {
+  private async currentSnapshot(ptySessionId: string, options?: { scrollback?: number }): Promise<PtyScreenSnapshot | null> {
     for (;;) {
       const screen = this.screens.get(ptySessionId);
       if (!screen) return null;
-      const snapshot = await screen.snapshot();
+      const snapshot = await screen.snapshot(options);
       const now = this.screens.get(ptySessionId);
       if (now === screen || now === undefined) return snapshot;
     }
@@ -253,6 +253,11 @@ export class PtySessionRegistry {
     const snapshot = await this.currentSnapshot(ptySessionId);
     if (!snapshot) return { buffer: '', live: '', size: this.lastSizes.get(ptySessionId) ?? null };
     return { buffer: snapshot.data, live: snapshot.live, size: snapshot.size };
+  }
+
+  /** 只有此刻这一屏(不带回滚)的快照:别的电脑上看着的终端落后太多时,用它代替积压的输出(remote-pty-pacer.ts)。 */
+  screenSnapshot(ptySessionId: string): Promise<PtyScreenSnapshot | null> {
+    return this.currentSnapshot(ptySessionId, { scrollback: 0 });
   }
 
   private disposeScreen(ptySessionId: string): void {

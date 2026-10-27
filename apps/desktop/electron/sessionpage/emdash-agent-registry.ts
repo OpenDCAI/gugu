@@ -506,7 +506,9 @@ class EmdashAgentRegistry {
       if (nativeMissing) throw error
       const afterFailure = await bridge.emdashSessionSummaries()
       const current = afterFailure.find((candidate) => candidate.sessionId === sessionId)
-      if (!current || current.lifecycle === 'closed') return false
+      // Native admission can discover a dead executor after the liveness read. Hand the
+      // unaccepted message back to the same wake owner as an already-lost session.
+      if (!current || current.lifecycle === 'closed' || current.lifecycle === 'lost') return false
       throw error
     }
   }

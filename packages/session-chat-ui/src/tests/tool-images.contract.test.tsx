@@ -7,6 +7,10 @@
  * 点一张 = 交给宿主的看图器,整组图、从这张起。
  */
 
+import { createSignal } from 'solid-js'
+import { render } from 'solid-js/web'
+import { CommandsContext } from '@session-chat/components/contexts/CommandsContext'
+import { Tool } from '@session-chat/components/rows/tools/tool/Tool'
 import { ROW_H } from '@session-chat/components/engine/row-metrics'
 import { toolGroupUnitDef } from '@session-chat/components/rows/tools/tool-group/tool-group.def'
 import { toolUnitDef } from '@session-chat/components/rows/tools/tool/tool.def'
@@ -14,7 +18,8 @@ import {
   TOOL_THUMB_H,
   TOOL_THUMB_MAX,
   TOOL_THUMB_STRIP_H,
-  TOOL_THUMB_W
+  TOOL_THUMB_W,
+  toolThumbStrip
 } from '@session-chat/components/rows/tools/tool/tool-images'
 import type { ChatCommands } from '@session-chat/commands'
 import type { ChatToolCall } from '@session-chat/model'
@@ -113,6 +118,16 @@ describe('工具交回来的图:量出来的高 = 画出来的高,一张图多�
     expect(narrow.inspected.more).toBe(3)
   })
 
+  it('lazy picture references reserve the same strip before bytes arrive', async () => {
+    const lazy = tool('lazy-pictures', { imageCount: 12, transportNote: 'Output preview shortened.' })
+    const ctx = makeContractCtx({ width: WIDTH, isCollapsed: id => id === lazy.id })
+    const reading = await renderAndMeasureUnit(toolUnitDef, lazy, ctx, readStrip)
+    expect(reading.dom).toBe(reading.computed)
+    expect(reading.inspected.boxes).toBe(TOOL_THUMB_MAX)
+    expect(reading.inspected.more).toBe(12 - TOOL_THUMB_MAX)
+    expect(reading.spill).toBe(0)
+  })
+
   it('一组里的子调用交了图:组量出来的高也算上那一条', async () => {
     const group: ItemNode = {
       item: tool('contract-images-group', { name: 'Read', status: 'running' }),
@@ -158,5 +173,51 @@ describe('点一张缩略图', () => {
     expect(calls[0]).toMatchObject({ urls: many, index: 3, itemId: manyLarge.id, source: 'tool-result' })
     expect(calls[0].thumb).toBe(thumb)
     expect(inToggle).toBe(0)
+  })
+})
+
+describe('transport picture loading', () => {
+  it('waits for the shared viewport, resolves the gallery on click, and clears recycled row pictures', async () => {
+    const host = document.createElement('div')
+    Object.assign(host.style, { position: 'fixed', top: '100000px', left: '0', width: '180px' })
+    document.body.appendChild(host)
+    const requests: string[] = []
+    const viewed: Parameters<NonNullable<ChatCommands['onViewImages']>>[0][] = []
+    let finishNext!: (value: string | null) => void
+    const commands: ChatCommands = {
+      resolveToolImage: async (id, index) => {
+        requests.push(id + ':' + index)
+        return id === 'next-picture' ? new Promise<string | null>(resolve => { finishNext = resolve }) : four[index]
+      },
+      onViewImages: arg => viewed.push(arg),
+    }
+    const [item, setItem] = createSignal(tool('lazy-picture', { imageCount: four.length }))
+    const dispose = render(() => (
+      <CommandsContext.Provider value={() => commands}>
+        <Tool item={item()} collapsible={false} expanded={false}
+          thumbs={toolThumbStrip(item().imageCount ?? 0, NARROW_WIDTH)}
+          payload={null} codeLineH={20} />
+      </CommandsContext.Provider>
+    ), host)
+    const paint = () => new Promise<void>(resolve => requestAnimationFrame(() => requestAnimationFrame(() => resolve())))
+    try {
+      await paint()
+      expect(requests).toEqual([])
+      host.style.top = '0px'
+      await expect.poll(() => requests).toEqual(['lazy-picture:0'])
+      await expect.poll(() => host.querySelector('img')?.getAttribute('src')).toBe(four[0])
+      host.querySelector<HTMLButtonElement>('button')!.click()
+      await expect.poll(() => viewed.length).toBe(1)
+      expect(viewed[0]).toMatchObject({ urls: four, index: 0, itemId: 'lazy-picture' })
+      expect(requests).toEqual(four.map((_, i) => 'lazy-picture:' + i))
+      setItem(tool('next-picture', { imageCount: 1 }))
+      await expect.poll(() => requests.at(-1)).toBe('next-picture:0')
+      expect(host.querySelector('img')?.getAttribute('src')).toBeNull()
+      finishNext(four[1])
+      await expect.poll(() => host.querySelector('img')?.getAttribute('src')).toBe(four[1])
+    } finally {
+      dispose()
+      host.remove()
+    }
   })
 })

@@ -1,7 +1,6 @@
 // @@@5856 话题分栏的纯函数 —— 单独一个文件是 react-refresh 的要求(一个文件只导出组件),
 // 也让引文的取法能被单独判真假。
 import type { MessageItem } from '@gugu/core/shared/types/chat'
-import { CHAT_AREA_MIN_WIDTH } from './useMessageColumnMinWidth'
 
 /** 引用条的文本:与主线同形(一行引文 + 省略)。引用的是话题里的一句话,所以它留在分栏自己的输入框上。 */
 export function quotePrefixOf(message: Pick<MessageItem, 'content'>): string {
@@ -54,15 +53,15 @@ export const TOPIC_SPLIT_DEFAULT_WIDTH = 340
 export const TOPIC_SPLIT_MIN_WIDTH = 280
 export const TOPIC_SPLIT_MAX_WIDTH = 720
 /**
- * 拖到头时左边主聊天区仍要留住的宽度 = 中栏自己的理想下限 CHAT_AREA_MIN_WIDTH(380)。
+ * 拖到头时左边主聊天区仍要留住的理想宽度 = 380。
  *
- * ⚠️ 这里原先写的是 **740**,那是 useMessageColumnMinWidth 注释里「中栏 380 + 右栏 360」的**和**,
+ * ⚠️ 这里原先写的是 **740**,那是「中栏 380 + 右栏 360」的**和**,
  * 不是中栏的保留额。后果是在 1280 宽的窗口上(聊天区实宽约 980):
  *   上限 = min(720, max(280, 980-740=240)) = 280 = 下限 ⇒ **这条分割线一格都拖不动**,
  *   而且它连 data-dragging 都照常翻成 true,看起来像在拖、实际数字纹丝不动。
  * owner 2026-09-19 实测:「这条线也拖不动啊」。
  */
-export const TOPIC_SPLIT_HOST_MIN_WIDTH = CHAT_AREA_MIN_WIDTH
+export const TOPIC_SPLIT_HOST_MIN_WIDTH = 380
 
 export function clampTopicSplitWidth(width: number): number {
   if (!Number.isFinite(width)) return TOPIC_SPLIT_DEFAULT_WIDTH

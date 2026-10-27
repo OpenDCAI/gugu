@@ -15,7 +15,6 @@ import type { AssistantChatHandlers } from '@/components/assistant/AssistantChat
 import { useAssistantTyping } from '@/components/assistant/useAssistantTyping'
 import { AssistantConversationProgress } from '@/components/assistant/AssistantConversationProgress'
 import { useBackLayer } from '@/components/ui/sheetStack'
-import { appendDraft } from '@/lib/assistantDraft'
 import type { AssistantHomePlace } from '@/lib/assistantHome'
 import { assistantTintHue, assistantTintStyle } from '@/lib/assistantTint'
 import { scheduleComposerFocus } from '@/lib/focusComposer'
@@ -142,7 +141,7 @@ function MobileAssistantAppContent({
   useEffect(() => {
     if (chatRequest > 0) setRoute({ tab: 'chat' })
   }, [chatRequest])
-  const { setDraft, draftAttachments, setDraftAttachments } = useChatStore('setDraft', 'draftAttachments', 'setDraftAttachments')
+  const { writeDraft, draftAttachments, setDraftAttachments } = useChatStore('writeDraft', 'draftAttachments', 'setDraftAttachments')
   const attachmentsRef = useRef(draftAttachments)
   attachmentsRef.current = draftAttachments
   const [ideasOpen, setIdeasOpen] = useState(false)
@@ -164,14 +163,14 @@ function MobileAssistantAppContent({
   }, [open])
   const askInChat = useCallback(
     (draft: string, files?: File[]) => {
-      if (draft) setDraft(chatId, (previous) => appendDraft(previous, draft))
+      if (draft) writeDraft(chatId, { at: 'end', text: draft })
       if (files?.length) {
         const queued = attachmentsRef.current[chatId] ?? []
         setDraftAttachments(chatId, [...queued, ...files.map((file) => ({ id: crypto.randomUUID(), file, kind: inferAttachmentKind(file) }))])
       }
       openChat()
     },
-    [chatId, openChat, setDraft, setDraftAttachments],
+    [chatId, openChat, writeDraft, setDraftAttachments],
   )
 
   const name = assistant.display_name

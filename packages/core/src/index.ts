@@ -64,6 +64,7 @@ export type {
   ImportedTranscript,
   ImportedTranscriptTurn,
   LocalTranscriptSession,
+  TranscriptContext,
   TranscriptSource
 } from './shared/types/transcripts'
 export {

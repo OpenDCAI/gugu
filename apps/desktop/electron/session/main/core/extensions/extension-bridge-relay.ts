@@ -136,7 +136,7 @@ function requireHostWindow(): ExtensionHostWindowChannel {
 async function deliver(
   origin: ExtensionHostActionOrigin & { embedderId: number | null },
   action: ExtensionHostAction
-): Promise<void> {
+): Promise<ExtensionHostActionResult> {
   if (origin.embedderId === null) {
     throw new Error('This surface is not embedded in a renderer that can act on its behalf');
   }
@@ -144,11 +144,12 @@ async function deliver(
     origin: { extensionId: origin.extensionId, sessionId: origin.sessionId, tabId: origin.tabId },
     action,
   };
-  await requireHostWindow().invokeRendererExtensions(
+  const result = await requireHostWindow().invokeRendererExtensions(
     EXTENSION_HOST_ACTION_METHOD,
     command,
     origin.embedderId
   );
+  return (result as { opened?: ExtensionHostActionResult }).opened;
 }
 
 export const extensionBridgeRelayHost: ExtensionBridgeHost = {

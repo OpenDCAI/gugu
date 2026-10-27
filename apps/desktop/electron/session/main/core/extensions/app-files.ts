@@ -33,6 +33,7 @@ import {
   type LocalPlace,
   type ChatPeekFile,
   type PeekTarget,
+  type PreparedChatFile,
 } from '@shared/extensions/app-runtime-protocol';
 import { extensionsService } from '@main/core/extensions/extensions-root';
 import { currentAccountAccessToken, resolveAccountFile, publishAccountFile } from '@main/core/extensions/account-token';
@@ -100,6 +101,7 @@ export { AppFileError, type FileSurface };
  * call for it, or a page it works (owner 10-14).
  */
 export interface DesktopFilePage {
+  takeOpening?: () => PreparedChatFile | undefined;
   pageId: number;
   extensionId: string;
   handed: (AppFileRef & { id: string }) | null;
@@ -138,6 +140,7 @@ const files = createAppFiles({
   hasCapability: (extensionId, capability) => extensionsService().hasCapability(extensionId, capability),
   sync: fileSync,
   claimant,
+  appIdentity: (id) => extensionsService().identityOf(id),
   async identities(token, ids) {
     return (await accounts(token, ids)).map((user) => ({
       id: user.id,
@@ -259,14 +262,15 @@ const withId = (ref: AppFileRef, what: string): AppFileRef & { id: string } => {
   return ref;
 };
 
-export async function openAppFile(page: DesktopFilePage, args: { ref?: unknown; readOnly?: boolean }): Promise<AppFileOpened> {
+export async function openAppFile(page: DesktopFilePage, args: { ref?: unknown; readOnly?: boolean; appData?: boolean; deferDetails?: boolean; expectedVersion?: number }): Promise<AppFileOpened> {
   const ref = fileRefOf(args.ref);
   const readOnly = args.readOnly === true ? { readOnly: true } : {};
+  if (!isChat(ref) && args.appData) throw new AppFileError('invalid', 'App data metadata belongs to chat files');
   const elsewhere = isChat(ref) ? null : await fileElsewhere(page, ref as LocalFileRef);
   // Another machine's file comes as its bytes, read only, whatever it is: no live document across machines.
   if (elsewhere) return { entry: elsewhere.entry, docName: '', access: 'ro', self: await files.self(), bytes: elsewhere.bytes.slice().buffer };
   return isChat(ref)
-    ? files.open(chatSurface(page), { ref, ...readOnly })
+    ? files.open(chatSurface(page), { ref, ...readOnly, appData: args.appData === true, deferDetails: args.deferDetails === true, ...(typeof args.expectedVersion === 'number' ? { expectedVersion: args.expectedVersion } : {}) }, page.takeOpening?.())
     : local.open(await localFolder(page, ref), { ref: ref as LocalFileRef, ...readOnly });
 }
 
@@ -301,6 +305,12 @@ export async function listAppFiles(page: DesktopFilePage, args: { place?: unknow
 }
 
 /** Across every chat whoever the page works as is in (`files:read`, checked at the door): by a piece of the path; opened last. */
+export async function appFileViewPreferences(_page: DesktopFilePage, args: { place?: unknown; showAppData?: boolean }) {
+  const place = placeOf(args.place);
+  if (!('chat' in place)) throw new AppFileError('invalid', 'Folder preferences belong to a chat');
+  return files.viewPreferences(place.chat, args.showAppData);
+}
+
 export async function searchAppFiles(page: DesktopFilePage, args: unknown): Promise<AppFileEntry[]> {
   return files.search(fileSearchOf(args), { asAgent: page.asAgent ?? null });
 }
@@ -326,11 +336,12 @@ function noSourceMessagesInWorkingCopy(sourceMessageIds: unknown): void {
 
 export async function createAppFile(
   page: DesktopFilePage,
-  args: { place?: unknown; name: string; content: string; contentType?: string; sourceMessageIds?: unknown; folder?: unknown },
+  args: { place?: unknown; name: string; content: string; contentType?: string; sourceMessageIds?: unknown; folder?: unknown; appData?: boolean },
 ): Promise<AppFileEntry> {
   const place = placeOf(args.place);
   const file = { name: args.name, content: args.content, ...(args.contentType ? { contentType: args.contentType } : {}) };
-  if ('chat' in place) return files.create(place.chat, { ...file, sourceMessageIds: args.sourceMessageIds, folder: args.folder }, { asAgent: page.asAgent ?? null });
+  if ('chat' in place) return files.create(place.chat, { ...file, sourceMessageIds: args.sourceMessageIds, folder: args.folder, appData: args.appData === true }, { asAgent: page.asAgent ?? null, extensionId: page.extensionId });
+  if (args.appData) throw new AppFileError('invalid', 'App data metadata belongs to chat files');
   noSourceMessagesInWorkingCopy(args.sourceMessageIds);
   noFoldersInWorkingCopy(folderOf(args.folder));
   return local.create(await localFolder(page, place), file);
@@ -424,9 +435,8 @@ export function appChatFile(chatId: string, extensionId: string) {
  * own ways in (an App card's 「Open」, a file link).
  */
 export function openerChoice(typedName: string, ask = false) {
-  const service = extensionsService();
-  const manifests = service.list().extensions.filter((entry) => service.isEnabled(entry.manifest.id)).map((entry) => entry.manifest);
-  const defaults = service.openWithDefaults();
+  const manifests = enabledApps().map((entry) => entry.manifest);
+  const defaults = extensionsService().openWithDefaults();
   return chatOpenerChoice(typedName, manifests, 'chat', (key) => defaults[key] ?? null, ask);
 }
 
@@ -440,7 +450,7 @@ export async function openWithTarget(
   page: DesktopFilePage,
   args: { ref?: unknown; ask?: boolean; peek?: boolean },
 ): Promise<
-  | { kind: 'chat'; target: { chatId: string; itemId: string; name: string; typedName: string; file: ChatPeekFile } }
+  | { kind: 'chat'; target: { chatId: string; itemId: string; name: string; typedName: string; file: ChatPeekFile; opening?: PreparedChatFile } }
   | { kind: 'session' }
   | { kind: 'peek'; target: Extract<PeekTarget, { kind: 'local' }> }
 > {

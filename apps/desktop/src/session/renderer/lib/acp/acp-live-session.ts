@@ -1,3 +1,4 @@
+import type { HistoryCursor } from '@gugu/session-core/acp/client';
 import {
   agentStateSchema,
   planStateSchema,
@@ -145,12 +146,20 @@ export class AcpLiveSession {
       data: {
         turns: result.data.turns,
         nextCursor: result.data.nextCursor,
+        cursor: result.data.cursor,
+        reset: result.data.reset,
+        count: result.data.count,
       },
     };
   }
 
-  getHistory(before?: number, limit = 50): Promise<Result<HistoryPage, unknown>> {
-    return this.client.getHistory({ sessionId: this.sessionId, before, limit });
+  /** `changedSince`:只要这个改动游标之后新增或改过的回合(@@@history-change-cursor),忽略 before / limit。 */
+  getHistory(before?: number, limit = 50, changedSince?: HistoryCursor): Promise<Result<HistoryPage, unknown>> {
+    return this.client.getHistory({ sessionId: this.sessionId, before, limit, ...(changedSince === undefined ? {} : { changedSince }) });
+  }
+
+  getToolImage(itemId: string, index: number) {
+    return this.client.getToolImage({ sessionId: this.sessionId, itemId, index });
   }
 
   exportTranscript(): Promise<Result<string, unknown>> {

@@ -74,6 +74,8 @@ export interface RailApp {
 
 export class InstalledExtensionsStore {
   manifests: ExtensionManifest[] = [];
+  /** Optional per-App metadata, read with the inventory; unreadable entries have no variant picker. */
+  variants: NonNullable<InstalledExtensionsList['variants']> = {};
   /** Bundles present but unreadable — surfaced rather than silently skipped. */
   invalid: { dirName: string; reason: string }[] = [];
   /** Tab kind → host-rendered icon. Absent means the tab draws the generic mark. */
@@ -234,6 +236,7 @@ export class InstalledExtensionsStore {
     if (!this.updates) return 0;
     const ids = new Set<string>([
       ...Object.keys(this.updates.updates).filter((id) => this.isEnabled(id)),
+      ...Object.keys(this.updates.forkBehind ?? {}).filter((id) => this.isEnabled(id)),
       ...Object.keys(this.updates.yanked),
       ...Object.keys(this.updates.deprecated),
     ]);
@@ -314,6 +317,7 @@ export class InstalledExtensionsStore {
     const { extensions, invalid, icons, appIcons, disabled, autoUpdateOff, quit, dock, disclosure, origins, openWith, publishers } = list;
     runInAction(() => {
       this.manifests = extensions;
+      this.variants = list.variants ?? {};
       this.invalid = invalid;
       this.icons = icons ?? {};
       this.appIcons = appIcons ?? {};

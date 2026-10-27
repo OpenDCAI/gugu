@@ -38,6 +38,7 @@ const gugu = {
   onLink: vi.fn(() => () => {}),
   showMessage: vi.fn(async () => {}),
   files: {
+    viewPreferences: vi.fn(async () => ({ showAppData: false })),
     list: vi.fn((place: { chat: string }) => new Promise<Entry[]>((done) => lists.push({ chat: place.chat, answered: false, answer: done }))),
     onChanged: vi.fn((_place: unknown, fn: typeof heard) => {
       heard = fn

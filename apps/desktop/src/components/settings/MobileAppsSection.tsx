@@ -1,5 +1,6 @@
 import { messageForUser } from '@/lib/userFacingError';
 import { followLink } from '../../lib/guguLinks'
+import type { AppDetailLink } from '@gugu/core/shared/ui/guguLink'
 import { useEffect, useRef, useState } from 'react'
 import { observer } from 'mobx-react-lite'
 import { QueryClientProvider, useQuery, useQueryClient } from '@tanstack/react-query'
@@ -36,11 +37,11 @@ const MARKET_KEY = ['phone-app-market']
 const log = rendererLogger('settings/mobile-apps')
 
 /** The phone supplies storage and actions; browsing and product pages are the desktop's components. */
-export function MobileAppsSection() {
-  return <QueryClientProvider client={queryClient}><MobileAppsContent /></QueryClientProvider>
+export function MobileAppsSection({ appDetail }: { appDetail?: AppDetailLink }) {
+  return <QueryClientProvider client={queryClient}><MobileAppsContent appDetail={appDetail} /></QueryClientProvider>
 }
 
-const MobileAppsContent = observer(function MobileAppsContent() {
+const MobileAppsContent = observer(function MobileAppsContent({ appDetail }: { appDetail?: AppDetailLink }) {
   const { translate, locale } = useSessionMessages()
   const { theme } = useTheme()
   const skin = sessionSkinClassName(theme)
@@ -55,6 +56,15 @@ const MobileAppsContent = observer(function MobileAppsContent() {
   const inFlight = useRef(false)
   const [failed, setFailed] = useState<{ title: string; cause: string } | null>(null)
   const [layer, setLayer] = useState<HTMLDivElement | null>(null)
+  const openedLink = useRef<AppDetailLink | undefined>(undefined)
+  useEffect(() => {
+    if (!appDetail || !catalog.data || openedLink.current === appDetail) return
+    openedLink.current = appDetail
+    const item = phoneMarketRows(catalog.data.entries, '').find(item => item.manifest.id === appDetail.extensionId)
+    if (item) setDetail(item)
+    else setFailed({ title: translate('extensions.marketUnavailable'), cause: appDetail.extensionId })
+  }, [appDetail, catalog.data, translate])
+
   const sentinel = useRef<HTMLDivElement | null>(null)
   const rows = phoneMarketRows(catalog.data?.entries ?? [], query.trim())
   const hasMore = pages * MARKET_PAGE_SIZE < rows.length

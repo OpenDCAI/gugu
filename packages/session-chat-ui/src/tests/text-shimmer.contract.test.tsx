@@ -78,8 +78,11 @@ it('keeps one semantic label, its geometry and live text while animating only tr
 it('pauses outside the viewport, on retained surfaces, and when the host window hides', async () => {
   const { host } = mount();
   await until('the shimmer starts', () => host.dataset.shimmerVisible === 'true');
+  const animations = host.getAnimations({ subtree: true });
+  expect(animations).toHaveLength(4);
   window.dispatchEvent(new CustomEvent('__window_seen', { detail: false }));
-  expect(host.dataset.shimmerVisible).toBe('true');
+  expect(host.dataset.shimmerVisible).toBeUndefined();
+  expect(host.getAnimations({ subtree: true })).toEqual(animations);
   expect(host.getAnimations({ subtree: true }).every((animation) => animation.playState === 'paused')).toBe(true);
   window.dispatchEvent(new CustomEvent('__window_seen', { detail: true }));
   expect(host.dataset.shimmerVisible).toBe('true');

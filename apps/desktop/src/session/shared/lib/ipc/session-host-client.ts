@@ -440,7 +440,8 @@ export function createSessionHostClient(open: SessionHostPipeOpener, options: Se
           if (code !== 'unreachable') {
             warn('会话页宿主连不上', { error: String(error) })
             options.onOpenFailed?.(error)
-            scheduleRetry()
+            // A protocol mismatch needs an upgraded endpoint; retrying the same versions cannot repair it.
+            if (code !== 'client_outdated' && code !== 'server_outdated') scheduleRetry()
           }
         }
         // 开线失败的原因码(那台机器的咕咕 server 太旧 / SSH 要先登录……)带给调用方,界面按码说人话;原文只进日志。

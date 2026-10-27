@@ -278,15 +278,14 @@ export const MessageBubble = memo(function MessageBubble({
     }
   }, [showMenu, showMoreMenu, showEmojiPicker])
 
-  // 同一份动作:桌面挂在悬停条 ⋯ 与右键菜单上,手机挂在长按面板上。每个动作做完就关掉打开它的那个面。
   const messageActions = (close: () => void) => ({
-    isMine: msg.is_mine, isRetracted: !!msg.retracted_at, content: msg.content, onClose: close,
+    isMine: msg.is_mine, isRetracted: !!msg.retracted_at, content: msg.content, hasHoverBar: !compactMobile, onClose: close,
     onReply: () => { onQuote(msg); close() },
     onReact: (emoji: string) => { onReaction(msg.id, emoji); close() },
     onQuoteSelection: menuSelection && msg.content_type === 'text' ? () => { onQuote({ ...msg, content: menuSelection }); close() } : undefined,
     onCopy: (content = menuSelection || undefined) => { void handleCopyText(content); close() },
-    onCopyLink: menuLink ? () => { void handleCopyText(menuLink.href); close() } : undefined,
-    onOpenLink: menuLink ? () => { menuLink.click(); close() } : undefined,
+    resource: mediaAttachment?.source.kind === 'item' ? { kind: 'file' as const, target: { kind: 'file' as const, itemId: mediaAttachment.source.itemId, version: mediaAttachment.source.version } } : undefined,
+    onCopyLink: menuLink ? () => { void handleCopyText(menuLink.href); close() } : undefined, onOpenLink: menuLink ? () => { menuLink.click(); close() } : undefined,
     onForward: () => { onForward(msg); close() },
     onDownload: mediaAttachment && mediaAttachment.source.kind !== 'gone' ? () => { void downloadAttachment(mediaAttachment.source, mediaAttachment.fileName).catch((error) => toast(t('chatArea.downloadFailed'), 'error', safeFailureLine(String((error as Error)?.message ?? error)))); close() } : undefined,
     onDelete: () => { onDelete(msg.id); close() },

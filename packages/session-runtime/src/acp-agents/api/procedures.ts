@@ -1,3 +1,5 @@
+import { trimCursorPageForTransport } from '@gugu/session-core/session-record';
+import type { HistoryCursor } from '@gugu/session-core/acp/client';
 import type {
   AcpAttachmentError,
   AcpCancelTurnError,
@@ -48,10 +50,11 @@ export function createAcpProcedures(runtime: AcpRuntime) {
     }): Promise<Result<{ providerSessionId: string }, AcpStartSessionError>> {
       return runtime.startSession(input.input);
     },
-    resumeSession(input: {
+    async resumeSession(input: {
       input: StartSessionInput & { providerSessionId: string };
     }): Promise<Result<ResumeResult, AcpResumeSessionError>> {
-      return runtime.resumeSession(input.input);
+      const result = await runtime.resumeSession(input.input);
+      return result.success ? ok(trimCursorPageForTransport(result.data)) : result;
     },
     stopSession(input: {
       sessionId: string;
@@ -239,12 +242,23 @@ export function createAcpProcedures(runtime: AcpRuntime) {
     deleteAttachment(input: { id: string }): Promise<Result<void, AcpAttachmentError>> {
       return runtime.deleteAttachment(input.id);
     },
+    getToolImage(input: { sessionId: string; itemId: string; index: number }) {
+      return ok(runtime.getToolImage(input.sessionId, input.itemId, input.index));
+    },
     getHistory(input: {
       sessionId: string;
       before?: number;
       limit: number;
+      changedSince?: HistoryCursor;
     }): Result<HistoryPage, AcpGetHistoryError> {
-      return runtime.getHistory(input.sessionId, input.before, input.limit);
+      const result = runtime.getHistory(input.sessionId, input.before, input.limit, input.changedSince);
+      if (!result.success) return result;
+      const page = trimCursorPageForTransport(result.data);
+      // Reuse cursor reset when a reconnect gap exceeds a page. Never advance past
+      // omitted changes; bootstrap the latest page and leave older turns pageable.
+      return ok(input.changedSince !== undefined && page.turns.length < result.data.turns.length
+        ? { ...page, turns: [], nextCursor: null, reset: true }
+        : page);
     },
   };
 }

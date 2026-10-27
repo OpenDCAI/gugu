@@ -172,8 +172,9 @@ describe('profile_whoami / message_conversations against the migrated database',
     const ownerLeft = await group(stranger, 'Owner left', [[owner, 'member']])
     await db.query("INSERT INTO chat.chat_members (chat_id,user_id,role,listen_mode) VALUES ($1,$2,'member','passive')", [ownerLeft, self])
     await db.query('DELETE FROM chat.chat_members WHERE chat_id = $1 AND user_id = $2', [ownerLeft, owner])
-    // New owner departures also remove their Agents; recreate the supported legacy Agent-only seat.
-    expect((await db.query('SELECT 1 FROM chat.chat_members WHERE chat_id = $1 AND user_id = $2', [ownerLeft, self])).rows).toHaveLength(0)
+    expect((await db.query('SELECT user_id FROM chat.chat_members WHERE chat_id = $1 AND user_id = $2', [ownerLeft, self])).rows).toEqual([])
+    // New owner departures carry their Agents. Restore a legacy Agent-only group seat;
+    // existing seats are retained and must still be read under the Agent's identity.
     await db.query("INSERT INTO chat.chat_members (chat_id,user_id,role,listen_mode) VALUES ($1,$2,'member','passive')", [ownerLeft, self])
     const notMine = await group(stranger, 'Not mine', [[strangerAgent, 'member']])
 

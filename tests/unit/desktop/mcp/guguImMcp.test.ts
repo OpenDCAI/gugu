@@ -73,6 +73,15 @@ function sparseFixture(name: string, size: number): string {
   return full
 }
 
+function replyHistory(h: ReturnType<typeof harness>, rows: Array<Record<string, unknown>>) {
+  const restRpc = h.deps.restRpc
+  h.deps.restRpc = async (name, body, profile) => {
+    if (name !== 'message_history_as') return restRpc(name, body, profile)
+    h.calls.rpcs.push([name, body])
+    return rows
+  }
+}
+
 function harness(members: string[] = [], groupPrompt: string | null = null) {
   let currentGroupPrompt = groupPrompt
   const workspaceRows: Array<Record<string, unknown>> = [
@@ -1328,6 +1337,7 @@ describe('gugu 原子工具 MCP server（#1060 SDK 迁移 → #4191 原子化）
     ]
     function addressedHarness() {
       const h = harness(['agent-1', ...directory.map((member) => member.id)])
+      replyHistory(h, [{ id: 'm-peer', sender_user_id: 'agent-long', is_whisper: false }])
       const restGet = h.deps.restGet
       h.deps.restGet = async (path: string) => {
         if (path.startsWith('users?id=in.')) return directory
@@ -1471,14 +1481,8 @@ describe('gugu 原子工具 MCP server（#1060 SDK 迁移 → #4191 原子化）
   })
   test.each(['dm', 'ai'])('%s direct reply derives its recipient from the same-chat source and unique peer', async (kind) => {
     const h = harness(['agent-1', 'owner-1'])
-    const restGet = h.deps.restGet
+    replyHistory(h, [{ id: 'source-message', sender_user_id: 'owner-1', is_whisper: false }])
     const restRpc = h.deps.restRpc
-    h.deps.restGet = async (path: string) => {
-      if (path.startsWith('messages?id=eq.source-message&chat_id=eq.00000000-0000-4000-8000-000000000001')) {
-        return [{ chat_id: '00000000-0000-4000-8000-000000000001', sender_user_id: 'owner-1' }]
-      }
-      return restGet(path)
-    }
     // @@@5856 kind 改从 chat_facts 这条按 actor 的 RPC 读(见 chatFactsOf 的注释)。
     h.deps.restRpc = async (name: string, body: Record<string, unknown>, profile?: string) => (
       name === 'chat_facts' ? [{ id: '00000000-0000-4000-8000-000000000001', kind, source_chat_id: null, group_prompt: null }] : restRpc(name, body, profile)
@@ -1503,6 +1507,7 @@ describe('gugu 原子工具 MCP server（#1060 SDK 迁移 → #4191 原子化）
   })
   test('group reply requires explicit recipients even when a source message exists', async () => {
     const h = harness(['agent-1', 'owner-1'])
+    replyHistory(h, [{ id: 'source-message', sender_user_id: 'owner-1', is_whisper: false }])
     const restRpc = h.deps.restRpc
     h.deps.restRpc = async (name: string, body: Record<string, unknown>, profile?: string) => (
       name === 'chat_facts' ? [{ id: '00000000-0000-4000-8000-000000000001', kind: 'group', source_chat_id: null, group_prompt: null }] : restRpc(name, body, profile)
@@ -1535,7 +1540,7 @@ describe('gugu 原子工具 MCP server（#1060 SDK 迁移 → #4191 原子化）
       name: 'source outside the chat',
       members: ['agent-1', 'owner-1'],
       source: [],
-      error: 'must belong to this chat and its unique peer',
+      error: 'reply source is unavailable in this chat',
     },
     {
       name: 'non-unique peer membership',
@@ -1545,12 +1550,8 @@ describe('gugu 原子工具 MCP server（#1060 SDK 迁移 → #4191 原子化）
     },
   ])('exact DM reply fails before insertion for $name', async ({ members, source, error }) => {
     const h = harness(members)
-    const restGet = h.deps.restGet
+    replyHistory(h, source.map((row) => ({ ...row, id: 'source-message', is_whisper: false })))
     const restRpc = h.deps.restRpc
-    h.deps.restGet = async (path: string) => {
-      if (path.startsWith('messages?id=eq.source-message&chat_id=eq.00000000-0000-4000-8000-000000000001')) return source
-      return restGet(path)
-    }
     h.deps.restRpc = async (name: string, body: Record<string, unknown>, profile?: string) => (
       name === 'chat_facts' ? [{ id: '00000000-0000-4000-8000-000000000001', kind: 'dm', source_chat_id: null, group_prompt: null }] : restRpc(name, body, profile)
     )
@@ -1570,12 +1571,8 @@ describe('gugu 原子工具 MCP server（#1060 SDK 迁移 → #4191 原子化）
   })
   test('agent DM reply also validates its same-chat source and unique peer', async () => {
     const h = harness(['agent-1', 'owner-1', 'other-1'])
-    const restGet = h.deps.restGet
+    replyHistory(h, [{ id: 'source-message', sender_user_id: 'owner-1', is_whisper: false }])
     const restRpc = h.deps.restRpc
-    h.deps.restGet = async (path: string) => {
-      if (path.startsWith('messages?id=eq.source-message&chat_id=eq.00000000-0000-4000-8000-000000000001')) return []
-      return restGet(path)
-    }
     h.deps.restRpc = async (name: string, body: Record<string, unknown>, profile?: string) => (
       name === 'chat_facts' ? [{ id: '00000000-0000-4000-8000-000000000001', kind: 'ai', source_chat_id: null, group_prompt: null }] : restRpc(name, body, profile)
     )
@@ -2597,9 +2594,63 @@ describe('message_send whisper (#6835)', () => {
   // 回复预览本来就按读的人可见性给,挂着不漏任何东西。
   test('a whisper may reply to a message', async () => {
     const h = harness(['agent-1', 'alice'])
+    replyHistory(h, [{ id: 'm1', sender_user_id: 'alice', is_whisper: false }])
     const r = await send(h, { whisper: true, to_user_ids: ['user:alice'], reply_to_message_id: 'msg:m1' })
     expect(text(r)).toMatch(/^replied/)
     expect(h.calls.inserts[0][1]).toMatchObject({ is_whisper: true, to_user_ids: ['alice'], reply_to_message_id: 'm1' })
+  })
+
+  test.each([
+    { sender_user_id: 'alice', to_user_ids: ['agent-1'] },
+    { sender_user_id: 'agent-1', to_user_ids: ['alice'] },
+  ])('inherits the private pair for $sender_user_id → $to_user_ids without requiring recipients', async (pair) => {
+    const h = harness(['agent-1', 'alice', 'bob'])
+    replyHistory(h, [{ id: 'm1', ...pair, is_whisper: true }])
+    const restGet = vi.fn(h.deps.restGet)
+    h.deps.restGet = restGet
+    const r = await send(h, { reply_to_message_id: 'msg:m1' })
+    expect(r.isError).not.toBe(true)
+    expect(h.calls.inserts[0][1]).toMatchObject({ is_whisper: true, to_user_ids: ['alice'], reply_to_message_id: 'm1' })
+    expect(h.calls.rpcs).toContainEqual(['message_history_as', expect.objectContaining({ p_as_user_id: 'agent-1', p_chat_id: '00000000-0000-4000-8000-000000000001' })])
+    expect(restGet.mock.calls.some(([path]) => path.startsWith('messages?id=eq.m1'))).toBe(false)
+  })
+  test('only whisper:false makes a reply to a whisper public', async () => {
+    const h = harness(['agent-1', 'alice'])
+    replyHistory(h, [{ id: 'm1', sender_user_id: 'alice', to_user_ids: ['agent-1'], is_whisper: true }])
+    const r = await send(h, { reply_to_message_id: 'msg:m1', to_user_ids: ['user:alice'], whisper: false })
+    expect(r.isError).not.toBe(true)
+    expect(h.calls.inserts[0][1]).toMatchObject({ to_user_ids: ['alice'], reply_to_message_id: 'm1' })
+    expect(h.calls.inserts[0][1]).not.toHaveProperty('is_whisper')
+  })
+  test('refuses a whisper reply whose original peer is unavailable', async () => {
+    const h = harness(['agent-1', 'alice'])
+    replyHistory(h, [{ id: 'm1', sender_user_id: null, to_user_ids: ['agent-1'], is_whisper: true }])
+    const r = await send(h, { reply_to_message_id: 'msg:m1' })
+    expect(r.isError).toBe(true)
+    expect(text(r)).toContain('cannot resolve the participants')
+    expect(h.calls.inserts).toEqual([])
+  })
+  test('refuses old history responses without privacy metadata instead of publishing', async () => {
+    const h = harness(['agent-1', 'alice'])
+    replyHistory(h, [{ id: 'm1', sender_user_id: 'alice', to_user_ids: ['agent-1'] }])
+    const r = await send(h, { reply_to_message_id: 'msg:m1', to_user_ids: ['user:alice'] })
+    expect(text(r)).toContain('update the backend')
+    expect(h.calls.inserts).toEqual([])
+  })
+  test('reads older reply sources through the same paginated agent history', async () => {
+    const h = harness(['agent-1', 'alice'])
+    const base = h.deps.restRpc
+    const historyCalls: Record<string, unknown>[] = []
+    h.deps.restRpc = async (name, body, profile) => {
+      if (name !== 'message_history_as') return base(name, body, profile)
+      historyCalls.push(body)
+      return body.p_before_seq === null
+        ? Array.from({ length: 100 }, (_, i) => ({ id: `newer-${i}`, seq: 200 - i, is_whisper: false }))
+        : [{ id: 'm1', seq: 100, sender_user_id: 'alice', to_user_ids: ['agent-1'], is_whisper: true }]
+    }
+    expect((await send(h, { reply_to_message_id: 'msg:m1' })).isError).not.toBe(true)
+    expect(historyCalls.map((body) => body.p_before_seq)).toEqual([null, 101])
+    expect(h.calls.inserts[0][1]).toMatchObject({ is_whisper: true, to_user_ids: ['alice'] })
   })
 
   // 私聊里不另拦:两个人的私聊漏不出去,判据只在库里一处(gugu-supabase #84 不按 chat 种类拦)。

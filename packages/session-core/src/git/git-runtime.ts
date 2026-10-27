@@ -1,6 +1,6 @@
 import path from 'node:path';
 import { err, ok, type Lease, type Result } from '@gugu/session-shared';
-import type { BoundExec } from '../exec';
+import { ExecError, type BoundExec } from '../exec';
 import { KeyedMutex, ResourceMap } from '../lib';
 import type { IWatchService } from '../services/fs-watch/api';
 import { nativeWatchBackend } from '../services/fs-watch/impl/native-backend';
@@ -260,7 +260,13 @@ export class GitRuntime implements IGitRuntime {
       const { stdout } = await exec(['rev-parse', '--is-inside-work-tree']);
       if (stdout.trim() !== 'true') return { kind: 'not-repository', path: resolvedPath };
     } catch (error) {
-      if (isNotRepositoryInspectionError(error)) {
+      // Git is optional for folder projects. A missing executable uses the same
+      // Gitless path as a non-repository; other inspection failures stay errors.
+      if (
+        isNotRepositoryInspectionError(error) ||
+        (error instanceof ExecError && error.cause instanceof Error &&
+          'code' in error.cause && error.cause.code === 'ENOENT')
+      ) {
         return { kind: 'not-repository', path: resolvedPath };
       }
       return {

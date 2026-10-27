@@ -123,7 +123,7 @@ export function personalAssistantContext(capabilities: Materialization, kind: As
       ...capabilities.sessionNewPatch,
       meta: {
         ...meta,
-        ...(startup?.ownerId ? { guguAssistant: { ownerId: startup.ownerId } } : {}),
+      ...(startup ? { guguAssistant: { idleCompaction: true, ...(startup.ownerId ? { ownerId: startup.ownerId } : {}) } } : {}),
         claudeCode: {
           ...claude,
           options: {

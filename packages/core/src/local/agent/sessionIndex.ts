@@ -62,6 +62,10 @@ export interface LocalSessionIndexOptions extends TranscriptScanOptions {
 }
 
 export interface LocalSessionQuery {
+  /** Exact directory/path filters, shared by the import source and read-only App API. */
+  cwd?: string
+  filePath?: string
+  offset?: number
   /** 只要某个引擎的会话；不传 = 全部。 */
   source?: TranscriptSource
   /** 关键词：对标题与所在文件夹做「空格分词、逐词都要命中」的大小写不敏感匹配。 */
@@ -284,9 +288,12 @@ export function createLocalSessionIndex(options: LocalSessionIndexOptions): Loca
   ): { rows: LocalTranscriptSession[]; matched: number } {
     const matching = rows
       .filter((row) => (query.source ? row.source === query.source : true))
+      .filter((row) => query.cwd === undefined || row.cwd === query.cwd)
+      .filter((row) => query.filePath === undefined || row.filePath === query.filePath)
       .filter((row) => matchesQuery(row, terms))
       .sort((a, b) => b.updatedAt - a.updatedAt)
-    return { rows: matching.slice(0, query.limit ?? 100), matched: matching.length }
+    const offset = query.offset ?? 0
+    return { rows: matching.slice(offset, offset + (query.limit ?? 100)), matched: matching.length }
   }
 
   return {

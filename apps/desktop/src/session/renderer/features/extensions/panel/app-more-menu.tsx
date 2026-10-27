@@ -9,6 +9,8 @@ import {
   DropdownMenuTrigger,
 } from '@renderer/lib/ui/dropdown-menu';
 import type { SessionTranslate } from '../extension-consent';
+import { resourceMenuItems } from '@/lib/resourceActions';
+import type { ResourceContext } from '@shared/resource-actions';
 
 /**
  * 装着的 App 那颗 ⋯(#7059,原型「每行一个开关和 ⋯(钉到左栏、在新窗口打开、停用、卸载)」;产品页头上同一颗)。
@@ -28,6 +30,7 @@ export function AppMoreMenu({
   autoUpdate,
   onUninstall,
   testId,
+  resource,
 }: {
   name: string;
   enabled: boolean;
@@ -41,9 +44,11 @@ export function AppMoreMenu({
   autoUpdate?: { on: boolean; onToggle: (on: boolean) => void };
   onUninstall?: () => void;
   testId?: string;
+  resource?: ResourceContext;
 }) {
   const label = translate('extensions.moreActions', { name });
   const top = [
+    ...(resource ? resourceMenuItems(resource).map(item => <DropdownMenuItem key={item.id} onClick={() => void item.click()}>{item.label}</DropdownMenuItem>) : []),
     onToggleDock && (
       <DropdownMenuItem key="dock" onClick={onToggleDock}>
         {translate(docked ? 'extensions.unpinFromRail' : 'extensions.pinToRail')}

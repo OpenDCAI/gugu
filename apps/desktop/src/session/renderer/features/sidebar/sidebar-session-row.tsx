@@ -225,15 +225,8 @@ export function SessionRowShell({
               ❌ 也别再把「这一行是键盘光标 / 被选中」加回判据(#5818):点一行就会把键盘光标同步过去,
               那等于让选中的那一行从此常驻两枚钮。显隐的完整配方与两层为什么必须一起改,见
               sidebar-primitives 的 sidebarRowActionsSlotClass。 */}
-          {/* owner #6: hover 时右侧浮出「置顶 / 归档」。两者叠放在同一个 relative 容器里 ——
-          时间负责占位,按钮绝对定位盖上去并交叉淡入,这样 hover 时行宽不变、内容不抖。
-          动作车道至少容下两枚按钮,标题在自己的容器里裁切,不会伸到按钮底下。
-          车道留透明,直接透出行的状态和 macOS 窗口材质;实色遮罩无法复现原生材质,会露出矩形补丁。 */}
-          {/* 有定时的行,hover 层多一枚钟(见下):车道从两枚钮的 52px 留到三枚的 80px(3 × 24 + 2 × 4),标题滚到末尾时才不被盖住。 */}
-          <span
-            data-row-hover-actions
-            className={cn(sidebarRowActionsSlotClass, quickActions && (scheduleAtRest ? 'min-w-20' : 'min-w-13'))}
-          >
+          {/* Only the visible time/status or action layer reserves width; the shared title observer follows it. */}
+          <span data-row-hover-actions className={sidebarRowActionsSlotClass}>
             {/* 命中区(owner 实机:「可点击区域覆盖的不对」):
               · 行高 32px 内直接容纳 24px 按钮,不再用上下 padding 把内容区压成 20px 后靠溢出显示;
               · TooltipTrigger 通过 render 复用唯一按钮,避免外层 trigger button 包住可见 button 后分裂命中区;
