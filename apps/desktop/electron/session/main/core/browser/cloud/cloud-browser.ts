@@ -7,7 +7,7 @@ import { agentSessionContext } from '@main/core/extensions/extension-agent-conte
 import { log } from '@main/lib/logger';
 import type { AgentBrowserBridgeShape } from '../agent-browser';
 import { CdpHub, type CdpEvent } from './cdp-hub';
-import { findChrome, findDisplay, launchChrome, type LaunchedChrome } from './chrome';
+import { findChrome, launchChrome, openDisplay, type LaunchedChrome } from './chrome';
 import { createCloudPageTransport } from './page-transport';
 import { CredentialStore, fillLogin, readPasswordValues, siteOf, type Credential, type FillResult } from './vault';
 import type {
@@ -187,7 +187,7 @@ export class CloudBrowser {
   private async start(): Promise<CdpHub> {
     const binary = this.binary();
     if (!binary) throw new Error('there is no Chrome or Chromium on this computer, so there is no browser to drive');
-    const display = findDisplay(this.env);
+    const { display, stop: stopDisplay } = await openDisplay(this.env);
     const account = this.env.GUGU_SERVER_ACCOUNT?.trim() || 'default';
     let chrome: LaunchedChrome | null = null;
     chrome = await launchChrome({
@@ -197,6 +197,8 @@ export class CloudBrowser {
       display,
       env: this.env,
       onExit: (reason) => {
+        // Its own Xvfb goes with it (failed starts included: they end in this exit too).
+        stopDisplay();
         if (chrome && this.launched?.chrome === chrome) this.ended(reason);
       },
     });

@@ -6,7 +6,8 @@ import path from 'node:path';
  * #7199 云电脑上 agent 用的那个 Chrome:咕咕 server 自己拉起、自己收掉,一个账号一个。
  *
  * - 用机器上装好的 Chrome / Chromium(AgentBay `linux_latest` 自带 /usr/bin/google-chrome);没有就照实说,❌ 去下载一个。
- * - 有图形桌面(X 显示)就开有界面的:无头模式的 UA 带 `HeadlessChrome`,登录页的风控先拦它;没有桌面才无头。
+ * - 开有界面的:无头模式的 UA 带 `HeadlessChrome`,登录页的风控先拦它。环境给了 DISPLAY 就开在那上面,否则起一块自己的
+ *   Xvfb(openDisplay);连 Xvfb 都没有才无头。实时画面走 CDP screencast(live-server.ts),与开在哪块显示上无关。
  * - 资料夹在账号的数据目录里(随云电脑存档走:睡一觉醒来登录还在),缓存放 ~/.cache(存档不收;见 linkCachesOut)。
  * - 调试端口只开在 127.0.0.1、端口由系统给(写进 DevToolsActivePort);桌面经远程隧道看的不是这个端口,
  *   是 live-server.ts 那一个。
@@ -27,8 +28,12 @@ function isExecutable(file: string, fsImpl: ChromeFs): boolean {
 export function findChrome(env: NodeJS.ProcessEnv, fsImpl: ChromeFs = fs): string | null {
   const pinned = env.GUGU_CLOUD_BROWSER_CHROME?.trim();
   if (pinned) return isExecutable(pinned, fsImpl) ? pinned : null;
+  return onPath(CHROME_CANDIDATES, env, fsImpl);
+}
+
+function onPath(names: readonly string[], env: NodeJS.ProcessEnv, fsImpl: ChromeFs): string | null {
   for (const dir of (env.PATH ?? '').split(path.delimiter).filter(Boolean)) {
-    for (const name of CHROME_CANDIDATES) {
+    for (const name of names) {
       const file = path.join(dir, name);
       if (isExecutable(file, fsImpl)) return file;
     }
@@ -36,22 +41,34 @@ export function findChrome(env: NodeJS.ProcessEnv, fsImpl: ChromeFs = fs): strin
   return null;
 }
 
-/** 有界面开在哪个 X 显示上:环境里的 DISPLAY,否则这台机器上第一个 X 套接字(云电脑的桌面是 :1);都没有 = 无头。 */
-export function findDisplay(env: NodeJS.ProcessEnv, fsImpl: ChromeFs = fs, socketDir = '/tmp/.X11-unix'): string | null {
+export type OwnDisplay = { display: string | null; stop: () => void };
+
+/**
+ * Chrome 开在哪块 X 显示上:环境里的 DISPLAY;没有就起一块只给它用的 Xvfb(空号由 Xvfb 自己挑,-nolisten tcp),
+ * 跟着这个 Chrome 停(stop);机器上没有 Xvfb = 无头(display null)。❌ 去 /tmp/.X11-unix 里借一块:共用的机器上那是别人的
+ * 显示,别人一关 Chrome 跟着断,或者没有它的授权(Lane asks A/B,10-27)。
+ */
+export async function openDisplay(env: NodeJS.ProcessEnv, fsImpl: ChromeFs = fs, timeoutMs = 10_000): Promise<OwnDisplay> {
   const fromEnv = env.DISPLAY?.trim();
-  if (fromEnv) return fromEnv;
-  let entries: string[];
-  try {
-    entries = fsImpl.readdirSync(socketDir) as unknown as string[];
-  } catch {
-    return null;
-  }
-  const numbers = entries
-    .map((name) => /^X(\d+)$/.exec(String(name))?.[1])
-    .filter((n): n is string => !!n)
-    .map(Number)
-    .sort((a, b) => a - b);
-  return numbers.length > 0 ? `:${numbers[0]}` : null;
+  if (fromEnv) return { display: fromEnv, stop: () => {} };
+  const xvfb = onPath(['Xvfb'], env, fsImpl);
+  if (!xvfb) return { display: null, stop: () => {} };
+  const child = spawn(xvfb, ['-displayfd', '3', '-nolisten', 'tcp', '-screen', '0', `${CHROME_WINDOW.width}x${CHROME_WINDOW.height}x24`], {
+    env,
+    stdio: ['ignore', 'ignore', 'ignore', 'pipe'],
+  });
+  const stop = () => { if (child.exitCode === null && child.signalCode === null) child.kill(); };
+  const number = await new Promise<string>((resolve, reject) => {
+    let read = '';
+    const timer = setTimeout(() => reject(new Error(`Xvfb did not report its display within ${timeoutMs} ms`)), timeoutMs);
+    (child.stdio[3] as NodeJS.ReadableStream).on('data', (chunk: Buffer) => {
+      read += chunk.toString();
+      if (read.includes('\n')) { clearTimeout(timer); resolve(read.trim()); }
+    });
+    child.once('exit', (code, signal) => { clearTimeout(timer); reject(new Error(`Xvfb exited (${signal ?? code}) before reporting its display`)); });
+    child.once('error', (error) => { clearTimeout(timer); reject(error); });
+  }).catch((error: unknown) => { stop(); throw error; });
+  return { display: `:${number}`, stop };
 }
 
 /** 视口按 16:9 设计(1280×720 内容);有界面时窗口外框另加。 */

@@ -42,7 +42,7 @@ vi.mock('@main/core/extensions/extension-agent-context', () => ({ agentSessionCo
 vi.mock('@main/lib/logger', () => ({ log: { info: vi.fn(), warn: vi.fn(), debug: vi.fn() } }));
 vi.mock('./chrome', () => ({
   findChrome: () => '/test/chrome',
-  findDisplay: () => null,
+  openDisplay: async () => ({ display: null, stop: () => {} }),
   launchChrome: async ({ onExit }: { onExit: (reason: string) => void }) => {
     const child = Object.assign(new EventEmitter(), { exitCode: null as number | null, signalCode: null });
     const finish = () => { child.exitCode = 0; child.emit('exit'); onExit('fixture Chrome exited'); };
