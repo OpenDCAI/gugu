@@ -2,7 +2,7 @@ import { RadioGroup, RadioGroupItem } from '@renderer/lib/ui/radio-group';
 import type { ExtensionVariant } from '@shared/extensions/variants';
 import type { SessionTranslate } from '../extension-consent';
 import { useTranslation } from 'react-i18next';
-import { Copy, Bot, MessageSquare, CheckCircle } from '@/lib/icons';
+import { Copy, Users, MessageSquare, CheckCircle } from '@/lib/icons';
 import { ResourceHelp } from '@/components/ResourceHelp';
 import { ResourceMenu } from '@/components/ResourceMenu';
 import type { ResourceContext } from '@shared/resource-actions';
@@ -31,7 +31,7 @@ export function AppVariantList({
   return (
     <section className="mk-dsec" data-testid="app-variants">
       <h3 className="flex items-center gap-1">{translate('extensions.variants')}<ResourceHelp title={t('resources.helpTitle')} description={t('resources.helpDescription')} frames={[
-        { label: t('resources.helpCopy'), picture: <Copy /> }, { label: t('resources.helpSend'), picture: <Bot /> },
+        { label: t('resources.helpCopy'), picture: <Copy /> }, { label: t('resources.helpSend'), picture: <Users /> },
         { label: t('resources.helpAsk'), picture: <MessageSquare /> }, { label: t('resources.helpConfirm'), picture: <CheckCircle /> },
       ]} /></h3>
       <RadioGroup
