@@ -8,16 +8,17 @@ import { setEmbedVisible } from '../../../../apps/desktop/src/session/renderer/l
 import { NeedsYouSlot } from '../../../../apps/desktop/src/components/needsYou/NeedsYouSlot'
 import { installShellSlots } from '../../../../apps/desktop/src/lib/shellSlots'
 import { NeedsYouHost } from '../../../../apps/desktop/src/components/needsYou/NeedsYouHost'
+import { assistantTimelineClient } from '../../../../apps/desktop/src/components/assistant/assistantTimelineClient'
+import { phoneTimelineClient } from '../../../../apps/desktop/src/mobile/local-agent/phoneTimelineClient'
 
 const state = vi.hoisted(() => ({ tasks: [] as unknown[], settlements: {} as Record<string, unknown>, link: 'ok', mobile: false, pages: [] as { projectId: string; sessionId: string }[], wholePage: true, tab: 'acp-chat' }))
 const followLink = vi.hoisted(() => vi.fn())
 const close = vi.hoisted(() => vi.fn())
 const respond = vi.hoisted(() => vi.fn(async () => undefined))
 const timeline = vi.hoisted(() => vi.fn((..._args: unknown[]) => ({ timeline: { settlements: state.settlements }, phase: 'ready', link: state.link, respond })))
-vi.mock('@/components/needsYou/useNeedsYouTasks', () => ({ useNeedsYouTasks: () => ({ tasks: state.tasks, error: null }) }))
+vi.mock('@/components/needsYou/useNeedsYouTasks', () => ({ useNeedsYouTasks: () => ({ tasks: state.tasks, attention: state.tasks.length ? 'needs_user' : null, error: null }) }))
 vi.mock('@/hooks/useMobileShell', () => ({ useMobileShell: () => state.mobile }))
 vi.mock('@/mobile/agent-watch/use-timeline-session', () => ({ useTimelineSession: timeline }))
-vi.mock('@/components/assistant/assistantTimelineClient', () => ({ assistantTimelineClient: () => ({}) }))
 vi.mock('@/lib/guguLinks', () => ({ followLink }))
 vi.mock('@/session/renderer/app/sessions-on-screen', () => ({ sessionPagesOnScreen: () => state.pages, sessionPageOnScreen: () => state.wholePage }))
 vi.mock('@/session/renderer/features/sessions/stores/session-selectors', () => ({ getSessionView: () => ({ paneLayout: { groups: [{ pane: { activeEntry: { kind: state.tab, state: { sessionId: 'task' } } } }] } }) }))
@@ -107,6 +108,18 @@ it('records a phone answer using the existing mobile responder identity', async 
   await open()
   expect(timeline.mock.calls.at(-1)?.[1]).toBe('mobile')
 })
+it.each([
+  { mobile: false, phoneHost: true, local: false },
+  { mobile: true, phoneHost: true, local: false },
+  { mobile: true, phoneHost: false, local: false },
+  { mobile: false, phoneHost: false, local: true },
+])('selects the real host client independently of the viewing shell (%j)', async ({ mobile, phoneHost, local }) => {
+  state.mobile = mobile
+  state.tasks = [{ deviceId: 'target', machine: 'Target', phoneHost, local, session: { conversationId: 'task', title: 'Review action', runtime: 'acp', supported: true } }]
+  await open()
+  expect(timeline.mock.calls.at(-1)?.[0]).toBe(phoneHost ? phoneTimelineClient : assistantTimelineClient(local))
+  expect(timeline.mock.calls.at(-1)?.slice(1)).toEqual([mobile ? 'mobile' : 'desktop', 'target', 'task', true])
+})
 
 it.each([false, true])('opens the task from its quiet source link without answering (mobile=%s)', async mobile => {
   state.mobile = mobile
@@ -170,26 +183,26 @@ it('has no floating entry on a page without a composer slot', async () => {
 })
 
 it('reports waiting tasks to the existing rail even when the current task has its own approval', async () => {
-  const onNeedsUserChange = vi.fn()
+  const onAttentionChange = vi.fn()
   state.pages = [{ projectId: 'project', sessionId: 'task' }]
-  await renderWithAppProviders(harness, <NeedsYouHost onNeedsUserChange={onNeedsUserChange} />)
-  expect(onNeedsUserChange).toHaveBeenLastCalledWith(true)
+  await renderWithAppProviders(harness, <NeedsYouHost onAttentionChange={onAttentionChange} />)
+  expect(onAttentionChange).toHaveBeenLastCalledWith('needs_user')
   expect(document.querySelector('[data-testid="needs-you-trigger"]')).toBeNull()
   state.tasks = []
-  await renderWithAppProviders(harness, <NeedsYouHost onNeedsUserChange={onNeedsUserChange} />)
-  expect(onNeedsUserChange).toHaveBeenLastCalledWith(false)
+  await renderWithAppProviders(harness, <NeedsYouHost onAttentionChange={onAttentionChange} />)
+  expect(onAttentionChange).toHaveBeenLastCalledWith(null)
 })
 
 it('shows local and remote pending tasks in the phone list with the existing sidebar warning mark', async () => {
   state.mobile = true
   state.tasks.push({ deviceId: 'local', machine: 'This computer', local: true, session: { conversationId: 'local-task', title: 'Review local task', projectId: 'project', runtime: 'acp', supported: true, lastInteractedAt: null } })
-  const onNeedsUserChange = vi.fn()
-  await renderWithAppProviders(harness, <><NeedsYouSlot list /><NeedsYouHost onNeedsUserChange={onNeedsUserChange} /></>)
+  const onAttentionChange = vi.fn()
+  await renderWithAppProviders(harness, <><NeedsYouSlot list /><NeedsYouHost onAttentionChange={onAttentionChange} /></>)
   const rows = document.querySelectorAll('[data-needs-you-list-slot] [data-session-line]')
   expect([...rows].map(row => row.getAttribute('data-session-line'))).toEqual(['task', 'local-task'])
   expect([...rows].every(row => row.querySelector('[data-agent-status-glyph="needs_user"]'))).toBe(true)
   expect([...rows].every(row => row.getAttribute('data-mobile') === 'true')).toBe(true)
-  expect(onNeedsUserChange).toHaveBeenLastCalledWith(true)
+  expect(onAttentionChange).toHaveBeenLastCalledWith('needs_user')
   expect(document.querySelector('[data-testid="needs-you-trigger"]')).toBeNull()
   await act(async () => { (rows[1] as HTMLElement).click() })
   expect(followLink).toHaveBeenCalledWith({ kind: 'session', sessionId: 'local-task' })
@@ -198,12 +211,12 @@ it('shows local and remote pending tasks in the phone list with the existing sid
 
 it('withdraws the phone warning row and rail signal together after the last pending task resolves', async () => {
   state.mobile = true
-  const onNeedsUserChange = vi.fn()
-  const surface = <><NeedsYouSlot list /><NeedsYouHost onNeedsUserChange={onNeedsUserChange} /></>
+  const onAttentionChange = vi.fn()
+  const surface = <><NeedsYouSlot list /><NeedsYouHost onAttentionChange={onAttentionChange} /></>
   await renderWithAppProviders(harness, surface)
   expect(document.querySelector('[data-needs-you-list-slot] [data-agent-status-glyph="needs_user"]')).not.toBeNull()
   state.tasks = []
   await renderWithAppProviders(harness, surface)
   expect(document.querySelector('[data-needs-you-list-slot] [data-session-line]')).toBeNull()
-  expect(onNeedsUserChange).toHaveBeenLastCalledWith(false)
+  expect(onAttentionChange).toHaveBeenLastCalledWith(null)
 })

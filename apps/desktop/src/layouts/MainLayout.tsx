@@ -1,4 +1,5 @@
 import { messageForUser } from '@/lib/userFacingError';
+import type { AgentAttention } from '@gugu/core/shared/agentStatus'
 import { notify } from '../lib/notices'
 import { Sheet } from '../components/ui/Sheet'
 import { PaneHeader } from '../components/ui/Pane'
@@ -163,9 +164,8 @@ function InnerLayout({
     !sessionHostAvailable || readMobileShell() ? 'chats' : 'tasks',
   )
   useSessionpageReveal(setActiveTab)
-  // @@@sessionpage otty-state — the most urgent way a 会话页 agent is blocked on the human (needs_user over error),
-  // pushed from the session backend; dots the 消息 rail cell so a stuck agent is visible without opening the session page.
-  const [needsUser, setNeedsUser] = useState(false)
+  // The same live task directory drives pending actions and the existing rail attention priority.
+  const [sessionAttention, setSessionAttention] = useState<AgentAttention>(null)
   const [mobilePane, setMobilePane] = useState<'list' | 'chat'>('list')
   const [settingsModalOpen, setSettingsModalOpen] = useState(false)
   // @@@1507 设置面板初始 section;侧栏「额度」直接开到 quota,齿轮入口回 account。
@@ -1189,7 +1189,7 @@ function InnerLayout({
           onTabChange={selectTab}
           settingsOpen={settingsModalOpen}
           pendingContactsCount={pendingRequestCount}
-          sessionAttention={needsUser ? 'needs_user' : null}
+          sessionAttention={sessionAttention}
         />
       )}
 
@@ -1253,7 +1253,7 @@ function InnerLayout({
                       activeTab={activeTab}
                       mobile={mobile}
                       hidden={chatListHidden}
-                      lead={mobile && (phoneAssistant.available || needsUser) ? <>{phoneAssistant.available && <PhoneAssistantRow state={phoneAssistant} onOpen={openPhoneAssistant} />}<NeedsYouSlot list /></> : undefined}
+                      lead={mobile && (phoneAssistant.available || sessionAttention === 'needs_user') ? <>{phoneAssistant.available && <PhoneAssistantRow state={phoneAssistant} onOpen={openPhoneAssistant} />}<NeedsYouSlot list /></> : undefined}
                       leadChatId={phoneAssistant.chatId}
                       headerLeading={mobile ? <PhoneMeButton user={user} onOpen={() => selectTab('settings')} /> : undefined}
                       onChatSelected={(focusTarget = 'composer') => navigateMobile(() => {
@@ -1463,7 +1463,7 @@ function InnerLayout({
       <ExtensionForwardHost />
       {/* 摩擦单 F6: an install is consented to here, over whatever view is on screen. */}
       <ExtensionConsentSheet />
-      <NeedsYouHost onNeedsUserChange={setNeedsUser} />
+      <NeedsYouHost onAttentionChange={setSessionAttention} />
 
       {/* @@@822 frameless 自绘窗口控制(Windows/Linux 右上角 min/max/close);Mac/web 自渲染为 null。
           ⚠️ **必须挂在整棵壳的最后** —— Electron 把 Blink 收集到的 drag / no-drag 矩形按 **DOM 序**

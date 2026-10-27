@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState, useSyncExternalStore } from 'react'
+import { useEffect, useMemo, useRef, useState, useSyncExternalStore } from 'react'
 import { useTranslation } from 'react-i18next'
 import { createPortal } from 'react-dom'
 import { useMobileShell } from '@/hooks/useMobileShell'
@@ -9,6 +9,8 @@ import { SessionAvatar } from '@/mobile/agent-watch/StatusGlyph'
 import { sessionPresentation } from '@/mobile/agent-watch/watch-status'
 import { agentStatusText } from '@/lib/agentStatusText'
 import { assistantTimelineClient } from '../assistant/assistantTimelineClient'
+import { phoneTimelineClient } from '@/mobile/local-agent/phoneTimelineClient'
+import type { AgentAttention } from '@gugu/core/shared/agentStatus'
 import { AgentNeedsUserGlyph } from '../AgentNeedsUserGlyph'
 import { Button } from '../ui/Button'
 import { ListRow } from '../ui/ListRow'
@@ -41,12 +43,11 @@ function taskKey(task: NeedsYouTask): string {
 }
 
 /** One actionable entrance to the existing pending settlements, over every shell page. */
-export const NeedsYouHost = observer(function NeedsYouHost({ onNeedsUserChange }: { onNeedsUserChange?: (waiting: boolean) => void }) {
+export const NeedsYouHost = observer(function NeedsYouHost({ onAttentionChange }: { onAttentionChange?: (attention: AgentAttention) => void }) {
   const { t } = useTranslation()
   const mobile = useMobileShell()
-  const { tasks: waiting, error } = useNeedsYouTasks()
-  const needsUser = waiting.length > 0
-  useEffect(() => { onNeedsUserChange?.(needsUser) }, [onNeedsUserChange, needsUser])
+  const { tasks: waiting, attention, error } = useNeedsYouTasks()
+  useEffect(() => { onAttentionChange?.(attention) }, [onAttentionChange, attention])
   const phone = useSyncExternalStore(onPhoneAppState, readPhoneAppView)
   const embedded = useSyncExternalStore(subscribeEmbedVisibility, isEmbedVisible)
   const slots = readShellSlots()
@@ -79,7 +80,7 @@ export const NeedsYouHost = observer(function NeedsYouHost({ onNeedsUserChange }
         <AgentNeedsUserGlyph size={16} />{t('needsYou.count', { count: tasks.length })}
       </Button>
     </div>, element, key))}
-    {shown && createPortal(<Sheet fullScreenMobile testId="needs-you-sheet" ariaLabel={t('needsYou.title')} onClose={() => setOpened(false)} zIndex="var(--z-settings-modal)" desktopWidth="520px">
+    {shown && <Sheet fullScreenMobile testId="needs-you-sheet" ariaLabel={t('needsYou.title')} onClose={() => setOpened(false)} zIndex="var(--z-settings-modal)" desktopWidth="520px">
       <PaneHeader title={<h2 className="gg-pane-title">{t('needsYou.title')}<span className="!ml-2 text-[length:var(--font-body)] font-normal text-[var(--text-secondary)]">{tasks.length}</span></h2>} mobile={mobile} divider actions={<Button variant="ghost" onClick={() => setOpened(false)}>{t('dialog.close')}</Button>} />
       <div className="flex min-h-0 flex-col gap-3 overflow-auto !p-4">
         {error && <p role="alert">{error}</p>}
@@ -99,24 +100,24 @@ export const NeedsYouHost = observer(function NeedsYouHost({ onNeedsUserChange }
         </div>
         {task && <PendingTask key={taskKey(task)} task={task} onOpenTask={() => { setOpened(false); followLink({ kind: 'session', sessionId: task.session.conversationId }) }} />}
       </div>
-    </Sheet>, document.body)}
+    </Sheet>}
   </>
 })
 
 function PendingTask({ task, onOpenTask }: { task: NeedsYouTask; onOpenTask: () => void }) {
   const { t } = useTranslation()
   const mobile = useMobileShell()
-  const read = useTimelineSession(assistantTimelineClient(task.local), mobile ? 'mobile' : 'desktop', task.deviceId, task.session.conversationId, true)
+  const read = useTimelineSession(task.phoneHost ? phoneTimelineClient : assistantTimelineClient(task.local), mobile ? 'mobile' : 'desktop', task.deviceId, task.session.conversationId, true)
   const ready = read.phase === 'ready' && read.link === 'ok'
   const previousInstalls = useRef<string[]>([])
+  const pending = useMemo(() => Object.values(read.timeline.settlements).filter(item => item.state === 'pending'), [read.timeline.settlements])
   // The host's timeout and answers on another device withdraw the same permission sheet here.
   useEffect(() => {
-    const installs = ready ? Object.values(read.timeline.settlements).filter(item => item.state === 'pending' && appInstallAskOf(item.host)).map(item => item.itemId) : []
+    const installs = ready ? pending.filter(item => appInstallAskOf(item.host)).map(item => item.itemId) : []
     for (const id of previousInstalls.current) if (!installs.includes(id)) closeInShell(id)
     previousInstalls.current = installs
-  }, [ready, read.timeline.settlements])
+  }, [ready, pending])
   useEffect(() => () => { for (const id of previousInstalls.current) closeInShell(id) }, [])
-  const pending = Object.values(read.timeline.settlements).filter(item => item.state === 'pending')
   const source = (
     <Button variant="ghost" size="sm" role="link" data-testid="needs-you-source-link" onClick={onOpenTask}
       className="self-start max-w-full min-w-0 !gap-1 !px-0 !text-[length:var(--font-caption)] hover:!text-[var(--text-primary)] hover:underline">

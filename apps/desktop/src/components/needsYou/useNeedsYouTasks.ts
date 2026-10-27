@@ -7,16 +7,19 @@ import { useLiveDeviceSessions } from '@/session/shared/remote-sessions/session-
 import { startSessionListSync } from '@/session/shared/remote-sessions/session-list-sync'
 import { machineSessionListClient } from '@/session/renderer/features/remote-hosts/machine-session-list'
 import { sessionReading } from '@/mobile/agent-watch/watch-status'
+import { isPhoneDevice } from '@gugu/core/cloud/devices'
+import { mostUrgentAttention, type AgentAttention, type AgentStatus } from '@gugu/core/shared/agentStatus'
 
 export type NeedsYouTask = {
   deviceId: string
   machine: string
   local: boolean
+  phoneHost: boolean
   session: SessionpageSessionSummary
 }
 
 /** The existing sidebar state and machine directory, including a desktop's own host. No per-task polling. */
-export function useNeedsYouTasks(): { tasks: NeedsYouTask[]; error: string | null } {
+export function useNeedsYouTasks(): { tasks: NeedsYouTask[]; attention: AgentAttention; error: string | null } {
   const { user } = useAuth()
   const { devices } = useDevicesStore()
   const directory = useLiveDeviceSessions()
@@ -36,7 +39,8 @@ export function useNeedsYouTasks(): { tasks: NeedsYouTask[]; error: string | nul
   }, [ownerId, localId])
 
   const tasks: NeedsYouTask[] = []
-  if (!ownerId) return { tasks, error: null }
+  const statuses: (AgentStatus | null)[] = []
+  if (!ownerId) return { tasks, attention: null, error: null }
   for (const device of devices) {
     const here = device.device_id === localId
     const live = directory[device.device_id]
@@ -44,9 +48,11 @@ export function useNeedsYouTasks(): { tasks: NeedsYouTask[]; error: string | nul
       ? local?.ownerId === ownerId && local.deviceId === localId ? local.list.sessions : []
       : device.is_online && live && !live.cached && !live.error ? live.sessions : []
     for (const session of sessions) {
-      if (sessionReading(session)?.status !== 'needs_user') continue
-      tasks.push({ deviceId: device.device_id, machine: device.label, local: here, session })
+      const status = sessionReading(session)?.status ?? null
+      statuses.push(status)
+      if (status !== 'needs_user') continue
+      tasks.push({ deviceId: device.device_id, machine: device.label, local: here, phoneHost: isPhoneDevice(device), session })
     }
   }
-  return { tasks, error: localId ? error : null }
+  return { tasks, attention: mostUrgentAttention(statuses), error: localId ? error : null }
 }
