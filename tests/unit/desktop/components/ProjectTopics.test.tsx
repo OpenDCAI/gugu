@@ -1,8 +1,9 @@
 // @vitest-environment jsdom
 import { act } from 'react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import { ProjectTopics } from '../../../../apps/desktop/src/components/ChatListSlotHost'
+import { ChatListSlotHost, ProjectTopics } from '../../../../apps/desktop/src/components/ChatListSlotHost'
 import { ChatListPanel } from '../../../../apps/desktop/src/components/ChatListPanel'
+import { installAssistantShellBridge, publishAssistantShell, type AssistantShellSnapshot } from '../../../../apps/desktop/src/lib/assistantShellBridge'
 import { drainTopicSplitRequest } from '../../../../apps/desktop/src/lib/topicSplitRequest'
 import { publishSidebarChatSignals, sidebarChatSignals, useSidebarChatSignals } from '../../../../apps/desktop/src/lib/sidebarChatsBridge'
 import { installSessionViewRequestBridge } from '../../../../apps/desktop/src/session/renderer/features/sessions/stores/session-view-requests'
@@ -15,7 +16,7 @@ const openChat = vi.fn()
 beforeEach(() => {
   harness = createReactHarness()
   openChat.mockReset()
-  installSessionViewRequestBridge(window, { openChat, openSession: vi.fn() })
+  installSessionViewRequestBridge(window, { openChat })
 })
 afterEach(() => harness.cleanup())
 
@@ -66,4 +67,21 @@ describe('shared sidebar topic branches', () => {
     ], projectGroups)))
     expect(harness.container.textContent).toBe('3/8')
   })
+})
+
+
+it('updates the badge when the assistant is identified while the conversation list is unmounted', async () => {
+  installAssistantShellBridge(window)
+  const snapshot = { assistantState: 'loading', assistant: null, chatId: null } as AssistantShellSnapshot
+  publishAssistantShell(snapshot)
+  const chats = [chat({ id: 'assistant-dm', kind: 'dm', peer_user_id: 'mine', unread_count: 1 }), chat({ id: 'ordinary', unread_count: 2 })]
+  function Probe() {
+    const signals = useSidebarChatSignals()
+    return <><ChatListSlotHost /><span data-testid="published-unread">{signals?.chatsUnread}</span></>
+  }
+  await renderWithAppProviders(harness, createNode(Probe), { chat: { chats } })
+  expect(harness.container.querySelector('[data-testid="published-unread"]')?.textContent).toBe('3')
+  await act(async () => publishAssistantShell({ ...snapshot, assistantState: 'found', assistant: { id: 'mine', display_name: 'Assistant', avatar: null, created_at: null }, chatId: 'assistant-dm' }))
+  expect(harness.container.querySelector('[data-testid="published-unread"]')?.textContent).toBe('2')
+  expect(chats[0]?.unread_count).toBe(1)
 })
