@@ -859,3 +859,63 @@
 /* 用户那句的气泡在手机上留够宽:官方模板左边给 minmax(72px,1fr) 的空列,桌面宽屏无感,
    手机 366px 宽的线程里气泡只剩 246px(实测),长一点的话就被挤成又窄又高的一条。左边只留 2rem 的「这是我说的」缩进。 */
 .gg-aw [data-slot="aui_user-message-root"] { grid-template-columns: minmax(2rem, 1fr) auto; }
+
+/* 后台任务那一句(#638 搬到手机):收着一句、点开就地展开单子。行高、图标、按钮按触控档。 */
+.gg-aw .gg-aw-bg {
+  display: flex;
+  flex-direction: column;
+  gap: var(--spacing-xs);
+}
+
+.gg-aw .gg-aw-bg-head {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--spacing-xs);
+  align-self: flex-start;
+  min-height: 32px;
+  padding: 0 var(--spacing-xs);
+  border: 0;
+  background: transparent;
+  color: var(--muted-fg);
+  font-size: var(--font-caption);
+}
+
+.gg-aw .gg-aw-bg-list {
+  display: flex;
+  flex-direction: column;
+  gap: var(--spacing-xs);
+  padding: var(--spacing-xs);
+  border-radius: var(--radius-md);
+  background: var(--muted);
+}
+
+.gg-aw .gg-aw-bg-row {
+  display: flex;
+  align-items: center;
+  gap: var(--spacing-sm);
+  min-height: 36px;
+  padding: 0 var(--spacing-xs);
+  font-size: var(--font-caption);
+}
+
+.gg-aw .gg-aw-bg-icon {
+  flex-shrink: 0;
+  color: var(--muted-fg);
+}
+
+.gg-aw .gg-aw-bg-name {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.gg-aw .gg-aw-bg-meta {
+  flex-shrink: 0;
+  color: var(--muted-fg);
+}
+
+.gg-aw .gg-aw-bg-stop {
+  color: var(--danger);
+}
