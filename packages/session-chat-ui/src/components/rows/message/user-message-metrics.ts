@@ -17,8 +17,9 @@ export function measureUserMessage(item: ChatMessage, ctx: MeasureCtx, baseVars:
     return attachments + messageEditorMetrics(ctx.editingMessage!.text, ctx).height;
   }
   const blocks = ctx.caches.parseBlocks(item.id, item.text);
-  const stackHeight = blocks.length === 0 ? ctx.theme.fonts.body.lineHeight
-    : layoutBlockStack(blocks, { ...ctx, width: userInnerWidth(available, vars) }, { isCollapsed: ctx.isCollapsed }).height;
+  // 没有正文就没有气泡(UserMessageCard)。
+  if (blocks.length === 0) return attachments + userMessageActionsHeight(vars);
+  const stackHeight = layoutBlockStack(blocks, { ...ctx, width: userInnerWidth(available, vars) }, { isCollapsed: ctx.isCollapsed }).height;
   const fullHeight = stackHeight + 2 * vars.userCardPadY + 2 * vars.cardBorder;
   const cap = ctx.expandedId === item.id ? vars.expandedMaxH : vars.collapsedMaxH;
   return attachments + Math.min(fullHeight, cap) + userMessageActionsHeight(vars);
@@ -31,6 +32,7 @@ export function estimateUserMessage(item: ChatMessage, ctx: MeasureCtx, baseVars
   if (!item.guguDelivery && isMessageEditing(item.id, ctx)) {
     return attachments + messageEditorMetrics(ctx.editingMessage!.text, ctx).height;
   }
+  if (!item.text.trim()) return attachments + userMessageActionsHeight(vars);
   const lines = Math.max(1, Math.ceil(item.text.length / 60));
   const fullHeight = proseLinesHeight(lines, ctx.theme) + 2 * vars.userCardPadY + 2 * vars.cardBorder;
   const cap = ctx.expandedId === item.id ? vars.expandedMaxH : vars.collapsedMaxH;
