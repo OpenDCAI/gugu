@@ -31,7 +31,10 @@ vi.mock('./app-files', () => ({
   readAccount: async () => ({ type: 'human', owner_user_id: null, display_name: 'profile name' }),
 }));
 vi.mock('@main/core/extensions/extensions-root', () => ({
+  appSourcesRoot: () => path.join(workDir, 'app-sources'),
   extensionsService: () => ({
+    approvedManifest: (id: string) => list().extensions.find((entry: {manifest: {id: string}}) => entry.manifest.id === id).manifest,
+    variants: () => ({ active: 'upstream', variants: [] }),
     inspectDirectory,
     installFromDirectory,
     list,
@@ -252,7 +255,7 @@ describe('app_* 的动作分派', () => {
       manifestDigest: 'digest-a',
       revokedPermissions: [],
     }));
-    expect(installFromDirectory).toHaveBeenCalledWith('/tmp/reader-source', 'digest-a', 'folder', INSTALLING_ACCOUNT);
+    expect(installFromDirectory).toHaveBeenCalledWith('/tmp/reader-source', 'digest-a', 'folder', INSTALLING_ACCOUNT, undefined);
     // 装完必须喊这一声,否则新 tab 要整页刷新才出现(owner 实测 #4135)。
     expect(notifyInstalledChanged).toHaveBeenCalled();
     // #6387 与设置页那条安装路径同一套善后:后台页要拉起来,否则它的工具一个也接不住。
@@ -314,7 +317,7 @@ it('#6646 E-05: a folder install that would replace one from the market, a chat 
   await expect(runExtensionAgentAction({ action: 'install', source_dir: '/tmp/notes-source' }, dependencies))
     .resolves.toMatchObject({ installed: true });
   expect(requestInstallConsent).toHaveBeenCalledTimes(3);
-  expect(installFromDirectory).toHaveBeenCalledWith('/tmp/notes-source', 'digest-n', 'folder', INSTALLING_ACCOUNT);
+  expect(installFromDirectory).toHaveBeenCalledWith('/tmp/notes-source', 'digest-n', 'folder', INSTALLING_ACCOUNT, undefined);
 });
 
 describe('reinstalling its own folder extension (quiet upgrade)', () => {
@@ -340,7 +343,7 @@ describe('reinstalling its own folder extension (quiet upgrade)', () => {
     await expect(runExtensionAgentAction({ action: 'install', source_dir: '/tmp/notes-v2' }, dependencies))
       .resolves.toMatchObject({ installed: true, version: '2.0.0' });
     expect(requestInstallConsent).not.toHaveBeenCalled();
-    expect(installFromDirectory).toHaveBeenCalledWith('/tmp/notes-v2', 'digest-2', 'folder', INSTALLING_ACCOUNT);
+    expect(installFromDirectory).toHaveBeenCalledWith('/tmp/notes-v2', 'digest-2', 'folder', INSTALLING_ACCOUNT, undefined);
     // The same aftercare as an asked install: running sessions get the new version on their next call.
     expect(dependencies.afterInstall).toHaveBeenCalledWith({ manifest: v2, rootDir: '/tmp/notes' });
     expect(dependencies.notifyInstalledChanged).toHaveBeenCalled();
@@ -1359,7 +1362,7 @@ describe('app_install { market }', () => {
     entry: vi.fn(async (id: string) => (byId[id] ?? null) as never),
     list: vi.fn(async () => ({ extensions: found, total: found.length, hasMore: false }) as never),
     // What the market recorded for the version it unpacked: where its code is comes back with the folder.
-    materialize: vi.fn(async (id: string) => ({ sourceDir: `/tmp/market-staged/${id}`, source, releaseNotes: 'notes', sha256: 'a'.repeat(64) })),
+    materialize: vi.fn(async (id: string) => ({ sourceDir: `/tmp/market-staged/${id}`, source, releaseNotes: 'notes', sha256: 'a'.repeat(64), bytes: 42 })),
     hold: vi.fn(),
     held: vi.fn(async () => null),
     // The unpacked copy is done with once it is installed (or refused): let go of, never left in staging.
@@ -1383,7 +1386,7 @@ describe('app_install { market }', () => {
       market: { source, releaseNotes: 'notes' },
     }));
     // A market App is gugu's: no folder publisher.
-    expect(installFromDirectory).toHaveBeenCalledWith('/tmp/market-staged/reader', 'digest-m', 'market', undefined);
+    expect(installFromDirectory).toHaveBeenCalledWith('/tmp/market-staged/reader', 'digest-m', 'market', undefined, undefined);
     expect(market.discard).toHaveBeenCalledWith(expect.objectContaining({ sourceDir: '/tmp/market-staged/reader' }));
     expect(result).toMatchObject({ installed: true, id: 'reader', version: '1.2.0' });
   });
@@ -1459,7 +1462,7 @@ describe('app_install { market }', () => {
       index = { apps: [...index.apps, { id: 'reader', deprecated: null, versions: [versionOf(reader)] }] };
       // The copy the Apps page took still has no Reader: the case reproduces.
       expect((await market.list({ search: 'reader' })).total).toBe(0);
-      vi.spyOn(market, 'materialize').mockResolvedValue({ sourceDir: '/tmp/market-staged/reader', source, releaseNotes: 'notes', sha256: 'a'.repeat(64) });
+      vi.spyOn(market, 'materialize').mockResolvedValue({ sourceDir: '/tmp/market-staged/reader', source, releaseNotes: 'notes', sha256: 'a'.repeat(64), bytes: 42 });
       return market;
     };
     inspectDirectory.mockReturnValue({ manifest: reader, manifestDigest: 'digest-m' });

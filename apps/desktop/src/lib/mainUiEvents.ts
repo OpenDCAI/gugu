@@ -19,6 +19,4 @@ export const MAIN_UI_EVENTS = {
   // #6091 会话页改了自有 agent 的名字:通讯录缓存着 display_name,叫它刷新。
   ownedAgentRenamed: defineEvent<{ agentUserId: string; displayName: string }>('owned-agent-renamed'),
   sessionpageOpenFeedback: defineEvent<void>('sessionpage-open-feedback'),
-  // 主窗看不看得见(最小化、收进托盘 = false;恢复、显示 = true)。主窗关了节流,document.hidden 不跟着变(main.ts)。
-  windowSeen: defineEvent<boolean>('window-seen'),
 } as const satisfies { readonly [K in keyof typeof UI_EVENTS]?: EventDefinition<unknown> }

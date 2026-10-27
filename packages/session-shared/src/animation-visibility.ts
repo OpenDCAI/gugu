@@ -1,65 +1,66 @@
 /** Desktop keeps backgroundThrottling disabled; the host reports minimize/tray visibility. */
 export const ANIMATION_WINDOW_SEEN_EVENT = '__window_seen'
 
-let windowSeen = true
-let listening = false
-const windowListeners = new Set<() => void>()
-const viewports = new Map<string, {
-  observer: IntersectionObserver
-  changed: Map<Element, (visible: boolean) => void>
-}>()
+type Viewport = {
+  observer: IntersectionObserver | null
+  changed: Map<Element, (visible?: boolean) => void>
+}
+const viewports = new WeakMap<Document, Map<string, Viewport>>()
 
-function listen() {
-  if (listening) return
-  listening = true
+function listen(doc: Document) {
+  const existing = viewports.get(doc)
+  if (existing) return existing
+  const margins = new Map<string, Viewport>()
+  viewports.set(doc, margins)
+  let windowSeen = true
   const sync = () => {
-    // Inherited through shadow roots too. 'initial' unsets the custom property,
-    // letting each surface/viewport supply its own pause state in CSS.
-    document.documentElement.style.setProperty('--gugu-animation-window-paused',
-      isAnimationWindowVisible() ? 'initial' : 'paused')
-    for (const changed of windowListeners) changed()
+    // 'initial' lets each surface/viewport supply its own inherited pause state.
+    doc.documentElement.style.setProperty('--gugu-animation-window-paused',
+      !doc.hidden && windowSeen ? 'initial' : 'paused')
+    for (const viewport of margins.values())
+      for (const changed of viewport.changed.values()) changed()
   }
-  document.addEventListener('visibilitychange', sync)
-  window.addEventListener(ANIMATION_WINDOW_SEEN_EVENT, (event) => {
+  doc.addEventListener('visibilitychange', sync)
+  doc.defaultView?.addEventListener(ANIMATION_WINDOW_SEEN_EVENT, (event) => {
     windowSeen = (event as CustomEvent<boolean>).detail
     sync()
   })
   sync()
+  return margins
 }
 
-export function isAnimationWindowVisible(): boolean {
-  return !document.hidden && windowSeen
+export function isAnimationWindowVisible(doc = document): boolean {
+  listen(doc)
+  return !doc.hidden && doc.documentElement.style.getPropertyValue('--gugu-animation-window-paused') !== 'paused'
 }
 
-export function subscribeAnimationWindowVisibility(changed: () => void): () => void {
-  listen()
-  windowListeners.add(changed)
-  return () => { windowListeners.delete(changed) }
-}
-
-/** One viewport observer per margin; no ancestor observers or synchronous style/geometry reads. */
+/** One observer per owning document/margin; one callback combines window and viewport visibility. */
 export function observeAnimationViewport(element: HTMLElement, changed: (visible: boolean) => void, rootMargin = '0px'): () => void {
-  listen()
-  // Preserve the existing old-WebView behavior: without IO, draw on screen.
-  if (typeof IntersectionObserver === 'undefined') {
-    changed(true)
-    return () => {}
-  }
-  let viewport = viewports.get(rootMargin)
+  const doc = element.ownerDocument
+  const margins = listen(doc)
+  const Observer = doc.defaultView?.IntersectionObserver
+  let viewport = margins.get(rootMargin)
   if (!viewport) {
-    const callbacks = new Map<Element, (visible: boolean) => void>()
+    const callbacks = new Map<Element, (visible?: boolean) => void>()
     viewport = {
       changed: callbacks,
-      observer: new IntersectionObserver((entries) => {
+      observer: Observer ? new Observer((entries) => {
         for (const entry of entries) callbacks.get(entry.target)?.(entry.isIntersecting)
-      }, { rootMargin }),
+      }, { rootMargin }) : null,
     }
-    viewports.set(rootMargin, viewport)
+    margins.set(rootMargin, viewport)
   }
-  viewport.changed.set(element, changed)
-  viewport.observer.observe(element)
+  // Without IO, preserve the existing on-screen assumption, while still honoring window hide.
+  let inViewport = !Observer
+  const update = (visible = inViewport) => {
+    inViewport = visible
+    changed(visible && isAnimationWindowVisible(doc))
+  }
+  viewport.changed.set(element, update)
+  viewport.observer?.observe(element)
+  if (!viewport.observer) update()
   return () => {
     viewport.changed.delete(element)
-    viewport.observer.unobserve(element)
+    viewport.observer?.unobserve(element)
   }
 }

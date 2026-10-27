@@ -8,10 +8,10 @@ import { Markdown } from '../markdown/Markdown'
 import { DocumentPreviewContent } from './DocumentPreviewContent'
 import type { DocumentPreviewKind } from './documentPreview'
 import type { MessageActionItem } from './messageActionItems'
-import type { RefObject } from 'react'
+import type { Ref } from 'react'
 
 export interface MessageFilePreviewPanelProps {
-  contentRef?: RefObject<HTMLDivElement | null>
+  viewerRef?: Ref<HTMLElement>
   file: Pick<AttachmentMeta, 'fileName' | 'sizeBytes' | 'mimeType'>
   /** 视频:<video> 按需分段取的那个链接(❌ 整段读进内存)。 */
   videoUrl?: string
@@ -37,13 +37,13 @@ export interface MessageFilePreviewPanelProps {
   tabbed?: boolean
 }
 
-export function MessageFilePreviewPanel({ contentRef, file, videoUrl, onVideoError, kind, content, loading, error, loadingLabel, loadingFraction, actions = [], onOpenExternal, onBack, onClose, mobile = false, fill = false, tabbed = false }: MessageFilePreviewPanelProps) {
+export function MessageFilePreviewPanel({ viewerRef, file, videoUrl, onVideoError, kind, content, loading, error, loadingLabel, loadingFraction, actions = [], onOpenExternal, onBack, onClose, mobile = false, fill = false, tabbed = false }: MessageFilePreviewPanelProps) {
   const { t } = useTranslation('messaging')
   // 手机页头第二行:扩展名 + 大小(「HTML · 791 B」);大小还不知道就只写扩展名。❌ MIME 原文。
   const extension = /\.([A-Za-z0-9]{1,8})$/.exec(file.fileName)?.[1]?.toUpperCase() ?? null
   const meta = [extension, file.sizeBytes > 0 ? formatAttachmentSize(file.sizeBytes) : null].filter(Boolean).join(' · ')
   return (
-    <aside data-testid="message-file-preview-panel" data-preview-kind={kind} style={{ width: mobile || fill ? '100%' : 'clamp(380px, 38vw, 520px)', height: '100%', flexShrink: 0, display: 'flex', flexDirection: 'column', overflow: 'hidden', borderLeft: mobile ? undefined : '1px solid var(--border-subtle)', background: 'var(--bg-primary)' }}>
+    <aside ref={viewerRef} data-testid="message-file-preview-panel" data-preview-kind={kind} style={{ width: mobile || fill ? '100%' : 'clamp(380px, 38vw, 520px)', height: '100%', flexShrink: 0, display: 'flex', flexDirection: 'column', overflow: 'hidden', borderLeft: mobile ? undefined : '1px solid var(--border-subtle)', background: 'var(--bg-primary)' }}>
       {/* 手机左上返回、右上消息动作;桌面从 App/列表打开时左上返回。页签里:页签就是文件名、×(关掉回上一页)和最大化,不再画一行。 */}
       {tabbed && !mobile ? null : mobile ? (
         <PaneHeader
@@ -73,7 +73,7 @@ export function MessageFilePreviewPanel({ contentRef, file, videoUrl, onVideoErr
       </div>}
       {/* 大小还不知道(手机附件卡正从那台电脑读,或没读到)就不写,❌ 写一个「0 B」。手机上这一行进了页头。 */}
       {mobile || ((loading || error) && file.sizeBytes === 0) ? null : <div style={{ padding: '0 18px 10px', color: 'var(--text-tertiary)', fontSize: 'var(--font-caption)', flexShrink: 0 }}>{formatAttachmentSize(file.sizeBytes)}{file.mimeType ? ` · ${file.mimeType}` : ''}</div>}
-      <div ref={contentRef} style={{ flex: 1, minHeight: 0, overflow: 'auto', color: 'var(--text-primary)' }}>
+      <div data-file-selection style={{ flex: 1, minHeight: 0, overflow: 'auto', color: 'var(--text-primary)' }}>
         {loading ? <div style={statusStyle} data-testid="message-file-preview-loading">{loadingLabel ?? t('chatArea.filePreview.loading')}{loadingFraction !== undefined ? <progress className="gg-progress" value={loadingFraction} max={1} /> : null}</div> : error ? <div style={{ ...statusStyle, color: 'var(--danger)' }}>{error}</div> : kind === 'video' ? <video data-testid="message-file-preview-video" src={videoUrl} onError={event => onVideoError?.(event.currentTarget)} controls autoPlay playsInline className="block max-h-full w-full" /> : kind === 'unsupported' ? <div style={statusStyle}>{t('chatArea.filePreview.unsupported')}</div> : typeof content === 'string' && (kind === 'text' || kind === 'markdown') ? <div style={{ padding: '16px 18px' }}>{kind === 'markdown' ? <Markdown trust="chat" density="comfortable" content={content} hardBreaks /> : <pre style={{ margin: 0, whiteSpace: 'pre-wrap', overflowWrap: 'anywhere', fontFamily: 'inherit', fontSize: 'var(--font-body)', lineHeight: 1.65 }}>{content}</pre>}</div> : <DocumentPreviewContent kind={kind} content={content} title={file.fileName} onOpenExternally={onOpenExternal} />}
       </div>
     </aside>

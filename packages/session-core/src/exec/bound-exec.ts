@@ -82,8 +82,8 @@ class ProcessBoundExec implements BoundExec {
         settled = true;
         reject(error);
       };
-      const failExec = (exitCode: number | null, stderrOverride?: string): void => {
-        fail(new ExecError(this.file, args, exitCode, stdoutText(), stderrOverride ?? stderr));
+      const failExec = (exitCode: number | null, stderrOverride?: string, cause?: Error): void => {
+        fail(new ExecError(this.file, args, exitCode, stdoutText(), stderrOverride ?? stderr, { cause }));
       };
 
       const timeout = createTimeout(child, options, () => {
@@ -128,7 +128,7 @@ class ProcessBoundExec implements BoundExec {
           fail(error);
           return;
         }
-        failExec(null, error instanceof Error ? error.message : String(error));
+        failExec(null, error.message, error);
       });
 
       child.on('close', (code) => {

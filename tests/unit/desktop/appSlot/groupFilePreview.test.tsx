@@ -55,7 +55,7 @@ const redraw = (chatId: string, extra: { visible?: boolean } = {}) =>
 beforeEach(() => {
   harness = createReactHarness()
   HTMLElement.prototype.checkVisibility = () => false
-  vi.stubGlobal('IntersectionObserver', class { observe() {} disconnect() {} })
+  vi.stubGlobal('IntersectionObserver', class { observe() {} unobserve() {} disconnect() {} })
   boundary.mobile = false
   vi.clearAllMocks()
   boundary.previewContents.clear()

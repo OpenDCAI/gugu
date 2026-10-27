@@ -198,6 +198,29 @@ beforeEach(async () => {
 });
 
 describe('extensions controller', () => {
+  it('lists variant metadata with the inventory and isolates an unreadable App', async () => {
+    await installViaController([]);
+    const other = writeBundle([]);
+    const file = join(other, 'manifest.json');
+    writeFileSync(file, JSON.stringify({ ...JSON.parse(readFileSync(file, 'utf8')), id: 'other-app' }));
+    extensionsService().installFromDirectory(other, extensionsService().inspectDirectory(other).manifestDigest, 'folder');
+    const service = extensionsService();
+    const readVariants = service.variants.bind(service);
+    const failing = vi.spyOn(service, 'variants').mockImplementation((id) => {
+      if (id === EXTENSION_ID) throw new Error('variant metadata unreadable');
+      return readVariants(id);
+    });
+    try {
+      const listed = await extensionsController.list();
+      expect(listed.success, listed.error).toBe(true);
+      expect(listed.data?.extensions.map(({ id }) => id).sort()).toEqual([EXTENSION_ID, 'other-app'].sort());
+      expect(listed.data?.variants).toEqual({ 'other-app': { active: 'upstream', variants: [] } });
+    } finally {
+      failing.mockRestore();
+    }
+    expect((await extensionsController.list()).data?.variants?.[EXTENSION_ID]).toEqual({ active: 'upstream', variants: [] });
+  });
+
   it('publishes current Computer Use capability after App changes without rescanning between heartbeats', async () => {
     const service = extensionsService();
     const installed = vi.fn(() => service.list().extensions.flatMap(({ manifest }) =>

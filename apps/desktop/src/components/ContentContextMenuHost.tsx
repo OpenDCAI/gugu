@@ -1,11 +1,10 @@
 import { detectPlatform, matchesKeyboardEvent } from '@tanstack/react-hotkeys'
 import { useCallback, useEffect, useState } from 'react'
-import { FileText, Reply } from '@/lib/icons'
 import { desktopIpc } from '@/platform/desktopIpc'
-import { formatHotkeyText } from '@/session/renderer/lib/ui/shortcut-format'
 import { CONTENT_CONTEXT_MENU_ACTION, CONTENT_CONTEXT_MENU_OPEN, type ContentContextMenu } from '@/session/shared/content-context-menu'
 import { useToast } from './toastContext'
-import { Menu, MenuItem, MenuSeparator } from './ui/Menu'
+import { ContentMenu } from './ContentMenu'
+import { MobileFileContextMenu } from './preview/MobileFileContextMenu'
 
 /** Only presentation crosses into the renderer; the host retains the captured action closures. */
 export function ContentContextMenuHost() {
@@ -42,22 +41,8 @@ export function ContentContextMenuHost() {
     }
   }, [finish, menu])
 
-  if (!menu) return null
-  return (
-    <Menu key={menu.requestId} x={menu.x} y={menu.y} onClose={() => finish(menu.requestId)}>
-      {menu.items.map((item, index) => item.type === 'separator'
-        ? <MenuSeparator key={index} />
-        : (
-          <MenuItem
-            key={item.id}
-            disabled={item.enabled === false}
-            icon={item.icon === 'quote' ? <Reply /> : item.icon === 'file' ? <FileText /> : undefined}
-            shortcut={item.hotkey ? formatHotkeyText(item.hotkey) : undefined}
-            onClick={() => finish(menu.requestId, item.id)}
-          >
-            {item.label}
-          </MenuItem>
-        ))}
-    </Menu>
-  )
+  return <>
+    {menu && <ContentMenu key={menu.requestId} menu={menu} onClose={() => finish(menu.requestId)} onAction={actionId => finish(menu.requestId, actionId)} />}
+    <MobileFileContextMenu />
+  </>
 }
