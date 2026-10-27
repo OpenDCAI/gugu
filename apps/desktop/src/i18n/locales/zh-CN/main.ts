@@ -413,7 +413,7 @@ export default {
     "guguNumberUnassigned": "咕咕号未分配",
     "my": "我的",
     "newAgent": "新建 Agent",
-    "newTask": "新建会话",
+    "newTask": "新建任务",
     "apps": {
       "intro": "装在这台手机上的 App:从聊天里的卡片装的，和从市场装的。咕咕自带的不在这里。",
       "empty": "还没有装过 App。",
@@ -544,7 +544,7 @@ export default {
     "messages": "消息 (⌘1)",
     "my": "我的",
     "newAgent": "新建 Agent",
-    "newTask": "新建会话",
+    "newTask": "新建任务",
     "usage": "用量",
     "resizeChatList": "调整聊天列表宽度",
     "sessionExpired": {

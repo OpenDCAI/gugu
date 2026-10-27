@@ -419,7 +419,7 @@ export default {
     "guguNumberUnassigned": "Gugu ID not assigned",
     "my": "Me",
     "newAgent": "New Agent",
-    "newTask": "New Task",
+    "newTask": "New task",
     "apps": {
       "intro": "Apps installed on this phone — from cards in chats and from the market. The ones that come with Gugu are not listed.",
       "empty": "No App installed yet.",
@@ -550,7 +550,7 @@ export default {
     "messages": "Messages (⌘1)",
     "my": "Me",
     "newAgent": "New Agent",
-    "newTask": "New Task",
+    "newTask": "New task",
     "usage": "Usage",
     "resizeChatList": "Resize chat list",
     "sessionExpired": {

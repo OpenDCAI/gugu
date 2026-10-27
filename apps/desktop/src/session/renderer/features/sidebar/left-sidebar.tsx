@@ -39,7 +39,7 @@ import { useSidebarDrop } from './use-sidebar-drop';
 import { useSessionMessages } from '@renderer/localization/use-session-messages';
 
 // 侧栏自上而下:布局 / 折叠 / 搜索 →「项目 | 对话」→ 三行入口 → 置顶 → 列表,两页同一副骨架。
-// 三行入口的第一行都是「新建会话」;项目页另两行是会话历史、已安排,对话页是新建群聊、添加联系人。
+// 三行入口的第一行都是「新建任务」;项目页另两行是会话历史、已安排,对话页是新建群聊、添加联系人。
 // 合在一起时没有切换,入口留项目那三行,列表是 置顶 → 项目 → 会话 → 对话。
 // No foot: 资源库 and 设置 are on the far-left rail (product spec, #7046) — they belong to the gugu shell.
 export const LeftSidebar: React.FC = observer(function LeftSidebar() {
