@@ -163,6 +163,8 @@ export interface AgentInboxReaderDeps {
   ) => Promise<Map<string, GuguIdentity>>
   /** injectable:批失败披露(默认稳定 id 直插 system 行;无 lease)。 */
   postDisclosure?: (input: DisclosureRow) => Promise<void>
+  /** injectable:这个 agent 在这条线上、这个 seq 之后自己说过话没有(默认 chat.message_history_as,按 agent 的可见域)。 */
+  agentSpokeAfter?: (input: AgentSpokeAfterInput) => Promise<boolean>
   // @@@5856 checkAgentReplied / must-reply 违约判定已随**老 active 档**一起退役。
   // 两档之后留下的 active 是「叫得醒它,回不回它自己判断」——对这样的档位判「该回没回」,
   // 判出来的全是假违约,而它喂的是 recordDeliverOutcome 那盏异常计数灯。
@@ -365,6 +367,28 @@ export async function postDeliveryDisclosureRow(input: DisclosureRow, accessToke
   })
   if (response.ok || response.status === 409) return
   throw new Error(`turn-failure disclosure insert failed: HTTP ${response.status} ${await response.text().catch(() => '')}`)
+}
+
+export type AgentSpokeAfterInput = { agentUserId: string; chatId: string; threadRootId: string | null; afterSeq: number }
+
+/** The agent's own non-system message on this line after `afterSeq`, read as the agent (`chat.message_history_as`). */
+export async function agentSpokeAfterViaRpc(input: AgentSpokeAfterInput, accessToken: string, fetchImpl: typeof fetch = fetch): Promise<boolean> {
+  const response = await fetchImpl(`${getSupabaseUrl().replace(/\/+$/, '')}/rest/v1/rpc/message_history_as`, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      apikey: getSupabaseAnonKey(),
+      Authorization: `Bearer ${accessToken}`,
+      'Accept-Profile': 'chat',
+      'Content-Profile': 'chat',
+    },
+    body: JSON.stringify({ p_chat_id: input.chatId, p_as_user_id: input.agentUserId, p_thread_root_id: input.threadRootId, p_limit: 20 }),
+  })
+  if (!response.ok) throw new Error(`message_history_as failed: HTTP ${response.status} ${await response.text().catch(() => '')}`)
+  const rows = (await response.json()) as unknown
+  if (!Array.isArray(rows)) throw new Error('message_history_as returned no row list')
+  return rows.some((row: { seq?: unknown; sender_user_id?: unknown; content_type?: unknown }) =>
+    Number(row.seq) > input.afterSeq && row.sender_user_id === input.agentUserId && row.content_type !== 'system')
 }
 
 // ── 读者主体 ────────────────────────────────────────────────────────────────────
@@ -928,8 +952,16 @@ async function discloseBatchFailure(
       )
     }
   }
+  const spokeAfter = deps.agentSpokeAfter ?? ((input: AgentSpokeAfterInput) => agentSpokeAfterViaRpc(input, deps.accessToken))
   for (const [chatId, chatMembers] of byChat) {
     const ids = chatMembers.map((member) => encodeTypedId('msg', member.row.id))
+    // The turn failed after the agent already answered on this line (a provider error on the request after its message_send):
+    // the chat has the answer, and a 「未能完成」 under it would contradict it. The failure stays in the log, not in the chat.
+    if (completionError !== undefined && await answeredBeforeFailure(agentUserId, chatId, chatMembers, spokeAfter)) {
+      log.warn({ agentUserId, chatId, messageIds: ids, err: errorText(completionError) },
+        'turn failed after the agent replied in the source chat; no failure row posted')
+      continue
+    }
     const key = `turn-failure:batch:${createHash('sha256').update([agentUserId, ...ids].join(',')).digest('hex').slice(0, 32)}`
     try {
       await post({ agentUserId, chatId, threadRootId: chatMembers[0]!.row.threadRootId, key, reason,
@@ -944,6 +976,26 @@ async function discloseBatchFailure(
     }
   }
   return said
+}
+
+async function answeredBeforeFailure(
+  agentUserId: string,
+  chatId: string,
+  members: readonly Pick<PreparedMessage, 'row'>[],
+  spokeAfter: (input: AgentSpokeAfterInput) => Promise<boolean>,
+): Promise<boolean> {
+  try {
+    return await spokeAfter({ agentUserId, chatId, threadRootId: members[0]!.row.threadRootId,
+      afterSeq: Math.max(...members.map((member) => member.row.seq)) })
+  } catch (error) {
+    // Not knowing whether it answered is not an answer: the failure is still said.
+    log.error({ agentUserId, chatId, err: errorText(error) }, 'could not read whether the agent replied before its turn failed')
+    return false
+  }
+}
+
+function errorText(error: unknown): string {
+  return error instanceof Error ? error.message : String(error)
 }
 
 /** 失败的原因(聊天里的披露行与论坛指派上的投递状态同一个):没受理是咕咕这边的错;受理后那一轮失败按上游的原因说。 */
