@@ -344,7 +344,7 @@ describe('守护进程:各账号各跑各的版本,换版只重启那一个账�
     expect(update().reason).toBeUndefined()
   })
 
-  it('下载站上还没有这一版(server 包比桌面包晚发):❌ 冷却,设备行照旧「正在下载」,5 分钟后再取;真失败照旧冷却 6 小时', async () => {
+  it('下载站上还没有这一版(server 包比桌面包晚发):❌ 冷却,先让位给能装的那一版,5 分钟后再取;真失败照旧冷却 6 小时', async () => {
     signIn(U1)
     installVersion('0.3.0')
     report(U1, 'dev', '0.3.1')
@@ -371,8 +371,8 @@ describe('守护进程:各账号各跑各的版本,换版只重启那一个账�
     t += VERSION_NOT_PUBLISHED_RETRY_MS - 1
     c.converge(listAccounts())
     expect(staged).toEqual(['0.3.1'])
-    // 等 0.3.1 发出来的这几分钟里,它让位给次新的、已经装好的 0.2.9(忙 ⇒ 空闲时换)。
-    expect(update()).toMatchObject({ state: 'ready', version: '0.2.9' })
+    // 等 0.3.1 发出来的这几分钟里它让位:没有别的报告 ⇒ 跟守护进程 0.3.0,账号已经在跑 ⇒ 设备行没有待办。
+    expect(fs.existsSync(path.join(dataDir(U1), 'server-update.json'))).toBe(false)
     // 5 分钟到了、包也发出来了:再取一次,装好。
     t += 1
     outcome = 'ok'
