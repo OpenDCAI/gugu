@@ -128,6 +128,8 @@ export const sessionTimelineController = createRPCController({
   sessionOpenedFileRead: (input: SessionpageOpenedFileReadRequest) => service.readOpenedFile(input),
   /** 这条会话给人打开过什么(桌面「输出」、手机):会话所在这台机器上的那一份(sessions/session-outputs.ts)。 */
   sessionOutputs: (input: { conversationId: string }) => service.outputs(input),
+  sessionBackgroundTasks: (input: { conversationId: string }) => service.backgroundTasks(input),
+  sessionStopBackgroundTask: (input: { conversationId: string; stopId: string }) => service.stopBackgroundTask(input),
   sessionSend: (input: SessionpageSessionSendRequest) => service.send(input.conversationId, input.text),
   sessionRespond: (input: SessionpageSessionRespondRequest) => service.respond(input),
   sessionCancel: (input: SessionpageSessionCancelRequest) => service.cancel(input.conversationId),
