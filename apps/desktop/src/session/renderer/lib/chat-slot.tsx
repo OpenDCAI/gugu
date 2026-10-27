@@ -1,6 +1,6 @@
 import { useCallback, useSyncExternalStore, type ReactNode } from 'react';
 import { createPortal } from 'react-dom';
-import { chatPartSlotKey, chatSlotKey, projectTopicsSlotKey, readShellSlots, type ChatPart } from '@/lib/shellSlots';
+import { chatPartSlotKey, chatSlotKey, readShellSlots, type ChatPart } from '@/lib/shellSlots';
 
 /**
  * 留一个格子给壳画一个对话(gugu-dev#181:项目块里的项目群、对话块),壳那边是 components/ChatSlotHost.tsx。
@@ -9,12 +9,6 @@ import { chatPartSlotKey, chatSlotKey, projectTopicsSlotKey, readShellSlots, typ
 export function ChatSlot({ chatId, className }: { chatId: string; className?: string }) {
   const ref = useCallback((element: HTMLDivElement | null) => readShellSlots()?.setSlot(chatSlotKey(chatId), element), [chatId]);
   return <div ref={ref} className={className} data-chat-slot={chatId} />;
-}
-
-/** Project topics retain the shell's conversation context and shared topic rows. */
-export function ProjectTopicsSlot({ chatId }: { chatId: string }) {
-  const ref = useCallback((element: HTMLDivElement | null) => readShellSlots()?.setSlot(projectTopicsSlotKey(chatId), element), [chatId]);
-  return <div ref={ref} data-project-topics={chatId} onPointerDown={(event) => event.stopPropagation()} />;
 }
 
 /** 页签条上留给这个对话的一格(右端那排图标 / 对话块页签上的头像和名字),壳把群聊组件的那一部分画进来。 */

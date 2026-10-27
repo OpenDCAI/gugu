@@ -382,8 +382,7 @@ export default {
       "cancel": "Cancel task",
       "failed": {
         "host_outdated": "Gugu on {{machine}} is too old. Update it, then send the task again.",
-        "start_failed": "The task did not start. Open its task card to see why.",
-        "topic_missing": "The task started. Tap its card in the group to open its topic."
+        "start_failed": "The task did not start. Open its task card to see why."
       }
     },
     "notInGroup": "Not in this group",

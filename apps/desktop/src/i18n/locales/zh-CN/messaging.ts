@@ -382,8 +382,7 @@ export default {
       "cancel": "不派任务了",
       "failed": {
         "host_outdated": "{{machine}} 上的咕咕太旧，更新后再派任务",
-        "start_failed": "任务没开起来，到任务卡上看原因",
-        "topic_missing": "任务开工了，到群里点任务卡进它的话题"
+        "start_failed": "任务没开起来，到任务卡上看原因"
       }
     },
     "notInGroup": "不在本群",

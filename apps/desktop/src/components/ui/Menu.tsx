@@ -12,6 +12,7 @@
 import { Menu as MenuPrimitive } from '@base-ui/react/menu'
 import { useMemo, useRef, useState, type CSSProperties, type ReactNode, type RefObject } from 'react'
 import { cn } from '@/lib/cn'
+import { ChevronRight } from '@/lib/icons'
 import { popupMotion } from './variants'
 import { useBackLayer } from './sheetStack'
 
@@ -195,6 +196,33 @@ export function MenuItem({ icon, danger, disabled, title, className, style, 'dat
         </span>
       )}
     </MenuPrimitive.Item>
+  )
+}
+
+const submenuRowStyle: CSSProperties = { padding: menuRowPadding }
+const submenuPositionerStyle: CSSProperties = { zIndex: 'var(--z-menu)' }
+const submenuPopupStyle: CSSProperties = { minWidth: 160, maxWidth: 320, padding: menuSurfacePadding }
+
+/** A row that opens a nested menu beside it (header ⋯ →「话题」); the nested popup uses the same surface and rows. */
+export function MenuSubmenu({ icon, label, 'data-testid': testId, children }: {
+  icon?: ReactNode
+  label: ReactNode
+  'data-testid'?: string
+  children: ReactNode
+}) {
+  return (
+    <MenuPrimitive.SubmenuRoot>
+      <MenuPrimitive.SubmenuTrigger className={cn('group/menu-item', menuItem)} style={submenuRowStyle} data-testid={testId}>
+        {icon != null && <span className={menuItemIcon}>{icon}</span>}
+        <span className={menuItemLabel}>{label}</span>
+        <ChevronRight size={14} aria-hidden className="shrink-0 text-[var(--menu-icon)]" />
+      </MenuPrimitive.SubmenuTrigger>
+      <MenuPrimitive.Portal>
+        <MenuPrimitive.Positioner className="gg-menu-positioner window-no-drag-region" positionMethod="fixed" collisionPadding={8} style={submenuPositionerStyle}>
+          <MenuPrimitive.Popup className={menuPopup} style={submenuPopupStyle}>{children}</MenuPrimitive.Popup>
+        </MenuPrimitive.Positioner>
+      </MenuPrimitive.Portal>
+    </MenuPrimitive.SubmenuRoot>
   )
 }
 
