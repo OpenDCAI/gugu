@@ -2,10 +2,9 @@ import { useCallback, useEffect, useRef, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import type { ContactUser } from '@gugu/core/shared/types/contacts'
 import type { AgentSettingsTab } from './types'
+import { resolveAgentSettingsTab } from './resolveAgentSettingsTab'
 import {
   agentSettingsPaneClass,
-  agentSettingsSubTabClass,
-  agentSettingsSubsClass,
   agentSettingsTabClass,
   asClass,
   cx,
@@ -51,34 +50,20 @@ export function AgentSettingsModal({ agent: openedAgent, onClose, initialTab = '
     closeRequestedRef.current = true
     onClose?.()
   }, [onClose])
-  const [activeTab, setActiveTab] = useState<AgentSettingsTab>(initialTab === 'look' && !assistant ? 'profile' : initialTab)
-  const [settingsExpanded, setSettingsExpanded] = useState(false)
+  const [activeTab, setActiveTab] = useState<AgentSettingsTab>(resolveAgentSettingsTab(initialTab, assistant))
   // @@@1787 手机化(owner 审核:桌面双栏塞 390px 全挤坏)——mobile 单栏状态机:nav 全宽列表 ⇄ 详情页,
   // 出口/返回=左上箭头(手机导航规范),✗ 只留桌面。
   const mobileShell = useMobileShell()
-  const [mobilePane, setMobilePane] = useState<'nav' | 'detail'>('nav')
+  const [mobilePane, setMobilePane] = useState<'nav' | 'detail'>(initialTab === 'profile' ? 'nav' : 'detail')
 
   useEffect(() => {
     if (accountStatus === 'removed') requestClose()
   }, [accountStatus, requestClose])
 
-  const settingsSubTabs: AgentSettingsTab[] = ['aimodel']
-  const isSettingsTab = settingsSubTabs.includes(activeTab)
-
   function selectTab(tab: AgentSettingsTab) {
     if (tab === 'look' && !assistant) return
-    if (settingsSubTabs.includes(tab) && !settingsExpanded) {
-      setSettingsExpanded(true)
-    }
     setActiveTab(tab)
     if (mobileShell) setMobilePane('detail')
-  }
-
-  function toggleSettings() {
-    setSettingsExpanded(prev => !prev)
-    if (!settingsExpanded && !isSettingsTab) {
-      setActiveTab('aimodel')
-    }
   }
 
   const paneProps = { agent, onClose: requestClose, onOpenTab: selectTab }
@@ -240,38 +225,9 @@ export function AgentSettingsModal({ agent: openedAgent, onClose, initialTab = '
               {t('settings.nav.tasks')}
             </button>
 
-            {/* 设置 accordion toggle */}
-            <button
-              className={cx(
-                agentSettingsTabClass(isSettingsTab, asClass.settingsToggle),
-                settingsExpanded && asClass.settingsToggleExpanded,
-              )}
-              style={mobileTabStyle}
-              onClick={toggleSettings}
-            >
-              {/* settings linear */}
-              <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" className="gg-as-il">
-                <g fill="none" stroke="currentColor" strokeWidth="1.5">
-                  <circle cx="12" cy="12" r="3"/>
-                  <path d="M13.765 2.152C13.398 2 12.932 2 12 2s-1.398 0-1.765.152a2 2 0 0 0-1.083 1.083c-.092.223-.129.484-.143.863a1.62 1.62 0 0 1-.79 1.353a1.62 1.62 0 0 1-1.567.008c-.336-.178-.579-.276-.82-.308a2 2 0 0 0-1.478.396C4.04 5.79 3.806 6.193 3.34 7s-.7 1.21-.751 1.605a2 2 0 0 0 .396 1.479c.148.192.355.353.676.555c.473.297.777.803.777 1.361s-.304 1.064-.777 1.36c-.321.203-.529.364-.676.556a2 2 0 0 0-.396 1.479c.052.394.285.798.75 1.605c.467.807.7 1.21 1.015 1.453a2 2 0 0 0 1.479.396c.24-.032.483-.13.819-.308a1.62 1.62 0 0 1 1.567.008c.483.28.77.795.79 1.353c.014.38.05.64.143.863a2 2 0 0 0 1.083 1.083C10.602 22 11.068 22 12 22s1.398 0 1.765-.152a2 2 0 0 0 1.083-1.083c.092-.223.129-.483.143-.863c.02-.558.307-1.074.79-1.353a1.62 1.62 0 0 1 1.567-.008c.336.178.579.276.819.308a2 2 0 0 0 1.479-.396c.315-.242.548-.646 1.014-1.453s.7-1.21.751-1.605a2 2 0 0 0-.396-1.479c-.148-.192-.355-.353-.676-.555A1.62 1.62 0 0 1 19.562 12c0-.558.304-1.064.777-1.36c.321-.203.529-.364.676-.556a2 2 0 0 0 .396-1.479c-.052-.394-.285-.798-.75-1.605c-.467-.807-.7-1.21-1.015-1.453a2 2 0 0 0-1.479-.396c-.24.032-.483.13-.82.308a1.62 1.62 0 0 1-1.566-.008a1.62 1.62 0 0 1-.79-1.353c-.014-.38-.05-.64-.143-.863a2 2 0 0 0-1.083-1.083Z"/>
-                </g>
-              </svg>
-              {/* settings filled */}
-              <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" className="gg-as-if">
-                <path fill="currentColor" fillRule="evenodd" d="M14.279 2.152C13.909 2 13.439 2 12.5 2s-1.408 0-1.779.152a2 2 0 0 0-1.09 1.083c-.094.223-.13.484-.145.863a1.62 1.62 0 0 1-.796 1.353a1.64 1.64 0 0 1-1.579.008c-.338-.178-.583-.276-.825-.308a2.03 2.03 0 0 0-1.49.396c-.318.242-.553.646-1.022 1.453c-.47.807-.704 1.21-.757 1.605c-.07.526.074 1.058.4 1.479c.148.192.357.353.68.555c.477.297.783.803.783 1.361s-.306 1.064-.782 1.36c-.324.203-.533.364-.682.556a2 2 0 0 0-.399 1.479c.053.394.287.798.757 1.605s.704 1.21 1.022 1.453c.424.323.96.465 1.49.396c.242-.032.487-.13.825-.308a1.64 1.64 0 0 1 1.58.008c.486.28.774.795.795 1.353c.015.38.051.64.145.863c.204.49.596.88 1.09 1.083c.37.152.84.152 1.779.152s1.409 0 1.779-.152a2 2 0 0 0 1.09-1.083c.094-.223.13-.483.145-.863c.02-.558.309-1.074.796-1.353a1.64 1.64 0 0 1 1.579-.008c.338.178.583.276.825.308c.53.07 1.066-.073 1.49-.396c.318-.242.553-.646 1.022-1.453c.47-.807.704-1.21.757-1.605a2 2 0 0 0-.4-1.479c-.148-.192-.357-.353-.68-.555c-.477-.297-.783-.803-.783-1.361s.306-1.064.782-1.36c.324-.203.533-.364.682-.556a2 2 0 0 0 .399-1.479c-.053-.394-.287-.798-.757-1.605s-.704-1.21-1.022-1.453a2.03 2.03 0 0 0-1.49-.396c-.242.032-.487.13-.825.308a1.64 1.64 0 0 1-1.58-.008a1.62 1.62 0 0 1-.795-1.353c-.015-.38-.051-.64-.145-.863a2 2 0 0 0-1.09-1.083M12.5 15c1.67 0 3.023-1.343 3.023-3S14.169 9 12.5 9s-3.023 1.343-3.023 3s1.354 3 3.023 3" clipRule="evenodd"/>
-              </svg>
-              {t('settings.nav.settings')}
-              {/* chevron */}
-              <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" className="gg-as-tab-chev">
-                <path fill="none" stroke="currentColor" strokeLinecap="round" strokeLinejoin="round" strokeWidth="1.5" d="m19 9l-7 6l-7-6"/>
-              </svg>
-            </button>
-
-            {/* settings sub-tabs accordion */}
-            <div className={agentSettingsSubsClass(settingsExpanded)}>
               {/* AI 模型 */}
               <button
-                className={agentSettingsSubTabClass(activeTab === 'aimodel')}
+                className={agentSettingsTabClass(activeTab === 'aimodel')}
                 style={mobileTabStyle}
                 onClick={() => selectTab('aimodel')}
               >
@@ -289,15 +245,15 @@ export function AgentSettingsModal({ agent: openedAgent, onClose, initialTab = '
                 {t('settings.nav.aiModel')}
               </button>
 
-            </div>
           </nav>
 
           {/* body — render active pane; mobile: 详情层全宽 */}
           <div
             className={asClass.body}
-            style={mobileShell ? { padding: '20px 16px max(24px, env(safe-area-inset-bottom))', display: mobilePane === 'detail' ? 'block' : 'none' } : undefined}
+            data-active-tab={activeTab}
+            style={mobileShell ? { padding: '20px 16px max(24px, env(safe-area-inset-bottom))', display: mobilePane === 'detail' ? (activeTab === 'profile' ? 'flex' : 'block') : 'none' } : undefined}
           >
-            <div className={agentSettingsPaneClass(activeTab === 'profile')}>
+            <div className={cx(agentSettingsPaneClass(activeTab === 'profile'), 'gg-as-pane-profile')}>
               <AgentProfilePane {...paneProps} />
             </div>
             <div className={agentSettingsPaneClass(activeTab === 'look')}>

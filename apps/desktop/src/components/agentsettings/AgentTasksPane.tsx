@@ -160,7 +160,7 @@ export function AgentTasksPane({ agent }: AgentSettingsPaneProps) {
               ))}
             </select>
           </div>
-          <button className={asClass.profileSave} disabled={!canSubmit} onClick={handleCreate} data-testid="agent-task-save">
+          <button className={asClass.tasksSave} disabled={!canSubmit} onClick={handleCreate} data-testid="agent-task-save">
             {busy ? t('settings.tasks.creating') : t('settings.tasks.create')}
           </button>
         </div>

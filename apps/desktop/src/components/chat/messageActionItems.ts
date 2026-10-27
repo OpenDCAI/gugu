@@ -4,7 +4,6 @@ import { resourceMenuItems } from '@/lib/resourceActions'
 import { Copy, Download, ExternalLink, Reply, Share, SquareCheck, TextCursorInput, Trash, type IconComponent } from '@/lib/icons'
 
 export type MessageActionTarget = {
-  isMine: boolean
   isRetracted: boolean
   content: string | null
   onReply?: () => void

@@ -11,6 +11,7 @@ import { Button } from '@/components/ui/Button';
 import { SegmentedTabs } from '@/components/ui/SegmentedTabs';
 import { ResourceMonitorView } from '@renderer/features/command-palette/resource-monitor-view';
 import { tokenColor, useChartTheme } from '@/components/usage/useChartTheme';
+import './resource-timeline.css';
 const log = rendererLogger('resource-monitor/timeline');
 const VChart = lazy(() => import('@visactor/react-vchart').then((m) => ({ default: m.VChart })));
 const CHART_OPTIONS = { mode: 'desktop-browser' as const };
@@ -95,12 +96,13 @@ export const ResourceTimeline = observer(function ResourceTimeline({ compact = f
       </div>)}
     </div>
     <div className="space-y-3">
-      <div className="flex flex-wrap items-center gap-2">
-        <SegmentedTabs items={ranges} value={range} onChange={setRange} ariaLabel={t('resourceMonitor.range')} />
-        <span className="mr-auto" />
+      <div className="gg-resource-toolbar">
+        <div className="gg-resource-range"><SegmentedTabs items={ranges} value={range} onChange={setRange} ariaLabel={t('resourceMonitor.range')} /></div>
+        <div className="gg-resource-actions">
         {onFloat && <Button size="sm" variant="ghost" onClick={onFloat}>{t('resourceMonitor.float')}</Button>}
         <Button size="sm" variant="ghost" onClick={() => void action('export')}>{t('resourceMonitor.export')}</Button>
         <Button size="sm" variant="ghost" onClick={() => void action('clear')}>{t('resourceMonitor.clear')}</Button>
+        </div>
       </div>
       {history?.points.length ? (['cpu', 'memory'] as const).map((metric) => <div key={metric} className="space-y-1">
         <div className="text-foreground-muted">{tiles.find((tile) => tile.key === metric)?.label}</div>

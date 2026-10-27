@@ -13,8 +13,8 @@ const rig = vi.hoisted(() => ({ identities: vi.fn(), stats: vi.fn() }))
 vi.mock('@/lib/identityReadAdapter', async original => ({ ...(await original<object>()), readDisplayIdentities: rig.identities }))
 vi.mock('@/lib/billing', () => ({ getReferralStats: rig.stats }))
 let h: ReturnType<typeof createReactHarness>
-beforeEach(() => { h = createReactHarness(); rig.identities.mockReset(); rig.stats.mockReset() })
-afterEach(() => h.cleanup())
+beforeEach(() => { h = createReactHarness(); vi.stubEnv('VITE_GUGU_WEB_URL', 'https://invites.example.test'); rig.identities.mockReset(); rig.stats.mockReset() })
+afterEach(() => { h.cleanup(); vi.unstubAllEnvs() })
 
 for (const mobile of [false, true]) for (const theme of ['light', 'dark']) {
   it(`keeps invitation layout stable through loading, failure and retry (${mobile ? 'phone' : 'desktop'}, ${theme})`, async () => {
@@ -50,6 +50,7 @@ for (const mobile of [false, true]) for (const theme of ['light', 'dark']) {
     expect(h.container.querySelector('[role="alert"]')).toBeNull()
     expect(rect('[data-testid="membership-referral"]')).toEqual(card)
     expect(rect('input')).toEqual(field)
+    if (mobile) expect(rect('.na-referral-link button')[2]).toBe(h.container.querySelector('.na-referral-link')!.getBoundingClientRect().width)
     expect(rect('.na-referral-link button')).toEqual(copy)
     expect(document.documentElement.scrollWidth).toBeLessThanOrEqual(window.innerWidth)
   })

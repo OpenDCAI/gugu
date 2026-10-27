@@ -15,9 +15,9 @@ import { useReferralCardData } from './useReferralCardData'
 import { IconBadge } from './UsageParts'
 
 export function ReferralCard() {
-  const { t, i18n } = useTranslation('settings')
+  const { t } = useTranslation('settings')
   const { user, loading } = useAuth()
-  const { inviteUrl, referral, pending, failed, retry } = useReferralCardData(user, loading)
+  const { inviteUrl, hasLandingPage, referral, pending, failed, retry } = useReferralCardData(user, loading)
   const [copied, setCopied] = useState(false)
 
   const handleCopyInvite = useCallback(async () => {
@@ -40,13 +40,13 @@ export function ReferralCard() {
         <div className="na-card-title">
           <IconBadge icon={<UserPlus />} tone="chart-2" />
           <b>{t('referral.inviteTitle')}</b>
-          <span>{t('referral.inviteDescription')}</span>
+          <span className="na-referral-description">{t('referral.inviteDescription')}</span>
         </div>
       </div>
       <div className="na-referral" data-read-failed={failed.length > 0 && !inviteUrl || undefined}>
         <div className="na-referral-stats na-referral-stats-frame">
           {failed.length ? <div role="alert" className="na-referral-read-error">
-            <span>{t('referral.readFailed', { items: new Intl.ListFormat(i18n.language).format(failed.map(part => t(`referral.readPart.${part}`))) })}</span>
+            <span>{t('referral.readFailed')}</span>
             <Button variant="ghost" size="sm" onClick={retry}>{t('referral.retry')}</Button>
           </div> : <>
 
@@ -58,11 +58,11 @@ export function ReferralCard() {
           </span>
           </>}
         </div>
-        <div className="na-referral-link na-referral-link-frame" aria-busy={pending && !inviteUrl}>
+        {hasLandingPage && <div className="na-referral-link na-referral-link-frame" aria-busy={pending && !inviteUrl}>
           {inviteUrl ? <>
           <input
             data-testid="settings-quota-invite-input"
-            className="na-input"
+            className="na-input na-referral-url"
             value={inviteUrl}
             readOnly
           />
@@ -79,7 +79,7 @@ export function ReferralCard() {
             <div className="na-input gg-usage-skeleton na-referral-field-skeleton" aria-label={t('referral.inviteLoading')} />
             <span className="gg-usage-skeleton na-referral-copy-skeleton" aria-hidden><Copy size={14} className="invisible" /><span className="invisible">{t('referral.copyInvite')}</span></span>
           </> : null}
-        </div>
+        </div>}
       </div>
     </div>
   )

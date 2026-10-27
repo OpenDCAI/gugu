@@ -1,4 +1,5 @@
 .gg-settings-row.gg-agent-pause-row {
-  padding-inline: 0;
-  margin-bottom: var(--spacing-lg);
+  flex: 1;
+  min-width: 0;
+  padding: 0;
 }

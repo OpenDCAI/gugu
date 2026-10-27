@@ -1,5 +1,6 @@
 // @vitest-environment jsdom
 import { afterEach, beforeEach, expect, it, vi } from 'vitest'
+import type { AgentSettingsTab } from '../../../../apps/desktop/src/components/agentsettings/types'
 import { AgentSettingsModal } from '../../../../apps/desktop/src/components/agentsettings/AgentSettingsModal'
 import { clearAgentDisplayStatusOverrides } from '../../../support/agentDisplayStatusTestDouble'
 import { clickElement, contact, createReactHarness, renderWithAppProviders } from '../../../support/testHarness'
@@ -17,7 +18,7 @@ const pause = () => document.querySelector<HTMLButtonElement>('[data-testid="age
 it.each([false, true])('keeps implemented navigation in order and starts on profile (mobile=%s)', async mobile => {
   rig.mobile = mobile
   await renderWithAppProviders(h, <AgentSettingsModal agent={agent} />, { auth: { id: 'u1' }, contacts: {} })
-  expect(navButtons().map(button => button.textContent?.trim())).toEqual(['资料', '分享', '定时任务', '设置', 'AI 模型'])
+  expect(navButtons().map(button => button.textContent?.trim())).toEqual(['资料', '分享', '定时任务', 'AI 模型'])
   expect(navButtons().filter(button => button.classList.contains('gg-as-tab--on')).map(button => button.textContent?.trim())).toEqual(['资料'])
   expect(document.body.textContent).not.toMatch(/即将开放|即将推出|即将支持|敬请期待/)
   if (mobile) await clickElement(navButtons()[0])
@@ -49,3 +50,13 @@ it('keeps a failed pause unchanged and allows retry in the same row', async () =
   expect(setAgentDesiredStatus).toHaveBeenCalledTimes(2)
   expect(row.querySelector('[role="alert"]')).toBeNull()
 })
+
+for (const tab of ['contacts', 'history', 'finance', 'memory', 'permissions', 'secrets']) for (const mobile of [false, true]) {
+  it(`legacy ${tab} deep link opens profile (${mobile ? 'phone' : 'desktop'})`, async () => {
+    rig.mobile = mobile
+    await renderWithAppProviders(h, <AgentSettingsModal agent={agent} initialTab={tab as AgentSettingsTab} />, { auth: { id: 'u1' }, contacts: {} })
+    expect(navButtons().filter(button => button.classList.contains('gg-as-tab--on')).map(button => button.textContent?.trim())).toEqual(['资料'])
+    expect(document.querySelector('.gg-as-pane--on .gg-agent-profile')).not.toBeNull()
+    if (mobile) expect(document.querySelector<HTMLElement>('[data-active-tab="profile"]')!.style.display).toBe('flex')
+  })
+}

@@ -1,5 +1,3 @@
-
-
 export function cx(...classes: Array<string | false | null | undefined>) {
   return classes.filter(Boolean).join(' ')
 }
@@ -11,7 +9,6 @@ const tabBase =
 const tabInactive = 'bg-transparent hover:bg-[var(--hover)] active:bg-[var(--press)]'
 const tabActive =
   'gg-as-tab--on bg-[var(--bg)] [box-shadow:inset_0_0_0_1px_var(--border-strong)] [&_.gg-as-il]:!hidden [&_.gg-as-if]:!block'
-const tabSub = 'gg-as-sub text-[length:var(--font-body)] !px-[11px] !py-[7px]'
 
 const shareSegmentButtonBase =
   'gg-as-share-act-seg-btn flex flex-1 cursor-pointer items-center justify-center gap-1.5 rounded-[var(--radius-control)] border-0 text-[length:var(--font-body)] font-[500] !p-2'
@@ -31,6 +28,7 @@ const profileInputTextarea =
 
 export const asClass = {
   tasksHead: 'gg-as-tasks-head !mb-[14px] flex items-center justify-between',
+  tasksSave: 'gg-as-profile-save float-right cursor-pointer rounded-[var(--radius-xl)] border-0 bg-[var(--primary)] text-[length:var(--font-body)] font-semibold text-[var(--primary-fg)] !px-[26px] !py-2.5 hover:opacity-[.88] disabled:cursor-default disabled:opacity-50',
   tasksHeading: 'gg-as-tasks-h2 !m-0 text-[length:var(--font-caption)] font-semibold tracking-[.02em] text-[var(--faint-fg)]',
   tasksAddButton: 'gg-as-tasks-btn inline-flex cursor-pointer items-center gap-[5px] rounded-[var(--radius-xl)] border-0 bg-[var(--primary)] text-[length:var(--font-body)] font-[500] text-[var(--primary-fg)] !px-[13px] !py-[7px] hover:opacity-[.88]',
   tasksLoading: 'gg-as-tasks-empty !mt-2 rounded-[var(--radius-xl)] border border-dashed border-[var(--border-strong)] text-center text-[length:var(--font-body)] text-[var(--faint-fg)] !px-0 !py-7',
@@ -49,13 +47,6 @@ export const asClass = {
   main: 'gg-as-main flex min-h-0 flex-1',
   rail:
     'gg-as-rail flex w-[190px] shrink-0 flex-col gap-0.5 overflow-y-auto border-r border-[var(--border)] !px-3 !py-[14px]',
-  subs:
-    'gg-as-subs flex-col gap-0.5 border-l border-[var(--border)] !my-0.5 !ml-[15px] !mr-0 !pl-[9px]',
-  subsHidden: 'hidden',
-  subsVisible: `gg-as-subs--on flex ${pop}`,
-  settingsToggle: 'gg-as-settings-toggle',
-  settingsToggleExpanded:
-    'gg-as-settings-toggle--expanded [&_.gg-as-tab-chev]:[transform:rotate(180deg)]',
   body: 'gg-as-body min-w-0 flex-1 overflow-y-auto !px-7 !py-6',
   paneHidden: 'gg-as-pane hidden',
   paneVisible: `gg-as-pane gg-as-pane--on block ${pop}`,
@@ -72,11 +63,6 @@ export const asClass = {
   profileNameChevron:
     'gg-as-profile-name-chev pointer-events-none absolute right-3 top-1/2 -translate-y-1/2 text-[var(--faint-fg)]',
   profileError: 'gg-as-profile-error !mt-1.5 text-[length:var(--font-body)] text-[var(--danger)]',
-  profileSave:
-    'gg-as-profile-save float-right cursor-pointer rounded-[var(--radius-xl)] border-0 bg-[var(--primary)] text-[length:var(--font-body)] font-semibold text-[var(--primary-fg)] !px-[26px] !py-2.5 hover:opacity-[.88] disabled:cursor-default disabled:opacity-50',
-  profileDanger:
-    'gg-as-profile-danger clear-both !mt-11 w-full cursor-pointer rounded-[var(--radius-xl)] border-0 bg-[var(--danger-tint)] text-[length:var(--font-body)] font-[500] text-[var(--danger)] !p-3 hover:bg-[var(--danger-tint-press)] disabled:cursor-default disabled:opacity-50',
-
   tasksH2:
     'gg-as-tasks-h2 !mb-1 !mt-[22px] text-[length:var(--font-caption)] font-semibold tracking-[.02em] text-[var(--faint-fg)]',
   tasksEmpty:
@@ -88,7 +74,7 @@ export const asClass = {
   shareRoot: 'gg-as-share-act-root',
   shareTitle: 'gg-as-share-act-title !mb-4 text-[16px] font-semibold',
   shareSegment: 'gg-as-share-act-seg flex rounded-[var(--radius-xl)] bg-[var(--muted)] !mb-3 !p-[3px]',
-  shareFwd: 'gg-as-share-act-fwd !px-0.5 !py-1.5',
+  shareFwd: 'gg-as-share-act-fwd !px-0 !py-0',
   shareSearch: 'gg-as-share-act-search !mb-1.5',
   shareList: 'gg-as-share-act-list max-h-[260px] overflow-auto',
   shareRow:
@@ -96,7 +82,7 @@ export const asClass = {
   shareAvatar:
     'gg-as-share-act-av h-8 w-8 shrink-0 overflow-hidden rounded-[var(--radius-capsule)] bg-[var(--muted)]',
   shareRowName: 'gg-as-share-act-row-name text-[length:var(--font-body)] font-[500]',
-  shareEmpty: 'gg-as-share-act-empty text-[length:var(--font-body)] text-[var(--faint-fg)] !px-1.5 !py-3',
+  shareEmpty: 'gg-as-share-act-empty text-[length:var(--font-body)] text-[var(--faint-fg)] !px-0 !py-3',
   shareError: 'gg-as-share-act-error !mt-2 text-[length:var(--font-body)] text-[var(--danger)]',
   shareBusy: 'gg-as-share-act-busy !mt-2 text-[length:var(--font-body)] text-[var(--muted-fg)]',
   shareExt: 'gg-as-share-act-ext !px-0.5 !py-1.5',
@@ -107,11 +93,6 @@ export const asClass = {
   shareQrImage: 'gg-as-share-act-se-qr bg-[var(--color-white)] object-contain',
   shareLink:
     'gg-as-share-act-se-link flex items-center gap-2 rounded-[var(--radius-xl)] border border-[var(--border-strong)] text-[length:var(--font-body)] text-[var(--muted-fg)] !px-[11px] !py-[9px] [&_span]:min-w-0 [&_span]:flex-1 [&_span]:overflow-hidden [&_span]:text-ellipsis [&_span]:whitespace-nowrap',
-  shareCopy:
-    'gg-as-share-act-se-copy shrink-0 cursor-pointer rounded-[var(--radius-control)] border-0 bg-[var(--primary)] text-[length:var(--font-body)] text-[var(--primary-fg)] !px-3 !py-[5px]',
-  shareEnable:
-    'gg-as-share-act-se-enable !mt-2.5 w-full cursor-pointer rounded-[var(--radius-control)] border-0 bg-[var(--primary)] text-[length:var(--font-body)] text-[var(--primary-fg)] !px-3 !py-2 disabled:cursor-default disabled:opacity-60',
-
   aiModelLabel:
     'gg-as-aimodel-label !mb-[7px] text-[length:var(--font-body)] font-[500] text-[var(--faint-fg)]',
   aiModelSelect:
@@ -124,14 +105,6 @@ export const asClass = {
 
 export function agentSettingsTabClass(active: boolean, extra?: string) {
   return cx(tabBase, active ? tabActive : tabInactive, extra)
-}
-
-export function agentSettingsSubTabClass(active: boolean) {
-  return agentSettingsTabClass(active, tabSub)
-}
-
-export function agentSettingsSubsClass(expanded: boolean) {
-  return cx(asClass.subs, expanded ? asClass.subsVisible : asClass.subsHidden)
 }
 
 export function agentSettingsPaneClass(active: boolean) {

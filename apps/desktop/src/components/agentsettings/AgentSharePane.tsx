@@ -30,6 +30,7 @@ import type { ContactUser } from '@gugu/core/shared/types/contacts'
 import { asClass, cx, shareSegmentButtonClass } from './agentSettingsStyles'
 import { Avatar } from '../Avatar'
 import { SearchField } from '../ui/SearchField'
+import { Button } from '../ui/Button'
 
 // ─── helpers ─────────────────────────────────────────────────────────────────
 
@@ -139,13 +140,13 @@ export function ExtPanel({ agent }: { agent: ContactUser }) {
   const [copied, setCopied] = useState(false)
 
   useEffect(() => {
-    if (!shareUrl) { setQr(null); return }
+    if (!shareUrl || !isPublic) { setQr(null); return }
     let cancelled = false
     QRCode.toDataURL(shareUrl, { width: 132, margin: 1, color: { dark: '#1f2933', light: '#ffffff' } })
       .then((url) => { if (!cancelled) setQr(url) })
       .catch(() => { if (!cancelled) setQr(null) })
     return () => { cancelled = true }
-  }, [shareUrl])
+  }, [shareUrl, isPublic])
 
   const handleEnable = useCallback(async () => {
     if (enabling) return
@@ -174,9 +175,18 @@ export function ExtPanel({ agent }: { agent: ContactUser }) {
       rendererLogger('clipboard').error({ error: reason }, 'copy agent link failed')
       setError(safeFailureLine(reason))
     }
-  }, [shareUrl])
+  }, [shareUrl, isPublic])
 
   if (!shareUrl) return null
+
+  if (!isPublic) return (
+    <div className={asClass.shareExt}>
+      <Button className="w-full" variant="primary" onClick={() => void handleEnable()} disabled={enabling}>
+        {enabling ? t('settings.share.enabling') : t('settings.share.enable')}
+      </Button>
+      {error && <div role="alert" className={asClass.shareError}>{error}</div>}
+    </div>
+  )
 
   const qrElement = qr
     ? <img className={cx(asClass.shareQr, asClass.shareQrImage)} src={qr} alt={t('settings.share.qrAlt')} />
@@ -196,24 +206,10 @@ export function ExtPanel({ agent }: { agent: ContactUser }) {
           明文链接 user-select:text — 复制失败时(#1124)用户可手动选中复制（fail-loud 回退）。 */}
       <div className={asClass.shareLink}>
         <span data-testid="agent-share-link" style={{ userSelect: 'text' }}>{shareUrl}</span>
-        <button
-          type="button"
-          className={asClass.shareCopy}
-          onClick={() => { void handleCopy() }}
-        >
+        <Button variant="secondary" size="sm" onClick={() => void handleCopy()}>
           {copied ? t('settings.share.copied') : t('settings.share.copy')}
-        </button>
+        </Button>
       </div>
-      {!isPublic && (
-        <button
-          type="button"
-          className={asClass.shareEnable}
-          onClick={() => { void handleEnable() }}
-          disabled={enabling}
-        >
-          {enabling ? t('settings.share.enabling') : t('settings.share.enable')}
-        </button>
-      )}
       {error && <div className={asClass.shareError}>{error}</div>}
     </div>
   )
@@ -242,7 +238,7 @@ export function AgentSharePane({ agent, onClose: _onClose }: AgentSettingsPanePr
       <h3 className={asClass.shareTitle}>{t('settings.share.title')}</h3>
 
       {/* .share-seg */}
-      <div className={asClass.shareSegment}>
+      {canShareExternally && <div className={asClass.shareSegment}>
         <button
           type="button"
           className={shareSegmentButtonClass(tab === 'fwd')}
@@ -259,7 +255,7 @@ export function AgentSharePane({ agent, onClose: _onClose }: AgentSettingsPanePr
           {t('settings.share.external')}
         </button>
         )}
-      </div>
+      </div>}
 
       {/* panels */}
       {tab === 'fwd' && user && (

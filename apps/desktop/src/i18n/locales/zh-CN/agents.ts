@@ -406,7 +406,7 @@ export default {
       "open": "扫码或用链接打开",
       "openHint": "任何人都能与该 Agent 对话并把它加入消息列表",
       "qrAlt": "对外分享二维码",
-      "search": "搜索会话",
+      "search": "搜索联系人",
       "title": "分享 Agent",
     },
     "tasks": {

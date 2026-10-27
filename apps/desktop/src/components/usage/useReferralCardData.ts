@@ -3,6 +3,7 @@ import { getReferralStats, type ReferralStats } from '../../lib/billing'
 import { readDisplayIdentities } from '../../lib/identityReadAdapter'
 import { rendererLogger } from '../../lib/log'
 import { buildReferralShareUrl } from '../../lib/referral'
+import { webInviteLandingBase } from '../../lib/inviteLandingBase'
 import type { AuthUser } from '../../store/auth'
 
 type FailedPart = 'number' | 'stats'
@@ -10,6 +11,7 @@ type State = { owner: string | null; number: number | null; referral: ReferralSt
 
 /** Invitation identity and stats share one error outlet; results never cross account boundaries. */
 export function useReferralCardData(user: AuthUser | null, authLoading: boolean) {
+  const hasLandingPage = !!webInviteLandingBase()
   const owner = user?.id ?? null
   const knownNumber = user?.gugu_number ?? null
   const identityPending = user?.identityPending === true
@@ -20,7 +22,7 @@ export function useReferralCardData(user: AuthUser | null, authLoading: boolean)
     let active = true
     const controller = new AbortController()
     setState(previous => ({ owner, number: knownNumber ?? (previous.owner === owner ? previous.number : null), referral: previous.owner === owner ? previous.referral : null, pending: true, failed: [] }))
-    const number = knownNumber ? Promise.resolve(knownNumber) : readDisplayIdentities([owner], controller.signal).then(rows => {
+    const number = knownNumber || !hasLandingPage ? Promise.resolve(knownNumber) : readDisplayIdentities([owner], controller.signal).then(rows => {
       const value = rows.find(row => row.id === owner)?.gugu_number
       if (!value || !Number.isFinite(value) || value <= 0) throw new Error('Invitation identity number was not returned')
       return value
@@ -33,7 +35,7 @@ export function useReferralCardData(user: AuthUser | null, authLoading: boolean)
       setState({ owner, number: numberResult.status === 'fulfilled' ? numberResult.value : null, referral: statsResult.status === 'fulfilled' ? statsResult.value : null, pending: false, failed })
     })
     return () => { active = false; controller.abort() }
-  }, [owner, knownNumber, identityPending, authLoading, attempt])
+  }, [owner, knownNumber, identityPending, authLoading, hasLandingPage, attempt])
   const current = state.owner === owner ? state : { owner, number: knownNumber, referral: null, pending: true, failed: [] }
-  return { ...current, inviteUrl: buildReferralShareUrl(knownNumber ?? current.number), retry: () => setAttempt(value => value + 1) }
+  return { ...current, hasLandingPage, inviteUrl: buildReferralShareUrl(knownNumber ?? current.number), retry: () => setAttempt(value => value + 1) }
 }

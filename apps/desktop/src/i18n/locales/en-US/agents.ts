@@ -406,7 +406,7 @@ export default {
       "open": "Scan or open the link",
       "openHint": "Anyone can chat with this Agent and add it to their message list",
       "qrAlt": "External sharing QR code",
-      "search": "Search conversations",
+      "search": "Search contacts",
       "title": "Share Agent",
     },
     "tasks": {

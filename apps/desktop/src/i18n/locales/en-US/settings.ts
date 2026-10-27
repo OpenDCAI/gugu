@@ -905,8 +905,7 @@ export default {
     "upgradeHint": "Get a membership to unlock these models"
   },
   "referral": {
-    "readFailed": "Could not read {{items}}.",
-    "readPart": { "number": "your Gugu number", "stats": "invitation stats" },
+    "readFailed": "Could not load invitation information",
     "retry": "Retry",
     "amountCredits": "{{credits}} credits",
     "copied": "Copied",

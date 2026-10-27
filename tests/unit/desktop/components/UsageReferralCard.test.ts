@@ -45,7 +45,7 @@ describe('#1511 slice3 邀请卡统计', () => {
     vi.mocked(getReferralStats).mockRejectedValue(new Error('network'))
     await renderWithAppProviders(harness, createNode(ReferralCard), { auth })
     await flush()
-    expect(harness.container.querySelector('[role="alert"]')?.textContent).toContain('邀请统计')
+    expect(harness.container.querySelector('[role="alert"]')?.textContent).toContain('邀请信息加载失败')
     expect(harness.container.querySelectorAll('[role="alert"]')).toHaveLength(1)
   })
 })
