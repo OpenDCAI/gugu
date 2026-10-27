@@ -932,8 +932,8 @@ export const agentLockedIndicator = style({})
 globalStyle(`[data-slot="composer-toolbar"]:is([data-disclosure="4"], [data-disclosure="5"], [data-disclosure="6"]) ${usageTrigger}`, { display: 'none' })
 globalStyle(`[data-slot="composer-toolbar"]:is([data-disclosure="5"], [data-disclosure="6"]) ${agentLockedIndicator}`, { display: 'none' })
 
-// 档 3 收的是「编程 | 通用」那个分段控件 —— 它自己按档位换渲染(见 session-view-control.tsx),
-// 不在这里用 CSS 藏,因为藏掉一半就点不到那一半了,那是假控件。
+// 档 3 原来收「编程 | 通用」那个分段控件;那个手动切换已删(展示跟设置 → 通用的「终端」开关走),这一档现在不收东西,
+// 档号不挪,省得后面几档的规则跟着改。
 //
 // ❌ 试过「把三枚下拉箭头一起收掉」,owner 2026-09-05 看完实机对比判「箭头收了不合适」,已撤。
 //

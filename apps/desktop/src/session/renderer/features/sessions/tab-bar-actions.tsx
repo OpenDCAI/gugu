@@ -30,6 +30,7 @@ import {
 import { canStartSideSession, startSideSession } from './start-side-session';
 import { useSessionMessages } from '@renderer/localization/use-session-messages';
 import { useAgents } from '@renderer/lib/stores/use-agents';
+import { useTerminalEnabled } from '@renderer/features/settings/use-terminal-enabled';
 
 /**
  * 页签条上的「+」(spec session-page「一屏几块」):紧跟最后一个页签,打开这一格要放的东西。
@@ -42,6 +43,7 @@ export const TabBarAddMenu = observer(function TabBarAddMenu() {
   const { data: agents } = useAgents();
   const { navigate } = useNavigate();
   const canSideSession = canStartSideSession(projectId, sessionId, agents);
+  const terminalEnabled = useTerminalEnabled();
   const [open, setOpen] = useState(false);
   useCommandProvider({
     scopeId: 'session-sub',
@@ -56,7 +58,7 @@ export const TabBarAddMenu = observer(function TabBarAddMenu() {
         <Plus className="size-3.5" />
       </DropdownMenuTrigger>
       <DropdownMenuContent align="start" className="w-44">
-        {getSessionWorkspaceActionOrder(projectId).map((actionId) =>
+        {getSessionWorkspaceActionOrder(projectId, terminalEnabled).map((actionId) =>
           renderWorkspaceActionMenuItem(actionId, translate, {
             blocked: sessionWorkspaceActionBlocked(projectId, actionId) !== null,
             blockedTitle: workspaceBlockedTitle(sessionWorkspaceActionBlocked(projectId, actionId), translate, projectId),

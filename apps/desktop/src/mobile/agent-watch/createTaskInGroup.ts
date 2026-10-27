@@ -32,14 +32,13 @@ export async function createTaskInGroup(input: {
   prompt: string
   harness: string
   model?: string
-} & Pick<SessionpageSessionCreateRequest, 'sessionView' | 'permissionMode' | 'effort'>): Promise<{ sessionId: string }> {
+} & Pick<SessionpageSessionCreateRequest, 'permissionMode' | 'effort'>): Promise<{ sessionId: string }> {
   const result = await createSession(input.deviceId, {
     projectId: input.projectId,
     cwd: input.cwd,
     harness: input.harness,
     prompt: input.prompt,
     ...(input.model ? { model: input.model } : {}),
-    ...(input.sessionView ? { sessionView: input.sessionView } : {}),
     ...(input.permissionMode ? { permissionMode: input.permissionMode } : {}),
     ...(input.effort ? { effort: input.effort } : {}),
     chatId: input.chatId,

@@ -9,7 +9,7 @@ import { useEffectiveProvider } from './use-effective-provider';
  * 再按这台电脑上装没装 —— ❌ 另定一个默认。「新任务」按钮上画它的标(gugu-dev#181:标签、按钮、任务卡说的是同一个 agent)。
  */
 export function useDefaultTaskProvider(): string | null {
-  const [view] = useSessionViewPreference();
+  const view = useSessionViewPreference();
   const { value: memory } = useAppSettingsKey('newSessionMemory');
   return useEffectiveProvider(undefined, sessionpageLegOfView(view), rememberedProviderOf(memory)).providerId ?? null;
 }
