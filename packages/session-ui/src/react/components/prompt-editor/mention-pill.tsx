@@ -82,7 +82,7 @@ export function MentionPill({
           </span>
         ) : (
           <span className={cx(styles.pillIconArea, styles.pillPlainIconArea)}>
-            {/* Hover-x: for plain mentions, overlaid across the whole text */}
+            {/* Hover-x: for plain mentions, overlaid at the end of the text */}
             {removeBtn}
           </span>
         )}
