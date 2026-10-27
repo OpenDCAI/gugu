@@ -46,13 +46,13 @@ const sends = (units: ReturnType<typeof flattenTier>) =>
   units.filter((u) => u.kind === 'agent-send').map((u) => (u.data as AgentSendItem).send.text);
 
 describe('agent-send: what the agent said through 咕咕 shows as its words', () => {
-  it('names where it went — the group, a thread in it, a whisper, another task', () => {
+  it('names where it went — the group, a topic in it, a whisper, another task', () => {
     const named = (id: string) => (id === CHAT ? 'gugu' : null);
     const chat = { kind: 'chat' as const, conversationId: CHAT, threadRootId: null, whisper: false };
     expect(agentSendLabel(chat, defaultChatTranslator, named)).toBe('Sent to gugu');
-    expect(agentSendLabel({ ...chat, threadRootId: 'msg:root' }, defaultChatTranslator, named)).toBe('Sent to a thread in gugu');
+    expect(agentSendLabel({ ...chat, threadRootId: 'msg:root' }, defaultChatTranslator, named)).toBe('Sent to a topic in gugu');
     // The host does not know that group: say so without the number.
-    expect(agentSendLabel({ ...chat, threadRootId: 'msg:root' }, defaultChatTranslator, () => null)).toBe('Sent to a thread');
+    expect(agentSendLabel({ ...chat, threadRootId: 'msg:root' }, defaultChatTranslator, () => null)).toBe('Sent to a topic');
     expect(agentSendLabel({ ...chat, conversationId: null }, defaultChatTranslator, named)).toBe('Sent to a chat');
     expect(agentSendLabel({ ...chat, whisper: true }, defaultChatTranslator, named)).toBe('Whispered in gugu');
     expect(agentSendLabel({ kind: 'session', count: 1 }, defaultChatTranslator, named)).toBe('Sent to another task');

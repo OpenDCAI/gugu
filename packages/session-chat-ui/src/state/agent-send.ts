@@ -8,7 +8,7 @@ import type { ChatTranslator } from '@session-chat/localization';
 
 /**
  * 去向那一句。群名由宿主按对话 id 给(同「来自 X 群」那张投递卡);认不出来就只说「发到聊天里」,❌ 写群号。
- * 发到线程:这条会话绑在那条线程上,话落在那里(服务器按会话定,agent 选不了)。
+ * 发到话题:这条会话绑在那个话题上,话落在那里(服务器按会话定,agent 选不了)。
  */
 export function agentSendLabel(to: AgentSendTarget, translate: ChatTranslator, chatName: (chatId: string) => string | null): string {
   if (to.kind === 'session') {

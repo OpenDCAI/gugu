@@ -130,8 +130,8 @@ const fallbackMessages = {
   // agent 经 message_send / session_message 说的话,下面那一行去向(agent-send.def)。
   'transcript.agentSendTo': 'Sent to {chat}',
   'transcript.agentSendToChat': 'Sent to a chat',
-  'transcript.agentSendToThreadIn': 'Sent to a thread in {chat}',
-  'transcript.agentSendToThread': 'Sent to a thread',
+  'transcript.agentSendToThreadIn': 'Sent to a topic in {chat}',
+  'transcript.agentSendToThread': 'Sent to a topic',
   'transcript.agentSendWhisperIn': 'Whispered in {chat}',
   'transcript.agentSendWhisper': 'Whispered',
   'transcript.agentSendToSession': 'Sent to another task',

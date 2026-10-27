@@ -28,7 +28,7 @@ const sendsIn = (parts: readonly { type: string; name?: string; data?: unknown }
   parts.filter((part) => part.type === 'data' && part.name === AGENT_SEND_DATA_PART).map((part) => part.data as AgentSendData)
 
 describe('手机会话页:agent 经咕咕说的话', () => {
-  it('跑着的时候每一轮的话都在命令之间,带着发到的线程;不收成一张 MCP 工具卡', () => {
+  it('跑着的时候每一轮的话都在命令之间,带着发到的话题;不收成一张 MCP 工具卡', () => {
     const messages = toThreadMessages([turn([input('msg:root'), bash('b1'), send('s1', '第 1 轮'), bash('b2'), send('s2', '第 2 轮', 'running')], false)], { liveTurnId: 't1' })
     const parts = partsOf(messages).flat()
     expect(sendsIn(parts).map((data) => [data.send.text, data.sending])).toEqual([['第 1 轮', false], ['第 2 轮', true]])
