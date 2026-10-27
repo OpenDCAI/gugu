@@ -20,6 +20,7 @@ import { FirstRunGate } from './components/firstRun/FirstRunGate'
 import { ShellErrorBoundary } from './components/ShellErrorBoundary'
 import { ReleaseNotesOpener } from './components/ReleaseNotesOpener'
 import { AppModalHost } from './components/appModal/AppModalHost'
+import { ContentContextMenuHost } from './components/ContentContextMenuHost'
 import { ThemeProvider } from './store/theme'
 import { rendererCommandEventName } from './lib/rendererCommandProtocol'
 import { sessionCoordinator } from './lib/sessionCoordinator'
@@ -146,6 +147,7 @@ export default function App() {
     return (
       <ThemeProvider>
         <ToastProvider>
+          <ContentContextMenuHost />
           <AuthContext.Provider value={authContextValue}>
             <AgentJoinRoute agentId={agentJoinId} user={user} authLoading={loading} />
           </AuthContext.Provider>
@@ -165,6 +167,7 @@ export default function App() {
       <ThemeProvider>
         <Tooltip.Provider>
           <ToastProvider>
+            <ContentContextMenuHost />
             <AuthContext.Provider value={authContextValue}>
               <LoginPage />
             </AuthContext.Provider>
@@ -178,6 +181,7 @@ export default function App() {
     <ThemeProvider>
       <Tooltip.Provider>
         <ToastProvider>
+          <ContentContextMenuHost />
           <AuthContext.Provider value={authContextValue}>
             {/* 新账号先走一遍首次引导(product spec,#7348);老账号 / 走完的直接进主界面 */}
             <FirstRunGate key={user.id} user={user}>

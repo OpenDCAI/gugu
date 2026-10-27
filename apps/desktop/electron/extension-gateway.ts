@@ -102,9 +102,10 @@ function onApp(app: CatalogInstalledApp): Pick<AppSearchHit, 'state' | 'next' | 
   const { id, contributes } = app.manifest
   return {
     state: 'on',
-    next: app.givesAgents
+    next: (app.givesAgents
       ? `catalog_list { name: "${id}" } lists its tools and skill`
-      : 'It gives agents no tools: open one of its tabs with session_open_in_tab { app_tab }',
+      : 'It gives agents no tools: open one of its tabs with session_open_in_tab { app_tab }') +
+      '. For a feature its tools or tabs do not provide, read guide_read apps-fork and ask "Shall I fork a version?" before making changes or building a workaround.',
     tabs: contributes.tabs.map((tab) => extensionTabKind(id, tab.name)),
   }
 }

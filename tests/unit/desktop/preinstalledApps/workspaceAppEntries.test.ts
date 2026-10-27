@@ -45,6 +45,7 @@ const gugu = {
   onLink: vi.fn(() => () => {}),
   showMessage: vi.fn(async (_id: string) => {}),
   files: {
+    viewPreferences: vi.fn(async () => ({ showAppData: false })),
     list: vi.fn(async () => entries),
     onChanged: vi.fn((_place: unknown, fn: typeof filesChanged) => { filesChanged = fn; return () => {} }),
     // Only what the host hands this page (context.file) is opened here; no file service in this rig.
@@ -263,6 +264,13 @@ describe('workspace App as a file manager: the host picks the App', () => {
     expect($('menu').hidden).toBe(true)
     const input = document.querySelector('[data-id="cfg"] .rename-input') as HTMLInputElement
     expect(input.value).toBe('cfg.json')
+    input.value = 'unfinished.json'
+    const links = gugu.linkTo.mock.calls.length
+    contextChanged({ ...context })
+    await Promise.resolve()
+    expect(document.querySelector('[data-id="cfg"] .rename-input')).toBe(input)
+    expect(input.value).toBe('unfinished.json')
+    expect(gugu.linkTo.mock.calls.length).toBe(links)
     input.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape' }))
     await vi.waitFor(() => expect(document.querySelector('[data-id="cfg"] .rename-input')).toBe(null))
 

@@ -86,28 +86,36 @@ const removed: string[] = []
  * context); a table read is refused — what acts for an agent goes through its door only; the bucket is a stub.
  */
 const client = {
-  rpc: async (name: string, body: Record<string, unknown>) => {
-    if (!/^[a-z_]+$/.test(name)) throw new Error(`bad rpc name ${name}`)
-    const keys = Object.keys(body)
-    for (const key of keys) if (!/^p_[a-z_]+$/.test(key)) throw new Error(`bad rpc argument ${key}`)
-    await db.query('SAVEPOINT rpc_call')
-    try {
-      await asUser(current!.owner)
-      const result = await db.query(
-        `SELECT * FROM chat.${name}(${keys.map((key, index) => `${key} => $${index + 1}`).join(', ')})`,
-        keys.map((key) => body[key]),
-      )
-      await db.query('RESET role')
-      await db.query('RELEASE SAVEPOINT rpc_call')
-      // A SETOF of a plain type (workspace_deletable_as) comes back as its values, as PostgREST answers it.
-      const plain = result.fields.length === 1 && result.fields[0]!.name === name
-      return { data: plain ? result.rows.map((row) => (row as Record<string, unknown>)[name]) : result.rows, error: null }
-    } catch (error) {
-      await db.query('ROLLBACK TO SAVEPOINT rpc_call')
-      await db.query('RESET role')
-      // As PostgREST hands a refusal on: the sentence, and the code a door puts in hint.
-      const { hint, detail } = error as { hint?: string; detail?: string }
-      return { data: null, error: { message: String((error as Error).message), hint: hint ?? '', details: detail ?? '' } }
+  rpc: (name: string, body: Record<string, unknown>) => {
+    const run = async (columns = '*') => {
+      if (columns !== '*' && !/^[a-z_]+(?:,[a-z_]+)*$/.test(columns)) throw new Error(`bad rpc projection ${columns}`)
+      if (!/^[a-z_]+$/.test(name)) throw new Error(`bad rpc name ${name}`)
+      const keys = Object.keys(body)
+      for (const key of keys) if (!/^p_[a-z_]+$/.test(key)) throw new Error(`bad rpc argument ${key}`)
+      await db.query('SAVEPOINT rpc_call')
+      try {
+        await asUser(current!.owner)
+        const result = await db.query(
+          `SELECT ${columns} FROM chat.${name}(${keys.map((key, index) => `${key} => $${index + 1}`).join(', ')})`,
+          keys.map((key) => body[key]),
+        )
+        await db.query('RESET role')
+        await db.query('RELEASE SAVEPOINT rpc_call')
+        // A SETOF of a plain type (workspace_deletable_as) comes back as its values, as PostgREST answers it.
+        const plain = result.fields.length === 1 && result.fields[0]!.name === name
+        return { data: plain ? result.rows.map((row) => (row as Record<string, unknown>)[name]) : result.rows, error: null }
+      } catch (error) {
+        await db.query('ROLLBACK TO SAVEPOINT rpc_call')
+        await db.query('RESET role')
+        // As PostgREST hands a refusal on: the sentence, and the code a door puts in hint.
+        const { hint, detail } = error as { hint?: string; detail?: string }
+        return { data: null, error: { message: String((error as Error).message), hint: hint ?? '', details: detail ?? '' } }
+      }
+    }
+    // PostgREST runs only when awaited; select changes the real SQL projection before that execution.
+    return {
+      select: (columns: string) => run(columns),
+      then: (...args: Parameters<ReturnType<typeof run>['then']>) => run().then(...args),
     }
   },
   from: (table: string) => {
@@ -125,7 +133,7 @@ const client = {
 }
 vi.mock('@gugu/core/cloud/supabase', () => ({ createGuguSupabaseClient: () => client }))
 vi.mock('@main/core/extensions/account-token', () => ({ currentAccountAccessToken: async () => `h.${Buffer.from(JSON.stringify({ sub: current!.owner })).toString('base64url')}.s` }))
-vi.mock('@main/core/extensions/file-sync', () => ({ fileSync: {} }))
+vi.mock('@main/core/extensions/file-sync', () => ({ fileSync: { ensureFor: () => undefined } }))
 vi.mock('@main/lib/logger', () => ({ log: { warn: () => undefined } }))
 const { handedChatsAs } = await import('../../../apps/desktop/electron/session/main/core/extensions/extension-program-surface')
 
@@ -174,7 +182,7 @@ function agentFiles(w: World) {
   const files = createAppFiles({
     account: async () => ({ token: 'owner-token', userId: w.owner }),
     hasCapability: () => true,
-    sync: { pageFor: () => ({}), grant: () => undefined, revoke: () => undefined, ungrant: () => undefined } as never,
+    sync: { ensureFor: () => undefined, pageFor: () => ({}), grant: () => undefined, revoke: () => undefined, ungrant: () => undefined } as never,
     identities: async () => [],
     faces: async () => ({}),
     filesUrl: () => 'http://files.invalid',
@@ -248,14 +256,15 @@ describe('topic resources use the source container through the real App SDK and 
     expect((await db.query('SELECT user_id FROM chat.chat_members WHERE chat_id=$1 AND user_id=$2', [topic, w.agent])).rows).toEqual([])
   })
 
-  it('an agent in the source works with its owner outside; leaving the source removes file access', async () => {
+  it('a legacy agent-only source seat retains file access until the agent leaves', async () => {
     const w = await world(true)
     await join(w)
     const topic = await topicOf(w.group, w.peer)
     await db.query('DELETE FROM chat.chat_members WHERE chat_id=$1 AND user_id=$2', [w.group, w.owner])
-    // Current departures cascade; restore a legacy source seat to exercise actor-scoped file access.
-    expect((await db.query('SELECT 1 FROM chat.chat_members WHERE chat_id=$1 AND user_id=$2', [w.group, w.agent])).rows).toHaveLength(0)
-    await join(w)
+    expect((await db.query('SELECT user_id FROM chat.chat_members WHERE chat_id=$1 AND user_id=$2', [w.group, w.agent])).rows).toEqual([])
+    // New owner departures carry their Agents; restore the legacy Agent-only group
+    // seat to retain actor-scoped access coverage for existing memberships.
+    await db.query("INSERT INTO chat.chat_members(chat_id,user_id,role) VALUES ($1,$2,'member')", [w.group, w.agent])
     const { files, surface } = agentFiles(w)
     const made = await files.create(topic, { name: 'agent-source.md', content: 'Actor membership' }, { asAgent: w.agent })
     expect(await files.resourceChat(topic, { asAgent: w.agent })).toBe(w.group)
@@ -321,6 +330,9 @@ describe('#6492 an App acting for an agent, against the migrated database', () =
     await db.query('RESET role')
     expect(oldList.rows).toHaveLength(1)
     expect(oldGet.rows[0]?.inline_text).toBe('BODY-6492')
+    const projected = await client.rpc('workspace_get_as', { p_item_id: created.id, p_as_user_id: w.agent }).select('id,filename')
+    expect(projected.error).toBeNull()
+    expect(projected.data).toEqual([{ id: created.id, filename: 'Plan 2' }])
   })
 
   it('workspace_list_as 在库里分页与筛选(已发出的 MCP 用它):总数、下一段、名字按字面(% _ 不是通配)、种类;按名字找文件也用它', async () => {

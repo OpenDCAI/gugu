@@ -320,7 +320,9 @@ export async function loadPage<File>(type: 'text' | 'json' = 'text', options: { 
     service.toPage = (event) => port.onmessage?.(event);
     return port;
   });
-  const { openFile, bindText } = await import('./files-entry');
+  const runtime = await import('./files-entry');
+  const { bindText } = runtime;
+  const { createGugu } = await import('./create-gugu');
   const { STALL_MS, internals } = await import('./open-file');
   const opened = fileOpened(type);
   const host = {
@@ -342,7 +344,8 @@ export async function loadPage<File>(type: 'text' | 'json' = 'text', options: { 
     clipboard: { writeText: async () => undefined },
     ...(options.checkPage ? { checkPage: { report: vi.fn(async (_counts: unknown) => undefined) } } : {}),
   };
-  const open = () => openFile(host as never, { id: 'item-1' }) as Promise<File>;
+  const gugu = createGugu(host as never, { files: async () => runtime }) as { files: { open(file: unknown): Promise<File> } };
+  const open = () => gugu.files.open({ id: 'item-1' });
   return { service, host, open, STALL_MS, internals, bindText };
 }
 

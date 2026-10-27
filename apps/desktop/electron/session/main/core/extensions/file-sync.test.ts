@@ -13,6 +13,7 @@ import {
   readFrameHead,
   readFrameUpdate,
   type SyncToPage,
+  type AppFileEntry,
 } from '@shared/extensions/app-runtime-protocol';
 
 /**
@@ -127,6 +128,36 @@ const settle = () => new Promise((r) => setTimeout(r, 80));
 const buffer = (bytes: Uint8Array) => bytes.slice().buffer;
 
 describe('app file sync relay', () => {
+  it('reads entry decorations once, only when that granted page requests them', async () => {
+    const p = openPage();
+    const entry = { id: 'decorated', version: 1, canDelete: true } as AppFileEntry;
+    const details = vi.fn(async () => entry);
+    fileSync.grant(p.page, { docName: 'decorated@0', itemId: 'decorated', access: 'rw', needs: null, details });
+    expect(details).not.toHaveBeenCalled();
+    p.port.postMessage({ t: 'entry', docName: 'not-granted@0' });
+    p.port.postMessage({ t: 'entry', docName: 'decorated@0' });
+    p.port.postMessage({ t: 'entry', docName: 'decorated@0' });
+    await until(() => p.told.some((m) => m.t === 'entry'));
+    expect(details).toHaveBeenCalledOnce();
+    expect(p.told).toContainEqual({ t: 'entry', docName: 'decorated@0', entry });
+    fileSync.pageGone(p.id);
+  });
+
+  it('discards pending decorations when their grant is revoked', async () => {
+    const p = openPage();
+    let finish!: (entry: AppFileEntry) => void;
+    const details = vi.fn(() => new Promise<AppFileEntry>((resolve) => { finish = resolve; }));
+    fileSync.grant(p.page, { docName: 'revoked-entry@0', itemId: 'revoked-entry', access: 'rw', needs: null, details });
+    p.port.postMessage({ t: 'entry', docName: 'revoked-entry@0' });
+    await until(() => details.mock.calls.length === 1);
+    await fileSync.revoke(p.id, 'signed-out');
+    finish({ id: 'revoked-entry', version: 1 } as AppFileEntry);
+    await Promise.resolve();
+    await Promise.resolve();
+    expect(p.told.filter((m) => m.t === 'entry')).toEqual([]);
+    fileSync.pageGone(p.id);
+  });
+
   it('says up once the machine is connected, and carries the credential in the subprotocol only', async () => {
     const p = openPage();
     fileSync.grant(p.page, { docName: 'doc@0', itemId: 'doc', access: 'rw', needs: null });

@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 import { closeTabsOfSession } from '@renderer/features/sessions/view/session-pane-policy';
 import { createTabProvider, createTabRegistry } from './core/tab-provider-registry';
 import { PaneLayoutStore } from './pane-layout-store';
+import { createTabView } from './tab-view-factory';
 import { paneSlotView } from './pane-slot-view';
 import type { PaneStore } from './pane-store';
 
@@ -377,6 +378,48 @@ describe('并排:手动分屏、拆开', () => {
     expect(pane.activeTabId).toBe(idOf('term', 't1'));
   });
 
+  it.each(['right', 'left', 'top', 'bottom'] as const)('replacing the %s side only inserts the incoming tab; the outgoing tab keeps its neighbors', (edge) => {
+    const { layout, pane, idOf } = single();
+    for (const id of ['anchor', 'old', 'between', 'incoming', 'last']) layout.open('term', { id }, { activate: false });
+    const anchor = idOf('term', 'anchor')!, old = idOf('term', 'old')!, incoming = idOf('term', 'incoming')!;
+    pane.setActiveTab(anchor);
+    pane.splitBeside(old, edge);
+    const before = [...pane.tabOrder];
+    pane.setActiveTab(incoming);
+    expect(pane.tabOrder.filter((id) => id !== incoming)).toEqual(before.filter((id) => id !== incoming));
+    expect(Math.abs(pane.tabOrder.indexOf(incoming) - pane.tabOrder.indexOf(anchor))).toBe(1);
+    expect(pane.livePair?.side).toBe(incoming);
+    const replaced = [...pane.tabOrder];
+    pane.setActiveTab(old);
+    expect(pane.tabOrder.filter((id) => id !== old)).toEqual(replaced.filter((id) => id !== old));
+  });
+
+  it('opening beside the anchor and closing a tab preserve the remaining order', () => {
+    const { layout, pane, idOf } = single();
+    for (const id of ['old', 'middle', 'last']) layout.open('term', { id }, { activate: false });
+    pane.splitBeside(idOf('term', 'old')!, 'right');
+    const before = [...pane.tabOrder];
+    layout.open('file', { id: 'new.ts' }, { beside: true, activate: false });
+    const added = idOf('file', 'new.ts')!;
+    expect(pane.tabOrder.filter((id) => id !== added)).toEqual(before);
+    const middle = idOf('term', 'middle')!;
+    pane.closeTab(middle);
+    expect(pane.tabOrder.filter((id) => id !== added)).toEqual(before.filter((id) => id !== middle));
+  });
+
+  it('drag previews use the final pair-aware insertion without mutating the stored order', () => {
+    const { layout, pane, idOf } = single();
+    for (const id of ['old', 'middle', 'last']) layout.open('term', { id }, { activate: false });
+    pane.splitBeside(idOf('term', 'old')!, 'right');
+    const before = [...pane.tabOrder];
+    const preview = pane.previewTabOrder(1, 3);
+    expect(pane.tabOrder).toEqual(before);
+    expect(preview).not.toEqual(before);
+    pane.reorderTabs(1, 3);
+    expect(pane.tabOrder).toEqual(preview);
+    expect(pane.tabOrder.slice(-2)).toEqual(before.slice(0, 2));
+  });
+
   it('同一种页签也能并排:两个文件', () => {
     const { layout, pane, idOf, shown } = single();
     layout.open('file', { id: 'a.ts' });
@@ -535,7 +578,7 @@ describe('并排:手动分屏、拆开', () => {
     expect(shown()).toEqual(['page:docs', 'chat:conv']);
     expect(pane.livePair).toMatchObject({ anchor: chatTabId, side: idOf('page', 'docs'), ratio: 0.7 });
     // 被顶下来的退成普通页签,❌ 和对话连成一对。
-    expect(strip()).toEqual(['page:docs', 'chat:conv', 'file:a.ts']);
+    expect(strip()).toEqual(['file:a.ts', 'page:docs', 'chat:conv']);
   });
 
   it('点页签条打头的对话:它还在打头、摆到左边,钉住的那页挨在后面,两页宽窄照旧', () => {
@@ -549,6 +592,31 @@ describe('并排:手动分屏、拆开', () => {
     expect(strip()).toEqual(['chat:conv', 'term:t1', 'page:docs']);
     expect(shown()).toEqual(['chat:conv', 'term:t1']);
     expect(pane.livePair?.ratio).toBeCloseTo(0.3);
+  });
+
+  it('task and group layouts keep a refocused first conversation pinned by the same pairing rule', () => {
+    const outputs = (['session', 'chat'] as const).map((host) => {
+      const conversation = host === 'session' ? 'acp-chat' : 'chat';
+      const view = createTabView([provider(conversation, 'single'), provider('term', 'single')]);
+      const layout = view.createPaneLayoutStore({ viewId: host, place: host === 'session'
+        ? { kind: 'session', sessionId: 'task', projectId: 'project' }
+        : { kind: 'chat', chatId: 'group' } }, { singleStrip: true });
+      layout.open(conversation, { id: 'Conversation' });
+      const pane = layout.groups[0].pane;
+      for (const id of ['X', 'Anchor', 'Y']) layout.open('term', { id }, { activate: false });
+      const idOf = (name: string) => [...pane.entries.values()].find(entry => (entry.state as { id: string }).id === name)!.tabId;
+      const labels = () => pane.tabOrder.map(id => (pane.entries.get(id)!.state as { id: string }).id);
+      layout.setPairAnchor(() => ({ paneId: layout.groups[0].paneId, tabId: idOf('Conversation') }));
+      pane.setActiveTab(idOf('Anchor'));
+      pane.splitBeside(idOf('Y'), 'right');
+      expect(labels()).toEqual(['Conversation', 'X', 'Anchor', 'Y']);
+      pane.setActiveTab(idOf('Conversation'));
+      const output = { order: labels(), sideAt: pane.livePair?.sideAt, ratio: pane.livePair?.ratio };
+      layout.dispose();
+      return output;
+    });
+    expect(outputs[0]).toEqual(outputs[1]);
+    expect(outputs[0]).toEqual({ order: ['Conversation', 'Anchor', 'X', 'Y'], sideAt: 'left', ratio: null });
   });
 
   it('拖一对里的一枚:它落在松手处,另一枚跟过去,❌ 弹回原处', () => {

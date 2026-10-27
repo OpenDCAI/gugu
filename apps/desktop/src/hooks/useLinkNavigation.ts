@@ -3,7 +3,7 @@ import { useTranslation } from 'react-i18next'
 import type { ChatItem } from '@gugu/core/shared/types/chat'
 import type { ContactUser } from '@gugu/core/shared/types/contacts'
 import { OPEN_LINK_TARGET, type LinkNavigation } from '../lib/guguLinks'
-import type { GuguLinkTarget } from '@gugu/core/shared/ui/guguLink'
+import type { AppDetailLink, GuguLinkTarget } from '@gugu/core/shared/ui/guguLink'
 import { readMobileShell } from './useMobileShell'
 import { SERVER_LOGIN_APPROVE_EVENT } from '../lib/inAppLinks'
 import { readAssistantShellBridge } from '../lib/assistantShellBridge'
@@ -21,6 +21,7 @@ export function useLinkNavigation(input: {
   openFile: (chatId: string, target: Extract<GuguLinkTarget, { kind: 'file' }>, source: Pick<LinkNavigation, 'message' | 'restore'>) => void
   openApp: (chatId: string, extensionId: string, tab: string) => void
   openProject: (projectId: string) => void
+  openAppDetail?: (target: AppDetailLink) => void | Promise<void>
   openOwnApp: (extensionId: string, tab: string) => void
   openAssistant: (tasks: boolean) => string | void
 }) {
@@ -60,6 +61,19 @@ export function useLinkNavigation(input: {
         state.openApp(chatId, target.extensionId, target.tab)
         window.dispatchEvent(new CustomEvent(UI_EVENTS.chatAsked, { detail: { chatId } }))
         return { chat: chatId }
+      }
+      if (target.kind === 'app-detail') {
+        if (readMobileShell()) {
+          if (!state.openAppDetail) {
+            const { translateSessionMessage } = await import('../session/renderer/localization/locale-store')
+            throw new Error(translateSessionMessage('extensions.appLinkOnPhone'))
+          }
+          await state.openAppDetail(target)
+        } else {
+          const { openAppDetailLink } = await import('../session/renderer/features/apps/app-detail-link')
+          await openAppDetailLink(target, state.ownerId, () => asked === generation && current.current.ownerId === state.ownerId)
+        }
+        return
       }
       if (target.kind === 'session') {
         const assistant=readAssistantShellBridge()?.getSnapshot()
@@ -132,7 +146,7 @@ export function useLinkNavigation(input: {
       const owner = current.current.ownerId
       void open(request).then(request.resolve, (error: unknown) => {
         if (asked !== generation || owner !== current.current.ownerId) { request.resolve(); return }
-        request.reject(new Error(messages.current.t('links.unavailable'), { cause: error }))
+        request.reject(targetError(request.target, error, messages.current.t('links.unavailable')))
       })
     }
     const receiveTask = () => { generation++; current.current.openAssistant(true) }
@@ -140,4 +154,8 @@ export function useLinkNavigation(input: {
     window.addEventListener(OPEN_LINK_TARGET, receive)
     return () => { generation++; window.removeEventListener(OPEN_LINK_TARGET, receive); window.removeEventListener(OPEN_ASSISTANT_TASK_CHAT, receiveTask) }
   }, [])
+}
+
+function targetError(target: GuguLinkTarget, error: unknown, fallback: string) {
+  return new Error(target.kind === 'app-detail' && error instanceof Error ? error.message : fallback, { cause: error })
 }

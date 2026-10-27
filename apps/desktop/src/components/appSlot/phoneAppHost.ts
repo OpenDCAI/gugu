@@ -1,3 +1,7 @@
+import { composeChatDraft } from '@/lib/composeDraft'
+import { showRendererContentMenu } from '../../lib/contentContextMenu'
+import { appContextMenuOf } from '../../session/shared/extensions/app-context-menu'
+import { appIdentityOf } from '../../session/shared/extensions/app-identity'
 import { fileBlob } from '@gugu/core/shared/fileResolver'
 import { guguLink, guguLinkScheme, linkTargetOf, type GuguLinkTarget } from '@gugu/core/shared/ui/guguLink'
 import { openLinkWith } from '../../session/shared/extensions/open-link'
@@ -18,7 +22,6 @@ import { subscribeAuthenticatedRealtimeChannel, unsubscribeAuthenticatedRealtime
 import { FileSyncRelay, webSocketUrl, type PageSync } from '../../session/shared/extensions/file-sync-core'
 import { userIdFromSupabaseAccessToken } from '@gugu/core/cloud/runtimeAuthProvider'
 import {
-  APP_COMPOSE_EVENT,
   APP_FORUM_CONSENT_EVENT,
   APP_FILE_MAX_BYTES,
   APP_FRAME_MARKER,
@@ -28,7 +31,6 @@ import {
   isLocal,
   placeOf,
   sessionIdOf,
-  type AppComposeDetail,
   type AppForumConsentDetail,
   type AppFileUpload,
   type AppOpenWithDetail,
@@ -63,7 +65,7 @@ import { cachedPhoneAgents, phoneDispatch } from './phoneDispatch'
 import { onPhoneAppState, phoneAppState } from './phoneAppState'
 import { subscribeDeviceSessions } from '../../session/shared/remote-sessions/session-directory'
 import { callOnComputer } from './phoneProgramCall'
-import { followsSessionMachine } from '../../session/shared/extensions/machine-call'
+import { appDeviceId, followsSessionMachine, notOnSessionMachine } from '../../session/shared/extensions/machine-call'
 import { HOSTED_PROGRAM_ELSEWHERE } from '../../session/shared/extensions/program-place'
 import { rendererFileServiceUrl } from '../../lib/chatFolder'
 import { AppModalSessions, type AppModalFocus } from '../../session/shared/extensions/app-modal'
@@ -190,6 +192,7 @@ const askForumConsent = (detail: AppForumConsentDetail) => {
 }
 
 const files = createAppFiles({
+  appIdentity: (id) => appIdentityOf({ manifest: { id }, origin: installedExtensionsStore.origins[id], publisher: installedExtensionsStore.publishers[id] }),
   async resolveFile(ref, actorId, options) {
     if (options.localOnly) return null;
     if (!('id' in ref)) throw new AppFileError('invalid', 'A stored file must be resolved by its id');
@@ -220,6 +223,7 @@ const files = createAppFiles({
   filesUrl: rendererFileServiceUrl,
   warn: (message, data) => log.warn(data ?? {}, message),
   sync: {
+    ensureFor: (asAgent) => { relay.ensureFor(asAgent) },
     pageFor: (pageId) => {
       const hosted = frames.get(pageId)
       if (!hosted) throw new AppFileError('failed', 'This surface is gone')
@@ -473,10 +477,16 @@ export function hostAppFrame(
     const refusal = callRefusal(method, args, { kind: 'page', has: (capability) => hosted.binding.capabilities.includes(capability), gesture })
     if (refusal) refused(refusal.code, refusal.message)
     const session = hosted.binding.session
-    if (session && verbFacts(method)?.machine) {
+    if ((session || args.device !== undefined) && verbFacts(method)?.machine) {
       const manifest = installedExtensionsStore.manifestFor(hosted.binding.extensionId)
       if (!manifest) refused('not-installed', `${hosted.binding.extensionId} is not installed on this phone`)
-      if (followsSessionMachine(manifest, method, args)) {
+      if (args.device !== undefined) {
+        const invalid = notOnSessionMachine(manifest, method, args)
+        if (invalid) throw invalid
+        const { device, ...callArgs } = args
+        return callOnComputer({ extensionId: manifest.id, extensionName: manifest.name, version: manifest.version }, { deviceId: appDeviceId(device), deviceLabel: null }, method, callArgs)
+      }
+      if (session && followsSessionMachine(manifest, method, args)) {
         return callOnComputer({ extensionId: manifest.id, extensionName: manifest.name, version: manifest.version }, session, method, args)
       }
     }
@@ -568,7 +578,8 @@ export function hostAppFrame(
       case 'listAgents': {
         const manifest = installedExtensionsStore.manifestFor(hosted.binding.extensionId)
         if (!manifest) refused('not-installed', 'This App is not installed')
-        return phoneDispatch({ extensionId: manifest.id, extensionName: manifest.name }, hosted.binding.capabilities, {}).listAgents()
+        const dispatch = phoneDispatch({ extensionId: manifest.id, extensionName: manifest.name }, hosted.binding.capabilities, {})
+        return args.report === true ? dispatch.listAgents(true) : dispatch.listAgents()
       }
       case 'dispatch': {
         const manifest = installedExtensionsStore.manifestFor(hosted.binding.extensionId)
@@ -581,7 +592,7 @@ export function hostAppFrame(
             agents,
             pick: pickDispatchTarget,
             // Use the same capture-before-append ordering as the desktop host.
-            draftInChat: async (detail) => void document.dispatchEvent(new CustomEvent<AppComposeDetail>(APP_COMPOSE_EVENT, { detail, bubbles: true })),
+            draftInChat: async (detail) => composeChatDraft(detail),
           },
           hosted.binding.extensionId,
           args,
@@ -654,7 +665,7 @@ export function hostAppFrame(
           hooks.openWith({ ...target, choice })
         })
       case 'filesOpen':
-        return files.open(surface(), { ref: chatRef(args.ref), ...(args.readOnly === true ? { readOnly: true } : {}) })
+        return files.open(surface(), { ref: chatRef(args.ref), ...(args.readOnly === true ? { readOnly: true } : {}), deferDetails: args.deferDetails === true, appData: args.appData === true })
       case 'filesReopen': {
         const ref = chatRef(args.ref)
         if (!('id' in ref)) refused('invalid', 'reopen takes a file by its id')
@@ -671,8 +682,15 @@ export function hostAppFrame(
           const { limit } = fileSearchOf(args)
           return files.recent(limit === undefined ? {} : { limit })
         })
+      case 'showContextMenu': {
+        const menu = appContextMenuOf(args)
+        const rect = frame.getBoundingClientRect()
+        return showRendererContentMenu(menu.items, { x: rect.x + menu.x, y: rect.y + menu.y })
+      }
+      case 'filesViewPreferences':
+        return files.viewPreferences(chatPlace(args.place), args.showAppData as boolean | undefined)
       case 'filesCreate':
-        return files.create(chatPlace(args.place), args as never)
+        return files.create(chatPlace(args.place), args as never, { extensionId: hosted.binding.extensionId })
       case 'filesRename':
         return files.rename(surface(), { ref: chatRef(args.ref), name: String(args.name ?? '') })
       case 'filesMkdir':
@@ -856,7 +874,7 @@ export function hostAppFrame(
 
 
 declare const __GUGU_TIER__: string
-const phoneLinkScheme = () => guguLinkScheme({ tier: typeof __GUGU_TIER__ === 'undefined' ? undefined : __GUGU_TIER__, devLaunch: false })
+export const phoneLinkScheme = () => guguLinkScheme({ tier: typeof __GUGU_TIER__ === 'undefined' ? undefined : __GUGU_TIER__, devLaunch: false })
 
 /** Host facts and transports only; target parsing and opening order are shared with main. */
 export async function openPhoneLink(target: string | GuguLinkTarget) {

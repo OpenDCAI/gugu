@@ -1,8 +1,16 @@
 import type { SessionFailure, SessionSummary } from '@gugu/session-core/acp';
-import type { SessionpageSessionSummary } from '@gugu/session-core/session-record/contract';
+import type { SessionpageSessionSummary, UnreachedMachine } from '@gugu/session-core/session-record/contract';
 import type { ExtensionAgentView } from './bridge-protocol';
 
 export type ListedSession = { session: SessionpageSessionSummary; deviceId: string | null; deviceLabel: string | null };
+
+/** The same observation envelope on desktop and phone, including computers with no tasks. */
+export function agentReport(agents: ExtensionAgentView[], unreached: UnreachedMachine[], devices: Array<{ deviceId: string; label: string; online: boolean; thisMachine: boolean }>, checkedAt = new Date().toISOString()) {
+  return {
+    agents: agents.map((agent) => ({ ...agent, statusFrom: agent.deviceId === null ? 'this_machine' as const : 'device' as const, statusAt: checkedAt })),
+    devices: devices.map((device) => ({ ...device, checkedAt })), unreached, checkedAt,
+  };
+}
 
 /**
  * Live counters exist only where there is a live ACP session to count.

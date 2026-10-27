@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from 'vitest';
 
-const opened = vi.hoisted(() => ({ calls: [] as unknown[], tabs: 0 }));
+const opened = vi.hoisted(() => ({ calls: [] as unknown[], tabs: 0, provisioned: true, reason: null as string | null }));
 
 vi.mock('@renderer/features/sessions/stores/session-selectors', () => {
   const paneLayout = {
@@ -11,7 +11,7 @@ vi.mock('@renderer/features/sessions/stores/session-selectors', () => {
   };
   return {
     asProvisioned: (page: unknown) => page,
-    getSessionPageStore: () => ({}),
+    getSessionPageStore: () => (opened.provisioned ? {} : null),
     getSessionView: () => ({ paneLayout }),
   };
 });
@@ -21,6 +21,9 @@ vi.mock('./stores/session-registry', () => ({
 vi.mock('@renderer/lib/hooks/use-toast', () => ({ toast: vi.fn() }));
 vi.mock('@renderer/localization/locale-store', () => ({ translateSessionMessage: (k: string) => k }));
 
+vi.mock('./workspace-backend/workspace-surface', () => ({ workspaceReachLabel: () => opened.reason }));
+
+import { toast } from '@renderer/lib/hooks/use-toast';
 import { openSessionInSessionWhenReady } from './open-session-in-session';
 
 describe('给屏上一块空着的会话补上对话(onlyIfNoTabs)', () => {
@@ -43,5 +46,34 @@ describe('给屏上一块空着的会话补上对话(onlyIfNoTabs)', () => {
     opened.tabs = 2;
     openSessionInSessionWhenReady({ projectId: 'p', sessionId: 's' });
     expect(opened.calls).toHaveLength(1);
+  });
+});
+
+describe('task entry keeps the workspace failure reason', () => {
+  it.each([
+    ['cloud', 'Gugu on cloud host is too old. Update Gugu there'],
+    ['ssh', 'Gugu on SSH host is too old. Update Gugu there'],
+    ['local', null],
+  ])('%s entry uses the current reason when readiness times out', async (_route, reason) => {
+    vi.useFakeTimers();
+    const logged = vi.spyOn(console, 'error').mockImplementation(() => {});
+    vi.mocked(toast).mockClear();
+    opened.provisioned = false;
+    opened.reason = null;
+    const dispose = openSessionInSessionWhenReady({ projectId: 'p', sessionId: 's' });
+    try {
+      // The handshake can discover the mismatch after navigation starts.
+      opened.reason = reason;
+      await vi.advanceTimersByTimeAsync(10_000);
+      expect(toast).toHaveBeenCalledWith(expect.objectContaining({
+        description: reason ?? 'sidebar.workspaceNotReady',
+      }));
+    } finally {
+      dispose();
+      opened.provisioned = true;
+      opened.reason = null;
+      logged.mockRestore();
+      vi.useRealTimers();
+    }
   });
 });

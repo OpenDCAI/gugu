@@ -3,6 +3,7 @@ import { afterEach, describe, expect, it } from 'vitest';
 import { LoadingIndicator } from '@/lib/loading/LoadingIndicator';
 import { RETAINED_SURFACE_HIDDEN_STYLE } from '@/lib/retainedSurface';
 import { until } from '../../../../../../../tests/support/awaitCondition';
+import { ANIMATION_WINDOW_SEEN_EVENT } from '@gugu/session-shared/animation-visibility';
 
 // #6629:常驻但隐藏的面里的加载态不许逐帧改 SVG —— 在役实例里两个看不见的「Loading chat…」
 // 让渲染进程按刷新率整条管线空跑。读数 = 接下来 N 个真实渲染帧里,动画画布上的属性改写次数。
@@ -44,6 +45,7 @@ afterEach(() => {
   host?.remove();
   root = null;
   host = null;
+  window.dispatchEvent(new CustomEvent(ANIMATION_WINDOW_SEEN_EVENT, { detail: true }));
 });
 
 async function mount(surface: HTMLElement) {
@@ -53,6 +55,20 @@ async function mount(surface: HTMLElement) {
 }
 
 describe('LoadingIndicator stops animating while its surface is hidden (#6629)', () => {
+  it('stops SVG writes on native window hide even when the DOM remains visible, and resumes', async () => {
+    host = document.createElement('div');
+    document.body.append(host);
+    await mount(host);
+    expect(document.hidden).toBe(false);
+    expect(await canvasWritesOver(host, 30)).toBeGreaterThan(0);
+    window.dispatchEvent(new CustomEvent(ANIMATION_WINDOW_SEEN_EVENT, { detail: false }));
+    await frames(2);
+    expect(document.hidden).toBe(false);
+    expect(await canvasWritesOver(host, 30)).toBe(0);
+    window.dispatchEvent(new CustomEvent(ANIMATION_WINDOW_SEEN_EVENT, { detail: true }));
+    expect(await canvasWritesOver(host, 30)).toBeGreaterThan(0);
+  });
+
   it('animates when visible, stops when the surface is retained-hidden, resumes when shown', async () => {
     host = document.createElement('div');
     host.style.position = 'relative';

@@ -16,6 +16,7 @@ import {
   type SyncRevokeReason,
   type SyncToMain,
   type SyncToPage,
+  type AppFileEntry,
 } from './app-runtime-protocol';
 
 /**
@@ -50,6 +51,8 @@ export const LOCAL_DOC_PREFIX = 'wc:';
 export const isLocalDoc = (docName: string) => docName.startsWith(LOCAL_DOC_PREFIX);
 
 export interface Grant {
+  /** One read of the entry's decorations after the page has painted. Gone when requested or when the grant ends. */
+  details?: () => Promise<AppFileEntry>;
   docName: string;
   itemId: string;
   access: 'rw' | 'ro';
@@ -231,7 +234,11 @@ export class SyncConnection {
 
   release(key: string): void {
     this.owners.delete(key);
-    if (this.owners.size === 0 && !this.idleTimer && this.state !== 'closed') {
+    this.scheduleIdleClose();
+  }
+
+  private scheduleIdleClose(): void {
+    if (!this.local && this.owners.size === 0 && !this.idleTimer && this.state !== 'closed') {
       this.idleTimer = setTimeout(() => {
         this.idleTimer = null;
         if (this.owners.size === 0 && this.relay.mayClose(this)) this.close(1000, 'idle');
@@ -257,6 +264,8 @@ export class SyncConnection {
       }, PONG_TIMEOUT_MS);
     }, PING_INTERVAL_MS);
     this.relay.socketOpened(this);
+    // An authorized opening may be cancelled before any provider claims the connection.
+    this.scheduleIdleClose();
   }
 
   private closed(code: number, reason: string): void {
@@ -439,6 +448,19 @@ export class FileSyncRelay {
       return;
     }
     const message = data as SyncToMain;
+    if (message?.t === 'entry') {
+      const grant = page.grants.get(message.docName);
+      const details = grant?.details;
+      if (!grant || !details || grant.lettingGo) return;
+      delete grant.details;
+      void details().then((entry) => {
+        if (page.grants.get(message.docName) === grant && !grant.lettingGo) this.post(page, { t: 'entry', docName: message.docName, entry });
+      }, (error: unknown) => {
+        this.platform.warn('File entry details could not be read', { item: grant.itemId, message: error instanceof Error ? error.message : String(error) });
+        if (page.grants.get(message.docName) === grant && !grant.lettingGo) this.post(page, { t: 'entry-error', docName: message.docName, message: error instanceof Error ? error.message : String(error) });
+      });
+      return;
+    }
     if (message?.t === 'hello') {
       this.hello(page);
       return;
@@ -641,7 +663,7 @@ export class FileSyncRelay {
   }
 
   /** The socket new open files of this identity go to — opening one when there is none, or the token is ending. */
-  private ensureFor(asAgent: string | null): SyncConnection | null {
+  ensureFor(asAgent: string | null): SyncConnection | null {
     const current = this.currents.get(identityKey(asAgent));
     if (current?.acceptsNewFiles) return current;
     if (!this.opening.has(identityKey(asAgent))) void this.openSocket(asAgent);

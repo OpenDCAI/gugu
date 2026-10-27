@@ -26,6 +26,7 @@ type FakeView = { bounds: unknown; visible: boolean; background: string; webCont
 function fakeContents() {
   const contents = Object.assign(new EventEmitter(), {
     destroyed: false,
+    executeJavaScript: vi.fn(async () => undefined),
     isDestroyed: () => contents.destroyed,
     close: () => {
       contents.destroyed = true
@@ -39,6 +40,8 @@ function layer() {
   const children: FakeView[] = []
   const parent = Object.assign(new EventEmitter(), {
     isDestroyed: () => false,
+    isVisible: () => true,
+    isMinimized: () => false,
     getContentSize: () => [1200, 800],
     webContents: Object.assign(new EventEmitter(), { focus: vi.fn(), isDestroyed: () => false }),
     contentView: {

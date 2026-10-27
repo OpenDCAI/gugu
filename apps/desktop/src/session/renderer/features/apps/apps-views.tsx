@@ -1,3 +1,4 @@
+import type { AppDetailLink } from '@gugu/core/shared/ui/guguLink';
 import { action, observable } from 'mobx';
 import { observer } from 'mobx-react-lite';
 import { AppErrorDetails, AppErrorMark } from '@/components/appSlot/AppErrorMark';
@@ -28,13 +29,14 @@ import { useSessionMessages } from '@renderer/localization/use-session-messages'
  */
 const AppsMainPanel = observer(function AppsMainPanel() {
   const host = useSelectedLibraryHost();
+  const { params } = useParams('apps');
   return (
     <PageLayout>
       {/* 照 Google Play 的应用首页铺满这一页(页面那层最宽 1060,owner 10-10「这个是我想要的」)。 */}
       <PageContent className="max-w-none">
         <DeviceScopeProvider store={libraryDeviceStore}>
           <LibraryHostProvider value={host} key={host.key}>
-            <ExtensionsLibraryPage />
+            <ExtensionsLibraryPage detail={params.detail} />
           </LibraryHostProvider>
         </DeviceScopeProvider>
       </PageContent>
@@ -42,11 +44,16 @@ const AppsMainPanel = observer(function AppsMainPanel() {
   );
 });
 
+type AppsViewParams = { detail?: AppDetailLink };
+function AppsViewWrapper({ children }: { children: ReactNode } & AppsViewParams) { return <>{children}</>; }
+
 export const appsView = {
+  WrapView: AppsViewWrapper,
+  transientParams: ['detail'],
   TitlebarSlot: ShellTitlebar,
   MainPanel: AppsMainPanel,
   withoutSessionSidebar: true,
-} satisfies ViewDefinition;
+} satisfies ViewDefinition<AppsViewParams>;
 
 type AppViewParams = { appId?: string; tab?: string };
 

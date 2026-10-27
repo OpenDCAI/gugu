@@ -1,4 +1,5 @@
 // @vitest-environment jsdom
+import { rpcQuery } from '../../../helpers/rpcQuery'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { hostAppFrame } from '../../../../apps/desktop/src/components/appSlot/phoneAppHost'
 import { APP_FRAME_MARKER } from '../../../../apps/desktop/src/session/shared/extensions/app-runtime-protocol'
@@ -23,6 +24,7 @@ const auth = vi.hoisted(() => ({ token: `h.${Buffer.from(JSON.stringify({ sub: '
  */
 const db = vi.hoisted(() => ({ reads: [] as string[][], lists: 0, hold: null as Promise<void> | null, fail: 0, openingName: 'a.md', factsHold: null as Promise<void> | null, factsEntered: null as (() => void) | null }))
 vi.mock('../../../../apps/desktop/src/lib/sessionPublication', () => ({ getRendererAccessToken: () => auth.token }))
+vi.mock('../../../../apps/desktop/src/lib/identityReadAdapter', () => ({ readDisplayIdentities: async () => [] }))
 vi.mock('@gugu/core/cloud/supabase', () => {
   let open: { ids: string[]; fail: boolean } | null = null
   const read = () => {
@@ -41,7 +43,7 @@ vi.mock('@gugu/core/cloud/supabase', () => {
         const query = { select: () => query, eq: () => query, maybeSingle: async () => ({ data: { id: CHAT }, error: null }) }
         return query
       },
-      rpc: async (name: string, args: Record<string, unknown>) => {
+      rpc: rpcQuery(async (name: string, args: Record<string, unknown>) => {
         if (name === 'chat_facts') {
           if (db.factsHold) { db.factsEntered?.(); await db.factsHold }
           return { data: [{ id: args.p_chat_id, kind: args.p_chat_id === TOPIC ? 'topic' : 'group', source_chat_id: args.p_chat_id === TOPIC ? CHAT : null }], error: null }
@@ -61,7 +63,7 @@ vi.mock('@gugu/core/cloud/supabase', () => {
         if (batch.fail) return { data: null, error: { message: 'offline' } }
         if (id === B) return { data: null, error: { message: `workspace item not found: ${id}`, hint: 'workspace_item_not_found' } }
         return { data: [row(id, db.openingName === 'a.md' ? `${id.slice(-1)}.md` : db.openingName)], error: null }
-      },
+      }),
     }),
   }
 })

@@ -96,9 +96,6 @@ export {
   emdashExtensionCheckAvailable,
   // 少了它,guide_read apps-ui 只有字没有图 —— agent 写之前看不到咕咕的样子长什么样。
   emdashLookPicture,
-  // @@@sessionpage TASKPAGE-FUSION otty-state — subscribe to the consolidated agent-attention count
-  // (agents blocked on the human) so the host can badge the 任务 sidebar tab.
-  onEmdashAttentionChanged,
   // #4008 —— 会话页会话的 agent 状态(working/…)是「这个 agent 在不在干活」的事实源;宿主读它、发布成
   // 权威 activity,咕咕的单聊/会话列表/群于是显示同一件事,而不再各自从投递命令的执行区间反推。
   onAgentStatus,
@@ -107,7 +104,6 @@ export {
   // TEST-ONLY (host exposes env-gated) — feed a real AgentEvent into the real pipeline for the otty e2e.
   emitSessionpageAgentEventForTest,
   emitSessionpageAgentEvent,
-  emitSessionpageAgentFailure,
   // @@@sessionpage TASKPAGE-FUSION — register a gugu-built MCP injector so session-page codex sessions get
   // the gugu MCP send tool + gugu identity at session start (enables the target agent to reply).
   // @@@5301 会话页 agent 通知正文的注入口(见 notification-copy.ts)。

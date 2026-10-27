@@ -1,3 +1,4 @@
+import { rpcQuery } from '../../../../../../tests/helpers/rpcQuery';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 /**
@@ -24,7 +25,7 @@ vi.mock('@gugu/core/cloud/supabase', () => ({
       const query = { select: () => query, eq: () => query, maybeSingle: async () => ({ data: row, error: null }) };
       return query;
     },
-    rpc: async (name: string, args: Record<string, unknown>) => {
+    rpc: rpcQuery(async (name: string, args: Record<string, unknown>) => {
       // Who may delete what is the folder's to say; here, everyone may delete everything.
       if (name === 'workspace_deletable_as') return { data: args.p_item_ids, error: null };
       if (name === 'workspace_get_as') return { data: [row], error: null };
@@ -32,7 +33,7 @@ vi.mock('@gugu/core/cloud/supabase', () => ({
       if (name === 'workspace_versions_as') return { data: kept.map(({ n, made_by, made_at, size_bytes }) => ({ n, made_by, made_at, size_bytes })), error: null };
       const one = kept.find((version) => version.n === args.p_n);
       return one ? { data: [one], error: null } : { data: null, error: { message: `workspace item ${ITEM} has no version ${args.p_n}`, hint: 'workspace_no_version' } };
-    },
+    }),
   }),
 }));
 
@@ -40,7 +41,7 @@ const { createAppFiles } = await import('./app-files-core');
 const files = createAppFiles({
   account: async () => ({ token: 'token', userId: ME }),
   hasCapability: () => true,
-  sync: {} as never,
+  sync: { ensureFor: () => undefined,} as never,
   identities: async (_token, ids) => ids.map((id) => ({ id, name: id === ME ? 'Me' : 'Agent', avatar: null, kind: id === ME ? 'human' : 'agent' })),
   faces: async () => ({}),
   filesUrl: () => 'http://files.invalid',

@@ -98,7 +98,7 @@ export async function openAttachmentImage(source: AttachmentSource, alt: string,
   if (bytes.status !== 'ready') throw new Error(bytes.status)
   const { openImageViewer } = await import('./imageViewer')
   if (!isCurrent()) return
-  openImageViewer([{ url: URL.createObjectURL(bytes.blob), alt, quote }])
+  openImageViewer([{ url: URL.createObjectURL(bytes.blob), alt, quote, resource: source.kind === 'item' ? { kind: 'file', target: { kind: 'file', itemId: source.itemId, version: source.version } } : undefined }])
 }
 
 /** 下载一个附件(同一份缓存);条目删了就抛。 */

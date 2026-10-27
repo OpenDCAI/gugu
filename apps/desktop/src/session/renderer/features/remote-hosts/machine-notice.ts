@@ -2,8 +2,9 @@
 // 一台机器一条,同一条原地换 —— 重连中(第几次)→ 离线 / 失败,或 → 已连上,❌ 每一步各发一条。
 // 纯函数(翻译注入)+ 一个把它挂到统一出口上的 hook;每条判据都有单测。
 import { useEffect } from 'react';
+import type { ServerMachineNotice } from '@gugu/core/cloud/serverMachineHealth';
 import { dismissNotice, notify, type Notice } from '@/lib/notices';
-import { machineBlockIsStatus, machineUnavailableReason, type HostConnectionState, type Translate } from './connection-status';
+import { machineBlockIsStatus, machineNoticeLabel, machineUnavailableReason, type HostConnectionState, type Translate } from './connection-status';
 
 /**
  * 正在连 / 重连的提示等这么久才出现:一次转瞬的重连(几百毫秒)不值得打扰人 ——
@@ -24,9 +25,14 @@ export function machineNotice(input: {
   dials: number;
   wakeFailure?: string | null;
   signInExpiredAt?: string | null;
+  notices?: readonly ServerMachineNotice[];
   translate: Translate;
 }): MachineNoticeSpec | null {
   const { connection, label, dials, translate } = input;
+  const versionNotice = machineNoticeLabel(input.notices, label ?? '', translate, { protocolOnly: true });
+  if (versionNotice && connection !== 'updating' && connection !== 'update-failed') {
+    return { title: versionNotice, tier: 'error', waiting: false, delayed: false };
+  }
   if (connection === 'connected') return null;
   const trying = connection === 'connecting' || connection === 'reconnecting';
   // 第一次拨不算「重试」;连上过的机器断了,拨的每一次都是。

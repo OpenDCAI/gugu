@@ -1,3 +1,4 @@
+import { rpcQuery } from '../../../../../../tests/helpers/rpcQuery';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 /**
  * L11 B7: saving a document of the workspace (`gugu.files.download`) writes what the file is now — read from the file
@@ -27,13 +28,13 @@ function table(_name: string) {
   return query;
 }
 vi.mock('@gugu/core/cloud/supabase', () => ({
-  createGuguSupabaseClient: () => ({ from: table, rpc: async (name: string, args: Record<string, unknown>) => (name === 'workspace_deletable_as' ? { data: args.p_item_ids, error: null } : { data: [row], error: null }) }),
+  createGuguSupabaseClient: () => ({ from: table, rpc: rpcQuery(async (name: string, args: Record<string, unknown>) => (name === 'workspace_deletable_as' ? { data: args.p_item_ids, error: null } : { data: [row], error: null })) }),
 }));
 const { createAppFiles } = await import('./app-files-core');
 const files = createAppFiles({
   account: async () => ({ token: 'token', userId: PERSON }),
   hasCapability: () => true,
-  sync: { pageFor: () => ({}), grant: () => undefined, revoke: () => undefined, ungrant: () => undefined } as never,
+  sync: { ensureFor: () => undefined, pageFor: () => ({}), grant: () => undefined, revoke: () => undefined, ungrant: () => undefined } as never,
   identities: async () => [],
   faces: async () => ({}),
   filesUrl: () => 'http://files.test',

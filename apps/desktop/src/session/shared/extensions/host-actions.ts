@@ -56,7 +56,7 @@ export type ExtensionHostAction =
   | { kind: 'openApp'; extensionId: string; tab?: string; chatId?: string }
   | { kind: 'openLinkTarget'; target: GuguLinkTarget }
   /** A banner's click naming a chat's file: opened in its chat, as a link to it is. */
-  | { kind: 'openChatFile'; chatId: string; itemId: string }
+  | { kind: 'openChatFile'; chatId: string; itemId: string; onlyIfOpen?: string }
   /** 论坛 (9): the window draws the points sheet (posting a bounty, settling one) and does it if the person confirms. */
   | { kind: 'forumConsent'; detail: AppForumConsentDetail };
 
@@ -135,6 +135,8 @@ export interface EnablePlace {
 export const HERE_ALL = 'here:all';
 
 export interface ExtensionInstallConsentRequest {
+  /** Removing one installed fork; the same human confirmation transport, never uninstall. */
+  removeVariant?: { name: string; active: boolean };
   sourceDir: string;
   manifest: ExtensionManifest;
   manifestDigest: string;

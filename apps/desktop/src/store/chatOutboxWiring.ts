@@ -21,6 +21,7 @@ import { advanceReadWatermark, applyThreadSnapshot } from './chatRealtimeMutatio
 import { createChatOutbox, type ChatOutbox } from './chatOutbox'
 import { i18n } from '@/i18n'
 import { rendererLogger } from '@/lib/log'
+import { chatSendTimings, finishChatSendTiming } from '../lib/chatSendTiming'
 
 export interface OutboxWiringIo {
   getImRepository(): Promise<AccountImRepository>
@@ -43,6 +44,7 @@ export interface OutboxWiring {
   dispose(): void
   /** sendMessage 入队入口:建持久化记录并入队(乐观行由 chat.tsx 先行插入,二者同 id)。 */
   enqueue(input: {
+    submittedAt?: number
     id: string
     chatId: string
     senderUserId: string
@@ -122,6 +124,7 @@ export function createOutboxWiring(io: OutboxWiringIo): OutboxWiring {
     // fail-loud 不许失踪(#1762 评审[9]):终态 failed 时那条乐观行若不在屏上(话题已关/切了会话),
     // 「未送达」badge 无处渲染 → 用全局 toast 外化;行仍在 outbox,回到现场即可重试/丢弃。
     if (record.state === 'failed') {
+      finishChatSendTiming(record.clientMessageId)
       rendererLogger('chat/outbox').error({ chatId: record.chatId, messageId: record.clientMessageId, error: record.lastError }, 'message send failed')
       const onScreen = record.payload.threadRootId
         ? io.activeChatId() === record.chatId && io.activeThreadRootId() === record.payload.threadRootId
@@ -253,9 +256,12 @@ export function createOutboxWiring(io: OutboxWiringIo): OutboxWiring {
         updatedAt: nowIso,
       }
       if (input.beforeDeliver) beforeDeliverHooks.set(record.clientMessageId, input.beforeDeliver)
+      chatSendTimings.set(input.id, { submit: input.submittedAt ?? performance.now() })
       try {
         await outbox.enqueue(record)
+        if (!active) chatSendTimings.delete(input.id)
       } catch (err) {
+        finishChatSendTiming(input.id)
         // enqueue 拒绝 ⇒ outbox 无归属:撤掉 chat.tsx 先行插入的同 id 乐观行(否则留下永远「发送中」
         // 的幽灵气泡),失败意图的唯一归属是 composer 草稿(InputArea 的回滚恢复)。
         if (active) removeRow(record)

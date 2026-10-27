@@ -31,10 +31,10 @@ export function phoneAppCaller(app: { extensionId: string; extensionName: string
 const refused = (code: string, message: string) => Object.assign(new Error(message), { code })
 
 type PhoneApp = { extensionId: string; extensionName: string; version: string }
-type PhoneSession = { id: string; deviceId: string; deviceLabel: string | null; online?: boolean }
+type PhoneSession = { id?: string; deviceId: string; deviceLabel: string | null; online?: boolean }
 
 export async function callOnComputer(app: PhoneApp, session: PhoneSession, method: string, args: Record<string, unknown>): Promise<unknown> {
-  const action = appCallAction(session.id, app.version, method, args, crypto.randomUUID())
+  const action = appCallAction(session.id ?? { deviceId: session.deviceId }, app.version, method, args, crypto.randomUUID())
   const tooLarge = overCallLimit('call', action, action)
   if (tooLarge) throw tooLarge
   const where = session.deviceLabel ?? session.deviceId

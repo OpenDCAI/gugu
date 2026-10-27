@@ -114,13 +114,21 @@ export const EditorProvider = observer(function EditorProvider({
       if (!file || !model || !range) throw new Error('The file editor is no longer available');
       const last = range.endLineNumber > range.startLineNumber && range.endColumn === 1 ? range.endLineNumber - 1 : range.endLineNumber;
       const path = file.path;
+      const editable = !editor.getOption(m.editor.EditorOption.readOnly);
+      const focusCaptured = () => {
+        if (editor.getModel() !== model) throw new Error('The file editor changed');
+        editor.focus();
+        editor.setSelection(range);
+      };
       return {
         selection: { text: model.getValueInRange(range), at: { lines: range.startLineNumber === last ? String(last) : `${range.startLineNumber}-${last}` } },
         quote: (selection) => quoteWorkspaceFile(sessionView.projectId, sessionId, path, selection),
-        selectAll: () => { editor.focus(); editor.setSelection(model.getFullModelRange()); },
-        editable: !editor.getOption(m.editor.EditorOption.readOnly),
+        selectAll: () => { focusCaptured(); editor.setSelection(model.getFullModelRange()); },
+        editable,
+        enabled: { cut: editable && !range.isEmpty(), copy: !range.isEmpty(), selectAll: model.getValueLength() > 0 },
+        editorHistory: { undo: editable && model.canUndo(), redo: editable && model.canRedo() },
         edit: (action) => {
-          editor.focus();
+          focusCaptured();
           editor.trigger('file-context-menu', action === 'cut' ? 'editor.action.clipboardCutAction' : action === 'paste' ? 'editor.action.clipboardPasteAction' : action, null);
         },
       };

@@ -13,6 +13,7 @@ import { useSessionMessages } from '@renderer/localization/use-session-messages'
 import { featuredBody, localizedManifestText, marketCategoryOf, type MarketCategory } from '@shared/extensions/catalog';
 import type { MarketListItem, MarketCompat } from '@shared/extensions/market';
 import type { MarketHome } from '@shared/extensions/market-home';
+import type { ResourceContext } from '@shared/resource-actions';
 
 type ShelfItem = MarketListItem;
 export type MarketBrowsePage = 'market' | 'newest' | 'popular' | 'all';
@@ -40,10 +41,11 @@ export type AppMarketState =
 
 
 /** The market's browsing surface, shared by desktop and the phone's App page. */
-export function AppMarketContent({ shelf, query, hostKey, api, lifecycleOf, pending, downloadPercent, onOpen, onAction, sentinelRef, marketStale, installedIds, chip, onChipChange: setChip, view, onRetry }: {
+export function AppMarketContent({ shelf, query, hostKey, api, lifecycleOf, pending, downloadPercent, onOpen, onAction, sentinelRef, marketStale, installedIds, chip, onChipChange: setChip, view, onRetry, resourceOf }: {
   shelf: Extract<AppMarketState, { status: 'ready' }>;
   view: MarketBrowsePage;
   onRetry: () => void;
+  resourceOf?: (id: string) => ResourceContext;
   query: string;
   hostKey: string;
   api: Pick<ProductPageApi, 'marketReadme'>;
@@ -82,6 +84,7 @@ export function AppMarketContent({ shelf, query, hostKey, api, lifecycleOf, pend
     const text = localizedManifestText(item.manifest, locale);
     return (
       <AppFeaturedCard
+        resource={resourceOf?.(item.manifest.id)}
         key={item.manifest.id}
         variant="hero"
         hostKey={hostKey}
@@ -125,6 +128,7 @@ export function AppMarketContent({ shelf, query, hostKey, api, lifecycleOf, pend
           : undefined;
     return (
       <MarketAppRow
+        resource={resourceOf?.(id)}
         key={id}
         id={id}
         name={text.name}

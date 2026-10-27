@@ -89,17 +89,19 @@ function windowsWhereArgument(command: string): string {
 export async function resolveAllCommandPaths(
   command: string,
   ctx: IExecutionContext,
-  platform?: Platform
+  platform?: Platform,
+  env?: Record<string, string>,
 ): Promise<string[]> {
   const plat = targetPlatform(platform);
   try {
     if (plat === 'windows') {
       const { stdout } = await ctx.exec('where', [windowsWhereArgument(command)], {
         timeout: WHICH_TIMEOUT_MS,
+        env,
       });
       return windowsCommandPaths(stdout);
     }
-    const { stdout } = await ctx.exec('which', ['-a', command], { timeout: WHICH_TIMEOUT_MS });
+    const { stdout } = await ctx.exec('which', ['-a', command], { timeout: WHICH_TIMEOUT_MS, env });
     return outputLines(stdout);
   } catch {
     return [];
@@ -115,14 +117,15 @@ export async function resolveAllCommandPaths(
 export async function resolveKnownPaths(
   paths: readonly string[],
   ctx: IExecutionContext,
-  platform?: Platform
+  platform?: Platform,
+  env?: Record<string, string>,
 ): Promise<string[]> {
   const plat = targetPlatform(platform);
   const found: string[] = [];
   for (const declared of paths) {
     const expanded = await expandKnownPath(declared, ctx, plat);
     if (!expanded) continue;
-    const resolved = await resolveCommandPath(expanded, ctx, plat);
+    const resolved = await resolveCommandPath(expanded, ctx, plat, env);
     if (resolved) found.push(resolved);
   }
   return found;
@@ -154,13 +157,14 @@ async function expandKnownPath(path: string, ctx: IExecutionContext, plat: Platf
 export async function resolveCommandPath(
   command: string,
   ctx: IExecutionContext,
-  platform?: Platform
+  platform?: Platform,
+  env?: Record<string, string>,
 ): Promise<string | null> {
   const plat = targetPlatform(platform);
   const resolveCmd = plat === 'windows' ? 'where' : 'which';
   const resolveArg = plat === 'windows' ? windowsWhereArgument(command) : command;
   try {
-    const { stdout } = await ctx.exec(resolveCmd, [resolveArg], { timeout: WHICH_TIMEOUT_MS });
+    const { stdout } = await ctx.exec(resolveCmd, [resolveArg], { timeout: WHICH_TIMEOUT_MS, env });
     const paths = plat === 'windows' ? windowsCommandPaths(stdout) : outputLines(stdout);
     return paths[0] ?? null;
   } catch {

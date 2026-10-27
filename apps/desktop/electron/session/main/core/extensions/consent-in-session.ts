@@ -92,10 +92,10 @@ export async function askInstallInSession(
         itemId: requestId,
         kind: 'permission',
         // What a surface that does not know this kind shows; those that do draw the App, the agent and their own sheet.
-        title: `${requester.name}: install ${request.manifest.name}`,
+        title: request.removeVariant ? `${requester.name}: remove fork ${request.removeVariant.name} from ${request.manifest.name}` : `${requester.name}: install ${request.manifest.name}`,
         options: [
-          { optionId: APP_INSTALL_OPTION, name: 'Install', kind: 'allow_once' },
-          { optionId: APP_INSTALL_DECLINE_OPTION, name: "Don't install", kind: 'reject_once' },
+          { optionId: APP_INSTALL_OPTION, name: request.removeVariant ? 'Remove fork' : 'Install', kind: 'allow_once' },
+          { optionId: APP_INSTALL_DECLINE_OPTION, name: request.removeVariant ? 'Keep fork' : "Don't install", kind: 'reject_once' },
         ],
         host: { kind: 'app-install', payload: { request: ask } satisfies AppInstallAsk },
       },

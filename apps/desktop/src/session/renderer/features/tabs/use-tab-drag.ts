@@ -4,6 +4,7 @@ import type { ScreenBlockContent } from '@renderer/app/screen-layout';
 import { blockDropPreview, dropOnScreen, resolveBlockDrop, screenBlockElement, setBlockDropPreview } from '@renderer/app/screen-layout-actions';
 import { setDragShield } from '@renderer/lib/drag-shield';
 import type { PaneLayoutStore } from './pane-layout-store';
+import { tabDragPoint, tabDropTarget } from './tab-bar/tab-motion';
 
 /**
  * Dragging a tab of a block's strip (spec session-page「一屏几块」), a task's or a chat's: within the block it is the
@@ -28,10 +29,6 @@ export function useTabDrag({
 }) {
   const sensors = useSensors(useSensor(PointerSensor, { activationConstraint: { distance: 6 } }));
   const [dragging, setDragging] = useState<string | null>(null);
-  const point = (event: DragMoveEvent | DragEndEvent) => {
-    const start = event.activatorEvent as PointerEvent | null;
-    return start ? { start, x: start.clientX + event.delta.x, y: start.clientY + event.delta.y } : null;
-  };
   const onDragStart = (event: DragStartEvent) => {
     setDragShield(true);
     setDragging(String(event.active.id));
@@ -39,7 +36,7 @@ export function useTabDrag({
   // 指针出了这一块:落点归这一屏(别的块的四条边);还在这一块里:归这一块自己的格子。
   const onDragMove = (event: DragMoveEvent) => {
     const content = contentOf(String(event.active.id));
-    const at = point(event);
+    const at = tabDragPoint(event);
     if (!content || !blockId || !at) return;
     const own = screenBlockElement(blockId)?.getBoundingClientRect();
     const inOwn = own !== undefined && at.x >= own.left && at.x <= own.right && at.y >= own.top && at.y <= own.bottom;
@@ -59,16 +56,17 @@ export function useTabDrag({
       return;
     }
     // 拖到窗口外松手 = 单独成窗。
-    const at = point(event);
+    const at = tabDragPoint(event);
     const open = at ? openWindow(tabId) : null;
     if (at && open) {
       const view = (at.start.target as Node | null)?.ownerDocument?.defaultView ?? window;
       if (at.x < 0 || at.y < 0 || at.x > view.innerWidth || at.y > view.innerHeight) {
-        open({ screenX: at.start.screenX + event.delta.x, screenY: at.start.screenY + event.delta.y });
+        open({ screenX: at.start.screenX + at.x - at.start.clientX, screenY: at.start.screenY + at.y - at.start.clientY });
         return;
       }
     }
-    if (event.over) layout.handleDragEnd(tabId, String(event.over.id));
+    const target = tabDropTarget(event);
+    if (target) layout.handleDragEnd(tabId, target);
   };
   const onDragCancel = () => {
     setDragShield(false);

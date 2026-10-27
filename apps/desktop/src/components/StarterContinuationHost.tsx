@@ -13,20 +13,20 @@ import { rendererLogger } from '../lib/log'
 const starterLog = rendererLogger('agents/starter-continuation')
 
 export function StarterContinuationHost({ active = true }: { active?: boolean }) {
-  const { setDraft } = useChatStore('setDraft')
+  const { writeDraft } = useChatStore('writeDraft')
   const { toast } = useToast()
   const { t } = useTranslation('agents')
 
   useEffect(() => {
     if (!active) return
     let current = true
-    void landPendingStarters(setDraft, undefined, undefined, () => current).catch((error) => {
+    void landPendingStarters(writeDraft, undefined, undefined, () => current).catch((error) => {
       if (!current) return
       starterLog.error({ err: error instanceof Error ? error.message : String(error) }, 'starter recovery failed')
       toast(t('wizard.starterRecoveryFailed'), 'error', messageForUser(error))
     })
     return () => { current = false }
-  }, [active, setDraft, toast, t])
+  }, [active, writeDraft, toast, t])
 
   return null
 }

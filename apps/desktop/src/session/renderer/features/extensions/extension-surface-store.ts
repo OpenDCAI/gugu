@@ -139,6 +139,7 @@ class ExtensionSurfaceStore {
   /** Called when the tab is gone for good, so a reopened tab starts clean. */
   forget(sessionId: string | null, tabId: string): void {
     this.surfaces.delete(key(sessionId, tabId));
+    extensionViewStore.forgetSlot(sessionId, tabId);
   }
 
   /** Only for judges: proves closing a tab actually releases what it held. */

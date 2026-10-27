@@ -1,4 +1,4 @@
-import { DndContext, DragOverlay } from '@dnd-kit/core';
+import { DndContext } from '@dnd-kit/core';
 import { observer } from 'mobx-react-lite';
 import { useEffect, useMemo, type ReactNode } from 'react';
 import { screenLayout } from '@renderer/app/screen-layout';
@@ -8,7 +8,7 @@ import { edgeFirst, PANE_EDGES, PaneEdgeDropZones } from '@renderer/features/tab
 import { useTabDrag } from '@renderer/features/tabs/use-tab-drag';
 import { PaneContent } from '@renderer/features/tabs/pane-content';
 import { PaneProvider } from '@renderer/features/tabs/pane-context';
-import { TabDragPreview } from '@renderer/features/tabs/tab-bar/tab-drag-preview';
+import { TabDragOverlay } from '@renderer/features/tabs/tab-bar/tab-drag-preview';
 import { PaneLayoutProvider } from '@renderer/features/tabs/pane-layout-context';
 import { SplitPaneHotkey } from '@renderer/features/sessions/tab-bar-actions';
 import type { TabHost } from '@renderer/features/tabs/core/tab-host';
@@ -87,7 +87,7 @@ export const ChatPanes = observer(function ChatPanes({
               />
             </div>
           </PaneProvider>
-          <DragOverlay dropAnimation={null}>{dragging ? <TabDragPreview tabId={dragging} /> : null}</DragOverlay>
+          <TabDragOverlay />
         </DndContext>
       </PaneLayoutProvider>
     </ChatTabHostContext.Provider>
