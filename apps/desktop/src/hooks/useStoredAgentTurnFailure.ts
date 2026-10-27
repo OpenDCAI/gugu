@@ -14,8 +14,8 @@ function loadMutes(userId: string | undefined): AgentTurnFailureMutes {
   try {
     return readAgentTurnFailureMutes(userId)
   } catch (error) {
-    // 读坏了就等于没静音：提醒会照常出现，原因进日志，❌ 不让聊天面板崩。
-    log.error({ error: String(error) }, 'could not read muted agent turn failures')
+    // 读坏了就等于没提醒过：toast 会再弹一次，原因进日志，❌ 不让聊天面板崩。
+    log.error({ error: String(error) }, 'could not read notified agent turn failures')
     return {}
   }
 }
@@ -41,7 +41,7 @@ export function useStoredAgentTurnFailure(chatId: string | null, threadRootId: s
       const current = ++generation
       void readStoredAgentTurnFailures(user.id, chatId, threadRootId, ids.split(',')).then(({ failures: rows, recovered }) => {
         if (!live || current !== generation) return
-        // 每次补读都从存储取一次：别的聊天里关掉的静音这里也要认；最新一次投递成功的 Agent 解除静音。
+        // 每次补读都从存储取一次：别的聊天里已提醒过的这里也要认；最新一次投递成功的 Agent 清掉记录，下次失败再提醒。
         const stored = loadMutes(user.id)
         const next = { ...stored }
         for (const agentId of recovered) delete next[agentId]
@@ -82,19 +82,19 @@ export function useStoredAgentTurnFailure(chatId: string | null, threadRootId: s
     dismissed.current.set(commandId, rows.find((row) => row.commandId === commandId)?.revision ?? null)
     rerender((value) => value + 1)
   }, [rows])
-  const mute = useCallback((failure: Pick<AgentTurnFailure, 'agentUserId' | 'rawMessage'>) => {
+  const markNotified = useCallback((failure: Pick<AgentTurnFailure, 'agentUserId' | 'rawMessage'>) => {
     const kind = agentTurnFailureMuteKind(failure.rawMessage)
     if (!user?.id || !kind) return
     const next = { ...loadMutes(user.id), [failure.agentUserId]: kind }
     writeAgentTurnFailureMutes(user.id, next)
     setMutes({ userId: user.id, value: next })
   }, [user?.id])
-  const isMuted = useCallback((failure: Pick<AgentTurnFailure, 'agentUserId' | 'rawMessage'>) => agentTurnFailureMuted(currentMutes, failure), [currentMutes])
+  const wasNotified = useCallback((failure: Pick<AgentTurnFailure, 'agentUserId' | 'rawMessage'>) => agentTurnFailureMuted(currentMutes, failure), [currentMutes])
   return {
-    failure: rows.find((row) => dismissed.current.get(row.commandId) !== row.revision && !isMuted(row)) ?? null,
+    failure: rows.find((row) => dismissed.current.get(row.commandId) !== row.revision) ?? null,
     dismiss,
-    mute,
-    isMuted,
+    markNotified,
+    wasNotified,
     readFailed: snapshot.subject === subject && snapshot.readFailed,
     retry: () => setAttempt((value) => value + 1),
   }

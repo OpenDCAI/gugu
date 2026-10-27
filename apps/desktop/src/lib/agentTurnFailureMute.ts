@@ -1,10 +1,9 @@
-// 额度/模型类回合失败的「关掉就别再提醒」。
+// 额度/模型类回合失败 = 这位 agent 的账号状态，不是某一轮对话的事（#7685）。
 //
-// 失败条原本只按 commandId 记关闭、且只记在组件内存里：额度用完的 agent 每收到一条消息就再失败一次，
-// 每次都是一条新命令 ⇒ 关掉立刻又冒出来；切聊天组件重挂 ⇒ 关闭记录也丢了。额度是账号级的状态，
-// 不是某一条投递的事，所以关闭落到 (本机用户, agent, 失败类别) 上、存 localStorage、跨聊天生效；
-// 直到这位 agent 有一次投递成功（额度恢复 / 换了模型）才解除，之后再失败照常提醒。
-// 限流、通用失败不在这里：它们仍是一次性的，按命令关闭。
+// 额度用完的 agent 每收到一条消息就再失败一次，每次都是一条新命令；按命令提醒就会反复弹。所以这类失败：
+// 运行条那一排常驻一个安静的状态位（AgentQuotaStatus），toast 只在 (本机用户, agent, 类别) 第一次出现时弹一次，
+// 记录存 localStorage、跨聊天生效；直到这位 agent 有一次投递成功（额度恢复 / 换了模型）才清掉，之后再失败再提醒。
+// 限流、通用失败不在这里：它们仍是一次性的失败条，按命令关闭。
 
 import { agentModelUnavailable, agentQuotaReason } from '@gugu/core/shared/agentQuotaReason'
 import type { AgentTurnFailure } from './agentTurnFailure'

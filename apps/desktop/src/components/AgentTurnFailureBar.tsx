@@ -3,7 +3,7 @@
 // 重排原 deliver 命令（真重投递，❌ 假按钮）；原始错误只进 console（useAgentTurnFailure 已记）。
 // 视觉复用聊天上下文的轻量通知：短说明与真实操作，不把原始诊断放进正文或悬浮提示。
 
-import { useState, type ReactNode } from 'react'
+import { useEffect, useState, type ReactNode } from 'react'
 import { AlertTriangle, X } from '@/lib/icons'
 import { agentTurnFailureNeedsModelChoice, agentTurnFailureUserMessage, type AgentTurnFailure } from '../lib/agentTurnFailure'
 import { rendererLogger } from '../lib/log'
@@ -15,6 +15,9 @@ import { useContactsStore } from '../store/contactsContext'
 import { AgentSettingsModal } from './agentsettings/AgentSettingsModal'
 import { Button } from './ui/Button'
 import { useStoredAgentTurnFailure } from '../hooks/useStoredAgentTurnFailure'
+import { agentTurnFailureMuteKind } from '../lib/agentTurnFailureMute'
+import { useToast } from './toastContext'
+import { Avatar } from './Avatar'
 
 type AgentTurnFailureSlotProps = {
   chatId: string | null
@@ -43,29 +46,90 @@ export function AgentTurnFailureSlot({
   profiles,
 }: AgentTurnFailureSlotProps) {
   const { t } = useTranslation('messaging')
+  const { toast } = useToast()
   const local = useAgentTurnFailure(chatId, threadRootId)
   const { contacts } = useContactsStore()
   const stored = useStoredAgentTurnFailure(chatId, threadRootId, contacts.filter((contact) => contact.type === 'agent' && profiles[contact.id]).map((contact) => contact.id))
-  const failure = (local.failure && !stored.isMuted(local.failure) ? local.failure : null) ?? stored.failure
+  const failure = local.failure ?? stored.failure
   const [modelOpen, setModelOpen] = useState(false)
+  const stateKind = failure ? agentTurnFailureMuteKind(failure.rawMessage) : null
+  const displayName = failure ? profiles[failure.agentUserId]?.displayName ?? t('agent.fallbackName') : ''
+  const { wasNotified, markNotified } = stored
+  // #7685 额度/模型类：同一位 agent 在恢复之前只 toast 一次，之后只剩状态位。
+  useEffect(() => {
+    if (!failure || !stateKind || wasNotified(failure)) return
+    toast(`${displayName}：${agentTurnFailureUserMessage(failure.rawMessage)}`, 'warning')
+    markNotified(failure)
+  }, [failure, stateKind, displayName, wasNotified, markNotified, toast])
   if (!chatId) return null
   if (!failure) return stored.readFailed ? <><style>{STYLE}</style><div data-chat-composer-notice="" className="atf-bar" role="status"><span className="atf-msg">{t('agent.turnFailure.statusReadFailed')}</span><Button variant="ghost" size="sm" onClick={stored.retry}>{t('agent.turnFailure.retry')}</Button></div></> : null
   const profile = profiles[failure.agentUserId]
   const contact = contacts.find((entry) => entry.id === failure.agentUserId)
   return (
     <>
-    <AgentTurnFailureBar
-      failure={failure}
-      displayName={profile?.displayName ?? t('agent.fallbackName')}
-      avatar={profile?.avatar ?? null}
-      onDismiss={() => { local.dismiss(); stored.dismiss(failure.commandId) }}
-      onClose={() => { local.dismiss(); stored.dismiss(failure.commandId); stored.mute(failure) }}
-      onOpenModel={contact ? () => setModelOpen(true) : undefined}
-    />
+    {stateKind ? (
+      <AgentQuotaStatus
+        agentId={failure.agentUserId}
+        displayName={displayName}
+        avatar={profile?.avatar ?? null}
+        state={t(`agent.turnFailure.state.${stateKind}`)}
+        onOpenModel={contact ? () => setModelOpen(true) : undefined}
+      />
+    ) : (
+      <AgentTurnFailureBar
+        failure={failure}
+        displayName={displayName}
+        avatar={profile?.avatar ?? null}
+        onDismiss={() => { local.dismiss(); stored.dismiss(failure.commandId) }}
+        onOpenModel={contact ? () => setModelOpen(true) : undefined}
+      />
+    )}
     {modelOpen && contact ? <AgentSettingsModal agent={contact} initialTab="aimodel" onClose={() => setModelOpen(false)} /> : null}
     </>
   )
 }
+
+// #7685 额度/模型类失败 = agent 的状态，不是一条通知：和运行条同一排、同一种 token 形状（头像 + 名 + 状态词），
+// 不流光、不带关闭钮；点一下去切模型。这位 agent 下一次投递成功，命令结果翻成 done，它自己就消失。
+export function AgentQuotaStatus({ agentId, displayName, avatar, state, onOpenModel }: {
+  agentId: string
+  displayName: string
+  avatar: string | null
+  state: string
+  onOpenModel?: () => void
+}) {
+  const { t } = useTranslation('messaging')
+  return (
+    <div data-testid="agent-quota-status" style={{ flexShrink: 0 }}>
+      <style>{QUOTA_STYLE}</style>
+      <div className="aqs-bar">
+        <button
+          type="button"
+          className="aqs-tok"
+          data-clickable={onOpenModel ? 'true' : 'false'}
+          disabled={!onOpenModel}
+          onClick={onOpenModel}
+          aria-label={t('agent.turnFailure.stateAction', { name: displayName, state })}
+        >
+          <Avatar name={displayName} avatarUrl={avatar} seed={agentId} size="xs" isAgent />
+          <span className="aqs-nm">{displayName}</span>
+          <span className="aqs-state">{state}</span>
+        </button>
+      </div>
+    </div>
+  )
+}
+
+// 几何与运行条 `.rtb-bar/.rtb-tok` 一致（同一排、同一刻度）；状态词用 --warn，不流光。
+const QUOTA_STYLE = `
+.aqs-bar{display:flex;align-items:center;gap:16px;padding:4px 14px 2px 24px;font-size:var(--font-caption);color:var(--faint-fg);white-space:nowrap;flex-shrink:0}
+.aqs-tok{display:inline-flex;align-items:center;gap:7px;flex-shrink:0;border:0;padding:0;background:transparent;color:inherit;font:inherit;white-space:nowrap;cursor:default}
+.aqs-tok[data-clickable=true]{cursor:pointer}
+.aqs-tok[data-clickable=true]:hover .aqs-state{text-decoration:underline;text-underline-offset:2px}
+.aqs-tok:disabled{opacity:1}
+.aqs-nm{color:var(--faint-fg)}
+.aqs-state{color:var(--warn);font-weight:500}
+`
 
 const turnFailureLog = rendererLogger('agent/turn-failure')
 
@@ -86,7 +150,6 @@ export function AgentTurnFailureBar({
   failure,
   displayName,
   onDismiss,
-  onClose = onDismiss,
   onOpenModel,
 }: {
   failure: AgentTurnFailure
@@ -94,8 +157,6 @@ export function AgentTurnFailureBar({
   displayName: string
   avatar: string | null
   onDismiss: () => void
-  /** 用户点 ×：额度/模型类失败会就此静音到这位 agent 下次投递成功（agentTurnFailureMute）；重试成功只走 onDismiss。 */
-  onClose?: () => void
   onOpenModel?: () => void
 }) {
   const { t } = useTranslation('messaging')
@@ -156,7 +217,7 @@ export function AgentTurnFailureBar({
         <Button variant="ghost" size="sm" className="atf-btn" onClick={() => void handleRetry()} disabled={retrying} data-testid="agent-turn-failure-retry">
           {retrying ? t('agent.turnFailure.retrying') : t('agent.turnFailure.retry')}
         </Button>
-        <Button variant="ghost" size="icon" className="atf-x" onClick={onClose} aria-label={t('common.close')} data-testid="agent-turn-failure-dismiss">
+        <Button variant="ghost" size="icon" className="atf-x" onClick={onDismiss} aria-label={t('common.close')} data-testid="agent-turn-failure-dismiss">
           <X size={14} aria-hidden />
         </Button>
       </div>

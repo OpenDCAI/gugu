@@ -63,6 +63,13 @@ export default {
       "statusReadFailed": "无法读取任务状态：{{reason}}"
     },
     "turnFailure": {
+      "state": {
+        "exhausted": "额度已用完",
+        "weekly": "周限额度已满",
+        "monthly": "月限额度已满",
+        "model-unavailable": "模型不可用"
+      },
+      "stateAction": "{{name}} {{state}}，点击切换模型",
       "authentication": "模型服务拒绝了本次请求的授权，回复未完成。",
       "network": "与模型服务的连接中断，本次回复未完成。",
       "statusReadFailed": "回复状态暂时读不到，请重试。",

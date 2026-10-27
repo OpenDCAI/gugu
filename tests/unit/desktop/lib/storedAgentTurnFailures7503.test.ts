@@ -11,8 +11,9 @@ describe('持久投递结果在其他设备上的投影', () => {
   it('其他Agent的成功不会清掉这一位的失败，且忽略不在当前成员里的Agent', () => {
     expect(storedAgentTurnFailures([row('foreign', 'x'), row('ok', 'other', 'done'), row('failed')], ['agent', 'other']).map((failure) => failure.commandId)).toEqual(['failed'])
   })
-  it('已在聊天披露的失败不再叠通知', () => {
-    expect(storedAgentTurnFailures([row('failed', 'agent', 'error', { result: { reply_notice: 'in-chat' } })], ['agent'])).toEqual([])
+  it('已在聊天披露的失败不再叠通知；额度类例外，它是 agent 的状态位（#7685）', () => {
+    expect(storedAgentTurnFailures([row('failed', 'agent', 'error', { error: 'failed batch', result: { reply_notice: 'in-chat' } })], ['agent'])).toEqual([])
+    expect(storedAgentTurnFailures([row('failed', 'agent', 'error', { result: { reply_notice: 'in-chat' } })], ['agent'])).toHaveLength(1)
   })
   it('旧宿主补明确额度原因；未标记的旧通用错误不重复披露', () => {
     expect(storedAgentTurnFailures([row('quota')], ['agent'])).toHaveLength(1)
