@@ -13,6 +13,8 @@ import WebSocket from 'ws';
  *   GUGU_CLOUD_BROWSER_REAL=<chrome 或 chrome-headless-shell 的路径> npx vitest run --project session-main <本文件>
  */
 const chrome = process.env.GUGU_CLOUD_BROWSER_REAL;
+const FILLED_BY_PERSON = new RegExp('^' + 'The person entered their login for http://127.0.0.1:PORT and it was filled into the page (username and password). You never see the credentials and must not ask the person to type them in chat. Now submit the form (click the login button) and check the result with browser_snapshot.'
+  .replace(/[.*+?^${}()|[\]\\]/g, '\\$&').replace('PORT', '\\d+') + '$');
 const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'gugu-cloud-browser-'));
 const statusHook = vi.hoisted(() => ({ cb: null as null | ((change: { sessionId: string; reading: { running: boolean } }) => void) }));
 
@@ -174,6 +176,8 @@ describe.skipIf(!chrome)('cloud browser against a real Chrome', () => {
     await until(() => messages.find((m) => m.type === 'vault_result' && m.ok === true));
     const told = await login;
     expect(told.ok).toBe(true);
+    // What the agent is told after the person logged in (#7199): which fields were filled and whether it was saved.
+    expect(told.message).toMatch(FILLED_BY_PERSON);
     expect(told.message).not.toContain('S3cret');
     expect(told.message).not.toContain('alice');
     const after = await call('browser_snapshot');
