@@ -16,7 +16,8 @@ import { log } from '@renderer/utils/logger';
 import { reconnectingTransport, type WireTransport } from '@gugu/session-wire';
 import { machineCodec, machineRegistry } from './machine-routing';
 
-export type MachineLinkState = SessionHostConnectionState | 'tooOld' | 'unavailable';
+/** 计划内换线(`switching`)对外照「通着」说:侧栏那颗点、文件树、审阅都 ❌ 因为它掉线(见 machineLinkState)。 */
+export type MachineLinkState = Exclude<SessionHostConnectionState, 'switching'> | 'tooOld' | 'unavailable';
 
 type Entry = {
   client: SessionHostClient;
@@ -119,11 +120,22 @@ export function machineLabel(deviceId: string): string {
   return findRemoteHostsBridge()?.listDevices().find((d) => d.id === deviceId)?.label ?? deviceId;
 }
 
+/**
+ * 开机时到那台机器的频道从咕咕云换到设备连接(隧道通了):旧窗口关、新窗口当场开,这一段照「通着」说
+ * (2026-10-27 owner:「每次打开都闪一下」—— 侧栏的点掉成重连、文件树变「无响应」,网络其实一直好好的)。
+ * 新窗口开不成,客户端才落到 closed,那时才是断了。
+ */
 export function machineLinkState(deviceId: string): MachineLinkState {
   const entry = entries.get(deviceId);
   if (!entry) return findRemoteHostsBridge()?.openSessionHost ? 'closed' : 'unavailable';
   if (entry.tooOld) return 'tooOld';
-  return entry.client.state();
+  const state = entry.client.state();
+  return state === 'switching' ? 'open' : state;
+}
+
+/** 正在换线(旧窗口已关、新窗口在开):这时失败的问是旧窗口上的,等新窗口开好就能重来。 */
+export function machineLinkHandingOff(deviceId: string): boolean {
+  return entries.get(deviceId)?.client.state() === 'switching';
 }
 
 export function subscribeMachineLink(deviceId: string, listener: () => void): () => void {
@@ -134,11 +146,15 @@ export function subscribeMachineLink(deviceId: string, listener: () => void): ()
   return () => entry.listeners.delete(listener);
 }
 
-/** 到那台机器的线从断变通的那一下(重连上了;订上时已经通着的不算)。 */
+/**
+ * 到那台机器的线从断变通的那一下(重连上了;订上时已经通着的不算)。换线换好了也算:新窗口上的订阅要重订、
+ * 旧窗口上落空的问要重来,虽然对外一直说「通着」。
+ */
 export function onMachineReconnected(deviceId: string, cb: () => void): () => void {
-  let open = machineLinkState(deviceId) === 'open';
+  const windowOpen = () => machineLinkState(deviceId) === 'open' && !machineLinkHandingOff(deviceId);
+  let open = windowOpen();
   return subscribeMachineLink(deviceId, () => {
-    const now = machineLinkState(deviceId) === 'open';
+    const now = windowOpen();
     if (now && !open) cb();
     open = now;
   });
