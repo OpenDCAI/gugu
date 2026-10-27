@@ -69,7 +69,7 @@ export function machineClient(deviceId: string): SessionHostClient | null {
       retryMaxMs: 60_000,
       // 连不上 / 断了时调用方拿到的那句话(界面可能原样摆出来):说哪台机器此刻连不上,❌ 英文的传输层原文。
       messages: () => {
-        const device = bridge.listDevices().find((d) => d.id === deviceId)?.label ?? deviceId;
+        const device = machineLabel(deviceId);
         const text = translateSessionMessage('deviceScope.unreachable', { device });
         return {
           hostNotConnected: text,
@@ -112,6 +112,11 @@ export function onEachMachine(setup: (deviceId: string) => () => void): () => vo
     createdListeners.delete(listener);
     for (const off of offs.values()) off();
   };
+}
+
+/** 那台机器给人看的名字(设备行上的那个);桥还没装、清单里没有它 = 设备 id。 */
+export function machineLabel(deviceId: string): string {
+  return findRemoteHostsBridge()?.listDevices().find((d) => d.id === deviceId)?.label ?? deviceId;
 }
 
 export function machineLinkState(deviceId: string): MachineLinkState {

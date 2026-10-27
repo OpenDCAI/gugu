@@ -1,6 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 vi.mock('@gugu/core/cloud/agentIdentityReconcile', () => ({
-  listOwnedCloudAgentsViaSupabase: vi.fn(async () => []),
 }))
 import {
   guguSessionSurfaceBlock,

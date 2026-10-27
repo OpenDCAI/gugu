@@ -234,6 +234,10 @@ export function createSessionHostDeviceRpcHandlers(options: { host?: () => Frame
       close: shut,
     };
     clients.set(client, link);
+    // 开与关成对落盘(关那句在 shut 里),两头的日志才对得上是哪一条窗口(桌面那头按同一个 client 记,remoteSessionHost)。
+    // 用 warn 是因为会话进程默认只落 warn 及以上(@gugu/session-shared/logger 的 resolveLogLevel):frame-host 那句
+    // info 的「client connected」在用户机器上落不了盘,2026-10-27 d22 上就只剩关、没有开。一条窗口一行,❌ 按帧记。
+    log.warn('[session-host-device] client opened', { client, desktop: desktop?.id ?? null });
     frameHost.attach(socket, {
       remote: `device:${client.slice(0, 8)}`,
       policy: remoteInvokePolicyForCaller(callerId),

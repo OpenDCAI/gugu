@@ -2,6 +2,7 @@ import { createAssistantWorkDeliveryReceiver } from '../../../packages/core/src/
 import { enqueueAssistantWorkReport } from '../../../packages/core/src/cloud/assistantWorkReports.ts'
 import { legacyAssistantDispatch } from '../../../packages/core/src/shared/assistantWorkHistory.ts'
 import { stableId } from './phone-agent-store.mjs'
+import { assistantWorkReplyContext } from '../../../packages/core/src/shared/assistantWorkReply.ts'
 
 /** Uses only the shared account queue. No local delivery payload or second retry journal. */
 export function createPhoneAssistantWork({ ownerId,deviceId,instanceId,cloud,store,isReady,invoke,kick }) {
@@ -33,7 +34,8 @@ export function createPhoneAssistantWork({ ownerId,deviceId,instanceId,cloud,sto
     correlation:(agent,job)=>legacyAssistantDispatch({agent,job,deviceId}),
     receive:(ref,signal)=>receiver.receive(ref,ownerId,signal),
     async enqueueReport({agent,job,callId,record,prepare,reasonCode}) {
-      const assistantId=agent.assistantWork?.assistant_id ?? agent.caller?.agentUserId
+      // The host-bound dispatch names the assistant; whoever invoked this agent may be someone else.
+      const assistantId=agent.assistantWork?.assistant_id ?? assistantWorkReplyContext(job.prompt)?.assistant_id ?? agent.caller?.agentUserId
       if(!assistantId) throw new Error('Assistant task routing is not available')
       let sequence=0
       const result=await enqueueAssistantWorkReport({rpc:(name,args)=>cloud.identity.rpc(name,args),prepare,

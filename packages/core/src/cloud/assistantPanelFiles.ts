@@ -31,7 +31,7 @@ export function createAssistantPanelFiles(input: {
   assistantId: string; deviceId: string; ownerId: string; cloud: AssistantPanelClient
   assertCurrent(): void | Promise<void>
   readBody(item: AssistantPanelItem, signal?: AbortSignal): Promise<Uint8Array>
-  upload(name: string, bytes: Uint8Array, contentType: string): Promise<{ itemId: string; sha256: string }>
+  upload(name: string, bytes: Uint8Array): Promise<{ itemId: string; sha256: string }>
   discard(itemId: string): Promise<void>
   changed(): void
   cache?: AssistantPanelReadCache
@@ -170,7 +170,7 @@ export function createAssistantPanelFiles(input: {
     const data = domain === 'memory' ? { relativePath: relative,title: memory!.title,modifiedAt,kind: relative === 'owner-profile.md' ? 'user' : memory!.kind }
       : domain === 'files' ? { name,path: relative,kind: 'file',contentType,sizeBytes: value.length,modifiedAt }
       : domain === 'skills' ? { name: key,modifiedAt } : { noteId: relative.split('/')[0],kind: name }
-    const body = await input.upload(name,value,contentType)
+    const body = await input.upload(name,value)
     const previous = item ?? await input.cloud.resource(input.assistantId,domain,key) ?? undefined
     await commit(previous,domain,key,'save',data,body,expectedRevision)
   }
@@ -211,7 +211,7 @@ export function createAssistantPanelFiles(input: {
     },
     async put(domain: AssistantPanelDomain, key: string, data: Record<string, unknown>, value: Uint8Array, expectedRevision: string) {
       const current = (await snapshot()).items.find(row => row.domain === domain && row.resource_key === key)
-      const body = await input.upload(`${key}.md`,value,'text/plain')
+      const body = await input.upload(key,value)
       return commit(current,domain,key,'save',data,body,expectedRevision)
     },
     revision: (path: string) => versions.get(path),

@@ -11,6 +11,7 @@ import { desktopReportId, MIN_SERVER_PROTOCOL, REMOTE_PROTOCOL_VERSION } from '@
 import type { DesktopHello } from '@gugu/core/cloud/serverDesktopVersions'
 import { callDeviceRpc, subscribeDeviceRpcEvents } from './deviceRpc'
 import { desktopMatchVersion, isSshMachine, requestSshServerUpgrade, waitForTunnel } from './sshLinkChannel'
+import { rendererLogger } from './log'
 import type { SessionHostPipe, SessionHostPipeOpener } from '../session/shared/lib/ipc/session-host-client'
 import {
   createPieceJoiner,
@@ -22,6 +23,12 @@ import {
   type SessionHostFrameBatch,
   type SessionHostPiece,
 } from '../session/shared/lib/ipc/session-host-device-frames'
+
+/**
+ * 每条窗口开、关各一行,带 client(那台机器上 device-session-host 按同一个 client 记开与关):两头的日志据此对上是哪一条窗口。
+ * 2026-10-27 那次「开机时会话起不来」,桌面这头只有一句不带 client 的「连接关闭」,对不上那台机器上的哪一条。
+ */
+const log = rendererLogger('session-host/device')
 
 export class SessionHostTooOldError extends Error {
   /** 与会话 / 资源库各处认「版本太旧」的同一个码(connection-status 的 TOO_OLD_CODES)。 */
@@ -94,7 +101,8 @@ async function cachedSelfId(): Promise<string | null> {
 
 /** 这台桌面:设备 id(一台桌面一个,换版本不变)+ 自己的版本 + 说的协议。 */
 async function thisDesktop(): Promise<DesktopHello | null> {
-  const version = (await desktopMatchVersion()) ?? (typeof __APP_VERSION__ === 'string' ? __APP_VERSION__ : '')
+  const asked = await desktopMatchVersion()
+  const version = asked === undefined ? (typeof __APP_VERSION__ === 'string' ? __APP_VERSION__ : '') : asked
   if (!version) return null
   const id = (await cachedSelfId().catch(() => null)) ?? (await liveSelfId())
   return id ? { id: desktopReportId(id, version), version, protocol: REMOTE_PROTOCOL_VERSION } : null
@@ -158,6 +166,7 @@ export function openRemoteSessionHostPipe(
     const shut = (reason: string) => {
       if (closed) return
       closed = true
+      log.info({ deviceId, client, reason }, 'session host window closed')
       unsubscribe()
       onClose(reason)
     }
@@ -222,6 +231,7 @@ export function openRemoteSessionHostPipe(
     }
 
     live = true
+    log.info({ deviceId, client }, 'session host window opened')
     let outSeq = 0
     let outbox: (string | Uint8Array)[] = []
     let outboxOnlyHeartbeats = true

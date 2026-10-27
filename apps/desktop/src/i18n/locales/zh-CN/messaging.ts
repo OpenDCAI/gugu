@@ -382,8 +382,7 @@ export default {
       "cancel": "不派任务了",
       "failed": {
         "host_outdated": "{{machine}} 上的咕咕太旧，更新后再派任务",
-        "start_failed": "任务没开起来，到任务卡上看原因",
-        "topic_missing": "任务开工了，到群里点任务卡进它的话题"
+        "start_failed": "任务没开起来，到任务卡上看原因"
       }
     },
     "notInGroup": "不在本群",
@@ -705,13 +704,11 @@ export default {
     "agentOwnerTag": "{{owner}} 的 agent",
     "agentOwnerSuffix": "（{{owner}} 的 agent）",
     "actions": {
-      "comingSoon": "即将开放",
       "copy": "复制文本",
       "copyLink": "复制链接",
       "openLink": "打开链接",
       "selectText": "选择文本",
       "delete": "删除",
-      "edit": "编辑",
       "forward": "转发",
       "more": "更多",
       "openTopic": "开话题",

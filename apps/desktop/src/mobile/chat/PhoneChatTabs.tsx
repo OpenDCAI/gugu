@@ -7,7 +7,6 @@ import { SegmentedTabs } from '@/components/ui/SegmentedTabs'
 import { useAgentDisplayStatuses } from '@/hooks/useAgentDisplayStatus'
 import { Hash } from '@/lib/icons'
 import { useChatStore } from '@/store/chatContext'
-import { useDevicesStore } from '@/store/devicesContext'
 import './phone-chat-tabs.css'
 
 const MAIN = 'main'
@@ -31,9 +30,7 @@ export function PhoneChatTabs({ topics, messages, current, onPick }: {
   onPick: (topic: TopicSummary | null) => void
 }) {
   const { t } = useTranslation('messaging')
-  const { chats, activeChatId } = useChatStore('chats', 'activeChatId')
-  const { devices } = useDevicesStore()
-  const projectGroup = devices.some((device) => device.projects?.some((project) => project.chatId === activeChatId))
+  const { chats } = useChatStore('chats')
   const bar = useRef<HTMLDivElement>(null)
   const value = current ?? MAIN
   const agentOf = useMemo(() => {
@@ -74,8 +71,7 @@ export function PhoneChatTabs({ topics, messages, current, onPick }: {
     }),
   ]
   return (
-    <>
-    <div ref={bar} className="gg-phone-chat-tabs" data-testid="phone-chat-tabs" data-first-run-hint={projectGroup ? 'topics' : undefined} data-first-run-device="phone">
+    <div ref={bar} className="gg-phone-chat-tabs" data-testid="phone-chat-tabs">
       <SegmentedTabs
         variant="underline"
         ariaLabel={t('topic.phoneTabs.label')}
@@ -84,7 +80,5 @@ export function PhoneChatTabs({ topics, messages, current, onPick }: {
         onChange={(next) => onPick(next === MAIN ? null : topics.find((topic) => topic.chat_id === next) ?? null)}
       />
     </div>
-    <div data-first-run-hint-space="topics" />
-    </>
   )
 }

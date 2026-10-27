@@ -14,7 +14,7 @@ describe('手机文件预览的出口', () => {
   afterEach(() => { harness?.cleanup(); harness = null })
   const render = async (mobile: boolean, onClose = vi.fn(), onDownload = vi.fn(), onForward = vi.fn(), onOpenExternal = vi.fn()) => {
     harness = createReactHarness()
-    await harness.render(createElement(MessageFilePreviewPanel, { file, kind: 'video', content: null, loading: false, actions: messageActionItems({ isMine: false, isRetracted: false, content: 'attachment', onForward, onDownload }, i18n.getFixedT('zh-CN', 'messaging')), onOpenExternal, onClose, mobile }))
+    await harness.render(createElement(MessageFilePreviewPanel, { file, kind: 'video', content: null, loading: false, actions: messageActionItems({ isRetracted: false, content: 'attachment', onForward, onDownload }, i18n.getFixedT('zh-CN', 'messaging')), onOpenExternal, onClose, mobile }))
     return { onClose, onDownload, onForward, onOpenExternal, container: harness.container }
   }
 

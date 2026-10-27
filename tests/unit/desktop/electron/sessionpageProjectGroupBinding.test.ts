@@ -47,7 +47,6 @@ vi.mock('@gugu/core/cloud/config', () => ({
   getSupabaseAnonKey: () => 'anon-public-not-a-secret',
 }))
 vi.mock('@gugu/core/cloud/agentIdentityReconcile', () => ({
-  listOwnedCloudAgentsViaSupabase: vi.fn(async () => []),
   listAgentNameSerialsViaSupabase: vi.fn(async () => new Map()),
 }))
 vi.mock('../../../../apps/desktop/electron/sessionpage/emdash-agent-registry', () => ({

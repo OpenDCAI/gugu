@@ -26,7 +26,7 @@ const bridge: AssistantPanelBridge = {
       cache: assistantPanelCacheStore().files(ownerId,assistantId),
       assertCurrent: () => assertAssistantPanelOwner(ownerId),
       readBody: (item,signal) => readAssistantPanelBody(item,{ ...access(),signal }),
-      upload: (name,bytes,contentType) => uploadAssistantPanelBody({ ...access(),name,bytes,contentType }),
+      upload: (name,bytes) => uploadAssistantPanelBody({ ...access(),label: name,bytes }),
       discard: async itemId => {
         assertAssistantPanelOwner(ownerId)
         const { error } = await chatDb.rpc('workspace_delete_as',{ p_item_id: itemId,p_as_user_id: ownerId }).abortSignal(AbortSignal.timeout(10_000))

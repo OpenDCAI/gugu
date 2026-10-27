@@ -209,7 +209,7 @@
 }
 
 /* 邀请好友卡:沿用图表卡的壳,体里一行统计 + 一行邀请链接 */
-.na-referral { display: grid; gap: 12px; padding: 16px 20px; }
+.na-referral { display: grid; gap: 16px; padding: 16px; }
 .na-referral-stats { display: flex; flex-wrap: wrap; gap: 8px 24px; color: var(--muted-fg); font-size: var(--font-body); font-variant-numeric: tabular-nums; }
 /* 只读的邀请链接可以截断(复制按钮拷的是全文):这一行是 grid 子项,自动最小宽 = 输入框的固有宽 + 按钮,
    不归零就把整行撑出卡片;输入框也不沿用 .na-input 的 min-width:10rem。 */
@@ -321,4 +321,20 @@
   .na-cost { max-width: 100%; height: auto; min-height: 24px; overflow-wrap: anywhere; }
   .na-pager-btns { flex-wrap: wrap; min-width: 0; max-width: 100%; gap: var(--spacing-xs); }
   .na-pager-btn { min-width: var(--control-h-touch); height: var(--control-h-touch); }
+}
+
+/* The loading shapes follow the real stats and controls, without adding row height. */
+.na-referral-stats-frame { min-height: var(--lh-body); align-items: center; }
+.na-referral-link-frame { min-height: var(--control-h-md); }
+.na-referral-read-error { display: flex; align-items: center; gap: 8px; }
+.na-referral[data-read-failed] { position: relative; }
+.na-referral[data-read-failed] .na-referral-read-error { position: absolute; inset: 16px; }
+.na-referral-stats > span { line-height: var(--lh-body); }
+.na-referral-stat-skeleton { display: block; width: 80px; height: var(--lh-body); }
+.na-referral-field-skeleton { flex: 1; min-width: 0; background: var(--muted); }
+.na-referral-copy-skeleton { display: inline-flex; align-items: center; justify-content: center; gap: 6px; min-height: var(--control-h-md); padding: 0 12px; border: 1px solid transparent; border-radius: var(--radius-control); font-size: var(--font-body); font-weight: var(--font-weight-medium); line-height: 1; white-space: nowrap; pointer-events: none; }
+@media (max-width: 719px) {
+  .na-referral-description, .na-referral-url, .na-referral-field-skeleton { display: none; }
+  .na-referral-link-frame, .na-referral-copy-skeleton { min-height: var(--control-h-touch); }
+  .na-referral-link > button, .na-referral-copy-skeleton { width: 100%; }
 }

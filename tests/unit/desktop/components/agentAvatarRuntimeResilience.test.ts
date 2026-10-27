@@ -7,6 +7,7 @@ vi.unmock('../../../../apps/desktop/src/components/agentAvatar/engine/runtime')
 
 const fake = vi.hoisted(() => ({
   draws: [] as unknown[],
+  handles: [] as Array<{ drawnWith: string; dpr: number; ctx: CanvasRenderingContext2D }>,
   loads: [] as boolean[],
   made: [] as Array<{ canvas: HTMLCanvasElement; loaded: Set<string>; has(id: string): boolean; room(w: number, h: number, n: number): boolean; reset(): void }>,
   allocate: null as ((w: number, h: number) => void) | null,
@@ -94,6 +95,7 @@ async function boot(birds = 1, dpr = 1, tracking = false) {
     document.body.append(canvas)
     if (i === 0) fake.canvas = canvas
     const h = runtime.register(canvas, { shape: 'free', bg: false, crop: 'full', fx: false, tracking }, 1 + i, dpr, 'fjj-beak')
+    fake.handles.push(h!)
     fake.ids.set(h!.engine.frame, `b${i}`)
     stops.push(() => { runtime.unregister(h!); canvas.remove() })
     fake.intersect!([{ target: canvas, isIntersecting: true }])
@@ -106,6 +108,7 @@ const fakeClock = () => vi.useFakeTimers({ toFake: ['setTimeout', 'performance']
 
 beforeEach(() => {
   fake.draws.length = 0
+  fake.handles.length = 0
   fake.loads.length = 0
   fake.made.length = 0
   fake.allocate = null
@@ -218,6 +221,36 @@ describe('只画会变的帧、按变了多少决定什么时候画,看不见就
     expect(fake.draws).toHaveLength(2)
     expect(fake.canvas).toBe(canvas)
   })
+
+  for (const change of ['size', 'dpr', 'context'] as const) {
+    it(`replaces an invalid inert frame after ${change} changes, then holds it again`, async () => {
+      fakeClock()
+      await boot()
+      const canvas = fake.canvas!
+      canvas.setAttribute('inert', '')
+      step()
+      expect(fake.draws).toHaveLength(1)
+      if (change === 'size') canvas.width += 16
+      else if (change === 'dpr') fake.handles[0].dpr = 2
+      else {
+        const lost = vi.fn(() => true)
+        fake.handles[0].ctx.isContextLost = lost
+        canvas.dispatchEvent(new Event('contextlost'))
+        expect(fake.handles[0].drawnWith).toBe('')
+        step()
+        expect(fake.draws, 'lost contexts must wait for restoration').toHaveLength(1)
+        lost.mockReturnValue(false)
+        canvas.dispatchEvent(new Event('contextrestored'))
+        expect(fake.handles[0].drawnWith).toBe('')
+      }
+      step()
+      expect(fake.draws).toHaveLength(2)
+      fake.look = [20]
+      step()
+      await vi.advanceTimersByTimeAsync(300)
+      expect(fake.draws, 'the replacement must not restart inert animation').toHaveLength(2)
+    })
+  }
 
   it('和上一张差不到半个 CSS 像素就不画、也不排 rAF(改用计时器:共用时钟的下一格或下一次眨眼,哪个先到那时看)', async () => {
     fakeClock()
