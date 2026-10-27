@@ -82,7 +82,7 @@ describe('connectStdioAcpV2', () => {
     const completed = vi.fn();
     const prompt = pair.api.prompt({ sessionId: 's1', prompt: [{ type: 'text', text: 'hello' }] }, accepted).then(completed);
     expect(accepted).not.toHaveBeenCalled();
-    receipt.resolve({});
+    receipt.resolve({ messageId: 'u1' });
     await vi.waitFor(() => expect(accepted).toHaveBeenCalledTimes(1));
     expect(completed).not.toHaveBeenCalled();
     await pair.send({ sessionUpdate: 'user_message', messageId: 'u1', content: [{ type: 'text', text: 'hello' }] });

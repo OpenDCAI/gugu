@@ -6,7 +6,6 @@ vi.mock('../../../../lib/logger', () => ({
 }))
 
 import {
-  EmdashAgentRegistry,
   emdashAgentRegistry,
   RECONNECT_BUDGET_MS,
   registerEmdashAgent,
@@ -16,8 +15,10 @@ import {
 import { SessionpageLocalDeliveryRouter } from '../../../../sessionpage/session-injection'
 
 describe('native refusal at the admission boundary', () => {
+  afterEach(() => emdashAgentRegistry.setBridge(null))
+
   it.each([true, false])('uses the existing wake owner after refusal, resume succeeds=%s', async (recovers) => {
-    const registry = new EmdashAgentRegistry()
+    const registry = emdashAgentRegistry
     let lifecycle = 'ready'
     let attempts = 0
     const inject = vi.fn(async (_sessionId: string, _text: string, _opts?: { steerIfBusy?: boolean }) => {
