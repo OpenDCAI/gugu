@@ -339,7 +339,7 @@ export interface ExtensionAgentView {
    * own; `null` when the session never chose one (its engine's default).
    */
   model: string | null;
-  /** That model's name as gugu's model menu shows it (a Gugu model's display name); `null` for an engine's own model or this machine cannot say. */
+  /** That model's name as gugu's model menu shows it (a Gugu model's display name). Show `modelLabel ?? model`: `null` for an engine's own model, or when the catalog cannot name it. */
   modelLabel: string | null;
   /** Where it runs: `'acp'` a chat panel, `'pty'` a terminal — the words `dispatch`'s `spawn` and `session_spawn` take. */
   transport: 'acp' | 'pty';

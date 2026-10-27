@@ -321,7 +321,7 @@ Free — what the app is showing:
 Needs \`agents:read\` (or \`agents:read:all\` / \`agents:read:all-machines\`, which cover it):
 
 - \`listAgents()\` → every agent you may see, as \`{ agentId (user:<uuid>), sessionId, deviceId, deviceLabel, projectId, title,
-  providerId, model, transport, parentAgentId, spawnedByThisExtension, status, detail, isGenerating,
+  providerId, model, modelLabel (its name in the model menu; null: show model), transport, parentAgentId, spawnedByThisExtension, status, detail, isGenerating,
   lastStopReason, failure, lastActionAt, pendingPermissionCount, queuedPromptCount, contextTokens, rateLimit,
   updatedAt }\`.
   \`detail\` refines \`status\`: \`running\` | \`parked\` (only background work); \`approval\` | \`question\` |

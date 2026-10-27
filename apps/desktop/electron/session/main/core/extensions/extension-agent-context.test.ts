@@ -16,7 +16,7 @@ const decisions: Record<string, { modelId: string } | null | undefined> = {};
 
 vi.mock('drizzle-orm', () => ({ eq: (column: { name: string }, value: unknown) => ({ column: column.name, value }) }));
 vi.mock('@main/db/schema', () => ({
-  sessions: { __table: 'conversations', id: { name: 'id' }, workspaceId: { name: 'workspaceId' }, projectId: { name: 'projectId' }, config: { name: 'config' }, provider: { name: 'provider' }, runtime: { name: 'runtime' } },
+  sessions: { __table: 'conversations', id: { name: 'id' }, workspaceId: { name: 'workspaceId' }, projectId: { name: 'projectId' }, config: { name: 'config' } },
 }));
 vi.mock('@main/db/client', () => ({
   db: {
@@ -38,25 +38,16 @@ vi.mock('@main/core/workspaces/workspace-registry', () => ({
 vi.mock('@main/core/sessions/platform-model-selection', () => ({
   sessionPlatformModel: async (sessionId: string) => decisions[sessionId],
 }));
-/** The platform catalog the model menu and session_list_models read: queried per engine and leg. */
-const catalogQueries: unknown[] = [];
-vi.mock('@main/core/agents/platform-model-catalog-hook', () => ({
-  getPlatformModelCatalogResolver: () => async (query: unknown) => {
-    catalogQueries.push(query);
-    return { models: [{ id: 'glm-5.3-flash', displayName: 'GLM 5.3 Flash' }], catalogError: null };
-  },
-}));
 
 const { agentSessionContext } = await import('./extension-agent-context');
 
 beforeEach(() => {
   rows.conversations = [
-    { id: 'conv-a', workspaceId: 'ws-a', projectId: 'p-a', config: {}, provider: 'claude', runtime: 'acp' },
-    { id: 'conv-b', workspaceId: 'ws-b', projectId: 'p-b', config: { model: 'gpt-5.5' }, provider: 'codex', runtime: 'pty' },
+    { id: 'conv-a', workspaceId: 'ws-a', projectId: 'p-a', config: {} },
+    { id: 'conv-b', workspaceId: 'ws-b', projectId: 'p-b', config: { model: 'gpt-5.5' } },
     { id: 'conv-nowhere', workspaceId: null, projectId: 'p-n', config: { model: 'opus-4-6' } },
     { id: 'conv-own-default', workspaceId: null, projectId: 'p-o', config: {} },
   ];
-  catalogQueries.length = 0;
   for (const key of Object.keys(mounted)) delete mounted[key];
   mounted['ws-a'] = { path: '/work/a' };
   for (const key of Object.keys(decisions)) delete decisions[key];
@@ -67,11 +58,11 @@ beforeEach(() => {
 
 describe('agentSessionContext (#6615 问题 11)', () => {
   it("reads the caller's own session and its mounted working copy", async () => {
-    expect(await agentSessionContext('conv-a')).toEqual({ sessionId: 'conv-a', projectId: 'p-a', workspaceId: 'ws-a', workspaceRoot: '/work/a', model: 'platform:glm-5.3-flash', modelLabel: 'GLM 5.3 Flash' });
+    expect(await agentSessionContext('conv-a')).toEqual({ sessionId: 'conv-a', projectId: 'p-a', workspaceId: 'ws-a', workspaceRoot: '/work/a', model: 'platform:glm-5.3-flash' });
   });
 
   it('a working copy that is not mounted is null — said, not borrowed from another session', async () => {
-    expect(await agentSessionContext('conv-b')).toEqual({ sessionId: 'conv-b', projectId: 'p-b', workspaceId: 'ws-b', workspaceRoot: null, model: 'gpt-5.5', modelLabel: null });
+    expect(await agentSessionContext('conv-b')).toEqual({ sessionId: 'conv-b', projectId: 'p-b', workspaceId: 'ws-b', workspaceRoot: null, model: 'gpt-5.5' });
   });
 
   it('an unknown caller has no context; a session with no workspace yet leaves only its id', async () => {
@@ -86,13 +77,5 @@ describe('agentSessionContext (#6615 问题 11)', () => {
     expect((await agentSessionContext('conv-own-default'))?.model).toBeNull();
     // Never decided (a session from before the record): null, even with a model in its config — not guessed.
     expect((await agentSessionContext('conv-nowhere'))?.model).toBeNull();
-  });
-
-  it("a Gugu model's name comes from the platform catalog for its engine and leg; an engine's own model has none", async () => {
-    expect((await agentSessionContext('conv-a'))?.modelLabel).toBe('GLM 5.3 Flash');
-    expect(catalogQueries).toEqual([{ providerId: 'claude', surface: 'acp' }]);
-    // A harness model is not looked up: its id is its name, and the id is given as it is.
-    expect((await agentSessionContext('conv-b'))?.modelLabel).toBeNull();
-    expect(catalogQueries).toHaveLength(1);
   });
 });

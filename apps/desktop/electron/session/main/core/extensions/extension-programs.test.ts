@@ -400,15 +400,6 @@ describe("an extension's own pages call its programs (#6635)", () => {
     });
   }, 30_000);
 
-  // A Gugu model's menu name rides with its id (gugu/modelLabel); an engine's own model, with no name of its own, adds nothing.
-  it('stamps the model menu name beside the model id when the session has one', async () => {
-    const agent = 'user:0a000000-0000-4000-8000-0000000000f2';
-    const named = await callerMeta({ agentId: 'task-g', agentUserId: agent }, async () => ({ sessionId: 'task-g', workspaceRoot: null, model: 'platform:glm-5.3-flash', modelLabel: 'GLM 5.3 Flash' }));
-    expect(named).toEqual({ 'gugu/agent': agent, 'gugu/sessionId': 'task-g', 'gugu/model': 'platform:glm-5.3-flash', 'gugu/modelLabel': 'GLM 5.3 Flash' });
-    const own = await callerMeta({ agentId: 'task-g', agentUserId: agent }, async () => ({ sessionId: 'task-g', workspaceRoot: null, model: 'gpt-6.1-sol', modelLabel: null }));
-    expect(own).not.toHaveProperty('gugu/modelLabel');
-  });
-
   // Owner 10-14, review 83fad65916: a page an agent works calls as that agent — stamped exactly as the agent's own tool
   // call is (its agent, session, working copy, model: `callerMeta`, the gateway's), with `gugu/caller: app` and a call id of
   // its own; the host says who, the page never does. Mutation: a page stamp without `gugu/model` fails here.
