@@ -52,13 +52,11 @@ export default {
   "hints": {
     "phone": {
       "assistant": "Gugu is your personal assistant. Ask it to track plans and get things done.",
-      "collaboration": "Find projects and friends here. Open one to start collaborating.",
-      "topics": "Each task has a topic. Open its tab for progress and results."
+      "collaboration": "Find projects and friends here. Open one to start collaborating."
     },
     "desktop": {
       "assistant": "Your personal assistant is here. Tell it your plans and tasks.",
-      "collaboration": "Each project is a group. Work with Agents to move it forward.",
-      "topics": "Each task has a topic, with its own progress and results."
+      "collaboration": "Each project is a group. Work with Agents to move it forward."
     },
     "dismiss": "Got it",
     "unreadable": "Could not read hint progress. Please retry.",

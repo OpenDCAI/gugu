@@ -38,23 +38,16 @@ function addEntry(device: Device, id: FirstRunHintId) {
   const region = document.createElement('section')
   if (device === 'phone' && id === 'collaboration') region.className = 'gg-partners'
   if (device === 'desktop' && id === 'assistant') region.className = 'gg-sidebar-rail'
-  if (device === 'desktop' && id === 'topics') {
-    region.className = 'session-tab-bar'
-    region.innerHTML = '<span data-project-block-tab="project"></span><span data-topic-tab="topic"><div role="button" tabindex="0" data-tab-label="Task">Task</div></span>'
-  } else {
-    const entry = document.createElement(id === 'assistant' ? 'button' : 'div')
-    entry.dataset.firstRunHint = id
-    entry.dataset.firstRunDevice = device
-    if (device === 'desktop' && id === 'assistant') entry.dataset.rail = 'assistant'
-    if (id === 'topics') entry.innerHTML = '<button role="tab">Task</button>'
-    if (id === 'collaboration') entry.innerHTML = device === 'phone' ? '<button data-testid="phone-partners-project">Project</button>' : '<button>Projects</button>'
-    region.append(entry)
-  }
+  const entry = document.createElement(id === 'assistant' ? 'button' : 'div')
+  entry.dataset.firstRunHint = id
+  entry.dataset.firstRunDevice = device
+  if (device === 'desktop' && id === 'assistant') entry.dataset.rail = 'assistant'
+  if (id === 'collaboration') entry.innerHTML = device === 'phone' ? '<button data-testid="phone-partners-project">Project</button>' : '<button>Projects</button>'
+  region.append(entry)
   document.body.append(region)
   const space = document.createElement('div')
   space.dataset.firstRunHintSpace = id
-  if (device === 'desktop' && id === 'topics') region.after(space)
-  else region.append(space)
+  region.append(space)
   cleanup.push(() => { region.remove(); space.remove() })
   return { region, use: region.querySelector<HTMLElement>('[role="button"], button')! }
 }
@@ -82,8 +75,8 @@ describe('device-specific one-page introduction', () => {
   })
 })
 
-describe('contextual hints at all six entries', () => {
-  for (const device of ['phone', 'desktop'] as const) for (const id of ['assistant', 'collaboration', 'topics'] as const) {
+describe('contextual hints at all four entries', () => {
+  for (const device of ['phone', 'desktop'] as const) for (const id of ['assistant', 'collaboration'] as const) {
     it(`${device} ${id}: dismisses once and does not reappear after remount`, async () => {
       setDevice(device)
       addEntry(device, id)
@@ -154,15 +147,6 @@ describe('contextual hints at all six entries', () => {
     expect(bubble('collaboration')).toBeNull()
     await act(async () => { entry.region.style.contentVisibility = 'visible' })
     await waitForCondition(() => !!bubble('collaboration'), 'page becomes visible')
-  })
-
-  it('retires topic guidance when the phone tab is used with the keyboard', async () => {
-    const entry = addEntry('phone', 'topics')
-    await mount('phone')
-    await waitForCondition(() => !!bubble('topics'), 'topic hint')
-    await act(async () => entry.use.dispatchEvent(new KeyboardEvent('keydown', { key: 'ArrowRight', bubbles: true })))
-    await waitForCondition(() => account?.dismissed.includes('topics') === true, 'keyboard use saved')
-    expect(bubble('topics')).toBeNull()
   })
 
   it('reports unreadable progress and retries without pretending it is new or complete', async () => {

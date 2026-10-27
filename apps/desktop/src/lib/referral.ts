@@ -1,7 +1,7 @@
 // @@@1511 邀请返利前端搬运层。捕获邀请链接的 ?ref=<gugu_number> → 注册时塞进 signup metadata
 // (referrer_gugu_number),由 DB 触发器 on_auth_user_created_referral 解析并给双方发积分。
 // 前端只搬运 referrer + 生成链接,不判防刷(自邀/重复/inactive 全在 billing.grant_referral_reward 内)。
-import { inviteLandingBase } from './inviteLandingBase'
+import { webInviteLandingBase } from './inviteLandingBase'
 
 const PENDING_REFERRER_KEY = 'pending_referrer_gugu_number'
 
@@ -38,6 +38,7 @@ export function clearPendingReferrer(): void {
 
 // 用当前用户 gugu_number 构造个人邀请链接;无号(未加载)→ null,由调用方隐藏,不展示死链接。
 export function buildReferralShareUrl(guguNumber: number | null | undefined): string | null {
-  if (!guguNumber) return null
-  return `${inviteLandingBase()}?ref=${guguNumber}`
+  const landing = webInviteLandingBase()
+  if (!guguNumber || !landing) return null
+  return `${landing}?ref=${guguNumber}`
 }

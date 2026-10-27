@@ -6,7 +6,27 @@ import {
   type DeviceRpcClient,
   type MachineLimitRefusalRpcClient,
 } from '@gugu/core/cloud/devices'
+import type { Device } from '@gugu/core/shared/types/chat'
 import { identityDb } from './supabase'
+import { LocalDeviceUnidentifiedError } from './localDeviceIdentity'
+
+/**
+ * The account's device rows with this computer's own row marked (online state from the local process, name per
+ * resolveSelfDeviceLabel). @@@local-device-truth (#777) on the list: where a local device runs here, "I don't know which
+ * row is mine" is not "none of these is mine" — unmarked, this computer's own row reads as another, offline computer
+ * (Beta 1040 filed its local projects under that "computer" and dropped them all once it was recognized).
+ */
+export function markLocalDevice(self: Device | null, cloud: Device[], hasLocalDevice: boolean): Device[] {
+  if (!self) {
+    if (hasLocalDevice) throw new LocalDeviceUnidentifiedError()
+    return cloud
+  }
+  const others = cloud.filter((device) => device.device_id !== self.device_id)
+  // 名字以云端行为准(见 resolveSelfDeviceLabel);在线性仍信本机 self。
+  const cloudSelf = cloud.find((device) => device.device_id === self.device_id)
+  const selfMerged = { ...self, label: resolveSelfDeviceLabel(self, cloudSelf?.label), machine_id: cloudSelf?.machine_id ?? null, is_current_device: true }
+  return [selfMerged, ...others.map((device) => ({ ...device, is_current_device: false }))]
+}
 
 /**
  * 本机那一行显示什么名字。@@@1749 self 快照的 label 是本机 hostname 硬编码(electron main),会盖掉用户改的名字,

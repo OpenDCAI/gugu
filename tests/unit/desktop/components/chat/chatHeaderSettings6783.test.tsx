@@ -6,6 +6,7 @@ import { createRef } from 'react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { clickElement, createNode, createReactHarness, renderWithAppProviders } from '../../../../support/testHarness'
 import { ChatHeaderActions } from '../../../../../apps/desktop/src/components/chat/ChatHeaderActions'
+import { drainTopicSplitRequest } from '../../../../../apps/desktop/src/lib/topicSplitRequest'
 
 vi.mock('@/lib/chatAppPins', () => ({ readChatAppPins: async () => [], setChatAppPin: async () => [], watchChatAppPins: () => () => {} }))
 
@@ -13,7 +14,7 @@ let harness: ReturnType<typeof createReactHarness>
 beforeEach(() => { harness = createReactHarness() })
 afterEach(() => { harness.cleanup() })
 
-async function renderHeader(props: { isGroupChat: boolean; mobile: boolean }) {
+async function renderHeader(props: { isGroupChat: boolean; mobile: boolean }, extraChats: unknown[] = []) {
   const onOpenInfo = vi.fn()
   await renderWithAppProviders(harness, createNode(ChatHeaderActions, {
     ...props,
@@ -30,7 +31,7 @@ async function renderHeader(props: { isGroupChat: boolean; mobile: boolean }) {
     onCloseInfo: vi.fn(),
     onToggleHeaderMenu: vi.fn(),
     onCloseHeaderMenu: vi.fn(),
-  }), { chat: { activeChatId: 'g', chats: [{ id: props.isGroupChat ? 'g' : 'd', kind: props.isGroupChat ? 'group' : 'dm' }] as never } })
+  }), { chat: { activeChatId: 'g', chats: [{ id: props.isGroupChat ? 'g' : 'd', kind: props.isGroupChat ? 'group' : 'dm' }, ...extraChats] as never } })
   return onOpenInfo
 }
 
@@ -55,4 +56,19 @@ describe('#6783 页头 = 这个聊天自己的信息', () => {
       expect(onOpenInfo).toHaveBeenCalledWith('members')
     })
   }
+
+  it('group (desktop): ⋯ holds Topics — this group\'s topic list — beside Settings, and a topic opens in the split', async () => {
+    await renderHeader({ isGroupChat: true, mobile: false }, [
+      { id: 't-old', kind: 'topic', source_chat_id: 'g', name: '旧话题', last_message_at: '2026-10-01T00:00:00Z' },
+      { id: 't-new', kind: 'topic', source_chat_id: 'g', name: '新话题', last_message_at: '2026-10-27T00:00:00Z' },
+      { id: 't-else', kind: 'topic', source_chat_id: 'other', name: '别的群', last_message_at: '2026-10-27T00:00:00Z' },
+    ])
+    const topics = document.querySelector('[data-testid="group-menu-topics"]') as HTMLElement
+    expect(topics.textContent).toContain('话题')
+    await clickElement(topics)
+    const rows = Array.from(document.querySelectorAll<HTMLElement>('[data-testid="group-menu-topic"]'))
+    expect(rows.map((row) => row.textContent)).toEqual(['新话题', '旧话题'])
+    await clickElement(rows[0]!)
+    expect(drainTopicSplitRequest('g')).toMatchObject({ chatId: 't-new', sourceChatId: 'g' })
+  })
 })

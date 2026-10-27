@@ -1,4 +1,4 @@
-import { conversationLink } from '../../shared/ui/guguLink'
+import { storedMessageLink } from '../../shared/ui/guguLink'
 import { encodeTypedId } from '../../shared/typedId.mjs'
 import { findMentionSpans } from '../../shared/mentionToken.mjs'
 import type { ChatKind, ListenMode } from '../../shared/types/chat'
@@ -675,7 +675,7 @@ export function buildAgentDeliveryEnvelope(
     messageId: encodeTypedId('msg', input.messageId),
     at: timestamp,
     chat: isSessionDirect ? null : chatAnchor,
-    sourceLink: chatId ? conversationLink(chatId, input.messageId) : null,
+    sourceLink: chatId ? storedMessageLink(chatId, input.messageId) : null,
     chatKind: isSessionDirect ? null : chatInfo.kind,
     // 会话直发那条本地合成行的 is_whisper 是传输细节，不是人说的悄悄话。
     whisperTo: isSessionDirect || !input.whisperTo?.length ? null : input.whisperTo.map((id) => encodeTypedId('user', id)).join(' '),

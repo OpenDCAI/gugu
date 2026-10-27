@@ -228,7 +228,7 @@ export function useOpenedOutputOpener({ deviceId, sessionId, onQuote }: { device
         {...(preview.progress && preview.progress.size > 0 ? { loadingFraction: preview.progress.read / preview.progress.size } : {})}
         {...(preview.error ? { error: preview.error } : {})}
         onClose={close}
-        actions={messageActionItems({ isMine: false, isRetracted: false, content: null, onDownload: preview.blob ? () => void downloadBlob(preview.blob as Blob, preview.file.fileName).catch((error: unknown) => {
+        actions={messageActionItems({ isRetracted: false, content: null, onDownload: preview.blob ? () => void downloadBlob(preview.blob as Blob, preview.file.fileName).catch((error: unknown) => {
           log.error({ error, name: preview.file.fileName }, 'opened file save failed')
           toast(t('agentWatch.output.saveFailed'), 'error', messageForUser(error))
         }) : undefined }, messageT)}

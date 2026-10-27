@@ -1,5 +1,5 @@
 import { observer } from 'mobx-react-lite';
-import { useEffect, useMemo, useReducer, useRef, useState, type CSSProperties, type DragEvent, type PointerEvent } from 'react';
+import { useEffect, useLayoutEffect, useMemo, useReducer, useRef, useState, type CSSProperties, type DragEvent, type PointerEvent } from 'react';
 import { Check, Monitor, Plus, Server } from '@/lib/icons';
 import type { ProjectFolder } from '@shared/core/projects/project-folders';
 import { shortHome } from '@shared/path-name';
@@ -29,7 +29,11 @@ import './project-folder-card.css';
  * 「+」或把文件夹拖上来 = 挂文件夹。封面颜色按项目 id 固定,有 agent 在跑时更鲜、没人在跑褪成灰。
  */
 
-/** 卡片几何(px)。后片右上有个耳朵,前片左边高一截。 */
+/**
+ * 卡片几何(px)。后片右上有个耳朵,前片左边高一截。W 是满宽:窄栏里卡片跟着这一栏收窄(`useColumnWidth`),❌ 定宽撑出边框。
+ * 最窄 MIN_W:前片左边那截高出来的(LW)加上过渡弯得画得下。
+ */
+const MIN_W = 220;
 const G = { W: 468, H: 276, backH: 226, frontH: 136, TW: 132, TH: 22, LW: 168, S: 18, paperW: 236, paperH: 76, peek: 74 };
 /** 收起时探出来的三页:角度、横向错位。 */
 const STACK = [
@@ -66,15 +70,15 @@ function maskStyle(d: string, w: number, h: number): CSSProperties {
  * caused long GPU raster flushes on first interaction in Electron, even with a Backdrop Root.
  * The two static images stay rasterized; opening only fades the paper image out.
  */
-function FrostedFront({ projectId, running, count, uid }: { projectId: string; running: number; count: number; uid: string }) {
+function FrostedFront({ projectId, running, count, uid, W, paperW }: { projectId: string; running: number; count: number; uid: string; W: number; paperW: number }) {
   const top = G.H - G.frontH;
   const paperTop = G.H - G.frontH - G.peek;
   const peeking = Math.min(count, 3);
   return <>
-    <svg className="gg-folder-card__cover-frost" width={G.W} height={G.frontH} viewBox={`0 ${G.backH - G.frontH} ${G.W} ${G.frontH}`} aria-hidden>
-      <g className="gg-folder-card__cover"><ProjectCover projectId={projectId} running={running} width={G.W} height={G.backH} uid={`${uid}-frost`} saturationBoost={1.5} /></g>
+    <svg className="gg-folder-card__cover-frost" width={W} height={G.frontH} viewBox={`0 ${G.backH - G.frontH} ${W} ${G.frontH}`} aria-hidden>
+      <g className="gg-folder-card__cover"><ProjectCover projectId={projectId} running={running} width={W} height={G.backH} uid={`${uid}-frost`} saturationBoost={1.5} /></g>
     </svg>
-    <svg className="gg-folder-card__paper-frost" width={G.W} height={G.frontH} viewBox={`0 ${top} ${G.W} ${G.frontH}`} aria-hidden>
+    <svg className="gg-folder-card__paper-frost" width={W} height={G.frontH} viewBox={`0 ${top} ${W} ${G.frontH}`} aria-hidden>
       <defs><radialGradient id={`fc-paper-frost-${uid}`}>
         <stop offset="0" stopColor="var(--card)" stopOpacity={0.95} />
         <stop offset="50%" stopColor="var(--card)" stopOpacity={0.7} />
@@ -84,10 +88,10 @@ function FrostedFront({ projectId, running, count, uid }: { projectId: string; r
         {Array.from({ length: peeking }, (_, index) => {
           const k = peeking === 1 ? 1 : 2 - index;
           const [rot, tx] = STACK[k];
-          const x = (G.W - G.paperW) / 2 + tx;
+          const x = (W - paperW) / 2 + tx;
           const y = paperTop + k * 9;
-          return <g key={index} transform={`rotate(${rot} ${x + G.paperW / 2} ${y + G.paperH / 2})`}>
-            <ellipse cx={x + G.paperW / 2} cy={y + G.paperH - 2} rx={G.paperW / 2 + 24} ry={44} fill={`url(#fc-paper-frost-${uid})`} />
+          return <g key={index} transform={`rotate(${rot} ${x + paperW / 2} ${y + G.paperH / 2})`}>
+            <ellipse cx={x + paperW / 2} cy={y + G.paperH - 2} rx={paperW / 2 + 24} ry={44} fill={`url(#fc-paper-frost-${uid})`} />
           </g>;
         })}
       </g>
@@ -108,7 +112,21 @@ export { shortHome };
 
 const FRESH_MS = 2 * 60 * 1000;
 
-const cardSize: CSSProperties = { width: G.W, height: G.H };
+/** 卡片所在这一栏有多宽(摊开的纸也不能超出它)。量到之前当它够宽。 */
+function useColumnWidth() {
+  const ref = useRef<HTMLDivElement>(null);
+  const [width, setWidth] = useState(Number.POSITIVE_INFINITY);
+  useLayoutEffect(() => {
+    const node = ref.current;
+    if (!node || typeof ResizeObserver === 'undefined') return;
+    const measure = () => setWidth(node.clientWidth);
+    measure();
+    const observer = new ResizeObserver(measure);
+    observer.observe(node);
+    return () => observer.disconnect();
+  }, []);
+  return [ref, width] as const;
+}
 const bodyStyle: CSSProperties = { paddingTop: G.S + 12 };
 
 export type FolderCardMachine = { id?: string | null; label: string; online: boolean; kind: 'server' | 'computer' };
@@ -150,6 +168,10 @@ export const ProjectFolderCard = observer(function ProjectFolderCard({
   const [dragover, setDragover] = useState(false);
   const [landing, setLanding] = useState(false);
   const cardRef = useRef<HTMLDivElement>(null);
+  const [columnRef, column] = useColumnWidth();
+  const W = Math.max(MIN_W, Math.min(G.W, column));
+  const paperW = Math.min(G.paperW, W - 32);
+  const cardSize: CSSProperties = { width: W, height: G.H };
   const tiltFrame = useRef<number | null>(null);
   const pointer = useRef({ x: 0, y: 0 });
   useEffect(() => () => {
@@ -265,9 +287,9 @@ export const ProjectFolderCard = observer(function ProjectFolderCard({
     if (file) onDropFolder(file);
   };
 
-  const backD = backPath(G.W, G.backH, G.TW, G.TH);
-  const frontD = frontPath(G.W, G.frontH, G.LW, G.S);
-  const frontStyle: CSSProperties = { width: G.W, height: G.frontH, ...maskStyle(frontD, G.W, G.frontH) };
+  const backD = backPath(W, G.backH, G.TW, G.TH);
+  const frontD = frontPath(W, G.frontH, G.LW, G.S);
+  const frontStyle: CSSProperties = { width: W, height: G.frontH, ...maskStyle(frontD, W, G.frontH) };
   const base = G.H - G.frontH - G.peek;
 
   /**
@@ -286,7 +308,8 @@ export const ProjectFolderCard = observer(function ProjectFolderCard({
       return { transform: `translate3d(${tx}px, ${k * 9}px, 0) rotate(${rot}deg)`, rot, tx, ty: k * 9, top: base, z: count - index, hidden };
     }
     const t = count === 1 ? 0 : index / (count - 1) - 0.5;
-    const spread = Math.min(640, Math.max(260, (typeof window !== 'undefined' ? window.innerWidth : 1200) - 760));
+    // 摊开的一手牌不超出这一栏:最外两页的外沿 = 卡片中线 ± (spread + paperW) / 2。
+    const spread = Math.max(0, Math.min(640, Math.max(260, (typeof window !== 'undefined' ? window.innerWidth : 1200) - 760), column - paperW));
     const x = t * spread;
     const y = -62 - Math.cos(t * Math.PI) * 40 + Math.abs(t) * 16;
     return {
@@ -301,11 +324,10 @@ export const ProjectFolderCard = observer(function ProjectFolderCard({
   };
   const paperStyle = (place: Place, index: number): CSSProperties => {
     // 飞行过程中保持纸张与文字几何不变，避免逐帧重排。
-    const width = G.paperW;
     return {
-      width,
+      width: paperW,
       minHeight: G.paperH,
-      left: (G.W - width) / 2,
+      left: (W - paperW) / 2,
       top: place.top,
       transform: place.transform,
       zIndex: place.z,
@@ -320,7 +342,7 @@ export const ProjectFolderCard = observer(function ProjectFolderCard({
   const meta = translate('projects.folders.meta', { folders: folders.length, sessions: sessions.length });
 
   return (
-    <div className="flex flex-col items-center gap-3">
+    <div ref={columnRef} className="flex w-full min-w-0 flex-col items-center gap-3">
       <div
         ref={cardRef}
         data-testid="project-folder-card"
@@ -339,12 +361,12 @@ export const ProjectFolderCard = observer(function ProjectFolderCard({
         <div className="gg-folder-card__drop-hint">{translate('projects.folders.dropHint', { projectName })}</div>
         <div className="gg-folder-card__shadow" />
         <div className="gg-folder-card__stage" style={cardSize}>
-          <svg className="gg-folder-card__back" width={G.W} height={G.backH} viewBox={`0 0 ${G.W} ${G.backH}`} aria-hidden>
+          <svg className="gg-folder-card__back" width={W} height={G.backH} viewBox={`0 0 ${W} ${G.backH}`} aria-hidden>
             <clipPath id={`fc-back-${uid}`}>
               <path d={backD} />
             </clipPath>
             <g className="gg-folder-card__cover" clipPath={`url(#fc-back-${uid})`}>
-              <ProjectCover projectId={projectId} running={running} width={G.W} height={G.backH} uid={uid} />
+              <ProjectCover projectId={projectId} running={running} width={W} height={G.backH} uid={uid} />
             </g>
             <path d={backD} fill="none" stroke="var(--fc-edge)" strokeWidth={0.6} />
           </svg>
@@ -407,7 +429,7 @@ export const ProjectFolderCard = observer(function ProjectFolderCard({
           </div>
 
           <div className="gg-folder-card__front" style={frontStyle}>
-            <FrostedFront projectId={projectId} running={running} count={folders.length} uid={uid} />
+            <FrostedFront projectId={projectId} running={running} count={folders.length} uid={uid} W={W} paperW={paperW} />
             <div className="gg-folder-card__body" style={bodyStyle}>
               <div className="gg-folder-card__title">
                 <Button
@@ -467,7 +489,7 @@ export const ProjectFolderCard = observer(function ProjectFolderCard({
               </div>
             </div>
           </div>
-          <svg className="gg-folder-card__front-edge" width={G.W} height={G.frontH} viewBox={`0 0 ${G.W} ${G.frontH}`} aria-hidden>
+          <svg className="gg-folder-card__front-edge" width={W} height={G.frontH} viewBox={`0 0 ${W} ${G.frontH}`} aria-hidden>
             <path d={frontD} fill="none" stroke="var(--fc-edge)" strokeWidth={0.8} />
             <path d={`M12 .6 L${G.LW - 10} .6`} stroke="var(--fc-hi)" strokeWidth={1} />
           </svg>
