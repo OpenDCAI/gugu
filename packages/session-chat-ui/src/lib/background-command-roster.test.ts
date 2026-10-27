@@ -40,13 +40,6 @@ describe('collectBackgroundCommandRoster', () => {
     expect(roster).toEqual([{ id: 'item-1', launchToolCallId: 'call_bash', taskId: 'b3qprnhlb', name: 'sleep 3000' }]);
   });
 
-  it('带上起它那次调用的时刻 —— 列表末尾那一行按它走秒;拿不到就不带', () => {
-    const [withStart] = collectBackgroundCommandRoster([turn([bash({ startedAt: 4242 })])] as never, null, FALLBACK, null);
-    expect(withStart.startedAt).toBe(4242);
-    const [without] = collectBackgroundCommandRoster([turn([bash()])] as never, null, FALLBACK, null);
-    expect('startedAt' in without).toBe(false);
-  });
-
   it('通知到了 ⇒ 不再算在跑', () => {
     const roster = collectBackgroundCommandRoster(
       [turn([bash({ backgroundTaskDone: true })])] as never,

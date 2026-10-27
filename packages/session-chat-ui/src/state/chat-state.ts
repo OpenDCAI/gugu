@@ -297,12 +297,12 @@ export type BackgroundTasks = {
 
 export const NO_BACKGROUND_TASKS: BackgroundTasks = { commands: [], subagents: [] };
 
-/** 画出来会不会不一样:条目、名字、起点、子智能体走到第几步、能不能停。 */
+/** 画出来会不会不一样:条目、名字、子智能体的起点与走到第几步、能不能停。 */
 function sameBackgroundTasks(a: BackgroundTasks, b: BackgroundTasks): boolean {
   const same = <T,>(x: readonly T[], y: readonly T[], key: (item: T) => string) =>
     x.length === y.length && x.every((item, i) => key(item) === key(y[i]));
   return (
-    same(a.commands, b.commands, (c) => `${c.id}|${c.taskId}|${c.name}|${c.startedAt ?? ''}`) &&
+    same(a.commands, b.commands, (c) => `${c.id}|${c.taskId}|${c.name}`) &&
     same(a.subagents, b.subagents, (g) => `${g.id}|${g.name}|${g.startedAt ?? ''}|${g.completedSteps}|${g.canCancel ? 1 : 0}`)
   );
 }

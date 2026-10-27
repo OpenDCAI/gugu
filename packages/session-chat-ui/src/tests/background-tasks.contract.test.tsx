@@ -52,8 +52,7 @@ const command: BackgroundCommandEntry = {
   id: 'cmd-item',
   launchToolCallId: 'toolu_cmd',
   taskId: 'task-42',
-  name: 'pnpm test',
-  startedAt: Date.now() - 65_000
+  name: 'pnpm test'
 }
 
 const agent = (over: Partial<SubagentRosterEntry> = {}): SubagentRosterEntry => ({
@@ -87,9 +86,9 @@ describe('background tasks at the end of the transcript', () => {
     const [cmdRow, agentRow] = items(host)
     expect(cmdRow.dataset.taskKind).toBe('command')
     expect(cmdRow.textContent).toContain('pnpm test')
-    expect(cmdRow.textContent).toMatch(/1m0\ds/)
     expect(agentRow.textContent).toContain('Audit chat perf')
     expect(agentRow.textContent).toContain('3 steps')
+    expect(agentRow.textContent).toMatch(/3\ds/)
 
     // 它是最后一行:回复在它上面。
     const reply = [...host.querySelectorAll('*')].find((el) => el.textContent === 'Started them; I will report back.')

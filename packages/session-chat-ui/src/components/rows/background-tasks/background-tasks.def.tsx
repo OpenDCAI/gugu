@@ -4,7 +4,8 @@
  *
  * owner 2026-10-27:右上角「摘要」按钮和它那张卡去掉,后台任务直接放进主对话。收着时就是一句
  * 「后台 · 2 条命令 · 1 个子智能体 ›」(带微光:有东西在动);点开就地展开成一张单子,一行一个任务:
- * 图标、名字、跑了多久(子智能体再加走到第几步)、停止、×(只收起,❌ 不停)。
+ * 图标、名字、(子智能体)走到第几步与跑了多久、停止、×(只收起,❌ 不停)。后台命令不画时长:它的起点没记在调用上,
+ * ❌ 为了对称编一个(原来那张卡同一条)。
  *
  * 画法沿用原来「输出」卡里后台命令 / 子智能体那两节(同一套密度面板、同一套图标和措辞),只是从浮层挪进了列表。
  *
@@ -69,7 +70,7 @@ export const backgroundTasksUnitDef = defineUnit<BackgroundTasksItem, { extraH: 
       const timer = setInterval(() => setNow(Date.now()), 1000);
       onCleanup(() => clearInterval(timer));
     });
-    const elapsed = (startedAt: number | undefined): string =>
+    const elapsed = (startedAt?: number): string =>
       startedAt === undefined ? '' : formatElapsed(Math.max(0, now() - startedAt));
 
     const label = (): string => {
@@ -104,7 +105,6 @@ export const backgroundTasksUnitDef = defineUnit<BackgroundTasksItem, { extraH: 
                     <IconSquareTerminal />
                   </span>
                   <span class={backgroundTaskName}>{command.name}</span>
-                  <span class={backgroundTaskMeta}>{elapsed(command.startedAt)}</span>
                   <Show when={commands().onStopBackgroundTask}>
                     <button
                       type="button"

@@ -32,8 +32,6 @@ export type BackgroundCommandEntry = {
   taskId: string;
   /** 它在干什么(那次调用的标题);一个字都没给才退到通用词,❌ 不编。 */
   name: string;
-  /** 起它那次调用的时刻(毫秒);拿不到就没有 —— 那就不画时长,❌ 编一个。 */
-  startedAt?: number;
 };
 
 /**
@@ -70,7 +68,6 @@ export function collectBackgroundCommandRoster(
       launchToolCallId: node.toolCallId,
       taskId: node.backgroundTaskId,
       name: title === '' ? fallbackName : title,
-      ...(node.startedAt !== undefined ? { startedAt: node.startedAt } : {}),
     };
   });
 }
