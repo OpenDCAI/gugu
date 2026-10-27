@@ -100,6 +100,7 @@ export default {
     "unlike": "Unlike",
     "unpin": "Unpin"
   },
+  "fileStoredOn": {"machineOf": "{{owner}}’s machine", "mine": "Kept on {{machine}}; uploaded only when someone opens it. Follows your file storage settings.", "other": "Kept on {{owner}}’s machine; uploaded only when someone opens it. Follows {{owner}}’s file storage settings.", "settings": "File storage settings"},
   "chatArea": {
     "agentLocation": {
       "cloud": "Gugu Cloud",
@@ -544,15 +545,6 @@ export default {
     "renameHintTopic": "Rename topic",
     "renamePlaceholderTopic": "Topic name",
     "settings": {
-      "filePolicyLoadFailed": "Could not load the project file policy.",
-      "fileCloudUpload": "Store project files in the cloud",
-      "fileCloudUploadHint": "Off by default. Files remain on the host device; temporary transfer is controlled separately.",
-      "fileAdvanced": "Advanced file settings",
-      "fileLocalSsh": "Read from this device first, then your existing SSH connection. Files on remote devices are read-only.",
-      "fileTemporary": "Allow temporary cloud transfer",
-      "fileStrictHint": "Strictly no upload: turn off both cloud storage and temporary transfer. Remote reading then requires an available local or personal SSH connection.",
-      "fileRetention": "Keep temporary copies",
-      "fileRetentions": {"read-once": "Delete after reading", "1d": "1 day", "7d": "7 days", "30d": "30 days"},
       "notLoaded": "Group settings are still loading. Try again in a moment.",
       "manage": "Group management",
       "saveFailed": "Could not save. The previous setting has been restored; try again.",

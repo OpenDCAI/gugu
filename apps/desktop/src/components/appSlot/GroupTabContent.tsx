@@ -27,6 +27,7 @@ import { PaneHeader } from '../ui/Pane'
 import { useBackLayer } from '../ui/sheetStack'
 import { RightPanelBackButton } from '../chat/RightPanel'
 import { platform } from '../../platform'
+import { FileStoredOn } from './FileStoredOn'
 import { AppErrorDetails, AppErrorMark } from './AppErrorMark'
 import { appsHere } from './appsHere'
 import { MessageFilePreview } from '../chat/MessageFilePreview'
@@ -392,6 +393,7 @@ export const GroupTabContent = observer(function GroupTabContent({ chatId, tabId
       >
         {marks}
       </PaneHeader>}
+      {item.itemId && !isFolderItem(item) ? <FileStoredOn itemId={item.itemId} /> : null}
       {appError && errorShown ? <AppErrorDetails error={appError} testId="group-app-slot-error-details" /> : null}
       {update && held === updateKey ? (
         <div

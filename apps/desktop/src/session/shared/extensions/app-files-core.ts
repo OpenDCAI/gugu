@@ -368,7 +368,40 @@ export async function extensionChatOf(
  * may delete it — the database's answer (`workspace_deletable_as`, the rule its delete keeps), one read for the batch.
  */
 async function entriesOf(token: string, rows: readonly ItemRow[], platform: Pick<FilesPlatform, 'claimant' | 'identities'>, actor: string): Promise<AppFileEntry[]> {
-  return entryDetails(token, rows.map((row) => entryOf(row, platform.claimant)), platform.identities, actor);
+  const [entries, storedOn] = await Promise.all([
+    entryDetails(token, rows.map((row) => entryOf(row, platform.claimant)), platform.identities, actor),
+    storedOnOf(token, rows, platform.identities, actor),
+  ]);
+  const local = new Set(rows.filter(onMachine).map((row) => row.id));
+  return entries.map((entry) => (local.has(entry.id) && storedOn.has(entry.chat!) ? { ...entry, storedOn: storedOn.get(entry.chat!)! } : entry));
+}
+
+const onMachine = (row: ItemRow) => row.kind === 'file' && !row.pointer;
+
+/**
+ * The machine a project chat keeps its files on, for its files that have no cloud copy (no blob pointer): one policy read
+ * per chat. The machine's name is read only when it is the reader's own (a device row only its owner reads).
+ */
+async function storedOnOf(token: string, rows: readonly ItemRow[], identities: Identities, actor: string): Promise<Map<string, NonNullable<AppFileEntry['storedOn']>>> {
+  const chats = [...new Set(rows.filter(onMachine).map((row) => row.chat_id))];
+  const found = new Map<string, NonNullable<AppFileEntry['storedOn']>>();
+  await Promise.all(chats.map(async (chatId) => {
+    const { data, error } = await chatClient(token).rpc('file_project_policy_for', { p_chat: chatId, p_as: actor });
+    if (error) throw new AppFileError(codeOf(error), error.message);
+    const policy = data as { host_device_id: string; host_account_id: string } | null;
+    if (!policy) return;
+    const mine = personId(policy.host_account_id) === personId(actor);
+    const [owner] = await identities(token, [policy.host_account_id]);
+    let machine: string | null = null;
+    if (mine) {
+      const device = await createGuguSupabaseClient({ schema: 'identity', headers: { Authorization: `Bearer ${token}` } })
+        .from('gugu_devices').select('label').eq('device_id', policy.host_device_id).maybeSingle();
+      if (device.error) throw new AppFileError('failed', device.error.message);
+      machine = (device.data as { label: string } | null)?.label ?? null;
+    }
+    found.set(chatId, { machine, owner: owner?.name ?? policy.host_account_id.slice(0, 8), mine });
+  }));
+  return found;
 }
 
 async function entryDetails(token: string, entries: readonly AppFileEntry[], identities: Identities, actor: string): Promise<AppFileEntry[]> {

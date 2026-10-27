@@ -19,6 +19,8 @@ body:not(.show-doc):not(.no-list) .doc { display: none; }
 .file-mark { grid-row: span 2; width: var(--em-icon-md); height: var(--em-icon-md); flex: none; object-fit: contain; color: var(--em-foreground-muted); }
 .file-meta { grid-column: 2; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: var(--em-font-caption); line-height: var(--em-lh-caption); color: var(--em-foreground-muted); }
 .file-meta > .file-activity { display: block; }
+.file-stored-on { display: inline-flex; align-items: center; gap: 2px; margin-inline-end: var(--em-spacing-xs); }
+.file-stored-on > gugu-icon { width: 12px; height: 12px; }
 .row-more { visibility: hidden; }
 .file:hover .row-more, .file:focus-within .row-more, .row-more[aria-expanded='true'] { visibility: visible; }
 @media (hover: none) { .row-more { visibility: visible; } }

@@ -29,6 +29,9 @@ const STRINGS = {
     newFolder: '新建文件夹',
     newFolderName: '新建文件夹',
     attachments: '附件',
+    machineOf: '{owner} 的机器',
+    storedOnMine: '保存在 {machine} 上，有人打开时才上传。按你在「设置 › 文件存储与读取」里的设置。',
+    storedOnOther: '保存在 {owner} 的机器上，有人打开时才上传。按 {owner} 的文件存储设置。',
     up: '上一级',
     move: '移动到…',
     moveTitle: '把「{name}」移到',
@@ -104,6 +107,9 @@ const STRINGS = {
     newFolder: 'New folder',
     newFolderName: 'New folder',
     attachments: 'Attachments',
+    machineOf: '{owner}’s machine',
+    storedOnMine: 'Kept on {machine}; uploaded only when someone opens it. Follows your Settings › File storage.',
+    storedOnOther: 'Kept on {owner}’s machine; uploaded only when someone opens it. Follows {owner}’s file storage settings.',
     up: 'Up',
     move: 'Move to…',
     moveTitle: 'Move “{name}” to',
@@ -633,6 +639,19 @@ function fileMark(entry) {
   return mark
 }
 
+// A project chat's file that stays on its host machine (entry.storedOn): which machine, the same server mark tasks carry,
+// and on hover the rule — uploaded only when someone opens it, under whose file storage setting.
+function storedOnTag(storedOn) {
+  const t = state.t
+  const machine = storedOn.machine ?? fmt(t.machineOf, { owner: storedOn.owner })
+  const tag = Object.assign(document.createElement('span'), { className: 'file-stored-on' })
+  tag.title = storedOn.mine ? fmt(t.storedOnMine, { machine }) : fmt(t.storedOnOther, { owner: storedOn.owner })
+  const mark = document.createElement('gugu-icon')
+  mark.setAttribute('name', 'server')
+  tag.append(mark, machine)
+  return tag
+}
+
 function listItem(entry) {
   const t = state.t
   const li = document.createElement('li')
@@ -667,6 +686,7 @@ function listItem(entry) {
   open.append(title)
   const where = state.filter.trim() && entry.parentId ? pathOf(entry).split('/').slice(0, -1).join('/') : ''
   if (where) meta.prepend(Object.assign(document.createElement('span'), { className: 'file-path', textContent: where }))
+  if (entry.storedOn) meta.prepend(storedOnTag(entry.storedOn))
   open.append(meta)
   open.onclick = () => (folder ? enterFolder(entry.id) : openInHost(entry))
   // Files carry the same resource link outside this App; folder moves stay inside it.

@@ -9,6 +9,7 @@ import { AccountSection } from './settings/AccountSection'
 import { AssistantSection, type AssistantPageTab } from './settings/AssistantSection'
 import { ConnectorsSection } from './settings/ConnectorsSection'
 import { DevicesSection } from './settings/DevicesSection'
+import { FileStorageSection } from './settings/FileStorageSection'
 import { GeneralSection } from './settings/GeneralSection'
 import { ModelSection } from './settings/ModelSection'
 import { UsageSection } from './usage/UsageSection'
@@ -121,6 +122,7 @@ export function SettingsPanel({ mobile = false, inline = false, onClose, initial
       case 'account':  return <AccountSection user={user} updateUser={updateUser} logout={logout} />
       case 'general':  return <GeneralSection onOpenPermissions={() => selectSection('permissions')} />
       case 'devices':  return <DevicesSection onUpgrade={() => selectSection('usage')} />
+      case 'files':    return <FileStorageSection />
       case 'model':    return <ModelSection />
       case 'usage':    return <UsageSection />
       case 'activity': return <ActivitySection />

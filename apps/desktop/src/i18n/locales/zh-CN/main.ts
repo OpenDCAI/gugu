@@ -438,6 +438,7 @@ export default {
       "apps": "App",
       "browser": "浏览器",
       "devices": "设备",
+      "files": "文件存储与读取",
       "general": "通用",
       "interface": "界面",
       "resource-monitor": "资源监视器",
