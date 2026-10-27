@@ -10,7 +10,6 @@ import { topicHistoryStub } from '../../support/chatWindowStub'
 import { readFile } from 'node:fs/promises'
 import { composerSlotClass, composerSlotInnerClass } from '@gugu/session-chat-ui/composer-layout'
 import { act, createElement, useEffect } from 'react'
-import { runInAction } from 'mobx'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import * as attachmentReader from '../../../apps/desktop/src/lib/attachmentBytes'
 import { attachmentQueryClient } from '../../../apps/desktop/src/lib/attachmentQueryClient'
@@ -29,9 +28,6 @@ const { useTopicsOfChat, topicsSourceChatId } = await import('../../../apps/desk
 const { TopicAnchorCard } = await import('../../../apps/desktop/src/components/chat/TopicAnchorCard')
 const { TopicBreadcrumb } = await import('../../../apps/desktop/src/components/chat/TopicBreadcrumb')
 const { TopicSplitPane } = await import('../../../apps/desktop/src/components/chat/TopicSplitPane')
-const { installedExtensionsStore } = await import('../../../apps/desktop/src/session/renderer/features/extensions/installed-extensions-store')
-const { EXTENSION_API_VERSION, parseExtensionManifest } = await import('../../../apps/desktop/src/session/shared/extensions/manifest')
-const { closeInfoTab, infoTabOf } = await import('../../../apps/desktop/src/session/renderer/features/chats/chat-tabs/chat-layouts')
 const { UI_EVENTS } = await import('../../../apps/desktop/src/lib/uiEvents')
 const { quotePrefixOf, canSourceTopic, maxTopicSplitWidthForAvailableWidth, TOPIC_SPLIT_MIN_WIDTH, TOPIC_SPLIT_MAX_WIDTH } = await import('../../../apps/desktop/src/components/chat/topicSplitModels')
 const { chatDisplayName } = await import('@gugu/core/shared/ui/chatModels')
@@ -273,15 +269,12 @@ describe('TopicBreadcrumb:双向连接上行的那一半 + 来源消息被删的
 describe('TopicSplitPane 是分栏，不是话题的开关', () => {
   const baseProps = {
     topic: { chatId: 'topic-1', name: '分片下载失败' },
-    sourceChatId: 'source-1',
     messages: [],
     loading: false,
     memberProfiles: {},
     memberReadSeqs: {},
     visibleChats: [],
     sourceMessagePreview: 'pending',
-    onOpenFile: vi.fn(),
-    onDownloadFile: vi.fn(),
     onSend: vi.fn(async () => {}),
     onSendAttachments: vi.fn(async () => {}),
     onClose: vi.fn(),
@@ -302,16 +295,12 @@ describe('TopicSplitPane 是分栏，不是话题的开关', () => {
   }
 
   for (const layout of ['desktop', 'phone', 'tab'] as const) {
-    it(`${layout}: topic settings open the source conversation's info tab, not a separate topic settings page`, async () => {
-      closeInfoTab('source-1')
+    it(`${layout}: topic header only identifies the topic and its source`, async () => {
       await renderWithAppProviders(harness, createNode(TopicSplitPane, { ...baseProps, mobile: layout === 'phone', embedded: layout === 'tab' }))
-      await clickElement(harness.container.querySelector<HTMLElement>('[data-testid="topic-split-more"]')!)
-      const settings = document.querySelector<HTMLElement>('[data-testid="group-menu-settings"]')
-      expect(settings, 'the info stays reachable from the real topic pane').not.toBeNull()
-      expect(infoTabOf('source-1')).toBeNull()
-      await clickElement(settings!)
-      expect(infoTabOf('source-1')).not.toBeNull()
-      expect(infoTabOf('topic-1')).toBeNull()
+      expect(harness.container.querySelector('[data-testid="topic-breadcrumb"]')).not.toBeNull()
+      for (const id of ['topic-split-more', 'topic-split-members-toggle', 'topic-split-files-toggle']) {
+        expect(harness.container.querySelector(`[data-testid="${id}"]`)).toBeNull()
+      }
     })
   }
 
@@ -694,47 +683,9 @@ describe('TopicSplitPane 是分栏，不是话题的开关', () => {
     const back = () => harness.container.querySelector('[data-testid="topic-split-back"]') as HTMLElement
     expect(back().getAttribute('aria-label')).toBe('返回')
 
-    // 手机页头右边只有成员 + ⋯(与群聊页 compactRoom 一致):附件在 ⋯ 里。
-    expect(harness.container.querySelector('[data-testid="topic-split-files-toggle"]')).toBeNull()
-    await clickElement(harness.container.querySelector('[data-testid="topic-split-more"]') as HTMLElement)
-    await clickElement(document.querySelector('[data-testid="topic-split-files-toggle"]') as HTMLElement)
-    expect(harness.container.querySelector('[data-testid="history-panel"]')).not.toBeNull()
-    await clickElement(back())
-    expect(onClose, '附件开着时返回就离开了话题').not.toHaveBeenCalled()
-    expect(harness.container.querySelector('[data-testid="history-panel"]')).toBeNull()
-    expect(harness.container.querySelector('[data-testid="topic-split-messages"]')).not.toBeNull()
-
+    expect(harness.container.querySelector('[data-testid="topic-split-more"]')).toBeNull()
     await clickElement(back())
     expect(onClose).toHaveBeenCalledTimes(1)
-  })
-
-  // 170 10-19:页头 ⋯ 打开本机的 App(#7469)只在群和私聊的页头,话题的分栏与手机整页一直没有 —— 话题里要开 App 只能靠卡片。
-  // 现在话题用同一份菜单项(OpenAppMenuItems):点一下 = openApp(它, 这个话题)。手机的 ⋯ 里先是附件、文件夹,再是 App。
-  for (const mobile of [false, true]) {
-    it(`${mobile ? '手机整页' : '桌面分栏'}:话题页头 ⋯ 列出本机能开的 App,点一下在来源的共享栏打开`, async () => {
-      runInAction(() => {
-        installedExtensionsStore.manifests = [parseExtensionManifest({ id: 'turtle-soup', name: '海龟汤', version: '1.0.0', apiVersion: EXTENSION_API_VERSION, entry: 'index.html', contributes: { tabs: [{ name: 'main', title: '海龟汤' }] } })]
-      })
-      const asked = vi.fn()
-      const listen = (event: Event) => asked((event as CustomEvent).detail)
-      window.addEventListener(UI_EVENTS.openApp, listen)
-      try {
-        await renderWithAppProviders(harness, createNode(TopicSplitPane, { ...baseProps, currentUserId: null, mobile }))
-        await clickElement(harness.container.querySelector('[data-testid="topic-split-more"]') as HTMLElement)
-        const rows = [...document.querySelectorAll<HTMLElement>('[role=menuitem]')].map((row) => row.querySelector('.gg-menu-item-label')?.textContent)
-        expect(rows).toEqual(mobile ? ['搜索消息', '附件', '会话信息', '海龟汤'] : ['搜索消息', '会话信息', '海龟汤'])
-        await clickElement(document.querySelector('[data-testid="chat-header-menu-app"]') as HTMLElement)
-        expect(asked).toHaveBeenCalledWith({ extensionId: 'turtle-soup', chatId: 'source-1' })
-      } finally {
-        window.removeEventListener(UI_EVENTS.openApp, listen)
-        runInAction(() => { installedExtensionsStore.manifests = [] })
-      }
-    })
-  }
-
-  it('desktop topic keeps search available when no App is installed', async () => {
-    await renderWithAppProviders(harness, createNode(TopicSplitPane, { ...baseProps, currentUserId: null }))
-    expect(harness.container.querySelector('[data-testid="topic-split-more"]')).not.toBeNull()
   })
 
   it('消息走 MessageRow + MessageBubble 渲染（接住 MessageBubble 的 props 漂移）', async () => {
