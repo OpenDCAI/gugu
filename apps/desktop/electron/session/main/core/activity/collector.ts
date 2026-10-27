@@ -8,6 +8,7 @@ import { sqliteTextToMs } from '@main/core/usage/local-day';
 import { ActivityJournal } from './journal';
 import { onActivitySignal } from './signals';
 import type { ConfirmedSleep } from './confirmed-sleep';
+import { publishConfirmedSleep } from './confirmed-sleep';
 
 let journal: ActivityJournal | null = null;
 export function activityJournal(): ActivityJournal {
@@ -16,6 +17,7 @@ export function activityJournal(): ActivityJournal {
 }
 
 export function recordConfirmedDeviceSleep(sleep: ConfirmedSleep): boolean {
+  publishConfirmedSleep(sleep);
   if (!journal) return false;
   try {
     journal.append({ event_id: `device.sleep:${sleep.source}:${sleep.since}:${sleep.until}`, kind: 'device.sleep',

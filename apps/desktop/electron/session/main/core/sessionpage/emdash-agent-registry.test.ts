@@ -144,6 +144,32 @@ describe('emdash ACP session-direct live-only delivery', () => {
     await expect(emdashAgentRegistry.waitUntilReady('conv-child')).resolves.toBeUndefined()
   })
 
+  it('withdraws a closing owner from injection capability before the process exits', async () => {
+    const inject = vi.fn(async () => ({ outcome: 'started' as const, completion: Promise.resolve(), turnId: 'unused' }))
+    emdashAgentRegistry.setBridge({ injectEmdashPromptDetached: inject,
+      emdashSessionSummaries: async () => [{ sessionId: 'conv-child', providerId: 'claude',
+        lifecycle: 'ready', closing: true, isGenerating: false }],
+    })
+    expect(await emdashAgentRegistry.sessionProviderSurface('conv-child')).toBeNull()
+    expect(await emdashAgentRegistry.tryInjectSessionMessage('conv-child', { id: 'input', text: 'hi' })).toBe(false)
+    expect(inject).not.toHaveBeenCalled()
+    await expect(emdashAgentRegistry.waitUntilReady('conv-child')).rejects.toThrow('has not admitted')
+  })
+
+  it('reopens a pre-turn missing session once for a message, and stops retrying if its provider refuses again', async () => {
+    const ensure = vi.fn(async () => undefined)
+    emdashAgentRegistry.setBridge({ ensureEmdashSession: ensure,
+      injectEmdashPromptDetached: vi.fn(async () => ({ outcome: 'missing' as const, completion: Promise.resolve() })),
+      emdashSessionSummaries: async () => [{ sessionId: 'conv-child', providerId: 'claude', lifecycle: 'ready', isGenerating: false }],
+    })
+    const input = { id: 'same-input', text: 'hi' }
+    expect(await emdashAgentRegistry.tryInjectSessionMessage('conv-child', input)).toBe(false)
+    expect(ensure).toHaveBeenCalledTimes(1)
+    await expect(emdashAgentRegistry.tryInjectSessionMessage('conv-child', input)).rejects.toThrow('again after recovery')
+    await expect(emdashAgentRegistry.tryInjectSessionMessage('conv-child', input)).rejects.toThrow('again after recovery')
+    expect(ensure).toHaveBeenCalledTimes(1)
+  })
+
   afterEach(() => {
     emdashAgentRegistry.setBridge(null)
     unregisterEmdashAgent('agent-child')

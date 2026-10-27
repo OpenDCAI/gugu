@@ -26,7 +26,7 @@ import { followLink } from '@/lib/guguLinks'
 import { ArrowRight, X } from '@/lib/icons'
 import { installShellSlots, readShellSlots } from '@/lib/shellSlots'
 import { NEEDS_YOU_LIST_SLOT_PREFIX, NEEDS_YOU_SLOT_PREFIX } from './NeedsYouSlot'
-import { SidebarSessionLineRow } from '../SidebarSessionLineRow'
+import { NeedsYouTaskRow } from './NeedsYouTaskRow'
 import { readPhoneAppView, onPhoneAppState } from '../appSlot/phoneAppState'
 import { sessionPageOnScreen, sessionPagesOnScreen } from '@/session/renderer/app/sessions-on-screen'
 import { getSessionView } from '@/session/renderer/features/sessions/stores/session-selectors'
@@ -71,9 +71,7 @@ export const NeedsYouHost = observer(function NeedsYouHost({ onAttentionChange }
   return <>
     {mobile && [...entries].filter(([key]) => key.startsWith(NEEDS_YOU_LIST_SLOT_PREFIX)).map(([key, element]) => createPortal(waiting.map(item => {
       const open = () => { followLink({ kind: 'session', sessionId: item.session.conversationId }) }
-      return <SidebarSessionLineRow key={taskKey(item)} mobile isActive={false}
-        line={{ projectId: item.session.projectId, sessionId: item.session.conversationId, title: item.session.title,
-          time: Date.parse(item.session.lastInteractedAt ?? ''), group: 'needs-you', agentUserId: item.session.agent?.userId ?? null }}
+      return <NeedsYouTaskRow key={taskKey(item)} task={item}
         onClick={open} onKeyDown={rowKeyActivate(open)} />
     }), element, key))}
     {tasks.length > 0 && [...entries].filter(([key]) => key.startsWith(NEEDS_YOU_SLOT_PREFIX)).map(([key, element]) => createPortal(<div role="status" aria-live="polite" data-chat-dock-obstacle="">

@@ -25,6 +25,7 @@ import {
   withDeferredMessagesBeforeAdmission,
 } from './session-deferred-messages';
 import { setSessionMessageRouter } from './session-message-router';
+import { setSessionAdmissionPreparation } from './session-admission-preparation';
 
 type Status = { sessionId: string; reading: { status: string } | null };
 
@@ -65,6 +66,7 @@ describe('deferred messages: kept on the session, sent when it starts working', 
 
   afterEach(() => {
     setSessionMessageRouter(null);
+    setSessionAdmissionPreparation(null);
     fixture.close();
     mocks.db = undefined;
   });

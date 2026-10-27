@@ -93,6 +93,9 @@ export type SessionHostClientOptions = {
   subscribeEvents?: boolean
   /** 客户端心跳间隔;线没有自己的 ping 时要开(设备连接)。0 = 不发。 */
   heartbeatMs?: number
+  /** 已确认不可达(含云电脑休眠)时不开线、不发心跳、不退避；变化后恢复原订阅。 */
+  isReachable?: () => boolean
+  subscribeReachability?: (listener: () => void) => () => void
   /** 重连退避上限。 */
   retryMaxMs?: number
   /** 宿主为某个 wire channel 宣告了端口、又没人经 openWireTransport 等它时:交给页面(浏览器形态)。 */
@@ -143,6 +146,8 @@ export function createSessionHostClient(open: SessionHostPipeOpener, options: Se
   let disposed = false
   /** 头一回想连时挂上,close 时摘掉:收到就 reconnectNow(在开线就作废这一问,在退避就取消计时、立刻重开,开着就换一条)。 */
   let unwatchPeer: (() => void) | null = null
+  let unwatchReachability: (() => void) | null = null
+  const reachable = () => options.isReachable?.() ?? true
   const pending = new Map<number, Pending>()
   const eventListeners = new Map<string, Set<(data: unknown) => void>>()
   const stateListeners = new Set<(state: SessionHostConnectionState) => void>()
@@ -269,7 +274,7 @@ export function createSessionHostClient(open: SessionHostPipeOpener, options: Se
   }
 
   const scheduleRetry = () => {
-    if (disposed || retryTimer) return
+    if (disposed || retryTimer || !reachable()) return
     retryTimer = setTimeout(() => {
       retryTimer = null
       void connect().catch(() => undefined)
@@ -337,8 +342,32 @@ export function createSessionHostClient(open: SessionHostPipeOpener, options: Se
     return true
   }
 
+  const suspend = (): void => {
+    generation += 1
+    if (retryTimer) clearTimeout(retryTimer)
+    retryTimer = null
+    stopTimers()
+    const dead = pipe
+    pipe = null
+    opening = null
+    abandonOpening?.()
+    abandonOpening = null
+    setState('closed')
+    dead?.close()
+    failAll(failureText('hostNotConnected'))
+  }
+
   const connect = (): Promise<void> => {
     if (disposed) return Promise.reject(new Error('[session-host] client disposed'))
+    unwatchReachability ??= options.subscribeReachability?.(() => {
+      if (disposed) return
+      if (!reachable()) suspend()
+      else if (state === 'closed') reconnectNow()
+    }) ?? null
+    if (!reachable()) {
+      suspend()
+      return Promise.reject(Object.assign(new Error(failureText('hostNotConnected')), { code: 'unreachable' }))
+    }
     if (pipe && state === 'open' && !dropIfSilent()) return Promise.resolve()
     if (opening) return opening
     unwatchPeer ??= open.watchPeerRestart?.(() => reconnectNow()) ?? null
@@ -524,6 +553,8 @@ export function createSessionHostClient(open: SessionHostPipeOpener, options: Se
       disposed = true
       unwatchPeer?.()
       unwatchPeer = null
+      unwatchReachability?.()
+      unwatchReachability = null
       if (retryTimer) clearTimeout(retryTimer)
       generation += 1
       abandonOpening?.()

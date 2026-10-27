@@ -1,4 +1,3 @@
-import { parseConversationLink } from '@gugu/core/shared/ui/guguLink'
 import { useEffect, useRef } from 'react'
 import { useTranslation } from 'react-i18next'
 import type { ChatItem } from '@gugu/core/shared/types/chat'
@@ -77,6 +76,13 @@ export function useLinkNavigation(input: {
         return
       }
       if (target.kind === 'session') {
+        const assistant=readAssistantShellBridge()?.getSnapshot()
+        if(assistant?.assistant){
+          const {resolveAssistantWorkTarget}=await import('../lib/assistantWorkTarget')
+          const task=await resolveAssistantWorkTarget(assistant.assistant.id,{sessionId:target.sessionId})
+          if(asked!==generation||current.current.ownerId!==state.ownerId)return
+          if(task){window.dispatchEvent(new CustomEvent(OPEN_ASSISTANT_TASK_CHAT,{detail:task}));return}
+        }
         const [{ listedSession, liveDeviceSessions }, { readCachedDevices }, { APP_SHOW_SESSION_EVENT }] = await Promise.all([
           import('../session/shared/remote-sessions/session-directory'), import('../store/devicesCache'), import('../session/shared/extensions/app-runtime-protocol'),
         ])
@@ -113,27 +119,12 @@ export function useLinkNavigation(input: {
       const contact = state.contacts.find((row) => row.id === chat.peer_user_id)
       if (assistant?.assistant && contact?.type === 'agent' && contact.owner_user_id === state.ownerId
         && contact.id !== assistant.assistant.id) {
-        task = readAssistantTaskChat(state.ownerId, contact.id)
-        if (!task) {
-          const [{ remoteHostsStore }, { rpcOn }, { readCachedDevices }, { assistantDescendants }] = await Promise.all([
-            import('../session/renderer/features/remote-hosts/remote-hosts-store'),
-            import('../session/renderer/lib/ipc'), import('../store/devicesCache'),
-            import('../session/renderer/features/assistant/assistant-lineage'),
-          ])
-          const local = readCachedDevices().find((device) => device.is_current_device)
-          const listed = [...remoteHostsStore.allListedSessions()]
-          if (local) {
-            const sessions = await rpcOn(null).sessionTimeline.sessionsList()
-            listed.push(...sessions.sessions.map((summary) => ({ deviceId: local.device_id, summary, live: true })))
-          }
-          const descendants = assistantDescendants(listed, assistant.assistant.id)
-          const child = listed.find((row) => row.summary.agent?.userId === contact.id && (descendants.includes(row) || row.summary.activitySourceLinks?.some((href) => parseConversationLink(href)?.chatId === assistant.chatId)))
-          if (child) task = {
-            assistantId: assistant.assistant.id, taskAgentId: contact.id,
-            task: { deviceId: child.deviceId, sessionId: child.summary.conversationId },
-            assistants: listed.filter((row) => row.summary.agent?.userId === assistant.assistant!.id)
-              .map((row) => ({ deviceId: row.deviceId, sessionId: row.summary.conversationId })),
-          }
+        // Choosing the known task viewport must not wait for its cloud reader to be ready.
+        const known=readAssistantTaskChat(state.ownerId,contact.id)
+        if(known?.assistantId===assistant.assistant.id)task=known
+        else {
+          const {resolveAssistantWorkTarget}=await import('../lib/assistantWorkTarget')
+          task=await resolveAssistantWorkTarget(assistant.assistant.id,{agentId:contact.id})
         }
       }
       if (asked !== generation || current.current.ownerId !== state.ownerId) return

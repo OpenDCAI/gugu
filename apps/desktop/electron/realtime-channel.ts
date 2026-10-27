@@ -67,6 +67,14 @@ const registry = new Map<string, InternalElectronRealtimeChannelRegistryEntry>()
 const reconnectFlights = new Map<string, Promise<void>>()
 const debugStatusHandlers = new Map<string, (status: string, err?: Error) => void>()
 let nextChannelId = 1
+let paused = false
+
+/** Resume authentication owns this barrier; stale tickets must not auto-rejoin. */
+export function pauseElectronRealtimeChannels(): () => void {
+  paused = true
+  for (const id of registry.keys()) clearReconnectTimer(id)
+  return () => { paused = false }
+}
 
 const RECONNECT_DELAYS_MS = [1000, 2000, 5000, 10000, 30000]
 
@@ -143,6 +151,7 @@ if (process.env.GUGU_DEVICE_RUNTIME_ACCOUNT_SWITCH_TEST_HOOKS === '1') {
 }
 
 export function _resetElectronRealtimeChannelRegistryForTesting(): void {
+  paused = false
   for (const entry of registry.values()) {
     if (entry.reconnectTimer) clearTimeout(entry.reconnectTimer)
   }
@@ -170,6 +179,7 @@ export function debugEmitElectronRealtimeChannelStatus(
 async function subscribeRegistryEntry(id: string, reconnecting: boolean): Promise<void> {
   const entry = registry.get(id)
   if (!entry?.active) return
+  if (paused) { setRegistryStatus(id, 'reconnecting'); return }
   let subscribed = false
   let unsubscribeRequested = false
   const removeCurrentChannel = () => {
@@ -191,7 +201,7 @@ async function subscribeRegistryEntry(id: string, reconnecting: boolean): Promis
     return
   }
   const current = registry.get(id)
-  if (!current?.active) return
+  if (!current?.active || paused) return
   setRegistryStatus(id, 'subscribing')
   const subscribedChannel = current.channel
   const handleSubscribeStatus = (status: string, err?: Error) => {
@@ -210,12 +220,15 @@ async function subscribeRegistryEntry(id: string, reconnecting: boolean): Promis
       setRegistryStatus(id, 'subscribed')
       return
     }
-    if (latest.subscribedOnce && latest.reconnectOnStatus(status, err)) {
+    // One-shot subscriptions may deliberately hand initial failures back to their owner.
+    // Managed persistent channels must retry even when their very first join failed.
+    const shouldUnsubscribe = latest.unsubscribeOnStatus(status, err)
+    if (latest.reconnectOnStatus(status, err) && (latest.subscribedOnce || !shouldUnsubscribe)) {
       setRegistryStatus(id, name === 'CLOSED' ? 'closed' : 'error', name)
       scheduleReconnect(id)
       return
     }
-    if (!latest.unsubscribeOnStatus(status, err)) return
+    if (!shouldUnsubscribe) return
     if (subscribed) {
       removeCurrentChannel()
       return
@@ -245,7 +258,7 @@ function setRegistryStatus(
 
 function scheduleReconnect(id: string): void {
   const entry = registry.get(id)
-  if (!entry || entry.reconnectTimer || !entry.createChannel) return
+  if (paused || !entry || entry.reconnectTimer || !entry.createChannel) return
   const delay = RECONNECT_DELAYS_MS[Math.min(entry.reconnectAttempt, RECONNECT_DELAYS_MS.length - 1)]
   entry.reconnectAttempt += 1
   entry.reconnectTimer = setTimeout(() => {
@@ -261,6 +274,7 @@ function clearReconnectTimer(id: string): void {
 }
 
 function retryNow(id: string): Promise<void> {
+  if (paused) return Promise.resolve()
   const existing = reconnectFlights.get(id)
   if (existing) return existing
   const flight = replacePhysicalChannel(id).finally(() => {

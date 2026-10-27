@@ -1,3 +1,5 @@
+import { assistantWorkIntentSchema,type AssistantWorkIntent } from '@gugu/core/shared/assistantWorkIntent';
+import { assistantWorkLedgerContext } from '../../../../sessionpage/assistant-work-ledger';
 import { withSessionAttachments, type SessionAttachmentRef } from '@gugu/core/cloud/sessionAttachments';
 import { isActivityAction, runActivityAction, type ActivityAction } from '../activity/actions';
 import { tabHygiene, type TabHygieneResult } from './tab-hygiene';
@@ -8,6 +10,7 @@ import { receiveAssistantWorkReport, workReportSchema, type WorkReport } from '.
 import { isProjectAgentAction, runProjectAgentAction, type ProjectAgentAction } from '../projects/project-agent-actions';
 import { isLibraryAgentAction, runLibraryAgentAction, type LibraryAgentAction } from '../app/user-library';
 import { randomUUID } from 'node:crypto';
+import { sessionDirectMessageId } from './session-direct-identity';
 import { parseGuguLink } from '@gugu/core/shared/ui/guguLink';
 import { resolveSessionPermissionMode, type SessionSummary } from '@gugu/session-core/acp';
 import { and, eq, inArray } from 'drizzle-orm';
@@ -104,6 +107,7 @@ import type { AgentScheduleAction } from '../automations/agent-schedules';
 import { sessionModelFromDecision, type SessionModel } from './session-model-fact';
 import {
   recordDeliveredSessionDirectMessage,
+  readAcceptedMessage,
   sendMessage,
   SessionDirectDeliveryError,
 } from './sendMessage';
@@ -144,6 +148,7 @@ export type SessionAction =
   | { action: 'list_models'; harness?: string; transport?: SessionRuntime; force?: boolean }
   | {
       action: 'spawn';
+      assistant_work?: AssistantWorkIntent;
       prompt: string;
       source_link?: string;
       title?: string;
@@ -163,8 +168,12 @@ export type SessionAction =
   | { action: 'children'; session_id?: string }
   | {
       action: 'message';
+      delivery_id?: string; delivery_at?: string; // Host-owned durable retry identity; not a model tool argument.
       attachments?: SessionAttachmentRef[];
       work_result?: WorkReport;
+      /** Internal account-outbox receipt; one destination only. Never generated again during retry. */
+      client_message_id?: string;
+      client_message_at?: string;
       /** Bare conversation ids, already decoded from `session:` typed entries at the host boundary. */
       session_ids: string[];
       text: string;
@@ -204,6 +213,7 @@ export type SessionAction =
 export type { SessionModel } from './session-model-fact';
 
 export type SessionSnapshot = {
+  assistant_work_target?: {session_id:string;device_id:string};
   session_id: string;
   source_links?: readonly string[];
   spawned_by_session_id: string | null;
@@ -393,14 +403,14 @@ function sessionDirectEnvelope(
   sender: EnvelopeSender,
   messageId: string,
   text: string,
-  said: Pick<Extract<SessionAction, { action: 'message' }>, 'then' | 'reply_to_message_id'> = {},
+  said: Pick<Extract<SessionAction, { action: 'message' }>, 'then' | 'reply_to_message_id' | 'delivery_at' | 'client_message_at'> = {},
 ): string {
   return buildSessionDirectEnvelope({
     senderSessionId: sender.sessionId,
     senderTitle: sender.title,
     messageId,
     content: text,
-    at: formatDeliveryTimestamp(new Date().toISOString()),
+    at: formatDeliveryTimestamp(said.client_message_at ?? said.delivery_at ?? new Date().toISOString()),
     then: said.then,
     inReplyTo: said.reply_to_message_id,
   });
@@ -478,9 +488,9 @@ function runtimeError(result: { error: { type: string; message?: string } }): Er
   return new Error(result.error.message ?? result.error.type);
 }
 
-async function stopSessionTransport(target: SessionRow): Promise<void> {
+async function stopSessionTransport(target: SessionRow, onlyIfIdle = false): Promise<void> {
   if (transportOf(target) === 'acp') {
-    const result = await (await getAcpRuntimeClient()).stopSession({ sessionId: target.id });
+    const result = await (await getAcpRuntimeClient()).stopSession({ sessionId: target.id, ...(onlyIfIdle ? { onlyIfIdle: true } : {}) });
     if (!result.success && result.error.type === 'stop_pending') throw Object.assign(new Error('stop_pending: executor is still stopping; check session_get before reporting it stopped'), { code: 'stop_pending' });
     if (!result.success) throw runtimeError(result);
     // 状态桥要等下一次摘要推送才看得到这条会话没了;回执 ❌ 抢在它前面读到旧的 working(#6095 的 ACP 面)。
@@ -649,13 +659,14 @@ async function startSpawnedSession(input: {
 export async function stopExactSessionpageSession(target: {
   projectId: string;
   sessionId: string;
+  onlyIfIdle?: boolean;
 }): Promise<boolean> {
   const rows = await projectSessionRows(target.projectId);
   const session = rows.find((row) =>
     row.id === target.sessionId && row.projectId === target.projectId
   );
   if (!session) return false;
-  await stopSessionTransport(session);
+  await stopSessionTransport(session, target.onlyIfIdle);
   return true;
 }
 
@@ -899,6 +910,7 @@ async function spawnSession(
     prompt,
     title: action.title,
     sourceLink: action.source_link,
+    assistantWork: action.assistant_work,
     envelope: envelopeOf(await localEnvelopeSender(caller)),
     // 带 chat_id 开的子会话是派出去干活的:任务座位(不发入群提示)。
     ...(action.chat_id ? { birthGroup: { chatId: action.chat_id, asTask: true } } : {}),
@@ -929,6 +941,7 @@ async function spawnSession(
   });
   return {
     ...snapshot(row, {}, await sessionModel(row)),
+    ...(action.assistant_work ? {assistant_work_target:{session_id:row.id,device_id:(await assistantWorkLedgerContext()).deviceId}} : {}),
     // child 是本项目里生出来的，因此和 caller 同属这个群（[[agent-provisioning]] 的入群是它 session
     // start 的一步）。点名了别的项目时 child 入的是那个项目的群，caller 不在里面 ⇒ 只有点对点。
     //
@@ -1003,6 +1016,7 @@ async function createChildSession(input: {
   transport: SessionRuntime;
   prompt: string;
   sourceLink?: string;
+  assistantWork?: AssistantWorkIntent;
   title?: string;
   /** The first turn's envelope: the sending session's, or the App's. */
   envelope: DeliveryEnvelope;
@@ -1024,10 +1038,25 @@ async function createChildSession(input: {
   // permission prompts. Its autonomy is therefore decided here, once, before either transport sees it.
   // Keep the session-page composer's durable choice unchanged; only this delegated child is fully automatic.
 
-  const sessionId = randomUUID();
-  const messageId = randomUUID();
+  const intent=input.assistantWork ? assistantWorkIntentSchema.parse(input.assistantWork) : null;
+  const sessionId = intent?.child_session_id ?? randomUUID();
+  const messageId = intent?.message_id ?? randomUUID();
+  if(intent) {
+    const remote=input.relations.spawnedByRemote;
+    if(remote ? remote.sessionId!==intent.coordinator.session_id || remote.deviceId!==intent.coordinator.device_id
+      : input.relations.spawnedBySessionId!==intent.coordinator.session_id) throw new Error('Assistant work coordinator does not match the spawning session');
+    const [existing]=await db.select().from(sessions).where(eq(sessions.id,sessionId));
+    if(existing) {
+      const sameSender=remote ? existing.config?.spawnedByRemote?.sessionId===remote.sessionId && existing.config.spawnedByRemote.deviceId===remote.deviceId
+        : existing.spawnedBySessionId===input.relations.spawnedBySessionId;
+      if(!sameSender || existing.projectId!==projectId || existing.workspaceId!==input.workspaceId || existing.provider!==provider
+        || transportOf(existing)!==transport || existing.config?.firstUtterance!==prompt) throw new Error('Assistant work seat ID belongs to a different dispatch');
+      ledger.settle({sessionId});
+      return existing;
+    }
+  }
   const useProviderInitialPrompt =
-    transport === 'pty' && providerConsumesStartupPrompt(
+    !intent && transport === 'pty' && providerConsumesStartupPrompt(
       getPlugin(provider).capabilities.prompt,
       transport,
     );
@@ -1045,7 +1074,7 @@ async function createChildSession(input: {
   // spawn joins that same start, wakes up inside the gap, and the empty-cell guard (#4949) reported
   // a working child as "The engine could not start" (real Electron on dev: 4/4; the guard fired 37 ms
   // before the first turn began).
-  const initialQueue = transport === 'acp'
+  const initialQueue = !intent && transport === 'acp'
     ? [{ text: input.envelope(messageId, prompt), origin: 'communication' as const }]
     : undefined;
   signal?.throwIfAborted();
@@ -1094,6 +1123,12 @@ async function createChildSession(input: {
   }
   const [row] = await db.select().from(sessions).where(eq(sessions.id, sessionId));
   if (!row) throw new Error('spawned session disappeared before startup');
+  if(intent) {
+    // The coordinator commits this seat's first delivery with its ledger row.
+    // Only the account outbox may inject it or start the executor afterwards.
+    ledger.settle({sessionId});
+    return row;
+  }
   if (!initialPrompt && !initialQueue) {
     try {
       signal?.throwIfAborted();
@@ -1723,6 +1758,10 @@ function checkedMessage(
     throw new Error(`reply_to_message_id must be a msg:<uuid> as a delivery's msg gives it (got ${JSON.stringify(action.reply_to_message_id).slice(0, 80)})`);
   }
   if (action.work_result !== undefined) workReportSchema.parse(action.work_result);
+  if (action.client_message_id !== undefined && (!/^[0-9a-f]{8}(?:-[0-9a-f]{4}){3}-[0-9a-f]{12}$/i.test(action.client_message_id)
+    || action.session_ids.length !== 1 || !action.client_message_at || !Number.isFinite(Date.parse(action.client_message_at)))) {
+    throw new Error('Account outbox delivery requires one recipient, a stable UUID and timestamp');
+  }
   const targets = [...new Set(action.session_ids)].map((sessionId) =>
     assertMessageableTarget(rows, callerSessionId, resolveSessionRow(rows, sessionId)),
   );
@@ -1760,7 +1799,7 @@ async function sendSessionMessage(
   const recipients: SessionDirectRecipientResult[] = [];
   for (const target of targets) {
     signal?.throwIfAborted();
-    const messageId = randomUUID();
+    const messageId = action.client_message_id ?? sessionDirectMessageId(keyScope, target.id, action);
     if (action.source_link) await rememberActivitySource(target.id, action.source_link);
     // 附带:目标已经在运行中就当场按普通发送投出;否则存下来(不叫醒),等它进入运行中那一刻再投(session-deferred-messages.ts)。
     if (plan && 'defer' in plan && !sessionIsWorking(target.id)) {
@@ -1777,23 +1816,27 @@ async function sendSessionMessage(
         clientMessageId: messageId,
         text: envelope(messageId, text),
         kind: 'session-direct',
+        ...(signal ? { signal } : {}),
         ...(plan && 'queue' in plan ? { delivery: plan.queue } : {}),
       });
+      const admitted = result.status === 'delivered' || (action.client_message_id !== undefined && result.status === 'accepted');
       recipients.push({
         to: encodeTypedId('session', target.id),
-        status: result.status === 'delivered' ? 'delivered' : 'failed',
+        status: admitted ? 'delivered' : 'failed',
         message_id: result.id,
-        ...(result.status === 'delivered'
+        ...(admitted
           ? {}
           : {
               error: result.status === 'outcome-unknown'
                 // 耐久收据停在 dispatching = **仍在飞**,不是失败。塌成 failed 会诱发重发,
                 // 所以它有自己的码;调用方要重试得先自己判幂等。
                 ? { code: 'SESSION_DIRECT_OUTCOME_UNKNOWN', message: 'delivery is still in flight — the durable receipt has not settled' }
-                : { code: 'SESSION_DIRECT_DELIVERY_FAILED', message: `delivery ended in status ${result.status}` },
+                : result.status === 'queued'
+                  ? { code: 'SESSION_DIRECT_QUEUED', message: 'message is durably queued but has not been admitted' }
+                  : { code: 'SESSION_DIRECT_DELIVERY_FAILED', message: `delivery ended in status ${result.status}` },
             }),
       });
-      if (result.status === 'delivered' && report && keyScope.startsWith('session:')) {
+      if (admitted && report && keyScope.startsWith('session:')) {
         try { receiveAssistantWorkReport(target.id, keyScope.slice('session:'.length), report, result.id); }
         catch (error) { log.error('assistant result received but recovery metadata could not be updated', { sessionId: target.id, error: String(error) }); }
       }
@@ -1834,22 +1877,26 @@ export async function messageSessionFrom(
   /** `queue` / `key` exactly as `session_message` takes them; `keyScope` names the sender (`app:<id>`). */
   options: AppMessageOptions,
 ): Promise<{ id: string; deferred?: true }> {
-  const { recipients } = await sendSessionMessage(options.from ?? null, envelope, appMessage(sessionId, text, options), options.keyScope, await allSessionRows());
+  const action = appMessage(sessionId, text, options);
+  const stored = options.receipt ? readAcceptedMessage(sessionDirectMessageId(options.keyScope, sessionId, action)) : undefined;
+  const durableEnvelope: DeliveryEnvelope = stored ? () => stored.content : envelope;
+  const { recipients } = await sendSessionMessage(options.from ?? null, durableEnvelope, action, options.keyScope, await allSessionRows());
   const [result] = recipients;
   if (result?.status === 'failed' || !result?.message_id) {
-    throw new Error(result?.error?.message ?? `the message to session ${sessionId} was not delivered`);
+    throw Object.assign(new Error(result?.error?.message ?? `the message to session ${sessionId} was not delivered`), { code: result?.error?.code });
   }
   return { id: result.message_id, ...(result.status === 'deferred' ? { deferred: true as const } : {}) };
 }
 
 /** `from`: the session of the agent that works the App's page (owner 10-14) — it is the one telling, so not itself. */
-type AppMessageOptions = { delivery?: 'queue' | 'defer'; key?: string; keyScope: string; from?: string };
+type AppMessageOptions = { delivery?: 'queue' | 'defer'; key?: string; keyScope: string; from?: string; receipt?: { id: string; at: string } };
 
 function appMessage(sessionId: string, text: string, options: AppMessageOptions): Extract<SessionAction, { action: 'message' }> {
   return {
     action: 'message',
     session_ids: [sessionId],
     text,
+    ...(options.receipt ? { delivery_id: options.receipt.id, delivery_at: options.receipt.at } : {}),
     ...(options.delivery ? { delivery: options.delivery } : {}),
     ...(options.key !== undefined ? { key: options.key } : {}),
   };
@@ -2178,6 +2225,7 @@ async function spawnForRemoteCaller(
     prompt,
     title: action.title,
     sourceLink: action.source_link,
+    assistantWork: action.assistant_work,
     envelope: envelopeOf(remoteEnvelopeSender(caller)),
     ...(action.chat_id ? { birthGroup: { chatId: action.chat_id, asTask: true } } : {}),
     model: selection.kind === 'gugu'
@@ -2194,6 +2242,7 @@ async function spawnForRemoteCaller(
   });
   return {
     ...snapshot(row, {}, await sessionModel(row)),
+    ...(action.assistant_work ? {assistant_work_target:{session_id:row.id,device_id:(await assistantWorkLedgerContext()).deviceId}} : {}),
     // 发起方与 child 不在同一台机器、也不在同一个项目群里:往来只有点对点这一条。
     message_route: { tool: 'session_message', to: [encodeTypedId('session', row.id)] },
   };

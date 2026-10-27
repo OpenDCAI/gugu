@@ -6,12 +6,13 @@ import { getProjectManagerStore } from '@renderer/features/projects/stores/proje
  * 等之前先请它准备:renderer 重载后每条会话都回到「没准备」,只有屏上那一条会被 view.tsx 准备,
  * 后台会话的面板永远等不来,请求等满期限超时(#6040)。调的就是 view.tsx 那一处 provisionSession,
  * 宿主已挂着的会话走它的快路径;已准备的、正在准备的它自己直接返回。只准备,不导航、不切焦点。
+ * `reviveArchived: false`:打开任务块时不把归档的任务准备回来(等满期限照常报不可打开);打开文件照旧准备。
  */
-export function sessionPaneReady(projectId: string, sessionId: string): () => boolean {
+export function sessionPaneReady(projectId: string, sessionId: string, { reviveArchived = true } = {}): () => boolean {
   void getProjectManagerStore()
     .mountProject(projectId)
     .then(() => {
-      if (sessionViewKind(getSessionPageStore(projectId, sessionId), projectId) === 'archived') return;
+      if (!reviveArchived && sessionViewKind(getSessionPageStore(projectId, sessionId), projectId) === 'archived') return;
       return getSessionManagerStore(projectId)?.provisionSession(sessionId);
     })
     .catch(() => {});

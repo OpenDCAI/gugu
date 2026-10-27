@@ -1,0 +1,5 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="health_rationale_title">How Gugu uses your health data</string>
+    <string name="health_rationale_body">Task Agents on this phone read only the health data you authorize when you need it; you can revoke access at any time.</string>
+</resources>

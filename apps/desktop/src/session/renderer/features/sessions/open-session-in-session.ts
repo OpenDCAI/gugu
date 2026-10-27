@@ -42,7 +42,7 @@ export function openSessionInSessionWhenReady({
   onlyIfNoTabs = false,
   onReady,
 }: OpenSessionInSessionOptions): () => void {
-  const paneReady = sessionPaneReady(projectId, sessionId);
+  const paneReady = sessionPaneReady(projectId, sessionId, { reviveArchived: false });
   return when(
     () => {
       const session = sessionRegistry

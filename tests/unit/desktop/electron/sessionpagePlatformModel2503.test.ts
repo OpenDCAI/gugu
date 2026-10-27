@@ -78,6 +78,7 @@ const {
   claudeCredentialHelperFile,
   dynamicClaudeSettings,
   heldPlatformModelForSession,
+  claudePlatformSearchSession,
   platformRequestsUseCredentialProxy,
   assertUserModelAllowed,
   codexPlatformInjection,
@@ -99,6 +100,7 @@ const { RuntimeAuthError } = await import('@gugu/core')
 const { acpPlatformInjectionSchema } = await import('../../../../packages/session-core/src/acp/api/runtime-contract')
 const { codexPlatformModelFacts } = await import('../../../../packages/session-plugins/src/agents/impl/codex/platform-models')
 const SESSION = 'conv-2503'
+const { platformWebSearchForSession } = await import('../../../../apps/desktop/electron/sessionpage/sessionpage-platform-search')
 const CLAUDE_TEST_ENV = { ...process.env, GUGU_HOME: join(tmpdir(), `gugu-platform-model-${process.pid}`) }
 const authProvider = {
   getAuth: async () => ({ accessToken: 't', refreshToken: null, userId: 'owner-1' }),
@@ -663,6 +665,50 @@ describe('#2503 session-page sessions carry the designated model', () => {
     expect(settings.env.ANTHROPIC_CUSTOM_MODEL_OPTION).toBe('glm-5.2-claude')
     expect(settings.env.ANTHROPIC_CUSTOM_MODEL_OPTION_NAME).toBe('glm-5.2-claude')
     expect((await stat(settingsPath)).mode & 0o777).toBe(0o600)
+  })
+  it.each(['tui', 'cui'] as const)('grants Claude host search and denies only built-in WebSearch on %s', async (surface) => {
+    agentOnThisSession()
+    platformLaunch('glm-5.3')
+    const launch = await resolveAgentModelLaunch() as { access: { callableRoutes?: Record<string, string[]>; relayUrl: string } }
+    launch.access.callableRoutes = { '/v1/alpha/search': ['glm-5.3'] }
+    const requests: unknown[] = []
+    const server = createServer((request, response) => {
+      let body = ''
+      request.on('data', chunk => { body += String(chunk) })
+      request.on('end', () => {
+        requests.push({ path: request.url, auth: request.headers.authorization, body: JSON.parse(body) })
+        response.end(JSON.stringify({ output: 'fixture search result\n' }))
+      })
+    })
+    await new Promise<void>(resolve => server.listen(0, '127.0.0.1', resolve))
+    launch.access.relayUrl = `http://127.0.0.1:${(server.address() as { port: number }).port}`
+    resolveAgentModelLaunch.mockResolvedValue(launch)
+    try {
+      const platform = await platformModelForSession({ surface, sessionId: SESSION, providerId: 'claude', authProvider, env: CLAUDE_TEST_ENV })
+      const settings = JSON.parse(await readFile(platform.settingsDocumentPath!, 'utf8'))
+      expect(settings.permissions).toEqual({ deny: ['WebSearch'] })
+      expect(settings.permissions.deny).not.toContain('WebFetch')
+      expect(claudePlatformSearchSession(SESSION)?.callableRoutes).toEqual(launch.access.callableRoutes)
+      const search = platformWebSearchForSession(SESSION)
+      expect(search.available()).toBe(true)
+      await expect(search.run('test search', new AbortController().signal)).resolves.toBe('fixture search result\n')
+      expect(requests).toEqual([{ path: '/v1/alpha/search', auth: 'Bearer sk-session', body: {
+        id: SESSION, model: 'glm-5.3', commands: { search_query: [{ q: 'test search' }] },
+      } }])
+    } finally {
+      await releasePlatformModelForSession(SESSION)
+      await new Promise<void>(resolve => { server.closeAllConnections(); server.close(() => resolve()) })
+    }
+  })
+  it.each([undefined, {}, { '/v1/alpha/search': ['another-model'] }] as Array<Record<string, string[]> | undefined>)('keeps Claude WebSearch unchanged without this model on the search route: %j', async (routes) => {
+    agentOnThisSession()
+    platformLaunch('glm-5.3')
+    const launch = await resolveAgentModelLaunch() as { access: { callableRoutes?: Record<string, string[]> } }
+    launch.access.callableRoutes = routes
+    resolveAgentModelLaunch.mockResolvedValue(launch)
+    const platform = await platformModelForSession({ surface: 'cui', sessionId: SESSION, providerId: 'claude', authProvider, env: CLAUDE_TEST_ENV })
+    expect(JSON.parse(await readFile(platform.settingsDocumentPath!, 'utf8'))).not.toHaveProperty('permissions')
+    expect(platformWebSearchForSession(SESSION).available()).toBe(false)
   })
   it('writes claude Chat UI the same settings document, but keeps it off the adapter argv', async () => {
     agentOnThisSession()

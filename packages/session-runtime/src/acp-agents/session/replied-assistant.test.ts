@@ -19,12 +19,14 @@ function fixture(extra: Record<string, unknown> = {}) {
   const old = deferred<{ stopReason: 'cancelled' | 'end_turn' }>();
   agent.prompt.mockReturnValueOnce(old.promise);
   const cell = new SessionCell({
-    sessionId: 'session', projectId: 'project', providerId: 'claude', acpSessionId: 'native', agent,
+    sessionId: 'session', projectId: 'project', providerId: 'claude', acpSessionId: 'native', agent: agent.observed(),
     resolveAttachment: async () => { throw Error('No fixture attachments'); }, mergeEnvelopes: mergeDeliveryEnvelopes,
     logger: noopLogger, assistantOwnerId: owner, queuedPromptsPersisted: () => true, ...extra,
   });
   cell.applySessionReady();
   const first = cell.promptDetached({ origin: 'communication', text: delivery(sourceId) });
+  // Trial admission waits for an actual ACP notification, not just a prompt call.
+  void agent.called('prompt').then(() => cell.noteProviderUpdate());
   const sent = (input: Record<string, unknown> = {}, status: 'completed' | 'failed' = 'completed') => {
     cell.push({ kind: 'tool_call', toolCallId: 'send', title: 'mcp__gugu__message_send', toolName: 'mcp__gugu__message_send',
       toolKind: 'other', status: 'in_progress', parentToolCallId: null, diffs: [], locations: [],
@@ -39,6 +41,7 @@ describe('new owner input after an assistant reply', () => {
   it('queues the original message before cancelling the old continuation and resumes it exactly once', async () => {
     const f = fixture();
     await f.first.admission;
+    await f.agent.called('prompt');
     f.sent();
     const next = delivery('40529fa8-8d6f-4b8f-9a42-f257a788fbdf');
     f.agent.cancel.mockImplementation(async () => {
@@ -64,6 +67,7 @@ describe('new owner input after an assistant reply', () => {
   ] as const)('does not interrupt for %s', async (_name, input, didSend, status) => {
     const f = fixture();
     await f.first.admission;
+    await f.agent.called('prompt');
     if (didSend) f.sent(input, status);
     await f.cell.promptDetached({ origin: 'communication', text: delivery('next') }).admission;
     expect(f.agent.cancel).not.toHaveBeenCalled();
@@ -78,6 +82,7 @@ describe('new owner input after an assistant reply', () => {
   ] as const)('keeps the existing queue path for %s', async (_name, extra, fromId) => {
     const f = fixture(extra);
     await f.first.admission;
+    await f.agent.called('prompt');
     f.sent();
     await f.cell.promptDetached({ origin: 'communication', text: delivery('next', fromId) }).admission;
     expect(f.agent.cancel).not.toHaveBeenCalled();
@@ -88,6 +93,7 @@ describe('new owner input after an assistant reply', () => {
   it('keeps acknowledgement followed by work on the normal path, including after its tool finishes', async () => {
     const f = fixture();
     await f.first.admission;
+    await f.agent.called('prompt');
     f.sent();
     const tool = { toolCallId: 'read', title: 'Read', toolKind: 'read' as const, parentToolCallId: null, diffs: [], locations: [] };
     f.cell.push({ kind: 'tool_call', ...tool, status: 'in_progress' });
@@ -110,6 +116,7 @@ describe('new owner input after an assistant reply', () => {
       f.cell.push({ kind: 'tool_call', ...tool, status: 'in_progress' });
     } } });
     await f.first.admission;
+    await f.agent.called('prompt');
     f.sent();
     armed = true;
     await f.cell.promptDetached({ origin: 'communication', text: delivery('next') }).admission;
@@ -125,6 +132,7 @@ describe('new owner input after an assistant reply', () => {
   it('retains two arrivals during cancellation and drains them once in arrival order', async () => {
     const f = fixture();
     await f.first.admission;
+    await f.agent.called('prompt');
     f.sent();
     const texts = [delivery('second'), delivery('third')];
     await f.cell.promptDetached({ origin: 'communication', text: texts[0] }).admission;
@@ -140,6 +148,7 @@ describe('new owner input after an assistant reply', () => {
   it('does not withdraw another input that the native adapter already admitted', async () => {
     const f = fixture({ supportsSteering: true });
     await f.first.admission;
+    await f.agent.called('prompt');
     f.sent();
     f.agent.extMethod.mockResolvedValue({ outcome: 'injected' });
     await f.cell.promptDetached({ origin: 'communication', text: delivery('peer', 'user:peer') }, { steerIfBusy: true }).admission;
@@ -152,6 +161,7 @@ describe('new owner input after an assistant reply', () => {
   it('waits for a background agent instead of cancelling its work', async () => {
     const f = fixture();
     await f.first.admission;
+    await f.agent.called('prompt');
     f.sent();
     f.cell.push({ kind: 'subagent', toolCallId: 'child', agentId: 'child', subagentSessionId: 'child',
       title: 'Background work', status: 'in_progress', parentToolCallId: null });

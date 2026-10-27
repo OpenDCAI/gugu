@@ -45,7 +45,7 @@ import type { ProjectFolder } from '@shared/core/projects/project-folders';
 import { machineSessionListClient } from './machine-session-list';
 import {
   liveDeviceSessions,
-  retainDeviceSessions,
+  removeDeviceSessions,
   subscribeDeviceSessions,
   updateDeviceSessions,
   type DeviceSessions,
@@ -566,6 +566,7 @@ export class RemoteHostsStore {
     let lastLink: MachineLinkState | null = null;
     const onLink = () => {
       const link = machineLinkState(deviceId);
+      updateDeviceSessions(deviceId, { connected: link === 'open' });
       runInAction(() => {
         const state = this.hosts.get(deviceId);
         if (state) state.link = link;
@@ -621,7 +622,7 @@ export class RemoteHostsStore {
           updateDeviceSessions(deviceId, { projects: result.projects, sessions: result.sessions, cached: false }),
         onLoading: (loading) => updateDeviceSessions(deviceId, { loading }),
         onError: (error) => {
-          updateDeviceSessions(deviceId, { error });
+          updateDeviceSessions(deviceId, { error, ...(error ? { connected: false } : {}) });
           if (error) log.warn('[machines] 读那台机器的会话列表失败', { deviceId, error });
         },
       })
@@ -632,7 +633,7 @@ export class RemoteHostsStore {
   private forget(deviceId: string): void {
     this.listSyncs.get(deviceId)?.stop();
     this.listSyncs.delete(deviceId);
-    retainDeviceSessions([...this.hosts.keys()].filter((id) => id !== deviceId));
+    removeDeviceSessions(deviceId);
     this.linkOffs.get(deviceId)?.();
     this.linkOffs.delete(deviceId);
     this.accountSeenLive.delete(deviceId);

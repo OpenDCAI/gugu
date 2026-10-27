@@ -1,4 +1,5 @@
 import type { AgentDisplayStatus, MessageItem } from '@gugu/core/shared/types/chat'
+import { turnFailureReason } from '@gugu/core/shared/ui/systemNotice'
 
 /**
  * #7199 和 agent 的私聊里,人发出一句到它回话之间,它此刻是不是在处理(聊天里它干活时那个打字气泡)。
@@ -20,16 +21,41 @@ export const WAKE_PICKUP_MS = 90_000
 export const START_PICKUP_MS = 45_000
 
 type Line = Pick<MessageItem, 'is_mine' | 'created_at' | 'retracted_at' | 'content_type' | 'local_send_state' | 'thread_root_id'>
+  & Partial<Pick<MessageItem, 'id' | 'sender_user_id' | 'client_message_id' | 'reply_to_message_id'>>
 
 /** 这条线最后一句是我说的、还没人接:返回它发出的时刻(毫秒);最后一句是对方的 / 没发出去 = null。 */
 export function awaitingReplyMessage<T extends Line>(messages: readonly T[]): T | null {
+  const failed = new Set<string>()
+  let legacyTurnEnded = false
   for (let i = messages.length - 1; i >= 0; i -= 1) {
     const message = messages[i]
-    if (message.thread_root_id || message.retracted_at || message.content_type === 'system') continue
+    if (message.thread_root_id || message.retracted_at) continue
+    if (message.content_type === 'system') {
+      const reason = turnFailureReason({ id: message.id ?? '', content_type: 'system',
+        sender_user_id: message.sender_user_id ?? null, client_message_id: message.client_message_id ?? null })
+      if (reason && reason !== 'notAdmitted' && reason !== 'undelivered') {
+        if (message.reply_to_message_id) failed.add(message.reply_to_message_id)
+        else legacyTurnEnded = singleEarlierInput(messages, i)
+      }
+      continue
+    }
+    if (legacyTurnEnded || (message.id && failed.has(message.id))) return null
     if (!message.is_mine || message.local_send_state === 'failed') return null
     return Number.isFinite(Date.parse(message.created_at)) ? message : null
   }
   return null
+}
+
+/** Old notices lack a source id. Only settle their unambiguous single input, never a newer turn. */
+function singleEarlierInput(messages: readonly Line[], before: number): boolean {
+  let inputs = 0
+  for (let i = before - 1; i >= 0; i -= 1) {
+    const line = messages[i]!
+    if (line.thread_root_id || line.retracted_at || line.content_type === 'system') continue
+    if (!line.is_mine) break
+    if (++inputs > 1) return false
+  }
+  return inputs === 1
 }
 
 export function awaitingReplySince(messages: readonly Line[]): number | null {

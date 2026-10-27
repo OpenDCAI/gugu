@@ -8,6 +8,7 @@ import { rendererLogger } from '../../lib/log'
 import { messageForUser } from '../../lib/userFacingError'
 import { platform } from '../../platform'
 import { Sheet } from '../ui/Sheet'
+import { useBackLayer } from '../ui/sheetStack'
 import { openLinkTarget } from '../../lib/guguLinks'
 import { MessageFilePreview, type PreviewFile } from './MessageFilePreview'
 
@@ -57,8 +58,21 @@ export function useMessageFilePreview({ mobile, visible, closeRightSurfaces, toa
     close()
     restore?.()
   }, [close])
+  const chatNavigation = host?.chatNavigation === true
+  const isTopLayer = useBackLayer(closeByUser, chatNavigation && isOpen)
+  useEffect(() => {
+    if (!chatNavigation || !isOpen) return
+    const back = (event: KeyboardEvent) => {
+      if (event.key !== 'Escape' || event.isComposing || event.defaultPrevented || !isTopLayer()) return
+      event.preventDefault()
+      event.stopImmediatePropagation()
+      closeByUser()
+    }
+    window.addEventListener('keydown', back, true)
+    return () => window.removeEventListener('keydown', back, true)
+  }, [chatNavigation, isOpen, isTopLayer, closeByUser])
   useEffect(() => { if (mobile && preview && !visible) close() }, [mobile, preview, visible, close])
-  const body = preview && <MessageFilePreview key={preview.opening} fill={hosted} mobile={mobile} file={preview.file} message={preview.message} onForward={onForward} onClose={closeByUser} />
+  const body = preview && <MessageFilePreview key={preview.opening} fill={hosted} onBack={chatNavigation ? closeByUser : undefined} mobile={mobile} file={preview.file} message={preview.message} onForward={onForward} onClose={closeByUser} />
   const panel = host && 'target' in host ? (host.target && preview ? createPortal(body, host.target) : null) : mobile ? (
     preview && <Sheet fullScreenMobile onClose={closeByUser} ariaLabel={preview.file.fileName} testId="message-file-preview-sheet">{body}</Sheet>
   ) : (

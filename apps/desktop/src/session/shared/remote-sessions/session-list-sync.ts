@@ -22,6 +22,7 @@ export type SessionListSyncHandlers = {
   onList: (result: SessionpageSessionsListResult) => void
   onLoading?: (loading: boolean) => void
   onError?: (message: string | null) => void
+  onLink?: (open: boolean) => void
 }
 
 export type SessionListSync = {
@@ -139,6 +140,7 @@ export function startSessionListSync(
   stopRound = startRound()
   // 窗口断过再通:那台机器已经拆了旧窗口上的订阅,整个重来(新订阅号、重新列)。
   const stopLink = client.onLinkChange(deviceId, (open) => {
+    if (!stopped) handlers.onLink?.(open)
     if (!open || stopped) return
     // 窗口通了就重来,在等的退避作废:那一轮是因为窗口没通才失败的。
     if (retryTimer) clearTimeout(retryTimer)
@@ -156,6 +158,8 @@ export function startSessionListSync(
       stopRound = startRound()
     },
     stop: () => {
+      if (stopped) return
+      handlers.onLink?.(false)
       stopped = true
       stopLink()
       if (retryTimer) clearTimeout(retryTimer)

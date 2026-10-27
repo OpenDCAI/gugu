@@ -56,18 +56,21 @@
 /* 正文以代码块、表格、图之类收尾:末行没有文字可挂,时间另起一行。 */
 .msg-time-room:has(.gg-md > :last-child:not(p, h1, h2, h3, h4, h5, h6, ul, ol, blockquote)) { padding-bottom: var(--lh-caption); }
 
-/* 组尾那条(或单独一条)的小尾巴,长在头像那一侧的下角(照 Telegram)。底色跟气泡走(inherit 到气泡的内联 background);
-   右边 6px 与气泡重叠,盖住那个 --radius-bubble-joined 的小圆角,接缝处不露缝。我方气泡镜像到右侧。 */
+/* 组尾那条(或单独一条)的小尾巴,长在头像那一侧的下角(照 Telegram)。底色跟气泡走(inherit 到气泡的内联 background)。
+   尾巴只画气泡外面那 8px 弯角,贴着气泡边、不与气泡重叠;那一角改成直角接上它。
+   ❌ 别让尾巴伸进气泡里盖圆角:半透明气泡(助理页的玻璃底)重叠处会画两遍,露出一块深色方块。我方气泡镜像到右侧。 */
+[data-bubble-tail='other'] { border-bottom-left-radius: 0 !important; }
+[data-bubble-tail='mine'] { border-bottom-right-radius: 0 !important; }
 [data-bubble-tail]::before {
   content: '';
   position: absolute;
   bottom: 0;
   left: -8px;
-  width: 14px;
+  width: 8px;
   height: 17px;
   background: inherit;
-  -webkit-mask: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 14 17'%3E%3Cpath d='M8 0C8 9 5 14 0 17H14V0Z'/%3E%3C/svg%3E") no-repeat;
-  mask: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 14 17'%3E%3Cpath d='M8 0C8 9 5 14 0 17H14V0Z'/%3E%3C/svg%3E") no-repeat;
+  -webkit-mask: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 14 17'%3E%3Cpath d='M8 0C8 9 5 14 0 17H14V0Z'/%3E%3C/svg%3E") no-repeat left bottom / 14px 17px;
+  mask: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 14 17'%3E%3Cpath d='M8 0C8 9 5 14 0 17H14V0Z'/%3E%3C/svg%3E") no-repeat left bottom / 14px 17px;
   pointer-events: none;
 }
 [data-bubble-tail='mine']::before { left: auto; right: -8px; transform: scaleX(-1); }

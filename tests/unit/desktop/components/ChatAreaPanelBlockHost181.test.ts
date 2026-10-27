@@ -70,8 +70,9 @@ afterEach(() => {
   title.remove()
 })
 
-async function renderPanel(blockHost?: { actions: HTMLElement | null; title: HTMLElement | null; tabs: HTMLElement | null }, kind: 'group' | 'dm' | 'ai' = 'group', mobile = false, project = false) {
-  const panel = createNode(ChatAreaPanel, { activeTab: 'chats', openNonce: 0, blockHost, mobile })
+async function renderPanel(blockHost?: { actions: HTMLElement | null; title: HTMLElement | null; tabs: HTMLElement | null }, kind: 'group' | 'dm' | 'ai' = 'group', mobile = false, project = false, hideRunningStatus = false) {
+  const chrome = hideRunningStatus ? { placeholder: 'Chat', attachGlyph: null, hideRunningStatus: true } : undefined
+  const panel = createNode(ChatAreaPanel, { activeTab: 'chats', openNonce: 0, blockHost, mobile, ...(chrome ? { chrome } : {}) })
   await renderWithAppProviders(harness, project ? createNode(InChatSlot.Provider, { value: { projectName: 'Settings project' } }, panel) : panel, {
     chat: {
       getImRepository: getImRepositoryMock,
@@ -257,6 +258,15 @@ describe('ChatAreaPanel hosted in a block (gugu-dev#181)', () => {
     const row = dock.querySelector('[data-running-bar-slot]')
     expect(row !== null).toBe(reserved)
     if (row) expect(dock.firstElementChild!.contains(row)).toBe(true)
+  })
+
+  // owner 10-26「这些空白空间」:助理和面板里的任务聊天不显示运行条(assistant-app 10-19),那一行就不该留着 ——
+  // 留着就是输入框上面一条 42px 的空带。
+  it('reserves no running bar row when the chat hides running status (assistant)', async () => {
+    await renderPanel(undefined, 'ai', false, false, true)
+    const dock = harness.container.querySelector<HTMLElement>('[data-chat-bottom-dock]')!
+    expect(dock.querySelector('[data-running-bar-slot]')).toBeNull()
+    expect(dock.querySelector('[data-chat-composer]')).not.toBeNull()
   })
 
   it('in a block「+」opens the folder as a tab beside the chat, drawn into the slot its strip left (第 ⑥ 步)', async () => {

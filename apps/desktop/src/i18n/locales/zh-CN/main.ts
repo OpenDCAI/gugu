@@ -413,7 +413,7 @@ export default {
     "guguNumberUnassigned": "咕咕号未分配",
     "my": "我的",
     "newAgent": "新建 Agent",
-    "newTask": "新建会话",
+    "newTask": "新建任务",
     "apps": {
       "intro": "装在这台手机上的 App:从聊天里的卡片装的，和从市场装的。咕咕自带的不在这里。",
       "empty": "还没有装过 App。",
@@ -436,7 +436,6 @@ export default {
       "account": "账户",
       "activity": "活跃",
       "apps": "App",
-      "channels": "聊天渠道",
       "browser": "浏览器",
       "devices": "设备",
       "general": "通用",
@@ -456,6 +455,8 @@ export default {
       "batteryOptimization": "后台运行",
       "batteryOptimizationPurpose": "用来在你切走咕咕之后仍然第一时间提醒你；点一下把咕咕移出系统的电池优化名单",
       "camera": "相机",
+      "microphone": "麦克风",
+      "microphonePurpose": "发语音消息",
       "cameraPurpose": "用来扫码加好友、进群",
       "fileAccess": "文件与文件夹访问",
       "fileAccessPurpose": "用来打开你电脑上的项目目录",
@@ -463,7 +464,7 @@ export default {
       "off": "未开启",
       "offPrompt": "未开启，点击开启",
       "offBlocked": "未开启，去系统设置开启",
-      "unknown": "查不到，去系统设置看",
+      "unknown": "去系统设置查看",
       "settingsUnreachable": "跳不到系统设置。请自己打开系统设置，找到咕咕，把「{{name}}」打开。",
       "readFailed": "读不到系统的权限状态，请回到这一页再看一次。"
     },
@@ -543,7 +544,7 @@ export default {
     "messages": "消息 (⌘1)",
     "my": "我的",
     "newAgent": "新建 Agent",
-    "newTask": "新建会话",
+    "newTask": "新建任务",
     "usage": "用量",
     "resizeChatList": "调整聊天列表宽度",
     "sessionExpired": {

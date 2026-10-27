@@ -75,6 +75,7 @@ export function createDesktopDeviceRpcSubscription<TChannel>({
 }): SubscribeDeviceRpc {
   return async ({ deviceId }) => {
     let active = true
+    let rpcSubscribed = false
     let liveChannel: RpcChannel | null = null
     const realtimeClient = {
       realtime: supabase.realtime,
@@ -104,6 +105,7 @@ export function createDesktopDeviceRpcSubscription<TChannel>({
       warn,
     })
     const createRpcChannel = () => {
+      rpcSubscribed = false
       const channel = supabase.channel(deviceRpcChannelName(deviceId), {
         config: {
           private: true,
@@ -116,7 +118,7 @@ export function createDesktopDeviceRpcSubscription<TChannel>({
         rpcChannel.on('broadcast', { event }, payload => { if (active) receive(deviceId, payload) })
       }
       rpcChannel.on('broadcast', { event: 'broadcast' }, (payload) => {
-        if (!active) return
+        if (!active || liveChannel !== rpcChannel) return
         const request = parseDeviceRpcRequest(payload)
         if (!request || request.type.endsWith(':reply')) return
         if (request.type === DEVICE_RPC_ATTACH) return askers.attach(request)
@@ -133,7 +135,7 @@ export function createDesktopDeviceRpcSubscription<TChannel>({
     }
     // 活着的那一声:共用 topic 与每条在的发问端线上各一条,订阅方的看门狗靠它(#840)。空闲的发问端线顺手离开。
     const aliveTimer = setInterval(() => {
-      if (!active) return
+      if (!active || !rpcSubscribed) return
       void Promise.resolve(publishEvent({ type: DEVICE_RPC_ALIVE })).catch(() => undefined)
       askers.alive()
     }, DEVICE_RPC_ALIVE_MS)
@@ -152,6 +154,7 @@ export function createDesktopDeviceRpcSubscription<TChannel>({
       onStatus: (status, err) => {
         const name = subscribeStatusName(status)
         if (name === 'SUBSCRIBED' || name.endsWith('.SUBSCRIBED')) {
+          rpcSubscribed = active
           if (active) onSubscribed?.(deviceId)
           if (hostHandlers && !announced) {
             announced = true
@@ -162,6 +165,7 @@ export function createDesktopDeviceRpcSubscription<TChannel>({
           return
         }
         if (!isSubscribeFailure(status) || !active) return
+        rpcSubscribed = false
         warn(`[device-rpc] subscribe failed: ${name}${err ? ` ${(err as Error).message}` : ''}`)
       },
       reconnectOnStatus: (status) => isSubscribeFailure(status)
@@ -169,6 +173,7 @@ export function createDesktopDeviceRpcSubscription<TChannel>({
 
     return () => {
       active = false
+      rpcSubscribed = false
       clearInterval(aliveTimer)
       clearInterval(sweepTimer)
       askers.dispose()

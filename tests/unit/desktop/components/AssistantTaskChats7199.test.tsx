@@ -1,35 +1,31 @@
 // @vitest-environment jsdom
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { act } from 'react'
+import type { Device } from '@gugu/core/shared/types/chat'
 import type { SessionpageSessionSummary } from '@gugu/session-core/session-record/contract'
-import { clickElement, createReactHarness, renderWithAppProviders } from '../../../support/testHarness'
+import { clickElement, createReactHarness, renderWithAppProviders, device } from '../../../support/testHarness'
 import '../../../../apps/desktop/src/i18n/registerAssistantCatalog'
 
-const mocks = vi.hoisted(() => ({ rows: [] as { deviceId: string; summary: SessionpageSessionSummary; live: boolean }[], localWorker: false, transport: vi.fn(), dm: vi.fn(), identities: vi.fn() }))
+const mocks = vi.hoisted(() => ({ devices: [] as Device[], phones: [] as Device[], rows: [] as { deviceId: string; summary: SessionpageSessionSummary; live: boolean }[], localWorker: false, transport: vi.fn(), dm: vi.fn(), identities: vi.fn(),work:vi.fn(),wake:vi.fn(),refresh:null as null|(()=>void) }))
+vi.mock('../../../../apps/desktop/src/hooks/useWakeCloudComputer',()=>({useCloudComputerWake:(target:unknown)=>{mocks.wake(target);return {issue:null,dropped:false,retry:vi.fn()}}}))
+vi.mock('../../../../apps/desktop/src/lib/assistantWork',()=>({assistantWorkCloud:{get:mocks.work},watchAssistantWork:(_o:string,_a:string,refresh:()=>void)=>{mocks.refresh=refresh;return ()=>{}}}))
+vi.mock('../../../../apps/desktop/src/components/assistant/TaskExchangeBubble',()=>({TaskExchangeBubble:({message}:{message:{content:string}})=><div>{message.content}</div>}))
 vi.mock('../../../../apps/desktop/src/lib/identityReadAdapter', async original => ({ ...await original<object>(), readRequiredDisplayIdentities: mocks.identities }))
 vi.mock('../../../../apps/desktop/src/components/assistant/useAssistantDm', () => ({ useAssistantDm: mocks.dm }))
-vi.mock('../../../../apps/desktop/src/components/ChatAreaPanel', () => ({ ChatAreaPanel: ({ viewportKey }: { viewportKey: string }) => <div data-testid="task-chat-panel" data-viewport-key={viewportKey} /> }))
+vi.mock('../../../../apps/desktop/src/components/ChatAreaPanel', () => ({ ChatAreaPanel: ({ viewportKey,chrome }: { viewportKey: string;chrome?:{runtimeReady?:boolean} }) => <div data-testid="task-chat-panel" data-viewport-key={viewportKey} data-runtime-ready={chrome?.runtimeReady} /> }))
 vi.mock('../../../../apps/desktop/src/components/assistant/TaskChatScope', () => ({ TaskChatScope: ({ chatId, children }: { chatId: string; children: React.ReactNode }) => <div data-chat-id={chatId}>{children}</div> }))
-vi.mock('../../../../apps/desktop/src/store/devicesContext', () => ({ useDevicesStore: () => ({ devices: [{ device_id: 'worker', label: 'Worker', is_online: false, is_current_device: mocks.localWorker }, { device_id: 'home', label: 'Home', is_online: true }] }) }))
+vi.mock('../../../../apps/desktop/src/store/devicesContext', () => ({ useDevicesStore: () => ({ devices: mocks.devices.map((device) => device.device_id === 'worker' ? { ...device, is_current_device: device.is_current_device || mocks.localWorker } : device), phones: mocks.phones }) }))
 vi.mock('../../../../apps/desktop/src/components/assistant/taskExchangeTransport', () => ({ taskExchangeTransport: mocks.transport }))
-vi.mock('../../../../apps/desktop/src/session/shared/remote-sessions/session-directory', async (original) => ({
-  ...await original<object>(), useLiveDeviceSessions: () => ({}), directoryRows: () => mocks.rows.map((row) => ({ deviceId: row.deviceId, session: row.summary })),
-}))
 vi.mock('../../../../apps/desktop/src/session/renderer/features/remote-hosts/remote-hosts-store', () => ({ remoteHostsStore: { allListedSessions: () => mocks.rows, device: () => ({ label: 'Worker' }) } }))
 vi.mock('../../../../apps/desktop/src/session/renderer/features/assistant/assistant-home-sessions', () => ({
-  homeTarget: () => 'home', homeSessions: () => ({ sessions: mocks.rows.map((row) => row.summary), live: true }), localHomeSessions: { loaded: false },
+  homeTarget: () => 'home', homeSessions: () => ({ sessions: mocks.rows.map((row) => row.summary), live: true }), localHomeSessions: { loaded: false, sessions: [], error: null },
 }))
 
 import { AssistantTaskChatOpener } from '../../../../apps/desktop/src/components/assistant/AssistantTaskChatOpener'
-import { PhoneTasks } from '../../../../apps/desktop/src/mobile/assistant/PhoneTasks'
-import type { PhonePageProps } from '../../../../apps/desktop/src/mobile/assistant/MobileAssistantApp'
-import { AssistantTasksPage } from '../../../../apps/desktop/src/session/renderer/features/assistant/assistant-tasks'
-import type { AssistantContext } from '../../../../apps/desktop/src/session/renderer/features/assistant/assistant-context'
-import { OPEN_ASSISTANT_TASK_CHAT, openAssistantTaskChat, readAssistantTaskChat, rememberAssistantTaskChat, showAssistantTaskChat } from '../../../../apps/desktop/src/lib/assistantTaskChat'
+import { OPEN_ASSISTANT_TASK_CHAT,openAssistantTaskChat, readAssistantTaskChat, showAssistantTaskChat } from '../../../../apps/desktop/src/lib/assistantTaskChat'
 import { installAssistantShellBridge } from '../../../../apps/desktop/src/lib/assistantShellBridge'
 import { installShellSlots, readShellSlots } from '../../../../apps/desktop/src/lib/shellSlots'
-import { useTaskChatRows } from '../../../../apps/desktop/src/components/assistant/useTaskChatRows'
-import { APP_SHOW_SESSION_EVENT } from '../../../../apps/desktop/src/session/shared/extensions/app-runtime-protocol'
+import { publishDirectoryDevices, retainDeviceSessions, updateDeviceSessions } from '../../../../apps/desktop/src/session/shared/remote-sessions/session-directory'
 
 let harness: ReturnType<typeof createReactHarness>
 const summary = (conversationId: string, userId: string, parentConversationId: string | null = null): SessionpageSessionSummary => ({
@@ -43,6 +39,7 @@ beforeEach(() => {
   showAssistantTaskChat(null)
   mocks.localWorker = false
   mocks.identities.mockReset()
+  mocks.work.mockReset();mocks.wake.mockReset();mocks.refresh=null
   mocks.dm.mockReset().mockReturnValue({ chatId: 'task-dm', failed: false, retry: vi.fn() })
   mocks.transport.mockReset().mockResolvedValue({
     read: async () => ({ entries: [], cursor: 0, hasMore: false }),
@@ -50,61 +47,71 @@ beforeEach(() => {
     unsubscribe: async () => {}, onPage: () => () => {},
   })
   mocks.rows = [{ deviceId: 'home', summary: summary('assistant-session', 'assistant'), live: true }, { deviceId: 'worker', summary: summary('task-session', 'task-agent', 'assistant-session'), live: false }]
+  mocks.devices = [device('worker', [], { label: 'Worker', is_online: false, session_digest: [{ conversationId: 'task-session', projectId: 'p', projectName: 'Project', title: 'task-session', agentUserId: 'task-agent', parentConversationId: 'assistant-session', agentStatus: 'idle', lastInteractedAt: '2026-10-16T12:00:00Z', harness: 'codex', supported: false }] }), device('home', [], { label: 'Home' })]
+  mocks.phones = []
+  retainDeviceSessions([])
+  publishDirectoryDevices(mocks.devices)
+  for (const row of mocks.rows) updateDeviceSessions(row.deviceId, { sessions: [row.summary], cached: false, connected: true, loading: false, error: null })
 })
-afterEach(() => { harness.cleanup(); showAssistantTaskChat(null) })
+afterEach(() => { harness.cleanup(); showAssistantTaskChat(null); retainDeviceSessions([]); publishDirectoryDevices([]) })
 
 describe('assistant task rows open the task chat on both shells', () => {
-  it('reads this computer’s saved collaboration even when its cloud presence is offline', async () => {
-    mocks.localWorker = true
-    rememberAssistantTaskChat('offline-owner', { assistantId: 'assistant', taskAgentId: 'offline-task', task: { deviceId: 'worker', sessionId: 'local-task' }, assistants: [{ deviceId: 'worker', sessionId: 'local-assistant' }] })
-    function LocalChat() {
-      const { notice } = useTaskChatRows([], 'offline-owner', 'offline-task', true, '')
-      return notice
-    }
-    await renderWithAppProviders(harness, <LocalChat />)
-    expect(mocks.transport).toHaveBeenCalledTimes(2)
-    expect(mocks.transport).toHaveBeenCalledWith('worker', true)
-    expect(harness.container.querySelector('[data-testid="task-collaboration-status"]')?.textContent).toContain('含个人助理的协作记录')
+  it('retains a cloud task click while the assistant shell is still mounting its pane',async()=>{
+    mocks.work.mockReturnValue(new Promise(()=>{}))
+    await renderWithAppProviders(harness,<AssistantTaskChatOpener visible={false}/>)
+    await act(async()=>{window.dispatchEvent(new CustomEvent(OPEN_ASSISTANT_TASK_CHAT,{detail:{workId:'mounting-work',title:'Opening task',assistantId:'assistant',taskAgentId:'new-agent',task:{sessionId:'mounting',deviceId:'worker'},assistants:[]}}))})
+    expect(readAssistantTaskChat('user-1','new-agent')).toMatchObject({workId:'mounting-work'})
   })
-  it('a collaboration read failure says the record is incomplete and retries the same endpoints (keeps what was read)', async () => {
-    mocks.localWorker = true
-    rememberAssistantTaskChat('retry-owner', { assistantId: 'assistant', taskAgentId: 'retry-task', task: { deviceId: 'worker', sessionId: 'local-task' }, assistants: [{ deviceId: 'worker', sessionId: 'local-assistant' }] })
-    const subscribe = vi.fn().mockRejectedValueOnce(new Error('no handler for sessionTimeline.taskExchangesSubscribe')).mockResolvedValue({ entries: [], cursor: 0, hasMore: false })
-    mocks.transport.mockResolvedValue({ read: async () => ({ entries: [], cursor: 0, hasMore: false }), subscribe, unsubscribe: async () => {}, onPage: () => () => {} })
-    function RetryChat() {
-      const { notice } = useTaskChatRows([], 'retry-owner', 'retry-task', true, '')
-      return notice
-    }
-    await renderWithAppProviders(harness, <RetryChat />)
-    await vi.waitFor(() => expect(harness.container.querySelector('[data-testid="task-collaboration-retry"]')).not.toBeNull())
-    expect(harness.container.querySelector('[data-testid="task-collaboration-status"]')?.textContent).toContain('暂时无法读取完整的协作记录')
-    await clickElement(harness.container.querySelector<HTMLElement>('[data-testid="task-collaboration-retry"]')!)
-    await vi.waitFor(() => expect(harness.container.querySelector('[data-testid="task-collaboration-status"]')?.textContent).toContain('含个人助理的协作记录'))
-    expect(harness.container.querySelector('[data-testid="task-collaboration-retry"]')).toBeNull()
-    expect(subscribe.mock.calls.length).toBeGreaterThanOrEqual(3)
+  it('shows an old completed task and its original file even when no executor identity can be loaded',async()=>{
+    const work={work_id:'history-only-work',title:'Original file task',assistant_user_id:'assistant',owner_user_id:'user-1',outcome:'completed',executor_outcomes:{},executors:[{session_id:'historical',device_id:'offline',agent_user_id:null}],coordinator_session_id:'main',coordinator_device_id:'home'}
+    mocks.work.mockResolvedValue({work,events:[{work_id:work.work_id,message_id:'result-event',kind:'completed',source_available:true,source_message_id:null,content:'Verified original result',attachment_refs:[{attachment_id:'10000000-0000-4000-8000-000000000001',file_name:'original.txt',sha256:'a'.repeat(64),size_bytes:21,content_type:'text/plain'}],from_session_id:'historical',to_session_id:'main',platform_received_at:'2026-10-26T08:00:00Z'}]})
+    await renderWithAppProviders(harness,<><section ref={node=>readShellSlots()?.setSlot('assistant:task-chat',node)}/><AssistantTaskChatOpener visible/></>)
+    await act(async()=>{window.dispatchEvent(new CustomEvent(OPEN_ASSISTANT_TASK_CHAT,{detail:{workId:work.work_id,title:work.title,assistantId:'assistant',taskAgentId:null,task:{sessionId:'historical',deviceId:'offline'},assistants:[]}}))})
+    await vi.waitFor(()=>expect(document.querySelector('[data-testid="task-cloud-history"]')?.textContent).toContain('original.txt'))
+    const pane=document.querySelector('[data-testid="assistant-task-chat-window"]')!
+    expect(pane.textContent).toContain('已完成')
+    expect(pane.textContent).toContain('Verified original result')
+    expect(pane.textContent).not.toContain('正在开始')
+    expect(mocks.identities).not.toHaveBeenCalled()
+    expect(mocks.transport).not.toHaveBeenCalled()
   })
-  it.each(['phone', 'desktop'])('%s opens a chat even when the worker is offline or its transcript format is unsupported', async (shell) => {
-    const opened = vi.fn()
-    const showSession = vi.fn()
-    window.addEventListener(OPEN_ASSISTANT_TASK_CHAT, opened)
-    window.addEventListener(APP_SHOW_SESSION_EVENT, showSession)
-    try {
-      const common: PhonePageProps = { assistant, chatId: 'assistant-dm', ownerName: 'Owner', home: { kind: 'cloud', deviceId: 'home' }, machine: { state: 'opening' }, homeDeviceId: 'home', cloudDeviceId: 'home', readiness: 'ready', askInChat: vi.fn(), sub: null, go: vi.fn(), open: vi.fn() }
-      const context: AssistantContext = { assistant, chatId: common.chatId, ownerName: common.ownerName, home: { kind: 'cloud', deviceId: 'home' }, homeDeviceId: 'home', snapshot: null, readiness: 'ready', machine: undefined, machineLoading: false, machineError: null, retryMachine: vi.fn(), askInChat: vi.fn(), route: { tab: 'tasks' }, go: vi.fn() }
-      await renderWithAppProviders(harness, shell === 'phone'
-        ? <PhoneTasks {...common} />
-        : <AssistantTasksPage context={context} />)
-      const row = harness.container.querySelector('[data-testid="assistant-subagent-task-session"]')
-      expect(row).not.toBeNull()
-      await clickElement(row as HTMLElement)
-      expect(opened).toHaveBeenCalledOnce()
-      expect(opened.mock.calls[0]![0].detail).toEqual({ assistantId: 'assistant', taskAgentId: 'task-agent', task: { deviceId: 'worker', sessionId: 'task-session' }, assistants: [{ deviceId: 'home', sessionId: 'assistant-session' }] })
-      expect(showSession).not.toHaveBeenCalled()
-    } finally {
-      window.removeEventListener(OPEN_ASSISTANT_TASK_CHAT, opened)
-      window.removeEventListener(APP_SHOW_SESSION_EVENT, showSession)
-    }
+  it('keeps cloud content available while waking a sleeping host and enables live reads only after awake',async()=>{
+    const work={work_id:'sleeping-work',title:'Sleeping task',assistant_user_id:'assistant',owner_user_id:'user-1',outcome:'completed',executor_outcomes:{},executors:[{session_id:'task-session',device_id:'worker',agent_user_id:'task-agent'}],coordinator_session_id:'main',coordinator_device_id:'home'}
+    mocks.work.mockResolvedValue({work,events:[]})
+    mocks.devices=[device('worker',[],{is_online:true,cloud_computer:'asleep'})]
+    const contacts=[assistant,{id:'task-agent',display_name:'Task',avatar:null}].map(row=>({...row,type:'agent' as const,owner_user_id:'user-1',bio:null}))
+    await renderWithAppProviders(harness,<><section ref={node=>readShellSlots()?.setSlot('assistant:task-chat',node)}/><AssistantTaskChatOpener visible/></>,{contacts:{contacts}})
+    const request={workId:work.work_id,title:work.title,assistantId:'assistant',taskAgentId:'task-agent',task:{sessionId:'task-session',deviceId:'worker'},assistants:[{sessionId:'main',deviceId:'home'}]}
+    await act(async()=>{window.dispatchEvent(new CustomEvent(OPEN_ASSISTANT_TASK_CHAT,{detail:request}))})
+    await vi.waitFor(()=>expect(document.querySelector('[data-testid="task-chat-panel"]')?.getAttribute('data-runtime-ready')).toBe('false'))
+    expect(mocks.wake).toHaveBeenCalledWith(expect.objectContaining({device_id:'worker',cloud_computer:'asleep'}))
+    expect(document.querySelector('[data-testid="assistant-task-chat-window"]')?.textContent).toContain('Sleeping task')
+    await act(async()=>{mocks.devices=[device('worker',[],{is_online:true,cloud_computer:'awake'})];showAssistantTaskChat({ownerId:'user-1',request,name:work.title})})
+    await vi.waitFor(()=>expect(document.querySelector('[data-testid="task-chat-panel"]')?.getAttribute('data-runtime-ready')).toBe('true'))
   })
+  it('shows a prepared account task immediately, then connects when its real agent is admitted',async()=>{
+    let finish!:(value:unknown)=>void
+    mocks.work.mockReturnValue(new Promise(resolve=>{finish=resolve}))
+    mocks.identities.mockResolvedValue([{id:'task-agent',display_name:'New agent',type:'agent',owner_user_id:'user-1',avatar:null}])
+    const toast=vi.fn(),contacts=[{...assistant,type:'agent' as const,owner_user_id:'user-1',bio:null}]
+    await renderWithAppProviders(harness,<><section ref={node=>readShellSlots()?.setSlot('assistant:task-chat',node)}/><AssistantTaskChatOpener visible/></>,{contacts:{contacts},toast})
+    await act(async()=>{window.dispatchEvent(new CustomEvent(OPEN_ASSISTANT_TASK_CHAT,{detail:{workId:'new-work',title:'Preparing task',assistantId:'assistant',taskAgentId:null,task:{sessionId:'prepared',deviceId:'sleeping'},assistants:[{sessionId:'main',deviceId:'home'}]}}))})
+    const pane=document.querySelector('[data-testid="assistant-task-chat-window"]')
+    expect(pane?.textContent).toContain('Preparing task')
+    expect(pane?.textContent).toContain('正在开始')
+    expect(mocks.dm).not.toHaveBeenCalled()
+    const work={work_id:'new-work',title:'Preparing task',assistant_user_id:'assistant',owner_user_id:'user-1',outcome:'active',executor_outcomes:{},executors:[{session_id:'prepared',device_id:'sleeping',agent_user_id:null}],coordinator_session_id:'main',coordinator_device_id:'home'}
+    await act(async()=>finish({work,events:[]}))
+    mocks.work.mockResolvedValue({work:{...work,executors:[{session_id:'prepared',device_id:'sleeping',agent_user_id:'task-agent'}]},events:[]})
+    await act(async()=>{mocks.refresh?.()})
+    await vi.waitFor(()=>expect(document.querySelector('[data-testid="task-chat-panel"]')).not.toBeNull())
+    expect(mocks.dm).toHaveBeenCalledWith('task-agent')
+    expect(toast).not.toHaveBeenCalled()
+    expect(mocks.transport).not.toHaveBeenCalled()
+  })
+  // Cloud task list and offline history contracts are covered by
+  // AssistantAccountTaskLists / AssistantWorkHistory. Device-directory and
+  // manual transcript retry cases no longer describe this pane's data source.
   it('opens the task chat inside its pane without a modal or shell navigation, and returns to the same draft', async () => {
     const open = vi.fn()
     const contacts = [assistant, { id: 'task-agent', display_name: '报告任务', avatar: null }].map((contact) => ({ ...contact, bio: null, type: 'agent' as const, owner_user_id: 'user-1' }))

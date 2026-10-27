@@ -5,7 +5,7 @@ import { Button } from '@/components/ui/Button'
 import { Sheet } from '@/components/ui/Sheet'
 import { SettingsNote, SettingsPage } from '@/components/settings/SettingsPrimitives'
 import { platform } from '@/platform'
-import { nativePhoneActions } from '../phone-device/nativePhoneActions'
+import { readPhoneInstallation } from '../phone-device/phoneInstallation'
 import { phoneInstallId } from '../phone-device/phoneDeviceSettings'
 import { phoneAgentAvailable } from './nativeAgent'
 import { PhoneAgentSetup } from './PhoneAgentSetup'
@@ -27,11 +27,10 @@ export function PhoneAgentSetupGate({ ownerId, children }: { ownerId: string; ch
     let alive = true
     setError(null)
     setVisible(false)
-    void nativePhoneActions.deviceInfo().then((info) => {
+    void readPhoneInstallation(ownerId).then((info) => {
       if (!alive) return
-      if (!info.install_key?.trim()) throw new Error('无法读取这台手机的原生安装标识。')
+      const installId = phoneInstallId(info.install_key ?? '', info.registration_id ?? '', info.previous_install_key)
       // Rebind a restored WebView installation to the actual native device before reading progress.
-      const installId = phoneInstallId(info.install_key, info.previous_install_key)
       if (!alive) return
       try {
         const progress = readPhoneAgentSetup(ownerId, installId)
@@ -82,20 +81,18 @@ export function PhoneAgentSetupGate({ ownerId, children }: { ownerId: string; ch
     <PhoneInstallationContext.Provider value={currentSetup ? ownerId : null}>
       {children}
       {phoneAgentAvailable() && visible && (
-        <Sheet onClose={dismiss} ariaLabel="设置这台手机上的 Agent" mobileFitContent testId="phone-agent-setup">
+        <Sheet onClose={dismiss} ariaLabel="设置这台手机上的 Agent" titleId="phone-agent-setup-heading" fullScreenMobile testId="phone-agent-setup">
           {currentSetup ? (
             <PhoneAgentSetup
               key={`${ownerId}:${currentSetup.installId}`}
               ownerId={ownerId}
-              initialStep={currentSetup.progress.completed ? 'host' : currentSetup.progress.step}
-              onStep={(step) => save({ step, dismissed: false, completed: false })}
               onFinish={() => { if (save({ step: 'tools', dismissed: true, completed: true })) setVisible(false) }}
               onLater={dismiss}
               saveError={error}
             />
           ) : (
-            <SettingsPage className="p-5">
-              <h2 className="text-lg font-semibold">设置这台手机上的 Agent</h2>
+            <SettingsPage className="gg-phone-setup gg-phone-setup-unavailable">
+              <h2 id="phone-agent-setup-heading" className="gg-phone-setup-heading">暂时无法打开手机设置</h2>
               <SettingsNote role="alert">{error}</SettingsNote>
               <div className="flex gap-2">
                 <Button onClick={() => setRetry((value) => value + 1)}>重试</Button>

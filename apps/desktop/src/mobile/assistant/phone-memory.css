@@ -44,6 +44,7 @@
 .ta-phone .vn-status { font-size: var(--phone-font-note); line-height: var(--lh-body); }
 .ta-phone .vn-transcript .vn-line + .vn-line { border-top: 0; padding-top: 16px; }
 .ta-phone-memory-list { display: flex; flex-direction: column; gap: 4px; }
+.ta-phone .ta-row .ta-row-sub[data-lines] { -webkit-line-clamp: var(--ta-row-lines); }
 .ta-phone .vn-transcript { font-size: var(--font-prose); line-height: var(--lh-prose); }
 .ta-phone .vn-line p { overflow-wrap: anywhere; }
 

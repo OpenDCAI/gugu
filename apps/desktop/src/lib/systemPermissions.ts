@@ -36,6 +36,11 @@ export const SYSTEM_PERMISSION_ROWS: ReadonlyArray<{
     purposeKey: 'settings.permissions.cameraPurpose',
   },
   {
+    permission: 'microphone',
+    labelKey: 'settings.permissions.microphone',
+    purposeKey: 'settings.permissions.microphonePurpose',
+  },
+  {
     permission: 'fileAccess',
     labelKey: 'settings.permissions.fileAccess',
     purposeKey: 'settings.permissions.fileAccessPurpose',

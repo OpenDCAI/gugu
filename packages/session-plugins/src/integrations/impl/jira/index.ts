@@ -1,3 +1,4 @@
+import { summary } from './summary';
 import type { VerifyResult } from '../../capabilities/auth';
 import { defineIntegrationPlugin, registerIntegrationPluginBehavior } from '../../plugin';
 import { verifyJiraCredentials } from './client';
@@ -6,8 +7,8 @@ import { icon } from './icon';
 const plugin = defineIntegrationPlugin(
   {
     id: 'jira',
-    name: 'Jira',
-    description: { en: 'Work on Jira tickets', 'zh-CN': '处理 Jira 工单' },
+    name: summary.name['zh-CN'],
+    description: summary.description,
     websiteUrl: 'https://www.atlassian.com/software/jira',
   },
   {

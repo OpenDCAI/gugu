@@ -63,6 +63,8 @@ export default {
       "statusReadFailed": "无法读取任务状态：{{reason}}"
     },
     "turnFailure": {
+      "authentication": "模型服务拒绝了本次请求的授权，回复未完成。",
+      "network": "与模型服务的连接中断，本次回复未完成。",
       "statusReadFailed": "回复状态暂时读不到，请重试。",
       "weeklyQuota": "周限额度不足，当前账号暂时无法回复。",
       "monthlyQuota": "月限额度不足，当前账号暂时无法回复。",
@@ -329,6 +331,7 @@ export default {
     "settings": "设置"
   },
   "attachmentView": {
+    "types": {"pdf": "PDF 文档", "word": "Word 文档", "excel": "Excel 表格", "presentation": "演示文稿", "text": "文本", "markdown": "Markdown 文档", "csv": "CSV 表格", "html": "网页", "json": "JSON 文档", "archive": "压缩文件", "image": "图片", "audio": "音频", "video": "视频"},
     "fileGone": "文件已删除",
     "fileVersion": "第 {{n}} 版",
     "fileExpired": "文件已过期",

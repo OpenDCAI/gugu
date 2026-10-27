@@ -192,9 +192,10 @@ export const SESSION_META_KEY = 'gugu/sessionId';
 export const WORKSPACE_META_KEY = 'gugu/workspaceRoot';
 /** The model gugu runs the caller's session on, as `listAgents()` gives it — an App shows which model did a thing (片场's cards). */
 export const MODEL_META_KEY = 'gugu/model';
+export const MODEL_LABEL_META_KEY = 'gugu/modelLabel';
 
 /** Where the calling session works, read at call time; null when the session is not a session-page one. */
-export type CallerSessionContext = (agentId: string) => Promise<{ sessionId: string; workspaceRoot: string | null; model: string | null } | null>;
+export type CallerSessionContext = (agentId: string) => Promise<{ sessionId: string; workspaceRoot: string | null; model: string | null; modelLabel?: string | null } | null>;
 
 /** The agent calling: its session here (`agentId`) and its gugu identity (`agentUserId`, a uuid). */
 export interface Caller {
@@ -218,6 +219,7 @@ export async function callerMeta(caller: Caller, sessionContext?: CallerSessionC
     ...(context ? { [SESSION_META_KEY]: context.sessionId } : {}),
     ...(context?.workspaceRoot ? { [WORKSPACE_META_KEY]: context.workspaceRoot } : {}),
     ...(context?.model ? { [MODEL_META_KEY]: context.model } : {}),
+    ...(context?.modelLabel ? { [MODEL_LABEL_META_KEY]: context.modelLabel } : {}),
   };
 }
 

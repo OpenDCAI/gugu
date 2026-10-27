@@ -108,6 +108,7 @@ describe('共用 topic', () => {
     const { supabase, channels } = fakeSupabase()
     const subscribe = createDesktopDeviceRpcSubscription({ supabase: supabase as never, warn: () => undefined })
     const stop = await subscribe({ deviceId: 'dev-1' } as never)
+    subs.list[0]!.onStatus('SUBSCRIBED')
     await vi.advanceTimersByTimeAsync(60_000)
     expect(channels.get(SHARED)!.sent).toEqual([{ type: 'taskhost.alive' }])
     stop()

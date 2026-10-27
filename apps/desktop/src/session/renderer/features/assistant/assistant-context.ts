@@ -4,6 +4,7 @@ import type { AssistantHomePlace } from '@/lib/assistantHome';
 import type { AssistantShellAssistant } from '@/lib/assistantShellBridge';
 import type { MachineReadiness } from './assistant-data';
 import type { AssistantMachine } from './assistant-machine';
+import type { AssistantOwner } from './assistant-ui-parts';
 
 /**
  * 右边面板顶上那一排胶囊(动态 / 任务 / 记忆 / 资料)。聊天不是一格:左边一整列就是它。
@@ -14,9 +15,10 @@ export type PanelTab = (typeof PANEL_TABS)[number];
 
 /**
  * 面板此刻是哪一页。`sub` = 往下钻到的子页(往下钻时左上出返回箭头):
- * - profile:`diaries`、`diary:<id>`、`devices`、`connectors`(连接列表也直接展开在资料首页;聊天工具在全局设置里)
+ * - today:`diary:<id>`
+ * - profile:`files`、`files:<相对路径>`、兼容 `diaries`、`diary:<id>`、`devices`、`connectors`(连接列表也直接展开在资料首页;聊天工具在全局设置里)
  * - tasks:`routine:<id>`
- * - memory:`note:<文件名>`、`files`、`files:<相对路径>`、`voice`、`voice:<id>`(一条语音笔记)
+ * - memory:`note:<文件名>`、`voice`、`voice:<id>`(一条语音笔记)
  */
 export type PanelRoute = { tab: PanelTab; sub?: string };
 
@@ -39,19 +41,18 @@ export function parentRoute(route: PanelRoute): PanelRoute | null {
 export type AssistantContext = {
   assistant: AssistantShellAssistant;
   ownerName: string | null;
+  /** 主人自己(记忆页「关于你」用他的头像打头);认不出 = null。 */
+  owner?: AssistantOwner | null;
   /** 和它的那条私聊(壳认出来的;还没认出来 = null):「今天」页读它文件夹里的 today.json。 */
   chatId: string | null;
-  /**
-   * 它住哪(owner 10-16:会员住云上、非会员住自己的电脑)。界面按这个说话:住云上 = 要读时由系统连它、只说「正在连接」(owner 10-17 ❌「休息中 / 叫醒它」);
-   * 住电脑 = 那台开着它才在,❌ 出「叫醒」、❌ 说「云」。
-   */
+  /** 执行宿主的位置；面板数据始终读取账号云端副本。 */
   home: AssistantHomePlace;
   /** 它家那台的设备 id(查询键、会话目录、已安排都按它)。 */
   homeDeviceId: string;
   /** 住云上时管家给的样子;住电脑 = null。 */
   snapshot: CloudComputerSnapshot | null;
   readiness: MachineReadiness;
-  /** 它家那台上读写文件用的工作区(assistant-machine.ts)。还没连上 = undefined。 */
+  /** 账号级面板读写接口；未能确定归属时为 undefined。 */
   machine: AssistantMachine | undefined;
   machineLoading: boolean;
   machineError: unknown;
@@ -64,5 +65,5 @@ export type AssistantContext = {
 
 export type AssistantPageProps = { context: AssistantContext };
 
-/** 页里的元件(MachineGate 的「叫醒它」)要拿到是哪台;各页仍以 props 收 context。 */
+/** 面板元件共享助理身份和云端读取状态;各页仍以 props 收 context。 */
 export const AssistantCtx = createContext<AssistantContext | null>(null);

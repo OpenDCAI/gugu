@@ -78,9 +78,6 @@ main().catch(() => {
 export function assistantResourceHook(server: { url: string; headers: Record<string, string> }): string {
   return `const server = ${JSON.stringify(server)};
 ${String.raw`
-const fs = require('node:fs/promises');
-const path = require('node:path');
-const crypto = require('node:crypto');
 const json = value => JSON.stringify(value).replace(/[<>&\u2028\u2029]/g, c => '\\u' + c.charCodeAt(0).toString(16).padStart(4, '0'));
 const expand = value => value.replace(/\$\{([A-Za-z0-9_]+)\}/g, (_, key) => {
   if (!process.env[key]) throw new Error('Missing hook connection environment');
@@ -125,14 +122,9 @@ async function main() {
   let input = '';
   for await (const chunk of process.stdin) input += chunk;
   const event = JSON.parse(input);
-  if (event.hook_event_name !== 'SessionStart' || !['compact', 'clear', 'fork'].includes(event.source)) return;
+  if (event.hook_event_name !== 'SessionStart' || !['startup', 'compact', 'clear'].includes(event.source)) return;
   const index = await readResource();
   let context = '上下文重建后的当前资源索引，替代历史资源快照。界面行为由 App 消息另行送达。\n' + index;
-  if (Buffer.byteLength(context, 'utf8') > 4800) {
-    const details = path.join(__dirname, 'resource-index-' + crypto.randomUUID() + '.md');
-    await fs.writeFile(details, index, { mode: 0o600 });
-    context = '当前资源索引已重新读取，完整摘要保存在下面文件。使用资源或判断设备/项目是否存在之前，先用 Read 读取；不要沿用启动时的旧快照。\n' + json({ details });
-  }
   process.stdout.write(JSON.stringify({ hookSpecificOutput: { hookEventName: 'SessionStart', additionalContext: context } }) + '\n');
 }
 main().catch(() => {

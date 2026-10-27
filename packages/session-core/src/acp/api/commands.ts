@@ -108,7 +108,7 @@ export const startSessionCommandSchema = z.object({ input: acpStartInputSchema }
 export const resumeSessionCommandSchema = z.object({
   input: acpStartInputSchema.extend({ providerSessionId: z.string() }),
 });
-export const stopSessionCommandSchema = z.object({ sessionId: z.string() });
+export const stopSessionCommandSchema = z.object({ sessionId: z.string(), onlyIfIdle: z.boolean().optional() });
 export const sendPromptCommandSchema = z.object({
   sessionId: z.string(),
   prompt: promptInputSchema,

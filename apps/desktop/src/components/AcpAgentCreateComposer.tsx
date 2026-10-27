@@ -3,7 +3,7 @@ import { useCallback, useEffect, useMemo, useRef, useState, type ChangeEvent } f
 import { useTranslation } from 'react-i18next'
 import { AttachmentViewerDialog, ChatComposer, MessageProvider, formatAttachmentSize, readAttachmentPreviewText, type ComposerAgentOption, type ComposerAttachment, type PromptEditorRef } from '@gugu/session-ui/react/components'
 import { ThemeProvider as SessionUiThemeProvider } from '@gugu/session-ui/react/primitives'
-import { Cpu, Folder, Monitor } from '@/lib/icons'
+import { Folder, Monitor } from '@/lib/icons'
 import { useLocale } from '@/i18n'
 import { useTheme } from '../store/theme'
 import { useAuth } from '../store/auth'
@@ -465,7 +465,6 @@ export function AcpAgentCreateComposer({ context, onCreated }: {
         <DropdownMenu.Trigger className="gg-ghost acp-agent-create-trigger"
           data-testid="agent-create-model-picker" aria-label={tMain('agentWatch.create.model')}
           disabled={!selectedDevice?.isOnline || !provider || submitting || Boolean(attempt || pendingDelivery)}>
-          <Cpu size={13} />
           <span className="acp-agent-create-ellipsis">
             {model
               ? (models ? createModelName(models, model) : null) ?? model

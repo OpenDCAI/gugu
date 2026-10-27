@@ -93,6 +93,13 @@ function sentMessageId(item: McpToolCall): string | null {
   return parse(item.rawOutput) ?? parse(item.outputText);
 }
 
+/** A real top-level Gugu send receipt, shared by chat projections and durable work reconciliation. */
+export function successfulGuguSendMessageId(item: ToolCallItem): string | null {
+  if (item.kind !== 'mcp-tool-call' || !isGuguServer(item.server) || item.parentToolCallId || item.status !== 'done'
+    || !/(?:^|__)message_send(?:_file)?$/.test(item.tool)) return null;
+  return sentMessageId(item);
+}
+
 /** A confirmed reply to the owner's current input, never an agent's claim that it replied. */
 export function canYieldRepliedAssistant(turn: TranscriptTurn | null, nextText: string, ownerId: string): boolean {
   if (!turn) return false;

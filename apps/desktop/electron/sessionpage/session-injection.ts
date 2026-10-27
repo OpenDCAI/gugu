@@ -224,7 +224,9 @@ export class SessionpageLocalDeliveryRouter {
   async injectWithWake<T>(
     sessionId: string,
     attempt: () => Promise<T | 'not-live'>,
+    signal?: AbortSignal,
   ): Promise<T> {
+    signal?.throwIfAborted()
     const first = await attempt()
     if (first !== 'not-live') return first
     const fail = (error: SessionWakeError): never => {
@@ -238,6 +240,7 @@ export class SessionpageLocalDeliveryRouter {
       if (error instanceof SessionWakeError) return fail(error)
       throw error
     }
+    signal?.throwIfAborted()
     const state = outcome === 'already-running' ? 'the engine is running (not reopened)' : 'the session was reopened'
     try {
       const owner = await this.deliveryTargetForSession(sessionId)
@@ -246,6 +249,7 @@ export class SessionpageLocalDeliveryRouter {
       // 准入没等到(就绪预算到点、等的时候属主换了)。
       return fail(new SessionWakeError(sessionId, `${state} but was not admitted: ${error instanceof Error ? error.message : String(error)}`))
     }
+    signal?.throwIfAborted()
     const second = await attempt()
     if (second !== 'not-live') return second
     return fail(new SessionWakeError(sessionId, `${state} but its delivery channel did not accept the message`))
