@@ -347,7 +347,10 @@ function IntegrationCliLogin({
               </Button> : null}
             </p>
             {phase === 'starting' ? (
-              <CliInstallProgress read={readProgress} />
+              <CliInstallProgress
+                read={readProgress}
+                idle={<p className="text-sm leading-6 text-foreground-muted" role="status">{translate('integrations.cliPreparing')}</p>}
+              />
             ) : null}
           </>
         )}
