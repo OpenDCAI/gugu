@@ -4,8 +4,7 @@
  * 窄了之后换模型那颗只剩厂商图形(同输入框底排档 6),页签至少剩「图标加一个字」(spec session-page「一格最窄」)。
  *
  * 真 Chromium、真 CSS、真页签条(TabStripShell + TabSlot + TabChip);右端那组按真实结构与宽度搭:
- * 换模型那颗的厂商图形 / 名字 / 强度三格与 ComposerModelMenu 的 data-slot 同名;模式按钮(#7167)的图标 / 名字
- * 与 SessionModeMenu 的 test-id、data-slot 同名。
+ * 换模型那颗的厂商图形 / 名字 / 强度三格与 ComposerModelMenu 的 data-slot 同名。
  */
 import { createRoot, type Root } from 'react-dom/client';
 import { afterEach, expect, it } from 'vitest';
@@ -38,10 +37,6 @@ function BlockActions() {
       </span>
       <button style={{ width: 28, height: 28, flexShrink: 0 }} aria-label="输出/来源" />
       <button style={{ width: 28, height: 28, flexShrink: 0 }} aria-label="分享" />
-      <button data-testid="session-mode-trigger" style={{ display: 'flex', alignItems: 'center', gap: 8, whiteSpace: 'nowrap', height: 32 }}>
-        <svg data-mode-icon="" width="16" height="16" />
-        <span data-slot="session-mode-label">通用</span>
-      </button>
       <button style={{ width: 24, height: 24, flexShrink: 0 }} aria-label="关闭这一块" />
     </div>
   );
@@ -88,13 +83,10 @@ it('a ~320px block: the model button folds to its vendor icon and the task tab s
   expect(getComputedStyle(bar.querySelector('[data-slot="composer-effort"]')!).display).toBe('none');
   // 厂商图形还在:收起的是名字,❌ 整颗按钮。
   expect(bar.querySelector<HTMLElement>('[data-vendor-icon]')!.getBoundingClientRect().width).toBeGreaterThan(0);
-  // 模式按钮同一档让位:名字收起,图标还在(#7167)。
-  expect(getComputedStyle(bar.querySelector('[data-slot="session-mode-label"]')!).display).toBe('none');
-  expect(bar.querySelector<SVGElement>('[data-mode-icon]')!.getBoundingClientRect().width).toBeGreaterThan(0);
 });
 
-it('a two-block screen half (~600px) folds too: the mode button joined the strip, so the task tab keeps its share', async () => {
-  // 1280 宽的窗口分两块,一块约 600 出头(去掉左栏):右端多了模式按钮,门槛跟着抬,页签那截不替它让位。
+it('a two-block screen half (~600px) folds too, so the task tab keeps its share', async () => {
+  // 1280 宽的窗口分两块,一块约 600 出头(去掉左栏):同样收起,页签那截不替右端那组让位。
   const { bar, chip } = await mountBlockStrip(590);
   expect(bar.hasAttribute('data-strip-narrow')).toBe(true);
   expect(visibleWidth(chip), 'task tab visible on the strip').toBeGreaterThanOrEqual(44);
@@ -104,7 +96,6 @@ it('a wide block keeps the model name', async () => {
   const { bar, label, chip } = await mountBlockStrip(900);
   expect(bar.hasAttribute('data-strip-narrow')).toBe(false);
   expect(getComputedStyle(label).display).not.toBe('none');
-  expect(getComputedStyle(bar.querySelector('[data-slot="session-mode-label"]')!).display).not.toBe('none');
   expect(visibleWidth(chip)).toBeGreaterThan(100);
 });
 

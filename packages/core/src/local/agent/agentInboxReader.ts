@@ -163,6 +163,8 @@ export interface AgentInboxReaderDeps {
   ) => Promise<Map<string, GuguIdentity>>
   /** injectable:批失败披露(默认稳定 id 直插 system 行;无 lease)。 */
   postDisclosure?: (input: DisclosureRow) => Promise<void>
+  /** injectable:这个 agent 在这条线上、这个 seq 之后自己说过话没有(默认 chat.message_history_as,按 agent 的可见域)。 */
+  agentSpokeAfter?: (input: AgentSpokeAfterInput) => Promise<boolean>
   // @@@5856 checkAgentReplied / must-reply 违约判定已随**老 active 档**一起退役。
   // 两档之后留下的 active 是「叫得醒它,回不回它自己判断」——对这样的档位判「该回没回」,
   // 判出来的全是假违约,而它喂的是 recordDeliverOutcome 那盏异常计数灯。
@@ -326,10 +328,22 @@ const FAILURE_CONTENT: Record<AgentFailureReason, string> = {
 }
 
 /**
+ * The notice row's message id. Message ids are UUIDs everywhere a message is addressed (typed `msg:` ids, conversation
+ * links), so the notice gets one too — derived from its dedupe key, so the same failure posted again lands on the same
+ * row (409) and stays one notice. Rows written before this used the key itself as the id; readers still accept them.
+ */
+export function disclosureMessageId(key: string): string {
+  const hex = createHash('sha256').update(key).digest('hex')
+  const variant = ((Number.parseInt(hex[16]!, 16) & 0x3) | 0x8).toString(16)
+  return `${hex.slice(0, 8)}-${hex.slice(8, 12)}-5${hex.slice(13, 16)}-${variant}${hex.slice(17, 20)}-${hex.slice(20, 32)}`
+}
+
+/**
  * 披露:稳定 id 直插 system 行(#2935 幂等;409 = 已披露过,幂等命中)。无 command lease。原因编在 client_message_id(systemNotice.ts)。
  * 也是 [[device-command-runtime]] 对「无人持有的 agent」终态显形(#5041)用的同一条写口——聊天里对用户可见的失败只有这一种形状。
  */
 export async function postDeliveryDisclosureRow(input: DisclosureRow, accessToken: string): Promise<void> {
+  const id = disclosureMessageId(input.key)
   const response = await fetch(`${getSupabaseUrl().replace(/\/+$/, '')}/rest/v1/messages`, {
     method: 'POST',
     headers: {
@@ -340,12 +354,12 @@ export async function postDeliveryDisclosureRow(input: DisclosureRow, accessToke
       'Content-Profile': 'chat',
     },
     body: JSON.stringify({
-      id: input.key,
+      id,
       chat_id: input.chatId,
       sender_user_id: input.agentUserId,
       content: FAILURE_CONTENT[input.reason],
       content_type: 'system',
-      client_message_id: turnFailureMarker(input.key, input.reason),
+      client_message_id: turnFailureMarker(id, input.reason),
       ...(input.replyToMessageId ? { reply_to_message_id: input.replyToMessageId } : {}),
       thread_root_id: input.threadRootId,
       is_thread_root: false,
@@ -353,6 +367,28 @@ export async function postDeliveryDisclosureRow(input: DisclosureRow, accessToke
   })
   if (response.ok || response.status === 409) return
   throw new Error(`turn-failure disclosure insert failed: HTTP ${response.status} ${await response.text().catch(() => '')}`)
+}
+
+export type AgentSpokeAfterInput = { agentUserId: string; chatId: string; threadRootId: string | null; afterSeq: number }
+
+/** The agent's own non-system message on this line after `afterSeq`, read as the agent (`chat.message_history_as`). */
+export async function agentSpokeAfterViaRpc(input: AgentSpokeAfterInput, accessToken: string, fetchImpl: typeof fetch = fetch): Promise<boolean> {
+  const response = await fetchImpl(`${getSupabaseUrl().replace(/\/+$/, '')}/rest/v1/rpc/message_history_as`, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      apikey: getSupabaseAnonKey(),
+      Authorization: `Bearer ${accessToken}`,
+      'Accept-Profile': 'chat',
+      'Content-Profile': 'chat',
+    },
+    body: JSON.stringify({ p_chat_id: input.chatId, p_as_user_id: input.agentUserId, p_thread_root_id: input.threadRootId, p_limit: 20 }),
+  })
+  if (!response.ok) throw new Error(`message_history_as failed: HTTP ${response.status} ${await response.text().catch(() => '')}`)
+  const rows = (await response.json()) as unknown
+  if (!Array.isArray(rows)) throw new Error('message_history_as returned no row list')
+  return rows.some((row: { seq?: unknown; sender_user_id?: unknown; content_type?: unknown }) =>
+    Number(row.seq) > input.afterSeq && row.sender_user_id === input.agentUserId && row.content_type !== 'system')
 }
 
 // ── 读者主体 ────────────────────────────────────────────────────────────────────
@@ -560,18 +596,25 @@ async function injectBatch(
   const toolNames = deps.deliveryToolNames?.(agentUserId) ?? undefined
   const rulesPlan = await planGroupRules(agentUserId, rows, deps, env)
   const prepared: PreparedMessage[] = []
-  for (const row of rows) {
-    const planned = row.localSessionDirect ? undefined : rulesPlan.get(row.chatId)
-    // 原文只随这一批里该线的第一条投递附一次;其余同线投递只带版本号。
-    const groupRules = planned && (planned.version !== 'none' || planned.text !== null)
-      ? { version: planned.version, text: planned.text }
-      : null
-    if (planned) planned.text = null
-    const message = await prepareMessage(agentUserId, row, deps, toolNames, env, groupRules)
-    if (groupRules && groupRules.text !== null) {
-      message.rulesDelivered = { chatId: row.chatId, entry: { version: groupRules.version, contextKey: planned!.contextKey } }
+  try {
+    for (const row of rows) {
+      const planned = row.localSessionDirect ? undefined : rulesPlan.get(row.chatId)
+      // 原文只随这一批里该线的第一条投递附一次;其余同线投递只带版本号。
+      const groupRules = planned && (planned.version !== 'none' || planned.text !== null)
+        ? { version: planned.version, text: planned.text }
+        : null
+      if (planned) planned.text = null
+      const message = await prepareMessage(agentUserId, row, deps, toolNames, env, groupRules)
+      if (groupRules && groupRules.text !== null) {
+        message.rulesDelivered = { chatId: row.chatId, entry: { version: groupRules.version, contextKey: planned!.contextKey } }
+      }
+      prepared.push(message)
     }
-    prepared.push(message)
+  } catch (error) {
+    // Nothing of this batch was admitted yet: a row that cannot be prepared fails the batch the same way an
+    // injection does — disclosed to its chats with the error rethrown as it was, ❌ a pull that just stops.
+    deps.onOutcome?.({ agentUserId, ok: false })
+    throw saidIfDisclosed(error, await discloseBatchFailure(agentUserId, rows.map((row) => ({ row })), deps))
   }
   // Queue-backed (idle-only) rows stay one per admission so the queue can merge at drain. A
   // next-tool-call transport has no queue boundary: the admission itself is the delivery boundary,
@@ -866,13 +909,13 @@ async function advanceCursor(
  */
 async function discloseBatchFailure(
   agentUserId: string,
-  members: PreparedMessage[],
+  members: readonly Pick<PreparedMessage, 'row'>[],
   deps: AgentInboxReaderDeps,
   completionError?: unknown,
 ): Promise<boolean> {
   const post = deps.postDisclosure ?? ((input: DisclosureRow) => postDeliveryDisclosureRow(input, deps.accessToken))
   const reason = failureReason(completionError)
-  const byChat = new Map<string, PreparedMessage[]>()
+  const byChat = new Map<string, Pick<PreparedMessage, 'row'>[]>()
   const byPost = new Set<string>()
   for (const member of members) {
     if (member.row.forum) {
@@ -909,8 +952,16 @@ async function discloseBatchFailure(
       )
     }
   }
+  const spokeAfter = deps.agentSpokeAfter ?? ((input: AgentSpokeAfterInput) => agentSpokeAfterViaRpc(input, deps.accessToken))
   for (const [chatId, chatMembers] of byChat) {
     const ids = chatMembers.map((member) => encodeTypedId('msg', member.row.id))
+    // The turn failed after the agent already answered on this line (a provider error on the request after its message_send):
+    // the chat has the answer, and a 「未能完成」 under it would contradict it. The failure stays in the log, not in the chat.
+    if (completionError !== undefined && await answeredBeforeFailure(agentUserId, chatId, chatMembers, spokeAfter)) {
+      log.warn({ agentUserId, chatId, messageIds: ids, err: errorText(completionError) },
+        'turn failed after the agent replied in the source chat; no failure row posted')
+      continue
+    }
     const key = `turn-failure:batch:${createHash('sha256').update([agentUserId, ...ids].join(',')).digest('hex').slice(0, 32)}`
     try {
       await post({ agentUserId, chatId, threadRootId: chatMembers[0]!.row.threadRootId, key, reason,
@@ -925,6 +976,26 @@ async function discloseBatchFailure(
     }
   }
   return said
+}
+
+async function answeredBeforeFailure(
+  agentUserId: string,
+  chatId: string,
+  members: readonly Pick<PreparedMessage, 'row'>[],
+  spokeAfter: (input: AgentSpokeAfterInput) => Promise<boolean>,
+): Promise<boolean> {
+  try {
+    return await spokeAfter({ agentUserId, chatId, threadRootId: members[0]!.row.threadRootId,
+      afterSeq: Math.max(...members.map((member) => member.row.seq)) })
+  } catch (error) {
+    // Not knowing whether it answered is not an answer: the failure is still said.
+    log.error({ agentUserId, chatId, err: errorText(error) }, 'could not read whether the agent replied before its turn failed')
+    return false
+  }
+}
+
+function errorText(error: unknown): string {
+  return error instanceof Error ? error.message : String(error)
 }
 
 /** 失败的原因(聊天里的披露行与论坛指派上的投递状态同一个):没受理是咕咕这边的错;受理后那一轮失败按上游的原因说。 */

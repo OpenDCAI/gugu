@@ -106,9 +106,8 @@ export function UserMessageCard(props: { data: ChatMessage; ctx: RenderCtx; vars
     if (!ctx) return v.collapsedMaxH;
     const innerW = userInnerWidth(availableWidth(), v);
     const blocks = props.data.streaming ? ctx.caches.parseBlocksStreaming(props.data.id, props.data.text) : ctx.caches.parseBlocks(props.data.id, props.data.text);
-    if (blocks.length === 0) {
-      return ctx.theme.fonts.body.lineHeight + 2 * v.userCardPadY + 2 * v.cardBorder;
-    }
+    // 还在流、一个字没到:先占一行的气泡;收口了还没正文(只有附件)就没有气泡。
+    if (blocks.length === 0) return props.data.streaming ? ctx.theme.fonts.body.lineHeight + 2 * v.userCardPadY + 2 * v.cardBorder : 0;
     const innerCtx = { ...ctx, width: innerW };
     const s = layoutBlockStack(blocks, innerCtx, { isCollapsed: ctx.isCollapsed });
     return s.height + 2 * v.userCardPadY + 2 * v.cardBorder;
@@ -190,6 +189,8 @@ export function UserMessageCard(props: { data: ChatMessage; ctx: RenderCtx; vars
         </div>
       </Show>
     <Show when={edit()} fallback={<>
+    {/* 只有附件、没有正文(长文本自动转成的 pasted-text.txt 就是这样):不画气泡 —— 空气泡是一条整行宽的色带。 */}
+    <Show when={!mCtx() || stack() || props.data.streaming}>
     <div
       data-user-card={props.data.id}
       class={`${card({ state: isOverflowing() && !isExpanded() ? 'overflowing' : 'static', current: isGenerating() })} ${cardRoot} ${userCardGroup}`}
@@ -229,6 +230,7 @@ export function UserMessageCard(props: { data: ChatMessage; ctx: RenderCtx; vars
         </button>
       </Show>
     </div>
+    </Show>
     <Show when={!props.conversation}><UserMessageActions itemId={props.data.id} text={props.data.text} at={props.data.at}
       generating={isGenerating()} readOnly={Boolean(props.data.guguDelivery)} vars={props.vars} /></Show>
     </>}>

@@ -33,7 +33,6 @@ import { isTaskOwnedTab } from '../../extensions/task-owned-tab';
 import { openSessionInSessionWhenReady } from '../open-session-in-session';
 import { PaneEmptyState } from '../pane-empty-state';
 import { keepBlockFilled } from './keep-block-filled';
-import { SessionModeMenu } from './session-mode-menu';
 import { SplitPaneHotkey, TabBarAddMenu } from '../tab-bar-actions';
 import { TabBarActionRow } from '../titlebar-actions';
 import { useSessionViewContext, useWorkspaceViewModel } from '../session-view-context';
@@ -327,7 +326,6 @@ const SessionBlockActions = observer(function SessionBlockActions({ atScreenEdge
         />
       ) : null}
       {/* #7167 聊天 / 编程 / 通用 —— 这一块最右(多块时在「关闭这一块」左边)。 */}
-      {sessionId ? <SessionModeMenu sessionId={sessionId} /> : null}
       {/* 屏上不止一块时:从这屏拿走(左边列表里还在)。单独成窗时这里是「放回咕咕」。 */}
       {multi && blockId ? <CloseBlockButton blockId={blockId} /> : null}
       {windowId ? <PutBackButton windowId={windowId} /> : null}
