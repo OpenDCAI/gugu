@@ -109,9 +109,9 @@ export function AgentTasksPane({ agent }: AgentSettingsPaneProps) {
 
   return (
     <div className={agentSettingsPaneClass(true)} data-pane="tasks">
-      <div className={asClass.secretsHead}>
-        <div className={asClass.secretsH2}>{t('settings.tasks.title', { count: tasks.length })}</div>
-        <button className={asClass.secretsButton} onClick={() => setShowForm((v) => !v)} data-testid="agent-task-add">
+      <div className={asClass.tasksHead}>
+        <div className={asClass.tasksHeading}>{t('settings.tasks.title', { count: tasks.length })}</div>
+        <button className={asClass.tasksAddButton} onClick={() => setShowForm((v) => !v)} data-testid="agent-task-add">
           <svg xmlns="http://www.w3.org/2000/svg" width="13" height="13" viewBox="0 0 24 24">
             <g fill="none" stroke="currentColor" strokeWidth="1.5">
               <path d="M2 12c0-4.714 0-7.071 1.464-8.536C4.93 2 7.286 2 12 2s7.071 0 8.535 1.464C22 4.93 22 7.286 22 12s0 7.071-1.465 8.535C19.072 22 16.714 22 12 22s-7.071 0-8.536-1.465C2 19.072 2 16.714 2 12Z" />
@@ -169,7 +169,7 @@ export function AgentTasksPane({ agent }: AgentSettingsPaneProps) {
       {error && <div style={{ fontSize: 'var(--font-body)', color: 'var(--danger)', marginBottom: 10 }}>{error}</div>}
 
       {loading ? (
-        <div className={asClass.secretsEmpty}>{t('settings.tasks.loading')}</div>
+        <div className={asClass.tasksLoading}>{t('settings.tasks.loading')}</div>
       ) : tasks.length === 0 ? (
         <div className={asClass.tasksEmpty}>
           <div className={asClass.tasksIconBox}>

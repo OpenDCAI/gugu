@@ -98,7 +98,7 @@ export const ResourceTimeline = observer(function ResourceTimeline({ compact = f
       <div className="flex flex-wrap items-center gap-2">
         <SegmentedTabs items={ranges} value={range} onChange={setRange} ariaLabel={t('resourceMonitor.range')} />
         <span className="mr-auto" />
-        <Button size="sm" variant="ghost" disabled={!onFloat} onClick={onFloat}>{t('resourceMonitor.float')}</Button>
+        {onFloat && <Button size="sm" variant="ghost" onClick={onFloat}>{t('resourceMonitor.float')}</Button>}
         <Button size="sm" variant="ghost" onClick={() => void action('export')}>{t('resourceMonitor.export')}</Button>
         <Button size="sm" variant="ghost" onClick={() => void action('clear')}>{t('resourceMonitor.clear')}</Button>
       </div>

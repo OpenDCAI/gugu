@@ -322,3 +322,14 @@
   .na-pager-btns { flex-wrap: wrap; min-width: 0; max-width: 100%; gap: var(--spacing-xs); }
   .na-pager-btn { min-width: var(--control-h-touch); height: var(--control-h-touch); }
 }
+
+/* Referral pending/ready/error states occupy the same two rows. */
+.na-referral-stats-frame { min-height: var(--control-h-sm); align-items: center; }
+.na-referral-link-frame { min-height: var(--control-h-md); }
+.na-referral-read-error { display: flex; align-items: center; gap: var(--spacing-sm); }
+.na-referral-stat-skeleton { display: inline-block; width: 92px; height: var(--lh-body); vertical-align: middle; }
+.na-referral-field-skeleton { flex: 1; min-width: 0; }
+.na-referral-copy-skeleton { display: inline-flex; align-items: center; justify-content: center; gap: 6px; min-height: var(--control-h-md); padding: 0 12px; border: 1px solid transparent; border-radius: var(--radius-control); font-size: var(--font-body); font-weight: var(--font-weight-medium); line-height: 1; white-space: nowrap; pointer-events: none; }
+@media (max-width: 719px) {
+  .na-referral-stats-frame, .na-referral-link-frame, .na-referral-copy-skeleton { min-height: var(--control-h-touch); }
+}

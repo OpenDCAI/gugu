@@ -905,6 +905,9 @@ export default {
     "upgradeHint": "Get a membership to unlock these models"
   },
   "referral": {
+    "readFailed": "Could not read {{items}}.",
+    "readPart": { "number": "your Gugu number", "stats": "invitation stats" },
+    "retry": "Retry",
     "amountCredits": "{{credits}} credits",
     "copied": "Copied",
     "copyInvite": "Copy invite link",
@@ -914,7 +917,6 @@ export default {
     "invited_other": "{{count}} invited",
     "inviteDescription": "Share your invite link. You and your friend both receive a credit reward after registration.",
     "inviteLoading": "Invite link is loading",
-    "invitePlaceholder": "Invite links are not available yet",
     "inviteTitle": "Invite friends"
   },
   "usage": {

@@ -15,7 +15,6 @@ import { safeFailureLine } from '@/session/renderer/features/sessions/gugu-reaso
  * 对外分享 tab (external public link / QR) — wired (#1078, #1085):
  *   - 真链接 buildAgentShareUrl(/join/agent/<id>) + 真 QR；未配置公开基址 → fail-loud（不出死链接）。
  *   - 「开启对外分享」→ contactsService.setAgentPublic (RLS select_public 放行外部读取)。
- *   - 额度计费仍依赖计费账本 #862（未就绪）→ 文案标依赖、不假扣（无假控件）。
  */
 
 import { useCallback, useEffect, useMemo, useState } from 'react'
@@ -129,7 +128,7 @@ function FwdPanel({
 
 /** 对外分享 tab content — 设计稿 lines 1084-1088。
  *  真链接(指向现有 /join/agent 公开路由)+ 真 QR + 开启时 setAgentPublic(真使 agent 公开,RLS select_public
- *  据此放行外部读取)。无假控件:未配置公开基址 → fail-loud(不展示死链接);¥10 计费账本(#862)未就绪 → 标依赖不假扣。 */
+ *  据此放行外部读取)。未配置公开基址时不提供对外分享入口。 */
 export function ExtPanel({ agent }: { agent: ContactUser }) {
   const { t } = useTranslation('agents')
   const shareUrl = buildAgentShareUrl(externalShareBaseUrl(), agent.id)
@@ -156,7 +155,6 @@ export function ExtPanel({ agent }: { agent: ContactUser }) {
       // 真动作:使 agent 公开 → 公开链接据 RLS select_public 可被外部读取。
       await contactsService.setAgentPublic(agent.id, true)
       setIsPublic(true)
-      // TODO(#862): ¥10 计入额度 —— 计费账本(#862)未就绪,此处不做假扣费,文案标依赖。
     } catch (err) {
       setError(err instanceof Error ? err.message : t('settings.share.enableFailed'))
     } finally {
@@ -178,19 +176,7 @@ export function ExtPanel({ agent }: { agent: ContactUser }) {
     }
   }, [shareUrl])
 
-  // fail-loud:未配置公开 web 基址(公开入口未部署)→ 不展示假链接/假 QR。
-  if (!shareUrl) {
-    return (
-      <div className={asClass.shareExt}>
-        <div className={asClass.shareExtCard}>
-          <div style={{ fontSize: 'var(--font-body)', fontWeight: 600 }}>{t('settings.share.unavailable')}</div>
-          <div style={{ fontSize: 'var(--font-body)', color: 'var(--faint-fg)', marginTop: 3 }}>
-            {t('settings.share.unavailableReason')}
-          </div>
-        </div>
-      </div>
-    )
-  }
+  if (!shareUrl) return null
 
   const qrElement = qr
     ? <img className={cx(asClass.shareQr, asClass.shareQrImage)} src={qr} alt={t('settings.share.qrAlt')} />
@@ -229,8 +215,6 @@ export function ExtPanel({ agent }: { agent: ContactUser }) {
         </button>
       )}
       {error && <div className={asClass.shareError}>{error}</div>}
-      {/* .se-fee — 设计稿 line 372;计费(#862)未就绪 → fail-loud 标依赖,不假扣 */}
-      <div className={asClass.shareFeeText}>{t('settings.share.fee')}</div>
     </div>
   )
 }
@@ -244,6 +228,7 @@ export function AgentSharePane({ agent, onClose: _onClose }: AgentSettingsPanePr
 
   // Tab state: 'fwd' | 'ext'
   const [tab, setTab] = useState<'fwd' | 'ext'>('fwd')
+  const canShareExternally = !!buildAgentShareUrl(externalShareBaseUrl(), agent.id)
 
   // Only show human contacts (not agents) for forwarding — filter same as ContactsPanel
   const humanContacts = useMemo(
@@ -265,15 +250,14 @@ export function AgentSharePane({ agent, onClose: _onClose }: AgentSettingsPanePr
         >
           {t('settings.share.forward')}
         </button>
-        <button
+        {canShareExternally && (        <button
           type="button"
           className={shareSegmentButtonClass(tab === 'ext')}
           onClick={() => setTab('ext')}
         >
           {t('settings.share.external')}
-          {/* .share-fee: color:#f59e0b background:#f59e0b1f */}
-          <span className={asClass.shareFee}>{t('settings.share.feeBadge')}</span>
         </button>
+        )}
       </div>
 
       {/* panels */}
@@ -284,7 +268,7 @@ export function AgentSharePane({ agent, onClose: _onClose }: AgentSettingsPanePr
           ownerName={user.nickname}
         />
       )}
-      {tab === 'ext' && (
+      {canShareExternally && tab === 'ext' && (
         <ExtPanel agent={agent} />
       )}
     </div>

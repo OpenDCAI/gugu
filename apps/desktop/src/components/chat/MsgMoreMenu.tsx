@@ -48,7 +48,7 @@ export function MsgMoreMenu({ hasHoverBar, onReact, onClose, selectableText, isM
         </> : <>
           {showReactions && <DeferredEmojiQuickPicker menu disabled={isRetracted} onPick={onReact} onClose={onClose} onExpand={() => setExpanded(true)} />}
           {!expanded && messageActionItems(target, t).map((item) => (
-            <MenuItem key={item.key} icon={<item.icon size={15} />} disabled={item.disabled} danger={item.danger} title={item.title}
+            <MenuItem key={item.key} icon={<item.icon size={15} />} disabled={item.disabled} danger={item.danger}
               data-testid={`message-action-${item.key}`} closeOnClick={!item.keepOpen}
               onClick={item.onSelect ? () => { item.onSelect?.(); if (!item.keepOpen) onClose() } : undefined}>
               {item.label}

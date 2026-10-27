@@ -13,6 +13,7 @@ import { useIsAssistantAvatar } from '../../lib/avatarIdentity'
 import { Avatar } from '../Avatar'
 import { validateAgentAvatarFileCode, type AgentAvatarValidationCode } from '../../lib/agentAvatar'
 import { Button } from '../ui/Button'
+import { AgentPauseRow } from './AgentPauseRow'
 
 const AVATAR_VALIDATION_KEYS = {
   'invalid-type': 'settings.profile.invalidType',
@@ -108,6 +109,7 @@ export function AgentProfilePane({ agent, onClose, onOpenTab }: AgentSettingsPan
 
   return (
     <div>
+      <AgentPauseRow agent={agent} />
       {/* 头像 + 名称 — verbatim layout from design line 973 */}
       <div className={asClass.profileRow}>
         {/* #1461: 走统一 <Avatar>（seed=agent.id）而非裸 <img>；canonical preset/upload URL

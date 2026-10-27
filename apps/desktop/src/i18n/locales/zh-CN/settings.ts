@@ -905,6 +905,9 @@ export default {
     "upgradeHint": "开通会员，解锁下面这些模型"
   },
   "referral": {
+    "readFailed": "没能读取{{items}}。",
+    "readPart": { "number": "咕咕号", "stats": "邀请统计" },
+    "retry": "重试",
     "amountCredits": "{{credits}} 积分",
     "copied": "已复制",
     "copyInvite": "复制邀请链接",
@@ -914,7 +917,6 @@ export default {
     "invited_other": "已邀请 {{count}}",
     "inviteDescription": "分享邀请链接，注册后你和好友各得额度奖励。",
     "inviteLoading": "邀请链接加载中",
-    "invitePlaceholder": "邀请链接即将开放",
     "inviteTitle": "邀请好友"
   },
   "usage": {

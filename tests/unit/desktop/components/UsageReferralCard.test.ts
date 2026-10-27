@@ -41,10 +41,11 @@ describe('#1511 slice3 邀请卡统计', () => {
     await flush()
     expect(harness.container.querySelector('[data-testid="settings-quota-invited-count"]')?.textContent).toContain('0')
   })
-  it('取不到(reject)→ 回落 —,不造假', async () => {
+  it('统计读取失败只显示具体错误与重试', async () => {
     vi.mocked(getReferralStats).mockRejectedValue(new Error('network'))
     await renderWithAppProviders(harness, createNode(ReferralCard), { auth })
     await flush()
-    expect(harness.container.querySelector('[data-testid="settings-quota-invited-count"]')?.textContent).toContain('—')
+    expect(harness.container.querySelector('[role="alert"]')?.textContent).toContain('邀请统计')
+    expect(harness.container.querySelectorAll('[role="alert"]')).toHaveLength(1)
   })
 })
