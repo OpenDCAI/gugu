@@ -1916,7 +1916,10 @@ export class AcpChatStore {
           this._lastQueuedPrompts = [...next.queuedPrompts];
           this._lastActiveTurnId = next.activeTurnId;
           this._syncRuntimeBackgroundTaskIds(next);
-          if (next.lifecycle === 'lost') this._onSessionLost(next);
+          if (next.lifecycle === 'lost' && this.session === session) {
+            this._onSessionClosedByHost(session);
+            this._onSessionLost(next);
+          }
           if (next.lifecycle === 'closed') this._onSessionClosedByHost(session);
           this._syncMessageCount();
         })

@@ -1135,7 +1135,7 @@ export class SessionManager implements InboundRouter {
     startInput?: AcpStartInput,
   ): Promise<Result<{ queued: boolean }, AcpQueuePromptError>> {
     let record = this.cells.get(input.sessionId);
-    if (!record && startInput) {
+    if ((!record || record.phase === 'lost') && startInput) {
       if (startInput.sessionId !== input.sessionId) {
         return acpErr.invalidState(
           `Queue prompt session ${input.sessionId} does not match startup session ${startInput.sessionId}`
@@ -2101,6 +2101,9 @@ export class SessionManager implements InboundRouter {
       onClosed: () => {
         if (this.processingProcessClose.has(input.sessionId)) return;
         this.removeRecord(input.sessionId, true, true);
+      },
+      onPromptRejected: async () => {
+        await record.connectionLease?.value.stopProcess();
       },
     };
     const cell = new SessionCell({

@@ -2,7 +2,7 @@ import { PassThrough, Writable } from 'node:stream';
 import type { Client, SessionNotification } from '@agentclientprotocol/sdk';
 import * as v2 from '@agentclientprotocol/sdk/experimental/v2';
 import { decodeSessionUpdate } from '@gugu/session-core/acp';
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 
 import { nodeReadableToWeb } from './acp-stdio';
 import { connectStdioAcpV2 } from './acp-v2';
@@ -74,6 +74,29 @@ const initialize = (api: ReturnType<typeof agentPair>['api']) =>
 const settle = () => new Promise((resolve) => setTimeout(resolve, 20));
 
 describe('connectStdioAcpV2', () => {
+  it('reports native admission before idle, and never reports a refused prompt as accepted', async () => {
+    const receipt = Promise.withResolvers<v2.PromptResponse>();
+    const pair = agentPair({ prompt: () => receipt.promise });
+    await initialize(pair.api);
+    const accepted = vi.fn();
+    const completed = vi.fn();
+    const prompt = pair.api.prompt({ sessionId: 's1', prompt: [{ type: 'text', text: 'hello' }] }, accepted).then(completed);
+    expect(accepted).not.toHaveBeenCalled();
+    receipt.resolve({});
+    await vi.waitFor(() => expect(accepted).toHaveBeenCalledTimes(1));
+    expect(completed).not.toHaveBeenCalled();
+    await pair.send({ sessionUpdate: 'user_message', messageId: 'u1', content: [{ type: 'text', text: 'hello' }] });
+    await pair.send({ sessionUpdate: 'state_update', state: 'idle', stopReason: 'end_turn' });
+    await prompt;
+    expect(completed).toHaveBeenCalledWith({ stopReason: 'end_turn' });
+
+    const refused = agentPair({ prompt: async () => { throw new Error('native session unavailable'); } });
+    await initialize(refused.api);
+    const notAccepted = vi.fn();
+    await expect(refused.api.prompt({ sessionId: 's1', prompt: [] }, notAccepted)).rejects.toThrow('native session unavailable');
+    expect(notAccepted).not.toHaveBeenCalled();
+  });
+
   it('reads a v2 initialize as the host reads v1: capabilities, auth methods, and the protocol it speaks', async () => {
     const { api } = agentPair();
     const response = await initialize(api);
