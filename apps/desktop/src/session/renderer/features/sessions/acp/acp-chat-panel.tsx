@@ -65,6 +65,7 @@ import { useNavigate } from '@renderer/lib/layout/navigation-actions';
 import type { SessionCondition as ChatSessionCondition } from '@gugu/session-chat-ui';
 import { rpc, rpcOn } from '@renderer/lib/ipc';
 import { nudgeWorkspace } from '@renderer/features/sessions/stores/workspace-nudges';
+import { machineLabel } from '@renderer/lib/machine-clients';
 import { machineRegistry } from '@renderer/lib/machine-routing';
 import { isEmbedVisible } from '@renderer/lib/portal-container';
 import { remoteHostsStore } from '@renderer/features/remote-hosts/remote-hosts-store';
@@ -2100,6 +2101,14 @@ export const AcpChatPanel = observer(function AcpChatPanel({
             code: 'adapter-lost',
             detail: error.message,
             actions: [{ label: translate('transcript.condition.reconnect'), run: () => store.retry() }],
+          };
+        case 'connection_lost':
+          // 断的是到那台机器的线,❌ 引擎:说是哪台、连上后会自己重新打开(store 在线变通时再开);等不及的照样能点。
+          return {
+            code: 'machine-unreachable',
+            label: translate('transcript.condition.machineLinkLost', { device: machineLabel(error.deviceId) }),
+            detail: error.message,
+            actions: [retry],
           };
         default: {
           // 咕咕这一侧的失败按原因表说、给原因表的按钮(#7103);咕咕以外的(harness / provider)递它的原话(#4657)+ 重试。
