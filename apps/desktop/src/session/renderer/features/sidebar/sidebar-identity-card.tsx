@@ -10,11 +10,18 @@ import { sessionAgentNames } from '@renderer/features/sessions/stores/session-ag
 import { getPortalContainer } from '@renderer/lib/portal-container';
 import { useSessionMessages } from '@renderer/localization/use-session-messages';
 import { cn } from '@renderer/utils/utils';
+import { rpc } from '@renderer/lib/ipc';
+import { machineRegistry } from '@renderer/lib/machine-routing';
+import { remoteHostsStore } from '@renderer/features/remote-hosts/remote-hosts-store';
+import { getWorkspaceForSession } from '@renderer/features/sessions/stores/session-selectors';
+import { getProjectStore } from '@renderer/features/projects/stores/project-selectors';
+import { identityPlace } from './sidebar-identity-place';
 
 /**
  * 侧栏会话行的**身份卡**(#6092,取代 #5818 的「标题就地翻成 agent 名」)。
  *
- * 行上只写得下标题;指针停在行上,行右侧弹出一张卡回答「这一行是谁」:**任务名、agent 名**两行,
+ * 行上只写得下标题;指针停在行上,行右侧弹出一张卡回答「这一行是谁、在哪」:**任务名、agent 名、设备、文件夹**
+ * 四行(设备与文件夹 owner 2026-10-28 加,见 sidebar-identity-place.ts),
  * **整行点一下就复制这一行**。#7334 起卡上不再摆会话 ID 与 agent ID —— 平时拿名字的人用不上两串 ID,
  * 摆着只是多一层要读的东西;要会话 ID 的人主动去拿(行的右键「复制会话 ID」)。
  * 复制出去的是**带标签的这一对**(「任务名：X」「Agent 名：Y」)—— 单个值离开了标签,粘到哪都读不出它是什么
@@ -59,6 +66,9 @@ const COPIED_MS = 1600;
  */
 class SidebarIdentityCardStore {
   activeSessionId: string | null = null;
+  /** 本机主目录(文件夹那一行把它缩成 `~`);第一次开卡时问一次主进程,之后不变。 */
+  localHome: string | null = null;
+  private homeAsked = false;
   /**
    * 刚被点过、指针还没离开的那一行:它的悬浮不开卡。记在全局而不是行的 ref 上 —— 点开会话会让侧栏
    * 重渲,行节点可能换掉,新节点在指针下一动就收到一次 pointerenter,ref 记的会跟着旧节点丢掉。
@@ -76,6 +86,20 @@ class SidebarIdentityCardStore {
 
   open(sessionId: string): void {
     this.activeSessionId = sessionId;
+    this.askLocalHome();
+  }
+
+  private askLocalHome(): void {
+    if (this.homeAsked) return;
+    this.homeAsked = true;
+    rpc.app
+      .getHomeDirectory()
+      .then((home) => this.setLocalHome(home))
+      .catch((error: unknown) => log.warn({ error }, 'identity card: home directory unavailable; folder shown in full'));
+  }
+
+  setLocalHome(home: string): void {
+    this.localHome = home;
   }
 
   suppress(sessionId: string): void {
@@ -177,18 +201,24 @@ export function useSidebarIdentityCardTrigger(sessionId: string, enabled: boolea
 }
 
 type RowSpec = {
-  key: 'sessionName' | 'agentName';
+  key: 'sessionName' | 'agentName' | 'device' | 'folder';
   label: string;
-  /** null = 这一格没有(agent 未分配):写「未分配」且不可复制。 */
+  /** null = 这一格没有(agent 未分配 / 文件夹不知道):写 missing 那句且不可复制。 */
   value: string | null;
+  /** 卡上显示的那一份(文件夹把主目录缩成 `~`);不给就显示 value。复制出去的始终是 value。 */
+  display?: string;
+  /** value 为 null 时写什么;默认「未分配」。 */
+  missing?: string;
 };
 
 export const SidebarIdentityCard = observer(function SidebarIdentityCard({
+  projectId,
   sessionId,
   title,
   anchor,
   onDismiss,
 }: {
+  projectId: string;
   sessionId: string;
   title: string;
   /** 取行本体。传取值函数:虚拟列表重渲染会换掉行节点,拿着旧节点定位是对着脱离文档的元素算坐标。 */
@@ -202,6 +232,24 @@ export const SidebarIdentityCard = observer(function SidebarIdentityCard({
     { key: 'sessionName', label: translate('identityCard.sessionName'), value: title },
     { key: 'agentName', label: translate('identityCard.agentName'), value: identity?.displayName ?? null },
   ];
+  // 在哪:设备 + 文件夹。别的机器上的会话没挂载时没有工作区,只知道项目目录(会话目录那一行不带 cwd)。
+  const machine = machineRegistry.machineOf(projectId);
+  const place = identityPlace({
+    deviceLabel: machine ? (remoteHostsStore.device(machine)?.label ?? machine) : translate('task.deviceLocal'),
+    workspacePath: getWorkspaceForSession(projectId, sessionId)?.path,
+    projectPath: getProjectStore(projectId)?.data?.path,
+    home: machine ? remoteHostsStore.homeDir(machine) : sidebarIdentityCard.localHome,
+  });
+  rows.push(
+    { key: 'device', label: translate('identityCard.device'), value: place.device },
+    {
+      key: 'folder',
+      label: translate('identityCard.folder'),
+      value: place.folder,
+      display: place.folderDisplay ?? undefined,
+      missing: translate('identityCard.folderUnknown'),
+    }
+  );
 
   return (
     <PreviewCardPrimitive.Root
@@ -286,7 +334,7 @@ function IdentityRow({ row }: { row: RowSpec }) {
     return (
       <div data-identity-row={row.key} className="flex items-center gap-2 px-3 py-1">
         <span className={labelClass}>{row.label}</span>
-        <span className={valueClass}>{translate('identityCard.unassigned')}</span>
+        <span className={valueClass}>{row.missing ?? translate('identityCard.unassigned')}</span>
       </div>
     );
   }
@@ -309,7 +357,7 @@ function IdentityRow({ row }: { row: RowSpec }) {
           两行图标不对齐也看不出来。反馈就地替换值:值与反馈叠在同一格,值只是藏起来仍占着宽,
           所以点完卡不变窄、图标不挪位。 */}
       <span className="grid min-w-0 grid-cols-1">
-        <span className={cn(valueClass, 'col-start-1 row-start-1', state !== null && 'invisible')}>{row.value}</span>
+        <span className={cn(valueClass, 'col-start-1 row-start-1', state !== null && 'invisible')}>{row.display ?? row.value}</span>
         <span aria-live="polite" className="min-w-0 whitespace-normal break-words text-left text-sm leading-5 col-start-1 row-start-1 text-foreground-muted">
           {state}
         </span>
