@@ -11,20 +11,20 @@ export function replyItems(turn: TranscriptTurn): TranscriptItem[] {
   return turn.items.flatMap(expand);
 }
 
-export function replySource(turn: TranscriptTurn, batchOwnerId?: string): DeliveryReadFacts | null {
+export function replySource(turn: TranscriptTurn, batchOwnerId?: string, options: { includeThreads?: boolean } = {}): DeliveryReadFacts | null {
   const input = turn.items.filter(item => item.kind === 'message' && item.role === 'user').at(-1);
   if (input?.kind !== 'message') return null;
-  return replySourceText(input.text, batchOwnerId);
+  return replySourceText(input.text, batchOwnerId, options);
 }
 
-function replySourceText(text: string, batchOwnerId?: string): DeliveryReadFacts | null {
+function replySourceText(text: string, batchOwnerId?: string, options: { includeThreads?: boolean } = {}): DeliveryReadFacts | null {
   const envelope = readDeliveryEnvelope(text);
   const segments = envelope?.segments ?? [];
   const sameOwnerBatch = batchOwnerId && segments.every(segment => segment.facts?.route === 'chat'
     && segment.facts.fromId === `user:${batchOwnerId}` && segment.facts.chat === segments[0]?.facts?.chat
     && !segment.facts.thread && !segment.facts.whisperTo);
   const facts = segments.length === 1 || sameOwnerBatch ? segments.at(-1)?.facts : null;
-  return facts?.route === 'chat' && facts.messageId && facts.chat && !facts.thread && !facts.whisperTo ? facts : null;
+  return facts?.route === 'chat' && facts.messageId && facts.chat && (options.includeThreads || !facts.thread) && !facts.whisperTo ? facts : null;
 }
 
 function sourceChatMatches(facts: DeliveryReadFacts, chatId: unknown): boolean {
@@ -50,6 +50,18 @@ export function replySend(item: ToolCallItem, facts: DeliveryReadFacts): { text:
   } catch { return null; }
 }
 
+/** Actual successful sends owned by this agent, including proactive sends to another chat. */
+export function successfulMessageSend(item: ToolCallItem): { text: string; id: string } | null {
+  if (!isRootSend(item) || item.status !== 'done' || !item.rawInput) return null;
+  const id = sentMessageId(item);
+  if (!id) return null;
+  try {
+    const args = JSON.parse(item.rawInput) as Record<string, unknown>;
+    return typeof args.chat_id === 'string' && args.chat_id && typeof args.text === 'string'
+      ? { id, text: args.text } : null;
+  } catch { return null; }
+}
+
 /** Root work only; nested subagent rows must not inflate the primary's counts. */
 export function replyProcess(turn: TranscriptTurn, before?: string): ReplyProcess {
   const result: ReplyProcess = { thinkingMs: 0, thoughts: 0, tools: 0, commands: 0 };
@@ -72,7 +84,7 @@ export function replyProcess(turn: TranscriptTurn, before?: string): ReplyProces
   return result;
 }
 
-function sentMessageId(item: McpToolCall): string | null {
+export function sentMessageId(item: McpToolCall): string | null {
   const parse = (raw: unknown): string | null => {
     if (typeof raw === 'string') {
       const sent = /^(?:sent|replied) \(id=(?:msg:)?([a-f0-9-]{36})\)$/.exec(raw);

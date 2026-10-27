@@ -16,10 +16,12 @@ import { useSessionTabCommands } from '../view/session-actions';
 
 export interface AcpChatState {
   sessionId: string;
+  projectId?: string;
 }
 
 export interface AcpChatOpenArgs {
   sessionId: string;
+  projectId?: string;
 }
 
 export const AcpChatTabBarItem = observer(function AcpChatTabBarItem({
@@ -103,7 +105,7 @@ export const acpChatTabProvider: TabProvider<
   resourceKey: (s: AcpChatState) => s.sessionId,
 
   onBeforeOpen: (args: AcpChatOpenArgs): AcpChatState | null => {
-    return { sessionId: args.sessionId };
+    return { sessionId: args.sessionId, ...(args.projectId ? { projectId: args.projectId } : {}) };
   },
 
   initialize(
@@ -112,7 +114,9 @@ export const acpChatTabProvider: TabProvider<
     ctx: TabViewContext
   ): AcpChatTabResource {
     const sessionCtx = ctx as SessionTabContext;
-    const manager = acpChatResources(sessionCtx.sessionId, sessionCtx.projectId);
+    const manager = entry.state.projectId
+      ? acpChatResources(entry.state.sessionId, entry.state.projectId)
+      : acpChatResources(sessionCtx.sessionId, sessionCtx.projectId);
     const store = manager.acquire(entry.state.sessionId);
     return new AcpChatTabResource(store);
   },
@@ -123,7 +127,7 @@ export const acpChatTabProvider: TabProvider<
 
   dispose(entry: TabEntry<AcpChatState>, _resource: AcpChatTabResource, ctx: TabViewContext): void {
     const sessionCtx = ctx as SessionTabContext;
-    acpChatResources(sessionCtx.sessionId, sessionCtx.projectId).release(entry.state.sessionId);
+    acpChatResources(entry.state.projectId ? entry.state.sessionId : sessionCtx.sessionId, entry.state.projectId ?? sessionCtx.projectId).release(entry.state.sessionId);
   },
 
   commands: {

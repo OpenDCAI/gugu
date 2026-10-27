@@ -11,6 +11,7 @@ afterEach(() => harness.cleanup())
 const inactive = () => undefined
 
 it('keeps the same width and meaningful older quote when a streamed reply becomes a persisted message', async () => {
+
   const source = message({ id: 'source', is_mine: true, sender_user_id: 'user-1', content: '解释一下这个问题' })
   const newer = message({ id: 'newer', is_mine: true, sender_user_id: 'user-1', content: '补充另一个问题' })
   const text = '这是一段需要多行显示的真实回复。'.repeat(15)
