@@ -9,6 +9,7 @@ import { createCrossMachineSessions } from '../../desktop/electron/cross-machine
 import { handleUnifiedSessionMessage } from '../../desktop/electron/unified-session-message.ts'
 import { listDevices } from '../../../packages/core/src/cloud/devices.ts'
 import { stableId } from './phone-agent-store.mjs'
+import { withAssistantWorkReply } from '../../../packages/core/src/shared/assistantWorkReply.ts'
 
 const permitted = new Set(['session_devices', 'session_list_harnesses', 'session_list_models', 'session_spawn', 'session_children', 'session_message', 'session_get', 'session_stop'])
 const result = (value) => ({ content: [{ type: 'text', text: JSON.stringify(value) }], details: value })
@@ -79,6 +80,10 @@ export function createPhoneSessionTools({ agent, job, cloud, store, deviceId, wo
       }
   const send = async (action, callId, signal) => {
     await authorize(job.usedGroups ?? [])
+    action=await withAssistantWorkReply(action,job.prompt,async (number)=>{
+      const own=local().find((row)=>row.guguNumber===number)
+      return own ? own.agentUserId : (await lookupAgents({userIds:[],numbers:[number]})).find((row)=>row.guguNumber===number)?.userId
+    })
     const sent = action.work_result
       ? await work.enqueueReport({agent,job,callId,record:action,prepare:(files,target)=>prepareFiles(files,[target],callId,signal)})
       : await handleUnifiedSessionMessage(action, {

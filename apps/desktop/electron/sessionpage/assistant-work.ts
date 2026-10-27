@@ -49,19 +49,27 @@ export class AssistantWorkStore {
   readonly path: string
   constructor(memoryDir: string) { this.path = join(memoryDir, 'pending-work.json') }
   list(): PendingAssistantWork[] { return read(this.path).items.filter(row => row.state !== 'dispatching') }
-  begin(input: Pick<PendingAssistantWork, 'kind' | 'device'> & WorkSource, targets: string[] = [], workId?: string,dispatchKey?: string): string {
+  begin(input: Pick<PendingAssistantWork, 'kind' | 'device' | 'purpose'> & WorkSource, targets: string[] = [], workId?: string,dispatchKey?: string): string {
     const data = read(this.path)
     const retry = dispatchKey && data.items.find(row => row.kind === 'executor' && row.dispatch_key === dispatchKey)
     if (retry && !workId) return retry.id
+    // A relay and an assignment in the same turn are two works: merging would let one's reply close the other.
     const existing = data.items.find(row => row.kind === 'executor' && row.state === 'waiting'
       && targets.length > 0 && targets.every(target => row.recipients.includes(target))
-      && (workId ? row.id === workId : input.source_link && row.source_link === input.source_link))
+      && (workId ? row.id === workId : input.source_link && row.source_link === input.source_link
+        && (row.purpose ?? 'task') === (input.purpose ?? 'task')))
     if (workId && !existing) throw new Error('work_id does not identify waiting work for these executors; use the original full session: task address')
     if (existing) return existing.id
     const id = randomUUID()
     data.items.push({ ...input, id,...(dispatchKey ? {dispatch_key:dispatchKey} : {}), recipients: [], receipt_ids: [], state: 'dispatching', created_at: new Date().toISOString() })
     atomic(this.path, data)
     return id
+  }
+  /** The kind is fixed when the work is dispatched; follow-ups never reclassify it. Unrecorded old work is a task. */
+  purposeOf(id:string):'reply'|'task' {
+    const row=read(this.path).items.find(item=>item.id===id)
+    if(!row) throw new Error('Assistant dispatch recovery reference is missing')
+    return row.purpose ?? 'task'
   }
   ledgerIntent(id:string,key:string) {
     const data=read(this.path)
@@ -73,6 +81,19 @@ export class AssistantWorkStore {
     intents[key]=intent
     atomic(this.path,data)
     return intent
+  }
+  async dispatchTitle(id:string,operationId:string,readTitle:()=>Promise<string>):Promise<string> {
+    const find=(data:ReturnType<typeof empty>)=>Object.values(data.items.find(row=>row.id===id)?.ledger??{}).find(row=>row.operation_id===operationId)
+    const old=find(read(this.path))
+    if(!old)throw new Error('Assistant dispatch reference is missing')
+    if(old.title)return old.title
+    const title=(await readTitle()).trim()
+    if(!title)throw new Error('The addressed task title is unavailable')
+    const data=read(this.path),current=find(data)
+    if(!current)throw new Error('Assistant dispatch reference changed')
+    if(current.title)return current.title
+    current.title=title.slice(0,500);atomic(this.path,data)
+    return current.title
   }
   confirm(id: string, recipients: string[], receipts: string[], questionId?: string): void {
     const data = read(this.path)
@@ -177,13 +198,14 @@ export async function coordinateAssistantAction(binding: AssistantWorkBinding, a
   const store = new AssistantWorkStore(binding.memoryDir)
   const source = await binding.currentInput?.()
   const dispatchKey = binding.agentId ? createHash('sha256').update(JSON.stringify([binding.sessionId,record,source])).digest('hex') : undefined
-  const id = store.begin({ kind: 'executor',
+  const id = store.begin({ kind: 'executor',...(binding.agentId ? {purpose:record.action==='message'&&record.purpose==='reply'?'reply' as const:'task' as const} : {}),
     ...(typeof record.source_link === 'string' ? { source_link: record.source_link } : {}),
     ...source,
     ...(typeof record.device === 'string' ? { device: record.device } : {}) },
     Array.isArray(record.to) ? record.to.filter((value): value is string => typeof value === 'string') : [],
     typeof record.work_id === 'string' ? record.work_id : undefined,dispatchKey)
   let intent:AssistantWorkIntent | undefined
+  const purpose=binding.agentId ? store.purposeOf(id) : undefined
   if(binding.agentId) {
     const context=await assistantWorkLedgerContext().catch(error=>{store.uncertain(id);throw error})
     intent={version:1,assistant_id:binding.agentId,work_id:id,...store.ledgerIntent(id,dispatchKey!),
@@ -191,8 +213,10 @@ export async function coordinateAssistantAction(binding: AssistantWorkBinding, a
       title:(typeof record.title==='string' && record.title.trim() ? record.title.trim() : '任务').slice(0,500),
       ...(typeof record.source_link==='string' ? {source_link:record.source_link} : {}),continuation:typeof record.work_id==='string'}
   }
-  const dispatched = field ? { ...record,...(intent ? {assistant_work:intent} : {}), [field]: `${record[field]}\n\n<gugu_work>\n${JSON.stringify({ work_id: id,
-    coordinator: `session:${binding.sessionId}`, report: EXECUTOR_REPORT })}\n</gugu_work>` } : action
+  // `purpose` is this host's classification, stored on the work; executors and older hosts never see the field.
+  const forwarded={...record};delete forwarded.purpose
+  const dispatched = field ? { ...forwarded,...(intent ? {assistant_work:intent} : {}), [field]: `${record[field]}\n\n<gugu_work>\n${JSON.stringify({ work_id: id,
+    coordinator: `session:${binding.sessionId}`,...(intent?{assistant_id:intent.assistant_id,purpose}:{}), report: EXECUTOR_REPORT })}\n</gugu_work>` } : action
   try {
     let result = await run(dispatched)
     if(intent && record.action==='spawn') {
