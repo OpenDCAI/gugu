@@ -1,4 +1,4 @@
-import { mkdtemp, mkdir, readFile, rm, symlink, writeFile } from 'node:fs/promises'
+import { mkdtemp, mkdir, readFile, readdir, rm, symlink, writeFile } from 'node:fs/promises'
 import { join } from 'node:path'
 import { tmpdir } from 'node:os'
 import { afterEach, expect, it, vi } from 'vitest'
@@ -11,7 +11,9 @@ import { collectAssistantPanelFiles, publishAssistantPanelCollection, type Panel
 import { createAssistantPanelBodyFailures } from '../../apps/desktop/electron/sessionpage/assistant-panel-body-failures'
 
 const roots: string[] = []
-afterEach(async () => { vi.restoreAllMocks(); vi.unstubAllEnvs(); await Promise.all(roots.splice(0).map(root => rm(root,{ recursive: true,force: true }))) })
+const cacheLog = vi.hoisted(() => ({ warn: vi.fn() }))
+vi.mock('../../apps/desktop/electron/lib/logger',() => ({ createLogger: () => cacheLog }))
+afterEach(async () => { vi.restoreAllMocks(); vi.clearAllMocks(); vi.unstubAllEnvs(); await Promise.all(roots.splice(0).map(root => rm(root,{ recursive: true,force: true }))) })
 async function fixture() {
   const root = await mkdtemp(join(tmpdir(),'panel-publisher-')); roots.push(root)
   const binding = { ownerId: 'owner',assistantId: 'assistant',home: root,cwd: join(root,'assistant'),kind: 'computer' as const }
@@ -144,6 +146,25 @@ it('keeps the rejected hash across publisher restarts and forgets removed resour
   f.input.collect.mockResolvedValue([])
   await publishAssistantPanelCollection({ ...f.input,bodyFailures: createAssistantPanelBodyFailures(disk.root,'owner','assistant') })
   expect(await createAssistantPanelBodyFailures(disk.root,'owner','assistant').get('memory','note')).toBeUndefined()
+})
+
+it.each(['broken-json','future-format','unreadable'])('publishes normally with an ignored %s suppression cache', async kind => {
+  const disk = await fixture(), f = transport()
+  const failure = { sha256: 'a'.repeat(64),code: 'invalid-body' as const }
+  await createAssistantPanelBodyFailures(disk.root,'owner','assistant').set('memory','old',failure)
+  const folder = join(disk.root,'assistant-panel-body-failures'), [name] = await readdir(folder), path = join(folder,name)
+  if (kind === 'unreadable') { await rm(path); await mkdir(path) }
+  else await writeFile(path,kind === 'broken-json' ? '{broken' : JSON.stringify({ version: 99 }))
+  const journal = createAssistantPanelBodyFailures(disk.root,'owner','assistant')
+  for (const domain of ['memory','integrations'] as const) await expect(publishAssistantPanelCollection({ ...f.input,domain,bodyFailures: journal })).resolves.toBeUndefined()
+  expect(f.rows.get('memory:note')?.body_item_id).toBe('body')
+  expect(f.rows.get('integrations:note')?.body_item_id).toBe('body')
+  // A later persistence attempt replaces bad content. Failed writes remain a
+  // disposable-cache problem too, without losing the in-memory suppression.
+  await expect(journal.set('memory','new',failure)).resolves.toBeUndefined()
+  expect(await journal.get('memory','new')).toEqual(failure)
+  expect(cacheLog.warn).toHaveBeenCalledOnce()
+  if (kind !== 'unreadable') expect(await createAssistantPanelBodyFailures(disk.root,'owner','assistant').get('memory','new')).toEqual(failure)
 })
 
 it('retries a transport failure without recording it as an invalid body', async () => {

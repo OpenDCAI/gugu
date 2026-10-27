@@ -3,6 +3,9 @@ import { readFile } from 'node:fs/promises'
 import { join } from 'node:path'
 import { atomicWriteText } from '@gugu/core/local/state/paths'
 import type { AssistantPanelDomain } from '@gugu/core/cloud/assistantPanel'
+import { createLogger } from '../lib/logger'
+
+const log = createLogger('assistant-panel-body-failures')
 
 type Failure = { sha256: string; code: 'invalid-body' }
 function validFailure(row: unknown): row is [string, Failure] {
@@ -28,6 +31,12 @@ export function createAssistantPanelBodyFailures(guguHome: string,owner: string,
   const path = join(guguHome,'assistant-panel-body-failures',`${id}.json`)
   const entries = new Map<string, Failure>()
   let loaded: Promise<void> | undefined, tail: Promise<unknown> = Promise.resolve()
+  let warned = false
+  function warn(operation: 'read' | 'write') {
+    if (warned) return
+    warned = true
+    log.warn({ operation },'Panel upload suppression cache unavailable; publication continues with in-memory records')
+  }
   async function load() {
     if (!loaded) loaded = (async () => {
       let text: string
@@ -39,7 +48,7 @@ export function createAssistantPanelBodyFailures(guguHome: string,owner: string,
         throw new Error('PANEL_BODY_FAILURE_STATE_INVALID')
       }
       for (const [key,failure] of state.failures) entries.set(key,failure)
-    })().catch(error => { loaded = undefined; throw error })
+    })().catch(() => { entries.clear(); warn('read') })
     await loaded
   }
   const serial = <T>(work: () => Promise<T> | T): Promise<T> => {
@@ -47,7 +56,7 @@ export function createAssistantPanelBodyFailures(guguHome: string,owner: string,
     tail = next; return next
   }
   const keyOf = (domain: AssistantPanelDomain,key: string) => JSON.stringify([domain,key])
-  const save = () => atomicWriteText(path,JSON.stringify({ version: 1,owner,assistant,failures: [...entries] }))
+  const save = () => atomicWriteText(path,JSON.stringify({ version: 1,owner,assistant,failures: [...entries] })).catch(() => warn('write'))
   return {
     get: (domain,key) => serial(() => entries.get(keyOf(domain,key))),
     set: (domain,key,failure) => serial(async () => { entries.set(keyOf(domain,key),failure); await save() }),
