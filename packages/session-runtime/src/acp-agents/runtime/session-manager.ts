@@ -245,6 +245,7 @@ export function sessionOpenMeta(input: AcpStartInput): { _meta?: Record<string, 
     input.sessionPromptCarrier === 'session-context' ? undefined : input.sessionPrompt?.trim();
   if (!input.sessionMeta && !platform) return {};
   const meta: Record<string, unknown> = { ...(input.sessionMeta ?? {}) };
+  delete meta.guguAssistant;
   if (platform) {
     const existing = meta.systemPrompt;
     const append = isRecord(existing) && typeof existing.append === 'string'
@@ -2127,6 +2128,9 @@ export class SessionManager implements InboundRouter {
   ): SessionRecord {
     const record = {} as SessionRecord;
     const provider = this.deps.agentHost.get(input.providerId);
+    const assistant = input.sessionMeta?.guguAssistant;
+    const assistantOwnerId = input.providerId === 'claude' && isRecord(assistant)
+      && typeof assistant.ownerId === 'string' && assistant.ownerId.trim() ? assistant.ownerId : null;
     const callbacks: SessionCellCallbacks = {
       onSessionStateChanged: () => this.syncRecord(record),
       onTranscriptChanged: () => {
@@ -2179,6 +2183,10 @@ export class SessionManager implements InboundRouter {
         : {}),
       resolveAttachment: this.deps.resolveAttachment,
       acceptsImagePrompts: false,
+      ...(assistantOwnerId && this.deps.promptQueueStore ? {
+        assistantOwnerId,
+        queuedPromptsPersisted: () => record.queuePersistenceError === null,
+      } : {}),
       ...(this.deps.mergeEnvelopes ? { mergeEnvelopes: this.deps.mergeEnvelopes } : {}),
       logger: this.deps.logger,
       // ③:没有系统位的家,会话级系统提示词以用户级载体随首轮进去(见 cell-deps 抬头)。

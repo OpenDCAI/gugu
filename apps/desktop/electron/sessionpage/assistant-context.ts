@@ -22,6 +22,7 @@ const ASSISTANT_SYSTEM_PROMPT = `Follow the owner’s instructions, the managed 
 export function assistantHomeTaskContext(capabilities: Materialization, cwd: string, guguHome: string): Materialization {
   if (resolve(cwd) !== resolve(guguHome, ASSISTANT_COMPUTER_WORKDIR_NAME)) return capabilities
   const materialized = personalAssistantContext(capabilities)
+  delete materialized.sessionNewPatch!.meta!.guguAssistant
   const claude = materialized.sessionNewPatch!.meta!.claudeCode as { options: Record<string, unknown> }
   const original = capabilities.sessionNewPatch?.meta?.claudeCode as { options?: { env?: Record<string, string> } } | undefined
   const env: Record<string, string> = { ...(claude.options.env as Record<string, string>), CLAUDE_CODE_DISABLE_AUTO_MEMORY: '1' }
@@ -47,13 +48,13 @@ export async function preparePersonalAssistantContext(
     openingAssistantIndex(guguHome, cwd, kind, deps),
   ])
   const memoryDir = assistantHomePaths(home, cwd, kind).memoryDir
-  return personalAssistantContext(capabilities, kind, { index: opening.index, guguHome,
+  return personalAssistantContext(capabilities, kind, { index: opening.index, guguHome, ownerId: opening.accountId,
     panelStatePath: deps.panelStatePath,
     recoveryContext: assistantRecoveryContext(memoryDir), workingContextPath: join(memoryDir, 'working-context.md') })
 }
 
 /** Personal-assistant work uses Gugu's explicit capabilities, not the host's coding setup. */
-export function personalAssistantContext(capabilities: Materialization, kind: AssistantHomeKind = 'computer', startup?: { index: string; guguHome: string; recoveryContext?: string; workingContextPath?: string; panelStatePath?: string }): Materialization {
+export function personalAssistantContext(capabilities: Materialization, kind: AssistantHomeKind = 'computer', startup?: { index: string; guguHome: string; ownerId?: string; recoveryContext?: string; workingContextPath?: string; panelStatePath?: string }): Materialization {
   const meta = capabilities.sessionNewPatch?.meta ?? {}
   const claude = (meta.claudeCode ?? {}) as Record<string, unknown>
   const options = (claude.options ?? {}) as Record<string, unknown>
@@ -122,6 +123,7 @@ export function personalAssistantContext(capabilities: Materialization, kind: As
       ...capabilities.sessionNewPatch,
       meta: {
         ...meta,
+        ...(startup?.ownerId ? { guguAssistant: { ownerId: startup.ownerId } } : {}),
         claudeCode: {
           ...claude,
           options: {

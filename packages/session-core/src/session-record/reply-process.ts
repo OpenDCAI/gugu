@@ -11,11 +11,19 @@ export function replyItems(turn: TranscriptTurn): TranscriptItem[] {
   return turn.items.flatMap(expand);
 }
 
-export function replySource(turn: TranscriptTurn): DeliveryReadFacts | null {
+export function replySource(turn: TranscriptTurn, batchOwnerId?: string): DeliveryReadFacts | null {
   const input = turn.items.filter(item => item.kind === 'message' && item.role === 'user').at(-1);
   if (input?.kind !== 'message') return null;
-  const envelope = readDeliveryEnvelope(input.text);
-  const facts = envelope?.segments.length === 1 ? envelope.segments[0]?.facts : null;
+  return replySourceText(input.text, batchOwnerId);
+}
+
+function replySourceText(text: string, batchOwnerId?: string): DeliveryReadFacts | null {
+  const envelope = readDeliveryEnvelope(text);
+  const segments = envelope?.segments ?? [];
+  const sameOwnerBatch = batchOwnerId && segments.every(segment => segment.facts?.route === 'chat'
+    && segment.facts.fromId === `user:${batchOwnerId}` && segment.facts.chat === segments[0]?.facts?.chat
+    && !segment.facts.thread && !segment.facts.whisperTo);
+  const facts = segments.length === 1 || sameOwnerBatch ? segments.at(-1)?.facts : null;
   return facts?.route === 'chat' && facts.messageId && facts.chat && !facts.thread && !facts.whisperTo ? facts : null;
 }
 
@@ -73,6 +81,7 @@ function sentMessageId(item: McpToolCall): string | null {
     }
     if (!raw || typeof raw !== 'object') return null;
     const value = raw as Record<string, unknown>;
+    if (value.isError === true) return null;
     if (typeof value.message_id === 'string') return value.message_id;
     if (Array.isArray(value.content)) {
       for (const block of value.content) {
@@ -89,6 +98,22 @@ export function successfulGuguSendMessageId(item: ToolCallItem): string | null {
   if (item.kind !== 'mcp-tool-call' || !isGuguServer(item.server) || item.parentToolCallId || item.status !== 'done'
     || !/(?:^|__)message_send(?:_file)?$/.test(item.tool)) return null;
   return sentMessageId(item);
+}
+
+/** A confirmed reply to the owner's current input, never an agent's claim that it replied. */
+export function canYieldRepliedAssistant(turn: TranscriptTurn | null, nextText: string, ownerId: string): boolean {
+  if (!turn) return false;
+  const previous = replySource(turn, ownerId);
+  const next = replySourceText(nextText, ownerId);
+  if (!previous || !next || previous.fromId !== `user:${ownerId}` || next.fromId !== `user:${ownerId}`
+    || !(sourceChatMatches(previous, next.chat) || sourceChatMatches(next, previous.chat))) return false;
+  // A receipt from before a later steered input does not mean that later input has a reply.
+  const items = replyItems(turn);
+  const inputIndex = items.findLastIndex(item => item.kind === 'message' && item.role === 'user');
+  const lastTool = items.slice(inputIndex + 1).findLast(item => 'toolCallId' in item);
+  // An acknowledgement followed by real work is not a model-only trailing response.
+  return !!lastTool && 'toolCallId' in lastTool && isRootSend(lastTool)
+    && lastTool.status === 'done' && replySend(lastTool, previous) !== null && sentMessageId(lastTool) !== null;
 }
 
 export function replyProcesses(turns: readonly TranscriptTurn[], chatId: string): ReadonlyMap<string, ReplyProcess> {

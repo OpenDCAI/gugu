@@ -47,7 +47,7 @@ export async function invalidateAssistantIndex(guguHome: string, cwd: string, ki
 /** Discovery is data, not the tool surface. Never hold the first model request for remote inventories. */
 export async function openingAssistantIndex(
   guguHome: string, cwd: string, kind: AssistantHomeKind, deps: AssistantStartupIndexDeps,
-): Promise<{ index: string; refreshed: Promise<void> }> {
+): Promise<{ index: string; accountId: string; refreshed: Promise<void> }> {
   const account = await deps.accountId()
   if (!account) throw new Error('Assistant startup index: owner is not authenticated')
   const directory = resolve(cwd)
@@ -112,5 +112,5 @@ export async function openingAssistantIndex(
     : ['<gugu_resource_index>', note, state,
       JSON.stringify({ account: `user:${account}`, execution_environment: process.env.GUGU_CLOUD_COMPUTER === '1' ? 'cloud' : 'user_device' }),
       '</gugu_resource_index>'])
-  return { index, refreshed: refreshing.get(path)! }
+  return { index, accountId: account, refreshed: refreshing.get(path)! }
 }

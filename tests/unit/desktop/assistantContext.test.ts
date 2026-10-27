@@ -294,6 +294,7 @@ it.each(['computer', 'cloud'] as const)('installs one full resource hook for sta
       action.action === 'devices' ? [] : action.action === 'device_actions' ? { devices: [] }
         : action.action === 'project_list' ? [] : { items: [] } }
     const start = await preparePersonalAssistantContext(fixture(), cwd, root, kind, deps, root)
+    expect(start.sessionNewPatch!.meta!.guguAssistant).toMatchObject({ ownerId: 'owner' })
     const hooks = JSON.parse(start.artifacts!.find(file => file.path.endsWith('/hooks/hooks.json'))!.content).hooks.SessionStart
     for (const source of ['startup', 'clear', 'compact', 'resume']) {
       const resource = hooks.filter((entry: { matcher: string }) => new RegExp(`^(?:${entry.matcher})$`).test(source))
