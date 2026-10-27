@@ -17,6 +17,7 @@ import { prepareAssistantProfileReview } from './assistant-profile-review'
 import { assistantResourceChanges } from './assistant-resource-changes'
 import { invalidateAssistantIndex, stopAssistantIndexRefresh } from './assistant-index-cache'
 import { collectAssistantPanelFiles, publishAssistantPanelCollection, type PanelObservation } from './assistant-panel-publisher'
+import { createAssistantPanelBodyFailures } from './assistant-panel-body-failures'
 
 type Auth = { accessToken: string; userId: string }
 type Binding = AssistantPanelHome & { sessionId: string }
@@ -32,6 +33,7 @@ export function createAssistantPanelRuntime(deps: {
   const bindings = new Map<string, Binding>()
   const runtimes = new Map<string, ReturnType<typeof runtime>>()
   const roles = new Map<string, boolean>()
+  const bodyFailures = new Map<string, ReturnType<typeof createAssistantPanelBodyFailures>>()
   async function resolve(sessionId: string): Promise<Binding | null> {
     const auth = await hostAuth()
     if (!auth) return null
@@ -57,6 +59,9 @@ export function createAssistantPanelRuntime(deps: {
     return binding
   }
   function runtime(binding: Binding) {
+    const failureKey = JSON.stringify([binding.ownerId,binding.assistantId])
+    if (!bodyFailures.has(failureKey)) bodyFailures.set(failureKey,createAssistantPanelBodyFailures(deps.guguHome,binding.ownerId,binding.assistantId))
+    const failures = bodyFailures.get(failureKey)!
     let chatId: string | undefined
     let tail: Promise<unknown> = Promise.resolve()
     let publication: Promise<void> | null = null
@@ -202,6 +207,7 @@ export function createAssistantPanelRuntime(deps: {
           const instanceId = deps.instanceId(),deviceId = await deps.deviceId()
           if (!instanceId) throw new Error('PANEL_RUNTIME_LEASE_UNAVAILABLE')
           await publishAssistantPanelCollection({ assistantId: binding.assistantId,instanceId,deviceId,domain,cloud,
+            bodyFailures: failures,
             collect: previous => observations(domain,previous),
             upload: async row => uploadAssistantPanelBody({ ...await access(),name: `${row.key.split('/').pop() ?? domain}.bin`,bytes: row.bytes!,contentType: row.contentType ?? 'application/octet-stream' }),
             discard: async itemId => {
