@@ -50,20 +50,35 @@ export class AssistantWorkStore {
   constructor(memoryDir: string) { this.path = join(memoryDir, 'pending-work.json') }
   list(): PendingAssistantWork[] { return read(this.path).items.filter(row => row.state !== 'dispatching') }
   begin(input: Pick<PendingAssistantWork, 'kind' | 'device' | 'purpose'> & WorkSource, targets: string[] = [], workId?: string,dispatchKey?: string): string {
+    return this.dispatch(input,targets,{workId,dispatchKey}).id
+  }
+  /**
+   * Which work a dispatch belongs to, and whether it continues one already on record (#615).
+   * A message to an executor that still holds unfinished work of the same kind continues that work by default:
+   * only an explicit `fresh` assignment (`purpose: 'new'`) opens a new one. Matching by the chat message that triggered the turn
+   * opened a second work for every follow-up, leaving the first one open forever (one agent, two task rows).
+   * `ledgered` limits implicit continuation to work the account ledger already holds, so a follow-up never
+   * points at a work the cloud has never seen.
+   */
+  dispatch(input: Pick<PendingAssistantWork, 'kind' | 'device' | 'purpose'> & WorkSource, targets: string[] = [],
+    options: { workId?: string; dispatchKey?: string; fresh?: boolean; ledgered?: boolean } = {}): { id: string; continued: boolean } {
+    const { workId, dispatchKey } = options
     const data = read(this.path)
     const retry = dispatchKey && data.items.find(row => row.kind === 'executor' && row.dispatch_key === dispatchKey)
-    if (retry && !workId) return retry.id
+    if (retry && !workId) return { id: retry.id, continued: false }
     // A relay and an assignment in the same turn are two works: merging would let one's reply close the other.
-    const existing = data.items.find(row => row.kind === 'executor' && row.state === 'waiting'
-      && targets.length > 0 && targets.every(target => row.recipients.includes(target))
-      && (workId ? row.id === workId : input.source_link && row.source_link === input.source_link
-        && (row.purpose ?? 'task') === (input.purpose ?? 'task')))
+    const open = data.items.filter(row => row.kind === 'executor' && row.state === 'waiting'
+      && targets.length > 0 && targets.every(target => row.recipients.includes(target)))
+    const existing = workId ? open.find(row => row.id === workId)
+      : options.fresh ? undefined
+      : open.filter(row => (row.purpose ?? 'task') === (input.purpose ?? 'task') && (!options.ledgered || Object.keys(row.ledger ?? {}).length > 0))
+        .sort((a, b) => b.created_at.localeCompare(a.created_at))[0]
     if (workId && !existing) throw new Error('work_id does not identify waiting work for these executors; use the original full session: task address')
-    if (existing) return existing.id
+    if (existing) return { id: existing.id, continued: true }
     const id = randomUUID()
     data.items.push({ ...input, id,...(dispatchKey ? {dispatch_key:dispatchKey} : {}), recipients: [], receipt_ids: [], state: 'dispatching', created_at: new Date().toISOString() })
     atomic(this.path, data)
-    return id
+    return { id, continued: false }
   }
   /** The kind is fixed when the work is dispatched; follow-ups never reclassify it. Unrecorded old work is a task. */
   purposeOf(id:string):'reply'|'task' {
@@ -198,12 +213,12 @@ export async function coordinateAssistantAction(binding: AssistantWorkBinding, a
   const store = new AssistantWorkStore(binding.memoryDir)
   const source = await binding.currentInput?.()
   const dispatchKey = binding.agentId ? createHash('sha256').update(JSON.stringify([binding.sessionId,record,source])).digest('hex') : undefined
-  const id = store.begin({ kind: 'executor',...(binding.agentId ? {purpose:record.action==='message'&&record.purpose==='reply'?'reply' as const:'task' as const} : {}),
+  const { id, continued } = store.dispatch({ kind: 'executor',...(binding.agentId ? {purpose:record.action==='message'&&record.purpose==='reply'?'reply' as const:'task' as const} : {}),
     ...(typeof record.source_link === 'string' ? { source_link: record.source_link } : {}),
     ...source,
     ...(typeof record.device === 'string' ? { device: record.device } : {}) },
     Array.isArray(record.to) ? record.to.filter((value): value is string => typeof value === 'string') : [],
-    typeof record.work_id === 'string' ? record.work_id : undefined,dispatchKey)
+    { workId: typeof record.work_id === 'string' ? record.work_id : undefined, dispatchKey, fresh: record.purpose === 'new', ledgered: binding.agentId !== undefined })
   let intent:AssistantWorkIntent | undefined
   const purpose=binding.agentId ? store.purposeOf(id) : undefined
   if(binding.agentId) {
@@ -211,7 +226,7 @@ export async function coordinateAssistantAction(binding: AssistantWorkBinding, a
     intent={version:1,assistant_id:binding.agentId,work_id:id,...store.ledgerIntent(id,dispatchKey!),
       coordinator:{session_id:binding.sessionId,device_id:context.deviceId},
       title:(typeof record.title==='string' && record.title.trim() ? record.title.trim() : '任务').slice(0,500),
-      ...(typeof record.source_link==='string' ? {source_link:record.source_link} : {}),continuation:typeof record.work_id==='string'}
+      ...(typeof record.source_link==='string' ? {source_link:record.source_link} : {}),continuation:continued}
   }
   // `purpose` is this host's classification, stored on the work; executors and older hosts never see the field.
   const forwarded={...record};delete forwarded.purpose

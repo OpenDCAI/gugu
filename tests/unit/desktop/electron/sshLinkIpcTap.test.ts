@@ -16,6 +16,7 @@ function register() {
     getWindow: () => null,
     store: { list: () => [], onChange: () => () => undefined } as never,
     currentUserId: async () => 'owner-1',
+    published: true,
   })
   return { links, handlers }
 }
@@ -28,6 +29,7 @@ describe('ssh-link-ipc tap: an active close reaches whoever listens on that link
       ipcMain: { handle: () => undefined } as never, getWindow: () => null,
       store: { list: () => machines, onChange: () => () => undefined } as never,
       currentUserId: async () => current,
+      published: true,
       tunnels: { linkMachine: vi.fn(() => ({ target: { destination: 'tunnel', display: 'tunnel' }, accountUserId: 'owner-1' })), reportBroken: vi.fn() },
     })
     const open = vi.spyOn(links, 'open')

@@ -67,6 +67,8 @@ export function registerSshLinkIpc(options: {
   upgradeChannel?: 'stable' | 'beta'
   /** 单测替身;默认按 upgradeChannel 真升。 */
   upgrader?: SshAutoUpgrader
+  /** 这台桌面是不是发布流水线出的包(GUGU_BUILD_DISTRIBUTION=published);不是就不报自己的版本(见 reportedDesktopVersion)。 */
+  published: boolean
   /**
    * #6264 这台桌面的设备 id(与开窗口时报给那台机器的同一个,见 src/lib/remoteSessionHost.ts):替它换成和这台桌面
    * 匹配的那一版时报给它。拿不到就只能整台升级(老路)。
@@ -127,7 +129,7 @@ export function registerSshLinkIpc(options: {
   const channel = options.upgradeChannel
   // 报给那台机器的「这台桌面是哪一版」:正式版 = 自己的版本;开发 / 测试可用 GUGU_SERVER_MATCH_VERSION 覆盖(见 reportedDesktopVersion)。
   // process.defaultApp:Electron 以「electron .」起的(没打包)时为 true。
-  const desktopVersion = reportedDesktopVersion(process.env, { packaged: process.defaultApp !== true })
+  const desktopVersion = reportedDesktopVersion(process.env, { packaged: process.defaultApp !== true, published: options.published })
   // 渲染层开窗口时报的也是这一个(src/lib/remoteSessionHost.ts),两处 ❌ 各算各的。
   options.ipcMain.handle(SSH_LINK_CHANNELS.desktopVersion, () => desktopVersion)
   const upgrader: SshAutoUpgrader | null =
