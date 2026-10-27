@@ -1,9 +1,11 @@
 import { isInstallRefused, type AttachmentInstallRefused } from './attachment-install';
+import { everyAgentThere } from './app-places';
+import type { EnablePlace } from './host-actions';
 import type { HandedConsent } from './install-consent-flow';
 
 /** What an install answers (`installFromMarket`, `installAttachment`, an agent's `app_install` there), as far as installing with a yes given elsewhere reads it. */
 export type InstallAnswer<D extends Handed = Handed> = { success: boolean; error?: string; data?: D };
-type Handed = { outcome?: string; installed?: boolean; ask?: { manifestDigest: string }; asks?: boolean; reason?: string };
+type Handed = { outcome?: string; installed?: boolean; ask?: { manifestDigest: string; places?: EnablePlace[] }; asks?: boolean; reason?: string };
 
 /** The yes, decided between the two steps: the package agreed to (its digest, and where they ticked), or why not. */
 export type Agreement = { digest: string; enableIn?: string[] } | { declined: string };
@@ -27,7 +29,9 @@ export async function installAgreedOn<D extends Handed>(
   const agreement = await agree(handed);
   if ('declined' in agreement) return agreement;
   if (handed.ask?.manifestDigest !== agreement.digest) throw new Error('that computer fetched another package than the one agreed to');
-  return answered(await install({ kind: 'given', ...agreement }), 'that computer did not install it');
+  // Ticked in the sheet = every agent on that computer too (`everyAgentThere`), as on the computer the sheet was for.
+  const enableIn = agreement.enableIn ?? everyAgentThere(handed.ask?.places);
+  return answered(await install({ kind: 'given', ...agreement, ...(enableIn ? { enableIn } : {}) }), 'that computer did not install it');
 }
 
 /** E-05 refused an install (`AttachmentInstallRefused`): thrown with it, so whoever asked can say what is there. */

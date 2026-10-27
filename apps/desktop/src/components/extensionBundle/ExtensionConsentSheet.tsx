@@ -12,8 +12,8 @@ import { Avatar } from '../Avatar'
 import { Button } from '../ui/Button'
 import { Sheet } from '../ui/Sheet'
 import { ConsentBody } from './ConsentDetails'
-import { AppPlacesEditor } from './AppPlaces'
-import { applyPlaceChanges } from '../../session/shared/extensions/app-places'
+import { everyAgentThere } from '../../session/shared/extensions/app-places'
+import { MachineLines } from '../../session/renderer/features/remote-hosts/machine-picker'
 import { ForumConsent } from './ForumConsent'
 import { DispatchSheet } from '../chat/DispatchSheet'
 
@@ -50,8 +50,6 @@ export function ExtensionConsentSheet() {
 function InstallConsentSheet() {
   const { t } = useTranslation('messaging')
   const [ask, setAsk] = useState<Ask | null>(null)
-  /** D-30: the places switched on for 「给哪些 agent」 — what the ask had on at first, then the person's own choice. */
-  const [enableIn, setEnableIn] = useState<string[]>([])
   /** owner 10-16: the other computers ticked to install on too — none until the person ticks one. */
   const [alsoOn, setAlsoOn] = useState<string[]>([])
   const titleId = useId()
@@ -62,7 +60,6 @@ function InstallConsentSheet() {
       if (!detail) return
       if (detail.type === 'ask') {
         detail.shown = true
-        setEnableIn((detail.places ?? []).filter((place) => place.enabled).map((place) => place.id))
         setAlsoOn([])
         setAsk(detail)
       } else if (detail.type === 'close') {
@@ -74,19 +71,20 @@ function InstallConsentSheet() {
   }, [])
 
   if (!ask) return null
+  const enableIn = everyAgentThere(ask.places)
   const answer = (outcome: ExtensionConsentAnswerDetail['outcome']) => {
     setAsk(null)
     const detail: ExtensionConsentAnswerDetail = {
       requestId: ask.requestId,
       outcome,
-      ...(ask.places ? { enableIn } : {}),
+      ...(enableIn ? { enableIn } : {}),
       ...(ask.alsoOn ? { alsoOn } : {}),
     }
     window.dispatchEvent(new CustomEvent(EXTENSION_CONSENT_ANSWER_EVENT, { detail }))
   }
   return (
     // The visible title names the sheet (`titleId`): without it the sheet adds a hidden copy, and the title is read twice.
-    <Sheet onClose={() => answer('dismissed')} desktopWidth="420px" testId="extension-consent-sheet" titleId={titleId} zIndex="var(--z-settings-modal)">
+    <Sheet onClose={() => answer('dismissed')} desktopWidth="440px" testId="extension-consent-sheet" titleId={titleId} zIndex="var(--z-settings-modal)">
       <div className="flex min-h-0 flex-1 flex-col gap-3 !p-5">
         <div className="flex items-center gap-2">
           {ask.requester ? <RequesterFace requester={ask.requester} /> : null}
@@ -96,36 +94,25 @@ function InstallConsentSheet() {
         </div>
         <div className="min-h-0 flex-1 overflow-auto text-[length:var(--font-body)] text-[var(--text-secondary)]">
           <ConsentBody description={ask.description} details={ask.details} />
-          {ask.places ? (
-            // D-30 (主人 10-06「肯定是能选的啊」): which agents get its tools — every agent here unless the person picks; changed any
-            // time on the App's row in 「App」.
-            <div className="!mt-3 flex flex-col gap-1" data-testid="extension-consent-enable-in">
-              <div className="text-[length:var(--font-body)] font-semibold text-[var(--text-primary)]">{t('chatArea.appEnable.title')}</div>
-              <AppPlacesEditor
-                places={ask.places}
-                machineName={ask.machine}
-                enabled={new Set(enableIn)}
-                onChange={(changes) => setEnableIn((ids) => applyPlaceChanges(ids, changes))}
-                installing
-              />
-            </div>
-          ) : null}
-          {ask.alsoOn?.length ? (
-            // owner 10-16「装的时候一次选好装到哪几台」: the same App, the same permissions, on these computers too — each named.
-            <fieldset className="!mt-3 flex flex-col gap-1" data-testid="extension-consent-also-on">
-              <legend className="text-[length:var(--font-body)] font-semibold text-[var(--text-primary)]">{t('chatArea.appEnable.alsoOn')}</legend>
-              {ask.alsoOn.map((machine) => (
-                <label key={machine.id} className="flex items-center gap-2" title={machine.disabledReason}>
+          {enableIn || ask.alsoOn?.length ? (
+            // owner 10-27「不关心给哪些 agent，关心给哪些设备」: one list of computers. The one asked for is installed on; each
+            // other one ticked is installed on too (owner 10-16). On every one, every agent there gets it (`everyAgentThere`);
+            // giving it to only some agents is the App page's 「已给」.
+            <fieldset className="!mt-3 flex flex-col gap-1" data-testid="extension-consent-devices">
+              <legend className="text-[length:var(--font-body)] font-semibold text-[var(--text-primary)]">{t('chatArea.appEnable.devices')}</legend>
+              {[{ id: '', label: ask.machine ?? t('chatArea.appEnable.machine'), disabledReason: undefined }, ...(ask.alsoOn ?? [])].map((machine) => (
+                <label key={machine.id} className="flex items-center gap-2 py-1" title={machine.disabledReason}>
                   <input
                     type="checkbox"
-                    data-testid={`extension-consent-also-on-${machine.id}`}
-                    disabled={machine.disabledReason !== undefined}
-                    checked={alsoOn.includes(machine.id)}
+                    data-testid={machine.id ? `extension-consent-also-on-${machine.id}` : 'extension-consent-device-target'}
+                    disabled={!machine.id || machine.disabledReason !== undefined}
+                    checked={!machine.id || alsoOn.includes(machine.id)}
                     onChange={(event) => setAlsoOn((ids) => (event.target.checked ? [...ids, machine.id] : ids.filter((id) => id !== machine.id)))}
                   />
-                  <span>{machine.label}</span>
+                  <MachineLines label={machine.label} meta={machine.disabledReason ?? null} muted={machine.disabledReason !== undefined} />
                 </label>
               ))}
+              {enableIn ? <div className="px-1 pt-1 text-[length:var(--font-caption)] leading-normal text-[var(--text-tertiary)]">{t('chatArea.appEnable.devicesHint')}</div> : null}
             </fieldset>
           ) : null}
         </div>

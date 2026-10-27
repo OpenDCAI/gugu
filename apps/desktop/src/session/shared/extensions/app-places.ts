@@ -57,6 +57,16 @@ export function placesOfChats(
   return [...here, ...agents, ...groups];
 }
 
+/**
+ * owner 10-27「不关心给哪些 agent，关心给哪些设备」: installing on a computer gives every agent there (`here:all`), on top of
+ * what is given already — the account's rows at chats are kept as they are (the answer is written back whole). Narrowing it
+ * to some agents is the App page's (「已给」). Undefined when the computer asked nothing about agents.
+ */
+export function everyAgentThere(places: readonly EnablePlace[] | undefined): string[] | undefined {
+  if (!places?.some((place) => place.kind === 'here')) return undefined;
+  return [...new Set([...places.filter((place) => place.enabled).map((place) => place.id), HERE_ALL])];
+}
+
 /** As many faces as a group's picture shows (`Avatar`'s composite). */
 export const GROUP_FACES = 9;
 
