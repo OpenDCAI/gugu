@@ -22,7 +22,7 @@ it('persists parallel domain updates without losing failures and prunes only the
   const folder = join(root,'assistant-panel-body-failures'), files = await readdir(folder)
   expect(files).toHaveLength(1)
   const path = join(folder,files[0])
-  expect((await stat(path)).mode & 0o777).toBe(0o600)
+  if (process.platform !== 'win32') expect((await stat(path)).mode & 0o777).toBe(0o600)
   expect(JSON.parse(await readFile(path,'utf8')).failures).toHaveLength(1)
 })
 
