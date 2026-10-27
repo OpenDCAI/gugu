@@ -1,3 +1,4 @@
+import { isImplicitSessionHomeProjectId } from '@gugu/core/shared/sessionProject'
 import { createGroupAdmin } from '@gugu/core/cloud/groupAdmin'
 // @@@sessionpage TASKPAGE-FUSION — AUTO-PROVISIONING (Part C, the real thing). Turns a session-page session
 // whose exact provider/surface declares addressable identity into a gugu agent at session start, so agents can
@@ -99,10 +100,9 @@ const FALLBACK_PROJECT_GROUP_NAME = '任务项目'
  * The session page's sentinel "implicit task-home project" — the execution context it gives a task created BEFORE the
  * user opens a repository. The session page never renders it as a selectable project, so to the user such a
  * conversation has NO project, and spec ⑨ makes its agent a plain DM contact rather than a group member.
- * Mirrored here (rather than imported) because it lives in the session page's RENDERER constants while this is host
- * main-process code; taskpageImplicitProject.test.ts reads that renderer file and fails loud if the two drift.
+ * The marker is shared by host, renderer and cloud readers in core/shared/sessionProject.
  */
-export const IMPLICIT_SESSION_HOME_PROJECT_ID = '00000000-0000-4000-8000-000000000001'
+export { IMPLICIT_SESSION_HOME_PROJECT_ID } from '@gugu/core/shared/sessionProject'
 
 /**
  * @@@task-home-cwd — a conversation on the implicit task-home project runs in gugu's OWN app-owned
@@ -114,9 +114,7 @@ export const IMPLICIT_SESSION_HOME_PROJECT_ID = '00000000-0000-4000-8000-0000000
  * never from that shared workspace — whereas an agent opened in a real user repo keeps reading its repo
  * `.opencode`. So the boundary is directory ownership, keyed off this sentinel id.
  */
-export function isImplicitSessionHomeProjectId(projectId: string | null | undefined): boolean {
-  return projectId === IMPLICIT_SESSION_HOME_PROJECT_ID
-}
+export { isImplicitSessionHomeProjectId } from '@gugu/core/shared/sessionProject'
 
 /**
  * 建群看的项目 id:用户眼里「没有项目」的会话不建、不进项目群,agent 只是私聊联系人(spec ⑨ 的群只对用户看得见的项目成立)。
