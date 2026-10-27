@@ -83,6 +83,22 @@ export type ProjectAgent = {
   contact: ContactUser | null
   /** 它在这个项目里最近做的那件事。 */
   work: string | null
+  /** 那件事的会话(哪台机器上的哪条);群里有、这个项目里还没开过会话 = null。 */
+  latest: { deviceId: string; session: SessionpageSessionSummary } | null
+}
+
+/** 点项目通讯录里一个 agent 去哪:它在这里有会话 ⇒ 那条会话自己的页;没有 ⇒ 项目群(落在它那件任务的页签上,有的话)。 */
+export type ProjectAgentTarget =
+  | { kind: 'session'; deviceId: string; session: SessionpageSessionSummary }
+  | { kind: 'group'; tabChatId?: string }
+
+/**
+ * owner 10-28 手机试用:「在伙伴 项目里选择一个会话 居然不是会话聊天页 而是群聊页 加@」。
+ * 一个 agent 一行,行上写的是它在这里最近那件事 —— 点它就进那条会话,❌ 进项目群。
+ */
+export function projectAgentTarget(agent: Pick<ProjectAgent, 'latest'>, taskTopicChatId?: string): ProjectAgentTarget {
+  if (agent.latest) return { kind: 'session', deviceId: agent.latest.deviceId, session: agent.latest.session }
+  return { kind: 'group', tabChatId: taskTopicChatId }
 }
 
 /**
@@ -92,21 +108,24 @@ export type ProjectAgent = {
 export function projectAgents(
   group: Pick<ContactGroupChat, 'member_user_ids'> | null,
   myAgents: ReadonlyMap<string, ContactUser>,
-  sessions: readonly { session: SessionpageSessionSummary }[],
+  sessions: readonly { deviceId: string; session: SessionpageSessionSummary }[],
 ): ProjectAgent[] {
-  const latest = new Map<string, SessionpageSessionSummary>()
-  for (const { session } of sessions) {
-    const agentId = session.agent?.userId
+  const latest = new Map<string, { deviceId: string; session: SessionpageSessionSummary }>()
+  for (const row of sessions) {
+    const agentId = row.session.agent?.userId
     if (!agentId) continue
     const seen = latest.get(agentId)
-    if (!seen || (session.lastInteractedAt ?? '') > (seen.lastInteractedAt ?? '')) latest.set(agentId, session)
+    if (!seen || (row.session.lastInteractedAt ?? '') > (seen.session.lastInteractedAt ?? '')) latest.set(agentId, row)
   }
   const ids = [...(group?.member_user_ids ?? []).filter((id) => myAgents.has(id))]
   for (const { session } of sessions) {
     const agentId = session.agent?.userId
     if (agentId && !ids.includes(agentId)) ids.push(agentId)
   }
-  return ids.map((id) => ({ id, contact: myAgents.get(id) ?? null, work: latest.get(id)?.title ?? null }))
+  return ids.map((id) => {
+    const row = latest.get(id) ?? null
+    return { id, contact: myAgents.get(id) ?? null, work: row?.session.title ?? null, latest: row }
+  })
 }
 
 export function agentName(agent: ProjectAgent): string {

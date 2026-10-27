@@ -31,6 +31,7 @@ import { projectRpcOn } from './projectRpc'
 import { matchesQuery, partnerFriends, partnerProjects, projectSessions, runningCount, type PartnerProject } from './partnersModel'
 import { PhoneNewProjectPage, type CreatedProject } from './PhoneNewProjectPage'
 import { PhoneProjectContacts } from './PhoneProjectContacts'
+import { APP_SHOW_SESSION_EVENT, type AppShowSessionDetail } from '@/session/shared/extensions/app-runtime-protocol'
 import { ProjectFolderAvatar } from './ProjectFolderAvatar'
 import './partners.css'
 
@@ -182,6 +183,8 @@ export function PhonePartnersPage({
         active={active}
         onBack={pop}
         onOpenGroup={(tabChatId) => void openProjectGroup(project, tabChatId)}
+        // 与 App 的 showSession、会话链接同一条路:壳把「任务」那一层推上来,打开这条会话的时间线;返回回到这里。
+        onOpenSession={(row) => window.dispatchEvent(new CustomEvent<AppShowSessionDetail>(APP_SHOW_SESSION_EVENT, { detail: row }))}
       />
     )
   }

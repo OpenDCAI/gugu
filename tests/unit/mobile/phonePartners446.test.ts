@@ -8,6 +8,7 @@ import {
   partnerFriends,
   partnerProjects,
   projectAgents,
+  projectAgentTarget,
   projectNameProblem,
   projectSessions,
   projectTopics,
@@ -97,14 +98,27 @@ describe('project address book', () => {
 
   it('lists my agents in the group in the group’s order, then agents only seen in this project’s sessions', () => {
     const sessions = [
-      { session: session('s1', 'p', { agent: { userId: 'agent-a' }, title: 'old', lastInteractedAt: '2026-10-01T00:00:00Z' }) },
-      { session: session('s2', 'p', { agent: { userId: 'agent-a' }, title: 'fix login', lastInteractedAt: '2026-10-03T00:00:00Z' }) },
-      { session: session('s3', 'p', { agent: { userId: 'fresh' }, title: 'brand new' }) },
+      { deviceId: 'mac', session: session('s1', 'p', { agent: { userId: 'agent-a' }, title: 'old', lastInteractedAt: '2026-10-01T00:00:00Z' }) },
+      { deviceId: 'mac', session: session('s2', 'p', { agent: { userId: 'agent-a' }, title: 'fix login', lastInteractedAt: '2026-10-03T00:00:00Z' }) },
+      { deviceId: 'mac', session: session('s3', 'p', { agent: { userId: 'fresh' }, title: 'brand new' }) },
     ]
     const agents = projectAgents(group, mine, sessions)
     expect(agents.map((agent) => agent.id)).toEqual(['agent-b', 'agent-a', 'fresh'])
     expect(agents.find((agent) => agent.id === 'agent-a')?.work).toBe('fix login')
     expect(agents.find((agent) => agent.id === 'fresh')?.contact).toBeNull()
+  })
+
+  // owner 10-28 手机试用:点项目里的一个会话,进的是项目群 + @,不是那条会话。
+  it('opens the agent’s latest session in this project, and the group only for an agent with no session here', () => {
+    const sessions = [
+      { deviceId: 'mac', session: session('s1', 'p', { agent: { userId: 'agent-a' }, title: 'old', lastInteractedAt: '2026-10-01T00:00:00Z' }) },
+      { deviceId: 'phone', session: session('s2', 'p', { agent: { userId: 'agent-a' }, title: 'fix login', lastInteractedAt: '2026-10-03T00:00:00Z' }) },
+    ]
+    const agents = projectAgents(group, mine, sessions)
+    const a = agents.find((agent) => agent.id === 'agent-a')!
+    expect(projectAgentTarget(a, 'task-topic')).toEqual({ kind: 'session', deviceId: 'phone', session: sessions[1]!.session })
+    const b = agents.find((agent) => agent.id === 'agent-b')!
+    expect(projectAgentTarget(b, 'task-topic')).toEqual({ kind: 'group', tabChatId: 'task-topic' })
   })
 
   it('gathers each machine’s sessions of this project only', () => {

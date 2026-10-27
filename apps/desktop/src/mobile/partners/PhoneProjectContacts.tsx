@@ -13,7 +13,7 @@ import { isMyAssistant } from '@/lib/myAssistant'
 import { useAuth } from '@/store/auth'
 import { useChatStore } from '@/store/chatContext'
 import { useContactsStore } from '@/store/contactsContext'
-import { agentName, matchesQuery, projectAgents, projectTopics, type PartnerProject } from './partnersModel'
+import { agentName, matchesQuery, projectAgents, projectAgentTarget, projectTopics, type PartnerProject } from './partnersModel'
 import { ProjectFolderAvatar } from './ProjectFolderAvatar'
 import { useProjectTaskTopics } from './useProjectTaskTopics'
 
@@ -29,6 +29,7 @@ export function PhoneProjectContacts({
   active,
   onBack,
   onOpenGroup,
+  onOpenSession,
 }: {
   project: PartnerProject
   running: number
@@ -37,6 +38,8 @@ export function PhoneProjectContacts({
   onBack: () => void
   /** 打开项目群(给了 tabChatId = 落在那一枚页签:话题 / 任务)。 */
   onOpenGroup: (tabChatId?: string) => void
+  /** 打开一条会话自己的页(手机「任务」那一层的时间线)。 */
+  onOpenSession: (row: { deviceId: string; session: SessionpageSessionSummary }) => void
 }) {
   const { t } = useTranslation('main')
   const { user } = useAuth()
@@ -89,6 +92,11 @@ export function PhoneProjectContacts({
           {shownAgents.length ? <SectionLabel>{t('partners.agents', { count: shownAgents.length })}</SectionLabel> : null}
           {shownAgents.map((agent) => {
             const name = agentName(agent)
+            const open = () => {
+              const target = projectAgentTarget(agent, taskTopics.byAgent.get(agent.id)?.topic.chat_id)
+              if (target.kind === 'session') onOpenSession({ deviceId: target.deviceId, session: target.session })
+              else onOpenGroup(target.tabChatId)
+            }
             return (
               <ListRow
                 key={agent.id}
@@ -98,8 +106,8 @@ export function PhoneProjectContacts({
                 leading={<Avatar name={name} avatarUrl={agent.contact?.avatar} seed={agent.id} size="md" isAgent harnessBadge={false} />}
                 title={name}
                 subtitle={isMyAssistant(myId, agent.id) ? t('partners.assistant') : taskTopics.byAgent.get(agent.id)?.title ?? agent.work ?? undefined}
-                onClick={() => onOpenGroup(taskTopics.byAgent.get(agent.id)?.topic.chat_id)}
-                onKeyDown={rowKeyActivate(() => onOpenGroup(taskTopics.byAgent.get(agent.id)?.topic.chat_id))}
+                onClick={open}
+                onKeyDown={rowKeyActivate(open)}
               />
             )
           })}
