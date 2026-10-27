@@ -197,9 +197,13 @@ export function openRemoteSessionHostPipe(
         // 频道要换到另一条通道上了(新的那条已经接好,deviceRpc 先接后断):开着的窗口先交接 —— 客户端当场开新窗口,
         // 界面照「通着」;旧通道随后撤掉,这条窗口上没回的问一起失败(此时已关,❌ 再关一次)。还在开的那一问发在旧通道上,
         // 放弃它当场再开(与重订上同一条路)。
+        // #625 交接的这条窗口让旧通道撤掉前替它说一声关:那台机器按通道收窗口,新通道上的关它对不上号,不说就要等心跳丢了(约 30 s)。
         onChannelSwitching: () => {
-          if (live) shut('channel switching transport', true)
-          else abandonOpen?.(Object.assign(new Error('channel switching transport while opening'), { code: 'channel_resubscribed' }))
+          if (live) {
+            shut('channel switching transport', true)
+            return { type: SESSION_HOST_RPC.close, payload: { client } }
+          }
+          abandonOpen?.(Object.assign(new Error('channel switching transport while opening'), { code: 'channel_resubscribed' }))
         },
       },
     )

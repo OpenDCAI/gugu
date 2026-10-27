@@ -18,6 +18,7 @@ import {
   DeviceRpcTimeoutError,
   type DeviceRpcPipe,
   type DeviceRpcPipeHandlers,
+  type RetiredDeviceRpcPipe,
 } from '@gugu/core/cloud/deviceRpcRequester'
 import {
   onSshMachineSignedIn,
@@ -54,7 +55,7 @@ const log = rendererLogger('device-rpc')
 // 那正是「订了但再也收不到」的形状。
 const eventListeners = new Map<string, Set<(payload: unknown) => void>>()
 const resubscribeListeners = new Map<string, Set<(rejoin: boolean) => void>>()
-const switchingListeners = new Map<string, Set<() => void>>()
+const switchingListeners = new Map<string, Set<() => DeviceRpcFarewell | void>>()
 
 function listenersFor<T>(registry: Map<string, Set<T>>, deviceId: string): Set<T> {
   let set = registry.get(deviceId)
@@ -76,9 +77,36 @@ function notifyResubscribed(deviceId: string, rejoin: boolean): void {
   for (const listener of [...(resubscribeListeners.get(deviceId) ?? [])]) listener(rejoin)
 }
 
-/** 频道要换到另一条通道上了(新的那条已经接好):开在旧通道上的窗口先交接,再撤旧通道。 */
-function notifySwitching(deviceId: string): void {
-  for (const listener of [...(switchingListeners.get(deviceId) ?? [])]) listener()
+/**
+ * 换通道时,旧通道撤掉之前还要往那台机器说的一句(#625):经旧通道开的窗口,那台机器只认旧通道上的关窗 —— 不说,
+ * 它要等心跳丢了(约 30 s)才收。
+ */
+export type DeviceRpcFarewell = { type: string; payload: unknown }
+
+/** 交接完、撤旧通道前最多等告别写出去多久;写不出去也照撤(那台机器照旧靠心跳收)。 */
+const FAREWELL_WRITE_MS = 2_000
+
+/** 频道要换到另一条通道上了(新的那条已经接好):开在旧通道上的窗口先交接,再撤旧通道。收回它们的告别。 */
+function notifySwitching(deviceId: string): DeviceRpcFarewell[] {
+  const farewells: DeviceRpcFarewell[] = []
+  for (const listener of [...(switchingListeners.get(deviceId) ?? [])]) {
+    const farewell = listener()
+    if (farewell) farewells.push(farewell)
+  }
+  return farewells
+}
+
+/** 退下来的旧通道:告别写出去(或等满 FAREWELL_WRITE_MS)再拆,在途的问那时以 `error` 失败。 */
+async function retireAfterFarewells(
+  retired: RetiredDeviceRpcPipe,
+  farewells: DeviceRpcFarewell[],
+  error: Error,
+): Promise<void> {
+  if (farewells.length > 0) {
+    const told = Promise.allSettled(farewells.map((farewell) => retired.tell(farewell.type, farewell.payload)))
+    await Promise.race([told, new Promise((resolve) => setTimeout(resolve, FAREWELL_WRITE_MS))])
+  }
+  retired.close(error)
 }
 
 /** 此刻开着的管道走的是哪条通道(清单变了时据此拆掉走错的那条);管道关掉就删。 */
@@ -378,8 +406,11 @@ async function switchToDeviceLink(deviceId: string): Promise<void> {
     return
   }
   log.info({ deviceId, from: 'cloud', to: 'ssh', warm: true }, 'device rpc channel switching transport')
-  notifySwitching(deviceId)
-  requester.close(deviceId, new Error('Device RPC channel was reset: this machine now uses another transport'))
+  // 先把咕咕云那条退下来:交接过来的客户端开新窗口的那一问就落在新管道上;退下来的那条替旧窗口说完告别(#625)再拆。
+  const retired = requester.retire(deviceId)
+  const farewells = notifySwitching(deviceId)
+  const reset = new Error('Device RPC channel was reset: this machine now uses another transport')
+  if (retired) void retireAfterFarewells(retired, farewells, reset)
   // 新管道(openSshPipe)从 warmLinks 接过这条;接好即 onChannelResubscribed,交接过来的客户端那时已在开新窗口。
   void requester.open(deviceId).catch(() => scheduleSshReopen(deviceId))
 }
@@ -486,7 +517,7 @@ export function _injectDeviceRpcReplyForTesting(deviceId: string, payload: unkno
 export function subscribeDeviceRpcEvents(
   deviceId: string,
   listener: (payload: unknown) => void,
-  options?: { onChannelResubscribed?: (rejoin: boolean) => void; onChannelSwitching?: () => void },
+  options?: { onChannelResubscribed?: (rejoin: boolean) => void; onChannelSwitching?: () => DeviceRpcFarewell | void },
 ): () => void {
   if (!deviceId) throw new Error('deviceId is required')
   const events = listenersFor(eventListeners, deviceId)
