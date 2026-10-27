@@ -43,6 +43,10 @@ for (const phone of [false, true]) describe(phone ? 'phone memory content cards'
   }
   it('shows actual body facts in user and sibling cards and keeps their navigation', async () => {
     await render()
+    expect([...harness.container.querySelectorAll('h2')].map(heading => heading.textContent)).toEqual(['长期了解与约定'])
+    for (const id of ['assistant-memory-health', 'assistant-memory-voice', 'assistant-library-workspace']) {
+      expect(harness.container.querySelector(`[data-testid="${id}"]`)).toBeNull()
+    }
     expect(harness.container.textContent).not.toContain(secret)
     expect(harness.container.textContent).toContain('姓名：小林 喜欢简短的说明')
     expect(harness.container.textContent).toContain('项目正文事实')

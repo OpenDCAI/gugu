@@ -46,12 +46,17 @@ beforeEach(() => {
 afterEach(() => harness.cleanup())
 
 describe('assistant panel organization', () => {
-  it('keeps three profile entries and removes file upload and diary entries', async () => {
+  it('puts projects, devices, capabilities and apps in the profile, keeping memory for long-term notes', async () => {
     await renderWithAppProviders(harness, <AssistantProfilePage context={context('profile')} />)
     expect(harness.container.querySelector('[data-testid="assistant-profile-add"]')).toBeNull()
     expect(harness.container.querySelector('[data-testid="assistant-profile-files"]')).toBeNull()
     expect(harness.container.querySelector('[data-testid="assistant-diaries"]')).toBeNull()
     expect(reads.today).not.toHaveBeenCalled()
+    expect([...harness.container.querySelector('[data-testid="assistant-profile-entries"] .ta-card-list')!.children].map(row => row.getAttribute('data-testid'))).toEqual([
+      'assistant-library-workspace', 'assistant-library-devices', 'assistant-library-capabilities', 'assistant-profile-connectors',
+    ])
+    await clickElement(harness.container.querySelector('[data-testid="assistant-library-workspace"]')!)
+    expect(reads.go).toHaveBeenLastCalledWith({ tab: 'profile', sub: 'library:workspace' })
     await clickElement(harness.container.querySelector('[data-testid="assistant-profile-connectors"]')!)
     expect(reads.go).toHaveBeenLastCalledWith({ tab: 'profile', sub: 'connectors' })
     await clickElement(harness.container.querySelector('[data-testid="assistant-library-devices"]')!)
@@ -61,6 +66,10 @@ describe('assistant panel organization', () => {
     await renderWithAppProviders(harness, <AssistantMemoryPage context={context('memory')} />)
     expect(harness.container.querySelector('[data-testid="assistant-memory-add"]')).toBeNull()
     expect(harness.container.querySelector('[data-testid="assistant-memory-files"]')).toBeNull()
+    expect(harness.container.querySelector('[data-testid="assistant-library-workspace"]')).toBeNull()
+    expect(harness.container.querySelector('[data-testid="assistant-memory-health"]')).toBeNull()
+    expect(harness.container.querySelector('[data-testid="assistant-memory-voice"]')).toBeNull()
+    expect([...harness.container.querySelectorAll('h2')].map(heading => heading.textContent)).toEqual(['长期了解与约定'])
   })
 
   it('keeps resource uploads and nested folder navigation in the profile tab', async () => {

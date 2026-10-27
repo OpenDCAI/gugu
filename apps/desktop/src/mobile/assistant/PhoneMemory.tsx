@@ -6,7 +6,7 @@ import { useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import { Markdown } from '@/components/markdown/Markdown'
 import { Button } from '@/components/ui/Button'
-import { Heart, Mic, Sparkles, SquarePen, Trash2 } from '@/lib/icons'
+import { Sparkles, SquarePen, Trash2 } from '@/lib/icons'
 import { isOwnerProfileNote, type MemoryKind } from '@/session/renderer/features/assistant/assistant-files'
 import { readMemoryNotes, type MemoryEntry } from '@/session/renderer/features/assistant/assistant-machine-core'
 import { AssistantEmpty, AssistantRow, AssistantSection, ownerLeading, PageHead } from '@/session/renderer/features/assistant/assistant-ui-parts'
@@ -17,11 +17,9 @@ import { PhoneConfirmDialog } from './PhoneConfirmDialog'
 import { PhoneFiles } from './PhoneFiles'
 import { PhoneHealth } from './PhoneHealth'
 import { PhoneMachineView, ReadView, type OpenedPageProps } from './PhoneMachineView'
-import { PhoneLibraryVolume } from './PhoneLibraryVolume'
 import { PhoneVoiceNotes } from './PhoneVoiceNotes'
-import { deleteMemoryNote, filesTrail, readMemoryCounts } from './phoneMemoryData'
+import { deleteMemoryNote, filesTrail } from './phoneMemoryData'
 import { machineKey, usePhoneRead, type PhoneRead } from './usePhoneRead'
-import { AssistantLibraryCard } from '@/components/assistant/AssistantLibraryVolume'
 import { reportAssistantAppChange } from '@/components/assistant/assistant-app-client'
 
 type Translate = (key: string, options?: Record<string, unknown>) => string
@@ -42,16 +40,13 @@ function useTime() {
 }
 
 /**
- * 「记忆」那一格(同桌面记忆页):「我对你的了解」那张卡 →「全部」两列小卡(健康、语音笔记、给助理的资料、其余每一条记忆)。
- * 往下钻(名字与桌面同一套):`note:<文件>` 一条记忆(全文、在对话中改、删)、`voice[:<id>]`、`files[:<路径>]`、`health`。
- * 记忆、语音笔记、资料都在它家里,醒着才读得到(❌ 自己叫醒);健康是这台手机自己的数据,它在休息也照样能点进去看。
+ * 记忆首页只显示长期了解与约定；项目入口在资料页，记忆详情沿用原来的读写与导航。
  */
 export function PhoneMemory(props: PhonePageProps) {
   const { sub, machine } = props
   const ready = machine.state === 'ready' ? machine.machine : null
   // 记忆那一夹各页共用一份读数(首页、一条的全文、健康页里它记的 health_* 几条)。
   const notes = usePhoneRead(ready ? `memory|${machineKey(ready)}` : null, () => readMemoryNotes(ready!), 'read memory')
-  if (sub === 'library:workspace') return <PhoneLibraryVolume key={sub} {...props} kind="workspace" />
   if (sub === 'health') return <PhoneHealth {...props} healthNotes={notes} />
   if (sub === 'voice' || sub?.startsWith('voice:')) return <PhoneVoiceNotes {...props} />
   if (sub === 'files' || sub?.startsWith('files:')) return <PhoneFiles key={sub} {...props} trail={filesTrail(sub)} />
@@ -61,32 +56,23 @@ export function PhoneMemory(props: PhonePageProps) {
 
 function MemoryHome(props: PhonePageProps & { notes: NotesRead }) {
   const { t } = useTranslation('assistant')
-  const { assistant, machine, go, notes } = props
+  const { assistant, machine, notes } = props
   const name = assistant.display_name
   return (
     <div className="ta-page" data-testid="assistant-memory">
       <PhoneMachineView machine={machine} name={name}>
         {() => (
           <ReadView read={notes} failedTitle={t('memory.loadFailed')}>
-            {(read) => <AboutYou {...props} notes={read.notes} />}
+            {(read) => <LongTermMemory {...props} notes={read.notes} />}
           </ReadView>
         )}
       </PhoneMachineView>
-      <AssistantSection title={t('library.workspace')}>
-        <AssistantLibraryCard assistantId={assistant.id} machine={machine.state === 'ready' ? machine.machine : null} kind="workspace" onOpen={() => go('library:workspace')} />
-      </AssistantSection>
-      {notes.state === 'ok' && notes.data.notes.some((entry) => entry.kind !== 'user') ? (
-        <AssistantSection title={t('library.memory')} bare testId="assistant-memory-all">
-          <MemoryList {...props} notes={notes.data.notes} />
-        </AssistantSection>
-      ) : null}
-      <MemorySources {...props} />
     </div>
   )
 }
 
-/** 「我对你的了解」:它记下的关于你的那几条(点一条看全文);一条没有时给「更快设置记忆」(只往聊天里填一句)。 */
-function AboutYou({ askInChat, go, notes, machine }: PhonePageProps & { notes: MemoryEntry[] }) {
+/** 关于你与其余长期记忆共用一组，点条目打开全文；未记下关于你时仍保留补充入口。 */
+function LongTermMemory({ assistant, askInChat, go, notes, machine }: PhonePageProps & { notes: MemoryEntry[] }) {
   const { t } = useTranslation('assistant')
   const time = useTime()
   const { user } = useAuth()
@@ -105,12 +91,15 @@ function AboutYou({ askInChat, go, notes, machine }: PhonePageProps & { notes: M
         aboutYou.map(row => <AssistantMemoryContent key={row.file} machine={machine.state === 'ready' ? machine.machine : undefined} entry={row}>{(entry,error) => <AssistantRow leading={owner?.avatarUrl ? ownerLeading(owner) : undefined} title={isOwnerProfileNote(entry) ? t('memory.filter.user') : entry.title} detailLines={4}
           detail={error ? assistantPanelFailure(error,t) : memoryContentPreview(entry.body) || (entry.modifiedAt ? t('memory.updated', { time: time(entry.modifiedAt) }) : undefined)} onClick={() => go(`note:${entry.file}`)} />}</AssistantMemoryContent>)
       )}
+      {notes.some(entry => entry.kind !== 'user') ? <div data-testid="assistant-memory-all">
+        <MemoryList assistant={assistant} go={go} machine={machine} notes={notes} />
+      </div> : null}
     </AssistantSection>
   )
 }
 
-/** 其余记忆按条目显示；独立来源入口不依赖这一组是否读到。 */
-function MemoryList({ assistant, go, notes, machine }: PhonePageProps & { notes: MemoryEntry[] }) {
+/** 其余记忆也属于长期了解与约定，正文预览和详情入口保持不变。 */
+function MemoryList({ assistant, go, notes, machine }: Pick<PhonePageProps, 'assistant' | 'go' | 'machine'> & { notes: MemoryEntry[] }) {
   const { t } = useTranslation('assistant')
   const time = useTime()
   const name = assistant.display_name
@@ -130,20 +119,6 @@ function MemoryList({ assistant, go, notes, machine }: PhonePageProps & { notes:
           />)}</AssistantMemoryContent>
         ))}
     </div>
-  )
-}
-
-/** 本机健康不依赖助理连接；远端来源可以先打开，由各自页面说明实际连接状态。 */
-function MemorySources({ machine, go }: PhonePageProps) {
-  const { t } = useTranslation('assistant')
-  const ready = machine.state === 'ready' ? machine.machine : null
-  const counts = usePhoneRead(ready ? `memory-counts|${machineKey(ready)}` : null, () => readMemoryCounts(ready!), 'count memory folders')
-  const voice = counts.state === 'ok' ? counts.data.voice : null
-  return (
-    <AssistantSection title={t('library.sources')}>
-      <AssistantRow leading={<Heart />} title={t('health.title')} onClick={() => go('health')} testId="assistant-memory-health" />
-      <AssistantRow leading={<Mic />} title={t('memory.voiceNotes')} detail={voice === null ? t('memory.voiceNotesCount') : t('memory.items', { n: voice })} onClick={() => go('voice')} testId="assistant-memory-voice" />
-    </AssistantSection>
   )
 }
 

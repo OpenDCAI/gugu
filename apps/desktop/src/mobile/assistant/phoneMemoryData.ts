@@ -1,5 +1,5 @@
 // #7199 手机「记忆」那一格读写它家里的文件:动词全是 assistant-machine-core 那一组(与桌面同一份核心),
-// 这里只把桌面页面里那几步(删一条记忆连同索引、数一数、资料夹里往下钻、上传)拆成不带界面的函数,手机页与单测共用。
+// 这里只把桌面页面里那几步(删一条记忆连同索引、资料夹里往下钻、上传)拆成不带界面的函数,手机页与单测共用。
 import { VOICE_NOTES_DIR } from '@gugu/core/shared/voiceNotes'
 import type { DirectoryEntry } from '@shared/core/fs/fs'
 import { joinPath, removeIndexEntry, resourceRejection, type ResourceRejection } from '@/session/renderer/features/assistant/assistant-files'
@@ -31,20 +31,6 @@ export function voiceNotesDirOf(machine: AssistantMachine): string {
 }
 
 const visible = (entry: DirectoryEntry) => !entry.name.startsWith('.')
-
-/** 记忆首页两张小卡下面那个数:语音笔记几条、资料夹里几样。数不出来 = null(那张卡不写数,❌ 写 0)。 */
-export async function readMemoryCounts(machine: AssistantMachine): Promise<{ voice: number | null; files: number | null }> {
-  const count = (dir: string, keep: (entry: DirectoryEntry) => boolean) =>
-    listDirectory(machine, dir).then(
-      (entries) => entries.filter(keep).length,
-      () => null,
-    )
-  const [voice, files] = await Promise.all([
-    count(voiceNotesDirOf(machine), (entry) => entry.type === 'directory' && visible(entry)),
-    count(machine.paths.resourcesDir, visible),
-  ])
-  return { voice, files }
-}
 
 // ── 资料夹(「给助理的资料」):路由 `files` / `files:<相对路径>`,与桌面同一套名字 ─────────────────────
 

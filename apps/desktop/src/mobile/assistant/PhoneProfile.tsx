@@ -29,7 +29,7 @@ import { usePhoneToday } from './usePhoneToday'
 import './phone-profile.css'
 import { AssistantLibraryCard } from '@/components/assistant/AssistantLibraryVolume'
 
-/** Profile home: identity and three resource entries; details keep their existing routes. */
+/** Profile home: identity, projects, devices, capabilities and connected apps. */
 export function PhoneProfile(props: PhonePageProps) {
   const { t } = useTranslation('assistant')
   const settings = useTranslation('settings').t
@@ -40,6 +40,7 @@ export function PhoneProfile(props: PhonePageProps) {
   const persona = usePhonePersona(machine)
   const connectors = !sub || sub === 'channels' || sub === 'connectors' || !!sub.startsWith('connector:')
   const integrations = usePhoneIntegrations(machine, connectors)
+  if (sub === 'library:workspace') return <PhoneLibraryVolume key={sub} {...props} kind="workspace" />
   if (sub === 'library:capabilities' || sub === 'library:devices') return <PhoneLibraryVolume key={sub} {...props} kind={sub === 'library:capabilities' ? 'capabilities' : 'devices'} />
 
   if (sub === 'settings') return <div className="ta-page ta-phone-profile"><PageHead title={t('nav.settings')} /><div className="ta-skin">
@@ -123,9 +124,10 @@ function ProfileHome({
       </div>
 
       <AssistantSection testId="assistant-profile-entries">
-        <AssistantRow leading={<Link />} title={t('connectors.title')} detail={appsDetail} onClick={() => go('connectors')} testId="assistant-open-connectors" />
+        <AssistantLibraryCard assistantId={assistant.id} machine={machine.state === 'ready' ? machine.machine : null} kind="workspace" onOpen={() => go('library:workspace')} />
         <AssistantRow leading={<Monitor />} title={t('library.devices')} detail={devicesDetail} onClick={() => go('devices')} testId="assistant-library-devices" />
         <AssistantLibraryCard assistantId={assistant.id} machine={machine.state === 'ready' ? machine.machine : null} kind="capabilities" onOpen={() => go('library:capabilities')} />
+        <AssistantRow leading={<Link />} title={t('connectors.title')} detail={appsDetail} onClick={() => go('connectors')} testId="assistant-open-connectors" />
       </AssistantSection>
     </div>
   )

@@ -1,7 +1,7 @@
 import { describe, expect, it, vi } from 'vitest'
 
 // #7199 手机助理 App 的「记忆」「健康」:删一条记忆连同 MEMORY.md 索引、资料夹里往下钻(文件 / 文件夹 / 不在了)、
-// 从手机上传、记忆首页的两个数、语音笔记只读、健康读不到时分哪一种。全用一台假的机器(内存里的文件),❌ 碰真数据。
+// 从手机上传、语音笔记只读、健康读不到时分哪一种。全用一台假的机器(内存里的文件),❌ 碰真数据。
 
 vi.mock('@capacitor/core', () => ({ registerPlugin: () => ({}) }))
 
@@ -12,7 +12,6 @@ import {
   deleteMemoryNote,
   filesSub,
   filesTrail,
-  readMemoryCounts,
   readResourceView,
   resourceDisplayPath,
   uploadResources,
@@ -224,25 +223,6 @@ describe('uploadResources', () => {
     expect(outcome.failed).toEqual([{ name: 'bad.txt', message: 'ENOSPC' }])
     expect(outcome.done).toEqual(['good.txt'])
     expect(fs.has(resources('报告/good.txt'))).toBe(true)
-  })
-})
-
-describe('readMemoryCounts', () => {
-  it('语音笔记数文件夹、资料数可见的;夹子还没有 = 0', async () => {
-    const { machine } = fakeMachine({
-      [memory('voice-notes/20261016-080000-ab/note.json')]: '{}',
-      [memory('voice-notes/README.md')]: '',
-      [resources('a.txt')]: '',
-      [resources('.DS_Store')]: '',
-    })
-    await expect(readMemoryCounts(machine)).resolves.toEqual({ voice: 1, files: 1 })
-    await expect(readMemoryCounts(fakeMachine({}).machine)).resolves.toEqual({ voice: 0, files: 0 })
-  })
-
-  it('数不出来 = null(那张卡不写数),❌ 写 0', async () => {
-    const { machine } = fakeMachine({})
-    const broken = { ...machine, rpc: { ...machine.rpc, files: { browseDirectory: async () => ({ success: false, error: { type: 'filesystem-error', path: '', message: 'EACCES' } }) } } } as AssistantMachine
-    await expect(readMemoryCounts(broken)).resolves.toEqual({ voice: null, files: null })
   })
 })
 

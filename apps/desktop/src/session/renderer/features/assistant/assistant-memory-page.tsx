@@ -5,7 +5,7 @@ import { rendererLogger } from '@/lib/log';
 import { assistantPanelFailure } from '@/components/assistant/assistant-panel-errors';
 import { useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
-import { ArrowUpToLine, File, Folder, FolderPlus, Heart, Mic, MoreHorizontal, Sparkles, SquarePen, Trash2 } from '@/lib/icons';
+import { ArrowUpToLine, File, Folder, FolderPlus, MoreHorizontal, Sparkles, SquarePen, Trash2 } from '@/lib/icons';
 import { useToast } from '@renderer/lib/hooks/use-toast';
 import { useShowModal } from '@renderer/lib/modal/modal-provider';
 import { Button } from '@renderer/lib/ui/button';
@@ -20,9 +20,7 @@ import type { AssistantContext, AssistantPageProps } from './assistant-context';
 import { AssistantEmpty, AssistantRow, AssistantSection, MachineGate, ownerLeading, PageHead, Tile } from './assistant-ui';
 import { AssistantHealthPage } from './assistant-health';
 import { memoryContentPreview } from './memory-content-preview';
-import { useVoiceNotes } from './voice-notes/voice-notes-data';
 import { VOICE_NOTE_SUB, VoiceNotesPage } from './voice-notes/voice-notes-pages';
-import { AssistantLibraryCard, AssistantLibraryVolume } from '@/components/assistant/AssistantLibraryVolume';
 import { reportAssistantAppChange } from '@/components/assistant/assistant-app-client';
 
 function useTimeFormat() {
@@ -40,8 +38,7 @@ function kindLabel(kind: MemoryKind, t: (key: string, options?: Record<string, u
 }
 
 /**
- * 记忆首页:页头「记忆」→「我对 X 的了解」那张卡(它记下的关于你的那几条)→「全部」两列小卡:
- * 录音笔记、其余每一条记忆；给助理的资料在资料页。点进去是往下钻的那一页。
+ * 记忆首页只显示长期了解与约定；项目入口在资料页，点一条记忆仍打开原来的详情。
  */
 function MemoryHome({ context }: { context: AssistantContext }) {
   const { t } = useTranslation('assistant');
@@ -51,8 +48,6 @@ function MemoryHome({ context }: { context: AssistantContext }) {
   const all = notes.data?.notes ?? [];
   const aboutYou = all.filter((n) => n.kind === 'user');
   const others = all.filter((n) => n.kind !== 'user');
-  const voice = useVoiceNotes(context.machine);
-  const voiceCount = voice.data?.length ?? 0;
   return (
     <div className="ta-page" data-testid="assistant-memory">
       <PageHead title={t('nav.memory')} />
@@ -62,25 +57,22 @@ function MemoryHome({ context }: { context: AssistantContext }) {
         error={context.machineError ?? notes.error}
         onRetry={() => (context.machineError ? context.retryMachine() : void notes.refetch())}
       >
-        <AssistantSection title={t('library.longTerm')} testId="assistant-memory-about">
-          {aboutYou.length === 0 ? (
-            <div className="flex flex-col items-start gap-3">
-              <button type="button" className="ta-pill-btn" onClick={() => context.askInChat(t('memory.fasterPrompt'))} data-testid="assistant-memory-ask">
-                <Sparkles />
-                {t('memory.faster')}
-              </button>
-            </div>
-          ) : (
-            aboutYou.map(entry => <AssistantMemoryContent key={entry.file} machine={context.machine} entry={entry}>{(note,error) => <AssistantRow leading={ownerLeading(context.owner)} title={isOwnerProfileNote(note) ? t('memory.filter.user') : note.title} detailLines={4}
-              detail={error ? assistantPanelFailure(error,t) : memoryContentPreview(note.body) || (note.modifiedAt ? t('memory.updated', { time: time(note.modifiedAt) }) : undefined)}
-              onClick={() => context.go({ tab: 'memory', sub: `note:${note.file}` })} />}</AssistantMemoryContent>)
-          )}
-        </AssistantSection>
-        <AssistantSection title={t('library.workspace')}>
-          <AssistantLibraryCard assistantId={context.assistant.id} machine={context.machine} kind="workspace" onOpen={() => context.go({ tab: 'memory', sub: 'library:workspace' })} />
-        </AssistantSection>
-        {others.length > 0 && <AssistantSection title={t('library.memory')} bare testId="assistant-memory-all">
-          <div className="ta-grid">
+        <AssistantSection title={t('library.longTerm')} testId="assistant-memory-about" bare>
+          <div className="ta-card-list">
+            {aboutYou.length === 0 ? (
+              <div className="flex flex-col items-start gap-3">
+                <button type="button" className="ta-pill-btn" onClick={() => context.askInChat(t('memory.fasterPrompt'))} data-testid="assistant-memory-ask">
+                  <Sparkles />
+                  {t('memory.faster')}
+                </button>
+              </div>
+            ) : (
+              aboutYou.map(entry => <AssistantMemoryContent key={entry.file} machine={context.machine} entry={entry}>{(note,error) => <AssistantRow leading={ownerLeading(context.owner)} title={isOwnerProfileNote(note) ? t('memory.filter.user') : note.title} detailLines={4}
+                detail={error ? assistantPanelFailure(error,t) : memoryContentPreview(note.body) || (note.modifiedAt ? t('memory.updated', { time: time(note.modifiedAt) }) : undefined)}
+                onClick={() => context.go({ tab: 'memory', sub: `note:${note.file}` })} />}</AssistantMemoryContent>)
+            )}
+          </div>
+          {others.length > 0 && <div className="ta-grid" data-testid="assistant-memory-all">
             {others.map((entry) => (
               <AssistantMemoryContent key={entry.file} machine={context.machine} entry={entry}>{(note,error) => (
               <Tile
@@ -92,11 +84,7 @@ function MemoryHome({ context }: { context: AssistantContext }) {
                 testId={`assistant-memory-${note.file}`}
               />)}</AssistantMemoryContent>
             ))}
-          </div>
-        </AssistantSection>}
-        <AssistantSection title={t('library.sources')}>
-          <AssistantRow leading={<Heart />} title={t('health.title')} onClick={() => context.go({ tab: 'memory', sub: 'health' })} testId="assistant-memory-health" />
-          <AssistantRow leading={<Mic />} title={t('memory.voiceNotes')} detail={voiceCount > 0 ? t('memory.items', { n: voiceCount }) : t('memory.voiceNotesCount')} onClick={() => context.go({ tab: 'memory', sub: VOICE_NOTE_SUB })} testId="assistant-memory-voice" />
+          </div>}
         </AssistantSection>
       </MachineGate>
     </div>
@@ -467,7 +455,6 @@ export function ResourceFiles({ context, trail }: { context: AssistantContext; t
 /** 记忆这一格:首页,或往下钻到的那一页(一条记忆 / 资料夹里某一层 / 语音笔记及其中一条)。 */
 export function AssistantMemoryPage({ context }: AssistantPageProps) {
   const sub = context.route.sub ?? '';
-  if (sub === 'library:workspace') return <AssistantLibraryVolume key={sub} assistantId={context.assistant.id} machine={context.machine} kind={'workspace'} askInChat={context.askInChat} />;
   if (sub.startsWith('note:')) return <MemoryNoteDetail context={context} file={sub.slice('note:'.length)} />;
   if (sub === VOICE_NOTE_SUB || sub.startsWith(`${VOICE_NOTE_SUB}:`)) return <VoiceNotesPage context={context} />;
   if (sub === 'health') return <AssistantHealthPage context={context} />;

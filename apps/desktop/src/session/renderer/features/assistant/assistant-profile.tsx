@@ -21,12 +21,13 @@ import { AssistantRow, AssistantSection, PageHead } from './assistant-ui';
 import { AssistantLibraryCard, AssistantLibraryVolume } from '@/components/assistant/AssistantLibraryVolume';
 
 /**
- * <它的名字> 这一格(资料页):头像、名字、性格胶囊,以及连接应用、设备、能力三个入口;
+ * 资料页：头像、名字、性格胶囊，以及项目、设备、能力、连接应用四个入口。
  * 应用入口复用设置中的同一个连接组件;详情、授权也走原来的数据与操作。
  */
 
 export const AssistantProfilePage = observer(function AssistantProfilePage({ context }: AssistantPageProps) {
   const sub = context.route.sub ?? '';
+  if (sub === 'library:workspace') return <AssistantLibraryVolume key={sub} assistantId={context.assistant.id} machine={context.machine} kind="workspace" askInChat={context.askInChat} />;
   if (sub === 'library:capabilities') return <AssistantLibraryVolume key={sub} assistantId={context.assistant.id} machine={context.machine} kind='capabilities' askInChat={context.askInChat} />;
   if (sub === 'library:devices') return <ShellPage slot="devices" title="devices.title" />;
   if (sub === 'settings') return <ShellPage slot="settings" title="nav.settings" />;
@@ -102,10 +103,11 @@ const ProfileHome = observer(function ProfileHome({ context, openCustomize = fal
       </div>
 
       <AssistantSection testId="assistant-profile-entries">
-        <AssistantRow leading={<Link />} title={t('connectors.title')} detail={!counts ? undefined : t(counts.saved > counts.connected ? 'connectors.savedCount' : 'connectors.connectedCount', { count: counts.saved > counts.connected ? counts.saved : counts.connected })}
-          onClick={() => context.go({ tab: 'profile', sub: 'connectors' })} testId="assistant-profile-connectors" />
+        <AssistantLibraryCard assistantId={context.assistant.id} machine={context.machine} kind="workspace" onOpen={() => context.go({ tab: 'profile', sub: 'library:workspace' })} />
         <AssistantRow leading={<Monitor />} title={t('library.devices')} detail={shell?.deviceCount === undefined ? undefined : t('connectors.deviceCount', { count: shell.deviceCount })} onClick={() => context.go({ tab: 'profile', sub: 'devices' })} testId="assistant-library-devices" />
         <AssistantLibraryCard assistantId={context.assistant.id} machine={context.machine} kind="capabilities" onOpen={() => context.go({ tab: 'profile', sub: 'library:capabilities' })} />
+        <AssistantRow leading={<Link />} title={t('connectors.title')} detail={!counts ? undefined : t(counts.saved > counts.connected ? 'connectors.savedCount' : 'connectors.connectedCount', { count: counts.saved > counts.connected ? counts.saved : counts.connected })}
+          onClick={() => context.go({ tab: 'profile', sub: 'connectors' })} testId="assistant-profile-connectors" />
       </AssistantSection>
 
       {customizing ? (
