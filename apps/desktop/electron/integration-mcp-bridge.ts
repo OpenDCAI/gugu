@@ -16,7 +16,7 @@ const log = createLogger('integration-mcp-bridge')
 /**
  * 一条已连接集成在会话里的样子。
  *
- * ⚠️ `getAccessToken` 是**每次调用现取**,❌ 不是会话启动时定死的一份令牌。
+ * ⚠️ `endpoint`(令牌 / key)是**每次调用现取**,❌ 不是会话启动时定死的一份令牌。
  * 会话进程的 MCP 配置在它启动那一刻就写死了(环境变量 / 配置文件),而 Linear、Notion 这类
  * 授权是会过期、会轮换的:把令牌直接写进会话,续期之后那条会话就一直拿着过期的那份,
  * 表现为「连着,但 agent 一调就失败」。咕咕在中间转这一道,会话拿到的始终是咕咕自己的
@@ -31,9 +31,12 @@ export interface LocalIntegrationTools {
   call(name: string, args: Record<string, unknown>, signal: AbortSignal): Promise<CallToolResult>
 }
 
+/** 每次调用现取的对方地址与请求头:OAuth 那几家是固定地址 + 现取的 Bearer 令牌,高德是带用户 key 的地址。 */
+export type IntegrationEndpoint = { url: string; headers: Record<string, string> }
+
 /** 工具从哪来:转发给对方的托管 MCP,或咕咕自己答。 */
 export type IntegrationUpstream =
-  | { kind: 'remote'; serverUrl: string; getAccessToken: (signal?: AbortSignal) => Promise<string> }
+  | { kind: 'remote'; endpoint: (signal?: AbortSignal) => Promise<IntegrationEndpoint> }
   | { kind: 'local'; tools: LocalIntegrationTools }
 
 export interface IntegrationGrantContext {
@@ -50,10 +53,8 @@ async function withUpstream<T>(
   signal: AbortSignal | undefined,
   run: (client: Client) => Promise<T>,
 ): Promise<T> {
-  const accessToken = await upstream.getAccessToken(signal)
-  const transport = new StreamableHTTPClientTransport(new URL(upstream.serverUrl), {
-    requestInit: { headers: { Authorization: `Bearer ${accessToken}` } },
-  })
+  const { url, headers } = await upstream.endpoint(signal)
+  const transport = new StreamableHTTPClientTransport(new URL(url), { requestInit: { headers } })
   const client = new Client({ name: 'gugu', version: '1.0.0' })
   await client.connect(transport)
   try {

@@ -1,5 +1,6 @@
 // Browser-safe built-in assets; provider runtime code stays on the host.
 import type { PluginIconAsset } from '@gugu/session-shared/plugins';
+import { icon as icon_amap } from './impl/amap/icon';
 import { icon as icon_asana } from './impl/asana/icon';
 import { icon as icon_dida } from './impl/dida/icon';
 import { icon as icon_dingtalk } from './impl/dingtalk/icon';
@@ -23,6 +24,7 @@ import { icon as icon_trello } from './impl/trello/icon';
 import { icon as icon_wecom } from './impl/wecom/icon';
 
 export const integrationIcons: Readonly<Record<string,PluginIconAsset>> = {
+  'amap': icon_amap,
   'asana': icon_asana,
   'dida': icon_dida,
   'dingtalk': icon_dingtalk,
