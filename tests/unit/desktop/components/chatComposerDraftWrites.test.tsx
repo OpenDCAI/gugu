@@ -104,7 +104,7 @@ describe('chat editor draft writes', () => {
   it('clears the same live editor after a phone task is accepted', async () => {
     const width = Object.getOwnPropertyDescriptor(window, 'innerWidth')!
     Object.defineProperty(window, 'innerWidth', { configurable: true, value: 412 })
-    const created = vi.spyOn(taskDispatch, 'createTaskInGroup').mockResolvedValue({ sessionId: 'session', topicChatId: 'topic' })
+    const created = vi.spyOn(taskDispatch, 'createTaskInGroup').mockResolvedValue({ sessionId: 'session' })
     vi.spyOn(sessionRpc, 'fetchCreateOptions').mockResolvedValue({ projects: [], lastUsed: null, harnesses: [
       { id: 'codex', name: 'Codex', status: 'available', watchable: true, sessionViews: ['general'], permissionModes: ['full-access'] },
     ] })
