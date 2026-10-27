@@ -6,7 +6,6 @@ const mocks = vi.hoisted(() => ({
   view: { id: 'view' }, clipboard: vi.fn(),
 }))
 vi.mock('../../../../apps/desktop/src/platform', () => ({ platform: { kind: 'electron' } }))
-vi.mock('../../../../apps/desktop/src/i18n/runtime', () => ({ i18n: { t: (key: string) => key } }))
 vi.mock('../../../../apps/desktop/src/hooks/useMobileShell', () => ({ readMobileShell: () => false }))
 vi.mock('../../../../apps/desktop/src/store/devicesCache', () => ({ readCachedDevices: () => [] }))
 vi.mock('../../../../apps/desktop/src/components/chat/dispatchAsk', () => ({ pickDispatchTarget: mocks.pick }))
