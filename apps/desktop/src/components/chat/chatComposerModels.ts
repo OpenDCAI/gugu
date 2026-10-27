@@ -8,7 +8,7 @@ import type { AgentStatusById } from './agentMentionStatusModels'
 export interface ChatMessageComposerProps {
   // @@@threads (#957) — opts 加可选 threadRootId：话题视图发送时由 ChatAreaPanel 注入活动话题 id。
   // @@@whisper (#820) — opts 加可选 isWhisper：悄悄话模式下强制设为 true。
-  onSend: (content: string, opts?: { toUserIds?: string[] | null; replyToMessageId?: string | null; threadRootId?: string | null; isWhisper?: boolean; beforeDeliver?: () => Promise<void> }) => Promise<void>
+  onSend: (content: string, opts?: { toUserIds?: string[] | null; replyToMessageId?: string | null; threadRootId?: string | null; isWhisper?: boolean; beforeDeliver?: () => Promise<void>; submittedAt?: number }) => Promise<void>
   /** 发送前置(agent 私聊的会话就绪)。文字消息把它交给 onSend 的 beforeDeliver,在投递前跑,❌ 挡在上屏之前(C1)。 */
   beforeSend?: () => Promise<void>
   onSendAttachments?: (files: File[], opts?: { toUserIds?: string[] | null; isWhisper?: boolean; caption?: string; onSent?: (file: File, index: number) => void }) => Promise<void>

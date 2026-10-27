@@ -69,7 +69,7 @@ export type TopicSurface = {
   closeSplit: () => void
   /** @param toUserIds 正文里 @ 到的人 —— 被 @ 就是被拉进来(服务端触发器只认来源线成员)。 */
   /** @param replyToMessageId 引用的那条消息 —— 结构化回复,与主线同口径(group-routing:回复穿透档位)。 */
-  sendInSplit: (text: string, toUserIds?: readonly string[] | null, replyToMessageId?: string | null, isWhisper?: boolean) => Promise<void>
+  sendInSplit: (text: string, toUserIds?: readonly string[] | null, replyToMessageId?: string | null, isWhisper?: boolean, submittedAt?: number) => Promise<void>
   /**
    * 分栏里发附件。不接它不等于「分栏不支持附件」—— InputArea 的回形针/拖放/粘贴
    * 三条入队路径都是无条件的,而 handleSend 在没有这个回调时会先清空队列再跳过发送 ⇒
@@ -149,13 +149,13 @@ export function useTopicSurface({
   }, [])
 
   const sendInSplit = useCallback(
-    async (text: string, toUserIds?: readonly string[] | null, replyToMessageId?: string | null, isWhisper?: boolean) => {
+    async (text: string, toUserIds?: readonly string[] | null, replyToMessageId?: string | null, isWhisper?: boolean, submittedAt?: number) => {
       const body = text.trim()
       if (!body || !splitChatId || !userId) return
       await sendSplitMessage(body, {
         toUserIds: toUserIds?.length ? [...toUserIds] : null,
         replyToMessageId: replyToMessageId ?? null,
-        isWhisper,
+        isWhisper, ...(submittedAt === undefined ? {} : { submittedAt }),
       })
     },
     [splitChatId, userId, sendSplitMessage],

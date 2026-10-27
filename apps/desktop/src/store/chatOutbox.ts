@@ -20,6 +20,7 @@
 import type { OutboxRecord } from '../lib/imRepository'
 import { i18n } from '@/i18n'
 import { rendererLogger } from '../lib/log'
+import { chatSendTimings, finishChatSendTiming } from '../lib/chatSendTiming'
 
 const outboxLog = rendererLogger('chat/outbox')
 
@@ -122,6 +123,7 @@ export function createChatOutbox(deps: OutboxDeps): ChatOutbox {
       : await deps.remove(record.clientMessageId)
     if (!isActive(operationEpoch)) return
     records.delete(record.clientMessageId)
+    finishChatSendTiming(record.clientMessageId, true)
     resolveWaiter(record.clientMessageId)
     // onSent 是无超时的网络副作用(摘要刷新等)——不得 await:网关挂起时会把整个
     // drain 队列静默卡死(后续消息永远「发送中」,连 failed 都到不了)。副作用失败由回调自报。
@@ -170,6 +172,7 @@ export function createChatOutbox(deps: OutboxDeps): ChatOutbox {
               if (!isActive(operationEpoch)) return
             }
             const deliveredRow = await deliverWithTimeout(record)
+            const timing = chatSendTimings.get(record.clientMessageId); if (timing) timing.response = performance.now()
             if (!isActive(operationEpoch)) return
             settleSentInBackground(record, deliveredRow, operationEpoch)
             delivered = true
@@ -221,6 +224,7 @@ export function createChatOutbox(deps: OutboxDeps): ChatOutbox {
     dispose() {
       if (disposed) return
       disposed = true
+      for (const id of records.keys()) chatSendTimings.delete(id)
       epoch += 1
       records.clear()
       for (const id of waiters.keys()) rejectWaiter(id, 'outbox scope disposed')
@@ -233,6 +237,7 @@ export function createChatOutbox(deps: OutboxDeps): ChatOutbox {
       // drain 看不到它——落盘失败即拒绝且内外皆无残留(否则后续任意 kick 会把这条「失败」的消息
       // 连带补投出去,composer 恢复重试 → 文字翻倍;先 set 后 save 还有 save 期间被 drain 抢投的竞态)。
       await deps.save(staged)
+      const timing = chatSendTimings.get(staged.clientMessageId); if (timing) timing.enqueue = performance.now()
       if (!isActive(operationEpoch)) return
       records.set(staged.clientMessageId, staged)
       deps.onState(staged)
@@ -249,6 +254,7 @@ export function createChatOutbox(deps: OutboxDeps): ChatOutbox {
       kick()
     },
     async discard(clientMessageId) {
+      finishChatSendTiming(clientMessageId)
       if (disposed) return
       const operationEpoch = epoch
       const record = records.get(clientMessageId)
