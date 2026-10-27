@@ -17,7 +17,7 @@ import { usePhoneRead } from './usePhoneRead'
 type Entry = DeviceProject & { id: string; deviceId: string; label: string }
 /** The same home/group folding as the sidebar, using already published account metadata. */
 function projectRows(records: Record<string, DeviceProject[]>, devices: readonly Device[]): Entry[] {
-  const rows = Object.entries(records).flatMap(([deviceId,projects]) => projects.map(project => ({ ...project,deviceId,id: `${deviceId}/${project.localProjectId}` })))
+  const rows = Object.entries(records).flatMap(([deviceId,projects]) => projects.filter(project => !isImplicitSessionHomeProjectId(project.localProjectId)).map(project => ({ ...project,deviceId,id: `${deviceId}/${project.localProjectId}` })))
   const byId = new Map(rows.map(row => [row.id,row])), byDevice = new Map(devices.map(device => [device.device_id,device]))
   const homes = machineHomeLayout(rows.map(row => ({ id: row.id,path: row.rootPath })),{
     machineOf: id => byId.get(id)!.deviceId,homeDir: id => byDevice.get(id)?.capabilities?.home_dir ?? null,
