@@ -32,7 +32,7 @@ export type SessionpagePendingPermission = {
   /** 连同这一条在内还有几条在等。 */
   queueCount: number
   /** D-31 宿主替 agent 问的(装 App):按它自己的卡画,答案带上「给哪些 agent」。 */
-  host?: Settlement['host']
+  origin?: Settlement['origin']
 }
 
 export type SessionpageSessionTimeline = {
@@ -88,7 +88,7 @@ function pendingPermissionFrom(
       kind: option.kind ?? ''
     })),
     queueCount: pending.length,
-    ...(head.host ? { host: head.host } : {})
+    ...(head.origin ? { origin: head.origin } : {})
   }
 }
 

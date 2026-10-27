@@ -27,7 +27,9 @@ export type { SessionLiveReply } from './live-reply';
  * person answers it wherever they follow that session, and the first answer settles it (`respond`). `kind` says how a
  * surface draws it; `payload` is that kind's own.
  */
-export type HostAsk = { kind: 'app-install' | 'agent-question'; payload: unknown };
+export const ASK_SOURCES = ['harness-permission', 'harness-question', 'agent-question', 'app-install', 'browser-assistance'] as const;
+export type AskSource = (typeof ASK_SOURCES)[number];
+export type AskOrigin = { source: AskSource; payload?: unknown };
 import type { TimelineArchive } from './timeline';
 import type { InstallationReading } from '../host-dependencies/runtime/types';
 
@@ -234,7 +236,7 @@ export type Settlement = {
   /** 记录里这道题已经有了结果(答了或拒了)—— 终端里的选择器已经关了。只对带 `questions` 的项记。 */
   resultRecorded?: boolean;
   /** D-31 宿主替 agent 问的那一种(装 App):端上画它自己的卡,答案经 `respond` 交回宿主。 */
-  host?: HostAsk;
+  origin?: AskOrigin;
   state: SettlementState;
   optionId: string | null;
   resolvedBy: string | null;
@@ -268,9 +270,9 @@ export function remoteSettlementGap(
   kind: Settlement['kind'],
   questions?: Settlement['questions'],
   /** D-31 The host's own ask: settled by the host, on either kind of session. */
-  host?: Settlement['host']
+  origin?: Settlement['origin']
 ): 'no_permission_channel' | 'no_question_channel' | null {
-  if (host) return null;
+  if (origin && origin.source !== 'harness-permission' && origin.source !== 'harness-question') return null;
   if (kind === 'question' && questions) return null;
   if (runtime !== 'acp') return 'no_permission_channel';
   return kind === 'question' ? 'no_question_channel' : null;
@@ -377,7 +379,7 @@ export type PendingRequest = {
   questions?: readonly SettlementQuestion[];
   askedAt?: number;
   /** D-31 宿主替 agent 问的(不是它的 harness 问的):端上按 `host.kind` 画它自己的卡。 */
-  host?: HostAsk;
+  origin?: AskOrigin;
 };
 
 export type SettleResult = { ok: true; settlement: Settlement } | { ok: false; existing: Settlement };

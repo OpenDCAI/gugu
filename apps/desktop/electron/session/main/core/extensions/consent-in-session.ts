@@ -22,11 +22,11 @@ import { closeExtensionInstallConsent, requestExtensionInstallConsent } from './
  */
 export const IN_USE_IDLE_SECONDS = 60;
 
-type SessionTimelineService = typeof import('@main/core/session-timeline/service');
+type SessionTimelineService = typeof import('@main/core/asks');
 
 export interface ConsentInSessionDependencies {
-  /** The session timeline's `askHost` and `respond`: the one place the ask is kept and every surface's answer settles it. */
-  timeline: () => Promise<Pick<SessionTimelineService, 'askHost' | 'respond'>>;
+  /** The session's `ask` and `respond` (asks/index.ts): the one place the ask is kept and every surface's answer settles it. */
+  timeline: () => Promise<Pick<SessionTimelineService, 'ask' | 'respond'>>;
   /** Seconds since the last keyboard or mouse input on this computer. */
   idleSeconds: () => number;
   /** This computer's window; null on a Gugu server (no window — the session's approval is the only ask). */
@@ -47,7 +47,7 @@ function inUseTestHook(): InUseTestHook | null {
 }
 
 const defaults: ConsentInSessionDependencies = {
-  timeline: () => import('@main/core/session-timeline/service'),
+  timeline: () => import('@main/core/asks'),
   idleSeconds: () => inUseTestHook()?.idleSeconds ?? powerMonitor.getSystemIdleTime(),
   // A Gugu server (GUGU_SERVER_MODE, embedded-boot's HEADLESS_SERVER) has no window to draw it in.
   window: process.env.GUGU_SERVER_MODE === '1'
@@ -86,7 +86,7 @@ export async function askInstallInSession(
   callSignal?.addEventListener('abort', gone, { once: true });
   const timeline = await dependencies.timeline();
   try {
-    const answered = timeline.askHost(
+    const answered = timeline.ask(
       sessionId,
       {
         itemId: requestId,
@@ -97,7 +97,7 @@ export async function askInstallInSession(
           { optionId: APP_INSTALL_OPTION, name: request.removeVariant ? 'Remove fork' : 'Install', kind: 'allow_once' },
           { optionId: APP_INSTALL_DECLINE_OPTION, name: request.removeVariant ? 'Keep fork' : "Don't install", kind: 'reject_once' },
         ],
-        host: { kind: 'app-install', payload: { request: ask } satisfies AppInstallAsk },
+        origin: { source: 'app-install', payload: { request: ask } satisfies AppInstallAsk },
       },
       {
         signal: clock.signal,
@@ -134,7 +134,7 @@ export async function askInstallInSession(
       .catch((error: unknown) => log.warn('The install sheet in this window could not answer the session:', error));
     const result = await answered;
     if (result === 'unavailable') return await here;
-    if (result === 'withdrawn') return { outcome: callSignal?.aborted ? 'dismissed' : 'timeout' };
+    if (result === 'withdrawn' || result === 'timeout') return { outcome: callSignal?.aborted ? 'dismissed' : 'timeout' };
     return result.optionId === APP_INSTALL_OPTION
       ? { outcome: 'confirmed', ...(result.enableIn ? { enableIn: result.enableIn } : {}) }
       : { outcome: 'declined' };

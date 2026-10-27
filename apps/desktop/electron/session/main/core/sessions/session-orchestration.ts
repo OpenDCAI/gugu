@@ -2043,8 +2043,8 @@ async function runTargetAction(
   if (action.action === 'stop') {
     signal?.throwIfAborted();
     await stopSessionTransport(target);
-    const { withdrawHostQuestions } = await import('../session-timeline/service');
-    withdrawHostQuestions(target.id);
+    const { withdrawAll } = await import('../asks');
+    withdrawAll(target.id, 'agent-question');
     signal?.throwIfAborted();
     // #6095 —— 回执要是 stop **之后**的状态。两件事让它成立:
     //   ① transport 那一步已经把「被打断」经状态写入者落了库(pty 在 stopSession 里、ACP 在
