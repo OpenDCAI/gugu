@@ -81,10 +81,13 @@ export function SettlementCard({
   busy,
   onRespond,
   machine,
+  source,
 }: {
   settlement: Settlement
   /** The computer the session runs on: an App install's 「给哪些 agent」 lists that one's agents (D-31). */
   machine?: string
+  /** Optional task provenance inside the same actionable card. */
+  source?: ReactNode
   /** 这条会话的腿。答不答得了与写侧同一条判据(`remoteSettlementGap`)。 */
   runtime: SessionpageSessionSummary['runtime']
   busy: boolean
@@ -124,6 +127,7 @@ export function SettlementCard({
       data-item-id={settlement.itemId}
       data-testid="agent-watch-settlement"
     >
+      {source}
       <div className="gg-aw-card-title">
         {kind === 'question' ? <HelpCircle /> : <ShieldCheck />}
         {' '}
