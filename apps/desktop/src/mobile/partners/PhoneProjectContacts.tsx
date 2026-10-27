@@ -12,7 +12,7 @@ import { isMyAssistant } from '@/lib/myAssistant'
 import { useAuth } from '@/store/auth'
 import { useContactsStore } from '@/store/contactsContext'
 import { APP_SHOW_SESSION_EVENT, type AppShowSessionDetail } from '@/session/shared/extensions/app-runtime-protocol'
-import { agentName, matchesQuery, projectAgents, type PartnerProject, type ProjectAgent } from './partnersModel'
+import { agentName, matchesQuery, projectAgents, projectAgentTarget, type PartnerProject, type ProjectAgent } from './partnersModel'
 import { ProjectFolderAvatar } from './ProjectFolderAvatar'
 
 /**
@@ -55,11 +55,12 @@ export function PhoneProjectContacts({
   const showGroup = matchesQuery(groupLabel, query) || matchesQuery(project.name, query)
   // 它在这里还没有会话(只在群里):进项目群。
   const openAgent = (agent: ProjectAgent) => {
-    if (!agent.latest) {
+    const target = projectAgentTarget(agent)
+    if (target.kind === 'group') {
       onOpenGroup()
       return
     }
-    const detail: AppShowSessionDetail = { deviceId: agent.latest.deviceId, session: agent.latest.session }
+    const detail: AppShowSessionDetail = { deviceId: target.deviceId, session: target.session }
     window.dispatchEvent(new CustomEvent(APP_SHOW_SESSION_EVENT, { detail }))
   }
   const shownAgents = agents.filter((agent) => matchesQuery(agentName(agent), query) || matchesQuery(agent.work ?? '', query))

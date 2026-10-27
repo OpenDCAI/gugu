@@ -79,6 +79,19 @@ export type ProjectAgent = {
   latest: { deviceId: string; session: SessionpageSessionSummary } | null
 }
 
+/** 点项目通讯录里一个 agent 去哪:它在这里有会话 ⇒ 那条会话自己的页;没有 ⇒ 项目群。 */
+export type ProjectAgentTarget =
+  | { kind: 'session'; deviceId: string; session: SessionpageSessionSummary }
+  | { kind: 'group' }
+
+/**
+ * owner 10-28 手机试用:「在伙伴 项目里选择一个会话 居然不是会话聊天页 而是群聊页 加@」。
+ * 一个 agent 一行,行上写的是它在这里最近那件事 —— 点它就进那条会话,❌ 进项目群。
+ */
+export function projectAgentTarget(agent: Pick<ProjectAgent, 'latest'>): ProjectAgentTarget {
+  return agent.latest ? { kind: 'session', deviceId: agent.latest.deviceId, session: agent.latest.session } : { kind: 'group' }
+}
+
 /**
  * 项目通讯录「Agent」:我在这个项目里的 agent —— 项目群里我的 agent,加上这个项目的会话里有、群里还没有的。
  * 顺序固定(群里的先后,再是会话里多出来的),❌ 按状态排;副标题是它在这里最近那件事的标题,点它打开那条会话。
