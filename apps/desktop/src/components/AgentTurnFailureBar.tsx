@@ -130,10 +130,12 @@ const QUOTA_STYLE = `
 
 const turnFailureLog = rendererLogger('agent/turn-failure')
 
+// 名字可以是一整条会话标题:它先让(收缩权重远大于原因),最窄留 4em、超出省略;原因占满剩下的宽度,最多两行。
+// ❌ 名字不缩 —— 手机宽度里原因栏被挤成 0 宽、一字一行竖着排,整条撑成半屏高的空框(owner 10-28 手机试用「怎么我这会有占位」)。
 const STYLE = `
 .atf-bar{display:flex;align-items:center;gap:8px;margin:6px 14px;padding:10px 12px;border:1px solid var(--border-subtle);border-radius:var(--radius-document);background:var(--bg-secondary);font-size:var(--font-body);color:var(--text-secondary);flex-shrink:0;min-width:0}
-.atf-msg{flex:1;min-width:0;line-height:var(--lh-body);overflow-wrap:anywhere}
-.atf-nm{color:var(--faint-fg);flex-shrink:0}
+.atf-msg{flex:1 1 auto;min-width:0;line-height:var(--lh-body);overflow-wrap:anywhere;display:-webkit-box;-webkit-box-orient:vertical;-webkit-line-clamp:2;overflow:hidden}
+.atf-nm{color:var(--faint-fg);flex:0 1000 auto;min-width:4em;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .atf-btn{flex-shrink:0;border:none;background:none;padding:2px 6px;border-radius:6px;font-size:var(--font-body);color:var(--text-secondary);cursor:pointer}
 .atf-btn:hover{background:var(--hover);color:var(--text-primary)}
 .atf-btn:active{background:var(--press)}
@@ -199,7 +201,7 @@ export function AgentTurnFailureBar({
       <style>{STYLE}</style>
       <div className="atf-bar" role="status" aria-live="polite" aria-label={userMessage}>
         <AlertTriangle size={16} className="shrink-0 text-[var(--warn)]" aria-hidden />
-        <span className="atf-nm">{displayName}</span>
+        <span className="atf-nm" title={displayName}>{displayName}</span>
         <span
           className="atf-msg"
           aria-label={userMessage}
