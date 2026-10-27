@@ -9,7 +9,6 @@ vi.mock('./extension-bridge-relay', () => ({ requestExtensionInstallConsent: vi.
 vi.mock('@main/lib/logger', () => ({ log: { warn: vi.fn(), info: vi.fn(), error: vi.fn() } }));
 
 const { askInstallInSession, IN_USE_IDLE_SECONDS } = await import('./consent-in-session');
-const { INSTALL_CONSENT_HUMAN_WINDOW_MS } = await import('@shared/extensions/host-actions');
 
 const request = {
   sourceDir: '/tmp/reader',
