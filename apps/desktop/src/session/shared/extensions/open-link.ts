@@ -9,13 +9,16 @@ export interface LinkOpenDeps {
   isEnabled(extensionId: string): boolean;
   /** The interface language: a failure names the App as its manifest says it there. */
   locale(): string;
-  /** The project of a session on this computer; null when it is not here. */
+  /** The project the task list has a session under (this computer's, or another machine's it lists); null when none. */
   sessionProject(sessionId: string): Promise<string | null>;
   reveal(target: { projectId: string; sessionId: string; tabKind: string }): Promise<void>;
   /** The App in a chat's panel, or on its own page (no chat). */
   openApp(extensionId: string, tab: string, chatId: string | null): Promise<LinkPlace | 'own'>;
   resourceChat(chatId: string): Promise<string>;
-  openResource(target: Exclude<GuguLinkTarget, { kind: 'app' }>): Promise<void>;
+  /** The window opens what it can; for a session only the personal assistant's own task, nothing (undefined) otherwise. */
+  openResource(target: Exclude<GuguLinkTarget, { kind: 'app' }>): Promise<LinkPlace | 'own' | void>;
+  /** A session brought up the way a click on its row in the task list brings it (found by `sessionProject`). */
+  bringUp(session: { projectId: string; sessionId: string }): Promise<void>;
   deliver(extensionId: string, event: ExtensionHostEvent, opened: LinkPlace | 'own'): void;
 }
 
@@ -40,7 +43,12 @@ export async function openLinkWith(deps: LinkOpenDeps, raw: string | GuguLinkTar
   if (!link) return { kind: 'not-gugu-link' };
   if (link.kind !== 'app') {
     try {
-      await deps.openResource(link);
+      // One way for every host: the window first (the assistant's task opens in its chat), then the host's own task list.
+      if (!(await deps.openResource(link)) && link.kind === 'session') {
+        const projectId = await deps.sessionProject(link.sessionId);
+        if (!projectId) return { kind: 'failed', reason: 'no-session', name: link.kind };
+        await deps.bringUp({ projectId, sessionId: link.sessionId });
+      }
       return { kind: 'opened', target: link };
     } catch (error) {
       return { kind: 'failed', reason: 'open-failed', name: link.kind, detail: error instanceof Error ? error.message : String(error) };
