@@ -110,8 +110,6 @@ export function connectStdioAcpV2(io: AcpProcessIo, toClient: AcpClientFactory):
         await agent.request(v2.methods.agent.session.prompt, params as v2.PromptRequest);
       } catch (error) {
         turns.refused(params.sessionId, turn);
-        // A queued prompt that a cancel ended before the agent took it in is a cancelled turn.
-        if ((error as { code?: unknown } | null)?.code === -32800) return { stopReason: 'cancelled' };
         throw error;
       }
       onAccepted?.();

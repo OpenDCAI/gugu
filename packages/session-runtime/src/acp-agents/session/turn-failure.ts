@@ -184,9 +184,10 @@ export function refusedTurnOutcome(code: string | null | undefined): TranscriptT
 export function classifyTurnFailure(fact: TurnFailureFact): ClassifiedTurnFailure {
   switch (fact.at) {
     case 'prompt': {
+      // A JSON-RPC cancellation remains a cancelled turn even when admission failed.
       // 线是我们自己断的、provider 没说话 ⇒ 这一轮被停下,与它在 close 时答 `cancelled` 同一个结局。
       // provider 说过话的那一条仍是它的话(final),❌ 被「我们在关」盖掉。
-      if (fact.closeRequested && !providerAuthored(fact.cause)) {
+      if (fact.cause.code === -32800 || (fact.closeRequested && !providerAuthored(fact.cause))) {
         return { outcome: { kind: 'cancelled', reason: 'cancelled' }, provisional: false };
       }
       // #7103 这一轮是咕咕拒的(取票没签出来):咕咕按原因说,这一家那句(claude 的「apiKeyHelper is failing」、

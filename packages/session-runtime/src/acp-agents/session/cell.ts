@@ -536,6 +536,7 @@ export class SessionCell {
     opts?: { steerIfBusy?: boolean },
   ): Promise<Result<SessionPromptResult, AcpSendPromptError>> {
     const now = Date.now();
+    const draftRev = this.draftRev;
     return this.sendPromptInternal({
       id: crypto.randomUUID(),
       ...input,
@@ -543,9 +544,8 @@ export class SessionCell {
       updatedAt: now,
     }, {
       ...opts,
-      // Consume the submitted draft at admission. Completion can arrive minutes later,
-      // when the composer already holds the person's next, unsent message (#7572).
-      onAdmission: (result) => { if (result.success) this.clearDraft(); },
+      // Native admission can arrive after the next draft sync; consume only this revision.
+      onAdmission: (result) => { if (result.success && this.draftRev === draftRev) this.clearDraft(); },
     });
   }
 
@@ -614,6 +614,7 @@ export class SessionCell {
    * 开出来的那一轮怎么结束由 cell 自己结算、上屏(与 `prompt()` 同一条路),这里只交回受理结果。
    */
   async queueBehindTurn(input: PromptInput): Promise<Result<{ queued: boolean }, InvalidStateError>> {
+    const draftRev = this.draftRev;
     if (this.reverting) return acpErr.invalidState('Conversation revert is in progress.');
     if (this.machine.phase.kind === 'replaying') {
       const queued = this.queuePrompt(input);
@@ -632,7 +633,7 @@ export class SessionCell {
       if (admitted.error.type === 'invalid_state') return { success: false, error: admitted.error };
       throw new Error(`SessionCell: queued prompt admission failed with ${admitted.error.type}`);
     }
-    this.clearDraft();
+    if (this.draftRev === draftRev) this.clearDraft();
     return ok({ queued: admitted.data.queued });
   }
 
@@ -1727,7 +1728,7 @@ export class SessionCell {
     }
     // #6387 受理结果说清是「开了一轮」还是「插进了在飞的那一轮」—— 投递方要如实告诉扩展。
     let providerAccepted = false;
-    let nativePrompt = false;
+    let nativeRequest = false;
     const admit = () => {
       providerAccepted = true;
       if (!opts?.skipAdmission) opts?.onAdmission?.(ok({ queued: false, ...(steered ? { steered: true } : {}) }));
@@ -1853,6 +1854,7 @@ export class SessionCell {
         sessionId: this.acpSessionId,
         content: promptRequest.prompt,
       });
+      nativeRequest = this.agent.protocolVersion === 2;
       if (nativeSteer) {
         const outcome = await this.requestSteering(promptRequest);
         if (outcome === 'promptRequired') {
@@ -1878,8 +1880,7 @@ export class SessionCell {
         return ok({ queued: false });
       }
 
-      nativePrompt = this.agent.protocolVersion === 2;
-      const response = await (nativePrompt
+      const response = await (nativeRequest
         ? this.agent.prompt(promptRequest, admit)
         : this.agent.prompt(promptRequest));
       const reportedFailure = this.deps.turnFailure?.fromPromptResponse?.(response);
@@ -1935,7 +1936,7 @@ export class SessionCell {
       const err = acpErr.promptFailed(cause);
       // JSON-RPC Internal error before native admission is an executor failure. Invalid
       // input and errors from an already admitted turn do not invalidate the session.
-      const rejected = nativePrompt && !providerAccepted && cause.code === -32603;
+      const rejected = nativeRequest && !providerAccepted && cause.code === -32603;
       this.deps.logger.error('SessionCell: prompt failed', {
         sessionId: this.sessionId,
         providerId: this.deps.providerId,

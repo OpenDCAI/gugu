@@ -266,14 +266,16 @@ describe('connectStdioAcpV2', () => {
     });
   });
 
-  it('reads a queued prompt that a cancel ended before the agent took it in as a cancelled turn', async () => {
+  it('preserves a pre-admission cancellation as a refusal without an acceptance callback', async () => {
     const pair = agentPair({
       prompt: async () => {
         throw new v2.RequestError(-32800, 'Request cancelled');
       },
     });
     await initialize(pair.api);
-    await expect(pair.api.prompt({ sessionId: 's1', prompt: [] })).resolves.toEqual({ stopReason: 'cancelled' });
+    const accepted = vi.fn();
+    await expect(pair.api.prompt({ sessionId: 's1', prompt: [] }, accepted)).rejects.toMatchObject({ code: -32800 });
+    expect(accepted).not.toHaveBeenCalled();
   });
 
   it('reports a display terminal as the text output of the tool call that shows it, with its exit', async () => {
