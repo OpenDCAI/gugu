@@ -50,13 +50,6 @@ describe('installing on another computer with the yes given here', () => {
     expect(install.mock.calls[1]).toEqual([{ kind: 'given', digest: 'd', enableIn: ['agent-1'] }]);
   });
 
-  it('owner 10-27 ticked in the sheet = every agent there too: here:all goes with the yes, what that computer gives already kept', async () => {
-    const places = [{ id: 'here:all', kind: 'here', enabled: false }, { id: 'g1', kind: 'group', enabled: true }, { id: 'g2', kind: 'group', enabled: false }];
-    const install = run([{ success: true, data: { outcome: 'ask', ask: { manifestDigest: 'd', places } } }, { success: true }]);
-    await installAgreedOn(install, async () => ({ digest: 'd' }));
-    expect(install.mock.calls[1]).toEqual([{ kind: 'given', digest: 'd', enableIn: ['g1', 'here:all'] }]);
-  });
-
   it('the person says no here: nothing goes in there, and the no is the answer', async () => {
     const install = run([{ success: true, data: { outcome: 'ask', ask: { manifestDigest: 'd' } } }]);
     await expect(installAgreedOn(install, async () => ({ declined: 'cancelled' }))).resolves.toEqual({ declined: 'cancelled' });

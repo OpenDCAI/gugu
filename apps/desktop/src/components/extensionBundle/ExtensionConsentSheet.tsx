@@ -12,7 +12,6 @@ import { Avatar } from '../Avatar'
 import { Button } from '../ui/Button'
 import { Sheet } from '../ui/Sheet'
 import { ConsentBody } from './ConsentDetails'
-import { everyAgentThere } from '../../session/shared/extensions/app-places'
 import { MachineLines } from '../../session/renderer/features/remote-hosts/machine-picker'
 import { ForumConsent } from './ForumConsent'
 import { DispatchSheet } from '../chat/DispatchSheet'
@@ -71,7 +70,10 @@ function InstallConsentSheet() {
   }, [])
 
   if (!ask) return null
-  const enableIn = everyAgentThere(ask.places)
+  // Who gets it there is what the install ticks (main's installAsk): a first install, every agent there; one installed already
+  // keeps what it gives, narrowed or not, plus the chat an agent installs it for. The sheet changes none of it (that is the
+  // App page's 「已给」): ticking a computer never widens who has it.
+  const enableIn = ask.places?.filter((place) => place.enabled).map((place) => place.id)
   const answer = (outcome: ExtensionConsentAnswerDetail['outcome']) => {
     setAsk(null)
     const detail: ExtensionConsentAnswerDetail = {
@@ -96,8 +98,7 @@ function InstallConsentSheet() {
           <ConsentBody description={ask.description} details={ask.details} />
           {enableIn || ask.alsoOn?.length ? (
             // owner 10-27「不关心给哪些 agent，关心给哪些设备」: one list of computers. The one asked for is installed on; each
-            // other one ticked is installed on too (owner 10-16). On every one, every agent there gets it (`everyAgentThere`);
-            // giving it to only some agents is the App page's 「已给」.
+            // other one ticked is installed on too (owner 10-16), with what that computer's own install ticks.
             <fieldset className="!mt-3 flex flex-col gap-1" data-testid="extension-consent-devices">
               <legend className="text-[length:var(--font-body)] font-semibold text-[var(--text-primary)]">{t('chatArea.appEnable.devices')}</legend>
               {[{ id: '', label: ask.machine ?? t('chatArea.appEnable.machine'), disabledReason: undefined }, ...(ask.alsoOn ?? [])].map((machine) => (

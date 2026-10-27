@@ -19,9 +19,16 @@ import { ExtensionConsentSheet } from '../../../../apps/desktop/src/components/e
  * owner 10-27「安装卡……不关心给哪些 agent，关心给哪些设备」: the install sheet is one list of computers. The one asked for is
  * installed on, each other one ticked too, and on each every agent gets it; naming agents, groups and projects is the App page's.
  */
-const places: EnablePlace[] = [
-  { id: HERE_ALL, kind: 'here', enabled: false },
+/** A first install here: main ticks every agent here. */
+const fresh: EnablePlace[] = [
+  { id: HERE_ALL, kind: 'here', enabled: true },
   { id: 'dm-1', kind: 'agent', name: 'Helper', enabled: false },
+  { id: 'g1', kind: 'group', name: 'Ops', enabled: false },
+]
+/** Installed here already and narrowed to one agent; an agent installs it again for group g1, which main ticks. */
+const narrowed: EnablePlace[] = [
+  { id: HERE_ALL, kind: 'here', enabled: false },
+  { id: 'dm-1', kind: 'agent', name: 'Helper', enabled: true },
   { id: 'g1', kind: 'group', name: 'Ops', enabled: true },
 ]
 
@@ -38,7 +45,7 @@ afterEach(() => {
   harness.cleanup()
 })
 
-async function ask() {
+async function ask(places = fresh) {
   await harness.render(createNode(ExtensionConsentSheet, {}))
   await act(async () => {
     window.dispatchEvent(new CustomEvent(EXTENSION_CONSENT_EVENT, { detail: {
@@ -60,10 +67,16 @@ describe('the install sheet asks which computers', () => {
     expect(document.body.textContent).not.toContain('Helper')
   })
 
-  it('a yes gives every agent on the computers installed on, keeping what was given already', async () => {
+  it('a yes on a first install gives every agent here, and the computers ticked are installed on too', async () => {
     await ask()
     await act(async () => { q<HTMLInputElement>('[data-testid="extension-consent-also-on-dev-b"]')!.click() })
     await act(async () => { q<HTMLButtonElement>('[data-testid="extension-consent-confirm"]')!.click() })
-    expect(answers).toEqual([{ requestId: 'r1', outcome: 'confirmed', enableIn: ['g1', HERE_ALL], alsoOn: ['dev-b'] }])
+    expect(answers).toEqual([{ requestId: 'r1', outcome: 'confirmed', enableIn: [HERE_ALL], alsoOn: ['dev-b'] }])
+  })
+
+  it('统筹 10-27: installed here already and narrowed, a yes keeps who has it — never widened to every agent here', async () => {
+    await ask(narrowed)
+    await act(async () => { q<HTMLButtonElement>('[data-testid="extension-consent-confirm"]')!.click() })
+    expect(answers).toEqual([{ requestId: 'r1', outcome: 'confirmed', enableIn: ['dm-1', 'g1'], alsoOn: [] }])
   })
 })

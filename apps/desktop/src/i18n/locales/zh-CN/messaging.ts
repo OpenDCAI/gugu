@@ -173,7 +173,7 @@ export default {
     },
     "appEnable": {
       "devices": "装到哪几台电脑",
-      "devicesHint": "勾上的电脑上，所有 agent 都能用它。只想给部分 agent：装好后在「App」页里改。",
+      "devicesHint": "新装上的电脑，所有 agent 都能用；已经装了的，给哪些 agent 照旧。只给部分 agent：在「App」页里改。",
       "machine": "这台电脑",
       "all": "所有 agent",
       "allSub": "包括各个项目里的 agent",
