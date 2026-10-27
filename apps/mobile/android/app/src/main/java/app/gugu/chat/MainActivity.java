@@ -27,6 +27,7 @@ public class MainActivity extends BridgeActivity {
         registerPlugin(GuguPhoneActionsPlugin.class);
         registerPlugin(GuguAgentPlugin.class);
         registerPlugin(GuguPhoneDataPlugin.class);
+        registerPlugin(GuguAudioPermissionsPlugin.class);
         registerPlugin(MobileShellChrome.class);
         super.onCreate(savedInstanceState);
         if (BuildConfig.GUGU_ALLOW_LOCAL_HTTP) {

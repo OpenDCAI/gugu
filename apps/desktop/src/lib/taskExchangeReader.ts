@@ -21,10 +21,14 @@ export function startTaskExchangeReader(
   let offPage: (() => void) | undefined
   let subscriptionId: string | undefined
   let cursor = 0
+  // An unavailable native bridge may throw before it returns a Promise. Cleanup must handle both paths.
+  const unsubscribe = (id: string) => { void Promise.resolve().then(() => transport.unsubscribe(id)).catch(() => undefined) }
   const stop = () => {
     offPage?.()
-    if (subscriptionId) void transport.unsubscribe(subscriptionId).catch(() => undefined)
+    offPage = undefined
+    const id = subscriptionId
     subscriptionId = undefined
+    if (id) unsubscribe(id)
   }
   const start = async () => {
     const run = ++generation
@@ -36,7 +40,7 @@ export function startTaskExchangeReader(
     offPage = transport.onPage(id, (page) => { if (current()) receive(page.entries) })
     try {
       let page = await transport.subscribe({ ...request, after: cursor, subscriptionId: id })
-      if (!current()) { void transport.unsubscribe(id).catch(() => undefined); return }
+      if (!current()) { unsubscribe(id); return }
       for (;;) {
         receive(page.entries)
         cursor = page.cursor

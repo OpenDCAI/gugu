@@ -4,7 +4,6 @@ import type { ActiveSection } from '@gugu/core/shared/enums/settingsSectionModel
 import { AgentAiModelPane } from '../agentsettings/AgentAiModelPane'
 import { AssistantSection } from '../settings/AssistantSection'
 import { ConnectorsSection } from '../settings/ConnectorsSection'
-import { ChatChannelsPanel } from '../settings/channels/ChatChannelsPanel'
 import { AssistantDevicesPage } from '../devices/AssistantDevicesPage'
 import { Button } from '../ui/Button'
 import { ChevronLeft } from '@/lib/icons'
@@ -31,7 +30,7 @@ export function AssistantSettingsPage({ onOpenPage, onOpenSection }: {
       {section === 'aimodel' && contact ? <AgentAiModelPane agent={contact} />
         : section === 'connectors' ? <ConnectorsSection />
         : section === 'devices' ? <AssistantDevicesPage cloudDeviceId={cloudDeviceId} />
-        : section === 'channels' ? <ChatChannelsPanel />
+        : section === 'channels' ? <ConnectorsSection />
         : <AssistantSection available={SECTIONS} onOpenSection={onOpenSection ?? setSection} onOpenModel={() => setSection('aimodel')}
             onOpenAssistantPage={onOpenPage ?? ((tab) => appState.navigation.navigate('assistant', { tab }))} />}
     </div>

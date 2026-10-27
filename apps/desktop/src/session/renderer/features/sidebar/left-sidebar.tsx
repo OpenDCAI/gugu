@@ -33,13 +33,14 @@ import { SidebarSearchTrigger } from './sidebar-search-trigger';
 import { SidebarSpace } from './sidebar-space';
 import { SidebarListSwitch, useSidebarLayoutContextMenu } from './sidebar-list-switch';
 import { openShellChatAction, shellChatActions, SidebarChatsSection } from './sidebar-chats-section';
-import { publishSidebarChatView, publishSidebarSessions, useSidebarChatSignals } from '@/lib/sidebarChatsBridge';
+import { publishSidebarChatView, useSidebarChatSignals } from '@/lib/sidebarChatsBridge';
+import { SidebarSessionsSection } from './sidebar-sessions-section';
 import { SidebarVirtualList } from './sidebar-virtual-list';
 import { useSidebarDrop } from './use-sidebar-drop';
 import { useSessionMessages } from '@renderer/localization/use-session-messages';
 
 // 侧栏自上而下:布局 / 折叠 / 搜索 →「项目 | 对话」→ 三行入口 → 置顶 → 列表,两页同一副骨架。
-// 三行入口的第一行都是「新建会话」;项目页另两行是会话历史、已安排,对话页是新建群聊、添加联系人。
+// 三行入口的第一行都是「新建任务」;项目页另两行是会话历史、已安排,对话页是新建群聊、添加联系人。
 // 合在一起时没有切换,入口留项目那三行,列表是 置顶 → 项目 → 会话 → 对话。
 // No foot: 资源库 and 设置 are on the far-left rail (product spec, #7046) — they belong to the gugu shell.
 export const LeftSidebar: React.FC = observer(function LeftSidebar() {
@@ -152,9 +153,6 @@ export const LeftSidebar: React.FC = observer(function LeftSidebar() {
     () => publishSidebarChatView({ focusedChatId, focusedSessionId, groups: joinedGroups }),
     [focusedChatId, focusedSessionId, joinedGroups]
   );
-  // 没有项目的会话就是和它的 agent 私聊(gugu-dev#181):不在这边单列一个分区,交给壳和对话一起排进「对话」。
-  const standaloneLines = sidebarStore.standaloneLines;
-  React.useEffect(() => publishSidebarSessions(standaloneLines), [standaloneLines]);
   const [scrollContent, setScrollContent] = React.useState<HTMLDivElement | null>(null);
   const scrollTargets = React.useMemo<SidebarScrollTargets>(
     () => ({ scroller, content: scrollContent }),
@@ -285,6 +283,7 @@ export const LeftSidebar: React.FC = observer(function LeftSidebar() {
                         </SidebarGroupContent>
                       )}
                     </SidebarGroup>
+                    <SidebarSessionsSection />
                   </>
                 )}
                 {showChats && <SidebarChatsSection merged={merged} unread={chatsUnread} />}

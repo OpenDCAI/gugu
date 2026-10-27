@@ -3,7 +3,9 @@ import { invokePhoneHost } from '../local-agent/phoneHostRpc'
 import type { AttachmentUploadRpc } from '@renderer/features/sessions/acp/composer-file-upload'
 import type { ToolImage } from '@gugu/session-core/acp/client'
 import { rendererLogger } from '@/lib/log'
-import { readCachedDevices } from '@/store/devicesCache'
+import { readCachedDevices, subscribeCachedDevices } from '@/store/devicesCache'
+import { getCloudComputerState, subscribeCloudComputerState } from '@/lib/cloudComputerStore'
+import { remoteHostReachable } from '@/session/shared/remote-hosts'
 import { translateSessionMessage } from '@renderer/localization/locale-store'
 import { appCallWaitMs, type AppCallAction, type AppMessageAction, type AppMessageReceipt, type AppSpawnAction } from '@gugu/session-core/session-record/contract'
 import { callDeviceRpc } from '@/lib/deviceRpc'
@@ -55,10 +57,28 @@ import type { SessionpageSessionOptionsWithMenu } from '@main/core/session-timel
 const log = rendererLogger('mobile/agent-watch')
 const hosts = new Map<string, SessionHostClient>()
 
+function reachable(deviceId: string): boolean {
+  const device = readCachedDevices().find((row) => row.device_id === deviceId)
+  const snapshot = getCloudComputerState().snapshot
+  const cloud = snapshot?.deviceId === deviceId ? snapshot.state : device?.cloud_computer
+  // An empty/unfinished device directory is unknown, not proof of an offline host.
+  return remoteHostReachable({
+    isOnline: device?.is_online !== false,
+    directTerminal: false,
+    ...(cloud === 'awake' || cloud === 'asleep' || cloud === 'waking' ? { cloudComputer: cloud } : {}),
+  })
+}
+
 function host(deviceId: string): SessionHostClient {
   let client = hosts.get(deviceId)
   if (!client) {
     client = createSessionHostClient(openPhoneSessionHostPipe(deviceId), {
+      isReachable: () => reachable(deviceId),
+      subscribeReachability: (listener) => {
+        const stopCloud = subscribeCloudComputerState(listener)
+        const stopDevices = subscribeCachedDevices(listener)
+        return () => { stopCloud(); stopDevices() }
+      },
       subscribeEvents: true,
       heartbeatMs: SESSION_HOST_CLIENT_HEARTBEAT_MS,
       retryMaxMs: 60_000,
@@ -114,6 +134,7 @@ export function machineRpc(deviceId: string) {
  */
 function once(deviceId: string) {
   return createRPCClient<RpcRouter>(async (channel, ...args) => {
+    if (!reachable(deviceId)) throw new SessionpageRpcError('unreachable', translateSessionMessage('deviceScope.unreachable', { device: deviceId.slice(0, 8) }))
     const reply = await callDeviceRpc<{ value: unknown }>(deviceId, SESSION_HOST_RPC.call, { channel, args }, { timeoutMs: 12_000 })
     if (reply.error) throw new SessionpageRpcError(reply.error.code, reply.error.message)
     return reply.result?.value

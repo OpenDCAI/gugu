@@ -250,3 +250,16 @@ test('remote actions and result acknowledgments cannot reuse a control reply or 
     assert.equal(fx.deviceRuns(),0)
   } finally { await rpc.close() }
 })
+
+test('the account work receiver has its own private peer operation',async()=>{
+  const fx=fixture(),rpc=await fx.starting
+  try{
+    fx.named(sharedName)[0].broadcast({type:'taskhost.attach',request_id:'attach-work',user_id:ownerId,payload:{asker:'work_peer',protocol:REMOTE_PROTOCOL_VERSION}})
+    await flush()
+    const ref={assistant_id:'assistant',work_id:'work',message_id:'message'}
+    fx.named(`${sharedName}:work_peer`)[0].broadcast({type:'assistantWork.deliver',request_id:'work-request',user_id:ownerId,payload:ref})
+    await flush()
+    assert.equal(fx.invocations[0]?.[0],'assistantWork.deliver')
+    assert.deepEqual(fx.invocations[0]?.[1],[ref])
+  }finally{await rpc.close()}
+})

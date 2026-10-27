@@ -18,17 +18,19 @@ export interface AttachmentMeta {
  * - url:老消息,正文里的 `[URL]`(chat-media 公开链接);
  * - item:新消息,指向群文件夹里一个条目的某一版(消息行的 file_item_id / file_version),链接经 attachments/urls 现签;
  * - message:悄悄话的附件,不进群文件夹(owner 10-17 定),消息直接指字节(file_blob_id);能读这条消息的人才签得到链接;
+ * - attachment:Agent 之间交付的文件引用,通过同一文件读取器按当前账号核权取原件;
  * - gone:新消息,但条目已经删了(file_item_id 随删除置空)—— 名字还在,字节没了。
  */
 export type AttachmentSource =
   | { kind: 'url'; url: string }
   | { kind: 'item'; itemId: string; version: number }
   | { kind: 'message'; messageId: string }
+  | { kind: 'attachment'; attachmentId: string }
   | { kind: 'gone' }
 
-/** Legacy text is metadata, never an address to fetch; only an authoritative message can resolve its bytes. */
+/** Legacy text is metadata, never an address to fetch; canonical references resolve bytes through the file reader. */
 export function attachmentFileRef(source: AttachmentSource): FileRef | null {
-  return source.kind === 'item' ? { item_id: source.itemId, version: source.version } : source.kind === 'message' ? { message_id: source.messageId } : null
+  return source.kind === 'item' ? { item_id: source.itemId, version: source.version } : source.kind === 'message' ? { message_id: source.messageId } : source.kind === 'attachment' ? { attachment_id: source.attachmentId } : null
 }
 
 /** 读出来的附件:正文里的名字、类型、大小,加上字节从哪来。 */

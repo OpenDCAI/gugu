@@ -1,3 +1,4 @@
+import { summary } from './summary';
 import type { VerifyResult } from '../../capabilities/auth';
 import { defineIntegrationPlugin, registerIntegrationPluginBehavior } from '../../plugin';
 import { verifyForgejoCredentials } from './client';
@@ -6,8 +7,8 @@ import { icon } from './icon';
 const plugin = defineIntegrationPlugin(
   {
     id: 'forgejo',
-    name: 'Forgejo',
-    description: { en: 'Work on Forgejo issues', 'zh-CN': '处理 Forgejo issue' },
+    name: summary.name['zh-CN'],
+    description: summary.description,
     websiteUrl: 'https://forgejo.org',
   },
   {

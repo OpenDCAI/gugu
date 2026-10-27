@@ -133,7 +133,21 @@ describe('#6921 同一个头会给 lite 模型挂上打 /v1/alpha/search 的 web
     for (const args of [providerArgs(routes), appServerArgs(routes), acpArgs(routes)]) {
       expect(hasConfig(args, HEADER_ARG)).toBe(true);
       expect(hasConfig(args, SEARCH_OFF_ARG)).toBe(false);
+      expect(hasConfig(args, 'model_providers.gugu_platform.supports_standalone_web_search=true')).toBe(true);
+      expect(hasConfig(args, 'features.standalone_web_search=true')).toBe(true);
+      expect(hasConfig(args, 'web_search="live"')).toBe(true);
     }
+  });
+
+  it('search-only grants enable standalone search without enabling image generation', () => {
+    const routes = { '/v1/alpha/search': ['gpt-6-astra'] };
+    for (const args of [providerArgs(routes), appServerArgs(routes), acpArgs(routes)]) {
+      expect(hasConfig(args, HEADER_ARG)).toBe(false);
+      expect(hasConfig(args, SEARCH_OFF_ARG)).toBe(false);
+      expect(hasConfig(args, 'model_providers.gugu_platform.supports_standalone_web_search=true')).toBe(true);
+      expect(hasConfig(args, 'features.standalone_web_search=true')).toBe(true);
+    }
+    expect(providerArgs(routes, 'ungranted')).toEqual(providerArgs());
   });
 
   it('搜索路由上只有别的模型 ⇒ 三个面都关掉搜索(生产 10-21:luna 会话被 sol 的搜索路由打开了 web.run)', () => {

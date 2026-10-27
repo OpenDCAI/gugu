@@ -26,12 +26,12 @@ export function PhoneVoiceNotes(props: PhonePageProps) {
   const { t } = useTranslation('voiceNotes')
   const id = props.sub?.startsWith('voice:') ? props.sub.slice('voice:'.length) : null
   const name = props.assistant.display_name
-  const ready = props.readiness === 'ready' && props.machine.state === 'ready' ? props.machine.machine : null
+  const ready = props.machine.state === 'ready' ? props.machine.machine : null
   if (ready && id) return <VoiceNoteDetail key={id} {...props} machine={ready} id={id} />
   return (
     <div className="ta-page" data-testid={id ? 'assistant-voice-note' : 'assistant-voice-notes'}>
       <PageHead title={t('title')} />
-      <PhoneMachineView readiness={props.readiness} machine={props.machine} name={name}>
+      <PhoneMachineView machine={props.machine} name={name}>
         {(machine) => (id ? null : <VoiceNotesList machine={machine} go={props.go} />)}
       </PhoneMachineView>
     </div>

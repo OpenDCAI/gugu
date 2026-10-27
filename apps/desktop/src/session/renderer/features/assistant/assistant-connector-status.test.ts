@@ -20,3 +20,7 @@ describe('connectorState', () => {
     expect(connectorState(undefined, undefined, new Error('credentials unreadable'))).toBe('checkFailed');
   });
 });
+
+it('shows a finite unverified state for saved cloud metadata without a current check', () => {
+  expect(connectorState(true,undefined,undefined,true)).toBe('unverified');
+});

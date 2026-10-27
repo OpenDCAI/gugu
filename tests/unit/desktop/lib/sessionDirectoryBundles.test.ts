@@ -1,6 +1,15 @@
 import { afterEach, expect, it, vi } from 'vitest'
+import type { Device } from '@gugu/core/shared/types/chat'
 
 afterEach(() => { vi.unstubAllGlobals(); vi.resetModules() })
+it('upgrades a document directory left by an older bundle before requesting phone polling', async () => {
+  vi.stubGlobal('window', { __GUGU_SESSION_DIRECTORY__: { devices: [], live: {}, listeners: new Set(), retries: new Map() } })
+  const directory = await import('../../../../apps/desktop/src/session/shared/remote-sessions/session-directory')
+  const release = directory.requestPhoneTaskDirectory()
+  expect(directory.phoneTaskDirectoryRequested()).toBe(true)
+  release()
+  expect(directory.phoneTaskDirectoryRequested()).toBe(false)
+})
 it('shares one directory and notifications between the shell and session module graphs', async () => {
   vi.stubGlobal('window', {})
   const shell = await import('../../../../apps/desktop/src/session/shared/remote-sessions/session-directory')
@@ -12,7 +21,11 @@ it('shares one directory and notifications between the shell and session module 
   expect(notified).toHaveBeenCalledOnce()
   expect(shell.liveDeviceSessions()).toBe(session.liveDeviceSessions())
   expect(shell.liveDeviceSessions().cloud?.cached).toBe(false)
+  const devices = [{ device_id: 'phone', label: 'My phone', platform: 'android', is_current_device: true }] as Device[]
+  shell.publishDirectoryDevices(devices)
+  expect(session.directoryDevices()).toBe(devices)
+  expect(notified).toHaveBeenCalledTimes(2)
   off()
   session.updateDeviceSessions('cloud', { loading: true })
-  expect(notified).toHaveBeenCalledOnce()
+  expect(notified).toHaveBeenCalledTimes(2)
 })

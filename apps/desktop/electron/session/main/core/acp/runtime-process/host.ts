@@ -186,12 +186,12 @@ export type AcpRuntimeClient = ContractClient<AcpApiContract> & {
    */
   adapterProvenance(input: {
     sessionId: string;
-  }): Promise<{ connectionKey: string; pid: number | null } | null>;
+  }): Promise<{ connectionKey: string; pid: number | null; closing?: true } | null>;
   promptDetached(input: {
     sessionId: string;
     prompt: PromptInput;
     steerIfBusy?: boolean;
-  }): Promise<{ requestId: string; queued: boolean; steered?: boolean; declined: boolean }>;
+  }): Promise<{ requestId: string; queued: boolean; steered?: boolean; declined: boolean; missing?: true }>;
   waitPromptDetached(input: { requestId: string }): Promise<{ queued: boolean }>;
   /**
    * #6396 告诉一条会话一件事:转录里一行 / agent 下一轮的开头(见 SessionManager.announce)。
@@ -202,12 +202,12 @@ export type AcpRuntimeClient = ContractClient<AcpApiContract> & {
 type AcpRuntimeProcessClient = ContractClient<AcpRuntimeApiContract> & {
   adapterProvenance(input: {
     sessionId: string;
-  }): Promise<{ connectionKey: string; pid: number | null } | null>;
+  }): Promise<{ connectionKey: string; pid: number | null; closing?: true } | null>;
   promptDetached(input: {
     sessionId: string;
     prompt: PromptInput;
     steerIfBusy?: boolean;
-  }): Promise<{ requestId: string; queued: boolean; steered?: boolean; declined: boolean }>;
+  }): Promise<{ requestId: string; queued: boolean; steered?: boolean; declined: boolean; missing?: true }>;
   waitPromptDetached(input: { requestId: string }): Promise<{ queued: boolean }>;
   /**
    * #6396 告诉一条会话一件事:转录里一行 / agent 下一轮的开头(见 SessionManager.announce)。
@@ -599,6 +599,16 @@ export function createStartOwningClient(client: ContractClient<AcpRuntimeApiCont
     return acpErr.invalidState(`Session ${sessionId} was stopped before its start reached the runtime`);
   }
 
+  // A failed stop remains owned by its old process until actual teardown completes.
+  async function finishClosingProcess(sessionId: string): Promise<void> {
+    const owner = await detachedClient.adapterProvenance({ sessionId });
+    if (!owner?.closing) return;
+    const stopped = await stopWorker({ sessionId }, undefined as never);
+    if (!stopped.success) throw new Error(`ACP process teardown did not complete: ${stopped.error.message ?? stopped.error.type}`);
+    await closeRuntimeForkOwnershipForRuntimeSession(sessionId);
+    await releaseEmdashPlatformSession(sessionId);
+  }
+
   // 主进程这一段做三件互相独立的事(能力注入 / 平台注入 / 定 CLI),产出的是 worker 该拿去起会话的那份输入。
   async function prepareStart(input: StartCall[0]) {
     const lifecycle = input.input.forkFromProviderSessionId ? 'fork' : 'fresh';
@@ -618,6 +628,7 @@ export function createStartOwningClient(client: ContractClient<AcpRuntimeApiCont
     // 准备这一段抛出(例如平台签发被网关 429 拒掉)时,账本里要有这一格:否则日志停在上一段,
     // 读起来像「还在跑」,而错误本身只以 `HANDLER_ERROR` 的形状到渲染层,原因丢了。
     try {
+      await finishClosingProcess(input.input.sessionId);
       const facts = await readSessionInjectionFacts(input.input);
       mark('session-facts-read');
       const capabilityInjection = await withEmdashMcpInjection(input, lifecycle, facts);
@@ -727,8 +738,48 @@ export function createStartOwningClient(client: ContractClient<AcpRuntimeApiCont
   //    停会话先撤掉在途启动:停之后的下一次启动必须是新的一次,❌ 并入一个刚被停掉的启动
   //    (它的结果是「起来了」,它手里那张平台票已经被停会话结清)。
   const startsInFlight = new Map<string, StartOperation>();
-  const startOnce = (input: StartCall[0], meta: StartCall[1]): StartOperation => {
+  const stopsInFlight = new Map<string, ReturnType<typeof client.stopSession>>();
+  const conditionalStops = new Set<string>();
+  async function closeBrowserToolsBestEffort(sessionId: string): Promise<void> {
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    let active = true;
+    try {
+      await Promise.race([
+        import('../../../../../browser-agent-mcp').then(module => active ? module.closeSessionBrowserTools(sessionId) : undefined),
+        new Promise<never>((_resolve, reject) => {
+          timer = setTimeout(() => reject(new Error('Browser tool cleanup timed out after 1000ms')), 1_000);
+        }),
+      ]);
+    } catch (error) {
+      log.warn('acp stop: browser tool cleanup failed', { sessionId, error: String(error) });
+    } finally { active = false; if (timer) clearTimeout(timer); }
+  }
+  async function stopWorker(input: Parameters<typeof client.stopSession>[0], meta: Parameters<typeof client.stopSession>[1]) {
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    try {
+      return await Promise.race([
+        client.stopSession(input, meta),
+        new Promise<never>((_resolve, reject) => {
+          timer = setTimeout(() => reject(new Error('ACP worker stop timed out after 12000ms')), 12_000);
+        }),
+      ]);
+    } catch (error) {
+      log.warn('acp stop: worker teardown failed', { sessionId: input.sessionId, error: String(error) });
+      return acpErr.stopFailed({ name: 'StopFailed', message: String(error) });
+    } finally { if (timer) clearTimeout(timer); }
+  }
+  async function waitForStop(sessionId: string): Promise<void> {
+    const stopping = stopsInFlight.get(sessionId);
+    if (!stopping) return;
+    const result = await stopping;
+    if (!result.success && (await detachedClient.adapterProvenance({ sessionId }))?.closing) {
+      throw new Error(`ACP process teardown did not complete: ${result.error.message ?? result.error.type}`);
+    }
+  }
+  const startOnce = async (input: StartCall[0], meta: StartCall[1]): Promise<StartOperation> => {
     const sessionId = input.input.sessionId;
+    // Teardown owns credentials too: do not prepare a replacement while its old stop can revoke it.
+    while (stopsInFlight.has(sessionId)) await waitForStop(sessionId);
     const inFlight = startsInFlight.get(sessionId);
     if (inFlight) return inFlight;
     const prepared = prepareStart(input);
@@ -745,6 +796,47 @@ export function createStartOwningClient(client: ContractClient<AcpRuntimeApiCont
       if (startsInFlight.get(sessionId) === operation) startsInFlight.delete(sessionId);
     };
     void operation.result.then(clear, clear);
+    return operation;
+  };
+
+  const stopSession: typeof client.stopSession = (input, meta) => {
+    const pending = stopsInFlight.get(input.sessionId);
+    if (pending) {
+      // An unconditional user stop must still run when idle reclamation declines.
+      if (!input.onlyIfIdle && conditionalStops.has(input.sessionId)) {
+        return pending.then(() => stopSession(input, meta));
+      }
+      return pending;
+    }
+    const inFlight = startsInFlight.get(input.sessionId);
+    if (!input.onlyIfIdle && inFlight) inFlight.stopped = true;
+    if (input.onlyIfIdle) conditionalStops.add(input.sessionId);
+    const operation = Promise.resolve().then(async () => {
+      const idleStop = input.onlyIfIdle ? await stopWorker(input, meta) : null;
+      if (idleStop && !idleStop.success) {
+        if (await detachedClient.adapterProvenance({ sessionId: input.sessionId }) === null) {
+          await closeRuntimeForkOwnershipForRuntimeSession(input.sessionId);
+          await releaseEmdashPlatformSession(input.sessionId);
+        }
+        return idleStop;
+      }
+      if (inFlight) inFlight.stopped = true;
+      if (startsInFlight.get(input.sessionId) === inFlight) startsInFlight.delete(input.sessionId);
+      const [result] = await Promise.all([idleStop ?? stopWorker(input, meta), closeBrowserToolsBestEffort(input.sessionId)]);
+      // Lost replies do not retain credentials after the worker proves the process is gone.
+      if (!result.success && await detachedClient.adapterProvenance({ sessionId: input.sessionId }) !== null) return result;
+      await closeRuntimeForkOwnershipForRuntimeSession(input.sessionId);
+      await releaseEmdashPlatformSession(input.sessionId);
+      if (inFlight) await settleStoppedStart(input.sessionId, inFlight.projectId);
+      return result;
+    });
+    stopsInFlight.set(input.sessionId, operation);
+    const clear = (): void => {
+      if (stopsInFlight.get(input.sessionId) !== operation) return;
+      stopsInFlight.delete(input.sessionId);
+      conditionalStops.delete(input.sessionId);
+    };
+    void operation.then(clear, clear);
     return operation;
   };
 
@@ -786,9 +878,12 @@ export function createStartOwningClient(client: ContractClient<AcpRuntimeApiCont
       const { startInput: rendererStartInput, ...queued } = input;
       if (!rendererStartInput) return client.queuePrompt(queued, meta);
       const sessionId = rendererStartInput.sessionId;
-      if (!startsInFlight.has(sessionId) && (await detachedClient.adapterProvenance({ sessionId })) !== null) {
-        log.info('acp queue-with-start: forwarded to a live session', { sessionId, branch: 'forward-live' });
-        return client.queuePrompt(queued, meta);
+      if (!startsInFlight.has(sessionId)) {
+        const owner = await detachedClient.adapterProvenance({ sessionId });
+        if (owner !== null && !owner.closing) {
+          log.info('acp queue-with-start: forwarded to a live session', { sessionId, branch: 'forward-live' });
+          return client.queuePrompt(queued, meta);
+        }
       }
       // 哪一支由这一行说 —— 「排队首句走了哪条路」否则只能从症状倒推。
       log.info('acp queue-with-start: joins the session start', {
@@ -797,7 +892,7 @@ export function createStartOwningClient(client: ContractClient<AcpRuntimeApiCont
       });
       // 要续哪个 provider 会话(#5869)、跑哪一份 CLI(#5681)、带哪张平台票,都由同一次启动准备定 ——
       // ❌ 不用渲染进程递来的那份输入。准备失败(例如选了平台模型却签不出票)就原样抛给渲染层。
-      const operation = startOnce({ input: rendererStartInput }, meta);
+      const operation = await startOnce({ input: rendererStartInput }, meta);
       const { injected } = await operation.prepared;
       // 加入的那次启动在准备途中被停了:❌ 带着启动输入去 worker —— 那会把刚停掉的会话又起起来。
       if (operation.stopped) {
@@ -812,31 +907,11 @@ export function createStartOwningClient(client: ContractClient<AcpRuntimeApiCont
       await startsInFlight.get(input.sessionId)?.prepared.catch(() => undefined);
       return client.setModelOption(input, meta);
     },
-    startSession: (input, meta) => startOnce(input, meta).result,
-    stopSession: async (input, meta) => {
-      const inFlight = startsInFlight.get(input.sessionId);
-      if (inFlight) inFlight.stopped = true;
-      startsInFlight.delete(input.sessionId);
-      const { closeSessionBrowserTools } = await import('../../../../../browser-agent-mcp');
-      const closingBrowser = closeSessionBrowserTools(input.sessionId);
-      const [result] = await Promise.all([client.stopSession(input, meta), closingBrowser]);
-      await closeRuntimeForkOwnershipForRuntimeSession(input.sessionId);
-      // @@@stop-settles-the-credential — 「停了」和「它的凭据没了」必须是**同一个结果**。
-      //
-      // worker 停会话时会发 `platformSessionClosed`,而那条订阅是 `void releaseEmdashPlatformSession(...)`
-      // —— 不等它。而会话重载是「停 → 起」两步紧挨着的:结清若晚于新那次 start 去读「手里有没有活令牌」,
-      // start 就会**沿用一份马上要被撤的凭据**,而新适配器已经带着它跑起来了 ⇒ 之后每一轮 401。
-      // 那正是 #5550/#5552 的症状换个马甲:凭据轮换与会话建立之间没有次序。
-      //
-      // ⇒ 在这里 await 一次。结清幂等(没有记录就直接返回),所以那条事件通知照旧发、
-      //    落到主进程时已经无事可做。❌ 不靠事件的到达时刻给重载排序 —— 它没有承诺过任何时刻。
-      await releaseEmdashPlatformSession(input.sessionId);
-      // 停的是一次还在途的启动:运行时可能一份摘要都还没出(准备途中就停了),或那份「启动中」一闪即删、状态桥没赶上读 ——
-      // 两种都推不出「复位」⇒ 会话停在创建时的「工作中」,侧栏一直转圈。停止就是打断:这里直接落下。
-      if (inFlight) await settleStoppedStart(input.sessionId, inFlight.projectId);
-      return result;
-    },
+    startSession: async (input, meta) => (await startOnce(input, meta)).result,
+    stopSession,
     resumeSession: async (input, meta) => {
+      while (stopsInFlight.has(input.input.sessionId)) await waitForStop(input.input.sessionId);
+      await finishClosingProcess(input.input.sessionId);
       // 重开同样要带注入 —— 见 withEmdashPlatformInjection 抬头那段:漏在这里,首轮正常、重开翻车。
       const resumeFacts = await readSessionInjectionFacts(input.input);
       const capabilityInjection = await withEmdashMcpInjection(input, 'resume', resumeFacts);

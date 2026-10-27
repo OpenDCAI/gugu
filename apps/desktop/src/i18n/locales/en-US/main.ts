@@ -419,7 +419,7 @@ export default {
     "guguNumberUnassigned": "Gugu ID not assigned",
     "my": "Me",
     "newAgent": "New Agent",
-    "newTask": "New Task",
+    "newTask": "New task",
     "apps": {
       "intro": "Apps installed on this phone — from cards in chats and from the market. The ones that come with Gugu are not listed.",
       "empty": "No App installed yet.",
@@ -442,7 +442,6 @@ export default {
       "account": "Account",
       "activity": "Activity",
       "apps": "Apps",
-      "channels": "Chat channels",
       "browser": "Browser",
       "devices": "Devices",
       "general": "General",
@@ -462,6 +461,8 @@ export default {
       "batteryOptimization": "Background running",
       "batteryOptimizationPurpose": "Keeps alerts coming after you switch away from 咕咕; tap to exempt it from battery optimization",
       "camera": "Camera",
+      "microphone": "Microphone",
+      "microphonePurpose": "Send voice messages",
       "cameraPurpose": "Scans QR codes to add friends and join groups",
       "fileAccess": "Files and folders",
       "fileAccessPurpose": "Opens project folders on your computer",
@@ -469,7 +470,7 @@ export default {
       "off": "Off",
       "offPrompt": "Off · tap to turn on",
       "offBlocked": "Off · turn on in system settings",
-      "unknown": "Unknown · check in system settings",
+      "unknown": "Check system settings",
       "settingsUnreachable": "Couldn't open that screen. Open system settings yourself, find 咕咕, and turn on {{name}}.",
       "readFailed": "Couldn't read permission status from the system. Come back to this page to try again."
     },
@@ -549,7 +550,7 @@ export default {
     "messages": "Messages (⌘1)",
     "my": "Me",
     "newAgent": "New Agent",
-    "newTask": "New Task",
+    "newTask": "New task",
     "usage": "Usage",
     "resizeChatList": "Resize chat list",
     "sessionExpired": {

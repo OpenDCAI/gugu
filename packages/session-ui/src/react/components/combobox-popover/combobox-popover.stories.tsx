@@ -1,6 +1,6 @@
 import type { Meta, StoryObj } from '@storybook/react-vite';
 import { cx } from '@session-ui/styles/utilities/cx';
-import { Bot, Cpu, Plus, Settings, Zap } from '../../../icons'
+import { Plus, Settings, Zap } from '../../../icons'
 import { useState } from 'react';
 import { Box } from '@session-ui/react/primitives/box';
 import { ComboboxPopover } from '.';
@@ -93,10 +93,6 @@ function ModelDetailCard({ item }: { item: ModelItem }) {
   return (
     <Box padding="3" fontSize="sm" className={s.w52} style={{ color: 'var(--em-foreground)' }}>
       <Box display="flex" alignItems="center" gap="1.5">
-        <Bot
-          className={cx(s.size4, sx({ flexShrink: 0 }))}
-          style={{ color: 'var(--em-foreground-muted)' }}
-        />
         <p className={cx(sx({ lineHeight: 'tight', fontWeight: 'medium' }))}>{item.name}</p>
       </Box>
       <p
@@ -131,7 +127,7 @@ function ModelDetailCard({ item }: { item: ModelItem }) {
             className={cx(sx({ display: 'flex', alignItems: 'center', gap: '1' }))}
             style={{ color: 'var(--em-foreground-muted)' }}
           >
-            <Cpu className={s.size3} /> Intelligence
+            Intelligence
           </span>
           <BarMeter value={item.intelligence} />
         </Box>
@@ -221,10 +217,6 @@ function DetailCardAboveStory() {
         )}
         renderItem={(item) => (
           <Box display="flex" alignItems="center" gap="2">
-            <Bot
-              className={cx(s.size35, sx({ flexShrink: 0 }))}
-              style={{ color: 'var(--em-foreground-muted)' }}
-            />
             <span className={cx(sx({ flex: '1', fontSize: 'sm' }), 'truncate')}>{item.name}</span>
             <span
               className={cx(sx({ fontSize: 'tiny' }))}

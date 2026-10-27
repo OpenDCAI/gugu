@@ -63,6 +63,8 @@ export default {
       "statusReadFailed": "Could not read the task status: {{reason}}"
     },
     "turnFailure": {
+      "authentication": "The model service refused authorization for this reply.",
+      "network": "The connection to the model service was interrupted; this reply could not be completed.",
       "statusReadFailed": "Reply status could not be read. Please retry.",
       "weeklyQuota": "Weekly usage limit reached. This account cannot reply right now.",
       "monthlyQuota": "Monthly usage limit reached. This account cannot reply right now.",
@@ -329,6 +331,7 @@ export default {
     "settings": "Settings"
   },
   "attachmentView": {
+    "types": {"pdf": "PDF document", "word": "Word document", "excel": "Excel spreadsheet", "presentation": "Presentation", "text": "Text", "markdown": "Markdown document", "csv": "CSV spreadsheet", "html": "Web page", "json": "JSON document", "archive": "Archive", "image": "Image", "audio": "Audio", "video": "Video"},
     "fileGone": "File deleted",
     "fileVersion": "Version {{n}}",
     "fileExpired": "File expired",

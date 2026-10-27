@@ -1,4 +1,5 @@
 import { connectorOrder } from '@/session/renderer/features/assistant/assistant-connector-order'
+import { assistantAccountDisplayName } from '@/components/assistant/assistant-app-connections'
 import type { PersonaPreset } from '@/session/renderer/features/assistant/assistant-files'
 
 // #7199 手机 <它的名字> 那一格的纯判断(与桌面 assistant-profile / assistant-personality / assistant-capabilities 同一套说法),单测在
@@ -67,7 +68,7 @@ export function connectorDetail<T extends ConnectorItem>(
 ): { item: T; connected: boolean; account: string | null } | null {
   const item = items.find((candidate) => candidate.id === id)
   if (!item) return null
-  return { item, connected: !!configured[id], account: statuses?.[id]?.displayName ?? null }
+  return { item, connected: !!configured[id], account: assistantAccountDisplayName(statuses?.[id]?.displayName) }
 }
 
 /**

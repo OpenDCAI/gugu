@@ -19,7 +19,7 @@ import { ListRow } from './ui/ListRow'
 import { SectionLabel } from './ui/SectionLabel'
 import { Chip } from './ui/Chip'
 import {
-  Bot, ChevronDown, ChevronRight,
+  ChevronDown, ChevronRight,
   Check,
   MessageCircle,
   Pencil,
@@ -110,7 +110,7 @@ function NavButton({
   mobile = false,
   onClick
 }: {
-  icon: React.ReactNode
+  icon?: React.ReactNode
   label: string
   active: boolean
   count?: number
@@ -130,7 +130,7 @@ function NavButton({
       )}
       onClick={onClick}
     >
-      <span className={cn('flex shrink-0', active && !mobile ? 'text-[var(--primary)]' : 'text-[var(--muted-fg)]')}>{icon}</span>
+      <span className={cn('flex shrink-0', mobile ? 'w-5' : 'w-[15px]', active && !mobile ? 'text-[var(--primary)]' : 'text-[var(--muted-fg)]')}>{icon}</span>
       {/* @@@ui-ruler 字阶取 token(mobile 15 / desktop 13);inline 只为在同一行里二选一,❌ 裸像素。 */}
       <span
         className="min-w-0 flex-1 overflow-hidden text-ellipsis whitespace-nowrap"
@@ -728,7 +728,6 @@ function ContactsNav({
         />
         <NavButton
           mobile={mobile}
-          icon={<Bot size={mobile ? 20 : 15} />}
           label={ct('common.agent')}
           count={agents.length}
           active={selected === 'agent_library'}

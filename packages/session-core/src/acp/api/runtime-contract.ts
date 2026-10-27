@@ -105,6 +105,7 @@ const detachedPromptResponseSchema = z.object({
   /** #6387 插进了在飞的那一轮(而不是开了新的一轮)。 */
   steered: z.boolean().optional(),
   declined: z.boolean(),
+  missing: z.literal(true).optional(),
 });
 const detachedPromptWaitInputSchema = z.object({ requestId: z.string() });
 
@@ -179,6 +180,7 @@ export const acpRuntimeApiContract = defineContract({
     output: z.object({
       connectionKey: z.string(),
       pid: z.number().int().nullable(),
+      closing: z.literal(true).optional(),
     }).nullable(),
   }),
   /**

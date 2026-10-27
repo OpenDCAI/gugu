@@ -9,9 +9,19 @@ vi.mock('@/lib/remoteSessionHost', () => ({ openPhoneSessionHostPipe: vi.fn(() =
 
 const { callDeviceRpc } = await import('@/lib/deviceRpc')
 const { SESSION_HOST_RPC } = await import('@/session/shared/lib/ipc/session-host-device-frames')
+const { writeCachedDevices } = await import('@/store/devicesCache')
 const { fetchToolImage } = await import('@/mobile/agent-watch/sessionpage-rpc')
 
 describe('手机取一张工具图走哪条路', () => {
+  it('设备缓存为空时照常发出请求，不把未知当作离线', async () => {
+    writeCachedDevices('owner', [])
+    vi.mocked(callDeviceRpc).mockClear()
+    const shot = { mimeType: 'image/png', data: 'fresh-image' }
+    vi.mocked(callDeviceRpc).mockResolvedValue({result:{value:{ok:true,value:shot}}} as never)
+    await expect(fetchToolImage('not-yet-listed', 'conversation', 'image', 0)).resolves.toEqual(shot)
+    expect(callDeviceRpc).toHaveBeenCalledTimes(1)
+  })
+
   it('一问一答,12 秒期限;❌ 走窗口', async () => {
     const shot = { mimeType: 'image/png', data: 'iVBORw0KGgo' }
     vi.mocked(callDeviceRpc).mockResolvedValue({ result: { value: { ok: true, value: shot } } } as never)

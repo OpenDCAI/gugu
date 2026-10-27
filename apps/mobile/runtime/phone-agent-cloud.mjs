@@ -1,5 +1,7 @@
 import { createClient } from '@supabase/supabase-js'
 import { uuid } from './phone-agent-store.mjs'
+import { AsyncLocalStorage } from 'node:async_hooks'
+import { phoneRequestFailure, phoneRequestOperation } from './phone-agent-network.mjs'
 
 export function jwtClaims(token) {
   try { return JSON.parse(Buffer.from(token.split('.')[1], 'base64url').toString('utf8')) } catch { throw new Error('owner access token is malformed') }
@@ -13,7 +15,7 @@ async function authHttpError(response, operation) {
 }
 
 /** Node is the phone's sole refresh authority; data clients never own a GoTrue session. */
-export function createPhoneAgentCloud(config, onSession, fetcher = fetch) {
+export function createPhoneAgentCloud(config, onSession, fetcher = fetch, { onRequestFailure = () => undefined } = {}) {
   const url = new URL(config.supabaseUrl)
   if (url.protocol !== 'https:') throw new Error('Supabase URL must use HTTPS')
   const root = url.href.replace(/\/$/, '')
@@ -26,7 +28,39 @@ export function createPhoneAgentCloud(config, onSession, fetcher = fetch) {
   let paused = false
   let retryDelayMs = 1_000
   let terminalError = null
-  const timedFetch = (input, init = {}) => fetcher(input, { ...init, signal: init.signal ?? AbortSignal.timeout(30_000) })
+  const preparing = new AsyncLocalStorage()
+  const timedFetch = async (input, init = {}) => {
+    const context = preparing.getStore()
+    // Timers created during issuance (for example model renewal) outlive preparation.
+    const scope = context?.active ? context : null
+    const timeout = scope ? Math.max(1, Math.min(12_000, scope.deadline - Date.now())) : 30_000
+    const signal = AbortSignal.any([init.signal, scope?.signal, AbortSignal.timeout(timeout)].filter(Boolean))
+    const operation = phoneRequestOperation(input, init)
+    try {
+      signal.throwIfAborted()
+      const response = await fetcher(input, { ...init, signal })
+      if (!response.ok) {
+        const failure = phoneRequestFailure(null, response.status)
+        const retryAfter = response.headers.get('retry-after')
+        if (retryAfter) {
+          const retryAt = /^\d+(?:\.\d+)?$/.test(retryAfter) ? Date.now() + Number(retryAfter) * 1_000 : Date.parse(retryAfter)
+          if (Number.isFinite(retryAt) && retryAt > Date.now()) failure.retryAt = retryAt
+        }
+        if (scope) scope.failure = failure
+        onRequestFailure({ operation, phase: scope ? 'preparing' : 'runtime', ...failure })
+      } else if (scope) {
+        // fetch resolves at headers; a reset while reading JSON is also a request failure.
+        await response.clone().arrayBuffer()
+      }
+      return response
+    } catch (error) {
+      const failure = phoneRequestFailure(error)
+      if (scope) scope.failure = failure
+      onRequestFailure({ operation, phase: scope ? 'preparing' : 'runtime', ...failure })
+      // Preserve only safe facts through supabase-js's error conversion and the durable job error.
+      throw Object.assign(new Error(`phone request ${operation}: ${failure.category === 'timeout' ? 'timeout' : failure.retryable ? 'fetch failed' : 'request failed'}`), failure)
+    }
+  }
   const headers = (token) => ({ apikey: config.supabaseAnonKey, Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' })
 
   const arm = () => {
@@ -104,6 +138,12 @@ export function createPhoneAgentCloud(config, onSession, fetcher = fetch) {
   }
   return {
     root, client, identity, chat, rpc, token,
+    async prepareRequest(action, scope) {
+      const context = { ...scope, active: true }
+      try { return await preparing.run(context, action) }
+      catch (error) { throw context.failure ? Object.assign(new Error(`phone preparation request failed: ${context.failure.category}`), context.failure) : error }
+      finally { context.active = false }
+    },
     attachmentEndpoint: async () => ({ supabaseUrl: root, anonKey: config.supabaseAnonKey, token: await token(), fetch: timedFetch }),
     async start() {
       const claims = jwtClaims(config.accessToken)
@@ -148,7 +188,7 @@ export function createPhoneAgentCloud(config, onSession, fetcher = fetch) {
     async modelAccess(body) {
       const response = await timedFetch(`${root}/functions/v1/model-access`, { method: 'POST', headers: headers(await token()), body: JSON.stringify(body) })
       const data = await response.json().catch(() => ({}))
-      if (!response.ok) throw Object.assign(new Error(typeof data.error === 'string' ? data.error : `model access HTTP ${response.status}`), { code: data.reason ?? 'model_access_failed' })
+      if (!response.ok) throw Object.assign(new Error(typeof data.error === 'string' ? data.error : `model access HTTP ${response.status}`), { code: data.reason ?? 'model_access_failed', status: response.status })
       return data
     },
     async close() { stopped = true; clearTimeout(refreshTimer); await refreshing?.catch(() => undefined); await client.removeAllChannels(); client.realtime.disconnect() },

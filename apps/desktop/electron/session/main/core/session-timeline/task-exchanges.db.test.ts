@@ -8,7 +8,7 @@ const state = vi.hoisted(() => ({ db: undefined as AppDb | undefined }));
 vi.mock('@main/db/client', () => ({ get db() { if (!state.db) throw new Error('Missing test database'); return state.db; } }));
 vi.mock('@main/lib/logger', () => ({ log: { warn: vi.fn() } }));
 
-import { readTaskExchanges, taskExchangeRecorded, unwatchTaskExchanges, watchTaskExchanges } from './task-exchanges';
+import { readTaskExchanges, readAssistantWorkReceipts, taskExchangeRecorded, unwatchTaskExchanges, watchTaskExchanges } from './task-exchanges';
 
 describe('saved task exchange read and push', () => {
   let fixture: Awaited<ReturnType<typeof openFixture>>;
@@ -24,6 +24,23 @@ describe('saved task exchange read and push', () => {
     fixture.sqlite.prepare('INSERT INTO messages (id,session_id,content,sender,metadata) VALUES (?, ?, ?, ?, ?)')
       .run(id, 'task', text, 'user', JSON.stringify({ kind: 'session-direct', state: receipt }));
   };
+  it('exports accepted local receipts for background upload while advancing past unaccepted input',()=>{
+    write('accepted','assistant');write('queued','assistant','queued');write('failed','assistant','failed');
+    const page=readAssistantWorkReceipts(0)
+    expect(page.entries).toHaveLength(1)
+    expect(page.entries[0]).toMatchObject({id:'accepted',sessionId:'task',title:'Task'})
+    expect(page.cursor).toBe(3)
+    expect(readAssistantWorkReceipts(page.cursor).entries).toEqual([])
+  })
+  it('filters unrelated message kinds in SQL and revisits an accepted queued receipt by position',()=>{
+    for(let n=0;n<205;n++)fixture.sqlite.prepare('INSERT INTO messages (id,session_id,content,sender,metadata) VALUES (?, ?, ?, ?, ?)').run(`chat-${n}`,'task','Ordinary chat','user','{"kind":"chat"}')
+    write('queued-work','assistant','queued')
+    fixture.sqlite.prepare('INSERT INTO messages (id,session_id,content,sender,metadata) VALUES (?, ?, ?, ?, ?)').run('ordinary-tail','task','Ordinary chat','user','{"kind":"chat"}')
+    const first=readAssistantWorkReceipts(0)
+    expect(first).toMatchObject({entries:[],cursor:207,hasMore:false,pending:[206]})
+    fixture.sqlite.prepare('UPDATE messages SET metadata=? WHERE id=?').run('{"kind":"session-direct","state":"accepted"}','queued-work')
+    expect(readAssistantWorkReceipts(first.cursor,[206]).entries.map(row=>row.id)).toEqual(['queued-work'])
+  })
   it('reads historical accepted messages from the exact pair, without requiring a live provider', () => {
     write('one', 'assistant'); write('other', 'other-task'); write('failed', 'assistant', 'failed');
     const page = readTaskExchanges({ conversationId: 'task', fromSessionId: 'assistant' });

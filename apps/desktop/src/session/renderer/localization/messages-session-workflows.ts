@@ -789,7 +789,7 @@ export const zhCNSessionWorkflowMessages: Record<keyof typeof enUSSessionWorkflo
   'sessionHistory.emptyNone': '还没有会话',
   'sessionHistory.localUnavailable': '这台机器上读不到各家引擎的会话',
 
-  'task.newTask': '新建会话',
+  'task.newTask': '新建任务',
   'task.creatingAgent': '正在创建 Agent…',
   'task.agentCreateIncomplete': '创建 Agent 所需的消息、引擎或名称尚未准备完成',
   'task.homeProjectUnavailable': '无法准备默认会话文件，请选择或添加一个项目',

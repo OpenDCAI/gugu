@@ -22,12 +22,12 @@ import { errorText, machineKey, usePhoneRead } from './usePhoneRead'
  * 醒着才读得到(❌ 自己叫醒)。
  */
 export function PhoneFiles(props: PhonePageProps & { trail: string[] }) {
-  const ready = props.readiness === 'ready' && props.machine.state === 'ready' ? props.machine.machine : null
+  const ready = props.machine.state === 'ready' ? props.machine.machine : null
   if (ready) return <ResourcePage key={`${machineKey(ready)}|${props.trail.join('/')}`} {...props} machine={ready} />
   return (
     <div className="ta-page" data-testid="assistant-files">
       <PageHead title={props.trail.at(-1) ?? RESOURCES_DIR_NAME} />
-      <PhoneMachineView readiness={props.readiness} machine={props.machine} name={props.assistant.display_name}>
+      <PhoneMachineView machine={props.machine} name={props.assistant.display_name}>
         {() => null}
       </PhoneMachineView>
     </div>
@@ -75,14 +75,14 @@ function FolderView({
     setUploading(files[0]!.name)
     try {
       const outcome = await uploadResources(machine, trail, files, setUploading)
-      for (const rejected of outcome.rejected) toast(`${rejected.name}: ${rejected.reason === 'too_large' ? t('files.tooLarge') : t('files.unsupported')}`, 'error')
-      for (const failed of outcome.failed) toast(t('files.uploadFailed', { name: failed.name, message: failed.message }), 'error')
+      const failures = [...outcome.rejected.map(rejected => `${rejected.name}: ${rejected.reason === 'too_large' ? t('files.tooLarge') : t('files.unsupported')}`),
+        ...outcome.failed.map(failed => `${failed.name}: ${errorText(new Error(failed.message))}`)]
+      if (failures.length) toast(`${t('files.saveFailed')}\n${failures.join('\n')}`, 'error')
       if (outcome.done.length) {
         for (const name of outcome.done) await reportAssistantAppChange(machine, assistant.id, { resource: 'files', operation: 'saved',
           id: joinPath(machine.paths.resourcesDir, [...trail, name].join('/')), deviceId: machine.deviceId,
           after: { name, path: joinPath(machine.paths.resourcesDir, [...trail, name].join('/')) } })
         onUploaded([...new Set([...uploaded, ...outcome.done])])
-        toast(t('files.uploaded', { n: outcome.done.length }), 'success')
         reload()
       }
     } catch (error) {
@@ -169,7 +169,6 @@ function FileView({
   content,
 }: OpenedPageProps & { trail: string[]; entry: DirectoryEntry; content: FileContentView }) {
   const { t, i18n } = useTranslation('assistant')
-  const { toast } = useToast()
   const [confirming, setConfirming] = useState(false)
   const name = assistant.display_name
   const parent = trail.slice(0, -1)
@@ -247,7 +246,6 @@ function FileView({
             await removePath(machine, entry.path)
             await reportAssistantAppChange(machine, assistant.id, { resource: 'files', operation: 'removed',
               id: entry.path, deviceId: machine.deviceId, before: { name: entry.name, path: entry.path } })
-            toast(t('files.fileDeleted'), 'success')
           }}
         />
 

@@ -1,3 +1,4 @@
+import { summary } from './summary';
 import { verifyCliConnectionRecord } from '../../helpers/cli-connection';
 import { defineIntegrationPlugin, registerIntegrationPluginBehavior } from '../../plugin';
 import { icon } from './icon';
@@ -6,8 +7,8 @@ import { icon } from './icon';
 const plugin = defineIntegrationPlugin(
   {
     id: 'feishu',
-    name: '飞书',
-    description: { en: 'Feishu docs, messages and contacts', 'zh-CN': '飞书的云文档、消息和通讯录' },
+    name: summary.name['zh-CN'],
+    description: summary.description,
     websiteUrl: 'https://www.feishu.cn',
     abilities: [
       { en: 'Read and write Feishu docs and wiki pages', 'zh-CN': '读写飞书云文档和知识库' },
@@ -36,8 +37,8 @@ const plugin = defineIntegrationPlugin(
       methods: [{
         kind: 'cli', tool: 'lark-cli', login: 'qr-code',
         prerequisite: { text: {
-          en: 'First configure your Feishu app, then authorize your personal account. Follow both links or QR codes in order. Existing MCP connections need to reconnect.',
-          'zh-CN': '先按引导配置你自己的飞书应用，再授权个人账号；依次完成两次链接或扫码确认。原有 MCP 连接需要重新连接。',
+          en: 'Follow the two authorization steps to connect your Feishu app and personal account.',
+          'zh-CN': '按引导完成两次授权，连接你的飞书应用和个人账号。',
         } },
       }],
     },

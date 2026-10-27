@@ -116,6 +116,8 @@ export type DomainEvent =
   | { type: 'SessionReady' }
   | { type: 'SessionLoaded' }
   | { type: 'PromptStarted'; prompt: QueuedPrompt }
+  /** Provider refused before any update; no work outcome or transcript exists. */
+  | { type: 'PromptRefused' }
   | { type: 'PromptSteered'; prompt: QueuedPrompt }
   | { type: 'PromptQueued'; prompt: QueuedPrompt }
   | { type: 'QueuedPromptEdited'; id: string; input: PromptInput; updatedAt: number; queueEdit?: QueuedPromptEdit | null }
@@ -302,6 +304,9 @@ export function evolve(
     case 'PromptStarted':
       if (s.phase.kind !== 'ready') return warn(s, `PromptStarted in phase '${s.phase.kind}'`);
       return { state: s, effects: [{ type: 'promptStarted', prompt: ev.prompt }] };
+
+    case 'PromptRefused':
+      return { state: { ...s, phase: { kind: 'ready' } }, effects: [{ type: 'state' }] };
 
     case 'WorkStarted':
       if (s.phase.kind === 'working' || s.phase.kind === 'cancelling') return { state: s, effects: [] };

@@ -14,7 +14,7 @@ const permitted = new Set(['session_devices', 'session_list_harnesses', 'session
 const result = (value) => ({ content: [{ type: 'text', text: JSON.stringify(value) }], details: value })
 
 /** The phone uses the same owner-device routing, identity aliases and typed tool boundary as desktop. */
-export function createPhoneSessionTools({ agent, job, cloud, store, deviceId, requester, invoke, authorize, emit }) {
+export function createPhoneSessionTools({ agent, job, cloud, store, deviceId, work, requester, invoke, authorize, emit }) {
   const local = () => Object.values(store.state.agents)
   const caller = () => ({ deviceId, deviceLabel: 'Android', sessionId: agent.sessionId, agentUserId: agent.agentUserId, name: agent.displayName, harness: 'pi', transport: 'acp', model: null, platformModel: `platform:${agent.modelId}` })
   const lookupAgents = async ({ userIds, numbers }) => {
@@ -31,17 +31,13 @@ export function createPhoneSessionTools({ agent, job, cloud, store, deviceId, re
   const cross = createCrossMachineSessions({ thisDeviceId: async () => deviceId, listDevices: () => listDevices(cloud.identity, store.state.ownerId), lookupAgents, requester })
   // This source is supplied by the host-owned tool closure, never by model arguments or RPC.
   const here = (action, callId) => invoke(`agentSession.${action.action}`, [caller(), action], stableId('phone-session-tool', job.id, callId, action), { kind: 'phone-agent', agentUserId: agent.agentUserId, jobId: job.id })
-  const send = async (action, callId, signal) => {
-    await authorize(job.usedGroups ?? [])
-    const sent = await handleUnifiedSessionMessage(action, {
-      caller: { sessionId: agent.sessionId, runtimeFork: false },
-      prepareFiles: async (files, targets) => {
-        await cross.assertFileHandoffSupported(targets.flatMap(target => target.deviceId ? [target.deviceId] : []))
+  const prepareFiles = async (files, targets, callId, signal) => {
+        await cross.assertFileHandoffSupported(targets.flatMap(target => target.deviceId && !target.agentId ? [target.deviceId] : []))
         const recipientIds = []
         const peers = new Map()
         for (const target of targets) {
-          let recipient = local().find(row => row.sessionId === target.sessionId)?.agentUserId
-          if (target.deviceId) {
+          let recipient = target.agentId ?? local().find(row => row.sessionId === target.sessionId)?.agentUserId
+          if (target.deviceId && !target.agentId) {
             if (!peers.has(target.deviceId)) peers.set(target.deviceId, await cross.runOnDevice(target.deviceId, caller(), { action: 'peers' }, signal))
             const row = peers.get(target.deviceId).find(row => row.sessionId === target.sessionId || row.session_id === target.sessionId)
             recipient = row?.agentUserId ?? row?.agent_user_id?.replace(/^user:/, '') ?? row?.identity?.users?.id
@@ -80,14 +76,21 @@ export function createPhoneSessionTools({ agent, job, cloud, store, deviceId, re
           if (failures.length) throw new AggregateError([error, ...failures], 'File preparation failed and revocation could not be confirmed')
           throw error
         }
-      },
+      }
+  const send = async (action, callId, signal) => {
+    await authorize(job.usedGroups ?? [])
+    const sent = action.work_result
+      ? await work.enqueueReport({agent,job,callId,record:action,prepare:(files,target)=>prepareFiles(files,[target],callId,signal)})
+      : await handleUnifiedSessionMessage(action, {
+      caller: { sessionId: agent.sessionId, runtimeFork: false },
+      prepareFiles: (files,targets) => prepareFiles(files,targets,callId,signal),
       graphMessage: (ids, text, said) => here({ action: 'message', session_ids: ids, text, ...said }, callId),
       localSessionsOfAgents: async (ids) => ({ sessions: new Map(local().filter((row) => ids.includes(row.agentUserId)).map((row) => [row.agentUserId, row.sessionId])), deletedRecipients: [] }),
       resolveLocalGuguNumbers: async (numbers) => new Map(local().filter((row) => numbers.includes(row.guguNumber)).map((row) => [row.guguNumber, row.agentUserId])),
       localSessionIds: async (ids) => ids.filter((id) => local().some((row) => row.sessionId === id)),
       remote: cross.messageDeps(async () => caller(), signal),
     })
-    if (sent.recipients.some((recipient) => recipient.status === 'delivered')) job.sent = [...new Set([...(job.sent ?? []), callId])]
+    if (sent.recipients.some((recipient) => recipient.status === 'delivered' || recipient.status === 'accepted')) job.sent = [...new Set([...(job.sent ?? []), callId])]
     await store.save()
     emit({ type: 'session_message_sent', sessionId: agent.sessionId, agentUserId: agent.agentUserId, recipients: sent.recipients.map((row) => ({ to: row.to, status: row.status })) })
     return sent

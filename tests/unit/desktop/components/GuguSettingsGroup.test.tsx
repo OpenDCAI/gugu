@@ -18,7 +18,7 @@ vi.mock('../../../../apps/desktop/src/platform', async (importOriginal) => {
     }),
   }
 })
-vi.mock('../../../../apps/desktop/src/lib/myAssistant', () => ({ useMyAssistantContact: () => mine.value }))
+vi.mock('../../../../apps/desktop/src/lib/myAssistant', () => ({ useMyAssistantContact: () => ({ homeDeviceId: 'cloud-1',...mine.value }) }))
 
 vi.mock('../../../../apps/desktop/src/components/assistant/AssistantShellHost', () => ({
   AssistantStatusGroups: ({ assistantName }: { assistantName: string }) => createElement('div', { 'data-testid': 'status-groups' }, assistantName),
@@ -35,7 +35,10 @@ vi.mock('../../../../apps/desktop/src/components/agentsettings/AgentSettingsModa
   AgentSettingsModal: ({ initialTab }: { initialTab?: string }) => createElement('div', { 'data-testid': 'agent-settings-modal', 'data-tab': initialTab }),
 }))
 const invoke = vi.hoisted(() => vi.fn(async () => ({ ok: true })))
-vi.mock('../../../../apps/desktop/src/session/renderer/lib/ipc', () => ({ invokeOnMachine: invoke }))
+vi.mock('../../../../apps/desktop/src/session/renderer/lib/ipc', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('../../../../apps/desktop/src/session/renderer/lib/ipc')>()),
+  invokeOnMachine: invoke,
+}))
 
 const sessionSection = vi.hoisted(() => ({ props: null as unknown }))
 vi.mock('../../../../apps/desktop/src/components/sessionpage/SessionSettingsSection', () => ({
@@ -54,6 +57,7 @@ vi.mock('../../../../apps/desktop/src/lib/cloudComputerStore', async (importOrig
   wakeCloudComputer: wake,
 }))
 
+const { SettingsPanel } = await import('../../../../apps/desktop/src/components/SettingsPanel')
 const { AssistantSection } = await import('../../../../apps/desktop/src/components/settings/AssistantSection')
 const { ConnectorsSection } = await import('../../../../apps/desktop/src/components/settings/ConnectorsSection')
 const { DevicesContext } = await import('../../../../apps/desktop/src/store/devicesContext')
@@ -178,48 +182,52 @@ describe('咕咕组 · 资料', () => {
 })
 
 describe('咕咕组 · 连接应用', () => {
-  it('醒着:云端那段交给会话页画,带上它住的那台和它现在的名字;本机 / 其他设备是设备页那批组件', async () => {
+  it('应用列表委托给会话页，不再混入设备授权或三格页签', async () => {
     mine.value = { contact: CONTACT, agentId: 'a1', loading: false, error: null }
     await render(createNode(ConnectorsSection, {}), awake)
-    expect(sessionSection.props).toMatchObject({ section: 'connectors', context: { cloudDeviceId: 'cloud-1', assistantName: '小咕' } })
+    expect(sessionSection.props).toMatchObject({ section: 'connectors', context: { home: { kind: 'cloud',deviceId: 'cloud-1' }, assistantName: '小咕' } })
     const tabs = [...harness.container.querySelectorAll<HTMLElement>('[role="tab"]')]
-    expect(tabs.map((tab) => tab.textContent)).toEqual(['云端', '本机', '其他设备'])
-    await clickElement(tabs[1])
-    expect(q('this-device')).not.toBeNull()
-    await clickElement(tabs[2])
-    expect(q('other-devices')).not.toBeNull()
+    // Owner 2026-10-27: apps have one list; device grants live in Settings → Permissions.
+    expect(tabs).toHaveLength(0)
+    expect(q('this-device')).toBeNull()
+    expect(q('other-devices')).toBeNull()
   })
 
-  it('住在自己的电脑上:第一段叫「账号」,读写的是那台电脑自己的集成,不用叫醒谁', async () => {
+  it('住在自己的电脑时仍读那台电脑的应用账号，不增加分类或叫醒动作', async () => {
     mine.value = { contact: CONTACT, agentId: 'a1', loading: false, error: null, homeDeviceId: 'mac-1' } as never
     await render(createNode(ConnectorsSection, {}), asleep, vi.fn(async () => {}), [
       { device_id: 'mac-1', label: 'MacBook', is_online: true, is_current_device: true },
     ])
     expect(sessionSection.props).toMatchObject({ section: 'connectors', context: { home: { kind: 'computer', deviceId: 'mac-1' }, assistantName: '小咕' } })
     const tabs = [...harness.container.querySelectorAll<HTMLElement>('[role="tab"]')]
-    expect(tabs.map((tab) => tab.textContent)).toEqual(['账号', '本机', '其他设备'])
+    expect(tabs).toHaveLength(0)
     expect(wake).not.toHaveBeenCalled()
   })
 
-  it('宿主收回着:云端那段由系统连它(只叫一次),说「正在连接」,没有「叫醒它」也不说休息(owner 10-17)', async () => {
-    // 叫醒在路上(管家还没回):这一段说「正在连接」。
-    wake.mockImplementationOnce(() => new Promise<void>(() => {}))
-    mine.value = { contact: CONTACT, agentId: 'a1', loading: false, error: null }
-    await render(createNode(ConnectorsSection, {}), asleep)
-    expect(sessionSection.props).toBeNull()
-    expect(wake).toHaveBeenCalledTimes(1)
-    expect(q('settings-connectors-connecting')?.textContent).toContain('正在连接')
-    expect(q('settings-connectors-wake')).toBeNull()
-    expect(harness.container.textContent).not.toMatch(/休息|叫醒/)
+  it('serves account application settings while the host sleeps without showing a connection gate', async () => {
+    mine.value = { contact: CONTACT,agentId: 'a1',loading: false,error: null }
+    await render(createNode(ConnectorsSection,{}),asleep)
+    expect(sessionSection.props).toMatchObject({ section: 'connectors',context: { home: { deviceId: 'cloud-1' } } })
+    expect(wake).not.toHaveBeenCalled()
+    expect(harness.container.textContent).not.toMatch(/正在连接|连不上|重新连接/)
+    expect(q('settings-connectors-retry')).toBeNull()
   })
+  it('does not prepare a host after a previous wake failure', async () => {
+    mine.value = { contact: CONTACT,agentId: 'a1',loading: false,error: null }
+    await render(createNode(ConnectorsSection,{}),{ ...asleep,loadError: 'unavailable' } as never)
+    expect(sessionSection.props).not.toBeNull()
+    expect(wake).not.toHaveBeenCalled()
+  })
+})
 
-  it('宿主收回着、叫不起来:说连不上和那一类原因,点重试再叫一次', async () => {
-    wake.mockRejectedValueOnce(new Error('boom'))
+
+describe('retired chat channel settings links', () => {
+  it.each([false, true])('opens Connect apps for a legacy channels link (mobile=%s)', async (mobile) => {
     mine.value = { contact: CONTACT, agentId: 'a1', loading: false, error: null }
-    await render(createNode(ConnectorsSection, {}), asleep)
-    await vi.waitFor(() => expect(q('settings-connectors-connect-failed')).not.toBeNull())
-    expect(q('settings-connectors-connect-failed')?.textContent).toContain('连不上')
-    await clickElement(q('settings-connectors-retry')!)
-    expect(wake).toHaveBeenCalledTimes(2)
+    await render(createNode(SettingsPanel, { initialSection: 'channels', inline: true, mobile, pane: 'detail' }), awake)
+    expect(harness.container.querySelector('[data-settings-section="connectors"]')).not.toBeNull()
+    expect(q('settings-connectors')).not.toBeNull()
+    expect(q('settings-nav-channels')).toBeNull()
+    expect(harness.container.querySelector('.gg-settings-detail .gg-pane-title')?.textContent).toBe('连接应用')
   })
 })

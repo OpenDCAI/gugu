@@ -1,3 +1,4 @@
+import { summary } from './summary';
 import type { VerifyResult } from '../../capabilities/auth';
 import { defineIntegrationPlugin, registerIntegrationPluginBehavior } from '../../plugin';
 import { verifyNotionCredentials } from './client';
@@ -7,8 +8,8 @@ import { NOTION_MCP_URL } from './types';
 const plugin = defineIntegrationPlugin(
   {
     id: 'notion',
-    name: 'Notion',
-    description: { en: 'Connect your Notion workspace', 'zh-CN': '连接你的 Notion 工作区' },
+    name: summary.name['zh-CN'],
+    description: summary.description,
     websiteUrl: 'https://www.notion.so',
     abilities: [
       { en: 'Search and read pages and databases', 'zh-CN': '搜索、读取页面和数据库' },

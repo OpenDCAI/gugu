@@ -122,7 +122,7 @@ function createAppCommandProvider(): CommandProvider {
         ...newSessionDef,
         execute() {
           // 在项目里:与项目行的「新建」同一条路,回到这个项目,在那里带着第一句话建(#5690)。
-          // 不在项目里:与侧栏「新建会话」同一条路,去新建会话页。
+          // 不在项目里:与侧栏「新建任务」同一条路,去新建任务页。
           // ❌ 不开旧的 taskModal —— 那是只填标题 + 关联 issue 的旧残留(behavior session-resume)。
           if (projectId) appState.navigation.navigate('project', { projectId });
           else appState.navigation.navigate('new-session');

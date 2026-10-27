@@ -47,6 +47,8 @@ import { SettingsNote, SettingsPage, SettingsRow } from './SettingsPrimitives'
 import { DeviceActionsPage } from './DeviceActionsPage'
 import { deviceAcceptsWork } from '@gugu/core/cloud/cloudComputer'
 import { withoutAssistantHome } from '../../lib/assistantHome'
+import { deviceMachineFor, deviceMachines, useDeviceMachineSections } from '../../lib/deviceMachines'
+import { DeviceMachineArchive } from '../devices/DeviceMachineArchive'
 
 // #1749 设备管理 → #6264 做成能上线的「设置 → 设备」:
 //  · 每行:名字、是台什么机器(本机 / 电脑 / 服务器)、系统与架构、咕咕版本 + 升级状态、在线或「上次在线」、
@@ -66,6 +68,8 @@ const log = rendererLogger('devices')
 // ❌ 出现「· 咕咕 0.2.51」那种孤零零挂在行首的分隔符。第一项(状态)用同宽的左内边距占位。
 const META_SEP = "before:inline-block before:w-4 before:text-center before:content-['·']"
 
+const DEVICE_LIST_CLASS = 'flex flex-col rounded-[var(--radius-document)] bg-foreground/[0.025] p-1 dark:bg-foreground/[0.04]'
+
 type DialogState =
   | { kind: 'remove'; device: Device; removing: boolean; failed: string }
   | { kind: 'uninstall'; device: Device }
@@ -78,10 +82,12 @@ export function DevicesSection({
 } = {}) {
   const { t } = useTranslation('settings')
   const { toast } = useToast()
-  const { devices: allDevices, loading, error, refresh, rename, remove, listBoundAgents, cloudComputer } = useDevicesStore()
+  const { devices: deviceRows, phones, loading, error, refresh, rename, remove, listBoundAgents, cloudComputer } = useDevicesStore()
+  const allDevices = useMemo(() => [...deviceRows, ...(phones ?? [])], [deviceRows, phones])
   // #7199 个人助理住的那台云端宿主不在这一页(owner 10-15:用户看不到它住在哪);开通、叫醒、关闭都在「助理」App 里。
   const cloudDeviceId = cloudComputer?.snapshot?.deviceId ?? null
-  const devices = useMemo(() => withoutAssistantHome(allDevices, cloudDeviceId), [allDevices, cloudDeviceId])
+  const machines = useMemo(() => deviceMachines(withoutAssistantHome(allDevices, cloudDeviceId)), [allDevices, cloudDeviceId])
+  const devices = useMemo(() => machines.map(machine => machine.device), [machines])
   const { addresses, forget } = useSshMachines()
 
   const [editingId, setEditingId] = useState<string | null>(null)
@@ -108,7 +114,7 @@ export function DevicesSection({
   // #7199 第二步:正在看哪台设备「能做的事」(设备页里的一个内页:点设备进它的连接应用页)。
   // #7199 助理主页点了一台设备 = 一进来就是那台的「能做的事」(deviceActionsIntent)。
   const [actionsFor, setActionsFor] = useState<string | null>(() => consumeDeviceActionsIntent())
-  const thisDevice = devices.find((d) => d.is_current_device) ?? null
+  const thisDevice = machines.find(machine => machine.current)?.configurations.find(device => device.is_current_device) ?? null
 
   const addressOf = useCallback((deviceId: string) => addresses.get(deviceId) ?? null, [addresses])
   // 离线的 SSH 机器:问清是没开机 / 连不上,还是登录没了(照 VS Code Tunnels / Tailscale「Expired」)。
@@ -122,6 +128,10 @@ export function DevicesSection({
     () => (showTools ? filterDevices(devices, { query, filter, sshAddress: addressOf }) : devices),
     [showTools, devices, query, filter, addressOf],
   )
+  const { archived } = useDeviceMachineSections(machines)
+  const archivedIds = new Set(archived.map(machine => machine.device.device_id))
+  const visibleActive = visible.filter(device => !archivedIds.has(device.device_id))
+  const visibleArchived = visible.filter(device => archivedIds.has(device.device_id))
   const onlineCount = devices.filter((d) => deviceAcceptsWork(d)).length
   const filterItems = useMemo(() => [
     { value: 'all' as const, label: t('devices.filter.all', { n: devices.length }) },
@@ -194,10 +204,73 @@ export function DevicesSection({
     catch (error) { log.error({ error }, 'device address copy failed'); toast(t('actions.copyFailed', { ns: 'common' }), 'error', messageForUser(error)) }
   }, [toast, t])
 
-  const actionsDevice = actionsFor ? devices.find((d) => d.device_id === actionsFor) ?? null : null
+  const managementDialogs = <>
+      {dialog?.kind === 'remove' && (
+        <DeviceRemoveDialog
+          device={dialog.device}
+          removesVersion={(deviceMachineFor(machines, dialog.device.device_id)?.configurations.length ?? 1) > 1}
+          model={deviceRowModel(dialog.device, addressOf(dialog.device.device_id))}
+          agents={agents}
+          onCascadeChange={(value) => setAgents((s) => ({ ...s, cascadeChecked: value }))}
+          removing={dialog.removing}
+          failed={dialog.failed}
+          onCancel={() => setDialog(null)}
+          onConfirm={() => void confirmRemove()}
+        />
+      )}
+
+      {dialog?.kind === 'uninstall' && (
+        <ServerUninstallDialog
+          device={dialog.device}
+          address={addressOf(dialog.device.device_id) ?? dialog.device.label}
+          agents={agents}
+          onCascadeChange={(value) => setAgents((s) => ({ ...s, cascadeChecked: value }))}
+          onRemove={() => removeDevice(dialog.device)}
+          onRemoveOnly={() => setDialog({ kind: 'remove', device: dialog.device, removing: false, failed: '' })}
+          onClose={() => setDialog(null)}
+        />
+      )}
+  </>
+
+  const actionsMachine = deviceMachineFor(machines, actionsFor)
+  const actionsDevice = actionsMachine?.device
   if (actionsDevice) {
-    return <DeviceActionsPage device={actionsDevice} isThisDevice={actionsDevice.is_current_device === true} onBack={() => setActionsFor(null)} />
+    return <><DeviceActionsPage device={actionsDevice} configurations={actionsMachine?.configurations}
+      configurationActions={{ remove: openRemove, uninstall: openUninstall, canUninstall: device => !!addressOf(device.device_id) && device.capabilities.host_kind === 'server' }}
+      isThisDevice={actionsDevice.is_current_device === true} onBack={() => setActionsFor(null)} />{managementDialogs}</>
   }
+
+  const renderRow = (device: Device) => (
+    <DeviceRow
+      key={device.device_id}
+      device={device}
+      configurationCount={deviceMachineFor(machines, device.device_id)!.configurations.length}
+      model={deviceRowModel(device, addressOf(device.device_id), cloudDeviceId)}
+      editing={editingId === device.device_id}
+      draftLabel={draftLabel}
+      renameFailed={rowError?.id === device.device_id ? rowError.message : ''}
+      onDraftChange={setDraftLabel}
+      onStartRename={() => startRename(device)}
+      onCommitRename={() => void commitRename(device)}
+      onCancelRename={() => setEditingId(null)}
+      onCopyAddress={(address) => void copyAddress(address)}
+      onRemove={() => openRemove(device)}
+      onUninstall={() => openUninstall(device)}
+      onOpenActions={() => setActionsFor(device.device_id)}
+      signIn={signIns.get(device.device_id) ?? null}
+      sshLink={sshMachineIds.has(device.device_id) ? (linkProblems.get(device.device_id) ?? null) : undefined}
+      onSshSignIn={() => void signInSshMachine(device.device_id)}
+      upgradePercent={upgrades.get(device.device_id) ?? null}
+      onRetryUpdate={() => void requestSshServerUpgrade(device.device_id, { force: true })}
+      onRetryVersionMatch={() => retryServerVersionMatch(device.device_id)}
+      onRelogin={canAddServer && addressOf(device.device_id)
+        ? () => {
+            setRelogin({ deviceId: device.device_id, address: addressOf(device.device_id)! })
+            setAddingServer('ssh')
+          }
+        : undefined}
+    />
+  )
 
   return (
     <SettingsPage data-testid={AUTOMATION_TEST_IDS.settingsDevicesPane}>
@@ -242,7 +315,7 @@ export function DevicesSection({
       )}
 
       {showTools && (
-        <div className="flex flex-wrap items-center gap-2">
+        <div className="flex flex-wrap items-center gap-2" data-testid="settings-devices-tools">
           <SearchField
             className="min-w-[180px] flex-1"
             value={query}
@@ -257,40 +330,13 @@ export function DevicesSection({
       )}
 
       <div
-        className={cn('flex flex-col rounded-[var(--radius-document)] bg-foreground/[0.025] p-1 dark:bg-foreground/[0.04]', visible.length === 0 && 'hidden')}
+        className={cn(DEVICE_LIST_CLASS, visibleActive.length === 0 && 'hidden')}
         role="list"
       >
-        {visible.map((device) => (
-          <DeviceRow
-            key={device.device_id}
-            device={device}
-            model={deviceRowModel(device, addressOf(device.device_id), cloudDeviceId)}
-            editing={editingId === device.device_id}
-            draftLabel={draftLabel}
-            renameFailed={rowError?.id === device.device_id ? rowError.message : ''}
-            onDraftChange={setDraftLabel}
-            onStartRename={() => startRename(device)}
-            onCommitRename={() => void commitRename(device)}
-            onCancelRename={() => setEditingId(null)}
-            onCopyAddress={(address) => void copyAddress(address)}
-            onRemove={() => openRemove(device)}
-            onUninstall={() => openUninstall(device)}
-            onOpenActions={() => setActionsFor(device.device_id)}
-            signIn={signIns.get(device.device_id) ?? null}
-            sshLink={sshMachineIds.has(device.device_id) ? (linkProblems.get(device.device_id) ?? null) : undefined}
-            onSshSignIn={() => void signInSshMachine(device.device_id)}
-            upgradePercent={upgrades.get(device.device_id) ?? null}
-            onRetryUpdate={() => void requestSshServerUpgrade(device.device_id, { force: true })}
-            onRetryVersionMatch={() => retryServerVersionMatch(device.device_id)}
-            onRelogin={canAddServer && addressOf(device.device_id)
-              ? () => {
-                  setRelogin({ deviceId: device.device_id, address: addressOf(device.device_id)! })
-                  setAddingServer('ssh')
-                }
-              : undefined}
-          />
-        ))}
+        {visibleActive.map(renderRow)}
       </div>
+
+      <DeviceMachineArchive count={visibleArchived.length} listClassName={DEVICE_LIST_CLASS}>{visibleArchived.map(renderRow)}</DeviceMachineArchive>
 
       {showTools && visible.length === 0 && (
         <div className="text-[length:var(--font-body)] text-[var(--muted-fg)]" data-testid="settings-devices-no-match">{t('devices.noMatch')}</div>
@@ -303,30 +349,8 @@ export function DevicesSection({
         </div>
       )}
 
-      {dialog?.kind === 'remove' && (
-        <DeviceRemoveDialog
-          device={dialog.device}
-          model={deviceRowModel(dialog.device, addressOf(dialog.device.device_id))}
-          agents={agents}
-          onCascadeChange={(value) => setAgents((s) => ({ ...s, cascadeChecked: value }))}
-          removing={dialog.removing}
-          failed={dialog.failed}
-          onCancel={() => setDialog(null)}
-          onConfirm={() => void confirmRemove()}
-        />
-      )}
+      {managementDialogs}
 
-      {dialog?.kind === 'uninstall' && (
-        <ServerUninstallDialog
-          device={dialog.device}
-          address={addressOf(dialog.device.device_id) ?? dialog.device.label}
-          agents={agents}
-          onCascadeChange={(value) => setAgents((s) => ({ ...s, cascadeChecked: value }))}
-          onRemove={() => removeDevice(dialog.device)}
-          onRemoveOnly={() => setDialog({ kind: 'remove', device: dialog.device, removing: false, failed: '' })}
-          onClose={() => setDialog(null)}
-        />
-      )}
     </SettingsPage>
   )
 }
@@ -450,6 +474,7 @@ function useNameWhenAppears(devices: readonly Device[], rename: (deviceId: strin
 function DeviceRow({
   device,
   model,
+  configurationCount,
   editing,
   draftLabel,
   renameFailed,
@@ -471,6 +496,7 @@ function DeviceRow({
 }: {
   device: Device
   model: DeviceRowModel
+  configurationCount: number
   editing: boolean
   draftLabel: string
   renameFailed: string
@@ -635,6 +661,7 @@ function DeviceRow({
           {model.kind !== 'this' && <span className={META_SEP} data-testid="settings-device-kind">{t(`devices.kind.${model.kind}`)}</span>}
           {model.system && <span className={META_SEP}>{model.system}</span>}
           {version && <span className={META_SEP}>{version}</span>}
+          {configurationCount > 1 && <span className={META_SEP} data-testid="settings-device-version-count">{t('devices.configurationCount', { count: configurationCount })}</span>}
           {/* #6264 root 跑的 server:上面的智能体能改整台机器,如实写出来(隧道装的也看得到)。 */}
           {model.kind === 'server' && device.capabilities?.runs_as_root && (
             <span className={META_SEP} title={t('devices.runsAsRootHint')} data-testid="settings-device-runs-as-root">{t('devices.runsAsRoot')}</span>
@@ -706,7 +733,7 @@ function DeviceRow({
                   {t('devices.menu.copyAddress')}
                 </MenuItem>
               )}
-              {model.kind !== 'this' && (
+              {model.kind !== 'this' && configurationCount === 1 && (
                 <>
                   <MenuSeparator />
                   <MenuItem

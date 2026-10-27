@@ -34,11 +34,9 @@ export async function openLink(raw: string | GuguLinkTarget): Promise<LinkOpenOu
       },
       resourceChat: async (chatId) => (await import('./app-files')).resourceChatOf(chatId),
       openResource: async (target) => {
-        if (target.kind === 'session') {
-          const { showSession } = await import('./extension-show-session');
-          const [{ events }, { notificationFocusSessionChannel }] = await Promise.all([import('@main/lib/events'), import('@shared/events/appEvents')]);
-          await showSession(target.sessionId, { projectHere: sessionHere, projectListed: listedSessionProject, bringUp: async (session) => { events.emit(notificationFocusSessionChannel, session); } });
-        } else await actInWindow({ kind: 'openLinkTarget', target });
+        // The account shell resolves task records before a generic session directory.
+        // This also covers desktop Markdown and OS links, which do not call the phone router.
+        await actInWindow({ kind: 'openLinkTarget', target });
       },
       deliver: (id, event, opened) => {
         bridge.deliverToExtension(id, event, opened);
