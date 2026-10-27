@@ -87,7 +87,7 @@ const MODELS = {
 
 /** 新建页那一层:选择留在页面状态里,胶囊只回报。 */
 function CreatePage() {
-  const [selection, setSelection] = useState<CreateSelection>({ projectId: 'p1', harness: 'codex', model: null, sessionView: 'general', permissionMode: null, effort: null });
+  const [selection, setSelection] = useState<CreateSelection>({ projectId: 'p1', harness: 'codex', model: null, permissionMode: null, effort: null });
   return <CreateOptionsPill options={OPTIONS} selection={selection} onChange={setSelection} busy={false} models={MODELS} modelsState="ready" />;
 }
 

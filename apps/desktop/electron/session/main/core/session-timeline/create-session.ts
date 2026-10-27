@@ -201,14 +201,21 @@ async function findAgent(harness: string): Promise<AgentPayload | null> {
   return (await agentPayloads()).find((agent) => agent.id === harness) ?? null;
 }
 
-/** 请求没说展示就取这家给的第一种(通用优先);说了就必须在它给的里面。 */
-function resolveSessionView(
+/**
+ * 请求没说展示就按这台电脑的「终端」开关(开 → 编程,关 → 通用),这家不给那种就取它给的第一种;
+ * 说了就必须在它给的里面。
+ */
+async function resolveSessionView(
   agent: AgentPayload,
   requested: SessionpageSessionView | undefined,
-): { ok: true; view: SessionpageSessionView } | { ok: false; message: string } {
+): Promise<{ ok: true; view: SessionpageSessionView } | { ok: false; message: string }> {
   const offered = offeredSessionViews(agent);
   if (offered.length === 0) return { ok: false, message: `${agent.id} 在这台机器上一种展示都接不通` };
-  if (!requested) return { ok: true, view: offered[0]! };
+  if (!requested) {
+    const { preferredSessionView } = await import('@main/core/settings/terminal-visibility');
+    const preferred = await preferredSessionView();
+    return { ok: true, view: offered.includes(preferred) ? preferred : offered[0]! };
+  }
   if (!SESSION_VIEWS.includes(requested) || !offered.includes(requested)) {
     return { ok: false, message: `${agent.id} 不提供「${requested}」这种展示` };
   }
@@ -279,7 +286,7 @@ export async function createModels(
   try {
     const agent = await findAgent(request.harness);
     if (!agent) return fail('harness_not_found', `这台机器上没有 ${request.harness}`);
-    const view = resolveSessionView(agent, request.sessionView);
+    const view = await resolveSessionView(agent, request.sessionView);
     if (!view.ok) return fail('session_view_rejected', view.message);
     const { listLocalModels, probeHarnessCatalogState } = await import('@main/core/agents/session-discovery');
     const [catalog, state] = await Promise.all([
@@ -376,7 +383,7 @@ async function createSessionSteps(
   const agent = await findAgent(request.harness);
   if (!agent) return fail('harness_not_found', `这台机器上没有 ${request.harness}`);
   const provider = agent.id as AgentProviderId;
-  const view = resolveSessionView(agent, request.sessionView);
+  const view = await resolveSessionView(agent, request.sessionView);
   if (!view.ok) return fail('session_view_rejected', view.message);
   const runtime = sessionRuntimeOfView(view.view);
 

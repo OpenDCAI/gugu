@@ -14,6 +14,7 @@ function fakeDevice(reply: (call: Call) => Reply, options: { ssh?: boolean } = {
   const upgrades: string[] = []
   let listener: ((payload: unknown) => void) | null = null
   let resubscribed: ((rejoin: boolean) => void) | undefined
+  let switching: (() => void) | undefined
   const deps = {
     call: (async (_device: string, type: string, payload: unknown) => {
       const call = { type, payload: payload as Record<string, unknown> }
@@ -23,10 +24,11 @@ function fakeDevice(reply: (call: Call) => Reply, options: { ssh?: boolean } = {
     subscribe: ((
       _device: string,
       cb: (payload: unknown) => void,
-      options?: { onChannelResubscribed?: (rejoin: boolean) => void },
+      options?: { onChannelResubscribed?: (rejoin: boolean) => void; onChannelSwitching?: () => void },
     ) => {
       listener = cb
       resubscribed = options?.onChannelResubscribed
+      switching = options?.onChannelSwitching
       return () => {
         listener = null
       }
@@ -38,7 +40,7 @@ function fakeDevice(reply: (call: Call) => Reply, options: { ssh?: boolean } = {
       return true
     },
   }
-  return { deps, calls, upgrades, push: (payload: unknown) => listener?.(payload), resubscribe: (rejoin = true) => resubscribed?.(rejoin) }
+  return { deps, calls, upgrades, push: (payload: unknown) => listener?.(payload), resubscribe: (rejoin = true) => resubscribed?.(rejoin), switchChannel: () => switching?.() }
 }
 
 const flush = () => new Promise((resolve) => setTimeout(resolve, 0))
@@ -168,6 +170,32 @@ describe('remote task host pipe over device RPC', () => {
     await openRemoteSessionHostPipe('dev', device.deps)({ onFrame: () => undefined, onClose: (r) => reasons.push(r) })
     device.resubscribe()
     expect(reasons).toEqual(['channel resubscribed'])
+  })
+
+  // 2026-10-27 owner「每次打开都闪一下」:开机时频道从咕咕云换到设备连接是计划内的,窗口关掉要标明是交接,
+  // 客户端据此当场开新窗口、界面照「通着」。❌ 标成交接 = 照旧读成断线(侧栏掉点、文件树「无响应」)。
+  it('频道换通道(新的那条已接好):开着的窗口以交接关掉', async () => {
+    const device = fakeDevice(() => ({ result: { protocol: REMOTE_PROTOCOL_VERSION } }))
+    const closes: Array<[string, { handoff?: boolean } | undefined]> = []
+    await openRemoteSessionHostPipe('dev', device.deps)({ onFrame: () => undefined, onClose: (r, o) => closes.push([r, o]) })
+    device.switchChannel()
+    expect(closes).toEqual([['channel switching transport', { handoff: true }]])
+    // 新管道接好时的那一声(rejoin=false)不再关一次。
+    device.resubscribe(false)
+    expect(closes).toHaveLength(1)
+  })
+
+  it('频道换通道时开线那一问还在旧通道上:当场放弃,客户端当场再开(与重接上同一个码)', async () => {
+    let answer: (reply: Reply) => void = () => undefined
+    const device = fakeDevice((call) =>
+      call.type === 'taskhost.open' ? (new Promise<Reply>((resolve) => { answer = resolve }) as unknown as Reply) : { result: { closed: true } },
+    )
+    const opening = openRemoteSessionHostPipe('dev', device.deps)({ onFrame: () => undefined, onClose: () => undefined }).catch((e: unknown) => e)
+    await flush()
+    device.switchChannel()
+    // ❌ 放弃时它会一直挂到开线超时:这里只给一拍。
+    expect(await Promise.race([opening, flush().then(() => 'still opening')])).toMatchObject({ code: 'channel_resubscribed' })
+    answer({ result: { opened: true, protocol: REMOTE_PROTOCOL_VERSION } })
   })
 
   it('#6264 开窗口时报这台桌面是哪一版(那台咕咕 server 据此让这个账号跑匹配的版本);拿不到就不报', async () => {

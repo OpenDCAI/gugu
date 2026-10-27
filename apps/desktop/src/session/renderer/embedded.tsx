@@ -146,8 +146,7 @@ async function bootstrap() {
   // ⚠️ 必须在下面那个热更新早返回**之前**:热更新会重新求值整条 import 链,账本是新的一份 module 实例,
   //    桥要跟着指向新的那份,否则宿主读的是旧实例里那张永远空着的 Map。装桥本身幂等,每次求值都装无妨。
   installSessionStartupFailureBridge(window);
-  // #7167 聊天页那颗模式按钮选了编程 / 通用:打开任务之后请这一页换展示(session-view-requests.ts)。同上,热更新前装。
-  // gugu-dev#181 壳要打开一条对话:对话是这屏的一块(项目群开项目块)。
+  // gugu-dev#181 壳要打开一条对话:对话是这屏的一块(项目群开项目块)(session-view-requests.ts)。同上,热更新前装。
   installSessionViewRequestBridge(window, { openChat: openChatOnScreen });
   installRemoteHostSessionpageBridges(window, () => appState.navigation.navigate('new-session'));
   if (hasEntryRoot(container)) {
