@@ -573,6 +573,44 @@ describe('P-E4 离线追赶:未读行逐条受理,由队列 drain 合批', () =>
     expect(injections).toHaveLength(3)
   })
 
+  it('a row no host can deliver is skipped on its own: the rest is delivered and the cursor passes it', async () => {
+    const chat = '00000000-0000-4000-8000-000000000003'
+    const cloud = new FakeCloud()
+    cloud.addChat(chat, 'group')
+    cloud.join(chat, AGENT, { listenMode: 'active' })
+    cloud.join(chat, HUMAN)
+    cloud.post({ chatId: chat, id: '10000000-0000-4000-8000-00000000000f', seq: 1, senderUserId: HUMAN, senderType: 'human', content: 'before' })
+    // An id that is already typed cannot be encoded into an envelope: every host refuses it, on every pull.
+    cloud.post({ chatId: chat, id: 'msg:20000000-0000-4000-8000-000000000001', seq: 2, senderUserId: OTHER_AGENT, senderType: 'agent', content: 'Agent 本次回复出错，未能完成' })
+    cloud.post({ chatId: chat, id: '10000000-0000-4000-8000-000000000010', seq: 3, senderUserId: HUMAN, senderType: 'human', content: 'after' })
+    const disclosed: unknown[] = []
+    const { deps, injections, outcomes } = makeDeps(cloud, { postDisclosure: async (row) => { disclosed.push(row) } })
+
+    const result = await pullAgentInbox(AGENT, deps)
+
+    expect(result).toMatchObject({ injected: 2, verdict: 'accepted' })
+    expect(injections.map((injection) => injection.messageId)).toEqual(['10000000-0000-4000-8000-00000000000f', '10000000-0000-4000-8000-000000000010'])
+    expect(cloud.watermark(chat, AGENT)).toBe(3)
+    expect(disclosed).toEqual([])
+    expect(outcomes.every((outcome) => outcome.ok)).toBe(true)
+    // The next pull no longer sees it: it does not fail every later delivery to this agent.
+    expect(await pullAgentInbox(AGENT, deps)).toMatchObject({ injected: 0, verdict: 'idle' })
+  })
+
+  it('a batch of only undeliverable rows injects nothing and still moves the cursor past them', async () => {
+    const chat = '00000000-0000-4000-8000-000000000003'
+    const cloud = new FakeCloud()
+    cloud.addChat(chat, 'group')
+    cloud.join(chat, AGENT, { listenMode: 'active' })
+    cloud.join(chat, HUMAN)
+    cloud.post({ chatId: chat, id: 'msg:20000000-0000-4000-8000-000000000001', seq: 1, senderUserId: OTHER_AGENT, senderType: 'agent', content: 'notice' })
+    const { deps, injections } = makeDeps(cloud)
+
+    expect(await pullAgentInbox(AGENT, deps)).toMatchObject({ injected: 0, verdict: 'accepted' })
+    expect(injections).toEqual([])
+    expect(cloud.watermark(chat, AGENT)).toBe(1)
+  })
+
   it('inbox entries are admitted one by one while attachments remain solo', async () => {
     const cloud = new FakeCloud()
     cloud.addChat('00000000-0000-4000-8000-000000000005', 'group')

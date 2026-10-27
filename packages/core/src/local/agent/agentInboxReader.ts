@@ -587,13 +587,50 @@ type PreparedUnit = {
   members: PreparedMessage[]
 }
 
+/**
+ * A chat row whose own identity cannot be written into an envelope: no host can ever deliver it, so retrying
+ * it re-fails every pull. Left in the batch it blocked every later message to this agent — a 1040.1 host failed
+ * every delivery to one agent for hours on one notice whose id it refused to encode. Only identity
+ * shape is judged here; a failure that could pass on retry (a read, an attachment) still fails the batch.
+ */
+function undeliverableRowReason(row: AgentInboxUnreadRow): string | null {
+  if (row.localSessionDirect || row.forum) return null
+  try {
+    encodeTypedId('msg', row.id)
+    encodeTypedId('chat', row.chatId)
+    if (row.senderUserId) encodeTypedId('user', row.senderUserId)
+    if (row.replyToMessageId) encodeTypedId('msg', row.replyToMessageId)
+    if (row.replyToSenderUserId) encodeTypedId('user', row.replyToSenderUserId)
+    if (row.threadRootId) encodeTypedId('msg', row.threadRootId)
+    for (const id of row.toUserIds ?? []) encodeTypedId('user', id)
+    return null
+  } catch (error) {
+    return error instanceof Error ? error.message : String(error)
+  }
+}
+
 async function injectBatch(
   agentUserId: string,
-  rows: AgentInboxUnreadRow[],
+  pulledRows: AgentInboxUnreadRow[],
   deps: AgentInboxReaderDeps,
 ): Promise<{ injected: number; verdict: AgentInboxInjectionVerdict; completion?: Promise<void> }> {
   const env = deps.env ?? process.env
   const toolNames = deps.deliveryToolNames?.(agentUserId) ?? undefined
+  // An undeliverable row is skipped and logged on its own; the rest of the batch is delivered. It is marked read
+  // in chat order with what is delivered after it, since the server cursor never passes an unread message.
+  const skipped: PreparedMessage[] = []
+  const rows = pulledRows.filter((row) => {
+    const reason = undeliverableRowReason(row)
+    if (reason === null) return true
+    log.error({ agentUserId, chatId: row.chatId, messageId: row.id, seq: row.seq, reason },
+      'agent inbox row cannot be delivered by any host; skipped so it no longer blocks later messages')
+    skipped.push({ row, envelope: '' })
+    return false
+  })
+  if (rows.length === 0) {
+    await advanceCursor(agentUserId, skipped, deps)
+    return { injected: 0, verdict: 'accepted' }
+  }
   const rulesPlan = await planGroupRules(agentUserId, rows, deps, env)
   const prepared: PreparedMessage[] = []
   try {
@@ -684,7 +721,11 @@ async function injectBatch(
     }
     injected += unit.members.length
     if (completion) completions.push(completion)
-    await advanceCursor(agentUserId, unit.members, deps)
+    const reach = new Map<string, number>()
+    for (const member of unit.members) reach.set(member.row.chatId, Math.max(reach.get(member.row.chatId) ?? -Infinity, member.row.seq))
+    const passed = skipped.filter((entry) => entry.row.seq < (reach.get(entry.row.chatId) ?? -Infinity))
+    for (const entry of passed) skipped.splice(skipped.indexOf(entry), 1)
+    await advanceCursor(agentUserId, [...passed, ...unit.members], deps)
     deps.onOutcome?.({ agentUserId, ok: true })
     for (const member of unit.members) {
       if (member.bootstrapKey) threadBootstrapped.add(member.bootstrapKey)
@@ -694,6 +735,7 @@ async function injectBatch(
       }
     }
   }
+  if (skipped.length > 0) await advanceCursor(agentUserId, skipped, deps)
   return {
     injected,
     verdict: 'accepted',
