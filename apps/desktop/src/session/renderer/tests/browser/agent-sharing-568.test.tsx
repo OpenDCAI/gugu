@@ -19,7 +19,8 @@ for (const mobile of [false, true]) it(`omits a one-option switcher and only exp
   h.container.style.cssText = 'padding:24px;max-width:720px;margin:auto'
   await renderWithAppProviders(h, <AgentSharePane agent={agent} />, { auth: { id: 'u1' } })
   expect(h.container.querySelector('.gg-as-share-act-seg')).toBeNull()
-  expect(h.container.querySelector('input')!.getBoundingClientRect().left).toBe(h.container.querySelector('.gg-as-share-act-empty')!.getBoundingClientRect().left)
+  // Align the search control with the empty state; its input reserves space for the search icon.
+  expect(h.container.querySelector('[data-slot="search-field"]')!.getBoundingClientRect().left).toBe(h.container.querySelector('.gg-as-share-act-empty')!.getBoundingClientRect().left)
   vi.stubEnv('VITE_GUGU_WEB_URL', 'https://public.example.test')
   const enable = vi.spyOn(contactsService, 'setAgentPublic').mockResolvedValue({ ...agent, agent_public: true })
   await renderWithAppProviders(h, <AgentSharePane agent={agent} />, { auth: { id: 'u1' } })
