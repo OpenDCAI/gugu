@@ -15,7 +15,17 @@ type WorkSource = Pick<PendingAssistantWork, 'source_link' | 'source_message_id'
 export type AssistantWorkBinding = { sessionId: string; memoryDir: string; agentId?: string; currentInput?: () => Promise<WorkSource | undefined> }
 const listeners = new Set<() => void>()
 export function onAssistantWorkChanged(listener: () => void): () => void { listeners.add(listener); return () => { listeners.delete(listener) } }
-const empty = () => ({ version: 1 as const, items: [] as PendingAssistantWork[] })
+const empty = (): { version: 1; items: PendingAssistantWork[]; settled?: PendingAssistantWork[] } => ({ version: 1, items: [] })
+/** How many finished works stay reopenable; older ones are only in the account ledger. */
+const SETTLED_LIMIT = 64
+/** A finished executor work leaves the recovery list but stays reopenable by a follow-up to the same executors. */
+function settle(data: ReturnType<typeof empty>, row: PendingAssistantWork, done: string[]): void {
+  data.items = data.items.filter(item => item.id !== row.id)
+  if (row.kind !== 'executor') return
+  const finished: PendingAssistantWork = { ...row, recipients: [], done_recipients: [...new Set([...(row.done_recipients ?? []), ...done])] }
+  delete finished.early
+  data.settled = [...(data.settled ?? []).filter(item => item.id !== row.id), finished].slice(-SETTLED_LIMIT)
+}
 
 function read(path: string): ReturnType<typeof empty> {
   try {
@@ -59,6 +69,8 @@ export class AssistantWorkStore {
    * opened a second work for every follow-up, leaving the first one open forever (one agent, two task rows).
    * `ledgered` limits implicit continuation to work the account ledger already holds, so a follow-up never
    * points at a work the cloud has never seen.
+   * With no unfinished work, a follow-up reopens the executors' most recently finished work of the same kind: the
+   * assistant adding to a finished task is still that task, and its reply belongs on the same row (#615, owner's call A).
    */
   dispatch(input: Pick<PendingAssistantWork, 'kind' | 'device' | 'purpose'> & WorkSource, targets: string[] = [],
     options: { workId?: string; dispatchKey?: string; fresh?: boolean; ledgered?: boolean } = {}): { id: string; continued: boolean } {
@@ -75,6 +87,16 @@ export class AssistantWorkStore {
         .sort((a, b) => b.created_at.localeCompare(a.created_at))[0]
     if (workId && !existing) throw new Error('work_id does not identify waiting work for these executors; use the original full session: task address')
     if (existing) return { id: existing.id, continued: true }
+    const finished = workId || options.fresh || targets.length === 0 ? undefined
+      : (data.settled ?? []).filter(row => (row.purpose ?? 'task') === (input.purpose ?? 'task')
+        && targets.every(target => row.done_recipients?.includes(target))
+        && (!options.ledgered || Object.keys(row.ledger ?? {}).length > 0)).at(-1)
+    if (finished) {
+      data.settled = (data.settled ?? []).filter(row => row.id !== finished.id)
+      data.items.push({ ...finished, recipients: [], done_recipients: [], state: 'dispatching' })
+      atomic(this.path, data)
+      return { id: finished.id, continued: true }
+    }
     const id = randomUUID()
     data.items.push({ ...input, id,...(dispatchKey ? {dispatch_key:dispatchKey} : {}), recipients: [], receipt_ids: [], state: 'dispatching', created_at: new Date().toISOString() })
     atomic(this.path, data)
@@ -118,7 +140,7 @@ export class AssistantWorkStore {
     row.recipients = [...new Set([...(row.state === 'waiting' ? row.recipients : []), ...recipients])].filter(recipient => !completed.has(recipient))
     row.receipt_ids = questionId ? [questionId] : [...new Set([...row.receipt_ids, ...receipts])]
     row.state = 'waiting'
-    if (row.kind === 'executor' && recipients.length > 0 && row.recipients.length === 0) data.items = data.items.filter(item => item.id !== id)
+    if (row.kind === 'executor' && recipients.length > 0 && row.recipients.length === 0) settle(data, row, [...completed])
     else delete row.early
     atomic(this.path, data)
   }
@@ -147,7 +169,8 @@ export class AssistantWorkStore {
       row.early = [...(row.early ?? []), { sender, report, receipt }].slice(-16)
     } else if (row.recipients.includes(sender) && terminal(report)) {
       row.recipients = row.recipients.filter(recipient => recipient !== sender)
-      if (!row.recipients.length) data.items = data.items.filter(item => item.id !== row.id)
+      row.done_recipients = [...new Set([...(row.done_recipients ?? []), sender])]
+      if (!row.recipients.length) settle(data, row, [])
     } else return
     atomic(this.path, data)
   }

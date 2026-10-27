@@ -150,3 +150,25 @@ it('continues the executor\'s open work on a follow-up from a new chat message, 
   expect(workBlock(sent[2]!.text)).toMatchObject({purpose:'task'})
   expect(new AssistantWorkStore(root).list()).toHaveLength(2)
 })
+it('reopens the executor\'s finished work on a follow-up after it completed, so the reply stays on the same row (#615)',async()=>{
+  rpc.mockImplementation(accepted)
+  const sent:Array<{assistant_work:Parameters<typeof enqueueAssistantWorkMessage>[0];text:string}>=[]
+  const run=async(raw:unknown)=>{const a=raw as typeof sent[number];sent.push(a)
+    return {...await enqueueAssistantWorkMessage(a.assistant_work,a.text,[],[{sessionId:'executor',deviceId:'worker'}]),
+      recipients:[{to:'session:executor',session_id:'session:executor',status:'accepted' as const,message_id:`receipt-${sent.length}`}]}}
+  const binding={sessionId:'home-session',memoryDir:root,agentId:assistant}
+  const first='gugu-chat://3be752cb-0925-447e-8bbc-70de8a867bd1/bfb72f98-986e-4314-b242-d9b95a0c8083'
+  const second='gugu-chat://3be752cb-0925-447e-8bbc-70de8a867bd1/0c1d7e0e-4a0e-4f43-9d55-7f5d1a0b2c3d'
+  const task=await coordinateAssistantAction(binding,{action:'message',to:['session:executor'],text:'列出桌面文件',purpose:'task',source_link:first},run) as {work_id:string}
+  new AssistantWorkStore(root).report('session:executor',{work_id:task.work_id,status:'completed'},'final-1')
+  expect(new AssistantWorkStore(root).list()).toEqual([])
+  const followUp=await coordinateAssistantAction(binding,{action:'message',to:['session:executor'],text:'再列下载文件夹',purpose:'task',source_link:second},run) as {work_id:string}
+  expect(followUp.work_id).toBe(task.work_id)
+  expect(sent.map(a=>a.assistant_work.continuation)).toEqual([false,true])
+  expect(new AssistantWorkStore(root).list()).toMatchObject([{id:task.work_id,state:'waiting',recipients:['session:executor']}])
+  // Its second result settles the same work again; an explicit new task still opens a new one.
+  new AssistantWorkStore(root).report('session:executor',{work_id:task.work_id,status:'completed'},'final-2')
+  const unrelated=await coordinateAssistantAction(binding,{action:'message',to:['session:executor'],text:'另一件事',purpose:'new',source_link:second},run) as {work_id:string}
+  expect(unrelated.work_id).not.toBe(task.work_id)
+  expect(sent[2]!.assistant_work.continuation).toBe(false)
+})
