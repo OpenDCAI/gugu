@@ -22,22 +22,22 @@ const requester = { name: 'Claude 1', agentUserId: 'agent-1' };
 
 type Asked = {
   sessionId: string;
-  request: { itemId: string; title: string; options: { optionId: string }[]; host: { kind: string; payload: { request: Record<string, unknown> } } };
-  options: { signal: AbortSignal; refuse?: (answer: { optionId: string; digest?: string }) => string | null };
+  request: { itemId: string; title: string; options: { optionId: string }[]; origin: { source: string; payload: { request: Record<string, unknown> } } };
+  options: { signal?: AbortSignal; refuse?: (answer: { optionId: string; digest?: string }) => string | null };
 };
-type Answer = { optionId: string; by: string; digest?: string; enableIn?: string[] } | 'withdrawn' | 'unavailable';
+type Answer = { optionId: string; by: string; digest?: string; enableIn?: string[] } | 'withdrawn' | 'timeout' | 'unavailable';
 
-/** The session timeline as askHost / respond see it: `answer` settles the ask as a surface's respond would. */
+/** The session timeline as ask / respond see it: `answer` settles the ask as a surface's respond would. */
 function world(options: { idle?: number; window?: (request: unknown) => Promise<{ outcome: string; enableIn?: string[] }> } = {}) {
   const asked: Asked[] = [];
   let answer: (result: Answer) => void = () => undefined;
   const responses: Record<string, unknown>[] = [];
   const timeline = {
-    askHost: (sessionId: string, ask: Asked['request'], opts: Asked['options']) => {
+    ask: (sessionId: string, ask: Asked['request'], opts: Asked['options']) => {
       asked.push({ sessionId, request: ask, options: opts });
       return new Promise<Answer>((resolve) => {
         answer = resolve;
-        opts.signal.addEventListener('abort', () => resolve('withdrawn'));
+        opts.signal?.addEventListener('abort', () => resolve('withdrawn'));
       });
     },
     respond: async (input: Record<string, unknown>) => {
@@ -74,8 +74,8 @@ describe('an agent’s App install, asked as an approval in its session (D-31)',
     const { request: ask, sessionId } = w.asked[0]!;
     expect(sessionId).toBe('conv-1');
     expect(ask.options.map((option) => option.optionId)).toEqual(['install', 'decline']);
-    expect(ask.host.kind).toBe('app-install');
-    expect(ask.host.payload.request).toMatchObject({ manifestDigest: 'digest-r', requestId: ask.itemId, requester });
+    expect(ask.origin.source).toBe('app-install');
+    expect(ask.origin.payload.request).toMatchObject({ manifestDigest: 'digest-r', requestId: ask.itemId, requester });
     expect(w.windows[0]?.request).toMatchObject({ requestId: ask.itemId, requester });
     // Answered on another surface, with what it showed and where the person ticked: the sheet here goes.
     w.answer({ optionId: 'install', by: 'phone', digest: 'digest-r', enableIn: ['g1'] });
@@ -143,7 +143,7 @@ describe('an agent’s App install, asked as an approval in its session (D-31)',
 
   it('no such session here: this window alone asks, nothing sent to a session', async () => {
     const w = world({ window: async () => ({ outcome: 'confirmed', enableIn: ['here:all'] }) });
-    w.dependencies.timeline = async () => ({ askHost: async () => 'unavailable' as const, respond: vi.fn() }) as never;
+    w.dependencies.timeline = async () => ({ ask: async () => 'unavailable' as const, respond: vi.fn() }) as never;
     await expect(askInstallInSession('conv-1', request, requester, w.dependencies as never)).resolves.toEqual({ outcome: 'confirmed', enableIn: ['here:all'] });
     expect(w.responses).toEqual([]);
   });

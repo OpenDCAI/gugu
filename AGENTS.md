@@ -22,3 +22,5 @@ Community development uses a dedicated user-owned Supabase project and the user'
 Maintain existing UI typography, colors and layout when fixing behavior. Renderer view models belong in apps/desktop, not packages/core. Public API permissions remain explicit; new backend functions start closed until a migration grants the intended role.
 
 Permission to edit or test does not authorize merging, releases or production deployment.
+
+Agent approvals and questions: read `apps/desktop/electron/session/main/core/asks/index.ts` before changing any flow that waits for a person.

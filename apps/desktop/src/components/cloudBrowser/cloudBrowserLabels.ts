@@ -26,6 +26,7 @@ export type CloudBrowserLine =
   | { key: 'needs'; assistance: CloudBrowserAssistance; retry: false }
 
 export type CloudBrowserLineInput = {
+  assistance: CloudBrowserAssistance | null
   live: boolean
   status: CloudBrowserStatus | null
   state: CloudBrowserState | null
@@ -54,7 +55,7 @@ export function cloudBrowserLine(input: CloudBrowserLineInput): CloudBrowserLine
   const automation = state?.automation ?? status?.automation ?? 'idle'
   if (automation === 'stopped') return { key: 'viewer.stopped', retry: false }
   // 实时状态在就只认它:求助刚被处理时它已清空,轮询来的 status 还是旧的。
-  const assistance = state ? state.assistance : (status?.assistance ?? null)
+  const assistance = input.assistance
   if (assistance) return { key: 'needs', assistance, retry: false }
   if (state?.completed ?? status?.completed) return { key: 'viewer.taskCompleted', retry: false }
   if (automation === 'running') {

@@ -17,7 +17,7 @@ export function SessionHostQuestion({
   sessionId: string | null;
   session: { status: string | null; detail: string | null } | null | undefined;
 }) {
-  const ask = useSessionHostAsk(session?.status === 'needs_user' && session.detail === 'question' ? sessionId : null);
+  const ask = useSessionHostAsk(session?.status === 'needs_user' && session.detail === 'question' ? sessionId : null, 'agent-question');
   const respond = useCallback(
     async (answers: readonly QuestionAnswer[]) => {
       if (!sessionId || !ask) throw new Error('No question is asked here');
@@ -33,7 +33,7 @@ export function SessionHostQuestion({
     },
     [sessionId, ask]
   );
-  if (!sessionId || ask?.host?.kind !== 'agent-question') return null;
+  if (!sessionId || ask?.origin?.source !== 'agent-question') return null;
   return (
     <div className="px-2 pt-1" data-testid="session-host-question">
       <AgentQuestionCard key={ask.itemId} scope={sessionId} settlement={ask} respond={respond} />

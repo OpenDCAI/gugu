@@ -18,7 +18,7 @@ describe('host-owned structured questions', () => {
     try {
       const request = { itemId: 'host-question:one', kind: 'question' as const, title: '预算？', askedAt: 123,
         questions: [{ question: '预算？', options: [{ optionId: '300', name: '300 元' }], multiSelect: false }],
-        options: [], host: { kind: 'agent-question' as const, payload: {} } }
+        options: [], origin: { source: 'agent-question' as const, payload: {} } }
       timeline.syncPendingRequests([request])
       const one = () => timeline.getSnapshot().settlements.find((entry) => entry.itemId === request.itemId)
       expect(one()).toMatchObject({ questions: request.questions, askedAt: 123, state: 'pending' })

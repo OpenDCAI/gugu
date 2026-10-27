@@ -10,7 +10,7 @@ let root: string;
 const id = 'agent-question:11111111-1111-4111-8111-111111111111';
 const question = (): PendingRequest => ({ itemId: id, kind: 'question', title: 'Which Node?', options: [{ optionId: 'PATH', name: 'PATH' }],
   questions: [{ question: 'Which Node?', multiSelect: false, options: [{ optionId: 'PATH', name: 'PATH' }] }],
-  host: { kind: 'agent-question', payload: { deliveryVersion: 1, answerMessageId: '22222222-2222-4222-8222-222222222222', sourceLink: null } } });
+  origin: { source: 'agent-question', payload: { deliveryVersion: 1, answerMessageId: '22222222-2222-4222-8222-222222222222', sourceLink: null } } });
 beforeEach(() => { root = mkdtempSync(join(tmpdir(), 'gugu-durable-question-')); vi.stubEnv('GUGU_HOME', root); });
 afterEach(() => { vi.unstubAllEnvs(); rmSync(root, { recursive: true, force: true }); });
 

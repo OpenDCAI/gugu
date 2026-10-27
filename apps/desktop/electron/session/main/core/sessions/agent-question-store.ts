@@ -41,7 +41,7 @@ export function rememberAgentQuestion(sessionId: string, question: PendingReques
   const items = readAgentQuestionRecords(sessionId);
   if (items.some(item => item.itemId === pending.itemId)) return;
   writeRecords(sessionId, [...items, pending]);
-  const payload = pending.host?.payload as { sourceLink?: string } | undefined;
+  const payload = pending.origin?.payload as { sourceLink?: string } | undefined;
   registerAssistantQuestion(sessionId, pending.itemId, payload?.sourceLink);
   activitySignal({ event_id: `question.pending:${pending.itemId}`, kind: 'question.pending',
     session_id: sessionId, object_id: pending.itemId, occurred_at: Date.now() });
