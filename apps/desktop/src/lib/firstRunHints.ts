@@ -3,7 +3,9 @@ import { identityDb } from './supabase'
 
 // Same account row as the profile and first-run engine choice. Device-specific copy shares
 // these three meanings, so using an entry on one device also retires its hint elsewhere.
-export const FIRST_RUN_HINTS = ['assistant', 'collaboration', 'topics'] as const
+export const FIRST_RUN_HINTS = ['assistant', 'collaboration'] as const
+// Hints taken out of the product; a saved dismissal of one still reads, and is dropped.
+const RETIRED_HINTS: readonly unknown[] = ['topics']
 export type FirstRunHintId = (typeof FIRST_RUN_HINTS)[number]
 export type FirstRunHintsProgress = { version: 1; dismissed: FirstRunHintId[] }
 const KEY = 'firstRunHints'
@@ -15,10 +17,10 @@ export function parseFirstRunHints(config: Record<string, unknown>): FirstRunHin
   if (value === undefined) return null
   if (!value || typeof value !== 'object' || Array.isArray(value)) throw new Error('Invalid first-run hint progress')
   const { version, dismissed } = value as Record<string, unknown>
-  if (version !== 1 || !Array.isArray(dismissed) || !dismissed.every((id) => FIRST_RUN_HINTS.includes(id))) {
+  if (version !== 1 || !Array.isArray(dismissed) || !dismissed.every((id) => FIRST_RUN_HINTS.includes(id) || RETIRED_HINTS.includes(id))) {
     throw new Error('Invalid first-run hint progress')
   }
-  return { version: 1, dismissed: [...new Set(dismissed)] }
+  return { version: 1, dismissed: [...new Set(dismissed.filter((id): id is FirstRunHintId => FIRST_RUN_HINTS.includes(id)))] }
 }
 
 export async function readFirstRunHints(userId: string): Promise<FirstRunHintsProgress | null> {

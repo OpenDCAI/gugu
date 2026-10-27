@@ -38,6 +38,7 @@ import type { LiveSettingResult, PermissionWaitKind } from '@gugu/session-core/a
 import { errorDetail } from '@gugu/session-shared';
 import type { BlobSource } from '@gugu/session-wire';
 import { action, computed, makeObservable, observable, runInAction, toJS } from 'mobx';
+import { batch } from 'solid-js';
 // TODO(conversations-extraction): Inject task/workspace lookups instead of importing task stores.
 import { asProvisioned, getSessionPageStore } from '@renderer/features/sessions/stores/session-selectors';
 import { workspaceRegistry } from '@renderer/features/sessions/stores/workspace-registry';
@@ -2375,7 +2376,10 @@ export class AcpChatStore {
       }
     }
     if (refreshGeneration !== this._historyGeneration) return;
-    runInAction(() => {
+    // seed 先把活动轮清掉、下面再放回去:两步必须是转录的同一次更新(Solid `batch`)。分成两次的话,
+    // 活动轮的每一行都会被卸掉重挂 —— 正在流式的那几段话淡入从头再放一遍,整段一闪(owner 10-27 录像:
+    // 前一轮派出的后台 agent 每报一次进度,这一轮已经写出的话就闪一下)。
+    runInAction(() => batch(() => {
       if (merged) {
         const currentFrame = this.chatState.transcript.state.activeTurnSnapshot;
         const newerFrame = (currentFrame?.id ?? null) !== retainedFrameId;
@@ -2402,7 +2406,7 @@ export class AcpChatStore {
         this.chatState.transcript.activeTurn.set(null);
       }
       this._syncMessageCount();
-    });
+    }));
   }
 
   /** 会话连上了:连上之前画出来的那几句交给真的那一轮 / 运行时队列。 */

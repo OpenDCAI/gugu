@@ -16,7 +16,7 @@
 // emdash-main-bridge.cjs with electron + native addons (better-sqlite3, node-pty, @parcel/watcher)
 // externalized (required at runtime).
 import type { BirthGroup } from '@shared/core/sessions/create-session';
-export { readCurrentActivityInput } from './core/sessions/session-activity-source'
+export { readCurrentActivityInput,readCurrentAssistantWorkInput } from './core/sessions/session-activity-source'
 import { installActivityCollector } from '@main/core/activity/collector'
 import { openLink } from './core/extensions/gugu-links'
 import type { LinkOpenOutcome } from '@shared/extensions/open-link'

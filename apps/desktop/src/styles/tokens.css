@@ -1895,12 +1895,7 @@ body.barcode-scanner-active #root {
 /* @@@5856 会话列表里的话题子行:挂在来源那条线底下,❌ 不是一条平级的会话(owner:「怎么还有把一个
    topic 当做群的形式表达」)。缩进 + 一条竖轨是「从属」唯一读得出来的两样;❌ 不给它头像 ——
    头像是身份的东西,话题不是一个身份,给了它就立刻长得像个群。 */
-/* @@@5856 名册 / 附件嵌在话题分栏里(头栏 👥 对话题已经没有入口了,见 TopicSplitPane)。
-   宽度与边线由分栏给的外壳管(RightPanel width="fill"),这里只收头。
-   嵌进来的附件面板自带的「标题 + 关闭」收掉:标题分栏那条头已经说了(话题名 + 引自哪一句),
-   关闭由分栏头上那两颗切换键负责。留着就是两条头叠着摆 + 两颗都能返回的 × —— owner 的「卡里套卡」。
-   名册的头由分栏自己画(TopicSplitPane),本来就不带关闭;改名住在里面,它是控件不是标题。 */
-.gg-topic-split-members .gg-hist-hh { display: none; }
+
 
 .gg-topic-subrows { position: relative; }
 .gg-topic-subrows::before {

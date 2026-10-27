@@ -106,9 +106,7 @@ export function UserMessageCard(props: { data: ChatMessage; ctx: RenderCtx; vars
     if (!ctx) return v.collapsedMaxH;
     const innerW = userInnerWidth(availableWidth(), v);
     const blocks = ctx.caches.parseBlocks(props.data.id, props.data.text);
-    if (blocks.length === 0) {
-      return ctx.theme.fonts.body.lineHeight + 2 * v.userCardPadY + 2 * v.cardBorder;
-    }
+    if (blocks.length === 0) return 0;
     const innerCtx = { ...ctx, width: innerW };
     const s = layoutBlockStack(blocks, innerCtx, { isCollapsed: ctx.isCollapsed });
     return s.height + 2 * v.userCardPadY + 2 * v.cardBorder;
@@ -189,6 +187,8 @@ export function UserMessageCard(props: { data: ChatMessage; ctx: RenderCtx; vars
         </div>
       </Show>
     <Show when={edit()} fallback={<>
+    {/* 只有附件、没有正文(长文本自动转成的 pasted-text.txt 就是这样):不画气泡 —— 空气泡是一条整行宽的色带。 */}
+    <Show when={!mCtx() || stack()}>
     <div
       data-user-card={props.data.id}
       class={`${card({ state: isOverflowing() && !isExpanded() ? 'overflowing' : 'static', current: isGenerating() })} ${cardRoot} ${userCardGroup}`}
@@ -228,6 +228,7 @@ export function UserMessageCard(props: { data: ChatMessage; ctx: RenderCtx; vars
         </button>
       </Show>
     </div>
+    </Show>
     <UserMessageActions itemId={props.data.id} text={props.data.text} at={props.data.at}
       generating={isGenerating()} readOnly={Boolean(props.data.guguDelivery)} vars={props.vars} />
     </>}>

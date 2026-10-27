@@ -5,7 +5,7 @@ import { groupDisplayName } from '@gugu/core/shared/ui/chatModels'
 import { useAuth } from '../../store/auth'
 import { useChatStore } from '../../store/chatContext'
 import { updateDisplayAlias } from '../../lib/displayOverrides'
-import { AliasSheet } from '../contacts/AliasSheet'
+import { InlineNameInput } from '../ui/InlineNameInput'
 import { Button } from '../ui/Button'
 import { GroupNameInlineEdit } from './GroupNameInlineEdit'
 
@@ -23,10 +23,11 @@ export function GroupNameRow({ chat, name, canEdit, onCommit }: {
   }
   return <>
     <div className="flex flex-wrap items-center gap-x-2">
-      <GroupNameInlineEdit name={name} canEdit={canEdit} onCommit={onCommit} wrap />
+      {open ? <InlineNameInput name={chat.alias ?? ''} allowEmpty maxLength={80} testId="group-alias-input"
+        placeholder={t('profile.alias')} onCommit={save} onClose={() => setOpen(false)} />
+        : <GroupNameInlineEdit name={name} canEdit={canEdit} onCommit={onCommit} wrap />}
       <Button variant="ghost" size="sm" data-testid="group-set-alias" onClick={() => setOpen(true)}>{t('contextMenu.setAlias')}</Button>
     </div>
     {chat.alias?.trim() ? <div className="text-sm text-[var(--text-secondary)]">{t('profile.alias')} · {groupDisplayName(chat)}</div> : null}
-    {open ? <AliasSheet name={name ?? groupDisplayName(chat)} alias={chat.alias} avatarUrl={chat.avatar} seed={chat.id} group onSave={save} onClose={() => setOpen(false)} /> : null}
   </>
 }
