@@ -97,6 +97,30 @@ describe('FrontendPty streams live output only while shown', () => {
     await until('owning window resumed', () => liveDataListener !== null);
   });
 
+  // 1046.1 实撞:会话页等第一个可见字才挂终端;没挂上就退订的话,新建任务(快照还空着)永远收不到那第一个字。
+  it('keeps the stream of a terminal that is not mounted yet until its first visible output', async () => {
+    invoke.mockImplementation((channel: string) => channel === 'pty.subscribe'
+      ? Promise.resolve({ success: true, data: { buffer: '', live: '', size: null } })
+      : Promise.resolve({ success: true, data: {} }));
+    const { FrontendPty } = await getPtyModule();
+    const pty = new FrontendPty('new-task');
+    const firstOutput = vi.fn();
+    pty.onFirstOutput = firstOutput;
+    await pty.connect();
+    expect(liveDataListener, 'still listening while nothing is on screen yet').not.toBeNull();
+    expect(calls('pty.unsubscribe')).toBe(0);
+    liveDataListener!('hello from the agent');
+    await until('first output seen', () => firstOutput.mock.calls.length === 1);
+  });
+
+  it('a terminal that already shows something and is not mounted does not stream', async () => {
+    const { FrontendPty } = await getPtyModule();
+    const pty = new FrontendPty('old-task');
+    await pty.connect();
+    expect(liveDataListener).toBeNull();
+    expect(calls('pty.unsubscribe')).toBe(1);
+  });
+
   it('unmounting unsubscribes too', async () => {
     const { pty } = await opened();
     pty.unmount();
