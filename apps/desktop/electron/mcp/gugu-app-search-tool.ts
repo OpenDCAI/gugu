@@ -80,7 +80,9 @@ export function registerGuguAppSearchTool(server: McpServer, source: AppSearchSo
       ...(hit.next ? { next: hit.next } : {}),
       ...(hit.tabs ? { tabs: hit.tabs } : {}),
     }))
-    const result = { ...describeWindow(window, items.length, page.length), items: page, facets, ...(market ? { market } : {}) }
+    const result = { ...describeWindow(window, items.length, page.length), items: page, facets, ...(market ? { market } : {}),
+      note: 'If none fits and the person wants one made: guide_read apps → app_create (chat: group-json) → app_install(chat_id, data) → app_check. For a missing feature in an existing App: ask to fork (guide_read apps-fork).',
+    }
     return { content: [{ type: 'text', text: JSON.stringify(result) }] }
   })
 }
