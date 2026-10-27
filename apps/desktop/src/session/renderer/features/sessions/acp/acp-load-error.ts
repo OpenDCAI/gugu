@@ -26,6 +26,12 @@ export type AcpLoadError =
    * (`source.ts` 把它们放在 spawn_failed 的 `cause.data`);界面照终端腿那份提示说,给更新入口与重试。
    */
   | { kind: 'runtime_upgrade'; message: string; installedVersion: string; supportedFloor: string }
+  /**
+   * 起会话途中,到这条会话所在那台机器(`deviceId`)的线断了:换通道(开机时先走咕咕云、隧道通了改走隧道)、
+   * 对面重启、网断。引擎那边没坏,这一侧也没有可说的病因 —— ❌ 说成「引擎没能启动」。
+   * 线一通就自己再开一次(acp-chat-store `_watchMachineLink`)。只认别的机器上的会话:本机会话没有这条线。
+   */
+  | { kind: 'connection_lost'; message: string; deviceId: string }
   | { kind: 'generic'; message: string };
 
 /**
@@ -76,8 +82,23 @@ export function resultError(error: unknown): Error {
   return error instanceof Error ? error : new Error(errorText(error));
 }
 
-export function toLoadError(error: unknown): AcpLoadError {
+/**
+ * 线断了的那几种失败:session-wire 在线断开时拒掉在途的问(`WireError` `DISCONNECTED`),
+ * 或那台机器此刻够不着、开线当场被拒(session-host-client 的 `unreachable`)。
+ * 按字段认,❌ `instanceof`:错误可能来自另一份打包进来的 session-wire。
+ */
+export function isConnectionLostError(error: unknown): boolean {
+  if (typeof error !== 'object' || error === null) return false;
+  const { name, code } = error as { name?: unknown; code?: unknown };
+  return (name === 'WireError' && code === 'DISCONNECTED') || code === 'unreachable';
+}
+
+/** @param machine 这条会话所在的那台别的机器;本机会话 = null(线断了照旧按原话说)。 */
+export function toLoadError(error: unknown, machine: string | null = null): AcpLoadError {
   const message = errorText(error);
+  if (machine && isConnectionLostError(error)) {
+    return { kind: 'connection_lost', message, deviceId: machine };
+  }
   if (error instanceof AcpStartError && error.errorType === 'auth_required') {
     return { kind: 'auth_required', message };
   }
