@@ -44,7 +44,7 @@ const { answerCall, bindExtensionSurface, extensionSurfaceBindingForTests, setEx
 
 const page = () => {
   const binding = extensionSurfaceBindingForTests(PAGE)!;
-  return { extensionId: 'forum', kind: 'page' as const, binding, pageId: PAGE, filePage: () => ({}) as never, hear: () => undefined };
+  return { extensionId: 'forum', kind: 'page' as const, binding, pageId: PAGE, filePage: () => ({}) as never, resourcePage: () => ({}) as never, hear: () => undefined };
 };
 
 beforeEach(async () => {

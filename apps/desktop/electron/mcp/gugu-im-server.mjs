@@ -1,5 +1,6 @@
 #!/usr/bin/env node
 import { conversationLink, groupFileLink, parseGroupFileLink } from '@gugu/core/shared/ui/guguLink'
+import { resolveReplyDelivery } from '@gugu/core/shared/replyDelivery'
 
 import { downloadSessionFile } from '@gugu/core/local/agent/sessionFileHandoff'
 import { randomUUID } from 'node:crypto'
@@ -433,6 +434,27 @@ function buildMessageRow(context, {
     thread_root_id: threadRootId ?? context.threadRootId ?? null,
     is_thread_root: isThreadRoot === true,
     ...(isWhisper ? { is_whisper: true } : {}),
+  }
+}
+
+function messageHistoryPage(deps, chatId, { asUserId = deps.context.agentId, threadRootId = null, beforeSeq = null, limit = 20 } = {}) {
+  return deps.restRpc('message_history_as', { p_chat_id: chatId, p_as_user_id: asUserId,
+    p_thread_root_id: threadRootId, p_before_seq: beforeSeq, p_limit: limit })
+}
+
+async function replySourceOf(deps, chatId, messageId, threadRootId) {
+  let beforeSeq = null
+  for (;;) {
+    const rows = await messageHistoryPage(deps, chatId, { threadRootId, beforeSeq, limit: 100 })
+    const source = rows.find((message) => message.id === messageId)
+    if (source) {
+      if (typeof source.is_whisper !== 'boolean') throw new Error('message_send: message_history_as must return is_whisper; update the backend')
+      return source
+    }
+    if (rows.length < 100) throw new Error('message_send: reply source is unavailable in this chat for the current agent')
+    const next = Number(rows[rows.length - 1].seq)
+    if (!Number.isSafeInteger(next) || (beforeSeq !== null && next >= beforeSeq)) throw new Error('message_send: reply history cursor did not advance')
+    beforeSeq = next
   }
 }
 
@@ -1316,27 +1338,32 @@ async function handleMessage(args, deps) {
     // #6835 悄悄话 = 标志位 + 只点一个人的 to_user_ids。合不合法(正好一人、不是自己、本 chat 成员)
     // 由库的写入口判一次(chat.enforce_whisper_rule),报错原样交给模型。这里只说库说不清的那一句:
     // 会话绑在 thread 上 —— 悄悄话不进 thread,而 thread 归属是会话定的,模型改不了。
-    const isWhisper = args.whisper === true
-    const toUserIds = requestedRecipients
-    if (isWhisper && sessionThread) {
-      throw new Error(`message_send: 悄悄话只能发在主线,本会话绑在 thread=${sessionThread} 上,这里发不了;要在这里说就去掉 whisper,照常发`)
-    }
     // 回复就是带上 reply_to_message_id 的一次发送:消息挂在那条原消息下,下面三处寻址规则按它分叉。
     const replyToMessageId = String(args.reply_to_message_id ?? '').trim() || null
     const isReply = replyToMessageId !== null
     // @@@2083 稳定幂等键 + 单一 row 对象:insert 与「发送失败落盘」复用同一 row(零 drift),补投靠稳定
     // client_message_id 走 messages_client_dedup 去重。content 初始 = 原文,群聊 @ 一致性校验后回填修补文本。
-    const row = buildMessageRow(deps.context, { id: randomUUID(), chatId, content: args.text, contentType: 'text', toUserIds, replyToMessageId, threadRootId: sessionThread, isWhisper })
+    const row = buildMessageRow(deps.context, { id: randomUUID(), chatId, content: args.text, contentType: 'text', toUserIds: requestedRecipients, replyToMessageId, threadRootId: sessionThread })
     // @@@2083 一次完整发送尝试(读+校验+插入)。抽成闭包以便 token 刷新后原样重放一次。
     let sentKind = null
     const attemptSend = async () => {
       // 发送边界只负责校验并写入消息。收件箱由读者在工具边界统一注入，发送工具不重复读取或消费它。
-      const [kind, memberRows] = await Promise.all([
+      const [kind, memberRows, source] = await Promise.all([
         chatKindOf(deps, chatId),
         memberRowsOfMyChat(chatId, deps),
+        isReply ? replySourceOf(deps, chatId, replyToMessageId, sessionThread) : null,
         // @@@3643 未读群规即拒(兜底闸,见 assertGroupRulesSeen)。
         assertGroupRulesSeen(deps, chatId, 'message_send'),
       ])
+      const delivery = resolveReplyDelivery({ senderUserId: deps.context.agentId, source, toUserIds: requestedRecipients, whisper: args.whisper })
+      if (!delivery) throw new Error('message_send: cannot resolve the participants of this whisper reply')
+      const { toUserIds, isWhisper } = delivery
+      if (isWhisper && sessionThread) {
+        throw new Error(`message_send: 悄悄话只能发在主线,本会话绑在 thread=${sessionThread} 上,这里发不了;要在这里说就显式设 whisper:false,照常发`)
+      }
+      row.to_user_ids = toUserIds.length ? toUserIds : null
+      if (isWhisper) row.is_whisper = true
+      else delete row.is_whisper
       // #84 名单里没有本 agent 的私聊(list_member_ids 在主人是成员时也给名单):是主人与好友的私聊就指去代发,
       // 那里只读不写。复用上面这次名单,agent 在的线零额外读取;放在这一次尝试里,鉴权失效随整条发送换令牌重放。
       if (kind === 'dm' && !memberRows.some((row) => String(row.user_id) === deps.context.agentId)) {
@@ -1358,14 +1385,7 @@ async function handleMessage(args, deps) {
         if (!memberIds.includes(deps.context.agentId) || memberIds.length !== 2 || peerIds.length !== 1) {
           throw new Error('message_send: a reply in an exact DM without to_user_ids requires the current agent and one unique peer')
         }
-        const sourceRows = await deps.restGet(
-          `messages?id=eq.${enc(replyToMessageId)}&chat_id=eq.${enc(chatId)}&select=chat_id,sender_user_id`,
-        )
-        if (
-          sourceRows.length !== 1
-          || String(sourceRows[0].chat_id) !== chatId
-          || String(sourceRows[0].sender_user_id) !== peerIds[0]
-        ) {
+        if (source.sender_user_id !== peerIds[0]) {
           throw new Error('message_send: reply_to_message_id in an exact DM must belong to this chat and its unique peer')
         }
       }
@@ -1382,14 +1402,9 @@ async function handleMessage(args, deps) {
       const isGroupOrTopic = kind === 'group' || kind === 'topic'
       if (isGroupOrTopic && (addressesNobody || toUserIds?.length || String(args.text ?? '').includes('@'))) {
         const peerIds = memberRows.map((r) => r.user_id).filter((uid) => uid !== deps.context.agentId)
-        const [users, replied] = await Promise.all([
-          restGetInBatches(peerIds, (batch) =>
-            deps.restGet(`users?id=in.(${batch.map(enc).join(',')})&select=id,display_name,type`, 'identity')),
-          isReply
-            ? deps.restGet(`messages?id=eq.${enc(replyToMessageId)}&select=sender_user_id`)
-            : [],
-        ])
-        const rec = reconcileMentionExpression(users, args.text, toUserIds, replied.map((r) => r.sender_user_id))
+        const users = await restGetInBatches(peerIds, (batch) =>
+          deps.restGet(`users?id=in.(${batch.map(enc).join(',')})&select=id,display_name,type`, 'identity'))
+        const rec = reconcileMentionExpression(users, args.text, toUserIds, source ? [source.sender_user_id] : [])
         if (rec.mismatches.length) {
           throw new Error(
             `正文 @ 了 ${rec.mismatches.join('、')}，但 to_user_ids 没有他们——话里说的和消息做的必须一致。` +
@@ -1451,13 +1466,10 @@ async function handleMessage(args, deps) {
     ? (await ownerFriendOfDm(deps, chatId) ? await currentAuthUserId(deps) : deps.context.agentId)
     : null
   if (args.action === 'history') {
-    const rows = await deps.restRpc('message_history_as', {
-      p_chat_id: chatId,
-      p_as_user_id: readAs,
-      p_thread_root_id: args.thread_root_id ? String(args.thread_root_id) : null,
-      p_before_seq: Number.isFinite(args.before_seq) ? Math.floor(args.before_seq) : null,
-      p_limit: clampLimit(args.limit, 20, 1, 100),
-    })
+    const rows = await messageHistoryPage(deps, chatId, { asUserId: readAs,
+      threadRootId: args.thread_root_id ? String(args.thread_root_id) : null,
+      beforeSeq: Number.isFinite(args.before_seq) ? Math.floor(args.before_seq) : null,
+      limit: clampLimit(args.limit, 20, 1, 100) })
     return JSON.stringify((rows ?? []).map(withFolderFile))
   }
   if (args.action === 'search') {
@@ -2295,12 +2307,12 @@ export const TOOL_DEFS = [
   {
     name: 'message_send',
     writer: true,
-    description: 'Set destination first; never infer chat_id or recipients from the trigger. Independent, multiple distinct calls allowed. reply_to_message_id implies a DM peer; groups still require recipients. Sessions: session_message.',
+    description: 'Set destination explicitly. reply_to_message_id infers a DM peer or whisper pair; public groups require recipients. Independent, multiple distinct calls allowed. Sessions: session_message.',
     schema: z.object({
       chat_id: chatIdSchema.describe(CHAT_ID_DESCRIPTION),
       to_user_ids: chatRecipientsSchema,
       reply_to_message_id: z.string().min(1).optional().describe('The source message this replies to, in chat_id.'),
-      whisper: z.boolean().optional().describe('Only you and the ONE member in to_user_ids see it; not in a thread.'),
+      whisper: z.boolean().optional().describe('Only you and one recipient see it; no threads. Whisper replies inherit privacy; false explicitly publishes.'),
       text: chatMessageTextSchema.describe(CHAT_MESSAGE_TEXT_RULES),
     }),
     handler: (args, deps) => handleMessage({ ...args, action: 'send' }, deps),

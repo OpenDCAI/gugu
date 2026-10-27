@@ -142,6 +142,41 @@ afterEach(() => {
 })
 
 describe('只画会变的帧、按变了多少决定什么时候画,看不见就停(Chole 上咕咕入口那只鸟 60 fps 一直画;mac1 上 24 只闲鸟半个核)', () => {
+  it('draws a visible portal avatar while the opener hides, stops when both hide, and resumes in the portal window', async () => {
+    fakeClock()
+    const runtime = await boot()
+    const frame = document.createElement('iframe')
+    document.body.append(frame)
+    const doc = frame.contentDocument!, view = frame.contentWindow!
+    vi.spyOn(doc, 'hidden', 'get').mockReturnValue(false)
+    const request = vi.spyOn(view, 'requestAnimationFrame').mockImplementation((callback) => { frames.push(callback); return frames.length })
+    const canvas = document.createElement('canvas')
+    doc.body.append(canvas)
+    const portal = runtime.register(canvas, { shape: 'free', bg: false, crop: 'full', fx: false, tracking: false }, 2, 1, 'fjj-beak')!
+    fake.ids.set(portal.engine.frame, 'b1')
+    stops.push(() => { runtime.unregister(portal); canvas.remove(); frame.remove() })
+    await Promise.resolve()
+    await Promise.resolve()
+    window.dispatchEvent(new CustomEvent('__window_seen', { detail: false }))
+    fake.order.length = 0
+    fake.lookOf.set('b0', [100])
+    fake.lookOf.set('b1', [100])
+    step()
+    expect(fake.order).toContain('copy:b1')
+    expect(fake.order).not.toContain('copy:b0')
+    expect(request).toHaveBeenCalled()
+    view.dispatchEvent(new CustomEvent('__window_seen', { detail: false }))
+    fake.order.length = 0
+    fake.lookOf.set('b1', [200])
+    step()
+    await vi.advanceTimersByTimeAsync(300)
+    expect(fake.order).toEqual([])
+    view.dispatchEvent(new CustomEvent('__window_seen', { detail: true }))
+    step()
+    expect(fake.order).toContain('copy:b1')
+    window.dispatchEvent(new CustomEvent('__window_seen', { detail: true }))
+  })
+
   it('finishes loading the initial flat body before an inert consumer holds its frame', async () => {
     fakeClock()
     fake.createFails = 1

@@ -1,5 +1,5 @@
 // @vitest-environment jsdom
-import { expectExit, frame, holdDialogExit } from '../../support/dialogExit'
+import { frame } from '../../support/dialogExit'
 import { act } from 'react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import type { Device, DeviceSessionSummary } from '@gugu/core/shared/types/chat'
@@ -167,7 +167,6 @@ describe('ProjectsPage — 置顶分区与父子树(对齐桌面侧栏)', () => 
   })
 
   it('在手机上置顶,这一行当场移进「置顶」分区', async () => {
-    const exit = holdDialogExit()
     await renderOnline([summary('target', 1), summary('other', 2)])
     // 宿主那一侧:置顶写进库、发 sessionChanged{isPinned},列表订阅随之推整份(service.ts changesSessionList)。
     rpc.updateSession.mockImplementation(async () => {
@@ -179,9 +178,9 @@ describe('ProjectsPage — 置顶分区与父子树(对齐桌面侧栏)', () => 
       .querySelector<HTMLButtonElement>('[data-testid="agent-watch-session-menu"]')!
     await act(async () => menu.click())
     await frame()
-    const popup = document.querySelector<HTMLElement>('[data-testid="agent-watch-session-actions"]')!
-    await act(async () => document.querySelector<HTMLButtonElement>('[data-testid="agent-watch-session-pin"]')!.click())
-    await expectExit(popup, exit)
+    expect(document.querySelector('[role="menu"]'), 'owner 10-26:贴着 ⋯ 弹菜单,❌ 底部抽屉').not.toBeNull()
+    await act(async () => document.querySelector<HTMLElement>('[data-testid="agent-watch-session-pin"]')!.click())
+    expect(document.querySelector('[data-testid="agent-watch-session-pin"]'), '点了就收').toBeNull()
     await flush()
     expect(rpc.updateSession).toHaveBeenCalledWith('device-1', { conversationId: 'target', pinned: true })
     expect(row(pinnedSection(), 'target')).not.toBeNull()

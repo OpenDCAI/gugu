@@ -712,7 +712,7 @@ async function runtimePage(filePath: string) {
     },
     clipboard: { writeText: async () => undefined },
   };
-  const file = (await openFile(host as never, { session: SESSION, id: filePath })) as {
+  const file = (await openFile(host as never, host.appFiles.open({ ref: { session: SESSION, id: filePath } }))) as {
     text: string;
     insert(index: number, text: string): void;
     readonly status: string;

@@ -61,19 +61,19 @@ export function MessageFilePreview({ file, mobile = false, fill = false, tabbed 
   const { toast } = useToast()
   const kind = classifyDocumentPreview(file)
   const key = sourceKeyOf(file.source)
-  const contentRef = useRef<HTMLDivElement>(null)
+  const viewerRef = useRef<HTMLElement>(null)
   useEffect(() => {
-    if (!contentRef.current || (file.source.kind !== 'item' && !message)) return
-    return bindFileViewerMenu(contentRef.current, () => ({
+    if (!viewerRef.current || (file.source.kind !== 'item' && !message)) return
+    return bindFileViewerMenu(viewerRef.current, () => ({
       quote: async (selection) => {
         if (file.source.kind === 'item') return quoteChatFile(file.source.itemId, file.source.version, selection)
         const { UI_EVENTS } = await import('@/lib/uiEvents')
-        window.dispatchEvent(new CustomEvent(UI_EVENTS.quoteMessage, { detail: { messageId: message!.id, senderName: file.fileName, content: selection ? selectedTextQuote(selection) : file.fileName } }))
+        window.dispatchEvent(new CustomEvent(UI_EVENTS.quoteMessage, { detail: { messageId: message!.id, source: message, senderName: file.fileName, content: selection ? selectedTextQuote(selection) : file.fileName } }))
       },
-      canSelectAll: kind !== 'image' && kind !== 'video' && kind !== 'unsupported',
+      canSelectAll: !(mobile && kind === 'html') && kind !== 'image' && kind !== 'video' && kind !== 'unsupported',
     }), (error) => toast(error instanceof Error ? error.message : String(error), 'error'))
     // eslint-disable-next-line react-hooks/exhaustive-deps -- source identity retains the menu snapshot across unrelated renders
-  }, [key, file.fileName, message?.id, kind, toast])
+  }, [key, file.fileName, message?.id, kind, mobile, toast])
   const [read, setRead] = useState<PreviewRead | null>(null)
   useEffect(() => {
     let live = true, release: PreviewRead['release']
@@ -110,5 +110,5 @@ export function MessageFilePreview({ file, mobile = false, fill = false, tabbed 
   const download = () => void previewBytes(file).then((blob) => downloadBlob(blob, file.fileName)).catch((error) => { fileOpenLog.error({ error }, 'preview file download failed'); toast(t('chatArea.downloadFailed'), 'error', messageForUser(error)) })
   const actions = messageActionItems({ isMine: false, isRetracted: !!message?.retracted_at, content: message?.content ?? null, onForward: message && onForward ? () => onForward(message) : undefined, onDownload: download }, t)
   if (kind === 'image' && !read?.error) return null
-  return <MessageFilePreviewPanel contentRef={contentRef} fill={fill} tabbed={tabbed} mobile={mobile} file={file} kind={kind} content={read?.content ?? null} videoUrl={read?.videoUrl} onVideoError={renewVideo} loading={kind !== 'unsupported' && read === null} error={read?.error} onBack={onBack} onClose={onClose} actions={actions} onOpenExternal={kind === 'unsupported' || file.document ? undefined : openExternal} />
+  return <MessageFilePreviewPanel viewerRef={viewerRef} fill={fill} tabbed={tabbed} mobile={mobile} file={file} kind={kind} content={read?.content ?? null} videoUrl={read?.videoUrl} onVideoError={renewVideo} loading={kind !== 'unsupported' && read === null} error={read?.error} onBack={onBack} onClose={onClose} actions={actions} onOpenExternal={kind === 'unsupported' || file.document ? undefined : openExternal} />
 }

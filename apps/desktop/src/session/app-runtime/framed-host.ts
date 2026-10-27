@@ -14,7 +14,7 @@ import type { GuguHost } from './host';
  */
 export function framedHost(): GuguHost & Record<string, unknown> {
   const parent = window.parent;
-  // A session's tab names its frame (SessionAppFrame): only there is there a computer whose program a page can call.
+  // A task tab also receives its computer's program notifications; explicit device calls work from any page.
   const inSession = window.name === APP_SESSION_FRAME_NAME;
   // This document's start, ahead of its first call: the outer page lets go of what the frame's previous document held.
   parent.postMessage({ m: APP_FRAME_MARKER, t: 'hello' } satisfies FrameToHost, '*');
@@ -39,6 +39,7 @@ const PHONE: ReadonlySet<HostMember> = new Set<HostMember>([
   'modal.open', 'modal.close', 'modal.key', 'onModalFocus',
   'getContext', 'getAppState', 'onAppStateChanged', 'onAgentsChanged', 'onContextChanged', 'onFilesChanged', 'reportError', 'openBrowserTab', 'dispatch', 'listAgents', 'messages.history', 'messages.search',
   'chats.list', 'chats.members', 'linkTo', 'openLink',
+  'callProgram', 'sessions.index', 'sessions.read',
   'forum.list', 'forum.read', 'forum.post', 'forum.reply', 'forum.react', 'forum.remove', 'forum.block', 'forum.assign', 'forum.award',
   'forum.subscribe', 'forum.unsubscribe', 'onForumChanged',
   'setTabTitle', 'setTabBadge', 'onCommand', 'onLink', 'showMessage', 'showSession', 'clipboard.writeText',
@@ -52,6 +53,7 @@ const IN_SESSION: ReadonlySet<HostMember> = new Set<HostMember>(['callProgram', 
 const PROGRAM: ReadonlySet<HostMember> = new Set<HostMember>([
   'getContext', 'onContextChanged', 'onFilesChanged', 'reportError', 'openBrowserTab', 'dispatch', 'messages.history', 'messages.search',
   'chats.list', 'chats.members', 'projects.list', 'linkTo',
+  'sessions.index', 'sessions.read',
   'appFiles.open', 'appFiles.reopen', 'appFiles.close', 'appFiles.list', 'appFiles.search', 'appFiles.recent', 'appFiles.create',
   'appFiles.remove', 'appFiles.rename', 'appFiles.mkdir', 'appFiles.move', 'appFiles.watch', 'appFiles.replace',
   'appFiles.versions', 'appFiles.readVersion', 'appFiles.upload',

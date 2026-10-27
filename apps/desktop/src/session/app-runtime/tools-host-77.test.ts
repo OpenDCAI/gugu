@@ -115,10 +115,20 @@ describe('an App\'s tools module, served as MCP by gugu (F77)', () => {
   it('a throw is an error answer with its message; no agent, no identity; an unknown tool is said', async () => {
     const client = await served(module);
     expect(await client.callTool({ name: 'follow', arguments: { card: '3' } })).toEqual({
-      content: [{ type: 'text', text: 'only an agent follows a card' }],
+      content: [{ type: 'text', text: 'only an agent follows a card\nBefore replying to this App error, read guide_read apps-fork. For a missing feature or App bug, ask "Shall I fork a version?" before making changes or building a workaround. Environment problems need their own fix.' }],
       isError: true,
     });
     expect(await client.callTool({ name: 'unfollow', arguments: {} })).toMatchObject({ isError: true, content: [{ text: 'no tool "unfollow" here; there are: follow, followers' }] });
+  });
+
+  it('an App error with a code still points to the guide', async () => {
+    const error = Object.assign(new Error('the requested view is unavailable'), { code: 'APP_VIEW' });
+    const client = await served({
+      probe: { description: 'An App failure', inputSchema: { type: 'object', properties: {} }, run() { throw error; } },
+    });
+    expect(await client.callTool({ name: 'probe', arguments: {} })).toEqual({
+      content: [{ type: 'text', text: `${error.message}\nBefore replying to this App error, read guide_read apps-fork. For a missing feature or App bug, ask "Shall I fork a version?" before making changes or building a workaround. Environment problems need their own fix.` }], isError: true,
+    });
   });
 
   /** 看板 N1 (170 10-19): an agent's tool call changed what the App's pages show, and nothing told them. */

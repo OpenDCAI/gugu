@@ -34,9 +34,12 @@ import './i18n/registerAssistantCatalog'
 import './styles/sora.css'
 import './styles/tokens.css'
 import '@gugu/session-shared/animation-visibility.css'
+import { isAnimationWindowVisible } from '@gugu/session-shared/animation-visibility'
 import { installPerfCounterResponder } from './lib/perfCounterResponder'
 
 installPerfCounterResponder(window.electronAPI)
+// The shared getter also installs this document's native/DOM visibility listeners.
+isAnimationWindowVisible()
 
 installPlatformLocaleSync(platform, {
   getSnapshot: getLocaleSnapshot,

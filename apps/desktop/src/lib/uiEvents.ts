@@ -1,4 +1,3 @@
-import { ANIMATION_WINDOW_SEEN_EVENT } from '@gugu/session-shared/animation-visibility'
 
 export const UI_EVENTS = {
   closeContextMenus: '__close_context_menus',
@@ -43,8 +42,6 @@ export const UI_EVENTS = {
   sessionpageShareAgent: '__sessionpage_share_agent',
   // 设置「关于」与会话页报障入口共用同一个全局反馈弹窗(product spec)。
   sessionpageOpenFeedback: '__sessionpage_open_feedback',
-  // 主窗看不看得见(detail: boolean,主进程报,见 mainUiEvents):小鸟看不见就停画(agentAvatar/engine/runtime.ts)。
-  windowSeen: ANIMATION_WINDOW_SEEN_EVENT,
   // 会话页要打开设置(⌘, / 应用菜单 / 命令面板 / 浏览器工具栏):设置是壳的弹窗(product spec),
   // detail = { section?: ActiveSection },缺省落在「账户」。
   openSettings: '__open_settings',
@@ -55,6 +52,7 @@ export const UI_EVENTS = {
   // #7199「助理」App 顶上那一排的「搜索」:摆在眼前的那块聊天面进入搜索(与 Alt+F 同一个动作)。
   openContact: '__open_contact',
   openChatSearch: '__open_chat_search',
+  openPhoneListSearch: '__open_phone_list_search',
   sessionpageShareAgentUnavailable: '__sessionpage_share_agent_unavailable',
   // #6646 会话页要人当场决定一件事(装扩展的同意框就画在它里面):不在任务 tab 上就切过去。
   sessionpageReveal: '__sessionpage_reveal',
@@ -70,4 +68,3 @@ export const UI_EVENTS = {
   // #6646 扩展详情里点了「转发」:聊天壳用同一个转发页把这个扩展发出去(detail = ExtensionForwardRequest)。
   forwardExtension: '__forward_extension',
 } as const
-

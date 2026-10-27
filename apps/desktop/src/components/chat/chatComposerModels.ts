@@ -1,5 +1,6 @@
 import type { ReactNode } from 'react'
 import type { MessageItem } from '@gugu/core/shared/types/chat'
+import type { ReplySource } from '@gugu/core/shared/replyDelivery'
 import type { GroupRosterCandidate } from '@/lib/mention'
 import type { ComposerAttachAction } from './ComposerAttachButton'
 import type { AgentStatusById } from './agentMentionStatusModels'
@@ -11,7 +12,7 @@ export interface ChatMessageComposerProps {
   /** 发送前置(agent 私聊的会话就绪)。文字消息把它交给 onSend 的 beforeDeliver,在投递前跑,❌ 挡在上屏之前(C1)。 */
   beforeSend?: () => Promise<void>
   onSendAttachments?: (files: File[], opts?: { toUserIds?: string[] | null; isWhisper?: boolean; caption?: string; onSent?: (file: File, index: number) => void }) => Promise<void>
-  quoteContent?: { messageId?: string; senderName: string; content: string } | null
+  quoteContent?: { messageId?: string; senderName: string; content: string; source?: ReplySource } | null
   onQuoteConsumed?: () => void
   mentionToInsert?: { id: string; name: string } | null
   onMentionInserted?: () => void

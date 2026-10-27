@@ -47,7 +47,7 @@ vi.mock('../../../apps/desktop/src/lib/chatMessageWriter', () => ({
 
 const { useTopicSurface } = await import('../../../apps/desktop/src/hooks/useTopicSurface')
 // The topic open beside a group is its tab (chat-tabs), kept for the window: each case starts with none.
-const { closeTopicTab } = await import('../../../apps/desktop/src/session/renderer/features/chats/chat-tabs/chat-layouts')
+const { closeTopicTab, openPanelItem, closeChatTab } = await import('../../../apps/desktop/src/session/renderer/features/chats/chat-tabs/chat-layouts')
 type Surface = ReturnType<typeof useTopicSurface>
 
 function topic(overrides: Partial<TopicSummary> = {}): TopicSummary {
@@ -185,6 +185,21 @@ describe('#6010 摘要参与人数随来源线的失效通知更新', () => {
 })
 
 describe('分栏里 @ 到的人写进 to_user_ids', () => {
+  it('keeps the open topic history when its tab is hidden, and releases it when closed', async () => {
+    await openSplit()
+    const history = surface!.splitLine.messageWindow
+    actionsOf.mockClear()
+    const board = await act(async () => openPanelItem('chat-A', { kind: 'kanban.board', title: 'Board' }))
+    expect(surface!.splitTopic).toBeNull()
+    expect(surface!.topic?.chatId).toBe('topic-1')
+    expect(surface!.splitLine.messageWindow).toBe(history)
+    expect(actionsOf).not.toHaveBeenCalled()
+    await act(async () => closeTopicTab('chat-A'))
+    expect(surface!.topic).toBeNull()
+    expect(actionsOf).toHaveBeenLastCalledWith(null, expect.any(Object))
+    await act(async () => closeChatTab('chat-A', board!))
+  })
+
   it('#6004: @所有人 keeps the topic chat ID and broadcast sentinel, without expanding source members', async () => {
     await openSplit()
     await act(async () => { await surface?.sendInSplit('@所有人 看一下', ['*']) })
@@ -229,4 +244,17 @@ it.each(['system', 'attachment'] as const)('keeps server naming for a %s source'
   await mount()
   await act(async () => { await surface!.openTopicFromMessage(source.id) })
   expect(createTopic).toHaveBeenCalledWith({ sourceChatId: 'chat-A', sourceMessageId: source.id, name: null })
+})
+
+it('opens the existing task topic when its card is tapped again without making a second entry', async () => {
+  const source = message({ id: 'task-card', content_type: 'card', content: JSON.stringify({
+    v: 1, type: 'task', text: 'Check the project', agentUserId: 'agent', agentName: 'Claude',
+    sessionId: 'session', projectId: 'project', deviceId: 'mac', machineLabel: 'Mac',
+  }) })
+  sourceMessages = [source]
+  listTopicsOfChat.mockResolvedValue([topic({ source_message_id: source.id })])
+  await mount()
+  await act(async () => { await surface!.openTopicFromMessage(source.id) })
+  expect(createTopic).not.toHaveBeenCalled()
+  expect(surface?.splitTopic).toEqual({ chatId: 'topic-1', name: '分片下载失败' })
 })

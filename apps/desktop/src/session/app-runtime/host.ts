@@ -1,5 +1,6 @@
 import { fileRefOf, type AppFileEntry, type AppFileOpened, type AppFileSearch, type AppFileRef, type AppFileUpload, type AppFileVersion, type AppFileVersionContent, type AppPlace } from '@shared/extensions/app-runtime-protocol';
 import type { BridgeErrorCode, ErrorDetail, ExtensionFileChangeBatch, PageCounts } from '@shared/extensions/bridge-protocol';
+import type { AppSessionIndexOptions, AppSessionIndex, AppSessionReadOptions, AppSessionRead } from '@shared/extensions/app-sessions';
 
 /**
  * What the preload exposes as `window.__guguHost` and the runtime builds `window.gugu` from.
@@ -8,6 +9,10 @@ import type { BridgeErrorCode, ErrorDetail, ExtensionFileChangeBatch, PageCounts
  * `window.gugu` verbatim (`gugu-entry.ts`), so the v1 verbs keep their preload-side types.
  */
 export interface GuguHost {
+  readonly sessions?: {
+    index(options?: AppSessionIndexOptions): Promise<AppSessionIndex>;
+    read(options: AppSessionReadOptions): Promise<AppSessionRead>;
+  };
   readonly modal?: {
     open(options: Record<string, unknown>): Promise<unknown>;
     close(result?: unknown): Promise<void>;
@@ -32,7 +37,7 @@ export interface GuguHost {
   onFilesChanged(handler: (watchId: string, change: ExtensionFileChangeBatch) => void): () => void;
   /** Every call names where its file is (`AppPlace`, `AppFileRef`, 真源原则 13). */
   readonly appFiles: {
-    open(args: { ref: AppFileRef; readOnly?: boolean }): Promise<AppFileOpened>;
+    open(args: { ref: AppFileRef; readOnly?: boolean; deferDetails?: boolean; expectedVersion?: number }): Promise<AppFileOpened>;
     reopen(args: { ref: AppFileRef; readOnly?: boolean }): Promise<AppFileOpened>;
     close(args: { docName: string }): Promise<void>;
     /** `folder` (子文件夹): only what is directly in that folder; not given, every file of the place. */

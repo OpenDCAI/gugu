@@ -5,7 +5,7 @@ import { newlyReachableHosts, type ExtensionCapability, type ExtensionManifest }
  * `preinstalled` (L3): shipped inside gugu and installed by gugu at every start (preinstalled-apps.ts) — no
  * consent asked, since what it can do was reviewed with gugu itself; never uninstalled or switched off.
  */
-export const EXTENSION_ORIGINS = ['market', 'folder', 'attachment', 'preinstalled'] as const;
+export const EXTENSION_ORIGINS = ['market', 'folder', 'attachment', 'preinstalled', 'fork'] as const;
 export type ExtensionOrigin = (typeof EXTENSION_ORIGINS)[number];
 
 /**
@@ -64,11 +64,12 @@ export function installAsks(args: {
   installedOrigin: ExtensionOrigin | undefined;
   revokedPermissions: readonly string[];
   candidate: ExtensionManifest;
-  origin: 'folder' | 'market';
+  origin: 'folder' | 'market' | 'fork';
 }): { newlyAsked: string[]; asks: boolean } {
   const added = addedPermissions(args.installed, args.revokedPermissions, args.candidate);
   const newlyAsked = [...added.capabilities, ...added.network];
-  return { newlyAsked, asks: args.installed ? !replacesWithoutAsking(args) : newlyAsked.length > 0 };
+  const switchingVariant = args.origin === 'fork' || args.installedOrigin === 'fork';
+  return { newlyAsked, asks: switchingVariant ? newlyAsked.length > 0 : args.installed ? !replacesWithoutAsking(args) : newlyAsked.length > 0 };
 }
 
 /** The withdrawals an install keeps: the ones this version still declares. No install restores one. */

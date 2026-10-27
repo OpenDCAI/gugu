@@ -2437,22 +2437,6 @@ export function emitSessionpageAgentEvent(event: AgentEvent): void {
   agentHookService.emitProviderLifecycleEvent(event, isAppFocused())
 }
 
-/** Feed a terminal agent.deliver failure back through the canonical session-page status event path. */
-export async function emitSessionpageAgentFailure(sessionId: string): Promise<void> {
-  const session = (await getSessions()).find((row) => row.id === sessionId)
-  if (!session) {
-    throw new Error(`[sessionpage-activity] cannot settle missing session ${sessionId}`)
-  }
-  emitSessionpageAgentEvent({
-    type: 'error',
-    providerId: session.providerId,
-    projectId: session.projectId,
-    sessionId: session.id,
-    timestamp: Date.now(),
-    payload: {},
-  })
-}
-
 /**
  * Snapshot of the session runtime's live ACP sessions (conversationId + lifecycle + isGenerating, etc.).
  * Used by the host's delivery target for a liveness pre-check before injecting. Reads the same live-state

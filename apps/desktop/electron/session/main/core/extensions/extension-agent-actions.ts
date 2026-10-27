@@ -28,6 +28,8 @@ import type { ExtensionInstallConsentRequest, ExtensionInstallConsentResult } fr
 import { installExtensionFromAttachment } from './extension-attachment-install';
 import { dropReceivedPackage, readReceivedPackage, receivePackagePart } from './received-packages';
 import { installExtensionFromMarket } from './extension-market-install';
+import { createAppFork, prepareForkVariant } from './app-forks';
+import { prepareVariant, switchExtensionVariant } from './extension-variants';
 import { installPrepared } from './install-prepared';
 import { resolvesInside } from './path-containment';
 import { readExtensionSkills } from '../../../../extension-session-mcp';
@@ -250,6 +252,7 @@ function bundleOf(
   action: CreateAction,
   existing: Json | null
 ): { manifest: Json; files: Record<string, string>; templateFiles: Record<string, string> } {
+  if (!action.id || !action.name) throw new Error('app_create: give id and name for a new App, or fork_of to fork an installed App');
   const own = action.manifest ?? {};
   for (const key of ['id', 'name', 'version'] as const) {
     if (own[key] !== undefined) throw new Error(`app_create: ${key} is its own parameter, not a field of manifest`);
@@ -676,8 +679,10 @@ async function installFolder(
   // #6646 E-05: replacing one from another source — the market's by a folder, a chat's, one installed before origins
   // were kept — is the person's call even for a bundle asking nothing; the same source asking for nothing new stays
   // quiet (the one rule, upgrade.ts `replacesWithoutAsking`).
-  const plan = installPlan(service, inspected.manifest, 'folder');
-  const done = await installPrepared({
+  const variant = await prepareForkVariant(sourceDir);
+  const preparedVariant = variant ? prepareVariant(sourceDir, variant) : null;
+  const plan = installPlan(service, inspected.manifest, variant ? 'fork' : 'folder');
+  const done = await installPrepared(preparedVariant ?? {
     dir: sourceDir,
     manifest: inspected.manifest,
     manifestDigest: inspected.manifestDigest,
@@ -685,7 +690,7 @@ async function installFolder(
     // A folder's App is the account installing it (app-identity.ts).
     publisher: await (await import('./app-files')).folderPublisher(),
     asks: plan.asks,
-    sheet: { installed: plan.displaced?.manifest, revokedPermissions: plan.revokedPermissions },
+    sheet: { installed: plan.approved, revokedPermissions: plan.revokedPermissions },
     // D-30: an App's first install here asks which agents get its tools — every agent here ticked at first; so does
     // installing it again for a chat it is not given at (125 10-07), that chat ticked, even when the bundle asks nothing new.
     places: { first: !plan.displaced, chatId, identity: await (await import('./app-given')).ownInstallIdentity(inspected.manifest.id, 'folder') },
@@ -715,6 +720,8 @@ async function installFolder(
 async function actOn(action: z.infer<typeof agentActionSchema>, dependencies: ExtensionAgentActionDependencies): Promise<unknown> {
   switch (action.action) {
     case 'create': {
+      if (action.fork_of) return createAppFork(action.fork_of, action.name);
+      if (!action.id || !action.name) throw new Error('app_create: give id and name for a new App, or fork_of to fork an installed App');
       // F40 (S2: 8 calls, most of the time model round trips) The agent's own files go in with the bundle, over the
       // template's: an App written in this call needs no Read + Edit of the skeleton afterwards.
       const ownAppJs = action.files?.['app.js'] !== undefined;
@@ -806,6 +813,11 @@ async function actOn(action: z.infer<typeof agentActionSchema>, dependencies: Ex
       const following = { checkAvailable: dependencies.checkSurface !== undefined && !dependencies.headless, sentToGroup: action.chat_id !== undefined };
       // App 市场方案 10-07: an App from the market installs the one way every place installs one (installExtensionFromMarket,
       // 161 10-15) — the agent names which App, never where its bytes come from; the person is asked in its session.
+      if (action.variant !== undefined) {
+        if (!action.market || action.chat_id || action.device || action.source_dir) throw new Error('Switch a variant with app_install {market: <App id>, variant: <name>} only.');
+        const result = await switchExtensionVariant(action.market, action.variant, undefined, dependencies);
+        return result.installed ? { ...result, tabs: tabKinds(result.manifest), next: `Variant ${action.variant} is active; the App data and where it is enabled are kept.` } : result;
+      }
       if (action.market !== undefined) return installFromMarketForAgent(action.market, action.chat_id, following, dependencies);
       const sourceDir = await agentFolder('source_dir', action.source_dir!, dependencies.callerWorkspaceRoot);
       return installFolder(sourceDir, { chatId: action.chat_id, from: { source_dir: sourceDir }, following }, dependencies);

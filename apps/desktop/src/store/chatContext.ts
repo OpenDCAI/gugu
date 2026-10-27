@@ -9,6 +9,8 @@ import type { AccountImRepository } from '../lib/imRepository'
 import type { DisplayIdentity } from '../lib/displayIdentity'
 import type { CapturedUnreadEntry } from '../lib/chatUnreadLocator'
 import type { AccountRevisionEvent, AccountRevisionListener } from '../lib/accountRevisionCoordinator'
+import { createDraftWriter } from './chatDraftWrites'
+export { appendToDraft } from './chatDraftWrites'
 
 export type RefreshChatsOptions = {
   acceptEmpty?: boolean
@@ -130,6 +132,7 @@ export interface ChatContextValue {
   markUnread: (chatId: string) => Promise<void>
   setChatNotificationLevel: (chatId: string, level: NotificationLevel) => Promise<void>
   patchChat: (chatId: string, partial: Partial<ChatItem>) => void
+  /** Editor persistence sink; programmatic changes go through writeDraft. */
   setDraft: (chatId: string, content: SetStateAction<string>) => void
   // @@@at-mention-draft (#4304/#951)
   setDraftMentions: (chatId: string, mentions: DraftMention[]) => void
@@ -201,11 +204,14 @@ const EMPTY_CHAT_STORE: ChatContextValue = {
 // 任何一格变了(草稿每 300ms 落盘一次、别的会话的预览被打补丁)全部 25 个消费者都重渲,
 // 其中包括每条气泡里的元指示行。现在 context 里只放一个身份稳定的句柄,消费者按**自己读的那几格**订阅:
 // `useChatStore('chats', 'identitiesById')` 只在这两格换身份时重渲。不传键 = 订阅整份(与从前等价)。
-type ChatStoreHandle = { get: () => ChatContextValue; subscribe: (listener: () => void) => () => void; value: ChatContextValue; listeners: Set<() => void> }
+type ChatStoreValue = ChatContextValue & ReturnType<typeof createDraftWriter>
+type ChatStoreHandle = { get: () => ChatStoreValue; subscribe: (listener: () => void) => () => void; value: ChatStoreValue; writer: ReturnType<typeof createDraftWriter>; listeners: Set<() => void> }
 
-function createChatStoreHandle(value: ChatContextValue): ChatStoreHandle {
+function createChatStoreHandle(value: ChatContextValue, inheritedWriter?: ReturnType<typeof createDraftWriter>): ChatStoreHandle {
+  const { writeDraft, registerDraftEditor } = inheritedWriter ?? createDraftWriter(() => handle.value)
+  const writer = { writeDraft, registerDraftEditor }
   const handle: ChatStoreHandle = {
-    value, listeners: new Set(),
+    value: { ...value, ...writer }, writer, listeners: new Set(),
     get: () => handle.value,
     subscribe: (listener) => { handle.listeners.add(listener); return () => { handle.listeners.delete(listener) } },
   }
@@ -216,24 +222,24 @@ const ChatContext = createContext<ChatStoreHandle>(createChatStoreHandle(EMPTY_C
 
 /** 把 provider 这一轮算出的整份 value 交给句柄。渲染期写入:同一轮里往下渲染的消费者读到的就是这一份,
  * 不会出现「父组件已是新值、子组件还是旧 store」的混合帧;没在这一轮渲染的订阅者在 layout 阶段收到通知。 */
-export function ChatStoreProvider({ value, children }: { value: ChatContextValue; children?: ReactNode }) {
-  const [handle] = useState(() => createChatStoreHandle(value))
-  handle.value = value
+export function ChatStoreProvider({ value, draftWriter, children }: { value: ChatContextValue; draftWriter?: ReturnType<typeof createDraftWriter>; children?: ReactNode }) {
+  const [handle] = useState(() => createChatStoreHandle(value, draftWriter))
+  handle.value = { ...value, ...handle.writer }
   useLayoutEffect(() => { for (const listener of [...handle.listeners]) listener() }, [handle, value])
   return createElement(ChatContext.Provider, { value: handle }, children)
 }
 
-export function useChatStore(): ChatContextValue
-export function useChatStore<K extends keyof ChatContextValue>(...keys: K[]): Pick<ChatContextValue, K>
-export function useChatStore(...keys: (keyof ChatContextValue)[]): Partial<ChatContextValue> {
+export function useChatStore(): ChatStoreValue
+export function useChatStore<K extends keyof ChatStoreValue>(...keys: K[]): Pick<ChatStoreValue, K>
+export function useChatStore(...keys: (keyof ChatStoreValue)[]): Partial<ChatStoreValue> {
   const handle = useContext(ChatContext)
-  const picked = useRef<Partial<ChatContextValue> | null>(null)
+  const picked = useRef<Partial<ChatStoreValue> | null>(null)
   const getSnapshot = () => {
     const value = handle.get()
     if (keys.length === 0) return value
     const previous = picked.current
     if (previous && keys.every((key) => Object.is(previous[key], value[key]))) return previous
-    return (picked.current = Object.fromEntries(keys.map((key) => [key, value[key]])) as Partial<ChatContextValue>)
+    return (picked.current = Object.fromEntries(keys.map((key) => [key, value[key]])) as Partial<ChatStoreValue>)
   }
   return useSyncExternalStore(handle.subscribe, getSnapshot)
 }
@@ -247,11 +253,6 @@ export function dropChatKey<T>(setState: Dispatch<SetStateAction<Record<string, 
     delete next[chatId]
     return next
   })
-}
-
-/** Text put in a composer other than by typing (a share, an App's `gugu.dispatch` draft): after the draft, on a line of its own. */
-export function appendToDraft(draft: string, text: string): string {
-  return draft.trim() ? `${draft}\n${text}` : text
 }
 
 export function useTextDraftStore(): {

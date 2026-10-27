@@ -173,6 +173,7 @@ export class SessionCell {
   /** 宿主要求关掉这条会话(stop / 删除 / 换运行时)。之后线断了是我们断的,在飞的那一轮是被停下,不是失败。 */
   private closeRequested = false;
   private reverting = false;
+  private compacting = false;
   private activeTurnCompletion: Promise<void> | null = null;
   /** agent 自己报状态(见 AcpAgentConnection.reportsState)。 */
   private reportsState = false;
@@ -276,6 +277,51 @@ export class SessionCell {
 
   get usage(): SessionUsage | null {
     return this.transcript.usage;
+  }
+
+  get isCompacting(): boolean { return this.compacting; }
+
+  get idleCompactionState(): { idle: boolean; contextTokens: number | null; revision: number } {
+    return {
+      idle: !this.compacting && !this.reverting && !this.closeRequested
+        && this.machine.phase.kind === 'ready' && !this.activeTurnCompletion
+        && !this.machine.queuedPrompts.length && !this.machine.pendingPermissions.length
+        && !this.settingsInFlight && !this.settingsBlockedReason
+        && !this.machine.backgroundAgentCount && !this.lastRunningCommandTaskIds.length
+        && this.config.availableCommands.some(command => command.name.replace(/^\//, '') === 'compact'),
+      contextTokens: this.usage?.contextUsed ?? null,
+      revision: this.promptSequence,
+    };
+  }
+
+  /** Reserve the normal machine lane atomically, but do not manufacture a user message. */
+  async compactIfIdle(): Promise<Result<{ compacted: boolean }, AcpSendPromptError>> {
+    if (!this.idleCompactionState.idle) return ok({ compacted: false });
+    this.compacting = true;
+    this.openTurnCompletion();
+    this.applyEvent({ type: 'WorkStarted' });
+    const request = { sessionId: this.acpSessionId, prompt: [{ type: 'text' as const, text: '/compact' }] };
+    let outcome: TranscriptTurnOutcome = { kind: 'done', reason: 'end_turn' };
+    try {
+      if (this.closeRequested || this.machine.queuedPrompts.length) return ok({ compacted: false });
+      this.rawLog.record({ kind: 'prompt', sessionId: this.acpSessionId, content: request.prompt });
+      const response = await this.agent.prompt(request);
+      this.rawLog.record({ kind: 'prompt_result', sessionId: this.acpSessionId, stopReason: response.stopReason });
+      if (response.stopReason !== 'end_turn') throw new Error(`Native compact stopped: ${response.stopReason}`);
+      return ok({ compacted: true });
+    } catch (error) {
+      const cause = toSerializedError(error);
+      outcome = { kind: 'error', reason: 'prompt_failed', detail: cause.message };
+      this.rawLog.record({ kind: 'prompt_result', sessionId: this.acpSessionId, stopReason: null, error: cause });
+      return acpErr.promptFailed(cause);
+    } finally {
+      // A command result is the boundary, even for a provider which omits its idle update.
+      // Keep compacting true through this boundary so ordinary turn-end continuation is skipped.
+      this.endWork(outcome, { dequeueQueuedPrompt: false });
+      this.compacting = false;
+      this.releaseQueueAfterEdit();
+      this.deps.callbacks?.onSessionStateChanged?.();
+    }
   }
 
   /** `usage` 那份读数是在哪个模型下报的(见 `usageModelIdAtReport`);还没有读数时是 null。 */
@@ -1277,6 +1323,10 @@ export class SessionCell {
    */
   private onAgentState(state: 'running' | 'requires_action' | 'idle'): void {
     if (!this.reportsState) return;
+    if (this.replayingHistory) {
+      if (state === 'idle') this.transcript.endTurn();
+      return;
+    }
     if (state !== 'idle') {
       this.idleReported = false;
       if (this.machine.phase.kind === 'ready') this.applyEvent({ type: 'WorkStarted' });
@@ -1613,6 +1663,17 @@ export class SessionCell {
       onAdmission?: (result: Result<{ queued: boolean; steered?: boolean }, AcpSendPromptError>) => void;
     },
   ): Promise<Result<SessionPromptResult, AcpSendPromptError>> {
+    // A delivery cannot be steered into the native summarization request. Retain its
+    // original id/bytes in the ordinary durable queue, which drains at command completion.
+    if (this.compacting) {
+      const held = this.dispatchFor<AcpSendPromptError>(
+        { type: 'QueuePrompt', prompt: { ...prompt, origin: prompt.origin ?? 'typed' } }, ['invalid_state'],
+      );
+      if (!held.success) return held;
+      const result = ok({ queued: true });
+      opts?.onAdmission?.(result);
+      return result;
+    }
     if (this.reverting) return acpErr.sessionBusy('Conversation revert is in progress.');
     // 忙时插话只在没人排队时插进这一轮:队列里已有在等的输入,投递就排到它后面,按到达顺序出队
     // (spec session-injection)。排队那条的「立即发送」(fromQueue)是人亲手越过,照插。

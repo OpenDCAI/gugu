@@ -3,6 +3,7 @@ import { DISPATCH_GONE } from '@shared/extensions/app-dispatch-core';
 import { BRIDGE_VERBS, type ExtensionFileChangeBatch } from '@shared/extensions/bridge-protocol';
 import { coded, guguError, refOf, type GuguHost } from './host';
 import { createModalApi } from './modal';
+import { countsOf } from './check-counts';
 
 /**
  * `gugu` itself, built on a host — the same object wherever an App runs (F16): a page (desktop webview or
@@ -74,7 +75,17 @@ export function createGugu(
     });
   // Every call names where its file is (真源原则 13): an entry or `ctx.file` carries it, a place says it.
   const files = Object.freeze({
-    open: (file: unknown, options?: { readOnly?: boolean }) => loadFiles().then((m) => m.openFile(host, file, options)),
+    open: (file: unknown, options?: { readOnly?: boolean }) => {
+      const counts = countsOf(host);
+      counts?.opened();
+      return withRef(file, (ref) => {
+        const entry = (file as { entry?: { version?: unknown }; version?: unknown } | null)?.entry ?? file as { version?: unknown } | null;
+        const requested = host.appFiles.open({ ref, ...(!host.program ? { deferDetails: true } : {}), ...(typeof entry?.version === 'number' ? { expectedVersion: entry.version } : {}), ...(options?.readOnly === true ? { readOnly: true } : {}) });
+        const opening = loadFiles().then((m) => m.openFile(host, requested));
+        // Observe a fast refusal even while the runtime is still loading.
+        return Promise.all([opening, requested]).then(([opened]) => opened);
+      }).finally(() => counts?.openSettled());
+    },
     list: (place: unknown) => loadFiles().then((m) => m.listEntries(host, place)),
     /** Across every chat the reader is in, needing `files:read`: by a piece of the path, newest first; what this person opened last. */
     search: (options?: unknown) => loadFiles().then((m) => m.searchEntries(host, options)),
@@ -129,7 +140,7 @@ export function createGugu(
   // `files.onChanged`) are host halves.
   const api: Record<string, unknown> = {};
   for (const [key, value] of Object.entries(raw)) {
-    if (['appFiles', 'chats', 'checkPage', 'clipboard', 'messages', 'forum', 'framed', 'program', 'projects', 'theme', 'onFilesChanged', 'onForumChanged', 'modal', 'onModalFocus'].includes(key)) continue;
+    if (['appFiles', 'chats', 'checkPage', 'clipboard', 'messages', 'forum', 'framed', 'program', 'projects', 'sessions', 'theme', 'onFilesChanged', 'onForumChanged', 'modal', 'onModalFocus'].includes(key)) continue;
     api[key] = typeof value === 'function' && verbs.has(key) ? coded(value as (...args: never[]) => unknown) : value;
   }
   api.files = files;
@@ -188,6 +199,7 @@ export function createGugu(
   if (raw.chats) api.chats = Object.freeze({ list: coded(raw.chats.list), members: coded(raw.chats.members) });
   // `gugu.projects` (`files:read`): this computer's projects — a phone has none, and no member.
   if (raw.projects) api.projects = Object.freeze({ list: coded(raw.projects.list) });
+  if (raw.sessions) api.sessions = Object.freeze({ index: coded(raw.sessions.index), read: coded(raw.sessions.read) });
   // `gugu.forum` (9): a page's. `onChanged(target, fn)`: one subscription per post (or 'feed') with the host, however many
   // handlers, as `files.onChanged` watches a place; one the host refuses is reported as the App's error.
   if (raw.forum && raw.onForumChanged) {

@@ -1,3 +1,4 @@
+import { stringifyMention } from '@gugu/session-shared/markdown';
 import { composeInChat } from '@/session/shared/extensions/app-send-core';
 import { APP_COMPOSE_EVENT } from '@/session/shared/extensions/app-runtime-protocol';
 import type { FileViewerSelection } from '@/session/shared/preview/file-viewer-menu';
@@ -27,4 +28,12 @@ export async function quoteChatFile(itemId: string, version: number, selection: 
     }],
   });
   document.dispatchEvent(new CustomEvent(APP_COMPOSE_EVENT, { detail, bubbles: true }));
+}
+
+/** The same task-file reference text in desktop and phone composers. */
+export function workspaceFileQuote(path: string, selection: FileViewerSelection | null): string {
+  const name = path.replace(/\\/g, '/').split('/').pop() ?? path;
+  const label = [name, selection && selectionPosition(selection)].filter(Boolean).join(' · ');
+  const mention = stringifyMention({ label, target: path, kind: 'file' });
+  return selection ? `${mention}\n${selectedTextQuote(selection)}` : mention;
 }
