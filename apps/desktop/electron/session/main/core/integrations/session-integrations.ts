@@ -1,6 +1,8 @@
 import {
   integrationPluginRegistry,
+  keyedMcpUrl,
   mcpOAuthCredentialsSchema,
+  type IntegrationKeyedMcp,
 } from '@gugu/session-plugins/integrations';
 import type { IntegrationUpstream } from '../../../../integration-mcp-bridge';
 import { integrationCredentialStore } from './integration-credential-store-instance';
@@ -9,7 +11,7 @@ import { isMailIntegration, mailIntegrationTools } from './mail/mail-tools';
 
 /**
  * 一家已连接、能以 MCP 工具交给 agent 的集成 —— 会话里给 agent 的就是这些。
- * 托管 MCP 那几家转发给对方(`remote`);邮箱由咕咕自己答(`local`,#7240)。
+ * 托管 MCP 那几家(含高德这种 key 拼地址的)转发给对方(`remote`);邮箱由咕咕自己答(`local`,#7240)。
  */
 export type SessionIntegration = {
   integrationId: string;
@@ -20,6 +22,13 @@ function mcpOAuthServerUrl(integrationId: string): string | null {
   const methods = integrationPluginRegistry.get(integrationId)?.capabilities.auth.methods ?? [];
   const method = methods.find((candidate) => candidate.kind === 'mcp-oauth');
   return method?.kind === 'mcp-oauth' ? method.serverUrl : null;
+}
+
+/** 用户自己的 key 拼进地址的托管 MCP(高德):表单那条连接方式上挂着 `mcp`。 */
+function keyedMcp(integrationId: string): IntegrationKeyedMcp | null {
+  const methods = integrationPluginRegistry.get(integrationId)?.capabilities.auth.methods ?? [];
+  for (const method of methods) if (method.kind === 'form' && method.mcp) return method.mcp;
+  return null;
 }
 
 /**
@@ -45,6 +54,25 @@ export async function connectedSessionIntegrations(): Promise<SessionIntegration
       });
       continue;
     }
+    const keyed = keyedMcp(integrationId);
+    if (keyed) {
+      if (!(await integrationCredentialStore.isConfigured(integrationId))) continue;
+      entries.push({
+        integrationId,
+        upstream: {
+          kind: 'remote',
+          endpoint: async (signal) => {
+            signal?.throwIfAborted();
+            const account = await integrationConnectionService.getFreshAccount(integrationId);
+            signal?.throwIfAborted();
+            // 断开连接 / key 没了 ⇒ keyedMcpUrl 明确抛错,❌ 拼一个不带 key 的地址让对方去猜。
+            if (!account) throw new Error(`${integrationId} is not connected in Gugu any more; reconnect it.`);
+            return { url: keyedMcpUrl(keyed, account.credentials), headers: {} };
+          },
+        },
+      });
+      continue;
+    }
     const serverUrl = mcpOAuthServerUrl(integrationId);
     if (!serverUrl) continue;
     if (!(await integrationCredentialStore.isConfigured(integrationId))) continue;
@@ -52,8 +80,7 @@ export async function connectedSessionIntegrations(): Promise<SessionIntegration
       integrationId,
       upstream: {
         kind: 'remote',
-        serverUrl,
-        getAccessToken: async (signal) => {
+        endpoint: async (signal) => {
           signal?.throwIfAborted();
           const account = await integrationConnectionService.getFreshAccount(integrationId);
           signal?.throwIfAborted();
@@ -62,7 +89,7 @@ export async function connectedSessionIntegrations(): Promise<SessionIntegration
             // 断开连接 / 记录坏掉 ⇒ 让这一次调用**明确失败**,❌ 不返回空令牌让对方回 401 去猜。
             throw new Error(`${integrationId} is not connected in Gugu any more; reconnect it.`);
           }
-          return parsed.data.tokens.access_token;
+          return { url: serverUrl, headers: { Authorization: `Bearer ${parsed.data.tokens.access_token}` } };
         },
       },
     });
