@@ -1,6 +1,7 @@
 // app_* 在宿主这一侧的前后处理(App 体检 10-17 #15 第二步):主进程看到动作之前,宿主以这个 agent 的身份读卡片、
 // 判 chat / item;装完、打包之后,把卡片发进群、造数据文件并检测;`device` 指另一台机器时整趟交给那一台。
 // 从 acp-engine-utils.ts 搬来 —— 它们用的是宿主的社交上下文(gugu-im-server),所以留在宿主这个包里,❌ 进会话页的 core/extensions。
+import { parseGuguLink } from '@gugu/core/shared/ui/guguLink'
 import { randomUUID } from 'node:crypto'
 import { readFile } from 'node:fs/promises'
 import { REMOTE_WORKSPACE_CHUNK_BYTES } from '@gugu/session-core/session-record/contract'
@@ -25,10 +26,35 @@ export async function runAppAction(
   run: (action: unknown) => Promise<unknown>,
   runSession: ((action: unknown) => Promise<unknown>) | undefined,
 ): Promise<unknown> {
+  if ((action as { action?: string }).action === 'manage') return manageResource(action as Record<string, unknown>, context, run, runSession)
   const elsewhere = await installedElsewhere(action, context, run, runSession)
   if (elsewhere !== null) return elsewhere
   // This machine named as device: main's action schema reads no device, so the usual install.
   return withPackedCardSent(await withMessageAttachment(action, context), context, run)
+}
+
+/** Existing-device operations carry no archive; confirmation returns to the initiating session. */
+async function manageResource(action: Record<string, unknown>, context: GuguMcpContext, run: (action: unknown) => Promise<unknown>, runSession: ((action: unknown) => Promise<unknown>) | undefined) {
+  const target = typeof action.url === 'string' ? parseGuguLink(action.url) : null
+  if (target?.kind !== 'app-detail') throw new Error('app_manage: pass an App resource URL, not a folder or an App content link')
+  if (!target.deviceId) return run(action)
+  if (!runSession || context.kind !== 'social' || context.forkOf !== undefined) throw new Error('app_manage: this device URL needs a session with a Gugu identity that can reach your registered devices')
+  const machines = await runSession({ action: 'devices' }) as Array<{ device_id: string; label?: string; this_machine?: boolean }>
+  const machine = machines.find((row) => row.device_id === target.deviceId)
+  if (!machine) throw new Error(`app_manage: device ${target.deviceId} is not registered to your account; obtain a fresh App URL from the intended device`)
+  if (machine.this_machine) return run(action)
+  const invoke = (consent?: unknown) => runSession({ ...action, action: 'app_manage', device: target.deviceId, ...(consent ? { consent } : {}) })
+  if (!action.operation || action.operation === 'read') return invoke()
+  const done = await installAgreedOn(
+    async (consent) => ({ success: true, data: await invoke(consent) as Handed }),
+    async (handed) => {
+      const digest = handed.ask!.manifestDigest
+      if (handed.asks === false) return { digest }
+      const answer = await run({ action: 'ask_install', request: { ...handed.ask, machine: machine.label ?? target.deviceId } }) as { outcome: string; enableIn?: string[] }
+      return answer.outcome === 'confirmed' ? { digest, enableIn: answer.enableIn } : { declined: answer.outcome }
+    },
+  )
+  return done && 'declined' in done ? { installed: false, removed: false, outcome: done.declined, device_id: target.deviceId } : { ...done, device_id: target.deviceId }
 }
 
 /**

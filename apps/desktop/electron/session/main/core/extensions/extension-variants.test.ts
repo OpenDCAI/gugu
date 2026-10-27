@@ -92,3 +92,26 @@ it('counts only live releases newer than the fork base and returns their newest 
   expect(forkBehind('1.0.0', versions)).toEqual({ upstream: '1.3.0', behind: 2, commit: '3'.repeat(40) });
   expect(forkBehind('1.3.0', versions)).toBeNull();
 });
+
+
+it('removes only an inactive fork cache and registration, preserving original, source, settings, data and grants', () => {
+  const { root, source, service, fork, upstream, install } = setup();
+  service.setGivenHere(service.identityOf('demo')!, ['here:all']);
+  service.setPermissionGranted('demo', 'files:read', false);
+  const data = path.join(root, 'data');
+  writeFileSync(data, 'saved');
+  install(source, fork);
+  expect(() => service.removeVariant('demo', 'mine')).toThrow('Switch');
+  expect(() => service.removeVariant('demo', 'upstream')).toThrow('original');
+  expect(() => service.removeVariant('demo', 'unknown')).toThrow('installed fork');
+  install(service.variantDirectory('demo', 'upstream'), upstream);
+  expect(service.removeVariant('demo', 'mine')).toEqual({ removed: true });
+  expect(service.variants('demo')).toEqual({ active: 'upstream', variants: [upstream] });
+  expect(existsSync(service.variantDirectory('demo', 'mine'))).toBe(false);
+  expect(existsSync(service.variantDirectory('demo', 'upstream'))).toBe(true);
+  expect(existsSync(source)).toBe(true);
+  expect(readFileSync(data, 'utf8')).toBe('saved');
+  expect(service.identityOf('demo')).toEqual({ id: 'demo', publisher: 'gugu' });
+  expect(service.givenHere(service.identityOf('demo')!)).toEqual(['here:all']);
+  expect(service.revokedPermissions('demo')).toContain('files:read');
+});

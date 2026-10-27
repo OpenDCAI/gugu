@@ -62,6 +62,11 @@ export function useLinkNavigation(input: {
         window.dispatchEvent(new CustomEvent(UI_EVENTS.chatAsked, { detail: { chatId } }))
         return { chat: chatId }
       }
+      if (target.kind === 'app-detail') {
+        const { openAppDetailLink } = await import('../session/renderer/features/apps/app-detail-link')
+        await openAppDetailLink(target, state.ownerId)
+        return
+      }
       if (target.kind === 'session') {
         const [{ listedSession, liveDeviceSessions }, { readCachedDevices }, { APP_SHOW_SESSION_EVENT }] = await Promise.all([
           import('../session/shared/remote-sessions/session-directory'), import('../store/devicesCache'), import('../session/shared/extensions/app-runtime-protocol'),
@@ -141,7 +146,7 @@ export function useLinkNavigation(input: {
       const owner = current.current.ownerId
       void open(request).then(request.resolve, (error: unknown) => {
         if (asked !== generation || owner !== current.current.ownerId) { request.resolve(); return }
-        request.reject(new Error(messages.current.t('links.unavailable'), { cause: error }))
+        request.reject(targetError(request.target, error, messages.current.t('links.unavailable')))
       })
     }
     const receiveTask = () => { generation++; current.current.openAssistant(true) }
@@ -149,4 +154,8 @@ export function useLinkNavigation(input: {
     window.addEventListener(OPEN_LINK_TARGET, receive)
     return () => { generation++; window.removeEventListener(OPEN_LINK_TARGET, receive); window.removeEventListener(OPEN_ASSISTANT_TASK_CHAT, receiveTask) }
   }, [])
+}
+
+function targetError(target: GuguLinkTarget, error: unknown, fallback: string) {
+  return new Error(target.kind === 'app-detail' && error instanceof Error ? error.message : fallback, { cause: error })
 }

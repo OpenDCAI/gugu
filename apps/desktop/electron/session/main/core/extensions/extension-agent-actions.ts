@@ -1,3 +1,4 @@
+import { parseGuguLink } from '@gugu/core/shared/ui/guguLink';
 import { createHash } from 'node:crypto';
 import * as fs from 'node:fs';
 import * as os from 'node:os';
@@ -29,13 +30,13 @@ import { installExtensionFromAttachment } from './extension-attachment-install';
 import { dropReceivedPackage, readReceivedPackage, receivePackagePart } from './received-packages';
 import { installExtensionFromMarket } from './extension-market-install';
 import { createAppFork, prepareForkVariant } from './app-forks';
-import { prepareVariant, switchExtensionVariant } from './extension-variants';
+import { extensionVariants, removeExtensionVariant, prepareVariant, switchExtensionVariant } from './extension-variants';
 import { installPrepared } from './install-prepared';
 import { resolvesInside } from './path-containment';
 import { readExtensionSkills } from '../../../../extension-session-mcp';
 import { EXTENSION_ARCHIVE_MIME, EXTENSION_ARCHIVE_SUFFIX, packExtensionArchive, packInstalledExtension, unpackExtensionArchive } from './extension-archive';
 import type { CloudExtensionMarket, CloudMarketListing } from './market-catalog';
-import { APP_CHECK_ARGS, APP_CREATE_ARGS, APP_INSTALL_ARGS, APP_PACK_ARGS, manifestFragmentSchema } from '@shared/extensions/app-tool-args';
+import { APP_CHECK_ARGS, APP_CREATE_ARGS, APP_INSTALL_ARGS, APP_PACK_ARGS, APP_MANAGE_ARGS, manifestFragmentSchema } from '@shared/extensions/app-tool-args';
 import { handedConsentSchema, type HandedConsent } from '@shared/extensions/install-consent-flow';
 import { TEMPLATE_AUTHOR_FILES, TEMPLATE_LOOK, extensionTemplate, templateFileSuffix } from './extension-templates';
 import {
@@ -70,6 +71,7 @@ const agentActionSchema = z.discriminatedUnion('action', [
   // 摩擦单 F107 Built by the host (acp-engine-utils) when the group already holds this version's card with other bytes.
   z.object({ action: z.literal('bump'), source_dir: z.string().min(1) }),
   z.object({ action: z.literal('install'), ...APP_INSTALL_ARGS }),
+  z.object({ action: z.literal('manage'), ...APP_MANAGE_ARGS, consent: handedConsentSchema.optional() }),
   // #6646 Built by the host from `app_install { source_message_id }` after it read the message as this agent: the card's
   // message (#7290), which the install reads as the owner — who published it is the server's word on it, never a URL.
   z.object({
@@ -804,6 +806,30 @@ async function actOn(action: z.infer<typeof agentActionSchema>, dependencies: Ex
       const version = `${major}.${minor}.${patch! + 1}`;
       fs.writeFileSync(file, `${JSON.stringify({ ...manifest, version }, null, 2)}\n`);
       return { version };
+    }
+    case 'manage': {
+      const target = parseGuguLink(action.url);
+      if (target?.kind !== 'app-detail') throw new Error('app_manage requires an App resource URL.');
+      const id = target.extensionId;
+      if (!target.deviceId) {
+        if (action.operation !== 'read') throw new Error('Use an installed App URL with device and variant for switch or remove.');
+        const market = dependencies.market ?? (await import('./market-catalog-root')).cloudExtensionMarket();
+        const entry = await market.entry(id);
+        if (!entry) throw new Error(`App ${id} is not in the market.`);
+        return entry;
+      }
+      if (action.operation === 'read') {
+        const service = extensionsService();
+        const installed = service.get(id);
+        const variants = await extensionVariants(id);
+        const selected = target.variant ? variants.variants.find((variant) => variant.name === target.variant) : undefined;
+        if (target.variant && !selected) throw new Error(`App ${id} has no variant ${target.variant}; read its installed App URL without variant to list them.`);
+        return { id, device_id: target.deviceId, manifest: installed.manifest, origin: service.origins()[id], ...variants, ...(selected ? { selected } : {}) };
+      }
+      if (!target.variant) throw new Error('Use the variant URL with both device and variant to switch or remove a fork.');
+      return action.operation === 'switch'
+        ? switchExtensionVariant(id, target.variant, action.consent, dependencies)
+        : removeExtensionVariant(id, target.variant, action.consent, dependencies);
     }
     case 'install': {
       if ((action.source_dir === undefined) === (action.market === undefined)) {

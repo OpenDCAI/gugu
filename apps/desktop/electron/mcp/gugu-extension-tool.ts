@@ -15,9 +15,15 @@ import {
   type SessionpageToolDef,
 } from './sessionpage-tool-registrar'
 import { APP_RUNTIME_GLUE_MODULE } from '../../src/session/shared/extensions/app-runtime-protocol'
-import { APP_CHECK_ARGS, APP_CREATE_ARGS, APP_INSTALL_ARGS, APP_PACK_ARGS } from '../../src/session/shared/extensions/app-tool-args'
+import { APP_CHECK_ARGS, APP_CREATE_ARGS, APP_INSTALL_ARGS, APP_PACK_ARGS, APP_MANAGE_ARGS } from '../../src/session/shared/extensions/app-tool-args'
 
 export const EXTENSION_TOOL_DEFS: readonly SessionpageToolDef[] = [
+  {
+    name: 'app_manage',
+    description: 'Read the App or fork named by its resource URL, on that exact device. operation switch activates the URL variant; remove asks the person, restores upstream first if active, then removes only the fork registration and cache. Original, App data and source are kept. Never uninstall to remove one fork. A market URL without device supports read only.',
+    schema: z.object(APP_MANAGE_ARGS).strict(),
+    action: 'manage',
+  },
   {
     name: 'app_create',
     // S1 (L5: under a minute) The common path whole, and nothing of the rest: the rest of manifest.json goes in

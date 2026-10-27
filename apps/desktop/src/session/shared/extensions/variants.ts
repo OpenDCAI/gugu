@@ -2,9 +2,10 @@ import { z } from 'zod';
 import { safePathSegment } from '../path-name';
 import { compareExtensionVersions } from './manifest';
 import type { MarketIndexVersion } from './market';
+import { APP_VARIANT_NAME_PATTERN } from '@gugu/core/shared/ui/guguLink';
 
 /** A name is also a directory and a Git branch component, on every desktop OS. */
-export const variantNameSchema = z.string().regex(/^[a-z0-9][a-z0-9-]{0,62}$/).refine((name) => safePathSegment(name, '') === name, 'Choose a name that can be used as a folder.');
+export const variantNameSchema = z.string().regex(APP_VARIANT_NAME_PATTERN).refine((name) => safePathSegment(name, '') === name, 'Choose a name that can be used as a folder.');
 export const extensionVariantSchema = z.object({
   name: variantNameSchema,
   base: z.string(),

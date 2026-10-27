@@ -4605,9 +4605,11 @@ app.whenReady().then(async () => {
         // approval — `consent` says hand back the ask, or install the bytes they agreed to.
         // #7290 A folder of the owner's from that machine comes over this channel part by part, then installs as a folder;
         // a card by its message.
-        run: (caller, action) => action.action !== 'app_install'
-          ? emdash.runRemoteSessionAction(caller, action as never, signal)
-          : emdash.runEmdashExtensionAction(appInstallFrom(caller.deviceId, action)),
+        run: (caller, action) => action.action === 'app_manage'
+          ? emdash.runEmdashExtensionAction({ ...action, action: 'manage', consent: action.consent ?? { kind: 'return' } })
+          : action.action === 'app_install'
+            ? emdash.runEmdashExtensionAction(appInstallFrom(caller.deviceId, action))
+            : emdash.runRemoteSessionAction(caller, action as never, signal),
         app: (caller, action) => emdash.answerAppMessage(caller, action),
         appSpawn: (caller, action) => emdash.spawnAgentForExtension({ extensionId: caller.extensionId, extensionName: caller.extensionName, prompt: action.prompt, ...action.spawn }),
         appReadFile: (caller, action) => emdash.answerAppReadFile(caller, action),

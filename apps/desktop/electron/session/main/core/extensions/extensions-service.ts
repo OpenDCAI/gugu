@@ -398,6 +398,20 @@ export class ExtensionsService {
     return this.variantsFile.read()[id] ?? { active: 'upstream', variants: [] };
   }
 
+  /** Only an inactive fork's registration/cache. Source, data, grants and the original stay. */
+  removeVariant(id: string, name: string): { removed: true; warning?: string } {
+    const variants = this.variantsFile.read();
+    const state = this.variants(id);
+    if (name === 'upstream' || !state.variants.some((variant) => variant.name === name)) throw new Error('Choose an installed fork; the original cannot be removed.');
+    if (state.active === name) throw new Error('Switch to the original before removing this fork.');
+    const dir = this.variantDirectory(id, name);
+    variants[id] = { ...state, variants: state.variants.filter((variant) => variant.name !== name) };
+    this.variantsFile.write(variants);
+    try { fs.rmSync(dir, { recursive: true, force: true }); }
+    catch (error) { return { removed: true, warning: `The fork registration was removed, but its cache could not be cleared: ${String(error)}` }; }
+    return { removed: true };
+  }
+
   variantDirectory(id: string, name: string): string {
     if (!isValidExtensionId(id)) throw new Error(`Invalid App id: ${id}`);
     appVariantsSchema.shape.active.parse(name);

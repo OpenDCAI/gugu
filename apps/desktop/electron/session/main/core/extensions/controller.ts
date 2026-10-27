@@ -131,6 +131,10 @@ export const extensionsController = createRPCController({
     try { return { success: true as const, data: await switchExtensionVariant(id, name, consent) }; }
     catch (error) { return { success: false as const, error: error instanceof Error ? error.message : String(error) }; }
   },
+  removeVariant: async (id: string, name: string, consent?: HandedConsent) => {
+    try { return { success: true as const, data: await (await import('./extension-variants')).removeExtensionVariant(id, name, consent) }; }
+    catch (error) { return { success: false as const, error: error instanceof Error ? error.message : String(error) }; }
+  },
   openLink: async (args: { target: import('@gugu/core/shared/ui/guguLink').GuguLinkTarget }) =>
     (await import('./gugu-links')).openLink(args.target),
   list: async () => {
