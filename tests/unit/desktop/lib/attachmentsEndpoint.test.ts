@@ -30,4 +30,19 @@ describe('attachmentsEndpoint: the attachments function, with the token the sess
     expect((failure as Error).message).not.toMatch(/invoke|files:publish|EACCES|\/private\//)
     expect(invoke).toHaveBeenCalledOnce()
   })
+  it('a pasted file (no disk path) travels to main as bytes; a file with a path still travels as a path only', async () => {
+    const row = { id: 'item', version: 1, message: { id: 'message', sender_user_id: 'owner', chat_id: 'chat', file_item_id: 'item', file_version: 1 } }
+    const invoke = vi.fn(async () => row), path = vi.fn(() => '')
+    vi.stubGlobal('window', { electronAPI: { invoke, getPathForFile: path } })
+    const file = new File(['bytes'], 'image.png', { type: 'image/png' }), endpoint = { supabaseUrl: 'https://db.test', anonKey: 'anon', token: 't' }
+    const args = { message_id: 'message', chat_id: 'chat', sender_user_id: 'owner', file_name: file.name, content_type: 'image/png' }
+    await commitPreparedChatAttachment(endpoint, { local: file }, args)
+    const [, sent] = invoke.mock.calls[0] as unknown as [string, { file: { path: string; size: number; data?: ArrayBuffer } }]
+    expect(sent.file).toMatchObject({ path: '', size: 5 })
+    expect(new TextDecoder().decode(sent.file.data)).toBe('bytes')
+    path.mockReturnValue('/Users/me/image.png')
+    await commitPreparedChatAttachment(endpoint, { local: file }, args)
+    const [, second] = invoke.mock.calls[1] as unknown as [string, { file: Record<string, unknown> }]
+    expect(second.file).toMatchObject({ path: '/Users/me/image.png' }); expect(second.file).not.toHaveProperty('data')
+  })
 })

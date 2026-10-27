@@ -48,6 +48,21 @@ describe('external selections become durable project-owned copies through the sa
     expect(await readdir(join(root, '.gugu/attachments'))).toHaveLength(1)
     expect(f.rpc.mock.calls.filter(([name]) => name === 'file_device_publish')[1][1].p_filename).toBe('renamed.bin')
   })
+  it('imports a pasted file that has no disk path from its bytes, leaving no temp copy behind', async () => {
+    const f = fixture(), pasted = { name: 'image.png', path: '', size: data.length, contentType: 'image/png', data: data.buffer }
+    await expect(f.publish('group', pasted, null, 'owner')).resolves.toEqual(row)
+    const [path] = publishedPaths(f)
+    expect(path).toMatch(/^\.gugu\/attachments\/[0-9a-f-]{36}\/image\.png$/)
+    expect(await readFile(join(root, path))).toEqual(Buffer.from(data))
+    expect(f.rpc.mock.calls.find(([name]) => name === 'file_device_publish')?.[1]).toMatchObject({ p_filename: 'image.png', p_type: 'image/png', p_sha: createHash('sha256').update(data).digest('hex') })
+    expect((await readdir(tmpdir())).filter(name => name.startsWith('gugu-pasted-'))).toHaveLength(0)
+  })
+  it('refuses pasted bytes that disagree with the declared size or arrive with a path', async () => {
+    const f = fixture(), pasted = { name: 'image.png', path: '', size: data.length, contentType: 'image/png', data: data.buffer }
+    await expect(f.publish('group', { ...pasted, size: data.length + 1 }, null, 'owner')).rejects.toThrow('Pasted file')
+    await expect(f.publish('group', { ...pasted, path: join(home, 'selected.bin') }, null, 'owner')).rejects.toThrow('Pasted file')
+    expect(publishedPaths(f)).toEqual([])
+  })
   it.each(['missing', 'corrupt'])('imports again when its indexed copy is %s, without reusing invalid bytes', async state => {
     const f = fixture(); await writeFile(selected().path, data)
     await f.publish('group', selected(), null, 'owner')

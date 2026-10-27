@@ -1,14 +1,18 @@
 import { createHash, randomUUID } from 'node:crypto'
-import { isAbsolute, relative, sep } from 'node:path'
+import { mkdtemp, rm, writeFile } from 'node:fs/promises'
+import { tmpdir } from 'node:os'
+import { isAbsolute, join, relative, sep } from 'node:path'
 import { FILE_CHUNK_BYTES, type FileRevision } from '@gugu/core/shared/fileResolver'
 import { isInside, readWorkspaceChunk } from './session/main/core/files/workspace-transfer'
 import { findProjectFileCopy, listProjectGroupIds, rememberProjectFile } from './sessionpage/sessionpage-project-groups'
 import { importProjectFile } from './projectFileImport'
+import { sanitizeRemoteFileName } from './remoteFileOpen'
 import type { CommitArgs } from '@gugu/core/cloud/attachmentsApi'
 import type { FilesPlatform } from '../src/session/shared/extensions/app-files-core'
 
 export type ProjectFileMessage = Omit<CommitArgs, 'staging_key'>
-export type SelectedProjectFile = { name: string; path: string; size: number; contentType: string }
+/** `data` carries the bytes of a selection that has no disk path (a clipboard paste); `path` is then empty. */
+export type SelectedProjectFile = { name: string; path: string; size: number; contentType: string; data?: ArrayBuffer }
 type Publisher = NonNullable<FilesPlatform['publishFile']>
 type Rpc = (name: string, args: Record<string, unknown>) => Promise<unknown>
 /** Publish actual bound-root files, importing explicit external selections; the ordinary uploader stays shared. */
@@ -25,7 +29,7 @@ export function createProjectFilePublisher(deps: {
     if (policy.host_device_id !== identity.deviceId || policy.host_project_id !== project.projectId) throw new Error('Only the bound file host can publish project files')
     return { identity, project, policy }
   }
-  const publish = async (chatId: string, file: Parameters<Publisher>[1] | SelectedProjectFile, parentId: string | null, actor: string,
+  const publishFile = async (chatId: string, file: Parameters<Publisher>[1] | SelectedProjectFile, parentId: string | null, actor: string,
     store?: Parameters<Publisher>[4], message?: ProjectFileMessage): Promise<Awaited<ReturnType<Publisher>> & { message?: Record<string, unknown> } | null> => {
     const bound = await binding(chatId, actor); if (!bound) return null
     const { identity, project, policy } = bound
@@ -62,6 +66,17 @@ export function createProjectFilePublisher(deps: {
       workspace: { path: row.path, parent_id: row.parent_id, created_at: row.created_at, updated_at: row.updated_at, created_by: row.created_by, source_message_ids: row.source_message_ids ?? [] } }
     await rememberProjectFile(revision, identity.accountId, deps.env)
     return sent ? { ...row, message: sent } : row
+  }
+  /** A pasted file has no original to point at: park its bytes in a private temp file and import that like any external selection. */
+  const publish: typeof publishFile = async (chatId, file, parentId, actor, store, message) => {
+    if (!('data' in file) || !file.data) return publishFile(chatId, file, parentId, actor, store, message)
+    if (file.path || file.data.byteLength !== file.size) throw new Error('Pasted file does not match its bytes')
+    const directory = await mkdtemp(join(tmpdir(), 'gugu-pasted-')), { data, ...selected } = file
+    try {
+      const path = join(directory, sanitizeRemoteFileName(file.name))
+      await writeFile(path, new Uint8Array(data), { mode: 0o600 })
+      return await publishFile(chatId, { ...selected, path }, parentId, actor, store, message)
+    } finally { await rm(directory, { recursive: true, force: true }) }
   }
   return Object.assign(publish, { async local(chatId: string, actor: string) { const bound = await binding(chatId, actor); return !!bound && !bound.policy.proactive_upload } })
 }
