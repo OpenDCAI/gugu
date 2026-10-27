@@ -13,7 +13,7 @@ import { safeFailureLine } from '@/session/renderer/features/sessions/gugu-reaso
  *   - useAuth().user                    ← real current user, wired
  *
  * 对外分享 tab (external public link / QR) — wired (#1078, #1085):
- *   - 真链接 buildAgentShareUrl(/join/agent/<id>) + 真 QR；未配置公开基址 → fail-loud（不出死链接）。
+ *   - 真链接 buildAgentShareUrl(/join/agent/<id>) + 真 QR；未配置公开基址则不展示入口。
  *   - 「开启对外分享」→ contactsService.setAgentPublic (RLS select_public 放行外部读取)。
  */
 
@@ -250,7 +250,8 @@ export function AgentSharePane({ agent, onClose: _onClose }: AgentSettingsPanePr
         >
           {t('settings.share.forward')}
         </button>
-        {canShareExternally && (        <button
+        {canShareExternally && (
+        <button
           type="button"
           className={shareSegmentButtonClass(tab === 'ext')}
           onClick={() => setTab('ext')}
