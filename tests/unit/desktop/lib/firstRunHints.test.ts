@@ -18,6 +18,10 @@ describe('account-scoped contextual first-run progress', () => {
     }
   })
 
+  it('reads a saved dismissal of the retired topics hint and drops it', () => {
+    expect(parseFirstRunHints({ firstRunHints: { version: 1, dismissed: ['assistant', 'topics'] } })).toEqual({ version: 1, dismissed: ['assistant'] })
+  })
+
   it('enrolls in the same account settings row, preserving the profile and harness choice', async () => {
     const config = { profile: { occupation: 'research' }, firstRunHarness: ['codex'] }
     io.read.mockResolvedValue(config)
@@ -34,12 +38,12 @@ describe('account-scoped contextual first-run progress', () => {
   it('merges retired entries and preserves unrelated settings on each write', async () => {
     const config = { theme: 'dark', firstRunHints: { version: 1, dismissed: ['assistant'] } }
     io.read.mockResolvedValue(config)
-    await expect(dismissFirstRunHints('owner-1', ['assistant', 'topics'])).resolves.toEqual({ version: 1, dismissed: ['assistant', 'topics'] })
-    expect(io.write).toHaveBeenCalledWith({}, 'owner-1', 'user', { ...config, firstRunHints: { version: 1, dismissed: ['assistant', 'topics'] } })
+    await expect(dismissFirstRunHints('owner-1', ['assistant', 'collaboration'])).resolves.toEqual({ version: 1, dismissed: ['assistant', 'collaboration'] })
+    expect(io.write).toHaveBeenCalledWith({}, 'owner-1', 'user', { ...config, firstRunHints: { version: 1, dismissed: ['assistant', 'collaboration'] } })
   })
 
   it('reads the same progress on another device and keeps accounts separate', async () => {
-    io.read.mockImplementation(async (_client, userId) => userId === 'owner-1' ? { firstRunHints: { version: 1, dismissed: ['assistant', 'topics'] } } : {})
+    io.read.mockImplementation(async (_client, userId) => userId === 'owner-1' ? { firstRunHints: { version: 1, dismissed: ['assistant', 'collaboration'] } } : {})
     expect(await readFirstRunHints('owner-1')).toEqual(await readFirstRunHints('owner-1'))
     expect(await readFirstRunHints('owner-2')).toBeNull()
   })
@@ -49,6 +53,6 @@ describe('account-scoped contextual first-run progress', () => {
     await expect(readFirstRunHints('owner-1')).rejects.toThrow('permission denied')
     io.read.mockResolvedValue({ firstRunHints: { version: 1, dismissed: [] } })
     io.write.mockRejectedValueOnce(new Error('offline'))
-    await expect(dismissFirstRunHints('owner-1', ['topics'])).rejects.toThrow('offline')
+    await expect(dismissFirstRunHints('owner-1', ['collaboration'])).rejects.toThrow('offline')
   })
 })
