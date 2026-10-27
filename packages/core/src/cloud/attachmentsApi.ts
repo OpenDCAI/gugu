@@ -53,7 +53,7 @@ export async function uploadAttachmentBytes(
 ): Promise<string> {
   const size = file.bytes instanceof Blob ? file.bytes.size : file.bytes.byteLength
   const form = await call(endpoint, 'upload', {
-    size_bytes: size, as: scope.as, chat_id: scope.chat_id, request_id: scope.request_id ?? crypto.randomUUID(),
+    size_bytes: size, content_type: file.contentType, as: scope.as, chat_id: scope.chat_id, request_id: scope.request_id ?? crypto.randomUUID(),
   }) as { staging_key: string; url: string; fields: Record<string, string>; max_bytes: number; method?: 'POST' | 'PUT'; headers?: Record<string, string> }
   await uploadAttachmentPlan(endpoint, form, file)
   return form.staging_key

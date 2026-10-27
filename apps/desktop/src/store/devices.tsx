@@ -2,6 +2,7 @@ import { useState, useEffect, useCallback, useMemo, useRef, useSyncExternalStore
 import { chatService } from '../lib/chat'
 import { recentMachineLimitRefusal } from '../lib/device-labels'
 import { isLifecycleCancellation } from '../lib/authBoundedFetch'
+import { isLocalDeviceUnidentified } from '../lib/localDeviceIdentity'
 import { rendererLogger } from '../lib/log'
 import { partitionPhones, sortDevices } from '../lib/devicesSort'
 import { thisPhoneDeviceId } from '../mobile/phone-device/phoneDeviceSettings'
@@ -74,6 +75,12 @@ export function DevicesProvider({ children, active = true }: { children: React.R
         if (options.throwOnError) throw err
         return
       }
+      // Not a failure: this computer is not identified yet, so no row of this read can be told apart as its own.
+      // The list on screen (its own row marked) stays; the read is repeated the moment it is identified (below).
+      if (isLocalDeviceUnidentified(err)) {
+        devicesLog.info({}, 'device list kept until this computer is identified among the account devices')
+        return
+      }
       // fail-loud：列表加载失败显式呈现，不静默留空列表。
       // 原因只进日志，不拼进用户那句话（#4891）——用户拿到的是「怎么办」，排查的人拿到的是「为什么」。
       // ❌ 别把这一行删了只留 setError：那样两边都看不到原因，比原样外泄更糟。
@@ -84,6 +91,13 @@ export function DevicesProvider({ children, active = true }: { children: React.R
       setLoading(false)
     }
   }, [userId])
+
+  // 这台电脑在账号的设备里认出自己的那一刻(本机宿主拿到登录、查到自己那一行)再读一次:之前那次读分不出哪行是本机。
+  // 订在首读之前:认出若发生在首读途中,这一声不会落空。
+  useEffect(() => {
+    if (!userId) return
+    return platform.subscribeLocalDeviceIdentified?.(() => { void refresh() })
+  }, [userId, refresh])
 
   useEffect(() => {
     /*

@@ -13,6 +13,11 @@
 export const TYPED_ID_KINDS = Object.freeze(['session', 'project', 'msg', 'agent', 'user', 'chat', 'gugu', 'extension', 'device', 'schedule', 'post', 'reply'])
 
 /**
+ * A storage id is opaque text: a message the host writes itself can carry a structured key
+ * (`turn-failure:batch:<hash>`), so a colon alone does not make an id typed. Only a known kind
+ * prefix does — that is the double encoding this refuses. Decoding splits at the first colon, so
+ * `msg:turn-failure:batch:<hash>` round-trips to the stored id.
+ *
  * @param {TypedIdKind} kind
  * @param {string} raw storage-form id (bare)
  * @returns {string}
@@ -21,7 +26,7 @@ export function encodeTypedId(kind, raw) {
   if (typeof raw !== 'string' || raw.length === 0) {
     throw new Error(`cannot encode an empty ${kind} id`)
   }
-  if (raw.includes(':')) {
+  if ([...TYPED_ID_KINDS, 'aid'].some((typed) => raw.startsWith(`${typed}:`))) {
     throw new Error(`refusing to double-encode "${raw}" as a ${kind}: id`)
   }
   return `${kind}:${raw}`
