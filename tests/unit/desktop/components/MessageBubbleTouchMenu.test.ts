@@ -27,9 +27,9 @@ afterEach(() => {
   vi.unstubAllGlobals()
 })
 describe('MessageBubble touch menu', () => {
-  it('renders previously loaded reactions in the same commit when reopening the menu', async () => {
-    await renderMessage(undefined, false)
-    await contextMenu()
+  it('renders previously loaded mobile reactions in the same commit when reopening the menu', async () => {
+    await renderMessage(undefined, true)
+    await longPress()
     await act(() => { document.dispatchEvent(new CustomEvent(UI_EVENTS.closeContextMenus)) })
     expect(document.querySelector('[role="menu"]')).toBeNull()
     await act(() => {
@@ -100,11 +100,11 @@ describe('MessageBubble touch menu', () => {
     expect(onQuote).toHaveBeenCalledWith(expect.objectContaining({ id: 'msg-1', content: 'hello from mobile' }))
     expect(document.querySelector('[role="menu"]')).toBeNull()
   })
-  it('keeps frequency-ordered reactions in the desktop menu and calls the existing reaction action', async () => {
+  it('keeps frequency-ordered mobile reactions and calls the existing reaction action', async () => {
     localStorage.setItem('gugu.reaction-frequency', JSON.stringify({ '🚀': 9, '👀': 3 }))
     const onReaction = vi.fn()
-    await renderMessage(undefined, false, onReaction)
-    await contextMenu()
+    await renderMessage(undefined, true, onReaction)
+    await longPress()
     const group = document.querySelector('[role="group"][aria-label="快速回应"]')!
     const buttons = [...group.querySelectorAll<HTMLButtonElement>('[role="menuitem"]')]
     expect(buttons.map((button) => button.textContent)).toEqual(['🚀', '👀', '👍', '❤️', '😂', '✅', ''])
@@ -351,17 +351,28 @@ describe('MessageBubble touch menu', () => {
     expect(liftEnd.defaultPrevented, '长按的松手不取消 ⇒ 合成的 click 落到菜单外或某一行上').toBe(true)
     expect(document.body.querySelector('[data-testid="message-action-menu"]')).not.toBeNull()
   })
-  it('desktop right click keeps one pointer menu with reply, existing actions and no sheet', async () => {
-    await renderMessage(undefined, false)
-    await contextMenu()
-    expect(document.body.querySelector('[data-testid="message-action-selectText"]'), '桌面能直接选字,不给「选择文本」').toBeNull()
-    expect(document.body.querySelectorAll('[role="menu"]')).toHaveLength(1)
-    const items = [...document.body.querySelectorAll('[role="menuitem"]')].filter((el) => !el.closest('[role="group"]')).map((el) => el.textContent?.trim())
-    expect(items).toEqual(['回复', '复制文本', '转发', '删除'])
+  it.each(['context', 'more'])('keeps desktop %s menus action-only while retaining the hover reaction entry', async (entry) => {
+    const onQuote = vi.fn()
+    await renderMessage(undefined, false, vi.fn(), { onQuote })
+    const row = messageBubble().closest('[data-message-bubble-row]')!
+    const over = new MouseEvent('pointerover', { bubbles: true })
+    Object.defineProperty(over, 'pointerType', { value: 'mouse' })
+    await act(async () => { row.dispatchEvent(over); row.dispatchEvent(new MouseEvent('mouseenter')); vi.advanceTimersByTime(TOOLTIP_OPEN_DELAY_MS) })
+    expect(document.querySelector('button[title="表情回应"]')).not.toBeNull()
+    if (entry === 'more') await clickElement(document.querySelector('[data-testid="message-hover-actions"] button[aria-label="更多"]')!)
+    else await contextMenu()
+    expect(document.querySelector('[data-testid="message-action-selectText"]')).toBeNull()
+    expect(document.querySelectorAll('[role="menu"]')).toHaveLength(1)
+    expect(document.querySelector('[aria-label="快速回应"]')).toBeNull()
+    expect(document.querySelector('[aria-label="更多表情"]')).toBeNull()
+    expect([...document.querySelectorAll('[role="menuitem"]')].map((el) => el.textContent?.trim())).toEqual(['回复', '复制文本', '转发', '删除'])
+    await clickElement(menuItem('回复'))
+    expect(onQuote).toHaveBeenCalledWith(expect.objectContaining({ id: 'msg-1' }))
+    expect(document.querySelector('[role="menu"]')).toBeNull()
   })
-  it('expands More inside the desktop menu without dismissing it or opening another surface', async () => {
-    await renderMessage(undefined, false)
-    await contextMenu()
+  it('expands More inside the mobile menu without dismissing it or opening another surface', async () => {
+    await renderMessage(undefined, true)
+    await longPress()
     await clickElement(document.querySelector('[aria-label="更多表情"]') as HTMLElement)
     await act(async () => { await vi.dynamicImportSettled() })
     expect(document.querySelectorAll('[role="menu"]')).toHaveLength(1)

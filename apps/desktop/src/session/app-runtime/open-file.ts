@@ -34,6 +34,7 @@ import { pageSocket, restPageSocket, syncLink } from './sync-link';
 
 export type FileStatus = 'online' | 'offline' | 'gone';
 type TextDelta = Array<{ retain: number } | { insert: string } | { delete: number }>;
+type FileChange = { local: boolean; delta?: TextDelta; entry?: true };
 
 export interface Peer {
   id: string;
@@ -155,7 +156,7 @@ export class OpenFile {
   provider!: HocuspocusProvider;
   /** What the open file had confirmed last time nothing of ours was pending — the base a replay diffs from. */
   private confirmed: { text: string } | { json: Record<string, unknown> } | null = null;
-  private readonly changeHandlers = new Set<(event: { local: boolean; delta?: TextDelta }) => void>();
+  private readonly changeHandlers = new Set<(event: FileChange) => void>();
   private readonly statusHandlers = new Set<(status: FileStatus) => void>();
   private readonly presenceHandlers = new Set<(others: readonly Peer[]) => void>();
   private readonly fieldWatchers = new Set<FieldWatcher>();
@@ -1065,8 +1066,19 @@ export class OpenFile {
 
   // ─── change events ────────────────────────────────────────────────────────
 
-  private emitChange(event: { local: boolean; delta?: TextDelta }): void {
+  private emitChange(event: FileChange): void {
     for (const handler of [...this.changeHandlers]) handler(event);
+  }
+
+  /** Decorations arrived after the first frame; a file change carries no text delta when only its entry changed. */
+  entryChanged(entry: AppFileEntry): void {
+    if (entry.id !== this.entry.id || entry.version !== this.entry.version) return;
+    this.entry = entry;
+    this.emitChange({ local: false, entry: true });
+  }
+
+  entryFailed(message: string): void {
+    void this.host.reportError(`${this.entry.name}: ${message}`);
   }
 
   /** `textAt` handles: their field's letters changed (`delta`), or the field itself went or was replaced (no delta). */
@@ -1192,7 +1204,7 @@ export class OpenFile {
       status: { get: () => (handle.closed ? 'gone' : this.status) },
       saved: { get: () => this.saved },
       onChange: {
-        value: (handler: (event: { local: boolean; delta?: TextDelta }) => void) => this.subscribe(handle, this.changeHandlers, handler),
+        value: (handler: (event: FileChange) => void) => this.subscribe(handle, this.changeHandlers, handler),
       },
       onStatus: {
         value: (handler: (status: FileStatus) => void) => this.subscribe(handle, this.statusHandlers, handler),
@@ -1551,6 +1563,8 @@ syncLink().onControl((message) => {
     return;
   }
   for (const file of [...syncing]) {
+    if (message.t === 'entry' && file.docName === message.docName) file.entryChanged(message.entry);
+    if (message.t === 'entry-error' && file.docName === message.docName) file.entryFailed(message.message);
     if (message.t === 'revoked' && file.docName === message.docName) {
       file.gone(guguError('failed', `${file.entry.name} was taken back (${message.reason})`), message.reason);
     }

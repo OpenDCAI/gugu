@@ -3,7 +3,7 @@ import type { TranscriptTurn } from '@session-chat/model';
 
 /** Keep successfully delivered replies readable when their tool process is folded. */
 export function withSentReplies(turn: TranscriptTurn, options: { allDestinations?: boolean } = {}): TranscriptTurn {
-  const source = replySource(turn, { includeThreads: true });
+  const source = replySource(turn, undefined, { includeThreads: true });
   if (!source && !options.allDestinations) return turn;
   const items = replyItems(turn);
   const texts = new Set(items.filter(item => item.kind === 'message' && item.role === 'assistant').map(item => item.kind === 'message' ? item.text.trim() : ''));

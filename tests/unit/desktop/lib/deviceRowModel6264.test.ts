@@ -74,6 +74,15 @@ describe('#6264 设备行模型', () => {
 })
 
 describe('#6264 设备行上要人知道的事', () => {
+  it('desktop and server task hosts share protocol mismatch notices', () => {
+    for (const host_kind of ['desktop', 'server'] as const) {
+      expect(deviceRowModel(device({ caps: { host_kind, remote_protocol: 11 } }), null).notices)
+        .toEqual([{ kind: 'server-too-old' }])
+      expect(deviceRowModel(device({ caps: { host_kind, min_client_protocol: 99 } }), null).notices)
+        .toEqual([{ kind: 'desktop-too-old' }])
+    }
+  })
+
   it('server 行带上磁盘快满 / 升级被退回;桌面行即便带了这些字段也不显示', () => {
     const caps = { server_disk: { free_bytes: 300 * 1024 * 1024, total_bytes: 20 * 1024 ** 3 }, server_rollback: { version: '0.3.1', restored: '0.3.0' } }
     expect(deviceRowModel(device({ caps: { host_kind: 'server', ...caps } }), null).notices).toEqual([

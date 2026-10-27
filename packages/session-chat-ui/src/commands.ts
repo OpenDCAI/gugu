@@ -97,6 +97,9 @@ export type ChatCommands = {
    */
   resolveAttachment?: (attachment: { id: string; name: string }) => Promise<string | null>;
 
+  /** Fetch one tool picture from its original history source when its thumbnail is shown. */
+  resolveToolImage?: (itemId: string, index: number) => Promise<string | null>;
+
   /**
    * Called when the user clicks the stop button on the current user message
    * while the agent is generating.

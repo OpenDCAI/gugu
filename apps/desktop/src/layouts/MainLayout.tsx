@@ -1,4 +1,6 @@
 import { messageForUser } from '@/lib/userFacingError';
+import type { AgentAttention } from '@gugu/core/shared/agentStatus'
+import { notify } from '../lib/notices'
 import { Sheet } from '../components/ui/Sheet'
 import { PaneHeader } from '../components/ui/Pane'
 import { RightPanelBackButton } from '../components/chat/RightPanel'
@@ -43,7 +45,6 @@ import { useOpenNewSessionOnDeviceHost } from '../components/sessionpage/openNew
 import { MobileCreatePage } from '../components/MobileAgentCreatePage'
 import { AcpAgentCreateComposer } from '../components/AcpAgentCreateComposer'
 import type { ActiveSection } from '@gugu/core/shared/enums/settingsSectionModels'
-import type { AgentAttention } from '@gugu/core/shared/agentStatus'
 import { ResizableChatListPane } from './ResizableChatListPane'
 import {
   readStoredChatListPaneWidth,
@@ -56,6 +57,8 @@ import { SharePosterDialog } from '../components/SharePosterDialog'
 import { ExtensionConsentSheet } from '../components/extensionBundle/ExtensionConsentSheet'
 import { ExtensionForwardHost } from '../components/extensionBundle/ExtensionForwardHost'
 import { useSessionpageReveal } from '../hooks/useSessionpageReveal'
+import { NeedsYouHost } from '../components/needsYou/NeedsYouHost'
+import { NeedsYouSlot } from '../components/needsYou/NeedsYouSlot'
 import { AgentSharePopover } from '../components/sessionpage/AgentSharePopover'
 import { SESSIONPAGE_SHARE_ANCHOR_SELECTOR } from '../lib/sessionpageShareAnchor'
 import { readSessionpageViewRequestBridge } from '../lib/sessionpageViewRequestBridge'
@@ -161,8 +164,7 @@ function InnerLayout({
     !sessionHostAvailable || readMobileShell() ? 'chats' : 'tasks',
   )
   useSessionpageReveal(setActiveTab)
-  // @@@sessionpage otty-state — the most urgent way a 会话页 agent is blocked on the human (needs_user over error),
-  // pushed from the session backend; dots the 消息 rail cell so a stuck agent is visible without opening the session page.
+  // The same live task directory drives pending actions and the existing rail attention priority.
   const [sessionAttention, setSessionAttention] = useState<AgentAttention>(null)
   const [mobilePane, setMobilePane] = useState<'list' | 'chat'>('list')
   const [settingsModalOpen, setSettingsModalOpen] = useState(false)
@@ -818,32 +820,35 @@ function InnerLayout({
     return () => window.removeEventListener(UI_EVENTS.agentStream, handleTurnFailed)
   }, [notificationSettings.agentEvents, notificationSettings.sound])
 
-  // @@@sessionpage fail-loud VISIBLE (#6) — 会话页 agent 投递失败的可见反馈。fail-loud 的负向
-  // 结果(会话未运行 → 投递 THROW)以前只落主进程日志/聊天流失败条,而用户多在「任务」tab、看不到那条 → 补一条
-  // toast 让它被看见。不静默、不回退(与后端 fail-loud 语义一致)。
+  const failedDeliveries = useRef(new Map<string, Set<string>>())
+  // One notice per task, with the actual cause and distinct source messages while it is visible.
   useEffect(() => {
     const handleSessionpageDeliverFailed = (event: Event) => {
-      const detail = (event as CustomEvent).detail as { agentUserId?: string; error?: string } | undefined
+      const detail = (event as CustomEvent).detail as { agentUserId?: string; messageId?: string | null; error?: string } | undefined
       if (!detail?.agentUserId) return
-      const contact = contacts.find((c) => c.id === detail.agentUserId)
-      const name = contact?.alias?.trim() || contact?.display_name || detail.agentUserId
-      toast(t('shell.toast.taskDeliverFailed', { name }), 'error', messageForUser(detail.error))
+      const agentId = detail.agentUserId
+      const messages = failedDeliveries.current.get(agentId) ?? new Set<string>()
+      failedDeliveries.current.set(agentId, messages)
+      if (detail.messageId) messages.add(detail.messageId)
+      const clear = () => {
+        if (failedDeliveries.current.get(agentId) === messages) failedDeliveries.current.delete(agentId)
+      }
+      const contact = contacts.find((c) => c.id === agentId)
+      const name = contact?.alias?.trim() || contact?.display_name || agentId
+      notify({
+        key: `sessionpage-delivery:${agentId}`,
+        title: messageForUser(detail.error),
+        description: messages.size
+          ? t('shell.toast.taskDeliverFailedCount', { name, count: messages.size })
+          : t('shell.toast.taskDeliverFailed', { name }),
+        tier: 'error',
+        onDismiss: clear,
+        onAutoClose: clear,
+      })
     }
     window.addEventListener(UI_EVENTS.sessionpageDeliverFailed, handleSessionpageDeliverFailed)
     return () => window.removeEventListener(UI_EVENTS.sessionpageDeliverFailed, handleSessionpageDeliverFailed)
-  }, [contacts, t, toast])
-
-  // @@@sessionpage otty-state — the consolidated attention from the session backend (agents blocked on the human).
-  // Drives the 消息 rail dot. main broadcasts on subscribe + on every change.
-  useEffect(() => {
-    const handleSessionpageAttention = (event: Event) => {
-      const detail = (event as CustomEvent).detail
-      if (detail !== null && detail !== 'needs_user' && detail !== 'error') throw new Error(`unexpected session attention: ${String(detail)}`)
-      setSessionAttention(detail)
-    }
-    window.addEventListener(UI_EVENTS.sessionpageAttention, handleSessionpageAttention)
-    return () => window.removeEventListener(UI_EVENTS.sessionpageAttention, handleSessionpageAttention)
-  }, [])
+  }, [contacts, t])
 
   // @@@sessionpage 分享 — 会话页头部点了「分享这个 agent 的名片」:main 只转达 agentUserId + 名字,咕咕号与
   // 头像从**通讯录同一份数据**取(自有 agent 就在 contacts 里),再交给既有的 SharePosterDialog 出卡片 ——
@@ -1248,7 +1253,7 @@ function InnerLayout({
                       activeTab={activeTab}
                       mobile={mobile}
                       hidden={chatListHidden}
-                      lead={mobile && phoneAssistant.available ? <PhoneAssistantRow state={phoneAssistant} onOpen={openPhoneAssistant} /> : undefined}
+                      lead={mobile && (phoneAssistant.available || sessionAttention === 'needs_user') ? <>{phoneAssistant.available && <PhoneAssistantRow state={phoneAssistant} onOpen={openPhoneAssistant} />}<NeedsYouSlot list /></> : undefined}
                       leadChatId={phoneAssistant.chatId}
                       headerLeading={mobile ? <PhoneMeButton user={user} onOpen={() => selectTab('settings')} /> : undefined}
                       onChatSelected={(focusTarget = 'composer') => navigateMobile(() => {
@@ -1458,6 +1463,7 @@ function InnerLayout({
       <ExtensionForwardHost />
       {/* 摩擦单 F6: an install is consented to here, over whatever view is on screen. */}
       <ExtensionConsentSheet />
+      <NeedsYouHost onAttentionChange={setSessionAttention} />
 
       {/* @@@822 frameless 自绘窗口控制(Windows/Linux 右上角 min/max/close);Mac/web 自渲染为 null。
           ⚠️ **必须挂在整棵壳的最后** —— Electron 把 Blink 收集到的 drag / no-drag 矩形按 **DOM 序**

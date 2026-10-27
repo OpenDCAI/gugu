@@ -1,3 +1,4 @@
+import { rpcQuery } from '../../../../../../tests/helpers/rpcQuery';
 import { verifiedFileHandle } from '../../../../../../tests/helpers/verifiedFileHandle';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
@@ -34,7 +35,7 @@ async function rpc(name: string, args: Record<string, unknown>) {
 
 vi.mock('@gugu/core/cloud/supabase', () => ({
   createGuguSupabaseClient: () => ({
-    rpc,
+    rpc: rpcQuery(rpc),
   }),
 }));
 const { createAppFiles } = await import('./app-files-core');
@@ -53,7 +54,7 @@ const files = createAppFiles({
     return { ...file, async *stream() { openedOriginals.push(row.id); yield* file.stream(); } };
   },
   hasCapability: (_extensionId, capability) => capabilities.has(capability),
-  sync: { pageFor: () => ({}), grant: (_page: unknown, grant: unknown) => void grants.push(grant), revoke: () => undefined, ungrant: () => undefined } as never,
+  sync: { ensureFor: () => undefined, pageFor: () => ({}), grant: (_page: unknown, grant: unknown) => void grants.push(grant), revoke: () => undefined, ungrant: () => undefined } as never,
   identities: async () => [],
   faces: async () => ({}),
   filesUrl: () => 'http://files.invalid',

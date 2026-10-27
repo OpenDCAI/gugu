@@ -230,6 +230,8 @@ export interface DeviceRuntimeTickInput extends AgentRuntimeBridgeOptions {
 // #2115 — deliver 终态失败的最小路由信息(commandId 供 renderer「重试」CAS error→pending 重排原命令)。
 export interface AgentDeliverFailure {
   commandId: string
+  /** Original source message; retries of it must not inflate the visible message count. */
+  messageId?: string | null
   agentUserId: string
   chatId: string
   threadRootId: string | null
@@ -1097,6 +1099,7 @@ export async function runDeviceRuntimeTick(
         const threadRootId = typeof payload.thread_root_id === 'string' && payload.thread_root_id ? payload.thread_root_id : null
         input.onAgentDeliverFailure?.({
           commandId: command.id,
+          messageId: typeof payload.message_id === 'string' ? payload.message_id : null,
           agentUserId,
           chatId,
           threadRootId,

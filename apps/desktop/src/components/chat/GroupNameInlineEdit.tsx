@@ -106,7 +106,7 @@ export function GroupNameInlineEdit({
       />
     )
   }
-  const startEditing = () => { if (renameCommand) renameCommand.edit(); else { setDraft(name); setFailed(''); setEditing(true) } }
+  const startEditing = () => { setDraft(name); setFailed(''); setEditing(true) }
   return (
     <div className="flex min-w-0 items-center gap-1">
       <div

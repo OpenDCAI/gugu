@@ -119,9 +119,10 @@ export function serverExtensionBackground(bundle: ExtensionBundle, entry: string
       if (message?.m !== APP_FRAME_MARKER) return;
       if (message.t === 'sync') { fileSync.fromPort(sync, message.data); return; }
       if (message.t !== 'call') return;
+      const filePage = () => ({ pageId: id, extensionId: bundle.extensionId, handed: null });
       const answer = await answerCall({
         extensionId: bundle.extensionId, kind: 'background', binding: null, pageId: id,
-        filePage: () => ({ pageId: id, extensionId: bundle.extensionId, handed: null }),
+        filePage, resourcePage: filePage,
         hear: (event) => runtime.send(event),
       }, message.method, (message.args ?? {}) as Record<string, unknown>);
       await post({ m: APP_FRAME_MARKER, t: 'result', id: message.id, ...answer });

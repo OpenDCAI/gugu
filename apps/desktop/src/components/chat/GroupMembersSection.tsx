@@ -84,7 +84,7 @@ export function GroupMembersSection({
 }: {
   chat: ChatItem
   /** Opened at the members' list or the announcement (the info tab's members button); back: the first page. */
-  initialPage?: 'members' | 'announcement'
+  initialPage?: 'main' | 'members' | 'announcement'
   snapshot: GroupCollabSnapshot
   snapshotError?: MemberListPanelProps['error']
   currentUserId: string | null

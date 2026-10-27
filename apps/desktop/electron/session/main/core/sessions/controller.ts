@@ -6,7 +6,7 @@ import { getSessionsForProject } from './getSessionsForProject';
 import { getUnarchivedSession } from './getUnarchivedSession';
 import { convertAutomationSession } from './convert-automation-session';
 import { forkSession } from './fork-session';
-import { getStoredHistory } from './session-turn-store';
+import { getStoredHistory, getStoredToolImage } from './session-turn-store';
 import { hydrateSession } from './hydrateSession';
 import { markSessionSeen } from './markSessionSeen';
 import { renameSession } from './renameSession';
@@ -33,6 +33,7 @@ import { setSessionsOnScreen } from './sessions-on-screen';
 export const sessionController = createRPCController({
   getSessions,
   getStoredHistory,
+  getStoredToolImage,
   forkSession,
   restartSession,
   switchSessionRuntime,

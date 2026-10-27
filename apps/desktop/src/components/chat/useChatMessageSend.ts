@@ -26,6 +26,7 @@ export function useChatMessageSend(props: ChatMessageComposerProps, draft: ChatD
   const handleSend = useCallback(async (value?: string) => {
     // 回车走 handleKeyDown 直达这里、不看按钮的 disabled:在途时再进就会把同一批附件重发一遍。
     if (sendingRef.current) return
+    const submittedAt = performance.now()
     const typed = (value ?? text).trim()
     const pendingFiles = attachments.map((a) => a.file)
     const multimodalImage = pendingFiles.some((file) => inferAttachmentKind(file) === 'image')
@@ -53,7 +54,7 @@ export function useChatMessageSend(props: ChatMessageComposerProps, draft: ChatD
     const sendOptions = whisperTarget
       ? {
           toUserIds: [whisperTarget.userId],
-          replyToMessageId: null as string | null,
+          replyToMessageId,
           isWhisper: true,
         }
       : {
@@ -88,7 +89,7 @@ export function useChatMessageSend(props: ChatMessageComposerProps, draft: ChatD
         await onSendAttachments(pendingFiles, { toUserIds: sendOptions.toUserIds, isWhisper: !!whisperTarget, caption: captionOnImage ? content || undefined : undefined, onSent: (_file, index) => { committed.add(index) } })
       }
       if (typed && (!captionOnImage || !onSendAttachments)) {
-        await onSend(content, { ...sendOptions, beforeDeliver: beforeSend })
+        await onSend(content, { ...sendOptions, beforeDeliver: beforeSend, submittedAt })
       }
       // Successful send → object URLs are no longer needed
       revokeAttachmentPreviewUrls(snapshotAttachments)

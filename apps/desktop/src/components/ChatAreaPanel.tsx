@@ -55,7 +55,6 @@ import { AgentHeaderStatusLine } from './chat/AgentHeaderStatusLine'
 import { MemberProfilePopover } from './MemberProfilePopover'
 import { ReadReceiptPopover } from './ReadReceiptPopover'
 import { useListenModeEditControls } from './chat/useListenModeEditControls'
-import { useMessageColumnMinWidth } from './chat/useMessageColumnMinWidth'
 import { RightPanel } from './chat/RightPanel'; import { isGroupManagerRole } from '../lib/groupMemberPermissions'
 import {
   buildMemberProfileMap,
@@ -63,7 +62,7 @@ import {
   type MemberProfileSide,
   toIdentityProfile,
 } from './memberProfileModels'
-import { ChatMessageComposer, type ComposerAttachAction } from './chat/ChatMessageComposer'
+import { ChatMessageComposer, type ChatMessageComposerProps, type ComposerAttachAction } from './chat/ChatMessageComposer'
 // @@@5856 消息列表抽成共享组件(话题分栏也用它)——见 MessageList.tsx 头部注释。
 import { MessageList, type MessageListRowProps } from './chat/MessageList'
 import { useTaskChatRows } from './assistant/useTaskChatRows'
@@ -149,7 +148,7 @@ function ChatAreaSurface({ viewportKey = 'chats', activeTab, navigationTarget = 
   const search = useChatSearch(activeChatId, surfaceVisible, messages, surfaceElement, viewportKey)
   const { searchMode, setSearchMode, searchQuery, setSearchQuery, isFiltering, displayedMessages } = search
   const filePreviewCloseRef = useRef<() => void>(() => {})
-  const [quoteText, setQuoteText] = useState<{ messageId?: string; senderName: string; content: string } | null>(null)
+  const [quoteText, setQuoteText] = useState<ChatMessageComposerProps['quoteContent']>(null)
   // @@@message-forward (#899) / @@@multi-select (#988) - messages pending forward; single-forward
   // sets [msg], batch sets the selected list. Opens ForwardMessageDialog when non-empty.
   const [forwardMessages, setForwardMessages] = useState<MessageItem[]>([])
@@ -199,8 +198,6 @@ function ChatAreaSurface({ viewportKey = 'chats', activeTab, navigationTarget = 
   const filePreview = useMessageFilePreview({ onForward: handleForward, mobile, visible: surfaceVisible, closeRightSurfaces, toast })
   const openFilePreview = filePreview.open
   filePreviewCloseRef.current = filePreview.close
-  // @@@2234 中栏 min-width 自适应(有右栏展开时按内容区实宽让位,右栏永不被 overflow:hidden 裁切)—— 逻辑见 hook。
-  const { messageColumnMinWidth, attachPanelsRow } = useMessageColumnMinWidth(filePreview.isOpen, mobile)
   const handleOpenSettingsDrawer = useCallback(() => { if (activeChatId) openInfoTab(activeChatId) }, [activeChatId])
   const projectName = useChatSlotProjectName()
   const emptyProject = useChatHasMessages(projectName !== null ? activeChatId ?? undefined : undefined) === false
@@ -362,7 +359,7 @@ function ChatAreaSurface({ viewportKey = 'chats', activeTab, navigationTarget = 
   // @@@5856 分栏标题块要说清「引自哪一句」。三态必须分开(pending 还没读到 / null 读到了「没这条」/
   // 有字 = 预览),合并任意两种都会让它说假话:首帧闪「已删除」、读取失败也渲染成「已删除」。
   // @@@3922 另把它 subject-scope(渲染期比对),否则从话题 A 切到 B 时 B 会顶着 A 的预览一个往返。
-  const splitTopicChatIdForPreview = topicSurface.splitTopic?.chatId ?? null
+  const splitTopicChatIdForPreview = topicSurface.topic?.chatId ?? null
   const [sourcePreviewState, setSourcePreviewState] = useState<{
     forTopicChatId: string | null
     preview: string | null | 'pending' | 'unreadable'
@@ -450,7 +447,7 @@ function ChatAreaSurface({ viewportKey = 'chats', activeTab, navigationTarget = 
 
   const handleQuote = useCallback((msg: MessageItem) => {
     setQuoteText({
-      messageId: msg.id,
+      messageId: msg.id, source: msg,
       senderName: msg.sender_user_id ? (identitiesById[msg.sender_user_id]?.display_name ?? '') : '',
       content: msg.content_type === 'attachment' ? t('chatArea.attachment') : msg.content_type === 'card' ? composerCardLine(msg.content ?? '') : (msg.content ?? ''),
     })
@@ -474,12 +471,8 @@ function ChatAreaSurface({ viewportKey = 'chats', activeTab, navigationTarget = 
   // Listen for RPC-triggered quote
   useEffect(() => {
     const handler = (e: Event) => {
-      const { messageId, senderName = '', content } = (e as CustomEvent).detail as {
-        messageId?: string
-        senderName?: string
-        content: string
-      }
-      setQuoteText({ messageId, senderName, content })
+      const { messageId, senderName = '', content, source } = (e as CustomEvent).detail as NonNullable<ChatMessageComposerProps['quoteContent']>
+      setQuoteText({ messageId, senderName, content, source })
     }
     window.addEventListener(UI_EVENTS.quoteMessage, handler)
     return () => window.removeEventListener(UI_EVENTS.quoteMessage, handler)
@@ -766,10 +759,10 @@ function ChatAreaSurface({ viewportKey = 'chats', activeTab, navigationTarget = 
     /></GroupRenameContext.Provider>
   ) : null
 
-  const topicPane = topicSurface.splitTopic && (
+  const topicPane = topicSurface.topic && (
     <TopicSplitPane
       viewportKey={`${viewportKey}:topic`} navigationTarget={navigationTarget}
-      topic={topicSurface.splitTopic} sourceChatId={activeChatId!}
+      topic={topicSurface.topic} sourceChatId={activeChatId!}
       messages={topicSurface.splitLine.messages} history={topicSurface.splitLine}
       loading={topicSurface.splitLine.loadingMessages}
       memberProfiles={messageMemberProfiles}
@@ -799,7 +792,7 @@ function ChatAreaSurface({ viewportKey = 'chats', activeTab, navigationTarget = 
       mobile={mobile} inTab={mobile}
       onReaction={(id, emoji) => void topicSurface.splitLine.toggleReaction(id, emoji)
         .catch((error) => toast(t('message.actions.react'), 'error', safeFailureLine(String((error as Error)?.message ?? error))))}
-      onForward={handleForward} visible={surfaceVisible}
+      onForward={handleForward} visible={surfaceVisible && topicSurface.splitTopic !== null}
       onDelete={(id) => void topicSurface.splitLine.deleteMessage(id)
         .catch((error) => toast(t('message.actions.delete'), 'error', safeFailureLine(String((error as Error)?.message ?? error))))}
     />
@@ -945,11 +938,10 @@ function ChatAreaSurface({ viewportKey = 'chats', activeTab, navigationTarget = 
       </PaneHeader>}{mobile && !chrome && !blockHost && !searchMode ? <PhoneChatTabs topics={topicSurface.topics} messages={messages} current={topicSurface.splitTopic?.chatId ?? null} onPick={(topic) => topic ? topicSurface.openSplit({ chatId: topic.chat_id, name: topic.name }) : topicSurface.closeSplit()} /> : null}
 
       <div
-        ref={attachPanelsRow}
         style={{
           flex: 1,
           minHeight: 0,
-          minWidth: messageColumnMinWidth,
+          minWidth: 0,
           display: 'flex',
           overflow: 'hidden',
           position: 'relative',

@@ -130,7 +130,7 @@ async function loadOnRelay(type: 'text' | 'json', options: { program?: boolean; 
     },
     clipboard: { writeText: async () => undefined },
   };
-  const open = <File>() => openFile(host as never, { id: opened.entry.id }) as Promise<File>;
+  const open = <File>() => openFile(host as never, host.appFiles.open()) as Promise<File>;
   const handed = (grant: Grant) => grant.itemId === opened.entry.id && grant.needs === null;
   return { service, relay, open, closed, willKeys, sentKeys, told, control, handed, PAGE, page, net, host };
 }

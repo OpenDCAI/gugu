@@ -86,7 +86,7 @@ function InstallConsentSheet() {
   }
   return (
     // The visible title names the sheet (`titleId`): without it the sheet adds a hidden copy, and the title is read twice.
-    <Sheet onClose={() => answer('dismissed')} desktopWidth="420px" testId="extension-consent-sheet" titleId={titleId}>
+    <Sheet onClose={() => answer('dismissed')} desktopWidth="420px" testId="extension-consent-sheet" titleId={titleId} zIndex="var(--z-settings-modal)">
       <div className="flex min-h-0 flex-1 flex-col gap-3 !p-5">
         <div className="flex items-center gap-2">
           {ask.requester ? <RequesterFace requester={ask.requester} /> : null}

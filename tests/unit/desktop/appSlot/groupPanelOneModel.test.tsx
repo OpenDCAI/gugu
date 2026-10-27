@@ -76,7 +76,7 @@ describe('the slot header', () => {
       openPanelItem('group-2', folderItem())
       await harness.render(slot({ chatId: 'group-2' }))
       const claimOf = (chatId: string, itemId?: string) =>
-        [...extensionViewStore.claims.values(), ...[...extensionViewStore.filePages.values()].map((file) => file.claim)].find(
+        [...extensionViewStore.claims.values()].find(
           (claim) => claim.chatId === chatId && claim.itemId === itemId,
         )!
       act(() => extensionSurfaceStore.say(null, claimOf('group-2').tabId, { title: 'Board', badge: 3, error: 'boom' }))

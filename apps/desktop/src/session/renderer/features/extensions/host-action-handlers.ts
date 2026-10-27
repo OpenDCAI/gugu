@@ -43,6 +43,7 @@ import { isEmbedVisible } from '@renderer/lib/portal-container';
 import { askInShell, closeInShell, installConsentPrompt } from './install-consent';
 import { revealSessionpage } from '@/hooks/useSessionpageReveal';
 import { closeAppModal, focusAppModalClose, showAppModal } from '@/components/appModal/appModal';
+import { groupPageSlot } from '@renderer/features/chats/chat-tabs/chat-panel-item';
 
 /**
  * Performs the actions main has already decided an extension is allowed to take.
@@ -91,12 +92,21 @@ export function applyExtensionHostAction(command: ExtensionHostActionCommand): E
   return runInAction(() => perform(origin.sessionId, origin.tabId, action));
 }
 
-function openForClick(action: ExtensionHostAction): ExtensionHostActionResult | Promise<ExtensionHostActionResult> {
+function openForClick(action: ExtensionHostAction, fromTab?: string): ExtensionHostActionResult | Promise<ExtensionHostActionResult> {
   switch (action.kind) {
     case 'openApp':
       if (action.chatId) return openLinkTarget({ kind: 'app', extensionId: action.extensionId, tab: action.tab ?? installedExtensionsStore.mainTabOf(action.extensionId)?.kind.slice(action.extensionId.length + 1) ?? '', path: '', query: {}, place: { chat: action.chatId } });
       { const opened = openApp(action.extensionId, action.tab); revealSessionpage(); return opened; }
     case 'openChatFile':
+      if (action.onlyIfOpen) return import('@renderer/features/chats/chat-tabs/chat-layouts').then(({ panelTabsOf, showChatTab }) => {
+        const tabs = panelTabsOf(action.chatId);
+        if (!tabs.some((entry) => entry.shown && !entry.inWindow && groupPageSlot(action.chatId, entry.tabId) === fromTab)) return;
+        const tab = tabs.find((entry) => !entry.inWindow && entry.item.itemId === action.itemId && entry.item.kind === action.onlyIfOpen);
+        if (!tab) return;
+        showChatTab(action.chatId, tab.tabId);
+        // The body is already there. The original metadata validation starts after presenting it.
+        return new Promise<{ chat: string }>((resolve) => requestAnimationFrame(() => requestAnimationFrame(() => resolve({ chat: action.chatId }))));
+      });
       return openLinkTarget({ kind: 'file', itemId: action.itemId });
     case 'openLinkTarget':
       return openLinkTarget(action.target);
@@ -200,6 +210,10 @@ function perform(sessionId: string | null, tabId: string, action: ExtensionHostA
     case 'showMessage':
       return openLinkTarget({ kind: 'chat', chatId: action.detail.chatId, messageId: action.detail.messageId });
     case 'openWith':
+      if (action.detail.background) return import('@renderer/features/chats/chat-tabs/chat-layouts').then(({ updateFileNames }) => {
+        const detail = action.detail;
+        updateFileNames([{ id: detail.itemId, filename: detail.name, content_type: detail.file.contentType }], installedExtensionsStore.manifests);
+      });
       window.dispatchEvent(new CustomEvent(APP_OPEN_WITH_EVENT, { detail: action.detail }));
       return;
     // The shell draws the forum's consent sheet (ForumConsent), as the phone's page gives it.
@@ -217,7 +231,7 @@ function perform(sessionId: string | null, tabId: string, action: ExtensionHostA
     case 'openApp':
     case 'openChatFile':
     case 'openLinkTarget':
-      return openForClick(action);
+      return openForClick(action, tabId);
   }
 }
 

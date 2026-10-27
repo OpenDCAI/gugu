@@ -12,6 +12,7 @@ import * as lezerHighlight from '@lezer/highlight';
 import * as lezerMarkdown from '@lezer/markdown';
 import { basicSetup, minimalSetup } from 'codemirror';
 import { yCollab, yUndoManagerKeymap } from 'y-codemirror.next';
+import { CONTENT_MENU_EVENT, type ContentMenuRequest } from '@gugu/session-shared/content-menu';
 import * as Y from 'yjs';
 import { guguError } from './host';
 import { imeHold, keepCaretAboveKeyboard, sameLineHold } from './ime-hold';
@@ -75,6 +76,7 @@ export function bindCodemirror(view: unknown, file: unknown): () => void {
   // Every App's editor gets these two mobile fixes by binding (真源 §4).
   const hold = imeHold(view, () => inner.holdRemote(), { keyboardSession: inner.keyboardSession });
   const stopCaretWatch = keepCaretAboveKeyboard(view);
+  let undoManager: Y.UndoManager;
 
   /**
    * Make the editor show exactly the replica, then attach the collaboration extension.
@@ -86,7 +88,7 @@ export function bindCodemirror(view: unknown, file: unknown): () => void {
     if (view.state.doc.toString() !== text.toString()) {
       view.dispatch({ changes: { from: 0, to: view.state.doc.length, insert: text.toString() } });
     }
-    const undoManager = new Y.UndoManager(text);
+    undoManager = new Y.UndoManager(text);
     return [
       yCollab(text, inner.awareness, { undoManager }),
       // Undo only undoes this person's typing; ahead of any history() the App's setup brought.
@@ -97,6 +99,12 @@ export function bindCodemirror(view: unknown, file: unknown): () => void {
   };
 
   view.dispatch({ effects: StateEffect.appendConfig.of(compartment.of(extensionFor())) });
+  const menu = (event: Event) => {
+    const detail = (event as CustomEvent<ContentMenuRequest>).detail;
+    if (detail.action === 'snapshot') detail.editorHistory = { undo: !view.state.readOnly && undoManager.undoStack.length > 0, redo: !view.state.readOnly && undoManager.redoStack.length > 0 };
+    else if (!view.state.readOnly && yUndoManagerKeymap.find(binding => binding.key === (detail.action === 'undo' ? 'Mod-z' : 'Mod-y'))?.run?.(view)) event.preventDefault();
+  };
+  view.contentDOM.addEventListener(CONTENT_MENU_EVENT, menu);
   const sameLine = () => sameLineHold(view, inner.text, (inspector) => inner.inspectRemote(inspector), hold);
   let stopSameLine = sameLine();
   // The file moved to a new epoch: a new replica, so a new binding on it.
@@ -108,6 +116,7 @@ export function bindCodemirror(view: unknown, file: unknown): () => void {
     stopSameLine = sameLine();
   });
   return () => {
+    view.contentDOM.removeEventListener(CONTENT_MENU_EVENT, menu);
     offSwap();
     stopSameLine();
     stopCaretWatch();

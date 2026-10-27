@@ -8,21 +8,12 @@ import type {
 } from './contract';
 
 /**
- * **发给手机的那一份**要裁掉过长的工具内容 —— 桌面读的是同一份记录，一个字都不裁。
+ * Phone and desktop transport projections share field trimming, lazy image references,
+ * and a UTF-8 page budget. Raw records stay intact.
  *
- * 为什么裁：一次 `cat` 一个大文件，工具输出可以是几十万字；它整份进广播通道，而通道的额度是
- * 每秒 100 条消息、单包 3000KB，**整个库所有连接共用**。2026-09-08 实测一帧 78KB，一条会话
- * 就把首屏拖到两秒开外。手机上没有人会去读那 30 万字 —— 那是桌面上的事。
- *
- * owner 2026-09-08 拍板裁（「赞同」）。裁的位置在**传输边界**（设备 RPC 那一层），
- * ❌ 不在时间线里：时间线是桌面与手机共用的同一份实例，在那里裁会把桌面也一起裁了。
- *
- * ⚠️ 裁完必须留痕（`trimmedChars`）：手机据此显示「已截断 · 桌面看完整」。
- * 一次**没有任何痕迹**的截断就是仓规里的「硬截断」——人看着一段完整的输出，
- * 却不知道后面还有；而看不出来的缺失，等于给了一个错的读数。
- *
- * 纯函数，没被裁到的对象**原样返回同一个引用**：推送路径上每秒都要过一遍它，
- * 全量重建一棵新树等于把省下来的字节又用 CPU 赔回去；单测也据此判「这一份没动过」。
+ * trimmedChars makes shortened tool content visible to the reader. Omitted older
+ * turns remain reachable through each API's existing exclusive cursor.
+ * Unchanged objects retain their references on the streaming path.
  */
 
 /** 单个字段的上限（字符）。8K 够看清一条命令的开头与大多数工具的全部输出。 */
@@ -160,11 +151,12 @@ function fitTurnsToBudget(
   if (turns.length <= 1) return { turns, dropped: false };
   // 每一轮各量一次（❌ 别按平均值估：轮与轮之间体量差几十倍是常态），
   // 再从**最新**那头往回累加，装不下就在那里断开。
-  const sizes = turns.map((turn) => JSON.stringify(turn).length);
-  let used = 0;
+  const encoder = new TextEncoder();
+  const sizes = turns.map((turn) => encoder.encode(JSON.stringify(turn)).byteLength);
+  let used = 2; // JSON array brackets.
   let start = turns.length - 1;
   for (let i = turns.length - 1; i >= 0; i -= 1) {
-    const next = used + sizes[i];
+    const next = used + sizes[i] + (i < turns.length - 1 ? 1 : 0);
     // 最新的那一轮无条件保留，哪怕它自己就超预算。
     if (next > budget && i < turns.length - 1) break;
     used = next;
@@ -173,20 +165,47 @@ function fitTurnsToBudget(
   return start === 0 ? { turns, dropped: false } : { turns: turns.slice(start), dropped: true };
 }
 
+/** The phone and desktop cursor APIs use one field trim and one UTF-8 page budget. */
+function trimTurnPageForTransport<T extends { turns: TranscriptTurn[]; hasOlder: boolean }>(
+  page: T,
+  limit: number,
+  budget: number,
+): T {
+  const trimmed = trimTurnsForTransport(page.turns, limit);
+  const fitted = fitTurnsToBudget(trimmed, budget);
+  if (trimmed === page.turns && !fitted.dropped) return page;
+  return { ...page, turns: fitted.turns as TranscriptTurn[], hasOlder: page.hasOlder || fitted.dropped };
+}
+
+/** Adapt the same page budget to desktop's exclusive numeric cursor, keeping stored origins aligned. */
+export function trimCursorPageForTransport<T extends {
+  turns: TranscriptTurn[];
+  nextCursor: number | null;
+  originTurnIds?: readonly string[];
+}>(
+  page: T,
+  limit = TRANSPORT_TEXT_LIMIT,
+  budget = TRANSPORT_PAYLOAD_BUDGET,
+): T {
+  const trimmed = trimTurnPageForTransport(
+    { turns: page.turns, hasOlder: page.nextCursor !== null }, limit, budget,
+  );
+  if (trimmed.turns === page.turns) return page;
+  const skipped = page.turns.length - trimmed.turns.length;
+  return {
+    ...page,
+    turns: trimmed.turns,
+    nextCursor: trimmed.hasOlder ? (trimmed.turns[0]?.seq ?? null) : null,
+    ...(page.originTurnIds ? { originTurnIds: page.originTurnIds.slice(skipped) } : {}),
+  };
+}
+
 export function trimSnapshotForTransport(
   snapshot: TimelineSnapshot,
   limit = TRANSPORT_TEXT_LIMIT,
   budget = TRANSPORT_PAYLOAD_BUDGET,
 ): TimelineSnapshot {
-  const trimmed = trimTurnsForTransport(snapshot.turns, limit);
-  const fitted = fitTurnsToBudget(trimmed, budget);
-  if (trimmed === snapshot.turns && !fitted.dropped) return snapshot;
-  return {
-    ...snapshot,
-    turns: fitted.turns as TranscriptTurn[],
-    // 丢过就一定还有更早的,❌ 不许保留原来的 false —— 那会让手机以为已经翻到头了。
-    hasOlder: snapshot.hasOlder || fitted.dropped,
-  };
+  return trimTurnPageForTransport(snapshot, limit, budget);
 }
 
 export function trimBatchForTransport(
@@ -202,14 +221,7 @@ export function trimOlderForTransport(
   limit = TRANSPORT_TEXT_LIMIT,
   budget = TRANSPORT_PAYLOAD_BUDGET,
 ): TimelineOlderResult {
-  const trimmed = trimTurnsForTransport(older.turns, limit);
-  const fitted = fitTurnsToBudget(trimmed, budget);
-  if (trimmed === older.turns && !fitted.dropped) return older;
-  return {
-    ...older,
-    turns: fitted.turns as TranscriptTurn[],
-    hasOlder: older.hasOlder || fitted.dropped,
-  };
+  return trimTurnPageForTransport(older, limit, budget);
 }
 
 export function trimAfterResultForTransport(

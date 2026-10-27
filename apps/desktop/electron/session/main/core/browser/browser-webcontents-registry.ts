@@ -1,12 +1,13 @@
+import { showContentContextMenu } from '../../../../content-context-menu';
+import { showEditableContextMenu } from '../../../../editable-context-menu';
+import type { ContentMenuEntry } from '@shared/content-context-menu';
 import {
   clipboard,
   ClipboardItem,
-  Menu,
   session,
   type BrowserWindow,
   type BrowserWindowConstructorOptions,
   type ClearDataOptions,
-  type MenuItemConstructorOptions,
   type WebContents,
 } from 'electron';
 import { events } from '@main/lib/events';
@@ -307,24 +308,32 @@ export class BrowserWebContentsRegistry {
 
     webContents.on('context-menu', (event, params) => {
       event.preventDefault();
+      const window = placement.window();
+      const origin = placement.origin();
+      const position = { window: window ?? undefined, x: origin.x + params.x, y: origin.y + params.y };
+      if (params.isEditable) {
+        const report = (error: unknown) => log.error('Browser editing menu failed', { error: String(error) });
+        void showEditableContextMenu(webContents, params, position, report).catch(report);
+        return;
+      }
       const selectionText = (params.selectionText ?? '').trim();
       if (!selectionText) {
         clearWebviewSelection(webContents);
       }
 
       const target = getBrowserContextTarget(params);
-      const template: MenuItemConstructorOptions[] = [
+      const template: ContentMenuEntry[] = [
         ...(selectionText
           ? [
               {
-                label: 'Copy',
+                id: 'copy', label: 'Copy',
                 click: () => copyTextThenNotify(selectionText),
               },
               { type: 'separator' as const },
             ]
           : []),
         {
-          label: target?.kind === 'image' ? 'Copy Image URL' : 'Copy Link',
+          id: 'copy-link', label: target?.kind === 'image' ? 'Copy Image URL' : 'Copy Link',
           enabled: target !== null,
           click: () => {
             if (!target) return;
@@ -334,14 +343,14 @@ export class BrowserWebContentsRegistry {
           },
         },
         {
-          label: target?.kind === 'image' ? 'Open Image' : 'Open Link',
+          id: 'open-link', label: target?.kind === 'image' ? 'Open Image' : 'Open Link',
           enabled: target !== null,
           click: () => {
             if (target) void webContents.loadURL(target.url);
           },
         },
         {
-          label: target?.kind === 'image' ? 'Open Image in New Tab' : 'Open Link in New Tab',
+          id: 'open-tab', label: target?.kind === 'image' ? 'Open Image in New Tab' : 'Open Link in New Tab',
           enabled: target !== null,
           click: () => {
             const sourceBrowserId = this.browserIdByWebContentsId.get(webContents.id);
@@ -351,17 +360,11 @@ export class BrowserWebContentsRegistry {
           },
         },
         { type: 'separator' },
-        { label: 'Reload', click: () => webContents.reload() },
+        { id: 'reload', label: 'Reload', click: () => webContents.reload() },
       ];
 
       // 右键的坐标是网页自己的;菜单弹在网页所在的窗口上,换成窗口内容区的坐标。
-      const window = placement.window();
-      const origin = placement.origin();
-      Menu.buildFromTemplate(template).popup({
-        ...(window ? { window } : {}),
-        x: origin.x + params.x,
-        y: origin.y + params.y,
-      });
+      showContentContextMenu(template, position);
     });
 
     webContents.on('did-create-window', (window) => {

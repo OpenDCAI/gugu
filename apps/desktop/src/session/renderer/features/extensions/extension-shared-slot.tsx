@@ -1,4 +1,4 @@
-import { useContext, useEffect, useRef } from 'react';
+import { useContext, useLayoutEffect, useRef } from 'react';
 import { PageShownContext } from '@renderer/app/recent-session-pages';
 import { AppPeekSlot } from '@/components/appSlot/AppPeekSlot';
 import { ExtensionTabToolbar } from './extension-tab-toolbar';
@@ -38,7 +38,7 @@ export function ExtensionSharedSlot({
 
   // Where it is, and nothing else: the session's own facts (its agent, project, working copy) are main's to read
   // (真源原则 13), and what is on screen is `getAppState()`'s.
-  useEffect(() => {
+  useLayoutEffect(() => {
     const element = slotRef.current;
     if (!element || !shown) return;
     const token = extensionViewStore.claim(tabKind, { ...(sessionId ? { sessionId } : {}), ...(chatId ? { chatId } : {}), ...(itemId ? { itemId } : {}), ...(perSession ? { perSession } : {}), tabId, element });

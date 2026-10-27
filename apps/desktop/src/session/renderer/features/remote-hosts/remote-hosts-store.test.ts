@@ -67,6 +67,13 @@ describe('侧栏那颗点:设备状况 + 到它任务页宿主的线(#6264 一�
   });
 });
 
+describe('protocol mismatch is terminal while the peer heartbeat remains online', () => {
+  it.each(['desktop-too-old', 'server-too-old'] as const)('%s does not remain Connecting', kind => {
+    expect(machineConnectionState({ device: device({ notices: [{ kind }] }), link: 'connecting', synced: false }))
+      .toBe('outdated');
+  });
+});
+
 describe('#137 重连提示里「第几次」的数', () => {
   it('每次从没在拨进到在拨算一次;同一次拨里线状态重复通知不算;连通了清零', () => {
     let dials = 0;
@@ -122,6 +129,12 @@ describe('心跳说那台机器在时,线要不要现在重开', () => {
 
   it('断着的线照旧重开', () => {
     expect(linkNeedsReopen(device(), 'closed', client('closed', null))).toBe(true);
+  });
+
+  it('does not reopen a rejected viewer version on every online heartbeat', () => {
+    expect(linkNeedsReopen(device({ notices: [{ kind: 'desktop-too-old' }] }), 'closed', client('closed', null))).toBe(false);
+    // An upgraded peer that no longer requires a newer viewer can reconnect normally.
+    expect(linkNeedsReopen(device({ notices: [] }), 'closed', client('closed', null))).toBe(true);
   });
 
   it('对面太旧、设备行报的版本已经换了(咕咕 server 换完版):开着的旧线扔掉重开,❌ 等下一拍心跳', () => {

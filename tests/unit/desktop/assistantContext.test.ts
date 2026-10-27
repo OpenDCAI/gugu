@@ -95,6 +95,16 @@ it('loads the dedicated cloud home where the assistant guide and skills actually
   expect(options.strictMcpConfig).toBe(true)
 })
 
+it('enables host idle compaction only for a prepared personal assistant, never its home executors', () => {
+  const prepared = personalAssistantContext(fixture(), 'cloud', { index: '<gugu_resource_index />', guguHome: '/gugu' })
+  expect(prepared.sessionNewPatch!.meta!.guguAssistant).toEqual({ idleCompaction: true })
+  expect(personalAssistantContext(fixture()).sessionNewPatch!.meta!.guguAssistant).toBeUndefined()
+  const childSource = fixture()
+  childSource.sessionNewPatch!.meta!.guguAssistant = { idleCompaction: true }
+  const child = assistantHomeTaskContext(childSource, '/gugu/assistant', '/gugu')
+  expect(child.sessionNewPatch!.meta!.guguAssistant).toBeUndefined()
+})
+
 it('keeps home executors isolated while the host supplies the contract in their work order, auto memory or recovery subscriptions', () => {
   const before = fixture()
   expect(assistantHomeTaskContext(before, '/business', '/gugu')).toBe(before)
@@ -249,6 +259,7 @@ it.each(['computer', 'cloud'] as const)('opens %s with an honest snapshot while 
           : action.action === 'project_list' ? [{ project_id: 'p', name, path: '/work' }] : { items: [] },
     }
     const start = await preparePersonalAssistantContext(fixture(), cwd, root, kind, deps, root)
+    expect(start.sessionNewPatch!.meta!.guguAssistant).toMatchObject({ ownerId: 'owner' })
     const options = (start.sessionNewPatch!.meta!.claudeCode as { options: Record<string, unknown> }).options
     expect((options.systemPrompt as { prompt: string }).prompt).not.toContain('first-project')
     expect(hookIndex(start)).toContain('not_loaded')

@@ -1,6 +1,7 @@
 import { when } from 'mobx';
 import { getSessionPageStore, getSessionView, asProvisioned } from '@renderer/features/sessions/stores/session-selectors';
 import { sessionTabKind } from './session-tab-kind';
+import { workspaceReachLabel } from './workspace-backend/workspace-surface';
 import { sessionRegistry } from './stores/session-registry';
 import { toast } from '@renderer/lib/hooks/use-toast';
 import { translateSessionMessage } from '@renderer/localization/locale-store';
@@ -72,7 +73,7 @@ export function openSessionInSessionWhenReady({
         });
         toast({
           title: translateSessionMessage('sidebar.conversationNotOpenable'),
-          description: translateSessionMessage('sidebar.workspaceNotReady'),
+          description: workspaceReachLabel(projectId) ?? translateSessionMessage('sidebar.workspaceNotReady'),
           variant: 'destructive',
         });
       },

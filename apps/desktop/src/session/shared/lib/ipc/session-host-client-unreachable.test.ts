@@ -12,6 +12,19 @@ afterEach(() => {
 });
 
 describe('session host client: the machine is unreachable', () => {
+  it.each(['client_outdated', 'server_outdated'])('does not retry a rejected protocol window (%s)', async (code) => {
+    vi.useFakeTimers();
+    const open = vi.fn(async () => { throw Object.assign(new Error('protocol mismatch'), { code }); });
+    const failed = vi.fn();
+    const client = createSessionHostClient(open, { onOpenFailed: failed });
+    try {
+      await expect(client.api.invoke('any.channel')).rejects.toMatchObject({ code });
+      await vi.advanceTimersByTimeAsync(10 * 60_000);
+      expect(open).toHaveBeenCalledTimes(1);
+      expect(failed).toHaveBeenCalledTimes(1);
+    } finally { client.close(); }
+  });
+
   it('stays closed without retrying or warning, and opens at once on reconnectNow', async () => {
     vi.useFakeTimers();
     let reachable = false;

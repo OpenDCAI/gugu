@@ -1,6 +1,7 @@
-import { useCallback, useEffect, useLayoutEffect, useMemo, useRef } from 'react'
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import { formatAttachmentSize } from '@gugu/core/shared/ui/attachmentModels'
+import { resolveReplyDelivery } from '@gugu/core/shared/replyDelivery'
 import { ChatComposer, MessageProvider, type ComposerAttachment, type MentionItem, type PromptEditorRef } from '@gugu/session-ui/react/components'
 import { ThemeProvider } from '@gugu/session-ui/react/primitives'
 import { useLocale } from '@/i18n'
@@ -36,6 +37,7 @@ import { projectGroupMainLine } from './projectGroupMentionModels'
 import type { ChatMessageComposerProps } from './chatComposerModels'
 import { usePhoneNewTask } from '../../mobile/chat/PhoneNewTask'
 export type { ComposerAttachAction } from './ComposerAttachButton'
+export type { ChatMessageComposerProps } from './chatComposerModels'
 
 const EMPTY_MEMBERS: NonNullable<ChatMessageComposerProps['groupMembers']> = []
 const EMPTY_STATUSES: NonNullable<ChatMessageComposerProps['agentStatuses']> = {}
@@ -43,10 +45,24 @@ const EMPTY_MESSAGES: NonNullable<ChatMessageComposerProps['messages']> = []
 
 /** Chat-specific delivery and context around the same editor used by ACP tasks. */
 export function ChatMessageComposer(props: ChatMessageComposerProps) {
-  const { chatId, isGroupChat, groupMembers = EMPTY_MEMBERS, currentUserId, agentStatuses = EMPTY_STATUSES, disabled = false, disabledReason,
-    placeholder, attachGlyph, attachMenu, mentionToInsert, onMentionInserted, quoteContent,
-    whisperTarget, messages = EMPTY_MESSAGES, participantIds, surface = 'main', hidden = false } = props
+  const { chatId, isGroupChat, groupMembers = EMPTY_MEMBERS, currentUserId, agentStatuses = EMPTY_STATUSES,
+    placeholder, attachGlyph, attachMenu, mentionToInsert, onMentionInserted, quoteContent, onExitWhisper: exitWhisper,
+    messages = EMPTY_MESSAGES, participantIds, surface = 'main', hidden = false } = props
+  const [publicQuote, setPublicQuote] = useState<typeof quoteContent>(null)
+  const replySource = quoteContent?.source
+  const delivery = resolveReplyDelivery({ senderUserId: currentUserId, source: replySource,
+    toUserIds: props.whisperTarget ? [props.whisperTarget.userId] : [],
+    whisper: props.whisperTarget ? true : quoteContent && publicQuote === quoteContent ? false : undefined })
+  const privatePeer = delivery?.isWhisper ? delivery.toUserIds[0] : undefined
+  const whisperTarget = useMemo(() => privatePeer ? { userId: privatePeer, displayName: groupMembers.find((member) => member.id === privatePeer)?.name
+    ?? (props.whisperTarget?.userId === privatePeer ? props.whisperTarget.displayName : quoteContent?.senderName ?? privatePeer) } : null,
+  [privatePeer, groupMembers, props.whisperTarget, quoteContent?.senderName])
+  const onExitWhisper = useCallback(() => { setPublicQuote(quoteContent); exitWhisper?.() }, [quoteContent, exitWhisper])
+  const deliveryProps = { ...props, whisperTarget, onExitWhisper }
   const { t } = useTranslation('messaging')
+  const replyUnavailable = !delivery || (!!quoteContent?.messageId && !replySource)
+  const disabled = props.disabled || replyUnavailable
+  const disabledReason = replyUnavailable ? t('composer.replyUnavailable') : props.disabledReason
   const { resolvedLocale } = useLocale()
   const { theme } = useTheme()
   const mobile = useMobileShell()
@@ -73,7 +89,7 @@ export function ChatMessageComposer(props: ChatMessageComposerProps) {
     ...mainLine.roster.filter((member) => member.id !== currentUserId).map((member) => ({ ...member, alias: contacts.find((contact) => contact.id === member.id)?.alias })),
   ] : [], [isGroupChat, mainLine, currentUserId, contacts, t])
   const activeTargets = activeMentionPicks(text, mentionTargets, members)
-  const { sending, handleSend } = useChatMessageSend({ ...props, groupMembers: mainLine.roster }, draft, members, activeTargets, inputRef)
+  const { sending, handleSend } = useChatMessageSend({ ...deliveryProps, groupMembers: mainLine.roster, disabled, disabledReason }, draft, members, activeTargets, inputRef)
   const { byEngine, renderMentionIcon: renderSessionMentionIcon } = useSessionAgentCreationTools()
   const renderMentionIcon = useCallback<NonNullable<Parameters<typeof ChatComposer>[0]['renderMentionIcon']>>((attrs) => {
     if (attrs.id === MENTION_ALL_USER_ID) return <Avatar name={attrs.name ?? attrs.label} size={14} variant="group"
@@ -151,7 +167,7 @@ export function ChatMessageComposer(props: ChatMessageComposerProps) {
     <MessageProvider locale={resolvedLocale} translate={translateSessionMessage}>
       <div title={disabledReason} data-chat-composer-host="" data-mobile-group={mobile && isGroupChat || undefined} data-phone-task={phoneTask.active || undefined} data-sending={sending} hidden={hidden || takenOver}>
         <input ref={fileInputRef} type="file" multiple hidden onChange={(event) => { enqueueFiles(Array.from(event.target.files ?? [])); event.target.value = '' }} />
-        <ChatComposerContextBands {...props} />
+        <ChatComposerContextBands {...deliveryProps} />
         <AgentMentionSelectionNotice members={members} mentionTargets={activeTargets} agentStatuses={agentStatuses} />
         {invitation}
         {phoneTask.overlay}

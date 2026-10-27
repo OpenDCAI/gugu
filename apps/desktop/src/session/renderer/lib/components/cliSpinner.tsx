@@ -1,4 +1,6 @@
-import { useEffect, useState } from 'react';
+import { useContext, useEffect, useRef, useState } from 'react';
+import { observeAnimationViewport } from '@gugu/session-shared/animation-visibility';
+import { PageShownContext } from '@renderer/app/recent-session-pages';
 
 const FRAMES_1 = ['⠋', '⠙', '⠹', '⠸', '⠼', '⠴', '⠦', '⠧', '⠇', '⠏'];
 const FRAMES_2 = [
@@ -46,17 +48,28 @@ export function CLISpinner({
   animate?: boolean;
 }) {
   const [index, setIndex] = useState(0);
+  const element = useRef<HTMLSpanElement>(null);
+  const shown = useContext(PageShownContext);
 
   useEffect(() => {
-    if (!animate) return;
-    const interval = setInterval(() => {
-      setIndex((index + 1) % (variant === '1' ? FRAMES_1.length : FRAMES_2.length));
-    }, 80);
-    return () => clearInterval(interval);
-  }, [index, variant, animate]);
+    const host = element.current;
+    if (!animate || !shown || !host) return;
+    const view: Window = host.ownerDocument.defaultView!;
+    let interval: number | undefined;
+    const stopViewport = observeAnimationViewport(host, (visible) => {
+      view.clearInterval(interval);
+      interval = undefined;
+      if (visible) {
+        interval = view.setInterval(() => {
+          setIndex((index) => (index + 1) % (variant === '1' ? FRAMES_1.length : FRAMES_2.length));
+        }, 80);
+      }
+    });
+    return () => { view.clearInterval(interval); stopViewport(); };
+  }, [variant, animate, shown]);
 
   return (
-    <span className="text-foreground/60" data-animate={animate ? undefined : 'false'}>
+    <span ref={element} className="text-foreground/60" data-animate={animate ? undefined : 'false'}>
       {!animate ? CLI_SPINNER_PAUSED_FRAME : variant === '1' ? FRAMES_1[index] : FRAMES_2[index]}
     </span>
   );

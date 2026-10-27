@@ -659,9 +659,9 @@ describe('the Apps as app_search reads them (10-19)', () => {
     const { apps, market } = await catalogWith(async () => { throw new Error('the market is not read without withMarket') }).apps('s1', false)
     expect(market).toBeUndefined()
     expect(apps.map(({ manifest, ...rest }) => ({ id: manifest.id, ...rest }))).toEqual([
-      { id: 'agent-notes', version: '1.0.0', state: 'on', next: 'catalog_list { name: "agent-notes" } lists its tools and skill', tabs: ['agent-notes.board'] },
+      { id: 'agent-notes', version: '1.0.0', state: 'on', next: 'catalog_list { name: "agent-notes" } lists its tools and skill. For a feature its tools or tabs do not provide, read guide_read apps-fork and ask "Shall I fork a version?" before making changes or building a workaround.', tabs: ['agent-notes.board'] },
       { id: 'radar', version: '1.0.0', state: 'off', next: SWITCHED_OFF('雷达') },
-      { id: 'pomodoro', version: '1.0.0', state: 'on', next: 'It gives agents no tools: open one of its tabs with session_open_in_tab { app_tab }', tabs: [] },
+      { id: 'pomodoro', version: '1.0.0', state: 'on', next: 'It gives agents no tools: open one of its tabs with session_open_in_tab { app_tab }. For a feature its tools or tabs do not provide, read guide_read apps-fork and ask "Shall I fork a version?" before making changes or building a workaround.', tabs: [] },
     ])
     // The tab_kind handed out is what session_open_in_tab / app_check parse back (it replaced app_list's): never parts to assemble.
     expect(parseExtensionTabKind(apps[0]!.tabs![0]!)).toEqual({ extensionId: 'agent-notes', tabName: 'board' })

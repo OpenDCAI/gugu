@@ -17,7 +17,7 @@ import { packExtensionArchive } from './extension-archive';
 const state = vi.hoisted(() => ({ service: null as unknown, userData: '' }));
 const ME = '0a000000-0000-4000-8000-00000000000a';
 vi.mock('electron', () => ({ app: { getPath: () => state.userData } }));
-vi.mock('./extensions-root', () => ({ extensionsService: () => state.service }));
+vi.mock('./extensions-root', () => ({ extensionsService: () => state.service, appSourcesRoot: () => path.join(state.userData, 'app-sources') }));
 vi.mock('./app-files', () => ({ folderPublisher: async () => ({ id: ME }) }));
 
 const { runExtensionAgentAction } = await import('./extension-agent-actions');
