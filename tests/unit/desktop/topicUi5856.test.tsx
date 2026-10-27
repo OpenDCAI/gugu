@@ -15,7 +15,7 @@ import * as attachmentReader from '../../../apps/desktop/src/lib/attachmentBytes
 import { attachmentQueryClient } from '../../../apps/desktop/src/lib/attachmentQueryClient'
 
 import type { TopicSummary } from '@gugu/core/shared/types/chat'
-import { createNode, createReactHarness, clickElement, deferred, message, renderWithAppProviders } from '../../support/testHarness'
+import { createNode, createReactHarness, clickElement, deferred, message, renderWithAppProviders, typeInto } from '../../support/testHarness'
 
 const listTopicsOfChat = vi.fn<(sourceChatId: string) => Promise<TopicSummary[]>>()
 vi.mock('../../../apps/desktop/src/lib/topics', () => ({
@@ -29,6 +29,7 @@ const { TopicAnchorCard } = await import('../../../apps/desktop/src/components/c
 const { TopicBreadcrumb } = await import('../../../apps/desktop/src/components/chat/TopicBreadcrumb')
 const { TopicSplitPane } = await import('../../../apps/desktop/src/components/chat/TopicSplitPane')
 const { UI_EVENTS } = await import('../../../apps/desktop/src/lib/uiEvents')
+const { commandRegistry } = await import('../../../apps/desktop/src/session/renderer/lib/commands/registry')
 const { quotePrefixOf, canSourceTopic, maxTopicSplitWidthForAvailableWidth, TOPIC_SPLIT_MIN_WIDTH, TOPIC_SPLIT_MAX_WIDTH } = await import('../../../apps/desktop/src/components/chat/topicSplitModels')
 const { chatDisplayName } = await import('@gugu/core/shared/ui/chatModels')
 const { withSourceLineCandidates } = await import('../../../apps/desktop/src/lib/mention')
@@ -303,6 +304,32 @@ describe('TopicSplitPane 是分栏，不是话题的开关', () => {
       }
     })
   }
+
+  it('keeps focused topic Find, filtering and highlighting without a header search button', async () => {
+    await renderWithAppProviders(harness, createNode(TopicSplitPane, {
+      ...baseProps, viewportKey: 'review-topic',
+      messages: [message({ id: 'topic-hit', content: 'topic needle' }), message({ id: 'topic-miss', content: 'other text' })],
+    }))
+    await act(async () => { window.dispatchEvent(new CustomEvent(UI_EVENTS.openChatSearch, { detail: { viewportKey: 'review-main' } })) })
+    expect(harness.container.querySelector('[data-testid="chat-header-search-input"]')).toBeNull()
+    const composer = harness.container.querySelector<HTMLElement>('[data-testid="chat-composer-aside"]')!
+    try {
+      await act(async () => {
+        commandRegistry.setContext(composer)
+        expect(commandRegistry.dispatch('app.find')).toBe(true)
+      })
+      const input = harness.container.querySelector<HTMLInputElement>('[data-testid="chat-header-search-input"]')!
+      expect(input).not.toBeNull()
+      await typeInto(input, 'needle')
+      expect(harness.container.querySelector('[data-msg-id="topic-hit"]')).not.toBeNull()
+      expect(harness.container.querySelector('[data-msg-id="topic-miss"]')).toBeNull()
+      expect(harness.container.querySelector('mark')?.textContent).toBe('needle')
+      expect(harness.container.querySelector('[data-testid="topic-split-more"]')).toBeNull()
+      await act(async () => { input.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true })) })
+      expect(harness.container.querySelector('[data-testid="chat-header-search-input"]')).toBeNull()
+      expect(harness.container.querySelector('[data-msg-id="topic-miss"]')).not.toBeNull()
+    } finally { commandRegistry.setContext(document.body) }
+  })
 
   // 2026-09-24 shuxue:「我在 topic 里面点不开你发的附件」。分栏复用 MessageList 却没接 onOpenFile ⇒
   // 文件卡的按钮点了什么都不发生(主线那边是接了的)。反例:不接时确实点不出任何调用 —— 证明这一格判得出缺失。

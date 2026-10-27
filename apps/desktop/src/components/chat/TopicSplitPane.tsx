@@ -43,6 +43,8 @@ import { useConversationScrollMemory } from './useConversationScrollMemory'
 import { ChatTailNotice } from './ChatTailNotice'
 import { MessageLoadFailure } from './MessageLoadFailure'
 import { MessageListSkeleton } from './MessageListSkeleton'
+import { ChatSearchControls } from './ChatSearch'
+import { useChatSearch } from './useChatSearch'
 
 /**
  * @@@5856 话题分栏 —— 右侧那条独立收发的话题线(product spec)。
@@ -251,9 +253,11 @@ export function TopicSplitPane({ viewportKey = 'topic', navigationTarget = false
 
   // 列表行与主线共用历史窗口和分页;分栏没有多选。
   // 已读环有 —— 水位由 useChatConversation 按**这条话题**自己拉,拉不到时是空表(空表就不出环)。
+  const search = useChatSearch(topic.chatId, visible !== false, messages, paneRef, viewportKey)
+  const { searchMode, searchQuery, isFiltering, displayedMessages } = search
   const rows = useMemo<ChatListRowItem[]>(
-    () => visibleDeliveryMessages(messages, messages).map((message) => ({ type: 'message' as const, message })),
-    [messages],
+    () => visibleDeliveryMessages(displayedMessages, messages).map((message) => ({ type: 'message' as const, message })),
+    [displayedMessages, messages],
   )
   const listRef = useRef<FlowListHandle | null>(null)
   const isAtBottomRef = useRef(true)
@@ -263,22 +267,22 @@ export function TopicSplitPane({ viewportKey = 'topic', navigationTarget = false
   const { toast } = useToast()
   const chatResetKey = `${topic.chatId}#${messageWindow.viewVersion}`
   const { scrollerEl, scrollerRef, setScrollerRef, isPreservingPosition, prepareForSavedPosition, forgetSavedPosition, openLocation, revealMessage } = useConversationScrollMemory({
-    chatId: topic.chatId, viewportKey, activationKey: topic.chatId, enabled: visible !== false, discardSaved: !!history.unreadEntry,
+    chatId: topic.chatId, viewportKey, activationKey: topic.chatId, enabled: visible !== false && !isFiltering, discardSaved: !!history.unreadEntry,
     messageIds: rows.map((row) => row.message.id), isAtBottomRef, setFollowingTail, loadMessageAnchor,
   })
   const onHistoryError = useCallback((error: unknown) => toast(error instanceof Error ? error.message : String(error), 'error'), [toast])
-  const unreadNavigationPending = useUnreadLocatorNavigation({ revealMessage, activeChatId: topic.chatId, enabled: visible !== false,
-    scrollerRef, setFlashMessageId, flashTimerRef })
+  const unreadNavigationPending = useUnreadLocatorNavigation({ revealMessage, activeChatId: topic.chatId, enabled: visible !== false && !isFiltering,
+    onNavigate: () => search.setSearchMode(false), scrollerRef, setFlashMessageId, flashTimerRef })
   const { viewportAtBottom, onAtBottomChange } = useFollowingTail({ resetKey: chatResetKey, unreadNavigationPending: !!unreadNavigationPending,
     hasNewer: messageWindow.hasNewer, loading: !!messageWindow.loading, isPreservingPosition, isAtBottomRef, setFollowingTail })
-  useChatHistoryPagination({ resetKey: chatResetKey, messages, enabled: visible !== false && !unreadNavigationPending,
+  useChatHistoryPagination({ resetKey: chatResetKey, messages, enabled: visible !== false && !isFiltering && !unreadNavigationPending,
     scroller: scrollerEl, atBottom: viewportAtBottom, loadOlder: history.loadOlderMessages, loadNewer: history.loadNewerMessages, window: messageWindow, onError: onHistoryError })
   const { pinToBottom, onTotalListHeightChanged } = useTailPinning({ resetKey: chatResetKey, messages,
-    enabled: visible !== false && !unreadNavigationPending, messageWindow, scrollerEl, scrollerRef, listRef, isAtBottomRef,
+    enabled: visible !== false && !isFiltering && !unreadNavigationPending, messageWindow, scrollerEl, scrollerRef, listRef, isAtBottomRef,
     isPreservingPosition, prepareForSavedPosition, forgetSavedPosition, returnToLatest: history.returnToLatestMessages, onError: onHistoryError })
   const showMessage = useSourceMessageReveal({
-    viewportKey, navigationTarget, enabled: visible !== false,
-    activeChatId: topic.chatId, 
+    viewportKey, navigationTarget, enabled: visible !== false, ready: !isFiltering,
+    activeChatId: topic.chatId, onNavigate: () => search.setSearchMode(false),
     rows, listRef, isAtBottomRef, setFollowingTail, setFlashMessageId, flashTimerRef, revealMessage,
     onMissing: () => toast(t('chatArea.source.notVisible'), 'error'),
   })
@@ -286,7 +290,7 @@ export function TopicSplitPane({ viewportKey = 'topic', navigationTarget = false
   const rowProps = useMemo<MessageListRowProps>(() => ({
     rows,
     messages,
-    isFiltering: false,
+    isFiltering,
     mobile,
     memberReadSeqs,
     isAgentChat: false,
@@ -313,14 +317,14 @@ export function TopicSplitPane({ viewportKey = 'topic', navigationTarget = false
     // (spec「必须有来源」:话题上不再开话题)。MessageBubble 的菜单项只在收到这个 handler 时才画。
     onOpenTopic: undefined, topicAnchors: undefined, onOpenTopicAnchor: undefined,
     // 本地文件链接只有 agent 私聊映射得到(useAgentSessionpagePresentation);搜索、三方、自动调档提示是主线的面。
-    onOpenLocalFileLink: undefined, highlight: undefined, threeParty: undefined, agentFloodNoticeMessageId: undefined, onAgentFloodUndone: undefined,
+    onOpenLocalFileLink: undefined, highlight: isFiltering ? searchQuery : undefined, threeParty: undefined, agentFloodNoticeMessageId: undefined, onAgentFloodUndone: undefined,
     // 分栏没有多选态 ⇒ 不给「多选」菜单项(给 noop 就是一个点了没反应的死项)。
     selectMode: false,
     selectedIds: EMPTY_SELECTION,
     onToggleSelect: noop,
     onEnterSelectMode: undefined,
     flashMessageId,
-  }), [showMessage, rows, messages, mobile, memberReadSeqs, memberProfiles, onOpenMemberProfile, onOpenAttachment, onShowReadReceipt, onReaction, onForward, onDelete, topic.chatId, flashMessageId, history, visible])
+  }), [showMessage, rows, messages, mobile, memberReadSeqs, memberProfiles, onOpenMemberProfile, onOpenAttachment, onShowReadReceipt, onReaction, onForward, onDelete, topic.chatId, flashMessageId, history, visible, isFiltering, searchQuery])
 
   useBackLayer(onClose, mobile && !inTab)
   const headerTitle = <TopicBreadcrumb topicName={topic.name} sourceMessagePreview={sourceMessagePreview} />
@@ -368,6 +372,7 @@ export function TopicSplitPane({ viewportKey = 'topic', navigationTarget = false
         </div>
         )}
 
+        {searchMode && <PaneHeader><ChatSearchControls search={search} /></PaneHeader>}
         <div
           data-testid="topic-split-messages"
           style={TOPIC_SPLIT_MESSAGES_STYLE}
@@ -376,7 +381,7 @@ export function TopicSplitPane({ viewportKey = 'topic', navigationTarget = false
           {history.messagesError && !(loading && messages.length === 0) && <MessageLoadFailure error={history.messagesError}
             inline={messages.length > 0} onRetry={() => history.refreshMessages()} />}
           {!loading && !history.messagesError && rows.length === 0 && <div data-testid="topic-split-empty" style={TOPIC_SPLIT_EMPTY_STYLE}>
-            {t('topic.pane.empty')}
+            {isFiltering ? t('chatArea.searchNoResults', { query: searchQuery }) : t('topic.pane.empty')}
           </div>}
           {rows.length > 0 && (
             // @@@5856 用主线那一份消息列表,❌ 不再自己 map + 手写贴底。
@@ -400,7 +405,7 @@ export function TopicSplitPane({ viewportKey = 'topic', navigationTarget = false
             />
           )}
         </div>
-        <ChatTailNotice window={messageWindow} hidden={false} onClick={pinToBottom} />
+        <ChatTailNotice window={messageWindow} hidden={searchMode} onClick={pinToBottom} />
 
         {/* @@@5856 用主线那一份 ChatMessageComposer,❌ 不再自造一个轻量输入框。
             自造的那份缺发送键、缺 @ 候选弹窗、缺草稿与附件 —— 这些原件早就解决过,
