@@ -1,20 +1,18 @@
 import { beforeEach, expect, it, vi } from 'vitest'
 const state = vi.hoisted(() => ({
-  mobile: false, owner: 'owner', devices: [{ device_id: 'here', is_current_device: true }, { device_id: 'other', is_current_device: false }],
+  owner: 'owner', devices: [{ device_id: 'here', is_current_device: true }, { device_id: 'other', is_current_device: false }],
   known: true, variants: vi.fn(), select: vi.fn(), navigate: vi.fn(), reveal: vi.fn(), rpcOn: vi.fn(),
 }))
 vi.mock('@/store/devicesCache', () => ({ cachedDevicesAccount: () => state.owner, readCachedDevices: () => state.devices }))
-vi.mock('@/hooks/useMobileShell', () => ({ readMobileShell: () => state.mobile }))
 vi.mock('@/hooks/useSessionpageReveal', () => ({ revealSessionpage: state.reveal }))
 vi.mock('@renderer/lib/ipc', () => ({ rpcOn: state.rpcOn }))
 vi.mock('@renderer/lib/stores/app-state', () => ({ appState: { navigation: { navigate: state.navigate } } }))
 vi.mock('@renderer/features/remote-hosts/device-scope-store', () => ({ LOCAL_DEVICE_SCOPE: 'local', libraryDeviceStore: { select: state.select } }))
 vi.mock('@renderer/features/remote-hosts/remote-hosts-store', () => ({ remoteHostsStore: { device: () => state.known ? {} : null } }))
-vi.mock('@renderer/localization/locale-store', () => ({ translateSessionMessage: () => 'Open on desktop or send this URL to an agent.' }))
 const { openAppDetailLink } = await import('../../../../apps/desktop/src/session/renderer/features/apps/app-detail-link')
 const target = { kind: 'app-detail' as const, extensionId: 'kanban', deviceId: 'other', variant: 'mine' }
 beforeEach(() => {
-  vi.clearAllMocks(); state.mobile = false; state.owner = 'owner'; state.known = true
+  vi.clearAllMocks(); state.owner = 'owner'; state.known = true
   state.variants.mockResolvedValue({ success: true, data: { variants: [{ name: 'mine' }] } })
   state.rpcOn.mockReturnValue({ extensions: { variants: state.variants } })
 })
@@ -40,9 +38,4 @@ it.each(['unknown', 'foreign-account', 'unavailable', 'missing-variant'])('refus
 it('does not navigate after the caller changes while the device answers', async () => {
   await openAppDetailLink(target, 'owner', () => false)
   expect(state.select).not.toHaveBeenCalled()
-})
-it('phone remote details have a concrete next step without querying a local App', async () => {
-  state.mobile = true
-  await expect(openAppDetailLink(target, 'owner')).rejects.toThrow('send this URL')
-  expect(state.rpcOn).not.toHaveBeenCalled(); expect(state.navigate).not.toHaveBeenCalled()
 })

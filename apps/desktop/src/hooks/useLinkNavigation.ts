@@ -64,9 +64,16 @@ export function useLinkNavigation(input: {
         return { chat: chatId }
       }
       if (target.kind === 'app-detail') {
-        const { openAppDetailLink } = await import('../session/renderer/features/apps/app-detail-link')
-        if (readMobileShell() && state.openAppDetail) await state.openAppDetail(target)
-        else await openAppDetailLink(target, state.ownerId, () => asked === generation && current.current.ownerId === state.ownerId)
+        if (readMobileShell()) {
+          if (!state.openAppDetail) {
+            const { translateSessionMessage } = await import('../session/renderer/localization/locale-store')
+            throw new Error(translateSessionMessage('extensions.appLinkOnPhone'))
+          }
+          await state.openAppDetail(target)
+        } else {
+          const { openAppDetailLink } = await import('../session/renderer/features/apps/app-detail-link')
+          await openAppDetailLink(target, state.ownerId, () => asked === generation && current.current.ownerId === state.ownerId)
+        }
         return
       }
       if (target.kind === 'session') {
