@@ -30,6 +30,20 @@ function viewer() {
 }
 
 describe('host file viewer menu', () => {
+  it('keeps one file resource pair and its version captured before a different file replaces the preview', async () => {
+    const root = viewer(), writeText = vi.fn(async (_text: string) => {})
+    Object.defineProperty(navigator, 'clipboard', { value: { writeText }, configurable: true })
+    const resource = { kind: 'file' as const, target: { kind: 'file' as const, itemId: '12345678-1234-1234-1234-123456789abc', version: 2 } }
+    let current = { quote: vi.fn(), resource }
+    const dispose = bindFileViewerMenu(root, () => current, vi.fn())
+    const context = execute(viewerContextScript({ x: 20, y: 30, isEditable: false }, 'resource', { text: '' }))
+    expect(context.resourceActions.map((item: { id: string }) => item.id)).toEqual(['copy-resource-url', 'send-resource-url'])
+    current = { quote: vi.fn(), resource: { ...resource, target: { ...resource.target, version: 3 } } }
+    execute(viewerActionScript(context, 'copy-resource-url'))
+    await Promise.resolve()
+    expect(writeText).toHaveBeenCalledWith('gugu-file://12345678-1234-1234-1234-123456789abc?v=2')
+    dispose()
+  })
   it('flushes pending composer input in capture before delivering the existing file-reference payload', async () => {
     vi.mocked(getRendererSession).mockReturnValue({ access_token: 'test-token', user: { id: 'owner' } } as ReturnType<typeof getRendererSession>)
     const detail = { chatId: 'chat', text: '> beta', refs: [{ label: 'file.md', link: 'gugu-file://file?v=2' }] }

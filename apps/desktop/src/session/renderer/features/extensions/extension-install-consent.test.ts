@@ -187,3 +187,19 @@ afterEach(() => {
   vi.useRealTimers();
   vi.unstubAllGlobals();
 });
+
+
+it('fork removal names the App, device and slug, keeps program details and waits for a human', async () => {
+  const details = { label: 'Commands', caption: 'Runs on this device', lines: ['node tools.mjs'] };
+  consentPrompt.mockImplementationOnce(() => ({ title: 'Install Reader?', description: 'New program permission', confirmLabel: 'Install', variant: 'default', details }));
+  const pending = ask({ machine: 'Remote host', removeVariant: { name: 'my-fork', active: true } });
+  const shown = events[0] as Ask;
+  expect(shown.title).toContain('my-fork|Reader|extensions.permissionsOnMachine:Remote host');
+  expect(shown.description).toContain('extensions.removeActiveVariantBody');
+  expect(shown.description).toContain('New program permission');
+  expect(shown.details).toEqual(details);
+  expect(shown.confirmLabel).toBe('extensions.removeVariantConfirm');
+  expect(await settled(pending)).toEqual(stillOpen);
+  answer(shown.requestId, 'declined');
+  await expect(pending).resolves.toEqual({ outcome: 'declined' });
+});

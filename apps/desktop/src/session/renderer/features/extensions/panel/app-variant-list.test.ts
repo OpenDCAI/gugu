@@ -3,6 +3,10 @@ import React, { act } from 'react';
 import { createRoot, type Root } from 'react-dom/client';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { AppVariantList, type AppVariantRow } from './app-variant-list';
+import type { ResourceContext } from '@shared/resource-actions';
+
+const contexts = vi.hoisted(() => [] as ResourceContext[]);
+vi.mock('@/components/ResourceMenu', () => ({ ResourceMenu: ({ resource, children }: { resource: ResourceContext; children: React.ReactNode }) => { contexts.push(resource); return children; } }));
 
 const variants: AppVariantRow[] = [
   { name: 'upstream', base: '1.0.0', dir: null },
@@ -19,6 +23,7 @@ describe('App variants', () => {
 
   beforeEach(() => {
     vi.clearAllMocks();
+    contexts.length = 0;
     dom = new JSDOM('<!doctype html><html><body><div id="root"></div></body></html>');
     for (const key of ['window', 'document', 'HTMLElement', 'HTMLInputElement', 'HTMLButtonElement', 'Element', 'Node', 'navigator', 'MutationObserver'] as const) {
       vi.stubGlobal(key, dom.window[key]);
@@ -60,5 +65,14 @@ describe('App variants', () => {
     expect([...choices].map((choice) => choice.getAttribute('aria-disabled'))).toEqual(['true', 'true']);
     await act(async () => choices[0]!.click());
     expect(onSwitch).not.toHaveBeenCalled();
+  });
+
+  it('keeps active-fork lag out of another, newer variant menu', async () => {
+    await act(async () => root.render(React.createElement(AppVariantList, {
+      active: 'timeline', variants: [...variants, { name: 'fresh', base: '2.0.0', dir: '/work/board@fresh' }], disabled: false, translate, onSwitch,
+      resource: { kind: 'app', target: { kind: 'app-detail', extensionId: 'board', deviceId: 'device' }, facts: ['behind'] },
+    })));
+    expect(contexts.find(row => row.target.kind === 'app-detail' && row.target.variant === 'timeline')?.facts).toContain('behind');
+    expect(contexts.find(row => row.target.kind === 'app-detail' && row.target.variant === 'fresh')?.facts).toEqual(['fork']);
   });
 });

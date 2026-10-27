@@ -34,6 +34,7 @@ vi.mock('@main/core/extensions/extensions-root', () => ({
   appSourcesRoot: () => path.join(workDir, 'app-sources'),
   extensionsService: () => ({
     approvedManifest: (id: string) => list().extensions.find((entry: {manifest: {id: string}}) => entry.manifest.id === id).manifest,
+    isInstalled: (id: string) => list().extensions.some((entry: { manifest: { id: string } }) => entry.manifest.id === id),
     variants: () => ({ active: 'upstream', variants: [] }),
     inspectDirectory,
     installFromDirectory,
@@ -1369,6 +1370,12 @@ describe('app_install { market }', () => {
     discard: vi.fn(),
   });
   const quietly = { notifyInstalledChanged: vi.fn().mockResolvedValue(undefined), afterInstall: vi.fn() };
+
+  it('reads a device-scoped market App before it is installed (L11)', async () => {
+    const market = marketWith({ reader: offered(reader) });
+    expect(await runExtensionAgentAction({ action: 'manage', operation: 'read', url: 'gugu://app/reader?device=00000000-0000-4000-8000-000000000001' }, { market })).toMatchObject({ manifest: reader });
+    expect(market.entry).toHaveBeenCalledWith('reader');
+  });
 
   it("fetches this machine's version, asks with where its code is, and installs it as the market's — not the agent's folder", async () => {
     const market = marketWith({ reader: offered(reader) });

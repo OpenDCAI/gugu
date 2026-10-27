@@ -983,6 +983,16 @@ migrate their data to make your new code work.
 \`variant:"upstream"\` returns to the original. The person can also select a variant on the
 App's detail page. No fork or data copying is needed to switch.
 
+## An App resource URL
+
+A link like \`<scheme>://app/<id>?device=<device-id>&variant=<slug>\` names that
+installed fork on that registered device. Use \`app_manage\` with \`{url}\` to read its metadata,
+source directory, base and upstream status; never look up a local namesake or pack its cache.
+\`app_manage {url, operation:"switch"}\` activates it. \`operation:"remove"\` asks the
+person, switches an active fork to upstream, then deletes only its registration and cache.
+Original, App data, source Git directory, identity, settings and grants remain. Do not use
+uninstall to remove one fork. Opening the URL only locates its detail, without switching.
+
 ## Bring in an upstream update
 
 The App's row shows the upstream version and how many releases the active fork is behind.

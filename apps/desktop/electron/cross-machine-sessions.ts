@@ -59,6 +59,7 @@ export function remoteActionTimeoutMs(action: { action: string; force?: unknown 
     case 'app_call':
       return appCallWaitMs({ method: String((action as { method?: unknown }).method) })
     // app_install { device }:那台机器下载、校验,再等人点头(人的那口钟)—— 那口钟落定之前它总会回话。
+    case 'app_manage':
     case 'app_install':
       return INSTALL_CONSENT_HUMAN_WINDOW_MS + 30_000
     case 'list_models':

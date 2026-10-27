@@ -1,3 +1,4 @@
+import { composeChatDraft } from '@/lib/composeDraft';
 import { openLinkTarget } from '@/lib/guguLinks';
 import { rpc } from '@renderer/lib/ipc';
 import { desktopIpc } from '@/platform/desktopIpc';
@@ -25,10 +26,8 @@ import {
   type ExtensionInstallConsentResult,
 } from '@shared/extensions/host-actions';
 import {
-  APP_COMPOSE_EVENT,
   APP_FORUM_CONSENT_EVENT,
   APP_OPEN_WITH_EVENT,
-  type AppComposeDetail,
 } from '@shared/extensions/app-runtime-protocol';
 import type { DispatchAsk } from '@shared/extensions/app-dispatch-core';
 import { openApp } from './app-dock';
@@ -199,7 +198,7 @@ function perform(sessionId: string | null, tabId: string, action: ExtensionHostA
       // A chat's: the chat shell takes it (MainLayout: its draft, the chat brought up), as the phone's page gives it.
       if ('detail' in action) {
         // Capture flushes pending typing before the shell appends during bubbling.
-        document.dispatchEvent(new CustomEvent<AppComposeDetail>(APP_COMPOSE_EVENT, { detail: action.detail, bubbles: true }));
+        composeChatDraft(action.detail);
         return;
       }
       // A session's: main brought it on screen; its composer takes the text once its conversation is open there.

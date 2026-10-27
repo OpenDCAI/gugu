@@ -62,6 +62,8 @@ function Close({
 /** Gugu popover composition: Base UI owns dismissal/positioning, call sites own content. */
 export const Popover = {
   Root: PopoverPrimitive.Root,
+  Title: PopoverPrimitive.Title,
+  Description: PopoverPrimitive.Description,
   Trigger: PopoverPrimitive.Trigger,
   createHandle: PopoverPrimitive.createHandle,
   Portal,

@@ -863,6 +863,25 @@ export default {
       }
     }
   },
+  "resources": {
+    "copyUrl": "复制咕咕 URL",
+    "sendTo": "复制 URL 并发给…",
+    "appUnderstand": "了解 App", "appUnderstandText": "说明这个 App 能做什么。",
+    "appFork": "定制", "appForkText": "先问我想改什么，经我确认后 fork 这个 App。",
+    "appImprove": "提建议", "appImproveText": "帮我向这个 App 提出改进建议。",
+    "forkRequest": "向上游提需求", "forkRequestText": "帮我把这个 fork 的改动向上游作者提建议。",
+    "forkMerge": "合并上游", "forkMergeText": "把上游合进这个 fork。先对比 fork 相对原始基点的改动，保留并逐项核对这些改动和已有数据，再重装并检查。",
+    "forkRemove": "删除 fork", "forkRemoveText": "先征求我的确认，再删除这个 fork，保留数据和源码仓库。",
+    "fileSummary": "概括", "fileSummaryText": "概括这个文件。",
+    "fileCheck": "检查", "fileCheckText": "检查这个文件有没有问题。",
+    "fileEdit": "修改", "fileEditText": "先问我想怎么修改这个文件。",
+    "helpTitle": "交给 agent 管理",
+    "helpDescription": "fork 单独保留你的改动。把它的 URL 发给 agent，就能提需求、合并上游或删除。",
+    "helpCopy": "复制变体的 URL",
+    "helpSend": "选一个 agent",
+    "helpAsk": "补上要做的事",
+    "helpConfirm": "改动前先确认",
+  },
   "filePill": {
     "picked": "第 {{version}} 版上选的"
   }

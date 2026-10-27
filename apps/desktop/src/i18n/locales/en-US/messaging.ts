@@ -865,6 +865,25 @@ export default {
       }
     }
   },
+  "resources": {
+    "copyUrl": "Copy gugu URL",
+    "sendTo": "Copy URL & send to…",
+    "appUnderstand": "About this App", "appUnderstandText": "Explain what this App can do.",
+    "appFork": "Customize", "appForkText": "Ask me what I want to change, then fork this App with my confirmation.",
+    "appImprove": "Suggest a change", "appImproveText": "Help me propose an improvement to this App.",
+    "forkRequest": "Request upstream", "forkRequestText": "Help me propose this fork’s changes to its upstream author.",
+    "forkMerge": "Merge upstream", "forkMergeText": "Merge upstream into this fork. First compare its changes against its original base; preserve and verify those changes and existing data before reinstalling and checking it.",
+    "forkRemove": "Remove fork", "forkRemoveText": "Remove this fork after asking for my confirmation. Keep its data and source repository.",
+    "fileSummary": "Summarize", "fileSummaryText": "Summarize this file.",
+    "fileCheck": "Check", "fileCheckText": "Check this file for problems.",
+    "fileEdit": "Edit", "fileEditText": "Ask me what to change in this file.",
+    "helpTitle": "Manage with an agent",
+    "helpDescription": "A fork keeps your changes separate from upstream. Send its URL to an agent to request changes, merge updates or remove it.",
+    "helpCopy": "Copy the variant’s URL",
+    "helpSend": "Choose an agent",
+    "helpAsk": "Add what you want to do",
+    "helpConfirm": "Review before changes",
+  },
   "filePill": {
     "picked": "Picked on version {{version}}"
   }

@@ -1,4 +1,5 @@
 import { followLink } from '../../lib/guguLinks'
+import { ResourceMenu } from '../ResourceMenu'
 import { comparer, reaction } from 'mobx'
 import { useEffect, useId, useState } from 'react'
 import { useTranslation } from 'react-i18next'
@@ -154,8 +155,7 @@ export function AppsSection() {
               // 名字跟界面语言走,和电脑上 App 页同一个挑法(manifest 的 localized)。
               const name = localizedManifestText(manifest, i18n.language).name
               return (
-                <SettingsRow
-                  key={manifest.id}
+                <ResourceMenu key={manifest.id} resource={{ kind: 'app', target: { kind: 'app-detail', extensionId: manifest.id } }}><SettingsRow
                   data-app-id={manifest.id}
                   // 行尾最多 打开 / 更新到 / 开关 / 卸载:手机上换到说明下面,说明不被挤成一窄条。
                   stack
@@ -194,7 +194,7 @@ export function AppsSection() {
                       {uninstallButton({ id: manifest.id, name })}
                     </div>
                   }
-                />
+                /></ResourceMenu>
               )
             })}
             {unusable.map(({ id, reason }) => (

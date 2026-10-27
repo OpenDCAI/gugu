@@ -7,7 +7,7 @@ import { readCachedDevices } from '../../store/devicesCache'
 import { appDeviceId } from '../../session/shared/extensions/machine-call'
 import { directoryRows, liveDeviceSessions, rowOpens } from '../../session/shared/remote-sessions/session-directory'
 import { visibleMachines, workspaceDevices } from '../../mobile/agent-watch/machine-list'
-import { APP_SHOW_SESSION_EVENT, type AppShowSessionDetail } from '../../session/shared/extensions/app-runtime-protocol'
+import { composeTaskDraft } from '@/lib/composeDraft'
 import { AppSendError, type AppDispatchPlatform, type DispatchAgent } from '../../session/shared/extensions/app-send-core'
 import { grantedReach, type ExtensionCapability } from '../../session/shared/extensions/manifest'
 import { phoneAppCaller } from './phoneProgramCall'
@@ -77,7 +77,7 @@ export function phoneDispatch(app: { extensionId: string; extensionName: string 
       if (!text) throw new AppSendError('invalid', 'Nothing to compose: text is empty')
       const row = await locate(agent.agent)
       if (!rowOpens(row.session)) throw new AppSendError('not-found', `${agent.agent} has no task composer on this phone`)
-      window.dispatchEvent(new CustomEvent<AppShowSessionDetail>(APP_SHOW_SESSION_EVENT, { detail: { ...row, draft: { text: `${text}\n` } } }))
+      await composeTaskDraft(row, `${text}\n`, true)
       return agent.agent
     },
     async tell(agent, text, how) {
