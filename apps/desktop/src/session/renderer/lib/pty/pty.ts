@@ -410,7 +410,10 @@ export class FrontendPty {
   /** The same visibility mechanism pauses animations and retained surfaces. */
   private syncStream(): void {
     if (this.disposed || !this.connectedOnce) return;
-    if (this.mounted && this.shown && this.viewportVisible && isAnimationWindowVisible(this.ownedContainer.ownerDocument)) {
+    // 还没见过一个可见字之前照收不误,❌ 因为「没挂上」就退订:会话页要等第一个字(onFirstOutput)才把终端挂出来,
+    // 这时退订 = 新建任务那一刻快照还是空的,之后的输出一个字都收不到,页面永远停在「正在启动任务…」(1046.1 实撞)。
+    const awaitingFirstOutput = !this.sawOutput;
+    if (awaitingFirstOutput || (this.mounted && this.shown && this.viewportVisible && isAnimationWindowVisible(this.ownedContainer.ownerDocument))) {
       if (!this.streaming && !this.connecting) {
         this.terminal.reset();
         void this.connect().catch((error: unknown) => log.warn('FrontendPty: stream could not resume', { error: String(error) }));
