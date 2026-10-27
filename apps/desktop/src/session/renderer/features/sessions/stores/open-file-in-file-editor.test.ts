@@ -47,6 +47,7 @@ vi.mock('@renderer/features/sessions/stores/session-selectors', () => ({
   getSessionManagerStore: () => (mocks.projectMounted ? { provisionSession: mocks.provisionSession } : undefined),
   getSessionPageStore: mocks.getSessionPageStore,
   getSessionView: mocks.getSessionView,
+  sessionViewKind: () => 'idle',
 }));
 
 vi.mock('@renderer/features/projects/stores/project-selectors', () => ({

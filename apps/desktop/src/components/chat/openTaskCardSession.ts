@@ -13,8 +13,7 @@ export function openTaskCardSession(task: Pick<TaskCard, 'projectId' | 'sessionI
   }
   const target = { projectId: task.projectId, sessionId: task.sessionId }
   if (isScreenView(appState.navigation.currentViewId)) {
-    showSessionBeside(target)
-    openSessionInSessionWhenReady(target)
+    openSessionInSessionWhenReady({ ...target, onReady: () => showSessionBeside(target) })
     return
   }
   openSessionInFull(target)
