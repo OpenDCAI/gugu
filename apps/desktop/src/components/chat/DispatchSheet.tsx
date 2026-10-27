@@ -4,6 +4,9 @@ import { useTranslation } from 'react-i18next'
 import { chatDisplayName } from '@gugu/core/shared/ui/chatModels'
 import { INSTALL_CONSENT_HUMAN_WINDOW_MS } from '@/session/shared/extensions/host-actions'
 import type { DispatchPicked } from '@/session/shared/extensions/app-dispatch-core'
+import { RESOURCE_TEMPLATES, type ResourceTemplate } from '@/session/shared/resource-actions'
+import { Button } from '../ui/Button'
+import { appendToDraft } from '@/store/chatDraftWrites'
 import { useChatStore } from '../../store/chatContext'
 import { useOwnedAgents } from '../settings/channels/channelAgents'
 import { chatPickRow, forwardableChats } from './forwardMessageUtils'
@@ -120,6 +123,11 @@ export const DispatchSheet = observer(function DispatchSheet() {
         aria-label={t('dispatchPick.text')}
         data-testid="dispatch-text"
       />
+      {asked.resource && <div className="flex flex-wrap gap-1" data-testid="dispatch-templates">
+        {(RESOURCE_TEMPLATES[asked.resource.kind] as readonly ResourceTemplate[]).filter(template => template.requires?.every(fact => asked.resource?.facts?.includes(fact)) ?? true).map(template => (
+          <Button key={template.id} size="sm" variant="ghost" onClick={() => setText(current => appendToDraft(current, t(template.textKey)))}>{t(template.labelKey)}</Button>
+        ))}
+      </div>}
       {asked.pills.map((pill, index) => (
         <span key={index} className="truncate text-[length:var(--font-caption)] text-[var(--text-secondary)]" data-testid="dispatch-pill">@{pill}</span>
       ))}

@@ -57,6 +57,8 @@ import type { ExtensionsApi } from '../extensions-host';
 import type { ExtensionDisclosureLevel } from '../installed-extensions-store';
 import { AppGivenSection } from './app-given-section';
 import { AppLifecycleButton, type AppLifecycle } from './app-lifecycle-button';
+import { ResourceMenu } from '@/components/ResourceMenu';
+import type { ResourceContext } from '@shared/resource-actions';
 import { AppMoreMenu } from './app-more-menu';
 import { AppShelfRow } from './app-shelf';
 import { AppVariantList, type AppVariantRow } from './app-variant-list';
@@ -175,6 +177,7 @@ export function AppProductPage({
   /** 右栏「类似 App」:市场里同一类的别的 App(照 Google Play),点一个 = 换到它的产品页。 */
   similar?: { id: string; name: string; publisher: string; line: string; iconUrl?: string | null; onOpen: () => void }[];
   menu: {
+    resource?: ResourceContext;
     onToggleDock?: () => void;
     onOpenInWindow?: () => void;
     onForward?: () => void;
@@ -671,7 +674,7 @@ export function AppProductPage({
         <ChevronLeft className="size-3.5" />
         {translate('extensions.title')}
       </button>
-      <header className="mk-dh">
+      <ResourceMenu resource={menu.resource ?? { kind: 'app', target: { kind: 'app-detail', extensionId: manifest.id } }}><header className="mk-dh">
         <div className="mk-dh-main">
           <h2 className={cn('gg-type-display mk-dh-title', deprecated && 'is-deprecated')}>{text.name}</h2>
           {text.subtitle ? <p className="mk-dh-sub">{text.subtitle}</p> : null}
@@ -723,7 +726,7 @@ export function AppProductPage({
         <span className="mk-icon is-hero">
           <ExtensionMonogram name={text.name} iconDataUrl={cloud?.iconUrl ?? iconDataUrl} />
         </span>
-      </header>
+      </header></ResourceMenu>
 
       {justInstalled ? (
         <div className="mk-banner" role="status" data-testid="app-product-installed">
@@ -768,6 +771,7 @@ export function AppProductPage({
         <div className="mk-dmain">
           {installed && variants && onSwitchVariant && (
             <AppVariantList
+              resource={menu.resource}
               active={variants.active}
               variants={variants.variants}
               disabled={readOnly || pending !== undefined}

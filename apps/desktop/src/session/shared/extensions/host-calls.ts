@@ -138,11 +138,11 @@ export type HostMember = keyof typeof HOST_CALLS | keyof typeof HOST_EVENTS;
 export type HostCaller = 'page' | 'background' | 'program';
 
 /**
- * #6387 Events a page may not be listening for yet when they arrive — a link or a banner click that opened this very page
+ * #6387 Events a page may not be listening for yet when they arrive — a link, command or banner click that opened this page
  * lands while its script is still loading: held for the first subscriber, the newest kept (a page that never subscribes
  * must not grow it forever).
  */
-const HELD: ReadonlySet<ExtensionHostEvent['type']> = new Set(['link', 'notificationClicked']);
+const HELD: ReadonlySet<ExtensionHostEvent['type']> = new Set(['link', 'command', 'notificationClicked']);
 export function hostEventHub() {
   const listeners = new Map<ExtensionHostEvent['type'], Set<(event: ExtensionHostEvent) => void>>();
   const held: ExtensionHostEvent[] = [];

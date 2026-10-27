@@ -135,6 +135,8 @@ export interface EnablePlace {
 export const HERE_ALL = 'here:all';
 
 export interface ExtensionInstallConsentRequest {
+  /** Removing one installed fork; the same human confirmation transport, never uninstall. */
+  removeVariant?: { name: string; active: boolean };
   sourceDir: string;
   manifest: ExtensionManifest;
   manifestDigest: string;

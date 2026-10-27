@@ -133,6 +133,8 @@ export const extensionsController = createRPCController({
   },
   openLink: async (args: { target: import('@gugu/core/shared/ui/guguLink').GuguLinkTarget }) =>
     (await import('./gugu-links')).openLink(args.target),
+  resourceLink: async (target: Exclude<import('@gugu/core/shared/ui/guguLink').GuguLinkTarget, { kind: 'server-login' }>) =>
+    (await import('./gugu-links')).linkTo(target),
   list: async () => {
     try {
       const { extensions, invalid } = extensionsService().list();

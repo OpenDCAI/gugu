@@ -5,8 +5,11 @@ import {
   type FileViewerEditAction,
   type FileViewerSelection,
 } from '@/session/shared/preview/file-viewer-menu';
+import type { ResourceContext } from '@/session/shared/resource-actions';
+import { resourceMenuItems, runResourceAction } from '@/lib/resourceActions';
 
 export interface FileViewerSnapshot {
+  resource?: ResourceContext;
   quote: (selection: FileViewerSelection | null) => Promise<void> | void;
   selection?: FileViewerSelection;
   selectAll?: () => void;
@@ -31,6 +34,7 @@ export function bindFileViewerMenu(
     if (detail.action === 'snapshot') {
       const current = snapshot();
       pending = { requestId: detail.requestId, snapshot: current };
+      if (current.resource) detail.resourceActions = resourceMenuItems(current.resource).map(({ id, label }) => ({ id, label }));
       if (current.selection) detail.selection = current.selection;
       if (current.canSelectAll !== undefined) detail.canSelectAll = current.canSelectAll;
       detail.customSelectAll = Boolean(current.selectAll);
@@ -46,6 +50,10 @@ export function bindFileViewerMenu(
     if (!pending || pending.requestId !== detail.requestId) return;
     const captured = pending.snapshot;
     pending = null;
+    if (detail.action === 'copy-resource-url' || detail.action === 'send-resource-url') {
+      if (captured.resource) void runResourceAction(detail.action, captured.resource);
+      return;
+    }
     if (detail.action === 'select-all') {
       captured.selectAll?.();
       return;

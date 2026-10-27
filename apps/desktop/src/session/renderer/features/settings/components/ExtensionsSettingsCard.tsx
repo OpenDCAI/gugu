@@ -1,3 +1,5 @@
+import { useAppDetailRequest } from '@renderer/features/apps/use-app-detail-request';
+import type { AppDetailLink } from '@gugu/core/shared/ui/guguLink';
 import { messageForUser } from '@/lib/userFacingError';
 import { CircleAlert, Trash2Icon } from '@/lib/icons';
 import { UI_EVENTS } from '@/lib/uiEvents';
@@ -67,6 +69,7 @@ import type { MarketRefreshed } from '@shared/extensions/market-snapshot';
 import { marketHome } from '@shared/extensions/market-home';
 import { chatDb } from '@/lib/supabase';
 import type { ExtensionManifest } from '@shared/extensions/manifest';
+import { readCachedDevices } from '@/store/devicesCache';
 import { remoteHostsStore } from '@renderer/features/remote-hosts/remote-hosts-store';
 
 /**
@@ -116,7 +119,7 @@ const GROUP_LABEL = {
 
 type StoreTab = 'market' | 'newest' | 'popular' | 'all' | 'installed';
 
-export const ExtensionsSettingsCard = observer(function ExtensionsSettingsCard() {
+export const ExtensionsSettingsCard = observer(function ExtensionsSettingsCard({ detailLink }: { detailLink?: AppDetailLink }) {
   const { translate, locale } = useSessionMessages();
   // #6264 资源库看的是哪台咕咕:本机是全局那份清单与 `rpc.extensions`;另一台咕咕桌面是它自己的那份,
   // 动作经设备 RPC 转到它的主进程,它自己的窗口跟着补上 / 撤下 tab。页面长相不变。
@@ -975,7 +978,9 @@ export const ExtensionsSettingsCard = observer(function ExtensionsSettingsCard()
         navigate('new-session');
       };
 
+  const resourceOf = (extensionId: string) => ({ kind: 'app' as const, target: { kind: 'app-detail' as const, extensionId, deviceId: remote?.deviceId ?? readCachedDevices().find(device => device.is_current_device)?.device_id }, facts: store.updates?.forkBehind?.[extensionId] ? ['behind' as const] : [] });
   const menuOf = (manifest: ExtensionManifest) => ({
+    resource: resourceOf(manifest.id),
     onToggleDock: dockToggle(manifest),
     onOpenInWindow: onRail(manifest)
       ? () => {
@@ -1052,6 +1057,7 @@ export const ExtensionsSettingsCard = observer(function ExtensionsSettingsCard()
       cloud: item.cloud,
     });
   };
+  useAppDetailRequest({ target: detailLink, ready: inventory === 'ready', host, setDetail, detail, rootRef });
   // 产品页右栏「类似 App」点一个:换到它的产品页。❌ 记清单的滚动位置 —— 此刻滚的是产品页,回清单要回到进产品页之前那里。
   const openSimilar = (item: ShelfItem) => {
     setJustInstalled(null);
@@ -1277,6 +1283,7 @@ export const ExtensionsSettingsCard = observer(function ExtensionsSettingsCard()
                 </div>
               ) : (
                 <AppMarketContent
+                  resourceOf={resourceOf}
                     view={tab} onRetry={() => void readShelf(debouncedQuery)}
                   shelf={shelf}
                   chip={chip}
