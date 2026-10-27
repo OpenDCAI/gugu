@@ -23,6 +23,7 @@ import { daySeparatorUnitDef } from '@session-chat/components/rows/day-separator
 import { messageFromItem, messageUnitDef } from '@session-chat/components/rows/message/message.def';
 import { fileChangeSummaryUnitDef } from '@session-chat/components/rows/file-change-summary/file-change-summary.def';
 import { openedOutputUnitDef } from '@session-chat/components/rows/opened-output/opened-output.def';
+import { agentSendToUnitDef } from '@session-chat/components/rows/agent-send/agent-send.def';
 import { planFromItem, planUnitDef } from '@session-chat/components/rows/plan/plan.def';
 import { resourceLinkUnitDef } from '@session-chat/components/rows/resource-link/resource-link.def';
 import { thinkingUnitDef } from '@session-chat/components/rows/thinking/thinking.def';
@@ -52,6 +53,7 @@ import { unit } from '@session-chat/core/units';
 import { isGuguSilence } from '@gugu/core/local/agent/silenceMarker';
 import type { ItemNode } from '@session-chat/state/flatten';
 import type {
+  AgentSendItem,
   ChatDiff,
   ChatExecute,
   ChatFileOpToolCall,
@@ -128,6 +130,23 @@ const messageSegmenter: ItemSegmenter = {
     const u = unit('message', item, data, { key: 'self' });
     u.chrome = data.hookNotice ? COMPOSITE_CHROME : MESSAGE_CHROME;
     return [u];
+  },
+};
+
+/**
+ * agent 经 message_send / session_message 说的话(`AgentSendItem`,flatten 在那次调用的位置上造出来):
+ * 话本身是一条 agent 消息,交给 message 那一套画、量(markdown、复制、高度都同一份);下面一行说发到了哪里。
+ */
+const agentSendSegmenter: ItemSegmenter = {
+  kind: 'agent-send',
+  segment: (item, ctx) => {
+    const send = item as AgentSendItem;
+    const said = { kind: 'message', id: send.id, seq: 0, role: 'assistant', text: send.send.text } as ChatMessage;
+    const body = messageSegmenter.segment(said, ctx);
+    if (body.length === 0) return [];
+    const to = unit('agent-send-to', send, send, { key: 'to' });
+    to.chrome = MESSAGE_CHROME;
+    return [...body, to];
   },
 };
 
@@ -249,6 +268,7 @@ export const SEGMENTERS: Record<string, ItemSegmenter> = {
   'tool-run': nativePassthrough<SyntheticItem>('tool-run', (item) => item, COMPOSITE_CHROME),
   'file-change-summary': nativePassthrough<SyntheticItem>('file-change-summary', (item) => item, MESSAGE_CHROME),
   'opened-output': nativePassthrough<SyntheticItem>('opened-output', (item) => item, COMPOSITE_CHROME),
+  'agent-send': agentSendSegmenter,
 };
 
 // ── UNIT_REGISTRY ─────────────────────────────────────────────────────────────
@@ -285,4 +305,5 @@ export const UNIT_REGISTRY: Record<string, RegistryUnitDef> = {
   'plan-review': planReviewUnitDef as unknown as RegistryUnitDef,
   'file-change-summary': fileChangeSummaryUnitDef as unknown as RegistryUnitDef,
   'opened-output': openedOutputUnitDef as unknown as RegistryUnitDef,
+  'agent-send-to': agentSendToUnitDef as unknown as RegistryUnitDef,
 };

@@ -52,11 +52,12 @@
  */
 
 import { isDeliveryEnvelope } from '@gugu/core/local/agent/deliveryEnvelope';
+import { agentSendOf } from '@gugu/session-core/session-record/reply-process';
 import { resolveSeamGap } from '@session-chat/core/spacing';
 import type { FoldGate, ItemSegmenter, Margin, RenderUnit, SegmentCtx } from '@session-chat/core/units';
 import { stampGroupRoles } from '@session-chat/core/units';
 import { localDayKey } from '@session-chat/lib/day-boundary';
-import type { ChatItem, ChatMessage, SyntheticItem, TranscriptTurn } from '@session-chat/model';
+import type { ChatItem, ChatMessage, SyntheticItem, TranscriptItem, TranscriptTurn } from '@session-chat/model';
 import { fileChangeSummary, successfulFileDiff } from '@session-chat/state/file-change-summary';
 import { collectOpenedOutputs, openedOutputKey, outputsOfRun } from '@session-chat/state/opened-outputs';
 import { tallyToolRun, toolRunCategory, toolRunLabel } from '@session-chat/state/tool-run';
@@ -194,6 +195,9 @@ export function flattenTier(
     out.push(...group);
   };
 
+  /** 正在发的这一轮:agent 说出去的话发到哪,要看它当时在回哪一条投递(`agentSendOf`)。 */
+  let sendTurn: TranscriptTurn | undefined;
+
   /**
    * 把一串过程行排成要发出的单元：**连续的工具调用**折成一句（#4981，owner 2026-09-06：
    * 「连续的 tool call 可以被折叠……除了 ai 文本以外都语义化折叠」）。分类与切段规则在
@@ -228,7 +232,11 @@ export function flattenTier(
   const emitOps = (ops: readonly EmitOp[], turnId: string, folds: readonly FoldGate[] = []): void => {
     for (const op of ops) {
       if (op.kind === 'row') {
-        processItem(op.item, folds);
+        // agent 经 message_send / session_message 说的话:画成它说的话、标明发到了哪里,❌ 一行「调用了 MCP 工具」。
+        const send = 'toolCallId' in op.item ? agentSendOf(op.item as TranscriptItem, sendTurn) : null;
+        processItem(send
+          ? { kind: 'agent-send', id: op.item.id, turnId, send, status: (op.item as { status?: string }).status === 'running' ? 'running' : 'done' }
+          : op.item, folds);
         continue;
       }
       const runId = toolRunId(turnId, op.rows[0].id);
@@ -276,6 +284,7 @@ export function flattenTier(
   for (let turnIndex = 0; turnIndex < turns.length; turnIndex++) {
     const turn = turns[turnIndex];
     if (absorbed[turnIndex]) continue;
+    sendTurn = turn as TranscriptTurn;
     // Day boundary (#3334 row 20). A turn with no `startedAt` came from provider
     // replay and carries no authentic clock, so it neither opens a new day nor
     // closes the current one — it is simply not evidence about the calendar.

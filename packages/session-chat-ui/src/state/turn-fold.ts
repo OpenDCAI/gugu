@@ -8,11 +8,12 @@ import { hookSpeakerOfNotice } from '@gugu/session-core/acp';
 import type { TranscriptCompaction, TranscriptContextReset, TranscriptSessionNotice } from '@gugu/session-core/acp';
 import { toolCallName } from '@gugu/session-core/acp/client';
 import { isQuestionOrPlanToolName } from '@gugu/session-core/session-record/question-tools';
+import { agentSendOf } from '@gugu/session-core/session-record/reply-process';
 import { localDayKey } from '@session-chat/lib/day-boundary';
 import { formatElapsed } from '@session-chat/lib/format-elapsed';
 import { isGuguSilence } from '@gugu/core/local/agent/silenceMarker';
 import { parseHookNotice } from '@session-chat/lib/hook-notice';
-import type { ChatItem, ChatMessage, TranscriptTurn } from '@session-chat/model';
+import type { ChatItem, ChatMessage, TranscriptItem, TranscriptTurn } from '@session-chat/model';
 
 /** Returns true when the item is a user-role message (boundary seam sentinel). */
 export function itemIsUser(item: ChatItem): boolean {
@@ -47,6 +48,9 @@ function isHookNotice(item: ChatItem): boolean {
  * 真正的答复就被划进 `process` 折起来看不见了。
  */
 function isAssistantMessage(item: ChatItem): boolean {
+  // 经 message_send / session_message 说出去的那段话也是 agent 在说话(群里派的任务,话都是这么回的):
+  // 它和文字回复一样能当「最后一条回复」留在折叠外面。
+  if (agentSendOf(item as TranscriptItem)) return true;
   if (item.kind !== 'message' || (item as ChatMessage).role !== 'assistant') return false;
   if (isHookNotice(item)) return false;
   // `[NO_REPLY]` 也不算:那是 agent 对一条通知的「不回」,面板根本不画它(unit-registry 返回空)。
@@ -54,6 +58,11 @@ function isAssistantMessage(item: ChatItem): boolean {
   // process 折起来看不见(2026-09-06 真机:「做完了,子智能体已执行 sleep 40」整条进了「过程」)。
   if (isGuguSilence((item as ChatMessage).text)) return false;
   return true;
+}
+
+/** 这一条里 agent 说的话:它自己的回复,或经 message_send / session_message 说出去的那段(`agentSendOf`)。 */
+function replyText(item: ChatItem): string {
+  return item.kind === 'message' ? ((item as ChatMessage).text ?? '') : (agentSendOf(item as TranscriptItem)?.text ?? '');
 }
 
 /**
@@ -206,7 +215,7 @@ function staysOutside(item: ChatItem): boolean {
 
 /** agent 在干活:说话、钩子通知、路过的事件都不算。 */
 function isWork(item: ChatItem): boolean {
-  return item.kind !== 'message' && !isPassingEvent(item) && !staysOutside(item);
+  return item.kind !== 'message' && !agentSendOf(item as TranscriptItem) && !isPassingEvent(item) && !staysOutside(item);
 }
 
 /**
@@ -288,7 +297,7 @@ function segmentTurn(turn: TranscriptTurn): TurnFoldPlan {
   // collapsed process rows. A steer/delivery is also a navigation target, even after completion.
   const visible = segments.flatMap((segment) => splitAtContextBoundaries(segment, clocked));
   const spoke = [...cuts.map((cut) => cut.reply), lastReply].some(
-    (i) => i !== -1 && ((items[i] as ChatMessage).text ?? '').trim().length > 0
+    (i) => i !== -1 && replyText(items[i] as ChatItem).trim().length > 0
   );
   return { leading: items.slice(0, leadEnd), segments: visible, spoke };
 }
@@ -476,8 +485,9 @@ export function completedTurnResult(turn: TranscriptTurn, run: TurnFoldRun | und
   let lastReply = -1;
   let lastCall = -1;
   items.forEach((item, index) => {
-    if (isAssistantMessage(item) && (item as ChatMessage).text.trim().length > 0) lastReply = index;
-    if (item.kind === 'tool' || ('toolCallId' in item && item.kind !== 'subagent-done-tool-call')) lastCall = index;
+    const reply = isAssistantMessage(item);
+    if (reply && replyText(item).trim().length > 0) lastReply = index;
+    else if (item.kind === 'tool' || ('toolCallId' in item && item.kind !== 'subagent-done-tool-call')) lastCall = index;
   });
   if (lastReply >= 0 && lastReply > lastCall) return null;
   const text = items.flatMap((item) => {

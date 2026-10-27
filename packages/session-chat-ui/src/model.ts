@@ -1,5 +1,6 @@
 import type { HookNotice } from './lib/hook-notice';
 import type { DeliveryReading } from '@gugu/core/local/agent/deliveryEnvelope';
+import type { AgentSend } from '@gugu/session-core/session-record/reply-process';
 import type {
   AcpPermissionRequest,
   OpenedOutput,
@@ -597,6 +598,19 @@ export type SessionConditionCode =
 
 export type SessionCondition = Omit<SessionConditionItem, 'kind' | 'id' | 'hasVisibleHistory'>;
 
+/**
+ * agent 经 message_send / session_message 说出去的一段话,画成它说的话、标明发到了哪里。
+ * 由 `flattenTier` 从那次调用造出来(判据 `agentSendOf`),在它原来的位置上顶替那一行工具;id 就是那次调用的 id。
+ */
+export type AgentSendItem = {
+  kind: 'agent-send';
+  id: string;
+  turnId: string;
+  send: AgentSend;
+  /** 还在发 / 已发出(那次调用的状态;发失败的不造这一项,照常是一行工具)。 */
+  status: 'running' | 'done';
+};
+
 /** Successful file edits presented once below a settled turn's reply. */
 export type FileChangeSummaryItem = {
   kind: 'file-change-summary';
@@ -609,6 +623,7 @@ export type SyntheticItem =
   | SessionConditionItem
   | TurnOutcomeItem
   | OpenedOutputItem
+  | AgentSendItem
   | FileChangeSummaryItem
   | DaySeparatorItem
   | TurnProcessItem
