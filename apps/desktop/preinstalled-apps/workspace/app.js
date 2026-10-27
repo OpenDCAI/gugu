@@ -639,17 +639,17 @@ function fileMark(entry) {
   return mark
 }
 
-// A project chat's file that stays on its host machine (entry.storedOn): which machine, the same server mark tasks carry,
-// and on hover the rule — uploaded only when someone opens it, under whose file storage setting.
-function storedOnTag(storedOn) {
+// A project chat's file that stays on its host machine (entry.storedOn): the faint server mark tasks carry, beside the name;
+// which machine, that it is uploaded only when someone opens it, and whose file storage setting, only on hover.
+function storedOnMark(storedOn) {
   const t = state.t
   const machine = storedOn.machine ?? fmt(t.machineOf, { owner: storedOn.owner })
-  const tag = Object.assign(document.createElement('span'), { className: 'file-stored-on' })
-  tag.title = storedOn.mine ? fmt(t.storedOnMine, { machine }) : fmt(t.storedOnOther, { owner: storedOn.owner })
   const mark = document.createElement('gugu-icon')
   mark.setAttribute('name', 'server')
-  tag.append(mark, machine)
-  return tag
+  mark.className = 'file-stored-on'
+  mark.title = storedOn.mine ? fmt(t.storedOnMine, { machine }) : fmt(t.storedOnOther, { owner: storedOn.owner })
+  mark.setAttribute('aria-label', mark.title)
+  return mark
 }
 
 function listItem(entry) {
@@ -676,6 +676,7 @@ function listItem(entry) {
     title.append(fileMark(entry))
   }
   title.append(name)
+  if (entry.storedOn) name.append(storedOnMark(entry.storedOn))
   // The whole name — suffix included — stays one hover (and the details) away; where it is, when the list is a search.
   open.title = pathOf(entry)
   // Who made it and when, then a separate edit time (folders also say how much is in them).
@@ -686,7 +687,6 @@ function listItem(entry) {
   open.append(title)
   const where = state.filter.trim() && entry.parentId ? pathOf(entry).split('/').slice(0, -1).join('/') : ''
   if (where) meta.prepend(Object.assign(document.createElement('span'), { className: 'file-path', textContent: where }))
-  if (entry.storedOn) meta.prepend(storedOnTag(entry.storedOn))
   open.append(meta)
   open.onclick = () => (folder ? enterFolder(entry.id) : openInHost(entry))
   // Files carry the same resource link outside this App; folder moves stay inside it.
