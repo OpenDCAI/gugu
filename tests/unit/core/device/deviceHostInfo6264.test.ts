@@ -202,7 +202,7 @@ describe('#6264 server 要人知道的事:磁盘、升级被退回、两边版�
     expect(bad.remote_protocol).toBeUndefined()
   })
 
-  it('要人知道的事按要紧程度排;老 server 不报就不下结论;桌面行没有这些', () => {
+  it('要人知道的事按要紧程度排;老宿主不报就不下结论;桌面复用协议提示', () => {
     const own = { protocol: 2, minServer: 2 }
     expect(serverMachineNotices({ host_kind: 'server', min_client_protocol: 3, server_disk: { free_bytes: 5, total_bytes: 10 } }, own)).toEqual([
       { kind: 'desktop-too-old' },
@@ -212,7 +212,8 @@ describe('#6264 server 要人知道的事:磁盘、升级被退回、两边版�
     expect(serverMachineNotices({ host_kind: 'server', server_disk: { free_bytes: SERVER_DISK_LOW_BYTES, total_bytes: 2 * SERVER_DISK_LOW_BYTES } }, own)).toEqual([])
     expect(serverMachineNotices({ host_kind: 'server', server_rollback: { version: 'b', restored: 'a' } }, own)).toEqual([{ kind: 'rolled-back', version: 'b', restored: 'a' }])
     expect(serverMachineNotices({ host_kind: 'server' }, own)).toEqual([])
-    expect(serverMachineNotices({ host_kind: 'desktop', min_client_protocol: 9 }, own)).toEqual([])
+    expect(serverMachineNotices({ host_kind: 'desktop', min_client_protocol: 9 }, own)).toEqual([{ kind: 'desktop-too-old' }])
+    expect(serverMachineNotices({ host_kind: 'desktop', remote_protocol: 1 }, own)).toEqual([{ kind: 'server-too-old' }])
   })
 
   it('#6264 一套工作台:这一版 server 让协议 1 的旧桌面说「请更新这台电脑上的咕咕」,与现在的桌面互认', () => {

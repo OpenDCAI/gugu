@@ -90,6 +90,7 @@ export interface FilesPlatform {
   account(): Promise<{ token: string; userId: string }>;
   hasCapability(extensionId: string, capability: 'files:read' | 'files:write'): boolean;
   sync: {
+    ensureFor(asAgent: string | null): void;
     pageFor(pageId: number, extensionId: string): PageSync;
     grant(page: PageSync, grant: Grant): void;
     ungrant(pageId: number, docName: string): void;
@@ -627,9 +628,12 @@ export function createAppFiles(platform: FilesPlatform) {
     if (removed.error) platform.warn(left, { pointers, error: removed.error.message });
   };
   const entryOne = async (token: string, row: ItemRow, actor: string): Promise<AppFileEntry> => (await entriesOf(token, [row], platform, actor))[0]!;
-  const openingOf = (row: ItemRow, actor: string): { opening?: PreparedChatFile } => row.kind === 'document'
-    ? { opening: { entry: entryOf(row, undefined), epoch: row.epoch, actor, expiresAt: Date.now() + 5_000 } }
-    : {};
+  const openingOf = (row: ItemRow, actor: string, asAgent: string | null = null): { opening?: PreparedChatFile } => {
+    if (row.kind !== 'document') return {};
+    // The file is authorized. Its existing shared connection can open while its page starts.
+    platform.sync.ensureFor(asAgent);
+    return { opening: { entry: entryOf(row, undefined), epoch: row.epoch, actor, expiresAt: Date.now() + 5_000 } };
+  };
 
   async function selfName(token: string, userId: string): Promise<string> {
     const known = selfNames.get(userId);
@@ -1183,7 +1187,7 @@ export function createAppFiles(platform: FilesPlatform) {
           chatId: row.chat_id, itemId: row.id, name: row.filename,
           typedName: typedFileName({ name: row.filename, contentType: row.content_type }),
           file: { document: row.kind === 'document', contentType: row.content_type, version: row.version, size: row.size_bytes ?? 0 },
-          ...openingOf(row, surface.asAgent ?? userId),
+          ...openingOf(row, surface.asAgent ?? userId, surface.asAgent ?? null),
         })),
         selfName(token, surface.asAgent ?? userId),
       ]);

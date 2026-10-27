@@ -7,6 +7,7 @@ import {
   TRANSPORT_TEXT_LIMIT,
   trimAfterResultForTransport,
   trimBatchForTransport,
+  trimCursorPageForTransport,
   trimOlderForTransport,
   trimSnapshotForTransport,
   trimTurnsForTransport
@@ -239,5 +240,50 @@ describe('工具交回来的图只带类型和字数', () => {
     const tool = execTool('a', { images });
     trimTurnsForTransport([turn('t1', [tool])]);
     expect((tool as unknown as { images: unknown[] }).images).toBe(images);
+  });
+});
+
+describe('desktop cursor pages share the phone transport budget', () => {
+  const fat = (seq: number): TranscriptTurn => ({
+    ...turn(`t${seq}`, Array.from({ length: 40 }, (_, i) =>
+      execTool(`t${seq}-tool-${i}`, { outputText: 'x'.repeat(1_000) }))),
+    seq,
+  });
+
+  it('reaches every omitted older turn exactly once and keeps stored origins aligned', () => {
+    const source = Array.from({ length: 20 }, (_, seq) => fat(seq));
+    const received: TranscriptTurn[] = [];
+    let before: number | undefined;
+    do {
+      const turns = source.filter(t => before === undefined || t.seq < before);
+      const original = {
+        turns, originTurnIds: turns.map(t => `runtime-${t.seq}`), nextCursor: null as number | null,
+        cursor: { epoch: 'same-runtime', seq: 20 }, count: 20,
+      };
+      const page = trimCursorPageForTransport(original);
+      expect(new TextEncoder().encode(JSON.stringify(page.turns)).byteLength).toBeLessThanOrEqual(TRANSPORT_PAYLOAD_BUDGET);
+      expect(page.turns.length).toBeGreaterThan(0);
+      expect(page.originTurnIds).toEqual(page.turns.map(t => `runtime-${t.seq}`));
+      expect(page.cursor).toBe(original.cursor);
+      expect(page.count).toBe(20);
+      received.unshift(...page.turns);
+      before = page.nextCursor ?? undefined;
+    } while (before !== undefined);
+    expect(received.map(t => t.id)).toEqual(source.map(t => t.id));
+    expect(new Set(received.map(t => t.id)).size).toBe(source.length);
+    expect(source[0].items).toHaveLength(40);
+  });
+
+  it('budgets UTF-8 bytes while leaving user text intact', () => {
+    const text = '界'.repeat(20_000);
+    const turns = Array.from({ length: 5 }, (_, seq) => ({
+      ...turn(`u${seq}`, [{ kind: 'message', id: `m${seq}`, text } as TranscriptItem]), seq,
+    }));
+    expect(JSON.stringify(turns).length).toBeLessThan(TRANSPORT_PAYLOAD_BUDGET);
+    expect(new TextEncoder().encode(JSON.stringify(turns)).byteLength).toBeGreaterThan(TRANSPORT_PAYLOAD_BUDGET);
+    const page = trimCursorPageForTransport({ turns, nextCursor: null });
+    expect(page.turns.map(t => t.seq)).toEqual([3, 4]);
+    expect(page.nextCursor).toBe(3);
+    expect((page.turns[0].items[0] as { text: string }).text).toBe(text);
   });
 });

@@ -118,11 +118,15 @@ export type ChatToolCall = {
   request?: string;
   /** What the tool returned, shown in the expanded result panel. */
   result?: string;
+  /** A measured disclosure explaining transport-shortened tool content. */
+  transportNote?: string;
   /**
    * 工具交回来的图(画图用的地址),在头下面画成一条缩略图 —— 不用点开就看得见,见 tool-images.ts。
    * 缺席 = 这次调用没交图,行和从前一样。
    */
   images?: string[];
+  /** Includes pictures represented by lazy transport references. */
+  imageCount?: number;
   /** Id of the parent tool call (for hierarchical rendering). */
   parentId?: string;
 };
@@ -167,6 +171,8 @@ export type ChatSubagentToolCall = {
   agentId?: string;
   request?: string;
   result?: string;
+  /** A measured disclosure explaining transport-shortened tool content. */
+  transportNote?: string;
   /**
    * 这个子任务被要求做什么（#4981）——供应商在派活时给的那句描述。
    *
@@ -233,6 +239,8 @@ export type ChatFileOpToolCall = {
   status: ToolStatus;
   request?: string;
   result?: string;
+  /** A measured disclosure explaining transport-shortened tool content. */
+  transportNote?: string;
   awaitingPermission?: boolean;
   /** Optional failure message shown in the error icon's native tooltip. */
   error?: string;
@@ -266,6 +274,8 @@ export type ChatExecute = {
   outputText?: string;
   request?: string;
   result?: string;
+  /** A measured disclosure explaining transport-shortened tool content. */
+  transportNote?: string;
   status: ToolStatus;
   awaitingPermission?: boolean;
   /** Optional failure message shown in the error icon's native tooltip. */

@@ -43,6 +43,8 @@ const fallbackMessages = {
   'transcript.thoughtFor': 'Thought for {seconds}s',
   'transcript.thought': 'Thought',
   // `{name}` 是用户自己的附件文件名——原始数据，不翻译，只被这句话包住。
+  'transcript.outputTrimmed': '{chars} characters omitted from this preview; the original record is unchanged.',
+  'transcript.imageUnavailable': 'Image unavailable. Click to retry.',
   'transcript.viewImage': 'View image: {name}',
   'transcript.viewAttachment': 'Open attachment: {name}',
   'transcript.copy': 'Copy',

@@ -42,7 +42,7 @@ const grants: unknown[] = [];
 const files = createAppFiles({
   account: async () => ({ token: 'token', userId: PERSON }),
   hasCapability: () => false,
-  sync: { pageFor: () => ({}), grant: (_page: unknown, grant: unknown) => void grants.push(grant), revoke: () => undefined, ungrant: () => undefined } as never,
+  sync: { ensureFor: () => undefined, pageFor: () => ({}), grant: (_page: unknown, grant: unknown) => void grants.push(grant), revoke: () => undefined, ungrant: () => undefined } as never,
   identities: async (_token, ids) => ids.map((id) => ({ id, name: 'Helper', avatar: null, kind: 'agent' as const })),
   faces: async () => ({}),
   filesUrl: () => 'http://files.invalid',

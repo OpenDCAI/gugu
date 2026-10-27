@@ -58,10 +58,10 @@ import { MEASURED_SCROLLBAR_GUTTER_X, measureSoftWrap } from '@session-chat/core
 import type { ChatToolCall } from '@session-chat/model';
 
 /** Payload contract shared by generic and specialized tool rows. */
-export type ToolPayloadItem = Pick<ChatToolCall, 'id' | 'status' | 'request' | 'result' | 'error'> & { reasoning?: string };
+export type ToolPayloadItem = Pick<ChatToolCall, 'id' | 'status' | 'request' | 'result' | 'error' | 'transportNote'> & { reasoning?: string };
 
 /** Which payload a section carries; doubles as its `data-slot` suffix. */
-export type ToolPayloadSlot = 'request' | 'result' | 'error' | 'reasoning';
+export type ToolPayloadSlot = 'request' | 'result' | 'error' | 'reasoning' | 'notice';
 
 /**
  * Leading marker for each section's first line.
@@ -82,6 +82,7 @@ const SLOT_MARKER: Record<ToolPayloadSlot, string> = {
   result: '←',
   error: '!',
   reasoning: '⋯',
+  notice: '…',
 };
 
 export type ToolPayloadLine = {
@@ -218,7 +219,7 @@ export function toolDisclosedResult(item: ToolPayloadItem): string | undefined {
  * not make: a row with no request, no result and no reason grows no chevron.
  */
 export function hasToolPayload(item: ToolPayloadItem): boolean {
-  return Boolean(item.request || item.reasoning || toolDisclosedResult(item) || toolFailureText(item));
+  return Boolean(item.transportNote || item.request || item.reasoning || toolDisclosedResult(item) || toolFailureText(item));
 }
 
 function sectionSourceLines(slot: ToolPayloadSlot, text: string): string[] {
@@ -254,6 +255,7 @@ export function layoutToolPayload(
   const sections: ToolPayloadSection[] = [];
 
   const texts: Array<[ToolPayloadSlot, string | undefined]> = [
+    ['notice', expanded ? item.transportNote : undefined],
     ['error', expanded ? toolFailureText(item) : undefined],
     ['request', expanded ? item.request : undefined],
     ['reasoning', expanded ? item.reasoning : undefined],

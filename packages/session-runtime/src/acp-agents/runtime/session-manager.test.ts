@@ -1028,6 +1028,37 @@ describe('AcpRuntime session manager', () => {
     await prompt;
   });
 
+  it('projects active tool output just like history while retaining the on-demand original', async () => {
+    const { h, rt, client, providerSessionId } = await startHarness('conv-live-picture');
+    let finish!: (value: { stopReason: 'end_turn' }) => void;
+    h.agent.prompt = vi.fn(() => new Promise<{ stopReason: 'end_turn' }>((resolve) => { finish = resolve; }));
+    const prompt = rt.sendPrompt('conv-live-picture', { text: 'take a screenshot' });
+    const live = rt.sessionLiveModels('conv-live-picture');
+    if (!live) throw new Error('expected live models');
+    const image = { mimeType: 'image/png', data: 'x'.repeat(1_048_577) };
+    await client.sessionUpdate({ sessionId: providerSessionId, update: {
+      sessionUpdate: 'tool_call', toolCallId: 'picture', title: 'Screenshot', kind: 'other',
+      status: 'completed', content: [
+        { type: 'content', content: { type: 'text', text: 'y'.repeat(100_000) } },
+        { type: 'content', content: { type: 'image', ...image } },
+      ],
+    } as SessionUpdate });
+    await until('tool result is published', () => JSON.stringify(live.states.activeTurn.snapshot().data).includes('Screenshot'));
+    const projected = live.states.activeTurn.snapshot().data;
+    const item = projected?.items.find(node => 'toolCallId' in node && node.toolCallId === 'picture');
+    if (!item) throw new Error('tool picture missing');
+    try {
+      expect('images' in item).toBe(false);
+      expect(item).toMatchObject({ imageRefs: [{ mimeType: image.mimeType, chars: image.data.length }] });
+      expect(JSON.stringify(projected).length).toBeLessThan(20_000);
+      expect(rt.getToolImage('conv-live-picture', item.id, 0)).toEqual({ ok: true, image });
+    } finally {
+      finish({ stopReason: 'end_turn' });
+      await prompt;
+      await rt.stopSession('conv-live-picture');
+    }
+  });
+
   it('publishes usage updates through live models', async () => {
     const { rt, client, providerSessionId } = await startHarness('conv-usage');
     const live = rt.sessionLiveModels('conv-usage');
@@ -1447,6 +1478,39 @@ describe('AcpRuntime session manager', () => {
     expect(isOk(exported)).toBe(true);
     if (!isOk(exported)) return;
     expect(exported.data).not.toContain('ghost-command');
+  });
+
+  it('fetches a full desktop tool picture without applying the phone preview limit', async () => {
+    const h = makeAcpHarness();
+    const rt = new AcpRuntime(h.deps);
+    const image = { mimeType: 'image/png', data: 'x'.repeat(1_048_577) };
+    h.agent.loadSession = vi.fn(async () => {
+      await h.client().sessionUpdate({
+        sessionId: 'session-picture',
+        update: {
+          sessionUpdate: 'tool_call', toolCallId: 'picture', title: 'Screenshot', kind: 'other',
+          status: 'completed', content: [{ type: 'content', content: { type: 'image', ...image } }],
+        } as SessionUpdate,
+      });
+      return {};
+    });
+    const resumed = await rt.resumeSession({
+      ...makeStartInput({ sessionId: 'conv-picture' }), providerSessionId: 'session-picture',
+    });
+    expect(isOk(resumed)).toBe(true);
+    const item = rt.getChatHistory('conv-picture').committed.flatMap(turn => turn.items)
+      .find(entry => 'toolCallId' in entry && entry.toolCallId === 'picture');
+    if (!item) throw new Error('replayed tool picture missing');
+    const fetched = rt.getToolImage('conv-picture', item.id, 0);
+    expect(fetched.ok).toBe(true);
+    if (!fetched.ok) throw new Error(fetched.message);
+    expect(fetched.image.data.length).toBe(image.data.length);
+    expect(fetched.image.mimeType).toBe(image.mimeType);
+    fetched.image.data = 'changed by reader';
+    const again = rt.getToolImage('conv-picture', item.id, 0);
+    expect(again.ok && again.image.data.length).toBe(image.data.length);
+    await rt.stopSession('conv-picture');
+    expect(rt.getToolImage('conv-picture', item.id, 0)).toMatchObject({ ok: false, code: 'no_such_item' });
   });
 
   it('returns a resume result with replayed history', async () => {
@@ -2701,6 +2765,13 @@ describe('AcpRuntime session manager', () => {
     expect(log.snapshot().data.text).toBe('hello world');
     expect(updates).toHaveLength(2);
     expect(updates.at(-1)).toMatchObject({ delta: { chunk: ' world' } });
+
+    // Output already has its own log; metadata must not replay the whole buffer.
+    terminal.pushOutput('x'.repeat(100_000));
+    expect(log.snapshot().data.text.length).toBe(100_011);
+    expect(rt.getTerminals('conv-terminal')[0]?.output.length).toBe(100_011);
+    const metadata = rt.sessionLiveModels('conv-terminal')?.states.terminals.snapshot().data;
+    expect(JSON.stringify(metadata).length).toBeLessThan(8192);
 
     terminal.triggerExit({ exitCode: 0, signal: null });
     expect(rt.sessionLiveModels('conv-terminal')?.states.terminals.snapshot().data).toMatchObject([
