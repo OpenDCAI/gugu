@@ -913,46 +913,15 @@ export class SessionManager implements InboundRouter {
             await acquired.release();
             return acpErr.newSessionFailed(toProviderSerializedError(e));
           }
-          // 断线重连(lost 记录)也一样:那次续的 id 是 lost 记录钉回来的,没跑完过一轮的接不上就新开。
-          if (!neverRan && this.reconnectingSessions.has(input.sessionId)) throw e;
-          // ⚠️ 这里**不抛**。dev 的会话模型重做曾把这一处改成 `throw e`,理由是「load 失败绝不是
-          // 创建另一条 provider 会话的许可 —— 那会保住产品会话 id 而悄悄换掉它的 provider 历史」。
-          // 那条理由成立的前提是**降级只能是静默的**;它不再成立了:
-          //   ① 会话页现在自己存着历史(#5381),会话照常打开、用户说过的话照常在屏幕上;
-          //   ② 换引擎这件事下面会在转录开头画一条线写明原因 —— 降级看得见,不是悄悄换。
-          // 而抛出去的代价是屏幕上只剩「Failed to load chat」加一个**注定失败**的 Retry
-          // (#5553 自己量到:provider 那侧确实不在了,点多少次都是同一个失败)。
-          // owner 2026-09-13 的裁决:「不可能打不开,打不开是 bug 级别的问题,基本代表产品不可用」
-          // ⇒ 「打不开」不是可以拿来换「合同更严格」的一边,它是 P0。❌ 别再改回 throw。
-          //
-          // ⚠️ **原因必须带上**。这条 warn 是历史丢失唯一的痕迹,而
-          // `session-history-replay` 的合同写着「截断与失败都要留下可诊断的痕迹 ——
-          // 『少了一截』和『本来就没有』在界面上长得一模一样」。只写「failed」的话,
-          // 事后没有任何东西能分开「provider 认不出这条会话」与「进程换了家、找不到 rollout」
-          // (2026-09-07 隔离栈实撞:换计费路那一跳 load 失败,日志里查不出为什么)。
+          // A failed resume is not permission to replace an existing provider history.
+          // Only the host's explicit never-ran declaration may create its first session.
+          if (!neverRan) throw e;
           this.deps.logger.warn(
-            neverRan
-              ? 'SessionManager: provider session missing and the session never ran; starting a new session'
-              : 'SessionManager: loadSession failed, starting a new session',
-            {
-              sessionId: input.sessionId,
-              cause: toSerializedError(e),
-            }
+            'SessionManager: provider session missing and the session never ran; starting a new session',
+            { sessionId: input.sessionId, cause: toSerializedError(e) }
           );
-          // #5381 ④ 日志不是给用户看的。会话页现在自己存着历史 ⇒ 屏幕上照旧是满屏对话,
-          // 而 agent 那边一个字都没有 —— 降级到这里为止都还是**静默**的。
-          // 把原因带出去,下面在新会话的转录开头画一条界。
-          // #7223 那支也画:「没聊过」是宿主按记录推断的,万一是 #5381 之前聊过的老会话,这条界就是如实告知。
           contextResetReason = e instanceof Error ? e.message : String(e);
-          // ⚠️ 重放窗口在 cell 那一侧也必须关。上面 `beginReplay()` 把状态机推进了 `replaying`,
-          // 成功路径在 try 里 `endReplay()` 关掉它;失败退回 `session/new` 这条路原先谁都没关 ——
-          // 于是这条会话此后**一条回合都不记录**:2026-09-13 追 dev 时对照实测,load 成功的会话
-          // 发一句话得到 `[["message"]]`,而降级后的会话得到 `[]`,连用户自己刚打的字都没留下,
-          // 重启就什么都没有了。它不报错、界面照常能打字,是一处静默失败。
-          // ❌ 不要挪进下面的 finally:成功路径已经在 try 里关过一次,再关就是重复触发。
-          // #7223 没跑完过一轮的那支关窗但留在 starting(见 `abandonReplay`):排着的话等新 id 到手再发。
-          if (neverRan) record.cell.abandonReplay(Date.now());
-          else record.cell.endReplay(Date.now());
+          record.cell.abandonReplay(Date.now());
         } finally {
           this.removeLoading(connection.key, input.sessionId);
           // 重放窗口关。放在 finally:失败路径上也必须关,否则这条 record 之后所有真实回合
