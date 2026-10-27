@@ -49,7 +49,7 @@ async function mount() {
 it('a device row change reads that one row and keeps the others and every project as they were', async () => {
   const harness = await mount()
   mocks.listDevices.mockResolvedValue([device('b', 'B renamed')])
-  await act(async () => { await mocks.listener!([op({ device_id: 'b' }), op({ device_id: 'b' })]) })
+  await act(async () => { await mocks.listener!([op({ device_id: 'b', kind: 'row' }), op({ device_id: 'b', kind: 'row' })]) })
   expect(mocks.listDevices).toHaveBeenCalledOnce()
   expect(mocks.listDevices).toHaveBeenCalledWith({ includePhones: true, deviceIds: ['b'] })
   expect(mocks.listProjects).not.toHaveBeenCalled()
@@ -57,19 +57,30 @@ it('a device row change reads that one row and keeps the others and every projec
   harness.cleanup()
 })
 
-it('a projects change reads the projects only', async () => {
+it('a projects change reads that device\'s projects only', async () => {
   const harness = await mount()
-  mocks.listProjects.mockResolvedValue({ a: [{ local_project_id: 'p' }], b: [{ local_project_id: 'q' }, { local_project_id: 'r' }] })
+  mocks.listProjects.mockResolvedValue({ b: [{ local_project_id: 'q' }, { local_project_id: 'r' }] })
   await act(async () => { await mocks.listener!([op({ device_id: 'b', kind: 'projects' })]) })
   expect(mocks.listDevices).not.toHaveBeenCalled()
-  expect(mocks.listProjects).toHaveBeenCalledOnce()
+  expect(mocks.listProjects).toHaveBeenCalledExactlyOnceWith(['b'])
   expect(mocks.seen.at(-1)?.sort()).toEqual(['a:A:1', 'b:B:2'])
+  harness.cleanup()
+})
+
+it('a revision without kind (written before the server tagged them) refreshes both that row and its projects', async () => {
+  const harness = await mount()
+  mocks.listDevices.mockResolvedValue([device('b', 'B renamed')])
+  mocks.listProjects.mockResolvedValue({ b: [{ local_project_id: 'q' }] })
+  await act(async () => { await mocks.listener!([op({ device_id: 'b' })]) })
+  expect(mocks.listDevices).toHaveBeenCalledExactlyOnceWith({ includePhones: true, deviceIds: ['b'] })
+  expect(mocks.listProjects).toHaveBeenCalledExactlyOnceWith(['b'])
+  expect(mocks.seen.at(-1)?.sort()).toEqual(['a:A:1', 'b:B renamed:1'])
   harness.cleanup()
 })
 
 it('a removed device leaves the list without any read', async () => {
   const harness = await mount()
-  await act(async () => { await mocks.listener!([op({ device_id: 'a', tombstone: true })]) })
+  await act(async () => { await mocks.listener!([op({ device_id: 'a', kind: 'row', tombstone: true })]) })
   expect(mocks.listDevices).not.toHaveBeenCalled()
   expect(mocks.listProjects).not.toHaveBeenCalled()
   expect(mocks.seen.at(-1)).toEqual(['b:B:0'])

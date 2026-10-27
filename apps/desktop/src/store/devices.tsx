@@ -138,18 +138,21 @@ export function DevicesProvider({ children, active = true }: { children: React.R
     if (!userId) return
     const changed = new Set<string>()
     const removed = new Set<string>()
-    let projectsChanged = false
+    const projectsOf = new Set<string>()
     for (const operation of operations) {
       const key = readDeviceRevision(operation.payload)
-      if (key.projects) projectsChanged = true
-      else (key.removed ? removed : changed).add(key.deviceId)
+      if (key.removed) removed.add(key.deviceId)
+      else {
+        if (key.row) changed.add(key.deviceId)
+        if (key.projects) projectsOf.add(key.deviceId)
+      }
     }
     let listed: Device[]
     let projects: Awaited<ReturnType<typeof listMyDeviceProjects>> | null
     try {
       [listed, projects] = await Promise.all([
         changed.size > 0 ? chatService.listDevices({ includePhones: true, deviceIds: [...changed] }) : Promise.resolve([]),
-        projectsChanged ? listMyDeviceProjects() : Promise.resolve(null),
+        projectsOf.size > 0 ? listMyDeviceProjects([...projectsOf]) : Promise.resolve(null),
       ])
     } catch (err) {
       // 与整读同一条:本机还没认出自己时不算失败,认出那一刻会整读一次(上面)。
@@ -160,7 +163,7 @@ export function DevicesProvider({ children, active = true }: { children: React.R
     // 那几台此刻的样子(没读回来的 = 已经不在了);其余各台原样,项目没变就沿用。
     const fresh = listed.filter((row) => changed.has(row.device_id))
     const kept = devicesRef.current.filter((row) => !changed.has(row.device_id) && !removed.has(row.device_id))
-    const rows = withDeviceProjects([...kept, ...fresh], projects, devicesRef.current)
+    const rows = withDeviceProjects([...kept, ...fresh], projects, devicesRef.current, projectsOf)
     setDevices(sortDevices(rows))
     writeCachedDevices(userId, rows)
     if (removed.size > 0) void desktopIpc()?.invoke(SERVER_SSH_MACHINES_CHANNELS.reconcile, { owner: userId, present: rows.map((row) => row.device_id) }).catch(() => undefined)

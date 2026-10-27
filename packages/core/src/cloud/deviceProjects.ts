@@ -20,6 +20,7 @@ export interface DeviceProjectsRpcClient {
 }
 
 type DeviceProjectsPage = {
+  in(column: 'device_id', values: readonly string[]): DeviceProjectsPage
   order(column: 'device_id' | 'local_project_id'): DeviceProjectsPage
   range(from: number, to: number): PromiseLike<PageResult>
 }
@@ -77,15 +78,18 @@ export const DEVICE_PROJECT_PAGE_ROWS = 1000
 export async function listDeviceProjects(
   client: DeviceProjectsTableClient,
   ownerId: string,
+  /** Only these devices' projects (a device_changed revision names the device whose projects changed). */
+  deviceIds?: readonly string[],
 ): Promise<Record<string, DeviceProject[]>> {
   if (!ownerId) throw new Error('listDeviceProjects requires ownerId')
   const rows: unknown[] = []
   let total: number | null = null
   while (total === null || rows.length < total) {
-    const { data, error, count } = await client
+    const owned = client
       .from('device_projects')
       .select(DEVICE_PROJECT_COLUMNS, { count: 'exact' })
       .eq('user_id', ownerId)
+    const { data, error, count } = await (deviceIds ? owned.in('device_id', deviceIds) : owned)
       .order('device_id')
       .order('local_project_id')
       .range(rows.length, rows.length + DEVICE_PROJECT_PAGE_ROWS - 1)
@@ -167,9 +171,12 @@ export function withDeviceProjects<T extends Pick<Device, 'device_id' | 'project
   devices: readonly T[],
   projects: Readonly<Record<string, DeviceProject[]>> | null,
   previous: readonly Pick<Device, 'device_id' | 'projects'>[],
+  /** `projects` was read for these devices only; the others keep their previous projects. */
+  readFor?: ReadonlySet<string>,
 ): T[] {
   return devices.map((device) => {
-    const known = projects ? (projects[device.device_id] ?? []) : previous.find((row) => row.device_id === device.device_id)?.projects
+    const read = projects && (!readFor || readFor.has(device.device_id))
+    const known = read ? (projects[device.device_id] ?? []) : previous.find((row) => row.device_id === device.device_id)?.projects
     const { projects: _stale, ...rest } = device
     return (known ? { ...rest, projects: known } : rest) as T
   })

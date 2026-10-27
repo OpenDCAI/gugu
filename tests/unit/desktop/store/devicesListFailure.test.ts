@@ -25,7 +25,7 @@ vi.mock('../../../../apps/desktop/src/store/chatContext', () => ({
   useChatStore: () => ({ subscribeAccountRevision: mocks.subscribeAccountRevision }),
 }))
 
-const rowChanged = (deviceId: string) => ({ revision: '1', event: 'device_changed', payload: { device_id: deviceId, tombstone: false } })
+const rowChanged = (deviceId: string) => ({ revision: '1', event: 'device_changed', payload: { device_id: deviceId, kind: 'row', tombstone: false } })
 
 /**
  * #4891 的另一半判据。用户那句话不许带下层原文(判据在
