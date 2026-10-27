@@ -431,6 +431,8 @@ async function renderMessage(
   compactMobile = true,
   onReaction = vi.fn(),
   options: {
+    id?: string
+    chat_id?: string
     content?: string
     isMine?: boolean
     isAgent?: boolean
@@ -447,7 +449,8 @@ async function renderMessage(
     harness,
     createNode(MessageBubble, {
       msg: message({
-        id: 'msg-1',
+        id: options.id ?? 'msg-1',
+        ...(options.chat_id ? { chat_id: options.chat_id } : {}),
         content: options.content ?? 'hello from mobile',
         is_mine: isMine,
         sender_user_id: 'sender-1',

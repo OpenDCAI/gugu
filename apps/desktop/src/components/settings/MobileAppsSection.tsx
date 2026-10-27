@@ -56,8 +56,10 @@ const MobileAppsContent = observer(function MobileAppsContent({ appDetail }: { a
   const inFlight = useRef(false)
   const [failed, setFailed] = useState<{ title: string; cause: string } | null>(null)
   const [layer, setLayer] = useState<HTMLDivElement | null>(null)
+  const openedLink = useRef<AppDetailLink | undefined>(undefined)
   useEffect(() => {
-    if (!appDetail || !catalog.data) return
+    if (!appDetail || !catalog.data || openedLink.current === appDetail) return
+    openedLink.current = appDetail
     const item = phoneMarketRows(catalog.data.entries, '').find(item => item.manifest.id === appDetail.extensionId)
     if (item) setDetail(item)
     else setFailed({ title: translate('extensions.marketUnavailable'), cause: appDetail.extensionId })

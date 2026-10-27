@@ -19,8 +19,8 @@ export async function runResourceAction(id: (typeof RESOURCE_ACTIONS)[number]['i
     const url = resource.target.kind === 'chat' || resource.target.kind === 'file' ? guguLink(resource.target)
       : platform.kind === 'electron' ? await (await import('@/session/renderer/lib/ipc')).rpc.extensions.resourceLink(resource.target)
         : guguLink(resource.target, (await import('@/components/appSlot/phoneAppHost')).phoneLinkScheme())
+    await navigator.clipboard.writeText(url)
     if (id === 'copy-resource-url') {
-      await navigator.clipboard.writeText(url)
       notify({ tier: 'success', title: i18n.t('message.copied', { ns: 'messaging' }) })
       return
     }

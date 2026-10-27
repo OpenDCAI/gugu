@@ -6,6 +6,7 @@ import { Copy, Bot, MessageSquare, CheckCircle } from '@/lib/icons';
 import { ResourceHelp } from '@/components/ResourceHelp';
 import { ResourceMenu } from '@/components/ResourceMenu';
 import type { ResourceContext } from '@shared/resource-actions';
+import { compareExtensionVersions } from '@shared/extensions/manifest';
 
 /** The fields this list displays; the host remains the owner of variant state. */
 export type AppVariantRow = Pick<ExtensionVariant, 'name' | 'base' | 'dir'>;
@@ -53,7 +54,7 @@ export function AppVariantList({
             </label>
           </div>;
           return resource?.target.kind === 'app-detail' && resource.target.deviceId
-            ? <ResourceMenu key={variant.name} resource={{ kind: 'app-variant', target: { ...resource.target, variant: variant.name }, facts: variant.name === 'upstream' ? [] : ['fork', ...(resource.facts ?? [])] }}>{row}</ResourceMenu>
+            ? <ResourceMenu key={variant.name} resource={{ kind: 'app-variant', target: { ...resource.target, variant: variant.name }, facts: variant.name === 'upstream' ? [] : ['fork', ...(resource.facts ?? []), ...(compareExtensionVersions(variants.find(row => row.name === 'upstream')?.base ?? variant.base, variant.base) > 0 ? ['behind' as const] : [])] }}>{row}</ResourceMenu>
             : <div key={variant.name}>{row}</div>;
         })}
       </RadioGroup>
