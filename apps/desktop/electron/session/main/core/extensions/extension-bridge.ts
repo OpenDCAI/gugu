@@ -1718,17 +1718,17 @@ async function dispatch(caller: BridgeCaller, method: ExtensionBridgeMethod, arg
       return linkTo(linkTargetOf(args, extensionsService().get(extensionId).manifest), args.external === true);
     }
 
+    case 'showContextMenu': {
+      const { showAppContextMenu } = await import('./app-context-menu');
+      return showAppContextMenu(caller.pageId, args);
+    }
+
     case 'filesOpen':
     case 'filesReopen':
     case 'filesClose':
     case 'filesList':
     case 'filesSearch':
     case 'filesRecent':
-    case 'showContextMenu': {
-      const { showAppContextMenu } = await import('./app-context-menu');
-      return showAppContextMenu(caller.pageId, args);
-    }
-
     case 'filesViewPreferences':
     case 'filesCreate':
     case 'filesRemove':
