@@ -235,17 +235,17 @@ export function AgentProfilePane({ agent, onClose, onOpenTab }: AgentSettingsPan
         />
       </div>
 
+        <div className="gg-agent-profile-manage">
+          <AgentPauseRow agent={agent} />
+          <Button className="gg-as-profile-danger" variant="danger" onClick={handleDelete} disabled={!isOwnedAgent || saving || removing}>
+            {removing ? t('settings.profile.deleting') : t('settings.profile.deleteAgent')}
+          </Button>
+        </div>
       </div>
       <div className="gg-agent-profile-actions" data-testid="agent-profile-actions">
         <div className="gg-agent-profile-save-row">
           <Button className="gg-as-profile-save" variant="primary" onClick={handleSave} disabled={!isOwnedAgent || saving || removing}>
             {saving ? t('common.saving') : t('common.save')}
-          </Button>
-        </div>
-        <div className="gg-agent-profile-manage">
-          <AgentPauseRow agent={agent} />
-          <Button className="gg-as-profile-danger" variant="danger" onClick={handleDelete} disabled={!isOwnedAgent || saving || removing}>
-            {removing ? t('settings.profile.deleting') : t('settings.profile.deleteAgent')}
           </Button>
         </div>
       </div>

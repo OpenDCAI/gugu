@@ -175,7 +175,7 @@ export function ExtPanel({ agent }: { agent: ContactUser }) {
       rendererLogger('clipboard').error({ error: reason }, 'copy agent link failed')
       setError(safeFailureLine(reason))
     }
-  }, [shareUrl, isPublic])
+  }, [shareUrl])
 
   if (!shareUrl) return null
 
