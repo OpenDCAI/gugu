@@ -38,7 +38,7 @@ describe('MessageBubble touch menu', () => {
     })
   })
   it('copies a text selection made inside the mobile menu\'s select-text view', async () => {
-    const writeText = vi.fn(async () => {})
+    const writeText = vi.fn(async (_text: string) => {})
     Object.defineProperty(navigator, 'clipboard', { value: { writeText }, configurable: true })
     const toast = vi.fn()
     await renderMessage(toast)
@@ -53,7 +53,7 @@ describe('MessageBubble touch menu', () => {
     expect(toast).toHaveBeenCalledWith('已复制', 'success')
   })
   it('routes native in-menu Copy through the same clipboard feedback', async () => {
-    const writeText = vi.fn(async () => {})
+    const writeText = vi.fn(async (_text: string) => {})
     Object.defineProperty(navigator, 'clipboard', { value: { writeText }, configurable: true })
     const toast = vi.fn()
     await renderMessage(toast)
@@ -68,7 +68,7 @@ describe('MessageBubble touch menu', () => {
     expect(toast).toHaveBeenCalledWith('已复制', 'success')
   })
   it('offers one resource URL pair even when long-pressing a link', async () => {
-    const writeText = vi.fn(async () => {})
+    const writeText = vi.fn(async (_text: string) => {})
     Object.defineProperty(navigator, 'clipboard', { value: { writeText }, configurable: true })
     const toast = vi.fn()
     await renderMessage(toast, true, vi.fn(), { content: 'before https://example.com/path?copy=1025 after' })
@@ -114,7 +114,7 @@ describe('MessageBubble touch menu', () => {
     expect(document.querySelector('[role="menu"]')).toBeNull()
   })
   it('copies the captured message selection after menu focus clears the DOM selection', async () => {
-    const writeText = vi.fn(async () => {})
+    const writeText = vi.fn(async (_text: string) => {})
     Object.defineProperty(navigator, 'clipboard', { value: { writeText }, configurable: true })
     await renderMessage(undefined, false)
     selectMessageText('hello')
@@ -133,7 +133,7 @@ describe('MessageBubble touch menu', () => {
     expect(onQuote).toHaveBeenCalledWith(expect.objectContaining({ id: 'msg-1', content: 'hello' }))
   })
   it('ignores a selection outside the message and retains whole-message copying', async () => {
-    const writeText = vi.fn(async () => {})
+    const writeText = vi.fn(async (_text: string) => {})
     Object.defineProperty(navigator, 'clipboard', { value: { writeText }, configurable: true })
     await renderMessage(undefined, false)
     const outside = document.createTextNode('unrelated selection')

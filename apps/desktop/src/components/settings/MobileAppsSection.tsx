@@ -57,15 +57,12 @@ const MobileAppsContent = observer(function MobileAppsContent({ appDetail }: { a
   const [failed, setFailed] = useState<{ title: string; cause: string } | null>(null)
   const [layer, setLayer] = useState<HTMLDivElement | null>(null)
   useEffect(() => {
-    if (!appDetail) return
-    let current = true
-    void phoneProductApi.marketEntry({ extensionId: appDetail.extensionId }).then(result => {
-      if (!current) return
-      if (result.success && result.data) setDetail(result.data)
-      else setFailed({ title: translate('extensions.marketUnavailable'), cause: result.error ?? appDetail.extensionId })
-    }).catch(error => { if (current) setFailed({ title: translate('extensions.marketUnavailable'), cause: messageForUser(error) }) })
-    return () => { current = false }
-  }, [appDetail, translate])
+    if (!appDetail || !catalog.data) return
+    const item = phoneMarketRows(catalog.data.entries, '').find(item => item.manifest.id === appDetail.extensionId)
+    if (item) setDetail(item)
+    else setFailed({ title: translate('extensions.marketUnavailable'), cause: appDetail.extensionId })
+  }, [appDetail, catalog.data, translate])
+
   const sentinel = useRef<HTMLDivElement | null>(null)
   const rows = phoneMarketRows(catalog.data?.entries ?? [], query.trim())
   const hasMore = pages * MARKET_PAGE_SIZE < rows.length

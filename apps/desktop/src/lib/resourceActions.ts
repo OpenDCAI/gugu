@@ -8,6 +8,8 @@ import { APP_COMPOSE_EVENT, APP_SHOW_SESSION_EVENT } from '@/session/shared/exte
 import { pickDispatchTarget } from '@/components/chat/dispatchAsk'
 import { notify } from './notices'
 
+declare const __GUGU_TIER__: string
+
 /** One URL producer and one draft picker for every resource host; nothing is sent here. */
 export function resourceMenuItems(resource: ResourceContext) {
   return RESOURCE_ACTIONS.map(({ id, labelKey }) => ({ id, label: i18n.t(labelKey, { ns: 'messaging' }), click: () => runResourceAction(id, resource) }))
@@ -15,7 +17,7 @@ export function resourceMenuItems(resource: ResourceContext) {
 
 export async function runResourceAction(id: (typeof RESOURCE_ACTIONS)[number]['id'], resource: ResourceContext) {
   try {
-    const url = guguLink(resource.target, guguLinkScheme({ tier: typeof __GUGU_TIER__ === 'undefined' ? undefined : __GUGU_TIER__, devLaunch: import.meta.env.DEV }))
+    const url = guguLink(resource.target, resource.target.kind === 'chat' || resource.target.kind === 'file' ? undefined : guguLinkScheme({ tier: typeof __GUGU_TIER__ === 'undefined' ? undefined : __GUGU_TIER__, devLaunch: import.meta.env.DEV }))
     if (id === 'copy-resource-url') {
       await navigator.clipboard.writeText(url)
       notify({ tier: 'success', title: i18n.t('message.copied', { ns: 'messaging' }) })
@@ -40,7 +42,7 @@ export async function runResourceAction(id: (typeof RESOURCE_ACTIONS)[number]['i
         ])
         revealSessionpage()
         appState.navigation.navigate('session', { projectId: row.session.projectId, sessionId: row.session.conversationId })
-        await composeWhenOpen(() => getProjectManagerStore().projects.get(row.session.projectId)?.mountedProject?.sessionManager.sessions.get(row.session.conversationId)?.viewModel, picked.text)
+        await composeWhenOpen(() => getProjectManagerStore().projects.get(row.session.projectId)?.mountedProject?.sessionManager.sessions.get(row.session.conversationId)?.viewModel ?? undefined, picked.text)
       }
     }
   } catch (error) { notify({ tier: 'error', title: error instanceof Error ? error.message : String(error) }) }
