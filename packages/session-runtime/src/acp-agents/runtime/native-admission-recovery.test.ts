@@ -23,7 +23,10 @@ describe('native prompt admission and recovery', () => {
     expect(runtime.getSessionState(input.sessionId).lifecycle).toBe('lost');
     expect(runtime.getSessionState(input.sessionId).lastTurnOutcome).toBe('errored');
     expect(harness.lastChild.kill).toHaveBeenCalledWith('SIGTERM');
-    expect(runtime.getHistory(input.sessionId).committed.at(-1)?.outcome).toMatchObject({ kind: 'error', detail: failure.message });
+    const history = runtime.getHistory(input.sessionId);
+    expect(history.success).toBe(true);
+    if (!history.success) throw new Error('failed session history is unavailable');
+    expect(history.data.turns.at(-1)?.outcome).toMatchObject({ kind: 'error', detail: failure.message });
 
     const prompt = vi.fn<AcpAgentApi['prompt']>().mockImplementation(async (_request, onAccepted) => {
       onAccepted?.();
