@@ -203,6 +203,7 @@ import { isOwnerReceiptEvent } from '@gugu/core/cloud/assistantWorkReconciliatio
 import { assistantWorkCoordinator } from '@gugu/core/cloud/assistantWorkRouting'
 import { createDesktopAssistantWorkReconciler } from './assistant-work-reconciliation'
 import { enqueueAssistantWorkReport } from '@gugu/core/cloud/assistantWorkReports'
+import {withAssistantWorkReply} from '@gugu/core/shared/assistantWorkReply'
 import { pickAssistant, type AssistantProvisionRow } from '@gugu/core/shared/assistantProvision'
 import { landTaskCardFirstTurn } from './sessionpage/task-card-first-turn'
 import { withQuestionCard } from './sessionpage/question-card'
@@ -4613,6 +4614,8 @@ app.whenReady().then(async () => {
       signal: AbortSignal,
     ): Promise<unknown> => {
       signal.throwIfAborted()
+      record=await withAssistantWorkReply(record,await emdash.readCurrentAssistantWorkInput(context.sessionId),async number=>
+        (await crossMachine().messageDeps(()=>remoteCaller(auth,context),signal).locateAgents({userIds:[],numbers:[number]})).numberToUserId.get(number))
       const prepareFiles = async (files: SessionFileInput[], targets: Array<{sessionId: string; deviceId?: string; agentId?: string}>) => {
           await crossMachine().assertFileHandoffSupported(targets.flatMap(target => target.deviceId && !target.agentId ? [target.deviceId] : []))
           const sender = await senderBinding(context, auth.userId)
@@ -4641,6 +4644,24 @@ app.whenReady().then(async () => {
         prepareFiles,
         localDeviceId: () => crossMachine().thisDevice().then(row => row.deviceId),
         enqueueWork: enqueueAssistantWorkMessage,
+        workTitle:async(intent,targets)=>{
+          const store=assistantWorkForAgent(intent.assistant_id)
+          if(!store)throw new Error('Assistant dispatch reference is unavailable')
+          // Dispatch never waits on reachability: only a local task's title is read here. A remote or
+          // unreadable one keeps the requested title; the work list projects it from the device digest.
+          const target=targets.length===1?targets[0]:undefined
+          if(!target||target.deviceId!==(await crossMachine().thisDevice()).deviceId)return intent.title
+          return store.dispatchTitle(intent.work_id,intent.operation_id,async()=>{
+            const snapshot=await emdash.runSessionAction(context,{action:'get',session_id:target.sessionId},signal)
+            const title=(snapshot as {title?:unknown})?.title
+            if(typeof title!=='string')throw new Error('Addressed task has no readable title')
+            return title
+          }).catch((error:unknown)=>{
+            if(signal.aborted)throw error
+            createLogger('assistant/work').warn({workId:intent.work_id,error:String(error)},'assistant work title unavailable; dispatching with the requested title')
+            return intent.title
+          })
+        },
         enqueueReport: async report => {
           const current = await assistantWorkDeliveryHost().context()
           if (!current || current.ownerId !== auth.userId) throw new Error('Work account changed')

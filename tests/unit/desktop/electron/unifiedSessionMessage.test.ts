@@ -292,6 +292,19 @@ it('preflights every recipient before uploading files, then passes only immutabl
 
 
 describe('durable assistant work admission precedes reachability', () => {
+  it('reads the actual addressed task title before committing a new work', async () => {
+    const intent = { version: 1, assistant_id: SELF, work_id: OTHER, operation_id: SELF, message_id: OTHER, child_session_id: OTHER_SESSION, coordinator: { session_id: SELF_SESSION, device_id: 'here' }, title: '任务', continuation: false }
+    const enqueueWork = vi.fn(async () => ({ route: 'session-direct' as const, recipients: [] }))
+    const workTitle = vi.fn(async () => '复测回复「收到，测试正文」')
+    const f = makeDeps({ enqueueWork, workTitle, localDeviceId: async () => 'here' })
+    await handleUnifiedSessionMessage({ to: [`aid:${OTHER}`], text: '请回复', assistant_work: intent }, f.deps)
+    expect(workTitle).toHaveBeenCalledWith(intent, [{ sessionId: OTHER_AGENT_SESSION, deviceId: 'here', agentId: OTHER }])
+    expect(enqueueWork).toHaveBeenCalledWith({ ...intent, title: '复测回复「收到，测试正文」' }, '请回复', [], expect.any(Array))
+    workTitle.mockRejectedValueOnce(new Error('title unavailable'))
+    await expect(handleUnifiedSessionMessage({ to: [`aid:${OTHER}`], text: '请回复', assistant_work: intent }, f.deps)).rejects.toThrow('title unavailable')
+    expect(enqueueWork).toHaveBeenCalledOnce()
+  })
+
   it('queues a work report without consulting a sleeping coordinator roster', async () => {
     const enqueueReport = vi.fn(async () => ({ route: 'session-direct' as const, recipients: [{ to: `session:${OTHER_SESSION}`, status: 'accepted' as const, message_id: 'stable' }] }))
     const f = makeDeps({ enqueueReport })
