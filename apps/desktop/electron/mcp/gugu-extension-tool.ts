@@ -1,4 +1,4 @@
-// app_* 域 —— 会话页 tab 扩展的四个原子工具(create / pack / install / check);找 App 是 app_search 的事(gugu-app-search-tool.ts);怎么写扩展在 guide 域(gugu-guide-tool.ts)。
+// app_* 域 —— 会话页 tab 扩展的原子工具(manage / create / pack / install / check);找 App 是 app_search 的事(gugu-app-search-tool.ts);怎么写扩展在 guide 域(gugu-guide-tool.ts)。
 // 与社交域、session 域注册在同一个会话 MCP server 上。单 server 下「域」是架构一等公民(#4191):
 // 本文件只有这个域的定义,注册机制在 sessionpage-tool-registrar.ts。
 //

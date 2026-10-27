@@ -82,7 +82,7 @@ it('refuses stale human consent after a variant changes, before switching or rem
 });
 it('retains the fork when switching fails', async () => {
   vi.spyOn(service, 'installFromDirectory').mockImplementationOnce(() => { throw new Error('disk full'); });
-  await expect(removeExtensionVariant('demo', 'mine', undefined, { requestInstallConsent: async () => ({ outcome: 'confirmed' }) })).rejects.toThrow('disk full');
+  expect(await removeExtensionVariant('demo', 'mine', undefined, { requestInstallConsent: async () => ({ outcome: 'confirmed' }) })).toMatchObject({ removed: false, active: 'mine', error: expect.stringContaining('disk full') });
   expect(service.variants('demo').active).toBe('mine');
   expect(service.variants('demo').variants.some((row) => row.name === 'mine')).toBe(true);
 });
@@ -93,4 +93,13 @@ it('reads lag for the fork named by the URL even when upstream is active', async
   service.installFromDirectory(dir, service.inspectDirectory(dir).manifestDigest, 'market', undefined, upstream);
   expect((await extensionVariants('demo')).behind).toBeNull();
   expect((await extensionVariants('demo', 'mine')).behind).toMatchObject({ upstream: '1.1.0', behind: 1 });
+});
+
+it('keeps the fork and reports the actual upstream state if activation fails after files landed', async () => {
+  const result = await removeExtensionVariant('demo', 'mine', undefined, {
+    requestInstallConsent: async () => ({ outcome: 'confirmed' }), afterInstall: () => { throw new Error('activation failed'); },
+  });
+  expect(result).toMatchObject({ removed: false, active: 'upstream', error: expect.stringContaining('activation failed') });
+  expect(service.variants('demo').variants.some((row) => row.name === 'mine')).toBe(true);
+  expect(readFileSync(path.join(service.variantDirectory('demo', 'mine'), 'index.html'), 'utf8')).toBe('custom');
 });
