@@ -315,7 +315,7 @@ async function openCard(row: HTMLElement): Promise<HTMLElement> {
   return identityCard()!
 }
 
-it('#7334 指针停在行上,右侧弹出身份卡:只有任务名 / agent 名两行,不摆两枚 ID;卡上没有多余的线', async () => {
+it('#7334 指针停在行上,右侧弹出身份卡:任务名 / agent 名 / 设备 / 文件夹四行,不摆两枚 ID;卡上没有多余的线', async () => {
   // 卡开在行右侧要有地方放:默认视口太窄时定位系统会翻到左边再贴边,那量到的就不是「右侧」这一格了。
   await page.viewport(1024, 768)
   sessionAgentNames.note('conv-1', 'Claude 3', AGENT_USER_ID)

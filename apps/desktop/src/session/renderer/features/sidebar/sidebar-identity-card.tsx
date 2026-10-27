@@ -92,8 +92,9 @@ class SidebarIdentityCardStore {
   private askLocalHome(): void {
     if (this.homeAsked) return;
     this.homeAsked = true;
-    rpc.app
-      .getHomeDirectory()
+    // 包一层 then:没有主进程可问时(浏览器测试)rpc 是同步抛的,❌ 让它绕过下面的 catch 把开卡这一下打断。
+    Promise.resolve()
+      .then(() => rpc.app.getHomeDirectory())
       .then((home) => this.setLocalHome(home))
       .catch((error: unknown) => log.warn({ error }, 'identity card: home directory unavailable; folder shown in full'));
   }
