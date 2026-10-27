@@ -1,6 +1,7 @@
 import { when } from 'mobx';
-import { getSessionPageStore, getSessionView, asProvisioned } from '@renderer/features/sessions/stores/session-selectors';
+import { getSessionView } from '@renderer/features/sessions/stores/session-selectors';
 import { sessionTabKind } from './session-tab-kind';
+import { sessionPaneReady } from './session-pane-ready';
 import { workspaceReachLabel } from './workspace-backend/workspace-surface';
 import { sessionRegistry } from './stores/session-registry';
 import { toast } from '@renderer/lib/hooks/use-toast';
@@ -10,6 +11,8 @@ interface OpenSessionInSessionOptions {
   projectId: string;
   sessionId: string;
   timeout?: number;
+  /** Commit navigation or layout only after the task workspace can be opened. */
+  onReady?: () => void;
   /**
    * behavior session-page「键盘导航」: keyboard ↑↓ walks the sidebar and the main area follows every
    * step, so those opens must reuse the pane's preview slot instead of stacking a permanent tab per
@@ -37,14 +40,15 @@ export function openSessionInSessionWhenReady({
   timeout = 10_000,
   preview = false,
   onlyIfNoTabs = false,
+  onReady,
 }: OpenSessionInSessionOptions): () => void {
+  const paneReady = sessionPaneReady(projectId, sessionId);
   return when(
     () => {
-      const page = asProvisioned(getSessionPageStore(projectId, sessionId));
       const session = sessionRegistry
         .get(sessionId)
         ?.sessions.get(sessionId);
-      return Boolean(page && getSessionView(projectId, sessionId) && session);
+      return Boolean(paneReady() && session);
     },
     () => {
       const session = sessionRegistry
@@ -59,6 +63,7 @@ export function openSessionInSessionWhenReady({
         { sessionId },
         { preview }
       );
+      onReady?.();
     },
     {
       timeout,

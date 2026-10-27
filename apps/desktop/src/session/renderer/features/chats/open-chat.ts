@@ -22,7 +22,10 @@ export function openChatOnScreen(chatId: string, beside: boolean): void {
  * 导航到它;⌘ 点且正看着这屏时并排放在正看着那块右边。
  */
 export function openSessionOnScreen(session: { projectId: string; sessionId: string }, beside: boolean): void {
-  if (beside && isScreenView(appState.navigation.currentViewId)) showSessionBeside(session);
-  else appState.navigation.navigate('session', session);
+  if (beside && isScreenView(appState.navigation.currentViewId)) {
+    openSessionInSessionWhenReady({ ...session, onReady: () => showSessionBeside(session) });
+    return;
+  }
+  appState.navigation.navigate('session', session);
   openSessionInSessionWhenReady(session);
 }

@@ -1,7 +1,7 @@
 import { messageForUser } from '@/lib/userFacingError';
 import { safeFailureLine } from '../sessions/gugu-reason';
 import { commandRegistry } from '@renderer/lib/commands/registry';
-import { dissolveScreenGroup, isScreenView, showSessionBeside, takeSessionOutOfGroup } from '@renderer/app/screen-layout-actions';
+import { dissolveScreenGroup, takeSessionOutOfGroup } from '@renderer/app/screen-layout-actions';
 import { AlertTriangle, Archive, Copy, LayoutGrid, Pencil, Pin, PinOff, Scissors, Sparkles, SquareMinus } from '@/lib/icons'
 import { GitFork } from 'lucide-react'
 import { installedExtensionsStore } from '@renderer/features/extensions/installed-extensions-store';
@@ -14,6 +14,7 @@ import { formatSessionTitleForDisplay } from '@renderer/features/sessions/sessio
 import { requestArchiveSession } from '@renderer/features/sessions/archive-session-flow';
 import { moveSessionUnder } from '@renderer/features/sessions/set-session-parent-flow';
 import { openSessionInSessionWhenReady } from '@renderer/features/sessions/open-session-in-session';
+import { openSessionOnScreen } from '@renderer/features/chats/open-chat';
 import { focusedSessionId } from '@renderer/features/sessions/pane-selectors';
 import { sessionRegistry } from '@renderer/features/sessions/stores/session-registry';
 import {
@@ -34,7 +35,7 @@ import { hasStatusSource } from '@shared/core/sessions/initial-agent-status';
 import { Tooltip, TooltipContent, TooltipTrigger } from '@renderer/lib/ui/tooltip';
 import { useSessionMessages } from '@renderer/localization/use-session-messages';
 import { clearDraggedScreenContent, setDraggedScreenContent } from '@renderer/lib/drag-screen-content';
-import { appState, sidebarStore } from '@renderer/lib/stores/app-state';
+import { sidebarStore } from '@renderer/lib/stores/app-state';
 import { sessionKeyboardNav } from './session-keyboard-nav';
 import { SessionRowShell } from './sidebar-session-row';
 import { useSessionDropTarget } from './use-session-drop-target';
@@ -162,13 +163,7 @@ export const SidebarSessionItem = observer(function SidebarSessionItem({
     // pressing ↓ right after clicking must continue from the row you just clicked.
     sessionKeyboardNav.syncCursorFromPointer({ kind: 'conversation', projectId, sessionId });
     // ⌘ 点 = 并排放在正看着那块的右边(spec session-page「一屏几块」);只在看这屏的视图上才有「正看着那块」。
-    if (beside && isScreenView(appState.navigation.currentViewId)) {
-      showSessionBeside({ projectId, sessionId });
-      openSessionInSessionWhenReady({ projectId, sessionId });
-      return;
-    }
-    navigate('session', { projectId, sessionId: sessionId });
-    openSessionInSessionWhenReady({ projectId, sessionId });
+    openSessionOnScreen({ projectId, sessionId }, beside);
   };
 
   const cursor = sessionKeyboardNav.cursor;
