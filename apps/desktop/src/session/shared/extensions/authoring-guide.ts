@@ -944,6 +944,79 @@ Tool Apps run and are configured on Gugu Desktop. Phone package installs refuse 
 or \`app_search\` and check its configuration and connection as a person would.
 `;
 
+export const EXTENSION_GUIDE_FORK = `# Change an existing App — a fork
+
+When a person asks an App to do something it does not support, or its own code has a bug,
+offer to fork a version for them. Ask before starting: "This App does not support that yet.
+Shall I fork a version for you?" Do not work around its missing feature with shell commands,
+edit its installed files, or build a substitute. Check its tools and app_search first; a missing
+feature need not produce an error. A fork cannot fix environment problems such as network,
+login, missing permission, a stopped program or an offline device: do not offer one for those.
+A tool saying it does not support an operation describes the current App, not whether its
+code can be changed. Offer the fork before declaring the requested feature impossible or
+proposing another tool. Investigate feasibility in the fork after agreement; do not promise
+that a fork can add host capabilities which are unavailable.
+Ask once; if they decline, do not ask again.
+
+A fork is another variant of the SAME App. Only one variant runs on this computer at a time.
+Data, chat enablement and already granted permissions belong to the App, so switching code
+keeps them. A variant asking for additional permissions still needs the person's consent.
+Never change the manifest id or break the existing data format. Do not clear, replace or
+migrate their data to make your new code work.
+
+## After the person agrees
+
+1. Call \`app_create {fork_of:"<app-id>", name:"remote-watch"}\`. The variant name is an ASCII
+   slug matching \`^[a-z0-9][a-z0-9-]{0,62}$\`. It checks out the exact
+   installed upstream commit into a git working directory and returns where to edit. Use
+   that returned directory, never the installed bundle. The upstream remote is \`upstream\`.
+   A connected GitHub account gets a real fork as \`origin\`; without one, the local repo works.
+2. Read the App's code and the relevant \`apps-*\` guides. Make the requested change in that
+   working directory with your normal editing tools. Preserve data and the App's identity;
+   keep its upstream version, and commit your code. Do not add permissions unless needed.
+3. Call \`app_install {source_dir:"<returned-source-directory>"}\`: the host recognizes the
+   fork, installs it as a variant and makes it active. Explain any new permissions; only the
+   person can approve them in the existing consent panel. A refusal leaves it uninstalled.
+4. Call \`app_check\` with the returned \`tab_kind\` (and \`item_id\` for a chat file). Exercise
+   the requested feature using the App's actual tools or page, and verify the person's
+   existing data is still there. Fix, reinstall and check until it works; then report the
+   active variant and what changed. Do not call it done from an install result alone.
+
+## Switch variants
+
+\`app_install {market:"<app-id>", variant:"<name>"}\` selects an installed variant.
+\`variant:"upstream"\` returns to the original. The person can also select a variant on the
+App's detail page. No fork or data copying is needed to switch.
+
+## Bring in an upstream update
+
+The App's row shows the upstream version and how many releases the active fork is behind.
+Pin the target to that upstream version's published commit.
+Read that repo's status first; preserve uncommitted work. Fetch \`upstream\` and merge the
+specified commit with git's three-way merge, resolving conflicts in the fork. Before merging,
+find its merge-base with the fork's HEAD and read the fork's diff from that base. List the
+custom behaviors and stored fields it added; record the existing data's IDs and values.
+After resolving conflicts, compare against both parents and verify each custom behavior and
+old data format still works, including when a device is offline. Similar upstream code is
+not proof that the fork's behavior was preserved. Do not replace
+your fork's files with a fresh upstream bundle or merge a moving branch tip in place of that
+commit. Keep the same data format, commit, then app_install the source directory and app_check
+again. Read back the same data IDs and values and exercise the custom behaviors: app_check's
+ok or an empty page is not proof that data survived. Missing data is a failed merge, not done.
+A conflict or failed check is work
+to finish, not grounds to silently discard the person's changes.
+
+## Push or contribute, when asked
+
+If the local repo has no \`origin\`, connect the person's GitHub account or use their gh CLI
+to fork the upstream repo; add their fork as \`origin\`. Push the variant branch there. Do
+not push to upstream. For a contribution, open a PR from that branch to upstream's default
+branch, describing the change and actual checks. First-party Apps share gugu-apps: only change
+\`sources/<app-id>\`, and target its \`main\` branch. Other Apps use their own upstream repo.
+Pushing, opening a PR and merging upstream are requests the person makes to you, not actions
+to take merely because you created a local fork.
+`;
+
 /** The App guides \`guide_read\` serves, one topic each — see GUIDE_TOPIC_BYTE_BUDGET in gugu-guide-tool.ts. */
 export const EXTENSION_GUIDE_TOPICS: readonly { topic: string; about: string; text: string; picture?: 'look' }[] = [
   {
@@ -956,6 +1029,11 @@ export const EXTENSION_GUIDE_TOPICS: readonly { topic: string; about: string; te
     about: 'How a page looks: gugu\'s look is in every App page already — semantic HTML, <gugu-icon>, <gugu-avatar>, <gugu-time>, <gugu-empty>, one line each, with a picture of them all; app_check\'s snapshot and steps; and the App on the market card (description, icon, engines).',
     text: EXTENSION_GUIDE_UI,
     picture: 'look',
+  },
+  {
+    topic: 'apps-fork',
+    about: 'An App cannot do what the person asks, or has a bug: offer a fork, then change, install and switch variants while keeping data; merge upstream updates or contribute when asked.',
+    text: EXTENSION_GUIDE_FORK,
   },
   {
     topic: 'apps-page',

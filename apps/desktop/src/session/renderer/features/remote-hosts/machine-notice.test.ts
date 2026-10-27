@@ -21,6 +21,16 @@ const spec = (input: Partial<Parameters<typeof machineNotice>[0]>) =>
   machineNotice({ connection: 'reconnecting', label: 'Mac 1', dials: 0, translate: zh, ...input });
 
 describe('选着的机器用不了,说什么(#137)', () => {
+  it('reuses the device protocol notice and says which endpoint must upgrade', () => {
+    expect(spec({ connection: 'connecting', notices: [{ kind: 'desktop-too-old' }] }))
+      .toMatchObject({ title: 'Mac 1 的咕咕较新，请更新这台电脑上的咕咕', tier: 'error', waiting: false, delayed: false });
+    expect(spec({ connection: 'outdated', notices: [{ kind: 'server-too-old' }] })?.title)
+      .toBe(zh('remoteHost.notice.serverTooOld', { device: 'Mac 1' }));
+    expect(spec({ connection: 'connected', notices: [{ kind: 'disk-low', freeBytes: 1 }] })).toBeNull();
+    expect(spec({ connection: 'updating', notices: [{ kind: 'server-too-old' }] }))
+      .toMatchObject({ tier: 'error', waiting: true, delayed: false });
+  });
+
   it('中英文案键一一对应', () => {
     expect(Object.keys(zhCNRemoteHostMessages).sort()).toEqual(Object.keys(enUSRemoteHostMessages).sort());
   });

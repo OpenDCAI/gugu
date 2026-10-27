@@ -573,6 +573,30 @@ export const ExtensionsSettingsCard = observer(function ExtensionsSettingsCard()
     [showConfirm]
   );
 
+  const switchVariant = async (manifest: ExtensionManifest, name: string) => {
+    if (inFlight.current[manifest.id]) return;
+    beginPending(manifest.id, 'inspecting');
+    try {
+      const handed = await api.switchVariant(manifest.id, name, { kind: 'return' });
+      if (!handed.success || !handed.data) throw new Error(handed.error ?? 'App variant unreadable');
+      if (handed.data.outcome !== 'ask') { await refresh(); return; }
+      const { ask, asks } = handed.data;
+      const complete = (enableIn?: string[]) => installing(
+        ask.manifest,
+        () => api.switchVariant(manifest.id, name, { kind: 'given', digest: ask.manifestDigest, ...(enableIn ? { enableIn } : {}) }),
+        () => switchVariant(manifest, name),
+      );
+      if (!asks) { await complete(); return; }
+      const machine = remoteRef.current?.deviceLabel;
+      const prompt = installConsentPrompt(machine ? { ...ask, machine } : ask, ask.manifest);
+      await askToInstall(prompt, ask.manifestDigest, ask.places, complete, machine);
+    } catch (error) {
+      toast({ title: translateRef.current('extensions.switchFailed'), description: messageForUser(error), tier: 'error' });
+    } finally {
+      endPending(manifest.id);
+    }
+  };
+
   /**
    * One way to ask, for every install here: with 「给哪些 agent」 (D-30) in the shell's sheet, else in the session page's own
    * dialog. `agreed` runs on a yes; this resolves once the shell's sheet is answered (the dialog answers on its own).
@@ -903,6 +927,8 @@ export const ExtensionsSettingsCard = observer(function ExtensionsSettingsCard()
     if (deprecated) {
       return { kind: 'deprecated', note: deprecated.note, replacedBy: deprecated.replacedBy };
     }
+    const behind = updates.forkBehind?.[manifest.id];
+    if (behind) return { kind: 'forkBehind', ...behind };
     const update = updates.updates[manifest.id];
     if (update) return { kind: 'update', version: update.version, releaseNotes: update.releaseNotes };
     // No longer in the market: said on its row, not counted as something to do (there is nothing to do).
@@ -916,11 +942,12 @@ export const ExtensionsSettingsCard = observer(function ExtensionsSettingsCard()
    */
   const lifecycleOf = (extensionId: string, item?: Pick<ShelfItem, 'manifest' | 'cloud'>): AppLifecycle => {
     const installed = installedById.get(extensionId);
+    const fork = store.origins[extensionId] === 'fork';
     return appLifecycle({
       installed,
       enabled: installed ? store.isEnabled(installed.id) : false,
-      updateVersion: store.updates?.updates[extensionId]?.version,
-      offered: item,
+      updateVersion: fork ? undefined : store.updates?.updates[extensionId]?.version,
+      offered: fork ? undefined : item,
       preinstalled: store.isPreinstalled(extensionId),
       canOpen: installed ? onRail(installed) : false,
     }, translate);
@@ -1136,6 +1163,8 @@ export const ExtensionsSettingsCard = observer(function ExtensionsSettingsCard()
             readOnly={!!notice?.readOnly}
             justInstalled={justInstalled === detail.manifest.id && Boolean(installed)}
             notice={installed ? noticeOf(installed) : undefined}
+            variants={installed ? store.variants[installed.id] : undefined}
+            onSwitchVariant={installed ? (name) => void switchVariant(installed, name) : undefined}
             revoked={installed ? (revoked[installed.id] ?? []) : []}
             pendingPermissions={installed ? pendingPermissionsOf(installed.id) : []}
             agentStatus={installed ? agentStatus[installed.id] : undefined}
@@ -1335,7 +1364,7 @@ export const ExtensionsSettingsCard = observer(function ExtensionsSettingsCard()
                       <InstalledAppRow
                         key={manifest.id}
                         id={manifest.id}
-                        name={localizedManifestText(manifest, locale).name}
+                        name={`${localizedManifestText(manifest, locale).name}${store.variants[manifest.id]?.active && store.variants[manifest.id]!.active !== 'upstream' ? ` · ${store.variants[manifest.id]!.active}` : ''}`}
                         version={manifest.version}
                         line={installedLine(manifest)}
                         iconUrl={store.appIcons[manifest.id]}

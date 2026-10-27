@@ -1,4 +1,5 @@
 import { compareExtensionVersions, safeParseExtensionManifest, type ExtensionManifest } from './manifest';
+import { forkBehind } from './variants';
 import { appPlatformDeclarationProblems } from './app-platforms';
 import {
   compatOf,
@@ -118,7 +119,7 @@ function placeholderManifest(id: string, version: MarketIndexVersion): Extension
 export function marketUpdatesFrom(
   index: MarketIndex,
   host: MarketHost,
-  installed: readonly { id: string; version: string; fromMarket?: boolean }[],
+  installed: readonly { id: string; version: string; fromMarket?: boolean; forkBase?: string }[],
   checkedAt: string
 ): MarketUpdatesSummary {
   const summary: MarketUpdatesSummary & { gone: string[] } = { checkedAt, updates: {}, yanked: {}, deprecated: {}, gone: [] };
@@ -126,15 +127,20 @@ export function marketUpdatesFrom(
   const apps = index.apps.filter((app) => ids.has(app.id));
   const { extensions } = marketEntriesFrom(apps, host, (relativePath) => relativePath);
   const offeredById = new Map(extensions.map((entry) => [entry.manifest.id, entry]));
-  for (const { id, version, fromMarket } of installed) {
+  for (const { id, version, fromMarket, forkBase } of installed) {
     const app = apps.find((entry) => entry.id === id);
     if (!app) {
       // Installed from the market and no longer in it; one from a folder or a chat was never in it.
       if (fromMarket) summary.gone.push(id);
       continue;
     }
-    const offered = offeredById.get(id);
     if (app.deprecated) summary.deprecated[id] = app.deprecated;
+    if (forkBase !== undefined) {
+      const behind = forkBehind(forkBase, app.versions);
+      if (behind) (summary.forkBehind ??= {})[id] = behind;
+      continue;
+    }
+    const offered = offeredById.get(id);
     const yanked = app.versions.find((entry) => entry.version === version)?.yanked;
     if (yanked) {
       summary.yanked[id] = {

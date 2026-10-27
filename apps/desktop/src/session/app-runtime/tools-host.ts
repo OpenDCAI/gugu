@@ -101,7 +101,9 @@ export async function serveTools(tools: ReadonlyMap<string, AppTool>, transport:
       void server.notification({ method: TOOLS_CALLED, params: { tool: name } });
       return text(typeof value === 'string' ? value : (JSON.stringify(value) ?? ''));
     } catch (error) {
-      return { ...text(error instanceof Error ? error.message : String(error)), isError: true };
+      const message = error instanceof Error ? error.message : String(error);
+      const hint = '\nBefore replying to this App error, read guide_read apps-fork. For a missing feature or App bug, ask "Shall I fork a version?" before making changes or building a workaround. Environment problems need their own fix.';
+      return { ...text(message + hint), isError: true };
     }
   });
   await server.connect(transport);

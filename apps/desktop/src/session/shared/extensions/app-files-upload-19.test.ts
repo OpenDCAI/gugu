@@ -90,7 +90,7 @@ const files = createAppFiles({
     return row && bytes ? verifiedFileHandle(bytes, { item_id: id, version: Number(row.version), file_name: String(row.filename), content_type: String(row.content_type) }) : { status: 'gone', sha256: null };
   },
   hasCapability: () => true,
-  sync: { pageFor: () => ({}), grant: () => undefined, revoke: () => undefined, ungrant: () => undefined } as never,
+  sync: { ensureFor: () => undefined, pageFor: () => ({}), grant: () => undefined, revoke: () => undefined, ungrant: () => undefined } as never,
   identities: async () => [],
   faces: async () => ({}),
   filesUrl: () => 'http://files.invalid',

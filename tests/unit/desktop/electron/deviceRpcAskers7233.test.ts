@@ -25,7 +25,8 @@ vi.mock('../../../../apps/desktop/electron/realtime-channel', async (importOrigi
 
 import { createDeviceRpcAskers, deviceRpcAskerLimitsFromEnv, DEVICE_RPC_ASKER_LIMITS } from '../../../../apps/desktop/electron/device-rpc-askers'
 
-type FakeChannel = { topic: string; sent: unknown[]; listeners: ((payload: unknown) => void)[]; reply: string }
+/** reply = 'hold':send 挂着,直到测试从 held 里叫它(模拟线堵、确认还没回来)。 */
+type FakeChannel = { topic: string; sent: unknown[]; listeners: ((payload: unknown) => void)[]; reply: string; held: ((result: string) => void)[] }
 
 function fakeHost(limits: Partial<typeof DEVICE_RPC_ASKER_LIMITS> = {}) {
   subs.list.length = 0
@@ -35,7 +36,7 @@ function fakeHost(limits: Partial<typeof DEVICE_RPC_ASKER_LIMITS> = {}) {
     realtime: { setAuth: () => undefined },
     removeChannel: () => undefined,
     channel: (topic: string) => {
-      const record: FakeChannel = { topic, sent: [], listeners: [], reply: 'ok' }
+      const record: FakeChannel = { topic, sent: [], listeners: [], reply: 'ok', held: [] }
       channels.push(record)
       const channel = {
         topic,
@@ -47,6 +48,7 @@ function fakeHost(limits: Partial<typeof DEVICE_RPC_ASKER_LIMITS> = {}) {
         // realtime-js 的 send:从不 reject,被拒 / 没等到确认时回 'error' / 'timed out'。
         send: async (message: { payload: unknown }) => {
           record.sent.push(message.payload)
+          if (record.reply === 'hold') return new Promise<string>((resolve) => record.held.push(resolve))
           return record.reply
         },
       }
@@ -77,7 +79,7 @@ function fakeHost(limits: Partial<typeof DEVICE_RPC_ASKER_LIMITS> = {}) {
   })
   const channelOf = (asker: string) => channels.filter((c) => c.topic === `gugu:dev:rpc:${asker}`).at(-1)!
   const subOf = (asker: string) => subs.list.filter((s) => s.topic === `gugu:dev:rpc:${asker}`).at(-1)!
-  const attach = (asker: string, requestId = `attach-${asker}`, protocol = 9) =>
+  const attach = (asker: string, requestId = `attach-${asker}`, protocol = REMOTE_PROTOCOL_VERSION) =>
     askers.attach({ type: 'taskhost.attach', request_id: requestId, user_id: 'u1', payload: { asker, protocol } })
   const ask = (asker: string, requestId: string, payload: unknown = {}) =>
     channelOf(asker).listeners.forEach((listener) => listener({ type: 'broadcast', event: 'broadcast', payload: { type: 'taskhost.call', request_id: requestId, user_id: 'u1', payload } }))
@@ -160,8 +162,62 @@ describe('离开:先在那条上说 detached,经它开的窗口一并关掉', ()
     expect(host.askers.ids()).toEqual([])
     expect(host.closedWindows).toEqual(['askerAAAA1111'])
     expect(host.subOf('askerAAAA1111').stopped).toBe(true)
-    expect(host.warnings.some((line) => /send failed on askerAAA.*not delivered: error/.test(line))).toBe(true)
+    expect(host.warnings.some((line) => /send failed on askerAAA.*broadcast refused/.test(line))).toBe(true)
   })
+
+  it('等不到确认(timed out)是线堵、不是丢帧:❌ 离开,后面的帧照原序接着发', async () => {
+    const host = fakeHost()
+    host.attach('askerAAAA1111')
+    host.subOf('askerAAAA1111').onStatus('SUBSCRIBED')
+    host.ask('askerAAAA1111', 'r1', { window: true })
+    await host.settle()
+    host.channelOf('askerAAAA1111').reply = 'timed out'
+    host.ask('askerAAAA1111', 'r2', { events: ['f1', 'f2'] })
+    await host.settle()
+    await host.settle()
+    expect(host.askers.ids()).toEqual(['askerAAAA1111'])
+    expect(host.closedWindows).toEqual([])
+    const sent = host.channelOf('askerAAAA1111').sent as { type: string; name?: string }[]
+    expect(sent.slice(-3).map((p) => p.name ?? p.type)).toEqual(['f1', 'f2', 'taskhost.call:reply'])
+  })
+
+  it('rejoins an interrupted subscription without treating missing ACKs as undelivered frames', async () => {
+    const host = fakeHost()
+    host.attach('askerAAAA1111')
+    host.subOf('askerAAAA1111').onStatus('SUBSCRIBED')
+    await host.settle()
+    host.subOf('askerAAAA1111').onStatus('CHANNEL_ERROR')
+    expect(host.askers.ids()).toEqual(['askerAAAA1111'])
+    host.ask('askerAAAA1111', 'r1', { window: true, events: ['queued'] })
+    await host.settle()
+    host.channelOf('askerAAAA1111').reply = 'hold'
+    host.subOf('askerAAAA1111').onStatus('SUBSCRIBED')
+    expect(types(host.channelOf('askerAAAA1111').sent).slice(-2)).toEqual(['taskhost.frame', 'taskhost.call:reply'])
+    host.subOf('askerAAAA1111').onStatus('CHANNEL_ERROR')
+    await host.settle()
+    expect(host.askers.ids()).toEqual(['askerAAAA1111'])
+    expect(host.closedWindows).toEqual([])
+  })
+})
+
+describe('ACK delivery does not gate frames or heartbeat replies', () => {
+  it('still answers a heartbeat and emits alive while delivered data ACKs are missing', async () => {
+    const host = fakeHost();
+    host.attach('askerAAAA1111');
+    host.subOf('askerAAAA1111').onStatus('SUBSCRIBED');
+    await host.settle();
+    const channel = host.channelOf('askerAAAA1111');
+    channel.reply = 'hold';
+    // The fake transport delivered this frame, but its acknowledgement is lost.
+    host.ask('askerAAAA1111', 'large', { events: ['x'.repeat(300 * 1024)] });
+    await host.settle();
+    host.ask('askerAAAA1111', 'heartbeat');
+    await host.settle();
+    host.askers.alive();
+    expect(channel.sent.some(frame => (frame as { request_id?: string }).request_id === 'heartbeat')).toBe(true);
+    expect(types(channel.sent)).toContain('taskhost.alive');
+    host.askers.dispose();
+  });
 
   it('idleMs 里一问都没有:离开(idle);离开之后这条上的推送丢掉,❌ 再发', async () => {
     const host = fakeHost({ idleMs: 1_000 })
@@ -245,7 +301,7 @@ describe('离开:先在那条上说 detached,经它开的窗口一并关掉', ()
 })
 
 describe('alive', () => {
-  it('只在订上了的线上发', () => {
+  it('only sends on subscribed channels without waiting for data ACKs', async () => {
     const host = fakeHost()
     host.attach('askerAAAA1111')
     host.attach('askerBBBB2222')
