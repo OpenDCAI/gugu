@@ -58,13 +58,6 @@ export const pillIconArea = style({
   justifyContent: 'center',
 });
 
-export const pillPlainIconArea = style({
-  position: 'absolute',
-  inset: 0,
-  width: '100%',
-  height: '100%',
-});
-
 export const pillRemoveBtn = style({
   position: 'absolute',
   inset: 0,
@@ -78,8 +71,6 @@ export const pillRemoveBtn = style({
   selectors: {
     [`${pill}:hover &`]: { opacity: 1 },
     '&:hover': { backgroundColor: vars.surfaceSelected },
-    // 纯文字 pill:✕ 只叠在末尾、名字尾巴渐隐让位,❌ 整块盖住名字(悬停时只剩灰底和 ✕)。
-    [`${pillPlainIconArea} &`]: { left: 'auto', width: '1.25rem', background: `linear-gradient(to right, transparent, ${vars.surfaceHover} 45%)` },
   },
 });
 

@@ -87,7 +87,11 @@ describe('participant mention presentation', () => {
     const pill = input.element().querySelector(`[data-mention-id="${id}"]`)!
     expect(pill.textContent).toBe(`@${name}`)
     expect(pill.querySelector('img, svg[role="img"]'), 'selected mentions only show @name').toBeNull()
-    expect(page.getByRole('button', { name: `Remove @${name}` }).elements()).toHaveLength(1)
+    expect(page.getByRole('button', { name: `Remove @${name}` }).elements(), 'a participant pill is one token, no hover ✕').toHaveLength(0)
+    // Picking adds a trailing space; the next Backspace takes the whole pill, ❌ leaves a bare「@」.
+    await userEvent.keyboard('{Backspace}{Backspace}')
+    await until('participant pill is removed whole', () => input.element().querySelector(`[data-mention-id="${id}"]`) === null)
+    expect(input.element().textContent).not.toContain('@')
   })
 
   it('shows the task identity avatar in suggestions and only @name in its pill', async () => {
