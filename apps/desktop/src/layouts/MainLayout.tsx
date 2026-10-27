@@ -1321,11 +1321,10 @@ function InnerLayout({
                       onLeave={() => navigateMobile(() => setActiveTab('chats'), 'pop')}
                       onSwitchToChat={handleSwitchToChat}
                       onOpenGroupChat={handleOpenGroupChat}
-                      onOpenProjectGroup={(chatId, tabChatId) => navigateMobile(() => {
+                      onOpenProjectGroup={(chatId) => navigateMobile(() => {
                         setProjectChatFromPartners(true)
                         openChatTarget(chatId)
-                        if (tabChatId) requestTopicSplit({ chatId: tabChatId, name: chats.find((chat) => chat.id === tabChatId)?.name ?? '', sourceChatId: chatId })
-                        else closeTopicTab(chatId)
+                        closeTopicTab(chatId)
                       }, 'push')}
                     />
                   ) : (

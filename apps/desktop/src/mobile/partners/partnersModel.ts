@@ -1,4 +1,4 @@
-import type { ChatItem, Device } from '@gugu/core/shared/types/chat'
+import type { Device } from '@gugu/core/shared/types/chat'
 import type { ContactGroupChat, ContactUser } from '@gugu/core/shared/types/contacts'
 import type { SessionpageSessionSummary } from '@gugu/session-core/session-record/contract'
 import { displayName, groupContacts } from '@/lib/contactsListSort'
@@ -60,14 +60,6 @@ export function matchesQuery(text: string, query: string): boolean {
   return !q || text.toLowerCase().includes(q)
 }
 
-/** 项目通讯录「群」:项目的群聊本身之外,它上面不属于哪件任务的话题(任务的话题跟着它的 agent 走)。按建的先后。 */
-export function projectTopics(chatId: string | null, chats: readonly ChatItem[], taskTopicIds: ReadonlySet<string>): ChatItem[] {
-  if (!chatId) return []
-  return chats
-    .filter((chat) => chat.kind === 'topic' && chat.source_chat_id === chatId && !taskTopicIds.has(chat.id))
-    .sort((a, b) => a.created_at.localeCompare(b.created_at))
-}
-
 /** 这个项目各台机器上的会话。 */
 export function projectSessions(
   project: Pick<PartnerProject, 'members'>,
@@ -83,30 +75,35 @@ export type ProjectAgent = {
   contact: ContactUser | null
   /** 它在这个项目里最近做的那件事。 */
   work: string | null
+  /** 那件事的会话(点这一行打开它);只在群里、这个项目里还没有会话 = null。 */
+  latest: { deviceId: string; session: SessionpageSessionSummary } | null
 }
 
 /**
  * 项目通讯录「Agent」:我在这个项目里的 agent —— 项目群里我的 agent,加上这个项目的会话里有、群里还没有的。
- * 顺序固定(群里的先后,再是会话里多出来的),❌ 按状态排;副标题是它在这里最近那件事的标题。
+ * 顺序固定(群里的先后,再是会话里多出来的),❌ 按状态排;副标题是它在这里最近那件事的标题,点它打开那条会话。
  */
 export function projectAgents(
   group: Pick<ContactGroupChat, 'member_user_ids'> | null,
   myAgents: ReadonlyMap<string, ContactUser>,
-  sessions: readonly { session: SessionpageSessionSummary }[],
+  sessions: readonly { deviceId: string; session: SessionpageSessionSummary }[],
 ): ProjectAgent[] {
-  const latest = new Map<string, SessionpageSessionSummary>()
-  for (const { session } of sessions) {
-    const agentId = session.agent?.userId
+  const latest = new Map<string, { deviceId: string; session: SessionpageSessionSummary }>()
+  for (const row of sessions) {
+    const agentId = row.session.agent?.userId
     if (!agentId) continue
     const seen = latest.get(agentId)
-    if (!seen || (session.lastInteractedAt ?? '') > (seen.lastInteractedAt ?? '')) latest.set(agentId, session)
+    if (!seen || (row.session.lastInteractedAt ?? '') > (seen.session.lastInteractedAt ?? '')) latest.set(agentId, row)
   }
   const ids = [...(group?.member_user_ids ?? []).filter((id) => myAgents.has(id))]
   for (const { session } of sessions) {
     const agentId = session.agent?.userId
     if (agentId && !ids.includes(agentId)) ids.push(agentId)
   }
-  return ids.map((id) => ({ id, contact: myAgents.get(id) ?? null, work: latest.get(id)?.title ?? null }))
+  return ids.map((id) => {
+    const row = latest.get(id) ?? null
+    return { id, contact: myAgents.get(id) ?? null, work: row?.session.title ?? null, latest: row }
+  })
 }
 
 export function agentName(agent: ProjectAgent): string {
