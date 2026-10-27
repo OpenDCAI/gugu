@@ -704,7 +704,6 @@ export default {
     "actions": {
       "comingSoon": "即将开放",
       "copy": "复制文本",
-      "copyLink": "复制链接",
       "openLink": "打开链接",
       "selectText": "选择文本",
       "delete": "删除",

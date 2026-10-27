@@ -35,7 +35,7 @@ describe('project row menu across the two React roots', () => {
     const read = document.querySelector<HTMLElement>('[data-testid=conversation-row-mark-read]')!
     expect(read.getAttribute('aria-disabled')).not.toBe('true')
     expect([...document.querySelectorAll('[role=menuitem]')].map((item) => item.getAttribute('data-testid')))
-      .toEqual(['conversation-row-mark-read', 'conversation-row-remove-project'])
+      .toEqual(['conversation-row-copy-resource-url', 'conversation-row-send-resource-url', 'conversation-row-mark-read', 'conversation-row-remove-project'])
     await clickElement(read)
     expect(takeShellChatAction((value): value is typeof value => true)).toEqual({ kind: 'mark-read', chatId: 'project-group' })
     expect(document.querySelector('[role=menu]')).toBeNull()

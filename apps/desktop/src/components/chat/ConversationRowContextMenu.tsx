@@ -17,7 +17,7 @@ export function ConversationRowContextMenu({ x, y, state, resource, onClose, onA
 }) {
   const { t } = useTranslation('messaging')
   return <Menu x={x} y={y} minWidth={160} onClose={onClose}>
-    {resource && resourceMenuItems(resource).map(item => <MenuItem key={item.id} onClick={() => { onClose(); void item.click() }}>{item.label}</MenuItem>)}
+    {resource && resourceMenuItems(resource).map(item => <MenuItem key={item.id} data-testid={`conversation-row-${item.id}`} onClick={() => { onClose(); void item.click() }}>{item.label}</MenuItem>)}
     {conversationRowMenu(state).map((item) => {
       const Icon = icons[item.icon]
       return <MenuItem key={item.id} icon={<Icon size={15} />} danger={item.danger} disabled={item.disabled}

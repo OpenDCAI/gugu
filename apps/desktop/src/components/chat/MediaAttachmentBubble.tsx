@@ -72,7 +72,7 @@ function InlineImage({ meta, messageId, isMine }: { meta: ParsedAttachment; mess
     const unregister = registerFullImage(img.current, () => (full ??= attachmentBytes(meta.source, 'full').then((bytes) => {
       if (bytes.status !== 'ready') throw new Error('attachment is gone')
       return URL.createObjectURL(bytes.blob)
-    })))
+    })), meta.source.kind === 'item' ? { kind: 'file', target: { kind: 'file', itemId: meta.source.itemId, version: meta.source.version } } : undefined)
     return () => {
       unregister()
       void full?.then((url) => URL.revokeObjectURL(url), () => undefined)

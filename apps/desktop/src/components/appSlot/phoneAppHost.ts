@@ -863,7 +863,7 @@ export function hostAppFrame(
 
 
 declare const __GUGU_TIER__: string
-const phoneLinkScheme = () => guguLinkScheme({ tier: typeof __GUGU_TIER__ === 'undefined' ? undefined : __GUGU_TIER__, devLaunch: false })
+export const phoneLinkScheme = () => guguLinkScheme({ tier: typeof __GUGU_TIER__ === 'undefined' ? undefined : __GUGU_TIER__, devLaunch: false })
 
 /** Host facts and transports only; target parsing and opening order are shared with main. */
 export async function openPhoneLink(target: string | GuguLinkTarget) {

@@ -1,4 +1,5 @@
-import { guguLink, guguLinkScheme } from '@gugu/core/shared/ui/guguLink'
+import { guguLink } from '@gugu/core/shared/ui/guguLink'
+import { platform } from '@/platform'
 import { i18n } from '@/i18n/runtime'
 import { readMobileShell } from '@/hooks/useMobileShell'
 import { readCachedDevices } from '@/store/devicesCache'
@@ -8,8 +9,6 @@ import { APP_COMPOSE_EVENT, APP_SHOW_SESSION_EVENT } from '@/session/shared/exte
 import { pickDispatchTarget } from '@/components/chat/dispatchAsk'
 import { notify } from './notices'
 
-declare const __GUGU_TIER__: string
-
 /** One URL producer and one draft picker for every resource host; nothing is sent here. */
 export function resourceMenuItems(resource: ResourceContext) {
   return RESOURCE_ACTIONS.map(({ id, labelKey }) => ({ id, label: i18n.t(labelKey, { ns: 'messaging' }), click: () => runResourceAction(id, resource) }))
@@ -17,7 +16,9 @@ export function resourceMenuItems(resource: ResourceContext) {
 
 export async function runResourceAction(id: (typeof RESOURCE_ACTIONS)[number]['id'], resource: ResourceContext) {
   try {
-    const url = guguLink(resource.target, resource.target.kind === 'chat' || resource.target.kind === 'file' ? undefined : guguLinkScheme({ tier: typeof __GUGU_TIER__ === 'undefined' ? undefined : __GUGU_TIER__, devLaunch: import.meta.env.DEV }))
+    const url = resource.target.kind === 'chat' || resource.target.kind === 'file' ? guguLink(resource.target)
+      : platform.kind === 'electron' ? await (await import('@/session/renderer/lib/ipc')).rpc.extensions.resourceLink(resource.target)
+        : guguLink(resource.target, (await import('@/components/appSlot/phoneAppHost')).phoneLinkScheme())
     if (id === 'copy-resource-url') {
       await navigator.clipboard.writeText(url)
       notify({ tier: 'success', title: i18n.t('message.copied', { ns: 'messaging' }) })
