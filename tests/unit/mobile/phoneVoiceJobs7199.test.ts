@@ -257,7 +257,7 @@ describe('失败与重试', () => {
     await t.jobs.start()
     const id = t.view().id
     await until(() => expect(t.home.text.has(`${NOTES}/${id}/note.json`)).toBe(true))
-    const rpc = t.home.machine.rpc.workspace.files as unknown as { writeChunk: (...args: unknown[]) => Promise<unknown> }
+    const rpc = t.home.machine.rpc!.workspace.files as unknown as { writeChunk: (...args: unknown[]) => Promise<unknown> }
     const original = rpc.writeChunk
     let fail = true
     rpc.writeChunk = async (...args: unknown[]) => (fail ? { success: false, error: { type: 'network', message: 'offline' } } : original(...args))

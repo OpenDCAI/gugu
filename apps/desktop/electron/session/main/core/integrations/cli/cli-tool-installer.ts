@@ -10,6 +10,8 @@ import type { IntegrationCliTool } from '@gugu/session-plugins/integrations';
 import JSZip from 'jszip';
 import { resolvesInside } from '../../extensions/path-containment';
 import { cliToolsRoot } from './cli-paths';
+import { preinstalledCliDirectory } from './cli-preinstalled';
+import { DWS_LINUX_PRODUCT, installManagedProduct, managedProductRoot } from './cli-managed-products';
 import { FEISHU_BINARY_SHA256, FEISHU_CLI_VERSION, FEISHU_SKILLS_COMMIT, feishuArchiveName } from './feishu-cli';
 import { TMEET_BINARY, TMEET_SKILLS_COMMIT } from './tmeet-cli';
 import {
@@ -54,7 +56,8 @@ export function cliToolHome(tool: IntegrationCliTool, guguHome?: string): string
 
 export function installedCliTool(tool: IntegrationCliTool, guguHome?: string): InstalledCliTool {
   const recipe = cliToolRecipe(tool);
-  const dir = path.join(cliToolsRoot(guguHome), tool, recipe.version);
+  const localDir = path.join(cliToolsRoot(guguHome), tool, recipe.version);
+  const dir = existsSync(path.join(localDir, '.complete')) ? localDir : preinstalledCliDirectory(recipe) ?? localDir;
   return {
     tool,
     version: recipe.version,
@@ -93,17 +96,23 @@ async function install(tool: IntegrationCliTool): Promise<InstalledCliTool> {
   await fs.mkdir(path.join(staging, 'bin'), { recursive: true });
   await fs.mkdir(path.join(staging, 'skills'), { recursive: true });
   try {
-    const packageDir = await downloadNpmPackage(recipe.binaryPackage(platform), path.join(staging, 'download'), report);
-    if (tool === 'lark-cli') {
-      await installFeishu(platform, staging, report);
-    } else if (tool === 'dws') {
-      await installDws(packageDir, platform, staging);
-    } else if (tool === 'tmeet') {
-      await fs.copyFile(path.join(packageDir, 'dist', TMEET_BINARY[platform]), path.join(staging, 'bin', recipe.bin));
-      await installTmeetSkills(staging, report);
+    const managedRoot = managedProductRoot(tool, platform);
+    if (managedRoot) {
+      if (recipe.version !== DWS_LINUX_PRODUCT.version) throw new Error('Managed CLI product version does not match the release');
+      await installManagedProduct(managedRoot, DWS_LINUX_PRODUCT, staging, report);
     } else {
-      await fs.copyFile(path.join(packageDir, 'bin', recipe.bin), path.join(staging, 'bin', recipe.bin));
-      await installWecomSkills(path.join(staging, 'skills'), path.join(staging, 'download'), report);
+      const packageDir = await downloadNpmPackage(recipe.binaryPackage(platform), path.join(staging, 'download'), report);
+      if (tool === 'lark-cli') {
+        await installFeishu(platform, staging, report);
+      } else if (tool === 'dws') {
+        await installDws(packageDir, platform, staging);
+      } else if (tool === 'tmeet') {
+        await fs.copyFile(path.join(packageDir, 'dist', TMEET_BINARY[platform]), path.join(staging, 'bin', recipe.bin));
+        await installTmeetSkills(staging, report);
+      } else {
+        await fs.copyFile(path.join(packageDir, 'bin', recipe.bin), path.join(staging, 'bin', recipe.bin));
+        await installWecomSkills(path.join(staging, 'skills'), path.join(staging, 'download'), report);
+      }
     }
     report({ phase: 'install', receivedBytes: 0 });
     await fs.chmod(path.join(staging, 'bin', recipe.bin), 0o755);

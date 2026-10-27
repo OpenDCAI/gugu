@@ -20,6 +20,7 @@ import {
 import { mapSessionRowToSession } from './utils';
 import { getSessionMessageRouter, setSessionMessageOutboxDrain } from './session-message-router';
 import { isNoLocalMessageEncodingError } from './impl/keystroke-injection';
+import { sessionDirectMessageIdentity } from './session-direct-message-identity';
 
 /**
  * 认领者声明「这条消息在任何字节到达 provider 之前就被拒了」(结构标记,❌ 不用 instanceof:会话页 bundle 与
@@ -43,6 +44,8 @@ export interface SendSessionMessageParams {
   queuedStartupDelegation?: boolean;
   /** session-direct only: the sender's `delivery: 'queue'` / `key` (ACP targets; callers refuse terminals first). */
   delivery?: SessionMessageDelivery;
+  /** Local admission lifetime; never persisted or sent to the provider. */
+  signal?: AbortSignal;
 }
 
 export type SendSessionMessageResult = {
@@ -159,7 +162,7 @@ async function readSession(params: {
   return { ...row, provider: row.provider, config: row.config };
 }
 
-function readAcceptedMessage(messageId: string): AcceptedMessageReceipt | undefined {
+export function readAcceptedMessage(messageId: string): AcceptedMessageReceipt | undefined {
   return db
     .select({
       id: messages.id,
@@ -183,7 +186,9 @@ function receiptState(
   if (
     receipt.id !== expected.id
     || receipt.sessionId !== expected.sessionId
-    || receipt.content !== expected.text
+    || (kind === 'session-direct'
+      ? sessionDirectMessageIdentity(receipt.content,expected.id) !== sessionDirectMessageIdentity(expected.text,expected.id)
+      : receipt.content !== expected.text)
     || receipt.sender !== 'user'
   ) {
     throw new Error(`message receipt ${expected.id} conflicts with existing message bytes`);
@@ -532,7 +537,26 @@ async function drain(params: {
  * recipient outbox row for the common inbox reader. Startup delegation and ordinary messages
  * retain the existing durable outbox behavior.
  */
-export async function sendMessage(
+const directAdmissions = new Map<string, { signature: string; flight: Promise<SendSessionMessageResult> }>();
+export async function sendMessage(params: SendSessionMessageParams): Promise<SendSessionMessageResult> {
+  params.signal?.throwIfAborted();
+  if (params.kind !== 'session-direct' || params.queuedStartupDelegation) return sendMessageOnce(params);
+  const key = params.clientMessageId.trim();
+  const signature = JSON.stringify([params.projectId, params.sessionId, sessionDirectMessageIdentity(params.text.trim(),key), params.delivery ?? null]);
+  const existing = directAdmissions.get(key);
+  if (existing) {
+    if (existing.signature !== signature) throw new Error('message identity reused with different delivery content');
+    return existing.flight;
+  }
+  const flight = sendMessageOnce(params);
+  const admission = { signature, flight };
+  directAdmissions.set(key, admission);
+  const clean = () => { if (directAdmissions.get(key) === admission) directAdmissions.delete(key); };
+  void flight.then(clean, clean);
+  return flight;
+}
+
+async function sendMessageOnce(
   params: SendSessionMessageParams,
 ): Promise<SendSessionMessageResult> {
   const text = params.text.trim();
@@ -574,12 +598,13 @@ export async function sendMessage(
     if (!router) {
       throw new SessionDirectDeliveryError(params.sessionId, 'no session message router is installed');
     }
+    params.signal?.throwIfAborted();
     const receipt = await router(params.sessionId, {
       id: clientMessageId,
       text,
       kind: 'session-direct',
       ...(params.delivery ? { delivery: params.delivery } : {}),
-    });
+    }, params.signal);
     if (receipt.status === 'not-ready') {
       // The outbox keeps text only: a kept message with `delivery` would later go out the default way — into the
       // current turn, its key lost. So it is not kept; the sender is told now and sends it again.

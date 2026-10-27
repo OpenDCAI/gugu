@@ -1,5 +1,7 @@
 import {
   trimmedValue,
+  platformStandaloneSearchGranted,
+  type PlatformCallableRoutes,
   type IPlatformModelBehavior,
   type PlatformModelLoad,
 } from '@gugu/session-core/agents/plugins';
@@ -72,6 +74,7 @@ function claudeSettingsOverride(
   selectedModel: string,
   platformModels?: readonly { id: string; displayName: string; contextWindow?: number | null }[],
   selectedWindow?: number | null,
+  callableRoutes?: PlatformCallableRoutes,
 ): Pick<PlatformModelLoad, 'settingsOverride'> {
   if (!platformSettingsEnv || Object.keys(platformSettingsEnv).length === 0) return {}
 
@@ -110,6 +113,9 @@ function claudeSettingsOverride(
       // failed with "Unable to verify if domain … is safe to fetch" (mac1 10-07: 6/6; with this key, it reads the
       // page). Only platform sessions get this document, so a user's own Claude account keeps its own setting.
       skipWebFetchPreflight: true,
+      ...(platformStandaloneSearchGranted(callableRoutes, selectedModel)
+        ? { permissions: { deny: ['WebSearch'] } }
+        : {}),
       env: { ...platformSettingsEnv },
     },
   }
@@ -163,6 +169,7 @@ export const platformModel: IPlatformModelBehavior = {
     // model picker has to be repopulated from us.
     ...(input.platformProvider ? { platformProvider: input.platformProvider } : {}),
     ...(input.platformProvider && input.platformModels ? { platformModels: input.platformModels } : {}),
+    ...(input.platformAccess && Object.keys(input.callableRoutes).length > 0 ? { platformCallableRoutes: input.callableRoutes } : {}),
     ...(input.contextWindow !== undefined ? { contextWindow: input.contextWindow } : {}),
     // 同一张协议表说了算(❌ 不在这里另写一遍变量名):这一家就是 Anthropic 那一面,
     // 所以直接问协议表要「把一个 anthropic 协议的 harness 指向平台中转」的那组环境变量。
@@ -225,6 +232,7 @@ export const platformModel: IPlatformModelBehavior = {
         selectedModel,
         model.platformModels,
         model.contextWindow,
+        model.platformCallableRoutes,
       ),
     }
   },

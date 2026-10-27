@@ -3,6 +3,7 @@ import { act } from 'react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { CreateGroupChatForm } from '../../../../apps/desktop/src/components/CreateGroupChatModal'
 import { MemberPicker } from '../../../../apps/desktop/src/components/member-picker/MemberPicker'
+import {phoneTaskDirectoryRequested} from '../../../../apps/desktop/src/session/shared/remote-sessions/session-directory'
 import { clickElement, contact, createNode, createReactHarness, renderWithAppProviders, typeInto } from '../../../support/testHarness'
 vi.mock('../../../../apps/desktop/src/lib/chat', () => import('../../../support/contactsChatServiceTestDouble'))
 vi.mock('../../../../apps/desktop/src/hooks/useAgentDisplayStatus', () => import('../../../support/agentDisplayStatusTestDouble'))
@@ -28,6 +29,13 @@ const key = (target: Element, k: string) => act(async () => { target.dispatchEve
 const confirmText = () => [...harness.container.querySelectorAll('button')].find((b) => /创建群聊/.test(b.textContent ?? ''))?.textContent
 
 describe('member picker', () => {
+  it('retains the phone summary reader while selecting members without requiring an assistant task pane',async()=>{
+    expect(phoneTaskDirectoryRequested()).toBe(false)
+    await renderWithAppProviders(harness,createNode(MemberPicker,{title:'Add',confirmLabel:(n:number)=>`Add ${n}`,onConfirm:()=>{},onClose:()=>{}}),providers)
+    expect(phoneTaskDirectoryRequested()).toBe(true)
+    harness.cleanup()
+    expect(phoneTaskDirectoryRequested()).toBe(false)
+  })
   it('lists sources on the side, people before devices, and opens on the first one with anyone in it', async () => {
     await renderWithAppProviders(harness, createNode(CreateGroupChatForm, { onClose: () => {}, onCreated: () => {} }), providers)
     expect([...harness.container.querySelectorAll<HTMLElement>('[data-picker-source]')].map((s) => s.dataset.pickerSource)).toEqual(['recent', 'people', 'unknown'])

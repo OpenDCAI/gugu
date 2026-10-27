@@ -289,3 +289,24 @@ it('preflights every recipient before uploading files, then passes only immutabl
   expect(prepareFiles).toHaveBeenCalledWith([{file_path:'/original'}],[{sessionId:OTHER_SESSION}])
   expect(graphMessage).toHaveBeenCalledWith([OTHER_SESSION],'report',expect.objectContaining({attachments:await prepareFiles.mock.results[0].value}))
 })
+
+
+describe('durable assistant work admission precedes reachability', () => {
+  it('queues a work report without consulting a sleeping coordinator roster', async () => {
+    const enqueueReport = vi.fn(async () => ({ route: 'session-direct' as const, recipients: [{ to: `session:${OTHER_SESSION}`, status: 'accepted' as const, message_id: 'stable' }] }))
+    const f = makeDeps({ enqueueReport })
+    const result = await handleUnifiedSessionMessage({ to: [`session:${OTHER_SESSION}`], text: 'file ready', work_result: { work_id: SELF, status: 'completed' } }, f.deps)
+    expect(result.recipients[0]?.status).toBe('accepted')
+    expect(enqueueReport).toHaveBeenCalledOnce()
+    expect(f.graphMessage).not.toHaveBeenCalled()
+    expect(f.localSessionsOfAgents).not.toHaveBeenCalled()
+  })
+  it('keeps the host dispatch intent and commits before live delivery', async () => {
+    const intent = { version: 1, assistant_id: SELF, work_id: OTHER, operation_id: SELF, message_id: OTHER, child_session_id: OTHER_SESSION, coordinator: { session_id: SELF_SESSION, device_id: 'here' }, title: 'task', continuation: true }
+    const enqueueWork = vi.fn(async () => ({ route: 'session-direct' as const, recipients: [{ to: `session:${OTHER_AGENT_SESSION}`, status: 'accepted' as const }] }))
+    const f = makeDeps({ enqueueWork, localDeviceId: async () => 'here' })
+    await handleUnifiedSessionMessage({ to: [`aid:${OTHER}`], text: 'continue', assistant_work: intent }, f.deps)
+    expect(enqueueWork).toHaveBeenCalledWith(intent, 'continue', [], [{ sessionId: OTHER_AGENT_SESSION, deviceId: 'here', agentId: OTHER }])
+    expect(f.graphMessage).not.toHaveBeenCalled()
+  })
+})

@@ -1,3 +1,4 @@
+import { composeChatDraft } from '@/lib/composeDraft'
 import { showRendererContentMenu } from '../../lib/contentContextMenu'
 import { appContextMenuOf } from '../../session/shared/extensions/app-context-menu'
 import { appIdentityOf } from '../../session/shared/extensions/app-identity'
@@ -21,7 +22,6 @@ import { subscribeAuthenticatedRealtimeChannel, unsubscribeAuthenticatedRealtime
 import { FileSyncRelay, webSocketUrl, type PageSync } from '../../session/shared/extensions/file-sync-core'
 import { userIdFromSupabaseAccessToken } from '@gugu/core/cloud/runtimeAuthProvider'
 import {
-  APP_COMPOSE_EVENT,
   APP_FORUM_CONSENT_EVENT,
   APP_FILE_MAX_BYTES,
   APP_FRAME_MARKER,
@@ -31,7 +31,6 @@ import {
   isLocal,
   placeOf,
   sessionIdOf,
-  type AppComposeDetail,
   type AppForumConsentDetail,
   type AppFileUpload,
   type AppOpenWithDetail,
@@ -593,7 +592,7 @@ export function hostAppFrame(
             agents,
             pick: pickDispatchTarget,
             // Use the same capture-before-append ordering as the desktop host.
-            draftInChat: async (detail) => void document.dispatchEvent(new CustomEvent<AppComposeDetail>(APP_COMPOSE_EVENT, { detail, bubbles: true })),
+            draftInChat: async (detail) => composeChatDraft(detail),
           },
           hosted.binding.extensionId,
           args,
@@ -875,7 +874,7 @@ export function hostAppFrame(
 
 
 declare const __GUGU_TIER__: string
-const phoneLinkScheme = () => guguLinkScheme({ tier: typeof __GUGU_TIER__ === 'undefined' ? undefined : __GUGU_TIER__, devLaunch: false })
+export const phoneLinkScheme = () => guguLinkScheme({ tier: typeof __GUGU_TIER__ === 'undefined' ? undefined : __GUGU_TIER__, devLaunch: false })
 
 /** Host facts and transports only; target parsing and opening order are shared with main. */
 export async function openPhoneLink(target: string | GuguLinkTarget) {

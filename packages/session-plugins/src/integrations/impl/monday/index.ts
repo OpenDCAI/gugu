@@ -1,3 +1,4 @@
+import { summary } from './summary';
 import type { VerifyResult } from '../../capabilities/auth';
 import { defineIntegrationPlugin, registerIntegrationPluginBehavior } from '../../plugin';
 import { verifyMondayCredentials } from './client';
@@ -6,8 +7,8 @@ import { icon } from './icon';
 const plugin = defineIntegrationPlugin(
   {
     id: 'monday',
-    name: 'Monday.com',
-    description: { en: 'Work on Monday.com items', 'zh-CN': '处理 Monday.com 条目' },
+    name: summary.name['zh-CN'],
+    description: summary.description,
     websiteUrl: 'https://monday.com',
   },
   {

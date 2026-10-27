@@ -39,7 +39,7 @@ export function createdFromId(id: string): string {
 
 async function readItem(machine: AssistantMachine, id: string, now: number): Promise<PhoneVoiceItem> {
   const dir = voiceNoteDirOf(machine, id)
-  const meta = parseVoiceNoteMeta((await readText(machine, joinPath(dir, VOICE_NOTE_META_FILE))) ?? '')
+  const meta = parseVoiceNoteMeta((await readText(machine, joinPath(dir, VOICE_NOTE_META_FILE)).catch(error => { if (['account-changed','signed-out'].includes(error?.code)) throw error; return null })) ?? '')
   if (!meta) {
     return {
       id,
@@ -52,7 +52,7 @@ async function readItem(machine: AssistantMachine, id: string, now: number): Pro
   // 交给它写总结之后、note.json 还没标好:summary.md 已经在了就算好了(标题取它的第一行)。
   let summary: string | undefined
   if (meta.status === 'summarizing' || meta.status === 'failed') {
-    const text = await readText(machine, joinPath(dir, VOICE_NOTE_SUMMARY_FILE))
+    const text = await readText(machine, joinPath(dir, VOICE_NOTE_SUMMARY_FILE)).catch(error => { if (['account-changed','signed-out'].includes(error?.code)) throw error; return null })
     summary = text?.trim() ? summaryTitle(text) : undefined
   }
   const view = voiceNoteView(meta, summary, now)
@@ -77,13 +77,13 @@ async function mapLimit<T, R>(items: readonly T[], limit: number, fn: (item: T) 
 export async function readVoiceNotes(machine: AssistantMachine, now = Date.now()): Promise<PhoneVoiceItem[]> {
   const entries = await listDirectory(machine, voiceNotesDirOf(machine))
   const dirs = entries.filter((entry) => entry.type === 'directory' && !entry.name.startsWith('.'))
-  return mapLimit(dirs, 6, (entry) => readItem(machine, entry.name, now))
+  return mapLimit(dirs, 4, (entry) => readItem(machine, entry.name, now))
 }
 
 /** 一条:note.json 不在了 = null(被删了);总结、转写各读各的。 */
 export async function readVoiceNote(machine: AssistantMachine, id: string, now = Date.now()): Promise<PhoneVoiceDetail | null> {
   const dir = voiceNoteDirOf(machine, id)
-  if ((await readText(machine, joinPath(dir, VOICE_NOTE_META_FILE))) === null) return null
+  if ((await readText(machine, joinPath(dir, VOICE_NOTE_META_FILE)).catch(error => { if (['account-changed','signed-out'].includes(error?.code)) throw error; return null })) === null) return null
   const [item, summary, transcript] = await Promise.all([
     readItem(machine, id, now),
     readText(machine, joinPath(dir, VOICE_NOTE_SUMMARY_FILE)),

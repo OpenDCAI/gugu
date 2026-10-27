@@ -123,6 +123,7 @@ type StartupSettingDimension = 'model' | 'effort';
 const TRANSCRIPT_TICK_MS = 100;
 
 interface SessionRecordBase {
+  closing?: boolean;
   idleCompaction?: IdleCompaction;
   input: AcpStartInput;
   cell: SessionCell;
@@ -380,6 +381,7 @@ export class SessionManager implements InboundRouter {
   private readonly processingProcessClose = new Set<string>();
   /** A deliberate stop must not be reclassified as an abnormal provider failure. */
   private readonly intentionalProcessCloses = new Set<string>();
+  private readonly stoppingSessions = new Map<string, Promise<Result<void, AcpStopSessionError>>>();
   /** Starts whose owner stopped them mid-flight: their failure names the step that was abandoned. */
   private readonly abandonedStarts = new Set<string>();
   /**
@@ -396,10 +398,15 @@ export class SessionManager implements InboundRouter {
   ) {}
 
   start(input: AcpStartInput): Promise<Result<{ providerSessionId: string }, AcpStartSessionError>> {
+    const stopping = this.stoppingSessions.get(input.sessionId);
+    if (stopping) return stopping.then(() => this.start(input));
     const starting = this.startingSessions.get(input.sessionId);
     if (starting) return starting;
 
     const existing = this.cells.get(input.sessionId);
+    if (existing?.closing) return this.stop(input.sessionId).then(result => result.success
+      ? this.start(input)
+      : acpErr.initializeFailed(toSerializedError(result.error)));
     if (existing && existing.phase !== 'lost') {
       return Promise.resolve(ok({ providerSessionId: existing.cell.acpSessionId }));
     }
@@ -622,6 +629,7 @@ export class SessionManager implements InboundRouter {
           });
         });
     }
+    this.deps.logger.warn('SessionManager: starting provider process', { sessionId: input.sessionId, providerId: input.providerId, reason: this.reconnectingSessions.get(input.sessionId)?.kind ?? (input.providerSessionId ? 'resume-unspecified' : 'startup'), hostPid: process.pid, model: input.platformModel ?? null });
     const acquire = await acquireAsResult(
       this.connections,
       processKey,
@@ -1086,6 +1094,7 @@ export class SessionManager implements InboundRouter {
   async prompt(input: SendPromptInput): Promise<Result<{ queued: boolean }, AcpSendPromptError>> {
     const record = this.cells.get(input.sessionId);
     if (!record) return acpErr.sessionNotFound(input.sessionId);
+    if (record.closing) return acpErr.sessionBusy('Session is closing; resume it after teardown');
     if (record.phase === 'lost') {
       return acpErr.invalidState(
         `Session '${input.sessionId}' lost its ACP adapter: ${record.loss.message}; reconnect before sending`
@@ -1101,6 +1110,7 @@ export class SessionManager implements InboundRouter {
   }, AcpSendPromptError> {
     const record = this.cells.get(input.sessionId);
     if (!record) return acpErr.sessionNotFound(input.sessionId);
+    if (record.closing) return acpErr.sessionBusy('Session is closing; resume it after teardown');
     if (record.phase === 'lost') {
       return acpErr.invalidState(
         `Session '${input.sessionId}' lost its ACP adapter: ${record.loss.message}; reconnect before sending`
@@ -1118,6 +1128,7 @@ export class SessionManager implements InboundRouter {
     startInput?: AcpStartInput,
   ): Promise<Result<{ queued: boolean }, AcpQueuePromptError>> {
     let record = this.cells.get(input.sessionId);
+    if (record?.closing) return acpErr.invalidState('Session is closing; resume it after teardown');
     if ((!record || record.phase === 'lost') && startInput) {
       if (startInput.sessionId !== input.sessionId) {
         return acpErr.invalidState(
@@ -1239,8 +1250,18 @@ export class SessionManager implements InboundRouter {
     return record.cell.setPromptDraft(draft);
   }
 
-  async stop(sessionId: string): Promise<Result<void, AcpStopSessionError>> {
+  async stop(sessionId: string, onlyIfIdle = false): Promise<Result<void, AcpStopSessionError>> {
+    const pending = this.stoppingSessions.get(sessionId);
+    if (pending) return pending;
     let record = this.cells.get(sessionId);
+    if (onlyIfIdle && record) {
+      const state = record.cell.sessionState;
+      if (record.phase !== 'ready' || state.lifecycle !== 'ready' || state.isGenerating || record.cell.hasInFlightPrompt
+        || state.pendingPermissions.length > 0 || state.queuedPrompts.length > 0
+        || state.backgroundAgentCount > 0 || state.backgroundCommandCount > 0) {
+        return acpErr.stopFailed(toSerializedError(new Error('Session is no longer idle; reclamation declined')));
+      }
+    }
     if (!record) {
       // 一次起不来的启动只留下摘要(`lost` + start-failed),没有 record。停止 / 删除这条会话时它也得走,
       // 否则状态投影会一直说 error,会话编排一直当它 lost —— 连会话删了都还在。
@@ -1262,11 +1283,38 @@ export class SessionManager implements InboundRouter {
       record = this.cells.get(sessionId);
     }
     if (!record || record.phase !== 'ready') return ok();
-    let stopPending = false;
+    // Withdraw admission synchronously, before session/close can remove the provider-side id.
+    record.closing = true;
+    this.syncRecord(record);
+    const operation = this.stopReadyRecord(sessionId, record);
+    this.stoppingSessions.set(sessionId, operation);
+    try { return await operation; } finally {
+      if (this.stoppingSessions.get(sessionId) === operation) this.stoppingSessions.delete(sessionId);
+    }
+  }
+
+  private async stopReadyRecord(
+    sessionId: string,
+    record: SessionRecord & { phase: 'ready' },
+  ): Promise<Result<void, AcpStopSessionError>> {
     const alreadyStopping = this.intentionalProcessCloses.has(record.processKey);
     this.intentionalProcessCloses.add(record.processKey);
+    // session/close is courteous cleanup, not authority to keep the process alive.
+    // Its transport can be silent/broken; SIGTERM and actual exit own final teardown.
     try {
-      if (!alreadyStopping) await record.cell.closeSession();
+      if (!alreadyStopping) {
+        let timer: ReturnType<typeof setTimeout> | undefined;
+        try {
+          await Promise.race([
+            record.cell.closeSession(),
+            new Promise<never>((_resolve, reject) => {
+              timer = setTimeout(() => reject(new Error('Provider session/close timed out after 1000ms')), 1_000);
+            }),
+          ]);
+        } catch (error) {
+          this.deps.logger.warn('SessionManager: provider close failed; stopping its process', { sessionId, error: String(error) });
+        } finally { if (timer) clearTimeout(timer); }
+      }
       this.deps.promptQueueStore?.clear(sessionId);
       await record.connectionLease.value.stopProcess();
       this.removeRecord(sessionId, false, true);
@@ -1274,12 +1322,9 @@ export class SessionManager implements InboundRouter {
       return ok();
     } catch (error) {
       if (typeof error === 'object' && error !== null && 'code' in error && error.code === 'stop_pending') {
-        stopPending = true;
         return acpErr.stopPending();
       }
       return acpErr.stopFailed(toSerializedError(error));
-    } finally {
-      if (!stopPending) this.intentionalProcessCloses.delete(record.processKey);
     }
   }
 
@@ -1798,6 +1843,7 @@ export class SessionManager implements InboundRouter {
       sessionId: params.sessionId,
       update: params.update,
     });
+    record.cell.noteProviderUpdate();
     this.applyRawMeta(record.cell, params.update);
     // 子智能体派生了:它自己的会话号从此路由回本会话(#5117)。路由随本会话一起注销
     // (`unregisterRoutes` 按 conversationId 清)。
@@ -2045,10 +2091,10 @@ export class SessionManager implements InboundRouter {
    * 都包含自身 id，因此停止后重新启动必须取得新的 adapter 进程；key 与 pid 一并给出，便于
    * 诊断是否真的建立了新的进程归属。
    */
-  adapterProvenance(sessionId: string): { connectionKey: string; pid: number | null } | null {
+  adapterProvenance(sessionId: string): { connectionKey: string; pid: number | null; closing?: true } | null {
     const record = this.cells.get(sessionId);
     if (!record || record.phase !== 'ready') return null;
-    return { connectionKey: record.processKey, pid: record.connectionLease.value.pid };
+    return { connectionKey: record.processKey, pid: record.connectionLease.value.pid, ...(record.closing ? { closing: true as const } : {}) };
   }
 
   /**
@@ -2553,6 +2599,7 @@ export class SessionManager implements InboundRouter {
       projectId: input.projectId,
       providerId: input.providerId,
       lifecycle: state.lifecycle,
+      ...(this.cells.get(input.sessionId)?.closing ? { closing: true } : {}),
       isGenerating: state.isGenerating,
       lastStopReason: cell?.sessionState.lastStopReason ?? null,
       lastTurnOutcome: cell?.sessionState.lastTurnOutcome ?? 'none',

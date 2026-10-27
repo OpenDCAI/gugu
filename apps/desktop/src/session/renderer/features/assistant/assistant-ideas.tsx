@@ -1,4 +1,4 @@
-import { useEffect, useLayoutEffect, useState, type ReactNode } from 'react';
+import { useEffect, useState, type ReactNode } from 'react';
 import { useTranslation } from 'react-i18next';
 import { setIdeasEntryHidden, subscribeIdeasRequest, useIdeasEntryHidden } from '@/lib/assistantIdeas';
 import { Eye, EyeOff, Lightbulb, Sparkles, X } from '@/lib/icons';
@@ -12,7 +12,7 @@ import { AssistantEmpty } from './assistant-ui-parts';
  * 点一张 = 把那句话接进输入框(只填不发)。内容是它按对你的了解写在 today.json 的 ideas 里的(❌ 写死一份):
  * 没写 = 空态 +「让它想几个」;读不到 / 这一块读不懂如实说。
  * 胶囊能隐藏(面板左上那颗开关,隐藏先确认),隐藏后「+」里的「获取灵感」照样在(lib/assistantIdeas.ts)。
- * 桌面包一层对话框、手机盖一层整页,里面这一份共用;胶囊在两边都量着输入框那一排摆。
+ * 桌面包一层对话框、手机盖一层整页,里面这一份共用;胶囊与自定义入口在两边共用输入框上方的一行。
  */
 
 /** 「+」里点了「获取灵感」:面板那一侧打开。 */
@@ -22,51 +22,13 @@ export function useIdeasOpen(): [boolean, (open: boolean) => void] {
   return [open, setOpen];
 }
 
-/**
- * 胶囊摆在整块输入区上面:量出它离这一列底边多高。量的是整块(输入框上方的提示、浏览器小窗都在里面),
- * ❌ 只量输入框那一排 —— 那样胶囊会压在浏览器小窗 / 提示条上。
- */
-function useAboveComposer(column: HTMLElement | null): number | null {
-  const [bottom, setBottom] = useState<number | null>(null);
-  useLayoutEffect(() => {
-    if (!column) return;
-    const measure = () => {
-      const row = column.querySelector('[data-chat-composer-notice], [data-chat-composer]') ?? column.querySelector('[data-chat-composer-row]');
-      if (!row) return setBottom(null);
-      const gap = column.getBoundingClientRect().bottom - row.getBoundingClientRect().top;
-      setBottom(gap > 0 ? Math.round(gap + 8) : null);
-    };
-    measure();
-    const observer = new ResizeObserver(measure);
-    observer.observe(column);
-    const mutations = new MutationObserver(measure);
-    mutations.observe(column, { childList: true, subtree: true });
-    return () => {
-      observer.disconnect();
-      mutations.disconnect();
-    };
-  }, [column]);
-  return bottom;
-}
-
-/**
- * 输入框右上那颗「灵感」。隐藏了 / 正在录语音笔记(录音条在那儿)/ 量不到输入框(聊天还没开)时不出。
- * 露着时给这一列挂 data-ideas-entry,消息列表底下让出它那一截,最后一条不被盖住。
- */
-export function IdeasEntry({ assistantId, column, busy, onOpen }: { assistantId: string; column: HTMLElement | null; busy: boolean; onOpen: () => void }) {
+/** Composer-row entry; hidden and recording states consume no space. */
+export function IdeasEntry({ assistantId, busy, onOpen }: { assistantId: string; busy: boolean; onOpen: () => void }) {
   const { t } = useTranslation('assistant');
   const hidden = useIdeasEntryHidden(assistantId);
-  const shown = !hidden && !busy;
-  const bottom = useAboveComposer(shown ? column : null);
-  const placed = shown && bottom !== null;
-  useEffect(() => {
-    if (!column || !placed) return;
-    column.setAttribute('data-ideas-entry', '');
-    return () => column.removeAttribute('data-ideas-entry');
-  }, [column, placed]);
-  if (!placed) return null;
+  if (hidden || busy) return null;
   return (
-    <button type="button" className="ta-ideas-pill" style={{ bottom }} onClick={onOpen} data-testid="assistant-ideas-entry">
+    <button type="button" className="ta-ideas-pill" onClick={onOpen} data-testid="assistant-ideas-entry">
       <Sparkles />
       {t('ideas.title')}
     </button>

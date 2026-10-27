@@ -211,8 +211,8 @@ export function createServerAuthProvider(input: {
 
   return {
     invalidate() {},
-    async getAuth(): Promise<RuntimeAuth | null> {
-      return current ? current.provider.getAuth() : null
+    async getAuth(options?: { forceRefresh?: boolean }): Promise<RuntimeAuth | null> {
+      return current ? current.provider.getAuth(options) : null
     },
     async adopt(tokens) {
       writeStoredServerSession(tokens)

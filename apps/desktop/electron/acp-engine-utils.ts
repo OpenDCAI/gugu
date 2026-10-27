@@ -1,4 +1,5 @@
 import { registerGuguActivityTools } from './mcp/gugu-activity-tool'
+import { registerGuguWebSearchTool, type SessionWebSearch } from './mcp/gugu-web-search-tool'
 // ACP 引擎运行时工具 —— 从已删除的 JSON-RPC automation 层(原 rpc/methods/acpEngine.ts)抽出的
 // 纯生产函数：引擎配置加载 / provider 凭据 allowlist / 注入式社交桥。
 // 由 session-page 会话路径调用。原文件的 registerAcpEngineMethods()(HTTP RPC 端点)随对外
@@ -145,6 +146,7 @@ export function providerEnv(source: NodeJS.ProcessEnv): NodeJS.ProcessEnv {
 }
 
 interface GuguMcpContextBase {
+  webSearch?: SessionWebSearch
   expectedOwnerUserId: string
   subjectId: string
   /** Explicit provision role, never inferred from workspace or inherited by executors. */
@@ -206,7 +208,9 @@ export function createDesktopGuguMcpHost(persistence?: GuguMcpHostPersistence): 
   return new GuguMcpHost<GuguMcpContext>(
     (getContext, grantSignal, trackHostRequest) => {
       const initial = getContext()
-      const listedTools = initial.personalAssistant ? GUGU_ASSISTANT_LISTED_TOOLS : GUGU_LISTED_TOOLS
+      const baseTools = initial.personalAssistant ? GUGU_ASSISTANT_LISTED_TOOLS : GUGU_LISTED_TOOLS
+      const search = initial.webSearch?.available() ? initial.webSearch : undefined
+      const listedTools = search ? new Set([...baseTools, 'web_search']) : baseTools
       const trackRequest: GuguMcpRequestTracker = (work, toolName) => {
         const tracked = trackHostRequest(work, toolName)
         if (initial.personalAssistant && toolName) {
@@ -251,7 +255,7 @@ export function createDesktopGuguMcpHost(persistence?: GuguMcpHostPersistence): 
             if (!read) throw new Error('Personal assistant context is unavailable')
             return read()
           } } : {}),
-        })
+        }, initial.personalAssistant && initial.kind === 'social' ? initial.guguHome : undefined)
         registerGuguActivityTools(server, sessionDispatcher, trackRequest)
         // #7221 schedule_* 与 session_* 同一个分派器:给自己排的已安排只作用于这条会话。
         registerGuguScheduleTools(server, sessionDispatcher, trackRequest)
@@ -275,6 +279,14 @@ export function createDesktopGuguMcpHost(persistence?: GuguMcpHostPersistence): 
         )
       }
       registerGuguGuideTools(server)
+      if (search) registerGuguWebSearchTool(server, {
+        available: search.available,
+        run: (query, signal) => {
+          const latest = getContext().webSearch
+          if (!latest) throw new Error('Web search is unavailable for this session')
+          return latest.run(query, AbortSignal.any([grantSignal, signal]))
+        },
+      }, trackRequest)
       // 侧边聊天(分叉)不带扩展,与原生条目同一条规矩。
       const extensionsFor = (context: GuguMcpContext) =>
         context.kind === 'social' && context.forkOf === undefined && context.grantKey ? sessionExtensionCatalog : null
@@ -312,6 +324,7 @@ export function createDesktopGuguMcpHost(persistence?: GuguMcpHostPersistence): 
 }
 
 export interface BuildSocialBridgeDeps {
+  webSearch?: SessionWebSearch
   resolveFile?: (ref: FileRef, actor: FileActor) => Promise<ResolvedFile>
   getSupabaseUrl?: () => string
   getSupabaseAnonKey?: () => string
@@ -361,6 +374,15 @@ export async function buildSocialBridge(
       threadRootId: threadRootId ?? null,
       guguHome: resolveGuguHome(context.env),
       grantKey: deps.grantKey,
+      ...(deps.webSearch ? { webSearch: {
+        available: deps.webSearch.available,
+        run: async (query: string, signal: AbortSignal) => {
+          await getBoundAuth(signal)
+          const output = await deps.webSearch!.run(query, signal)
+          await getBoundAuth(signal)
+          return output
+        },
+      } } : {}),
       ...(deps.personalAssistant ? { personalAssistant: true as const } : {}),
       ...(deps.personalAssistant && deps.assistantWork ? { assistantWork: deps.assistantWork } : {}),
       getAccessToken: async (signal?: AbortSignal) => (await getBoundAuth(signal)).accessToken,

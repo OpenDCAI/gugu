@@ -1,6 +1,7 @@
 import { textContextMenuItems, type TextContextMenu } from '../text-context-menu';
 import type { ContentMenuEntry } from '../content-context-menu';
 import type { EditorMenuHistory } from '@gugu/session-shared/content-menu';
+import type { RESOURCE_ACTIONS } from '../resource-actions';
 
 /** The host file menu addresses the viewer that was right-clicked, including App pages. */
 export const FILE_VIEWER_ATTRIBUTE = 'data-gugu-file-viewer';
@@ -12,7 +13,7 @@ export interface FileViewerSelection {
 }
 
 export type FileViewerEditAction = 'undo' | 'redo' | 'cut' | 'paste';
-export type FileViewerMenuAction = 'quote-selection' | 'quote-file' | 'select-all' | FileViewerEditAction;
+export type FileViewerMenuAction = 'quote-selection' | 'quote-file' | 'select-all' | FileViewerEditAction | (typeof RESOURCE_ACTIONS)[number]['id'];
 
 export interface FileViewerMenuRequest {
   action: 'snapshot' | FileViewerMenuAction;
@@ -24,6 +25,7 @@ export interface FileViewerMenuRequest {
   editable?: boolean;
   enabled?: TextContextMenu['enabled'];
   editorHistory?: EditorMenuHistory;
+  resourceActions?: { id: (typeof RESOURCE_ACTIONS)[number]['id']; label: string }[];
 }
 
 export interface FileViewerMenuLabels {
@@ -46,6 +48,7 @@ export function fileViewerMenuItems(context: FileViewerMenuRequest, labels: File
     } : {}) },
   };
   const extra: ContentMenuEntry[] = [
+    ...(context.resourceActions ?? []).map(item => ({ ...item, click: () => run(item.id) })),
     { id: 'quote-selection', icon: 'quote', label: labels.quoteSelection, enabled: context.selection.text.length > 0, click: () => run('quote-selection') },
     { id: 'quote-file', icon: 'file', label: labels.quoteFile, click: () => run('quote-file') },
   ];

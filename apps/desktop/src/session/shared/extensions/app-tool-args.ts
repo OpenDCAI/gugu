@@ -8,6 +8,7 @@
 // 只在主进程那一侧。工具面另加的整体约束(app_install 的「恰好一个来源」等)在工具定义上 refine,
 // 它们说的是「这几格怎么搭配」,不是「这一格是什么」。
 import { z } from 'zod';
+import { parseGuguLink } from '@gugu/core/shared/ui/guguLink';
 import { EXTENSION_STEP_SCHEMA } from './extension-check';
 import { variantNameSchema } from './variants';
 import { EXTENSION_TEMPLATES } from './templates';
@@ -84,4 +85,10 @@ export const APP_CHECK_ARGS = {
   phone: z.boolean().describe('With steps: run them at a phone\'s width, tapping instead of clicking.').optional(),
   // Owner 10-13: go on with the page an earlier check of this session kept, where it was left.
   page: z.string().min(1).describe('The page an earlier app_check of yours answered with: the steps go on there, where it was left (its selection, scroll, open dialog). Alone with tab_kind and steps.').optional(),
+};
+
+/** A resource reference selects the installed copy on its registered device, never a local namesake. */
+export const APP_MANAGE_ARGS = {
+  url: z.string().refine((url) => parseGuguLink(url)?.kind === 'app-detail', { message: 'Use an App resource URL: gugu://app/<id>?device=<id>&variant=<slug>' }),
+  operation: z.enum(['read', 'switch', 'remove']).default('read'),
 };

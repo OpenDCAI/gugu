@@ -1,10 +1,12 @@
 import type { SessionLiveReply } from '@gugu/session-core/session-record/contract'
 import type { MessageItem } from '@gugu/core/shared/types/chat'
+import { isRoomChat } from '@gugu/core/shared/ui/chatModels'
 import { MessageBubble } from '../chat/MessageBubble'
 import { useChatStore } from '../../store/chatContext'
 import { useAuth } from '../../store/auth'
 import { useMobileShell } from '../../hooks/useMobileShell'
 import { useAssistantConversationProgress } from './assistantConversationProgressContext'
+import { visibleReplyQuoteIds } from '../chat/replyQuoteVisibility'
 
 const inactive = () => undefined
 
@@ -30,6 +32,7 @@ export function AssistantStreamingReply({ activity }: {
   const owner = user ? { id: user.id, displayName: user.nickname, avatar: user.avatarUrl ?? null, email: null, type: 'human' as const, role: 'member' as const } : null
   return <div data-testid="assistant-streaming-reply" inert>
     <MessageBubble msg={preview} isAgent hideAvatar hideTime streaming compactMobile={mobile}
+      showReplyQuote={visibleReplyQuoteIds([...messages,preview],isRoomChat(activeChat.kind)).has(preview.id)}
       memberProfiles={owner ? { [owner.id]: owner } : undefined}
       onReaction={inactive} onQuote={inactive} onForward={inactive} onDelete={inactive} />
   </div>

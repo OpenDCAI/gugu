@@ -10,7 +10,7 @@ import { rendererLogger } from '@/lib/log'
 import { createIndexedDbBacklog } from './phoneVoiceBacklog'
 import { createPhoneVoiceJobs, type VoiceJobHeld, type VoiceJobView, type VoiceNotesContext } from './phoneVoiceJobs'
 import { PhoneVoiceRecorder, webAudioBackend, type RecorderSnapshot } from './phoneVoiceRecorder'
-import type { PhoneMachineState, PhoneReadiness } from './phoneMachine'
+import type { PhoneMachineState } from './phoneMachine'
 import '@/i18n/registerVoiceNotesCatalog'
 
 const log = rendererLogger('mobile/assistant')
@@ -64,7 +64,6 @@ export type PhoneVoice = {
 export function usePhoneVoiceNotes(input: {
   assistantId: string
   deviceId: string | null
-  readiness: PhoneReadiness
   machine: PhoneMachineState
 }): PhoneVoice {
   const { t } = useTranslation('voiceNotes')
@@ -80,13 +79,11 @@ export function usePhoneVoiceNotes(input: {
       assistantId,
       machine: () => {
         const now = ref.current
-        return now.readiness === 'ready' && now.machine.state === 'ready' ? now.machine.machine : null
+        return now.machine.state === 'ready' ? now.machine.machine : null
       },
       held: (): VoiceJobHeld => {
         const now = ref.current
-        if (now.readiness === 'asleep') return 'asleep'
-        if (now.readiness === 'waking') return 'waking'
-        if (now.readiness === 'ready' && now.machine.state === 'opening') return 'waking'
+        if (now.machine.state === 'opening') return 'waking'
         return 'unreachable'
       },
     }

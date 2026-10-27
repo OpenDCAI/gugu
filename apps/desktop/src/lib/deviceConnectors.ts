@@ -18,7 +18,7 @@ export function otherDeviceConnectors(
   const connectable: OtherDeviceConnector[] = []
   for (const device of devices) {
     const kind = deviceKind(device, homeDeviceId)
-    if (kind === 'this' || kind === 'cloud' || kind === 'cloudComputer') continue
+    if (kind === 'this' || kind === 'cloud' || kind === 'cloudComputer' || kind === 'phone') continue
     const actions = device.capabilities?.actions?.actions
     if (!actions) continue
     const usable = new Set(usableActionGroups(device) ?? [])

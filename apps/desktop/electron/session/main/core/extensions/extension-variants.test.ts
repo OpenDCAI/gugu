@@ -1,15 +1,22 @@
+import * as fs from 'node:fs';
 import { mkdirSync, mkdtempSync, readFileSync, writeFileSync, existsSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import * as path from 'node:path';
-import { afterEach, describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 import { EXTENSION_API_VERSION, type ExtensionManifest } from '@shared/extensions/manifest';
 import { type ExtensionVariant, forkBehind } from '@shared/extensions/variants';
 import type { MarketIndexVersion } from '@shared/extensions/market';
 import { ExtensionsService } from './extensions-service';
 import { installPlan } from './install-plan';
 
+
+vi.mock('node:fs', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('node:fs')>();
+  return { ...actual, default: actual, rmSync: vi.fn(actual.rmSync) };
+});
+
 const roots: string[] = [];
-afterEach(() => { for (const root of roots.splice(0)) rmSync(root, { recursive: true, force: true }); });
+afterEach(() => { vi.restoreAllMocks(); for (const root of roots.splice(0)) rmSync(root, { recursive: true, force: true }); });
 function setup() {
   const root = mkdtempSync(path.join(tmpdir(), 'gugu-fork-variants-'));
   roots.push(root);
@@ -91,4 +98,39 @@ it('counts only live releases newer than the fork base and returns their newest 
   const versions = ['1.0.0', '1.1.0', '1.2.0', '1.3.0'].map((version, i) => ({ version, source: { commit: String(i).repeat(40) }, yanked: i === 2 ? { reason: 'withdrawn' } : null }) as MarketIndexVersion);
   expect(forkBehind('1.0.0', versions)).toEqual({ upstream: '1.3.0', behind: 2, commit: '3'.repeat(40) });
   expect(forkBehind('1.3.0', versions)).toBeNull();
+});
+
+
+it('removes only an inactive fork cache and registration, preserving original, source, settings, data and grants', () => {
+  const { root, source, service, fork, upstream, install } = setup();
+  service.setGivenHere(service.identityOf('demo')!, ['here:all']);
+  service.setPermissionGranted('demo', 'files:read', false);
+  const data = path.join(root, 'data');
+  writeFileSync(data, 'saved');
+  install(source, fork);
+  expect(() => service.removeVariant('demo', 'mine')).toThrow('Switch');
+  expect(() => service.removeVariant('demo', 'upstream')).toThrow('original');
+  expect(() => service.removeVariant('demo', 'unknown')).toThrow('installed fork');
+  install(service.variantDirectory('demo', 'upstream'), upstream);
+  expect(service.removeVariant('demo', 'mine')).toEqual({ removed: true });
+  expect(service.variants('demo')).toEqual({ active: 'upstream', variants: [upstream] });
+  expect(existsSync(service.variantDirectory('demo', 'mine'))).toBe(false);
+  expect(existsSync(service.variantDirectory('demo', 'upstream'))).toBe(true);
+  expect(existsSync(source)).toBe(true);
+  expect(readFileSync(data, 'utf8')).toBe('saved');
+  expect(service.identityOf('demo')).toEqual({ id: 'demo', publisher: 'gugu' });
+  expect(service.givenHere(service.identityOf('demo')!)).toEqual(['here:all']);
+  expect(service.revokedPermissions('demo')).toContain('files:read');
+});
+
+it('reports registration removal separately when the inactive fork cache cannot be cleared', () => {
+  const { source, service, fork, upstream, install } = setup();
+  install(source, fork);
+  install(service.variantDirectory('demo', 'upstream'), upstream);
+  const cache = service.variantDirectory('demo', 'mine');
+  vi.mocked(fs.rmSync).mockImplementationOnce(() => { throw new Error('cache locked'); });
+  expect(service.removeVariant('demo', 'mine')).toMatchObject({ removed: true, warning: expect.stringContaining('cache locked') });
+  expect(service.variants('demo').variants.map((row) => row.name)).toEqual(['upstream']);
+  expect(existsSync(cache)).toBe(true);
+  expect(service.get('demo').manifest.id).toBe('demo');
 });

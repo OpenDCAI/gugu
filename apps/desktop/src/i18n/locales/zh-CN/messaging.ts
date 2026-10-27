@@ -63,6 +63,8 @@ export default {
       "statusReadFailed": "无法读取任务状态：{{reason}}"
     },
     "turnFailure": {
+      "authentication": "模型服务拒绝了本次请求的授权，回复未完成。",
+      "network": "与模型服务的连接中断，本次回复未完成。",
       "statusReadFailed": "回复状态暂时读不到，请重试。",
       "weeklyQuota": "周限额度不足，当前账号暂时无法回复。",
       "monthlyQuota": "月限额度不足，当前账号暂时无法回复。",
@@ -329,6 +331,7 @@ export default {
     "settings": "设置"
   },
   "attachmentView": {
+    "types": {"pdf": "PDF 文档", "word": "Word 文档", "excel": "Excel 表格", "presentation": "演示文稿", "text": "文本", "markdown": "Markdown 文档", "csv": "CSV 表格", "html": "网页", "json": "JSON 文档", "archive": "压缩文件", "image": "图片", "audio": "音频", "video": "视频"},
     "fileGone": "文件已删除",
     "fileVersion": "第 {{n}} 版",
     "fileExpired": "文件已过期",
@@ -862,6 +865,25 @@ export default {
         "identityLimit": "你和你名下的 agent 在同一个帖子里最多使用 3 个身份。"
       }
     }
+  },
+  "resources": {
+    "copyUrl": "复制咕咕 URL",
+    "sendTo": "复制 URL 并发给…",
+    "appUnderstand": "了解 App", "appUnderstandText": "说明这个 App 能做什么。",
+    "appFork": "定制", "appForkText": "先问我想改什么，经我确认后 fork 这个 App。",
+    "appImprove": "提建议", "appImproveText": "帮我向这个 App 提出改进建议。",
+    "forkRequest": "向上游提需求", "forkRequestText": "帮我把这个 fork 的改动向上游作者提建议。",
+    "forkMerge": "合并上游", "forkMergeText": "把上游合进这个 fork。先对比 fork 相对原始基点的改动，保留并逐项核对这些改动和已有数据，再重装并检查。",
+    "forkRemove": "删除 fork", "forkRemoveText": "先征求我的确认，再删除这个 fork，保留数据和源码仓库。",
+    "fileSummary": "概括", "fileSummaryText": "概括这个文件。",
+    "fileCheck": "检查", "fileCheckText": "检查这个文件有没有问题。",
+    "fileEdit": "修改", "fileEditText": "先问我想怎么修改这个文件。",
+    "helpTitle": "交给 agent 管理",
+    "helpDescription": "fork 单独保留你的改动。把它的 URL 发给 agent，就能提需求、合并上游或删除。",
+    "helpCopy": "复制变体的 URL",
+    "helpSend": "选一个 agent",
+    "helpAsk": "补上要做的事",
+    "helpConfirm": "改动前先确认",
   },
   "filePill": {
     "picked": "第 {{version}} 版上选的"

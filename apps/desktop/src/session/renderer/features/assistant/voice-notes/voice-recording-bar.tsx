@@ -13,11 +13,12 @@ import { useToast } from '@renderer/lib/hooks/use-toast';
 import { VOICE_NOTE_MICROPHONE_CHANNEL } from '@shared/core/voice-notes';
 import type { AssistantContext } from '../assistant-context';
 import type { AssistantHomePlace } from '@/lib/assistantHome';
-import { assistantQueryKey, homeReadiness, wakeAssistantMachine } from '../assistant-data';
+import { assistantQueryKey } from '../assistant-data';
 import type { AssistantMachine } from '../assistant-machine';
 import { retryVoiceNote, setVoiceNotesContext, startVoiceNote, voiceJobs, type VoiceJobView } from './voice-note-jobs';
 import { failureText, useVoiceJobs } from './voice-notes-data';
 import { voiceRecorder, type RecorderSnapshot } from './voice-recorder';
+import { prepareAssistantSummary } from '../assistant-execution';
 
 /** 「整理好了」那条挂多久(之后自己收起,笔记在记忆 → 语音笔记里)。 */
 const READY_LINGER_MS = 15_000;
@@ -80,11 +81,13 @@ export function useVoiceNotesHost(input: {
       assistantId,
       ownerName,
       machine,
-      // homeReadiness 只是现读(不是 React hook),录音机在 App 外头也要现读,借它同一份判定。
-      readiness: () => homeReadiness(home),
-      // 住电脑没有「叫醒」:那台关着就是读不了,如实说。
-      wake: () => {
-        if (home.kind === 'cloud') void wakeAssistantMachine(deviceId);
+      readiness: () => machine ? 'ready' : 'waiting',
+      wake: () => {},
+      prepareSummary: async () => {
+        await machine?.panel?.assertCurrent();
+        const execution = await prepareAssistantSummary(home,assistantId);
+        await machine?.panel?.assertCurrent();
+        return execution;
       },
       invalidate: () => void client.invalidateQueries({ queryKey: assistantQueryKey(deviceId, 'voice') }),
     });

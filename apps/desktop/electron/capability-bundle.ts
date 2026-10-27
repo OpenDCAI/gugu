@@ -475,14 +475,25 @@ export function setSessionIntegrationSkillBridge(bridge: (() => Promise<Extensio
   sessionIntegrationSkillBridge = bridge
 }
 
+/** Host-owned search; availability is read after the platform injector has finished. */
+let sessionWebSearchBridge: ((sessionId: string) => import('./mcp/gugu-web-search-tool').SessionWebSearch) | null = null
+
+export function setSessionWebSearchBridge(bridge: typeof sessionWebSearchBridge): void {
+  sessionWebSearchBridge = bridge
+}
+
 export async function buildSessionBundle(
   deps: BuildSessionBundleDeps,
 ): Promise<SessionCapabilityBundle> {
+  const searchSessionId = sessionpageSessionOfGrantKey(deps.socialBridgeDeps.grantKey)
   const socialBridge = await buildSocialBridge(
     deps.runtime,
     deps.agentUserId,
     deps.threadRootId,
-    deps.socialBridgeDeps,
+    {
+      ...deps.socialBridgeDeps,
+      ...(sessionWebSearchBridge && searchSessionId ? { webSearch: sessionWebSearchBridge(searchSessionId) } : {}),
+    },
   )
   const integrations = sessionIntegrationBridge
     ? await sessionIntegrationBridge(deps.socialBridgeDeps.grantKey, deps.agentUserId)
@@ -983,14 +994,7 @@ export function providerUsesSessionAcpSessionAdapter(providerId: string): boolea
 // session_* is deliberately absent from Gugu social/chat-driven ACP sessions. The explicit
 // distinction matters because several harnesses expose their own Task/Agent worker and the generic
 // platform routing rule otherwise classifies "start an agent" as ordinary work.
-const SESSION_SPAWN_ROUTING_RULE = `You are on the Gugu platform. Creating a Gugu session agent is a platform
-operation, not local work. Asked to create, start, spawn or make a Gugu agent/session/child — "start an
-agent", "起一个 agent", "创建一个小弟" — default to \`session_spawn\`. Harness-native \`Task\`, \`Agent\`,
-\`subagent\` or \`spawn_agent\` stay available when the request explicitly asks for an internal worker; such a
-worker is not a session agent — invisible, unable to receive Gugu session messages, dead when your turn ends
-— so do not substitute one for the other, never report one as a Gugu agent/session/child, and if you cannot
-start a requested Gugu session, say so and say why.
-The returned \`session_id\` is the stable product address.
+const SESSION_SPAWN_ROUTING_RULE = `For a persistent Gugu agent/session/child (「起一个 agent」「创建一个小弟」), use \`session_spawn\`. Only use a harness-internal worker when explicitly requested; it is not a session agent and cannot receive Gugu messages. Never substitute one for a requested Gugu session; report inability to start it and why.
 On a turn a person typed straight into this panel, when you create or materially change a file for them to
 inspect, call \`session_open_in_tab\` immediately after writing it instead of only reporting its path.`
 
@@ -1015,10 +1019,10 @@ function guguSessionSurfaceBody(surface: HarnessSessionSurface): string {
 
 /**
  * @@@tool-naming-line (#6192) — 这条会话的 harness 把咕咕工具叫什么,**只从** adapter 的能力声明
- * `capabilities.mcp.toolNames` 渲染;平台块只说 canonical 名。它对本会话每一轮都真、随 harness 变,
+ * `capabilities.mcp.toolNames` 渲染。它对本会话每一轮都真、随 harness 变,
  * 所以与 surface 自述同属 L2。
  * ❌ 别回到平台块里那张「Pi/Claude/Codex」清单:清单漏掉的那一家(qwen),模型按裸名去找就落空。
- * `unmeasured` 不写这一行 —— 那一家的模型只拿到平台块的通用规则,欠账留在声明里。
+ * `unmeasured` 只给照工具表调用的通用规则，不猜前缀；也归 surface 这一处。
  */
 function guguToolNamingLine(
   providerId: string,
@@ -1047,7 +1051,7 @@ function guguToolNamingLine(
       // server 名就是咕咕那台 server 注册时用的名字 —— 与写进配置的键同一个常量,❌ 别另写一个字面量。
       return `Your harness does not list 咕咕 tools one by one: call them through its \`${names.proxyTool}\` tool with \`${names.serverArg}\` set to \`${GUGU_MCP_SERVER_NAME}\` and \`${names.toolArg}\` set to the bare tool name (e.g. \`message_send\`).\n`
     case 'unmeasured':
-      return ''
+      return 'Call the tool exactly as your tool list names it, not by the bare suffix.\n'
   }
 }
 
@@ -1153,7 +1157,7 @@ function appLines(apps: readonly ExtensionCatalogApp[]): string[] {
 export const GUGU_APPS_SEARCH_LINE = [
   'An App not listed here may have been installed since, be switched off or be only in the market.',
   'Before you answer a message that names an App (「记账 App」) or a game, look it up with catalog_call app_search { query } — even when a tool of your own could do it (a device\'s calendar, hosting the game yourself): the person asked for the App, and a game\'s App keeps the game for everyone in the chat.',
-  'Installing an App or changing its version is app_install; switching one on is your owner\'s, on its 「App」 page. Never edit an App\'s installed files. If an App cannot do what is asked, ask "Shall I fork a version?" before inspecting source or using shell (guide_read apps-fork).',
+  'To install an App or change its version, use app_install. If an App cannot do what is asked, ask "Shall I fork a version?" before inspecting source or using shell (guide_read apps-fork).',
   '> (from Wei) 来一局狼人杀',
   'catalog_call app_search { query: "狼人杀" } → an App row → use its tools, or do what its next says',
 ].join('\n')

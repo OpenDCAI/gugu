@@ -60,7 +60,7 @@ async function render(ownerId = mocks.owner) {
   return harness
 }
 function choose(ownerId = mocks.owner, hostEnabled = true) {
-  const installId = phoneInstallId(NATIVE_KEY)
+  const installId = phoneInstallId(NATIVE_KEY, 'verified-registration')
   setPhoneDeviceEnabled(ownerId, true)
   setPhoneAgentHostEnabled(ownerId, hostEnabled)
   setPhoneActionGroup(ownerId, 'calendar', true)
@@ -77,7 +77,7 @@ beforeEach(() => {
   mocks.owner = crypto.randomUUID(); mocks.kind = 'capacitor'; mocks.available = true; mocks.failBinding = false
   mocks.start.mockImplementation(() => mocks.cleanup)
   mocks.grants.mockResolvedValue(undefined); mocks.stopped.mockResolvedValue(undefined)
-  mocks.deviceInfo.mockReset().mockResolvedValue({ install_key: NATIVE_KEY })
+  mocks.deviceInfo.mockReset().mockResolvedValue({ install_key: NATIVE_KEY, registration_id: 'verified-registration' })
   vi.stubGlobal('localStorage', {
     get length() { return values.size }, key: (index: number) => [...values.keys()][index] ?? null,
     getItem: (key: string) => values.get(key) ?? null,
@@ -101,12 +101,12 @@ describe('native installation verification gates the actual phone effect roots',
 
   it('keeps the basic app mounted and starts neither grants nor stop/start while verification is pending', async () => {
     choose()
-    const reading = deferred<{ install_key: string }>()
+    const reading = deferred<{ install_key: string; registration_id?: string }>()
     mocks.deviceInfo.mockReturnValue(reading.promise)
     const harness = await render()
     expect(harness.container.querySelector('[data-testid="basic-product"]')).not.toBeNull()
     expectNoPhoneEffects()
-    await act(async () => reading.resolve({ install_key: NATIVE_KEY }))
+    await act(async () => reading.resolve({ install_key: NATIVE_KEY, registration_id: 'verified-registration' }))
     await waitForCondition(() => mocks.start.mock.calls.length === 1, 'verified settings may start the phone')
     expect(mocks.start).toHaveBeenCalledWith(expect.objectContaining({ userId: mocks.owner, hostEnabled: true }))
     expect(mocks.grants).toHaveBeenCalledWith(expect.objectContaining({ ownerId: mocks.owner, calendar: true }))
@@ -116,11 +116,11 @@ describe('native installation verification gates the actual phone effect roots',
   it('clears restored cached choices before either root can use them on a different native install', async () => {
     const oldInstall = choose()
     expect(readPhoneDeviceSettings(mocks.owner).hostEnabled).toBe(true)
-    const reading = deferred<{ install_key: string }>()
+    const reading = deferred<{ install_key: string; registration_id?: string }>()
     mocks.deviceInfo.mockReturnValue(reading.promise)
     await render()
     expectNoPhoneEffects()
-    await act(async () => reading.resolve({ install_key: 'restored-on-another-native-phone' }))
+    await act(async () => reading.resolve({ install_key: 'restored-on-another-native-phone', registration_id: 'new-registration' }))
     await waitForCondition(() => mocks.grants.mock.calls.length > 0, 'verified reset reaches the native mirror')
     expect(values.get('gugu.phoneDevice.install')).not.toBe(oldInstall)
     expect(readPhoneDeviceSettings(mocks.owner)).toMatchObject({ enabled: false, hostEnabled: false })
@@ -131,7 +131,7 @@ describe('native installation verification gates the actual phone effect roots',
 
   it('uses native continuity evidence to preserve a normal upgrade before effects start', async () => {
     const installation = choose()
-    mocks.deviceInfo.mockResolvedValue({ install_key: 'new-no-backup-install-key', previous_install_key: NATIVE_KEY })
+    mocks.deviceInfo.mockResolvedValue({ install_key: 'new-no-backup-install-key', previous_install_key: NATIVE_KEY, registration_id: 'verified-registration' })
     await render()
     await waitForCondition(() => mocks.start.mock.calls.length === 1, 'native-proven upgrade starts saved host')
     expect(values.get('gugu.phoneDevice.install')).toBe(installation)
@@ -167,7 +167,7 @@ describe('native installation verification gates the actual phone effect roots',
 
   it('does not publish a verified owner when persisting the new installation binding fails', async () => {
     choose(); mocks.failBinding = true
-    mocks.deviceInfo.mockResolvedValue({ install_key: 'binding-write-fails' })
+    mocks.deviceInfo.mockResolvedValue({ install_key: 'binding-write-fails', registration_id: 'registration-binding-write-fails' })
     await render()
     await waitForCondition(() => document.querySelector('[role="alert"]') !== null, 'binding persistence failure')
     expectNoPhoneEffects()
@@ -175,7 +175,7 @@ describe('native installation verification gates the actual phone effect roots',
 
   it('ignores an old owner native response before it can rotate the current installation or start effects', async () => {
     choose()
-    const previous = deferred<{ install_key: string }>(), current = deferred<{ install_key: string }>()
+    const previous = deferred<{ install_key: string; registration_id?: string }>(), current = deferred<{ install_key: string; registration_id?: string }>()
     mocks.deviceInfo.mockReturnValueOnce(previous.promise).mockReturnValueOnce(current.promise)
     const harness = await render()
     const previousOwner = mocks.owner
@@ -184,7 +184,7 @@ describe('native installation verification gates the actual phone effect roots',
     await act(async () => previous.resolve({ install_key: 'stale-native-key' }))
     expectNoPhoneEffects()
     expect(values.get('gugu.phoneDevice.installBoundTo')).toBe(NATIVE_KEY)
-    await act(async () => current.resolve({ install_key: NATIVE_KEY }))
+    await act(async () => current.resolve({ install_key: NATIVE_KEY, registration_id: 'verified-registration' }))
     await waitForCondition(() => mocks.start.mock.calls.length === 1, 'current owner verified')
     expect(mocks.start).toHaveBeenCalledWith(expect.objectContaining({ userId: mocks.owner }))
     expect(mocks.grants.mock.calls.some(([call]) => call.ownerId === previousOwner)).toBe(false)

@@ -1,5 +1,5 @@
 import { afterEach, expect, it } from 'vitest'
-import { chmod, mkdir, mkdtemp, readFile, realpath, rm, stat, symlink, writeFile } from 'node:fs/promises'
+import { chmod, mkdir, mkdtemp, readFile, rm, stat, symlink, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { spawn } from 'node:child_process'
@@ -79,7 +79,7 @@ it.each(['UserPromptSubmit', 'PostToolUse', 'PostToolUseFailure'])('does not pol
   expect(f.state.reads).toBe(0)
 })
 
-it.each(['compact', 'clear', 'fork'])('reads the current owner-scoped index after %s using the real authenticated MCP host', async source => {
+it.each(['startup', 'compact', 'clear'])('reads the current owner-scoped index after %s using the real authenticated MCP host', async source => {
   const f = await fixture()
   f.state.name = 'Current project'
   const result = await f.hook('SessionStart', source)
@@ -212,23 +212,29 @@ it('does not expose another account when authentication changes', async () => {
   expect(JSON.parse(recovery.text).hookSpecificOutput.additionalContext).toBe(recoveryContext)
 }, 15000)
 
-it('retains a complete bounded index with explicit omissions in a private readable artifact', async () => {
+it('retains the complete bounded index inline so required applications do not depend on another Read', async () => {
   const f = await fixture()
   f.state.many = true
   const result = await f.hook()
   expect(result.stderr).toBe('')
   const context = JSON.parse(result.text).hookSpecificOutput.additionalContext as string
-  expect(Buffer.byteLength(context)).toBeLessThan(6000)
-  const { details } = JSON.parse(context.split('\n').find(line => line.startsWith('{'))!)
-  expect(details.startsWith(await realpath(f.root))).toBe(true)
-  const complete = await readFile(details, 'utf8')
-  expect(complete.length).toBeLessThanOrEqual(6000)
-  expect(complete).toContain('</gugu_resource_index>')
-  const rows = complete.split('\n').filter(line => line.startsWith('{')).map(line => JSON.parse(line))
+  const index = context.slice(context.indexOf('<gugu_resource_index>'))
+  expect(index.length).toBeLessThanOrEqual(6000)
+  expect(index).toContain('omitted_items')
+  expect(index).toContain('Initial project')
+  expect(index).toContain('</gugu_resource_index>')
+  expect(context).not.toContain('"details"')
+  const rows = index.split('\n').filter(line => line.startsWith('{')).map(line => JSON.parse(line))
   const projects = rows.find(row => row.source === 'projects')
   expect(projects.read.tool).toBe('project_list')
   expect(projects.omitted_items).toBeGreaterThan(0)
   expect(projects.items.length).toBeLessThan(180)
-  expect(complete).not.toContain('PRIVATE-BODY')
-  expect((await stat(details)).mode & 0o777).toBe(0o600)
+  expect(index).not.toContain('PRIVATE-BODY')
 }, 15000)
+
+
+it.each(['resume', 'fork'])('does not inject a full inventory on %s', async source => {
+  const f = await fixture()
+  for (let i = 0; i < 3; i++) expect(await f.hook('SessionStart', source)).toEqual({ text: '', stderr: '' })
+  expect(f.state.reads).toBe(0)
+})

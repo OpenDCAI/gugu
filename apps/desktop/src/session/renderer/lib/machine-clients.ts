@@ -59,6 +59,11 @@ export function machineClient(deviceId: string): SessionHostClient | null {
     tooOld: false,
     listeners: new Set(),
     client: createSessionHostClient(openWhenReachable, {
+      isReachable: () => {
+        const device = bridge.listDevices().find((d) => d.id === deviceId);
+        return !!device && remoteHostReachable(device);
+      },
+      subscribeReachability: (listener) => bridge.subscribeDevices(listener),
       subscribeEvents: true,
       heartbeatMs: MACHINE_LINK_HEARTBEAT_MS,
       retryMaxMs: 60_000,

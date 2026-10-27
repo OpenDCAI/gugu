@@ -6,7 +6,7 @@ export type AgentQuotaReason = 'weekly' | 'monthly' | 'exhausted' | 'rate-limite
  * notAdmitted = Gugu never handed the batch to the agent; undelivered = no running Gugu instance holds the agent.
  */
 export const AGENT_FAILURE_REASONS = [
-  'weeklyQuota', 'monthlyQuota', 'quota', 'rateLimited', 'modelUnavailable', 'generic', 'notAdmitted', 'undelivered',
+  'weeklyQuota', 'monthlyQuota', 'quota', 'rateLimited', 'modelUnavailable', 'authentication', 'network', 'timeout', 'generic', 'notAdmitted', 'undelivered',
 ] as const
 export type AgentFailureReason = (typeof AGENT_FAILURE_REASONS)[number]
 
@@ -30,7 +30,12 @@ const QUOTA_FAILURE = { weekly: 'weeklyQuota', monthly: 'monthlyQuota', exhauste
 export function agentFailureReason(raw: string | null | undefined): AgentFailureReason | null {
   const quota = agentQuotaReason(raw)
   if (quota) return QUOTA_FAILURE[quota]
-  return agentModelUnavailable(raw) ? 'modelUnavailable' : null
+  if (agentModelUnavailable(raw)) return 'modelUnavailable'
+  const text = raw ?? ''
+  if (/\b(?:401|403)\b.*(?:unauthorized|forbidden)|(?:HTTP|status(?: code)?)[ :]+(?:401|403)|authentication[_ -]?error|invalid[_ -]?api[_ -]?key/i.test(text)) return 'authentication'
+  if (/ETIMEDOUT|\btimeout\b|timed out/i.test(text)) return 'timeout'
+  if (/ECONNRESET|EPIPE|ECONNREFUSED|ENETUNREACH|EHOSTUNREACH|fetch failed/i.test(text)) return 'network'
+  return null
 }
 
 /** Another model would get past it: the failure offers 「换模型」. */

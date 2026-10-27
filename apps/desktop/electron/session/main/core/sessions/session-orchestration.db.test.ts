@@ -1,3 +1,5 @@
+import { installAssistantWorkLedgerHost } from '../../../../sessionpage/assistant-work-ledger';
+import { formatDeliveryTimestamp } from '@gugu/core/local/agent/deliveryEnvelope';
 import { openFixture } from '@tooling/utils/db';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { SessionPaneTab } from '@gugu/session-core/session-record/contract';
@@ -18,6 +20,7 @@ const mocks = vi.hoisted(() => ({
   ptyStopSession: vi.fn(),
   settleSessionExited: vi.fn(async (_params: { sessionId: string; projectId: string }): Promise<void> => undefined),
   sendMessage: vi.fn(),
+  readAcceptedMessage: vi.fn(),
   SessionDirectDeliveryError: class SessionDirectDeliveryError extends Error {
     readonly code = 'SESSION_DIRECT_NOT_LIVE';
     constructor(sessionId: string, reason = 'target session is not live') {
@@ -110,6 +113,7 @@ vi.mock('@main/core/pty/tmux-session-name', () => ({
 vi.mock('@main/lib/events', () => ({ events: { emit: mocks.emit, on: mocks.on } }));
 vi.mock('./sendMessage', () => ({
   sendMessage: mocks.sendMessage,
+  readAcceptedMessage: mocks.readAcceptedMessage,
   recordDeliveredSessionDirectMessage: mocks.recordDeliveredSessionDirectMessage,
   drainSessionMessageOutbox: mocks.drainSessionMessageOutbox,
   SessionDirectDeliveryError: mocks.SessionDirectDeliveryError,
@@ -271,6 +275,7 @@ describe('session orchestration', () => {
   afterEach(() => {
     fixture.close();
     mocks.db = undefined;
+    vi.unstubAllEnvs();
   });
 
   /** 这条会话的标题与「显式命名过的那个名字」——后者只在 config 上,前者两种来源同形。 */
@@ -359,6 +364,21 @@ describe('session orchestration', () => {
       const sent = mocks.sendMessage.mock.calls.at(-1)![0] as { sessionId: string; clientMessageId: string; text: string; kind: string };
       expect(sent).toMatchObject({ sessionId: 'caller', kind: 'session-direct' });
       expect(sent.text).toBe(`<app-envelope msg="${sent.clientMessageId}">keep warm</app-envelope>`);
+    });
+
+    it('keeps a scheduled retry on the stored receipt and preserves its original envelope', async () => {
+      const receipt = { id: '022ebf62-18b2-4d78-987e-ddb02dd04c46', at: '2026-10-26T07:00:00.000Z' };
+      mocks.sendMessage.mockRejectedValueOnce(new mocks.SessionDirectDeliveryError('caller', 'preparation unavailable'));
+      await expect(messageSessionFrom(envelope, 'caller', 'first text', { keyScope: 'automation:one', receipt }))
+        .rejects.toMatchObject({ code: 'SESSION_DIRECT_NOT_LIVE' });
+      const first = mocks.sendMessage.mock.calls.at(-1)![0] as { clientMessageId: string; text: string };
+      mocks.readAcceptedMessage.mockReturnValueOnce({ id: first.clientMessageId, sessionId: 'caller', content: first.text });
+      mocks.sendMessage.mockResolvedValueOnce({ id: first.clientMessageId, status: 'delivered' });
+      await expect(messageSessionFrom(() => 'changed envelope', 'caller', 'changed text', { keyScope: 'automation:one', receipt }))
+        .resolves.toEqual({ id: first.clientMessageId });
+      const second = mocks.sendMessage.mock.calls.at(-1)![0] as { clientMessageId: string; text: string };
+      expect(second.clientMessageId).toBe(first.clientMessageId);
+      expect(second.text).toBe(first.text);
     });
 
     it('a session that does not take it, or is not here: thrown with the reason', async () => {
@@ -596,6 +616,24 @@ describe('session orchestration', () => {
       return row.config ? (JSON.parse(row.config) as Record<string, unknown>) : {};
     }
 
+    it('prepares one stable dormant account-work seat without delivering or starting its first turn', async () => {
+      project2Root();
+      const stop=installAssistantWorkLedgerHost({context:async()=>({ownerId:'owner',runtimeInstanceId:'runtime',deviceId:'device-b',client:{rpc:async()=>({data:null,error:null})}}),kick:()=>{}});
+      const intent={version:1 as const,assistant_id:'10000000-0000-4000-8000-000000000001',work_id:'10000000-0000-4000-8000-000000000002',operation_id:'10000000-0000-4000-8000-000000000003',message_id:'10000000-0000-4000-8000-000000000004',child_session_id:'10000000-0000-4000-8000-000000000005',coordinator:{session_id:'remote-caller',device_id:'device-a'},title:'Task',continuation:false};
+      try {
+        const action={action:'spawn' as const,prompt:'Run after account acceptance',project_id:'project-2',assistant_work:intent};
+        const first=await runRemoteSessionAction(remoteCaller,action) as {session_id:string;assistant_work_target:unknown};
+        expect(first.session_id).toBe(intent.child_session_id);
+        expect(first.assistant_work_target).toMatchObject({session_id:intent.child_session_id,device_id:'device-b'});
+        await runRemoteSessionAction(remoteCaller,action);
+        expect(childRows()).toHaveLength(1);
+        expect(mocks.startSession).not.toHaveBeenCalled();
+        expect(mocks.ptyStartSession).not.toHaveBeenCalled();
+        expect(mocks.sendMessage).not.toHaveBeenCalled();
+        expect(mocks.recordDeliveredSessionDirectMessage).not.toHaveBeenCalled();
+      } finally {stop();}
+    });
+
     it('spawns a child nested under the caller on the other machine, recorded in config, and answers to its session id', async () => {
       project2Root();
       const result = (await runRemoteSessionAction(remoteCaller, {
@@ -732,6 +770,34 @@ describe('session orchestration', () => {
       expect(sent.kind).toBe('session-direct');
       expect(sent.text).toContain('from="Claude 7 · mac1"');
       expect(sent.text).toContain('from_id="session:remote-caller"');
+    });
+
+    it('reuses exact inbox identity and envelope bytes when a phone retries an acknowledged-or-unknown failure notice', async () => {
+      // This assertion exercises the persisted timestamp, independent of the runner's timezone.
+      vi.stubEnv('TZ', 'Asia/Shanghai');
+      mocks.sendMessage.mockResolvedValue({ id: 'm1', status: 'delivered' });
+      const action = { action: 'message' as const, session_ids: ['caller'], text: '这次手机任务没能完成，网络连接持续超时。',
+        delivery_id: '022ebf62-18b2-4d78-987e-ddb02dd04c46', delivery_at: '2026-10-26T07:00:00.000Z' };
+      await runRemoteSessionAction(remoteCaller, action);
+      const first = mocks.sendMessage.mock.calls.at(-1)![0];
+      await runRemoteSessionAction(remoteCaller, action);
+      expect(mocks.sendMessage.mock.calls.at(-1)![0]).toEqual(first);
+      expect(first.text).toContain(formatDeliveryTimestamp(action.delivery_at));
+      await runRemoteSessionAction({ ...remoteCaller, sessionId: 'another-sender' }, action);
+      expect(mocks.sendMessage.mock.calls.at(-1)![0].clientMessageId).not.toBe(first.clientMessageId);
+      await expect(runRemoteSessionAction(remoteCaller, { ...action, delivery_at: undefined })).rejects.toThrow(/original timestamp/);
+    });
+
+    it('keeps the cloud message pending until native acceptance and formats its original time locally', async () => {
+      const id = '8ff7b564-892b-4aa5-9d49-a85c1d5cb9ea';
+      mocks.sendMessage.mockImplementation(async (params) => ({ id: params.clientMessageId, status: 'queued' }));
+      const action = { action: 'message', session_ids: ['caller'], text: 'ready', client_message_id: id, client_message_at: '2026-10-26T01:00:00Z' } as const;
+      const first = await runRemoteSessionAction(remoteCaller, action as never);
+      const second = await runRemoteSessionAction(remoteCaller, action as never);
+      expect(mocks.sendMessage.mock.calls.slice(-2).map(([params]) => params.clientMessageId)).toEqual([id, id]);
+      expect(mocks.sendMessage.mock.calls.at(-1)![0].text).toContain(`at="${formatDeliveryTimestamp(action.client_message_at)}"`);
+      expect(first).toEqual({ recipients: [expect.objectContaining({ to: 'session:caller', status: 'failed', message_id: id, error: {code:'SESSION_DIRECT_QUEUED',message:expect.any(String)} })] });
+      expect(second).toEqual(first);
     });
 
     // owner 10-17:发信方自己说的发完以后去向与回的是哪条 —— 收件这台机器写上信封属性,正文不动;取值不对在投递前就拒。

@@ -87,7 +87,7 @@ describe('扩展指南与源码对得上 (#6614)', () => {
   it('动词、能力、工具一个不漏,带权限的动词写在对的「Needs」下', () => {
     // 阳控:读出来的真值不能是空的,否则下面每一条都空转成绿。
     expect(truth.verbs).toEqual(expect.arrayContaining(['getContext', 'readAgentHistory', 'callProgram', 'dispatch']))
-    expect(truth.tools).toEqual(['app_create', 'app_pack', 'app_install', 'app_check'])
+    expect(truth.tools).toEqual(['app_manage', 'app_create', 'app_pack', 'app_install', 'app_check'])
     expect(guideProblems(EXTENSION_GUIDE_TOPICS, truth)).toEqual([])
   })
 

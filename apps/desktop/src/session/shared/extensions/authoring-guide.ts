@@ -321,7 +321,7 @@ Free — what the app is showing:
 Needs \`agents:read\` (or \`agents:read:all\` / \`agents:read:all-machines\`, which cover it):
 
 - \`listAgents()\` → every agent you may see, as \`{ agentId (user:<uuid>), sessionId, deviceId, deviceLabel, projectId, title,
-  providerId, model, transport, parentAgentId, spawnedByThisExtension, status, detail, isGenerating,
+  providerId, model, modelLabel (its name in the model menu; null: show model), transport, parentAgentId, spawnedByThisExtension, status, detail, isGenerating,
   lastStopReason, failure, lastActionAt, pendingPermissionCount, queuedPromptCount, contextTokens, rateLimit,
   updatedAt }\`.
   \`detail\` refines \`status\`: \`running\` | \`parked\` (only background work); \`approval\` | \`question\` |
@@ -982,6 +982,16 @@ migrate their data to make your new code work.
 \`app_install {market:"<app-id>", variant:"<name>"}\` selects an installed variant.
 \`variant:"upstream"\` returns to the original. The person can also select a variant on the
 App's detail page. No fork or data copying is needed to switch.
+
+## An App resource URL
+
+A link like \`<scheme>://app/<id>?device=<device-id>&variant=<slug>\` names that
+installed fork on that registered device. Use \`app_manage\` with \`{url}\` to read its metadata,
+source directory, base and upstream status; never look up a local namesake or pack its cache.
+\`app_manage {url, operation:"switch"}\` activates it. \`operation:"remove"\` asks the
+person, switches an active fork to upstream, then deletes only its registration and cache.
+Original, App data, source Git directory, identity, settings and grants remain. Do not use
+uninstall to remove one fork. Opening the URL only locates its detail, without switching.
 
 ## Bring in an upstream update
 

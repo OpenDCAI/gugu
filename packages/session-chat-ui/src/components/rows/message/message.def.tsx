@@ -25,6 +25,7 @@ import { UserMessageCard } from './UserMessageCard';
 import { estimateUserMessage, measureUserMessage } from './user-message-metrics';
 import { DELIVERY_VARS, DeliveryCard, estimateDelivery, measureDelivery } from './DeliveryCard';
 import { readDeliveryEnvelope } from '@gugu/core/local/agent/deliveryEnvelope';
+import { taskProtocolText } from '@gugu/core/shared/ui/taskProtocolText';
 import { parseHookNotice } from '@session-chat/lib/hook-notice';
 import { readQuestionAnswerDelivery } from '@gugu/session-core/session-record/question-answer';
 import {
@@ -47,7 +48,13 @@ import {
 const QUESTION_ANSWER_H = 24;
 
 export function normalizeMessage(item: ChatMessage): ChatMessage {
-  const guguDelivery = item.guguDelivery ?? readDeliveryEnvelope(item.text);
+  const originalDelivery = item.guguDelivery ?? readDeliveryEnvelope(item.text);
+  const segments = originalDelivery?.segments.map(segment => ({ ...segment, body: taskProtocolText(segment.body) }));
+  const guguDelivery = originalDelivery ? {
+    ...originalDelivery,
+    body: segments!.map(segment => segment.body).join('\n\n'),
+    segments: segments!,
+  } : null;
   // 只有 agent 那一路会带 hook 通知：桥把它当助手消息发过来。用户自己打的字里出现同样的
   // 形状是他引用的原文，❌ 不能拿它当钩子说话。
   const hookNotice =

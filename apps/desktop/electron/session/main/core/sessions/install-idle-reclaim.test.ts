@@ -52,6 +52,7 @@ vi.mock('@main/core/browser/cloud/live-server', () => ({ cloudBrowserLive: () =>
 
 import { makeTmuxSessionName } from '@main/core/pty/tmux-session-name';
 import { installIdleReclaim } from './install-idle-reclaim';
+import { stopExactSessionpageSession } from './session-orchestration';
 
 describe('idle reclaim resource enumeration', () => {
   let dispose: (() => void) | undefined;
@@ -94,6 +95,18 @@ describe('idle reclaim resource enumeration', () => {
     state.browserBusy.mockReturnValue(false);
     state.browserWatched.mockReturnValue(true);
     expect(state.deps!.watchedRemotely('finished')).toBe(true);
+  });
+
+  it('rechecks native idleness before stopping while browser-only reclamation leaves the engine alone', async () => {
+    const target = { projectId: 'p', sessionId: 'idle' };
+    vi.mocked(stopExactSessionpageSession).mockClear();
+    await state.deps!.stop(target, 'acp');
+    expect(stopExactSessionpageSession).toHaveBeenCalledWith({ ...target, onlyIfIdle: true });
+    expect(state.closeBrowser).toHaveBeenCalledWith('idle', undefined);
+    vi.mocked(stopExactSessionpageSession).mockClear();
+    await state.deps!.stop(target, 'browser');
+    expect(stopExactSessionpageSession).not.toHaveBeenCalled();
+    expect(state.closeBrowser).toHaveBeenCalledTimes(2);
   });
 
   it('releases pages for deleted or archived owners instead of retaining an orphan', async () => {

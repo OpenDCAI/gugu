@@ -8,6 +8,8 @@ import { log } from '@main/lib/logger';
 import { eq } from 'drizzle-orm';
 import { sessionPlatformModel } from '@main/core/sessions/platform-model-selection';
 import { sessionModelFromDecision } from '@main/core/sessions/session-model-fact';
+import { getPlatformModelCatalogResolver } from '@main/core/agents/platform-model-catalog-hook';
+import { platformModelIdFromOption } from '@shared/platform-model-id';
 import { refuseItself } from '@main/core/sessions/utils';
 import type {
   ExtensionAgentHistoryPage,
@@ -109,11 +111,25 @@ export async function listAgentsForExtension(
   // Its model as `session_spawn` / `spawnAgent` take it back (`spawn_model_id`): a Gugu model's `platform:<id>`, else
   // the harness's own; null when the session never chose one. 只有本机的行读得到。
   const harnessModels = new Map((await db.select({ id: sessions.id, config: sessions.config }).from(sessions)).map((row) => [row.id, row.config?.model ?? null]));
-  const models = new Map(await Promise.all(here.map(async ({ session: { conversationId: id } }) =>
-    [id, sessionModelFromDecision(await sessionPlatformModel(id), harnessModels.get(id) ?? null).spawn_model_id ?? null] as const)));
+  // A Gugu model's name as the model menu shows it: the catalog session_list_models reads, asked once per engine and leg
+  // for the whole listing (a network call each). An engine's own model, or one the catalog cannot name, has none.
+  const resolver = getPlatformModelCatalogResolver();
+  const catalogs = new Map<string, Promise<Map<string, string>>>();
+  const labelOf = (model: string | null, providerId: string, runtime: string | null) => {
+    const id = model ? platformModelIdFromOption(model) : null;
+    if (!id || !resolver || providerId === 'unknown') return null;
+    const surface = runtime === 'acp' ? 'acp' : 'tui';
+    if (!catalogs.has(`${providerId}:${surface}`)) catalogs.set(`${providerId}:${surface}`, resolver({ providerId, surface })
+      .then((catalog) => new Map(catalog.models.map((entry) => [entry.id, entry.displayName])), () => new Map()));
+    return catalogs.get(`${providerId}:${surface}`)!.then((names) => names.get(id) ?? null);
+  };
+  const models = new Map(await Promise.all(here.map(async ({ session: { conversationId: id, harness, runtime } }) => {
+    const model = sessionModelFromDecision(await sessionPlatformModel(id), harnessModels.get(id) ?? null).spawn_model_id ?? null;
+    return [id, { model, modelLabel: await labelOf(model, harness, runtime) }] as const;
+  })));
   const agents = rows.flatMap((row) => {
     const id = row.session.conversationId;
-    return agentViewOf(row, agentOf, options.extensionId, row.deviceId === null ? { summary: summaries[id], model: models.get(id) ?? null } : null) ?? [];
+    return agentViewOf(row, agentOf, options.extensionId, row.deviceId === null ? { summary: summaries[id], model: models.get(id)?.model ?? null, modelLabel: models.get(id)?.modelLabel ?? null } : null) ?? [];
   });
   return { agents, unreached: elsewhere.unreached };
 }

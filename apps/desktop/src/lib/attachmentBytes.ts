@@ -24,7 +24,7 @@ export type AttachmentVariant = 'full' | 'thumb'
 
 /** 一个附件来源的身份(effect 的依赖):每次渲染重新解析出来的对象不同,身份相同。 */
 export function sourceKeyOf(source: AttachmentSource): string {
-  return source.kind === 'url' ? `url:${source.url}` : source.kind === 'item' ? `item:${source.itemId}@${source.version}` : source.kind === 'message' ? `msg:${source.messageId}` : 'gone'
+  return source.kind === 'url' ? `url:${source.url}` : source.kind === 'item' ? `item:${source.itemId}@${source.version}` : source.kind === 'message' ? `msg:${source.messageId}` : source.kind === 'attachment' ? `attachment:${source.attachmentId}` : 'gone'
 }
 
 export type AttachmentBytes = { status: 'ready'; blob: Blob; link: FileRevision } | { status: 'gone' | 'expired' }
@@ -98,7 +98,7 @@ export async function openAttachmentImage(source: AttachmentSource, alt: string,
   if (bytes.status !== 'ready') throw new Error(bytes.status)
   const { openImageViewer } = await import('./imageViewer')
   if (!isCurrent()) return
-  openImageViewer([{ url: URL.createObjectURL(bytes.blob), alt, quote }])
+  openImageViewer([{ url: URL.createObjectURL(bytes.blob), alt, quote, resource: source.kind === 'item' ? { kind: 'file', target: { kind: 'file', itemId: source.itemId, version: source.version } } : undefined }])
 }
 
 /** 下载一个附件(同一份缓存);条目删了就抛。 */

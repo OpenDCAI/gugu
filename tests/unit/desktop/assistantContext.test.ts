@@ -1,12 +1,13 @@
-import { expect, it, vi } from 'vitest'
+import { expect, it } from 'vitest'
 import { mkdtemp, mkdir, readFile, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { spawn, spawnSync } from 'node:child_process'
-import { assistantGuide, assistantHomePaths, assistantRecoveryContext } from '@gugu/core/shared/assistantPolicy'
+import { spawn } from 'node:child_process'
+import { assistantGuide, assistantHomePaths } from '@gugu/core/shared/assistantPolicy'
 import { ASSISTANT_CONTEXT_CORE, ASSISTANT_TASK_EXECUTION } from '@gugu/core/shared/assistantWorkflow'
 import { openingAssistantIndex } from '../../../apps/desktop/electron/sessionpage/assistant-index-cache'
 import { boundedAssistantIndex } from '../../../apps/desktop/electron/sessionpage/assistant-index-format'
+import { GUGU_ACKNOWLEDGEMENT, GUGU_PLATFORM_BLOCK } from '../../../apps/desktop/electron/product-platform-prompt'
 import type { Materialization } from '../../../apps/desktop/electron/capability-bundle'
 import { assistantHomeTaskContext, personalAssistantContext, preparePersonalAssistantContext, refreshAssistantContext } from '../../../apps/desktop/electron/sessionpage/assistant-context'
 
@@ -32,9 +33,17 @@ function fixture(): Materialization {
   }
 }
 
-function hookIndex(materialization: Materialization): string {
+async function hookIndex(materialization: Materialization, index = 'current-index'): Promise<string> {
   const hook = materialization.artifacts!.find(file => file.path.endsWith('/startup.cjs'))!
-  const result = spawnSync(process.execPath, ['-e', hook.content], { encoding: 'utf8' })
+  const transport = `global.fetch = async (_url, options) => {
+    const request = options.body ? JSON.parse(options.body) : {};
+    const result = request.method === 'resources/read' ? { contents: [{ text: ${JSON.stringify(index)} }] } : {};
+    return new Response(JSON.stringify({ jsonrpc: '2.0', id: request.id, result }), {
+      headers: { 'content-type': 'application/json', 'mcp-session-id': 'test-session' }
+    });
+  };\n`
+  const result = await runEventHook(transport + hook.content, { hook_event_name: 'SessionStart', source: 'startup' },
+    { ...process.env, GUGU_SESSION_MCP_URL_GUGU: 'http://127.0.0.1:1/mcp', GUGU_SESSION_MCP_AUTH_GUGU: 'isolated-test' })
   expect(result.status).toBe(0)
   expect(result.stderr).toBe('')
   const output = JSON.parse(result.stdout)
@@ -42,9 +51,9 @@ function hookIndex(materialization: Materialization): string {
   return output.hookSpecificOutput.additionalContext
 }
 
-function runEventHook(script: string, event: { hook_event_name: string; source: string }) {
+function runEventHook(script: string, event: { hook_event_name: string; source: string }, env = process.env) {
   return new Promise<{ status: number | null; stdout: string; stderr: string }>((resolve, reject) => {
-    const child = spawn(process.execPath, ['-e', script], { stdio: ['pipe', 'pipe', 'pipe'] })
+    const child = spawn(process.execPath, ['-e', script], { env, stdio: ['pipe', 'pipe', 'pipe'] })
     let stdout = ''; let stderr = ''
     child.stdout.on('data', chunk => { stdout += chunk })
     child.stderr.on('data', chunk => { stderr += chunk })
@@ -62,16 +71,39 @@ it.each(['computer', 'cloud'] as const)('keeps the complete %s handbook retrieva
     await mkdir(join(root, '.claude'))
     const instructions = assistantHomePaths(root, cwd, kind).instructions
     const full = assistantGuide(kind)
-    await writeFile(instructions, `Owner instructions before\n${full}\nOwner instructions after`)
+    const outdated = full.replaceAll('profile_rules: 6', 'profile_rules: 1').replaceAll('关于你v3', '关于你v1')
+      .replace('你是个人助理', '你是主人的个人代理，电脑睡了或关了以后再处理')
+    expect(outdated).toContain('profile_rules: 1')
+    await writeFile(instructions, `Owner instructions before\n${outdated}\nOwner instructions after`)
     await writeFile(join(cwd, 'memory.md'), 'durable owner memory')
     await refreshAssistantContext(cwd, root, kind, root)
     const brief = await readFile(instructions, 'utf8')
     expect(brief).toContain('Owner instructions before')
     expect(brief).toContain('Owner instructions after')
-    expect(brief).toContain('主人明确要求当作任务')
+    expect(brief).toContain('明确要求当作任务')
     expect(brief).toContain('宿主自动补齐执行约定')
+    expect(brief).toContain('关于你：按宿主整理要求处理，不自行重查版本。')
+    expect(full).toContain('不依赖模型碰巧读到索引')
+    // An upgrade must expose the version gate even after today's first conversation.
+    expect(brief).toContain('按宿主整理要求处理，不自行重查版本')
+    expect(brief).not.toContain('profile_rules: 1')
+    expect(brief).not.toContain('关于你v1')
+    expect(brief).toContain('同版寒暄直接回复')
+    expect(full).toContain('即使当天已聊过，缺失/不同仍在下一轮整理')
+    // Both the resident instructions and the on-demand handbook carry the owner-facing boundary.
+    for (const text of [brief, full]) {
+      expect(text).not.toMatch(/主人|用户|电脑睡|机器睡|叫醒/)
+      expect(text).toContain('不展示会话、work、设备、job 的内部编号')
+      expect(text).toContain('Pi 运行时、ACP')
+      expect(text).toContain('用任务标题、设备名和可点击链接')
+      expect(text).toContain('不说「我猜」')
+      expect(text).toContain('不要求核对完整 ID')
+      expect(text).toContain('先查原记录')
+      expect(text).toContain('仍查不到就说明已知事实与缺口')
+      expect(text).toContain('做好了但交不回')
+    }
     expect(brief).toContain("Don't ask by default")
-    expect(brief).toContain('主人明确要求先问后做时照办')
+    expect(brief).toContain('明确要求先问后做时照办')
     expect(brief).toContain('缺授权的花钱、对外发送、删除或改动')
     expect(brief).toContain('.gugu-assistant-reference.md')
     expect(brief).not.toContain('"batches"')
@@ -86,6 +118,20 @@ it.each(['computer', 'cloud'] as const)('keeps the complete %s handbook retrieva
     expect(await readFile(join(cwd, 'memory.md'), 'utf8')).toBe('durable owner memory')
     if (kind === 'cloud') await expect(readFile(join(cwd, 'CLAUDE.md'))).rejects.toMatchObject({ code: 'ENOENT' })
   } finally { await rm(root, { recursive: true, force: true }) }
+})
+
+it('removes only the assistant acknowledgement duplicate from the actual custom system channel', () => {
+  const before = fixture()
+  before.sessionPrompt = `identity-before\n${GUGU_PLATFORM_BLOCK}\nidentity-after`
+  const after = personalAssistantContext(before, 'cloud')
+  const options = (after.sessionNewPatch!.meta!.claudeCode as { options: Record<string, unknown> }).options
+  const system = options.systemPrompt as { type: string; prompt: string }
+  expect(system.type).toBe('custom')
+  expect(system.prompt).not.toContain(GUGU_ACKNOWLEDGEMENT)
+  expect(system.prompt).toContain('identity-before')
+  expect(system.prompt).toContain('identity-after')
+  expect(system.prompt).toContain('Short. Lead with the answer')
+  expect(before.sessionPrompt).toContain(GUGU_ACKNOWLEDGEMENT)
 })
 
 it('loads the dedicated cloud home where the assistant guide and skills actually live', () => {
@@ -210,10 +256,18 @@ it('loads the assistant project and explicit Gugu tools without the host coding 
   expect(after.sessionPrompt).toBe(before.sessionPrompt)
   expect(options.systemPrompt).toMatchObject({ type: 'custom', snapshot: false })
   const prompt = (options.systemPrompt as { prompt: string }).prompt
-  expect(prompt).toContain('personal assistant in Gugu')
+  expect(prompt).toContain('Follow the owner’s instructions, the managed project instructions and the platform contract.')
   expect(prompt.split(before.sessionPrompt!).length).toBe(2)
   expect(after.spawnEnv).toBe(before.spawnEnv)
   expect((before.sessionNewPatch!.meta!.claudeCode as { options: object }).options).not.toHaveProperty('strictMcpConfig')
+})
+
+it('keeps the native plugin and static prefix stable when only the resource inventory changes', () => {
+  const make = (index: string) => personalAssistantContext(fixture(), 'computer', { index, guguHome: '/isolated-home' })
+  const first = make('<gugu_resource_index>old inventory</gugu_resource_index>')
+  const next = make('<gugu_resource_index>new inventory</gugu_resource_index>')
+  expect(next.sessionNewPatch).toEqual(first.sessionNewPatch)
+  expect(next.artifacts).toEqual(first.artifacts)
 })
 
 it('retains an explicit reasoning choice', () => {
@@ -242,66 +296,30 @@ it('keeps explicit preset and custom prompt content while disabling only assista
   }
 })
 
-it.each(['computer', 'cloud'] as const)('opens %s with an honest snapshot while fresh discovery continues, including on resume', async kind => {
+it.each(['computer', 'cloud'] as const)('installs one full resource hook for startup/clear/compact and none on %s resume', async kind => {
   const root = await mkdtemp(join(tmpdir(), 'assistant-start-'))
-  vi.stubEnv('GUGU_CLOUD_COMPUTER', kind === 'cloud' ? '1' : '0')
   try {
     const cwd = join(root, 'assistant'); await mkdir(cwd); await mkdir(join(root, '.claude'))
-    let name = 'first-project'
-    const deps = {
-      accountId: async () => 'owner',
-      run: async (action: { action: string }) => action.action === 'devices' ? [{
-        device_id: 'execution-host', label: 'Current host', platform: kind === 'cloud' ? 'linux' : 'darwin',
-        online: true, last_seen_at: null, this_machine: true, kind: kind === 'cloud' ? 'server' : 'desktop',
-        ...(kind === 'cloud' ? { cloud_computer: 'awake' } : {}),
-      }]
-        : action.action === 'device_actions' ? { devices: [] }
-          : action.action === 'project_list' ? [{ project_id: 'p', name, path: '/work' }] : { items: [] },
-    }
+    const deps = { accountId: async () => 'owner', run: async (action: { action: string }) =>
+      action.action === 'devices' ? [] : action.action === 'device_actions' ? { devices: [] }
+        : action.action === 'project_list' ? [] : { items: [] } }
     const start = await preparePersonalAssistantContext(fixture(), cwd, root, kind, deps, root)
+    const hooks = JSON.parse(start.artifacts!.find(file => file.path.endsWith('/hooks/hooks.json'))!.content).hooks.SessionStart
+    for (const source of ['startup', 'clear', 'compact', 'resume']) {
+      const resource = hooks.filter((entry: { matcher: string }) => new RegExp(`^(?:${entry.matcher})$`).test(source))
+        .flatMap((entry: { hooks: Array<{ command: string }> }) => entry.hooks)
+        .filter((hook: { command: string }) => /\/(?:startup|rebuild)\.cjs/.test(hook.command))
+      expect(resource).toHaveLength(source === 'resume' ? 0 : 1)
+    }
+    expect((start.sessionNewPatch!.meta!.claudeCode as { options: { systemPrompt: { prompt: string } } }).options.systemPrompt.prompt)
+      .not.toContain('gugu_resource_index')
     expect(start.sessionNewPatch!.meta!.guguAssistant).toMatchObject({ ownerId: 'owner' })
-    const options = (start.sessionNewPatch!.meta!.claudeCode as { options: Record<string, unknown> }).options
-    expect((options.systemPrompt as { prompt: string }).prompt).not.toContain('first-project')
-    expect(hookIndex(start)).toContain('not_loaded')
     await (await openingAssistantIndex(root, cwd, kind, deps)).refreshed
-    const warm = await preparePersonalAssistantContext(fixture(), cwd, root, kind, deps, root)
-    expect(hookIndex(warm)).toContain('first-project')
-    const devices = hookIndex(warm).split('\n').filter(line => line.startsWith('{')).map(line => JSON.parse(line))
-    expect(devices.find(row => row.account)?.execution_environment).toBe(kind === 'cloud' ? 'cloud' : 'user_device')
-    const executionHost = devices.find(row => row.device_id === 'device:execution-host')
-    expect(executionHost).toMatchObject({ this_machine: true })
-    if (kind === 'cloud') expect(executionHost).toHaveProperty('cloud_computer', 'awake')
-    else expect(executionHost).not.toHaveProperty('cloud_computer')
-    expect((options.systemPrompt as { prompt: string }).prompt).toContain('identity and product rules')
-    expect(start.sessionPrompt).toBe('identity and product rules')
-    await (await openingAssistantIndex(root, cwd, kind, deps)).refreshed
-    name = 'renamed-project'
-    const resumed = await preparePersonalAssistantContext(fixture(), cwd, root, kind, deps, root)
-    const next = (resumed.sessionNewPatch!.meta!.claudeCode as { options: Record<string, unknown> }).options
-    expect(hookIndex(resumed)).toContain('first-project')
-    expect(hookIndex(resumed)).toContain('cached')
-    await (await openingAssistantIndex(root, cwd, kind, deps)).refreshed
-    const refreshed = await preparePersonalAssistantContext(fixture(), cwd, root, kind, deps, root)
-    expect(hookIndex(refreshed)).toContain('renamed-project')
-    await (await openingAssistantIndex(root, cwd, kind, deps)).refreshed
-    expect(hookIndex(resumed).match(/<gugu_resource_index>/g)).toHaveLength(1)
-    expect(next.plugins).not.toEqual(options.plugins)
-    expect(start.artifacts!.find(file => file.path.endsWith('/hooks/hooks.json'))?.content).toContain('SessionStart')
-    const recovery = start.artifacts!.find(file => file.path.endsWith('/recovery.cjs'))!
-    const recovered = await runEventHook(recovery.content, { hook_event_name: 'SessionStart', source: 'resume' })
-    expect(recovered.status).toBe(0)
-    expect(recovered.stderr).toBe('')
-    const recoveryContext = JSON.parse(recovered.stdout).hookSpecificOutput.additionalContext as string
-    expect(recoveryContext).toContain(assistantRecoveryContext(assistantHomePaths(root, cwd, kind).memoryDir))
-    expect(JSON.parse(recoveryContext.split('\n').find(line => line.startsWith('{'))!)).toMatchObject({
-      path: join(assistantHomePaths(root, cwd, kind).memoryDir, 'working-context.md'), status: 'missing',
-    })
-    // Dynamic account data must not be persisted into a shared instruction file.
-    expect(await readFile(assistantHomePaths(root, cwd, kind).instructions, 'utf8')).not.toContain('renamed-project')
-  } finally { vi.unstubAllEnvs(); await rm(root, { recursive: true, force: true }) }
+    expect(await readFile(assistantHomePaths(root, cwd, kind).instructions, 'utf8')).not.toContain('gugu_resource_index')
+  } finally { await rm(root, { recursive: true, force: true }) }
 })
 
-it('uses a native context hook while retaining explicit string and preset system prompts', () => {
+it('uses a native context hook while retaining explicit string and preset system prompts', async () => {
   const chosen = fixture()
   const options = (chosen.sessionNewPatch!.meta!.claudeCode as { options: Record<string, unknown> }).options
   for (const prompt of ['explicit instructions', { type: 'preset', preset: 'claude_code', append: 'explicit instructions' }]) {
@@ -311,11 +329,25 @@ it('uses a native context hook while retaining explicit string and preset system
     expect(actual.systemPrompt).toEqual(typeof prompt === 'string'
       ? { type: 'custom', prompt, snapshot: false }
       : { ...prompt, snapshot: false })
-    expect(hookIndex(after)).toBe('fresh-index')
+    expect(await hookIndex(after, 'fresh-index')).toContain('fresh-index')
   }
 })
 
-it('delivers a large resource collection as one bounded native hook output with explicit omissions', () => {
+it('installs the deleted-file guard without replacing the native prompt or conversation', () => {
+  const base = { index: 'fresh-index', guguHome: '/home/gugu' }
+  const before = personalAssistantContext(fixture(), 'computer', base)
+  const after = personalAssistantContext(fixture(), 'computer', { ...base, panelStatePath: '/private/memory/.panel-state.json' })
+  const options = (value: Materialization) => (value.sessionNewPatch!.meta!.claudeCode as { options: Record<string, unknown> }).options
+  expect(options(after).systemPrompt).toEqual(options(before).systemPrompt)
+  expect(after.sessionPrompt).toEqual(before.sessionPrompt)
+  const hooks = JSON.parse(after.artifacts!.find(file => file.path.endsWith('/hooks/hooks.json'))!.content).hooks
+  expect(hooks.PreToolUse).toContainEqual(expect.objectContaining({ matcher: 'Read|Write|Edit' }))
+  const guard = after.artifacts!.find(file => file.path.endsWith('/revocation.cjs'))!
+  expect(guard.mode).toBe(0o600)
+  expect(guard.content).toContain('/private/memory/.panel-state.json')
+})
+
+it('delivers a large resource collection as one bounded native hook output with explicit omissions', async () => {
   const lines = ['<gugu_resource_index>', JSON.stringify({ account: 'user:owner' }), JSON.stringify({ source: 'projects',
     read: { tool: 'project_list' }, items: Array.from({ length: 180 }, (_, i) => ({
       id: `project:${i}`, name: `项目-${i}-😀`, path: `/Users/owner/projects/${i}`, description: 'x'.repeat(150),
@@ -324,7 +356,7 @@ it('delivers a large resource collection as one bounded native hook output with 
   const prepared = personalAssistantContext(fixture(), 'computer', { index, guguHome: '/home/gugu' })
   const scripts = prepared.artifacts!.filter(file => /\/startup(?:-\d+)?\.cjs$/.test(file.path))
   expect(scripts).toHaveLength(1)
-  expect(hookIndex(prepared)).toBe(index)
+  expect(await hookIndex(prepared, index)).toContain(index)
   expect(index.length).toBeLessThanOrEqual(6_000)
   expect(index).toContain('omitted_items')
   const config = JSON.parse(prepared.artifacts!.find(file => file.path.endsWith('/hooks/hooks.json'))!.content)
@@ -341,8 +373,8 @@ it('keeps recovery instructions separate from data chunks and includes them once
   const config = JSON.parse(prepared.artifacts!.find(file => file.path.endsWith('/hooks/hooks.json'))!.content)
   const script = prepared.artifacts!.find(file => file.path.endsWith('/recovery.cjs'))!
   expect(script.mode).toBe(0o600)
-  expect(hookIndex(prepared)).not.toContain(recoveryContext)
-  expect(hookIndex(prepared)).not.toContain('working-context.md')
+  expect(await hookIndex(prepared)).not.toContain(recoveryContext)
+  expect(await hookIndex(prepared)).not.toContain('working-context.md')
   for (const source of ['resume', 'compact', 'clear', 'fork']) {
     const registered = config.hooks.SessionStart.filter((entry: { matcher: string }) => new RegExp(`^(?:${entry.matcher})$`).test(source))
       .flatMap((entry: { hooks: Array<{ command: string }> }) => entry.hooks).filter((hook: { command: string }) => hook.command.includes('/recovery.cjs'))

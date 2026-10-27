@@ -60,6 +60,14 @@ export class IdleReclaimer {
     this.idleSince.delete(sessionId);
   }
 
+  /** Only a native/FC attestation can remove suspended time. A wake starts a fresh idle window. */
+  resumedFromConfirmedSleep(sleep: { since: number; until: number }): void {
+    if (!Number.isFinite(sleep.since) || !Number.isFinite(sleep.until) || sleep.until <= sleep.since) return;
+    for (const [id, since] of this.idleSince) {
+      if (since < sleep.until) this.idleSince.set(id, sleep.until);
+    }
+  }
+
   /** 扫一遍;同一时刻只跑一遍。返回这一遍停掉的会话。 */
   async tick(): Promise<ReclaimTarget[]> {
     if (this.ticking) return [];

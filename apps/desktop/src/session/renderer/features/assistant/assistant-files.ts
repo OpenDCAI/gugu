@@ -11,50 +11,8 @@ import {
   type AssistantHomePaths,
 } from '@gugu/core/shared/assistantPolicy';
 
-/**
- * 管家维护的那一段的头尾(开通、每次唤醒写进 CLAUDE.md,见管家的「助理」那一步)。
- * 10-15 起是中性标记(云电脑对用户不可见,助理读到标记也不该学会「云电脑」这个词);
- * 早先开通、还没醒过的机器上可能还是旧的那一对,两对都认。
- */
-export const MANAGED_BLOCK_MARKERS: ReadonlyArray<{ start: string; end: string }> = [
-  { start: '<!-- 咕咕管家', end: '<!-- /咕咕管家 -->' },
-  { start: '<!-- 咕咕云电脑', end: '<!-- /咕咕云电脑 -->' },
-];
-
-export type InstructionsParts = {
-  /** 管家那一段原文(连头尾标记);文件里没有 = null。 */
-  managed: string | null;
-  /** 管家那段之外人写的,前后两截合成一段。 */
-  user: string;
-};
-
-export function splitInstructions(text: string): InstructionsParts {
-  for (const marker of MANAGED_BLOCK_MARKERS) {
-    const start = text.indexOf(marker.start);
-    const endAt = start < 0 ? -1 : text.indexOf(marker.end, start);
-    if (start >= 0 && endAt >= 0) return splitAt(text, start, endAt + marker.end.length);
-  }
-  return { managed: null, user: text.trim() };
-}
-
-function splitAt(text: string, start: number, end: number): InstructionsParts {
-  const user = [text.slice(0, start), text.slice(end)]
-    .map((part) => part.trim())
-    .filter(Boolean)
-    .join('\n\n');
-  return { managed: text.slice(start, end), user };
-}
-
-/**
- * 人改完「说明」要写回去的全文:管家那段照**此刻文件里的原文**留在最前面(❌ 用打开编辑框时读到的那份 —— 中间管家可能刚升级过),
- * 人写的接在后面。人写的清空 = 只剩管家那段(「留空可清除」)。
- */
-export function composeInstructions(current: string, userText: string): string {
-  const { managed } = splitInstructions(current);
-  const body = userText.trim();
-  if (!managed) return body ? `${body}\n` : '';
-  return body ? `${managed}\n\n${body}\n` : `${managed}\n`;
-}
+export { MANAGED_BLOCK_MARKERS, splitInstructions, composeInstructions } from '@gugu/core/shared/assistantInstructions';
+export type { InstructionsParts } from '@gugu/core/shared/assistantInstructions';
 
 export { claudeProjectDirName } from '@gugu/core/shared/assistantPolicy';
 
@@ -72,77 +30,9 @@ export function assistantPaths(home: string, projectPath: string, kind: Assistan
   return assistantHomePaths(home, projectPath, kind);
 }
 
-/** 文件开头 `---` 之间那几行里的简单键值(name / description / type,也认 metadata 下缩进的 type)。 */
-export function readFrontmatter(text: string): { fields: Record<string, string>; body: string } {
-  const normalized = text.replace(/^\uFEFF/, '').replace(/\r\n/g, '\n');
-  if (!normalized.startsWith('---\n')) return { fields: {}, body: normalized.trim() };
-  const close = normalized.indexOf('\n---', 4);
-  if (close < 0) return { fields: {}, body: normalized.trim() };
-  const fields: Record<string, string> = {};
-  for (const line of normalized.slice(4, close).split('\n')) {
-    const match = /^\s*([A-Za-z_][\w-]*):\s*(.*)$/.exec(line);
-    if (!match) continue;
-    const [, key, raw] = match;
-    const value = raw.trim().replace(/^(['"])(.*)\1$/, '$2');
-    if (value && !(key in fields)) fields[key] = value;
-  }
-  const after = normalized.slice(close + 4);
-  return { fields, body: after.replace(/^[^\n]*\n/, '').trim() };
-}
-
-/** Claude Code 的记忆分四种;「关于你 / 关于助理」对应前两种。 */
-export type MemoryKind = 'user' | 'feedback' | 'project' | 'reference' | 'other';
-
-export type MemoryNote = {
-  file: string;
-  title: string;
-  description: string;
-  kind: MemoryKind;
-  body: string;
-};
-
-const MEMORY_KINDS: readonly MemoryKind[] = ['user', 'feedback', 'project', 'reference'];
-const memoryKind = (value: string | undefined): MemoryKind | undefined => {
-  const aliases: Record<string, MemoryKind> = { 用户: 'user', 关于主人: 'user', 偏好: 'user', 反馈: 'feedback', 关于助理: 'feedback', 项目: 'project', 参考: 'reference', 资料: 'reference' };
-  return MEMORY_KINDS.find(kind => kind === value?.toLowerCase()) ?? aliases[value ?? ''];
-};
-
-/** Legacy memories often put their readable name/category in the index instead of YAML. */
-export function memoryIndexHints(index: string): Map<string, { title: string; kind?: MemoryKind }> {
-  const result = new Map<string, { title: string; kind?: MemoryKind }>();
-  let kind: MemoryKind | undefined;
-  for (const line of index.split('\n')) {
-    const heading = /^#{1,6}\s+(.+?)\s*$/.exec(line);
-    if (heading) kind = memoryKind(heading[1].trim());
-    const link = /\[([^\]]+)\]\((?:\.\/)?([^\s)]+\.md)\)/.exec(line);
-    if (link && !link[2].includes('/')) result.set(link[2], { title: link[1], ...(kind ? { kind } : {}) });
-  }
-  return result;
-}
-
-export function parseMemoryNote(file: string, text: string, hint?: { title: string; kind?: MemoryKind }): MemoryNote {
-  const { fields, body } = readFrontmatter(text);
-  // Missing metadata is a reference, not an invented claim about the person.
-  const kind = memoryKind(fields.type) ?? memoryKind(fields.category) ?? hint?.kind ?? 'reference';
-  const heading = /^#{1,6}\s+(.+?)\s*$/m.exec(body)?.[1];
-  const filename = file.replace(/\.md$/i, '');
-  return {
-    file,
-    title: fields.title || fields.name || heading || hint?.title || (/\p{Script=Han}/u.test(filename) ? filename : '记忆'),
-    description: fields.description ?? '',
-    kind,
-    body,
-  };
-}
-
-/** 删一条记忆时把索引里指向它的那一行一起拿掉(否则 MEMORY.md 里留一条指向空处的链接)。 */
-export function removeIndexEntry(index: string, file: string): string {
-  const target = `](${file})`;
-  return index
-    .split('\n')
-    .filter((line) => !line.includes(target))
-    .join('\n');
-}
+import { readFrontmatter } from '@gugu/core/shared/assistantMemory';
+export { readFrontmatter,parseMemoryNote,memoryIndexHints,removeIndexEntry,isOwnerProfileNote } from '@gugu/core/shared/assistantMemory';
+export type { MemoryNote,MemoryKind } from '@gugu/core/shared/assistantMemory';
 
 export type SkillInfo = {
   /** 技能所在的那一夹名字(删除、编辑都按它)。 */

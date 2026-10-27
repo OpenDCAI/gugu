@@ -27,7 +27,7 @@ const SESSION_TOOL_NAMES = [
 const PROJECT_TOOL_NAMES = PROJECT_TOOL_DEFS.map((def) => def.name)
 const ACTIVITY_TOOL_NAMES = ACTIVITY_TOOL_DEFS.map(def => def.name)
 const LIBRARY_TOOL_NAMES = LIBRARY_TOOL_DEFS.map(def => def.name)
-const EXTENSION_TOOL_NAMES = ['app_create', 'app_pack', 'app_install', 'app_check'] as const
+const EXTENSION_TOOL_NAMES = ['app_manage', 'app_create', 'app_pack', 'app_install', 'app_check'] as const
 // #7221 给自己排的已安排:与 session_* 同一个分派器、同一份 grant。
 const SCHEDULE_TOOL_NAMES = ['schedule_create', 'schedule_list', 'schedule_cancel'] as const
 // #6614 每条 grant 都有的两个域:guide_* 与渐进披露的 catalog_*。
@@ -111,6 +111,7 @@ describe('single Gugu MCP surface (session_* + app_* atomic tools)', () => {
       session_set_parent: 'set_parent',
     })
     expect(Object.fromEntries(EXTENSION_TOOL_DEFS.map((def) => [def.name, def.action]))).toEqual({
+      app_manage: 'manage',
       app_create: 'create',
       app_pack: 'pack',
       app_install: 'install',

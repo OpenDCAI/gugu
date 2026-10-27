@@ -52,6 +52,17 @@ function platformInjection() {
 }
 
 describe('AcpRuntime session manager', () => {
+  it('logs one attributed process start and does not log an idempotent start as a restart', async () => {
+    const h = makeAcpHarness()
+    const warn = vi.spyOn(h.deps.logger, 'warn')
+    const rt = new AcpRuntime(h.deps)
+    await rt.startSession(makeStartInput({ sessionId: 'start-log' }))
+    await rt.startSession(makeStartInput({ sessionId: 'start-log' }))
+    const logs = warn.mock.calls.filter(([message]) => message === 'SessionManager: starting provider process')
+    expect(logs).toHaveLength(1)
+    expect(logs[0]?.[1]).toMatchObject({ sessionId: 'start-log', reason: 'startup', hostPid: process.pid })
+    await rt.dispose()
+  })
   /**
    * 插件清单漏了 liveSettings 声明是**本仓自己的 bug**,日志要响亮(error 档)——
    * 但响亮 ❌ 不等于杀掉用户的会话。owner 2026-09-19:「任何 bug 都不应该让会话打不开」。
@@ -954,20 +965,15 @@ describe('AcpRuntime session manager', () => {
     expect(onPlatformSessionClosed).toHaveBeenCalledWith('platform-exit', 'access-exit');
   });
 
-  it('keeps a session managed when provider close fails so stop can be retried', async () => {
+  it('stops the process even when provider close fails, then removes its live record', async () => {
     const { h, rt, sessionId } = await startHarness('conv-close-failure');
     h.agent.closeSession.mockRejectedValueOnce(new Error('provider refused close'));
-
-    const failed = await rt.stopSession(sessionId);
-    expect(failed).toEqual(
-      expect.objectContaining({ success: false, error: expect.objectContaining({ type: 'stop_failed' }) })
-    );
-    expect(rt.sessionLiveModels(sessionId)).toBeDefined();
 
     await expect(rt.stopSession(sessionId)).resolves.toEqual({
       success: true,
       data: undefined,
     });
+    expect(h.lastChild.kill).toHaveBeenCalledWith('SIGTERM');
     expect(rt.sessionLiveModels(sessionId)).toBeNull();
   });
 

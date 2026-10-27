@@ -2,11 +2,11 @@ import { mkdtemp, readFile, readdir, rm } from 'node:fs/promises'
 import { join } from 'node:path'
 import { tmpdir } from 'node:os'
 import { afterEach, expect, it, vi } from 'vitest'
-import { openingAssistantIndex } from '../../../apps/desktop/electron/sessionpage/assistant-index-cache'
+import { invalidateAssistantIndex, openingAssistantIndex, stopAssistantIndexRefresh } from '../../../apps/desktop/electron/sessionpage/assistant-index-cache'
 import type { AssistantStartupIndexDeps } from '../../../apps/desktop/electron/sessionpage/assistant-startup-index'
 
 const roots: string[] = []
-afterEach(async () => { await Promise.all(roots.splice(0).map(root => rm(root, { recursive: true, force: true }))) })
+afterEach(async () => { await Promise.all(roots.splice(0).map(root => { stopAssistantIndexRefresh(root); return rm(root, { recursive: true, force: true }) })) })
 async function fixture() {
   const root = await mkdtemp(join(tmpdir(), 'assistant-opening-')); roots.push(root)
   let owner = 'owner-a'
@@ -77,4 +77,19 @@ it('does not expose or save the old account when it changes during discovery', a
     expect(saved.account).toBe('owner-b')
     expect((await readdir(join(f.root, 'assistant-context'))).filter(name => name.endsWith('.json'))).toHaveLength(1)
   } finally { f.gate.resolve() }
+})
+
+it('does not let a discovery started before deletion restore the derived index', async () => {
+  const f = await fixture()
+  const old = await openingAssistantIndex(f.root, '/assistant', 'cloud', f.deps)
+  await invalidateAssistantIndex(f.root, '/assistant', 'cloud', 'owner-a')
+  f.gate.resolve()
+  await old.refreshed
+  expect(await readdir(join(f.root, 'assistant-context')).catch(error => {
+    if (error.code === 'ENOENT') return []
+    throw error
+  })).toEqual([])
+  const current = await openingAssistantIndex(f.root, '/assistant', 'cloud', f.deps)
+  await current.refreshed
+  expect((await f.saved()).index).toContain('original-project')
 })

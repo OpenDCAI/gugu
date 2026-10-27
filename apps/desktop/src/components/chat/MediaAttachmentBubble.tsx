@@ -26,11 +26,11 @@ const INLINE_MAX = 280
 // 不看写进正文的 [Kind]:历史上 agent 不带 mime_type 发的 PNG 被记成 file,这里让它们自愈。
 // 字节一律经 lib/attachmentBytes(签名链接 + Cache Storage);取不到时每个气泡自己说「暂时打不开 · 重试」,
 // 条目删了说「文件已删除」。
-export function MediaAttachmentBubble({ meta, messageId, isMine, onOpenFile, senderName, chatId }: { meta: ParsedAttachment; messageId: string; isMine: boolean; onOpenFile?: (meta: ParsedAttachment) => void; senderName?: string; chatId?: string }) {
+export function MediaAttachmentBubble({ meta, messageId, isMine, onOpenFile, senderName, chatId, onDownload }: { meta: ParsedAttachment; messageId: string; isMine: boolean; onOpenFile?: (meta: ParsedAttachment) => void; senderName?: string; chatId?: string; onDownload?: () => void }) {
   const { t } = useTranslation('messaging')
   const { user } = useAuth()
   const box = useRef<HTMLDivElement>(null)
-  const managedFile = (meta.source.kind === 'item' || meta.source.kind === 'message') && !isRenderableImage(meta.fileName, meta.mimeType)
+  const managedFile = (meta.source.kind === 'item' || meta.source.kind === 'message' || meta.source.kind === 'attachment') && !isRenderableImage(meta.fileName, meta.mimeType)
   const near = useNearViewport(box, managedFile)
   const metadata = useQuery({ queryKey: ['attachment-state', user?.id, sourceKeyOf(meta.source)],
     queryFn: () => attachmentMetadata(meta.source),
@@ -47,14 +47,14 @@ export function MediaAttachmentBubble({ meta, messageId, isMine, onOpenFile, sen
       : <FileAttachmentCard file={meta} isMine={isMine} onOpen={() => undefined} />}{caption}
   </div>
   // App 包:按这条消息装(发布者就是发送者,装的时候由宿主读这条消息)。
-  if (isExtensionBundle(meta) && meta.source.kind !== 'gone') return <div ref={box} className={FIT_BUBBLE}><ExtensionBundleCard meta={meta} card={{ source: meta.source, messageId }} isMine={isMine} senderName={senderName} chatId={chatId} />{caption}</div>
+  if (isExtensionBundle(meta) && meta.source.kind !== 'gone' && meta.source.kind !== 'attachment') return <div ref={box} className={FIT_BUBBLE}><ExtensionBundleCard meta={meta} card={{ source: meta.source, messageId }} isMine={isMine} senderName={senderName} chatId={chatId} />{caption}</div>
   if (meta.source.kind === 'gone') {
     return <div className={FIT_BUBBLE}><FileAttachmentCard file={meta} isMine={isMine} details={t('attachmentView.fileGone')} onOpen={() => undefined} />{caption}</div>
   }
   if (isRenderableImage(meta.fileName, meta.mimeType)) return <div ref={box} className={FIT_BUBBLE}><InlineImage meta={meta} messageId={messageId} isMine={isMine} />{caption}</div>
   // Pin the group file version; the first version does not need a label.
   const versionLabel = meta.source.kind === 'item' && meta.source.version > 1 ? t('attachmentView.fileVersion', { n: meta.source.version }) : undefined
-  return <div ref={box} className={FIT_BUBBLE}><FileAttachmentCard file={meta} isMine={isMine} versionLabel={versionLabel} onOpen={() => onOpenFile?.(meta)} />{caption}</div>
+  return <div ref={box} className={FIT_BUBBLE}><FileAttachmentCard file={meta} isMine={isMine} versionLabel={versionLabel} onOpen={() => onOpenFile?.(meta)} onDownload={onDownload} downloadLabel={t('chatArea.filePreview.download')} />{caption}</div>
 }
 
 function InlineImage({ meta, messageId, isMine }: { meta: ParsedAttachment; messageId: string; isMine: boolean }) {
@@ -72,7 +72,7 @@ function InlineImage({ meta, messageId, isMine }: { meta: ParsedAttachment; mess
     const unregister = registerFullImage(img.current, () => (full ??= attachmentBytes(meta.source, 'full').then((bytes) => {
       if (bytes.status !== 'ready') throw new Error('attachment is gone')
       return URL.createObjectURL(bytes.blob)
-    })))
+    })), meta.source.kind === 'item' ? { kind: 'file', target: { kind: 'file', itemId: meta.source.itemId, version: meta.source.version } } : undefined)
     return () => {
       unregister()
       void full?.then((url) => URL.revokeObjectURL(url), () => undefined)

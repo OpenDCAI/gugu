@@ -205,7 +205,7 @@ interface BubbleProps {
   onEnterSelectMode?: (msg: MessageItem) => void
   // 连续消息合组（父层按「同发送者 + 无时间分隔线切断」判定）：true 时气泡里不再写名字、收紧行距；
   // 头像位置用等宽 spacer 占住，保证组内气泡与组首对齐。
-  groupedWithPrev?: boolean; groupedWithNext?: boolean // 下一条也属于这一组 ⇒ 头像不画在这里,画在组尾(Telegram 式,见 GroupAvatarSlot)
+  groupedWithPrev?: boolean; groupedWithNext?: boolean; showReplyQuote?: boolean // 下一条也属于这一组 ⇒ 头像不画在这里,画在组尾(Telegram 式,见 GroupAvatarSlot)
   // 气泡右下角不写时间(流式预览:回合还没落成一条消息)。
   hideTime?: boolean
   // 父层对每条本人消息都传 true（#2098 逐条已读：主列/话题视图均 showReadReceipt={is_mine}）→ 各自挂环；
@@ -233,7 +233,7 @@ export const MessageBubble = memo(function MessageBubble({
   onOpenFile, onOpenLocalFileLink,
   memberProfiles,
   onEnterSelectMode,
-  groupedWithPrev = false, groupedWithNext = false,
+  groupedWithPrev = false, groupedWithNext = false, showReplyQuote = true,
   hideTime = false,
   showReadReceipt = true,
 }: BubbleProps) {
@@ -287,8 +287,8 @@ export const MessageBubble = memo(function MessageBubble({
     onReact: (emoji: string) => { onReaction(msg.id, emoji); close() },
     onQuoteSelection: menuSelection && msg.content_type === 'text' ? () => { onQuote({ ...msg, content: menuSelection }); close() } : undefined,
     onCopy: (content = menuSelection || undefined) => { void handleCopyText(content); close() },
-    onCopyLink: menuLink ? () => { void handleCopyText(menuLink.href); close() } : undefined,
-    onOpenLink: menuLink ? () => { menuLink.click(); close() } : undefined,
+    resource: mediaAttachment?.source.kind === 'item' ? { kind: 'file' as const, target: { kind: 'file' as const, itemId: mediaAttachment.source.itemId, version: mediaAttachment.source.version } } : undefined,
+    onCopyLink: menuLink ? () => { void handleCopyText(menuLink.href); close() } : undefined, onOpenLink: menuLink ? () => { menuLink.click(); close() } : undefined,
     onForward: () => { onForward(msg); close() },
     onDownload: mediaAttachment && mediaAttachment.source.kind !== 'gone' ? () => { void downloadAttachment(mediaAttachment.source, mediaAttachment.fileName).catch((error) => toast(t('chatArea.downloadFailed'), 'error', safeFailureLine(String((error as Error)?.message ?? error)))); close() } : undefined,
     onDelete: () => { onDelete(msg.id); close() },
@@ -487,7 +487,7 @@ export const MessageBubble = memo(function MessageBubble({
               <span className="msg-time-room-inline" style={{ color: 'var(--muted-fg)', fontStyle: 'italic', '--msg-time-room': timeRoom } as React.CSSProperties}>{t('message.retracted')}</span>
             ) : (
               <div className={showTime && !simple && timeInline ? 'msg-time-room' : undefined} style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-start', gap: '4px', '--msg-time-room': timeRoom } as React.CSSProperties}>
-                {!simple && msg.reply_to_message_id && <MessageQuote onShowMessage={onShowMessage} msg={msg} quoterIsAgent={avatarIsAgent} memberProfiles={memberProfiles} />}
+                {showReplyQuote && msg.reply_to_message_id && <MessageQuote onShowMessage={onShowMessage} msg={msg} quoterIsAgent={avatarIsAgent} memberProfiles={memberProfiles} />}
                 {card?.type === 'question' ? (
                   <QuestionCardView card={card} chatId={msg.chat_id} messageId={msg.id} agentUserId={msg.sender_user_id ?? ''} time={hideTime ? '' : fmtMsgTime(msg.created_at)} />
                 ) : card?.type === 'task' ? (

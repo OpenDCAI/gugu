@@ -8,13 +8,14 @@ import { openLinkTarget } from '../../../../apps/desktop/src/lib/guguLinks'
 import type { GuguLinkTarget } from '@gugu/core/shared/ui/guguLink'
 import { until } from '../../../support/awaitCondition'
 
-const mocked = vi.hoisted(() => ({ lookup: vi.fn(), file: vi.fn(), local: vi.fn(), reveal: vi.fn(), task: null as unknown }))
+const mocked = vi.hoisted(() => ({ lookup: vi.fn(), file: vi.fn(), local: vi.fn(), reveal: vi.fn(), work: vi.fn(), task: null as unknown }))
 vi.mock('react-i18next', async (original) => ({ ...await original<typeof import('react-i18next')>(), useTranslation: () => ({ t: (key: string) => key }) }))
 vi.mock('../../../../apps/desktop/src/lib/fileAccess', async original => ({ ...await original<typeof import('../../../../apps/desktop/src/lib/fileAccess')>(), localFileRevision: mocked.local }))
 vi.mock('../../../../apps/desktop/src/lib/chat', () => ({ chatService: { getMessageById: mocked.lookup } }))
 vi.mock('../../../../apps/desktop/src/hooks/useSourceMessageReveal', () => ({ askReveal: mocked.reveal }))
 vi.mock('../../../../apps/desktop/src/lib/assistantShellBridge', () => ({ readAssistantShellBridge: () => ({ getSnapshot: () => ({ assistant: { id: 'assistant' }, chatId: 'aaaaaaaa-bbbb-4ccc-8ddd-eeeeeeeeeeee' }) }) }))
 vi.mock('../../../../apps/desktop/src/lib/assistantTaskChat', () => ({ OPEN_ASSISTANT_TASK_CHAT: '__open_assistant_task_chat', readAssistantTaskChat: () => mocked.task }))
+vi.mock('../../../../apps/desktop/src/lib/assistantWork', () => ({ assistantWorkCloud: { listAll: mocked.work } }))
 
 vi.mock('../../../../apps/desktop/src/lib/supabase', () => {
   const query = (id = '') => ({ select: () => query(id), eq: (_key: string, value: string) => query(value), maybeSingle: () => mocked.file(id) })
@@ -42,6 +43,7 @@ const click = (chatId: string) => request({ kind: 'chat', chatId, messageId })
 beforeEach(async () => {
   vi.resetAllMocks()
   mocked.local.mockResolvedValue(null)
+  mocked.work.mockRejectedValue(Object.assign(new Error('Account task reader is unavailable'), { code: 'unprepared' }))
   openAssistant.mockImplementation((tasks: boolean) => tasks ? 'assistant:task-chat' : 'assistant:chat')
   mocked.task = { assistantId: 'assistant', taskAgentId: 'task', task: { deviceId: 'device', sessionId: 'session' }, assistants: [] }
   mocked.lookup.mockResolvedValue({ chat_id: assistantChat })
@@ -67,7 +69,39 @@ describe('conversation source navigation', () => {
       expect(mocked.reveal).toHaveBeenCalledWith(taskChat, messageId, 'assistant:task-chat')
       expect(listener).toHaveBeenCalledOnce()
       expect(openChat).not.toHaveBeenCalled()
+      expect(mocked.work).not.toHaveBeenCalled()
     } finally { window.removeEventListener('__open_assistant_task_chat', listener) }
+  })
+  it('resolves an unknown task through the ledger and retains its exact message target', async () => {
+    mocked.task = null
+    mocked.lookup.mockResolvedValue({ chat_id: taskChat })
+    mocked.work.mockResolvedValue([{work_id:'cloud-work',assistant_user_id:'assistant',title:'Cloud task',outcome:'active',
+      executors:[{session_id:'cloud-session',device_id:'sleeping',agent_user_id:'task'}],coordinator_session_id:'main',coordinator_device_id:'home'}])
+    const listener=vi.fn();window.addEventListener('__open_assistant_task_chat',listener)
+    try {
+      await act(async () => { await click(taskChat) })
+      expect(mocked.work).toHaveBeenCalledExactlyOnceWith('assistant')
+      expect(listener.mock.calls[0][0].detail).toMatchObject({workId:'cloud-work',task:{sessionId:'cloud-session',deviceId:'sleeping'}})
+      expect(mocked.reveal).toHaveBeenCalledWith(taskChat,messageId,'assistant:task-chat')
+      expect(openChat).not.toHaveBeenCalled()
+    } finally { window.removeEventListener('__open_assistant_task_chat',listener) }
+  })
+  it('does not use a known task address belonging to a different assistant', async () => {
+    mocked.task={assistantId:'another-assistant',taskAgentId:'task',task:{deviceId:'old',sessionId:'old'},assistants:[]}
+    mocked.lookup.mockResolvedValue({chat_id:taskChat})
+    mocked.work.mockResolvedValue([])
+    await act(async () => { await click(taskChat) })
+    expect(mocked.work).toHaveBeenCalledExactlyOnceWith('assistant')
+    expect(openAssistant).not.toHaveBeenCalled()
+    expect(openChat).toHaveBeenCalledWith(taskChat)
+  })
+  it('preserves a missing ledger reader error when no matching address is known',async()=>{
+    mocked.task=null
+    mocked.lookup.mockResolvedValue({chat_id:taskChat})
+    await act(async()=>{await expect(click(taskChat)).rejects.toThrow('links.unavailable')})
+    expect(openAssistant).not.toHaveBeenCalled()
+    expect(openChat).not.toHaveBeenCalled()
+    expect(mocked.reveal).not.toHaveBeenCalled()
   })
   it.each([null, { chat_id: taskChat }, { chat_id: assistantChat, retracted_at: 'now' }])('refuses missing, mismatched and retracted messages: %j', async (message) => {
     mocked.lookup.mockResolvedValue(message)

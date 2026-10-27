@@ -21,6 +21,7 @@ import { SenderAvatarProvider } from '@session-chat/lib/sender-avatar';
 import { AppNameProvider } from '@session-chat/lib/app-name';
 import { ChatNameProvider } from '@session-chat/lib/chat-name';
 import { createSignal } from 'solid-js';
+import { assistantExecutionAction, ASSISTANT_TASK_EXECUTION } from '@gugu/core/shared/assistantWorkflow';
 
 const WIDTH = 640;
 const ENVELOPE = `<gugu_delivery route="chat" arrival="Sent to you through 咕咕; reply with message_reply" from="Alice" from_id="user:alice" chat="7" chat_kind="group" msg="msg:m-1" at="2026-09-03 12:00">
@@ -168,6 +169,7 @@ const DOUBLE: ChatLayout = { preset: 'double', userGutter: 72 };
 
 describe('plain session delivery contract', () => {
   it.each([SINGLE, DOUBLE])('renders only the received words in $preset, with exact measured geometry', async (layout) => {
+
     const delivered = await mount(layout, false);
     const typed = await mount(layout, false, 'Please **review** the auth refactor before merging.');
     expect(delivered.computed).toBe(delivered.dom);
