@@ -95,6 +95,16 @@ describe('session peer sidebar titles', () => {
     }])
   })
 
+  it('does not advertise the implicit task workspace as a project to the assistant', () => {
+    const peers = resolveLocalSessionPeers([binding], [identity], [facts(binding.sessionId, 'Question task', {
+      projectId: '00000000-0000-4000-8000-000000000001', projectName: '任务工作区',
+    })]);
+    expect(peers[0]).toMatchObject({ title: 'Question task', project: '' });
+    expect(resolveLocalSessionPeers([binding], [identity], [facts(binding.sessionId, 'Real project task', {
+      projectId: 'business-project', projectName: '任务工作区',
+    })])[0]?.project).toBe('任务工作区');
+  });
+
   it('orders rows most recently active first; never-active rows go last', () => {
     const second = { guguAgentUserId: '22222222-2222-4222-8222-222222222222', sessionId: 'conversation-2' }
     const third = { guguAgentUserId: '33333333-3333-4333-8333-333333333333', sessionId: 'conversation-3' }
