@@ -2156,22 +2156,20 @@ interface LocalDeviceSelfSnapshot {
 
 // 本机在当前账号下的设备 id:按 owner 记一次,第一次先登记心跳(createLocalDeviceIdResolver)。设备自查、会话页身份供给、
 // 设备动作、跨机器、server 隧道都问这一个;❌ 先等设备运行时一轮 tick(#4181 / #4320② 的等待环)。
+const resolveLocalDeviceId = createLocalDeviceIdResolver({
+  getAuth: async () => (authProvider ? authProvider.getAuth() : null),
+  heartbeatClient: (accessToken) => makeIdentityClient(accessToken) as unknown as DeviceHeartbeatTableClient,
+  capabilities: () => localCapabilitiesOnce(),
+  ...heartbeatRowSources,
+  ...deviceLabelOption,
+  warn: (message) => deviceHeartbeatLogger.warn({}, message),
+})
 // 认出来的那一刻告诉各个窗口(device:self-identified):登录交过来之前读的设备表分不出哪行是本机,要重读。
-const localDeviceId = announceLocalDeviceIdentity(
-  createLocalDeviceIdResolver({
-    getAuth: async () => (authProvider ? authProvider.getAuth() : null),
-    heartbeatClient: (accessToken) => makeIdentityClient(accessToken) as unknown as DeviceHeartbeatTableClient,
-    capabilities: () => localCapabilitiesOnce(),
-    ...heartbeatRowSources,
-    ...deviceLabelOption,
-    warn: (message) => deviceHeartbeatLogger.warn({}, message),
-  }),
-  (deviceId) => {
-    for (const window of BrowserWindow.getAllWindows()) {
-      if (!window.isDestroyed()) window.webContents.send('device:self-identified', deviceId)
-    }
-  },
-)
+const localDeviceId = announceLocalDeviceIdentity(resolveLocalDeviceId, (deviceId) => {
+  for (const window of BrowserWindow.getAllWindows()) {
+    if (!window.isDestroyed()) window.webContents.send('device:self-identified', deviceId)
+  }
+})
 
 async function getLocalDeviceSelfSnapshot(): Promise<LocalDeviceSelfSnapshot | null> {
   if (!deviceRuntimeHost) return null
