@@ -1,7 +1,7 @@
 import type { CommandId } from '@renderer/lib/hooks/useKeyboardShortcuts';
 
 export interface AppCommand {
-  id: CommandId;
+  id: CommandId | `extension:${string}`;
   label?: string;
   description?: string;
   /**

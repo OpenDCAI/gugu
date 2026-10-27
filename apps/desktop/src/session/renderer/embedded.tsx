@@ -44,6 +44,7 @@ import { wireProgramNotifications } from '@renderer/features/extensions/wire-pro
 import { wireAppQuit } from '@renderer/features/extensions/app-dock';
 import { wireExtensionHostActions } from '@renderer/features/extensions/wire-extension-host-actions';
 import { setupAppCommandProvider } from '@renderer/lib/commands/app-commands';
+import { setupExtensionCommandProvider } from '@renderer/features/extensions/extension-command-provider';
 import { setupViewCommandProvider } from '@renderer/lib/commands/view-command-provider';
 import { wireCommitHistoryInvalidation } from '@renderer/lib/commit-history-invalidation';
 import { wireExternalLinkRequests } from '@renderer/lib/external-link-requests';
@@ -261,6 +262,7 @@ async function bootstrap() {
   setupNavigationGuards();
   if (navResult) appState.navigation.restoreSnapshot(navResult);
   setupAppCommandProvider();
+  setupExtensionCommandProvider();
   setupViewCommandProvider();
   if (sidebarResult) {
     appState.sidebar.restoreSnapshot(sidebarResult as Partial<SidebarSnapshot>);

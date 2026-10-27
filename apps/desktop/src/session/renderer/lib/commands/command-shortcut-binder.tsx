@@ -2,7 +2,7 @@ import { detectPlatform, matchesKeyboardEvent, useHotkey } from '@tanstack/react
 import { observer } from 'mobx-react-lite';
 import { useEffect } from 'react';
 import { useAppSettingsKey } from '@renderer/features/settings/use-app-settings-key';
-import { COMMANDS, getEffectiveHotkey, getHotkeyRegistration, type CommandId } from '@renderer/lib/hooks/useKeyboardShortcuts';
+import { COMMANDS, getEffectiveHotkey, getHotkeyRegistration, isHostCommandId, type CommandId } from '@renderer/lib/hooks/useKeyboardShortcuts';
 import { commandRegistry } from './registry';
 
 function CommandKey({ id }: { id: CommandId }) {
@@ -48,6 +48,6 @@ export const CommandShortcutBinder = observer(function CommandShortcutBinder() {
     };
   }, []);
   const ids = commandRegistry.shortcutsPaused ? [] : [...new Set(commandRegistry.activeCommands.map((command) => command.id))]
-    .filter((id) => COMMANDS[id].conflictBehavior !== 'allow');
+    .filter(isHostCommandId).filter((id) => COMMANDS[id].conflictBehavior !== 'allow');
   return <>{ids.map((id) => COMMANDS[id].capture ? <CapturedCommandKey key={id} id={id} /> : <CommandKey key={id} id={id} />)}</>;
 });
