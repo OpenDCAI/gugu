@@ -13,22 +13,19 @@ export function questionDeliveryPayload(sourceLink: string | undefined, answerMe
 
 export function restoredAgentQuestion(settlement: Settlement): { request: Question; answerMessageId: string; answer?: AskAnswer } | null {
   if (settlement.origin?.source !== 'agent-question' || settlement.kind !== 'question' || !settlement.questions?.length
-    || !settlement.title || !['pending', 'resolved'].includes(settlement.state)) return null;
+    || !settlement.title || !(['pending', 'resolved'].includes(settlement.state) || settlement.state === 'cancelled' && settlement.resolvedBy === 'upgrade')) return null;
   const payload = settlement.origin.payload;
   if (!payload || typeof payload !== 'object' || Array.isArray(payload)) return null;
   const data = payload as Record<string, unknown>;
   if (data.sourceLink != null && (typeof data.sourceLink !== 'string' || !parseConversationLink(data.sourceLink)?.messageId)) return null;
-  const legacyId = settlement.itemId.replace(/^agent-question:/, '');
-  // Old pending cards had no outbox id. Their UUID can safely become one before the first answer.
-  // Never replay an old resolved card: its former process used a different, unrecorded id.
-  const answerMessageId = data.deliveryVersion === 1 && typeof data.answerMessageId === 'string' ? data.answerMessageId
-    : settlement.state === 'pending' && settlement.itemId.startsWith('agent-question:') ? legacyId : '';
+  const answerMessageId = data.deliveryVersion === 1 && typeof data.answerMessageId === 'string' ? data.answerMessageId : '';
   if (!uuid.test(answerMessageId)) return null;
   const request: Question = { itemId: settlement.itemId, kind: 'question', title: settlement.title,
     questions: settlement.questions, options: settlement.options ?? settlement.questions[0].options,
     ...(settlement.askedAt !== undefined ? { askedAt: settlement.askedAt } : {}),
     origin: { source: 'agent-question', payload: questionDeliveryPayload(typeof data.sourceLink === 'string' ? data.sourceLink : undefined, answerMessageId) } };
   if (settlement.state === 'pending') return { request, answerMessageId };
+  if (settlement.state === 'cancelled') return { request, answerMessageId, answer: { optionId: 'withdrawn', by: 'upgrade' } };
   if (!settlement.optionId) return null;
   try {
     const answers: unknown = JSON.parse(settlement.optionId);

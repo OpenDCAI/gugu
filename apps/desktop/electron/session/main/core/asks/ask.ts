@@ -30,8 +30,8 @@ export function withdrawAll(conversationId?: string, source?: AskSource): void {
   }
 }
 
-/** The session waits on the person while a host ask is out (an approval wait). Imported when asked: the status writer pulls in the
- *  hook service and the window's notifications, which this service has no other use for. One promise ⇒ start lands before end. */
+/** Import the status writer lazily: its hook/window dependencies are unnecessary until an Ask opens.
+ * One promise preserves start-before-end order; the source table owns the wait kind. */
 let statusWriter: Promise<typeof import('@main/core/agent-status/agent-status-writer')> | null = null;
 function reportHostWait(conversationId: string, id: string, open: boolean, source: AskSource): void {
   statusWriter ??= import('@main/core/agent-status/agent-status-writer');

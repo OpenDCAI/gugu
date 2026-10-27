@@ -411,11 +411,8 @@ function syncPending(entry: TimelineEntry): void {
 }
 
 /**
- * Process-bound approvals live as long as the host that asked them. One the archive brings back still pending,
- * with no such ask here, was asked by a process that is gone: nobody waits on its answer, so it is over (10-06 A/B: after B
- * restarted, the private chat's band kept 「允许 Claude 1 要装 插件探针 r1」, which nothing would ever take). The archive keeps
- * no `liveItemIds`, so the runtime's next sync cannot withdraw it either. Agent questions instead restore their
- * answer handler from the archived card and use the existing idempotent session outbox.
+ * Process-bound approvals cannot survive their host. Agent questions instead restore
+ * their durable answer or withdrawal through the existing idempotent session outbox.
  */
 function restoreAgentQuestions(entry: TimelineEntry, projectId: string): void {
   const saved = new Map(readAgentQuestionRecords(entry.conversationId).map(item => [item.itemId, item]));
@@ -423,13 +420,14 @@ function restoreAgentQuestions(entry: TimelineEntry, projectId: string): void {
     if (!saved.has(item.itemId) && restoredAgentQuestion(item)) { rememberAgentQuestion(entry.conversationId, item); saved.set(item.itemId, item); }
   }
   for (const settlement of saved.values()) {
-    if (settlement.state === 'cancelled') { entry.timeline.cancelSettlement(settlement.itemId); continue; }
+    if (settlement.state === 'cancelled' && settlement.resolvedBy !== 'upgrade') { entry.timeline.cancelSettlement(settlement.itemId); continue; }
     if (hostAsks.get(entry.conversationId)?.has(settlement.itemId)) continue;
     const restored = restoredAgentQuestion(settlement);
     if (!restored) continue;
     if (restored.answer) {
       entry.timeline.syncPendingRequests([...entry.runtimeRequests, ...[...(hostAsks.get(entry.conversationId)?.values() ?? [])].map(ask => ask.request), restored.request]);
-      entry.timeline.settle({ itemId: restored.request.itemId, optionId: settlement.optionId, by: settlement.resolvedBy ?? 'owner' });
+      if (settlement.state === 'cancelled') entry.timeline.cancelSettlement(settlement.itemId);
+      else entry.timeline.settle({ itemId: restored.request.itemId, optionId: settlement.optionId, by: settlement.resolvedBy ?? 'owner' });
     }
     const answer = restored.answer ? Promise.resolve(restored.answer) : ask(entry.conversationId, restored.request,
       { signal: new AbortController().signal });

@@ -4,7 +4,8 @@ import { join } from 'node:path';
 import { randomUUID } from 'node:crypto';
 import { resolveGuguHome } from '@gugu/core/local/state/paths';
 import type { PendingRequest, Settlement } from '@gugu/session-core/session-record';
-import { restoredAgentQuestion } from './agent-question-delivery';
+import { questionDeliveryPayload, restoredAgentQuestion } from './agent-question-delivery';
+import { log } from '@main/lib/logger';
 import { activitySignal } from '../activity/signals';
 import { registerAssistantQuestion, settleAssistantQuestion } from '../../../../sessionpage/assistant-work';
 
@@ -17,10 +18,20 @@ export function readAgentQuestionRecords(sessionId: string): Settlement[] {
   try { text = readFileSync(file(sessionId), 'utf8'); }
   catch (error) { if ((error as NodeJS.ErrnoException).code === 'ENOENT') return []; throw error; }
   const data = JSON.parse(text) as { version: number; items: Settlement[] };
-  if (data.version !== 1 || !Array.isArray(data.items) || data.items.some(item =>
+  const oldCount = Array.isArray(data.items) ? data.items.length : 0;
+  const upgrading = data.version === 1 && Array.isArray(data.items);
+  if (upgrading) {
+    data.version = 2;
+    data.items = data.items.filter(item => item.state === 'pending').map(({ itemId, title, questions, askedAt }) => ({
+      itemId, kind: 'question', title, questions, askedAt, state: 'cancelled', optionId: null, resolvedBy: 'upgrade', resolvedAt: Date.now(),
+      origin: { source: 'agent-question', payload: questionDeliveryPayload(undefined, itemId.replace(/^agent-question:/, '')) },
+    }));
+  }
+  if (data.version !== 2 || !Array.isArray(data.items) || data.items.some(item =>
     !['pending', 'resolved', 'cancelled'].includes(item.state) || !restoredAgentQuestion({ ...item, state: item.state === 'cancelled' ? 'pending' : item.state }))) {
     throw new Error('Agent question state is invalid');
   }
+  if (upgrading) { writeRecords(sessionId, data.items); log.info('Agent questions withdrawn on upgrade', { sessionId, withdrawn: data.items.length, discarded: oldCount - data.items.length }); }
   return data.items;
 }
 function writeRecords(sessionId: string, items: Settlement[]): void {
@@ -28,7 +39,7 @@ function writeRecords(sessionId: string, items: Settlement[]): void {
   mkdirSync(join(target, '..'), { recursive: true, mode: 0o700 });
   const temporary = `${target}.${process.pid}.${randomUUID()}.tmp`;
   try {
-    writeFileSync(temporary, `${JSON.stringify({ version: 1, items })}\n`, { mode: 0o600 });
+    writeFileSync(temporary, `${JSON.stringify({ version: 2, items })}\n`, { mode: 0o600 });
     renameSync(temporary, target);
   } catch (error) {
     try { unlinkSync(temporary); } catch { /* The original write error remains authoritative. */ }

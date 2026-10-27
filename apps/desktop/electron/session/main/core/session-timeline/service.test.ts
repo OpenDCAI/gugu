@@ -1322,7 +1322,7 @@ describe('session timeline service', () => {
     const archivedQuestion = (state: Settlement['state'] = 'pending'): Settlement => ({
       itemId: 'agent-question:11111111-1111-4111-8111-111111111111', kind: 'question', title: 'Which Node?',
       questions: [{ question: 'Which Node?', multiSelect: false, options: [{ optionId: 'PATH', name: 'PATH' }] }],
-      origin: { source: 'agent-question', payload: { sourceLink: 'gugu-chat://22222222-2222-4222-8222-222222222222/33333333-3333-4333-8333-333333333333' } },
+      origin: { source: 'agent-question', payload: { deliveryVersion: 1, answerMessageId: '11111111-1111-4111-8111-111111111111', sourceLink: 'gugu-chat://22222222-2222-4222-8222-222222222222/33333333-3333-4333-8333-333333333333' } },
       state, optionId: state === 'resolved' ? '[{"selected":["PATH"]}]' : null, resolvedBy: null, resolvedAt: null,
     });
 
@@ -1353,11 +1353,21 @@ describe('session timeline service', () => {
       await vi.waitFor(() => expect(state.questionSend).toHaveBeenCalledTimes(1));
     });
 
+    it('shows an upgrade-withdrawn card as cancelled and delivers withdrawal through the existing outbox', async () => {
+      const card = { ...archivedQuestion('cancelled'), resolvedBy: 'upgrade' };
+      persistedQuestions.set('conv-1', [card]);
+      service.setSessionTimelineFactory(async () => makeTimeline().timeline);
+      expect(await service.snapshot({ conversationId: 'conv-1' })).toMatchObject({ ok: true, value: { settlements: [expect.objectContaining({ itemId: card.itemId, state: 'cancelled' })] } });
+      await vi.waitFor(() => expect(state.questionSend).toHaveBeenCalledTimes(1));
+      expect(state.questionSend).toHaveBeenCalledWith(expect.objectContaining({ clientMessageId: card.itemId.slice('agent-question:'.length), text: expect.stringContaining('"state":"withdrawn"') }));
+      expect(state.hostWaits.some(wait => wait.open)).toBe(false);
+    });
+
     it('replays only versioned resolved cards through the same outbox id; cancelled and legacy resolved cards stay closed', async () => {
       const fake = makeTimeline(); const pending = archivedQuestion();
       const payload = { sourceLink: (pending.origin!.payload as { sourceLink: string }).sourceLink, deliveryVersion: 1, answerMessageId: '44444444-4444-4444-8444-444444444444' };
       fake.put({ ...archivedQuestion('resolved'), origin: { source: 'agent-question', payload } });
-      fake.put({ ...archivedQuestion('resolved'), itemId: 'agent-question:55555555-5555-4555-8555-555555555555' });
+      fake.put({ ...archivedQuestion('resolved'), itemId: 'agent-question:55555555-5555-4555-8555-555555555555', origin: { source: 'agent-question', payload: { sourceLink: null } } });
       fake.put({ ...archivedQuestion('cancelled'), itemId: 'agent-question:66666666-6666-4666-8666-666666666666', origin: { source: 'agent-question', payload } });
       service.setSessionTimelineFactory(async () => fake.timeline);
       await service.snapshot({ conversationId: 'conv-1' });
