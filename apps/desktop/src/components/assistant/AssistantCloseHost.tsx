@@ -10,7 +10,7 @@ import { moveJournalStore } from '@renderer/features/assistant/assistant-move-wi
 import { Button } from '../ui/Button'
 import { Sheet } from '../ui/Sheet'
 import { cn } from '../../lib/cn'
-import { chatService } from '../../lib/chat'
+import { listDevicesOnceIdentified } from '../../lib/listDevicesOnceIdentified'
 import { wakeCloudComputerUntilOnline } from '@gugu/core/cloud/cloudComputer'
 import { rendererCloudComputerClient } from '../../lib/cloudComputer'
 import { useAssistantHome } from '../../lib/useAssistantHome'
@@ -84,7 +84,7 @@ export function AssistantCloseHost() {
         if (cloud) {
           const client = rendererCloudComputerClient()
           if (!client) throw new Error('cloud computer is not configured')
-          const result = await wakeCloudComputerUntilOnline({ client, deviceId: cloud.deviceId, purpose: 'close', isOnline: async (id) => (await chatService.listDevices()).some((device) => device.device_id === id && device.is_online) })
+          const result = await wakeCloudComputerUntilOnline({ client, deviceId: cloud.deviceId, purpose: 'close', isOnline: async (id) => (await listDevicesOnceIdentified()).some((device) => device.device_id === id && device.is_online) })
           if (result !== 'online') throw new Error('the cloud home changed before close')
           await checkCloud()
         }
