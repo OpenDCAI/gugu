@@ -54,7 +54,7 @@ export function AppVariantList({
             </label>
           </div>;
           return resource?.target.kind === 'app-detail' && resource.target.deviceId
-            ? <ResourceMenu key={variant.name} resource={{ kind: 'app-variant', target: { ...resource.target, variant: variant.name }, facts: variant.name === 'upstream' ? [] : ['fork', ...(resource.facts ?? []), ...(compareExtensionVersions(variants.find(row => row.name === 'upstream')?.base ?? variant.base, variant.base) > 0 ? ['behind' as const] : [])] }}>{row}</ResourceMenu>
+            ? <ResourceMenu key={variant.name} resource={{ kind: 'app-variant', target: { ...resource.target, variant: variant.name }, facts: variant.name === 'upstream' ? [] : ['fork', ...(variant.name === active ? resource.facts ?? [] : []), ...(compareExtensionVersions(variants.find(row => row.name === 'upstream')?.base ?? variant.base, variant.base) > 0 ? ['behind' as const] : [])] }}>{row}</ResourceMenu>
             : <div key={variant.name}>{row}</div>;
         })}
       </RadioGroup>
