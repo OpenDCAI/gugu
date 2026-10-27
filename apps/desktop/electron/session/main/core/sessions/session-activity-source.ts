@@ -39,3 +39,30 @@ export async function readCurrentActivityInput(sessionId: string): Promise<Retur
     return activityInputOf(replica.current());
   } finally { await replica.dispose(); }
 }
+
+export function currentAssistantWorkInput(turn:TranscriptTurn|null):string|undefined {
+  if(!turn||turn.outcome||turn.endedAt!==undefined)return undefined
+  const inputs=turn.items.filter(item=>item.kind==='message'&&item.role==='user')
+  return inputs.length===1&&inputs[0].kind==='message'?inputs[0].text:undefined
+}
+
+const ASSISTANT_WORK_INPUT_TIMEOUT_MS=5_000
+
+/** Same active-turn replica as source attribution; never guess from a reused session's last job.
+ * Every session_message passes here, pty included: a session the ACP runtime does not hold has no active
+ * turn to bind (NOT_FOUND = no input), and a stalled runtime fails this send loudly instead of hanging it. */
+export async function readCurrentAssistantWorkInput(sessionId:string,timeoutMs=ASSISTANT_WORK_INPUT_TIMEOUT_MS):Promise<string|undefined> {
+  const client=await peekAcpRuntimeClient()
+  if(!client)return undefined
+  const replica=new ReplicaState<TranscriptTurn|null>(client.session.state({sessionId},'activeTurn'),{schema:transcriptTurnSchema.nullable()})
+  let timer:ReturnType<typeof setTimeout>|undefined
+  try {
+    await Promise.race([replica.ready,new Promise<never>((_,reject)=>{
+      timer=setTimeout(()=>reject(new Error(`The current turn of ${sessionId} could not be read within ${timeoutMs}ms`)),timeoutMs)
+    })])
+    return currentAssistantWorkInput(replica.current())
+  } catch(error) {
+    if((error as {code?:unknown}|null)?.code==='NOT_FOUND')return undefined
+    throw error
+  } finally {clearTimeout(timer);await replica.dispose()}
+}

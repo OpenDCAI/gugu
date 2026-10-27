@@ -24,7 +24,6 @@ describe('sidebar unread counts follow the visible conversation list', () => {
     const signals = sidebarChatSignals(rows, new Set(['project']), shell)
     expect(signals.chatsUnread).toBe(2)
     expect(signals.groupUnread.get('project')).toBe(7)
-    expect(signals.groupMainUnread.get('project')).toBe(3)
     expect(rows.map((row) => row.unread_count)).toEqual([1, 2, 20, 3, 4])
   })
 

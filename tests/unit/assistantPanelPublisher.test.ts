@@ -189,7 +189,7 @@ it.each(['file','document'])('executes attachment upload/place once when the bac
   const f = transport(), disk = await fixture()
   const bytes = new TextEncoder().encode(JSON.stringify({ providerId: 'dingtalk',name: 'Example' }))
   f.input.upload.mockImplementation(row => uploadAssistantPanelBody({ ownerId: 'owner',accountId: () => 'owner',token: 'fixture',chatId: 'private-chat',
-    name: 'account.bin',bytes: row.bytes!,contentType: 'application/json' }))
+    label: 'account',bytes: row.bytes! }))
   for (let checkedAt = 0; checkedAt < 20; checkedAt++) {
     f.input.collect.mockResolvedValue([{ key: 'note',data: { checkedAt },bytes }])
     // New journal instance each sweep also exercises recovery from a host restart.

@@ -12,6 +12,7 @@
 import { Menu as MenuPrimitive } from '@base-ui/react/menu'
 import { useMemo, useRef, useState, type CSSProperties, type ReactNode, type RefObject } from 'react'
 import { cn } from '@/lib/cn'
+import { ChevronRight } from '@/lib/icons'
 import { popupMotion } from './variants'
 import { useBackLayer } from './sheetStack'
 
@@ -128,6 +129,8 @@ export function Menu({
           collisionPadding={8}
           // 放不下就翻到另一侧(下 → 上),沿边平移对齐;与 EmojiQuickPicker 同一套。
           collisionAvoidance={{ side: 'flip', align: 'shift', fallbackAxisSide: 'none' }}
+          // 两侧都放不下(手机长按一条比屏幕剩余空间还高的气泡)就压着锚点滑回屏内,❌ 翻到屏幕外。
+          sticky
           style={{ zIndex }}
         >
           <MenuPrimitive.Popup
@@ -149,7 +152,7 @@ export interface MenuItemProps {
   icon?: ReactNode
   danger?: boolean
   disabled?: boolean
-  /** Native tooltip — used by disabled「即将开放」placeholders. */
+  /** Native tooltip for a real action or its current availability. */
   title?: string
   className?: string
   style?: CSSProperties
@@ -195,6 +198,33 @@ export function MenuItem({ icon, danger, disabled, title, className, style, 'dat
         </span>
       )}
     </MenuPrimitive.Item>
+  )
+}
+
+const submenuRowStyle: CSSProperties = { padding: menuRowPadding }
+const submenuPositionerStyle: CSSProperties = { zIndex: 'var(--z-menu)' }
+const submenuPopupStyle: CSSProperties = { minWidth: 160, maxWidth: 320, padding: menuSurfacePadding }
+
+/** A row that opens a nested menu beside it (header ⋯ →「话题」); the nested popup uses the same surface and rows. */
+export function MenuSubmenu({ icon, label, 'data-testid': testId, children }: {
+  icon?: ReactNode
+  label: ReactNode
+  'data-testid'?: string
+  children: ReactNode
+}) {
+  return (
+    <MenuPrimitive.SubmenuRoot>
+      <MenuPrimitive.SubmenuTrigger className={cn('group/menu-item', menuItem)} style={submenuRowStyle} data-testid={testId}>
+        {icon != null && <span className={menuItemIcon}>{icon}</span>}
+        <span className={menuItemLabel}>{label}</span>
+        <ChevronRight size={14} aria-hidden className="shrink-0 text-[var(--menu-icon)]" />
+      </MenuPrimitive.SubmenuTrigger>
+      <MenuPrimitive.Portal>
+        <MenuPrimitive.Positioner className="gg-menu-positioner window-no-drag-region" positionMethod="fixed" collisionPadding={8} style={submenuPositionerStyle}>
+          <MenuPrimitive.Popup className={menuPopup} style={submenuPopupStyle}>{children}</MenuPrimitive.Popup>
+        </MenuPrimitive.Positioner>
+      </MenuPrimitive.Portal>
+    </MenuPrimitive.SubmenuRoot>
   )
 }
 

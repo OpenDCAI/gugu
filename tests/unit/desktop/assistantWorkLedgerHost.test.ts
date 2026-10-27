@@ -29,6 +29,14 @@ it('creates a dormant executor then atomically enqueues the sole first delivery 
   expect(new AssistantWorkStore(root).list()[0]).toMatchObject({ state: 'waiting' })
   expect(await readFile(join(root,'pending-work.json'),'utf8')).not.toContain('private instructions')
 })
+it('freezes the addressed real session title across a lost receipt and later task rename',async()=>{
+  const store=new AssistantWorkStore(root),id=store.begin({kind:'executor'})
+  const intent=store.ledgerIntent(id,'call'),read=vi.fn(async()=> '复测回复「收到，测试正文」')
+  expect(await store.dispatchTitle(id,intent.operation_id,read)).toBe('复测回复「收到，测试正文」')
+  read.mockResolvedValue('Renamed after admission')
+  expect(await new AssistantWorkStore(root).dispatchTitle(id,intent.operation_id,read)).toBe('复测回复「收到，测试正文」')
+  expect(read).toHaveBeenCalledOnce()
+})
 it('reuses work, operation, message and executor ids after a committed cloud response was lost',async()=> {
   rpc.mockImplementation(async(name,args)=>name==='assistant_work_coordinator_bind'?accepted(name,args):{data:null,error:{code:'NETWORK',message:'response lost'}})
   const calls: unknown[]=[]
@@ -88,4 +96,36 @@ it('returns an accepted dispatch through the real tool registrar without double 
   const answer=await call({to:['session:executor'],text:'Task'},{signal:new AbortController().signal})
   expect(answer.isError).not.toBe(true)
   expect(JSON.stringify(answer.content)).toContain('accepted')
+})
+
+const workBlock=(text:string)=>JSON.parse(/<gugu_work>\n([^]*?)\n<\/gugu_work>/.exec(text)![1]!) as Record<string,unknown>
+it('writes the dispatch kind and assistant into the executor block, never into the strict ledger intent',async()=>{
+  rpc.mockImplementation(accepted)
+  const sent:Array<{assistant_work:Parameters<typeof enqueueAssistantWorkMessage>[0];text:string;purpose?:unknown}>=[]
+  const run=async(raw:unknown)=>{const a=raw as typeof sent[number];sent.push(a)
+    return enqueueAssistantWorkMessage(a.assistant_work,a.text,[],[{sessionId:'executor',deviceId:'worker'}])}
+  const binding={sessionId:'home-session',memoryDir:root,agentId:assistant}
+  await coordinateAssistantAction(binding,{action:'message',to:['session:executor'],text:'问一句',purpose:'reply'},run)
+  await coordinateAssistantAction(binding,{action:'message',to:['session:executor'],text:'做一件事',purpose:'task'},run)
+  expect(sent.map(a=>workBlock(a.text))).toMatchObject([{assistant_id:assistant,purpose:'reply'},{assistant_id:assistant,purpose:'task'}])
+  for(const a of sent){expect(a.assistant_work).not.toHaveProperty('purpose');expect(a).not.toHaveProperty('purpose')}
+  expect(new AssistantWorkStore(root).list().map(row=>row.purpose)).toEqual(['reply','task'])
+})
+it('keeps the dispatched kind on follow-ups and never merges a relay with an assignment of the same turn',async()=>{
+  rpc.mockImplementation(accepted)
+  const texts:string[]=[]
+  const run=async(raw:unknown)=>{const a=raw as {assistant_work:Parameters<typeof enqueueAssistantWorkMessage>[0];text:string};texts.push(a.text)
+    return {...await enqueueAssistantWorkMessage(a.assistant_work,a.text,[],[{sessionId:'executor',deviceId:'worker'}]),
+      recipients:[{to:'session:executor',session_id:'session:executor',status:'accepted' as const,message_id:`receipt-${texts.length}`}]}}
+  const source='gugu-chat://3be752cb-0925-447e-8bbc-70de8a867bd1/bfb72f98-986e-4314-b242-d9b95a0c8083'
+  const binding={sessionId:'home-session',memoryDir:root,agentId:assistant}
+  const task=await coordinateAssistantAction(binding,{action:'message',to:['session:executor'],text:'做一件事',purpose:'task',source_link:source},run) as {work_id:string}
+  // The executor asked a question; the assistant answers it as a reply on the same work.
+  await coordinateAssistantAction(binding,{action:'message',to:['session:executor'],text:'答：用 A 方案',purpose:'reply',work_id:task.work_id},run)
+  expect(workBlock(texts[1]!)).toMatchObject({work_id:task.work_id,purpose:'task'})
+  const relay=await coordinateAssistantAction(binding,{action:'message',to:['session:executor'],text:'顺便问一句',purpose:'reply',source_link:source},run) as {work_id:string}
+  expect(relay.work_id).not.toBe(task.work_id)
+  expect(workBlock(texts[2]!)).toMatchObject({work_id:relay.work_id,purpose:'reply'})
+  const again=await coordinateAssistantAction(binding,{action:'message',to:['session:executor'],text:'再补一个要求',purpose:'task',source_link:source},run) as {work_id:string}
+  expect(again.work_id).toBe(task.work_id)
 })
