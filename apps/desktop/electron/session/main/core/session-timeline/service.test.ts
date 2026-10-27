@@ -1171,7 +1171,7 @@ describe('session timeline service', () => {
         expect(fake.timeline.getSnapshot().settlements.find(item => item.itemId === 'host-1')?.state).toBe('pending');
         await vi.advanceTimersByTimeAsync(1);
         await expect(answer).resolves.toBe('timeout');
-        expect(fake.timeline.getSnapshot().settlements.find(item => item.itemId === 'host-1')?.state).toBe('cancelled');
+        expect(await service.snapshot({ conversationId: 'conv-1' })).toMatchObject({ ok: true, value: { settlements: [expect.objectContaining({ itemId: 'host-1', state: 'cancelled' })] } });
       } finally { vi.useRealTimers(); }
     });
 
@@ -1256,8 +1256,8 @@ describe('session timeline service', () => {
       // The status writer is imported when first asked: let that import land, then both edges are in, in order.
       await vi.dynamicImportSettled();
       expect(state.hostWaits).toEqual([
-        { sessionId: 'conv-1', id: 'host-ask:host-1', open: true },
-        { sessionId: 'conv-1', id: 'host-ask:host-1', open: false },
+        { sessionId: 'conv-1', id: 'host-ask:host-1', open: true, waitKind: 'approval' },
+        { sessionId: 'conv-1', id: 'host-ask:host-1', open: false, waitKind: 'approval' },
       ]);
     });
 
