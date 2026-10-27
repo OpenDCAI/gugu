@@ -13,7 +13,7 @@ describe('attachment upload transports', () => {
     }, { chat_id: 'source-chat', as: 'sender-agent', request_id: '12345678-1234-4234-8234-123456789abc' })
     expect(key).toBe('staging/u/file')
     expect(JSON.parse(fetcher.mock.calls[0][1].body)).toEqual({
-      size_bytes: 3, chat_id: 'source-chat', as: 'sender-agent', request_id: '12345678-1234-4234-8234-123456789abc',
+      size_bytes: 3, content_type: 'application/octet-stream', chat_id: 'source-chat', as: 'sender-agent', request_id: '12345678-1234-4234-8234-123456789abc',
     })
     const upload = fetcher.mock.calls[1][1] as RequestInit
     expect(upload.method).toBe('PUT')
@@ -32,11 +32,21 @@ describe('attachment upload transports', () => {
       bytes: new Blob([new Uint8Array([1])]), name: 'data.bin', contentType: 'application/octet-stream',
     }, { chat_id: null, as: 'private-sender' })
     expect(JSON.parse(fetcher.mock.calls[0][1].body)).toEqual({
-      size_bytes: 1, chat_id: null, as: 'private-sender', request_id: expect.stringMatching(/^[0-9a-f]{8}(?:-[0-9a-f]{4}){3}-[0-9a-f]{12}$/i),
+      size_bytes: 1, content_type: 'application/octet-stream', chat_id: null, as: 'private-sender', request_id: expect.stringMatching(/^[0-9a-f]{8}(?:-[0-9a-f]{4}){3}-[0-9a-f]{12}$/i),
     })
     const upload = fetcher.mock.calls[1][1] as RequestInit
     expect(upload.method).toBe('POST')
     expect((upload.body as FormData).get('policy')).toBe('scoped')
     expect((upload.body as FormData).get('file')).toBeInstanceOf(Blob)
+  })
+
+  it('declares the content type, so a project chat that keeps files local can admit an image', async () => {
+    const fetcher = vi.fn()
+      .mockResolvedValueOnce(new Response(JSON.stringify({ staging_key: 'staging/u/img', url: 'https://storage.example/scoped', method: 'PUT', fields: {}, max_bytes: 1024 })))
+      .mockResolvedValueOnce(new Response('{}'))
+    await uploadAttachmentBytes({ supabaseUrl: 'https://project.example', anonKey: 'public', token: 'user', fetch: fetcher }, {
+      bytes: new Uint8Array([137, 80, 78, 71]), name: 'image.png', contentType: 'image/png',
+    }, { chat_id: 'project-chat', as: 'member' })
+    expect(JSON.parse(fetcher.mock.calls[0][1].body)).toMatchObject({ content_type: 'image/png', chat_id: 'project-chat' })
   })
 })
