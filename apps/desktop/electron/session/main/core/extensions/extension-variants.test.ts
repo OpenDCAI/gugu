@@ -9,6 +9,12 @@ import type { MarketIndexVersion } from '@shared/extensions/market';
 import { ExtensionsService } from './extensions-service';
 import { installPlan } from './install-plan';
 
+
+vi.mock('node:fs', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('node:fs')>();
+  return { ...actual, default: actual, rmSync: vi.fn(actual.rmSync) };
+});
+
 const roots: string[] = [];
 afterEach(() => { vi.restoreAllMocks(); for (const root of roots.splice(0)) rmSync(root, { recursive: true, force: true }); });
 function setup() {
@@ -122,7 +128,7 @@ it('reports registration removal separately when the inactive fork cache cannot 
   install(source, fork);
   install(service.variantDirectory('demo', 'upstream'), upstream);
   const cache = service.variantDirectory('demo', 'mine');
-  vi.spyOn(fs, 'rmSync').mockImplementationOnce(() => { throw new Error('cache locked'); });
+  vi.mocked(fs.rmSync).mockImplementationOnce(() => { throw new Error('cache locked'); });
   expect(service.removeVariant('demo', 'mine')).toMatchObject({ removed: true, warning: expect.stringContaining('cache locked') });
   expect(service.variants('demo').variants.map((row) => row.name)).toEqual(['upstream']);
   expect(existsSync(cache)).toBe(true);
