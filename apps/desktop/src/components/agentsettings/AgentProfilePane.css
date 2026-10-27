@@ -1,7 +1,10 @@
 .gg-as-body[data-active-tab='profile'] { display: flex; flex-direction: column; overflow: hidden; }
 .gg-as-pane-profile.gg-as-pane--on { display: flex; flex: 1; min-height: 0; }
 .gg-agent-profile { display: flex; flex: 1; min-width: 0; min-height: 0; flex-direction: column; }
-.gg-agent-profile-content { flex: 0 1 auto; min-height: 0; overflow-y: auto; }
+.gg-agent-profile-content { display: flex; flex: 1; min-height: 0; flex-direction: column; overflow-y: auto; }
+.gg-agent-profile-content > * { flex-shrink: 0; }
+.gg-agent-profile-bio { display: flex; flex: 1 0 auto; flex-direction: column; }
+.gg-agent-profile-bio > textarea { flex: 1; min-height: 80px; }
 .gg-agent-profile-actions { display: flex; flex: none; flex-direction: column; gap: var(--spacing-lg); padding-top: var(--spacing-lg); border-top: 1px solid var(--border); }
 .gg-agent-profile-save-row { display: flex; justify-content: flex-end; }
 .gg-agent-profile-manage { display: flex; flex-direction: column; gap: var(--spacing-lg); padding-bottom: var(--spacing-lg); }

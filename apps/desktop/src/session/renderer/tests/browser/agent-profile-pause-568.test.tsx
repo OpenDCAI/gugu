@@ -17,6 +17,7 @@ for (const [width, height] of [[1100, 800], [390, 620], [390, 844]]) it(`keeps o
   await i18n.changeLanguage('zh-CN')
   await renderWithAppProviders(h, <AgentSettingsModal agent={contact({ id: 'a1', type: 'agent', owner_user_id: 'u1' })} />, { auth: { id: 'u1' } })
   if (mobile) await page.getByRole('button', { name: '资料', exact: true }).click()
+  await Promise.all(document.getAnimations().filter(animation => animation.effect?.getTiming().iterations !== Infinity).map(animation => animation.finished))
   const modal = document.querySelector('[data-testid="agent-settings-modal"]')!.getBoundingClientRect()
   const actions = document.querySelector<HTMLElement>('[data-testid="agent-profile-actions"]')!
   const content = document.querySelector<HTMLElement>('[data-testid="agent-profile-content"]')!
@@ -26,6 +27,9 @@ for (const [width, height] of [[1100, 800], [390, 620], [390, 844]]) it(`keeps o
   const remove = content.querySelector<HTMLElement>('.gg-as-profile-danger')!
   expect(save.bottom).toBeLessThan(modal.bottom)
   expect(actions.getBoundingClientRect().bottom).toBeLessThanOrEqual(modal.bottom)
+  const body = content.closest<HTMLElement>('.gg-as-body')!
+  const bodyContentBottom = body.getBoundingClientRect().bottom - parseFloat(getComputedStyle(body).paddingBottom)
+  expect(save.bottom).toBeCloseTo(bodyContentBottom, 0)
   expect(actions.querySelectorAll('button')).toHaveLength(1)
   expect(actions.querySelector('.gg-as-profile-danger')).toBeNull()
   expect(actions.querySelector('[role="switch"]')).toBeNull()
