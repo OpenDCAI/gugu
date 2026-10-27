@@ -24,7 +24,6 @@ import { onEachMachine } from '@renderer/lib/machine-clients';
 import type { Snapshottable } from '@renderer/lib/stores/snapshottable';
 import { sessionCreatedChannel } from '@shared/core/sessions/sessionEvents';
 import type { SidebarListLayout, SidebarListPage, SidebarSnapshot, SidebarSessionSortBy } from '@shared/view-state';
-import type { SidebarSessionLine } from '@/lib/sidebarChatsBridge';
 import { blockKey, type JoinedGroup, type SidebarJoin } from '@/lib/sidebarJoinedGroups';
 import type { SessionpageSessionSummary } from '@gugu/session-core/session-record/contract';
 import { isAssistantSession, launchedByAssistant } from '@renderer/features/assistant/assistant-lineage';
@@ -176,8 +175,9 @@ export class SidebarStore implements Snapshottable<SidebarSnapshot> {
   expandedSessionIds = observable.set<string>();
   /** spec session-page: the Pinned section is collapsible (persisted). */
   pinnedCollapsed = false;
-  /** spec session-page: the Projects section header collapses too, like Pinned (persisted). */
+  /** spec session-page: Projects and Tasks section headers collapse too, like Pinned (persisted). */
   projectsCollapsed = false;
+  sessionsCollapsed = false;
   /** gugu-dev#181「对话」分区头也能收起(persisted)。 */
   chatsCollapsed = false;
   /** gugu-dev#181 侧栏「显示方式」:默认分开(顶上「项目 | 对话」两枚页签),也能合在一起(persisted)。 */
@@ -231,7 +231,9 @@ export class SidebarStore implements Snapshottable<SidebarSnapshot> {
       expandedSessionIds: false,
       sidebarRows: computed,
       navChain: computed,
+      standaloneSection: computed,
       pinnedSessionEntries: computed,
+      standaloneSessionEntries: computed,
     });
 
     // A new nested session must be visible immediately. This event-only update preserves restored
@@ -356,6 +358,10 @@ export class SidebarStore implements Snapshottable<SidebarSnapshot> {
       }
     }
 
+    if (!this.sessionsCollapsed) {
+      for (const group of this.standaloneSessionGroups) group.entries.forEach(pushSession);
+    }
+
     return nodes;
   }
 
@@ -369,9 +375,14 @@ export class SidebarStore implements Snapshottable<SidebarSnapshot> {
     const index = rows.findIndex(
       (row) => row.kind === 'conversation' && row.sessionId === node.sessionId
     );
-    if (index === -1) return null;
-    const next = rows[index + 1];
-    return next?.kind === 'more' && !next.expanded ? next.projectId : null;
+    if (index !== -1) {
+      const next = rows[index + 1];
+      return next?.kind === 'more' && !next.expanded ? next.projectId : null;
+    }
+    // 「任务」分区:它的「展开显示」跟在分区最后一行后面。
+    const more = this.standaloneMore;
+    const last = this.standaloneSection.rows.at(-1);
+    return more && !more.expanded && last?.sessionId === node.sessionId ? more.foldKey : null;
   }
 
   /**
@@ -514,17 +525,9 @@ export class SidebarStore implements Snapshottable<SidebarSnapshot> {
     this.joinedGroups = groups;
   }
 
-  /**
-   * 此刻在这边成框的组:组里这边有的会话两条以上。住在「对话」里的会话(没有项目的,standaloneLines)不算 ——
-   * 它们由壳那份对话列表并(ChatListPanel),❌ 拉进这边的框又在「对话」里再出现一次。
-   * 框摆在组员里不并组时最靠前、此刻看得见的那一条(rankOf);一条都看不见(收起的项目 / 分区、没展开的父会话下面)
-   * 的组不成框 —— 组员留在原处,❌ 摘走了却哪儿都看不见。搜索时不成框(搜到的一条一条列,那是另一种看法)。
-   */
+  /** Visible session members share a frame here; chats and Apps keep their own list. */
   private get activeJoinedGroups(): readonly ProjectJoinedGroup[] {
-    const inChats = new Set(this.standaloneLines.map((line) => line.sessionId));
-    const idOf = new Map(
-      [...this.placement.nodeById.keys()].filter((id) => !inChats.has(id)).map((id) => [blockKey.session(id), id])
-    );
+    const idOf = new Map([...this.placement.nodeById.keys()].map((id) => [blockKey.session(id), id]));
     return this.joinedGroups.flatMap((group) => {
       const sessionIds = group.members.flatMap((key) => idOf.get(key) ?? []);
       const visible = sessionIds.filter((id) => this.anchorVisible(id));
@@ -572,8 +575,7 @@ export class SidebarStore implements Snapshottable<SidebarSnapshot> {
     if (!current) return false;
     const row = rowOfEntry.get(current.id);
     if (row === undefined) return false;
-    // gugu-dev#181 没有项目的会话不在这边的侧栏里,在壳的「对话」里。
-    if (row === SESSIONS_SECTION) return false;
+    if (row === SESSIONS_SECTION) return !this.sessionsCollapsed;
     return !this.projectsCollapsed && this.expandedProjectIds.has(row);
   }
 
@@ -954,23 +956,71 @@ export class SidebarStore implements Snapshottable<SidebarSnapshot> {
   }
 
   /**
-   * gugu-dev#181 没有项目的会话就是和它的 agent 私聊,住在「对话」里:根会话一条一行(挂在下面的子会话跟着它,不单列),
-   * 新的在前。壳的对话列表拿它和对话一起按最近活动排。
+   * spec session-page「任务分区」: conversations of standalone tasks (sessions created 按任务,
+   * not hanging under a project), newest interaction first. Pinned ones live in Pinned instead.
    */
-  get standaloneLines(): SidebarSessionLine[] {
-    // 行的 id 是会话本身(导航 'session' 认它);entry.sessionId 是装它的那一页。
-    const entries = this.placement.entries.get(SESSIONS_SECTION) ?? [];
-    const here = new Set(entries.map((entry) => entry.id));
-    return entries
-      // 置顶的那几条在「置顶」里,❌ 再排一遍。
-      .filter((entry) => !entry.isPinned && (!entry.parentSessionId || !here.has(entry.parentSessionId)))
-      .map(({ projectId, id, title, time, group }) => ({ projectId, sessionId: id, title, time, group, agentUserId: sessionAgentNames.identityFor(id)?.agentUserId ?? null }))
-      .sort((a, b) => b.time - a.time);
+  get standaloneSessionEntries(): SessionEntry[] {
+    return this.standaloneSessionRows().map(publicEntry);
+  }
+
+  /**
+   * 任务区的会话按状态分档,与项目下的会话用同一套(需要你/工作中/已完成 + idle 平铺)。
+   * 此前任务区是一条平铺列表、完全没有状态分组 —— 与项目区行为不一致。
+   */
+  get standaloneSessionGroups(): {
+    group: SidebarStateGroup | null;
+    entries: SessionEntry[];
+  }[] {
+    const entries = this.standaloneSessionRows();
+    const out: { group: SidebarStateGroup | null; entries: SessionEntry[] }[] = [];
+    // 关掉二级分类 = 一条平铺列表,连组头都不出(group 为 null 的那一档本来就不带标题)。
+    if (!this.stateGroupsEnabled) {
+      const flat = entries.map(publicEntry);
+      return flat.length > 0 ? [{ group: null, entries: flat }] : [];
+    }
+    for (const group of SIDEBAR_STATE_GROUP_ORDER) {
+      const bucket = entries.filter((entry) => entry.group === group).map(publicEntry);
+      if (bucket.length > 0) out.push({ group, entries: bucket });
+    }
+    // idle 不给分组标题,平铺在下面(与项目区一致)。
+    const idle = entries.filter((entry) => entry.group === null).map(publicEntry);
+    if (idle.length > 0) out.push({ group: null, entries: idle });
+    return out;
+  }
+
+  private standaloneSessionRows(): SidebarSessionRow[] {
+    return this.standaloneSection.rows;
+  }
+
+  /** 「任务」分区的行与收起的闲置家族数(与项目行同一条折法)。 */
+  get standaloneSection(): { rows: SidebarSessionRow[]; folded: number } {
+    return this.sessionRows(
+      this.placement.entries.get(SESSIONS_SECTION) ?? [],
+      SESSIONS_SECTION
+    );
+  }
+
+  /** 「任务」分区的根任务数(含「展开显示」还没展开的闲置家族):分区头收起时显示它。 */
+  get standaloneRootCount(): number {
+    const more = this.standaloneMore;
+    const roots = this.standaloneSection.rows.filter((row) => !row.depth).length;
+    return roots + (more && !more.expanded ? more.hiddenCount : 0);
   }
 
   /** 「项目」分区的项目数,跟着搜索走(链8 section counts track matches):分区头收起时显示它。 */
   get projectCount(): number {
     return this.sidebarRows.filter((row) => row.kind === 'project').length;
+  }
+
+  /** 「任务」分区的「展开显示」行;没有收起的家族 = null。 */
+  get standaloneMore(): { foldKey: string; expanded: boolean; hiddenCount: number } | null {
+    const { folded } = this.standaloneSection;
+    if (folded === 0) return null;
+    return {
+      foldKey: SESSIONS_SECTION,
+      expanded: this.idleExpandedProjectIds.has(SESSIONS_SECTION),
+      hiddenCount: folded,
+    };
   }
 
   /** 独立会话及助理家里的执行者。隐藏家目录项目行时,不能连同其中的任务一起摘掉。 */
@@ -988,6 +1038,10 @@ export class SidebarStore implements Snapshottable<SidebarSnapshot> {
 
   toggleProjectsCollapsed(): void {
     this.projectsCollapsed = !this.projectsCollapsed;
+  }
+
+  toggleSessionsCollapsed(): void {
+    this.sessionsCollapsed = !this.sessionsCollapsed;
   }
 
   toggleChatsCollapsed(): void {
@@ -1028,6 +1082,7 @@ export class SidebarStore implements Snapshottable<SidebarSnapshot> {
       sessionSortBy: this.sessionSortBy,
       pinnedCollapsed: this.pinnedCollapsed,
       projectsCollapsed: this.projectsCollapsed,
+      sessionsCollapsed: this.sessionsCollapsed,
       chatsCollapsed: this.chatsCollapsed,
       listLayout: this.listLayout,
       listPage: this.listPage,
@@ -1055,6 +1110,7 @@ export class SidebarStore implements Snapshottable<SidebarSnapshot> {
     if (typeof snapshot.projectsCollapsed === 'boolean') {
       this.projectsCollapsed = snapshot.projectsCollapsed;
     }
+    if (typeof snapshot.sessionsCollapsed === 'boolean') this.sessionsCollapsed = snapshot.sessionsCollapsed;
     if (typeof snapshot.chatsCollapsed === 'boolean') this.chatsCollapsed = snapshot.chatsCollapsed;
     if (snapshot.listLayout === 'split' || snapshot.listLayout === 'merged') this.listLayout = snapshot.listLayout;
     if (snapshot.listPage === 'projects' || snapshot.listPage === 'chats') this.listPage = snapshot.listPage;

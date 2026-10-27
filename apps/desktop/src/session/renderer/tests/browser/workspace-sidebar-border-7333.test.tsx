@@ -25,6 +25,7 @@ vi.mock('@renderer/features/sidebar/pinned-session-list', () => ({ SidebarPinned
 vi.mock('@renderer/features/sidebar/projects-group-label', () => ({ ProjectsGroupLabel: () => null }));
 vi.mock('@renderer/features/sidebar/sidebar-search-trigger', () => ({ SidebarSearchTrigger: () => null }));
 vi.mock('@renderer/features/sidebar/sidebar-space', () => ({ SidebarSpace: () => null }));
+vi.mock('@renderer/features/sidebar/sidebar-sessions-section', () => ({ SidebarSessionsSection: () => null }));
 vi.mock('@renderer/features/sidebar/sidebar-virtual-list', () => ({ SidebarVirtualList: () => null }));
 vi.mock('@renderer/lib/components/titlebar/shell-titlebar', () => ({ ShellSidebarToggle: () => null }));
 
