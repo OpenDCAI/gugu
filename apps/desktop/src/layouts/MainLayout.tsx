@@ -989,19 +989,13 @@ function InnerLayout({
     void refreshChats()
   }
 
-  const handleOpenSessionpageAgent = useCallback(async (agentUserId: string, view?: 'code' | 'general'): Promise<void> => {
+  const handleOpenSessionpageAgent = useCallback(async (agentUserId: string): Promise<void> => {
     const api = (window as unknown as {
       electronAPI?: { invoke?: (channel: string, ...args: unknown[]) => Promise<unknown> }
     }).electronAPI
     if (!api?.invoke) throw new Error(t('shell.errors.taskBridgeUnavailable'))
-    const target = await api.invoke('sessionpage:open-agent-session', agentUserId) as { sessionId?: unknown } | null
+    await api.invoke('sessionpage:open-agent-session', agentUserId)
     setActiveTab('tasks')
-    // #7167 模式按钮选了编程 / 通用:任务打开之后请会话页换成那种。能不能换、换前问不问由会话页说。
-    if (!view) return
-    const sessionId = typeof target?.sessionId === 'string' ? target.sessionId : null
-    const bridge = readSessionpageViewRequestBridge()
-    if (!sessionId || !bridge) throw new Error(t('shell.errors.taskBridgeUnavailable'))
-    bridge.request(sessionId, view)
   }, [t])
 
   const handleOpenSessionpageAgentFile = useCallback(async (

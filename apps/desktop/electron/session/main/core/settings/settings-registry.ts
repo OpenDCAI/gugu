@@ -44,6 +44,7 @@ export const SETTINGS_DEFAULTS = {
     soundFocusMode: 'always' as const
   },
   terminal: {
+    enabled: null,
     fontSize: TERMINAL_FONT_SIZE_DEFAULT,
     autoCopyOnSelection: false,
     macOptionIsMeta: false,

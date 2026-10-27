@@ -19,7 +19,7 @@ import { useSshLinkProblems } from './useSshLinkProblems'
 import { useDevicesStore } from '../store/devicesContext'
 import { openMachineSessionHostPipe } from '../lib/remoteSessionHost'
 import { retryServerVersionMatch } from '../lib/serverVersionRetry'
-import { chatService } from '../lib/chat'
+import { listDevicesOnceIdentified } from '../lib/listDevicesOnceIdentified'
 import { CloudComputerWakeError } from '@gugu/core/cloud/cloudComputer'
 import { wakeAndWaitOnline } from '../lib/cloudComputerStore'
 import { isAssistantHome } from '../lib/assistantHome'
@@ -131,7 +131,7 @@ export function useRemoteHostsBridge(
       wakeCloudComputer: async (deviceId) => {
         try {
           await wakeAndWaitOnline(deviceId, {
-            isOnline: async (id) => (await chatService.listDevices()).some((row) => row.device_id === id && row.is_online),
+            isOnline: async (id) => (await listDevicesOnceIdentified()).some((row) => row.device_id === id && row.is_online),
           })
         } catch (error) {
           if (error instanceof CloudComputerWakeError) throw new CloudComputerWakeFailed(error.reason, error.code, error.message)
