@@ -153,6 +153,7 @@ describe('device cloud helpers', () => {
                 expect(value).toBe('owner-1')
                 eqCalled = true
                 return {
+                  in() { throw new Error('a full list names no devices') },
                   async order(column: string, options: { ascending: boolean }) {
                     expect(column).toBe('last_seen_at')
                     expect(options).toEqual({ ascending: false })
@@ -187,6 +188,18 @@ describe('device cloud helpers', () => {
       capabilities: { terminals: ['kitty'], runtimes: ['codex'] },
     }])
     expect(eqCalled).toBe(true)
+  })
+
+  it('reads only the named rows of the owner when a revision names them', async () => {
+    const asked: unknown[] = []
+    const row = { device_id: 'device-2', label: 'B', hostname: 'b', platform: 'linux', status: 'online', last_seen_at: '2026-10-27T00:00:00.000Z', capabilities: { terminals: [], runtimes: [] } }
+    const order = async () => ({ data: [row], error: null })
+    const client = { from: () => ({ select: () => ({ eq: (column: string, value: string) => {
+      asked.push([column, value])
+      return { in: (inColumn: string, ids: readonly string[]) => { asked.push([inColumn, ids]); return { order } }, order: () => { throw new Error('must not read every row') } }
+    } }) }) }
+    await expect(listDevices(client, 'owner-1', { deviceIds: ['device-2'] })).resolves.toMatchObject([{ device_id: 'device-2' }])
+    expect(asked).toEqual([['user_id', 'owner-1'], ['device_id', ['device-2']]])
   })
 
   // @@@1962 无 owner 作用域拒绝列举(fail-loud)——绝不退回全表/他人设备。

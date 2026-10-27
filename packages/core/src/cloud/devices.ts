@@ -19,6 +19,9 @@ export interface DeviceTableClient {
   from(table: 'gugu_devices'): {
     select(columns: string): {
       eq(column: 'user_id', value: string): {
+        in(column: 'device_id', values: readonly string[]): {
+          order(column: string, options: { ascending: boolean }): PromiseLike<DeviceQueryResult>
+        }
         order(column: string, options: { ascending: boolean }): PromiseLike<DeviceQueryResult>
       }
     }
@@ -134,13 +137,14 @@ export async function removeDevice(
 export async function listDevices(
   client: DeviceTableClient,
   ownerId: string,
-  options: { includePhones?: boolean } = {},
+  options: { includePhones?: boolean; /** Only these rows (a device_changed revision names the one that changed). */ deviceIds?: readonly string[] } = {},
 ): Promise<Device[]> {
   if (!ownerId) throw new Error('listDevices requires ownerId (refuse to list devices without an owner scope)')
-  const { data, error } = await client
+  const owned = client
     .from('gugu_devices')
     .select('device_id, label, hostname, platform, status, last_seen_at, capabilities:device_list_capabilities, machine_id, tier, session_digest')
     .eq('user_id', ownerId)
+  const { data, error } = await (options.deviceIds ? owned.in('device_id', options.deviceIds) : owned)
     .order('last_seen_at', { ascending: false })
   if (error) throw new Error(error.message)
 

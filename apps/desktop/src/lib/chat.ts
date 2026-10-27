@@ -878,7 +878,7 @@ export const chatService = {
   },
 
   // @@@local-device-self-merge - The local desktop process knows it is online without
-  async listDevices(options: { includePhones?: boolean } = {}): Promise<Device[]> {
+  async listDevices(options: { includePhones?: boolean; deviceIds?: readonly string[] } = {}): Promise<Device[]> {
     const [self, cloud] = await Promise.all([
       platform.getLocalDeviceSelfSnapshot?.() ?? Promise.resolve(null),
       listCoreDevices(deviceTableClient(), await getCurrentAuthUserId(), options) // @@@1962 按当前用户过滤设备(多账号同机不混入他人行);#7199 手机默认不在
