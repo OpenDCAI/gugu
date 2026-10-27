@@ -49,6 +49,7 @@ vi.mock('@main/db/client', () => {
   };
 });
 
+vi.mock('@main/core/settings/terminal-visibility', () => ({ preferredSessionView: async () => 'general' }));
 vi.mock('../sessions/platform-model-selection', () => ({ sessionPlatformModel: async () => undefined }));
 
 vi.mock('@main/core/agents/controller', () => ({

@@ -21,8 +21,10 @@ beforeEach(() => {
 
 describe('createTaskInGroup', () => {
   it('carries the machine remembered coding view and local model into the same task path', async () => {
-    await createTaskInGroup({ ...input, model: 'sonnet', sessionView: 'code', permissionMode: 'full-access', effort: 'high' })
-    expect(created.requests[0]).toMatchObject({ model: 'sonnet', sessionView: 'code', permissionMode: 'full-access', effort: 'high', taskChatId: input.chatId })
+    await createTaskInGroup({ ...input, model: 'sonnet', permissionMode: 'full-access', effort: 'high' })
+    expect(created.requests[0]).toMatchObject({ model: 'sonnet', permissionMode: 'full-access', effort: 'high', taskChatId: input.chatId })
+    // 展示不由手机带:那台电脑按自己的「终端」开关定。
+    expect(created.requests[0]).not.toHaveProperty('sessionView')
   })
   it('asks that computer for a dispatched task in the folder and returns the session it made', async () => {
     await expect(createTaskInGroup({ ...input, model: 'sonnet' })).resolves.toEqual({ sessionId: 'session-1' })
