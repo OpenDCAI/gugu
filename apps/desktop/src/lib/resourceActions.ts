@@ -24,8 +24,10 @@ export async function runResourceAction(id: (typeof RESOURCE_ACTIONS)[number]['i
       notify({ tier: 'success', title: i18n.t('message.copied', { ns: 'messaging' }) })
       return
     }
-    const devices = readCachedDevices(), mobile = readMobileShell()
-    const rows = directoryRows(devices, liveDeviceSessions()).filter(row => rowOpens(row.session) && (mobile || devices.some(device => device.device_id === row.deviceId && device.is_current_device)))
+    const mobile = readMobileShell()
+    const rows = platform.kind === 'electron'
+      ? (await (await import('@/session/renderer/lib/ipc')).rpc.sessionTimeline.sessionsList()).sessions.filter(rowOpens).map(session => ({ session }))
+      : directoryRows(readCachedDevices(), liveDeviceSessions()).filter(row => rowOpens(row.session))
     const picked = await pickDispatchTarget({ draft: true, offers: ['chat', 'my-agent'], text: url, pills: [], chat: null, preselect: null, visible: false,
       local: rows.flatMap(row => row.session.agent ? [`user:${row.session.agent.userId}`] : []), resource })
     if (!picked) return

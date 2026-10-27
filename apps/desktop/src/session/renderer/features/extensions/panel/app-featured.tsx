@@ -8,6 +8,7 @@ import type { ProductPageApi } from './app-product-page';
 import { splitReadme } from './app-product-page';
 import { ExtensionMonogram } from './extension-monogram';
 import type { ExtensionPendingAction } from './extension-pending';
+import { ResourceMenu } from '@/components/ResourceMenu';
 
 /**
  * A market feature uses its README's first image as complete artwork. App identity and
@@ -75,7 +76,7 @@ export function AppFeaturedCard({
   const card = variant === 'card';
   const artwork = isPending || isError || Boolean(shot);
   return (
-    <div
+    <ResourceMenu resource={{ kind: 'app', target: { kind: 'app-detail', extensionId: id } }}><div
       role="listitem"
       className={cn('mk-hero-card', card && 'is-card', artwork && 'has-shot')}
       data-testid={card ? `extension-card-${id}` : `app-featured-${id}`}
@@ -139,6 +140,6 @@ export function AppFeaturedCard({
           testId={card ? `market-row-action-${id}` : `app-featured-action-${id}`}
         />
       </div>
-    </div>
+    </div></ResourceMenu>
   );
 }
