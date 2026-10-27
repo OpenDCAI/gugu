@@ -9,6 +9,7 @@ import { splitReadme } from './app-product-page';
 import { ExtensionMonogram } from './extension-monogram';
 import type { ExtensionPendingAction } from './extension-pending';
 import { ResourceMenu } from '@/components/ResourceMenu';
+import type { ResourceContext } from '@shared/resource-actions';
 
 /**
  * A market feature uses its README's first image as complete artwork. App identity and
@@ -33,6 +34,7 @@ export function AppFeaturedCard({
   translate,
   onOpen,
   onAction,
+  resource,
 }: {
   variant?: 'hero' | 'card';
   /** 哪台机器的市场(README 由那台机器答)。 */
@@ -53,6 +55,7 @@ export function AppFeaturedCard({
   translate: SessionTranslate;
   onOpen: () => void;
   onAction: () => void;
+  resource?: ResourceContext;
 }) {
   // 底图跟着 README 走:一版的 README 不会变,所以按机器 + App + 版本记在查询缓存里。再进这一页时第一帧就是截图,
   // 不会每次先画图标版、等 README 取回来再换(owner 10-20「每次点进去 banner image 都要变一下」)。
@@ -76,7 +79,7 @@ export function AppFeaturedCard({
   const card = variant === 'card';
   const artwork = isPending || isError || Boolean(shot);
   return (
-    <ResourceMenu resource={{ kind: 'app', target: { kind: 'app-detail', extensionId: id } }}><div
+    <ResourceMenu resource={resource ?? { kind: 'app', target: { kind: 'app-detail', extensionId: id } }}><div
       role="listitem"
       className={cn('mk-hero-card', card && 'is-card', artwork && 'has-shot')}
       data-testid={card ? `extension-card-${id}` : `app-featured-${id}`}

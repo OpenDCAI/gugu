@@ -26,6 +26,7 @@ export function MarketAppRow({
   translate,
   onOpen,
   onAction,
+  resource,
 }: {
   id: string;
   name: string;
@@ -38,9 +39,10 @@ export function MarketAppRow({
   translate: SessionTranslate;
   onOpen: () => void;
   onAction: () => void;
+  resource?: ResourceContext;
 }) {
   return (
-    <ResourceMenu resource={{ kind: 'app', target: { kind: 'app-detail', extensionId: id } }}><div
+    <ResourceMenu resource={resource ?? { kind: 'app', target: { kind: 'app-detail', extensionId: id } }}><div
       role="listitem"
       className={cn('mk-lockup', pending && 'is-busy')}
       data-testid={`extension-card-${id}`}

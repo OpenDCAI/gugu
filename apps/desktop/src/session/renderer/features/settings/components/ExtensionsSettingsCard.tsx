@@ -978,8 +978,9 @@ export const ExtensionsSettingsCard = observer(function ExtensionsSettingsCard({
         navigate('new-session');
       };
 
+  const resourceOf = (extensionId: string) => ({ kind: 'app' as const, target: { kind: 'app-detail' as const, extensionId, deviceId: remote?.deviceId ?? readCachedDevices().find(device => device.is_current_device)?.device_id }, facts: store.updates?.forkBehind?.[extensionId] ? ['behind' as const] : [] });
   const menuOf = (manifest: ExtensionManifest) => ({
-    resource: { kind: 'app' as const, target: { kind: 'app-detail' as const, extensionId: manifest.id, deviceId: remote?.deviceId ?? readCachedDevices().find(device => device.is_current_device)?.device_id }, facts: store.updates?.forkBehind?.[manifest.id] ? ['behind' as const] : [] },
+    resource: resourceOf(manifest.id),
     onToggleDock: dockToggle(manifest),
     onOpenInWindow: onRail(manifest)
       ? () => {
@@ -1282,6 +1283,7 @@ export const ExtensionsSettingsCard = observer(function ExtensionsSettingsCard({
                 </div>
               ) : (
                 <AppMarketContent
+                  resourceOf={resourceOf}
                     view={tab} onRetry={() => void readShelf(debouncedQuery)}
                   shelf={shelf}
                   chip={chip}
