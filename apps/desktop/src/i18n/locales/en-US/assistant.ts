@@ -768,7 +768,6 @@ export default {
     "disconnectAccountBody": "Only {{account}} is disconnected; other accounts are not affected.",
     "setup": {
       "downloadProgress": "Download progress",
-      "progressUnreadable": "Preparing the connection…",
       "installing": "Verifying and installing…",
       "downloading": "Preparing download…",
       "downloadBytes": "Downloaded {{received}} / {{total}} MB",

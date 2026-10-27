@@ -445,6 +445,30 @@ describe('设备 RPC 按机器挑通道', () => {
     expect(main.sent[0].deviceId).toBe('tunnel-box')
   })
 
+  // #625 交接走的窗口:那台机器按通道收窗口,关窗那一句要在咕咕云撤掉之前、在咕咕云上说;❌ 落到新的设备连接上(对不上号,
+  // 那台机器要等约 30 s 心跳丢了才收)。
+  it('咕咕云 → 设备连接:交接走的窗口在咕咕云撤掉之前,经咕咕云关掉', async () => {
+    let linkUp: (result: unknown) => void = () => undefined
+    const main = fakeMainProcess({ sshMachines: [], open: () => new Promise((resolve) => { linkUp = resolve }) })
+    const { subscribeDeviceRpcEvents } = await load(main)
+    const resubscribed = vi.fn()
+    subscribeDeviceRpcEvents('tunnel-box', () => undefined, {
+      onChannelResubscribed: resubscribed,
+      onChannelSwitching: () => ({ type: 'taskhost.close', payload: { client: 'old-window' } }),
+    })
+    await vi.waitFor(() => expect(resubscribed).toHaveBeenCalledTimes(1))
+
+    main.emit('tunnel-machines:changed', { ready: ['tunnel-box'], problems: {} })
+    await whenRecorded('设备连接开始拨', () => main.opened.length === 1)
+    linkUp({ ok: true })
+    await vi.waitFor(() => expect(cloud.unsubscribed).toBeGreaterThan(0))
+
+    const closes = cloud.sentOn.filter((sent) => sent.message.payload.type === 'taskhost.close')
+    expect(closes, '关窗经咕咕云说了一次').toHaveLength(1)
+    expect((closes[0].message.payload as unknown as { payload: unknown }).payload).toEqual({ client: 'old-window' })
+    expect(main.sent.some((sent) => sent.message.payload.type === 'taskhost.close'), '❌ 落到设备连接上').toBe(false)
+  })
+
   it('咕咕云 → 设备连接,可设备连接没接上:❌ 交接,照旧先断后接', async () => {
     const main = fakeMainProcess({ sshMachines: [], open: () => ({ ok: false, reason: 'unreachable', via: 'tunnel' }) })
     const { subscribeDeviceRpcEvents } = await load(main)

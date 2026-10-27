@@ -106,6 +106,32 @@ describe('device RPC requester', () => {
     expect(net.opened[0]!.closed).toBe(true)
   })
 
+  // #625 先接后断换通道:旧管道退下来后还能替旧窗口说一句告别,之后的问开新管道;拆掉时在途的问才失败。
+  it('retires the pipe: later calls open a new one, the retired one can still tell, and closing it fails its calls', async () => {
+    const net = fakeNetwork()
+    let n = 0
+    const requester = createDeviceRpcRequester({ userId: async () => 'owner-1', openPipe: net.openPipe, newRequestId: () => `r${++n}` })
+    const inFlight = requester.call('dev-b', 'x', {}, { timeoutMs: 5_000 }).catch((e: unknown) => e)
+    await vi.waitFor(() => expect(net.opened[0]?.sent).toHaveLength(1))
+
+    const retired = requester.retire('dev-b')!
+    void requester.call('dev-b', 'y', {}, { timeoutMs: 5_000 }).catch(() => undefined)
+    await vi.waitFor(() => expect(net.opened[1]?.sent).toHaveLength(1))
+    expect(net.openPipe).toHaveBeenCalledTimes(2)
+
+    await retired.tell('taskhost.close', { client: 'old-window' })
+    const told = net.opened[0]!.sent[1] as { payload: { type: string; payload: unknown } }
+    expect(told.payload).toMatchObject({ type: 'taskhost.close', payload: { client: 'old-window' } })
+    expect(net.opened[1]!.sent, 'the new pipe carries no farewell').toHaveLength(1)
+    expect(net.opened[0]!.closed).toBe(false)
+
+    retired.close(new DeviceRpcChannelError('switched transport', 'closed'))
+    expect(await inFlight).toBeInstanceOf(DeviceRpcChannelError)
+    expect(net.opened[0]!.closed).toBe(true)
+    expect(net.opened[1]!.closed).toBe(false)
+    expect(requester.retire('dev-none')).toBeNull()
+  })
+
   it('stops waiting when the caller aborts', async () => {
     const net = fakeNetwork()
     const requester = createDeviceRpcRequester({ userId: async () => 'owner-1', openPipe: net.openPipe })

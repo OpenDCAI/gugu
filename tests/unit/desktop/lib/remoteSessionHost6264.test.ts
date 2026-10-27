@@ -14,7 +14,7 @@ function fakeDevice(reply: (call: Call) => Reply, options: { ssh?: boolean } = {
   const upgrades: string[] = []
   let listener: ((payload: unknown) => void) | null = null
   let resubscribed: ((rejoin: boolean) => void) | undefined
-  let switching: (() => void) | undefined
+  let switching: (() => unknown) | undefined
   const deps = {
     call: (async (_device: string, type: string, payload: unknown) => {
       const call = { type, payload: payload as Record<string, unknown> }
@@ -24,7 +24,7 @@ function fakeDevice(reply: (call: Call) => Reply, options: { ssh?: boolean } = {
     subscribe: ((
       _device: string,
       cb: (payload: unknown) => void,
-      options?: { onChannelResubscribed?: (rejoin: boolean) => void; onChannelSwitching?: () => void },
+      options?: { onChannelResubscribed?: (rejoin: boolean) => void; onChannelSwitching?: () => unknown },
     ) => {
       listener = cb
       resubscribed = options?.onChannelResubscribed
@@ -178,7 +178,8 @@ describe('remote task host pipe over device RPC', () => {
     const device = fakeDevice(() => ({ result: { protocol: REMOTE_PROTOCOL_VERSION } }))
     const closes: Array<[string, { handoff?: boolean } | undefined]> = []
     await openRemoteSessionHostPipe('dev', device.deps)({ onFrame: () => undefined, onClose: (r, o) => closes.push([r, o]) })
-    device.switchChannel()
+    // #625 交接的窗口让旧通道撤掉前替它说一声关(那台机器按通道收窗口,❌ 等心跳丢了)。
+    expect(device.switchChannel()).toEqual({ type: 'taskhost.close', payload: { client: 'client00000001' } })
     expect(closes).toEqual([['channel switching transport', { handoff: true }]])
     // 新管道接好时的那一声(rejoin=false)不再关一次。
     device.resubscribe(false)
@@ -192,7 +193,7 @@ describe('remote task host pipe over device RPC', () => {
     )
     const opening = openRemoteSessionHostPipe('dev', device.deps)({ onFrame: () => undefined, onClose: () => undefined }).catch((e: unknown) => e)
     await flush()
-    device.switchChannel()
+    expect(device.switchChannel(), '还没开好的窗口那台机器上没有,❌ 替它说关').toBeUndefined()
     // ❌ 放弃时它会一直挂到开线超时:这里只给一拍。
     expect(await Promise.race([opening, flush().then(() => 'still opening')])).toMatchObject({ code: 'channel_resubscribed' })
     answer({ result: { opened: true, protocol: REMOTE_PROTOCOL_VERSION } })
