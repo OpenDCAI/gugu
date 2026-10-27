@@ -5142,14 +5142,13 @@ app.whenReady().then(async () => {
         },
         env: process.env,
       })
-        .then(({ reapedAgents, archivedGroups, reapedOrphans }) => {
+        .then(({ reapedAgents, archivedGroups }) => {
           // Always log the boot passes (a silent "nothing happened" is indistinguishable from "never ran" —
           // that ambiguity already hid an ordering bug once). Per-trigger passes log only when they act,
           // since a plain tab detach fires the trigger too and would otherwise spam the log.
-          if (reason.startsWith('boot') || reapedAgents || archivedGroups || reapedOrphans) {
+          if (reason.startsWith('boot') || reapedAgents || archivedGroups) {
             console.log(
-              `[sessionpage] session-page reap (${reason}): reaped ${reapedAgents} agent(s), archived ${archivedGroups} group(s), ` +
-                `reaped ${reapedOrphans} projection orphan(s)`,
+              `[sessionpage] session-page reap (${reason}): reaped ${reapedAgents} agent(s), archived ${archivedGroups} group(s)`,
             )
           }
         })
@@ -6256,7 +6255,7 @@ app.whenReady().then(async () => {
         // Deletion-sync boot pass (spec ⑨) — ONLY here: it reads the session backend's DB, which the boot above is
         // what initializes, so running it any earlier races an uninitialized database.
         runSessionpageReap('boot')
-        // #4277 投影段(云端有行、本机没会话的孤儿)要以账号身份读云端,而开机那一刻归属未定、令牌
+        // 删身份、读「项目 → 群」映射都要账号令牌,而开机那一刻归属未定、令牌
         // 拿不到(#5025):归属定下来之后再对一轮。令牌在归属定下与 session 真正恢复之间还有一小段空窗,
         // 所以有界地等它到位;等不到就喊出来,留给下一次触发。不在任何关键路径上。
         void bootOwnerWithin(60_000)
@@ -6278,7 +6277,7 @@ app.whenReady().then(async () => {
             }
             createLogger('sessionpage/reap').warn(
               { ownerUserId },
-              '#4277 owner decided but no access token within 60s — projection pass left to the next trigger',
+              'owner decided but no access token within 60s — the owner-scoped reap is left to the next trigger',
             )
           })
           .catch((err) =>

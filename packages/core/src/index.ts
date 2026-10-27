@@ -268,10 +268,6 @@ export {
   type RemoveAgentCloudIdentityViaSupabaseInput
 } from './cloud/agentIdentityRemoval'
 export {
-  listOwnedCloudAgentsViaSupabase,
-  type CloudOwnedAgent
-} from './cloud/agentIdentityReconcile'
-export {
   createDeviceRuntimeHostLoop,
   stopRuntimeHostWithTimeout,
   type DeviceRuntimeHost,
