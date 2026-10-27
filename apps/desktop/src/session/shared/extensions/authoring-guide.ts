@@ -509,14 +509,13 @@ Claim an existing data file's name or suffix and open it live; never copy it int
 
 ## App data (API 18)
 
-Only internal App state: create with \`files.create(target, content, { appData: true })\`;
-open existing state with \`files.open(ref, { appData: true })\` to mark it. The host stamps your installed
-publisher/id into \`entry.metadata.app\`, preserving other metadata. Marking needs write access;
-folders and working copies cannot be marked. User documents, including Office files, stay unmarked.
-No name matching marks old files: mark only state you actually open. Markers survive rename/move.
-Lists/search/recent and agent tools still return all authorized entries; explicit links still open them.
-Only the folder view hides marked data by default. Pages can read or set the person's source-chat
-preference via \`gugu.files.viewPreferences({ chat }, { showAppData: true })\` (omit the second argument to read).
+Create internal state with \`files.create(target, content, { appData: true })\`;
+mark existing state when opening it with \`files.open(ref, { appData: true })\`.
+The host stamps installed {publisher,id} into \`entry.metadata.app\`, preserving other keys.
+Write access required; no folders/working copies. Markers follow rename/move. Leave user/Office documents
+unmarked. No filename rules. Only the folder view hides marked files; APIs, agents and links retain access.
+\`gugu.files.viewPreferences({ chat }, { showAppData: true })\` sets the signed-in person's source-chat
+preference; omit options to read it.
 
 ## Which files you may open
 
@@ -556,7 +555,7 @@ Each call names its file or place. A file: an entry (from \`list\`) or \`ctx.fil
   blob, { expectedVersion: entry.version })\` makes its next version (needed; else \`content-changed\`).
   \`files.versions(entry)\` / \`files.readVersion(entry, n)\`: its history.
 - Entry: \`{id,chat|session|project,name,contentType,type,parentId,path,systemRole,size,version,
-  createdAt,updatedAt,createdBy,updatedBy,sourceMessageIds,canDelete}\`.
+  createdAt,updatedAt,createdBy,updatedBy,sourceMessageIds,canDelete,metadata}\`.
   Both authors: \`{id,name,kind:human|agent|system}\`; unknown/local editor is null.
 
 ## A text file (markdown)
@@ -565,11 +564,9 @@ Its handle — \`f.text\`, \`f.edit(old, new)\`, anchors — and an editor bound
 
 ## A JSON file
 
-Design the data first. The file keeps every write, so what changes every frame — a cursor, a drag, a
-stroke being drawn — goes in \`f.presence\` (\`apps-together\`); the file gets events and results.
-The file is data only: what agents should do with it goes in your tools (\`apps-programs\`), never a note in it;
-its own id is \`f.entry.id\`. A new version that changes that shape reads the old one too, writes the new, and
-raises \`version\`.
+The file keeps every write: frame-by-frame motion belongs in \`f.presence\` (\`apps-together\`),
+results in the file. Agent instructions belong in tools (\`apps-programs\`), never in data.
+Its id is \`f.entry.id\`. Shape changes must read old data, migrate it and raise \`version\`.
 
 \`f.data\` is a live object: read and write it as any object, spread included. An object assigned
 over one merges key by key — the keys you list, all the way down; the keys you saw and left out go —
