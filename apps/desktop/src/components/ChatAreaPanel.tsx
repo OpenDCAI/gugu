@@ -18,7 +18,7 @@ import { AgentSettingsModal } from './agentsettings/AgentSettingsModal'
 import type { AgentConversationActivity, GroupCollabSnapshot, MessageItem } from '@gugu/core/shared/types/chat'
 import { chatService } from '../lib/chat'
 import { useUnreadLocatorNavigation } from '../hooks/useUnreadLocatorNavigation'
-import { useSourceMessageReveal } from '../hooks/useSourceMessageReveal'
+import { askReveal, useSourceMessageReveal } from '../hooks/useSourceMessageReveal'
 import { useChatHistoryPagination } from './chat/useChatHistoryPagination'
 import { useGroupCollabRemovedAgentGate } from '../hooks/useGroupCollabRemovedAgentGate'
 import { useGroupCollabLoader, EMPTY_GROUP_COLLAB } from '../hooks/useGroupCollabLoader'
@@ -93,6 +93,7 @@ import { IconButton } from './ui/IconButton'
 import { ChatTailNotice } from './chat/ChatTailNotice'
 import { ChatSearchControls } from './chat/ChatSearch'
 import { useChatSearch } from './chat/useChatSearch'
+import { ChatTopicSearchResults } from './chat/ChatTopicSearchResults'
 export { ChatNotificationLevelControl } from './chat/ChatNotificationLevelControl'
 import { ChatSettingsPanel } from './chat/ChatSettingsPanel'
 import { useChatSlotProjectName } from '../lib/shellSlots'
@@ -427,11 +428,13 @@ function ChatAreaSurface({ viewportKey = 'chats', activeTab, navigationTarget = 
   }, [splitTopicChatId])
 
   // 锚点卡只交出 chatId;名字从同一份话题清单里取 —— ❌ 两处不各存一份(改名后会打架)。
-  const openTopicFromAnchor = useCallback((topicChatId: string) => {
+  const openTopicFromAnchor = useCallback((topicChatId: string, messageId?: string) => {
     const topic = topicSurface.topics.find((item) => item.chat_id === topicChatId)
     if (!topic) return
+    if (messageId) { setSearchMode(false); askReveal(topicChatId, messageId, `${viewportKey}:topic`) }
     topicSurface.openSplit({ chatId: topic.chat_id, name: topic.name })
-  }, [topicSurface])
+    if (messageId) window.dispatchEvent(new CustomEvent(UI_EVENTS.chatAsked))
+  }, [topicSurface, setSearchMode, viewportKey])
   const agentFlood = useAgentFloodNotice(activeChatId, messages)
 
   // @@@1503 — 原「切换聊天关历史/群 thread 面板」那个 reset effect 已并入上方主 reset 的
@@ -978,14 +981,15 @@ function ChatAreaSurface({ viewportKey = 'chats', activeTab, navigationTarget = 
         <MessageLoadFailure error={messagesError} inline={chatListRows.length > 0} onRetry={() => refreshMessages(activeChatId ?? undefined)} />
       )}
 
-      {!loadingMessages && !messagesError && chatListRows.length === 0 && (
+      {isFiltering && topicSurface.topics.length > 0 && <ChatTopicSearchResults topics={topicSurface.topics} query={searchQuery} hasMainResults={chatListRows.length > 0} onOpen={openTopicFromAnchor} />}
+      {!loadingMessages && !messagesError && chatListRows.length === 0 && !(isFiltering && topicSurface.topics.length > 0) && (
         /* @@@2186 — agent 运行态(activeAgentActivity)且尚无消息:空态让位、保留空白 list 容器。这曾由
            rows 里的恒空 agentActivity 行隐式保证(它把 rows 撑成非空、让列表挂载),该行因零高刷
            console error 被移除后,契约收进这一个 rows===0 分支;不挂空 rows 的列表,
            首条消息落库 rows>0 时列表正常挂载。 */
         activeAgentActivity ? (
           <div data-testid={AUTOMATION_TEST_IDS.chatMessageList} style={{ flex: 1 }} />
-        ) : searchMode && searchQuery.trim() ? (
+        ) : searchMode && searchQuery.trim() && topicSurface.topics.length === 0 ? (
           <div style={{ flex: 1, textAlign: 'center', color: 'var(--text-muted)', fontSize: 'var(--font-body)', padding: '40px 0' }}>
             {t('chatArea.searchNoResults', { query: searchQuery })}
           </div>

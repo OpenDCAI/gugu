@@ -159,6 +159,7 @@ export default {
     "operationFailed": "操作失败，请稍后重试",
     "pinnedMessage": "📌 有一条置顶消息",
     "searchMessages": "搜索消息",
+    "searchMore": "更多结果",
     "searchNoResults": "未找到“{{query}}”相关消息",
     "selectedMessages": "已选 {{count}} 条",
     "selectedMessages_one": "已选 {{count}} 条",
