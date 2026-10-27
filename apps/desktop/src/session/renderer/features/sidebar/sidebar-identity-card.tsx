@@ -15,7 +15,8 @@ import { machineRegistry } from '@renderer/lib/machine-routing';
 import { remoteHostsStore } from '@renderer/features/remote-hosts/remote-hosts-store';
 import { getWorkspaceForSession } from '@renderer/features/sessions/stores/session-selectors';
 import { getProjectStore } from '@renderer/features/projects/stores/project-selectors';
-import { identityPlace, splitPathTail } from './sidebar-identity-place';
+import { identityPlace } from './sidebar-identity-place';
+import { TailValue } from './sidebar-identity-tail';
 
 /**
  * 侧栏会话行的**身份卡**(#6092,取代 #5818 的「标题就地翻成 agent 名」)。
@@ -380,15 +381,5 @@ function IdentityRow({ row }: { row: RowSpec }) {
         {state === copiedLabel ? <Check className="size-3" /> : <Copy className="size-3" />}
       </span>
     </button>
-  );
-}
-
-function TailValue({ text, className }: { text: string; className?: string }) {
-  const { head, tail } = splitPathTail(text);
-  return (
-    <span className={cn('flex min-w-0 text-left text-sm leading-5', className)}>
-      {head ? <span className="min-w-0 shrink-[1000] truncate">{head}</span> : null}
-      <span className="min-w-0 truncate">{tail}</span>
-    </span>
   );
 }
