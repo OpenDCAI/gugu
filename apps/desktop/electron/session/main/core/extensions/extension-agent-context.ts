@@ -2,7 +2,7 @@ import { eq } from 'drizzle-orm';
 import { db } from '@main/db/client';
 import { sessions } from '@main/db/schema';
 import { workspaceRegistry } from '@main/core/workspaces/workspace-registry';
-import { sessionPlatformModel } from '@main/core/sessions/platform-model-selection';
+import { sessionModelLabel, sessionPlatformModel } from '@main/core/sessions/platform-model-selection';
 import { sessionModelFromDecision } from '@main/core/sessions/session-model-fact';
 
 /**
@@ -29,6 +29,8 @@ export interface AgentSessionContext {
    * own terminal (`/model`) is not seen: gugu records the choices made through it (session-model-fact.ts).
    */
   model: string | null;
+  /** That model's name as the model menu shows it (`sessionModelLabel`, kept with the decision); null for an engine's own. */
+  modelLabel: string | null;
 }
 
 /**
@@ -37,12 +39,14 @@ export interface AgentSessionContext {
  */
 export async function agentSessionContext(agentId: string): Promise<AgentSessionContext | null> {
   const [session] = await db
-    .select({ workspaceId: sessions.workspaceId, projectId: sessions.projectId, config: sessions.config })
+    .select({ workspaceId: sessions.workspaceId, projectId: sessions.projectId, config: sessions.config, provider: sessions.provider, runtime: sessions.runtime })
     .from(sessions)
     .where(eq(sessions.id, agentId))
     .limit(1);
   if (!session) return null;
   const workspace = session.workspaceId ? workspaceRegistry.get(session.workspaceId) : undefined;
-  const model = sessionModelFromDecision(await sessionPlatformModel(agentId), session.config?.model ?? null).spawn_model_id ?? null;
-  return { sessionId: agentId, projectId: session.projectId, workspaceId: session.workspaceId ?? null, workspaceRoot: workspace?.path ?? null, model };
+  const decision = await sessionPlatformModel(agentId);
+  const model = sessionModelFromDecision(decision, session.config?.model ?? null).spawn_model_id ?? null;
+  const modelLabel = await sessionModelLabel(agentId, decision, session.provider, session.runtime);
+  return { sessionId: agentId, projectId: session.projectId, workspaceId: session.workspaceId ?? null, workspaceRoot: workspace?.path ?? null, model, modelLabel };
 }

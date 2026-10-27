@@ -16,7 +16,7 @@ const decisions: Record<string, { modelId: string } | null | undefined> = {};
 
 vi.mock('drizzle-orm', () => ({ eq: (column: { name: string }, value: unknown) => ({ column: column.name, value }) }));
 vi.mock('@main/db/schema', () => ({
-  sessions: { __table: 'conversations', id: { name: 'id' }, workspaceId: { name: 'workspaceId' }, projectId: { name: 'projectId' }, config: { name: 'config' } },
+  sessions: { __table: 'conversations', id: { name: 'id' }, workspaceId: { name: 'workspaceId' }, projectId: { name: 'projectId' }, config: { name: 'config' }, provider: { name: 'provider' }, runtime: { name: 'runtime' } },
 }));
 vi.mock('@main/db/client', () => ({
   db: {
@@ -37,6 +37,8 @@ vi.mock('@main/core/workspaces/workspace-registry', () => ({
 }));
 vi.mock('@main/core/sessions/platform-model-selection', () => ({
   sessionPlatformModel: async (sessionId: string) => decisions[sessionId],
+  // The name kept with the decision (its own test fills and keeps it): here, the decision's model under a menu name.
+  sessionModelLabel: async (_id: string, decision: { modelId: string } | null | undefined) => (decision ? `menu:${decision.modelId}` : null),
 }));
 
 const { agentSessionContext } = await import('./extension-agent-context');
@@ -58,11 +60,11 @@ beforeEach(() => {
 
 describe('agentSessionContext (#6615 问题 11)', () => {
   it("reads the caller's own session and its mounted working copy", async () => {
-    expect(await agentSessionContext('conv-a')).toEqual({ sessionId: 'conv-a', projectId: 'p-a', workspaceId: 'ws-a', workspaceRoot: '/work/a', model: 'platform:glm-5.3-flash' });
+    expect(await agentSessionContext('conv-a')).toEqual({ sessionId: 'conv-a', projectId: 'p-a', workspaceId: 'ws-a', workspaceRoot: '/work/a', model: 'platform:glm-5.3-flash', modelLabel: 'menu:glm-5.3-flash' });
   });
 
   it('a working copy that is not mounted is null — said, not borrowed from another session', async () => {
-    expect(await agentSessionContext('conv-b')).toEqual({ sessionId: 'conv-b', projectId: 'p-b', workspaceId: 'ws-b', workspaceRoot: null, model: 'gpt-5.5' });
+    expect(await agentSessionContext('conv-b')).toEqual({ sessionId: 'conv-b', projectId: 'p-b', workspaceId: 'ws-b', workspaceRoot: null, model: 'gpt-5.5', modelLabel: null });
   });
 
   it('an unknown caller has no context; a session with no workspace yet leaves only its id', async () => {

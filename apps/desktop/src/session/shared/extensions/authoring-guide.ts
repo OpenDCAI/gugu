@@ -432,7 +432,7 @@ export const follow = {
   is found on PATH (\`npx\`, \`uvx\`, \`python3\`). An argument naming a file in your bundle is passed
   as its absolute path; the install sheet shows the command verbatim. Answer every request with its
   \`id\`, errors too: an error reply without one fails every call in flight. Each call's \`_meta\`
-  carries the same stamp: \`"gugu/agent"\`, \`"gugu/sessionId"\`, \`"gugu/workspaceRoot"\`, \`"gugu/model"\`. A long tool reports progress on the
+  carries the same stamp: \`gugu/agent\`, \`gugu/sessionId\`, \`gugu/workspaceRoot\`, \`gugu/model\`, \`gugu/modelLabel\`. A long tool reports progress on the
   call's \`progressToken\` at least every 60 seconds, or Claude aborts it at 300 seconds.
 - Either way the working directory is your bundle, with \`GUGU_EXTENSION_ID\` and
   \`GUGU_EXTENSION_DATA_DIR\` — the folder your pages reach with \`readData\`/\`writeData\`. One copy
