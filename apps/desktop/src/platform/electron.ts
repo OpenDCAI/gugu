@@ -95,6 +95,11 @@ export const electronPlatform: AppPlatform = {
     if (!api?.subscribeAppActive) throw unavailable('App active subscription')
     return api.subscribeAppActive(listener)
   },
+  subscribeLocalDeviceIdentified(listener) {
+    const api = electronApi()
+    if (!api?.subscribeLocalDeviceIdentified) throw unavailable('Local device identity subscription')
+    return api.subscribeLocalDeviceIdentified(listener)
+  },
   async selectDirectory() {
     const api = electronApi()
     if (!api?.selectDirectory) throw unavailable('Directory picker')
