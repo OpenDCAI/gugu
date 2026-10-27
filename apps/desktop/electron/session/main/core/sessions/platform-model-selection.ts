@@ -92,7 +92,8 @@ export async function sessionModelLabel(sessionId: string, decision: SessionPlat
   const resolver = getPlatformModelCatalogResolver();
   if (!resolver || !providerId || providerId === 'unknown') return null;
   const catalog = await resolver({ providerId, surface: runtime === 'acp' ? 'acp' : 'tui' }).catch(() => null);
-  if (!catalog) return null;
+  // A catalog that could not be read says so in catalogError with no models: nothing kept, asked again next time.
+  if (!catalog || catalog.catalogError) return null;
   const label = catalog.models.find((entry) => entry.id === decision.modelId)?.displayName ?? '';
   const now = await sessionPlatformModel(sessionId);
   if (now?.modelId === decision.modelId) await platformModelKV.set(sessionId, { platformModel: { ...now, label } });
