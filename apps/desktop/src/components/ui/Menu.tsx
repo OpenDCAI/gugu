@@ -150,7 +150,7 @@ export interface MenuItemProps {
   icon?: ReactNode
   danger?: boolean
   disabled?: boolean
-  /** Native tooltip — used by disabled「即将开放」placeholders. */
+  /** Native tooltip for a real action or its current availability. */
   title?: string
   className?: string
   style?: CSSProperties

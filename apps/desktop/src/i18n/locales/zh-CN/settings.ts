@@ -54,12 +54,12 @@ export default {
     "feishu": "飞书",
     "dingtalk": "钉钉",
     "wechatChatWith": "在微信「微信ClawBot」里和「{{name}}」聊天",
-    "wechatNoAgent": "已连接，还没选对接哪个 agent",
+    "wechatNoAgent": "已连接，还没选对接哪个 Agent",
     "connectedSince": "连接于 {{time}}",
-    "agentLabel": "对接的 agent",
+    "agentLabel": "对接的 Agent",
     "agentHint": "微信里发来的消息交给它；它的回复回到微信。",
-    "pickAgent": "选一个 agent",
-    "noAgents": "你还没有 agent。先建一个，再回来选。",
+    "pickAgent": "选一个 Agent",
+    "noAgents": "你还没有 Agent。先建一个，再回来选。",
     "actionFailed": "没能保存，请重试",
     "defaultChannel": "接收提醒的应用",
     "defaultChannelHint": "主动消息也会在这里推送给你。",
@@ -74,7 +74,7 @@ export default {
     },
     "disconnectConfirm": {
       "title": "断开微信？",
-      "body": "断开后，微信里给 ClawBot 发的话不再转给 agent，agent 的消息也不再推到微信。之后可以随时重新扫码连接。",
+      "body": "断开后，微信里给 ClawBot 发的话不再转给 Agent，Agent 的消息也不再推到微信。之后可以随时重新扫码连接。",
       "cancel": "取消",
       "confirm": "断开连接"
     },
@@ -94,7 +94,7 @@ export default {
       "retry": "换一张二维码",
       "close": "关闭",
       "done": "完成",
-      "connectedBody": "以后在微信「微信ClawBot」里发消息，就会交给下面这个 agent。",
+      "connectedBody": "以后在微信「微信ClawBot」里发消息，就会交给下面这个 Agent。",
       "failed": {
         "expired": "二维码过期了",
         "expiredScanned": "二维码过期了，没来得及在手机上点「连接」。",
@@ -905,6 +905,8 @@ export default {
     "upgradeHint": "开通会员，解锁下面这些模型"
   },
   "referral": {
+    "readFailed": "邀请信息加载失败",
+    "retry": "重试",
     "amountCredits": "{{credits}} 积分",
     "copied": "已复制",
     "copyInvite": "复制邀请链接",
@@ -912,9 +914,8 @@ export default {
     "invited": "已邀请 {{count}}",
     "invited_one": "已邀请 {{count}}",
     "invited_other": "已邀请 {{count}}",
-    "inviteDescription": "分享邀请链接，注册后你和好友各得额度奖励。",
+    "inviteDescription": "分享邀请链接，注册后你和好友各得积分奖励。",
     "inviteLoading": "邀请链接加载中",
-    "invitePlaceholder": "邀请链接即将开放",
     "inviteTitle": "邀请好友"
   },
   "usage": {
