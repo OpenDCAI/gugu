@@ -32,10 +32,14 @@ export function createAssistantPanelBodyFailures(guguHome: string,owner: string,
   const entries = new Map<string, Failure>()
   let loaded: Promise<void> | undefined, tail: Promise<unknown> = Promise.resolve()
   let warned = false
-  function warn(operation: 'read' | 'write') {
+  // Once per journal: the reason is an error code or name, never the file's content.
+  function warn(operation: 'read' | 'write',error: unknown) {
     if (warned) return
     warned = true
-    log.warn({ operation },'Panel upload suppression cache unavailable; publication continues with in-memory records')
+    // A SyntaxError's message quotes the file, so it is reported by kind only.
+    const reason = (error as NodeJS.ErrnoException | undefined)?.code
+      ?? (error instanceof SyntaxError ? 'invalid-json' : error instanceof Error ? error.message : 'unknown')
+    log.warn({ operation,reason },'Panel upload suppression cache unavailable; publication continues with in-memory records')
   }
   async function load() {
     if (!loaded) loaded = (async () => {
@@ -48,7 +52,7 @@ export function createAssistantPanelBodyFailures(guguHome: string,owner: string,
         throw new Error('PANEL_BODY_FAILURE_STATE_INVALID')
       }
       for (const [key,failure] of state.failures) entries.set(key,failure)
-    })().catch(() => { entries.clear(); warn('read') })
+    })().catch((error: unknown) => { entries.clear(); warn('read',error) })
     await loaded
   }
   const serial = <T>(work: () => Promise<T> | T): Promise<T> => {
@@ -56,7 +60,7 @@ export function createAssistantPanelBodyFailures(guguHome: string,owner: string,
     tail = next; return next
   }
   const keyOf = (domain: AssistantPanelDomain,key: string) => JSON.stringify([domain,key])
-  const save = () => atomicWriteText(path,JSON.stringify({ version: 1,owner,assistant,failures: [...entries] })).catch(() => warn('write'))
+  const save = () => atomicWriteText(path,JSON.stringify({ version: 1,owner,assistant,failures: [...entries] })).catch((error: unknown) => warn('write',error))
   return {
     get: (domain,key) => serial(() => entries.get(keyOf(domain,key))),
     set: (domain,key,failure) => serial(async () => { entries.set(keyOf(domain,key),failure); await save() }),
