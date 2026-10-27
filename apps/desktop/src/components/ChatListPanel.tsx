@@ -34,6 +34,8 @@ import { subscribeShellChatActions, takeShellChatAction, useSidebarChatView, use
 import { SidebarSessionLineRow } from './SidebarSessionLineRow'
 import { blockKey, joinRows, type JoinedGroup, type SidebarJoin } from '../lib/sidebarJoinedGroups'
 import { groupTopicsBySource, isTopLevelChatRow, splitSunkTopics } from './chatListTopicNesting'
+import { useLongPress } from '../hooks/useLongPress'
+import { useRowContextMenu } from '../hooks/useRowContextMenu'
 import { useAgentDisplayStatuses } from '../hooks/useAgentDisplayStatus'
 import { useShownAgentStatus, type ShownAgentStatus } from './chat/useAgentsOnCloudComputer'
 import { AgentHostStaleBadge } from './AgentHostStaleBadge'
@@ -196,14 +198,8 @@ export function TopicSubRow({ topic, mobile, isActive, tabIndex, onClick, onFocu
   // @@@5856 子行与普通会话行共用同一份右键菜单(置顶 / 免打扰 / 删除)。
   // 缺了它话题就成了「删不掉、置顶不了、免打扰不了」的一等会话 —— 而 isSunkTopic 读的
   // is_pinned / is_marked_unread 也会变成没人写得进的死字段(找茬第十轮实测)。
-  const [showMenu, setShowMenu] = useState(false)
-  const [menuPos, setMenuPos] = useState({ x: 0, y: 0 })
-  useEffect(() => {
-    if (!showMenu) return
-    const close = () => setShowMenu(false)
-    document.addEventListener(UI_EVENTS.closeContextMenus, close as EventListener)
-    return () => { document.removeEventListener(UI_EVENTS.closeContextMenus, close as EventListener) }
-  }, [showMenu])
+  const menu = useRowContextMenu()
+  const longPress = useLongPress(at => { if (mobile) menu.openMenu(at) })
   return (
     <>
     <ListRow
@@ -221,24 +217,19 @@ export function TopicSubRow({ topic, mobile, isActive, tabIndex, onClick, onFocu
       onClick={onClick}
       onFocus={onFocus}
       onKeyDown={onKeyDown}
-      onContextMenu={(e) => {
-        e.preventDefault()
-        e.stopPropagation()
-        document.dispatchEvent(new CustomEvent(UI_EVENTS.closeContextMenus))
-        setMenuPos({ x: e.clientX, y: e.clientY })
-        setShowMenu(true)
-      }}
+      onContextMenu={menu.onContextMenu}
+      {...(mobile ? longPress : {})}
       style={TOPIC_SUBROW_STYLE}
       leading={<MessageSquare size={13} style={TOPIC_SUBROW_ICON_STYLE} />}
       title={<span style={TOPIC_SUBROW_NAME_STYLE}>{topic.name}</span>}
       meta={topic.unread_count > 0 ? <Chip tone="danger" shape="count">{topic.unread_count > 99 ? '99+' : topic.unread_count}</Chip> : undefined}
     />
-    {showMenu && (
+    {menu.menuPos && (
       <ChatRowContextMenu
-        x={menuPos.x}
-        y={menuPos.y}
+        x={menu.menuPos.x}
+        y={menu.menuPos.y}
         chat={topic}
-        onClose={() => setShowMenu(false)}
+        onClose={menu.closeMenu}
         onPin={onPin}
         onSetNotificationLevel={onSetNotificationLevel}
         onDelete={onDelete}
@@ -271,8 +262,8 @@ export function TopicSubRows({ topics, isSunk, expanded, onExpand, children }: {
 function ChatRow({ chat, agentStatus, isActive, topicsExpanded, onToggleTopics, draft, mobile = false, onClick, onPin, onSetNotificationLevel, onDelete, tabIndex, onFocus, onKeyDown, join }: ChatRowProps) {
   const { t } = useTranslation('messaging')
   const { identitiesById } = useChatStore('identitiesById')
-  const [showMenu, setShowMenu] = useState(false)
-  const [menuPos, setMenuPos] = useState({ x: 0, y: 0 })
+  const menu = useRowContextMenu()
+  const longPress = useLongPress(at => { if (mobile) menu.openMenu(at) })
   const peerIdentity = identitiesById[chat.peer_user_id ?? '']
   const isAgentChat = chatIsAgent(chat, peerIdentity)
   // @@@5856 这四处判的都是「这是不是一个**场所**」(有自己的名字/头像/成员),不是「是不是群」。
@@ -285,15 +276,6 @@ function ChatRow({ chat, agentStatus, isActive, topicsExpanded, onToggleTopics, 
   const { devices } = useDevicesStore() // @@@1759 解析 agent 会话行的真实设备归属标签
   const tag = chatRowTag(chat, peerIdentity, devices)
   const hasBolt = isRoom || isAgentChat
-
-  useEffect(() => {
-    if (!showMenu) return
-    const close = () => setShowMenu(false)
-    document.addEventListener(UI_EVENTS.closeContextMenus, close as EventListener)
-    return () => {
-      document.removeEventListener(UI_EVENTS.closeContextMenus, close as EventListener)
-    }
-  }, [showMenu])
 
   return (
     <>
@@ -318,13 +300,8 @@ function ChatRow({ chat, agentStatus, isActive, topicsExpanded, onToggleTopics, 
         onClick={onClick}
         onFocus={onFocus}
         onKeyDown={onKeyDown}
-        onContextMenu={(e) => {
-          e.preventDefault()
-          e.stopPropagation()
-          document.dispatchEvent(new CustomEvent(UI_EVENTS.closeContextMenus))
-          setMenuPos({ x: e.clientX, y: e.clientY })
-          setShowMenu(true)
-        }}
+        onContextMenu={menu.onContextMenu}
+        {...(mobile ? longPress : {})}
         leading={
           // Avatar — agent status lives in the corner badge (AvatarStatusBadge); the old
           // top-right dot was consolidated into it (#793 follow-up).
@@ -393,12 +370,12 @@ function ChatRow({ chat, agentStatus, isActive, topicsExpanded, onToggleTopics, 
       />
 
       {/* Context menu — portalled to body */}
-      {showMenu && (
+      {menu.menuPos && (
         <ChatRowContextMenu
-          x={menuPos.x}
-          y={menuPos.y}
+          x={menu.menuPos.x}
+          y={menu.menuPos.y}
           chat={chat}
-          onClose={() => setShowMenu(false)}
+          onClose={menu.closeMenu}
           onPin={onPin}
           onSetNotificationLevel={onSetNotificationLevel}
           onDelete={onDelete}

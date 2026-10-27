@@ -348,7 +348,11 @@ export function AgentThread({
   useEffect(preloadSharedChatRuntime, [])
 
   // 附件卡(#7193)点开:网页交给浏览器,文件从那台电脑现读、在一整页预览里看。
-  const outputs = useOpenedOutputOpener({ deviceId, sessionId })
+  const quoteOutput = useCallback((text: string) => {
+    const composer = runtime.thread.composer
+    composer.setText(appendToDraft(composer.getState().text, text))
+  }, [runtime])
+  const outputs = useOpenedOutputOpener({ deviceId, sessionId, onQuote: quoteOutput })
   const running = useMemo(() => runningToolIds(timeline.turns), [timeline.turns])
   const imagesInHand = useMemo(() => toolImagesById(timeline.turns), [timeline.turns])
   const toolItems = useMemo(() => toolItemsById(timeline.turns), [timeline.turns])
