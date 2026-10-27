@@ -1,4 +1,5 @@
 // The chat list row showed an assistant reply's raw Markdown (`**10/27 全天复盘** **凌晨…`); previews are plain text.
+// Inline code stays literal (taskMentionRouting.test.ts holds the same contract for references inside code).
 import { describe, expect, it } from 'vitest'
 import { chatPreviewText } from '../../../../apps/desktop/src/lib/agentTurnFailure'
 import { markdownPlainText } from '../../../../apps/desktop/src/lib/markdownPlainText'
@@ -9,7 +10,6 @@ describe('markdownPlainText', () => {
     ['**阳台养花十五条** 1. **先看朝向', '阳台养花十五条 1. 先看朝向'],
     ['## 标题\n- 一\n- 二', '标题 一 二'],
     ['> 引用\n1. 第一条', '引用 第一条'],
-    ['run `pnpm dev` now', 'run pnpm dev now'],
     ['see [docs](https://example.com) ok', 'see docs ok'],
     ['*斜体* 和 _强调_ 和 ~~删除~~', '斜体 和 强调 和 删除'],
   ])('strips formatting from %j', (input, plain) => {
@@ -24,7 +24,9 @@ describe('markdownPlainText', () => {
     '今晚北京晴，夜里降到 6.9℃，出门披件外套。',
     'snake_case_name and a*b*c',
     '3 * 4 = 12',
-  ])('leaves text that is not formatting alone: %j', (input) => {
+    'run `pnpm dev` now',
+    'not `**bold** [x](y)` here',
+  ])('leaves text that is not formatting alone, inline code included: %j', (input) => {
     expect(markdownPlainText(input)).toBe(input)
   })
 })
