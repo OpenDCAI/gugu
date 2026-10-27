@@ -1075,6 +1075,46 @@ export async function outputs(input: { conversationId: string }): Promise<Sessio
 }
 
 /**
+ * 这条会话的运行时说「本进程里还在跑」的后台命令(#6582 那道筛子,手机看会话末尾那一句用;桌面读的是自己 store 里同一格)。
+ * 会话不在运行时里 ⇒ `[]`(没有活着的进程,就没有在跑的命令);运行时没报这一格(旧运行时)⇒ `null` = 不筛。
+ */
+export async function backgroundTasks(input: {
+  conversationId: string;
+}): Promise<SessionTimelineResult<{ runningCommandTaskIds: string[] | null }>> {
+  const row = readSessionRow(input.conversationId);
+  if (!row) return fail('session_not_found', `这台机器上没有会话 ${input.conversationId}`);
+  try {
+    // 用时再 import:它们拖着运行时进程那一串(app scope),只读时间线的路不该替它交税。
+    const { readAcpSessionState } = await import('@main/core/acp/session-summary-reader');
+    const state = await readAcpSessionState(row.id);
+    return { ok: true, value: { runningCommandTaskIds: state ? (state.backgroundCommandTaskIds ? [...state.backgroundCommandTaskIds] : null) : [] } };
+  } catch (error) {
+    return fail('read_failed', (error as Error)?.message ?? String(error));
+  }
+}
+
+/**
+ * 停一个后台任务:命令报供应商的 asyncTaskId,子智能体报派它的 tool_use id —— 与桌面那一行的停止键同一个调用
+ * (`stopBackgroundTask`)。受理即返回,停没停下来看时间线。
+ */
+export async function stopBackgroundTask(input: {
+  conversationId: string;
+  stopId: string;
+}): Promise<SessionTimelineResult<{ stopped: true }>> {
+  const row = readSessionRow(input.conversationId);
+  if (!row) return fail('session_not_found', `这台机器上没有会话 ${input.conversationId}`);
+  try {
+    const { getAcpRuntimeClient } = await import('@main/core/acp/runtime-process/host');
+    const client = await getAcpRuntimeClient();
+    const result = await client.stopBackgroundTask({ sessionId: row.id, taskId: input.stopId });
+    if (!result.success) return fail('stop_failed', String((result.error as { message?: string })?.message ?? result.error));
+    return { ok: true, value: { stopped: true } };
+  } catch (error) {
+    return fail('stop_failed', (error as Error)?.message ?? String(error));
+  }
+}
+
+/**
  * 订阅。`emit` 是这条传输自己的推送口（设备 RPC 的 broadcast / 桌面的 IPC）。
  * 同一个 subscriptionId 再订阅 = 顶掉前一条（重连时手机会带着同一个 id 回来）。
  */

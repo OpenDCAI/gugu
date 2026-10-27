@@ -84,18 +84,6 @@
   color: var(--faint-fg);
 }
 
-/* 项目通讯录「群」里话题那一行的头像格:与 40 的头像同大。 */
-.gg-partners .gg-partners-topic-icon {
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  width: 40px;
-  height: 40px;
-  border-radius: var(--radius-circle);
-  background: var(--muted);
-  color: var(--muted-fg);
-}
-
 .gg-partners .gg-partners-empty {
   padding: var(--spacing-2xl) var(--spacing-lg);
   color: var(--muted-fg);

@@ -85,8 +85,8 @@ export function PhonePartnersPage({
   onLeave: () => void
   onSwitchToChat?: (target: ContactUser) => void
   onOpenGroupChat?: (group: ContactGroupChat) => void
-  /** 打开项目群(给了 tabChatId = 落在那一枚页签:话题 / 任务)。 */
-  onOpenProjectGroup: (chatId: string, tabChatId?: string) => void
+  /** 打开项目群(落在群聊页签)。 */
+  onOpenProjectGroup: (chatId: string) => void
 }) {
   const { t } = useTranslation('main')
   const { t: ct } = useTranslation('contacts')
@@ -143,9 +143,9 @@ export function PhonePartnersPage({
   }, [requestingAgentId, sendRequest])
 
   // 还没绑群的项目(从没开过会话):先让它所在的那台机器把群备好再进(同电脑项目一摆上屏就补上群)。
-  const openProjectGroup = async (project: PartnerProject, tabChatId?: string) => {
+  const openProjectGroup = async (project: PartnerProject) => {
     if (project.chatId) {
-      onOpenProjectGroup(project.chatId, tabChatId)
+      onOpenProjectGroup(project.chatId)
       return
     }
     const member = project.members.find((candidate) => machines.some((row) => row.device_id === candidate.deviceId && row.is_online))
@@ -157,7 +157,7 @@ export function PhonePartnersPage({
     try {
       const result = await projectRpcOn(device).projects.ensureProjectGroup(member.localProjectId)
       if (!result.success) throw new Error(result.error.message)
-      onOpenProjectGroup(result.data.chatId, tabChatId)
+      onOpenProjectGroup(result.data.chatId)
     } catch (error) {
       toast(t('partners.groupUnavailable'), 'error', messageForUser(error))
     }
@@ -181,7 +181,7 @@ export function PhonePartnersPage({
         sessions={sessions}
         active={active}
         onBack={pop}
-        onOpenGroup={(tabChatId) => void openProjectGroup(project, tabChatId)}
+        onOpenGroup={() => void openProjectGroup(project)}
       />
     )
   }
