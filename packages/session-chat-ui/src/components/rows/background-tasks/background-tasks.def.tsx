@@ -75,10 +75,12 @@ export const backgroundTasksUnitDef = defineUnit<BackgroundTasksItem, { extraH: 
 
     const label = (): string => {
       const parts: string[] = [];
-      if (props.data.commands.length > 0)
-        parts.push(translate('transcript.backgroundTasks.commands', { count: props.data.commands.length }));
-      if (props.data.subagents.length > 0)
-        parts.push(translate('transcript.backgroundTasks.subagents', { count: props.data.subagents.length }));
+      const commandCount = props.data.commands.length;
+      const agentCount = props.data.subagents.length;
+      if (commandCount > 0)
+        parts.push(translate(commandCount === 1 ? 'transcript.backgroundTasks.commandsOne' : 'transcript.backgroundTasks.commands', { count: commandCount }));
+      if (agentCount > 0)
+        parts.push(translate(agentCount === 1 ? 'transcript.backgroundTasks.subagentsOne' : 'transcript.backgroundTasks.subagents', { count: agentCount }));
       return translate('transcript.backgroundTasks.label', { parts: parts.join(' · ') });
     };
 
@@ -140,7 +142,7 @@ export const backgroundTasksUnitDef = defineUnit<BackgroundTasksItem, { extraH: 
                   <span class={backgroundTaskMeta}>
                     {[
                       agent.completedSteps > 0
-                        ? translate('transcript.backgroundTasks.steps', { count: agent.completedSteps })
+                        ? translate(agent.completedSteps === 1 ? 'transcript.backgroundTasks.stepsOne' : 'transcript.backgroundTasks.steps', { count: agent.completedSteps })
                         : '',
                       elapsed(agent.startedAt),
                     ]

@@ -82,8 +82,11 @@ const fallbackMessages = {
   // 列表末尾那一行:还在跑的后台命令 / 子智能体(右上角「摘要」卡去掉之后,它们住在这儿)。
   'transcript.backgroundCommand': 'Background command',
   'transcript.backgroundTasks.label': 'Background · {parts}',
+  'transcript.backgroundTasks.commandsOne': '{count} command',
   'transcript.backgroundTasks.commands': '{count} commands',
+  'transcript.backgroundTasks.subagentsOne': '{count} subagent',
   'transcript.backgroundTasks.subagents': '{count} subagents',
+  'transcript.backgroundTasks.stepsOne': '{count} step',
   'transcript.backgroundTasks.steps': '{count} steps',
   'transcript.backgroundTasks.stopCommand': 'Stop this background command',
   'transcript.backgroundTasks.stopSubagent': 'Stop this subagent',

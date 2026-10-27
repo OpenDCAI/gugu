@@ -77,7 +77,7 @@ describe('background tasks at the end of the transcript', () => {
     state.session.setBackgroundTasks({ commands: [command], subagents: [agent()] })
 
     await until('the background line is on screen', () => row(host) !== null)
-    expect(row(host)?.textContent).toContain('Background · 1 commands · 1 subagents')
+    expect(row(host)?.textContent).toContain('Background · 1 command · 1 subagent')
     // 收着:只有那一句,单子不画。
     expect(items(host)).toHaveLength(0)
 
@@ -132,8 +132,8 @@ describe('background tasks at the end of the transcript', () => {
     state.transcript.history.seed([settled])
     state.session.setBackgroundTasks({ commands: [command], subagents: [] })
     await until('the background line is on screen', () => row(host) !== null)
-    expect(row(host)?.textContent).toContain('Background · 1 commands')
-    expect(row(host)?.textContent).not.toContain('subagents')
+    expect(row(host)?.textContent).toContain('Background · 1 command')
+    expect(row(host)?.textContent).not.toContain('subagent')
     host.querySelector<HTMLElement>('[data-collapse-id="background-tasks:open"]')?.click()
     await until('the list opens', () => items(host).length === 1)
     expect(items(host)[0].querySelectorAll('button')).toHaveLength(0)
@@ -152,6 +152,6 @@ describe('background tasks at the end of the transcript', () => {
     const { state, host } = mount()
     state.session.setBackgroundTasks({ commands: [], subagents: [agent()] })
     await until('the background line is on screen', () => row(host) !== null)
-    expect(row(host)?.textContent).toContain('Background · 1 subagents')
+    expect(row(host)?.textContent).toContain('Background · 1 subagent')
   })
 })
