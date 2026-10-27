@@ -1,5 +1,8 @@
 // @@@renderer-ascii-output — 渲染层产物转成纯 ASCII 后,每段代码的行为必须与转之前一模一样。
 // 判据:同一段表达式,原文与转义后各 eval 一次,结果逐项相等;且转义后不再含非 ASCII 字符。
+import { spawnSync } from 'node:child_process'
+import { join } from 'node:path'
+import { pathToFileURL } from 'node:url'
 import { parseAst } from 'vite'
 import { describe, expect, it } from 'vitest'
 import { escapeNonAscii, taggedTemplateNonAsciiRanges } from '../../../scripts/renderer-chunking.mts'
@@ -57,4 +60,26 @@ describe('escapeNonAscii keeps tagged-template raw text', () => {
     expect(run(escapeNonAscii('String.raw`中`'))).toBe('\\u4e2d')
     expect(taggedTemplateNonAsciiRanges(parseAst('String.raw`ascii`; `中`'))).toEqual([])
   })
+})
+
+// 主进程图(Electron 主进程、worker、helper 运行时与无头宿主共用 sessionMainVite)也只出 ASCII:V8 在每个进程里
+// 常驻每个模块的源码,一个非 Latin-1 字符就让整份按双字节存(10-27 Linux 2:主进程堆 89 → 76.5 MB)。
+describe('vite.config.mts 的主进程图也挂着 ASCII 输出', () => {
+  it('Electron 主进程入口与每个无头宿主入口:esbuild charset=ascii + gugu-renderer-ascii-output', () => {
+    const repoRoot = join(import.meta.dirname, '../../..')
+    const code = `
+      const has = (plugins) => [plugins ?? []].flat(Infinity).some((p) => p && typeof p === 'object' && p.name === 'gugu-renderer-ascii-output')
+      const ascii = (vite) => vite?.esbuild?.charset === 'ascii' && has(vite?.plugins)
+      const m = await import(${JSON.stringify(pathToFileURL(join(repoRoot, 'vite.config.mts')).href)})
+      process.stdout.write('READING ' + JSON.stringify({
+        main: m.electronBuildEntries.filter((e) => [e.entry].flat().some((x) => String(Object.values(x ?? {}).join() || x).includes('main.ts'))).map((e) => ascii(e.vite)),
+        host: m.sessionHostBuildEntries.map((e) => ascii(e.vite)),
+      }))`
+    const run = spawnSync(process.execPath, ['--import', 'tsx', '--input-type=module', '-e', code], { cwd: repoRoot, encoding: 'utf8', env: process.env })
+    const line = run.stdout.split(/\r?\n/).find((l) => l.startsWith('READING '))
+    expect(line, `${run.stdout}${run.stderr}`).toBeTruthy()
+    const reading = JSON.parse(line!.slice('READING '.length)) as { main: boolean[]; host: boolean[] }
+    expect(reading.main.length).toBeGreaterThanOrEqual(1)
+    expect(reading).toEqual({ main: reading.main.map(() => true), host: reading.host.map(() => true) })
+  }, 120_000)
 })
