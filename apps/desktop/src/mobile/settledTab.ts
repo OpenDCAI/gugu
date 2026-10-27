@@ -29,16 +29,17 @@ export function tabPosition(scrollLeft: number, pageWidth: number, pageCount: nu
 const LIT_VAR = '--gg-tab-lit'
 
 /**
- * 第 `index` 格的前景:亮度 = max(0, 1 - |位置 - index|),拖到两页正中两格各半亮;颜色在 --text-tertiary 与
- * --text-primary 之间按亮度插值,图标是 currentColor,跟着文字走。
+ * 第 `index` 格的前景:亮度 = max(0, 1 - |位置 - index|),拖到两页正中两格各半亮;颜色在 idleColor(缺省 --text-tertiary)与
+ * selectedColor 之间按亮度插值,图标是 currentColor,跟着文字走。
  * 位置变量还没写过(tab 栏刚挂上、分页器还没滚过)就按当前 tab 的整数位置算。|x| 写成 max(x, -x):WebView 113 没有 CSS abs()。
- * ❌ transition:值本来就跟着手指走,再加过渡就拖在手指后面。
+ * ❌ 这里不挂 transition:值本来就跟着手指走,再加过渡就拖在手指后面。点按切换的过渡由 tab 栏只在点按那一下挂上
+ * (PhoneTabBar 的 data-tab-switching)。
  */
-export function tabItemStyle(index: number, activeIndex: number, selectedColor = 'var(--text-primary)'): CSSProperties {
+export function tabItemStyle(index: number, activeIndex: number, selectedColor = 'var(--text-primary)', idleColor = 'var(--text-tertiary)'): CSSProperties {
   const position = `var(${TAB_POSITION_VAR}, ${activeIndex})`
   return {
     [LIT_VAR]: `max(0, 1 - max(${position} - ${index}, ${index} - ${position}))`,
-    color: `color-mix(in srgb, ${selectedColor} calc(var(${LIT_VAR}) * 100%), var(--text-tertiary))`,
+    color: `color-mix(in srgb, ${selectedColor} calc(var(${LIT_VAR}) * 100%), ${idleColor})`,
   } as CSSProperties
 }
 
