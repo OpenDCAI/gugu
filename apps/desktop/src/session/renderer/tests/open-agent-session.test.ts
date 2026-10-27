@@ -8,14 +8,13 @@ const state = vi.hoisted(() => ({
 }))
 vi.mock('@renderer/lib/stores/app-state', () => ({ appState: { navigation: { currentViewId: 'screen' }, projects: { projects: state.projects, ensureMounted: state.mount } } }))
 vi.mock('@renderer/app/screen-layout', () => ({ screenLayout: { get recentSession() { return state.host }, blockOfSession: () => 'right' } }))
-vi.mock('@renderer/app/screen-layout-actions', () => ({ isScreenView: () => true, focusScreenBlock: state.focus }))
+vi.mock('@renderer/app/screen-layout-actions', () => ({ isScreenView: () => true, focusScreenBlock: state.focus, showBesideOnScreen: state.open }))
 vi.mock('@renderer/features/sessions/open-session-in-session', () => ({ openSessionInSessionWhenReady: state.tab }))
 vi.mock('@renderer/features/sessions/stores/session-agent-names', () => ({
   sessionAgentNames: { identities: state.identities, isLoaded: false, load: state.load },
 }))
 vi.mock('@renderer/features/sessions/stores/session-registry', () => ({ sessionRegistry: { get: (id: string) => state.managers.get(id) } }))
 vi.mock('@renderer/features/remote-hosts/remote-hosts-store', () => ({ remoteHostsStore: { allListedSessions: () => state.remote } }))
-vi.mock('@renderer/features/chats/open-chat', () => ({ openSessionOnScreen: state.open }))
 
 beforeEach(() => {
   vi.clearAllMocks()
@@ -33,7 +32,7 @@ describe('群聊 Agent 署名打开已有 Session', () => {
     state.projects.set('p', { id: 'p', mountedProject: { sessionManager: { sessions: new Map([['s1', {}], ['s2', {}]]) } } })
     await openAgentSession('a2')
     await openAgentSession('a1')
-    expect(state.open.mock.calls).toEqual([[{ projectId: 'p', sessionId: 's2' }, true], [{ projectId: 'p', sessionId: 's1' }, true]])
+    expect(state.open.mock.calls).toEqual([[{ kind: 'session', projectId: 'p', sessionId: 's2' }], [{ kind: 'session', projectId: 'p', sessionId: 's1' }]])
     expect(state.load).toHaveBeenCalled()
   })
 
@@ -41,13 +40,13 @@ describe('群聊 Agent 署名打开已有 Session', () => {
     state.identities.set('child', { agentUserId: 'a' })
     state.managers.set('child', { projectId: 'p' })
     await openAgentSession('a')
-    expect(state.open).toHaveBeenCalledWith({ projectId: 'p', sessionId: 'child' }, true)
+    expect(state.open).toHaveBeenCalledWith({ kind: 'session', projectId: 'p', sessionId: 'child' })
   })
 
   it('另一台机器上的 Agent 使用现有目录中的会话', async () => {
     state.remote = [{ summary: { projectId: 'remote:p', conversationId: 's', agent: { userId: 'a' } } }]
     await openAgentSession('a')
-    expect(state.open).toHaveBeenCalledWith({ projectId: 'remote:p', sessionId: 's' }, true)
+    expect(state.open).toHaveBeenCalledWith({ kind: 'session', projectId: 'remote:p', sessionId: 's' })
   })
 
   it('身份找不到时明确失败，不打开别的 Agent 或创建私聊', async () => {

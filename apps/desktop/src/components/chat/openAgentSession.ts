@@ -2,15 +2,14 @@ import { appState } from '@renderer/lib/stores/app-state'
 import { sessionAgentNames } from '@renderer/features/sessions/stores/session-agent-names'
 import { sessionRegistry } from '@renderer/features/sessions/stores/session-registry'
 import { remoteHostsStore } from '@renderer/features/remote-hosts/remote-hosts-store'
-import { openSessionOnScreen } from '@renderer/features/chats/open-chat'
 import { screenLayout } from '@renderer/app/screen-layout'
-import { focusScreenBlock, isScreenView } from '@renderer/app/screen-layout-actions'
+import { focusScreenBlock, isScreenView, showBesideOnScreen } from '@renderer/app/screen-layout-actions'
 import { openSessionInSessionWhenReady } from '@renderer/features/sessions/open-session-in-session'
 
 async function openInAgentPane(target: { projectId: string; sessionId: string }): Promise<void> {
   const host = isScreenView(appState.navigation.currentViewId) ? screenLayout.recentSession : undefined
   if (!host) {
-    openSessionOnScreen(target, true)
+    showBesideOnScreen({ kind: 'session', ...target })
     return
   }
   await appState.projects.ensureMounted(target.projectId)
