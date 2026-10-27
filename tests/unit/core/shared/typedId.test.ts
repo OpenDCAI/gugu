@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { decodeIdentityAddress, decodeTypedId, readTypedIdLenient } from '@gugu/core/shared/typedId.mjs'
+import { decodeIdentityAddress, decodeTypedId, encodeTypedId, readTypedIdLenient } from '@gugu/core/shared/typedId.mjs'
 
 // #5048 身份地址两形(user:<uuid> / gugu:<咕咕号>)的唯一语法入口。裸值、别的类型、坏号都当场响。
 describe('decodeIdentityAddress', () => {
@@ -39,5 +39,27 @@ describe('decodeIdentityAddress', () => {
     expect(() => decodeTypedId('user', 'gugu:8', 'user_id')).toThrow(/expected a user: id but got a gugu: id/)
     // gugu 已是已知前缀:宽松读法对错类前缀回 null,而不是把 "gugu:8" 当裸 id 放过去。
     expect(readTypedIdLenient('user', 'gugu:8')).toBeNull()
+  })
+})
+
+// A message the host writes itself (the turn-failure notice) is stored under a structured key. Any reader that
+// meets it — an agent whose message that notice answers — must address it, not refuse it as already typed.
+describe('encodeTypedId with structured storage ids', () => {
+  const notice = 'turn-failure:batch:6b62191fcf9bbff3312a90753053be57'
+
+  it('encodes a stored id that contains colons and decodes it back unchanged', () => {
+    const typed = encodeTypedId('msg', notice)
+    expect(typed).toBe(`msg:${notice}`)
+    expect(decodeTypedId('msg', typed, 'message_id')).toBe(notice)
+    expect(readTypedIdLenient('msg', typed)).toBe(notice)
+    expect(readTypedIdLenient('msg', notice)).toBe(notice)
+  })
+
+  it('still refuses an id that already carries a type prefix', () => {
+    const uuid = '11111111-1111-4111-8111-111111111111'
+    expect(() => encodeTypedId('msg', `msg:${uuid}`)).toThrow(/refusing to double-encode "msg:/)
+    expect(() => encodeTypedId('session', `project:${uuid}`)).toThrow(/refusing to double-encode/)
+    expect(() => encodeTypedId('user', `aid:${uuid}`)).toThrow(/refusing to double-encode/)
+    expect(() => encodeTypedId('msg', '')).toThrow(/empty msg id/)
   })
 })

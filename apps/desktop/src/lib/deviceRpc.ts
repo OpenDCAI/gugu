@@ -29,6 +29,7 @@ import {
   usesDeviceLink,
 } from './sshLinkChannel'
 import { SshLinkError } from './sshLink'
+import { rendererLogger } from './log'
 
 export type { DeviceRpcError, DeviceRpcResponse } from '@gugu/core/cloud/deviceRpcProtocol'
 
@@ -39,6 +40,13 @@ export type { DeviceRpcError, DeviceRpcResponse } from '@gugu/core/cloud/deviceR
  * 请求与应答的配对是全 app 共用的那一份(@gugu/core/cloud/deviceRpcRequester,主进程也用它);这里只管两种管道怎么开、
  * 断了怎么重开,以及设备推来的事件交给谁。
  */
+
+/**
+ * 一台机器的频道开在哪条通道上、什么时候换、什么时候断,各落一行(频道一条一行,❌ 按请求记)。
+ * 换通道会把经它开的宿主窗口一起关掉重开(remoteSessionHost `channel resubscribed`):没有这几行,
+ * 「开机时会话起不来」只看得到窗口被关,看不到是谁关的(2026-10-27)。
+ */
+const log = rendererLogger('device-rpc')
 
 // @@@device-rpc-events 设备 → 手机的**推送**(taskhost.frame、消息预览这类)不是请求应答:没有 request_id。监听器登记在
 // 管道**之外**,因为管道会被重建(登录切换、订阅失败重连),挂在管道上的监听器会跟着蒸发,而订阅者手里那个取消函数还在 ——
@@ -119,6 +127,7 @@ async function openPipe(deviceId: string, handlers: DeviceRpcPipeHandlers): Prom
   // 远程 SSH 的机器,以及经远程隧道连通了的机器:走设备连接(终端画面不进咕咕云的消息通道)。
   const transport = usesDeviceLink(deviceId) ? 'ssh' : 'cloud'
   const pipe = await (transport === 'ssh' ? openSshPipe : openCloudPipe)(deviceId, handlers)
+  log.info({ deviceId, transport }, 'device rpc channel opened')
   transports.set(deviceId, transport)
   pipeHandlers.set(deviceId, handlers)
   return {
@@ -250,6 +259,7 @@ async function openSshPipe(deviceId: string, handlers: DeviceRpcPipeHandlers): P
     onMessage: (message) => handlers.onMessage(message),
     onClosed: (reason) => {
       closedByLink = true
+      log.warn({ deviceId, reason }, 'device link closed')
       // 在途的问一律当场失败(说清原因),❌ 等到各自超时。
       handlers.onClosed(new SshLinkError(reason, deviceId))
       scheduleSshReopen(deviceId)
@@ -295,7 +305,9 @@ function scheduleSshReopen(deviceId: string): void {
  */
 function reconcileTransports(): void {
   for (const [deviceId, transport] of [...transports]) {
-    if ((usesDeviceLink(deviceId) ? 'ssh' : 'cloud') === transport) continue
+    const next = usesDeviceLink(deviceId) ? 'ssh' : 'cloud'
+    if (next === transport) continue
+    log.info({ deviceId, from: transport, to: next }, 'device rpc channel switching transport')
     requester.close(deviceId, new Error('Device RPC channel was reset: this machine now uses another transport'))
     if (hasEventListeners(deviceId)) void requester.open(deviceId).catch(() => undefined)
   }

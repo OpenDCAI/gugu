@@ -83,11 +83,18 @@ export function compareServerVersions(a: string, b: string): number {
 /**
  * 这个账号该跑哪一版:没过期的报告里最新的那一版(同一账号几台桌面取最新,owner 选 A)。一台都没有 = null
  * (那就跟着这台机器自己的版本走,见 server-supervisor)。
+ * unpublished:下载站上没有的版本(404)让位给次新的那一版 —— 一台桌面报了一个从没发布过的版本号
+ * (没打后缀的测试包、老的开发实例),否则这个账号就钉在原地、每轮都去下载一次(2026-10-27 实撞)。
  */
-export function pickTargetVersion(reports: DesktopReports, now: number, ttlMs = DESKTOP_REPORT_TTL_MS): string | null {
+export function pickTargetVersion(
+  reports: DesktopReports,
+  now: number,
+  ttlMs = DESKTOP_REPORT_TTL_MS,
+  unpublished: (version: string) => boolean = () => false,
+): string | null {
   let best: string | null = null
   for (const report of Object.values(reports)) {
-    if (now - report.at > ttlMs) continue
+    if (now - report.at > ttlMs || unpublished(report.version)) continue
     if (best === null || compareServerVersions(report.version, best) > 0) best = report.version
   }
   return best
@@ -219,11 +226,14 @@ export function requestVersionRetry(env: NodeJS.ProcessEnv, now = Date.now()): b
  * 开发 / 测试:桌面(pnpm dev,package.json 的版本)与测试 server 包(GUGU_SERVER_VERSION 另打的号)对不上,
  * 按「严格等于桌面版本」会去找一个不存在的 server 包 —— GUGU_SERVER_MATCH_VERSION 覆盖它,
  * 但只在没打包(开发)或用了自定义下载源(测试站)时生效;打包出的正式版走正式下载站,一律忽略。
+ * 不是发布流水线出的包(GUGU_BUILD_DISTRIBUTION=local:开发实例、本机打的测试包)不覆盖就 ❌ 报:它的版本号
+ * (多半是 package.json 那个不带后缀的号)从没发布过 server 包,却按「正式版比同号 Beta 新」压过所有真桌面。
  */
-export function reportedDesktopVersion(env: NodeJS.ProcessEnv, options: { packaged: boolean }): string | null {
+export function reportedDesktopVersion(env: NodeJS.ProcessEnv, options: { packaged: boolean; published: boolean }): string | null {
   const override = env.GUGU_SERVER_MATCH_VERSION?.trim()
   const testing = !options.packaged || Boolean(env.GUGU_SERVER_DOWNLOAD_BASE?.trim())
   if (override && testing && isServerVersion(override)) return override
+  if (!options.published) return null
   const own = env.GUGU_APP_VERSION?.trim()
   return isServerVersion(own) ? own : null
 }

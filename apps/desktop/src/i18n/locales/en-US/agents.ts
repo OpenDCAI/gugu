@@ -5,7 +5,6 @@ export default {
     "cancel": "Cancel",
     "close": "Close",
     "collapse": "Collapse",
-    "comingSoon": "Coming soon",
     "save": "Save",
     "saving": "Saving…"
   },
@@ -21,8 +20,6 @@ export default {
     "chooseAnother": "Choose another",
     "chooseType": "Choose an Agent type",
     "close": "Close",
-    "coming": "Soon",
-    "comingSoon": "Coming soon",
     "composer": {
       "addAttachment": "Add attachment",
       "attachmentPreview": "Attachment",
@@ -229,32 +226,6 @@ export default {
     "ariaLabel": "Agent settings",
     "back": "Back",
     "close": "Close",
-    "contacts": {
-      "comingSoon": "Contacts for this Agent are coming soon",
-      "title": "This Agent’s contacts"
-    },
-    "finance": {
-      "cost": "Runtime cost",
-      "costHint": "LLM and sandbox usage charged to the owner’s allowance.",
-      "custom": "Custom",
-      "net": "Net",
-      "netHint": "Settled revenue minus runtime costs.",
-      "overview": "Overview",
-      "pending": "Pending settlement",
-      "pendingHint": "Payments created but not yet completed.",
-      "settled": "Settled revenue",
-      "settledHint": "Payments completed within the selected time window.",
-      "sevenDays": "Past 7 days",
-      "title": "Billing",
-      "today": "Today",
-      "yesterday": "Yesterday"
-    },
-    "history": {
-      "comingSoon": "Past conversations are coming soon",
-      "pause": "Pause Agent",
-      "pauseHint": "When enabled, this Agent stops responding to groups, other direct messages, webhooks, and scheduled tasks. Only your direct message can trigger it.",
-      "sessions": "Past conversations"
-    },
     "look": {
       "colors": {
         "apricot": "Apricot",
@@ -360,10 +331,6 @@ export default {
       "tryStateAria": "Act out the next state (now: {{state}})",
       "unsaved": "Unsaved"
     },
-    "memory": {
-      "comingSoon": "Memory file viewing and editing are coming soon",
-      "directory": "Working directory"
-    },
     "model": {
       "originalSourceNote": "Keep the model and billing source used when this agent was set up.",
       "original": "Keep the original configuration",
@@ -395,34 +362,16 @@ export default {
     },
     "nav": {
       "aiModel": "AI model",
-      "contacts": "Contacts",
-      "finance": "Billing",
-      "history": "Chat history",
       "look": "Look",
-      "memory": "Memory",
-      "permissions": "Permissions",
       "profile": "Profile",
-      "secrets": "Secrets",
       "settings": "Settings",
       "share": "Share",
       "tasks": "Scheduled tasks"
     },
-    "permissions": {
-      "active": "Active authorizations",
-      "create": "Create authorization",
-      "createHint": "Choose a role bundle, then add allow or deny overrides for precise control.",
-      "custom": "Custom",
-      "description": "Authorize this Agent to perform CLI or API actions as you. High-risk actions still require individual approval.",
-      "empty": "No active authorizations",
-      "expires": "Expires",
-      "fullAccess": "Full access",
-      "fullAccessHint": "Allows this Agent to perform almost any action as you. High-risk actions may still require one-time or permanent approval.",
-      "neverExpires": "Leave blank to never expire.",
-      "readOnly": "Read only",
-      "role": "Role",
-      "title": "Agent permissions"
-    },
     "profile": {
+      "pause": "Pause Agent",
+      "pauseHint": "When paused, only responds to your direct messages.",
+      "pauseFailed": "Could not change this Agent's paused state. Try again.",
       "avatar": "Avatar",
       "bio": "Bio",
       "bioPlaceholder": "Describe this Agent’s capabilities (optional)",
@@ -443,13 +392,6 @@ export default {
       "upload": "Upload image",
       "uploadHint": "PNG, JPEG, GIF, or WebP; up to 5 MB"
     },
-    "secrets": {
-      "add": "Add",
-      "description": "Configure environment variable secrets for this Agent. When it runs user scripts, secret call injects values into the child process only for that process lifetime and never writes them to env.",
-      "empty": "No secrets",
-      "emptyHint": "After adding one, the Agent can run <command>secret call NAME -- command</command> to inject the value into a child process.",
-      "title": "Secrets"
-    },
     "share": {
       "copied": "Copied",
       "copy": "Copy",
@@ -458,18 +400,14 @@ export default {
       "enableFailed": "Could not enable external sharing",
       "enabling": "Enabling…",
       "external": "External sharing",
-      "fee": "External sharing fee: ¥10 (not charged yet)",
-      "feeBadge": "¥10",
       "forward": "Forward to contact",
       "forwarding": "Sending invitation…",
       "noContacts": "No contacts",
       "open": "Scan or open the link",
       "openHint": "Anyone can chat with this Agent and add it to their message list",
       "qrAlt": "External sharing QR code",
-      "search": "Search conversations",
+      "search": "Search contacts",
       "title": "Share Agent",
-      "unavailable": "External sharing unavailable",
-      "unavailableReason": "External sharing is not configured, so a link cannot be created yet."
     },
     "tasks": {
       "content": "Task content",

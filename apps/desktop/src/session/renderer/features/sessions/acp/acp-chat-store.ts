@@ -38,11 +38,13 @@ import type { LiveSettingResult, PermissionWaitKind } from '@gugu/session-core/a
 import { errorDetail } from '@gugu/session-shared';
 import type { BlobSource } from '@gugu/session-wire';
 import { action, computed, makeObservable, observable, runInAction, toJS } from 'mobx';
+import { batch } from 'solid-js';
 // TODO(conversations-extraction): Inject task/workspace lookups instead of importing task stores.
 import { asProvisioned, getSessionPageStore } from '@renderer/features/sessions/stores/session-selectors';
 import { workspaceRegistry } from '@renderer/features/sessions/stores/workspace-registry';
 import { AcpLiveSession, asValueSource } from '@renderer/lib/acp/acp-live-session';
 import { getAcpRuntimeClient } from '@renderer/lib/acp/runtime-client';
+import { machineLinkState, onMachineReconnected } from '@renderer/lib/machine-clients';
 import { machineRegistry } from '@renderer/lib/machine-routing';
 import { getAgentConfigRuntimeClient } from '@renderer/lib/agent-config/runtime-client';
 import {
@@ -158,6 +160,12 @@ export class AcpChatStore {
    */
   private _closedByHost = false;
   private _disposed = false;
+  /**
+   * 到这条会话所在那台机器的线「从断变通」了几次(本机会话不数)。线断掉的那种失败(`connection_lost`)
+   * 只在它往上跳的那一下自动再开一次 —— 每次变通至多一次,❌ 循环重试。
+   */
+  private _linkOpenings = 0;
+  private _unwatchMachineLink: (() => void) | null = null;
   private _visualEvidenceOverride = false;
   private _unsubs: Array<() => void> = [];
   private _draftRev = 0;
@@ -1506,6 +1514,8 @@ export class AcpChatStore {
       this._draftTimer = null;
     }
     this._unsubs.splice(0).forEach((unsub) => unsub());
+    this._unwatchMachineLink?.();
+    this._unwatchMachineLink = null;
     if (this.isTransient && this.session) void this._stopTransientSession(this.session);
     this.session?.dispose();
     this.chatState.dispose();
@@ -1556,11 +1566,32 @@ export class AcpChatStore {
     }
   }
 
+  /**
+   * 别的机器上的会话:开始数到那台机器的线「从断变通」的次数,线断掉的那种失败在下一次变通时自动再开。
+   *
+   * 2026-10-27 owner 重启咕咕撞上的:开机时到 d22 的线先走咕咕云,会话照常开起来;隧道通了之后设备 RPC 换通道,
+   * 开着的宿主窗口随之关掉重开(remoteSessionHost `channel resubscribed`),在途的那次起会话被拒成
+   * `Wire transport disconnected`。一秒后线就重新通了,可这一侧停在「引擎没能启动」,要人点「再试一次」。
+   */
+  private _watchMachineLink(): void {
+    if (this._unwatchMachineLink || this._disposed) return;
+    const machine = machineRegistry.machineOf(this.runtimeSessionId);
+    if (!machine) return;
+    this._unwatchMachineLink = onMachineReconnected(machine, () => {
+      this._linkOpenings += 1;
+      if (this.loadError?.kind !== 'connection_lost') return;
+      log.info('ACP chat machine link reopened; starting the session again', { sessionId: this.sessionId, machine });
+      runInAction(() => this.retry());
+    });
+  }
+
   private async _runBootstrapInner(options?: { attachOnly?: boolean }): Promise<void> {
     let providerId: string | undefined;
     let bootstrapSession: AcpLiveSession | undefined;
     let firstPrompt: PendingPrompt | null = null;
     this._closedByHost = false;
+    this._watchMachineLink();
+    const openingAtStart = this._linkOpenings;
     const resuming = options?.attachOnly && this._runtimeCursor != null;
     if (resuming) this._historyGeneration += 1;
     else this._resetHistoryState();
@@ -1740,7 +1771,17 @@ export class AcpChatStore {
         });
         return;
       }
-      const loadError = toLoadError(error);
+      const machine = machineRegistry.machineOf(this.runtimeSessionId);
+      let loadError = toLoadError(error, machine);
+      // 到那台机器的线这一路都通着(断的只是这一条 wire,窗口没关):没有「连上」可等,❌ 说「连上后会自动重新打开」——
+      // 照旧按原话说,由人点重试。
+      if (
+        loadError.kind === 'connection_lost'
+        && this._linkOpenings === openingAtStart
+        && machineLinkState(loadError.deviceId) === 'open'
+      ) {
+        loadError = toLoadError(error);
+      }
       const details = {
         sessionId: this.sessionId,
         projectId: this.projectId,
@@ -1748,6 +1789,8 @@ export class AcpChatStore {
       };
       if (loadError.kind === 'provider_session_missing') {
         log.info('ACP provider session is missing', details);
+      } else if (loadError.kind === 'connection_lost') {
+        log.warn('ACP chat bootstrap lost the machine link; starting again once it reconnects', { ...details, machine });
       } else {
         log.error('ACP chat bootstrap failed', details);
       }
@@ -1761,6 +1804,15 @@ export class AcpChatStore {
       });
       if (this.loadError?.kind === 'auth_required' && providerId) {
         void this._refreshAuthStatus(providerId);
+      }
+      // 线在这次开场途中已经断过又通了(重开比这次失败先落定):那一下已经过去,❌ 再等下一次 —— 当场再开。
+      if (
+        loadError.kind === 'connection_lost'
+        && this._linkOpenings > openingAtStart
+        && machineLinkState(loadError.deviceId) === 'open'
+      ) {
+        log.info('ACP chat machine link already reopened; starting the session again', { sessionId: this.sessionId, machine });
+        this.retry();
       }
     }
   }
@@ -2375,7 +2427,10 @@ export class AcpChatStore {
       }
     }
     if (refreshGeneration !== this._historyGeneration) return;
-    runInAction(() => {
+    // seed 先把活动轮清掉、下面再放回去:两步必须是转录的同一次更新(Solid `batch`)。分成两次的话,
+    // 活动轮的每一行都会被卸掉重挂 —— 正在流式的那几段话淡入从头再放一遍,整段一闪(owner 10-27 录像:
+    // 前一轮派出的后台 agent 每报一次进度,这一轮已经写出的话就闪一下)。
+    runInAction(() => batch(() => {
       if (merged) {
         const currentFrame = this.chatState.transcript.state.activeTurnSnapshot;
         const newerFrame = (currentFrame?.id ?? null) !== retainedFrameId;
@@ -2402,7 +2457,7 @@ export class AcpChatStore {
         this.chatState.transcript.activeTurn.set(null);
       }
       this._syncMessageCount();
-    });
+    }));
   }
 
   /** 会话连上了:连上之前画出来的那几句交给真的那一轮 / 运行时队列。 */

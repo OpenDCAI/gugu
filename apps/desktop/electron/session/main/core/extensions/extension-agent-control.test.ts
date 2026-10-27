@@ -59,14 +59,10 @@ vi.mock('@main/db/schema', () => ({
 vi.mock('drizzle-orm', () => ({ asc: () => null, desc: () => null, eq: () => null }));
 // Each row's model is its session's platform decision (none here) or the harness's own: session-model-fact.
 const platformDecisions = new Map<string, { modelId: string }>();
-vi.mock('@main/core/sessions/platform-model-selection', () => ({ sessionPlatformModel: async (id: string) => platformDecisions.get(id) }));
-/** The platform catalog the model menu reads (a network call each): every query it was asked. */
-const catalogQueries: unknown[] = [];
-vi.mock('@main/core/agents/platform-model-catalog-hook', () => ({
-  getPlatformModelCatalogResolver: () => async (query: unknown) => {
-    catalogQueries.push(query);
-    return { models: [{ id: 'glm-5.3-flash', displayName: 'GLM 5.3 Flash' }], catalogError: null };
-  },
+vi.mock('@main/core/sessions/platform-model-selection', () => ({
+  sessionPlatformModel: async (id: string) => platformDecisions.get(id),
+  // The name kept with the decision (filled once per session and model, platform-model-selection.db.test).
+  sessionModelLabel: async (_id: string, decision: { modelId: string } | undefined) => (decision ? 'GLM 5.3 Flash' : null),
 }));
 vi.mock('@main/lib/logger', () => ({ log: { error: () => {}, warn: () => {}, info: () => {} } }));
 vi.mock('@main/core/sessions/getSessions', () => ({
@@ -185,7 +181,6 @@ const {
 beforeEach(() => {
   elsewhere = { sessions: [], unreached: [] };
   platformDecisions.clear();
-  catalogQueries.length = 0;
   rows.length = 0;
   stopped.length = 0;
   liveSessions.clear();
@@ -553,8 +548,8 @@ describe('问题 13:扩展起的 agent 是一条独立会话(#5665),在这个扩
     ]);
   });
 
-  // A Gugu model's menu name: the catalog is asked once per engine and leg for the whole listing, not once per row.
-  it('modelLabel: a Gugu model named from the catalog, asked once per engine and leg; an engine\'s own model has none', async () => {
+  // A Gugu model's menu name, as kept with each session's decision; an engine's own model has none.
+  it('modelLabel: a Gugu model\'s kept menu name; an engine\'s own model has none', async () => {
     agentRow('chat-a');
     agentRow('chat-b');
     rows.push({ id: 'tui', runtime: 'pty', provider: 'claude', projectId: 'p', title: 'tui', spawnedByExtensionId: null });
@@ -567,7 +562,6 @@ describe('问题 13:扩展起的 agent 是一条独立会话(#5665),在这个扩
       ['user:tui', 'platform:glm-5.3-flash', 'GLM 5.3 Flash'],
       ['user:own', null, null],
     ]);
-    expect(catalogQueries).toEqual([{ providerId: 'claude', surface: 'acp' }, { providerId: 'claude', surface: 'tui' }]);
   });
 
   it('上下文用量(L12):开着的会话给引擎报的数,没开的给 null —— ❌ 拿 0 冒充', async () => {

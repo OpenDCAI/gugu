@@ -12,12 +12,10 @@ export const HINT_ENTRIES: Record<HintDevice, readonly HintEntry[]> = {
   phone: [
     { id: 'assistant', anchor: marker('phone', 'assistant'), use: marker('phone', 'assistant') },
     { id: 'collaboration', anchor: marker('phone', 'collaboration'), use: '[data-testid="phone-partners-project"], [data-testid="phone-partners-friend"], .gg-partners-navrow' },
-    { id: 'topics', anchor: marker('phone', 'topics'), use: `${marker('phone', 'topics')} [role="tab"]` },
   ],
   desktop: [
     { id: 'assistant', anchor: '.gg-sidebar-rail [data-rail="assistant"]', use: '.gg-sidebar-rail [data-rail="assistant"]' },
     { id: 'collaboration', anchor: marker('desktop', 'collaboration'), use: `${marker('desktop', 'collaboration')} button, [data-project-row]` },
-    { id: 'topics', anchor: '.session-tab-bar:has([data-project-block-tab]) [data-topic-tab] [data-tab-label]', use: '.session-tab-bar:has([data-project-block-tab]) [data-topic-tab] [data-tab-label]' },
   ],
 }
 
@@ -36,7 +34,7 @@ export function hintTargetVisible(element: HTMLElement): boolean {
 function hintSpaceOf(device: HintDevice, id: FirstRunHintId, anchor: HTMLElement): Element | null {
   const space = device === 'phone' && id === 'collaboration'
     ? anchor.closest('.gg-partners')?.querySelector('[data-first-run-hint-space="collaboration"]')
-    : (device === 'desktop' && id === 'topics' ? anchor.closest('.session-tab-bar') : anchor)?.nextElementSibling
+    : anchor.nextElementSibling
   return space?.getAttribute('data-first-run-hint-space') === id ? space : null
 }
 

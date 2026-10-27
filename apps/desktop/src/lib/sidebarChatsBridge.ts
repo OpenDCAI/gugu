@@ -7,6 +7,8 @@
 // 两边都只 import 这一个文件,❌ 各写一份键名。
 import { useSyncExternalStore } from 'react'
 import type { ChatItem } from '@gugu/core/shared/types/chat'
+import { isDuplicateAssistantChat } from './assistantChatList'
+import type { AssistantShellSnapshot } from './assistantShellBridge'
 import type { JoinedGroup } from './sidebarJoinedGroups'
 
 /** 会话页侧栏「对话」那一格在 lib/shellSlots 里的键:会话页登记,壳的 components/ChatListSlotHost.tsx 往里画。 */
@@ -17,14 +19,10 @@ export type SidebarChatSignals = {
   readonly chatsUnread: number
   /** 每个项目群的未读(含从它开出来的话题),免打扰的不算;没有未读的群不在里面。 */
   readonly groupUnread: ReadonlyMap<string, number>
-  /** The source group's own unread, shown on its row while its topics are expanded. */
-  readonly groupMainUnread: ReadonlyMap<string, number>
 }
 
 export type SidebarChatView = {
   readonly focusedChatId: string | null
-  /** 正看着的那条会话(没有项目的会话排在「对话」里,那一行高亮)。 */
-  readonly focusedSessionId: string | null
   /** 拼在一屏的几组(这屏那一组和收起来的那些):「对话」里同一组的几行并在一处。 */
   readonly groups: readonly JoinedGroup[]
 }
@@ -38,23 +36,19 @@ const VIEW_EVENT = 'gugu:sidebar-chat-view'
  * 壳:从聊天列表那一份算出两枚页签和项目行上的数。项目群(及从它开出来的话题)的未读记在那个群名下,其余记进「对话」;免打扰的不算(gugu-dev#181:
  * 「对话」页签挂对话那边的未读总数,项目行与「项目」页签挂项目群的未读)。只读未读数,真读了它自己会减。
  */
-export function sidebarChatSignals(chats: readonly ChatItem[], projectGroupChats: ReadonlySet<string>): SidebarChatSignals {
+export function sidebarChatSignals(chats: readonly ChatItem[], projectGroupChats: ReadonlySet<string>, assistant: AssistantShellSnapshot | null = null): SidebarChatSignals {
   let chatsUnread = 0
   const groupUnread = new Map<string, number>()
-  const groupMainUnread = new Map<string, number>()
   for (const chat of chats) {
-    if (chat.unread_count <= 0 || chat.is_muted) continue
+    if (chat.unread_count <= 0 || chat.is_muted || isDuplicateAssistantChat(chat, assistant)) continue
     const line = chat.kind === 'topic' ? (chat.source_chat_id ?? chat.id) : chat.id
-    if (projectGroupChats.has(line)) {
-      groupUnread.set(line, (groupUnread.get(line) ?? 0) + chat.unread_count)
-      if (chat.kind !== 'topic') groupMainUnread.set(line, chat.unread_count)
-    }
+    if (projectGroupChats.has(line)) groupUnread.set(line, (groupUnread.get(line) ?? 0) + chat.unread_count)
     else chatsUnread += chat.unread_count
   }
-  return { chatsUnread, groupUnread, groupMainUnread }
+  return { chatsUnread, groupUnread }
 }
 
-const NO_VIEW: SidebarChatView = { focusedChatId: null, focusedSessionId: null, groups: [] }
+const NO_VIEW: SidebarChatView = { focusedChatId: null, groups: [] }
 
 function read<T>(key: string): T | null {
   return ((window as unknown as Record<string, unknown>)[key] as T | undefined) ?? null
@@ -80,8 +74,6 @@ export function publishSidebarChatSignals(next: SidebarChatSignals): void {
     current &&
     current.chatsUnread === next.chatsUnread &&
     current.groupUnread.size === next.groupUnread.size &&
-    current.groupMainUnread.size === next.groupMainUnread.size &&
-    [...next.groupMainUnread].every(([chatId, count]) => current.groupMainUnread.get(chatId) === count) &&
     [...next.groupUnread].every(([chatId, count]) => current.groupUnread.get(chatId) === count)
   ) return
   write(SIGNALS_KEY, SIGNALS_EVENT, next)
@@ -98,7 +90,6 @@ export function publishSidebarChatView(next: SidebarChatView): void {
   if (
     current &&
     current.focusedChatId === next.focusedChatId &&
-    current.focusedSessionId === next.focusedSessionId &&
     JSON.stringify(current.groups) === JSON.stringify(next.groups)
   ) return
   write(VIEW_KEY, VIEW_EVENT, next)

@@ -51,14 +51,12 @@ describe('session view requests (#7167 聊天页模式按钮 → 会话页换展
     const opened: Array<[string, boolean]> = [];
     installSessionViewRequestBridge(target, {
       openChat: (chatId, beside) => opened.push([chatId, beside]),
-      openSession: ({ sessionId }, beside) => opened.push([sessionId, beside]),
     });
     const bridge = (target as unknown as Record<string, SessionViewRequestBridge>)[SESSION_VIEW_REQUEST_BRIDGE_KEY];
     bridge.request('conv-4', 'code');
     expect(sessionViewRequests.take('conv-4')).toBe('code');
     // gugu-dev#181 打开一条对话交给装桥时接上的那一下(这屏)。
     bridge.openChat('chat-1', true);
-    bridge.openSession({ projectId: 'p-1', sessionId: 's-1' }, false);
-    expect(opened).toEqual([['chat-1', true], ['s-1', false]]);
+    expect(opened).toEqual([['chat-1', true]]);
   });
 });

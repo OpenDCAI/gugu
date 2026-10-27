@@ -89,6 +89,46 @@ function projectManagerWithSessions(
 }
 
 describe('SidebarStore project ordering', () => {
+  it('counts a projectless child once when its workspace is also folded into a project group (#574)', () => {
+    const home = IMPLICIT_SESSION_HOME_PROJECT_ID;
+    const row = 'hydration-project';
+    const parent = 'hydration-parent';
+    const child = 'hydration-child';
+    sessionRegistry.acquire(parent, row, [{
+      id: parent, projectId: row, providerId: 'codex', title: 'Parent', runtime: 'pty',
+      lastInteractedAt: '2026-01-01T00:00:02.000Z', agentStatus: null,
+    }]);
+    sessionRegistry.acquire(child, home, [{
+      id: child, projectId: home, providerId: 'codex', title: 'Child', runtime: 'pty',
+      lastInteractedAt: '2026-01-01T00:00:01.000Z', agentStatus: 'needs_user', parentSessionId: parent,
+    }]);
+    const store = new SidebarStore(projectManagerWithSessions([
+      { id: row, createdAt: '2026-01-01T00:00:00.000Z', sessionIds: [parent] },
+      { id: home, createdAt: '2026-01-01T00:00:00.000Z', sessionIds: [child] },
+    ]));
+    store.machines = {
+      machineOf: () => null, label: () => null, homeDir: () => null,
+      projectGroupOf: () => 'shared-project-chat',
+      projectGroupRepresentativeOf: (id) => id === row,
+    };
+    try {
+      // Both page registries are unique. The aggregation reads the child through
+      // the folded project and again through standaloneOwnEntries().
+      expect(store.homeLayout.folded.get(row)).toEqual([home]);
+      expect(sessionRegistry.get(child)?.sessions.size).toBe(1);
+      store.ensureProjectExpanded(row);
+      store.toggleSessionExpanded(parent);
+      expect(store.needsYouCountForProject(row)).toBe(1);
+      expect(store.projectsNeedYouCount).toBe(1);
+      expect(store.sidebarRows.filter((entry) => entry.kind === 'conversation').map((entry) => entry.sessionId))
+        .toEqual([parent, child]);
+      expect(store.standaloneSessionEntries).toEqual([]);
+    } finally {
+      sessionRegistry.release(parent);
+      sessionRegistry.release(child);
+    }
+  });
+
   it('persists and restores expanded conversation rows', () => {
     const source = new SidebarStore(projectManager([]));
     source.toggleSessionExpanded('parent-conversation');

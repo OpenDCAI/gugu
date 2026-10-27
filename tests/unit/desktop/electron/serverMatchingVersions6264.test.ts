@@ -43,7 +43,9 @@ import {
 import {
   createAccountVersionConverger,
   VERSION_FAILURE_COOLDOWN_MS,
+  VERSION_NOT_PUBLISHED_MAX_RETRY_MS,
   VERSION_NOT_PUBLISHED_RETRY_MS,
+  notPublishedRetryMs,
 } from '../../../../apps/desktop/electron/server/server-account-converge'
 import { listAccounts } from '../../../../apps/desktop/electron/server/server-layout'
 import { readBadVersions } from '../../../../apps/desktop/electron/server/server-upgrade-guard'
@@ -94,6 +96,8 @@ describe('目标版本:用这台机器的桌面里最新的那一台', () => {
     }
     expect(pickTargetVersion(reports, NOW)).toBe('0.2.160')
     expect(pickTargetVersion({}, NOW)).toBeNull()
+    // 下载站上没有的那一版让位给次新的。
+    expect(pickTargetVersion(reports, NOW, undefined, (v) => v === '0.2.160')).not.toBe('0.2.160')
   })
 
   it('版本号逐段比,正式版比同号的预发版新', () => {
@@ -176,6 +180,17 @@ describe('planAccountVersion', () => {
     expect(planAccountVersion({ ...base, reports, running: '0.3.0', installed: () => false, failed: () => true })).toEqual({ kind: 'failed', version: '0.2.9' })
     expect(planAccountVersion({ ...base, reports, running: '0.3.0', failed: () => true })).toEqual({ kind: 'failed', version: '0.2.9' })
     expect(planAccountVersion({ ...base, reports, running: '0.3.0', failed: () => true, switchRequested: true }).kind).toBe('switch')
+  })
+  it('目标版本下载站上没有:退回次新的那一版;一版都不剩就跟守护进程', () => {
+    const reports = { a: { version: '0.2.9', protocol: 2, at: NOW }, b: { version: '0.3.1', protocol: 2, at: NOW } }
+    const unpublished = (v: string) => v === '0.3.1'
+    expect(planAccountVersion({ ...base, reports, running: '0.3.0', installed: () => false })).toEqual({ kind: 'stage', version: '0.3.1' })
+    expect(planAccountVersion({ ...base, reports, running: '0.3.0', unpublished })).toEqual({ kind: 'switch', version: '0.2.9', urgent: false })
+    expect(planAccountVersion({ ...base, reports: { b: reports.b }, running: '0.3.0', fallback: '0.3.0', unpublished }).kind).toBe('none')
+  })
+  it('再看的间隔:5 分钟起,每次翻倍,最多 6 小时', () => {
+    expect([1, 2, 3, 4].map(notPublishedRetryMs)).toEqual([5, 10, 20, 40].map((m) => m * 60_000))
+    expect(notPublishedRetryMs(100)).toBe(VERSION_NOT_PUBLISHED_MAX_RETRY_MS)
   })
 })
 
@@ -329,7 +344,7 @@ describe('守护进程:各账号各跑各的版本,换版只重启那一个账�
     expect(update().reason).toBeUndefined()
   })
 
-  it('下载站上还没有这一版(server 包比桌面包晚发):❌ 冷却,设备行照旧「正在下载」,5 分钟后再取;真失败照旧冷却 6 小时', async () => {
+  it('下载站上还没有这一版(server 包比桌面包晚发):❌ 冷却,先让位给能装的那一版,5 分钟后再取;真失败照旧冷却 6 小时', async () => {
     signIn(U1)
     installVersion('0.3.0')
     report(U1, 'dev', '0.3.1')
@@ -356,7 +371,8 @@ describe('守护进程:各账号各跑各的版本,换版只重启那一个账�
     t += VERSION_NOT_PUBLISHED_RETRY_MS - 1
     c.converge(listAccounts())
     expect(staged).toEqual(['0.3.1'])
-    expect(update()).toMatchObject({ state: 'downloading', version: '0.3.1' })
+    // 等 0.3.1 发出来的这几分钟里它让位:没有别的报告 ⇒ 跟守护进程 0.3.0,账号已经在跑 ⇒ 设备行没有待办。
+    expect(fs.existsSync(path.join(dataDir(U1), 'server-update.json'))).toBe(false)
     // 5 分钟到了、包也发出来了:再取一次,装好。
     t += 1
     outcome = 'ok'
@@ -374,6 +390,43 @@ describe('守护进程:各账号各跑各的版本,换版只重启那一个账�
     c.converge(listAccounts())
     expect(staged).toEqual(['0.3.1', '0.3.1', '0.3.2'])
     expect(update()).toMatchObject({ state: 'failed', version: '0.3.2' })
+  })
+
+  it('下载站上一直没有的版本(没打后缀的测试包):退回次新的那一版,再看的间隔翻倍到 6 小时,❌ 每 5 分钟 404 一次', async () => {
+    signIn(U1)
+    for (const v of ['0.3.0', '0.2.9']) installVersion(v)
+    report(U1, 'alice-mbp', '0.2.9')
+    report(U1, 'test-pkg', '0.3.1')
+    let t = NOW
+    const staged: number[] = []
+    const switched: string[] = []
+    let running = '0.3.0'
+    const c = createAccountVersionConverger({
+      layout: { home, versions: path.join(home, 'versions'), version: '0.3.0' },
+      log: quietLog,
+      running: () => running,
+      restart: (userId) => {
+        switched.push(userId)
+        running = JSON.parse(fs.readFileSync(path.join(dataDir(userId), 'server-version.json'), 'utf8')).version
+      },
+      now: () => t,
+      busy: () => false,
+      stage: async () => {
+        staged.push(t - NOW)
+        throw new VersionNotPublishedError('404')
+      },
+    })
+    // 每分钟一轮,跑 8 小时。
+    for (let minute = 0; minute <= 8 * 60; minute += 1) {
+      t = NOW + minute * 60_000
+      c.converge(listAccounts())
+      await flush()
+    }
+    const min = 60_000
+    expect(staged).toEqual([0, 5, 15, 35, 75, 155, 315].map((m) => m * min))
+    // 404 之后当场换去次新的 0.2.9(空闲),❌ 一直停在守护进程那一版等。
+    expect(switched).toEqual([U1])
+    expect(running).toBe('0.2.9')
   })
 
   it('上一个守护进程留下的「更新没成功」:换了守护进程、账号已跑在目标版本上 ⇒ 第一轮就清掉,❌ 挂到过期', () => {
@@ -643,11 +696,18 @@ describe('「更新没成功」随心跳报到设备行', () => {
 describe('测试环境:桌面报给 server 的版本可覆盖', () => {
   it('正式版报自己的版本;开发(没打包)或用测试下载站时 GUGU_SERVER_MATCH_VERSION 覆盖;打包的正式版忽略它', () => {
     const env = { GUGU_APP_VERSION: '0.2.50', GUGU_SERVER_MATCH_VERSION: '0.2.161' }
-    expect(reportedDesktopVersion({ GUGU_APP_VERSION: '0.2.160' }, { packaged: true })).toBe('0.2.160')
-    expect(reportedDesktopVersion(env, { packaged: false })).toBe('0.2.161')
-    expect(reportedDesktopVersion({ ...env, GUGU_SERVER_DOWNLOAD_BASE: 'http://203.0.113.10:30027' }, { packaged: true })).toBe('0.2.161')
-    expect(reportedDesktopVersion(env, { packaged: true })).toBe('0.2.50')
-    expect(reportedDesktopVersion({ ...env, GUGU_SERVER_MATCH_VERSION: '../x' }, { packaged: false })).toBe('0.2.50')
+    const published = true
+    expect(reportedDesktopVersion({ GUGU_APP_VERSION: '0.2.160' }, { packaged: true, published })).toBe('0.2.160')
+    expect(reportedDesktopVersion(env, { packaged: false, published })).toBe('0.2.161')
+    expect(reportedDesktopVersion({ ...env, GUGU_SERVER_DOWNLOAD_BASE: 'http://203.0.113.10:30027' }, { packaged: true, published })).toBe('0.2.161')
+    expect(reportedDesktopVersion(env, { packaged: true, published })).toBe('0.2.50')
+    expect(reportedDesktopVersion({ ...env, GUGU_SERVER_MATCH_VERSION: '../x' }, { packaged: false, published })).toBe('0.2.50')
+  })
+  it('不是发布流水线出的包(开发实例、本地打的测试包):❌ 报自己的版本号 —— 那个号下载站上从来没有;显式覆盖照旧', () => {
+    const published = false
+    expect(reportedDesktopVersion({ GUGU_APP_VERSION: '0.2.58' }, { packaged: true, published })).toBeNull()
+    expect(reportedDesktopVersion({ GUGU_APP_VERSION: '0.2.58' }, { packaged: false, published })).toBeNull()
+    expect(reportedDesktopVersion({ GUGU_APP_VERSION: '0.2.58', GUGU_SERVER_MATCH_VERSION: '0.2.58-beta.1042.1' }, { packaged: false, published })).toBe('0.2.58-beta.1042.1')
   })
 })
 

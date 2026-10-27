@@ -10,15 +10,12 @@
 //     envelope says to answer in its own session instead.
 //   · In a direct chat with a person the agent can never join: the card stays there and the agent gets the plain
 //     words — its answer is its own session.
-//   · In a project group (OpenDCAI/gugu#446) the task lives in a topic opened off the card, and the agent's seat in the
-//     group turns passive: the first turn is that topic's delivery envelope (task-card-topic.ts).
 import { listAgents } from '@gugu/core'
 import type { GuguIdentity } from '@gugu/core/local/agent/deliveryEnvelope'
 import { buildAgentDeliveryEnvelope } from '@gugu/core/local/agent/deliveryEnvelope'
 import { serializeComposerCard } from '@gugu/core/shared/ui/taskCardModels'
 import { makeChatClient, makeIdentityClient } from '../supabase'
 import { awaitSessionpageCloudIdentity } from './emdash-agent-provisioning'
-import { isProjectGroup, landTaskTopic } from './task-card-topic'
 
 export interface TaskCardFirstTurnInput {
   auth: { accessToken: string; userId: string }
@@ -37,7 +34,7 @@ export interface TaskCardFirstTurnInput {
 
 /** `envelope` = the first turn is a chat delivery the agent answers in that chat; otherwise plain words. */
 export interface TaskCardFirstTurn {
-  /** Where the agent answers: the chat the card is in, or in a project group the topic opened off the card. */
+  /** Where the agent answers: the chat the card is in. */
   chatId: string
   firstTurn: string
   envelope: boolean
@@ -46,10 +43,6 @@ export interface TaskCardFirstTurn {
 // 先看再发:没进群时 message_send 必然被拒,而有的 harness 把一次失败的咕咕工具调用记成整轮失败(Codex 实测)。
 export const TASK_CARD_NOT_MEMBER_HINT =
   '这是你的任务卡。你加入这个群要等群主同意：交结果之前先用 message_members 看你是不是这个群的成员 —— 是，就照常在群里回、引用这张卡；还不是，就把结果直接回在你自己的会话里，不往群里发。'
-
-// 话题里回不能引用卡(卡在群里,引用只认同一条线上的消息)。
-export const TASK_CARD_TOPIC_HINT =
-  '这是你的任务卡，派活的人从卡上给你开了这个话题：每一轮都回在这个话题里，不用引用这张卡；群聊主线你不说话。'
 
 export async function landTaskCardFirstTurn(input: TaskCardFirstTurnInput): Promise<TaskCardFirstTurn> {
   const text = input.text.trim()
@@ -99,28 +92,6 @@ export async function landTaskCardFirstTurn(input: TaskCardFirstTurnInput): Prom
   const { data: seat, error: seatError } = await chat.from('chat_members')
     .select('user_id').eq('chat_id', input.chatId).eq('user_id', input.agentUserId).maybeSingle()
   if (seatError) throw new Error(`task card for ${input.sessionId}: read the agent's seat: ${seatError.message}`)
-  const owner = { accessToken: input.auth.accessToken, ownerUserId: input.auth.userId }
-  if (seat && await isProjectGroup({ ...owner, projectId: input.projectId, chatId: input.chatId, env: input.env })) {
-    const topic = await landTaskTopic({ ...owner, chatId: input.chatId, messageId: input.messageId, agentUserId: input.agentUserId, text })
-    const envelope = buildAgentDeliveryEnvelope(
-      {
-        guguUserId: input.agentUserId,
-        chatId: topic.chatId,
-        messageId: input.messageId,
-        senderUserId: input.auth.userId,
-        content: text,
-        replyTo: null,
-        threadRootId: null,
-      },
-      input.senderIdentities,
-      { publicId: topic.publicId, name: topic.name, kind: 'topic' },
-      input.timestamp,
-      null,
-      undefined,
-      { messageContext: TASK_CARD_TOPIC_HINT },
-    )
-    return { chatId: topic.chatId, firstTurn: envelope, envelope: true }
-  }
   const envelope = buildAgentDeliveryEnvelope(
     {
       guguUserId: input.agentUserId,

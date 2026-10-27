@@ -26,6 +26,7 @@
 .gg-folder-card__toggle {
   height: auto;
   min-width: 0;
+  max-width: 100%;
   padding: 0;
   border: 0;
   background: transparent;
@@ -164,6 +165,12 @@
   color: var(--live);
 }
 .gg-folder-paper__fresh {
+  /* 窄栏里纸跟着收窄:「刚挂上」让位给机器标签和勾,挤不下就省略。 */
+  flex: 0 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
   font-size: var(--font-size-xs);
   line-height: 16px;
   font-weight: 600;
@@ -268,10 +275,13 @@
   text-overflow: ellipsis;
 }
 .gg-folder-card__meta {
+  max-width: 100%;
   font-size: var(--font-size-sm);
   line-height: 18px;
   color: var(--muted-fg);
+  overflow: hidden;
   white-space: nowrap;
+  text-overflow: ellipsis;
 }
 .gg-folder-card__meta .is-running {
   color: var(--live);
@@ -355,7 +365,10 @@
   font-size: var(--font-size-sm);
   line-height: 18px;
   color: var(--live);
+  max-width: 100%;
+  overflow: hidden;
   white-space: nowrap;
+  text-overflow: ellipsis;
   opacity: 0;
   transition: opacity var(--dur-med);
   pointer-events: none;

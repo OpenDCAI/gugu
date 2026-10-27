@@ -163,8 +163,8 @@ export const SidebarSessionItem = observer(function SidebarSessionItem({
     sessionKeyboardNav.syncCursorFromPointer({ kind: 'conversation', projectId, sessionId });
     // ⌘ 点 = 并排放在正看着那块的右边(spec session-page「一屏几块」);只在看这屏的视图上才有「正看着那块」。
     if (beside && isScreenView(appState.navigation.currentViewId)) {
-      showSessionBeside({ projectId, sessionId });
-      openSessionInSessionWhenReady({ projectId, sessionId });
+      // The block is placed only once the task can open: one that never gets ready leaves nothing behind.
+      openSessionInSessionWhenReady({ projectId, sessionId, onReady: () => showSessionBeside({ projectId, sessionId }) });
       return;
     }
     navigate('session', { projectId, sessionId: sessionId });

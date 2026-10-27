@@ -1,10 +1,11 @@
 // @vitest-environment jsdom
 import { act } from 'react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import { ProjectTopics } from '../../../../apps/desktop/src/components/ChatListSlotHost'
+import { ChatListSlotHost } from '../../../../apps/desktop/src/components/ChatListSlotHost'
 import { ChatListPanel } from '../../../../apps/desktop/src/components/ChatListPanel'
+import { installAssistantShellBridge, publishAssistantShell, type AssistantShellSnapshot } from '../../../../apps/desktop/src/lib/assistantShellBridge'
 import { drainTopicSplitRequest } from '../../../../apps/desktop/src/lib/topicSplitRequest'
-import { publishSidebarChatSignals, sidebarChatSignals, useSidebarChatSignals } from '../../../../apps/desktop/src/lib/sidebarChatsBridge'
+import { useSidebarChatSignals } from '../../../../apps/desktop/src/lib/sidebarChatsBridge'
 import { installSessionViewRequestBridge } from '../../../../apps/desktop/src/session/renderer/features/sessions/stores/session-view-requests'
 import { chat, clickElement, createNode, createReactHarness, renderWithAppProviders } from '../../../support/testHarness'
 
@@ -15,7 +16,7 @@ const openChat = vi.fn()
 beforeEach(() => {
   harness = createReactHarness()
   openChat.mockReset()
-  installSessionViewRequestBridge(window, { openChat, openSession: vi.fn() })
+  installSessionViewRequestBridge(window, { openChat })
 })
 afterEach(() => harness.cleanup())
 
@@ -27,10 +28,8 @@ const topics = Array.from({ length: 5 }, (_, index) => chat({
 const rows = () => Array.from(harness.container.querySelectorAll<HTMLElement>('[data-topic-subrow]'))
 
 describe('shared sidebar topic branches', () => {
-  it.each(['project', 'group'] as const)('%s reveals read topics inline and opens the existing source/split path', async (kind) => {
-    const node = kind === 'project'
-      ? createNode(ProjectTopics, { sourceChatId: source.id })
-      : createNode(ChatListPanel, { placement: 'sidebar' })
+  it('a group reveals read topics inline and opens the existing source/split path', async () => {
+    const node = createNode(ChatListPanel, { placement: 'sidebar' })
     const markMessageVisible = vi.fn()
     const render = (unread: number) => renderWithAppProviders(harness, node, {
       chat: { chats: [source, ...topics.map((topic) => ({ ...topic, unread_count: topic.id === 'topic-4' ? unread : 0 }))], markMessageVisible },
@@ -52,18 +51,21 @@ describe('shared sidebar topic branches', () => {
     expect(rows().at(-1)?.textContent).not.toContain('8')
   })
 
-  it('publishes mainline unread changes even when the project aggregate is unchanged', async () => {
-    const projectGroups = new Set([source.id])
-    function Badge() {
-      const signals = useSidebarChatSignals()
-      return <span>{signals?.groupMainUnread.get(source.id) ?? 0}/{signals?.groupUnread.get(source.id) ?? 0}</span>
-    }
-    await harness.render(createNode(Badge))
-    await act(async () => publishSidebarChatSignals(sidebarChatSignals([source, ...topics], projectGroups)))
-    expect(harness.container.textContent).toBe('0/8')
-    await act(async () => publishSidebarChatSignals(sidebarChatSignals([
-      { ...source, unread_count: 3 }, { ...topics[4], unread_count: 5 },
-    ], projectGroups)))
-    expect(harness.container.textContent).toBe('3/8')
-  })
+})
+
+
+it('updates the badge when the assistant is identified while the conversation list is unmounted', async () => {
+  installAssistantShellBridge(window)
+  const snapshot = { assistantState: 'loading', assistant: null, chatId: null } as AssistantShellSnapshot
+  publishAssistantShell(snapshot)
+  const chats = [chat({ id: 'assistant-dm', kind: 'dm', peer_user_id: 'mine', unread_count: 1 }), chat({ id: 'ordinary', unread_count: 2 })]
+  function Probe() {
+    const signals = useSidebarChatSignals()
+    return <><ChatListSlotHost /><span data-testid="published-unread">{signals?.chatsUnread}</span></>
+  }
+  await renderWithAppProviders(harness, createNode(Probe), { chat: { chats } })
+  expect(harness.container.querySelector('[data-testid="published-unread"]')?.textContent).toBe('3')
+  await act(async () => publishAssistantShell({ ...snapshot, assistantState: 'found', assistant: { id: 'mine', display_name: 'Assistant', avatar: null, created_at: null }, chatId: 'assistant-dm' }))
+  expect(harness.container.querySelector('[data-testid="published-unread"]')?.textContent).toBe('2')
+  expect(chats[0]?.unread_count).toBe(1)
 })

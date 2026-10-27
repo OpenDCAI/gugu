@@ -228,7 +228,7 @@ describe('createSession:所选 harness 在这台机器上还没装', () => {
     expect(state.createParams[1]).not.toHaveProperty('birthGroup');
   });
 
-  // OpenDCAI/gugu#446 手机在项目里派任务:首句落成那个群里的任务卡(稳定 id 回给手机,话题从卡上开),agent 坐任务座位。
+  // OpenDCAI/gugu#446 手机在项目里派任务:首句落成那个群里的任务卡(稳定 id 回给手机),agent 坐任务座位。
   it('派任务:首句带上卡的稳定 id 与派出的群,进群坐任务座位,卡的 id 回给发起方', async () => {
     const result = await createSession(
       { projectId: 'proj-1', harness: 'codex', prompt: '修好登录页', sessionView: 'general', chatId: 'chat-project-1', taskChatId: 'chat-project-1' },
