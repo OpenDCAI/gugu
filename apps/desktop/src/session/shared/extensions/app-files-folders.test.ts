@@ -146,7 +146,7 @@ const { createAppFiles } = await import('./app-files-core');
 const files = createAppFiles({
   account: async () => ({ token: 'token', userId: PERSON }),
   hasCapability: () => true,
-  sync: { pageFor: () => ({}), grant: () => undefined, revoke: () => undefined, ungrant: () => undefined } as never,
+  sync: { ensureFor: () => undefined, pageFor: () => ({}), grant: () => undefined, revoke: () => undefined, ungrant: () => undefined } as never,
   // Every name is claimed by some App here: a folder still says no App opens it.
   claimant: () => ({ suffix: '.png', app: { id: 'viewer', name: 'Viewer', icon: null } }),
   identities: async (_token, ids) => ids.map((id) => ({ id, name: id === AGENT ? 'Helper' : 'Pat', avatar: null, kind: id === AGENT ? ('agent' as const) : ('human' as const) })),

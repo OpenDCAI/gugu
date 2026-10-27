@@ -234,7 +234,11 @@ export class SyncConnection {
 
   release(key: string): void {
     this.owners.delete(key);
-    if (this.owners.size === 0 && !this.idleTimer && this.state !== 'closed') {
+    this.scheduleIdleClose();
+  }
+
+  private scheduleIdleClose(): void {
+    if (!this.local && this.owners.size === 0 && !this.idleTimer && this.state !== 'closed') {
       this.idleTimer = setTimeout(() => {
         this.idleTimer = null;
         if (this.owners.size === 0 && this.relay.mayClose(this)) this.close(1000, 'idle');
@@ -260,6 +264,8 @@ export class SyncConnection {
       }, PONG_TIMEOUT_MS);
     }, PING_INTERVAL_MS);
     this.relay.socketOpened(this);
+    // An authorized opening may be cancelled before any provider claims the connection.
+    this.scheduleIdleClose();
   }
 
   private closed(code: number, reason: string): void {
@@ -657,7 +663,7 @@ export class FileSyncRelay {
   }
 
   /** The socket new open files of this identity go to — opening one when there is none, or the token is ending. */
-  private ensureFor(asAgent: string | null): SyncConnection | null {
+  ensureFor(asAgent: string | null): SyncConnection | null {
     const current = this.currents.get(identityKey(asAgent));
     if (current?.acceptsNewFiles) return current;
     if (!this.opening.has(identityKey(asAgent))) void this.openSocket(asAgent);

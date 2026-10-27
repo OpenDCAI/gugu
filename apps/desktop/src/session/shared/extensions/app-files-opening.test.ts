@@ -20,14 +20,15 @@ const identities = vi.fn(async () => [{ id: PERSON, name: 'Creator', kind: 'huma
 const claimant = vi.fn(() => ({ suffix: '.md', app: { id: 'workspace', name: 'Folder', icon: null } }));
 const warn = vi.fn();
 const grant = vi.fn<(page: unknown, grant: Grant) => void>();
+const ensureFor = vi.fn();
 const page = { pageId: 7, extensionId: 'workspace', itemId: ITEM };
 let files: ReturnType<typeof createAppFiles>;
 
 beforeEach(() => {
-  rpc.mockClear(); claimant.mockClear(); identities.mockClear(); warn.mockClear(); grant.mockClear();
+  rpc.mockClear(); claimant.mockClear(); identities.mockClear(); warn.mockClear(); grant.mockClear(); ensureFor.mockClear();
   files = createAppFiles({
     account: async () => ({ token: 'token', userId: PERSON }), hasCapability: () => true,
-    sync: { pageFor: () => ({}), grant, ungrant: vi.fn(), revoke: vi.fn() } as never,
+    sync: { ensureFor, pageFor: () => ({}), grant, ungrant: vi.fn(), revoke: vi.fn() } as never,
     claimant, identities, faces: async () => ({}), filesUrl: () => 'http://files.invalid', warn,
   });
 });
@@ -69,6 +70,38 @@ it('reads the existing sync identity alongside click authorization, then reuses 
   await files.open(page, { ref: { chat: CHAT, id: ITEM }, deferDetails: true }, target.opening);
   expect(identities).toHaveBeenCalledOnce();
   expect(rpc.mock.calls.map(([name]) => name)).toEqual(['workspace_get_as']);
+});
+
+it('starts the shared connection only after authorization, while the parallel identity read is pending', async () => {
+  let resolveRow!: (value: { data: typeof row[]; error: null }) => void;
+  rpc.mockImplementationOnce(() => {
+    const requested = new Promise<{ data: typeof row[]; error: null }>((resolve) => { resolveRow = resolve; });
+    return Object.assign(requested, { select: vi.fn((_columns: string) => requested) });
+  });
+  let identity!: (value: Awaited<ReturnType<typeof identities>>) => void;
+  identities.mockImplementationOnce(() => new Promise((resolve) => { identity = resolve; }));
+  const requested = files.openTarget(page, { ref: { id: ITEM } });
+  await vi.waitFor(() => expect(identities).toHaveBeenCalled());
+  expect(ensureFor).not.toHaveBeenCalled();
+  resolveRow({ data: [row], error: null });
+  await vi.waitFor(() => expect(ensureFor).toHaveBeenCalledWith(null));
+  expect(grant).not.toHaveBeenCalled();
+  identity([{ id: PERSON, name: 'Creator', kind: 'human', avatar: null }]);
+  await requested;
+});
+
+it('does not start a connection when the file authorization is refused', async () => {
+  const denied = Promise.resolve({ data: null, error: { code: '42501', message: 'denied' } });
+  rpc.mockImplementationOnce(() => Object.assign(denied, { select: vi.fn(() => denied) }) as never);
+  await expect(files.openTarget(page, { ref: { id: ITEM } })).rejects.toThrow();
+  expect(ensureFor).not.toHaveBeenCalled();
+});
+
+it('starts the same connection identity as the authorized agent opening', async () => {
+  const agent = '22222222-2222-4222-8222-222222222222';
+  const target = await files.openTarget({ ...page, asAgent: agent }, { ref: { id: ITEM } });
+  expect(ensureFor).toHaveBeenCalledExactlyOnceWith(agent);
+  expect(target.opening?.actor).toBe(agent);
 });
 
 it('does not extend the authorization lifetime while the parallel identity read is pending', async () => {

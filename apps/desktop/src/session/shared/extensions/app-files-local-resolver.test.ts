@@ -11,7 +11,7 @@ function fixture() {
   const dispose = vi.fn(async () => {}), snapshot: FileBytes = { size: bytes.length, read: async (offset, length) => bytes.slice(offset, offset + length), dispose };
   const open = vi.fn(async () => snapshot);
   const resolve = createFileResolver({ local: async context => context.actor.actorId === owner && ('item_id' in context.ref && context.ref.item_id === revision.item_id) ? { revision, open } : null, metadata: never, managed: never, ssh: never, temporary: never });
-  const platform: FilesPlatform = { account: never, identities: never, faces: never, hasCapability: () => true, sync: {} as never, filesUrl: () => { throw Error('No file service for a local read'); }, warn: never,
+  const platform: FilesPlatform = { account: never, identities: never, faces: never, hasCapability: () => true, sync: { ensureFor: () => undefined,} as never, filesUrl: () => { throw Error('No file service for a local read'); }, warn: never,
     resolveFile: async (ref, actor, options) => resolve({ item_id: 'id' in ref ? ref.id : revision.item_id!, version: options.version }, { accountId: owner, actorId: actor ?? owner }, { localOnly: true }),
   };
   return { files: createAppFiles(platform), never, open, dispose, platform };

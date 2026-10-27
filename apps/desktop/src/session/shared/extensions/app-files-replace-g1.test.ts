@@ -81,7 +81,7 @@ const can = { write: true };
 const files = createAppFiles({
   account: async () => ({ token: 'token', userId: ME }),
   hasCapability: (_id, capability) => capability === 'files:read' || can.write,
-  sync: { pageFor: () => ({}), grant: () => undefined, revoke: () => undefined, ungrant: () => undefined } as never,
+  sync: { ensureFor: () => undefined, pageFor: () => ({}), grant: () => undefined, revoke: () => undefined, ungrant: () => undefined } as never,
   identities: async () => [],
   faces: async () => ({}),
   filesUrl: () => 'http://files.invalid',

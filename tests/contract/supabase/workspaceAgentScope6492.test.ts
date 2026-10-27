@@ -133,7 +133,7 @@ const client = {
 }
 vi.mock('@gugu/core/cloud/supabase', () => ({ createGuguSupabaseClient: () => client }))
 vi.mock('@main/core/extensions/account-token', () => ({ currentAccountAccessToken: async () => `h.${Buffer.from(JSON.stringify({ sub: current!.owner })).toString('base64url')}.s` }))
-vi.mock('@main/core/extensions/file-sync', () => ({ fileSync: {} }))
+vi.mock('@main/core/extensions/file-sync', () => ({ fileSync: { ensureFor: () => undefined } }))
 vi.mock('@main/lib/logger', () => ({ log: { warn: () => undefined } }))
 const { handedChatsAs } = await import('../../../apps/desktop/electron/session/main/core/extensions/extension-program-surface')
 
@@ -182,7 +182,7 @@ function agentFiles(w: World) {
   const files = createAppFiles({
     account: async () => ({ token: 'owner-token', userId: w.owner }),
     hasCapability: () => true,
-    sync: { pageFor: () => ({}), grant: () => undefined, revoke: () => undefined, ungrant: () => undefined } as never,
+    sync: { ensureFor: () => undefined, pageFor: () => ({}), grant: () => undefined, revoke: () => undefined, ungrant: () => undefined } as never,
     identities: async () => [],
     faces: async () => ({}),
     filesUrl: () => 'http://files.invalid',
