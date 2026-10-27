@@ -19,7 +19,7 @@ beforeEach(() => {
 afterEach(() => harness.cleanup())
 
 async function render(disabled = false, chatId: string | undefined = 'project-group') {
-  await harness.render(createElement(ProjectRowContextMenu, { disabled, chatId, projectId: 'project', onRemove: vi.fn(),
+  await harness.render(createElement(ProjectRowContextMenu, { disabled, chatId, onRemove: vi.fn(),
     children: createElement('span', { 'data-testid': 'project-row' }, 'Project') }))
   await act(async () => {
     harness.container.querySelector('[data-testid=project-row]')!.dispatchEvent(new MouseEvent('contextmenu', {
@@ -35,7 +35,7 @@ describe('project row menu across the two React roots', () => {
     const read = document.querySelector<HTMLElement>('[data-testid=conversation-row-mark-read]')!
     expect(read.getAttribute('aria-disabled')).not.toBe('true')
     expect([...document.querySelectorAll('[role=menuitem]')].map((item) => item.getAttribute('data-testid')))
-      .toEqual(['conversation-row-copy-resource-url', 'conversation-row-send-resource-url', 'conversation-row-mark-read', 'conversation-row-remove-project'])
+      .toEqual(['conversation-row-mark-read', 'conversation-row-remove-project'])
     await clickElement(read)
     expect(takeShellChatAction((value): value is typeof value => true)).toEqual({ kind: 'mark-read', chatId: 'project-group' })
     expect(document.querySelector('[role=menu]')).toBeNull()

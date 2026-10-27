@@ -23,7 +23,7 @@ export function ChatRowContextMenu({ chat, onPin, onSetNotificationLevel, onDele
   const { t } = useTranslation('messaging')
   const { toast } = useToast()
   const markRead = useMarkChatsRead()
-  return <ConversationRowContextMenu {...menu} resource={{ kind: 'chat', target: { kind: 'chat', chatId: chat.id } }} state={{ kind: 'chat', pinned: chat.is_pinned,
+  return <ConversationRowContextMenu {...menu} state={{ kind: 'chat', pinned: chat.is_pinned,
     notificationsMuted: chat.notification_level === 'none', hasUnread: hasUnreadInRows(chatsInReadScope(chats, chat.id)), hasAnyUnread: hasUnreadInRows(chats) }}
     onAction={(action) => {
       if (action === 'mark-read') markRead(chat.id)

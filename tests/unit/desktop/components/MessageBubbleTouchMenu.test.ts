@@ -67,18 +67,27 @@ describe('MessageBubble touch menu', () => {
     expect(writeText).toHaveBeenCalledWith('hello')
     expect(toast).toHaveBeenCalledWith('已复制', 'success')
   })
-  it('keeps external-link copying alongside the distinct message resource URL pair', async () => {
+  it('keeps external-link copying without resource actions on ordinary messages', async () => {
     const writeText = vi.fn(async (_text: string) => {})
     Object.defineProperty(navigator, 'clipboard', { value: { writeText }, configurable: true })
     const toast = vi.fn()
-    await renderMessage(toast, true, vi.fn(), { id: '01234567-1234-1234-1234-123456789abc', chat_id: '12345678-1234-1234-1234-123456789abc', content: 'before https://example.com/path?copy=1025 after' })
+    await renderMessage(toast, true, vi.fn(), { content: 'before https://example.com/path?copy=1025 after' })
     await longPress(messageBubble().querySelector('a')!)
     expect(document.querySelector('[data-testid="message-action-openLink"]')).not.toBeNull()
-    await clickElement(document.querySelector('[data-testid="message-action-copy-resource-url"]')!)
-    expect(writeText.mock.calls[0][0]).toMatch(/^gugu-chat:\/\//)
-    await longPress(messageBubble().querySelector('a')!)
+    expect(document.querySelector('[data-testid="message-action-copy-resource-url"]')).toBeNull()
+    expect(document.querySelector('[data-testid="message-action-send-resource-url"]')).toBeNull()
     await clickElement(document.querySelector('[data-testid="message-action-copyLink"]')!)
     expect(writeText).toHaveBeenLastCalledWith('https://example.com/path?copy=1025')
+  })
+  it('offers one resource pair for an attachment file and copies its pinned version', async () => {
+    const writeText = vi.fn(async (_text: string) => {})
+    Object.defineProperty(navigator, 'clipboard', { value: { writeText }, configurable: true })
+    await renderMessage(undefined, true, vi.fn(), { content: '[附件] notes.txt (text/plain)\n[Size] 12\n[Kind] file', file: { id: '12345678-1234-1234-1234-123456789abc', version: 3 } })
+    await longPress()
+    expect(document.querySelectorAll('[data-testid="message-action-copy-resource-url"]')).toHaveLength(1)
+    expect(document.querySelectorAll('[data-testid="message-action-send-resource-url"]')).toHaveLength(1)
+    await clickElement(document.querySelector('[data-testid="message-action-copy-resource-url"]')!)
+    expect(writeText).toHaveBeenCalledWith('gugu-file://12345678-1234-1234-1234-123456789abc?v=3')
   })
   it('opens a link through its existing anchor action', async () => {
     await renderMessage(undefined, true, vi.fn(), { content: 'before https://example.com/path after' })
@@ -366,7 +375,7 @@ describe('MessageBubble touch menu', () => {
     expect(document.querySelectorAll('[role="menu"]')).toHaveLength(1)
     expect(document.querySelector('[aria-label="快速回应"]')).toBeNull()
     expect(document.querySelector('[aria-label="更多表情"]')).toBeNull()
-    expect([...document.querySelectorAll('[role="menuitem"]')].map((el) => el.textContent?.trim())).toEqual(['回复', '复制文本', '复制咕咕 URL', '复制 URL 并发给…', '转发', '删除'])
+    expect([...document.querySelectorAll('[role="menuitem"]')].map((el) => el.textContent?.trim())).toEqual(['回复', '复制文本', '转发', '删除'])
     await clickElement(menuItem('回复'))
     expect(onQuote).toHaveBeenCalledWith(expect.objectContaining({ id: 'msg-1' }))
     expect(document.querySelector('[role="menu"]')).toBeNull()
@@ -433,9 +442,8 @@ async function renderMessage(
   compactMobile = true,
   onReaction = vi.fn(),
   options: {
-    id?: string
-    chat_id?: string
     content?: string
+    file?: { id: string; version: number }
     isMine?: boolean
     isAgent?: boolean
     isGroup?: boolean
@@ -451,9 +459,9 @@ async function renderMessage(
     harness,
     createNode(MessageBubble, {
       msg: message({
-        id: options.id ?? 'msg-1',
-        ...(options.chat_id ? { chat_id: options.chat_id } : {}),
+        id: 'msg-1',
         content: options.content ?? 'hello from mobile',
+        ...(options.file ? { content_type: 'attachment', file_item_id: options.file.id, file_version: options.file.version } as const : {}),
         is_mine: isMine,
         sender_user_id: 'sender-1',
         created_at: '2026-05-24T00:00:00.000Z',

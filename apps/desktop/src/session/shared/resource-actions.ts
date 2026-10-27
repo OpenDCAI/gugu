@@ -23,30 +23,10 @@ export const RESOURCE_TEMPLATES = {
     { id: 'check', labelKey: 'resources.fileCheck', textKey: 'resources.fileCheckText' },
     { id: 'edit', labelKey: 'resources.fileEdit', textKey: 'resources.fileEditText' },
   ],
-  message: [
-    { id: 'explain', labelKey: 'resources.messageExplain', textKey: 'resources.messageExplainText' },
-    { id: 'followup', labelKey: 'resources.messageFollowup', textKey: 'resources.messageFollowupText' },
-    { id: 'reply', labelKey: 'resources.messageReply', textKey: 'resources.messageReplyText' },
-  ],
-  session: [
-    { id: 'progress', labelKey: 'resources.taskProgress', textKey: 'resources.taskProgressText' },
-    { id: 'blockers', labelKey: 'resources.taskBlockers', textKey: 'resources.taskBlockersText' },
-    { id: 'next', labelKey: 'resources.taskNext', textKey: 'resources.taskNextText' },
-  ],
-  chat: [
-    { id: 'summary', labelKey: 'resources.chatSummary', textKey: 'resources.chatSummaryText' },
-    { id: 'followup', labelKey: 'resources.chatFollowup', textKey: 'resources.chatFollowupText' },
-    { id: 'rules', labelKey: 'resources.chatRules', textKey: 'resources.chatRulesText' },
-  ],
-  project: [
-    { id: 'summary', labelKey: 'resources.projectSummary', textKey: 'resources.projectSummaryText' },
-    { id: 'next', labelKey: 'resources.projectNext', textKey: 'resources.projectNextText' },
-    { id: 'blockers', labelKey: 'resources.projectBlockers', textKey: 'resources.projectBlockersText' },
-  ],
 } as const satisfies Record<string, readonly ResourceTemplate[]>
 export type ResourceKind = keyof typeof RESOURCE_TEMPLATES
 export interface ResourceContext {
   kind: ResourceKind
-  target: Exclude<GuguLinkTarget, { kind: 'server-login' }>
+  target: Extract<GuguLinkTarget, { kind: 'app-detail' | 'file' }>
   facts?: readonly ResourceRequirement[]
 }
