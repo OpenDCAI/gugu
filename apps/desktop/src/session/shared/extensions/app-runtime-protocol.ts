@@ -306,6 +306,8 @@ export function fileSearchOf(value: unknown): AppFileSearch {
 
 /** A file as the page sees it (`GuguFileEntry`) — itself a ref: `{ chat, id }` or `{ session, id }`. */
 export interface AppFileEntry {
+  /** Durable workspace namespaces, including app={publisher,id}; never an access restriction. */
+  metadata?: Record<string, unknown>;
   /** Author names and delete-menu eligibility are still being read; the file itself is already authorized. */
   detailsPending?: boolean;
   /** A chat file: its item id. A working-copy file: its path there (POSIX). */

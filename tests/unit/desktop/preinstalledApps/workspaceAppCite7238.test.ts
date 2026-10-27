@@ -97,7 +97,8 @@ const gugu = {
       return () => {}
     }),
   },
-  files: { list: vi.fn(async () => [entry]), onChanged: vi.fn(() => () => {}), open: vi.fn(async (handle: { id: string }): Promise<unknown> => (handle.id === 'cfg' ? config : handle.id === 'slow' ? slowFile() : file)) },
+  files: {
+    viewPreferences: vi.fn(async () => ({ showAppData: false })), list: vi.fn(async () => [entry]), onChanged: vi.fn(() => () => {}), open: vi.fn(async (handle: { id: string }): Promise<unknown> => (handle.id === 'cfg' ? config : handle.id === 'slow' ? slowFile() : file)) },
 }
 
 const $ = (id: string) => document.getElementById(id) as HTMLElement
