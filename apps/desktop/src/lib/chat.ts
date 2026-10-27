@@ -12,8 +12,7 @@ import {
   type DeviceTableClient,
   type DeviceRpcClient,
 } from '@gugu/core/cloud/devices'
-import { resolveSelfDeviceLabel } from './device-labels'
-import { cachedDevicesAccount, readCachedDevices } from '../store/devicesCache'
+import { mergeDeviceListSelf } from './deviceListSelf'
 import {
   dataClient,
   chatDb,
@@ -885,20 +884,7 @@ export const chatService = {
       platform.getLocalDeviceSelfSnapshot?.() ?? Promise.resolve(null),
       listCoreDevices(deviceTableClient(), ownerId, options) // @@@1962 按当前用户过滤设备(多账号同机不混入他人行);#7199 手机默认不在
     ])
-    if (!self) {
-      // 本机身份交接尚未结束时，云行没有 is_current_device；不能因此把本机接成远端，
-      // 下一次自查认回本机时 remote-hosts.forget 会连同已经载入的本机项目一起撤掉。
-      // 同账号缓存只证明设备身份；在线状态和项目仍取这次云端读数。
-      const cachedSelf = cachedDevicesAccount() === ownerId
-        ? readCachedDevices().find((device) => device.is_current_device === true)?.device_id
-        : undefined
-      return cachedSelf ? cloud.map((device) => ({ ...device, is_current_device: device.device_id === cachedSelf })) : cloud
-    }
-    const others = cloud.filter((device) => device.device_id !== self.device_id)
-    // 名字以云端行为准(见 resolveSelfDeviceLabel);在线性仍信本机 self。
-    const cloudSelf = cloud.find((device) => device.device_id === self.device_id)
-    const selfMerged = { ...self, label: resolveSelfDeviceLabel(self, cloudSelf?.label), machine_id: cloudSelf?.machine_id ?? null, is_current_device: true }
-    return [selfMerged, ...others.map((device) => ({ ...device, is_current_device: false }))]
+    return mergeDeviceListSelf(ownerId, self, cloud)
   },
 
   // #1749 rename/remove 走受控 RPC(core service)。
