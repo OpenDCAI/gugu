@@ -920,3 +920,57 @@ describe('joinsFoldRunAt:追加的那一轮会不会并进前面还没收尾的�
     expect(joinsFoldRunAt([ask, { ...spoke, startedAt: DAY * 3, endedAt: DAY * 3 + 1_000 }], 1, true)).toBe(false);
   });
 });
+
+describe('agent conversation process footer', () => {
+  const completed = () => turn('footer', [user('u'), thinking('think'), tool('call'), reply('answer')],
+    { kind: 'done', reason: 'end_turn' }, { startedAt: 1000, endedAt: 25000 });
+  it('binds the completed process to the reply instead of emitting a separate header', () => {
+    const units = flattenTier([completed()], ctxWith({ foldTurnProcess: true, agentConversation: true }), SEGMENTERS);
+    expect(kinds(units)).not.toContain('turn-process');
+    expect((units.find(unit => unit.itemId === 'answer')?.data as ChatMessage).conversationProcess)
+      .toEqual({ id: turnProcessId('footer'), startedAt: 1000, endedAt: 25000 });
+    expect(ids(units)).not.toContain('think');
+    expect(ids(units)).not.toContain('call');
+  });
+  it('expands the original steps below the reply using the existing process id', () => {
+    const units = flattenTier([completed()], ctxWith({ foldTurnProcess: true, agentConversation: true,
+      isTurnProcessExpanded: id => id === turnProcessId('footer'), revealAllFolds: false }), SEGMENTERS);
+    expect(ids(units).indexOf('answer')).toBeLessThan(ids(units).indexOf('think'));
+    expect(ids(units).indexOf('think')).toBeLessThan(ids(units).indexOf('call'));
+    expect(kinds(units)).not.toContain('turn-process');
+  });
+  it('folds live tools that arrive after the latest reply under the brain control', () => {
+    const running = turn('running', [user('u'), reply('answer'), tool('search')]);
+    const open = flattenTier([running], ctxWith({ active: true, foldTurnProcess: true, agentConversation: true }), SEGMENTERS);
+    expect(ids(open).indexOf('search')).toBeGreaterThan(ids(open).indexOf('answer'));
+    const closed = flattenTier([running], ctxWith({ active: true, foldTurnProcess: true, agentConversation: true,
+      isTurnProcessExpanded: () => true }), SEGMENTERS);
+    expect(ids(closed)).toContain('answer');
+    expect(ids(closed)).not.toContain('search');
+  });
+  it('updates one stable bubble from commentary to streamed result and completion', () => {
+    const initial = reply('commentary', '我现在去查一查。');
+    const running = (result?: ChatMessage, done = false) => turn('weather', [user('u'), initial, tool('search'), ...(result ? [result] : [])],
+      done ? { kind: 'done', reason: 'end_turn' } : undefined, { startedAt: 1000, ...(done ? { endedAt: 9000 } : {}) });
+    for (const [result, active] of [[undefined, true], [reply('result', '北京今天晴'), true], [reply('result', '北京今天晴，气温适宜。'), false]] as const) {
+      const units = flattenTier([running(result, !active)], ctxWith({ active, foldTurnProcess: true, agentConversation: true }), SEGMENTERS);
+      const outputs = units.filter(unit => unit.kind === 'message' && (unit.data as ChatMessage).role === 'assistant');
+      expect(outputs).toHaveLength(1);
+      expect(outputs[0].itemId).toBe('commentary');
+      expect((outputs[0].data as ChatMessage).text).toBe(result?.text ?? initial.text);
+      expect((outputs[0].data as ChatMessage).conversationProcess?.id).toBe(turnProcessId('weather'));
+    }
+    expect(initial.text).toBe('我现在去查一查。');
+  });
+  it('places live work under its reply and does not hide failure states', () => {
+    const live = flattenTier([completed()], ctxWith({ active: true, foldTurnProcess: true, agentConversation: true }), SEGMENTERS);
+    expect(kinds(live)).not.toContain('turn-process');
+    expect((live.find(unit => unit.itemId === 'answer')?.data as ChatMessage).conversationProcess?.live).toBe(true);
+    expect(ids(live).indexOf('answer')).toBeLessThan(ids(live).indexOf('call'));
+    expect(ids(live)).toContain('call');
+    const failed = completed(); failed.outcome = { kind: 'error', reason: 'prompt_failed' };
+    const units = flattenTier([failed], ctxWith({ foldTurnProcess: true, agentConversation: true }), SEGMENTERS);
+    expect((units.find(unit => unit.itemId === 'answer')?.data as ChatMessage).conversationProcess).toBeUndefined();
+    expect(ids(units)).toContain('call');
+  });
+});

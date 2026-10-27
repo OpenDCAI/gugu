@@ -91,7 +91,7 @@ describe('server self-upgrade resolves its target at the moment it switches', ()
     stop()
   })
 
-  it('a failed manifest fetch on an idle round keeps waiting instead of dropping the wait for 6 hours', async () => {
+  it('a failed manifest fetch on an idle round keeps waiting instead of dropping the wait until the next scheduled check', async () => {
     stage('0.2.53-beta.62.1')
     published = '0.2.53-beta.62.1'
     let busy = true
@@ -103,6 +103,21 @@ describe('server self-upgrade resolves its target at the moment it switches', ()
     expect(shutdown).not.toHaveBeenCalled()
     vi.stubGlobal('fetch', async () => new Response(`${published} ${SHA} https://example.invalid/x.tar.gz\n`))
     await vi.advanceTimersByTimeAsync(30_000)
+    expect(shutdown).toHaveBeenCalledTimes(1)
+    stop()
+  })
+
+  it('a version published after start-up is found within half an hour, not 6 hours', async () => {
+    stage('0.2.53-beta.62.1')
+    published = '0.2.53-beta.59.1' // 起来时还是自己这版
+    const { shutdown, stop } = updater(() => false)
+    await vi.advanceTimersByTimeAsync(60_000)
+    expect(shutdown).not.toHaveBeenCalled()
+    published = '0.2.53-beta.62.1'
+    await vi.advanceTimersByTimeAsync(28 * 60_000) // 起动后 29 min:还没到下一轮
+    expect(fetched).toHaveLength(1)
+    await vi.advanceTimersByTimeAsync(60_000)
+    expect(fetched).toHaveLength(2)
     expect(shutdown).toHaveBeenCalledTimes(1)
     stop()
   })

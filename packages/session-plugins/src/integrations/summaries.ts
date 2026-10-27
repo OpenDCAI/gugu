@@ -1,5 +1,6 @@
 // No provider behavior, SDKs or host APIs enter the renderer through this module.
 import type { LocalizedText } from './localized-text';
+import { summary as amap } from './impl/amap/summary';
 import { summary as asana } from './impl/asana/summary';
 import { summary as dida } from './impl/dida/summary';
 import { summary as dingtalk } from './impl/dingtalk/summary';
@@ -23,6 +24,7 @@ import { summary as trello } from './impl/trello/summary';
 import { summary as wecom } from './impl/wecom/summary';
 
 export const builtinIntegrationSummaries: Readonly<Record<string,{ name: LocalizedText; description: LocalizedText }>> = {
+  'amap': amap,
   'asana': asana,
   'dida': dida,
   'dingtalk': dingtalk,

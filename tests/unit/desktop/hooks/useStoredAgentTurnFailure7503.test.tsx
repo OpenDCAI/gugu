@@ -6,7 +6,9 @@ import { clickElement, createNode, createReactHarness, deferred } from '../../..
 const bus = vi.hoisted(() => ({ listener: null as null | ((event: unknown) => void), onSubscribed: null as null | (() => void), off: vi.fn() }))
 const read = vi.hoisted(() => vi.fn())
 vi.mock('../../../../apps/desktop/src/store/auth', () => ({ useAuth: () => ({ user: { id: 'owner' } }) }))
-vi.mock('../../../../apps/desktop/src/lib/storedAgentTurnFailures', () => ({ readStoredAgentTurnFailures: read }))
+// read 仍按「失败列表」喂；recovered 由 recover 单独控制。
+const recover = vi.hoisted(() => ({ agents: [] as string[] }))
+vi.mock('../../../../apps/desktop/src/lib/storedAgentTurnFailures', () => ({ readStoredAgentTurnFailures: async (...args: unknown[]) => ({ failures: await read(...args), recovered: recover.agents }) }))
 vi.mock('../../../../apps/desktop/src/lib/realtimeChannel', () => ({
   subscribePrivateUserEventBus: (_user: string, _event: string, listener: (event: unknown) => void, options: { onSubscribed: () => void }) => { bus.listener = listener; bus.onSubscribed = options.onSubscribed; return {} },
   unsubscribePrivateUserEventBus: bus.off,
@@ -16,12 +18,13 @@ import { useStoredAgentTurnFailure } from '../../../../apps/desktop/src/hooks/us
 const failure = (revision = 'one', commandId = 'cmd') => ({ agentUserId: 'agent', commandId, revision, at: 1, rawMessage: 'weekly limit reached' })
 function Probe({ chatId = 'chat', thread = null }: { chatId?: string; thread?: string | null }) {
   const state = useStoredAgentTurnFailure(chatId, thread, ['agent'])
-  return <div><span data-failure>{state.failure?.commandId}</span><span data-read-failed>{String(state.readFailed)}</span><button onClick={() => state.dismiss('cmd')}>dismiss</button></div>
+  return <div><span data-failure>{state.failure?.commandId}</span><span data-read-failed>{String(state.readFailed)}</span><button onClick={() => state.dismiss('cmd')}>dismiss</button><span data-notified>{String(state.failure ? state.wasNotified(state.failure) : false)}</span><button data-mark onClick={() => { if (state.failure) state.markNotified(state.failure) }}>mark</button></div>
 }
 let ui: ReturnType<typeof createReactHarness>
 const current = () => ui.container.querySelector('[data-failure]')?.textContent
+const notified = () => ui.container.querySelector('[data-notified]')?.textContent
 const emit = (extra = {}) => act(async () => { bus.listener?.({ id: 'cmd', agent_user_id: 'agent', chat_id: 'chat', thread_root_id: null, status: 'error', ...extra }) })
-beforeEach(() => { ui = createReactHarness(); read.mockReset().mockResolvedValue([]); bus.off.mockClear() })
+beforeEach(() => { ui = createReactHarness(); read.mockReset().mockResolvedValue([]); bus.off.mockClear(); recover.agents = []; window.localStorage.clear() })
 afterEach(() => ui.cleanup())
 
 describe('其他设备的额度通知由命令结果驱动', () => {
@@ -58,5 +61,24 @@ describe('其他设备的额度通知由命令结果驱动', () => {
     read.mockResolvedValueOnce([failure()]).mockRejectedValue(new Error('offline'))
     await ui.render(createNode(Probe, {})); await emit()
     expect(current()).toBe('cmd'); expect(ui.container.querySelector('[data-read-failed]')?.textContent).toBe('true')
+  })
+
+  it('额度类失败只提醒一次：新投递再失败、换聊天重挂都认得；投递成功后清掉，下次失败再提醒', async () => {
+    read.mockResolvedValue([failure('one', 'cmd-1')]); await ui.render(createNode(Probe, {}))
+    expect(current()).toBe('cmd-1'); expect(notified()).toBe('false')
+    await clickElement(ui.container.querySelector('[data-mark]')!); expect(notified()).toBe('true')
+    read.mockResolvedValue([failure('two', 'cmd-2')]); await emit({ id: 'cmd-2' })
+    expect(current()).toBe('cmd-2'); expect(notified()).toBe('true')
+    ui.cleanup(); ui = createReactHarness(); await ui.render(createNode(Probe, { chatId: 'other' })); expect(notified()).toBe('true')
+    read.mockResolvedValue([{ ...failure('three', 'cmd-3'), rawMessage: 'insufficient_quota' }])
+    await act(async () => bus.onSubscribed?.()); expect(notified()).toBe('false')
+    read.mockResolvedValue([failure('four', 'cmd-4')]); await act(async () => bus.onSubscribed?.()); expect(notified()).toBe('true')
+    read.mockResolvedValue([]); recover.agents = ['agent']; await act(async () => bus.onSubscribed?.())
+    recover.agents = []; read.mockResolvedValue([failure('five', 'cmd-5')]); await act(async () => bus.onSubscribed?.())
+    expect(notified()).toBe('false')
+  })
+  it('限流这类一次性失败不记「已提醒」', async () => {
+    read.mockResolvedValue([{ ...failure('one', 'cmd-1'), rawMessage: 'HTTP 429 too many requests' }]); await ui.render(createNode(Probe, {}))
+    await clickElement(ui.container.querySelector('[data-mark]')!); expect(notified()).toBe('false')
   })
 })

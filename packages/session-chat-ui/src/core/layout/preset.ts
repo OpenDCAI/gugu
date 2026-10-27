@@ -25,6 +25,8 @@ export type ChatLayout = {
    * with whatever it is handed. Ignored in `single`.
    */
   userGutter: number;
+  /** Agent-centered message bubbles, enabled by the session host. */
+  agentConversation?: boolean;
 };
 
 export const DEFAULT_LAYOUT: ChatLayout = { preset: 'single', userGutter: 0 };
@@ -34,7 +36,7 @@ export function isDoubleColumnLayout(layout: ChatLayout | undefined): boolean {
 }
 
 export function sameLayout(a: ChatLayout, b: ChatLayout): boolean {
-  return a.preset === b.preset && a.userGutter === b.userGutter;
+  return a.preset === b.preset && a.userGutter === b.userGutter && a.agentConversation === b.agentConversation;
 }
 
 /**

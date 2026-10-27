@@ -36,6 +36,9 @@ globalStyle(`${nativeChatAppearance} [data-slot="turn-process"]::after`, {
   borderBottom: '1px solid var(--chat-border)', pointerEvents: 'none',
 });
 
+// Agent-centered sessions use a quiet footer disclosure instead of a process divider.
+globalStyle(`${nativeChatAppearance} [data-chat-root][data-agent-conversation="true"] [data-slot="turn-process"]::after`, { display: 'none' });
+
 globalStyle(`${nativeChatAppearance} [data-composer-action="stop"]`, {
   backgroundColor: 'var(--foreground)', color: 'var(--background)', borderColor: 'transparent',
 });
