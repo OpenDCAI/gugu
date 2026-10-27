@@ -589,8 +589,8 @@
   --color-warning-highlight: color-mix(in oklab, var(--warn) 38%, transparent);
 
   /* @@@one-knob — 这一族原来 chroma 精确为 0,是盖在面族之上的**第二族**中性。 */
-  /* 弱化文字 = 正文按 40% 混进底色,两套主题同一条式子;❌ 深色上写死 #ccc(比次要文字 --muted-fg 还亮,层级颠倒)。 */
-  --text-muted: color-mix(in oklab, var(--fg) 40%, var(--bg));
+  /* 弱化文字就是第三级文字(--faint-fg),两套主题同一个值;❌ 深色上写死 #ccc(比次要文字 --muted-fg 还亮,层级颠倒)。 */
+  --text-muted: var(--faint-fg);
   --text-icon-default: oklch(0.450 0 0); /* was #555555 */
   --text-icon-soft:    oklch(0.510 0 0); /* was #666666 */
   --text-icon-stroke:  oklch(0.640 0 0); /* was #8C8C8C */
