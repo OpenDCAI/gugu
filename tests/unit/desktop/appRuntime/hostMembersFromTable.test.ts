@@ -67,4 +67,18 @@ describe('one table, the members each host had', () => {
     host.onLink!((value) => heard.push(value))
     expect(heard).toEqual([{ tab: 'main', path: '', query: {}, file: null }])
   })
+
+  it('a command that opened a cold page reaches its first subscriber once, without replaying on resubscribe', () => {
+    const events = hostEventHub()
+    events.deliver({ type: 'command', commandId: 'new' })
+    const first = vi.fn()
+    const stop = events.on('command', first)
+    expect(first).toHaveBeenCalledExactlyOnceWith({ type: 'command', commandId: 'new' })
+    stop()
+    const next = vi.fn()
+    events.on('command', next)
+    expect(next).not.toHaveBeenCalled()
+    events.deliver({ type: 'command', commandId: 'refresh' })
+    expect(next).toHaveBeenCalledExactlyOnceWith({ type: 'command', commandId: 'refresh' })
+  })
 })
