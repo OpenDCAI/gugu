@@ -146,3 +146,16 @@ it.each(['spawn', 'message'] as const)('%s tells executors to escalate delivery 
   expect(report).toContain('If reporting also fails, preserve this notice in the task reply and stop')
   expect(report).toContain('Never read Gugu program directories or debug/repair the platform')
 })
+
+it('implicitly continues open work of the same kind, never on a fresh or reply dispatch, and only ledgered work when asked (#615)', () => {
+  const store = new AssistantWorkStore(root)
+  const older = store.begin({ kind: 'executor' })
+  store.confirm(older, ['session:child'], [])
+  // No ledger entry on record: the account ledger has never seen this work, so it is not continued implicitly.
+  const fresh = store.dispatch({ kind: 'executor' }, ['session:child'], { ledgered: true })
+  expect(fresh).toMatchObject({ continued: false })
+  expect(fresh.id).not.toBe(older)
+  expect(store.dispatch({ kind: 'executor' }, ['session:child'])).toEqual({ id: older, continued: true })
+  expect(store.dispatch({ kind: 'executor', purpose: 'reply' }, ['session:child'])).toMatchObject({ continued: false })
+  expect(store.dispatch({ kind: 'executor' }, ['session:child'], { fresh: true })).toMatchObject({ continued: false })
+})
