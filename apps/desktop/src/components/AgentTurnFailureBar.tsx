@@ -3,7 +3,7 @@
 // 重排原 deliver 命令（真重投递，❌ 假按钮）；原始错误只进 console（useAgentTurnFailure 已记）。
 // 视觉复用聊天上下文的轻量通知：短说明与真实操作，不把原始诊断放进正文或悬浮提示。
 
-import { useState, type ReactNode } from 'react'
+import { useEffect, useState, type ReactNode } from 'react'
 import { AlertTriangle, X } from '@/lib/icons'
 import { agentTurnFailureNeedsModelChoice, agentTurnFailureUserMessage, type AgentTurnFailure } from '../lib/agentTurnFailure'
 import { rendererLogger } from '../lib/log'
@@ -15,6 +15,9 @@ import { useContactsStore } from '../store/contactsContext'
 import { AgentSettingsModal } from './agentsettings/AgentSettingsModal'
 import { Button } from './ui/Button'
 import { useStoredAgentTurnFailure } from '../hooks/useStoredAgentTurnFailure'
+import { agentTurnFailureMuteKind } from '../lib/agentTurnFailureMute'
+import { notify } from '../lib/notices'
+import { Avatar } from './Avatar'
 
 type AgentTurnFailureSlotProps = {
   chatId: string | null
@@ -48,23 +51,82 @@ export function AgentTurnFailureSlot({
   const stored = useStoredAgentTurnFailure(chatId, threadRootId, contacts.filter((contact) => contact.type === 'agent' && profiles[contact.id]).map((contact) => contact.id))
   const failure = local.failure ?? stored.failure
   const [modelOpen, setModelOpen] = useState(false)
+  const stateKind = failure ? agentTurnFailureMuteKind(failure.rawMessage) : null
+  const displayName = failure ? profiles[failure.agentUserId]?.displayName ?? t('agent.fallbackName') : ''
+  const { wasNotified, markNotified } = stored
+  // #7685 额度/模型类：同一位 agent 在恢复之前只 toast 一次，之后只剩状态位。
+  useEffect(() => {
+    if (!failure || !stateKind || wasNotified(failure)) return
+    // 走 lib/notices 而不是 useToast():聊天面板也挂在会话页那个 React 根里，那里没有 ToastProvider，
+    // useToast() 拿到的是空实现(mac1 真机验证时发现)。notices 是两个根共用的那一个提示条。
+    notify({ key: `agent-quota:${failure.agentUserId}`, tier: 'warning', title: displayName, description: agentTurnFailureUserMessage(failure.rawMessage) })
+    markNotified(failure)
+  }, [failure, stateKind, displayName, wasNotified, markNotified])
   if (!chatId) return null
   if (!failure) return stored.readFailed ? <><style>{STYLE}</style><div data-chat-composer-notice="" className="atf-bar" role="status"><span className="atf-msg">{t('agent.turnFailure.statusReadFailed')}</span><Button variant="ghost" size="sm" onClick={stored.retry}>{t('agent.turnFailure.retry')}</Button></div></> : null
   const profile = profiles[failure.agentUserId]
   const contact = contacts.find((entry) => entry.id === failure.agentUserId)
   return (
     <>
-    <AgentTurnFailureBar
-      failure={failure}
-      displayName={profile?.displayName ?? t('agent.fallbackName')}
-      avatar={profile?.avatar ?? null}
-      onDismiss={() => { local.dismiss(); stored.dismiss(failure.commandId) }}
-      onOpenModel={contact ? () => setModelOpen(true) : undefined}
-    />
+    {stateKind ? (
+      <AgentQuotaStatus
+        agentId={failure.agentUserId}
+        displayName={displayName}
+        avatar={profile?.avatar ?? null}
+        state={t(`agent.turnFailure.state.${stateKind}`)}
+        onOpenModel={contact ? () => setModelOpen(true) : undefined}
+      />
+    ) : (
+      <AgentTurnFailureBar
+        failure={failure}
+        displayName={displayName}
+        avatar={profile?.avatar ?? null}
+        onDismiss={() => { local.dismiss(); stored.dismiss(failure.commandId) }}
+        onOpenModel={contact ? () => setModelOpen(true) : undefined}
+      />
+    )}
     {modelOpen && contact ? <AgentSettingsModal agent={contact} initialTab="aimodel" onClose={() => setModelOpen(false)} /> : null}
     </>
   )
 }
+
+// #7685 额度/模型类失败 = agent 的状态，不是一条通知：和运行条同一排、同一种 token 形状（头像 + 名 + 状态词），
+// 不流光、不带关闭钮；点一下去切模型。这位 agent 下一次投递成功，命令结果翻成 done，它自己就消失。
+export function AgentQuotaStatus({ agentId, displayName, avatar, state, onOpenModel }: {
+  agentId: string
+  displayName: string
+  avatar: string | null
+  state: string
+  onOpenModel?: () => void
+}) {
+  const { t } = useTranslation('messaging')
+  return (
+    <div data-testid="agent-quota-status" className="aqs-bar">
+      <style>{QUOTA_STYLE}</style>
+      {/* 与 InlineAction 同一做法：ghost Button 去掉控件高与底色，读起来就是运行条里的一个 token。 */}
+      <Button
+        variant="ghost"
+        className="aqs-tok h-auto min-h-0 max-[719px]:min-h-0 border-0 p-0 gap-[7px] font-[inherit] text-[length:inherit] leading-[inherit] text-[var(--faint-fg)] [&:hover:not([data-disabled])]:bg-transparent"
+        disabled={!onOpenModel}
+        onClick={onOpenModel}
+        aria-label={t('agent.turnFailure.stateAction', { name: displayName, state })}
+      >
+        <Avatar name={displayName} avatarUrl={avatar} seed={agentId} size="xs" isAgent />
+        <span className="aqs-nm">{displayName}</span>
+        <span className="aqs-state">{state}</span>
+      </Button>
+    </div>
+  )
+}
+
+// 几何与运行条 `.rtb-bar/.rtb-tok` 一致（同一排、同一刻度）；状态词用 --warn，不流光。
+const QUOTA_STYLE = `
+.aqs-bar{display:flex;align-items:center;gap:16px;padding:4px 14px 2px 24px;font-size:var(--font-caption);color:var(--faint-fg);white-space:nowrap;flex-shrink:0}
+.aqs-tok:not([data-disabled]):hover .aqs-state{text-decoration:underline;text-underline-offset:2px}
+.aqs-tok[data-disabled]{opacity:1;cursor:default}
+.aqs-nm{color:var(--faint-fg)}
+.aqs-state{color:var(--warn);font-weight:500}
+`
 
 const turnFailureLog = rendererLogger('agent/turn-failure')
 
