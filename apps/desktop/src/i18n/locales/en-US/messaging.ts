@@ -704,13 +704,11 @@ export default {
     "agentOwnerTag": "{{owner}}'s agent",
     "agentOwnerSuffix": " ({{owner}}'s agent)",
     "actions": {
-      "comingSoon": "Coming soon",
       "copy": "Copy text",
       "copyLink": "Copy link",
       "openLink": "Open link",
       "selectText": "Select text",
       "delete": "Delete",
-      "edit": "Edit",
       "forward": "Forward",
       "more": "More",
       "openTopic": "Open a topic",
