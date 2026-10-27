@@ -62,7 +62,7 @@ import { recordedContextUsage } from './recorded-context-usage';
 import { notifyCommittedTurn } from '@renderer/lib/session-output-observers';
 
 /** 宿主那边还没起完(或没起)的生命周期:停着的会话等它离开这几格再重挂。 */
-const HOST_NOT_SETTLED: ReadonlySet<string> = new Set(['closed', 'starting', 'replaying']);
+const HOST_NOT_SETTLED: ReadonlySet<string> = new Set(['closed', 'lost', 'starting', 'replaying']);
 
 /**
  * 一次实时设置改动**留给调用方**的那一件事。
@@ -1917,6 +1917,7 @@ export class AcpChatStore {
           this._lastActiveTurnId = next.activeTurnId;
           this._syncRuntimeBackgroundTaskIds(next);
           if (next.lifecycle === 'lost' && this.session === session) {
+            void this._refreshHistory();
             this._onSessionClosedByHost(session);
             this._onSessionLost(next);
           }
@@ -2234,7 +2235,6 @@ export class AcpChatStore {
       kind: 'adapter_lost',
       message: next.failure?.message ?? 'ACP adapter exited unexpectedly; reconnect to continue.',
     };
-    void this._refreshHistory();
   }
 
   private async _refreshHistory(options?: { preserveLiveTurn?: boolean }): Promise<void> {

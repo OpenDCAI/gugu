@@ -156,6 +156,11 @@ describe('#6497 宿主停掉会话之后的聊天面', () => {
     expect(store.loadError).toMatchObject({ kind: 'adapter_lost', message: 'executor exited' });
     expect(store.affordances.canSubmit).toBe(true);
     expect(boot).not.toHaveBeenCalled();
+    // Further loss updates are not a replacement executor becoming ready.
+    session.sessionState.push({ ...readyState, lifecycle: 'lost', failure: { message: 'resume failed' } });
+    expect(store.session).toBeNull();
+    expect(store.affordances.canSubmit).toBe(true);
+    expect(boot).not.toHaveBeenCalled();
     store.submitPrompt('resume the original conversation');
     await vi.waitFor(() => expect(startupQueue).toHaveBeenCalledTimes(1));
     expect(sendPrompt).not.toHaveBeenCalled();
