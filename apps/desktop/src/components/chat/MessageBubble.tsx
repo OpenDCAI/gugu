@@ -467,7 +467,7 @@ export const MessageBubble = memo(function MessageBubble({
           )}
 
           <div className="msg-bubble-content">
-          {simple && isGroup && !isRetracted && (showSender || msg.reply_to_message_id) && <div className="msg-bubble-heading">{msg.reply_to_message_id && <MessageQuote onShowMessage={onShowMessage} msg={msg} quoterIsAgent={avatarIsAgent} memberProfiles={memberProfiles} compact />}{showSender && avatarIsAgent && <BubbleSender member={memberProfile} senderId={msg.sender_user_id} compact />}</div>}
+          {simple && !isRetracted && (showSender || (showReplyQuote && msg.reply_to_message_id)) && <div className="msg-bubble-heading">{showReplyQuote && msg.reply_to_message_id && <MessageQuote onShowMessage={onShowMessage} msg={msg} quoterIsAgent={avatarIsAgent} memberProfiles={memberProfiles} compact />}{showSender && avatarIsAgent && <BubbleSender member={memberProfile} senderId={msg.sender_user_id} compact />}</div>}
           <div
             ref={bubbleRef}
             data-testid={AUTOMATION_TEST_IDS.messageBubbleActionTarget}
@@ -487,7 +487,7 @@ export const MessageBubble = memo(function MessageBubble({
               <span className="msg-time-room-inline" style={{ color: 'var(--muted-fg)', fontStyle: 'italic', '--msg-time-room': timeRoom } as React.CSSProperties}>{t('message.retracted')}</span>
             ) : (
               <div className={showTime && !simple && timeInline ? 'msg-time-room' : undefined} style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-start', gap: '4px', '--msg-time-room': timeRoom } as React.CSSProperties}>
-                {showReplyQuote && msg.reply_to_message_id && <MessageQuote onShowMessage={onShowMessage} msg={msg} quoterIsAgent={avatarIsAgent} memberProfiles={memberProfiles} />}
+                {!simple && showReplyQuote && msg.reply_to_message_id && <MessageQuote onShowMessage={onShowMessage} msg={msg} quoterIsAgent={avatarIsAgent} memberProfiles={memberProfiles} />}
                 {card?.type === 'question' ? (
                   <QuestionCardView card={card} chatId={msg.chat_id} messageId={msg.id} agentUserId={msg.sender_user_id ?? ''} time={hideTime ? '' : fmtMsgTime(msg.created_at)} />
                 ) : card?.type === 'task' ? (
