@@ -1,3 +1,4 @@
+import { resourceMenuItems } from '@/lib/resourceActions'
 import { useRef, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import type { SessionpageSessionSummary } from '@gugu/session-core/session-record/contract'
@@ -73,6 +74,7 @@ export function SessionActions({
     <>
       {anchor && target ? (
         <Menu anchor={anchor} ariaLabel={target.session.title} onClose={onClose}>
+          {resourceMenuItems({ kind: 'session', target: { kind: 'session', sessionId: target.session.conversationId } }).map(item => <MenuItem key={item.id} onClick={() => { onClose(); void item.click() }}>{item.label}</MenuItem>)}
           {phoneHost ? (
             <MenuItem data-testid="agent-watch-session-stop" onClick={() => { void cancelPhoneSessionTurn(target.deviceId, target.session.conversationId).catch(failed) }}>
               {t('agentWatch.sessions.stop')}

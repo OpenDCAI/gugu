@@ -24,6 +24,7 @@ import { MOBILE_TABS, SIDEBAR_TABS, type SidebarTab } from '@gugu/core/shared/en
 import { AgentWatchPage, AgentWatchRoot } from '@/mobile/agent-watch/AgentWatchPage'
 import { PhoneDeviceRoot } from '@/mobile/phone-device/PhoneDeviceRoot'
 import { useAppShowSession } from '@/mobile/agent-watch/useAppShowSession'
+import { translateSessionMessage } from '@/session/renderer/localization/locale-store'
 import { MobileTabPager } from '@/mobile/MobileTabPager'
 import { navigateMobile } from '@/mobile/navigateMobile'
 import { PhoneLayer } from '@/mobile/PhoneLayer'
@@ -317,7 +318,13 @@ function InnerLayout({
     if (topic) requestTopicSplit({ chatId: topic.id, name: topic.name ?? '', sourceChatId: topic.source_chat_id! })
     return topic ? `${viewportKey ?? 'chats'}:topic` : viewportKey ?? 'chats'
   }, [openChatBlock, setActiveChatId])
+  const [appDetail, setAppDetail] = useState<import('@gugu/core/shared/ui/guguLink').AppDetailLink>()
   useLinkNavigation({ ownerId: user.id, chats, contacts,
+    openAppDetail: target => {
+      if (target.deviceId || target.variant) throw new Error(translateSessionMessage('extensions.appLinkOnPhone'))
+      setAppDetail(target)
+      openSettingsSection('apps')
+    },
     openFile: (chatId, target, source) => { openChatTarget(chatId); askChat(chatId, { itemId: target.itemId, ...(target.at ? { at: target.at } : {}), ...(source.message ? { message: source.message } : {}), ...(source.restore ? { restore: source.restore } : {}) }) },
     openApp: (chatId, extensionId, tab) => { openChatTarget(chatId); askChat(chatId, { app: extensionId, ...(tab ? { tab } : {}) }) },
     openOwnApp: (extensionId, tab) => { const page = installedExtensionsStore.allTabContributions.find((entry) => entry.kind === `${extensionId}.${tab}`); if (!page) throw new Error('App tab is unavailable'); setOpenedPhoneApp({ kind: page.kind, name: page.extensionName }) },
@@ -1387,6 +1394,7 @@ function InnerLayout({
               <SettingsPanel
                 key={settingsSection}
                 mobile
+                appDetail={appDetail}
                 inline
                 initialSection={settingsSection}
                 pane={settingsPane}

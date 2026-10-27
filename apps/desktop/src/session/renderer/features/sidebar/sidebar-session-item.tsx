@@ -30,6 +30,7 @@ import {
 } from '@renderer/lib/layout/navigation-provider';
 import { useAgents } from '@renderer/lib/stores/use-agents';
 import { ContextMenuItem, ContextMenuSeparator } from '@renderer/lib/ui/context-menu';
+import { resourceMenuItems } from '@/lib/resourceActions';
 import { hasStatusSource } from '@shared/core/sessions/initial-agent-status';
 import { Tooltip, TooltipContent, TooltipTrigger } from '@renderer/lib/ui/tooltip';
 import { useSessionMessages } from '@renderer/localization/use-session-messages';
@@ -410,6 +411,7 @@ export const SidebarSessionItem = observer(function SidebarSessionItem({
       }
       menu={
         <>
+    {resourceMenuItems({ kind: 'session', target: { kind: 'session', sessionId } }).map(item => <ContextMenuItem key={item.id} onClick={() => void item.click()}>{item.label}</ContextMenuItem>)}
     {/* spec session-page「拼在一屏的几块是一组」:框里一行 = 拿它出来 / 整组拆开(照 Arc「Separate from Split View」)。 */}
     {grouped ? (
       <>

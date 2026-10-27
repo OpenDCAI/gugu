@@ -1,4 +1,6 @@
 import type { TFunction } from 'i18next'
+import type { ResourceContext } from '@/session/shared/resource-actions'
+import { resourceMenuItems } from '@/lib/resourceActions'
 import { Copy, Download, ExternalLink, PenLine, Reply, Share, SquareCheck, TextCursorInput, Trash, type IconComponent } from '@/lib/icons'
 
 export type MessageActionTarget = {
@@ -10,7 +12,7 @@ export type MessageActionTarget = {
   onCopy?: (content?: string) => void
   /** 手机才有:长按菜单里换成可选中的原文,挑一段复制(手机长按就是菜单,气泡本身不能选字)。 */
   onSelectText?: () => void
-  onCopyLink?: () => void
+  resource?: ResourceContext
   onOpenLink?: () => void
   onForward?: () => void
   onDelete?: () => void
@@ -41,7 +43,7 @@ export function messageActionItems(target: MessageActionTarget, t: TFunction<'me
     !!target.onQuoteSelection && { key: 'quoteSelection', icon: Reply, label: t('message.actions.quoteSelection'), onSelect: target.onQuoteSelection, disabled: target.isRetracted },
     !!target.onCopy && { key: 'copy', icon: Copy, label: t('message.actions.copy'), onSelect: target.onCopy, disabled: !hasContent },
     !!target.onSelectText && { key: 'selectText', icon: TextCursorInput, label: t('message.actions.selectText'), onSelect: target.onSelectText, disabled: !hasContent, keepOpen: true },
-    !!target.onCopyLink && { key: 'copyLink', icon: Copy, label: t('message.actions.copyLink'), onSelect: target.onCopyLink, disabled: target.isRetracted },
+    ...(target.resource && !target.isRetracted ? resourceMenuItems(target.resource).map(item => ({ key: item.id, icon: item.id === 'copy-resource-url' ? Copy : Share, label: item.label, onSelect: () => void item.click() })) : []),
     !!target.onOpenLink && { key: 'openLink', icon: ExternalLink, label: t('message.actions.openLink'), onSelect: target.onOpenLink, disabled: target.isRetracted },
     !!target.onOpenTopic && { key: 'openTopic', icon: Reply, label: t('message.actions.openTopic'), onSelect: target.onOpenTopic, disabled: target.isRetracted },
     !!target.onForward && { key: 'forward', icon: Share, label: t('message.actions.forward'), onSelect: target.onForward, disabled: !hasContent },

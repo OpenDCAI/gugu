@@ -6,6 +6,7 @@ import { installedExtensionsStore } from '../../session/renderer/features/extens
 import { IconButton } from '../ui/IconButton'
 import { Popover } from '../ui/Popover'
 import { DropdownMenu, MenuItem } from '../ui/Menu'
+import { resourceMenuItems } from '@/lib/resourceActions'
 import { OpenAppMenuItems } from './OpenAppMenuItems'
 import { GroupAppsPicker } from './GroupAppsPicker'
 import { useChatAppPins } from './useChatAppPins'
@@ -18,8 +19,9 @@ import { openInfoTab } from '../../session/renderer/features/chats/chat-tabs/cha
  * no room for (`items`, as a group's compact header folds them in), then the Apps that open in the source chat's panel. With
  * Settings and announcements belong to the source conversation.
  */
-export const TopicMoreMenu = observer(function TopicMoreMenu({ chatId, mobile, items }: {
+export const TopicMoreMenu = observer(function TopicMoreMenu({ chatId, resourceChatId = chatId, mobile, items }: {
   chatId: string
+  resourceChatId?: string
   mobile: boolean
   items?: ReactNode
 }) {
@@ -47,6 +49,7 @@ export const TopicMoreMenu = observer(function TopicMoreMenu({ chatId, mobile, i
         )}
       />
       <DropdownMenu.Content side="bottom" align="end" sideOffset={4} className="min-w-[148px]">
+        {resourceMenuItems({ kind: 'chat', target: { kind: 'chat', chatId: resourceChatId } }).map(item => <MenuItem key={item.id} onClick={() => { setMenuOpen(false); void item.click() }}>{item.label}</MenuItem>)}
         {items}
         <ChatDetailsMenuItems isGroupChat={Boolean(groupId)} onOpenInfo={() => openInfoTab(chatId, groupId ? 'main' : undefined)} />
         {groupId ? <>

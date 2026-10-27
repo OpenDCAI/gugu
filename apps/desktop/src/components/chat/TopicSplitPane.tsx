@@ -422,7 +422,7 @@ export function TopicSplitPane({ viewportKey = 'topic', navigationTarget = false
   const headerToggles = mobile ? (
     <>
       {membersToggle}
-      <TopicMoreMenu chatId={sourceChatId} mobile items={(
+      <TopicMoreMenu chatId={sourceChatId} resourceChatId={topic.chatId} mobile items={(
         <>
           {searchItem}
           <MenuItem data-testid="topic-split-files-toggle" onClick={toggleFiles} icon={<Paperclip size={16} />}>{t('topic.pane.attachments')}</MenuItem>
@@ -443,7 +443,7 @@ export function TopicSplitPane({ viewportKey = 'topic', navigationTarget = false
         <Paperclip size={16} />
       </IconButton>
       {membersToggle}
-      <TopicMoreMenu chatId={sourceChatId} mobile={false} items={searchItem} />
+      <TopicMoreMenu chatId={sourceChatId} resourceChatId={topic.chatId} mobile={false} items={searchItem} />
     </>
   )
   const page = (

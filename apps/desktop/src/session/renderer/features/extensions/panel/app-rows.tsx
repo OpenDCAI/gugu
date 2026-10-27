@@ -1,4 +1,6 @@
 import type { ReactNode } from 'react';
+import { ResourceMenu } from '@/components/ResourceMenu';
+import type { ResourceContext } from '@shared/resource-actions';
 import { Switch } from '@renderer/lib/ui/switch';
 import { cn } from '@renderer/utils/utils';
 import type { SessionTranslate } from '../extension-consent';
@@ -38,7 +40,7 @@ export function MarketAppRow({
   onAction: () => void;
 }) {
   return (
-    <div
+    <ResourceMenu resource={{ kind: 'app', target: { kind: 'app-detail', extensionId: id } }}><div
       role="listitem"
       className={cn('mk-lockup', pending && 'is-busy')}
       data-testid={`extension-card-${id}`}
@@ -65,7 +67,7 @@ export function MarketAppRow({
           testId={`market-row-action-${id}`}
         />
       </span>
-    </div>
+    </div></ResourceMenu>
   );
 }
 
@@ -108,6 +110,7 @@ export function InstalledAppRow({
   /** 预装的没有:咕咕自己的,停不了也卸不了(preinstalled-apps.ts)。 */
   onToggleEnabled?: (enabled: boolean) => void;
   menu: {
+    resource?: ResourceContext;
     onToggleDock?: () => void;
     onOpenInWindow?: () => void;
     onForward?: () => void;
@@ -115,7 +118,7 @@ export function InstalledAppRow({
   };
 }) {
   return (
-    <li
+    <ResourceMenu resource={menu.resource ?? { kind: 'app', target: { kind: 'app-detail', extensionId: id } }}><li
       className={cn('mk-row', !enabled && 'is-off', pending && 'is-busy')}
       data-testid={`extension-row-${id}`}
       aria-busy={pending || switching ? 'true' : undefined}
@@ -169,6 +172,6 @@ export function InstalledAppRow({
         onToggleEnabled={onToggleEnabled}
         testId={`extension-row-more-${id}`}
       />
-    </li>
+    </li></ResourceMenu>
   );
 }

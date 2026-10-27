@@ -68,7 +68,8 @@ const sessionOverlayOpen = (): boolean =>
 
 // ─── SettingsPanel ────────────────────────────────────────────────────────────
 
-export function SettingsPanel({ mobile = false, inline = false, onClose, initialSection = 'account', section, onSectionChange, pane, onPaneChange }: {
+export function SettingsPanel({ mobile = false, inline = false, onClose, initialSection = 'account', section, onSectionChange, pane, onPaneChange, appDetail }: {
+  appDetail?: import('@gugu/core/shared/ui/guguLink').AppDetailLink
   mobile?: boolean
   // @@@1787 owner:「我的」是底部 tab 之一 → 移动端作 tab 页内联渲染(无 Sheet 壳),nav 层保留底部 tab 栏
   inline?: boolean
@@ -120,7 +121,7 @@ export function SettingsPanel({ mobile = false, inline = false, onClose, initial
       case 'activity': return <ActivitySection />
       case 'about':    return <AboutSection />
       case 'permissions': return <PermissionsSection />
-      case 'apps':     return <Suspense fallback={null}><MobileAppsSection /></Suspense>
+      case 'apps':     return <Suspense fallback={null}><MobileAppsSection appDetail={appDetail} /></Suspense>
       case 'channels': return <ChannelsSection />
       case 'phone':    return <PhoneDeviceActionsPage />
       case 'sessions':

@@ -1,5 +1,6 @@
 import { messageForUser } from '@/lib/userFacingError';
 import { followLink } from '../../lib/guguLinks'
+import type { AppDetailLink } from '@gugu/core/shared/ui/guguLink'
 import { useEffect, useRef, useState } from 'react'
 import { observer } from 'mobx-react-lite'
 import { QueryClientProvider, useQuery, useQueryClient } from '@tanstack/react-query'
@@ -36,11 +37,11 @@ const MARKET_KEY = ['phone-app-market']
 const log = rendererLogger('settings/mobile-apps')
 
 /** The phone supplies storage and actions; browsing and product pages are the desktop's components. */
-export function MobileAppsSection() {
-  return <QueryClientProvider client={queryClient}><MobileAppsContent /></QueryClientProvider>
+export function MobileAppsSection({ appDetail }: { appDetail?: AppDetailLink }) {
+  return <QueryClientProvider client={queryClient}><MobileAppsContent appDetail={appDetail} /></QueryClientProvider>
 }
 
-const MobileAppsContent = observer(function MobileAppsContent() {
+const MobileAppsContent = observer(function MobileAppsContent({ appDetail }: { appDetail?: AppDetailLink }) {
   const { translate, locale } = useSessionMessages()
   const { theme } = useTheme()
   const skin = sessionSkinClassName(theme)
@@ -55,6 +56,16 @@ const MobileAppsContent = observer(function MobileAppsContent() {
   const inFlight = useRef(false)
   const [failed, setFailed] = useState<{ title: string; cause: string } | null>(null)
   const [layer, setLayer] = useState<HTMLDivElement | null>(null)
+  useEffect(() => {
+    if (!appDetail) return
+    let current = true
+    void phoneProductApi.marketEntry({ extensionId: appDetail.extensionId }).then(result => {
+      if (!current) return
+      if (result.success && result.data) setDetail(result.data)
+      else setFailed({ title: translate('extensions.marketUnavailable'), cause: result.error ?? appDetail.extensionId })
+    }).catch(error => { if (current) setFailed({ title: translate('extensions.marketUnavailable'), cause: messageForUser(error) }) })
+    return () => { current = false }
+  }, [appDetail, translate])
   const sentinel = useRef<HTMLDivElement | null>(null)
   const rows = phoneMarketRows(catalog.data?.entries ?? [], query.trim())
   const hasMore = pages * MARKET_PAGE_SIZE < rows.length

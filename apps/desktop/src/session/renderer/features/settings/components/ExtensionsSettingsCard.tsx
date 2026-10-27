@@ -69,6 +69,7 @@ import type { MarketRefreshed } from '@shared/extensions/market-snapshot';
 import { marketHome } from '@shared/extensions/market-home';
 import { chatDb } from '@/lib/supabase';
 import type { ExtensionManifest } from '@shared/extensions/manifest';
+import { readCachedDevices } from '@/store/devicesCache';
 import { remoteHostsStore } from '@renderer/features/remote-hosts/remote-hosts-store';
 
 /**
@@ -978,6 +979,7 @@ export const ExtensionsSettingsCard = observer(function ExtensionsSettingsCard({
       };
 
   const menuOf = (manifest: ExtensionManifest) => ({
+    resource: { kind: 'app' as const, target: { kind: 'app-detail' as const, extensionId: manifest.id, deviceId: remote?.deviceId ?? readCachedDevices().find(device => device.is_current_device)?.device_id }, facts: store.updates?.forkBehind?.[manifest.id] ? ['behind' as const] : [] },
     onToggleDock: dockToggle(manifest),
     onOpenInWindow: onRail(manifest)
       ? () => {

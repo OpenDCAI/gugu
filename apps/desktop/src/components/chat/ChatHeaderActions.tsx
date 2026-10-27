@@ -8,6 +8,7 @@ import { AUTOMATION_TEST_IDS } from '../../lib/automationDom'
 import { IconButton } from '../ui/IconButton'
 import { Popover } from '../ui/Popover'
 import { DropdownMenu, MenuItem } from '../ui/Menu'
+import { resourceMenuItems } from '@/lib/resourceActions'
 import { OpenAppMenuItems } from './OpenAppMenuItems'
 import { openApp } from '../appSlot/useOpenApp'
 import { installedExtensionsStore } from '../../session/renderer/features/extensions/installed-extensions-store'
@@ -188,6 +189,7 @@ export const ChatHeaderActions = observer(function ChatHeaderActions({
                   onClick={onEnterSearchMode}
                   icon={<Search size={16} />}
                 >{t('header.searchChat')}</MenuItem>}
+            {activeChatId && resourceMenuItems({ kind: 'chat', target: { kind: 'chat', chatId: activeChatId } }).map(item => <MenuItem key={item.id} onClick={() => { onCloseHeaderMenu(); void item.click() }}>{item.label}</MenuItem>)}
             <ChatDetailsMenuItems isGroupChat={isGroupChat} onOpenInfo={() => isGroupChat ? onOpenInfo('main') : onOpenInfo()} />
             {/* 「在本群打开」的常驻入口:话题的分栏与手机整页同一份(OpenAppMenuItems)。 */}
             {groupId ? <OpenAppMenuItems chatId={groupId} apps={overflow} separated /> : activeChatId && <OpenAppMenuItems chatId={activeChatId} separated />}

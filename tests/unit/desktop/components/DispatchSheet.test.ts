@@ -65,6 +65,20 @@ const type = async (field: HTMLInputElement | HTMLTextAreaElement, value: string
 })
 
 describe('DispatchSheet', () => {
+  it('appends only applicable resource templates without picking a target or sending', async () => {
+    let picked: Promise<unknown> = Promise.resolve(), answered = false
+    await act(async () => { picked = ask({ text: 'keep this URL', pills: ['reference'], resource: { kind: 'app-variant', target: { kind: 'app-detail', extensionId: 'radar', deviceId: 'device', variant: 'remote-watch' }, facts: ['fork'] } }); void picked.then(() => { answered = true }) })
+    const chips = document.querySelector('[data-testid="dispatch-templates"]')!
+    expect(chips.textContent).toContain('删除 fork')
+    expect(chips.textContent).not.toContain('合并上游')
+    await click([...chips.querySelectorAll('button')].find(button => button.textContent === '删除 fork'))
+    expect(document.querySelector<HTMLTextAreaElement>('[data-testid="dispatch-text"]')!.value).toContain('keep this URL\n先征求我的确认')
+    expect(chips.compareDocumentPosition(document.querySelector('[data-testid="dispatch-pill"]')!) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()
+    expect(answered).toBe(false)
+    expect(ticked()).toEqual([])
+    await click(document.querySelector('[data-testid="dispatch-sheet-close"]') ?? document.querySelector('[aria-label="关闭"]'))
+    await expect(picked).resolves.toBeNull()
+  })
   it('uses the phone New task machine picker for a new agent, defaults to context, and returns the selected computer', async () => {
     let picked: Promise<unknown> = Promise.resolve()
     await act(async () => { picked = ask({ draft: false, offers: ['new-agent'], spawnOn: 'first' }) })

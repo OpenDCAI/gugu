@@ -65,6 +65,7 @@ export function MessageFilePreview({ file, mobile = false, fill = false, tabbed 
   useEffect(() => {
     if (!viewerRef.current || (file.source.kind !== 'item' && !message)) return
     return bindFileViewerMenu(viewerRef.current, () => ({
+      resource: file.source.kind === 'item' ? { kind: 'file', target: { kind: 'file', itemId: file.source.itemId, version: file.source.version } } : undefined,
       quote: async (selection) => {
         if (file.source.kind === 'item') return quoteChatFile(file.source.itemId, file.source.version, selection)
         const { UI_EVENTS } = await import('@/lib/uiEvents')
