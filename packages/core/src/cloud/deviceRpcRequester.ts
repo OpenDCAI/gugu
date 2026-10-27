@@ -60,7 +60,18 @@ export type DeviceRpcRequester = {
   open(deviceId: string): Promise<void>
   /** 拆掉这台机器的管道,在途的请求以 `error` 失败。 */
   close(deviceId: string, error?: unknown): void
+  /**
+   * 先接后断换通道时用(#625):这台机器此刻的管道退下来 —— 之后的问都开新管道;退下来的那条还能往那台机器写几句告别
+   * (不等应答,如关掉经它开的窗口),写完由调用方 `close` 拆掉,在途的请求那时以 `error` 失败。没有管道 = null。
+   */
+  retire(deviceId: string): RetiredDeviceRpcPipe | null
   closeAll(error?: unknown): void
+}
+
+export type RetiredDeviceRpcPipe = {
+  /** 往退下来的那条管道上写一问,不等应答;写出去即落定。 */
+  tell(type: string, payload: unknown): Promise<void>
+  close(error?: unknown): void
 }
 
 type Pending = {
@@ -200,6 +211,19 @@ export function createDeviceRpcRequester(options: {
     close(deviceId, error = new DeviceRpcChannelError('requester closed', 'closed')) {
       const entry = entries.get(deviceId)
       if (entry) drop(deviceId, entry, error)
+    },
+    retire(deviceId) {
+      const entry = entries.get(deviceId)
+      if (!entry) return null
+      entries.delete(deviceId)
+      return {
+        tell: async (type, payload) => {
+          const userId = await options.userId()
+          const pipe = await entry.pipe
+          await pipe.send({ type: 'broadcast', event: 'broadcast', payload: createDeviceRpcRequestEnvelope(type, newRequestId(), userId, payload) })
+        },
+        close: (error = new DeviceRpcChannelError('requester closed', 'closed')) => drop(deviceId, entry, error),
+      }
     },
     closeAll(error = new DeviceRpcChannelError('requester closed', 'closed')) {
       for (const [deviceId, entry] of [...entries]) drop(deviceId, entry, error)

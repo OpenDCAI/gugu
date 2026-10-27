@@ -16,6 +16,7 @@ import { Shortcut } from '@renderer/lib/ui/shortcut';
 import { describeHotkey } from '@renderer/lib/ui/shortcut-format';
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@renderer/lib/ui/tooltip';
 import { useSessionMessages } from '@renderer/localization/use-session-messages';
+import { useTerminalEnabled } from '../use-terminal-enabled';
 
 const CONFIGURABLE_SHORTCUTS = (
   Object.entries(COMMANDS) as [
@@ -33,7 +34,11 @@ const SHORTCUTS_BY_CATEGORY = CONFIGURABLE_SHORTCUTS.reduce<
   return acc;
 }, {});
 
+/** 只对终端起作用的快捷键:「终端」开关关着时不列(终端整个不出现,它们也就无事可做)。 */
+const TERMINAL_SHORTCUTS: ReadonlySet<CommandId> = new Set<CommandId>(['session.newTerminal', 'session.viewTerminals']);
+
 const KeyboardSettingsCard: React.FC = () => {
+  const terminalEnabled = useTerminalEnabled();
   const {
     value: keyboard,
     update,
@@ -112,7 +117,10 @@ const KeyboardSettingsCard: React.FC = () => {
   return (
     <div className="bg-background-2/10 rounded-lg p-4">
       <div className="space-y-6">
-        {Object.entries(SHORTCUTS_BY_CATEGORY).map(([category, shortcuts]) => (
+        {Object.entries(SHORTCUTS_BY_CATEGORY)
+          .map(([category, shortcuts]) => [category, shortcuts.filter(([key]) => terminalEnabled || !TERMINAL_SHORTCUTS.has(key))] as const)
+          .filter(([, shortcuts]) => shortcuts.length > 0)
+          .map(([category, shortcuts]) => (
           <div key={category}>
             <div className="text-foreground-muted mb-3 text-xs font-medium tracking-wide uppercase">
               {category}

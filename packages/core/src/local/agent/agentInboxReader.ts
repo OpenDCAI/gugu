@@ -46,7 +46,7 @@ import {
 import { encodeTypedId } from '../../shared/typedId.mjs'
 import { ackForumViaRpc, recordForumFailureViaRpc, type ForumDeliveryFailure } from './forumInbox'
 import { coreLogger } from '../../log'
-import { agentFailureReason, type AgentFailureReason } from '../../shared/agentQuotaReason'
+import { agentFailureNeedsModelChoice, agentFailureReason, type AgentFailureReason } from '../../shared/agentQuotaReason'
 import { turnFailureMarker } from '../../shared/ui/systemNotice'
 
 const log = coreLogger('agent-inbox-reader')
@@ -960,6 +960,13 @@ async function discloseBatchFailure(
     if (completionError !== undefined && await answeredBeforeFailure(agentUserId, chatId, chatMembers, spokeAfter)) {
       log.warn({ agentUserId, chatId, messageIds: ids, err: errorText(completionError) },
         'turn failed after the agent replied in the source chat; no failure row posted')
+      continue
+    }
+    // #7685 额度/模型类失败是这位 agent 的状态，不是这段对话的事：❌ 写进聊天(每条新消息都会再失败一次、刷一行,
+    // 群里别的成员还会把它读成上下文)。留成「没说」:设备命令记 reply_notice=context,界面在运行条那一排亮状态位。
+    if (agentFailureNeedsModelChoice(reason)) {
+      said = false
+      log.warn({ agentUserId, chatId, messageIds: ids, reason }, 'quota/model turn failure kept out of the chat; shown as the agent state')
       continue
     }
     const key = `turn-failure:batch:${createHash('sha256').update([agentUserId, ...ids].join(',')).digest('hex').slice(0, 32)}`

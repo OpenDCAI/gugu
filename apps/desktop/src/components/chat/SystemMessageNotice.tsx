@@ -16,6 +16,8 @@ export function SystemMessageNotice({ message, senderName, onOpenTopic }: { mess
   const notice = parseSystemNotice(message)
   const reason = notice?.kind === 'turn-failure' ? notice.reason : null
   if (reason === 'notAdmitted') return <PendingDeliveryNotice />
+  // 额度/模型类失败由运行条那一排的 agent 状态位说（#7685），❌ 在消息流里再叠一行。
+  if (reason && agentFailureNeedsModelChoice(reason)) return null
   if (reason) return <AgentReplyFailureNotice reason={reason} agentUserId={message.sender_user_id} senderName={senderName} />
   // The server writes this one format; the marker supplies the identity even if the topic is renamed or deleted.
   const separator = ' 开了话题:'

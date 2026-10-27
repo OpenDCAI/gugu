@@ -768,7 +768,6 @@ export default {
     "disconnectAccountBody": "只会断开 {{account}}，其他账号不受影响。",
     "setup": {
       "downloadProgress": "下载进度",
-      "progressUnreadable": "正在准备连接…",
       "installing": "正在校验并安装…",
       "downloading": "正在准备下载…",
       "downloadBytes": "已下载 {{received}} / {{total}} MB",

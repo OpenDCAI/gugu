@@ -40,6 +40,12 @@ import { attachmentMentions, sessionAttachmentAdapter } from './composer-attachm
 import { sessionAttachmentRpc } from './sessionpage-rpc'
 import { PhoneTaskDraftRecovery } from '../local-agent/PhoneTaskDraftRecovery'
 import { appendToDraft } from '@/store/chatContext'
+import { notify } from '@/lib/notices'
+import { messageForUser } from '@/lib/userFacingError'
+import { dismissSubagent } from '@renderer/features/sessions/view/subagent-dismissals'
+import { usePhoneBackgroundTasks } from './background-tasks'
+import { PhoneBackgroundTasks } from './PhoneBackgroundTasks'
+import { stopBackgroundTask } from './sessionpage-rpc'
 
 /**
  * 手机任务时间线复用 assistant-ui Thread 的消息仓库、滚动、附件和发送行为。
@@ -294,6 +300,19 @@ export function AgentThread({
    * 交整份时,不在里面的行库会真删 —— 仓库永远就是这一条线,一条消息一行。
    */
   const messageRepository = useMemo(() => ExportedMessageRepository.fromArray(messages), [messages])
+  // 后台命令与子智能体(#638):对话末尾、输入框上面那一句。手机自己当主机时没有这条路(那是手机上的 agent)。
+  const [dismissals, setDismissals] = useState(0)
+  const backgroundTasks = usePhoneBackgroundTasks(deviceId, sessionId, timeline.turns, dismissals, !phoneHost)
+  const background = backgroundTasks.commands.length + backgroundTasks.subagents.length > 0 ? (
+    <PhoneBackgroundTasks
+      tasks={backgroundTasks}
+      onStop={(stopId) => {
+        stopBackgroundTask(deviceId, sessionId, stopId).catch((error: unknown) =>
+          notify({ tier: 'error', title: translateSessionMessage('acpFailure.stop'), description: messageForUser(error) }))
+      }}
+      onDismiss={(entryId) => { dismissSubagent(sessionId, entryId); setDismissals((value) => value + 1) }}
+    />
+  ) : null
 
   const runtime = useExternalStoreRuntime<ThreadMessage>({
     /*
@@ -390,7 +409,7 @@ export function AgentThread({
             />
           }
           stop={agentWorking ? { onStop, stopping } : null}
-          above={footerNotice || phoneHost ? <div className="gg-aw-thread-extras">{footerNotice}{phoneHost && <PhoneTaskDraftRecovery deviceId={deviceId} sessionId={sessionId} composer={runtime.thread.composer} sending={sending} />}</div> : null}
+          above={footerNotice || phoneHost || background ? <div className="gg-aw-thread-extras">{background}{footerNotice}{phoneHost && <PhoneTaskDraftRecovery deviceId={deviceId} sessionId={sessionId} composer={runtime.thread.composer} sending={sending} />}</div> : null}
           tail={
             pinned.length > 0 ? (
               <div className="gg-aw-thread-extras" data-testid="agent-watch-pinned-settlements">

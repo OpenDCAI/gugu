@@ -4,7 +4,8 @@ import { useOpenInApps } from '@renderer/lib/hooks/useOpenInApps';
 import { Switch } from '@/components/ui/Switch';
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@renderer/lib/ui/tooltip';
 import { useSessionMessages } from '@renderer/localization/use-session-messages';
-import { OPEN_IN_APPS, type OpenInAppId } from '@shared/openInApps';
+import { OPEN_IN_APPS, TERMINAL_OPEN_IN_APP_IDS, type OpenInAppId } from '@shared/openInApps';
+import { useTerminalEnabled } from '../use-terminal-enabled';
 import { SettingsRow } from '@/components/settings/SettingsPrimitives';
 
 export default function HiddenToolsSettingsCard() {
@@ -19,15 +20,17 @@ export default function HiddenToolsSettingsCard() {
     update({ hidden: next });
   };
 
+  const terminalEnabled = useTerminalEnabled();
   const sortedApps = useMemo(() => {
-    return Object.values(OPEN_IN_APPS).sort((a, b) => {
+    // 「终端」开关关着:终端类 App 在这里也不列(与「在…中打开」同一条)。
+    return Object.values(OPEN_IN_APPS).filter((app) => terminalEnabled || !TERMINAL_OPEN_IN_APP_IDS.has(app.id)).sort((a, b) => {
       const aDetected = availability[a.id] ?? a.alwaysAvailable ?? false;
       const bDetected = availability[b.id] ?? b.alwaysAvailable ?? false;
       if (aDetected && !bDetected) return -1;
       if (!aDetected && bDetected) return 1;
       return (labels[a.id] ?? a.label).localeCompare(labels[b.id] ?? b.label);
     });
-  }, [availability, labels]);
+  }, [availability, labels, terminalEnabled]);
 
   // 一个工具一行,用设置弹窗那一种行(product spec):图标、名称、检测状态、开关。外面的分组卡片由「界面」页给。
   return (

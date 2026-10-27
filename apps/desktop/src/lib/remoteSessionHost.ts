@@ -163,12 +163,13 @@ export function openRemoteSessionHostPipe(
     const order = createSeqOrderer<SessionHostPiece[]>(joiner)
     /** 听到那台机器多少回(推来的一批、对哪一批的应答)。探活那一问没回,可期间听到过它 = 它还在,只是线上正忙。 */
     let heard = 0
-    const shut = (reason: string) => {
+    /** `handoff`:频道换了通道,这条窗口随旧通道作废 —— 客户端当场开新的,❌ 当成断线。 */
+    const shut = (reason: string, handoff = false) => {
       if (closed) return
       closed = true
       log.info({ deviceId, client, reason }, 'session host window closed')
       unsubscribe()
-      onClose(reason)
+      onClose(reason, handoff ? { handoff } : undefined)
     }
     const unsubscribe = deps.subscribe(
       deviceId,
@@ -192,6 +193,17 @@ export function openRemoteSessionHostPipe(
         onChannelResubscribed: (rejoin: boolean) => {
           if (live) shut('channel resubscribed')
           else if (rejoin) abandonOpen?.(Object.assign(new Error('channel resubscribed while opening'), { code: 'channel_resubscribed' }))
+        },
+        // 频道要换到另一条通道上了(新的那条已经接好,deviceRpc 先接后断):开着的窗口先交接 —— 客户端当场开新窗口,
+        // 界面照「通着」;旧通道随后撤掉,这条窗口上没回的问一起失败(此时已关,❌ 再关一次)。还在开的那一问发在旧通道上,
+        // 放弃它当场再开(与重订上同一条路)。
+        // #625 交接的这条窗口让旧通道撤掉前替它说一声关:那台机器按通道收窗口,新通道上的关它对不上号,不说就要等心跳丢了(约 30 s)。
+        onChannelSwitching: () => {
+          if (live) {
+            shut('channel switching transport', true)
+            return { type: SESSION_HOST_RPC.close, payload: { client } }
+          }
+          abandonOpen?.(Object.assign(new Error('channel switching transport while opening'), { code: 'channel_resubscribed' }))
         },
       },
     )

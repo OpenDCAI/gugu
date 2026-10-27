@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import type { ChatItem, Device } from '@gugu/core/shared/types/chat'
+import type { Device } from '@gugu/core/shared/types/chat'
 import type { ContactUser } from '@gugu/core/shared/types/contacts'
 import type { DeviceProject } from '@gugu/core/shared/types/deviceProject'
 import type { SessionpageSessionSummary } from '@gugu/session-core/session-record/contract'
@@ -8,9 +8,9 @@ import {
   partnerFriends,
   partnerProjects,
   projectAgents,
+  projectAgentTarget,
   projectNameProblem,
   projectSessions,
-  projectTopics,
   runningCount,
 } from '../../../apps/desktop/src/mobile/partners/partnersModel'
 
@@ -97,14 +97,28 @@ describe('project address book', () => {
 
   it('lists my agents in the group in the group’s order, then agents only seen in this project’s sessions', () => {
     const sessions = [
-      { session: session('s1', 'p', { agent: { userId: 'agent-a' }, title: 'old', lastInteractedAt: '2026-10-01T00:00:00Z' }) },
-      { session: session('s2', 'p', { agent: { userId: 'agent-a' }, title: 'fix login', lastInteractedAt: '2026-10-03T00:00:00Z' }) },
-      { session: session('s3', 'p', { agent: { userId: 'fresh' }, title: 'brand new' }) },
+      { deviceId: 'mac', session: session('s1', 'p', { agent: { userId: 'agent-a' }, title: 'old', lastInteractedAt: '2026-10-01T00:00:00Z' }) },
+      { deviceId: 'server', session: session('s2', 'p', { agent: { userId: 'agent-a' }, title: 'fix login', lastInteractedAt: '2026-10-03T00:00:00Z' }) },
+      { deviceId: 'mac', session: session('s3', 'p', { agent: { userId: 'fresh' }, title: 'brand new' }) },
     ]
     const agents = projectAgents(group, mine, sessions)
     expect(agents.map((agent) => agent.id)).toEqual(['agent-b', 'agent-a', 'fresh'])
     expect(agents.find((agent) => agent.id === 'agent-a')?.work).toBe('fix login')
     expect(agents.find((agent) => agent.id === 'fresh')?.contact).toBeNull()
+    // 点 Agent 打开的就是这一条:它在这里最近那条会话,连同它在哪台机器上。
+    expect(agents.find((agent) => agent.id === 'agent-a')?.latest).toMatchObject({ deviceId: 'server', session: { conversationId: 's2' } })
+    expect(agents.find((agent) => agent.id === 'agent-b')?.latest).toBeNull()
+  })
+
+  // owner 10-28 手机试用:点项目里的一个会话,进的是项目群 + @,不是那条会话(与 #665 合并)。
+  it('opens the agent’s latest session in this project, and the group only for an agent with no session here', () => {
+    const sessions = [
+      { deviceId: 'mac', session: session('s1', 'p', { agent: { userId: 'agent-a' }, title: 'old', lastInteractedAt: '2026-10-01T00:00:00Z' }) },
+      { deviceId: 'phone', session: session('s2', 'p', { agent: { userId: 'agent-a' }, title: 'fix login', lastInteractedAt: '2026-10-03T00:00:00Z' }) },
+    ]
+    const agents = projectAgents(group, mine, sessions)
+    expect(projectAgentTarget(agents.find((agent) => agent.id === 'agent-a')!)).toEqual({ kind: 'session', deviceId: 'phone', session: sessions[1]!.session })
+    expect(projectAgentTarget(agents.find((agent) => agent.id === 'agent-b')!)).toEqual({ kind: 'group' })
   })
 
   it('gathers each machine’s sessions of this project only', () => {
@@ -118,21 +132,6 @@ describe('project address book', () => {
     expect(runningCount(sessions)).toBe(1)
   })
 
-  it('shows the group’s topics that are not a task’s, oldest first', () => {
-    const chat = (id: string, fields: Partial<ChatItem>): ChatItem => ({
-      id, kind: 'topic', status: 'active', name: id, created_at: '2026-10-01T00:00:00Z', last_message_at: null, last_message_preview: null,
-      unread_count: 0, pinned_message_id: null, last_read_seq: 0, next_message_seq: 0, ...fields,
-    } as ChatItem)
-    const topics = projectTopics('g', [
-      chat('later', { source_chat_id: 'g', created_at: '2026-10-05T00:00:00Z' }),
-      chat('task', { source_chat_id: 'g' }),
-      chat('earlier', { source_chat_id: 'g', created_at: '2026-10-02T00:00:00Z' }),
-      chat('elsewhere', { source_chat_id: 'other' }),
-      chat('g', { kind: 'group', source_chat_id: null }),
-    ], new Set(['task']))
-    expect(topics.map((topic) => topic.id)).toEqual(['earlier', 'later'])
-    expect(projectTopics(null, [], new Set())).toEqual([])
-  })
 })
 
 describe('new project', () => {

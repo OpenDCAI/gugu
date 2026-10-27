@@ -1127,7 +1127,7 @@ describe('三态判决与失败面', () => {
   })
 
   it.each([
-    ['ECONNRESET', 'network'], ['401 Unauthorized', 'authentication'], ['insufficient_quota', 'quota'],
+    ['ECONNRESET', 'network'], ['401 Unauthorized', 'authentication'],
   ])('settles a native failure before first output once, with its cause and no re-delivery: %s', async (cause, reason) => {
     const { AcpRuntime, createAcpProcedures } = await import('@gugu/session-runtime/acp-agents')
     const { makeAcpHarness, makeStartInput } = await import('../../../../packages/session-runtime/src/acp-agents/acp-test-support')
@@ -1238,39 +1238,41 @@ describe('三态判决与失败面', () => {
     expect(isSaidInChat(new Error('never pulled'))).toBe(false)
   })
 
-  it('reports a quota failure after admission, even when a wake pull owns the turn instead of a command', async () => {
+  // #7685 额度/模型类失败是 agent 的状态位，❌ 聊天里的失败行；留成「没说」，由设备命令结果(reply_notice=context)带到界面。
+  it.each([
+    "Internal error: You've hit your weekly limit; private trace x123",
+    'insufficient_quota',
+    'API Error: 400 Model private/deepseek is not available (request id: private-trace)',
+    'Selected model is at capacity. Please try a different model.',
+  ])('keeps a quota or model failure out of the chat and leaves it unsaid: %s', async (reason) => {
     const cloud = seed()
     let fail!: (error: Error) => void
     const completion = new Promise<void>((_, reject) => { fail = reject })
-    const notices: Array<{ reason: string; chatId: string }> = []
+    const notices: Array<{ reason: string }> = []
     const { deps } = makeDeps(cloud, {
       inject: async () => ({ verdict: 'accepted', completion }),
       postDisclosure: async (input) => { notices.push(input) },
     })
     const admitted = await pullAgentInbox(AGENT, deps)
     const settled = admitted.completion!.catch((error: unknown) => error)
-    expect(cloud.markReadCalls).toHaveLength(1)
-    // A subsequent nudge sees no unread rows. It cannot own this provider failure.
-    await expect(pullAgentInbox(AGENT, deps)).resolves.toMatchObject({ injected: 0 })
-    fail(new Error("Internal error: You've hit your weekly limit; private trace x123"))
-    expect(isSaidInChat(await settled)).toBe(true)
-    expect(notices).toEqual([expect.objectContaining({ chatId: '00000000-0000-4000-8000-000000000003', reason: 'weeklyQuota' })])
+    fail(new Error(reason))
+    const thrown = await settled
+    expect(notices).toEqual([])
+    expect(isSaidInChat(thrown)).toBe(false)
+    expect((thrown as Error).message).toBe(reason)
     expect(cloud.markReadCalls).toHaveLength(1)
   })
 
-  it.each([
-    'API Error: 400 Model private/deepseek is not available (request id: private-trace)',
-    'Selected model is at capacity. Please try a different model.',
-  ])('discloses an unavailable model without leaking its upstream route or request trace: %s', async (reason) => {
+  it('[positive control] still says a non-quota failure in the chat', async () => {
     const cloud = seed()
     const notices: Array<{ reason: string }> = []
     const { deps } = makeDeps(cloud, {
-      inject: async () => ({ verdict: 'accepted', completion: Promise.reject(new Error(reason)) }),
+      inject: async () => ({ verdict: 'accepted', completion: Promise.reject(new Error('HTTP 429 too many requests')) }),
       postDisclosure: async (input) => { notices.push(input) },
     })
     const admitted = await pullAgentInbox(AGENT, deps)
-    await admitted.completion!.catch(() => {})
-    expect(notices).toEqual([expect.objectContaining({ reason: 'modelUnavailable' })])
+    expect(isSaidInChat(await admitted.completion!.catch((error: unknown) => error))).toBe(true)
+    expect(notices).toEqual([expect.objectContaining({ reason: 'rateLimited' })])
   })
 
   // Beta 1042: the agent's message_send landed, then the provider rejected the request after it (API Error: 400) and the

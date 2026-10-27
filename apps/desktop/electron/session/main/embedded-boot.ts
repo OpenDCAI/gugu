@@ -191,6 +191,7 @@ import { LocalExecutionContext } from '@main/core/execution-context/local-execut
 import { automationsService } from '@main/core/automations/automations-service'
 import { appService } from '@main/core/app/service'
 import { appSettingsService } from '@main/core/settings/settings-service'
+import { settleTerminalEnabled } from '@main/core/settings/terminal-visibility'
 import { browserWebContentsRegistry } from '@main/core/browser/browser-webcontents-registry'
 import { setBrowserCorsRelaxationSettings } from '@main/core/browser/browser-profile-session'
 import { promptLibraryService } from '@main/core/prompt-library/service'
@@ -648,6 +649,8 @@ export async function bootSessionHostCore(options: SessionHostBootOptions): Prom
   automationsService.start()
   appService.initialize()
   await appSettingsService.initialize()
+  // 「终端」开关还没定值(升级上来的第一次启动)就按老用户迁移规则算一次写回,渲染层与新会话都读这一份。
+  await settleTerminalEnabled().catch((e) => log.warn('terminal setting: migration failed; it stays off until set', { error: e }))
   if (browserFeatures) {
     browserWebContentsRegistry.setKeyboardSettings(await appSettingsService.get('keyboard'))
   }

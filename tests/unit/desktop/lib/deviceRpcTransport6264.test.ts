@@ -413,6 +413,75 @@ describe('设备 RPC 按机器挑通道', () => {
     }
   })
 
+  // 2026-10-27 owner「每次打开都闪一下」:开机时到 d22 的频道先走咕咕云,隧道通了再换到设备连接。先断后接时,撤掉咕咕云到
+  // 设备连接接好那 2–3 s 里窗口全断,侧栏掉成「重新连接」、文件树「无响应」、在起的会话报错。先接后断:设备连接接好之前
+  // 咕咕云照常办事;接好了,窗口先交接(onChannelSwitching),再撤咕咕云,新管道接过这一条(❌ 再拨一次)。
+  // 判据能判假吗:换回先断后接(reconcileTransports 当场 requester.close),「接好之前咕咕云还在」那一条红。
+  it('咕咕云 → 设备连接(隧道通了):先接后断,窗口先交接再撤咕咕云,新管道用先接好的那一条', async () => {
+    let linkUp: (result: unknown) => void = () => undefined
+    const main = fakeMainProcess({ sshMachines: [], open: () => new Promise((resolve) => { linkUp = resolve }) })
+    const { callDeviceRpc, subscribeDeviceRpcEvents } = await load(main)
+    const resubscribed = vi.fn()
+    let unsubscribedAtSwitch: number | null = null
+    const switching = vi.fn(() => { unsubscribedAtSwitch = cloud.unsubscribed })
+    subscribeDeviceRpcEvents('tunnel-box', () => undefined, { onChannelResubscribed: resubscribed, onChannelSwitching: switching })
+    await vi.waitFor(() => expect(resubscribed).toHaveBeenCalledTimes(1))
+
+    main.emit('tunnel-machines:changed', { ready: ['tunnel-box'], problems: {} })
+    await whenRecorded('设备连接开始拨', () => main.opened.length === 1)
+    await new Promise((r) => setTimeout(r, 0))
+    expect(cloud.unsubscribed, '设备连接接好之前咕咕云还在').toBe(0)
+    expect(switching).not.toHaveBeenCalled()
+
+    linkUp({ ok: true })
+    await vi.waitFor(() => expect(resubscribed).toHaveBeenCalledTimes(2))
+    expect(switching).toHaveBeenCalledTimes(1)
+    expect(unsubscribedAtSwitch, '窗口先交接,再撤咕咕云').toBe(0)
+    expect(cloud.unsubscribed).toBeGreaterThan(0)
+    expect(main.opened, '新管道接过先接好的那一条,❌ 再拨').toEqual(['tunnel-box'])
+
+    void callDeviceRpc('tunnel-box', 'taskpage.sessions.list', {}, { timeoutMs: 2_000 }).catch(() => undefined)
+    await whenRecorded('问走设备连接', () => main.sent.length === 1)
+    expect(main.sent[0].deviceId).toBe('tunnel-box')
+  })
+
+  // #625 交接走的窗口:那台机器按通道收窗口,关窗那一句要在咕咕云撤掉之前、在咕咕云上说;❌ 落到新的设备连接上(对不上号,
+  // 那台机器要等约 30 s 心跳丢了才收)。
+  it('咕咕云 → 设备连接:交接走的窗口在咕咕云撤掉之前,经咕咕云关掉', async () => {
+    let linkUp: (result: unknown) => void = () => undefined
+    const main = fakeMainProcess({ sshMachines: [], open: () => new Promise((resolve) => { linkUp = resolve }) })
+    const { subscribeDeviceRpcEvents } = await load(main)
+    const resubscribed = vi.fn()
+    subscribeDeviceRpcEvents('tunnel-box', () => undefined, {
+      onChannelResubscribed: resubscribed,
+      onChannelSwitching: () => ({ type: 'taskhost.close', payload: { client: 'old-window' } }),
+    })
+    await vi.waitFor(() => expect(resubscribed).toHaveBeenCalledTimes(1))
+
+    main.emit('tunnel-machines:changed', { ready: ['tunnel-box'], problems: {} })
+    await whenRecorded('设备连接开始拨', () => main.opened.length === 1)
+    linkUp({ ok: true })
+    await vi.waitFor(() => expect(cloud.unsubscribed).toBeGreaterThan(0))
+
+    const closes = cloud.sentOn.filter((sent) => sent.message.payload.type === 'taskhost.close')
+    expect(closes, '关窗经咕咕云说了一次').toHaveLength(1)
+    expect((closes[0].message.payload as unknown as { payload: unknown }).payload).toEqual({ client: 'old-window' })
+    expect(main.sent.some((sent) => sent.message.payload.type === 'taskhost.close'), '❌ 落到设备连接上').toBe(false)
+  })
+
+  it('咕咕云 → 设备连接,可设备连接没接上:❌ 交接,照旧先断后接', async () => {
+    const main = fakeMainProcess({ sshMachines: [], open: () => ({ ok: false, reason: 'unreachable', via: 'tunnel' }) })
+    const { subscribeDeviceRpcEvents } = await load(main)
+    const resubscribed = vi.fn()
+    const switching = vi.fn()
+    subscribeDeviceRpcEvents('tunnel-box', () => undefined, { onChannelResubscribed: resubscribed, onChannelSwitching: switching })
+    await vi.waitFor(() => expect(resubscribed).toHaveBeenCalledTimes(1))
+
+    main.emit('tunnel-machines:changed', { ready: ['tunnel-box'], problems: {} })
+    await vi.waitFor(() => expect(cloud.unsubscribed).toBeGreaterThan(0))
+    expect(switching).not.toHaveBeenCalled()
+  })
+
   // 冷启动实撞(手机点进一台机器晚 5 s):频道头一回订上被当成「重接」,开线那一问被放弃。头一回订上 rejoin=false,
   // 同一条管道断过又订上才是 true。
   it('咕咕云:同一条管道头一回订上报 rejoin=false,断过又订上报 true', async () => {
