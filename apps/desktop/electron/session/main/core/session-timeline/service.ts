@@ -54,6 +54,8 @@ import {
   type SessionSchedule,
 } from '@shared/core/automations/session-schedule';
 import { log } from '@main/lib/logger';
+import { readAcpSessionState } from '@main/core/acp/session-summary-reader';
+import { getAcpRuntimeClient } from '@main/core/acp/runtime-process/host';
 import {
   legacyAgentStatusWord,
   parseAgentStatus,
@@ -1072,6 +1074,43 @@ export async function readOpenedFile(
 /** 这条会话给人打开过的文件与网页,最近的在前(桌面「输出」、手机读的都是这一份)。 */
 export async function outputs(input: { conversationId: string }): Promise<SessionTimelineResult<OpenedOutput[]>> {
   return { ok: true, value: await sessionOutputs(input.conversationId) };
+}
+
+/**
+ * 这条会话的运行时说「本进程里还在跑」的后台命令(#6582 那道筛子,手机看会话末尾那一句用;桌面读的是自己 store 里同一格)。
+ * 会话不在运行时里 ⇒ `[]`(没有活着的进程,就没有在跑的命令);运行时没报这一格(旧运行时)⇒ `null` = 不筛。
+ */
+export async function backgroundTasks(input: {
+  conversationId: string;
+}): Promise<SessionTimelineResult<{ runningCommandTaskIds: string[] | null }>> {
+  const row = readSessionRow(input.conversationId);
+  if (!row) return fail('session_not_found', `这台机器上没有会话 ${input.conversationId}`);
+  try {
+    const state = await readAcpSessionState(row.id);
+    return { ok: true, value: { runningCommandTaskIds: state ? (state.backgroundCommandTaskIds ? [...state.backgroundCommandTaskIds] : null) : [] } };
+  } catch (error) {
+    return fail('read_failed', (error as Error)?.message ?? String(error));
+  }
+}
+
+/**
+ * 停一个后台任务:命令报供应商的 asyncTaskId,子智能体报派它的 tool_use id —— 与桌面那一行的停止键同一个调用
+ * (`stopBackgroundTask`)。受理即返回,停没停下来看时间线。
+ */
+export async function stopBackgroundTask(input: {
+  conversationId: string;
+  stopId: string;
+}): Promise<SessionTimelineResult<{ stopped: true }>> {
+  const row = readSessionRow(input.conversationId);
+  if (!row) return fail('session_not_found', `这台机器上没有会话 ${input.conversationId}`);
+  try {
+    const client = await getAcpRuntimeClient();
+    const result = await client.stopBackgroundTask({ sessionId: row.id, taskId: input.stopId });
+    if (!result.success) return fail('stop_failed', String((result.error as { message?: string })?.message ?? result.error));
+    return { ok: true, value: { stopped: true } };
+  } catch (error) {
+    return fail('stop_failed', (error as Error)?.message ?? String(error));
+  }
 }
 
 /**
