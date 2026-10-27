@@ -127,7 +127,7 @@ describe('personal group App shortcuts', () => {
     if (mobile) {
       await vi.waitFor(() => expect(document.querySelector('[data-testid="chat-header-menu-app"] .gg-menu-item-label')?.textContent).toBe('board'))
       const items = [...document.querySelectorAll('[role="menuitem"] .gg-menu-item-label')].map((item) => item.textContent)
-      expect(items).toEqual(['在对话中搜索', '群文件夹', '群设置', 'board', '群 Apps'])
+      expect(items).toEqual(['在对话中搜索', '群文件夹', '复制咕咕 URL', '复制 URL 并发给…', '群设置', 'board', '群 Apps'])
       const actions = [...document.querySelectorAll('[data-tabbar-actions] button')].map((button) => button.getAttribute('aria-label'))
       expect(actions).toEqual(['成员列表', '更多操作'])
     } else {
