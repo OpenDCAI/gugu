@@ -157,11 +157,15 @@ export function fanPlace(slot: number, count: number, opts: { column: number; pa
   const reach = Math.max(paperH + 90, Math.min(720, (column - 32 - paperW * Math.cos(half)) / (2 * Math.sin(half))));
   const fit = Math.max(3, Math.floor(Math.min(FAN_MAX_ANGLE * reach, column - 32 - paperW) / label) + 1);
   const rows = Math.min(FAN_MAX_ROWS, Math.ceil(count / Math.min(FAN_ROW_MAX, fit)));
-  const per = Math.ceil(count / rows);
+  // 平均分:前 count % rows 行各多一张(13 张 5 行 = 3,3,3,2,2),❌ 按满行切(3,3,3,3,1)。
+  const base = Math.floor(count / rows);
+  const extra = count % rows;
+  const per = base + (extra > 0 ? 1 : 0);
   const step = per === 1 ? 0 : Math.min(FAN_MAX_ANGLE / (per - 1), label / reach);
-  const row = Math.floor(slot / per);
-  const inRow = Math.min(per, count - row * per);
-  const position = inRow - 1 - (slot - row * per); // 0 = 最左
+  const row = slot < extra * (base + 1) ? Math.floor(slot / (base + 1)) : extra + Math.floor((slot - extra * (base + 1)) / base);
+  const inRow = base + (row < extra ? 1 : 0);
+  const first = row < extra ? row * (base + 1) : extra * (base + 1) + (row - extra) * base;
+  const position = inRow - 1 - (slot - first); // 0 = 最左
   const angle = (position - (inRow - 1) / 2) * step + (row % 2 ? step / 2 : 0) + jitter(key, 'a', 0.02);
   // 绕握点转 = 纸中心沿圆弧走,再绕自己的中心转同一个角。
   const radius = reach - paperH / 2;
