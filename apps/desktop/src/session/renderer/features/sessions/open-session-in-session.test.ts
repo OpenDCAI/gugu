@@ -1,6 +1,8 @@
 import { describe, expect, it, vi } from 'vitest';
+import { observable, runInAction } from 'mobx';
 
-const opened = vi.hoisted(() => ({ calls: [] as unknown[], tabs: 0, views: [] as string[], provisioned: true, reason: null as string | null }));
+const opened = vi.hoisted(() => ({ calls: [] as unknown[], tabs: 0, views: [] as string[], provisioned: true, archived: false, provision: vi.fn(), reason: null as string | null }));
+const ready = observable.box(true);
 
 vi.mock('@renderer/features/sessions/stores/session-selectors', () => {
   const paneLayout = {
@@ -11,13 +13,16 @@ vi.mock('@renderer/features/sessions/stores/session-selectors', () => {
   };
   return {
     asProvisioned: (page: unknown) => page,
-    getSessionPageStore: () => (opened.provisioned ? {} : null),
+    getSessionPageStore: () => (opened.provisioned && ready.get() ? { viewModel: {} } : null),
     getSessionView: (projectId: string, sessionId: string) => {
       opened.views.push(`${projectId}/${sessionId}`);
       return { paneLayout };
     },
+    getSessionManagerStore: () => ({ provisionSession: opened.provision }),
+    sessionViewKind: () => opened.archived ? 'archived' : 'idle',
   };
 });
+vi.mock('@renderer/features/projects/stores/project-selectors', () => ({ getProjectManagerStore: () => ({ mountProject: vi.fn().mockResolvedValue(undefined) }) }));
 vi.mock('./stores/session-registry', () => ({
   sessionRegistry: { get: () => ({ sessions: { get: () => ({ data: { runtime: 'pty' } }) } }) },
 }));
@@ -71,11 +76,13 @@ describe('task entry keeps the workspace failure reason', () => {
     vi.mocked(toast).mockClear();
     opened.provisioned = false;
     opened.reason = null;
-    const dispose = openSessionInSessionWhenReady({ projectId: 'p', sessionId: 's' });
+    const onReady = vi.fn();
+    const dispose = openSessionInSessionWhenReady({ projectId: 'p', sessionId: 's', onReady });
     try {
       // The handshake can discover the mismatch after navigation starts.
       opened.reason = reason;
       await vi.advanceTimersByTimeAsync(10_000);
+      expect(onReady).not.toHaveBeenCalled();
       expect(toast).toHaveBeenCalledWith(expect.objectContaining({
         description: reason ?? 'sidebar.workspaceNotReady',
       }));
@@ -87,4 +94,53 @@ describe('task entry keeps the workspace failure reason', () => {
       vi.useRealTimers();
     }
   });
+});
+
+it('commits the screen layout only after the workspace and conversation are ready', () => {
+  ready.set(false);
+  opened.calls = [];
+  const onReady = vi.fn(() => expect(opened.calls).toHaveLength(1));
+  const dispose = openSessionInSessionWhenReady({ projectId: 'p', sessionId: 's', onReady });
+  try {
+    expect(onReady).not.toHaveBeenCalled();
+    expect(opened.calls).toHaveLength(0);
+    runInAction(() => ready.set(true));
+    expect(onReady).toHaveBeenCalledOnce();
+  } finally {
+    dispose();
+    runInAction(() => ready.set(true));
+  }
+});
+
+it('prepares an idle background task through the existing workspace preparation path', async () => {
+  ready.set(false);
+  opened.provision.mockImplementationOnce(async () => { runInAction(() => ready.set(true)); });
+  const onReady = vi.fn();
+  const dispose = openSessionInSessionWhenReady({ projectId: 'p', sessionId: 's', onReady });
+  try {
+    expect(onReady).not.toHaveBeenCalled();
+    await vi.waitFor(() => expect(onReady).toHaveBeenCalledOnce());
+    expect(opened.provision).toHaveBeenCalledWith('s');
+  } finally {
+    dispose();
+    opened.provision.mockReset();
+    runInAction(() => ready.set(true));
+  }
+});
+
+it('does not revive an archived task while waiting to open it', async () => {
+  ready.set(false);
+  opened.archived = true;
+  const onReady = vi.fn();
+  const dispose = openSessionInSessionWhenReady({ projectId: 'p', sessionId: 's', onReady });
+  try {
+    await Promise.resolve();
+    await Promise.resolve();
+    expect(opened.provision).not.toHaveBeenCalled();
+    expect(onReady).not.toHaveBeenCalled();
+  } finally {
+    dispose();
+    opened.archived = false;
+    runInAction(() => ready.set(true));
+  }
 });

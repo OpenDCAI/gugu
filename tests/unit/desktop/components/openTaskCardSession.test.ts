@@ -19,8 +19,10 @@ describe('task card uses the existing resource opening paths', () => {
   })
   it('retains the local screen layout and task readiness boundary', () => {
     openTaskCardSession(task, true)
+    expect(opened.beside).not.toHaveBeenCalled()
+    expect(opened.ready).toHaveBeenCalledExactlyOnceWith({ ...task, onReady: expect.any(Function) })
+    opened.ready.mock.calls[0][0].onReady()
     expect(opened.beside).toHaveBeenCalledExactlyOnceWith(task)
-    expect(opened.ready).toHaveBeenCalledExactlyOnceWith(task)
     expect(opened.link).not.toHaveBeenCalled()
   })
 })

@@ -9,9 +9,10 @@
 // / view-state 都用它),同一个 SQLite 文件、同一次备份,不需要迁移。
 
 import { KV } from '@main/db/kv';
+import { getPlatformModelCatalogResolver } from '@main/core/agents/platform-model-catalog-hook';
 
 /** composer 的选择:平台模型 = {modelId};harness 自家模型 = null。 */
-export type SessionPlatformModel = { modelId: string } | null;
+export type SessionPlatformModel = { modelId: string; label?: string } | null;
 
 /** 包一层对象,是为了让「记过、选的是 harness(null)」和「压根没记过」在读回来时分得开。 */
 type PlatformModelRecord = { platformModel: SessionPlatformModel };
@@ -76,4 +77,25 @@ export async function sessionPlatformModel(
 /** 会话没了就把记录一起收掉(会话 id 不复用,留着只是垃圾)。 */
 export async function forgetSessionPlatformModel(sessionId: string): Promise<void> {
   await platformModelKV.del(sessionId);
+}
+
+/**
+ * The decided Gugu model's name as the model menu shows it, filled in on first read: the platform catalog is asked once
+ * per session and model and the name kept beside the id. A new decision (a switch, a rollback) writes a record without it,
+ * so a stale name goes with the old model. Null for an engine's own model, for one the catalog does not list (kept as
+ * '', not asked again), or when the catalog cannot answer (nothing kept: the next read asks again). A name the platform
+ * later changes shows until the model changes.
+ */
+export async function sessionModelLabel(sessionId: string, decision: SessionPlatformModel | undefined, providerId: string | null, runtime: string | null): Promise<string | null> {
+  // '' is「asked, the catalog has no name for it」: kept too, so a model the catalog does not list is not asked again.
+  if (!decision || decision.label !== undefined) return decision?.label || null;
+  const resolver = getPlatformModelCatalogResolver();
+  if (!resolver || !providerId || providerId === 'unknown') return null;
+  const catalog = await resolver({ providerId, surface: runtime === 'acp' ? 'acp' : 'tui' }).catch(() => null);
+  // A catalog that could not be read says so in catalogError with no models: nothing kept, asked again next time.
+  if (!catalog || catalog.catalogError) return null;
+  const label = catalog.models.find((entry) => entry.id === decision.modelId)?.displayName ?? '';
+  const now = await sessionPlatformModel(sessionId);
+  if (now?.modelId === decision.modelId) await platformModelKV.set(sessionId, { platformModel: { ...now, label } });
+  return label || null;
 }
