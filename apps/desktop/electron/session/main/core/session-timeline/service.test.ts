@@ -1159,6 +1159,36 @@ describe('session timeline service', () => {
       state.hostWaits = [];
     });
 
+    it('the registered App deadline withdraws the same settlement at 280 seconds', async () => {
+      vi.useFakeTimers();
+      try {
+        state.rows = [row()];
+        const fake = makeTimeline();
+        service.setSessionTimelineFactory(async () => fake.timeline);
+        const answer = asks.ask('conv-1', ask(), {});
+        await service.snapshot({ conversationId: 'conv-1' });
+        await vi.advanceTimersByTimeAsync(279_999);
+        expect(fake.timeline.getSnapshot().settlements.find(item => item.itemId === 'host-1')?.state).toBe('pending');
+        await vi.advanceTimersByTimeAsync(1);
+        await expect(answer).resolves.toBe('timeout');
+        expect(fake.timeline.getSnapshot().settlements.find(item => item.itemId === 'host-1')?.state).toBe('cancelled');
+      } finally { vi.useRealTimers(); }
+    });
+
+    it('a browser source publishes dialog attention and settles through the same CAS', async () => {
+      state.rows = [row()];
+      const fake = makeTimeline();
+      service.setSessionTimelineFactory(async () => fake.timeline);
+      const answer = asks.ask('conv-1', { ...ask('browser-1'), origin: { source: 'browser-assistance', payload: { kind: 'takeover', text: 'Finish the visible step' } } }, {});
+      await service.snapshot({ conversationId: 'conv-1' });
+      await Promise.resolve();
+      expect(state.hostWaits).toContainEqual(expect.objectContaining({ open: true, waitKind: 'dialog' }));
+      const input = { conversationId: 'conv-1', itemId: 'browser-1', kind: 'permission' as const, optionId: 'install', by: 'mobile' };
+      expect(await asks.respond(input)).toMatchObject({ ok: true, value: { accepted: true } });
+      expect(await asks.respond({ ...input, by: 'desktop' })).toMatchObject({ ok: true, value: { accepted: false } });
+      await expect(answer).resolves.toMatchObject({ by: 'mobile' });
+    });
+
     it('a host question works on ACP, validates answers and commits only the first explicit answer', async () => {
       state.rows = [row({ runtime: 'acp' })];
       service.setSessionTimelineFactory(async () => makeTimeline().timeline);

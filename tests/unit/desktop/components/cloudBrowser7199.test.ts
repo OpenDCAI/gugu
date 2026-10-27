@@ -13,7 +13,6 @@ const status: CloudBrowserStatus = {
   completed: false,
   controlled: false,
   lastActivityAt: new Date().toISOString(),
-  assistance: null,
   live: { port: 1, token: 'x' },
 }
 const state: CloudBrowserState = {
@@ -24,9 +23,8 @@ const state: CloudBrowserState = {
   automation: 'running',
   completed: false,
   control: 'released',
-  assistance: null,
 }
-const base = { live: true, status, state, linkState: 'open' as const, hasFrame: true, releasing: false, everOpened: true }
+const base = { assistance: null, live: true, status, state, linkState: 'open' as const, hasFrame: true, releasing: false, everOpened: true }
 
 describe('#7199 cloud browser status line', () => {
   it('agent 在浏览 = 实时 · Agent 正在浏览;还在空白页 = 正在打开网站', () => {
@@ -50,10 +48,10 @@ describe('#7199 cloud browser status line', () => {
   it('停止 / 求助 / 完成', () => {
     expect(cloudBrowserLine({ ...base, state: { ...state, automation: 'stopped' } }).key).toBe('viewer.stopped')
     const assistance = { requestId: 'r', kind: 'login' as const, site: 'https://www.jd.com' }
-    expect(cloudBrowserLine({ ...base, state: { ...state, automation: 'idle', assistance } })).toEqual({ key: 'needs', assistance, retry: false })
+    expect(cloudBrowserLine({ ...base, assistance, state: { ...state, automation: 'idle' } })).toEqual({ key: 'needs', assistance, retry: false })
     // 刚填完密码:实时状态已清掉求助,轮询来的 status 还挂着旧的 → 不再说「需要你完成」
-    expect(cloudBrowserLine({ ...base, status: { ...status, assistance }, state: { ...state, automation: 'idle' } }).key).toBe('viewer.idle')
-    expect(cloudBrowserLine({ ...base, live: false, linkState: null, state: null, status: { ...status, automation: 'idle', assistance } }).key).toBe('needs')
+    expect(cloudBrowserLine({ ...base, assistance: null, state: { ...state, automation: 'idle' } }).key).toBe('viewer.idle')
+    expect(cloudBrowserLine({ ...base, assistance, live: false, linkState: null, state: null, status: { ...status, automation: 'idle' } }).key).toBe('needs')
     expect(cloudBrowserLine({ ...base, state: { ...state, automation: 'idle', completed: true } }).key).toBe('viewer.taskCompleted')
     expect(cloudBrowserLine({ ...base, state: { ...state, automation: 'idle' } }).key).toBe('viewer.idle')
   })

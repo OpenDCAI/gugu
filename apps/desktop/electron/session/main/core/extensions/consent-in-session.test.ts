@@ -121,14 +121,14 @@ describe('an agent’s App install, asked as an approval in its session (D-31)',
     expect(w.responses[0]).not.toHaveProperty('digest');
   });
 
-  it('nobody answers within the person’s window: the ask is withdrawn and the agent is told it timed out', async () => {
-    vi.useFakeTimers();
+  it('the shared Ask timeout closes this window without a second clock', async () => {
     const w = world();
     const result = askInstallInSession('conv-1', request, requester, w.dependencies as never);
-    await vi.advanceTimersByTimeAsync(INSTALL_CONSENT_HUMAN_WINDOW_MS - 1);
-    expect(w.asked[0]?.options.signal.aborted).toBe(false);
-    await vi.advanceTimersByTimeAsync(1);
+    await flush();
+    expect(w.asked[0]?.options.signal).toBeUndefined();
+    w.answer('timeout');
     await expect(result).resolves.toEqual({ outcome: 'timeout' });
+    expect(w.closed).toEqual([w.asked[0]!.request.itemId]);
   });
 
   it("the agent's call goes away (its turn stopped): the ask is withdrawn, not left for nobody", async () => {
@@ -138,7 +138,7 @@ describe('an agent’s App install, asked as an approval in its session (D-31)',
     await flush();
     call.abort();
     await expect(result).resolves.toEqual({ outcome: 'dismissed' });
-    expect(w.asked[0]?.options.signal.aborted).toBe(true);
+    expect(w.asked[0]?.options.signal?.aborted).toBe(true);
   });
 
   it('no such session here: this window alone asks, nothing sent to a session', async () => {

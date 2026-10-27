@@ -541,8 +541,8 @@ function CloudBrowserCardInner({ deviceId, agentUserId }: { deviceId: string | n
   const [viewTab, setViewTab] = useState<string | null>(null)
   const pageVisible = usePageVisible()
   const [cardRef, onScreen] = useOnScreen<HTMLDivElement>()
-  const row = useAgentSessionRow(agentUserId)
-  const view = useCloudBrowser(deviceId, { framesEnabled: pageVisible && (large || onScreen), large, tabId: viewTab }, row?.session.conversationId ?? null)
+  const agentSessionRow = useAgentSessionRow(agentUserId)
+  const view = useCloudBrowser(deviceId, { framesEnabled: pageVisible && (large || onScreen), large, tabId: viewTab }, agentSessionRow?.session.conversationId ?? null)
   const everOpened = useRef(false)
   if (view.linkState === 'open') everOpened.current = true
   const openLarge = useCallback(() => setLarge(true), [])

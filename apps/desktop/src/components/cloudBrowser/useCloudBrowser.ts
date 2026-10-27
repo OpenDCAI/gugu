@@ -72,7 +72,7 @@ function isUnsupported(error: unknown): boolean {
  */
 export function useCloudBrowser(deviceId: string | null, need: CloudBrowserNeed, sessionId: string | null): CloudBrowserView {
   const timeline = useTimelineSession(assistantTimelineClient(false), useMobileShell() ? 'mobile' : 'desktop', deviceId, sessionId, !!deviceId && !!sessionId)
-  const pending = timeline.timeline.settlements.find(item => item.state === 'pending' && item.origin?.source === 'browser-assistance')
+  const pending = Object.values(timeline.timeline.settlements).find(item => item.state === 'pending' && item.origin?.source === 'browser-assistance')
   const assistance = pending ? { ...(pending.origin?.payload as Omit<CloudBrowserAssistance, 'requestId'>), requestId: pending.itemId } : null
   const live = canOpenLiveBrowser()
   const [status, setStatus] = useState<CloudBrowserStatus | null>(null)

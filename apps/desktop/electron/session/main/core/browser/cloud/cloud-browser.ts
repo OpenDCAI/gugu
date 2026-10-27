@@ -126,9 +126,10 @@ export class CloudBrowser {
   }
 
   sessionInUse(sessionId?: string): boolean {
+    const pending = this.pendingAssistance();
     return (sessionId === undefined ? this.totalInFlight() : this.inFlight.get(sessionId) ?? 0) > 0
       || !!this.holder || !!this.pendingHolder
-      || (!!this.assistance && (sessionId === undefined || this.assistance.sessionId === sessionId));
+      || (!!pending && (sessionId === undefined || pending.sessionId === sessionId));
   }
 
   /** Release the owning task's page, including the last Chrome process. Ordinary tool disconnects keep it. */
@@ -454,6 +455,7 @@ export class CloudBrowser {
       if (this.holder) await this.releaseControl(this.holder);
       return { kind: 'returned' };
     }
+    if (result === 'unavailable') return { kind: 'ended', reason: 'This task is unavailable; no request was opened.' };
     return result === 'timeout' ? { kind: 'timeout' } : this.endedReason ? { kind: 'ended', reason: this.endedReason } : { kind: this.automation === 'stopped' ? 'stopped' : 'dismissed' };
   }
 

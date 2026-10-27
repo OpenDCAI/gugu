@@ -174,7 +174,7 @@ export const APP_INSTALL_OPTION = 'install';
 export const APP_INSTALL_DECLINE_OPTION = 'decline';
 
 /** The App install a session's approval asks about, when it is one (read on every surface from `Settlement.origin`). */
-export function appInstallAskOf(origin: { source: string; payload: unknown } | undefined): AppInstallAsk | null {
+export function appInstallAskOf(origin: { source: string; payload?: unknown } | undefined): AppInstallAsk | null {
   if (origin?.source !== 'app-install') return null;
   const payload = origin.payload as Partial<AppInstallAsk> | null;
   return payload && typeof payload.request === 'object' && payload.request ? (payload as AppInstallAsk) : null;
