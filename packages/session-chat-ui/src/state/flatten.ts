@@ -59,7 +59,7 @@ import { localDayKey } from '@session-chat/lib/day-boundary';
 import type { ChatItem, ChatMessage, SyntheticItem, TranscriptTurn } from '@session-chat/model';
 import { fileChangeSummary, successfulFileDiff } from '@session-chat/state/file-change-summary';
 import { collectOpenedOutputs, openedOutputKey, outputsOfRun } from '@session-chat/state/opened-outputs';
-import { tallyToolRun, toolRunCategory, toolRunLabel } from '@session-chat/state/tool-run';
+import { tallyToolRun, toolRunCategory, toolRunLabel, toolRunNow } from '@session-chat/state/tool-run';
 import { completedTurnResult, itemIsUser, pendingTurnHeader, placeholderTurnHeader, planTurnFoldRuns, turnFoldView, turnProcessExpanded } from '@session-chat/state/turn-fold';
 
 export { planTurnFold, turnProcessId } from '@session-chat/state/turn-fold';
@@ -239,6 +239,8 @@ export function flattenTier(
           const status = 'status' in row ? (row as { status?: string }).status : undefined;
           return status === 'running' || (row.kind === 'thinking' && status === 'thinking');
         });
+      // 跑着时这一句只说做了多少;此刻在跑哪条命令 / 在想,接在后面(`toolRunNow`),跑完自然恢复原样。
+      const now = live ? toolRunNow(op.rows) : null;
       processItem({
         kind: 'tool-run',
         id: runId,
@@ -246,6 +248,7 @@ export function flattenTier(
         label: toolRunLabel(tallyToolRun(op.rows), ctx.translate),
         stepCount: op.rows.length,
         ...(live ? { live: true as const } : {}),
+        ...(now ? { now } : {}),
       }, folds);
       if (ctx.revealAllFolds || (ctx.isTurnProcessExpanded?.(runId) ?? false)) {
         for (const row of op.rows) processItem(row, [...folds, { id: runId, stored: true }]);
