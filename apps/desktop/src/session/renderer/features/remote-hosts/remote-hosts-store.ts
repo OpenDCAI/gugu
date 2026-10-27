@@ -693,11 +693,12 @@ export class RemoteHostsStore {
  * 刚从离线回来的(`cameBack`):正在开的那一次是离线时发出去的,对面没人接,要等满超时 —— 作废它,立刻重开。
  */
 export function linkNeedsReopen(
-  device: Pick<RemoteHostDevice, 'version'>,
+  device: Pick<RemoteHostDevice, 'version' | 'notices'>,
   link: MachineLinkState,
   client: Pick<SessionHostClient, 'state' | 'hello'>,
   cameBack = false
 ): boolean {
+  if (device.notices?.some(notice => notice.kind === 'desktop-too-old')) return false;
   if (client.state() === 'closed') return true;
   if (client.state() === 'connecting') return cameBack;
   const helloVersion = client.hello()?.appVersion;
@@ -722,7 +723,8 @@ export function machineConnectionState(
 ): HostConnectionState {
   // 远程 SSH 的机器太旧:设备连接那一格说得更具体(正在替它升级 / 没升成),先看它。
   const ssh = state.device.sshLink;
-  if (state.link === 'tooOld' && ssh !== 'updating' && ssh !== 'outdated') return 'outdated';
+  const versionMismatch = state.device.notices?.some(notice => notice.kind === 'desktop-too-old' || notice.kind === 'server-too-old');
+  if ((state.link === 'tooOld' || versionMismatch) && ssh !== 'updating' && ssh !== 'outdated') return 'outdated';
   // 线没通就是在连:不管这一刻是在拨(connecting)还是在等下一次退避(closed)。只看 closed 的话,连上过的机器断了之后,
   // 每一次重连在飞的那几秒会读成「已连接」,再一失败又翻回「重连中」,直到心跳租约过期才停(#137)。
   const attempting = state.link === 'connecting' || state.link === 'closed';

@@ -1,3 +1,4 @@
+import type { HistoryCursor } from '@gugu/session-core/acp/client';
 import type {
   AcpAttachmentError,
   AcpCancelTurnError,
@@ -212,9 +213,14 @@ export class AcpRuntime {
   getHistory(
     sessionId: string,
     before?: number,
-    limit?: number
+    limit?: number,
+    changedSince?: HistoryCursor
   ): Result<HistoryPage, AcpGetHistoryError> {
-    return ok(this.manager.getHistory(sessionId, before, limit));
+    return ok(this.manager.getHistory(sessionId, before, limit, changedSince));
+  }
+
+  getToolImage(sessionId: string, itemId: string, index: number) {
+    return this.manager.getToolImage(sessionId, itemId, index);
   }
 
   getChatHistory(sessionId: string): {

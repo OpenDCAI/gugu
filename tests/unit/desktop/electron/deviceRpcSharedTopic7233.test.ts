@@ -1,6 +1,7 @@
 // #7233 共用 topic `gugu:<dev>:rpc` 上只剩报到、ready、alive(apps/desktop/electron/device-rpc-responder.ts):
 // 不报到直接问的(协议 9 以前的咕咕)当场回 client_outdated;库里中转来的 MessagePreview 照常收;每 60 s 一条 alive。
 import { afterEach, describe, expect, it, vi } from 'vitest'
+import { REMOTE_PROTOCOL_VERSION } from '@gugu/core/cloud/serverMachineHealth'
 
 const subs = vi.hoisted(() => ({ list: [] as { topic: string; onStatus: (status: string) => void }[] }))
 vi.mock('../../../../apps/desktop/electron/realtime-channel', async (importOriginal) => ({
@@ -98,7 +99,7 @@ describe('共用 topic', () => {
     const { supabase, channels, say } = fakeSupabase()
     const subscribe = createDesktopDeviceRpcSubscription({ supabase: supabase as never, warn: () => undefined })
     await subscribe({ deviceId: 'dev-1' } as never)
-    say(SHARED, { type: 'taskhost.attach', request_id: 'a1', user_id: 'u1', payload: { asker: 'askerAAAA1111', protocol: 9 } })
+    say(SHARED, { type: 'taskhost.attach', request_id: 'a1', user_id: 'u1', payload: { asker: 'askerAAAA1111', protocol: REMOTE_PROTOCOL_VERSION } })
     expect([...channels.keys()]).toEqual([SHARED, `${SHARED}:askerAAAA1111`])
   })
 
