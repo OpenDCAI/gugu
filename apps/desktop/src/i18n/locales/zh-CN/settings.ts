@@ -570,7 +570,7 @@ export default {
       },
       "doneAgain": "{{hostname}} 已重新连接 {{email}}。",
       "others": "同时登录：{{names}}",
-      "newTask": "在这台机器上新建会话",
+      "newTask": "在这台机器上新建任务",
       "back": "改地址",
       "close": "完成"
     },
