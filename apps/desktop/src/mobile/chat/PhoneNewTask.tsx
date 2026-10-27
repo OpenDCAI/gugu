@@ -112,6 +112,7 @@ export function usePhoneNewTask({ chatId, enabled, clear }: {
   const folderState: ProjectFoldersState | null = project ? {
     folders: project.folders,
     loadError: false,
+    unanswered: [],
     chosen,
     fresh: attach.fresh,
     choose: (workspaceId) => {
