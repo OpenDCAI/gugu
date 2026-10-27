@@ -17,7 +17,7 @@ import { visibleMachines, workspaceDevices } from '../agent-watch/machine-list'
 import { useMachineLabel } from '../agent-watch/useMachineLabel'
 import { attachPhoneProjectFolder } from './attachPhoneProjectFolder'
 import type { ChatTaskFolders, TaskFolderHome } from './phoneTaskFolders'
-import type { ShownFolder } from '@/session/renderer/features/projects/components/main-panel/project-folders'
+import { MAX_PROJECT_FOLDERS, type ShownFolder } from '@/session/renderer/features/projects/components/main-panel/project-folders'
 
 const log = rendererLogger('phone-folder-attach')
 type Added = { folder: ShownFolder; home: TaskFolderHome }
@@ -95,6 +95,14 @@ export function usePhoneFolderAttach(project: ChatTaskFolders | null, devices: D
     remove: (workspaceId: string) => setAdded((current) => current.filter((item) => item.folder.workspaceId !== workspaceId)),
     fresh: added.at(-1)?.folder.workspaceId,
     attachMachines: machines.map((row) => ({ id: row.device_id, label: row.label || row.hostname, online: row.is_online, kind: row.capabilities.host_kind === 'desktop' ? 'computer' as const : 'server' as const })),
-    onAttach: (id: string | null) => { setError(false); navigateMobile(() => setDeviceId(id), 'push') },
+    onAttach: (id: string | null) => {
+      // 挂满了就当场说,❌ 先推目录页、挑完才拒(同电脑 #629;各台机器合计,含这一页刚挂上的)。
+      const count = new Set([...(project?.folders ?? []), ...added.map((item) => item.folder)].map((folder) => folder.workspaceId)).size
+      if (project && count >= MAX_PROJECT_FOLDERS) {
+        notify({ tier: 'error', title: st('projects.folders.errorFull', { projectName: project.name, max: MAX_PROJECT_FOLDERS }) })
+        return
+      }
+      setError(false); navigateMobile(() => setDeviceId(id), 'push')
+    },
   }
 }
