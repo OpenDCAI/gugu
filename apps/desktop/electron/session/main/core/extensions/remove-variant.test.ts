@@ -12,7 +12,8 @@ vi.mock('./app-given', () => ({ installAsk: async () => null, recordGiven: async
 vi.mock('./extension-after-install', () => ({ applyInstalledExtension: vi.fn() }));
 vi.mock('./market-ranking', () => ({ recordMarketInstall: vi.fn() }));
 vi.mock('./extension-bridge-relay', () => ({ requestExtensionInstallConsent: vi.fn(), announceInstalledChanged: vi.fn(async () => 'shown') }));
-const { removeExtensionVariant } = await import('./extension-variants');
+vi.mock('./market-catalog-root', () => ({ cloudExtensionMarket: () => ({ sourceVersions: async () => ['1.0.0', '1.1.0'].map((version) => ({ version, source: { commit: 'a'.repeat(40) } })) }) }));
+const { removeExtensionVariant, extensionVariants } = await import('./extension-variants');
 let root: string;
 let source: string;
 beforeEach(() => {
@@ -84,4 +85,12 @@ it('retains the fork when switching fails', async () => {
   await expect(removeExtensionVariant('demo', 'mine', undefined, { requestInstallConsent: async () => ({ outcome: 'confirmed' }) })).rejects.toThrow('disk full');
   expect(service.variants('demo').active).toBe('mine');
   expect(service.variants('demo').variants.some((row) => row.name === 'mine')).toBe(true);
+});
+
+it('reads lag for the fork named by the URL even when upstream is active', async () => {
+  const upstream = service.variants('demo').variants[0]!;
+  const dir = service.variantDirectory('demo', 'upstream');
+  service.installFromDirectory(dir, service.inspectDirectory(dir).manifestDigest, 'market', undefined, upstream);
+  expect((await extensionVariants('demo')).behind).toBeNull();
+  expect((await extensionVariants('demo', 'mine')).behind).toMatchObject({ upstream: '1.1.0', behind: 1 });
 });

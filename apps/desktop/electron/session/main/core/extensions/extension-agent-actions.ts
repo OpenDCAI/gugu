@@ -821,7 +821,7 @@ async function actOn(action: z.infer<typeof agentActionSchema>, dependencies: Ex
       if (action.operation === 'read') {
         const service = extensionsService();
         const installed = service.get(id);
-        const variants = await extensionVariants(id);
+        const variants = await extensionVariants(id, target.variant);
         const selected = target.variant ? variants.variants.find((variant) => variant.name === target.variant) : undefined;
         if (target.variant && !selected) throw new Error(`App ${id} has no variant ${target.variant}; read its installed App URL without variant to list them.`);
         return { id, device_id: target.deviceId, manifest: installed.manifest, origin: service.origins()[id], ...variants, ...(selected ? { selected } : {}) };

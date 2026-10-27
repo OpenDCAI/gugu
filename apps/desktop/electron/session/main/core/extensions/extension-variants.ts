@@ -10,10 +10,10 @@ import { announceInstalledChanged } from './extension-bridge-relay';
 import { installPlan } from './install-plan';
 import { installPrepared, type InstallDependencies } from './install-prepared';
 
-export async function extensionVariants(id: string) {
+export async function extensionVariants(id: string, name?: string) {
   const state = extensionsService().variants(id);
-  const current = state.variants.find((entry) => entry.name === state.active);
-  const behind = current && state.active !== 'upstream'
+  const current = state.variants.find((entry) => entry.name === (name ?? state.active));
+  const behind = current && current.name !== 'upstream'
     ? forkBehind(current.base, await cloudExtensionMarket().sourceVersions(id)) : null;
   return { ...state, behind };
 }
