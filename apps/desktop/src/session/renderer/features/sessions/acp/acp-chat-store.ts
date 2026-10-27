@@ -1917,9 +1917,8 @@ export class AcpChatStore {
           this._lastActiveTurnId = next.activeTurnId;
           this._syncRuntimeBackgroundTaskIds(next);
           if (next.lifecycle === 'lost' && this.session === session) {
-            void this._refreshHistory();
-            this._onSessionClosedByHost(session);
             this._onSessionLost(next);
+            this._onSessionClosedByHost(session, this.loadError);
           }
           if (next.lifecycle === 'closed') this._onSessionClosedByHost(session);
           this._syncMessageCount();
@@ -2212,7 +2211,7 @@ export class AcpChatStore {
    * 起它的是用户的下一句(`_queuePromptDuringStartup`),或者宿主自己(定时、投递、重开):句柄的副本跟着会话 id 走
    * (session-wire @@@follow-key),宿主把它再拉起来时重新 seed,这一侧随即重挂,❌ 等人发一句(10-19 实撞)。
    */
-  private _onSessionClosedByHost(closed: AcpLiveSession): void {
+  private _onSessionClosedByHost(closed: AcpLiveSession, loadError: AcpLoadError | null = null): void {
     if (this.session !== closed) return;
     this._unsubs.splice(0).forEach((unsub) => unsub());
     this.session = null;
@@ -2226,7 +2225,7 @@ export class AcpChatStore {
     );
     this._closedByHost = true;
     this.historyLoading = false;
-    this.loadError = null;
+    this.loadError = loadError;
   }
 
   private _onSessionLost(next: { failure?: { message?: string } | null }): void {
@@ -2235,6 +2234,7 @@ export class AcpChatStore {
       kind: 'adapter_lost',
       message: next.failure?.message ?? 'ACP adapter exited unexpectedly; reconnect to continue.',
     };
+    void this._refreshHistory();
   }
 
   private async _refreshHistory(options?: { preserveLiveTurn?: boolean }): Promise<void> {
