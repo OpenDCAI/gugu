@@ -466,7 +466,7 @@ describe('session orchestration', () => {
   // ❌ 不看页面开在哪条会话旁边。对照组(父提交 1a60bdbf45):extension-agents 自己那份继承,从页面所在的那条会话起。
   describe('an App starts a session (spawnSessionForApp)', () => {
     const envelope = (messageId: string, text: string) => `<app-envelope msg="${messageId}">${text}</app-envelope>`;
-    /** Settings' default agent, and the new-session memory (`newSessionMemory`) — what the box reads. */
+    /** Settings' default agent, and the new-session memory (`newSessionMemory`) — what the box reads; its shape stands in for the terminal setting. */
     let defaultAgent: string | null = null;
     let memory: NewSessionMemory = { lastPicked: null, lastStarted: null, sessionView: 'code' };
     let settingsSpy: { mockRestore(): void } | undefined;
@@ -482,7 +482,7 @@ describe('session orchestration', () => {
       const realGet = appSettingsService.get.bind(appSettingsService);
       settingsSpy = vi
         .spyOn(appSettingsService, 'get')
-        .mockImplementation(((key: string) => (key === 'defaultAgent' ? Promise.resolve(defaultAgent) : key === 'newSessionMemory' ? Promise.resolve(memory) : realGet(key as never))) as never);
+        .mockImplementation(((key: string) => (key === 'defaultAgent' ? Promise.resolve(defaultAgent) : key === 'newSessionMemory' ? Promise.resolve(memory) : key === 'terminal' ? realGet('terminal').then((t) => ({ ...t, enabled: memory.sessionView === 'code' })) : realGet(key as never))) as never);
     });
     afterEach(() => settingsSpy?.mockRestore());
     function appRow(id: string) {

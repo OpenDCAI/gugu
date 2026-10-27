@@ -4,13 +4,12 @@ import type {
   SessionpagePermissionMode,
   SessionpageSessionCreateModels,
   SessionpageSessionCreateOptions,
-  SessionpageSessionView,
   SessionpageSessionCreateResult,
   SessionpageSessionSummary,
 } from '@gugu/session-core/session-record/contract'
 import { createModelName } from './session-model-menu'
 import { offeredInCreateMenu } from '@/lib/createModelDefault'
-import { DEFAULT_SESSION_VIEW, PREFERRED_SESSION_PROVIDERS } from '@/session/shared/core/sessions/new-session-defaults'
+import { PREFERRED_SESSION_PROVIDERS } from '@/session/shared/core/sessions/new-session-defaults'
 
 /**
  * 新建会话页的纯逻辑:默认选什么、胶囊上写什么、什么时候能发、建成后怎么跳。
@@ -28,14 +27,9 @@ export type CreateSelection = {
    * 目录探不出来(harness 没登录、咕咕那组不在场)时人照样能建会话。
    */
   model: string | null
-  /**
-   * 展示(编程 / 通用);null = 这家给的第一种(机器端按 sessionViews[0] 定)。
-   * 目录按腿算,所以换展示要重读模型清单。
-   */
-  sessionView: SessionpageSessionView | null
   /** 咕咕权限档;null = 这家的默认。取值须在所选 harness 的 permissionModes 里。 */
   permissionMode: SessionpagePermissionMode | null
-  /** 推理档 id(目录 efforts 里的);null = 引擎默认。换 harness / 展示必清。 */
+  /** 推理档 id(目录 efforts 里的);null = 引擎默认。换 harness 必清。 */
   effort: string | null
 }
 
@@ -80,19 +74,19 @@ export function defaultSelection(options: SessionpageSessionCreateOptions): Crea
     projectId: project?.id ?? null,
     harness: harness?.id ?? null,
     model: null,
-    sessionView: harness?.sessionViews.includes(DEFAULT_SESSION_VIEW) ? DEFAULT_SESSION_VIEW : harness?.sessionViews[0] ?? null,
     permissionMode: null,
     effort: null,
   }
 }
 
 /** 上次那一套里可能没沿用上的格,按沿用的先后排。 */
-export type LastUsedItem = 'project' | 'harness' | 'sessionView' | 'permissionMode' | 'model' | 'effort'
+export type LastUsedItem = 'project' | 'harness' | 'permissionMode' | 'model' | 'effort'
 
 /**
  * 进页面时的预选(behavior mobile-session-view「新建会话沿用上次的选择」):那台机器报了上次那一套,
  * 就逐格沿用;沿用不了的格回到 `defaultSelection` 的那一格。
  * 模型与推理档先照搬 —— 目录要在那台机器上现探(几秒),到了由 `reconcileModel` 核,不在就回默认。
+ * 展示(编程 / 通用)不由手机选:那台电脑按自己的「终端」开关定(手机建的请求不带 sessionView)。
  */
 export function initialSelection(options: SessionpageSessionCreateOptions): CreateSelection {
   const fallback = defaultSelection(options)
@@ -101,29 +95,25 @@ export function initialSelection(options: SessionpageSessionCreateOptions): Crea
   const projectId = options.projects.some((p) => p.id === last.projectId) ? last.projectId : fallback.projectId
   const harness = options.harnesses.find((h) => h.id === last.harness)
   if (!harness || !harnessUsable(harness)) return { ...fallback, projectId }
-  const viewKept = harness.sessionViews.includes(last.sessionView)
   return {
     projectId,
     harness: harness.id,
-    sessionView: viewKept ? last.sessionView : harness.sessionViews[0] ?? null,
     permissionMode: last.permissionMode && harness.permissionModes.includes(last.permissionMode) ? last.permissionMode : null,
-    // 模型目录与推理档按腿算:模式没沿用上,这两格跟着回默认。
-    model: viewKept ? last.model : null,
-    effort: viewKept ? last.effort : null,
+    model: last.model,
+    effort: last.effort,
   }
 }
 
 /**
  * 上次那一套里哪几格这次没沿用上 —— 页面据此说一句为什么变了,❌ 不悄悄换掉。
- * 只报**根上**那一格:harness 没沿用上,它下面的模式 / 权限档 / 模型 / 推理档跟着换是必然,不再逐条报;
- * 模式没沿用上,模型与推理档同理。只在人还没动过选择时有意义(人自己改的不叫「没沿用上」),由页面把关。
+ * 只报**根上**那一格:harness 没沿用上,它下面的权限档 / 模型 / 推理档跟着换是必然,不再逐条报。
+ * 只在人还没动过选择时有意义(人自己改的不叫「没沿用上」),由页面把关。
  */
 export function lastUsedDropped(options: SessionpageSessionCreateOptions, selection: CreateSelection): LastUsedItem[] {
   const last = options.lastUsed
   if (!last) return []
   const dropped: LastUsedItem[] = selection.projectId === last.projectId ? [] : ['project']
   if (selection.harness !== last.harness) return [...dropped, 'harness']
-  if (selection.sessionView !== last.sessionView) return [...dropped, 'sessionView']
   if (selection.permissionMode !== last.permissionMode) dropped.push('permissionMode')
   if (selection.model !== last.model) dropped.push('model')
   if (selection.effort !== last.effort) dropped.push('effort')
@@ -142,22 +132,12 @@ export function selectHarness(
 ): CreateSelection {
   if (selection.harness === harness) return selection
   const option = options.harnesses.find((h) => h.id === harness)
-  // 展示:新家也给这一种就留,否则退到它给的第一种。权限档同理(它是咕咕的四档,不是某家的原生 id)。
-  const sessionView =
-    selection.sessionView && option?.sessionViews.includes(selection.sessionView)
-      ? selection.sessionView
-      : option?.sessionViews[0] ?? null
+  // 权限档:新家也给这一档就留(它是咕咕的四档,不是某家的原生 id)。
   const permissionMode =
     selection.permissionMode && option?.permissionModes.includes(selection.permissionMode)
       ? selection.permissionMode
       : null
-  return { ...selection, harness, sessionView, permissionMode, model: null, effort: null }
-}
-
-/** 换展示:目录按腿算,模型与推理档都要重选。同一种再点一次不动。 */
-export function selectSessionView(selection: CreateSelection, view: SessionpageSessionView): CreateSelection {
-  if (selection.sessionView === view) return selection
-  return { ...selection, sessionView: view, model: null, effort: null }
+  return { ...selection, harness, permissionMode, model: null, effort: null }
 }
 
 /**
