@@ -25,7 +25,10 @@ export function selectedScope(saved: readonly string[] | null | undefined, avail
 }
 
 export function foldersInScope(state: ProjectFoldersState, selected: readonly string[], deviceOf: (projectId: string) => string | null): ProjectFoldersState {
-  const folders = state.folders?.filter((folder) => selected.includes(scopeKey(deviceOf(folder.projectId)))) ?? null;
+  const inScope = (projectId: string) => selected.includes(scopeKey(deviceOf(projectId)));
+  const found = state.folders?.filter((folder) => inScope(folder.projectId)) ?? null;
+  // 范围里的机器还有没答的、答了的又一个都没有:还不知道 ⇒ 按读取中(null),❌ 报「所选设备不可用」。
+  const folders = found?.length === 0 && state.unanswered.some(inScope) ? null : found;
   const chosen = folders?.find((folder) => folder.workspaceId === state.chosen?.workspaceId) ?? folders?.[0] ?? null;
   return { ...state, folders, chosen };
 }

@@ -95,6 +95,7 @@ describe('project home menus open for real', () => {
     const state: ProjectFoldersState = {
       folders: [ROOT, WT],
       loadError: false,
+      unanswered: [],
       chosen: ROOT,
       fresh: undefined,
       choose: vi.fn(),
