@@ -11,7 +11,13 @@ import { icon } from './icon';
 export const AMAP_MCP_URL = 'https://mcp.amap.com/mcp';
 export const AMAP_KEY_GUIDE_URL = 'https://lbs.amap.com/api/mcp-server/create-project-and-key';
 
-const mcp = { serverUrl: AMAP_MCP_URL, keyField: 'apiKey', keyQueryParam: 'key' };
+// 高德对任何格式对的 key 都列工具,真调用才报 INVALID_USER_KEY:连接时查一次北京天气(只读、最便宜)。
+const mcp = {
+  serverUrl: AMAP_MCP_URL,
+  keyField: 'apiKey',
+  keyQueryParam: 'key',
+  probe: { tool: 'maps_weather', arguments: { city: '北京' } },
+};
 
 const plugin = defineIntegrationPlugin(
   {

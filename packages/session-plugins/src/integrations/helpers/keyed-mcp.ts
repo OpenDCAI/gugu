@@ -56,6 +56,19 @@ export async function verifyKeyedMcpCredentials(
     try {
       const tools = await listMcpToolNames(client);
       if (tools.length === 0) return { connected: false, error: { type: 'generic', message: `${name} MCP exposes no tools.` } };
+      if (mcp.probe) {
+        // 列得出工具不代表 key 能用(高德对任何格式对的 key 都列工具),真调一次只读的才算数。
+        if (!tools.includes(mcp.probe.tool)) {
+          return { connected: false, error: { type: 'generic', message: `${name} MCP no longer offers ${mcp.probe.tool}; Gugu cannot check the key.` } };
+        }
+        const result = await client.callTool({ name: mcp.probe.tool, arguments: mcp.probe.arguments });
+        if (result.isError) {
+          const content: unknown[] = Array.isArray(result.content) ? result.content : [];
+          const text = content.map((part) => (part as { text?: unknown }).text).filter((t) => typeof t === 'string').join(' ');
+          const key = String(credentials[mcp.keyField]).trim();
+          return { connected: false, error: { type: 'auth_failed', message: `${name} rejected the key (${(text || 'unknown error').split(key).join('***')}). Check the key and that its service type is Web 服务.` } };
+        }
+      }
     } finally {
       await client.close();
     }

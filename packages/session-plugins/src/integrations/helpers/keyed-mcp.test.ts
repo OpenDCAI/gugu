@@ -3,16 +3,26 @@ import { AMAP_KEY_GUIDE_URL, AMAP_MCP_URL } from '../impl/amap';
 import { integrationPluginRegistry } from '../registry';
 import { keyedMcpUrl, verifyKeyedMcpCredentials } from './keyed-mcp';
 
-const mcp = { serverUrl: AMAP_MCP_URL, keyField: 'apiKey', keyQueryParam: 'key' };
+const GOOD = '0123456789abcdef0123456789abcdef';
+const mcp = {
+  serverUrl: AMAP_MCP_URL,
+  keyField: 'apiKey',
+  keyQueryParam: 'key',
+  probe: { tool: 'maps_weather', arguments: { city: '北京' } },
+};
 
-/** 只假网络:一台按 JSON 回话的 MCP(高德就是这么回的),坏 key 回 200 + 高德自己的错误体。 */
+/**
+ * 只假网络,照高德真实的样子回(2026-10-28 实测):格式不对的 key 回 200 + 高德自己的错误体;
+ * 格式对但无效的 key 照样能 initialize、列工具,真调用才回 isError「INVALID_USER_KEY」。
+ */
 function fakeAmap(validKey: string) {
   const urls: string[] = [];
   const fetchImpl = (async (input: RequestInfo | URL, init?: RequestInit) => {
     const url = new URL(String(input instanceof Request ? input.url : input));
     urls.push(url.toString());
     if ((init?.method ?? 'GET') !== 'POST') return new Response(null, { status: 405 });
-    if (url.searchParams.get('key') !== validKey) {
+    const key = url.searchParams.get('key') ?? '';
+    if (!/^[0-9a-f]{32}$/.test(key)) {
       return Response.json({ status: '0', info: 'INVALID_USER_KEY', infocode: '10001' });
     }
     const message = JSON.parse(String(init?.body)) as { id?: number; method: string };
@@ -20,7 +30,11 @@ function fakeAmap(validKey: string) {
     const result =
       message.method === 'initialize'
         ? { protocolVersion: '2025-03-26', capabilities: { tools: {} }, serverInfo: { name: 'amap', version: '1' } }
-        : { tools: [{ name: 'maps_direction_driving', inputSchema: { type: 'object' } }] };
+        : message.method === 'tools/list'
+          ? { tools: ['maps_direction_driving', 'maps_weather'].map((name) => ({ name, inputSchema: { type: 'object' } })) }
+          : key === validKey
+            ? { content: [{ type: 'text', text: '{"city":"北京市"}' }] }
+            : { content: [{ type: 'text', text: 'API 调用失败：INVALID_USER_KEY' }], isError: true };
     return Response.json({ jsonrpc: '2.0', id: message.id, result });
   }) as typeof fetch;
   return { fetchImpl, urls };
@@ -37,20 +51,31 @@ describe('keyed hosted MCP (AMap)', () => {
   });
 
   it('connects when the key lists tools, and stores the trimmed key', async () => {
-    const amap = fakeAmap('good-key');
-    const result = await verifyKeyedMcpCredentials('高德地图', mcp, { apiKey: ' good-key ' }, amap.fetchImpl);
-    expect(result).toEqual({ connected: true, credentials: { apiKey: 'good-key' } });
-    expect(amap.urls.every((url) => url === 'https://mcp.amap.com/mcp?key=good-key')).toBe(true);
+    const amap = fakeAmap(GOOD);
+    const result = await verifyKeyedMcpCredentials('高德地图', mcp, { apiKey: ` ${GOOD} ` }, amap.fetchImpl);
+    expect(result).toEqual({ connected: true, credentials: { apiKey: GOOD } });
+    expect(amap.urls.every((url) => url === `https://mcp.amap.com/mcp?key=${GOOD}`)).toBe(true);
   });
 
-  it('names the vendor rejection for a bad key and never echoes the key', async () => {
-    const amap = fakeAmap('good-key');
-    const result = await verifyKeyedMcpCredentials('高德地图', mcp, { apiKey: 'secret-bad-key' }, amap.fetchImpl);
+  it.each([
+    ['a malformed key, rejected on initialize', 'secret-bad-key'],
+    ['a well-formed wrong key, rejected only on a real call', 'f'.repeat(32)],
+  ])('names the vendor rejection for %s and never echoes the key', async (_case, key) => {
+    const amap = fakeAmap(GOOD);
+    const result = await verifyKeyedMcpCredentials('高德地图', mcp, { apiKey: key }, amap.fetchImpl);
     expect(result.connected).toBe(false);
     if (result.connected) return;
     expect(result.error?.type).toBe('auth_failed');
     expect(result.error?.message).toContain('INVALID_USER_KEY');
-    expect(result.error?.message).not.toContain('secret-bad-key');
+    expect(result.error?.message).not.toContain(key);
+  });
+
+  it('fails loudly when the probe tool disappears instead of connecting an unchecked key', async () => {
+    const amap = fakeAmap(GOOD);
+    const result = await verifyKeyedMcpCredentials(
+      '高德地图', { ...mcp, probe: { tool: 'maps_gone', arguments: {} } }, { apiKey: GOOD }, amap.fetchImpl
+    );
+    expect(result.connected).toBe(false);
   });
 
   it('registers AMap as a key form that points people at the free key guide', () => {

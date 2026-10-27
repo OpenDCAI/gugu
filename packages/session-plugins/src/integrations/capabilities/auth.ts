@@ -24,6 +24,12 @@ const keyedMcpSchema = z.object({
   keyField: z.string(),
   /** The query parameter the vendor reads the key from. */
   keyQueryParam: z.string(),
+  /**
+   * One cheap read-only call that proves the key works. Some vendors (AMap) list their tools for
+   * any well-formed key and only reject it on a real call, so listing tools alone would connect a
+   * wrong key.
+   */
+  probe: z.object({ tool: z.string(), arguments: z.record(z.string(), z.unknown()) }).optional(),
 });
 
 const formMethodSchema = z.object({
