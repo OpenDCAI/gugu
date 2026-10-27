@@ -1,6 +1,7 @@
 import { request as httpRequest, type IncomingMessage, type IncomingHttpHeaders, type ServerResponse } from 'node:http'
 import { request as httpsRequest } from 'node:https'
 import { finished, pipeline } from 'node:stream'
+import { PlatformStreamTimingRecorder, type PlatformStreamTiming } from './platform-stream-timing'
 
 const HOP_HEADERS = new Set(['connection', 'keep-alive', 'proxy-authenticate', 'proxy-authorization', 'te', 'trailer', 'transfer-encoding', 'upgrade'])
 
@@ -10,6 +11,7 @@ export interface CredentialProxyOptions {
   credential: () => Promise<string>
   refresh: (rejected: string) => Promise<string>
   warn: (event: { kind: 'connection' | 'stream'; status?: number; code?: string }) => void
+  streamTiming?: (timing: PlatformStreamTiming) => void
 }
 
 /** The deadline bounds the caller, not the shared rotation: a late successful issue remains usable. */
@@ -58,6 +60,8 @@ export async function proxyPlatformCredentialRequest(
     if (harnessGone) return
     const upstream = options.upstream()
     const transport = upstream.protocol === 'https:' ? httpsRequest : httpRequest
+    const startedAt = performance.now()
+    const wallStart = Date.now()
     upstreamRequest = transport(upstream, {
       method: request.method,
       headers: upstreamHeaders(request.headers, options, token, upstream),
@@ -78,10 +82,18 @@ export async function proxyPlatformCredentialRequest(
         if (value !== undefined && !HOP_HEADERS.has(name.toLowerCase())) headers[name] = value
       }
       response.writeHead(upstreamResponse.statusCode ?? 502, headers)
+      const isSse = /^text\/event-stream\b/i.test(String(upstreamResponse.headers['content-type'] ?? ''))
+      const compressed = !['', 'identity'].includes(String(upstreamResponse.headers['content-encoding'] ?? '').toLowerCase())
+      // Encoded bytes remain observable; do not pretend compressed bytes are parsed SSE events.
+      const observer = isSse && options.streamTiming
+        ? new PlatformStreamTimingRecorder(!compressed, () => performance.now(), wallStart, startedAt)
+        : undefined
+      if (observer) upstreamResponse.on('data', (chunk: Buffer) => observer.data(chunk))
       upstreamResponse.once('close', () => {
         if (!upstreamResponse.complete && !harnessGone) gatewayCut = true
       })
       pipeline(upstreamResponse, response, (error) => {
+        if (observer) options.streamTiming?.(observer.finish(!error && upstreamResponse.complete))
         if (!error) return
         upstreamRequest?.destroy()
         if (gatewayCut) options.warn({ kind: 'stream', status: upstreamResponse.statusCode })

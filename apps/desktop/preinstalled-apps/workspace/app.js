@@ -24,6 +24,8 @@ const STRINGS = {
     new: '新建',
     newDoc: '新建文档',
     newName: '新文档.md',
+    showAppData: '显示 App 数据',
+    hideAppData: '隐藏 App 数据',
     newFolder: '新建文件夹',
     newFolderName: '新建文件夹',
     attachments: '附件',
@@ -97,6 +99,8 @@ const STRINGS = {
     new: 'New',
     newDoc: 'New document',
     newName: 'Untitled.md',
+    showAppData: 'Show App data',
+    hideAppData: 'Hide App data',
     newFolder: 'New folder',
     newFolderName: 'New folder',
     attachments: 'Attachments',
@@ -170,6 +174,7 @@ const state = {
   entries: [],
   listError: null,
   filter: '',
+  showAppData: false,
   folder: null, // the folder the list shows (子文件夹): a folder entry's id, null for the top
   dragging: null, // the entry being dragged onto a folder (desktop)
   mode: 'split',
@@ -249,7 +254,10 @@ async function applyContext(ctx) {
     // Adds, deletes and renames in this chat's workspace (§2.4: fed from workspace_changed) — every call names its chat.
     state.unwatch?.()
     state.unwatch = inGroup && canRead() && !ctx.file ? gugu.files.onChanged({ chat: ctx.chat.id }, heard) : null
-    if (inGroup && canRead() && !ctx.file) await refreshList()
+    if (inGroup && canRead() && !ctx.file) {
+      state.showAppData = false
+      await refreshList(true)
+    }
   }
   // The host hands this page a file when it picked this App for it (真源 §2.6: a click goes to the host,
   // which picks the most specific claim; .md and plain .json are this App's). The host's header then has
@@ -302,13 +310,19 @@ function renderChrome() {
 
 // The newest list asked is the one shown (an older one back later — another chat's — is dropped); what the chat says
 // while it is on its way goes over it again when it is back: the list may be from before (#7257).
-async function refreshList() {
+async function refreshList(readPreferences = false) {
   if (!state.ctx?.chat || !canRead()) return
   const asked = (state.listing = { heard: [] })
   let entries
   let listError = null
   try {
-    entries = await gugu.files.list({ chat: state.ctx.chat.id })
+    const place = { chat: state.ctx.chat.id }
+    const [listed, preferences] = await Promise.all([
+      gugu.files.list(place),
+      readPreferences ? gugu.files.viewPreferences(place) : null,
+    ])
+    entries = listed
+    if (state.listing === asked && preferences) state.showAppData = preferences.showAppData
   } catch (error) {
     entries = []
     listError = error.code === 'denied' ? state.t.denied : fmt(state.t.failed, { e: error.message })
@@ -362,6 +376,26 @@ function relativeTime(iso) {
 const changedAt = (entry) => entry.updatedAt ?? entry.createdAt
 
 const isFolder = (entry) => entry.type === 'folder'
+// Ownership is explicitly stored on the item. Opener claims and names do not classify App data.
+function visibleEntry(entry) {
+  const app = entry.metadata?.app
+  const marked = app && typeof app.publisher === 'string' && app.publisher.trim() && typeof app.id === 'string' && app.id.trim()
+  return state.showAppData || !marked
+}
+
+async function folderContextMenu(x, y) {
+  if (!state.ctx?.chat || state.ctx.file || !canRead()) return
+  const chat = state.ctx.chat.id
+  const show = !state.showAppData
+  try {
+    const action = await gugu.showContextMenu({ x, y, items: [{ id: 'app-data', label: state.showAppData ? state.t.hideAppData : state.t.showAppData }] })
+    if (action !== 'app-data' || state.ctx?.chat?.id !== chat) return
+    const preference = await gugu.files.viewPreferences({ chat }, { showAppData: show })
+    if (state.ctx?.chat?.id !== chat) return
+    state.showAppData = preference.showAppData
+    renderList()
+  } catch (error) { showBanner(fmt(state.t.failed, { e: error.message }), 'error') }
+}
 // What is directly in each folder, made once per list of entries (state.entries is replaced, never changed in place): a
 // drawing of the list, and every dragover, asks it for every folder row.
 let children = { of: null, map: new Map() }
@@ -417,6 +451,7 @@ function renderList() {
   renderCrumbs()
   const needle = state.filter.trim().toLocaleLowerCase()
   const shown = (needle ? state.entries : inside(state.folder))
+    .filter(visibleEntry)
     .filter((e) => !needle || e.name.toLocaleLowerCase().includes(needle) || shownName(e).toLocaleLowerCase().includes(needle))
     .sort(inOrder)
   list.replaceChildren(...shown.map(listItem))
@@ -628,7 +663,7 @@ function listItem(entry) {
   const meta = document.createElement('span')
   meta.className = 'file-meta'
   for (const text of activityOf(entry)) meta.append(Object.assign(document.createElement('span'), { className: 'file-activity', textContent: text }))
-  if (folder) meta.append(Object.assign(document.createElement('span'), { textContent: fmt(t.items, { n: inside(entry.id).length }) }))
+  if (folder) meta.append(Object.assign(document.createElement('span'), { textContent: fmt(t.items, { n: inside(entry.id).filter(visibleEntry).length }) }))
   open.append(title)
   const where = state.filter.trim() && entry.parentId ? pathOf(entry).split('/').slice(0, -1).join('/') : ''
   if (where) meta.prepend(Object.assign(document.createElement('span'), { className: 'file-path', textContent: where }))
@@ -1438,6 +1473,19 @@ function closeMenu() {
 // ─── start ──────────────────────────────────────────────────────────────────
 
 function start() {
+  const folder = document.querySelector('aside.files')
+  const blank = (target) => target instanceof Element && !target.closest('li, button, input, nav')
+  folder.addEventListener('contextmenu', (event) => {
+    if (!blank(event.target)) return
+    event.preventDefault()
+    void folderContextMenu(event.clientX, event.clientY)
+  })
+  folder.addEventListener('keydown', (event) => {
+    if (!(event.key === 'ContextMenu' || (event.shiftKey && event.key === 'F10')) || !blank(event.target)) return
+    event.preventDefault()
+    const rect = event.target.getBoundingClientRect()
+    void folderContextMenu(rect.left + 8, rect.top + 8)
+  })
   $('filter').oninput = (event) => {
     state.filter = event.target.value
     renderList()

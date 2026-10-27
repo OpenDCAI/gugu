@@ -83,7 +83,7 @@ export type TopicSplitPaneProps = {
    * ⚠️ ❌ 不许拿来源线那份顶上:画出来的是另一条线的读数,而错的环比没有环更坏。
    */
   memberReadSeqs: Record<string, number>
-  onSend: (text: string, toUserIds: readonly string[] | null, replyToMessageId: string | null, isWhisper?: boolean) => Promise<void>
+  onSend: (text: string, toUserIds: readonly string[] | null, replyToMessageId: string | null, isWhisper?: boolean, submittedAt?: number) => Promise<void>
   /** 发附件。回形针在 ChatMessageComposer 里是无条件画的,不接这一口 = 挂得上发不出去。 */
   onSendAttachments: (files: File[], opts?: { toUserIds?: string[] | null; isWhisper?: boolean; caption?: string; onSent?: (file: File, index: number) => void }) => Promise<void>
   /**
@@ -432,7 +432,7 @@ export function TopicSplitPane({ viewportKey = 'topic', navigationTarget = false
           mentionToInsert={mentionToInsert}
           onMentionInserted={() => setMentionToInsert(null)}
           onSend={async (content, opts) => {
-            await onSend(content, opts?.toUserIds ?? null, opts?.replyToMessageId ?? null, opts?.isWhisper)
+            await onSend(content, opts?.toUserIds ?? null, opts?.replyToMessageId ?? null, opts?.isWhisper, opts?.submittedAt)
           }}
           onSendAttachments={async (files, opts) => {
             await onSendAttachments(files, opts)

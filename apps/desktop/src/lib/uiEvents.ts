@@ -34,9 +34,6 @@ export const UI_EVENTS = {
   // @@@sessionpage fail-loud VISIBLE (#6) — 会话页 agent 投递终态失败:聊天流失败条在「任务」
   // tab 不可见,故 main 额外广播此事件 → renderer 弹可见 toast(fail-loud 让用户看见,不静默、不回退)。
   sessionpageDeliverFailed: '__sessionpage_deliver_failed',
-  // @@@sessionpage otty-state — 会话页 agent 注意力汇总:被人类 block 的 agent 里最急的那一种(needs_user 先于 error)。
-  // main 派生后广播 → 最左栏「消息」那颗点:有人等你是琥珀色,只有出错是红色(gugu-dev#181)。
-  sessionpageAttention: '__sessionpage_attention',
   // @@@sessionpage 分享 — 会话页头部点了分享:main 转达「分享这个 agent」,由 gugu 渲染层用自己的
   // 通讯录数据打开既有的 SharePosterDialog(contact QR 名片)。
   sessionpageShareAgent: '__sessionpage_share_agent',

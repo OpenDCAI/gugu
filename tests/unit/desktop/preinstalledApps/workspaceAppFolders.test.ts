@@ -39,6 +39,7 @@ const gugu = {
   onLink: vi.fn(() => () => {}),
   showMessage: vi.fn(async () => {}),
   files: {
+    viewPreferences: vi.fn(async () => ({ showAppData: false })),
     list: vi.fn(async () => ENTRIES.map((e) => ({ ...e }))),
     onChanged: vi.fn(() => () => {}),
     open: vi.fn(async (e: Entry) => ({ entry: e, type: 'binary', blob: async () => new Blob([new Uint8Array([7])]), close: () => {} })),

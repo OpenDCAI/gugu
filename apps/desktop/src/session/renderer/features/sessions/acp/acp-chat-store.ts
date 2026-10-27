@@ -65,7 +65,7 @@ import { recordedContextUsage } from './recorded-context-usage';
 import { notifyCommittedTurn } from '@renderer/lib/session-output-observers';
 
 /** 宿主那边还没起完(或没起)的生命周期:停着的会话等它离开这几格再重挂。 */
-const HOST_NOT_SETTLED: ReadonlySet<string> = new Set(['closed', 'starting', 'replaying']);
+const HOST_NOT_SETTLED: ReadonlySet<string> = new Set(['closed', 'lost', 'starting', 'replaying']);
 
 /**
  * 一次实时设置改动**留给调用方**的那一件事。
@@ -1990,7 +1990,10 @@ export class AcpChatStore {
           this._lastQueuedPrompts = [...next.queuedPrompts];
           this._lastActiveTurnId = next.activeTurnId;
           this._syncRuntimeBackgroundTaskIds(next);
-          if (next.lifecycle === 'lost') this._onSessionLost(next);
+          if (next.lifecycle === 'lost' && this.session === session) {
+            this._onSessionLost(next);
+            this._onSessionClosedByHost(session, this.loadError);
+          }
           if (next.lifecycle === 'closed') this._onSessionClosedByHost(session);
           this._syncMessageCount();
         })
@@ -2310,7 +2313,7 @@ export class AcpChatStore {
    * 起它的是用户的下一句(`_queuePromptDuringStartup`),或者宿主自己(定时、投递、重开):句柄的副本跟着会话 id 走
    * (session-wire @@@follow-key),宿主把它再拉起来时重新 seed,这一侧随即重挂,❌ 等人发一句(10-19 实撞)。
    */
-  private _onSessionClosedByHost(closed: AcpLiveSession): void {
+  private _onSessionClosedByHost(closed: AcpLiveSession, loadError: AcpLoadError | null = null): void {
     if (this.session !== closed) return;
     this._unsubs.splice(0).forEach((unsub) => unsub());
     this.session = null;
@@ -2324,7 +2327,7 @@ export class AcpChatStore {
     );
     this._closedByHost = true;
     this.historyLoading = false;
-    this.loadError = null;
+    this.loadError = loadError;
   }
 
   private _onSessionLost(next: { failure?: { message?: string } | null }): void {

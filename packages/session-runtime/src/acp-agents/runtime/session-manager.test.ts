@@ -1326,28 +1326,25 @@ describe('AcpRuntime session manager', () => {
     expect(h.agent.newSession).not.toHaveBeenCalled();
   });
 
-  // 这条用例原先钉的是相反的合同:「a generic resume fails without falling back to a new
-  // provider session」—— load 失败就抛,屏幕上只剩「Failed to load chat」加一个重试按钮。
-  // owner 2026-09-13 裁决:「不可能打不开,打不开是 bug 级别的问题,基本代表产品不可用」。
-  // #5553 自己也量到那个 Retry 在这种失败下**永远不会成功**(provider 那侧确实不在了)。
-  // ⇒ 会话必须打得开:退回 `session/new`,本机那份历史照常上屏,并在开头画一条界说明
-  // 「往上的内容引擎没有」。降级是**看得见**的,不是悄悄换 —— 这正是原合同担心的那一点。
-  it('a generic resume falls back to a new provider session instead of failing to open', async () => {
+  it('fails a cold resume without replacing its provider history and retries the same session id', async () => {
     const h = makeAcpHarness();
-    h.agent.loadSession = vi.fn(async () => {
-      throw new Error('provider history unavailable');
-    });
+    const failure = Object.assign(new Error('provider history unavailable'), { code: -32603 });
+    h.agent.loadSession = vi.fn().mockRejectedValueOnce(failure).mockResolvedValue({});
     const rt = new AcpRuntime(h.deps);
-    const result = await rt.resumeSession({
-      ...makeStartInput({
-        sessionId: 'conv-resume-fallback-prompt',
-        sessionPrompt: '<gugu_platform>Resident context</gugu_platform>',
-      }),
+    const input = {
+      ...makeStartInput({ sessionId: 'conv-resume-failed', sessionPrompt: '<gugu_platform>Resident context</gugu_platform>' }),
       providerSessionId: 'session-old',
-    });
+    };
 
-    expect(result).toMatchObject({ success: true });
-    expect(h.agent.newSession).toHaveBeenCalled();
+    expect(await rt.resumeSession(input)).toMatchObject({
+      success: false,
+      error: { cause: { message: failure.message, code: -32603 } },
+    });
+    expect(h.agent.newSession).not.toHaveBeenCalled();
+    expect((await rt.resumeSession(input)).success).toBe(true);
+    expect(h.agent.loadSession.mock.calls.map(([request]) => request.sessionId)).toEqual(['session-old', 'session-old']);
+    expect(h.agent.newSession).not.toHaveBeenCalled();
+    await rt.dispose();
   });
 
   it('exports session-new diagnostics without MCP secrets or process configuration', async () => {

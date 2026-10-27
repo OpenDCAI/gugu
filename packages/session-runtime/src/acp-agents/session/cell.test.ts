@@ -62,6 +62,32 @@ async function flushDrains(): Promise<void> {
 }
 
 describe('SessionCell prompts', () => {
+  it.each(['prompt', 'queueBehindTurn'] as const)('keeps a newer draft when %s receives delayed native admission', async (method) => {
+    const agent = new FakeAcpAgent();
+    Object.assign(agent, { protocolVersion: 2 });
+    const accepted = Promise.withResolvers<() => void>();
+    const turn = Promise.withResolvers<{ stopReason: 'end_turn' }>();
+    agent.prompt = vi.fn((_params, onAccepted) => {
+      accepted.resolve(onAccepted!);
+      return turn.promise;
+    });
+    const { cell } = makeCell(agent);
+    try {
+      cell.setPromptDraft({ rev: 1, input: { text: 'submitted draft' } });
+      const running = cell[method]({ text: 'submitted draft', origin: 'manual' });
+      const admit = await accepted.promise;
+      cell.setPromptDraft({ rev: 100, input: { text: 'newer unsent draft' } });
+      expect(cell.promptDraft?.text).toBe('newer unsent draft');
+      admit();
+      turn.resolve({ stopReason: 'end_turn' });
+      expect((await running).success).toBe(true);
+      expect(cell.promptDraft?.text).toBe('newer unsent draft');
+    } finally {
+      turn.resolve({ stopReason: 'end_turn' });
+      cell.dispose();
+    }
+  });
+
   it('settles a native prompt response failure as an error and clears it before recovery', async () => {
     const { cell, agent } = makeCell(undefined, {
       turnFailure: { fromPromptResponse: (response: { _meta?: { failure?: string } }) => response._meta?.failure ?? null, watchesStderr: false },

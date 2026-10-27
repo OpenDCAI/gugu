@@ -1,5 +1,5 @@
 {
   "repository": "OpenDCAI/gugu-supabase",
-  "ref": "7cef0ae08b4c988ec32678b6ab14e9e1101b3490",
-  "status": "Actor-scoped message history includes whisper privacy metadata, merged in OpenDCAI/gugu-supabase#52."
+  "ref": "10d8d29f73979ff40712a186b53c2539b679af85",
+  "status": "Explicit App-owned workspace data with metadata on file reads and preserved API ACLs, merged in OpenDCAI/gugu-supabase#58."
 }

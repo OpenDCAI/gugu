@@ -716,7 +716,7 @@ export function ChatProvider({ children, active = true }: { children: React.Reac
           id, chatId: targetChatId, senderUserId: userId, content: content.trim(),
           toUserIds, replyToMessageId: opts.replyToMessageId ?? null,
           threadRootId, isThreadRoot: !!opts.isThreadRoot, isWhisper: !!opts.isWhisper,
-          resolveDmPeer, beforeDeliver: opts.beforeDeliver,
+          resolveDmPeer, beforeDeliver: opts.beforeDeliver, submittedAt: opts.submittedAt,
         })
       } catch (error) {
         if (threadRootId) {

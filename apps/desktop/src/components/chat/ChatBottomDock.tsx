@@ -1,4 +1,5 @@
 import { useLayoutEffect, useRef, type ReactNode } from 'react'
+import { NeedsYouSlot } from '../needsYou/NeedsYouSlot'
 import { composerSlotClass, composerSlotInnerClass } from '@gugu/session-chat-ui/composer-layout'
 
 /** 底部那一摞的实测高度,挂在它所在的那一栏上;消息流末尾(MessageList)和空态占位都按它让位。 */
@@ -45,7 +46,7 @@ export function ChatBottomDock({ reserve, above, children }: { reserve: boolean;
     <>
       {reserve && <div aria-hidden className="h-[var(--chat-dock-h,0px)] shrink-0" />}
       <div ref={ref} data-chat-bottom-dock="" className={`${composerSlotClass} absolute!`}>
-        {above ? <div className={`${composerSlotInnerClass} pb-0! pointer-events-none!`}>{above}</div> : null}
+        <div className={`${composerSlotInnerClass} pb-0! pointer-events-none!`}><div className="flex items-center gap-2"><div className="min-w-0 flex-1">{above}</div><NeedsYouSlot /></div></div>
         <div className={composerSlotInnerClass}>{children}</div>
       </div>
     </>
