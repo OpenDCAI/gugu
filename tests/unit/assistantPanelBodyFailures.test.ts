@@ -52,9 +52,9 @@ function journalPath(root: string,owner = 'owner',assistant = 'assistant'): stri
 // The journal is disposable: a file it cannot use is an empty journal, said once in the log with why — never a stop to
 // publication, never the file's content in the log — and the next successful save replaces it whole.
 it.each([
-  ['corrupt', '{"version":1,"owner":"owner","assistant":"assistant","failures":[[', 'SyntaxError'],
-  ['unsupported', JSON.stringify({ version: 2,owner: 'owner',assistant: 'assistant',failures: [] }), 'PANEL_BODY_FAILURE_STATE_INVALID'],
-  ['written for another assistant', JSON.stringify({ version: 1,owner: 'owner',assistant: 'other',failures: [] }), 'PANEL_BODY_FAILURE_STATE_INVALID'],
+  ['corrupt', '{"version":2,"owner":"owner","assistant":"assistant","failures":[[', 'SyntaxError'],
+  ['unsupported', JSON.stringify({ version: 3,owner: 'owner',assistant: 'assistant',failures: [] }), 'PANEL_BODY_FAILURE_STATE_INVALID'],
+  ['written for another assistant', JSON.stringify({ version: 2,owner: 'owner',assistant: 'other',failures: [] }), 'PANEL_BODY_FAILURE_STATE_INVALID'],
 ])('treats a %s journal as empty, warns once with what kind of failure, and a later save replaces it', async (_case,content,kind) => {
   const root = await mkdtemp(join(tmpdir(),'panel-body-failures-')); roots.push(root)
   const path = journalPath(root)
@@ -85,4 +85,19 @@ it('keeps suppressing in memory when the journal can be neither read nor written
 
   expect(warn).toHaveBeenCalledTimes(1)
   expect(warn).toHaveBeenCalledWith({ operation: 'read',kind: 'EISDIR' },expect.any(String))
+})
+
+// #591: version 1 recorded rejections of bodies declared as text (stored as documents). Bodies are declared as bytes
+// now, so the same content must be uploaded again rather than stay suppressed in the panel's error state for good.
+it('drops version 1 verdicts quietly so the same bytes are uploaded again', async () => {
+  const root = await mkdtemp(join(tmpdir(),'panel-body-failures-')); roots.push(root)
+  await mkdir(join(root,'assistant-panel-body-failures'),{ recursive: true })
+  await writeFile(journalPath(root),JSON.stringify({ version: 1,owner: 'owner',assistant: 'assistant',
+    failures: [[JSON.stringify(['integrations','["dingtalk","default"]']),failure]] }))
+  const journal = createAssistantPanelBodyFailures(root,'owner','assistant')
+
+  expect(await journal.get('integrations','["dingtalk","default"]')).toBeUndefined()
+  expect(warn).not.toHaveBeenCalled()
+  await journal.set('memory','note',failure)
+  expect(JSON.parse(await readFile(journalPath(root),'utf8'))).toMatchObject({ version: 2,failures: [[JSON.stringify(['memory','note']),failure]] })
 })

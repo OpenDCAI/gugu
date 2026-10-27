@@ -10,7 +10,7 @@ import type { AssistantPanelHome } from './assistant-panel-application'
 import type { AssistantPanelBodyFailures } from './assistant-panel-body-failures'
 import { assistantPanelPath } from './assistant-panel-paths'
 
-export type PanelObservation = { key: string; data: Record<string, unknown>; bytes?: Uint8Array; contentType?: string }
+export type PanelObservation = { key: string; data: Record<string, unknown>; bytes?: Uint8Array }
 const deviceDomains: readonly AssistantPanelDomain[] = ['tasks','capabilities','device-notes','integrations']
 const sha256 = (bytes: Uint8Array) => createHash('sha256').update(bytes).digest('hex')
 function stable(value: unknown): string {
@@ -174,7 +174,7 @@ export async function collectAssistantPanelFiles(binding: AssistantPanelHome, do
           : domain === 'memory' ? { relativePath: path,title: entry.name,modifiedAt,kind: 'file' }
           : domain === 'skills' ? { name: relative,modifiedAt }
           : { noteId: path.split('/')[0],kind: entry.name }
-        result.push({ key: domain === 'skills' ? relative : key,data,bytes,contentType: /\.(md|txt|json|jsonl)$/i.test(entry.name) ? 'text/plain' : 'application/octet-stream' })
+        result.push({ key: domain === 'skills' ? relative : key,data,bytes })
       }
     }
   }

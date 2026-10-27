@@ -7,6 +7,7 @@ import { createLogger } from '../lib/logger'
 
 const log = createLogger('assistant-panel-body-failures')
 
+const JOURNAL_VERSION = 2
 type Failure = { sha256: string; code: 'invalid-body' }
 function validFailure(row: unknown): row is [string, Failure] {
   if (!Array.isArray(row) || row.length !== 2 || typeof row[0] !== 'string' || !row[1]
@@ -45,7 +46,10 @@ export function createAssistantPanelBodyFailures(guguHome: string,owner: string,
       try { text = await readFile(path,'utf8') }
       catch (error) { if ((error as NodeJS.ErrnoException).code === 'ENOENT') return; throw error }
       const state = JSON.parse(text)
-      if (!state || state.version !== 1 || state.owner !== owner || state.assistant !== assistant || !Array.isArray(state.failures)
+      // Version 1 recorded rejections of bodies declared as text, which the attachment service stored as documents.
+      // Bodies are now always declared as bytes, so those verdicts say nothing about the same bytes uploaded today.
+      if (state?.version === 1) return
+      if (!state || state.version !== JOURNAL_VERSION || state.owner !== owner || state.assistant !== assistant || !Array.isArray(state.failures)
         || !state.failures.every(validFailure)) {
         throw Object.assign(new Error('PANEL_BODY_FAILURE_STATE_INVALID'),{ code: 'PANEL_BODY_FAILURE_STATE_INVALID' })
       }
@@ -58,7 +62,7 @@ export function createAssistantPanelBodyFailures(guguHome: string,owner: string,
     tail = next; return next
   }
   const keyOf = (domain: AssistantPanelDomain,key: string) => JSON.stringify([domain,key])
-  const save = () => atomicWriteText(path,JSON.stringify({ version: 1,owner,assistant,failures: [...entries] })).catch((error: unknown) => warn('write',error))
+  const save = () => atomicWriteText(path,JSON.stringify({ version: JOURNAL_VERSION,owner,assistant,failures: [...entries] })).catch((error: unknown) => warn('write',error))
   return {
     get: (domain,key) => serial(() => entries.get(keyOf(domain,key))),
     set: (domain,key,failure) => serial(async () => { entries.set(keyOf(domain,key),failure); await save() }),
