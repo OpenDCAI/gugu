@@ -66,6 +66,7 @@ import {
   type HostIpc,
 } from '@main/lib/host-ipc'
 import type { SessionSummary } from '@gugu/session-core/acp'
+import { isImplicitSessionHomeProjectId } from '@gugu/core/shared/sessionProject'
 import { formatSessionTitleForDisplay } from '@shared/core/sessions/session-title-utils'
 import { sessionViewOfRuntime, type SessionView } from '@shared/core/sessions/sessions'
 
@@ -2371,6 +2372,7 @@ export async function emdashSessionSummaries(): Promise<SessionSummary[]> {
  */
 export async function emdashSessionpageSessionFacts(): Promise<Array<{
   sessionId: string
+  projectId: string
   title: string
   projectName: string
   status: AgentStatusView | null
@@ -2381,8 +2383,9 @@ export async function emdashSessionpageSessionFacts(): Promise<Array<{
   const projectName = new Map(projectRows.map((project) => [project.id, project.name]))
   return rows.map((session) => ({
     sessionId: session.id,
+    projectId: session.projectId,
     title: formatSessionTitleForDisplay(session.providerId, session.title),
-    projectName: projectName.get(session.projectId) ?? '',
+    projectName: isImplicitSessionHomeProjectId(session.projectId) ? '' : projectName.get(session.projectId) ?? '',
     // 行 → Conversation 的映射器总是写这两格(`mapSessionRowToSession`);类型上可选只因渲染侧的乐观对象。
     status: session.agentStatus
       ? { status: session.agentStatus, detail: session.agentStatusDetail ?? null }
@@ -2444,7 +2447,7 @@ export function sessionpageSessionDigest(): Array<{
     .map((session) => ({
       conversationId: session.conversationId,
       projectId: session.projectId,
-      projectName: projectName.get(session.projectId) ?? '',
+      projectName: isImplicitSessionHomeProjectId(session.projectId) ? '' : projectName.get(session.projectId) ?? '',
       title: session.title,
       harness: session.harness,
       agentStatus: session.agentStatus,
