@@ -44,7 +44,7 @@ import { asProvisioned, getSessionPageStore } from '@renderer/features/sessions/
 import { workspaceRegistry } from '@renderer/features/sessions/stores/workspace-registry';
 import { AcpLiveSession, asValueSource } from '@renderer/lib/acp/acp-live-session';
 import { getAcpRuntimeClient } from '@renderer/lib/acp/runtime-client';
-import { machineLinkState, onMachineReconnected } from '@renderer/lib/machine-clients';
+import { machineLinkHandingOff, machineLinkState, onMachineReconnected } from '@renderer/lib/machine-clients';
 import { machineRegistry } from '@renderer/lib/machine-routing';
 import { getAgentConfigRuntimeClient } from '@renderer/lib/agent-config/runtime-client';
 import {
@@ -65,6 +65,12 @@ import { type AcpLoadError, isTerminalLoadError, resultError, toLoadError } from
 import { bindSessionTerminalOutputs } from './acp-terminal-output-binding';
 import { recordedContextUsage } from './recorded-context-usage';
 import { notifyCommittedTurn } from '@renderer/lib/session-output-observers';
+
+/**
+ * 起会话途中到那台机器的线断了,先等它这么久:换线(开机时咕咕云 → 隧道)、几秒的抖动都在这里面悄悄重开,
+ * 界面 ❌ 出「连接断了」那一行;等满了还没回来才说(那一行之后线回来时照旧自己再开)。
+ */
+export const MACHINE_LINK_GRACE_MS = 8_000;
 
 /** 宿主那边还没起完(或没起)的生命周期:停着的会话等它离开这几格再重挂。 */
 const HOST_NOT_SETTLED: ReadonlySet<string> = new Set(['closed', 'lost', 'starting', 'replaying']);
@@ -166,6 +172,8 @@ export class AcpChatStore {
    */
   private _linkOpenings = 0;
   private _unwatchMachineLink: (() => void) | null = null;
+  /** 在宽限里等线回来的那几次开场(`_awaitMachineLink`):线变通、会话页关掉时各叫一遍。 */
+  private readonly _linkWaiters = new Set<() => void>();
   private _visualEvidenceOverride = false;
   private _unsubs: Array<() => void> = [];
   private _draftRev = 0;
@@ -1516,6 +1524,7 @@ export class AcpChatStore {
     this._unsubs.splice(0).forEach((unsub) => unsub());
     this._unwatchMachineLink?.();
     this._unwatchMachineLink = null;
+    for (const wake of [...this._linkWaiters]) wake();
     if (this.isTransient && this.session) void this._stopTransientSession(this.session);
     this.session?.dispose();
     this.chatState.dispose();
@@ -1579,9 +1588,32 @@ export class AcpChatStore {
     if (!machine) return;
     this._unwatchMachineLink = onMachineReconnected(machine, () => {
       this._linkOpenings += 1;
+      for (const wake of [...this._linkWaiters]) wake();
       if (this.loadError?.kind !== 'connection_lost') return;
       log.info('ACP chat machine link reopened; starting the session again', { sessionId: this.sessionId, machine });
       runInAction(() => this.retry());
+    });
+  }
+
+  /**
+   * 起会话途中线断了:最多等 MACHINE_LINK_GRACE_MS 让它连回来。连回来了(这次开场之后变通过、此刻通着、不在换线)= true;
+   * 等满了 / 会话页关了 = false。
+   */
+  private _awaitMachineLink(deviceId: string, openingAtStart: number): Promise<boolean> {
+    const back = () => this._linkOpenings > openingAtStart && machineLinkState(deviceId) === 'open' && !machineLinkHandingOff(deviceId);
+    if (back()) return Promise.resolve(true);
+    return new Promise((resolve) => {
+      const finish = (value: boolean) => {
+        clearTimeout(timer);
+        this._linkWaiters.delete(wake);
+        resolve(value);
+      };
+      const wake = () => {
+        if (this._disposed) finish(false);
+        else if (back()) finish(true);
+      };
+      const timer = setTimeout(() => finish(false), MACHINE_LINK_GRACE_MS);
+      this._linkWaiters.add(wake);
     });
   }
 
@@ -1773,14 +1805,34 @@ export class AcpChatStore {
       }
       const machine = machineRegistry.machineOf(this.runtimeSessionId);
       let loadError = toLoadError(error, machine);
-      // 到那台机器的线这一路都通着(断的只是这一条 wire,窗口没关):没有「连上」可等,❌ 说「连上后会自动重新打开」——
-      // 照旧按原话说,由人点重试。
+      // 到那台机器的线这一路都通着(断的只是这一条 wire,窗口没关、也不在换线):没有「连上」可等,❌ 说「连上后会自动
+      // 重新打开」—— 照旧按原话说,由人点重试。
       if (
         loadError.kind === 'connection_lost'
         && this._linkOpenings === openingAtStart
         && machineLinkState(loadError.deviceId) === 'open'
+        && !machineLinkHandingOff(loadError.deviceId)
       ) {
         loadError = toLoadError(error);
+      }
+      // 线断了:先在宽限里等它回来,回来了就悄悄再开一次(换线 / 几秒的抖动 ❌ 出那一行);等满了才说。
+      if (loadError.kind === 'connection_lost') {
+        const back = await this._awaitMachineLink(loadError.deviceId, openingAtStart);
+        if (this._disposed || generation !== this._historyGeneration) {
+          bootstrapSession?.dispose();
+          return;
+        }
+        if (back) {
+          log.info('ACP chat machine link came back within the grace; starting the session again', { sessionId: this.sessionId, machine });
+          bootstrapSession?.dispose();
+          // 与「再试一次」同一条路:在跑的那一句先留住,再开时换回在跑的样子(sentAt 不变)。
+          runInAction(() => {
+            const pending = this.chatState.session.state.pendingPrompt;
+            this._holdStartupPrompt(pending && this._startupPendingIds.has(pending.id) ? pending : null);
+          });
+          void this._runBootstrap(options);
+          return;
+        }
       }
       const details = {
         sessionId: this.sessionId,
@@ -1804,15 +1856,6 @@ export class AcpChatStore {
       });
       if (this.loadError?.kind === 'auth_required' && providerId) {
         void this._refreshAuthStatus(providerId);
-      }
-      // 线在这次开场途中已经断过又通了(重开比这次失败先落定):那一下已经过去,❌ 再等下一次 —— 当场再开。
-      if (
-        loadError.kind === 'connection_lost'
-        && this._linkOpenings > openingAtStart
-        && machineLinkState(loadError.deviceId) === 'open'
-      ) {
-        log.info('ACP chat machine link already reopened; starting the session again', { sessionId: this.sessionId, machine });
-        this.retry();
       }
     }
   }

@@ -101,7 +101,7 @@ for (const [w, h] of [[360, 640], [360, 400]] as const) {
       models: [{ id: 'm1', name: 'Model 1', source: 'harness' }],
       efforts: [{ id: 'low', name: 'Low' }, { id: 'high', name: 'High' }],
     } as unknown as Parameters<typeof CreateOptionsPill>[0]['models'];
-    const selection = { projectId: 'p1', harness: 'codex', model: null, sessionView: null, permissionMode: null, effort: null };
+    const selection = { projectId: 'p1', harness: 'codex', model: null, permissionMode: null, effort: null };
     mount(<CreateOptionsPill options={options} selection={selection} onChange={() => {}} busy={false} models={models} modelsState="ready" />);
     await userEvent.click(page.getByTestId('agent-watch-create-options-open'));
     await until('12 projects in the sheet', () => document.querySelectorAll('[data-testid="agent-watch-create-options"] [data-dimension="project"] [role="radio"]').length === 12);

@@ -57,7 +57,7 @@ it('task options: clearing its current view retains choices through the full exi
 it('create options: clearing the view keeps the selected project until exit completes', async () => {
   await h.render(createNode(CreateOptionsPill, {
     options: { projects: [{ id: 'p1', name: 'Repo', path: '/repo' }], harnesses: [], lastUsed: null },
-    selection: { projectId: 'p1', harness: null, model: null, permissionMode: null, sessionView: null, effort: null }, onChange: vi.fn(), busy: false, models: null, modelsState: 'idle',
+    selection: { projectId: 'p1', harness: null, model: null, permissionMode: null, effort: null }, onChange: vi.fn(), busy: false, models: null, modelsState: 'idle',
   }))
   await clickElement(q('agent-watch-create-options-open')); await frame()
   const popup = q('agent-watch-create-options')
