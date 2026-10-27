@@ -4,6 +4,8 @@ import { sessions } from '@main/db/schema';
 import { workspaceRegistry } from '@main/core/workspaces/workspace-registry';
 import { sessionPlatformModel } from '@main/core/sessions/platform-model-selection';
 import { sessionModelFromDecision } from '@main/core/sessions/session-model-fact';
+import { getPlatformModelCatalogResolver } from '@main/core/agents/platform-model-catalog-hook';
+import { platformModelIdFromOption } from '@shared/platform-model-id';
 
 /**
  * #6615 问题 11 What an extension program is told about the agent session that called it, beyond who
@@ -29,6 +31,20 @@ export interface AgentSessionContext {
    * own terminal (`/model`) is not seen: gugu records the choices made through it (session-model-fact.ts).
    */
   model: string | null;
+  /** That model's name as the model menu shows it (`modelLabelOf`); null when there is none to show. */
+  modelLabel: string | null;
+}
+
+/**
+ * A Gugu model's name as the model menu and `session_list_models` show it — the same platform catalog, not a second table.
+ * Null for an engine's own model (its id is its name) or when the catalog cannot say; the id itself is always given too.
+ */
+export async function modelLabelOf(model: string | null, providerId: string | null, runtime: string | null): Promise<string | null> {
+  const id = model ? platformModelIdFromOption(model) : null;
+  const resolver = getPlatformModelCatalogResolver();
+  if (!id || !providerId || !resolver) return null;
+  const catalog = await resolver({ providerId, surface: runtime === 'acp' ? 'acp' : 'tui' }).catch(() => null);
+  return catalog?.models.find((entry) => entry.id === id)?.displayName ?? null;
 }
 
 /**
@@ -37,12 +53,13 @@ export interface AgentSessionContext {
  */
 export async function agentSessionContext(agentId: string): Promise<AgentSessionContext | null> {
   const [session] = await db
-    .select({ workspaceId: sessions.workspaceId, projectId: sessions.projectId, config: sessions.config })
+    .select({ workspaceId: sessions.workspaceId, projectId: sessions.projectId, config: sessions.config, provider: sessions.provider, runtime: sessions.runtime })
     .from(sessions)
     .where(eq(sessions.id, agentId))
     .limit(1);
   if (!session) return null;
   const workspace = session.workspaceId ? workspaceRegistry.get(session.workspaceId) : undefined;
   const model = sessionModelFromDecision(await sessionPlatformModel(agentId), session.config?.model ?? null).spawn_model_id ?? null;
-  return { sessionId: agentId, projectId: session.projectId, workspaceId: session.workspaceId ?? null, workspaceRoot: workspace?.path ?? null, model };
+  const modelLabel = await modelLabelOf(model, session.provider, session.runtime);
+  return { sessionId: agentId, projectId: session.projectId, workspaceId: session.workspaceId ?? null, workspaceRoot: workspace?.path ?? null, model, modelLabel };
 }
