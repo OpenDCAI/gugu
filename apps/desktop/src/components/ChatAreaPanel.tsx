@@ -55,7 +55,6 @@ import { AgentHeaderStatusLine } from './chat/AgentHeaderStatusLine'
 import { MemberProfilePopover } from './MemberProfilePopover'
 import { ReadReceiptPopover } from './ReadReceiptPopover'
 import { useListenModeEditControls } from './chat/useListenModeEditControls'
-import { useMessageColumnMinWidth } from './chat/useMessageColumnMinWidth'
 import { RightPanel } from './chat/RightPanel'; import { isGroupManagerRole } from '../lib/groupMemberPermissions'
 import {
   buildMemberProfileMap,
@@ -199,8 +198,6 @@ function ChatAreaSurface({ viewportKey = 'chats', activeTab, navigationTarget = 
   const filePreview = useMessageFilePreview({ onForward: handleForward, mobile, visible: surfaceVisible, closeRightSurfaces, toast })
   const openFilePreview = filePreview.open
   filePreviewCloseRef.current = filePreview.close
-  // @@@2234 中栏 min-width 自适应(有右栏展开时按内容区实宽让位,右栏永不被 overflow:hidden 裁切)—— 逻辑见 hook。
-  const { messageColumnMinWidth, attachPanelsRow } = useMessageColumnMinWidth(filePreview.isOpen, mobile)
   const handleOpenSettingsDrawer = useCallback(() => { if (activeChatId) openInfoTab(activeChatId) }, [activeChatId])
   const projectName = useChatSlotProjectName()
   const emptyProject = useChatHasMessages(projectName !== null ? activeChatId ?? undefined : undefined) === false
@@ -941,11 +938,10 @@ function ChatAreaSurface({ viewportKey = 'chats', activeTab, navigationTarget = 
       </PaneHeader>}{mobile && !chrome && !blockHost && !searchMode ? <PhoneChatTabs topics={topicSurface.topics} messages={messages} current={topicSurface.splitTopic?.chatId ?? null} onPick={(topic) => topic ? topicSurface.openSplit({ chatId: topic.chat_id, name: topic.name }) : topicSurface.closeSplit()} /> : null}
 
       <div
-        ref={attachPanelsRow}
         style={{
           flex: 1,
           minHeight: 0,
-          minWidth: messageColumnMinWidth,
+          minWidth: 0,
           display: 'flex',
           overflow: 'hidden',
           position: 'relative',
