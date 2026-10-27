@@ -65,7 +65,11 @@ describe('native admission through local message delivery', () => {
       expect(accepted).not.toHaveBeenCalled();
       expect(wake).not.toHaveBeenCalled();
       expect(h.lastChild.kill).not.toHaveBeenCalled();
-      expect(runtime.getSessionState(input.sessionId).lastTurnOutcome).toBe('cancelled');
+      expect(runtime.getSessionState(input.sessionId).lastTurnOutcome).toBe('stopped');
+      const history = runtime.getHistory(input.sessionId);
+      expect(history.success).toBe(true);
+      if (!history.success) throw new Error('cancelled turn history unavailable');
+      expect(history.data.turns.at(-1)?.outcome).toEqual({ kind: 'cancelled', reason: 'cancelled' });
     } finally {
       await runtime.dispose();
       toAgent.end();
