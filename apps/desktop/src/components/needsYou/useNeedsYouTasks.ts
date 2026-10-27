@@ -7,6 +7,7 @@ import { useLiveDeviceSessions } from '@/session/shared/remote-sessions/session-
 import { startSessionListSync } from '@/session/shared/remote-sessions/session-list-sync'
 import { machineSessionListClient } from '@/session/renderer/features/remote-hosts/machine-session-list'
 import { sessionReading } from '@/mobile/agent-watch/watch-status'
+import { usePhoneAgentDirectory } from '@/mobile/local-agent/usePhoneAgentDirectory'
 import { isPhoneDevice } from '@gugu/core/cloud/devices'
 import { mostUrgentAttention, type AgentAttention, type AgentStatus } from '@gugu/core/shared/agentStatus'
 
@@ -21,7 +22,8 @@ export type NeedsYouTask = {
 /** The existing sidebar state and machine directory, including a desktop's own host. No per-task polling. */
 export function useNeedsYouTasks(): { tasks: NeedsYouTask[]; attention: AgentAttention; error: string | null } {
   const { user } = useAuth()
-  const { devices } = useDevicesStore()
+  const { devices, phones = [] } = useDevicesStore()
+  usePhoneAgentDirectory([...devices, ...phones])
   const directory = useLiveDeviceSessions()
   const current = devices.find(device => device.is_current_device)
   const localId = platform.capabilities.sessionHost ? current?.device_id : undefined

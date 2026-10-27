@@ -98,7 +98,7 @@ export function startPhoneAgentDirectorySync(deviceId: string, reachable: boolea
 /** 移动壳根的唯一手机目录同步点。关闭宿主后的设备仍读本地摘要,不向动作设备发送宿主 RPC。 */
 export function usePhoneAgentDirectory(devices: readonly Device[]): void {
   const ownerId = useAuth().user?.id ?? null
-  const phones = devices.filter(isPhoneDevice)
+  const phones = phoneAgentAvailable() ? devices.filter(isPhoneDevice) : []
   const active = phones.filter((device) => device.is_online && isAgentHostDevice(device)).map((device) => device.device_id)
   const retryScope = useRef({ ownerId, active })
   retryScope.current = { ownerId, active }
