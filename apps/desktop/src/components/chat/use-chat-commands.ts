@@ -1,8 +1,7 @@
 import { createContext, useState, type RefObject } from 'react'
-import { commandRegistry } from '@renderer/lib/commands/registry'
 import { useCommandProvider } from '@renderer/lib/commands/use-command-provider'
 
-export const GroupRenameContext = createContext<{ request: number; edit: () => void } | null>(null)
+export const GroupRenameContext = createContext<{ request: number } | null>(null)
 
 /** Commands reveal the chat's info and its name's editor there; all validation and saving stay there. */
 export function useChatCommands({ chatId, canRename, visible, surface, openSettings }: {
@@ -20,5 +19,5 @@ export function useChatCommands({ chatId, canRename, visible, surface, openSetti
       },
     }],
   })
-  return { request: rename.chatId === chatId ? rename.count : 0, edit: () => { commandRegistry.dispatch('chat.rename') } }
+  return { request: rename.chatId === chatId ? rename.count : 0 }
 }

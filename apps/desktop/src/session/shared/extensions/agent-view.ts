@@ -1,8 +1,16 @@
 import type { SessionFailure, SessionSummary } from '@gugu/session-core/acp';
-import type { SessionpageSessionSummary } from '@gugu/session-core/session-record/contract';
+import type { SessionpageSessionSummary, UnreachedMachine } from '@gugu/session-core/session-record/contract';
 import type { ExtensionAgentView } from './bridge-protocol';
 
 export type ListedSession = { session: SessionpageSessionSummary; deviceId: string | null; deviceLabel: string | null };
+
+/** The same observation envelope on desktop and phone, including computers with no tasks. */
+export function agentReport(agents: ExtensionAgentView[], unreached: UnreachedMachine[], devices: Array<{ deviceId: string; label: string; online: boolean; thisMachine: boolean }>, checkedAt = new Date().toISOString()) {
+  return {
+    agents: agents.map((agent) => ({ ...agent, statusFrom: agent.deviceId === null ? 'this_machine' as const : 'device' as const, statusAt: checkedAt })),
+    devices: devices.map((device) => ({ ...device, checkedAt })), unreached, checkedAt,
+  };
+}
 
 /**
  * Live counters exist only where there is a live ACP session to count.
@@ -46,7 +54,7 @@ export function agentViewOf(
   row: ListedSession,
   agentOf: ReadonlyMap<string, string>,
   extensionId: string,
-  live: { summary: SessionSummary | undefined; model: string | null } | null,
+  live: { summary: SessionSummary | undefined; model: string | null; modelLabel?: string | null } | null,
 ): ExtensionAgentView | null {
   const { session } = row;
   const agentId = agentOf.get(session.conversationId);
@@ -62,6 +70,7 @@ export function agentViewOf(
     // 列表里没有 provider 的会话写 'unknown';这个面上它是 null(一个类型说「一定有」、运行时给空的字段,扩展会当真)。
     providerId: session.harness === 'unknown' ? null : session.harness,
     model: live?.model ?? null,
+    modelLabel: live?.modelLabel ?? null,
     // 集体记忆对账第 4 条:和 session_get / session_spawn / spawnAgent 同一套词,App 照抄 row.transport 去 spawnAgent 才不会被拒。
     transport: session.runtime === 'acp' ? 'acp' : 'pty',
     parentAgentId: session.parentConversationId ? (agentOf.get(session.parentConversationId) ?? null) : null,

@@ -1,12 +1,5 @@
-/**
- * #5381 ④ —— `session/load` 失败之后的降级不许是静默的。
- *
- * 产品的选择是「会话照常打开」而不是把它变成一个打不开的东西,这条不变。但会话页现在
- * **自己存着历史**:屏幕上照旧满屏对话,而 agent 那边一个字都没有。用户看着历史,
- * 理所当然以为它读过 —— 它没有。合同原话:截断与失败都要留下可诊断的痕迹。
- *
- * ⚠️ 阴控同样要紧:用户**主动新建**的会话不该出现这条界(它没有「上面的内容」),
- * load 成功的重开也不该出现。
+/** Context-reset notices remain for explicit first creation of a never-ran session.
+ * A generic failure to resume existing provider history must instead fail without replacement.
  */
 import { describe, expect, it, vi } from 'vitest';
 import { isOk } from '@gugu/session-shared';
@@ -53,23 +46,19 @@ describe('#5381 引擎重开会话的界线', () => {
   });
 });
 
-/**
- * 接线的那一端:`session/load` 真的失败、真的退回 `session/new` 时,那条界要出现在
- * 新会话的转录开头。上面那组用例只证明「推了这个事件会成行」,不证明**有人推**。
- */
-describe('#5381 重放失败退回 session/new 时,界线真的被画出来', () => {
-  it('load 失败 → 新会话开头有一条界,带着失败原因', async () => {
+describe('#5381 explicit never-ran creation keeps its context boundary', () => {
+  it('marks the host-authorized first creation with the original missing-session cause', async () => {
     const h = makeAcpHarness();
     h.agent.loadSession = vi.fn(async () => {
-      throw new Error('internal error: rollout store unavailable');
+      throw Object.assign(new Error('Resource not found: session-old'), { code: -32002, data: { uri: 'session-old' } });
     });
     const rt = new AcpRuntime(h.deps);
     await rt.resumeSession({
-      ...makeStartInput({ sessionId: 'conv-load-failed' }),
+      ...makeStartInput({ sessionId: 'conv-load-failed', freshIfProviderSessionMissing: true }),
       providerSessionId: 'session-old',
     });
 
-    // 降级本身照旧:会话照常打开,只是换了一条 provider 会话。
+    // No provider history existed; the host explicitly authorized its first creation.
     expect(h.agent.newSession).toHaveBeenCalled();
 
     // 界线先落在活动轮里(它是 agent 侧自发的一条内容,没有 prompt 在飞)。
@@ -86,7 +75,8 @@ describe('#5381 重放失败退回 session/new 时,界线真的被画出来', ()
     );
     const reset = items.find((it) => it.kind === 'context-reset');
     expect(reset).toBeDefined();
-    expect(reset!.reason).toContain('rollout store unavailable');
+    expect(reset!.reason).toContain('Resource not found: session-old');
+    await rt.dispose();
   });
 
   /** 阴控:load 成功的重开不许出现这条界。 */

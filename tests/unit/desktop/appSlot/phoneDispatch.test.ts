@@ -93,4 +93,17 @@ describe('phone dispatch through the existing agent directory and App RPC', () =
     expect(rpc.mock.calls[0][2]).toEqual({ action: 'spawn', prompt: 'work', spawn: { title: 'Card' } })
     await expect(dispatch().agents.spawn('work', {}, 'gone')).rejects.toMatchObject({ code: 'failed' })
   })
+  it('reports zero-task computers from the same directory, only with all-machines read consent', async () => {
+    writeCachedDevices('owner', [device('desktop'), device('empty')])
+    ready('empty', [])
+    const report = await phoneDispatch(app, ['agents:read:all-machines'], {}).listAgents(true)
+    expect(report.devices).toEqual([
+      { deviceId: 'desktop', label: 'desktop', online: true, thisMachine: false, checkedAt: expect.any(String) },
+      { deviceId: 'empty', label: 'empty', online: true, thisMachine: false, checkedAt: expect.any(String) },
+    ])
+    expect(report.agents).toHaveLength(1)
+    expect(report.agents[0]).toMatchObject({ deviceId: 'desktop', statusFrom: 'device', statusAt: report.checkedAt })
+    expect((await phoneDispatch(app, ['agents:read'], {}).listAgents(true)).devices).toEqual([])
+    expect(rpc).not.toHaveBeenCalled()
+  })
 })

@@ -8,6 +8,7 @@ import { InstalledExtensionsStore, installedExtensionsStore } from './installed-
 export type ExtensionsApi = Pick<
   typeof rpc.extensions,
   | 'list'
+  | 'switchVariant'
   | 'revoked'
   | 'market'
   | 'marketEntry'

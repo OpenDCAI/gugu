@@ -1,4 +1,4 @@
-import { useEffect, useRef, type PointerEvent, type TouchEvent } from 'react'
+import { useEffect, useRef } from 'react'
 
 const LONG_PRESS_MS = 500
 const LONG_PRESS_MOVE_CANCEL_PX = 10
@@ -19,7 +19,7 @@ export function useLongPress(onLongPress: (at: { x: number; y: number }) => void
     startRef.current = null
   }
   return {
-    onPointerDown: (event: PointerEvent) => {
+    onPointerDown: (event: Pick<PointerEvent, 'pointerType' | 'clientX' | 'clientY'>) => {
       if (event.pointerType !== 'touch') return
       clear()
       firedRef.current = false
@@ -31,14 +31,14 @@ export function useLongPress(onLongPress: (at: { x: number; y: number }) => void
         onLongPress(at)
       }, LONG_PRESS_MS)
     },
-    onPointerMove: (event: PointerEvent) => {
+    onPointerMove: (event: Pick<PointerEvent, 'clientX' | 'clientY'>) => {
       const at = startRef.current
       if (at && Math.hypot(event.clientX - at.x, event.clientY - at.y) >= LONG_PRESS_MOVE_CANCEL_PX) clear()
     },
     onPointerUp: clear,
     onPointerCancel: clear,
     onPointerLeave: clear,
-    onTouchEnd: (event: TouchEvent) => {
+    onTouchEnd: (event: Pick<TouchEvent, 'preventDefault'>) => {
       if (firedRef.current) { firedRef.current = false; event.preventDefault() }
     },
   }

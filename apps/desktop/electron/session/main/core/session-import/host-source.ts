@@ -4,6 +4,7 @@ import type {
   LocalSessionPreview,
   PreviewLocalSessionParams,
 } from '@shared/core/session-import/session-import';
+import type { AppSessionRead, AppSessionReadOptions } from '@shared/extensions/app-sessions';
 
 // @@@sessionpage 宿主注入口：本机会话的扫描与解析归 gugu 侧（packages/core 的
 // transcriptInventory / sessionIndex）实现 —— 那份解析器要处理 Claude 的旁支 transcript、
@@ -16,6 +17,7 @@ import type {
 export type LocalSessionSource = {
   list(params: ListLocalSessionsParams): Promise<ListLocalSessionsResult>;
   preview(params: PreviewLocalSessionParams): Promise<LocalSessionPreview>;
+  read(params: AppSessionReadOptions): Promise<AppSessionRead>;
 };
 
 let source: LocalSessionSource | null = null;

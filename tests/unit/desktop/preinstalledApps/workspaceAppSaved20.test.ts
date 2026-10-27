@@ -41,6 +41,7 @@ const gugu = {
   // The editor is not what this measures; it never arrives here.
   codemirror: vi.fn(() => new Promise(() => {})),
   files: {
+    viewPreferences: vi.fn(async () => ({ showAppData: false })),
     list: vi.fn(async () => [entry]),
     onChanged: vi.fn(() => () => {}),
     open: vi.fn(async () => file),

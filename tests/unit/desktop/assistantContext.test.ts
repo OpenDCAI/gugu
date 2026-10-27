@@ -141,6 +141,16 @@ it('loads the dedicated cloud home where the assistant guide and skills actually
   expect(options.strictMcpConfig).toBe(true)
 })
 
+it('enables host idle compaction only for a prepared personal assistant, never its home executors', () => {
+  const prepared = personalAssistantContext(fixture(), 'cloud', { index: '<gugu_resource_index />', guguHome: '/gugu' })
+  expect(prepared.sessionNewPatch!.meta!.guguAssistant).toEqual({ idleCompaction: true })
+  expect(personalAssistantContext(fixture()).sessionNewPatch!.meta!.guguAssistant).toBeUndefined()
+  const childSource = fixture()
+  childSource.sessionNewPatch!.meta!.guguAssistant = { idleCompaction: true }
+  const child = assistantHomeTaskContext(childSource, '/gugu/assistant', '/gugu')
+  expect(child.sessionNewPatch!.meta!.guguAssistant).toBeUndefined()
+})
+
 it('keeps home executors isolated while the host supplies the contract in their work order, auto memory or recovery subscriptions', () => {
   const before = fixture()
   expect(assistantHomeTaskContext(before, '/business', '/gugu')).toBe(before)
@@ -294,7 +304,6 @@ it.each(['computer', 'cloud'] as const)('installs one full resource hook for sta
       action.action === 'devices' ? [] : action.action === 'device_actions' ? { devices: [] }
         : action.action === 'project_list' ? [] : { items: [] } }
     const start = await preparePersonalAssistantContext(fixture(), cwd, root, kind, deps, root)
-    expect(start.sessionNewPatch!.meta!.guguAssistant).toMatchObject({ ownerId: 'owner' })
     const hooks = JSON.parse(start.artifacts!.find(file => file.path.endsWith('/hooks/hooks.json'))!.content).hooks.SessionStart
     for (const source of ['startup', 'clear', 'compact', 'resume']) {
       const resource = hooks.filter((entry: { matcher: string }) => new RegExp(`^(?:${entry.matcher})$`).test(source))
@@ -304,6 +313,7 @@ it.each(['computer', 'cloud'] as const)('installs one full resource hook for sta
     }
     expect((start.sessionNewPatch!.meta!.claudeCode as { options: { systemPrompt: { prompt: string } } }).options.systemPrompt.prompt)
       .not.toContain('gugu_resource_index')
+    expect(start.sessionNewPatch!.meta!.guguAssistant).toMatchObject({ ownerId: 'owner' })
     await (await openingAssistantIndex(root, cwd, kind, deps)).refreshed
     expect(await readFile(assistantHomePaths(root, cwd, kind).instructions, 'utf8')).not.toContain('gugu_resource_index')
   } finally { await rm(root, { recursive: true, force: true }) }

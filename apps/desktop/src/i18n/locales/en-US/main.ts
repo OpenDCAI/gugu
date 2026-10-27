@@ -169,7 +169,7 @@ export default {
       "tooLarge": "Too large · view on desktop"
     },
     "timeline": {
-      "outputTrimmed": "… {{chars}} chars trimmed · open on desktop for the full output",
+      "outputTrimmed": "… {{chars}} chars omitted from this preview",
       "loading": "Loading the timeline…",
       "waitingRecord": "Task started — waiting for its first line…",
       "empty": "This task has no content yet.",
@@ -597,7 +597,9 @@ export default {
       "shareNoGuguNumber": "{{name}} does not have a Gugu ID yet, so a card cannot be created.",
       "shareUnavailable": "This task does not have an agent identity that can be shared yet.",
       "taskCreated": "Task created",
-      "taskDeliverFailed": "Message not delivered to {{name}} because the task is not running.",
+      "taskDeliverFailed": "Message not delivered to {{name}}.",
+      "taskDeliverFailedCount_one": "{{count}} message not delivered to {{name}}.",
+      "taskDeliverFailedCount_other": "{{count}} messages not delivered to {{name}}.",
       "unownedAgentDm": "You cannot message someone else’s Agent privately. Work with it in a shared group."
     },
     "update": {

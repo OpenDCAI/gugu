@@ -42,7 +42,7 @@ vi.mock('@main/core/extensions/extensions-root', () => ({
   }),
 }));
 vi.mock('@main/core/extensions/account-token', async (importOriginal) => ({ ...(await importOriginal<object>()), currentAccountAccessToken: async () => null }));
-vi.mock('@main/core/extensions/file-sync', () => ({ fileSync: {}, fileServiceUrl: () => 'http://files.invalid', localFileService: {} }));
+vi.mock('@main/core/extensions/file-sync', () => ({ fileSync: { ensureFor: () => undefined }, fileServiceUrl: () => 'http://files.invalid', localFileService: {} }));
 vi.mock('@main/core/extensions/extension-icon', () => ({ renderExtensionIcon: () => null }));
 vi.mock('@shared/extensions/app-files-core', async (original) => ({
   ...(await original<typeof import('@shared/extensions/app-files-core')>()),

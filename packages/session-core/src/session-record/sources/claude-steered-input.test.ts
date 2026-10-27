@@ -4,6 +4,7 @@ import { join } from 'node:path';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
 import type { TranscriptTurn } from '../../acp/models/turns';
+import type { SessionRecordResume } from '../contract';
 import { collectItems } from '../test-support';
 import { createSessionTimeline } from '../timeline';
 import { createClaudeJsonlSource } from './claude-jsonl';
@@ -90,7 +91,7 @@ describe('Claude native turn boundaries', () => {
     expectNativeTurns(timeline.getSnapshot().turns);
   });
 
-  it('invalidates resume data from before the steering mapping', async () => {
+  it.each(['legacy', 'composite'])('invalidates resume data from before the steering mapping (%s)', async format => {
     const { file, lines, source } = await stage();
     await writeFile(file, lines.join('\n') + '\n');
     const timeline = await createSessionTimeline(source(), { sessionId: SESSION });
@@ -101,9 +102,10 @@ describe('Claude native turn boundaries', () => {
     const resumed = source();
     disposers.push(() => resumed.stop());
     const onReset = vi.fn();
-    await resumed.start({ onEntries: () => {}, onReset }, {
-      ...archive!.resume,
-      data: { ...(archive!.resume.data as Record<string, unknown>), version: 3 }
+    const saved = archive!.resume.data as { root: SessionRecordResume };
+    const legacy = { ...saved.root, data: { ...(saved.root.data as Record<string, unknown>), version: 3 } };
+    await resumed.start({ onEntries: () => {}, onReset }, format === 'legacy' ? legacy : {
+      ...archive!.resume, data: { ...saved, root: legacy }
     });
     expect(onReset).toHaveBeenCalledWith('source_replaced');
   });

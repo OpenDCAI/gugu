@@ -1,3 +1,5 @@
+import { useAppDetailRequest } from '@renderer/features/apps/use-app-detail-request';
+import type { AppDetailLink } from '@gugu/core/shared/ui/guguLink';
 import { messageForUser } from '@/lib/userFacingError';
 import { CircleAlert, Trash2Icon } from '@/lib/icons';
 import { UI_EVENTS } from '@/lib/uiEvents';
@@ -67,6 +69,7 @@ import type { MarketRefreshed } from '@shared/extensions/market-snapshot';
 import { marketHome } from '@shared/extensions/market-home';
 import { chatDb } from '@/lib/supabase';
 import type { ExtensionManifest } from '@shared/extensions/manifest';
+import { readCachedDevices } from '@/store/devicesCache';
 import { remoteHostsStore } from '@renderer/features/remote-hosts/remote-hosts-store';
 
 /**
@@ -116,7 +119,7 @@ const GROUP_LABEL = {
 
 type StoreTab = 'market' | 'newest' | 'popular' | 'all' | 'installed';
 
-export const ExtensionsSettingsCard = observer(function ExtensionsSettingsCard() {
+export const ExtensionsSettingsCard = observer(function ExtensionsSettingsCard({ detailLink }: { detailLink?: AppDetailLink }) {
   const { translate, locale } = useSessionMessages();
   // #6264 资源库看的是哪台咕咕:本机是全局那份清单与 `rpc.extensions`;另一台咕咕桌面是它自己的那份,
   // 动作经设备 RPC 转到它的主进程,它自己的窗口跟着补上 / 撤下 tab。页面长相不变。
@@ -573,6 +576,30 @@ export const ExtensionsSettingsCard = observer(function ExtensionsSettingsCard()
     [showConfirm]
   );
 
+  const switchVariant = async (manifest: ExtensionManifest, name: string) => {
+    if (inFlight.current[manifest.id]) return;
+    beginPending(manifest.id, 'inspecting');
+    try {
+      const handed = await api.switchVariant(manifest.id, name, { kind: 'return' });
+      if (!handed.success || !handed.data) throw new Error(handed.error ?? 'App variant unreadable');
+      if (handed.data.outcome !== 'ask') { await refresh(); return; }
+      const { ask, asks } = handed.data;
+      const complete = (enableIn?: string[]) => installing(
+        ask.manifest,
+        () => api.switchVariant(manifest.id, name, { kind: 'given', digest: ask.manifestDigest, ...(enableIn ? { enableIn } : {}) }),
+        () => switchVariant(manifest, name),
+      );
+      if (!asks) { await complete(); return; }
+      const machine = remoteRef.current?.deviceLabel;
+      const prompt = installConsentPrompt(machine ? { ...ask, machine } : ask, ask.manifest);
+      await askToInstall(prompt, ask.manifestDigest, ask.places, complete, machine);
+    } catch (error) {
+      toast({ title: translateRef.current('extensions.switchFailed'), description: messageForUser(error), tier: 'error' });
+    } finally {
+      endPending(manifest.id);
+    }
+  };
+
   /**
    * One way to ask, for every install here: with 「给哪些 agent」 (D-30) in the shell's sheet, else in the session page's own
    * dialog. `agreed` runs on a yes; this resolves once the shell's sheet is answered (the dialog answers on its own).
@@ -903,6 +930,8 @@ export const ExtensionsSettingsCard = observer(function ExtensionsSettingsCard()
     if (deprecated) {
       return { kind: 'deprecated', note: deprecated.note, replacedBy: deprecated.replacedBy };
     }
+    const behind = updates.forkBehind?.[manifest.id];
+    if (behind) return { kind: 'forkBehind', ...behind };
     const update = updates.updates[manifest.id];
     if (update) return { kind: 'update', version: update.version, releaseNotes: update.releaseNotes };
     // No longer in the market: said on its row, not counted as something to do (there is nothing to do).
@@ -916,11 +945,12 @@ export const ExtensionsSettingsCard = observer(function ExtensionsSettingsCard()
    */
   const lifecycleOf = (extensionId: string, item?: Pick<ShelfItem, 'manifest' | 'cloud'>): AppLifecycle => {
     const installed = installedById.get(extensionId);
+    const fork = store.origins[extensionId] === 'fork';
     return appLifecycle({
       installed,
       enabled: installed ? store.isEnabled(installed.id) : false,
-      updateVersion: store.updates?.updates[extensionId]?.version,
-      offered: item,
+      updateVersion: fork ? undefined : store.updates?.updates[extensionId]?.version,
+      offered: fork ? undefined : item,
       preinstalled: store.isPreinstalled(extensionId),
       canOpen: installed ? onRail(installed) : false,
     }, translate);
@@ -948,7 +978,9 @@ export const ExtensionsSettingsCard = observer(function ExtensionsSettingsCard()
         navigate('new-session');
       };
 
+  const resourceOf = (extensionId: string) => ({ kind: 'app' as const, target: { kind: 'app-detail' as const, extensionId, deviceId: remote?.deviceId ?? readCachedDevices().find(device => device.is_current_device)?.device_id }, facts: store.updates?.forkBehind?.[extensionId] ? ['behind' as const] : [] });
   const menuOf = (manifest: ExtensionManifest) => ({
+    resource: resourceOf(manifest.id),
     onToggleDock: dockToggle(manifest),
     onOpenInWindow: onRail(manifest)
       ? () => {
@@ -1025,6 +1057,7 @@ export const ExtensionsSettingsCard = observer(function ExtensionsSettingsCard()
       cloud: item.cloud,
     });
   };
+  useAppDetailRequest({ target: detailLink, ready: inventory === 'ready', host, setDetail, detail, rootRef });
   // 产品页右栏「类似 App」点一个:换到它的产品页。❌ 记清单的滚动位置 —— 此刻滚的是产品页,回清单要回到进产品页之前那里。
   const openSimilar = (item: ShelfItem) => {
     setJustInstalled(null);
@@ -1136,6 +1169,8 @@ export const ExtensionsSettingsCard = observer(function ExtensionsSettingsCard()
             readOnly={!!notice?.readOnly}
             justInstalled={justInstalled === detail.manifest.id && Boolean(installed)}
             notice={installed ? noticeOf(installed) : undefined}
+            variants={installed ? store.variants[installed.id] : undefined}
+            onSwitchVariant={installed ? (name) => void switchVariant(installed, name) : undefined}
             revoked={installed ? (revoked[installed.id] ?? []) : []}
             pendingPermissions={installed ? pendingPermissionsOf(installed.id) : []}
             agentStatus={installed ? agentStatus[installed.id] : undefined}
@@ -1248,6 +1283,7 @@ export const ExtensionsSettingsCard = observer(function ExtensionsSettingsCard()
                 </div>
               ) : (
                 <AppMarketContent
+                  resourceOf={resourceOf}
                     view={tab} onRetry={() => void readShelf(debouncedQuery)}
                   shelf={shelf}
                   chip={chip}
@@ -1335,7 +1371,7 @@ export const ExtensionsSettingsCard = observer(function ExtensionsSettingsCard()
                       <InstalledAppRow
                         key={manifest.id}
                         id={manifest.id}
-                        name={localizedManifestText(manifest, locale).name}
+                        name={`${localizedManifestText(manifest, locale).name}${store.variants[manifest.id]?.active && store.variants[manifest.id]!.active !== 'upstream' ? ` · ${store.variants[manifest.id]!.active}` : ''}`}
                         version={manifest.version}
                         line={installedLine(manifest)}
                         iconUrl={store.appIcons[manifest.id]}

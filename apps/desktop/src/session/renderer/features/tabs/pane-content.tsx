@@ -22,7 +22,7 @@ import { paneSlotView, sameKindSide as sameKindSideOf } from './pane-slot-view';
 import { MIN_PANE_HEIGHT_PX, MIN_PANE_WIDTH_PX, type PaneStore } from './pane-store';
 import { TabBar } from './tab-bar';
 import { isUnavailableTabResource, UnavailableTabContent } from './unavailable-tab';
-import { RETAINED_SURFACE_HIDDEN_STYLE } from '@/lib/retainedSurface';
+import { RetainedTabContent, useRetainedTabs } from './retained-tab-content';
 
 // Monaco 0.55 收字的是 `.native-edit-context`,旁边那个 `ime-text-area` 是只读的:聚焦它 = 看着进了编辑器、字打不进去。
 // 浏览器页签的网页是主进程的 view(#7274),页签里只有它的占位 `[data-browser-page]`:聚焦占位 = 把焦点交给网页。
@@ -140,6 +140,10 @@ export const PaneContent = observer(function PaneContent({
   /** 这一种页签那一层此刻摆的是这一对里的哪一枚(没在这一对里 = null)。 */
   const layerTabId = (kind: string): string | null =>
     pair ? (kind === anchorKind ? pair.anchor : kind === sideKind ? pair.side : null) : null;
+  const retained = useRetainedTabs(
+    [...new Set(pane.resolvedTabs.map((tab) => tab.kind))],
+    pair ? [anchorKind, sideKind].filter((kind): kind is string => kind !== null) : activeKind ? [activeKind] : [],
+  );
 
   if (!hasAnyTab) {
     return (
@@ -177,12 +181,12 @@ export const PaneContent = observer(function PaneContent({
           {isOverContent && (
             <div className="pointer-events-none absolute inset-0 z-20 bg-foreground/10" />
           )}
-          {pane.registry.all().map((def) => {
+          {pane.registry.all().filter((def) => retained.has(def.kind)).map((def) => {
             const ContentComponent = def.TabContent;
             const pairedTabId = layerTabId(def.kind);
             const isActive = pair ? pairedTabId !== null : unavailableActiveTab === null && activeKind === def.kind;
             const placesPair = def.kind === selfPlacedKind;
-            const host = placesPair ? pane : slotViews.rest;
+            const host = def.placesPairItself ? pane : slotViews.rest;
             return (
               <ContentLayer
                 key={def.kind}
@@ -275,9 +279,10 @@ const ContentLayer = observer(function ContentLayer({
   const body = <PaneDimensionProvider sink={sink}>{children}</PaneDimensionProvider>;
   // 始终包一层(❌ 只在换了格子视图时才包):包与不包来回换,里面的内容会整个重挂(网页重新加载)。
   return (
-    <div
+    <RetainedTabContent
       className="absolute"
-      style={visible ? style : { ...RETAINED_SURFACE_HIDDEN_STYLE, ...style }}
+      visible={visible}
+      style={style}
       data-pane-layer={kind}
       data-pane-layer-key={layerKey}
       data-pane-tab={tabId ?? undefined}
@@ -285,7 +290,7 @@ const ContentLayer = observer(function ContentLayer({
       onFocusCapture={focusTab}
     >
       <PaneContext.Provider value={contextValue ?? paneContext}>{body}</PaneContext.Provider>
-    </div>
+    </RetainedTabContent>
   );
 });
 

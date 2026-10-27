@@ -43,10 +43,7 @@ export function appIsRunning(extensionId: string): boolean {
   const store = installedExtensionsStore;
   if (store.isEnabled(extensionId) && !store.quit.includes(extensionId) && store.manifestFor(extensionId)?.background?.entry) return true;
   const kinds = new Set<string>(store.allTabContributions.filter((entry) => entry.extensionId === extensionId).map((entry) => entry.kind));
-  return (
-    [...extensionViewStore.residentPages.values()].some((page) => kinds.has(page.kind)) ||
-    [...extensionViewStore.filePages.values()].some((page) => kinds.has(page.kind))
-  );
+  return [...extensionViewStore.residentPages.values()].some((page) => kinds.has(page.kind));
 }
 
 /**

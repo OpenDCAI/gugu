@@ -116,8 +116,8 @@ describe('personal group App shortcuts', () => {
       await header('g1', 'user-1', false)
       await vi.waitFor(() => expect(document.querySelector('[data-testid="chat-header-pinned-app"]')).not.toBeNull())
       const actions = [...document.querySelectorAll('[data-tabbar-actions] button')].map((button) => button.getAttribute('aria-label'))
-      // 群信息(公告、设置)从成员钮进:桌面群聊钉住的 App 都放得下时没有 ⋯。
-      expect(actions).toEqual(['board', 'calendar', '群 Apps', '在对话中搜索', '群文件夹', '成员列表'])
+      // Settings remains reachable through More even when every pinned App fits.
+      expect(actions).toEqual(['board', 'calendar', '群 Apps', '在对话中搜索', '群文件夹', '成员列表', '更多操作'])
     } finally { bounds.mockRestore() }
   })
 
@@ -127,7 +127,7 @@ describe('personal group App shortcuts', () => {
     if (mobile) {
       await vi.waitFor(() => expect(document.querySelector('[data-testid="chat-header-menu-app"] .gg-menu-item-label')?.textContent).toBe('board'))
       const items = [...document.querySelectorAll('[role="menuitem"] .gg-menu-item-label')].map((item) => item.textContent)
-      expect(items).toEqual(['在对话中搜索', '群文件夹', 'board', '群 Apps'])
+      expect(items).toEqual(['在对话中搜索', '群文件夹', '群设置', 'board', '群 Apps'])
       const actions = [...document.querySelectorAll('[data-tabbar-actions] button')].map((button) => button.getAttribute('aria-label'))
       expect(actions).toEqual(['成员列表', '更多操作'])
     } else {

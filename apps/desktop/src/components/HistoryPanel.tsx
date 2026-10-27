@@ -119,6 +119,7 @@ export function HistoryPanel(props: HistoryPanelProps) {
                 <FileAttachmentCard
                   key={f.messageId}
                   file={f}
+                  resource={f.source.kind === 'item' ? { kind: 'file', target: { kind: 'file', itemId: f.source.itemId, version: f.source.version } } : undefined}
                   details={t('history.fileMeta', { senderName: resolveOrLoud(identitiesById[f.senderId]?.display_name, `history file sender ${f.senderId} for message ${f.messageId}`), size: formatAttachmentSize(f.sizeBytes), date: formatCalendarDay(f.createdAt) })}
                   onOpen={() => onOpenFile(f)}
                   onDownload={() => onDownloadFile(f)}

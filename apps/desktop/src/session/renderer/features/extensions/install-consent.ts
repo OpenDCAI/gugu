@@ -30,6 +30,12 @@ export type InstallConsentAsk = Omit<ExtensionInstallConsentRequest, 'sourceDir'
 export function installConsentPrompt(request: InstallConsentAsk, manifest: ExtensionManifest): ConsentPrompt {
   const locale = getLocaleSnapshot().resolvedLocale;
   const asked = consentPrompt(request.installed, request.revokedPermissions, manifest, translateSessionMessage, locale, request.market?.releaseNotes, request.machine);
+  if (request.removeVariant) {
+    const values = { variant: request.removeVariant.name, name: localizedManifestText(manifest, locale).name, computer: computerNamed(translateSessionMessage, request.machine) };
+    return { title: translateSessionMessage('extensions.removeVariantTitle', values),
+      description: `${translateSessionMessage(request.removeVariant.active ? 'extensions.removeActiveVariantBody' : 'extensions.removeVariantBody', values)}${request.removeVariant.active ? `\n\n${asked.description}` : ''}`,
+      confirmLabel: translateSessionMessage('extensions.removeVariantConfirm'), ...(request.removeVariant.active && asked.details ? { details: asked.details } : {}), variant: 'default' };
+  }
   const prompt = request.market ? withMarketSource(asked, translateSessionMessage) : asked;
   if (request.attachment) {
     // Whoever sent it may be gone (an agent whose profile was rebuilt): say so, not an empty name (摩擦单 F30).

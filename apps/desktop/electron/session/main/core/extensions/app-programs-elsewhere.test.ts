@@ -24,6 +24,7 @@ vi.mock('@main/core/extensions/extensions-root', () => ({
       return { manifest: { name: 'SpexCode', version: installed.version, contributes: { tabs: [], mcpServers: installed.servers } } };
     },
     isEnabled: () => installed.enabled,
+    hasCapability: () => true,
   }),
   extensionDataRoot: (id: string) => join(folder.root, id),
 }));
@@ -35,7 +36,7 @@ vi.mock('@main/core/extensions/extension-agent-context', () => ({
   agentSessionContext: async (sessionId: string) => (sessionId === 's-here' ? { sessionId, projectId: 'p-1', workspaceRoot: '/repo' } : null),
 }));
 vi.mock('@main/core/extensions/extension-agents', () => ({ sessionsElsewhere }));
-vi.mock('@main/core/sessions/session-family', () => ({ otherMachines: () => ({ appCall }) }));
+vi.mock('@main/core/sessions/session-family', () => ({ otherMachines: () => ({ appCall, isThisDevice: async (id: string) => id === 'dev-here' }) }));
 const elsewhere = await import('./app-programs-elsewhere');
 
 const CALLER = { kind: 'app', deviceId: 'dev-a', deviceLabel: 'laptop', extensionId: 'spexcode', extensionName: 'SpexCode' } as const;
@@ -68,6 +69,19 @@ it('the verbs done on the session machine are the table rows that say machine, e
 });
 
 describe('the machine that has the session does the call', () => {
+  it('calls a selected machine without finding or manufacturing a session', async () => {
+    appCall.mockResolvedValue(OK);
+    const app = { extensionId: 'spexcode', manifest: { id: 'spexcode', apiVersion: 17, name: 'SpexCode', version: '0.7.0', contributes: { tabs: [], mcpServers: [{ tools: 'tools.js' }] } } };
+    expect(await elsewhere.callOnSessionMachine(app as Parameters<typeof elsewhere.callOnSessionMachine>[0], { deviceId: 'dev-there' }, 'callProgram', { name: 'graph' }, false)).toEqual({ there: true, value: OK });
+    const sent = appCall.mock.calls[0]![2];
+    expect(sent).toMatchObject({ device_id: 'dev-there', method: 'callProgram' });
+    expect(sent).not.toHaveProperty('session_id');
+    expect(sessionsElsewhere).not.toHaveBeenCalled();
+    expect(await elsewhere.callOnSessionMachine(app as Parameters<typeof elsewhere.callOnSessionMachine>[0], { deviceId: 'dev-here' }, 'callProgram', {}, false)).toEqual({ there: false });
+    callFromPage.mockResolvedValue(OK);
+    expect(await elsewhere.answerAppCall(CALLER, { ...action(), session_id: undefined, device_id: 'dev-here', call_id: 'device-answer' })).toEqual(OK);
+    expect(callFromPage).toHaveBeenCalledWith('spexcode', expect.objectContaining({ from: {} }));
+  });
   it('runs a program call as a page call made here, for that session', async () => {
     callFromPage.mockResolvedValue(OK);
     expect(await elsewhere.answerAppCall(CALLER, action({ call_id: 'run-1' }))).toEqual(OK);

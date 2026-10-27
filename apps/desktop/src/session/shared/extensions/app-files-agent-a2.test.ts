@@ -1,3 +1,4 @@
+import { rpcQuery } from '../../../../../../tests/helpers/rpcQuery';
 import { randomUUID } from 'node:crypto';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
@@ -94,7 +95,7 @@ async function rpc(name: string, args: Row) {
 vi.mock('@gugu/core/cloud/supabase', () => ({
   createGuguSupabaseClient: () => ({
     from: table,
-    rpc,
+    rpc: rpcQuery(rpc),
     storage: {
       from: () => ({
         remove: async (pointers: string[]) => (removed.push(...pointers), { error: null }),
@@ -108,7 +109,7 @@ const { createAppFiles, sourceMessageIdsOf, AppFileError } = await import('./app
 const files = createAppFiles({
   account: async () => ({ token: 'token', userId: OWNER }),
   hasCapability: () => true,
-  sync: { pageFor: () => ({}), grant: () => undefined, revoke: () => undefined, ungrant: () => undefined } as never,
+  sync: { ensureFor: () => undefined, pageFor: () => ({}), grant: () => undefined, revoke: () => undefined, ungrant: () => undefined } as never,
   identities: async () => [],
   faces: async () => ({}),
   filesUrl: () => 'http://files.invalid',

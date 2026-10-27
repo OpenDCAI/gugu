@@ -64,8 +64,10 @@ export const EXTENSION_THEME_CHANNEL = 'gugu-ext:theme';
  * (manifest.ts): an App that never handed anything to anyone runs as it did.
  * 16 (10-26, owner「根据该页面自己的声明」): a tab's `sideWidth` says how wide its page is beside a chat or a task's
  * conversation. Earlier strict schemas refuse the field: the market hands those clients the App's last version for 15.
+ * 17: explicit-device App programs, read-only external session history/context, and dispatch spawn.device.
  */
-export const EXTENSION_API_VERSION = 16;
+// 18: explicit App-data create/open options, metadata, per-chat folder preferences and the shared host context menu.
+export const EXTENSION_API_VERSION = 18;
 
 /**
  * The page `app_check` runs is started with this argument (摩擦单 F5, F69): it says how often it wrote, set presence and
@@ -337,6 +339,8 @@ export interface ExtensionAgentView {
    * own; `null` when the session never chose one (its engine's default).
    */
   model: string | null;
+  /** That model's name as gugu's model menu shows it (a Gugu model's display name). Show `modelLabel ?? model`: `null` for an engine's own model, or when the catalog cannot name it. */
+  modelLabel: string | null;
   /** Where it runs: `'acp'` a chat panel, `'pty'` a terminal — the words `dispatch`'s `spawn` and `session_spawn` take. */
   transport: 'acp' | 'pty';
   /** The agent this one is listed under (its parent in the session list); null for a root. Not who spawned it. */
@@ -640,6 +644,7 @@ export const BRIDGE_VERBS = {
   modalKey: { needs: null, only: 'page' },
   /** Facts about where this surface sits. */
   getContext: { needs: null },
+  showContextMenu: { needs: null, only: 'page' },
   /**
    * What the app is showing right now.
    *
@@ -731,6 +736,9 @@ export const BRIDGE_VERBS = {
    * hand over the conversation to get a status light.
    */
   readAgentHistory: { needs: 'agents:history' },
+  /** External CLI history is every session, never only the agents this App started. */
+  sessionsIndex: { needs: 'agents:history:all', machine: true },
+  sessionsRead: { needs: 'agents:history:all', machine: true },
   /**
    * Stopping one of the agents this App reaches (starting one, telling one: `dispatch`).
    *
@@ -780,6 +788,7 @@ export const BRIDGE_VERBS = {
   filesSearch: { needs: 'files:read' },
   filesRecent: { needs: 'files:read' },
   filesCreate: { needs: 'files:write' },
+  filesViewPreferences: { needs: 'files:read', only: 'page' },
   filesRemove: { needs: 'files:write' },
   filesRename: { needs: 'files:write' },
   /** 子文件夹: a folder made (all the way down; one already there is answered), and a file or folder moved into another. */

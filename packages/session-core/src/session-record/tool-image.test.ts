@@ -31,5 +31,7 @@ describe('findToolImage', () => {
     const big = [{ id: 't1', seq: 1, initiator: 'user', items: [tool('b', { images: [shot('x'.repeat(TOOL_IMAGE_FETCH_LIMIT)), shot('x'.repeat(TOOL_IMAGE_FETCH_LIMIT + 1))] })] }] as unknown as TranscriptTurn[];
     expect(findToolImage(big, 'b', 0)).toMatchObject({ ok: true });
     expect(findToolImage(big, 'b', 1)).toMatchObject({ ok: false, code: 'too_large' });
+    // Desktop fetches a requested original on demand, without the phone preview limit.
+    expect(findToolImage(big, 'b', 1, Number.POSITIVE_INFINITY)).toEqual({ ok: true, image: shot('x'.repeat(TOOL_IMAGE_FETCH_LIMIT + 1)) });
   });
 });

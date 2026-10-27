@@ -19,6 +19,7 @@ import { log } from '@main/lib/logger';
  * caller's; from here on every install is the same.
  */
 export interface PreparedInstall {
+  variant?: import('@shared/extensions/variants').ExtensionVariant;
   dir: string;
   manifest: ExtensionManifest;
   manifestDigest: string;
@@ -64,7 +65,7 @@ export async function installPrepared(prepared: PreparedInstall, consent: Instal
   const ask: Omit<ExtensionInstallConsentRequest, 'sourceDir'> = { manifest, manifestDigest, ...prepared.sheet, ...(asked ? { places: asked.places } : {}) };
   const asks = prepared.asks || asked !== null;
   const done = await agreeThenInstall(ask, asks, consent, () => (dependencies.requestInstallConsent ?? requestExtensionInstallConsent)({ sourceDir: prepared.dir, ...ask }), async (enableIn) => {
-    const installed = extensionsService().installFromDirectory(prepared.dir, manifestDigest, prepared.origin, prepared.publisher);
+    const installed = extensionsService().installFromDirectory(prepared.dir, manifestDigest, prepared.origin, prepared.publisher, prepared.variant);
     await given.recordGiven(installed.manifest.id, asked, enableIn);
     (dependencies.afterInstall ?? applyInstalledExtension)(installed);
     return installed;

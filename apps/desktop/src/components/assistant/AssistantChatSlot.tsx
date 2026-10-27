@@ -8,7 +8,6 @@ import { ChatAreaPanel } from '../ChatAreaPanel'
 import type { ComposerAttachAction } from '../chat/ComposerAttachButton'
 import type { MemberProfileChatTarget } from '../MemberProfileCard'
 import { Button } from '../ui/Button'
-import { appendDraft } from '../../lib/assistantDraft'
 import { requestIdeas } from '../../lib/assistantIdeas'
 import { readAssistantShellBridge } from '../../lib/assistantShellBridge'
 import { ArrowUpToLine, Mic, Plus, Sparkles } from '../../lib/icons'
@@ -37,7 +36,7 @@ export type AssistantChatHandlers = {
  * 带了文件(「分析健康报告」选的那份)就排进输入框的附件,与人自己点「+」选的同一个队列。
  */
 function useAssistantDraft(chatId: string | null) {
-  const { setDraft, draftAttachments, setDraftAttachments } = useChatStore('setDraft', 'draftAttachments', 'setDraftAttachments')
+  const { writeDraft, draftAttachments, setDraftAttachments } = useChatStore('writeDraft', 'draftAttachments', 'setDraftAttachments')
   const attachmentsRef = useRef(draftAttachments)
   attachmentsRef.current = draftAttachments
   useEffect(() => {
@@ -46,7 +45,7 @@ function useAssistantDraft(chatId: string | null) {
     const apply = () => {
       const draft = bridge.takeChatDraft()
       if (draft === null) return
-      if (draft.text) setDraft(chatId, (previous) => appendDraft(previous, draft.text))
+      if (draft.text) writeDraft(chatId, { at: 'end', text: draft.text })
       if (draft.files.length > 0) {
         const queued = attachmentsRef.current[chatId] ?? []
         setDraftAttachments(chatId, [...queued, ...draft.files.map((file) => ({ id: crypto.randomUUID(), file, kind: inferAttachmentKind(file) }))])
@@ -54,7 +53,7 @@ function useAssistantDraft(chatId: string | null) {
     }
     apply()
     return bridge.subscribeChatDraft(apply)
-  }, [chatId, setDraft, setDraftAttachments])
+  }, [chatId, writeDraft, setDraftAttachments])
 }
 
 /**

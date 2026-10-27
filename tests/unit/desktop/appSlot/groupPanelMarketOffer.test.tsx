@@ -47,8 +47,8 @@ const slides = (version: string) => ({
   contributes: { tabs: [{ name: 'main', title: 'Slides', opensFiles: { chat: ['.pptx'] } }] },
 })
 const file = { chatId: 'group-1', itemId: 'item-1', name: 'deck.pptx', typedName: 'deck.pptx', file: { document: false, contentType: 'application/json', version: 1, size: 10 } }
-const install = (manifests: unknown[]) =>
-  act(() => installedExtensionsStore.applyList({ extensions: manifests, invalid: [] } as unknown as InstalledExtensionsList))
+const install = (manifests: unknown[], origins?: InstalledExtensionsList['origins']) =>
+  act(() => installedExtensionsStore.applyList({ extensions: manifests, invalid: [], origins } as unknown as InstalledExtensionsList))
 
 let harness: ReturnType<typeof createReactHarness>
 const originalCheckVisibility = HTMLElement.prototype.checkVisibility
@@ -90,6 +90,28 @@ async function until(step: string, fact: () => boolean) {
 describe('a group JSON file already open in Workspace', () => {
   const workspace = { ...slides('1.0.0'), id: 'workspace', contributes: { tabs: [{ name: 'main', title: 'Workspace', opensFiles: { chat: ['.json'] } }] } } as ExtensionManifest
   const soup = (claim: string) => ({ ...slides('1.0.0'), id: 'turtle-soup', name: '海龟汤', contributes: { tabs: [{ name: 'main', title: '海龟汤', opensFiles: { chat: [claim] } }] } }) as ExtensionManifest
+
+  it('keeps an active fork out of market offers and restores offers after switching upstream', async () => {
+    const installed = [workspace, soup('.fork-only.json')]
+    install(installed, { 'turtle-soup': 'fork' })
+    const manifest = { ...soup('.turtle-soup.json'), version: '2.0.0' }
+    here.market = { success: true, data: [{ manifest, version: manifest.version }] }
+    const typedName = 'x.turtle-soup.json'
+    vi.mocked(appsHere!.groupFileOpener).mockImplementation(async () => ({
+      success: true, data: { ...file, name: typedName, typedName, choice: openerChoice(typedName, installedExtensionsStore.manifests, 'chat', () => null) },
+    }))
+    await openFile()
+    await until('Workspace opened the JSON', () => shownItem('group-1')?.kind === 'workspace.main')
+    await until('the cached market answered for the opened file', () => vi.mocked(appsHere!.marketOffers).mock.calls.length > 0)
+    for (let turn = 0; turn < 5; turn++) await act(async () => { await Promise.resolve() })
+    expect(offer()).toBeNull()
+
+    install(installed, { 'turtle-soup': 'market' })
+    await until('the upstream App can be offered its market update', () => offer()?.dataset.offerFrom === 'market')
+    install(installed, { 'turtle-soup': 'fork' })
+    await until('switching back to the fork removes the market offer', () => offer() === null)
+    expect(appsHere!.installFromMarket).not.toHaveBeenCalled()
+  })
 
   it.each([
     ['x.turtle-soup.json', '.turtle-soup.json', true],

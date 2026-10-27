@@ -1,3 +1,4 @@
+import { rpcQuery } from '../../../../../../tests/helpers/rpcQuery';
 import { createHash } from 'node:crypto';
 import { cloudFileProviders } from '@gugu/core/cloud/fileProviders';
 import { createFileResolver } from '@gugu/core/shared/fileResolver';
@@ -36,13 +37,13 @@ vi.mock('@gugu/core/cloud/supabase', () => ({
       const query = { select: () => query, eq: () => query, maybeSingle: async () => ({ data: row, error: null }) };
       return query;
     },
-    rpc: async (name: string, args: Record<string, unknown>) => {
+    rpc: rpcQuery(async (name: string, args: Record<string, unknown>) => {
       // Who may delete what is the folder's to say; here, everyone may delete everything.
       if (name === 'workspace_deletable_as') return { data: args.p_item_ids, error: null };
       if (name === 'workspace_get_as') return { data: [row], error: null };
       if (name === 'workspace_version_as') return { data: [{ n: args.p_n, pointer: null, inline_text: null, content_type: 'application/pdf' }], error: null };
       return { data: null, error: { message: `no fake for ${name}` } };
-    },
+    }),
     storage: {
       from: () => ({
         createSignedUrl: async (pointer: string) => {
@@ -64,7 +65,7 @@ const files = createAppFiles({
     return verifiedFileHandle(new Uint8Array([1, 2, 3]), { item_id: ITEM, version: options.version ?? row.version as number, file_name: String(row.filename), content_type: 'application/pdf' });
   },
   hasCapability: () => true,
-  sync: {} as never,
+  sync: { ensureFor: () => undefined,} as never,
   identities: async (_token, ids) => ids.map((id) => ({ id, name: id, avatar: null, kind: 'human' as const })),
   faces: async () => ({}),
   filesUrl: () => 'http://files.invalid',
@@ -95,7 +96,7 @@ function cloudBackedFiles(body = new Uint8Array([1, 2, 3]), hostFetch: typeof fe
       if (!('id' in ref)) throw Error('This fixture expects an item reference');
       return resolve({ item_id: ref.id, version: options.version ?? Number(row.version) }, { accountId: ME, actorId: actor ?? ME });
     },
-    hasCapability: () => true, sync: {} as never,
+    hasCapability: () => true, sync: { ensureFor: () => undefined,} as never,
     identities: async (_token, ids) => ids.map(id => ({ id, name: id, avatar: null, kind: 'human' as const })),
     faces: async () => ({}), filesUrl: () => 'http://files.invalid', warn: () => undefined,
   });
