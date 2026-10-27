@@ -2,7 +2,7 @@ import { observer } from 'mobx-react-lite';
 import { useEffect, useLayoutEffect, useMemo, useReducer, useRef, useState, type CSSProperties, type DragEvent, type PointerEvent } from 'react';
 import { Check, Monitor, Plus, Server } from '@/lib/icons';
 import type { ProjectFolder } from '@shared/core/projects/project-folders';
-import { shortHome } from '@shared/path-name';
+import { basenameFromAnyPath, shortHome } from '@shared/path-name';
 import { senderAvatarUrl, subscribeSenderAvatars } from '@renderer/lib/chat/sender-avatar';
 import { sidebarStore } from '@renderer/lib/stores/app-state';
 import { useSessionMessages } from '@renderer/localization/use-session-messages';
@@ -34,7 +34,7 @@ import './project-folder-card.css';
  * 最窄 MIN_W:前片左边那截高出来的(LW)加上过渡弯得画得下。
  */
 const MIN_W = 220;
-const G = { W: 468, H: 276, backH: 226, frontH: 136, TW: 132, TH: 22, LW: 168, S: 18, paperW: 236, paperH: 76, peek: 74 };
+const G = { W: 440, H: 276, backH: 226, frontH: 136, TW: 132, TH: 22, LW: 168, S: 18, paperW: 236, paperH: 64, peek: 66 };
 /** 收起时探出来的三页:角度、横向错位。 */
 const STACK = [
   [-4, -12],
@@ -112,6 +112,67 @@ export { shortHome };
 
 const FRESH_MS = 2 * 60 * 1000;
 
+/**
+ * 摊开 = 一手牌(owner 2026-10-27,参考扑克牌的握法;HTML 样稿逐版定下来的数)。
+ *
+ * - 所有纸绕同一个握点(纸下方)转开,右边的压左边的;文件夹名在每张左上角 —— 转开后每张恰好露出那一角。
+ * - 一行最多 FAN_ROW_MAX 张,张数平均分到各行(20 个宽栏 = 4 行 × 5);放不下就往后再握一行,最多 FAN_MAX_ROWS 行。
+ *   后一行只抬出名字那一截,与前一行错开半张。
+ * - 选中的那张排在前一行最右:没有任何纸压它。❌ 按 DOM 先后叠(会把它压在最左最底下看不见)。
+ * - 每张带一点按文件夹固定的随手偏差,❌ 排成格子;同一个文件夹每次摊开都在同一处。
+ * - 栏越宽纸越大、名字间距越宽,走一条缓出曲线(❌ 线性后封顶,宽栏四周空着);卡片本身限宽(G.W)。
+ */
+export const FAN_ROW_MAX = 6;
+export const FAN_MAX_ROWS = 5;
+const FAN_MAX_ANGLE = (48 * Math.PI) / 180;
+const FAN_ROW_RISE = 30;
+
+/** 栏宽 → 0..1 的缓出量:420 起长,1200 到顶。 */
+export function fanEase(column: number): number {
+  const t = Math.min(1, Math.max(0, (column - 420) / (1200 - 420)));
+  return 1 - Math.pow(1 - t, 1.6);
+}
+
+function jitter(key: string, salt: string, amplitude: number): number {
+  let h = 2166136261;
+  const s = `${key}:${salt}`;
+  for (let i = 0; i < s.length; i++) {
+    h ^= s.charCodeAt(i);
+    h = Math.imul(h, 16777619);
+  }
+  return (((h >>> 0) % 1000) / 1000 - 0.5) * 2 * amplitude;
+}
+
+export type FanSlot = { x: number; y: number; rot: number; z: number; row: number };
+
+/**
+ * 第 slot 张(展示顺序:0 = 前一行最右,即选中的那张)在扇面里的位置,相对纸的收起位置(中心不动时)。
+ * 返回值:纸中心的平移(x、y,px)、绕纸中心的转角(rot,deg)、叠放(z)、在第几行(0 = 最前)。
+ */
+export function fanPlace(slot: number, count: number, opts: { column: number; paperW: number; paperH: number; key: string }): FanSlot {
+  const { column, paperW, paperH, key } = opts;
+  const label = 82 + 44 * fanEase(column);
+  const half = FAN_MAX_ANGLE / 2;
+  // 握点到纸顶的距离:扇面最外两张的外沿不出这一栏。
+  const reach = Math.max(paperH + 90, Math.min(720, (column - 32 - paperW * Math.cos(half)) / (2 * Math.sin(half))));
+  const fit = Math.max(3, Math.floor(Math.min(FAN_MAX_ANGLE * reach, column - 32 - paperW) / label) + 1);
+  const rows = Math.min(FAN_MAX_ROWS, Math.ceil(count / Math.min(FAN_ROW_MAX, fit)));
+  const per = Math.ceil(count / rows);
+  const step = per === 1 ? 0 : Math.min(FAN_MAX_ANGLE / (per - 1), label / reach);
+  const row = Math.floor(slot / per);
+  const inRow = Math.min(per, count - row * per);
+  const position = inRow - 1 - (slot - row * per); // 0 = 最左
+  const angle = (position - (inRow - 1) / 2) * step + (row % 2 ? step / 2 : 0) + jitter(key, 'a', 0.02);
+  // 绕握点转 = 纸中心沿圆弧走,再绕自己的中心转同一个角。
+  const radius = reach - paperH / 2;
+  // 两端会往下垂:整把牌抬起前一行垂量的八成,两端只有纸底一点压进卡面。
+  const edge = ((Math.min(per, count) - 1) / 2) * step;
+  const droop = reach * (1 - Math.cos(edge));
+  const x = radius * Math.sin(angle) + jitter(key, 'x', 4);
+  const y = radius * (1 - Math.cos(angle)) - droop * 0.8 - row * FAN_ROW_RISE + jitter(key, 'y', 3);
+  return { x, y, rot: (angle * 180) / Math.PI, z: (rows - row) * 100 + position + 1, row };
+}
+
 /** 卡片所在这一栏有多宽(摊开的纸也不能超出它)。量到之前当它够宽。 */
 function useColumnWidth() {
   const ref = useRef<HTMLDivElement>(null);
@@ -170,7 +231,8 @@ export const ProjectFolderCard = observer(function ProjectFolderCard({
   const cardRef = useRef<HTMLDivElement>(null);
   const [columnRef, column] = useColumnWidth();
   const W = Math.max(MIN_W, Math.min(G.W, column));
-  const paperW = Math.min(G.paperW, W - 32);
+  // 纸跟着栏宽长(缓出);收起时也是这一张,不随开合换尺寸(换尺寸会逐帧重排)。
+  const paperW = Math.min(Math.round(150 + 86 * fanEase(column)), W - 32);
   const cardSize: CSSProperties = { width: W, height: G.H };
   const tiltFrame = useRef<number | null>(null);
   const pointer = useRef({ x: 0, y: 0 });
@@ -298,6 +360,7 @@ export const ProjectFolderCard = observer(function ProjectFolderCard({
    * 收起时不渲染的纸摊开时是新挂上的节点、同样没有过渡 —— 实测四页里只有一页在动,其余是瞬移过去的。
    */
   type Place = { transform: string; rot: number; tx: number; ty: number; top: number; z: number; hidden: boolean };
+  const chosenIndex = ordered.findIndex((folder) => folder.workspaceId === state.chosen?.workspaceId);
   const placement = (index: number, count: number): Place => {
     if (!open) {
       const peeking = Math.min(count, 3);
@@ -307,18 +370,18 @@ export const ProjectFolderCard = observer(function ProjectFolderCard({
       const [rot, tx] = STACK[k];
       return { transform: `translate3d(${tx}px, ${k * 9}px, 0) rotate(${rot}deg)`, rot, tx, ty: k * 9, top: base, z: count - index, hidden };
     }
-    const t = count === 1 ? 0 : index / (count - 1) - 0.5;
-    // 摊开的一手牌不超出这一栏:最外两页的外沿 = 卡片中线 ± (spread + paperW) / 2。
-    const spread = Math.max(0, Math.min(640, Math.max(260, (typeof window !== 'undefined' ? window.innerWidth : 1200) - 760), column - paperW));
-    const x = t * spread;
-    const y = -62 - Math.cos(t * Math.PI) * 40 + Math.abs(t) * 16;
+    const folder = ordered[index];
+    const slot = index === chosenIndex ? 0 : chosenIndex >= 0 && index < chosenIndex ? index + 1 : index;
+    const fan = fanPlace(slot, count, { column: Number.isFinite(column) ? column : 1200, paperW, paperH: G.paperH, key: folder.workspaceId });
+    // 收起位置是纸顶在 base;摊开时前一行的纸底贴在前片上沿(留 4px)。
+    const y = G.peek - G.paperH - 4 + fan.y;
     return {
-      transform: `translate3d(${x.toFixed(0)}px, ${y.toFixed(0)}px, 0) rotate(${(t * 12).toFixed(1)}deg)`,
-      rot: t * 12,
-      tx: x,
+      transform: `translate3d(${fan.x.toFixed(1)}px, ${y.toFixed(1)}px, 0) rotate(${fan.rot.toFixed(2)}deg)`,
+      rot: fan.rot,
+      tx: fan.x,
       ty: y,
       top: base,
-      z: index + 1,
+      z: fan.z,
       hidden: false,
     };
   };
@@ -401,16 +464,19 @@ export const ProjectFolderCard = observer(function ProjectFolderCard({
                     state.choose(folder.workspaceId);
                   }}
                 >
+                  {/* 名字在左上角:摊开后每张只露出这一角(像牌角的点数),❌ 让机器标签占着它 —— 那一格每张都一样。 */}
                   <span className="gg-folder-paper__top">
-                    <MachineChip machine={paperMachine(folder)} />
-                    {folder.branch ? <span className="gg-folder-paper__branch">{folder.branch}</span> : null}
+                    <span className="gg-folder-paper__name">{basenameFromAnyPath(folder.path) || folder.path}</span>
                     {fresh ? <span className="gg-folder-paper__fresh">{translate('projects.folders.fresh')}</span> : null}
                     <span className="gg-folder-paper__check">
                       <Check className="size-3.5" />
                     </span>
                   </span>
                   <span className="gg-folder-paper__path block">{shortHome(folder.path)}</span>
-                  <span className={cn('gg-folder-paper__meta block', here > 0 && 'is-running')}>
+                  <span className="gg-folder-paper__where">
+                    <MachineChip machine={paperMachine(folder)} />
+                    {folder.branch ? <span className="gg-folder-paper__branch">{folder.branch}</span> : null}
+                  <span className={cn('gg-folder-paper__meta', here > 0 && 'is-running')}>
                     {/* 有在跑的说在跑;开过但都歇着说有几个;一个没有时根目录说它是根目录 —— ❌「还没有会话在这儿跑」
                         把「歇着」说成「从没来过」。 */}
                     {here > 0
@@ -420,6 +486,7 @@ export const ProjectFolderCard = observer(function ProjectFolderCard({
                         : folder.kind === 'root'
                           ? translate('projects.folders.root')
                           : translate('projects.folders.idleHere')}
+                  </span>
                   </span>
                 </Button>
                 </div>

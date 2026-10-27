@@ -28,6 +28,9 @@ const freshFolders = new Map<string, string>();
 /** 一台机器这么久还没答(掉线了、连接还没断开):先列账号上记着的、标离线。 */
 export const UNANSWERED_AFTER_MS = 3000;
 
+/** 一个项目最多挂多少个文件夹(含根目录,各台机器合计;owner 2026-10-27:再多就奇怪了)。 */
+export const MAX_PROJECT_FOLDERS = 20;
+
 /** 账号上记着的这个本地项目的文件夹(本机的项目 / 还没读到过账号上的那份 = null)。 */
 function accountFolders(projectId: string): ProjectFolder[] | null {
   const machine = machineRegistry.machineOf(projectId);
