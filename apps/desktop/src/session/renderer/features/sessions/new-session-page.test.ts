@@ -518,7 +518,8 @@ describe('NewSessionPage', () => {
   it('keeps an editable, projectless composer when no project exists', async () => {
     await renderPage();
 
-    expect(container.textContent).toContain('新建会话');
+    expect(container.textContent).toContain('新建任务');
+    expect(container.textContent).not.toContain('新建会话');
     expect(container.textContent).toContain('未选择项目');
     expect(container.querySelector('[data-testid="active-task-composer"]')).not.toBeNull();
     expect(mocks.createSessionStateProjectId).toBe('implicit-task-home');
