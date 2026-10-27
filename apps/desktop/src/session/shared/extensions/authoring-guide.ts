@@ -206,9 +206,8 @@ Free:
   \`capabilities\` is what you may do RIGHT NOW, after any revocation — not what you asked for.
 - \`onContextChanged(fn)\` → theme, language, visibility, size and members changes. Returns an unsubscribe.
 - \`onCommand(fn)\` → the person picked one of your declared menu/toolbar entries; you get your own id back.
-- What the whole app shows (panes, which session): \`apps-agents\`.
-- \`showContextMenu({ x, y, items: [{ id, label, enabled? }, { type: "separator" }] })\` (API 18, page only): App-local coordinates; the host draws its shared menu and returns the selected id, or null on dismissal.
-- \`setTabTitle(title)\` → page title (max 48). File tabs show the file name; this title is a hint/tooltip. Host Back closes the file tab; in-page Back keeps it.
+- \`showContextMenu({ x, y, items: [{ id, label, enabled? }, { type: "separator" }] })\` (API 18, page): App-local point, shared host menu; returns id or null.
+- \`setTabTitle(title)\` → title (max 48); file tabs use it as a tooltip. Host Back closes the file tab.
 - \`setTabBadge(badge)\` → a count (99+ at most, <=0 none), a string (a dot), or \`null\` (none).
 - \`openBrowserTab(url)\` → http(s) only.
 - \`reportError(message)\` → shown to the person. Never fail silently.
@@ -517,7 +516,7 @@ folders and working copies cannot be marked. User documents, including Office fi
 No name matching marks old files: mark only state you actually open. Markers survive rename/move.
 Lists/search/recent and agent tools still return all authorized entries; explicit links still open them.
 Only the folder view hides marked data by default. Pages can read or set the person's source-chat
-preference via \`files.viewPreferences({ chat }, { showAppData: true })\` (omit the second argument to read).
+preference via \`gugu.files.viewPreferences({ chat }, { showAppData: true })\` (omit the second argument to read).
 
 ## Which files you may open
 
@@ -591,20 +590,7 @@ Key per-person data by \`f.presence.self.userId\` (\`user:<uuid>\`, server-stamp
 name) — ❌ never ask the person who they are. ❌ No locks or "being edited by" fields of your own (they lock
 people out and still lose letters): show who edits what with presence.
 
-\`\`\`js
-const f = await gugu.files.open((await gugu.getContext()).file)   // { question, options, votes: {} }
-const me = f.presence.self.userId
-const render = () => {
-  title.textContent = f.data.question
-  list.replaceChildren(...f.data.options.map((o, i) => {
-    const b = document.createElement('button')
-    b.textContent = \`\${o} · \${Object.values(f.data.votes).filter((v) => v === i).length}\`
-    b.onclick = () => { f.data.votes[me] = i }
-    return b
-  }))
-}
-f.onChange(render); render()
-\`\`\`
+
 
 Text others wrote goes in with \`textContent\` or the template's \`render\` with html\`…\` (it escapes every \${…}),
 never joined into \`innerHTML\` — markup in a title could draw a fake button. On a change, redraw with \`render\`: it
