@@ -31,3 +31,11 @@ export function identityPlace(input: {
   const folder = input.workspacePath || input.projectPath || null;
   return { device: input.deviceLabel, folder, folderDisplay: folder === null ? null : shortenHome(folder, input.home) };
 }
+
+/** 路径拆成「前面」与「最后一段」:前面的那截先缩、先出省略号;最后一段只在它自己都放不下时才截。 */
+export function splitPathTail(path: string): { head: string; tail: string } {
+  const trimmed = path.replace(/[\\/]+$/, '');
+  const cut = Math.max(trimmed.lastIndexOf('/'), trimmed.lastIndexOf('\\'));
+  if (cut <= 0) return { head: '', tail: path };
+  return { head: path.slice(0, cut + 1), tail: path.slice(cut + 1) };
+}
