@@ -30,6 +30,7 @@ import {
   unreadRowFromRpc,
   combineCoalescedPulls,
   isSaidInChat,
+  agentSpokeAfterViaRpc,
   postDeliveryDisclosureRow,
 } from '@gugu/core/local/agent/agentInboxReader'
 import { resolveListenModeDefault } from '@gugu/core/cloud/listenMode'
@@ -193,6 +194,7 @@ function makeDeps(
   const deps: AgentInboxReaderDeps = {
     accessToken: 'owner-token',
     fetchChatFacts: async () => null,
+    agentSpokeAfter: async () => false,
     groupRulesLedger: memoryGroupRulesLedger(),
     inject: async (input) => {
       injections.push({ messageId: input.messageId, text: input.text, attachments: input.attachments })
@@ -1271,6 +1273,55 @@ describe('三态判决与失败面', () => {
     expect(notices).toEqual([expect.objectContaining({ reason: 'modelUnavailable' })])
   })
 
+  // Beta 1042: the agent's message_send landed, then the provider rejected the request after it (API Error: 400) and the
+  // chat got 「Agent 本次回复出错，未能完成」 under the reply it had just read.
+  it('posts no failure row under a reply the agent already sent on that line', async () => {
+    const cloud = seed()
+    const asked: unknown[] = []
+    const notices: unknown[] = []
+    const { deps } = makeDeps(cloud, {
+      inject: async () => ({ verdict: 'accepted', completion: Promise.reject(new Error('API Error: 400 Invalid request parameters.')) }),
+      agentSpokeAfter: async (input) => { asked.push(input); return true },
+      postDisclosure: async (input) => { notices.push(input) },
+    })
+    const admitted = await pullAgentInbox(AGENT, deps)
+    const error = await admitted.completion!.catch((failure: unknown) => failure)
+    expect(asked).toEqual([{ agentUserId: AGENT, chatId: '00000000-0000-4000-8000-000000000003', threadRootId: null, afterSeq: 1 }])
+    expect(notices).toEqual([])
+    // The chat holds its answer: the host adds no notice of its own either.
+    expect(isSaidInChat(error)).toBe(true)
+  })
+
+  it('still says the failure when the agent did not answer, or when that cannot be read', async () => {
+    for (const spoke of [async () => false, async () => { throw new Error('history read refused') }]) {
+      resetAgentInboxReaderStateForTests()
+      const cloud = seed()
+      const notices: unknown[] = []
+      const { deps } = makeDeps(cloud, {
+        inject: async () => ({ verdict: 'accepted', completion: Promise.reject(new Error('API Error: 400 Invalid request parameters.')) }),
+        agentSpokeAfter: spoke,
+        postDisclosure: async (input) => { notices.push(input) },
+      })
+      const admitted = await pullAgentInbox(AGENT, deps)
+      await admitted.completion!.catch(() => {})
+      expect(notices).toEqual([expect.objectContaining({ chatId: '00000000-0000-4000-8000-000000000003', reason: 'generic' })])
+    }
+  })
+
+  it('does not ask whether the agent answered a batch that was never admitted', async () => {
+    const cloud = seed()
+    const asked: unknown[] = []
+    const notices: unknown[] = []
+    const { deps } = makeDeps(cloud, {
+      inject: async () => { throw new Error('runtime not ready') },
+      agentSpokeAfter: async (input) => { asked.push(input); return true },
+      postDisclosure: async (input) => { notices.push(input) },
+    })
+    await pullAgentInbox(AGENT, deps).catch(() => {})
+    expect(asked).toEqual([])
+    expect(notices).toHaveLength(1)
+  })
+
   it('keeps a completion failure unsaid if its durable notice could not be written', async () => {
     const cloud = seed()
     let fail!: (error: Error) => void
@@ -1529,5 +1580,35 @@ describe('a failure notice from another agent reaches the agent whose message it
       // A notice stored under its key before this: still a message, reached through its conversation.
       expect(storedMessageLink(CHAT, NOTICE)).toBe(`gugu-chat://${CHAT}`)
     } finally { vi.unstubAllGlobals() }
+  })
+})
+
+describe('agentSpokeAfterViaRpc', () => {
+  const input = { agentUserId: AGENT, chatId: 'chat-1', threadRootId: null, afterSeq: 5 }
+  const reply = (rows: unknown[]) => (async () => new Response(JSON.stringify(rows), { status: 200 })) as unknown as typeof fetch
+
+  beforeEach(() => {
+    vi.stubEnv('GUGU_SUPABASE_URL', 'https://db.test')
+    vi.stubEnv('GUGU_SUPABASE_ANON_KEY', 'anon')
+    return () => { vi.unstubAllEnvs() }
+  })
+
+  it('reads the line as the agent and counts only its own non-system message after the batch', async () => {
+    let body: unknown
+    const spy = (async (_url: string, init: RequestInit) => { body = JSON.parse(String(init.body)); return new Response('[]') }) as unknown as typeof fetch
+    await agentSpokeAfterViaRpc(input, 'token', spy)
+    expect(body).toEqual({ p_chat_id: 'chat-1', p_as_user_id: AGENT, p_thread_root_id: null, p_limit: 20 })
+    const others = [
+      { seq: 7, sender_user_id: AGENT, content_type: 'system' },
+      { seq: 5, sender_user_id: AGENT, content_type: 'text' },
+      { seq: 8, sender_user_id: 'someone-else', content_type: 'text' },
+    ]
+    await expect(agentSpokeAfterViaRpc(input, 'token', reply(others))).resolves.toBe(false)
+    await expect(agentSpokeAfterViaRpc(input, 'token', reply([...others, { seq: 6, sender_user_id: AGENT, content_type: 'text' }]))).resolves.toBe(true)
+  })
+
+  it('throws when the history cannot be read', async () => {
+    const refused = (async () => new Response('nope', { status: 403 })) as unknown as typeof fetch
+    await expect(agentSpokeAfterViaRpc(input, 'token', refused)).rejects.toThrow('message_history_as failed: HTTP 403')
   })
 })
