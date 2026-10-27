@@ -657,7 +657,9 @@ export function ChatRoot(props: ChatRootProps) {
     };
     const units = build(false);
     if (!background) return { units, backgroundOwner: null as string | null };
-    const owner = backgroundOwnerIn(units) ?? backgroundOwnerIn(committedUnitsArr) ?? null;
+    // ⚠️ 不能写 `??`:这一档末尾是别的行(人刚说了话)返回的是 null,它的意思是「别挂」,❌ 接着去已提交那一档找。
+    const activeOwner = backgroundOwnerIn(units);
+    const owner = activeOwner === undefined ? backgroundOwnerIn(committedUnitsArr) ?? null : activeOwner;
     if (owner) return { units, backgroundOwner: owner as string | null };
     // 没有可挂的过程行:后台单独一行贴在最后(轮早就收口了、命令还在跑,这一档也不能空手返回)。
     return { units: build(true), backgroundOwner: BACKGROUND_TASKS_ID as string | null };
