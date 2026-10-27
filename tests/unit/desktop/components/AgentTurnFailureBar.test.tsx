@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import { createNode, createReactHarness } from '../../../support/testHarness'
+import { clickElement, createNode, createReactHarness } from '../../../support/testHarness'
 import { agentTurnFailureUserMessage } from '../../../../apps/desktop/src/lib/agentTurnFailure'
 
 vi.mock('../../../../apps/desktop/src/store/contactsContext', () => ({ useContactsStore: () => ({ contacts: [{ id: 'agent-1', type: 'agent' }] }) }))
