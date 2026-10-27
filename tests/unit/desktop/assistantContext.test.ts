@@ -259,6 +259,7 @@ it.each(['computer', 'cloud'] as const)('opens %s with an honest snapshot while 
           : action.action === 'project_list' ? [{ project_id: 'p', name, path: '/work' }] : { items: [] },
     }
     const start = await preparePersonalAssistantContext(fixture(), cwd, root, kind, deps, root)
+    expect(start.sessionNewPatch!.meta!.guguAssistant).toMatchObject({ ownerId: 'owner' })
     const options = (start.sessionNewPatch!.meta!.claudeCode as { options: Record<string, unknown> }).options
     expect((options.systemPrompt as { prompt: string }).prompt).not.toContain('first-project')
     expect(hookIndex(start)).toContain('not_loaded')

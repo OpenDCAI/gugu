@@ -46,12 +46,12 @@ export async function preparePersonalAssistantContext(
     openingAssistantIndex(guguHome, cwd, kind, deps),
   ])
   const memoryDir = assistantHomePaths(home, cwd, kind).memoryDir
-  return personalAssistantContext(capabilities, kind, { index: opening.index, guguHome,
+  return personalAssistantContext(capabilities, kind, { index: opening.index, guguHome, ownerId: opening.accountId,
     recoveryContext: assistantRecoveryContext(memoryDir), workingContextPath: join(memoryDir, 'working-context.md') })
 }
 
 /** Personal-assistant work uses Gugu's explicit capabilities, not the host's coding setup. */
-export function personalAssistantContext(capabilities: Materialization, kind: AssistantHomeKind = 'computer', startup?: { index: string; guguHome: string; recoveryContext?: string; workingContextPath?: string }): Materialization {
+export function personalAssistantContext(capabilities: Materialization, kind: AssistantHomeKind = 'computer', startup?: { index: string; guguHome: string; ownerId?: string; recoveryContext?: string; workingContextPath?: string }): Materialization {
   const meta = capabilities.sessionNewPatch?.meta ?? {}
   const claude = (meta.claudeCode ?? {}) as Record<string, unknown>
   const options = (claude.options ?? {}) as Record<string, unknown>
@@ -117,7 +117,7 @@ export function personalAssistantContext(capabilities: Materialization, kind: As
       ...capabilities.sessionNewPatch,
       meta: {
         ...meta,
-        ...(startup ? { guguAssistant: { idleCompaction: true } } : {}),
+      ...(startup ? { guguAssistant: { idleCompaction: true, ...(startup.ownerId ? { ownerId: startup.ownerId } : {}) } } : {}),
         claudeCode: {
           ...claude,
           options: {

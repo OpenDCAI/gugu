@@ -2124,6 +2124,9 @@ export class SessionManager implements InboundRouter {
   ): SessionRecord {
     const record = {} as SessionRecord;
     const provider = this.deps.agentHost.get(input.providerId);
+    const assistant = input.sessionMeta?.guguAssistant;
+    const assistantOwnerId = input.providerId === 'claude' && isRecord(assistant)
+      && typeof assistant.ownerId === 'string' && assistant.ownerId.trim() ? assistant.ownerId : null;
     const callbacks: SessionCellCallbacks = {
       onSessionStateChanged: () => this.syncRecord(record),
       onTranscriptChanged: () => {
@@ -2177,6 +2180,10 @@ export class SessionManager implements InboundRouter {
         : {}),
       resolveAttachment: this.deps.resolveAttachment,
       acceptsImagePrompts: false,
+      ...(assistantOwnerId && this.deps.promptQueueStore ? {
+        assistantOwnerId,
+        queuedPromptsPersisted: () => record.queuePersistenceError === null,
+      } : {}),
       ...(this.deps.mergeEnvelopes ? { mergeEnvelopes: this.deps.mergeEnvelopes } : {}),
       logger: this.deps.logger,
       // ③:没有系统位的家,会话级系统提示词以用户级载体随首轮进去(见 cell-deps 抬头)。
@@ -2217,7 +2224,6 @@ export class SessionManager implements InboundRouter {
       },
     });
     this.cells.set(input.sessionId, record);
-    const assistant = input.sessionMeta?.guguAssistant;
     if (input.providerId === 'claude' && isRecord(assistant) && assistant.idleCompaction === true) {
       record.idleCompaction = new IdleCompaction(
         () => ({ ...cell.idleCompactionState, idle: record.phase === 'ready' && cell.idleCompactionState.idle }),

@@ -72,6 +72,7 @@ import type {
 } from './cell-deps';
 import { PermissionBroker, selectAutoApproveOption } from './permission-broker';
 import { RawAcpLog, type RawAcpEvent } from './raw-log';
+import { canYieldRepliedAssistant } from '@gugu/session-core/session-record/reply-process';
 
 export interface AcpChatHistory {
   committed: TranscriptTurn[];
@@ -147,6 +148,9 @@ export class SessionCell {
   private interruptForSteer = false;
   /** 这一轮的 cancel 是我们为插话发的 ⇒ 结算成 `interrupted_for_message`,而不是「你停止了这一轮」。 */
   private interruptedForMessage = false;
+  private yieldingRepliedAssistant = false;
+  /** Cancellation would also withdraw inputs already admitted by the native adapter. */
+  private nativeInputAfterStart = false;
   /** 这一轮被这一家以「正常结束」掩盖的失败(见 `acp.turnFailure`)。 */
   private providerTurnFailure: string | null = null;
   /**
@@ -529,6 +533,7 @@ export class SessionCell {
     if (event.kind === 'tool_call') {
       this.fillToolCall(this.machine.pendingPermissions.find((request) => request.toolCall.toolCallId === event.toolCallId)?.toolCall ?? null);
     }
+    if (this.yieldingRepliedAssistant) this.interruptIfAtToolBoundary();
   }
 
   async prompt(
@@ -1249,6 +1254,8 @@ export class SessionCell {
     this.runningTools.clear();
     this.interruptForSteer = false;
     this.interruptedForMessage = false;
+    this.yieldingRepliedAssistant = false;
+    this.nativeInputAfterStart = false;
     this.providerTurnFailure = null;
     this.providerStderrFailure = null;
     this.providerTurnSignIn = false;
@@ -1625,7 +1632,7 @@ export class SessionCell {
   }
 
   private trackRunningTool(event: NormalizedEvent): void {
-    if (this.deps.midTurnSteer !== 'interrupt-at-tool-boundary') return;
+    if (this.deps.midTurnSteer !== 'interrupt-at-tool-boundary' && !this.deps.assistantOwnerId) return;
     if (event.kind !== 'tool_call' && event.kind !== 'tool_update') return;
     if (event.status === 'completed' || event.status === 'failed') {
       if (this.runningTools.delete(event.toolCallId)) this.interruptIfAtToolBoundary();
@@ -1638,6 +1645,9 @@ export class SessionCell {
 
   private interruptIfAtToolBoundary(): void {
     if (!this.interruptForSteer || this.runningTools.size > 0) return;
+    if (this.yieldingRepliedAssistant && (this.lastRunningAgentCount > 0 || this.lastRunningCommandTaskIds.length > 0
+      || this.machine.pendingPermissions.length > 0 || this.steerInFlight > 0 || this.nativeInputAfterStart
+      || this.deps.queuedPromptsPersisted?.() !== true)) return;
     this.interruptForSteer = false;
     // 用户已经自己点了停止(phase 已是 cancelling)⇒ 这一轮是用户停的,❌ 改标成「为插话停下」
     // (界面据此收起「继续 / 丢弃」),也不再发第二次 cancel。插话照旧排在队里,作为下一轮发出。
@@ -1675,6 +1685,20 @@ export class SessionCell {
       return result;
     }
     if (this.reverting) return acpErr.sessionBusy('Conversation revert is in progress.');
+    if (!opts?.fromQueue && prompt.origin === 'communication' && this.machine.phase.kind === 'working'
+      && this.deps.assistantOwnerId && this.steerInFlight === 0 && !this.nativeInputAfterStart
+      && canYieldRepliedAssistant(this.transcript.activeTurn, prompt.text, this.deps.assistantOwnerId)) {
+      // QueuePrompt synchronously saves through the manager callback. The new input must
+      // remain outside the provider: native cancel withdraws all of its pending inputs.
+      const held = this.dispatchFor<AcpSendPromptError>({ type: 'QueuePrompt', prompt }, ['invalid_state']);
+      if (!held.success) return held;
+      this.yieldingRepliedAssistant = true;
+      this.interruptForSteer = true;
+      this.interruptIfAtToolBoundary();
+      const queued = ok({ queued: true });
+      opts?.onAdmission?.(queued);
+      return queued;
+    }
     // 忙时插话只在没人排队时插进这一轮:队列里已有在等的输入,投递就排到它后面,按到达顺序出队
     // (spec session-injection)。排队那条的「立即发送」(fromQueue)是人亲手越过,照插。
     // 下面的设置闸认的也是这一个:闸扣着人话时,后到的投递同样扣在它后面。
@@ -1717,6 +1741,7 @@ export class SessionCell {
     // 在飞的主 RPC 拥有 turn 结算,这条 steer RPC 不 settleTurn —— 唯一例外见下面的移交守卫。
     const steered = decision.data.some((effect) => effect.type === 'promptSteered');
     const nativeSteer = steered && this.supportsSteering;
+    if (nativeSteer) this.nativeInputAfterStart = true;
     if (steered && !nativeSteer && this.deps.midTurnSteer === 'interrupt-at-tool-boundary') {
       return this.steerByInterrupt(prompt, opts);
     }
