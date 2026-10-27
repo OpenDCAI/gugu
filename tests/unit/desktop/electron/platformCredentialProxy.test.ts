@@ -109,6 +109,47 @@ describe('the host credential relay', () => {
     expect((await reader.read()).done).toBe(true)
   })
 
+  it('reports passive stream timings once without recording response content or credentials', async () => {
+    const wire = 'event: ping\ndata: {"type":"ping"}\n\nevent: content_block_delta\ndata: {"type":"content_block_delta","delta":{"text":"private response"}}\n\n'
+    const upstream = await serve((_request, response) => {
+      response.writeHead(200, { 'content-type': 'text/event-stream' })
+      response.end(wire)
+    })
+    const streamTiming = vi.fn()
+    const relay = await serve((request, response) => {
+      void proxyPlatformCredentialRequest(request, response, {
+        upstream: () => new URL(upstream), localOnlyHeaders: new Set(),
+        credential: async () => 'private-token', refresh: vi.fn(), warn: vi.fn(), streamTiming,
+      })
+    })
+    expect(await (await fetch(relay, { method: 'POST', body: '{}' })).text()).toBe(wire)
+    await vi.waitFor(() => expect(streamTiming).toHaveBeenCalledTimes(1))
+    expect(streamTiming.mock.calls[0][0]).toMatchObject({ frames: 2, heartbeatFrames: 1, progressFrames: 1, complete: true })
+    expect(JSON.stringify(streamTiming.mock.calls)).not.toMatch(/private response|private-token|content_block_delta/)
+  })
+
+  it('records the trailing quiet interval when the native client aborts a stalled stream', async () => {
+    const upstream = await serve((_request, response) => {
+      response.writeHead(200, { 'content-type': 'text/event-stream' })
+      response.write('event: message_start\ndata: {"type":"message_start"}\n\n')
+    })
+    const streamTiming = vi.fn()
+    const relay = await serve((request, response) => {
+      void proxyPlatformCredentialRequest(request, response, {
+        upstream: () => new URL(upstream), localOnlyHeaders: new Set(),
+        credential: async () => 'fresh', refresh: vi.fn(), warn: vi.fn(), streamTiming,
+      })
+    })
+    const controller = new AbortController()
+    const result = await fetch(relay, { method: 'POST', body: '{}', signal: controller.signal })
+    const reader = result.body!.getReader()
+    await reader.read()
+    controller.abort()
+    await expect(reader.read()).rejects.toThrow()
+    await vi.waitFor(() => expect(streamTiming).toHaveBeenCalledTimes(1))
+    expect(streamTiming.mock.calls[0][0]).toMatchObject({ complete: false, progressFrames: 1 })
+  })
+
   it('bounds waiting without cancelling or returning the old credential', async () => {
     vi.useFakeTimers()
     const issued = deferred<string>()

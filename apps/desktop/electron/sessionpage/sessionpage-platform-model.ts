@@ -444,6 +444,7 @@ async function proxyPlatformRequest(
     warn: event => log.warn({ sessionId, path: suffix, ...event, error: event.code }, event.kind === 'stream'
       ? '平台中转:网关中途掐断了回答,给 harness 的那条也当场断开'
       : '平台中转:连不上网关'),
+    streamTiming: timing => log.info({ sessionId, ...timing }, 'platform model stream timing'),
   })
 }
 
