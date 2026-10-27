@@ -54,8 +54,6 @@ import {
   type SessionSchedule,
 } from '@shared/core/automations/session-schedule';
 import { log } from '@main/lib/logger';
-import { readAcpSessionState } from '@main/core/acp/session-summary-reader';
-import { getAcpRuntimeClient } from '@main/core/acp/runtime-process/host';
 import {
   legacyAgentStatusWord,
   parseAgentStatus,
@@ -1086,6 +1084,8 @@ export async function backgroundTasks(input: {
   const row = readSessionRow(input.conversationId);
   if (!row) return fail('session_not_found', `这台机器上没有会话 ${input.conversationId}`);
   try {
+    // 用时再 import:它们拖着运行时进程那一串(app scope),只读时间线的路不该替它交税。
+    const { readAcpSessionState } = await import('@main/core/acp/session-summary-reader');
     const state = await readAcpSessionState(row.id);
     return { ok: true, value: { runningCommandTaskIds: state ? (state.backgroundCommandTaskIds ? [...state.backgroundCommandTaskIds] : null) : [] } };
   } catch (error) {
@@ -1104,6 +1104,7 @@ export async function stopBackgroundTask(input: {
   const row = readSessionRow(input.conversationId);
   if (!row) return fail('session_not_found', `这台机器上没有会话 ${input.conversationId}`);
   try {
+    const { getAcpRuntimeClient } = await import('@main/core/acp/runtime-process/host');
     const client = await getAcpRuntimeClient();
     const result = await client.stopBackgroundTask({ sessionId: row.id, taskId: input.stopId });
     if (!result.success) return fail('stop_failed', String((result.error as { message?: string })?.message ?? result.error));
