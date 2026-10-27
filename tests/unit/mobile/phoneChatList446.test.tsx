@@ -61,3 +61,16 @@ it('the phone project folder shows attention only when an agent needs input, wit
   await render(false)
   expect(row().querySelector('[data-testid="phone-project-waiting"]')).toBeNull()
 })
+
+it('desktop Chats excludes independent tasks even when an older renderer has published them', async () => {
+  const target = window as unknown as Record<string, unknown>
+  target.__GUGU_SIDEBAR_SESSIONS__ = [{ projectId: 'task-home', sessionId: 'independent', title: 'Independent task', time: Date.now(), group: null, agentUserId: null }]
+  try {
+    await render(false)
+    expect(h.container.querySelector('[data-chat-row="group"]')).not.toBeNull()
+    expect(h.container.querySelector('[data-session-line="independent"]')).toBeNull()
+    expect(h.container.textContent).not.toContain('Independent task')
+  } finally {
+    delete target.__GUGU_SIDEBAR_SESSIONS__
+  }
+})
