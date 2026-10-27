@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from 'vitest'
 vi.mock('../../../../apps/desktop/src/lib/supabase', () => ({ identityDb: {} }))
-import { storedAgentTurnFailures } from '../../../../apps/desktop/src/lib/storedAgentTurnFailures'
+import { storedAgentRecoveries, storedAgentTurnFailures } from '../../../../apps/desktop/src/lib/storedAgentTurnFailures'
 
 const row = (id: string, agent = 'agent', status = 'error', extra = {}) => ({ id, payload: { agent_user_id: agent }, status, error: 'weekly limit reached', completed_at: '2026-10-19T08:00:00Z', ...extra })
 describe('持久投递结果在其他设备上的投影', () => {
@@ -18,5 +18,9 @@ describe('持久投递结果在其他设备上的投影', () => {
     expect(storedAgentTurnFailures([row('quota')], ['agent'])).toHaveLength(1)
     expect(storedAgentTurnFailures([row('old', 'agent', 'error', { error: 'failed batch' })], ['agent'])).toEqual([])
     expect(storedAgentTurnFailures([row('new', 'agent', 'error', { error: 'failed batch', result: { reply_notice: 'context' } })], ['agent'])).toHaveLength(1)
+  })
+  it('只有最新一次投递成功才算恢复', () => {
+    expect(storedAgentRecoveries([row('new', 'agent', 'done'), row('old')], ['agent', 'other'])).toEqual(['agent'])
+    expect(storedAgentRecoveries([row('new', 'agent', 'pending'), row('old', 'agent', 'done'), row('x', 'other', 'error')], ['agent', 'other'])).toEqual([])
   })
 })

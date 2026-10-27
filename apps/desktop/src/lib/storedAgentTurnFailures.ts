@@ -26,6 +26,22 @@ export function storedAgentTurnFailures(rows: unknown[], agentIds: readonly stri
   return failures
 }
 
+/** 最新一次投递已成功的 Agent：额度/模型类的「关掉别再提醒」到这里解除。 */
+export function storedAgentRecoveries(rows: unknown[], agentIds: readonly string[]): string[] {
+  const seen = new Set<string>()
+  const recovered: string[] = []
+  for (const raw of rows) {
+    if (!raw || typeof raw !== 'object') continue
+    const row = raw as Record<string, unknown>
+    const payload = row.payload && typeof row.payload === 'object' ? row.payload as Record<string, unknown> : null
+    const id = payload?.agent_user_id
+    if (typeof id !== 'string' || !agentIds.includes(id) || seen.has(id)) continue
+    seen.add(id)
+    if (row.status === 'done') recovered.push(id)
+  }
+  return recovered
+}
+
 export async function readStoredAgentTurnFailures(userId: string, chatId: string, threadRootId: string | null, agentIds: readonly string[]) {
   let query = identityDb.from('gugu_device_commands')
     .select('id,status,error,result,payload,created_at,completed_at')
@@ -34,5 +50,5 @@ export async function readStoredAgentTurnFailures(userId: string, chatId: string
   query = threadRootId ? query.eq('payload->>thread_root_id', threadRootId) : query.is('payload->>thread_root_id', null)
   const { data, error } = await query.order('created_at', { ascending: false }).limit(50)
   if (error) throw new Error(error.message)
-  return storedAgentTurnFailures(data ?? [], agentIds)
+  return { failures: storedAgentTurnFailures(data ?? [], agentIds), recovered: storedAgentRecoveries(data ?? [], agentIds) }
 }

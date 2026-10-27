@@ -13,7 +13,7 @@ vi.mock('../../../../apps/desktop/src/lib/supabase', () => ({
   requeueErroredDeviceCommand: vi.fn(async () => false)
 }))
 vi.mock('../../../../apps/desktop/src/platform', () => ({ platform: {} }))
-vi.mock('../../../../apps/desktop/src/hooks/useStoredAgentTurnFailure', () => ({ useStoredAgentTurnFailure: () => ({ failure: null, readFailed: false, dismiss: vi.fn(), retry: vi.fn() }) }))
+vi.mock('../../../../apps/desktop/src/hooks/useStoredAgentTurnFailure', () => ({ useStoredAgentTurnFailure: () => ({ failure: null, readFailed: false, dismiss: vi.fn(), retry: vi.fn(), mute: vi.fn(), isMuted: () => false }) }))
 vi.mock('../../../../apps/desktop/src/hooks/useAgentTurnFailure', () => ({
   useAgentTurnFailure: () => ({
     failure: { agentUserId: 'agent-1', commandId: 'command-1', at: 1, rawMessage: 'deliver failed' },

@@ -46,7 +46,7 @@ export function AgentTurnFailureSlot({
   const local = useAgentTurnFailure(chatId, threadRootId)
   const { contacts } = useContactsStore()
   const stored = useStoredAgentTurnFailure(chatId, threadRootId, contacts.filter((contact) => contact.type === 'agent' && profiles[contact.id]).map((contact) => contact.id))
-  const failure = local.failure ?? stored.failure
+  const failure = (local.failure && !stored.isMuted(local.failure) ? local.failure : null) ?? stored.failure
   const [modelOpen, setModelOpen] = useState(false)
   if (!chatId) return null
   if (!failure) return stored.readFailed ? <><style>{STYLE}</style><div data-chat-composer-notice="" className="atf-bar" role="status"><span className="atf-msg">{t('agent.turnFailure.statusReadFailed')}</span><Button variant="ghost" size="sm" onClick={stored.retry}>{t('agent.turnFailure.retry')}</Button></div></> : null
@@ -59,6 +59,7 @@ export function AgentTurnFailureSlot({
       displayName={profile?.displayName ?? t('agent.fallbackName')}
       avatar={profile?.avatar ?? null}
       onDismiss={() => { local.dismiss(); stored.dismiss(failure.commandId) }}
+      onClose={() => { local.dismiss(); stored.dismiss(failure.commandId); stored.mute(failure) }}
       onOpenModel={contact ? () => setModelOpen(true) : undefined}
     />
     {modelOpen && contact ? <AgentSettingsModal agent={contact} initialTab="aimodel" onClose={() => setModelOpen(false)} /> : null}
@@ -85,6 +86,7 @@ export function AgentTurnFailureBar({
   failure,
   displayName,
   onDismiss,
+  onClose = onDismiss,
   onOpenModel,
 }: {
   failure: AgentTurnFailure
@@ -92,6 +94,8 @@ export function AgentTurnFailureBar({
   displayName: string
   avatar: string | null
   onDismiss: () => void
+  /** 用户点 ×：额度/模型类失败会就此静音到这位 agent 下次投递成功（agentTurnFailureMute）；重试成功只走 onDismiss。 */
+  onClose?: () => void
   onOpenModel?: () => void
 }) {
   const { t } = useTranslation('messaging')
@@ -152,7 +156,7 @@ export function AgentTurnFailureBar({
         <Button variant="ghost" size="sm" className="atf-btn" onClick={() => void handleRetry()} disabled={retrying} data-testid="agent-turn-failure-retry">
           {retrying ? t('agent.turnFailure.retrying') : t('agent.turnFailure.retry')}
         </Button>
-        <Button variant="ghost" size="icon" className="atf-x" onClick={onDismiss} aria-label={t('common.close')} data-testid="agent-turn-failure-dismiss">
+        <Button variant="ghost" size="icon" className="atf-x" onClick={onClose} aria-label={t('common.close')} data-testid="agent-turn-failure-dismiss">
           <X size={14} aria-hidden />
         </Button>
       </div>
