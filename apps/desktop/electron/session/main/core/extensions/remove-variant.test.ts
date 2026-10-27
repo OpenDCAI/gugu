@@ -1,4 +1,4 @@
-import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync, existsSync } from 'node:fs';
+import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import * as path from 'node:path';
 import { afterEach, beforeEach, expect, it, vi } from 'vitest';
@@ -38,7 +38,7 @@ it.each(['declined', 'dismissed', 'timeout'] as const)('keeps the active fork an
   expect(requestInstallConsent).toHaveBeenCalledWith(expect.objectContaining({ removeVariant: { name: 'mine', active: true } }));
   expect(service.variants('demo').active).toBe('mine');
   expect(readFileSync(path.join(service.get('demo').rootDir, 'index.html'), 'utf8')).toBe('custom');
-  expect(existsSync(service.variantDirectory('demo', 'mine'))).toBe(true);
+  expect(service.variants('demo').variants.some((row) => row.name === 'mine')).toBe(true);
 });
 it('returns the human question without switching; a different digest is rejected', async () => {
   const returned = await removeExtensionVariant('demo', 'mine', { kind: 'return' });
@@ -83,5 +83,5 @@ it('retains the fork when switching fails', async () => {
   vi.spyOn(service, 'installFromDirectory').mockImplementationOnce(() => { throw new Error('disk full'); });
   await expect(removeExtensionVariant('demo', 'mine', undefined, { requestInstallConsent: async () => ({ outcome: 'confirmed' }) })).rejects.toThrow('disk full');
   expect(service.variants('demo').active).toBe('mine');
-  expect(existsSync(service.variantDirectory('demo', 'mine'))).toBe(true);
+  expect(service.variants('demo').variants.some((row) => row.name === 'mine')).toBe(true);
 });

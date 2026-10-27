@@ -1,5 +1,6 @@
 import { useEffect, type Dispatch, type RefObject, type SetStateAction } from 'react';
 import type { AppDetailLink } from '@gugu/core/shared/ui/guguLink';
+import { readCachedDevices } from '@/store/devicesCache';
 import { messageForUser } from '@/lib/userFacingError';
 import type { ExtensionsHost } from '@renderer/features/extensions/extensions-host';
 import type { ExtensionDetailSubject } from '@renderer/features/extensions/panel/app-product-page';
@@ -15,6 +16,10 @@ export function useAppDetailRequest({ target, ready, host, setDetail, detail, ro
     if (!target || !ready) return;
     let cancelled = false;
     const open = async () => {
+      if (target.deviceId) {
+        const local = readCachedDevices().some((row) => row.device_id === target.deviceId && row.is_current_device);
+        if (host.key !== (local ? 'local' : `remote:${target.deviceId}`)) throw new Error('The App link names another device; reopen the link or reconnect that device.');
+      }
       const installed = target.deviceId ? host.store.manifests.find((row) => row.id === target.extensionId) : undefined;
       if (target.deviceId && !installed) throw new Error('The installed App is no longer available on this device.');
       const result = await host.api.marketEntry({ extensionId: target.extensionId });

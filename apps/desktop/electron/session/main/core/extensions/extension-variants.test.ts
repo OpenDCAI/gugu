@@ -1,7 +1,8 @@
+import * as fs from 'node:fs';
 import { mkdirSync, mkdtempSync, readFileSync, writeFileSync, existsSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import * as path from 'node:path';
-import { afterEach, describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 import { EXTENSION_API_VERSION, type ExtensionManifest } from '@shared/extensions/manifest';
 import { type ExtensionVariant, forkBehind } from '@shared/extensions/variants';
 import type { MarketIndexVersion } from '@shared/extensions/market';
@@ -9,7 +10,7 @@ import { ExtensionsService } from './extensions-service';
 import { installPlan } from './install-plan';
 
 const roots: string[] = [];
-afterEach(() => { for (const root of roots.splice(0)) rmSync(root, { recursive: true, force: true }); });
+afterEach(() => { vi.restoreAllMocks(); for (const root of roots.splice(0)) rmSync(root, { recursive: true, force: true }); });
 function setup() {
   const root = mkdtempSync(path.join(tmpdir(), 'gugu-fork-variants-'));
   roots.push(root);
@@ -114,4 +115,16 @@ it('removes only an inactive fork cache and registration, preserving original, s
   expect(service.identityOf('demo')).toEqual({ id: 'demo', publisher: 'gugu' });
   expect(service.givenHere(service.identityOf('demo')!)).toEqual(['here:all']);
   expect(service.revokedPermissions('demo')).toContain('files:read');
+});
+
+it('reports registration removal separately when the inactive fork cache cannot be cleared', () => {
+  const { source, service, fork, upstream, install } = setup();
+  install(source, fork);
+  install(service.variantDirectory('demo', 'upstream'), upstream);
+  const cache = service.variantDirectory('demo', 'mine');
+  vi.spyOn(fs, 'rmSync').mockImplementationOnce(() => { throw new Error('cache locked'); });
+  expect(service.removeVariant('demo', 'mine')).toMatchObject({ removed: true, warning: expect.stringContaining('cache locked') });
+  expect(service.variants('demo').variants.map((row) => row.name)).toEqual(['upstream']);
+  expect(existsSync(cache)).toBe(true);
+  expect(service.get('demo').manifest.id).toBe('demo');
 });

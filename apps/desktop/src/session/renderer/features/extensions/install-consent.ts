@@ -34,7 +34,7 @@ export function installConsentPrompt(request: InstallConsentAsk, manifest: Exten
     const values = { variant: request.removeVariant.name, name: localizedManifestText(manifest, locale).name, computer: computerNamed(translateSessionMessage, request.machine) };
     return { title: translateSessionMessage('extensions.removeVariantTitle', values),
       description: `${translateSessionMessage(request.removeVariant.active ? 'extensions.removeActiveVariantBody' : 'extensions.removeVariantBody', values)}${request.removeVariant.active ? `\n\n${asked.description}` : ''}`,
-      confirmLabel: translateSessionMessage('extensions.removeVariantConfirm'), variant: 'default' };
+      confirmLabel: translateSessionMessage('extensions.removeVariantConfirm'), ...(request.removeVariant.active && asked.details ? { details: asked.details } : {}), variant: 'default' };
   }
   const prompt = request.market ? withMarketSource(asked, translateSessionMessage) : asked;
   if (request.attachment) {

@@ -9,7 +9,7 @@ import { remoteHostsStore } from '@renderer/features/remote-hosts/remote-hosts-s
 import { translateSessionMessage } from '@renderer/localization/locale-store';
 
 /** Validate the named host before selecting a scope: the picker otherwise falls back to local. */
-export async function openAppDetailLink(target: AppDetailLink, ownerId: string) {
+export async function openAppDetailLink(target: AppDetailLink, ownerId: string, isCurrent = () => true) {
   if (readMobileShell()) throw new Error(translateSessionMessage('extensions.appLinkOnPhone'));
   let scope = LOCAL_DEVICE_SCOPE;
   if (target.deviceId) {
@@ -23,6 +23,7 @@ export async function openAppDetailLink(target: AppDetailLink, ownerId: string) 
     if (!result.success || !result.data) throw new Error(result.error ?? 'The installed App is unavailable on that device.');
     if (target.variant && !result.data.variants.some((row) => row.name === target.variant)) throw new Error(`Variant ${target.variant} is no longer installed on that device.`);
   }
+  if (!isCurrent()) return;
   libraryDeviceStore.select(scope);
   revealSessionpage();
   appState.navigation.navigate('apps', { detail: target });
