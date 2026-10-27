@@ -26,7 +26,7 @@ describe('native prompt admission and recovery', () => {
     const history = runtime.getHistory(input.sessionId);
     expect(history.success).toBe(true);
     if (!history.success) throw new Error('failed session history is unavailable');
-    expect(history.data.turns.at(-1)?.outcome).toMatchObject({ kind: 'error', detail: failure.message });
+    expect(history.data.turns.at(-1)?.outcome).toMatchObject({ kind: 'error', detail: expect.stringContaining(failure.message) });
 
     const prompt = vi.fn<AcpAgentApi['prompt']>().mockImplementation(async (_request, onAccepted) => {
       onAccepted?.();

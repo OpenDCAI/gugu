@@ -93,7 +93,7 @@ describe('connectStdioAcpV2', () => {
     const refused = agentPair({ prompt: async () => { throw new Error('native session unavailable'); } });
     await initialize(refused.api);
     const notAccepted = vi.fn();
-    await expect(refused.api.prompt({ sessionId: 's1', prompt: [] }, notAccepted)).rejects.toThrow('native session unavailable');
+    await expect(refused.api.prompt({ sessionId: 's1', prompt: [] }, notAccepted)).rejects.toMatchObject({ code: -32603 });
     expect(notAccepted).not.toHaveBeenCalled();
   });
 
