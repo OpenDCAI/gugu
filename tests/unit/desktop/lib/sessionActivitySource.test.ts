@@ -42,3 +42,19 @@ it('reads only the one still-active task input', () => {
   delete active.endedAt; active.items.push({kind:'message',id:'later',seq:2,role:'user',text:'a different task'})
   expect(currentAssistantWorkInput(active)).toBeUndefined()
 })
+
+it('a session the ACP runtime does not hold (pty) has no work input; a stalled runtime fails instead of hanging', async () => {
+  const { peekAcpRuntimeClient } = await import('../../../../apps/desktop/electron/session/main/core/acp/controller')
+  const { readCurrentAssistantWorkInput } = await import('../../../../apps/desktop/electron/session/main/core/sessions/session-activity-source')
+  const detach = vi.fn()
+  const source = (snapshot: () => Promise<unknown>) => ({ session: { state: () => ({
+    topic: 'activeTurn', snapshot, attach: async () => detach,
+  }) } })
+  const notFound = Object.assign(new Error("Unknown live topic 'activeTurn' (no instance for this key)"), { code: 'NOT_FOUND' })
+  vi.mocked(peekAcpRuntimeClient).mockResolvedValue(source(async () => { throw notFound }) as never)
+  await expect(readCurrentAssistantWorkInput('pty-session')).resolves.toBeUndefined()
+  vi.mocked(peekAcpRuntimeClient).mockResolvedValue(source(() => new Promise(() => {})) as never)
+  await expect(readCurrentAssistantWorkInput('stalled', 20)).rejects.toThrow(/could not be read within 20ms/)
+  vi.mocked(peekAcpRuntimeClient).mockResolvedValue(source(async () => { throw Object.assign(new Error('runtime crashed'), { code: 'DISCONNECTED' }) }) as never)
+  await expect(readCurrentAssistantWorkInput('crashed')).rejects.toThrow('runtime crashed')
+})

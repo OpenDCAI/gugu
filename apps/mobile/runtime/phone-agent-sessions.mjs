@@ -80,7 +80,10 @@ export function createPhoneSessionTools({ agent, job, cloud, store, deviceId, wo
       }
   const send = async (action, callId, signal) => {
     await authorize(job.usedGroups ?? [])
-    action=withAssistantWorkReply(action,job.prompt)
+    action=await withAssistantWorkReply(action,job.prompt,async (number)=>{
+      const own=local().find((row)=>row.guguNumber===number)
+      return own ? own.agentUserId : (await lookupAgents({userIds:[],numbers:[number]})).find((row)=>row.guguNumber===number)?.userId
+    })
     const sent = action.work_result
       ? await work.enqueueReport({agent,job,callId,record:action,prepare:(files,target)=>prepareFiles(files,[target],callId,signal)})
       : await handleUnifiedSessionMessage(action, {

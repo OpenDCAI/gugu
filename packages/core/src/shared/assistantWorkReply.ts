@@ -1,5 +1,6 @@
 import {z} from 'zod'
 import {readDeliveryEnvelope} from '../local/agent/deliveryEnvelope'
+import {decodeIdentityAddress} from './typedId.mjs'
 
 const work=z.object({work_id:z.uuid(),coordinator:z.string(),report:z.string(),assistant_id:z.uuid().optional(),purpose:z.enum(['reply','task']).optional()})
 /** Only the host's single active delivery can bind a reply; quoted or merged inputs cannot. */
@@ -16,17 +17,24 @@ export function assistantWorkReplyContext(prompt:string|undefined) {
   } catch {return null}
 }
 
-/** No prose classification: an inquiry is complete on reply, a task must declare its actual state. */
-export function withAssistantWorkReply(record:Record<string,unknown>,prompt:string|undefined):Record<string,unknown> {
+/** No prose classification: an inquiry is complete on reply, a task must declare its actual state.
+ * `gugu:<number>` is the same coordinator only when it resolves to this work's assistant. */
+export async function withAssistantWorkReply(record:Record<string,unknown>,prompt:string|undefined,
+  resolveNumber?:(number:number)=>Promise<string|undefined>):Promise<Record<string,unknown>> {
   const context=assistantWorkReplyContext(prompt)
   if(!context)return record
   const to=record.to
-  if(!Array.isArray(to)||to.length!==1||!(to[0]===context.coordinator
-    ||context.assistant_id&&[`aid:${context.assistant_id}`,`user:${context.assistant_id}`].includes(String(to[0]))))return record
-  if(context.purpose==='reply') {
-    if(record.work_result&&(record.work_result as {work_id?:unknown}).work_id!==context.work_id)return record
-    return {...record,work_result:{work_id:context.work_id,status:'completed'}}
+  if(!Array.isArray(to)||to.length!==1||typeof to[0]!=='string')return record
+  const address=to[0]
+  let coordinator=address===context.coordinator
+    ||!!context.assistant_id&&[`aid:${context.assistant_id}`,`user:${context.assistant_id}`].includes(address)
+  if(!coordinator&&context.assistant_id&&address.startsWith('gugu:')&&resolveNumber) {
+    const identity=decodeIdentityAddress(address,'to')
+    coordinator=identity.kind==='gugu'&&await resolveNumber(identity.number)===context.assistant_id
   }
+  if(!coordinator)return record
+  // An explicit state is the executor's own report (progress/question/cancelled); only a missing one is filled.
   if(record.work_result)return record
+  if(context.purpose==='reply')return {...record,work_result:{work_id:context.work_id,status:'completed'}}
   throw Object.assign(new Error(`This task reply has not been sent. Keep its text/files and retry with work_result={work_id:"${context.work_id}",status:"progress"|"question"|"completed"|"cancelled"}; an acknowledgement is progress, not completed.`),{code:'WORK_REPORT_STATUS_REQUIRED'})
 }

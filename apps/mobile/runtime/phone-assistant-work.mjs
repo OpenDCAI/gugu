@@ -34,7 +34,8 @@ export function createPhoneAssistantWork({ ownerId,deviceId,instanceId,cloud,sto
     correlation:(agent,job)=>legacyAssistantDispatch({agent,job,deviceId}),
     receive:(ref,signal)=>receiver.receive(ref,ownerId,signal),
     async enqueueReport({agent,job,callId,record,prepare,reasonCode}) {
-      const assistantId=agent.assistantWork?.assistant_id ?? agent.caller?.agentUserId ?? assistantWorkReplyContext(job.prompt)?.assistant_id
+      // The host-bound dispatch names the assistant; whoever invoked this agent may be someone else.
+      const assistantId=agent.assistantWork?.assistant_id ?? assistantWorkReplyContext(job.prompt)?.assistant_id ?? agent.caller?.agentUserId
       if(!assistantId) throw new Error('Assistant task routing is not available')
       let sequence=0
       const result=await enqueueAssistantWorkReport({rpc:(name,args)=>cloud.identity.rpc(name,args),prepare,

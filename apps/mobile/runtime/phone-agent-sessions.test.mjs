@@ -85,6 +85,18 @@ test('an inquiry completes on its first real ordinary reply through the existing
   } finally {await fx.close()}
 })
 
+test('a reply reports to the dispatching assistant even when someone else invoked this agent',async()=>{
+  const fx=await fixture()
+  try {
+    dispatch(fx,'reply')
+    delete fx.agent.assistantWork
+    fx.agent.caller={agentUserId:randomUUID()} // a non-assistant invoker; the ledger would refuse it as the work's assistant
+    await fx.send.execute('ordinary-reply',{to:[`session:${fx.receiver.sessionId}`],text:'收到'})
+    assert.equal(fx.queued.size,1)
+    assert.equal([...fx.queued.values()][0].kind,'completed')
+  } finally {await fx.close()}
+})
+
 test('an assignment asks for status before sending, accepts progress and loses no original reply',async()=>{
   const fx=await fixture()
   try {
