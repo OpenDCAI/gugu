@@ -101,7 +101,8 @@ async function cachedSelfId(): Promise<string | null> {
 
 /** 这台桌面:设备 id(一台桌面一个,换版本不变)+ 自己的版本 + 说的协议。 */
 async function thisDesktop(): Promise<DesktopHello | null> {
-  const version = (await desktopMatchVersion()) ?? (typeof __APP_VERSION__ === 'string' ? __APP_VERSION__ : '')
+  const asked = await desktopMatchVersion()
+  const version = asked === undefined ? (typeof __APP_VERSION__ === 'string' ? __APP_VERSION__ : '') : asked
   if (!version) return null
   const id = (await cachedSelfId().catch(() => null)) ?? (await liveSelfId())
   return id ? { id: desktopReportId(id, version), version, protocol: REMOTE_PROTOCOL_VERSION } : null
