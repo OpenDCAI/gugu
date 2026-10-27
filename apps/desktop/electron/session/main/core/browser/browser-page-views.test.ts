@@ -41,6 +41,7 @@ vi.mock('electron', async () => {
       return Promise.resolve();
     }
     setBackgroundThrottling = vi.fn();
+    executeJavaScript = vi.fn(async () => undefined);
     capturePage = vi.fn(async () => ({ isEmpty: () => false, toJPEG: () => Buffer.from([1, 2]) }));
     beginFrameSubscription = vi.fn((_dirty: boolean, callback: (image: { isEmpty: () => boolean }) => void) => { queueMicrotask(() => callback({ isEmpty: () => false })); });
     endFrameSubscription = vi.fn();

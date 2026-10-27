@@ -21,6 +21,8 @@ import '@gugu/session-ui/styles/base.css';
 import '@gugu/session-ui/styles/typography.css';
 import '@gugu/session-ui/styles/overflow-fade.css';
 import './index.css';
+import '@gugu/session-shared/animation-visibility.css';
+import { isAnimationWindowVisible } from '@gugu/session-shared/animation-visibility';
 // @@@font-single-source (#3334) — 等宽规格是 JetBrains Mono Variable(见 tokens.css 的
 // --font-family-mono)。它的 @font-face 从前只由 ChatRoot 引入,于是「开过 transcript」与
 // 「没开过」两种状态下,会话页其余地方的等宽字是两张脸。在入口引一次,让它恒定可用。
@@ -120,6 +122,8 @@ function renderSessionTree(container: HTMLElement, mountEl: HTMLElement | undefi
 }
 
 async function bootstrap() {
+  // Install the shared document listeners before any animated surface mounts.
+  isAnimationWindowVisible();
   // Portals (Base UI dialogs/popovers/tooltips + raw createPortal) must stay inside the shadow
   // root — document.body is outside it and has none of the session page's CSS (dialogs render as bare
   // unstyled text there). Give them a dedicated layer next to the app mount. Must run before
