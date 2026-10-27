@@ -44,7 +44,7 @@ import {
   userCardGroup,
 } from './user-message.css';
 
-export function UserMessageCard(props: { data: ChatMessage; ctx: RenderCtx; vars: MessageVars }) {
+export function UserMessageCard(props: { data: ChatMessage; ctx: RenderCtx; vars: MessageVars; conversation?: boolean }) {
   const translate = useChatTranslator();
   const commands = useCommands();
   const turn = useTurnState();
@@ -90,7 +90,7 @@ export function UserMessageCard(props: { data: ChatMessage; ctx: RenderCtx; vars
   const stack = createMemo<Measured<StackLayout> | null>(() => {
     const ctx = mCtx();
     if (!ctx) return null;
-    const blocks = ctx.caches.parseBlocks(props.data.id, props.data.text);
+    const blocks = props.data.streaming ? ctx.caches.parseBlocksStreaming(props.data.id, props.data.text) : ctx.caches.parseBlocks(props.data.id, props.data.text);
     if (blocks.length === 0) return null;
     const innerCtx = { ...ctx, width: innerWidth() };
     return layoutBlockStack(blocks, innerCtx, { isCollapsed: ctx.isCollapsed });
@@ -105,7 +105,7 @@ export function UserMessageCard(props: { data: ChatMessage; ctx: RenderCtx; vars
     const v = vars();
     if (!ctx) return v.collapsedMaxH;
     const innerW = userInnerWidth(availableWidth(), v);
-    const blocks = ctx.caches.parseBlocks(props.data.id, props.data.text);
+    const blocks = props.data.streaming ? ctx.caches.parseBlocksStreaming(props.data.id, props.data.text) : ctx.caches.parseBlocks(props.data.id, props.data.text);
     if (blocks.length === 0) {
       return ctx.theme.fonts.body.lineHeight + 2 * v.userCardPadY + 2 * v.cardBorder;
     }
@@ -163,12 +163,13 @@ export function UserMessageCard(props: { data: ChatMessage; ctx: RenderCtx; vars
 
   return (
     <div
+      data-conversation-body={props.conversation ? props.data.role : undefined}
       class={userMessageRoot}
       style={{
         ...assignInlineVars(cardVars, pxTokens({ ...styleVars(), height: 0 })),
         // `base`:整条右对齐到与气泡同一条边(owner 给的参考是 Kimi 那个形状)。
         ...(isDoubleColumnLayout(layout())
-          ? { width: `${availableWidth()}px`, 'margin-left': 'auto' }
+          ? { width: `${availableWidth()}px`, 'margin-left': props.conversation && props.data.role === 'assistant' ? '0' : 'auto' }
           : {}),
       }}
     >
@@ -194,11 +195,11 @@ export function UserMessageCard(props: { data: ChatMessage; ctx: RenderCtx; vars
       class={`${card({ state: isOverflowing() && !isExpanded() ? 'overflowing' : 'static', current: isGenerating() })} ${cardRoot} ${userCardGroup}`}
       style={{
         ...assignInlineVars(cardVars, pxTokens({ ...styleVars(), height: cardH() })),
-        ...assignInlineVars({ [themeVars.fgBody]: themeVars.bubbleUserFg, [themeVars.link]: themeVars.bubbleUserFg }),
+        ...assignInlineVars({ [themeVars.fgBody]: props.conversation ? themeVars.fg : themeVars.bubbleUserFg, [themeVars.link]: props.conversation ? themeVars.fg : themeVars.bubbleUserFg }),
         // `base` pill: explicit hug width + right alignment. Left as-is in
         // classic so the card keeps spanning the column (no inline width).
         ...(isDoubleColumnLayout(layout())
-          ? { width: `${paintedWidth()}px`, 'margin-left': 'auto' }
+          ? { width: `${paintedWidth()}px`, 'margin-left': props.conversation && props.data.role === 'assistant' ? '0' : 'auto' }
           : {}),
         // Force overflow:hidden while the UnitRow tween is in flight to avoid
         // a transient scrollbar mid-animation; restore auto only when expanded
@@ -228,8 +229,8 @@ export function UserMessageCard(props: { data: ChatMessage; ctx: RenderCtx; vars
         </button>
       </Show>
     </div>
-    <UserMessageActions itemId={props.data.id} text={props.data.text} at={props.data.at}
-      generating={isGenerating()} readOnly={Boolean(props.data.guguDelivery)} vars={props.vars} />
+    <Show when={!props.conversation}><UserMessageActions itemId={props.data.id} text={props.data.text} at={props.data.at}
+      generating={isGenerating()} readOnly={Boolean(props.data.guguDelivery)} vars={props.vars} /></Show>
     </>}>
       {(editing) => <UserMessageEditor edit={editing()} height={editorMetrics().height} textHeight={editorMetrics().textHeight} />}
     </Show>

@@ -1,3 +1,5 @@
+import { conversationOutput, conversationProcessReply } from './conversation-process';
+import { conversationMessages } from './conversation-messages';
 import { withSentReplies } from './sent-replies';
 /**
  * flatten — segment a transcript into a two-tier UnitsView.
@@ -153,7 +155,8 @@ export function flattenTier(
   prevKind?: string,
   prevDayKey?: string
 ): RenderUnit[] {
-  turns = turns.map(withSentReplies);
+  turns = turns.map(turn => withSentReplies(turn, { allDestinations: ctx.agentConversation }));
+  if (ctx.agentConversation) turns = conversationMessages(turns);
   const out: RenderUnit[] = [];
 
   // Hoist stable per-call values so processItem allocates nothing per seam.
@@ -320,6 +323,14 @@ export function flattenTier(
         // 「2 个子智能体跑完了」—— 折叠套折叠;「过程 · 1 步」—— 一步也套了头)。
         const header = segment.header;
         // 不套头的那一段是平铺在外面的,和不折的一轮一样先剔掉别处已经画了的(卡片 / 改动汇总,#70 review)。
+        const output = ctx.agentConversation && header ? conversationOutput([...segment.process, ...segment.tail]) : null;
+        const footerReply = output?.reply ? conversationProcessReply(header, [output.reply]) : null;
+        if (footerReply && header && output) {
+          processItem(footerReply);
+          const expanded = ctx.revealAllFolds || turnProcessExpanded(header.live, ctx.isTurnProcessExpanded?.(header.id) ?? false);
+          if (expanded) emitOps(planRows(outsideProcess(output.rest)), turn.id, [{ id: header.id, stored: !header.live }]);
+          continue;
+        }
         const ops = planRows(header ? segment.process : outsideProcess(segment.process));
         if (ops.length === 0 || !header) {
           // 一条都不剩就连头都不画 —— ❌ 别留一个点开是空的壳。
@@ -330,6 +341,7 @@ export function flattenTier(
             processItem({
               kind: 'turn-process',
               ...placeholderTurnHeader(header.id),
+              ...(ctx.agentConversation && header.startedAt !== undefined ? { startedAt: header.startedAt } : {}),
               turnId: turn.id,
               withBody: true,
             });
@@ -360,13 +372,21 @@ export function flattenTier(
       const pending = pendingTurnHeader(turns[turnIndex] as TranscriptTurn, ctx.active, ctx.foldTurnProcess === true);
       if (pending) {
         emitOps(planRows(outsideProcess(items.slice(0, pending.at))), turn.id);
-        processItem({
-          kind: 'turn-process',
-          ...pending.header,
-          turnId: turn.id,
-          ...(pending.at < items.length ? { withBody: true } : {}),
-        });
-        emitOps(planRows(outsideProcess(items.slice(pending.at))), turn.id);
+        const pendingReply = ctx.agentConversation
+          ? conversationProcessReply({ ...pending.header, startedAt: turn.startedAt }, items.slice(pending.at)) : null;
+        if (pendingReply) {
+          processItem(pendingReply);
+          emitOps(planRows(outsideProcess(items.slice(pending.at + 1))), turn.id);
+        } else {
+          processItem({
+            kind: 'turn-process',
+            ...pending.header,
+            ...(ctx.agentConversation && turn.startedAt !== undefined ? { startedAt: turn.startedAt } : {}),
+            turnId: turn.id,
+            ...(pending.at < items.length ? { withBody: true } : {}),
+          });
+          emitOps(planRows(outsideProcess(items.slice(pending.at))), turn.id);
+        }
       } else {
         emitOps(planRows(outsideProcess(items)), turn.id);
       }

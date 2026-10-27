@@ -120,6 +120,7 @@ export type SegmentItem = ChatItem | SyntheticItem;
  * cheap even if called on every tick.
  */
 export type SegmentCtx = {
+  agentConversation?: boolean;
   caches: ChatCaches;
   expanded: (id: string) => boolean;
   active: boolean;

@@ -42,6 +42,18 @@ export function replySend(item: ToolCallItem, facts: DeliveryReadFacts): { text:
   } catch { return null; }
 }
 
+/** Actual successful sends owned by this agent, including proactive sends to another chat. */
+export function successfulMessageSend(item: ToolCallItem): { text: string; id: string } | null {
+  if (!isRootSend(item) || item.status !== 'done' || !item.rawInput) return null;
+  const id = sentMessageId(item);
+  if (!id) return null;
+  try {
+    const args = JSON.parse(item.rawInput) as Record<string, unknown>;
+    return typeof args.chat_id === 'string' && args.chat_id && typeof args.text === 'string'
+      ? { id, text: args.text } : null;
+  } catch { return null; }
+}
+
 /** Root work only; nested subagent rows must not inflate the primary's counts. */
 export function replyProcess(turn: TranscriptTurn, before?: string): ReplyProcess {
   const result: ReplyProcess = { thinkingMs: 0, thoughts: 0, tools: 0, commands: 0 };

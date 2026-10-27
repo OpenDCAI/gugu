@@ -16,7 +16,7 @@ export function measureUserMessage(item: ChatMessage, ctx: MeasureCtx, baseVars:
   if (!item.guguDelivery && isMessageEditing(item.id, ctx)) {
     return attachments + messageEditorMetrics(ctx.editingMessage!.text, ctx).height;
   }
-  const blocks = ctx.caches.parseBlocks(item.id, item.text);
+  const blocks = item.streaming ? ctx.caches.parseBlocksStreaming(item.id, item.text) : ctx.caches.parseBlocks(item.id, item.text);
   const stackHeight = blocks.length === 0 ? ctx.theme.fonts.body.lineHeight
     : layoutBlockStack(blocks, { ...ctx, width: userInnerWidth(available, vars) }, { isCollapsed: ctx.isCollapsed }).height;
   const fullHeight = stackHeight + 2 * vars.userCardPadY + 2 * vars.cardBorder;

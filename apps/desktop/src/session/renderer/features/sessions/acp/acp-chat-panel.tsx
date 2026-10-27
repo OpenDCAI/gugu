@@ -1,3 +1,4 @@
+import { sessionAgentNames } from '@renderer/features/sessions/stores/session-agent-names';
 import { takeComposerCarry, useComposerVerb } from '@/lib/composerVerbBridge';
 import { projectGroupsStore } from '@renderer/features/projects/stores/project-groups-store';
 import { SessionComposerVerbs, SessionVerbDock, sessionVerbKey } from '../session-verb-dock';
@@ -2188,9 +2189,12 @@ export const AcpChatPanel = observer(function AcpChatPanel({
   const historyActionsEnabled = store?.canRevertHistory ?? false;
   const messageEdit = store?.messageEdit;
   const messageEditPending = store?.reverting ?? false;
+  const conversationAgentName = store ? sessionAgentNames.nameFor(store.sessionId) ?? null : null;
   const transcriptCommands = useMemo<ChatCommands>(
     () => ({
       ...outputMenu.commands,
+      onConversationReply: (itemId) => viewRef.current?.scrollToItem(itemId),
+      conversationAgentName: () => conversationAgentName,
       classifyLink: classifyFileLink,
       onOpenLink: followLink,
       // transcript 自己那颗停止按钮（用户消息卡右下角）一直**没有**接过宿主 ——
@@ -2333,7 +2337,7 @@ export const AcpChatPanel = observer(function AcpChatPanel({
         }
       },
     }),
-    [store, historyActionsEnabled, messageEdit, messageEditPending, handleViewerOpen, translate, membershipLock?.modelName, outputMenu.commands]
+    [store, conversationAgentName, historyActionsEnabled, messageEdit, messageEditPending, handleViewerOpen, translate, membershipLock?.modelName, outputMenu.commands]
   );
 
   // A freshly-created task can publish its tab before the resource manager has finished attaching
@@ -2392,7 +2396,7 @@ export const AcpChatPanel = observer(function AcpChatPanel({
             commands={transcriptCommands}
             onAtBottomChange={setAtBottom}
             onReachStart={handleReachStart}
-            layout={chatLayout}
+            layout={{ ...chatLayout, agentConversation: true }}
             style={{ position: 'absolute', inset: 0 }}
           />
         </div>

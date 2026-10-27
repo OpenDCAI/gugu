@@ -1893,6 +1893,7 @@ export function ChatRoot(props: ChatRootProps) {
                 }}
                 data-chat-root
                 data-chat-layout={theme().layout.preset}
+                data-agent-conversation={theme().layout.agentConversation ? 'true' : undefined}
                 class={outerClip}
                 style={scrollElStyle}
               >

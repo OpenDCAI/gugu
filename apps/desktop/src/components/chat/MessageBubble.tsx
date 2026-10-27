@@ -487,14 +487,14 @@ export const MessageBubble = memo(function MessageBubble({
               // #1323 模块3 — 撤回文字 --text-tertiary→--muted-fg(原偏淡)
               <span className="msg-time-room-inline" style={{ color: 'var(--muted-fg)', fontStyle: 'italic', '--msg-time-room': timeRoom } as React.CSSProperties}>{t('message.retracted')}</span>
             ) : (
-              <div className={!simple && timeInline ? 'msg-time-room' : undefined} style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-start', gap: '4px', '--msg-time-room': timeRoom } as React.CSSProperties}>
+              <div className={showTime && !simple && timeInline ? 'msg-time-room' : undefined} style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-start', gap: '4px', '--msg-time-room': timeRoom } as React.CSSProperties}>
                 {!simple && msg.reply_to_message_id && <MessageQuote onShowMessage={onShowMessage} msg={msg} quoterIsAgent={avatarIsAgent} memberProfiles={memberProfiles} />}
                 {card?.type === 'question' ? (
-                  <QuestionCardView card={card} chatId={msg.chat_id} messageId={msg.id} agentUserId={msg.sender_user_id ?? ''} time={fmtMsgTime(msg.created_at)} />
+                  <QuestionCardView card={card} chatId={msg.chat_id} messageId={msg.id} agentUserId={msg.sender_user_id ?? ''} time={hideTime ? '' : fmtMsgTime(msg.created_at)} />
                 ) : card?.type === 'task' ? (
                   <Markdown trust="chat" content={card.text} onAccent={own} hardBreaks />
                 ) : card ? (
-                  <ComposerCardView card={card} isMine={own} isGroup={isGroup} chatId={msg.chat_id} senderName={avatarName} time={fmtMsgTime(msg.created_at)} memberProfiles={memberProfiles} />
+                  <ComposerCardView card={card} isMine={own} isGroup={isGroup} chatId={msg.chat_id} senderName={avatarName} time={hideTime ? '' : fmtMsgTime(msg.created_at)} memberProfiles={memberProfiles} />
                 ) : msg.content_type === 'widget' ? (() => {
                   // Widget: parse JSON from msg.content, fall back to plain bubble on failure
                   let widget: Widget | null = null
@@ -569,7 +569,7 @@ export const MessageBubble = memo(function MessageBubble({
           </div>
           </div>
         </MessageHoverTrigger>
-        {card?.type === 'task' && !isRetracted && <ComposerCardView card={card} isMine={own} isGroup={isGroup} chatId={msg.chat_id} senderName={avatarName} time={fmtMsgTime(msg.created_at)} memberProfiles={memberProfiles} compact onOpenTopic={compactMobile && onOpenTopic ? () => onOpenTopic(msg.id) : undefined} />}
+        {card?.type === 'task' && !isRetracted && <ComposerCardView card={card} isMine={own} isGroup={isGroup} chatId={msg.chat_id} senderName={avatarName} time={hideTime ? '' : fmtMsgTime(msg.created_at)} memberProfiles={memberProfiles} compact onOpenTopic={compactMobile && onOpenTopic ? () => onOpenTopic(msg.id) : undefined} />}
         {simple && showTime && card?.type !== 'task' && <div className={own ? 'msg-time-outside msg-time-outside-own' : 'msg-time-outside'}><BubbleTime iso={msg.created_at} isMine={false} inline={false} /></div>}
 
 

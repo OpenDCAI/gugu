@@ -106,7 +106,7 @@ type Bands = {
 };
 
 /** One card per segment of a batch; measure, estimate and render all build it here so their geometry agrees. */
-function segmentItem(item: ChatMessage, segment: DeliverySegment, index: number): ChatMessage {
+export function segmentItem(item: ChatMessage, segment: DeliverySegment, index: number): ChatMessage {
   const split = splitAttachmentMentions(segment.body);
   const attachments = split.attachments.map((attachment) =>
     item.attachments?.find((stored) => stored.id === attachment.id) ?? attachment

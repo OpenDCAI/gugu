@@ -1,4 +1,5 @@
 /** @jsxImportSource solid-js */
+import { ConversationMessage, conversationMessageHeight, isConversationMessage } from './ConversationMessage';
 import { StreamContext, type StreamAnimation } from '@session-chat/components/contexts/StreamContext';
 import { BlockStackView } from '@session-chat/components/primitives/BlockStackView';
 import { CopyButton } from '@session-chat/components/primitives/CopyButton';
@@ -93,6 +94,7 @@ export function messageFromItem(item: ChatMessage, ctx: SegmentCtx): ChatMessage
 // ── Measure ───────────────────────────────────────────────────────────────────
 
 export function measureMessage(item: ChatMessage, ctx: MeasureCtx, baseVars: MessageVars): number {
+  if (isConversationMessage(item, ctx)) return conversationMessageHeight(item, ctx, baseVars);
   if (item.questionAnswer) return QUESTION_ANSWER_H;
   const vars = effectiveMessageVars(baseVars, ctx.theme.layout);
   const blocks = item.streaming
@@ -236,6 +238,15 @@ export function UserMessageRender(props: { data: ChatMessage; ctx: RenderCtx; va
  * assistant reply inside the user card it was born with.
  */
 function MessageUnitRender(props: { data: ChatMessage; ctx: RenderCtx; vars: MessageVars }) {
+  return (
+    <Show when={props.ctx.measureCtx && isConversationMessage(props.data, props.ctx.measureCtx())}
+      fallback={<LegacyMessageUnitRender {...props} />}>
+      <ConversationMessage {...props} />
+    </Show>
+  );
+}
+
+function LegacyMessageUnitRender(props: { data: ChatMessage; ctx: RenderCtx; vars: MessageVars }) {
   const translate = useChatTranslator();
   return (
     <Show when={props.data.questionAnswer} fallback={<MessageBodyRender data={props.data} ctx={props.ctx} vars={props.vars} />}>
@@ -296,6 +307,7 @@ export const messageUnitDef = defineUnit<ChatMessage, MessageVars>({
   },
 
   estimate(item, ctx, baseVars): number {
+    if (isConversationMessage(item, ctx)) return conversationMessageHeight(item, ctx, baseVars);
     const vars = effectiveMessageVars(baseVars, ctx.theme.layout);
     if (item.questionAnswer) return QUESTION_ANSWER_H;
     if (item.role === 'user' && item.guguDelivery) {

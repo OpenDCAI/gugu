@@ -78,6 +78,10 @@ export type ChatMessage = {
   at?: number;
   /** Parsed Gugu delivery metadata; populated by the message unit, never by ordinary transcript producers. */
   guguDelivery?: DeliveryReading;
+  /** View-only reference to the input this agent output responds to. */
+  conversationReply?: { itemId: string; text: string };
+  /** View-only disclosure of the completed thinking/execution segment. */
+  conversationProcess?: { live?: boolean; id: string; startedAt?: number; endedAt?: number };
   /**
    * 这条其实是某个 hook 说的话，不是 agent 的回复（#4981）。与 `guguDelivery` 同一路数：
    * 由消息单元从正文里解出来（见 `lib/hook-notice.ts`），❌ transcript 生产者不写它。

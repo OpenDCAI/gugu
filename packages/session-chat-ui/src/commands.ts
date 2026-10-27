@@ -35,6 +35,9 @@ export const CHAT_VIEW_COMMANDS = [
  * via `view.setCommands(commands)`.
  */
 export type ChatCommands = {
+  /** Display name of the agent owning this transcript, supplied by its host. */
+  conversationAgentName?: () => string | null;
+  onConversationReply?: (itemId: string) => void;
   onCopyError?: (error: unknown) => void;
   canRevertMessage?: (itemId: string) => boolean;
   onEditMessage?: (arg: { itemId: string }) => void;

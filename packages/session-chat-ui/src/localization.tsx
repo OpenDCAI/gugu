@@ -89,6 +89,7 @@ const fallbackMessages = {
   'transcript.turnFailed': 'Turn failed{reason}',
   'transcript.turnCompleted': 'Turn completed{reason}',
   'transcript.turnProcess': 'Process',
+  'transcript.thinkingAndExecution': 'Thinking and execution',
   'transcript.turnElapsed': 'Worked for {elapsed}',
   'transcript.turnTook': 'Took {elapsed}',
   'transcript.copyTurnResult': 'Copy turn record',

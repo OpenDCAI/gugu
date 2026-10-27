@@ -27,7 +27,10 @@ import { defineUnit } from '@session-chat/core/units';
 import { useChatTranslator } from '@session-chat/localization';
 import type { TurnProcessItem } from '@session-chat/model';
 import { turnProcessExpanded, turnProcessLabel } from '@session-chat/state/turn-fold';
-import { createEffect, createMemo, createSignal, onCleanup } from 'solid-js';
+import { useCommands } from '@session-chat/components/contexts/CommandsContext';
+import { conversationHeader, conversationName } from '../message/conversation-message.css';
+import { ConversationProcess } from '../message/ConversationProcess';
+import { Show, createEffect, createMemo, createSignal, onCleanup } from 'solid-js';
 import { turnProcessHeaderSlot, turnProcessLine, turnProcessRow } from './turn-process.css';
 
 export const turnProcessUnitDef = defineUnit<TurnProcessItem, { extraH: number }>({
@@ -36,13 +39,15 @@ export const turnProcessUnitDef = defineUnit<TurnProcessItem, { extraH: number }
   vars: { extraH: HEADER_ROW_EXTRA_H },
 
   measure(_data, ctx, vars_) {
-    return ctx.theme.fonts.body.lineHeight + vars_.extraH;
+    return ctx.theme.fonts.body.lineHeight + vars_.extraH + (ctx.theme.layout.agentConversation ? 24 : 0);
   },
 
   Render(props) {
     const translate = useChatTranslator();
     const theme = useTheme();
+    const commands = useCommands();
     const height = () => theme().fonts.body.lineHeight + props.vars.extraH;
+    const rowHeight = () => height() + (theme().layout.agentConversation ? 24 : 0);
     // ViewState keeps the inverted flag inherited from the original store:
     // `isCollapsed(id) === true` means "toggled" (see view-state.ts).
     const expanded = () => turnProcessExpanded(props.data.live, props.ctx.viewState.isCollapsed(props.data.id));
@@ -53,7 +58,7 @@ export const turnProcessUnitDef = defineUnit<TurnProcessItem, { extraH: number }
     // ❌ 拿外层变量接 setInterval 的返回值:重跑会覆盖它,前一个再也清不掉,每秒一跳、永远活着,
     // 还把整棵已卸载的转录(ChatRoot + DOM)钉在内存里。
     const [now, setNow] = createSignal(Date.now());
-    const ticking = createMemo(() => props.data.live === true && props.data.startedAt !== undefined);
+    const ticking = createMemo(() => !theme().layout.agentConversation && props.data.live === true && props.data.startedAt !== undefined);
     createEffect(() => {
       if (!ticking()) return;
       setNow(Date.now());
@@ -70,11 +75,14 @@ export const turnProcessUnitDef = defineUnit<TurnProcessItem, { extraH: number }
         data-live={props.data.live ? 'true' : 'false'}
         data-expanded={expanded() ? 'true' : 'false'}
         class={turnProcessRow}
-        style={{ height: `${height()}px` }}
+        style={{ height: `${rowHeight()}px` }}
       >
+        <Show when={theme().layout.agentConversation}>
+          <div class={conversationHeader} style={{ height: '24px' }}><span class={conversationName}>{commands().conversationAgentName?.() ?? 'Agent'}</span></div>
+        </Show>
         <div class={turnProcessLine} data-slot="tool-timeline-line">
           <div class={turnProcessHeaderSlot}>
-            <CollapseHeader
+            <Show when={theme().layout.agentConversation} fallback={<CollapseHeader
               id={props.data.id}
               collapsible={!props.data.placeholder}
               expanded={expanded()}
@@ -82,7 +90,9 @@ export const turnProcessUnitDef = defineUnit<TurnProcessItem, { extraH: number }
               height={height()}
             >
               {label()}
-            </CollapseHeader>
+            </CollapseHeader>}>
+              <ConversationProcess process={props.data} anchorId={props.data.id} expanded={expanded()} collapsible={!props.data.placeholder} />
+            </Show>
           </div>
         </div>
       </div>

@@ -12,6 +12,7 @@ import { turnDiscardedId } from './flatten';
 export function segmentCtxFor(context: ChatContext, state: ChatState, caches: ChatCaches, active: boolean): SegmentCtx {
   return {
     caches,
+    agentConversation: context.theme.layout?.agentConversation,
     expanded: (_id: string) => false,
     active,
     // #4874 双栏视图把一轮的过程行折起来；读 theme() 让布局切换重建 committed tier。

@@ -66,3 +66,38 @@ describe('session replies sent to IM', () => {
     expect(withSentReplies(projected)).toBe(projected);
   });
 });
+
+it('projects proactive confirmed sends to another chat only in agent-centered mode', () => {
+  const record = turn(send({ chat_id: 'another-chat', text: '天天，你好。' }));
+  expect(words(withSentReplies(record))).toHaveLength(0);
+  expect(words(withSentReplies(record, { allDestinations: true }))).toMatchObject([{ text: '天天，你好。' }]);
+  const direct = { ...record, items: [{ kind: 'message' as const, id: 'direct', seq: 0, role: 'user' as const, text: '给天天发个你好' }, record.items[1]] };
+  expect(words(withSentReplies(direct, { allDestinations: true }))).toMatchObject([{ text: '天天，你好。' }]);
+  for (const call of [{ ...send(), status: 'error' as const }, { ...send(), parentToolCallId: 'nested' }, { ...send(), outputText: 'unknown' }]) {
+    expect(words(withSentReplies(turn(call), { allDestinations: true }))).toHaveLength(0);
+  }
+});
+
+it('places the actual sent message immediately after its successful call, before the final commentary', () => {
+  const record = turn(send({ chat_id: 'another-chat', text: '天天，你好。' }));
+  record.items.push({ kind: 'message', id: 'summary', seq: 3, role: 'assistant', text: '已发送。' });
+  expect(withSentReplies(record, { allDestinations: true }).items.map(item => item.id)).toEqual(['input', 'send', `send:sent:${id}`, 'summary']);
+});
+
+it('binds a tool-only group reply to its footer instead of a duplicate process heading', () => {
+  const record = turn();
+  record.startedAt = 1000;
+  record.endedAt = 24000;
+  record.outcome = { kind: 'done', reason: 'end_turn' };
+  record.items.push({ kind: 'message', id: 'silence', seq: 3, role: 'assistant', text: '[NO_REPLY]' });
+  const segmenters = Object.fromEntries(['message', 'mcp-tool-call', 'turn-process', 'turn-completion', 'day-separator'].map(kind => [kind, {
+    kind, segment: item => [unit(item.kind, item, item, { key: 'self' })],
+  } satisfies ItemSegmenter]));
+  const ctx = { caches: {}, expanded: () => false, active: false, foldTurnProcess: true, agentConversation: true,
+    plan: () => null, translate: defaultChatTranslator, pendingToolCallIds: () => new Set(),
+    terminalOutputText: () => null, terminalExitStatus: () => null } as unknown as SegmentCtx;
+  const rows = flattenTier([record], ctx, segmenters);
+  expect(rows.some(row => row.kind === 'turn-process')).toBe(false);
+  const delivered = rows.find(row => row.itemId.includes(':sent:'))?.data;
+  expect(delivered).toMatchObject({ text: '你好，我在。', conversationProcess: { startedAt: 1000, endedAt: 24000 } });
+});
