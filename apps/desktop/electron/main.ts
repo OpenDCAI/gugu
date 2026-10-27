@@ -490,6 +490,7 @@ import {
 } from './server/ssh-machines'
 import { setAccountAccessTokenReader, setAccountFileResolver } from '@main/core/extensions/account-token'
 import { createLocalDeviceIdResolver, type DeviceHeartbeatTableClient } from '@gugu/core/cloud/deviceRuntime'
+import { announceLocalDeviceIdentity } from './local-device-identity'
 import { createDeviceProjectsPublisher, type DeviceProjectsPublisher } from '@gugu/core/cloud/deviceProjectsPublisher'
 import type { DeviceProjectsRpcClient } from '@gugu/core/cloud/deviceProjects'
 import type { AgentStreamPayload } from '@gugu/core/shared/types/agentStream'
@@ -2155,14 +2156,22 @@ interface LocalDeviceSelfSnapshot {
 
 // 本机在当前账号下的设备 id:按 owner 记一次,第一次先登记心跳(createLocalDeviceIdResolver)。设备自查、会话页身份供给、
 // 设备动作、跨机器、server 隧道都问这一个;❌ 先等设备运行时一轮 tick(#4181 / #4320② 的等待环)。
-const localDeviceId = createLocalDeviceIdResolver({
-  getAuth: async () => (authProvider ? authProvider.getAuth() : null),
-  heartbeatClient: (accessToken) => makeIdentityClient(accessToken) as unknown as DeviceHeartbeatTableClient,
-  capabilities: () => localCapabilitiesOnce(),
-  ...heartbeatRowSources,
-  ...deviceLabelOption,
-  warn: (message) => deviceHeartbeatLogger.warn({}, message),
-})
+// 认出来的那一刻告诉各个窗口(device:self-identified):登录交过来之前读的设备表分不出哪行是本机,要重读。
+const localDeviceId = announceLocalDeviceIdentity(
+  createLocalDeviceIdResolver({
+    getAuth: async () => (authProvider ? authProvider.getAuth() : null),
+    heartbeatClient: (accessToken) => makeIdentityClient(accessToken) as unknown as DeviceHeartbeatTableClient,
+    capabilities: () => localCapabilitiesOnce(),
+    ...heartbeatRowSources,
+    ...deviceLabelOption,
+    warn: (message) => deviceHeartbeatLogger.warn({}, message),
+  }),
+  (deviceId) => {
+    for (const window of BrowserWindow.getAllWindows()) {
+      if (!window.isDestroyed()) window.webContents.send('device:self-identified', deviceId)
+    }
+  },
+)
 
 async function getLocalDeviceSelfSnapshot(): Promise<LocalDeviceSelfSnapshot | null> {
   if (!deviceRuntimeHost) return null
@@ -2459,6 +2468,8 @@ function onHumanAuthSessionChanged(): void {
   })
   deviceRuntimeHost?.notifyAuthChanged()
   deviceProjectsPublisher?.notify()
+  // 登录一到就认本机(认出即通知窗口重读设备表);登出时答 null,下次登录认出来会再通知一次。
+  void localDeviceId()
   void handOffWechatIfAny()
 }
 // 「设置 → 聊天渠道 → 微信」的收发在云电脑管家上(#7199,桌面关了照样能聊);界面直接调管家。

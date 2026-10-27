@@ -13,6 +13,7 @@ import {
   type DeviceRpcClient,
 } from '@gugu/core/cloud/devices'
 import { resolveSelfDeviceLabel } from './device-labels'
+import { LocalDeviceUnidentifiedError } from './localDeviceIdentity'
 import {
   dataClient,
   chatDb,
@@ -883,7 +884,13 @@ export const chatService = {
       platform.getLocalDeviceSelfSnapshot?.() ?? Promise.resolve(null),
       listCoreDevices(deviceTableClient(), await getCurrentAuthUserId(), options) // @@@1962 按当前用户过滤设备(多账号同机不混入他人行);#7199 手机默认不在
     ])
-    if (!self) return cloud
+    if (!self) {
+      // @@@local-device-truth (#777) on the list: where this process runs a local device, "I don't know which row is
+      // mine" is not "none of these is mine". Unmarked, this computer's own row reads as another, offline computer —
+      // Beta 1040 then filed its local projects under that "computer" and dropped them all once it was recognized.
+      if (platform.getLocalDeviceSelfSnapshot) throw new LocalDeviceUnidentifiedError()
+      return cloud
+    }
     const others = cloud.filter((device) => device.device_id !== self.device_id)
     // 名字以云端行为准(见 resolveSelfDeviceLabel);在线性仍信本机 self。
     const cloudSelf = cloud.find((device) => device.device_id === self.device_id)
