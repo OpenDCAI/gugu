@@ -28,7 +28,7 @@ import {
   type MentionDrop,
 } from './screen-layout-actions';
 import { ChatPartSlot, ChatSlot } from '@renderer/lib/chat-slot';
-import { ChatTabMenuItems } from '@renderer/features/chats/chat-tab-menu-items';
+import { ChatTabMenuItems, chatTabHasActions } from '@renderer/features/chats/chat-tab-menu-items';
 import { ChatPanes, ChatTabChip } from '@renderer/features/chats/chat-tabs/chat-panes';
 import { openPanelItem } from '@renderer/features/chats/chat-tabs/chat-layouts';
 import { requestTopicSplit } from '@/lib/topicSplitRequest';
@@ -189,7 +189,7 @@ const ChatBlock = observer(function ChatBlock({ blockId, chatId }: { blockId: st
           data-chat-block-tab={chatId}
           label={translate('sidebar.chats')}
           labelSlot={<ChatPartSlot chatId={chatId} part="title" className="flex min-w-0 flex-1" />}
-          menu={<ChatTabMenuItems chatId={chatId} />}
+          menu={chatTabHasActions(chatId) ? <ChatTabMenuItems chatId={chatId} /> : null}
         />
       )}
       body={

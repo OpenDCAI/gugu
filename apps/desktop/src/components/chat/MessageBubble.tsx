@@ -279,7 +279,7 @@ export const MessageBubble = memo(function MessageBubble({
   }, [showMenu, showMoreMenu, showEmojiPicker])
 
   const messageActions = (close: () => void) => ({
-    isMine: msg.is_mine, isRetracted: !!msg.retracted_at, content: msg.content, hasHoverBar: !compactMobile, onClose: close,
+    isRetracted: !!msg.retracted_at, content: msg.content, hasHoverBar: !compactMobile, onClose: close,
     onReply: () => { onQuote(msg); close() },
     onReact: (emoji: string) => { onReaction(msg.id, emoji); close() },
     onQuoteSelection: menuSelection && msg.content_type === 'text' ? () => { onQuote({ ...msg, content: menuSelection }); close() } : undefined,

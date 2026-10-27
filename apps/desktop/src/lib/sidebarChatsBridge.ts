@@ -19,8 +19,6 @@ export type SidebarChatSignals = {
   readonly chatsUnread: number
   /** 每个项目群的未读(含从它开出来的话题),免打扰的不算;没有未读的群不在里面。 */
   readonly groupUnread: ReadonlyMap<string, number>
-  /** The source group's own unread, shown on its row while its topics are expanded. */
-  readonly groupMainUnread: ReadonlyMap<string, number>
 }
 
 export type SidebarChatView = {
@@ -41,17 +39,13 @@ const VIEW_EVENT = 'gugu:sidebar-chat-view'
 export function sidebarChatSignals(chats: readonly ChatItem[], projectGroupChats: ReadonlySet<string>, assistant: AssistantShellSnapshot | null = null): SidebarChatSignals {
   let chatsUnread = 0
   const groupUnread = new Map<string, number>()
-  const groupMainUnread = new Map<string, number>()
   for (const chat of chats) {
     if (chat.unread_count <= 0 || chat.is_muted || isDuplicateAssistantChat(chat, assistant)) continue
     const line = chat.kind === 'topic' ? (chat.source_chat_id ?? chat.id) : chat.id
-    if (projectGroupChats.has(line)) {
-      groupUnread.set(line, (groupUnread.get(line) ?? 0) + chat.unread_count)
-      if (chat.kind !== 'topic') groupMainUnread.set(line, chat.unread_count)
-    }
+    if (projectGroupChats.has(line)) groupUnread.set(line, (groupUnread.get(line) ?? 0) + chat.unread_count)
     else chatsUnread += chat.unread_count
   }
-  return { chatsUnread, groupUnread, groupMainUnread }
+  return { chatsUnread, groupUnread }
 }
 
 const NO_VIEW: SidebarChatView = { focusedChatId: null, groups: [] }
@@ -80,8 +74,6 @@ export function publishSidebarChatSignals(next: SidebarChatSignals): void {
     current &&
     current.chatsUnread === next.chatsUnread &&
     current.groupUnread.size === next.groupUnread.size &&
-    current.groupMainUnread.size === next.groupMainUnread.size &&
-    [...next.groupMainUnread].every(([chatId, count]) => current.groupMainUnread.get(chatId) === count) &&
     [...next.groupUnread].every(([chatId, count]) => current.groupUnread.get(chatId) === count)
   ) return
   write(SIGNALS_KEY, SIGNALS_EVENT, next)

@@ -9,7 +9,6 @@ import { Button } from '@/components/ui/Button'
 import { DropdownMenu, MenuItem } from '@/components/ui/Menu'
 import { Check, ChevronDown, Folder, X } from '@/lib/icons'
 import { rendererLogger } from '@/lib/log'
-import { requestTopicSplit } from '@/lib/topicSplitRequest'
 import { useDevicesStore } from '@/store/devicesContext'
 import { ProjectFolderCard } from '@renderer/features/projects/components/main-panel/project-folder-card'
 import type { ProjectFoldersState, ShownFolder } from '@renderer/features/projects/components/main-panel/project-folders'
@@ -34,7 +33,7 @@ type Stage = { kind: 'off' } | { kind: 'on'; folder: ShownFolder | null; picking
  * 手机在项目群里派「新任务」(spec mobile-session-view「新任务照电脑」,OpenDCAI/gugu#446):
  * 回形针菜单「新任务」→ 框换成新任务的框(上沿一枚「新任务 · agent ▾」),这个项目的文件夹卡(电脑上那一张,
  * ProjectFolderCard)浮在群上 → 点一张文件夹,标签旁写明它在哪台机器上(spec:新建任务的地方写明在哪台机器上运行;点它重新挑)→
- * 发出去 = 那台机器那个文件夹里开工,卡落进群、从卡上开出话题,页签切到它(原型 v7.12)。
+ * 发出去 = 那台机器那个文件夹里开工,卡落进群,agent 在群里回(同普通群)。
  * 打字不收卡(spec projects「项目首页」);收卡只有点一张文件夹,或标签上的 × 连新任务一起收。
  */
 export function usePhoneNewTask({ chatId, enabled, clear }: {
@@ -185,7 +184,7 @@ export function usePhoneNewTask({ chatId, enabled, clear }: {
     setSending(true)
     try {
       const remembered = options?.value ? initialSelection(options.value) : null
-      const { topicChatId } = await createTaskInGroup({
+      await createTaskInGroup({
         deviceId: home.deviceId, projectId: home.localProjectId, cwd: chosen.path, chatId, prompt, harness: picked.id,
         ...(remembered?.harness === picked.id ? {
           model: remembered.model ?? undefined, sessionView: remembered.sessionView ?? undefined,
@@ -194,8 +193,6 @@ export function usePhoneNewTask({ chatId, enabled, clear }: {
       })
       clear()
       setStage({ kind: 'off' })
-      // 开工了:页签切到它那一枚(群页从这个盒子里取走,同列表点话题那一路)。
-      requestTopicSplit({ chatId: topicChatId, name: prompt, sourceChatId: chatId })
     } catch (error) {
       log.warn({ error: String(error), chatId, deviceId: home.deviceId }, 'dispatch a task from the phone failed')
       if (error instanceof TaskInGroupError) {

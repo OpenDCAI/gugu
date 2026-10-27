@@ -1,7 +1,7 @@
 import { observer } from 'mobx-react-lite';
 import { useEffect, useRef, useState, type ReactNode } from 'react';
 import { ProjectMainPanel } from '@renderer/features/projects/components/main-panel/main-panel';
-import { ProjectMenuItems, ProjectTabMenu } from '@renderer/features/projects/components/project-menu';
+import { ProjectMenuItems, ProjectTabMenu, projectHasMenu } from '@renderer/features/projects/components/project-menu';
 import { getProjectStore, projectDisplayName } from '@renderer/features/projects/stores/project-selectors';
 import { TabBarActionRow } from '@renderer/features/sessions/titlebar-actions';
 import { TabStripShell } from '@renderer/features/tabs/tab-bar';
@@ -16,6 +16,7 @@ import { ProjectTaskComposer } from '@renderer/features/projects/components/main
 import { setComposerVerb, takeComposerCarry, useComposerVerb } from '@/lib/composerVerbBridge';
 import { useProjectFolderStage } from '@renderer/features/projects/components/main-panel/project-folder-stage';
 import { useFloatingCardKeys } from './floating-card-keys';
+import { chatTabHasActions } from '@renderer/features/chats/chat-tab-menu-items';
 import { ChatPanes, ChatTabChip } from '@renderer/features/chats/chat-tabs/chat-panes';
 import { rpcOn } from '@renderer/lib/ipc';
 import { machineRegistry } from '@renderer/lib/machine-routing';
@@ -27,7 +28,6 @@ import { screenLayout } from './screen-layout';
  * 下面是这一枚的内容:项目群的消息流(和对话页同一个群聊组件,由壳画进格子)。群里还没有消息(包括刚建的项目)
  * 时正中是项目首页那一套 —— 文件夹卡 + 输入框,和以前点项目进来看到的一样。
  * The conversation supplies the strip's actions even while its empty column shows the project home.
- * More and the project tab's context menu share the conversation's announcement/settings actions.
  */
 export const ProjectBlock = observer(function ProjectBlock({
   blockId,
@@ -95,7 +95,7 @@ export const ProjectBlock = observer(function ProjectBlock({
           focused={focused}
           data-project-block-tab={projectId}
           label={label}
-          menu={<ProjectMenuItems projectId={projectId} chatId={chatId} />}
+          menu={projectHasMenu(projectId) || chatTabHasActions(chatId) ? <ProjectMenuItems projectId={projectId} chatId={chatId} /> : undefined}
         />
       )}
       body={
