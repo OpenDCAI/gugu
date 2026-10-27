@@ -5,7 +5,6 @@ import { log } from '@main/lib/logger';
 import {
   APP_INSTALL_DECLINE_OPTION,
   APP_INSTALL_OPTION,
-  INSTALL_CONSENT_HUMAN_WINDOW_MS,
   type AppInstallAsk,
   type ExtensionConsentRequester,
   type ExtensionInstallConsentRequest,
@@ -25,7 +24,7 @@ export const IN_USE_IDLE_SECONDS = 60;
 type SessionTimelineService = typeof import('@main/core/asks');
 
 export interface ConsentInSessionDependencies {
-  /** The session's `ask` and `respond` (asks/index.ts): the one place the ask is kept and every surface's answer settles it. */
+  /** The session timeline's `ask` and `respond`: the one place the ask is kept and every surface's answer settles it. */
   timeline: () => Promise<Pick<SessionTimelineService, 'ask' | 'respond'>>;
   /** Seconds since the last keyboard or mouse input on this computer. */
   idleSeconds: () => number;
@@ -67,8 +66,8 @@ const defaults: ConsentInSessionDependencies = {
  * same ask too, in front of the person only when they are at this computer (`IN_USE_IDLE_SECONDS`). Only an install
  * answered on a sheet that showed what it may do is taken (the manifest's fingerprint comes back with it): a surface that
  * draws it as a bare Install button is refused, and the ask stays. The person's clock (`INSTALL_CONSENT_HUMAN_WINDOW_MS`)
- * runs here — unanswered, the ask is withdrawn and the agent told it timed out; the agent's call going away (its turn
- * stopped) withdraws it too. No such session here: this window alone asks.
+ * is the app-install source's deadline in asks/sources.ts — unanswered, the ask is withdrawn and the agent told it timed
+ * out; the agent's call going away (its turn stopped) withdraws it too. No such session here: this window alone asks.
  */
 export async function askInstallInSession(
   sessionId: string,
@@ -80,10 +79,6 @@ export async function askInstallInSession(
   const requestId = randomUUID();
   const ask: ExtensionInstallConsentRequest = { ...request, requestId, requester };
   const raise = dependencies.idleSeconds() < IN_USE_IDLE_SECONDS;
-  const clock = new AbortController();
-  const timer = setTimeout(() => clock.abort(), INSTALL_CONSENT_HUMAN_WINDOW_MS);
-  const gone = () => clock.abort();
-  callSignal?.addEventListener('abort', gone, { once: true });
   const timeline = await dependencies.timeline();
   try {
     const answered = timeline.ask(
@@ -100,7 +95,7 @@ export async function askInstallInSession(
         origin: { source: 'app-install', payload: { request: ask } satisfies AppInstallAsk },
       },
       {
-        signal: clock.signal,
+        signal: callSignal,
         refuse: (answer) =>
           answer.optionId === APP_INSTALL_OPTION && answer.digest !== request.manifestDigest
             ? 'An App install is answered on the sheet that shows what it may do — this one did not show it (update Gugu here, or answer it on another of your screens)'
@@ -134,13 +129,11 @@ export async function askInstallInSession(
       .catch((error: unknown) => log.warn('The install sheet in this window could not answer the session:', error));
     const result = await answered;
     if (result === 'unavailable') return await here;
-    if (result === 'withdrawn' || result === 'timeout') return { outcome: callSignal?.aborted ? 'dismissed' : 'timeout' };
+    if (result === 'withdrawn' || result === 'timeout') return { outcome: result === 'timeout' ? 'timeout' : 'dismissed' };
     return result.optionId === APP_INSTALL_OPTION
       ? { outcome: 'confirmed', ...(result.enableIn ? { enableIn: result.enableIn } : {}) }
       : { outcome: 'declined' };
   } finally {
-    clearTimeout(timer);
-    callSignal?.removeEventListener('abort', gone);
     // Answered on another surface (or ran out): the sheet here goes.
     void dependencies.closeWindow(requestId).catch(() => undefined);
   }

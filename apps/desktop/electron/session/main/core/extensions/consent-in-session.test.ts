@@ -9,7 +9,6 @@ vi.mock('./extension-bridge-relay', () => ({ requestExtensionInstallConsent: vi.
 vi.mock('@main/lib/logger', () => ({ log: { warn: vi.fn(), info: vi.fn(), error: vi.fn() } }));
 
 const { askInstallInSession, IN_USE_IDLE_SECONDS } = await import('./consent-in-session');
-const { INSTALL_CONSENT_HUMAN_WINDOW_MS } = await import('@shared/extensions/host-actions');
 
 const request = {
   sourceDir: '/tmp/reader',
@@ -23,9 +22,9 @@ const requester = { name: 'Claude 1', agentUserId: 'agent-1' };
 type Asked = {
   sessionId: string;
   request: { itemId: string; title: string; options: { optionId: string }[]; origin: { source: string; payload: { request: Record<string, unknown> } } };
-  options: { signal: AbortSignal; refuse?: (answer: { optionId: string; digest?: string }) => string | null };
+  options: { signal?: AbortSignal; refuse?: (answer: { optionId: string; digest?: string }) => string | null };
 };
-type Answer = { optionId: string; by: string; digest?: string; enableIn?: string[] } | 'withdrawn' | 'unavailable';
+type Answer = { optionId: string; by: string; digest?: string; enableIn?: string[] } | 'withdrawn' | 'timeout' | 'unavailable';
 
 /** The session timeline as ask / respond see it: `answer` settles the ask as a surface's respond would. */
 function world(options: { idle?: number; window?: (request: unknown) => Promise<{ outcome: string; enableIn?: string[] }> } = {}) {
@@ -37,7 +36,7 @@ function world(options: { idle?: number; window?: (request: unknown) => Promise<
       asked.push({ sessionId, request: ask, options: opts });
       return new Promise<Answer>((resolve) => {
         answer = resolve;
-        opts.signal.addEventListener('abort', () => resolve('withdrawn'));
+        opts.signal?.addEventListener('abort', () => resolve('withdrawn'));
       });
     },
     respond: async (input: Record<string, unknown>) => {
@@ -121,14 +120,14 @@ describe('an agent’s App install, asked as an approval in its session (D-31)',
     expect(w.responses[0]).not.toHaveProperty('digest');
   });
 
-  it('nobody answers within the person’s window: the ask is withdrawn and the agent is told it timed out', async () => {
-    vi.useFakeTimers();
+  it('the shared Ask timeout closes this window without a second clock', async () => {
     const w = world();
     const result = askInstallInSession('conv-1', request, requester, w.dependencies as never);
-    await vi.advanceTimersByTimeAsync(INSTALL_CONSENT_HUMAN_WINDOW_MS - 1);
-    expect(w.asked[0]?.options.signal.aborted).toBe(false);
-    await vi.advanceTimersByTimeAsync(1);
+    await flush();
+    expect(w.asked[0]?.options.signal).toBeUndefined();
+    w.answer('timeout');
     await expect(result).resolves.toEqual({ outcome: 'timeout' });
+    expect(w.closed).toEqual([w.asked[0]!.request.itemId]);
   });
 
   it("the agent's call goes away (its turn stopped): the ask is withdrawn, not left for nobody", async () => {
@@ -138,7 +137,7 @@ describe('an agent’s App install, asked as an approval in its session (D-31)',
     await flush();
     call.abort();
     await expect(result).resolves.toEqual({ outcome: 'dismissed' });
-    expect(w.asked[0]?.options.signal.aborted).toBe(true);
+    expect(w.asked[0]?.options.signal?.aborted).toBe(true);
   });
 
   it('no such session here: this window alone asks, nothing sent to a session', async () => {

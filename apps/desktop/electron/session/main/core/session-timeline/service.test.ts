@@ -1280,6 +1280,22 @@ describe('session timeline service', () => {
       await expect(asks.ask('conv-nope', ask(), { signal: new AbortController().signal })).resolves.toBe('unavailable');
     });
 
+    it('the registered App deadline withdraws the same settlement at 280 seconds', async () => {
+      vi.useFakeTimers();
+      try {
+        state.rows = [row()];
+        const fake = makeTimeline();
+        service.setSessionTimelineFactory(async () => fake.timeline);
+        const answer = asks.ask('conv-1', ask(), {});
+        await service.snapshot({ conversationId: 'conv-1' });
+        await vi.advanceTimersByTimeAsync(279_999);
+        expect(fake.timeline.getSnapshot().settlements.find(item => item.itemId === 'host-1')?.state).toBe('pending');
+        await vi.advanceTimersByTimeAsync(1);
+        await expect(answer).resolves.toBe('timeout');
+        expect(await service.snapshot({ conversationId: 'conv-1' })).toMatchObject({ ok: true, value: { settlements: [expect.objectContaining({ itemId: 'host-1', state: 'cancelled' })] } });
+      } finally { vi.useRealTimers(); }
+    });
+
     it('one the archive brings back pending, asked by a process that is gone: over, never shown as still asked', async () => {
       // 10-06 A/B: B restarted with an ask out; the timeline came back from its archive with it pending and nothing here asking it.
       const { timeline } = makeTimeline();
