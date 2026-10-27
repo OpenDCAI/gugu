@@ -19,7 +19,7 @@ beforeEach(() => {
 afterEach(() => harness.cleanup())
 
 async function render(disabled = false, chatId: string | undefined = 'project-group') {
-  await harness.render(createElement(ProjectRowContextMenu, { disabled, chatId, onRemove: vi.fn(),
+  await harness.render(createElement(ProjectRowContextMenu, { disabled, chatId, projectId: 'project', onRemove: vi.fn(),
     children: createElement('span', { 'data-testid': 'project-row' }, 'Project') }))
   await act(async () => {
     harness.container.querySelector('[data-testid=project-row]')!.dispatchEvent(new MouseEvent('contextmenu', {
