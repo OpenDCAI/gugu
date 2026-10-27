@@ -20,6 +20,9 @@ it('keeps named work, unknown tasks and foreign or ambiguous cache entries uncha
   expect(withAssistantWorkTitle(work,'owner','owner',[])).toBe(work)
   const ambiguous=[{...devices[0]!,session_digest:[...devices[0]!.session_digest!,...devices[0]!.session_digest!]}]
   expect(withAssistantWorkTitle(work,'owner','owner',ambiguous)).toBe(work)
+  const malformed=[{...devices[0]!,session_digest:{unreadable:true}}] as unknown as Device[]
+  expect(withAssistantWorkTitle(work,'owner','owner',malformed)).toBe(work)
+  expect(()=>assistantWorkTitleSignature('owner','owner',malformed)).not.toThrow()
 })
 it('refreshes title evidence independently of heartbeat status and device order',()=>{
   const signature=assistantWorkTitleSignature('owner','owner',devices)
