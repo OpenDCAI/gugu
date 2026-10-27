@@ -1,0 +1,75 @@
+import { summary } from './summary';
+import { verifyKeyedMcpCredentials } from '../../helpers/keyed-mcp';
+import { defineIntegrationPlugin, registerIntegrationPluginBehavior } from '../../plugin';
+import { icon } from './icon';
+
+/**
+ * 高德官方的托管 MCP(地点搜索、周边、路线规划、距离、天气、地理编码…)。
+ * 它只认用户自己在高德开放平台申请的 Web 服务 Key,放在地址的 `?key=` 里,没有浏览器授权。
+ * Key 只存本机加密凭据库,❌ 进仓库、❌ 平台代持(owner 2026-10-28 定:先让用户填自己的)。
+ */
+export const AMAP_MCP_URL = 'https://mcp.amap.com/mcp';
+export const AMAP_KEY_GUIDE_URL = 'https://lbs.amap.com/api/mcp-server/create-project-and-key';
+
+const mcp = { serverUrl: AMAP_MCP_URL, keyField: 'apiKey', keyQueryParam: 'key' };
+
+const plugin = defineIntegrationPlugin(
+  {
+    id: 'amap',
+    name: summary.name['zh-CN'],
+    description: summary.description,
+    websiteUrl: 'https://lbs.amap.com',
+    abilities: [
+      { en: 'Search places and what is nearby', 'zh-CN': '搜地点、搜周边' },
+      { en: 'Plan driving, transit, walking and cycling routes', 'zh-CN': '规划驾车、公交、步行、骑行路线' },
+      { en: 'Check distance, travel time and weather', 'zh-CN': '查距离、耗时和天气' },
+    ],
+    playbooks: [
+      {
+        title: { en: 'How long to get there', 'zh-CN': '过去要多久' },
+        prompt: {
+          en: 'How long does it take from Beijing South Railway Station to the Forbidden City by subway and by car right now?',
+          'zh-CN': '从北京南站到故宫，坐地铁和打车现在各要多久？',
+        },
+      },
+      {
+        title: { en: 'Find somewhere nearby', 'zh-CN': '附近找个地方' },
+        prompt: {
+          en: 'Find three well-rated coffee shops within 1 km of Shanghai Jing\'an Temple and tell me how to walk there.',
+          'zh-CN': '在上海静安寺附近一公里内找三家评价好的咖啡店，告诉我怎么走过去。',
+        },
+      },
+    ],
+  },
+  {
+    auth: {
+      methods: [
+        {
+          kind: 'form',
+          fields: [
+            {
+              id: 'apiKey',
+              label: { en: 'AMap Web service key', 'zh-CN': '高德 Web 服务 Key' },
+              secret: true,
+              required: true,
+              placeholder: { en: 'Paste your AMap key', 'zh-CN': '粘贴你的高德 Key' },
+            },
+          ],
+          help: {
+            en: 'Free: sign in to the AMap open platform, create an app and add a key with the service type “Web 服务”, then paste it here.',
+            'zh-CN': '免费申请：登录高德开放平台，创建应用并添加 Key，服务平台选「Web 服务」，把 Key 粘贴到这里。',
+          },
+          helpUrl: AMAP_KEY_GUIDE_URL,
+          mcp,
+        },
+      ],
+    },
+  },
+  { icon }
+);
+
+export const provider = registerIntegrationPluginBehavior(plugin, {
+  auth: {
+    verify: (_host, credentials) => verifyKeyedMcpCredentials(plugin.metadata.name, mcp, credentials),
+  },
+});
