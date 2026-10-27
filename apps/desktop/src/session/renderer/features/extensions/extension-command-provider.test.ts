@@ -5,6 +5,7 @@ import { EXTENSION_API_VERSION } from '@shared/extensions/manifest';
 const invokeCommand = vi.hoisted(() => vi.fn(async () => ({ success: true })));
 vi.mock('@renderer/lib/ipc', () => ({ rpc: { extensions: { invokeCommand } }, events: { on: () => () => {} } }));
 vi.mock('@renderer/utils/logger', () => ({ log: { warn: vi.fn(), error: vi.fn() } }));
+vi.mock('@renderer/features/sessions/stores/open-file-in-file-editor', () => ({ openHostRequestedExtensionInSessionWhenReady: vi.fn() }));
 
 const { createExtensionCommandProvider } = await import('./extension-command-provider');
 const { installedExtensionsStore: store } = await import('./installed-extensions-store');
@@ -12,6 +13,7 @@ const { extensionViewStore: views } = await import('./extension-view-store');
 const { extensionSurfaceStore: surfaces } = await import('./extension-surface-store');
 const { auxWindows } = await import('@renderer/app/aux-windows');
 const { appState } = await import('@renderer/lib/stores/app-state');
+const { appPlacementStore } = await import('./app-placement-store');
 const provider = createExtensionCommandProvider();
 const command = { id: 'new', title: 'New card' };
 const app = (id = 'board') => ({ id, name: 'Board', version: '1.0.0', apiVersion: EXTENSION_API_VERSION,
@@ -27,6 +29,7 @@ afterEach(() => {
   invokeCommand.mockClear();
   views.forgetOpened('board.main');
   surfaces.forget(null, 'command-test');
+  appPlacementStore.take('board.main');
   vi.unstubAllGlobals();
 });
 
@@ -83,5 +86,21 @@ describe('enabled App commands in the global registry', () => {
       expect(focus).toHaveBeenCalledOnce();
       await vi.waitFor(() => expect(invokeCommand).toHaveBeenCalledExactlyOnceWith({ webContentsId: 84, commandId: 'new' }));
     } finally { auxWindows.remove(id); surfaces.forget(null, `window:${id}`); }
+  });
+
+  it('waits for retargeting instead of executing in the previous task when the App moves', async () => {
+    install();
+    vi.stubGlobal('window', new EventTarget());
+    appPlacementStore.place('board.main', { projectId: 'p', sessionId: 'next-task' });
+    views.claim('board.main', { sessionId: 'old-task', tabId: 'old-tab', element: {} as HTMLElement });
+    surfaces.setWebContentsId('old-task', 'old-tab', 41);
+    try {
+      provider.getCommands()[0]!.execute();
+      expect(appState.navigation.viewParamsStore.session).toEqual({ projectId: 'p', sessionId: 'next-task' });
+      expect(invokeCommand).not.toHaveBeenCalled();
+      views.claim('board.main', { sessionId: 'next-task', tabId: 'new-tab', element: {} as HTMLElement });
+      surfaces.setWebContentsId('next-task', 'new-tab', 42);
+      await vi.waitFor(() => expect(invokeCommand).toHaveBeenCalledExactlyOnceWith({ webContentsId: 42, commandId: 'new' }));
+    } finally { surfaces.forget('old-task', 'old-tab'); surfaces.forget('next-task', 'new-tab'); }
   });
 });
