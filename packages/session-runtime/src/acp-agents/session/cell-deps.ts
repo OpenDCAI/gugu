@@ -23,6 +23,8 @@ export interface SessionCellCallbacks {
   onTranscriptChanged?: () => void;
   onDraftChanged?: () => void;
   onClosed?: (exitCode: number | null) => void;
+  /** v2 native admission failed internally. Retire the executor through the existing lifecycle. */
+  onPromptRejected?: () => Promise<void>;
   onAgentEvent?: (phase: 'start' | 'stop' | 'error') => void;
 }
 

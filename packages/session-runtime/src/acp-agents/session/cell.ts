@@ -536,6 +536,7 @@ export class SessionCell {
     opts?: { steerIfBusy?: boolean },
   ): Promise<Result<SessionPromptResult, AcpSendPromptError>> {
     const now = Date.now();
+    const draftRev = this.draftRev;
     return this.sendPromptInternal({
       id: crypto.randomUUID(),
       ...input,
@@ -543,9 +544,8 @@ export class SessionCell {
       updatedAt: now,
     }, {
       ...opts,
-      // Consume the submitted draft at admission. Completion can arrive minutes later,
-      // when the composer already holds the person's next, unsent message (#7572).
-      onAdmission: (result) => { if (result.success) this.clearDraft(); },
+      // Native admission can arrive after the next draft sync; consume only this revision.
+      onAdmission: (result) => { if (result.success && this.draftRev === draftRev) this.clearDraft(); },
     });
   }
 
@@ -614,6 +614,7 @@ export class SessionCell {
    * 开出来的那一轮怎么结束由 cell 自己结算、上屏(与 `prompt()` 同一条路),这里只交回受理结果。
    */
   async queueBehindTurn(input: PromptInput): Promise<Result<{ queued: boolean }, InvalidStateError>> {
+    const draftRev = this.draftRev;
     if (this.reverting) return acpErr.invalidState('Conversation revert is in progress.');
     if (this.machine.phase.kind === 'replaying') {
       const queued = this.queuePrompt(input);
@@ -632,7 +633,7 @@ export class SessionCell {
       if (admitted.error.type === 'invalid_state') return { success: false, error: admitted.error };
       throw new Error(`SessionCell: queued prompt admission failed with ${admitted.error.type}`);
     }
-    this.clearDraft();
+    if (this.draftRev === draftRev) this.clearDraft();
     return ok({ queued: admitted.data.queued });
   }
 
@@ -1726,7 +1727,14 @@ export class SessionCell {
       return queued;
     }
     // #6387 受理结果说清是「开了一轮」还是「插进了在飞的那一轮」—— 投递方要如实告诉扩展。
-    if (!opts?.skipAdmission) opts?.onAdmission?.(ok({ queued: false, ...(steered ? { steered: true } : {}) }));
+    let providerAccepted = false;
+    let nativeRequest = false;
+    const admit = () => {
+      providerAccepted = true;
+      if (!opts?.skipAdmission) opts?.onAdmission?.(ok({ queued: false, ...(steered ? { steered: true } : {}) }));
+    };
+    // v2 has a provider receipt; local dispatch alone cannot claim delivery to a dead session.
+    if (this.agent.protocolVersion !== 2) admit();
     if (started && !steered) {
       this.openTurnCompletion();
       const envelope = this.makeTurnEnvelope();
@@ -1846,6 +1854,7 @@ export class SessionCell {
         sessionId: this.acpSessionId,
         content: promptRequest.prompt,
       });
+      nativeRequest = this.agent.protocolVersion === 2;
       if (nativeSteer) {
         const outcome = await this.requestSteering(promptRequest);
         if (outcome === 'promptRequired') {
@@ -1853,7 +1862,8 @@ export class SessionCell {
           // once; it is sent now, or waits in the queue until the agent reports it stopped.
           const retried = await this.sendPromptInternal(prompt, {
             fromQueue: opts?.fromQueue,
-            skipAdmission: true,
+            skipAdmission: this.agent.protocolVersion !== 2,
+            onAdmission: opts?.onAdmission,
           });
           // 「立即发送」的那句仍在排队 ⇒ 排在队首,与 steerQueuedPrompt 没有在干的活时同一个去处。
           if (opts?.fromQueue && retried.success && retried.data.queued) {
@@ -1864,12 +1874,15 @@ export class SessionCell {
           return retried;
         }
         recordUserMessage();
+        if (this.agent.protocolVersion === 2) admit();
         // `injected` is an admission receipt. The provider's output remains on the primary
         // prompt's ACP stream, so this call must not settle the cell turn.
         return ok({ queued: false });
       }
 
-      const response = await this.agent.prompt(promptRequest);
+      const response = await (nativeRequest
+        ? this.agent.prompt(promptRequest, admit)
+        : this.agent.prompt(promptRequest));
       const reportedFailure = this.deps.turnFailure?.fromPromptResponse?.(response);
       if (reportedFailure) this.providerTurnFailure = reportedFailure;
       const anchor = (response._meta?.guguRevert as { before?: unknown } | undefined)?.before;
@@ -1921,6 +1934,9 @@ export class SessionCell {
     } catch (e) {
       const cause = toSerializedError(e);
       const err = acpErr.promptFailed(cause);
+      // JSON-RPC Internal error before native admission is an executor failure. Invalid
+      // input and errors from an already admitted turn do not invalidate the session.
+      const rejected = nativeRequest && !providerAccepted && cause.code === -32603;
       this.deps.logger.error('SessionCell: prompt failed', {
         sessionId: this.sessionId,
         providerId: this.deps.providerId,
@@ -1975,7 +1991,7 @@ export class SessionCell {
         });
         // ⚠️ 只有**真的落定了一轮**才允许把「可改口」打开(评审抓到):`settleTurn` 在没有活跃轮时
         // 什么都不做,而那时若照样置位,后来的异常退出就会去改写**碰巧排在末尾的另一轮**。
-        const settled = this.settleTurn(classified.outcome, { dequeueQueuedPrompt: !opts?.fromQueue });
+        const settled = this.settleTurn(classified.outcome, { dequeueQueuedPrompt: !opts?.fromQueue && !rejected });
         if (settled) this.lastFailureProvisional = classified.provisional;
       } else {
         if (this.steerSettlesTurn && this.steerInFlight === 0) {
@@ -1992,6 +2008,10 @@ export class SessionCell {
           if (settled) this.lastFailureProvisional = classified.provisional;
         }
       }
+      // Native refusal is different from an admitted turn's error at idle. Retiring the
+      // executor feeds the existing lost -> provision/resume path, without matching errors
+      // or replaying this rejected message. Settle its actual failure before the process exits.
+      if (rejected) await this.deps.callbacks?.onPromptRejected?.();
       return err;
     }
   }
