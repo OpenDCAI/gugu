@@ -103,8 +103,10 @@ export function canYieldRepliedAssistant(turn: TranscriptTurn | null, nextText: 
   // A receipt from before a later steered input does not mean that later input has a reply.
   const items = replyItems(turn);
   const inputIndex = items.findLastIndex(item => item.kind === 'message' && item.role === 'user');
-  return items.slice(inputIndex + 1).some(item => 'toolCallId' in item && isRootSend(item)
-    && item.status === 'done' && replySend(item, previous) !== null && sentMessageId(item) !== null);
+  const lastTool = items.slice(inputIndex + 1).findLast(item => 'toolCallId' in item);
+  // An acknowledgement followed by real work is not a model-only trailing response.
+  return !!lastTool && 'toolCallId' in lastTool && isRootSend(lastTool)
+    && lastTool.status === 'done' && replySend(lastTool, previous) !== null && sentMessageId(lastTool) !== null;
 }
 
 export function replyProcesses(turns: readonly TranscriptTurn[], chatId: string): ReadonlyMap<string, ReplyProcess> {

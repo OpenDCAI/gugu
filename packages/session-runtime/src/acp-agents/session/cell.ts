@@ -148,7 +148,7 @@ export class SessionCell {
   private interruptForSteer = false;
   /** 这一轮的 cancel 是我们为插话发的 ⇒ 结算成 `interrupted_for_message`,而不是「你停止了这一轮」。 */
   private interruptedForMessage = false;
-  private yieldingRepliedAssistant = false;
+  private yieldingRepliedAssistant: string | null = null;
   /** Cancellation would also withdraw inputs already admitted by the native adapter. */
   private nativeInputAfterStart = false;
   /** 这一轮被这一家以「正常结束」掩盖的失败(见 `acp.turnFailure`)。 */
@@ -1254,7 +1254,7 @@ export class SessionCell {
     this.runningTools.clear();
     this.interruptForSteer = false;
     this.interruptedForMessage = false;
-    this.yieldingRepliedAssistant = false;
+    this.yieldingRepliedAssistant = null;
     this.nativeInputAfterStart = false;
     this.providerTurnFailure = null;
     this.providerStderrFailure = null;
@@ -1644,10 +1644,18 @@ export class SessionCell {
   }
 
   private interruptIfAtToolBoundary(): void {
-    if (!this.interruptForSteer || this.runningTools.size > 0) return;
-    if (this.yieldingRepliedAssistant && (this.lastRunningAgentCount > 0 || this.lastRunningCommandTaskIds.length > 0
+    if (!this.interruptForSteer) return;
+    if (this.yieldingRepliedAssistant && (this.runningTools.size > 0 || this.lastRunningAgentCount > 0 || this.lastRunningCommandTaskIds.length > 0
       || this.machine.pendingPermissions.length > 0 || this.steerInFlight > 0 || this.nativeInputAfterStart
-      || this.deps.queuedPromptsPersisted?.() !== true)) return;
+      || this.deps.queuedPromptsPersisted?.() !== true
+      || !canYieldRepliedAssistant(this.transcript.activeTurn, this.yieldingRepliedAssistant, this.deps.assistantOwnerId!))) {
+      // A new tool can arrive while QueuePrompt synchronously saves. Abandon yielding,
+      // retaining the normal queue; never wait for that tool and then cancel its work.
+      this.yieldingRepliedAssistant = null;
+      this.interruptForSteer = false;
+      return;
+    }
+    if (this.runningTools.size > 0) return;
     this.interruptForSteer = false;
     // 用户已经自己点了停止(phase 已是 cancelling)⇒ 这一轮是用户停的,❌ 改标成「为插话停下」
     // (界面据此收起「继续 / 丢弃」),也不再发第二次 cancel。插话照旧排在队里,作为下一轮发出。
@@ -1687,12 +1695,14 @@ export class SessionCell {
     if (this.reverting) return acpErr.sessionBusy('Conversation revert is in progress.');
     if (!opts?.fromQueue && prompt.origin === 'communication' && this.machine.phase.kind === 'working'
       && this.deps.assistantOwnerId && this.steerInFlight === 0 && !this.nativeInputAfterStart
+      && this.runningTools.size === 0 && this.lastRunningAgentCount === 0 && this.lastRunningCommandTaskIds.length === 0
+      && this.machine.pendingPermissions.length === 0
       && canYieldRepliedAssistant(this.transcript.activeTurn, prompt.text, this.deps.assistantOwnerId)) {
       // QueuePrompt synchronously saves through the manager callback. The new input must
       // remain outside the provider: native cancel withdraws all of its pending inputs.
       const held = this.dispatchFor<AcpSendPromptError>({ type: 'QueuePrompt', prompt }, ['invalid_state']);
       if (!held.success) return held;
-      this.yieldingRepliedAssistant = true;
+      this.yieldingRepliedAssistant = prompt.text;
       this.interruptForSteer = true;
       this.interruptIfAtToolBoundary();
       const queued = ok({ queued: true });

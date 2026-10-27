@@ -85,18 +85,41 @@ describe('new owner input after an assistant reply', () => {
     await f.first.completion;
   });
 
-  it('waits for an active tool to finish and never cancels it', async () => {
+  it('keeps acknowledgement followed by work on the normal path, including after its tool finishes', async () => {
     const f = fixture();
     await f.first.admission;
     f.sent();
     const tool = { toolCallId: 'read', title: 'Read', toolKind: 'read' as const, parentToolCallId: null, diffs: [], locations: [] };
     f.cell.push({ kind: 'tool_call', ...tool, status: 'in_progress' });
-    f.agent.cancel.mockImplementation(async () => { f.old.resolve({ stopReason: 'cancelled' }); return {}; });
     await f.cell.promptDetached({ origin: 'communication', text: delivery('next') }).admission;
     expect(f.agent.cancel).not.toHaveBeenCalled();
     f.cell.push({ kind: 'tool_update', ...tool, status: 'completed' });
-    expect(f.agent.cancel).toHaveBeenCalledTimes(1);
+    expect(f.agent.cancel).not.toHaveBeenCalled();
+    f.old.resolve({ stopReason: 'end_turn' });
     await f.first.completion;
+    await vi.waitFor(() => expect(f.agent.prompt).toHaveBeenCalledTimes(2));
+    expect(f.agent.prompt.mock.calls[1][0].prompt).toEqual([{ type: 'text', text: delivery('next') }]);
+  });
+
+  it('abandons a yield if an old-turn tool starts during queue persistence', async () => {
+    let armed = false;
+    const tool = { toolCallId: 'late', title: 'Read', toolKind: 'read' as const, parentToolCallId: null, diffs: [], locations: [] };
+    const f: ReturnType<typeof fixture> = fixture({ callbacks: { onSessionStateChanged: () => {
+      if (!armed || !f.cell.sessionState.queuedPrompts.length) return;
+      armed = false;
+      f.cell.push({ kind: 'tool_call', ...tool, status: 'in_progress' });
+    } } });
+    await f.first.admission;
+    f.sent();
+    armed = true;
+    await f.cell.promptDetached({ origin: 'communication', text: delivery('next') }).admission;
+    expect(f.cell.sessionState.queuedPrompts).toHaveLength(1);
+    expect(f.agent.cancel).not.toHaveBeenCalled();
+    f.cell.push({ kind: 'tool_update', ...tool, status: 'completed' });
+    expect(f.agent.cancel).not.toHaveBeenCalled();
+    f.old.resolve({ stopReason: 'end_turn' });
+    await f.first.completion;
+    await vi.waitFor(() => expect(f.agent.prompt).toHaveBeenCalledTimes(2));
   });
 
   it('retains two arrivals during cancellation and drains them once in arrival order', async () => {
@@ -134,9 +157,9 @@ describe('new owner input after an assistant reply', () => {
       title: 'Background work', status: 'in_progress', parentToolCallId: null });
     await f.cell.promptDetached({ origin: 'communication', text: delivery('next') }).admission;
     expect(f.agent.cancel).not.toHaveBeenCalled();
-    f.agent.cancel.mockImplementation(async () => { f.old.resolve({ stopReason: 'cancelled' }); return {}; });
     f.cell.push({ kind: 'subagent_done', toolCallId: 'child', agentId: 'child', subagentSessionId: 'child', status: 'completed' });
-    expect(f.agent.cancel).toHaveBeenCalledTimes(1);
+    expect(f.agent.cancel).not.toHaveBeenCalled();
+    f.old.resolve({ stopReason: 'end_turn' });
     await f.first.completion;
   });
 });
