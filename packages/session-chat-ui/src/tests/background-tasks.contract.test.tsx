@@ -21,8 +21,9 @@ afterEach(() => {
   while (teardown.length) teardown.pop()?.()
 })
 
-function mount(commands: ChatCommands = {}) {
+function mount(commands: ChatCommands = {}, conversation = false) {
   const context = createChatContext({ theme: DEFAULT_THEME })
+  if (conversation) context.setLayout({ preset: 'double', userGutter: 72, agentConversation: true })
   const state = createChatState(context)
   const host = document.createElement('div')
   host.style.cssText = 'position:fixed;inset:0;width:640px;height:600px'
@@ -153,5 +154,47 @@ describe('background tasks at the end of the transcript', () => {
     state.session.setBackgroundTasks({ commands: [], subagents: [agent()] })
     await until('the background line is on screen', () => row(host) !== null)
     expect(row(host)?.textContent).toContain('Background · 1 subagent')
+  })
+
+  // owner 2026-10-27 原型:末尾那条回复带着过程行时,后台那一句与「思考执行中」同一行,单子就地展开在它下面。
+  it('hangs on the last reply\'s process line in the conversation layout, not as its own row', async () => {
+    const { state, host } = mount({}, true)
+    const worked: TranscriptTurn = {
+      id: 'w1',
+      seq: 0,
+      initiator: 'user',
+      startedAt: 1000,
+      endedAt: 25000,
+      outcome: { kind: 'done', reason: 'end_turn' },
+      items: [
+        { kind: 'message', id: 'q', seq: 0, role: 'user', text: 'Run the tests in the background.' },
+        { kind: 'thinking', id: 'think', seq: 1, text: 'hmm' },
+        { kind: 'message', id: 'answer', seq: 2, role: 'assistant', text: 'Started them; I will report back.' }
+      ]
+    } as unknown as TranscriptTurn
+    state.transcript.history.seed([worked])
+    state.session.setBackgroundTasks({ commands: [command], subagents: [agent()] })
+
+    const pill = () => host.querySelector<HTMLElement>('[data-agent-conversation-message="answer"] [data-slot="background-tasks-pill"]')
+    await until('the background line sits on the reply\'s process line', () => pill() !== null)
+    expect(pill()?.textContent).toContain('Background · 1 command · 1 subagent')
+    expect(row(host)).toBeNull()
+    const process = host.querySelector<HTMLElement>('[data-agent-conversation-message="answer"] [data-conversation-process]')!
+    // 同一行
+    expect(Math.abs(process.getBoundingClientRect().top - pill()!.getBoundingClientRect().top)).toBeLessThanOrEqual(2)
+
+    pill()!.click()
+    await until('the list opens under that line, above the bubble', () => items(host).length === 2)
+    const message = host.querySelector<HTMLElement>('[data-agent-conversation-message="answer"]')!
+    expect(message.contains(items(host)[0])).toBe(true)
+    const bubble = message.querySelector<HTMLElement>('[data-user-card]')!
+    expect(items(host)[1].getBoundingClientRect().bottom).toBeLessThanOrEqual(bubble.getBoundingClientRect().top)
+
+    // 人接着说话:末尾不再是那条回复 ⇒ 后台单独一行贴在最后。
+    state.transcript.activeTurn.set({
+      id: 'w2', seq: 1, initiator: 'user', startedAt: Date.now(),
+      items: [{ kind: 'message', id: 'q2', seq: 0, role: 'user', text: 'And lint too.' }]
+    } as unknown as TranscriptTurn)
+    await until('the background line moves to its own last row', () => row(host) !== null && pill() === null)
   })
 })

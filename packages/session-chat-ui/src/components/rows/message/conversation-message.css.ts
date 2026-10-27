@@ -28,8 +28,10 @@ globalStyle(`${conversationActions} [data-user-message-actions]`, { opacity: 1, 
 export const conversationProcessButton = style({ display: 'inline-flex', alignItems: 'center', gap: 5, height: 22, padding: 0, border: 0, background: 'transparent', color: vars.fgMuted, font: 'inherit', fontVariantNumeric: 'tabular-nums', cursor: 'pointer', whiteSpace: 'nowrap', selectors: { '&:hover': { color: vars.fg }, '&:focus-visible': { outline: `1px solid ${vars.fgMuted}`, outlineOffset: 2, borderRadius: 3 } } });
 export const conversationProcessChevron = style({ display: 'inline-block', lineHeight: 1, transition: 'transform 120ms ease', selectors: { [`${conversationProcessButton}[aria-expanded="true"] &`]: { transform: 'rotate(90deg)' } }, '@media': { '(prefers-reduced-motion: reduce)': { transition: 'none' } } });
 globalStyle(`${conversationProcessButton} svg`, { flexShrink: 0 });
-// Copy/edit controls float above the footer rather than covering the process disclosure.
-globalStyle(`${conversationRoot}:has([data-conversation-process]) ${conversationActions}`, { bottom: 24, left: 'auto', right: 0 });
+// 过程行挪到了气泡上方,复制 / 编辑那一组就贴在这一条的右下角,不再让出底下那一行。
+globalStyle(`${conversationRoot}:has([data-conversation-process]) ${conversationActions}`, { bottom: 0, left: 'auto', right: 0 });
+/** 过程行里「思考执行中」与「后台 · …」之间那道细竖线。 */
+export const conversationTimeSeparator = style({ width: 1, height: 10, background: vars.border, flexShrink: 0 });
 
 // Process labels share the conversation's auxiliary typography; code bodies retain monospace.
 for (const label of [collapseHeader, toolName, summaryChip]) {

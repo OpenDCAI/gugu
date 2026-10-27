@@ -8,13 +8,16 @@ import type { ChatMessage } from '@session-chat/model';
 import { useTurnState } from '@session-chat/components/contexts/TurnStateContext';
 import { turnProcessExpanded } from '@session-chat/state/turn-fold';
 import { ConversationProcess } from './ConversationProcess';
+import { BackgroundTasksList, backgroundTasksLabel, backgroundTasksListHeight } from '../background-tasks/background-tasks-parts';
+import { ShimmerText } from '@session-chat/components/primitives/ShimmerText';
+import { BACKGROUND_TASKS_TOGGLE } from '@session-chat/state/flatten';
 import { segmentItem } from './DeliveryCard';
 import { UserMessageActions } from './UserMessageActions';
 import { isMessageEditing } from './message-editor-metrics';
 import { UserMessageCard } from './UserMessageCard';
 import { measureUserMessage } from './user-message-metrics';
 import { userMessageActionsHeight, type MessageVars } from './metrics';
-import { conversationRoot, conversationHeader, conversationName, conversationDivider, conversationQuote, conversationTime, conversationActions } from './conversation-message.css';
+import { conversationRoot, conversationHeader, conversationName, conversationDivider, conversationQuote, conversationTime, conversationActions, conversationProcessButton, conversationProcessChevron, conversationTimeSeparator } from './conversation-message.css';
 
 const HEADER_H = 24;
 const TIME_H = 22;
@@ -43,7 +46,14 @@ export function conversationMessageHeight(item: ChatMessage, ctx: MeasureCtx, va
 
 function singleHeight(item: ChatMessage, ctx: MeasureCtx, vars: MessageVars): number {
   const bodyVars = conversationVars(item, vars);
-  return HEADER_H + measureUserMessage(item, conversationContext(ctx), bodyVars) - (isMessageEditing(item.id, ctx) && !item.guguDelivery ? 0 : userMessageActionsHeight(bodyVars)) + (item.role === 'assistant' && item.conversationProcess ? TIME_H : 0);
+  return HEADER_H + measureUserMessage(item, conversationContext(ctx), bodyVars) - (isMessageEditing(item.id, ctx) && !item.guguDelivery ? 0 : userMessageActionsHeight(bodyVars)) + (item.role === 'assistant' && item.conversationProcess ? TIME_H + backgroundHeight(item, ctx) : 0);
+}
+
+/** 后台任务挂在这条回复的过程行上、单子又展开着 ⇒ 多出单子的高(挂在哪由 ChatRoot 算,见 MeasureCtx.background)。 */
+function backgroundHeight(item: ChatMessage, ctx: MeasureCtx): number {
+  const background = ctx.background;
+  if (!background || background.ownerId !== item.id || !background.expanded) return 0;
+  return backgroundTasksListHeight(background.commands.length + background.subagents.length);
 }
 
 /** Agent-centered view: assistant left, every incoming actor right. */
@@ -69,6 +79,10 @@ function SingleConversationMessage(props: { data: ChatMessage; ctx: RenderCtx; v
   };
   const quote = () => facts()?.replyTo?.preview ?? props.data.conversationReply?.text;
   const reference = () => props.data.conversationReply?.itemId;
+  const background = () => {
+    const attached = props.ctx.measureCtx?.().background;
+    return attached && attached.ownerId === props.data.id ? attached : null;
+  };
   const bodyCtx: RenderCtx = { ...props.ctx, measureCtx: () => conversationContext(props.ctx.measureCtx!()) };
   const jump = (event: MouseEvent) => {
     event.stopPropagation();
@@ -83,12 +97,28 @@ function SingleConversationMessage(props: { data: ChatMessage; ctx: RenderCtx; v
         <span>{quote()}</span><svg viewBox="0 0 16 16" width="14" height="14" aria-hidden="true"><path d="M12.5 3v4.5a3 3 0 0 1-3 3H3m3.5-3.5L3 10.5 6.5 14" /></svg>
       </button></Show>
     </div>
-    <UserMessageCard data={props.data} ctx={bodyCtx} vars={conversationVars(props.data, props.vars)} conversation />
+    {/* owner 2026-10-27 原型:过程行在气泡上方(正文流式长高时它不挪窝);还在跑的后台任务与它同一行,单子就地展开在它下面。 */}
     <Show when={subject() && props.data.conversationProcess}>{process =>
-      <div class={conversationTime} style={{ height: `${TIME_H}px` }}>
-        <ConversationProcess process={process()} anchorId={props.data.id} expanded={turnProcessExpanded(process().live, props.ctx.viewState.isCollapsed(process().id))} />
-      </div>
+      <>
+        <div class={conversationTime} style={{ height: `${TIME_H}px` }}>
+          <ConversationProcess process={process()} anchorId={props.data.id} expanded={turnProcessExpanded(process().live, props.ctx.viewState.isCollapsed(process().id))} />
+          <Show when={background()}>{tasks =>
+            <>
+              <span class={conversationTimeSeparator} aria-hidden="true" />
+              <button type="button" class={conversationProcessButton} data-slot="background-tasks-pill"
+                data-collapse-id={BACKGROUND_TASKS_TOGGLE} data-collapse-anchor={props.data.id} aria-expanded={tasks().expanded}>
+                <ShimmerText active>{backgroundTasksLabel(translate, tasks().commands.length, tasks().subagents.length)}</ShimmerText>
+                <span class={conversationProcessChevron} aria-hidden="true">›</span>
+              </button>
+            </>
+          }</Show>
+        </div>
+        <Show when={background()?.expanded}>
+          <BackgroundTasksList commands={background()!.commands} subagents={background()!.subagents} />
+        </Show>
+      </>
     }</Show>
+    <UserMessageCard data={props.data} ctx={bodyCtx} vars={conversationVars(props.data, props.vars)} conversation />
     <div class={conversationActions}><UserMessageActions itemId={props.data.id} text={props.data.text}
       generating={turn.currentMessageId() === props.data.id && turn.turnStatus() === 'generating'}
       readOnly={subject() || Boolean(props.data.guguDelivery)} vars={{ ...props.vars, footerH: 18 }} /></div>

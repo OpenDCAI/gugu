@@ -83,7 +83,7 @@ describe('agent-centered conversation bubbles', () => {
     } finally { view.dispose(); }
   });
 
-  it('keeps the thought-network disclosure without timestamps, outside the bubble, without extra row height', async () => {
+  it('keeps the thought-network disclosure without timestamps, above the bubble, without extra row height', async () => {
     const view = await mount({ kind: 'message', id: 'reply', role: 'assistant', text: '你好，我在。', at: 1000,
       conversationProcess: { id: 'turn:process', startedAt: 1000, endedAt: 25000 } });
     try {
@@ -97,7 +97,8 @@ describe('agent-centered conversation bubbles', () => {
       expect(button.getAttribute('aria-expanded')).toBe('false');
       expect(button.getAttribute('aria-label')).toContain('Thinking and execution');
       expect(bubble.contains(button)).toBe(false);
-      expect(button.parentElement!.getBoundingClientRect().top).toBeGreaterThanOrEqual(bubble.getBoundingClientRect().bottom);
+      // owner 2026-10-27 原型:过程行在气泡上方 —— 正文在流式长高时,这一行不跟着往下挪。
+      expect(button.parentElement!.getBoundingClientRect().bottom).toBeLessThanOrEqual(bubble.getBoundingClientRect().top);
       expect(Math.abs(view.host.getBoundingClientRect().height - messageUnitDef.measure(view.item, view.ctx, messageUnitDef.vars!))).toBeLessThanOrEqual(1);
     } finally { view.dispose(); }
   });
@@ -110,7 +111,7 @@ describe('agent-centered conversation bubbles', () => {
     } finally { view.dispose(); }
   });
 
-  it('shows a live brain timer under the reply and keeps the process expanded', async () => {
+  it('shows a live timer above the reply and keeps the process expanded', async () => {
     const view = await mount({ kind: 'message', id: 'live', role: 'assistant', text: '我查一下今天的天气。',
       conversationProcess: { id: 'live:process', live: true, startedAt: Date.now() - 5000 } });
     try {
@@ -141,7 +142,7 @@ describe('agent-centered conversation bubbles', () => {
       expect(bubble.textContent).toContain('北京今天晴');
       expect(bubble.textContent).not.toContain('我现在去查一查');
       expect(name.getBoundingClientRect().bottom).toBeLessThanOrEqual(bubble.getBoundingClientRect().top);
-      expect(brain.getBoundingClientRect().top).toBeGreaterThanOrEqual(bubble.getBoundingClientRect().bottom);
+      expect(brain.getBoundingClientRect().bottom).toBeLessThanOrEqual(bubble.getBoundingClientRect().top);
     } finally { view.dispose(); }
   });
 
