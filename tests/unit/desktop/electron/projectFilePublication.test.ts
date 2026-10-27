@@ -57,6 +57,16 @@ describe('external selections become durable project-owned copies through the sa
     expect(f.rpc.mock.calls.find(([name]) => name === 'file_device_publish')?.[1]).toMatchObject({ p_filename: 'image.png', p_type: 'image/png', p_sha: createHash('sha256').update(data).digest('hex') })
     expect((await readdir(tmpdir())).filter(name => name.startsWith('gugu-pasted-'))).toHaveLength(0)
   })
+  it('still imports a pasted file when the bound root contains the temp directory', async () => {
+    const f = fixture(), previous = process.env.TMPDIR, inside = join(root, 'tmp')
+    await mkdir(inside); process.env.TMPDIR = inside
+    try { await f.publish('group', { name: 'image.png', path: '', size: data.length, contentType: 'image/png', data: data.buffer }, null, 'owner') }
+    finally { if (previous === undefined) delete process.env.TMPDIR; else process.env.TMPDIR = previous }
+    const [path] = publishedPaths(f)
+    expect(path).toMatch(/^\.gugu\/attachments\/[0-9a-f-]{36}\/image\.png$/)
+    expect(await readFile(join(root, path))).toEqual(Buffer.from(data))
+    expect(await readdir(inside)).toEqual([])
+  })
   it('refuses pasted bytes that disagree with the declared size or arrive with a path', async () => {
     const f = fixture(), pasted = { name: 'image.png', path: '', size: data.length, contentType: 'image/png', data: data.buffer }
     await expect(f.publish('group', { ...pasted, size: data.length + 1 }, null, 'owner')).rejects.toThrow('Pasted file')

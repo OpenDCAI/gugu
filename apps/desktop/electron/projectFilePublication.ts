@@ -30,14 +30,14 @@ export function createProjectFilePublisher(deps: {
     return { identity, project, policy }
   }
   const publishFile = async (chatId: string, file: Parameters<Publisher>[1] | SelectedProjectFile, parentId: string | null, actor: string,
-    store?: Parameters<Publisher>[4], message?: ProjectFileMessage): Promise<Awaited<ReturnType<Publisher>> & { message?: Record<string, unknown> } | null> => {
+    store?: Parameters<Publisher>[4], message?: ProjectFileMessage, temporary = false): Promise<Awaited<ReturnType<Publisher>> & { message?: Record<string, unknown> } | null> => {
     const bound = await binding(chatId, actor); if (!bound) return null
     const { identity, project, policy } = bound
     if (policy.proactive_upload && !store) return null
     const root = await deps.root(project.projectId)
     if (!root) throw new Error('Project root is unavailable')
     if ('path' in file && !isAbsolute(file.path)) throw new Error('Choose an original file in the bound project folder')
-    if ('path' in file && !isInside(root, file.path)) file = { ...file,
+    if ('path' in file && (temporary || !isInside(root, file.path))) file = { ...file,
       path: await importProjectFile(root, file, sha => findProjectFileCopy(project.projectId, sha, identity.accountId, identity.deviceId, deps.env)) }
     const path = 'path' in file ? relative(root, file.path).split(sep).join('/') : file.name
     const first = await readWorkspaceChunk(root, { path, offset: 0, length: 0 }), hash = createHash('sha256')
@@ -68,15 +68,17 @@ export function createProjectFilePublisher(deps: {
     return sent ? { ...row, message: sent } : row
   }
   /** A pasted file has no original to point at: park its bytes in a private temp file and import that like any external selection. */
-  const publish: typeof publishFile = async (chatId, file, parentId, actor, store, message) => {
+  const publish = async (chatId: string, file: Parameters<Publisher>[1] | SelectedProjectFile, parentId: string | null, actor: string,
+    store?: Parameters<Publisher>[4], message?: ProjectFileMessage) => {
     if (!('data' in file) || !file.data) return publishFile(chatId, file, parentId, actor, store, message)
     if (file.path || file.data.byteLength !== file.size) throw new Error('Pasted file does not match its bytes')
     const directory = await mkdtemp(join(tmpdir(), 'gugu-pasted-')), { data, ...selected } = file
     try {
       const path = join(directory, sanitizeRemoteFileName(file.name))
       await writeFile(path, new Uint8Array(data), { mode: 0o600 })
-      return await publishFile(chatId, { ...selected, path }, parentId, actor, store, message)
-    } finally { await rm(directory, { recursive: true, force: true }) }
+      // `temporary`: the temp copy is always imported, even when a bound root happens to contain the temp directory.
+      return await publishFile(chatId, { ...selected, path }, parentId, actor, store, message, true)
+    } finally { await rm(directory, { recursive: true, force: true }).catch(() => undefined) } // the message is already committed: a stuck temp file must not turn it into an error
   }
   return Object.assign(publish, { async local(chatId: string, actor: string) { const bound = await binding(chatId, actor); return !!bound && !bound.policy.proactive_upload } })
 }
