@@ -1,3 +1,5 @@
+vi.mock('../../asks', () => import('../../../../../../../../tests/support/ask-service'));
+vi.mock('../../asks/ask', () => import('../../../../../../../../tests/support/ask-service'));
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { EventEmitter } from 'node:events';
 

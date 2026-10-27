@@ -1,4 +1,5 @@
 // @vitest-environment jsdom
+vi.mock('../../../../apps/desktop/src/mobile/agent-watch/useAgentSessionRow', () => ({ useAgentSessionRow: () => null }))
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { createNode, createReactHarness } from '../../../support/testHarness'
 import type { CloudBrowserState } from '../../../../apps/desktop/src/session/shared/cloud-browser'
@@ -31,7 +32,6 @@ const browsing: CloudBrowserState = {
   automation: 'running',
   completed: false,
   control: 'released',
-  assistance: null,
 }
 
 let harness: ReturnType<typeof createReactHarness>
@@ -46,7 +46,7 @@ afterEach(() => {
 describe('#7199 cloud browser card copy', () => {
   it('标题和状态说的是聊天对象的名字', async () => {
     view.state = browsing
-    await harness.render(createNode(CloudBrowserCard, { deviceId: 'device-1', agentName: '个人助理' }))
+    await harness.render(createNode(CloudBrowserCard, { agentUserId: 'agent-1', deviceId: 'device-1', agentName: '个人助理' }))
     const text = harness.container.textContent ?? ''
     expect(harness.container.querySelector('.cb-title')?.textContent).toBe('个人助理的浏览器')
     expect(harness.container.querySelector('.cb-line')?.textContent).toBe('实时 · 个人助理正在浏览')
@@ -55,14 +55,14 @@ describe('#7199 cloud browser card copy', () => {
 
   it('接管中:主按钮是「交还给个人助理」', async () => {
     view.state = { ...browsing, automation: 'idle', control: 'granted' }
-    await harness.render(createNode(CloudBrowserCard, { deviceId: 'device-1', agentName: '个人助理' }))
+    await harness.render(createNode(CloudBrowserCard, { agentUserId: 'agent-1', deviceId: 'device-1', agentName: '个人助理' }))
     expect(harness.container.textContent).toContain('交还给个人助理')
     expect(harness.container.textContent).not.toMatch(/Agent|云电脑/)
   })
 
   it('还不知道名字:说「助理」', async () => {
     view.state = browsing
-    await harness.render(createNode(CloudBrowserCard, { deviceId: 'device-1', agentName: '  ' }))
+    await harness.render(createNode(CloudBrowserCard, { agentUserId: 'agent-1', deviceId: 'device-1', agentName: '  ' }))
     expect(harness.container.querySelector('.cb-title')?.textContent).toBe('助理的浏览器')
   })
 })

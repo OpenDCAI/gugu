@@ -1,3 +1,6 @@
+import { hostAsks } from '../../../../../../../../tests/support/ask-service';
+vi.mock('../../asks', () => import('../../../../../../../../tests/support/ask-service'));
+vi.mock('../../asks/ask', () => import('../../../../../../../../tests/support/ask-service'));
 import fs from 'node:fs';
 import http from 'node:http';
 import os from 'node:os';
@@ -170,8 +173,9 @@ describe.skipIf(!chrome)('cloud browser against a real Chrome', () => {
 
     // 密码保险箱:agent 请登录 → 人在保险箱里填 → 页面里填上了,工具结果和快照里都没有密码
     const login = browser.requestLogin(sessionId, { reason: '查订单' });
-    const ask = await until(() => messages.find((m) => m.type === 'state' && (m.assistance as { kind?: string } | null)?.kind === 'login'));
-    const requestId = (ask.assistance as { requestId: string }).requestId;
+    const pending = await until(() => [...(hostAsks.get(sessionId)?.values() ?? [])].find(item => item.request.origin?.source === 'browser-assistance'));
+    const requestId = pending.request.itemId;
+    expect(pending.request.origin?.payload).not.toHaveProperty('password');
     socket.send(JSON.stringify({ type: 'vault_submit', requestId, username: 'alice', password: 'S3cret-pass!', save: true }));
     await until(() => messages.find((m) => m.type === 'vault_result' && m.ok === true));
     const told = await login;

@@ -4,8 +4,21 @@ vi.mock('electron', () => ({ app: { getPath: () => '/tmp/gugu-cloud-browser-test
 vi.mock('@main/core/agent-status/agent-status-writer', () => ({ agentStatusWriter: { on: vi.fn(), reportHostWait: vi.fn() } }));
 vi.mock('@main/core/extensions/extension-agent-context', () => ({ agentSessionContext: vi.fn(async () => null) }));
 vi.mock('@main/lib/logger', () => ({ log: { info: vi.fn(), warn: vi.fn(), error: vi.fn(), debug: vi.fn() } }));
+// The session's timeline edge only: the task's row exists, publishing is a no-op, and an answer reaches the waiting Ask
+// the way the timeline hands it over after settling it. ask() itself, its deadline and its withdrawal are the real ones.
+vi.mock('@main/core/session-timeline/service', () => ({
+  readSessionRow: () => ({ id: 'row' }),
+  syncAsked: () => undefined,
+  respond: async (input: { conversationId: string; itemId: string; optionId: string; by: string }) => {
+    const { hostAsks } = await import('../../asks/ask');
+    hostAsks.get(input.conversationId)?.get(input.itemId)?.answered({ optionId: input.optionId, by: input.by });
+    return { ok: true, value: { accepted: true } };
+  },
+}));
 
 import { CloudBrowser, STOPPED_MESSAGE } from './cloud-browser';
+import { hostAsks } from '../../asks/ask';
+import { respond } from '../../asks';
 
 /**
  * What the agent is told when it asks the person for a step in the browser (#7199): taken over and handed back,
@@ -14,8 +27,12 @@ import { CloudBrowser, STOPPED_MESSAGE } from './cloud-browser';
  * reach the browser differently before and after that move; only `person` below knows how.
  */
 const person = {
-  pendingId: (b: CloudBrowser): string | undefined => b.status(null).assistance?.requestId,
-  decline: (b: CloudBrowser, requestId: string) => b.dismissAssistance(requestId),
+  pendingId: (_b: CloudBrowser): string | undefined => [...hostAsks.values()].flatMap((asks) => [...asks.values()])
+    .find((entry) => entry.request.origin.source === 'browser-assistance')?.request.itemId,
+  decline: (_b: CloudBrowser, requestId: string) => {
+    const sessionId = [...hostAsks].find(([, asks]) => asks.has(requestId))![0];
+    void respond({ conversationId: sessionId, itemId: requestId, kind: 'permission', optionId: 'cancel', by: 'desktop' });
+  },
 };
 
 const TEN_MINUTES = 10 * 60_000;

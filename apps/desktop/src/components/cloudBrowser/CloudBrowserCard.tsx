@@ -1,3 +1,4 @@
+import { useAgentSessionRow } from '@/mobile/agent-watch/useAgentSessionRow'
 import { createContext, useCallback, useContext, useEffect, useId, useRef, useState, type ReactNode } from 'react'
 import { useTranslation } from 'react-i18next'
 import '../../i18n/registerCloudBrowserCatalog'
@@ -96,7 +97,7 @@ function useControls(view: CloudBrowserView, everOpened: boolean, openLarge: () 
   const [releasing, setReleasing] = useState(false)
   // 开的是哪一次请求的保险箱:那次请求结束(填好 / 超时 / 被关掉)它就不算开着,下一次请求要人再点一下。
   const [vaultFor, setVaultFor] = useState<string | null>(null)
-  const askId = view.state?.assistance?.kind === 'login' ? view.state.assistance.requestId : null
+  const askId = view.assistance?.kind === 'login' ? view.assistance.requestId : null
   const vaultOpen = !!askId && vaultFor === askId
   const setVaultOpen = useCallback((open: boolean) => setVaultFor(open ? askId : null), [askId])
   const [stopAsked, setStopAsked] = useState(false)
@@ -105,6 +106,7 @@ function useControls(view: CloudBrowserView, everOpened: boolean, openLarge: () 
     if (control === 'released' || control === 'occupied' || !view.state) setReleasing(false)
   }, [control, view.state])
   const line = cloudBrowserLine({
+    assistance: view.assistance,
     live: view.live,
     status: view.status,
     state: view.state,
@@ -129,7 +131,7 @@ function useControls(view: CloudBrowserView, everOpened: boolean, openLarge: () 
   const submitVault = useCallback(
     (input: { username: string; password: string; save: boolean }) =>
       new Promise<VaultOutcome>((resolve) => {
-        const requestId = view.state?.assistance?.requestId
+        const requestId = view.assistance?.requestId
         if (!requestId) return resolve({ ok: false, reason: 'gone' })
         let off = () => {}
         const timer = setTimeout(() => {
@@ -160,7 +162,7 @@ function PrimaryAction({ controls, inLarge }: { controls: Controls; inLarge: boo
   if (!view.live) return null
   const control = view.state?.control ?? 'released'
   const automation = view.state?.automation ?? view.status?.automation ?? 'idle'
-  const assistance = view.state?.assistance ?? null
+  const assistance = view.assistance ?? null
   const disabled = !view.state || line.key === 'viewer.ended' || control === 'occupied'
   if (controls.releasing) {
     return (
@@ -524,22 +526,23 @@ function IconTile({ line }: { line: CloudBrowserLine }) {
 }
 
 /** 输入框上方那一块。`deviceId` = agent 所在的那台咕咕 server(不是 = null,什么都不出)。 */
-export function CloudBrowserCard({ deviceId, agentName }: { deviceId: string | null; agentName: string }) {
+export function CloudBrowserCard({ deviceId, agentName, agentUserId }: { deviceId: string | null; agentName: string; agentUserId: string | null }) {
   return (
     <AgentNameContext.Provider value={agentName.trim()}>
-      <CloudBrowserCardInner deviceId={deviceId} />
+      <CloudBrowserCardInner deviceId={deviceId} agentUserId={agentUserId} />
     </AgentNameContext.Provider>
   )
 }
 
-function CloudBrowserCardInner({ deviceId }: { deviceId: string | null }) {
+function CloudBrowserCardInner({ deviceId, agentUserId }: { deviceId: string | null; agentUserId: string | null }) {
   const t = useCloudBrowserT()
   const [size, setSize] = useState<Exclude<CloudBrowserSize, 'large'>>(readSize)
   const [large, setLarge] = useState(false)
   const [viewTab, setViewTab] = useState<string | null>(null)
   const pageVisible = usePageVisible()
   const [cardRef, onScreen] = useOnScreen<HTMLDivElement>()
-  const view = useCloudBrowser(deviceId, { framesEnabled: pageVisible && (large || onScreen), large, tabId: viewTab })
+  const agentSessionRow = useAgentSessionRow(agentUserId)
+  const view = useCloudBrowser(deviceId, { framesEnabled: pageVisible && (large || onScreen), large, tabId: viewTab }, agentSessionRow?.session.conversationId ?? null)
   const everOpened = useRef(false)
   if (view.linkState === 'open') everOpened.current = true
   const openLarge = useCallback(() => setLarge(true), [])
@@ -560,9 +563,10 @@ function CloudBrowserCardInner({ deviceId }: { deviceId: string | null }) {
     setSize(next)
     writeSize(next)
   }
-  const loginAsk = view.state?.assistance?.kind === 'login' ? view.state.assistance : null
+  const loginAsk = view.assistance?.kind === 'login' ? view.assistance : null
   const dialogs = (
     <>
+      {view.error ? <p role="alert">{view.error}</p> : null}
       {controls.vaultOpen && loginAsk ? (
         <CloudBrowserVault key={loginAsk.requestId} assistance={loginAsk} onSubmit={controls.submitVault} onClose={() => controls.setVaultOpen(false)} />
       ) : null}
