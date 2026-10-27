@@ -21,6 +21,7 @@ import { TopicAnchorCard } from './TopicAnchorCard'
 import { shouldShowTimeDivider } from './messageRowTime'
 import { TaskExchangeBubble } from '../assistant/TaskExchangeBubble'
 import { visibleReplyQuoteIds } from './replyQuoteVisibility'
+import { MESSAGE_SEEN_THRESHOLDS, messageSeen } from './messageSeen'
 
 // #1163 perf — 在父层为单条消息预算「发送/已读态」(primitive 字符串)，下传给 memo 化的 MessageBubble，
 // 取代旧的「整个 memberReadSeqs map 下传、气泡自己 derive」。任一成员已读回执会换 map 引用、破气泡浅比较
@@ -187,11 +188,12 @@ const MessageListRow = memo(function MessageListRow({
       onVisible(msg)
       return
     }
+    // Measured against the message scroller, so "fills the view" means the chat column, not the window.
     const observer = new IntersectionObserver((entries) => {
-      if (entries.some((entry) => entry.isIntersecting)) {
+      if (entries.some(messageSeen)) {
         onVisible(msg)
       }
-    }, { threshold: 0.6 })
+    }, { root: node.closest<HTMLElement>('[data-unread-stream-surface]'), threshold: [...MESSAGE_SEEN_THRESHOLDS] })
     observer.observe(node)
     return () => observer.disconnect()
   }, [row, onVisible])
