@@ -1,6 +1,9 @@
 import { sessionLeaveDestination } from '@renderer/features/sessions/leave-session-view';
 import { getSessionManagerStore } from '@renderer/features/sessions/stores/session-selectors';
 import { projectPresence } from '@renderer/features/projects/project-presence';
+import { readAssistantShellBridge } from '@/lib/assistantShellBridge';
+import { isAssistantSession } from '@renderer/features/assistant/assistant-lineage';
+import { sessionAgentNames } from '@renderer/features/sessions/stores/session-agent-names';
 import type { GuardResult } from '@renderer/app/view-registry';
 
 /**
@@ -21,6 +24,10 @@ export function sessionViewCanActivate(params: unknown): GuardResult {
       : undefined;
   if (typeof projectId !== 'string' || typeof sessionId !== 'string') {
     return { ok: false, redirect: 'home' };
+  }
+  const identity = sessionAgentNames.identityFor(sessionId);
+  if (isAssistantSession({ agent: identity ? { userId: identity.agentUserId } : null }, readAssistantShellBridge()?.getSnapshot()?.assistant?.id)) {
+    return { ok: false, redirect: 'assistant' };
   }
   // 项目「还不知道」(别的机器上的、那台的清单还没到)先放行:清单到了会再跑一次守卫(project-presence.ts)。
   if (projectPresence(projectId) === 'deleted') return { ok: false, redirect: 'home' };
