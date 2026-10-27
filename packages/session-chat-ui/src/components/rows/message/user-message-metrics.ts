@@ -16,10 +16,11 @@ export function measureUserMessage(item: ChatMessage, ctx: MeasureCtx, baseVars:
   if (!item.guguDelivery && isMessageEditing(item.id, ctx)) {
     return attachments + messageEditorMetrics(ctx.editingMessage!.text, ctx).height;
   }
-  const blocks = ctx.caches.parseBlocks(item.id, item.text);
-  // 没有正文就没有气泡(UserMessageCard)。
-  if (blocks.length === 0) return attachments + userMessageActionsHeight(vars);
-  const stackHeight = layoutBlockStack(blocks, { ...ctx, width: userInnerWidth(available, vars) }, { isCollapsed: ctx.isCollapsed }).height;
+  const blocks = item.streaming ? ctx.caches.parseBlocksStreaming(item.id, item.text) : ctx.caches.parseBlocks(item.id, item.text);
+  // 没有正文就没有气泡(UserMessageCard);还在流、一个字没到的除外,那时先占一行。
+  if (blocks.length === 0 && !item.streaming) return attachments + userMessageActionsHeight(vars);
+  const stackHeight = blocks.length === 0 ? ctx.theme.fonts.body.lineHeight
+    : layoutBlockStack(blocks, { ...ctx, width: userInnerWidth(available, vars) }, { isCollapsed: ctx.isCollapsed }).height;
   const fullHeight = stackHeight + 2 * vars.userCardPadY + 2 * vars.cardBorder;
   const cap = ctx.expandedId === item.id ? vars.expandedMaxH : vars.collapsedMaxH;
   return attachments + Math.min(fullHeight, cap) + userMessageActionsHeight(vars);

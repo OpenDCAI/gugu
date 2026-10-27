@@ -1,3 +1,6 @@
+import { conversationOutput, conversationProcessReply } from './conversation-process';
+import { conversationMessages } from './conversation-messages';
+import { withSentReplies } from './sent-replies';
 /**
  * flatten — segment a transcript into a two-tier UnitsView.
  *
@@ -152,6 +155,8 @@ export function flattenTier(
   prevKind?: string,
   prevDayKey?: string
 ): RenderUnit[] {
+  turns = turns.map(turn => withSentReplies(turn, { allDestinations: ctx.agentConversation }));
+  if (ctx.agentConversation) turns = conversationMessages(turns);
   const out: RenderUnit[] = [];
 
   // Hoist stable per-call values so processItem allocates nothing per seam.
@@ -318,6 +323,14 @@ export function flattenTier(
         // 「2 个子智能体跑完了」—— 折叠套折叠;「过程 · 1 步」—— 一步也套了头)。
         const header = segment.header;
         // 不套头的那一段是平铺在外面的,和不折的一轮一样先剔掉别处已经画了的(卡片 / 改动汇总,#70 review)。
+        const output = ctx.agentConversation && header ? conversationOutput([...segment.process, ...segment.tail]) : null;
+        const footerReply = output?.reply ? conversationProcessReply(header, [output.reply]) : null;
+        if (footerReply && header && output) {
+          processItem(footerReply);
+          const expanded = ctx.revealAllFolds || turnProcessExpanded(header.live, ctx.isTurnProcessExpanded?.(header.id) ?? false);
+          if (expanded) emitOps(planRows(outsideProcess(output.rest)), turn.id, [{ id: header.id, stored: !header.live }]);
+          continue;
+        }
         const ops = planRows(header ? segment.process : outsideProcess(segment.process));
         if (ops.length === 0 || !header) {
           // 一条都不剩就连头都不画 —— ❌ 别留一个点开是空的壳。
@@ -328,6 +341,7 @@ export function flattenTier(
             processItem({
               kind: 'turn-process',
               ...placeholderTurnHeader(header.id),
+              ...(ctx.agentConversation && header.startedAt !== undefined ? { startedAt: header.startedAt } : {}),
               turnId: turn.id,
               withBody: true,
             });
@@ -358,13 +372,21 @@ export function flattenTier(
       const pending = pendingTurnHeader(turns[turnIndex] as TranscriptTurn, ctx.active, ctx.foldTurnProcess === true);
       if (pending) {
         emitOps(planRows(outsideProcess(items.slice(0, pending.at))), turn.id);
-        processItem({
-          kind: 'turn-process',
-          ...pending.header,
-          turnId: turn.id,
-          ...(pending.at < items.length ? { withBody: true } : {}),
-        });
-        emitOps(planRows(outsideProcess(items.slice(pending.at))), turn.id);
+        const pendingReply = ctx.agentConversation
+          ? conversationProcessReply({ ...pending.header, startedAt: turn.startedAt }, items.slice(pending.at)) : null;
+        if (pendingReply) {
+          processItem(pendingReply);
+          emitOps(planRows(outsideProcess(items.slice(pending.at + 1))), turn.id);
+        } else {
+          processItem({
+            kind: 'turn-process',
+            ...pending.header,
+            ...(ctx.agentConversation && turn.startedAt !== undefined ? { startedAt: turn.startedAt } : {}),
+            turnId: turn.id,
+            ...(pending.at < items.length ? { withBody: true } : {}),
+          });
+          emitOps(planRows(outsideProcess(items.slice(pending.at))), turn.id);
+        }
       } else {
         emitOps(planRows(outsideProcess(items)), turn.id);
       }
@@ -407,6 +429,20 @@ export function flattenTier(
     }
   }
 
+  // 还在跑的后台任务 —— 同样只在 active 档发,贴在列表末尾(在「此刻的状态」那一行之上:
+  // 会话出了状况时,最后一句该是那句状况)。
+  const background = ctx.active ? ctx.backgroundTasks?.() : null;
+  if (background) {
+    processItem({
+      kind: 'background-tasks',
+      // 只有一行,id 不随条目变:单子里多一条、少一条都是同一行在长短,❌ 换一行重挂。
+      id: BACKGROUND_TASKS_ID,
+      commands: background.commands,
+      subagents: background.subagents,
+      expanded: background.expanded,
+    });
+  }
+
   // 这条会话此刻的状态 —— 贴在整个列表**最后一行**（spec `session-always-openable`）。
   //
   // ⚠️ 只在 active 档发：那是最后一档，发在 committed 档会把它埋进历史中间。
@@ -440,6 +476,11 @@ export function toolRunId(turnId: string, firstItemId: string): string {
  * 只是换一个后缀分开命名空间 —— 于是收尾行那颗按钮只要带上 `data-collapse-id`，
  * 走的就是 ChatRoot 里既有的那条点击委派，不必再开一条通路，也不必让宿主接一个回调。
  */
+/** 列表末尾那一行后台任务的 unit id。 */
+export const BACKGROUND_TASKS_ID = 'background-tasks';
+/** 那一行单子展开 / 收起的开关 id(走 ChatRoot 既有的 `data-collapse-id` 点击委派)。 */
+export const BACKGROUND_TASKS_TOGGLE = `${BACKGROUND_TASKS_ID}:open`;
+
 export function turnDiscardedId(turnId: string): string {
   return `${turnId}:discarded`;
 }
