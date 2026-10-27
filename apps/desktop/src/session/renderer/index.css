@@ -8,7 +8,7 @@
    主 app 的 styles/tokens.css:12 同样为此留了一行,那边先踩过。 */
 @source '../../../node_modules/streamdown/dist';
 
-@custom-variant dark (&:is(.dark *));
+@custom-variant dark (&:where([data-theme='dark'], [data-theme='dark'] *));
 @custom-variant dark-black (&:is(.dark-black *));
 @custom-variant emlight (&:is(.emlight *));
 @custom-variant emdark (&:is(.emdark *));

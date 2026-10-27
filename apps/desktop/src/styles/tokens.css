@@ -585,10 +585,12 @@
      percentage of the foreground, not from hue」。 */
   --agent-bolt: var(--fg);
   --color-draft: #FA8C16;
-  --color-warning-highlight: #FFE566;
+  /* 搜索命中的底色:mark 的字跟着正文(color: inherit),深色上用琥珀的淡染,❌ 一块亮黄压着浅色字(深色巡检 10-27)。 */
+  --color-warning-highlight: color-mix(in oklab, var(--warn) 38%, transparent);
 
   /* @@@one-knob — 这一族原来 chroma 精确为 0,是盖在面族之上的**第二族**中性。 */
-  --text-muted:       oklch(0.845 0 0); /* was #CCCCCC */
+  /* 弱化文字 = 正文按 40% 混进底色,两套主题同一条式子;❌ 深色上写死 #ccc(比次要文字 --muted-fg 还亮,层级颠倒)。 */
+  --text-muted: color-mix(in oklab, var(--fg) 40%, var(--bg));
   --text-icon-default: oklch(0.450 0 0); /* was #555555 */
   --text-icon-soft:    oklch(0.510 0 0); /* was #666666 */
   --text-icon-stroke:  oklch(0.640 0 0); /* was #8C8C8C */
@@ -793,7 +795,6 @@
   --text-on-bubble-muted: rgba(0,0,0,0.55);
   --bubble-quote-bar-mine: rgba(0,0,0,0.18);
   --bubble-quote-bar-other: rgba(0,0,0,0.14);
-  --text-muted: color-mix(in oklab, var(--fg) 40%, var(--bg));
   --text-icon-default: color-mix(in oklab, var(--fg) 55%, var(--bg));
   --text-icon-soft: color-mix(in oklab, var(--fg) 45%, var(--bg));
   --text-icon-stroke: color-mix(in oklab, var(--fg) 40%, var(--bg));
