@@ -311,14 +311,11 @@ export function placeOnScreen(content: ScreenBlockContent, targetId: string, edg
   // 从左边拖来一条不在屏上的会话 = 和点那一行一样:它的对话页签要打开(它的页签之前全关掉过,❌ 拖过来是一块空面板,
   // owner 10-10 实测)。已经在屏上、只是挪位置的不动它的页签。
   const arriving = content.kind === 'session' && !windowed && !blockOf(content) ? content : null;
-  const place = () => {
-    screenLayout.placeAt(content, targetId, edge, { even: halfWontFit(targetId, edge) });
-    // 一个 App 只有一份:进了一块,原来摆着它的那条会话自己就不留了(app-placement-sync)。
-    if (content.kind === 'app') appPlacementStore.take(content.tabKind);
-    followFocus();
-  };
-  if (arriving) openSessionInSessionWhenReady({ ...arriving, onReady: place });
-  else place();
+  screenLayout.placeAt(content, targetId, edge, { even: halfWontFit(targetId, edge) });
+  if (arriving) openSessionInSessionWhenReady({ projectId: arriving.projectId, sessionId: arriving.sessionId });
+  // 一个 App 只有一份:进了一块,原来摆着它的那条会话自己就不留了(app-placement-sync)。
+  if (content.kind === 'app') appPlacementStore.take(content.tabKind);
+  followFocus();
   return true;
 }
 
