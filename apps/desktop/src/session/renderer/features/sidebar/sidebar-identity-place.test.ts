@@ -25,8 +25,8 @@ describe('身份卡「在哪」:设备 + 文件夹', () => {
 
 describe('身份卡文件夹:截断时保住最后一段', () => {
   it('拆成前面与最后一段目录名', () => {
-    expect(splitPathTail('~/Codebase/idcard-624-demo/shop')).toEqual({ head: '~/Codebase/idcard-624-demo/', tail: 'shop' });
-    expect(splitPathTail('C:\\Users\\me\\code\\gugu')).toEqual({ head: 'C:\\Users\\me\\code\\', tail: 'gugu' });
+    expect(splitPathTail('~/Codebase/idcard-624-demo/shop')).toEqual({ head: '~/Codebase/idcard-624-demo', tail: '/shop' });
+    expect(splitPathTail('C:\\Users\\me\\code\\gugu')).toEqual({ head: 'C:\\Users\\me\\code', tail: '\\gugu' });
     // 拼回去就是原样:显示没丢字、没多字。
     const { head, tail } = splitPathTail('/www/gugu-wt/idcard-tail');
     expect(head + tail).toBe('/www/gugu-wt/idcard-tail');

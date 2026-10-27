@@ -37,5 +37,6 @@ export function splitPathTail(path: string): { head: string; tail: string } {
   const trimmed = path.replace(/[\\/]+$/, '');
   const cut = Math.max(trimmed.lastIndexOf('/'), trimmed.lastIndexOf('\\'));
   if (cut <= 0) return { head: '', tail: path };
-  return { head: path.slice(0, cut + 1), tail: path.slice(cut + 1) };
+  // 分隔符跟着结尾走:截断后读作「~/Codebase/idc…/shop」,❌「…shop」看不出 shop 是一段目录名。
+  return { head: path.slice(0, cut), tail: path.slice(cut) };
 }
