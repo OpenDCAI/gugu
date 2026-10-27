@@ -34,6 +34,7 @@ export type DraftMention = { userId: string; displayName: string }
 export type DraftAttachment = { id: string; file: File; kind: AttachmentKind }
 
 export type SendMessageOptions = {
+  submittedAt?: number
   toUserIds?: string[] | null
   replyToMessageId?: string | null
   threadRootId?: string | null
