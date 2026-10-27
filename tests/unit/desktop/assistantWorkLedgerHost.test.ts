@@ -29,6 +29,14 @@ it('creates a dormant executor then atomically enqueues the sole first delivery 
   expect(new AssistantWorkStore(root).list()[0]).toMatchObject({ state: 'waiting' })
   expect(await readFile(join(root,'pending-work.json'),'utf8')).not.toContain('private instructions')
 })
+it('freezes the addressed real session title across a lost receipt and later task rename',async()=>{
+  const store=new AssistantWorkStore(root),id=store.begin({kind:'executor'})
+  const intent=store.ledgerIntent(id,'call'),read=vi.fn(async()=> '复测回复「收到，测试正文」')
+  expect(await store.dispatchTitle(id,intent.operation_id,read)).toBe('复测回复「收到，测试正文」')
+  read.mockResolvedValue('Renamed after admission')
+  expect(await new AssistantWorkStore(root).dispatchTitle(id,intent.operation_id,read)).toBe('复测回复「收到，测试正文」')
+  expect(read).toHaveBeenCalledOnce()
+})
 it('reuses work, operation, message and executor ids after a committed cloud response was lost',async()=> {
   rpc.mockImplementation(async(name,args)=>name==='assistant_work_coordinator_bind'?accepted(name,args):{data:null,error:{code:'NETWORK',message:'response lost'}})
   const calls: unknown[]=[]

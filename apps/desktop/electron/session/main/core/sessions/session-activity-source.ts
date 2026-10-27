@@ -39,3 +39,18 @@ export async function readCurrentActivityInput(sessionId: string): Promise<Retur
     return activityInputOf(replica.current());
   } finally { await replica.dispose(); }
 }
+
+export function currentAssistantWorkInput(turn:TranscriptTurn|null):string|undefined {
+  if(!turn||turn.outcome||turn.endedAt!==undefined)return undefined
+  const inputs=turn.items.filter(item=>item.kind==='message'&&item.role==='user')
+  return inputs.length===1&&inputs[0].kind==='message'?inputs[0].text:undefined
+}
+
+/** Same active-turn replica as source attribution; never guess from a reused session's last job. */
+export async function readCurrentAssistantWorkInput(sessionId:string):Promise<string|undefined> {
+  const client=await peekAcpRuntimeClient()
+  if(!client)return undefined
+  const replica=new ReplicaState<TranscriptTurn|null>(client.session.state({sessionId},'activeTurn'),{schema:transcriptTurnSchema.nullable()})
+  try {await replica.ready;return currentAssistantWorkInput(replica.current())}
+  finally {await replica.dispose()}
+}

@@ -13,6 +13,7 @@ export {
   setSessionAdmissionPreparation,
   assistantPanelLocal,
   readCurrentActivityInput,
+  readCurrentAssistantWorkInput,
   disposeEmdashModule,
   emdashRpcRouter,
   // @@@sessionpage TASKPAGE-FUSION — control-channel entries: the host injects a new ACP turn into a

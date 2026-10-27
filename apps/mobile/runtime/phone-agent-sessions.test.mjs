@@ -8,6 +8,7 @@ import { openPhoneAgentStore } from './phone-agent-store.mjs'
 import { registerArtifact } from './phone-agent-files.mjs'
 import { createPhoneAssistantWork } from './phone-assistant-work.mjs'
 import { createPhoneSessionTools } from './phone-agent-sessions.mjs'
+import { buildSessionDirectEnvelope } from '../../../packages/core/src/local/agent/deliveryEnvelope.ts'
 
 async function fixture() {
   const root = await mkdtemp(join(tmpdir(), 'phone-session-files-'))
@@ -57,8 +58,47 @@ async function fixture() {
       return { recipients: [{ to: `session:${receiver.sessionId}`, status: 'delivered' }] }
     }, emit: () => undefined,
   })
-  return { store, artifact, receiver, bytes, requests, delivered, queued, send: tools.find(tool => tool.name === 'session_message'), revoke: () => { permission = false }, failSecond: () => { failSecond = true }, close: () => rm(root, { recursive: true, force: true }) }
+  return { agent, job, store, artifact, receiver, bytes, requests, delivered, queued, send: tools.find(tool => tool.name === 'session_message'), revoke: () => { permission = false }, failSecond: () => { failSecond = true }, close: () => rm(root, { recursive: true, force: true }) }
 }
+
+function dispatch(fx,purpose) {
+  const work_id=randomUUID()
+  fx.job.prompt=buildSessionDirectEnvelope({senderSessionId:fx.receiver.sessionId,senderTitle:'Assistant',messageId:fx.job.id,at:'2026-10-27T06:00:00Z',
+    content:`Please reply\n<gugu_work>\n${JSON.stringify({work_id,coordinator:`session:${fx.receiver.sessionId}`,assistant_id:fx.receiver.agentUserId,purpose,report:'Return the result'})}\n</gugu_work>`})
+  return work_id
+}
+
+test('an inquiry completes on its first real ordinary reply through the existing work queue',async()=>{
+  const fx=await fixture()
+  try {
+    const work_id=dispatch(fx,'reply')
+    delete fx.agent.assistantWork // Reusing an independently created task still has its host-bound dispatch.
+    const args={to:[`session:${fx.receiver.sessionId}`],text:'收到，测试正文'}
+    await fx.send.execute('ordinary-reply',args)
+    await fx.send.execute('ordinary-reply',args)
+    assert.equal(fx.delivered.length,0)
+    assert.equal(fx.queued.size,1)
+    assert.equal([...fx.queued.values()][0].kind,'completed')
+    assert.equal([...fx.queued.values()][0].content,'收到，测试正文')
+    assert.equal(fx.requests.length,0)
+    assert.ok(work_id)
+  } finally {await fx.close()}
+})
+
+test('an assignment asks for status before sending, accepts progress and loses no original reply',async()=>{
+  const fx=await fixture()
+  try {
+    const work_id=dispatch(fx,'task'),args={to:[`session:${fx.receiver.sessionId}`],text:'收到，开始做'}
+    await assert.rejects(fx.send.execute('missing-status',args),/work_result.*progress/)
+    assert.equal(fx.delivered.length,0);assert.equal(fx.queued.size,0)
+    const corrected={...args,work_result:{work_id,status:'progress'}}
+    await fx.send.execute('corrected-status',corrected)
+    await fx.send.execute('corrected-status',corrected)
+    assert.equal(fx.queued.size,1)
+    assert.deepEqual([...fx.queued.values()].map(row=>[row.kind,row.content]),[['progress','收到，开始做']])
+    assert.equal(fx.delivered.length,0)
+  } finally {await fx.close()}
+})
 
 test('phone session_message uploads original bytes and queues scoped work references; retries reuse the same event', async () => {
   const fx = await fixture()

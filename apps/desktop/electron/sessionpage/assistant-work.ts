@@ -74,6 +74,19 @@ export class AssistantWorkStore {
     atomic(this.path,data)
     return intent
   }
+  async dispatchTitle(id:string,operationId:string,readTitle:()=>Promise<string>):Promise<string> {
+    const find=(data:ReturnType<typeof empty>)=>Object.values(data.items.find(row=>row.id===id)?.ledger??{}).find(row=>row.operation_id===operationId)
+    const old=find(read(this.path))
+    if(!old)throw new Error('Assistant dispatch reference is missing')
+    if(old.title)return old.title
+    const title=(await readTitle()).trim()
+    if(!title)throw new Error('The addressed task title is unavailable')
+    const data=read(this.path),current=find(data)
+    if(!current)throw new Error('Assistant dispatch reference changed')
+    if(current.title)return current.title
+    current.title=title.slice(0,500);atomic(this.path,data)
+    return current.title
+  }
   confirm(id: string, recipients: string[], receipts: string[], questionId?: string): void {
     const data = read(this.path)
     const row = data.items.find(item => item.id === id)
@@ -187,12 +200,13 @@ export async function coordinateAssistantAction(binding: AssistantWorkBinding, a
   if(binding.agentId) {
     const context=await assistantWorkLedgerContext().catch(error=>{store.uncertain(id);throw error})
     intent={version:1,assistant_id:binding.agentId,work_id:id,...store.ledgerIntent(id,dispatchKey!),
+      purpose:record.action==='message'&&record.purpose==='reply'?'reply':'task',
       coordinator:{session_id:binding.sessionId,device_id:context.deviceId},
       title:(typeof record.title==='string' && record.title.trim() ? record.title.trim() : '任务').slice(0,500),
       ...(typeof record.source_link==='string' ? {source_link:record.source_link} : {}),continuation:typeof record.work_id==='string'}
   }
   const dispatched = field ? { ...record,...(intent ? {assistant_work:intent} : {}), [field]: `${record[field]}\n\n<gugu_work>\n${JSON.stringify({ work_id: id,
-    coordinator: `session:${binding.sessionId}`, report: EXECUTOR_REPORT })}\n</gugu_work>` } : action
+    coordinator: `session:${binding.sessionId}`,...(intent?{assistant_id:intent.assistant_id,purpose:intent.purpose}:{}), report: EXECUTOR_REPORT })}\n</gugu_work>` } : action
   try {
     let result = await run(dispatched)
     if(intent && record.action==='spawn') {
