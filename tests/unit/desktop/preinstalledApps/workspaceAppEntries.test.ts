@@ -45,6 +45,7 @@ const gugu = {
   onLink: vi.fn(() => () => {}),
   showMessage: vi.fn(async (_id: string) => {}),
   files: {
+    viewPreferences: vi.fn(async () => ({ showAppData: false })),
     list: vi.fn(async () => entries),
     onChanged: vi.fn((_place: unknown, fn: typeof filesChanged) => { filesChanged = fn; return () => {} }),
     // Only what the host hands this page (context.file) is opened here; no file service in this rig.

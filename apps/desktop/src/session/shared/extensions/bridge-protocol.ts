@@ -66,7 +66,8 @@ export const EXTENSION_THEME_CHANNEL = 'gugu-ext:theme';
  * conversation. Earlier strict schemas refuse the field: the market hands those clients the App's last version for 15.
  * 17: explicit-device App programs, read-only external session history/context, and dispatch spawn.device.
  */
-export const EXTENSION_API_VERSION = 17;
+// 18: explicit App-data create/open options, metadata, per-chat folder preferences and the shared host context menu.
+export const EXTENSION_API_VERSION = 18;
 
 /**
  * The page `app_check` runs is started with this argument (摩擦单 F5, F69): it says how often it wrote, set presence and
@@ -641,6 +642,7 @@ export const BRIDGE_VERBS = {
   modalKey: { needs: null, only: 'page' },
   /** Facts about where this surface sits. */
   getContext: { needs: null },
+  showContextMenu: { needs: null, only: 'page' },
   /**
    * What the app is showing right now.
    *
@@ -784,6 +786,7 @@ export const BRIDGE_VERBS = {
   filesSearch: { needs: 'files:read' },
   filesRecent: { needs: 'files:read' },
   filesCreate: { needs: 'files:write' },
+  filesViewPreferences: { needs: 'files:read', only: 'page' },
   filesRemove: { needs: 'files:write' },
   filesRename: { needs: 'files:write' },
   /** 子文件夹: a folder made (all the way down; one already there is answered), and a file or folder moved into another. */

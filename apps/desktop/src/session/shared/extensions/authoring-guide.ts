@@ -207,6 +207,7 @@ Free:
 - \`onContextChanged(fn)\` → theme, language, visibility, size and members changes. Returns an unsubscribe.
 - \`onCommand(fn)\` → the person picked one of your declared menu/toolbar entries; you get your own id back.
 - What the whole app shows (panes, which session): \`apps-agents\`.
+- \`showContextMenu({ x, y, items: [{ id, label, enabled? }, { type: "separator" }] })\` (API 18, page only): App-local coordinates; the host draws its shared menu and returns the selected id, or null on dismissal.
 - \`setTabTitle(title)\` → page title (max 48). File tabs show the file name; this title is a hint/tooltip. Host Back closes the file tab; in-page Back keeps it.
 - \`setTabBadge(badge)\` → a count (99+ at most, <=0 none), a string (a dot), or \`null\` (none).
 - \`openBrowserTab(url)\` → http(s) only.
@@ -506,6 +507,17 @@ export const EXTENSION_GUIDE_FILES = `# gugu.files — shared live files
 
 Claim an existing data file's name or suffix and open it live; never copy it into your bundle
 (\`app_install\` data \`{ item_id }\`). Top-level \`await\` needs \`<script type="module">\`.
+
+## App data (API 18)
+
+Only internal App state: create with \`files.create(target, content, { appData: true })\`;
+open existing state with \`files.open(ref, { appData: true })\` to mark it. The host stamps your installed
+publisher/id into \`entry.metadata.app\`, preserving other metadata. Marking needs write access;
+folders and working copies cannot be marked. User documents, including Office files, stay unmarked.
+No name matching marks old files: mark only state you actually open. Markers survive rename/move.
+Lists/search/recent and agent tools still return all authorized entries; explicit links still open them.
+Only the folder view hides marked data by default. Pages can read or set the person's source-chat
+preference via \`files.viewPreferences({ chat }, { showAppData: true })\` (omit the second argument to read).
 
 ## Which files you may open
 

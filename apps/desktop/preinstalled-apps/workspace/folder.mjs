@@ -52,6 +52,7 @@ const rowOf = async (entry) => ({
   ...(Number.isInteger(entry.version) ? { version: entry.version } : {}),
   by: byOf(entry),
   updated_at: entry.updatedAt,
+  metadata: entry.metadata ?? {},
   ...await linked(entry),
 })
 

@@ -1724,6 +1724,12 @@ async function dispatch(caller: BridgeCaller, method: ExtensionBridgeMethod, arg
     case 'filesList':
     case 'filesSearch':
     case 'filesRecent':
+    case 'showContextMenu': {
+      const { showAppContextMenu } = await import('./app-context-menu');
+      return showAppContextMenu(caller.pageId, args);
+    }
+
+    case 'filesViewPreferences':
     case 'filesCreate':
     case 'filesRemove':
     case 'filesReplace':
@@ -1744,6 +1750,7 @@ async function dispatch(caller: BridgeCaller, method: ExtensionBridgeMethod, arg
         filesSearch: 'searchAppFiles',
         filesRecent: 'recentAppFiles',
         filesCreate: 'createAppFile',
+        filesViewPreferences: 'appFileViewPreferences',
         filesRemove: 'removeAppFile',
         filesRename: 'renameAppFile',
         filesMkdir: 'makeAppFolder',

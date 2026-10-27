@@ -1,3 +1,6 @@
+import { showRendererContentMenu } from '../../lib/contentContextMenu'
+import { appContextMenuOf } from '../../session/shared/extensions/app-context-menu'
+import { appIdentityOf } from '../../session/shared/extensions/app-identity'
 import { fileBlob } from '@gugu/core/shared/fileResolver'
 import { guguLink, guguLinkScheme, linkTargetOf, type GuguLinkTarget } from '@gugu/core/shared/ui/guguLink'
 import { openLinkWith } from '../../session/shared/extensions/open-link'
@@ -190,6 +193,7 @@ const askForumConsent = (detail: AppForumConsentDetail) => {
 }
 
 const files = createAppFiles({
+  appIdentity: (id) => appIdentityOf({ manifest: { id }, origin: installedExtensionsStore.origins[id], publisher: installedExtensionsStore.publishers[id] }),
   async resolveFile(ref, actorId, options) {
     if (options.localOnly) return null;
     if (!('id' in ref)) throw new AppFileError('invalid', 'A stored file must be resolved by its id');
@@ -661,7 +665,7 @@ export function hostAppFrame(
           hooks.openWith({ ...target, choice })
         })
       case 'filesOpen':
-        return files.open(surface(), { ref: chatRef(args.ref), ...(args.readOnly === true ? { readOnly: true } : {}), deferDetails: args.deferDetails === true })
+        return files.open(surface(), { ref: chatRef(args.ref), ...(args.readOnly === true ? { readOnly: true } : {}), deferDetails: args.deferDetails === true, appData: args.appData === true })
       case 'filesReopen': {
         const ref = chatRef(args.ref)
         if (!('id' in ref)) refused('invalid', 'reopen takes a file by its id')
@@ -678,8 +682,15 @@ export function hostAppFrame(
           const { limit } = fileSearchOf(args)
           return files.recent(limit === undefined ? {} : { limit })
         })
+      case 'showContextMenu': {
+        const menu = appContextMenuOf(args)
+        const rect = frame.getBoundingClientRect()
+        return showRendererContentMenu(menu.items, { x: rect.x + menu.x, y: rect.y + menu.y })
+      }
+      case 'filesViewPreferences':
+        return files.viewPreferences(chatPlace(args.place), args.showAppData as boolean | undefined)
       case 'filesCreate':
-        return files.create(chatPlace(args.place), args as never)
+        return files.create(chatPlace(args.place), args as never, { extensionId: hosted.binding.extensionId })
       case 'filesRename':
         return files.rename(surface(), { ref: chatRef(args.ref), name: String(args.name ?? '') })
       case 'filesMkdir':

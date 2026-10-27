@@ -1,5 +1,6 @@
 import { detectPlatform, matchesKeyboardEvent } from '@tanstack/react-hotkeys'
 import { useCallback, useEffect, useState } from 'react'
+import { RENDERER_CONTENT_MENU_OPEN, finishRendererContentMenu } from '@/lib/contentContextMenu'
 import { desktopIpc } from '@/platform/desktopIpc'
 import { CONTENT_CONTEXT_MENU_ACTION, CONTENT_CONTEXT_MENU_OPEN, type ContentContextMenu } from '@/session/shared/content-context-menu'
 import { useToast } from './toastContext'
@@ -12,9 +13,16 @@ export function ContentContextMenuHost() {
   const { toast } = useToast()
   const finish = useCallback((requestId: string, actionId?: string) => {
     setMenu(current => current?.requestId === requestId ? null : current)
+    if (finishRendererContentMenu(requestId, actionId)) return
     void desktopIpc()?.invoke(CONTENT_CONTEXT_MENU_ACTION, { requestId, actionId })
       .catch(error => toast(String(error), 'error'))
   }, [toast])
+
+  useEffect(() => {
+    const open = (event: Event) => setMenu((event as CustomEvent<ContentContextMenu>).detail)
+    window.addEventListener(RENDERER_CONTENT_MENU_OPEN, open)
+    return () => window.removeEventListener(RENDERER_CONTENT_MENU_OPEN, open)
+  }, [])
 
   useEffect(() => desktopIpc()?.eventOn(CONTENT_CONTEXT_MENU_OPEN, data => {
     setMenu(data as ContentContextMenu)

@@ -49,6 +49,7 @@ const gugu = {
   markdown: vi.fn(async () => md),
   bind: { codemirror: vi.fn(() => () => {}) },
   files: {
+    viewPreferences: vi.fn(async () => ({ showAppData: false })),
     list: vi.fn(async () => [entry]),
     rename: vi.fn(async (_entry: typeof entry, _name: string) => {}),
     onChanged: vi.fn(() => () => {}),

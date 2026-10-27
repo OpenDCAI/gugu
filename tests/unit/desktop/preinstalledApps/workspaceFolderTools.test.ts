@@ -66,6 +66,7 @@ beforeEach(() => {
   vi.stubGlobal('gugu', {
     linkTo: async (args: Record<string, unknown>) => guguLink(linkTargetOf(args, { id: 'workspace', contributes: { tabs: [{ name: 'main' }] } })),
     files: {
+    viewPreferences: vi.fn(async () => ({ showAppData: false })),
       list: async (place: unknown) => (calls.push(['list', place]), ENTRIES),
       open: async (ref: { id: string }, options?: unknown) => (calls.push(['open', ref, options ?? {}]), handle(ref.id)),
       upload: async (place: unknown, file: File, options: unknown) => {
