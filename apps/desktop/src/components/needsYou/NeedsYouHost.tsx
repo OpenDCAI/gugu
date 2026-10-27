@@ -22,7 +22,8 @@ import { observer } from 'mobx-react-lite'
 import { followLink } from '@/lib/guguLinks'
 import { ArrowRight } from '@/lib/icons'
 import { installShellSlots, readShellSlots } from '@/lib/shellSlots'
-import { NEEDS_YOU_SLOT_PREFIX } from './NeedsYouSlot'
+import { NEEDS_YOU_LIST_SLOT_PREFIX, NEEDS_YOU_SLOT_PREFIX } from './NeedsYouSlot'
+import { SidebarSessionLineRow } from '../SidebarSessionLineRow'
 import { readPhoneAppView, onPhoneAppState } from '../appSlot/phoneAppState'
 import { sessionPageOnScreen, sessionPagesOnScreen } from '@/session/renderer/app/sessions-on-screen'
 import { getSessionView } from '@/session/renderer/features/sessions/stores/session-selectors'
@@ -66,6 +67,13 @@ export const NeedsYouHost = observer(function NeedsYouHost({ onNeedsUserChange }
   // Closing after the last wait also resets the next visit, without retaining a hidden dialog.
   if (opened && tasks.length === 0) setOpened(false)
   return <>
+    {mobile && [...entries].filter(([key]) => key.startsWith(NEEDS_YOU_LIST_SLOT_PREFIX)).map(([key, element]) => createPortal(waiting.map(item => {
+      const open = () => { followLink({ kind: 'session', sessionId: item.session.conversationId }) }
+      return <SidebarSessionLineRow key={taskKey(item)} mobile isActive={false}
+        line={{ projectId: item.session.projectId, sessionId: item.session.conversationId, title: item.session.title,
+          time: Date.parse(item.session.lastInteractedAt ?? ''), group: 'needs-you', agentUserId: item.session.agent?.userId ?? null }}
+        onClick={open} onKeyDown={rowKeyActivate(open)} />
+    }), element, key))}
     {tasks.length > 0 && [...entries].filter(([key]) => key.startsWith(NEEDS_YOU_SLOT_PREFIX)).map(([key, element]) => createPortal(<div role="status" aria-live="polite" data-chat-dock-obstacle="">
       <Button data-testid="needs-you-trigger" onClick={() => setOpened(true)} aria-haspopup="dialog" aria-expanded={shown}>
         <AgentNeedsUserGlyph size={16} />{t('needsYou.count', { count: tasks.length })}

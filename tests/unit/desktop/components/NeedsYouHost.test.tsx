@@ -179,3 +179,31 @@ it('reports waiting tasks to the existing rail even when the current task has it
   await renderWithAppProviders(harness, <NeedsYouHost onNeedsUserChange={onNeedsUserChange} />)
   expect(onNeedsUserChange).toHaveBeenLastCalledWith(false)
 })
+
+it('shows local and remote pending tasks in the phone list with the existing sidebar warning mark', async () => {
+  state.mobile = true
+  state.tasks.push({ deviceId: 'local', machine: 'This computer', local: true, session: { conversationId: 'local-task', title: 'Review local task', projectId: 'project', runtime: 'acp', supported: true, lastInteractedAt: null } })
+  const onNeedsUserChange = vi.fn()
+  await renderWithAppProviders(harness, <><NeedsYouSlot list /><NeedsYouHost onNeedsUserChange={onNeedsUserChange} /></>)
+  const rows = document.querySelectorAll('[data-needs-you-list-slot] [data-session-line]')
+  expect([...rows].map(row => row.getAttribute('data-session-line'))).toEqual(['task', 'local-task'])
+  expect([...rows].every(row => row.querySelector('[data-agent-status-glyph="needs_user"]'))).toBe(true)
+  expect([...rows].every(row => row.getAttribute('data-mobile') === 'true')).toBe(true)
+  expect(onNeedsUserChange).toHaveBeenLastCalledWith(true)
+  expect(document.querySelector('[data-testid="needs-you-trigger"]')).toBeNull()
+  await act(async () => { (rows[1] as HTMLElement).click() })
+  expect(followLink).toHaveBeenCalledWith({ kind: 'session', sessionId: 'local-task' })
+  expect(respond).not.toHaveBeenCalled()
+})
+
+it('withdraws the phone warning row and rail signal together after the last pending task resolves', async () => {
+  state.mobile = true
+  const onNeedsUserChange = vi.fn()
+  const surface = <><NeedsYouSlot list /><NeedsYouHost onNeedsUserChange={onNeedsUserChange} /></>
+  await renderWithAppProviders(harness, surface)
+  expect(document.querySelector('[data-needs-you-list-slot] [data-agent-status-glyph="needs_user"]')).not.toBeNull()
+  state.tasks = []
+  await renderWithAppProviders(harness, surface)
+  expect(document.querySelector('[data-needs-you-list-slot] [data-session-line]')).toBeNull()
+  expect(onNeedsUserChange).toHaveBeenLastCalledWith(false)
+})
