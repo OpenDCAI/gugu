@@ -290,10 +290,18 @@ class Runtime {
       next: []
     }
     this.handles.add(h)
-    h.stopVisibility = observeAnimationViewport(canvas, (visible) => {
+    const stopVisibility = observeAnimationViewport(canvas, (visible) => {
       h.visible = visible
       this.wake()
     }, '80px')
+    const invalidate = () => { h.drawnWith = ''; this.wake() }
+    canvas.addEventListener('contextlost', invalidate)
+    canvas.addEventListener('contextrestored', invalidate)
+    h.stopVisibility = () => {
+      stopVisibility()
+      canvas.removeEventListener('contextlost', invalidate)
+      canvas.removeEventListener('contextrestored', invalidate)
+    }
     this.wake()
     return h
   }
@@ -336,11 +344,24 @@ class Runtime {
     const batch: Pending[] = []
     let nextWake = Infinity
     for (const h of this.handles) {
-      // An inert consumer keeps its first ready frame; a still-loading initial frame must finish first.
-      if (!h.visible || (h.canvas.closest('[inert]') && h.drawnWith !== '' && !h.drawnWith.startsWith('none|'))) continue
+      if (!h.visible || h.ctx.isContextLost?.()) continue
       // 素材还在路上：先不画（避免一闪而过的空画面）；这次没载下来：用 2D 定格画着,等重试
       const gl = this.gl && this.gl.has(h.ch.id) ? this.gl : null
       if (this.gl && !gl && !this.texFailed.has(h.ch.id)) continue
+      const sprite = gl ? null : this.flatOf(h.ch)
+      const o = {
+        w: h.canvas.width,
+        h: h.canvas.height,
+        dpr: h.dpr,
+        shape: h.opts.shape,
+        bg: h.opts.bg,
+        crop: h.opts.crop,
+        fx: h.opts.fx
+      }
+      const by = `${gl ? 'gl' : sprite?.complete ? 'still' : 'none'}|${o.w}x${o.h}|${o.dpr}|${o.shape}|${o.bg}|${o.crop}|${o.fx}|${h.outfit.key}`
+      if (by !== h.drawnWith) h.drawnWith = ''
+      // Hold only a frame that still describes this canvas; a reset needs one replacement frame.
+      if (h.canvas.closest('[inert]') && h.drawnWith !== '' && !h.drawnWith.startsWith('none|')) continue
       if (throttle && h.canvas.width < 160 * h.dpr) {
         h.pendingDt += dt
         if (this.frameNo % 2) continue
@@ -355,18 +376,7 @@ class Runtime {
       h.outfit.update(step, h.engine.frame)
       // 这一身还有素材在路上:先不画(画布上留着上一张);载不下来的那片 ensure 记过错,不再等
       if ((gl ? h.outfit.ensure(gl) : h.outfit.ensureFlat()) > 0) continue
-      const sprite = gl ? null : this.flatOf(h.ch)
-      const o = {
-        w: h.canvas.width,
-        h: h.canvas.height,
-        dpr: h.dpr,
-        shape: h.opts.shape,
-        bg: h.opts.bg,
-        crop: h.opts.crop,
-        fx: h.opts.fx
-      }
       // 画法变了(GL 到位 / 丢了、定格图载好了、画布尺寸或选项改了、换了一身装扮)一定马上重画;否则按画面变了多少
-      const by = `${gl ? 'gl' : sprite?.complete ? 'still' : 'none'}|${o.w}x${o.h}|${o.dpr}|${o.shape}|${o.bg}|${o.crop}|${o.fx}|${h.outfit.key}`
       drawnLook(h.engine.frame, o, h.next, h.outfit)
       const d = by === h.drawnWith ? lookDiff(h.drawn, h.next) : Infinity
       if (d < SAME_CSS_PX * h.dpr) continue

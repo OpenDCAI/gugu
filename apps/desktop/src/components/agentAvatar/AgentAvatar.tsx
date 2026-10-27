@@ -175,7 +175,7 @@ export function AgentAvatar({
       canvas.width = w
       canvas.height = w
     }
-    if (handle.current) handle.current.engine.gain = gain
+    if (handle.current) { handle.current.dpr = dpr; handle.current.engine.gain = gain }
   }, [px, dpr, gain])
 
   useEffect(() => {
