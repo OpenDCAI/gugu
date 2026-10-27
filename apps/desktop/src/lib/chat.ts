@@ -13,6 +13,7 @@ import {
   type DeviceRpcClient,
 } from '@gugu/core/cloud/devices'
 import { resolveSelfDeviceLabel } from './device-labels'
+import { cachedDevicesAccount, readCachedDevices } from '../store/devicesCache'
 import {
   dataClient,
   chatDb,
@@ -879,11 +880,20 @@ export const chatService = {
 
   // @@@local-device-self-merge - The local desktop process knows it is online without
   async listDevices(options: { includePhones?: boolean } = {}): Promise<Device[]> {
+    const ownerId = await getCurrentAuthUserId()
     const [self, cloud] = await Promise.all([
       platform.getLocalDeviceSelfSnapshot?.() ?? Promise.resolve(null),
-      listCoreDevices(deviceTableClient(), await getCurrentAuthUserId(), options) // @@@1962 按当前用户过滤设备(多账号同机不混入他人行);#7199 手机默认不在
+      listCoreDevices(deviceTableClient(), ownerId, options) // @@@1962 按当前用户过滤设备(多账号同机不混入他人行);#7199 手机默认不在
     ])
-    if (!self) return cloud
+    if (!self) {
+      // 本机身份交接尚未结束时，云行没有 is_current_device；不能因此把本机接成远端，
+      // 下一次自查认回本机时 remote-hosts.forget 会连同已经载入的本机项目一起撤掉。
+      // 同账号缓存只证明设备身份；在线状态和项目仍取这次云端读数。
+      const cachedSelf = cachedDevicesAccount() === ownerId
+        ? readCachedDevices().find((device) => device.is_current_device === true)?.device_id
+        : undefined
+      return cachedSelf ? cloud.map((device) => ({ ...device, is_current_device: device.device_id === cachedSelf })) : cloud
+    }
     const others = cloud.filter((device) => device.device_id !== self.device_id)
     // 名字以云端行为准(见 resolveSelfDeviceLabel);在线性仍信本机 self。
     const cloudSelf = cloud.find((device) => device.device_id === self.device_id)
