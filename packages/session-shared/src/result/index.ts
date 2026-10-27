@@ -121,9 +121,32 @@ export const errorDetail = (error: unknown): string | undefined => {
   return sentence ?? payload;
 };
 
+/**
+ * A rejection that is a plain object, not an Error: a JSON-RPC error as an ACP agent sends it (`{ code, message, data }`).
+ * `String(e)` turned it into "[object Object]", so the turn failure reached the chat as a bare generic notice and the log
+ * kept nothing to explain it. Its own fields are kept the way an Error's are; an object without a message is described
+ * by its top-level primitive fields only, never the whole object.
+ */
+const plainObjectError = (e: object): SerializedError => {
+  const record = e as { name?: unknown; message?: unknown; data?: unknown; code?: unknown };
+  const data = serializableData(record.data);
+  const code = record.code;
+  const fields = serializableData(e);
+  // Same order as the description above: the protocol's `data.details` is the sentence, `message` is often just "Internal error".
+  const message = dataSentence(record.data)
+    ?? (typeof record.message === 'string' && record.message.trim() ? record.message : undefined)
+    ?? JSON.stringify(fields ?? {});
+  return {
+    name: typeof record.name === 'string' && record.name ? record.name : 'Unknown',
+    message,
+    ...(data !== undefined ? { data } : {}),
+    ...(typeof code === 'number' || typeof code === 'string' ? { code } : {}),
+  };
+};
+
 /** Normalizes any thrown value into a cloneable SerializedError. */
 export const toSerializedError = (e: unknown): SerializedError => {
-  if (!(e instanceof Error)) return { name: 'Unknown', message: String(e) };
+  if (!(e instanceof Error)) return e && typeof e === 'object' ? plainObjectError(e) : { name: 'Unknown', message: String(e) };
   // JSON-RPC 的 RequestError 把细节挂在 `data` 上 —— 见 `SerializedError.data` 那段。
   const data = serializableData((e as { data?: unknown }).data);
   const code = (e as { code?: unknown }).code;
