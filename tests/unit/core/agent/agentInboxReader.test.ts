@@ -35,6 +35,8 @@ import {
 import { resolveListenModeDefault } from '@gugu/core/cloud/listenMode'
 import { memoryGroupRulesLedger } from '@gugu/core/local/agent/groupRulesDelivery'
 import { readDeliveryEnvelope } from '@gugu/core/local/agent/deliveryEnvelope'
+import { parseSystemNotice } from '@gugu/core/shared/ui/systemNotice'
+import { storedMessageLink } from '@gugu/core/shared/ui/guguLink'
 
 const AGENT = 'agent-0000-0000-0000-000000000001'
 const HUMAN = 'human-0000-0000-0000-000000000002'
@@ -1461,5 +1463,71 @@ describe('#6264 合并触发的合账', () => {
       { pulled: 2, injected: 2, verdict: 'accepted' },
       { pulled: 1, injected: 0, verdict: 'not-live' },
     )).toEqual({ pulled: 3, injected: 2, verdict: 'not-live' })
+  })
+})
+
+// Beta 1040: a turn-failure notice is stored under a structured key (`turn-failure:batch:<hash>`) and answers the message
+// that dispatched the failed turn, so it reaches the agent that sent that message. Its reader delivers it like any row —
+// one id it cannot address must not stop that agent's whole inbox — and a row it cannot prepare is disclosed, not dropped.
+describe('a failure notice from another agent reaches the agent whose message it answers', () => {
+  const CHAT = '00000000-0000-4000-8000-0000000000a1'
+  const NOTICE = 'turn-failure:batch:6b62191fcf9bbff3312a90753053be57'
+  const LATER = '10000000-0000-4000-8000-0000000000a2'
+
+  function seed(): FakeCloud {
+    const cloud = new FakeCloud()
+    cloud.addChat(CHAT, 'group')
+    cloud.join(CHAT, AGENT)
+    cloud.join(CHAT, OTHER_AGENT)
+    cloud.post({
+      chatId: CHAT, id: NOTICE, seq: 1, senderUserId: OTHER_AGENT, senderType: 'agent', content: 'Delivery failed.',
+      replyToMessageId: '10000000-0000-4000-8000-0000000000a0', replyToSenderUserId: AGENT,
+    })
+    cloud.post({ chatId: CHAT, id: LATER, seq: 2, senderUserId: HUMAN, senderType: 'human', content: 'still there?' })
+    return cloud
+  }
+
+  it('delivers the notice under its own id and the message after it, and reads both', async () => {
+    const cloud = seed()
+    const { deps, injections } = makeDeps(cloud)
+    const result = await pullAgentInbox(AGENT, deps)
+    expect(result.injected).toBe(2)
+    expect(injections[0]!.text).toContain(`msg="msg:${NOTICE}"`)
+    expect(injections[1]!.text).toContain(`msg="msg:${LATER}"`)
+    expect(cloud.markReadCalls.map((call) => call.messageId)).toEqual([NOTICE, LATER])
+  })
+
+  it('a row that cannot be prepared is disclosed to its chat and the real error is what the pull throws', async () => {
+    const cloud = seed()
+    const disclosures: Array<{ chatId: string; reason: string }> = []
+    const { deps, injections, outcomes } = makeDeps(cloud, {
+      resolveGuguIds: async () => { throw new Error('identity lookup refused') },
+      postDisclosure: async (input) => { disclosures.push({ chatId: input.chatId, reason: input.reason }) },
+    })
+    const thrown = await pullAgentInbox(AGENT, deps).then(() => null, (error: unknown) => error)
+    expect((thrown as Error).message).toBe('identity lookup refused')
+    expect(isSaidInChat(thrown)).toBe(true)
+    expect(injections).toEqual([])
+    expect(disclosures).toEqual([{ chatId: CHAT, reason: 'notAdmitted' }])
+    expect(cloud.markReadCalls).toEqual([])
+    expect(outcomes).toEqual([{ ok: false }])
+  })
+
+  it('writes a new notice under a UUID derived from its key; its marker still names it and links reach it', async () => {
+    const post = vi.fn<typeof fetch>(async () => new Response('', { status: 201 }))
+    vi.stubGlobal('fetch', post)
+    try {
+      const row = { agentUserId: OTHER_AGENT, chatId: CHAT, key: NOTICE, threadRootId: null, reason: 'quota' as const }
+      await postDeliveryDisclosureRow(row, 'test-token')
+      await postDeliveryDisclosureRow(row, 'test-token')
+      const [first, second] = post.mock.calls.map((call) => JSON.parse(call[1]!.body as string))
+      expect(first.id).toMatch(/^[0-9a-f]{8}-[0-9a-f]{4}-5[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/)
+      expect(second.id).toBe(first.id)
+      expect(parseSystemNotice({ id: first.id, content_type: 'system', sender_user_id: OTHER_AGENT, client_message_id: first.client_message_id }))
+        .toEqual({ kind: 'turn-failure', reason: 'quota' })
+      expect(storedMessageLink(CHAT, first.id)).toBe(`gugu-chat://${CHAT}/${first.id}`)
+      // A notice stored under its key before this: still a message, reached through its conversation.
+      expect(storedMessageLink(CHAT, NOTICE)).toBe(`gugu-chat://${CHAT}`)
+    } finally { vi.unstubAllGlobals() }
   })
 })

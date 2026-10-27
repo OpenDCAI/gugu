@@ -326,10 +326,22 @@ const FAILURE_CONTENT: Record<AgentFailureReason, string> = {
 }
 
 /**
+ * The notice row's message id. Message ids are UUIDs everywhere a message is addressed (typed `msg:` ids, conversation
+ * links), so the notice gets one too — derived from its dedupe key, so the same failure posted again lands on the same
+ * row (409) and stays one notice. Rows written before this used the key itself as the id; readers still accept them.
+ */
+export function disclosureMessageId(key: string): string {
+  const hex = createHash('sha256').update(key).digest('hex')
+  const variant = ((Number.parseInt(hex[16]!, 16) & 0x3) | 0x8).toString(16)
+  return `${hex.slice(0, 8)}-${hex.slice(8, 12)}-5${hex.slice(13, 16)}-${variant}${hex.slice(17, 20)}-${hex.slice(20, 32)}`
+}
+
+/**
  * 披露:稳定 id 直插 system 行(#2935 幂等;409 = 已披露过,幂等命中)。无 command lease。原因编在 client_message_id(systemNotice.ts)。
  * 也是 [[device-command-runtime]] 对「无人持有的 agent」终态显形(#5041)用的同一条写口——聊天里对用户可见的失败只有这一种形状。
  */
 export async function postDeliveryDisclosureRow(input: DisclosureRow, accessToken: string): Promise<void> {
+  const id = disclosureMessageId(input.key)
   const response = await fetch(`${getSupabaseUrl().replace(/\/+$/, '')}/rest/v1/messages`, {
     method: 'POST',
     headers: {
@@ -340,12 +352,12 @@ export async function postDeliveryDisclosureRow(input: DisclosureRow, accessToke
       'Content-Profile': 'chat',
     },
     body: JSON.stringify({
-      id: input.key,
+      id,
       chat_id: input.chatId,
       sender_user_id: input.agentUserId,
       content: FAILURE_CONTENT[input.reason],
       content_type: 'system',
-      client_message_id: turnFailureMarker(input.key, input.reason),
+      client_message_id: turnFailureMarker(id, input.reason),
       ...(input.replyToMessageId ? { reply_to_message_id: input.replyToMessageId } : {}),
       thread_root_id: input.threadRootId,
       is_thread_root: false,
@@ -560,18 +572,25 @@ async function injectBatch(
   const toolNames = deps.deliveryToolNames?.(agentUserId) ?? undefined
   const rulesPlan = await planGroupRules(agentUserId, rows, deps, env)
   const prepared: PreparedMessage[] = []
-  for (const row of rows) {
-    const planned = row.localSessionDirect ? undefined : rulesPlan.get(row.chatId)
-    // 原文只随这一批里该线的第一条投递附一次;其余同线投递只带版本号。
-    const groupRules = planned && (planned.version !== 'none' || planned.text !== null)
-      ? { version: planned.version, text: planned.text }
-      : null
-    if (planned) planned.text = null
-    const message = await prepareMessage(agentUserId, row, deps, toolNames, env, groupRules)
-    if (groupRules && groupRules.text !== null) {
-      message.rulesDelivered = { chatId: row.chatId, entry: { version: groupRules.version, contextKey: planned!.contextKey } }
+  try {
+    for (const row of rows) {
+      const planned = row.localSessionDirect ? undefined : rulesPlan.get(row.chatId)
+      // 原文只随这一批里该线的第一条投递附一次;其余同线投递只带版本号。
+      const groupRules = planned && (planned.version !== 'none' || planned.text !== null)
+        ? { version: planned.version, text: planned.text }
+        : null
+      if (planned) planned.text = null
+      const message = await prepareMessage(agentUserId, row, deps, toolNames, env, groupRules)
+      if (groupRules && groupRules.text !== null) {
+        message.rulesDelivered = { chatId: row.chatId, entry: { version: groupRules.version, contextKey: planned!.contextKey } }
+      }
+      prepared.push(message)
     }
-    prepared.push(message)
+  } catch (error) {
+    // Nothing of this batch was admitted yet: a row that cannot be prepared fails the batch the same way an
+    // injection does — disclosed to its chats with the error rethrown as it was, ❌ a pull that just stops.
+    deps.onOutcome?.({ agentUserId, ok: false })
+    throw saidIfDisclosed(error, await discloseBatchFailure(agentUserId, rows.map((row) => ({ row })), deps))
   }
   // Queue-backed (idle-only) rows stay one per admission so the queue can merge at drain. A
   // next-tool-call transport has no queue boundary: the admission itself is the delivery boundary,
@@ -866,13 +885,13 @@ async function advanceCursor(
  */
 async function discloseBatchFailure(
   agentUserId: string,
-  members: PreparedMessage[],
+  members: readonly Pick<PreparedMessage, 'row'>[],
   deps: AgentInboxReaderDeps,
   completionError?: unknown,
 ): Promise<boolean> {
   const post = deps.postDisclosure ?? ((input: DisclosureRow) => postDeliveryDisclosureRow(input, deps.accessToken))
   const reason = failureReason(completionError)
-  const byChat = new Map<string, PreparedMessage[]>()
+  const byChat = new Map<string, Pick<PreparedMessage, 'row'>[]>()
   const byPost = new Set<string>()
   for (const member of members) {
     if (member.row.forum) {
