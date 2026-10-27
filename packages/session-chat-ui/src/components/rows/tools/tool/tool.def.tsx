@@ -106,6 +106,7 @@ export function toolFromItem(item: ToolNode, ctx: SegmentCtx): ChatToolCall {
   return {
     kind: 'tool',
     id: item.id,
+    ...(base?.trimmedChars ? { transportNote: ctx.translate('transcript.outputTrimmed', { chars: base?.trimmedChars }) } : {}),
     name,
     status: 'status' in item ? item.status : 'done',
     awaitingPermission: base ? ctx.pendingToolCallIds().has(base.toolCallId) : false,
@@ -113,6 +114,7 @@ export function toolFromItem(item: ToolNode, ctx: SegmentCtx): ChatToolCall {
     ...(base?.rawInput !== undefined ? { request: base.rawInput } : {}),
     ...(result !== undefined ? { result } : {}),
     ...(base?.images?.length ? { images: base.images.map(toolImageUrl) } : {}),
+    ...(base?.imageRefs?.length ? { imageCount: base.imageRefs.length } : {}),
   };
 }
 
@@ -152,8 +154,8 @@ export function toolPayloadFor(
 }
 
 /** The picture strip under the header (tool-images.ts): there whenever the call handed pictures back, open or closed. */
-export function toolThumbsFor(item: Pick<ChatToolCall, 'images'>, ctx: MeasureCtx): ToolThumbStrip | null {
-  return toolThumbStrip(item.images?.length ?? 0, ctx.width);
+export function toolThumbsFor(item: Pick<ChatToolCall, 'images' | 'imageCount'>, ctx: MeasureCtx): ToolThumbStrip | null {
+  return toolThumbStrip(item.imageCount ?? item.images?.length ?? 0, ctx.width);
 }
 
 function toolUnitH(item: ChatToolCall, ctx: MeasureCtx, vars: ToolVars): number {

@@ -1,3 +1,4 @@
+import { findToolImage, trimCursorPageForTransport, trimTurnsForTransport } from '@gugu/session-core/session-record';
 import { and, asc, desc, eq, gte, lt, sql } from 'drizzle-orm';
 import type { TranscriptTurn } from '@gugu/session-core/acp';
 import { db } from '@main/db/client';
@@ -55,6 +56,11 @@ export type CommittedTurnSource = 'live' | 'replay' | 'revision' | 'backfill';
  * 重编号只动 id 那几个字段（`id` 与 `parentId`，两者都以 turn id 为前缀），
  * ❌ 不做整段 JSON 的字符串替换：消息正文里恰好出现同样的字符串就会被误伤。
  */
+function rewriteTurnId(value: string, previous: string, next: string): string {
+  if (value === previous) return next;
+  return value.startsWith(previous + ':') ? next + value.slice(previous.length) : value;
+}
+
 export function renumberStoredTurn(
   turn: TranscriptTurn,
   sessionId: string,
@@ -64,18 +70,13 @@ export function renumberStoredTurn(
   const prevTurnId = turn.id;
   if (nextTurnId === prevTurnId) return { ...turn, seq: storeSeq };
 
-  const rewrite = (value: string): string => {
-    if (value === prevTurnId) return nextTurnId;
-    if (value.startsWith(`${prevTurnId}:`)) return `${nextTurnId}${value.slice(prevTurnId.length)}`;
-    return value;
-  };
   const walk = (node: unknown): unknown => {
     if (Array.isArray(node)) return node.map(walk);
     if (node === null || typeof node !== 'object') return node;
     const out: Record<string, unknown> = {};
     for (const [key, val] of Object.entries(node as Record<string, unknown>)) {
       out[key] = (key === 'id' || key === 'parentId') && typeof val === 'string'
-        ? rewrite(val)
+        ? rewriteTurnId(val, prevTurnId, nextTurnId)
         : walk(val);
     }
     return out;
@@ -174,14 +175,32 @@ export async function getStoredHistory(params: {
   sessionId: string;
   before?: number;
   limit?: number;
-  /** 给了就改成「seq ≥ fromSeq 的全部行」,供界面每轮对账用;与 before/limit 互斥。 */
+  /** 给了就改成「seq ≥ fromSeq 的全部行」,供界面开场补读用;与 before/limit 互斥。 */
   fromSeq?: number;
 }): Promise<StoredTurnPage> {
-  return readStoredTurns(params.sessionId, {
+  const page = await readStoredTurns(params.sessionId, {
     before: params.before,
     limit: params.limit,
     fromSeq: params.fromSeq,
   });
+  return params.fromSeq === undefined
+    ? trimCursorPageForTransport(page)
+    : { ...page, turns: trimTurnsForTransport(page.turns) };
+}
+
+export async function getStoredToolImage(params: {
+  sessionId: string; itemId: string; index: number;
+} & ({ seq: number } | { originTurnId: string })) {
+  await persistenceTails.get(params.sessionId);
+  const [row] = await db.select({ data: sessionTurns.data, turnId: sessionTurns.turnId })
+    .from(sessionTurns).where(and(
+      eq(sessionTurns.sessionId, params.sessionId),
+      'seq' in params ? eq(sessionTurns.seq, params.seq) : eq(sessionTurns.turnId, params.originTurnId),
+    )).orderBy(desc(sessionTurns.seq)).limit(1);
+  const turn = row ? JSON.parse(row.data) as TranscriptTurn : null;
+  const itemId = row && turn && !('seq' in params)
+    ? rewriteTurnId(params.itemId, row.turnId, turn.id) : params.itemId;
+  return findToolImage(turn ? [turn] : [], itemId, params.index, Number.POSITIVE_INFINITY);
 }
 
 export interface StoredTurnPage {
@@ -204,8 +223,8 @@ export async function readStoredTurns(
   options: { before?: number; limit?: number; fromSeq?: number } = {}
 ): Promise<StoredTurnPage> {
   if (options.fromSeq !== undefined) {
-    // 「开场那一页的第一行一直到最新」—— 每轮对账用。❌ 不分页:这一段 = 开场那页 + 本次面板期间新增的,
-    // 有界;分页取反而会在两次取之间被新写进来的行错开。
+    // 「开场那一页之后新落库的行」—— 开场时补读一次用(acp-chat-store `_reloadStoredTail`)。❌ 不分页:这一段只是
+    // 开场那一刻前后落库的那几行,有界;分页取反而会在两次取之间被新写进来的行错开。
     const rows = await db
       .select({
         seq: sessionTurns.seq,

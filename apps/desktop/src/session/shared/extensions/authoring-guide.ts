@@ -206,8 +206,8 @@ Free:
   \`capabilities\` is what you may do RIGHT NOW, after any revocation — not what you asked for.
 - \`onContextChanged(fn)\` → theme, language, visibility, size and members changes. Returns an unsubscribe.
 - \`onCommand(fn)\` → the person picked one of your declared menu/toolbar entries; you get your own id back.
-- What the whole app shows (panes, which session): \`apps-agents\`.
-- \`setTabTitle(title)\` → page title (max 48). File tabs show the file name; this title is a hint/tooltip. Host Back closes the file tab; in-page Back keeps it.
+- \`showContextMenu({ x, y, items: [{ id, label, enabled? }, { type: "separator" }] })\` (API 18, page): App-local point, shared host menu; returns id or null.
+- \`setTabTitle(title)\` → title (max 48); file tabs use it as a tooltip. Host Back closes the file tab.
 - \`setTabBadge(badge)\` → a count (99+ at most, <=0 none), a string (a dot), or \`null\` (none).
 - \`openBrowserTab(url)\` → http(s) only.
 - \`reportError(message)\` → shown to the person. Never fail silently.
@@ -507,6 +507,16 @@ export const EXTENSION_GUIDE_FILES = `# gugu.files — shared live files
 Claim an existing data file's name or suffix and open it live; never copy it into your bundle
 (\`app_install\` data \`{ item_id }\`). Top-level \`await\` needs \`<script type="module">\`.
 
+## App data (API 18)
+
+Create internal state with \`files.create(target, content, { appData: true })\`;
+mark existing state when opening it with \`files.open(ref, { appData: true })\`.
+The host stamps installed {publisher,id} into \`entry.metadata.app\`, preserving other keys.
+Write access required; no folders/working copies. Markers follow rename/move. Leave user/Office documents
+unmarked. No filename rules. Only the folder view hides marked files; APIs, agents and links retain access.
+\`gugu.files.viewPreferences({ chat }, { showAppData: true })\` sets the signed-in person's source-chat
+preference; omit options to read it.
+
 ## Which files you may open
 
 Topic file addresses resolve to their source chat; messages keep the topic's.
@@ -545,7 +555,7 @@ Each call names its file or place. A file: an entry (from \`list\`) or \`ctx.fil
   blob, { expectedVersion: entry.version })\` makes its next version (needed; else \`content-changed\`).
   \`files.versions(entry)\` / \`files.readVersion(entry, n)\`: its history.
 - Entry: \`{id,chat|session|project,name,contentType,type,parentId,path,systemRole,size,version,
-  createdAt,updatedAt,createdBy,updatedBy,sourceMessageIds,canDelete}\`.
+  createdAt,updatedAt,createdBy,updatedBy,sourceMessageIds,canDelete,metadata}\`.
   Both authors: \`{id,name,kind:human|agent|system}\`; unknown/local editor is null.
 
 ## A text file (markdown)
@@ -554,11 +564,9 @@ Its handle — \`f.text\`, \`f.edit(old, new)\`, anchors — and an editor bound
 
 ## A JSON file
 
-Design the data first. The file keeps every write, so what changes every frame — a cursor, a drag, a
-stroke being drawn — goes in \`f.presence\` (\`apps-together\`); the file gets events and results.
-The file is data only: what agents should do with it goes in your tools (\`apps-programs\`), never a note in it;
-its own id is \`f.entry.id\`. A new version that changes that shape reads the old one too, writes the new, and
-raises \`version\`.
+The file keeps every write: frame-by-frame motion belongs in \`f.presence\` (\`apps-together\`),
+results in the file. Agent instructions belong in tools (\`apps-programs\`), never in data.
+Its id is \`f.entry.id\`. Shape changes must read old data, migrate it and raise \`version\`.
 
 \`f.data\` is a live object: read and write it as any object, spread included. An object assigned
 over one merges key by key — the keys you list, all the way down; the keys you saw and left out go —
@@ -579,20 +587,7 @@ Key per-person data by \`f.presence.self.userId\` (\`user:<uuid>\`, server-stamp
 name) — ❌ never ask the person who they are. ❌ No locks or "being edited by" fields of your own (they lock
 people out and still lose letters): show who edits what with presence.
 
-\`\`\`js
-const f = await gugu.files.open((await gugu.getContext()).file)   // { question, options, votes: {} }
-const me = f.presence.self.userId
-const render = () => {
-  title.textContent = f.data.question
-  list.replaceChildren(...f.data.options.map((o, i) => {
-    const b = document.createElement('button')
-    b.textContent = \`\${o} · \${Object.values(f.data.votes).filter((v) => v === i).length}\`
-    b.onclick = () => { f.data.votes[me] = i }
-    return b
-  }))
-}
-f.onChange(render); render()
-\`\`\`
+
 
 Text others wrote goes in with \`textContent\` or the template's \`render\` with html\`…\` (it escapes every \${…}),
 never joined into \`innerHTML\` — markup in a title could draw a fake button. On a change, redraw with \`render\`: it

@@ -97,6 +97,7 @@ function pageFor(webContentsId: number, extensionId: string): PageSync {
 }
 
 export const fileSync = {
+  ensureFor: (asAgent: string | null) => { relay.ensureFor(asAgent); },
   pageFor,
   grant: (page: PageSync, grant: Grant) => {
     log.info('File sync: file granted to the page', { page: page.id, extensionId: page.extensionId, itemId: grant.itemId, access: grant.access });

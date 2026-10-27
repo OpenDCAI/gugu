@@ -312,9 +312,11 @@ export function chatLinkRow(input: {
 export function machineNoticeLabel(
   notices: readonly ServerMachineNotice[] | undefined,
   device: string,
-  translate: Translate
+  translate: Translate,
+  options: { protocolOnly?: boolean } = {}
 ): string | null {
   for (const notice of notices ?? []) {
+    if (options.protocolOnly && (notice.kind === 'disk-low' || notice.kind === 'rolled-back')) continue;
     switch (notice.kind) {
       case 'desktop-too-old':
         return translate('remoteHost.notice.desktopTooOld', { device });

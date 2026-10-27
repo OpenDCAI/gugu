@@ -130,6 +130,7 @@ export function useMachineCreateContext(target: MachineCreateTarget | null): Mac
           dials: remoteHostsStore.dialsSinceOpen(target.deviceId),
           wakeFailure: wakeFailureLine(target.deviceId, label, translate),
           signInExpiredAt: device?.signInExpiredAt,
+          notices: device?.notices,
           translate,
         })
       : null,

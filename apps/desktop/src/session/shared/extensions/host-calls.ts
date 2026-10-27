@@ -21,6 +21,7 @@ export const HOST_CALLS = {
   'modal.close': { verb: 'modalClose', pack: (result: unknown = null) => ({ result }) },
   'modal.key': { verb: 'modalKey', pack: (key: string) => ({ key }) },
   getContext: { verb: 'getContext' },
+  showContextMenu: { verb: 'showContextMenu' },
   getAppState: { verb: 'getAppState' },
   openBrowserTab: { verb: 'openBrowserTab', pack: (url: string) => ({ url }) },
   /** `level: 'hint'` (摩擦单 F62): a note for the App's author, recorded, no red dot. */
@@ -78,6 +79,7 @@ export const HOST_CALLS = {
   'appFiles.search': { verb: 'filesSearch' },
   'appFiles.recent': { verb: 'filesRecent' },
   'appFiles.create': { verb: 'filesCreate' },
+  'appFiles.viewPreferences': { verb: 'filesViewPreferences' },
   'appFiles.remove': { verb: 'filesRemove' },
   'appFiles.rename': { verb: 'filesRename' },
   'appFiles.mkdir': { verb: 'filesMkdir' },
