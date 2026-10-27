@@ -104,7 +104,7 @@ it('binds returned consent to its fork and rejects reuse for another inactive fo
   const dir = service.variantDirectory('demo', 'upstream');
   service.installFromDirectory(dir, service.inspectDirectory(dir).manifestDigest, 'market', undefined, state.variants.find(row => row.name === 'upstream')!);
   const question = await removeExtensionVariant('demo', 'mine', { kind: 'return' });
-  if (!('ask' in question)) throw new Error('Expected a confirmation for mine');
+  if (!('ask' in question) || !question.ask) throw new Error('Expected a confirmation for mine');
   const requestInstallConsent = vi.fn(async () => ({ outcome: 'declined' as const }));
   await expect(removeExtensionVariant('demo', 'other', { kind: 'given', digest: question.ask.manifestDigest }, { requestInstallConsent })).rejects.toThrow('changed');
   expect(requestInstallConsent).not.toHaveBeenCalled();
