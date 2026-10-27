@@ -295,7 +295,7 @@ describe('MessageBubble touch menu', () => {
     expect(document.body.querySelector('[data-slot="sheet-content"]'), 'owner 10-26:❌ 底部抽屉').toBeNull()
     const menu = document.body.querySelector('[data-testid="message-action-menu"]') as HTMLElement
     const rows = [...menu.querySelectorAll('[data-testid^="message-action-"]')].map((el) => el.getAttribute('data-testid'))
-    expect(rows).toEqual(['message-action-reply', 'message-action-copy', 'message-action-selectText', 'message-action-copy-resource-url', 'message-action-send-resource-url', 'message-action-forward', 'message-action-delete'])
+    expect(rows).toEqual(['message-action-reply', 'message-action-copy', 'message-action-selectText', 'message-action-forward', 'message-action-delete'])
     await clickElement(menu.querySelector('[data-testid="message-action-reply"]') as HTMLElement)
     expect(onQuote).toHaveBeenCalledWith(expect.objectContaining({ id: 'msg-1' }))
     expect(document.body.querySelector('[role="menu"]')).toBeNull()
