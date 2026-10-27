@@ -100,22 +100,20 @@ export function AgentQuotaStatus({ agentId, displayName, avatar, state, onOpenMo
 }) {
   const { t } = useTranslation('messaging')
   return (
-    <div data-testid="agent-quota-status" style={{ flexShrink: 0 }}>
+    <div data-testid="agent-quota-status" className="aqs-bar">
       <style>{QUOTA_STYLE}</style>
-      <div className="aqs-bar">
-        <button
-          type="button"
-          className="aqs-tok"
-          data-clickable={onOpenModel ? 'true' : 'false'}
-          disabled={!onOpenModel}
-          onClick={onOpenModel}
-          aria-label={t('agent.turnFailure.stateAction', { name: displayName, state })}
-        >
-          <Avatar name={displayName} avatarUrl={avatar} seed={agentId} size="xs" isAgent />
-          <span className="aqs-nm">{displayName}</span>
-          <span className="aqs-state">{state}</span>
-        </button>
-      </div>
+      {/* 与 InlineAction 同一做法：ghost Button 去掉控件高与底色，读起来就是运行条里的一个 token。 */}
+      <Button
+        variant="ghost"
+        className="aqs-tok h-auto min-h-0 max-[719px]:min-h-0 border-0 p-0 gap-[7px] font-[inherit] text-[length:inherit] leading-[inherit] text-[var(--faint-fg)] [&:hover:not([data-disabled])]:bg-transparent"
+        disabled={!onOpenModel}
+        onClick={onOpenModel}
+        aria-label={t('agent.turnFailure.stateAction', { name: displayName, state })}
+      >
+        <Avatar name={displayName} avatarUrl={avatar} seed={agentId} size="xs" isAgent />
+        <span className="aqs-nm">{displayName}</span>
+        <span className="aqs-state">{state}</span>
+      </Button>
     </div>
   )
 }
@@ -123,10 +121,8 @@ export function AgentQuotaStatus({ agentId, displayName, avatar, state, onOpenMo
 // 几何与运行条 `.rtb-bar/.rtb-tok` 一致（同一排、同一刻度）；状态词用 --warn，不流光。
 const QUOTA_STYLE = `
 .aqs-bar{display:flex;align-items:center;gap:16px;padding:4px 14px 2px 24px;font-size:var(--font-caption);color:var(--faint-fg);white-space:nowrap;flex-shrink:0}
-.aqs-tok{display:inline-flex;align-items:center;gap:7px;flex-shrink:0;border:0;padding:0;background:transparent;color:inherit;font:inherit;white-space:nowrap;cursor:default}
-.aqs-tok[data-clickable=true]{cursor:pointer}
-.aqs-tok[data-clickable=true]:hover .aqs-state{text-decoration:underline;text-underline-offset:2px}
-.aqs-tok:disabled{opacity:1}
+.aqs-tok:not([data-disabled]):hover .aqs-state{text-decoration:underline;text-underline-offset:2px}
+.aqs-tok[data-disabled]{opacity:1;cursor:default}
 .aqs-nm{color:var(--faint-fg)}
 .aqs-state{color:var(--warn);font-weight:500}
 `
