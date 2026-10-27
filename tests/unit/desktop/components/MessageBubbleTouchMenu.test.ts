@@ -79,15 +79,13 @@ describe('MessageBubble touch menu', () => {
     await clickElement(document.querySelector('[data-testid="message-action-copyLink"]')!)
     expect(writeText).toHaveBeenLastCalledWith('https://example.com/path?copy=1025')
   })
-  it('offers one resource pair for an attachment file and copies its pinned version', async () => {
-    const writeText = vi.fn(async (_text: string) => {})
-    Object.defineProperty(navigator, 'clipboard', { value: { writeText }, configurable: true })
+  it('keeps a file message\'s menu to message actions: its gugu URL lives on the file (preview, group files), not here', async () => {
+    // Control (the parent commit 1b055755): the pair sat between 「复制」 and 「转发」 here (owner, #560: the bubble menu grows too long).
     await renderMessage(undefined, true, vi.fn(), { content: '[附件] notes.txt (text/plain)\n[Size] 12\n[Kind] file', file: { id: '12345678-1234-1234-1234-123456789abc', version: 3 } })
     await longPress()
-    expect(document.querySelectorAll('[data-testid="message-action-copy-resource-url"]')).toHaveLength(1)
-    expect(document.querySelectorAll('[data-testid="message-action-send-resource-url"]')).toHaveLength(1)
-    await clickElement(document.querySelector('[data-testid="message-action-copy-resource-url"]')!)
-    expect(writeText).toHaveBeenCalledWith('gugu-file://12345678-1234-1234-1234-123456789abc?v=3')
+    expect(document.querySelector('[data-testid="message-action-forward"]')).not.toBeNull()
+    expect(document.querySelector('[data-testid="message-action-copy-resource-url"]')).toBeNull()
+    expect(document.querySelector('[data-testid="message-action-send-resource-url"]')).toBeNull()
   })
   it('opens a link through its existing anchor action', async () => {
     await renderMessage(undefined, true, vi.fn(), { content: 'before https://example.com/path after' })
