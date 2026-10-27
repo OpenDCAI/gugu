@@ -142,4 +142,11 @@ describe('a Gugu model\'s menu name, filled in on first read and kept with the d
     await expect(label()).resolves.toBeNull();
     expect(catalog.queries).toHaveLength(2);
   });
+
+  it('a catalog that answers without this model keeps「no name」: null, and the next read does not ask again', async () => {
+    await recordSessionPlatformModel(SESSION, { modelId: 'retired-model' });
+    expect([await label(), await label()]).toEqual([null, null]);
+    expect(catalog.queries).toHaveLength(1);
+    await expect(sessionPlatformModel(SESSION)).resolves.toEqual({ modelId: 'retired-model', label: '' });
+  });
 });

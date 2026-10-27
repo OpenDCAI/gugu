@@ -82,17 +82,19 @@ export async function forgetSessionPlatformModel(sessionId: string): Promise<voi
 /**
  * The decided Gugu model's name as the model menu shows it, filled in on first read: the platform catalog is asked once
  * per session and model and the name kept beside the id. A new decision (a switch, a rollback) writes a record without it,
- * so a stale name goes with the old model. Null for an engine's own model or when the catalog cannot name it — then
- * nothing is kept, and the next read asks again. A name the platform later changes shows until the model changes.
+ * so a stale name goes with the old model. Null for an engine's own model, for one the catalog does not list (kept as
+ * '', not asked again), or when the catalog cannot answer (nothing kept: the next read asks again). A name the platform
+ * later changes shows until the model changes.
  */
 export async function sessionModelLabel(sessionId: string, decision: SessionPlatformModel | undefined, providerId: string | null, runtime: string | null): Promise<string | null> {
-  if (!decision || decision.label) return decision?.label ?? null;
+  // '' is「asked, the catalog has no name for it」: kept too, so a model the catalog does not list is not asked again.
+  if (!decision || decision.label !== undefined) return decision?.label || null;
   const resolver = getPlatformModelCatalogResolver();
   if (!resolver || !providerId || providerId === 'unknown') return null;
   const catalog = await resolver({ providerId, surface: runtime === 'acp' ? 'acp' : 'tui' }).catch(() => null);
-  const label = catalog?.models.find((entry) => entry.id === decision.modelId)?.displayName;
-  if (!label) return null;
+  if (!catalog) return null;
+  const label = catalog.models.find((entry) => entry.id === decision.modelId)?.displayName ?? '';
   const now = await sessionPlatformModel(sessionId);
   if (now?.modelId === decision.modelId) await platformModelKV.set(sessionId, { platformModel: { ...now, label } });
-  return label;
+  return label || null;
 }
