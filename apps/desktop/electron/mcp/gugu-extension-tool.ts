@@ -34,7 +34,7 @@ export const EXTENSION_TOOL_DEFS: readonly SessionpageToolDef[] = [
       'Then app_install with chat_id, data (in the chat already: {item_id}, never a copy). Own pages: manifest.contributes.tabs + files["<name>.html"]. Text file: gugu.bind.text(textarea, f).',
     ].join('\n'),
     // 这一份就是主进程校验的那一份(app-tool-args.ts)。
-    schema: z.object(APP_CREATE_ARGS).strict(),
+    schema: z.object(APP_CREATE_ARGS).strict().refine((args) => args.fork_of !== undefined || (args.id !== undefined && args.name !== undefined), { message: 'app_create: give fork_of to fork an installed App, or id and name for a new App' }),
     action: 'create',
   },
   {
@@ -49,7 +49,7 @@ export const EXTENSION_TOOL_DEFS: readonly SessionpageToolDef[] = [
     description: 'Install an App on your owner\'s computer (this one, or another with device): from source_dir (app_create), a .guguext in a chat (source_message_id), or the market. For a chat App give chat_id and data too: one call makes its data file, checks the App on it, posts it to the chat as a card and returns the file\'s link. An App asking for capabilities waits for the person to confirm; reinstalling from the same folder with nothing new declared replaces it without asking.',
     schema: z.object(APP_INSTALL_ARGS).strict().refine((args) => [args.source_dir, args.source_message_id, args.market].filter((given) => given !== undefined).length === 1, {
       message: 'app_install takes exactly one of source_dir, source_message_id or market',
-    }).refine((args) => args.chat_id === undefined || args.source_message_id === undefined, {
+    }).refine((args) => args.variant === undefined || (args.market !== undefined && args.chat_id === undefined && args.device === undefined), { message: 'variant switches an installed App: use market and variant only' }).refine((args) => args.chat_id === undefined || args.source_message_id === undefined, {
       message: 'app_install: chat_id goes with source_dir or market — an App installed from a card is already in that chat',
     }).refine((args) => args.device === undefined || args.market === undefined, {
       // Another machine is asked through the package it is sent (install_attachment's two-step consent); the market has no such step.
