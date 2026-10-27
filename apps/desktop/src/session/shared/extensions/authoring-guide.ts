@@ -991,7 +991,7 @@ App's detail page. No fork or data copying is needed to switch.
 ## An App resource URL
 
 A link like \`<scheme>://app/<id>?device=<device-id>&variant=<slug>\` names that
-installed fork on that registered device. Use \`app_manage {url}\` to read its metadata,
+installed fork on that registered device. Use \`app_manage\` with \`{url}\` to read its metadata,
 source directory, base and upstream status; never look up a local namesake or pack its cache.
 \`app_manage {url, operation:"switch"}\` activates it. \`operation:"remove"\` asks the
 person, switches an active fork to upstream, then deletes only its registration and cache.
