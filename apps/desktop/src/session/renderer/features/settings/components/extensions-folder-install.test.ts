@@ -632,6 +632,7 @@ describe('App variant switching uses the existing install consent', () => {
   let asks: boolean;
   const originalList = h.api.list.getMockImplementation();
   const originalUpdates = h.api.marketUpdates.getMockImplementation();
+  const originalEntry = h.api.marketEntry.getMockImplementation();
   const variants = ['upstream', 'timeline'].map((name) => ({
     name, base: '1.0.0', dir: name === 'upstream' ? null : '/work/notes@timeline',
     repo: 'https://github.com/example/apps', path: 'notes', commit: 'a'.repeat(40), sha256: 'b'.repeat(64), bytes: 10,
@@ -652,7 +653,7 @@ describe('App variant switching uses the existing install consent', () => {
     vi.stubGlobal('getComputedStyle', dom.window.getComputedStyle.bind(dom.window));
     root = createRoot(doc().querySelector('#root')!);
     queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
-    h.api.list.mockImplementation(async () => ({ success: true, data: { extensions: [h.manifest('1.0.0')], invalid: [], icons: {}, disabled: [], variants: { notes: { active, variants } } } }));
+    h.api.list.mockImplementation(async () => ({ success: true, data: { extensions: [h.manifest('1.0.0')], invalid: [], icons: {}, disabled: [], origins: { notes: active === 'upstream' ? 'market' : 'fork' }, variants: { notes: { active, variants } } } }));
     h.api.switchVariant.mockImplementation(async (_id: string, name: string, consent: { kind: string }) => {
       const manifest = h.manifest('1.0.0', [], asks ? ['files:read', 'notifications'] : ['files:read']);
       if (consent.kind === 'return') return { success: true, data: { outcome: 'ask', asks, ask: { manifest, manifestDigest: 'variant-digest', installed: h.manifest('1.0.0'), revokedPermissions: [] } } };
@@ -667,6 +668,7 @@ describe('App variant switching uses the existing install consent', () => {
     vi.unstubAllGlobals();
     h.api.list.mockImplementation(originalList!);
     h.api.marketUpdates.mockImplementation(originalUpdates!);
+    h.api.marketEntry.mockImplementation(originalEntry!);
     h.api.switchVariant.mockReset();
   });
 
@@ -692,6 +694,26 @@ describe('App variant switching uses the existing install consent', () => {
       ['notes', 'upstream', { kind: 'given', digest: 'variant-digest' }],
     ]);
     await until('the upstream variant is selected', () => doc().querySelector('[data-testid="app-variant-upstream"]')?.getAttribute('aria-checked') === 'true');
+  });
+
+  it.each([false, true])('opens the active fork instead of replacing it with a market update (update listed: %s)', async (listed) => {
+    const installFromMarket = vi.fn();
+    (h.api as Record<string, unknown>).installFromMarket = installFromMarket;
+    h.api.marketEntry.mockResolvedValue({ success: true, data: {
+      manifest: h.manifest('2.0.0'), cloud: { compat: null }, ref: { extensionId: 'notes', version: '2.0.0' },
+    } } as never);
+    h.api.marketUpdates.mockResolvedValue({ success: true, data: {
+      checkedAt: '2026-10-26T00:00:00.000Z', yanked: {}, deprecated: {},
+      updates: listed ? { notes: { version: '2.0.0' } } : {},
+      forkBehind: { notes: { upstream: '2.0.0', behind: 1, commit: 'c'.repeat(40) } },
+    } } as never);
+    await openVariantList();
+    await until('the newer market entry is loaded', () => h.api.marketEntry.mock.calls.length > 0);
+    expect(doc().querySelector('[data-testid="app-product-action"]')?.getAttribute('data-lifecycle')).toBe('open');
+    expect(doc().querySelector('.mk-banner .xp-note')?.textContent).toContain('2.0.0');
+    await press('[data-testid="app-product-action"]');
+    expect(installFromMarket).not.toHaveBeenCalled();
+    expect(h.showConfirm).not.toHaveBeenCalled();
   });
 
   it('keeps Apps listed when one has no readable variant metadata', async () => {

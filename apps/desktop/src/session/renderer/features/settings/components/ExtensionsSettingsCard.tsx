@@ -915,7 +915,7 @@ export const ExtensionsSettingsCard = observer(function ExtensionsSettingsCard()
     if (!updates) return null;
     if (updates.yanked[extensionId]) return 'yanked';
     if (updates.deprecated[extensionId]) return 'deprecated';
-    if (updates.updates[extensionId] || updates.forkBehind?.[extensionId]) return 'update';
+    if (updates.updates[extensionId]) return 'update';
     return null;
   };
   const noticeOf = (manifest: ExtensionManifest): InstalledRowNotice | undefined => {
@@ -942,11 +942,12 @@ export const ExtensionsSettingsCard = observer(function ExtensionsSettingsCard()
    */
   const lifecycleOf = (extensionId: string, item?: Pick<ShelfItem, 'manifest' | 'cloud'>): AppLifecycle => {
     const installed = installedById.get(extensionId);
+    const fork = store.origins[extensionId] === 'fork';
     return appLifecycle({
       installed,
       enabled: installed ? store.isEnabled(installed.id) : false,
-      updateVersion: store.updates?.updates[extensionId]?.version,
-      offered: item,
+      updateVersion: fork ? undefined : store.updates?.updates[extensionId]?.version,
+      offered: fork ? undefined : item,
       preinstalled: store.isPreinstalled(extensionId),
       canOpen: installed ? onRail(installed) : false,
     }, translate);
