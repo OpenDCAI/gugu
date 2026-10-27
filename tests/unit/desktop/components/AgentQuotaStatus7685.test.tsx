@@ -10,7 +10,7 @@ vi.mock('../../../../apps/desktop/src/components/agentsettings/AgentSettingsModa
 vi.mock('../../../../apps/desktop/src/components/Avatar', () => ({ Avatar: () => <span data-avatar /> }))
 vi.mock('../../../../apps/desktop/src/lib/supabase', () => ({ requeueErroredDeviceCommand: vi.fn() }))
 vi.mock('../../../../apps/desktop/src/platform', () => ({ platform: {} }))
-vi.mock('../../../../apps/desktop/src/components/toastContext', () => ({ useToast: () => ({ toast }) }))
+vi.mock('../../../../apps/desktop/src/lib/notices', () => ({ notify: toast }))
 vi.mock('../../../../apps/desktop/src/hooks/useAgentTurnFailure', () => ({ useAgentTurnFailure: () => ({ failure: null, dismiss: vi.fn() }) }))
 vi.mock('../../../../apps/desktop/src/hooks/useStoredAgentTurnFailure', () => ({
   useStoredAgentTurnFailure: () => ({
@@ -33,7 +33,7 @@ describe('额度失败是状态位，不是失败条', () => {
     expect(ui.container.querySelector('[data-testid="agent-quota-status"]')?.textContent).toContain('周限额度已满')
     expect(ui.container.querySelector('[data-testid="agent-turn-failure"]')).toBeNull()
     expect(toast).toHaveBeenCalledTimes(1)
-    expect(toast).toHaveBeenCalledWith(expect.stringContaining('Codex 114'), 'warning')
+    expect(toast).toHaveBeenCalledWith(expect.objectContaining({ key: 'agent-quota:agent-1', tier: 'warning', title: 'Codex 114' }))
     ui.cleanup(); ui = createReactHarness(); await ui.render(createNode(AgentTurnFailureSlot, props))
     expect(toast).toHaveBeenCalledTimes(1)
   })

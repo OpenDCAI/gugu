@@ -16,7 +16,7 @@ import { AgentSettingsModal } from './agentsettings/AgentSettingsModal'
 import { Button } from './ui/Button'
 import { useStoredAgentTurnFailure } from '../hooks/useStoredAgentTurnFailure'
 import { agentTurnFailureMuteKind } from '../lib/agentTurnFailureMute'
-import { useToast } from './toastContext'
+import { notify } from '../lib/notices'
 import { Avatar } from './Avatar'
 
 type AgentTurnFailureSlotProps = {
@@ -46,7 +46,6 @@ export function AgentTurnFailureSlot({
   profiles,
 }: AgentTurnFailureSlotProps) {
   const { t } = useTranslation('messaging')
-  const { toast } = useToast()
   const local = useAgentTurnFailure(chatId, threadRootId)
   const { contacts } = useContactsStore()
   const stored = useStoredAgentTurnFailure(chatId, threadRootId, contacts.filter((contact) => contact.type === 'agent' && profiles[contact.id]).map((contact) => contact.id))
@@ -58,9 +57,11 @@ export function AgentTurnFailureSlot({
   // #7685 额度/模型类：同一位 agent 在恢复之前只 toast 一次，之后只剩状态位。
   useEffect(() => {
     if (!failure || !stateKind || wasNotified(failure)) return
-    toast(`${displayName}：${agentTurnFailureUserMessage(failure.rawMessage)}`, 'warning')
+    // 走 lib/notices 而不是 useToast():聊天面板也挂在会话页那个 React 根里，那里没有 ToastProvider，
+    // useToast() 拿到的是空实现(mac1 真机验证时发现)。notices 是两个根共用的那一个提示条。
+    notify({ key: `agent-quota:${failure.agentUserId}`, tier: 'warning', title: displayName, description: agentTurnFailureUserMessage(failure.rawMessage) })
     markNotified(failure)
-  }, [failure, stateKind, displayName, wasNotified, markNotified, toast])
+  }, [failure, stateKind, displayName, wasNotified, markNotified])
   if (!chatId) return null
   if (!failure) return stored.readFailed ? <><style>{STYLE}</style><div data-chat-composer-notice="" className="atf-bar" role="status"><span className="atf-msg">{t('agent.turnFailure.statusReadFailed')}</span><Button variant="ghost" size="sm" onClick={stored.retry}>{t('agent.turnFailure.retry')}</Button></div></> : null
   const profile = profiles[failure.agentUserId]
