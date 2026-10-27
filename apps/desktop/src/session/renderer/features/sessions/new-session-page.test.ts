@@ -518,6 +518,7 @@ describe('NewSessionPage', () => {
   it('keeps an editable, projectless composer when no project exists', async () => {
     await renderPage();
 
+    // Owner-approved task naming (#563), already synchronized by #573.
     expect(container.textContent).toContain('新建任务');
     expect(container.textContent).not.toContain('新建会话');
     expect(container.textContent).toContain('未选择项目');
