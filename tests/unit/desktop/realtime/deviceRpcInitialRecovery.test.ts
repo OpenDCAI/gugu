@@ -1,3 +1,4 @@
+import { REMOTE_PROTOCOL_VERSION } from '@gugu/core/cloud/serverMachineHealth'
 import { afterEach, beforeEach, expect, it, vi } from 'vitest'
 import { createDesktopDeviceRpcSubscription } from '../../../../apps/desktop/electron/device-rpc-responder'
 import { _resetElectronRealtimeChannelRegistryForTesting, listElectronRealtimeChannelRegistry } from '../../../../apps/desktop/electron/realtime-channel'
@@ -45,7 +46,7 @@ it('recovers first Unauthorized with fresh auth, then answers taskhost.attach', 
     expect(c.channels.flatMap(channel => channel.sent)).toEqual([])
     const recovered = c.channels[1]!
     recovered.emit('SUBSCRIBED')
-    recovered.receive({ type: 'taskhost.attach', request_id: 'attach-1', user_id: 'u1', payload: { asker: 'askerAAAA1111', protocol: 9 } })
+    recovered.receive({ type: 'taskhost.attach', request_id: 'attach-1', user_id: 'u1', payload: { asker: 'askerAAAA1111', protocol: REMOTE_PROTOCOL_VERSION } })
     await vi.advanceTimersByTimeAsync(0)
     const asker = c.channels.find(channel => channel.topic.endsWith(':askerAAAA1111'))!
     asker.emit('SUBSCRIBED')
