@@ -55,7 +55,7 @@ export class AssistantWorkStore {
   /**
    * Which work a dispatch belongs to, and whether it continues one already on record (#615).
    * A message to an executor that still holds unfinished work of the same kind continues that work by default:
-   * only an explicit `fresh` assignment opens a new one. Matching by the chat message that triggered the turn
+   * only an explicit `fresh` assignment (`purpose: 'new'`) opens a new one. Matching by the chat message that triggered the turn
    * opened a second work for every follow-up, leaving the first one open forever (one agent, two task rows).
    * `ledgered` limits implicit continuation to work the account ledger already holds, so a follow-up never
    * points at a work the cloud has never seen.
@@ -218,7 +218,7 @@ export async function coordinateAssistantAction(binding: AssistantWorkBinding, a
     ...source,
     ...(typeof record.device === 'string' ? { device: record.device } : {}) },
     Array.isArray(record.to) ? record.to.filter((value): value is string => typeof value === 'string') : [],
-    { workId: typeof record.work_id === 'string' ? record.work_id : undefined, dispatchKey, fresh: record.new_work === true, ledgered: binding.agentId !== undefined })
+    { workId: typeof record.work_id === 'string' ? record.work_id : undefined, dispatchKey, fresh: record.purpose === 'new', ledgered: binding.agentId !== undefined })
   let intent:AssistantWorkIntent | undefined
   const purpose=binding.agentId ? store.purposeOf(id) : undefined
   if(binding.agentId) {
@@ -228,8 +228,8 @@ export async function coordinateAssistantAction(binding: AssistantWorkBinding, a
       title:(typeof record.title==='string' && record.title.trim() ? record.title.trim() : '任务').slice(0,500),
       ...(typeof record.source_link==='string' ? {source_link:record.source_link} : {}),continuation:continued}
   }
-  // `purpose` and `new_work` are this host's classification, stored on the work; executors and older hosts never see the field.
-  const forwarded={...record};delete forwarded.purpose;delete forwarded.new_work
+  // `purpose` is this host's classification, stored on the work; executors and older hosts never see the field.
+  const forwarded={...record};delete forwarded.purpose
   const dispatched = field ? { ...forwarded,...(intent ? {assistant_work:intent} : {}), [field]: `${record[field]}\n\n<gugu_work>\n${JSON.stringify({ work_id: id,
     coordinator: `session:${binding.sessionId}`,...(intent?{assistant_id:intent.assistant_id,purpose}:{}), report: EXECUTOR_REPORT })}\n</gugu_work>` } : action
   try {

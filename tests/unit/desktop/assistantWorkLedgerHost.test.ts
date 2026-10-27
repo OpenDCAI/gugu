@@ -143,9 +143,10 @@ it('continues the executor\'s open work on a follow-up from a new chat message, 
   expect(followUp.work_id).toBe(task.work_id)
   expect(sent.map(a=>a.assistant_work.continuation)).toEqual([false,true])
   expect(new AssistantWorkStore(root).list()).toHaveLength(1)
-  const unrelated=await coordinateAssistantAction(binding,{action:'message',to:['session:executor'],text:'另外一件事',purpose:'task',source_link:second,new_work:true},run) as {work_id:string}
+  const unrelated=await coordinateAssistantAction(binding,{action:'message',to:['session:executor'],text:'另外一件事',purpose:'new',source_link:second},run) as {work_id:string}
   expect(unrelated.work_id).not.toBe(task.work_id)
   expect(sent[2]!.assistant_work.continuation).toBe(false)
-  expect(sent[2]).not.toHaveProperty('new_work')
+  expect(sent[2]).not.toHaveProperty('purpose')
+  expect(workBlock(sent[2]!.text)).toMatchObject({purpose:'task'})
   expect(new AssistantWorkStore(root).list()).toHaveLength(2)
 })
