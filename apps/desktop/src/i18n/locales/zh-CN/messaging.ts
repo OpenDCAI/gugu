@@ -30,13 +30,6 @@ export default {
       },
       "open": "在任务中打开",
       "openFailed": "无法在任务中打开：{{reason}}",
-      "mode": {
-        "menu": "模式：{{mode}}",
-        "code": "编程",
-        "general": "通用",
-        "switchToCode": "切换为编程模式",
-        "switchToGeneral": "切换为通用模式"
-      },
       "review": {
         "action": "请打开任务终端检查 MCP server，然后按 Enter 确认。",
         "title": "Agent 正等待 MCP review"

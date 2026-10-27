@@ -77,8 +77,8 @@ describe('MobileModeMenu on the session page (at=task)', () => {
       { id: 'task', checked: 'true', text: '会话' },
     ])
     expect(document.querySelectorAll('[role="menuitem"]')).toHaveLength(0)
-    expect(document.body.textContent).not.toContain(translateSessionMessage('task.switchToGeneralView'))
-    expect(document.body.textContent).not.toContain(translateSessionMessage('task.switchToCodeView'))
+    // 没有「切换为编程 / 通用模式」:那个手动切换整个删了,手机上也不会有。
+    expect(document.body.textContent).not.toContain('切换为')
 
     await clickElement(choice('chat')!)
     expect(onOpenChat).toHaveBeenCalledTimes(1)

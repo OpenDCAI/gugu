@@ -30,13 +30,6 @@ export default {
       },
       "open": "Open in Tasks",
       "openFailed": "Could not open in Tasks: {{reason}}",
-      "mode": {
-        "menu": "Mode: {{mode}}",
-        "code": "Code",
-        "general": "Work",
-        "switchToCode": "Switch to Code mode",
-        "switchToGeneral": "Switch to Work mode"
-      },
       "review": {
         "action": "Open the task terminal, review the MCP servers, then press Enter to confirm.",
         "title": "Agent is waiting for MCP review"

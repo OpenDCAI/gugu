@@ -63,7 +63,7 @@ import {
   type SessionView,
 } from '@shared/core/sessions/sessions';
 import { UNATTENDED_SESSION_PERMISSION_MODE } from '@shared/core/sessions/unattended-session-autonomy';
-import { SessionViewControl, type SessionViewLockState } from './session-view-control';
+import type { SessionViewLockState } from './session-view-lock';
 import { useSessionViewPreference } from './session-view-preference';
 import { toast } from '@renderer/lib/hooks/use-toast';
 import { safeFailureLine } from '@renderer/features/sessions/gugu-reason';
@@ -270,7 +270,7 @@ export type InitialSessionState = {
    * ⚠️ 运行时起哪种进程(pty / acp)是另一层事实,只在构造载荷那一刻翻译一次。
    */
   sessionView: SessionView;
-  /** 用户选展示:写的是持久偏好,生效值随之重算。 */
+  /** 一条已存记录(自动化)自己的展示:只覆盖这一个框,生效值随之重算。 */
   setSessionView: (next: SessionView) => void;
   /** 这一家有没有第二种展示可选。没有就不渲染控件 —— 只有一种展示的 harness 没什么可切。 */
   sessionViewOffered: boolean;
@@ -513,7 +513,11 @@ export function useInitialSessionState(
   const lastStartedConfiguration = memory?.lastStarted ?? null;
   /** 正在编辑一条已存记录(自动化)—— 它的 agent 是那条记录的属性,❌ 不写进全局的「我上次选的」。 */
   const editingStoredRecord = initialProvider !== undefined;
-  const [sessionViewPreference, setSessionViewPreference] = useSessionViewPreference();
+  // 新会话的展示跟本机「终端」开关走(开 → 编程,关 → 通用);人不再在框里选。只有编辑一条已存的自动化时,
+  // 由那条记录自己的展示覆盖(`setSessionView`,❌ 写回任何全局设置)。
+  const terminalSessionView = useSessionViewPreference();
+  const [sessionViewOverride, setSessionViewOverride] = useState<SessionView | null>(null);
+  const sessionViewPreference = sessionViewOverride ?? terminalSessionView;
   // #6264 远端创建框:只经云端连着的机器只有聊天界面那条腿(终端画面走不了云端消息通道),
   // 所以钉在它上面 —— 显示「编程」却建出「通用」就是界面说假话。
   // 在这台桌面上用 SSH 装上的机器和本机一样两种都给(behavior「别的机器上的编程只给用 SSH 装上的机器」)。
@@ -826,8 +830,7 @@ export function useInitialSessionState(
   // 面的 identity / messageTransport 仍是 none 而接不通时,这条会话只能用编程视角 —— 偏好里存着
   // 「通用」也不算数,否则控件显示编程、载荷却是 acp,两边说的不是同一条会话。
   //
-  // 判据与会话页 ⋯ 菜单的「切换为通用/编程模式」共用同一份(`agentOffersSessionView`):建会话时
-  // 问的和会话中途换展示时问的是同一件事,❌ 两处各写一份组合就会漂。
+  // 判据与主进程建会话(create-session.ts)共用同一份(`agentOffersSessionView`),❌ 两处各写一份组合就会漂。
   const generalWired = agentOffersSessionView(capabilities, 'general');
   const resolvablePreferredSurface =
     sessionViewOffered && !generalOnlyAgent && !generalWired ? 'tui' : preferredSessionpageLeg;
@@ -1424,7 +1427,7 @@ export function useInitialSessionState(
       });
     },
     sessionView,
-    setSessionView: setSessionViewPreference,
+    setSessionView: setSessionViewOverride,
     sessionViewOffered,
     sessionViewLock,
     providerSelectionSurface: sessionpageSurface,
@@ -1875,25 +1878,6 @@ export function InitialSessionField({
     [chatAttachmentChannel, remoteMachine, state, translate]
   );
 
-  // owner: composer 底栏一排四控件 — Agent → Model → 权限(询问) → 展示。前三个是 ChatComposer
-  // 自带的 toolbar-left 选择器,展示作为第 4 个经 toolbarExtra 塞进同一排。
-  // 展示是「编程 | 通用」(Code | Work)两段各有名字的分段控件,❌ 不再是一个只给一头起名的
-  // "Chat UI" 开关(product spec:实现术语不直接展示给用户)。
-  // owner 2026-08-21:**声明没闭合 ≠ 不支持**。选不了的那一头要**留在原地并说明原因**,❌ 不是
-  // 凭空消失 —— 消失让用户以为界面坏了,而 product spec 要的是「不适用的项隐藏或明确
-  // 禁用,不能形成无响应的假控件」。三种锁的判定与「这条会话真实用哪一种展示」一起在 hook 里算
-  // (`sessionViewLock`),这里只负责把 reason 翻成人话。
-  // 压根没声明通用视角的 harness(如 Pi:surfaces 只有 tui)没有第二种展示,不出现。
-  const sessionViewControl = state.sessionViewOffered ? (
-    <SessionViewControl
-      value={state.sessionView}
-      onChange={state.setSessionView}
-      lock={state.sessionViewLock}
-      agentName={selectedAgentName}
-      disabled={!state.provider}
-    />
-  ) : undefined;
-
   // 平台分组缺席的原因,贴在模型选择器同一排。ChatComposer 的模型列表是平铺的
   // `DropdownMenu.RadioItem`,`ComposerModelOption` 没有 disabled/说明行的位置(组件在
   // packages/session-ui),所以这句话只能落在工具栏里 —— 不可点、无边框、跟 Chat UI 标签同一档
@@ -1949,9 +1933,8 @@ export function InitialSessionField({
   const [attachmentViewer, setAttachmentViewer] = useState<ComposerAttachment | null>(null);
 
   const toolbarExtra =
-    sessionViewControl || platformNotice || harnessNotice || grokPermissionNotice ? (
+    platformNotice || harnessNotice || grokPermissionNotice ? (
       <>
-        {sessionViewControl}
         {harnessNotice}
         {platformNotice}
         {platformRetry}

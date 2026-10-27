@@ -25,6 +25,7 @@ import {
 } from './SessionSettingsRows';
 import { SidebarTintRow } from './SidebarTintRow';
 import TerminalSettingsCard from './TerminalSettingsCard';
+import { useTerminalEnabled } from '../use-terminal-enabled';
 import ChatViewCard from './ChatViewCard';
 import { useSessionMessages } from '@renderer/localization/use-session-messages';
 import { DeviceScopeProvider } from '@renderer/features/remote-hosts/device-scope-picker';
@@ -62,6 +63,8 @@ function GeneralSettingsPage() {
 
 function InterfaceSettingsPage() {
   const { translate } = useSessionMessages();
+  // 「终端」开关关着:终端那张卡不出现(开关在设置 → 通用)。
+  const terminalEnabled = useTerminalEnabled();
   return (
     <SettingsPage>
       <PageHeader
@@ -71,7 +74,7 @@ function InterfaceSettingsPage() {
         <SidebarTintRow />
       </SettingsGroup>
       <ChatViewCard />
-      <TerminalSettingsCard />
+      {terminalEnabled ? <TerminalSettingsCard /> : null}
       <SidebarMetadataSettingsCard />
       <InterfaceSettingsCard />
       <SettingsGroup title={translate('settings.keyboardShortcuts')}>
