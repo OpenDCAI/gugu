@@ -12,6 +12,7 @@ import { nextChatId } from './chat-list-keyboard-nav'
 import { readSessionpageViewRequestBridge } from '../lib/sessionpageViewRequestBridge'
 import { requestTopicSplit } from '../lib/topicSplitRequest'
 import { useTabsReading } from './appSlot/useTabsReading'
+import { useAssistantShell } from '../session/renderer/features/assistant/assistant-shell'
 import { topicTabOf } from '../session/renderer/features/chats/chat-tabs/chat-layouts'
 
 installShellSlots()
@@ -25,9 +26,10 @@ const EMPTY: ReadonlyMap<string, HTMLElement> = new Map()
 export function ChatListSlotHost() {
   const { chats } = useChatStore('chats')
   const projectGroupChats = useProjectGroupChats()
+  const assistant = useAssistantShell()
   useEffect(() => {
-    publishSidebarChatSignals(sidebarChatSignals(chats, projectGroupChats))
-  }, [chats, projectGroupChats])
+    publishSidebarChatSignals(sidebarChatSignals(chats, projectGroupChats, assistant))
+  }, [chats, projectGroupChats, assistant])
   const slots = readShellSlots()
   const targets = useSyncExternalStore(
     (listener) => slots?.subscribeSlots(listener) ?? (() => undefined),

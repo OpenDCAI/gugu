@@ -143,15 +143,11 @@ export const LeftSidebar: React.FC = observer(function LeftSidebar() {
     appState.navigation.currentViewId === 'chat'
       ? ((appState.navigation.viewParamsStore.chat as { chatId?: string } | undefined)?.chatId ?? null)
       : null;
-  const focusedSessionId =
-    appState.navigation.currentViewId === 'session'
-      ? ((appState.navigation.viewParamsStore.session as { sessionId?: string } | undefined)?.sessionId ?? null)
-      : null;
   // 拼在一屏的几组:壳画的「对话」也把同一组的几行并在一处(同「项目」这边)。
   const joinedGroups = sidebarStore.joinedGroups;
   React.useEffect(
-    () => publishSidebarChatView({ focusedChatId, focusedSessionId, groups: joinedGroups }),
-    [focusedChatId, focusedSessionId, joinedGroups]
+    () => publishSidebarChatView({ focusedChatId, groups: joinedGroups }),
+    [focusedChatId, joinedGroups]
   );
   const [scrollContent, setScrollContent] = React.useState<HTMLDivElement | null>(null);
   const scrollTargets = React.useMemo<SidebarScrollTargets>(
