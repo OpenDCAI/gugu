@@ -9,7 +9,6 @@ export type ExtensionsApi = Pick<
   typeof rpc.extensions,
   | 'list'
   | 'switchVariant'
-  | 'removeVariant'
   | 'revoked'
   | 'market'
   | 'marketEntry'

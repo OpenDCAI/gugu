@@ -20,8 +20,8 @@ export function useAppDetailRequest({ target, ready, host, setDetail, detail, ro
         const local = readCachedDevices().some((row) => row.device_id === target.deviceId && row.is_current_device);
         if (host.key !== (local ? 'local' : `remote:${target.deviceId}`)) throw new Error('The App link names another device; reopen the link or reconnect that device.');
       }
-      const installed = target.deviceId ? host.store.manifests.find((row) => row.id === target.extensionId) : undefined;
-      if (target.deviceId && !installed) throw new Error('The installed App is no longer available on this device.');
+      const installed = host.store.manifests.find((row) => row.id === target.extensionId);
+      if (target.variant && !installed) throw new Error('The installed App is no longer available on this device.');
       const result = await host.api.marketEntry({ extensionId: target.extensionId });
       if (cancelled) return;
       const item = result.success ? result.data : undefined;

@@ -41,12 +41,6 @@ it.each(['declined', 'dismissed', 'timeout'] as const)('keeps the active fork an
   expect(readFileSync(path.join(service.get('demo').rootDir, 'index.html'), 'utf8')).toBe('custom');
   expect(service.variants('demo').variants.some((row) => row.name === 'mine')).toBe(true);
 });
-it('returns the human question without switching; a different digest is rejected', async () => {
-  const returned = await removeExtensionVariant('demo', 'mine', { kind: 'return' });
-  expect(returned).toMatchObject({ outcome: 'ask', asks: true, ask: { removeVariant: { name: 'mine', active: true } } });
-  expect(service.variants('demo').active).toBe('mine');
-  await expect(removeExtensionVariant('demo', 'mine', { kind: 'given', digest: 'other' })).rejects.toThrow('changed');
-});
 it('confirmed active deletion uses the install transaction, retains original/data/source/places, then removes the fork', async () => {
   const identity = service.identityOf('demo')!;
   service.setGivenHere(identity, ['here:all']);
@@ -102,4 +96,17 @@ it('keeps the fork and reports the actual upstream state if activation fails aft
   expect(result).toMatchObject({ removed: false, active: 'upstream', error: expect.stringContaining('activation failed') });
   expect(service.variants('demo').variants.some((row) => row.name === 'mine')).toBe(true);
   expect(readFileSync(path.join(service.variantDirectory('demo', 'mine'), 'index.html'), 'utf8')).toBe('custom');
+});
+
+it('binds returned consent to its fork and rejects reuse for another inactive fork (L11)', async () => {
+  const state = service.variants('demo');
+  service.installFromDirectory(source, service.inspectDirectory(source).manifestDigest, 'fork', { id: 'gugu' }, { ...state.variants.find(row => row.name === 'mine')!, name: 'other' });
+  const dir = service.variantDirectory('demo', 'upstream');
+  service.installFromDirectory(dir, service.inspectDirectory(dir).manifestDigest, 'market', undefined, state.variants.find(row => row.name === 'upstream')!);
+  const question = await removeExtensionVariant('demo', 'mine', { kind: 'return' });
+  if (!('ask' in question)) throw new Error('Expected a confirmation for mine');
+  const requestInstallConsent = vi.fn(async () => ({ outcome: 'declined' as const }));
+  await expect(removeExtensionVariant('demo', 'other', { kind: 'given', digest: question.ask.manifestDigest }, { requestInstallConsent })).rejects.toThrow('changed');
+  expect(requestInstallConsent).not.toHaveBeenCalled();
+  expect(service.variants('demo').variants.map(row => row.name)).toEqual(['mine', 'other', 'upstream']);
 });

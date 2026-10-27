@@ -16,9 +16,11 @@ export async function openAppDetailLink(target: AppDetailLink, ownerId: string, 
       if (!remoteHostsStore.device(target.deviceId)) throw new Error(`Device ${target.deviceId} is unavailable; open Devices and reconnect it.`);
       scope = target.deviceId;
     }
-    const result = await rpcOn(scope === LOCAL_DEVICE_SCOPE ? null : scope).extensions.variants(target.extensionId);
-    if (!result.success || !result.data) throw new Error(result.error ?? 'The installed App is unavailable on that device.');
-    if (target.variant && !result.data.variants.some((row) => row.name === target.variant)) throw new Error(`Variant ${target.variant} is no longer installed on that device.`);
+    if (target.variant) {
+      const result = await rpcOn(scope === LOCAL_DEVICE_SCOPE ? null : scope).extensions.variants(target.extensionId);
+      if (!result.success || !result.data) throw new Error(result.error ?? 'The installed App is unavailable on that device.');
+      if (!result.data.variants.some((row) => row.name === target.variant)) throw new Error(`Variant ${target.variant} is no longer installed on that device.`);
+    }
   }
   if (!isCurrent()) return;
   libraryDeviceStore.select(scope);

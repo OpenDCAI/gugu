@@ -156,7 +156,6 @@ export function AppsSection() {
               const name = localizedManifestText(manifest, i18n.language).name
               return (
                 <ResourceMenu key={manifest.id} resource={{ kind: 'app', target: { kind: 'app-detail', extensionId: manifest.id } }}><SettingsRow
-                  key={manifest.id}
                   data-app-id={manifest.id}
                   // 行尾最多 打开 / 更新到 / 开关 / 卸载:手机上换到说明下面,说明不被挤成一窄条。
                   stack

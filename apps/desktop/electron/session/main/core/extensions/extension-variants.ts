@@ -65,7 +65,7 @@ export async function removeExtensionVariant(id: string, name: string, consent?:
   const prepared = active ? prepareVariant(service.variantDirectory(id, 'upstream'), upstream!) : null;
   const fingerprint = () => {
     const snapshot = service.variants(id);
-    return createHash('sha256').update(JSON.stringify({ id, identity: service.identityOf(id), state: snapshot,
+    return createHash('sha256').update(JSON.stringify({ operation: 'remove', id, name, identity: service.identityOf(id), state: snapshot,
       upstreamManifest: snapshot.active === name ? service.inspectDirectory(service.variantDirectory(id, 'upstream')).manifestDigest : undefined })).digest('hex');
   };
   const ask = {

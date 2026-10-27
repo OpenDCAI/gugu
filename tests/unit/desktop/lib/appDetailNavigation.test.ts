@@ -39,3 +39,9 @@ it('does not navigate after the caller changes while the device answers', async 
   await openAppDetailLink(target, 'owner', () => false)
   expect(state.select).not.toHaveBeenCalled()
 })
+
+it('opens the named device market detail even when that App is not installed (L11)', async () => {
+  state.variants.mockResolvedValue({ success: false, error: 'App kanban is not installed' })
+  await openAppDetailLink({ kind: 'app-detail', extensionId: 'kanban', deviceId: 'other' }, 'owner')
+  expect(state.select).toHaveBeenCalledWith('other'); expect(state.navigate).toHaveBeenCalled()
+})

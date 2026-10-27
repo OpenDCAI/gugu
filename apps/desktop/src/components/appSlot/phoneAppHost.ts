@@ -1,3 +1,4 @@
+import { composeChatDraft } from '@/lib/composeDraft'
 import { fileBlob } from '@gugu/core/shared/fileResolver'
 import { guguLink, guguLinkScheme, linkTargetOf, type GuguLinkTarget } from '@gugu/core/shared/ui/guguLink'
 import { openLinkWith } from '../../session/shared/extensions/open-link'
@@ -18,7 +19,6 @@ import { subscribeAuthenticatedRealtimeChannel, unsubscribeAuthenticatedRealtime
 import { FileSyncRelay, webSocketUrl, type PageSync } from '../../session/shared/extensions/file-sync-core'
 import { userIdFromSupabaseAccessToken } from '@gugu/core/cloud/runtimeAuthProvider'
 import {
-  APP_COMPOSE_EVENT,
   APP_FORUM_CONSENT_EVENT,
   APP_FILE_MAX_BYTES,
   APP_FRAME_MARKER,
@@ -28,7 +28,6 @@ import {
   isLocal,
   placeOf,
   sessionIdOf,
-  type AppComposeDetail,
   type AppForumConsentDetail,
   type AppFileUpload,
   type AppOpenWithDetail,
@@ -588,7 +587,7 @@ export function hostAppFrame(
             agents,
             pick: pickDispatchTarget,
             // Use the same capture-before-append ordering as the desktop host.
-            draftInChat: async (detail) => void document.dispatchEvent(new CustomEvent<AppComposeDetail>(APP_COMPOSE_EVENT, { detail, bubbles: true })),
+            draftInChat: async (detail) => composeChatDraft(detail),
           },
           hosted.binding.extensionId,
           args,

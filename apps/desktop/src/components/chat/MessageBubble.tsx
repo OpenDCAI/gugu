@@ -285,7 +285,7 @@ export const MessageBubble = memo(function MessageBubble({
     onQuoteSelection: menuSelection && msg.content_type === 'text' ? () => { onQuote({ ...msg, content: menuSelection }); close() } : undefined,
     onCopy: (content = menuSelection || undefined) => { void handleCopyText(content); close() },
     resource: mediaAttachment ? mediaAttachment.source.kind === 'item' ? { kind: 'file' as const, target: { kind: 'file' as const, itemId: mediaAttachment.source.itemId, version: mediaAttachment.source.version } } : undefined : { kind: 'message' as const, target: { kind: 'chat' as const, chatId: msg.chat_id, messageId: msg.id } },
-    onOpenLink: menuLink ? () => { menuLink.click(); close() } : undefined,
+    onCopyLink: menuLink ? () => { void handleCopyText(menuLink.href); close() } : undefined, onOpenLink: menuLink ? () => { menuLink.click(); close() } : undefined,
     onForward: () => { onForward(msg); close() },
     onDownload: mediaAttachment && mediaAttachment.source.kind !== 'gone' ? () => { void downloadAttachment(mediaAttachment.source, mediaAttachment.fileName).catch((error) => toast(t('chatArea.downloadFailed'), 'error', safeFailureLine(String((error as Error)?.message ?? error)))); close() } : undefined,
     onDelete: () => { onDelete(msg.id); close() },

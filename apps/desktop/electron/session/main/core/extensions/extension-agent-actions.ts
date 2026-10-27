@@ -811,7 +811,8 @@ async function actOn(action: z.infer<typeof agentActionSchema>, dependencies: Ex
       const target = parseGuguLink(action.url);
       if (target?.kind !== 'app-detail') throw new Error('app_manage requires an App resource URL.');
       const id = target.extensionId;
-      if (!target.deviceId) {
+      const service = extensionsService();
+      if (!target.deviceId || (action.operation === 'read' && !target.variant && !service.isInstalled(id))) {
         if (action.operation !== 'read') throw new Error('Use an installed App URL with device and variant for switch or remove.');
         const market = dependencies.market ?? (await import('./market-catalog-root')).cloudExtensionMarket();
         const entry = await market.entry(id);
@@ -819,7 +820,6 @@ async function actOn(action: z.infer<typeof agentActionSchema>, dependencies: Ex
         return entry;
       }
       if (action.operation === 'read') {
-        const service = extensionsService();
         const installed = service.get(id);
         const variants = await extensionVariants(id, target.variant);
         const selected = target.variant ? variants.variants.find((variant) => variant.name === target.variant) : undefined;

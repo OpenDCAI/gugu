@@ -67,7 +67,7 @@ describe('MessageBubble touch menu', () => {
     expect(writeText).toHaveBeenCalledWith('hello')
     expect(toast).toHaveBeenCalledWith('已复制', 'success')
   })
-  it('offers one resource URL pair even when long-pressing a link', async () => {
+  it('keeps external-link copying alongside the distinct message resource URL pair', async () => {
     const writeText = vi.fn(async (_text: string) => {})
     Object.defineProperty(navigator, 'clipboard', { value: { writeText }, configurable: true })
     const toast = vi.fn()
@@ -76,7 +76,9 @@ describe('MessageBubble touch menu', () => {
     expect(document.querySelector('[data-testid="message-action-openLink"]')).not.toBeNull()
     await clickElement(document.querySelector('[data-testid="message-action-copy-resource-url"]')!)
     expect(writeText.mock.calls[0][0]).toMatch(/^gugu-chat:\/\//)
-    expect(document.querySelector('[data-testid="message-action-copyLink"]')).toBeNull()
+    await longPress(messageBubble().querySelector('a')!)
+    await clickElement(document.querySelector('[data-testid="message-action-copyLink"]')!)
+    expect(writeText).toHaveBeenLastCalledWith('https://example.com/path?copy=1025')
   })
   it('opens a link through its existing anchor action', async () => {
     await renderMessage(undefined, true, vi.fn(), { content: 'before https://example.com/path after' })

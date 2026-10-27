@@ -45,15 +45,7 @@ async function manageResource(action: Record<string, unknown>, context: GuguMcpC
   if (machine.this_machine) return run(action)
   const invoke = (consent?: unknown) => runSession({ ...action, action: 'app_manage', device: target.deviceId, ...(consent ? { consent } : {}) })
   if (!action.operation || action.operation === 'read') return invoke()
-  const done = await installAgreedOn(
-    async (consent) => ({ success: true, data: await invoke(consent) as Handed }),
-    async (handed) => {
-      const digest = handed.ask!.manifestDigest
-      if (handed.asks === false) return { digest }
-      const answer = await run({ action: 'ask_install', request: { ...handed.ask, machine: machine.label ?? target.deviceId } }) as { outcome: string; enableIn?: string[] }
-      return answer.outcome === 'confirmed' ? { digest, enableIn: answer.enableIn } : { declined: answer.outcome }
-    },
-  )
+  const done = await agreeOnMachine(invoke, run, machine.label ?? target.deviceId)
   return done && 'declined' in done ? { installed: false, removed: false, outcome: done.declined, device_id: target.deviceId } : { ...done, device_id: target.deviceId }
 }
 
@@ -113,16 +105,7 @@ async function installedElsewhere(
   // The same two steps as installing on another computer from the Apps page (`installAgreedOn`): that machine hands
   // back what it would ask, the person is asked here — as this agent's approval — and only those bytes go in there.
   try {
-    const done = await installAgreedOn(
-      async (consent) => ({ success: true, data: await runSession({ ...there, consent }) as Handed }),
-      async (handed) => {
-        const digest = handed.ask!.manifestDigest
-        // Nothing to agree to (`asks` false): installed with no question, as here.
-        if (handed.asks === false) return { digest }
-        const said = await run({ action: 'ask_install', request: { ...handed.ask, machine } }) as { outcome: string; enableIn?: string[] }
-        return said.outcome === 'confirmed' ? { digest, ...(said.enableIn ? { enableIn: said.enableIn } : {}) } : { declined: said.outcome }
-      },
-    )
+    const done = await agreeOnMachine((consent) => runSession({ ...there, consent }), run, machine)
     if (done && 'declined' in done) return { installed: false, outcome: done.declined, device_id: device }
     return { ...done, device_id: device }
   } catch (error) {
@@ -133,6 +116,15 @@ async function installedElsewhere(
 }
 
 type Handed = { outcome?: string; ask?: { manifestDigest: string } & Record<string, unknown>; asks?: boolean }
+
+function agreeOnMachine(invoke: (consent: unknown) => Promise<unknown>, run: (action: unknown) => Promise<unknown>, machine: string) {
+  return installAgreedOn(async (consent) => ({ success: true, data: await invoke(consent) as Handed }), async (handed) => {
+    const digest = handed.ask!.manifestDigest
+    if (handed.asks === false) return { digest }
+    const answer = await run({ action: 'ask_install', request: { ...handed.ask, machine } }) as { outcome: string; enableIn?: string[] }
+    return answer.outcome === 'confirmed' ? { digest, ...(answer.enableIn ? { enableIn: answer.enableIn } : {}) } : { declined: answer.outcome }
+  })
+}
 
 /** #7290 A package app_pack made, sent to another machine in order, part by part (the chunks a remote save uses): its upload id. */
 async function sendPackage(packed: Packed, send: (part: Record<string, unknown>) => Promise<unknown>): Promise<string> {
