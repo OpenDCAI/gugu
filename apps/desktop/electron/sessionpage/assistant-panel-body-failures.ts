@@ -32,14 +32,12 @@ export function createAssistantPanelBodyFailures(guguHome: string,owner: string,
   const entries = new Map<string, Failure>()
   let loaded: Promise<void> | undefined, tail: Promise<unknown> = Promise.resolve()
   let warned = false
-  // Once per journal: the reason is an error code or name, never the file's content.
+  // Once per journal, by kind only: an error code or class, never a message (a SyntaxError's quotes the file).
   function warn(operation: 'read' | 'write',error: unknown) {
     if (warned) return
     warned = true
-    // A SyntaxError's message quotes the file, so it is reported by kind only.
-    const reason = (error as NodeJS.ErrnoException | undefined)?.code
-      ?? (error instanceof SyntaxError ? 'invalid-json' : error instanceof Error ? error.message : 'unknown')
-    log.warn({ operation,reason },'Panel upload suppression cache unavailable; publication continues with in-memory records')
+    const kind = (error as NodeJS.ErrnoException | undefined)?.code ?? (error instanceof Error ? error.name : 'unknown')
+    log.warn({ operation,kind },'Panel upload suppression cache unavailable; publication continues with in-memory records')
   }
   async function load() {
     if (!loaded) loaded = (async () => {
@@ -49,7 +47,7 @@ export function createAssistantPanelBodyFailures(guguHome: string,owner: string,
       const state = JSON.parse(text)
       if (!state || state.version !== 1 || state.owner !== owner || state.assistant !== assistant || !Array.isArray(state.failures)
         || !state.failures.every(validFailure)) {
-        throw new Error('PANEL_BODY_FAILURE_STATE_INVALID')
+        throw Object.assign(new Error('PANEL_BODY_FAILURE_STATE_INVALID'),{ code: 'PANEL_BODY_FAILURE_STATE_INVALID' })
       }
       for (const [key,failure] of state.failures) entries.set(key,failure)
     })().catch((error: unknown) => { entries.clear(); warn('read',error) })

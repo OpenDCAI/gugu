@@ -52,10 +52,10 @@ function journalPath(root: string,owner = 'owner',assistant = 'assistant'): stri
 // The journal is disposable: a file it cannot use is an empty journal, said once in the log with why — never a stop to
 // publication, never the file's content in the log — and the next successful save replaces it whole.
 it.each([
-  ['corrupt', '{"version":1,"owner":"owner","assistant":"assistant","failures":[[', 'invalid-json'],
+  ['corrupt', '{"version":1,"owner":"owner","assistant":"assistant","failures":[[', 'SyntaxError'],
   ['unsupported', JSON.stringify({ version: 2,owner: 'owner',assistant: 'assistant',failures: [] }), 'PANEL_BODY_FAILURE_STATE_INVALID'],
   ['written for another assistant', JSON.stringify({ version: 1,owner: 'owner',assistant: 'other',failures: [] }), 'PANEL_BODY_FAILURE_STATE_INVALID'],
-])('treats a %s journal as empty, warns once with the reason, and a later save replaces it', async (_kind,content,reason) => {
+])('treats a %s journal as empty, warns once with what kind of failure, and a later save replaces it', async (_case,content,kind) => {
   const root = await mkdtemp(join(tmpdir(),'panel-body-failures-')); roots.push(root)
   const path = journalPath(root)
   await mkdir(join(root,'assistant-panel-body-failures'),{ recursive: true })
@@ -67,7 +67,7 @@ it.each([
   expect(await journal.get('memory','note')).toEqual(failure)
 
   expect(warn).toHaveBeenCalledTimes(1)
-  expect(warn).toHaveBeenCalledWith({ operation: 'read',reason },expect.any(String))
+  expect(warn).toHaveBeenCalledWith({ operation: 'read',kind },expect.any(String))
   expect(JSON.stringify(warn.mock.calls)).not.toContain('failures')
   expect(await createAssistantPanelBodyFailures(root,'owner','assistant').get('memory','note')).toEqual(failure)
 })
@@ -84,5 +84,5 @@ it('keeps suppressing in memory when the journal can be neither read nor written
   expect(await journal.get('memory','other-note')).toEqual(failure)
 
   expect(warn).toHaveBeenCalledTimes(1)
-  expect(warn).toHaveBeenCalledWith({ operation: 'read',reason: 'EISDIR' },expect.any(String))
+  expect(warn).toHaveBeenCalledWith({ operation: 'read',kind: 'EISDIR' },expect.any(String))
 })
