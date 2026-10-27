@@ -401,6 +401,7 @@ export const SidebarSessionItem = observer(function SidebarSessionItem({
       after={
         identityCardOpen ? (
           <SidebarIdentityCard
+            projectId={projectId}
             sessionId={sessionId}
             title={title}
             anchor={rowAnchor}
