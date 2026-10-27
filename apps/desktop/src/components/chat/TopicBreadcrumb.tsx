@@ -26,9 +26,10 @@ import { isTopicNameCutFromSource } from './topicAnchorModels'
  */
 // @@@ui-ruler 结构性 style 提到模块作用域(同 ChatListPanel 的 *_STYLE 常量):
 // 既避免每次渲染重建对象,也让 JSX 里不再残留内联几何块这条债务痕迹。
-const TOPIC_BREADCRUMB_STYLE: React.CSSProperties = { display: 'flex', flexDirection: 'column', gap: 2, minWidth: 0, flex: '1 1 auto' }
+const TOPIC_BREADCRUMB_STYLE: React.CSSProperties = { display: 'flex', alignItems: 'baseline', gap: 8, minWidth: 0, flex: '1 1 auto' }
 const TOPIC_BREADCRUMB_NAME_STYLE: React.CSSProperties = {
   minWidth: 0,
+  flex: '0 1 auto',
   fontSize: 'var(--font-title)',
   lineHeight: 'var(--lh-title)',
   fontWeight: 'var(--font-weight-semibold)',
@@ -39,6 +40,8 @@ const TOPIC_BREADCRUMB_NAME_STYLE: React.CSSProperties = {
 }
 const TOPIC_BREADCRUMB_SOURCE_DELETED_STYLE: React.CSSProperties = { fontSize: 'var(--font-caption)', color: 'var(--warn)' }
 const TOPIC_BREADCRUMB_SOURCE_PREVIEW_STYLE: React.CSSProperties = {
+  minWidth: 0,
+  flex: '1 1 0',
   fontSize: 'var(--font-caption)',
   color: 'var(--text-tertiary)',
   whiteSpace: 'nowrap',

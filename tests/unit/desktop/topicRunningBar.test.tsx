@@ -19,15 +19,12 @@ afterEach(() => {
 
 const baseProps = {
   topic: { chatId: 'topic-1', name: '分片下载失败' },
-  sourceChatId: 'source-1',
   messages: [],
   loading: false,
   memberProfiles: {},
   memberReadSeqs: {},
   visibleChats: [],
   sourceMessagePreview: 'pending',
-  onOpenFile: vi.fn(),
-  onDownloadFile: vi.fn(),
   onSend: vi.fn(async () => {}),
   onSendAttachments: vi.fn(async () => {}),
   onClose: vi.fn(),
