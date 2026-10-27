@@ -30,7 +30,7 @@ async function flush() {
   })
 }
 beforeEach(() => {
-  publishProjectGroupChats([], new Map())
+  publishProjectGroupChats([], new Map(), new Map())
   mobileShellState.enabled = false
   setLocalePreference('zh-CN')
   toastMock.mockClear()
@@ -717,7 +717,7 @@ describe('ChatMessageComposer', () => {
   })
   it.each(['project-group', 'project-topic', 'ordinary-group'] as const)('uses project affiliation in %s without changing the selected identity', async (chatId) => {
     vi.spyOn(Date, 'now').mockReturnValue(Date.UTC(2026, 9, 25, 12))
-    publishProjectGroupChats(['project-group'], new Map([['project-group', ['ada']]]))
+    publishProjectGroupChats(['project-group'], new Map([['project-group', ['ada']]]), new Map())
     const onSend = vi.fn(async () => {})
     const topic = chatId === 'project-topic'
     await act(async () => {

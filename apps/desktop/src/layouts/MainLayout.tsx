@@ -34,6 +34,7 @@ import { PhonePartnersPage } from '@/mobile/partners/PhonePartnersPage'
 import { chatOnScreen, useReportChatOnScreen } from '@/lib/onScreenChat'
 import { useLinkNavigation } from '../hooks/useLinkNavigation'
 import { readAssistantShellBridge } from '../lib/assistantShellBridge'
+import { openTaskCardSession } from '../components/chat/openTaskCardSession'
 import { ChatListPanel } from '../components/ChatListPanel'
 import { ChatAreaPanel } from '../components/ChatAreaPanel'
 import type { MemberProfileChatTarget } from '../components/MemberProfileCard'
@@ -943,6 +944,7 @@ function InnerLayout({
   }
 
   const handleOpenProfileChat = (target: MemberProfileChatTarget) => {
+    if (target.session) return openTaskCardSession(target.session)
     const contact = contacts.find((item) => item.id === target.id)
     return handleSwitchToChat({
       id: target.id,
