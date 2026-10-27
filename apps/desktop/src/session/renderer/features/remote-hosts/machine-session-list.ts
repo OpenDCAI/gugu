@@ -1,7 +1,7 @@
 // 桌面这一侧「别的机器上有哪些会话」的那几问:与手机同一张路由表(sessionTimeline.*)、同一套窗口(machine-clients 的
 // 那条连接),只是不经手机的 sessionpage-rpc。列表同步本身(底稿 → 订阅 → 合增量 → 断过再通就重来)是共享层那一份。
 import type { SessionpageSessionsEvent } from '@gugu/session-core/session-record/contract';
-import { rpcOn } from '@renderer/lib/ipc';
+import { events, rpcOn } from '@renderer/lib/ipc';
 import { machineClient } from '@renderer/lib/machine-clients';
 import { sessionpageSessionListChannel } from '@shared/core/session-timeline/sessionTimelineEvents';
 import {
@@ -19,6 +19,7 @@ export const machineSessionListClient: SessionpageSessionListClient = {
   unsubscribeSessionsList: (deviceId, subscriptionId) =>
     rpcOn(deviceId).sessionTimeline.sessionsUnsubscribe({ subscriptionId }),
   subscribeSessionsListEvents(deviceId, subscriptionId, onEvent) {
+    if (deviceId === 'local') return events.on(sessionpageSessionListChannel, onEvent, subscriptionId);
     const client = machineClient(deviceId);
     if (!client) throw new Error(`no connection to ${deviceId}: the remote hosts bridge is not installed`);
     return client.api.eventOn(`${sessionpageSessionListChannel.name}.${subscriptionId}`, (event) =>
@@ -26,6 +27,7 @@ export const machineSessionListClient: SessionpageSessionListClient = {
     );
   },
   onLinkChange(deviceId, cb) {
+    if (deviceId === 'local') return () => undefined;
     const client = machineClient(deviceId);
     if (!client) throw new Error(`no connection to ${deviceId}: the remote hosts bridge is not installed`);
     return linkChangesOf(client, cb);

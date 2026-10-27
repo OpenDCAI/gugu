@@ -213,6 +213,8 @@ describe('分栏里 @ 到的人写进 to_user_ids', () => {
     expect(sendScopedMessage).toHaveBeenLastCalledWith('小柯 看一下', { toUserIds: ['agent-9'], replyToMessageId: 'original-message' })
     await act(async () => { await surface?.sendInSplit('我先看看', []) })
     expect(sendScopedMessage).toHaveBeenLastCalledWith('我先看看', { toUserIds: null, replyToMessageId: null })
+    await act(async () => { await surface?.sendInSplit('timed', [], null, false, 123) })
+    expect(sendScopedMessage).toHaveBeenLastCalledWith('timed', { toUserIds: null, replyToMessageId: null, isWhisper: false, submittedAt: 123 })
   })
 
   it('does not send an empty or closed topic and preserves shared queue failures', async () => {

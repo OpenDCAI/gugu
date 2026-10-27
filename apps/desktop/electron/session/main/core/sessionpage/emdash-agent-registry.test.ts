@@ -12,6 +12,49 @@ import {
   resolveLocalSessionPeers,
   unregisterEmdashAgent,
 } from '../../../../sessionpage/emdash-agent-registry'
+import { SessionpageLocalDeliveryRouter } from '../../../../sessionpage/session-injection'
+
+describe('native refusal at the admission boundary', () => {
+  afterEach(() => emdashAgentRegistry.setBridge(null))
+
+  it.each([true, false])('uses the existing wake owner after refusal, resume succeeds=%s', async (recovers) => {
+    const registry = emdashAgentRegistry
+    let lifecycle = 'ready'
+    let attempts = 0
+    const inject = vi.fn(async (_sessionId: string, _text: string, _opts?: { steerIfBusy?: boolean }) => {
+      attempts += 1
+      if (attempts === 1) {
+        lifecycle = 'lost'
+        throw new Error('native admission refused')
+      }
+      return { outcome: 'started' as const, turnId: 'native-receipt', completion: Promise.resolve() }
+    })
+    registry.setBridge({
+      injectEmdashPromptDetached: inject,
+      emdashSessionSummaries: async () => [{ sessionId: 'ended', providerId: 'claude', lifecycle, isGenerating: false }],
+    })
+    const wake = vi.fn(async () => {
+      if (!recovers) throw new Error('original provider session cannot resume')
+      lifecycle = 'ready'
+    })
+    const router = new SessionpageLocalDeliveryRouter([registry], { wakeSession: wake, processRunning: () => lifecycle === 'ready' })
+    const attempt = async () => {
+      const receipt = await registry.tryInjectSessionMessage('ended', { id: 'same-message', text: 'same bytes', kind: 'session-direct' })
+      return receipt === false ? 'not-live' as const : receipt
+    }
+    const result = router.injectWithWake('ended', attempt)
+    if (recovers) {
+      await expect(result).resolves.toMatchObject({ turnId: 'native-receipt' })
+      expect(inject).toHaveBeenCalledTimes(2)
+      expect(inject.mock.calls.map(call => call)).toEqual([['ended', 'same bytes', { steerIfBusy: true }], ['ended', 'same bytes', { steerIfBusy: true }]])
+    } else {
+      await expect(result).rejects.toThrow('original provider session cannot resume')
+      expect(inject).toHaveBeenCalledTimes(1)
+      expect(lifecycle).toBe('lost')
+    }
+    expect(wake).toHaveBeenCalledTimes(1)
+  })
+})
 
 describe('session peer sidebar titles', () => {
   const binding = { guguAgentUserId: '11111111-1111-4111-8111-111111111111', sessionId: 'conversation-1' }

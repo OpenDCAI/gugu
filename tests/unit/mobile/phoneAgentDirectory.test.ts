@@ -41,6 +41,27 @@ afterEach(() => {
 })
 
 describe('phone directory uses summaries without a workspace pipe', () => {
+  it('enables zero phone directory reads on desktop and one on the native phone shell', async () => {
+    harness = createReactHarness()
+    function Root() {
+      usePhoneAgentDirectory([device('phone', [], { is_online: true,
+        capabilities: { host_kind: 'phone', host_runtime_capability: 1, runtimes: ['pi'], terminals: [] } })])
+      return null
+    }
+    await renderWithAppProviders(harness, createNode(Root))
+    expect(mocks.fetch).toHaveBeenCalledTimes(0)
+    expect(mocks.read).toHaveBeenCalledTimes(0)
+    mocks.available = true
+    await renderWithAppProviders(harness, createNode(Root))
+    expect(mocks.fetch).toHaveBeenCalledTimes(1)
+    await renderWithAppProviders(harness, createNode(Root))
+    expect(mocks.fetch).toHaveBeenCalledTimes(1)
+    mocks.available = false
+    await renderWithAppProviders(harness, createNode(Root))
+    await act(async () => { await vi.advanceTimersByTimeAsync(30_000) })
+    expect(mocks.fetch).toHaveBeenCalledTimes(1)
+  })
+
   it('joins manual retry to the in-flight refresh, and cannot fetch again after stop or while offline', async () => {
     const response = deferred<SessionpageSessionsListResult>()
     mocks.fetch.mockReturnValue(response.promise)
@@ -61,6 +82,7 @@ describe('phone directory uses summaries without a workspace pipe', () => {
   })
 
   it('registers only the current owner’s online active phone; retry shares its poller and cleanup removes access', async () => {
+    mocks.available = true
     harness = createReactHarness()
     function Root({ devices }: { devices: readonly Device[] }) { usePhoneAgentDirectory(devices); return null }
     const phone = (id: string, host = true, online = true) => device(id, [], { is_online: online,

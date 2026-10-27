@@ -1,3 +1,4 @@
+import { NeedsYouSlot } from '@/components/needsYou/NeedsYouSlot';
 import { takeComposerCarry, useComposerVerb } from '@/lib/composerVerbBridge';
 import { projectGroupsStore } from '@renderer/features/projects/stores/project-groups-store';
 import { SessionComposerVerbs, SessionVerbDock, sessionVerbKey } from '../session-verb-dock';
@@ -1629,6 +1630,7 @@ const ComposerForStore = observer(function ComposerForStore({
           <SessionScheduleChip machine={scheduleMachine} schedules={schedules} />
         </div>
       ) : null}
+      <NeedsYouSlot />
       <SessionHostQuestion sessionId={store.runtimeSessionId} session={hostSession} />
       <ChatComposer
         className={schedules.length > 0 ? sessionComposerFrameLiftClassName : undefined}

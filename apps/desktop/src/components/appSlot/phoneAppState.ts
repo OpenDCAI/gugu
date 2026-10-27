@@ -17,9 +17,11 @@ export function showPhoneAppView(next: ReportedAppView): () => void {
   return () => { const index = views.indexOf(next); if (index !== -1) { views.splice(index, 1); changed() } }
 }
 
+export function readPhoneAppView(): ReportedAppView { return views.at(-1) ?? EMPTY }
+
 export function phoneAppState(capabilities: readonly ExtensionCapability[]) {
   const ids = new Map(Object.values(liveDeviceSessions()).flatMap(({ sessions }) => sessions.flatMap((session) => session.agent ? [[session.conversationId, `user:${session.agent.userId}`] as const] : [])))
-  return appStateOf(views.at(-1) ?? EMPTY, windowFocused, { agents: capabilities.includes('agents:read'), files: capabilities.includes('files:read') || capabilities.includes('files:write') }, ids)
+  return appStateOf(readPhoneAppView(), windowFocused, { agents: capabilities.includes('agents:read'), files: capabilities.includes('files:read') || capabilities.includes('files:write') }, ids)
 }
 
 /** Shares the host's foreground signal, including Android's background-watch case where document.visibility lies. */

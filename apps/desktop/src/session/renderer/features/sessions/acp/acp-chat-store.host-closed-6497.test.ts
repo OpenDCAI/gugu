@@ -149,6 +149,24 @@ beforeEach(() => {
 });
 
 describe('#6497 宿主停掉会话之后的聊天面', () => {
+  it('makes a lost executor resumable by the next prompt through the same startup queue', async () => {
+    const { store, session, boot, sendPrompt } = attachedStore();
+    session.sessionState.push({ ...readyState, lifecycle: 'lost', failure: { message: 'executor exited' } });
+    expect(store.session).toBeNull();
+    expect(store.loadError).toMatchObject({ kind: 'adapter_lost', message: 'executor exited' });
+    expect(store.affordances.canSubmit).toBe(true);
+    expect(boot).not.toHaveBeenCalled();
+    // Further loss updates are not a replacement executor becoming ready.
+    session.sessionState.push({ ...readyState, lifecycle: 'lost', failure: { message: 'resume failed' } });
+    expect(store.session).toBeNull();
+    expect(store.affordances.canSubmit).toBe(true);
+    expect(boot).not.toHaveBeenCalled();
+    store.submitPrompt('resume the original conversation');
+    await vi.waitFor(() => expect(startupQueue).toHaveBeenCalledTimes(1));
+    expect(sendPrompt).not.toHaveBeenCalled();
+    expect(boot).toHaveBeenCalledTimes(1);
+  });
+
   it('收到 closed:session 置空、界面订阅摘掉,记录留着,不当场重起', () => {
     const { store, session, disposed, boot } = attachedStore();
     // 阳性对照:被测场景成立 —— 句柄在、状态订阅挂着。
