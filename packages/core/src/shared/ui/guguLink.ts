@@ -165,6 +165,16 @@ export function conversationLink(chatId: string, messageId?: string): string {
   return href
 }
 
+const MESSAGE_UUID = new RegExp(`^${UUID}$`, 'i')
+
+/**
+ * The link to a message that was read from the database. Links address messages by UUID; a failure notice written
+ * before its id was one (`turn-failure:batch:<hash>`) is still a real message, and its link opens its conversation.
+ */
+export function storedMessageLink(chatId: string, messageId: string): string {
+  return conversationLink(chatId, MESSAGE_UUID.test(messageId) ? messageId : undefined)
+}
+
 export function parseConversationLink(href: string): ConversationLink | null {
   const match = LINK.exec(href.trim())
   return match ? { chatId: match[1]!.toLowerCase(), ...(match[2] ? { messageId: match[2].toLowerCase() } : {}) } : null
