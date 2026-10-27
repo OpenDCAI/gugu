@@ -56,10 +56,10 @@ export default {
     "wechatChatWith": "在微信「微信ClawBot」里和「{{name}}」聊天",
     "wechatNoAgent": "已连接，还没选对接哪个 Agent",
     "connectedSince": "连接于 {{time}}",
-    "agentLabel": "对接的 Agent",
-    "agentHint": "微信里发来的消息交给它；它的回复回到微信。",
-    "pickAgent": "选一个 agent",
-    "noAgents": "你还没有 agent。先建一个，再回来选。",
+    "AgentLabel": "对接的 Agent",
+    "AgentHint": "微信里发来的消息交给它；它的回复回到微信。",
+    "pickAgent": "选一个 Agent",
+    "noAgents": "你还没有 Agent。先建一个，再回来选。",
     "actionFailed": "没能保存，请重试",
     "defaultChannel": "接收提醒的应用",
     "defaultChannelHint": "主动消息也会在这里推送给你。",
@@ -74,7 +74,7 @@ export default {
     },
     "disconnectConfirm": {
       "title": "断开微信？",
-      "body": "断开后，微信里给 ClawBot 发的话不再转给 Agent，agent 的消息也不再推到微信。之后可以随时重新扫码连接。",
+      "body": "断开后，微信里给 ClawBot 发的话不再转给 Agent，Agent 的消息也不再推到微信。之后可以随时重新扫码连接。",
       "cancel": "取消",
       "confirm": "断开连接"
     },

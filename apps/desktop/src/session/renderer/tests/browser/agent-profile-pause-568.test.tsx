@@ -46,5 +46,6 @@ for (const [width, height] of [[1100, 800], [390, 620], [390, 844]]) it(`keeps o
   expect(removeBox.left).toBeCloseTo(pauseBox.left, 0)
   expect(removeBox.width).toBeCloseTo(pauseBox.width, 0)
   expect(removeBox.bottom).toBeLessThanOrEqual(content.getBoundingClientRect().bottom)
-  expect(save.top - removeBox.bottom).toBeLessThanOrEqual(49)
+  const bio = content.querySelector('textarea')!.getBoundingClientRect()
+  expect(bio.height).toBe(84)
 })

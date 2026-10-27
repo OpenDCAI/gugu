@@ -224,7 +224,7 @@ export function AgentProfilePane({ agent, onClose, onOpenTab }: AgentSettingsPan
       </div>
 
       {/* 简介 */}
-      <div className={`${asClass.profileField} gg-agent-profile-bio`}>
+      <div className={asClass.profileField}>
         <div className={asClass.profileLabel}>{t('settings.profile.bio')}</div>
         <textarea
           className={profileInputClass('textarea')}
