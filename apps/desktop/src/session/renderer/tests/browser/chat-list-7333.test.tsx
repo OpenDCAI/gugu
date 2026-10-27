@@ -55,7 +55,7 @@ let harness: ReturnType<typeof createReactHarness>;
 beforeAll(async () => {
   await i18n.changeLanguage('zh-CN');
 });
-afterEach(() => { harness?.cleanup(); clearDraggedScreenContent(); publishSidebarChatView({ focusedChatId: null, focusedSessionId: null, groups: [] }); });
+afterEach(() => { harness?.cleanup(); clearDraggedScreenContent(); publishSidebarChatView({ focusedChatId: null, groups: [] }); });
 
 async function renderList(activeChatId = 'grp-1', onChatSelected = vi.fn(), mobile = false, peerAvatar: string | null = null, placement: 'page' | 'sidebar' = 'page') {
   harness = createReactHarness();
@@ -72,7 +72,7 @@ async function renderList(activeChatId = 'grp-1', onChatSelected = vi.fn(), mobi
 describe('the IM chat list in the master\'s roles (#7333)', () => {
   it.each(['dm-1', 'grp-1', 't-live'])('drags grouped sidebar row %s with the shared workspace content identity', async (chatId) => {
     await page.viewport(1000, 800);
-    publishSidebarChatView({ focusedChatId: 'grp-1', focusedSessionId: null, groups: [
+    publishSidebarChatView({ focusedChatId: 'grp-1', groups: [
       { members: ['chat:grp-1', 'chat:dm-1'], onScreen: true },
     ] });
     const root = await renderList('grp-1', vi.fn(), false, null, 'sidebar');

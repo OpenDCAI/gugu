@@ -14,9 +14,20 @@ vi.mock('@main/db/client', () => ({
   },
 }));
 vi.mock('@main/lib/logger', () => ({ log: { info: vi.fn(), warn: vi.fn(), error: vi.fn() } }));
+/** The platform catalog the model menu reads (a network call each): what it was asked, and whether it answers. */
+const catalog = vi.hoisted(() => ({ queries: [] as unknown[], down: false, error: null as string | null, names: { 'glm-5.2': 'GLM 5.2', 'glm-5.3-flash': 'GLM 5.3 Flash' } as Record<string, string> }));
+vi.mock('@main/core/agents/platform-model-catalog-hook', () => ({
+  getPlatformModelCatalogResolver: () => async (query: unknown) => {
+    catalog.queries.push(query);
+    if (catalog.down) throw new Error('gugu-models:service-unavailable');
+    if (catalog.error) return { models: [], catalogError: catalog.error };
+    return { models: Object.entries(catalog.names).map(([id, displayName]) => ({ id, displayName })), catalogError: null };
+  },
+}));
 
 const {
   composerPlatformModel,
+  sessionModelLabel,
   sessionPlatformModel,
   forgetSessionPlatformModel,
   recordSessionPlatformModel,
@@ -86,5 +97,68 @@ describe('#2503 composer 的选择记在会话上', () => {
     expect(composerPlatformModel({ platformModel: undefined })).toBeUndefined();
     // 字段在但值坏了:客户端确实做了决定,只是坏了 —— 退化成「用 agent 的平台模型」是最不该有的解释。
     expect(composerPlatformModel({ platformModel: { modelId: '' } })).toBeNull();
+  });
+});
+
+describe('a Gugu model\'s menu name, filled in on first read and kept with the decision', () => {
+  let fixture: Awaited<ReturnType<typeof openFixture>>;
+  const label = async () => sessionModelLabel(SESSION, await sessionPlatformModel(SESSION), 'claude', 'acp');
+
+  beforeEach(async () => {
+    fixture = await openFixture('empty');
+    mocks.db = fixture.db;
+    catalog.queries.length = 0;
+    catalog.down = false;
+    catalog.error = null;
+  });
+  afterEach(() => {
+    fixture.close();
+    mocks.db = undefined;
+  });
+
+  it('asks the catalog once for a session and model, however many calls read it', async () => {
+    await recordSessionPlatformModel(SESSION, { modelId: 'glm-5.2' });
+    expect([await label(), await label(), await label()]).toEqual(['GLM 5.2', 'GLM 5.2', 'GLM 5.2']);
+    expect(catalog.queries).toEqual([{ providerId: 'claude', surface: 'acp' }]);
+    // Kept beside the id, the id unchanged.
+    await expect(sessionPlatformModel(SESSION)).resolves.toEqual({ modelId: 'glm-5.2', label: 'GLM 5.2' });
+  });
+
+  it('a switch writes a decision without the old name: the next read asks once more and names the new model', async () => {
+    await recordSessionPlatformModel(SESSION, { modelId: 'glm-5.2' });
+    await label();
+    await recordSessionPlatformModel(SESSION, { modelId: 'glm-5.3-flash' });
+    expect([await label(), await label()]).toEqual(['GLM 5.3 Flash', 'GLM 5.3 Flash']);
+    expect(catalog.queries).toHaveLength(2);
+  });
+
+  it('a catalog that cannot answer gives null and keeps nothing, so the next read asks again; an engine\'s own model is never asked', async () => {
+    await recordSessionPlatformModel(SESSION, { modelId: 'glm-5.2' });
+    catalog.down = true;
+    await expect(label()).resolves.toBeNull();
+    await expect(sessionPlatformModel(SESSION)).resolves.toEqual({ modelId: 'glm-5.2' });
+    catalog.down = false;
+    await expect(label()).resolves.toBe('GLM 5.2');
+    expect(catalog.queries).toHaveLength(2);
+    await recordSessionPlatformModel(SESSION, null);
+    await expect(label()).resolves.toBeNull();
+    expect(catalog.queries).toHaveLength(2);
+  });
+
+  it('a catalog that answers without this model keeps「no name」: null, and the next read does not ask again', async () => {
+    await recordSessionPlatformModel(SESSION, { modelId: 'retired-model' });
+    expect([await label(), await label()]).toEqual([null, null]);
+    expect(catalog.queries).toHaveLength(1);
+    await expect(sessionPlatformModel(SESSION)).resolves.toEqual({ modelId: 'retired-model', label: '' });
+  });
+
+  it('a catalog that reports it could not be read (catalogError, no models) keeps nothing: the next read asks again', async () => {
+    await recordSessionPlatformModel(SESSION, { modelId: 'glm-5.2' });
+    catalog.error = 'gugu-models:service-unavailable';
+    await expect(label()).resolves.toBeNull();
+    await expect(sessionPlatformModel(SESSION)).resolves.toEqual({ modelId: 'glm-5.2' });
+    catalog.error = null;
+    await expect(label()).resolves.toBe('GLM 5.2');
+    expect(catalog.queries).toHaveLength(2);
   });
 });
