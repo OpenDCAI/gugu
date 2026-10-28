@@ -16,7 +16,7 @@ import './first-run-terminal.css'
  * 首次引导里单独一页的「会话终端」(owner 10-27:单独一页,优雅、简洁)。
  * 只有四样:标题、一句说明、真实录屏(静音循环)、开关 + 继续。❌ 利弊清单、❌ 卡片套卡片、❌ 小字说明。
  * 开关就是「设置 → 通用 → 终端」那一个(本机 `terminal.enabled`),默认值由启动迁移定(新装 = 关),这里只读和改。
- * 录屏:mac1 上真 Electron + 预发测试号,Codex 在终端里写 greet.py 并运行(中文界面,裁掉了透明的功能栏)。
+ * 录屏:mac1 上真 Electron + 预发测试号,Codex 在终端里写 greet.py 并运行。只裁终端那一块并放大(卡片宽度下要读得清指令、写文件、运行结果),等待的那几秒 3 倍速。
  */
 export function FirstRunTerminal({ userId, onBack, onDone }: { userId: string; onBack: () => void; onDone: () => void }) {
   const { t } = useTranslation('main')
