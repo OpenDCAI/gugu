@@ -244,6 +244,8 @@ describe('agent-centered conversation bubbles', () => {
       const actions = view.host.querySelector<HTMLElement>('[data-user-message-actions]')!;
       const note = actions.querySelector<HTMLElement>('[data-slot="sent-to"]')!;
       expect(note.textContent?.trim()).toBeTruthy();
+      // 整行和「发到」都常亮(MBP 验收 10-28:之前整行被原气泡的 hover 规则藏了,「发到」跟着看不见)。
+      expect(getComputedStyle(actions).opacity).toBe('1');
       expect(getComputedStyle(note).opacity).toBe('1');
       expect(getComputedStyle(actions.querySelector('button')!).opacity).toBe('0');
       expect(Math.abs(view.host.getBoundingClientRect().height - messageUnitDef.measure(view.item, view.ctx, messageUnitDef.vars!))).toBeLessThanOrEqual(1);

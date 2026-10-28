@@ -49,6 +49,8 @@ for (const label of [collapseHeader, toolName, summaryChip]) {
 
 // owner 定稿(0 号图):对话布局照样复用原气泡 —— 时间、复制、编辑那一行在气泡下面占着位置,
 // 鼠标停在这条消息上才显出来(设计稿 `.acts{opacity:0}` + `.msg:hover > .acts`,owner 10-28);agent 那边靠左,复制在前、时间在后。
+// 那一行本身常亮(原气泡的 hover 规则会把整行藏起来),藏的是里面的时间、复制、编辑;「发到」常驻(管家 10-28)。
+globalStyle(`${conversationRoot} [data-user-message-actions]`, { opacity: 1, pointerEvents: 'auto' });
 globalStyle(`${conversationRoot} [data-user-message-actions] > :not([data-slot="sent-to"])`, { opacity: 0, pointerEvents: 'none', transition: 'opacity 120ms ease' });
 globalStyle(`${conversationRoot}:hover [data-user-message-actions] > *, ${conversationRoot} [data-user-message-actions]:focus-within > *`, { opacity: 1, pointerEvents: 'auto' });
 // 发出去的气泡:那一行最前面常驻一小段淡灰的「发到 群名」(管家 10-28),时间、复制照旧悬停才出。

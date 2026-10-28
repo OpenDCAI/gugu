@@ -14,7 +14,8 @@ export function agentSendLabel(to: AgentSendTarget, translate: ChatTranslator, c
   if (to.kind === 'session') {
     return to.count > 1 ? translate('transcript.agentSendToSessions', { count: to.count }) : translate('transcript.agentSendToSession');
   }
-  const chat = to.conversationId ? chatName(to.conversationId) : null;
+  // 回到它正在答的那个私聊:写对方的名字(宿主给私聊起的名字从主人这边看就是 agent 自己,MBP 验收 10-28)。
+  const chat = to.peer ?? (to.conversationId ? chatName(to.conversationId) : null);
   if (to.whisper) return chat ? translate('transcript.agentSendWhisperIn', { chat }) : translate('transcript.agentSendWhisper');
   if (to.threadRootId) return chat ? translate('transcript.agentSendToThreadIn', { chat }) : translate('transcript.agentSendToThread');
   return chat ? translate('transcript.agentSendTo', { chat }) : translate('transcript.agentSendToChat');
