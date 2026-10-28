@@ -14,7 +14,7 @@ function FailedConversation({ retry }: { retry: () => void }) {
 }
 
 /** A failed conversation leaves the shell's navigation and other conversations mounted. */
-export class ConversationErrorBoundary extends Component<PropsWithChildren, { failed: boolean; attempt: number }> {
+class ConversationErrorBoundaryImpl extends Component<PropsWithChildren, { failed: boolean; attempt: number }> {
   state = { failed: false, attempt: 0 }
   static getDerivedStateFromError() { return { failed: true } }
   componentDidCatch(error: Error, info: ErrorInfo) {
@@ -24,4 +24,8 @@ export class ConversationErrorBoundary extends Component<PropsWithChildren, { fa
     if (this.state.failed) return <FailedConversation retry={() => this.setState(state => ({ failed: false, attempt: state.attempt + 1 }))} />
     return <Fragment key={this.state.attempt}>{this.props.children}</Fragment>
   }
+}
+
+export function ConversationErrorBoundary({ children }: PropsWithChildren) {
+  return <ConversationErrorBoundaryImpl>{children}</ConversationErrorBoundaryImpl>
 }
