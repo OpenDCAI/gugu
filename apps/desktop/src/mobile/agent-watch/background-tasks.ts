@@ -53,7 +53,7 @@ export function usePhoneBackgroundTasks(
   turns: readonly TranscriptTurn[],
   dismissals: number,
   enabled: boolean,
-  fetchRunning: (deviceId: string, sessionId: string) => Promise<{ runningCommandTaskIds: string[] | null }> = fetchBackgroundTasks,
+  fetchRunning?: (deviceId: string, sessionId: string) => Promise<{ runningCommandTaskIds: string[] | null }>,
 ): PhoneBackgroundTasks {
   const [running, setRunning] = useState<{ key: string; ids: string[] | null; canStop: boolean } | null>(null)
   const key = `${deviceId}:${sessionId}`
@@ -64,8 +64,9 @@ export function usePhoneBackgroundTasks(
   useEffect(() => {
     if (!asking) return
     let live = true
+    const fetchRunningIds = fetchRunning ?? fetchBackgroundTasks
     const ask = () => {
-      fetchRunning(deviceId, sessionId).then(
+      fetchRunningIds(deviceId, sessionId).then(
         (value) => { if (live) setRunning({ key, ids: value.runningCommandTaskIds, canStop: true }) },
         (error: unknown) => {
           log.info({ error: String(error), deviceId }, 'that computer cannot report its running background tasks')
