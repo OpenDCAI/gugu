@@ -12,12 +12,12 @@ import { BackgroundTasksList, backgroundTasksLabel, backgroundTasksListHeight } 
 import { ShimmerText } from '@session-chat/components/primitives/ShimmerText';
 import { BACKGROUND_TASKS_TOGGLE } from '@session-chat/state/flatten';
 import { segmentItem } from './DeliveryCard';
-import { UserMessageActions } from './UserMessageActions';
 import { isMessageEditing } from './message-editor-metrics';
 import { UserMessageCard } from './UserMessageCard';
+import { hasConversationBody } from './conversation-body';
 import { measureUserMessage } from './user-message-metrics';
 import { userMessageActionsHeight, type MessageVars } from './metrics';
-import { conversationRoot, conversationHeader, conversationName, conversationDivider, conversationQuote, conversationTime, conversationActions, conversationProcessButton, conversationProcessChevron, conversationTimeSeparator } from './conversation-message.css';
+import { conversationRoot, conversationHeader, conversationName, conversationDivider, conversationQuote, conversationTime, conversationProcessButton, conversationProcessChevron, conversationTimeSeparator } from './conversation-message.css';
 
 const HEADER_H = 24;
 const TIME_H = 22;
@@ -46,7 +46,11 @@ export function conversationMessageHeight(item: ChatMessage, ctx: MeasureCtx, va
 
 function singleHeight(item: ChatMessage, ctx: MeasureCtx, vars: MessageVars): number {
   const bodyVars = conversationVars(item, vars);
-  return HEADER_H + measureUserMessage(item, conversationContext(ctx), bodyVars) - (isMessageEditing(item.id, ctx) && !item.guguDelivery ? 0 : userMessageActionsHeight(bodyVars)) + (item.role === 'assistant' && item.conversationProcess ? TIME_H + backgroundHeight(item, ctx) : 0);
+  // 时间、复制、编辑那一行照原气泡画在气泡下面(owner 定稿 0 号图);没有正文就没有气泡,也不留这一行。
+  const actions = hasConversationBody(item) || isMessageEditing(item.id, ctx) ? 0 : userMessageActionsHeight(bodyVars);
+  return HEADER_H + measureUserMessage(item, conversationContext(ctx), bodyVars) - actions + (item.role === 'assistant' && item.conversationProcess ? TIME_H + backgroundHeight(item, ctx) : 0);
+}
+
 }
 
 /** 后台任务挂在这条回复的过程行上、单子又展开着 ⇒ 多出单子的高(挂在哪由 ChatRoot 算,见 MeasureCtx.background)。 */
@@ -119,8 +123,5 @@ function SingleConversationMessage(props: { data: ChatMessage; ctx: RenderCtx; v
       </>
     }</Show>
     <UserMessageCard data={props.data} ctx={bodyCtx} vars={conversationVars(props.data, props.vars)} conversation />
-    <div class={conversationActions}><UserMessageActions itemId={props.data.id} text={props.data.text}
-      generating={turn.currentMessageId() === props.data.id && turn.turnStatus() === 'generating'}
-      readOnly={subject() || Boolean(props.data.guguDelivery)} vars={{ ...props.vars, footerH: 18 }} /></div>
   </div>;
 }

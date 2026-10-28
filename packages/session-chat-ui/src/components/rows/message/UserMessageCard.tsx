@@ -27,6 +27,7 @@ import { isDoubleColumnLayout } from '@session-chat/core/layout/preset';
 import { srOnly } from './message.css';
 import { useChatTranslator } from '@session-chat/localization';
 import { UserMessageActions } from './UserMessageActions';
+import { hasConversationBody } from './conversation-body';
 import { UserMessageEditor } from './UserMessageEditor';
 import { messageEditorMetrics } from './message-editor-metrics';
 import {
@@ -231,8 +232,11 @@ export function UserMessageCard(props: { data: ChatMessage; ctx: RenderCtx; vars
       </Show>
     </div>
     </Show>
-    <Show when={!props.conversation}><UserMessageActions itemId={props.data.id} text={props.data.text} at={props.data.at}
-      generating={isGenerating()} readOnly={Boolean(props.data.guguDelivery)} vars={props.vars} /></Show>
+    <Show when={!props.conversation || hasConversationBody(props.data)}>
+    <UserMessageActions itemId={props.data.id} text={props.data.text} at={props.data.at}
+      generating={isGenerating()} readOnly={Boolean(props.data.guguDelivery) || (props.conversation && props.data.role === 'assistant')}
+      expandable={props.conversation && isOverflowing() && !isExpanded()} vars={props.vars} />
+    </Show>
     </>}>
       {(editing) => <UserMessageEditor edit={editing()} height={editorMetrics().height} textHeight={editorMetrics().textHeight} />}
     </Show>
