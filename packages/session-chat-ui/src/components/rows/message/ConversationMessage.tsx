@@ -98,10 +98,13 @@ function SingleConversationMessage(props: { data: ChatMessage; ctx: RenderCtx; v
     return shownSender(sender.from, sender.fromId, self()) ?? translate('transcript.deliveryUnknownSender');
   };
   const chatName = useChatName();
+  const quoteSender = (from: string | null, fromId: string | null) =>
+    isSelfAddress(fromId, self()) && self()?.displayName?.trim() ? self()!.displayName!.trim() : shownSender(from, fromId, self());
   // 「群名 · 发送者 · 短摘要」;被引用那条来自私聊就没有群名。发送者是那条自己的发送者(agent 或真人),❌ 默认写成 agent。
   const quoteLabel = (quote: NonNullable<ChatMessage['conversationReply']>) => [
     quote.chatId ? chatName(quote.chatId) : null,
-    quote.self ? commands().conversationAgentName?.() ?? null : quote.from ?? null,
+    // 发送者照抬头的写法:是本人就写本人的名字,❌ 信封里「验收员 (咕咕号 112615)」原样贴上(真机验收 10-28)。
+    quote.self ? commands().conversationAgentName?.() ?? null : quoteSender(quote.from ?? null, quote.fromId ?? null),
   ].filter((part): part is string => Boolean(part?.trim())).join(' · ');
   const bodyCtx: RenderCtx = { ...props.ctx, measureCtx: () => conversationContext(props.ctx.measureCtx!()) };
   return <div class={conversationRoot} data-agent-conversation-message={props.data.id} data-side={subject() ? 'left' : 'right'}

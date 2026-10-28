@@ -106,7 +106,7 @@ export function replySend(item: ToolCallItem, facts: DeliveryReadFacts): { text:
 }
 
 /** Actual successful sends owned by this agent, including proactive sends to another chat. */
-export function successfulMessageSend(item: ToolCallItem): { text: string; id: string; replyTo?: string } | null {
+export function successfulMessageSend(item: ToolCallItem): { text: string; id: string; chat: string; replyTo?: string } | null {
   if (!isRootSend(item) || item.status !== 'done' || !item.rawInput) return null;
   const id = sentMessageId(item);
   if (!id) return null;
@@ -114,7 +114,7 @@ export function successfulMessageSend(item: ToolCallItem): { text: string; id: s
     const args = JSON.parse(item.rawInput) as Record<string, unknown>;
     if (!(typeof args.chat_id === 'string' && args.chat_id && typeof args.text === 'string')) return null;
     const replyTo = typeof args.reply_to_message_id === 'string' ? args.reply_to_message_id.replace(/^msg:/, '') : '';
-    return replyTo ? { id, text: args.text, replyTo } : { id, text: args.text };
+    return replyTo ? { id, text: args.text, chat: args.chat_id, replyTo } : { id, text: args.text, chat: args.chat_id };
   } catch { return null; }
 }
 
