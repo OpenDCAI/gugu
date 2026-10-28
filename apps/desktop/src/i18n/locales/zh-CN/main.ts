@@ -37,11 +37,11 @@ export default {
     "introLater": "先逛逛",
     "terminalTitle": "终端模式",
     "terminalSub": "习惯在终端里用 Claude Code、Codex 这类 CLI？可以开启终端模式。",
-    "terminalToggle": "开启终端模式",,
+    "terminalToggle": "开启终端模式",
     "tourChoiceTitle": "要不要带你看看？",
     "tourChoiceSub": "用 1 分钟认识左边这一栏。",
     "tourChoiceStart": "带我看看（1 分钟）",
-    "tourChoiceSkip": "直接开始"
+    "tourChoiceSkip": "直接开始",
     "back": "上一步",
     "stepCount": "{{current}} / {{total}}",
     "terminalLater": "之后可在设置 → 通用中更改",
