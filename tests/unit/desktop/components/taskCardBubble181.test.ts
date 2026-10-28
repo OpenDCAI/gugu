@@ -46,14 +46,12 @@ const bubble = (msg: ReturnType<typeof message>) => createNode(MessageBubble, {
 const ring = () => harness.container.querySelector('[data-testid="message-read-receipt"]')
 
 describe('task card in a chat (gugu-dev#181)', () => {
-  it('shows task words in the bubble, with an icon and handoff outside it and no avatar or read ring', async () => {
+  it('shows three rows with the time and the agent avatar, and no read ring', async () => {
     await renderWithAppProviders(harness, bubble(message({
       id: 'card-1', is_mine: true, content_type: 'card', content: serializeComposerCard(CARD), created_at: '2026-10-22T15:26:00.000Z',
     })))
-    const card = harness.container.querySelector('[data-task-message-details]')!
-    expect(card.textContent).not.toContain('新任务')
-    expect(harness.container.querySelector('[data-testid="message-bubble-action-target"]')?.textContent ?? harness.container.textContent).toContain(CARD.text)
-    expect(card.querySelector('button')).not.toBeNull()
+    const card = harness.container.querySelector('[data-testid="composer-card"]')!
+    expect(card.textContent).toContain('新任务')
     expect(card.textContent).toMatch(/\d{1,2}:\d{2}/)
     expect(card.textContent).toContain('Codex 1')
     expect(card.querySelector('[data-agent-harness]'), 'the card head is the agent engine mark').not.toBeNull()
@@ -66,7 +64,7 @@ describe('task card in a chat (gugu-dev#181)', () => {
     await renderWithAppProviders(harness, bubble(message({
       id: 'card-2', is_mine: false, sender_user_id: 'colleague', content_type: 'card', content: serializeComposerCard(CARD),
     })))
-    const head = harness.container.querySelector('[data-task-message-details] [data-agent-harness]')
+    const head = harness.container.querySelector('[data-testid="composer-card"] [data-agent-harness]')
     expect(head?.getAttribute('data-agent-harness')).toBe('codex')
   })
 
@@ -75,7 +73,7 @@ describe('task card in a chat (gugu-dev#181)', () => {
     await renderWithAppProviders(harness, bubble(message({
       id: 'card-3', is_mine: true, content_type: 'card', content: serializeComposerCard(old as TaskCard),
     })))
-    const card = harness.container.querySelector('[data-task-message-details]')!
+    const card = harness.container.querySelector('[data-testid="composer-card"]')!
     expect(card.querySelector('[data-agent-harness]')).toBeNull()
     expect(card.textContent).toContain('Codex 1')
   })
@@ -84,7 +82,7 @@ describe('task card in a chat (gugu-dev#181)', () => {
     const card = (id: string) => bubble(message({ id, is_mine: true, content_type: 'card', content: serializeComposerCard(CARD) }))
     agentStatus = 'working'
     await renderWithAppProviders(harness, card('card-run'))
-    const row = () => harness.container.querySelector('[data-task-message-details]')!
+    const row = () => harness.container.querySelector('[data-testid="composer-card"]')!.lastElementChild!
     expect(row().textContent, 'a braille spinner frame').toMatch(/[\u2800-\u28ff]/)
     expect(row().querySelector('[data-animate="false"]'), 'it turns').toBeNull()
     harness.cleanup(); harness = createReactHarness()
@@ -121,7 +119,7 @@ describe('a task card waiting for the group owner (gugu-dev#181)', () => {
     msg: message({ id: 'card-9', is_mine: true, content_type: 'card', content: serializeComposerCard(CARD) }),
     isGroup: true, memberProfiles, onReaction: vi.fn(), memberReadSeqs: {}, onQuote: vi.fn(), onForward: vi.fn(), onDelete: vi.fn(),
   })
-  const cardText = () => harness.container.querySelector('[data-task-message-details]')!.textContent
+  const cardText = () => harness.container.querySelector('[data-testid="composer-card"]')!.textContent
   const requestChanged = (status: string) => act(async () => {
     joins.status.set('agent-1', status)
     for (const listener of changed) await listener([])
@@ -196,7 +194,7 @@ describe('task card resource access', () => {
       msg: message({ id: 'card-1', is_mine: isMine, content_type: 'card', content: serializeComposerCard(CARD) }),
       onReaction: vi.fn(), memberReadSeqs: {}, onQuote: vi.fn(), onForward: vi.fn(), onDelete: vi.fn(), compactMobile: true, onOpenTopic,
     }))
-    const card = harness.container.querySelector<HTMLElement>('[data-task-message-details] button')!
+    const card = harness.container.querySelector<HTMLElement>('[data-testid="composer-card"]')!
     expect(card.tagName).toBe('BUTTON')
     await act(async () => { card.click() })
     expect(onOpenTopic).toHaveBeenCalledWith('card-1')
