@@ -95,6 +95,7 @@ function ToolGroupRoot({
 function ToolGroupTrigger({
   count,
   label: labelOverride,
+  detail,
   active = false,
   className,
   ...props
@@ -102,6 +103,8 @@ function ToolGroupTrigger({
   count: number;
   /** 头上写别的话(手机会话页的过程折叠写桌面同款「用时 Ns」);不给就写「N 次工具调用」。 */
   label?: string;
+  /** 跟在标签后面、挤不下先截的一小段(手机上跑着的那句后面的命令片段,同工具卡的入参预览一样截)。 */
+  detail?: string;
   active?: boolean;
 }) {
   const countLabel = useToolGroupLabel(count);
@@ -111,7 +114,7 @@ function ToolGroupTrigger({
     <CollapsibleTrigger
       data-slot="tool-group-trigger"
       className={cn(
-        "aui-tool-group-trigger group/trigger flex origin-left items-center gap-2 text-sm transition-[color,scale] active:scale-[0.98]",
+        "aui-tool-group-trigger group/trigger flex max-w-full min-w-0 origin-left items-center gap-2 text-sm transition-[color,scale] active:scale-[0.98]",
         "group-data-[variant=ghost]/tool-group-root:text-muted-foreground group-data-[variant=ghost]/tool-group-root:hover:text-foreground group-data-[variant=ghost]/tool-group-root:py-1.5",
         "group-data-[variant=outline]/tool-group-root:w-full group-data-[variant=outline]/tool-group-root:px-4",
         "group-data-[variant=muted]/tool-group-root:w-full group-data-[variant=muted]/tool-group-root:px-4",
@@ -128,7 +131,8 @@ function ToolGroupTrigger({
         data-slot="tool-group-trigger-label"
         className={cn(
           // tabular-nums:跑着的头每秒改一次「已处理 Ns」,比例数字宽度跟着变,后面的箭头一秒一抖。
-          "aui-tool-group-trigger-label-wrapper inline-block text-start text-xs leading-none font-medium tabular-nums",
+          // 一行到底:跑着的那句后面还接着命令片段,换行会把这一行撑成两行。
+          "aui-tool-group-trigger-label-wrapper inline-block min-w-0 truncate text-start text-xs leading-none font-medium tabular-nums",
           "group-data-[variant=ghost]/tool-group-root:font-normal",
           "group-data-[variant=outline]/tool-group-root:grow",
           "group-data-[variant=muted]/tool-group-root:grow",
@@ -137,6 +141,12 @@ function ToolGroupTrigger({
       >
         {label}
       </span>
+      {detail ? (
+        // 挤不下时先让它截(收缩权重远大于标签):计数是这一句的主体,命令片段是附带的。
+        <span data-slot="tool-group-trigger-detail" className="min-w-0 shrink-[100] truncate text-xs leading-none font-normal text-muted-foreground" title={detail}>
+          {detail}
+        </span>
+      ) : null}
       <ChevronDownIcon
         data-slot="tool-group-trigger-chevron"
         className={cn(

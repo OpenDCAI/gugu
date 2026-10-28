@@ -14,7 +14,7 @@ import { MAX_ATTACHMENT_BYTES, TOOL_IMAGE_FETCH_LIMIT } from '@gugu/session-core
 import { composePromptText } from '@renderer/features/sessions/acp/composer-file-paths'
 import { formatBytes } from '@renderer/utils/formatBytes'
 import { DEFAULT_GROUP_BY, Thread, type ThreadComponents } from '@/components/assistant-ui/thread.aui'
-import { tallyToolRun, toolRunLabel } from '@gugu/session-chat-ui/tool-run'
+import { tallyToolRun, toolRunLabel, toolRunNow, toolRunNowLabel } from '@gugu/session-chat-ui/tool-run'
 import { translateSessionMessage } from '@/session/renderer/localization/locale-store'
 import { ToolGroupContent, ToolGroupRoot, ToolGroupTrigger } from '@/components/assistant-ui/tool-group.aui'
 import { DeliveryMessage } from '@/components/assistant-ui/delivery-message.aui'
@@ -194,9 +194,17 @@ const ProcessRun: NonNullable<ThreadComponents['ChainOfThoughtGroup']> = ({ grou
     }
   }
   if (members.length < 2) return <>{children}</>
+  // 跑着时这一句后面接此刻在做什么(在跑的命令 / 在想),与桌面 tool-run 同一份判断;跑完恢复原样。
+  const now = live ? toolRunNow(members as Parameters<typeof toolRunNow>[0]) : null
+  const label = toolRunLabel(tallyToolRun(members), translateSessionMessage)
   return (
     <ToolGroupRoot variant="ghost">
-      <ToolGroupTrigger count={members.length} label={toolRunLabel(tallyToolRun(members), translateSessionMessage)} active={live} />
+      <ToolGroupTrigger
+        count={members.length}
+        label={now ? `${label} · ${toolRunNowLabel(now, translateSessionMessage)}` : label}
+        {...(now?.kind === 'command' ? { detail: now.command } : {})}
+        active={live}
+      />
       <ToolGroupContent>{children}</ToolGroupContent>
     </ToolGroupRoot>
   )
