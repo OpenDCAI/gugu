@@ -51,18 +51,6 @@ export const STOPPED_MESSAGE =
   'The person stopped this browser task, so browser actions are refused. Do not retry and do not open another browser: ' +
   'tell the person what you did so far. Browser actions resume only after they click 「允许 Agent 继续」 on the browser.';
 
-/** agent 能原样转给人的那句话(管家 10-28 要求:❌ 只回一个错误)。 */
-export const NO_PERSON_VIEW_TELL_PERSON = '这台服务器上暂时不能请你登录或接手浏览器，需要登录的活可以交给本机上的 agent。';
-
-/**
- * #737 删掉了私聊里的云浏览器卡片:在 Browser Use App 的「浏览器」页签上线之前,人没有地方看画面、接管、输入密码。
- * 这段时间请人登录 / 接手 ❌ 开 Asks(那里只剩 Done / Cancel,点了 Done agent 会以为已经登录了),如实告诉 agent。
- */
-export const NO_PERSON_VIEW_MESSAGE =
-  'There is no screen right now where the person can see or take over this browser, so no request was opened and nothing was done. ' +
-  'Do not ask for passwords or codes in chat and do not retry now. Tell the person, in these words: ' +
-  `「${NO_PERSON_VIEW_TELL_PERSON}」`;
-
 type ChangeListener = () => void;
 
 type AssistanceOutcome =
@@ -764,9 +752,8 @@ export function cloudAgentBrowserBridge(): AgentBrowserBridgeShape {
     toolFinished: (sessionId) => browser.toolFinished(sessionId),
     setInitialUrl: () => {},
     workspaceRoot: (sessionId) => browser.workspaceRoot(sessionId),
-    // 画面回到 Browser Use App 的页签之前不请人(见 NO_PERSON_VIEW_MESSAGE);页签上线时换回 browser.requestLogin / requestTakeover。
-    requestLogin: async () => ({ ok: false, message: NO_PERSON_VIEW_MESSAGE }),
-    requestTakeover: async () => ({ ok: false, message: NO_PERSON_VIEW_MESSAGE }),
+    requestLogin: (sessionId, args, signal) => browser.requestLogin(sessionId, args, signal),
+    requestTakeover: (sessionId, args, signal) => browser.requestTakeover(sessionId, args, signal),
     redact: (text) => browser.redact(text),
   };
 }
