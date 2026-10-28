@@ -14,11 +14,12 @@ import { connectorOrder } from './assistant-connector-order';
 import { homeTarget } from './assistant-home-sessions';
 import { useAssistantReadError, useReadFailure } from './assistant-read-failure';
 import { retryAssistantPanelRead } from '@gugu/core/cloud/assistantPanelRead';
-import { when } from 'mobx';
 import { useAssistantShell } from './assistant-shell';
 import { useCloudAssistantFiles } from '@/components/assistant/assistant-panel-files';
 import { assistantPanelLibraryHost } from '@/components/assistant/assistant-panel-library-host';
 import { AssistantEmpty, AssistantRow, AssistantSection, MachineGate } from './assistant-ui';
+import { wakeAndWaitOnline } from '@/lib/cloudComputerStore';
+import { listDevicesOnceIdentified } from '@/lib/listDevicesOnceIdentified';
 
 /**
  * 「有账号的服务」(飞书、GitHub…)读写的那一份集成:存在它的家里(资源库「集成」同一份逻辑,机器钉死在它家那台),
@@ -57,19 +58,27 @@ export function useHomeLibraryHost(home: AssistantHomePlace): LibraryHost {
     },staleTime: Infinity,retry: retryAssistantPanelRead,
   });
   const machine = useCloudAssistantFiles(assistantId,shell?.chatId ?? folder.data ?? null,home.deviceId);
-  const prepare = useCallback(async () => {
+  const prepare = useCallback(async (signal?: AbortSignal) => {
+    signal?.throwIfAborted();
     if (local) return;
     remoteHostsStore.start();
-    if (home.kind === 'cloud' && !await remoteHostsStore.wakeCloudComputer(deviceId)) {
-      const failure = remoteHostsStore.wakeFailure(deviceId);
+    if (home.kind === 'cloud') try {
+      await wakeAndWaitOnline(deviceId, {
+        signal,
+        isOnline: async id => (await listDevicesOnceIdentified()).some(row => row.device_id === id && row.is_online),
+      });
+    } catch (error) {
+      signal?.throwIfAborted();
+      const failure = error as { reason?: string; code?: string };
       const key = failure?.code === 'credits_exhausted' ? 'authorizationCreditsExhausted'
         : failure?.code === 'membership_expired' ? 'authorizationMembershipExpired'
           : failure?.reason === 'timeout' ? 'authorizationTimedOut' : 'authorizationUnavailable';
-      throw new Error(t(`connectors.${key}`));
+      throw Object.assign(new Error(t(`connectors.${key}`), { cause: error }), { code: failure?.code, reason: failure?.reason });
     }
+    signal?.throwIfAborted();
     remoteHostsStore.reconnect(deviceId);
-    try { await when(() => remoteHostsStore.connectionState(deviceId) === 'connected',{ timeout: 60_000 }); }
-    catch { throw new Error(t('connectors.authorizationTimedOut')); }
+    // The following control read owns readiness and preserves a protocol refusal.
+    // Waiting only for `connected` here hides an already known `outdated` state.
   },[local,home.kind,deviceId,t]);
   return useMemo(() => assistantPanelLibraryHost(base,machine?.panel,prepare,folder.error ?? identity.error),[base,machine,prepare,folder.error,identity.error]);
 }

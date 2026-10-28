@@ -1,5 +1,6 @@
 // message_send_file in a project chat that keeps files on its machine: on that machine a file other than an image is published
-// by the host's own publisher (the composer's) and stays there; an image is uploaded when sent; elsewhere the refusal says why.
+// by the host's own publisher (the composer's) and stays there; an image is uploaded when sent; a folder file's next version,
+// an image's too, is published there from the version named; elsewhere the refusal says why.
 import { mkdtempSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
@@ -66,10 +67,38 @@ describe('message_send_file in a project chat that keeps files on its machine', 
   test('not the host (the publisher declines): the upload decides, and its refusal says which machine and what to do', async () => {
     const { send } = setup({ publish: vi.fn(async () => null), refuse: true })
     const error = await send({ file_path: pdf }).catch((e: Error) => e) as Error
-    expect(error.message).toContain('notes.pdf was not sent')
-    expect(error.message).toContain('on Ming\'s machine')
-    expect(error.message).toContain('Settings › File storage')
-    expect(error.message).toContain('留在Ming 的机器上')
-    expect(error.message).not.toContain('not uploaded proactively')
+    expect(error.message).toContain('notes.pdf was not sent, and nothing was changed')
+    expect(error.message).toContain('on Ming\'s computer, and only an agent on that computer can add or change them')
+    expect(error.message).toContain('存在Ming 的电脑上')
+    expect(error.message).not.toMatch(/not uploaded proactively|published by the host|Settings/)
+  })
+
+  // #719: the next version of a folder file, sent by an agent on the host. It used to skip the host publisher, take the
+  // cloud upload and be told to send it "from that machine" — the machine it was on.
+  const ITEM = '00000000-0000-4000-8000-0000000000aa'
+  test.each([['a document', pdf, 'notes.pdf'], ['an image', png, 'shot.png']])('on the host %s\'s next version is published there, from the version named', async (_kind, path, name) => {
+    const publish = vi.fn(async (_chat: string, _file: unknown, _actor: string, message: Record<string, unknown>, _next?: unknown) =>
+      ({ message: { id: message.message_id, chat_id: CHAT, content: envelope, file_item_id: ITEM, file_version: 3 } }))
+    const { send, uploads } = setup({ publish })
+    const receipt = JSON.parse(await send({ file: `gugu-file://${ITEM}?v=2`, file_path: path }))
+    expect(publish).toHaveBeenCalledOnce()
+    expect(publish.mock.calls[0]![1]).toMatchObject({ name, path })
+    expect(publish.mock.calls[0]![4]).toEqual({ itemId: ITEM, expectedVersion: 2 })
+    expect(uploads).toEqual([])
+    expect(receipt).toMatchObject({ status: 'sent', version: 3, file: `gugu-file://${ITEM}?v=3` })
+  })
+
+  test('the host publisher refuses (another machine is the host): the refusal is said for people', async () => {
+    const { send, uploads } = setup({ publish: vi.fn(async () => { throw new Error('Only the bound file host can publish project files') }) })
+    const error = await send({ file: `gugu-file://${ITEM}?v=2`, file_path: pdf }).catch((e: Error) => e) as Error
+    expect(error.message).toContain('notes.pdf was not sent, and nothing was changed')
+    expect(error.message).not.toContain('bound file host')
+    expect(uploads).toEqual([])
+  })
+
+  test('someone stored a newer version on the host first: nothing was sent, and what to do', async () => {
+    const { send } = setup({ publish: vi.fn(async () => { throw new Error('File revision conflict') }) })
+    const error = await send({ file: `gugu-file://${ITEM}?v=2`, file_path: pdf }).catch((e: Error) => e) as Error
+    expect(error.message).toContain(`someone stored a newer version of gugu-file://${ITEM}?v=2 since version 2, and nothing was sent`)
   })
 })

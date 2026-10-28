@@ -132,15 +132,15 @@ async function resolveNpmExecutable(directory: string, binary: string): Promise<
 }
 
 /** Mise owns downloads, verification, version directories and removal; Gugu owns publication and selection. */
-export async function runMiseOperation(context: InstallCommandContext): Promise<Result<void, InstallCommandError>> {
+export async function runMiseOperation(context: InstallCommandContext, preparation?: { root: string; launcherDir: string }): Promise<Result<void, InstallCommandError>> {
   const request = context.mise;
   if (!request) throw new Error('Mise operation target is required');
   const { target, operation } = request;
   const tool = miseToolName(target);
-  const root = path.join(managedAgentPrefix(), 'mise');
+  const root = preparation?.root ?? path.join(managedAgentPrefix(), 'mise');
   const work = path.join(root, 'operations', target.binary);
   const config = path.join(work, 'global.toml');
-  const launcher = path.join(managedMiseBinDir(), target.binary + (process.platform === 'win32' ? '.cmd' : ''));
+  const launcher = path.join(preparation?.launcherDir ?? managedMiseBinDir(), target.binary + (process.platform === 'win32' ? '.cmd' : ''));
   // 与 agent 同一份环境(buildAgentEnv):用户登录 shell 里的代理、只开系统代理时补的代理(#6892)都在这里;
   // miseEnvironment 再按自己的白名单只留 OS / 传输层那几格。
   let env = miseEnvironment(root, config, buildAgentEnv());

@@ -82,10 +82,31 @@ export type ChatMessage = {
   at?: number;
   /** Parsed Gugu delivery metadata; populated by the message unit, never by ordinary transcript producers. */
   guguDelivery?: DeliveryReading;
-  /** View-only reference to the input this agent output responds to. */
-  conversationReply?: { itemId: string; text: string };
+  /**
+   * View-only reference to the message this one explicitly replies to. Only a real anchor counts
+   * (the delivery's `reply_to`, or the `reply_to_message_id` the agent passed to message_send) —
+   * ❌ guessed from "the previous input" (owner 10-28: 参数里有什么就传什么). `from` is the quoted
+   * message's own sender (an agent or a person), `self` marks a quote of this agent's own earlier send,
+   * `chatId` the group the quoted message was said in (absent for a DM).
+   */
+  conversationReply?: { itemId: string; text: string; from?: string; fromId?: string; self?: boolean; chatId?: string };
+  /** The `reply_to_message_id` (without `msg:`) of the message_send this `:sent:` row came from. */
+  sentReplyTo?: string;
+  /**
+   * View-only: something the agent said along the way (not the turn's reply). Drawn as one gray line among the
+   * steps under the process line (design 0), ❌ a bubble of its own.
+   */
+  conversationNarration?: boolean;
+  /** The replay segment is live and this reply is its last event (not merely an active turn). */
+  conversationCaret?: boolean;
+  /** View-only: the closing reply of a finished turn — the only agent bubble with the time / copy row (design 0 `tail`). */
+  conversationTail?: boolean;
+  /** Where this message_send output went (same reading as the session page's 「发到 …」 line, `agentSendOf`). */
+  sentTo?: AgentSend['to'];
+  /** The `chat_id` that message_send went to — names the group when this row is itself quoted later. */
+  sentChat?: string;
   /** View-only disclosure of the completed thinking/execution segment. */
-  conversationProcess?: { live?: boolean; id: string; startedAt?: number; endedAt?: number; steps?: number };
+  conversationProcess?: { live?: boolean; id: string; startedAt?: number; endedAt?: number; idleMs?: number; steps?: number; empty?: boolean; trigger?: TurnProcessItem['trigger'] };
   /**
    * View-only split of one agent-conversation reply (owner 0 号图): `head` draws the name and the
    * process line, each `body` only a bubble. The process steps go between them, so they never land
@@ -493,6 +514,8 @@ export type TurnProcessItem = {
   kind: 'turn-process';
   id: string;
   turnId: string;
+  /** This segment explicitly chose silence; a status label, never an assistant reply. */
+  silent?: boolean;
   /**
    * 这一轮还在跑：头上的时间在数、带微光，底下的内容**默认摊开**（点一下收起）；
    * 落定后同一条头默认收起、写的是总时长（点开还原）。
@@ -504,8 +527,13 @@ export type TurnProcessItem = {
    * 唯一的动静,才自己微光。
    */
   withBody?: boolean;
-  /** 对话布局:过程行上写的「· N 步」(折在这条头下面的行数)。还没出回复、只有头的那一轮也要写(owner 0 号图「思考执行中 · 9m16s · 39 步」)。 */
+  /** 对话布局:过程行上写的「· N 步」(折在这条头下面的行数)。还没出回复、只有头的那一轮也要写(owner 0 号图「执行中 · 9m16s · 39 步」)。 */
   steps?: number;
+  /**
+   * 对话布局、在跑:这一轮不是主人手打起的(群消息投递、定时任务、agent 自己起的)。过程行写清在干什么
+   * (「执行中 · 处理「gugu」群消息」),❌ 只露出后台药丸(管家 10-28:主人手打的消息不能被不是他发起的事挡住)。
+   */
+  trigger?: { kind: 'delivery' | 'schedule' | 'agent'; chatIds?: string[] };
   /**
    * 占位:跑着、还没有可折的过程(`placeholderTurnHeader`)。写「正在思考…」、不数秒、没有箭头 ——
    * 下面没有可展开的东西,点了没反应的箭头比没有箭头更糟;过程一到,同一个 id 的头接手。

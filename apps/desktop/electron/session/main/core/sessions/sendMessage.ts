@@ -9,6 +9,7 @@ import { taskExchangeRecorded } from '../session-timeline/task-exchanges';
 import { activitySignal } from '../activity/signals';
 import { readDeliveryEnvelope } from '@gugu/core/local/agent/deliveryEnvelope';
 import { conversationLink, parseConversationLink } from '@gugu/core/shared/ui/guguLink';
+import { SessionArchivedError } from '@gugu/core/shared/sessionArchival';
 import {
   acceptSessionMessage,
   enqueueSessionMessage,
@@ -159,6 +160,7 @@ async function readSession(params: {
     .limit(1)
     .all();
   if (!row?.provider || !row.config) throw new Error('session not found');
+  if (row.archivedAt) throw new SessionArchivedError();
   return { ...row, provider: row.provider, config: row.config };
 }
 

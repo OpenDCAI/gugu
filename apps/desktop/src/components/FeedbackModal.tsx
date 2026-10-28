@@ -338,7 +338,7 @@ export function FeedbackModal({ onClose }: { onClose: () => void }) {
                 {/* 不强制预览(owner 2026-09-03 定),但**附带了多少**要如实摆出来 */}
                 {attachedLog && (
                   <span data-testid="feedback-attach-log-size" className="block text-[var(--text-primary)]">
-                    {t('feedback.attachLog.attached', { lines: attachedLog.lines })}
+                    {t('feedback.attachLog.attached', { count: attachedLog.lines })}
                   </span>
                 )}
               </span>

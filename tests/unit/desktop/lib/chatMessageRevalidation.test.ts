@@ -61,6 +61,7 @@ import {
   applyMessageWindowRevalidation,
   applyMessageOverlays,
   loadMessageOverlays,
+  loadMessageAgentWakes,
   revalidateMessageWindow,
 } from '../../../../apps/desktop/src/lib/chatMessageRevalidation'
 function setResults(table: string, ...results: QueryResult[]) {
@@ -77,7 +78,7 @@ describe('chatMessageRevalidation', () => {
     queryResults.set('message_reactions', [reactions.promise])
     const reading = loadMessageOverlays(['m1'], 'viewer')
     await Promise.resolve()
-    expect(queryCalls.map((call) => call.table)).toEqual(['message_reactions', 'message_deliveries'])
+    expect(queryCalls.map((call) => call.table)).toEqual(['message_reactions', 'message_deliveries', 'message_agent_delivery_blocks'])
     reactions.resolve({ data: [], error: null })
     await reading
   })
@@ -105,18 +106,21 @@ describe('chatMessageRevalidation', () => {
       delivered: true,
       delivery_status: 'delivered',
       readers: ['agent-a'],
+      delivery_blocks: [],
     })
     expect(overlays.get('m2')).toEqual({
       reactions: [{ emoji: '👀', count: 1, my_reaction: false }],
       delivered: true,
       delivery_status: 'read',
       readers: ['viewer'],
+      delivery_blocks: [],
     })
     expect(overlays.get('m3')).toEqual({
       reactions: [],
       delivered: false,
       delivery_status: null,
       readers: [],
+      delivery_blocks: [],
     })
   })
   it('applies overlays to fetched message items without refetching bodies', async () => {
@@ -139,7 +143,16 @@ describe('chatMessageRevalidation', () => {
         readers: ['viewer'],
       },
     ])
-    expect(queryCalls.map((call) => call.table)).toEqual(['message_reactions', 'message_deliveries'])
+    expect(queryCalls.map((call) => call.table)).toEqual(['message_reactions', 'message_deliveries', 'message_agent_delivery_blocks'])
+  })
+  it('retains terminal refusals per recipient without inventing read receipts or suppressing active recipients', async () => {
+    setResults('message_agent_delivery_blocks', { data: [{ message_id: 'm1', agent_user_id: 'archived', reason: 'agent_archived' }], error: null })
+    const overlay = (await loadMessageOverlays(['m1'], 'viewer')).get('m1')!
+    expect(overlay.delivery_blocks).toEqual([{ agent_user_id: 'archived', reason: 'agent_archived' }])
+    expect(overlay.readers).toEqual([]); expect(overlay.delivered).toBe(false); expect(overlay.delivery_status).toBeNull()
+    setResults('message_agent_wakes', { data: [{ message_id: 'm1', agent_user_id: 'archived' }, { message_id: 'm1', agent_user_id: 'active' }], error: null })
+    setResults('message_agent_delivery_blocks', { data: [{ message_id: 'm1', agent_user_id: 'archived', reason: 'agent_archived' }], error: null })
+    expect([...(await loadMessageAgentWakes(['m1'])).get('m1')!]).toEqual(['active'])
   })
   it('revalidates window body mutations and keeps deleted ids out of presentIds', async () => {
     setResults('message_reactions', { data: [], error: null })

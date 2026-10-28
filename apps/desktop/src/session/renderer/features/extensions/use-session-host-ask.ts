@@ -19,7 +19,12 @@ const pendingHostAsk = (settlements: ReadonlyMap<string, Settlement>, source: As
  * the session page's band, here or for a session another desktop runs (the timeline is read on that machine). A chat-UI
  * session's own approvals stay where they are (the runtime's queue); the host's are the timeline's, for either kind.
  */
-export function useSessionHostAsk(sessionId: string | null, source: AskSource): Settlement | null {
+export function useSessionHostAsk(
+  sessionId: string | null,
+  source: AskSource,
+  options: { rereadMs?: number } = {}
+): Settlement | null {
+  const { rereadMs } = options;
   const [ask, setAsk] = useState<Settlement | null>(null);
   useEffect(() => {
     setAsk(null);
@@ -48,12 +53,27 @@ export function useSessionHostAsk(sessionId: string | null, source: AskSource): 
     })().catch((error: unknown) =>
       log.warn('Host asks of this session could not be read', { sessionId, error: error instanceof Error ? error.message : String(error) })
     );
+    // 另一台机器上的会话:那台重启过(云电脑睡醒、server 升级),订阅就跟着没了、不会再推 —— 新的提问进不来,
+    // 答完的也不会消失(10-28 实测)。要一直看着的(Browser Use 页签)隔一会儿重读一份快照,❌ 只靠订阅。
+    const reread = rereadMs
+      ? setInterval(() => {
+          void there.sessionTimeline
+            .sessionSnapshot({ conversationId: sessionId, limit: 1 })
+            .then((snapshot) => {
+              if (!alive || !snapshot.ok) return;
+              settlements.clear();
+              take(snapshot.value.settlements);
+            })
+            .catch(() => undefined);
+        }, rereadMs)
+      : null;
     return () => {
       alive = false;
+      if (reread) clearInterval(reread);
       off();
       void there.sessionTimeline.sessionUnsubscribe({ subscriptionId }).catch(() => undefined);
     };
-  }, [sessionId, source]);
+  }, [sessionId, source, rereadMs]);
   return ask;
 }
 

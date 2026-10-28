@@ -727,10 +727,10 @@ export function hostAppFrame(
         const chatId = chatPlace(args.place)
         if (args.pick === true) {
           // Opened now, in this very turn: the picker needs the person's activation.
-          return pickFiles().then((picked) => (picked.length === 0 ? [] : files.upload(chatId, picked, { sourceMessageIds: args.sourceMessageIds, folder: args.folder })))
+          return pickFiles().then((picked) => (picked.length === 0 ? [] : files.upload(chatId, picked, { sourceMessageIds: args.sourceMessageIds, folder: args.folder, keep: args.keep })))
         }
         if (!Array.isArray(args.files)) refused('invalid', 'files.upload takes files, or none to pick')
-        return files.upload(chatId, args.files as AppFileUpload[], { sourceMessageIds: args.sourceMessageIds, folder: args.folder })
+        return files.upload(chatId, args.files as AppFileUpload[], { sourceMessageIds: args.sourceMessageIds, folder: args.folder, keep: args.keep })
       }
       case 'filesDownload':
         // API 20: several files go out through the share sheet at once (a phone has no folder to pick) — how many were handed.

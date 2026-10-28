@@ -1,9 +1,10 @@
-import { and, eq, sql } from 'drizzle-orm';
+import { and, eq } from 'drizzle-orm';
 import { db } from '@main/db/client';
 import { sessions } from '@main/db/schema';
 import { events } from '@main/lib/events';
 import { sessionEvents } from './session-events';
 import { stopSessionRuntime } from './deleteSession';
+import { setSessionArchival, serializeSessionArchival } from './session-archival';
 import { archiveOnOtherMachine, familyOf } from './session-family';
 import { mapSessionRowToSession } from './utils';
 import { publishProjectVisibility } from '../projects/operations/project-visibility';
@@ -21,7 +22,7 @@ import {
  * spec session-graph:归档的归属键是**这条会话自己**。用户看见的标签说「归档任务」——在他心智里
  * 会话列表的一行就是一项任务(owner 2026-09-11)——而产品动的是这条 conversation。
  *
- * 停 runtime 的顺序与删除一致:先停,再落库(`stopSessionRuntime`)。
+ * 本机先持久封住投递,再停 runtime;归档不等待云端同步。
  *
  * 返回**这一次真正收走的行**(子会话在前、点名的在后;已经归档的不算):归档提示里的「撤销」按这份清单
  * 原样放回(#6083),❌ 由渲染侧自己猜范围。
@@ -62,9 +63,13 @@ export async function archiveSession(
 }
 
 /**
- * 本机的一条:先停运行时(工作区留着,恢复后接着用),再落库。已经归档的不算。
+ * 本机的一条:状态和拒投区间一起落库,再停运行时。工作区与身份保留。
  */
 async function archiveOne(projectId: string, sessionId: string): Promise<ArchivedSessionRef[]> {
+  return serializeSessionArchival(sessionId, () => archiveOneLocked(projectId, sessionId));
+}
+
+async function archiveOneLocked(projectId: string, sessionId: string): Promise<ArchivedSessionRef[]> {
   const [row] = await db
     .select({ runtime: sessions.runtime, archivedAt: sessions.archivedAt })
     .from(sessions)
@@ -72,20 +77,13 @@ async function archiveOne(projectId: string, sessionId: string): Promise<Archive
     .limit(1);
   if (!row || row.archivedAt) return [];
 
+  const archivedAt = setSessionArchival(sessionId, true);
   await stopSessionRuntime(projectId, sessionId, row.runtime, 'archive');
-
-  // 事件里带的是**落库的那个值**,❌ 不是这一刻现造的 ISO 串:渲染端拿它当行的真值用,造一个和库里
-  // 不同的时间戳,下一次全量拉取就会把它换掉,中间那段谁也说不清读的是哪一个。
-  const [updated] = await db
-    .update(sessions)
-    .set({ archivedAt: sql`CURRENT_TIMESTAMP`, updatedAt: sql`CURRENT_TIMESTAMP` })
-    .where(eq(sessions.id, sessionId))
-    .returning({ archivedAt: sessions.archivedAt });
 
   events.emit(sessionChangedChannel, {
     sessionId,
     projectId,
-    changes: { archivedAt: updated?.archivedAt ?? null },
+    changes: { archivedAt },
   });
   sessionEvents._emit('session:archived', sessionId);
   await publishProjectVisibility(projectId);
@@ -109,12 +107,19 @@ export async function restoreSession(
   projectId: string,
   sessionId: string
 ): Promise<Session> {
-  const [restored] = await db
-    .update(sessions)
-    .set({ archivedAt: null, updatedAt: sql`CURRENT_TIMESTAMP` })
+  return serializeSessionArchival(sessionId, () => restoreSessionLocked(projectId, sessionId));
+}
+
+async function restoreSessionLocked(projectId: string, sessionId: string): Promise<Session> {
+  const [row] = await db
+    .select({ id: sessions.id })
+    .from(sessions)
     .where(and(eq(sessions.id, sessionId), eq(sessions.projectId, projectId)))
-    .returning();
-  if (!restored) throw new Error(`Session not found: ${sessionId}`);
+    .limit(1);
+  if (!row) throw new Error(`Session not found: ${sessionId}`);
+  // A closed interval and the restored row become visible in one transaction.
+  setSessionArchival(sessionId, false);
+  const restored = db.select().from(sessions).where(eq(sessions.id, sessionId)).get()!;
 
   events.emit(sessionChangedChannel, {
     sessionId,

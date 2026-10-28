@@ -11,6 +11,8 @@ import { LoadingIndicator } from '@/lib/loading/LoadingIndicator'
 import { platform } from '@/platform'
 import { openAuthorizationLink } from '@/lib/openAuthorizationLink'
 import { CliInstallProgress } from '@/session/renderer/features/integrations/CliInstallProgress'
+import { prepareThenStartCliLogin } from '@/session/renderer/features/integrations/cli-tool-prepare'
+import { requestCloudVersionMatch, useCloudVersionMatch } from '@/lib/cloudVersionMatch'
 import { AssistantEmpty, PageHead } from '@/session/renderer/features/assistant/assistant-ui-parts'
 import { integrationErrorText } from '@/session/renderer/features/integrations/integration-display'
 import {
@@ -141,7 +143,7 @@ function SetupBody({
   const plan = setupPlanOf(item, platform.kind)
   if (plan.kind === 'form') return <FormSetup item={item} rpc={rpc} onConnected={onConnected} />
   if (plan.kind === 'browser') return <BrowserSetup item={item} serverUrl={plan.serverUrl} rpc={rpc} onConnected={onConnected} />
-  if (plan.kind === 'cli') return <CliSetup item={item} rpc={rpc} assistantName={assistantName} onConnected={onConnected} />
+  if (plan.kind === 'cli') return <CliSetup item={item} rpc={rpc} deviceId={deviceId} assistantName={assistantName} onConnected={onConnected} />
   if (plan.kind === 'github') return <GithubSetup item={item} rpc={rpc} deviceId={deviceId} onConnected={onConnected} />
   return (
     <div data-testid="assistant-connector-unavailable">
@@ -450,17 +452,20 @@ function BrowserSetup({
 function CliSetup({
   item,
   rpc,
+  deviceId,
   assistantName,
   onConnected,
 }: {
   item: IntegrationMetadata
   rpc: MachineRpc
+  deviceId: string
   assistantName: string
   onConnected: (displayName?: string) => void
 }) {
   const { t } = useTranslation('assistant')
   const openInBrowser = useContext(AuthorizationBrowser)
   const method = cliMethodOf(item)
+  const cloudVersion = useCloudVersionMatch(deviceId)
   const [state, setState] = useState<CliSetupState | null>(null)
   const readProgress = useCallback(() => rpc.integrations.cliLoginProgress(item.id), [rpc, item.id])
   const handle = useRef<{ cancel(): void } | null>(null)
@@ -468,11 +473,17 @@ function CliSetup({
   connectedRef.current = onConnected
   useEffect(() => () => handle.current?.cancel(), [])
 
-  const start = () => {
+  const start = async () => {
+    if (cloudVersion?.status === 'updating') return
+    if (cloudVersion?.status === 'failed') await requestCloudVersionMatch(deviceId, true)
     handle.current?.cancel()
-    handle.current = startCliSetup(
+    // 等工具装好的那一圈只认这一次:取消 / 重点「连接」后不再起登录。
+    let stopped = false
+    const setup = startCliSetup(
       {
-        start: () => rpc.integrations.cliLoginStart(item.id),
+        start: async () => (await prepareThenStartCliLogin(rpc.integrations, item.id, { cancelled: () => stopped,
+          timeoutError: () => new Error(t('connectors.setup.cliPrepareTimedOut')) }))
+          ?? { success: false as const, error: 'This connection attempt was cancelled.' },
         wait: () => rpc.integrations.cliLoginWait(item.id),
         cancel: () => rpc.integrations.cancelAuthorization(item.id),
       },
@@ -481,6 +492,7 @@ function CliSetup({
         if (next.phase === 'done') connectedRef.current()
       },
     )
+    handle.current = { cancel: () => { stopped = true; setup.cancel() } }
   }
   const idle = !state || state.phase === 'cancelled'
   return (
@@ -514,7 +526,13 @@ function CliSetup({
           </Button>
         </>
       ) : state.phase === 'failed' ? (
-        <SetupFailureNote failure={state.failure} name={item.name} assistantName={assistantName} onRetry={start} />
+        cloudVersion && cloudVersion.status !== 'idle' ? <>
+          <p role={cloudVersion.status === 'failed' ? 'alert' : 'status'} className="ta-page-sub ta-pad">
+            {cloudVersion.status === 'updating' ? t('connectors.setup.cloudUpdating', { version: cloudVersion.version })
+              : cloudVersion.status === 'failed' ? cloudVersion.error : t('connectors.setup.cloudUpdated')}
+          </p>
+          {cloudVersion.status !== 'updating' ? <Button variant="ghost" className="ta-pill-btn" onClick={start}>{t('connectors.reconnect')}</Button> : null}
+        </> : <SetupFailureNote failure={state.failure} name={item.name} assistantName={assistantName} onRetry={start} />
       ) : null}
     </div>
   )

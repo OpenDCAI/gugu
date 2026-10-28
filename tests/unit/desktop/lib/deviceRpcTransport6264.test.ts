@@ -164,6 +164,11 @@ async function load(main: ReturnType<typeof fakeMainProcess>) {
   return import('@/lib/deviceRpc')
 }
 
+function answerSsh(main: ReturnType<typeof fakeMainProcess>, index: number, response: { result?: unknown; error?: { code: string; message: string } } = { result: { ok: true } }): void {
+  const { deviceId, message } = main.sent[index]!
+  main.emit('ssh-link:message', { deviceId, message: { payload: { type: `${message.payload.type}:reply`, request_id: message.payload.request_id, ...response } } })
+}
+
 describe('设备 RPC 按机器挑通道', () => {
   beforeEach(() => {
     cloud.channels.length = 0
@@ -373,7 +378,7 @@ describe('设备 RPC 按机器挑通道', () => {
     }
   })
 
-  it('retires a ready SSH application pipe on timeout, fails its other calls, and reopens for event listeners without replay', async () => {
+  it('retires a ready SSH pipe after three timeout windows, fails other calls, and reopens without replay', async () => {
     vi.useFakeTimers()
     let cleanup: (() => void) | undefined
     try {
@@ -386,29 +391,175 @@ describe('设备 RPC 按机器挑通道', () => {
       await vi.advanceTimersByTimeAsync(0)
       expect(main.opened).toEqual(['stalled-box'])
 
-      const timedOut = callDeviceRpc('stalled-box', 'taskhost.open', {}, { timeoutMs: 200 }).catch((error: unknown) => error)
       const inFlight = callDeviceRpc('stalled-box', 'taskpage.session.send', { text: 'once' }, { timeoutMs: 5_000 }).catch((error: unknown) => error)
-      await vi.advanceTimersByTimeAsync(0)
-      expect(main.sent).toHaveLength(2)
-      await vi.advanceTimersByTimeAsync(200)
-      expect(await timedOut).toMatchObject({ name: 'DeviceRpcTimeoutError' })
+      for (let window = 1; window <= 3; window += 1) {
+        const timedOut = callDeviceRpc('stalled-box', 'taskhost.open', {}, { timeoutMs: 200 }).catch((error: unknown) => error)
+        await vi.advanceTimersByTimeAsync(200)
+        expect(await timedOut).toMatchObject({ name: 'DeviceRpcTimeoutError' })
+        expect(main.closed).toHaveLength(window === 3 ? 1 : 0)
+      }
       expect(await inFlight).toMatchObject({ name: 'DeviceRpcChannelError', reason: 'closed' })
       expect(main.closed).toEqual(['stalled-box'])
 
       await vi.advanceTimersByTimeAsync(2_000)
       expect(main.opened).toEqual(['stalled-box', 'stalled-box'])
       expect(resubscribed.mock.calls).toEqual([[false], [false]])
-      expect(main.sent).toHaveLength(2)
+      expect(main.sent).toHaveLength(4)
       main.emit('ssh-link:message', { deviceId: 'stalled-box', message: { payload: { type: 'taskpage.session.event' } } })
       expect(events).toHaveBeenCalledTimes(1)
       const next = callDeviceRpc('stalled-box', 'taskhost.open', {})
       await vi.advanceTimersByTimeAsync(0)
-      const request = main.sent[2]!.message.payload
-      main.emit('ssh-link:message', { deviceId: 'stalled-box', message: { payload: { type: 'taskhost.open:reply', request_id: request.request_id, result: { ok: true } } } })
+      answerSsh(main, 4)
       await expect(next).resolves.toMatchObject({ result: { ok: true } })
       expect(cloud.channels).toEqual([])
     } finally {
       cleanup?.()
+      vi.useRealTimers()
+    }
+  })
+
+  it('keeps one or two SSH timeouts isolated and lets later requests and unrelated pending calls succeed', async () => {
+    vi.useFakeTimers()
+    const main = fakeMainProcess({ sshMachines: ['delay-box'] })
+    const rpc = await load(main)
+    try {
+      const other = rpc.callDeviceRpc('delay-box', 'taskpage.session.send', {}, { timeoutMs: 30_000 }).catch((error: unknown) => error)
+      for (let window = 0; window < 2; window += 1) {
+        const timedOut = rpc.callDeviceRpc('delay-box', 'taskhost.open', {}).catch((error: unknown) => error)
+        await vi.advanceTimersByTimeAsync(5_000)
+        expect(await timedOut).toMatchObject({ name: 'DeviceRpcTimeoutError' })
+        expect(main.closed).toEqual([])
+      }
+      const next = rpc.callDeviceRpc('delay-box', 'taskhost.open', {})
+      await vi.advanceTimersByTimeAsync(0)
+      answerSsh(main, 3)
+      answerSsh(main, 0)
+      await expect(next).resolves.toMatchObject({ result: { ok: true } })
+      await expect(other).resolves.toMatchObject({ result: { ok: true } })
+      expect(main.opened).toEqual(['delay-box'])
+    } finally {
+      rpc._resetDeviceRpcForTesting()
+      vi.useRealTimers()
+    }
+  })
+
+  it('counts five overlapping timeouts during an eight-second stall once, then accepts a reply on the same SSH link', async () => {
+    vi.useFakeTimers()
+    const main = fakeMainProcess({ sshMachines: ['busy-box'] })
+    const rpc = await load(main)
+    try {
+      const calls = Array.from({ length: 5 }, () => rpc.callDeviceRpc('busy-box', 'read', {}).catch((error: unknown) => error))
+      await vi.advanceTimersByTimeAsync(8_000)
+      expect(await Promise.all(calls)).toEqual(Array.from({ length: 5 }, () => expect.objectContaining({ name: 'DeviceRpcTimeoutError' })))
+      expect(main.closed).toEqual([])
+      const recovered = rpc.callDeviceRpc('busy-box', 'read', {})
+      await vi.advanceTimersByTimeAsync(0)
+      answerSsh(main, 5)
+      await expect(recovered).resolves.toMatchObject({ result: { ok: true } })
+      expect(main.opened).toEqual(['busy-box'])
+    } finally {
+      rpc._resetDeviceRpcForTesting()
+      vi.useRealTimers()
+    }
+  })
+
+  it.each([undefined, { code: 'denied', message: 'business refusal' }])('a matching reply (%j) resets two four-second probe timeout windows', async (error) => {
+    vi.useFakeTimers()
+    const main = fakeMainProcess({ sshMachines: ['probe-box'] })
+    const rpc = await load(main)
+    try {
+      const timeout = async () => {
+        const pending = rpc.callDeviceRpc('probe-box', 'taskhost.frame', {}, { timeoutMs: 4_000 }).catch((error: unknown) => error)
+        await vi.advanceTimersByTimeAsync(4_000)
+        expect(await pending).toMatchObject({ name: 'DeviceRpcTimeoutError' })
+      }
+      await timeout()
+      await timeout()
+      expect(main.closed).toEqual([])
+      const recovered = rpc.callDeviceRpc('probe-box', 'read', {})
+      await vi.advanceTimersByTimeAsync(0)
+      answerSsh(main, 2, error ? { error } : { result: { ok: true } })
+      await recovered
+      await timeout()
+      await timeout()
+      expect(main.closed).toEqual([])
+      expect(main.opened).toEqual(['probe-box'])
+    } finally {
+      rpc._resetDeviceRpcForTesting()
+      vi.useRealTimers()
+    }
+  })
+
+  it.each([4_000, 5_000])('three non-overlapping %i ms windows retire the link within a twenty-second outage', async (timeoutMs) => {
+    vi.useFakeTimers()
+    const main = fakeMainProcess({ sshMachines: ['dead-box'] })
+    const rpc = await load(main)
+    try {
+      for (let window = 1; window <= 3; window += 1) {
+        const pending = rpc.callDeviceRpc('dead-box', 'read', {}, { timeoutMs }).catch((error: unknown) => error)
+        await vi.advanceTimersByTimeAsync(timeoutMs)
+        expect(await pending).toMatchObject({ name: 'DeviceRpcTimeoutError' })
+        expect(main.closed).toHaveLength(window === 3 ? 1 : 0)
+      }
+      await vi.advanceTimersByTimeAsync(20_000 - timeoutMs * 3)
+      const recovered = rpc.callDeviceRpc('dead-box', 'read', {})
+      await vi.advanceTimersByTimeAsync(0)
+      answerSsh(main, 3)
+      await expect(recovered).resolves.toMatchObject({ result: { ok: true } })
+      expect(main.opened).toEqual(['dead-box', 'dead-box'])
+    } finally {
+      rpc._resetDeviceRpcForTesting()
+      vi.useRealTimers()
+    }
+  })
+
+  it('overlapping long deadlines do not add windows and a reply from an expired request does not reset them', async () => {
+    vi.useFakeTimers()
+    const main = fakeMainProcess({ sshMachines: ['mixed-box'] })
+    const rpc = await load(main)
+    try {
+      const long = rpc.callDeviceRpc('mixed-box', 'read', {}, { timeoutMs: 9_000 }).catch((error: unknown) => error)
+      const first = rpc.callDeviceRpc('mixed-box', 'read', {}).catch((error: unknown) => error)
+      await vi.advanceTimersByTimeAsync(5_000)
+      await first
+      const second = rpc.callDeviceRpc('mixed-box', 'read', {}).catch((error: unknown) => error)
+      await vi.advanceTimersByTimeAsync(5_000)
+      await long
+      await second
+      expect(main.closed).toEqual([])
+      answerSsh(main, 1) // 已超时的旧 request_id,不能替当前连接证明存活。
+      const third = rpc.callDeviceRpc('mixed-box', 'read', {}).catch((error: unknown) => error)
+      await vi.advanceTimersByTimeAsync(5_000)
+      await third
+      expect(main.closed).toEqual(['mixed-box'])
+    } finally {
+      rpc._resetDeviceRpcForTesting()
+      vi.useRealTimers()
+    }
+  })
+
+  it('a replacement pipe starts fresh and ignores replies belonging to its predecessor', async () => {
+    vi.useFakeTimers()
+    const main = fakeMainProcess({ sshMachines: ['replace-box'] })
+    const rpc = await load(main)
+    try {
+      const timeout = async () => {
+        const pending = rpc.callDeviceRpc('replace-box', 'read', {}).catch((error: unknown) => error)
+        await vi.advanceTimersByTimeAsync(5_000)
+        await pending
+      }
+      await timeout()
+      await timeout()
+      rpc._resetDeviceRpcForTesting('replace-box')
+      await vi.advanceTimersByTimeAsync(0)
+      await timeout()
+      await timeout()
+      expect(main.closed).toHaveLength(1)
+      answerSsh(main, 0)
+      await timeout()
+      expect(main.closed).toHaveLength(2)
+    } finally {
+      rpc._resetDeviceRpcForTesting()
       vi.useRealTimers()
     }
   })

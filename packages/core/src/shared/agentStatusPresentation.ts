@@ -8,7 +8,7 @@
 import type { AgentStatusView, AgentWaitKind } from './agentStatus'
 
 /** 可达:只有聊天侧有这一轴(会话页与手机会话行上的会话就在那台机器上)。 */
-export type AgentReachability = 'online' | 'offline' | 'removed' | 'pending'
+export type AgentReachability = 'online' | 'offline' | 'archived' | 'removed' | 'pending'
 
 export const AGENT_STATUS_TONES = [
   'running',
@@ -19,6 +19,7 @@ export const AGENT_STATUS_TONES = [
   'idle',
   'online',
   'offline',
+  'archived',
   'removed',
   'pending',
   'none',
@@ -41,6 +42,7 @@ export const AGENT_STATUS_LABELS = [
   'idle',
   'online',
   'offline',
+  'archived',
   'removed',
   'pending',
   'none',
@@ -83,7 +85,7 @@ export function presentAgentStatus(input: {
   unseen?: boolean
 }): AgentStatusPresentation {
   const { reading, reachability, unseen = false } = input
-  if (reachability === 'removed' || reachability === 'offline' || reachability === 'pending') return still(reachability)
+  if (reachability === 'removed' || reachability === 'archived' || reachability === 'offline' || reachability === 'pending') return still(reachability)
   const idle = reachability === 'online' ? still('online') : still('idle')
   if (reading === null) return reachability === 'online' ? idle : still('none')
   switch (reading.status) {
@@ -116,6 +118,7 @@ export function agentStatusColorVar(tone: AgentStatusTone): string | null {
     case 'removed':
       return 'var(--agent-tone-removed)'
     case 'offline':
+    case 'archived':
     case 'pending':
       return 'var(--agent-tone-muted)'
     case 'done':

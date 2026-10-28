@@ -2,6 +2,9 @@ import { mkdtemp, mkdir, writeFile, rm } from 'node:fs/promises';
 import path from 'node:path';
 import { tmpdir } from 'node:os';
 import { afterEach, beforeEach, expect, it, vi } from 'vitest';
+
+const warn = vi.hoisted(() => vi.fn());
+vi.mock('@main/lib/logger', () => ({ log: { warn, info: vi.fn(), error: vi.fn(), debug: vi.fn() } }));
 import { ensureCliTool, installedCliTool, isCliToolInstalled } from './cli-tool-installer';
 import { cliToolRecipe, currentCliPlatform } from './cli-tools';
 
@@ -54,4 +57,15 @@ it('does not accept an incomplete preload or an executable for another platform'
 it('does not accept a missing executable', async () => {
   const dir = await preload(); await rm(path.join(dir, 'bin', 'lark-cli'));
   expect(isCliToolInstalled('lark-cli')).toBe(false);
+});
+
+// 客户端先升了版本、镜像里还是旧的那份:回落到下载时要留一句带工具名和两边版本的日志,❌ 悄悄下。
+it('logs which version it wanted and what the image has when a cloud computer falls back to downloading', async () => {
+  await preload('0.0.1');
+  vi.stubGlobal('fetch', vi.fn(async () => new Response('unavailable', { status: 503 })));
+  await expect(ensureCliTool('lark-cli')).rejects.toThrow();
+  expect(warn).toHaveBeenCalledWith(
+    'Cloud computer has no preinstalled copy of this connector tool version; downloading it',
+    { tool: 'lark-cli', version: cliToolRecipe('lark-cli').version, preinstalledVersions: ['0.0.1'], root: path.join(root, 'runtime') },
+  );
 });

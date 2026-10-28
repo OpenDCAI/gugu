@@ -2,7 +2,7 @@
  * delivery-routing S2b —— 聊天消息的读者(pull/收件箱模型)。
  *
  * agent 的会话是一个读者:云端聊天是唯一耐久层(消息本体 + last_read_seq 水位 + 逐条精确读行),
- * 本机聊天不保存任何耐久投递状态。session_spawn 的本机 outbox 是兼容投影,取走即删。
+ * 本机不保存聊天消费水位;归档只额外持久记录拒投 ID,不伪造已读。session_spawn 的本机 outbox 是兼容投影,取走即删。
  * 四个触发(nudge / 回合结束 / 会话唤醒完成 / 开机扫)
  * 都收敛到 pullAgentInbox:按 (chat, seq) 顺序拉出该交给这个 agent 的未读 —— 「这条消息唤醒谁」由云端
  * 唯一的谓词 chat.message_wakes_agent 回答(投递触发器与 pull_agent_inbox 共用),reader 不做资格判断 ——,逐条 admission
@@ -48,6 +48,7 @@ import { ackForumViaRpc, recordForumFailureViaRpc, type ForumDeliveryFailure } f
 import { coreLogger } from '../../log'
 import { agentFailureNeedsModelChoice, agentFailureReason, type AgentFailureReason } from '../../shared/agentQuotaReason'
 import { turnFailureMarker } from '../../shared/ui/systemNotice'
+import { sessionArchiveRefusesMessage, type SessionArchivalState } from '../../shared/sessionArchival'
 
 const log = coreLogger('agent-inbox-reader')
 
@@ -132,6 +133,10 @@ export interface AgentInboxFetchInput {
 
 export interface AgentInboxReaderDeps {
   accessToken: string
+  /** Host-owned durable refusal intervals; suppressed rows are never marked read. */
+  sessionArchival?: (agentUserId: string) => SessionArchivalState | null | Promise<SessionArchivalState | null>
+  /** Host persists refused message IDs separately from read receipts. */
+  sessionMessageRefused?: (agentUserId: string, messageId: string, createdAt: string) => boolean | Promise<boolean>
   ownerUserId?: string
   env?: NodeJS.ProcessEnv
   /** conversation 键控注入口(host 提供)。抛异常 = 真失败(批保持未读并披露);三态见类型。 */
@@ -485,7 +490,17 @@ export function __pullOnceUnguardedForTests(
   return pullOnce(agentUserId, deps)
 }
 
+async function refusesArchivedRow(agentUserId: string, row: AgentInboxUnreadRow, state: SessionArchivalState | null, deps: AgentInboxReaderDeps): Promise<boolean> {
+  return Boolean(await deps.sessionMessageRefused?.(agentUserId, row.id, row.createdAt)) || sessionArchiveRefusesMessage(state, row.createdAt)
+}
+
+async function filterArchivedRows(agentUserId: string, rows: AgentInboxUnreadRow[], state: SessionArchivalState | null, deps: AgentInboxReaderDeps): Promise<AgentInboxUnreadRow[]> {
+  const refused = await Promise.all(rows.map((row) => refusesArchivedRow(agentUserId, row, state, deps)))
+  return rows.filter((_, index) => !refused[index])
+}
+
 async function pullOnce(agentUserId: string, deps: AgentInboxReaderDeps): Promise<AgentInboxPullResult> {
+  if ((await deps.sessionArchival?.(agentUserId))?.archivedAt) return { pulled: 0, injected: 0, verdict: 'not-now' }
   const fetchUnread = deps.fetchUnread ?? ((input: AgentInboxFetchInput) =>
     fetchUnreadViaRpc(input, deps.accessToken))
   const localRows = deps.fetchLocalUnread ? await deps.fetchLocalUnread(agentUserId) : []
@@ -504,9 +519,12 @@ async function pullOnce(agentUserId: string, deps: AgentInboxReaderDeps): Promis
     // RPC decided to hand this agent (chat.message_wakes_agent); the reader adds no eligibility of its own.
     // This cursor is discarded on every exit (including failure); the next trigger starts
     // from authoritative unread rows, including new messages behind this scan's cursor.
-    const rows = scanAfter ? fetchedRows : [...fetchedRows, ...localRows]
-    pulled += rows.length
-    if (rows.length === 0) break
+    const rawRows = scanAfter ? fetchedRows : [...fetchedRows, ...localRows]
+    pulled += rawRows.length
+    if (rawRows.length === 0) break
+    const archival = await deps.sessionArchival?.(agentUserId) ?? null
+    if (archival?.archivedAt) { verdict = 'not-now'; break }
+    const rows = await filterArchivedRows(agentUserId, rawRows, archival, deps)
     const batchResult = await injectBatch(agentUserId, rows, deps)
     injectedTotal += batchResult.injected
     verdict = batchResult.verdict
@@ -529,7 +547,9 @@ async function pullOnce(agentUserId: string, deps: AgentInboxReaderDeps): Promis
     const forumRows = await deps.fetchForumUnread(agentUserId)
     pulled += forumRows.length
     if (forumRows.length > 0) {
-      const batchResult = await injectBatch(agentUserId, forumRows, deps)
+      const archival = await deps.sessionArchival?.(agentUserId) ?? null
+      if (archival?.archivedAt) return { pulled, injected: injectedTotal, verdict: 'not-now' }
+      const batchResult = await injectBatch(agentUserId, await filterArchivedRows(agentUserId, forumRows, archival, deps), deps)
       injectedTotal += batchResult.injected
       verdict = batchResult.verdict
       if (batchResult.completion) completions.push(batchResult.completion)
@@ -683,6 +703,10 @@ async function injectBatch(
   const completions: Promise<void>[] = []
   for (let unitIndex = 0; unitIndex < units.length; unitIndex += 1) {
     const unit = units[unitIndex]!
+    const archival = await deps.sessionArchival?.(agentUserId) ?? null
+    if (archival?.archivedAt || (await Promise.all(unit.members.map(({ row }) => refusesArchivedRow(agentUserId, row, archival, deps)))).some(Boolean)) {
+      return { injected, verdict: 'not-now', ...(completions.length ? { completion: Promise.all(completions).then(() => undefined) } : {}) }
+    }
     let unitVerdict: AgentInboxInjectionVerdict
     let completion: Promise<void> | undefined
     try {

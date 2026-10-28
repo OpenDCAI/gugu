@@ -152,7 +152,7 @@ const requester = createDeviceRpcRequester({
   userId: getCurrentAuthUserId,
   openPipe,
   onEvent: dispatchDeviceEvent,
-  // 尚在握手的设备连接留给原来的开线期限;已就绪的 SSH 应用管道超时由 callDeviceRpc 关闭并重开。
+  // 尚在握手的设备连接留给原来的开线期限;已就绪的 SSH 应用管道由自己的连续超时窗口判断存活。
   // 云端事件订阅者还在时不拆:它没有请求超时来重新开推送,由现成的 recover 重新报到。
   keepAliveOnTimeout: (deviceId) => transports.get(deviceId) !== 'cloud' || hasEventListeners(deviceId),
 })
@@ -171,6 +171,8 @@ async function openPipe(deviceId: string, handlers: DeviceRpcPipeHandlers): Prom
     send: pipe.send,
     // #7233 咕咕云那条:一问没回时重新报到、原样重发一次(远程 SSH 那条没有)。漏传它,一次报到卡住之后这一页再也问不出去。
     ...(pipe.recover ? { recover: pipe.recover } : {}),
+    ...(pipe.onReply ? { onReply: pipe.onReply } : {}),
+    ...(pipe.onRequestTimeout ? { onRequestTimeout: pipe.onRequestTimeout } : {}),
     close: () => {
       if (pipeHandlers.get(deviceId) === handlers) {
         pipeHandlers.delete(deviceId)
@@ -287,15 +289,20 @@ async function openCloudPipe(deviceId: string, handlers: DeviceRpcPipeHandlers):
 /** 断了之后多久再开一次(只在还有人听推送时):2s 起翻倍,最多一分钟。成本 = 一次 ssh 复用共享连接起一个进程。 */
 const SSH_REOPEN_MIN_MS = 2_000
 const SSH_REOPEN_MAX_MS = 60_000
+const SSH_TIMEOUT_WINDOWS = 3
 const sshReopen = new Map<string, { timer: ReturnType<typeof setTimeout> | null; delay: number }>()
 
 async function openSshPipe(deviceId: string, handlers: DeviceRpcPipeHandlers): Promise<DeviceRpcPipe> {
   // 连接在主进程那头已经断了:只丢掉这边的记录,❌ 再叫主进程关(可能关掉紧接着开的新连接)。
   let closedByLink = false
+  let active = true
+  let timeoutWindows = 0
+  let lastTimeoutEnd: number | null = null
   const linkHandlers: SshLinkHandlers = {
     onMessage: (message) => handlers.onMessage(message),
     onClosed: (reason) => {
       closedByLink = true
+      active = false
       log.warn({ deviceId, reason }, 'device link closed')
       // 在途的问一律当场失败(说清原因),❌ 等到各自超时。
       handlers.onClosed(new SshLinkError(reason, deviceId))
@@ -315,7 +322,25 @@ async function openSshPipe(deviceId: string, handlers: DeviceRpcPipeHandlers): P
   notifyResubscribed(deviceId, false)
   return {
     send: (message) => link.send(message),
+    onReply: () => {
+      if (!active) return
+      timeoutWindows = 0
+      lastTimeoutEnd = null
+    },
+    onRequestTimeout: (timeoutMs) => {
+      if (!active) return
+      const now = performance.now()
+      // 同一段卡顿里并发到期的问只算一窗:下一次计入的整个期限必须在上一窗结束之后。
+      if (lastTimeoutEnd !== null && now - timeoutMs < lastTimeoutEnd) return
+      lastTimeoutEnd = now
+      timeoutWindows += 1
+      if (timeoutWindows < SSH_TIMEOUT_WINDOWS) return
+      active = false
+      handlers.onClosed(new DeviceRpcChannelError('SSH application link timed out', 'closed'))
+      scheduleSshReopen(deviceId)
+    },
     close: () => {
+      active = false
       if (!closedByLink) link.close()
     },
   }
@@ -463,11 +488,6 @@ export async function callDeviceRpc<T>(
     try {
       return (await requester.call(deviceId, type, payload, { timeoutMs, signal: options?.signal })) as DeviceRpcResponse<T>
     } catch (err) {
-      if (err instanceof DeviceRpcTimeoutError && transports.get(deviceId) === 'ssh') {
-        // SSH 保活不代表 link 进程还在回包。其余在途请求明确失败,下一次调用开新 link,不重放副作用。
-        requester.close(deviceId, new DeviceRpcChannelError('SSH application link timed out', 'closed'))
-        scheduleSshReopen(deviceId)
-      }
       if (!(err instanceof DeviceRpcTimeoutError) || attempt >= maxAttempts) throw err
     }
   }

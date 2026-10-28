@@ -77,6 +77,7 @@ import { OpenedFileError, readOpenedFileChunk } from './opened-file';
 import { sessionOpenedFile, sessionOutputs } from '../sessions/session-outputs';
 import { createStandInTimeline } from './stand-in-timeline';
 import { readStartFailure } from './start-failures';
+import { knownHarnessConfigRoots } from '@main/core/agent-hooks/harness-config-roots';
 import { notStartedSessionOptions } from './not-started-options';
 import { readSessionModelMenu, type SessionpageSessionOptionsWithMenu } from './session-model-menu';
 import {
@@ -321,7 +322,8 @@ function locateRow(row: SessionRow): SessionRecordLocation {
     provider: row.provider,
     providerSessionId: row.providerSessionId,
     managedConfigRoot: managed.root,
-    fallbackConfigRoots: legacy ? [legacy] : [],
+    // 这一家在本机 hook 里报过的配置目录(包装器在进程里改过的那种)排在默认根之后一起找。
+    fallbackConfigRoots: [...(legacy ? [legacy] : []), ...knownHarnessConfigRoots(row.provider)],
   });
 }
 

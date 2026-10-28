@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { liveReplyOf } from './live-reply';
-import { agentSendOf, canYieldRepliedAssistant, replyProcess, replyProcesses } from './reply-process';
+import { agentSendOf, canYieldRepliedAssistant, filterTurnsForChat, replyProcess, replyProcesses } from './reply-process';
 import { renderDeliveryEnvelope, mergeDeliveryEnvelopes } from '@gugu/core/local/agent/deliveryEnvelope';
 import type { TranscriptTurn } from '../acp/models/turns/turn';
 import type { McpToolCall } from '../acp/models/turns/tool-calls';
@@ -118,6 +118,16 @@ describe('agentSendOf: what the agent said through 咕咕, and where it went', (
       .toMatchObject({ threadRootId: null, whisper: true });
   });
 
+  it('a send back into the private chat it was answering names the other person, not the chat', () => {
+    const dmInput = renderDeliveryEnvelope({ route: 'chat', from: '验收员 (咕咕号 112615)', fromId: 'user:owner',
+      chat: '216099', chatKind: 'dm', sourceLink: `gugu-chat://${chat}/${messageId}`, messageId: 'msg:' + messageId,
+      content: '你好', at: '2026-10-27T04:10:00Z' });
+    const tool = send({ chat_id: '216099', text: '收到' });
+    // MBP 验收 10-28:宿主给这个私聊起的名字从主人那边看就是 agent 自己,「发到 Claude 1」读着像发给了自己。
+    expect(agentSendOf(tool, inGroup(tool, dmInput))?.to).toMatchObject({ conversationId: chat, peer: '验收员' });
+    expect(agentSendOf(tool, inGroup(tool))?.to).not.toHaveProperty('peer');
+  });
+
   it('another chat is named only when the agent addressed it by conversation id', () => {
     expect(agentSendOf(send({ chat_id: '999' }), turn())?.to).toMatchObject({ conversationId: null, threadRootId: null });
     const other = 'aaaaaaaa-bbbb-4ccc-8ddd-eeeeeeeeeeee';
@@ -138,3 +148,31 @@ describe('agentSendOf: what the agent said through 咕咕, and where it went', (
   });
 });
 
+
+describe('filterTurnsForChat: the turns of one chat with the agent', () => {
+  const delivered = (id: string, chat: string): TranscriptTurn => ({ id, seq: 1, initiator: 'user', items: [
+    { kind: 'message', id: `${id}:in`, seq: 0, role: 'user', text: renderDeliveryEnvelope({ route: 'chat', from: 'Owner',
+      fromId: 'user:owner', chat, messageId: `msg:${id}`, content: 'Hi', at: '2026-10-27T04:10:00Z' }) },
+  ] });
+  const typed = (id: string): TranscriptTurn => ({ id, seq: 1, initiator: 'user', items: [
+    { kind: 'message', id: `${id}:in`, seq: 0, role: 'user', text: 'typed on the task page' },
+  ] });
+  const sentTo = (id: string, chat: string, status: 'done' | 'error' = 'done'): TranscriptTurn => ({ ...typed(id), items: [
+    { kind: 'message', id: `${id}:in`, seq: 0, role: 'user', text: 'scheduled: report back' },
+    { ...send({ chat_id: chat }), id: `${id}:send`, status, outputText: `sent (id=msg:${messageId})` },
+  ] });
+
+  it('keeps what was delivered from this chat and what the agent sent to it, nothing else', () => {
+    const turns = [delivered('a', 'dm'), delivered('b', 'group'), typed('c'), sentTo('d', 'dm'), sentTo('e', 'group'), sentTo('f', 'dm', 'error')];
+    expect(filterTurnsForChat(turns, 'dm').map((t) => t.id)).toEqual(['a', 'd']);
+  });
+
+  it('keeps a batch that carries this chat among others', () => {
+    const batch = delivered('g', 'group');
+    const input = batch.items[0]; if (input.kind !== 'message') throw new Error('fixture');
+    input.text = mergeDeliveryEnvelopes([input.text, renderDeliveryEnvelope({ route: 'chat', from: 'Owner', fromId: 'user:owner',
+      chat: 'dm', messageId: 'msg:h', content: 'Also', at: '2026-10-27T04:11:00Z' })]);
+    expect(filterTurnsForChat([batch], 'dm').map((t) => t.id)).toEqual(['g']);
+    expect(filterTurnsForChat([batch], 'other')).toEqual([]);
+  });
+});

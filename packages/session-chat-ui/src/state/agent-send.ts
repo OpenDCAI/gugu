@@ -7,14 +7,15 @@ import type { AgentSendTarget } from '@gugu/session-core/session-record/reply-pr
 import type { ChatTranslator } from '@session-chat/localization';
 
 /**
- * 去向那一句。群名由宿主按对话 id 给(同「来自 X 群」那张投递卡);认不出来就只说「发到聊天里」,❌ 写群号。
+ * The host resolves the actual chat name; an unknown name stays explicitly unavailable.
  * 发到话题:这条会话绑在那个话题上,话落在那里(服务器按会话定,agent 选不了)。
  */
 export function agentSendLabel(to: AgentSendTarget, translate: ChatTranslator, chatName: (chatId: string) => string | null): string {
   if (to.kind === 'session') {
     return to.count > 1 ? translate('transcript.agentSendToSessions', { count: to.count }) : translate('transcript.agentSendToSession');
   }
-  const chat = to.conversationId ? chatName(to.conversationId) : null;
+  // 回到它正在答的那个私聊:写对方的名字(宿主给私聊起的名字从主人这边看就是 agent 自己,MBP 验收 10-28)。
+  const chat = to.peer ?? (to.conversationId ? chatName(to.conversationId) : null);
   if (to.whisper) return chat ? translate('transcript.agentSendWhisperIn', { chat }) : translate('transcript.agentSendWhisper');
   if (to.threadRootId) return chat ? translate('transcript.agentSendToThreadIn', { chat }) : translate('transcript.agentSendToThread');
   return chat ? translate('transcript.agentSendTo', { chat }) : translate('transcript.agentSendToChat');

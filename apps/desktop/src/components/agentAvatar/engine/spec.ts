@@ -584,6 +584,7 @@ export type DisplayStateId =
   | 'idle'
   | 'online'
   | 'offline'
+  | 'archived'
   | 'removed'
   | 'pending'
   | 'none'
@@ -623,6 +624,7 @@ export const EXPRESSION_CADENCE: Partial<Record<DisplayStateId, Cadence>> = {
 
 /** 眨眼间隔(秒)。undefined = 沿用引擎原来的节律(出错 / 睡着那几档);null = 不眨眼 */
 export const BLINK_CADENCE: Partial<Record<DisplayStateId, readonly [number, number] | null>> = {
+  archived: null,
   idle: [4, 9],
   online: [4, 9],
   pending: [4, 9],
@@ -678,6 +680,7 @@ export type StateTone =
   | 'idle'
   | 'online'
   | 'offline'
+  | 'archived'
   | 'removed'
   | 'pending'
   | 'none'
@@ -800,6 +803,16 @@ export const STATES: DisplayState[] = [
     id: 'offline',
     zh: '不在线',
     tone: 'offline',
+    color: MUTED,
+    animate: false,
+    emphasis: false,
+    family: 'away',
+    glyph: 'dot'
+  },
+  {
+    id: 'archived',
+    zh: '已归档',
+    tone: 'archived',
     color: MUTED,
     animate: false,
     emphasis: false,
