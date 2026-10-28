@@ -59,8 +59,12 @@ moduleInternals._load = function patchedLoad(this: unknown, request: string, ...
 process.env.GUGU_SERVER_MODE = '1'
 // 设备 id 按 tier 派生(deviceRuntime.resolveTier)。main.ts 顶层也设同一个值;这里提前设,是因为
 // `login` 不加载 main.ts,却要报出账号进程上线后的设备 id(#6264 SSH 直连终端认机器靠它)。
+// 守护进程(`run` / 不带命令)不设:tier 是构建的属性,它拉起的账号进程可能是另一版构建(#6264 账号跟着桌面换版),
+// 环境里有了守护进程这一版的 tier,账号进程就不用自己的 —— 同一台机器按另一个 tier 认成新设备(10-28 Linux 3)。
+// 人显式设的 GUGU_TIER(开发覆盖)照旧原样传下去。
 declare const __GUGU_TIER__: string
-if (!process.env.GUGU_TIER) process.env.GUGU_TIER = __GUGU_TIER__
+const supervisorCommand = process.argv[2] === undefined || process.argv[2] === 'run'
+if (!process.env.GUGU_TIER && !supervisorCommand) process.env.GUGU_TIER = __GUGU_TIER__
 const serverHome = resolveServerHome()
 process.env.GUGU_SERVER_HOME = serverHome
 // 数据目录的根只归本人(0700):里面的登录态、密钥、会话记录,以及运行期后来再建的一切,别人都够不着。
