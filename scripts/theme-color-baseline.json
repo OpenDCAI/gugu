@@ -1,23 +1,8 @@
 [
   {
     "rule": "hard-coded-color",
-    "file": "apps/desktop/src/components/AgentHostStaleBadge.tsx",
-    "count": 1
-  },
-  {
-    "rule": "hard-coded-color",
-    "file": "apps/desktop/src/components/agentsettings/AgentLookPane.css",
-    "count": 9
-  },
-  {
-    "rule": "hard-coded-color",
-    "file": "apps/desktop/src/components/agentsettings/AgentSharePane.tsx",
-    "count": 2
-  },
-  {
-    "rule": "hard-coded-color",
     "file": "apps/desktop/src/components/assistant-ui/elements/mcp-server-panel.tsx",
-    "count": 7
+    "count": 2
   },
   {
     "rule": "hard-coded-color",
@@ -26,47 +11,7 @@
   },
   {
     "rule": "hard-coded-color",
-    "file": "apps/desktop/src/components/Avatar.tsx",
-    "count": 1
-  },
-  {
-    "rule": "hard-coded-color",
     "file": "apps/desktop/src/components/BuildTagBadge.tsx",
-    "count": 3
-  },
-  {
-    "rule": "hard-coded-color",
-    "file": "apps/desktop/src/components/chat/documentPreview.css",
-    "count": 1
-  },
-  {
-    "rule": "hard-coded-color",
-    "file": "apps/desktop/src/components/ContactQrShare.tsx",
-    "count": 2
-  },
-  {
-    "rule": "hard-coded-color",
-    "file": "apps/desktop/src/components/contacts/GroupInvite.tsx",
-    "count": 4
-  },
-  {
-    "rule": "hard-coded-color",
-    "file": "apps/desktop/src/components/devices/ConnectMoreDevices.tsx",
-    "count": 2
-  },
-  {
-    "rule": "hard-coded-color",
-    "file": "apps/desktop/src/components/imagePreview.css",
-    "count": 1
-  },
-  {
-    "rule": "hard-coded-color",
-    "file": "apps/desktop/src/components/settings/channels/WechatConnectDialog.tsx",
-    "count": 2
-  },
-  {
-    "rule": "hard-coded-color",
-    "file": "apps/desktop/src/components/SharePosterDialog.tsx",
     "count": 2
   },
   {
@@ -83,11 +28,6 @@
     "rule": "hard-coded-color",
     "file": "apps/desktop/src/lib/usage/table.ts",
     "count": 12
-  },
-  {
-    "rule": "hard-coded-color",
-    "file": "apps/desktop/src/mobile/assistant/phone-connector.css",
-    "count": 1
   },
   {
     "rule": "hard-coded-color",
