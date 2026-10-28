@@ -355,10 +355,10 @@ export async function renameAppFile(page: DesktopFilePage, args: { ref?: unknown
 }
 
 /** 「设为临时 / 一直保留」: a chat file's cloud copy (a working copy's file has none). */
-export async function keepAppFile(page: DesktopFilePage, args: { ref?: unknown; how?: unknown }): Promise<void> {
-  const ref = fileRefOf(args.ref);
-  if (!isChat(ref)) throw new AppFileError('invalid', "A working copy's file has no cloud copy to keep");
-  return files.keep(chatSurface(page), { ref, how: args.how });
+export async function keepAppFile(page: DesktopFilePage, args: { refs?: unknown; how?: unknown }): Promise<{ changed: number }> {
+  const refs = (Array.isArray(args.refs) ? args.refs : []).map((ref) => fileRefOf(ref));
+  if (refs.some((ref) => !isChat(ref))) throw new AppFileError('invalid', "A working copy's file has no cloud copy to keep");
+  return files.keep(chatSurface(page), { refs: refs as ChatFileRef[], how: args.how });
 }
 
 /** 子文件夹: a chat's folder at `path`, made all the way down (one already there is answered as it is). */
@@ -505,26 +505,57 @@ export async function pickFilesToUpload(owner: WebContents | null): Promise<AppF
  * copy's, as the call names it. Gated like opening it read-only — checked before the dialog shows. Cancelled is `false`,
  * not an error.
  */
-export async function downloadAppFile(page: DesktopFilePage, args: { ref?: unknown }, owner: WebContents | null): Promise<boolean> {
-  const ref = fileRefOf(args.ref);
+type SaveSource = Awaited<ReturnType<typeof files.downloadSource>> | { name: string; bytes: Uint8Array | Buffer; kind: 'bytes' };
+
+async function downloadSourceOf(page: DesktopFilePage, given: unknown): Promise<SaveSource> {
+  const ref = fileRefOf(given);
   const elsewhere = isChat(ref) ? null : await fileElsewhere(page, ref as LocalFileRef);
-  const source = isChat(ref)
+  return isChat(ref)
     ? await files.downloadSource(chatSurface(page), { ref })
     : elsewhere
       ? { name: elsewhere.entry.name, bytes: elsewhere.bytes, kind: 'bytes' as const }
       : { ...local.downloadSource(await localFolder(page, ref), { ref: ref as LocalFileRef }), kind: 'bytes' as const };
+}
+
+async function saveTo(source: SaveSource, filePath: string): Promise<void> {
+  if (source.kind === 'text') return fs.writeFile(filePath, source.text, 'utf8');
+  if (source.kind === 'bytes') return fs.writeFile(filePath, source.bytes);
+  await writeFileHandle(source.file, filePath);
+}
+
+/** A name not yet in `folder`: the file's own, else with 「 (2)」, 「 (3)」… before its suffix (as the folder names a clash). */
+async function freePath(folder: string, name: string): Promise<string> {
+  const { name: stem, ext } = path.parse(name);
+  for (let n = 1; ; n++) {
+    const candidate = path.join(folder, n === 1 ? name : `${stem} (${n})${ext}`);
+    try { await fs.access(candidate); } catch { return candidate; }
+  }
+}
+
+/**
+ * One file: where to save it, asked (`true` saved). Several (API 20): one folder asked for them all, each saved there under
+ * its own name — how many were saved; `0` when the person cancelled.
+ */
+export async function downloadAppFile(page: DesktopFilePage, args: { ref?: unknown; refs?: unknown }, owner: WebContents | null): Promise<boolean | number> {
   const window = owner ? BrowserWindow.fromWebContents(owner) : null;
+  if (Array.isArray(args.refs)) {
+    if (args.refs.length === 0) throw new AppFileError('invalid', 'files.download(files): give one file or more');
+    const options = { properties: ['openDirectory', 'createDirectory'] as Array<'openDirectory' | 'createDirectory'> };
+    const picked = window ? await dialog.showOpenDialog(window, options) : await dialog.showOpenDialog(options);
+    const folder = picked.canceled ? null : picked.filePaths[0];
+    if (!folder) return 0;
+    let saved = 0;
+    for (const ref of args.refs) {
+      const source = await downloadSourceOf(page, ref);
+      await saveTo(source, await freePath(folder, source.name));
+      saved++;
+    }
+    return saved;
+  }
+  const source = await downloadSourceOf(page, args.ref);
   const options = { defaultPath: source.name };
   const target = window ? await dialog.showSaveDialog(window, options) : await dialog.showSaveDialog(options);
   if (target.canceled || !target.filePath) { if (source.kind === 'file') await source.file.dispose(); return false; }
-  if (source.kind === 'text') {
-    await fs.writeFile(target.filePath, source.text, 'utf8');
-    return true;
-  }
-  if (source.kind === 'bytes') {
-    await fs.writeFile(target.filePath, source.bytes);
-    return true;
-  }
-  await writeFileHandle(source.file, target.filePath);
+  await saveTo(source, target.filePath);
   return true;
 }

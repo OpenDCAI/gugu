@@ -338,10 +338,10 @@ export interface AppFileEntry {
   size: number | null;
   /**
    * A project chat's file kept on its host machine and uploaded only when someone opens it (file storage policy): the
-   * machine's name when it is the reader's own (`null` otherwise), and whose file storage setting it follows. Absent for
-   * every other file.
+   * machine's name when it is the reader's own (`null` otherwise), and whose file storage setting it follows; whether it is
+   * on (`online`, the reader's own machines only — the file opens once it is). Absent for every other file.
    */
-  storedOn?: { machine: string | null; owner: string; mine: boolean };
+  storedOn?: { machine: string | null; owner: string; mine: boolean; online?: boolean };
   /**
    * How long its cloud copy is kept (`files.list`'s answer only, gugu-supabase #69): `expiresAt`, when it is cleared — `null`,
    * kept until someone deletes it — and `mine`, whether whoever reads uploaded it (only they change it, `files.keep`).

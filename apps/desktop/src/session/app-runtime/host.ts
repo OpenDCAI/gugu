@@ -54,7 +54,7 @@ export interface GuguHost {
     remove(args: { ref: AppFileRef }): Promise<void>;
     rename(args: { ref: AppFileRef; name: string }): Promise<AppFileEntry>;
     /** 「设为临时 / 一直保留」: the cloud copy of a chat file this person uploaded, cleared after their temporary period or kept. */
-    keep(args: { ref: AppFileRef; how: 'temporary' | 'permanent' }): Promise<void>;
+    keep(args: { refs: AppFileRef[]; how: 'temporary' | 'permanent' }): Promise<{ changed: number }>;
     watch(args: { watchId: string; place: AppPlace; on: boolean }): Promise<void>;
     replace(args: { ref: AppFileRef; file: AppFileUpload; expectedVersion?: number | null }): Promise<AppFileEntry>;
     versions(args: { ref: AppFileRef }): Promise<AppFileVersion[]>;
@@ -63,7 +63,8 @@ export interface GuguHost {
     upload(args: { place: AppPlace; files?: AppFileUpload[]; sourceMessageIds?: string[]; folder?: string; keep?: string }): Promise<AppFileEntry[]>;
     /** The gesture halves: a page's only (`VerbFacts.only`) — a background page and a program have none. */
     openWith?(args: { ref: AppFileRef; ask?: boolean; at?: Record<string, string>; peek?: boolean }): Promise<void>;
-    download?(args: { ref: AppFileRef }): Promise<boolean>;
+    /** One file (`true` saved), or several (API 20: how many were saved; `0` when the person cancelled). */
+    download?(args: { ref: AppFileRef } | { refs: AppFileRef[] }): Promise<boolean | number>;
   };
   readonly clipboard?: {
     writeText(text: string): Promise<void>;
