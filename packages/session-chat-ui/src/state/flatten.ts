@@ -235,8 +235,10 @@ export function flattenTier(
     // 头不带正文:话只在气泡里画一次(找、复制、计数都只见一份)。
     processItem({ ...reply, id: head, text: '', attachments: undefined, conversationPart: 'head' });
     steps();
+    // 时间、复制那一行只给收了口那一轮的最后一句(设计稿 0 号「轮次结束且有正文才出 tail」);中途的气泡不带(owner 10-28)。
+    const tail = !reply.conversationProcess?.live;
     for (const output of [...sent, reply]) {
-      processItem({ ...output, conversationProcess: undefined, conversationPart: 'body', conversationHead: head });
+      processItem({ ...output, conversationProcess: undefined, conversationPart: 'body', conversationHead: head, ...(tail && output === reply ? { conversationTail: true } : {}) });
     }
   };
 
