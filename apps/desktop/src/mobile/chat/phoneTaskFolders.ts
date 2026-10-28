@@ -49,6 +49,7 @@ export function taskFoldersOfChat(devices: readonly Device[], chatId: string): C
           sessionIds: [],
           attachedAt: folder.attachedAt,
           offline: !device.is_online,
+          deviceId: device.device_id,
         })
       }
     }
