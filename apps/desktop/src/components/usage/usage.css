@@ -42,7 +42,7 @@
   overflow: hidden;
   text-overflow: ellipsis;
 }
-.gg-usage-up { color: var(--ok); }
+.gg-usage-up { color: var(--ok-fg); }
 .gg-usage-down { color: var(--muted-fg); }
 
 /* 热力图 */
@@ -221,7 +221,7 @@
 .na-table td { padding: 8px; vertical-align: middle; white-space: nowrap; font-weight: var(--font-weight-medium); }
 .na-cell-stack { display: flex; min-width: 0; flex-direction: column; gap: 2px; }
 .na-mono-xs { font-family: var(--font-mono); font-size: var(--font-caption); }
-.na-type { margin-left: -6px; padding: 0 6px; font-size: var(--font-caption); color: var(--ok); }
+.na-type { margin-left: -6px; padding: 0 6px; font-size: var(--font-caption); color: var(--ok-fg); }
 .na-badge { display: inline-flex; align-items: center; gap: 6px; height: 24px; max-width: none; padding: 0 8px; border: 1px solid color-mix(in oklch, var(--border) 60%, transparent); border-radius: var(--na-radius-md); background: color-mix(in oklch, var(--muted) 30%, transparent); color: var(--fg); white-space: nowrap; cursor: copy; transition: filter var(--dur-fast) var(--ease), transform var(--dur-fast) var(--ease); }
 .na-badge:hover { filter: brightness(.95); }
 .na-badge:active { transform: scale(.95); }

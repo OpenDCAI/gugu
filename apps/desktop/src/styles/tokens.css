@@ -1750,7 +1750,9 @@ body.barcode-scanner-active #root {
    canvas 读不到 CSS 变量,图表经 tokenColor() 取值。
    --usage-tag-*:模型标签旁的小圆点(名字哈希到 12 色之一),两主题同值。原值搬来;标签点是非文本标识,两套底色上
    都要 ≥3:1(亮底 #ffffff、暗底 #181818,单测守着),9、10 两档原值不够,因此换成同色系的邻档
-   (#4f46e5 → #6366f1,#ca8a04 → #a16207)。 */
+   (#4f46e5 → #6366f1,#ca8a04 → #a16207)。
+   --ok-fg / --warn-fg:状态色写字用 *-fg(≥4.5);--ok / --warn 只给点和填充。值按所有能放字的底(bg / page / card /
+   muted,两套主题)算过,最低 5.85。 */
 :root {
   --usage-heat-1: oklch(0.42 0.08 45);
   --usage-heat-2: oklch(0.55 0.13 45);
@@ -1762,6 +1764,8 @@ body.barcode-scanner-active #root {
   --usage-accent-4: oklch(0.75 0.16 325);
   --usage-accent-5: oklch(0.76 0.14 155);
   --usage-accent-mint: oklch(0.82 0.04 155);
+  --ok-fg: #4ade80;
+  --warn-fg: #fbbf24;
   --usage-series-1: #1664FF;
   --usage-series-2: #B2CFFF;
   --usage-series-3: #1AC6FF;
@@ -1805,6 +1809,8 @@ body.barcode-scanner-active #root {
   --usage-accent-3: oklch(0.7 0.12 280);
   --usage-accent-4: oklch(0.68 0.19 325);
   --usage-accent-5: oklch(0.68 0.16 155);
+  --ok-fg: #166534;
+  --warn-fg: #854d0e;
 }
 /* ── /theme batch B ── */
 

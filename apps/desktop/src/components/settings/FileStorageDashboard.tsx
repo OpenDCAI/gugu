@@ -188,7 +188,7 @@ export function FileStorageDashboard() {
                   </span></td>
                   <td className="text-[var(--muted-fg)]">{groupName(file.chat_id)}</td>
                   <td className="text-right tabular-nums">{size(file.bytes)}</td>
-                  <td className={left <= 2 ? 'text-right tabular-nums text-[var(--warn)]' : 'text-right tabular-nums'}>
+                  <td className={left <= 2 ? 'text-right tabular-nums text-[var(--warn-fg)]' : 'text-right tabular-nums'}>
                     {left === 0 ? t('fileStorage.dashboard.today') : t('fileStorage.dashboard.daysLeft', { count: left })}
                   </td>
                 </tr>

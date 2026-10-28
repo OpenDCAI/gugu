@@ -32,4 +32,14 @@ describe('usage model tag dots', () => {
       for (const { slot, color } of tags) expect(contrast(color, bg), `tag ${slot} ${color} on ${bg}`).toBeGreaterThanOrEqual(3)
     }
   })
+
+  // 状态色写字用 *-fg(≥4.5);--ok / --warn 只给点和填充(统筹 10-28,值由 1ecc4bdb 定)。
+  it('status text colours (--ok-fg, --warn-fg) are at least 4.5:1 against both theme backgrounds', () => {
+    for (const name of ['ok-fg', 'warn-fg']) {
+      const values = [...tokens.matchAll(new RegExp(`^\\s*--${name}:\\s*(#[0-9a-fA-F]{6});`, 'gm'))].map((m) => m[1])
+      expect(values, `--${name}: one value per theme`).toHaveLength(2)
+      // tokens.css: the dark value comes first (:root), the light one second ([data-theme="light"]), like --bg.
+      values.forEach((color, i) => expect(contrast(color, backgrounds[i]), `--${name} ${color} on ${backgrounds[i]}`).toBeGreaterThanOrEqual(4.5))
+    }
+  })
 })
