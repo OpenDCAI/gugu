@@ -74,6 +74,11 @@ export function isCliToolInstalled(tool: IntegrationCliTool, guguHome?: string):
 
 const installs = new Map<IntegrationCliTool, Promise<InstalledCliTool>>();
 
+/** 这个工具此刻在不在装。 */
+export function isCliToolInstalling(tool: IntegrationCliTool): boolean {
+  return installs.has(tool);
+}
+
 /** 装好(已装就直接给);同一个工具同时只装一份。 */
 export function ensureCliTool(tool: IntegrationCliTool): Promise<InstalledCliTool> {
   if (isCliToolInstalled(tool)) return Promise.resolve(installedCliTool(tool));
@@ -153,19 +158,19 @@ async function installFeishu(platform: CliPlatform, staging: string, report: Rep
 }
 
 /** 下载一个 npm 包、按钉住的 integrity 核过、解开;返回解出来的 `package/` 目录。 */
-async function downloadNpmPackage(pkg: CliPackage, workDir: string, report: ReportProgress): Promise<string> {
+async function downloadNpmPackage(pkg: CliPackage, workDir: string, report: ReportProgress, stallMs = CLI_DOWNLOAD_STALL_MS): Promise<string> {
   await fs.mkdir(workDir, { recursive: true });
   const failures: string[] = [];
   for (const registry of NPM_REGISTRIES) {
     try {
       const metadataUrl = `${registry}/${encodeURIComponent(pkg.name).replace(/^%40/, '@')}/${pkg.version}`;
-      const metadata = (await fetchOk(metadataUrl).then((response) => response.json())) as {
+      const metadata = (await fetchJson(metadataUrl, stallMs)) as {
         dist?: { tarball?: unknown };
       };
       const tarball = metadata.dist?.tarball;
       if (typeof tarball !== 'string') throw new Error(`${metadataUrl} has no tarball`);
       const archive = path.join(workDir, 'package.tgz');
-      const digest = await downloadTo(tarball, archive, 'sha512', 'base64', report);
+      const digest = await downloadTo(tarball, archive, 'sha512', 'base64', report, stallMs);
       if (`sha512-${digest}` !== pkg.integrity) {
         throw new Error(`${tarball} is not the ${pkg.name}@${pkg.version} gugu expects (integrity mismatch)`);
       }
@@ -179,10 +184,43 @@ async function downloadNpmPackage(pkg: CliPackage, workDir: string, report: Repo
   throw new Error(`Could not download ${pkg.name}@${pkg.version}. ${failures.join('; ')}`);
 }
 
-async function fetchOk(url: string): Promise<Response> {
-  const response = await fetch(url, { signal: AbortSignal.timeout(5 * 60_000) });
+/** 多久没收到新字节就算卡住。只按这个判、❌ 按总时长判:国内云上拉 GitHub 只有几十 KB/s,十几 MB 要下十来分钟,得让它下完。 */
+export const CLI_DOWNLOAD_STALL_MS = 60_000;
+
+class DownloadStalledError extends Error {
+  constructor(file: string, stallMs: number) {
+    super(`Download of ${file} stalled: no data for ${Math.round(stallMs / 1000)} s.`);
+    this.name = 'DownloadStalledError';
+  }
+}
+
+/** 一个看门狗:`kick()` 一次就重新计时;到点没人 kick 就以「卡住」中止 `signal`。 */
+function stallWatch(file: string, stallMs: number) {
+  const controller = new AbortController();
+  let timer: NodeJS.Timeout | undefined;
+  const kick = () => {
+    clearTimeout(timer);
+    timer = setTimeout(() => controller.abort(new DownloadStalledError(file, stallMs)), stallMs);
+  };
+  kick();
+  return { signal: controller.signal, kick, stop: () => clearTimeout(timer) };
+}
+
+async function fetchOk(url: string, signal: AbortSignal): Promise<Response> {
+  const response = await fetch(url, { signal });
   if (!response.ok || !response.body) throw new Error(`${url} answered ${response.status}`);
   return response;
+}
+
+async function fetchJson(url: string, stallMs: number): Promise<unknown> {
+  const watch = stallWatch(path.basename(new URL(url).pathname), stallMs);
+  try {
+    return await (await fetchOk(url, watch.signal)).json();
+  } catch (error) {
+    throw watch.signal.aborted ? watch.signal.reason : error;
+  } finally {
+    watch.stop();
+  }
 }
 
 async function installTmeetSkills(staging: string, report: ReportProgress): Promise<void> {
@@ -196,15 +234,35 @@ async function installTmeetSkills(staging: string, report: ReportProgress): Prom
   await fs.cp(skill, path.join(staging, 'skills', 'tmeet-skill'), { recursive: true });
 }
 
-/** 边下边算摘要;返回摘要(按 `encoding`)。 */
-async function downloadTo(
+/** 边下边算摘要;返回摘要(按 `encoding`)。`stallMs` 没进新字节就以「卡住」失败,慢但在动的下载照样下完。 */
+export async function downloadTo(
   url: string,
   file: string,
   algorithm: 'sha256' | 'sha512',
   encoding: 'hex' | 'base64',
   report: ReportProgress,
+  stallMs = CLI_DOWNLOAD_STALL_MS,
 ): Promise<string> {
-  const response = await fetchOk(url);
+  const watch = stallWatch(path.basename(new URL(url).pathname), stallMs);
+  try {
+    return await downloadWatched(url, file, algorithm, encoding, report, watch);
+  } catch (error) {
+    throw watch.signal.aborted ? watch.signal.reason : error;
+  } finally {
+    watch.stop();
+  }
+}
+
+async function downloadWatched(
+  url: string,
+  file: string,
+  algorithm: 'sha256' | 'sha512',
+  encoding: 'hex' | 'base64',
+  report: ReportProgress,
+  watch: ReturnType<typeof stallWatch>,
+): Promise<string> {
+  const response = await fetchOk(url, watch.signal);
+  watch.kick();
   const length = Number(response.headers.get('content-length'));
   const totalBytes = !response.headers.get('content-encoding') && Number.isSafeInteger(length) && length > 0 ? length : undefined;
   const fileName = path.basename(new URL(url).pathname);
@@ -216,6 +274,7 @@ async function downloadTo(
     transform(chunk: Buffer, _encoding, callback) {
       hash.update(chunk);
       receivedBytes += chunk.length;
+      watch.kick();
       progress();
       callback(null, chunk);
     },
@@ -223,7 +282,8 @@ async function downloadTo(
   await pipeline(
     Readable.fromWeb(response.body as import('node:stream/web').ReadableStream),
     hashing,
-    createWriteStream(file)
+    createWriteStream(file),
+    { signal: watch.signal }
   );
   return hash.digest(encoding);
 }

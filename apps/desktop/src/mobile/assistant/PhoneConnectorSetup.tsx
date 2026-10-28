@@ -11,6 +11,7 @@ import { LoadingIndicator } from '@/lib/loading/LoadingIndicator'
 import { platform } from '@/platform'
 import { openAuthorizationLink } from '@/lib/openAuthorizationLink'
 import { CliInstallProgress } from '@/session/renderer/features/integrations/CliInstallProgress'
+import { prepareThenStartCliLogin } from '@/session/renderer/features/integrations/cli-tool-prepare'
 import { AssistantEmpty, PageHead } from '@/session/renderer/features/assistant/assistant-ui-parts'
 import { integrationErrorText } from '@/session/renderer/features/integrations/integration-display'
 import {
@@ -470,9 +471,12 @@ function CliSetup({
 
   const start = () => {
     handle.current?.cancel()
-    handle.current = startCliSetup(
+    // 等工具装好的那一圈只认这一次:取消 / 重点「连接」后不再起登录。
+    let stopped = false
+    const setup = startCliSetup(
       {
-        start: () => rpc.integrations.cliLoginStart(item.id),
+        start: async () => (await prepareThenStartCliLogin(rpc.integrations, item.id, { cancelled: () => stopped }))
+          ?? { success: false as const, error: 'This connection attempt was cancelled.' },
         wait: () => rpc.integrations.cliLoginWait(item.id),
         cancel: () => rpc.integrations.cancelAuthorization(item.id),
       },
@@ -481,6 +485,7 @@ function CliSetup({
         if (next.phase === 'done') connectedRef.current()
       },
     )
+    handle.current = { cancel: () => { stopped = true; setup.cancel() } }
   }
   const idle = !state || state.phase === 'cancelled'
   return (

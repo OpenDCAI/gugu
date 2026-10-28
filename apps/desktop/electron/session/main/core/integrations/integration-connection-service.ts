@@ -1,4 +1,4 @@
-import type { IntegrationCredentials, IntegrationError } from '@gugu/session-plugins/integrations';
+import type { IntegrationCliTool, IntegrationCredentials, IntegrationError } from '@gugu/session-plugins/integrations';
 import {
   accessTokenExpiresSoon,
   integrationPluginRegistry,
@@ -14,7 +14,7 @@ import { cliMethodOf, publishCliLauncher, removeCliLauncher } from './cli/cli-in
 import { outputTail, readCliLoginStatus, startCliLogin, type CliLoginRun } from './cli/cli-login';
 import { cliToolsRoot } from './cli/cli-paths';
 import { startFeishuLogin, verifyFeishuLogin, setFeishuUserIdentity } from './cli/feishu-login';
-import { cliInstallProgress, ensureCliTool, installedCliTool, isCliToolInstalled, type InstalledCliTool } from './cli/cli-tool-installer';
+import { cliInstallProgress, ensureCliTool, installedCliTool, isCliToolInstalled, isCliToolInstalling, type InstalledCliTool } from './cli/cli-tool-installer';
 import { cliToolRecipe, type CliLoginPrompt, type CliToolRecipe } from './cli/cli-tools';
 import {
   DEFAULT_INTEGRATION_ACCOUNT_ID,
@@ -39,6 +39,12 @@ export type CliLoginStartResult =
 export type CliLoginWaitResult =
   | { status: 'pending'; prompt?: CliLoginPrompt }
   | { status: 'connected' }
+  | { status: 'failed'; error: string };
+
+/** `cliToolPrepare` 一问的回答:装好了、还在装(进度看 `cliLoginProgress`)、或装失败(原话)。 */
+export type CliToolPrepareResult =
+  | { status: 'ready' }
+  | { status: 'installing' }
   | { status: 'failed'; error: string };
 
 type PendingCliLogin = {
@@ -85,6 +91,8 @@ export class IntegrationConnectionService {
   private readonly cliLogins = new Map<string, PendingCliLogin>();
   /** 正在装 / 正在起登录的那一次连接的号(见 cliLoginStart)。 */
   private readonly cliStarts = new Map<string, symbol>();
+  /** 后台装失败、还没交给界面的那一句(按工具)。 */
+  private readonly cliInstallFailures = new Map<IntegrationCliTool, string>();
 
   /** Browser authorization for `mcp-oauth` integrations; resolves once the account is stored. */
   async authorize(integrationId: string): Promise<ConnectResult> {
@@ -158,7 +166,46 @@ export class IntegrationConnectionService {
    */
   cliLoginProgress(integrationId: string) {
     const method = cliMethodOf(integrationId);
-    return method && this.cliStarts.has(integrationId) ? cliInstallProgress(method.tool) ?? null : null;
+    // 进度只在真在装的时候有(装完就删):`cliToolPrepare` 起的那一次也要看得见。
+    return method ? cliInstallProgress(method.tool) ?? null : null;
+  }
+
+  /**
+   * 第零半:把这一家的命令行装好(第一次要下载)。一问最多挂 `CLI_LOGIN_WAIT_SLICE_MS`,界面接着问。
+   * 远程机器(云电脑拉 GitHub 只有几十 KB/s)装一次要十来分钟:❌ 把它绑在 `cliLoginStart` 一次远程调用上 ——
+   * 链路一断,在途调用全判失败,界面只能说「连不上」,重点一次又从头等。装在后台跑(同一工具只装一份),
+   * 断了重连接着问;装好了 `cliLoginStart` 当场就能起登录。
+   */
+  async cliToolPrepare(integrationId: string): Promise<CliToolPrepareResult> {
+    const plugin = integrationPluginRegistry.get(integrationId);
+    const method = cliMethodOf(integrationId);
+    if (!plugin || !method) {
+      return { status: 'failed', error: `${plugin?.metadata.name ?? integrationId} does not connect through a command-line tool.` };
+    }
+    if (isCliToolInstalled(method.tool)) return { status: 'ready' };
+    // 上一次在后台装失败了、还没人来取:先把失败交出去(❌ 悄悄再装一遍,让界面永远停在「还在装」)。
+    const failed = this.cliInstallFailures.get(method.tool);
+    if (failed !== undefined && !isCliToolInstalling(method.tool)) {
+      this.cliInstallFailures.delete(method.tool);
+      return { status: 'failed', error: failed };
+    }
+    const pending = ensureCliTool(method.tool);
+    pending.then(
+      () => this.cliInstallFailures.delete(method.tool),
+      (error: unknown) => {
+        log.warn('Integration command-line tool could not be installed', { integrationId, error });
+        this.cliInstallFailures.set(method.tool, error instanceof Error ? error.message : String(error));
+      }
+    );
+    let timer: NodeJS.Timeout | undefined;
+    const outcome = await Promise.race([
+      pending.then(() => 'ready' as const, () => 'failed' as const),
+      new Promise<'installing'>((resolve) => (timer = setTimeout(() => resolve('installing'), CLI_LOGIN_WAIT_SLICE_MS))),
+    ]).finally(() => clearTimeout(timer));
+    if (outcome !== 'failed') return { status: outcome };
+    const error = this.cliInstallFailures.get(method.tool) ?? 'The command-line tool could not be installed.';
+    this.cliInstallFailures.delete(method.tool);
+    return { status: 'failed', error };
   }
 
   async cliLoginStart(integrationId: string): Promise<CliLoginStartResult> {
