@@ -36,7 +36,7 @@ export default {
     "introStart": "开通我的咕咕",
     "introLater": "先逛逛",
     "terminalTitle": "终端模式",
-    "terminalSub": "习惯在终端里用 Claude Code、Codex 这类 CLI？开启后，任务里会多一个终端可以用。",
+    "terminalSub": "习惯在终端里用 Claude Code、Codex 这类 CLI？开启后，可以用 TUI 的方式和 agent 交互。",
     "terminalToggle": "开启终端模式",
     "tourChoiceTitle": "要不要带你看看？",
     "tourChoiceSub": "用 1 分钟认识左边这一栏。",
