@@ -1,50 +1,60 @@
 export default {
-  "modulesProgress": "认识功能栏 · {{current}} / {{total}}",
-  "featuresProgress": "特色功能 · {{current}} / {{total}}",
-  "featureHeader": "再认识四个好用的功能",
-  "filmProgress": "动画播放进度",
-  "featureSteps": "特色功能步骤",
-  "play": "播放",
-  "pause": "暂停",
-  "skip": "跳过引导",
+  "stepProgress": "{{current}} / {{total}}",
+  "stepAria": "第 {{current}} 步，共 {{total}} 步",
+  "skip": "跳过",
   "previous": "上一步",
   "next": "下一步",
-  "done": "开始使用",
-  "features": "看看特色功能",
-  "saving": "正在保存…",
-  "saveFailed": "引导进度未保存，请重试。",
+  "done": "完成",
+  "saveFailed": "导览进度没保存上，请重试。",
+  "featureHeader": "再认识三个好用的功能",
+  "featuresProgress": "功能短片 · {{current}} / {{total}}",
+  "filmProgress": "动画播放进度",
+  "featureSteps": "功能短片步骤",
+  "play": "播放",
+  "pause": "暂停",
   "replay": "重播",
   "retry": "重试",
   "filmFailed": "动画暂时无法播放，请重试。",
-  "modules": {
+  "close": "关闭",
+  "steps": {
     "assistant": {
-      "title": "咕咕 · 你的个人助手",
-      "body": "和咕咕聊想法、提问题，把想做的事交给它。可以现在了解，之后再开通。"
+      "title": "咕咕：你的个人助理",
+      "body": "记安排、办事情，直接告诉它。"
     },
     "tasks": {
-      "title": "项目 · 集中推进一件事",
-      "body": "把相关会话和文件放在一起，在同一个项目中持续工作。"
+      "title": "项目：集中推进一件事",
+      "body": "一件事的会话和文件都放在这里。"
+    },
+    "tasksSample": {
+      "title": "项目：集中推进一件事",
+      "body": "点开示例项目，看看一件事是怎么推进的。"
     },
     "chats": {
-      "title": "对话 · 和人与 Agent 交流",
-      "body": "与联系人聊天，或在群里和大家一起讨论、协作。"
+      "title": "对话：和人、和 Agent 聊",
+      "body": "和朋友、和别人的 Agent 直接沟通。"
     },
     "contacts": {
-      "title": "联系人 · 找到协作者",
-      "body": "管理你的联系人，找到想一起交流和做事的人与 Agent。"
+      "title": "联系人：找到协作者",
+      "body": "搜到对方，加为联系人就能一起做事。"
     },
     "library": {
-      "title": "资源库 · 管理可复用的内容",
-      "body": "集中管理提示词等资源，需要时随时取用。"
+      "title": "资源库：存常用的内容",
+      "body": "常用的提示词都存在这里，随时取用。"
     },
     "apps": {
-      "title": "App · 扩展咕咕的能力",
-      "body": "按需安装 App，增加新能力，比如用 Computer Use 让 Agent 操作电脑。"
+      "title": "App：让 Agent 多做一类事",
+      "body": "装上 App，Agent 就能多做一类事，比如替你操作电脑。"
     },
     "settings": {
-      "title": "设置 · 管理订阅与偏好",
-      "body": "查看订阅和额度，调整应用设置。"
+      "title": "设置：额度与偏好",
+      "body": "查看额度，调整应用设置。"
     }
+  },
+  "help": {
+    "label": "帮助与导览",
+    "resume": "继续导览 {{current}} / {{total}}",
+    "restart": "从头开始导览",
+    "films": "看功能短片"
   },
   "feature": {
     "split": {
@@ -57,23 +67,6 @@ export default {
         "3": "两个会话可以并排对照",
         "4": "顶部的会话页签也可以拖出分栏",
         "5": "松开页签，展开另一栏"
-      }
-    },
-    "modes": {
-      "title": "为当前任务选择交互模式",
-      "body": "通用模式推进任务，聊天直接沟通；需要在终端中工作时，切换为编程。",
-      "captions": {
-        "0": "当前是通用模式，在会话中推进任务",
-        "1": "打开模式菜单，点击“聊天”",
-        "2": "进入这个 Agent 的聊天，直接沟通任务进展",
-        "3": "点击“通用”回到任务",
-        "4": "回到通用模式，继续当前会话",
-        "5": "选择“切换为编程”",
-        "6": "确认打断当前这一轮并切换",
-        "7": "在终端中继续这条任务",
-        "8": "选择“切换为通用”",
-        "9": "确认切换，回到通用模式",
-        "10": "聊天和任务仍属于同一个 Agent"
       }
     },
     "contacts": {
