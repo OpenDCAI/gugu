@@ -16,7 +16,7 @@ import { UserMessageCard } from './UserMessageCard';
 import { CONVERSATION_EXPAND_H, CONVERSATION_HEADER_H, CONVERSATION_PROCESS_H, hasConversationBody } from './conversation-body';
 import { measureUserMessage } from './user-message-metrics';
 import { userMessageActionsHeight, type MessageVars } from './metrics';
-import { conversationRoot, conversationHeader, conversationName, conversationDivider, conversationQuote, conversationTime, conversationProcessButton, conversationProcessChevron, conversationTimeSeparator } from './conversation-message.css';
+import { conversationRoot, conversationHeader, conversationName, conversationTime, conversationProcessButton, conversationProcessChevron, conversationTimeSeparator } from './conversation-message.css';
 
 const HEADER_H = CONVERSATION_HEADER_H;
 const TIME_H = CONVERSATION_PROCESS_H;
@@ -83,27 +83,17 @@ function SingleConversationMessage(props: { data: ChatMessage; ctx: RenderCtx; v
     if (isSelfAddress(sender.fromId, self()) && self()?.displayName?.trim()) return self()!.displayName!.trim();
     return shownSender(sender.from, sender.fromId, self()) ?? translate('transcript.deliveryUnknownSender');
   };
-  const quote = () => facts()?.replyTo?.preview ?? props.data.conversationReply?.text;
-  const reference = () => props.data.conversationReply?.itemId;
   const background = () => {
     const attached = props.ctx.measureCtx?.().background;
     return attached && attached.ownerId === props.data.id ? attached : null;
   };
   const bodyCtx: RenderCtx = { ...props.ctx, measureCtx: () => conversationContext(props.ctx.measureCtx!()) };
-  const jump = (event: MouseEvent) => {
-    event.stopPropagation();
-    const id = reference();
-    if (id) commands().onConversationReply?.(id);
-  };
   return <div class={conversationRoot} data-agent-conversation-message={props.data.id} data-side={subject() ? 'left' : 'right'}
     data-conversation-part={props.data.conversationPart}>
     <Show when={props.data.conversationPart !== 'body'}>
     <div class={conversationHeader} style={{ height: `${HEADER_H}px` }}>
       <span class={conversationName} title={name()}>{name()}</span>
-      <Show when={quote()}><span class={conversationDivider} /><button type="button" class={conversationQuote}
-        title={quote()} onClick={jump} disabled={!reference()}>
-        <span>{quote()}</span><svg viewBox="0 0 16 16" width="14" height="14" aria-hidden="true"><path d="M12.5 3v4.5a3 3 0 0 1-3 3H3m3.5-3.5L3 10.5 6.5 14" /></svg>
-      </button></Show>
+      {/* owner 0 号图:名字那一行只写名字 —— ❌ 后面再跟被回复那条的摘要(管家 10-28 定)。 */}
     </div>
     </Show>
     {/* owner 2026-10-27 原型:过程行在气泡上方(正文流式长高时它不挪窝);还在跑的后台任务与它同一行,单子就地展开在它下面。 */}

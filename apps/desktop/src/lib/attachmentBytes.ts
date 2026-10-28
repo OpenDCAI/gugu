@@ -3,6 +3,7 @@ import { fileBlob, type FileHandle, type FileMetadata, type FileRevision } from 
 import { fileSha256 } from '@gugu/core/shared/fileCipher'
 import { attachmentFileRef, type AttachmentSource } from '@gugu/core/shared/ui/attachmentModels'
 import { resolveFile, fileReader, fileReadSignal, attachmentCache, attachmentCacheOrigin } from './fileAccess'
+import { attachmentQueryClient } from './attachmentQueryClient'
 import { platform } from '../platform'
 
 export async function resolveAttachment(source: AttachmentSource) {
@@ -57,6 +58,25 @@ export type AttachmentView =
   | { status: 'expired' }
   | { status: 'failed' }
 
+/** 缩略图在内存里只是一个 blob:记在本次运行里,超过这么久没人再取就丢。 */
+const THUMB_GC_MS = 30 * 60_000
+/** 内容不会变的来源:一条消息 / 一个附件 / 群文件的某一版。 */
+const immutableSource = (source: AttachmentSource) => source.kind === 'message' || source.kind === 'attachment' || source.kind === 'item'
+
+/**
+ * 缩略图按来源记在 attachmentQueryClient 里。本地缓存(Cache Storage)按内容哈希存,而哈希要先问一次 file-resolve 才有:
+ * 不记的话,每次重新挂载(切会话回来、120 行窗口换回来)都先等一个网络来回(实测 0.9–1.4 s 空占位)才画得出本地已有的图。
+ * 不可变来源在本次运行里不再重问:被删 / 过期的文件这次运行内仍显示旧缩略图,打开原图照旧完整校验(attachmentBytes 'full')。
+ */
+async function sessionThumb(source: AttachmentSource, onLink: (link: FileRevision) => void): Promise<AttachmentBytes> {
+  return attachmentQueryClient.fetchQuery({
+    queryKey: ['attachment-thumb', fileReader().accountId, sourceKeyOf(source)],
+    queryFn: () => attachmentBytes(source, 'thumb', onLink),
+    staleTime: immutableSource(source) ? Infinity : 0,
+    gcTime: THUMB_GC_MS,
+  })
+}
+
 /**
  * 气泡 / 预览用:给一个 object URL;failed 时 retry() 丢掉记着的链接重新签、重新下。
  * enabled = false 时什么都不取(气泡还没滚到眼前:lazy 要推迟的是这次请求,blob URL 上的 loading="lazy" 不管用)。
@@ -70,7 +90,8 @@ export function useAttachmentObjectUrl(source: AttachmentSource, variant: Attach
     let alive = true
     let objectUrl: string | null = null
     setView({ status: 'loading' })
-    attachmentBytes(source, variant, (link) => alive && setView({ status: 'loading', link })).then(
+    const onLink = (link: FileRevision) => alive && setView({ status: 'loading', link })
+    ;(variant === 'thumb' ? sessionThumb(source, onLink) : attachmentBytes(source, variant, onLink)).then(
       (bytes) => {
         if (!alive) return
         if (bytes.status !== 'ready') return setView({ status: bytes.status })
