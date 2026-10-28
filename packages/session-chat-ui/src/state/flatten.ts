@@ -290,7 +290,8 @@ export function flattenTier(
           return status === 'running' || (row.kind === 'thinking' && status === 'thinking');
         });
       // 跑着时这一句只说做了多少;此刻在跑哪条命令 / 在想,接在后面(`toolRunNow`),跑完自然恢复原样。
-      const now = live ? toolRunNow(op.rows) : null;
+      // 对话布局不接:owner 0 号图跑着的步骤组只说「跑了 5 条命令」,❌「正在跑 cd … && export PATH=…」原始命令(10-28)。
+      const now = live && !ctx.agentConversation ? toolRunNow(op.rows) : null;
       processItem({
         kind: 'tool-run',
         id: runId,
@@ -375,11 +376,11 @@ export function flattenTier(
         const output = ctx.agentConversation && header ? conversationOutput([...segment.process, ...segment.tail]) : null;
         const footerReply = output?.reply ? conversationProcessReply(header, [output.reply]) : null;
         if (footerReply && header && output) {
-          const expanded = ctx.revealAllFolds || turnProcessExpanded(header.live, ctx.isTurnProcessExpanded?.(header.id) ?? false, ctx.agentConversation);
+          const expanded = ctx.revealAllFolds || turnProcessExpanded(header.live, ctx.isTurnProcessExpanded?.(header.id) ?? false);
           const steps = output.rest.filter(item => !isSubagentChild(item)).length;
           if (steps && footerReply.conversationProcess) footerReply.conversationProcess = { ...footerReply.conversationProcess, steps };
           emitConversationReply(footerReply, output.sent, () => {
-            if (expanded) emitOps(planRows(outsideProcess(output.rest)), turn.id, [{ id: header.id, stored: !header.live || ctx.agentConversation === true }]);
+            if (expanded) emitOps(planRows(outsideProcess(output.rest)), turn.id, [{ id: header.id, stored: !header.live }]);
           });
           continue;
         }
@@ -400,7 +401,7 @@ export function flattenTier(
           }
           emitOps(ops, turn.id);
         } else {
-          const expanded = ctx.revealAllFolds || turnProcessExpanded(header.live, ctx.isTurnProcessExpanded?.(header.id) ?? false, ctx.agentConversation);
+          const expanded = ctx.revealAllFolds || turnProcessExpanded(header.live, ctx.isTurnProcessExpanded?.(header.id) ?? false);
           const steps = ctx.agentConversation ? segment.process.filter(item => !isSubagentChild(item)).length : 0;
           processItem({
             kind: 'turn-process',
@@ -416,7 +417,7 @@ export function flattenTier(
           // 头里面照样按语义折成「跑了 N 条命令」,跑着时自己摊开的、跑完后人点开的都一样(owner 2026-10-16,
           // 推翻 10-02「点开就逐条摆」:跑着时「执行、执行、执行、执行」一直平铺)。只在头里摊平的话,同一轮里还会
           // 自相矛盾:最后一句话之前的平铺、之后的(尾巴,头外面)折着,agent 一开口,折好的那几行就摊开。
-          if (expanded) emitOps(ops, turn.id, [{ id: header.id, stored: !header.live || ctx.agentConversation === true }]);
+          if (expanded) emitOps(ops, turn.id, [{ id: header.id, stored: !header.live }]);
         }
         emitOps(planRows(outsideProcess(segment.tail)), turn.id);
       }
@@ -428,9 +429,10 @@ export function flattenTier(
         emitOps(planRows(outsideProcess(items.slice(0, pending.at))), turn.id);
         const pendingReply = ctx.agentConversation
           ? conversationProcessReply({ ...pending.header, startedAt: turn.startedAt }, items.slice(pending.at)) : null;
-        // 对话布局里跑着也收着(`turnProcessExpanded`):没点开就只有那一行,❌ 步骤和「正在跑」摊在下面。
-        const pendingExpanded = !ctx.agentConversation || ctx.revealAllFolds || turnProcessExpanded(true, ctx.isTurnProcessExpanded?.(pending.header.id) ?? false, ctx.agentConversation);
-        const pendingFolds = ctx.agentConversation ? [{ id: pending.header.id, stored: true }] : undefined;
+        // 对话布局:跑着默认摊开(owner 0 号图「思考执行中 · 9m16s · 39 步 ⌄」),点了收起就真收起 ——
+        // 还没出正文的这一轮以前不看开关,收起了步骤照样摊在下面。
+        const pendingExpanded = !ctx.agentConversation || ctx.revealAllFolds || turnProcessExpanded(true, ctx.isTurnProcessExpanded?.(pending.header.id) ?? false);
+        const pendingFolds = ctx.agentConversation ? [{ id: pending.header.id, stored: false }] : undefined;
         if (pendingReply) {
           emitConversationReply(pendingReply, [], () => {
             if (pendingExpanded) emitOps(planRows(outsideProcess(items.slice(pending.at + 1))), turn.id, pendingFolds);

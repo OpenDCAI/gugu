@@ -181,6 +181,18 @@ describe('background tasks at the end of the transcript', () => {
     pill()!.click()
     await until('the list opens in that row', () => items(host).length === 2)
     expect(host.querySelector('[data-slot="turn-process"]')!.contains(items(host)[0])).toBe(true)
+    // owner 10-28:过程行和后台各管各的 —— 收起过程,后台单子照样开着、照样能点;开合后台,过程行不动。
+    const line = () => host.querySelector<HTMLElement>('[data-slot="turn-process"]')!
+    const processOpen = line().dataset.expanded
+    host.querySelector<HTMLElement>('[data-slot="turn-process"] [data-conversation-process]')!.click()
+    await until('the process line folds', () => line().dataset.expanded !== processOpen)
+    expect(items(host)).toHaveLength(2)
+    expect(pill()).not.toBeNull()
+    pill()!.click()
+    await until('the list closes on its own toggle', () => items(host).length === 0)
+    expect(line().dataset.expanded).not.toBe(processOpen)
+    pill()!.click()
+    await until('and opens again with the process folded', () => items(host).length === 2)
   })
 
   it('hangs on the last reply\'s process line in the conversation layout, not as its own row', async () => {

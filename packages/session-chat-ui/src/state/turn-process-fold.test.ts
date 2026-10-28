@@ -946,12 +946,11 @@ describe('agent conversation process footer', () => {
   });
   it('folds live tools that arrive after the latest reply under the brain control', () => {
     const running = turn('running', [user('u'), reply('answer'), tool('search')]);
-    // 对话布局跑着也默认收着(owner 10-28 新管家截图):点开过才摊。
-    const open = flattenTier([running], ctxWith({ active: true, foldTurnProcess: true, agentConversation: true,
-      isTurnProcessExpanded: () => true }), SEGMENTERS);
+    const open = flattenTier([running], ctxWith({ active: true, foldTurnProcess: true, agentConversation: true }), SEGMENTERS);
     expect(ids(open).indexOf('search')).toBeGreaterThan(ids(open).indexOf('answer:head'));
     expect(ids(open).indexOf('search')).toBeLessThan(ids(open).indexOf('answer'));
-    const closed = flattenTier([running], ctxWith({ active: true, foldTurnProcess: true, agentConversation: true }), SEGMENTERS);
+    const closed = flattenTier([running], ctxWith({ active: true, foldTurnProcess: true, agentConversation: true,
+      isTurnProcessExpanded: () => true }), SEGMENTERS);
     expect(ids(closed)).toContain('answer');
     expect(ids(closed)).not.toContain('search');
   });
@@ -990,16 +989,16 @@ describe('agent conversation process footer', () => {
     const head = units.find(unit => unit.kind === 'turn-process')?.data as { steps?: number; live?: boolean } | undefined;
     // owner 0 号图「思考执行中 · 9m16s · 39 步」:还没说话的那一轮也写步数。
     expect(head?.steps).toBe(3);
-    // owner 10-28 新管家截图:收着时过程行下面 ❌「跑了 2 条命令…正在跑 <命令>」;点开才摊。
-    expect(ids(units)).not.toContain('a');
-    expect(units.filter(unit => unit.kind !== 'turn-process' && unit.kind !== 'message')).toEqual([]);
-    const open = flattenTier([running], ctxWith({ active: true, foldTurnProcess: true, agentConversation: true,
-      isTurnProcessExpanded: id => id === head?.id }), SEGMENTERS);
-    expect(open.length).toBeGreaterThan(units.length);
+    // owner 0 号图:跑着默认摊开(⌄),步骤组只说「跑了 N 条命令」,❌「正在跑 <原始命令>」;点了收起就真收起。
+    const run = units.find(unit => unit.kind === 'tool-run')?.data as { now?: unknown } | undefined;
+    expect(run).toBeDefined();
+    expect(run?.now).toBeUndefined();
+    const closed = flattenTier([running], ctxWith({ active: true, foldTurnProcess: true, agentConversation: true,
+      isTurnProcessExpanded: id => id === (head as { id?: string } | undefined)?.id }), SEGMENTERS);
+    expect(closed.filter(unit => unit.kind === 'tool-run')).toEqual([]);
   });
   it('places live work under its reply and does not hide failure states', () => {
-    const live = flattenTier([completed()], ctxWith({ active: true, foldTurnProcess: true, agentConversation: true,
-      isTurnProcessExpanded: () => true }), SEGMENTERS);
+    const live = flattenTier([completed()], ctxWith({ active: true, foldTurnProcess: true, agentConversation: true }), SEGMENTERS);
     expect(kinds(live)).not.toContain('turn-process');
     expect((live.find(unit => unit.itemId === 'answer:head')?.data as ChatMessage).conversationProcess?.live).toBe(true);
     expect(ids(live).indexOf('answer:head')).toBeLessThan(ids(live).indexOf('call'));
