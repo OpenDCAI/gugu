@@ -43,7 +43,9 @@ async function login(args: string[]) {
   vi.stubGlobal('fetch', vi.fn(async (url: string) =>
     String(url).endsWith('/poll')
       ? new Response(JSON.stringify({ token_hash: 'th', type: 'magiclink' }), { status: 200 })
-      : new Response(JSON.stringify({ access_token: jwt, refresh_token: 'r' }), { status: 200 }),
+      : String(url).endsWith('/start')
+        ? new Response(JSON.stringify({ device_code: 'dc', user_code: 'ABCD', expires_in: 600, interval: 0 }), { status: 200 })
+        : new Response(JSON.stringify({ access_token: jwt, refresh_token: 'r' }), { status: 200 }),
   ))
   const { runServerLogin } = await import('../../../../apps/desktop/electron/server/server-login')
   return runServerLogin(() => undefined, args)
@@ -60,5 +62,13 @@ describe('#6264 gugu-server login --grant-stdin --name', () => {
     expect(await login(['--grant-stdin'])).toBe(0)
     expect(layout.writeServerConnectVia).toHaveBeenCalledWith('/data/u1', 'ssh', { name: null })
     expect(devices.adoptDeviceName).not.toHaveBeenCalled()
+  })
+})
+
+describe('gugu-server login --name(链接 + 短码那条路)', () => {
+  it('名字同样记进 connect-via,已有的设备行同样交给 adoptDeviceName', async () => {
+    expect(await login(['--name', 'juma2'])).toBe(0)
+    expect(layout.writeServerConnectVia).toHaveBeenCalledWith('/data/u1', 'tunnel', { name: 'juma2' })
+    expect(devices.adoptDeviceName).toHaveBeenCalledWith(expect.anything(), 'dev-1', 'juma2')
   })
 })

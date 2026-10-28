@@ -50,6 +50,8 @@ import { deviceAcceptsWork } from '@gugu/core/cloud/cloudComputer'
 import { withoutAssistantHome } from '../../lib/assistantHome'
 import { deviceMachineFor, deviceMachines, useDeviceMachineSections } from '../../lib/deviceMachines'
 import { DeviceMachineArchive } from '../devices/DeviceMachineArchive'
+import { DeviceRenameField } from '../devices/DeviceRenameField'
+import { useDeviceRename } from '../../hooks/useDeviceRename'
 
 // #1749 设备管理 → #6264 做成能上线的「设置 → 设备」:
 //  · 每行:名字、是台什么机器(本机 / 电脑 / 服务器)、系统与架构、咕咕版本 + 升级状态、在线或「上次在线」、
@@ -94,9 +96,7 @@ export function DevicesSection({
   const devices = useMemo(() => machines.map(machine => machine.device), [machines])
   const { addresses, forget } = useSshMachines()
 
-  const [editingId, setEditingId] = useState<string | null>(null)
-  const [draftLabel, setDraftLabel] = useState('')
-  const [rowError, setRowError] = useState<{ id: string; message: string } | null>(null)
+  const deviceRename = useDeviceRename()
   const [dialog, setDialog] = useState<DialogState | null>(null)
   const [agents, setAgents] = useState<BoundAgentsState>({ agents: [], loading: false, cascadeChecked: false })
   const canAddServer = desktopIpc() !== null
@@ -144,24 +144,6 @@ export function DevicesSection({
     { value: 'online' as const, label: t('devices.filter.online', { n: onlineCount }) },
     { value: 'offline' as const, label: t('devices.filter.offline', { n: devices.length - onlineCount }) },
   ], [t, devices.length, onlineCount])
-
-  const startRename = useCallback((device: Device) => {
-    setRowError(null)
-    setEditingId(device.device_id)
-    setDraftLabel(device.label)
-  }, [])
-
-  const commitRename = useCallback(async (device: Device) => {
-    const next = draftLabel.trim()
-    if (!next || next === device.label) { setEditingId(null); return }
-    try {
-      await rename(device.device_id, next)
-      setEditingId(null)
-    } catch (err) {
-      log.error({ err: String((err as Error)?.message ?? err), deviceId: device.device_id }, 'rename device failed')
-      setRowError({ id: device.device_id, message: messageForUser(err) })
-    }
-  }, [draftLabel, rename])
 
   const loadAgents = useCallback(async (device: Device) => {
     setAgents({ agents: [], loading: true, cascadeChecked: false })
@@ -254,13 +236,11 @@ export function DevicesSection({
       device={device}
       configurationCount={deviceMachineFor(machines, device.device_id)!.configurations.length}
       model={deviceRowModel(device, addressOf(device.device_id), cloudDeviceId)}
-      editing={editingId === device.device_id}
-      draftLabel={draftLabel}
-      renameFailed={rowError?.id === device.device_id ? rowError.message : ''}
-      onDraftChange={setDraftLabel}
-      onStartRename={() => startRename(device)}
-      onCommitRename={() => void commitRename(device)}
-      onCancelRename={() => setEditingId(null)}
+      editing={deviceRename.editingId === device.device_id}
+      renameFailed={deviceRename.failedFor(device.device_id)}
+      onStartRename={() => deviceRename.start(device)}
+      onCommitRename={(next) => void deviceRename.save(device, next)}
+      onCancelRename={deviceRename.cancel}
       onCopyAddress={(address) => void copyAddress(address)}
       onRemove={() => openRemove(device)}
       onUninstall={() => openUninstall(device)}
@@ -495,9 +475,7 @@ function DeviceRow({
   model,
   configurationCount,
   editing,
-  draftLabel,
   renameFailed,
-  onDraftChange,
   onStartRename,
   onCommitRename,
   onCancelRename,
@@ -517,11 +495,9 @@ function DeviceRow({
   model: DeviceRowModel
   configurationCount: number
   editing: boolean
-  draftLabel: string
   renameFailed: string
-  onDraftChange: (value: string) => void
   onStartRename: () => void
-  onCommitRename: () => void
+  onCommitRename: (next: string) => void
   onCancelRename: () => void
   onCopyAddress: (address: string) => void
   onRemove: () => void
@@ -581,22 +557,7 @@ function DeviceRow({
     >
       <div className="min-w-0 flex-1">
         {editing ? (
-          <div className="flex items-center gap-[6px]">
-            <input
-              autoFocus
-              value={draftLabel}
-              onChange={(e) => onDraftChange(e.target.value)}
-              onKeyDown={(e) => {
-                if (e.key === 'Enter') onCommitRename()
-                if (e.key === 'Escape') onCancelRename()
-              }}
-              aria-label={t('devices.menu.rename')}
-              // @@@ui-ruler 与同一行的 Button size="sm" 同高:两者都取 --control-h-sm(28)。
-              className="box-border min-h-[var(--control-h-sm)] min-w-0 flex-1 rounded-[var(--radius-control)] border border-[var(--border-strong)] bg-[var(--bg)] px-2 text-[length:var(--font-body)] text-[var(--fg)]"
-            />
-            <Button size="sm" variant="primary" onClick={onCommitRename}>{t('devices.save')}</Button>
-            <Button size="sm" onClick={onCancelRename}>{t('devices.cancel')}</Button>
-          </div>
+          <DeviceRenameField label={device.label} onSave={onCommitRename} onCancel={onCancelRename} />
         ) : (
           <div className="flex min-w-0 items-center gap-[7px]">
             <span className="truncate text-[length:var(--font-body)] font-semibold text-[var(--fg)]">{device.label}</span>

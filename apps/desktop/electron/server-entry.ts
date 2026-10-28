@@ -79,7 +79,7 @@ const USAGE = `用法:
   gugu-server login              ${REMOTE_TUNNEL_OPEN ? '在这台服务器上登录一个咕咕账号(链接 + 短码,不需要浏览器)' : '远程隧道暂未开放:在咕咕桌面用远程 SSH 添加这台机器'}
                                  一台服务器可以登录好几个人,互不影响
   gugu-server login --grant-stdin 用咕咕桌面经 SSH 递来的一次性凭证登录(桌面自动调用,不用手敲)
-                                 [--name 名字] 这台机器在设备列表里的默认名(桌面带上人填的 SSH 别名)
+  gugu-server login [--name 名字] 这台机器在设备列表里的默认名(两种登法都认;桌面带上人填的 SSH 别名)
   gugu-server logout [邮箱]      退出登录(登录了好几个人时写上是谁)
   gugu-server status [--json]    看看版本、登录了谁、在不在跑、数据放在哪;登录失效 / 被移除的账号也列出来
   gugu-server --version          只打出这份咕咕 server 的版本号
