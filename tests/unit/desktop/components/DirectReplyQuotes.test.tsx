@@ -54,4 +54,5 @@ it('the direct quote summary is cut to 24 characters on one line',()=>{
  expect(quoteSummary('一二三四五六七八九十一二三四五六七八九十一二三四')).toBe('一二三四五六七八九十一二三四五六七八九十一二三四')
  expect(quoteSummary('一二三四五六七八九十一二三四五六七八九十一二三四五')).toBe('一二三四五六七八九十一二三四五六七八九十一二三四…')
  expect(quoteSummary('  第一行\n\n 第二行 ')).toBe('第一行 第二行')
+ expect(quoteSummary(`${'一'.repeat(23)}👨‍👩‍👧尾巴`)).toBe(`${'一'.repeat(23)}👨‍👩‍👧…`)
 })
