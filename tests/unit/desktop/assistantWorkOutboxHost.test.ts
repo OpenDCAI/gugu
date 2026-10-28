@@ -8,7 +8,7 @@ function fixture(target='cloud') {
   const deliverLocal=vi.fn(async()=>({admitted:true,messageId:'message',receipt:{agent_user_id:'agent'}}))
   const prepareRemote=vi.fn(async()=>undefined)
   const requestRemote=vi.fn(async()=>({requestId:'rpc',result:{status:'admitted',messageId:'message',receipt:{agent_user_id:'remote-agent'}}}))
-  const subscribe=vi.fn(async()=>()=>{})
+  const subscribe=vi.fn(async(_owner:string,_changed:()=>void)=>()=>{})
   const warn=vi.fn()
   const deps={context:async()=>({ownerId:'owner',runtimeInstanceId:'runtime',deviceId:'cloud',client:{rpc}}),deliverLocal,prepareRemote,requestRemote,subscribe,warn}
   return {deps,rpc,deliverLocal,prepareRemote,requestRemote,subscribe,warn}
@@ -57,5 +57,37 @@ describe('account delivery host',()=>{
     expect(f.requestRemote).toHaveBeenCalledWith('phone','assistantWork.deliver',{assistant_id:'assistant',work_id:'work',message_id:'message'},expect.any(AbortSignal))
     expect(f.prepareRemote.mock.invocationCallOrder[0]).toBeLessThan(f.requestRemote.mock.invocationCallOrder[0]!)
     expect(f.deliverLocal).not.toHaveBeenCalled();host.stop()
+  })
+  it('heartbeat ticks claim only for an account with an assistant; new work still lands through the realtime change',async()=>{
+    const f=fixture();let changed!:()=>void
+    f.subscribe.mockImplementation(async(_owner:string,cb:()=>void)=>{changed=cb;return()=>{}})
+    const afterDrain=vi.fn(async()=>{})
+    let assistant=false
+    const host=createAssistantWorkOutboxHost({...f.deps,afterDrain,active:async()=>assistant})
+    const claims=()=>f.rpc.mock.calls.filter(([name])=>name==='assistant_work_outbox_claim').length
+    await host.tick();await host.tick()
+    expect(claims()).toBe(0)
+    expect(afterDrain).not.toHaveBeenCalled()
+    await vi.waitFor(()=>expect(f.subscribe).toHaveBeenCalledOnce())
+    changed()
+    await vi.waitFor(()=>expect(f.deliverLocal).toHaveBeenCalledOnce())
+    expect(claims()).toBeGreaterThan(0)
+    const before=claims();assistant=true
+    await host.tick()
+    expect(claims()).toBeGreaterThan(before)
+    expect(afterDrain).toHaveBeenCalledOnce()
+    host.stop()
+  })
+  it('a tick claims as before when the assistant check fails, and event kicks never wait for it',async()=>{
+    const f=fixture();const active=vi.fn(async()=>{throw new Error('provisions unreadable')})
+    const host=createAssistantWorkOutboxHost({...f.deps,active})
+    await host.tick()
+    expect(f.rpc).toHaveBeenCalledWith('assistant_work_outbox_claim',expect.any(Object))
+    const g=fixture();const never=vi.fn(async()=>false)
+    const other=createAssistantWorkOutboxHost({...g.deps,active:never})
+    await other.kick()
+    expect(never).not.toHaveBeenCalled()
+    expect(g.rpc).toHaveBeenCalledWith('assistant_work_outbox_claim',expect.any(Object))
+    host.stop();other.stop()
   })
 })

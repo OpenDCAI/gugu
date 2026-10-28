@@ -71,13 +71,12 @@ export class GitRepositoryFetchService {
     }, this.intervalMs);
   }
 
+  /** A repository with no remote has nothing to fetch: the background loop skips it (an explicit fetch() still runs). */
   private async _canBackgroundFetchWithoutPrompt(): Promise<boolean> {
     try {
-      await this.gitRepository.getRemotes();
+      return (await this.gitRepository.getRemotes()).length > 0;
     } catch {
       return false;
     }
-
-    return true;
   }
 }

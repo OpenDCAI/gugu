@@ -1730,6 +1730,10 @@ function assistantWorkDeliveryHost(): AssistantWorkOutboxHost {
         return data?.id === post.messageId
       },
     }),
+    active: async () => {
+      const current = await context()
+      return !current || !!(await resolveAssistant(current))
+    },
     afterDrain: async () => {
       void history.kick()
       await reconciler.kick()
@@ -2024,7 +2028,7 @@ function startDeviceRuntimeWhenRendererReady(): void {
   })
   deviceRuntimeHost ??= createDeviceRuntimeHostLoop({
     env: process.env,
-    onRuntimeLeaseRenewed: () => { void assistantWorkDeliveryHost().kick() },
+    onRuntimeLeaseRenewed: () => { void assistantWorkDeliveryHost().tick() },
     authProvider: hostAuthProvider,
     makeIdentityClient: (accessToken) =>
       makeIdentityClient(accessToken) as unknown as DeviceRuntimeIdentityClient,

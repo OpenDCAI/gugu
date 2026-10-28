@@ -20,6 +20,8 @@ export function createAssistantWorkOutboxHost(deps: {
   requestRemote(deviceId: string, type: string, payload: unknown, signal: AbortSignal): Promise<DeviceRpcResponse<unknown>>
   subscribe(ownerId: string, changed: () => void): Promise<() => void>
   afterDrain?: () => Promise<void>
+  /** Whether the account has an assistant to work for. Heartbeat ticks claim only then; event kicks always claim. */
+  active?(): Promise<boolean>
   warn(detail: { code: string; messageId?: string }): void
   unavailable?(context: AssistantWorkOutboxContext, failure: {code: string; day: string}, signal: AbortSignal): Promise<void>
 }) {
@@ -98,6 +100,20 @@ export function createAssistantWorkOutboxHost(deps: {
         await pump.kick(); await deps.afterDrain?.()
       }
       catch { deps.warn({ code: 'WORK_OUTBOX_UNAVAILABLE' }) }
+    },
+    /**
+     * Heartbeat: an account with no assistant has nothing to claim (every work row names its assistant), so its idle
+     * runtime does not poll the outbox / notice claims. New work still lands: each work event broadcasts
+     * assistant_work_changed, and the subscription kept here claims it at once; the tick after an assistant appears
+     * claims again. A failing check claims as before.
+     */
+    async tick(): Promise<void> {
+      if (stopped) return
+      if (deps.active && !(await deps.active().catch(() => true))) {
+        void ensureSubscription().catch(() => deps.warn({code:'WORK_EVENTS_UNAVAILABLE'}))
+        return
+      }
+      await this.kick()
     },
     rpcHandlers(): DeviceRpcHandlers {
       return { 'assistantWork.reconcile': async (_payload, ctx) => {
