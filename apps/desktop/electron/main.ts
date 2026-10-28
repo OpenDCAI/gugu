@@ -4175,9 +4175,9 @@ function loadEmdashBridge(): EmdashBridgeModule | null {
         if (!mainWindow || mainWindow.isDestroyed()) return Promise.reject(new Error('Renderer not ready'))
         return invokeRendererExtensions(EXTENSION_MEMBER_FACES_METHOD, { people }, mainWindow.webContents.id) as Promise<Record<string, string>>
       },
-      listedSession: (sessionId) => {
+      listedSession: (sessionId, hint) => {
         if (!mainWindow || mainWindow.isDestroyed()) return Promise.reject(new Error('Renderer not ready'))
-        return invokeRendererExtensions(EXTENSION_LISTED_SESSION_METHOD, { sessionId }, mainWindow.webContents.id) as Promise<string | null>
+        return invokeRendererExtensions(EXTENSION_LISTED_SESSION_METHOD, { sessionId, ...hint }, mainWindow.webContents.id) as Promise<string | null>
       },
       act: async (command) => {
         if (!mainWindow || mainWindow.isDestroyed()) throw new Error('Renderer not ready')
@@ -4864,6 +4864,17 @@ app.whenReady().then(async () => {
       appMessage: (app, deviceId, sessionId, text, how) => crossMachine().appMessage(app, deviceId, sessionId, text, how),
       appReadFile: (app, deviceId, action) => crossMachine().appReadFile(app, deviceId, action),
       appCall: (app, deviceId, action) => crossMachine().appCall(app, deviceId, action),
+    })
+    // 打开会话只有一条路(gugu-links.openLink):agent 的会话先看本机映射,再到它所在的机器上找;本机会话打开前先做平台恢复。
+    emdash.setSessionOpening({
+      agentSession: async (agentId, deviceId) => {
+        const here = await readSessionpageOpenTarget(agentId)
+        return here ? { sessionId: here.sessionId } : crossMachine().sessionOfAgent(agentId, deviceId)
+      },
+      ensureReady: async (sessionId) => {
+        const ready = await ensureSessionpageSessionReady(sessionId, 'sessionpage-open')
+        if (ready.status === 'failed') createLogger('sessionpage/platform').error({ sessionId, error: ready.error }, 'sessionpage-open platform recovery failed')
+      },
     })
     // 触发②(agent 停下):running→false 的转变事件踢一次读者(触发④开机扫在 boot 那里)。
     agentStatusFeed.subscribe((agentUserId, entry, previous, version) => {

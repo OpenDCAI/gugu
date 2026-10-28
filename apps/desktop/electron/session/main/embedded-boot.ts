@@ -935,6 +935,8 @@ function sweepExtensionSessionLeftovers(): void {
  * #6387 系统交给咕咕的一条链接(gugu://ext/<扩展>/<tab>/…)。不是扩展链接的原样说「不是」,
  * 宿主据此不理它;失败带原因回去,由宿主按用户语言告诉人 —— 人点了链接正在等。
  */
+export { setSessionOpening } from '@main/core/extensions/gugu-links'
+
 export async function openEmdashLink(url: string): Promise<LinkOpenOutcome> {
   return await openLink(url)
 }

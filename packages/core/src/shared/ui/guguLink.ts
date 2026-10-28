@@ -233,9 +233,18 @@ export type GuguLinkTarget =
   | ({ kind: 'file' } & GroupFileLink)
   | ({ kind: 'app' } & ParsedExtensionLink)
   | AppDetailLink
-  | { kind: 'session'; sessionId: string }
+  /**
+   * A session. Optional hints, never in the URL: `projectId` / `deviceId` where the opener already knows them (a remote
+   * session the task list does not draw is opened through its machine); `beside` keeps the screen view's layout.
+   */
+  | { kind: 'session'; sessionId: string; projectId?: string; deviceId?: string; beside?: true }
   | { kind: 'project'; projectId: string }
   | { kind: 'server-login'; code: string }
+
+/** An agent's session, found by the one opening a link (its machine's mapping, else its machine's session list). Not a URL. */
+export type AgentSessionTarget = { kind: 'session'; agentId: string; deviceId?: string }
+/** What a click may open: any link target, or an agent's session named by the agent. */
+export type OpenTarget = GuguLinkTarget | AgentSessionTarget
 
 /** One reader for stored references and OS links. Only external invocation binds a link to a build's scheme. */
 export function parseGuguLink(raw: string, options: { supabaseUrl?: string } = {}): GuguLinkTarget | null {

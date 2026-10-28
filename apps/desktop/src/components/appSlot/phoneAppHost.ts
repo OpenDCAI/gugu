@@ -3,12 +3,12 @@ import { showRendererContentMenu } from '../../lib/contentContextMenu'
 import { appContextMenuOf } from '../../session/shared/extensions/app-context-menu'
 import { appIdentityOf } from '../../session/shared/extensions/app-identity'
 import { fileBlob } from '@gugu/core/shared/fileResolver'
-import { guguLink, guguLinkScheme, linkTargetOf, type GuguLinkTarget } from '@gugu/core/shared/ui/guguLink'
+import { guguLink, guguLinkScheme, linkTargetOf, type GuguLinkTarget, type OpenTarget } from '@gugu/core/shared/ui/guguLink'
 import { openLinkWith } from '../../session/shared/extensions/open-link'
 import { openLinkTarget } from '../../lib/guguLinks'
 import { resourceChatIdOf } from '../../session/shared/extensions/app-files-core'
 import { readCachedDevices } from '../../store/devicesCache'
-import { listedSession, liveDeviceSessions } from '../../session/shared/remote-sessions/session-directory'
+import { directoryRows, listedSession, liveDeviceSessions } from '../../session/shared/remote-sessions/session-directory'
 import { rendererLogger } from '../../lib/log'
 import { platform } from '../../platform'
 import { getRendererAccessToken } from '../../lib/sessionPublication'
@@ -879,7 +879,7 @@ declare const __GUGU_TIER__: string
 export const phoneLinkScheme = () => guguLinkScheme({ tier: typeof __GUGU_TIER__ === 'undefined' ? undefined : __GUGU_TIER__, devLaunch: false })
 
 /** Host facts and transports only; target parsing and opening order are shared with main. */
-export async function openPhoneLink(target: string | GuguLinkTarget) {
+export async function openPhoneLink(target: string | OpenTarget) {
   if (platform.kind === 'capacitor') await phoneApps.ready()
   return openLinkWith({
     installed: () => installedExtensionsStore.manifests.map((manifest) => ({ manifest })),
@@ -887,6 +887,11 @@ export async function openPhoneLink(target: string | GuguLinkTarget) {
     locale: () => document.documentElement.lang,
     resourceChat: async (chatId) => { const { token, userId } = await sendPlatform.account(); return resourceChatIdOf(token, chatId, userId) },
     sessionProject: async (sessionId) => { const listed = listedSession(readCachedDevices(), liveDeviceSessions(), sessionId); return 'row' in listed ? listed.row.session.projectId : null },
+    // The phone's session directory carries each row's agent: the same lookup the DM header does (useAgentSessionRow).
+    agentSession: async (agentId) => {
+      const row = directoryRows(readCachedDevices(), liveDeviceSessions()).find(({ session }) => session.agent?.userId === agentId)
+      return row ? { sessionId: row.session.conversationId, deviceId: row.deviceId } : null
+    },
     reveal: async ({ sessionId, tabKind }) => {
       const listed = listedSession(readCachedDevices(), liveDeviceSessions(), sessionId)
       if (!('row' in listed)) throw new Error('Session is not in your task list')

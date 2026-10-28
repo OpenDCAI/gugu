@@ -265,10 +265,12 @@ export const extensionHostActionHandlers: RendererRpcHandlers = {
    * the list has none. Only an answer — main brings it up the one way a banner's click does. Imported when asked, as above.
    */
   [EXTENSION_LISTED_SESSION_METHOD]: async (params: unknown): Promise<string | null> => {
-    const sessionId = (params as { sessionId?: unknown } | null)?.sessionId;
+    const { sessionId, deviceId, projectId } = (params ?? {}) as { sessionId?: unknown; deviceId?: unknown; projectId?: unknown };
     if (typeof sessionId !== 'string') throw new Error('Invalid listed session request');
     const { remoteHostsStore } = await import('@renderer/features/remote-hosts/remote-hosts-store');
-    return remoteHostsStore.listedProject(sessionId);
+    const listed = remoteHostsStore.listedProject(sessionId);
+    if (listed || typeof deviceId !== 'string') return listed;
+    return remoteHostsStore.reachProject(sessionId, deviceId, typeof projectId === 'string' ? projectId : undefined);
   },
   /** `gugu.dispatch` naming no target: the person picks one in the shell's sheet (DispatchSheet). */
   [EXTENSION_PICK_DISPATCH_TARGET_METHOD]: async (params: unknown) => {

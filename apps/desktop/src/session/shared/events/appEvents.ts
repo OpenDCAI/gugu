@@ -48,6 +48,8 @@ export const browserAppShortcutChannel = defineEvent<{
 export const notificationFocusSessionChannel = defineEvent<{
   projectId: string;
   sessionId: string;
+  /** On the screen view: beside what is there, the layout kept (a task card's click). */
+  beside?: true;
 }>('notification:focus-session');
 
 /** Host-validated request to open a file without navigating away from the user's current surface. */
