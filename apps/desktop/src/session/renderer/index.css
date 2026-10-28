@@ -1818,6 +1818,12 @@ html[data-gugu-dragging] :is(webview, iframe) {
   display: none;
 }
 
+/* 页签条右端那一排放不下了(titlebar-actions.tsx 的 data-tabbar-actions-tight):「在 X 中打开」那半颗收起,
+   只留「其他打开方式」—— 下拉里每个 app 点了就用它打开,一样都不少。❌ 让这一排伸进窗口按钮那格。 */
+[data-tabbar-actions][data-tabbar-actions-tight] [data-open-in-primary] {
+  display: none;
+}
+
 /* 一块左上的 ⋮⋮(spec session-page「一屏几块」,照 Zen 分屏块的拖柄):平时只留位置,指着页签条才淡淡显出来,
    指着它时深一档,整块描一圈 —— 告诉你抓的是整块。点是两列三行的小圆点,不是图标。 */
 .screen-block-grip {

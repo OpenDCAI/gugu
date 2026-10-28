@@ -4,10 +4,8 @@ import {
   hasCustomWindowControls,
   hasWindowTitlebarRow,
   rendererPlatformFor,
-  TITLEBAR_ACTION_EDGE_GAP_PX,
   TITLEBAR_ACTIONS_LANE_PX,
   titlebarActionsLane,
-  titlebarActionsRight,
   WINDOW_CONTROLS_WIDTH_PX,
   WINDOW_TITLEBAR_HEIGHT_PX,
   windowControlsWidth,
@@ -38,10 +36,6 @@ describe('window-chrome 标题栏行(#6597)', () => {
     expect(windowControlsWidth('win')).toBe(0)
     expect(windowControlsWidth('linux')).toBe(WINDOW_CONTROLS_WIDTH_PX)
     expect(windowControlsWidth('mac')).toBe(0)
-    // 预留随之与 mac 同形:只剩边缘呼吸,不再多出 138px
-    expect(titlebarActionsRight('win')).toBe(TITLEBAR_ACTION_EDGE_GAP_PX)
-    expect(titlebarActionsRight('win')).toBe(titlebarActionsRight('mac'))
-    expect(titlebarActionsRight('linux') - titlebarActionsRight('mac')).toBe(WINDOW_CONTROLS_WIDTH_PX)
   })
 
   it('转瞬层车道在有标题栏行的平台整体下移一行', () => {

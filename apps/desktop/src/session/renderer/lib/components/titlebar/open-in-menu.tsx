@@ -136,6 +136,7 @@ export const OpenInMenu: React.FC<OpenInMenuProps> = ({
       }}
       disabled={nativeDisabled || undefined}
       aria-disabled={buttonAppId ? undefined : true}
+      data-open-in-primary=""
       aria-label={
         buttonAppLabel ? translate('titlebar.openIn', { app: buttonAppLabel }) : translate('titlebar.open')
       }

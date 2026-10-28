@@ -949,6 +949,15 @@ globalStyle(`[data-slot="composer-toolbar"][data-disclosure="6"] ${agentTrigger}
   minWidth: 0,
 })
 
+/**
+ * 宿主塞进框里的带图标标签(会话底排的「新任务」、输入行最前那枚「新任务 ×」):文字包在
+ * `[data-slot="composer-foldable-label"]` 里,最后一档(= 档 6)跟模型名一起收,只剩图标。
+ * 没有图标的别挂这个 slot,❌ 收成一颗空按钮。输入行不在底排里,所以按整个框判:框里底排到了档 6 就收。
+ */
+globalStyle(`[data-slot="composer"]:has([data-slot="composer-toolbar"][data-disclosure="6"]) [data-slot="composer-foldable-label"]`, {
+  display: 'none',
+})
+
 // ── Model panel（照 assistant-ui 的「With search, provider filters + groups」）──
 //
 // owner 2026-09-05 令严格套用那一版。上游用的是 Tailwind + shadcn 的语义类
