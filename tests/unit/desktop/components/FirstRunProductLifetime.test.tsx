@@ -8,7 +8,7 @@ const io = vi.hoisted(() => ({
   firstRunDoneHere: vi.fn((_userId: string) => false),
   rememberFirstRunDone: vi.fn(),
   readFirstRunProgress: vi.fn(async () => ({
-    stage: 'intro', occupation: { key: 'research' }, harness: ['codex'],
+    stage: 'intro', occupation: { key: 'research' }, harness: ['codex'], terminalSeen: true,
     tour: { phase: 'features', index: 3 },
   })),
   finishFirstRun: vi.fn(async () => '2026-10-24T00:00:00Z'),
@@ -19,6 +19,9 @@ const io = vi.hoisted(() => ({
 vi.mock('../../../../apps/desktop/src/lib/firstRun', () => io)
 vi.mock('../../../../apps/desktop/src/lib/firstRunHints', () => ({ startFirstRunHints: vi.fn(async () => undefined), readFirstRunHints: vi.fn(async () => null), dismissFirstRunHints: vi.fn() }))
 vi.mock('../../../../apps/desktop/src/lib/auth', () => ({ authService: {} }))
+vi.mock('../../../../apps/desktop/src/components/firstRun/FirstRunTerminal', () => ({
+  FirstRunTerminal: ({ onDone }: { onDone: () => void }) => createNode('button', { 'data-testid': 'terminal-continue', onClick: onDone }, 'Continue'),
+}))
 vi.mock('../../../../apps/desktop/src/lib/productTour', async (original) => ({
   ...await original<Record<string, unknown>>(), saveProductTourPosition: vi.fn(),
 }))
@@ -97,4 +100,22 @@ describe('desktop product lifetime across the first-run tour', () => {
     expect(mount.firstElementChild).toBe(content)
     expect(entry.importSessionEntry).toHaveBeenCalledOnce()
   })
+  it('keeps the task page connected when going back from the intro to the terminal step', async () => {
+    await harness.render(createNode(FirstRunGate, {
+      user: { id: 'owner-1', email: 'owner@example.test', nickname: 'Owner' },
+    }, createNode(EmdashSessionFrame)))
+    await waitForCondition(() => sessionMount()?.textContent === 'Task page ready', 'embedded task page rendered')
+    const mount = sessionMount()!
+    const content = mount.firstElementChild
+    await clickElement(document.querySelector('[data-testid="assistant-intro-back"]')!)
+    expect(mount.isConnected).toBe(true)
+    await clickElement(document.querySelector('[data-testid="terminal-continue"]')!)
+    await waitForCondition(() => !!document.querySelector('[data-testid="first-run-intro"]'), 'intro shown again')
+    await clickElement(document.querySelector('[data-testid="assistant-intro-later"]')!)
+    expect(sessionMount()).toBe(mount)
+    expect(mount.firstElementChild).toBe(content)
+    expect(entry.importSessionEntry).toHaveBeenCalledOnce()
+    expect(harness.container.querySelector('[data-testid="loading-indicator"]')).toBeNull()
+  })
+
 })
