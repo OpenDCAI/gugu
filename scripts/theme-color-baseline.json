@@ -71,22 +71,7 @@
   },
   {
     "rule": "hard-coded-color",
-    "file": "apps/desktop/src/components/productTour/product-tour.css",
-    "count": 28
-  },
-  {
-    "rule": "hard-coded-color",
-    "file": "apps/desktop/src/components/sessionpage/AgentSharePopover.tsx",
-    "count": 2
-  },
-  {
-    "rule": "hard-coded-color",
     "file": "apps/desktop/src/components/settings/channels/WechatConnectDialog.tsx",
-    "count": 2
-  },
-  {
-    "rule": "hard-coded-color",
-    "file": "apps/desktop/src/components/settings/DeviceActionsPage.tsx",
     "count": 2
   },
   {
@@ -102,7 +87,7 @@
   {
     "rule": "hard-coded-color",
     "file": "apps/desktop/src/components/usage/UsageCharts.tsx",
-    "count": 35
+    "count": 30
   },
   {
     "rule": "hard-coded-color",
@@ -281,18 +266,8 @@
   },
   {
     "rule": "undefined-var",
-    "file": "apps/desktop/src/components/sessionpage/AgentSharePopover.tsx",
-    "count": 1
-  },
-  {
-    "rule": "undefined-var",
     "file": "apps/desktop/src/components/sessionpage/EmdashSessionFrame.css",
     "count": 1
-  },
-  {
-    "rule": "undefined-var",
-    "file": "apps/desktop/src/components/settings/DeviceActionsPage.tsx",
-    "count": 2
   },
   {
     "rule": "undefined-var",
