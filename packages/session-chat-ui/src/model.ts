@@ -82,8 +82,16 @@ export type ChatMessage = {
   at?: number;
   /** Parsed Gugu delivery metadata; populated by the message unit, never by ordinary transcript producers. */
   guguDelivery?: DeliveryReading;
-  /** View-only reference to the input this agent output responds to. */
-  conversationReply?: { itemId: string; text: string };
+  /**
+   * View-only reference to the message this one explicitly replies to. Only a real anchor counts
+   * (the delivery's `reply_to`, or the `reply_to_message_id` the agent passed to message_send) —
+   * ❌ guessed from "the previous input" (owner 10-28: 参数里有什么就传什么). `from` is the quoted
+   * message's own sender (an agent or a person), `self` marks a quote of this agent's own earlier send,
+   * `chatId` the group the quoted message was said in (absent for a DM).
+   */
+  conversationReply?: { itemId: string; text: string; from?: string; self?: boolean; chatId?: string };
+  /** The `reply_to_message_id` (without `msg:`) of the message_send this `:sent:` row came from. */
+  sentReplyTo?: string;
   /** View-only disclosure of the completed thinking/execution segment. */
   conversationProcess?: { live?: boolean; id: string; startedAt?: number; endedAt?: number; steps?: number };
   /**
