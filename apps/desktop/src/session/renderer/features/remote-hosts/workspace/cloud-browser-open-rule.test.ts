@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import type { CloudBrowserStatus } from '@shared/cloud-browser';
-import { shouldOpenCloudBrowserTab } from './cloud-browser-auto-open';
+import { shouldOpenCloudBrowserTab } from './cloud-browser-open-rule';
 
 const NOW = Date.parse('2026-10-28T06:00:00Z');
 
