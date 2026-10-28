@@ -1179,12 +1179,9 @@ async function createChildSession(input: {
  * page sits in (真源原则 13).
  */
 async function newSessionMemory(): Promise<NewSessionMemory> {
-  const [{ appSettingsService }, { preferredSessionView }] = await Promise.all([
-    import('@main/core/settings/settings-service'),
-    import('@main/core/settings/terminal-visibility'),
-  ]);
-  // 形态不再由新建框记:跟这台电脑的「终端」开关走(开 → 编程,关 → 通用),与新建框同一条。
-  return { ...(await appSettingsService.get('newSessionMemory')), sessionView: await preferredSessionView() };
+  const { appSettingsService } = await import('@main/core/settings/settings-service');
+  // 形态不再由新建框记,也不跟「终端」开关走:新会话一律通用(owner 10-28),与新建框同一条。
+  return { ...(await appSettingsService.get('newSessionMemory')), sessionView: DEFAULT_SESSION_VIEW };
 }
 
 /**
