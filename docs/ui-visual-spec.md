@@ -232,7 +232,7 @@ Sans(`--font-sans`)是阅读正文,Mono(`--font-mono`)只有一个职责:**你�
 一个只有尺子读得懂、浏览器读不懂的类名。于是「页级标题」这件事靠每个消费点自己再写一遍
 `text-xl font-semibold tracking-tight`,写漏一样就少一样(实测 `lib/components/page-header.tsx`、
 `lib/components/page-layout.tsx`、`features/onboarding/components/import-header.tsx` **三处都没写
-`font-semibold`**)。design.md:「Type roles are a closed set … **Use the role.
+`font-semibold`**);`features/onboarding/` 后来已整体删除)。design.md:「Type roles are a closed set … **Use the role.
 Do not compose a one-off size.**」⇒ 角色自己得带上它的排版:
 
 | 类 | 定义(在 `tokens.css` 的 `@layer components`) |
@@ -270,6 +270,7 @@ Do not compose a one-off size.**」⇒ 角色自己得带上它的排版:
 `features/onboarding/components/import-header.tsx:52,56`、
 `features/onboarding/onboarding-shell.tsx:32`、
 `features/automations/components/AutomationRow.tsx:94`)的字号一直**静默落回继承值**。
+(其中 `features/onboarding/` 两处所在的目录后来已整体删除,现存 4 处。)
 两张表各登记一份逐字等值的 `--text-md: 15px` / line-height 22px(= 字阶的 `--font-title` 那一档)。
 ❌ 没改成 `text-base`:会话页那边 `text-base` 是 Tailwind 默认的 16px,不在字阶(11/13/15/17/20)上
 —— 那是把 6 处从「没字号」换成「错字号」。
