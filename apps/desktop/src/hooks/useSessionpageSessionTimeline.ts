@@ -7,7 +7,7 @@ import type {
   TimelineAfterResult,
   TimelineSnapshot
 } from '@gugu/session-core/session-record/contract'
-import type { QuestionAnswer } from '@gugu/session-core/session-record/contract'
+import { settlementFromWire, type QuestionAnswer } from '@gugu/session-core/session-record/contract'
 import { latestAgentQuestion } from '../lib/agentQuestion'
 import { sessionpageSessionTimelineChannel } from '@/session/shared/core/session-timeline/sessionTimelineEvents'
 import {
@@ -102,7 +102,7 @@ function indexSettlements(
   settlements: readonly Settlement[]
 ): Record<string, Settlement> {
   const next = { ...base }
-  for (const settlement of settlements) next[settlement.itemId] = settlement
+  for (const settlement of settlements) next[settlement.itemId] = settlementFromWire(settlement)
   return next
 }
 

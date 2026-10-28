@@ -74,9 +74,14 @@ function isUnsupported(error: unknown): boolean {
 export function useCloudBrowser(deviceId: string | null, need: CloudBrowserNeed, sessionId: string | null): CloudBrowserView {
   const timeline = useTimelineSession(assistantTimelineClient(false), useMobileShell() ? 'mobile' : 'desktop', deviceId, sessionId, !!deviceId && !!sessionId)
   const pending = Object.values(timeline.timeline.settlements).find(item => item.state === 'pending' && item.origin?.source === 'browser-assistance')
-  const assistance = useMemo(() => pending ? { ...(pending.origin?.payload as Omit<CloudBrowserAssistance, 'requestId'>), requestId: pending.itemId } : null, [pending])
   const live = canOpenLiveBrowser()
   const [status, setStatus] = useState<CloudBrowserStatus | null>(null)
+  // 协议 12 的 server 还把求助放在浏览器状态里(13 起是会话上的 Ask):新端照旧读得到(向下兼容一档)。
+  const legacyAssistance = status?.assistance ?? null
+  const assistance = useMemo(
+    () => pending ? { ...(pending.origin?.payload as Omit<CloudBrowserAssistance, 'requestId'>), requestId: pending.itemId } : legacyAssistance,
+    [pending, legacyAssistance],
+  )
   const [state, setState] = useState<CloudBrowserState | null>(null)
   const [linkState, setLinkState] = useState<CloudBrowserLinkState | null>(null)
   const [frame, setFrame] = useState<CloudBrowserFrame | null>(null)

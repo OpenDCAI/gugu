@@ -651,6 +651,8 @@ export class CloudBrowser {
       completed: this.completed,
       controlled: !!this.holder || !!this.pendingHolder,
       lastActivityAt: this.lastActivityAt ? new Date(this.lastActivityAt).toISOString() : null,
+      // 协议 12 的桌面 / 手机从这里读求助(13 起是会话上的 Ask):新宿主照旧报,它们照旧看得见(向下兼容一档)。
+      assistance: this.pendingAssistance(),
       live: livePort,
     };
   }

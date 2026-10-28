@@ -7,7 +7,7 @@
 // 版本错位:那台机器不认 `taskhost.open`,或开窗口的应答里报的协议低于 MIN_SERVER_PROTOCOL,开线失败并带
 // SessionHostTooOldError,界面据此把这台机器标成「版本太旧」,❌ 退回别的界面。
 import { unwrapPayload } from '@gugu/core/cloud/payload'
-import { desktopReportId, MIN_SERVER_PROTOCOL, REMOTE_PROTOCOL_VERSION } from '@gugu/core/cloud/serverMachineHealth'
+import { desktopReportId, helloProtocol, MIN_SERVER_PROTOCOL, REMOTE_PROTOCOL_VERSION } from '@gugu/core/cloud/serverMachineHealth'
 import type { DesktopHello } from '@gugu/core/cloud/serverDesktopVersions'
 import { callDeviceRpc, subscribeDeviceRpcEvents } from './deviceRpc'
 import { desktopMatchVersion, isSshMachine, requestSshServerUpgrade, waitForTunnel } from './sshLinkChannel'
@@ -65,7 +65,7 @@ export type DeviceRpcDeps = {
   isSshMachine: (deviceId: string) => boolean
   requestUpgrade: (deviceId: string) => Promise<boolean>
   /** 开窗口时报给那台机器的「这台桌面是哪一版」(那台咕咕 server 据此让这个账号跑匹配的版本);拿不到 = 不报。 */
-  desktop?: () => Promise<DesktopHello | null>
+  desktop?: (deviceId: string) => Promise<DesktopHello | null>
   waitForTunnel?: (deviceId: string) => Promise<void>
 }
 
@@ -99,13 +99,27 @@ async function cachedSelfId(): Promise<string | null> {
   return readCachedDevices().find((device) => device.is_current_device === true)?.device_id ?? null
 }
 
-/** 这台桌面:设备 id(一台桌面一个,换版本不变)+ 自己的版本 + 说的协议。 */
-async function thisDesktop(): Promise<DesktopHello | null> {
+/**
+ * 这台桌面:设备 id(一台桌面一个,换版本不变)+ 自己的版本 + 说的协议。
+ * 那台机器比这台低一档(心跳报的 remote_protocol):照它的报 —— 老宿主见到更高的号会要求当场换版(serverMachineHealth.helloProtocol)。
+ */
+async function thisDesktop(deviceId: string): Promise<DesktopHello | null> {
   const asked = await desktopMatchVersion()
   const version = asked === undefined ? (typeof __APP_VERSION__ === 'string' ? __APP_VERSION__ : '') : asked
   if (!version) return null
   const id = (await cachedSelfId().catch(() => null)) ?? (await liveSelfId())
-  return id ? { id: desktopReportId(id, version), version, protocol: REMOTE_PROTOCOL_VERSION } : null
+  return id ? { id: desktopReportId(id, version), version, protocol: helloProtocol(await cachedRemoteProtocol(deviceId).catch(() => null)) } : null
+}
+
+/** 上次那份机器列表里那台机器报的协议(心跳的 remote_protocol);不是这个账号的缓存 / 没报 = null。 */
+async function cachedRemoteProtocol(deviceId: string): Promise<number | null> {
+  const [{ sessionCoordinator }, { cachedDevicesAccount, readCachedDevices }] = await Promise.all([
+    import('./sessionCoordinator'),
+    import('../store/devicesCache'),
+  ])
+  const owner = await sessionCoordinator.waitForDecidedOwner(0)
+  if (!owner.userId || cachedDevicesAccount() !== owner.userId) return null
+  return readCachedDevices().find((device) => device.device_id === deviceId)?.capabilities?.remote_protocol ?? null
 }
 
 const defaultDeps: DeviceRpcDeps = {
@@ -210,7 +224,7 @@ export function openRemoteSessionHostPipe(
     let opened
     let request: ReturnType<DeviceRpcDeps['call']> | null = null
     try {
-      const desktop = await deps.desktop?.().catch(() => null)
+      const desktop = await deps.desktop?.(deviceId).catch(() => null)
       request = deps.call(deviceId, SESSION_HOST_RPC.open, { client, protocol: REMOTE_PROTOCOL_VERSION, ...(desktop ? { desktop } : {}) }, { timeoutMs: OPEN_TIMEOUT_MS })
       opened = await Promise.race([request, new Promise<never>((_, reject) => { abandonOpen = reject })])
     } catch (error) {
