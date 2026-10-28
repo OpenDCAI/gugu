@@ -498,17 +498,15 @@ export default {
       "sectionAgents": "Agents",
       "sectionPeople": "People",
       "myAgents": "My agents · {{count}}",
+      "otherAgents": "Others' agents · {{count}}",
+      "listen": {
+        "all": "Hears all messages",
+        "allHint": "Also receives group messages that don't mention it. Its owner can click to switch to mentions only.",
+        "mentions": "Mentions only",
+        "mentionsHint": "Receives only messages that mention or reply to it. Its owner can click to switch to all messages."
+      },
       "title": "Group members",
       "titleTopic": "Topic members"
-    },
-    "topicInvite": {
-      "title": "Add topic members",
-      "search": "Search members",
-      "message": "{{names}} You are invited to join this topic.",
-      "confirm": "Add ({{count}})",
-      "empty": "No other members of the source chat are available to add.",
-      "noResults": "No matching members.",
-      "failed": "The invitation did not complete. Please try again."
     },
     "join": {
       "denied": {
