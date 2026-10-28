@@ -2204,6 +2204,7 @@ export class SessionManager implements InboundRouter {
       } : {}),
       ...(this.deps.mergeEnvelopes ? { mergeEnvelopes: this.deps.mergeEnvelopes } : {}),
       logger: this.deps.logger,
+      ...(this.deps.onStuckWork ? { onStuckWork: this.deps.onStuckWork } : {}),
       // ③:没有系统位的家,会话级系统提示词以用户级载体随首轮进去(见 cell-deps 抬头)。
       // ⚠️ 与上面 `sessionOpenMeta` 互斥 —— 路由位决定去哪一边,不会两边都去。
       ...(input.sessionPromptCarrier === 'session-context' && input.sessionPrompt

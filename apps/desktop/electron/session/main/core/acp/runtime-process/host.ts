@@ -238,6 +238,8 @@ const acpWorker = lazyWorker(
       env: {
         ...process.env,
         GUGU_ACP_ATTACHMENTS_DIR: join(app.getPath('userData'), 'acp-attachments'),
+        // 兜底落定一轮时的原始事件(有对话内容,只存本机,最多 5 份)。
+        GUGU_ACP_STUCK_LOG_DIR: join(app.getPath('userData'), 'logs', 'acp-stuck'),
         // 桥的入口不走 env:宿主按插件的 `acp.bridge` 声明解析好,随每次 start/resume 的
         // `AgentRunContext.acpAdapterEntry` 递进来(#6394;从前的 GUGU_CODEX_APP_SERVER_ACP_ENTRY 已删)。
       },

@@ -22,6 +22,7 @@ import type { AcpRuntimeDeps } from '../runtime/types';
 import { ChildAcpProcessHost } from './child-process-host';
 import { LocalAttachmentStore } from './local-attachment-store';
 import { LocalPromptQueueStore } from './local-prompt-queue-store';
+import { createStuckWorkLogStore } from './stuck-work-log-store';
 
 export type BootAcpRuntimeProcessOptions = {
   pluginRegistry: PluginRegistry<CLIAgentPluginProvider>;
@@ -91,6 +92,7 @@ export function bootAcpRuntimeProcess(options: BootAcpRuntimeProcessOptions): vo
         attachmentStore,
         promptQueueStore,
         logger,
+        ...(env.GUGU_ACP_STUCK_LOG_DIR ? { onStuckWork: createStuckWorkLogStore(env.GUGU_ACP_STUCK_LOG_DIR, logger) } : {}),
         onPlatformSessionClosed: (sessionId, platformAccessSessionId) =>
           platformSessionClosed.emit(undefined, {
             sessionId,

@@ -121,17 +121,18 @@ export class RawAcpLog {
     if (this.entries.length > this.maxEntries) this.entries.shift();
   }
 
-  snapshot(): { meta: RawAcpLogExportMeta; events: RawAcpLogEntry[] } {
+  /** `limit`:只要最近这么多条(兜底落盘用);缺省全部。 */
+  snapshot(limit?: number): { meta: RawAcpLogExportMeta; events: RawAcpLogEntry[] } {
     return {
       meta: {
         ...this.meta,
         generatedAt: new Date().toISOString(),
       },
-      events: structuredClone(this.entries),
+      events: structuredClone(limit === undefined ? this.entries : this.entries.slice(-limit)),
     };
   }
 
-  exportJson(): string {
-    return JSON.stringify(this.snapshot(), null, 2);
+  exportJson(limit?: number): string {
+    return JSON.stringify(this.snapshot(limit), null, 2);
   }
 }

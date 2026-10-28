@@ -40,6 +40,8 @@ export interface AcpRuntimeDeps {
   mergeEnvelopes?: (texts: readonly string[]) => string;
   attachmentStore?: AttachmentStore;
   logger: Logger;
+  /** 兜底落定时的原始事件落盘(见 SessionCellDeps.onStuckWork)。只存本机。 */
+  onStuckWork?: (sessionId: string, rawLogJson: string) => void;
   /** Notifies the privileged main process when an adapter-held platform token has no consumer. */
   onPlatformSessionClosed?: (sessionId: string, platformAccessSessionId?: string) => void;
   /** Durable serialization of the runtime machine queue across worker restarts. */

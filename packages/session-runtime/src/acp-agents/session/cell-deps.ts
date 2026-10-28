@@ -110,6 +110,13 @@ export interface SessionCellDeps {
   mergeEnvelopes?: (texts: readonly string[]) => string;
   logger: Logger;
   /**
+   * 兜底落定了一轮(结局已到、agent 一直不报 idle,见 SessionCell.armStuckWorkFallback)时,交出这条会话最近的
+   * 原始 ACP 事件(JSON)。宿主只存本机,❌ 上传:里面有对话内容。没接 = 不落。
+   */
+  onStuckWork?: (sessionId: string, rawLogJson: string) => void;
+  /** 兜底窗口,测试用;缺省 30 s。 */
+  stuckWorkFallbackMs?: number;
+  /**
    * behavior `agent-context-injection` 的 **③**:走用户级载体的会话级系统提示词。
    *
    * 这家没有系统位可坐,所以这段话以用户级载体进到**第一次真正发出去的那一轮**里,

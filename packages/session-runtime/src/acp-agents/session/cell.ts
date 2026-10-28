@@ -190,6 +190,9 @@ export class SessionCell {
   private pendingWorkEnd: { outcome: TranscriptTurnOutcome; dequeueQueuedPrompt?: boolean } | null = null;
   /** 自报状态的家:agent 报了 idle、可还有请求没答复 ⇒ 等那条答复带着结局来落定。 */
   private idleReported = false;
+  /** 结局已到、idle 迟迟不来时的兜底计时(见 armStuckWorkFallback)。 */
+  private stuckWorkTimer: ReturnType<typeof setTimeout> | null = null;
+  private stuckWorkSince = 0;
   /** 发出去的句数(含回放):转录行 id 与回合信封的序号用它,❌ 不是状态。 */
   private promptSequence = 0;
   private resolveActiveTurnCompletion: (() => void) | null = null;
@@ -514,6 +517,8 @@ export class SessionCell {
     this.trackRunningTool(event);
     if (event.kind === 'message' ? event.role === 'assistant' : this.isTranscriptEvent(event)) {
       this.turnHadAgentOutput = true;
+      // 前台还在出东西:它真在干活,兜底从头计。
+      if (this.stuckWorkTimer) this.armStuckWorkFallback(true);
     }
 
     // 不自报状态的家:请求已答复之后到的内容只能是上一段的尾巴(#6191)。自报的家开工会先报 running。
@@ -1310,13 +1315,51 @@ export class SessionCell {
     if (this.reportsState && this.machine.isWorking && !this.idleReported) {
       this.pendingWorkEnd = { outcome, ...opts };
       this.closeTurnCompletion();
+      this.armStuckWorkFallback(true);
       return true;
     }
     return this.endWork(outcome, opts);
   }
 
+  /**
+   * 兜底(2026-10-28 主人撞到:一轮已经有了 stopReason,只剩两条后台命令,新消息却一直进「排队」)。
+   * 结局已经到了、agent 却一直不报 idle ⇒ lifecycle 停在 working,下一句永远排在后面。
+   * 这**不是**被否掉的那种「静默就当它停了」(2026-09-06 把消息切碎):那是在结局到来之前猜;这里结局已经在手,
+   * 只是在等一个迟到的 idle。静默窗口里主对话有任何前台输出就重新计时,有待批权限就不计时。
+   * 到点:按记下的结局落定、打 warn,并把这条会话最近的原始事件落一份到本机(只存本地)。
+   */
+  private armStuckWorkFallback(fresh = false): void {
+    if (fresh || !this.stuckWorkTimer) this.stuckWorkSince = Date.now();
+    this.clearStuckWorkTimer();
+    if (!this.pendingWorkEnd || this.machine.pendingPermissions.length) return;
+    this.stuckWorkTimer = setTimeout(() => this.onStuckWork(), this.deps.stuckWorkFallbackMs ?? STUCK_WORK_FALLBACK_MS);
+    this.stuckWorkTimer.unref?.();
+  }
+
+  private clearStuckWorkTimer(): void {
+    if (this.stuckWorkTimer) clearTimeout(this.stuckWorkTimer);
+    this.stuckWorkTimer = null;
+  }
+
+  private onStuckWork(): void {
+    this.stuckWorkTimer = null;
+    const pending = this.pendingWorkEnd;
+    if (!pending || !this.machine.isWorking || this.machine.pendingPermissions.length) return;
+    this.deps.logger.warn('SessionCell: turn result arrived but the agent never reported idle; settling it', {
+      sessionId: this.sessionId,
+      providerId: this.deps.providerId,
+      case: 'result-without-idle',
+      waitedMs: Date.now() - this.stuckWorkSince,
+      backgroundCommands: this.lastRunningCommandTaskIds.length,
+      backgroundAgents: this.lastRunningAgentCount,
+    });
+    this.deps.onStuckWork?.(this.sessionId, this.rawLog.exportJson(STUCK_WORK_LOG_ENTRIES));
+    this.endWork(pending.outcome, pending.dequeueQueuedPrompt === false ? { dequeueQueuedPrompt: false } : undefined);
+  }
+
   /** agent 停下:转录里开着的那一组按结局收口,状态回到 ready(抽干队列)。 */
   private endWork(outcome: TranscriptTurnOutcome, opts?: { dequeueQueuedPrompt?: boolean }): boolean {
+    this.clearStuckWorkTimer();
     this.idleReported = false;
     this.pendingWorkEnd = null;
     const working = this.machine.isWorking;
@@ -1356,6 +1399,9 @@ export class SessionCell {
       this.providerAdmission?.accept();
       this.idleReported = false;
       if (this.machine.phase.kind === 'ready') this.applyEvent({ type: 'WorkStarted' });
+      // 等人(requires_action)不计时;回到 running 而结局仍挂着 ⇒ 接着等那个 idle,照样计时。
+      if (state === 'requires_action') this.clearStuckWorkTimer();
+      else if (this.pendingWorkEnd) this.armStuckWorkFallback();
       return;
     }
     if (!this.machine.isWorking) return;
@@ -1445,6 +1491,7 @@ export class SessionCell {
   }
 
   dispose(): void {
+    this.clearStuckWorkTimer();
     if (this.preparationRetryTimer) clearTimeout(this.preparationRetryTimer);
     this.permissions.drain(this.machine.pendingPermissions);
   }
@@ -2501,6 +2548,10 @@ function machineOutcome(
 
 /** 「一个字都没回就正常结束」时,等 stderr 那行失败说明的最长时间。 */
 const STDERR_FAILURE_GRACE_MS = 300;
+/** 结局已到、等 idle 的兜底窗口。idle 正常紧跟结局(秒级)到。 */
+const STUCK_WORK_FALLBACK_MS = 30_000;
+/** 兜底触发时落到本机的原始事件条数上限。 */
+const STUCK_WORK_LOG_ENTRIES = 2_000;
 
 /** 咕咕自己写进会话级背景的块都以这几个标签开头(平台块 / 身份块 / 用户规则)。 */
 const SESSION_CONTEXT_BLOCK = /^\s*<(gugu_platform|agent_identity|user_rules)\b/;
