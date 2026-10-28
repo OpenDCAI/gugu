@@ -141,11 +141,6 @@
   },
   {
     "rule": "hard-coded-color",
-    "file": "apps/desktop/src/session/renderer/index.css",
-    "count": 56
-  },
-  {
-    "rule": "hard-coded-color",
     "file": "apps/desktop/src/session/renderer/lib/components/app-icon.tsx",
     "count": 1
   },
@@ -166,38 +161,8 @@
   },
   {
     "rule": "hard-coded-color",
-    "file": "packages/session-chat-ui/src/components/engine/block-frame.css.ts",
-    "count": 5
-  },
-  {
-    "rule": "hard-coded-color",
-    "file": "packages/session-chat-ui/src/components/engine/unit-row.css.ts",
-    "count": 4
-  },
-  {
-    "rule": "hard-coded-color",
-    "file": "packages/session-chat-ui/src/mock-transcript.ts",
-    "count": 1
-  },
-  {
-    "rule": "hard-coded-color",
-    "file": "packages/session-chat-ui/src/stories/_harness/state-matrix.tsx",
-    "count": 1
-  },
-  {
-    "rule": "hard-coded-color",
-    "file": "packages/session-ui/src/react/chat-ui/chat-theme.css",
-    "count": 2
-  },
-  {
-    "rule": "hard-coded-color",
     "file": "packages/session-ui/src/react/components/chat-composer/chat-composer.css.ts",
     "count": 1
-  },
-  {
-    "rule": "hard-coded-color",
-    "file": "packages/session-ui/src/react/components/loading-indicator/LoadingIndicator.css",
-    "count": 2
   },
   {
     "rule": "hard-coded-color",
@@ -206,27 +171,7 @@
   },
   {
     "rule": "hard-coded-color",
-    "file": "packages/session-ui/src/react/story-layout.css.ts",
-    "count": 2
-  },
-  {
-    "rule": "hard-coded-color",
-    "file": "packages/session-ui/src/styles/effects/overflow-fade.css",
-    "count": 4
-  },
-  {
-    "rule": "hard-coded-color",
     "file": "packages/session-ui/src/styles/recipes/popup-surface.css.ts",
-    "count": 1
-  },
-  {
-    "rule": "hard-coded-color",
-    "file": "packages/session-ui/src/theme/core/generate/color-format.ts",
-    "count": 2
-  },
-  {
-    "rule": "hard-coded-color",
-    "file": "packages/session-ui/src/theme/core/generate/fill-gaps.ts",
     "count": 1
   }
 ]
