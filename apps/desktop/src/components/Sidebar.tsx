@@ -159,7 +159,7 @@ function RailItem({
 }
 
 // ─── Help & tour ──────────────────────────────────────────────────────────────
-// 导览唯一的入口(规范 4.3;设置 → 关于里那一行挪到这里):从第 n 步继续(中途退出 / 跳过的,带一个点)、从头开始、看功能短片。
+// 导览唯一的入口:从第 n 步继续(中途退出 / 跳过的,带一个点)、从头开始。真实短片就绪前不展示短片入口。
 // 导览只有桌面端有。
 function HelpOnRail() {
   const { t } = useTranslation('productTour')
@@ -184,7 +184,6 @@ function HelpOnRail() {
             </DropdownMenuItem>
           )}
           <DropdownMenuItem onClick={() => request({ mode: 'restart' })}>{t('help.restart')}</DropdownMenuItem>
-          <DropdownMenuItem onClick={() => request({ mode: 'films' })}>{t('help.films')}</DropdownMenuItem>
         </Menu>
       )}
     </div>
