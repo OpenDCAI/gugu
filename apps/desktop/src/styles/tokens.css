@@ -1746,8 +1746,11 @@ body.barcode-scanner-active #root {
 /* ── theme batch B:用量页(components/usage)的图表色,原值搬来,❌ 改色 ────────────────────────────
    --usage-heat-*:热力图四档暖色(owner 2026-09-23 看过设计稿拍的),随主题;第 0 档是 --fg 的淡色,留在 usage.css。
    --usage-accent-*:用量页的强调色:徽章、余额渐变、存储色块;随主题。--usage-accent-mint 两主题同值。
-   --usage-series-*:分类色(图表系列、模型标签点),两主题同值;10 个以内的图取奇数位(1,3,…,19),
-   超过 10 个用全部 20 个。canvas 读不到 CSS 变量,图表经 tokenColor() 取值。 */
+   --usage-series-*:图表的分类色,两主题同值;10 个以内的图取奇数位(1,3,…,19),超过 10 个用全部 20 个。
+   canvas 读不到 CSS 变量,图表经 tokenColor() 取值。
+   --usage-tag-*:模型标签旁的小圆点(名字哈希到 12 色之一),两主题同值。原值搬来;标签点是非文本标识,两套底色上
+   都要 ≥3:1(亮底 #ffffff、暗底 #181818,单测守着),9、10 两档原值不够,因此换成同色系的邻档
+   (#4f46e5 → #6366f1,#ca8a04 → #a16207)。 */
 :root {
   --usage-heat-1: oklch(0.42 0.08 45);
   --usage-heat-2: oklch(0.55 0.13 45);
@@ -1779,6 +1782,18 @@ body.barcode-scanner-active #root {
   --usage-series-18: #59BAA8;
   --usage-series-19: #FF7DDA;
   --usage-series-20: #FFCFEE;
+  --usage-tag-1: #2f7de1;
+  --usage-tag-2: #16a34a;
+  --usage-tag-3: #d97706;
+  --usage-tag-4: #9333ea;
+  --usage-tag-5: #0891b2;
+  --usage-tag-6: #dc2626;
+  --usage-tag-7: #65a30d;
+  --usage-tag-8: #db2777;
+  --usage-tag-9: #6366f1;
+  --usage-tag-10: #a16207;
+  --usage-tag-11: #0d9488;
+  --usage-tag-12: #7c3aed;
 }
 [data-theme="light"] {
   --usage-heat-1: oklch(0.90 0.05 50);
