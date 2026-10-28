@@ -6,7 +6,7 @@ import { composerCardCopy } from '../../lib/composerCardCopy'
 import type { AgentDisplayStatus } from '@gugu/core/shared/types/chat'
 import { Check, Clock, Sparkles } from '@/lib/icons'
 import { AgentHarnessIcon, EngineIcon } from '../AgentHarnessIdentity'
-import { IconButton } from '../ui/IconButton'
+import { Avatar } from '../Avatar'
 import { useAgentDisplayStatuses } from '../../hooks/useAgentDisplayStatus'
 import { listMyAgentJoinRequests } from '../../lib/groupAgentJoinService'
 import { rendererLogger } from '../../lib/log'
@@ -41,8 +41,7 @@ export function ComposerCardHead({ type, agentUserId }: { type: ComposerCard['ty
  * gugu-dev#181 任务卡 / 已安排卡:一个面、三行 —— 是什么(右上时刻)、原话、交给谁(行尾一个状态标记,与侧栏同一套读数)。
  * 量值照聊天里的兄弟卡(App 安装包卡:12px 圆角、1px 边、12px 内边距、行距 8px);❌ 上下两截、❌ 另起状态条。
  */
-export function ComposerCardView({ card, isMine, isGroup, chatId, senderName, time, memberProfiles, onOpenTopic, compact = false }: {
-  compact?: boolean
+export function ComposerCardView({ card, isMine, isGroup, chatId, senderName, time, memberProfiles, onOpenTopic }: {
   card: Exclude<ComposerCard, QuestionCard>
   isMine: boolean
   isGroup: boolean
@@ -69,20 +68,6 @@ export function ComposerCardView({ card, isMine, isGroup, chatId, senderName, ti
   const status = useAgentDisplayStatuses(task ? [task.agentUserId] : [])[task?.agentUserId ?? '']
   const openable = task && (owned || onOpenTopic)
   const Root = openable ? 'button' : 'div'
-  const taskIcon = task?.agentType ? <EngineIcon engine={task.agentType} size={14} /> : <Sparkles size={14} />
-  if (compact && task) return (
-    <div data-task-message-details className="flex max-w-full items-center justify-end gap-1 self-end text-[length:var(--font-caption)] text-[var(--muted-fg)]">
-      {openable ? <IconButton size="sm" aria-label={t('message.taskCard.open')} title={t('message.taskCard.task')}
-        onClick={() => onOpenTopic ? onOpenTopic() : openTaskCardSession(task, place.local)}>
-        {taskIcon}
-      </IconButton> : <span aria-hidden>{taskIcon}</span>}
-      <span className="min-w-0 truncate">{t('message.taskCard.handedTo')} {task.agentName}</span>
-      {join && <span>{t(join === 'pending' ? 'message.taskCard.awaitingApproval' : 'message.taskCard.rejected')}</span>}
-      {!join && <TaskStatusMark status={status} />}
-      <span className="shrink-0">{time}</span>
-    </div>
-  )
-
   return (
     <Root
       type={openable ? 'button' : undefined}
@@ -109,7 +94,7 @@ export function ComposerCardView({ card, isMine, isGroup, chatId, senderName, ti
         <span className="flex h-5 min-w-0 items-center gap-2 text-[var(--font-caption)] text-[var(--muted-fg)]">
           <span className="shrink-0">{t('message.taskCard.handedTo')}</span>
           <span className="flex shrink-0 items-center gap-1">
-
+            <Avatar name={task.agentName} avatarUrl={task.agentAvatar ?? null} seed={task.agentUserId} isAgent harnessBadge={false} size={16} still />
             <b className="font-medium text-[var(--text-secondary)]">{task.agentName}</b>
           </span>
           <span className="min-w-0 truncate">

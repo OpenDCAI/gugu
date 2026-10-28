@@ -11,8 +11,11 @@ export function conversationProcessReply(header: TurnProcessHeader | null, tail:
   return { ...reply, conversationProcess: { id: header.id, ...(header.live ? { live: true } : {}), startedAt: header.startedAt, endedAt: header.endedAt } };
 }
 
-/** One visible output per segment; retain source records and non-message work. */
-export function conversationOutput(items: readonly ChatItem[]): { reply: ChatMessage | null; rest: ChatItem[] } {
+/**
+ * One reply bubble per segment, plus every message_send output as its own bubble (`sent`);
+ * `rest` is the process work that folds under the process line.
+ */
+export function conversationOutput(items: readonly ChatItem[]): { reply: ChatMessage | null; sent: ChatMessage[]; rest: ChatItem[] } {
   let outputs = items.filter((item): item is ChatMessage => item.kind === 'message'
     && item.role === 'assistant' && !item.id.includes(':sent:') && !('guguDelivery' in item && item.guguDelivery)
     && !!item.text.trim() && !isGuguSilence(item.text) && !parseHookNotice(item.text));
@@ -26,10 +29,15 @@ export function conversationOutput(items: readonly ChatItem[]): { reply: ChatMes
   const first = outputs[0];
   const latest = outputs.at(-1);
   const ids = new Set(outputs.map(item => item.id));
+  // owner 10-28:message_send 发出去的那几条是这一轮的输出,各自一个气泡,❌ 折进过程里、展开才看得到。
+  const sent = first ? items.filter((item): item is ChatMessage => item.kind === 'message' && item.role === 'assistant'
+    && item.id.includes(':sent:') && !ids.has(item.id) && !!item.text.trim()) : [];
+  for (const item of sent) ids.add(item.id);
   return {
     // Stable identity prevents replacement of the bubble when a new provider
     // message carries the result of the tool call.
     reply: first && latest ? { ...latest, id: first.id } : null,
+    sent,
     rest: items.filter(item => !ids.has(item.id)),
   };
 }
