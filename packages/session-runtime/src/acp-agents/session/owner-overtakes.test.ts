@@ -8,7 +8,7 @@ import { describe, expect, it, vi } from 'vitest';
 import { FakeAcpAgent } from '../acp-test-support';
 import { SessionCell } from './cell';
 
-function steeringCell(reportsState = false) {
+function steeringCell(reportsState = false, callbacks?: ConstructorParameters<typeof SessionCell>[0]['callbacks']) {
   const agent = new FakeAcpAgent();
   agent.extMethod = vi.fn().mockResolvedValue({ outcome: 'injected' });
   agent.prompt = vi.fn(() => new Promise<{ stopReason: 'end_turn' }>(() => {}));
@@ -22,6 +22,7 @@ function steeringCell(reportsState = false) {
     supportsSteering: true,
     resolveAttachment: vi.fn().mockResolvedValue({ data: '', mimeType: 'image/png' }),
     logger: noopLogger,
+    ...(callbacks ? { callbacks } : {}),
   });
   cell.applySessionReady();
   if (reportsState) cell.setReportsState(true);
@@ -129,5 +130,24 @@ describe('SessionCell: the owner is not queued behind a turn someone else starte
     });
     await Promise.resolve();
     expect(merged.cell.history().active?.trigger).toEqual({ kind: 'delivery', chatIds: ['c1', 'c2'] });
+  });
+
+  it('the first frame a scheduled turn is visible in already carries its trigger, before the engine reports running', async () => {
+    const frames: Array<{ lifecycle: string; active: boolean; trigger: unknown }> = [];
+    let cell!: SessionCell;
+    const record = () => {
+      const active = cell.history().active;
+      frames.push({ lifecycle: cell.sessionState.lifecycle, active: !!active, trigger: active?.trigger });
+    };
+    cell = steeringCell(true, { onTranscriptChanged: record, onSessionStateChanged: record }).cell;
+
+    void cell.prompt({ text: '<gugu_delivery route="scheduled" schedule="daily">run it</gugu_delivery>', origin: 'communication' });
+    await Promise.resolve();
+    cell.push({ kind: 'agent_state', state: 'running' });
+
+    const visible = frames.filter((frame) => frame.active || frame.lifecycle === 'working');
+    expect(visible.length).toBeGreaterThan(0);
+    expect(visible[0], 'no frame shows the turn without knowing what started it').toMatchObject({ active: true, trigger: { kind: 'schedule' } });
+    expect(visible.every((frame) => frame.active && (frame.trigger as { kind?: string })?.kind === 'schedule')).toBe(true);
   });
 });
