@@ -5,6 +5,9 @@ import { readAssistantPanelIntegrations } from './assistant-panel-integrations'
 import { translateSessionMessage } from '@/session/renderer/localization/locale-store'
 import { waitForAssistantControl } from '@/lib/assistantControlReady'
 import { isAssistantActionRefusal } from '@/lib/assistantActionRefusal'
+import { rendererLogger } from '@/lib/log'
+
+const log = rendererLogger('assistant/authorization')
 
 /** Read-only cloud metadata plus explicit existing authorization actions. */
 export function assistantPanelLibraryHost(base: LibraryHost, panel: AssistantPanelFiles | undefined, prepare: () => Promise<void>,loadError?: unknown): LibraryHost {
@@ -83,6 +86,7 @@ export function assistantPanelLibraryHost(base: LibraryHost, panel: AssistantPan
       await requirePanel().assertCurrent()
       try { return await base.integrations.cliLoginWait(provider) }
       catch (error) {
+        log.warn({ provider, code: (error as { code?: string } | null)?.code, refused: isAssistantActionRefusal(error) }, 'authorization status disconnected')
         if (!base.remote || isAssistantActionRefusal(error)) throw error
         // A known sleeping host can be rejected before its pipe opener runs.
         // This is an active authorization's idempotent status read: resume it
@@ -92,7 +96,20 @@ export function assistantPanelLibraryHost(base: LibraryHost, panel: AssistantPan
         if ((authorizationVersions.get(provider) ?? 0) !== version) throw new Error(translateSessionMessage('integrations.authorizationCancelled'))
         await prepareAction()
         if ((authorizationVersions.get(provider) ?? 0) !== version) throw new Error(translateSessionMessage('integrations.authorizationCancelled'))
-        return base.integrations.cliLoginWait(provider)
+        let result: Awaited<ReturnType<LibraryIntegrationsRpc['cliLoginWait']>> | undefined
+        // Resume can hand the connection from realtime back to its SSH tunnel.
+        // A read in that handoff is safe to retry within the same deadline.
+        try {
+          await waitForAssistantControl(async () => { result = await base.integrations.cliLoginWait(provider) }, async () => {
+            await requirePanel().assertCurrent()
+            if ((authorizationVersions.get(provider) ?? 0) !== version) throw new Error(translateSessionMessage('integrations.authorizationCancelled'))
+          }, 90_000)
+        } catch (cause) {
+          if (isAssistantActionRefusal(cause)) throw cause
+          throw new Error(translateSessionMessage('deviceScope.unreachable', { device: base.remote.deviceLabel }), { cause })
+        }
+        log.info({ provider, status: result!.status }, 'authorization status resumed')
+        return result!
       }
     },
     cliLoginProgress: (...args) => prepared ? base.integrations.cliLoginProgress(...args) : Promise.resolve(null),

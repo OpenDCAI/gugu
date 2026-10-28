@@ -120,6 +120,16 @@ it('resumes an active authorization rejected before attach and only retries its 
   expect(f.native).toHaveBeenCalledOnce() // Never repeat the non-idempotent login start.
 })
 
+it('continues the same authorization read through the transport handoff after resume', async () => {
+  const f = fixture()
+  await f.host.integrations.cliLoginStart('feishu')
+  f.wait.mockRejectedValueOnce(new Error('Host fell asleep')).mockRejectedValueOnce(new Error('Channel switching'))
+  await expect(f.host.integrations.cliLoginWait('feishu')).resolves.toEqual({ status: 'pending' })
+  expect(f.wait).toHaveBeenCalledTimes(3)
+  expect(f.prepare).toHaveBeenCalledTimes(2)
+  expect(f.native).toHaveBeenCalledOnce()
+})
+
 it.each(['server_outdated', 'forbidden', 'unauthorized'])('keeps an authorization status refusal %s without a wake retry', async code => {
   const f = fixture()
   await f.host.integrations.cliLoginStart('feishu')
