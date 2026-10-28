@@ -39,7 +39,7 @@ function memory() {
   const seen = new Set<string>()
   return { has: (id: string) => seen.has(id), add: (id: string) => void seen.add(id) }
 }
-const BACKGROUND = { preview: false, beside: true, activate: false }
+const BACKGROUND = { preview: false, activate: false }
 
 beforeEach(() => {
   fx.state = 'ready'
@@ -50,7 +50,7 @@ beforeEach(() => {
 })
 
 describe('adding the task’s Browser Use tab', () => {
-  it('beside the conversation, without switching to it, once per task', () => {
+  it('as one more tab on the tab strip — no split, no switching to it — once per task', () => {
     const seen = memory()
     expect(autoOpenBrowserUseTab('task-1', seen)).toBe(true)
     expect(fx.view!.paneLayout.open).toHaveBeenCalledWith('browser-use.browser', {}, BACKGROUND)

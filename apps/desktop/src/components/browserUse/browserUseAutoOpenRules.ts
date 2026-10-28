@@ -29,7 +29,8 @@ export const autoOpenMemory: AutoOpenMemory = {
 }
 
 /**
- * 替这个任务把 Browser Use 页签加到页签条上一次,❌ 抢焦点(开在对话旁边、不切过去,同 agent 打开的页)。
+ * 替这个任务把 Browser Use 页签加到页签条上一次:只加一枚页签,❌ 自动分屏(不传 beside:并排会把它和对话连成一对、一看对话就分屏),
+ * ❌ 抢焦点(activate: false,人点它才切过去)。
  * 只在这台电脑上装着并启用了 Browser Use 时;每个任务一次:开过(或人自己开着)就记下,人关掉了不再开。
  * 开了 = true。
  */
@@ -43,6 +44,6 @@ export function autoOpenBrowserUseTab(sessionId: string, memory: AutoOpenMemory 
   const shown = [...view.paneLayout.groups.map((group) => group.pane), ...[...view.paneLayout.windowPanes.values()].map((w) => w.pane)]
     .some((pane) => pane.resolvedTabs.some((entry) => entry.kind === tab.kind))
   if (shown) return false
-  runInAction(() => view.paneLayout.open(tab.kind, {}, { preview: false, beside: true, activate: false }))
+  runInAction(() => view.paneLayout.open(tab.kind, {}, { preview: false, activate: false }))
   return true
 }
