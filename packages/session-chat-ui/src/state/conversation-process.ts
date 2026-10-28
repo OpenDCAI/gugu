@@ -37,9 +37,11 @@ export function conversationOutput(items: readonly ChatItem[], live = false): { 
   const sent = items.filter((item): item is ChatMessage => item.kind === 'message' && item.role === 'assistant'
     && item.id.includes(':sent:') && item !== reply && !!item.text.trim());
   const out = new Set<ChatItem>([...sent, ...(reply ? [reply] : [])]);
+  // 发出去的那条已经是气泡了:它的 message_send 调用 ❌ 在过程里再画一遍同一句话(MBP 验收 10-28「完成」出现两次)。
+  const sentCalls = new Set([...out].map(item => /^(.*):sent:[^:]+$/.exec(item.id)?.[1]).filter((id): id is string => id !== undefined));
   return {
     reply,
     sent,
-    rest: items.filter(item => !out.has(item)).map(item => isSpoken(item) ? { ...item, conversationNarration: true } : item),
+    rest: items.filter(item => !out.has(item) && !sentCalls.has(item.id)).map(item => isSpoken(item) ? { ...item, conversationNarration: true } : item),
   };
 }

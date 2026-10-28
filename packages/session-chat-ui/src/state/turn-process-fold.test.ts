@@ -992,6 +992,8 @@ describe('agent conversation process footer', () => {
       expect(units.filter(unit => (unit.data as ChatMessage).conversationPart === 'head').map(unit => unit.itemId)).toEqual(['answer:head']);
       if (open) expect(ids(units).indexOf('call2')).toBeLessThan(ids(units).indexOf('call:sent:m1'));
       else expect(ids(units)).not.toContain('call2');
+      // 发出去的那几条是气泡,发它们的那次调用(`call`)❌ 在过程里再画一遍同一句话(MBP 验收 10-28)。
+      expect(ids(units)).not.toContain('call');
     }
   });
   it('counts the steps on a live process line that has no reply yet', () => {
