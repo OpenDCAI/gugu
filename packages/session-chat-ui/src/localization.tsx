@@ -91,6 +91,7 @@ const fallbackMessages = {
   'transcript.backgroundTasks.stopCommand': 'Stop this background command',
   'transcript.backgroundTasks.stopSubagent': 'Stop this subagent',
   'transcript.backgroundTasks.dismiss': 'Remove from list (does not stop it)',
+  'transcript.backgroundTasks.noSteps': 'No steps yet',
   // 转录里这一行是 tool call 形态:一个动词 + 它干了什么(owner 2026-09-05)。
   'transcript.subagentSpawn': 'Launch subagent',
   'transcript.tool': 'Tool',

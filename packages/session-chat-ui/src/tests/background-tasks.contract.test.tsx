@@ -3,6 +3,7 @@ import { createChatView } from '@session-chat/chat-view'
 import type { ChatCommands } from '@session-chat/commands'
 import { DEFAULT_THEME } from '@session-chat/core/theme'
 import type { BackgroundCommandEntry } from '@session-chat/lib/background-command-roster'
+import { placeSubagentPanel } from '@session-chat/components/rows/background-tasks/background-tasks-parts'
 import type { SubagentRosterEntry } from '@session-chat/lib/subagent-roster'
 import type { TranscriptTurn } from '@session-chat/model'
 import { createChatState } from '@session-chat/state/chat-state'
@@ -196,5 +197,79 @@ describe('background tasks at the end of the transcript', () => {
       items: [{ kind: 'message', id: 'q2', seq: 0, role: 'user', text: 'And lint too.' }]
     } as unknown as TranscriptTurn)
     await until('the background line moves to its own last row', () => row(host) !== null && pill() === null)
+  })
+
+  // owner 2026-10-27 拍板补回:悬停子智能体那一行,弹出它的工具时间线(样式照原来摘要卡里那张)。
+  it('hovering a subagent row shows its tool timeline, and the panel survives roster updates', async () => {
+    const { state, host } = mount()
+    const calls = [
+      { toolCallId: 'c1', title: 'Read src/ChatRoot.tsx', status: 'done' as const, seq: 0 },
+      { toolCallId: 'c2', title: 'Grep "virtualizer"', status: 'error' as const, seq: 1 },
+      { toolCallId: 'c3', title: 'Run pnpm test', status: 'running' as const, seq: 2 }
+    ]
+    state.transcript.history.seed([settled])
+    state.session.setBackgroundTasks({ commands: [], subagents: [agent({ model: 'claude-sonnet', calls })] })
+    await until('the background line is on screen', () => row(host) !== null)
+    host.querySelector<HTMLElement>('[data-collapse-id="background-tasks:open"]')?.click()
+    await until('the list opens', () => items(host).length === 1)
+
+    const agentRow = items(host)[0]
+    // 浮层写全了名字,❌ 再叠原生 title。
+    expect(agentRow.title).toBe('')
+    const panel = () => document.querySelector<HTMLElement>('[data-slot="subagent-hover-panel"]')
+    agentRow.dispatchEvent(new MouseEvent('mouseenter'))
+    expect(panel()).toBeNull()
+    await until('the panel opens after the hover delay', () => panel() !== null)
+    // 被行的 overflow 裁掉就看不见了:它 portal 在行外面。
+    expect(agentRow.contains(panel())).toBe(false)
+    expect(panel()!.textContent).toContain('Audit chat perf')
+    expect(panel()!.textContent).toContain('claude-sonnet')
+    const steps = [...panel()!.querySelectorAll<HTMLElement>('[data-slot="subagent-timeline-step"]')]
+    expect(steps.map((s) => [s.dataset.status, s.textContent])).toEqual([
+      ['done', 'Read src/ChatRoot.tsx'],
+      ['error', 'Grep "virtualizer"'],
+      ['running', 'Run pnpm test']
+    ])
+
+    // 名单来了更新(新对象):浮层还开着,多出来的那一步也画上。
+    state.session.setBackgroundTasks({
+      commands: [],
+      subagents: [agent({ model: 'claude-sonnet', calls: [...calls, { toolCallId: 'c4', title: 'Edit a.ts', status: 'running', seq: 3 }] })]
+    })
+    await until('the new step shows', () => panel()?.querySelectorAll('[data-slot="subagent-timeline-step"]').length === 4)
+
+    items(host)[0].dispatchEvent(new MouseEvent('mouseleave'))
+    // 挪到浮层上它不关。
+    panel()!.dispatchEvent(new MouseEvent('mouseenter'))
+    await new Promise((r) => setTimeout(r, 250))
+    expect(panel()).not.toBeNull()
+    panel()!.dispatchEvent(new MouseEvent('mouseleave'))
+    await until('the panel closes after leaving it', () => panel() === null)
+  })
+
+  it('says so when the subagent has no steps yet', async () => {
+    const { state, host } = mount()
+    state.transcript.history.seed([settled])
+    state.session.setBackgroundTasks({ commands: [], subagents: [agent()] })
+    await until('the background line is on screen', () => row(host) !== null)
+    host.querySelector<HTMLElement>('[data-collapse-id="background-tasks:open"]')?.click()
+    await until('the list opens', () => items(host).length === 1)
+    items(host)[0].dispatchEvent(new MouseEvent('mouseenter'))
+    const panel = () => document.querySelector<HTMLElement>('[data-slot="subagent-hover-panel"]')
+    await until('the panel opens', () => panel() !== null)
+    expect(panel()!.textContent).toContain('No steps yet')
+    expect(panel()!.querySelector('[data-slot="subagent-timeline"]')).toBeNull()
+  })
+
+  it('places the panel below the row, flips above near the bottom edge, and stays inside the window', () => {
+    const viewport = { width: 800, height: 600 }
+    const panel = { width: 320, height: 200 }
+    expect(placeSubagentPanel({ top: 100, bottom: 128, left: 40 }, panel, viewport)).toEqual({ top: 134, left: 40 })
+    // 贴着窗口底:翻到行上方。
+    expect(placeSubagentPanel({ top: 540, bottom: 568, left: 40 }, panel, viewport)).toEqual({ top: 334, left: 40 })
+    // 右边放不下:往左挪进窗口。
+    expect(placeSubagentPanel({ top: 100, bottom: 128, left: 700 }, panel, viewport).left).toBe(472)
+    // 上下都放不下:贴着窗口底,❌ 出窗。
+    expect(placeSubagentPanel({ top: 150, bottom: 178, left: 40 }, { width: 320, height: 500 }, viewport).top).toBe(92)
   })
 })
