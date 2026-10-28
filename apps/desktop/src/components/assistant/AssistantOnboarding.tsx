@@ -109,16 +109,19 @@ export function AssistantOnboarding({
       return
     }
     if (!record) return
+    let resumed = false
+    localInstallationStarted.current = true
+    setInstalling(true)
     setBusy('resume')
     writeSetupStep(ownerUserId, 'connect')
     resumeLocalAssistant(record)
-      .then(() => reloadMyAssistant(ownerUserId))
+      .then(() => { resumed = true; reloadMyAssistant(ownerUserId) })
       .catch((e: unknown) => {
         writeSetupStep(ownerUserId, null)
         setError(messageForUser(e))
         log.error({ error: String(e) }, 'resume local assistant failed')
       })
-      .finally(() => setBusy(null))
+      .finally(() => setBusy(resumed ? null : 'computer'))
   }, [ownerUserId, localDeviceId])
 
   // 到「住哪」那一步才问会员档:没读到就当不是会员(云上那一条给「了解会员」,❌ 替人点一下领取)。
@@ -165,13 +168,18 @@ export function AssistantOnboarding({
     setRetryCleanup(null)
     let keepBusy = false
     try {
-      await setUpAssistantOnThisComputer(await setupDraft(), localDeviceId, { signal: attempt.signal, onInstalling: () => {
+      const pending = pendingLocalAssistant(ownerUserId)
+      const onInstalling = () => {
         localInstallationStarted.current = true
         setInstalling(true)
         setCancelling(false)
         writeSetupStep(ownerUserId, 'connect')
         offerCustomizeCard(ownerUserId)
-      } })
+      }
+      if (pending) {
+        onInstalling()
+        await resumeLocalAssistant(pending)
+      } else await setUpAssistantOnThisComputer(await setupDraft(), localDeviceId, { signal: attempt.signal, onInstalling })
       reloadMyAssistant(ownerUserId)
     } catch (e) {
       keepBusy = localInstallationStarted.current || e instanceof AssistantSetupCleanupError
