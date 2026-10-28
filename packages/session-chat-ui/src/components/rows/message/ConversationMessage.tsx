@@ -13,13 +13,13 @@ import { BACKGROUND_TASKS_TOGGLE } from '@session-chat/state/flatten';
 import { segmentItem } from './DeliveryCard';
 import { isMessageEditing } from './message-editor-metrics';
 import { UserMessageCard } from './UserMessageCard';
-import { CONVERSATION_EXPAND_H, hasConversationBody } from './conversation-body';
+import { CONVERSATION_EXPAND_H, CONVERSATION_HEADER_H, CONVERSATION_PROCESS_H, hasConversationBody } from './conversation-body';
 import { measureUserMessage } from './user-message-metrics';
 import { userMessageActionsHeight, type MessageVars } from './metrics';
 import { conversationRoot, conversationHeader, conversationName, conversationDivider, conversationQuote, conversationTime, conversationProcessButton, conversationProcessChevron, conversationTimeSeparator } from './conversation-message.css';
 
-const HEADER_H = 24;
-const TIME_H = 22;
+const HEADER_H = CONVERSATION_HEADER_H;
+const TIME_H = CONVERSATION_PROCESS_H;
 
 export function isConversationMessage(item: ChatMessage, ctx: MeasureCtx): boolean {
   if (!ctx.theme.layout?.agentConversation || item.hookNotice || item.questionAnswer || item.role === 'thought') return false;
@@ -44,6 +44,8 @@ export function conversationMessageHeight(item: ChatMessage, ctx: MeasureCtx, va
 }
 
 function singleHeight(item: ChatMessage, ctx: MeasureCtx, vars: MessageVars): number {
+  if (item.conversationPart === 'head') return HEADER_H + TIME_H + backgroundHeight(item, ctx);
+  const header = item.conversationPart === 'body' ? 0 : HEADER_H;
   const bodyVars = conversationVars(item, vars);
   // 时间、复制、编辑那一行照原气泡画在气泡下面(owner 定稿 0 号图);没有正文就没有气泡,也不留这一行。
   const actions = hasConversationBody(item) || isMessageEditing(item.id, ctx) ? 0 : userMessageActionsHeight(bodyVars);
@@ -51,7 +53,7 @@ function singleHeight(item: ChatMessage, ctx: MeasureCtx, vars: MessageVars): nu
   const body = measureUserMessage(item, bodyCtx, bodyVars);
   // 折着 ⇔ 展开量出来比现在高;那时气泡下面多一行「展开全文」。
   const folded = ctx.expandedId !== item.id && !isMessageEditing(item.id, ctx) && measureUserMessage(item, { ...bodyCtx, expandedId: item.id }, bodyVars) > body;
-  return HEADER_H + body - actions + (folded ? CONVERSATION_EXPAND_H : 0) + (item.role === 'assistant' && item.conversationProcess ? TIME_H + backgroundHeight(item, ctx) : 0);
+  return header + body - actions + (folded ? CONVERSATION_EXPAND_H : 0) + (item.role === 'assistant' && item.conversationProcess ? TIME_H + backgroundHeight(item, ctx) : 0);
 }
 
 /** 后台任务挂在这条回复的过程行上、单子又展开着 ⇒ 多出单子的高(挂在哪由 ChatRoot 算,见 MeasureCtx.background)。 */
@@ -93,7 +95,9 @@ function SingleConversationMessage(props: { data: ChatMessage; ctx: RenderCtx; v
     const id = reference();
     if (id) commands().onConversationReply?.(id);
   };
-  return <div class={conversationRoot} data-agent-conversation-message={props.data.id} data-side={subject() ? 'left' : 'right'}>
+  return <div class={conversationRoot} data-agent-conversation-message={props.data.id} data-side={subject() ? 'left' : 'right'}
+    data-conversation-part={props.data.conversationPart}>
+    <Show when={props.data.conversationPart !== 'body'}>
     <div class={conversationHeader} style={{ height: `${HEADER_H}px` }}>
       <span class={conversationName} title={name()}>{name()}</span>
       <Show when={quote()}><span class={conversationDivider} /><button type="button" class={conversationQuote}
@@ -101,6 +105,7 @@ function SingleConversationMessage(props: { data: ChatMessage; ctx: RenderCtx; v
         <span>{quote()}</span><svg viewBox="0 0 16 16" width="14" height="14" aria-hidden="true"><path d="M12.5 3v4.5a3 3 0 0 1-3 3H3m3.5-3.5L3 10.5 6.5 14" /></svg>
       </button></Show>
     </div>
+    </Show>
     {/* owner 2026-10-27 原型:过程行在气泡上方(正文流式长高时它不挪窝);还在跑的后台任务与它同一行,单子就地展开在它下面。 */}
     <Show when={subject() && props.data.conversationProcess}>{process =>
       <>
@@ -122,6 +127,8 @@ function SingleConversationMessage(props: { data: ChatMessage; ctx: RenderCtx; v
         </Show>
       </>
     }</Show>
-    <UserMessageCard data={props.data} ctx={bodyCtx} vars={conversationVars(props.data, props.vars)} conversation />
+    <Show when={props.data.conversationPart !== 'head'}>
+      <UserMessageCard data={props.data} ctx={bodyCtx} vars={conversationVars(props.data, props.vars)} conversation />
+    </Show>
   </div>;
 }
