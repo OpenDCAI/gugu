@@ -177,7 +177,8 @@ export default {
       "tooLarge": "Too large · view on desktop"
     },
     "timeline": {
-      "outputTrimmed": "… {{chars}} chars omitted from this preview",
+      "outputTrimmed_one": "… {{count}} char omitted from this preview",
+      "outputTrimmed_other": "… {{count}} chars omitted from this preview",
       "loading": "Loading the timeline…",
       "waitingRecord": "Task started — waiting for its first line…",
       "empty": "This task has no content yet.",

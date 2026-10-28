@@ -6,6 +6,7 @@ import { CalendarClock, Coins, Crown, Gauge, Hash, Layers, ShieldCheck, SquareAr
 import { GUGU_BILLING_URL } from '../../lib/appLinks'
 import { useAuth } from '../../store/auth'
 import {
+  creditCount,
   daysUntilExpiry,
   describeSpendingPower,
   formatCredits,
@@ -168,6 +169,7 @@ function CreditsOverview() {
                 {membership.expiresAt && remainingDays !== null && ` · ${t('membership.expiresOn', {
                   date: formatDate(membership.expiresAt, { year: 'numeric', month: 'long', day: 'numeric' }),
                   days: formatNumber(remainingDays),
+                  count: remainingDays,
                 })}`}
               </span>
             </div>
@@ -200,7 +202,7 @@ function CreditsOverview() {
           </p>
         )}
         {windows && windows.outstanding_credits > 0 && (
-          <p className="na-footnote">{t('credits.reservedCopy', { credits: formatCredits(windows.outstanding_credits) })}</p>
+          <p className="na-footnote">{t('credits.reservedCopy', { credits: formatCredits(windows.outstanding_credits), count: creditCount(windows.outstanding_credits) })}</p>
         )}
       </div>
 

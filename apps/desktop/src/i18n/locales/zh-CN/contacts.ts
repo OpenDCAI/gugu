@@ -84,7 +84,11 @@ export default {
   },
   "createGroup": {
     "invitesSent": "群已创建，{{count}} 个邀请等待对方接受。",
+    "invitesSent_one": "群已创建，{{count}} 个邀请等待对方接受。",
+    "invitesSent_other": "群已创建，{{count}} 个邀请等待对方接受。",
     "invitesFailed": "群已创建，但 {{count}} 个邀请未发出。请在群成员面板重试邀请。",
+    "invitesFailed_one": "群已创建，但 {{count}} 个邀请未发出。请在群成员面板重试邀请。",
+    "invitesFailed_other": "群已创建，但 {{count}} 个邀请未发出。请在群成员面板重试邀请。",
     "create": "创建群聊",
     "createWithCount": "创建群聊 · {{count}} 位成员",
     "createWithCount_one": "创建群聊 · {{count}} 位成员",

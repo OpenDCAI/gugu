@@ -406,7 +406,10 @@ export const ProjectFolderCard = observer(function ProjectFolderCard({
     };
   };
 
-  const meta = translate('projects.folders.meta', { folders: folders.length, sessions: sessions.length });
+  const meta = translate('projects.folders.meta', {
+    folders: translate('projects.folders.folderCount', { count: folders.length }),
+    sessions: translate('projects.folders.sessionCount', { count: sessions.length }),
+  });
 
   return (
     <div ref={columnRef} className="flex w-full min-w-0 flex-col items-center gap-3">

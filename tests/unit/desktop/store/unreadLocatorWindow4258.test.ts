@@ -134,6 +134,7 @@ function projectStream(
       message_id: first.id,
       message_seq: first.seq,
       unread_count: unread.length,
+      addressed_count: 0,
       cursor_seq: cursor,
       version: readStateVersion,
       is_marked_unread: false,
