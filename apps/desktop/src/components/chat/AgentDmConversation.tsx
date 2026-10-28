@@ -45,7 +45,7 @@ type Target = { deviceId: string; sessionId: string; local: boolean }
 
 /** DM navigation ends here. No agent DM is rendered by the legacy IM page. */
 type Props = {
-  chat: ChatItem; shown: boolean; mobile?: boolean; onBack?: () => void; chrome?: Chrome
+  chat: ChatItem; shown: boolean; mobile?: boolean; onBack?: () => void; chrome?: Chrome; embedded?: boolean; searchQuery?: string
 }
 export function AgentDmConversation(props: Props) {
   const { resolvedLocale } = useLocale()
@@ -55,16 +55,17 @@ export function AgentDmConversation(props: Props) {
   </ThemeProvider></ConversationErrorBoundary>
 }
 
-function AgentDmSession({ chat, shown, mobile = false, onBack, chrome }: Props) {
+function AgentDmSession({ chat, shown, mobile = false, onBack, chrome, embedded, searchQuery }: Props) {
   const { session } = useAgentDmSession(chat.peer_user_id ?? null)
   const target = session.state === 'ready' ? session : null
-  return <DmConversation key={`${chat.id}/${target?.sessionId ?? 'im'}`} chat={chat} target={target} shown={shown} mobile={mobile} onBack={onBack} chrome={chrome} />
+  return <DmConversation key={`${chat.id}/${target?.sessionId ?? 'im'}`} chat={chat} target={target} shown={shown} mobile={mobile} onBack={onBack} chrome={chrome} embedded={embedded} searchQuery={searchQuery} />
 }
 
-function DmConversation({ chat, target, shown, mobile, onBack, chrome }: {
-  chat: ChatItem; target: Target | null; shown: boolean; mobile: boolean; onBack?: () => void; chrome?: Chrome
+function DmConversation({ chat, target, shown, mobile, onBack, chrome, embedded, searchQuery = '' }: {
+  chat: ChatItem; target: Target | null; shown: boolean; mobile: boolean; onBack?: () => void; chrome?: Chrome; embedded?: boolean; searchQuery?: string
 }) {
   const view = useRef<ChatView | null>(null)
+  useEffect(() => { view.current?.find(searchQuery) }, [searchQuery])
   const { toast } = useToast()
   const filePreview = useMessageFilePreview({ mobile, visible: shown, closeRightSurfaces: () => {}, toast })
   const [dismissals, setDismissals] = useState(0)
@@ -130,7 +131,7 @@ function DmConversation({ chat, target, shown, mobile, onBack, chrome }: {
   </>
   return <div data-testid="agent-dm-conversation" data-agent-user-id={chat.peer_user_id ?? undefined} className="relative flex h-full min-h-0 flex-1">
     <div className="relative flex min-h-0 min-w-0 flex-1 flex-col">
-    {!chrome && <PaneHeader title={name} titleLevel="panel" mobile={mobile}
+    {!embedded && !chrome && <PaneHeader title={name} titleLevel="panel" mobile={mobile}
       leading={onBack ? <IconButton aria-label={t('chatArea.backToList')} onClick={onBack}><ArrowLeft /></IconButton> : undefined} />}
     {options.confirmation}
     <SessionTranscriptView uri={target?.sessionId ?? `dm:${chat.id}`} turns={turns} mobile={mobile} shown={shown}
@@ -140,7 +141,7 @@ function DmConversation({ chat, target, shown, mobile, onBack, chrome }: {
         resolveToolImage: target ? async (itemId, index) => toolImageUrl(await client.fetchToolImage(target.deviceId, target.sessionId, itemId, index)) : undefined,
         onViewImages: ({ urls, index, thumb }) => openImageViewer(urls.map(url => ({ url, alt: '', thumb })), index),
         onStop: target ? () => { void read.cancel() } : undefined }}
-      activeTurnId={target && !read.timeline.turns.at(-1)?.outcome ? read.timeline.turns.at(-1)?.id ?? null : null} onVisibleItems={onVisibleItems} composerContent={composer} backgroundTasks={background} onReady={ready => { view.current = ready }}
+      activeTurnId={target && !read.timeline.turns.at(-1)?.outcome ? read.timeline.turns.at(-1)?.id ?? null : null} onVisibleItems={onVisibleItems} composerContent={composer} backgroundTasks={background} onReady={ready => { view.current = ready; ready.find(searchQuery) }}
       onAtBottomChange={atBottom => setFollowingTail(shown && atBottom)}
       onReachStart={() => { if (target) void read.loadOlder(); else void loadOlderMessages() }}
       className="relative min-h-0 flex-1" />

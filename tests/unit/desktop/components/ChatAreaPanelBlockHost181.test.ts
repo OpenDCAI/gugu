@@ -184,7 +184,7 @@ describe('ChatAreaPanel hosted in a block (gugu-dev#181)', () => {
 
   // owner 10-26:成员、公告、设置合成一枚「群信息」页签。群从成员钮进(落在成员那一页),私聊从 ⋯ 进;每种形态都打得开。
   for (const layout of ['header', 'block', 'phone'] as const) {
-    for (const kind of ['group', 'dm'] as const) {
+    for (const kind of ['group', 'dm', 'ai'] as const) {
       it(`${layout} ${kind}: this conversation's info opens without installed or pinned Apps`, async () => {
         const hosted = layout === 'block'
         try {
@@ -283,6 +283,33 @@ describe('ChatAreaPanel hosted in a block (gugu-dev#181)', () => {
     expect(harness.container.querySelector('[data-chat-bottom-dock]')).toBeNull()
     expect(harness.container.querySelector('[data-running-bar-slot]')).toBeNull()
     expect(harness.container.textContent).not.toContain('在任务中打开')
+  })
+
+  it('keeps the agent avatar, title, folder and More in the block strip without a second content header', async () => {
+    const slot = document.body.appendChild(document.createElement('div'))
+    installShellSlots()
+    let folder: string | undefined
+    try {
+      await renderPanel({ actions, title, tabs: null }, 'ai')
+      expect(title.textContent).toBe('设计评审')
+      expect(title.querySelector('[data-agent]'), 'the tab keeps the agent avatar').not.toBeNull()
+      expect(header(), 'the strip is the only header').toBeNull()
+      const conversation = harness.container.querySelector('[data-testid="agent-dm-conversation"]')!
+      expect(conversation.querySelector('header')).toBeNull()
+      expect(actions.querySelector(`[data-testid="${AUTOMATION_TEST_IDS.chatHeaderMoreButton}"]`)).not.toBeNull()
+      await clickElement(actions.querySelector<HTMLElement>('button[aria-label="文件夹"]')!)
+      const shown = shownPanelTab('group-1')!
+      folder = shown.tabId
+      expect(isFolderItem(shown.item)).toBe(true)
+      await act(async () => { readShellSlots()!.setSlot(chatTabSlotKey('group-1', folder!), slot) })
+      expect(slot.querySelector('[data-testid="group-app-slot"]'), 'the folder button opens its real tab').not.toBeNull()
+      expect(harness.container.contains(conversation), 'opening a tab keeps the shared conversation mounted').toBe(true)
+    } finally {
+      await act(async () => {
+        if (folder) { readShellSlots()?.setSlot(chatTabSlotKey('group-1', folder), null); closeChatTab('group-1', folder) }
+      })
+      slot.remove()
+    }
   })
 
   it('in a block「+」opens the folder as a tab beside the chat, drawn into the slot its strip left (第 ⑥ 步)', async () => {

@@ -1,12 +1,12 @@
 // @vitest-environment jsdom
-import { act, createElement, useState, type ReactNode } from 'react'
+import { act, createElement, useEffect, useState, type ReactNode } from 'react'
 import { afterEach, beforeEach, expect, it, vi } from 'vitest'
 import type { TranscriptTurn } from '@gugu/session-core/acp/client'
 import { chat, clickElement, contact, createReactHarness, displayIdentity, message, renderWithAppProviders } from '../../../support/testHarness'
 import { writeComposer } from '../../../support/composerEditor'
 import { emptyAgentWatchTimeline } from '../../../../apps/desktop/src/mobile/agent-watch/agent-watch-store'
 
-const probe = vi.hoisted(() => ({ props: null as unknown, read: vi.fn(), fail: false }))
+const probe = vi.hoisted(() => ({ props: null as unknown, read: vi.fn(), find: vi.fn(), fail: false }))
 vi.mock('../../../../apps/desktop/src/hooks/useAgentDmSession', () => ({ useAgentDmSession: () => ({ session: { state: 'no-session' } }) }))
 vi.mock('../../../../apps/desktop/src/hooks/useAgentDisplayStatus', () => import('../../../support/agentDisplayStatusTestDouble'))
 vi.mock('../../../../apps/desktop/src/lib/chat', () => import('../../../support/contactsChatServiceTestDouble'))
@@ -14,9 +14,10 @@ vi.mock('../../../../apps/desktop/src/mobile/agent-watch/use-timeline-session', 
   probe.read(...args)
   return { timeline: emptyAgentWatchTimeline(), phase: 'idle', respondingItemId: null, actionError: null }
 } }))
-vi.mock('../../../../apps/desktop/src/components/assistant-ui/session-transcript-view.aui', () => ({ SessionTranscriptView: (props: { turns: TranscriptTurn[]; composerContent: ReactNode }) => {
+vi.mock('../../../../apps/desktop/src/components/assistant-ui/session-transcript-view.aui', () => ({ SessionTranscriptView: (props: { turns: TranscriptTurn[]; composerContent: ReactNode; onReady?: (view: unknown) => void }) => {
   if (probe.fail) throw new Error('Conversation render failure')
   probe.props = props
+  useEffect(() => { props.onReady?.({ find: probe.find }) }, [])
   return createElement('div', { 'data-shared-transcript': '' }, props.turns.flatMap(turn => turn.items.map(item => 'text' in item ? item.text : '')).join('\n'), props.composerContent)
 } }))
 import { AgentDmConversation } from '../../../../apps/desktop/src/components/chat/AgentDmConversation'
@@ -25,7 +26,7 @@ import { ChatAreaPanel } from '../../../../apps/desktop/src/components/ChatAreaP
 import { ShellErrorBoundary } from '../../../../apps/desktop/src/components/ShellErrorBoundary'
 import { AUTOMATION_TEST_IDS } from '../../../../apps/desktop/src/lib/automationDom'
 let harness: ReturnType<typeof createReactHarness>
-beforeEach(() => { harness = createReactHarness(); probe.fail = false; probe.read.mockClear(); vi.stubGlobal('IntersectionObserver', class { observe() {} disconnect() {} }) })
+beforeEach(() => { harness = createReactHarness(); probe.fail = false; probe.read.mockClear(); probe.find.mockClear(); vi.stubGlobal('IntersectionObserver', class { observe() {} disconnect() {} }) })
 afterEach(() => { harness.cleanup(); vi.unstubAllGlobals() })
 const dm = chat({ id: 'external-dm', kind: 'ai', peer_user_id: 'external-agent', name: 'External agent' })
 const received = message({ id: 'received', chat_id: dm.id, sender_user_id: 'external-agent', is_mine: false, content: '外部 agent 的已有回复。' })
@@ -89,4 +90,20 @@ it('does not mark a hidden DM read even if an old visibility callback arrives', 
   const props = probe.props as { onVisibleItems: (ids: string[]) => void }
   props.onVisibleItems([received.id])
   expect(markMessageVisible).not.toHaveBeenCalled()
+})
+
+it('routes the shared header search to the transcript find API and clears it on close', async () => {
+  await renderWithAppProviders(harness, createElement(ChatAreaPanel, { activeTab: 'chats' }), { chat: {
+    activeChat: dm, activeChatId: dm.id, messages: [received], identitiesById: { 'external-agent': displayIdentity('external-agent', { type: 'agent' }) },
+  } })
+  await clickElement(harness.container.querySelector<HTMLElement>(`[data-testid="${AUTOMATION_TEST_IDS.chatHeaderMoreButton}"]`)!)
+  await clickElement(document.querySelector<HTMLElement>(`[data-testid="${AUTOMATION_TEST_IDS.chatHeaderSearchButton}"]`)!)
+  const input = harness.container.querySelector<HTMLInputElement>(`[data-testid="${AUTOMATION_TEST_IDS.chatHeaderSearchInput}"]`)!
+  await act(async () => {
+    Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value')!.set!.call(input, '已有回复')
+    input.dispatchEvent(new Event('input', { bubbles: true }))
+  })
+  expect(probe.find).toHaveBeenLastCalledWith('已有回复')
+  await clickElement(harness.container.querySelector<HTMLElement>(`[data-testid="${AUTOMATION_TEST_IDS.chatHeaderSearchCancelButton}"]`)!)
+  expect(probe.find).toHaveBeenLastCalledWith('')
 })
