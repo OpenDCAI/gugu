@@ -352,7 +352,7 @@ import {
   providerUsesSessionProcessConfig,
   setSessionIntegrationBridge,
   setSessionIntegrationSkillBridge,
-  setServerBrowserUse,
+  setBrowserUseApp,
   setSessionWebSearchBridge,
   setSessionExtensionBridge,
   setSessionLibraryMcpBridge,
@@ -2009,11 +2009,14 @@ function startDeviceRuntimeWhenRendererReady(): void {
       return []
     }),
   )
-  // #7199 server 上浏览器只有 Browser Use App 一条路:开场提示按这台机器装没装它说(capability-bundle.ts 的 serverBrowserRule)。
-  if (SERVER_MODE) setServerBrowserUse(() => {
-    const emdash = loadEmdashBridge()
-    if (!emdash) throw new Error('the session page is unavailable, so the installed Apps cannot be read')
-    return browserUseAppInstalled(emdash.emdashExtensionPrograms())
+  // #7199 浏览器只有 Browser Use App 一条路:会话开场读这台机器装没装它(Codex 的浏览器插件;server 上还有开场提示,见 setBrowserUseApp)。
+  setBrowserUseApp({
+    server: SERVER_MODE,
+    installed: () => {
+      const emdash = loadEmdashBridge()
+      if (!emdash) throw new Error('the session page is unavailable, so the installed Apps cannot be read')
+      return browserUseAppInstalled(emdash.emdashExtensionPrograms())
+    },
   })
   deviceRuntimeHost ??= createDeviceRuntimeHostLoop({
     env: process.env,

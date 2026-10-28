@@ -20,7 +20,7 @@ import {
   buildSessionBundle,
   guguSessionSurfaceBlock,
   loadCodexAppServerCapabilities,
-  setServerBrowserUse,
+  setBrowserUseApp,
 } from '../../../../apps/desktop/electron/capability-bundle'
 
 /**
@@ -38,7 +38,7 @@ const desktopBridge: AgentBrowserBridge = {
 
 const hosts: DesktopGuguMcpHost[] = []
 afterEach(async () => {
-  setServerBrowserUse(null)
+  setBrowserUseApp(null)
   await Promise.all(hosts.splice(0).map((host) => host.dispose().catch(() => undefined)))
 })
 
@@ -155,7 +155,8 @@ describe('#7199 这台机器装没装 Browser Use', () => {
 })
 
 describe('#7199 开场提示里的浏览器:只看 Browser Use App', () => {
-  async function bundleFor() {
+  const server = (installed: () => boolean) => setBrowserUseApp({ installed, server: true })
+  async function bundleFor(personalAssistant?: true) {
     const host = createDesktopGuguMcpHost()
     hosts.push(host)
     return buildSessionBundle({
@@ -166,21 +167,23 @@ describe('#7199 开场提示里的浏览器:只看 Browser Use App', () => {
       agentUserId: randomUUID(),
       threadRootId: null,
       autonomy: null,
-      socialBridgeDeps: { host, grantKey: `taskpage:${randomUUID()}`, getSupabaseUrl: () => 'https://supabase.example', getSupabaseAnonKey: () => 'anon-key' },
+      socialBridgeDeps: { host, grantKey: `taskpage:${randomUUID()}`, getSupabaseUrl: () => 'https://supabase.example', getSupabaseAnonKey: () => 'anon-key',
+        ...(personalAssistant ? { personalAssistant, runSessionAction: async () => ({}) } : {}) },
     })
   }
   const ctx = { cwd: '/tmp/gugu-cloud-browser-7199', lifecycle: 'fresh' as const }
-  const instructions = async () => {
-    const bundle = await bundleFor()
+  const instructions = async (personalAssistant?: true) => {
+    const bundle = await bundleFor(personalAssistant)
     // 能力包里 ❌ 再有一台自己的浏览器 server
     expect(bundle.mcpServers.map((server) => server.name)).not.toContain('gugu-browser')
     return loadCodexAppServerCapabilities(bundle, ctx).developerInstructions ?? ''
   }
 
   it('server 装着 App:云浏览器那段,说的是 Browser Use 的 browser_* 工具,不再点名 gugu-browser', async () => {
-    setServerBrowserUse(() => true)
+    server(() => true)
     const text = await instructions()
     expect(text).toContain(CLOUD_BROWSER_RULE)
+    expect(CLOUD_BROWSER_RULE).toContain('(if they are not in your tool list, find them with `catalog_list`)')
     expect(text).not.toContain(NO_BROWSER_RULE)
     expect(CLOUD_BROWSER_RULE).toContain('`browser_*` tools of the Browser Use App')
     expect(CLOUD_BROWSER_RULE).toContain('drive your own browser')
@@ -192,7 +195,7 @@ describe('#7199 开场提示里的浏览器:只看 Browser Use App', () => {
   })
 
   it('server 没装 App:照实说没有浏览器,问人要不要装;没有浏览器工具', async () => {
-    setServerBrowserUse(() => false)
+    server(() => false)
     expect(NO_BROWSER_RULE).toBe('This machine has no browser for you: the Browser Use App is not installed here. If a task needs a web page, tell the person so and ask whether to install Browser Use on this machine. Only after they agree, call `app_install` for the App `browser-use` (it installs on the machine you run on); its browser tools arrive with your next task, not this one. Until then do not launch your own browser, Playwright, Chrome or a headless scraper to stand in for it, and never claim you looked at a page.')
     const bundle = await bundleFor()
     expect(bundle.mcpServers.some((server) => /browser/.test(server.name))).toBe(false)
@@ -203,21 +206,47 @@ describe('#7199 开场提示里的浏览器:只看 Browser Use App', () => {
   })
 
   it('读不出装了什么:当没装(那时也确实没有工具)', async () => {
-    setServerBrowserUse(() => { throw new Error('extensions not ready') })
+    server(() => { throw new Error('extensions not ready') })
     const text = await instructions()
     expect(text).toContain(NO_BROWSER_RULE)
     expect(text).not.toContain(CLOUD_BROWSER_RULE)
   })
 
-  it('桌面(宿主不装探针):不说浏览器', async () => {
-    const text = await instructions()
-    expect(text).not.toContain(NO_BROWSER_RULE)
-    expect(text).not.toContain(CLOUD_BROWSER_RULE)
-    expect(text).not.toMatch(/browser_\*/)
-    const block = guguSessionSurfaceBlock('acp', 'codex', true)
-    expect(block).not.toContain(NO_BROWSER_RULE)
-    expect(block).not.toContain(CLOUD_BROWSER_RULE)
-    setServerBrowserUse(() => true)
-    expect(guguSessionSurfaceBlock('acp', 'codex', true)).toContain(CLOUD_BROWSER_RULE)
+  it('桌面:装没装 App 都不说浏览器;装着时能力包带 browserUse(Codex 据它关自己的浏览器插件)', async () => {
+    for (const installed of [true, false]) {
+      setBrowserUseApp({ installed: () => installed, server: false })
+      const bundle = await bundleFor()
+      expect(bundle.browserUse).toBe(installed ? true : undefined)
+      expect(bundle.browserRule).toBeUndefined()
+      const text = loadCodexAppServerCapabilities(bundle, ctx).developerInstructions ?? ''
+      expect(text).not.toContain(NO_BROWSER_RULE)
+      expect(text).not.toContain(CLOUD_BROWSER_RULE)
+      expect(text).not.toMatch(/browser_\*/)
+    }
+    setBrowserUseApp(null)
+    expect(await instructions()).not.toContain(NO_BROWSER_RULE)
+    expect(guguSessionSurfaceBlock('acp', 'codex', true)).not.toContain(CLOUD_BROWSER_RULE)
+    expect(guguSessionSurfaceBlock('acp', 'codex', true, 'app')).toContain(CLOUD_BROWSER_RULE)
+    expect(guguSessionSurfaceBlock('acp', 'codex', true, 'none')).toContain(NO_BROWSER_RULE)
+  })
+
+  it('server 上的个人助理:两段浏览器提示都不给(与从前一样)', async () => {
+    for (const installed of [true, false]) {
+      server(() => installed)
+      const bundle = await bundleFor(true)
+      expect(bundle.browserRule).toBeUndefined()
+      const text = await instructions(true)
+      expect(text).not.toContain(CLOUD_BROWSER_RULE)
+      expect(text).not.toContain(NO_BROWSER_RULE)
+    }
+  })
+
+  it('server 上装着 App 的会话,能力包带 browserUse;没装 / 读不出不带', async () => {
+    server(() => true)
+    expect((await bundleFor()).browserUse).toBe(true)
+    server(() => false)
+    expect((await bundleFor()).browserUse).toBeUndefined()
+    server(() => { throw new Error('extensions not ready') })
+    expect((await bundleFor()).browserUse).toBeUndefined()
   })
 })

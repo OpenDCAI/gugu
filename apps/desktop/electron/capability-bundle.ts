@@ -72,6 +72,13 @@ export interface SessionCapabilityBundle {
   extensionApps: readonly ExtensionCatalogApp[]
   /** #6387 Which extension each extension program in `mcpServers` came from (for the `/mcp` panel). */
   extensionServerOrigins: readonly { name: string; extensionId: string }[]
+  /** #7199 这台机器上 Browser Use App 装着、开着、许给 agent 工具(buildSessionBundle 读一次;交给各家物化器,见 core 那一格)。 */
+  browserUse?: true
+  /**
+   * #7199 开场提示里的浏览器那一段:只在咕咕 server 上、且不是个人助理时有 —— `app` 云浏览器那段,`none` 没有浏览器那段。
+   * 缺席 = 不说(桌面、个人助理、不经 buildSessionBundle 的腿)。
+   */
+  browserRule?: 'app' | 'none'
 }
 
 // Keep the Electron-side declaration available at this boundary as well. The core and
@@ -425,14 +432,30 @@ export function setSessionIntegrationBridge(
 }
 
 /**
- * #7199 咕咕 server 上这台机器装没装 Browser Use App(装着、开着、许给 agent 工具):开场提示按它说浏览器。
- * 宿主只在 server 上装;没装(桌面、测试)= 不说浏览器 —— 桌面的 App 经 `<gugu_apps>` / 它自己的工具说明说话。
- * 浏览器工具只有 App 那一条路(经扩展网关 / catalog),这里 ❌ 另给工具。
+ * #7199 这台机器装没装 Browser Use App(装着、开着、许给 agent 工具),宿主装上探针;`server` = 这是咕咕 server。
+ * 每条会话开场读一次:Codex 据它关掉自己的浏览器插件(桌面、server 都是);只在 server 上,开场提示按它说浏览器 ——
+ * 桌面的 App 经 `<gugu_apps>` / 它自己的工具说明说话。浏览器工具只有 App 那一条路(经扩展网关 / catalog),这里 ❌ 另给工具。
+ * 没装探针(测试、无 app 环境)= 两样都没有。
  */
-let serverBrowserUse: (() => boolean) | null = null
+let browserUseApp: { installed: () => boolean; server: boolean } | null = null
 
-export function setServerBrowserUse(probe: (() => boolean) | null): void {
-  serverBrowserUse = probe
+export function setBrowserUseApp(probe: { installed: () => boolean; server: boolean } | null): void {
+  browserUseApp = probe
+}
+
+/** 读不出装了什么就当没装(那时也确实没有工具):server 上说没有浏览器。个人助理 ❌ 浏览器那段(与从前一样)。 */
+function browserUseOf(personalAssistant: boolean): Pick<SessionCapabilityBundle, 'browserUse' | 'browserRule'> {
+  if (!browserUseApp) return {}
+  let installed = false
+  try {
+    installed = browserUseApp.installed()
+  } catch (error) {
+    createLogger('capability-bundle').warn({ error: (error as Error).message }, 'could not read whether Browser Use is installed; the session has no browser')
+  }
+  return {
+    ...(installed ? { browserUse: true as const } : {}),
+    ...(browserUseApp.server && !personalAssistant ? { browserRule: installed ? 'app' as const : 'none' as const } : {}),
+  }
 }
 
 /**
@@ -522,6 +545,7 @@ export async function buildSessionBundle(
     extensionSkills: [...extensions.skills, ...integrationSkills],
     extensionApps: extensions.apps,
     extensionServerOrigins: extensions.origins,
+    ...browserUseOf(deps.socialBridgeDeps.personalAssistant === true),
     mcpServers,
     // ⚠️ 这一行就是断过的那一跳。bootstrap 服务 pty 腿、恒为 `undefined`,
     //    ACP 腿的关闭集合必须在这里接回来;`[]` 原样递,❌ 不归一成 undefined。
@@ -798,6 +822,7 @@ function toCoreSessionBundle(bundle: SessionCapabilityBundle): CoreSessionCapabi
     promptBlocks: bundle.promptBlocks,
     packages: bundle.packages,
     extensionSkills: bundle.extensionSkills,
+    ...(bundle.browserUse ? { browserUse: true as const } : {}),
   }
 }
 
@@ -1050,8 +1075,8 @@ function guguToolNamingLine(
 }
 
 /** #7199 咕咕 server(云电脑)上装着 Browser Use:浏览器是这台机器上的 Chrome,人在和你的聊天里看着、能接管(cloud/cloud-browser.ts)。 */
-export const CLOUD_BROWSER_RULE = `To work with a web page (open, read, click, type, screenshot), use the \`browser_*\` tools of the Browser Use App:
-they drive your own browser, which the person watches live in their chat with you and can take over; it
+export const CLOUD_BROWSER_RULE = `To work with a web page (open, read, click, type, screenshot), use the \`browser_*\` tools of the Browser Use App
+(if they are not in your tool list, find them with \`catalog_list\`): they drive your own browser, which the person watches live in their chat with you and can take over; it
 keeps the logins they made there. When you talk about it, call it your browser: do not tell the person which machine or
 server it runs on. Do not launch another browser, Playwright or Chrome for that. When a page needs
 the person's login, call \`browser_request_login\` (they type it into a password vault, you never see it); never ask
@@ -1065,25 +1090,17 @@ did; do not retry.`
  */
 export const NO_BROWSER_RULE = 'This machine has no browser for you: the Browser Use App is not installed here. If a task needs a web page, tell the person so and ask whether to install Browser Use on this machine. Only after they agree, call `app_install` for the App `browser-use` (it installs on the machine you run on); its browser tools arrive with your next task, not this one. Until then do not launch your own browser, Playwright, Chrome or a headless scraper to stand in for it, and never claim you looked at a page.'
 
-/** server 上的浏览器那一段;读不出装了什么就当没装(那时也确实没有工具)。桌面 = 不说。 */
-function serverBrowserRule(): string {
-  if (!serverBrowserUse) return ''
-  try {
-    return `\n${serverBrowserUse() ? CLOUD_BROWSER_RULE : NO_BROWSER_RULE}`
-  } catch (error) {
-    createLogger('capability-bundle').warn({ error: (error as Error).message }, 'could not read whether Browser Use is installed; telling the agent it has no browser')
-    return `\n${NO_BROWSER_RULE}`
-  }
-}
+const BROWSER_RULES = { app: CLOUD_BROWSER_RULE, none: NO_BROWSER_RULE } as const
 
 export function guguSessionSurfaceBlock(
   surface: HarnessSessionSurface,
   providerId: string,
   carriesGuguMcp: boolean,
+  browserRule?: 'app' | 'none',
 ): string {
   return `<gugu_session_surface>
 ${guguSessionSurfaceBody(surface)}
-${guguToolNamingLine(providerId, surface, carriesGuguMcp)}${SESSION_SPAWN_ROUTING_RULE}${serverBrowserRule()}
+${guguToolNamingLine(providerId, surface, carriesGuguMcp)}${SESSION_SPAWN_ROUTING_RULE}${browserRule ? `\n${BROWSER_RULES[browserRule]}` : ''}
 </gugu_session_surface>
 `
 }
@@ -1114,7 +1131,7 @@ function withSurfaceSelfDescription(
   const apps = guguAppsBlock(bundle.extensionApps, nativeSkills ? [] : bundle.extensionSkills)
   return {
     ...bundle,
-    promptBlocks: { ...bundle.promptBlocks, platform: `${platform}${guguSessionSurfaceBlock(surface, providerId, bundle.mcpServers.some((server) => server.owner === 'gugu'))}${apps}` },
+    promptBlocks: { ...bundle.promptBlocks, platform: `${platform}${guguSessionSurfaceBlock(surface, providerId, bundle.mcpServers.some((server) => server.owner === 'gugu'), bundle.browserRule)}${apps}` },
   }
 }
 
