@@ -93,16 +93,18 @@ describe('listDeviceProjects', () => {
               eq: (column: string, user: string) => {
                 expect(column).toBe('user_id')
                 const order: string[] = []
+                let only: readonly string[] | null = null
                 const page = {
+                  in: (inColumn: string, ids: readonly string[]) => { expect(inColumn).toBe('device_id'); only = ids; return page },
                   order: (by: string) => (order.push(by), page),
                   range: async (from: number, to: number) => {
                     options.beforePage?.(calls.length, rows)
                     calls.push({ user, order: [...order], from, to })
                     if (options.error) return { data: null, error: { message: options.error }, count: null }
-                    const sorted = [...rows].sort((a, b) =>
+                    const sorted = rows.filter((r) => !only || only.includes(String(r.device_id))).sort((a, b) =>
                       String(a.device_id).localeCompare(String(b.device_id)) || String(a.local_project_id).localeCompare(String(b.local_project_id)))
                     const size = Math.min(to - from + 1, options.maxRows ?? Infinity)
-                    return { data: sorted.slice(from, from + size), error: null, count: rows.length }
+                    return { data: sorted.slice(from, from + size), error: null, count: sorted.length }
                   },
                 }
                 return page
@@ -114,6 +116,11 @@ describe('listDeviceProjects', () => {
     }
     return { client: client as never, calls, rows }
   }
+
+  it('reads only the named devices when a revision names them', async () => {
+    const { client } = table([row(), row({ device_id: 'dev-2', local_project_id: 'p9' })])
+    expect(Object.keys(await listDeviceProjects(client, 'owner-1', ['dev-2']))).toEqual(['dev-2'])
+  })
 
   it('groups the rows by device, newest project first, only the owner’s rows', async () => {
     const { client, calls } = table([

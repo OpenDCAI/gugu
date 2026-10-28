@@ -9,7 +9,7 @@ const mocks = vi.hoisted(() => ({
   listDevices: vi.fn(),
   listProjects: vi.fn(),
   subscribeAccountRevision: vi.fn(),
-  revisionListener: null as null | (() => void | Promise<void>),
+  revisionListener: null as null | ((operations: readonly unknown[]) => void | Promise<void>),
 }))
 
 vi.mock('../../../../apps/desktop/src/store/auth', () => ({
@@ -24,6 +24,8 @@ vi.mock('../../../../apps/desktop/src/lib/deviceProjects', () => ({ listMyDevice
 vi.mock('../../../../apps/desktop/src/store/chatContext', () => ({
   useChatStore: () => ({ subscribeAccountRevision: mocks.subscribeAccountRevision }),
 }))
+
+const rowChanged = (deviceId: string) => ({ revision: '1', event: 'device_changed', payload: { device_id: deviceId, kind: 'row', tombstone: false } })
 
 /**
  * #4891 的另一半判据。用户那句话不许带下层原文(判据在
@@ -43,7 +45,7 @@ describe('DevicesProvider list failure disclosure', () => {
     mocks.listDevices.mockReset().mockResolvedValue([])
     mocks.listProjects.mockReset().mockResolvedValue([])
     mocks.revisionListener = null
-    mocks.subscribeAccountRevision.mockReset().mockImplementation((_event: string, listener: () => void | Promise<void>) => {
+    mocks.subscribeAccountRevision.mockReset().mockImplementation((_event: string, listener: (operations: readonly unknown[]) => void | Promise<void>) => {
       mocks.revisionListener = listener
       return () => undefined
     })
@@ -67,9 +69,9 @@ describe('DevicesProvider list failure disclosure', () => {
     expect(mocks.revisionListener).toBe(listener)
     expect(mocks.subscribeAccountRevision).toHaveBeenCalledTimes(subscriptions)
     if (!listener) throw new Error('missing device revision listener')
-    await act(async () => { await listener() })
+    await act(async () => { await listener([rowChanged('device-1')]) })
     expect(mocks.listDevices).toHaveBeenCalledTimes(2)
-    expect(mocks.listProjects).toHaveBeenCalledTimes(2)
+    expect(mocks.listProjects).toHaveBeenCalledTimes(1)
   })
 
   it('initializes the new account and refreshes after shell reactivation', async () => {
@@ -90,7 +92,7 @@ describe('DevicesProvider list failure disclosure', () => {
     if (!mocks.revisionListener) throw new Error('missing device revision listener')
 
     // 这条路径按约定重抛给调用方(durable 操作要能感知刷新失败);这里只关心它**先**写没写日志。
-    await act(async () => { await Promise.resolve(mocks.revisionListener?.()).catch(() => undefined) })
+    await act(async () => { await Promise.resolve(mocks.revisionListener?.([rowChanged('device-1')])).catch(() => undefined) })
 
     expect(consoleError).toHaveBeenCalledWith(
       expect.stringContaining('[devices]'),
