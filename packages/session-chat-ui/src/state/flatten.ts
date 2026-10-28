@@ -235,8 +235,10 @@ export function flattenTier(
     // 头不带正文:话只在气泡里画一次(找、复制、计数都只见一份)。
     processItem({ ...reply, id: head, text: '', attachments: undefined, conversationPart: 'head' });
     steps();
+    // 时间、复制那一行只给收了口那一轮的最后一句(设计稿 0 号「轮次结束且有正文才出 tail」);中途的气泡不带(owner 10-28)。
+    const tail = !reply.conversationProcess?.live;
     for (const output of [...sent, reply]) {
-      processItem({ ...output, conversationProcess: undefined, conversationPart: 'body', conversationHead: head });
+      processItem({ ...output, conversationProcess: undefined, conversationPart: 'body', conversationHead: head, ...(tail && output === reply ? { conversationTail: true } : {}) });
     }
   };
 
@@ -429,7 +431,7 @@ export function flattenTier(
         emitOps(planRows(outsideProcess(items.slice(0, pending.at))), turn.id);
         const pendingReply = ctx.agentConversation
           ? conversationProcessReply({ ...pending.header, startedAt: turn.startedAt }, items.slice(pending.at)) : null;
-        // 对话布局:跑着默认摊开(owner 0 号图「思考执行中 · 9m16s · 39 步 ⌄」),点了收起就真收起 ——
+        // 对话布局:跑着默认摊开(owner 0 号图「执行中 · 9m16s · 39 步 ⌄」),点了收起就真收起 ——
         // 还没出正文的这一轮以前不看开关,收起了步骤照样摊在下面。
         const pendingExpanded = !ctx.agentConversation || ctx.revealAllFolds || turnProcessExpanded(true, ctx.isTurnProcessExpanded?.(pending.header.id) ?? false);
         const pendingFolds = ctx.agentConversation ? [{ id: pending.header.id, stored: false }] : undefined;
@@ -618,13 +620,15 @@ export function makeUnitsView(committed: RenderUnit[], active: RenderUnit[]): Un
  */
 export function collectUserTurnUnits(
   turns: readonly TranscriptTurn[],
-  units: UnitsView
+  units: UnitsView,
+  options: { delivered?: boolean } = {}
 ): number[] {
   const userItemIds = new Set<string>();
   for (const turn of turns) {
     for (const item of turn.items) {
       // 投递进来的通知不进这个集合 —— 这个集合就是「钉到顶端」的名单。
-      if (itemIsUser(item) && !isDeliveredFromAgent(item)) userItemIds.add(item.id);
+      // `delivered`:要的是「钉顶在哪儿让位」,投递进来的那条也算(对话布局里它是右侧的一个气泡)。
+      if (itemIsUser(item) && (options.delivered || !isDeliveredFromAgent(item))) userItemIds.add(item.id);
     }
   }
 
