@@ -145,7 +145,7 @@ export const PaneContent = observer(function PaneContent({
     openKinds,
     pair ? [anchorKind, sideKind].filter((kind): kind is string => kind !== null) : activeKind ? [activeKind] : [],
   );
-  const retained = new Set([...recentKinds, ...openKinds.filter((kind) => pane.registry.has(kind) && pane.registry.get(kind).keepMounted)]);
+  const retained = new Set([...recentKinds, ...pane.registry.all().filter((def) => def.keepMounted && openKinds.includes(def.kind)).map((def) => def.kind)]);
 
   if (!hasAnyTab) {
     return (
