@@ -20,7 +20,7 @@ describe('account Apps choices on this computer', () => {
     const one = new AccountAppsLocalRecord(root);
     one.approved('owner', app()); one.approved('other', app());
     one.exclude('owner', 'browser-use');
-    expect(new AccountAppsLocalRecord(root).account('owner')).toEqual({ excluded: ['browser-use'], pending: [] });
+    expect(new AccountAppsLocalRecord(root).account('owner')).toEqual({ excluded: ['browser-use'], pending: [app()] });
     expect(one.account('other').pending).toEqual([app()]);
     expect(new AccountAppsLocalRecord(path.join(root, 'another-computer')).account('owner')).toEqual({ excluded: [], pending: [] });
   });

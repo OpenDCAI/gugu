@@ -61,11 +61,11 @@ export class AccountAppsLocalRecord {
       || item.autoUpdate !== app.autoUpdate) }));
   }
 
-  /** Keep the account record and other computers intact; an uninstall also cancels a queued local install choice. */
+  /** Keep account choices, including a cloud write queued while offline. The local exclusion alone prevents restoration. */
   exclude(userId: string, id: string): void {
     if (!ACCOUNT_APP_ALLOWLIST.includes(id)) return;
     this.update(userId, current => ({
-      excluded: [...new Set([...current.excluded, id])], pending: current.pending.filter(item => item.id !== id),
+      ...current, excluded: [...new Set([...current.excluded, id])],
     }));
   }
 

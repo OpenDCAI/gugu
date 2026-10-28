@@ -140,6 +140,17 @@ describe('account approval at the real host install boundary', () => {
     expect(fake.upserts).toHaveLength(0);
   });
 
+  it('syncs an offline installation choice after local uninstall without reinstalling on this computer', async () => {
+    delete fake.rows['owner::user'][ACCOUNT_APPS_KEY];
+    new AccountAppsLocalRecord(state.root).approved('owner', entry());
+    await sync.uninstallWithAccountChoice('browser-use', () => { state.installed = []; });
+    await sync.runAccountApps();
+    expect(accountAppsOf(fake.rows['owner::user'])).toEqual([entry()]);
+    expect(new AccountAppsLocalRecord(state.root).account('owner')).toEqual({ excluded: ['browser-use'], pending: [] });
+    expect(sync.accountAppsState().apps).toEqual([{ id: 'browser-use', state: 'excluded' }]);
+    expect(state.installed).toEqual([]);
+  });
+
   it('rolls back its exclusion when the actual uninstall fails', async () => {
     await expect(sync.uninstallWithAccountChoice('browser-use', () => { throw new Error('unreadable grant file'); }))
       .rejects.toThrow('unreadable grant file');
