@@ -38,6 +38,7 @@ export function presentationOfDisplayStatus(status: AgentDisplayStatus): AgentSt
     case 'idle':
       return presentAgentStatus({ reading: null, reachability: 'online' })
     case 'offline':
+    case 'archived':
     case 'removed':
     case 'pending':
       return presentAgentStatus({ reading: null, reachability: status })

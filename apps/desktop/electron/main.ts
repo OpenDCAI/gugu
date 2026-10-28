@@ -262,6 +262,7 @@ import {
 } from './sessionpage/session-tui-host-start'
 import { resolveBootOwner, type BootOwnerAnswer } from './sessionpage/boot-owner'
 import { reconcileSessionpageAgents } from './sessionpage/sessionpage-agent-reaper'
+import { startSessionpageAgentArchivalSync } from './sessionpage/sessionpage-agent-archival'
 import { releaseDeletedOwnedAgent } from './sessionpage/owner-agent-deletion'
 import {
   createHostLocalSessionSource,
@@ -889,6 +890,8 @@ function getSessionpageLocalDelivery(): SessionpageLocalDeliveryRouter {
   // 各家原生认领者在自己的模块里自注册)—— 这里不再手拼每家一行。
   return (sessionpageLocalDelivery ??= new SessionpageLocalDeliveryRouter(sessionpageDeliveryTargets(), {
     waitUntilReady: () => sessionpageAgentRehydration,
+    archivalState: (sessionId) => loadEmdashBridge()?.emdashSessionArchivalState(sessionId) ?? null,
+    messageRefused: (sessionId, messageId, createdAt) => loadEmdashBridge()?.emdashSessionMessageRefused(sessionId, messageId, createdAt) ?? false,
     wakeSession: async (sessionId) => {
       if (isQuitting) throw new Error('session-page host is shutting down; cannot wake a session')
       const emdash = loadEmdashBridge()
@@ -4826,9 +4829,10 @@ app.whenReady().then(async () => {
       // 不在流里的由调用方去问云端 presence。
       if (record.action === 'agent-status') {
         const ids = Array.isArray(record.agentUserIds) ? record.agentUserIds.filter((id): id is string => typeof id === 'string') : []
-        return ids.flatMap((agentUserId) => {
+        return ids.flatMap<{ agentUserId: string; status: string | null; detail: string | null }>((agentUserId) => {
           const entry = agentStatusFeed.get(agentUserId)
-          return entry ? [{ agentUserId, status: entry.reading?.status ?? null, detail: entry.reading?.detail ?? null }] : []
+          const archived = getSessionpageLocalDelivery().sessionArchivalForAgent(agentUserId)?.archivedAt
+          return archived ? [{ agentUserId, status: 'archived', detail: null }] : entry ? [{ agentUserId, status: entry.reading?.status ?? null, detail: entry.reading?.detail ?? null }] : []
         })
       }
       if (record.action === 'message') return unifiedSessionMessage(auth, context, record, signal)
@@ -4897,7 +4901,7 @@ app.whenReady().then(async () => {
     // addressable BEFORE its session-page session reopens: a deliver to a mapped-but-not-live agent becomes
     // ordered local debt instead of silently passing through to a gugu-native engine spawn.
     // @@@sessionpage TASKPAGE-FUSION — deletion sync (spec ⑨「删除必同步」): reconcile the social-side
-    // projection against the session page, reaping agents whose conversation was archived/deleted and
+    // projection against the session page, reaping agents whose conversation was deleted and
     // archiving groups whose project is gone. Runs at boot (so removals made while gugu was closed still
     // converge) and on every session-page removal trigger. The reap itself is fail-loud/aggregated; here we only
     // log, because a failed reconcile must not take down the app — the next trigger retries it.
@@ -4907,6 +4911,8 @@ app.whenReady().then(async () => {
         ? { accessToken: auth.accessToken, refreshToken: auth.refreshToken ?? '', userId: auth.userId }
         : null
     }
+    app.once('will-quit', startSessionpageAgentArchivalSync({ getAuth: getSessionpageAuth, resolveDeviceId: localDeviceId,
+      inventory: () => emdash.emdashSessionpageInventory(), subscribe: (listener) => emdash.onEmdashSessionpageReapTrigger(listener) }))
     // @@@task-shell-port (#5012) 「给会话开账号」的口与网页版无头宿主共用(sessionpage-identity-host.ts);
     // 这里只喂它桌面版的四样:登录态、设备 id、项目名、会话事实。
     const sessionpageIdentityHost = createSessionpageIdentityHost({
@@ -5151,7 +5157,7 @@ app.whenReady().then(async () => {
     })
     const runSessionpageReap = (reason: string, info?: { deadSessionId?: string }): void => {
       void reconcileSessionpageAgents({
-        // 真拆(删除/归档)时会话页后端会点名那条会话:点名把「行还在路上、只看存活状态的对账摘不到」那个窗口关掉;
+        // 真删除时会话页后端才点名:归档会话与原身份仍在清单里,不会进入删除路径;
         // detach 不点名(会话还活着)。
         deadSessionIds: info?.deadSessionId ? [info.deadSessionId] : undefined,
         getAuth: getSessionpageAuth,

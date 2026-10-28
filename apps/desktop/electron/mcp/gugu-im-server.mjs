@@ -1,6 +1,7 @@
 #!/usr/bin/env node
 import { conversationLink, groupFileLink, parseGroupFileLink } from '@gugu/core/shared/ui/guguLink'
 import { resolveReplyDelivery } from '@gugu/core/shared/replyDelivery'
+import { archivedDeliveryReceipt, messageDeliveryBlocks } from './message-delivery-blocks.mjs'
 
 import { downloadSessionFile } from '@gugu/core/local/agent/sessionFileHandoff'
 import { randomUUID } from 'node:crypto'
@@ -1433,7 +1434,7 @@ async function handleMessage(args, deps) {
         ? `invited into the topic (id=${row.id}); 被点名的人当场成为参与者,继续说话用 message_send 带这条话题的 chat_id`
         : (isReply ? `replied (id=${row.id})` : `sent (id=${row.id})`)
     // 群和话题里发得太密:回执后面提醒一句,不拦(gugu-dev#181 防刷屏)。contact_friend 的回执是 JSON,不往后接字。
-    const receipt = async () => okMsg()
+    const receipt = async () => okMsg() + await archivedDeliveryReceipt(deps, row.id)
       + (!socialGroup && (sentKind === 'group' || sentKind === 'topic') ? await floodNotice(deps, chatId, sentKind) : '')
     try {
       await attemptSend()
@@ -1659,8 +1660,8 @@ async function agentStatusReadings(deps, agentUserIds) {
         const presence = results[id]?.status === 'presence' ? results[id].presence : null
         if (!presence) continue
         readings.set(id, {
-          status: presence.agent_status ?? null,
-          detail: presence.agent_status_detail ?? null,
+          status: presence.session_archived_at ? 'archived' : presence.agent_status ?? null,
+          detail: presence.session_archived_at ? null : presence.agent_status_detail ?? null,
           status_from: 'cloud',
           status_at: presence.updated_at ?? null,
           // 那台机器在不在线只看设备行(#5912:租约清扫者翻它,在线 / 离线的唯一来源)。
@@ -2271,7 +2272,8 @@ async function handleFile(args, deps) {
     const pinned = typeof message.file_item_id === 'string' && Number.isInteger(message.file_version)
       ? { file: groupFileLink(message.file_item_id, { version: message.file_version }), version: message.file_version }
       : {}
-    return JSON.stringify({ status: 'sent', message_id: message.id, file_name: fileName, ...pinned,
+    const blocks = await messageDeliveryBlocks(deps, message.id)
+    return JSON.stringify({ status: 'sent', message_id: message.id, file_name: fileName, ...pinned, ...(blocks.length ? { not_delivered_to: blocks, delivery_note: '对方已归档、未送达; retained in history, no replay after restoration' } : {}),
       source_link: conversationLink(chatId, String(message.id).replace(/^msg:/, '')) })
   }
   if (args.action === 'download-attachment') {

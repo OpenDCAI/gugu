@@ -19,6 +19,7 @@ export default {
       "startFailed": "Agent 启动失败"
     },
     "offlineWarning": "当前不在线，可能无法及时回复",
+    "archivedWarning": "对方已归档",
     "wakeRefused": "{{name}}现在上不了线：",
     "dm": {
       "resolving": "正在打开会话…",
@@ -743,6 +744,7 @@ export default {
     },
     "retracted": "消息已撤回",
     "sendStatus": {
+      "archived": "对方已归档、未送达",
       "failed": "未送达",
       "failedActions": "未送达消息操作",
       "failedHint": "未送达，点击重试或丢弃",

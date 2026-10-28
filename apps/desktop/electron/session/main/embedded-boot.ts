@@ -140,6 +140,8 @@ import { resolveAgentSessionProject } from '@main/core/projects/operations/resol
 import { resolveSession, resolveWorkspace } from '@main/core/projects/utils'
 import { deleteSession } from '@main/core/sessions/deleteSession'
 import { getSessions } from '@main/core/sessions/getSessions'
+import { sessionArchivalInventory, sessionArchivalState } from '@main/core/sessions/session-archival'
+export { sessionArchivalState as emdashSessionArchivalState, sessionMessageRefused as emdashSessionMessageRefused } from '@main/core/sessions/session-archival'
 import { mcpLibraryService, planLibraryMcpDelivery } from '@main/core/mcp-library/service'
 import { mcpService } from '@main/core/mcp/services/McpService'
 import type { LibraryMcpServer } from '@shared/mcp-library'
@@ -2167,21 +2169,23 @@ export async function emdashOpenSessionFile(
 /**
  * @@@sessionpage TASKPAGE-FUSION — the authoritative inventory the gugu host reconciles its social-side
  * projection against (session-page spec ⑨: the session page is the single source of truth; gugu's contacts and
- * groups are a projection of it). `sessionIds` = conversations that still EXIST and are not archived;
+ * groups are a projection of it). `sessionIds` = conversations that still EXIST, including archived;
  * `projectIds` = projects that still exist. The host reaps any session-page agent whose conversation is absent
- * here, and archives the group mirroring any absent project. Conversations reuse `getSessions` — the
- * same query the session-page UI lists from (it already hides archived conversations) — so
- * anything absent here is absent from the product and reaping on absence can never orphan a visible row.
+ * here, and archives the group mirroring any absent project. Visibility and existence are separate:
+ * an archived conversation keeps its identity, name, relationships and group seat.
  */
 export async function emdashSessionpageInventory(): Promise<{
   sessionIds: string[]
   projectIds: string[]
+  archival: NonNullable<ReturnType<typeof sessionArchivalState>>[]
 }> {
+  const archival = sessionArchivalInventory()
   // Detaching folders only hides a project. Its historical group must survive reaping.
-  const [sessionRows, projectRows] = await Promise.all([getSessions(), getProjects({ includeHidden: true })])
+  const projectRows = await getProjects({ includeHidden: true })
   return {
-    sessionIds: sessionRows.map((c) => c.id),
+    sessionIds: archival.map((state) => state.sessionId),
     projectIds: projectRows.map((p) => p.id),
+    archival,
   }
 }
 
@@ -2189,8 +2193,8 @@ export async function emdashSessionpageInventory(): Promise<{
  * @@@sessionpage TASKPAGE-FUSION — fires whenever something MAY have removed conversations, so the gugu
  * host can re-reconcile its projection (spec ⑨ 删除必同步). Deliberately a coarse "something changed"
  * trigger rather than per-entity delete events: project deletes cascade their conversation rows away WITHOUT
- * emitting `session:deleted` per child — so any per-entity wiring would silently miss cases. Only
- * `session:archived` / `session:deleted` NAME a dead session; `session:torn-down` (archive, delete,
+ * emitting `session:deleted` per child — so any per-entity wiring would silently miss cases.
+ * Only `session:deleted` names a dead session; `session:archived` retains its identity. `session:torn-down` (archive, delete,
  * project dispose on app quit, plain detach) is a bare reconcile — a teardown stops runtimes, it does not end
  * the session. Returns an unsubscribe fn.
  */
@@ -2221,12 +2225,13 @@ export function onEmdashSessionpageReapTrigger(
       cb('session:deleted', { deadSessionId: sessionId }))
   )
   sub('session:archived', () =>
-    sessionEvents.on('session:archived', (sessionId) =>
-      cb('session:archived', { deadSessionId: sessionId }))
+    sessionEvents.on('session:archived', () =>
+      cb('session:archived'))
   )
+  sub('session:created', () => sessionEvents.on('session:created', () => cb('session:created')))
   sub('project:deleted', () => projectEvents.on('project:deleted', () => cb('project:deleted')))
   // 拆除只说「运行时停了」,不说「会话没了」:应用退出时项目按 `tmux ? 'detach' : 'terminate'` 拆每个挂载,
-  // 那些会话都还在。会话死亡的写入者是上面的 session:archived / session:deleted(行操作之后才发);
+  // 那些会话都还在。只有上面的 session:deleted 能点名会话死亡(行操作之后才发);
   // 这里只触发一轮普通对账,由 inventory 判断(#6168:点名死亡曾让每次退出应用都回收掉 TUI agent)。
   sub('session:torn-down', () =>
     sessionWorkspaceManager.hooks.on('session:torn-down', () => cb('session:torn-down'))

@@ -2,13 +2,13 @@ import { createGroupAdmin } from '@gugu/core/cloud/groupAdmin'
 // @@@sessionpage TASKPAGE-FUSION — DELETION SYNC (spec ⑨「删除必同步」, owner: 千万不要只同步增、不同步删).
 // Provisioning mirrors a session-page conversation INTO gugu's social side (an agent contact, and for a
 // project-scoped conversation a member seat in the group mirroring that project). This module mirrors the
-// REMOVALS back out: archive or delete a conversation and its agent leaves the contact list; delete a
+// REMOVALS back out: delete a conversation and its agent leaves the contact list; delete a
 // project and the group mirroring it is archived along with the agents it produced.
 //
 // RECONCILE, NOT PER-EVENT BOOKKEEPING. We diff the roster against the session backend's authoritative inventory
 // (`emdashSessionpageInventory`) instead of subscribing to a delete event per entity — because two of the
-// removal paths emit no usable per-entity signal at all: archiving is a TASK-level flag change that fires
-// no domain event, and deleting a task/project cascades its conversation rows away WITHOUT emitting a
+// removal paths emit no usable per-entity signal at all: deleting a task/project can cascade
+// its conversation rows away WITHOUT emitting a
 // per-conversation delete. A diff catches those, plus any future removal path nobody wired up. The session backend's
 // trigger (`onEmdashSessionpageReapTrigger`) only says "something may have changed" and makes us re-diff; it
 // is never the source of truth. Also runs once at boot, so removals that happened while gugu was closed
@@ -41,7 +41,7 @@ import { emdashAgentRegistry } from './emdash-agent-registry'
 import { createLogger } from '../lib/logger'
 import { forgetProjectGroupId, listProjectGroupIds } from './sessionpage-project-groups'
 
-/** The session backend's authoritative inventory: what still EXISTS and is not archived. */
+/** The existence inventory includes archived conversations and their retained identities. */
 export interface SessionpageInventory {
   sessionIds: string[]
   projectIds: string[]
@@ -55,7 +55,7 @@ export interface SessionpageReapDeps {
    *  module doesn't depend on the pty provisioning module. */
   disposeSession?: (sessionId: string) => Promise<void>
   /**
-   * Sessions the trigger KNOWS are gone: only `session:archived` / `session:deleted`, fired after the
+   * Sessions the trigger KNOWS are gone: only `session:deleted`, fired after the
    * row op. A runtime teardown never names a session — app quit tears mounts down with `terminate` while the
    * sessions still exist (#6168). Naming the session lets that pass reap without depending on when rows disappear.
    */
@@ -137,7 +137,7 @@ function serialize<T>(fn: () => Promise<T>): Promise<T> {
 
 /**
  * Reconcile gugu's social-side projection with the session page. Reaps every session-page agent whose
- * conversation no longer exists (deleted) or is archived, and archives the group mirroring any project that
+ * conversation no longer exists (deleted), and archives the group mirroring any project that
  * no longer exists. Returns what it removed. Throws (aggregated) if any removal failed.
  */
 /**
@@ -219,9 +219,8 @@ async function reconcileLocked(deps: SessionpageReapDeps): Promise<SessionpageRe
     )
   }
 
-  // 被点名的死会话是阳性读数(session:archived / session:deleted 在行操作之后才发),不靠清单,
-  // #3969 管不着它:新装的机器第一次归档唯一的会话时,清单读空、本进程又从没读出过非空,只按缺席判会把它的
-  // agent 永远留下。
+  // 被点名的死会话是阳性读数(session:deleted 在行操作之后才发),不靠清单,
+  // 归档不在 deadSessionIds 中:它的行和身份都仍然存在。
   const deadSessions = new Set((deps.deadSessionIds ?? []).filter(Boolean))
   const stale = bound.filter((a) =>
     deadSessions.has(a.sessionId) || (reapAuthorized && !liveSessions.has(a.sessionId)))

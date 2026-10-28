@@ -1,5 +1,5 @@
 {
   "repository": "OpenDCAI/gugu-supabase",
-  "ref": "e7918c4cd8b20816bae382aa1dddbe91d72dd54a",
-  "status": "list_unread_locators returns addressed_count (unread messages that name you, @all, or reply to you), merged in OpenDCAI/gugu-supabase#73."
+  "ref": "00e446df6e52d8e8974d0ea3d3a5072b91380fac",
+  "status": "Review candidate for retained session identities, archived delivery refusals and presence fields (OpenDCAI/gugu-supabase#76). Replace with its merged dev commit before client delivery."
 }

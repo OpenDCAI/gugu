@@ -42,6 +42,12 @@ beforeEach(() => { harness = createReactHarness() })
 afterEach(() => harness.cleanup())
 
 describe('#7199 宿主闲时收回着 ≠ 不在线(只管画)', () => {
+  it('keeps the archived label visible even when the cloud host is asleep', async () => {
+    await render('asleep')
+    const archived = presentAgentStatus({ reading: { status: 'working', detail: 'running' }, reachability: 'archived' })
+    expect(shown.status('assistant', 'archived')).toBe('archived')
+    expect(shown.presentation('assistant', archived)).toMatchObject({ label: 'archived', animate: false })
+  })
   it.each(['asleep', 'waking'] as const)('宿主 %s:不画状态 —— 没有粗分类、没有 presentation', async (cloud) => {
     await render(cloud)
     expect(shown.status('assistant', 'offline')).toBeUndefined()
