@@ -55,7 +55,7 @@ import { withSentReplies } from './sent-replies';
  */
 
 import { isDeliveryEnvelope } from '@gugu/core/local/agent/deliveryEnvelope';
-import { agentSendOf } from '@gugu/session-core/session-record/reply-process';
+import { agentSendOf, replyItems } from '@gugu/session-core/session-record/reply-process';
 import { resolveSeamGap } from '@session-chat/core/spacing';
 import type { FoldGate, ItemSegmenter, Margin, RenderUnit, SegmentCtx } from '@session-chat/core/units';
 import { stampGroupRoles } from '@session-chat/core/units';
@@ -148,6 +148,20 @@ function isSubagentChild(item: ChatItem | SyntheticItem): boolean {
   return 'parentToolCallId' in item && Boolean(item.parentToolCallId);
 }
 
+/** The call a sent reply (`withSentReplies`, id `<call id>:sent:<message id>`) was copied out of. */
+const sentReplyCall = (id: string): string | undefined => /^(.*):sent:[^:]+$/.exec(id)?.[1];
+
+/** Drop the sent replies whose call renders as an agent-send. */
+function withoutSentRepliesOfAgentSends(turn: TranscriptTurn): TranscriptTurn {
+  const sends = new Set(replyItems(turn).filter((item) => agentSendOf(item, turn)).map((item) => item.id));
+  if (sends.size === 0) return turn;
+  const drawnAsSend = (item: TranscriptTurn['items'][number]) => {
+    const call = item.kind === 'message' ? sentReplyCall(item.id) : undefined;
+    return call !== undefined && sends.has(call);
+  };
+  return turn.items.some(drawnAsSend) ? { ...turn, items: turn.items.filter((item) => !drawnAsSend(item)) } : turn;
+}
+
 export function flattenTier(
   turns: readonly TranscriptTurn[],
   ctx: SegmentCtx,
@@ -158,6 +172,15 @@ export function flattenTier(
 ): RenderUnit[] {
   turns = turns.map(turn => withSentReplies(turn, { allDestinations: ctx.agentConversation }));
   if (ctx.agentConversation) turns = conversationMessages(turns);
+  // One send, drawn once. On the session page the call itself is drawn as the agent's words (agent-send, below), so the
+  // reply copied out of it goes. In the agent conversation the copy is the reply bubble that carries the turn's process
+  // footer and the quote anchor, so there the call stays an ordinary tool call (`sentReplyCalls`).
+  const sentReplyCalls = new Set<string>();
+  if (ctx.agentConversation) for (const turn of turns) for (const item of turn.items) {
+    const call = item.kind === 'message' ? sentReplyCall(item.id) : undefined;
+    if (call !== undefined) sentReplyCalls.add(call);
+  }
+  else turns = turns.map(withoutSentRepliesOfAgentSends);
   const out: RenderUnit[] = [];
 
   // Hoist stable per-call values so processItem allocates nothing per seam.
@@ -238,7 +261,7 @@ export function flattenTier(
     for (const op of ops) {
       if (op.kind === 'row') {
         // agent 经 message_send / session_message 说的话:画成它说的话、标明发到了哪里,❌ 一行「调用了 MCP 工具」。
-        const send = 'toolCallId' in op.item ? agentSendOf(op.item as TranscriptItem, sendTurn) : null;
+        const send = 'toolCallId' in op.item && !sentReplyCalls.has(op.item.id) ? agentSendOf(op.item as TranscriptItem, sendTurn) : null;
         processItem(send
           ? { kind: 'agent-send', id: op.item.id, turnId, send, status: (op.item as { status?: string }).status === 'running' ? 'running' : 'done' }
           : op.item, folds);

@@ -79,3 +79,27 @@ describe('agent-send: what the agent said through 咕咕 shows as its words', ()
     expect(sends(units)).toEqual(['Done: all 10 steps']);
   });
 });
+
+describe('agent-send: a send that went through is drawn once, not again as the reply copied out of it (#638)', () => {
+  // A real successful send carries its message id; `withSentReplies` copies that into a reply. Fixtures above have no
+  // output, so they never met the copy.
+  const delivered = { ...(send('s1', 'HELLO-ONCE') as object), outputText: 'sent (id=msg:7417511d-8f36-4cbc-8cbb-81ce9f97df73)' } as unknown as ChatItem;
+  const drawn = (units: ReturnType<typeof flattenTier>) => units.flatMap((u) => {
+    if (u.kind === 'agent-send' && (u.data as AgentSendItem).send.text === 'HELLO-ONCE') return ['agent-send'];
+    if (u.kind === 'message' && (u.data as { text?: string }).text === 'HELLO-ONCE') return ['message'];
+    return [];
+  });
+  const views = [['session page', false, 'agent-send'], ['agent conversation', true, 'message']] as const;
+  const states = [
+    ['running', { active: true }, false],
+    ['done, process open', { foldTurnProcess: false }, true],
+    ['done, folded', {}, true],
+  ] as const;
+  for (const [view, agentConversation, as] of views) for (const [state, extra, done] of states) {
+    it(`${view}, ${state}: once, as ${as}`, () => {
+      const units = flattenTier([turn([input(), delivered], done)], ctx({ agentConversation, ...extra } as Partial<SegmentCtx>), passthrough);
+      expect(drawn(units)).toEqual([as]);
+    });
+  }
+});
+
