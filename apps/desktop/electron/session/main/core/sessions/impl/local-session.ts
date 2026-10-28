@@ -968,7 +968,8 @@ export class LocalSessionProvider implements SessionProvider {
       if (!agentSession.isResuming && effectiveInitialPrompt?.trim() && providerSupportsNativeStartHook(session.providerId)) {
         const sourceId = hookSource.id;
         stopFirstTurnWatch = watchFirstTurnTaken({
-          onHook: (heard) => agentHookService.on('agent:event', (event) => { if (event.sourceId === sourceId) heard(); }),
+          // 只认 harness 自己打回来的 hook:宿主替终端腿发的回合边沿也走 agent:event、带同一个 sourceId,那不算它接住了首句。
+          onHook: (heard) => agentHookService.on('agent:hook', (hook) => { if (hook.sourceId === sourceId) heard(); }),
           // 退出时注册表先撤掉这一条(onExit):还挂着同一个 pty = 它还在。
           alive: () => ptySessionRegistry.get(ptySessionId) === pty,
           screenText: () => ptySessionRegistry.screenText(ptySessionId, SCREEN_LINES),
