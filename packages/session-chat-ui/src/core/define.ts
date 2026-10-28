@@ -83,7 +83,7 @@ export type MeasureCtx = {
    */
   finalReplyId?: string | null;
   /**
-   * 还在跑的后台任务挂在哪条回复的过程行上(owner 2026-10-27 原型:与「思考执行中」同一行)。只有 `ownerId`
+   * 还在跑的后台任务挂在哪条回复的过程行上(owner 2026-10-27 原型:与「执行中」同一行)。只有 `ownerId`
    * 那一条量出它(单子展开时多出单子的高)。null / 缺省 = 没有挂在哪条回复上(没有后台任务,或它单独成行)。
    * 由 ChatRoot 算(`backgroundAttachment`),行里只比对。
    */

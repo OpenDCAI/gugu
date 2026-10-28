@@ -49,6 +49,11 @@ describe('session replies sent to IM', () => {
       { ...send(), outputText: 'failed' }, { ...send(), rawInput: 'truncated' },
     ]) expect(words(withSentReplies(turn(call)))).toHaveLength(0);
   });
+  it('carries the reply_to_message_id the agent passed, and nothing when it passed none', () => {
+    const quoted = words(withSentReplies(turn(send({ chat_id: 'other', reply_to_message_id: 'msg:abc' })), { allDestinations: true }));
+    expect(quoted).toMatchObject([{ sentReplyTo: 'abc', sentChat: 'other' }]);
+    expect(words(withSentReplies(turn(send({ chat_id: 'other' })), { allDestinations: true }))[0]).not.toHaveProperty('sentReplyTo');
+  });
   it('keeps separate successful replies in order and deduplicates replayed calls by DB message id', () => {
     const record = turn();
     record.items.push({ ...send({ text: '第二条回复' }), id: 'next', outputText: 'sent (id=msg:7417511d-8f36-4cbc-8cbb-81ce9f97df73)' }, send());

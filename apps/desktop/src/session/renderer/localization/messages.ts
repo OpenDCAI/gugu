@@ -1675,7 +1675,7 @@ const zhCNCoreMessages: Record<CoreSessionMessageKey, string> = {
   'transcript.turnCompleted': '回合已完成{reason}',
   'transcript.turnProcess': '过程',
   'transcript.thinkingAndExecution': '思考与执行',
-  'transcript.thinkingLive': '思考执行中',
+  'transcript.thinkingLive': '执行中',
   'transcript.processStepsOne': '{count} 步',
   'transcript.processSteps': '{count} 步',
   'transcript.turnElapsed': '已处理 {elapsed}',
