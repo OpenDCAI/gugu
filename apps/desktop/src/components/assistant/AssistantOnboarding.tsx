@@ -169,6 +169,10 @@ export function AssistantOnboarding({
     let keepBusy = false
     try {
       const pending = pendingLocalAssistant(ownerUserId)
+      // The write boundary belongs to this attempt. A failed previous commit
+      // must not hide Back during a new, still reversible preparation.
+      localInstallationStarted.current = !!pending
+      setInstalling(!!pending)
       const onInstalling = () => {
         localInstallationStarted.current = true
         setInstalling(true)

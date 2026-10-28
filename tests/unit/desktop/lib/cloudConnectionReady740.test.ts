@@ -54,3 +54,32 @@ it('account changes abort the old check before any wake under the next account',
   await expect(old).rejects.toThrow()
   expect(f.wake).not.toHaveBeenCalled()
 })
+
+it('cancels the last explicit waiter and sends no wake from a late state response', async () => {
+  let answer!: (value: CloudComputerSnapshot) => void
+  let signal: AbortSignal | undefined
+  f.state.mockImplementationOnce((abort: AbortSignal) => { signal = abort; return new Promise(resolve => { answer = resolve }) })
+  const abort = new AbortController()
+  const run = ensureCloudConnectionReady('cloud', { isOnline: async () => true, signal: abort.signal })
+  abort.abort()
+  await expect(run).rejects.toMatchObject({ name: 'AbortError' })
+  expect(signal?.aborted).toBe(true)
+  answer(snap('asleep'))
+  await Promise.resolve()
+  expect(f.wake).not.toHaveBeenCalled()
+})
+
+it('keeps a shared wake alive for another explicit waiter after cancellation', async () => {
+  let answer!: (value: CloudComputerSnapshot) => void
+  let signal: AbortSignal | undefined
+  f.state.mockImplementationOnce((abort: AbortSignal) => { signal = abort; return new Promise(resolve => { answer = resolve }) })
+  const abort = new AbortController()
+  const cancelled = ensureCloudConnectionReady('cloud', { isOnline: async () => true, signal: abort.signal })
+  const other = ensureCloudConnectionReady('cloud', { isOnline: async () => true })
+  abort.abort()
+  await expect(cancelled).rejects.toMatchObject({ name: 'AbortError' })
+  expect(signal?.aborted).toBe(false)
+  answer(snap('awake'))
+  await other
+  expect(f.state).toHaveBeenCalledTimes(2)
+})

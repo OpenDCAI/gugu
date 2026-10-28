@@ -53,7 +53,8 @@ let issued = 0
 let applied = 0
 /** 换账号时停掉在途的叫醒(❌ 拿新账号的 /state 接着等旧账号的那台)。 */
 let wakeAbort = new AbortController()
-const connectionWakes = new Map<string, Promise<void>>()
+type ConnectionWake = { promise: Promise<void>; abort: AbortController; users: number; settled: boolean }
+const connectionWakes = new Map<string, ConnectionWake>()
 
 /** 管家说出错时那句原因只进日志(界面说「云电脑那边出了问题」);同一句只记一次。 */
 let loggedSnapshotError: string | null = null
@@ -229,29 +230,53 @@ export function cloudComputerPollMs(snapshot: CloudComputerSnapshot | null, devi
  * 在它上面开会话 / 打开它上面的会话这类要一条活连接的动作之前:叫醒它,等到它真的在线(每问到一次 /state 都更新界面)。
  * 原因见 CloudComputerWakeError;不是这个账号的云电脑也当失败说(调用方只对云电脑那一行调它)。
  */
-export function wakeAndWaitOnline(deviceId: string, deps: { isOnline: (deviceId: string) => Promise<boolean> }): Promise<void> {
-  const existing = connectionWakes.get(deviceId)
-  if (existing) return existing
-  const asked = generation
-  // Explicit operations own resume; background pipe retries must stay read-only.
-  const pending = wakeCloudComputerUntilOnline({
-    client: requireClient(),
-    deviceId,
-    isOnline: deps.isOnline,
-    onSnapshot: (snapshot) => {
-      if (asked !== generation) return
-      // 刚问到的这一次就是最新的:比它早发出、还在路上的那些不再认。
-      applied = ++issued
-      set({ available: true, snapshot, loadError: null })
-    },
-    signal: wakeAbort.signal,
-  }).catch(noteWakeFailure).then(outcome => {
-    if (outcome === 'not-cloud') throw new CloudComputerWakeError('failed', `device ${deviceId} is not this account's cloud computer`)
-  }).finally(() => {
-    if (connectionWakes.get(deviceId) === pending) connectionWakes.delete(deviceId)
+export function wakeAndWaitOnline(deviceId: string, deps: { isOnline: (deviceId: string) => Promise<boolean>; signal?: AbortSignal }): Promise<void> {
+  deps.signal?.throwIfAborted()
+  let entry = connectionWakes.get(deviceId)
+  if (!entry) {
+    const asked = generation
+    const abort = new AbortController()
+    const signal = AbortSignal.any([wakeAbort.signal, abort.signal])
+    // Explicit operations own resume; background pipe retries stay read-only.
+    const pending = wakeCloudComputerUntilOnline({
+      client: requireClient(), deviceId, isOnline: deps.isOnline, signal,
+      onSnapshot: snapshot => {
+        if (asked !== generation || signal.aborted) return
+        applied = ++issued
+        set({ available: true, snapshot, loadError: null })
+      },
+    }).catch(error => { if (signal.aborted) throw error; return noteWakeFailure(error) }).then(outcome => {
+      if (outcome === 'not-cloud') throw new CloudComputerWakeError('failed', `device ${deviceId} is not this account's cloud computer`)
+    }).finally(() => {
+      created.settled = true
+      if (connectionWakes.get(deviceId) === created) connectionWakes.delete(deviceId)
+    })
+    const created: ConnectionWake = { promise: pending, abort, users: 0, settled: false }
+    entry = created
+    connectionWakes.set(deviceId, entry)
+  }
+  entry.users++
+  if (!deps.signal) return entry.promise
+  const shared = entry
+  return new Promise<void>((resolve, reject) => {
+    let finished = false
+    const finish = (action: () => void) => {
+      if (finished) return
+      finished = true
+      deps.signal!.removeEventListener('abort', onAbort)
+      shared.users--
+      if (!shared.users && !shared.settled) {
+        shared.abort.abort()
+        if (connectionWakes.get(deviceId) === shared) connectionWakes.delete(deviceId)
+      }
+      action()
+    }
+    const onAbort = () => finish(() => reject(deps.signal!.reason))
+    // Cancelling one consumer leaves another explicit operation's wake alive.
+    deps.signal!.addEventListener('abort', onAbort, { once: true })
+    shared.promise.then(() => finish(resolve), error => finish(() => reject(error)))
+    if (deps.signal!.aborted) onAbort()
   })
-  connectionWakes.set(deviceId, pending)
-  return pending
 }
 
 /** 这一行是不是要先叫醒的云电脑(睡着 / 正在醒)。 */

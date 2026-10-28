@@ -29,7 +29,9 @@ export async function requestCloudVersionMatch(deviceId: string, retry = false):
   if (getCloudComputerState().snapshot?.deviceId !== deviceId) return false
   const key = keyFor(deviceId)
   if (running.has(key)) return true
-  if (!retry && states.has(key)) return states.get(key)?.status !== 'failed'
+  // A new verified mismatch invalidates a previous ready receipt: the desktop
+  // or selected release may have changed since it was issued.
+  if (!retry && states.get(key)?.status === 'failed') return false
   const client = rendererCloudComputerClient()
   if (!owner || !client?.matchVersion) return false
   const controller = new AbortController()
@@ -52,10 +54,15 @@ export async function requestCloudVersionMatch(deviceId: string, retry = false):
       }
       if (state.status === 'ready') window.dispatchEvent(new CustomEvent('gugu:cloud-version-matched', { detail: { deviceId } }))
     }
+    if (initial.status !== 'updating') {
+      running.delete(key)
+      if (initial.status === 'ready') window.dispatchEvent(new CustomEvent('gugu:cloud-version-matched', { detail: { deviceId } }))
+      return initial.status !== 'failed'
+    }
     void monitor().catch(error => {
       if (!controller.signal.aborted) publish(key, { status: 'failed', error: error instanceof Error ? error.message : String(error) })
     }).finally(() => { if (running.get(key) === controller) running.delete(key) })
-    return initial.status !== 'failed'
+    return true
   } catch (error) {
     if (!controller.signal.aborted) publish(key, { status: 'failed', error: error instanceof Error ? error.message : String(error) })
     running.delete(key)

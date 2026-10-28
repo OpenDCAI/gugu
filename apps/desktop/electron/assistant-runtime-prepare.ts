@@ -46,7 +46,13 @@ export async function prepareAssistantRuntime(id: string, signal: AbortSignal): 
           await manager.probe(dependency)
           if (manager.get(dependency)?.status === 'available') continue
           // Atomic, exclusive publication preserves a concurrent install.
-          await link(path.join(launcherDir, launcher), path.join(managedMiseBinDir(), launcher))
+          try { await link(path.join(launcherDir, launcher), path.join(managedMiseBinDir(), launcher)) }
+          catch (error) {
+            if ((error as NodeJS.ErrnoException).code !== 'EEXIST') throw error
+            await manager.probe(dependency)
+            if (manager.get(dependency)?.status === 'available') continue
+            throw error
+          }
           published = true
         }
         for (const { dependency } of prepared) {

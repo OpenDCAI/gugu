@@ -15,7 +15,7 @@ function fixture() {
   const panel = { ownerId: 'owner',assistantId: 'assistant',assertCurrent: vi.fn(async () => {}),
     collection: vi.fn(async () => []),snapshot: vi.fn(async () => ({ application: [] })),body: vi.fn(),change: vi.fn(),save: vi.fn(),
   } as unknown as AssistantPanelFiles
-  const prepare = vi.fn(async () => {})
+  const prepare = vi.fn(async (_signal?: AbortSignal) => {})
   return { native,wait,subscribe,panel,prepare,ready,host: assistantPanelLibraryHost(base,panel,prepare) }
 }
 
@@ -38,6 +38,42 @@ it('does not start a CLI download/login until control RPC actually acknowledges 
   release()
   await login
   expect(f.native).toHaveBeenCalledOnce()
+})
+
+it('stops a cancelled cold wake before probing or starting the tool', async () => {
+  const f = fixture()
+  const abort = new AbortController()
+  let finish!: () => void
+  f.prepare.mockImplementationOnce(() => new Promise(resolve => { finish = resolve }))
+  const run = f.host.integrations.cliToolPrepare('feishu', abort.signal)
+  await vi.waitFor(() => expect(f.prepare).toHaveBeenCalledOnce())
+  expect(f.prepare.mock.calls[0]?.[0]).toBeInstanceOf(AbortSignal)
+  abort.abort()
+  finish()
+  await expect(run).rejects.toMatchObject({ name: 'AbortError' })
+  expect(f.ready).not.toHaveBeenCalled()
+  expect(f.native).not.toHaveBeenCalled()
+})
+
+it('cancels login-start preparation through the host cancellation action', async () => {
+  const f = fixture()
+  f.ready.mockImplementationOnce(() => new Promise(() => {}))
+  const run = f.host.integrations.cliLoginStart('feishu')
+  await vi.waitFor(() => expect(f.ready).toHaveBeenCalledOnce())
+  await f.host.integrations.cancelAuthorization('feishu')
+  await expect(run).rejects.toMatchObject({ name: 'AbortError' })
+  expect(f.native).not.toHaveBeenCalled()
+})
+
+it('cancels an unanswered control read without waiting for the readiness timeout', async () => {
+  const f = fixture()
+  const abort = new AbortController()
+  f.ready.mockImplementationOnce(() => new Promise(() => {}))
+  const run = f.host.integrations.cliToolPrepare('feishu', abort.signal)
+  await vi.waitFor(() => expect(f.ready).toHaveBeenCalledOnce())
+  abort.abort()
+  await expect(run).rejects.toMatchObject({ name: 'AbortError' })
+  expect(f.native).not.toHaveBeenCalled()
 })
 
 it('reads application and account metadata while the host is asleep without touching native APIs', async () => {
@@ -161,5 +197,17 @@ it('reports the actual resume refusal instead of keeping an authorization waitin
   const refusal = new Error('Cloud resume was rejected')
   f.prepare.mockRejectedValueOnce(refusal)
   await expect(f.host.integrations.cliLoginWait('feishu')).rejects.toBe(refusal)
+  expect(f.wait).toHaveBeenCalledOnce()
+})
+
+it('stops resume preparation when the active authorization is cancelled', async () => {
+  const f = fixture()
+  await f.host.integrations.cliLoginStart('feishu')
+  f.wait.mockRejectedValueOnce(new Error('Host went offline'))
+  f.ready.mockImplementationOnce(() => new Promise(() => {}))
+  const read = f.host.integrations.cliLoginWait('feishu')
+  await vi.waitFor(() => expect(f.ready).toHaveBeenCalledTimes(2))
+  await f.host.integrations.cancelAuthorization('feishu')
+  await expect(read).rejects.toMatchObject({ name: 'AbortError' })
   expect(f.wait).toHaveBeenCalledOnce()
 })

@@ -131,7 +131,7 @@ export type CloudComputerClient = {
   matchVersion?(deviceId: string, start: boolean, signal?: AbortSignal): Promise<CloudVersionMatchState>
   state(signal?: AbortSignal): Promise<CloudComputerSnapshot>
   provision(input?: CloudComputerProvisionInput): Promise<void>
-  wake(input?: CloudComputerWakeInput): Promise<void>
+  wake(input?: CloudComputerWakeInput, signal?: AbortSignal): Promise<void>
   destroy(): Promise<void>
   /** 删除身份之前，核对清理接口可用且仍是确认框里这一位。 */
   prepareAssistantClose(input: { deviceId: string; assistantId: string }): Promise<void>
@@ -204,8 +204,8 @@ export function createCloudComputerClient(options: {
     async provision(input) {
       await request('POST', '/provision', provisionBody(input))
     },
-    async wake(input) {
-      await request('POST', '/wake', input?.purpose ? { purpose: input.purpose } : {})
+    async wake(input, signal) {
+      await request('POST', '/wake', input?.purpose ? { purpose: input.purpose } : {}, signal)
     },
     async destroy() {
       await request('DELETE', '/')
@@ -351,7 +351,8 @@ export async function wakeCloudComputerUntilOnline(input: {
   if (first.state === 'error') throw new CloudComputerWakeError('failed', first.error ?? 'cloud computer reported an error')
   if (first.state === 'asleep' || first.state === 'waking') {
     try {
-      await input.client.wake(input.purpose ? { purpose: input.purpose } : undefined)
+      input.signal?.throwIfAborted()
+      await input.client.wake(input.purpose ? { purpose: input.purpose } : undefined, input.signal)
     } catch (error) {
       if (error instanceof CloudComputerError) throw new CloudComputerWakeError('refused', error.message, error.code)
       throw error
