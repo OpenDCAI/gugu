@@ -8,9 +8,10 @@ import { pipeline } from 'node:stream/promises';
 import { promisify } from 'node:util';
 import type { IntegrationCliTool } from '@gugu/session-plugins/integrations';
 import JSZip from 'jszip';
+import { log } from '@main/lib/logger';
 import { resolvesInside } from '../../extensions/path-containment';
 import { cliToolsRoot } from './cli-paths';
-import { preinstalledCliDirectory } from './cli-preinstalled';
+import { preinstalledCliDirectory, preinstalledCliVersions } from './cli-preinstalled';
 import { DWS_LINUX_PRODUCT, installManagedProduct, managedProductRoot } from './cli-managed-products';
 import { FEISHU_BINARY_SHA256, FEISHU_CLI_VERSION, FEISHU_SKILLS_COMMIT, feishuArchiveName } from './feishu-cli';
 import { TMEET_BINARY, TMEET_SKILLS_COMMIT } from './tmeet-cli';
@@ -102,6 +103,13 @@ async function install(tool: IntegrationCliTool): Promise<InstalledCliTool> {
   await fs.mkdir(path.join(staging, 'skills'), { recursive: true });
   try {
     const managedRoot = managedProductRoot(tool, platform);
+    const preinstalled = managedRoot ? undefined : preinstalledCliVersions(recipe);
+    if (preinstalled) {
+      // 云电脑本该用镜像里那份,却要下载:多半是客户端先升了版本、镜像还是旧的。留一句,查「为什么又在下载」。
+      log.warn('Cloud computer has no preinstalled copy of this connector tool version; downloading it', {
+        tool, version: recipe.version, preinstalledVersions: preinstalled.versions, root: preinstalled.root,
+      });
+    }
     if (managedRoot) {
       if (recipe.version !== DWS_LINUX_PRODUCT.version) throw new Error('Managed CLI product version does not match the release');
       await installManagedProduct(managedRoot, DWS_LINUX_PRODUCT, staging, report);
