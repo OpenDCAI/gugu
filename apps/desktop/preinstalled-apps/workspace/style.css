@@ -90,6 +90,26 @@ body:not(.show-doc):not(.no-list) .doc { display: none; }
 .cell-host { position: absolute; bottom: 26px; left: 6px; padding: 1px 6px; border-radius: var(--em-radius-capsule); background: color-mix(in srgb, var(--em-background) 85%, transparent); }
 .file.cell .row-more { position: absolute; top: 4px; right: 4px; background: var(--em-background); }
 
+/* 多选: a file's box sits on its mark — drawn on hover, and on every row while anything is picked. */
+.file { position: relative; }
+.file-pick { position: absolute; z-index: 2; left: 8px; top: 50%; width: 28px; height: 28px; margin-top: -14px; padding: 0; border: 0; border-radius: 6px; background: none; opacity: 0; }
+.file-pick::before { content: ''; position: absolute; inset: 6px; border: 1.5px solid var(--em-border-strong, var(--em-foreground-muted)); border-radius: 4px; background: var(--em-background); }
+.file-pick[aria-checked='true']::before { border-color: var(--em-accent-11); background: var(--em-accent-11); }
+.file-pick[aria-checked='true']::after { content: ''; position: absolute; left: 11px; top: 8px; width: 5px; height: 9px; border: solid var(--em-background); border-width: 0 2px 2px 0; transform: rotate(45deg); }
+.file:hover .file-pick, .file-list.picking .file-pick, .file-pick:focus-visible { opacity: 1; }
+.file:hover .file-pick + .file-open .file-mark, .file-list.picking .file:not(.cell) .file-mark { visibility: hidden; }
+.file.picked { background: color-mix(in srgb, var(--em-accent-11) 10%, transparent); }
+.file.cell .file-pick { top: 6px; left: 6px; margin-top: 0; }
+.file.cell .file-pick + .file-open .file-mark { visibility: visible; }
+@media (hover: none) { .file:hover .file-pick { opacity: 0; } .file-list.picking .file-pick { opacity: 1; } }
+.pick-bar { position: fixed; z-index: 12; left: 50%; bottom: var(--em-spacing-lg); transform: translateX(-50%); display: flex; align-items: center; gap: 2px; max-width: calc(100vw - 16px); padding: 4px 6px 4px var(--em-spacing-md); border-radius: var(--em-radius-control); background: var(--em-foreground); color: var(--em-background); box-shadow: var(--em-shadow-lift); font-size: var(--em-font-caption); overflow-x: auto; }
+.pick-bar[hidden] { display: none; }
+.pick-bar button { border: 0; background: none; color: inherit; white-space: nowrap; min-height: 28px; padding: 0 var(--em-spacing-sm); }
+.pick-bar button:disabled { opacity: .4; }
+.pick-count { font-weight: 600; white-space: nowrap; margin-inline-end: var(--em-spacing-sm); }
+.pick-at { white-space: nowrap; font-variant-numeric: tabular-nums; }
+.lasso { position: fixed; z-index: 11; border: 1px solid var(--em-accent-11); background: color-mix(in srgb, var(--em-accent-11) 12%, transparent); pointer-events: none; }
+
 /* The table's head: only where the pane is wide. */
 .table-head { display: none; }
 
@@ -127,6 +147,17 @@ img.details-picture { object-fit: contain; }
   .file:not(.cell) .file-meta > .file-path { grid-column: 2; grid-row: 2; }
   .file:not(.cell) .file-marks { grid-column: 2; max-width: none; }
   .file:not(.cell) .row-more { grid-column: 3; }
+}
+/* The phone (a narrow pane): taller rows, the kinds and filters scroll sideways, the bar spans the bottom, the details are
+   a sheet that slides away. */
+@media (max-width: 520px) {
+  .file:not(.cell) { min-height: 60px; }
+  .chips { flex-wrap: nowrap; overflow-x: auto; scrollbar-width: none; }
+  .chip { flex: none; }
+  .pick-bar { left: 0; right: 0; bottom: 0; transform: none; max-width: none; border-radius: 0; justify-content: space-between; padding-bottom: calc(4px + env(safe-area-inset-bottom, 0px)); }
+  .details { padding-top: var(--em-spacing-sm); }
+  .details::before { content: ''; align-self: center; width: 36px; height: 4px; border-radius: 2px; background: var(--em-border); }
+  .file-list.as-grid { grid-template-columns: repeat(3, 1fr); gap: 3px; }
 }
 @media (min-width: 720px) {
   .details { inset: 0 0 0 auto; width: 300px; max-height: none; border-radius: 0; box-shadow: none; border-left: 1px solid var(--em-border); }

@@ -694,7 +694,7 @@ export function hostAppFrame(
       case 'filesRename':
         return files.rename(surface(), { ref: chatRef(args.ref), name: String(args.name ?? '') })
       case 'filesKeep':
-        return files.keep(surface(), { ref: chatRef(args.ref), how: args.how })
+        return files.keep(surface(), { refs: (Array.isArray(args.refs) ? args.refs : []).map(chatRef), how: args.how })
       case 'filesMkdir':
         return files.mkdir(chatPlace(args.place), { path: args.path })
       case 'filesMove':
@@ -733,6 +733,17 @@ export function hostAppFrame(
         return files.upload(chatId, args.files as AppFileUpload[], { sourceMessageIds: args.sourceMessageIds, folder: args.folder })
       }
       case 'filesDownload':
+        // API 20: several files go out through the share sheet at once (a phone has no folder to pick) — how many were handed.
+        if (Array.isArray(args.refs)) {
+          if (args.refs.length === 0) refused('invalid', 'files.download(files): give one file or more')
+          if (!platform.capabilities.shareToApps) refused('invalid', 'Not available on this phone: sharing several files')
+          const sources = await Promise.all(args.refs.map((ref) => files.downloadSource(surface(), { ref: chatRef(ref) })))
+          await platform.shareToApps({
+            files: sources.flatMap((source) => (source.kind === 'file' ? [{ file: source.file, name: source.name }] : [])),
+            blobs: sources.flatMap((source) => (source.kind === 'text' ? [{ blob: new Blob([source.text], { type: 'text/plain;charset=utf-8' }), name: source.name }] : [])),
+          })
+          return sources.length
+        }
         return files.downloadSource(surface(), { ref: chatRef(args.ref) }).then(async (source) => {
           // The one save every 「保存」 takes (platform.saveFile: the system's 「保存到…」 on the phone), under the file's
           // own name — a file in OSS has a link named by its hash (#7290). Cancelled in the system picker = false.

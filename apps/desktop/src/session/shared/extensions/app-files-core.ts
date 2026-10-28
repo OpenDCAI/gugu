@@ -981,13 +981,23 @@ export function createAppFiles(platform: FilesPlatform) {
      * temporary period, counted from now — or kept until someone deletes it. Only its uploader changes it (`denied`); a file
      * with no cloud copy has nothing to keep (`invalid`).
      */
-    async keep(surface: FileSurface, args: { ref: ChatFileRef; how: unknown }): Promise<void> {
-      if (args.how !== 'temporary' && args.how !== 'permanent') throw new AppFileError('invalid', "files.keep(file, how): how is 'temporary' or 'permanent'");
+    async keep(surface: FileSurface, args: { refs: readonly ChatFileRef[]; how: unknown }): Promise<{ changed: number }> {
+      if (args.how !== 'temporary' && args.how !== 'permanent') throw new AppFileError('invalid', "files.keep(files, how): how is 'temporary' or 'permanent'");
+      if (!Array.isArray(args.refs) || args.refs.length === 0) throw new AppFileError('invalid', 'files.keep(files, how): give one file or more');
       const { token, userId } = await platform.account();
-      const { row } = await resolve(surface, { token, userId }, args.ref);
-      if (row.kind === 'folder') throw notAFile(row);
-      const { error } = await chatClient(token).rpc('file_storage_mark_as', { p_refs: [{ item_id: row.id }], p_action: args.how, p_as: surface.asAgent ?? userId });
-      if (error) throw new AppFileError(codeOf(error), error.message);
+      const rows = await Promise.all(args.refs.map(async (ref) => (await resolve(surface, { token, userId }, ref)).row));
+      const folder = rows.find((row) => row.kind === 'folder');
+      if (folder) throw notAFile(folder);
+      // One call per 500 (the door's most); a refusal is the whole call's — the caller hands only its own uploads.
+      let changed = 0;
+      for (let at = 0; at < rows.length; at += 500) {
+        const { data, error } = await chatClient(token).rpc('file_storage_mark_as', {
+          p_refs: rows.slice(at, at + 500).map((row) => ({ item_id: row.id })), p_action: args.how, p_as: surface.asAgent ?? userId,
+        });
+        if (error) throw new AppFileError(codeOf(error), error.message);
+        changed += typeof data === 'number' ? data : 0;
+      }
+      return { changed };
     },
 
     /** Rename in place: only its name changes (真源 §2.5) — a move that stays in its folder. The folder App's edit(item_id, name) for an agent. */

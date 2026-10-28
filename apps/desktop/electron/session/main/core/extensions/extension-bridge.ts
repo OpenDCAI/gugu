@@ -236,7 +236,7 @@ export function checkReadingsOf(webContentsId: number): CheckReadings | null {
  * with its own tools (owner 10-14). One it cannot open is refused, as the save would be.
  */
 async function handToAgent(caller: BridgeCaller, page: AgentPage, verb: string, args: Record<string, unknown>): Promise<void> {
-  if (verb === 'filesDownload' && !isLocal(fileRefOf(args.ref))) {
+  if (verb === 'filesDownload' && args.ref !== undefined && !isLocal(fileRefOf(args.ref))) {
     const files = await import('@main/core/extensions/app-files');
     const found = await files.openWithTarget(caller.filePage(args), { ref: args.ref });
     if (found.kind === 'chat') {

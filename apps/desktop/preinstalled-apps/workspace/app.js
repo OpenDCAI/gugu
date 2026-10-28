@@ -12,7 +12,7 @@
 // workspace; with a file (ctx.file) it opens the file it was handed; with neither there is nothing to show.
 
 import { placeOf, plainWords, relocate, spanOf } from './lines.js'
-import { KINDS, SORTS, comparer, defaultView, keptAs, kindOf, markOf, matches, sectionOf, sizeOf, timeLeft, wantsThumb } from './list.js'
+import { KINDS, SORTS, comparer, defaultView, keepable, keptAs, kindOf, markOf, matches, rangeOf, sectionOf, sizeOf, timeLeft, wantsThumb } from './list.js'
 
 const $ = (id) => document.getElementById(id)
 
@@ -156,6 +156,21 @@ const STRINGS = {
     machineOnline: '在线',
     machineOffline: '离线',
     hostOffline: '{machine} 离线，上线后才能打开这个文件。',
+    pick: '选择',
+    picked: '已选 {n} 项',
+    pickCancel: '取消选择',
+    pickDownload: '下载',
+    pickTemporary: '设为临时',
+    pickPermanent: '一直保留',
+    pickLocate: '在聊天中定位',
+    pickLocateAt: '{i}/{n}',
+    pickPrev: '上一条',
+    pickNext: '下一条',
+    savedFiles: '已保存 {n} 个文件。',
+    keptFiles: '已改 {n} 个。',
+    skippedNotMine: '{n} 个不是你上传的，没改。',
+    skippedNoCopy: '{n} 个没有云端副本，没改。',
+    noSources: '选中的文件都不是从聊天里来的。',
   },
   en: {
     groupFolder: 'Group folder',
@@ -296,6 +311,21 @@ const STRINGS = {
     machineOnline: 'online',
     machineOffline: 'offline',
     hostOffline: '{machine} is offline: this file opens once it is back.',
+    pick: 'Select',
+    picked: '{n} selected',
+    pickCancel: 'Clear selection',
+    pickDownload: 'Download',
+    pickTemporary: 'Make temporary',
+    pickPermanent: 'Keep until deleted',
+    pickLocate: 'Show in chat',
+    pickLocateAt: '{i}/{n}',
+    pickPrev: 'Previous',
+    pickNext: 'Next',
+    savedFiles: '{n} files saved.',
+    keptFiles: '{n} changed.',
+    skippedNotMine: '{n} not uploaded by you, left as they are.',
+    skippedNoCopy: '{n} without a cloud copy, left as they are.',
+    noSources: 'None of these files came from the chat.',
   },
 }
 
@@ -312,6 +342,10 @@ const state = {
   filters: { who: null, where: null, keep: null },
   details: null, // the entry whose details are open
   ofKind: [], // the files of the kind picked in the list last drawn: what the filters offer to pick by
+  picked: new Set(), // 多选: the ids of the files picked, on screen
+  pickFrom: null, // the file pressed last, where a Shift press's range starts
+  order: [], // the files on screen, in their order: what a range runs along
+  locating: null, // 「在聊天中定位」 for a selection: { ids: message ids oldest first, at }
   showAppData: false,
   folder: null, // the folder the list shows (子文件夹): a folder entry's id, null for the top
   dragging: null, // the entry being dragged onto a folder (desktop)
@@ -652,6 +686,10 @@ function renderList() {
     rows.push(item(entry))
   }
   list.replaceChildren(...rows)
+  // 多选: what is picked stays picked while it is on screen; the order a range runs along is the order drawn.
+  state.order = files.map((e) => e.id)
+  for (const id of state.picked) if (!state.order.includes(id)) state.picked.delete(id)
+  renderPicks()
   // A row's menu goes with its row (the list is drawn anew when the workspace changes).
   if (state.menuAnchor && !state.menuAnchor.isConnected) closeMenu()
   if (state.details) {
@@ -723,6 +761,7 @@ function renderTools(files = state.ofKind, now = new Date(Date.now())) {
       button.type = 'button'
       button.dataset.kind = kind
       button.onclick = () => {
+        clearPicks()
         state.kind = kind
         remember('kind', kind)
         renderList()
@@ -781,6 +820,7 @@ function renderChips(files, now) {
   if (Object.values(state.filters).some(Boolean)) {
     const clear = Object.assign(document.createElement('button'), { type: 'button', className: 'chips-clear', textContent: t.clearFilters })
     clear.onclick = () => {
+      clearPicks()
       state.filters = { who: null, where: null, keep: null }
       renderList()
     }
@@ -791,6 +831,7 @@ function renderChips(files, now) {
 }
 
 function setFilter(key, value) {
+  clearPicks()
   state.filters = { ...state.filters, [key]: value }
   renderList()
   $('file-list').scrollTop = 0
@@ -849,6 +890,7 @@ function renderCrumbs() {
 
 function enterFolder(folderId) {
   hideBanner()
+  clearPicks()
   state.folder = folderId
   if (state.filter) {
     state.filter = ''
@@ -1174,7 +1216,8 @@ function listItem(entry, now = new Date(Date.now())) {
   const where = state.filter.trim() && entry.parentId ? pathOf(entry).split('/').slice(0, -1).join('/') : ''
   if (where) meta.prepend(Object.assign(document.createElement('span'), { className: 'file-path', textContent: where }))
   open.append(meta)
-  open.onclick = () => (folder ? enterFolder(entry.id) : openFile(entry))
+  open.onclick = (event) => (folder ? enterFolder(entry.id) : pressFile(entry, event))
+  if (!folder) pickable(li, open, entry)
   if (offline(entry)) li.dataset.offline = ''
   // Files carry the same resource link outside this App; folder moves stay inside it.
   const drag = (text, isLink) => {
@@ -1238,8 +1281,9 @@ function gridItem(entry, now) {
     mark.append(play)
   }
   open.append(mark, Object.assign(document.createElement('span'), { className: 'file-name', textContent: shownName(entry) }))
-  open.onclick = () => openFile(entry)
+  open.onclick = (event) => pressFile(entry, event)
   li.append(open)
+  pickable(li, open, entry)
   const keep = keepMark(entry, now)
   if (keep) li.append(Object.assign(keep, { className: `${keep.className} cell-keep` }))
   if (entry.storedOn) li.append(Object.assign(storedOnMark(entry.storedOn), { className: 'file-host cell-host' }))
@@ -2087,6 +2131,191 @@ function toggleMenu(anchor, items) {
   menu.querySelector('button:not(:disabled)')?.focus({ preventScroll: true })
 }
 
+// ─── 多选 ───────────────────────────────────────────────────────────────────
+// Files are picked by their box (the mark's place, drawn on hover and while anything is picked), Ctrl/⌘ or a long press on
+// a row, Shift for the run from the one pressed last, or a frame dragged across the list's empty space; while anything is
+// picked a press picks too. What is picked can be downloaded at once, made temporary or kept, and found in the chat one
+// message after another. Folders are not picked; a change of folder, kind or filter lets go of all.
+
+function pickable(li, open, entry) {
+  const box = document.createElement('button')
+  box.type = 'button'
+  box.className = 'file-pick'
+  box.setAttribute('role', 'checkbox')
+  box.setAttribute('aria-label', state.t.pick)
+  box.setAttribute('aria-checked', String(state.picked.has(entry.id)))
+  box.onclick = (event) => {
+    event.stopPropagation()
+    pick(entry.id, event.shiftKey ? 'range' : 'toggle')
+  }
+  li.prepend(box)
+  if (state.picked.has(entry.id)) li.classList.add('picked')
+  // A long press (a finger's) picks, as a phone's list does; the click after it is the press's, not an open.
+  let held = null
+  open.addEventListener('pointerdown', (event) => {
+    if (event.pointerType === 'mouse') return
+    held = setTimeout(() => {
+      held = 'fired'
+      pick(entry.id, 'toggle')
+    }, 500)
+  })
+  const drop = () => {
+    if (typeof held === 'number') clearTimeout(held)
+    if (held !== 'fired') held = null
+  }
+  open.addEventListener('pointerup', drop)
+  open.addEventListener('pointercancel', () => { drop(); held = null })
+  open.addEventListener('pointermove', (event) => { if (typeof held === 'number' && (Math.abs(event.movementX) > 4 || Math.abs(event.movementY) > 4)) drop() })
+  open.addEventListener('click', (event) => {
+    if (held !== 'fired') return
+    held = null
+    event.stopImmediatePropagation()
+    event.preventDefault()
+  }, true)
+  open.addEventListener('contextmenu', (event) => { if (held === 'fired') event.preventDefault() })
+}
+
+// A press on a file: with Shift, the run to it; with Ctrl/⌘ — or while anything is picked — it is picked or let go; else it opens.
+function pressFile(entry, event) {
+  if (event?.shiftKey) return pick(entry.id, 'range')
+  if (event?.ctrlKey || event?.metaKey || state.picked.size) return pick(entry.id, 'toggle')
+  state.pickFrom = entry.id
+  return openFile(entry)
+}
+
+function pick(id, how) {
+  if (how === 'range' && state.pickFrom) for (const one of rangeOf(state.order, state.pickFrom, id)) state.picked.add(one)
+  else if (state.picked.has(id)) state.picked.delete(id)
+  else state.picked.add(id)
+  if (how !== 'range') state.pickFrom = id
+  state.locating = null
+  renderPicks()
+}
+
+function clearPicks() {
+  if (!state.picked.size && !state.locating) return
+  state.picked.clear()
+  state.locating = null
+  renderPicks()
+}
+
+const pickedEntries = () => state.order.filter((id) => state.picked.has(id)).map((id) => state.entries.find((e) => e.id === id)).filter(Boolean)
+
+// The rows say whether they are picked; the bar says how many, and what to do with them.
+function renderPicks() {
+  const t = state.t
+  for (const li of $('file-list').querySelectorAll('li.file')) {
+    const on = state.picked.has(li.dataset.id)
+    li.classList.toggle('picked', on)
+    li.querySelector('.file-pick')?.setAttribute('aria-checked', String(on))
+  }
+  const count = state.picked.size
+  $('file-list').classList.toggle('picking', count > 0)
+  const bar = $('pick-bar')
+  bar.hidden = count === 0
+  if (!count) return void bar.replaceChildren()
+  const act = (text, run, more = {}) => Object.assign(document.createElement('button'), { type: 'button', textContent: text, onclick: run, ...more })
+  const locating = state.locating
+  const locate = locating
+    ? [act('‹', () => stepLocate(-1), { title: t.pickPrev, disabled: locating.at === 0 }),
+      Object.assign(document.createElement('span'), { className: 'pick-at', textContent: fmt(t.pickLocateAt, { i: locating.at + 1, n: locating.ids.length }) }),
+      act('›', () => stepLocate(1), { title: t.pickNext, disabled: locating.at === locating.ids.length - 1 })]
+    : [act(t.pickLocate, () => startLocate())]
+  bar.replaceChildren(
+    Object.assign(document.createElement('span'), { className: 'pick-count', textContent: fmt(t.picked, { n: count }) }),
+    act(t.pickDownload, () => downloadPicked()),
+    ...(canWrite() ? [act(t.pickTemporary, () => keepPicked('temporary')), act(t.pickPermanent, () => keepPicked('permanent'))] : []),
+    ...locate,
+    act('✕', () => clearPicks(), { className: 'pick-close', title: t.pickCancel, ariaLabel: t.pickCancel }),
+  )
+}
+
+// Download what is picked at once (API 20): one folder asked for them all on the desktop, the share sheet on the phone.
+async function downloadPicked() {
+  const entries = pickedEntries()
+  if (!entries.length) return
+  hideBanner()
+  try {
+    const saved = await gugu.files.download(entries)
+    if (typeof saved === 'number' && saved > 0) showBanner(fmt(state.t.savedFiles, { n: saved }), 'info')
+  } catch (error) {
+    showBanner(fmt(state.t.failed, { e: error.message }), 'error')
+  }
+}
+
+// Make what is picked temporary, or keep it: only the person's own cloud copies are asked for (one refusal would refuse
+// the whole call); the rest are said apart.
+async function keepPicked(how) {
+  const t = state.t
+  const { mine, notMine, noCopy } = keepable(pickedEntries())
+  hideBanner()
+  const said = []
+  try {
+    if (mine.length) said.push(fmt(t.keptFiles, { n: (await gugu.files.keep(mine, how))?.changed ?? mine.length }))
+  } catch (error) {
+    return void showBanner(error.code === 'denied' ? t.keepNotMine : fmt(t.failed, { e: error.message }), 'error')
+  }
+  if (notMine.length) said.push(fmt(t.skippedNotMine, { n: notMine.length }))
+  if (noCopy.length) said.push(fmt(t.skippedNoCopy, { n: noCopy.length }))
+  await refreshList()
+  showBanner(said.join(' '), 'info')
+}
+
+// 「在聊天中定位」 for a selection: their messages, oldest first, one after another (1/3 ‹ ›).
+function startLocate() {
+  const ids = pickedEntries()
+    .filter((e) => e.sourceMessageIds?.length)
+    .sort((a, b) => (Date.parse(a.createdAt) || 0) - (Date.parse(b.createdAt) || 0))
+    .map((e) => e.sourceMessageIds[e.sourceMessageIds.length - 1])
+  if (!ids.length) return void showBanner(state.t.noSources, 'info')
+  state.locating = { ids: [...new Set(ids)], at: 0 }
+  renderPicks()
+  showSource(state.locating.ids[0])
+}
+
+function stepLocate(by) {
+  const locating = state.locating
+  if (!locating) return
+  locating.at = Math.max(0, Math.min(locating.ids.length - 1, locating.at + by))
+  renderPicks()
+  showSource(locating.ids[locating.at])
+}
+
+// A frame dragged across the list's empty space picks every file it crosses (added to what is picked).
+function lasso() {
+  const list = $('file-list')
+  let from = null
+  let before = null
+  const frame = $('lasso')
+  list.addEventListener('pointerdown', (event) => {
+    if (event.button !== 0 || event.pointerType !== 'mouse' || event.target.closest('li.file, button, input')) return
+    from = { x: event.clientX, y: event.clientY }
+    before = new Set(state.picked)
+    list.setPointerCapture?.(event.pointerId)
+  })
+  list.addEventListener('pointermove', (event) => {
+    if (!from) return
+    const box = { left: Math.min(from.x, event.clientX), top: Math.min(from.y, event.clientY), right: Math.max(from.x, event.clientX), bottom: Math.max(from.y, event.clientY) }
+    if (box.right - box.left < 4 && box.bottom - box.top < 4) return
+    event.preventDefault()
+    Object.assign(frame.style, { left: `${box.left}px`, top: `${box.top}px`, width: `${box.right - box.left}px`, height: `${box.bottom - box.top}px` })
+    frame.hidden = false
+    state.picked = new Set(before)
+    for (const li of list.querySelectorAll('li.file')) {
+      if (!state.order.includes(li.dataset.id)) continue
+      const r = li.getBoundingClientRect()
+      if (r.left < box.right && r.right > box.left && r.top < box.bottom && r.bottom > box.top) state.picked.add(li.dataset.id)
+    }
+    renderPicks()
+  })
+  const end = () => {
+    from = null
+    frame.hidden = true
+  }
+  list.addEventListener('pointerup', end)
+  list.addEventListener('pointercancel', end)
+}
+
 // ─── details ────────────────────────────────────────────────────────────────
 // A file's details (⋯ › 详情): beside the list where the pane is wide, over it where it is narrow (style.css) — what the row
 // says in full, where it is kept and for how long, and its versions (files.versions), with open, download and its message.
@@ -2131,6 +2360,15 @@ function showDetails(entry) {
   versions.className = 'details-versions'
   const versionsHead = Object.assign(document.createElement('h3'), { className: 'details-sub', textContent: t.d_versions, hidden: true })
   panel.replaceChildren(head, picture, actions, facts, versionsHead, versions)
+  // On a phone the details are a sheet: pulled down by its head, it goes.
+  head.onpointerdown = (down) => {
+    if (down.pointerType === 'mouse') return
+    const from = down.clientY
+    head.onpointerup = (up) => {
+      head.onpointerup = null
+      if (up.clientY - from > 60) closeDetails()
+    }
+  }
   panel.hidden = false
   document.body.classList.add('has-details')
   if (!same) close.focus({ preventScroll: true })
@@ -2176,7 +2414,9 @@ function start() {
     const rect = event.target.getBoundingClientRect()
     void folderContextMenu(rect.left + 8, rect.top + 8)
   })
+  lasso()
   $('filter').oninput = (event) => {
+    clearPicks()
     state.filter = event.target.value
     renderList()
   }
@@ -2210,6 +2450,7 @@ function start() {
   document.addEventListener('keydown', (event) => {
     if (event.key !== 'Escape') return
     if (!state.menuAnchor && state.details) closeDetails()
+    else if (!state.menuAnchor && state.picked.size) clearPicks()
     closeMenu()
     if (!$('move-dialog').hidden) closeMoveDialog()
   })

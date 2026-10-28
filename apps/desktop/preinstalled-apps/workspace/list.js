@@ -142,3 +142,23 @@ export function wantsThumb(entry) {
   return entry.type !== 'folder' && /^image\//i.test(entry.contentType || '') && (!entry.storedOn || !!entry.keep)
     && (entry.size == null || entry.size <= THUMB_MAX_BYTES) && !/svg/i.test(entry.contentType)
 }
+
+/**
+ * A Shift press's range (多选): every id from the one pressed before (`anchor`) to this one, in the order on screen
+ * (`order`), both ends in; only this one when the anchor is not on screen.
+ */
+export function rangeOf(order, anchor, id) {
+  const from = order.indexOf(anchor)
+  const to = order.indexOf(id)
+  if (from < 0 || to < 0) return [id]
+  return order.slice(Math.min(from, to), Math.max(from, to) + 1)
+}
+
+/** What a batch 「设为临时 / 一直保留」 may change: the reader's own cloud copies; the rest, said apart (not theirs, no copy). */
+export function keepable(entries) {
+  return {
+    mine: entries.filter((e) => e.keep?.mine),
+    notMine: entries.filter((e) => e.keep && !e.keep.mine),
+    noCopy: entries.filter((e) => !e.keep),
+  }
+}
