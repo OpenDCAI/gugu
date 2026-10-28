@@ -1,5 +1,5 @@
 import { messageForUser } from '@/lib/userFacingError';
-import { useState, type ReactNode } from 'react'
+import { useRef, useState, type ReactNode } from 'react'
 import { useTranslation } from 'react-i18next'
 import type { FirstRunHarness } from '@gugu/core/shared/firstRun'
 import { useAgentInstallationStatuses, useAgentInstallProgress } from '@renderer/lib/stores/use-agent-installation-statuses'
@@ -23,9 +23,15 @@ export function FirstRunInstallProvider({ children }: { children: ReactNode }) {
     ? current.map((item) => item.id === task.id ? task : item)
     : [...current, task])
 
+  // 选 Agent 那页能退回再「继续」(规范:每页有上一步):已在装 / 装好的 ❌ 再排一次 —— 再排会撞上
+  // 「已有安装在进行」报错。失败的照常能重试。
+  const current = useRef(tasks)
+  current.current = tasks
   const start = (ids: FirstRunHarness[]) => {
     setHidden(false)
     for (const id of ids) {
+      const known = current.current.find((task) => task.id === id)
+      if (known && known.state !== 'failed') continue
       update({ id, state: 'installing' })
       void installation.installAsync({ id, method: 'mise' }).then((result) => {
           if (!result.success) {
