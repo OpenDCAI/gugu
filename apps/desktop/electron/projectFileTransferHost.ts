@@ -2,7 +2,7 @@ import { attachmentRequest, uploadAttachmentPlan, type AttachmentsEndpoint, type
 import { ciphertextSize, createFileKey, transformFile } from '@gugu/core/shared/fileCipher'
 import { createFileSink } from './fileSnapshot'
 import { openProjectFileSource, type ProjectFileReader } from './projectFileHost'
-import { readProjectFile } from './sessionpage/sessionpage-project-groups'
+import { readProjectFile, type ProjectFileVersionLookup } from './sessionpage/sessionpage-project-groups'
 
 type Pending = { id: string; item_id: string; version: number; chat_id: string; host_device_id: string; relative_path: string; sha256: string; size_bytes: number; state: string }
 
@@ -10,7 +10,7 @@ type Pending = { id: string; item_id: string; version: number; chat_id: string; 
 export function createProjectTransferHost(deps: {
   identity(): Promise<{ accountId: string; deviceId: string }>
   endpoint(): Promise<AttachmentsEndpoint>
-  read: ProjectFileReader; tempRoot: string; env?: NodeJS.ProcessEnv
+  read: ProjectFileReader; tempRoot: string; env?: NodeJS.ProcessEnv; later?: ProjectFileVersionLookup
 }) {
   let running: Promise<void> | undefined
   const attempted = new Set<string>()
@@ -26,7 +26,7 @@ export function createProjectTransferHost(deps: {
       let key: Uint8Array | undefined
       let sink: Awaited<ReturnType<typeof createFileSink>> | undefined
       try {
-        const revision = await readProjectFile({ item_id: row.item_id, version: row.version }, identity.accountId, identity.deviceId, deps.env)
+        const revision = await readProjectFile({ item_id: row.item_id, version: row.version }, identity.accountId, identity.deviceId, deps.env, deps.later)
         if (!revision || row.host_device_id !== identity.deviceId || row.chat_id !== revision.chat_id || row.relative_path !== revision.relative_path ||
           row.sha256 !== revision.sha256 || row.size_bytes !== revision.size_bytes) throw new Error('Transfer revision changed')
         const size = ciphertextSize(revision.size_bytes)
