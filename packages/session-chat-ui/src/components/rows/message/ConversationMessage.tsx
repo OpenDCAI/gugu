@@ -5,7 +5,6 @@ import { useSelfIdentity, shownSender, isSelfAddress } from '@session-chat/lib/s
 import { useChatTranslator } from '@session-chat/localization';
 import type { MeasureCtx, RenderCtx } from '@session-chat/core/define';
 import type { ChatMessage } from '@session-chat/model';
-import { useTurnState } from '@session-chat/components/contexts/TurnStateContext';
 import { turnProcessExpanded } from '@session-chat/state/turn-fold';
 import { ConversationProcess } from './ConversationProcess';
 import { BackgroundTasksList, backgroundTasksLabel, backgroundTasksListHeight } from '../background-tasks/background-tasks-parts';
@@ -71,7 +70,6 @@ export function ConversationMessage(props: { data: ChatMessage; ctx: RenderCtx; 
 
 function SingleConversationMessage(props: { data: ChatMessage; ctx: RenderCtx; vars: MessageVars }) {
   const self = useSelfIdentity();
-  const turn = useTurnState();
   const commands = useCommands();
   const translate = useChatTranslator();
   const facts = () => props.data.guguDelivery?.segments[0]?.facts;
