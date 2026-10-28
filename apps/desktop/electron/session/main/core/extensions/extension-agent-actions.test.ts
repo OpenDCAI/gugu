@@ -35,6 +35,8 @@ vi.mock('@main/core/extensions/extensions-root', () => ({
   extensionsService: () => ({
     approvedManifest: (id: string) => list().extensions.find((entry: {manifest: {id: string}}) => entry.manifest.id === id).manifest,
     isInstalled: (id: string) => list().extensions.some((entry: { manifest: { id: string } }) => entry.manifest.id === id),
+    // One publisher throughout these cases: a first install is one not installed yet.
+    isFirstInstallOf: (id: string) => !list().extensions.some((entry: { manifest: { id: string } }) => entry.manifest.id === id),
     variants: () => ({ active: 'upstream', variants: [] }),
     inspectDirectory,
     installFromDirectory,

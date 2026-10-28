@@ -31,7 +31,7 @@ export interface PreparedInstall {
   /** What the sheet shows of it beyond the manifest: the App it replaces, the grants taken back, where it came from. */
   sheet: Omit<ExtensionInstallConsentRequest, 'sourceDir' | 'manifest' | 'manifestDigest' | 'given'>;
   /** What it gives where it lands (`installGrant`): every agent on a first install, or the chat an install again is for. */
-  places: { first: boolean; chatId?: string; identity: AppIdentity | null };
+  places: { chatId?: string; identity: AppIdentity | null };
 }
 
 export interface InstallDependencies {
@@ -62,7 +62,8 @@ export async function installPrepared(prepared: PreparedInstall, consent: Instal
   const { manifest, manifestDigest } = prepared;
   requireAppPlatform(manifest, 'desktop');
   const given = await import('./app-given');
-  const grant = await given.installGrant(manifest, prepared.places.first, prepared.places.chatId, prepared.places.identity);
+  const first = extensionsService().isFirstInstallOf(manifest.id, prepared.places.identity);
+  const grant = await given.installGrant(manifest, first, prepared.places.chatId, prepared.places.identity);
   const ask: Omit<ExtensionInstallConsentRequest, 'sourceDir'> = { manifest, manifestDigest, ...prepared.sheet, ...(grant ? { given: grant } : {}) };
   const asks = prepared.asks || grant !== null;
   const done = await agreeThenInstall(ask, asks, consent, () => (dependencies.requestInstallConsent ?? requestExtensionInstallConsent)({ sourceDir: prepared.dir, ...ask }), async () => {
@@ -75,7 +76,7 @@ export async function installPrepared(prepared: PreparedInstall, consent: Instal
   if (done.outcome !== 'confirmed') return done;
   // 首页精选按近期安装量排(owner 10-19):一个人第一次从市场装一个 App,记一票。只在这里记 —— 首启默认组、预装走的不是这个函数,
   // 天然不算;卡片、文件夹装的不是市场(owner「按建议」不算)。安装已经成了,记票失败只进日志,❌ 让人重装。
-  if (prepared.origin === 'market' && prepared.places.first) {
+  if (prepared.origin === 'market' && first) {
     void recordMarketInstall(manifest.id).catch((error: unknown) =>
       log.error(`market install not recorded for ${manifest.id}: ${error instanceof Error ? error.message : String(error)}`)
     );

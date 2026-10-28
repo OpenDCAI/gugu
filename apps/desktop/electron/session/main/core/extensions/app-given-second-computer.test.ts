@@ -1,4 +1,4 @@
-import { mkdirSync, mkdtempSync, writeFileSync } from 'node:fs';
+import { mkdirSync, mkdtempSync, readFileSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import * as path from 'node:path';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
@@ -86,15 +86,14 @@ const APP = { publisher: 'owner-1', id: 'searcher' };
 const chats = () => state.rows.map((row) => row.chatId).sort();
 
 /** One install of the folder App on `service`, the one way every install goes (installPrepared), confirmed as asked. */
-async function install(service: ExtensionsService, options: { chatId?: string; consent?: 'given' } = {}) {
+async function install(service: ExtensionsService, options: { chatId?: string; consent?: 'given'; publisher?: string } = {}) {
   state.service = service;
   const dir = source();
   const { manifest, manifestDigest } = service.inspectDirectory(dir);
-  const first = !service.list().extensions.some((one) => one.manifest.id === 'searcher');
   const asked: unknown[] = [];
   const result = await installPrepared(
-    { dir, manifest, manifestDigest, origin: 'folder', publisher: { id: 'owner-1' }, asks: false, sheet: { revokedPermissions: [] },
-      places: { first, chatId: options.chatId, identity: APP } },
+    { dir, manifest, manifestDigest, origin: 'folder', publisher: { id: options.publisher ?? 'owner-1' }, asks: false, sheet: { revokedPermissions: [] },
+      places: { chatId: options.chatId, identity: { publisher: options.publisher ?? 'owner-1', id: 'searcher' } } },
     options.consent ? { kind: 'given', digest: manifestDigest } : { kind: 'here' },
     { requestInstallConsent: async (request) => { asked.push(request.given ?? null); return { outcome: 'confirmed' }; }, afterInstall: () => {}, notifyInstalledChanged: async () => {} },
   );
@@ -172,6 +171,32 @@ describe('an install writes this computer\'s half only (architecture §4.2: prob
     const { result } = await install(here, { chatId: 'h' });
     expect(result.outcome).toBe('confirmed');
     write.mockRestore();
+  });
+});
+
+describe('I2: another publisher\'s App under the same id is another App', () => {
+  beforeEach(() => {
+    state.rows = [];
+    state.unread = null;
+  });
+
+  it('replacing a narrowed one: asked as a first install (said on the sheet), and nothing of the one replaced is kept or inherited', async () => {
+    const root = path.join(work, `installed-${Math.random().toString(36).slice(2)}`);
+    const here = new ExtensionsService(root);
+    await install(here);
+    state.service = here;
+    await given.changeAppPlaces('searcher', [{ id: HERE_ALL, on: false }]);
+    expect(here.givenHere(APP)).toEqual([]);
+
+    const { asked } = await install(here, { publisher: 'someone-else' });
+    const theirs = { publisher: 'someone-else', id: 'searcher' };
+    // Asked — the sheet says what it gives — never quietly reaching every agent.
+    expect(asked).toEqual([{ first: true }]);
+    expect(here.givenHere(theirs)).toEqual([HERE_ALL]);
+    // The narrowed choice of the App replaced is gone with it, not left to come back if that one is installed again.
+    expect(here.givenHere(APP)).toBeNull();
+    const grants = JSON.parse(readFileSync(path.join(root, '.granted-permissions.json'), 'utf8')) as Record<string, unknown>;
+    expect(Object.keys(grants)).toEqual(['someone-else/searcher']);
   });
 });
 

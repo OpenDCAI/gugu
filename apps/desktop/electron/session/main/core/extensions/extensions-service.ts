@@ -362,7 +362,14 @@ export class ExtensionsService {
     if (publisher) publishers[manifest.id] = { ...publisher };
     else delete publishers[manifest.id];
     this.publishersFile.write(publishers);
-    if (identity) { grants[appKey(identity)] = approved; this.grantsFile.write(grants); }
+    // Another publisher's App under this id replaces it (I2): what the one replaced was given here and agreed to goes with it,
+    // never left keyed by an identity nothing is installed under (a later install of that one would bring it back unasked).
+    if (previousIdentity && identity && appKey(previousIdentity) !== appKey(identity)) {
+      delete grants[appKey(previousIdentity)];
+      this.setGivenHere(previousIdentity, null);
+    }
+    if (identity) grants[appKey(identity)] = approved;
+    if (identity || previousIdentity) this.grantsFile.write(grants);
     if (variant) {
       variants[manifest.id] = { active: variant.name, variants: [...(variantState?.variants ?? []).filter((entry) => entry.name !== variant.name), variant] };
       this.variantsFile.write(variants);
@@ -450,6 +457,17 @@ export class ExtensionsService {
   }
 
   /** Who published an App installed here, and its id (app-identity.ts): what a chat's row names it by; null without one. */
+  /**
+   * Whether installing `id` as `identity` is a first install here (architecture §4.1, I2): not installed, or installed as
+   * another publisher's App under the same id — that is another App, so it is asked about and gives what a first install
+   * gives, never inherits what the one it replaces was given. The one reading of 「first install」.
+   */
+  isFirstInstallOf(id: string, identity: AppIdentity | null): boolean {
+    if (!this.isInstalled(id)) return true;
+    const previous = this.identityOf(id);
+    return identity !== null && (previous === null || appKey(previous) !== appKey(identity));
+  }
+
   identityOf(id: string): AppIdentity | null {
     return appIdentityOf({ manifest: { id }, origin: this.origins()[id], publisher: this.publishers()[id] });
   }

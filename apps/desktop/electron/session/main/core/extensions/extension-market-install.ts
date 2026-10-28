@@ -122,7 +122,7 @@ export async function installExtensionFromMarket(
       sheet: { installed: plan.approved, revokedPermissions: plan.revokedPermissions, market: { source: prepared.source, releaseNotes: prepared.releaseNotes } },
       // D-30: a first install of an App giving tools asks which agents get them, every agent here ticked at first; so does
       // installing it for a chat it is not given at yet (125 10-07), that chat ticked.
-      places: { first: !plan.displaced, chatId: install.chatId, identity: await (await import('./app-given')).ownInstallIdentity(manifest.id, 'market') },
+      places: { chatId: install.chatId, identity: await (await import('./app-given')).ownInstallIdentity(manifest.id, 'market') },
     }, consent, dependencies);
     if (done.outcome === 'ask') {
       // Kept for the `given` that follows, under its fingerprint: not unpacked here a second time.

@@ -695,7 +695,7 @@ async function installFolder(
     sheet: { installed: plan.approved, revokedPermissions: plan.revokedPermissions },
     // D-30: an App's first install here asks which agents get its tools — every agent here ticked at first; so does
     // installing it again for a chat it is not given at (125 10-07), that chat ticked, even when the bundle asks nothing new.
-    places: { first: !plan.displaced, chatId, identity: await (await import('./app-given')).ownInstallIdentity(inspected.manifest.id, 'folder') },
+    places: { chatId, identity: await (await import('./app-given')).ownInstallIdentity(inspected.manifest.id, 'folder') },
   }, consent ?? { kind: 'here' }, {
     ...dependencies,
     // Asked in the agent's session; with no one there to ask, the refusal says what it would have asked for.

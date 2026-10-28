@@ -741,7 +741,7 @@ export const extensionsController = createRPCController({
         publisher: await (await import('@main/core/extensions/app-files')).folderPublisher(),
         asks: plan.asks,
         sheet: { installed: plan.approved, revokedPermissions: plan.revokedPermissions },
-        places: { first: !plan.displaced, identity: await given.ownInstallIdentity(manifest.id, 'folder') },
+        places: { identity: await given.ownInstallIdentity(manifest.id, 'folder') },
       }, args.consent);
       return { success: true, data: done.outcome === 'confirmed' ? { outcome: done.outcome, manifest: done.installed.manifest } : done };
     } catch (error) {

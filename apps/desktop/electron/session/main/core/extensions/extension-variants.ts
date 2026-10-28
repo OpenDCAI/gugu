@@ -31,7 +31,7 @@ export function prepareVariant(dir: string, variant: ExtensionVariant) {
     publisher: origin === 'fork' ? { id: identity.publisher } : undefined,
     asks: plan.asks,
     sheet: { installed: plan.approved, revokedPermissions: plan.revokedPermissions },
-    places: { first: false, identity },
+    places: { identity },
   };
 }
 

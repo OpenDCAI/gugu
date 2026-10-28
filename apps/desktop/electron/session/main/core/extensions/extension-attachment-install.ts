@@ -90,7 +90,7 @@ export async function installExtensionFromAttachment(
         revokedPermissions: [...(plan.kind === 'ask' ? plan.revokedPermissions : service.revokedPermissions(manifest.id))],
         attachment: { from: publisher.name ?? '', ...(plan.kind === 'ask' && plan.replaces !== undefined ? { replaces: plan.replaces } : {}) },
       },
-      places: { first: !installed, chatId: attachment.unasked ? undefined : attachment.chatId, identity: appIdentityOf({ manifest, origin: 'attachment', publisher }) },
+      places: { chatId: attachment.unasked ? undefined : attachment.chatId, identity: appIdentityOf({ manifest, origin: 'attachment', publisher }) },
     }, attachment.consent ?? { kind: 'here' }, dependencies);
     if (done.outcome === 'ask') return { installed: false, ...summary, ...done };
     if (done.outcome !== 'confirmed') return { installed: false, outcome: done.outcome, ...summary };
