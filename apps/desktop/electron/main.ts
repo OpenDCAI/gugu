@@ -352,7 +352,7 @@ import {
   providerUsesSessionProcessConfig,
   setSessionIntegrationBridge,
   setSessionIntegrationSkillBridge,
-  setSessionBrowserBridge,
+  setServerBrowserUse,
   setSessionWebSearchBridge,
   setSessionExtensionBridge,
   setSessionLibraryMcpBridge,
@@ -369,12 +369,8 @@ import {
 } from './integration-mcp-bridge'
 import {
   browserUseAppInstalled,
-  buildBrowserAgentBridge,
   closeSessionBrowserTools,
-  createBrowserAgentMcpHost,
   createBrowserAppProgram,
-  serverBrowserMcpServers,
-  type BrowserAgentMcpHost,
 } from './browser-agent-mcp'
 import { createComputerUsePreview, installedComputerUseApps, type ComputerUsePreview } from './computer-use-program'
 import { sessionOf as computerSessionOf } from './device-actions/families/computer'
@@ -825,37 +821,6 @@ async function integrationMcpServersFor(grantKey: string, subjectId: string): Pr
     )
     return []
   }
-}
-let browserAgentMcpHost: BrowserAgentMcpHost | null = null
-
-function getBrowserAgentMcpHost(): BrowserAgentMcpHost {
-  return (browserAgentMcpHost ??= createBrowserAgentMcpHost(() => {
-    const emdash = loadEmdashBridge()
-    if (!emdash) throw new Error('the session page is unavailable, so there is no browser tab to drive')
-    return emdash.emdashAgentBrowser()
-  }, stableMcpPersistence('browser-mcp')))
-}
-
-/**
- * #7199 server 上:装了 Browser Use App 就和桌面一样走 App(这里不带);没装照旧带云浏览器的 gugu-browser(serverBrowserMcpServers)。
- * 会话开场时判断一次。取不到身份 / 会话页没起来就不带 —— 少一组工具 agent 照样能用,❌ 把会话拖死;但日志里看得见为什么没带。
- */
-async function browserMcpServersFor(session: { grantKey: string; sessionId: string; subjectId: string; personalAssistant?: true }): Promise<AcpMcpServer[]> {
-  const emdash = loadEmdashBridge()
-  if (!authProvider || !emdash) return []
-  const auth = authProvider
-  return serverBrowserMcpServers(session.sessionId, {
-    browserUseApp: () => browserUseAppInstalled(emdash.emdashExtensionPrograms()),
-    guguBrowser: async () => {
-      try {
-        const { userId } = await requireRuntimeAuth(auth, 'gugu browser MCP bridge')
-        return await buildBrowserAgentBridge(getBrowserAgentMcpHost(), session.grantKey, session.sessionId, userId, session.subjectId, session.personalAssistant)
-      } catch (error) {
-        createLogger('browser-agent-mcp').warn({ error: (error as Error).message }, 'browser tools skipped for this session')
-        return []
-      }
-    },
-  })
 }
 let extensionGatewayHost: ExtensionGatewayHost | null = null
 
@@ -2044,7 +2009,12 @@ function startDeviceRuntimeWhenRendererReady(): void {
       return []
     }),
   )
-  if (SERVER_MODE) setSessionBrowserBridge(browserMcpServersFor)
+  // #7199 server 上浏览器只有 Browser Use App 一条路:开场提示按这台机器装没装它说(capability-bundle.ts 的 serverBrowserRule)。
+  if (SERVER_MODE) setServerBrowserUse(() => {
+    const emdash = loadEmdashBridge()
+    if (!emdash) throw new Error('the session page is unavailable, so the installed Apps cannot be read')
+    return browserUseAppInstalled(emdash.emdashExtensionPrograms())
+  })
   deviceRuntimeHost ??= createDeviceRuntimeHostLoop({
     env: process.env,
     onRuntimeLeaseRenewed: () => { void assistantWorkDeliveryHost().kick() },

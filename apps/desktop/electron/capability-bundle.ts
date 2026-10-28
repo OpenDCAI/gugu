@@ -38,6 +38,7 @@ import type { GuguPermissionMode } from '@gugu/session-core/acp'
 import { GUGU_PLATFORM_BLOCK, estimatePromptTokens } from './product-platform-prompt'
 import { firstSentence } from './mcp/first-sentence'
 import { mcpEnvSuffix } from '../src/session/shared/mcp-library'
+import { createLogger } from './lib/logger'
 
 export { PRODUCT_CAPABILITY_PACKAGES } from '@gugu/session-plugins/agents'
 
@@ -424,17 +425,14 @@ export function setSessionIntegrationBridge(
 }
 
 /**
- * #7191 这条会话的浏览器工具(agent 操作会话页右侧的浏览器页签,见 browser-agent-mcp.ts)。
- * 宿主装上;没装(咕咕 server、测试)= 不带。只给本机会话:参数里的会话编号从卡上认出来,认不出就不带。
+ * #7199 咕咕 server 上这台机器装没装 Browser Use App(装着、开着、许给 agent 工具):开场提示按它说浏览器。
+ * 宿主只在 server 上装;没装(桌面、测试)= 不说浏览器 —— 桌面的 App 经 `<gugu_apps>` / 它自己的工具说明说话。
+ * 浏览器工具只有 App 那一条路(经扩展网关 / catalog),这里 ❌ 另给工具。
  */
-let sessionBrowserBridge:
-  | ((session: { grantKey: string; sessionId: string; subjectId: string; personalAssistant?: true }) => Promise<AcpMcpServer[]>)
-  | null = null
+let serverBrowserUse: (() => boolean) | null = null
 
-export function setSessionBrowserBridge(
-  bridge: ((session: { grantKey: string; sessionId: string; subjectId: string; personalAssistant?: true }) => Promise<AcpMcpServer[]>) | null,
-): void {
-  sessionBrowserBridge = bridge
+export function setServerBrowserUse(probe: (() => boolean) | null): void {
+  serverBrowserUse = probe
 }
 
 /**
@@ -505,12 +503,8 @@ export async function buildSessionBundle(
     ? await sessionExtensionBridge({ grantKey: deps.socialBridgeDeps.grantKey, subjectId: deps.agentUserId, ...(agentId ? { agentId } : {}), ...(deps.extensionTools ? { extensionTools: deps.extensionTools } : {}) })
     : { servers: [], skills: [], apps: [], origins: [] }
   const integrationSkills = sessionIntegrationSkillBridge ? await sessionIntegrationSkillBridge() : []
-  const browserSessionId = sessionpageSessionOfGrantKey(deps.socialBridgeDeps.grantKey)
-  const browser = sessionBrowserBridge && browserSessionId
-    ? await sessionBrowserBridge({ grantKey: deps.socialBridgeDeps.grantKey, sessionId: browserSessionId, subjectId: deps.agentUserId, ...(deps.socialBridgeDeps.personalAssistant ? { personalAssistant: true } : {}) })
-    : []
   const bootstrap = buildSessionBootstrapBundle(deps)
-  const taken = [...bootstrap.mcpServers, ...socialBridge, ...integrations, ...browser, ...extensions.servers]
+  const taken = [...bootstrap.mcpServers, ...socialBridge, ...integrations, ...extensions.servers]
   // 密钥(env 值、Authorization)与用户自己的那批同一种转换:换成 GUGU_SESSION_MCP_ENV_* 引用,值随 env 走。
   const picked = sessionLibraryMcpBridge && agentId ? await sessionLibraryMcpBridge(agentId) : null
   const library = picked ? canonicalMcpServersToSessionServers(picked.servers) : { servers: [], env: {} }
@@ -1055,20 +1049,9 @@ function guguToolNamingLine(
   }
 }
 
-/**
- * #7191 这条会话带着浏览器工具(`gugu-browser`)时,告诉 agent 用它们操作网页。
- * ❌ 不说:agent 默认会自己另起 Playwright / Chrome —— 抢焦点、人看不到过程、没有人的登录。Codex 自己也栽过相邻的一半:应用内浏览器在、控制工具没递到 agent 手上(openai/codex#39562)。
- */
-const SESSION_BROWSER_RULE = `
-To work with a web page (open, read, click, type, screenshot), use the \`browser_*\` tools of the \`gugu-browser\` MCP
-server: they drive the browser tab in this session's pane, which the person watches live and which has their logins.
-Do not launch your own browser, Playwright or Chrome for that. If a tool says the person took over the tab, stop and
-tell them what you did; do not retry.`
-
-/** #7199 咕咕 server(云电脑)上:浏览器是这台机器上的 Chrome,人在和你的聊天里看着、能接管(cloud/cloud-browser.ts)。 */
-const CLOUD_BROWSER_RULE = `
-To work with a web page (open, read, click, type, screenshot), use the \`browser_*\` tools of the \`gugu-browser\` MCP
-server: they drive your own browser, which the person watches live in their chat with you and can take over; it
+/** #7199 咕咕 server(云电脑)上装着 Browser Use:浏览器是这台机器上的 Chrome,人在和你的聊天里看着、能接管(cloud/cloud-browser.ts)。 */
+export const CLOUD_BROWSER_RULE = `To work with a web page (open, read, click, type, screenshot), use the \`browser_*\` tools of the Browser Use App:
+they drive your own browser, which the person watches live in their chat with you and can take over; it
 keeps the logins they made there. When you talk about it, call it your browser: do not tell the person which machine or
 server it runs on. Do not launch another browser, Playwright or Chrome for that. When a page needs
 the person's login, call \`browser_request_login\` (they type it into a password vault, you never see it); never ask
@@ -1076,15 +1059,31 @@ for a password in chat. When a step needs the person (CAPTCHA, SMS or 2FA code, 
 \`browser_request_takeover\`. If a tool says the person took over or stopped the browser, stop and tell them what you
 did; do not retry.`
 
+/**
+ * #7199 咕咕 server 上没装 Browser Use:没有浏览器工具。❌ 不说的话 agent 会自己另起 Playwright / Chrome / 无头抓取顶替,
+ * 或者说它「看过了」那个网页。装不装由人定,装上的工具下一个任务才有。
+ */
+export const NO_BROWSER_RULE = 'This machine has no browser for you: the Browser Use App is not installed here. If a task needs a web page, tell the person so and ask whether to install Browser Use on this machine. Only after they agree, call `app_install` for the App `browser-use` (it installs on the machine you run on); its browser tools arrive with your next task, not this one. Until then do not launch your own browser, Playwright, Chrome or a headless scraper to stand in for it, and never claim you looked at a page.'
+
+/** server 上的浏览器那一段;读不出装了什么就当没装(那时也确实没有工具)。桌面 = 不说。 */
+function serverBrowserRule(): string {
+  if (!serverBrowserUse) return ''
+  try {
+    return `\n${serverBrowserUse() ? CLOUD_BROWSER_RULE : NO_BROWSER_RULE}`
+  } catch (error) {
+    createLogger('capability-bundle').warn({ error: (error as Error).message }, 'could not read whether Browser Use is installed; telling the agent it has no browser')
+    return `\n${NO_BROWSER_RULE}`
+  }
+}
+
 export function guguSessionSurfaceBlock(
   surface: HarnessSessionSurface,
   providerId: string,
   carriesGuguMcp: boolean,
-  carriesBrowser = false,
 ): string {
   return `<gugu_session_surface>
 ${guguSessionSurfaceBody(surface)}
-${guguToolNamingLine(providerId, surface, carriesGuguMcp)}${SESSION_SPAWN_ROUTING_RULE}${carriesBrowser ? (process.env.GUGU_SERVER_MODE === '1' ? CLOUD_BROWSER_RULE : SESSION_BROWSER_RULE) : ''}
+${guguToolNamingLine(providerId, surface, carriesGuguMcp)}${SESSION_SPAWN_ROUTING_RULE}${serverBrowserRule()}
 </gugu_session_surface>
 `
 }
@@ -1115,7 +1114,7 @@ function withSurfaceSelfDescription(
   const apps = guguAppsBlock(bundle.extensionApps, nativeSkills ? [] : bundle.extensionSkills)
   return {
     ...bundle,
-    promptBlocks: { ...bundle.promptBlocks, platform: `${platform}${guguSessionSurfaceBlock(surface, providerId, bundle.mcpServers.some((server) => server.owner === 'gugu'), bundle.mcpServers.some((server) => server.name === 'gugu-browser'))}${apps}` },
+    promptBlocks: { ...bundle.promptBlocks, platform: `${platform}${guguSessionSurfaceBlock(surface, providerId, bundle.mcpServers.some((server) => server.owner === 'gugu'))}${apps}` },
   }
 }
 

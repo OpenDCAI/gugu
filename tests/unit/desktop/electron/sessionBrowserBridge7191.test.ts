@@ -2,8 +2,7 @@ import { randomUUID } from 'node:crypto'
 import { createRequire } from 'node:module'
 import { Client } from '@modelcontextprotocol/sdk/client/index.js'
 import { InMemoryTransport } from '@modelcontextprotocol/sdk/inMemory.js'
-import { afterEach, describe, expect, it, vi } from 'vitest'
-import { createDesktopGuguMcpHost, type DesktopGuguMcpHost } from '../../../../apps/desktop/electron/acp-engine-utils'
+import { describe, expect, it, vi } from 'vitest'
 import { Server } from '@modelcontextprotocol/sdk/server/index.js'
 import {
   PLAYWRIGHT_CONFIG,
@@ -13,22 +12,11 @@ import {
   browserToolsClient,
   createBrowserAppProgram,
 } from '../../../../apps/desktop/electron/browser-agent-mcp'
-import {
-  buildSessionBundle,
-  guguSessionSurfaceBlock,
-  setSessionBrowserBridge,
-} from '../../../../apps/desktop/electron/capability-bundle'
 
 /**
  * #7191 会话的 agent 拿到的浏览器工具:是哪一份、给谁、提示里怎么说。
  * 工具本身是 `@playwright/mcp` 原样的整套 —— 这里读的是它真实给出的清单,❌ 手抄一份名单来比。
  */
-
-const hosts: DesktopGuguMcpHost[] = []
-afterEach(async () => {
-  setSessionBrowserBridge(null)
-  await Promise.all(hosts.splice(0).map((host) => host.dispose().catch(() => undefined)))
-})
 
 async function playwrightToolNames(): Promise<string[]> {
   const { createConnection } = createRequire(import.meta.url)('@playwright/mcp') as {
@@ -188,44 +176,5 @@ describe('#7191 会话结束时还在开页签的那一次', () => {
     await call
     expect(transport.closed).toBe(1)
     await expect(tools.client()).rejects.toThrow(/closed/)
-  })
-})
-
-describe('#7191 哪些会话带浏览器工具', () => {
-  async function bundleFor(grantKey: string) {
-    const host = createDesktopGuguMcpHost()
-    hosts.push(host)
-    return buildSessionBundle({
-      runtime: {
-        authProvider: { getAuth: async () => ({ accessToken: 'token', userId: randomUUID() }) },
-        env: { GUGU_HOME: '/tmp/gugu-session-browser-7191' },
-      },
-      agentUserId: randomUUID(),
-      threadRootId: null,
-      autonomy: null,
-      socialBridgeDeps: { host, grantKey, getSupabaseUrl: () => 'https://supabase.example', getSupabaseAnonKey: () => 'anon-key' },
-    })
-  }
-
-  it('本机会话页的会话(卡是 taskpage:<会话>)带 gugu-browser,问的是它自己的会话;别的卡不带', async () => {
-    const asked: string[] = []
-    setSessionBrowserBridge(async ({ sessionId }) => {
-      asked.push(sessionId)
-      return [{ name: 'gugu-browser', transport: 'http', url: 'http://127.0.0.1:9/mcp', headers: [], owner: 'integration' }]
-    })
-    const sessionId = randomUUID()
-    const local = await bundleFor(`taskpage:${sessionId}`)
-    expect(local.mcpServers.map((server) => server.name)).toContain('gugu-browser')
-    expect(asked).toEqual([sessionId])
-
-    const elsewhere = await bundleFor(`accounting-${randomUUID()}`)
-    expect(elsewhere.mcpServers.map((server) => server.name)).not.toContain('gugu-browser')
-    expect(asked).toHaveLength(1)
-  })
-
-  it('提示里「用 gugu-browser 操作网页、别自己起浏览器」只在带着这组工具时出现', () => {
-    expect(guguSessionSurfaceBlock('acp', 'codex', true, true)).toContain('`gugu-browser` MCP')
-    expect(guguSessionSurfaceBlock('acp', 'codex', true, true)).toContain('Do not launch your own browser')
-    expect(guguSessionSurfaceBlock('acp', 'codex', true)).not.toContain('gugu-browser')
   })
 })

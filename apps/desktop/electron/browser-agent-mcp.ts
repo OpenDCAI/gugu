@@ -5,17 +5,12 @@ import { join } from 'node:path'
 import { pathToFileURL } from 'node:url'
 import { Client } from '@modelcontextprotocol/sdk/client/index.js'
 import { InMemoryTransport } from '@modelcontextprotocol/sdk/inMemory.js'
-import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js'
 import {
-  CallToolRequestSchema,
   ListRootsRequestSchema,
-  ListToolsRequestSchema,
   type CallToolResult,
   type CallToolRequest,
   type Tool,
 } from '@modelcontextprotocol/sdk/types.js'
-import type { AcpMcpServer } from './acp-engine-utils'
-import { GuguMcpHost, type GuguMcpHostPersistence } from './gugu-mcp-host'
 import { createLogger } from './lib/logger'
 import type { ExtensionPrograms, NativeAppProgram } from './session/main/core/extensions/extension-programs'
 import type { ExtensionAgentStatus } from '../src/session/shared/extensions/agent-status'
@@ -31,9 +26,9 @@ const log = createLogger('browser-agent-mcp')
  * - **跟随 Agent 的调用生命周期**:取消时终止这一份连接的未完成动作,保留人的网页。浏览器没有独立暂停锁。
  * - **每条会话一份**:Playwright 的状态(快照里的 ref、当前页)是一条会话的,❌ 会话之间共用。
  *
- * 递给会话的是一台独立的 MCP server(`gugu-browser`),与 `gugu` 那台并列,和集成同一种做法(integration-mcp-bridge)。
+ * 递给会话的只有 Browser Use App 这一条路(App 的宿主程序 `host: 'browser-use'`,经扩展网关 / catalog):桌面驱动会话页的
+ * 页签,咕咕 server 驱动云浏览器。没装 App 就没有浏览器工具 —— 旧的独立 `gugu-browser` MCP server 已去掉。
  */
-export const GUGU_BROWSER_MCP_SERVER_NAME = 'gugu-browser'
 
 /** 会话页那一侧经桥给的动作(agent-browser.ts 的 `agentBrowserBridge`)。 */
 export interface AgentBrowserBridge {
@@ -97,16 +92,6 @@ export function redactToolResult(result: CallToolResult, redact: ((text: string)
     content: result.content.map((part) => (part.type === 'text' ? { ...part, text: redact(part.text) } : part)),
   }
 }
-
-export interface BrowserAgentGrantContext {
-  sessionId: string
-  ownerUserId: string
-  subjectId: string
-  /** Explicit host role, never inferred from the workspace or the prompt. */
-  personalAssistant?: true
-}
-
-export type BrowserAgentMcpHost = GuguMcpHost<BrowserAgentGrantContext>
 
 type PlaywrightMcp = {
   createConnection: (config: object, contextGetter: () => Promise<unknown>) => Promise<{ connect(transport: unknown): Promise<void>; close(): Promise<void> }>
@@ -325,7 +310,7 @@ async function callBrowserTool(bridge: () => AgentBrowserBridge, sessionId: stri
   }
 }
 
-/** Playwright 那套 + 桥有的请人来(云浏览器才有):App 和 gugu-browser 给 agent 的是同一份清单。 */
+/** Playwright 那套 + 桥有的请人来(云浏览器才有)。 */
 async function browserToolList(bridge: AgentBrowserBridge): Promise<Tool[]> {
   return [...await browserAppToolSchemas(), ...personToolsOf(bridge)]
 }
@@ -444,102 +429,7 @@ async function callPersonTool(
   return { content: [{ type: 'text', text: result.message }], ...(result.ok ? {} : { isError: true }) }
 }
 
-export function createBrowserAgentMcpHost(
-  bridge: () => AgentBrowserBridge,
-  persistence?: GuguMcpHostPersistence,
-): BrowserAgentMcpHost {
-  return new GuguMcpHost<BrowserAgentGrantContext>(
-    (getContext, grantSignal, trackRequest) => {
-      const server = new McpServer(
-        { name: GUGU_BROWSER_MCP_SERVER_NAME, version: '0.1.0' },
-        { capabilities: { tools: {} } },
-      )
-      server.server.setRequestHandler(ListToolsRequestSchema, async () =>
-        trackRequest(
-          (async () => {
-            return { tools: getContext().personalAssistant ? [] : await browserToolList(bridge()) }
-          })(),
-          'tools/list',
-        ),
-      )
-      server.server.setRequestHandler(CallToolRequestSchema, async (request, extra) =>
-        trackRequest(
-          (async (): Promise<CallToolResult> => {
-            if (getContext().personalAssistant) return refused('Browser actions require a task agent on this device: session_spawn device=<device>.')
-            return callBrowserTool(bridge, getContext().sessionId, request.params, AbortSignal.any([grantSignal, extra.signal]))
-          })(),
-          request.params.name,
-        ),
-      )
-      return server
-    },
-    (context) => ({
-      ownerId: context.ownerUserId,
-      subjectId: context.subjectId,
-      // Two fixed role surfaces, shared by all assistants / all executors respectively.
-      // Like the Gugu grant, a key cannot change role without revocation.
-      toolScope: GUGU_BROWSER_MCP_SERVER_NAME + (context.personalAssistant ? ':assistant' : ''),
-    }),
-    persistence,
-  )
-}
-
-/**
- * 这条会话带不带浏览器工具。只给这台电脑上的会话(卡的 key 是 `taskpage:<会话>`)—— 别的机器上的会话
- * 由那台机器自己的咕咕给。拿不到就不带:少一组工具 agent 照样能用,❌ 把会话拖死。
- */
-export async function buildBrowserAgentBridge(
-  host: BrowserAgentMcpHost,
-  grantKey: string,
-  sessionId: string,
-  ownerUserId: string,
-  subjectId: string,
-  personalAssistant?: true,
-): Promise<AcpMcpServer[]> {
-  try {
-    await host.start()
-    const grant = await host.grant(`${grantKey}:${GUGU_BROWSER_MCP_SERVER_NAME}`, { sessionId, ownerUserId, subjectId, ...(personalAssistant ? { personalAssistant } : {}) })
-    if (personalAssistant) return []
-    return [{
-      name: GUGU_BROWSER_MCP_SERVER_NAME,
-      transport: 'http',
-      url: grant.url,
-      headers: [{ name: 'Authorization', value: `Bearer ${grant.capability}` }],
-      alwaysLoad: true,
-      // 与集成同一档(McpServerOwner):由咕咕投递、不在各家静态能力包的名单里;用户可以在 `/mcp` 里为某条会话关掉它。
-      // ❌ 'gugu':那一档专指 agent 靠它说话、不可关的那台。
-      owner: 'integration',
-    }]
-  } catch (error) {
-    log.warn({ grantKey, error: (error as Error).message }, 'browser tools unavailable for this session')
-    return []
-  }
-}
-
 /** 这台机器上装着、开着、还许给 agent 工具的 Browser Use App(与 installedComputerUseApps 同一个判断)。 */
 export function browserUseAppInstalled(programs: Pick<ExtensionPrograms, 'installed' | 'agentToolsRefusal'>): boolean {
   return programs.installed().some((program) => program.native === 'browser-use' && !programs.agentToolsRefusal(program.extensionId))
-}
-
-/**
- * 咕咕 server 上一条会话的浏览器只走一条路,❌ 两套同名工具同时给:装了 Browser Use App 就走 App(和桌面一样经扩展网关,
- * 同名的 browser_* 工具),不带 gugu-browser;没装 / 停用 / 收回了工具权限,照旧带 gugu-browser。
- * 只在会话开场时看一次:会话中途装上 / 停用 App,这条会话要到下次开场才换过来。
- * 读不出装了什么就当没装 —— 照旧带 gugu-browser,❌ 让会话一套浏览器工具都没有。
- */
-export async function serverBrowserMcpServers(sessionId: string, deps: {
-  browserUseApp: () => boolean
-  guguBrowser: () => Promise<AcpMcpServer[]>
-}): Promise<AcpMcpServer[]> {
-  let viaApp = false
-  try {
-    viaApp = deps.browserUseApp()
-  } catch (error) {
-    log.warn({ sessionId, error: (error as Error).message }, 'could not read the installed Browser Use App; using gugu-browser')
-  }
-  if (viaApp) {
-    log.info({ sessionId }, 'the Browser Use App provides the browser for this session; no gugu-browser')
-    return []
-  }
-  return deps.guguBrowser()
 }
