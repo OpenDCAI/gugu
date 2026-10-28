@@ -94,7 +94,7 @@ export function useAgentDisplayStatus(agentUserId?: string | null) {
 }
 
 export function useAgentDisplayStatuses(): Record<string, typeof DEFAULT_AGENT_DISPLAY_STATUS> {
-  return {}
+  return Object.fromEntries(statusOverrides)
 }
 
 export function useAgentRecentActivity(): Record<string, { actions: string[]; lastActiveAt: string | null }> {

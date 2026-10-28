@@ -22,6 +22,7 @@ import type { ContactUser } from '../../../packages/core/src/shared/types/contac
 import type { AccountRevisionListener } from '../../../apps/desktop/src/lib/accountRevisionCoordinator'
 import type { ChatContextValue } from '../../../apps/desktop/src/store/chatContext'
 import { createNode, createReactHarness, displayIdentity, renderWithAppProviders } from '../../support/testHarness'
+import { setAgentDisplayStatusOverride, clearAgentDisplayStatusOverrides } from '../../support/agentDisplayStatusTestDouble'
 
 vi.mock('../../../apps/desktop/src/lib/chat', () => ({
   chatService: {
@@ -102,6 +103,7 @@ function identitiesFor(snapshot: GroupCollabSnapshot): DisplayIdentity[] {
 let harness: ReturnType<typeof createReactHarness>
 beforeEach(() => {
   harness = createReactHarness()
+  clearAgentDisplayStatusOverrides()
   // 话题面板里那一行会自己去读设置;给一个缺省值,免得每条**不关心它**的用例都得记着桩一次。
   getSettings.mockResolvedValue(settingsRow(null, 5))
 })
@@ -215,6 +217,25 @@ describe('#5999 话题手动邀请', () => {
     expect(document.querySelector('[data-testid="topic-member-picker"]')).not.toBeNull()
     await act(async () => { finish() })
     expect(document.querySelector('[data-testid="topic-member-picker"]')).toBeNull()
+  })
+})
+
+describe('MemberListPanel archived members', () => {
+  it('keeps the member and displays an actual muted archived label, not only an avatar tooltip', async () => {
+    setAgentDisplayStatusOverride('archived', 'archived')
+    await renderPanel(collab([agentItem('archived')], [humanItem('owner-1')]))
+    const rows = document.body.querySelectorAll('[data-member-row]')
+    expect(rows).toHaveLength(2)
+    const row = document.body.querySelector('[data-member-row="archived"]')!
+    expect(row.querySelector('[data-member-name]')?.textContent).toBe('智能体-archived')
+    const label = row.querySelector('[data-agent-archive-label]')!
+    expect(label?.textContent).toBe('已归档')
+    expect(label.getAttribute('class')).toContain('text-[var(--text-tertiary)]')
+  })
+  it('does not label an ordinary active member as archived', async () => {
+    await renderPanel(collab([agentItem('active')], [humanItem('owner-1')]))
+    expect(document.body.querySelectorAll('[data-member-row]')).toHaveLength(2)
+    expect(document.body.querySelector('[data-agent-archive-label]')).toBeNull()
   })
 })
 
