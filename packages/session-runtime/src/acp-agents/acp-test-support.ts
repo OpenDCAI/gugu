@@ -571,6 +571,7 @@ export function makeAcpHarness(options: AcpHarnessOptions = {}) {
     host: fakeHost,
     resolveAttachment: vi.fn().mockResolvedValue({ data: '', mimeType: 'image/png' }),
     logger: noopLogger,
+    recoverDelivery: (text) => text,
     promptQueueStore: {
       load: (sessionId) => promptQueueSnapshots.get(sessionId) ?? [],
       save: (sessionId, prompts) => promptQueueSnapshots.set(sessionId, structuredClone(prompts)),

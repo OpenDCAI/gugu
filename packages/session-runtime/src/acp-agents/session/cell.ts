@@ -151,6 +151,7 @@ export class SessionCell {
   /** Native steering acknowledges admission, not consumption. Keep uncertain inputs until a
    * subsequent tool call or a completed turn proves the provider moved past their admission. */
   private pendingNativeSteers: Array<{ prompt: QueuedPrompt; toolsAtAdmission: ReadonlySet<string> }> = [];
+  private replayHistoryUnknown = false;
   private interruptForSteer = false;
   /** 这一轮的 cancel 是我们为插话发的 ⇒ 结算成 `interrupted_for_message`,而不是「你停止了这一轮」。 */
   private interruptedForMessage = false;
@@ -386,6 +387,7 @@ export class SessionCell {
   }
 
   beginReplay(at = Date.now()): void {
+    this.replayHistoryUnknown = false;
     this.replayingHistory = true;
     this.promptSequence += 1;
     this.applyEvent({ type: 'ReplayStarted' });
@@ -407,9 +409,32 @@ export class SessionCell {
     this.lastReplayedSessionContext = null;
     const previousRunningAgentCount = this.lastRunningAgentCount;
     this.transcript.endReplay(at, outcome);
+    this.reconcileReplayedQueue();
     this.dispatchAgentsChangedIfNeeded(previousRunningAgentCount);
     this.applyEvent({ type: 'ReplayEnded', status: outcome?.kind === 'error' ? 'error' : 'complete' });
     this.emitTranscriptChanged();
+  }
+
+  markReplayHistoryUnknown(): void {
+    this.replayHistoryUnknown = true;
+  }
+
+  private reconcileReplayedQueue(): void {
+    const queued = this.machine.queuedPrompts.filter((prompt) => prompt.origin === 'communication');
+    if (!queued.length || (this.deps.providerId !== 'claude' && !this.replayHistoryUnknown)) return;
+    const recover = this.deps.recoverDelivery;
+    if (!recover) throw new Error('SessionCell: delivery recovery requires the core envelope owner');
+    const inputs = [...this.transcript.history, ...(this.transcript.activeTurn ? [this.transcript.activeTurn] : [])]
+      .flatMap((turn) => turn.items.flatMap((item) => item.kind === 'message' && item.role === 'user' ? [item.text] : []));
+    for (const prompt of queued) {
+      const text = recover(prompt.text, inputs, this.replayHistoryUnknown);
+      if (text === prompt.text) continue;
+      const result = text === null ? this.removeQueuedPrompt(prompt.id) : this.editQueuedPrompt(prompt.id, {
+        text, origin: prompt.origin, hiddenContext: prompt.hiddenContext,
+        attachments: prompt.attachments, coalesceKey: prompt.coalesceKey,
+      });
+      if (!result.success) throw new Error(`Cannot reconcile recovered delivery: ${result.error.type}`);
+    }
   }
 
   /**
