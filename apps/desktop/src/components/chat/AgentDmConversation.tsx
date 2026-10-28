@@ -11,7 +11,7 @@ import { ChatMessageComposer } from './ChatMessageComposer'
 import { PaneHeader } from '../ui/Pane'
 import { IconButton } from '../ui/IconButton'
 import { ArrowLeft } from '@/lib/icons'
-import { dmRecord, dmRecordIds, mergeDmRecord } from './agent-dm-record'
+import { displayedDmMessages, dmRecord, dmRecordIds, mergeDmRecord } from './agent-dm-record'
 import { useConversationOptions } from './useConversationOptions'
 import { useConversationQueue } from './useConversationQueue'
 import { ConversationSettlements } from './ConversationSettlements'
@@ -91,7 +91,9 @@ function DmConversation({ chat, target, shown, mobile, onBack, chrome, embedded,
   const options = useConversationOptions(target)
   const queue = useConversationQueue(target, read.timeline.queuedPrompts, working, options.steers)
   const aliases = useMemo(() => dmRecordIds(turns), [turns])
-  const reading = useAgentDmRead({ chat, shown, messages, aliases, unreadEntry, loadMessageAnchor, markMessageVisible, setFollowingTail,
+  const visibleMessages = useMemo(() => displayedDmMessages(messages), [messages])
+  const ignoredMessageIds = useMemo(() => messages.filter(message => !visibleMessages.includes(message)).map(message => message.id), [messages, visibleMessages])
+  const reading = useAgentDmRead({ chat, shown, messages: visibleMessages, ignoredMessageIds, aliases, unreadEntry, loadMessageAnchor, markMessageVisible, setFollowingTail,
     onError: error => toast(messageForUser(error), 'error') })
   const view = reading.view
   useEffect(() => { view.current?.find(searchQuery) }, [searchQuery, view])
@@ -129,7 +131,7 @@ function DmConversation({ chat, target, shown, mobile, onBack, chrome, embedded,
     <SessionTranscriptView uri={target?.sessionId ?? `dm:${chat.id}`} turns={turns} mobile={mobile} shown={shown}
       commands={{ ...(target ? outputs.handlers : {}), onOpenFile: target ? ({ path }) => outputs.openFile(path) : undefined, classifyLink: classifyFileLink, onOpenLink: openAttachment, conversationAgentName: () => name, conversationAgentSession: () => target?.sessionId ?? null, conversationAgentUserId: () => chat.peer_user_id ?? null, onOpenSender: openMessageSender, onConversationReply: id => view.current?.scrollToItem(id, { align: 'center' }),
         conversationProcessNotice: processId => {
-          const notice = messages.find(message => message.content_type === 'system' && !message.retracted_at && processId === `im:${message.id}:process`)
+          const notice = visibleMessages.find(message => message.content_type === 'system' && processId === `im:${message.id}:process`)
           return notice ? { id: notice.id, text: notice.content ?? '' } : null
         },
         onStopBackgroundTask: target && client.stopBackgroundTask ? ({ stopId }) => { void client.stopBackgroundTask!(target.deviceId, target.sessionId, stopId).catch(error => toast(messageForUser(error), 'error')) } : undefined,

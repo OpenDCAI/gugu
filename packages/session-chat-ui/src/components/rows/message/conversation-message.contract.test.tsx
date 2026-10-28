@@ -45,7 +45,8 @@ describe('agent-centered conversation bubbles', () => {
     host.style.width = '320px';
     document.body.append(host);
     const text = '消息已保留，助理就绪后回复。';
-    const dispose = render(() => <CommandsContext.Provider value={() => ({ conversationProcessNotice: () => ({ id: 'notice', text }) })}>
+    const [pending, setPending] = createSignal(true);
+    const dispose = render(() => <CommandsContext.Provider value={() => ({ conversationProcessNotice: () => pending() ? { id: 'notice', text } : null })}>
       <ConversationProcess process={{ id: 'im:notice:process', steps: 0 }} anchorId="p" expanded={false} />
     </CommandsContext.Provider>, host);
     try {
@@ -55,6 +56,9 @@ describe('agent-centered conversation bubbles', () => {
       expect(header.offsetHeight).toBe(22);
       expect(header.getBoundingClientRect().width).toBeLessThanOrEqual(320);
       expect(host.textContent).not.toContain('0 steps');
+      setPending(false);
+      expect(header.textContent).not.toContain(text);
+      expect(header.querySelector('[data-agent-conversation-message="notice"]')).toBeNull();
     } finally { dispose(); host.remove(); }
   });
   it.each([320, 600])('keeps the subject left and incoming agents right at width %s with matching measured geometry', async width => {

@@ -18,16 +18,35 @@ export function AgentConversationView({ layout, composerContent, shown = true, o
     const host = root.current;
     if (!host || !shown || !onVisibleItems) return;
     let observing = true;
-    const seen = new WeakSet<Element>();
-    const observer = new IntersectionObserver(entries => {
-      if (!observing || document.visibilityState === 'hidden') return;
-      const ids = entries.filter(entry => entry.isIntersecting && entry.intersectionRect.height > 0)
-        .map(entry => entry.target.getAttribute('data-agent-conversation-message')).filter((id): id is string => !!id);
-      if (ids.length) onVisibleItems(ids);
-    });
+    let seen = new WeakSet<Element>();
+    let observer: IntersectionObserver;
     const observe = () => host.querySelectorAll('[data-agent-conversation-message]').forEach(element => {
       if (!seen.has(element)) { seen.add(element); observer.observe(element); }
     });
+    const resetObserver = () => {
+      const rect = host.getBoundingClientRect();
+      const bottom = slot ? Math.min(rect.bottom, slot.getBoundingClientRect().top) : rect.bottom;
+      observer?.disconnect();
+      seen = new WeakSet();
+      observer = new IntersectionObserver(entries => {
+        if (!observing || document.visibilityState === 'hidden') return;
+        const viewport = host.getBoundingClientRect();
+        const readableBottom = slot ? Math.min(viewport.bottom, slot.getBoundingClientRect().top) : viewport.bottom;
+        const ids = entries.filter(entry => {
+          if (!entry.isIntersecting || entry.intersectionRect.height <= 0) return false;
+          // A message's header/actions can intersect while its body is behind the floating editor.
+          const body = entry.target.querySelector('[data-user-card], [data-attachment-chip]') ?? entry.target;
+          const content = body.getBoundingClientRect();
+          return content.bottom > viewport.top && content.top < readableBottom;
+        }).map(entry => entry.target.getAttribute('data-agent-conversation-message')).filter((id): id is string => !!id);
+        if (ids.length) onVisibleItems(ids);
+      }, { root: host, rootMargin: `0px 0px -${Math.max(0, rect.bottom - bottom)}px 0px` });
+      observe();
+    };
+    resetObserver();
+    const resize = typeof ResizeObserver === 'undefined' ? null : new ResizeObserver(resetObserver);
+    resize?.observe(host);
+    if (slot) resize?.observe(slot);
     const mutations = new MutationObserver(records => {
       for (const record of records) if (record.type === 'attributes') { observer.unobserve(record.target as Element); observer.observe(record.target as Element); }
       observe();
@@ -39,8 +58,8 @@ export function AgentConversationView({ layout, composerContent, shown = true, o
       host.querySelectorAll('[data-agent-conversation-message]').forEach(element => { observer.unobserve(element); observer.observe(element); });
     };
     document.addEventListener('visibilitychange', visibleAgain);
-    return () => { observing = false; document.removeEventListener('visibilitychange', visibleAgain); mutations.disconnect(); observer.disconnect(); };
-  }, [shown, onVisibleItems]);
+    return () => { observing = false; document.removeEventListener('visibilitychange', visibleAgain); mutations.disconnect(); resize?.disconnect(); observer.disconnect(); };
+  }, [shown, onVisibleItems, slot]);
   return <div ref={root} data-agent-conversation="" className={`${className ?? 'relative min-h-0 flex-1'} ${nativeChatAppearance}`} style={style}>
     <ChatTranscript stickToBottom pinUserMessages {...props}
       composer={composerContent ? 'slot' : props.composer}

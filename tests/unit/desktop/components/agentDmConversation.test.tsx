@@ -8,6 +8,7 @@ import type { TranscriptTurn } from '@gugu/session-core/acp/client'
 import { chat, clickElement, contact, createReactHarness, displayIdentity, message, renderWithAppProviders } from '../../../support/testHarness'
 import { writeComposer } from '../../../support/composerEditor'
 import { emptyAgentWatchTimeline } from '../../../../apps/desktop/src/mobile/agent-watch/agent-watch-store'
+import { turnFailureMarker } from '@gugu/core/shared/ui/systemNotice'
 
 const probe = vi.hoisted(() => ({ props: null as unknown, read: vi.fn(), find: vi.fn(), setScrollMode: vi.fn(), fail: false, session: { state: 'no-session' } as AgentDmSession, settlements: {} as ReturnType<typeof emptyAgentWatchTimeline>['settlements'], respond: vi.fn() }))
 vi.mock('../../../../apps/desktop/src/hooks/useAgentDmSession', () => ({ useAgentDmSession: () => ({ session: probe.session }) }))
@@ -162,4 +163,19 @@ it('uses the project approval labels and the same settlement when approving from
   const allow = [...band.querySelectorAll('button')].find(button => button.textContent?.includes('允许这次'))!
   await clickElement(allow)
   expect(probe.respond).toHaveBeenCalledWith({ itemId: 'write', kind: 'permission', optionId: 'yes' })
+})
+
+it('shows the retained-message notice until the peer replies, without losing it to a later owner prompt', async () => {
+  const notice = message({ id: 'retained', seq: 2, chat_id: dm.id, content_type: 'system', sender_user_id: dm.peer_user_id,
+    client_message_id: turnFailureMarker('retained', 'notAdmitted'), content: '消息已保留，助理就绪后回复。' })
+  const owner = message({ id: 'next-question', seq: 3, chat_id: dm.id, is_mine: true, sender_user_id: 'owner' })
+  const draw = (messages: typeof notice[]) => renderWithAppProviders(harness, createElement(AgentDmConversation, { chat: dm, shown: true }), { chat: { activeChat: dm, activeChatId: dm.id, messages } })
+  await draw([notice, owner])
+  const before = probe.props as { commands: ChatCommands; turns: TranscriptTurn[] }
+  expect(before.commands.conversationProcessNotice?.('im:retained:process')).toEqual({ id: notice.id, text: notice.content })
+  expect(before.turns.some(turn => turn.id === 'im:retained')).toBe(true)
+  await draw([notice, owner, { ...received, seq: 4 }])
+  const after = probe.props as { commands: ChatCommands; turns: TranscriptTurn[] }
+  expect(after.commands.conversationProcessNotice?.('im:retained:process')).toBeNull()
+  expect(after.turns.some(turn => turn.id === 'im:retained')).toBe(false)
 })

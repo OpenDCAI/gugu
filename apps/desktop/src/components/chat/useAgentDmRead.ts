@@ -4,8 +4,9 @@ import type { ChatView } from '@gugu/session-chat-ui'
 import type { CapturedUnreadEntry } from '@/lib/chatUnreadLocator'
 import { AgentDmReadCursor, dmTranscriptItem } from './agent-dm-read'
 
-export function useAgentDmRead({ chat, shown, messages, aliases, unreadEntry, markMessageVisible, setFollowingTail, loadMessageAnchor, onError }: {
+export function useAgentDmRead({ chat, shown, messages, ignoredMessageIds, aliases, unreadEntry, markMessageVisible, setFollowingTail, loadMessageAnchor, onError }: {
   chat: ChatItem; shown: boolean; messages: readonly MessageItem[]; aliases: ReadonlyMap<string, readonly string[]>
+  ignoredMessageIds: readonly string[]
   unreadEntry?: CapturedUnreadEntry | null
   markMessageVisible: (message: MessageItem) => void
   setFollowingTail: (following: boolean | undefined) => void
@@ -22,6 +23,8 @@ export function useAgentDmRead({ chat, shown, messages, aliases, unreadEntry, ma
   }
   activation.current.shown = shown
   const current = activation.current
+  current.cursor.ignore(ignoredMessageIds)
+  if (current.first && ignoredMessageIds.includes(current.first)) current.first = null
   const reportFollowing = useCallback(() => setFollowingTail(shown && atBottom.current && current.cursor.canFollow(messages)), [shown, current, messages, setFollowingTail])
   const place = useCallback(() => {
     if (!shown || !current.first || !view.current) return

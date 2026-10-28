@@ -5,6 +5,7 @@ export class AgentDmReadCursor {
   private seen = new Set<string>()
   private committed = new Set<string>()
   constructor(readonly firstUnreadId: string | null, private readSeq: number) {}
+  ignore(ids: readonly string[]): void { for (const id of ids) this.seen.add(id) }
 
   visible(ids: readonly string[], rows: readonly MessageItem[]): MessageItem[] {
     for (const id of ids) this.seen.add(id)

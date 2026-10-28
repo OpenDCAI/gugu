@@ -7,11 +7,19 @@ import type { ChatMessage } from '@gugu/session-chat-ui'
 import { parseAttachmentContent } from '@gugu/core/shared/ui/attachmentModels'
 import { composerCardLine } from '@/lib/composerCardCopy'
 import { visibleReplyQuoteIds } from './replyQuoteVisibility'
+import { isPendingDelivery } from '@gugu/core/shared/ui/systemNotice'
+
+/** Pending delivery status ends only when that agent actually answers on the same line. */
+export function displayedDmMessages(messages: readonly MessageItem[]): MessageItem[] {
+  return messages.filter(message => !message.retracted_at && (!isPendingDelivery(message) || !messages.some(reply =>
+    reply.seq > message.seq && reply.chat_id === message.chat_id && reply.thread_root_id === message.thread_root_id
+    && reply.sender_user_id === message.sender_user_id && reply.content_type !== 'system' && !reply.retracted_at)))
+}
 
 /** Adapt authorized IM rows to the project transcript; never synthesize tool execution. */
 export function dmRecord(messages: readonly MessageItem[], names: Readonly<Record<string, { display_name: string }>>): TranscriptTurn[] {
   const quotes = visibleReplyQuoteIds(messages)
-  return messages.filter(message => !message.retracted_at).map(message => {
+  return displayedDmMessages(messages).map(message => {
     const replyId = quotes.has(message.id) ? message.reply_to_message_id : null
     const reply = replyId ? {
       itemId: replyId, text: message.reply_to_content ?? '',
@@ -65,22 +73,25 @@ export function dmRecordIds(turns: readonly TranscriptTurn[]): Map<string, reado
 }
 
 export function mergeDmRecord(turns: readonly TranscriptTurn[], messages: readonly MessageItem[], names: Readonly<Record<string, { display_name: string }>>): readonly TranscriptTurn[] {
+  const visible = displayedDmMessages(messages)
+  const resolved = new Set(messages.filter(message => isPendingDelivery(message) && !visible.includes(message)).map(message => `im:${message.id}`))
+  const base = resolved.size ? turns.filter(turn => !resolved.has(turn.id)) : turns
   const files: Record<string, SentAttachment> = {}
   for (const turn of dmRecord(messages.filter(message => message.content_type === 'attachment'), names)) {
     const file = (turn.items[0] as ChatMessage).sentAttachment
     if (file) files[file.messageId] = file
   }
-  const enriched = Object.keys(files).length ? turns.map(turn => {
+  const enriched = Object.keys(files).length ? base.map(turn => {
     const known = Object.fromEntries(replyItems(turn).flatMap(item => {
       const file = sentAttachmentOf(item, files)
       return file ? [[file.messageId, file]] : []
     }))
     return Object.keys(known).length ? { ...turn, sentAttachments: known } : turn
-  }) : turns
+  }) : base
   const recorded = new Set([...dmRecordIds(enriched).values()].flat())
   const known = messages.filter(message => recorded.has(message.id))
   const watermark = known.length ? Math.max(...known.map(message => message.seq)) : null
-  const pending = dmRecord(messages.filter(message => !recorded.has(message.id) && (watermark === null || message.seq > watermark || message.local_send_state)), names)
+  const pending = dmRecord(visible.filter(message => !recorded.has(message.id) && (watermark === null || message.seq > watermark || message.local_send_state || isPendingDelivery(message))), names)
   // Session turns and IM messages have independent sequence spaces. Only the
   // adapter's turn order belongs to the transcript; keep the IM item seq intact.
   const lastSeq = enriched.at(-1)?.seq ?? 0

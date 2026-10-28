@@ -21,3 +21,9 @@ it('waits for a first unread outside the loaded window and uses only canonical r
   expect(dmTranscriptItem('reply-1', aliases)).toBe('call:sent:reply-1')
   expect(dmTranscriptItem('missing', aliases)).toBeNull()
 })
+
+it('does not let a resolved hidden delivery notice block the following visible reply', () => {
+  const cursor = new AgentDmReadCursor('resolved-notice', 0)
+  cursor.ignore(['resolved-notice'])
+  expect(cursor.visible([rows[0].id], rows)).toEqual([rows[0]])
+})
