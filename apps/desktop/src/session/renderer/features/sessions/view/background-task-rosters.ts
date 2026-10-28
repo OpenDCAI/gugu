@@ -14,13 +14,13 @@ import { isSubagentDismissed } from './subagent-dismissals';
  * 后台任务直接放进主对话。
  *
  * 会话页的 store 在 `AcpChatResourceManager` 里。调用方要在 mobx 的反应里读(`autorun` / `observer`)——
- * `messageCount` 是显式读的那一个依赖。
+ * `transcriptRevision` 是显式读的那一个依赖(❌ `messageCount`:子智能体的调用折进旧轮,条数不变)。
  */
 export function collectSubagents(sessionId: string | undefined, fallbackName: string): SubagentRosterEntry[] {
   if (!sessionId) return [];
   const store = findAcpChatStore(sessionId);
   if (!store) return [];
-  void store.messageCount;
+  void store.transcriptRevision;
   const transcript = store.chatState.transcript.state;
   return collectSubagentRoster(
     transcript.committedTurns,
