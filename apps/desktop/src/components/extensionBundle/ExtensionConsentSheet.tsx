@@ -127,7 +127,7 @@ function InstallConsentSheet() {
                     key={id}
                     data-device-id={id}
                     title={disabledReason}
-                    className={`flex items-center gap-2 rounded-sm px-2 py-1.5 text-sm text-foreground ${blocked ? (id ? 'opacity-50' : '') : 'cursor-pointer hover:bg-row-hover'}`}
+                    className={`flex min-h-8 items-center gap-2 rounded-sm px-2 py-1 text-sm text-foreground ${blocked ? (id ? 'opacity-50' : '') : 'cursor-pointer hover:bg-row-hover'}`}
                   >
                     <input
                       type="checkbox"
