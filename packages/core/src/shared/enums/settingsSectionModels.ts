@@ -7,7 +7,7 @@ export type ActiveSection =
   | 'account'
   | 'general'
   | 'devices'
-  // 文件存储与读取(owner 10-27):一个人一份,项目群与普通群放在一起对照。
+  // 文件存储与读取(owner 10-27):设备页里的一个内页(你名下机器上的项目群怎么存文件),❌ 再占左栏一行。只作直达链接。
   | 'files'
   | 'model'
   | 'usage'
@@ -53,7 +53,7 @@ export const SETTINGS_GROUPS: readonly { readonly id: SettingsGroupId; readonly 
   { id: 'preferences', sections: ['general', 'interface', 'permissions', 'model', 'resource-monitor'] },
   // agent 跑起来的那几样(会话的默认行为、仓库、浏览器)挨着「设备」。App 只在手机壳上:那里的 App 由
   // 这一页自己的 App 仓管(L9)。
-  { id: 'work', sections: ['sessions', 'browser', 'devices', 'files', 'apps', 'phone'] },
+  { id: 'work', sections: ['sessions', 'browser', 'devices', 'apps', 'phone'] },
   { id: 'about', sections: ['about'] },
 ]
 export const SETTINGS_SECTION_GROUPS: readonly (readonly ActiveSection[])[] = SETTINGS_GROUPS.map((group) => group.sections)

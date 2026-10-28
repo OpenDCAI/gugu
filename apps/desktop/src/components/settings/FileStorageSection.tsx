@@ -7,6 +7,7 @@ import { readFileStorage, writeFileStorage } from '../../lib/fileStorage'
 import { useAuth } from '../../store/auth'
 import { useDevicesStore } from '../../store/devicesContext'
 import { Button } from '../ui/Button'
+import { useSettingsDetail } from './SettingsDetailNavigation'
 import { SettingsGroup, SettingsNote, SettingsPage, SettingsRow } from './SettingsPrimitives'
 
 /**
@@ -16,8 +17,9 @@ import { SettingsGroup, SettingsNote, SettingsPage, SettingsRow } from './Settin
  * 「其他文件」是一个二选一(owner 10-27):留在机器上、有人打开才上传(那份临时副本留多久跟着它) / 全部上传到云端。
  * ❌ 单独的「临时中转」开关:关掉它 = 留在机器上而别人永远读不到。全部上传时图片也不再到期,两个保留期都不给。
  */
-export function FileStorageSection() {
+export function FileStorageSection({ onBack }: { onBack: () => void }) {
   const { t } = useTranslation('settings')
+  useSettingsDetail('file-storage', t('fileStorage.title'), onBack)
   const { user } = useAuth()
   const { devices } = useDevicesStore()
   const [state, setState] = useState<{ storage: FileStorage; machines: string[] } | null>(null)

@@ -9,7 +9,6 @@ import { AccountSection } from './settings/AccountSection'
 import { AssistantSection, type AssistantPageTab } from './settings/AssistantSection'
 import { ConnectorsSection } from './settings/ConnectorsSection'
 import { DevicesSection } from './settings/DevicesSection'
-import { FileStorageSection } from './settings/FileStorageSection'
 import { GeneralSection } from './settings/GeneralSection'
 import { ModelSection } from './settings/ModelSection'
 import { UsageSection } from './usage/UsageSection'
@@ -97,7 +96,8 @@ export function SettingsPanel({ mobile = false, inline = false, onClose, initial
   // @@@1507 初始 section 可由调用方指定(如侧栏「额度」直接开到 quota);缺省 account。
   const [internalSection, setInternalSection] = useState<ActiveSection>(initialSection)
   const requestedSection = section ?? internalSection
-  const activeSection = requestedSection === 'channels' ? 'connectors' : requestedSection
+  // 「文件存储与读取」是设备页里的内页:直达链接落到设备页并打开它。
+  const activeSection = requestedSection === 'channels' ? 'connectors' : requestedSection === 'files' ? 'devices' : requestedSection
   const setActiveSection = onSectionChange ?? setInternalSection
   const [internalPane, setInternalPane] = useState<'nav' | 'detail'>(mobile ? 'nav' : 'detail')
   const mobilePane = pane ?? internalPane
@@ -121,8 +121,7 @@ export function SettingsPanel({ mobile = false, inline = false, onClose, initial
       case 'connectors': return <ConnectorsSection />
       case 'account':  return <AccountSection user={user} updateUser={updateUser} logout={logout} />
       case 'general':  return <GeneralSection onOpenPermissions={() => selectSection('permissions')} />
-      case 'devices':  return <DevicesSection onUpgrade={() => selectSection('usage')} />
-      case 'files':    return <FileStorageSection />
+      case 'devices':  return <DevicesSection key={requestedSection} fileStorage={requestedSection === 'files'} onUpgrade={() => selectSection('usage')} />
       case 'model':    return <ModelSection />
       case 'usage':    return <UsageSection />
       case 'activity': return <ActivitySection />

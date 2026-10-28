@@ -34,7 +34,7 @@ describe('the one settings nav', () => {
       ['assistant', 'connectors'],
       ['account', 'usage', 'subscriptions', 'activity'],
       ['general', 'interface', 'permissions', 'model', 'resource-monitor'],
-      ['sessions', 'browser', 'devices', 'files', 'apps', 'phone'],
+      ['sessions', 'browser', 'devices', 'apps', 'phone'],
       ['about'],
     ])
   })
@@ -46,8 +46,6 @@ describe('the one settings nav', () => {
       ['assistant'],
       ['account', 'usage', 'activity'],
       ['general', 'permissions', 'model'],
-      // 文件存储与读取在每台宿主上都有(手机上也管得到自己名下的机器)。
-      ['files'],
       ['about'],
     ])
   })

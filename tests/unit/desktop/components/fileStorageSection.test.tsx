@@ -28,7 +28,7 @@ describe('the one 「文件存储与读取」: other files are one choice', () =
   }
 
   it('keeps files on the machine with their temporary-copy retention, or uploads everything without either retention', async () => {
-    await harness.render(createElement(FileStorageSection))
+    await harness.render(createElement(FileStorageSection, { onBack: vi.fn() }))
     await vi.waitFor(() => expect($('settings-file-mode')?.value).toBe('machine'))
     expect($('settings-file-retention')).not.toBeNull()
     expect($('settings-image-retention')).not.toBeNull()
@@ -48,7 +48,7 @@ describe('the one 「文件存储与读取」: other files are one choice', () =
 
   it('shows only the ordinary rules to someone with no machine bound to a project', async () => {
     f.projects.mockResolvedValue({ mac: [{ localProjectId: 'p', chatId: null }] })
-    await harness.render(createElement(FileStorageSection))
+    await harness.render(createElement(FileStorageSection, { onBack: vi.fn() }))
     await vi.waitFor(() => expect(harness.container.textContent).toContain('fileStorage.noMachine'))
     expect($('settings-file-mode')).toBeNull()
     expect(harness.container.textContent).toContain('fileStorage.ordinary')

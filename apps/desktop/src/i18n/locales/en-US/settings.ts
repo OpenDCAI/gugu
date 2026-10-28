@@ -826,6 +826,8 @@ export default {
     }
   },
   "fileStorage": {
+    "title": "File storage",
+    "entryHint": "How project groups on your machines keep images and other files, and for how long; next to ordinary groups.",
     "intro": "Project groups and ordinary groups store and read files differently. Project groups follow your settings here; ordinary groups work as described below.",
     "projectTitle": "Project groups",
     "machines": "Applies to project groups on your machines: {{machines}}. A project group on someone else's machine follows that machine owner's settings.",

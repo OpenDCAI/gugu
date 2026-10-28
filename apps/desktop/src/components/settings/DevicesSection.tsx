@@ -26,10 +26,11 @@ import type { SshSignInState } from '../../lib/serverSshMachines'
 import { useDevicesStore } from '../../store/devicesContext'
 import { platform } from '../../platform'
 import { desktopIpc } from '../../platform/desktopIpc'
-import { ChevronRight, Copy, ListChecks, MoreHorizontal, Pencil, Plus, RefreshCw, SquarePen, Trash2, Unplug } from '@/lib/icons'
+import { ChevronRight, Copy, Folder, ListChecks, MoreHorizontal, Pencil, Plus, RefreshCw, SquarePen, Trash2, Unplug } from '@/lib/icons'
 import { canOpenNewSessionOnDevice, canReconnectDevice, openNewSessionOnDevice, reconnectDevice } from '../../lib/sessionpageNewSessionBridge'
 import { useToast } from '../toastContext'
 import { Button } from '../ui/Button'
+import { FileStorageSection } from './FileStorageSection'
 import { Chip } from '../ui/Chip'
 import { IconButton } from '../ui/IconButton'
 import { DropdownMenu, MenuItem, MenuSeparator } from '../ui/Menu'
@@ -76,9 +77,12 @@ type DialogState =
 
 export function DevicesSection({
   onUpgrade,
+  fileStorage = false,
 }: {
   /** #6264 添加机器碰到机器上限时句尾的「升级会员」:切到「设置 → 会员与额度」。 */
   onUpgrade?: () => void
+  /** 一进来就是「文件存储与读取」那个内页(直达链接 section 'files')。 */
+  fileStorage?: boolean
 } = {}) {
   const { t } = useTranslation('settings')
   const { toast } = useToast()
@@ -114,6 +118,8 @@ export function DevicesSection({
   // #7199 第二步:正在看哪台设备「能做的事」(设备页里的一个内页:点设备进它的连接应用页)。
   // #7199 助理主页点了一台设备 = 一进来就是那台的「能做的事」(deviceActionsIntent)。
   const [actionsFor, setActionsFor] = useState<string | null>(() => consumeDeviceActionsIntent())
+  // 「文件存储与读取」(owner 10-27):你名下机器上的项目群怎么存文件 —— 设备页里的一个内页,❌ 再占设置左栏一行。
+  const [storageOpen, setStorageOpen] = useState(fileStorage)
   const thisDevice = machines.find(machine => machine.current)?.configurations.find(device => device.is_current_device) ?? null
 
   const addressOf = useCallback((deviceId: string) => addresses.get(deviceId) ?? null, [addresses])
@@ -232,6 +238,8 @@ export function DevicesSection({
       )}
   </>
 
+  if (storageOpen) return <FileStorageSection onBack={() => setStorageOpen(false)} />
+
   const actionsMachine = deviceMachineFor(machines, actionsFor)
   const actionsDevice = actionsMachine?.device
   if (actionsDevice) {
@@ -313,6 +321,17 @@ export function DevicesSection({
           />
         </div>
       )}
+
+      <div className="gg-settings-card window-no-drag-region">
+        <SettingsRow
+          data-testid="settings-file-storage-entry"
+          leading={<Folder size={18} />}
+          title={t('fileStorage.title')}
+          description={t('fileStorage.entryHint')}
+          control={<ChevronRight size={16} />}
+          onClick={() => setStorageOpen(true)}
+        />
+      </div>
 
       {showTools && (
         <div className="flex flex-wrap items-center gap-2" data-testid="settings-devices-tools">

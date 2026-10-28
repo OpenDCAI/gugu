@@ -440,7 +440,6 @@ export default {
       "apps": "Apps",
       "browser": "Browser",
       "devices": "Devices",
-      "files": "File storage",
       "general": "General",
       "interface": "Interface",
       "resource-monitor": "Resource monitor",
