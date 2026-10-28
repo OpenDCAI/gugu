@@ -9,6 +9,7 @@
 //
 // 设备维度的数据与 per-user 记忆都在 gugu 侧（identity.gugu_devices + identity.user_settings），
 // 经 window.__GUGU_CREATE_CONTEXT__ 桥送进来；这里只负责渲染与回调。
+import { nameTwinIds } from '@renderer/features/projects/name-twins';
 import { AlertTriangle, ChevronDown, Clock, Folder, Plus, Search, Users, X } from '@/lib/icons'
 import { observer } from 'mobx-react-lite';
 import { useState } from 'react';
@@ -113,6 +114,7 @@ export const ComposerProjectPicker = observer(function ComposerProjectPicker({
       )
     : projects;
   const displayName = selectedId ? (projectDisplayName(getProjectStore(selectedId)) ?? translate('task.projectFallbackName')) : null;
+  const twins = nameTwinIds(projects.map((p) => ({ id: p.id, name: projectDisplayName(p) })));
 
   return (
     <DropdownMenu>
@@ -153,9 +155,13 @@ export const ComposerProjectPicker = observer(function ComposerProjectPicker({
                 ) : null
               ) : (
                 visibleProjects.map((p) => (
-                  <DropdownMenuItem key={p.id} onClick={() => onSelect(p.id)}>
+                  <DropdownMenuItem key={p.id} onClick={() => onSelect(p.id)} title={twins.has(p.id) ? p.data?.path : undefined}>
                     <Folder className="size-3.5" />
                     <span className="truncate">{projectDisplayName(p) ?? p.id}</span>
+                    {/* 同名的(两台机器上各有一个「repo」)带上路径区分,与侧栏同一个判据;不同名不带。 */}
+                    {twins.has(p.id) ? (
+                      <small className="ml-auto min-w-0 max-w-[55%] shrink truncate pl-3 text-foreground-passive">{p.data?.path}</small>
+                    ) : null}
                   </DropdownMenuItem>
                 ))
               )}
