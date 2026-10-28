@@ -178,7 +178,7 @@ async function downloadNpmPackage(pkg: CliPackage, workDir: string, report: Repo
       const tarball = metadata.dist?.tarball;
       if (typeof tarball !== 'string') throw new Error(`${metadataUrl} has no tarball`);
       const archive = path.join(workDir, 'package.tgz');
-      const digest = await downloadTo(tarball, archive, 'sha512', 'base64', report, stallMs);
+      const digest = await downloadTo(tarball, archive, 'sha512', 'base64', report, { stallMs });
       if (`sha512-${digest}` !== pkg.integrity) {
         throw new Error(`${tarball} is not the ${pkg.name}@${pkg.version} gugu expects (integrity mismatch)`);
       }
@@ -214,9 +214,9 @@ function stallWatch(file: string, stallMs: number) {
   return { signal: controller.signal, kick, stop: () => clearTimeout(timer) };
 }
 
-async function fetchOk(url: string, signal: AbortSignal): Promise<Response> {
-  const response = await fetch(url, { signal });
-  if (!response.ok || !response.body) throw new Error(`${url} answered ${response.status}`);
+async function fetchOk(url: string, signal: AbortSignal, headers?: Record<string, string>): Promise<Response> {
+  const response = await fetch(url, { signal, ...(headers ? { headers } : {}) });
+  if (!response.ok || !response.body) throw new DownloadHttpError(url, response.status);
   return response;
 }
 
@@ -242,22 +242,61 @@ async function installTmeetSkills(staging: string, report: ReportProgress): Prom
   await fs.cp(skill, path.join(staging, 'skills', 'tmeet-skill'), { recursive: true });
 }
 
-/** 边下边算摘要;返回摘要(按 `encoding`)。`stallMs` 没进新字节就以「卡住」失败,慢但在动的下载照样下完。 */
+/** 中途断了(对端关连接、卡住、5xx)最多下几次。国内云上慢链路一下十来分钟,中途断一次很常见。 */
+export const CLI_DOWNLOAD_ATTEMPTS = 4;
+
+class DownloadHttpError extends Error {
+  constructor(url: string, readonly status: number) {
+    super(`${url} answered ${status}`);
+    this.name = 'DownloadHttpError';
+  }
+}
+
+/** 4xx(429 除外)是这个地址本身不对,再下也一样;别的(断流、卡住、5xx)多半下一次就好。 */
+function retriesDownload(error: unknown): boolean {
+  return !(error instanceof DownloadHttpError && error.status >= 400 && error.status < 500 && error.status !== 429);
+}
+
+export interface DownloadOptions {
+  /** 多久没进新字节算卡住。 */
+  stallMs?: number;
+  attempts?: number;
+  /** 第 n 次重下前等 `retryDelayMs * n`。 */
+  retryDelayMs?: number;
+}
+
+/**
+ * 边下边算摘要;返回摘要(按 `encoding`)。`stallMs` 没进新字节就以「卡住」失败,慢但在动的下载照样下完。
+ * 中途断了就再下:服务器认 Range 就从断处接着下(❌ 十几 MB 从头再等十分钟),不认就从头。
+ */
 export async function downloadTo(
   url: string,
   file: string,
   algorithm: 'sha256' | 'sha512',
   encoding: 'hex' | 'base64',
   report: ReportProgress,
-  stallMs = CLI_DOWNLOAD_STALL_MS,
+  { stallMs = CLI_DOWNLOAD_STALL_MS, attempts = CLI_DOWNLOAD_ATTEMPTS, retryDelayMs = 2_000 }: DownloadOptions = {},
 ): Promise<string> {
-  const watch = stallWatch(path.basename(new URL(url).pathname), stallMs);
-  try {
-    return await downloadWatched(url, file, algorithm, encoding, report, watch);
-  } catch (error) {
-    throw watch.signal.aborted ? watch.signal.reason : error;
-  } finally {
-    watch.stop();
+  const fileName = path.basename(new URL(url).pathname);
+  let resumable = false;
+  for (let attempt = 1; ; attempt += 1) {
+    const offset = resumable ? await fs.stat(file).then((stat) => stat.size, () => 0) : 0;
+    const watch = stallWatch(fileName, stallMs);
+    try {
+      return await downloadWatched(url, file, algorithm, encoding, report, watch, offset, (value) => (resumable = value));
+    } catch (thrown) {
+      const error = watch.signal.aborted ? watch.signal.reason : thrown;
+      if (attempt >= attempts || !retriesDownload(error)) throw error;
+      log.warn('Connector tool download broke off; downloading again', {
+        file: fileName,
+        attempt,
+        resumeFrom: resumable ? await fs.stat(file).then((stat) => stat.size, () => 0) : 0,
+        error,
+      });
+      await new Promise((resolve) => setTimeout(resolve, retryDelayMs * attempt));
+    } finally {
+      watch.stop();
+    }
   }
 }
 
@@ -268,16 +307,23 @@ async function downloadWatched(
   encoding: 'hex' | 'base64',
   report: ReportProgress,
   watch: ReturnType<typeof stallWatch>,
+  offset: number,
+  setResumable: (resumable: boolean) => void,
 ): Promise<string> {
-  const response = await fetchOk(url, watch.signal);
+  const response = await fetchOk(url, watch.signal, offset > 0 ? { range: `bytes=${offset}-` } : undefined);
   watch.kick();
+  const resumed = offset > 0 && response.status === 206;
+  const encoded = Boolean(response.headers.get('content-encoding'));
+  setResumable(!encoded && response.headers.get('accept-ranges') === 'bytes');
   const length = Number(response.headers.get('content-length'));
-  const totalBytes = !response.headers.get('content-encoding') && Number.isSafeInteger(length) && length > 0 ? length : undefined;
+  const totalBytes = !encoded && Number.isSafeInteger(length) && length > 0 ? (resumed ? offset : 0) + length : undefined;
   const fileName = path.basename(new URL(url).pathname);
-  let receivedBytes = 0;
+  const hash = createHash(algorithm);
+  // 接着下:摘要得从文件开头算,先把已下的那段喂进去。
+  if (resumed) hash.update(await fs.readFile(file));
+  let receivedBytes = resumed ? offset : 0;
   const progress = () => report({ phase: 'download', receivedBytes, ...(totalBytes ? { totalBytes } : {}), file: fileName });
   progress();
-  const hash = createHash(algorithm);
   const hashing = new Transform({
     transform(chunk: Buffer, _encoding, callback) {
       hash.update(chunk);
@@ -290,7 +336,7 @@ async function downloadWatched(
   await pipeline(
     Readable.fromWeb(response.body as import('node:stream/web').ReadableStream),
     hashing,
-    createWriteStream(file),
+    createWriteStream(file, { flags: resumed ? 'a' : 'w' }),
     { signal: watch.signal }
   );
   return hash.digest(encoding);

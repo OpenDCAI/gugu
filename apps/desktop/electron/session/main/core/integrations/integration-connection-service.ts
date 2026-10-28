@@ -93,6 +93,8 @@ export class IntegrationConnectionService {
   private readonly cliStarts = new Map<string, symbol>();
   /** 后台装失败、还没交给界面的那一句(按工具)。 */
   private readonly cliInstallFailures = new Map<IntegrationCliTool, string>();
+  /** 已经挂上结果处理的那份安装(同一份 Promise 只挂一次)。 */
+  private readonly watchedCliInstalls = new WeakSet<Promise<unknown>>();
 
   /** Browser authorization for `mcp-oauth` integrations; resolves once the account is stored. */
   async authorize(integrationId: string): Promise<ConnectResult> {
@@ -190,13 +192,17 @@ export class IntegrationConnectionService {
       return { status: 'failed', error: failed };
     }
     const pending = ensureCliTool(method.tool);
-    pending.then(
-      () => this.cliInstallFailures.delete(method.tool),
-      (error: unknown) => {
-        log.warn('Integration command-line tool could not be installed', { integrationId, error });
-        this.cliInstallFailures.set(method.tool, error instanceof Error ? error.message : String(error));
-      }
-    );
+    // 装的那十来分钟里每 20 秒会来问一次:结果只记一回(❌ 失败时同一条日志打几十遍)。
+    if (!this.watchedCliInstalls.has(pending)) {
+      this.watchedCliInstalls.add(pending);
+      pending.then(
+        () => this.cliInstallFailures.delete(method.tool),
+        (error: unknown) => {
+          log.warn('Integration command-line tool could not be installed', { integrationId, error });
+          this.cliInstallFailures.set(method.tool, error instanceof Error ? error.message : String(error));
+        }
+      );
+    }
     let timer: NodeJS.Timeout | undefined;
     const outcome = await Promise.race([
       pending.then(() => 'ready' as const, () => 'failed' as const),
