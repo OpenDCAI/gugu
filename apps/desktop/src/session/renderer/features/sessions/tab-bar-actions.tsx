@@ -23,6 +23,7 @@ import {
 import { BoundShortcut } from '@renderer/lib/ui/shortcut';
 import {
   getSessionWorkspaceActionOrder,
+  opensAgentBrowser,
   sessionWorkspaceActionBlocked,
   workspaceBlockedTitle,
   type SessionWorkspaceActionId
@@ -62,7 +63,10 @@ export const TabBarAddMenu = observer(function TabBarAddMenu() {
           renderWorkspaceActionMenuItem(actionId, translate, {
             blocked: sessionWorkspaceActionBlocked(projectId, actionId) !== null,
             blockedTitle: workspaceBlockedTitle(sessionWorkspaceActionBlocked(projectId, actionId), translate, projectId),
-            openBrowser: () => pane.open('browser', { preview: false }),
+            openBrowser: () =>
+              opensAgentBrowser(projectId)
+                ? sessionView.paneLayout.open('cloud-browser', {}, { preview: false, target: { paneId } })
+                : pane.open('browser', { preview: false }),
             openFiles: () => pane.open('file-browser', {}, { preview: false }),
             openReview: () => sessionView.paneLayout.open('review', {}),
             openTerminal: () => void sessionView.openTerminalAsTab(),

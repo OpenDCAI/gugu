@@ -32,8 +32,9 @@ import { STATE_LAYERS } from '@renderer/lib/ui/state-layers';
 export function PaneEmptyState() {
   const { pane, paneId } = usePaneContext();
   const { paneLayout } = useWorkspaceViewModel();
+  const { projectId } = useSessionViewContext();
   const entries = useSessionWorkspaceActions(
-    () => pane.open('browser', { preview: false }),
+    () => (opensAgentBrowser(projectId) ? paneLayout.open('cloud-browser', {}, { preview: false, target: { paneId } }) : pane.open('browser', { preview: false })),
     (kind) => paneLayout.open(kind, {}, { preview: false, target: { paneId } })
   );
 
@@ -148,12 +149,23 @@ export function sessionWorkspaceActionBlocked(
   id: SessionWorkspaceActionId
 ): 'direct-only' | 'cloud-computer' | null {
   if (id !== 'terminal' && id !== 'browser' && id !== 'ports') return null;
+  if (id === 'browser' && opensAgentBrowser(projectId)) return null;
   const backend = projectId ? workspaceBackend(projectId) : null;
   if (!backend || backend.machine.kind === 'local') return null;
   const available = id === 'terminal' ? backend.terminal.available : backend.browser.available;
   if (available) return null;
   // #7199 云电脑只经咕咕云连着、谁也没用 SSH 添加过它:原因是「云电脑只有通用」,❌ 说「去用远程 SSH 添加」。
   return remoteHostsStore.device(backend.machine.deviceId)?.cloudComputer ? 'cloud-computer' : 'direct-only';
+}
+
+/**
+ * #7199 server 类机器上的会话:「浏览器」开的是 agent 在那台机器上用的 Chrome(cloud-browser 页签),
+ * ❌ 本机 webview —— 人要看的是 agent 在干嘛、能接管(owner 10-28:聊天页不再浮小窗,都在这个页签里)。
+ */
+export function opensAgentBrowser(projectId: string | undefined): boolean {
+  const backend = projectId ? workspaceBackend(projectId) : null;
+  if (!backend || backend.machine.kind === 'local') return false;
+  return remoteHostsStore.device(backend.machine.deviceId)?.hostKind === 'server';
 }
 
 /** 灰掉的那一格悬停说的那句:远程隧道在连 / 连不上的原因照实说(directToolsUnavailableText)。 */

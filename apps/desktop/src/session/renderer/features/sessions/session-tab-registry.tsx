@@ -28,6 +28,7 @@ import { fileTabProvider } from './editor/file-tab-provider';
 import { createSessionTabPersistor } from './stores/session-tab-view-persistor';
 import { terminalTabProvider } from './terminals/terminal-tab-provider';
 import { remotePortsTabProvider } from '../remote-hosts/workspace/remote-ports-tab';
+import { cloudBrowserTabProvider } from '../remote-hosts/workspace/cloud-browser-tab';
 
 export const sessionTabView = createTabView(
   [
@@ -41,7 +42,9 @@ export const sessionTabView = createTabView(
     browserTabProvider,
     terminalTabProvider,
     // #6264 别的机器上的会话才有的「端口」(照 VS Code Ports 视图);本机会话的清单里没有这一项。
-    remotePortsTabProvider
+    remotePortsTabProvider,
+    // #7199 server 上的 agent 用的浏览器(那台机器上的 Chrome);聊天页不再浮小窗。
+    cloudBrowserTabProvider
   ] as const,
   { makePersistor: (ctx) => createSessionTabPersistor(ctx as SessionTabContext) }
 );

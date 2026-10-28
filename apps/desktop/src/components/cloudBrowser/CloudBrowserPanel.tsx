@@ -1,32 +1,27 @@
-import { useAgentSessionRow } from '@/mobile/agent-watch/useAgentSessionRow'
-import { createContext, useCallback, useContext, useEffect, useId, useRef, useState, type ReactNode } from 'react'
+import { createContext, useCallback, useContext, useEffect, useId, useRef, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import '../../i18n/registerCloudBrowserCatalog'
 import './cloudBrowser.css'
 import { LoadingIndicator } from '@/lib/loading/LoadingIndicator'
-import { Check, Globe, KeyRound, Maximize2, MoreHorizontal, RefreshCw, Square, X } from '@/lib/icons'
+import { Check, Globe, KeyRound, RefreshCw, Square, X } from '@/lib/icons'
 import type { CloudBrowserServerMessage, CloudBrowserTab } from '@/session/shared/cloud-browser'
 import { Button } from '../ui/Button'
-import { DropdownMenu, menuRowClassName } from '../ui/Menu'
 import { IconButton } from '../ui/IconButton'
 import { Sheet } from '../ui/Sheet'
 import { cloudBrowserLine, siteLabel, type CloudBrowserLine } from './cloudBrowserLabels'
 import { CloudBrowserScreen } from './CloudBrowserScreen'
 import { chunkText, nextTextId } from './screenMath'
 import { CloudBrowserVault, type VaultOutcome } from './CloudBrowserVault'
-import { useCloudBrowser, type CloudBrowserSize, type CloudBrowserView } from './useCloudBrowser'
+import { useCloudBrowser, type CloudBrowserView } from './useCloudBrowser'
 
 /**
- * #7199 云浏览器小窗(浏览器卡片 + 大窗):和云电脑上的 agent 私聊时,它在那台机器上开浏览器干活,
- * 输入框上方出现这一块 —— 实时画面、它在干嘛;「浏览器窗口选项」切小窗 / 中等 / 放大;放大后能接管、打字、发文字、
- * 切换和关闭标签页,用完交还给 Agent;agent 要登录时弹密码保险箱。手机上只看(没有远程隧道)。
+ * #7199 云浏览器:server 上的 agent 在那台机器的 Chrome 里干活,人在任务页的「浏览器」页签里看 —— 实时画面、它在干嘛;
+ * 能接管、打字、发文字、切换和关闭标签页,用完交还给 Agent;agent 要登录时弹密码保险箱。
+ * 只在这个页签里(owner 10-28「我们不是通过页签来展示吗」):聊天页 ❌ 浮小窗。
  */
 
-const SIZE_KEY = 'gugu.cloudBrowser.size'
-
 /**
- * 这是谁的浏览器:聊天对象的名字(如「个人助理」)。文案里说「个人助理正在浏览」「交还给个人助理」——
- * 人只认识助理,❌「Agent」、❌ 说它在哪台机器上。
+ * 这是谁的浏览器:agent 的名字。文案里说「交还给 X」;不知道名字就说「助理」—— ❌「Agent」、❌ 说它在哪台机器上。
  */
 const AgentNameContext = createContext('')
 
@@ -34,22 +29,6 @@ function useCloudBrowserT(): (key: string, options?: Record<string, unknown>) =>
   const { t } = useTranslation('cloudBrowser')
   const name = useContext(AgentNameContext)
   return useCallback((key: string, options?: Record<string, unknown>) => t(key, { name: name || t('viewer.agentFallback'), ...options }), [t, name])
-}
-
-function readSize(): Exclude<CloudBrowserSize, 'large'> {
-  try {
-    return localStorage.getItem(SIZE_KEY) === 'small' ? 'small' : 'medium'
-  } catch {
-    return 'medium'
-  }
-}
-
-function writeSize(size: Exclude<CloudBrowserSize, 'large'>): void {
-  try {
-    localStorage.setItem(SIZE_KEY, size)
-  } catch {
-    // 记不住就下次回到中等
-  }
 }
 
 function usePageVisible(): boolean {
@@ -60,18 +39,6 @@ function usePageVisible(): boolean {
     return () => document.removeEventListener('visibilitychange', sync)
   }, [])
   return visible
-}
-
-function useOnScreen<T extends Element>(): [(node: T | null) => void, boolean] {
-  const [node, setNode] = useState<T | null>(null)
-  const [onScreen, setOnScreen] = useState(true)
-  useEffect(() => {
-    if (!node || typeof IntersectionObserver === 'undefined') return
-    const observer = new IntersectionObserver((entries) => setOnScreen(entries.some((entry) => entry.isIntersecting)))
-    observer.observe(node)
-    return () => observer.disconnect()
-  }, [node])
-  return [setNode, onScreen]
 }
 
 function lineText(line: CloudBrowserLine, t: (key: string, options?: Record<string, unknown>) => string): string {
@@ -93,7 +60,7 @@ type Controls = {
   openVault: () => void
 }
 
-function useControls(view: CloudBrowserView, everOpened: boolean, openLarge: () => void): Controls & { vaultOpen: boolean; setVaultOpen: (open: boolean) => void; stopAsked: boolean; setStopAsked: (open: boolean) => void; submitVault: (input: { username: string; password: string; save: boolean }) => Promise<VaultOutcome> } {
+function useControls(view: CloudBrowserView, everOpened: boolean): Controls & { vaultOpen: boolean; setVaultOpen: (open: boolean) => void; stopAsked: boolean; setStopAsked: (open: boolean) => void; submitVault: (input: { username: string; password: string; save: boolean }) => Promise<VaultOutcome> } {
   const [releasing, setReleasing] = useState(false)
   // 开的是哪一次请求的保险箱:那次请求结束(填好 / 超时 / 被关掉)它就不算开着,下一次请求要人再点一下。
   const [vaultFor, setVaultFor] = useState<string | null>(null)
@@ -116,9 +83,8 @@ function useControls(view: CloudBrowserView, everOpened: boolean, openLarge: () 
     everOpened,
   })
   const takeControl = useCallback(() => {
-    openLarge()
     view.send({ type: 'control_acquire' })
-  }, [openLarge, view])
+  }, [view])
   const release = useCallback(() => {
     setReleasing(true)
     if (!view.send({ type: 'control_release' })) setReleasing(false)
@@ -156,7 +122,7 @@ function useControls(view: CloudBrowserView, everOpened: boolean, openLarge: () 
 }
 
 /** 主按钮:接管 / 取消接管申请 / 交还给 Agent / 正在交还…;agent 请人登录时是「登录 某站」。 */
-function PrimaryAction({ controls, inLarge }: { controls: Controls; inLarge: boolean }) {
+function PrimaryAction({ controls }: { controls: Controls }) {
   const t = useCloudBrowserT()
   const { view, line } = controls
   if (!view.live) return null
@@ -193,7 +159,7 @@ function PrimaryAction({ controls, inLarge }: { controls: Controls; inLarge: boo
     )
   }
   return (
-    <Button variant={assistance?.kind === 'takeover' || inLarge ? 'primary' : 'secondary'} size="sm" onClick={controls.takeControl} disabled={disabled || automation === 'stopped'}>
+    <Button variant="primary" size="sm" onClick={controls.takeControl} disabled={disabled || automation === 'stopped'}>
       {t('viewer.takeControl')}
     </Button>
   )
@@ -403,28 +369,26 @@ function TextBar({ view }: { view: CloudBrowserView }) {
   )
 }
 
-/** 放大:大窗(桌面居中、手机全屏)。 */
-function CloudBrowserWindow({
-  controls,
-  viewTab,
-  setViewTab,
-  onClose,
-  dialogs,
-}: {
-  controls: Controls
-  viewTab: string | null
-  setViewTab: (tabId: string | null) => void
-  onClose: () => void
-  /** 大窗开着时,保险箱与停止确认框叠在它里面(嵌套的弹层才不被大窗的焦点圈挡住)。 */
-  dialogs: ReactNode
-}) {
+/**
+ * 任务页「浏览器」页签里的那一块。`deviceId` = agent 所在的那台咕咕 server;`sessionId` = 这条会话(它的登录 / 接管求助
+ * 挂在这条会话上)。浏览器没开 = 空状态说一句,❌ 一片空白。
+ */
+export function CloudBrowserPanel({ deviceId, sessionId, agentName = '' }: { deviceId: string; sessionId: string; agentName?: string }) {
+  return (
+    <AgentNameContext.Provider value={agentName.trim()}>
+      <CloudBrowserPanelInner deviceId={deviceId} sessionId={sessionId} />
+    </AgentNameContext.Provider>
+  )
+}
+
+function CloudBrowserPanelInner({ deviceId, sessionId }: { deviceId: string; sessionId: string }) {
   const t = useCloudBrowserT()
-  const titleId = useId()
-  const { view, line } = controls
-  const tabs = view.state?.tabs ?? view.status?.tabs ?? []
-  const selected = viewTab && tabs.some((tab) => tab.tabId === viewTab) ? viewTab : view.state?.activeTabId ?? view.status?.activeTabId ?? tabs[0]?.tabId ?? null
-  const current = tabs.find((tab) => tab.tabId === selected)
-  const holder = view.state?.control === 'granted'
+  const [viewTab, setViewTab] = useState<string | null>(null)
+  const pageVisible = usePageVisible()
+  const view = useCloudBrowser(deviceId, { framesEnabled: pageVisible, tabId: viewTab }, sessionId)
+  const everOpened = useRef(false)
+  if (view.linkState === 'open') everOpened.current = true
+  const controls = useControls(view, everOpened.current)
   const [closeAsk, setCloseAsk] = useState<{ tabId: string; kind: 'control' | 'last' } | null>(null)
   const [tabProblem, setTabProblem] = useState(false)
   const [invalidText, setInvalidText] = useState(false)
@@ -435,6 +399,23 @@ function CloudBrowserWindow({
       }),
     [view],
   )
+
+  if (!view.open) {
+    return (
+      <div className="cb-panel" data-cloud-browser-panel="" data-state="empty">
+        <div className="cb-empty">
+          <span className="cb-empty-icon"><Globe size={20} /></span>
+          <span>{t('viewer.empty')}</span>
+        </div>
+      </div>
+    )
+  }
+
+  const { line } = controls
+  const tabs = view.state?.tabs ?? view.status?.tabs ?? []
+  const selected = viewTab && tabs.some((tab) => tab.tabId === viewTab) ? viewTab : view.state?.activeTabId ?? view.status?.activeTabId ?? tabs[0]?.tabId ?? null
+  const current = tabs.find((tab) => tab.tabId === selected)
+  const holder = view.state?.control === 'granted'
   const select = (tabId: string) => {
     setViewTab(tabId)
     if (holder) view.send({ type: 'tab_select', tabId })
@@ -446,45 +427,36 @@ function CloudBrowserWindow({
     view.send({ type: 'tab_close', tabId })
   }
   const frame = view.frame && view.frame.tabId === selected ? view.frame : view.frame && !view.live ? view.frame : null
+  const loginAsk = view.assistance?.kind === 'login' ? view.assistance : null
   return (
-    <Sheet
-      onClose={onClose}
-      titleId={titleId}
-      desktopWidth="min(1300px, calc(100vw - 32px), calc((100dvh - 200px) * 16 / 9 + 32px))"
-      desktopMaxHeight="calc(100dvh - 32px)"
-      fullScreenMobile
-    >
-      <div className="cb-window">
-        <div className="cb-row">
-          <div className="cb-head-text">
-            <h2 id={titleId} className="cb-big-title">
-              {current?.title || t('viewer.titleOf')}
-              {holder ? <span aria-hidden className="cb-dot" /> : null}
-            </h2>
-            <StatusLine line={line} url={current?.url && current.url !== 'about:blank' ? current.url : undefined} />
-          </div>
-          <PrimaryAction controls={controls} inLarge />
-          <StopAction controls={controls} />
-          <IconButton aria-label={t('viewer.minimize')} onClick={onClose}>
-            <X size={16} />
-          </IconButton>
+    <div className="cb-panel" data-cloud-browser-panel="" data-state="open">
+      <div className="cb-row">
+        <div className="cb-head-text">
+          <span className="cb-big-title">
+            {current?.title || t('viewer.titleOf')}
+            {holder ? <span aria-hidden className="cb-dot" /> : null}
+          </span>
+          <StatusLine line={line} url={current?.url && current.url !== 'about:blank' ? current.url : undefined} />
         </div>
-        {tabProblem ? <div role="alert" className="cb-alert">{t('viewer.tabCloseFailed')}</div> : null}
-        {line.key === 'viewer.occupied' ? <div role="status" className="cb-caption">{t('viewer.controlOccupied')}</div> : null}
-        {invalidText ? <div role="alert" className="cb-alert">{t('viewer.inputInvalid')}</div> : null}
-        {tabs.length > 0 ? <TabStrip tabs={tabs} selected={selected} holder={holder} onSelect={select} onClose={view.live ? close : null} /> : null}
-        <div className="cb-preview" data-big="" data-controlling={holder || undefined}>
-          <CloudBrowserScreen
-            frame={frame}
-            interactive={holder}
-            onAck={view.ack}
-            send={view.send}
-            onInvalidText={() => setInvalidText(true)}
-          />
-          {!frame || line.retry ? <Placeholder line={line} onRetry={view.reconnect} /> : null}
-        </div>
-        {holder ? <TextBar view={view} /> : null}
+        <PrimaryAction controls={controls} />
+        <StopAction controls={controls} />
       </div>
+      {tabProblem ? <div role="alert" className="cb-alert">{t('viewer.tabCloseFailed')}</div> : null}
+      {line.key === 'viewer.occupied' ? <div role="status" className="cb-caption">{t('viewer.controlOccupied')}</div> : null}
+      {invalidText ? <div role="alert" className="cb-alert">{t('viewer.inputInvalid')}</div> : null}
+      {view.error ? <div role="alert" className="cb-alert">{view.error}</div> : null}
+      {tabs.length > 0 ? <TabStrip tabs={tabs} selected={selected} holder={holder} onSelect={select} onClose={view.live ? close : null} /> : null}
+      <div className="cb-preview" data-controlling={holder || undefined}>
+        <CloudBrowserScreen
+          frame={frame}
+          interactive={holder}
+          onAck={view.ack}
+          send={view.send}
+          onInvalidText={() => setInvalidText(true)}
+        />
+        {!frame || line.retry || line.key === 'viewer.ended' ? <Placeholder line={line} onRetry={view.reconnect} /> : null}
+      </div>
+      {holder ? <TextBar view={view} /> : null}
       {closeAsk?.kind === 'control' ? (
         <Confirm
           title={t('viewer.controlRequiredTitle')}
@@ -504,69 +476,6 @@ function CloudBrowserWindow({
           onClose={() => setCloseAsk(null)}
         />
       ) : null}
-      {dialogs}
-    </Sheet>
-  )
-}
-
-function IconTile({ line }: { line: CloudBrowserLine }) {
-  const tone =
-    line.key === 'needs'
-      ? 'needs'
-      : line.key === 'viewer.taskCompleted'
-        ? 'done'
-        : line.key === 'viewer.watching' || line.key === 'viewer.openingSite' || line.key === 'viewer.controlling'
-          ? 'live'
-          : undefined
-  return (
-    <span className="cb-tile" data-tone={tone}>
-      <Globe size={14} />
-    </span>
-  )
-}
-
-/** 输入框上方那一块。`deviceId` = agent 所在的那台咕咕 server(不是 = null,什么都不出)。 */
-export function CloudBrowserCard({ deviceId, agentName, agentUserId }: { deviceId: string | null; agentName: string; agentUserId: string | null }) {
-  return (
-    <AgentNameContext.Provider value={agentName.trim()}>
-      <CloudBrowserCardInner deviceId={deviceId} agentUserId={agentUserId} />
-    </AgentNameContext.Provider>
-  )
-}
-
-function CloudBrowserCardInner({ deviceId, agentUserId }: { deviceId: string | null; agentUserId: string | null }) {
-  const t = useCloudBrowserT()
-  const [size, setSize] = useState<Exclude<CloudBrowserSize, 'large'>>(readSize)
-  const [large, setLarge] = useState(false)
-  const [viewTab, setViewTab] = useState<string | null>(null)
-  const pageVisible = usePageVisible()
-  const [cardRef, onScreen] = useOnScreen<HTMLDivElement>()
-  const agentSessionRow = useAgentSessionRow(agentUserId)
-  const view = useCloudBrowser(deviceId, { framesEnabled: pageVisible && (large || onScreen), large, tabId: viewTab }, agentSessionRow?.session.conversationId ?? null)
-  const everOpened = useRef(false)
-  if (view.linkState === 'open') everOpened.current = true
-  const openLarge = useCallback(() => setLarge(true), [])
-  const controls = useControls(view, everOpened.current, openLarge)
-  const closeLarge = useCallback(() => {
-    // 关大窗还拿着控制权 = 交还。
-    if (view.state?.control === 'granted' || view.state?.control === 'pending') controls.release()
-    setLarge(false)
-  }, [view.state?.control, controls])
-
-  if (!view.shown) return null
-  const tabs = view.state?.tabs ?? view.status?.tabs ?? []
-  const activeId = viewTab ?? view.state?.activeTabId ?? view.status?.activeTabId ?? null
-  const active = tabs.find((tab) => tab.tabId === activeId) ?? tabs[0]
-  const frame = view.frame
-  const pick = (next: CloudBrowserSize) => {
-    if (next === 'large') return setLarge(true)
-    setSize(next)
-    writeSize(next)
-  }
-  const loginAsk = view.assistance?.kind === 'login' ? view.assistance : null
-  const dialogs = (
-    <>
-      {view.error ? <p role="alert">{view.error}</p> : null}
       {controls.vaultOpen && loginAsk ? (
         <CloudBrowserVault key={loginAsk.requestId} assistance={loginAsk} onSubmit={controls.submitVault} onClose={() => controls.setVaultOpen(false)} />
       ) : null}
@@ -580,55 +489,6 @@ function CloudBrowserCardInner({ deviceId, agentUserId }: { deviceId: string | n
           onClose={() => controls.setStopAsked(false)}
         />
       ) : null}
-    </>
-  )
-  const row = (key: CloudBrowserSize, label: string): ReactNode => (
-    <DropdownMenu.RadioItem key={key} value={key} className={menuRowClassName} onClick={() => pick(key)}>
-      {label}
-    </DropdownMenu.RadioItem>
-  )
-
-  return (
-    <div ref={cardRef} data-cloud-browser-card="" className="cb-card" data-size={size}>
-      <div className="cb-row">
-        <IconTile line={controls.line} />
-        <div className="cb-head-text">
-          <span className="cb-title">{t('viewer.titleOf')}</span>
-          <StatusLine line={controls.line} />
-        </div>
-        <DropdownMenu.Root>
-          <DropdownMenu.Trigger render={<IconButton size="sm" aria-label={t('viewer.options')}><MoreHorizontal size={14} /></IconButton>} />
-          <DropdownMenu.Content align="end">
-            <DropdownMenu.RadioGroup value={large ? 'large' : size}>
-              {row('small', t('viewer.small'))}
-              {row('medium', t('viewer.medium'))}
-              {row('large', t('viewer.large'))}
-            </DropdownMenu.RadioGroup>
-          </DropdownMenu.Content>
-        </DropdownMenu.Root>
-        <IconButton size="sm" aria-label={t('viewer.expand')} onClick={() => setLarge(true)}>
-          <Maximize2 size={14} />
-        </IconButton>
-        <IconButton size="sm" aria-label={t('viewer.close')} onClick={view.dismiss}>
-          <X size={14} />
-        </IconButton>
-      </div>
-      <div className="cb-preview">
-        <CloudBrowserScreen frame={frame} interactive={false} onAck={view.ack} send={view.send} onActivate={() => setLarge(true)} />
-        {!frame || controls.line.retry || controls.line.key === 'viewer.ended' ? <Placeholder line={controls.line} onRetry={view.reconnect} /> : null}
-      </div>
-      {active?.url && active.url !== 'about:blank' && size === 'medium' ? (
-        <span className="cb-url" title={active.url}>
-          {active.title || active.url}
-        </span>
-      ) : null}
-      {view.live ? (
-        <div className="cb-row-wrap">
-          <PrimaryAction controls={controls} inLarge={false} />
-          <StopAction controls={controls} />
-        </div>
-      ) : null}
-      {large ? <CloudBrowserWindow controls={controls} viewTab={viewTab} setViewTab={setViewTab} onClose={closeLarge} dialogs={dialogs} /> : dialogs}
     </div>
   )
 }

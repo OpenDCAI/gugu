@@ -24,6 +24,7 @@ import { log } from '@renderer/utils/logger';
 import { SESSION_HOST_PANE } from '@shared/lib/ipc/session-host-device-frames';
 import { remotePortDetectedChannel } from '@shared/remote-ports';
 import { remoteHostsStore } from '../remote-hosts-store';
+import { installCloudBrowserAutoOpen } from './cloud-browser-auto-open';
 import { createMachinePortScanner } from './machine-port-scanner';
 import { openExternalFromMachine } from './remote-open-external';
 import {
@@ -235,4 +236,20 @@ export function ensureMachineSessionWiring(): void {
     },
     { equals: comparer.structural }
   );
+
+  // #7199 server 上的 agent 开了浏览器:看着它的会话就把「浏览器」页签开出来(聊天页不再浮小窗)。
+  installCloudBrowserAutoOpen({
+    viewed: viewedMachineSession,
+    isServer: (deviceId) => remoteHostsStore.device(deviceId)?.hostKind === 'server',
+    hasTab: (session) =>
+      !!sessionView(session.projectId, session.sessionId)?.paneLayout.groups.some((group) =>
+        group.pane.resolvedTabs.some((tab) => tab.kind === 'cloud-browser')
+      ),
+    open: (session) => {
+      const view = sessionView(session.projectId, session.sessionId);
+      if (!view) return false;
+      view.paneLayout.open('cloud-browser', {}, { preview: false });
+      return true;
+    },
+  });
 }

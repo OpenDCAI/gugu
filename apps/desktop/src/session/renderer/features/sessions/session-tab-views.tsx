@@ -22,6 +22,7 @@ const loaders: Record<string, () => Promise<TabViewModule>> = {
   browser: () => import('../browser/browser-tab-view'),
   terminal: () => import('./terminals/terminal-tab-view'),
   'remote-ports': () => import('../remote-hosts/workspace/remote-ports-tab-view'),
+  'cloud-browser': () => import('../remote-hosts/workspace/cloud-browser-tab-view'),
 };
 
 export const SESSION_TAB_VIEW_KINDS = Object.keys(loaders);

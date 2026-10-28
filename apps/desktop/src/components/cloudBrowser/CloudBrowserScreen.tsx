@@ -39,15 +39,12 @@ export function CloudBrowserScreen({
   onAck,
   send,
   onInvalidText,
-  onActivate,
 }: {
   frame: CloudBrowserFrame | null
   interactive: boolean
   onAck?: (seq: number) => void
   send: (message: CloudBrowserClientMessage) => boolean
   onInvalidText?: () => void
-  /** 没接管时点画面(小窗里 = 放大)。 */
-  onActivate?: () => void
 }) {
   const { t } = useTranslation('cloudBrowser')
   const canvasRef = useRef<HTMLCanvasElement | null>(null)
@@ -128,10 +125,7 @@ export function CloudBrowserScreen({
         role="img"
         aria-label={t('viewer.screen')}
         className="cb-canvas"
-        data-mode={interactive ? 'control' : onActivate ? 'zoom' : undefined}
-        onClick={() => {
-          if (!interactive) onActivate?.()
-        }}
+        data-mode={interactive ? 'control' : undefined}
         onContextMenu={(event) => {
           if (interactive) event.preventDefault()
         }}
