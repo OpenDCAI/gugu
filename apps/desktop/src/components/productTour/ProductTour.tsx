@@ -1,90 +1,16 @@
 import { messageForUser } from '@/lib/userFacingError';
 import './catalog'
 import './product-tour.css'
-import { useEffect, useLayoutEffect, useRef, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import { saveProductTourState, useRememberProductTourState, type ProductTourState, type TourStepId } from '../../lib/productTour'
 import { rendererLogger } from '../../lib/log'
 import { Button } from '../ui/Button'
 import { Popover } from '../ui/Popover'
-import { TOUR_STEPS } from './catalog'
+import { useTourTarget } from './tourTargets'
 
 const log = rendererLogger('product-tour')
 const PAD = 8
-
-/**
- * 每一步指着的真实入口(规范 2.1)。「项目」那一步有示例项目时是要动手的一步:点开它才往下走(规范 4.2)。
- * 「项目」「对话」两格在「消息」里:页签不在屏上时先把「消息」打开,❌ 别的入口替人点。
- */
-type Target = { element: HTMLElement; action: boolean }
-function findTarget(step: TourStepId): Target | null {
-  const visible = (el: Element | null): el is HTMLElement => el instanceof HTMLElement && el.getBoundingClientRect().width > 0 && el.getBoundingClientRect().height > 0
-  if (step === 'tasks') {
-    const sample = document.querySelector('[data-tour="sample-project"]')
-    if (visible(sample)) return { element: sample, action: true }
-    const tab = document.querySelector('[data-testid="sidebar-list-page-projects"]')
-    return visible(tab) ? { element: tab, action: false } : null
-  }
-  if (step === 'chats') {
-    const tab = document.querySelector('[data-testid="sidebar-list-page-chats"]')
-    return visible(tab) ? { element: tab, action: false } : null
-  }
-  const rail = document.querySelector(`.gg-sidebar-rail [data-rail="${step}"]`)
-  return visible(rail) ? { element: rail, action: false } : null
-}
-
-/** 这一刻界面上找得到的步骤;找不到的那一步不出现,N 跟着少(规范 2.3)。「项目」「对话」在「消息」里,能打开就算有。 */
-export function availableTourSteps(): TourStepId[] {
-  const messages = document.querySelector('.gg-sidebar-rail [data-rail="chats"]')
-  return TOUR_STEPS.filter((step) => (step === 'tasks' || step === 'chats') ? !!messages || !!findTarget(step) : !!findTarget(step))
-}
-
-function openMessagesIfNeeded(step: TourStepId) {
-  if ((step === 'tasks' || step === 'chats') && !findTarget(step)) {
-    document.querySelector<HTMLElement>('.gg-sidebar-rail [data-rail="chats"]')?.click()
-  }
-}
-
-function useTarget(step: TourStepId): { target: Target | null; rect: DOMRect | null } {
-  const [target, setTarget] = useState<Target | null>(null)
-  const [rect, setRect] = useState<DOMRect | null>(null)
-  useLayoutEffect(() => {
-    openMessagesIfNeeded(step)
-    let frame = 0
-    let observed: HTMLElement | null = null
-    const resize = new ResizeObserver(() => schedule())
-    // 高亮、卡片、箭头在同一帧里按目标的新位置重算,❌ 三者错位(规范 2.3)。
-    const measure = () => {
-      frame = 0
-      const next = findTarget(step)
-      if (next?.element !== observed) {
-        if (observed) resize.unobserve(observed)
-        observed = next?.element ?? null
-        if (observed) {
-          resize.observe(observed)
-          observed.scrollIntoView({ block: 'nearest', behavior: 'smooth' })
-        }
-      }
-      setTarget((current) => current?.element === next?.element && current?.action === next?.action ? current : next)
-      const box = next?.element.getBoundingClientRect() ?? null
-      setRect((current) => current && box && current.x === box.x && current.y === box.y && current.width === box.width && current.height === box.height ? current : box)
-    }
-    const schedule = () => { if (!frame) frame = requestAnimationFrame(measure) }
-    const mutations = new MutationObserver(schedule)
-    mutations.observe(document.body, { childList: true, subtree: true, attributes: true, attributeFilter: ['class', 'style', 'hidden'] })
-    window.addEventListener('resize', schedule)
-    document.addEventListener('scroll', schedule, true)
-    measure()
-    return () => {
-      if (frame) cancelAnimationFrame(frame)
-      resize.disconnect()
-      mutations.disconnect()
-      window.removeEventListener('resize', schedule)
-      document.removeEventListener('scroll', schedule, true)
-    }
-  }, [step])
-  return { target, rect }
-}
 
 /** 半透明遮罩挖空目标。四块遮罩接住点击(点了没反应,规范 2.2);挖空处不拦,目标照常能点。 */
 function Spotlight({ rect }: { rect: DOMRect }) {
@@ -123,7 +49,7 @@ export function ProductTour({ userId, steps, start, onDone }: {
   const saveTail = useRef(Promise.resolve())
   const card = useRef<HTMLDivElement>(null)
   const step = steps[index]
-  const { target, rect } = useTarget(step)
+  const { target, rect } = useTourTarget(step)
   const last = index === steps.length - 1
 
   // 进度先在界面上走,再串行存到账号:存是为了换设备接着看,❌ 锁住下一步。
@@ -160,6 +86,8 @@ export function ProductTour({ userId, steps, start, onDone }: {
   // 键盘(规范 2.2):Enter / → 下一步,← 上一步,Esc 跳过;Tab 只在卡片里转。
   useEffect(() => {
     const onKey = (event: KeyboardEvent) => {
+      // 高亮的设置入口照常可用。设置盖在非模态导览上方时,键盘由设置自己处理,导览停在原步骤。
+      if (event.target instanceof Element && event.target.closest('[data-settings-modal-card]')) return
       if (event.key === 'Escape') { event.preventDefault(); event.stopPropagation(); exit('skipped'); return }
       if (event.key === 'ArrowLeft') { event.preventDefault(); previous(); return }
       if ((event.key === 'ArrowRight' || event.key === 'Enter') && !target?.action) {

@@ -15,6 +15,8 @@ vi.mock('../../../../apps/desktop/src/components/ui/Popover', () => ({
     Popup: ({ children, ...props }: { children: unknown; 'data-testid'?: string; role?: string }) => createNode('section', { 'data-testid': props['data-testid'], role: props.role }, children as never) },
 }))
 const { ProductTour } = await import('../../../../apps/desktop/src/components/productTour/ProductTour')
+const { availableTourSteps } = await import('../../../../apps/desktop/src/components/productTour/tourTargets')
+const { publishPanelToggle } = await import('../../../../apps/desktop/src/lib/panelToggles')
 const { i18n } = await import('../../../../apps/desktop/src/i18n/runtime')
 
 const box = (x: number, y: number, width: number, height: number) => () => ({ width, height, x, y, top: y, left: x, right: x + width, bottom: y + height, toJSON() {} }) as DOMRect
@@ -55,6 +57,14 @@ async function mount(start: (typeof STEPS)[number] = 'assistant', steps: readonl
 const key = (k: string) => act(async () => { document.dispatchEvent(new KeyboardEvent('keydown', { key: k, bubbles: true })) })
 
 describe('feature-bar coach marks (onboarding spec §2)', () => {
+  it('expands the existing list controller before starting a tour from a collapsed sidebar', async () => {
+    const toggle = vi.fn()
+    const release = publishPanelToggle('list:sessions', { open: false, label: 'Expand sidebar', toggle })
+    try {
+      availableTourSteps()
+      expect(toggle).toHaveBeenCalledOnce()
+    } finally { release() }
+  })
   it('points an arrow at a real entry, spotlights it, and shows n / N with Skip and Next but no Back on step 1', async () => {
     const h = await mount()
     try {
@@ -104,6 +114,21 @@ describe('feature-bar coach marks (onboarding spec §2)', () => {
       expect(h.card().textContent).toContain('1 / 7')
       expect(h.done).not.toHaveBeenCalled()
     } finally { h.cleanup() }
+  })
+  it('lets the settings dialog handle keyboard input without advancing or closing the tour', async () => {
+    const settings = document.createElement('div')
+    settings.dataset.settingsModalCard = ''
+    const theme = document.createElement('button')
+    settings.append(theme)
+    document.body.append(settings)
+    const h = await mount('settings')
+    try {
+      for (const k of ['ArrowRight', 'Enter', 'Escape']) {
+        await act(async () => { theme.dispatchEvent(new KeyboardEvent('keydown', { key: k, bubbles: true })) })
+      }
+      expect(h.done).not.toHaveBeenCalled()
+      expect(h.card().textContent).toContain('7 / 7')
+    } finally { h.cleanup(); settings.remove() }
   })
   it('makes the projects step a do-it step when the sample project is there: no Next, opening it moves on', async () => {
     const sample = document.createElement('div')
