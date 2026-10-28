@@ -14,6 +14,7 @@ vi.mock('../../../../apps/desktop/src/lib/agentProvision', () => provision)
 vi.mock('../../../../apps/desktop/src/lib/supabase', () => ({ getCurrentAuthUserId: vi.fn(async () => 'owner') }))
 const ipc = vi.hoisted(() => ({ invoke: vi.fn(async () => ({ workdir: '/home/assistant', home: '/home' })) }))
 vi.mock('../../../../apps/desktop/src/platform/desktopIpc', () => ({ desktopIpc: () => ipc }))
+vi.mock('../../../../apps/desktop/src/lib/assistantSetupPreparation', () => ({ prepareLocalAssistantSetup: async () => ({ workdir: '/home/assistant', home: '/home' }) }))
 vi.mock('../../../../apps/desktop/src/lib/cloudComputerStore', () => ({ provisionCloudComputer: vi.fn() }))
 vi.mock('../../../../apps/desktop/src/lib/contacts', async () => {
   const { buildLookUrl, lookObjectPath } = await import('../../../../apps/desktop/src/components/agentAvatar/look')

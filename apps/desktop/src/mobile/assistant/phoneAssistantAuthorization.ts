@@ -3,6 +3,7 @@ import '@/i18n/registerAssistantCatalog'
 import type { AssistantHomePlace } from '@/lib/assistantHome'
 import { wakeCloudComputer } from '@/lib/cloudComputerStore'
 import { waitForAssistantControl } from '@/lib/assistantControlReady'
+import { isAssistantActionRefusal } from '@/lib/assistantActionRefusal'
 import { getRendererSession } from '@/lib/sessionPublication'
 import { machineRpc } from '../agent-watch/sessionpage-rpc'
 
@@ -22,6 +23,7 @@ export function phoneAssistantAuthorization(deviceId: string, home: AssistantHom
       try { await waitForAssistantControl(() => native.integrations.checkConfiguredConnections(), assertOwner) }
       catch (cause) {
         assertOwner()
+        if (isAssistantActionRefusal(cause)) throw cause
         throw new Error(i18n.t('assistant:machine.authorizationUnavailable'), { cause })
       }
     })().catch(error => { preparing = null; throw error })
