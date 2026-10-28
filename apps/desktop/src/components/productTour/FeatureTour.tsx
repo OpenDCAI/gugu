@@ -12,9 +12,12 @@ import splitPoster from '../../assets/product-tour/feature-1.webp'
 import contactsPoster from '../../assets/product-tour/feature-3.webp'
 import reportPoster from '../../assets/product-tour/feature-4.webp'
 
-const films = [split, contacts, report]
-const posters = [splitPoster, contactsPoster, reportPoster]
-const chapterStarts = [[0, 1.45, 4.3, 5.6, 8.2, 12.5], [0, 2.3, 4.5, 7.2, 11.8], [0, 4.2, 7.5, 14, 17]]
+// Keep each film's media together: removing a chapter must not shift another film's captions.
+const films = [
+  { src: split, poster: splitPoster, captions: new URL('../../assets/product-tour/feature-1.vtt', import.meta.url).href, chapterStarts: [0, 1.45, 4.3, 5.6, 8.2, 12.5] },
+  { src: contacts, poster: contactsPoster, captions: new URL('../../assets/product-tour/feature-3.vtt', import.meta.url).href, chapterStarts: [0, 2.3, 4.5, 7.2, 11.8] },
+  { src: report, poster: reportPoster, captions: new URL('../../assets/product-tour/feature-4.vtt', import.meta.url).href, chapterStarts: [0, 4.2, 7.5, 14, 17] },
+]
 
 export function FeatureTour({ index, children, onSelect, onClose }: { index: number; children: ReactNode; onSelect: (index: number) => void; onClose: () => void }) {
   const { t } = useTranslation('productTour')
@@ -48,6 +51,7 @@ export function FeatureTour({ index, children, onSelect, onClose }: { index: num
 
 function FeatureFilm({ index }: { index: number }) {
   const { t } = useTranslation('productTour')
+  const film = films[index]
   const video = useRef<HTMLVideoElement>(null)
   const [time, setTime] = useState(0)
   const [duration, setDuration] = useState(0)
@@ -64,7 +68,7 @@ function FeatureFilm({ index }: { index: number }) {
     frame = requestAnimationFrame(updateProgress)
     return () => cancelAnimationFrame(frame)
   }, [playing])
-  const chapter = Math.max(0, chapterStarts[index].findLastIndex((start) => time >= start))
+  const chapter = Math.max(0, film.chapterStarts.findLastIndex((start) => time >= start))
   const replay = () => {
     const player = video.current
     if (!player) return
@@ -80,12 +84,12 @@ function FeatureFilm({ index }: { index: number }) {
     else { player.pause(); setPlaying(false) }
   }
   return <section aria-label={t(`feature.${TOUR_FILMS[index]}.title`)}>
-    <video className="product-tour-film" ref={video} src={films[index]} poster={posters[index]} muted playsInline autoPlay={autoplay}
+    <video className="product-tour-film" ref={video} src={film.src} poster={film.poster} muted playsInline autoPlay={autoplay}
       preload="metadata" aria-describedby="product-tour-film-caption" onError={(event) => { const error = event.currentTarget.error; rendererLogger('product-tour/film').error({ error }, 'film load failed'); setFailed(messageForUser(error)); setPlaying(false) }}
       onLoadedMetadata={(event) => setDuration(event.currentTarget.duration)}
       onPlay={() => setPlaying(true)} onPause={() => setPlaying(false)} onEnded={() => setPlaying(false)}
       onTimeUpdate={(event) => setTime(event.currentTarget.currentTime)}>
-      <track kind="captions" srcLang="zh-CN" label="简体中文" src={new URL(`../../assets/product-tour/feature-${index + 1}.vtt`, import.meta.url).href} />
+      <track kind="captions" srcLang="zh-CN" label="简体中文" src={film.captions} />
     </video>
     <div className="product-tour-film-controls">
       <Button variant="ghost" onClick={togglePlay}>{playing ? t('pause') : t('play')}</Button>
