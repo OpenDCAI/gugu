@@ -15,6 +15,15 @@ export function isRoomChat(kind: ChatKind): boolean {
   return kind === 'group' || kind === 'topic'
 }
 
+/**
+ * 未读里算到你头上的条数(owner 10-28):话题只算叫到你的 —— 点名你、@all、回复你说的;其余会话算全部未读。
+ * agent 开的话题会把主人拉成成员,agent 之间的往来照旧是话题自己的未读(话题页签上的数),但不进项目行、不弹通知。
+ * 没有未读就没有 locator,那时就是 0。
+ */
+export function unreadForYou(chat: Pick<ChatItem, 'kind' | 'unread_count' | 'unread_locator'>): number {
+  return chat.kind === 'topic' ? (chat.unread_locator?.addressed_count ?? 0) : chat.unread_count
+}
+
 export function fallbackChatName(kind: ChatKind): string {
   if (kind === 'dm') return '聊天'
   if (kind === 'topic') return '话题'

@@ -34,6 +34,8 @@ export type ChatUnreadLocator = {
   message_id: string | null
   message_seq: number | null
   unread_count: number
+  /** 未读里叫到你的条数:点名你、@all,或回复你说的那条(服务端 list_unread_locators.addressed_count)。手动标未读算 1。 */
+  addressed_count: number
   cursor_seq: number
   version: number
   is_marked_unread: boolean
