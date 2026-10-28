@@ -9,7 +9,7 @@ import type { DeviceCapabilities } from '../shared/types/chat'
  * 照 VS Code / Zed 的「客户端与 server 版本对不上就明说」(Zed 发了旧客户端不认的消息直接断线:zed#42474),
  * 只是不要求逐版本相等 —— server 自动升级、桌面自动升级,两边总有先后。
  */
-export const REMOTE_PROTOCOL_VERSION = 12
+export const REMOTE_PROTOCOL_VERSION = 13
 /**
  * server 报给桌面:桌面的协议版本低于它 = 这台电脑上的咕咕太旧。
  *
@@ -61,9 +61,10 @@ export const REMOTE_PROTOCOL_VERSION = 12
  * would keep rereading full pages from a new host. Reject both version mismatches through the existing
  * client_outdated / server_outdated path, on cloud and SSH alike, rather than retaining the old transfer.
  */
-export const MIN_CLIENT_PROTOCOL = 12
+/** 13: Ask settlements use origin instead of host; all clients and hosts update together. */
+export const MIN_CLIENT_PROTOCOL = 13
 /** 桌面 / 手机自己的要求:那台机器报的协议版本低于它 = 那台机器上的咕咕太旧。 */
-export const MIN_SERVER_PROTOCOL = 12
+export const MIN_SERVER_PROTOCOL = 13
 
 /**
  * 那台 server 说的协议版本够不够这台桌面用 —— 设备行 / 会话末尾(心跳报的 remote_protocol)与 SSH 装机时

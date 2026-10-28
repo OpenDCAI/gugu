@@ -41,7 +41,7 @@ ExtensionsSettingsCard       会话级网络白名单 + CSP + attach 闸
 ## 装到用的一条链
 
 1. `extensions.inspect` 读 manifest 并算**原始字节的 sha256**
-2. UI 用那份 manifest 组人话权限清单 → 用户确认
+2. UI 用那份 manifest 组人话权限清单 → 用户确认;有 agent 在等人的安装走统一的 Ask,入口、来源和撤回规则见 `apps/desktop/electron/session/main/core/asks/index.ts`。
 3. `extensions.install` 带着同意时的指纹落盘;**改名前在暂存副本上重算一次**,对不上就拒
 4. `configureExtensionSession` 起 partition/白名单/协议;`registerInstalledExtensionTabs` 注册 tab 类型
 5. 卸载 = 撤 provider + 删 bundle + 清撤销记录;**已开的 tab 原地降级为占位,不丢**

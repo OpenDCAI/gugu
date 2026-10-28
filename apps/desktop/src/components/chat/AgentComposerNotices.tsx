@@ -32,7 +32,7 @@ export function AgentComposerNotices({
   const refused = cloudComputer?.wakeRefused && agent?.device_id === cloudComputer.wakeRefused.deviceId ? cloudComputer.wakeRefused : null
   return (
     <>
-      {!disabledReason ? <CloudBrowserCard deviceId={serverDevice} agentName={agentName || name} /> : null}
+      {!disabledReason ? <CloudBrowserCard agentUserId={agentUserId} deviceId={serverDevice} agentName={agentName || name} /> : null}
       {disabledReason ? <ComposerNotice><span>{disabledReason}</span></ComposerNotice> : null}
       {!disabledReason && refused ? (
         <ComposerNotice>

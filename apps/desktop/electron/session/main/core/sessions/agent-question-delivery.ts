@@ -1,9 +1,9 @@
 import { questionAnswerError, type PendingRequest, type Settlement } from '@gugu/session-core/session-record';
 import { parseConversationLink } from '@gugu/core/shared/ui/guguLink';
 import { log } from '@main/lib/logger';
-import type { HostAnswer } from '../session-timeline/service';
+import type { AskAnswer } from '../asks';
 
-type Question = PendingRequest & { host: NonNullable<PendingRequest['host']> };
+type Question = PendingRequest & { origin: NonNullable<PendingRequest['origin']> };
 const uuid = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
 /** The archive owns the question and stable outbox id, rather than a process-local callback. */
@@ -11,10 +11,10 @@ export function questionDeliveryPayload(sourceLink: string | undefined, answerMe
   return { sourceLink: sourceLink ?? null, answerMessageId, deliveryVersion: 1 };
 }
 
-export function restoredAgentQuestion(settlement: Settlement): { request: Question; answerMessageId: string; answer?: HostAnswer } | null {
-  if (settlement.host?.kind !== 'agent-question' || settlement.kind !== 'question' || !settlement.questions?.length
+export function restoredAgentQuestion(settlement: Settlement): { request: Question; answerMessageId: string; answer?: AskAnswer } | null {
+  if (settlement.origin?.source !== 'agent-question' || settlement.kind !== 'question' || !settlement.questions?.length
     || !settlement.title || !['pending', 'resolved'].includes(settlement.state)) return null;
-  const payload = settlement.host.payload;
+  const payload = settlement.origin.payload;
   if (!payload || typeof payload !== 'object' || Array.isArray(payload)) return null;
   const data = payload as Record<string, unknown>;
   if (data.sourceLink != null && (typeof data.sourceLink !== 'string' || !parseConversationLink(data.sourceLink)?.messageId)) return null;
@@ -27,7 +27,7 @@ export function restoredAgentQuestion(settlement: Settlement): { request: Questi
   const request: Question = { itemId: settlement.itemId, kind: 'question', title: settlement.title,
     questions: settlement.questions, options: settlement.options ?? settlement.questions[0].options,
     ...(settlement.askedAt !== undefined ? { askedAt: settlement.askedAt } : {}),
-    host: { kind: 'agent-question', payload: questionDeliveryPayload(typeof data.sourceLink === 'string' ? data.sourceLink : undefined, answerMessageId) } };
+    origin: { source: 'agent-question', payload: questionDeliveryPayload(typeof data.sourceLink === 'string' ? data.sourceLink : undefined, answerMessageId) } };
   if (settlement.state === 'pending') return { request, answerMessageId };
   if (!settlement.optionId) return null;
   try {
@@ -38,11 +38,11 @@ export function restoredAgentQuestion(settlement: Settlement): { request: Questi
 }
 
 export function deliverAgentQuestionAnswer(sessionId: string, projectId: string, request: Question, answerMessageId: string,
-  result: Promise<HostAnswer | 'withdrawn' | 'unavailable'>): void {
+  result: Promise<import('../asks').AskResult>): void {
   void result.then(async (answer) => {
     if (typeof answer === 'string') return;
     const submitted = Boolean(answer.answers);
-    const sourceLink = (request.host.payload as { sourceLink?: string }).sourceLink;
+    const sourceLink = (request.origin.payload as { sourceLink?: string }).sourceLink;
     const source = sourceLink ? parseConversationLink(sourceLink) : null;
     const resultText = JSON.stringify({ question_id: request.itemId, state: submitted ? 'answered' : 'withdrawn',
       questions: request.questions?.map(q => q.question), ...(submitted ? { answers: answer.answers } : {}),
