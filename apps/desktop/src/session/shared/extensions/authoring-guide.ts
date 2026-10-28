@@ -514,8 +514,8 @@ mark existing state when opening it with \`files.open(ref, { appData: true })\`.
 The host stamps installed {publisher,id} into \`entry.metadata.app\`, preserving other keys.
 Write access required; no folders/working copies. Markers follow rename/move. Leave user/Office documents
 unmarked. No filename rules. Only the folder view hides marked files; APIs, agents and links retain access.
-\`gugu.files.viewPreferences({ chat }, { showAppData: true })\` sets the signed-in person's source-chat
-preference; omit options to read it.
+\`gugu.files.viewPreferences({ chat }, { showAppData: true })\` sets the person's source-chat preference;
+no options: read it.
 
 ## Which files you may open
 
@@ -548,15 +548,16 @@ Each call names its file or place. A file: an entry (from \`list\`) or \`ctx.fil
 - \`gugu.files.openWith(entry)\` (a click or key) uses the most specific claim or "always use". \`{ ask: true }\`: they pick among all;
   \`{ at }\`: a place, the opener's \`link\`. No App claims it: gugu's file preview, or details and download.
   \`{ peek: true }\`: beside your page; always for project files. \`not-found\`: gone or unreadable.
-- \`gugu.files.upload(place)\` (\`files:write\`) opens the file picker (a click or key) → the new entries (\`[]\`);
-  given a File, uploads it. Over 25 MB: \`too-large\`. \`gugu.files.download(entry)\` asks where to save (a click or
-  key) → \`true\` saved.
+- \`gugu.files.upload(place)\` (\`files:write\`, a click or key) opens the picker → the new entries (\`[]\`);
+  given a File, uploads it. Over 25 MB: \`too-large\`. \`gugu.files.download(entry)\` (a click or key) asks where
+  to save → \`true\` saved.
 - An image, a clip, a sound opens read-only: \`URL.createObjectURL(await f.blob())\`; \`files.replace(entry,
   blob, { expectedVersion: entry.version })\` makes its next version (needed; else \`content-changed\`).
   \`files.versions(entry)\` / \`files.readVersion(entry, n)\`: its history.
 - Entry: \`{id,chat|session|project,name,contentType,type,parentId,path,systemRole,size,version,
   createdAt,updatedAt,createdBy,updatedBy,sourceMessageIds,canDelete,metadata}\`.
   Both authors: \`{id,name,kind:human|agent|system}\`; unknown/local editor is null.
+- API 19: \`keep: {expiresAt,mine}|null\`, the cloud copy (list); \`gugu.files.keep(entry, 'temporary'|'permanent')\`.
 
 ## A text file (markdown)
 
@@ -587,15 +588,13 @@ Key per-person data by \`f.presence.self.userId\` (\`user:<uuid>\`, server-stamp
 name) — ❌ never ask the person who they are. ❌ No locks or "being edited by" fields of your own (they lock
 people out and still lose letters): show who edits what with presence.
 
-
-
-Text others wrote goes in with \`textContent\` or the template's \`render\` with html\`…\` (it escapes every \${…}),
-never joined into \`innerHTML\` — markup in a title could draw a fake button. On a change, redraw with \`render\`: it
-patches by \`data-key\`; an input showing the file's value goes in it, and the one someone is in stays as it is (focus,
-half-typed text, IME). A draft not yet submitted, and \`gugu.bind.text\` boxes, go outside it (\`#controls\`, drawn
-once) — \`render\` gives an unfocused input its markup's value again. ❌ \`innerHTML\` or \`replaceChildren\` on a
-change: the input goes, and its half value lands in the file as a change. To point at
-another file, store its entry's \`id\` and open it on click with \`gugu.files.openWith(entry)\`; a name alone is text nobody can open.
+Others' text goes in with \`textContent\` or \`render\` with html\`…\` (it escapes every \${…}), never joined into
+\`innerHTML\` — markup in a title could draw a fake button. On a change, redraw with \`render\`: it patches by
+\`data-key\`; an input showing the file's value goes in it, and the one someone is in stays (focus, half-typed text,
+IME). Drafts not yet submitted and \`gugu.bind.text\` boxes go outside it (\`#controls\`, drawn once): \`render\`
+resets an unfocused input to its markup's value. ❌ \`innerHTML\` or \`replaceChildren\` on a change: the input goes,
+its half value lands in the file. To point at another file, store its entry's \`id\` and open it with
+\`gugu.files.openWith(entry)\`; a name alone is text nobody can open.
 
 ## When things go wrong
 
