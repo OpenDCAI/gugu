@@ -134,8 +134,31 @@
   align-items: center;
   padding: var(--spacing-sm) var(--spacing-lg);
   border-radius: calc(var(--control-h-touch) / 2);
-  background: var(--ta-composer-bg);
+  background: var(--card);
   box-shadow: var(--ta-composer-shadow);
+}
+/* 输入的字跟着咕咕的前景色走:编辑器自己的字色取会话页那套 --em-foreground,手机聊天页不在会话页皮肤里,
+   取到哪一套要看外面挂了什么 —— 实底换上以后,深色里一旦取到浅色那套,深字压深底就看不见了。 */
+[data-phone-shell] [data-slot='composer'][data-mobile] [data-slot='composer-input'] [contenteditable] { color: var(--text-primary); }
+
+/* 手机输入那一行要有实底(owner 10-28「输入框完全透明，后面滚过的消息和字叠在一起」):
+   输入框本身用实色卡面;它所在那一行(底部那一摞的最后一格,不含上面的运行条)垫一条九成不透明的磨砂底,
+   横向铺满屏宽、往下盖到安全区。电脑上那一摞照旧透明(owner 10-25),只在手机壳里垫。
+   最后一条消息不被挡:消息流末尾按 --chat-dock-h 让位(ChatBottomDock),这条底在那一摞里面,不另占高。 */
+[data-phone-shell] [data-chat-bottom-dock] > :last-child { position: relative; }
+[data-phone-shell] [data-chat-bottom-dock] > :last-child::before {
+  content: '';
+  position: absolute;
+  z-index: -1;
+  top: 0;
+  bottom: 0;
+  left: 50%;
+  width: 100vw;
+  transform: translateX(-50%);
+  background: color-mix(in srgb, var(--bg) 90%, transparent);
+  -webkit-backdrop-filter: blur(var(--ta-glass-blur));
+  backdrop-filter: blur(var(--ta-glass-blur));
+  pointer-events: none;
 }
 
 /* ── 间距:只用 4/8/16/24(列表行本身的 8 / 16 在 tokens.css 的 .gg-list-row[data-mobile]) ── */
