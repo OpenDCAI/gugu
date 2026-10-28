@@ -6,12 +6,14 @@ import './browserUse.css'
 import { useMobileShell } from '@/hooks/useMobileShell'
 import { Globe, KeyRound } from '@/lib/icons'
 import { followLink } from '@/lib/guguLinks'
+import { rendererLogger } from '@/lib/log'
 import { notify } from '@/lib/notices'
-import { messageForUser } from '@/lib/userFacingError'
 import type { Settlement } from '@gugu/session-core/session-record/contract'
 import type { CloudBrowserAssistance } from '@/session/shared/cloud-browser'
 import { Button } from '../ui/Button'
-import { BROWSER_USE_APP_ID, browserUseTab, isBrowserAssistance, openBrowserUseTab } from './browserUsePlace'
+import { BROWSER_USE_APP_ID, browserUseTab, isBrowserAssistance } from './browserUseApp'
+
+const log = rendererLogger('browser-use/ask')
 
 /**
  * 任务卡 / 审批条上「agent 请你登录 / 接手」那一问的主入口:打开这个任务的 Browser Use 页签(那里有画面、接管和
@@ -42,8 +44,13 @@ export const BrowserAssistanceAction = observer(function BrowserAssistanceAction
   }
   const open = () => {
     setOpening(true)
-    void openBrowserUseTab(sessionId)
-      .catch((error: unknown) => notify({ tier: 'error', title: t('ask.openFailed', { reason: messageForUser(error) }) }))
+    // 开页签要会话页的仓库:点了才载入(任务卡也画在聊天页,❌ 为一个按钮把那些仓库都拖进来)。
+    void import('./browserUsePlace')
+      .then(({ openBrowserUseTab }) => openBrowserUseTab(sessionId))
+      .catch((error: unknown) => {
+        log.warn({ sessionId, error: error instanceof Error ? error.message : String(error) }, 'opening the Browser Use tab failed')
+        notify({ tier: 'error', title: t('ask.openFailed') })
+      })
       .finally(() => setOpening(false))
   }
   return (

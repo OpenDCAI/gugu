@@ -4,9 +4,8 @@ import { getProjectManagerStore } from '@/session/renderer/features/projects/sto
 import { workspaceBackend } from '@/session/renderer/features/sessions/workspace-backend/workspace-backend'
 import type { WorkspaceViewModel } from '@/session/renderer/features/sessions/stores/workspace-view-model'
 import { remoteHostsStore } from '@/session/renderer/features/remote-hosts/remote-hosts-store'
-import { installedExtensionsStore, type ExtensionTabContributionEntry } from '@/session/renderer/features/extensions/installed-extensions-store'
 import { machineRegistry } from '@/session/renderer/lib/machine-routing'
-import type { Settlement } from '@gugu/session-core/session-record/contract'
+import { browserUseTab } from './browserUseApp'
 
 /**
  * Browser Use 的「浏览器」页签画的是哪台机器上的浏览器 —— 按页签所属的那个任务在哪台机器上跑:
@@ -60,22 +59,6 @@ export function openTaskBrowser(sessionId: string): boolean {
   return true
 }
 
-/** Browser Use 本身的 App id(它的清单在另一个仓库)。 */
-export const BROWSER_USE_APP_ID = 'browser-use'
-
-/**
- * 装着的 App 里那张宿主浏览器页(manifest `hostPage: 'browser'`),优先 Browser Use 本身(`browser-use`)。
- * `state`:ready = 开得出;disabled = 装着但停用了;missing = 没装。
- */
-export function browserUseTab(): { state: 'ready' | 'disabled' | 'missing'; tab: ExtensionTabContributionEntry | null } {
-  const pages = installedExtensionsStore.allTabContributions
-    .filter((entry) => entry.hostBrowser)
-    .sort((a, b) => Number(b.extensionId === BROWSER_USE_APP_ID) - Number(a.extensionId === BROWSER_USE_APP_ID))
-  const on = pages.find((entry) => entry.enabled)
-  if (on) return { state: 'ready', tab: on }
-  return pages.length > 0 ? { state: 'disabled', tab: pages[0] ?? null } : { state: 'missing', tab: null }
-}
-
 const SESSION_VIEW_TIMEOUT_MS = 10_000
 
 /**
@@ -96,7 +79,3 @@ export async function openBrowserUseTab(sessionId: string): Promise<void> {
   runInAction(() => view.paneLayout.open(tab.kind, {}, { preview: false, beside: true }))
 }
 
-/** 这一问是不是 agent 在等人替它用浏览器(登录 / 接手一步,`browser-assistance`)。 */
-export function isBrowserAssistance(settlement: Pick<Settlement, 'origin'> | null | undefined): boolean {
-  return settlement?.origin?.source === 'browser-assistance'
-}

@@ -86,6 +86,6 @@ export default {
     "disabled": "The Browser Use App is switched off. Switch it on to watch this browser and log in for it here.",
     "goToApps": "Go to Apps",
     "noLongerWaiting": "No longer waiting: this ask is over.",
-    "openFailed": "Couldn't open Browser Use: {{reason}}"
+    "openFailed": "Couldn't open this task's Browser Use tab. Open it from the task's \"+\" menu."
   }
 }

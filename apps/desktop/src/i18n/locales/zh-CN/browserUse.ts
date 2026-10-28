@@ -86,6 +86,6 @@ export default {
     "disabled": "Browser Use App 已停用：启用后才能在这里看这个浏览器、替它登录。",
     "goToApps": "前往 App",
     "noLongerWaiting": "已经不等了：这一问已经结束。",
-    "openFailed": "没能打开 Browser Use：{{reason}}"
+    "openFailed": "没能打开这个任务的 Browser Use 页签：到任务里从「+」打开它。"
   }
 }

@@ -2,6 +2,7 @@ import { useCallback } from 'react';
 import { useTranslation } from 'react-i18next';
 import { PermissionBand } from '@gugu/session-ui/react/components';
 import { BrowserAssistanceAction } from '@/components/browserUse/BrowserAssistanceAction';
+import { messageForUser } from '@/lib/userFacingError';
 import { rpcOn } from '@renderer/lib/ipc';
 import { toast } from '@renderer/lib/hooks/use-toast';
 import { machineRegistry } from '@renderer/lib/machine-routing';
@@ -35,7 +36,7 @@ export function SessionHostBrowserAsk({
         })
         .catch((error: unknown) => {
           log.warn('Browser ask answer failed', { sessionId, error: error instanceof Error ? error.message : String(error) });
-          toast({ title: error instanceof Error ? error.message : String(error), variant: 'destructive' });
+          toast({ title: messageForUser(error), variant: 'destructive' });
         });
     },
     [sessionId, itemId, t]
