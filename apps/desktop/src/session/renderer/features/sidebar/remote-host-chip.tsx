@@ -92,39 +92,34 @@ export const RemoteHostBadge = observer(function RemoteHostBadge({ deviceId, pro
   const state = remoteHostsStore.connectionState(deviceId);
   if (!device || !state) return null;
   const status = withProject(hostStatusLabel(state, device.label, device.lastSeenAt, now, translate, device.signInExpiredAt), project, translate);
-  return (
-    <Tooltip>
-      <TooltipTrigger
-        render={
-          <span
-            data-remote-host-badge={deviceId}
-            data-connection-state={state}
-            aria-label={status}
-            className="text-foreground-tertiary-passive flex shrink-0 items-center"
-          >
-            <Server className={cn('size-3', state !== 'connected' && state !== 'connecting' && state !== 'reconnecting' && 'opacity-60')} />
-          </span>
-        }
-      />
-      <TooltipContent className="whitespace-nowrap">{status}</TooltipContent>
-    </Tooltip>
-  );
+  return <HostMark label={status} dimmed={state !== 'connected' && state !== 'connecting' && state !== 'reconnecting'} data-remote-host-badge={deviceId} data-connection-state={state} />;
 });
 
 /** 本机的会话挂在别的机器上的会话下面时,行首那枚「本机」标记(与 RemoteHostBadge 同一个形状)。 */
 export function LocalHostBadge({ project }: { project: string | null }) {
   const { translate } = useSessionMessages();
   const label = withProject(translate('task.deviceLocal'), project, translate);
+  return <HostMark local label={label} data-local-host-badge="" />;
+}
+
+/**
+ * The machine mark itself, wherever something says which machine it is on (a task's row, a project chat's file): an icon
+ * only, in the faintest ink — Monitor for this computer, Server for another — and everything else said on hover.
+ */
+export function HostMark({ local = false, label, dimmed = false, long = false, ...data }: {
+  local?: boolean; label: string; dimmed?: boolean; /** A sentence rather than a name: the hover wraps. */ long?: boolean;
+} & { [key: `data-${string}`]: string }) {
+  const Icon = local ? Monitor : Server;
   return (
     <Tooltip>
       <TooltipTrigger
         render={
-          <span data-local-host-badge aria-label={label} className="text-foreground-tertiary-passive flex shrink-0 items-center">
-            <Monitor className="size-3" />
+          <span {...data} aria-label={label} className="text-foreground-tertiary-passive flex shrink-0 items-center">
+            <Icon className={cn('size-3', dimmed && 'opacity-60')} />
           </span>
         }
       />
-      <TooltipContent className="whitespace-nowrap">{label}</TooltipContent>
+      <TooltipContent className={long ? 'max-w-72' : 'whitespace-nowrap'}>{label}</TooltipContent>
     </Tooltip>
   );
 }

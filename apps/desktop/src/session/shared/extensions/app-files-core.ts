@@ -371,6 +371,42 @@ async function entriesOf(token: string, rows: readonly ItemRow[], platform: Pick
   return entryDetails(token, rows.map((row) => entryOf(row, platform.claimant)), platform.identities, actor);
 }
 
+/** A chat's files as its folder lists them: entries, and which machine keeps the ones that stay on it. */
+async function listedEntriesOf(token: string, rows: readonly ItemRow[], platform: Pick<FilesPlatform, 'claimant' | 'identities'>, actor: string): Promise<AppFileEntry[]> {
+  const [entries, storedOn] = await Promise.all([entriesOf(token, rows, platform, actor), storedOnOf(token, rows, platform.identities, actor)]);
+  const local = new Set(rows.filter(onMachine).map((row) => row.id));
+  return entries.map((entry) => (local.has(entry.id) && storedOn.has(entry.chat!) ? { ...entry, storedOn: storedOn.get(entry.chat!)! } : entry));
+}
+
+const onMachine = (row: ItemRow) => row.kind === 'file' && !row.pointer;
+
+/**
+ * The machine a project chat keeps its files on, for its files that have no cloud copy (no blob pointer): one policy read
+ * per chat. The machine's name is read only when it is the reader's own (a device row only its owner reads).
+ */
+async function storedOnOf(token: string, rows: readonly ItemRow[], identities: Identities, actor: string): Promise<Map<string, NonNullable<AppFileEntry['storedOn']>>> {
+  const chats = [...new Set(rows.filter(onMachine).map((row) => row.chat_id))];
+  const found = new Map<string, NonNullable<AppFileEntry['storedOn']>>();
+  await Promise.all(chats.map(async (chatId) => {
+    const { data, error } = await chatClient(token).rpc('file_project_policy_for', { p_chat: chatId, p_as: actor });
+    if (error) throw new AppFileError(codeOf(error), error.message);
+    const policy = data as { host_device_id?: unknown; host_account_id?: unknown } | null;
+    // Not a project chat; or a server from before the account-wide policy, which names no owner: no mark.
+    if (typeof policy?.host_account_id !== 'string' || typeof policy.host_device_id !== 'string') return;
+    const mine = personId(policy.host_account_id) === personId(actor);
+    const [owner] = await identities(token, [policy.host_account_id]);
+    let machine: string | null = null;
+    if (mine) {
+      const device = await createGuguSupabaseClient({ schema: 'identity', headers: { Authorization: `Bearer ${token}` } })
+        .from('gugu_devices').select('label').eq('device_id', policy.host_device_id).maybeSingle();
+      if (device.error) throw new AppFileError('failed', device.error.message);
+      machine = (device.data as { label: string } | null)?.label ?? null;
+    }
+    found.set(chatId, { machine, owner: owner?.name ?? policy.host_account_id.slice(0, 8), mine });
+  }));
+  return found;
+}
+
 async function entryDetails(token: string, entries: readonly AppFileEntry[], identities: Identities, actor: string): Promise<AppFileEntry[]> {
   if (entries.length === 0) return [];
   const [people, deletable] = await Promise.all([
@@ -718,10 +754,10 @@ export function createAppFiles(platform: FilesPlatform) {
     const { token, userId } = await platform.account();
     const actor = as.asAgent ?? userId;
     if (as.folder !== undefined) {
-      return entriesOf(token, await agentRows(token, 'workspace_list_as', { p_chat_id: chatId, p_as_user_id: actor, p_folder: as.folder.replace(/^\/+|\/+$/g, '') }), platform, actor);
+      return listedEntriesOf(token, await agentRows(token, 'workspace_list_as', { p_chat_id: chatId, p_as_user_id: actor, p_folder: as.folder.replace(/^\/+|\/+$/g, '') }), platform, actor);
     }
     // Acting for an agent (A2): what the agent sees, by its own membership — never the person's chats (#6492).
-    return entriesOf(token, await rowsOfChat(token, chatId, actor), platform, actor);
+    return listedEntriesOf(token, await rowsOfChat(token, chatId, actor), platform, actor);
   }
 
   /**
@@ -737,7 +773,7 @@ export function createAppFiles(platform: FilesPlatform) {
     if (rows.some((row) => row.chat_id !== chatId)) chatId = await resourceChatIdOf(token, chatId, as.asAgent ?? userId);
     const here = rows.filter((row) => row.chat_id === chatId);
     const found = new Set(here.map((row) => row.id));
-    return { entries: await entriesOf(token, here, platform, as.asAgent ?? userId), gone: wanted.filter((id) => !found.has(id)) };
+    return { entries: await listedEntriesOf(token, here, platform, as.asAgent ?? userId), gone: wanted.filter((id) => !found.has(id)) };
   }
 
   /**

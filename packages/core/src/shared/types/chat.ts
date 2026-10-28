@@ -140,7 +140,8 @@ export interface MessageItem {
   edited_at?: string | null
 }
 
-export type MessageSendState = 'sending' | 'sent' | 'delivered' | 'read' | 'failed'
+/** queued = persisted, but an agent it wakes has not taken it yet (shared/ui/systemNotice.ts queuedMessageIds). */
+export type MessageSendState = 'sending' | 'queued' | 'sent' | 'delivered' | 'read' | 'failed'
 
 export interface ReactionGroup {
   emoji: string

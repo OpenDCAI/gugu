@@ -32,4 +32,10 @@ describe('MessageSendStatus', () => {
     await clickElement(discard)
     expect(discardSend).toHaveBeenCalledWith('message-1')
   })
+  it('shows a message an agent has not taken yet as the same sending ring, saying it waits for the assistant', async () => {
+    await renderWithAppProviders(harness, createNode(MessageSendStatus, { state: 'queued', messageId: 'message-1' }), { chat: { retrySend: vi.fn(), discardSend: vi.fn() } })
+    const ring = document.body.querySelector('[data-send-state="queued"]')!
+    expect(ring.getAttribute('class')).toBe('gg-ring-march')
+    expect(ring.querySelector('title')?.textContent).toBe('发送中，助理就绪后回复')
+  })
 })

@@ -1,4 +1,5 @@
 import { registerGuguActivityTools } from './mcp/gugu-activity-tool'
+import type { ProjectFileMessage, SelectedProjectFile } from './projectFilePublication'
 import { registerGuguWebSearchTool, type SessionWebSearch } from './mcp/gugu-web-search-tool'
 // ACP 引擎运行时工具 —— 从已删除的 JSON-RPC automation 层(原 rpc/methods/acpEngine.ts)抽出的
 // 纯生产函数：引擎配置加载 / provider 凭据 allowlist / 注入式社交桥。
@@ -185,6 +186,7 @@ export type GuguMcpContext = GuguMcpContextBase & (
       guguHome: string
       getAccessToken: (signal?: AbortSignal) => Promise<string>
       resolveFile?: (ref: FileRef, actorId: string) => Promise<ResolvedFile>
+      publishFile?: ProjectFilePublish
       runHostAction?: (action: unknown, signal?: AbortSignal) => Promise<unknown>
       /**
        * 有值 = 这条 grant 属于一条**运行时分叉**(侧边聊天),值是来源 agent 的显示名。
@@ -323,9 +325,14 @@ export function createDesktopGuguMcpHost(persistence?: GuguMcpHostPersistence): 
   )
 }
 
+/** chat, file on this machine, acting agent, its message → the sent message; null when the chat does not keep files here. */
+export type ProjectFilePublish = (chatId: string, file: SelectedProjectFile, actor: string, message: ProjectFileMessage) => Promise<{ message?: Record<string, unknown> } | null>
+
 export interface BuildSocialBridgeDeps {
   webSearch?: SessionWebSearch
   resolveFile?: (ref: FileRef, actor: FileActor) => Promise<ResolvedFile>
+  /** The host's project file publisher (the composer's): a file of a chat that keeps files on this machine, with its message. */
+  publishFile?: ProjectFilePublish
   getSupabaseUrl?: () => string
   getSupabaseAnonKey?: () => string
   host: DesktopGuguMcpHost
@@ -387,6 +394,10 @@ export async function buildSocialBridge(
       ...(deps.personalAssistant && deps.assistantWork ? { assistantWork: deps.assistantWork } : {}),
       getAccessToken: async (signal?: AbortSignal) => (await getBoundAuth(signal)).accessToken,
       ...(deps.resolveFile ? { resolveFile: (ref: FileRef, actorId: string) => deps.resolveFile!(ref, { accountId: expectedOwnerUserId, actorId }) } : {}),
+      ...(deps.publishFile ? { publishFile: async (...args: Parameters<ProjectFilePublish>) => {
+        await getBoundAuth()
+        return deps.publishFile!(...args)
+      } } : {}),
       ...(deps.forkOf === undefined ? {} : { forkOf: deps.forkOf }),
       ...(deps.readAssistantResources ? { readAssistantResources: async () => {
         await getBoundAuth()

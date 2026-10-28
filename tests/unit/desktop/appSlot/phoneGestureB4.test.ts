@@ -44,6 +44,9 @@ vi.mock('@gugu/core/cloud/supabase', () => ({
         ? { data: [{ id: args.p_chat_id, kind: 'group', source_chat_id: null }], error: null }
         : name === 'workspace_deletable_as'
         ? { data: args.p_item_ids, error: null }
+        // Not a project chat: no machine keeps its files.
+        : name === 'file_project_policy_for'
+        ? { data: null, error: null }
         : { data: [{ id: DECK, chat_id: CHAT, kind: 'file', filename: 'deck.pptx', version: 3, parent_id: null, system_role: null, path: 'deck.pptx' }], error: null })
     return { from: () => query, rpc }
   },

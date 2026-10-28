@@ -825,6 +825,33 @@ export default {
       "screenshotType": "仅支持图片文件"
     }
   },
+  "fileStorage": {
+    "title": "文件存储与读取",
+    "entryHint": "你名下机器上的项目群：图片、其他文件怎么存，留多久；和普通群对照。",
+    "intro": "项目群和普通群的文件，存放和读取的规则不一样。项目群按你在这里的设置；普通群见下面的说明。",
+    "projectTitle": "项目群",
+    "machines": "管你名下这些机器上的项目群：{{machines}}。别人机器上的项目群，按那台机器主人的设置。",
+    "images": "图片",
+    "imagesHint": "发送时上传到云端，到期后删掉云端那份。改了只影响之后发的图片。",
+    "files": "其他文件",
+    "filesMachine": "留在机器上，有人打开才上传",
+    "filesCloud": "全部上传到云端",
+    "filesMachineHint": "文件留在机器上，有人打开时才上传一份临时副本。",
+    "filesCloudHint": "发送时就上传到云端并永久保存，和普通群一样。",
+    "imagesCloudHint": "随其他文件一起发送时上传、永久保存，不再到期。",
+    "temporaryRetention": "临时副本保留",
+    "ordinaryTitle": "普通群",
+    "ordinary": "文件和图片都在发送时上传到云端，永久保存；很大又很久没人下载的文件会按部署的设置过期。这里没有可调的。",
+    "noMachine": "你还没有绑定项目的机器，所以这里只有普通群的规则。",
+    "loading": "读取中…",
+    "retry": "重试",
+    "retentions": {
+      "read-once": "读完即删",
+      "1d": "1 天",
+      "7d": "7 天",
+      "30d": "30 天"
+    }
+  },
   "giftCode": {
     "alreadyRedeemed": "这张码已经被兑换过了。",
     "codeExpired": "这张码已于 {{date}} 过期。",

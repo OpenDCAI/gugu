@@ -5290,6 +5290,7 @@ app.whenReady().then(async () => {
             socialBridgeDeps: {
               host: primaryGuguMcpHost,
               resolveFile: desktopFiles.resolve,
+              publishFile: (chat, file, actor, message) => desktopFiles.publish(chat, file, null, actor, undefined, message),
               // grant key 用**分叉自己**的会话 id:它必须是独立一格,否则会顶掉来源会话的 grant。
               grantKey: sessionpageSurfaceKey(info.sessionId),
               runHostAction: runAction,
@@ -5573,6 +5574,7 @@ app.whenReady().then(async () => {
           socialBridgeDeps: {
             host: primaryGuguMcpHost,
             resolveFile: desktopFiles.resolve,
+            publishFile: (chat, file, actor, message) => desktopFiles.publish(chat, file, null, actor, undefined, message),
             grantKey: sessionpageSurfaceKey(info.sessionId),
             ...(assistantRole ? { personalAssistant: true as const, assistantWork: {
               ...assistantWorkBinding(persistedSessionId, info.cwd, SERVER_MODE ? 'cloud' : 'computer', provisioned.guguAgentUserId),

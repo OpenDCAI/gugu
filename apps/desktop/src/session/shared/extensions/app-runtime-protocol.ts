@@ -336,6 +336,12 @@ export interface AppFileEntry {
   /** The App that opens it here (the most specific claim, or the one chosen to always use); `null` when none does. */
   claimedBy: AppFileClaimant | null;
   size: number | null;
+  /**
+   * A project chat's file kept on its host machine and uploaded only when someone opens it (file storage policy): the
+   * machine's name when it is the reader's own (`null` otherwise), and whose file storage setting it follows. Absent for
+   * every other file.
+   */
+  storedOn?: { machine: string | null; owner: string; mine: boolean };
   /** A chat file's version (G1: `files.replace` makes the next one); `null` for a working copy's file. */
   version: number | null;
   createdAt: string | null;
