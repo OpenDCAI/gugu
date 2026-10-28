@@ -83,6 +83,21 @@ it.each([
   expect(contrast(idle, glassOver(bar, pageBottom))).toBeGreaterThanOrEqual(4.5)
 })
 
+// owner 10-28 真机:浅色米色底上,选中「伙伴」那颗胶囊淡得看不出来。
+it.each([
+  ['dark', [0x1b / 255, 0x19 / 255, 0x16 / 255]],
+  ['light', [0xec / 255, 0xeb / 255, 0xe8 / 255]],
+] as const)('%s: the selected capsule stands apart from the glass', async (theme, pageBottom) => {
+  await mountBar(theme, 'contacts')
+  const bar = document.querySelector<HTMLElement>('.gg-phone-nav-destinations')!
+  const glass = glassOver(bar, pageBottom)
+  const pillCss = getComputedStyle(bar, '::before').backgroundColor
+  const alpha = Number(pillCss.match(/\/ ([\d.]+)\)|rgba\([^)]*,\s*([\d.]+)\)/)?.slice(1).find(Boolean) ?? 1)
+  const pill = rgb(pillCss).map((c, i) => c * alpha + glass[i]! * (1 - alpha))
+  expect(contrast(pill, glass)).toBeGreaterThanOrEqual(1.15)
+  await page.screenshot({ path: `phone-tabbar-${theme}-partners.png` })
+})
+
 it('icon and label sit in the vertical middle of each tab', async () => {
   const { items } = await mountBar('dark')
   for (const item of items) {
