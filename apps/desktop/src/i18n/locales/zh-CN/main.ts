@@ -109,7 +109,7 @@ export default {
     "sessions": {
       "loadFailed": "读取会话失败",
       "actionFailed": "没做成",
-      "ungrouped": "未归入项目",
+      "tasks": "任务",
       "menu": "更多",
       "cancel": "取消",
       "stop": "停止当前任务",

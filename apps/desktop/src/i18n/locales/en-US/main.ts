@@ -112,7 +112,7 @@ export default {
     "sessions": {
       "loadFailed": "Could not load tasks",
       "actionFailed": "That did not go through",
-      "ungrouped": "No project",
+      "tasks": "Tasks",
       "menu": "More",
       "cancel": "Cancel",
       "stop": "Stop current task",

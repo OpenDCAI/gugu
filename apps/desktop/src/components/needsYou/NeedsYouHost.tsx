@@ -93,7 +93,8 @@ export const NeedsYouHost = observer(function NeedsYouHost({ onAttentionChange }
               data-testid="needs-you-task" selected={task === item} aria-pressed={task === item}
               onClick={select} onKeyDown={rowKeyActivate(select)} title={item.session.title}
               leading={<SessionAvatar agentId={item.session.agent?.userId} sessionId={item.session.conversationId} presentation={presentation} />}
-              subtitle={<>{agentName && <>{agentName} · </>}{item.machine}</>}
+              // owner 10-28:列表行不写机器;点开的卡片里照旧说是哪台(下面 SettlementCard 的 machine)。
+              subtitle={agentName}
               meta={presentation && <span className="text-[var(--text-secondary)]">{agentStatusText(presentation.label)}</span>} />
           })}
         </div>

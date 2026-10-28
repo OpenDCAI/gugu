@@ -184,22 +184,19 @@ export function ProjectsPage({
   // ── 行与标记 ────────────────────────────────────────────────────────
   const projectName = (deviceId: string, projectId: string): string | undefined => {
     const device = deviceOf.get(deviceId)
-    return device && !isHome(device) ? deviceSessionsOf(device, live).projects.find((project) => project.id === projectId)?.name : undefined
+    return device && !isHome(device) ? deviceSessionsOf(device, live).projects.find((project) => project.id === projectId && project.kind !== 'workspace')?.name : undefined
   }
   const launchedBy = translateSessionMessage('sidebar.launchedByAssistant', { name: assistant?.name ?? assistantName })
   const manyMachines = machines.length > 1
   /**
-   * 行上除 agent 名之外的标记。分区页头已经说了机器与项目的格里不重复;没有页头可看的两格(置顶、个人助理)标自己的
-   * 项目与机器(机器只有一台时不标:那是同一个字重复);挂在父会话下的行与父会话比:别的机器标机器,同一台别的项目标项目。
+   * 行上除 agent 名之外的标记。❌ 标机器(owner 10-28:会话列表不标机器,机器只在会话里说)。分区页头已经说了项目的格里
+   * 不重复;置顶那格标自己的项目;挂在父会话下的行与父会话不在同一个项目里时标项目。
    */
   const tagsOf = (node: SessionNode, section: SessionSection, parent?: { deviceId: string; projectId: string }): string[] => {
     const { deviceId } = node.item
     const { projectId, conversationId } = node.item.session
-    const rowDevice = deviceOf.get(deviceId)
-    const label = rowDevice && !isHome(rowDevice) ? machineLabel(rowDevice) : undefined
     if (parent) {
-      if (parent.deviceId !== deviceId) return rowDevice ? [machineLabel(rowDevice)] : []
-      const project = projectId !== parent.projectId ? projectName(deviceId, projectId) : undefined
+      const project = parent.deviceId !== deviceId || projectId !== parent.projectId ? projectName(deviceId, projectId) : undefined
       return project ? [project] : []
     }
     const tags: string[] = []
@@ -208,7 +205,6 @@ export function ProjectsPage({
       const project = projectName(deviceId, projectId)
       if (project) tags.push(project)
     }
-    if ((section.pinned || section.assistant) && manyMachines && label) tags.push(label)
     return tags
   }
   const renderTree = (
@@ -329,7 +325,7 @@ export function ProjectsPage({
           ? t('agentWatch.sessions.pinned')
           : section.assistant
             ? assistant?.name ?? assistantName
-            : section.project?.name ?? t('agentWatch.sessions.ungrouped')
+            : section.project?.name ?? t('agentWatch.sessions.tasks')
         const noteDevice = section.assistant ? (onHome(section.roots) ? homeDevice : undefined) : machine
         return (
           <div
@@ -352,7 +348,6 @@ export function ProjectsPage({
               onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); toggleCollapsed(key) } }}
             >
               {heading}
-              {machine && manyMachines ? <span className="gg-aw-group-machine">{` · ${machineLabel(machine)}`}</span> : null}
             </SectionLabel>
             {!isCollapsed && noteDevice ? <MachineNote device={noteDevice} error={errorOf.get(noteDevice.device_id)} /> : null}
             {isCollapsed ? null : renderTree(section, section.roots)}

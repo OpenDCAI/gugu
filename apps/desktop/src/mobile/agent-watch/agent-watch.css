@@ -124,7 +124,6 @@
 .gg-aw .gg-aw-list > [data-slot='section-label'][data-interactive] { min-height: 44px; cursor: pointer; }
 .gg-aw .gg-aw-group-count { color: var(--muted-fg); font-variant-numeric: tabular-nums; }
 /* 项目分区页头里的机器名:项目名的次要属性,比项目名轻一档(常规字重、更淡),不抢它的位置。 */
-.gg-aw .gg-aw-group-machine { font-weight: var(--font-weight-regular); letter-spacing: 0; color: var(--faint-fg); }
 
 /*
  * ❌ 这里原来有 .gg-aw-row[aria-disabled] 与 .gg-aw-dot / [data-online]。2026-09-22 删(Refs #6104):

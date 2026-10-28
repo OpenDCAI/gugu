@@ -213,7 +213,7 @@ describe('ProjectsPage — 置顶分区与父子树(对齐桌面侧栏)', () => 
   })
 
   // owner 2026-10-09:进 Chole 看得到 125,看不到它下面在 ThinkPad 上的子会话。
-  it('跨机器:别的机器上的子会话挂在父会话下,行上带那台机器的名字、带它自己的 agent 名;点开交出它所在的机器', async () => {
+  it('跨机器:别的机器上的子会话挂在父会话下,行上带它自己的 agent 名、❌ 机器名(owner 10-28);点开交出它所在的机器', async () => {
     const chole = device({ device_id: 'chole', label: 'Chole' })
     const thinkpad = device({ device_id: 'thinkpad', label: 'ThinkPad' })
     online('chole', [summary('125', 1)])
@@ -222,7 +222,7 @@ describe('ProjectsPage — 置顶分区与父子树(对齐桌面侧栏)', () => 
     await renderPage([chole, thinkpad], { onOpenSession: (deviceId, s) => { opened.push([deviceId, s.conversationId]) } })
     const child = row(projectSection(), 'lane')
     expect(child?.closest('.gg-aw-item-wrap')?.getAttribute('data-depth')).toBe('1')
-    expect(child?.querySelector('.gg-aw-item-meta')?.textContent).toContain('ThinkPad')
+    expect(child?.querySelector('.gg-aw-item-meta')?.textContent).not.toContain('ThinkPad')
     expect(child?.querySelector('.gg-aw-item-meta')?.textContent).toContain('Claude 7')
     await act(async () => (child as HTMLButtonElement).click())
     expect(opened).toEqual([['thinkpad', 'lane']])
@@ -358,16 +358,16 @@ describe('ProjectsPage — 所有机器一页、个人助理一组', () => {
     expect(heading(groups()[0]!)).not.toContain('sdk_gphone64_arm64')
   })
 
-  it('每台机器的每个项目一格,页头是「项目 · 机器」;两台机器上同名的项目各是一格', async () => {
+  it('每台机器的每个项目一格,页头只写项目(owner 10-28 ❌ 机器);两台机器上同名的项目各是一格', async () => {
     write('mac', [summary('m1', 1)])
     write('thinkpad', [summary('t1', 2)])
     await renderPage([mac, thinkpad])
-    expect(groups().map(heading)).toEqual(['Repo · ThinkPad', 'Repo · Mac'])
+    expect(groups().map(heading)).toEqual(['Repo', 'Repo'])
     expect(row(groups()[0], 't1')).not.toBeNull()
     expect(row(groups()[1], 'm1')).not.toBeNull()
     // 阴控:没有会话的机器不画空分区。
     await act(async () => write('thinkpad', []))
-    expect(groups().map(heading)).toEqual(['Repo · Mac'])
+    expect(groups().map(heading)).toEqual(['Repo'])
   })
 
   it('页头是「项目」、右上只有一颗 +,点它交给上层去选机器', async () => {
@@ -427,7 +427,7 @@ describe('ProjectsPage — 所有机器一页、个人助理一组', () => {
     write('mac', [summary('m1', 1)])
     await renderPage([mac, offline])
     const [offlineGroup, macGroup] = groups()
-    expect(heading(offlineGroup)).toBe('Repo · ThinkPad')
+    expect(heading(offlineGroup)).toBe('Repo')
     expect(offlineGroup.querySelector('[data-testid="agent-watch-offline-why"]')).not.toBeNull()
     expect(macGroup.querySelector('[data-testid="agent-watch-offline-why"]')).toBeNull()
     // 页上只有分区里这一份,没有顶上一整块「机器离线」。
