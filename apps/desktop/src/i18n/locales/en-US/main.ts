@@ -5,6 +5,8 @@ export default {
     "retry": "Retry",
     "profileTitle": "Let's get to know you",
     "profileSub": "Gugu and your agents use this to address you and understand you. You can change it later in Settings → Account.",
+    "profileSubDesktop": "Gugu and your agents will use these details to address you.",
+    "introSubDesktop": "Gugu is your personal assistant for plans and everyday tasks.",
     "avatar": "Change avatar",
     "avatarUploading": "Uploading…",
     "nameLabel": "What should we call you?",

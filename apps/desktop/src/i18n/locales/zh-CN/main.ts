@@ -5,6 +5,8 @@ export default {
     "retry": "重试",
     "profileTitle": "先认识一下你",
     "profileSub": "咕咕和你的 agent 会用这些称呼你、了解你。以后可以在「设置 → 账户」里改。",
+    "profileSubDesktop": "咕咕和你的 agent 会用这些称呼你。",
+    "introSubDesktop": "咕咕是你的个人助理，帮你记安排、办事情。",
     "avatar": "换头像",
     "avatarUploading": "正在上传…",
     "nameLabel": "怎么称呼你",
