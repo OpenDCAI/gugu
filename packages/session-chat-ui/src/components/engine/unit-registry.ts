@@ -127,7 +127,8 @@ const messageSegmenter: ItemSegmenter = {
     // Only the agent's own voice can decline a turn; the marker inside a user
     // message is text a person typed, and quoting it is not declining anything.
     if (data.role === 'assistant' && isGuguSilence(data.text, { streaming: data.streaming })) return [];
-    if (!ctx.active && data.role === 'assistant' && !data.text.trim() && !data.attachments?.length) return [];
+    // 对话布局里回复的头那一行(名字 + 过程行)不带正文,正文在下面的气泡行里。
+    if (!ctx.active && data.role === 'assistant' && !data.text.trim() && !data.attachments?.length && data.conversationPart !== 'head') return [];
     const u = unit('message', item, data, { key: 'self' });
     u.chrome = data.hookNotice ? COMPOSITE_CHROME : MESSAGE_CHROME;
     return [u];

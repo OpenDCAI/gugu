@@ -227,6 +227,20 @@ export function flattenTier(
   let sendTurn: TranscriptTurn | undefined;
 
   /**
+   * 对话布局里一轮的回复(owner 0 号图):名字 + 过程行一行,过程展开的步骤在它下面,气泡在最下面 ——
+   * ❌ 气泡先画、步骤挂在气泡底下。这一轮每条输出(message_send 发出去的也是)各自一个气泡,同一个名字下面排着。
+   */
+  const emitConversationReply = (reply: ChatMessage, sent: readonly ChatMessage[], steps: () => void): void => {
+    const head = `${reply.id}:head`;
+    // 头不带正文:话只在气泡里画一次(找、复制、计数都只见一份)。
+    processItem({ ...reply, id: head, text: '', attachments: undefined, conversationPart: 'head' });
+    steps();
+    for (const output of [...sent, reply]) {
+      processItem({ ...output, conversationProcess: undefined, conversationPart: 'body', conversationHead: head });
+    }
+  };
+
+  /**
    * 把一串过程行排成要发出的单元：**连续的工具调用**折成一句（#4981，owner 2026-09-06：
    * 「连续的 tool call 可以被折叠……除了 ai 文本以外都语义化折叠」）。分类与切段规则在
    * `state/tool-run.ts`。两条起折；一条就是一行。子调用不进列表（见 isSubagentChild），
@@ -361,9 +375,12 @@ export function flattenTier(
         const output = ctx.agentConversation && header ? conversationOutput([...segment.process, ...segment.tail]) : null;
         const footerReply = output?.reply ? conversationProcessReply(header, [output.reply]) : null;
         if (footerReply && header && output) {
-          processItem(footerReply);
           const expanded = ctx.revealAllFolds || turnProcessExpanded(header.live, ctx.isTurnProcessExpanded?.(header.id) ?? false);
-          if (expanded) emitOps(planRows(outsideProcess(output.rest)), turn.id, [{ id: header.id, stored: !header.live }]);
+          const steps = output.rest.filter(item => !isSubagentChild(item)).length;
+          if (steps && footerReply.conversationProcess) footerReply.conversationProcess = { ...footerReply.conversationProcess, steps };
+          emitConversationReply(footerReply, output.sent, () => {
+            if (expanded) emitOps(planRows(outsideProcess(output.rest)), turn.id, [{ id: header.id, stored: !header.live }]);
+          });
           continue;
         }
         const ops = planRows(header ? segment.process : outsideProcess(segment.process));
@@ -384,11 +401,13 @@ export function flattenTier(
           emitOps(ops, turn.id);
         } else {
           const expanded = ctx.revealAllFolds || turnProcessExpanded(header.live, ctx.isTurnProcessExpanded?.(header.id) ?? false);
+          const steps = ctx.agentConversation ? segment.process.filter(item => !isSubagentChild(item)).length : 0;
           processItem({
             kind: 'turn-process',
             id: header.id,
             turnId: turn.id,
             ...(header.live ? { live: true as const } : {}),
+            ...(steps ? { steps } : {}),
             // 收起来时下面什么都看不见,头又是这一轮唯一的动静(#124 review)
             ...(expanded ? { withBody: true } : {}),
             ...(header.startedAt !== undefined ? { startedAt: header.startedAt } : {}),
@@ -410,8 +429,7 @@ export function flattenTier(
         const pendingReply = ctx.agentConversation
           ? conversationProcessReply({ ...pending.header, startedAt: turn.startedAt }, items.slice(pending.at)) : null;
         if (pendingReply) {
-          processItem(pendingReply);
-          emitOps(planRows(outsideProcess(items.slice(pending.at + 1))), turn.id);
+          emitConversationReply(pendingReply, [], () => emitOps(planRows(outsideProcess(items.slice(pending.at + 1))), turn.id));
         } else {
           processItem({
             kind: 'turn-process',
@@ -419,6 +437,8 @@ export function flattenTier(
             ...(ctx.agentConversation && turn.startedAt !== undefined ? { startedAt: turn.startedAt } : {}),
             turnId: turn.id,
             ...(pending.at < items.length ? { withBody: true } : {}),
+            ...(ctx.agentConversation && items.slice(pending.at).some(item => !isSubagentChild(item))
+              ? { steps: items.slice(pending.at).filter(item => !isSubagentChild(item)).length } : {}),
           });
           emitOps(planRows(outsideProcess(items.slice(pending.at))), turn.id);
         }

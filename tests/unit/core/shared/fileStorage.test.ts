@@ -10,8 +10,12 @@ describe('the account file storage setting', () => {
     expect(parseFileStorage({ file_storage: { image_retention: '30d', retention: 'read-once' } }))
       .toEqual({ ...DEFAULT_FILE_STORAGE, image_retention: '30d', retention: 'read-once' })
   })
+  it('reads a setting a newer client wrote: keys it does not know are left alone, not a malformed setting', () => {
+    expect(parseFileStorage({ file_storage: { image_retention: '30d', temporary_retention: '1d', later_key: { any: 1 } } }))
+      .toEqual({ ...DEFAULT_FILE_STORAGE, image_retention: '30d' })
+  })
   it('refuses what the server would refuse instead of falling back to defaults', () => {
-    for (const file_storage of [null, [], 'x', { image_retention: 'read-once' }, { retention: 'forever' }, { proactive_upload: 'yes' }, { unknown: true }]) {
+    for (const file_storage of [null, [], 'x', { image_retention: 'read-once' }, { retention: 'forever' }, { proactive_upload: 'yes' }]) {
       expect(() => parseFileStorage({ file_storage })).toThrow('user_settings.file_storage is malformed')
     }
   })

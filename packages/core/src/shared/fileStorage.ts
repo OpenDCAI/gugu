@@ -20,14 +20,18 @@ export type FileStorage = {
 
 export const DEFAULT_FILE_STORAGE: FileStorage = { proactive_upload: false, temporary_transfer: true, retention: '7d', image_retention: '7d' }
 
-/** 账号设置里那一格 → 生效值。写坏的格子 throw(❌ 当默认值悄悄用):后端的 CHECK 本来就写不进去。 */
+/**
+ * 账号设置里那一格 → 生效值。认识的键写坏了 throw(❌ 当默认值悄悄用):后端的 CHECK 本来就写不进去。
+ * 不认识的键是更新的客户端写的(如 temporary_retention):这里不管它,❌ 把整格判成坏的 —— 写回时由 writeFileStorage 原样留着。
+ */
 export function parseFileStorage(config: Record<string, unknown>): FileStorage {
   const value = config.file_storage
   if (value === undefined) return DEFAULT_FILE_STORAGE
   if (!value || typeof value !== 'object' || Array.isArray(value)) throw new Error('user_settings.file_storage is malformed')
-  const next = { ...DEFAULT_FILE_STORAGE, ...value } as Record<string, unknown>
-  if (Object.keys(next).length !== Object.keys(DEFAULT_FILE_STORAGE).length
-    || typeof next.proactive_upload !== 'boolean' || typeof next.temporary_transfer !== 'boolean'
+  const stored = value as Record<string, unknown>
+  const next: Record<string, unknown> = { ...DEFAULT_FILE_STORAGE }
+  for (const key of Object.keys(DEFAULT_FILE_STORAGE)) if (stored[key] !== undefined) next[key] = stored[key]
+  if (typeof next.proactive_upload !== 'boolean' || typeof next.temporary_transfer !== 'boolean'
     || !FILE_RETENTIONS.includes(next.retention as FileStorage['retention'])
     || !IMAGE_RETENTIONS.includes(next.image_retention as FileStorage['image_retention'])) {
     throw new Error('user_settings.file_storage is malformed')

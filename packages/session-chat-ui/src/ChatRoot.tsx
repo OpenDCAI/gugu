@@ -626,6 +626,8 @@ export function ChatRoot(props: ChatRootProps) {
       if (u.kind === 'message') {
         const m = u.data as ChatMessage;
         if (m.role === 'assistant' && m.conversationProcess) return u.itemId;
+        // 一轮末尾是气泡、过程行在它上面那一行(对话布局拆成头 + 气泡)⇒ 后台照旧挂在那条过程行上。
+        if (m.role === 'assistant' && m.conversationPart === 'body' && m.conversationHead) return m.conversationHead;
       }
       return null;
     }
@@ -1813,6 +1815,13 @@ export function ChatRoot(props: ChatRootProps) {
 
     const onClick = (e: Event) => {
       const t = e.target as HTMLElement;
+
+      // 对话布局里折着的长消息,气泡下面那一行的「展开全文」:和点气泡本身一样展开。
+      const expand = t.closest('[data-expand-user-card]') as HTMLElement | null;
+      if (expand?.dataset.expandUserCard) {
+        setExpandedUserId(expand.dataset.expandUserCard);
+        return;
+      }
 
       const userCard = t.closest('[data-user-card]') as HTMLElement | null;
       if (userCard?.dataset.userCard) {

@@ -50,6 +50,7 @@ const fallbackMessages = {
   'transcript.copy': 'Copy',
   'transcript.copyCode': 'Copy code',
   'transcript.copyMessage': 'Copy message',
+  'transcript.showFullText': 'Show all',
   'transcript.copied': 'Copied',
   // 附件卡(#7193):agent 打开给人看的文件 / 网页。`{name}` 是文件名或网址,原样数据。
   'transcript.outputDocument': 'Document',
@@ -106,6 +107,8 @@ const fallbackMessages = {
   'transcript.turnProcess': 'Process',
   'transcript.thinkingAndExecution': 'Thinking and execution',
   'transcript.thinkingLive': 'Thinking and working',
+  'transcript.processStepsOne': '{count} step',
+  'transcript.processSteps': '{count} steps',
   'transcript.turnElapsed': 'Worked for {elapsed}',
   'transcript.turnTook': 'Took {elapsed}',
   'transcript.copyTurnResult': 'Copy turn record',
