@@ -2107,8 +2107,8 @@ async function keptOnHostRefusal(deps, chatId, fileName) {
   // The machine is named by its owner, as a project file's mark names it to the chat's other members.
   const [owner] = account ? await deps.restGet(`users?id=eq.${enc(account)}&select=display_name`, 'identity').catch(() => []) : []
   const ownerName = owner?.display_name || null
-  const machine = ownerName ? `${ownerName}'s computer` : 'the computer it is bound to'
-  const machineZh = ownerName ? `${ownerName} 的电脑` : '它绑定的那台电脑'
+  const machine = ownerName ? `${ownerName}'s computer` : 'another computer'
+  const machineZh = ownerName ? `${ownerName} 的电脑` : '另一台电脑'
   return `message_send_file: ${fileName} was not sent, and nothing was changed. This project chat keeps its files on ${machine}, `
     + `and only an agent on that computer can add or change them here.\n`
     + `${fileName} 没有发出去，什么都没改。这个项目群的文件存在${machineZh}上，只有那台电脑上的 agent 能在这里添加或修改。`

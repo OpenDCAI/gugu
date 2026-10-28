@@ -485,7 +485,7 @@ const KEPT_ON_HOST = /Only the bound (file )?host|not uploaded proactively|Remot
 async function keptOnHostError(token: string, row: ItemRow, actor: string, identities: Identities, error: unknown): Promise<AppFileError | null> {
   if (!KEPT_ON_HOST.test(error instanceof Error ? error.message : String(error))) return null;
   const on = (await storedOnOf(token, [{ ...row, kind: 'file', pointer: null }], identities, actor).catch(() => null))?.get(row.chat_id);
-  const where = !on ? 'the computer this project chat keeps its files on'
+  const where = !on ? 'another computer'
     : on.mine ? (on.machine ? `your computer "${on.machine}"` : 'another of your computers')
     : `${on.owner}'s computer`;
   return new AppFileError('denied', `${row.filename} was not changed: this project chat keeps its files on ${where}, and only an agent on that computer can change them. Nothing was changed.`, { reason: 'kept-on-host' });

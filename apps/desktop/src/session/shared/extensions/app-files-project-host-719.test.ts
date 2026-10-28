@@ -17,6 +17,7 @@ const rpcs: { name: string; args: Row }[] = [];
 const uploads: Row[] = [];
 let moveError: { message: string; hint: string } | null = null;
 let uploadRefusal: Error | null = null;
+let failPolicy = false;
 
 const CHAT = '33333333-3333-4333-8333-333333333333';
 const ME = '11111111-1111-4111-8111-111111111111';
@@ -29,7 +30,7 @@ vi.mock('@gugu/core/cloud/supabase', () => ({
     rpc: rpcQuery(async (name: string, args: Row) => {
       if (name === 'workspace_deletable_as') return { data: args.p_item_ids, error: null };
       rpcs.push({ name, args });
-      if (name === 'file_project_policy_for') return { data: { host_device_id: 'device', host_account_id: HOST_OWNER }, error: null };
+      if (name === 'file_project_policy_for') return failPolicy ? { data: null, error: { message: 'Not allowed to act as that user', hint: null } } : { data: { host_device_id: 'device', host_account_id: HOST_OWNER }, error: null };
       const row = rows.find((candidate) => candidate.id === args.p_item_id);
       if (name === 'workspace_get_as') return { data: row ? [placed(row)] : null, error: null };
       if (name === 'workspace_move_as') return moveError ? { data: null, error: moveError } : { data: [placed({ ...row, filename: args.p_name })], error: null };
@@ -81,6 +82,7 @@ beforeEach(() => {
   publishCalls.length = 0;
   moveError = null;
   uploadRefusal = null;
+  failPolicy = false;
   publishFile = async () => null;
 });
 
@@ -126,5 +128,19 @@ describe('a rename the database refuses for a file kept on another machine', () 
     await expect(files.rename(asAgent, { ref: { id: row.id as string }, name: '行程（周末版）.md' })).rejects.toEqual(keptOnHost);
     moveError = { message: 'Local revisions must be published by the host', hint: 'file_transfer_read_only' };
     await expect(files.rename(asAgent, { ref: { id: row.id as string }, name: '行程（周末版）.md' })).rejects.toEqual(keptOnHost);
+  });
+});
+
+describe('when whose computer it is cannot be read', () => {
+  it('says another computer, never the same words twice', async () => {
+    const row = stage();
+    const policy = rpcs.length;
+    publishFile = async () => { throw new Error('Only the bound file host can publish project files'); };
+    failPolicy = true;
+    await expect(files.replace(asAgent, { ref: { id: row.id as string }, file: content, expectedVersion: 1 })).rejects.toMatchObject({
+      code: 'denied',
+      message: '行程.md was not changed: this project chat keeps its files on another computer, and only an agent on that computer can change them. Nothing was changed.',
+    });
+    expect(rpcs.slice(policy).some((call) => call.name === 'file_project_policy_for')).toBe(true);
   });
 });
