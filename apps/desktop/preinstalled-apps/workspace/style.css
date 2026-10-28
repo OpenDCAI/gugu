@@ -41,7 +41,12 @@ body:not(.show-doc):not(.no-list) .doc { display: none; }
 .file-badge[data-family='text'] { background: #5b5b66; }
 
 /* At a row's end: how long its cloud copy has left (faint, owner 10-28), and the machine it stays on. */
-.file .file-open { padding-inline-end: var(--em-spacing-xs); }
+/* Denser rows (owner 10-28): a 28px mark, two lines, 6px around — about 52px a file. */
+.file-list { gap: 2px; }
+.file { padding-block: 6px; }
+.file .file-open { padding-block: 0; padding-inline-end: var(--em-spacing-xs); grid-template-columns: 28px minmax(0, 1fr); }
+.file .file-mark { width: 28px; height: 28px; }
+.file[data-folder] .file-mark { width: 22px; height: 22px; justify-self: center; }
 .file-marks { flex: none; display: flex; align-items: center; gap: var(--em-spacing-xs); max-width: 45%; min-width: 0; }
 .file-keep, .file-host { font-size: var(--em-font-caption); line-height: var(--em-lh-caption); color: var(--em-foreground-passive, var(--em-foreground-muted)); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .file-keep[data-soon] { color: var(--em-foreground-muted); }
@@ -58,8 +63,9 @@ body:not(.show-doc):not(.no-list) .doc { display: none; }
 .sort gugu-icon { width: 12px; height: 12px; }
 .list-section { list-style: none; padding: var(--em-spacing-sm) var(--em-spacing-sm) 2px; font-size: var(--em-font-caption); line-height: var(--em-lh-caption); font-weight: 600; color: var(--em-foreground-muted); }
 .list-section:first-child { padding-top: 0; }
-.menu-label { padding: var(--em-spacing-xs) var(--em-spacing-sm) 2px; font-size: var(--em-font-caption); color: var(--em-foreground-muted); cursor: default; }
-.menu-separator { height: 1px; margin: var(--em-spacing-xs) 0; background: var(--em-border); }
+/* The menu is a .list: its label and separators are not rows (no row padding or height). */
+.menu > .menu-label { min-height: 0; padding: var(--em-spacing-xs) var(--em-spacing-sm) 0; font-size: var(--em-font-caption); color: var(--em-foreground-muted); cursor: default; }
+.menu > .menu-separator { flex: none; width: auto; height: 1px; min-height: 0; padding: 0; margin: var(--em-spacing-xs) var(--em-spacing-sm); border-radius: 0; background: var(--em-border); }
 .menu-choice::before { content: ''; display: inline-block; width: 1.2em; }
 .menu-choice[aria-checked='true']::before { content: '✓'; }
 .menu button:disabled { opacity: .5; cursor: default; }

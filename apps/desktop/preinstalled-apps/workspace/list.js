@@ -86,15 +86,16 @@ export function comparer(sort, nameOf, changedAt, locale) {
 }
 
 /**
- * The time left on a cloud copy kept for a while (`entry.keep.expiresAt`), in the largest whole unit: `{ days }`,
- * `{ hours }`, or `{ minutes }` (at least 1); null when it is kept, has no copy, or the time is past.
+ * The time left on a cloud copy kept for a while (`entry.keep.expiresAt`), in the largest unit, rounded up as 「还剩 N 天」
+ * is said (a copy just made temporary for 7 days has 7 left): `{ days }`, `{ hours }`, or `{ minutes }` (at least 1);
+ * null when it is kept, has no copy, or the time is past.
  */
 export function timeLeft(expiresAt, now) {
   const at = Date.parse(expiresAt ?? '')
   if (!Number.isFinite(at)) return null
   const minutes = Math.floor((at - now.getTime()) / 60000)
   if (minutes < 0) return null
-  if (minutes >= 24 * 60) return { days: Math.floor(minutes / (24 * 60)) }
-  if (minutes >= 60) return { hours: Math.floor(minutes / 60) }
+  if (minutes >= 24 * 60) return { days: Math.ceil(minutes / (24 * 60)) }
+  if (minutes >= 60) return { hours: Math.ceil(minutes / 60) }
   return { minutes: Math.max(1, minutes) }
 }

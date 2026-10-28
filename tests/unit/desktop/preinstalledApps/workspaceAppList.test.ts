@@ -118,7 +118,7 @@ describe('a row: its suffix, its size, how long its cloud copy has left, the mac
 
   test('a copy kept for a while says how long, faintly; under a day it says hours; the day it goes on hover', () => {
     const spec = row('spec').querySelector<HTMLElement>('.file-keep')!
-    expect(spec.textContent).toBe('临时 · 6 天')
+    expect(spec.textContent).toBe('临时 · 7 天')
     expect(spec.title).toMatch(/清除云端副本$/)
     expect(spec.hasAttribute('data-soon')).toBe(false)
     const clip = row('clip').querySelector<HTMLElement>('.file-keep')!

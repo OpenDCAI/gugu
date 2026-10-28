@@ -38,10 +38,11 @@ describe('workspace list helpers', () => {
     expect(sectionOf(null, now).key).toBe('earlier')
   })
 
-  test('time left on a cloud copy: days, hours, minutes; none when kept or past', () => {
+  test('time left on a cloud copy: days, hours, minutes, rounded up; none when kept or past', () => {
     const now = new Date('2026-10-28T12:00:00Z')
-    expect(timeLeft('2026-11-03T13:00:00Z', now)).toEqual({ days: 6 })
-    expect(timeLeft('2026-10-28T17:30:00Z', now)).toEqual({ hours: 5 })
+    expect(timeLeft('2026-11-04T11:58:00Z', now), 'just made temporary for 7 days').toEqual({ days: 7 })
+    expect(timeLeft('2026-11-03T13:00:00Z', now)).toEqual({ days: 7 })
+    expect(timeLeft('2026-10-28T17:30:00Z', now)).toEqual({ hours: 6 })
     expect(timeLeft('2026-10-28T12:00:20Z', now)).toEqual({ minutes: 1 })
     expect([timeLeft(null, now), timeLeft('2026-10-28T11:59:00Z', now)]).toEqual([null, null])
   })

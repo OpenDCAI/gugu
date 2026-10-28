@@ -856,14 +856,17 @@ function keepMark(entry, now) {
   return mark
 }
 
-// When, as a list says it: the time today, the day this year, the date before.
+// When, as a list says it: the time today (and yesterday, under its own heading), the day this year, the date before.
 function whenOf(iso, now) {
   const at = new Date(iso ?? '')
   if (!Number.isFinite(at.getTime())) return ''
   const locale = state.ctx?.locale || 'en'
   const section = sectionOf(iso, now)
   if (section.kind === 'today') return new Intl.DateTimeFormat(locale, { hour: '2-digit', minute: '2-digit' }).format(at)
-  if (section.kind === 'yesterday') return state.t.yesterday
+  if (section.kind === 'yesterday') {
+    const clock = new Intl.DateTimeFormat(locale, { hour: '2-digit', minute: '2-digit' }).format(at)
+    return state.sort === 'recent' ? clock : `${state.t.yesterday} ${clock}`
+  }
   return new Intl.DateTimeFormat(locale, at.getFullYear() === now.getFullYear() ? { month: 'numeric', day: 'numeric' } : { dateStyle: 'medium' }).format(at)
 }
 
