@@ -1332,10 +1332,13 @@ export class SessionCell {
     this.dispatchAgentsChangedIfNeeded(previousRunningAgentCount);
     this.emitTranscriptChanged();
     if (working) {
+      // 正在关:这时出队的那一句只会被 `sendPromptInternal` 以「Session is closing」拒掉,而出队已经把它从队列里拿走了
+      // ⇒ 人排的话凭空没了(2026-10-28 07:34:06)。关的时候不出队,队列原样留给关闭那一侧决定去留。
+      const dequeue = opts?.dequeueQueuedPrompt !== false && !this.closeRequested;
       this.applyEvent({
         type: 'WorkEnded',
         outcome: machineOutcome(outcome),
-        ...(opts?.dequeueQueuedPrompt === false ? { dequeueQueuedPrompt: false } : {}),
+        ...(dequeue ? {} : { dequeueQueuedPrompt: false }),
       });
     }
     this.closeTurnCompletion();
