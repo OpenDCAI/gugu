@@ -53,6 +53,7 @@ export function subagentFromItem(
   return {
     kind: 'subagent',
     id: item.id,
+    ...(item.trimmedChars ? { transportNote: ctx.translate('transcript.outputTrimmed', { chars: item.trimmedChars }) } : {}),
     name,
     status,
     phase: subagentPhase({ status, agentId }),

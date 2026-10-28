@@ -27,7 +27,9 @@ export type { SessionLiveReply } from './live-reply';
  * person answers it wherever they follow that session, and the first answer settles it (`respond`). `kind` says how a
  * surface draws it; `payload` is that kind's own.
  */
-export type HostAsk = { kind: 'app-install' | 'agent-question'; payload: unknown };
+export const ASK_SOURCES = ['harness-permission', 'harness-question', 'agent-question', 'app-install', 'browser-assistance'] as const;
+export type AskSource = (typeof ASK_SOURCES)[number];
+export type AskOrigin = { source: AskSource; payload?: unknown };
 import type { TimelineArchive } from './timeline';
 import type { InstallationReading } from '../host-dependencies/runtime/types';
 
@@ -119,13 +121,14 @@ export const RECORD_KEY_BOUNDARY_SUFFIX = '#end';
  *   qwen     → `system/branch_checkpoint`(ACP 腿上以 `end_turn` 结束才写;终端腿没有结束记号)
  *   pi       → assistant 消息的 `stopReason`（`toolUse` 同 claude 的 `tool_use`;`aborted` = 打断）
  */
-export type RecordBoundary =
+/** The ending message ID also identifies fragments recorded after that end. */
+export type RecordBoundary = { messageId?: string } & (
   /** 正常收尾。`stopReason` 是 provider 自己的说法，映射到 ACP 的那五种。 */
   | { kind: 'turn_end'; stopReason?: 'end_turn' | 'max_tokens' | 'max_turn_requests' | 'refusal' }
   /** 被打断（用户 ESC、进程被杀）。 */
   | { kind: 'turn_aborted' }
   /** 没做完：harness 自己记下的报错（claude 的 `isApiErrorMessage` 行）。 */
-  | { kind: 'turn_failed' };
+  | { kind: 'turn_failed' });
 
 /**
  * 一条解码后的记录。`key` 是跨来源身份键：同一件事从两个来源各报一次也只算一次。
@@ -234,7 +237,7 @@ export type Settlement = {
   /** 记录里这道题已经有了结果(答了或拒了)—— 终端里的选择器已经关了。只对带 `questions` 的项记。 */
   resultRecorded?: boolean;
   /** D-31 宿主替 agent 问的那一种(装 App):端上画它自己的卡,答案经 `respond` 交回宿主。 */
-  host?: HostAsk;
+  origin?: AskOrigin;
   state: SettlementState;
   optionId: string | null;
   resolvedBy: string | null;
@@ -268,9 +271,9 @@ export function remoteSettlementGap(
   kind: Settlement['kind'],
   questions?: Settlement['questions'],
   /** D-31 The host's own ask: settled by the host, on either kind of session. */
-  host?: Settlement['host']
+  origin?: Settlement['origin']
 ): 'no_permission_channel' | 'no_question_channel' | null {
-  if (host) return null;
+  if (origin && origin.source !== 'harness-permission' && origin.source !== 'harness-question') return null;
   if (kind === 'question' && questions) return null;
   if (runtime !== 'acp') return 'no_permission_channel';
   return kind === 'question' ? 'no_question_channel' : null;
@@ -382,7 +385,7 @@ export type PendingRequest = {
   questions?: readonly SettlementQuestion[];
   askedAt?: number;
   /** D-31 宿主替 agent 问的(不是它的 harness 问的):端上按 `host.kind` 画它自己的卡。 */
-  host?: HostAsk;
+  origin?: AskOrigin;
 };
 
 export type SettleResult = { ok: true; settlement: Settlement } | { ok: false; existing: Settlement };
@@ -450,7 +453,7 @@ export interface SessionTimeline {
 
 export const AGENT_SESSION_ACTIONS = [
   'activity_list', 'activity_context', 'peers', 'locate', 'list_harnesses', 'list_models', 'spawn', 'children', 'message',
-  'get', 'stop', 'archive', 'set_parent', 'app_install', 'read_file', 'app_call',
+  'get', 'stop', 'archive', 'set_parent', 'app_install', 'app_manage', 'read_file', 'app_call',
   'project_list', 'project_create', 'project_get', 'project_add_folder', 'project_remove_folder',
   'project_remove_device', 'project_restore_device', 'project_prepare_device', 'project_bind_folder',
 ] as const;
@@ -498,6 +501,10 @@ export type RemoteCaller = RemoteSessionCaller | RemoteAppCaller;
 /** App 发消息的送法(`messageAgent` 的 queue / defer / key):本机这台和别的机器上同一份。 */
 export type AppMessageOptions = { delivery?: 'queue' | 'defer'; key?: string };
 export type AppMessageReceipt = { id: string; deferred?: true };
+/** An App starts an agent on another computer through the same App spawn core. */
+export type AppSpawnAction = { action: 'spawn'; prompt: string; spawn: {
+  title?: string; harness?: string; model?: string; transport?: 'acp' | 'pty'; project?: string; chat?: string; device?: string;
+} };
 /** App 调用方给一条会话发消息(会话 id 由发起方从那台机器的会话列表里取)。 */
 export type AppMessageAction = { action: 'message'; session_ids: [string]; text: string } & AppMessageOptions;
 /** App 调用方读一条会话工作副本里的一块(#6264 的块,路径相对那份工作副本;`files:read:all-machines`)。 */
@@ -512,7 +519,9 @@ export type AppReadFileAction = { action: 'read_file'; session_id: string; path:
 export type AppCallAction = {
   action: 'app_call';
   call_id: string;
-  session_id: string;
+  session_id?: string;
+  /** Explicit machine target when the call is not attached to a session. Exactly one target is present. */
+  device_id?: string;
   version: string;
   method: string;
   args: Record<string, unknown>;
@@ -738,7 +747,7 @@ export type SessionpageSessionCreateOptions = {
 export type SessionpageSessionCreateModelsRequest = {
   /** provider id，取自 `sessionCreateOptions` 报的那一份。 */
   harness: string;
-  /** 目录按腿算(咕咕那组 provider × 腿),所以要说清是哪种展示;不给 = 这家给的第一种。 */
+  /** 目录按腿算(咕咕那组 provider × 腿);不给 = 那台电脑按自己的「终端」开关定(开 → 编程,关 → 通用),这家不给那种就取它给的第一种。 */
   sessionView?: SessionpageSessionView;
   /** 已选的模型(与 create 请求同一套编码);推理档按模型算(桌面同一条),没选就按默认模型。 */
   model?: string;
@@ -908,7 +917,7 @@ export type SessionpageSessionCreateRequest = {
   model?: string;
   /** 第一句话。空的不建 —— 一条没有开场白的会话建出来就是个空壳。 */
   prompt: string;
-  /** 展示;不给 = 这家给的第一种(通用优先)。须在 `sessionViews` 里。 */
+  /** 展示;不给 = 那台电脑按自己的「终端」开关定(开 → 编程,关 → 通用),这家不给那种就取它给的第一种。给了须在 `sessionViews` 里。 */
   sessionView?: SessionpageSessionView;
   /** 咕咕权限档;不给 = 这家的默认。须在该 harness 的 `permissionModes` 里。 */
   permissionMode?: SessionpagePermissionMode;
@@ -916,6 +925,13 @@ export type SessionpageSessionCreateRequest = {
   effort?: string;
   /** 生在哪个群里(群成员里「新建 Agent」):它的身份第一次建出来时进这个群,群规照常生效。老宿主不认这一格。 */
   chatId?: string;
+  /**
+   * 派任务(gugu-dev#181):第一句由那台机器落成这个对话里的一张任务卡,agent 进群坐任务座位(与 `chatId` 同给)。
+   * 老宿主不认这一格。
+   */
+  taskChatId?: string;
+  /** 在项目的哪个文件夹里开工(那台机器上的绝对路径或 `~` 开头),须是这个项目的文件夹;不给 = 项目根目录。老宿主不认这一格。 */
+  cwd?: string;
 };
 
 /** 建成了：手机拿这两个 id 直接跳进新会话的时间线。 */
@@ -925,6 +941,8 @@ export type SessionpageSessionCreateResult = {
   title: string;
   /** 手机宿主返回的真实入群结果；身份创建成功与入群成功分别表达。 */
   birthGroup?: { chatId: string; status: 'joined' | 'pending_approval' | 'failed'; error?: string } | null;
+  /** 派任务时那张卡的消息 id(在 `taskChatId` 那个对话里)。老宿主不带这一格。 */
+  taskMessageId?: string;
   /**
    * 会话行已经写下了,但 agent 没起来(原因码见 `remoteFailureKind`)。发起方照样进这条会话:
    * 第一句话在转录里,失败原因是其后的一行、可以再试一次 —— ❌ 留一条点不开的死行。老宿主不带这一格。
@@ -1054,9 +1072,10 @@ export type SessionpageSessionSendRequest = {
 export type SettlementResponse =
   /**
    * An App install's answer (D-31): `digest` — the manifest fingerprint of the sheet the person saw (an install answered
-   * without it is refused: nobody saw what it may do); `enableIn` — where its tools are given (D-30), as they ticked it.
+   * without it is refused: nobody saw what it may do). Who gets its tools is the install's own rule (InstallGrant), never
+   * carried with the answer.
    */
-  | { itemId: string; kind: 'permission' | 'question'; optionId: string; digest?: string; enableIn?: readonly string[] }
+  | { itemId: string; kind: 'permission' | 'question'; optionId: string; digest?: string }
   /** 终端选择器(结算带 `questions` 的提问):每题一个答案,题序与 `Settlement.questions` 一致。 */
   | { itemId: string; kind: 'question'; answers: readonly QuestionAnswer[] }
   | { itemId: string; kind: 'question'; decline: true };

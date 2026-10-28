@@ -26,7 +26,10 @@ import {
 import { isDoubleColumnLayout } from '@session-chat/core/layout/preset';
 import { srOnly } from './message.css';
 import { useChatTranslator } from '@session-chat/localization';
+import { useChatName } from '@session-chat/lib/chat-name';
+import { agentSendLabel } from '@session-chat/state/agent-send';
 import { UserMessageActions } from './UserMessageActions';
+import { CONVERSATION_EXPAND_H, hasConversationActions } from './conversation-body';
 import { UserMessageEditor } from './UserMessageEditor';
 import { messageEditorMetrics } from './message-editor-metrics';
 import {
@@ -42,12 +45,17 @@ import {
   cardVars,
   stopButtonOverlay,
   userCardGroup,
+  userMessageExpand,
+  userMessageExpandRow,
 } from './user-message.css';
 
-export function UserMessageCard(props: { data: ChatMessage; ctx: RenderCtx; vars: MessageVars }) {
+export function UserMessageCard(props: { data: ChatMessage; ctx: RenderCtx; vars: MessageVars; conversation?: boolean }) {
   const translate = useChatTranslator();
+  const chatName = useChatName();
   const commands = useCommands();
   const turn = useTurnState();
+  /** 对话布局里发出去的那条:气泡下面那一行最前面常驻「发到 群名」(管家 10-28)。 */
+  const sentTo = () => props.conversation && props.data.sentTo ? agentSendLabel(props.data.sentTo, translate, chatName) : undefined;
   const mCtx = () => props.ctx.measureCtx?.();
   // Layout-resolved geometry (#4874): `base` narrows padding, drops the border
   // and reserves a left gutter. Same helper as measureMessage so the painted
@@ -90,7 +98,7 @@ export function UserMessageCard(props: { data: ChatMessage; ctx: RenderCtx; vars
   const stack = createMemo<Measured<StackLayout> | null>(() => {
     const ctx = mCtx();
     if (!ctx) return null;
-    const blocks = ctx.caches.parseBlocks(props.data.id, props.data.text);
+    const blocks = props.data.streaming ? ctx.caches.parseBlocksStreaming(props.data.id, props.data.text) : ctx.caches.parseBlocks(props.data.id, props.data.text);
     if (blocks.length === 0) return null;
     const innerCtx = { ...ctx, width: innerWidth() };
     return layoutBlockStack(blocks, innerCtx, { isCollapsed: ctx.isCollapsed });
@@ -105,10 +113,9 @@ export function UserMessageCard(props: { data: ChatMessage; ctx: RenderCtx; vars
     const v = vars();
     if (!ctx) return v.collapsedMaxH;
     const innerW = userInnerWidth(availableWidth(), v);
-    const blocks = ctx.caches.parseBlocks(props.data.id, props.data.text);
-    if (blocks.length === 0) {
-      return ctx.theme.fonts.body.lineHeight + 2 * v.userCardPadY + 2 * v.cardBorder;
-    }
+    const blocks = props.data.streaming ? ctx.caches.parseBlocksStreaming(props.data.id, props.data.text) : ctx.caches.parseBlocks(props.data.id, props.data.text);
+    // 还在流、一个字没到:先占一行的气泡;收口了还没正文(只有附件)就没有气泡。
+    if (blocks.length === 0) return props.data.streaming ? ctx.theme.fonts.body.lineHeight + 2 * v.userCardPadY + 2 * v.cardBorder : 0;
     const innerCtx = { ...ctx, width: innerW };
     const s = layoutBlockStack(blocks, innerCtx, { isCollapsed: ctx.isCollapsed });
     return s.height + 2 * v.userCardPadY + 2 * v.cardBorder;
@@ -163,12 +170,13 @@ export function UserMessageCard(props: { data: ChatMessage; ctx: RenderCtx; vars
 
   return (
     <div
+      data-conversation-body={props.conversation ? props.data.role : undefined}
       class={userMessageRoot}
       style={{
         ...assignInlineVars(cardVars, pxTokens({ ...styleVars(), height: 0 })),
         // `base`:整条右对齐到与气泡同一条边(owner 给的参考是 Kimi 那个形状)。
         ...(isDoubleColumnLayout(layout())
-          ? { width: `${availableWidth()}px`, 'margin-left': 'auto' }
+          ? { width: `${availableWidth()}px`, 'margin-left': props.conversation && props.data.role === 'assistant' ? '0' : 'auto' }
           : {}),
       }}
     >
@@ -189,16 +197,20 @@ export function UserMessageCard(props: { data: ChatMessage; ctx: RenderCtx; vars
         </div>
       </Show>
     <Show when={edit()} fallback={<>
+    {/* 只有附件、没有正文(长文本自动转成的 pasted-text.txt 就是这样):不画气泡 —— 空气泡是一条整行宽的色带。 */}
+    <Show when={!mCtx() || stack() || props.data.streaming}>
     <div
       data-user-card={props.data.id}
+      data-conversation-caret={props.data.conversationCaret ? 'true' : undefined}
       class={`${card({ state: isOverflowing() && !isExpanded() ? 'overflowing' : 'static', current: isGenerating() })} ${cardRoot} ${userCardGroup}`}
       style={{
         ...assignInlineVars(cardVars, pxTokens({ ...styleVars(), height: cardH() })),
-        ...assignInlineVars({ [themeVars.fgBody]: themeVars.bubbleUserFg, [themeVars.link]: themeVars.bubbleUserFg }),
+        // 对话布局里人那一侧的字色由 conversation-message.css 给(跟着气泡底色反色),这里只管 agent 那一侧。
+        ...(props.conversation && props.data.role !== 'assistant' ? {} : assignInlineVars({ [themeVars.fgBody]: props.conversation ? themeVars.fg : themeVars.bubbleUserFg, [themeVars.link]: props.conversation ? themeVars.fg : themeVars.bubbleUserFg })),
         // `base` pill: explicit hug width + right alignment. Left as-is in
         // classic so the card keeps spanning the column (no inline width).
         ...(isDoubleColumnLayout(layout())
-          ? { width: `${paintedWidth()}px`, 'margin-left': 'auto' }
+          ? { width: `${paintedWidth()}px`, 'margin-left': props.conversation && props.data.role === 'assistant' ? '0' : 'auto' }
           : {}),
         // Force overflow:hidden while the UnitRow tween is in flight to avoid
         // a transient scrollbar mid-animation; restore auto only when expanded
@@ -228,8 +240,17 @@ export function UserMessageCard(props: { data: ChatMessage; ctx: RenderCtx; vars
         </button>
       </Show>
     </div>
+    </Show>
+    {/* 对话布局里气泡折着:气泡下面单起一行「展开全文」,再下面才是时间那一行(owner 定稿 0 号图)。点了和点气泡一样展开(ChatRoot 认 `data-expand-user-card`)。 */}
+    <Show when={props.conversation && isOverflowing() && !isExpanded()}>
+      <div class={userMessageExpandRow} style={{ height: `${CONVERSATION_EXPAND_H}px` }}>
+        <button type="button" class={userMessageExpand} data-expand-user-card={props.data.id}>{translate('transcript.showFullText')}</button>
+      </div>
+    </Show>
+    <Show when={!props.conversation || hasConversationActions(props.data)}>
     <UserMessageActions itemId={props.data.id} text={props.data.text} at={props.data.at}
-      generating={isGenerating()} readOnly={Boolean(props.data.guguDelivery)} vars={props.vars} />
+      generating={isGenerating()} readOnly={Boolean(props.data.guguDelivery) || (props.conversation && props.data.role === 'assistant')} vars={props.vars} prefix={sentTo()} />
+    </Show>
     </>}>
       {(editing) => <UserMessageEditor edit={editing()} height={editorMetrics().height} textHeight={editorMetrics().textHeight} />}
     </Show>

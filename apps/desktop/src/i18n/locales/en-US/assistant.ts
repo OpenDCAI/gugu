@@ -1,4 +1,5 @@
 export default {
+  "resourceKinds": {"memory": "Memory", "personality": "Personality", "files": "Files", "skills": "Skills", "schedules": "Scheduled task", "integrations": "Application", "voice-notes": "Voice note", "capabilities": "Capability", "device-notes": "Device note", "tasks": "Task"},
   "library": {
     "saveFailed": "Could not save. Your input is preserved. If the entry changed elsewhere, reopen it before editing.",
     "emptyContent": "No instructions yet.",
@@ -9,19 +10,19 @@ export default {
     "entryName": "Name",
     "add": "Add entry",
     "edit": "Edit entry",
-    "savedNotificationFailed": "Saved; delivery of the update to your assistant is unconfirmed",
     "memory": "Memory", "workspace": "Projects", "capabilities": "Capabilities", "devices": "Devices",
-    "loading": "Reading…", "failed": "Resources could not be read. Please retry.", "items": "{{count}} entries",
+    "loading": "Reading…", "failed": "Resources could not be read. Please retry.", "items_one": "{{count}} entry", "items_other": "{{count}} entries",
     "notConfigured": "Not configured yet", "setup": "Set up together", "organize": "Organize in chat", "backToIndex": "Back to index",
     "setupNote": "Group entries by purpose, with a separate description and index for each.", "emptyIndex": "No notes yet. Add an entry or organize them in chat.",
     "setupPrompt": "Read Gugu’s existing {{kind}} entries and actual connection status, then organize their descriptions and indexes by purpose. Reuse entries. Add what I need. Never save credentials or treat notes as proof of authorization.",
     "useFolder": "Use this folder as a project", "projectPrompt": "Associate the existing folder {{path}} with a project. Check the actual device, folder and registered projects first; reuse existing files without duplication. Ask me for any decisions or missing information.",
-    "sources": "Memory sources", "deviceAccess": "Device connections and permissions",
+    "deviceAccess": "Device connections and permissions",
     "onThisComputer": "Stored on this computer", "onAssistantDevice": "Stored on the assistant’s device",
     "ungrouped": "Other", "hasIndex": "View instructions and index", "missingIndex": "No entry instructions yet", "longTerm": "Long-term knowledge and preferences",
     "guguProjects": "The same projects as the Gugu projects page.", "noGuguProjects": "No Gugu projects yet.",
     "projectOrganizePrompt": "Read existing Gugu projects and help organize their documents and indexes. Do not create a separate project registry. Reuse Gugu project and folder attachment operations and check ownership before linking an existing folder.",
-    "projectFolderSessions": "{{count}} conversations"
+    "projectFolderSessions_one": "{{count}} conversation",
+    "projectFolderSessions_other": "{{count}} conversations"
   },
   "links": { "task": "View work: {{title}}", "unavailable": "This reference was removed or is not accessible" },
   "question": {
@@ -34,11 +35,34 @@ export default {
   "intro": {
     "title": "Meet Gugu",
     "guguTitle": "Gugu",
-    "guguBody": "Your personal super assistant, keeping track of plans and handling everyday work.",
+    "messagesTitle": "Messages",
+    "partnersTitle": "Partners",
     "projectsTitle": "Projects",
-    "projectsBody": "Your workspace for working closely with Agents on complex tasks.",
     "chatsTitle": "Chats",
-    "chatsBody": "Collaborate with other people and each other’s Agents."
+    "phone": {
+      "guguBody": "Your personal assistant for plans and everyday tasks. Find Gugu at the top of Messages.",
+      "messagesBody": "Conversations with friends, groups and projects, including each other’s Agents.",
+      "partnersBody": "Find projects and friends here. Each project is a group."
+    },
+    "desktop": {
+      "guguBody": "Your personal assistant for plans and everyday tasks. At the top of the left rail.",
+      "projectsBody": "Work with Agents in a group for each project. Find Projects in Messages.",
+      "chatsBody": "Talk and collaborate with friends and each other’s Agents. Find Chats in Messages."
+    }
+  },
+  "hints": {
+    "phone": {
+      "assistant": "Gugu is your personal assistant. Ask it to track plans and get things done.",
+      "collaboration": "Find projects and friends here. Open one to start collaborating."
+    },
+    "desktop": {
+      "assistant": "Your personal assistant is here. Tell it your plans and tasks.",
+      "collaboration": "Each project is a group. Work with Agents to move it forward."
+    },
+    "dismiss": "Got it",
+    "unreadable": "Could not read hint progress. Please retry.",
+    "saveFailed": "Hint progress was not saved. Please retry.",
+    "retry": "Retry"
   },
   "rail": "Gugu",
   "nav": {
@@ -67,18 +91,19 @@ export default {
     "more": "More actions"
   },
   "machine": {
-    "connecting": "Connecting to {{name}}…",
-    "connectFailed": "Can't reach {{name}}: ",
-    "dropped": "Lost the connection to {{name}}.",
-    "reconnect": "Reconnect",
-    "unreachable": "Can't reach {{name}} right now. Check it under the gear.",
-    "computerOff": "{{name}} lives on {{device}} and is only around while it is on. It is off right now, so this can't load.",
-    "computerGone": "The computer {{name}} lives on is no longer among your devices, so this can't load.",
-    "noWorkdir": "Can't find {{name}}'s own session, so its files can't be read.",
+    "stale": "This resource has not been updated to its current version.",
+    "applicationFailed": "{{domain}} “{{resource}}” could not be applied.",
+    "changed": "This item has changed. Reopen it before editing.",
+    "authorizationUnavailable": "Authorization could not start because its execution environment is unavailable.",
+    "accessFailed": "Access to this resource could not be verified.",
+    "identityFailed": "The owner of this assistant resource could not be determined.",
+    "invalidResource": "The resource name or content is invalid.",
+    "tooLarge": "This resource exceeds the save limit.",
+    "unprepared": "Not prepared yet",
+    "readTimedOut": "This content could not be read in time. It will refresh automatically.",
+    "collectionFailed": "This resource could not be read. It will refresh automatically.",
     "openFailed": "Couldn't open {{name}}'s files",
     "readFailed": "Couldn't read it: {{message}}",
-    "updating": "{{where}} is updating to the new version. This will show up on its own when it's done.",
-    "updateFailed": "{{where}} couldn't update to the new version.",
     "retry": "Retry"
   },
   "onboarding": {
@@ -114,6 +139,8 @@ export default {
     "homeNoComputerBody": "It has to live on a computer, or get a membership to live in the cloud.",
     "memberLink": "About membership",
     "installing": "Setting up a home for {{name}}…",
+    "cancelling": "Cancelling…",
+    "cleanupFailed": "Preparation files could not be cleared. Retry cleanup before going back.",
     "installingBody": "The first time it installs the program it runs on; this takes a minute or two.",
     "stillStarting": "{{name}} is still starting on this computer. Try again in a moment.",
     "failed": "Setting up didn't work. Please try again.",
@@ -161,7 +188,8 @@ export default {
     "confirmTitleToComputer": "Move {{name}} back to this computer",
     "confirmItems": "Its name, memory, personality, instructions, skills and the files you gave it all move together.",
     "confirmCloudModel": "The cloud uses Gugu-provided models. Your local model subscription won't be transferred.",
-    "confirmSize": "{{files}} files, {{size}} in all.",
+    "confirmSize_one": "{{count}} file, {{size}} in all.",
+    "confirmSize_other": "{{count}} files, {{size}} in all.",
     "confirmAccounts": "These accounts move with {{name}} (the old copy is removed, only one is kept):",
     "confirmAccountsNoteComputer": "Other sessions on this computer that need them will have to connect again.",
     "confirmAccountsNoteCloud": "Other sessions in the cloud that need them will have to connect again.",
@@ -184,9 +212,12 @@ export default {
     "movingTitle": "Moving…",
     "movingNote": "Keep Gugu open until it's done.",
     "doneTitle": "All moved",
-    "doneAccounts": "{{count}} accounts moved.",
-    "doneSchedules": "{{count}} schedules set again.",
-    "doneFiles": "{{count}} files copied.",
+    "doneAccounts_one": "{{count}} account moved.",
+    "doneAccounts_other": "{{count}} accounts moved.",
+    "doneSchedules_one": "{{count}} schedule set again.",
+    "doneSchedules_other": "{{count}} schedules set again.",
+    "doneFiles_one": "{{count}} file copied.",
+    "doneFiles_other": "{{count}} files copied.",
     "doneNotMoved": "These didn't come along:",
     "doneNotMovedCli": "{{name}}: connect it again in the new home.",
     "doneNotMovedExists": "{{name}}: the new home already has a different account under the same name, so this one wasn't overwritten and stays where it was.",
@@ -238,8 +269,10 @@ export default {
     "processing": "Working",
     "elapsed": "{{seconds}}s",
     "thoughtSeconds": "Thought for {{seconds}}s",
-    "thoughtCount": "{{count}} thinking steps",
-    "toolCount": "{{count}} tool calls",
+    "thoughtCount_one": "{{count}} thinking step",
+    "thoughtCount_other": "{{count}} thinking steps",
+    "toolCount_one": "{{count}} tool call",
+    "toolCount_other": "{{count}} tool calls",
     "thinkingDetails": "Show or hide thinking details"
   },
   "header": {
@@ -399,7 +432,14 @@ export default {
   "tasks": {
     "closeChat": "Close task chat",
     "agent": "Agent",
-    "chatUnavailable": "The task agent is not available yet. Refresh and try again.",
+    "chatUnavailable": "This task is currently unavailable.",
+    "starting": "Starting",
+    "liveWaking": "Waking the device. Live records will connect automatically.",
+    "liveUnavailable": "Live records are unavailable",
+    "liveTimedOut": "The execution device did not connect in time.",
+    "liveDisconnected": "The execution device disconnected.",
+    "liveDeviceOffline": "The execution device is offline.",
+    "workState": { "active": "In progress", "completed": "Completed", "cancelled": "Cancelled", "failed": "Not completed" },
     "collaborationLoading": "Loading the assistant’s collaboration with this task agent…",
     "collaborationUnavailable": "The complete collaboration history is currently unavailable.",
     "collaborationReady": "Includes assistant collaboration history",
@@ -417,7 +457,6 @@ export default {
     "unseen": "Has unseen results",
     "emptyTitle": "No tasks yet",
     "loadFailed": "Couldn't load tasks",
-    "notRead": "{{name}}'s tasks can only be read while it's awake."
   },
   "routines": {
     "loadFailed": "Couldn't load scheduled tasks. Try again shortly.",
@@ -452,22 +491,6 @@ export default {
     "gone": "It may have been deleted."
   },
   "memory": {
-    "pending": {
-      "title": "Unfinished work",
-      "count": "{{count}} items",
-      "note": "Clearing removes recovery entries without cancelling tasks.",
-      "retry": "Could not read. Retry",
-      "loading": "Loading…",
-      "empty": "No pending entries",
-      "uncertain": "Delivery needs verification",
-      "needsSource": "Source missing; cannot recover automatically",
-      "blocked": "Waiting for the device task host",
-      "question": "Waiting for your answer",
-      "executor": "Waiting for task results",
-      "source": "Original request",
-      "clear": "Clear entries",
-      "clearFailed": "Could not clear. Try again."
-    },
     "loadFailed": "Couldn't load memories. Try again shortly.",
     "aboutUserTitle": "What I know about {{owner}}",
     "updated": "Updated {{time}}",
@@ -475,10 +498,10 @@ export default {
     "fasterPrompt": "Please help me set up memory faster.",
     "all": "All",
     "voiceNotes": "Voice notes",
-    "voiceNotesCount": "Meetings and voice",
     "voiceNotesEmptyTitle": "No voice notes yet",
     "voiceLoadFailed": "Couldn't load voice notes",
-    "items": "{{n}} items",
+    "items_one": "{{count}} item",
+    "items_other": "{{count}} items",
     "createdBy": "Noted by {{name}}",
     "filter": {
       "user": "About you",
@@ -492,6 +515,7 @@ export default {
     "noContent": "Nothing here yet.",
     "editInChat": "Edit in chat",
     "editPrompt": "I'd like to change the memory “{{name}}”: ",
+    "editAboutMePrompt": "About what you've noted about me, I'd like to change: ",
     "deleteTitle": "Delete this memory?",
     "deleteBody": "“{{name}}” will be removed permanently. This can't be undone.",
     "deleted": "Deleted",
@@ -502,7 +526,8 @@ export default {
   "health": {
     "desktopEmpty": "No health data yet",
     "title": "Health",
-    "tileSub": "{{n}} metrics",
+    "tileSub_one": "{{count}} metric",
+    "tileSub_other": "{{count}} metrics",
     "tileSubEmpty": "Sleep, activity, heart rate",
     "from": "From {{device}} · updated {{time}}",
     "refresh": "Refresh",
@@ -510,11 +535,11 @@ export default {
     "emptyStateTitle": "Your health at a glance",
     "emptyStateSubtitle": "Connect your health data to see sleep, recovery, activity and more in one place.",
     "state": {
-      "noPhone": "In 咕咕 on your phone, open Me → This phone, turn on \"Let the assistant use this phone\", then connect Health.",
+      "noPhone": "Allow health data access in My → Permissions.",
       "oldApp": "咕咕 on {{device}} is too old to read health data. Update it and try again.",
       "offline": "{{device}} is offline (last seen {{time}}). Open 咕咕 on the phone and try again.",
       "offlineNever": "{{device}} is offline. Open 咕咕 on the phone and try again.",
-      "notGranted": "In 咕咕 on {{device}}, open Me → This phone and connect Health.",
+      "notGranted": "On {{device}}, open My → Permissions and allow health data access.",
       "osPermission": "{{device}} hasn't allowed 咕咕 to read health data in Health Connect yet.",
       "unsupported": "{{device}} has no Health Connect (built in from Android 14), so health data can't be read.",
       "failed": "Couldn't read it this time: {{message}}",
@@ -528,9 +553,9 @@ export default {
       "notAndroid": "Health data can only be read in the 咕咕 Android app.",
       "oldApp": "咕咕 on this phone is too old to read health data. Update it and try again.",
       "unsupported": "This phone has no Health Connect (built in from Android 14), so health data can't be read.",
-      "notGranted": "咕咕 hasn't been allowed to read health data in Health Connect yet.",
-      "osPermission": "The system won't let 咕咕 read health data right now. Allow it again in Health Connect.",
-      "grant": "Allow access"
+      "notGranted": "Allow health data access in My → Permissions.",
+      "osPermission": "System access is not granted. Manage it in My → Permissions.",
+      "grant": "Manage permissions"
     },
     "retry": "Try again",
     "today": "Today",
@@ -615,10 +640,12 @@ export default {
     }
   },
   "files": {
+    "saveFailed": "Some files could not be saved.",
     "note": "Add files about you. They go into {{name}}'s “{{folder}}”, where it can read them anytime.",
     "upload": "Upload files",
     "uploading": "Uploading {{name}}…",
-    "uploaded": "Uploaded {{n}} files",
+    "uploaded_one": "Uploaded {{count}} file",
+    "uploaded_other": "Uploaded {{count}} files",
     "uploadFailed": "Couldn't upload {{name}}: {{message}}",
     "uploadedBanner": "Uploaded {{files}}",
     "analyze": "Have {{name}} look",
@@ -690,6 +717,19 @@ export default {
     "title": "Capabilities and connections"
   },
   "connectors": {
+    "wechatDescription": "Talk to Gugu in WeChat",
+    "paused": "Paused",
+    "retrying": "Reconnecting",
+    "savedCount": "{{count}} added",
+    "connectedCount": "{{count}} connected",
+    "deviceCount_one": "{{count}} device",
+    "deviceCount_other": "{{count}} devices",
+    "unverified": "Not yet verified",
+    "prepareFailed": "Authorization preparation is unavailable.",
+    "authorizationUnavailable": "The cloud service needed for authorization is unavailable.",
+    "authorizationTimedOut": "Preparing the authorization environment timed out; authorization has not started.",
+    "authorizationCreditsExhausted": "There are not enough credits to start authorization.",
+    "authorizationMembershipExpired": "Your membership has expired; authorization cannot start.",
     "title": "Connected apps",
     "note": "Account services and data on your devices that {{name}} can use for you",
     "pageSub": "Connect services and data so {{name}} can help you better.",
@@ -702,7 +742,6 @@ export default {
     "cloudNote": "Authorizations are stored on {{name}}'s cloud device and work even with your computers off.",
     "connectedGroup": "Connected",
     "savedGroup": "Added",
-    "retryCheck": "Check again",
     "manage": "Manage connection",
     "availableGroup": "Available",
     "connect": "Connect",
@@ -742,7 +781,6 @@ export default {
     "disconnectAccountBody": "Only {{account}} is disconnected; other accounts are not affected.",
     "setup": {
       "downloadProgress": "Download progress",
-      "progressUnreadable": "Download progress is unavailable; installation is still running.",
       "installing": "Verifying and installing…",
       "downloading": "Preparing download…",
       "downloadBytes": "Downloaded {{received}} / {{total}} MB",
@@ -774,9 +812,12 @@ export default {
         "not-callback": "That doesn't look like an authorization result. Copy the full address shown in the browser after you approve.",
         "state-mismatch": "That address is from a different authorization. Copy it again from the browser, or start over."
       },
-      "cliIntro": "Gugu installs the official {{name}} command-line tool where {{assistant}} lives and signs in. Once you confirm in {{name}}, {{assistant}} can use it.",
+      "cliIntro": "Confirm authorization in {{name}} to connect.",
       "prerequisiteLink": "Open the admin console",
-      "cliPreparing": "Getting the {{name}} tool ready. The first time it downloads, which can take a minute…",
+      "cliPreparing": "Preparing the connection…",
+      "cliPrepareTimedOut": "Connection preparation did not respond. Please try again.",
+      "cloudUpdating": "Gugu in the cloud is too old. Updating to {{version}}…",
+      "cloudUpdated": "Gugu in the cloud has updated. Try connecting again.",
       "cliWaiting": "Waiting for authorization…",
       "cliDeviceHint": "Open the {{name}} authorization page and approve. The page should show this code:",
       "cliCode": "Authorization code",
@@ -868,7 +909,8 @@ export default {
     "title": "Close {{name}}?",
     "body": "Its memories, personality, the files you gave it and its scheduled tasks are cleared, and your chat with it is no longer shown. This can't be undone.",
     "checking": "Checking which sessions it started…",
-    "deleteStarted": "Also delete the sessions it started ({{count}})",
+    "deleteStarted_one": "Also delete the session it started ({{count}})",
+    "deleteStarted_other": "Also delete the sessions it started ({{count}})",
     "keepStartedNote": "Leave this unticked to keep them; they open as usual.",
     "unreadable": "Couldn't read which sessions it started, so it can't be closed right now. Try again later.",
     "confirm": "Close and clear",
@@ -917,7 +959,6 @@ export default {
     "unreadableTitle": "Can't find your Gugu right now",
     "unreadable": "Take a look in Gugu, then press the shortcut again in a bit.",
     "chatFailedTitle": "Couldn't open your chat with {{name}}",
-    "chatFailed": "The network may have dropped for a moment.",
     "opening": "Opening your chat with {{name}}…",
     "emptyTitle": "Say something to {{name}}",
     "empty": "Press Enter to send; Shift + Enter for a new line.",

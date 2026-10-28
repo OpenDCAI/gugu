@@ -1,5 +1,5 @@
 import { join } from 'node:path'
-import type { ImportedTranscriptTurn, TranscriptSource } from '../../shared/types/transcripts'
+import type { ImportedTranscriptTurn, TranscriptSource, TranscriptContext } from '../../shared/types/transcripts'
 
 // 「导入外部历史」的**引擎侧契约**。
 //
@@ -22,6 +22,8 @@ import type { ImportedTranscriptTurn, TranscriptSource } from '../../shared/type
  * 空对象 `{}` 与 `null` 对通用层等价，写哪个都行。
  */
 export interface TranscriptFrame {
+  /** Compact observation from the same source record, never instruction bodies or tool output. */
+  context?: Partial<Pick<TranscriptContext, 'loaded' | 'nested' | 'refs'>>
   /**
    * 这条记录属于**子 agent 旁支**，不是用户自己那条会话。
    *
@@ -93,7 +95,7 @@ export interface JsonlTranscriptSourceSpec {
    * 一行解析出的 JSON 对象 → 一帧。**纯函数**，不碰磁盘、不看上下文（通用层不保证顺序之外的
    * 任何东西）。解析不出 JSON 的行通用层已经滤掉，这里拿到的一定是对象。
    */
-  readFrame(entry: Record<string, unknown>): TranscriptFrame | null
+  readFrame(entry: Record<string, unknown>, view?: 'context'): TranscriptFrame | null
 }
 
 export type TranscriptSourceSpec = JsonlTranscriptSourceSpec

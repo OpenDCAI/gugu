@@ -1,3 +1,6 @@
+import { hostAsks } from '../../../../../../../../tests/support/ask-service';
+vi.mock('../../asks', () => import('../../../../../../../../tests/support/ask-service'));
+vi.mock('../../asks/ask', () => import('../../../../../../../../tests/support/ask-service'));
 import fs from 'node:fs';
 import http from 'node:http';
 import os from 'node:os';
@@ -13,6 +16,8 @@ import WebSocket from 'ws';
  *   GUGU_CLOUD_BROWSER_REAL=<chrome 或 chrome-headless-shell 的路径> npx vitest run --project session-main <本文件>
  */
 const chrome = process.env.GUGU_CLOUD_BROWSER_REAL;
+const FILLED_BY_PERSON = new RegExp('^' + 'The person entered their login for http://127.0.0.1:PORT and it was filled into the page (username and password). You never see the credentials and must not ask the person to type them in chat. Now submit the form (click the login button) and check the result with browser_snapshot.'
+  .replace(/[.*+?^${}()|[\]\\]/g, '\\$&').replace('PORT', '\\d+') + '$');
 const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'gugu-cloud-browser-'));
 const statusHook = vi.hoisted(() => ({ cb: null as null | ((change: { sessionId: string; reading: { running: boolean } }) => void) }));
 
@@ -71,7 +76,7 @@ describe.skipIf(!chrome)('cloud browser against a real Chrome', () => {
     try {
       const client = await tools.client();
       const { redactOutputFiles, redactToolResult, withoutOwnFilename } = await import('../../../../../browser-agent-mcp');
-      // 与 createBrowserAgentMcpHost 的 CallTool 一样:不许自己挑文件名、Playwright 落盘的文字也盖掉
+      // 与 callBrowserTool 一样:不许自己挑文件名、Playwright 落盘的文字也盖掉
       const raw = (await client.callTool({ name, arguments: withoutOwnFilename(name, args) })) as import('@modelcontextprotocol/sdk/types.js').CallToolResult;
       redactOutputFiles(tools.outputDir, startedAt, bridge.redact!);
       const result = redactToolResult(raw, bridge.redact);
@@ -168,12 +173,15 @@ describe.skipIf(!chrome)('cloud browser against a real Chrome', () => {
 
     // 密码保险箱:agent 请登录 → 人在保险箱里填 → 页面里填上了,工具结果和快照里都没有密码
     const login = browser.requestLogin(sessionId, { reason: '查订单' });
-    const ask = await until(() => messages.find((m) => m.type === 'state' && (m.assistance as { kind?: string } | null)?.kind === 'login'));
-    const requestId = (ask.assistance as { requestId: string }).requestId;
+    const pending = await until(() => [...(hostAsks.get(sessionId)?.values() ?? [])].find(item => item.request.origin?.source === 'browser-assistance'));
+    const requestId = pending.request.itemId;
+    expect(pending.request.origin?.payload).not.toHaveProperty('password');
     socket.send(JSON.stringify({ type: 'vault_submit', requestId, username: 'alice', password: 'S3cret-pass!', save: true }));
     await until(() => messages.find((m) => m.type === 'vault_result' && m.ok === true));
     const told = await login;
     expect(told.ok).toBe(true);
+    // What the agent is told after the person logged in (#7199): which fields were filled and whether it was saved.
+    expect(told.message).toMatch(FILLED_BY_PERSON);
     expect(told.message).not.toContain('S3cret');
     expect(told.message).not.toContain('alice');
     const after = await call('browser_snapshot');

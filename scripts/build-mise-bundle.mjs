@@ -1,9 +1,10 @@
 // Pin and verify the installer engine at build time; desktop users never need to bootstrap it online.
 import { execFileSync } from 'node:child_process'
-import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, renameSync, rmSync, writeFileSync } from 'node:fs'
+import { chmodSync, copyFileSync, existsSync, mkdirSync, mkdtempSync, readFileSync, renameSync, rmSync, writeFileSync } from 'node:fs'
 import { dirname, join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { defaultMiseCacheDir, DEFAULT_MISE_DOWNLOAD_BASE, obtainMiseArchive } from './mise-archive-cache.mjs'
+import { assertPeMachine } from './cua-driver-release.mjs'
 
 const root = dirname(dirname(fileURLToPath(import.meta.url)))
 const release = JSON.parse(readFileSync(join(root, 'apps/desktop/src/session/shared/core/agents/mise-release.json'), 'utf8'))
@@ -51,4 +52,25 @@ if (existsSync(executable) && existsSync(join(destination, 'release.json')) && r
   } finally {
     rmSync(temporary, { recursive: true, force: true })
   }
+}
+
+if (platform === 'win32') {
+  // Both pinned Windows executables import only vcruntime140.dll from the VC runtime.
+  // App-local deployment: use VS's redistributable, never a DLL from System32 (which
+  // may have the host architecture instead of the target's). Windows packaging
+  // already requires VS 2022 for native modules. See Microsoft's redistribution list:
+  // https://learn.microsoft.com/visualstudio/releases/2022/redistribution
+  const runtime = execFileSync('powershell.exe', ['-NoProfile', '-NonInteractive', '-Command', `
+    $ErrorActionPreference = 'Stop'
+    $vswhere = Join-Path ([Environment]::GetFolderPath('ProgramFilesX86')) 'Microsoft Visual Studio\\Installer\\vswhere.exe'
+    $vs = & $vswhere -latest -products '*' -version '[17.0,18.0)' -requires Microsoft.VisualStudio.Component.VC.Tools.x86.x64 -property installationPath
+    if (-not $vs) { throw 'Visual Studio 2022 C++ build tools are required to bundle the mise runtime' }
+    $version = (Get-Content -LiteralPath (Join-Path $vs 'VC\\Auxiliary\\Build\\Microsoft.VCRedistVersion.default.txt') -Raw).Trim()
+    Join-Path $vs "VC\\Redist\\MSVC\\$version\\${arch}\\Microsoft.VC143.CRT\\vcruntime140.dll"
+  `], { encoding: 'utf8' }).trim()
+  assertPeMachine(executable, arch)
+  assertPeMachine(join(dirname(executable), 'mise-shim.exe'), arch)
+  assertPeMachine(runtime, arch)
+  copyFileSync(runtime, join(dirname(executable), 'vcruntime140.dll'))
+  console.log('[build-mise] bundled app-local vcruntime140.dll for ' + arch)
 }

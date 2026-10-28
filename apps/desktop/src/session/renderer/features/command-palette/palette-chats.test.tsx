@@ -29,10 +29,10 @@ beforeEach(() => {
   (globalThis as typeof globalThis & { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
   opened.links = [];
   publishChatSummaries([
-    { id: '0b1e7c1a-0000-4000-8000-000000000001', kind: 'group', name: '咕咕内测群', last_message_at: '2026-10-23T00:00:00Z', last_message_preview: 'Windows 包装上了' },
-    { id: 'dm-1', kind: 'dm', name: '阿威', last_message_at: '2026-10-22T00:00:00Z', last_message_preview: '周四前对一下新手引导' },
-    { id: TOPIC, kind: 'topic', name: '登录页白屏', source_chat_id: '0b1e7c1a-0000-4000-8000-000000000001', last_message_at: '2026-10-22T00:00:00Z' },
-    { id: 'g-project', kind: 'group', name: '官网', last_message_at: '2026-10-23T00:00:00Z' },
+    { id: '0b1e7c1a-0000-4000-8000-000000000001', kind: 'group', unread_count: 0, name: '咕咕内测群', last_message_at: '2026-10-23T00:00:00Z', last_message_preview: 'Windows 包装上了' },
+    { id: 'dm-1', kind: 'dm', unread_count: 0, name: '阿威', last_message_at: '2026-10-22T00:00:00Z', last_message_preview: '周四前对一下新手引导' },
+    { id: TOPIC, kind: 'topic', unread_count: 0, name: '登录页白屏', source_chat_id: '0b1e7c1a-0000-4000-8000-000000000001', last_message_at: '2026-10-22T00:00:00Z' },
+    { id: 'g-project', kind: 'group', unread_count: 0, name: '官网', last_message_at: '2026-10-23T00:00:00Z' },
   ]);
   publishContactSummaries([{ id: 'person-1', name: '阿威' }]);
   host = document.createElement('div');

@@ -9,20 +9,15 @@ const exchange = (id: string, fromSessionId: string, toSessionId: string, second
 const human = { id: 'human-message', chat_id: 'dm', sender_user_id: 'owner', content: 'please continue', created_at: '2026-10-16T12:00:02Z', seq: 1 } as MessageItem
 
 describe('one task chat with three real senders', () => {
-  it('removes an earlier pending status once that agent replies in the same stream, preserving unrelated and newer notices', () => {
-    const pending = { ...human, id: 'pending', sender_user_id: 'assistant-id', seq: 2, content_type: 'system',
-      client_message_id: 'turn-failure:pending:notAdmitted' } as MessageItem
-    const ids = (messages: MessageItem[]) => taskChatRows(messages, [], null, '').map(row => row.message.id)
-    const other = { ...human, id: 'other', sender_user_id: 'other-agent', seq: 4 }
-    const thread = { ...human, id: 'thread', sender_user_id: 'assistant-id', seq: 5, thread_root_id: 'thread' }
-    const reply = { ...human, id: 'reply', sender_user_id: 'assistant-id', seq: 6, content_type: 'text' } as MessageItem
-    expect(ids([human, pending, other, thread, { ...reply, retracted_at: 'now' }])).toContain('pending')
-    const newer = { ...pending, id: 'newer', seq: 7, client_message_id: 'turn-failure:newer:notAdmitted' }
-    const failure = { ...pending, id: 'terminal', client_message_id: 'turn-failure:terminal:generic' }
-    expect(ids([human, pending, other, thread, reply, newer, failure])).toEqual(['human-message', 'other', 'thread', 'reply', 'newer', 'terminal'])
-    expect(ids([pending, { ...reply, chat_id: 'another-chat' }])).toContain('pending')
-    expect(ids([pending, { ...reply, is_whisper: true }])).toContain('pending')
-    expect(pending.client_message_id).toBe('turn-failure:pending:notAdmitted')
+  it('does not duplicate a collaboration event already present as its original cloud message', () => {
+    const event = { ...exchange('cloud-event','assistant-session','task-session',1),sourceMessageId: human.id }
+    expect(taskChatRows([human],[event],task,'').map(row=>row.message.id)).toEqual([human.id])
+  })
+  it('draws no pending-delivery row (the waiting bubbles say it), and keeps real failures', () => {
+    const row = (id: string, reason: string) => ({ ...human, id, sender_user_id: 'assistant-id', seq: 2, content_type: 'system',
+      client_message_id: `turn-failure:${id}:${reason}` }) as MessageItem
+    const ids = taskChatRows([human, row('held', 'notAdmitted'), row('offline', 'undelivered'), row('quota', 'weeklyQuota')], [], null, '').map(r => r.message.id)
+    expect(ids).toEqual(['human-message', 'quota'])
   })
   it('bounds initial collaboration rendering and keeps earlier records reachable without dropping IM messages', () => {
     const entries = Array.from({ length: 180 }, (_, index) => ({ ...exchange(String(index), 'assistant-session', 'task-session', 1), createdAt: new Date(Date.parse('2026-10-16T12:00:00Z') + index * 1000).toISOString() }))

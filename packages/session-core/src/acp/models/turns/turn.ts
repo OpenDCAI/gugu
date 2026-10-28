@@ -23,6 +23,21 @@ export const transcriptTurnInitiatorSchema = z.enum(['user', 'agent']);
 export type TranscriptTurnInitiator = z.infer<typeof transcriptTurnInitiatorSchema>;
 
 /**
+ * 这一轮是被什么起的(2026-10-28,界面据此说「在处理「gugu」群消息」,运行时据此决定主人的话插不插进去)。
+ * - `owner`:主人在会话页输入框亲手打的(origin `manual`;`typed` 不算);
+ * - `delivery`:投递起的(群消息、私聊、会话直发、`typed` 原样送进来的正文);`chatIds` 是信封里的 `chat=`,
+ *   即会话的**公开号**(如 `216125`),❌ 不是 chat uuid —— 取群名要按公开号查;几条并成一轮时是多个,没有信封时缺席;
+ * - `schedule`:到点的定时任务;
+ * - `agent`:没有一句在飞时 agent 自己开的(后台命令 / 子任务跑完的通知)。
+ * 缺席 = 旧记录或回放重建的轮次,读者按 `initiator` 退化。
+ */
+export const transcriptTurnTriggerSchema = z.object({
+  kind: z.enum(['owner', 'delivery', 'schedule', 'agent']),
+  chatIds: z.array(z.string()).optional(),
+});
+export type TranscriptTurnTrigger = z.infer<typeof transcriptTurnTriggerSchema>;
+
+/**
  * Successful turn reasons come from foreground idle. `cycle_end` preserves a boundary
  * whose native reason was absent, null or unknown; `foreground` retains the original fact.
  *
@@ -119,6 +134,8 @@ export const transcriptTurnSchema = z.object({
   seq: z.number().int(),
   /** Who opened the turn: a user prompt or agent-originated background activity. */
   initiator: transcriptTurnInitiatorSchema,
+  /** What started it (see `transcriptTurnTriggerSchema`); absent on old or replayed turns. */
+  trigger: transcriptTurnTriggerSchema.optional(),
   /**
    * Epoch ms read off the wall clock at the moment this turn opened.
    *

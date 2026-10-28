@@ -8,6 +8,30 @@ import {
   type TranscriptFrame
 } from '../transcriptSource'
 import { isDeliveryEnvelope } from '../deliveryEnvelope'
+import { contextToolRefs, type ContextFrame } from './contextProjection'
+
+function claudeContext(entry: Record<string, unknown>, record: ClaudeRecord): ContextFrame {
+  const context: ContextFrame = { refs: record.items.flatMap((item) => item.kind === 'tool_use' ? contextToolRefs(item.name, item.input) : []) }
+  const attachment = entry.type === 'attachment' ? asRecord(entry.attachment) : null
+  if (attachment?.type === 'instructions') {
+    const rendering = entry.rendered ?? attachment.rendered
+    const blocks = typeof rendering === 'string' ? [rendering] : Array.isArray(rendering)
+      ? rendering.flatMap((value) => { const content = asRecord(value)?.content; return typeof content === 'string' ? [content] : [] }) : null
+    const rendered = blocks?.join('') ?? null
+    const warnings = rendered?.split('\n').filter((line) => /WARNING[^\n]*(?:truncat|limit|too long)/i.test(line)) ?? []
+    const files = Array.isArray(attachment.files) ? attachment.files : []
+    const paths = files.flatMap((value) => { const path = asRecord(value)?.path; return typeof path === 'string' ? [path] : [] })
+    context.loaded = files.flatMap((value) => {
+      const file = asRecord(value)
+      return file && typeof file.path === 'string' && typeof file.content === 'string'
+        ? [{ path: file.path, kind: 'instruction-file' as const, scope: typeof file.type === 'string' ? file.type : null, chars: file.content.length, truncated: warnings.some((line) => line.includes(file.path as string) || (!paths.some((path) => line.includes(path)) && line.includes((file.path as string).split(/[\\/]/).at(-1)!))), at: record.timestamp }]
+        : []
+    })
+    if (rendered !== null) context.loaded.push({ path: null, kind: 'rendered-total', scope: null, chars: rendered.length, truncated: warnings.length > 0, at: record.timestamp })
+  }
+  if (attachment?.type === 'nested_memory' && typeof attachment.path === 'string') context.nested = [{ path: attachment.path, at: record.timestamp }]
+  return context
+}
 
 // Claude Code 的本机会话：`~/.claude/projects/<项目目录>/<sessionId>.jsonl`。
 // 逐行 JSON，每行自带 sessionId / cwd / timestamp。
@@ -42,6 +66,8 @@ export interface ClaudeRecord {
    * 用这一行的 uuid —— 连着的两条输入没有各自的 id，就会被接成一条。
    */
   messageId: string | null
+  /** An input inserted into the current native cycle, rather than a new turn. */
+  steering?: boolean
   items: ClaudeRecordItem[]
   end: ClaudeRecordEnd | null
 }
@@ -191,6 +217,7 @@ export function readClaudeRecord(entry: Record<string, unknown>): ClaudeRecord {
   const queued = queuedPrompt(entry)
   if (queued) {
     record.messageId = uuid
+    record.steering = true
     record.items = readItems(queued.content, 'user', queued.isMeta)
     return record
   }
@@ -225,11 +252,11 @@ export const claudeCodeTranscriptSource: JsonlTranscriptSourceSpec = {
 
   recordsDir: 'projects',
 
-  readFrame(entry): TranscriptFrame | null {
+  readFrame(entry, view): TranscriptFrame | null {
     const record = readClaudeRecord(entry)
     // 子 agent 旁支 transcript —— 整份文件不是用户会话。
     if (record.sidechain) return { sidechain: true }
-    const frame: TranscriptFrame = { providerSessionId: record.providerSessionId, cwd: record.cwd }
+    const frame: TranscriptFrame = { providerSessionId: record.providerSessionId, cwd: record.cwd, ...(view === 'context' ? { context: claudeContext(entry, record) } : {}) }
     if (record.title) {
       frame.explicitTitle = clipTitle(record.title.text)
       if (record.title.userSet) frame.explicitTitleIsUserSet = true

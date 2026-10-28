@@ -1,6 +1,8 @@
+import { useScreenBlock } from '@renderer/app/screen-block-context';
 import { observer } from 'mobx-react-lite';
 import { useCallback, useEffect, useRef, useState } from 'react';
 import type { ReactNode } from 'react';
+import { Maximize2, Minimize2 } from '@/lib/icons';
 import type { TabHost } from '@renderer/features/tabs/core/tab-host';
 import type { ResolvedTab, TabViewContext } from '@renderer/features/tabs/core/tab-provider';
 import { useSessionMessages } from '@renderer/localization/use-session-messages';
@@ -96,6 +98,29 @@ export const GenericTabItem = observer(function GenericTabItem({
     // Keyboard-initiated selection needs an explicit call since onClick won't fire.
   };
 
+  // 页签全屏:关闭钮前一颗「全屏 / 退出全屏」,双击页签同一件事(瞄一眼的那种双击照旧是留下它)。
+  // 盖住的是整个工作区,所以这屏不止一块时每一枚点着的页签都有;只有一块时只给并排着的那一对(全屏才有区别)。
+  const place = useScreenBlock();
+  const fill = tab.isActive ? host.tabFill(tab.tabId, place.blockId !== null && place.multi) : null;
+  const fillLabel = fill ? translate(fill.full ? 'tabs.restorePane' : 'tabs.fillPane') : '';
+  const fillButton = fill ? (
+    <button
+      type="button"
+      data-testid="tab-fill"
+      aria-pressed={fill.full}
+      aria-label={fillLabel}
+      title={fillLabel}
+      className="flex size-5 shrink-0 items-center justify-center rounded-full text-foreground-muted hover:bg-row-hover hover:text-foreground active:bg-row-press"
+      onPointerDown={(e) => e.stopPropagation()}
+      onClick={(e) => {
+        e.stopPropagation();
+        fill.toggle();
+      }}
+    >
+      {fill.full ? <Minimize2 className="size-3.5" /> : <Maximize2 className="size-3.5" />}
+    </button>
+  ) : null;
+
   const base = tooltip ?? label;
   const fullTitle = tab.isPreview ? `${base} (preview — double-click to keep)` : base;
 
@@ -148,11 +173,12 @@ export const GenericTabItem = observer(function GenericTabItem({
             ) : undefined
           }
           statusSlot={statusSlot}
+          actionSlot={fillButton}
           closeLabel={translate('task.closeTab', { label })}
           onClose={() => host.requestCloseTab(tab.tabId)}
           onMouseEnter={() => host.signalActivateIntent(tab.tabId)}
           onClick={handleSelect}
-          onDoubleClick={() => host.pin(tab.tabId)}
+          onDoubleClick={() => (tab.isPreview || !fill ? host.pin(tab.tabId) : fill.toggle())}
           onKeyDown={(e) => {
             if (e.key === 'Enter' || e.key === ' ') {
               e.preventDefault();

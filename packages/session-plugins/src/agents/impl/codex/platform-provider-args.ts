@@ -1,4 +1,5 @@
 import type { PlatformCallableRoutes } from '@gugu/session-core/agents/plugins';
+import { PLATFORM_STANDALONE_SEARCH_ROUTE, platformStandaloneSearchGranted } from '@gugu/session-core/agents/plugins';
 import { CODEX_WIRE_API } from './platform';
 
 /**
@@ -39,10 +40,15 @@ export const CODEX_IMAGE_GENERATION_MODEL = 'gpt-image-2';
 export const CODEX_ACTOR_AUTHORIZATION_HEADER = 'x-openai-actor-authorization';
 export const CODEX_ACTOR_AUTHORIZATION_SWITCH = 'gugu-image-generation-switch';
 /**
- * 同一个头还会打开 codex 的独立联网搜索工具 `web.run`(`ext/web-search/src/extension.rs:47`),它打
+ * 同一个头也能打开 codex 的独立联网搜索工具 `web.run`(`ext/web-search/src/extension.rs:47`),它打
  * `<base_url>/alpha/search`(`codex-api/src/endpoint/search.rs:15`)。
  */
-export const CODEX_STANDALONE_SEARCH_ROUTE = '/v1/alpha/search';
+export const CODEX_STANDALONE_SEARCH_ROUTE = PLATFORM_STANDALONE_SEARCH_ROUTE;
+
+// HTTP retries emit no app-server notification. Use the visible stream retry loop instead.
+// Codex defaults (4 HTTP retries nested in 5 stream retries) allow 30 attempts with ~24.2s
+// of local backoff. Seven stream retries allow 8 attempts with ~25.4s of local backoff.
+export const CODEX_PLATFORM_RETRY_CONFIG = { request_max_retries: 0, stream_max_retries: 7 } as const;
 
 export function codexImageGenerationGranted(routes: PlatformCallableRoutes | undefined): boolean {
   return routes?.[CODEX_IMAGE_GENERATION_ROUTE]?.includes(CODEX_IMAGE_GENERATION_MODEL) ?? false;
@@ -65,7 +71,7 @@ export function codexImageGenerationGranted(routes: PlatformCallableRoutes | und
  * `FunctionCallError::Fatal`(codex rust-v0.160.0 `ext/web-search/src/tool.rs:151`),咕咕这边没有开关把它降成工具失败。
  * ⚠️ 可见的 `--remote` TUI 建 thread / resume 时会把它**自己**的 `web_search` 当线程配置送给 app-server
  * (codex-rs `tui/src/app_server_session.rs:1856`),盖过 app-server 进程级的 `-c` ⇒ 可见客户端必须拿
- * 同一份 argv(`codexPlatformProviderArgs`),否则 TUI 送去它默认的 `cached`,`web.run` 又回来。
+ * 同一份 argv(`codexPlatformProviderArgs`):无授权时保持 disabled,有授权时显式 live,两条腿不能互相覆盖。
  */
 function codexImageGenerationArgs(providerId: string, routes: PlatformCallableRoutes | undefined, model: string | undefined): string[] {
   if (!codexImageGenerationGranted(routes)) return [];
@@ -73,7 +79,7 @@ function codexImageGenerationArgs(providerId: string, routes: PlatformCallableRo
   return [
     // 内联表写法:codex 把 `-c` 的键按 `.` 裸切(`config/src/overrides.rs`),整张表一次给。
     '-c', `model_providers.${providerId}.http_headers={ ${header} }`,
-    ...(model && routes?.[CODEX_STANDALONE_SEARCH_ROUTE]?.includes(model) ? [] : ['-c', 'web_search="disabled"']),
+    ...(platformStandaloneSearchGranted(routes, model) ? [] : ['-c', 'web_search="disabled"']),
   ];
 }
 
@@ -93,7 +99,15 @@ export function codexPlatformProviderConfigArgs(input: {
     '-c', `model_providers.${id}.base_url=${JSON.stringify(input.baseUrl)}`,
     '-c', `model_providers.${id}.env_key=OPENAI_API_KEY`,
     '-c', `model_providers.${id}.wire_api=${CODEX_WIRE_API}`,
+    ...Object.entries(CODEX_PLATFORM_RETRY_CONFIG).flatMap(([key, value]) => ['-c', `model_providers.${id}.${key}=${value}`]),
     ...codexImageGenerationArgs(id, input.callableRoutes, input.model?.trim()),
+    // Explicitly select standalone search even without the image-generation actor header.
+    // The remote TUI must receive this same block: its thread configuration overrides the server's.
+    ...(platformStandaloneSearchGranted(input.callableRoutes, input.model) ? [
+      '-c', `model_providers.${id}.supports_standalone_web_search=true`,
+      '-c', 'features.standalone_web_search=true',
+      '-c', 'web_search="live"',
+    ] : []),
     ...CODEX_PLATFORM_DISABLE_APPS_ARGS,
   ];
 }

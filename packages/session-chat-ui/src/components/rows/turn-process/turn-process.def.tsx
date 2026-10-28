@@ -27,7 +27,14 @@ import { defineUnit } from '@session-chat/core/units';
 import { useChatTranslator } from '@session-chat/localization';
 import type { TurnProcessItem } from '@session-chat/model';
 import { turnProcessExpanded, turnProcessLabel } from '@session-chat/state/turn-fold';
-import { createEffect, createMemo, createSignal, onCleanup } from 'solid-js';
+import { useCommands } from '@session-chat/components/contexts/CommandsContext';
+import { conversationHeader, conversationName, conversationTime } from '../message/conversation-message.css';
+import { ConversationProcess } from '../message/ConversationProcess';
+import { ProcessBackgroundList, ProcessBackgroundPill, backgroundHeight } from '../message/ConversationMessage';
+import { CONVERSATION_HEADER_H, CONVERSATION_PROCESS_H } from '../message/conversation-body';
+import { SenderName } from '../message/SenderName';
+import { conversationAgentTarget } from '@session-chat/lib/sender-target';
+import { Show, createEffect, createMemo, createSignal, onCleanup } from 'solid-js';
 import { turnProcessHeaderSlot, turnProcessLine, turnProcessRow } from './turn-process.css';
 
 export const turnProcessUnitDef = defineUnit<TurnProcessItem, { extraH: number }>({
@@ -36,13 +43,18 @@ export const turnProcessUnitDef = defineUnit<TurnProcessItem, { extraH: number }
   vars: { extraH: HEADER_ROW_EXTRA_H },
 
   measure(_data, ctx, vars_) {
+    // 对话布局:名字一行 + 过程行,与回复里的那两行一样高 —— 原先按经典头的「一行正文 + 8」再加名字,过程行下面多出一截空白(owner 10-28 第 3 处)。
+    if (ctx.theme.layout.agentConversation) return CONVERSATION_HEADER_H + CONVERSATION_PROCESS_H * (_data.silent ? 2 : 1) + backgroundHeight(_data, ctx);
     return ctx.theme.fonts.body.lineHeight + vars_.extraH;
   },
 
   Render(props) {
     const translate = useChatTranslator();
     const theme = useTheme();
+    const commands = useCommands();
     const height = () => theme().fonts.body.lineHeight + props.vars.extraH;
+    const rowHeight = () => theme().layout.agentConversation
+      ? CONVERSATION_HEADER_H + CONVERSATION_PROCESS_H * (props.data.silent ? 2 : 1) + (props.ctx.measureCtx ? backgroundHeight(props.data, props.ctx.measureCtx()) : 0) : height();
     // ViewState keeps the inverted flag inherited from the original store:
     // `isCollapsed(id) === true` means "toggled" (see view-state.ts).
     const expanded = () => turnProcessExpanded(props.data.live, props.ctx.viewState.isCollapsed(props.data.id));
@@ -53,7 +65,7 @@ export const turnProcessUnitDef = defineUnit<TurnProcessItem, { extraH: number }
     // ❌ 拿外层变量接 setInterval 的返回值:重跑会覆盖它,前一个再也清不掉,每秒一跳、永远活着,
     // 还把整棵已卸载的转录(ChatRoot + DOM)钉在内存里。
     const [now, setNow] = createSignal(Date.now());
-    const ticking = createMemo(() => props.data.live === true && props.data.startedAt !== undefined);
+    const ticking = createMemo(() => !theme().layout.agentConversation && props.data.live === true && props.data.startedAt !== undefined);
     createEffect(() => {
       if (!ticking()) return;
       setNow(Date.now());
@@ -70,21 +82,35 @@ export const turnProcessUnitDef = defineUnit<TurnProcessItem, { extraH: number }
         data-live={props.data.live ? 'true' : 'false'}
         data-expanded={expanded() ? 'true' : 'false'}
         class={turnProcessRow}
-        style={{ height: `${height()}px` }}
+        style={{ height: `${rowHeight()}px` }}
       >
-        <div class={turnProcessLine} data-slot="tool-timeline-line">
-          <div class={turnProcessHeaderSlot}>
-            <CollapseHeader
-              id={props.data.id}
-              collapsible={!props.data.placeholder}
-              expanded={expanded()}
-              active={props.data.live && !props.data.withBody}
-              height={height()}
-            >
-              {label()}
-            </CollapseHeader>
+        <Show when={theme().layout.agentConversation}>
+          <div class={conversationHeader} style={{ height: `${CONVERSATION_HEADER_H}px` }}><SenderName class={conversationName} name={commands().conversationAgentName?.() ?? 'Agent'} target={conversationAgentTarget({ sessionId: commands().conversationAgentSession?.(), userId: commands().conversationAgentUserId?.() })} /></div>
+        </Show>
+        {/* 对话布局:过程行与回复头里那一行同一个样式(conversationTime)—— ❌ 套经典头的 turnProcessLine / 头槽,
+            出正文前后字号 14→12、左右半边差 4px(真机验收 10-28)。 */}
+        <Show when={theme().layout.agentConversation} fallback={
+          <div class={turnProcessLine} data-slot="tool-timeline-line">
+            <div class={turnProcessHeaderSlot}>
+              <CollapseHeader
+                id={props.data.id}
+                collapsible={!props.data.placeholder}
+                expanded={expanded()}
+                active={props.data.live && !props.data.withBody}
+                height={height()}
+              >
+                {label()}
+              </CollapseHeader>
+            </div>
           </div>
-        </div>
+        }>
+          <div class={conversationTime} data-slot="tool-timeline-line" style={{ height: `${CONVERSATION_PROCESS_H}px` }}>
+            <ConversationProcess process={props.data} anchorId={props.data.id} expanded={expanded()} />
+            <ProcessBackgroundPill ownerId={props.data.id} ctx={props.ctx} />
+          </div>
+        </Show>
+        <Show when={theme().layout.agentConversation}><ProcessBackgroundList ownerId={props.data.id} ctx={props.ctx} /></Show>
+        <Show when={theme().layout.agentConversation && props.data.silent}><div class={conversationTime} style={{ height: `${CONVERSATION_PROCESS_H}px` }}>{translate('transcript.processSilent')}</div></Show>
       </div>
     );
   },

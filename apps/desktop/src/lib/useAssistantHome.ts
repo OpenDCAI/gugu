@@ -11,8 +11,8 @@ import { useMyAssistantContact } from './myAssistant'
  * 这台电脑能不能当它的家只看有没有本机运行时(桌面版);网页 / 手机装不了它。
  */
 export function useAssistantHome() {
-  const { contacts } = useContactsStore()
-  const { cloudComputer, devices } = useDevicesStore()
+  const { contacts, loadingContacts } = useContactsStore()
+  const { cloudComputer, devices, loading: devicesLoading } = useDevicesStore()
   const snapshot = cloudComputer?.snapshot ?? null
   const cloudDeviceId = snapshot?.deviceId ?? null
   const mine = useMyAssistantContact(contacts, cloudDeviceId)
@@ -22,5 +22,5 @@ export function useAssistantHome() {
     () => (contact ? assistantHomePlace(mine.homeDeviceId, devices, cloudDeviceId) : null),
     [contact, mine.homeDeviceId, devices, cloudDeviceId],
   )
-  return { mine, contact, home, localDeviceId, snapshot, cloudDeviceId, cloudComputer, devices }
+  return { identityLoading: mine.loading || loadingContacts || devicesLoading, mine, contact, home, localDeviceId, snapshot, cloudDeviceId, cloudComputer, devices }
 }

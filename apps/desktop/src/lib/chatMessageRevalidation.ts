@@ -15,6 +15,7 @@ export interface MessageOverlay {
   // @@@per-message-read (#598) - recipient user_ids with a 'read' delivery row for this message (any agent,
   // not just the viewer's own) — RLS already exposes co-members' rows. Powers watermark-independent receipts.
   readers: string[]
+  delivery_blocks: NonNullable<MessageItem['delivery_blocks']>
 }
 
 // @@@msg-cache (#621/P2/#947) - the mutable BODY fields of an already-cached message that can change after
@@ -64,7 +65,7 @@ export function applyMessageWindowRevalidation(
 const OVERLAY_IN_CHUNK = 64
 
 async function fetchOverlayRows<T>(
-  table: 'message_reactions' | 'message_deliveries',
+  table: 'message_reactions' | 'message_deliveries' | 'message_agent_wakes' | 'message_agent_delivery_blocks',
   columns: string,
   messageIds: string[]
 ): Promise<T[]> {
@@ -73,6 +74,7 @@ async function fetchOverlayRows<T>(
     const chunk = messageIds.slice(i, i + OVERLAY_IN_CHUNK)
     const { data, error } = await chatDb.from(table).select(columns).in('message_id', chunk)
     if (error) {
+      if (table === 'message_agent_delivery_blocks') throw new Error(`Message refusal status is unavailable: ${error.message}`)
       console.warn(
         `[chat] ${table} overlay fetch failed (offset ${i}/${messageIds.length}): ${error.message}`
       )
@@ -83,18 +85,33 @@ async function fetchOverlayRows<T>(
   return rows
 }
 
+/** The agents each message wakes (chat.message_agent_wakes: decided once, when it was written). Unreadable = none known. */
+export async function loadMessageAgentWakes(messageIds: string[]): Promise<Map<string, Set<string>>> {
+  const wakes = new Map<string, Set<string>>()
+  const [rows, blocks] = await Promise.all([
+    fetchOverlayRows<{ message_id: string; agent_user_id: string }>('message_agent_wakes', 'message_id, agent_user_id', messageIds),
+    fetchOverlayRows<{ message_id: string; agent_user_id: string }>('message_agent_delivery_blocks', 'message_id, agent_user_id', messageIds),
+  ])
+  const refused = new Set(blocks.map((row) => `${row.message_id}/${row.agent_user_id}`))
+  for (const row of rows) if (!refused.has(`${row.message_id}/${row.agent_user_id}`)) wakes.set(row.message_id, (wakes.get(row.message_id) ?? new Set()).add(row.agent_user_id))
+  return wakes
+}
+
 export async function loadMessageOverlays(
   messageIds: string[],
   userId: string
 ): Promise<Map<string, MessageOverlay>> {
   const out = new Map<string, MessageOverlay>()
   if (messageIds.length === 0) return out
-  const [reactions, deliveries] = await Promise.all([
+  const [reactions, deliveries, blocks] = await Promise.all([
     fetchOverlayRows<{ message_id: string; user_id: string; emoji: string }>(
       'message_reactions', 'message_id, user_id, emoji', messageIds,
     ),
     fetchOverlayRows<{ message_id: string; status: MessageDeliveryStatus; device_id: string }>(
       'message_deliveries', 'message_id, status, device_id', messageIds,
+    ),
+    fetchOverlayRows<{ message_id: string; agent_user_id: string; reason: 'agent_archived' }>(
+      'message_agent_delivery_blocks', 'message_id, agent_user_id, reason', messageIds,
     ),
   ])
 
@@ -135,6 +152,7 @@ export async function loadMessageOverlays(
       delivered: deliveredMessageIds.has(id),
       delivery_status: ownDeliveryStatusMap.get(id) ?? null,
       readers: [...(readersMap.get(id) ?? [])],
+      delivery_blocks: blocks.filter((block) => block.message_id === id).map(({ agent_user_id, reason }) => ({ agent_user_id, reason })),
     })
   }
   return out

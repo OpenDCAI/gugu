@@ -8,7 +8,7 @@ import { useAppSettingsKey } from '@renderer/features/settings/use-app-settings-
 import { getSessionPageStore } from '@renderer/features/sessions/stores/session-selectors';
 import { commandRegistry } from '@renderer/lib/commands/registry';
 import { useDebounce } from '@renderer/lib/hooks/useDebounce';
-import { getEffectiveHotkey } from '@renderer/lib/hooks/useKeyboardShortcuts';
+import { getEffectiveHotkey, isHostCommandId } from '@renderer/lib/hooks/useKeyboardShortcuts';
 import { rpc } from '@renderer/lib/ipc';
 import { useNavigate } from '@renderer/lib/layout/navigation-provider';
 import type { BaseModalProps } from '@renderer/lib/modal/modal-provider';
@@ -21,6 +21,7 @@ import { PALETTE_ITEM_CLASS } from './palette-item-styles';
 import { PaletteProjectsGroup } from './palette-projects-group';
 import { PaletteChatGroups } from './palette-chats';
 import { PaletteSessionItem } from './palette-session-item';
+import { rankPaletteMatches } from './palette-rank';
 
 interface CommandPaletteProps {
   initialQuery?: string;
@@ -47,22 +48,25 @@ function Palette({ initialQuery = '', onClose }: CommandPaletteProps & BaseModal
     enabled: !commandsMode,
     staleTime: 5_000,
   });
-  const commands = useObserver(() => commandRegistry.activeCommands
+  const commands = useObserver(() => rankPaletteMatches(commandRegistry.activeCommands
     .filter((command, index, all) => command.enabled !== false && !command.hideFromPalette
       && all.findIndex((other) => other.id === command.id) === index)
     .map((command) => {
-      const def = COMMANDS[command.id];
-      const title = def.labelKey
+      const hostId = isHostCommandId(command.id) ? command.id : undefined;
+      const def = hostId ? COMMANDS[hostId] : undefined;
+      const title = def?.labelKey
         ? def.labelKey.startsWith('main:')
           ? i18n.t(def.labelKey.slice(5), { ns: 'main' })
           : translate(def.labelKey as SessionMessageKey)
-        : command.label ?? def.label;
-      return { command, title, icon: getCommandIcon(def.iconKey) };
+        : command.label ?? def?.label ?? command.id;
+      return { command, title, description: command.description ?? def?.description ?? '',
+        icon: def ? getCommandIcon(def.iconKey) : undefined, hotkey: hostId ? getEffectiveHotkey(hostId, keyboard) : null };
     })
-    .filter(({ command, title }) => [title, command.description ?? COMMANDS[command.id].description]
-      .some((text) => text.toLocaleLowerCase().includes(search.toLocaleLowerCase()))));
-  const tasks = results.filter((item) => item.kind === 'session');
-  const projects = results.filter((item) => item.kind === 'project');
+    , search, ({ title, description }) => [title, description]));
+  // 本机索引负责召回(短查询的 LIKE 没有分数);排序与 @ 选人同一套,同分保留索引给的顺序。
+  const ranked = rankPaletteMatches(results, search, (item) => [item.title], { recallOnly: true });
+  const tasks = ranked.filter((item) => item.kind === 'session');
+  const projects = ranked.filter((item) => item.kind === 'project');
 
   return (
     <Command className="flex flex-col overflow-hidden" shouldFilter={false} loop>
@@ -77,12 +81,12 @@ function Palette({ initialQuery = '', onClose }: CommandPaletteProps & BaseModal
         </Command.Empty>
         {commandsMode ? (
           <Command.Group heading={translate('palette.commands')} className={GROUP_CLASS}>
-            {commands.map(({ command, title, icon: Icon }) => (
+            {commands.map(({ command, title, icon: Icon, hotkey }) => (
               <Command.Item key={command.id} value={command.id} className={PALETTE_ITEM_CLASS}
                 onSelect={() => { onClose(); command.execute(); }}>
                 {Icon && <Icon size={14} className="shrink-0 text-foreground/40" />}
                 <span className="flex-1 truncate">{title}</span>
-                <Shortcut hotkey={getEffectiveHotkey(command.id, keyboard)} variant="keycaps" />
+                <Shortcut hotkey={hotkey} variant="keycaps" />
               </Command.Item>
             ))}
           </Command.Group>

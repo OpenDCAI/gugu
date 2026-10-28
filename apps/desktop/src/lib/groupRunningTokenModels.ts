@@ -6,10 +6,6 @@ import type { AgentRecentActivity } from '../hooks/useAgentDisplayStatus'
 import { kindToRunningState } from './agentRunningVerb'
 import type { DisplayIdentity } from './displayIdentity'
 
-// @@@1727 cap=3（非 8）：单行 token 条容器窄，4~8 并发 agent 时 cap=8 会撑破容器、第 5~8 个 token 被裁没
-// 且不出「+N」（违反「排不下就 +N」不变量）。降到 3 → 超出的走 RunningTokenBar 已有的 +N 溢出（slice(0,cap)+MoreOverflow）。
-export const GROUP_AGENT_BAR_MAX = 3
-
 /**
  * 群的运行条 token。群聊页与从它长出来的话题页(手机)画的是同一份。
  * stateKey 由 presence recentActions 的最新 kind 派生;toolCount 近似用近 5 分钟 actions.length。
@@ -20,6 +16,7 @@ export function groupRunningTokens(input: {
   identities: Readonly<Record<string, Pick<DisplayIdentity, 'owner_user_id' | 'display_name' | 'avatar'> | undefined>>
   currentUserId: string | null | undefined
   recentActivity: Readonly<Record<string, AgentRecentActivity | undefined>>
+  spokeAt?: Readonly<Record<string, number>>
 }): RunningToken[] {
   return selectGroupRunningAgents(input).map((agent) => {
     const activity = input.recentActivity[agent.id]
@@ -35,15 +32,33 @@ export function groupRunningTokens(input: {
   })
 }
 
-/** Select before the bar applies its cap, so visible and overflow tokens share one order. */
+/**
+ * Select before the bar fits its width, so visible and overflow tokens share one order. Who spoke last in the timeline on
+ * screen comes first (owner 10-28: the one who just spoke was not in front); one that has not spoken there keeps the member
+ * order, after. Only speaking reorders: a tool call (presence) would make the bar jump. The person's own agents come first
+ * among equals.
+ */
 export function selectGroupRunningAgents<T extends { id: string }>(input: {
   agents: readonly T[]
   statuses: Readonly<Record<string, AgentDisplayStatus>>
   identities: Readonly<Record<string, Pick<DisplayIdentity, 'owner_user_id'> | undefined>>
   currentUserId: string | null | undefined
+  /** Each agent's latest message in the timeline on screen (ms). */
+  spokeAt?: Readonly<Record<string, number>>
 }): T[] {
   const isOwn = (id: string) => Boolean(input.currentUserId && input.identities[id]?.owner_user_id === input.currentUserId)
+  const spoke = (id: string) => input.spokeAt?.[id] ?? -Infinity
   return input.agents
     .filter((agent) => isTransientAgentConversationStatus(input.statuses[agent.id] ?? 'offline'))
-    .sort((a, b) => Number(isOwn(b.id)) - Number(isOwn(a.id)))
+    .sort((a, b) => (spoke(b.id) - spoke(a.id) || 0) || Number(isOwn(b.id)) - Number(isOwn(a.id)))
+}
+
+/** Each sender's latest message (ms) in a timeline: what the running bar orders by. */
+export function latestSpokeAt(messages: readonly { sender_user_id: string | null; created_at: string }[]): Record<string, number> {
+  const spokeAt: Record<string, number> = {}
+  for (const message of messages) {
+    const at = Date.parse(message.created_at)
+    if (message.sender_user_id && Number.isFinite(at) && !(spokeAt[message.sender_user_id]! >= at)) spokeAt[message.sender_user_id] = at
+  }
+  return spokeAt
 }

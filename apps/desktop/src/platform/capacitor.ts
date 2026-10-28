@@ -11,6 +11,7 @@ import { createUnsupportedPlatform } from './unsupported'
 import { checkForUpdates, downloadUpdate, installUpdate, updateState } from './capacitorAppUpdate'
 import { openInApps, saveToDevice, shareToApps, subscribeIncomingShares } from './capacitorShare'
 import { PlatformError } from './errors'
+import { nativeAudioPermissions } from './capacitorMicrophone'
 
 const base = createUnsupportedPlatform('capacitor', 'Capacitor')
 let resolvedLocale: SupportedLocale = 'zh-CN'
@@ -61,6 +62,7 @@ async function checkSystemPermission(permission: SystemPermission): Promise<Syst
     return toSystemPermissionState((await LocalNotifications.checkPermissions()).display)
   }
   if (permission === 'batteryOptimization') return checkBatteryOptimization()
+  if (permission === 'microphone') return toSystemPermissionState((await nativeAudioPermissions.checkPermissions()).microphone)
   return toSystemPermissionState((await BarcodeScanner.checkPermissions()).camera)
 }
 
@@ -68,6 +70,7 @@ async function checkSystemPermission(permission: SystemPermission): Promise<Syst
 const SYSTEM_SETTINGS_PAGE: Partial<Record<SystemPermission, AndroidSettings>> = {
   notifications: AndroidSettings.AppNotification,
   camera: AndroidSettings.ApplicationDetails,
+  microphone: AndroidSettings.ApplicationDetails,
   batteryOptimization: AndroidSettings.BatteryOptimization,
 }
 
@@ -184,7 +187,7 @@ export const capacitorPlatform: AppPlatform = {
   updateState,
   downloadUpdate,
   installUpdate,
-  systemPermissions: ['notifications', 'camera', 'batteryOptimization'],
+  systemPermissions: ['notifications', 'camera', 'batteryOptimization', 'microphone'],
   async syncResolvedLocale(locale) {
     resolvedLocale = locale
   },
@@ -265,10 +268,11 @@ export const capacitorPlatform: AppPlatform = {
   // @@@share-with-apps 系统分享两个方向,见 capacitorShare.ts。
   shareToApps,
   subscribeIncomingShares,
-  openRemoteFile: async (file, filename) => openInApps(await file.url(), filename),
+  openRemoteFile: openInApps,
   saveFile: saveToDevice,
   checkSystemPermission,
   async requestSystemPermission(permission) {
+    if (permission === 'microphone') return toSystemPermissionState((await nativeAudioPermissions.requestPermissions({ permissions: ['microphone'] })).microphone)
     if (permission === 'notifications') {
       return toSystemPermissionState((await LocalNotifications.requestPermissions()).display)
     }

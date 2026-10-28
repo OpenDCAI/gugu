@@ -43,6 +43,10 @@ export type SessionpageTimelineClient = {
   ): Promise<unknown>
   cancelSessionTurn(deviceId: string, sessionId: string): Promise<{ cancelled: boolean }>
   respondToSettlement(deviceId: string, input: SessionpageSessionRespondRequest): Promise<SessionpageSessionRespondResult>
+  /** 运行时说还在跑的后台命令(`null` = 没报、不筛);老版本电脑没有这条路由会抛。 */
+  fetchBackgroundTasks?(deviceId: string, sessionId: string): Promise<{ runningCommandTaskIds: string[] | null }>
+  /** 停一个后台任务(命令给 asyncTaskId,子智能体给派它的 tool_use id)。 */
+  stopBackgroundTask?(deviceId: string, sessionId: string, stopId: string): Promise<{ stopped: true }>
 }
 
 /** 设备接口报的错带 code(跨 bundle 时 instanceof 不可靠,按形状认)。 */

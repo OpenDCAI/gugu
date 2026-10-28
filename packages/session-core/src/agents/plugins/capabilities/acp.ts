@@ -212,6 +212,11 @@ export interface AcpAgentApi {
   prompt(params: PromptRequest, dispatch?: {
     requestId: string;
     message: Extract<NormalizedEvent, { kind: 'message' }>;
+    /**
+     * A native receipt that has not arrived by then is cancelled and rejected as `prompt_admission_timeout`.
+     * Transports without a native receipt ignore it: their admission is the provider's first event or the RPC.
+     */
+    admissionTimeoutMs?: number;
   }): Promise<SessionPromptReceipt>;
   /** Admission through the negotiated steering extension; completion remains on the event stream. */
   steer?(params: PromptRequest, dispatch?: Parameters<AcpAgentApi['prompt']>[1]): Promise<'injected' | 'promptRequired'>;

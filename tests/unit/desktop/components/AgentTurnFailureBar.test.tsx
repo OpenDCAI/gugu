@@ -13,7 +13,7 @@ vi.mock('../../../../apps/desktop/src/lib/supabase', () => ({
   requeueErroredDeviceCommand: vi.fn(async () => false)
 }))
 vi.mock('../../../../apps/desktop/src/platform', () => ({ platform: {} }))
-vi.mock('../../../../apps/desktop/src/hooks/useStoredAgentTurnFailure', () => ({ useStoredAgentTurnFailure: () => ({ failure: null, readFailed: false, dismiss: vi.fn(), retry: vi.fn() }) }))
+vi.mock('../../../../apps/desktop/src/hooks/useStoredAgentTurnFailure', () => ({ useStoredAgentTurnFailure: () => ({ failure: null, readFailed: false, dismiss: vi.fn(), retry: vi.fn(), markNotified: vi.fn(), wasNotified: () => false }) }))
 vi.mock('../../../../apps/desktop/src/hooks/useAgentTurnFailure', () => ({
   useAgentTurnFailure: () => ({
     failure: { agentUserId: 'agent-1', commandId: 'command-1', at: 1, rawMessage: 'deliver failed' },
@@ -129,23 +129,15 @@ describe('durable provider failure notice', () => {
     id: 'turn-failure:batch:fixture', content, content_type: 'system' as const, sender_user_id: 'agent-1',
     client_message_id: `turn-failure:turn-failure:batch:fixture:${reason}`,
   })
-  it('says the recorded reason in the viewer language, names the sender and opens its model settings', async () => {
-    await harness.render(createNode(SystemMessageNotice, { senderName: 'Codex 1', message: failureRow('weeklyQuota') }))
-    expect(harness.container.querySelector('[role="status"]')?.textContent).toBe('Codex 1: 周限额度不足，当前账号暂时无法回复。切换模型')
-    await clickElement(harness.container.querySelector<HTMLButtonElement>('button')!)
-    expect(harness.container.querySelector('[data-model-settings="agent-1"]')?.getAttribute('data-model-tab')).toBe('aimodel')
+  it('额度/模型类的失败行不再渲染——由运行条那一排的 agent 状态位说（#7685）', async () => {
+    for (const reason of ['weeklyQuota', 'monthlyQuota', 'quota', 'modelUnavailable']) {
+      await harness.render(createNode(SystemMessageNotice, { senderName: 'Codex 1', message: failureRow(reason) }))
+      expect(harness.container.textContent).toBe('')
+    }
   })
   it('offers no model change for a reason another model would not get past', async () => {
     await harness.render(createNode(SystemMessageNotice, { senderName: 'Codex 1', message: failureRow('rateLimited') }))
     expect(harness.container.querySelector('[role="status"]')?.textContent).toBe('Codex 1: 请求过于频繁，请稍后重试。')
-    expect(harness.container.querySelector('button')).toBeNull()
-  })
-  it('renders retained delivery as a short pending status even when the stored fallback is an old English failure', async () => {
-    await harness.render(createNode(SystemMessageNotice, { senderName: '咕咕', message: failureRow('notAdmitted', 'Gugu could not hand these messages to the agent. Please try again later.') }))
-    expect(harness.container.querySelector('[role="status"]')?.textContent).toBe('消息已保留，助理就绪后回复。')
-    expect(harness.container.querySelector('[data-pending-delivery]')).not.toBeNull()
-    expect(harness.container.innerHTML).not.toContain('text-[var(--warn)]')
-    expect(harness.container.textContent).not.toMatch(/could not hand|出错|重试/)
     expect(harness.container.querySelector('button')).toBeNull()
   })
   it('shows a row whose reason it cannot read (an old Chinese row, an unknown reason) as its plain content', async () => {
@@ -160,5 +152,31 @@ describe('durable provider failure notice', () => {
     expect(harness.container.textContent).toBe('群成员已加入')
     expect(harness.container.querySelector('button')).toBeNull()
     expect(harness.container.querySelector('[role="status"]')).toBeNull()
+  })
+})
+
+
+describe('topic-opened system notice', () => {
+  const message = { id: 'notice-1', content: 'Codex 1 开了话题:Release: notes', content_type: 'system' as const,
+    sender_user_id: 'agent-1', client_message_id: 'topic-opened:topic-chat-id' }
+  it('opens the exact topic id through the anchor callback, keeping colons in its name', async () => {
+    const onOpenTopic = vi.fn()
+    await harness.render(createNode(SystemMessageNotice, { message, onOpenTopic }))
+    const link = harness.container.querySelector<HTMLButtonElement>('[data-testid="topic-opened-link"]')!
+    expect(link.textContent).toBe('Release: notes')
+    expect(harness.container.textContent).toBe(message.content)
+    await clickElement(link)
+    expect(onOpenTopic).toHaveBeenCalledExactlyOnceWith('topic-chat-id')
+  })
+  it('does not infer a topic from matching words without the server marker or an opening path', async () => {
+    for (const props of [
+      { message: { ...message, client_message_id: null }, onOpenTopic: vi.fn() },
+      { message: { ...message, content_type: 'text' as const }, onOpenTopic: vi.fn() },
+      { message },
+    ]) {
+      await harness.render(createNode(SystemMessageNotice, props))
+      expect(harness.container.textContent).toBe(message.content)
+      expect(harness.container.querySelector('button')).toBeNull()
+    }
   })
 })

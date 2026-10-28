@@ -58,7 +58,6 @@ const PERSON_ACTIONS = new Set<CloudBrowserClientMessage['type']>([
   'control_release',
   'automation_stop',
   'automation_resume',
-  'assistance_dismiss',
   'vault_submit',
 ]);
 const SCREENCAST_QUALITY = 60;
@@ -173,6 +172,12 @@ export class CloudBrowserLiveServer {
     this.server?.close();
   }
 
+  watching(sessionId?: string): boolean {
+    const tabId = sessionId === undefined ? null : this.browser.tabIdForSession(sessionId);
+    return [...this.clients.values()].some((client) => client.framesEnabled
+      && (sessionId === undefined ? !!this.viewedTab(client) : !!tabId && this.viewedTab(client) === tabId));
+  }
+
   // ── 连接 ──────────────────────────────────────────────────────────────────
 
   private accept(socket: WebSocket): void {
@@ -230,7 +235,6 @@ export class CloudBrowserLiveServer {
       automation: status.automation,
       completed: status.completed,
       control: this.browser.controlFor(client.id),
-      assistance: status.assistance,
     };
   }
 
@@ -303,9 +307,6 @@ export class CloudBrowserLiveServer {
         return;
       case 'automation_resume':
         this.browser.resumeAutomation();
-        return;
-      case 'assistance_dismiss':
-        this.browser.dismissAssistance(message.requestId);
         return;
       case 'vault_submit': {
         const result = await this.browser.submitCredential(message.requestId, { username: message.username, password: message.password }, message.save);

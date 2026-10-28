@@ -10,6 +10,7 @@
 import { readFile } from 'node:fs/promises'
 import { join } from 'node:path'
 import { atomicWriteText, resolveGuguHome } from '@gugu/core/local/state/paths'
+import { fileRefKey, requireFileRevision, type FileRef, type FileRevision } from '@gugu/core/shared/fileResolver'
 import { createLogger } from '../lib/logger'
 
 const FILE_NAME = 'taskpage-project-groups.json'
@@ -28,6 +29,7 @@ interface Mapping {
   unowned: ProjectMap
   /** This machine's visible row for a group containing more than one local project. */
   representatives: Record<string, ProjectMap>
+  files?: Record<string, Record<string, FileRevision>>
 }
 
 function replaceRepresentative(projects: ProjectMap, representatives: ProjectMap, chatId: string, removedId: string): void {
@@ -61,7 +63,7 @@ function parseMapping(parsed: unknown): Mapping {
         if (ownerId) representatives[ownerId] = readProjectMap(map)
       }
     }
-    return { owners, unowned: readProjectMap(raw.unowned), representatives }
+    return { owners, unowned: readProjectMap(raw.unowned), representatives, files: raw.files as Mapping['files'] }
   }
   // v1:整份文件就是一张 { projectId: chatId },归属未知。
   return { owners: {}, unowned: readProjectMap(raw), representatives: {} }
@@ -88,7 +90,7 @@ async function writeMapping(mapping: Mapping, env: NodeJS.ProcessEnv): Promise<v
   for (const [ownerId, map] of Object.entries(mapping.owners)) {
     if (Object.keys(map).length) owners[ownerId] = map
   }
-  await atomicWriteText(filePath(env), `${JSON.stringify({ owners, unowned: mapping.unowned, representatives: mapping.representatives }, null, 2)}\n`)
+  await atomicWriteText(filePath(env), `${JSON.stringify({ owners, unowned: mapping.unowned, representatives: mapping.representatives, files: mapping.files }, null, 2)}\n`)
 }
 
 // 同一个 main 进程里可能有多个会话同时 provision(实机:一个项目里连开两个任务)。read-modify-write
@@ -161,6 +163,7 @@ export async function rememberProjectGroupId(
     const adopted = mapping.unowned[id] === chat
     if (mine[id] === chat && !adopted && representatives[chat]) return
     const oldChat = mine[id]
+    if (oldChat && oldChat !== chat) invalidateProjectFiles(mapping, ownerUserId, id)
     if (oldChat && oldChat !== chat) replaceRepresentative(mine, representatives, oldChat, id)
     mine[id] = chat
     mapping.owners[ownerUserId] = mine
@@ -190,9 +193,82 @@ export async function forgetProjectGroupId(
     const representatives = mapping.representatives[ownerUserId]
     if (chatId && representatives) replaceRepresentative(mine ?? {}, representatives, chatId, id)
     if (mine) delete mine[id]
+    invalidateProjectFiles(mapping, ownerUserId, id)
     delete mapping.unowned[id]
     await writeMapping(mapping, env)
     announceChange(id, ownerUserId)
+  })
+}
+
+function invalidateProjectFiles(mapping: Mapping, ownerId: string, projectId: string): void {
+  for (const [id, revision] of Object.entries(mapping.files?.[ownerId] ?? {})) {
+    if (revision.host_project_id === projectId) delete mapping.files![ownerId]![id]
+  }
+}
+
+/** Published local revisions share the account/project mapping and its sole atomic write queue. */
+export async function rememberProjectFile(revision: FileRevision, ownerId: string, env: NodeJS.ProcessEnv = process.env): Promise<void> {
+  requireFileRevision(revision)
+  if (revision.source !== 'local' || revision.host_account_id !== ownerId || !revision.chat_id) throw new Error('File owner or group mismatch')
+  await enqueue(async () => {
+    const mapping = await readMapping(env)
+    if (mapping.owners[ownerId]?.[revision.host_project_id!] !== revision.chat_id) throw new Error('Project binding changed')
+    // Roots are resolved from the project registry at read time, never copied into this index.
+    const { source, item_id, version, chat_id, file_name, content_type, size_bytes, sha256, host_device_id, host_project_id, host_account_id, relative_path, workspace } = revision
+    mapping.files ??= {}
+    mapping.files[ownerId] ??= {}
+    mapping.files[ownerId]![item_id!] = { source, item_id, version, chat_id, file_name, content_type, size_bytes, sha256, host_device_id, host_project_id, host_account_id, relative_path, ...(workspace ? { workspace } : {}) }
+    await writeMapping(mapping, env)
+  })
+}
+
+export async function findProjectFileByName(chat: string, name: string, ownerId: string, deviceId: string, env: NodeJS.ProcessEnv = process.env) {
+  const files = Object.values((await readMapping(env)).files?.[ownerId] ?? {})
+  const found = files.find(row => row.chat_id === chat && row.workspace?.path === name)
+  return found ? readProjectFile({ item_id: found.item_id! }, ownerId, deviceId, env) : null
+}
+
+export async function findProjectFileCopy(projectId: string, sha: string, ownerId: string, deviceId: string, env: NodeJS.ProcessEnv = process.env) {
+  const files = Object.values((await readMapping(env)).files?.[ownerId] ?? {})
+  const found = files.findLast(row => row.host_project_id === projectId && row.sha256 === sha && row.relative_path?.startsWith('.gugu/attachments/'))
+  return found ? readProjectFile({ item_id: found.item_id! }, ownerId, deviceId, env) : null
+}
+
+/** The database's record of one version of a file, asked only when this index holds an earlier version of it. */
+export type ProjectFileVersionLookup = (ref: { item_id: string; version: number }) => Promise<FileRevision | null>
+
+/**
+ * The index keeps the version this computer last published. A later version the database made without new bytes — a
+ * rename or move elsewhere carries the local revision forward — is read here when the database's record of it names the
+ * same bytes in the same place: chat, host, project, path, sha and size. Any difference is refused as before.
+ */
+export async function readProjectFile(ref: FileRef, ownerId: string, deviceId: string, env: NodeJS.ProcessEnv = process.env, later?: ProjectFileVersionLookup): Promise<FileRevision | null> {
+  fileRefKey(ref)
+  if (!('item_id' in ref) || !ownerId || !deviceId) return null
+  const mapping = await readMapping(env)
+  const mine = mapping.files?.[ownerId]
+  const revision = mine && Object.hasOwn(mine, ref.item_id) ? mine[ref.item_id] : undefined
+  if (!revision) return null
+  requireFileRevision(revision)
+  if (!revision.chat_id || revision.host_account_id !== ownerId || revision.host_device_id !== deviceId || revision.item_id !== ref.item_id ||
+    mapping.owners[ownerId]?.[revision.host_project_id!] !== revision.chat_id) return null
+  if (ref.version === undefined || ref.version === revision.version) return revision
+  if (!later || ref.version < revision.version!) return null
+  const found = await later({ item_id: ref.item_id, version: ref.version })
+  if (!found || found.source !== 'local' || found.item_id !== revision.item_id || found.version !== ref.version || found.chat_id !== revision.chat_id ||
+    found.host_account_id !== revision.host_account_id || found.host_device_id !== revision.host_device_id || found.host_project_id !== revision.host_project_id ||
+    found.relative_path !== revision.relative_path || found.sha256 !== revision.sha256 || found.size_bytes !== revision.size_bytes) return null
+  // Where the file sits in the folder is the database's now, not the index's from its publication.
+  const { workspace: _published, ...same } = revision
+  return { ...same, version: ref.version, file_name: found.file_name }
+}
+
+export async function forgetProjectFile(itemId: string, ownerId: string, env: NodeJS.ProcessEnv = process.env): Promise<void> {
+  await enqueue(async () => {
+    const mapping = await readMapping(env)
+    if (!Object.hasOwn(mapping.files?.[ownerId] ?? {}, itemId)) return
+    delete mapping.files![ownerId]![itemId]
+    await writeMapping(mapping, env)
   })
 }
 

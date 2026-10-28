@@ -110,8 +110,6 @@ contextBridge.exposeInMainWorld('electronAPI', {
   requestWirePort: emdashRequestWirePort,
   selectDirectory: (): Promise<string | null> => ipcRenderer.invoke('dialog:select-directory'),
   selectFile: (): Promise<string | null> => ipcRenderer.invoke('dialog:select-file'),
-  openFileBytes: (bytes: Uint8Array, filename: string): Promise<void> =>
-    ipcRenderer.invoke('file:open-bytes', { bytes, filename }),
   checkForUpdates: (): Promise<unknown> => ipcRenderer.invoke('updates:check'),
   updateState: (): Promise<unknown> => ipcRenderer.invoke('updates:state'),
   downloadUpdate: (): Promise<unknown> => ipcRenderer.invoke('updates:download'),
@@ -173,6 +171,12 @@ contextBridge.exposeInMainWorld('electronAPI', {
     ipcRenderer.on('app:active-changed', listener)
     void ipcRenderer.invoke('app:is-active').then(callback)
     return () => ipcRenderer.removeListener('app:active-changed', listener)
+  },
+  // 本机在当前账号的设备里认出了自己(main.ts device:self-identified):设备表要按「哪一行是本机」重读。
+  subscribeLocalDeviceIdentified: (callback: () => void): (() => void) => {
+    const listener = (): void => callback()
+    ipcRenderer.on('device:self-identified', listener)
+    return () => ipcRenderer.removeListener('device:self-identified', listener)
   },
   getLocalDeviceSelfSnapshot: (): Promise<unknown> => ipcRenderer.invoke('device:get-self-snapshot'),
   // @@@4526 owner 删除自己的 agent 后释放它在本机的足迹(花名册 / runtime session / 投递注册)。

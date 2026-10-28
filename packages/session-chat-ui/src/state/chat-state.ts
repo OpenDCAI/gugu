@@ -34,6 +34,8 @@ import type { TerminalState } from '@gugu/session-core/acp/client';
  */
 
 import { createMemo, createRoot, createSignal } from 'solid-js';
+import type { BackgroundCommandEntry } from '@session-chat/lib/background-command-roster';
+import type { SubagentRosterEntry } from '@session-chat/lib/subagent-roster';
 import type { ChatContext } from '../chat-context';
 import { createParseCaches } from '../core/caches';
 import type { ParseCaches } from '../core/caches';
@@ -84,6 +86,11 @@ export type ChatSessionState = {
   setGenerating(generating: boolean): void;
   /** 写这条会话此刻的状态；null = 没有条件要说。 */
   setCondition(condition: SessionCondition | null): void;
+  /**
+   * 此刻还在跑的后台任务(宿主按花名册算好、滤掉人按过 × 的);没有就给空的。
+   * 转录把它画成列表末尾的一行,见 `BackgroundTasksItem`。
+   */
+  setBackgroundTasks(tasks: BackgroundTasks): void;
 };
 
 export type ChatSessionSnapshot = {
@@ -102,6 +109,8 @@ export type ChatSessionSnapshot = {
    * 由宿主写；转录把它画成列表末尾的一行。❌ 它不是历史，见 `SessionConditionItem` 抬头。
    */
   readonly condition: SessionCondition | null;
+  /** 见 `setBackgroundTasks`。 */
+  readonly backgroundTasks: BackgroundTasks;
   terminalSnapshot(terminalId: string): TerminalState | null;
 };
 
@@ -278,12 +287,35 @@ export function createChatState(ctx: ChatContext, opts?: ChatStateOptions): Chat
   };
 }
 
+export type BackgroundTasks = {
+  readonly commands: readonly BackgroundCommandEntry[];
+  readonly subagents: readonly SubagentRosterEntry[];
+};
+
+export const NO_BACKGROUND_TASKS: BackgroundTasks = { commands: [], subagents: [] };
+
+/** 画出来会不会不一样:条目、名字、子智能体的起点与走到第几步、能不能停。 */
+function sameBackgroundTasks(a: BackgroundTasks, b: BackgroundTasks): boolean {
+  const same = <T,>(x: readonly T[], y: readonly T[], key: (item: T) => string) =>
+    x.length === y.length && x.every((item, i) => key(item) === key(y[i]));
+  return (
+    same(a.commands, b.commands, (c) => `${c.id}|${c.taskId}|${c.name}`) &&
+    // 每一步的 id 与状态也要比:新一步开始时完成数不变,只比完成数的话「进行中」那一行永远进不了悬停时间线。
+    same(a.subagents, b.subagents, (g) =>
+      `${g.id}|${g.name}|${g.model ?? ''}|${g.startedAt ?? ''}|${g.completedSteps}|${g.canCancel ? 1 : 0}|${g.calls.map((c) => `${c.toolCallId}:${c.status}:${c.title}`).join(',')}`)
+  );
+}
+
 function createSessionState(transcript: TranscriptApi): ChatSessionState {
   const [permissions, setPermissions] = createSignal<readonly AcpPermissionRequest[]>([]);
   const [plan, setPlan] = createSignal<SessionPlans | null>(null);
   const [pendingPrompt, setPendingPrompt] = createSignal<PendingPrompt | null>(null);
   const [generating, setGenerating] = createSignal(false);
   const [condition, setCondition] = createSignal<SessionCondition | null>(null);
+  // 宿主每来一条消息都会重算一遍花名册;内容没变就别惊动转录(那会重排最后一档)。
+  const [backgroundTasks, setBackgroundTasks] = createSignal<BackgroundTasks>(NO_BACKGROUND_TASKS, {
+    equals: sameBackgroundTasks,
+  });
   const [terminals, setTerminals] = createSignal<ReadonlyMap<string, TerminalState>>(new Map());
   const recordedTerminals = createMemo(() => new Map(
     transcript.state.committedTurns.flatMap(turn => turn.terminals ?? []).map(terminal => [terminal.terminalId, terminal])
@@ -315,6 +347,9 @@ function createSessionState(transcript: TranscriptApi): ChatSessionState {
     get condition() {
       return condition();
     },
+    get backgroundTasks() {
+      return backgroundTasks();
+    },
     terminalSnapshot(terminalId) {
       return terminals().get(terminalId) ?? recordedTerminals().get(terminalId) ?? null;
     },
@@ -327,6 +362,7 @@ function createSessionState(transcript: TranscriptApi): ChatSessionState {
     setPendingPrompt,
     setGenerating,
     setCondition,
+    setBackgroundTasks,
     setTerminals: (next) => setTerminals(new Map(next.map(terminal => [terminal.terminalId, terminal]))),
   };
 }

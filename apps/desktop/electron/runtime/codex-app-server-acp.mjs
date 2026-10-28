@@ -16,6 +16,7 @@ import { codexReasoningText } from '../../../../packages/core/src/shared/reasoni
 import { codexFilePatches } from '../../../../packages/session-core/src/acp/transport/codex-file-patches.ts'
 import { createCodexSubagents } from './codex-subagents.mjs'
 import { CODEX_AUTONOMY_BY_MODE, CODEX_PERMISSION_MODES } from '../../../../packages/session-plugins/src/agents/impl/codex/permission-modes.ts'
+import { redactAll } from '../../../../packages/session-shared/src/logger/redact.ts'
 
 const codexBin = process.env.GUGU_CODEX_BIN?.trim()
 if (!codexBin) {
@@ -306,6 +307,9 @@ function hasLoopbackMcp(servers) {
  *
  * Only streamable HTTP MCP servers are accepted. Bearer values stay in env; config carries the name.
  */
+/** Above the longest wait a gugu MCP tool may have on a person (asks/sources.ts: the browser-assistance deadline, 10 min). */
+const GUGU_MCP_TOOL_TIMEOUT_SEC = 900
+
 function mcpConfig(servers) {
   const config = {}
   const env = {}
@@ -319,6 +323,10 @@ function mcpConfig(servers) {
     config[`mcp_servers.${key}.url`] = url
     // 问题 9:宿主交出的 server 都是咕咕发的,不逐次问(Codex 缺省按注解判,没注解就问)。
     config[`mcp_servers.${key}.default_tools_approval_mode`] = 'approve'
+    // A gugu tool can wait minutes for the person (a browser login / takeover up to 10 min). Codex gives every MCP call a
+    // fixed 300 s (`timed out awaiting tools/call after 300s`), and progress notifications do not extend it, so the
+    // servers we hand over get a limit above our longest wait.
+    config[`mcp_servers.${key}.tool_timeout_sec`] = GUGU_MCP_TOOL_TIMEOUT_SEC
     for (const header of server.headers ?? []) {
       const name = String(header.name ?? '')
       if (name.toLowerCase() !== 'authorization') continue
@@ -827,6 +835,7 @@ async function startApp(servers) {
 async function startAppOnce(servers) {
   const mcp = mcpConfig(servers)
   appServerThreadConfig = mcp.config
+  appServerThreadConfig['tools.update_plan.enabled'] = true
   const reasoningSummary = process.env.GUGU_CODEX_REASONING_SUMMARY?.trim()
   if (reasoningSummary) {
     // Codex ACP is a thin bridge: argv belongs to the adapter process, while
@@ -1365,6 +1374,15 @@ function onAppNotification(message) {
   // app-server also publishes spawned agents' events. Only this thread owns the ACP session;
   // mixing child deltas here fragments messages/thinking and can overwrite the parent's state.
   if (params.threadId && params.threadId !== sessionId) return
+  if (method === 'error' && params.willRetry === true) {
+    // Codex owns both the retry count and cause. Preserve its warning through the existing
+    // ACP notice path; final errors still settle the prompt via turn/completed below.
+    const title = [params.error?.message, params.error?.additionalDetails]
+      .filter((value) => typeof value === 'string' && value.trim())
+      .join(': ')
+    if (title) sessionUpdate({ sessionUpdate: 'notice', severity: 'warning', title: redactAll(title) })
+    return
+  }
   if (method === 'thread/tokenUsage/updated') {
     emitUsageUpdate(params)
     return
@@ -1422,6 +1440,17 @@ function onAppNotification(message) {
   }
   if (method === 'item/commandExecution/outputDelta') {
     sessionUpdate({ sessionUpdate: 'terminal_output_chunk', terminalId: String(params.itemId), data: Buffer.from(String(params.delta ?? ''), 'utf8').toString('base64') })
+    return
+  }
+  if (method === 'turn/plan/updated') {
+    sessionUpdate({
+      sessionUpdate: 'plan',
+      entries: params.plan.map(({ step, status }) => ({
+        content: step,
+        status: status === 'inProgress' ? 'in_progress' : status,
+        priority: 'medium',
+      })),
+    })
     return
   }
   if (method === 'item/plan/delta') {

@@ -1,8 +1,8 @@
 // @vitest-environment jsdom
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { bindFileViewerMenu } from '@/components/preview/file-viewer-menu'
-import { type FileViewerMenuRequest } from '@/session/shared/preview/file-viewer-menu'
-import { fileViewerMenuTemplate, viewerActionScript, viewerContextScript } from '../../../apps/desktop/electron/file-viewer-context-menu'
+import { type FileViewerMenuRequest, fileViewerMenuItems } from '@/session/shared/preview/file-viewer-menu'
+import { viewerActionScript, viewerContextScript } from '../../../apps/desktop/electron/file-viewer-context-menu'
 import { quoteChatFile } from '@/components/preview/quote-preview-file'
 import { composeInChat } from '@/session/shared/extensions/app-send-core'
 import { getRendererSession } from '@/lib/sessionPublication'
@@ -29,7 +29,21 @@ function viewer() {
   return root
 }
 
-describe('native file viewer menu', () => {
+describe('host file viewer menu', () => {
+  it('keeps one file resource pair and its version captured before a different file replaces the preview', async () => {
+    const root = viewer(), writeText = vi.fn(async (_text: string) => {})
+    Object.defineProperty(navigator, 'clipboard', { value: { writeText }, configurable: true })
+    const resource = { kind: 'file' as const, target: { kind: 'file' as const, itemId: '12345678-1234-1234-1234-123456789abc', version: 2 } }
+    let current = { quote: vi.fn(), resource }
+    const dispose = bindFileViewerMenu(root, () => current, vi.fn())
+    const context = execute(viewerContextScript({ x: 20, y: 30, isEditable: false }, 'resource', { text: '' }))
+    expect(context.resourceActions.map((item: { id: string }) => item.id)).toEqual(['copy-resource-url', 'send-resource-url'])
+    current = { quote: vi.fn(), resource: { ...resource, target: { ...resource.target, version: 3 } } }
+    execute(viewerActionScript(context, 'copy-resource-url'))
+    await Promise.resolve()
+    expect(writeText).toHaveBeenCalledWith('gugu-file://12345678-1234-1234-1234-123456789abc?v=2')
+    dispose()
+  })
   it('flushes pending composer input in capture before delivering the existing file-reference payload', async () => {
     vi.mocked(getRendererSession).mockReturnValue({ access_token: 'test-token', user: { id: 'owner' } } as ReturnType<typeof getRendererSession>)
     const detail = { chatId: 'chat', text: '> beta', refs: [{ label: 'file.md', link: 'gugu-file://file?v=2' }] }
@@ -99,10 +113,30 @@ describe('native file viewer menu', () => {
   it('disables selection-only operations for images and preserves editing actions for source editors', () => {
     const context: FileViewerMenuRequest & { viewerId: string } = { viewerId: 'image', requestId: 'image', action: 'snapshot', selection: { text: '' }, canSelectAll: false }
     const run = vi.fn()
-    const image = fileViewerMenuTemplate(context, labels, run)
-    expect(image.filter(item => item.enabled === false).map(item => item.label)).toEqual(['Copy', 'Select all', 'Quote selection'])
-    expect(image.at(-1)?.label).toBe('Quote file')
-    const editor = fileViewerMenuTemplate({ ...context, editable: true, selection: { text: 'source' }, canSelectAll: true }, labels, run)
-    expect(editor.filter(item => item.label).map(item => item.label)).toEqual(['Undo', 'Redo', 'Cut', 'Copy', 'Paste', 'Select all', 'Quote selection', 'Quote file'])
+    const image = fileViewerMenuItems(context, labels, run)
+    expect(image.filter(item => item.type !== 'separator' && item.enabled === false).map(item => item.type !== 'separator' ? item.label : undefined)).toEqual(['Copy', 'Select all', 'Quote selection'])
+    expect((image.at(-1)?.type !== 'separator' ? (image.at(-1) as { label: string }).label : undefined)).toBe('Quote file')
+    const editor = fileViewerMenuItems({ ...context, editable: true, selection: { text: 'source' }, canSelectAll: true }, labels, run)
+    expect(editor.filter(item => item.type !== 'separator').map(item => item.label)).toEqual(['Undo', 'Redo', 'Cut', 'Copy', 'Paste', 'Select all', 'Quote selection', 'Quote file'])
+  })
+
+  it('puts a file\'s gugu URL pair last, behind its own separator', () => {
+    // Control (the parent commit 1b055755): the pair led the extra group, ahead of the quotes.
+    const resourceActions = [{ id: 'copy-resource-url' as const, label: 'Copy gugu URL' }, { id: 'send-resource-url' as const, label: 'Copy URL & send to…' }]
+    const items = fileViewerMenuItems({ requestId: 'file', action: 'snapshot', selection: { text: '' }, canSelectAll: false, resourceActions }, labels, vi.fn())
+    expect(items.slice(-3).map(item => item.type === 'separator' ? '—' : item.label)).toEqual(['—', 'Copy gugu URL', 'Copy URL & send to…'])
+    expect(items.findIndex(item => item.type !== 'separator' && item.label === 'Quote file')).toBe(items.length - 4)
+  })
+
+  it('uses an editor snapshot for custom undo state without losing the host clipboard capabilities', () => {
+    const root = viewer()
+    const dispose = bindFileViewerMenu(root, () => ({ quote: vi.fn(), editable: true, edit: vi.fn(), editorHistory: { undo: false, redo: true }, enabled: { copy: true } }), vi.fn())
+    const context = execute(viewerContextScript({ x: 0, y: 0, isEditable: true, editFlags: { canUndo: true, canRedo: false, canCopy: false, canCut: true, canPaste: false, canSelectAll: true, canDelete: true, canEditRichly: true } }, 'editor', { text: 'beta' }))
+    const items = fileViewerMenuItems(context, labels, vi.fn()).filter(item => item.type !== 'separator')
+    expect(items.find(item => item.id === 'undo')?.enabled).toBe(false)
+    expect(items.find(item => item.id === 'redo')?.enabled).toBe(true)
+    expect(items.find(item => item.id === 'copy')?.enabled).toBe(true)
+    expect(items.find(item => item.id === 'paste')?.enabled).toBe(false)
+    dispose()
   })
 })

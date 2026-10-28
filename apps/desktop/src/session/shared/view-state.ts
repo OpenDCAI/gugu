@@ -70,17 +70,22 @@ export type TabManagerSnapshot = {
   tabs: TabDescriptor[];
   activeTabId: string | undefined;
   /**
-   * 并排的一对(spec session-page「并排」):钉住的那枚、另一枚、另一枚摆在哪边(没有 = 右边)、前一页占几成。
-   * 可选 —— 旧版本存的没有它,旧版本读到新存档也只是不认它(两枚照常是页签),不用迁移。
+   * 并排的一对(spec session-page「并排」):钉住的那枚、另一枚、另一枚摆在哪边(没有 = 右边)、拖成前一页占几成(`share`;
+   * 没拖过 = 没有,两页照页面自己声明的宽)。
+   * 可选 —— 旧版本存的没有它,旧版本读到新存档也只是不认它(两枚照常是页签),不用迁移。10-26 起比例记在 `share`:
+   * 之前存的 `ratio` 不再读(owner 宁可断代:拖过的人重新拖一次,所有人从页面声明的宽起步)。
    */
   pair?: {
     anchorTabId: string;
     sideTabId: string;
-    ratio?: number;
+    share?: number;
     sideAt?: 'left' | 'right' | 'top' | 'bottom';
   };
-  /** 用户拆开过:开在对话旁边的不再自动并排,直到他自己再分屏。没有 = 没拆开过。 */
-  splitDeclined?: boolean;
+  /**
+   * 用户拆开过的那几类页签(按页签类型各记各的):开在对话旁边的同一类不再自动并排,直到他自己再把这一类分屏。
+   * 没有 = 都没拆开过。10-28 之前那个不分类型的 `splitDeclined: boolean` 不再读(来源混着,owner 定直接丢)。
+   */
+  splitDeclinedKinds?: string[];
 };
 
 export type TabGroupsSnapshot = {
@@ -187,9 +192,10 @@ export type SidebarSnapshot = {
   projectOrder?: string[];
   sessionOrderByProject?: Record<string, string[]>;
   sessionSortBy?: SidebarSessionSortBy;
-  /** Section headers (Pinned / Projects / Chats) folded by the user. */
+  /** Section headers (Pinned / Projects / Tasks) folded by the user. */
   pinnedCollapsed?: boolean;
   projectsCollapsed?: boolean;
+  sessionsCollapsed?: boolean;
   chatsCollapsed?: boolean;
   /** gugu-dev#181 项目和对话分开(两枚页签)还是合在一起(一条列表),以及分开时看的是哪一页。 */
   listLayout?: SidebarListLayout;

@@ -39,8 +39,13 @@ export type AssistantShellSnapshot = {
    */
   assistantState: 'found' | 'loading' | 'none' | 'unreadable'
   ownerName: string | null
+  deviceCount?: number
+  /** 主人(登录的那个人)的 id 与头像:记忆页「关于你」那几行用他自己的头像打头。没登录 / 还没读到 = 不给。 */
+  ownerId?: string | null
+  ownerAvatar?: string | null
   /** 和它的那条私聊(还没认出来 = null):「今天」页读这条私聊文件夹里的 today.json。 */
   chatId: string | null
+  chatReadFailed?: boolean
   /** 它住哪(云上 / 某台电脑);还没有它、还认不出 = null。 */
   home: AssistantHomePlace | null
   setup: AssistantSetupStep | null
@@ -186,17 +191,18 @@ function sameSnapshot(a: AssistantShellSnapshot, b: AssistantShellSnapshot): boo
     a.setup === b.setup &&
     JSON.stringify(a.home) === JSON.stringify(b.home) &&
     a.loadError === b.loadError &&
+    a.deviceCount === b.deviceCount &&
     a.ownerName === b.ownerName &&
     a.assistantState === b.assistantState &&
-    a.chatId === b.chatId &&
+    a.chatId === b.chatId && a.chatReadFailed === b.chatReadFailed &&
     JSON.stringify(a.cloud) === JSON.stringify(b.cloud) &&
     JSON.stringify(a.assistant) === JSON.stringify(b.assistant)
   )
 }
 
 /** 会话页:读 window 上那一个桥;壳还没装上 = null(会话页先于壳挂上的那一瞬)。 */
-export function readAssistantShellBridge(w: Window = window): AssistantShellBridge | null {
-  return (w as BridgeWindow)[ASSISTANT_SHELL_BRIDGE_KEY] ?? null
+export function readAssistantShellBridge(w: Window | undefined = typeof window === 'undefined' ? undefined : window): AssistantShellBridge | null {
+  return w ? (w as BridgeWindow)[ASSISTANT_SHELL_BRIDGE_KEY] ?? null : null
 }
 
 /** 助理这一格在公共格子表里的键。 */

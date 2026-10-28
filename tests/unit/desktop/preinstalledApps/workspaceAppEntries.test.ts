@@ -10,6 +10,8 @@ import { until } from '../../../support/awaitCondition'
 
 const now = Date.parse('2026-10-25T12:00:00Z')
 const ago = (seconds: number) => new Date(now - seconds * 1000).toISOString()
+// A time today, as the list says it.
+const clock = (iso: string) => new Intl.DateTimeFormat('zh-CN', { hour: '2-digit', minute: '2-digit' }).format(new Date(iso))
 
 const entries = [
   {
@@ -45,6 +47,7 @@ const gugu = {
   onLink: vi.fn(() => () => {}),
   showMessage: vi.fn(async (_id: string) => {}),
   files: {
+    viewPreferences: vi.fn(async () => ({ showAppData: false })),
     list: vi.fn(async () => entries),
     onChanged: vi.fn((_place: unknown, fn: typeof filesChanged) => { filesChanged = fn; return () => {} }),
     // Only what the host hands this page (context.file) is opened here; no file service in this rig.
@@ -94,11 +97,15 @@ describe('workspace App: what the old workspace panel did', () => {
     expect(document.getElementById('activity'), '对照:父提交在列表下面还有一块「最近动态」').toBe(null)
     // plan.md was made an hour ago and edited a minute ago: its edit counts, so it sits above photo.png.
     expect(app().entries.map((li) => li.querySelector('.file-name')!.textContent)).toEqual(['old.md', 'plan.md', 'photo.png', 'cfg.json'])
-    const cells = (id: string) => [...document.querySelector(`[data-id="${id}"] .file-meta`)!.children].map((cell) => cell.textContent)
-    expect(cells('plan')).toEqual(['张三 创建 · 1小时前', '已编辑 · 1分钟前'])
-    expect(cells('photo')).toEqual(['写手 (Agent) 创建 · 2分钟前'])
-    expect(cells('cfg')).toEqual(['系统 创建 · 2小时前'])
-    expect(cells('old'), 'no creation metadata: no invented attribution').toEqual([])
+    // owner 10-28: one line — who made it, when it last changed, how big — and who made and who edited it, when, on hover.
+    const meta = (id: string) => document.querySelector<HTMLElement>(`[data-id="${id}"] .file-meta`)!
+    const cells = (id: string) => [...meta(id).children].map((cell) => cell.textContent)
+    expect(cells('plan')).toEqual(['张三', `改于 ${clock(ago(60))}`, '10 B'])
+    expect(meta('plan').title).toBe('张三 创建 · 1小时前 · 已编辑 · 1分钟前')
+    expect(cells('photo')).toEqual(['写手 (Agent)', clock(ago(120)), '100 B'])
+    expect(cells('cfg'), 'the system is no one to name on the row').toEqual([clock(ago(7200)), '2 B'])
+    expect(meta('cfg').title).toBe('系统 创建 · 2小时前')
+    expect(cells('old'), 'no creation metadata: no invented attribution').toEqual([clock(ago(10)), '1 B'])
   })
 
   test('a file on screen shows its creator and source messages; a click asks the host to show one', async () => {
@@ -145,9 +152,10 @@ describe('workspace App: what the old workspace panel did', () => {
     gugu.files.open.mockResolvedValueOnce({ type: 'binary', entry, close: vi.fn() } as never)
     contextChanged({ ...context, locale: 'en', file: { chat: 'chat-1', id: entry.id } })
     await vi.waitFor(() => expect(app().shown).toBe('plan.md'))
-    expect([...$('doc-info').querySelectorAll('.file-activity')].map((line) => line.textContent)).toEqual([
-      'Created by 张三 · 1 hour ago', 'Edited · 1 minute ago',
-    ])
+    const activity = $('doc-info').querySelector<HTMLElement>('.file-activity')!
+    expect(activity.textContent).toBe('Created by 张三 · 1 hour ago · Edited · 1 minute ago')
+    expect(activity.title).toBe(activity.textContent)
+    expect($('doc-info').querySelectorAll('.file-activity')).toHaveLength(1)
     contextChanged({ ...context })
     await vi.waitFor(() => expect(app().shown).toBe(null))
   })
@@ -160,13 +168,14 @@ describe('workspace App: what the old workspace panel did', () => {
     const entry = { ...entries[0], updatedAt: at, updatedBy: { id: 'editor', name, kind } }
     contextChanged({ ...context, locale })
     filesChanged({ kind: 'entries', entries: [entry], gone: [] })
-    const lines = () => [...document.querySelector('[data-id="plan"] .file-meta')!.children].map((cell) => cell.textContent)
-    expect(lines()).toContain(expected)
-    expect(lines().join(' ')).toContain('张三')
+    // Who edited it is said on hover of the row's line (owner 10-28: the line itself is who made it, when, how big).
+    const meta = () => document.querySelector<HTMLElement>('[data-id="plan"] .file-meta')!
+    expect(meta().title).toContain(expected)
+    expect(meta().textContent).toContain('张三')
     gugu.files.open.mockResolvedValueOnce({ type: 'binary', entry, close: vi.fn() } as never)
     contextChanged({ ...context, locale, file: { chat: 'chat-1', id: entry.id! } })
     await vi.waitFor(() => expect(app().shown).toBe('plan.md'))
-    expect([...$('doc-info').querySelectorAll('.file-activity')].map((line) => line.textContent)).toContain(expected)
+    expect($('doc-info').querySelector('.file-activity')!.textContent).toContain(expected)
     contextChanged({ ...context })
     filesChanged({ kind: 'entries', entries: [entries[0]], gone: [] })
     await vi.waitFor(() => expect(app().shown).toBe(null))
@@ -199,20 +208,22 @@ describe('workspace App: what the old workspace panel did', () => {
     contextChanged({ ...context, capabilities: ['files:read'] })
     await vi.waitFor(() => expect($('new-doc').hidden).toBe(true))
     expect($('upload').hidden).toBe(true)
-    // Opening is reading: a read-only member still gets "Open with" on every file — the only item of its ⋯.
+    // Opening is reading: a read-only member still gets what reading allows on every file — download, its message, its
+    // link, "Open with" — and nothing that changes it.
     for (const li of app().entries) {
-      rowMore(li.getAttribute('data-id')!).click()
-      expect(offered()).toEqual(['用别的 App 打开'])
+      const id = li.getAttribute('data-id')!
+      rowMore(id).click()
+      expect(offered()).toEqual(['下载', ...(id === 'photo' ? ['在聊天中定位'] : []), '复制链接', '详情', '用别的 App 打开'])
     }
     pressEscape()
     contextChanged({ ...context })
     await vi.waitFor(() => expect($('new-doc').hidden).toBe(false))
     rowMore('cfg').click()
-    expect(offered()).toEqual(['用别的 App 打开', '改名', '移动到…', '删除'])
+    expect(offered()).toEqual(['下载', '复制链接', '详情', '用别的 App 打开', '改名', '移动到…', '删除'])
     pressEscape()
     // owner 10-18: delete is offered only where the folder says this person may (entry.canDelete) — 'old' does not say so.
     rowMore('old').click()
-    expect(offered()).toEqual(['用别的 App 打开', '改名', '移动到…'])
+    expect(offered()).toEqual(['下载', '复制链接', '详情', '用别的 App 打开', '改名', '移动到…'])
     pressEscape()
   })
 })
@@ -247,7 +258,7 @@ describe('workspace App as a file manager: the host picks the App', () => {
     more.click()
     expect($('menu').hidden).toBe(false)
     expect(more.getAttribute('aria-expanded'), 'its ⋯ stays drawn while the menu is open').toBe('true')
-    expect(document.activeElement, 'the keyboard is on the first item').toBe(menuItem('用别的 App 打开'))
+    expect(document.activeElement, 'the keyboard is on the first item').toBe(menuItem('下载'))
     menuItem('用别的 App 打开').click()
     expect($('menu').hidden).toBe(true)
     expect(more.getAttribute('aria-expanded')).toBe('false')
@@ -262,18 +273,25 @@ describe('workspace App as a file manager: the host picks the App', () => {
     expect($('menu').hidden).toBe(true)
     const input = document.querySelector('[data-id="cfg"] .rename-input') as HTMLInputElement
     expect(input.value).toBe('cfg.json')
+    input.value = 'unfinished.json'
+    const links = gugu.linkTo.mock.calls.length
+    contextChanged({ ...context })
+    await Promise.resolve()
+    expect(document.querySelector('[data-id="cfg"] .rename-input')).toBe(input)
+    expect(input.value).toBe('unfinished.json')
+    expect(gugu.linkTo.mock.calls.length).toBe(links)
     input.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape' }))
     await vi.waitFor(() => expect(document.querySelector('[data-id="cfg"] .rename-input')).toBe(null))
 
     rowMore('cfg').click()
     menuItem('删除').click()
     expect($('menu').hidden, 'the menu stays open for the question').toBe(false)
-    expect(offered()).toEqual(['用别的 App 打开', '改名', '移动到…', '确认删除'])
+    expect(offered()).toEqual(['下载', '复制链接', '详情', '用别的 App 打开', '改名', '移动到…', '确认删除'])
     $('filter').dispatchEvent(new Event('pointerdown', { bubbles: true })) // a press elsewhere
     expect($('menu').hidden).toBe(true)
     expect(gugu.files.remove).not.toHaveBeenCalled()
     rowMore('cfg').click()
-    expect(offered(), 'the question is taken back').toEqual(['用别的 App 打开', '改名', '移动到…', '删除'])
+    expect(offered(), 'the question is taken back').toEqual(['下载', '复制链接', '详情', '用别的 App 打开', '改名', '移动到…', '删除'])
     menuItem('删除').click()
     menuItem('确认删除').click()
     expect($('menu').hidden).toBe(true)
@@ -327,22 +345,22 @@ describe('workspace App as a file manager: the host picks the App', () => {
     expect(mark.alt).toBe('Dinner vote')
     expect(mark.title).toBe('Dinner vote')
     expect(row.title).toBe('周五聚餐吃什么.dinner-vote.json')
-    // 对照:没有认领的文件(旧宿主没有这两个字段)照原名显示,画按种类的通用字形。
+    // 对照:没有认领的文件(旧宿主没有这两个字段)照原名显示,画它的后缀,按种类上色(owner 10-28)。
     const plain = document.querySelector('[data-id="plan"] .file-open') as HTMLButtonElement
     expect(plain.querySelector('.file-name')!.textContent).toBe('plan.md')
-    expect(plain.querySelector('.file-mark')!.getAttribute('name')).toBe('file-text')
-    expect(document.querySelector('[data-id="photo"] .file-mark')!.getAttribute('name')).toBe('file-image')
+    const markOf = (id: string) => document.querySelector<HTMLElement>(`[data-id="${id}"] .file-mark`)!
+    expect([markOf('plan').textContent, markOf('plan').dataset.family]).toEqual(['MD', 'text'])
+    expect([markOf('photo').textContent, markOf('photo').dataset.family]).toEqual(['PNG', 'image'])
   })
 
   // owner 10-17:群文件夹里的 markdown 画成文件夹 App 的图标太怪。认领它的 App 没给这类文件声明图标(icon: null)时,
-  // 画通用文件字形,❌ 退回 App 自己的图标或首字。
-  test('a claimed file whose App declared no icon for its kind: the generic file glyph, not the App\'s mark', () => {
+  // 画它的后缀(owner 10-28),❌ 退回 App 自己的图标或首字。
+  test('a claimed file whose App declared no icon for its kind: its suffix, not the App\'s mark', () => {
     const [, changed] = gugu.files.onChanged.mock.calls.at(-1) as unknown as [unknown, (change: unknown) => void]
     changed({ kind: 'entries', entries: [{ ...entries[2], id: 'bare', claimedBy: { id: 'workspace', name: '文件夹', icon: null } }], gone: [] })
     const mark = document.querySelector('[data-id="bare"] .file-mark') as HTMLElement
-    expect(mark.tagName).toBe('GUGU-ICON')
-    expect(mark.getAttribute('name')).toBe('file-text')
-    expect(mark.textContent).toBe('')
+    expect(mark.tagName).toBe('SPAN')
+    expect(mark.textContent).toBe('JSON')
     expect(mark.title).toBe('文件夹')
   })
 

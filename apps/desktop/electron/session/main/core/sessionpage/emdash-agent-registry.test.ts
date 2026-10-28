@@ -12,6 +12,49 @@ import {
   resolveLocalSessionPeers,
   unregisterEmdashAgent,
 } from '../../../../sessionpage/emdash-agent-registry'
+import { SessionpageLocalDeliveryRouter } from '../../../../sessionpage/session-injection'
+
+describe('native refusal at the admission boundary', () => {
+  afterEach(() => emdashAgentRegistry.setBridge(null))
+
+  it.each([true, false])('uses the existing wake owner after refusal, resume succeeds=%s', async (recovers) => {
+    const registry = emdashAgentRegistry
+    let lifecycle = 'ready'
+    let attempts = 0
+    const inject = vi.fn(async (_sessionId: string, _text: string, _opts?: { steerIfBusy?: boolean }) => {
+      attempts += 1
+      if (attempts === 1) {
+        lifecycle = 'lost'
+        throw new Error('native admission refused')
+      }
+      return { outcome: 'started' as const, turnId: 'native-receipt', completion: Promise.resolve() }
+    })
+    registry.setBridge({
+      injectEmdashPromptDetached: inject,
+      emdashSessionSummaries: async () => [{ sessionId: 'ended', providerId: 'claude', lifecycle, isGenerating: false }],
+    })
+    const wake = vi.fn(async () => {
+      if (!recovers) throw new Error('original provider session cannot resume')
+      lifecycle = 'ready'
+    })
+    const router = new SessionpageLocalDeliveryRouter([registry], { wakeSession: wake, processRunning: () => lifecycle === 'ready' })
+    const attempt = async () => {
+      const receipt = await registry.tryInjectSessionMessage('ended', { id: 'same-message', text: 'same bytes', kind: 'session-direct' })
+      return receipt === false ? 'not-live' as const : receipt
+    }
+    const result = router.injectWithWake('ended', attempt)
+    if (recovers) {
+      await expect(result).resolves.toMatchObject({ turnId: 'native-receipt' })
+      expect(inject).toHaveBeenCalledTimes(2)
+      expect(inject.mock.calls.map(call => call)).toEqual([['ended', 'same bytes', { steerIfBusy: true }], ['ended', 'same bytes', { steerIfBusy: true }]])
+    } else {
+      await expect(result).rejects.toThrow('original provider session cannot resume')
+      expect(inject).toHaveBeenCalledTimes(1)
+      expect(lifecycle).toBe('lost')
+    }
+    expect(wake).toHaveBeenCalledTimes(1)
+  })
+})
 
 describe('session peer sidebar titles', () => {
   const binding = { guguAgentUserId: '11111111-1111-4111-8111-111111111111', sessionId: 'conversation-1' }
@@ -51,6 +94,16 @@ describe('session peer sidebar titles', () => {
       last_active_at: '2026-09-26T10:00:00.000Z',
     }])
   })
+
+  it('does not advertise the implicit task workspace as a project to the assistant', () => {
+    const peers = resolveLocalSessionPeers([binding], [identity], [facts(binding.sessionId, 'Question task', {
+      projectId: '00000000-0000-4000-8000-000000000001', projectName: '任务工作区',
+    })]);
+    expect(peers[0]).toMatchObject({ title: 'Question task', project: '' });
+    expect(resolveLocalSessionPeers([binding], [identity], [facts(binding.sessionId, 'Real project task', {
+      projectId: 'business-project', projectName: '任务工作区',
+    })])[0]?.project).toBe('任务工作区');
+  });
 
   it('orders rows most recently active first; never-active rows go last', () => {
     const second = { guguAgentUserId: '22222222-2222-4222-8222-222222222222', sessionId: 'conversation-2' }
@@ -99,6 +152,32 @@ describe('emdash ACP session-direct live-only delivery', () => {
       emdashSessionSummaries: async () => [{ sessionId: 'conv-child', providerId: 'codex', lifecycle: 'ready', isGenerating: false }],
     })
     await expect(emdashAgentRegistry.waitUntilReady('conv-child')).resolves.toBeUndefined()
+  })
+
+  it('withdraws a closing owner from injection capability before the process exits', async () => {
+    const inject = vi.fn(async () => ({ outcome: 'started' as const, completion: Promise.resolve(), turnId: 'unused' }))
+    emdashAgentRegistry.setBridge({ injectEmdashPromptDetached: inject,
+      emdashSessionSummaries: async () => [{ sessionId: 'conv-child', providerId: 'claude',
+        lifecycle: 'ready', closing: true, isGenerating: false }],
+    })
+    expect(await emdashAgentRegistry.sessionProviderSurface('conv-child')).toBeNull()
+    expect(await emdashAgentRegistry.tryInjectSessionMessage('conv-child', { id: 'input', text: 'hi' })).toBe(false)
+    expect(inject).not.toHaveBeenCalled()
+    await expect(emdashAgentRegistry.waitUntilReady('conv-child')).rejects.toThrow('has not admitted')
+  })
+
+  it('reopens a pre-turn missing session once for a message, and stops retrying if its provider refuses again', async () => {
+    const ensure = vi.fn(async () => undefined)
+    emdashAgentRegistry.setBridge({ ensureEmdashSession: ensure,
+      injectEmdashPromptDetached: vi.fn(async () => ({ outcome: 'missing' as const, completion: Promise.resolve() })),
+      emdashSessionSummaries: async () => [{ sessionId: 'conv-child', providerId: 'claude', lifecycle: 'ready', isGenerating: false }],
+    })
+    const input = { id: 'same-input', text: 'hi' }
+    expect(await emdashAgentRegistry.tryInjectSessionMessage('conv-child', input)).toBe(false)
+    expect(ensure).toHaveBeenCalledTimes(1)
+    await expect(emdashAgentRegistry.tryInjectSessionMessage('conv-child', input)).rejects.toThrow('again after recovery')
+    await expect(emdashAgentRegistry.tryInjectSessionMessage('conv-child', input)).rejects.toThrow('again after recovery')
+    expect(ensure).toHaveBeenCalledTimes(1)
   })
 
   afterEach(() => {

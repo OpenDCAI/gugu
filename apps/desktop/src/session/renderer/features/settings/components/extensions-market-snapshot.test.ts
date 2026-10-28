@@ -38,6 +38,7 @@ const h = vi.hoisted(() => {
   const answer = (data: unknown) => async () => ({ success: true, data });
   const api = {
     list: vi.fn(answer({ extensions: [], invalid: [], icons: {}, disabled: [] })),
+    variants: vi.fn(answer({ active: 'upstream', variants: [], behind: null })),
     revoked: vi.fn(answer({})),
     agentStatus: vi.fn(answer({})),
     marketUpdates: vi.fn(answer({ checkedAt: '2026-10-16T00:00:00.000Z', updates: {}, yanked: {}, deprecated: {} })),

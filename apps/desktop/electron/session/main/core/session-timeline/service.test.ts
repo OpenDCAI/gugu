@@ -1,4 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
+import * as asks from '../asks';
 import type {
   PendingRequest,
   RecordCursor,
@@ -50,7 +51,7 @@ const persistedQuestions = vi.hoisted(() => new Map<string, Settlement[]>());
 vi.mock('../sessions/agent-question-store', () => ({
   readAgentQuestionRecords: (id: string) => persistedQuestions.get(id) ?? [],
   rememberAgentQuestion: (id: string, item: PendingRequest | Settlement) => {
-    if (item.host?.kind !== 'agent-question') return;
+    if (item.origin?.source !== 'agent-question') return;
     const items = persistedQuestions.get(id) ?? [];
     if (!items.some(old => old.itemId === item.itemId)) persistedQuestions.set(id, [...items, 'state' in item ? item : { ...item, state: 'pending', optionId: null, resolvedBy: null, resolvedAt: null } as Settlement]);
   },
@@ -298,7 +299,7 @@ function makeTimeline(onCatchUp: () => void = () => undefined) {
           kind: request.kind,
           title: request.title,
           ...(request.options.length > 0 ? { options: request.options } : {}),
-          ...(request.host ? { host: request.host } : {}),
+          ...(request.origin ? { origin: request.origin } : {}),
           ...(request.questions ? { questions: request.questions, askedAt: request.askedAt } : {}),
           state: 'pending',
           optionId: null,
@@ -1151,7 +1152,7 @@ describe('session timeline service', () => {
         { optionId: 'install', name: 'Install', kind: 'allow_once' },
         { optionId: 'decline', name: "Don't install", kind: 'reject_once' },
       ],
-      host: { kind: 'app-install' as const, payload: { request: { manifestDigest: 'digest-r' } } },
+      origin: { source: 'app-install' as const, payload: { request: { manifestDigest: 'digest-r' } } },
     });
     const flush = () => new Promise((resolve) => setTimeout(resolve, 0));
     const settled = (promise: Promise<unknown>) => Promise.race([promise, flush().then(() => 'still asked')]);
@@ -1162,10 +1163,10 @@ describe('session timeline service', () => {
     it('a host question works on ACP, validates answers and commits only the first explicit answer', async () => {
       state.rows = [row({ runtime: 'acp' })];
       service.setSessionTimelineFactory(async () => makeTimeline().timeline);
-      const answered = service.askHost('conv-1', {
+      const answered = asks.ask('conv-1', {
         itemId: 'agent-question:budget', kind: 'question', title: '预算？',
         questions: [{ question: '预算？', multiSelect: false, options: [{ optionId: '300', name: '300 元' }, { optionId: '500', name: '500 元' }] }],
-        options: [], askedAt: 123, host: { kind: 'agent-question', payload: {} },
+        options: [], askedAt: 123, origin: { source: 'agent-question', payload: {} },
       }, { signal: new AbortController().signal });
       const snapshot = await service.snapshot({ conversationId: 'conv-1' });
       expect(snapshot).toMatchObject({ ok: true, value: { settlements: [expect.objectContaining({ questions: [expect.objectContaining({ question: '预算？' })], state: 'pending' })] } });
@@ -1182,16 +1183,16 @@ describe('session timeline service', () => {
     it('a question keeps the session waiting on the person (a question wait) until it is withdrawn on interruption', async () => {
       state.rows = [row({ runtime: 'acp' })];
       service.setSessionTimelineFactory(async () => makeTimeline().timeline);
-      const answered = service.askHost('conv-1', {
+      const answered = asks.ask('conv-1', {
         itemId: 'agent-question:async', kind: 'question', title: 'Which?',
         questions: [{ question: 'Which?', multiSelect: false, options: [{ optionId: 'one', name: 'One' }] }],
-        options: [], host: { kind: 'agent-question', payload: {} },
+        options: [], origin: { source: 'agent-question', payload: {} },
       }, { signal: new AbortController().signal });
       await service.snapshot({ conversationId: 'conv-1' });
       await vi.dynamicImportSettled();
       expect(state.hostWaits).toEqual([{ sessionId: 'conv-1', id: 'host-ask:agent-question:async', open: true, waitKind: 'question' }]);
       expect(await settled(answered)).toBe('still asked');
-      service.withdrawHostQuestions('conv-1');
+      asks.withdrawAll('conv-1', 'agent-question');
       await expect(answered).resolves.toBe('withdrawn');
       await vi.dynamicImportSettled();
       expect(state.hostWaits.at(-1)).toEqual({ sessionId: 'conv-1', id: 'host-ask:agent-question:async', open: false, waitKind: 'question' });
@@ -1202,7 +1203,7 @@ describe('session timeline service', () => {
     it('a disconnected host question is withdrawn; an old answer cannot revive it', async () => {
       service.setSessionTimelineFactory(async () => makeTimeline().timeline);
       const clock = new AbortController();
-      const answered = service.askHost('conv-1', { itemId: 'agent-question:gone', kind: 'question', title: '继续？', questions: [{ question: '继续？', multiSelect: false, options: [] }], options: [], host: { kind: 'agent-question', payload: {} } }, { signal: clock.signal });
+      const answered = asks.ask('conv-1', { itemId: 'agent-question:gone', kind: 'question', title: '继续？', questions: [{ question: '继续？', multiSelect: false, options: [] }], options: [], origin: { source: 'agent-question', payload: {} } }, { signal: clock.signal });
       await service.snapshot({ conversationId: 'conv-1' });
       clock.abort();
       await expect(answered).resolves.toBe('withdrawn');
@@ -1214,20 +1215,20 @@ describe('session timeline service', () => {
       state.rows = [row({ runtime: 'pty' })];
       service.setSessionTimelineFactory(async () => makeTimeline().timeline);
       await service.snapshot({ conversationId: 'conv-1' });
-      const answered = service.askHost('conv-1', ask(), { signal: new AbortController().signal });
+      const answered = asks.ask('conv-1', ask(), { signal: new AbortController().signal });
       const before = await service.snapshot({ conversationId: 'conv-1' });
-      expect(before).toMatchObject({ ok: true, value: { settlements: [{ itemId: 'host-1', state: 'pending', host: { kind: 'app-install' } }] } });
-      const result = await service.respond({ conversationId: 'conv-1', itemId: 'host-1', kind: 'permission', optionId: 'install', digest: 'digest-r', enableIn: ['g1'], by: 'phone' });
+      expect(before).toMatchObject({ ok: true, value: { settlements: [{ itemId: 'host-1', state: 'pending', origin: { source: 'app-install' } }] } });
+      const result = await service.respond({ conversationId: 'conv-1', itemId: 'host-1', kind: 'permission', optionId: 'install', digest: 'digest-r', by: 'phone' });
       expect(result).toMatchObject({ ok: true, value: { accepted: true, settlement: { resolvedBy: 'phone' } } });
-      await expect(answered).resolves.toEqual({ optionId: 'install', by: 'phone', digest: 'digest-r', enableIn: ['g1'] });
+      await expect(answered).resolves.toEqual({ optionId: 'install', by: 'phone', digest: 'digest-r' });
       // The terminal leg has no channel for the harness's approvals: never asked, never consulted for the host's.
       expect(state.deliverPermission).not.toHaveBeenCalled();
       expect(state.permissionChannelError).not.toHaveBeenCalled();
       // The status writer is imported when first asked: let that import land, then both edges are in, in order.
       await vi.dynamicImportSettled();
       expect(state.hostWaits).toEqual([
-        { sessionId: 'conv-1', id: 'host-ask:host-1', open: true },
-        { sessionId: 'conv-1', id: 'host-ask:host-1', open: false },
+        { sessionId: 'conv-1', id: 'host-ask:host-1', open: true, waitKind: 'approval' },
+        { sessionId: 'conv-1', id: 'host-ask:host-1', open: false, waitKind: 'approval' },
       ]);
     });
 
@@ -1236,7 +1237,7 @@ describe('session timeline service', () => {
       service.setSessionTimelineFactory(async () => timeline);
       await service.snapshot({ conversationId: 'conv-1' });
       const clock = new AbortController();
-      const answered = service.askHost('conv-1', ask(), { signal: clock.signal });
+      const answered = asks.ask('conv-1', ask(), { signal: clock.signal });
       // The runtime reports its own set (none now, then one): the host's ask is not its to drop.
       state.emitPending?.([], []);
       state.emitPending?.([{ itemId: 'req-1', kind: 'permission', title: 'Run a command', options: [{ optionId: 'allow', name: 'Allow', kind: 'allow_once' }] }], []);
@@ -1251,7 +1252,7 @@ describe('session timeline service', () => {
 
     it('an answer the host refuses leaves it asked; a taken one settles it — once', async () => {
       service.setSessionTimelineFactory(async () => makeTimeline().timeline);
-      const answered = service.askHost('conv-1', ask(), {
+      const answered = asks.ask('conv-1', ask(), {
         signal: new AbortController().signal,
         refuse: (answer) => (answer.optionId === 'install' && answer.digest !== 'digest-r' ? 'nobody saw what it may do' : null),
       });
@@ -1269,7 +1270,7 @@ describe('session timeline service', () => {
       service.setSessionTimelineFactory(async () => makeTimeline().timeline);
       await service.snapshot({ conversationId: 'conv-1' });
       const clock = new AbortController();
-      const answered = service.askHost('conv-1', ask(), { signal: clock.signal });
+      const answered = asks.ask('conv-1', ask(), { signal: clock.signal });
       clock.abort();
       await expect(answered).resolves.toBe('withdrawn');
       const late = await service.respond({ conversationId: 'conv-1', itemId: 'host-1', kind: 'permission', optionId: 'install', digest: 'digest-r', by: 'phone' });
@@ -1277,7 +1278,37 @@ describe('session timeline service', () => {
     });
 
     it('no such session here: unavailable (the host asks in its window alone)', async () => {
-      await expect(service.askHost('conv-nope', ask(), { signal: new AbortController().signal })).resolves.toBe('unavailable');
+      await expect(asks.ask('conv-nope', ask(), { signal: new AbortController().signal })).resolves.toBe('unavailable');
+    });
+
+    it('the registered App deadline withdraws the same settlement at 280 seconds', async () => {
+      vi.useFakeTimers();
+      try {
+        state.rows = [row()];
+        const fake = makeTimeline();
+        service.setSessionTimelineFactory(async () => fake.timeline);
+        const answer = asks.ask('conv-1', ask(), {});
+        await service.snapshot({ conversationId: 'conv-1' });
+        await vi.advanceTimersByTimeAsync(279_999);
+        expect(fake.timeline.getSnapshot().settlements.find(item => item.itemId === 'host-1')?.state).toBe('pending');
+        await vi.advanceTimersByTimeAsync(1);
+        await expect(answer).resolves.toBe('timeout');
+        expect(await service.snapshot({ conversationId: 'conv-1' })).toMatchObject({ ok: true, value: { settlements: [expect.objectContaining({ itemId: 'host-1', state: 'cancelled' })] } });
+      } finally { vi.useRealTimers(); }
+    });
+
+    it('a browser source publishes dialog attention and settles through the same CAS', async () => {
+      state.rows = [row()];
+      const fake = makeTimeline();
+      service.setSessionTimelineFactory(async () => fake.timeline);
+      const answer = asks.ask('conv-1', { ...ask('browser-1'), origin: { source: 'browser-assistance', payload: { kind: 'takeover', text: 'Finish the visible step' } } }, {});
+      await service.snapshot({ conversationId: 'conv-1' });
+      await Promise.resolve();
+      expect(state.hostWaits).toContainEqual(expect.objectContaining({ open: true, waitKind: 'dialog' }));
+      const input = { conversationId: 'conv-1', itemId: 'browser-1', kind: 'permission' as const, optionId: 'install', by: 'mobile' };
+      expect(await asks.respond(input)).toMatchObject({ ok: true, value: { accepted: true } });
+      expect(await asks.respond({ ...input, by: 'desktop' })).toMatchObject({ ok: true, value: { accepted: false } });
+      await expect(answer).resolves.toMatchObject({ by: 'mobile' });
     });
 
     it('one the archive brings back pending, asked by a process that is gone: over, never shown as still asked', async () => {
@@ -1292,7 +1323,7 @@ describe('session timeline service', () => {
     const archivedQuestion = (state: Settlement['state'] = 'pending'): Settlement => ({
       itemId: 'agent-question:11111111-1111-4111-8111-111111111111', kind: 'question', title: 'Which Node?',
       questions: [{ question: 'Which Node?', multiSelect: false, options: [{ optionId: 'PATH', name: 'PATH' }] }],
-      host: { kind: 'agent-question', payload: { sourceLink: 'gugu-chat://22222222-2222-4222-8222-222222222222/33333333-3333-4333-8333-333333333333' } },
+      origin: { source: 'agent-question', payload: { sourceLink: 'gugu-chat://22222222-2222-4222-8222-222222222222/33333333-3333-4333-8333-333333333333' } },
       state, optionId: state === 'resolved' ? '[{"selected":["PATH"]}]' : null, resolvedBy: null, resolvedAt: null,
     });
 
@@ -1325,10 +1356,10 @@ describe('session timeline service', () => {
 
     it('replays only versioned resolved cards through the same outbox id; cancelled and legacy resolved cards stay closed', async () => {
       const fake = makeTimeline(); const pending = archivedQuestion();
-      const payload = { sourceLink: (pending.host!.payload as { sourceLink: string }).sourceLink, deliveryVersion: 1, answerMessageId: '44444444-4444-4444-8444-444444444444' };
-      fake.put({ ...archivedQuestion('resolved'), host: { kind: 'agent-question', payload } });
+      const payload = { sourceLink: (pending.origin!.payload as { sourceLink: string }).sourceLink, deliveryVersion: 1, answerMessageId: '44444444-4444-4444-8444-444444444444' };
+      fake.put({ ...archivedQuestion('resolved'), origin: { source: 'agent-question', payload } });
       fake.put({ ...archivedQuestion('resolved'), itemId: 'agent-question:55555555-5555-4555-8555-555555555555' });
-      fake.put({ ...archivedQuestion('cancelled'), itemId: 'agent-question:66666666-6666-4666-8666-666666666666', host: { kind: 'agent-question', payload } });
+      fake.put({ ...archivedQuestion('cancelled'), itemId: 'agent-question:66666666-6666-4666-8666-666666666666', origin: { source: 'agent-question', payload } });
       service.setSessionTimelineFactory(async () => fake.timeline);
       await service.snapshot({ conversationId: 'conv-1' });
       await vi.waitFor(() => expect(state.questionSend).toHaveBeenCalledTimes(1));
@@ -1342,7 +1373,7 @@ describe('session timeline service', () => {
       timeline.syncPendingRequests([ask('host-live')]);
       service.setSessionTimelineFactory(async () => timeline);
       const clock = new AbortController();
-      const answered = service.askHost('conv-1', ask('host-live'), { signal: clock.signal });
+      const answered = asks.ask('conv-1', ask('host-live'), { signal: clock.signal });
       await service.snapshot({ conversationId: 'conv-1' });
       await expect(settled(answered)).resolves.toBe('still asked');
       expect(timeline.getSnapshot().settlements.map((one) => [one.itemId, one.state])).toEqual([['host-live', 'pending']]);

@@ -23,6 +23,13 @@ import type { Device } from '@gugu/core/shared/types/chat'
  * 登录的人对不上就当没有缓存。
  */
 const CACHE_KEY = 'gugu.devices.v1'
+const listeners = new Set<() => void>()
+
+/** 原始设备读数变更(心跳上线/离线)；与控制面的休眠状态一起决定是否开线。 */
+export function subscribeCachedDevices(listener: () => void): () => void {
+  listeners.add(listener)
+  return () => { listeners.delete(listener) }
+}
 
 type CachedDevices = { accountId: string | null; rows: readonly Device[] }
 
@@ -60,6 +67,7 @@ export function writeCachedDevices(accountId: string | null, rows: readonly Devi
   } catch {
     /* 存不下(配额满/隐私模式)只是回到「每次都等一次往返」,不影响这一次已经拿到的列表。 */
   }
+  for (const listener of listeners) listener()
 }
 
 /**

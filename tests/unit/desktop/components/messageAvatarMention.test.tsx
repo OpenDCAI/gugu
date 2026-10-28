@@ -39,7 +39,7 @@ async function renderList(overrides: Partial<MessageListRowProps> = {}) {
   const rows: ChatListRowItem[] = messages.map((msg) => ({ type: 'message', message: msg }))
   const onMentionMember = vi.fn()
   const rowProps: MessageListRowProps = {
-    rows, messages, isFiltering: false, mobile: false, memberReadSeqs: {}, isAgentChat: false, isGroupChat: true, memberProfiles,
+    rows, messages, isFiltering: false, mobile: false, memberReadSeqs: {}, queuedIds: new Set(), isAgentChat: false, isGroupChat: true, memberProfiles,
     onReaction: noop, onQuote: noop, onForward: noop, onDelete: noop, onVisible: noop, onOpenMemberProfile: noop, onMentionMember,
     highlight: undefined, flashMessageId: undefined, threeParty: undefined, onShowReadReceipt: undefined, onOpenTopic: undefined, topicAnchors: undefined, onOpenTopicAnchor: undefined,
     agentFloodNoticeMessageId: undefined, onAgentFloodUndone: undefined, onOpenFile: undefined, onOpenLocalFileLink: undefined,
@@ -100,8 +100,8 @@ describe('右键群聊消息头像 → @ 他', () => {
   // onMentionMember;现在每个键都是必填,漏接是编译错。这一格从分栏真的组件走一遍:@ 进的是话题自己的输入框。
   it('话题分栏:右键头像,@ 进话题自己的输入框', async () => {
     await renderWithAppProviders(harness, createElement(TopicSplitPane, {
-      topic: { chatId: 'topic-1', name: '分片下载失败' }, sourceChatId: 'source-1', messages, loading: false, memberProfiles, memberReadSeqs: {}, visibleChats: [],
-      sourceMessagePreview: 'pending', onOpenFile: noop, onDownloadFile: noop, onSend: async () => {}, onSendAttachments: async () => {},
+      topic: { chatId: 'topic-1', name: '分片下载失败' }, messages, loading: false, memberProfiles, memberReadSeqs: {}, visibleChats: [],
+      sourceMessagePreview: 'pending', onSend: async () => {}, onSendAttachments: async () => {},
       onClose: noop, currentUserId: 'user-1', history: topicHistoryStub(), mentionMembers: [], onOpenMemberProfile: noop,
     }))
     expect(rightClick(avatarOf('m-claude'))).toBe(true)
@@ -121,7 +121,7 @@ describe('group avatar sits on the last message of a run', () => {
     ]
     const rows: ChatListRowItem[] = run.map((msg) => ({ type: 'message', message: msg }))
     const rowProps: MessageListRowProps = {
-      rows, messages: run, isFiltering: false, mobile: false, memberReadSeqs: {}, isAgentChat: false, isGroupChat: true, memberProfiles,
+      rows, messages: run, isFiltering: false, mobile: false, memberReadSeqs: {}, queuedIds: new Set(), isAgentChat: false, isGroupChat: true, memberProfiles,
       onReaction: noop, onQuote: noop, onForward: noop, onDelete: noop, onVisible: noop, onOpenMemberProfile: noop, onMentionMember: noop,
       highlight: undefined, flashMessageId: undefined, threeParty: undefined, onShowReadReceipt: undefined, onOpenTopic: undefined, topicAnchors: undefined, onOpenTopicAnchor: undefined,
       agentFloodNoticeMessageId: undefined, onAgentFloodUndone: undefined, onOpenFile: undefined, onOpenLocalFileLink: undefined,

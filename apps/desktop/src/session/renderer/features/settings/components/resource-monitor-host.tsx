@@ -17,7 +17,7 @@ export function ResourceMonitorHost() {
     showPopup = () => {
       if (popup && !popup.closed) { popup.focus(); return; }
       const next = window.open('about:blank', RESOURCE_MONITOR_WINDOW_NAME, 'width=360,height=220');
-      if (!next) { toast({ title: translateSessionMessage('resourceMonitor.windowFailed'), tier: 'error' }); return; }
+      if (!next) { toast({ title: translateSessionMessage('resourceMonitor.windowFailed'), description: translateSessionMessage('resourceMonitor.popupBlocked'), tier: 'error' }); return; }
       next.document.title = translateSessionMessage('resourceMonitor.title');
       setPopup(next);
     };

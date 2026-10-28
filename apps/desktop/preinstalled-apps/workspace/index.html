@@ -7,12 +7,23 @@
 <link rel="stylesheet" href="style.css" />
 </head>
 <body data-state="message" data-mode="split">
-  <aside class="files" aria-label="files">
+  <aside class="files" aria-label="files" tabindex="0">
     <div class="files-head row">
       <input id="filter" class="filter" type="search" autocomplete="off" />
       <button id="upload" type="button" hidden><gugu-icon name="arrow-up-to-line"></gugu-icon><span id="upload-label"></span></button>
       <button id="new-doc" class="primary" type="button" aria-haspopup="menu" aria-expanded="false" hidden><gugu-icon name="plus"></gugu-icon><span id="new-label"></span><gugu-icon name="chevron-down"></gugu-icon></button>
     </div>
+    <!-- Which kind of file the list shows, and in what order (list.js): kept on this device. -->
+    <div class="files-tools">
+      <div id="kinds" class="kinds" role="group"></div>
+      <button id="sort" class="sort" type="button" aria-haspopup="menu" aria-expanded="false"><span id="sort-label"></span><gugu-icon name="chevron-down"></gugu-icon></button>
+      <div id="views" class="views" role="group">
+        <button type="button" data-view="list"><gugu-icon name="align-justify"></gugu-icon></button>
+        <button type="button" data-view="grid"><gugu-icon name="layout-grid"></gugu-icon></button>
+      </div>
+    </div>
+    <!-- The filters there is something to pick by (上传者 / 存放 / 保留方式), and the way to clear them. -->
+    <div id="chips" class="chips" hidden></div>
     <!-- Where the list is (子文件夹): the way up, then each folder from the top. Hidden at the top. -->
     <nav id="crumbs" class="crumbs" hidden></nav>
     <!-- What went wrong on the list (a name taken there, a failed move or upload): the file's own line is not drawn here. -->
@@ -49,7 +60,12 @@
       <article id="preview" class="preview"></article>
     </div>
   </main>
+  <!-- A file's details (⋯ › 详情): beside the list when the pane is wide, over it when narrow. -->
+  <aside id="details" class="details card" aria-label="details" hidden></aside>
   <div id="menu" class="menu card list" role="menu" hidden></div>
+  <!-- 多选: how many are picked and what to do with them; the frame dragged across the list. -->
+  <div id="pick-bar" class="pick-bar" role="toolbar" hidden></div>
+  <div id="lasso" class="lasso" hidden></div>
   <!-- 「移动到…」: every folder of the chat, the top first; a press moves the file there. -->
   <div id="move-dialog" class="dialog" role="dialog" aria-modal="true" hidden>
     <div class="dialog-box card">

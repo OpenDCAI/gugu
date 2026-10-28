@@ -18,6 +18,7 @@ import {
   DeviceRpcTimeoutError,
   type DeviceRpcPipe,
   type DeviceRpcPipeHandlers,
+  type RetiredDeviceRpcPipe,
 } from '@gugu/core/cloud/deviceRpcRequester'
 import {
   onSshMachineSignedIn,
@@ -27,8 +28,10 @@ import {
   subscribeSshMachineIds,
   subscribeTunnelState,
   usesDeviceLink,
+  type SshLinkHandle,
 } from './sshLinkChannel'
-import { SshLinkError } from './sshLink'
+import { SshLinkError, type SshLinkFailure } from './sshLink'
+import { rendererLogger } from './log'
 
 export type { DeviceRpcError, DeviceRpcResponse } from '@gugu/core/cloud/deviceRpcProtocol'
 
@@ -40,11 +43,19 @@ export type { DeviceRpcError, DeviceRpcResponse } from '@gugu/core/cloud/deviceR
  * 断了怎么重开,以及设备推来的事件交给谁。
  */
 
+/**
+ * 一台机器的频道开在哪条通道上、什么时候换、什么时候断,各落一行(频道一条一行,❌ 按请求记)。
+ * 换通道会把经它开的宿主窗口一起关掉重开(remoteSessionHost `channel resubscribed`):没有这几行,
+ * 「开机时会话起不来」只看得到窗口被关,看不到是谁关的(2026-10-27)。
+ */
+const log = rendererLogger('device-rpc')
+
 // @@@device-rpc-events 设备 → 手机的**推送**(taskhost.frame、消息预览这类)不是请求应答:没有 request_id。监听器登记在
 // 管道**之外**,因为管道会被重建(登录切换、订阅失败重连),挂在管道上的监听器会跟着蒸发,而订阅者手里那个取消函数还在 ——
 // 那正是「订了但再也收不到」的形状。
 const eventListeners = new Map<string, Set<(payload: unknown) => void>>()
 const resubscribeListeners = new Map<string, Set<(rejoin: boolean) => void>>()
+const switchingListeners = new Map<string, Set<() => DeviceRpcFarewell | void>>()
 
 function listenersFor<T>(registry: Map<string, Set<T>>, deviceId: string): Set<T> {
   let set = registry.get(deviceId)
@@ -64,6 +75,38 @@ function dispatchDeviceEvent(deviceId: string, payload: unknown): void {
 /** `rejoin`:同一条管道断过又订上了(这期间发出的问可能已随断开的那段丢了);管道新开的那一次订阅不是。 */
 function notifyResubscribed(deviceId: string, rejoin: boolean): void {
   for (const listener of [...(resubscribeListeners.get(deviceId) ?? [])]) listener(rejoin)
+}
+
+/**
+ * 换通道时,旧通道撤掉之前还要往那台机器说的一句(#625):经旧通道开的窗口,那台机器只认旧通道上的关窗 —— 不说,
+ * 它要等心跳丢了(约 30 s)才收。
+ */
+export type DeviceRpcFarewell = { type: string; payload: unknown }
+
+/** 交接完、撤旧通道前最多等告别写出去多久;写不出去也照撤(那台机器照旧靠心跳收)。 */
+const FAREWELL_WRITE_MS = 2_000
+
+/** 频道要换到另一条通道上了(新的那条已经接好):开在旧通道上的窗口先交接,再撤旧通道。收回它们的告别。 */
+function notifySwitching(deviceId: string): DeviceRpcFarewell[] {
+  const farewells: DeviceRpcFarewell[] = []
+  for (const listener of [...(switchingListeners.get(deviceId) ?? [])]) {
+    const farewell = listener()
+    if (farewell) farewells.push(farewell)
+  }
+  return farewells
+}
+
+/** 退下来的旧通道:告别写出去(或等满 FAREWELL_WRITE_MS)再拆,在途的问那时以 `error` 失败。 */
+async function retireAfterFarewells(
+  retired: RetiredDeviceRpcPipe,
+  farewells: DeviceRpcFarewell[],
+  error: Error,
+): Promise<void> {
+  if (farewells.length > 0) {
+    const told = Promise.allSettled(farewells.map((farewell) => retired.tell(farewell.type, farewell.payload)))
+    await Promise.race([told, new Promise((resolve) => setTimeout(resolve, FAREWELL_WRITE_MS))])
+  }
+  retired.close(error)
 }
 
 /** 此刻开着的管道走的是哪条通道(清单变了时据此拆掉走错的那条);管道关掉就删。 */
@@ -109,7 +152,7 @@ const requester = createDeviceRpcRequester({
   userId: getCurrentAuthUserId,
   openPipe,
   onEvent: dispatchDeviceEvent,
-  // 尚在握手的设备连接留给原来的开线期限;已就绪的 SSH 应用管道超时由 callDeviceRpc 关闭并重开。
+  // 尚在握手的设备连接留给原来的开线期限;已就绪的 SSH 应用管道由自己的连续超时窗口判断存活。
   // 云端事件订阅者还在时不拆:它没有请求超时来重新开推送,由现成的 recover 重新报到。
   keepAliveOnTimeout: (deviceId) => transports.get(deviceId) !== 'cloud' || hasEventListeners(deviceId),
 })
@@ -118,13 +161,18 @@ async function openPipe(deviceId: string, handlers: DeviceRpcPipeHandlers): Prom
   await sshMachinesReady()
   // 远程 SSH 的机器,以及经远程隧道连通了的机器:走设备连接(终端画面不进咕咕云的消息通道)。
   const transport = usesDeviceLink(deviceId) ? 'ssh' : 'cloud'
+  // 换通道先接好的那条还没交出去,清单又换回咕咕云了:收掉它,❌ 留一条没人用的设备连接。
+  if (transport === 'cloud') takeWarmLink(deviceId)?.close()
   const pipe = await (transport === 'ssh' ? openSshPipe : openCloudPipe)(deviceId, handlers)
+  log.info({ deviceId, transport }, 'device rpc channel opened')
   transports.set(deviceId, transport)
   pipeHandlers.set(deviceId, handlers)
   return {
     send: pipe.send,
     // #7233 咕咕云那条:一问没回时重新报到、原样重发一次(远程 SSH 那条没有)。漏传它,一次报到卡住之后这一页再也问不出去。
     ...(pipe.recover ? { recover: pipe.recover } : {}),
+    ...(pipe.onReply ? { onReply: pipe.onReply } : {}),
+    ...(pipe.onRequestTimeout ? { onRequestTimeout: pipe.onRequestTimeout } : {}),
     close: () => {
       if (pipeHandlers.get(deviceId) === handlers) {
         pipeHandlers.delete(deviceId)
@@ -241,20 +289,28 @@ async function openCloudPipe(deviceId: string, handlers: DeviceRpcPipeHandlers):
 /** 断了之后多久再开一次(只在还有人听推送时):2s 起翻倍,最多一分钟。成本 = 一次 ssh 复用共享连接起一个进程。 */
 const SSH_REOPEN_MIN_MS = 2_000
 const SSH_REOPEN_MAX_MS = 60_000
+const SSH_TIMEOUT_WINDOWS = 3
 const sshReopen = new Map<string, { timer: ReturnType<typeof setTimeout> | null; delay: number }>()
 
 async function openSshPipe(deviceId: string, handlers: DeviceRpcPipeHandlers): Promise<DeviceRpcPipe> {
   // 连接在主进程那头已经断了:只丢掉这边的记录,❌ 再叫主进程关(可能关掉紧接着开的新连接)。
   let closedByLink = false
-  const link = openSshLink(deviceId, {
+  let active = true
+  let timeoutWindows = 0
+  let lastTimeoutEnd: number | null = null
+  const linkHandlers: SshLinkHandlers = {
     onMessage: (message) => handlers.onMessage(message),
     onClosed: (reason) => {
       closedByLink = true
+      active = false
+      log.warn({ deviceId, reason }, 'device link closed')
       // 在途的问一律当场失败(说清原因),❌ 等到各自超时。
       handlers.onClosed(new SshLinkError(reason, deviceId))
       scheduleSshReopen(deviceId)
     },
-  })
+  }
+  // 换通道时先接好的那条(switchToDeviceLink):接过来用,❌ 再拨一条。
+  const link = takeWarmLink(deviceId)?.adopt(linkHandlers) ?? openSshLink(deviceId, linkHandlers)
   try {
     await link.ready
   } catch (error) {
@@ -266,7 +322,25 @@ async function openSshPipe(deviceId: string, handlers: DeviceRpcPipeHandlers): P
   notifyResubscribed(deviceId, false)
   return {
     send: (message) => link.send(message),
+    onReply: () => {
+      if (!active) return
+      timeoutWindows = 0
+      lastTimeoutEnd = null
+    },
+    onRequestTimeout: (timeoutMs) => {
+      if (!active) return
+      const now = performance.now()
+      // 同一段卡顿里并发到期的问只算一窗:下一次计入的整个期限必须在上一窗结束之后。
+      if (lastTimeoutEnd !== null && now - timeoutMs < lastTimeoutEnd) return
+      lastTimeoutEnd = now
+      timeoutWindows += 1
+      if (timeoutWindows < SSH_TIMEOUT_WINDOWS) return
+      active = false
+      handlers.onClosed(new DeviceRpcChannelError('SSH application link timed out', 'closed'))
+      scheduleSshReopen(deviceId)
+    },
     close: () => {
+      active = false
       if (!closedByLink) link.close()
     },
   }
@@ -289,15 +363,93 @@ function scheduleSshReopen(deviceId: string): void {
   sshReopen.set(deviceId, state)
 }
 
+// ── 换通道:咕咕云 → 设备连接,先接后断 ─────────────────────────────────────────
+
+type SshLinkHandlers = Parameters<typeof openSshLink>[1]
+
 /**
- * 清单变了(装上了一台、移除了一台、换了账号):已经开着的管道若走错了通道,就拆掉 —— 下一次调用 / 推送订阅
- * 按新清单重开(有人在听推送的当场重开)。
+ * 先接好、还没交给管道的那条设备连接。接好之前收到的推送丢掉(咕咕云那条还在送同一批);接好之后、交接之前就断了,
+ * 记下原因,交接时当场报给管道。
+ */
+type WarmLink = { adopt(handlers: SshLinkHandlers): SshLinkHandle; close(): void; ready: Promise<void> }
+const warmLinks = new Map<string, WarmLink>()
+
+function dialWarmLink(deviceId: string): WarmLink {
+  let bound: SshLinkHandlers | null = null
+  let lost: SshLinkFailure | null = null
+  const link = openSshLink(deviceId, {
+    onMessage: (message) => bound?.onMessage(message),
+    onClosed: (reason) => {
+      if (bound) bound.onClosed(reason)
+      else lost = reason
+    },
+  })
+  return {
+    ready: link.ready,
+    adopt: (handlers) => {
+      bound = handlers
+      const reason = lost
+      if (reason) queueMicrotask(() => handlers.onClosed(reason))
+      return link
+    },
+    close: () => link.close(),
+  }
+}
+
+function takeWarmLink(deviceId: string): WarmLink | null {
+  const warm = warmLinks.get(deviceId) ?? null
+  warmLinks.delete(deviceId)
+  return warm
+}
+
+/** 旧通道上的管道拆掉;有人在听推送就当场按新清单重开(没人听 = 下一次调用时再开)。 */
+function replaceChannel(deviceId: string, from: string, to: string): void {
+  log.info({ deviceId, from, to }, 'device rpc channel switching transport')
+  requester.close(deviceId, new Error('Device RPC channel was reset: this machine now uses another transport'))
+  if (hasEventListeners(deviceId)) void requester.open(deviceId).catch(() => undefined)
+}
+
+/**
+ * 咕咕云 → 设备连接(开机后隧道通了、刚用远程 SSH 装上):先接后断。设备连接接好之前咕咕云照常办事;接好了,
+ * 开在咕咕云上的窗口先交接(notifySwitching:客户端当场开新窗口,界面照「通着」),再撤掉咕咕云,新管道接过这条连接。
+ * ❌ 先断后接:撤掉咕咕云到设备连接接好那 2–3 s 里窗口全断,侧栏掉成「重新连接」、文件树「无响应」、在起的会话报
+ * 「引擎没能启动」(2026-10-27 owner:每次打开都闪一下,网络一直是好的)。
+ * 接不上:照旧先断后接(远程 SSH 的机器字节只走 SSH,❌ 留在咕咕云)。
+ */
+async function switchToDeviceLink(deviceId: string): Promise<void> {
+  if (warmLinks.has(deviceId)) return
+  const warm = dialWarmLink(deviceId)
+  warmLinks.set(deviceId, warm)
+  const ready = await warm.ready.then(() => true, () => false)
+  // 等它的这段里,管道已经按新清单重开过(openSshPipe 接走了它),或者又换回去了:不归这里管了。
+  if (warmLinks.get(deviceId) !== warm) return
+  const wanted = usesDeviceLink(deviceId) && transports.get(deviceId) === 'cloud'
+  if (!ready || !wanted) {
+    warmLinks.delete(deviceId)
+    warm.close()
+    if (!ready && wanted) replaceChannel(deviceId, 'cloud', 'ssh')
+    return
+  }
+  log.info({ deviceId, from: 'cloud', to: 'ssh', warm: true }, 'device rpc channel switching transport')
+  // 先把咕咕云那条退下来:交接过来的客户端开新窗口的那一问就落在新管道上;退下来的那条替旧窗口说完告别(#625)再拆。
+  const retired = requester.retire(deviceId)
+  const farewells = notifySwitching(deviceId)
+  const reset = new Error('Device RPC channel was reset: this machine now uses another transport')
+  if (retired) void retireAfterFarewells(retired, farewells, reset)
+  // 新管道(openSshPipe)从 warmLinks 接过这条;接好即 onChannelResubscribed,交接过来的客户端那时已在开新窗口。
+  void requester.open(deviceId).catch(() => scheduleSshReopen(deviceId))
+}
+
+/**
+ * 清单变了(装上了一台、移除了一台、换了账号、隧道通了 / 断了):已经开着的管道若走错了通道就换。
+ * 咕咕云 → 设备连接先接后断(switchToDeviceLink);设备连接 → 咕咕云(隧道断了、机器被移除)那条已经不通,当场换。
  */
 function reconcileTransports(): void {
   for (const [deviceId, transport] of [...transports]) {
-    if ((usesDeviceLink(deviceId) ? 'ssh' : 'cloud') === transport) continue
-    requester.close(deviceId, new Error('Device RPC channel was reset: this machine now uses another transport'))
-    if (hasEventListeners(deviceId)) void requester.open(deviceId).catch(() => undefined)
+    const next = usesDeviceLink(deviceId) ? 'ssh' : 'cloud'
+    if (next === transport) continue
+    if (transport === 'cloud') void switchToDeviceLink(deviceId)
+    else replaceChannel(deviceId, transport, next)
   }
 }
 
@@ -336,11 +488,6 @@ export async function callDeviceRpc<T>(
     try {
       return (await requester.call(deviceId, type, payload, { timeoutMs, signal: options?.signal })) as DeviceRpcResponse<T>
     } catch (err) {
-      if (err instanceof DeviceRpcTimeoutError && transports.get(deviceId) === 'ssh') {
-        // SSH 保活不代表 link 进程还在回包。其余在途请求明确失败,下一次调用开新 link,不重放副作用。
-        requester.close(deviceId, new DeviceRpcChannelError('SSH application link timed out', 'closed'))
-        scheduleSshReopen(deviceId)
-      }
       if (!(err instanceof DeviceRpcTimeoutError) || attempt >= maxAttempts) throw err
     }
   }
@@ -390,13 +537,15 @@ export function _injectDeviceRpcReplyForTesting(deviceId: string, payload: unkno
 export function subscribeDeviceRpcEvents(
   deviceId: string,
   listener: (payload: unknown) => void,
-  options?: { onChannelResubscribed?: (rejoin: boolean) => void },
+  options?: { onChannelResubscribed?: (rejoin: boolean) => void; onChannelSwitching?: () => DeviceRpcFarewell | void },
 ): () => void {
   if (!deviceId) throw new Error('deviceId is required')
   const events = listenersFor(eventListeners, deviceId)
   events.add(listener)
   const onResubscribed = options?.onChannelResubscribed
   if (onResubscribed) listenersFor(resubscribeListeners, deviceId).add(onResubscribed)
+  const onSwitching = options?.onChannelSwitching
+  if (onSwitching) listenersFor(switchingListeners, deviceId).add(onSwitching)
   // 管道要先存在才收得到推送。远程 SSH 的机器此刻连不上:隔一会儿再开(有人在听推送就不能就此放弃,Realtime 那条有
   // 自己的重连)。
   watchTransports()
@@ -414,6 +563,11 @@ export function subscribeDeviceRpcEvents(
       const resubs = resubscribeListeners.get(deviceId)
       resubs?.delete(onResubscribed)
       if (resubs && resubs.size === 0) resubscribeListeners.delete(deviceId)
+    }
+    if (onSwitching) {
+      const switching = switchingListeners.get(deviceId)
+      switching?.delete(onSwitching)
+      if (switching && switching.size === 0) switchingListeners.delete(deviceId)
     }
   }
 }

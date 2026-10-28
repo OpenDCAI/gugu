@@ -585,10 +585,12 @@
      percentage of the foreground, not from hue」。 */
   --agent-bolt: var(--fg);
   --color-draft: #FA8C16;
-  --color-warning-highlight: #FFE566;
+  /* 搜索命中的底色:mark 的字跟着正文(color: inherit),深色上用琥珀的淡染,❌ 一块亮黄压着浅色字(深色巡检 10-27)。 */
+  --color-warning-highlight: color-mix(in oklab, var(--warn) 38%, transparent);
 
   /* @@@one-knob — 这一族原来 chroma 精确为 0,是盖在面族之上的**第二族**中性。 */
-  --text-muted:       oklch(0.845 0 0); /* was #CCCCCC */
+  /* 弱化文字就是第三级文字(--faint-fg),两套主题同一个值;❌ 深色上写死 #ccc(比次要文字 --muted-fg 还亮,层级颠倒)。 */
+  --text-muted: var(--faint-fg);
   --text-icon-default: oklch(0.450 0 0); /* was #555555 */
   --text-icon-soft:    oklch(0.510 0 0); /* was #666666 */
   --text-icon-stroke:  oklch(0.640 0 0); /* was #8C8C8C */
@@ -793,7 +795,6 @@
   --text-on-bubble-muted: rgba(0,0,0,0.55);
   --bubble-quote-bar-mine: rgba(0,0,0,0.18);
   --bubble-quote-bar-other: rgba(0,0,0,0.14);
-  --text-muted: color-mix(in oklab, var(--fg) 40%, var(--bg));
   --text-icon-default: color-mix(in oklab, var(--fg) 55%, var(--bg));
   --text-icon-soft: color-mix(in oklab, var(--fg) 45%, var(--bg));
   --text-icon-stroke: color-mix(in oklab, var(--fg) 40%, var(--bg));
@@ -1039,11 +1040,11 @@ input::placeholder {
   to { transform: rotate(360deg); }
 }
 
-/* @@@5649 发送中 = 虚线环在环上流动;停下即「已发出」的实线空心环(同位、同半径,切换不跳)。周长 2π·5.5≈34.56。 */
+/* @@@5649 Rotate the static dashed ring as one composited SVG instead of repainting its stroke every frame. */
 @keyframes gg-ring-march {
-  to { stroke-dashoffset: -34.56; }
+  to { transform: rotate(360deg); }
 }
-.gg-ring-march { animation: gg-ring-march 1.4s linear infinite; }
+.gg-ring-march { transform-origin: center; animation: gg-ring-march 1.4s linear infinite; }
 @media (prefers-reduced-motion: reduce) {
   .gg-ring-march { animation: none; }
 }
@@ -1059,9 +1060,18 @@ input::placeholder {
   }
 }
 
+.gg-message-skeleton { flex: 1; padding: 8px 16px; display: flex; flex-direction: column; gap: 12px; overflow: hidden; }
+.gg-message-skeleton-bubble { position: relative; overflow: hidden; contain: paint; }
+.gg-message-skeleton-bubble::before {
+  content: ''; position: absolute; inset: 0 auto 0 -400%; width: 600%;
+  background: linear-gradient(90deg, var(--bg-elevated) 0%, var(--bg-secondary) 50%, var(--bg-elevated) 100%);
+  background-size: calc(100% / 3) 100%;
+  animation: skeleton-shimmer 1.4s ease-in-out infinite;
+}
+
 @keyframes skeleton-shimmer {
-  0% { background-position: 200% 0; }
-  100% { background-position: -200% 0; }
+  from { transform: translateX(0); }
+  to { transform: translateX(calc(200% / 3)); }
 }
 
 /* @@@typing-dots (#1102) — agent「运行中 ●●●」内联指示器的跳动圆点,逐值抄设计稿 .typing .tdots i 的 tbounce。 */
@@ -1121,13 +1131,6 @@ input::placeholder {
     opacity: 1;
     transform: none;
   }
-}
-
-/* @@@1696 统一运行态「流光状态词」：一束亮带从文字里扫过（配 background-clip:text）。
-   区别于 skeleton-shimmer（骨架屏 200%→-200%）：此处 160%→-60% 是设计稿 #1687/#1696 定的运行态节奏。 */
-@keyframes running-shimmer {
-  from { background-position: 160% 0; }
-  to { background-position: -60% 0; }
 }
 
 @keyframes ggCNaPop {
@@ -1618,7 +1621,8 @@ body.barcode-scanner-active #root {
 
 /* Existing page snapshots keep the tab bar and live document interactive. */
 :root[data-mobile-direction] { view-transition-name: none; }
-:root[data-mobile-direction] [data-mobile-tab-page]:not([inert]) { view-transition-name: mobile-page; }
+/* 推进来的一层盖着时它是这一页,底下分页器的页都 inert(一页只能有一个 mobile-page,重名整次过场作废)。 */
+:root[data-mobile-direction] :is([data-mobile-tab-page]:not([inert]), [data-phone-layer][data-open]) { view-transition-name: mobile-page; }
 :root[data-mobile-direction]::view-transition { pointer-events: none; }
 ::view-transition-group(mobile-page), ::view-transition-old(mobile-page), ::view-transition-new(mobile-page),
 .gg-mobile-motion, .gg-sheet-content[data-sheet-mobile='true'], .gg-sheet-backdrop[data-sheet-mobile='true'] {
@@ -1691,7 +1695,7 @@ body.barcode-scanner-active #root {
   user-select: none;
   position: relative;
 }
-.gg-list-row[data-mobile] { padding: 10px; gap: 12px; }
+.gg-list-row[data-mobile] { padding: 8px; gap: 16px; } /* 手机:列表容器 8 + 行 8 = 头像左边 16;头像到文字 16(v7.12,owner 10-26) */
 /* #7333 导航行(侧栏、设置左栏):胶囊。普通列表行(联系人、成员)不挂这个变体,保持控件档圆角。 */
 .gg-list-row[data-variant='nav'] { border-radius: var(--radius-capsule); padding-inline: var(--spacing-md); }
 .gg-list-row-leading { flex-shrink: 0; display: flex; position: relative; }
@@ -1894,12 +1898,7 @@ body.barcode-scanner-active #root {
 /* @@@5856 会话列表里的话题子行:挂在来源那条线底下,❌ 不是一条平级的会话(owner:「怎么还有把一个
    topic 当做群的形式表达」)。缩进 + 一条竖轨是「从属」唯一读得出来的两样;❌ 不给它头像 ——
    头像是身份的东西,话题不是一个身份,给了它就立刻长得像个群。 */
-/* @@@5856 名册 / 附件嵌在话题分栏里(头栏 👥 对话题已经没有入口了,见 TopicSplitPane)。
-   宽度与边线由分栏给的外壳管(RightPanel width="fill"),这里只收头。
-   嵌进来的附件面板自带的「标题 + 关闭」收掉:标题分栏那条头已经说了(话题名 + 引自哪一句),
-   关闭由分栏头上那两颗切换键负责。留着就是两条头叠着摆 + 两颗都能返回的 × —— owner 的「卡里套卡」。
-   名册的头由分栏自己画(TopicSplitPane),本来就不带关闭;改名住在里面,它是控件不是标题。 */
-.gg-topic-split-members .gg-hist-hh { display: none; }
+
 
 .gg-topic-subrows { position: relative; }
 .gg-topic-subrows::before {

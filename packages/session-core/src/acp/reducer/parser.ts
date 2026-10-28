@@ -1,5 +1,4 @@
 import { findEntityOwner } from './entity-owner';
-import { makeMessageId, makeThinkingId } from './ids';
 /** Stateful projection of domain events. Protocol decoding belongs to transport/history ingress. */
 
 import type { AgentState } from '../models/agents';
@@ -38,14 +37,16 @@ export class AcpTranscriptParser {
     this.state = reduce(this.state, { kind: 'event', event, at }, this.deps);
   }
 
-  /** Native rows can finish individual parts of the same assistant message. */
-  pushRecordEvent(event: NormalizedEvent, at: number): void {
+  /**
+   * Native rows can finish individual parts of the same assistant message. The last boundary names
+   * that message even when its row carried no visible content (an empty final thinking fragment).
+   */
+  pushRecordEvent(event: NormalizedEvent, at: number, boundaryMessageId: string | null): void {
     const { committed, active } = this.state.transcript;
     const last = committed.at(-1);
     const messageId = event.kind === 'thinking' || (event.kind === 'message' && event.role === 'assistant')
       ? event.messageId : null;
-    if (!active && last && messageId !== null && last.items.some(item =>
-      item.id === makeMessageId(last.id, messageId, 'assistant') || item.id === makeThinkingId(last.id, messageId))) {
+    if (!active && last && messageId !== null && messageId === boundaryMessageId) {
       // Preserve the turn/item identities; its next native boundary supplies the final outcome/time.
       this.state = { ...this.state, transcript: { committed: committed.slice(0, -1), active: last } };
     }

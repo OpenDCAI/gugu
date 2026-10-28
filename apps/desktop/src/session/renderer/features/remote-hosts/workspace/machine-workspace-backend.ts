@@ -32,6 +32,7 @@ import { log } from '@renderer/utils/logger';
 import { remotePortKey, remotePortLinkChannel, type RemotePortLink, type RemotePortReason } from '@shared/remote-port-link';
 import type { SshPrompt } from '@shared/ssh-prompt';
 import { remoteErrorCode } from '../remote-failure-copy';
+import { hostStatusLabel, machineNoticeLabel } from '../connection-status';
 import { remoteHostsStore } from '../remote-hosts-store';
 import { downloadEntry, uploadItems } from './remote-file-actions';
 import { dropUploadItems, fileUploadItem } from './remote-drop-items';
@@ -347,8 +348,13 @@ export function ensureMachineWorkspaceBackend(): void {
   setWorkspaceReachResolver((projectId) => {
     const deviceId = machineOfProject(projectId);
     if (!deviceId) return null;
+    const device = remoteHostsStore.device(deviceId);
+    const versionNotice = machineNoticeLabel(device?.notices, deviceLabel(deviceId), translateSessionMessage, { protocolOnly: true });
+    if (versionNotice) return versionNotice;
     const state = remoteHostsStore.connectionState(deviceId);
     if (state === 'connected' || state === 'connecting') return null;
+    // Older desktops report their protocol when opening the link, without heartbeat notices.
+    if (state === 'outdated') return hostStatusLabel(state, deviceLabel(deviceId), device?.lastSeenAt, Date.now(), translateSessionMessage);
     const reach = remoteToolReach(remoteHostsStore.device(deviceId) ?? null, Date.now(), translateSessionMessage);
     return reach.ok ? translateSessionMessage('remoteWorkspace.noAnswer', { device: deviceLabel(deviceId) }) : reach.label;
   });

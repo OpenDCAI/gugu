@@ -9,6 +9,8 @@ import {
   DropdownMenuTrigger,
 } from '@renderer/lib/ui/dropdown-menu';
 import type { SessionTranslate } from '../extension-consent';
+import { resourceMenuItems } from '@/lib/resourceActions';
+import type { ResourceContext } from '@shared/resource-actions';
 
 /**
  * 装着的 App 那颗 ⋯(#7059,原型「每行一个开关和 ⋯(钉到左栏、在新窗口打开、停用、卸载)」;产品页头上同一颗)。
@@ -28,6 +30,7 @@ export function AppMoreMenu({
   autoUpdate,
   onUninstall,
   testId,
+  resource,
 }: {
   name: string;
   enabled: boolean;
@@ -41,8 +44,10 @@ export function AppMoreMenu({
   autoUpdate?: { on: boolean; onToggle: (on: boolean) => void };
   onUninstall?: () => void;
   testId?: string;
+  resource?: ResourceContext;
 }) {
   const label = translate('extensions.moreActions', { name });
+  const share = resource ? resourceMenuItems(resource).map(item => <DropdownMenuItem key={item.id} onClick={() => void item.click()}>{item.label}</DropdownMenuItem>) : [];
   const top = [
     onToggleDock && (
       <DropdownMenuItem key="dock" onClick={onToggleDock}>
@@ -75,7 +80,7 @@ export function AppMoreMenu({
       </DropdownMenuCheckboxItem>
     ),
   ].filter(Boolean);
-  if (top.length === 0 && !onUninstall) return null;
+  if (top.length === 0 && share.length === 0 && !onUninstall) return null;
   return (
     <DropdownMenu>
       <DropdownMenuTrigger
@@ -96,7 +101,9 @@ export function AppMoreMenu({
       </DropdownMenuTrigger>
       <DropdownMenuContent align="end" className="w-44" onClick={(event) => event.stopPropagation()}>
         {top}
-        {onUninstall && top.length > 0 ? <DropdownMenuSeparator /> : null}
+        {share.length > 0 && top.length > 0 ? <DropdownMenuSeparator /> : null}
+        {share}
+        {onUninstall && top.length + share.length > 0 ? <DropdownMenuSeparator /> : null}
         {onUninstall ? (
           <DropdownMenuItem variant="destructive" onClick={onUninstall}>
             {translate('extensions.uninstallAction')}

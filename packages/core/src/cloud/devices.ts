@@ -1,3 +1,4 @@
+import { isImplicitSessionHomeProjectId } from '../shared/sessionProject'
 import { normalizeDeviceActionsSummary, type DeviceActionsSummary } from '../shared/deviceActions'
 import { parseMachineLimitRefusal, type MachineLimitRefusal } from './machineLimit'
 import { isDeviceOnline } from '../shared/enums/deviceModels'
@@ -19,6 +20,9 @@ export interface DeviceTableClient {
   from(table: 'gugu_devices'): {
     select(columns: string): {
       eq(column: 'user_id', value: string): {
+        in(column: 'device_id', values: readonly string[]): {
+          order(column: string, options: { ascending: boolean }): PromiseLike<DeviceQueryResult>
+        }
         order(column: string, options: { ascending: boolean }): PromiseLike<DeviceQueryResult>
       }
     }
@@ -134,13 +138,14 @@ export async function removeDevice(
 export async function listDevices(
   client: DeviceTableClient,
   ownerId: string,
-  options: { includePhones?: boolean } = {},
+  options: { includePhones?: boolean; /** Only these rows (a device_changed revision names the one that changed). */ deviceIds?: readonly string[] } = {},
 ): Promise<Device[]> {
   if (!ownerId) throw new Error('listDevices requires ownerId (refuse to list devices without an owner scope)')
-  const { data, error } = await client
+  const owned = client
     .from('gugu_devices')
-    .select('device_id, label, hostname, platform, status, last_seen_at, capabilities:device_list_capabilities, machine_id, session_digest')
+    .select('device_id, label, hostname, platform, status, last_seen_at, capabilities:device_list_capabilities, machine_id, tier, session_digest')
     .eq('user_id', ownerId)
+  const { data, error } = await (options.deviceIds ? owned.in('device_id', options.deviceIds) : owned)
     .order('last_seen_at', { ascending: false })
   if (error) throw new Error(error.message)
 
@@ -174,6 +179,7 @@ export function normalizeDeviceRow(value: unknown): Device {
     capabilities: normalizeDeviceCapabilities(row.capabilities),
     // 老行 / 老测试桩没有这列 ⇒ null(展示层退回按 device_id 归类),❌ 当缺列报错。
     machine_id: typeof row.machine_id === 'string' && row.machine_id ? row.machine_id : null,
+    ...(typeof row.tier === 'string' && row.tier ? { tier: row.tier } : {}),
     // 离线时手机拿它显示「这台机器上有哪些会话、卡在哪儿」。同上:老行没有这列 ⇒ 空,
     // ❌ 不报错 —— 迁移铺开之前每一行都没有它。
     session_digest: normalizeSessionDigest(row.session_digest)
@@ -213,7 +219,7 @@ export function normalizeSessionDigest(value: unknown): DeviceSessionSummary[] {
     out.push({
       conversationId: sessionId,
       projectId: typeof row.projectId === 'string' ? row.projectId : '',
-      projectName: typeof row.projectName === 'string' ? row.projectName : '',
+      projectName: !isImplicitSessionHomeProjectId(typeof row.projectId === 'string' ? row.projectId : null) && typeof row.projectName === 'string' ? row.projectName : '',
       title,
       harness: typeof row.harness === 'string' ? row.harness : 'unknown',
       agentStatus: typeof row.agentStatus === 'string' ? row.agentStatus : null,
@@ -259,6 +265,7 @@ export function normalizeDeviceCapabilities(value: unknown): DeviceCapabilities 
     // @@@fleet-version (#663) - old hosts omit the field → undefined (UI shows 版本未知).
     app_version:
       typeof row.app_version === 'string' && row.app_version.length > 0 ? row.app_version : undefined,
+    published_desktop_version: typeof row.published_desktop_version === 'string' ? row.published_desktop_version : undefined,
     // #6264 老宿主不报这几项 ⇒ 缺席(界面退回平台名、不显示升级状态),❌ 补默认值冒充事实。
     ...(row.host_kind === 'server' || row.host_kind === 'desktop' || row.host_kind === 'phone' ? { host_kind: row.host_kind } : {}),
     ...(typeof row.os_name === 'string' && row.os_name ? { os_name: row.os_name.slice(0, 80) } : {}),

@@ -338,6 +338,7 @@ describe('answering another machine', () => {
       peers: vi.fn(async () => ['peer']),
       run: vi.fn(async () => ({ ran: true })),
       app: vi.fn(async () => ({ id: 'm-1' })),
+      appSpawn: vi.fn(async () => ({ agentId: 'user:a-new' })),
       appReadFile: vi.fn(),
       appCall: vi.fn(),
       ...overrides,
@@ -350,6 +351,19 @@ describe('answering another machine', () => {
     await expect(xm.answer('peers', CALLER, { action: 'peers' }, h)).resolves.toEqual(['peer'])
     await expect(xm.answer('get', CALLER, { action: 'get', session_id: 's' }, h)).resolves.toEqual({ ran: true })
     expect(h.run).toHaveBeenCalledWith(CALLER, { action: 'get', session_id: 's' })
+  })
+
+  it('starts an App agent through the App spawn core, with the same checked options and no borrowed session caller', async () => {
+    const APP = { kind: 'app', deviceId: 'phone', deviceLabel: 'phone', extensionId: 'board', extensionName: 'Board' } as const
+    const { xm } = makeCrossMachine()
+    const h = host()
+    const action = { action: 'spawn', prompt: 'work', spawn: { model: 'platform:model', transport: 'acp', title: 'Card' } } as const
+    await expect(xm.answer('spawn', APP, action, h)).resolves.toEqual({ agentId: 'user:a-new' })
+    expect(h.appSpawn).toHaveBeenCalledWith(APP, action)
+    expect(h.run).not.toHaveBeenCalled()
+    expect(parseAgentSessionRequest('spawn', APP, { ...action, spawn: { transport: 'other' } })).toHaveProperty('error')
+    expect(parseAgentSessionRequest('spawn', APP, { ...action, spawn: { unknown: true } })).toHaveProperty('error')
+    expect(parseAgentSessionRequest('spawn', APP, { ...action, prompt: '' })).toHaveProperty('error')
   })
 
   it('refuses a malformed request', async () => {
@@ -409,7 +423,7 @@ describe('agentSession.<action> arguments', () => {
     expect(parseAgentSessionRequest('message', APP, { action: 'message', session_ids: ['s'], text: 'hi', delivery: 'attach' }))
       .toEqual({ error: 'delivery is queue or defer' })
     expect(parseAgentSessionRequest('spawn', APP, { action: 'spawn', prompt: 'x' }))
-      .toEqual({ error: 'an App may only send a message to another machine, read a file there, or have a page\'s call done there, not spawn' })
+      .toEqual({ caller: APP, action: { action: 'spawn', prompt: 'x', spawn: {} } })
     expect(parseAgentSessionRequest('read_file', APP, { ...READ, junk: 1 })).toEqual({ caller: APP, action: READ })
     expect(parseAgentSessionRequest('read_file', APP, { ...READ, offset: '0' }))
       .toEqual({ error: 'read_file names a session (session_id), a path in its working copy, an offset and a length' })
@@ -428,13 +442,13 @@ describe('agentSession.<action> arguments', () => {
     const appReadFile = vi.fn(async () => CHUNK)
     const appCall = vi.fn()
     await expect(xm.answer('message', APP, { action: 'message', session_ids: ['s'], text: 'hi' }, {
-      peers: vi.fn(), run, app, appReadFile, appCall,
+      peers: vi.fn(), run, app, appSpawn: vi.fn(), appReadFile, appCall,
     })).resolves.toEqual({ id: 'm-1' })
-    await expect(xm.answer('read_file', APP, READ, { peers: vi.fn(), run, app, appReadFile, appCall })).resolves.toEqual(CHUNK)
+    await expect(xm.answer('read_file', APP, READ, { peers: vi.fn(), run, app, appSpawn: vi.fn(), appReadFile, appCall })).resolves.toEqual(CHUNK)
     // A page's call on that machine (its program, its data folder): its own part, the verb and args as the page gave them.
     const CALL = { action: 'app_call', call_id: 'c-1', session_id: 's', version: '0.7.0', method: 'writeData', args: { path: 'journal.json', content: '{}' } } as const
     appCall.mockResolvedValueOnce(undefined)
-    await expect(xm.answer('app_call', APP, CALL, { peers: vi.fn(), run, app, appReadFile, appCall })).resolves.toBeUndefined()
+    await expect(xm.answer('app_call', APP, CALL, { peers: vi.fn(), run, app, appSpawn: vi.fn(), appReadFile, appCall })).resolves.toBeUndefined()
     expect(appCall).toHaveBeenCalledWith(APP, CALL)
     expect(app).toHaveBeenCalledWith(APP, { action: 'message', session_ids: ['s'], text: 'hi' })
     expect(appReadFile).toHaveBeenCalledWith(APP, READ)
@@ -520,6 +534,20 @@ describe('the family across machines', () => {
 
 // #7199 云电脑休眠中 ≠ 离线:发过去之前先叫醒,醒了照常发;醒不来说清是哪台、为什么,什么都不发。
 describe('a sleeping cloud computer', () => {
+  it('does not wake a paused host to inspect or locate a session, even with stale online presence', async () => {
+    for (const online of [true, false]) {
+      const wakeCloudComputer = vi.fn(async () => true)
+      const { xm, call } = makeCrossMachine(undefined, {
+        listDevices: async () => [device('dev-a', 'this box', true), device('dev-c', 'cloud', online)],
+        cloudComputerState: async () => ({ state: 'asleep', deviceId: 'dev-c', error: null, since: null }),
+        wakeCloudComputer,
+      })
+      await expect(xm.runOnDevice('dev-c', CALLER, { action: 'get', session_id: 'child' })).rejects.toMatchObject({ code: 'SESSION_DEVICE_OFFLINE' })
+      await expect(xm.call('dev-c', CALLER, { action: 'locate', session_ids: ['child'] })).rejects.toMatchObject({ code: 'SESSION_DEVICE_OFFLINE' })
+      expect(wakeCloudComputer).not.toHaveBeenCalled()
+      expect(call).not.toHaveBeenCalled()
+    }
+  })
   it('wakes it, then sends as usual once it is online', async () => {
     let online = false
     const wakeCloudComputer = vi.fn(async (deviceId: string) => {
@@ -562,8 +590,31 @@ describe('a sleeping cloud computer', () => {
     expect(rows.find((row) => row.device_id === 'dev-b')).not.toHaveProperty('cloud_computer')
   })
 
+  it('wakes a paused cloud computer even when the device row still says online', async () => {
+    const order: string[] = []
+    const wakeCloudComputer = vi.fn(async () => { order.push('wake'); return true })
+    const { xm, call } = makeCrossMachine(async () => { order.push('deliver'); return { result: { ok: true } } }, {
+      listDevices: async () => [device('dev-a', 'this box', true), device('dev-c', 'cloud', true)],
+      cloudComputerState: async () => ({ state: 'asleep', deviceId: 'dev-c', error: null, since: null }),
+      wakeCloudComputer,
+    })
+    await xm.call('dev-c', CALLER, { action: 'message', session_ids: ['assistant'], text: 'result' })
+    expect(wakeCloudComputer).toHaveBeenCalledOnce()
+    expect(call).toHaveBeenCalledOnce()
+    expect(order).toEqual(['wake', 'deliver'])
+  })
+
   it('session_devices still lists machines when the manager cannot be reached', async () => {
     const { xm } = makeCrossMachine(undefined, { cloudComputerState: async () => { throw new Error('down') } })
     expect((await xm.listDeviceRows()).map((row) => row.device_id)).toEqual(['dev-a', 'dev-b', 'dev-c'])
   })
+})
+
+
+it('prepares a dormant work seat only through the dedicated capability and never falls back to old spawn', async () => {
+  const { xm, call } = makeCrossMachine(async (_device, channel) => channel === 'assistantWork.prepare'
+    ? { error: { code: 'unknown_method', message: 'No handler registered for assistantWork.prepare' } } : { result: { started: true } })
+  await expect(xm.runOnDevice('dev-b', CALLER, { action: 'spawn', assistant_work: { version: 1 }, prompt: 'task' })).rejects.toMatchObject({ code: 'SESSION_DEVICE_OUTDATED' })
+  expect(call).toHaveBeenCalledOnce()
+  expect(call.mock.calls[0]?.[1]).toBe('assistantWork.prepare')
 })

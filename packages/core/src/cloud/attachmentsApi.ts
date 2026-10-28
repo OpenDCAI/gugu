@@ -7,8 +7,8 @@
 //   place  → only put in the chat's folder (a new file, or a new version of one) — no message;
 //   forward → a new-kind attachment message forwarded (the server makes the target's item);
 //   urls   → signed links for items' versions or whisper messages.
+import type { FileKeep } from '../shared/fileStorage'
 import { getSupabaseAnonKey, getSupabaseUrl } from './config'
-import type { AttachmentUrlRef } from '../shared/attachmentUrls'
 
 export interface AttachmentsEndpoint {
   supabaseUrl: string
@@ -54,8 +54,17 @@ export async function uploadAttachmentBytes(
 ): Promise<string> {
   const size = file.bytes instanceof Blob ? file.bytes.size : file.bytes.byteLength
   const form = await call(endpoint, 'upload', {
-    size_bytes: size, as: scope.as, chat_id: scope.chat_id, request_id: scope.request_id ?? crypto.randomUUID(),
+    size_bytes: size, content_type: file.contentType, as: scope.as, chat_id: scope.chat_id, request_id: scope.request_id ?? crypto.randomUUID(),
   }) as { staging_key: string; url: string; fields: Record<string, string>; max_bytes: number; method?: 'POST' | 'PUT'; headers?: Record<string, string> }
+  await uploadAttachmentPlan(endpoint, form, file)
+  return form.staging_key
+}
+
+export type AttachmentUploadPlan = { url: string; fields: Record<string, string>; max_bytes: number; method?: 'POST' | 'PUT'; headers?: Record<string, string> }
+
+/** Ordinary and temporary uploads execute the same scoped provider plan; signing remains server-side. */
+export async function uploadAttachmentPlan(endpoint: AttachmentsEndpoint, form: AttachmentUploadPlan, file: { bytes: Uint8Array | Blob; name: string; contentType: string }): Promise<void> {
+  const size = file.bytes instanceof Blob ? file.bytes.size : file.bytes.byteLength
   if (size > form.max_bytes) throw new AttachmentsError('upload', 413, 'too_large', `${file.name} is ${size} bytes; a file is at most ${form.max_bytes}`)
   const method = form.method ?? 'POST'
   if (method !== 'POST' && method !== 'PUT') throw new AttachmentsError('upload', 502, 'invalid', 'unsupported upload method')
@@ -72,7 +81,6 @@ export async function uploadAttachmentBytes(
   if (posted.status !== 200 && posted.status !== 204) {
     throw new AttachmentsError('upload', posted.status, 'failed', `storing ${file.name} failed: HTTP ${posted.status}`)
   }
-  return form.staging_key
 }
 
 export interface CommitArgs {
@@ -93,6 +101,8 @@ export interface CommitArgs {
   /** The upload is this folder file's next version, from expected_version (a newer one stored since ⇒ refused, version_conflict). */
   item_id?: string
   expected_version?: number
+  /** How long this copy stays (temporary | permanent); not given, the chat's rule. Needs a backend with file_storage_mark_as. */
+  keep?: FileKeep
 }
 
 /** Sends the upload as an attachment message: the message row as `messages_view` has it. */
@@ -120,8 +130,8 @@ export async function sendFileAsOwner(endpoint: AttachmentsEndpoint, args: Owner
 }
 
 export type PlaceArgs =
-  | { staging_key: string; chat_id: string; file_name: string; folder?: string | null; as_user_id?: string | null; source_message_ids?: string[]; content_type?: string }
-  | { staging_key: string; item_id: string; expected_version: number; as_user_id?: string | null; content_type?: string }
+  | { staging_key: string; chat_id: string; file_name: string; folder?: string | null; as_user_id?: string | null; source_message_ids?: string[]; content_type?: string; keep?: FileKeep }
+  | { staging_key: string; item_id: string; expected_version: number; as_user_id?: string | null; content_type?: string; keep?: FileKeep }
 
 /** Puts the upload in a chat's folder — a new file, or (item_id) a new version of one: the item row, as the *_as functions answer. */
 export async function placeAttachment(endpoint: AttachmentsEndpoint, args: PlaceArgs): Promise<Record<string, unknown>> {
@@ -146,11 +156,6 @@ export async function forwardAttachment(endpoint: AttachmentsEndpoint, args: For
   const answer = await call(endpoint, 'forward', { ...args }) as { message: Record<string, unknown> | null }
   if (!answer.message) throw new AttachmentsError('forward', 500, 'failed', `no message came back for ${args.source_message_id}`)
   return answer.message
-}
-
-/** Signed links (the JSON as it is, for the resolver in shared/attachmentUrls.ts). `as`: one of the caller's own agents. */
-export async function fetchAttachmentUrls(endpoint: AttachmentsEndpoint, refs: AttachmentUrlRef[], as?: string | null): Promise<unknown> {
-  return call(endpoint, 'urls', { refs, ...(as ? { as } : {}) })
 }
 
 /** Shared authenticated transport for additional private attachment scopes. */

@@ -6,6 +6,7 @@ import { pendingTurnHeader, placeholderTurnHeader, planTurnFoldRuns, turnFoldVie
 import { splitAttachmentMentions } from '@gugu/session-chat-ui/markdown-attachment-mentions'
 import { collectOpenedOutputs, outputsOfRun } from '@gugu/session-chat-ui/opened-outputs'
 import { readQuestionAnswerDelivery } from '@gugu/session-core/session-record/question-answer'
+import { agentSendOf, type AgentSend } from '@gugu/session-core/session-record/reply-process'
 import { translateSessionMessage } from '@/session/renderer/localization/locale-store'
 
 /**
@@ -24,6 +25,8 @@ import { translateSessionMessage } from '@/session/renderer/localization/locale-
  *   一轮的过程 → 单独一条 assistant 消息,metadata 带桌面折叠头那组事实(见 turn-process-message);
  *                哪些条目折进去、头写什么,和桌面同一份判断(`@gugu/session-chat-ui/turn-fold`)
  *   在跑、还没有可折的过程 → 同一条过程消息先空着出来,头写「正在思考…」占位(`placeholderTurnHeader`)
+ *   agent 经 message_send / session_message 说的话(`agentSendOf`)→ `agent-send` data part,画成它说的话、标明发到哪(同桌面
+ *                agent-send 行);❌ 一张「调用了 MCP 工具」的卡,也 ❌ 收进「N 次工具调用」那一组
  *   打开给人看的文件 / 网页(成功的 `session_open_in_tab`)→ 那一步照常在过程里,一轮最后另挂 `opened-outputs` data part,
  *                画成桌面同一张附件卡(#7193);哪些算、挂哪一轮、同一份只挂一张,与桌面同一份判断(`opened-outputs`)
  *
@@ -35,8 +38,13 @@ import { translateSessionMessage } from '@/session/renderer/localization/locale-
 export const THINKING_DATA_PART = 'thinking'
 /** 问用户的那次工具调用,data 是那个工具节点(卡按 `node.toolCallId` 找结算)。 */
 export const QUESTION_DATA_PART = 'question'
+/** agent 经 message_send / session_message 说的一段话,data 见 `AgentSendData`。 */
+export const AGENT_SEND_DATA_PART = 'agent-send'
 /** 一轮交出来的文件 / 网页(#7193),data 见 `OpenedOutputsData`。 */
 export const OUTPUTS_DATA_PART = 'opened-outputs'
+
+/** 那段话、发到哪、还在不在发(那次调用的状态)。id 是那次调用的条目 id。 */
+export type AgentSendData = { id: string; send: AgentSend; sending: boolean }
 
 /** 一轮挂的附件卡:记下它们的那几条调用,手机拿它们去画桌面同一张卡(opened-outputs-part)。 */
 export type OpenedOutputsData = { turnId: string; items: TranscriptItem[] }
@@ -300,10 +308,13 @@ export function toThreadMessages(
           flattenTools(item as ToolNode, flat)
           for (const node of flat) {
             const tool = node as ToolNode
+            const send = agentSendOf(node, turn)
             assistantParts.push(
               'toolCallId' in tool && options?.settlements?.[tool.toolCallId]
                 ? { type: 'data', name: QUESTION_DATA_PART, data: tool }
-                : toolPart(tool, options),
+                : send
+                  ? { type: 'data', name: AGENT_SEND_DATA_PART, data: { id: node.id, send, sending: tool.status === 'running' } satisfies AgentSendData }
+                  : toolPart(tool, options),
             )
           }
         }

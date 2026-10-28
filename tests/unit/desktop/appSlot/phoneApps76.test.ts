@@ -1,3 +1,4 @@
+import { verifiedFileHandle } from '../../../helpers/verifiedFileHandle'
 import { EXTENSION_API_VERSION } from '../../../../apps/desktop/src/session/shared/extensions/manifest'
 import JSZip from 'jszip'
 import { createHash } from 'node:crypto'
@@ -116,11 +117,9 @@ vi.mock('../../../../apps/desktop/src/lib/supabase', () => ({
   },
 }))
 vi.mock('../../../../apps/desktop/src/lib/attachmentBytes', () => ({
-  attachmentResolver: {
-    resolve: async (source: { kind: string; itemId?: string }) => {
+  resolveAttachment: async (source: { kind: string; itemId?: string }) => {
       const card = [...cards.values()].find((entry) => entry.row.file_item_id === source.itemId)
-      return card ? { status: 'ready', url: card.url } : { status: 'gone' }
-    },
+      return card ? verifiedFileHandle(shell.packages.get(card.url)!, {}, async signal => new Uint8Array(await (await fetch(card.url, { signal })).arrayBuffer())) : { status: 'gone', sha256: null }
   },
 }))
 vi.mock('../../../../apps/desktop/src/lib/log', () => ({
@@ -275,18 +274,16 @@ describe('U3 the phone App store: install, update, uninstall, re-tag', () => {
     expect(index().installed.vote!.dir).toBe('vote@1.0.0')
   })
 
-  // 125 10-06, phone cell 1: the phone's sheet asked 「看到这个 App 自己起的 agent」 — a phone has no agents, so the person was
-  // asked for nothing they could use there. Control (the parent commit): asked about agents:read, and the second sheet
-  // about agents:control too.
-  it('asks only for what the phone can grant: an App asking only for agents installs without a sheet; with chat:relay, about that alone', async () => {
+  // Phones now read and control App-owned agents on computers; consent must say so.
+  it('asks about phone-supported App agent reads, control and chat relay', async () => {
     const apps = await start()
     const quiet = await apps.installAttachment({ messageId: await publish('vote', '1.0.0', ALICE_UPLOADER, ['agents:read']) })
     expect(quiet).toMatchObject({ success: true, data: { installed: true, outcome: 'confirmed' } })
-    expect(shell.asked).toEqual([])
+    expect(shell.asked).toHaveLength(1)
 
     await apps.installAttachment({ messageId: await publish('board', '1.0.0', ALICE_UPLOADER, ['agents:control', 'chat:relay']) })
     const asked = shell.asked as unknown as { manifest: { permissions?: { capabilities?: string[] } } }[]
-    expect(asked.map((ask) => ask.manifest.permissions?.capabilities)).toEqual([['chat:relay']])
+    expect(asked.map((ask) => ask.manifest.permissions?.capabilities)).toEqual([['agents:read'], ['agents:control', 'chat:relay']])
     // What is kept is the App as it was written: a computer reading the same package asks about all of it.
     const kept = index().installed.board as unknown as { manifest: { permissions: { capabilities: string[] } } }
     expect(kept.manifest.permissions.capabilities).toEqual(['agents:control', 'chat:relay'])
@@ -575,7 +572,7 @@ describe('the phone installs Apps from the market', () => {
   })
 
   it('`return` for an App asking nothing this phone can grant says so (asks: false)', async () => {
-    await list('notes', '1.0.0', ['agents:read'])
+    await list('notes', '1.0.0', ['agents:history'])
     const apps = await start()
     await expect(apps.installFromMarket({ ref: { extensionId: 'notes' }, consent: { kind: 'return' } }))
       .resolves.toMatchObject({ success: true, data: { outcome: 'ask', asks: false } })

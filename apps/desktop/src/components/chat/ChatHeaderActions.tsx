@@ -16,6 +16,7 @@ import { GroupAppsPicker } from './GroupAppsPicker'
 import { useChatAppPins } from './useChatAppPins'
 import { useHeaderAppCapacity } from './useHeaderAppCapacity'
 import { ChatDetailsMenuItems } from './ChatDetailsMenuItems'
+import { GroupTopicsMenuItem } from './GroupTopicsMenuItem'
 
 
 // #1234 消息头右上的 action icon。
@@ -34,7 +35,8 @@ interface ChatHeaderActionsProps {
   searchMode: boolean
   /** The panel is up and shows the folder (a tab like any other: owner 10-24) — not just「the panel is open」. */
   folderShown: boolean
-  memberListOpen: boolean
+  /** The chat's info tab (members, announcement, settings) is on screen. */
+  infoShown: boolean
   showHeaderMenu: boolean
   mobile?: boolean
   /** 画在会话页一块的页签条上时(没有标题后面的「(N)」):人数挂在成员按钮上。 */
@@ -44,12 +46,11 @@ interface ChatHeaderActionsProps {
   /** The folder opened, or brought forward when it is a tab already. */
   onOpenFolder: () => void
   onCloseWorkspacePanel: () => void
-  onOpenSettingsDrawer: () => void
-  onOpenMemberList: () => void
-  onCloseRightSurfaces: () => void
+  /** The chat's info beside it; the members' button opens it at their list. */
+  onOpenInfo: (page?: 'main' | 'members') => void
+  onCloseInfo: () => void
   onToggleHeaderMenu: () => void
   onCloseHeaderMenu: () => void
-  onOpenAnnouncement: () => void
 }
 
 export const ChatHeaderActions = observer(function ChatHeaderActions({
@@ -57,7 +58,7 @@ export const ChatHeaderActions = observer(function ChatHeaderActions({
   isRoomChat,
   searchMode,
   folderShown,
-  memberListOpen,
+  infoShown,
   showHeaderMenu,
   mobile,
   memberCount,
@@ -65,12 +66,10 @@ export const ChatHeaderActions = observer(function ChatHeaderActions({
   onEnterSearchMode,
   onOpenFolder,
   onCloseWorkspacePanel,
-  onOpenSettingsDrawer,
-  onOpenMemberList,
-  onCloseRightSurfaces,
+  onOpenInfo,
+  onCloseInfo,
   onToggleHeaderMenu,
   onCloseHeaderMenu,
-  onOpenAnnouncement,
 }: ChatHeaderActionsProps) {
   const { t } = useTranslation('messaging')
   const { activeChatId } = useChatStore('activeChatId')
@@ -79,7 +78,7 @@ export const ChatHeaderActions = observer(function ChatHeaderActions({
   const compactRoom = Boolean(mobile && isRoomChat) // 手机群聊页头只留成员 + ⋯,搜索/文件夹/群 Apps 收进 ⋯。
   const groupId = isGroupChat ? activeChatId : null
   const pins = useChatAppPins(groupId)
-  const apps = installedExtensionsStore.openableApps
+  const apps = installedExtensionsStore.chatOpenableApps
   const pinnedApps = pins.ids.flatMap((id) => apps.find((app) => app.extensionId === id) ?? [])
   const { ref: pinsRef, capacity } = useHeaderAppCapacity(pinnedApps.length, compactRoom || !groupId)
   const overflow = pinnedApps.slice(capacity)
@@ -88,7 +87,7 @@ export const ChatHeaderActions = observer(function ChatHeaderActions({
   if (picker.chatId !== activeChatId) setPicker({ chatId: activeChatId, open: false })
   const openApps = () => { onCloseHeaderMenu(); setPicker({ chatId: activeChatId, open: true }) }
   return (
-    <Popover.Root open={picker.open} modal={false} onOpenChange={(open) => setPicker({ chatId: activeChatId, open })}>
+    <Popover.Root open={picker.open && !mobile} modal={false} onOpenChange={(open) => setPicker({ chatId: activeChatId, open })}>
       {groupId && !compactRoom && <>
         <span ref={pinsRef} className="flex items-center gap-[2px]">
           {pinnedApps.slice(0, capacity).map((app) => <IconButton key={app.extensionId} data-testid={AUTOMATION_TEST_IDS.chatHeaderPinnedApp} data-app-id={app.extensionId} aria-label={app.name} title={app.name} onClick={() => openApp(app.extensionId, groupId)}><RailAppIcon app={app} className="gg-sidebar-launch-icon" /></IconButton>)}
@@ -129,34 +128,25 @@ export const ChatHeaderActions = observer(function ChatHeaderActions({
           <Folder />
         </IconButton>
       )}
-      {/* 成员列表 — memberList(Solar Users)。
-          @@@5856 owner 2026-09-18:「我们现在的问题是把群成员按钮误认为群设置按钮了,而之前的设置按钮
-          还是设置按钮,这导致群列表消失了,而我们补的就是这个消失。」
-          #1485 恢复这颗按钮时把它接到了 onOpenSettingsDrawer —— 于是产品里**没有任何入口**能打开成员列表
-          本身:两颗不同的按钮(👥 与 ⋯→设置)落在同一个抽屉上,成员列表只是抽屉里的一段。
-          现在它接 onOpenMemberList,打开真正的成员列表面板(人/Agent 分两段、每个 agent 一行显示它的引擎、
-          模型、跑在哪与响应档位——product spec)。
-          ⋯→设置仍然是群设置抽屉,两颗按钮从此各归各。群与话题都有。 */}
+      {/* 成员 — 打开群信息页签,落在成员那一页(owner 10-26:成员、公告、设置合成一处,同 Slack 点头像堆落在成员)。
+          @@@5856 成员列表本身必须有入口(owner 2026-09-18):这颗钮直接到名单,不是到设置的第一页。群与话题都有。 */}
       {isRoomChat && (
         <IconButton
           data-testid={AUTOMATION_TEST_IDS.chatHeaderMembersButton}
-          on={memberListOpen || undefined}
+          on={infoShown || undefined}
           title={t('header.memberList')}
           aria-label={t('header.memberList')}
-          aria-pressed={memberListOpen}
+          aria-pressed={infoShown}
           onClick={() => {
-            // @@@1503 对称:开走 closeRightSurfaces()+开自己,关也走 closeRightSurfaces()。
-            if (memberListOpen) onCloseRightSurfaces()
-            else onOpenMemberList()
+            if (infoShown) onCloseInfo()
+            else onOpenInfo('members')
           }}
         >
           <Users />
           {memberCount !== undefined && <span data-member-count="">{memberCount}</span>}
         </IconButton>
       )}
-      {/* ⋯ 更多操作 — @@@1161 moreActions 下拉。搜索/成员已升为头栏顶层 icon,故移出菜单。
-          群聊 = 群公告 + 设置;单聊 = 设置。「设置」只开这个聊天自己的(群设置 / 会话设置),agent 私聊也一样 —— Agent 设置从点页头名字进。
-          契约 moreActions 含「分享」,但 gugu 暂无会话分享能力,不放空壳占位(反 fake),作 gap 标注。 */}
+      {/* Settings stays reachable from More in every layout, independently of pinned Apps. */}
       <DropdownMenu.Root
         open={showHeaderMenu}
         modal={false}
@@ -199,7 +189,9 @@ export const ChatHeaderActions = observer(function ChatHeaderActions({
                   onClick={onEnterSearchMode}
                   icon={<Search size={16} />}
                 >{t('header.searchChat')}</MenuItem>}
-            <ChatDetailsMenuItems isGroupChat={isGroupChat} onOpenSettings={onOpenSettingsDrawer} onOpenAnnouncement={onOpenAnnouncement} />
+            {/* 群的 ⋯ = 话题列表 + 群设置(owner 10-27);话题从这里进,项目群的侧栏不再挂话题行。 */}
+            {groupId && !mobile && <GroupTopicsMenuItem chatId={groupId} />}
+            <ChatDetailsMenuItems isGroupChat={isGroupChat} onOpenInfo={() => isGroupChat ? onOpenInfo('main') : onOpenInfo()} />
             {/* 「在本群打开」的常驻入口:话题的分栏与手机整页同一份(OpenAppMenuItems)。 */}
             {groupId ? <OpenAppMenuItems chatId={groupId} apps={overflow} separated /> : activeChatId && <OpenAppMenuItems chatId={activeChatId} separated />}
             {groupId && compactRoom && <MenuItem onClick={openApps} icon={<LayoutGrid size={16} />}>{t('header.groupApps')}</MenuItem>}

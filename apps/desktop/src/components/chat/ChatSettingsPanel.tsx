@@ -7,32 +7,32 @@ import { MemberProfileAvatarButton } from '../MemberProfileAvatarButton'
 import { MemberProfilePopover } from '../MemberProfilePopover'
 import type { ActiveMemberProfile } from '../memberProfileModels'
 import { GroupMembersSection } from './GroupMembersSection'
+import type { MemberListPanelProps } from './MemberListPanel'
 import { GroupAgentFloodSettings } from './GroupAgentFloodSettings'
 import { ChatManagementActions } from './ChatManagementActions'
-import { RightPanel } from './RightPanel'
 import { SettingsPageHead } from './groupSettingsUi'
 import { COLOR_MUTED } from './chatPresentation'
 
-// 从 ChatAreaPanel 拆出来的(那份文件行数冻结,#7199 给它加「吃一个会话 id」时腾的位置),内容原样。
-// 会话/群设置:桌面是右栏(RightPanel,与成员列表、群公告同一个外壳同一个槽位),手机是整页。
+// 从 ChatAreaPanel 拆出来的(那份文件行数冻结,#7199 给它加「吃一个会话 id」时腾的位置)。
+// 群信息 / 会话信息(owner 10-26):成员、公告、设置合成一枚页签(chat-info),桌面在对话旁边、手机是整页。
+// 页签本身就是标题和 ×:桌面上一级页不画页头,手机左上返回 = 关掉这一页。
 export type ChatSettingsPanelProps = ChatRightPanelBodyProps & { mobile?: boolean }
 
 export function ChatSettingsPanel({ mobile = false, ...body }: ChatSettingsPanelProps) {
   const { activeChat, onClose } = body
   const { t } = useTranslation('messaging')
-  // 群设置的页头在 GroupMembersSection 自己的页面栈里;私聊没有,这里补同一个页头(手机 = 左上返回)。
-  const content = (
-    <>
-      {activeChat.kind === 'group' ? null : <SettingsPageHead title={t('chatArea.settings.conversation')} onClose={onClose} mobile={mobile} />}
+  return (
+    <div data-testid="chat-settings-panel" className="flex min-h-0 flex-1 flex-col overflow-y-auto">
+      {activeChat.kind === 'group' || !mobile ? null : <SettingsPageHead title={t('chatArea.settings.conversation')} onClose={onClose} mobile />}
       <ChatRightPanelBody {...body} />
-    </>
+    </div>
   )
-  // 手机上 RightPanel 自己是整页(@@@6418);返回键由页头 SettingsPageHead 接,外壳不再接一次。
-  return <RightPanel scroll testId="chat-settings-panel">{content}</RightPanel>
 }
 
 interface ChatRightPanelBodyProps {
   activeChat: ChatItem
+  /** Where it opens (the members' button: their list); back goes to the info's first page. */
+  initialPage?: 'main' | 'members' | 'announcement'
   messages: MessageItem[]
   onClose: () => void
   onClearMessages: () => Promise<void>
@@ -45,6 +45,8 @@ interface ChatRightPanelBodyProps {
   // @@@whisper (#820) — 悄悄话回调透传到内部 MemberProfilePopover。
   onWhisper?: (target: MemberProfileChatTarget) => void
   groupCollabSnapshot: GroupCollabSnapshot
+  /** Why the roster could not be read: its members' page says so. */
+  groupCollabError?: MemberListPanelProps['error']
   groupAgentStatuses: Record<string, AgentDisplayStatus>
   onReloadGroupCollab: () => Promise<void>
   onLeaveGroup: () => Promise<void>
@@ -53,7 +55,7 @@ interface ChatRightPanelBodyProps {
 
 // @@@right-panel-body - One right-side surface for DM + group + mobile. Members section differs by chat
 // kind (group gets the rich role-switching list, DM keeps the simple peer card), then ChatManagementActions.
-function ChatRightPanelBody({ activeChat, onClose, onClearMessages, onOpenSearch, onSetNotificationLevel, onTogglePinned, memberProfiles, currentUserId, onOpenUserChat, onWhisper, groupCollabSnapshot, onReloadGroupCollab, onLeaveGroup, onDissolveGroup }: ChatRightPanelBodyProps) {
+function ChatRightPanelBody({ activeChat, initialPage, onClose, onClearMessages, onOpenSearch, onSetNotificationLevel, onTogglePinned, memberProfiles, currentUserId, onOpenUserChat, onWhisper, groupCollabSnapshot, groupCollabError, onReloadGroupCollab, onLeaveGroup, onDissolveGroup }: ChatRightPanelBodyProps) {
   const { t } = useTranslation('messaging')
   const [activeProfile, setActiveProfile] = useState<ActiveMemberProfile | null>(null)
   const isGroupChat = activeChat.kind === 'group'
@@ -73,7 +75,9 @@ function ChatRightPanelBody({ activeChat, onClose, onClearMessages, onOpenSearch
       {isGroupChat ? (
         <GroupMembersSection
           chat={activeChat}
+          initialPage={initialPage}
           snapshot={groupCollabSnapshot}
+          snapshotError={groupCollabError}
           currentUserId={currentUserId}
           onReload={onReloadGroupCollab}
           onClose={onClose}

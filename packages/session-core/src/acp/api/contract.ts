@@ -4,6 +4,7 @@ import {
   fallible,
   liveModel,
   liveState,
+  procedure,
   uploadFile,
 } from '@gugu/session-wire';
 import { z } from 'zod';
@@ -16,9 +17,10 @@ import {
   sessionUsageSchema,
 } from '../models/config';
 import { sessionPlansSchema } from '../models/plan';
-import { promptDraftSchema } from '../models/prompt';
+import { promptDraftSchema, promptInputSchema } from '../models/prompt';
 import { sessionStateSchema, sessionSummarySchema } from '../models/session';
 import { transcriptTurnSchema } from '../models/turns';
+import { toolImageLookupSchema } from '../models/turns/tool-calls';
 import {
   cancelTurnCommandSchema,
   changeQueuePromptOrderCommandSchema,
@@ -64,7 +66,7 @@ import {
   acpSteerQueuedPromptErrorSchema,
   acpStopSessionErrorSchema,
 } from './errors';
-import { historyPageInputSchema, historyPageSchema, resumeResultSchema } from './queries';
+import { historyPageInputSchema, historyPageSchema, resumeResultSchema, toolImageInputSchema } from './queries';
 
 const startSessionResultSchema = z.object({ providerSessionId: z.string() });
 const sessionKeySchema = z.object({ sessionId: z.string() });
@@ -175,6 +177,15 @@ export const acpApiContract = defineContract({
     input: deleteAttachmentCommandSchema,
     data: z.void(),
     error: acpAttachmentErrorSchema,
+  }),
+  getToolImage: fallible({
+    input: toolImageInputSchema,
+    data: toolImageLookupSchema,
+    error: acpGetHistoryErrorSchema,
+  }),
+  getStoredQueue: procedure({
+    input: sessionKeySchema,
+    output: z.array(promptInputSchema.pick({ text: true, origin: true })),
   }),
   getHistory: fallible({
     input: historyPageInputSchema,

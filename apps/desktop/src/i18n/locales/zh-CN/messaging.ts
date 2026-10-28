@@ -19,7 +19,15 @@ export default {
       "startFailed": "Agent 启动失败"
     },
     "offlineWarning": "当前不在线，可能无法及时回复",
+    "archivedWarning": "对方已归档",
     "wakeRefused": "{{name}}现在上不了线：",
+    "dm": {
+      "resolving": "正在打开会话…",
+      "noSession": "这个 agent 还没有会话。",
+      "machineOffline": "它所在的电脑离线，打不开会话。",
+      "failed": "会话没能打开。",
+      "retry": "重试"
+    },
     "taskpage": {
       "permission": {
         "allow": "允许",
@@ -30,13 +38,6 @@ export default {
       },
       "open": "在任务中打开",
       "openFailed": "无法在任务中打开：{{reason}}",
-      "mode": {
-        "menu": "模式：{{mode}}",
-        "code": "编程",
-        "general": "通用",
-        "switchToCode": "切换为编程模式",
-        "switchToGeneral": "切换为通用模式"
-      },
       "review": {
         "action": "请打开任务终端检查 MCP server，然后按 Enter 确认。",
         "title": "Agent 正等待 MCP review"
@@ -63,6 +64,15 @@ export default {
       "statusReadFailed": "无法读取任务状态：{{reason}}"
     },
     "turnFailure": {
+      "state": {
+        "exhausted": "额度已用完",
+        "weekly": "周限额度已满",
+        "monthly": "月限额度已满",
+        "model-unavailable": "模型不可用"
+      },
+      "stateAction": "{{name}} {{state}}，点击切换模型",
+      "authentication": "模型服务拒绝了本次请求的授权，回复未完成。",
+      "network": "与模型服务的连接中断，本次回复未完成。",
       "statusReadFailed": "回复状态暂时读不到，请重试。",
       "weeklyQuota": "周限额度不足，当前账号暂时无法回复。",
       "monthlyQuota": "月限额度不足，当前账号暂时无法回复。",
@@ -98,6 +108,7 @@ export default {
     "unlike": "取消点赞",
     "unpin": "取消置顶"
   },
+  "fileStoredOn": {"machineOf": "{{owner}} 的机器", "mine": "保存在 {{machine}} 上，有人打开时才上传。按你的文件存储设置。", "other": "保存在 {{owner}} 的机器上，有人打开时才上传。按 {{owner}} 的文件存储设置。", "settings": "文件存储设置"},
   "chatArea": {
     "agentLocation": {
       "cloud": "咕咕云",
@@ -170,8 +181,10 @@ export default {
       "members": "聊天成员"
     },
     "appEnable": {
-      "title": "给哪些 agent",
-      "alsoOn": "也装到这几台",
+      "devices": "装到哪几台电脑",
+      "devicesHint": "新装上的电脑，所有 agent 都能用；要改给谁，去「App」页。",
+      "addsChat": "这台电脑上已经装了、只给了部分 agent：这次只加上群「{{name}}」，别的不变。",
+      "decline": "不装",
       "machine": "这台电脑",
       "all": "所有 agent",
       "allSub": "包括各个项目里的 agent",
@@ -180,9 +193,10 @@ export default {
       "cardGroup": "卡片所在",
       "agent": "你的 agent",
       "members": "{{count}} 人",
+      "members_one": "{{count}} 人",
+      "members_other": "{{count}} 人",
       "remove": "不再给{{name}}",
       "add": "添加 agent、群或项目…",
-      "emptyInstall": "还没有选。不选也能装，以后在「App」页里加。",
       "empty": "还没有选。",
       "hint": "选中的 agent，和选中的群里的 agent，能用它的工具。",
       "pickerTitle": "添加 agent、群或项目",
@@ -250,8 +264,11 @@ export default {
     "createTask": "新建任务",
     "createAgent": "新建 Agent",
     "createGroup": "新建群聊",
+    "createGroupMobile": "发起群聊",
+    "newProject": "新项目",
     "delete": "删除",
     "disableNotifications": "关闭通知",
+    "deleteFailed": "无法删除这条对话",
     "draft": "[草稿]",
     "moreTopics": "更多 · {{count}}",
     "moreTopics_one": "更多 · {{count}}",
@@ -260,6 +277,8 @@ export default {
     "emptyHint": "点上方“新建 Agent”开始第一段对话",
     "emptyHintMobile": "去「项目」页右上角新建 Agent，开始第一段对话",
     "enableNotifications": "开启通知",
+    "markRead": "标为已读",
+    "removeProject": "移除项目",
     "markAllRead": "全部标为已读",
     "markAllReadFailed": "未能全部标为已读，请重试",
     "markAllReadPartial": "有 {{count}} 个会话未能标为已读，请重试",
@@ -324,8 +343,16 @@ export default {
     "settings": "设置"
   },
   "attachmentView": {
+    "types": {"pdf": "PDF 文档", "word": "Word 文档", "excel": "Excel 表格", "presentation": "演示文稿", "text": "文本", "markdown": "Markdown 文档", "csv": "CSV 表格", "html": "网页", "json": "JSON 文档", "archive": "压缩文件", "image": "图片", "audio": "音频", "video": "视频"},
     "fileGone": "文件已删除",
     "fileVersion": "第 {{n}} 版",
+    "fileExpired": "文件已过期",
+    "reupload": "重新上传",
+    "selectOriginal": "选择原文件",
+    "storageWarning": "群文件存储空间即将用尽（{{used}} / {{limit}}）。",
+    "storageFull": "群文件存储空间已满（{{used}} / {{limit}}），暂时无法上传新文件。",
+    "usageUnavailable": "文件用量暂不可用。",
+
     "fileUnavailable": "文件暂时打不开",
     "imageUnavailable": "图片暂时打不开",
     "newerInFolder": "文件夹里有新版",
@@ -351,6 +378,25 @@ export default {
     "action": "放入输入框"
   },
   "composer": {
+    "phoneTask": {
+      "attachFolder": "挂文件夹",
+      "attachFailed": "文件夹没挂上，请重试",
+      "action": "新任务",
+      "chip": "新任务 · {{agent}}",
+      "pickAgent": "选 agent",
+      "placeholder": "想让 {{agent}} 做点什么？",
+      "pickFolder": "点一张文件夹开工",
+      "where": "{{folder}} · {{machine}}",
+      "offline": "{{machine}} 离线了，换一张文件夹",
+      "optionsFailed": "读不到 {{machine}} 上的 agent，确认它在线后再选一次文件夹",
+      "noAgent": "{{machine}} 上没有能用的 agent",
+      "loading": "正在读 {{machine}} 上的 agent",
+      "cancel": "不派任务了",
+      "failed": {
+        "host_outdated": "{{machine}} 上的咕咕太旧，更新后再派任务",
+        "start_failed": "任务没开起来，到任务卡上看原因"
+      }
+    },
     "notInGroup": "不在本群",
     "agent": {
       "disabledReason": {
@@ -371,6 +417,7 @@ export default {
     },
     "disabled": "当前对话不可发送",
     "exitWhisper": "退出悄悄话",
+    "replyUnavailable": "原消息不可用，取消回复后可发送新消息。",
     "file": "文件",
     "memberType": {
       "agent": "Agent",
@@ -395,7 +442,7 @@ export default {
   "emoji": {
     "moreReactions": "更多表情",
     "workStatus": "工作状态",
-    "frequent": "常用",
+    "reactions": "表态",
     "quickReactions": "快速回应",
     "reactWith": "回应 {{emoji}}"
   },
@@ -491,6 +538,8 @@ export default {
       "agentRequestPending": "已提交审批，等群主或管理员批准",
       "agentRequestRejected": "上次的申请被拒绝了，可以再提交一次",
       "invitationSent": "已发送 {{count}} 个邀请，等待本人或 Agent 主人接受后入群",
+      "invitationSent_one": "已发送 {{count}} 个邀请，等待本人或 Agent 主人接受后入群",
+      "invitationSent_other": "已发送 {{count}} 个邀请，等待本人或 Agent 主人接受后入群",
       "pendingApproval": "已提交审批：{{count}} 个 Agent 等群主或管理员批准后入群",
       "pendingApproval_one": "已提交审批：{{count}} 个 Agent 等群主或管理员批准后入群",
       "pendingApproval_other": "已提交审批：{{count}} 个 Agent 等群主或管理员批准后入群",
@@ -610,6 +659,8 @@ export default {
     "noGroupApps": "本设备暂无可用的 App。",
     "openInGroup": "在这个群里打开…",
     "announcement": "群公告",
+    "groupInfo": "群信息",
+    "chatInfo": "会话信息",
     "memberList": "成员列表",
     "more": "更多操作",
     "searchChat": "搜索对话",
@@ -640,7 +691,13 @@ export default {
       "topics": "话题"
     },
     "title": "历史",
-    "topicMeta": "{{participantCount}} 人 · {{messageCount}} 条 · {{date}}"
+    "topicMeta": "{{people}} · {{messages}} · {{date}}",
+    "topicPeople": "{{count}} 人",
+    "topicPeople_one": "{{count}} 人",
+    "topicPeople_other": "{{count}} 人",
+    "topicMessages": "{{count}} 条",
+    "topicMessages_one": "{{count}} 条",
+    "topicMessages_other": "{{count}} 条"
   },
   "importedHistory": {
     "agentRole": "Agent",
@@ -658,13 +715,16 @@ export default {
     "agentOwnerTag": "{{owner}} 的 agent",
     "agentOwnerSuffix": "（{{owner}} 的 agent）",
     "actions": {
-      "comingSoon": "即将开放",
+      "keepTemporary": "设为临时",
+      "keepPermanent": "一直保留",
+      "keptTemporary": "已设为临时：到期后删除云端那份",
+      "keptPermanent": "已设为一直保留",
+      "keepFailed": "没改成",
       "copy": "复制文本",
       "copyLink": "复制链接",
       "openLink": "打开链接",
       "selectText": "选择文本",
       "delete": "删除",
-      "edit": "编辑",
       "forward": "转发",
       "more": "更多",
       "openTopic": "开话题",
@@ -689,9 +749,11 @@ export default {
     },
     "retracted": "消息已撤回",
     "sendStatus": {
+      "archived": "对方已归档、未送达",
       "failed": "未送达",
       "failedActions": "未送达消息操作",
       "failedHint": "未送达，点击重试或丢弃",
+      "queued": "发送中，助理就绪后回复",
       "sending": "发送中"
     },
     "showQuoted": "跳到被引用的消息",
@@ -752,6 +814,10 @@ export default {
     "title": "发送到"
   },
   "topic": {
+    "phoneTabs": {
+      "group": "群聊",
+      "label": "群聊和话题"
+    },
     "anchor": {
       "lead": "话题",
       "separator": " · ",
@@ -783,15 +849,17 @@ export default {
     "consent": {
       "cancel": "取消",
       "postTitle": "发布悬赏",
-      "postBody": "发布后从你的社区积分中扣除 {{amount}} 积分。采纳后发给被采纳的回答者；截止时从未有人回答，全额退还；有过回答但未采纳，积分作废。",
+      "postBody": "发布后从你的社区积分中扣除 {{count}} 积分。采纳后发给被采纳的回答者；截止时从未有人回答，全额退还；有过回答但未采纳，积分作废。",
+      "postBody_one": "发布后从你的社区积分中扣除 {{count}} 积分。采纳后发给被采纳的回答者；截止时从未有人回答，全额退还；有过回答但未采纳，积分作废。",
+      "postBody_other": "发布后从你的社区积分中扣除 {{count}} 积分。采纳后发给被采纳的回答者；截止时从未有人回答，全额退还；有过回答但未采纳，积分作废。",
       "postConfirm": "发布",
-      "reward": "赏金 {{amount}} 积分",
+      "reward": "赏金 {{count}} 积分", "reward_one": "赏金 {{count}} 积分", "reward_other": "赏金 {{count}} 积分",
       "days": "{{count}} 天后截止", "days_one": "{{count}} 天后截止", "days_other": "{{count}} 天后截止",
       "visibility": { "public": "回答公开", "poster_only": "回答仅楼主可见，结束后公开" },
       "acceptTitle": "采纳回答",
       "acceptBody": "采纳后积分发给回答者，悬赏随即结束，仅楼主可见的回答会公开。采纳后不可撤销。",
       "acceptConfirm": "采纳",
-      "awardLine": "{{name}} · {{amount}} 积分",
+      "awardLine": "{{name}} · {{count}} 积分", "awardLine_one": "{{name}} · {{count}} 积分", "awardLine_other": "{{name}} · {{count}} 积分",
       "endTitle": "结束悬赏",
       "endBody": "不采纳任何回答，直接结束悬赏。从未有人回答时，赏金全额退还；有过回答时，赏金作废。",
       "endConfirm": "结束悬赏",
@@ -814,6 +882,25 @@ export default {
         "identityLimit": "你和你名下的 agent 在同一个帖子里最多使用 3 个身份。"
       }
     }
+  },
+  "resources": {
+    "copyUrl": "复制咕咕 URL",
+    "sendTo": "复制 URL 并发给…",
+    "appUnderstand": "了解 App", "appUnderstandText": "说明这个 App 能做什么。",
+    "appFork": "定制", "appForkText": "先问我想改什么，经我确认后 fork 这个 App。",
+    "appImprove": "提建议", "appImproveText": "帮我向这个 App 提出改进建议。",
+    "forkRequest": "向上游提需求", "forkRequestText": "帮我把这个 fork 的改动向上游作者提建议。",
+    "forkMerge": "合并上游", "forkMergeText": "把上游合进这个 fork。先对比 fork 相对原始基点的改动，保留并逐项核对这些改动和已有数据，再重装并检查。",
+    "forkRemove": "删除 fork", "forkRemoveText": "先征求我的确认，再删除这个 fork，保留数据和源码仓库。",
+    "fileSummary": "概括", "fileSummaryText": "概括这个文件。",
+    "fileCheck": "检查", "fileCheckText": "检查这个文件有没有问题。",
+    "fileEdit": "修改", "fileEditText": "先问我想怎么修改这个文件。",
+    "helpTitle": "交给 agent 管理",
+    "helpDescription": "fork 单独保留你的改动。把它的 URL 发给 agent，就能提需求、合并上游或删除。",
+    "helpCopy": "复制变体的 URL",
+    "helpSend": "选一个 agent",
+    "helpAsk": "补上要做的事",
+    "helpConfirm": "改动前先确认",
   },
   "filePill": {
     "picked": "第 {{version}} 版上选的"

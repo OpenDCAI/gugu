@@ -5,6 +5,7 @@ import { chmodSync, mkdirSync, readFileSync, realpathSync, rmSync, writeFileSync
 import { tmpdir } from 'node:os'
 import { join, resolve } from 'node:path'
 import { createInterface } from 'node:readline'
+import type { SessionUpdate } from '@agentclientprotocol/sdk'
 import { afterEach, describe, expect, it } from 'vitest'
 
 import { awaitFact } from '../../../support/awaitFact'
@@ -45,7 +46,7 @@ rl.on('line', (line) => {
     return out({ method: 'turn/completed', params: { threadId: THREAD, turn: { id: call.turnId, status: 'completed' } } })
   }
   if (m.id === undefined || !m.method) return
-  if (m.method === 'thread/start' || m.method === 'thread/fork') {
+  if (m.method === 'thread/start' || m.method === 'thread/fork' || m.method === 'thread/resume') {
     record({ method: m.method, params: m.params })
     return out({ id: m.id, result: { thread: { id: m.method === 'thread/fork' ? 'th-3551-fork' : THREAD }, model: 'm' } })
   }
@@ -59,6 +60,15 @@ rl.on('line', (line) => {
     const text = JSON.stringify(m.params.input ?? '')
     out({ id: m.id, result: { turn: { id: turnId, status: 'inProgress' } } })
     out({ method: 'turn/started', params: { threadId: THREAD, turn: { id: turnId, status: 'inProgress' } } })
+    if (text.includes('CHECKLIST')) {
+      const plan = (threadId, entries) => out({ method: 'turn/plan/updated', params: { threadId, turnId, explanation: null, plan: entries } })
+      plan('another-thread', [{ step: 'Foreign plan', status: 'pending' }])
+      plan(THREAD, [{ step: 'Read', status: 'inProgress' }, { step: 'Check', status: 'pending' }, { step: 'Report', status: 'pending' }])
+      plan(THREAD, [{ step: 'Read', status: 'completed' }, { step: 'Check', status: 'inProgress' }, { step: 'Report', status: 'pending' }])
+      plan(THREAD, [{ step: 'Read', status: 'completed' }, { step: 'Check', status: 'completed' }, { step: 'Report', status: 'completed' }])
+      plan(THREAD, [])
+      out({ method: 'item/plan/delta', params: { threadId: THREAD, turnId, delta: 'Plan-mode prose' } })
+    }
     const tool = text.includes('LEGACY_REPLY') ? 'message_send' : text.includes('LEGACY_READ') ? 'message_conversations' : null
     if (!tool) return out({ method: 'turn/completed', params: { threadId: THREAD, turn: { id: turnId, status: 'completed' } } })
     const id = 900 + turnSeq
@@ -110,9 +120,11 @@ function start(env: Record<string, string> = { GUGU_CODEX_DIRECT_TOOL_NAMESPACES
   })
   adapter = child
   const responses = new Map<number, { result?: unknown; error?: { code: number; message: string } }>()
+  const updates: SessionUpdate[] = []
   createInterface({ input: child.stdout }).on('line', observeCodexForegroundCompletion((line) => {
     const m = JSON.parse(line)
     if (m.id !== undefined && !m.method) responses.set(m.id, { result: m.result, error: m.error })
+    if (m.method === 'session/update') updates.push(m.params.update)
   }))
   let nextId = 1
   const send = (method: string, params: unknown) => {
@@ -122,7 +134,7 @@ function start(env: Record<string, string> = { GUGU_CODEX_DIRECT_TOOL_NAMESPACES
   }
   const reply = (id: number, what: string) => awaitFact(what, () => responses.get(id), { producer: child })
   const records = () => readFileSync(recordPath, 'utf8').split('\n').filter(Boolean).map((l) => JSON.parse(l) as FakeRecord)
-  return { send, reply, records }
+  return { send, reply, records, updates }
 }
 
 const GUGU_SERVER = { name: 'gugu', url: 'http://127.0.0.1:9/mcp/session-token', headers: [] }
@@ -140,6 +152,7 @@ describe('问题 12 codex ACP bridge: gugu tools reach new threads through MCP o
     const started = rig.records().find((r) => r.method === 'thread/start')!
     expect(started.params).not.toHaveProperty('dynamicTools')
     expect(started.params?.config).toMatchObject({
+      'tools.update_plan.enabled': true,
       'mcp_servers.gugu.url': GUGU_SERVER.url,
       'mcp_servers.gugu.required': true,
       'mcp_servers.gugu.omit_tools_from': ['deferred'],
@@ -154,6 +167,7 @@ describe('问题 12 codex ACP bridge: gugu tools reach new threads through MCP o
     const forked = rig.records().find((r) => r.method === 'thread/fork')!
     expect(forked.params).not.toHaveProperty('dynamicTools')
     expect(forked.params?.config).toMatchObject({
+      'tools.update_plan.enabled': true,
       'mcp_servers.gugu.required': true,
       'mcp_servers.gugu.omit_tools_from': ['deferred'],
       'features.code_mode.direct_only_tool_namespaces': [],
@@ -165,6 +179,33 @@ describe('问题 12 codex ACP bridge: gugu tools reach new threads through MCP o
     await open(rig, [{ name: 'ext-probe', url: 'http://127.0.0.1:9/mcp/ext', headers: [] }])
     const config = rig.records().find((r) => r.method === 'thread/start')!.params?.config ?? {}
     expect(Object.keys(config).filter((k) => k.endsWith('.required'))).toEqual([])
+    expect(config['tools.update_plan.enabled']).toBe(true)
+  })
+
+  it('a resumed thread also enables the native checklist tool', async () => {
+    const rig = start()
+    const sessionId = await open(rig, [GUGU_SERVER])
+    await rig.reply(rig.send('session/load', { sessionId, cwd: dir, mcpServers: [GUGU_SERVER] }), 'session/load')
+    expect(rig.records().find((r) => r.method === 'thread/resume')?.params?.config)
+      .toHaveProperty(['tools.update_plan.enabled'], true)
+  })
+
+  it('maps native checklist snapshots to the existing ACP plan and preserves plan-mode prose', async () => {
+    const rig = start()
+    const sessionId = await open(rig, [GUGU_SERVER])
+    await rig.reply(rig.send('session/prompt', { sessionId, prompt: [{ type: 'text', text: 'CHECKLIST' }] }), 'plan turn')
+    const entries = (statuses: string[]) => ['Read', 'Check', 'Report'].map((content, index) => ({
+      content, status: statuses[index], priority: 'medium',
+    }))
+    expect(rig.updates.filter((u) => u.sessionUpdate === 'plan')).toEqual([
+      { sessionUpdate: 'plan', entries: entries(['in_progress', 'pending', 'pending']) },
+      { sessionUpdate: 'plan', entries: entries(['completed', 'in_progress', 'pending']) },
+      { sessionUpdate: 'plan', entries: entries(['completed', 'completed', 'completed']) },
+      { sessionUpdate: 'plan', entries: [] },
+    ])
+    expect(rig.updates).toContainEqual({
+      sessionUpdate: 'agent_thought_chunk', content: { type: 'text', text: 'Plan-mode prose' },
+    })
   })
 
   it('the namespaces outside code mode are exactly the ones the materializer names (10-06)', async () => {

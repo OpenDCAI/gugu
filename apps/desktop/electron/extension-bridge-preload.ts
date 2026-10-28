@@ -63,7 +63,7 @@ async function call(method: string, args?: unknown): Promise<unknown> {
 }
 
 /*
- * Every event main sends this page, handed to its subscribers; a link or a banner click that opened this very page is held
+ * Every event main sends this page, handed to its subscribers; a link, command or banner click that opened this page is held
  * for the first one (the preload runs before the page).
  */
 const events = hostEventHub();

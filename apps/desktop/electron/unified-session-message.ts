@@ -12,13 +12,14 @@
 // 本模块只做寻址解析、预检次序与结果合并;投递归编排层,❌ 不在这里长出第二套投递。
 
 import type { SessionAttachmentRef, SessionFileInput } from '@gugu/core/cloud/sessionAttachments'
+import { assistantWorkIntentSchema, type AssistantWorkIntent, type AssistantWorkTarget } from '@gugu/core/shared/assistantWorkIntent'
 import { workReportSchema, type WorkReport } from '../src/session/shared/assistant-work'
 import { decodeIdentityAddress, decodeTypedId, encodeTypedId } from '@gugu/core/shared/typedId.mjs'
 
 export type UnifiedRecipientResult = {
   /** Typed recipient address, exactly as the caller may reuse it. */
   to: string
-  status: 'delivered' | 'failed'
+  status: 'delivered' | 'accepted' | 'failed'
   message_id?: string
   session_id?: string
   error?: { code: string; message: string }
@@ -28,7 +29,11 @@ export type UnifiedRecipientResult = {
 export type SessionMessageSaid = { attachments?: SessionAttachmentRef[]; then?: string; reply_to_message_id?: string; source_link?: string; work_result?: WorkReport }
 
 export type UnifiedSessionMessageDeps = {
-  prepareFiles?: (files: SessionFileInput[], targets: Array<{ sessionId: string; deviceId?: string }>) => Promise<SessionAttachmentRef[]>
+  prepareFiles?: (files: SessionFileInput[], targets: Array<{ sessionId: string; deviceId?: string; agentId?: string }>) => Promise<SessionAttachmentRef[]>
+  localDeviceId?: () => Promise<string>
+  enqueueReport?: (record: Record<string, unknown>) => Promise<{ route: 'session-direct'; recipients: UnifiedRecipientResult[] }>
+  enqueueWork?: (intent: AssistantWorkIntent, text: string, attachments: SessionAttachmentRef[], targets: AssistantWorkTarget[]) => Promise<{ route: 'session-direct'; recipients: UnifiedRecipientResult[] }>
+  workTitle?: (intent:AssistantWorkIntent,targets:AssistantWorkTarget[])=>Promise<string>
   /** The graph (`session:`) leg — resolves all its bare targets before injecting any. Absent when the caller has no session-page session (gugu-native bridge). */
   graphMessage: ((sessionIds: string[], text: string, said: SessionMessageSaid) => Promise<{ recipients: UnifiedRecipientResult[] }>) | null
   /**
@@ -109,6 +114,9 @@ export async function handleUnifiedSessionMessage(
       )
     }
   }
+  if (said.work_result && record.assistant_work) throw new Error('A report cannot also dispatch work')
+  if (said.work_result && deps.enqueueReport) return deps.enqueueReport(record)
+  const intent = record.assistant_work === undefined ? null : assistantWorkIntentSchema.parse(record.assistant_work)
   const sessionIds = [...new Set(sessions.map((item) => item.id))]
   const guguNumbers = [...new Set(identities.flatMap((item) => (item.number === null ? [] : [item.number])))]
   /** 别的机器上的收件人(会话 id),按机器分组。 */
@@ -223,7 +231,7 @@ export async function handleUnifiedSessionMessage(
     throw new Error('session_message needs a session-page caller')
   }
   // 别的机器能不能接:离线、不在名下都在任何注入之前响(一条都不投)。
-  if (remote.size) await deps.remote!.assertReachable([...remote.keys()])
+  if (!intent && remote.size) await deps.remote!.assertReachable([...remote.keys()])
 
   if (record.files !== undefined) {
     if (!Array.isArray(record.files) || record.files.length < 1 || record.files.length > 8
@@ -233,6 +241,17 @@ export async function handleUnifiedSessionMessage(
       ...localSessionIds.map(sessionId => ({ sessionId })),
       ...[...remote].flatMap(([deviceId, ids]) => ids.map(sessionId => ({ sessionId, deviceId }))),
     ])
+  }
+  if (intent) {
+    if (!deps.enqueueWork || !deps.localDeviceId) throw new Error('Durable work admission is unavailable')
+    const here = await deps.localDeviceId()
+    const agentFor = (sessionId: string) => named.get(sessionId) ?? [...localOf].find(([, id]) => id === sessionId)?.[0]
+    const targets=[
+      ...localSessionIds.map(sessionId => ({ sessionId, deviceId: here, ...(agentFor(sessionId) ? { agentId: agentFor(sessionId) } : {}) })),
+      ...[...remote].flatMap(([deviceId, ids]) => ids.map(sessionId => ({ sessionId, deviceId, ...(agentFor(sessionId) ? { agentId: agentFor(sessionId) } : {}) }))),
+    ]
+    const title=!intent.continuation&&deps.workTitle?await deps.workTitle(intent,targets):intent.title
+    return deps.enqueueWork({...intent,title}, text, said.attachments ?? [], targets)
   }
   const recipients: UnifiedRecipientResult[] = []
   const anyDelivered = () => recipients.some((entry) => entry.status === 'delivered')

@@ -5,6 +5,8 @@ export default {
     "retry": "重试",
     "profileTitle": "先认识一下你",
     "profileSub": "咕咕和你的 agent 会用这些称呼你、了解你。以后可以在「设置 → 账户」里改。",
+    "profileSubDesktop": "咕咕和你的 agent 会用这些称呼你。",
+    "introSubDesktop": "咕咕是你的个人助理，帮你记安排、办事情。",
     "avatar": "换头像",
     "avatarUploading": "正在上传…",
     "nameLabel": "怎么称呼你",
@@ -34,7 +36,19 @@ export default {
     "harnessReadFailed": "暂时读不到智能体状态，请重试。",
     "harnessCancelFailed": "没能取消安装，请重试。",
     "introStart": "开通我的咕咕",
-    "introLater": "先逛逛"
+    "introLater": "先逛逛",
+    "terminalTitle": "终端",
+    "terminalSub": "习惯在终端里用 Claude Code、Codex 这类 CLI？开启后，可以用 TUI 的方式和 agent 交互。",
+    "terminalToggle": "启用终端",
+    "tourChoiceTitle": "要不要带你看看？",
+    "tourChoiceSub": "用 1 分钟认识左边这一栏。",
+    "tourChoiceStart": "带我看看（1 分钟）",
+    "tourChoiceSkip": "直接开始",
+    "back": "上一步",
+    "stepCount": "{{current}} / {{total}}",
+    "terminalLater": "之后可在设置 → 通用中更改",
+    "terminalPause": "暂停",
+    "terminalPlay": "播放"
   },
   "groupFile": {
     "notInGroup": "这个文件所在的对话，你不在里面"
@@ -108,6 +122,7 @@ export default {
     },
     "sessions": {
       "loadFailed": "读取会话失败",
+      "actionFailed": "没做成",
       "ungrouped": "未归入项目",
       "menu": "更多",
       "cancel": "取消",
@@ -162,7 +177,8 @@ export default {
       "tooLarge": "图太大 · 在桌面上看"
     },
     "timeline": {
-      "outputTrimmed": "… 已截断 {{chars}} 字 · 在桌面上看完整输出",
+      "outputTrimmed_one": "… 此预览省略了 {{count}} 字",
+      "outputTrimmed_other": "… 此预览省略了 {{count}} 字",
       "loading": "正在读取时间线…",
       "waitingRecord": "会话已开，正在等它写下第一行…",
       "empty": "这个会话还没有内容。",
@@ -201,7 +217,7 @@ export default {
       "decline": "不回答",
       "cancelled": "这条已经不需要回答了",
       "noOptions": "这条要在桌面端回答：机器没有把可选项发过来。",
-      "answerInTerminal": "这条要在桌面端的终端里回答：终端会话手机答不了。",
+      "answerInTerminal": "这条要在电脑上回答。",
       "answerOnDesktop": "这条要在桌面端回答：这一类手机还答不了。",
       "byDesktop": "桌面端",
       "byMobile": "手机端"
@@ -215,12 +231,6 @@ export default {
       "project": "项目",
       "harness": "Harness",
       "model": "模型",
-      "view": "模式",
-      "sessionView": {
-        "label": "模式",
-        "code": { "name": "编程", "desc": "在终端里跑，看到的是 harness 自己的界面" },
-        "general": { "name": "通用", "desc": "聊天式界面，手机上能完整看回复与审批" }
-      },
       "permission": {
         "plan": { "name": "只出方案", "desc": "只想不动手，不真的执行工具" },
         "read-only": { "name": "只读", "desc": "能看不能改，动手前问你;你在 harness 自己设置里放行过的工具除外" },
@@ -378,6 +388,7 @@ export default {
         "zh-CN": "简体中文"
       },
       "light": "浅色",
+      "plain-white": "素白",
       "notifications": "通知",
       "notificationsAgent": "智能体通知",
       "notificationsAgentAria": "开启智能体通知",
@@ -400,6 +411,8 @@ export default {
       "notificationsTestFailed": "这台设备不支持系统通知。",
       "notificationsTestSentMobile": "系统收下了这条通知。还是没看到 → 去「我的 → 权限 → 通知」确认咕咕的通知已打开、允许弹出横幅。",
       "notificationsTestRejectedMobile": "系统没让这条通知弹出来——咕咕还没拿到通知权限。去「我的 → 权限 → 通知」开。",
+      "terminal": "终端",
+      "terminalDescription": "开启后，agent 可以用 TUI（终端界面）的方式交互；新任务默认还是通用模式。",
       "trayBadge": "托盘角标",
       "trayBadgeAria": "在托盘图标上显示未读数",
       "trayBadgeEnabled": "在托盘图标上显示未读数",
@@ -412,7 +425,7 @@ export default {
     "guguNumberUnassigned": "咕咕号未分配",
     "my": "我的",
     "newAgent": "新建 Agent",
-    "newTask": "新建会话",
+    "newTask": "新建任务",
     "apps": {
       "intro": "装在这台手机上的 App:从聊天里的卡片装的，和从市场装的。咕咕自带的不在这里。",
       "empty": "还没有装过 App。",
@@ -435,7 +448,6 @@ export default {
       "account": "账户",
       "activity": "活跃",
       "apps": "App",
-      "channels": "聊天渠道",
       "browser": "浏览器",
       "devices": "设备",
       "general": "通用",
@@ -455,6 +467,8 @@ export default {
       "batteryOptimization": "后台运行",
       "batteryOptimizationPurpose": "用来在你切走咕咕之后仍然第一时间提醒你；点一下把咕咕移出系统的电池优化名单",
       "camera": "相机",
+      "microphone": "麦克风",
+      "microphonePurpose": "发语音消息",
       "cameraPurpose": "用来扫码加好友、进群",
       "fileAccess": "文件与文件夹访问",
       "fileAccessPurpose": "用来打开你电脑上的项目目录",
@@ -462,7 +476,7 @@ export default {
       "off": "未开启",
       "offPrompt": "未开启，点击开启",
       "offBlocked": "未开启，去系统设置开启",
-      "unknown": "查不到，去系统设置看",
+      "unknown": "去系统设置查看",
       "settingsUnreachable": "跳不到系统设置。请自己打开系统设置，找到咕咕，把「{{name}}」打开。",
       "readFailed": "读不到系统的权限状态，请回到这一页再看一次。"
     },
@@ -512,7 +526,8 @@ export default {
     "back": "返回",
     "chats": "对话",
     "contacts": "联系人 (⌘2)",
-    "contactsMobile": "联系人",
+    "messagesMobile": "消息",
+    "partnersMobile": "伙伴",
     "errors": {
       "createFieldsMissing": "创建 Agent 所需的消息、名称或设备缺失",
       "createInProgress": "Agent 正在创建。请重新打开创建页查看进度。",
@@ -541,7 +556,7 @@ export default {
     "messages": "消息 (⌘1)",
     "my": "我的",
     "newAgent": "新建 Agent",
-    "newTask": "新建会话",
+    "newTask": "新建任务",
     "usage": "用量",
     "resizeChatList": "调整聊天列表宽度",
     "sessionExpired": {
@@ -588,7 +603,9 @@ export default {
       "shareNoGuguNumber": "{{name}} 还没有咕咕号，暂时无法生成名片",
       "shareUnavailable": "这个会话还没有可分享的 agent 身份",
       "taskCreated": "会话已创建",
-      "taskDeliverFailed": "消息未送达 {{name}}：会话当前未运行。",
+      "taskDeliverFailed": "消息未送达 {{name}}。",
+      "taskDeliverFailedCount_one": "{{name}} 有 {{count}} 条消息未送达。",
+      "taskDeliverFailedCount_other": "{{name}} 有 {{count}} 条消息未送达。",
       "unownedAgentDm": "他人的 Agent 不能私聊，请在共享群聊中与它协作"
     },
     "update": {
@@ -618,6 +635,35 @@ export default {
       "restartNow": "立即重启更新",
       "retry": "重试"
     },
+  },
+  "partners": {
+    "search": "搜索",
+    "noResults": "没有找到",
+    "projects": "项目 · {{count}}",
+    "friends": "朋友 · {{count}}",
+    "rooms": "群 · {{count}}",
+    "agents": "Agent · {{count}}",
+    "groupChat": "群聊",
+    "assistant": "个人助理",
+    "groupOffline": "项目所在的电脑不在线",
+    "groupUnavailable": "项目群没打开",
+    "newProject": {
+      "title": "新项目",
+      "name": "项目名",
+      "create": "创建",
+      "machine": "机器",
+      "folder": "文件夹",
+      "newFolder": "新文件夹",
+      "existingFolder": "已有文件夹",
+      "pickFolder": "选文件夹",
+      "offline": "离线",
+      "noMachine": "没有在线的电脑",
+      "readingDirectory": "正在读这台电脑的项目目录",
+      "noDefaultDirectory": "这台电脑没设默认项目目录",
+      "invalidName": "项目名里不能有 / \\ : * ? \" < > |",
+      "pathTaken": "这个文件夹已被「{{name}}」占着",
+      "failed": "项目没建成"
+    }
   },
   "widget": {
     "empty": "无内容"

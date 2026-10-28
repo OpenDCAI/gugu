@@ -18,6 +18,8 @@ import { pxTokens } from '@session-chat/styles/px-tokens';
 import { assignInlineVars } from '@vanilla-extract/dynamic';
 import { For, Show, createMemo, createSignal } from 'solid-js';
 import { UserMessageCard } from './UserMessageCard';
+import { SenderName } from './SenderName';
+import { messageSenderTarget } from '@session-chat/lib/sender-target';
 import { splitAttachmentMentions } from '@session-chat/core/markdown/attachment-mentions';
 import { userAvailableWidth, type MessageVars } from './metrics';
 import { estimateUserMessage, measureUserMessage } from './user-message-metrics';
@@ -106,7 +108,7 @@ type Bands = {
 };
 
 /** One card per segment of a batch; measure, estimate and render all build it here so their geometry agrees. */
-function segmentItem(item: ChatMessage, segment: DeliverySegment, index: number): ChatMessage {
+export function segmentItem(item: ChatMessage, segment: DeliverySegment, index: number): ChatMessage {
   const split = splitAttachmentMentions(segment.body);
   const attachments = split.attachments.map((attachment) =>
     item.attachments?.find((stored) => stored.id === attachment.id) ?? attachment
@@ -138,7 +140,14 @@ function detailsHeight(item: ChatMessage, lineH: number, vars: DeliveryVars): nu
   return entries.length > 0 ? entries.length * lineH + 2 * vars.factsPadY : 0;
 }
 
+/** Chat/session inputs already have a single conversation identity in the pane header. */
+function bodyOnly(item: ChatMessage): boolean {
+  const route = cardFacts(item)?.route;
+  return route === 'chat' || route === 'session-direct';
+}
+
 function bands(item: ChatMessage, ctx: MeasureCtx, vars: DeliveryVars, messageVars: MessageVars, factsOpen: boolean): Bands {
+  if (bodyOnly(item)) return { headerH: 0, replyH: 0, bodyH: measureUserMessage(item, ctx, messageVars), factsH: 0, total: 2 * vars.padY + measureUserMessage(item, ctx, messageVars) };
   const lineH = ctx.theme.fonts.body.lineHeight;
   const headerH = lineH + vars.headerExtraH;
   const replyH = cardFacts(item)?.replyTo ? lineH : 0;
@@ -171,6 +180,7 @@ export function estimateDelivery(item: ChatMessage, ctx: MeasureCtx, vars: Deliv
       + estimateDelivery(segmentItem(item, segment, index), ctx, vars, messageVars)
       + (index > 0 ? vars.gap : 0), 0);
   }
+  if (bodyOnly(item)) return 2 * vars.padY + estimateUserMessage(item, ctx, messageVars);
   const lineH = ctx.theme.fonts.body.lineHeight;
   const replyH = cardFacts(item)?.replyTo ? vars.gap + lineH : 0;
   return 2 * vars.padY + lineH + vars.headerExtraH + replyH + vars.gap + estimateUserMessage(item, ctx, messageVars);
@@ -300,9 +310,7 @@ function SingleDelivery(props: {
             )}
           </Show>
         </span>
-        <span class={deliverySender} data-slot="delivery-sender">
-          {sender()}
-        </span>
+        <span data-slot="delivery-sender"><SenderName class={deliverySender} name={sender()} target={messageSenderTarget(facts())} /></span>
         <Show when={facts()}>{(f) => <span class={deliveryRoute} data-slot="delivery-route">{routeLabel(f(), translate, namers)}</span>}</Show>
   </>);
 
@@ -328,8 +336,11 @@ function SingleDelivery(props: {
         })
       )}
     >
+      <Show when={!bodyOnly(props.data)}>
       <div class={deliveryHeader} data-slot="delivery-header">
-        <Show when={hasDetails()} fallback={<span class={deliveryFactsToggle}>{sourceContent()}</span>}>
+        <div class={deliveryFactsToggle}>
+          {sourceContent()}
+        <Show when={hasDetails()}>
           <button
             type="button"
             class={deliveryFactsToggle}
@@ -339,10 +350,10 @@ function SingleDelivery(props: {
             aria-label={`${sender()} · ${facts() ? routeLabel(facts()!, translate, namers) : ''} · ${translate('transcript.deliveryDetails')}`}
             title={translate('transcript.deliveryDetails')}
           >
-            {sourceContent()}
             <span aria-hidden="true">{factsOpen() ? '▾' : '▸'}</span>
           </button>
         </Show>
+        </div>
       </div>
       <Show when={facts()?.replyTo}>
         {(reply) => (
@@ -355,10 +366,11 @@ function SingleDelivery(props: {
           </div>
         )}
       </Show>
-      <div data-gugu-body="visible" style={{ 'margin-top': `${props.vars.gap}px` }}>
+      </Show>
+      <div data-gugu-body="visible" style={{ 'margin-top': bodyOnly(props.data) ? '0' : `${props.vars.gap}px` }}>
         <UserMessageCard data={props.data} ctx={props.ctx} vars={props.messageVars} />
       </div>
-      <Show when={factsOpen() && details().length > 0}>
+      <Show when={!bodyOnly(props.data) && factsOpen() && details().length > 0}>
         <div class={deliveryFacts} data-slot="delivery-facts" role="list">
           <For each={details()}>
             {(entry) => (

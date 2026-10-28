@@ -1,34 +1,24 @@
 import { useUnreadLocatorNavigation } from '@/hooks/useUnreadLocatorNavigation'
-import { useRoomCollab } from '@/hooks/useRoomCollab'
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
-import { createPortal } from 'react-dom'
 import { motion } from 'framer-motion'
 import { useTranslation } from 'react-i18next'
 import { DUR_SLOW_MS, EASE_SPRING, tween } from '@/styles/motion'
-import { ChevronLeft, MessageSquare, Paperclip, Search, Users, X } from '@/lib/icons'
+import { ChevronLeft, X } from '@/lib/icons'
 import type { MessageItem } from '@gugu/core/shared/types/chat'
 import { visibleDeliveryMessages } from '@gugu/core/shared/ui/systemNotice'
+import { useQueuedMessageIds } from '../../hooks/useQueuedMessageIds'
+import { composerCardPreview } from '@gugu/core/shared/ui/taskCardModels'
 import type { GroupRosterCandidate } from '@/lib/mention'
 import type { AgentStatusById } from './agentMentionStatusModels'
 import type { MemberProfileCardModel } from '../MemberProfileCard'
 import type { ParsedAttachment } from '@gugu/core/shared/ui/attachmentModels'
 import type { MemberProfileSide } from '../memberProfileModels'
 import { IconButton } from '../ui/IconButton'
-import { Menu, MenuItem } from '../ui/Menu'
-import { ChatTabMenuItems } from '../../session/renderer/features/chats/chat-tab-menu-items'
-import { TabChip, TabSlot } from '../../session/renderer/features/tabs/tab-bar/tab-chip'
 import { PaneHeader } from '../ui/Pane'
 import { useBackLayer } from '../ui/sheetStack'
 import { ChatMessageComposer } from './ChatMessageComposer'
 import { RunningBarSlot, RunningTokenBar, type RunningToken } from '../RunningTokenBar'
-import { GROUP_AGENT_BAR_MAX } from '@/lib/groupRunningTokenModels'
 import { TopicBreadcrumb } from './TopicBreadcrumb'
-import { TopicMoreMenu } from './TopicMoreMenu'
-import { HistoryPanel, type HistoryFileItem } from '../HistoryPanel'
-import { chatService } from '@/lib/chat'
-import { rendererLogger } from '@/lib/log'
-import { MemberListPanel } from './MemberListPanel'
-import { RightPanel, RightPanelBackButton } from './RightPanel'
 import { MessageList, type ChatListRowItem, type MessageListRowProps } from './MessageList'
 import { useToast } from '../toastContext'
 import { useSourceMessageReveal } from '@/hooks/useSourceMessageReveal'
@@ -46,17 +36,16 @@ import { ResizablePane } from '@/layouts/ResizablePane'
 import { prioritizeTopicParticipants } from './topicMentionModels'
 import { useReadReceiptPanel } from '@/hooks/useReadReceiptPanel'
 import { ReadReceiptPopover } from '../ReadReceiptPopover'
-import { groupSlotMemory } from '../appSlot/groupSlotMemory'
 import { ChatBottomDock } from './ChatBottomDock'
 import type { ChatConversation } from '@/store/useChatConversation'
 import { useFollowingTail, useTailPinning } from './useFollowingTail'
 import { useChatHistoryPagination } from './useChatHistoryPagination'
 import { useConversationScrollMemory } from './useConversationScrollMemory'
-import { ChatSearchControls } from './ChatSearch'
-import { useChatSearch } from './useChatSearch'
 import { ChatTailNotice } from './ChatTailNotice'
 import { MessageLoadFailure } from './MessageLoadFailure'
 import { MessageListSkeleton } from './MessageListSkeleton'
+import { ChatSearchControls } from './ChatSearch'
+import { useChatSearch } from './useChatSearch'
 
 /**
  * @@@5856 话题分栏 —— 右侧那条独立收发的话题线(product spec)。
@@ -74,15 +63,9 @@ export type TopicSplitPaneProps = {
   navigationTarget?: boolean
   topic: { chatId: string; name: string }
   history: ChatConversation
-  sourceChatId: string
   messages: MessageItem[]
   loading: boolean
   memberProfiles: Record<string, MemberProfileCardModel>
-  /**
-   * @@@5856 话题的成员名册也只能从这里进。owner 拿掉了「从会话列表全宽打开话题」那条路之后,
-   * 原来挂在头栏 👥 上的那份面板对话题**一个入口都不剩** —— 改名、成员档位、agent 数量线
-   * 全都点不到了。所以这一栏自带一颗 👥,按下去这栏换成名册。
-   */
   visibleChats: readonly { id: string; name: string; member_user_ids?: string[] }[]
   /**
    * 这条话题引自哪一句。四种值分开(见 TopicBreadcrumb):'pending' 还没读到 / 'unreadable' 读到了
@@ -90,9 +73,6 @@ export type TopicSplitPaneProps = {
    * 光看话题名说不出它从哪条消息长出来的 —— 这是「双向连接」上行的那一半。
    */
   sourceMessagePreview: string | null | 'pending' | 'unreadable'
-  /** 话题里的附件点开/下载 —— 与主线共用同一对处理器,❌ 不在这里另写一份预览/下载。 */
-  onOpenFile: (file: HistoryFileItem) => void
-  onDownloadFile: (file: HistoryFileItem) => void
   /**
    * 这个号一变就把焦点交给**这一栏**的输入框(用鼠标点话题进来的那条路)。
    * ❌ 不走 lib/focusComposer 那条全局契约:分栏这份 composer 是 surface="aside",
@@ -104,9 +84,9 @@ export type TopicSplitPaneProps = {
    * ⚠️ ❌ 不许拿来源线那份顶上:画出来的是另一条线的读数,而错的环比没有环更坏。
    */
   memberReadSeqs: Record<string, number>
-  onSend: (text: string, toUserIds: readonly string[] | null, replyToMessageId: string | null) => Promise<void>
+  onSend: (text: string, toUserIds: readonly string[] | null, replyToMessageId: string | null, isWhisper?: boolean, submittedAt?: number) => Promise<void>
   /** 发附件。回形针在 ChatMessageComposer 里是无条件画的,不接这一口 = 挂得上发不出去。 */
-  onSendAttachments: (files: File[], opts?: { toUserIds?: string[] | null; caption?: string; onSent?: (file: File, index: number) => void }) => Promise<void>
+  onSendAttachments: (files: File[], opts?: { toUserIds?: string[] | null; isWhisper?: boolean; caption?: string; onSent?: (file: File, index: number) => void }) => Promise<void>
   /**
    * 能在这一栏里 @ 到的人 = **来源线**的名册。spec:「招 agent 同理——建完之后 @ 它,它就进来了」,
    * 而服务端只放行来源线的成员,所以候选集就取来源线的,❌ 不取话题当前那几个(那样永远拉不进新人)。
@@ -128,10 +108,15 @@ export type TopicSplitPaneProps = {
   /** 移动壳:整页盖住来源线、出口是左上返回,且不抢焦点(不弹软键盘)。 */
   mobile?: boolean
   /**
-   * gugu-dev#181 画在会话页一块里:这一栏不画自己那条头,话题是块页签条上和群对话并排的一枚页签,画进这一格
-   * (× = 收起分栏;附件、成员、群文件夹、App 在这枚页签的右键菜单里)。格子还没挂上 = null。不给 = 对话页、手机,头照旧。
+   * gugu-dev#181 画在会话页一块里:话题是块页签条上的一枚页签(和群那一枚并排,× = 收起),这一栏就是那一枚的内容,
+   * 宽窄由并排的分界管 —— 没有自己的拖拽边、也没有自己的收起钮。不给 = 对话页(自带拖拽边)、手机(整页)。
    */
-  tabHost?: HTMLElement | null
+  embedded?: boolean
+  /**
+   * 手机对话页那排页签里的一枚(owner 10-25「和桌面类似分 tab」,OpenDCAI/gugu#446):这一栏就盖在群的消息区上,
+   * 页头和页签条是群的,所以它自己没有页头,顶上只留一行「从哪一条开出来」;不滑进来。返回 = 回「群聊」那一枚。
+   */
+  inTab?: boolean
   // ⚠️ 下面几个是 MessageBubble 的**必填** props,而这一栏自己拿不到它们的实现
   // (表情/转发/删除都要 ChatAreaPanel 那层的 handler)。做成可选透传而不是在内部写死
   // no-op:不接时这几个动作在分栏里点了没反应 = 静默失败,接上就跟主线同口径。
@@ -174,7 +159,8 @@ const TOPIC_SPLIT_PANE_STYLE: React.CSSProperties = {
 }
 // 手机上放不下两栏 ⇒ 整页盖住来源线(同 ChatSettingsPanel 的手机页)。来源线在下面不被挤窄,返回后停在原处。
 const TOPIC_PAGE_MOBILE_STYLE: React.CSSProperties = { position: 'fixed', inset: 'env(safe-area-inset-top) 0 0 0', zIndex: 'var(--z-modal)', background: 'var(--bg-primary)' }
-const TOPIC_PAGE_PANE_MOBILE_STYLE: React.CSSProperties = { ...TOPIC_SPLIT_PANE_STYLE, borderLeft: 'none' }
+const TOPIC_PAGE_PANE_MOBILE_STYLE: React.CSSProperties = { ...TOPIC_SPLIT_PANE_STYLE, borderLeft: 'none', background: 'transparent' }
+const TOPIC_TAB_STYLE: React.CSSProperties = { position: 'absolute', inset: 0, zIndex: 1, background: 'transparent' }
 const TOPIC_SPLIT_HEADER_STYLE: React.CSSProperties = {
   display: 'flex',
   alignItems: 'flex-start',
@@ -185,13 +171,6 @@ const TOPIC_SPLIT_HEADER_STYLE: React.CSSProperties = {
   flexShrink: 0,
 }
 const TOPIC_SPLIT_HEADER_ACTIONS_STYLE: React.CSSProperties = { display: 'flex', alignItems: 'center', gap: 2, flexShrink: 0, marginTop: 'calc((var(--lh-title) - var(--control-h-sm)) / 2)' }
-const topicSplitLog = rendererLogger('chat/topic-split')
-const TOPIC_SPLIT_MEMBERS_STYLE: React.CSSProperties = { flex: 1, minHeight: 0, display: 'flex', flexDirection: 'column' }
-const TOPIC_SPLIT_MEMBERS_HEAD_STYLE: React.CSSProperties = {
-  display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8,
-  padding: '12px 14px', borderBottom: '1px solid var(--border-subtle)', flexShrink: 0,
-}
-const TOPIC_SPLIT_HEADER_SPACER_STYLE: React.CSSProperties = { flex: '1 1 auto' }
 const TOPIC_SPLIT_MESSAGES_STYLE: React.CSSProperties = {
   flex: 1,
   minHeight: 0,
@@ -206,20 +185,17 @@ const TOPIC_SPLIT_COMPOSER_STYLE: React.CSSProperties = {
   padding: 0, flexShrink: 0,
 }
 const TOPIC_SPLIT_COMPOSER_MOBILE_STYLE: React.CSSProperties = {
-  background: 'var(--bg-primary)', padding: '8px 10px max(10px, env(safe-area-inset-bottom))', flexShrink: 0,
+  background: 'transparent', padding: '8px 8px max(8px, env(safe-area-inset-bottom))', flexShrink: 0,
 }
 const TOPIC_SPLIT_EMPTY_STYLE: React.CSSProperties = { textAlign: 'center', color: 'var(--text-tertiary)', fontSize: 'var(--font-body)', padding: '24px 0' }
 
 export function TopicSplitPane({ viewportKey = 'topic', navigationTarget = false,
   topic,
-  sourceChatId,
   messages,
   loading,
   memberProfiles,
   visibleChats,
   sourceMessagePreview,
-  onOpenFile,
-  onDownloadFile,
   focusComposerToken,
   memberReadSeqs,
   onSend,
@@ -237,7 +213,8 @@ export function TopicSplitPane({ viewportKey = 'topic', navigationTarget = false
   onReaction,
   onForward, visible,
   onDelete,
-  tabHost,
+  embedded = false,
+  inTab = false,
 }: TopicSplitPaneProps) {
   const { t } = useTranslation('messaging')
   // #6004: the projection owns membership and chat_members_changed refreshes. Read this topic's
@@ -270,60 +247,19 @@ export function TopicSplitPane({ viewportKey = 'topic', navigationTarget = false
     })
     return () => cancelAnimationFrame(frame)
   }, [focusComposerToken, mobile])
-  const [quoted, setQuoted] = useState<{ forChatId: string; messageId: string; senderName: string; content: string } | null>(null)
+  const [quoted, setQuoted] = useState<{ forChatId: string; messageId: string; senderName: string; content: string; source: MessageItem } | null>(null)
   const activeQuote = quoted?.forChatId === topic.chatId ? quoted : null
-  // Attachments stay in the topic pane, alongside its members entry.
-  const [filesForChatId, setFilesForChatId] = useState<string | null>(null)
-  const filesOpen = filesForChatId === topic.chatId
-  const [files, setFiles] = useState<HistoryFileItem[]>([])
-  const [filesLoading, setFilesLoading] = useState(false)
-  useEffect(() => {
-    if (!filesOpen || !currentUserId) return
-    let cancelled = false
-    setFilesLoading(true)
-    void chatService.getChatFiles(topic.chatId, currentUserId)
-      .then((rows) => { if (!cancelled) setFiles(rows) })
-      .catch((error: unknown) => {
-        // 读不到就是空列表 + 一条日志。❌ 不把内部失败描述摆到界面上(用户拿它做不了任何事)。
-        topicSplitLog.error({ error, chatId: topic.chatId }, 'topic files load failed')
-        if (!cancelled) setFiles([])
-      })
-      .finally(() => { if (!cancelled) setFilesLoading(false) })
-    return () => { cancelled = true }
-  }, [filesOpen, topic.chatId, currentUserId])
-  // 名册开着时换的是**这一栏的内容**,不是右边再开一栏 —— 分栏最宽 720,再挤一栏进去谁都读不了。
-  // 换话题就收回去:名册是「关于哪条话题」的读数,跟着主体走(同 activeQuote 的 subject-scope)。
-  const [membersForChatId, setMembersForChatId] = useState<string | null>(null)
-  const membersOpen = membersForChatId === topic.chatId
-  const collab = useRoomCollab(topic.chatId, 'topic')
-  const setMembersOpen = useCallback(
-    (next: boolean | ((open: boolean) => boolean)) => {
-      setMembersForChatId((current) => {
-        const open = typeof next === 'function' ? next(current === topic.chatId) : next
-        if (open) setFilesForChatId(null)
-        return open ? topic.chatId : null
-      })
-    },
-    [topic.chatId],
-  )
-  const toggleFiles = useCallback(() => {
-    setFilesForChatId((current) => {
-      if (current === topic.chatId) return null
-      setMembersForChatId(null)
-      return topic.chatId
-    })
-  }, [topic.chatId])
-
   // @@@5856 「自己贴底」那一整段已删 —— 滚动归 MessageList(lib/flowList.ts 的贴底 +
   // totalListHeightChanged)。手写的那份在 markdown/代码块异步撑高之后就钳不住,症状是新消息不滚。
 
   // 列表行与主线共用历史窗口和分页;分栏没有多选。
   // 已读环有 —— 水位由 useChatConversation 按**这条话题**自己拉,拉不到时是空表(空表就不出环)。
-  const search = useChatSearch(topic.chatId, visible !== false && !filesOpen && !membersOpen, messages, paneRef, viewportKey)
+  const search = useChatSearch(topic.chatId, visible !== false, messages, paneRef, viewportKey)
   const { searchMode, searchQuery, isFiltering, displayedMessages } = search
+  const queuedIds = useQueuedMessageIds(messages, memberReadSeqs)
   const rows = useMemo<ChatListRowItem[]>(
-    () => visibleDeliveryMessages(displayedMessages, messages).map((message) => ({ type: 'message' as const, message })),
-    [displayedMessages, messages],
+    () => visibleDeliveryMessages(displayedMessages).map((message) => ({ type: 'message' as const, message })),
+    [displayedMessages],
   )
   const listRef = useRef<FlowListHandle | null>(null)
   const isAtBottomRef = useRef(true)
@@ -347,8 +283,8 @@ export function TopicSplitPane({ viewportKey = 'topic', navigationTarget = false
     enabled: visible !== false && !isFiltering && !unreadNavigationPending, messageWindow, scrollerEl, scrollerRef, listRef, isAtBottomRef,
     isPreservingPosition, prepareForSavedPosition, forgetSavedPosition, returnToLatest: history.returnToLatestMessages, onError: onHistoryError })
   const showMessage = useSourceMessageReveal({
-    viewportKey, navigationTarget, enabled: visible !== false, ready: !filesOpen && !membersOpen && !isFiltering,
-    activeChatId: topic.chatId, onNavigate: () => { setFilesForChatId(null); setMembersForChatId(null); search.setSearchMode(false) },
+    viewportKey, navigationTarget, enabled: visible !== false, ready: !isFiltering,
+    activeChatId: topic.chatId, onNavigate: () => search.setSearchMode(false),
     rows, listRef, isAtBottomRef, setFollowingTail, setFlashMessageId, flashTimerRef, revealMessage,
     onMissing: () => toast(t('chatArea.source.notVisible'), 'error'),
   })
@@ -358,7 +294,7 @@ export function TopicSplitPane({ viewportKey = 'topic', navigationTarget = false
     messages,
     isFiltering,
     mobile,
-    memberReadSeqs,
+    memberReadSeqs, queuedIds,
     isAgentChat: false,
     // 话题是多人线 ⇒ 与群同口径,收到的气泡上方显发送者名。
     isGroupChat: true,
@@ -370,7 +306,7 @@ export function TopicSplitPane({ viewportKey = 'topic', navigationTarget = false
     onShowMessage: showMessage,
     onQuote: (msg) => setQuoted({
       forChatId: topic.chatId,
-      messageId: msg.id,
+      messageId: msg.id, source: msg,
       senderName: memberProfiles[msg.sender_user_id ?? '']?.displayName ?? '',
       content: quotePrefixOf(msg),
     }),
@@ -390,68 +326,19 @@ export function TopicSplitPane({ viewportKey = 'topic', navigationTarget = false
     onToggleSelect: noop,
     onEnterSelectMode: undefined,
     flashMessageId,
-  }), [showMessage, rows, messages, mobile, memberReadSeqs, memberProfiles, onOpenMemberProfile, onOpenAttachment, onShowReadReceipt, onReaction, onForward, onDelete, topic.chatId, flashMessageId, history, visible, isFiltering, searchQuery])
+  }), [showMessage, rows, messages, mobile, memberReadSeqs, queuedIds, memberProfiles, onOpenMemberProfile, onOpenAttachment, onShowReadReceipt, onReaction, onForward, onDelete, topic.chatId, flashMessageId, history, visible, isFiltering, searchQuery])
 
-  // 手机页只有左上返回一个出口:子视图(附件/成员)开着先退回话题,否则收起话题回来源线。
-  const goBack = filesOpen ? () => setFilesForChatId(null) : membersOpen ? () => setMembersOpen(false) : onClose
-  // 手机整页:安卓返回键 = 左上返回(先退附件/成员子视图,再回群),❌ 越过群退到会话列表。
-  useBackLayer(goBack, mobile)
-  // 名册那条头自带「话题成员 + 改名框」,名字在那儿写着了 ⇒ 这里就不再写一遍。
-  // 附件面板没有标题(它自己那条头被收掉了),所以那时这里要写。
-  const headerTitle = membersOpen
-    ? <span style={TOPIC_SPLIT_HEADER_SPACER_STYLE} />
-    : <TopicBreadcrumb topicName={topic.name} sourceMessagePreview={sourceMessagePreview} />
-  const membersToggle = (
-    <IconButton
-      size={mobile ? 'md' : 'sm'}
-      data-testid="topic-split-members-toggle"
-      on={membersOpen || undefined}
-      aria-pressed={membersOpen}
-      aria-label={t('topic.pane.members')}
-      title={t('topic.pane.members')}
-      onClick={() => setMembersOpen((open) => !open)}
-    >
-      <Users size={16} />
-    </IconButton>
-  )
-  // 手机页头右边最多两颗(与群聊页 compactRoom 一致):成员 + ⋯,附件和文件夹收进 ⋯,排在 App 前面。
-  const searchItem = <MenuItem onClick={() => search.setSearchMode(true)} icon={<Search size={16} />}>{t('chatArea.searchMessages')}</MenuItem>
-  const headerToggles = mobile ? (
-    <>
-      {membersToggle}
-      <TopicMoreMenu chatId={sourceChatId} mobile items={(
-        <>
-          {searchItem}
-          <MenuItem data-testid="topic-split-files-toggle" onClick={toggleFiles} icon={<Paperclip size={16} />}>{t('topic.pane.attachments')}</MenuItem>
-        </>
-      )} />
-    </>
-  ) : (
-    <>
-      <IconButton
-        size="sm"
-        data-testid="topic-split-files-toggle"
-        on={filesOpen || undefined}
-        aria-pressed={filesOpen}
-        aria-label={t('topic.pane.attachments')}
-        title={t('topic.pane.attachments')}
-        onClick={toggleFiles}
-      >
-        <Paperclip size={16} />
-      </IconButton>
-      {membersToggle}
-      <TopicMoreMenu chatId={sourceChatId} mobile={false} items={searchItem} />
-    </>
-  )
+  useBackLayer(onClose, mobile && !inTab)
+  const headerTitle = <TopicBreadcrumb topicName={topic.name} sourceMessagePreview={sourceMessagePreview} />
   const page = (
     // @@@2234 同 history/workspace/群 thread 面板:进场保留、**退场不保留占位**。
     // ⇒ ❌ 不要给它套 AnimatePresence / 加 exit。
     <motion.div
       key={`topic-split-${topic.chatId}`}
-      initial={mobile ? { x: '100%' } : { x: 340, opacity: 0 }}
+      initial={inTab ? false : mobile ? { x: '100%' } : { x: 340, opacity: 0 }}
       animate={{ x: 0, opacity: 1 }}
       transition={tween(DUR_SLOW_MS, EASE_SPRING)}
-      style={mobile ? TOPIC_PAGE_MOBILE_STYLE : TOPIC_SPLIT_SHELL_STYLE}
+      style={inTab ? TOPIC_TAB_STYLE : mobile ? TOPIC_PAGE_MOBILE_STYLE : TOPIC_SPLIT_SHELL_STYLE}
     >
       <div
         ref={paneRef}
@@ -463,66 +350,31 @@ export function TopicSplitPane({ viewportKey = 'topic', navigationTarget = false
         {/* 这一条**常驻**:面板开着时它也在。曾经开面板就把它收起来,代价是
             ①「收起分栏」与另一颗切换键一起消失,②这一栏里再没有一个字说明你在哪条话题上
             (找茬第十轮)。嵌进来的那两个面板自带的头由 tokens.css 收掉,所以不会两条头叠着摆。 */}
-        {tabHost !== undefined ? null : mobile ? (
-          <PaneHeader mobile divider title={headerTitle} actions={headerToggles} leading={(
-            <IconButton size="lg" data-testid="topic-split-back" aria-label={t('common.back')} title={t('common.back')} onClick={goBack}><ChevronLeft /></IconButton>
+        {inTab ? <TopicTabSource preview={sourceMessagePreview} /> : mobile ? (
+          <PaneHeader mobile divider title={headerTitle} leading={(
+            <IconButton size="lg" data-testid="topic-split-back" aria-label={t('common.back')} title={t('common.back')} onClick={onClose}><ChevronLeft /></IconButton>
           )} />
         ) : (
         <div style={TOPIC_SPLIT_HEADER_STYLE}>
           {headerTitle}
           <div style={TOPIC_SPLIT_HEADER_ACTIONS_STYLE}>
-            {headerToggles}
-            <IconButton
-              size="sm"
-              data-testid="topic-split-close"
-              aria-label={t('topic.pane.collapseSplit')}
-              // 「收起分栏」是界面动作、不是话题状态 ⇒ title 里点明「话题不会关闭」。
-              title={t('topic.pane.collapseSplitHint')}
-              onClick={onClose}
-            >
-              <X size={16} />
-            </IconButton>
+            {embedded ? null : (
+              <IconButton
+                size="sm"
+                data-testid="topic-split-close"
+                aria-label={t('topic.pane.collapseSplit')}
+                // 「收起分栏」是界面动作、不是话题状态 ⇒ title 里点明「话题不会关闭」。
+                title={t('topic.pane.collapseSplitHint')}
+                onClick={onClose}
+              >
+                <X size={16} />
+              </IconButton>
+            )}
           </div>
         </div>
         )}
 
         {searchMode && <PaneHeader><ChatSearchControls search={search} /></PaneHeader>}
-        {filesOpen ? (
-          // 这份面板自带的头嵌进来时由 .gg-topic-split-members 收掉;它不定宽,撑满这一栏。
-          <div className="gg-topic-split-members" style={TOPIC_SPLIT_MEMBERS_STYLE}>
-            <HistoryPanel
-              mobile={mobile}
-              attachments={files}
-              loading={filesLoading}
-              onOpenFile={onOpenFile}
-              onDownloadFile={onDownloadFile}
-              onClose={() => setFilesForChatId(null)}
-            />
-          </div>
-        ) : membersOpen ? (
-          // 名册的外壳归这一栏:桌面上撑满分栏、边线归分栏(width="fill");手机上 RightPanel 照旧是整页。
-          <div className="gg-topic-split-members" style={TOPIC_SPLIT_MEMBERS_STYLE}>
-            <RightPanel width="fill" onClose={() => setMembersOpen(false)}>
-              <MemberListPanel
-                key={topic.chatId}
-                chatId={topic.chatId}
-                chatKind="topic"
-                snapshot={collab.snapshot} onReload={collab.reload} error={collab.error}
-                head={(title, actions) => (
-                  // 桌面上收起名册归上面那条常驻分栏头的 👥,这里不再画关闭;手机整页的出口是左上返回。
-                  <div style={TOPIC_SPLIT_MEMBERS_HEAD_STYLE}>
-                    {mobile ? <RightPanelBackButton onBack={() => setMembersOpen(false)} /> : null}
-                    {title}
-                    {actions}
-                  </div>
-                )}
-                chatName={topic.name}
-                topicInvitation={{ candidates: mentionMembers, send: onSend }}
-              />
-            </RightPanel>
-          </div>
-        ) : (
-        <>
         <div
           data-testid="topic-split-messages"
           style={TOPIC_SPLIT_MESSAGES_STYLE}
@@ -562,12 +414,11 @@ export function TopicSplitPane({ viewportKey = 'topic', navigationTarget = false
             重写一份等于把它们统统退回未解决态,而且不报任何错(owner 2026-09-19 实测点破)。
             话题是一间屋子 ⇒ isGroupChat,寻址规则与群一致。 */}
         {/* 话题里运行条那一行同样是固定高的一行;只在传了 runningTokens 时才有(手机整页话题),桌面分栏旁边群里那一条一直看得见。 */}
-        <ChatBottomDock floating={!mobile} reserve={messages.length === 0} above={runningTokens &&
+        <ChatBottomDock reserve={messages.length === 0} above={runningTokens &&
         <RunningBarSlot>
         {runningTokens.length > 0 ? (
           <RunningTokenBar
             testId="topic-agent-running-status"
-            cap={GROUP_AGENT_BAR_MAX}
             previewChatId={runningPreviewChatId}
             tokens={runningTokens}
             onTokenClick={(id) => {
@@ -583,10 +434,10 @@ export function TopicSplitPane({ viewportKey = 'topic', navigationTarget = false
           mentionToInsert={mentionToInsert}
           onMentionInserted={() => setMentionToInsert(null)}
           onSend={async (content, opts) => {
-            await onSend(content, opts?.toUserIds ?? null, opts?.replyToMessageId ?? null)
+            await onSend(content, opts?.toUserIds ?? null, opts?.replyToMessageId ?? null, opts?.isWhisper, opts?.submittedAt)
           }}
           onSendAttachments={async (files, opts) => {
-            await onSendAttachments(files, { toUserIds: opts?.toUserIds ?? null, caption: opts?.caption, onSent: opts?.onSent })
+            await onSendAttachments(files, opts)
           }}
           placeholder={t('topic.pane.composerPlaceholder')}
           quoteContent={activeQuote}
@@ -600,13 +451,11 @@ export function TopicSplitPane({ viewportKey = 'topic', navigationTarget = false
           // ❌ 故意不接的几个,逐条说清楚为什么这一栏不需要(❌ 不是“忘了”):
           //   · beforeSend / disabled / disabledReason —— agent 私聊专用(会话页会话恢复前置与禁用态),
           //     话题是场所型会话,这三个在主线也只在 isAgentChat 时才有值。
-          //   · whisperTarget / onExitWhisper —— 悋悋话的入口在成员卡片上;话题里能不能悋悋话
-          //     spec 没说,❌ 不在这里自己拍板。
+          //   · whisperTarget / onExitWhisper —— 成员卡片的主动入口在主线;
+          //     回复的私密性与显式退出由共用 composer 自己处理。
         />
         </div>
         </ChatBottomDock>
-        </>
-        )}
         {readReceiptPanel ? (
           <ReadReceiptPopover
             {...readReceiptPanel}
@@ -617,25 +466,9 @@ export function TopicSplitPane({ viewportKey = 'topic', navigationTarget = false
       </div>
     </motion.div>
   )
-  if (mobile) return page
+  if (mobile || embedded) return page
   return (
     <>
-    {tabHost ? createPortal(
-      <TopicTab
-        name={topic.name}
-        chatId={topic.chatId}
-        sourceChatId={sourceChatId}
-        onClose={onClose}
-        items={(
-          <>
-            {searchItem}
-            <MenuItem data-testid="topic-split-files-toggle" onClick={toggleFiles} icon={<Paperclip size={16} />}>{t('topic.pane.attachments')}</MenuItem>
-            <MenuItem data-testid="topic-split-members-toggle" onClick={() => setMembersOpen((open) => !open)} icon={<Users size={16} />}>{t('topic.pane.members')}</MenuItem>
-          </>
-        )}
-      />,
-      tabHost,
-    ) : null}
     {/* @@@5856 宽度归 ResizablePane —— owner 拿掉了「全宽打开」那颗键之后,
         「想看大一点」这件事只剩这条分割线,所以它必须真能拖(拖拽那一套复用会话列表那一份,
         见 ResizablePane 的注释:边界情形全在那儿踩过了)。 */}
@@ -661,37 +494,12 @@ export function TopicSplitPane({ viewportKey = 'topic', navigationTarget = false
 }
 
 /**
- * 块里的话题页签(gugu-dev#181 第 ⑤⑥ 步):和群对话那一枚并排连成一对(排右),× = 收起分栏、页签也拿掉(话题不会关闭)。
- * 右边换成了右栏里的东西时它还在,只是不亮;点一下分栏回来(`onPick`,GroupPanelTabs 画这一枚)。
- * 这一栏的附件、成员、群文件夹和能在话题里开的 App 在它的右键菜单里 —— 页签条右端那一排是这一块的。
+ * 页签里那一枚的顶上:它从哪一条开出来(原型 v7.12 TopicPane)。任务的话题开在任务卡上,就写任务那句话;
+ * 来源还没读到 / 读不到 = 不画;来源被删了要说出来(同 TopicBreadcrumb 的四种值)。
  */
-export function TopicTab({ name, chatId, sourceChatId, onClose, onPick, items }: { name: string; chatId: string; sourceChatId: string; onClose?: () => void; onPick?: () => void; items?: React.ReactNode }) {
+function TopicTabSource({ preview }: { preview: string | null | 'pending' | 'unreadable' }) {
   const { t } = useTranslation('messaging')
-  const [menuAt, setMenuAt] = useState<{ x: number; y: number } | null>(null)
-  return (
-    <TabSlot data-topic-tab={chatId}>
-      <TabChip
-        isActive={!onPick}
-        pairRole="end"
-        label={name}
-        preSlot={<MessageSquare size={14} />}
-        closeLabel={t('topic.pane.collapseSplitHint')}
-        onClick={onPick}
-        onClose={() => {
-          groupSlotMemory.closeTopic(chatId)
-          onClose?.()
-        }}
-        onContextMenu={(event) => {
-          event.preventDefault()
-          setMenuAt({ x: event.clientX, y: event.clientY })
-        }}
-      />
-      {menuAt ? (
-        <Menu x={menuAt.x} y={menuAt.y} onClose={() => setMenuAt(null)}>
-          {items}
-          <ChatTabMenuItems chatId={sourceChatId} />
-        </Menu>
-      ) : null}
-    </TabSlot>
-  )
+  if (preview === 'pending' || preview === 'unreadable') return null
+  const text = preview === null ? t('topic.breadcrumb.sourceDeleted') : composerCardPreview(preview)?.text ?? preview
+  return <div className="gg-topic-tab-src" data-testid="topic-tab-source" data-gone={preview === null || undefined}>{text}</div>
 }

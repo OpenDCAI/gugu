@@ -1,3 +1,4 @@
+import { stageFileHandle } from '@gugu/core/shared/fileResolver'
 import type { LocalUsageRequest, LocalUsageSnapshot } from '@gugu/core/shared/usage/dailyUsage'
 import type { Device } from '@gugu/core/shared/types/chat'
 import { normalizeDeviceRow } from '@gugu/core/cloud/devices'
@@ -94,6 +95,11 @@ export const electronPlatform: AppPlatform = {
     if (!api?.subscribeAppActive) throw unavailable('App active subscription')
     return api.subscribeAppActive(listener)
   },
+  subscribeLocalDeviceIdentified(listener) {
+    const api = electronApi()
+    if (!api?.subscribeLocalDeviceIdentified) throw unavailable('Local device identity subscription')
+    return api.subscribeLocalDeviceIdentified(listener)
+  },
   async selectDirectory() {
     const api = electronApi()
     if (!api?.selectDirectory) throw unavailable('Directory picker')
@@ -137,8 +143,9 @@ export const electronPlatform: AppPlatform = {
   saveFile: anchorDownload,
   async openRemoteFile(file, filename) {
     const api = electronApi()
-    if (!api?.openFileBytes) throw unavailable('External file open')
-    await api.openFileBytes(new Uint8Array(await (await file.bytes()).arrayBuffer()), filename)
+    if (!api?.invoke) throw unavailable('External file open')
+    const id = await stageFileHandle(file, filename, command => api.invoke('files:stage', command))
+    await api.invoke('files:stage-open', { id })
   },
   async writeClipboardText(value) {
     const api = electronApi()

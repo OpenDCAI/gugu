@@ -1,3 +1,4 @@
+import { messageForUser } from '@/lib/userFacingError';
 import { useAppSettingsKey } from '@renderer/features/settings/use-app-settings-key';
 import { commandRegistry } from '@renderer/lib/commands/registry';
 import { useCommandProvider } from '@renderer/lib/commands/use-command-provider';
@@ -53,14 +54,14 @@ export function useOpenInTargets(path: string) {
         if (!res?.success) {
           toast({
             title: translate('titlebar.openInFailed', { app: label }),
-            description: res?.error || 'Application not available.',
+            description: messageForUser(res?.error),
             variant: 'destructive',
           });
         }
       } catch (e: unknown) {
         toast({
           title: translate('titlebar.openInFailed', { app: label }),
-          description: e instanceof Error ? e.message : String(e),
+          description: messageForUser(e),
           variant: 'destructive',
         });
       }
@@ -210,13 +211,7 @@ export const OpenInMenu: React.FC<OpenInMenuProps> = ({
               : availability[app.id] !== false;
             return (
               <SelectItem key={app.id} value={app.id} disabled={!isAvailable}>
-                {icons[app.id] && (
-                  <img
-                    src={icons[app.id]}
-                    alt={labels[app.id] || app.label}
-                    className={`h-4 w-4 rounded-sm ${app.invertInDark ? 'emdark:invert' : ''}`}
-                  />
-                )}
+                {icons[app.id] && <OpenInAppIcon src={icons[app.id]} monochrome={app.monochrome} alt={labels[app.id] || app.label} />}
                 {labels[app.id] || app.label}
               </SelectItem>
             );
@@ -243,7 +238,7 @@ export function OpenInMenuItems({ targets }: { targets: ReturnType<typeof useOpe
         return (
           <ContextMenuItem key={app.id} className="flex items-center gap-2" disabled={!isAvailable} onClick={() => selectAndOpenApp(app.id)}>
             {icons[app.id] ? (
-              <img src={icons[app.id]} alt="" className={`size-4 rounded-sm ${app.invertInDark ? 'emdark:invert' : ''}`} />
+              <OpenInAppIcon src={icons[app.id]} monochrome={app.monochrome} alt="" />
             ) : (
               <span className="size-4" />
             )}
@@ -252,5 +247,20 @@ export function OpenInMenuItems({ targets }: { targets: ReturnType<typeof useOpe
         );
       })}
     </>
+  );
+}
+
+/** 「用…打开」那一排的应用图标。单色的(svg 填 currentColor)用遮罩画、底色取 currentColor:<img> 里的 currentColor 不认外面的文字色。 */
+function OpenInAppIcon({ src, monochrome, alt }: { src: string | undefined; monochrome?: boolean; alt: string }) {
+  if (!src) return null;
+  if (!monochrome) return <img src={src} alt={alt} className="size-4 rounded-sm" />;
+  return (
+    <span
+      role={alt ? 'img' : undefined}
+      aria-label={alt || undefined}
+      aria-hidden={alt ? undefined : true}
+      className="inline-block size-4 shrink-0 bg-current"
+      style={{ maskImage: `url(${src})`, maskSize: 'contain', maskRepeat: 'no-repeat', maskPosition: 'center' }}
+    />
   );
 }

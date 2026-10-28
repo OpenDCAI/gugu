@@ -1,9 +1,9 @@
 import type { PermissionOptionKind } from '@agentclientprotocol/sdk';
-import type { LiveSettingsCapability } from '@gugu/session-core/agents/plugins';
+import type { AcpAgentApi, LiveSettingsCapability } from '@gugu/session-core/agents/plugins';
 import { isOk } from '@gugu/session-shared';
 import { noopLogger } from '@gugu/session-shared/logger';
 import { describe, expect, it, vi } from 'vitest';
-import { decodePermissionRequest, createRequestActivity, permissionWaitKind } from '@gugu/session-core/acp';
+import { decodePermissionRequest, createRequestActivity, permissionWaitKind, type SessionPromptReceipt } from '@gugu/session-core/acp';
 import { FakeAcpAgent } from '../acp-test-support';
 import { SessionCell } from './cell';
 
@@ -65,6 +65,34 @@ async function flushDrains(): Promise<void> {
 }
 
 describe('SessionCell prompts', () => {
+  it.each(['prompt', 'queueBehindTurn'] as const)('keeps a newer draft when %s receives delayed native admission', async (method) => {
+    const receipt = Promise.withResolvers<SessionPromptReceipt>();
+    const prompt = vi.fn((_params: unknown, dispatch: { requestId: string }) => {
+      void dispatch;
+      return receipt.promise;
+    });
+    const cell = new SessionCell({ mergeEnvelopes: stubMergeEnvelopes, sessionId: 'conv-1', projectId: 'proj-1', providerId: 'claude',
+      acpSessionId: 'session-1', agent: { prompt, cancel: vi.fn(async () => {}) } as unknown as AcpAgentApi,
+      liveSettings: TEST_LIVE_SETTINGS, resolveAttachment: vi.fn().mockResolvedValue({ data: '', mimeType: 'image/png' }), logger: noopLogger });
+    cell.applySessionReady();
+    try {
+      cell.setPromptDraft({ rev: 1, input: { text: 'submitted draft' } });
+      const running = cell[method]({ text: 'submitted draft', origin: 'manual' });
+      await vi.waitFor(() => expect(prompt).toHaveBeenCalledTimes(1));
+      cell.setPromptDraft({ rev: 100, input: { text: 'newer unsent draft' } });
+      expect(cell.promptDraft?.text).toBe('newer unsent draft');
+      cell.push({ kind: 'agent_state', source: 'agent', state: 'running' });
+      cell.push({ kind: 'message', role: 'user', messageId: 'native', text: 'submitted draft', contentMode: 'replace' });
+      receipt.resolve({ status: 'accepted', requestId: prompt.mock.calls[0]![1].requestId, messageId: 'native' });
+      await receipt.promise;
+      cell.push({ kind: 'agent_state', source: 'agent', state: 'idle', stopReason: 'end_turn' });
+      expect((await running).success).toBe(true);
+      expect(cell.promptDraft?.text).toBe('newer unsent draft');
+    } finally {
+      cell.dispose();
+    }
+  });
+
   it('does not project a non-permission stable modes mirror into session config', () => {
     const { cell } = makeCell(undefined, { sessionModes: 'none' });
     const modes = {
@@ -228,8 +256,11 @@ describe('SessionCell prompts', () => {
     cell.setPromptDraft({ rev: 1, input: { text: 'send' } });
 
     const sending = cell.prompt({ text: 'send', origin: 'manual' });
-    const draftAfterAdmission = cell.promptDraft;
     await vi.waitFor(() => expect(agent.prompt).toHaveBeenCalledTimes(1));
+    // Admission (the provider's first event on v1) consumes the draft before the turn completes.
+    cell.push({ kind: 'thinking', messageId: 'started', text: 'Sending.' });
+    await flushDrains();
+    const draftAfterAdmission = cell.promptDraft;
     finish({ stopReason: 'end_turn' });
     await sending;
 
@@ -699,6 +730,26 @@ describe('SessionCell prompts', () => {
       reason: 'prompt_failed',
       detail: 'Agent run failed: cascade ID mismatch',
     });
+  });
+
+  it('a failure reported as end_turn fails the caller with its cause, so a delivery cannot complete as done (MiMo quota)', async () => {
+    const agent = new FakeAcpAgent();
+    const { cell } = makeCell(agent, { turnFailure: { watchesStderr: true } });
+    agent.prompt = vi.fn(async () => {
+      setTimeout(() => cell.noteProviderStderrFailure("You've hit your usage limit. Upgrade or try again later."), 50);
+      return { stopReason: 'end_turn' };
+    });
+    const failed = await cell.prompt({ text: 'hi' });
+    expect(failed).toMatchObject({
+      success: false,
+      error: { type: 'prompt_failed', cause: { message: "You've hit your usage limit. Upgrade or try again later." } },
+    });
+    // Control: a turn that answered stays a success.
+    agent.prompt = vi.fn(async () => {
+      cell.push({ kind: 'message', role: 'assistant', messageId: null, text: 'ok' });
+      return { stopReason: 'end_turn' };
+    });
+    expect((await cell.prompt({ text: 'again' })).success).toBe(true);
   });
 
   it('a stderr failure the provider marks as a credential failure settles with signInRequired (MiMo, 10-07)', async () => {
@@ -2398,7 +2449,11 @@ describe('SessionCell idle turns and queue commands', () => {
 
   it('a receipt never closes work; native idle supplies its complete outcome', async () => {
     const { cell, agent } = reportingCell();
-    agent.prompt = vi.fn().mockResolvedValue({ status: 'accepted', requestId: 'r', messageId: 'native' });
+    // A v2 provider echoes the input before its receipt.
+    agent.prompt = vi.fn(async () => {
+      cell.push({ kind: 'message', role: 'user', messageId: 'native', text: 'hi', contentMode: 'replace' });
+      return { status: 'accepted', requestId: 'r', messageId: 'native' };
+    });
     const sent = cell.promptDetached({ text: 'hi', origin: 'typed' });
     await sent.admission;
     await vi.waitFor(() => expect(agent.prompt).toHaveBeenCalled());
@@ -2412,7 +2467,11 @@ describe('SessionCell idle turns and queue commands', () => {
 
   it('local commands also require an explicit idle boundary, without a fabricated running event', async () => {
     const { cell, agent } = reportingCell();
-    agent.prompt = vi.fn().mockResolvedValue({ status: 'accepted', requestId: 'r', messageId: 'native' });
+    // A v2 provider echoes the input before its receipt.
+    agent.prompt = vi.fn(async () => {
+      cell.push({ kind: 'message', role: 'user', messageId: 'native', text: '/context', contentMode: 'replace' });
+      return { status: 'accepted', requestId: 'r', messageId: 'native' };
+    });
     const sent = cell.promptDetached({ text: '/context', origin: 'typed' });
     await sent.admission;
     await vi.waitFor(() => expect(agent.prompt).toHaveBeenCalled());
@@ -2719,6 +2778,8 @@ describe('#6387 extension messages: same-key replacement and attached context', 
     agent.prompt = vi.fn(() => new Promise<{ stopReason: 'end_turn' }>(() => {}));
     void cell.prompt({ text: 'busy', origin: 'typed' });
     const steered = cell.promptDetached({ text: 'mid', origin: 'communication' }, { steerIfBusy: true });
+    await vi.waitFor(() => expect(agent.prompt).toHaveBeenCalledTimes(2));
+    cell.push({ kind: 'thinking', messageId: 'started', text: 'Working.' });
     await expect(steered.admission).resolves.toEqual({ success: true, data: { queued: false, steered: true } });
     const queued = cell.promptDetached({ text: 'later', origin: 'communication' });
     await expect(queued.admission).resolves.toEqual({ success: true, data: { queued: true } });

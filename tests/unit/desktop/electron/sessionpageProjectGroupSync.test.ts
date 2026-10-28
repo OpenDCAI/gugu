@@ -5,7 +5,6 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { listAgentNameSerialsViaSupabase } from '@gugu/core/cloud/agentIdentityReconcile'
 import { awaitPending } from '../../../support/awaitFact'
 vi.mock('@gugu/core/cloud/agentIdentityReconcile', () => ({
-  listOwnedCloudAgentsViaSupabase: vi.fn(async () => []),
   // #6396 服务端账本(identity.agent_name_serials):登录时与账号的 agent 有变动时 refreshAgentNamingFacts 读它。
   listAgentNameSerialsViaSupabase: vi.fn(async () => serverSerials),
 }))
@@ -1041,9 +1040,20 @@ describe('spec ⑨ 删除侧:删除必同步,且只摘该摘的', () => {
     await provisionSessionpageAgentForSession(
       { sessionId: 'conv-a', providerId: 'codex', surface: 'tui', cwd: '/w/a', projectId: 'proj-alpha' }, deps)
     const res = await reconcileSessionpageAgents(reapDeps({ sessionIds: ['conv-a'], projectIds: ['proj-alpha'] }))
-    expect(res).toEqual({ reapedAgents: 0, archivedGroups: 0, reapedOrphans: 0 })
+    expect(res).toEqual({ reapedAgents: 0, archivedGroups: 0 })
     expect(removedIdentities).toEqual([])
     expect(roster).toHaveLength(1)
+  })
+  it('云端家在本机、本安装名册里没有的 agent ⇒ 不删(重装 / 同机另一个数据目录 / agents.json 为 {} 都长这样)', async () => {
+    const { reconcileSessionpageAgents } = await import(REAPER)
+    // device_id 按(机器, 账号, tier)派生,不跟数据目录走:另一个实例、重装前、清空名册之前铸的 agent 在云端都是
+    // 「家在本机、这份名册里没有」。回收只看本安装自己的名册行与会话清单,不去云端按缺席找人。
+    for (const inventory of [{ sessionIds: [], projectIds: [] }, { sessionIds: ['conv-here'], projectIds: ['proj-here'] }]) {
+      const res = await reconcileSessionpageAgents(reapDeps(inventory))
+      expect(res).toEqual({ reapedAgents: 0, archivedGroups: 0 })
+    }
+    expect(removedIdentities).toEqual([])
+    expect(rpcCalls.map((call) => call.name)).not.toContain('remove_owned_agent')
   })
   it('会话被点名已删 → 当场摘掉它的 agent,不必等行真的消失', async () => {
     const { provisionSessionpageAgentForSession } = await import(SUT)
@@ -1069,7 +1079,7 @@ describe('spec ⑨ 删除侧:删除必同步,且只摘该摘的', () => {
       ...reapDeps({ sessionIds: ['conv-a'], projectIds: ['proj-alpha'] }),
       deadSessionIds: undefined,
     })
-    expect(res).toEqual({ reapedAgents: 0, archivedGroups: 0, reapedOrphans: 0 })
+    expect(res).toEqual({ reapedAgents: 0, archivedGroups: 0 })
     expect(roster).toHaveLength(1)
   })
   it('项目里最后一个 agent 被摘走 → 同项目的下一个会话仍回到原来那个群', async () => {
@@ -1455,6 +1465,31 @@ describe('#7341 项目群跨设备:预留的群 id、别的机器还在用的群
 // 放在文件最后:它要一个从没读出过非空清单的回收器进程(那是模块级事实,前面的用例早把它置真了),
 // resetModules 之后的模块不该再被别的用例继承。
 describe('#3969 新进程第一次归档唯一的任务', () => {
+  it('retains identity, name and seats through archive reconciliation, restart and restored provisioning', async () => {
+    const { provisionSessionpageAgentForSession } = await import(SUT)
+    const { reconcileSessionpageAgents } = await import(REAPER)
+    const input = { sessionId: 'conv-kept', providerId: 'codex', surface: 'tui' as const, cwd: '/w/kept', projectId: 'proj-alpha' }
+    const original = await provisionSessionpageAgentForSession(input, deps)
+    await settleCloud()
+    const name = roster[0].name
+    const members = [...groups[0].members]
+    const inventory = { getAuth: deps.getAuth, resolveDeviceId: deps.resolveDeviceId,
+      getInventory: async () => ({ sessionIds: ['conv-kept'], projectIds: ['proj-alpha'] }), env: { GUGU_HOME: home } }
+    expect((await reconcileSessionpageAgents(inventory)).reapedAgents).toBe(0)
+    vi.resetModules()
+    const restarted = await import(REAPER)
+    expect((await restarted.reconcileSessionpageAgents(inventory)).reapedAgents).toBe(0)
+    const provision = await import(SUT)
+    const restored = await provision.provisionSessionpageAgentForSession(input, deps)
+    await settleCloud()
+    expect(restored?.guguAgentUserId).toBe(original?.guguAgentUserId)
+    expect(roster[0].name).toBe(name); expect(roster).toHaveLength(1)
+    expect(groups[0].members).toEqual(members); expect(removedIdentities).toEqual([])
+    const fresh = await provision.provisionSessionpageAgentForSession({ ...input, sessionId: 'conv-new', cwd: '/w/new' }, deps)
+    await settleCloud()
+    expect(fresh?.guguAgentUserId).not.toBe(original?.guguAgentUserId)
+    expect(roster).toHaveLength(2); expect(groups[0].members).toHaveLength(members.length + 1)
+  })
   it('没点名的空清单不按缺席摘;被点名的死任务照样摘', async () => {
     vi.resetModules()
     const { provisionSessionpageAgentForSession } = await import(SUT)

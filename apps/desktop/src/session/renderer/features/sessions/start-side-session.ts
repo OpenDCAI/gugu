@@ -1,3 +1,4 @@
+import { messageForUser } from '@/lib/userFacingError';
 import { sessionRegistry } from '@renderer/features/sessions/stores/session-registry';
 import { getSessionView } from '@renderer/features/sessions/stores/session-selectors';
 import { toast } from '@renderer/lib/hooks/use-toast';
@@ -77,7 +78,7 @@ export function startSideSession(projectId: string, sessionId: string): void {
       log.error('start side chat failed', error);
       toast({
         title: translateSessionMessage('chat.sideChatFailed'),
-        description: error instanceof Error ? error.message : String(error),
+        description: messageForUser(error),
         variant: 'destructive',
       });
     });

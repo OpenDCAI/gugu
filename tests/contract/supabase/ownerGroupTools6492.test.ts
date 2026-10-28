@@ -294,9 +294,11 @@ describe('actor management through the real MCP handler and migrated database', 
     expect(await call('group_update', { chat_id: target, changes: { name: 'Agent edited', rules: '共同规则' } })).toMatchObject({ name: 'Agent edited', group_prompt: '共同规则' })
     expect(await nameOf(target)).toBe('Agent edited')
     expect(await call('group_set_role', { chat_id: target, member: `user:${w.sibling}`, role: 'admin' })).toMatchObject({ role: 'admin' })
+    await expect(call('group_remove_member', { chat_id: target, member: `user:${w.stranger}` })).rejects.toThrow('group_owner_cannot_leave')
     expect(await call('group_remove_member', { chat_id: target, member: `user:${w.owner}` })).toMatchObject({ status: 'removed' })
     expect(await isMember(target, w.owner)).toBe(false)
-    await expect(call('group_remove_member', { chat_id: target, member: `user:${w.stranger}` })).rejects.toThrow('group_owner_cannot_leave')
+    expect(await isMember(target, w.self)).toBe(false)
+    expect(await isMember(target, w.sibling)).toBe(false)
   })
   it('leaves a two-person group without deleting the Agent or archiving its human owner', async () => {
     const w = await world()

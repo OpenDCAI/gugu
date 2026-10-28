@@ -1,11 +1,11 @@
 // @vitest-environment jsdom
-import { act, createElement, useCallback, useEffect, useMemo, useState, type SetStateAction } from 'react'
+import { act, createElement, useCallback, useEffect, useMemo, useState } from 'react'
 import { createRoot, type Root } from 'react-dom/client'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { readComposer, selectComposer, writeComposer } from '../../../support/composerEditor'
 import { ChatMessageComposer } from '../../../../apps/desktop/src/components/chat/ChatMessageComposer'
 import { setLocalePreference } from '../../../../apps/desktop/src/i18n'
-import { ChatStoreProvider, useTextDraftStore, type DraftAttachment, type DraftMention } from '../../../../apps/desktop/src/store/chatContext'
+import { ChatStoreProvider, useChatStore, useTextDraftStore, type DraftAttachment, type DraftMention } from '../../../../apps/desktop/src/store/chatContext'
 import { chatStore } from '../../../support/testHarness'
 import { APP_COMPOSE_EVENT, type AppComposeDetail } from '../../../../apps/desktop/src/session/shared/extensions/app-runtime-protocol'
 import { filePillText } from '../../../../apps/desktop/src/components/markdown/filePills'
@@ -22,7 +22,7 @@ const sheetToken = `@[预算 · 销售!B2:D4 · 3×3](${SHEET})`
 
 let container: HTMLDivElement
 let root: Root
-let store: { drafts: Record<string, string>; setDraft: (chatId: string, text: SetStateAction<string>) => void }
+let store: ReturnType<typeof useChatStore>
 type ComposerProps = Parameters<typeof ChatMessageComposer>[0]
 
 function Host({ chatId, onSend, quoteContent, surface }: Pick<ComposerProps, 'chatId' | 'onSend' | 'quoteContent' | 'surface'>) {
@@ -31,21 +31,26 @@ function Host({ chatId, onSend, quoteContent, surface }: Pick<ComposerProps, 'ch
   const [draftAttachments, setDA] = useState<Record<string, DraftAttachment[]>>({})
   const setDraftMentions = useCallback((id: string, m: DraftMention[]) => setDM((p) => ({ ...p, [id]: m })), [])
   const setDraftAttachments = useCallback((id: string, a: DraftAttachment[]) => setDA((p) => ({ ...p, [id]: a })), [])
-  // The App host appends to the authoritative draft slot, as MainLayout does.
-  useEffect(() => {
-    const compose = (event: Event) => {
-      const detail = (event as CustomEvent<AppComposeDetail>).detail
-      setDraft(detail.chatId, (text) => [text, detail.text, ...(detail.refs ?? []).map(filePillText)].filter(Boolean).join('\n'))
-    }
-    window.addEventListener(APP_COMPOSE_EVENT, compose)
-    return () => window.removeEventListener(APP_COMPOSE_EVENT, compose)
-  }, [setDraft])
-  store = { drafts, setDraft }
   const value = useMemo(
     () => ({ ...chatStore(), drafts, draftMentions, draftAttachments, setDraft, setDraftMentions, setDraftAttachments }),
     [drafts, draftMentions, draftAttachments, setDraft, setDraftMentions, setDraftAttachments],
   )
-  return createElement(ChatStoreProvider, { value }, createElement(ChatMessageComposer, { onSend, chatId, quoteContent, surface, isGroupChat: true, groupMembers: [] }))
+  return createElement(ChatStoreProvider, { value }, createElement(AppHost), createElement(ChatMessageComposer, { onSend, chatId, quoteContent, surface, isGroupChat: true, groupMembers: [] }))
+}
+
+function AppHost() {
+  store = useChatStore()
+  const { writeDraft } = store
+  useEffect(() => {
+    const compose = (event: Event) => {
+      const detail = (event as CustomEvent<AppComposeDetail>).detail
+      const text = [detail.text, ...(detail.refs ?? []).map(filePillText)].filter(Boolean).join('\n')
+      if (text) writeDraft(detail.chatId, { at: 'end', text })
+    }
+    window.addEventListener(APP_COMPOSE_EVENT, compose)
+    return () => window.removeEventListener(APP_COMPOSE_EVENT, compose)
+  }, [writeDraft])
+  return null
 }
 
 async function flush() {
@@ -75,7 +80,7 @@ async function mount(onSend: ComposerProps['onSend'], chatId = 'group-1', quoteC
   await flush()
 }
 async function draft(text: string) {
-  await act(async () => store.setDraft('group-1', text))
+  await act(async () => store.writeDraft('group-1', text))
   await flush()
 }
 
@@ -195,7 +200,7 @@ describe('file citations share the composer document with the words', () => {
 
   it('keeps the reply above the editor and sends its relation alongside inline file citations', async () => {
     const onSend = vi.fn(async (_content: string, _opts?: unknown) => {})
-    await mount(onSend, 'group-1', { messageId: 'message-1', senderName: 'Alice', content: '原消息' })
+    await mount(onSend, 'group-1', { messageId: 'message-1', senderName: 'Alice', content: '原消息', source: { sender_user_id: 'alice', to_user_ids: null, is_whisper: false } })
     await draft(deckToken)
     expect(container.textContent).toContain('原消息')
     expect(textarea().textContent).not.toContain('原消息')

@@ -6,6 +6,10 @@ import { requestAddServerOnOpen } from '../../lib/addServerIntent'
 import { RemoteFolderPicker } from '../RemoteFolderPicker'
 import { SshLinkSignIn } from '../SshLinkSignIn'
 import { Sheet } from '../ui/Sheet'
+import { useDevicesStore } from '@/store/devicesContext'
+import { usePhoneAgentDirectory } from '@/mobile/local-agent/usePhoneAgentDirectory'
+import { useMobileShell } from '@/hooks/useMobileShell'
+import { usePhoneTaskDirectoryRequested } from '@/session/shared/remote-sessions/session-directory'
 
 /**
  * #6264 会话页里的别的机器(按 Zed)在壳这一侧的那几件:名下机器与问那台机器的接口经桥交给会话页;
@@ -18,6 +22,12 @@ export function RemoteMachinesHost({ enabled, openSettingsSection }: {
   openSettingsSection: (section: ActiveSection) => void
 }) {
   const { t } = useTranslation()
+  const { devices, phones = [] } = useDevicesStore()
+  const mobile = useMobileShell()
+  const phoneDirectoryRequested = usePhoneTaskDirectoryRequested()
+  // Phones publish summaries through their own protocol, never the workspace bridge below.
+  // On mobile the existing AgentWatchRoot owns this synchronization instead.
+  usePhoneAgentDirectory(enabled && !mobile && phoneDirectoryRequested ? [...devices, ...phones] : [])
   const [request, setRequest] = useState<{
     deviceId: string
     initialPath: string

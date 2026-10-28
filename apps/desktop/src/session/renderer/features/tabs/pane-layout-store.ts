@@ -56,7 +56,7 @@ export function mergeIntoOneStrip(snapshot: TabGroupsSnapshot): TabGroupsSnapsho
     activeTabId: shownOf(focused),
   };
   const existingPair = groups.find((g) => g.tabManager.pair)?.tabManager.pair;
-  const declined = groups.some((g) => g.tabManager.splitDeclined);
+  const declined = [...new Set(groups.flatMap((g) => g.tabManager.splitDeclinedKinds ?? []))].sort();
   if (existingPair) {
     merged.pair = existingPair;
   } else if (groups.length === 2 && layout.type === 'split') {
@@ -67,12 +67,11 @@ export function mergeIntoOneStrip(snapshot: TabGroupsSnapshot): TabGroupsSnapsho
       merged.pair = {
         anchorTabId: first,
         sideTabId: second,
-        ratio: (layout.sizes[0] ?? 50) / 100,
         ...(vertical ? { sideAt: 'bottom' as const } : {}),
       };
     }
   }
-  if (declined) merged.splitDeclined = true;
+  if (declined.length > 0) merged.splitDeclinedKinds = declined;
   return {
     groups: [{ groupId: focused.groupId, tabManager: merged }],
     activeGroupId: focused.groupId,
@@ -289,8 +288,8 @@ export class PaneLayoutStore<R extends TabRegistry = TabRegistry> {
       group.pane.setActiveTab(tabId);
       return true;
     }
-    if (group.pane.splitDeclined) {
-      // 用户拆开过:不再自动并排,人点开的照常亮到前面,agent 请的不切走。
+    if (group.pane.splitDeclinedFor(tabId)) {
+      // 用户拆开过这一类:不再自动并排,人点开的照常亮到前面,agent 请的不切走。
       if (opts?.reveal) {
         this.setActiveGroup(group.paneId);
         group.pane.setActiveTab(tabId);
@@ -580,10 +579,10 @@ export class PaneLayoutStore<R extends TabRegistry = TabRegistry> {
     if (initialState === null) return; // aborted by onBeforeOpen
 
     // 开在对话旁边(spec session-page「并排」):对话那一格、那一枚。没有对话 = 照常开;
-    // 用户拆开过 = 不再自动并排,也照常开 —— agent 打开的不切走,人点开的切过去(和普通浏览器一样)。
+    // 用户拆开过这一类 = 不再自动并排,也照常开 —— agent 打开的不切走,人点开的切过去(和普通浏览器一样)。
     const foundAnchor = config?.beside ? (this.pairAnchor?.() ?? null) : null;
     const declinedGroup = foundAnchor
-      ? this.groups.find((g) => g.paneId === foundAnchor.paneId && g.pane.splitDeclined)
+      ? this.groups.find((g) => g.paneId === foundAnchor.paneId && g.pane.splitDeclinedKinds.has(kind as string))
       : undefined;
     const anchor = declinedGroup ? null : foundAnchor;
     const anchorGroup = anchor ? this.groups.find((g) => g.paneId === anchor.paneId) : undefined;
@@ -843,6 +842,10 @@ export class PaneLayoutStore<R extends TabRegistry = TabRegistry> {
       isViewActive: () => this._isViewActiveBox.get(),
       layoutSplitter: {
         windowOpener: (tabId) => this.windowOpener?.(tabId) ?? null,
+        pairAnchorTab: () => {
+          const anchor = this.pairAnchor?.() ?? null;
+          return anchor && anchor.paneId === paneId ? anchor.tabId : null;
+        },
         moveToOtherPane: (tabId) => {
           const to = neighbourInOrder(this.layout, paneId, 'after') ?? neighbourInOrder(this.layout, paneId, 'before');
           return to ? () => this.moveTab(tabId, paneId, to) : null;

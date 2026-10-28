@@ -10,11 +10,12 @@ import { topicHistoryStub } from '../../support/chatWindowStub'
 import { readFile } from 'node:fs/promises'
 import { composerSlotClass, composerSlotInnerClass } from '@gugu/session-chat-ui/composer-layout'
 import { act, createElement, useEffect } from 'react'
-import { runInAction } from 'mobx'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+import * as attachmentReader from '../../../apps/desktop/src/lib/attachmentBytes'
+import { attachmentQueryClient } from '../../../apps/desktop/src/lib/attachmentQueryClient'
 
 import type { TopicSummary } from '@gugu/core/shared/types/chat'
-import { createNode, createReactHarness, clickElement, deferred, message, renderWithAppProviders } from '../../support/testHarness'
+import { createNode, createReactHarness, clickElement, deferred, message, renderWithAppProviders, typeInto } from '../../support/testHarness'
 
 const listTopicsOfChat = vi.fn<(sourceChatId: string) => Promise<TopicSummary[]>>()
 vi.mock('../../../apps/desktop/src/lib/topics', () => ({
@@ -27,9 +28,8 @@ const { useTopicsOfChat, topicsSourceChatId } = await import('../../../apps/desk
 const { TopicAnchorCard } = await import('../../../apps/desktop/src/components/chat/TopicAnchorCard')
 const { TopicBreadcrumb } = await import('../../../apps/desktop/src/components/chat/TopicBreadcrumb')
 const { TopicSplitPane } = await import('../../../apps/desktop/src/components/chat/TopicSplitPane')
-const { installedExtensionsStore } = await import('../../../apps/desktop/src/session/renderer/features/extensions/installed-extensions-store')
-const { EXTENSION_API_VERSION, parseExtensionManifest } = await import('../../../apps/desktop/src/session/shared/extensions/manifest')
 const { UI_EVENTS } = await import('../../../apps/desktop/src/lib/uiEvents')
+const { commandRegistry } = await import('../../../apps/desktop/src/session/renderer/lib/commands/registry')
 const { quotePrefixOf, canSourceTopic, maxTopicSplitWidthForAvailableWidth, TOPIC_SPLIT_MIN_WIDTH, TOPIC_SPLIT_MAX_WIDTH } = await import('../../../apps/desktop/src/components/chat/topicSplitModels')
 const { chatDisplayName } = await import('@gugu/core/shared/ui/chatModels')
 const { withSourceLineCandidates } = await import('../../../apps/desktop/src/lib/mention')
@@ -51,9 +51,16 @@ function topic(overrides: Partial<TopicSummary> = {}): TopicSummary {
 let harness: ReturnType<typeof createReactHarness>
 beforeEach(() => {
   listTopicsOfChat.mockReset()
+  attachmentQueryClient.clear()
+  vi.spyOn(attachmentReader, 'attachmentMetadata').mockResolvedValue({ status: 'ready', revision: { source: 'managed-object', file_name: 'fixture.pdf', content_type: 'application/pdf', size_bytes: 3, sha256: 'ab'.repeat(32) } })
+  vi.stubGlobal('IntersectionObserver', class {
+    constructor(private callback: (entries: { isIntersecting: boolean }[]) => void) {}
+    observe() { this.callback([{ isIntersecting: true }]) }
+    disconnect() {}
+  })
   harness = createReactHarness()
 })
-afterEach(() => harness.cleanup())
+afterEach(() => { harness.cleanup(); attachmentQueryClient.clear(); vi.restoreAllMocks(); vi.unstubAllGlobals() })
 
 describe('TopicAnchorCard 把「可见 / 参与 / 通知」的第三件显形', () => {
   it('非参与者的话题挂出「只看得见」，参与者的不挂', async () => {
@@ -263,15 +270,12 @@ describe('TopicBreadcrumb:双向连接上行的那一半 + 来源消息被删的
 describe('TopicSplitPane 是分栏，不是话题的开关', () => {
   const baseProps = {
     topic: { chatId: 'topic-1', name: '分片下载失败' },
-    sourceChatId: 'source-1',
     messages: [],
     loading: false,
     memberProfiles: {},
     memberReadSeqs: {},
     visibleChats: [],
     sourceMessagePreview: 'pending',
-    onOpenFile: vi.fn(),
-    onDownloadFile: vi.fn(),
     onSend: vi.fn(async () => {}),
     onSendAttachments: vi.fn(async () => {}),
     onClose: vi.fn(),
@@ -292,28 +296,40 @@ describe('TopicSplitPane 是分栏，不是话题的开关', () => {
   }
 
   for (const layout of ['desktop', 'phone', 'tab'] as const) {
-    it(`${layout}: topic settings request the source conversation, not a separate topic settings page`, async () => {
-      const tabs = document.body.appendChild(document.createElement('span'))
-      const requests: unknown[] = []
-      const receive = (event: Event) => requests.push((event as CustomEvent).detail)
-      window.addEventListener(UI_EVENTS.openChatDetailsDrawer, receive)
-      try {
-        await renderWithAppProviders(harness, createNode(TopicSplitPane, { ...baseProps, mobile: layout === 'phone', tabHost: layout === 'tab' ? tabs : undefined }))
-        if (layout === 'tab') {
-          await act(async () => { tabs.querySelector('[data-topic-tab] > div')!.dispatchEvent(new MouseEvent('contextmenu', { bubbles: true, clientX: 10, clientY: 10 })) })
-        } else {
-          await clickElement(harness.container.querySelector<HTMLElement>('[data-testid="topic-split-more"]')!)
-        }
-        const settings = document.querySelector<HTMLElement>('[data-testid="group-menu-settings"]')
-        expect(settings, 'settings stay reachable from the real topic pane').not.toBeNull()
-        await clickElement(settings!)
-        expect(requests).toEqual([{ chatId: 'source-1', page: 'settings' }])
-      } finally {
-        window.removeEventListener(UI_EVENTS.openChatDetailsDrawer, receive)
-        tabs.remove()
+    it(`${layout}: topic header only identifies the topic and its source`, async () => {
+      await renderWithAppProviders(harness, createNode(TopicSplitPane, { ...baseProps, mobile: layout === 'phone', embedded: layout === 'tab' }))
+      expect(harness.container.querySelector('[data-testid="topic-breadcrumb"]')).not.toBeNull()
+      for (const id of ['topic-split-more', 'topic-split-members-toggle', 'topic-split-files-toggle']) {
+        expect(harness.container.querySelector(`[data-testid="${id}"]`)).toBeNull()
       }
     })
   }
+
+  it('keeps focused topic Find, filtering and highlighting without a header search button', async () => {
+    await renderWithAppProviders(harness, createNode(TopicSplitPane, {
+      ...baseProps, viewportKey: 'review-topic',
+      messages: [message({ id: 'topic-hit', content: 'topic needle' }), message({ id: 'topic-miss', content: 'other text' })],
+    }))
+    await act(async () => { window.dispatchEvent(new CustomEvent(UI_EVENTS.openChatSearch, { detail: { viewportKey: 'review-main' } })) })
+    expect(harness.container.querySelector('[data-testid="chat-header-search-input"]')).toBeNull()
+    const composer = harness.container.querySelector<HTMLElement>('[data-testid="chat-composer-aside"]')!
+    try {
+      await act(async () => {
+        commandRegistry.setContext(composer)
+        expect(commandRegistry.dispatch('app.find')).toBe(true)
+      })
+      const input = harness.container.querySelector<HTMLInputElement>('[data-testid="chat-header-search-input"]')!
+      expect(input).not.toBeNull()
+      await typeInto(input, 'needle')
+      expect(harness.container.querySelector('[data-msg-id="topic-hit"]')).not.toBeNull()
+      expect(harness.container.querySelector('[data-msg-id="topic-miss"]')).toBeNull()
+      expect(harness.container.querySelector('mark')?.textContent).toBe('needle')
+      expect(harness.container.querySelector('[data-testid="topic-split-more"]')).toBeNull()
+      await act(async () => { input.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true })) })
+      expect(harness.container.querySelector('[data-testid="chat-header-search-input"]')).toBeNull()
+      expect(harness.container.querySelector('[data-msg-id="topic-miss"]')).not.toBeNull()
+    } finally { commandRegistry.setContext(document.body) }
+  })
 
   // 2026-09-24 shuxue:「我在 topic 里面点不开你发的附件」。分栏复用 MessageList 却没接 onOpenFile ⇒
   // 文件卡的按钮点了什么都不发生(主线那边是接了的)。反例:不接时确实点不出任何调用 —— 证明这一格判得出缺失。
@@ -326,7 +342,7 @@ describe('TopicSplitPane 是分栏，不是话题的开关', () => {
     const card = harness.container.querySelector('[data-testid="topic-split-pane"] button[aria-label="报告.pdf"]') as HTMLElement
     expect(card, '分栏里没画出文件卡').toBeTruthy()
     await clickElement(card)
-    expect(onOpenAttachment).toHaveBeenCalledWith(expect.objectContaining({ source: { kind: 'url', url: 'https://example.test/chat-media/a.pdf' }, fileName: '报告.pdf' }), attachmentProps.messages[0])
+    expect(onOpenAttachment).toHaveBeenCalledWith(expect.objectContaining({ source: { kind: 'message', messageId: 'att-1' }, fileName: '报告.pdf' }), attachmentProps.messages[0])
   })
 
   it('点击话题已读环显示该消息的已读/未读名单，排除只在来源群里的成员', async () => {
@@ -531,17 +547,11 @@ describe('TopicSplitPane 是分栏，不是话题的开关', () => {
     }
     return names
   }
-  // gugu-dev#181 第 ⑤ 步:块里的话题是页签条上和群对话并排的一枚页签,这一栏不再画自己那条头;不给 tabHost(对话页)头照旧。
-  it('在块里:话题画成页签条上的一枚页签(× = 收起分栏),这一栏没有自己的头', async () => {
-    const tabs = document.body.appendChild(document.createElement('span'))
-    const onClose = vi.fn()
-    await renderWithAppProviders(harness, createNode(TopicSplitPane, { ...baseProps, onClose, tabHost: tabs }))
+  // gugu-dev#181 第 ⑤ 步:块里的话题是页签条上和群对话并排的一枚页签(由会话页的页签引擎画,chat-tabs),这一栏不再画自己的收起钮。
+  it('在块里:这一栏没有自己的收起钮(页签的 × 收起分栏)', async () => {
+    await renderWithAppProviders(harness, createNode(TopicSplitPane, { ...baseProps, embedded: true }))
+    expect(harness.container.querySelector('[data-testid="topic-split-pane"]')).not.toBeNull()
     expect(harness.container.querySelector('[data-testid="topic-split-close"]'), 'the block tab strip is the header').toBeNull()
-    const tab = tabs.querySelector('[data-topic-tab="topic-1"]')
-    expect(tab?.textContent).toContain('分片下载失败')
-    await act(async () => { tab!.querySelector<HTMLElement>('button[aria-label]')!.click() })
-    expect(onClose).toHaveBeenCalledOnce()
-    tabs.remove()
   })
 
   it('不在块里(对话页):这一栏照旧有自己的头,也不画页签', async () => {
@@ -700,47 +710,9 @@ describe('TopicSplitPane 是分栏，不是话题的开关', () => {
     const back = () => harness.container.querySelector('[data-testid="topic-split-back"]') as HTMLElement
     expect(back().getAttribute('aria-label')).toBe('返回')
 
-    // 手机页头右边只有成员 + ⋯(与群聊页 compactRoom 一致):附件在 ⋯ 里。
-    expect(harness.container.querySelector('[data-testid="topic-split-files-toggle"]')).toBeNull()
-    await clickElement(harness.container.querySelector('[data-testid="topic-split-more"]') as HTMLElement)
-    await clickElement(document.querySelector('[data-testid="topic-split-files-toggle"]') as HTMLElement)
-    expect(harness.container.querySelector('[data-testid="history-panel"]')).not.toBeNull()
-    await clickElement(back())
-    expect(onClose, '附件开着时返回就离开了话题').not.toHaveBeenCalled()
-    expect(harness.container.querySelector('[data-testid="history-panel"]')).toBeNull()
-    expect(harness.container.querySelector('[data-testid="topic-split-messages"]')).not.toBeNull()
-
+    expect(harness.container.querySelector('[data-testid="topic-split-more"]')).toBeNull()
     await clickElement(back())
     expect(onClose).toHaveBeenCalledTimes(1)
-  })
-
-  // 170 10-19:页头 ⋯ 打开本机的 App(#7469)只在群和私聊的页头,话题的分栏与手机整页一直没有 —— 话题里要开 App 只能靠卡片。
-  // 现在话题用同一份菜单项(OpenAppMenuItems):点一下 = openApp(它, 这个话题)。手机的 ⋯ 里先是附件、文件夹,再是 App。
-  for (const mobile of [false, true]) {
-    it(`${mobile ? '手机整页' : '桌面分栏'}:话题页头 ⋯ 列出本机能开的 App,点一下在来源的共享栏打开`, async () => {
-      runInAction(() => {
-        installedExtensionsStore.manifests = [parseExtensionManifest({ id: 'turtle-soup', name: '海龟汤', version: '1.0.0', apiVersion: EXTENSION_API_VERSION, entry: 'index.html', contributes: { tabs: [{ name: 'main', title: '海龟汤' }] } })]
-      })
-      const asked = vi.fn()
-      const listen = (event: Event) => asked((event as CustomEvent).detail)
-      window.addEventListener(UI_EVENTS.openApp, listen)
-      try {
-        await renderWithAppProviders(harness, createNode(TopicSplitPane, { ...baseProps, currentUserId: null, mobile }))
-        await clickElement(harness.container.querySelector('[data-testid="topic-split-more"]') as HTMLElement)
-        const rows = [...document.querySelectorAll<HTMLElement>('[role=menuitem]')].map((row) => row.querySelector('.gg-menu-item-label')?.textContent)
-        expect(rows).toEqual(mobile ? ['搜索消息', '附件', '设置', '海龟汤'] : ['搜索消息', '设置', '海龟汤'])
-        await clickElement(document.querySelector('[data-testid="chat-header-menu-app"]') as HTMLElement)
-        expect(asked).toHaveBeenCalledWith({ extensionId: 'turtle-soup', chatId: 'source-1' })
-      } finally {
-        window.removeEventListener(UI_EVENTS.openApp, listen)
-        runInAction(() => { installedExtensionsStore.manifests = [] })
-      }
-    })
-  }
-
-  it('desktop topic keeps search available when no App is installed', async () => {
-    await renderWithAppProviders(harness, createNode(TopicSplitPane, { ...baseProps, currentUserId: null }))
-    expect(harness.container.querySelector('[data-testid="topic-split-more"]')).not.toBeNull()
   })
 
   it('消息走 MessageRow + MessageBubble 渲染（接住 MessageBubble 的 props 漂移）', async () => {

@@ -739,9 +739,14 @@ export class LocalSessionProvider implements SessionProvider {
       // spawn reports it the same way; without it the replacement cannot name the session to resume
       // and degrades to resume-last or whatever the provider does with an id-less resume flag.
       const currentHookSourceId = hookSource.id;
+      // 这一发 harness 的会话 id(会话在场文件按它找):续跑 / 存档分叉起的就是 argv 上那个 id;
+      // fork 的子 id 由 harness 自己铸,等 hook 报上来 —— ❌ 用源会话的 id,那会找到源会话活着的那份文件。
+      let harnessSessionId = storageForkedProviderSessionId
+        ?? (forkFromProviderSessionId ? undefined : agentSession.cliSessionId);
       stopTrackingProviderSession = agentHookService.on('agent:session', (event) => {
         if (event.sessionId === session.id && event.sourceId === currentHookSourceId) {
           session.providerSessionId = event.providerSessionId;
+          harnessSessionId = event.providerSessionId;
         }
       });
       mark('spawn-prepared');
@@ -950,10 +955,7 @@ export class LocalSessionProvider implements SessionProvider {
         plugin,
         harnessVersion: compatibleRuntime.harnessVersion,
         spawnEnv,
-        // tmux 里 pty 的子进程是 tmux 的客户端,不是 harness:按它的会话 id 找一次。
-        location: tmuxEnabled
-          ? { kind: 'session', sessionId: agentSession.cliSessionId }
-          : { kind: 'pid', pid: pty.getPid?.() ?? NaN },
+        harnessSessionId: () => harnessSessionId,
         sessionId: session.id,
         projectId: session.projectId,
         providerId: session.providerId,

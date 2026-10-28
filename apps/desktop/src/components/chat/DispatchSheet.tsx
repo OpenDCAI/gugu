@@ -4,10 +4,14 @@ import { useTranslation } from 'react-i18next'
 import { chatDisplayName } from '@gugu/core/shared/ui/chatModels'
 import { INSTALL_CONSENT_HUMAN_WINDOW_MS } from '@/session/shared/extensions/host-actions'
 import type { DispatchPicked } from '@/session/shared/extensions/app-dispatch-core'
+import { RESOURCE_TEMPLATES, type ResourceTemplate } from '@/session/shared/resource-actions'
+import { Button } from '../ui/Button'
+import { appendToDraft } from '@/store/chatDraftWrites'
 import { useChatStore } from '../../store/chatContext'
 import { useOwnedAgents } from '../settings/channels/channelAgents'
 import { chatPickRow, forwardableChats } from './forwardMessageUtils'
 import { ChatPickSheet, type ChatPickRow, type ChatPickSection } from './ChatPickSheet'
+import { DispatchMachine } from './DispatchMachine'
 import { takeDispatchAsks, type DispatchAsked } from './dispatchAsk'
 
 const NEW_AGENT = 'new:agent'
@@ -29,6 +33,7 @@ export const DispatchSheet = observer(function DispatchSheet() {
   const [query, setQuery] = useState('')
   const [text, setText] = useState('')
   const [visible, setVisible] = useState(false)
+  const [spawnDevice, setSpawnDevice] = useState<string | null>(null)
   const open = useRef<DispatchAsked | null>(null)
 
   // Answered once: by the person, by running out, or by the next ask taking the sheet.
@@ -45,6 +50,7 @@ export const DispatchSheet = observer(function DispatchSheet() {
     setQuery('')
     setText(next.text)
     setVisible(next.visible)
+    setSpawnDevice(next.spawnOn ?? null)
   }), [])
   // It waits on a person, as an install's consent does; main's clock (ipc-bridge) is the longer one.
   useEffect(() => {
@@ -93,7 +99,7 @@ export const DispatchSheet = observer(function DispatchSheet() {
   const said = text.trim()
   const pickedTarget = (): NonNullable<DispatchPicked>['to'] | null => {
     if (!picked) return null
-    if (picked === NEW_AGENT) return { new: true }
+    if (picked === NEW_AGENT) return { new: true, ...(spawnDevice ? { device: spawnDevice } : {}) }
     const [kind, id = ''] = picked.split(/:(.*)/)
     if (kind === 'agent') return { agent: id }
     if (kind === 'member' && asked.chat) return { chat: asked.chat.id, member: id }
@@ -117,9 +123,15 @@ export const DispatchSheet = observer(function DispatchSheet() {
         aria-label={t('dispatchPick.text')}
         data-testid="dispatch-text"
       />
+      {asked.resource && <div className="flex flex-wrap gap-1" data-testid="dispatch-templates">
+        {(RESOURCE_TEMPLATES[asked.resource.kind] as readonly ResourceTemplate[]).filter(template => template.requires?.every(fact => asked.resource?.facts?.includes(fact)) ?? true).map(template => (
+          <Button key={template.id} size="sm" variant="ghost" onClick={() => setText(current => appendToDraft(current, t(template.textKey)))}>{t(template.labelKey)}</Button>
+        ))}
+      </div>}
       {asked.pills.map((pill, index) => (
         <span key={index} className="truncate text-[length:var(--font-caption)] text-[var(--text-secondary)]" data-testid="dispatch-pill">@{pill}</span>
       ))}
+      {picked === NEW_AGENT && asked.spawnOn !== undefined && <DispatchMachine deviceId={spawnDevice} onPick={setSpawnDevice} />}
       {!asked.draft && toMember && (
         <label className="flex items-center gap-[var(--spacing-xs)] text-[length:var(--font-caption)] text-[var(--text-secondary)]">
           <input type="checkbox" checked={visible} onChange={(event) => setVisible(event.target.checked)} data-testid="dispatch-visible" />
@@ -143,7 +155,7 @@ export const DispatchSheet = observer(function DispatchSheet() {
       placeholder={assign ? t('forum.consent.searchAgents') : t('dispatchPick.search')}
       empty={assign ? t('forum.consent.noAgents') : t('dispatchPick.empty')}
       actionLabel={assign ? t('forum.consent.assignConfirm') : asked.draft ? t('composePick.action') : t('dispatchPick.send')}
-      actionDisabled={!picked || (!assign && !said && asked.pills.length === 0)}
+      actionDisabled={!picked || (picked === NEW_AGENT && asked.spawnOn !== undefined && !spawnDevice) || (!assign && !said && asked.pills.length === 0)}
       onAction={() => {
         const to = pickedTarget()
         if (to) finish({ to, visible: toMember && visible, text: said })

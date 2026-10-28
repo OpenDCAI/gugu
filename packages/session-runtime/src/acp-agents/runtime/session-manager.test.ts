@@ -53,6 +53,17 @@ function platformInjection() {
 }
 
 describe('AcpRuntime session manager', () => {
+  it('logs one attributed process start and does not log an idempotent start as a restart', async () => {
+    const h = makeAcpHarness()
+    const warn = vi.spyOn(h.deps.logger, 'warn')
+    const rt = new AcpRuntime(h.deps)
+    await rt.startSession(makeStartInput({ sessionId: 'start-log' }))
+    await rt.startSession(makeStartInput({ sessionId: 'start-log' }))
+    const logs = warn.mock.calls.filter(([message]) => message === 'SessionManager: starting provider process')
+    expect(logs).toHaveLength(1)
+    expect(logs[0]?.[1]).toMatchObject({ sessionId: 'start-log', reason: 'startup', hostPid: process.pid })
+    await rt.dispose()
+  })
   /**
    * 插件清单漏了 liveSettings 声明是**本仓自己的 bug**,日志要响亮(error 档)——
    * 但响亮 ❌ 不等于杀掉用户的会话。owner 2026-09-19:「任何 bug 都不应该让会话打不开」。
@@ -955,20 +966,15 @@ describe('AcpRuntime session manager', () => {
     expect(onPlatformSessionClosed).toHaveBeenCalledWith('platform-exit', 'access-exit');
   });
 
-  it('keeps a session managed when provider close fails so stop can be retried', async () => {
+  it('stops the process even when provider close fails, then removes its live record', async () => {
     const { h, rt, sessionId } = await startHarness('conv-close-failure');
     h.agent.closeSession.mockRejectedValueOnce(new Error('provider refused close'));
-
-    const failed = await rt.stopSession(sessionId);
-    expect(failed).toEqual(
-      expect.objectContaining({ success: false, error: expect.objectContaining({ type: 'stop_failed' }) })
-    );
-    expect(rt.sessionLiveModels(sessionId)).toBeDefined();
 
     await expect(rt.stopSession(sessionId)).resolves.toEqual({
       success: true,
       data: undefined,
     });
+    expect(h.lastChild.kill).toHaveBeenCalledWith('SIGTERM');
     expect(rt.sessionLiveModels(sessionId)).toBeNull();
   });
 
@@ -1027,6 +1033,37 @@ describe('AcpRuntime session manager', () => {
     unsubscribe();
     resolvePrompt({ stopReason: 'end_turn' });
     await prompt;
+  });
+
+  it('projects active tool output just like history while retaining the on-demand original', async () => {
+    const { h, rt, client, providerSessionId } = await startHarness('conv-live-picture');
+    let finish!: (value: { stopReason: 'end_turn' }) => void;
+    h.agent.prompt = vi.fn(() => new Promise<{ stopReason: 'end_turn' }>((resolve) => { finish = resolve; }));
+    const prompt = rt.sendPrompt('conv-live-picture', { text: 'take a screenshot' });
+    const live = rt.sessionLiveModels('conv-live-picture');
+    if (!live) throw new Error('expected live models');
+    const image = { mimeType: 'image/png', data: 'x'.repeat(1_048_577) };
+    await client.sessionEvent({ sessionId: providerSessionId, event: decodeSessionUpdate({
+      sessionUpdate: 'tool_call', toolCallId: 'picture', title: 'Screenshot', kind: 'other',
+      status: 'completed', content: [
+        { type: 'content', content: { type: 'text', text: 'y'.repeat(100_000) } },
+        { type: 'content', content: { type: 'image', ...image } },
+      ],
+    } as SessionUpdate) });
+    await until('tool result is published', () => JSON.stringify(live.states.activeTurn.snapshot().data).includes('Screenshot'));
+    const projected = live.states.activeTurn.snapshot().data;
+    const item = projected?.items.find(node => 'toolCallId' in node && node.toolCallId === 'picture');
+    if (!item) throw new Error('tool picture missing');
+    try {
+      expect('images' in item).toBe(false);
+      expect(item).toMatchObject({ imageRefs: [{ mimeType: image.mimeType, chars: image.data.length }] });
+      expect(JSON.stringify(projected).length).toBeLessThan(20_000);
+      expect(rt.getToolImage('conv-live-picture', item.id, 0)).toEqual({ ok: true, image });
+    } finally {
+      finish({ stopReason: 'end_turn' });
+      await prompt;
+      await rt.stopSession('conv-live-picture');
+    }
   });
 
   it('publishes usage updates through live models', async () => {
@@ -1296,28 +1333,25 @@ describe('AcpRuntime session manager', () => {
     expect(h.agent.newSession).not.toHaveBeenCalled();
   });
 
-  // 这条用例原先钉的是相反的合同:「a generic resume fails without falling back to a new
-  // provider session」—— load 失败就抛,屏幕上只剩「Failed to load chat」加一个重试按钮。
-  // owner 2026-09-13 裁决:「不可能打不开,打不开是 bug 级别的问题,基本代表产品不可用」。
-  // #5553 自己也量到那个 Retry 在这种失败下**永远不会成功**(provider 那侧确实不在了)。
-  // ⇒ 会话必须打得开:退回 `session/new`,本机那份历史照常上屏,并在开头画一条界说明
-  // 「往上的内容引擎没有」。降级是**看得见**的,不是悄悄换 —— 这正是原合同担心的那一点。
-  it('a generic resume falls back to a new provider session instead of failing to open', async () => {
+  it('fails a cold resume without replacing its provider history and retries the same session id', async () => {
     const h = makeAcpHarness();
-    h.agent.loadSession = vi.fn(async () => {
-      throw new Error('provider history unavailable');
-    });
+    const failure = Object.assign(new Error('provider history unavailable'), { code: -32603 });
+    h.agent.loadSession = vi.fn().mockRejectedValueOnce(failure).mockResolvedValue({});
     const rt = new AcpRuntime(h.deps);
-    const result = await rt.resumeSession({
-      ...makeStartInput({
-        sessionId: 'conv-resume-fallback-prompt',
-        sessionPrompt: '<gugu_platform>Resident context</gugu_platform>',
-      }),
+    const input = {
+      ...makeStartInput({ sessionId: 'conv-resume-failed', sessionPrompt: '<gugu_platform>Resident context</gugu_platform>' }),
       providerSessionId: 'session-old',
-    });
+    };
 
-    expect(result).toMatchObject({ success: true });
-    expect(h.agent.newSession).toHaveBeenCalled();
+    expect(await rt.resumeSession(input)).toMatchObject({
+      success: false,
+      error: { cause: { message: failure.message, code: -32603 } },
+    });
+    expect(h.agent.newSession).not.toHaveBeenCalled();
+    expect((await rt.resumeSession(input)).success).toBe(true);
+    expect(h.agent.loadSession.mock.calls.map(([request]) => request.sessionId)).toEqual(['session-old', 'session-old']);
+    expect(h.agent.newSession).not.toHaveBeenCalled();
+    await rt.dispose();
   });
 
   it('exports session-new diagnostics without MCP secrets or process configuration', async () => {
@@ -1461,6 +1495,39 @@ describe('AcpRuntime session manager', () => {
     expect(isOk(exported)).toBe(true);
     if (!isOk(exported)) return;
     expect(exported.data).not.toContain('ghost-command');
+  });
+
+  it('fetches a full desktop tool picture without applying the phone preview limit', async () => {
+    const h = makeAcpHarness();
+    const rt = new AcpRuntime(h.deps);
+    const image = { mimeType: 'image/png', data: 'x'.repeat(1_048_577) };
+    h.agent.loadSession = vi.fn(async () => {
+      await h.client().sessionEvent({
+        sessionId: 'session-picture',
+        event: decodeSessionUpdate({
+          sessionUpdate: 'tool_call', toolCallId: 'picture', title: 'Screenshot', kind: 'other',
+          status: 'completed', content: [{ type: 'content', content: { type: 'image', ...image } }],
+        } as SessionUpdate),
+      });
+      return {};
+    });
+    const resumed = await rt.resumeSession({
+      ...makeStartInput({ sessionId: 'conv-picture' }), providerSessionId: 'session-picture',
+    });
+    expect(isOk(resumed)).toBe(true);
+    const item = rt.getChatHistory('conv-picture').committed.flatMap(turn => turn.items)
+      .find(entry => 'toolCallId' in entry && entry.toolCallId === 'picture');
+    if (!item) throw new Error('replayed tool picture missing');
+    const fetched = rt.getToolImage('conv-picture', item.id, 0);
+    expect(fetched.ok).toBe(true);
+    if (!fetched.ok) throw new Error(fetched.message);
+    expect(fetched.image.data.length).toBe(image.data.length);
+    expect(fetched.image.mimeType).toBe(image.mimeType);
+    fetched.image.data = 'changed by reader';
+    const again = rt.getToolImage('conv-picture', item.id, 0);
+    expect(again.ok && again.image.data.length).toBe(image.data.length);
+    await rt.stopSession('conv-picture');
+    expect(rt.getToolImage('conv-picture', item.id, 0)).toMatchObject({ ok: false, code: 'no_such_item' });
   });
 
   it('returns a resume result with replayed history', async () => {

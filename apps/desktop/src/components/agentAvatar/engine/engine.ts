@@ -683,6 +683,13 @@ export class GuguEngine {
           this.nextDoneHop = e + 3.4
         }
         break
+      case 'archived':
+        d.expr = 'neutral'
+        d.desat = 1
+        d.dim = 0.7
+        d.follow = 0
+        d.temper = { breath: 0, bounce: 0, tremor: 0, sway: 0, nod: 0, squish: 0, blink: 0, scan: 0, flap: 0 }
+        break
       case 'offline':
         d.expr = 'asleep'
         d.desat = 0.2

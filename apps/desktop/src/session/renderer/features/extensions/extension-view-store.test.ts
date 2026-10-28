@@ -69,24 +69,48 @@ describe('常驻页的落点登记', () => {
     expect(pagesOf('ext.lazy')).toHaveLength(0);
   });
 
-  it('为文件打开:每个认领一张自己的页,不碰常驻页的栈,也不算「要过」常驻页;释放就没了(摩擦单 F3)', () => {
+  it('keeps each file’s own page across release and reclaim, separate from the folder and other files', () => {
     const shared = extensionViewStore.claim('ext.vote', { tabId: 'panel', chatId: 'chat-1', element: el() });
-    const first = extensionViewStore.claim('ext.vote', { tabId: 'panel', chatId: 'chat-1', itemId: 'item-1', element: el() });
-    const second = extensionViewStore.claim('ext.vote', { tabId: 'panel', chatId: 'chat-1', itemId: 'item-2', element: el() });
-    expect(extensionViewStore.filePages.get(first)).toMatchObject({ kind: 'ext.vote', claim: { itemId: 'item-1', chatId: 'chat-1' } });
-    expect(extensionViewStore.filePages.get(second)?.claim.itemId).toBe('item-2');
-    // 常驻页仍是不带文件的那次认领:文件页不会顶掉它、也不会把文件塞给它。
+    const target = { tabId: 'file-tab', chatId: 'chat-1', itemId: 'item-1', element: el() };
+    const first = bound(extensionViewStore.claim('ext.vote', target));
+    const second = bound(extensionViewStore.claim('ext.vote', { ...target, itemId: 'item-2' }));
+    const key = residentPageKey('ext.vote', residentPlace(target));
+    const page = extensionViewStore.residentPages.get(key);
+    expect(page?.itemId).toBe('item-1');
     expect(inChat('ext.vote', 'chat-1')?.token).toBe(shared);
     expect(inChat('ext.vote', 'chat-1')?.itemId).toBeUndefined();
     extensionViewStore.release('ext.vote', first);
-    expect(extensionViewStore.filePages.has(first)).toBe(false);
-    expect(extensionViewStore.filePages.has(second)).toBe(true);
+    expect(extensionViewStore.residentPages.get(key)).toBe(page);
+    const again = extensionViewStore.claim('ext.vote', { ...target, tabId: 'reopened-tab' });
+    expect(extensionViewStore.residentPages.get(key)).toBe(page);
+    expect(extensionViewStore.claims.get(key)?.token).toBe(again);
+    // A late release of the previous slot cannot remove the new claim.
+    extensionViewStore.release('ext.vote', first);
+    expect(extensionViewStore.claims.get(key)?.token).toBe(again);
+    expect(pagesOf('ext.vote')).toHaveLength(3);
+    expect(residentPlace({ ...target, chatId: 'chat-2' })).not.toBe(residentPlace(target));
+    extensionViewStore.release('ext.vote', again);
     extensionViewStore.release('ext.vote', second);
     extensionViewStore.release('ext.vote', shared);
-    // 对照:只开过文件、从没不带文件打开过的类型,常驻页不建。
-    const onlyFile = extensionViewStore.claim('ext.file-only', { tabId: 'panel', itemId: 'item-3', element: el() });
-    expect(pagesOf('ext.file-only')).toHaveLength(0);
-    extensionViewStore.release('ext.file-only', onlyFile);
+    extensionViewStore.forgetOpened('ext.vote');
+    expect(pagesOf('ext.vote')).toHaveLength(0);
+  });
+
+  it('applies the existing idle-page limit to ten different files and drops an unbound file page', () => {
+    const kind = 'many-files.main';
+    const target = { tabId: 'file', chatId: 'chat', element: el() };
+    const unbound = extensionViewStore.claim(kind, { ...target, itemId: 'never-ready' });
+    extensionViewStore.release(kind, unbound);
+    expect(pagesOf(kind)).toHaveLength(0);
+    const shown = bound(extensionViewStore.claim(kind, { ...target, itemId: 'shown' }));
+    for (let index = 0; index < 10; index++) {
+      extensionViewStore.release(kind, bound(extensionViewStore.claim(kind, { ...target, itemId: `file-${index}` })));
+    }
+    expect(pagesOf(kind).map((page) => page.itemId).sort()).toEqual(['file-7', 'file-8', 'file-9', 'shown']);
+    extensionViewStore.release(kind, shown);
+    expect(pagesOf(kind).map((page) => page.itemId).sort()).toEqual(['file-7', 'file-8', 'file-9']);
+    extensionViewStore.forgetIdle(kind);
+    expect(pagesOf(kind)).toHaveLength(0);
   });
 
   it('落点登记不随认领释放而清:格切到后台时页说的话仍记到它名下,关掉那一格才忘', () => {

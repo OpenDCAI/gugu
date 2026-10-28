@@ -18,6 +18,9 @@ import type { ExtensionOrigin } from '@shared/extensions/upgrade';
  * render entries without an await on every menu open. Refs #2374.
  */
 
+/** The host's settings page for an App (`hostPage: 'settings'`) is a form of rows: as narrow as a chat's info. */
+const HOST_SETTINGS_SIDE_WIDTH = 360;
+
 export interface ExtensionTabContributionEntry {
   /** Tab kind under which this contribution registers: `<extensionId>.<tabName>`. */
   kind: ExtensionTabKind;
@@ -25,6 +28,10 @@ export interface ExtensionTabContributionEntry {
   extensionName: string;
   title: string;
   hostSettings?: boolean;
+  /** The host's page of a task's browser (`hostPage: 'browser'`, one per task): drawn by the host, no App HTML. */
+  hostBrowser?: boolean;
+  /** Its width beside another page (manifest `sideWidth`; the host's settings page is a narrow form): none = half. */
+  sideWidth?: number;
   /**
    * Host-produced PNG for this tab, or null for the generic mark. A data URL
    * rather than a path: the bytes are re-encoded in main precisely so the
@@ -69,6 +76,8 @@ export interface RailApp {
 
 export class InstalledExtensionsStore {
   manifests: ExtensionManifest[] = [];
+  /** Optional per-App metadata, read with the inventory; unreadable entries have no variant picker. */
+  variants: NonNullable<InstalledExtensionsList['variants']> = {};
   /** Bundles present but unreadable — surfaced rather than silently skipped. */
   invalid: { dirName: string; reason: string }[] = [];
   /** Tab kind → host-rendered icon. Absent means the tab draws the generic mark. */
@@ -116,6 +125,11 @@ export class InstalledExtensionsStore {
     return tab && (this.mainTabOf(tab.extensionId)?.kind === kind ? tab.extensionName : tab.title);
   }
 
+  /** How wide this App page is beside another (`sideWidth`); undefined: half, a peer. */
+  sideWidth(kind: string): number | undefined {
+    return this.allTabContributions.find((entry) => entry.kind === kind)?.sideWidth;
+  }
+
   /** Every declared tab, preinstalled Apps' included — what a lookup by kind reads. */
   get allTabContributions(): ExtensionTabContributionEntry[] {
     return this.manifests.flatMap((manifest) => {
@@ -126,6 +140,8 @@ export class InstalledExtensionsStore {
         extensionName: name,
         title: tab.hostPage ? name : tab.title,
         hostSettings: tab.hostPage === 'settings',
+        hostBrowser: tab.hostPage === 'browser',
+        sideWidth: tab.hostPage === 'settings' ? HOST_SETTINGS_SIDE_WIDTH : tab.sideWidth,
         iconDataUrl: this.icons[extensionTabKind(manifest.id, tab.name)] ?? null,
         enabled: this.isEnabled(manifest.id),
         preinstalled: this.isPreinstalled(manifest.id),
@@ -167,6 +183,23 @@ export class InstalledExtensionsStore {
   /** Every App the rail can open, pinned or not, in the order they were installed: what a right click on 「App」 lists. */
   get openableApps(): RailApp[] {
     return this.manifests.flatMap((manifest) => this.railApp(manifest.id) ?? []);
+  }
+
+  /**
+   * What a group can open, in the order they were installed: the Apps with a page of their own, and the Apps whose tab opens
+   * a chat's files — opened on the group's file, as its card's 「Open」 does. A group game an agent makes is the second kind
+   * (group-json: one tab, on the group's data file), so the group's App list has to hold it (5-minute game ①).
+   */
+  get chatOpenableApps(): RailApp[] {
+    return this.manifests.flatMap((manifest) => this.railApp(manifest.id) ?? this.chatFilesApp(manifest) ?? []);
+  }
+
+  /** An App that only opens a chat's files, as the group's list draws it: on, and not one gugu ships (those it places itself). */
+  private chatFilesApp(manifest: ExtensionManifest): RailApp | null {
+    const tab = manifest.contributes.tabs.find((candidate) => declaredContexts(candidate).includes('chat'));
+    if (!tab || !this.isEnabled(manifest.id) || this.isPreinstalled(manifest.id)) return null;
+    const name = localizedManifestText(manifest, this.locale).name;
+    return { extensionId: manifest.id, name, kind: extensionTabKind(manifest.id, tab.name), iconDataUrl: this.appIcons[manifest.id] ?? null };
   }
 
   /** An App as the rail draws it, if the rail can open it: installed, on, with a page of its own. */
@@ -223,6 +256,7 @@ export class InstalledExtensionsStore {
     if (!this.updates) return 0;
     const ids = new Set<string>([
       ...Object.keys(this.updates.updates).filter((id) => this.isEnabled(id)),
+      ...Object.keys(this.updates.forkBehind ?? {}).filter((id) => this.isEnabled(id)),
       ...Object.keys(this.updates.yanked),
       ...Object.keys(this.updates.deprecated),
     ]);
@@ -303,6 +337,7 @@ export class InstalledExtensionsStore {
     const { extensions, invalid, icons, appIcons, disabled, autoUpdateOff, quit, dock, disclosure, origins, openWith, publishers } = list;
     runInAction(() => {
       this.manifests = extensions;
+      this.variants = list.variants ?? {};
       this.invalid = invalid;
       this.icons = icons ?? {};
       this.appIcons = appIcons ?? {};

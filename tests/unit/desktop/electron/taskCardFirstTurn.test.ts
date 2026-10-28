@@ -1,6 +1,6 @@
 // gugu-dev#181「派任务」:派出去的任务首句落成那个对话里的一张任务卡(宿主以主人身份写、不叫醒人),
 // agent 拿到的第一轮按落点不同:群 = 这个群的投递信封(回群、引用卡);还没进群 = 信封里多一句「回在你自己的会话里」;
-// 和人的私聊 = 原话(agent 进不去私聊)。
+// 和人的私聊 = 原话(agent 进不去私聊)。项目群与普通群同一套:卡在群里、agent 的座位不动、不开话题。
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { parseComposerCard } from '../../../../packages/core/src/shared/ui/taskCardModels'
 
@@ -9,6 +9,7 @@ const LOOK = 'https://storage.test/avatars/agent-look/v1/agent-7.json'
 const chats = new Map<string, { kind: string; public_id: number | null; name: string | null; members: string[] }>()
 const writes: Array<Record<string, unknown>> = []
 const awaited: string[] = []
+const rpcs: Array<{ name: string; args: Record<string, unknown> }> = []
 
 vi.mock('@gugu/core', () => ({ listAgents: vi.fn(async () => roster) }))
 vi.mock('../../../../apps/desktop/electron/sessionpage/emdash-agent-provisioning', () => ({
@@ -16,7 +17,15 @@ vi.mock('../../../../apps/desktop/electron/sessionpage/emdash-agent-provisioning
 }))
 vi.mock('../../../../apps/desktop/electron/supabase', () => ({
   makeIdentityClient: () => ({
-    from: () => ({ select: () => ({ eq: (_c: string, id: string) => ({ maybeSingle: async () => ({ data: id === 'agent-7' ? { avatar: LOOK } : null, error: null }) }) }) }),
+    from: (table: string) => {
+      const filters: Record<string, string> = {}
+      const query = {
+        select: () => query,
+        eq: (column: string, value: string) => { filters[column] = value; return query },
+        maybeSingle: async () => ({ data: table === 'users' && filters.id === 'agent-7' ? { avatar: LOOK } : null, error: null }),
+      }
+      return query
+    },
   }),
   makeChatClient: () => ({
     from(table: string) {
@@ -36,9 +45,12 @@ vi.mock('../../../../apps/desktop/electron/supabase', () => ({
       return query
     },
     rpc: async (name: string, args: Record<string, unknown>) => {
-      if (name !== 'send_message_idempotent') throw new Error(`unexpected rpc ${name}`)
-      writes.push(args)
-      return { error: null }
+      if (name === 'send_message_idempotent') {
+        writes.push(args)
+        return { error: null }
+      }
+      rpcs.push({ name, args })
+      throw new Error(`unexpected rpc ${name}`)
     },
   }),
 }))
@@ -66,6 +78,7 @@ beforeEach(() => {
   chats.clear()
   writes.length = 0
   awaited.length = 0
+  rpcs.length = 0
 })
 
 describe('task card first turn (gugu-dev#181)', () => {
@@ -87,6 +100,8 @@ describe('task card first turn (gugu-dev#181)', () => {
     expect(turn.firstTurn).toContain('msg:00000000-0000-4000-8000-000000000004')
     expect(turn.firstTurn).toContain('登录页闪一下，看看为什么')
     expect(turn.firstTurn).not.toContain(TASK_CARD_NOT_MEMBER_HINT)
+    // A group (project group or not) keeps the agent's seat as it is and opens no topic.
+    expect(rpcs).toEqual([])
   })
 
   it('an agent not in the group yet (approval pending) is told to answer in its own session', async () => {

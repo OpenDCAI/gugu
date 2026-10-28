@@ -72,13 +72,13 @@ describe('ProjectGroupsStore', () => {
       { projectId: 'local-outside', chatId: 'chat-outside' },
     ];
     answer('local', bindings);
-    const sessions = observable.array<{ projectId: string; agentUserId: string | null }>([
-      { projectId: 'local-main', agentUserId: 'Ada' },
-      { projectId: 'remote-main', agentUserId: 'Aaron' },
-      { projectId: 'remote-main', agentUserId: 'Ada' },
-      { projectId: 'local-outside', agentUserId: 'Atlas' },
-      { projectId: 'local-main', agentUserId: null },
-      { projectId: 'unbound', agentUserId: 'unknown' },
+    const sessions = observable.array<{ projectId: string; sessionId: string; agentUserId: string | null }>([
+      { projectId: 'local-main', sessionId: 's-ada', agentUserId: 'Ada' },
+      { projectId: 'remote-main', sessionId: 's-aaron', agentUserId: 'Aaron' },
+      { projectId: 'remote-main', sessionId: 's-ada', agentUserId: 'Ada' },
+      { projectId: 'local-outside', sessionId: 's-atlas', agentUserId: 'Atlas' },
+      { projectId: 'local-main', sessionId: 's-anonymous', agentUserId: null },
+      { projectId: 'unbound', sessionId: 's-unknown', agentUserId: 'unknown' },
     ]);
     const store = new ProjectGroupsStore();
     store.applyBindings(null, bindings);
@@ -89,9 +89,13 @@ describe('ProjectGroupsStore', () => {
     expect(readProjectGroupMembers().get('chat-main')).toEqual(['Aaron', 'Ada']);
     expect(readProjectGroupMembers().get('chat-outside')).toEqual(['Atlas']);
     expect(readProjectGroupMembers().has('ordinary-group')).toBe(false);
+    // Every agent that is a session on any machine, bound to a group or not: its profile card opens that session.
+    const bridge = (window as unknown as Record<string, { agentSessions: ReadonlyMap<string, { sessionId: string }> }>).__GUGU_PROJECT_GROUP_CHATS__;
+    expect([...bridge.agentSessions].map(([agent, { sessionId }]) => [agent, sessionId])).toEqual([['Aaron', 's-aaron'], ['Ada', 's-ada'], ['Atlas', 's-atlas'], ['unknown', 's-unknown']]);
+    expect(bridge.agentSessions.get('Aaron')).toEqual({ projectId: 'remote-main', sessionId: 's-aaron' });
 
     // A delayed identity arrival and removal update the same bridge without a fresh request.
-    runInAction(() => sessions.replace([{ projectId: 'local-main', agentUserId: 'new-agent' }, ...sessions.slice(1)]));
+    runInAction(() => sessions.replace([{ projectId: 'local-main', sessionId: 's-new', agentUserId: 'new-agent' }, ...sessions.slice(1)]));
     expect(readProjectGroupMembers().get('chat-main')).toEqual(['Aaron', 'Ada', 'new-agent']);
     store.applyBindings('remote-352', [{ projectId: 'remote-main', chatId: 'chat-outside' }]);
     expect(readProjectGroupMembers().get('chat-main')).toEqual(['new-agent']);

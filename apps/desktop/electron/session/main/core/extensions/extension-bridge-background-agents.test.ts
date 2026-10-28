@@ -30,6 +30,12 @@ vi.mock('@main/core/extensions/extension-background', () => ({
   runningExtensionBackgrounds: () => [['keeper', BACKGROUND]],
 }));
 const granted = new Set<string>();
+const devices = vi.fn(async () => [
+  { deviceId: 'dev-here', label: 'This computer', online: true, thisMachine: true },
+  { deviceId: 'dev-b', label: 'Computer with agents', online: true, thisMachine: false },
+  { deviceId: 'dev-empty', label: 'Computer without agents', online: true, thisMachine: false },
+]);
+vi.mock('@main/core/sessions/session-family', () => ({ otherMachines: () => ({ devices }) }));
 // 宽窄的判法用真的(manifest.ts 那两个纯函数),只把「授了哪些词」换成假的。
 vi.mock('@main/core/extensions/extensions-root', async () => {
   const { capabilityCovered, grantedReach } = await import('@shared/extensions/manifest');
@@ -81,6 +87,7 @@ const call = (sender: number, method: string, args: Record<string, unknown> = {}
 
 beforeEach(async () => {
   granted.clear();
+  devices.mockClear();
   visibleAgentsForExtension.mockClear();
   listAgentsForExtension.mockClear();
   stopAgentForExtension.mockClear();
@@ -123,6 +130,31 @@ describe('the background page lists agents as every page does (L12)', () => {
   it('counter-cell: without agents:read it is refused, and nothing is read', async () => {
     expect(await call(BACKGROUND, 'listAgents')).toEqual({ ok: false, code: 'denied', message: 'Not permitted: this App does not have "agents:read"' });
     expect(listAgentsForExtension).not.toHaveBeenCalled();
+  });
+
+  it('reports the same scoped rows with observation time and unreachable machines when requested', async () => {
+    granted.add('agents:read:all-machines');
+    const result = await call(BACKGROUND, 'listAgents', { report: true });
+    expect(result).toMatchObject({ ok: true, value: {
+      agents: expect.arrayContaining([expect.objectContaining({ agentId: 'user:on-b', deviceId: 'dev-b', statusFrom: 'device', statusAt: expect.any(String) })]),
+      unreached: [expect.objectContaining({ deviceId: 'dev-c' })], checkedAt: expect.any(String),
+      devices: [
+        { deviceId: 'dev-here', label: 'This computer', online: true, thisMachine: true, checkedAt: expect.any(String) },
+        { deviceId: 'dev-b', label: 'Computer with agents', online: true, thisMachine: false, checkedAt: expect.any(String) },
+        { deviceId: 'dev-empty', label: 'Computer without agents', online: true, thisMachine: false, checkedAt: expect.any(String) },
+      ],
+    } });
+    expect(listAgentsForExtension).toHaveBeenLastCalledWith({ scope: 'all-machines', extensionId: 'keeper' });
+  });
+
+  it('keeps the machine directory behind all-machines read consent', async () => {
+    granted.add('agents:read');
+    expect(await call(BACKGROUND, 'listAgents', { report: true })).toMatchObject({ ok: true, value: { devices: [] } });
+    expect(devices).not.toHaveBeenCalled();
+    granted.clear();
+    granted.add('agents:read:all-machines');
+    expect(await call(BACKGROUND, 'listAgents')).toMatchObject({ ok: true, value: expect.any(Array) });
+    expect(devices).not.toHaveBeenCalled();
   });
 });
 

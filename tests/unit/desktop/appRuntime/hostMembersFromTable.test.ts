@@ -16,12 +16,13 @@ const FILES = ['open', 'reopen', 'close', 'list', 'search', 'recent', 'create', 
 const MESSAGES = ['messages.history', 'messages.search', 'chats.list', 'chats.members']
 // L1 This computer's projects: the desktop's and an App's program's; a phone has none (no member).
 const PROJECTS = ['projects.list']
+const SESSIONS = ['sessions.index', 'sessions.read']
 // 论坛 (9): a page's, on the desktop and the phone alike; never a background page's or a program's.
 const FORUM = ['list', 'read', 'post', 'reply', 'react', 'remove', 'block', 'assign', 'award', 'subscribe', 'unsubscribe'].map((verb) => `forum.${verb}`).concat('onForumChanged')
-const EVERYONE = ['getContext', 'onContextChanged', 'onFilesChanged', 'getAppState', 'onAppStateChanged', 'onAgentsChanged', 'openBrowserTab', 'reportError', 'listAgents', 'readAgentHistory', 'stopAgent', 'dispatch', ...MESSAGES, ...PROJECTS, 'readData', 'writeData', 'listData', 'callProgram', 'onProgramNotification', 'notify', 'onNotificationClicked', 'linkTo', 'onLink', ...FILES]
+const EVERYONE = ['getContext', 'onContextChanged', 'onFilesChanged', 'getAppState', 'onAppStateChanged', 'onAgentsChanged', 'openBrowserTab', 'reportError', 'listAgents', 'readAgentHistory', 'stopAgent', 'dispatch', ...MESSAGES, ...PROJECTS, ...SESSIONS, 'readData', 'writeData', 'listData', 'callProgram', 'onProgramNotification', 'notify', 'onNotificationClicked', 'linkTo', 'onLink', ...FILES]
 const MODAL = ['modal.open', 'modal.close', 'modal.key', 'onModalFocus']
-const PAGE_ONLY = [...MODAL, ...FORUM, 'openLink', 'onCommand', 'setTabTitle', 'setTabBadge', 'sendToBackground', 'onBackgroundMessage', 'showMessage', 'showSession', 'clipboard.writeText', 'appFiles.openWith', 'appFiles.download']
-const PHONE = [...MODAL, 'linkTo', 'openLink', 'getContext', 'onContextChanged', 'onFilesChanged', 'reportError', 'openBrowserTab', 'dispatch', ...MESSAGES, ...FORUM, 'setTabTitle', 'setTabBadge', 'onCommand', 'onLink', 'showMessage', 'showSession', 'clipboard.writeText', 'readData', 'writeData', 'listData', ...FILES, 'appFiles.openWith', 'appFiles.download']
+const PAGE_ONLY = ['showContextMenu', 'appFiles.viewPreferences', 'appFiles.keep', ...MODAL, ...FORUM, 'openLink', 'onCommand', 'setTabTitle', 'setTabBadge', 'sendToBackground', 'onBackgroundMessage', 'showMessage', 'showSession', 'clipboard.writeText', 'appFiles.openWith', 'appFiles.download']
+const PHONE = ['showContextMenu', 'appFiles.viewPreferences', 'appFiles.keep', ...MODAL, 'getAppState', 'onAppStateChanged', 'onAgentsChanged', 'listAgents', 'linkTo', 'openLink', 'getContext', 'onContextChanged', 'onFilesChanged', 'reportError', 'openBrowserTab', 'dispatch', ...MESSAGES, ...SESSIONS, ...FORUM, 'setTabTitle', 'setTabBadge', 'onCommand', 'onLink', 'showMessage', 'showSession', 'clipboard.writeText', 'readData', 'writeData', 'listData', 'callProgram', ...FILES, 'appFiles.openWith', 'appFiles.download']
 
 const desktop = (caller: 'page' | 'background') => hostMembers(caller, () => true, vi.fn(), hostEventHub().on)
 const overMessages = (flags: { framed?: true; program?: true; session?: true }) => messageHost({ post: vi.fn(), listen: () => undefined }, flags) as Record<string, unknown>
@@ -32,10 +33,10 @@ describe('one table, the members each host had', () => {
     expect(names(desktop('background'))).toEqual([...EVERYONE, 'broadcastToViews', 'onViewMessage'].sort())
   })
 
-  it('the phone: what its host answers — the program only in a session\'s tab; an App\'s program: its files and messages', () => {
+  it('the phone exposes device calls everywhere and task notifications in task tabs; programs expose the shared index', () => {
     expect(names(overMessages({ framed: true }))).toEqual([...PHONE].sort())
-    expect(names(overMessages({ framed: true, session: true }))).toEqual([...PHONE, 'callProgram', 'onProgramNotification'].sort())
-    expect(names(overMessages({ program: true }))).toEqual(['getContext', 'onContextChanged', 'onFilesChanged', 'reportError', 'openBrowserTab', 'dispatch', 'linkTo', ...MESSAGES, ...PROJECTS, ...FILES].sort())
+    expect(names(overMessages({ framed: true, session: true }))).toEqual([...PHONE, 'onProgramNotification'].sort())
+    expect(names(overMessages({ program: true }))).toEqual(['getContext', 'onContextChanged', 'onFilesChanged', 'reportError', 'openBrowserTab', 'dispatch', 'linkTo', ...MESSAGES, ...PROJECTS, ...SESSIONS, ...FILES].sort())
   })
 
   it('a member asks its verb with its arguments packed one way, on every host', () => {
@@ -65,5 +66,19 @@ describe('one table, the members each host had', () => {
     const heard: unknown[] = []
     host.onLink!((value) => heard.push(value))
     expect(heard).toEqual([{ tab: 'main', path: '', query: {}, file: null }])
+  })
+
+  it('a command that opened a cold page reaches its first subscriber once, without replaying on resubscribe', () => {
+    const events = hostEventHub()
+    events.deliver({ type: 'command', commandId: 'new' })
+    const first = vi.fn()
+    const stop = events.on('command', first)
+    expect(first).toHaveBeenCalledExactlyOnceWith({ type: 'command', commandId: 'new' })
+    stop()
+    const next = vi.fn()
+    events.on('command', next)
+    expect(next).not.toHaveBeenCalled()
+    events.deliver({ type: 'command', commandId: 'refresh' })
+    expect(next).toHaveBeenCalledExactlyOnceWith({ type: 'command', commandId: 'refresh' })
   })
 })

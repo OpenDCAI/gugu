@@ -81,10 +81,16 @@ export function SettlementCard({
   busy,
   onRespond,
   machine,
+  source,
+  action,
 }: {
   settlement: Settlement
   /** The computer the session runs on: an App install's 「给哪些 agent」 lists that one's agents (D-31). */
   machine?: string
+  /** Optional task provenance inside the same actionable card. */
+  source?: ReactNode
+  /** The way to what is asked, above the answers while it is pending (an agent's browser login: its Browser Use tab). */
+  action?: ReactNode
   /** 这条会话的腿。答不答得了与写侧同一条判据(`remoteSettlementGap`)。 */
   runtime: SessionpageSessionSummary['runtime']
   busy: boolean
@@ -97,11 +103,11 @@ export function SettlementCard({
   const by = responderName(settlement.resolvedBy, t)
   // 宿主能往终端写键的提问带着整份题目,按一套表单画;别的提问仍是第一题的一排按钮。
   const questions = settlement.questions
-  const gap = pending ? remoteSettlementGap(runtime, kind, questions, settlement.host) : null
+  const gap = pending ? remoteSettlementGap(runtime, kind, questions, settlement.origin) : null
   const multi = (questions?.length ?? 0) > 1
   // D-31 An App install the host asks for this agent: who asks for what; 「查看并安装」 opens this phone's own sheet first.
-  const install = appInstallAskOf(settlement.host)
-  const words = install ? appInstallWords(install, translateSessionMessage) : null
+  const install = appInstallAskOf(settlement.origin)
+  const words = install ? appInstallWords(install, translateSessionMessage, machine) : null
   const answer = (optionId: string) => {
     if (!install) {
       onRespond({ itemId: settlement.itemId, optionId, kind })
@@ -112,8 +118,8 @@ export function SettlementCard({
       ask: install,
       optionId,
       ...(machine ? { machine } : {}),
-      respond: async ({ optionId: picked, digest, enableIn }) =>
-        onRespond({ itemId: settlement.itemId, optionId: picked, kind, ...(digest ? { digest } : {}), ...(enableIn ? { enableIn } : {}) }),
+      respond: async ({ optionId: picked, digest }) =>
+        onRespond({ itemId: settlement.itemId, optionId: picked, kind, ...(digest ? { digest } : {}) }),
     })
   }
 
@@ -124,6 +130,7 @@ export function SettlementCard({
       data-item-id={settlement.itemId}
       data-testid="agent-watch-settlement"
     >
+      {source}
       <div className="gg-aw-card-title">
         {kind === 'question' ? <HelpCircle /> : <ShieldCheck />}
         {' '}
@@ -134,6 +141,7 @@ export function SettlementCard({
             : t('agentWatch.settlement.questionSet', { n: questions?.length ?? 0 })}
       </div>
       {settlement.detail && !multi ? <div className="gg-aw-card-detail">{settlement.detail}</div> : null}
+      {pending ? action : null}
 
       {settlement.state === 'cancelled' ? (
         <div className="gg-aw-card-answered">{t('agentWatch.settlement.cancelled')}</div>

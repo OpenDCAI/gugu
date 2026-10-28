@@ -2,13 +2,17 @@ import { useState, useEffect, useCallback, useMemo, useRef, useSyncExternalStore
 import { chatService } from '../lib/chat'
 import { recentMachineLimitRefusal } from '../lib/device-labels'
 import { isLifecycleCancellation } from '../lib/authBoundedFetch'
+import { isLocalDeviceUnidentified } from '../lib/localDeviceIdentity'
 import { rendererLogger } from '../lib/log'
 import { partitionPhones, sortDevices } from '../lib/devicesSort'
 import { thisPhoneDeviceId } from '../mobile/phone-device/phoneDeviceSettings'
 import { useAuth } from './auth'
 import { useChatStore } from './chatContext'
 import { DevicesContext } from './devicesContext'
+import { publishDirectoryDevices } from '@/session/shared/remote-sessions/session-directory'
 import type { Device } from '@gugu/core/shared/types/chat'
+import { readDeviceRevision } from '../lib/accountRevisionCoordinator'
+import type { AccountRevisionOperation } from '../lib/accountRevisionRuntime'
 import { cachedDevicesAccount, deviceCacheAction, readCachedDevices, writeCachedDevices } from './devicesCache'
 import { withDeviceProjects } from '@gugu/core/cloud/deviceProjects'
 import { listMyDeviceProjects } from '../lib/deviceProjects'
@@ -73,6 +77,12 @@ export function DevicesProvider({ children, active = true }: { children: React.R
         if (options.throwOnError) throw err
         return
       }
+      // Not a failure: this computer is not identified yet, so no row of this read can be told apart as its own.
+      // The list on screen (its own row marked) stays; the read is repeated the moment it is identified (below).
+      if (isLocalDeviceUnidentified(err)) {
+        devicesLog.info({}, 'device list kept until this computer is identified among the account devices')
+        return
+      }
       // fail-loud：列表加载失败显式呈现，不静默留空列表。
       // 原因只进日志，不拼进用户那句话（#4891）——用户拿到的是「怎么办」，排查的人拿到的是「为什么」。
       // ❌ 别把这一行删了只留 setError：那样两边都看不到原因，比原样外泄更糟。
@@ -83,6 +93,13 @@ export function DevicesProvider({ children, active = true }: { children: React.R
       setLoading(false)
     }
   }, [userId])
+
+  // 这台电脑在账号的设备里认出自己的那一刻(本机宿主拿到登录、查到自己那一行)再读一次:之前那次读分不出哪行是本机。
+  // 订在首读之前:认出若发生在首读途中,这一声不会落空。
+  useEffect(() => {
+    if (!userId) return
+    return platform.subscribeLocalDeviceIdentified?.(() => { void refresh() })
+  }, [userId, refresh])
 
   useEffect(() => {
     /*
@@ -115,14 +132,49 @@ export function DevicesProvider({ children, active = true }: { children: React.R
   }, [userId])
 
   // gugu_devices 任何增删改都落账号 revision journal。初始拉取 + durable cursor 覆盖订阅建立前与离线期间的变更。
+  // 每条带着是哪一台、是那一行还是它的项目:只读变了的那一样(心跳每 30 秒一条,从前每条都把整个账号的设备和项目重读一遍)。
   // 云电脑睡下 / 醒来,它那一行的在线与否就会翻 ⇒ 顺带再问一次管家(❌ 让它拖住设备列表的游标)。
+  const applyDeviceRevisions = useCallback(async (operations: readonly AccountRevisionOperation[]) => {
+    if (!userId) return
+    const changed = new Set<string>()
+    const removed = new Set<string>()
+    const projectsOf = new Set<string>()
+    for (const operation of operations) {
+      const key = readDeviceRevision(operation.payload)
+      if (key.removed) removed.add(key.deviceId)
+      else {
+        if (key.row) changed.add(key.deviceId)
+        if (key.projects) projectsOf.add(key.deviceId)
+      }
+    }
+    let listed: Device[]
+    let projects: Awaited<ReturnType<typeof listMyDeviceProjects>> | null
+    try {
+      [listed, projects] = await Promise.all([
+        changed.size > 0 ? chatService.listDevices({ includePhones: true, deviceIds: [...changed] }) : Promise.resolve([]),
+        projectsOf.size > 0 ? listMyDeviceProjects([...projectsOf]) : Promise.resolve(null),
+      ])
+    } catch (err) {
+      // 与整读同一条:本机还没认出自己时不算失败,认出那一刻会整读一次(上面)。
+      if (isLocalDeviceUnidentified(err)) return
+      if (!isLifecycleCancellation(err)) devicesLog.error({ err: String((err as Error)?.message ?? err) }, 'read changed devices failed')
+      throw err
+    }
+    // 那几台此刻的样子(没读回来的 = 已经不在了);其余各台原样,项目没变就沿用。
+    const fresh = listed.filter((row) => changed.has(row.device_id))
+    const kept = devicesRef.current.filter((row) => !changed.has(row.device_id) && !removed.has(row.device_id))
+    const rows = withDeviceProjects([...kept, ...fresh], projects, devicesRef.current, projectsOf)
+    setDevices(sortDevices(rows))
+    writeCachedDevices(userId, rows)
+    if (removed.size > 0) void desktopIpc()?.invoke(SERVER_SSH_MACHINES_CHANNELS.reconcile, { owner: userId, present: rows.map((row) => row.device_id) }).catch(() => undefined)
+  }, [userId])
   useEffect(() => {
     if (!userId) return
-    return subscribeAccountRevision('device_changed', () => {
+    return subscribeAccountRevision('device_changed', (operations) => {
       void refreshCloudComputer().catch(() => undefined)
-      return refresh({ throwOnError: true })
+      return applyDeviceRevisions(operations)
     })
-  }, [userId, refresh, subscribeAccountRevision])
+  }, [userId, applyDeviceRevisions, subscribeAccountRevision])
 
   // 切回窗口时再问一次(别的端开通 / 关掉了,或它在后台睡下了)。
   useEffect(() => {
@@ -174,6 +226,8 @@ export function DevicesProvider({ children, active = true }: { children: React.R
   // 在手机上,这台手机自己那一行标成本机。
   const thisPhoneId = useMemo(() => (platform.kind === 'capacitor' && userId ? thisPhoneDeviceId(userId) : null), [userId])
   const { machines, phones } = useMemo(() => partitionPhones(listedHere, thisPhoneId), [listedHere, thisPhoneId])
+  const directoryDevices = useMemo(() => [...machines, ...phones], [machines, phones])
+  useEffect(() => { publishDirectoryDevices(directoryDevices) }, [directoryDevices])
 
   // 开通、唤醒途中每 3 秒问一次管家(它的进度只在 /state 上),连设备列表一起刷。
   const pollMs = userId ? cloudComputerPollMs(cloudComputer.snapshot, listedHere) : null

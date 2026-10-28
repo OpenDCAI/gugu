@@ -41,7 +41,7 @@ const arrayArgument = (value: unknown) => {
 /** agent 的 session_* 跨机器(owner 2026-09-30 拍板):「在哪台机器上做」—— 只给还没有地址的动作;有地址的会话自己带路。 */
 const DEVICE_DESCRIPTION = 'device:<id> from session_devices; omit for this machine.'
 const deviceSchema = z.string().min(1)
-const sourceLinkSchema = z.string().trim().refine((value) => !!parseConversationLink(value)?.messageId, 'source_link requires gugu-chat://chatUUID/messageUUID').describe('Original source_link from delivery.')
+const sourceLinkSchema = z.string().trim().refine((value) => !!parseConversationLink(value)?.messageId, 'source_link requires gugu-chat://chatUUID/messageUUID').describe('Copy delivery source_link; omit if absent.')
 
 /** 置顶筛选:行上的 `pinned` 是本机任务库那一列(侧栏读的同一格)。 */
 const keepPinned = (row: Record<string, unknown>, args: Record<string, unknown>) =>
@@ -121,7 +121,7 @@ export const SESSION_TOOL_DEFS: readonly SessionpageToolDef[] = [
   },
   {
     name: 'session_spawn',
-    description: 'Start a persistent Gugu agent; returns session_id and model. Omit transport to inherit your chat or terminal UI.',
+    description: 'Start a persistent Gugu agent; returns stable session_id and model. Omit transport to inherit your chat or terminal UI.',
     schema: z.object({
       prompt: z.string().min(1),
       source_link: sourceLinkSchema.optional(),
@@ -264,7 +264,7 @@ export const SESSION_TOOL_DEFS: readonly SessionpageToolDef[] = [
   },
   {
     name: 'session_archive',
-    description: 'Archive another session of yours: stop its process, remove its agent identity and hide it from lists. A person can restore it from history. session_get still reads it; session_children requires status:"archived". with_children=true archives its subtree; default false archives only this one. Only a person can delete a session.',
+    description: 'Archive another session of yours: stop its process and hide it from lists, keeping its identity, name, history and group seats. It receives no messages while archived; restoring does not replay that interval. A person can restore it from history. session_get still reads it; session_children requires status:"archived". with_children=true archives its subtree; default false archives only this one. Only a person can delete a session.',
     schema: z.object({
       session_id: sessionIdSchema,
       with_children: z.boolean().describe('Also archive every session under it (its children, transitively, on any of your machines) — the "together with its child sessions" box on the session page. Machines that could not be reached are listed in not_reached.').optional(),
@@ -298,6 +298,9 @@ export function registerGuguSessionTools(
   track: GuguMcpRequestTracker,
   personalAssistant = false,
 ): void {
-  const defs = personalAssistant ? SESSION_TOOL_DEFS.filter(def => def.name !== 'device_call') : SESSION_TOOL_DEFS
+  const defs = personalAssistant ? SESSION_TOOL_DEFS.filter(def => def.name !== 'device_call').map(def=>def.name==='session_message'?{
+    ...def,description:'Send to session:/aid:/gugu: from session_peers. Chats: message_send.',
+    schema:(def.schema as z.ZodObject).extend({purpose:z.enum(['reply','task','new']).describe('reply: relay/question; task: result required; new: unrelated task.')}),
+  }:def) : SESSION_TOOL_DEFS
   registerSessionpageTools(server, defs, runAction, (tool) => `${tool} is unavailable for this grant`, track)
 }

@@ -52,6 +52,7 @@ vi.mock('../../../../apps/desktop/src/lib/chat', () => ({
     _callCountsBySource: {} as Record<string, number>,
   },
 }))
+vi.mock('../../../../apps/desktop/src/lib/topics', () => ({ topicService: { archiveTopic: vi.fn(async () => {}) } }))
 vi.mock('../../../../apps/desktop/src/lib/realtimeChannel', () => ({
   subscribePrivateUserEventBus: vi.fn(() => ({ userId: 'test-user', eventName: 'message_created', listenerId: 1 })),
   unsubscribeAuthenticatedRealtimeChannel: vi.fn(),
@@ -78,12 +79,13 @@ vi.mock('../../../../apps/desktop/src/lib/chatMemberReadState', async (original)
   ...await original<typeof import('../../../../apps/desktop/src/lib/chatMemberReadState')>(), markStreamRead: vi.fn(async () => {}),
 }))
 const uploads = vi.hoisted(() => ({ bytes: vi.fn(), commit: vi.fn() }))
-vi.mock('../../../../apps/desktop/src/lib/attachmentsEndpoint', () => ({ attachmentsEndpoint: async () => ({}) }))
+vi.mock('../../../../apps/desktop/src/lib/attachmentsEndpoint', async original => ({ ...await original<typeof import('../../../../apps/desktop/src/lib/attachmentsEndpoint')>(), attachmentsEndpoint: async () => ({}) }))
 vi.mock('@gugu/core/cloud/attachmentsApi', () => ({ uploadAttachmentBytes: uploads.bytes, commitAttachment: uploads.commit }))
 const { ChatProvider } = await import('../../../../apps/desktop/src/store/chat')
 const { useChatStore } = await import('../../../../apps/desktop/src/store/chatContext')
 const { useChatConversation } = await import('../../../../apps/desktop/src/store/useChatConversation')
 const { chatService } = await import('../../../../apps/desktop/src/lib/chat')
+const { topicService } = await import('../../../../apps/desktop/src/lib/topics')
 const { createMemoryLocalSyncDb } = await import('../../../../apps/desktop/src/lib/localSyncDb')
 const { replaceMessageWindow } = await import('../../../../apps/desktop/src/lib/imRepository')
 
@@ -98,8 +100,10 @@ function Probe() {
   return null
 }
 let select: (id: string | null) => void = () => { throw new Error('store not mounted') }
+let listActions: Pick<ChatContextValue, 'chats' | 'deleteChat'>
 function Selector() {
   select = useChatStore('setActiveChatId').setActiveChatId
+  listActions = useChatStore('chats', 'deleteChat')
   return null
 }
 let repository: import('../../../../apps/desktop/src/lib/imRepository').AccountImRepository
@@ -126,6 +130,8 @@ const framesOf = (chatId: string) => frames.filter((frame) => frame.activeChatId
 
 describe('打开会话的第一帧', () => {
   beforeEach(async () => {
+    vi.mocked(topicService.archiveTopic).mockReset().mockResolvedValue(undefined)
+    vi.mocked(chatService.archiveChat).mockClear()
     network = deferred<void>()
     vi.mocked(chatService.getMessages).mockClear().mockImplementation(async (id) => { await network.promise; return messagesByChat[id] ?? [] })
     vi.mocked(chatService.getMessageById).mockResolvedValue(null)
@@ -140,6 +146,34 @@ describe('打开会话的第一帧', () => {
     repository = await actual.openImRepository('user1', { adapter: createMemoryLocalSyncDb() })
     openImRepositoryMock.mockReset()
     openImRepositoryMock.mockResolvedValue(repository)
+  })
+
+  it('keeps a denied topic visible and removes it only after authoritative archival succeeds', async () => {
+    network.resolve()
+    projectionStub.rows = [{ ...chatA, kind: 'topic', source_chat_id: 'source' }, chatB]
+    const harness = await mount()
+    try {
+      vi.mocked(topicService.archiveTopic).mockRejectedValueOnce(new Error('Only the topic creator can delete it'))
+      await act(async () => {
+        await expect(listActions.deleteChat('chatA', true)).rejects.toThrow('Only the topic creator')
+      })
+      expect(listActions.chats.map((row) => row.id)).toContain('chatA')
+      expect(chatService.archiveChat).not.toHaveBeenCalled()
+      await act(async () => { await listActions.deleteChat('chatA', true) })
+      expect(topicService.archiveTopic).toHaveBeenLastCalledWith('chatA')
+      expect(listActions.chats.map((row) => row.id)).not.toContain('chatA')
+    } finally { harness.cleanup() }
+  })
+
+  it('keeps group deletion on the group archival route', async () => {
+    network.resolve()
+    projectionStub.rows = [{ ...chatA, kind: 'group' }, chatB]
+    const harness = await mount()
+    try {
+      await act(async () => { await listActions.deleteChat('chatA', true) })
+      expect(chatService.archiveChat).toHaveBeenCalledWith('chatA')
+      expect(topicService.archiveTopic).not.toHaveBeenCalled()
+    } finally { harness.cleanup() }
   })
 
   it('盘上有这条会话的窗:网络还没回,第一帧就画出盘上的内容', async () => {

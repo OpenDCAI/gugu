@@ -14,10 +14,11 @@ import {
 } from '@renderer/features/tabs/tab-bar/generic-tab-item';
 import { extensionTabKind } from '@shared/extensions/manifest';
 import { declaredMenuCommands, runExtensionCommand } from './extension-commands';
+import { ExtensionTabBadge } from './extension-tab-badge';
 import { ExtensionMark } from './extension-mark';
 import { ExtensionTabPane } from './extension-tab-pane';
 import { ExtensionSharedSlot } from './extension-shared-slot';
-import { extensionViewStore, residentPageKey, residentPlace } from './extension-view-store';
+import { residentPageKey, residentPlace } from './extension-view-store';
 import { extensionSurfaceStore, extensionTabTitle } from './extension-surface-store';
 import { installedExtensionsStore } from './installed-extensions-store';
 import { useScreenBlock } from '@renderer/app/screen-block-context';
@@ -126,32 +127,6 @@ const ExtensionTabIcon = observer(function ExtensionTabIcon({ kind }: { kind: st
   );
 });
 
-/**
- * The extension's unread/count mark on its own tab.
- *
- * A count renders as a number and anything else as a plain dot: an extension
- * that wants to say「有新东西」should not have to invent a number, and a long
- * string in a tab chip would push the title out. Zero renders nothing — an
- * extension counting down to zero means "nothing to see", not "show me a 0".
- */
-const ExtensionTabBadge = observer(function ExtensionTabBadge({
-  badge,
-}: {
-  badge: number | string | null;
-}) {
-  if (badge === null) return null;
-  if (typeof badge === 'number') {
-    if (!Number.isFinite(badge) || badge <= 0) return null;
-    const shown = badge > 99 ? '99+' : String(Math.floor(badge));
-    return (
-      <span className="min-w-4 rounded-full bg-foreground px-1 text-center text-micro leading-4 font-medium text-background">
-        {shown}
-      </span>
-    );
-  }
-  if (badge.trim().length === 0) return null;
-  return <div className="size-2 rounded-full bg-foreground" title={badge} />;
-});
 
 /**
  * Builds a tab provider for one `contributes.tabs` entry of one extension.
@@ -186,6 +161,9 @@ export function createExtensionTabProvider(
     // key 不必带 kind:单挂查找已经按 kind 分过组(PaneStore.findSingleMountEntry)。
     mount: 'single',
     resourceKey: (state: ExtensionTabState) => (state?.filePath ? filePathKey(state.filePath) : 'app'),
+    // Its own page beside the conversation takes the width its manifest declares (`sideWidth`, read now: an update can
+    // change it); a file opened in it is the conversation's peer, half each.
+    sideWidth: (state: ExtensionTabState) => (state?.filePath ? undefined : installedExtensionsStore.sideWidth(kind)),
     /**
      * 每一条把它开出来的路(「+」、面板空态、左栏、agent 的 `open_in_tab`、链接)都经过这里,所以「摆到这里」
      * 只在这里记一次:记下的那一刻,原来摆着它的会话就不留它了(app-placement-sync)。为文件开的不记。
@@ -225,7 +203,6 @@ export function createExtensionTabProvider(
       // last title some earlier session happened to leave behind.
       const sessionId = ctx.place?.kind === 'session' ? ctx.place.sessionId : null;
       extensionSurfaceStore.forget(sessionId, entry.tabId);
-      extensionViewStore.forgetSlot(sessionId, entry.tabId);
       resource.dispose();
     },
 

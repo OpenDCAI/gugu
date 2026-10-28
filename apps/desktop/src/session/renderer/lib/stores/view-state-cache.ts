@@ -10,6 +10,8 @@ import { rpc } from '@renderer/lib/ipc';
  */
 class ViewStateCache {
   private readonly map = new Map<string, unknown>();
+  /** The bulk load is in: a key absent now is absent, not unread (a chat's strip only saves after this). */
+  populated = false;
 
   /**
    * Populate the cache from a bulk load result. Called once at bootstrap with
@@ -19,6 +21,7 @@ class ViewStateCache {
     for (const [key, value] of Object.entries(entries)) {
       this.map.set(key, value);
     }
+    this.populated = true;
   }
 
   /**

@@ -1,3 +1,4 @@
+import { verifiedFileHandle } from '../../../../../../../tests/helpers/verifiedFileHandle';
 import { EXTENSION_API_VERSION } from '@shared/extensions/manifest';
 import { extensionsInventoryChangedChannel, extensionsQuitChangedChannel } from '@shared/extensions/marketEvents';
 import { createHash } from 'node:crypto';
@@ -97,6 +98,7 @@ vi.mock('@main/lib/logger', () => ({
 
 // The chat card's Install: the download is stubbed and the consent relay records what it was asked, so a test reads
 // whether the card's click alone installs a package.
+const attachmentFixture = vi.hoisted(() => ({ bytes: new Uint8Array() }));
 const consentRequests = vi.hoisted(() => [] as { manifest: { id: string } }[]);
 vi.mock('@gugu/core/cloud/config', async (importOriginal) => ({
   ...(await importOriginal<object>()),
@@ -113,15 +115,15 @@ vi.mock('./app-files', async (importOriginal) => ({
       file_item_id: '44444444-4444-4444-8444-444444444444', file_version: 1, file_blob_id: null,
       sender_user_id: '0a000000-0000-4000-8000-00000000000a',
     }),
-    sign: async () => 'https://cdn.test/ab/abab?auth_key=1',
+    open: async () => verifiedFileHandle(attachmentFixture.bytes, {}, async signal => new Uint8Array(await (await fetch('https://cdn.test/ab/abab?auth_key=1', { signal })).arrayBuffer())),
   },
 }));
 // 「给哪些 agent」要读账号的行;这些用例没有登录态，不问(D-30 自己的读写在 app-given 的用例里判)。
 // 读不到时安装会失败(owner 10-17 体检 #21),所以这里把「问」定成没有可问的，而不是靠吞错。
 vi.mock('./app-given', async (importOriginal) => ({
   ...(await importOriginal<typeof import('./app-given')>()),
-  installAsk: async () => null,
-  recordGiven: async () => undefined,
+  installGrant: async () => null,
+  recordInstallGrant: async () => undefined,
 }));
 vi.mock('./extension-bridge-relay', async (importOriginal) => ({
   ...(await importOriginal<object>()),
@@ -138,11 +140,15 @@ vi.mock('./extension-icon', () => ({
 }));
 
 import { extensionsController } from './controller';
-import { extensionSurfaceBindingForTests, registerExtensionBridge } from './extension-bridge';
+import { extensionSurfaceBindingForTests, onInstalledAppsChanged, registerExtensionBridge } from './extension-bridge';
 import { EXTENSION_BRIDGE_CHANNEL } from '@shared/extensions/bridge-protocol';
 import { packExtensionArchive } from './extension-archive';
 import { extensionsService } from './extensions-root';
 import { cloudExtensionMarket } from './market-catalog-root';
+import { extensionPrograms, type ExtensionProgram } from './extension-programs';
+import { installedComputerUseApps } from '../../../../computer-use-program';
+import { syncDeviceHeartbeat } from '@gugu/core/cloud/deviceRuntime';
+import { MemoryHeartbeatClient } from '../../../../../../../tests/support/deviceRuntimeHarness';
 
 const EXTENSION_ID = 'demo-ext';
 
@@ -192,6 +198,95 @@ beforeEach(async () => {
 });
 
 describe('extensions controller', () => {
+  it('lists variant metadata with the inventory and isolates an unreadable App', async () => {
+    await installViaController([]);
+    const other = writeBundle([]);
+    const file = join(other, 'manifest.json');
+    writeFileSync(file, JSON.stringify({ ...JSON.parse(readFileSync(file, 'utf8')), id: 'other-app' }));
+    extensionsService().installFromDirectory(other, extensionsService().inspectDirectory(other).manifestDigest, 'folder');
+    const service = extensionsService();
+    const readVariants = service.variants.bind(service);
+    const failing = vi.spyOn(service, 'variants').mockImplementation((id) => {
+      if (id === EXTENSION_ID) throw new Error('variant metadata unreadable');
+      return readVariants(id);
+    });
+    try {
+      const listed = await extensionsController.list();
+      expect(listed.success, listed.error).toBe(true);
+      expect(listed.data?.extensions.map(({ id }) => id).sort()).toEqual([EXTENSION_ID, 'other-app'].sort());
+      expect(listed.data?.variants).toEqual({ 'other-app': { active: 'upstream', variants: [] } });
+    } finally {
+      failing.mockRestore();
+    }
+    expect((await extensionsController.list()).data?.variants?.[EXTENSION_ID]).toEqual({ active: 'upstream', variants: [] });
+  });
+
+  it('publishes current Computer Use capability after App changes without rescanning between heartbeats', async () => {
+    const service = extensionsService();
+    const installed = vi.fn(() => service.list().extensions.flatMap(({ manifest }) =>
+      (manifest.contributes.mcpServers ?? []).flatMap((server) => 'host' in server ? [{
+        extensionId: manifest.id, server: server.name, native: server.host,
+      } as ExtensionProgram] : [])));
+    let off: (() => void) | undefined;
+    const apps = installedComputerUseApps({ installed, agentToolsRefusal: extensionPrograms.agentToolsRefusal }, (listener) => {
+      off = onInstalledAppsChanged(listener);
+    });
+    const clock = vi.spyOn(Date, 'now');
+    const client = new MemoryHeartbeatClient();
+    let beatNumber = 0;
+    const heartbeat = () => {
+      clock.mockReturnValue(++beatNumber * 30_000);
+      return syncDeviceHeartbeat(client, {
+        userId: 'owner', deviceId: 'device', capabilities: { terminals: [], runtimes: [] },
+        deviceActions: () => ({ v: 1, actions: [], ...(apps().length ? {} : { switched_off: [{ group: 'computer', detail: 'Computer Use is off' }] }) }),
+      }, {});
+    };
+    const beat = async (on: boolean) => {
+      await heartbeat();
+      expect((client.upserts.at(-1)?.row.capabilities as { actions: { switched_off?: unknown } }).actions.switched_off === undefined).toBe(on);
+      const reads = installed.mock.calls.length;
+      apps(); // The preview reads the same list as the heartbeat.
+      await heartbeat();
+      expect(installed).toHaveBeenCalledTimes(reads);
+    };
+    const install = async (host: 'computer-use' | 'browser-use') => {
+      const source = writeBundle([], undefined, ['agents:tools']);
+      const file = join(source, 'manifest.json');
+      const manifest = JSON.parse(readFileSync(file, 'utf8'));
+      manifest.contributes.mcpServers = [{ name: 'control', host }];
+      writeFileSync(file, JSON.stringify(manifest));
+      const inspected = await folderAsk(source);
+      const result = await folderGiven(source, inspected.ask.manifestDigest);
+      expect(result.success, result.error).toBe(true);
+    };
+    try {
+      await beat(false);
+      await install('computer-use');
+      await beat(true);
+      await extensionsController.setEnabled({ extensionId: EXTENSION_ID, enabled: false });
+      await beat(false);
+      await extensionsController.setEnabled({ extensionId: EXTENSION_ID, enabled: true });
+      await beat(true);
+      await install('browser-use'); // Replacing the same id can remove its native capability.
+      await beat(false);
+      await install('computer-use');
+      await beat(true);
+      for (const granted of [false, true]) {
+        await extensionsController.setPermissionGranted({ extensionId: EXTENSION_ID, permission: 'agents:tools', granted });
+        await beat(granted);
+      }
+      const reads = installed.mock.calls.length;
+      await extensionsController.setSettings({ extensionId: EXTENSION_ID, settings: {} });
+      await beat(true);
+      expect(installed.mock.calls.length).toBeGreaterThan(reads);
+      await extensionsController.uninstall({ extensionId: EXTENSION_ID });
+      await beat(false);
+    } finally {
+      off?.();
+      clock.mockRestore();
+    }
+  });
+
   it('refuses a folder with no platform declaration or only a phone interface before asking for consent', async () => {
     for (const platforms of [undefined, ['phone']]) {
       const source = writeBundle([]);
@@ -452,6 +547,7 @@ describe('extensions controller', () => {
       }));
       writeFileSync(join(dir, 'index.html'), '<!doctype html>');
       const { bytes } = await packExtensionArchive(extensionsService(), dir);
+      attachmentFixture.bytes = new Uint8Array(bytes);
       vi.stubGlobal('fetch', vi.fn(async () => new Response(new Uint8Array(bytes))));
     };
     // The card by its message: its publisher the server's word on it (摩擦单 F66, #7290).

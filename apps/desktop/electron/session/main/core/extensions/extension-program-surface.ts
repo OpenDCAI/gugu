@@ -1,7 +1,7 @@
 import type { ChildProcess } from 'node:child_process';
 import { userIdFromSupabaseAccessToken } from '@gugu/core';
 import { createGuguSupabaseClient } from '@gugu/core/cloud/supabase';
-import { APP_FRAME_MARKER, fileRefOf, isLocal, type FrameToHost, type HostToFrame } from '@shared/extensions/app-runtime-protocol';
+import { APP_FRAME_MARKER, fileRefOf, isLocal, placeOf, type FrameToHost, type HostToFrame } from '@shared/extensions/app-runtime-protocol';
 import { currentAccountAccessToken } from '@main/core/extensions/account-token';
 import { log } from '@main/lib/logger';
 import type { BridgeCaller } from './extension-bridge';
@@ -91,6 +91,16 @@ export function attachProgramSurface(extensionId: string, child: ChildProcess): 
     binding: null,
     pageId,
     filePage: (args, resource = false) => filePage(args, callId, resource),
+    async resourcePage(args) {
+      const ref = args.ref === undefined ? null : fileRefOf(args.ref);
+      const place = args.place === undefined ? null : placeOf(args.place);
+      const named = ref ?? place;
+      if (!named || !('chat' in named) || named.chat === undefined) return filePage(args, callId, true);
+      const actor = (callId === undefined ? undefined : calls.get(callId)?.agent) ?? filePage(args, callId, true).asAgent ?? null;
+      const { resourceChatOf } = await import('./app-files');
+      const chat = await resourceChatOf(named.chat, { asAgent: actor });
+      return filePage(ref ? { ...args, ref: { ...ref, chat } } : { ...args, place: { chat } }, callId, true);
+    },
     hear: (event) => post({ m: APP_FRAME_MARKER, t: 'event', event }),
     // Only an agent's call is stamped with an id (`gugu/call`): a person's page calling the program is not.
     ...(callId === undefined ? {} : { callingAgent: calls.get(callId)?.agent ?? null }),

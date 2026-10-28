@@ -35,6 +35,16 @@ export const CHAT_VIEW_COMMANDS = [
  * via `view.setCommands(commands)`.
  */
 export type ChatCommands = {
+  onOpenSender?: (target: import('./lib/sender-target').MessageSenderTarget) => void;
+  conversationAgentSession?: () => string | null;
+  /** External agents may expose only their public identity, with no readable session. */
+  conversationAgentUserId?: () => string | null;
+  /** Recorded-conversation hosts can supply an event clock without freezing the UI scheduler. */
+  conversationClock?: () => number;
+  /** Display name of the agent owning this transcript, supplied by its host. */
+  conversationAgentName?: () => string | null;
+  onConversationReply?: (itemId: string) => void;
+  onCopyError?: (error: unknown) => void;
   canRevertMessage?: (itemId: string) => boolean;
   onEditMessage?: (arg: { itemId: string }) => void;
   /** Host-owned draft: virtual row reuse must not move it to another message. */
@@ -92,6 +102,9 @@ export type ChatCommands = {
    * messages whose transcript stores attachment metadata but not bytes.
    */
   resolveAttachment?: (attachment: { id: string; name: string }) => Promise<string | null>;
+
+  /** Fetch one tool picture from its original history source when its thumbnail is shown. */
+  resolveToolImage?: (itemId: string, index: number) => Promise<string | null>;
 
   /**
    * Called when the user clicks the stop button on the current user message
@@ -215,6 +228,17 @@ export type ChatCommands = {
     itemId: string;
     source: 'prose-mention';
   }) => void;
+
+  /**
+   * 列表末尾那一行后台任务里按了「停止」:真把它停掉。`stopId` 是报给供应商的那个 id —— 后台命令是它的
+   * asyncTaskId,子智能体是派它那次调用的 tool_use id(#5117)。宿主不接 ⇒ 那一行没有停止键。
+   */
+  onStopBackgroundTask?: (arg: { stopId: string }) => void;
+  /**
+   * 按了 ×:只把这一条从列表末尾那一行收起来,❌ 不停它(它照旧在跑)。`entryId` 是转录条目 id。
+   * 宿主不接 ⇒ 没有 ×。
+   */
+  onDismissBackgroundTask?: (arg: { entryId: string }) => void;
 };
 
 export type ScrollToItemOptions = {

@@ -16,13 +16,15 @@ function agentPair(opts: {
 } = {}) {
   const toAgent = new PassThrough();
   const configRequests: v2.SetSessionConfigOptionRequest[] = [];
+  const initializeRequests: v2.InitializeRequest[] = [];
+  const cancels: unknown[] = [];
   const toClient = new PassThrough();
   let context!: v2.AgentContext;
   v2.agent({ name: 'test-agent' })
     .onConnect((connection) => {
       context = connection.client;
     })
-    .onRequest(v2.methods.agent.initialize, async () => ({
+    .onRequest(v2.methods.agent.initialize, async ({ params }) => (initializeRequests.push(params), {
       protocolVersion: (opts.protocolVersion ?? 2) as 2,
       info: { name: 'test-agent', version: '1' },
       capabilities: { session: { prompt: { image: {} }, fork: {} } },
@@ -45,6 +47,7 @@ function agentPair(opts: {
       availableCommands: [{ name: 'review', description: 'Review', input: { type: 'text', hint: '<pr>' } }],
     }))
     .onRequest(v2.methods.agent.session.prompt, async ({ params }) => opts.prompt!(params))
+    .onNotification(v2.methods.agent.session.cancel, async ({ params }) => { cancels.push(params); })
     .onRequest(v2.methods.agent.session.setConfigOption, async ({ params }) => {
       configRequests.push(params);
       return { configOptions: [] };
@@ -62,7 +65,7 @@ function agentPair(opts: {
   const send = (u: unknown) =>
     context.notify(v2.methods.client.session.update, { sessionId: 's1', update: u as v2.SessionUpdate });
   const kinds = () => updates.map(({ event }) => event.kind);
-  return { api, updates, permissions, configRequests, kinds, send, agent: () => context };
+  return { api, updates, permissions, configRequests, initializeRequests, cancels, kinds, send, agent: () => context };
 }
 
 const initialize = (api: ReturnType<typeof agentPair>['api']) =>
@@ -84,6 +87,13 @@ describe('connectStdioAcpV2', () => {
     expect(response.authMethods).toEqual([
       { type: 'terminal', id: 'login', name: 'Log in', args: ['login'], env: { A: '1' } },
     ]);
+  });
+
+  it('keeps v2 on standard subagents: async tasks only, no AIR namespace (#503)', async () => {
+    const { api, initializeRequests } = agentPair();
+    await api.initialize({ protocolVersion: 1, clientCapabilities: { auth: { terminal: true }, _meta: { 'terminal-auth': true } } });
+    // Any AIR namespace selects the bridge's v1 subagent_spawned dialect, which its v2 translator cannot emit.
+    expect(initializeRequests[0]?.capabilities?._meta).toEqual({ 'terminal-auth': true, asyncTasks: {} });
   });
 
   it('fails loudly when the agent answers another protocol version', async () => {
@@ -152,6 +162,21 @@ describe('connectStdioAcpV2', () => {
     const pair = agentPair({ prompt: async () => { throw new v2.RequestError(-32800, 'Request cancelled'); } });
     await initialize(pair.api);
     await expect(pair.api.prompt({ sessionId: 's1', prompt: [] })).rejects.toMatchObject({ code: -32800 });
+  });
+
+  it('cancels and rejects a native receipt that misses its admission deadline (prompt_admission_timeout)', async () => {
+    const pair = agentPair({ prompt: () => new Promise(() => {}) });
+    await initialize(pair.api);
+    vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] });
+    try {
+      const receipt = pair.api.prompt({ sessionId: 's1', prompt: [] }, {
+        requestId: 'r', message: { kind: 'message', role: 'user', messageId: 'local', text: 'hi' }, admissionTimeoutMs: 60_000,
+      });
+      const rejected = expect(receipt).rejects.toMatchObject({ code: 'prompt_admission_timeout' });
+      await vi.advanceTimersByTimeAsync(60_000);
+      await rejected;
+    } finally { vi.useRealTimers(); }
+    await vi.waitFor(() => expect(pair.cancels).toEqual([{ sessionId: 's1' }]));
   });
 
   it('preserves terminal bytes and references without projecting tool text', async () => {

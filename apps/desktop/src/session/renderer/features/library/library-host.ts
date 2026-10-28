@@ -24,6 +24,7 @@ import type {
   InstallSourceVersions,
 } from '@shared/core/agents/agent-payload';
 import type { ProviderCustomConfig } from '@shared/core/app-settings';
+import type { AssistantPanelFiles } from '@gugu/core/cloud/assistantPanelFiles';
 
 /** 与本机 `rpc.agents.*` 同名同参的那几个(资源库「智能体」一页用到的全部)。 */
 export type LibraryAgentsRpc = {
@@ -73,7 +74,10 @@ export type LibraryIntegrationsRpc = Pick<
   | 'checkAccounts'
   | 'checkAllConnections'
   | 'checkConfiguredConnections'
->;
+> & {
+  /** Renderer-only cancellation; never serialized into the host RPC. */
+  cliToolPrepare(id: string, signal?: AbortSignal): ReturnType<IntegrationsApi['cliToolPrepare']>;
+};
 
 /** GitHub 账号(集成那一页的 GitHub 卡片、连接弹窗、设备码弹窗)。 */
 export type LibraryGithubRpc = Pick<
@@ -95,6 +99,10 @@ export type LibraryRemoteDevice = {
 };
 
 export type LibraryHost = {
+  assistantPanel?: AssistantPanelFiles;
+  assistantPanelExpected?: boolean;
+  assistantPanelError?: unknown;
+  prepareAssistantAction?: () => Promise<void>;
   /** 缓存键里区分机器的那一段:本机 `local`,别的机器 `remote:<deviceId>`。 */
   key: string;
   agents: LibraryAgentsRpc;
@@ -143,6 +151,7 @@ const localIntegrations: LibraryIntegrationsRpc = {
   authorize: (id) => rpc.integrations.authorize(id),
   cancelAuthorization: (id) => rpc.integrations.cancelAuthorization(id),
   cliLoginStart: (id) => rpc.integrations.cliLoginStart(id),
+  cliToolPrepare: (id) => rpc.integrations.cliToolPrepare(id),
   cliLoginWait: (id) => rpc.integrations.cliLoginWait(id),
   cliLoginProgress: (id) => rpc.integrations.cliLoginProgress(id),
   checkAllConnections: () => rpc.integrations.checkAllConnections(),
@@ -229,6 +238,7 @@ export function createRemoteLibraryHost(
     },
     /** 官方命令行在**那台**机器上装、在那台机器上登:登录态要落在用它的那台机器上。 */
     cliLoginStart: (id) => there.integrations.cliLoginStart(id),
+    cliToolPrepare: (id) => there.integrations.cliToolPrepare(id),
     cliLoginWait: (id) => there.integrations.cliLoginWait(id),
     cliLoginProgress: (id) => there.integrations.cliLoginProgress(id),
     checkAllConnections: () => there.integrations.checkAllConnections(),

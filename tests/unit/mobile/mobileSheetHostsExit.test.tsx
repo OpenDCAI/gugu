@@ -3,6 +3,8 @@ import { act } from 'react'
 import { afterEach, beforeEach, expect, it, vi } from 'vitest'
 import { SessionOptionsPill } from '../../../apps/desktop/src/mobile/agent-watch/SessionOptionsPill'
 import { CreateOptionsPill } from '../../../apps/desktop/src/mobile/agent-watch/CreateOptionsPill'
+import { FILE_VIEWER_ATTRIBUTE, FILE_VIEWER_MENU_EVENT, type FileViewerMenuRequest } from '../../../apps/desktop/src/session/shared/preview/file-viewer-menu'
+import { workspaceFileQuote } from '../../../apps/desktop/src/components/preview/quote-preview-file'
 import { useOpenedOutputOpener } from '../../../apps/desktop/src/mobile/agent-watch/opened-output-opener'
 import { ShareIntakeHost } from '../../../apps/desktop/src/mobile/share-intake/ShareIntakeHost'
 import { ServerLoginApproveHost } from '../../../apps/desktop/src/mobile/server-login/ServerLoginApproveHost'
@@ -16,7 +18,7 @@ const m = vi.hoisted(() => ({
   incoming: null as ((share: IncomingShare) => void) | null,
   options: { model: { selected: 'model-1', available: [{ id: 'model-1', name: 'Model' }] } },
   read: vi.fn(async () => new Uint8Array([1, 2, 3])),
-  image: vi.fn(), revoke: vi.fn(), signal: null as AbortSignal | null,
+  quote: vi.fn(), image: vi.fn(), revoke: vi.fn(), signal: null as AbortSignal | null,
 }))
 vi.mock('../../../apps/desktop/src/mobile/agent-watch/sessionpage-rpc', async (original) => ({
   ...await original<typeof import('../../../apps/desktop/src/mobile/agent-watch/sessionpage-rpc')>(), fetchSessionOptions: vi.fn(async () => m.options),
@@ -55,7 +57,7 @@ it('task options: clearing its current view retains choices through the full exi
 it('create options: clearing the view keeps the selected project until exit completes', async () => {
   await h.render(createNode(CreateOptionsPill, {
     options: { projects: [{ id: 'p1', name: 'Repo', path: '/repo' }], harnesses: [], lastUsed: null },
-    selection: { projectId: 'p1', harness: null, model: null, permissionMode: null, sessionView: null, effort: null }, onChange: vi.fn(), busy: false, models: null, modelsState: 'idle',
+    selection: { projectId: 'p1', harness: null, model: null, permissionMode: null, effort: null }, onChange: vi.fn(), busy: false, models: null, modelsState: 'idle',
   }))
   await clickElement(q('agent-watch-create-options-open')); await frame()
   const popup = q('agent-watch-create-options')
@@ -65,9 +67,20 @@ it('create options: clearing the view keeps the selected project until exit comp
 })
 
 function Preview({ path = '/repo/movie.mp4' }: { path?: string }) {
-  const { handlers, panel } = useOpenedOutputOpener({ deviceId: 'device-1', sessionId: 'task-1' })
+  const { handlers, panel } = useOpenedOutputOpener({ deviceId: 'device-1', sessionId: 'task-1', onQuote: m.quote })
   return createNode('div', {}, createNode('button', { onClick: () => handlers.onOpenOutput?.({ output: { kind: 'file', path }, itemId: 'output-1' }) }, 'open'), panel)
 }
+it('task file preview: its header uses the shared snapshot and quotes to the original task composer', async () => {
+  await h.render(createNode(Preview, { path: '/repo/report.html' })); await clickElement(h.container.querySelector('button')!); await frame()
+  const viewer = q('message-file-preview-panel')
+  expect(viewer.hasAttribute(FILE_VIEWER_ATTRIBUTE)).toBe(true)
+  const context: FileViewerMenuRequest = { action: 'snapshot', requestId: 'task-file-quote', selection: { text: '' }, canSelectAll: true }
+  viewer.dispatchEvent(new CustomEvent(FILE_VIEWER_MENU_EVENT, { detail: context }))
+  expect(context.canSelectAll).toBe(false)
+  await act(async () => viewer.dispatchEvent(new CustomEvent(FILE_VIEWER_MENU_EVENT, { detail: { ...context, action: 'quote-file' } })))
+  expect(m.quote).toHaveBeenCalledExactlyOnceWith(workspaceFileQuote('/repo/report.html', null))
+  await expectExit(q('opened-output-preview-sheet'), exit)
+})
 it('file preview: aborts reading immediately and releases its blob only after closing', async () => {
   await h.render(createNode(Preview)); await clickElement(h.container.querySelector('button')!); await frame()
   const popup = q('opened-output-preview-sheet')
@@ -97,7 +110,9 @@ it('image handoff: starts after the loading sheet exits and keeps the transferre
   await frame()
   expect(m.image).not.toHaveBeenCalled()
   await expectExit(q('opened-output-preview-sheet'), exit)
-  expect(m.image).toHaveBeenCalledWith([{ url: 'blob:preview', alt: 'image.png' }])
+  expect(m.image).toHaveBeenCalledWith([{ url: 'blob:preview', alt: 'image.png', quote: expect.any(Function) }])
+  m.image.mock.calls[0][0][0].quote()
+  expect(m.quote).toHaveBeenCalledWith(workspaceFileQuote('/repo/image.png', null))
   expect(m.revoke).not.toHaveBeenCalled()
   await h.render(null)
   expect(m.revoke).toHaveBeenCalledExactlyOnceWith('blob:preview')

@@ -1,4 +1,4 @@
-import { useChartTheme } from './useChartTheme'
+import { tokenColor, useChartTheme } from './useChartTheme'
 import { VChart } from '@visactor/react-vchart'
 import type { ChartPoint, ModelTotal } from '../../lib/usage/charts'
 
@@ -55,7 +55,7 @@ export function StackedChart({ mode, points, domain, format, totalLabel, otherLa
     },
   }
   const spec = mode === 'bar'
-    ? { ...common, type: 'bar', bar: { state: { hover: { stroke: '#000', lineWidth: 1 } } } }
+    ? { ...common, type: 'bar', bar: { state: { hover: { stroke: tokenColor('--fg'), lineWidth: 1 } } } }
     : { ...common, type: 'area', area: { style: { fillOpacity: 0.08, curveType: 'monotone' } }, line: { style: { lineWidth: 2, curveType: 'monotone' } }, point: { visible: false } }
   return <VChart spec={{ ...spec, theme } as never} options={OPTIONS} />
 }
@@ -73,7 +73,7 @@ export function ShareChart({ totals, format }: { totals: ModelTotal[]; format: (
     outerRadius: 0.8,
     padAngle: 0.6,
     color: colorScale(domain),
-    pie: { style: { cornerRadius: 6 }, state: { hover: { outerRadius: 0.85, stroke: '#000', lineWidth: 1 }, selected: { outerRadius: 0.85, stroke: '#000', lineWidth: 1 } } },
+    pie: { style: { cornerRadius: 6 }, state: { hover: { outerRadius: 0.85, stroke: tokenColor('--fg'), lineWidth: 1 }, selected: { outerRadius: 0.85, stroke: tokenColor('--fg'), lineWidth: 1 } } },
     legends: { visible: true, orient: 'left' as const },
     label: { visible: true },
     tooltip: { mark: { content: [{ key: (d: ModelTotal) => d.model, value: (d: ModelTotal) => format(d.value) }] } },
@@ -95,7 +95,7 @@ export function RankChart({ totals, format }: { totals: ModelTotal[]; format: (n
     color: colorScale(domain),
     legends: { visible: false },
     axes: [{ orient: 'left', label: { formatMethod: (v: number | string) => format(Number(v)) } }, { orient: 'bottom', type: 'band', label: { autoRotate: true, autoHide: true } }],
-    bar: { state: { hover: { stroke: '#000', lineWidth: 1 } } },
+    bar: { state: { hover: { stroke: tokenColor('--fg'), lineWidth: 1 } } },
     tooltip: { mark: { content: [{ key: (d: ModelTotal) => d.model, value: (d: ModelTotal) => format(d.value) }] } },
     theme,
   }
@@ -114,7 +114,7 @@ export function HourChart({ hours, seriesLabel, format }: { hours: number[]; ser
     seriesField: 'series',
     color: colorScale([seriesLabel]),
     legends: { visible: false },
-    bar: { state: { hover: { stroke: '#000', lineWidth: 1 } } },
+    bar: { state: { hover: { stroke: tokenColor('--fg'), lineWidth: 1 } } },
     tooltip: { mark: { content: [{ key: () => seriesLabel, value: (d: { value: number }) => format(d.value) }] } },
     theme,
   }

@@ -3,6 +3,7 @@ import { useContext, useEffect, useRef, useState } from 'react';
 import { PermissionBand } from '@gugu/session-ui/react/components';
 import { useHostAskBand } from '@renderer/features/extensions/use-session-host-ask';
 import { SessionHostQuestion } from '@renderer/features/extensions/session-host-question';
+import { SessionHostBrowserAsk } from '@renderer/features/extensions/session-host-browser-ask';
 import { useAppSettingsKey } from '@renderer/features/settings/use-app-settings-key';
 import { sessionNavigationFocus } from '@renderer/features/sidebar/session-navigation-focus';
 import { usePaneContext } from '@renderer/features/tabs/pane-context';
@@ -40,7 +41,6 @@ import { useSessionStartupFailure } from './use-session-startup-failure';
 import { useSessionSchedules } from '@renderer/features/automations/use-session-schedules';
 import { machineRegistry } from '@renderer/lib/machine-routing';
 import { SessionScheduleChip } from './session-schedule-chip';
-import { SessionPermissionHint } from './session-permission-hint';
 
 export const SessionsPanel = observer(function SessionsPanel() {
   const { translate } = useSessionMessages();
@@ -269,7 +269,6 @@ export const SessionsPanel = observer(function SessionsPanel() {
                           data-testid="session-terminal-loading"
                         />
                       )}
-                      {activeSession && <SessionPermissionHint projectId={activeSession.data.projectId} />}
                     </div>
                   )
                 ) : registryFailure ? (
@@ -308,6 +307,7 @@ export const SessionsPanel = observer(function SessionsPanel() {
             </div>
           ) : null}
           <SessionHostQuestion sessionId={activeSessionStoreId} session={activeSession} />
+          <SessionHostBrowserAsk sessionId={activeSessionStoreId} session={activeSession} />
           <ContextBar
             sessionId={activeSessionId(pane)}
             hideTrigger={hideContextBarTrigger}

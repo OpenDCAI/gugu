@@ -21,22 +21,11 @@ import { MIN_CLIENT_PROTOCOL, REMOTE_PROTOCOL_VERSION } from './serverMachineHea
 export const DESKTOP_VERSIONS_FILE = 'desktop-versions.json'
 export const VERSION_SWITCH_FILE = 'version-switch.json'
 
-/** 一台桌面多久没报就不再左右这个账号跑哪一版(开着窗口时每小时续一次)。 */
-export const DESKTOP_REPORT_TTL_MS = 7 * 24 * 60 * 60 * 1000
 /** 窗口开着时多久续报一次。 */
 export const DESKTOP_REPORT_REFRESH_MS = 60 * 60 * 1000
 
-export type DesktopReport = {
-  /** 这台桌面自己的咕咕版本(与 server 发版同一个版本号)。 */
-  version: string
-  /** 这台桌面说的桌面↔server 协议(serverMachineHealth.REMOTE_PROTOCOL_VERSION);老桌面不报 = null。 */
-  protocol: number | null
-  /** 最后一次报的时刻(毫秒)。 */
-  at: number
-}
-
-/** 桌面 id → 它最后报的那一次。 */
-export type DesktopReports = Record<string, DesktopReport>
+import { DESKTOP_REPORT_TTL_MS, type DesktopReports } from './serverVersionSelection'
+export { DESKTOP_REPORT_TTL_MS, compareServerVersions, pickTargetVersion, type DesktopReport, type DesktopReports } from './serverVersionSelection'
 
 const VERSION_RE = /^[0-9A-Za-z._-]{1,64}$/
 const DESKTOP_ID_RE = /^[A-Za-z0-9:_-]{1,128}$/
@@ -54,43 +43,6 @@ export function parseDesktopHello(value: unknown): DesktopHello | null {
   if (typeof row.id !== 'string' || !DESKTOP_ID_RE.test(row.id) || !isServerVersion(row.version)) return null
   const protocol = typeof row.protocol === 'number' && Number.isInteger(row.protocol) && row.protocol > 0 ? row.protocol : null
   return { id: row.id, version: row.version, protocol }
-}
-
-/**
- * 两个版本号比大小:数字段逐段比(0.2.49 < 0.2.50 < 0.3.0);`-beta.3` 这类后缀里的数字段在主版本相同时再比。
- * 返回 >0 = a 更新。
- */
-export function compareServerVersions(a: string, b: string): number {
-  const split = (v: string) => {
-    const [main = '', suffix = ''] = v.split(/-(.*)/s)
-    return { main: main.split('.').map((n) => Number(n) || 0), suffix: suffix.split(/[.-]/).map((n) => Number(n) || 0), hasSuffix: suffix !== '' }
-  }
-  const x = split(a)
-  const y = split(b)
-  for (let i = 0; i < Math.max(x.main.length, y.main.length); i += 1) {
-    const d = (x.main[i] ?? 0) - (y.main[i] ?? 0)
-    if (d !== 0) return d
-  }
-  // 同一个主版本:正式版比预发版新(0.3.0 > 0.3.0-beta.9),预发版之间按后缀里的数字比。
-  if (x.hasSuffix !== y.hasSuffix) return x.hasSuffix ? -1 : 1
-  for (let i = 0; i < Math.max(x.suffix.length, y.suffix.length); i += 1) {
-    const d = (x.suffix[i] ?? 0) - (y.suffix[i] ?? 0)
-    if (d !== 0) return d
-  }
-  return 0
-}
-
-/**
- * 这个账号该跑哪一版:没过期的报告里最新的那一版(同一账号几台桌面取最新,owner 选 A)。一台都没有 = null
- * (那就跟着这台机器自己的版本走,见 server-supervisor)。
- */
-export function pickTargetVersion(reports: DesktopReports, now: number, ttlMs = DESKTOP_REPORT_TTL_MS): string | null {
-  let best: string | null = null
-  for (const report of Object.values(reports)) {
-    if (now - report.at > ttlMs) continue
-    if (best === null || compareServerVersions(report.version, best) > 0) best = report.version
-  }
-  return best
 }
 
 /**
@@ -219,11 +171,14 @@ export function requestVersionRetry(env: NodeJS.ProcessEnv, now = Date.now()): b
  * 开发 / 测试:桌面(pnpm dev,package.json 的版本)与测试 server 包(GUGU_SERVER_VERSION 另打的号)对不上,
  * 按「严格等于桌面版本」会去找一个不存在的 server 包 —— GUGU_SERVER_MATCH_VERSION 覆盖它,
  * 但只在没打包(开发)或用了自定义下载源(测试站)时生效;打包出的正式版走正式下载站,一律忽略。
+ * 不是发布流水线出的包(GUGU_BUILD_DISTRIBUTION=local:开发实例、本机打的测试包)不覆盖就 ❌ 报:它的版本号
+ * (多半是 package.json 那个不带后缀的号)从没发布过 server 包,却按「正式版比同号 Beta 新」压过所有真桌面。
  */
-export function reportedDesktopVersion(env: NodeJS.ProcessEnv, options: { packaged: boolean }): string | null {
+export function reportedDesktopVersion(env: NodeJS.ProcessEnv, options: { packaged: boolean; published: boolean }): string | null {
   const override = env.GUGU_SERVER_MATCH_VERSION?.trim()
   const testing = !options.packaged || Boolean(env.GUGU_SERVER_DOWNLOAD_BASE?.trim())
   if (override && testing && isServerVersion(override)) return override
+  if (!options.published) return null
   const own = env.GUGU_APP_VERSION?.trim()
   return isServerVersion(own) ? own : null
 }

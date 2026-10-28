@@ -39,6 +39,14 @@ export function formatCredits(
   }, locale)
 }
 
+/**
+ * 英文单复数(credit / credits)按**写出来的那个数**取:0.999 显示成「1」,拿原值去选就成了「1 credits」。
+ * `<0.01` 那一档四舍五入成 0,照样选复数。
+ */
+export function creditCount(credits: number): number {
+  return Math.round(credits * 100) / 100
+}
+
 /** 流水与余额同一把尺:同一个数在两处不该长得不一样。 */
 export function formatUsageCredits(
   credits: number,
@@ -89,7 +97,7 @@ export function describeSpendingPower(
     breakdown,
     // 侧栏只放得下一行,所以那一行报**合计** —— 报不过期积分那一个池子,正是线上把一个
     // 额度还剩 345 的 max 会员写成「还有 0.14 积分」的写法。
-    sentence: t('credits.spending.sentence', { credits: formatCredits(power.spendable, locale), rate }),
+    sentence: t('credits.spending.sentence', { credits: formatCredits(power.spendable, locale), count: creditCount(power.spendable), rate }),
     blocked: power.blockedBy !== null,
   }
 }
@@ -103,6 +111,7 @@ function describeRate(power: SpendingPower, now: Date, locale: SpendingPowerLoca
       return t('credits.spending.available', {
         window: windowLabel,
         credits: formatCredits(power.spendable, locale),
+        count: creditCount(power.spendable),
       })
     case 'exhausted':
       // 两条出路都成立,一起说:周期额度会自己回来,充值加量包则立刻可用。

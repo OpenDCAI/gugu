@@ -9,6 +9,7 @@ import { SettingsGroup, SettingsRow } from '@/components/settings/SettingsPrimit
 import { DeviceScopePicker } from '@renderer/features/remote-hosts/device-scope-picker'
 import { settingsDeviceStore } from '@renderer/features/remote-hosts/device-scope-store'
 import { EnableTmuxRow } from './SessionSettingsRows'
+import { useTerminalEnabled } from '../use-terminal-enabled'
 
 export function MachineSettingsCard() {
   const {
@@ -21,6 +22,8 @@ export function MachineSettingsCard() {
     error: localProjectError
   } = useAppSettingsKey('localProject')
   const { translate } = useSessionMessages()
+  // tmux 是终端的事:「终端」开关(本机,设置 → 通用)关着就不列。
+  const terminalEnabled = useTerminalEnabled()
 
   const writeAgentConfigToGitIgnore = localProject?.writeAgentConfigToGitIgnore ?? true
   const defaultProjectsDirectory = localProject?.defaultProjectsDirectory ?? ''
@@ -69,7 +72,7 @@ export function MachineSettingsCard() {
           </>
         }
       />
-      <EnableTmuxRow />
+      {terminalEnabled ? <EnableTmuxRow /> : null}
     </SettingsGroup>
   )
 }

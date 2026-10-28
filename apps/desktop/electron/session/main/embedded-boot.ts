@@ -16,8 +16,9 @@
 // emdash-main-bridge.cjs with electron + native addons (better-sqlite3, node-pty, @parcel/watcher)
 // externalized (required at runtime).
 import type { BirthGroup } from '@shared/core/sessions/create-session';
-export { readCurrentActivityInput } from './core/sessions/session-activity-source'
+export { readCurrentActivityInput,readCurrentAssistantWorkInput } from './core/sessions/session-activity-source'
 import { installActivityCollector } from '@main/core/activity/collector'
+import { integrationConnectionService } from './core/integrations/integration-connection-service'
 import { openLink } from './core/extensions/gugu-links'
 import type { LinkOpenOutcome } from '@shared/extensions/open-link'
 import * as path from 'node:path'
@@ -66,6 +67,7 @@ import {
   type HostIpc,
 } from '@main/lib/host-ipc'
 import type { SessionSummary } from '@gugu/session-core/acp'
+import { isImplicitSessionHomeProjectId } from '@gugu/core/shared/sessionProject'
 import { formatSessionTitleForDisplay } from '@shared/core/sessions/session-title-utils'
 import { sessionViewOfRuntime, type SessionView } from '@shared/core/sessions/sessions'
 
@@ -74,6 +76,8 @@ import { registerRPCRouter } from '@shared/lib/ipc/rpc'
 // this separately bundled module graph. Re-export the setter so the host can
 // install the same gate in this bundle instead of mutating a duplicate module.
 export { setPlatformRecoveryReadyGate } from './core/sessions/platform-recovery-gate'
+export { setSessionAdmissionPreparation } from './core/sessions/session-admission-preparation'
+export { assistantPanelLocal } from './core/app/assistant-panel-local'
 import { registerWebviewAttachPolicy } from '@main/app/webview-policy'
 import { setupPreviewProtocol } from '@main/core/files/preview-protocol'
 import {
@@ -137,6 +141,8 @@ import { resolveAgentSessionProject } from '@main/core/projects/operations/resol
 import { resolveSession, resolveWorkspace } from '@main/core/projects/utils'
 import { deleteSession } from '@main/core/sessions/deleteSession'
 import { getSessions } from '@main/core/sessions/getSessions'
+import { sessionArchivalInventory, sessionArchivalState } from '@main/core/sessions/session-archival'
+export { sessionArchivalState as emdashSessionArchivalState, sessionMessageRefused as emdashSessionMessageRefused } from '@main/core/sessions/session-archival'
 import { mcpLibraryService, planLibraryMcpDelivery } from '@main/core/mcp-library/service'
 import { mcpService } from '@main/core/mcp/services/McpService'
 import type { LibraryMcpServer } from '@shared/mcp-library'
@@ -188,6 +194,7 @@ import { LocalExecutionContext } from '@main/core/execution-context/local-execut
 import { automationsService } from '@main/core/automations/automations-service'
 import { appService } from '@main/core/app/service'
 import { appSettingsService } from '@main/core/settings/settings-service'
+import { settleTerminalEnabled } from '@main/core/settings/terminal-visibility'
 import { browserWebContentsRegistry } from '@main/core/browser/browser-webcontents-registry'
 import { setBrowserCorsRelaxationSettings } from '@main/core/browser/browser-profile-session'
 import { promptLibraryService } from '@main/core/prompt-library/service'
@@ -217,6 +224,7 @@ import { setAgentSessionHost } from '@main/core/sessions/agent-session-controlle
 import { answerAppMessage } from '@main/core/extensions/extension-send'
 import { answerAppReadFile } from '@main/core/extensions/app-files-elsewhere'
 import { answerAppCall } from '@main/core/extensions/app-programs-elsewhere'
+export { spawnAgentForExtension } from '@main/core/extensions/extension-agents'
 export { answerAppMessage, answerAppReadFile, answerAppCall, setAgentSessionHost }
 import { readAcpSessionSummaries } from '@main/core/acp/session-summary-reader'
 import { flushLogWrites, setLogFileOwner } from '@main/lib/file-logger'
@@ -337,15 +345,10 @@ import {
 import { projectManager } from '@main/core/projects/project-manager'
 import { runtimeManager } from '@main/core/runtime/runtime-manager'
 import { appScope } from '@main/app/app-scope'
-// @@@sessionpage TASKPAGE-FUSION otty-state — the consolidated agent-attention tracker (below) taps the
-// agentHookService in-process 'agent:event' hook (NOT the events bus: `events` is a main↔renderer IPC
-// bridge — a main-side events.on only receives renderer→main sends, so it would NEVER see the status
-// events agentHookService emits main→renderer). session:deleted (a real main-internal emitter) prunes.
 import { sessionEvents } from '@main/core/sessions/session-events'
-import { type AgentEvent, type AgentStatus } from '@shared/core/agents/agentEvents'
-import { busyForVersionSwitch, mostUrgentAttention, parseAgentStatusView, type AgentAttention, type AgentStatusView } from '@gugu/core/shared/agentStatus'
+import { type AgentEvent } from '@shared/core/agents/agentEvents'
+import { busyForVersionSwitch, parseAgentStatusView, type AgentStatusView } from '@gugu/core/shared/agentStatus'
 import {
-  sessionInScope,
   type AgentStatusChange,
   type SessionScope,
 } from '@shared/core/sessions/sessionEvents'
@@ -649,6 +652,8 @@ export async function bootSessionHostCore(options: SessionHostBootOptions): Prom
   automationsService.start()
   appService.initialize()
   await appSettingsService.initialize()
+  // 「终端」开关还没定值(升级上来的第一次启动)就按老用户迁移规则算一次写回,渲染层与新会话都读这一份。
+  await settleTerminalEnabled().catch((e) => log.warn('terminal setting: migration failed; it stays off until set', { error: e }))
   if (browserFeatures) {
     browserWebContentsRegistry.setKeyboardSettings(await appSettingsService.get('keyboard'))
   }
@@ -670,11 +675,7 @@ export async function bootSessionHostCore(options: SessionHostBootOptions): Prom
     log.error('Failed to start agent-config runtime process:', e)
   })
   acpAgentStatusBridge.initialize()
-  // @@@sessionpage TASKPAGE-FUSION otty-state — start the consolidated agent-attention tracker so the gugu
-  // host can badge the 任务 sidebar tab with how many agents are blocked on the human. Additive listener on
-  // the already-emitting status channel (must run AFTER agentHookService/acpAgentStatusBridge so the
-  // channel is live). See onEmdashAttentionChanged below.
-  installAttentionTracker()
+  installPlatformCheckpointFeed()
   // #6334 用量页的运行时长底账:同一条 'agent:status' 输出的第二个订阅者,外加每分钟一次与
   // agent_status 列的对账(补上不经过那条事件的状态写入:出生即 working、restart)。
   installRunIntervalRecorder({ agentStatus: agentStatusWriter, sessionEvents })
@@ -2035,6 +2036,7 @@ export async function emdashProjectName(projectId: string): Promise<string | nul
   const project = await getProjectById(projectId)
   return project?.name ?? null
 }
+export async function emdashProjectRoot(projectId: string): Promise<string | null> { return (await getProjectById(projectId))?.path ?? null }
 /** The chat a conversation's agent was born in, taken at its first mint (birth-groups.ts). */
 export async function emdashTakeBirthGroup(sessionId: string): Promise<BirthGroup | null> {
   return (await import('@main/core/sessions/birth-groups')).takeBirthGroup(sessionId)
@@ -2168,21 +2170,23 @@ export async function emdashOpenSessionFile(
 /**
  * @@@sessionpage TASKPAGE-FUSION — the authoritative inventory the gugu host reconciles its social-side
  * projection against (session-page spec ⑨: the session page is the single source of truth; gugu's contacts and
- * groups are a projection of it). `sessionIds` = conversations that still EXIST and are not archived;
+ * groups are a projection of it). `sessionIds` = conversations that still EXIST, including archived;
  * `projectIds` = projects that still exist. The host reaps any session-page agent whose conversation is absent
- * here, and archives the group mirroring any absent project. Conversations reuse `getSessions` — the
- * same query the session-page UI lists from (it already hides archived conversations) — so
- * anything absent here is absent from the product and reaping on absence can never orphan a visible row.
+ * here, and archives the group mirroring any absent project. Visibility and existence are separate:
+ * an archived conversation keeps its identity, name, relationships and group seat.
  */
 export async function emdashSessionpageInventory(): Promise<{
   sessionIds: string[]
   projectIds: string[]
+  archival: NonNullable<ReturnType<typeof sessionArchivalState>>[]
 }> {
+  const archival = sessionArchivalInventory()
   // Detaching folders only hides a project. Its historical group must survive reaping.
-  const [sessionRows, projectRows] = await Promise.all([getSessions(), getProjects({ includeHidden: true })])
+  const projectRows = await getProjects({ includeHidden: true })
   return {
-    sessionIds: sessionRows.map((c) => c.id),
+    sessionIds: archival.map((state) => state.sessionId),
     projectIds: projectRows.map((p) => p.id),
+    archival,
   }
 }
 
@@ -2190,8 +2194,8 @@ export async function emdashSessionpageInventory(): Promise<{
  * @@@sessionpage TASKPAGE-FUSION — fires whenever something MAY have removed conversations, so the gugu
  * host can re-reconcile its projection (spec ⑨ 删除必同步). Deliberately a coarse "something changed"
  * trigger rather than per-entity delete events: project deletes cascade their conversation rows away WITHOUT
- * emitting `session:deleted` per child — so any per-entity wiring would silently miss cases. Only
- * `session:archived` / `session:deleted` NAME a dead session; `session:torn-down` (archive, delete,
+ * emitting `session:deleted` per child — so any per-entity wiring would silently miss cases.
+ * Only `session:deleted` names a dead session; `session:archived` retains its identity. `session:torn-down` (archive, delete,
  * project dispose on app quit, plain detach) is a bare reconcile — a teardown stops runtimes, it does not end
  * the session. Returns an unsubscribe fn.
  */
@@ -2222,12 +2226,13 @@ export function onEmdashSessionpageReapTrigger(
       cb('session:deleted', { deadSessionId: sessionId }))
   )
   sub('session:archived', () =>
-    sessionEvents.on('session:archived', (sessionId) =>
-      cb('session:archived', { deadSessionId: sessionId }))
+    sessionEvents.on('session:archived', () =>
+      cb('session:archived'))
   )
+  sub('session:created', () => sessionEvents.on('session:created', () => cb('session:created')))
   sub('project:deleted', () => projectEvents.on('project:deleted', () => cb('project:deleted')))
   // 拆除只说「运行时停了」,不说「会话没了」:应用退出时项目按 `tmux ? 'detach' : 'terminate'` 拆每个挂载,
-  // 那些会话都还在。会话死亡的写入者是上面的 session:archived / session:deleted(行操作之后才发);
+  // 那些会话都还在。只有上面的 session:deleted 能点名会话死亡(行操作之后才发);
   // 这里只触发一轮普通对账,由 inventory 判断(#6168:点名死亡曾让每次退出应用都回收掉 TUI agent)。
   sub('session:torn-down', () =>
     sessionWorkspaceManager.hooks.on('session:torn-down', () => cb('session:torn-down'))
@@ -2237,56 +2242,17 @@ export function onEmdashSessionpageReapTrigger(
   }
 }
 
-// @@@sessionpage TASKPAGE-FUSION otty-state — CONSOLIDATED agent attention for the gugu host shell.
-// The session page already renders per-conversation status dots (AgentStatusIndicator). otty adds an
-// at-a-glance signal on gugu's 消息 rail cell (gugu-dev#181: amber while someone waits on you, red only when
-// the only trouble is an error), so a blocked/errored agent is visible
-// WITHOUT opening the session page — the core value of an agent status monitor. "Needs attention" = an agent
-// BLOCKED on the human: needs_user or error. working/idle are NOT attention.
-//
-// Source of truth = the SAME derived per-conversation AgentStatus the renderer badge consumes: the
-// agentHookService derives it from ACP session-summary transitions (via acpAgentStatusBridge) + CLI hook
-// events, and emits `sessionAgentStatusChanged`. We keep a main-side map and push the most urgent one to
-// subscribers. Purely additive — no session-backend-internal edit, a plain listener on the existing channel
-// (owner #43: the host reaches the session backend only through exported entries; this is the session
-// backend reporting an aggregate OUT, unaware of what the host does with it). Fail-loud stays intact: this only OBSERVES status.
-const attentionStatusBySession = new Map<
-  string,
-  { status: AgentStatus; projectId: string }
->()
-const attentionSubscribers = new Set<(attention: AgentAttention) => void>()
-
-// Verbose tracker tracing — ON only under the e2e/diagnostic env gate (same flag that exposes the test
-// hook). Silent in production so the main-process log isn't spammed on every agent status change.
-const OTTY_DEBUG = process.env.GUGU_SESSION_TEST_HOOKS === '1'
-
-function computeAttention(): AgentAttention {
-  return mostUrgentAttention([...attentionStatusBySession.values()].map(({ status }) => status))
-}
-
-function notifyAttentionSubscribers(): void {
-  const attention = computeAttention()
-  if (OTTY_DEBUG) console.log(`[otty-tracker] attention=${attention} (subscribers=${attentionSubscribers.size})`)
-  for (const cb of attentionSubscribers) {
-    try {
-      cb(attention)
-    } catch (err) {
-      log.warn('session-page attention subscriber threw', { error: String(err) })
-    }
-  }
-}
-
 let extensionAgentFeedInstalled = false
 /**
  * Feeds「这个 agent 动了」to open extension surfaces.
  *
- * Every event type is forwarded, not just the ones the attention tracker keeps:
+ * Every event type is forwarded:
  * an extension asked to be told when agents change state, and「开始生成」is a
  * change even though nobody is blocked on a human. The bridge coalesces the
  * burst and filters by each surface's declared scope, so forwarding freely here
  * is cheap and is the only place that cannot wrongly narrow the answer.
  *
- * Same channel warning as `installAttentionTracker`: ❌ events.on(...) —— 那条是
+ * Channel warning: ❌ events.on(...) —— 那条是
  * main→renderer 单向发的,main 侧监听器永不触发。
  */
 function installExtensionAgentChangeFeed(): void {
@@ -2307,47 +2273,14 @@ function installExtensionAgentChangeFeed(): void {
   // 装上一个不响的铃比没有铃更糟。
 }
 
-let attentionListenersInstalled = false
-function installAttentionTracker(): void {
-  if (attentionListenersInstalled) return
-  attentionListenersInstalled = true
-  // Tap the in-process hook, NOT events.on(sessionAgentStatusChangedChannel): that channel is emitted
-  // main→renderer, and the main-side events bus only delivers renderer→main — a main-side listener on it
-  // never fires. The 'agent:event' hook is the in-process source both the ACP bridge and PTY hooks feed.
+let platformCheckpointFeedInstalled = false
+function installPlatformCheckpointFeed(): void {
+  if (platformCheckpointFeedInstalled) return
+  platformCheckpointFeedInstalled = true
   agentHookService.on('agent:event', (event) => {
     if (event.type === 'stop' || event.type === 'error') {
       void checkpointEmdashPlatformSession(event.sessionId)
     }
-  })
-  agentStatusWriter.on('agent:status', ({ sessionId, projectId, reading }) => {
-    // @@@otty-debug — trace the written status so an e2e can confirm the real pipeline reaches the
-    // attention tracker. Gated behind OTTY_DEBUG so it's silent in production.
-    if (OTTY_DEBUG) console.log(`[otty-tracker] status=${reading.status} conv=${sessionId.slice(0, 8)}`)
-    attentionStatusBySession.set(sessionId, { status: reading.status, projectId })
-    notifyAttentionSubscribers()
-  })
-  // 开机收残不清 `error`,角标从写入者的快照起算;已经被事件写过的会话以事件为准。
-  void agentStatusWriter
-    .snapshot()
-    .then((entries) => {
-      let changed = false
-      for (const { sessionId, projectId, reading } of entries) {
-        if (!reading || attentionStatusBySession.has(sessionId)) continue
-        attentionStatusBySession.set(sessionId, { status: reading.status, projectId })
-        changed = true
-      }
-      if (changed) notifyAttentionSubscribers()
-    })
-    .catch((err: unknown) => log.warn('session-page attention snapshot failed', { error: String(err) }))
-  // Prune removed conversations so one removed while still in an attention state can't leave a stale count.
-  onSessionsGone((scope) => {
-    let changed = false
-    for (const [sessionId, entry] of [...attentionStatusBySession]) {
-      if (!sessionInScope({ sessionId, ...entry }, scope)) continue
-      attentionStatusBySession.delete(sessionId)
-      changed = true
-    }
-    if (changed) notifyAttentionSubscribers()
   })
 }
 
@@ -2366,7 +2299,7 @@ export function agentStatusSnapshot(): Promise<AgentStatusChange[]> {
 
 const sessionsGoneSubscribers = new Set<(scope: SessionScope) => void>()
 
-/** 会话不在了(删除、归档、随任务 / 项目一起走)。写入者、注意力计数与宿主按 agent 的流都据此回收。 */
+/** 会话不在了(删除、归档、随任务 / 项目一起走)。写入者与宿主按 agent 的流都据此回收。 */
 export function onSessionsGone(cb: (scope: SessionScope) => void): () => void {
   sessionsGoneSubscribers.add(cb)
   return () => {
@@ -2410,14 +2343,6 @@ function installSessionsGoneFeed(): void {
   )
 }
 
-export function onEmdashAttentionChanged(cb: (attention: AgentAttention) => void): () => void {
-  attentionSubscribers.add(cb)
-  cb(computeAttention())
-  return () => {
-    attentionSubscribers.delete(cb)
-  }
-}
-
 /**
  * TEST-ONLY (host exposes it env-gated behind GUGU_SESSION_TEST_HOOKS). Feed a REAL AgentEvent into the
  * REAL agentHookService pipeline for a REAL conversation — the exact call the ACP status bridge and the
@@ -2433,22 +2358,6 @@ export function emitSessionpageAgentEventForTest(event: AgentEvent): void {
 /** Host bridge for provider lifecycle sources that do not pass through the CLI hook server. */
 export function emitSessionpageAgentEvent(event: AgentEvent): void {
   agentHookService.emitProviderLifecycleEvent(event, isAppFocused())
-}
-
-/** Feed a terminal agent.deliver failure back through the canonical session-page status event path. */
-export async function emitSessionpageAgentFailure(sessionId: string): Promise<void> {
-  const session = (await getSessions()).find((row) => row.id === sessionId)
-  if (!session) {
-    throw new Error(`[sessionpage-activity] cannot settle missing session ${sessionId}`)
-  }
-  emitSessionpageAgentEvent({
-    type: 'error',
-    providerId: session.providerId,
-    projectId: session.projectId,
-    sessionId: session.id,
-    timestamp: Date.now(),
-    payload: {},
-  })
 }
 
 /**
@@ -2469,6 +2378,7 @@ export async function emdashSessionSummaries(): Promise<SessionSummary[]> {
  */
 export async function emdashSessionpageSessionFacts(): Promise<Array<{
   sessionId: string
+  projectId: string
   title: string
   projectName: string
   status: AgentStatusView | null
@@ -2479,8 +2389,9 @@ export async function emdashSessionpageSessionFacts(): Promise<Array<{
   const projectName = new Map(projectRows.map((project) => [project.id, project.name]))
   return rows.map((session) => ({
     sessionId: session.id,
+    projectId: session.projectId,
     title: formatSessionTitleForDisplay(session.providerId, session.title),
-    projectName: projectName.get(session.projectId) ?? '',
+    projectName: isImplicitSessionHomeProjectId(session.projectId) ? '' : projectName.get(session.projectId) ?? '',
     // 行 → Conversation 的映射器总是写这两格(`mapSessionRowToSession`);类型上可选只因渲染侧的乐观对象。
     status: session.agentStatus
       ? { status: session.agentStatus, detail: session.agentStatusDetail ?? null }
@@ -2542,7 +2453,7 @@ export function sessionpageSessionDigest(): Array<{
     .map((session) => ({
       conversationId: session.conversationId,
       projectId: session.projectId,
-      projectName: projectName.get(session.projectId) ?? '',
+      projectName: isImplicitSessionHomeProjectId(session.projectId) ? '' : projectName.get(session.projectId) ?? '',
       title: session.title,
       harness: session.harness,
       agentStatus: session.agentStatus,
@@ -2582,16 +2493,23 @@ function refreshDigestAgents(): void {
 /**
  * #6264 server 换版时这台机器(这个账号)算不算忙 —— 写进 activity.json 的 busy,守护进程据此决定现在换还是等空闲。
  * 只数账号进程一重启就会被打断的会话(`busyForVersionSwitch`,「会不会被打断」读 `sessionProcess(id).home`);
- * tmux 里的终端会话换版后照名字接回,不拦换版。本机读数,❌ 进云端摘要:读者只有本机守护进程。
+ * tmux 里的终端会话换版后照名字接回,不拦换版。未结束的集成授权同样会被重启打断,也计入 activity.json。
+ * 本机读数,❌ 进云端摘要。
  */
 export function sessionpageBusyForVersionSwitch(): boolean {
-  return listSessionStates().sessions.some((session) =>
+  return integrationConnectionService.hasPendingAuthorizations() || listSessionStates().sessions.some((session) =>
     busyForVersionSwitch(
       parseAgentStatusView(session.status ?? null),
       session.runtime,
       sessionProcess(session.conversationId)?.home ?? null,
     ),
   )
+}
+
+/** Refresh the account heartbeat at authorization boundaries, without waiting
+ * for the periodic report. The connection service belongs to this bundle. */
+export function onSessionpageAuthorizationActivityChange(listener: () => void): () => void {
+  return integrationConnectionService.onAuthorizationActivityChange(listener)
 }
 
 /**
@@ -2601,3 +2519,5 @@ export function sessionpageBusyForVersionSwitch(): boolean {
 export function setSessionpageLogFileOwner(ownerUserId: string | null): string | undefined {
   return setLogFileOwner(ownerUserId)
 }
+
+export {readAssistantWorkReceipts} from '@main/core/session-timeline/task-exchanges'

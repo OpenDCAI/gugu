@@ -1,7 +1,7 @@
 import { activitySignal } from '../activity/signals';
 import { randomUUID } from 'node:crypto';
 import { Cron } from 'croner';
-import { and, asc, desc, eq, inArray, isNotNull, isNull, or, sql } from 'drizzle-orm';
+import { and, asc, desc, eq, inArray, isNotNull, isNull, notInArray, or, sql } from 'drizzle-orm';
 import { getPlugin, isValidProviderId } from '@main/core/agents/plugin-registry';
 import { generateRandom } from '@main/core/sessions/name-generation/generateSessionName';
 import { db } from '@main/db/client';
@@ -661,6 +661,27 @@ export async function ensureNextCronRun(
  */
 const hasProjectOrAgent = sql`(${automations.projectId} IS NOT NULL OR ${automations.agentSessionId} IS NOT NULL)`;
 
+/**
+ * 还没到点的排程里最早的那一刻(`now` 之后),调度器据此在整分钟扫描之外准点醒一次;条件与 `markDueCronRunsQueued` 同一套。
+ */
+export async function nextScheduledRunAt(now = Date.now()): Promise<number | null> {
+  const [row] = await db
+    .select({ at: sql<number | null>`min(${automationRuns.scheduledAt})` })
+    .from(automationRuns)
+    .innerJoin(automations, eq(automationRuns.automationId, automations.id))
+    .where(
+      and(
+        eq(automationRuns.status, 'scheduled'),
+        eq(automationRuns.triggerKind, 'cron'),
+        sql`${automationRuns.scheduledAt} > ${now}`,
+        eq(automations.enabled, 1),
+        hasProjectOrAgent,
+        isNull(automations.deletedAt)
+      )
+    );
+  return row?.at ?? null;
+}
+
 export async function markDueCronRunsQueued(
   now = Date.now()
 ): Promise<Array<{ run: AutomationRun; automation: Automation }>> {
@@ -777,7 +798,7 @@ export async function scheduleAutomationRun(input: {
   return run ?? null;
 }
 
-export async function listQueuedRuns(limit = 100): Promise<
+export async function listQueuedRuns(limit = 100, blockedSessions: readonly string[] = [], attemptedRuns: readonly string[] = []): Promise<
   Array<{
     run: AutomationRun;
     automation: Automation;
@@ -790,7 +811,9 @@ export async function listQueuedRuns(limit = 100): Promise<
     .where(
       and(
         eq(automationRuns.status, 'queued'),
+        attemptedRuns.length ? notInArray(automationRuns.id,[...attemptedRuns]) : undefined,
         eq(automations.enabled, 1),
+        blockedSessions.length ? or(isNull(automations.agentSessionId),notInArray(automations.agentSessionId,[...blockedSessions])) : undefined,
         isNull(automations.deletedAt)
       )
     )
@@ -810,7 +833,7 @@ export async function startCreatingSession(
 ): Promise<AutomationRun | null> {
   const [run] = writeRuns(now, () => db.all<AutomationRunRow>(sql`
     UPDATE automation_runs
-    SET status = 'creating_session', started_at = ${now}
+    SET status = 'creating_session', started_at = COALESCE(started_at, ${now})
     WHERE id = ${id}
       AND status = 'queued'
     RETURNING

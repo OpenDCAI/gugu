@@ -1,4 +1,6 @@
+import { messageForUser } from '@/lib/userFacingError';
 import { followLink } from '../../lib/guguLinks'
+import type { AppDetailLink } from '@gugu/core/shared/ui/guguLink'
 import { useEffect, useRef, useState } from 'react'
 import { observer } from 'mobx-react-lite'
 import { QueryClientProvider, useQuery, useQueryClient } from '@tanstack/react-query'
@@ -7,7 +9,6 @@ import { rendererLogger } from '@/lib/log'
 import { useTheme } from '@/store/theme'
 import { sessionSkinClassName } from '../sessionpage/sessionSkin'
 import { queryClient } from '@/session/renderer/lib/query-client'
-import { translateSessionMessage } from '@/session/renderer/localization/locale-store'
 import { useSessionMessages } from '@/session/renderer/localization/use-session-messages'
 import { AppMarketContent, type MarketBrowsePage } from '@/session/renderer/features/extensions/panel/app-market-content'
 import { AppProductPage } from '@/session/renderer/features/extensions/panel/app-product-page'
@@ -36,11 +37,11 @@ const MARKET_KEY = ['phone-app-market']
 const log = rendererLogger('settings/mobile-apps')
 
 /** The phone supplies storage and actions; browsing and product pages are the desktop's components. */
-export function MobileAppsSection() {
-  return <QueryClientProvider client={queryClient}><MobileAppsContent /></QueryClientProvider>
+export function MobileAppsSection({ appDetail }: { appDetail?: AppDetailLink }) {
+  return <QueryClientProvider client={queryClient}><MobileAppsContent appDetail={appDetail} /></QueryClientProvider>
 }
 
-const MobileAppsContent = observer(function MobileAppsContent() {
+const MobileAppsContent = observer(function MobileAppsContent({ appDetail }: { appDetail?: AppDetailLink }) {
   const { translate, locale } = useSessionMessages()
   const { theme } = useTheme()
   const skin = sessionSkinClassName(theme)
@@ -53,23 +54,32 @@ const MobileAppsContent = observer(function MobileAppsContent() {
   const [detail, setDetail] = useState<MarketListItem | null>(null)
   const [pending, setPending] = useState<Record<string, ExtensionPendingAction>>({})
   const inFlight = useRef(false)
-  const [failed, setFailed] = useState<string | null>(null)
+  const [failed, setFailed] = useState<{ title: string; cause: string } | null>(null)
   const [layer, setLayer] = useState<HTMLDivElement | null>(null)
+  const openedLink = useRef<AppDetailLink | undefined>(undefined)
+  useEffect(() => {
+    if (!appDetail || !catalog.data || openedLink.current === appDetail) return
+    openedLink.current = appDetail
+    const item = phoneMarketRows(catalog.data.entries, '').find(item => item.manifest.id === appDetail.extensionId)
+    if (item) setDetail(item)
+    else setFailed({ title: translate('extensions.marketUnavailable'), cause: appDetail.extensionId })
+  }, [appDetail, catalog.data, translate])
+
   const sentinel = useRef<HTMLDivElement | null>(null)
   const rows = phoneMarketRows(catalog.data?.entries ?? [], query.trim())
   const hasMore = pages * MARKET_PAGE_SIZE < rows.length
 
   useEffect(() => {
     void phoneApps.ready().catch((error: unknown) => {
-      log.warn({ error: String(error) }, 'Phone Apps unreadable')
-      setFailed(translateSessionMessage('extensions.loadFailed'))
+      log.error({ error: String(error) }, 'Phone Apps unreadable')
+      setFailed({ title: translate('extensions.loadFailed'), cause: messageForUser(error) })
     })
     const off = phoneApps.market.onRefreshed((result) => {
       if (result.outcome === 'changed') void client.invalidateQueries({ queryKey: MARKET_KEY })
     })
     void phoneApps.market.refresh()
     return off
-  }, [client])
+  }, [client, translate])
 
   useEffect(() => {
     const node = sentinel.current
@@ -95,15 +105,16 @@ const MobileAppsContent = observer(function MobileAppsContent() {
     inFlight.current = true
     setPending(action ? { [id]: action } : {})
     setFailed(null)
+    const title = translate(action ? 'extensions.installFailed' : 'extensions.switchFailed')
     try {
       const result = await run()
       if (!result.success) {
-        log.warn({ id, error: result.error }, 'Phone App action failed')
-        setFailed(translate('extensions.installFailed'))
+        log.error({ id, error: result.error }, 'Phone App action failed')
+        setFailed({ title, cause: messageForUser(result.error) })
       }
     } catch (error) {
-      log.warn({ id, error: String(error) }, 'Phone App action failed')
-      setFailed(translate('extensions.installFailed'))
+      log.error({ id, error: String(error) }, 'Phone App action failed')
+      setFailed({ title, cause: messageForUser(error) })
     } finally {
       inFlight.current = false
       setPending({})
@@ -121,7 +132,7 @@ const MobileAppsContent = observer(function MobileAppsContent() {
       if (kind) void followLink({ kind: 'app', extensionId: item.manifest.id, tab: kind.slice(item.manifest.id.length + 1), path: '', query: {}, place: null })
     }
   }
-  const error = failed ? <SettingsNote tone="danger" role="alert">{failed}</SettingsNote> : null
+  const error = failed ? <SettingsNote tone="danger" role="alert">{failed.title}<br />{failed.cause}</SettingsNote> : null
   const installed = detail ? store.manifests.find((manifest) => manifest.id === detail.manifest.id) : undefined
 
   return (

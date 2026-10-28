@@ -10,6 +10,9 @@
  * 每条判据都带必失败对照(变异构造为显式测试用例,红以「断言变异后必然出现坏结果」的形式常驻)。
  */
 import { mkdtempSync, rmSync } from 'node:fs'
+import { readFile } from 'node:fs/promises'
+import { createNodeFileResolver, saveFileHandle } from '@gugu/core/local/files/fileSnapshots'
+import { createHash } from 'node:crypto'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
@@ -27,11 +30,15 @@ import {
   unreadRowFromRpc,
   combineCoalescedPulls,
   isSaidInChat,
+  agentSpokeAfterViaRpc,
   postDeliveryDisclosureRow,
 } from '@gugu/core/local/agent/agentInboxReader'
 import { resolveListenModeDefault } from '@gugu/core/cloud/listenMode'
 import { memoryGroupRulesLedger } from '@gugu/core/local/agent/groupRulesDelivery'
 import { readDeliveryEnvelope } from '@gugu/core/local/agent/deliveryEnvelope'
+import { parseSystemNotice } from '@gugu/core/shared/ui/systemNotice'
+import { storedMessageLink } from '@gugu/core/shared/ui/guguLink'
+import type { SessionArchivalState } from '@gugu/core/shared/sessionArchival'
 
 const AGENT = 'agent-0000-0000-0000-000000000001'
 const HUMAN = 'human-0000-0000-0000-000000000002'
@@ -188,6 +195,7 @@ function makeDeps(
   const deps: AgentInboxReaderDeps = {
     accessToken: 'owner-token',
     fetchChatFacts: async () => null,
+    agentSpokeAfter: async () => false,
     groupRulesLedger: memoryGroupRulesLedger(),
     inject: async (input) => {
       injections.push({ messageId: input.messageId, text: input.text, attachments: input.attachments })
@@ -216,6 +224,63 @@ function assertPerMessageAttribution(text: string, ids: string[]): void {
     }
   }
 }
+
+describe('archived session admission', () => {
+  const chat = '00000000-0000-4000-8000-000000000074'
+  const start = '2026-10-28T09:00:00Z'
+  const end = '2026-10-28T09:01:00Z'
+  const restored: SessionArchivalState = { sessionId: 's', revision: 2, archivedAt: null,
+    intervals: [{ id: 'interval', archivedAt: start, restoredAt: end }] }
+  const row = (seq: number, at: string): CloudRow => ({ chatId: chat,
+    id: `10000000-0000-4000-8000-${String(seq).padStart(12, '0')}`, seq,
+    senderUserId: HUMAN, senderType: 'human', content: `Archive marker ${seq}`, createdAt: at })
+  const cloudForArchive = () => { const cloud = new FakeCloud(); cloud.addChat(chat, 'dm'); cloud.join(chat, AGENT); return cloud }
+
+  it('does not pull, inject, mark read or wake an archived recipient', async () => {
+    const cloud = cloudForArchive(); cloud.post(row(1, start))
+    const fetchUnread = vi.fn(cloud.fetchUnread)
+    const { deps, injections, wakes } = makeDeps(cloud, { fetchUnread, sessionArchival: () => ({ ...restored, archivedAt: start }) })
+    expect(await pullAgentInbox(AGENT, deps)).toMatchObject({ injected: 0, verdict: 'not-now' })
+    expect(fetchUnread).not.toHaveBeenCalled(); expect(injections).toEqual([]); expect(wakes).toEqual([]); expect(cloud.markReadCalls).toEqual([])
+  })
+
+  it('scans an entirely suppressed page and admits the new message after it without fake read receipts', async () => {
+    const cloud = cloudForArchive()
+    for (let seq = 1; seq <= 160; seq++) cloud.post(row(seq, start))
+    cloud.post(row(161, end))
+    const { deps, injections, wakes } = makeDeps(cloud, { sessionArchival: () => restored })
+    expect(await pullAgentInbox(AGENT, deps)).toMatchObject({ pulled: 161, injected: 1 })
+    expect(injections.map((input) => input.messageId)).toEqual([row(161, end).id])
+    expect(cloud.markReadCalls).toEqual([{ chatId: chat, messageId: row(161, end).id }])
+    expect(wakes).toEqual([])
+  })
+
+  it('rechecks an archive committed while message preparation was in flight', async () => {
+    const cloud = cloudForArchive(); cloud.addChat(chat, 'group'); cloud.post(row(1, end))
+    let state = restored
+    const { deps, injections, wakes } = makeDeps(cloud, { sessionArchival: () => state,
+      fetchChatFacts: async () => { state = { ...restored, archivedAt: '2026-10-28T09:02:00Z' }; return null } })
+    expect(await pullAgentInbox(AGENT, deps)).toMatchObject({ injected: 0, verdict: 'not-now' })
+    expect(injections).toEqual([]); expect(wakes).toEqual([]); expect(cloud.markReadCalls).toEqual([])
+  })
+
+  it('honors a persisted refusal ID when the repeated envelope has a different timestamp', async () => {
+    const cloud = cloudForArchive(); cloud.post(row(1, end)); cloud.post(row(2, end))
+    const sessionMessageRefused = vi.fn(async (_agent: string, id: string) => id === row(1, end).id)
+    const { deps, injections } = makeDeps(cloud, { sessionArchival: () => ({ ...restored, intervals: [] }), sessionMessageRefused })
+    expect(await pullAgentInbox(AGENT, deps)).toMatchObject({ pulled: 2, injected: 1 })
+    expect(injections.map((entry) => entry.messageId)).toEqual([row(2, end).id])
+    expect(cloud.markReadCalls).toEqual([{ chatId: chat, messageId: row(2, end).id }])
+    expect(sessionMessageRefused).toHaveBeenCalledWith(AGENT, row(1, end).id, end)
+  })
+
+  it('admits a new session normally when it has no archive intervals', async () => {
+    const cloud = cloudForArchive(); cloud.post(row(1, start))
+    const { deps, injections } = makeDeps(cloud, { sessionArchival: () => ({ ...restored, revision: 0, intervals: [] }) })
+    expect(await pullAgentInbox(AGENT, deps)).toMatchObject({ injected: 1 })
+    expect(injections).toHaveLength(1)
+  })
+})
 
 beforeEach(() => {
   resetAgentInboxReaderStateForTests()
@@ -566,6 +631,44 @@ describe('P-E4 离线追赶:未读行逐条受理,由队列 drain 合批', () =>
     expect(injections).toHaveLength(3)
   })
 
+  it('a row no host can deliver is skipped on its own: the rest is delivered and the cursor passes it', async () => {
+    const chat = '00000000-0000-4000-8000-000000000003'
+    const cloud = new FakeCloud()
+    cloud.addChat(chat, 'group')
+    cloud.join(chat, AGENT, { listenMode: 'active' })
+    cloud.join(chat, HUMAN)
+    cloud.post({ chatId: chat, id: '10000000-0000-4000-8000-00000000000f', seq: 1, senderUserId: HUMAN, senderType: 'human', content: 'before' })
+    // An id that is already typed cannot be encoded into an envelope: every host refuses it, on every pull.
+    cloud.post({ chatId: chat, id: 'msg:20000000-0000-4000-8000-000000000001', seq: 2, senderUserId: OTHER_AGENT, senderType: 'agent', content: 'Agent 本次回复出错，未能完成' })
+    cloud.post({ chatId: chat, id: '10000000-0000-4000-8000-000000000010', seq: 3, senderUserId: HUMAN, senderType: 'human', content: 'after' })
+    const disclosed: unknown[] = []
+    const { deps, injections, outcomes } = makeDeps(cloud, { postDisclosure: async (row) => { disclosed.push(row) } })
+
+    const result = await pullAgentInbox(AGENT, deps)
+
+    expect(result).toMatchObject({ injected: 2, verdict: 'accepted' })
+    expect(injections.map((injection) => injection.messageId)).toEqual(['10000000-0000-4000-8000-00000000000f', '10000000-0000-4000-8000-000000000010'])
+    expect(cloud.watermark(chat, AGENT)).toBe(3)
+    expect(disclosed).toEqual([])
+    expect(outcomes.every((outcome) => outcome.ok)).toBe(true)
+    // The next pull no longer sees it: it does not fail every later delivery to this agent.
+    expect(await pullAgentInbox(AGENT, deps)).toMatchObject({ injected: 0, verdict: 'idle' })
+  })
+
+  it('a batch of only undeliverable rows injects nothing and still moves the cursor past them', async () => {
+    const chat = '00000000-0000-4000-8000-000000000003'
+    const cloud = new FakeCloud()
+    cloud.addChat(chat, 'group')
+    cloud.join(chat, AGENT, { listenMode: 'active' })
+    cloud.join(chat, HUMAN)
+    cloud.post({ chatId: chat, id: 'msg:20000000-0000-4000-8000-000000000001', seq: 1, senderUserId: OTHER_AGENT, senderType: 'agent', content: 'notice' })
+    const { deps, injections } = makeDeps(cloud)
+
+    expect(await pullAgentInbox(AGENT, deps)).toMatchObject({ injected: 0, verdict: 'accepted' })
+    expect(injections).toEqual([])
+    expect(cloud.watermark(chat, AGENT)).toBe(1)
+  })
+
   it('inbox entries are admitted one by one while attachments remain solo', async () => {
     const cloud = new FakeCloud()
     cloud.addChat('00000000-0000-4000-8000-000000000005', 'group')
@@ -609,7 +712,7 @@ describe('P-E4 离线追赶:未读行逐条受理,由队列 drain 合批', () =>
       },
     })
     await expect(pullAgentInbox(AGENT, deps)).resolves.toMatchObject({ pulled: 3, injected: 3 })
-    expect(asked).toEqual([{ kind: 'item', itemId: 'item-2', version: 4 }, { kind: 'message', messageId: '10000000-0000-4000-8000-00000000000c' }])
+    expect(asked).toEqual([{ message_id: '10000000-0000-4000-8000-00000000000b' }, { message_id: '10000000-0000-4000-8000-00000000000c' }])
     expect(injections.map((entry) => entry.attachments?.length ?? 0)).toEqual([1, 0, 1])
     expect(injections[1]!.text).toContain('[附件] two.png (image/png)')
     expect(injections[0]!.text).toContain('[Folder file gugu-file://item-2?v=4')
@@ -617,8 +720,8 @@ describe('P-E4 离线追赶:未读行逐条受理,由队列 drain 合批', () =>
   })
 
   // 新式附件的文件(不是图,比如 App 包):正文里没有链接,字节和图片一样下到本机、正文后面交本地路径;
-  // 老式的正文里有 [URL],照旧不下;条目删了只交正文。
-  it('new-style file: saved locally and the text says where; an old file keeps its [URL]; a deleted file delivers the text alone', async () => {
+  // Legacy pointers use the same signed resolver; without verified private metadata they fail closed. Deleted items stay text-only.
+  it('saves the current file, refuses an unverified legacy pointer without fetching its public URL, and keeps deleted files text-only', async () => {
     const cloud = new FakeCloud()
     cloud.addChat('00000000-0000-4000-8000-000000000008', 'group')
     cloud.join('00000000-0000-4000-8000-000000000008', AGENT, { listenMode: 'active' })
@@ -631,11 +734,12 @@ describe('P-E4 离线追赶:未读行逐条受理,由队列 drain 合批', () =>
     const { deps, injections } = makeDeps(cloud, {
       downloadAttachment: async (source) => {
         asked.push(source)
+        if ('message_id' in source && source.message_id === '10000000-0000-4000-8000-000000000006') throw new Error('Legacy file requires verified private metadata')
         return { bytes: Uint8Array.from([1, 2]), localPath: '/tmp/gugu-home/chat-media/abc-poll-0.1.0.guguext' }
       },
     })
     await expect(pullAgentInbox(AGENT, deps)).resolves.toMatchObject({ pulled: 3 })
-    expect(asked).toEqual([{ kind: 'item', itemId: 'item-7', version: 1 }])
+    expect(asked).toEqual([{ message_id: '10000000-0000-4000-8000-000000000005' }, { message_id: '10000000-0000-4000-8000-000000000006' }])
     const text = injections.map((entry) => entry.text).join('\n')
     expect(text).toContain('[附件] poll-0.1.0.guguext (application/vnd.gugu.extension+zip)')
     expect(text).toContain('[File saved at local path: /tmp/gugu-home/chat-media/abc-poll-0.1.0.guguext]')
@@ -644,6 +748,7 @@ describe('P-E4 离线追赶:未读行逐条受理,由队列 drain 合批', () =>
     expect(text).toContain('[Folder file gugu-file://item-7?v=1 — show it again: message_send_file {file: "gugu-file://item-7?v=1"}')
     expect(text.match(/\[Folder file /g)).toHaveLength(1)
     expect(text).toContain('[URL] https://example.test/a.pdf')
+    expect(text).toContain('[File not saved: Legacy file requires verified private metadata]')
     expect(injections.every((entry) => !entry.attachments)).toBe(true)
   })
 
@@ -668,16 +773,16 @@ describe('P-E4 离线追赶:未读行逐条受理,由队列 drain 合批', () =>
   })
 
   // #7290 复核 X2:签链接以 agent 自己的身份(`as` = agent),不是令牌的主人 —— 主人读得到的,agent 不一定读得到。
-  it('signs a new-style image as the agent (attachments/urls gets as = the agent), not as the owner', async () => {
+  it('exports the verified image through the canonical resolver as this inbox agent, never its owner', async () => {
     vi.stubEnv('GUGU_SUPABASE_URL', 'https://db.example.test')
     vi.stubEnv('GUGU_SUPABASE_ANON_KEY', 'anon')
     const home = mkdtempSync(join(tmpdir(), 'gugu-inbox-as-agent-'))
     const asked: Array<{ url: string; body: unknown }> = []
     vi.stubGlobal('fetch', async (url: string, init?: RequestInit) => {
       asked.push({ url, body: init?.body ? JSON.parse(String(init.body)) : null })
-      if (url.endsWith('/functions/v1/attachments/urls')) {
-        return new Response(JSON.stringify({ urls: [{ item_id: 'item-2', version: 4, url: 'https://cdn.example.test/two.png?auth_key=1', thumb_url: null, sha256: null, width: null, height: null, expires_at: '2999-01-01T00:00:00Z' }] }))
-      }
+      const revision = { status: 'ready', source: 'managed-object', file_name: 'two.png', content_type: 'image/png', sha256: createHash('sha256').update(new Uint8Array([1, 2, 3])).digest('hex'), size_bytes: 3 }
+      if (url.endsWith('/file-resolve')) return Response.json(revision)
+      if (url.endsWith('/file-download')) return Response.json({ ...revision, download_id: 'download', url: 'https://cdn.example.test/two.png?auth_key=1' })
       return new Response(new Uint8Array([1, 2, 3]))
     })
     try {
@@ -686,10 +791,18 @@ describe('P-E4 离线追赶:未读行逐条受理,由队列 drain 合批', () =>
       cloud.join('00000000-0000-4000-8000-000000000004', AGENT, { listenMode: 'active' })
       cloud.join('00000000-0000-4000-8000-000000000004', HUMAN)
       cloud.post({ chatId: '00000000-0000-4000-8000-000000000004', id: '10000000-0000-4000-8000-000000000009', seq: 1, senderUserId: HUMAN, senderType: 'human', content: '[附件] two.png (image/png)\n[Size] 3\n[Kind] image', fileItemId: 'item-2', fileVersion: 4 })
-      const { deps, injections } = makeDeps(cloud, { env: { GUGU_HOME: home } })
+      const resolve = createNodeFileResolver(join(home, 'cache'), async () => ({ supabaseUrl: 'https://db.example.test', anonKey: 'anon', token: 'owner-token' }))
+      const { deps, injections } = makeDeps(cloud, { env: { GUGU_HOME: home }, downloadAttachment: async (ref, name, actorId) => {
+        const file = await resolve(ref, { accountId: HUMAN, actorId })
+        if (file.status !== 'ready') throw Error('Expected image')
+        const saved = await saveFileHandle(file, join(home, 'chat-media'), name)
+        return { bytes: await readFile(saved.file_path), localPath: saved.file_path }
+      } })
       await expect(pullAgentInbox(AGENT, deps)).resolves.toMatchObject({ pulled: 1, injected: 1 })
-      expect(asked.map((one) => one.url)).toEqual(['https://db.example.test/functions/v1/attachments/urls', 'https://cdn.example.test/two.png?auth_key=1'])
-      expect(asked[0]!.body).toEqual({ refs: [{ item_id: 'item-2', version: 4 }], as: AGENT })
+      expect(asked.map((one) => one.url)).toEqual(['https://db.example.test/functions/v1/attachments/file-resolve', 'https://db.example.test/functions/v1/attachments/file-download', 'https://cdn.example.test/two.png?auth_key=1', 'https://db.example.test/functions/v1/attachments/file-resolve'])
+      expect(asked[0]!.body).toEqual({ ref: { message_id: '10000000-0000-4000-8000-000000000009' }, as: AGENT })
+      expect(asked[1]!.body).toMatchObject({ ref: { message_id: '10000000-0000-4000-8000-000000000009' }, as: AGENT, request_id: expect.any(String) })
+      expect(asked[3]!.body).toEqual(asked[0]!.body)
       expect(injections[0]!.attachments).toHaveLength(1)
     } finally {
       vi.unstubAllGlobals()
@@ -1070,6 +1183,75 @@ describe('三态判决与失败面', () => {
     expect(cloud.markReadCalls).toEqual([])
   })
 
+  it('keeps the real ACP pre-turn refusal unread, then delivers that exact message once after recovery without an error card', async () => {
+    const { AcpRuntime, createAcpProcedures } = await import('@gugu/session-runtime/acp-agents')
+    const { makeAcpHarness, makeStartInput } = await import('../../../../packages/session-runtime/src/acp-agents/acp-test-support')
+    const h = makeAcpHarness()
+    const runtime = new AcpRuntime(h.deps)
+    const api = createAcpProcedures(runtime)
+    const notices = vi.fn<typeof fetch>(async () => new Response('', { status: 201 }))
+    vi.stubGlobal('fetch', notices)
+    try {
+      expect((await runtime.startSession(makeStartInput())).success).toBe(true)
+      h.agent.prompt.mockRejectedValueOnce(Object.assign(new Error('Internal error'), {
+        code: -32603, data: { details: 'Session not found' },
+      }))
+      const cloud = seed()
+      const { deps, wakes } = makeDeps(cloud, { inject: async input => {
+        const result = await api.promptDetached({ sessionId: 'conv-1', prompt: { text: input.text, origin: 'communication' } })
+        return result.declined ? 'not-live' : {
+          verdict: 'accepted', completion: api.waitPromptDetached({ requestId: result.requestId }).then(() => undefined),
+        }
+      } })
+      expect(await pullAgentInbox(AGENT, deps)).toMatchObject({ verdict: 'not-live', injected: 0 })
+      expect(cloud.markReadCalls).toEqual([])
+      expect(wakes).toEqual([AGENT])
+      expect(notices).not.toHaveBeenCalled()
+      expect((await runtime.startSession(makeStartInput({ providerSessionId: 'session-1' }))).success).toBe(true)
+      const delivered = await pullAgentInbox(AGENT, deps)
+      await delivered.completion
+      expect(delivered).toMatchObject({ verdict: 'accepted', injected: 1 })
+      expect(cloud.markReadCalls).toHaveLength(1)
+      expect(notices).not.toHaveBeenCalled()
+      expect((await pullAgentInbox(AGENT, deps)).injected).toBe(0)
+      expect(h.agent.prompt).toHaveBeenCalledTimes(2)
+      expect(h.agent.prompt.mock.calls[0]?.[0].prompt).toEqual(h.agent.prompt.mock.calls[1]?.[0].prompt)
+    } finally {
+      await runtime.dispose()
+      vi.unstubAllGlobals()
+    }
+  })
+
+  it.each([
+    ['ECONNRESET', 'network'], ['401 Unauthorized', 'authentication'],
+  ])('settles a native failure before first output once, with its cause and no re-delivery: %s', async (cause, reason) => {
+    const { AcpRuntime, createAcpProcedures } = await import('@gugu/session-runtime/acp-agents')
+    const { makeAcpHarness, makeStartInput } = await import('../../../../packages/session-runtime/src/acp-agents/acp-test-support')
+    const h = makeAcpHarness()
+    const runtime = new AcpRuntime(h.deps)
+    const api = createAcpProcedures(runtime)
+    const cloud = seed()
+    const notices: Array<{ reason: string }> = []
+    try {
+      await runtime.startSession(makeStartInput())
+      h.agent.prompt.mockRejectedValueOnce(new Error(cause))
+      const { deps } = makeDeps(cloud, { inject: async input => {
+        const result = await api.promptDetached({ sessionId: 'conv-1', prompt: { text: input.text, origin: 'communication' } })
+        return result.declined ? 'not-live' : {
+          verdict: 'accepted', completion: api.waitPromptDetached({ requestId: result.requestId }).then(() => undefined),
+        }
+      }, postDisclosure: async input => { notices.push(input) } })
+      const accepted = await pullAgentInbox(AGENT, deps)
+      await accepted.completion!.catch(() => {})
+      expect(notices).toEqual([expect.objectContaining({ reason })])
+      expect(cloud.markReadCalls).toHaveLength(1)
+      expect((await pullAgentInbox(AGENT, deps)).injected).toBe(0)
+      expect(h.agent.prompt).toHaveBeenCalledTimes(1)
+      expect(runtime.sessionsListLiveModel().states.list.snapshot().data['conv-1'])
+        .toMatchObject({ isGenerating: false, lastTurnOutcome: 'errored' })
+    } finally { await runtime.dispose() }
+  })
+
   it('describes an unaccepted retained message as pending, and a later successful admission consumes it once', async () => {
     const post = vi.fn<typeof fetch>(async () => new Response('', { status: 201 }))
     vi.stubGlobal('fetch', post)
@@ -1152,39 +1334,90 @@ describe('三态判决与失败面', () => {
     expect(isSaidInChat(new Error('never pulled'))).toBe(false)
   })
 
-  it('reports a quota failure after admission, even when a wake pull owns the turn instead of a command', async () => {
+  // #7685 额度/模型类失败是 agent 的状态位，❌ 聊天里的失败行；留成「没说」，由设备命令结果(reply_notice=context)带到界面。
+  it.each([
+    "Internal error: You've hit your weekly limit; private trace x123",
+    'insufficient_quota',
+    'API Error: 400 Model private/deepseek is not available (request id: private-trace)',
+    'Selected model is at capacity. Please try a different model.',
+  ])('keeps a quota or model failure out of the chat and leaves it unsaid: %s', async (reason) => {
     const cloud = seed()
     let fail!: (error: Error) => void
     const completion = new Promise<void>((_, reject) => { fail = reject })
-    const notices: Array<{ reason: string; chatId: string }> = []
+    const notices: Array<{ reason: string }> = []
     const { deps } = makeDeps(cloud, {
       inject: async () => ({ verdict: 'accepted', completion }),
       postDisclosure: async (input) => { notices.push(input) },
     })
     const admitted = await pullAgentInbox(AGENT, deps)
     const settled = admitted.completion!.catch((error: unknown) => error)
-    expect(cloud.markReadCalls).toHaveLength(1)
-    // A subsequent nudge sees no unread rows. It cannot own this provider failure.
-    await expect(pullAgentInbox(AGENT, deps)).resolves.toMatchObject({ injected: 0 })
-    fail(new Error("Internal error: You've hit your weekly limit; private trace x123"))
-    expect(isSaidInChat(await settled)).toBe(true)
-    expect(notices).toEqual([expect.objectContaining({ chatId: '00000000-0000-4000-8000-000000000003', reason: 'weeklyQuota' })])
+    fail(new Error(reason))
+    const thrown = await settled
+    expect(notices).toEqual([])
+    expect(isSaidInChat(thrown)).toBe(false)
+    expect((thrown as Error).message).toBe(reason)
     expect(cloud.markReadCalls).toHaveLength(1)
   })
 
-  it.each([
-    'API Error: 400 Model private/deepseek is not available (request id: private-trace)',
-    'Selected model is at capacity. Please try a different model.',
-  ])('discloses an unavailable model without leaking its upstream route or request trace: %s', async (reason) => {
+  it('[positive control] still says a non-quota failure in the chat', async () => {
     const cloud = seed()
     const notices: Array<{ reason: string }> = []
     const { deps } = makeDeps(cloud, {
-      inject: async () => ({ verdict: 'accepted', completion: Promise.reject(new Error(reason)) }),
+      inject: async () => ({ verdict: 'accepted', completion: Promise.reject(new Error('HTTP 429 too many requests')) }),
       postDisclosure: async (input) => { notices.push(input) },
     })
     const admitted = await pullAgentInbox(AGENT, deps)
-    await admitted.completion!.catch(() => {})
-    expect(notices).toEqual([expect.objectContaining({ reason: 'modelUnavailable' })])
+    expect(isSaidInChat(await admitted.completion!.catch((error: unknown) => error))).toBe(true)
+    expect(notices).toEqual([expect.objectContaining({ reason: 'rateLimited' })])
+  })
+
+  // Beta 1042: the agent's message_send landed, then the provider rejected the request after it (API Error: 400) and the
+  // chat got 「Agent 本次回复出错，未能完成」 under the reply it had just read.
+  it('posts no failure row under a reply the agent already sent on that line', async () => {
+    const cloud = seed()
+    const asked: unknown[] = []
+    const notices: unknown[] = []
+    const { deps } = makeDeps(cloud, {
+      inject: async () => ({ verdict: 'accepted', completion: Promise.reject(new Error('API Error: 400 Invalid request parameters.')) }),
+      agentSpokeAfter: async (input) => { asked.push(input); return true },
+      postDisclosure: async (input) => { notices.push(input) },
+    })
+    const admitted = await pullAgentInbox(AGENT, deps)
+    const error = await admitted.completion!.catch((failure: unknown) => failure)
+    expect(asked).toEqual([{ agentUserId: AGENT, chatId: '00000000-0000-4000-8000-000000000003', threadRootId: null, afterSeq: 1 }])
+    expect(notices).toEqual([])
+    // The chat holds its answer: the host adds no notice of its own either.
+    expect(isSaidInChat(error)).toBe(true)
+  })
+
+  it('still says the failure when the agent did not answer, or when that cannot be read', async () => {
+    for (const spoke of [async () => false, async () => { throw new Error('history read refused') }]) {
+      resetAgentInboxReaderStateForTests()
+      const cloud = seed()
+      const notices: unknown[] = []
+      const { deps } = makeDeps(cloud, {
+        inject: async () => ({ verdict: 'accepted', completion: Promise.reject(new Error('API Error: 400 Invalid request parameters.')) }),
+        agentSpokeAfter: spoke,
+        postDisclosure: async (input) => { notices.push(input) },
+      })
+      const admitted = await pullAgentInbox(AGENT, deps)
+      await admitted.completion!.catch(() => {})
+      expect(notices).toEqual([expect.objectContaining({ chatId: '00000000-0000-4000-8000-000000000003', reason: 'generic' })])
+    }
+  })
+
+  it('does not ask whether the agent answered a batch that was never admitted', async () => {
+    const cloud = seed()
+    const asked: unknown[] = []
+    const notices: unknown[] = []
+    const { deps } = makeDeps(cloud, {
+      inject: async () => { throw new Error('runtime not ready') },
+      agentSpokeAfter: async (input) => { asked.push(input); return true },
+      postDisclosure: async (input) => { notices.push(input) },
+    })
+    await pullAgentInbox(AGENT, deps).catch(() => {})
+    expect(asked).toEqual([])
+    expect(notices).toHaveLength(1)
   })
 
   it('keeps a completion failure unsaid if its durable notice could not be written', async () => {
@@ -1379,5 +1612,101 @@ describe('#6264 合并触发的合账', () => {
       { pulled: 2, injected: 2, verdict: 'accepted' },
       { pulled: 1, injected: 0, verdict: 'not-live' },
     )).toEqual({ pulled: 3, injected: 2, verdict: 'not-live' })
+  })
+})
+
+// Beta 1040: a turn-failure notice is stored under a structured key (`turn-failure:batch:<hash>`) and answers the message
+// that dispatched the failed turn, so it reaches the agent that sent that message. Its reader delivers it like any row —
+// one id it cannot address must not stop that agent's whole inbox — and a row it cannot prepare is disclosed, not dropped.
+describe('a failure notice from another agent reaches the agent whose message it answers', () => {
+  const CHAT = '00000000-0000-4000-8000-0000000000a1'
+  const NOTICE = 'turn-failure:batch:6b62191fcf9bbff3312a90753053be57'
+  const LATER = '10000000-0000-4000-8000-0000000000a2'
+
+  function seed(): FakeCloud {
+    const cloud = new FakeCloud()
+    cloud.addChat(CHAT, 'group')
+    cloud.join(CHAT, AGENT)
+    cloud.join(CHAT, OTHER_AGENT)
+    cloud.post({
+      chatId: CHAT, id: NOTICE, seq: 1, senderUserId: OTHER_AGENT, senderType: 'agent', content: 'Delivery failed.',
+      replyToMessageId: '10000000-0000-4000-8000-0000000000a0', replyToSenderUserId: AGENT,
+    })
+    cloud.post({ chatId: CHAT, id: LATER, seq: 2, senderUserId: HUMAN, senderType: 'human', content: 'still there?' })
+    return cloud
+  }
+
+  it('delivers the notice under its own id and the message after it, and reads both', async () => {
+    const cloud = seed()
+    const { deps, injections } = makeDeps(cloud)
+    const result = await pullAgentInbox(AGENT, deps)
+    expect(result.injected).toBe(2)
+    expect(injections[0]!.text).toContain(`msg="msg:${NOTICE}"`)
+    expect(injections[1]!.text).toContain(`msg="msg:${LATER}"`)
+    expect(cloud.markReadCalls.map((call) => call.messageId)).toEqual([NOTICE, LATER])
+  })
+
+  it('a row that cannot be prepared is disclosed to its chat and the real error is what the pull throws', async () => {
+    const cloud = seed()
+    const disclosures: Array<{ chatId: string; reason: string }> = []
+    const { deps, injections, outcomes } = makeDeps(cloud, {
+      resolveGuguIds: async () => { throw new Error('identity lookup refused') },
+      postDisclosure: async (input) => { disclosures.push({ chatId: input.chatId, reason: input.reason }) },
+    })
+    const thrown = await pullAgentInbox(AGENT, deps).then(() => null, (error: unknown) => error)
+    expect((thrown as Error).message).toBe('identity lookup refused')
+    expect(isSaidInChat(thrown)).toBe(true)
+    expect(injections).toEqual([])
+    expect(disclosures).toEqual([{ chatId: CHAT, reason: 'notAdmitted' }])
+    expect(cloud.markReadCalls).toEqual([])
+    expect(outcomes).toEqual([{ ok: false }])
+  })
+
+  it('writes a new notice under a UUID derived from its key; its marker still names it and links reach it', async () => {
+    const post = vi.fn<typeof fetch>(async () => new Response('', { status: 201 }))
+    vi.stubGlobal('fetch', post)
+    try {
+      const row = { agentUserId: OTHER_AGENT, chatId: CHAT, key: NOTICE, threadRootId: null, reason: 'quota' as const }
+      await postDeliveryDisclosureRow(row, 'test-token')
+      await postDeliveryDisclosureRow(row, 'test-token')
+      const [first, second] = post.mock.calls.map((call) => JSON.parse(call[1]!.body as string))
+      expect(first.id).toMatch(/^[0-9a-f]{8}-[0-9a-f]{4}-5[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/)
+      expect(second.id).toBe(first.id)
+      expect(parseSystemNotice({ id: first.id, content_type: 'system', sender_user_id: OTHER_AGENT, client_message_id: first.client_message_id }))
+        .toEqual({ kind: 'turn-failure', reason: 'quota' })
+      expect(storedMessageLink(CHAT, first.id)).toBe(`gugu-chat://${CHAT}/${first.id}`)
+      // A notice stored under its key before this: still a message, reached through its conversation.
+      expect(storedMessageLink(CHAT, NOTICE)).toBe(`gugu-chat://${CHAT}`)
+    } finally { vi.unstubAllGlobals() }
+  })
+})
+
+describe('agentSpokeAfterViaRpc', () => {
+  const input = { agentUserId: AGENT, chatId: 'chat-1', threadRootId: null, afterSeq: 5 }
+  const reply = (rows: unknown[]) => (async () => new Response(JSON.stringify(rows), { status: 200 })) as unknown as typeof fetch
+
+  beforeEach(() => {
+    vi.stubEnv('GUGU_SUPABASE_URL', 'https://db.test')
+    vi.stubEnv('GUGU_SUPABASE_ANON_KEY', 'anon')
+    return () => { vi.unstubAllEnvs() }
+  })
+
+  it('reads the line as the agent and counts only its own non-system message after the batch', async () => {
+    let body: unknown
+    const spy = (async (_url: string, init: RequestInit) => { body = JSON.parse(String(init.body)); return new Response('[]') }) as unknown as typeof fetch
+    await agentSpokeAfterViaRpc(input, 'token', spy)
+    expect(body).toEqual({ p_chat_id: 'chat-1', p_as_user_id: AGENT, p_thread_root_id: null, p_limit: 20 })
+    const others = [
+      { seq: 7, sender_user_id: AGENT, content_type: 'system' },
+      { seq: 5, sender_user_id: AGENT, content_type: 'text' },
+      { seq: 8, sender_user_id: 'someone-else', content_type: 'text' },
+    ]
+    await expect(agentSpokeAfterViaRpc(input, 'token', reply(others))).resolves.toBe(false)
+    await expect(agentSpokeAfterViaRpc(input, 'token', reply([...others, { seq: 6, sender_user_id: AGENT, content_type: 'text' }]))).resolves.toBe(true)
+  })
+
+  it('throws when the history cannot be read', async () => {
+    const refused = (async () => new Response('nope', { status: 403 })) as unknown as typeof fetch
+    await expect(agentSpokeAfterViaRpc(input, 'token', refused)).rejects.toThrow('message_history_as failed: HTTP 403')
   })
 })

@@ -339,18 +339,8 @@ export const codexSessionBundleDescriptor = {
     // 与 qoder/claude 等同通道同形状:`permission-ask` 本来就只表达**带选项**的一问一答,
     // 自由文本/多选/密文三种形状全生态都在这条通道之外(见下面的形状对照),不是 codex 独有的欠。
     askUser: { kind: 'native', channel: 'permission-ask' },
-    // ❌ 这里**没有** todo —— 别照「含 acp 就该有」的通例往里加。codex 两条腿在
-    // 生产里都落到咕咕自建的桥 `apps/desktop/electron/runtime/codex-app-server-acp.mjs`:
-    // index.ts 的 `acp.bridge` 声明它是 app-runtime 桥,宿主把入口随 `AgentRunContext.acpAdapterEntry`
-    // 递给 buildSpawn(#6394;上游 codex-acp 的回退已删)。而这座桥:
-    //  · askUser **本 PR 已接通**(见下面「askUser 这一格的实情」)。在此之前它的病不是
-    //    「桥答不了」,而是桥**全都答了、而且是替用户答的** —— 那些答案从没到过人手里。
-    //  · 桥只把 `item/plan/delta` 映射成 `agent_thought_chunk`,plan 以思考文本落地、
-    //    拿不到结构化 `{ kind: 'plan', entries }` → todo 今天不成立(基类注释里
-    //    「原生有而 ACP 桥不发」说的就是这一例)。
-    //    ⚠️ **但「结构性做不到」是错的标签,别继承** —— 这一格是**能做的,只是没做**,
-    //    差的东西已经查清了,见下面「todo 这一格差什么」。
-    // 两条都落回基类的 unverified = 咕咕没接;❌ 不许据此推断 codex 厂商做不到。
+    // The bridge maps native turn/plan/updated snapshots to the shared ACP checklist.
+    todo: { kind: 'native', channel: 'acp-plan' },
     // ⚠️ 上游**两条都有**,这一波逐条取到了坐标,记在这里免得下一个人再当「厂商也没有」:
     //  · 问用户:app-server 协议有整整十条**服务端→客户端请求**(每条都声明了 response,
     //    即 codex 发出后阻塞等答案),`codex-rs/app-server-protocol/src/protocol/common.rs:1663`
@@ -443,50 +433,9 @@ export const codexSessionBundleDescriptor = {
     //    `rawLog.record({ kind: 'permission_request', request: params })` 把整个请求原样落日志。
     //    今天无害(记的是问题不是答案),但一旦接上 `isSecret` 的自由文本,
     //    用户敲进去的密码/token 就会经这条路进日志。**接密文那一支之前必须先掐掉这条记录。**
-    //  · plan:`turn/plan/updated`(common.rs:1851)是**通知**。
-    //    ⚠️ **上一版这里写「桥收得到却把它揉进了 thought 文本」,那是错的,已更正**:
-    //    桥里 `turn/plan/updated` **一次都没出现** —— 全文件搜 `plan` 只有一处命中,
-    //    就是 `codex-app-server-acp.mjs:737` 的 `item/plan/delta`。两个是不同的方法,
-    //    上一版把它们说成了同一件事。⇒ 不是「收到了又丢掉」,是**从来没接**。
-    //    这个区别是有后果的:没接 ⇒ 接上去是**纯增量**,不需要先拆掉什么。
-    //    `item/plan/delta`(:1864)自带「EXPERIMENTAL … 不要假设拼接等于成品」的告诫 ——
-    //    而现在那条 thought 文本路径把拼接结果直接给用户看了,正落在这句告诫里。
-    //    ⚠️ `TodoList` 不在 app-server 协议里,它只在 `codex exec --json` 那条 JSONL 面上
-    //    (`codex-rs/exec/src/exec_events.rs:130`,且 item 形状是 `{text, completed:bool}`,
-    //    与上面的三态不同)—— 两个面别混着引。
-    //    坐标基准 sha:openai/codex@a25e986323931ec54909b0cd936b612f30c8ce46。
-    //
-    //    ### todo 这一格差什么(2026-08-24 查完,**只差一个 UI 决定,不差事实**)
-    //
-    //    wire 形状取自上游**自己生成**的 TS schema(ts-rs 产物,`schema/typescript/v2/`,同一 sha),
-    //    不是从 rust 结构体反推的:
-    //      `TurnPlanUpdatedNotification = { threadId, turnId, explanation: string|null,
-    //                                       plan: Array<TurnPlanStep> }`
-    //      `TurnPlanStep       = { step: string, status: TurnPlanStepStatus }`
-    //      `TurnPlanStepStatus = "pending" | "inProgress" | "completed"`
-    //    咕咕这边要的是 `planEntrySchema`(`session-core/src/acp/models/plan.ts`):
-    //      `{ content: string, status: 'pending'|'in_progress'|'completed',
-    //         priority: 'high'|'medium'|'low' }`
-    //    映射三条,逐条都是确定的:
-    //      · `step` -> `content`,直通。
-    //      · `status` 三态一一对应,但 **`inProgress` -> `in_progress` 是真转换、不是恒等** ——
-    //        照抄会被 `planEntryStatusSchema` 打回,整条 plan 更新被丢掉。
-    //      · `priority` codex **没有这个概念**,而 ACP 这边必填。填常量**不算编造** ——
-    //        Kimi Code 这个真实在跑的 ACP agent 就是这么干的,而且写进了文档注释:
-    //        `MoonshotAI/kimi-code@243f348329fc15e857dcaa0ae3cfe514729bd7a6`
-    //        `packages/acp-server/src/events-map.ts:393` 原文「`priority` defaults to `'medium'`」,
-    //        :403-407 实装 `priority: 'medium'`。它自己的 todo 模型同样没有优先级。
-    //        ⇒ 这是 ACP 生态对「源模型没有优先级」的既有惯例,不是咕咕自己发明一个排序。
-    //      · `explanation` 在 ACP 的 plan entry 里**没有落点**,会丢。要不要另找地方是单独一问。
-    //
-    //    ⇒ 事实层面没有缺口了。**没有当场接**的两条理由,都不是"查不到":
-    //      1. 桥的回放路径**没有测试**(整体是有的,见上;`item/plan/delta` 这条没有),
-    //         而它是最常用那一家的运行时热路径。
-    //      2. **它会改渲染**:plan 会从"思考文本"变成 plan 组件,而 `item/plan/delta` 那条
-    //         thought 路径还在 —— 同一份 plan 会不会**双显**,是个 UI 形态问题。
-    //         行为表批准 != UI 形态批准,这一步该有真渲染对照,不该由这一刀顺手定。
-    //    ❌ 别把上面这两条读成"所以永远别做"。要做的话:先给桥补回放测试,再在能出截图的机器上
-    //       决定双显那一问,两件都齐了这一格就能翻成 native。
+    // Checklist updates are separate from plan-mode prose (`item/plan/delta`).
+    // Codex 0.164.0 requires tools.update_plan.enabled=true; the bridge maps step to content,
+    // inProgress to in_progress, and supplies ACP's required medium priority.
     // codexMcpAdapter() 直接解析用户自己的 `~/.codex/config.toml` 的 `mcp_servers`
     // (session-core/src/agents/plugins/helpers/mcp.ts 的 createMcpAdapter().readServers),
     // 不用启引擎 → config-scan。读的是用户那份表,不是咕咕注进去的那条。
@@ -762,16 +711,17 @@ function trustArgs(cwd: string): string[] {
 
 /**
  * #7191 Codex 自带的两个浏览器插件(`browser` = 它桌面版的应用内浏览器,`chrome` = 人的 Chrome)。它们的 skill 写着
- * 「浏览器活之前必读、先于 standalone Playwright」,于是带着 `gugu-browser` 的会话里 agent 会先去走它们 —— 咕咕里没有那个
+ * 「浏览器活之前必读、先于 standalone Playwright」,于是带着咕咕浏览器的会话里 agent 会先去走它们 —— 咕咕里没有那个
  * 应用内浏览器,它的 `getForUrl` 落到人的 Chrome 扩展上(10-15 实撞:10 次里 1 次连上了人的 Chrome、1 次在路上)。
- * 这条会话有自己的页签,就在这条会话里关掉这两个插件:进程级 `-c`,❌ 改人的 `~/.codex/config.toml`。
+ * 咕咕的浏览器是 Browser Use App(`bundle.browserUse`,宿主按这台机器装没装它给;它的工具可能经 catalog 来,
+ * ❌ 按 server 名认):有它,就在这条会话里关掉这两个插件:进程级 `-c`,❌ 改人的 `~/.codex/config.toml`。
  * 键名不加引号:codex 的 `-c` 按 `.` 切路径,`plugins."browser@openai-bundled"` 会把引号当成名字的一部分、静默不生效
  * (codex 0.160 `codex plugin list -c …` 实测:加引号仍 enabled,不加 disabled)。
  */
 const CODEX_OWN_BROWSER_PLUGINS = ['browser@openai-bundled', 'chrome@openai-bundled'] as const;
 
 function ownBrowserPluginArgs(bundle: SessionCapabilityBundle): string[] {
-  if (!bundle.mcpServers.some((server) => server.name === 'gugu-browser')) return [];
+  if (!bundle.browserUse) return [];
   return CODEX_OWN_BROWSER_PLUGINS.flatMap((plugin) => ['-c', `plugins.${plugin}.enabled=false`]);
 }
 
@@ -956,7 +906,7 @@ export function materializeCodexSessionBundle(
   const usesAcpChannel = ctx.surface === 'acp';
   const threadConfig = ctx.surface === 'app-server'
     ? (() => {
-        const entries: Array<readonly [string, unknown]> = [];
+        const entries: Array<readonly [string, unknown]> = [['tools.update_plan.enabled', true]];
         for (const server of bundle.mcpServers) {
           const key = mcpConfigKey(server.name);
           // 问题 9:咕咕发的 server 不逐次问(Codex 缺省按注解判,没注解就问)。

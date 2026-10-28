@@ -1,3 +1,4 @@
+import { retryAssistantPanelRead } from '@gugu/core/cloud/assistantPanelRead';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { useLibraryHost } from '@renderer/features/library/library-host';
 import { rpcOn } from '@renderer/lib/ipc';
@@ -21,12 +22,12 @@ function invalidateGitHubAccountState(queryClient: ReturnType<typeof useQueryCli
 export function useGitHubAccounts() {
   const host = useLibraryHost();
   return useQuery({
-    queryKey: host.remote ? [...GITHUB_ACCOUNTS_QUERY_KEY, host.key] : GITHUB_ACCOUNTS_QUERY_KEY,
+    queryKey: host.remote || host.assistantPanelExpected ? [...GITHUB_ACCOUNTS_QUERY_KEY, host.key] : GITHUB_ACCOUNTS_QUERY_KEY,
     queryFn: () => host.github.listAccounts(),
     staleTime: 30_000,
     refetchOnWindowFocus: true,
-    enabled: host.remote?.online !== false,
-    ...(host.remote ? { retry: false } : {}),
+    enabled: host.assistantPanelExpected ? !!host.assistantPanel : host.remote?.online !== false,
+    ...(host.assistantPanelExpected ? { retry: retryAssistantPanelRead } : host.remote ? { retry: false } : {}),
   });
 }
 

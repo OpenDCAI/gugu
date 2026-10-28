@@ -4,14 +4,15 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { act } from 'react'
 import { composerSlotClass, composerSlotInnerClass } from '@gugu/session-chat-ui/composer-layout'
-import { UI_EVENTS } from '../../../../apps/desktop/src/lib/uiEvents'
-import { requestShellChatAction } from '../../../../apps/desktop/src/lib/sidebarChatsBridge'
 import { ChatAreaPanel } from '../../../../apps/desktop/src/components/ChatAreaPanel'
 import { AUTOMATION_TEST_IDS } from '../../../../apps/desktop/src/lib/automationDom'
-import { chat, clickElement, createNode, createReactHarness, displayIdentity, renderWithAppProviders } from '../../../support/testHarness'
+import { chat, clickElement, createNode, createReactHarness, displayIdentity, renderWithAppProviders, waitForCondition } from '../../../support/testHarness'
+import { commandRegistry } from '../../../../apps/desktop/src/session/renderer/lib/commands/registry'
 import { openImRepository, type AccountImRepository } from '../../../../apps/desktop/src/lib/imRepository'
 import { createMemoryLocalSyncDb } from '../../../../apps/desktop/src/lib/localSyncDb'
-import { InChatSlot } from '../../../../apps/desktop/src/lib/shellSlots'
+import { chatTabSlotKey, InChatSlot, installShellSlots, readShellSlots } from '../../../../apps/desktop/src/lib/shellSlots'
+import { isFolderItem } from '../../../../apps/desktop/src/session/renderer/features/chats/chat-tabs/chat-panel-item'
+import { closeChatTab, closeInfoTab, focusedChatTab, infoTabOf, openInfoTab, panelTabsOf, showChatOnly, showChatTab, shownPanelTab } from '../../../../apps/desktop/src/session/renderer/features/chats/chat-tabs/chat-layouts'
 import { publishChatSummaries } from '../../../../apps/desktop/src/lib/chatSummariesBridge'
 
 const { getImRepositoryMock } = vi.hoisted(() => ({ getImRepositoryMock: vi.fn() }))
@@ -69,8 +70,9 @@ afterEach(() => {
   title.remove()
 })
 
-async function renderPanel(blockHost?: { actions: HTMLElement | null; title: HTMLElement | null; tabs: HTMLElement | null }, kind: 'group' | 'dm' | 'ai' = 'group', mobile = false, project = false) {
-  const panel = createNode(ChatAreaPanel, { activeTab: 'chats', openNonce: 0, blockHost, mobile })
+async function renderPanel(blockHost?: { actions: HTMLElement | null; title: HTMLElement | null; tabs: HTMLElement | null }, kind: 'group' | 'dm' | 'ai' = 'group', mobile = false, project = false, hideRunningStatus = false) {
+  const chrome = hideRunningStatus ? { placeholder: 'Chat', attachGlyph: null, hideRunningStatus: true } : undefined
+  const panel = createNode(ChatAreaPanel, { activeTab: 'chats', openNonce: 0, blockHost, mobile, ...(chrome ? { chrome } : {}) })
   await renderWithAppProviders(harness, project ? createNode(InChatSlot.Provider, { value: { projectName: 'Settings project' } }, panel) : panel, {
     chat: {
       getImRepository: getImRepositoryMock,
@@ -86,15 +88,75 @@ const header = () => harness.container.querySelector('[data-chat-area-header]')
 const membersButtonIn = (root: ParentNode) => root.querySelector(`[data-testid="${AUTOMATION_TEST_IDS.chatHeaderMembersButton}"]`)
 
 describe('ChatAreaPanel hosted in a block (gugu-dev#181)', () => {
-  it('an empty project keeps its home in the chat column while group settings can open beside it', async () => {
-    publishChatSummaries([{ id: 'group-1', kind: 'group', name: 'Settings project', last_message_at: null }])
-    await renderPanel({ actions, title, tabs: null }, 'group', false, true)
-    const home = harness.container.querySelector('[data-chat-part="empty"]')
-    expect(home, 'the project home has a place inside the same conversation surface').not.toBeNull()
-    await clickElement(actions.querySelector<HTMLElement>(`[data-testid="${AUTOMATION_TEST_IDS.chatHeaderMoreButton}"]`)!)
-    await clickElement(document.querySelector<HTMLElement>(`[data-testid="${AUTOMATION_TEST_IDS.groupMenuSettings}"]`)!)
-    expect(harness.container.querySelector('[data-testid="chat-settings-panel"]')).not.toBeNull()
-    expect(harness.container.contains(home)).toBe(true)
+  it('#492 the owner pencil edits the name inside an info portal outside the chat command surface', async () => {
+    const slot = document.body.appendChild(document.createElement('div'))
+    installShellSlots()
+    try {
+      await renderPanel({ actions, title, tabs: null })
+      await act(async () => { openInfoTab('group-1', 'main') })
+      const info = infoTabOf('group-1')!
+      await act(async () => { readShellSlots()!.setSlot(chatTabSlotKey('group-1', info.tabId), slot) })
+      await waitForCondition(() => !!slot.querySelector('[data-testid="group-name-edit"]'), 'owner settings loaded')
+      const pencil = slot.querySelector<HTMLElement>('[data-testid="group-name-edit"]')!
+      commandRegistry.setContext(pencil)
+      expect(harness.container.contains(pencil), 'the real tab slot is outside the chat surface').toBe(false)
+      await clickElement(pencil)
+      expect(slot.querySelector<HTMLInputElement>('input[placeholder="群名称"]')?.value).toBe('设计评审')
+    } finally {
+      await act(async () => {
+        commandRegistry.setContext(document.body)
+        const info = infoTabOf('group-1')
+        if (info) readShellSlots()?.setSlot(chatTabSlotKey('group-1', info.tabId), null)
+        closeInfoTab('group-1')
+      })
+      slot.remove()
+    }
+  })
+
+  for (const mobile of [false, true]) {
+    it(`#492 ${mobile ? 'phone' : 'desktop block'}: More > Settings reaches the root of the existing info tab in one action`, async () => {
+      const slot = document.body.appendChild(document.createElement('div'))
+      installShellSlots()
+      try {
+        await renderPanel(mobile ? undefined : { actions, title, tabs: null }, 'group', mobile)
+        await act(async () => { openInfoTab('group-1', 'members') })
+        const info = infoTabOf('group-1')!
+        if (!mobile) await act(async () => { readShellSlots()!.setSlot(chatTabSlotKey('group-1', info.tabId), slot) })
+        expect(document.querySelector('[data-group-settings-page="members"]')).not.toBeNull()
+        await act(async () => { showChatOnly('group-1') })
+        const root = mobile ? harness.container : actions
+        const more = root.querySelector<HTMLElement>(`[data-testid="${AUTOMATION_TEST_IDS.chatHeaderMoreButton}"]`)
+        expect(more, 'More stays reachable independently of installed Apps').not.toBeNull()
+        await clickElement(more!)
+        const settings = document.querySelector<HTMLElement>(`[data-testid="${AUTOMATION_TEST_IDS.groupMenuSettings}"]`)
+        expect(settings, 'settings is offered independently of installed Apps').not.toBeNull()
+        await clickElement(settings!)
+        expect(infoTabOf('group-1')?.tabId, 'reuse the same info tab').toBe(info.tabId)
+        expect(document.querySelector('[data-group-settings-page="main"]'), 'no intermediate members page').not.toBeNull()
+        expect(document.querySelector('[data-group-settings-page="members"]')).toBeNull()
+      } finally {
+        await act(async () => {
+          const info = infoTabOf('group-1')
+          if (info) readShellSlots()?.setSlot(chatTabSlotKey('group-1', info.tabId), null)
+          closeInfoTab('group-1')
+        })
+        slot.remove()
+      }
+    })
+  }
+
+  it('an empty project keeps its home in the chat column while its info opens beside it', async () => {
+    publishChatSummaries([{ id: 'group-1', kind: 'group', unread_count: 0, name: 'Settings project', last_message_at: null }])
+    try {
+      await renderPanel({ actions, title, tabs: null }, 'group', false, true)
+      const home = harness.container.querySelector('[data-chat-part="empty"]')
+      expect(home, 'the project home has a place inside the same conversation surface').not.toBeNull()
+      await clickElement(membersButtonIn(actions) as HTMLElement)
+      expect(infoTabOf('group-1')?.shown, 'the group info is a tab beside the chat').toBe(true)
+      expect(harness.container.contains(home)).toBe(true)
+    } finally {
+      await act(async () => { closeInfoTab('group-1') })
+    }
   })
   it('without blockHost keeps its own header with the title and the action icons', async () => {
     await renderPanel()
@@ -112,29 +174,54 @@ describe('ChatAreaPanel hosted in a block (gugu-dev#181)', () => {
     expect(title.textContent).toContain('设计评审')
   })
 
+  // owner 10-26:成员、公告、设置合成一枚「群信息」页签。群从成员钮进(落在成员那一页),私聊从 ⋯ 进;每种形态都打得开。
   for (const layout of ['header', 'block', 'phone'] as const) {
     for (const kind of ['group', 'dm', 'ai'] as const) {
-      it(`${layout} ${kind}: More opens this conversation's settings without installed or pinned Apps`, async () => {
+      it(`${layout} ${kind}: this conversation's info opens without installed or pinned Apps`, async () => {
         const hosted = layout === 'block'
-        await renderPanel(hosted ? { actions, title, tabs: null } : undefined, kind, layout === 'phone')
-        const more = (hosted ? actions : harness.container).querySelector<HTMLElement>(`[data-testid="${AUTOMATION_TEST_IDS.chatHeaderMoreButton}"]`)
-        expect(more, 'settings have a visible menu trigger in every layout').not.toBeNull()
-        await clickElement(more!)
-        const settings = document.querySelector<HTMLElement>(`[data-testid="${AUTOMATION_TEST_IDS.groupMenuSettings}"]`)
-        expect(settings).not.toBeNull()
-        await clickElement(settings!)
-        expect(harness.container.querySelector('[data-testid="chat-settings-panel"]')).not.toBeNull()
+        try {
+          await renderPanel(hosted ? { actions, title, tabs: null } : undefined, kind, layout === 'phone')
+          const root = hosted ? actions : harness.container
+          if (kind === 'group') {
+            await clickElement(membersButtonIn(root) as HTMLElement)
+          } else {
+            const more = root.querySelector<HTMLElement>(`[data-testid="${AUTOMATION_TEST_IDS.chatHeaderMoreButton}"]`)
+            expect(more, 'a private chat reaches its info from More').not.toBeNull()
+            await clickElement(more!)
+            await clickElement(document.querySelector<HTMLElement>(`[data-testid="${AUTOMATION_TEST_IDS.groupMenuSettings}"]`)!)
+          }
+          expect(infoTabOf('group-1')?.info.page).toBe(kind === 'group' ? 'members' : undefined)
+          // Without a strip the tab in front is a page over the chat; in a block it is drawn into its slot (below).
+          if (!hosted) expect(harness.container.querySelector('[data-testid="chat-settings-panel"]')).not.toBeNull()
+        } finally {
+          await act(async () => { closeInfoTab('group-1') })
+        }
       })
     }
   }
 
-  it('a tab menu asks one chat for its settings: only that chat\'s panel opens them', async () => {
-    await renderPanel({ actions, title, tabs: null })
-    const before = harness.container.textContent?.length ?? 0
-    await act(async () => { window.dispatchEvent(new CustomEvent(UI_EVENTS.openChatDetailsDrawer, { detail: { chatId: 'another-group', page: 'settings' } })) })
-    expect(harness.container.textContent?.length, 'another chat was named: this panel stays as it was').toBe(before)
-    await act(async () => { window.dispatchEvent(new CustomEvent(UI_EVENTS.openChatDetailsDrawer, { detail: { chatId: 'group-1', page: 'settings' } })) })
-    expect(harness.container.textContent?.length ?? 0, 'its own chat was named: the settings open').toBeGreaterThan(before)
+  it('in a block the info tab is drawn into the slot its strip left, and only its own chat opens it', async () => {
+    const slot = document.body.appendChild(document.createElement('div'))
+    installShellSlots()
+    try {
+      await renderPanel({ actions, title, tabs: null })
+      await act(async () => { openInfoTab('another-group') })
+      expect(infoTabOf('group-1'), 'another chat was named: this chat has no info tab').toBeNull()
+      await act(async () => { openInfoTab('group-1') })
+      const info = infoTabOf('group-1')!
+      expect(info.shown).toBe(true)
+      await act(async () => { readShellSlots()!.setSlot(chatTabSlotKey('group-1', info.tabId), slot) })
+      expect(slot.querySelector('[data-testid="chat-settings-panel"]')).not.toBeNull()
+      expect(slot.querySelector('[aria-label="关闭"]'), 'the tab is its title and its ×').toBeNull()
+    } finally {
+      await act(async () => {
+        const info = infoTabOf('group-1')
+        if (info) readShellSlots()?.setSlot(chatTabSlotKey('group-1', info.tabId), null)
+        closeInfoTab('group-1')
+        closeInfoTab('another-group')
+      })
+      slot.remove()
+    }
   })
 
   it('in a block the strip gets the「+」for the group folder and Apps (第 ⑥ 步); the chat page has no strip and none', async () => {
@@ -173,25 +260,46 @@ describe('ChatAreaPanel hosted in a block (gugu-dev#181)', () => {
     if (row) expect(dock.firstElementChild!.contains(row)).toBe(true)
   })
 
-  it('in a block the group tab gives the chat the room: the panel goes, its tab stays and brings it back (第 ⑥ 步)', async () => {
+  // owner 10-26「这些空白空间」:助理和面板里的任务聊天不显示运行条(assistant-app 10-19),那一行就不该留着 ——
+  // 留着就是输入框上面一条 42px 的空带。
+  it('reserves no running bar row when the chat hides running status (assistant)', async () => {
+    await renderPanel(undefined, 'ai', false, false, true)
+    const dock = harness.container.querySelector<HTMLElement>('[data-chat-bottom-dock]')!
+    expect(dock.querySelector('[data-running-bar-slot]')).toBeNull()
+    expect(dock.querySelector('[data-chat-composer]')).not.toBeNull()
+  })
+
+  it('in a block「+」opens the folder as a tab beside the chat, drawn into the slot its strip left (第 ⑥ 步)', async () => {
     const tabs = document.body.appendChild(document.createElement('span'))
-    await renderPanel({ actions, title, tabs })
-    await act(async () => { tabs.querySelector<HTMLButtonElement>('[data-testid="block-panel-plus"]')!.click() })
-    await act(async () => { document.querySelector<HTMLElement>('[role="menuitem"]')!.click() })
-    // 右栏收起时要等动画放完才卸下(SidePanelSplit),jsdom 里不放动画 ⇒ 判「正显示」看那一枚亮不亮(读的是同一份右栏样子)。
-    const folderTab = () => tabs.querySelector<HTMLElement>('[data-panel-tab="folder"] [data-tab-label]')
-    const shown = () => folderTab()?.hasAttribute('data-tab-active')
-    expect(harness.container.querySelector('[data-testid="group-app-slot"]'), 'the folder picked from「+」is up').not.toBeNull()
-    expect(shown()).toBe(true)
-    expect(harness.container.querySelector('[data-testid="group-app-slot-close"]'), 'in a block the tab is its title and its ×').toBeNull()
-    await act(async () => { requestShellChatAction({ kind: 'show-chat-alone', chatId: 'another-group' }) })
-    expect(shown(), 'another chat\'s tab: this panel stays').toBe(true)
-    await act(async () => { requestShellChatAction({ kind: 'show-chat-alone', chatId: 'group-1' }) })
-    expect(folderTab(), 'its own group tab: the right side gives way, the folder stays open').not.toBeNull()
-    expect(shown(), 'not shown').toBe(false)
-    await act(async () => { folderTab()!.click() })
-    expect(shown(), 'its tab brings it back').toBe(true)
-    tabs.remove()
+    const slot = document.body.appendChild(document.createElement('div'))
+    installShellSlots()
+    let folder: string | undefined
+    try {
+      await renderPanel({ actions, title, tabs })
+      await act(async () => { tabs.querySelector<HTMLButtonElement>('[data-testid="block-panel-plus"]')!.click() })
+      await act(async () => { document.querySelector<HTMLElement>('[role="menuitem"]')!.click() })
+      const shown = shownPanelTab('group-1')
+      expect(isFolderItem(shown?.item), 'the folder picked from「+」is up beside the chat').toBe(true)
+      folder = shown!.tabId
+      // The session page's engine leaves a slot for each tab on screen (chat-tab-providers' ShellTabSlots).
+      await act(async () => { readShellSlots()!.setSlot(chatTabSlotKey('group-1', folder!), slot) })
+      expect(slot.querySelector('[data-testid="group-app-slot"]')).not.toBeNull()
+      expect(slot.querySelector('[data-testid="group-app-slot-close"]'), 'in a block the tab is its title and its ×').toBeNull()
+      await act(async () => { showChatOnly('another-group') })
+      expect(focusedChatTab('group-1')?.tabId, 'another chat\'s tab: this one stays').toBe(folder)
+      await act(async () => { showChatOnly('group-1') })
+      expect(focusedChatTab('group-1')?.kind, 'its own chat\'s tab: the chat is focused').toBe('chat')
+      expect(panelTabsOf('group-1').some((tab) => tab.tabId === folder), 'the folder stays open').toBe(true)
+      await act(async () => { showChatTab('group-1', folder!) })
+      expect(focusedChatTab('group-1')?.tabId, 'its tab brings it back').toBe(folder)
+    } finally {
+      await act(async () => {
+        readShellSlots()?.setSlot(chatTabSlotKey('group-1', folder ?? ''), null)
+        if (folder) closeChatTab('group-1', folder)
+      })
+      slot.remove()
+      tabs.remove()
+    }
   })
 
   it('in a block whose slots are not mounted yet still draws no header', async () => {

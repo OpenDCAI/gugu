@@ -118,6 +118,8 @@ export type DomainEvent =
   | { type: 'SessionReady' }
   | { type: 'SessionLoaded' }
   | { type: 'PromptStarted'; prompt: QueuedPrompt }
+  /** Provider refused before any update; no work outcome or transcript exists. */
+  | { type: 'PromptRefused' }
   | { type: 'PromptSteered'; prompt: QueuedPrompt }
   | { type: 'PromptQueued'; prompt: QueuedPrompt }
   | { type: 'QueuedPromptEdited'; id: string; input: PromptInput; updatedAt: number; queueEdit?: QueuedPromptEdit | null }
@@ -305,6 +307,9 @@ export function evolve(
       if (s.phase.kind !== 'ready') return warn(s, `PromptStarted in phase '${s.phase.kind}'`);
       return { state: s, effects: [{ type: 'promptStarted', prompt: ev.prompt }] };
 
+    case 'PromptRefused':
+      return { state: { ...s, phase: { kind: 'ready' } }, effects: [{ type: 'state' }] };
+
     case 'WorkStarted':
       if (s.phase.kind === 'working' || s.phase.kind === 'cancelling') return { state: s, effects: [] };
       if (s.phase.kind !== 'ready') return warn(s, `WorkStarted in phase '${s.phase.kind}'`);
@@ -384,10 +389,16 @@ export function evolve(
     }
 
     case 'WorkEnded': {
+      const stopReason = ev.outcome.kind === 'stopped' ? ev.outcome.stopReason : null;
+      // A prompt can end before its provider ever reported running (refused, cancelled before insertion):
+      // the ending is still the last turn's outcome. Nothing started, so nothing stops and nothing drains.
+      if (s.phase.kind === 'ready') {
+        return { state: { ...s, lastStopReason: stopReason,
+          lastTurnOutcome: ev.outcome.kind === 'errored' ? 'errored' : 'stopped' }, effects: [{ type: 'state' }] };
+      }
       if (s.phase.kind !== 'working' && s.phase.kind !== 'cancelling') {
         return warn(s, `WorkEnded in phase '${s.phase.kind}'`);
       }
-      const stopReason = ev.outcome.kind === 'stopped' ? ev.outcome.stopReason : null;
       // agent 停下就抽干队列:后台子代理不是在干的活,不挡下一句。
       const { queuedPrompts, effects: queueEffects } =
         ev.dequeueQueuedPrompt !== false

@@ -7,15 +7,16 @@ import { readMobileShell } from '../hooks/useMobileShell'
 
 /** One shell request for a resolved target, shared by the main and session renderer roots. */
 export const OPEN_LINK_TARGET = 'gugu:open-link-target'
+export type SenderChatTarget = { kind: 'sender'; userId: string }
 export type LinkNavigation = {
-  target: GuguLinkTarget
+  target: GuguLinkTarget | SenderChatTarget
   message?: MessageItem
   restore?: () => void
   resolve(opened?: LinkPlace | 'own'): void
   reject(error: unknown): void
 }
 
-export function openLinkTarget(target: GuguLinkTarget, source: Pick<LinkNavigation, 'message' | 'restore'> = {}): Promise<LinkPlace | 'own' | void> {
+export function openLinkTarget(target: GuguLinkTarget | SenderChatTarget, source: Pick<LinkNavigation, 'message' | 'restore'> = {}): Promise<LinkPlace | 'own' | void> {
   return new Promise((resolve, reject) => {
     const detail: LinkNavigation = { target, ...source, resolve, reject }
     if (window.dispatchEvent(new CustomEvent(OPEN_LINK_TARGET, { detail, cancelable: true }))) reject(new Error('The chat shell is not ready to open this link'))

@@ -1,5 +1,5 @@
 import { type Dirent } from 'node:fs';
-import { readFile, readdir, realpath, mkdir } from 'node:fs/promises';
+import { readFile, readdir, realpath, mkdir, rm } from 'node:fs/promises';
 import { dirname, isAbsolute, join, relative } from 'node:path';
 import { randomUUID } from 'node:crypto';
 import { atomicWriteText, resolveGuguHome } from '@gugu/core/local/state/paths';
@@ -64,6 +64,28 @@ export async function readUserLibraryEntry(kind: UserLibraryKind, id: string, ex
 }
 
 const writes = new Map<string, Promise<unknown>>();
+/** Runtime application uses the same account, path and write lock as edits. */
+export async function removeUserLibraryEntry(kind: UserLibraryKind, id: string, expectedOwnerId: string): Promise<void> {
+  checkedKind(kind);
+  if (await owner?.() !== expectedOwnerId) throw new Error('Gugu library account changed');
+  const home = accountHome(expectedOwnerId), root = join(home,'library',kind);
+  const directory = join(root,validId(id)), index = join(directory,'index.json');
+  const previous = writes.get(index);
+  const operation = (async () => {
+    await previous?.catch(() => undefined);
+    try {
+      const rest = relative(await realpath(root),await realpath(directory));
+      if (isAbsolute(rest) || rest === '..' || rest.startsWith('../') || rest.startsWith('..\\')) throw new Error('Library entry is outside Gugu storage');
+      if (await owner?.() !== expectedOwnerId) throw new Error('Gugu library account changed');
+      await rm(directory,{ recursive: true,force: true });
+    } catch (error) { if ((error as NodeJS.ErrnoException).code !== 'ENOENT') throw error; }
+    if (await owner?.() === expectedOwnerId) for (const listener of listeners) listener(expectedOwnerId,kind);
+  })();
+  writes.set(index,operation);
+  try { await operation; }
+  finally { if (writes.get(index) === operation) writes.delete(index); }
+}
+
 /** Serialize edits and check the caller's version. Each entry is durable; the aggregate is always derived. */
 export async function writeUserLibraryEntry(input: UserLibraryWrite, explicitHome?: string, source: 'ui' | 'agent' | 'unknown' = 'unknown', expectedOwnerId?: string): Promise<UserLibraryEntry> {
   checkedKind(input.kind);

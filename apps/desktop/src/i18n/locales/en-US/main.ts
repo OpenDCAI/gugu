@@ -5,6 +5,8 @@ export default {
     "retry": "Retry",
     "profileTitle": "Let's get to know you",
     "profileSub": "Gugu and your agents use this to address you and understand you. You can change it later in Settings → Account.",
+    "profileSubDesktop": "Gugu and your agents will use these details to address you.",
+    "introSubDesktop": "Gugu is your personal assistant for plans and everyday tasks.",
     "avatar": "Change avatar",
     "avatarUploading": "Uploading…",
     "nameLabel": "What should we call you?",
@@ -34,7 +36,19 @@ export default {
     "harnessReadFailed": "Couldn't read agent status. Please try again.",
     "harnessCancelFailed": "Couldn't cancel the installation. Please try again.",
     "introStart": "Set up my Gugu",
-    "introLater": "Look around first"
+    "introLater": "Look around first",
+    "terminalTitle": "Terminal",
+    "terminalSub": "Used to CLIs like Claude Code or Codex in a terminal? Turn it on to work with agents through a TUI.",
+    "terminalToggle": "Enable terminal",
+    "tourChoiceTitle": "Want a quick look around?",
+    "tourChoiceSub": "Take a minute to get to know the left bar.",
+    "tourChoiceStart": "Show me (1 min)",
+    "tourChoiceSkip": "Just start",
+    "back": "Back",
+    "stepCount": "{{current}} / {{total}}",
+    "terminalLater": "Change it later in Settings → General",
+    "terminalPause": "Pause",
+    "terminalPlay": "Play"
   },
   "groupFile": {
     "notInGroup": "You are not in the chat this file belongs to"
@@ -111,6 +125,7 @@ export default {
     },
     "sessions": {
       "loadFailed": "Could not load tasks",
+      "actionFailed": "That did not go through",
       "ungrouped": "No project",
       "menu": "More",
       "cancel": "Cancel",
@@ -168,7 +183,8 @@ export default {
       "tooLarge": "Too large · view on desktop"
     },
     "timeline": {
-      "outputTrimmed": "… {{chars}} chars trimmed · open on desktop for the full output",
+      "outputTrimmed_one": "… {{count}} char omitted from this preview",
+      "outputTrimmed_other": "… {{count}} chars omitted from this preview",
       "loading": "Loading the timeline…",
       "waitingRecord": "Task started — waiting for its first line…",
       "empty": "This task has no content yet.",
@@ -207,7 +223,7 @@ export default {
       "decline": "Decline",
       "cancelled": "This no longer needs an answer",
       "noOptions": "Answer this on the desktop: the machine did not send the available options.",
-      "answerInTerminal": "Answer this in the terminal on the desktop: a terminal task can't be answered from the phone.",
+      "answerInTerminal": "Answer this on the computer.",
       "answerOnDesktop": "Answer this on the desktop: this kind can't be answered from the phone yet.",
       "byDesktop": "the desktop",
       "byMobile": "the phone"
@@ -221,12 +237,6 @@ export default {
       "project": "Project",
       "harness": "Harness",
       "model": "Model",
-      "view": "Mode",
-      "sessionView": {
-        "label": "Mode",
-        "code": { "name": "Code", "desc": "Runs in a terminal; you see the harness's own UI" },
-        "general": { "name": "Work", "desc": "Chat-style; replies and approvals show fully on the phone" }
-      },
       "permission": {
         "plan": { "name": "Plan only", "desc": "Think it through without running tools" },
         "read-only": { "name": "Read-only", "desc": "Can look but not change; asks before acting, except for tools you have allowed in the harness's own settings" },
@@ -384,6 +394,7 @@ export default {
         "zh-CN": "简体中文"
       },
       "light": "Light",
+      "plain-white": "Plain white",
       "notifications": "Notifications",
       "notificationsAgent": "Agent notifications",
       "notificationsAgentAria": "Enable agent notifications",
@@ -406,6 +417,8 @@ export default {
       "notificationsTestFailed": "This device does not support system notifications.",
       "notificationsTestSentMobile": "The system accepted it. Still nothing? Go to Me → Permissions → Notifications and make sure notifications and pop-up banners are on for 咕咕.",
       "notificationsTestRejectedMobile": "The system refused to show it — 咕咕 has no notification permission yet. Turn it on from Me → Permissions → Notifications.",
+      "terminal": "Terminal",
+      "terminalDescription": "When on, agents can work through a TUI (terminal interface). New tasks still start in the General view.",
       "trayBadge": "Tray badge",
       "trayBadgeAria": "Show the unread count on the tray icon",
       "trayBadgeEnabled": "Show the unread count on the tray icon",
@@ -418,7 +431,7 @@ export default {
     "guguNumberUnassigned": "Gugu ID not assigned",
     "my": "Me",
     "newAgent": "New Agent",
-    "newTask": "New Task",
+    "newTask": "New task",
     "apps": {
       "intro": "Apps installed on this phone — from cards in chats and from the market. The ones that come with Gugu are not listed.",
       "empty": "No App installed yet.",
@@ -441,7 +454,6 @@ export default {
       "account": "Account",
       "activity": "Activity",
       "apps": "Apps",
-      "channels": "Chat channels",
       "browser": "Browser",
       "devices": "Devices",
       "general": "General",
@@ -461,6 +473,8 @@ export default {
       "batteryOptimization": "Background running",
       "batteryOptimizationPurpose": "Keeps alerts coming after you switch away from 咕咕; tap to exempt it from battery optimization",
       "camera": "Camera",
+      "microphone": "Microphone",
+      "microphonePurpose": "Send voice messages",
       "cameraPurpose": "Scans QR codes to add friends and join groups",
       "fileAccess": "Files and folders",
       "fileAccessPurpose": "Opens project folders on your computer",
@@ -468,7 +482,7 @@ export default {
       "off": "Off",
       "offPrompt": "Off · tap to turn on",
       "offBlocked": "Off · turn on in system settings",
-      "unknown": "Unknown · check in system settings",
+      "unknown": "Check system settings",
       "settingsUnreachable": "Couldn't open that screen. Open system settings yourself, find 咕咕, and turn on {{name}}.",
       "readFailed": "Couldn't read permission status from the system. Come back to this page to try again."
     },
@@ -518,7 +532,8 @@ export default {
     "back": "Back",
     "chats": "Chats",
     "contacts": "Contacts (⌘2)",
-    "contactsMobile": "Contacts",
+    "messagesMobile": "Messages",
+    "partnersMobile": "Partners",
     "errors": {
       "createFieldsMissing": "A message, name, or device required to create the Agent is missing",
       "createInProgress": "An Agent is already being created. Reopen the creation page to view its progress.",
@@ -547,7 +562,7 @@ export default {
     "messages": "Messages (⌘1)",
     "my": "Me",
     "newAgent": "New Agent",
-    "newTask": "New Task",
+    "newTask": "New task",
     "usage": "Usage",
     "resizeChatList": "Resize chat list",
     "sessionExpired": {
@@ -594,7 +609,9 @@ export default {
       "shareNoGuguNumber": "{{name}} does not have a Gugu ID yet, so a card cannot be created.",
       "shareUnavailable": "This task does not have an agent identity that can be shared yet.",
       "taskCreated": "Task created",
-      "taskDeliverFailed": "Message not delivered to {{name}} because the task is not running.",
+      "taskDeliverFailed": "Message not delivered to {{name}}.",
+      "taskDeliverFailedCount_one": "{{count}} message not delivered to {{name}}.",
+      "taskDeliverFailedCount_other": "{{count}} messages not delivered to {{name}}.",
       "unownedAgentDm": "You cannot message someone else’s Agent privately. Work with it in a shared group."
     },
     "update": {
@@ -624,6 +641,35 @@ export default {
       "restartNow": "Restart and update",
       "retry": "Retry"
     },
+  },
+  "partners": {
+    "search": "Search",
+    "noResults": "No results",
+    "projects": "Projects · {{count}}",
+    "friends": "Friends · {{count}}",
+    "rooms": "Chats · {{count}}",
+    "agents": "Agents · {{count}}",
+    "groupChat": "Group chat",
+    "assistant": "Personal assistant",
+    "groupOffline": "The computer with this project is offline",
+    "groupUnavailable": "Couldn't open the project group",
+    "newProject": {
+      "title": "New project",
+      "name": "Project name",
+      "create": "Create",
+      "machine": "Computer",
+      "folder": "Folder",
+      "newFolder": "New folder",
+      "existingFolder": "Existing folder",
+      "pickFolder": "Choose folder",
+      "offline": "Offline",
+      "noMachine": "No computer is online",
+      "readingDirectory": "Reading this computer's projects folder",
+      "noDefaultDirectory": "This computer has no default projects folder",
+      "invalidName": "A project name can't contain / \\ : * ? \" < > |",
+      "pathTaken": "This folder is taken by “{{name}}”",
+      "failed": "Couldn't create the project"
+    }
   },
   "widget": {
     "empty": "No content"

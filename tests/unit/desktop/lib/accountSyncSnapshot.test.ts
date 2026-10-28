@@ -3,6 +3,7 @@ import { IDBFactory, IDBKeyRange } from 'fake-indexeddb'
 import { openLocalSyncDb, type LocalImDbAdapter, type LocalImDbOperation } from '../../../../apps/desktop/src/lib/localSyncDb'
 import { openImRepository, replaceChatRowsAndIdentities, type OutboxRecord } from '../../../../apps/desktop/src/lib/imRepository'
 import { ACCOUNT_REVISION_CURSOR_KEY, createAccountRevisionRuntime } from '../../../../apps/desktop/src/lib/accountRevisionRuntime'
+import { assemble } from '../../../../apps/desktop/src/lib/chatProjectionAlgebra'
 import { decodeAccountSnapshot, initializeAccountSync } from '../../../../apps/desktop/src/lib/accountSyncSnapshot'
 import { message } from '../../../support/testHarness'
 
@@ -27,7 +28,7 @@ function populatedSnapshot() {
     identities: [identity, { ...identity, id: 'peer', display_name: 'Remote peer' }],
     previews: [{ chat_id: 'chat-1', id: 'remote-message', created_at: at, preview: 'Remote text', seq: 3, content_type: 'text', sender_user_id: 'peer', client_message_id: 'remote-message' }],
     unread: [{ chat_id: 'chat-1', stream_id: 'main:chat-1', stream_kind: 'main', thread_root_id: null,
-      message_id: 'remote-message', message_seq: 3, unread_count: 2, cursor_seq: 1, version: 2, is_marked_unread: false }],
+      message_id: 'remote-message', message_seq: 3, unread_count: 2, addressed_count: 0, cursor_seq: 1, version: 2, is_marked_unread: false }],
   }
 }
 const pending: OutboxRecord = { clientMessageId: 'unsent', chatId: 'chat-1', senderUserId: 'account-a',
@@ -147,4 +148,17 @@ describe('account snapshot bootstrap and repair', () => {
     expect(() => decodeAccountSnapshot(serverSnapshot(), 'account-b')).toThrow('account boundary')
     expect(() => decodeAccountSnapshot({ ...serverSnapshot(), identities: [] }, 'account-a')).toThrow('incomplete')
   })
+})
+
+it('restores group and contact overrides into their distinct account snapshot keys', () => {
+  const base = populatedSnapshot()
+  const snapshot = { ...base, overrides: [
+    { target_kind: 'group', target_id: 'chat-1', contact_user_id: null, alias: 'Private cold-start title' },
+    { target_kind: 'contact', target_id: 'peer', contact_user_id: 'peer', alias: 'Private contact title' },
+  ] }
+  const decoded = decodeAccountSnapshot(snapshot, 'account-a')
+  expect(decoded.cells.get('override:peer')?.value).toMatchObject({ alias: 'Private contact title' })
+  expect(assemble(decoded.cells, 'account-a')).toMatchObject([{ id: 'chat-1', name: 'Remote group', alias: 'Private cold-start title' }])
+  const cleared = decodeAccountSnapshot(base, 'account-a')
+  expect(assemble(cleared.cells, 'account-a')).toMatchObject([{ id: 'chat-1', name: 'Remote group', alias: null }])
 })

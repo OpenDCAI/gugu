@@ -1,6 +1,10 @@
+import { useAssistantPanelIntegration } from '@/components/assistant/useAssistantPanelIntegration';
+import { assistantPanelFailure } from '@/components/assistant/assistant-panel-errors';
+import { useTranslation } from 'react-i18next';
 import { rendererLogger } from '@/lib/log';
 import { messageForUser } from '@/lib/userFacingError';
-import { CheckCircle, Copy, ExternalLink, Eye, EyeOff, Info } from '@/lib/icons'
+import { requestCloudVersionMatch, useCloudVersionMatch } from '@/lib/cloudVersionMatch';
+import { CheckCircle, Copy, ExternalLink, Eye, EyeOff } from '@/lib/icons'
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useToast } from '@renderer/lib/hooks/use-toast';
 import { type BaseModalProps } from '@renderer/lib/modal/modal-provider';
@@ -23,6 +27,7 @@ import {
 } from './integrations-provider';
 import {
   canSubmitForm,
+  cliInstructionKey,
   cliMethodOf as cliMethod,
   formInputOf,
   formMethodOf as formMethod,
@@ -56,12 +61,14 @@ export function IntegrationSetupModal({ host, ...props }: Props) {
 function IntegrationSetupModalBody({ integration, editAccount, onSuccess, onClose }: Omit<Props, 'host'>) {
   const { integrationById } = useIntegrationsContext();
   const { translate } = useSessionMessages();
-  const metadata = integrationById[integration];
+  const { t } = useTranslation('assistant');
+  const detail = useAssistantPanelIntegration(useLibraryHost().assistantPanel,integrationById[integration]);
+  const metadata = detail.data;
 
   return (
     <>
       <DialogHeader className="flex-col items-start gap-1" showCloseButton={false}>
-        <DialogTitle>
+        <DialogTitle className="leading-6">
           {metadata
             ? translate(editAccount ? 'integrations.editCredentialsTitle' : 'integrations.connectTitleFor', {
                 name: metadata.name,
@@ -69,6 +76,7 @@ function IntegrationSetupModalBody({ integration, editAccount, onSuccess, onClos
             : translate('integrations.setupTitle')}
         </DialogTitle>
       </DialogHeader>
+      {detail.error ? <p role="alert">{assistantPanelFailure(detail.error,t)}</p> : detail.loading ? <LoadingIndicator size="inline" /> : null}
       {metadata ? (
         cliMethod(metadata) ? (
           <IntegrationCliLogin
@@ -113,6 +121,7 @@ function IntegrationBrowserAuthorization({
 }) {
   const { authorizeIntegration, cancelIntegrationAuthorization } = useIntegrationsContext();
   const remote = useLibraryHost().remote;
+  const cloudVersion = useCloudVersionMatch(remote?.deviceId ?? null);
   const { toast } = useToast();
   const { translate } = useSessionMessages();
   const [waiting, setWaiting] = useState(false);
@@ -123,17 +132,22 @@ function IntegrationBrowserAuthorization({
   // 以为已经取消之后,悄悄把账号连上。
   useEffect(
     () => () => {
-      if (waitingRef.current) cancelIntegrationAuthorization(integration);
+      if (waitingRef.current) {
+        waitingRef.current = false;
+        cancelIntegrationAuthorization(integration);
+      }
     },
     [cancelIntegrationAuthorization, integration]
   );
 
   const start = async () => {
+    if (cloudVersion?.status === 'failed' && remote) await requestCloudVersionMatch(remote.deviceId, true);
     setError(null);
     setWaiting(true);
     waitingRef.current = true;
     try {
       const result = await authorizeIntegration(integration);
+      if (!waitingRef.current) return;
       if (!result.success) {
         // @@@raw detail — 主进程/授权服务器给的失败原因原样展示。
         setError(result.error);
@@ -144,6 +158,8 @@ function IntegrationBrowserAuthorization({
         description: translate('integrations.connectedToastDescription'),
       });
       onSuccess();
+    } catch (failure) {
+      if (waitingRef.current) setError(failure instanceof Error ? failure.message : translate('integrations.connectFailed'));
     } finally {
       waitingRef.current = false;
       setWaiting(false);
@@ -163,7 +179,9 @@ function IntegrationBrowserAuthorization({
         </p>
         {error ? (
           <p className="text-xs text-foreground-destructive" role="alert">
-            {error}
+            {cloudVersion?.status === 'updating' ? translate('integrations.cloudUpdating', { version: cloudVersion.version })
+              : cloudVersion?.status === 'failed' ? cloudVersion.error
+                : cloudVersion?.status === 'ready' ? translate('integrations.cloudUpdated') : error}
           </p>
         ) : null}
       </DialogContentArea>
@@ -209,6 +227,7 @@ function IntegrationCliLogin({
   const { startCliLogin, waitCliLogin, readCliProgress, cancelIntegrationAuthorization } = useIntegrationsContext();
   const readProgress = useCallback(() => readCliProgress?.(integration) ?? Promise.resolve(null), [readCliProgress, integration]);
   const remote = useLibraryHost().remote;
+  const cloudVersion = useCloudVersionMatch(remote?.deviceId ?? null);
   const { toast } = useToast();
   const { translate } = useSessionMessages();
   const [phase, setPhase] = useState<'idle' | 'starting' | 'waiting'>('idle');
@@ -232,6 +251,7 @@ function IntegrationCliLogin({
   const start = async () => {
     setError(null);
     setPrompt(null);
+    if (cloudVersion?.status === 'failed' && remote) await requestCloudVersionMatch(remote.deviceId, true);
     setPhase('starting');
     activeRef.current = true;
     try {
@@ -325,36 +345,19 @@ function IntegrationCliLogin({
           )
         ) : (
           <>
-            <p className="text-sm text-foreground-muted">
-              {remote
+            <p className="text-sm leading-6 text-foreground-muted">
+              {cliInstructionKey(metadata) ? translate(cliInstructionKey(metadata)!) : method.prerequisite?.text ?? (remote
                 ? translate('integrations.cliDescriptionOnDevice', { name: metadata.name, device: remote.deviceLabel })
-                : translate('integrations.cliDescription', { name: metadata.name })}
+                : translate('integrations.cliDescription', { name: metadata.name }))}
+              {method.prerequisite?.url ? <Button variant="link" size="xs" className="ml-1 h-auto p-0 text-xs" onClick={() => openUrl(method.prerequisite!.url!)}>
+                {translate('integrations.cliPrerequisiteLink')}<ExternalLink className="ml-1 size-3" />
+              </Button> : null}
             </p>
-            {method.prerequisite ? (
-              <div className="flex items-start gap-2 rounded-lg border border-border bg-background-secondary px-3 py-2">
-                <Info className="h-4 w-4 shrink-0 text-foreground-muted" />
-                <div className="grid gap-1">
-                  {/* @@@raw prerequisite copy — 插件元数据里的中英两份,主进程已按界面语言挑好。 */}
-                  <p className="text-xs text-foreground">{method.prerequisite.text}</p>
-                  {method.prerequisite.url ? (
-                    <Button
-                      variant="link"
-                      size="xs"
-                      className="h-auto justify-start p-0 text-xs"
-                      onClick={() => openUrl(method.prerequisite!.url!)}
-                    >
-                      {translate('integrations.cliPrerequisiteLink')}
-                      <ExternalLink className="ml-1 h-3 w-3" />
-                    </Button>
-                  ) : null}
-                </div>
-              </div>
-            ) : null}
             {phase === 'starting' ? (
-              <div className="grid gap-2">
-                <p className="text-xs text-foreground-muted">{translate('integrations.cliPreparing', { name: metadata.name })}</p>
-                <CliInstallProgress read={readProgress} />
-              </div>
+              <CliInstallProgress
+                read={readProgress}
+                idle={<p className="text-sm leading-6 text-foreground-muted" role="status">{translate('integrations.cliPreparing')}</p>}
+              />
             ) : null}
           </>
         )}
@@ -366,7 +369,9 @@ function IntegrationCliLogin({
         ) : null}
         {error ? (
           <p className="whitespace-pre-wrap text-xs text-foreground-destructive" role="alert">
-            {error}
+            {cloudVersion?.status === 'updating' ? translate('integrations.cloudUpdating', { version: cloudVersion.version })
+              : cloudVersion?.status === 'failed' ? cloudVersion.error
+                : cloudVersion?.status === 'ready' ? translate('integrations.cloudUpdated') : error}
           </p>
         ) : null}
       </DialogContentArea>
@@ -380,7 +385,7 @@ function IntegrationCliLogin({
             {translate('integrations.cliOpenAuthorizePage', { name: metadata.name })}
           </ConfirmButton>
         ) : phase === 'waiting' ? null : (
-          <ConfirmButton onClick={() => void start()} disabled={phase === 'starting'}>
+          <ConfirmButton onClick={() => void start()} disabled={phase === 'starting' || cloudVersion?.status === 'updating'}>
             {phase === 'starting' ? <LoadingIndicator size="inline" className="mr-2" /> : null}
             {phase === 'starting'
               ? translate('integrations.cliConnecting')
@@ -413,7 +418,7 @@ function IntegrationSetupForm({
   onSuccess: () => void;
   onClose: () => void;
 }) {
-  const { translate } = useSessionMessages();
+  const { translate,locale } = useSessionMessages();
   const method = formMethod(metadata);
   const [values, setValues] = useState<Record<string, string>>(() =>
     initialFormValues(method?.fields ?? [], editAccount?.fields)
@@ -445,6 +450,7 @@ function IntegrationSetupForm({
       {...(editAccount ? { editAccountId: editAccount.accountId } : {})}
       getInput={() => formInputOf(method.fields, values)}
       canSubmit={canSubmit}
+      validationMessage={translate('integrations.missingRequiredFields',{ fields: method.fields.filter(field => field.required && !(editAccount && field.secret) && !values[field.id]?.trim()).map(field => field.label).join(locale === 'zh-CN' ? '、' : ', ') })}
       onSuccess={onSuccess}
       onClose={onClose}
     >

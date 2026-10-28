@@ -1,7 +1,7 @@
 import { rememberedProviderOf } from '@shared/core/sessions/provider-selection';
 import { sessionpageLegOfView } from '@shared/core/sessions/sessions';
 import { useAppSettingsKey } from '@renderer/features/settings/use-app-settings-key';
-import { useSessionViewPreference } from './session-config/session-view-preference';
+import { DEFAULT_SESSION_VIEW } from '@shared/core/sessions/new-session-defaults';
 import { useEffectiveProvider } from './use-effective-provider';
 
 /**
@@ -9,7 +9,6 @@ import { useEffectiveProvider } from './use-effective-provider';
  * 再按这台电脑上装没装 —— ❌ 另定一个默认。「新任务」按钮上画它的标(gugu-dev#181:标签、按钮、任务卡说的是同一个 agent)。
  */
 export function useDefaultTaskProvider(): string | null {
-  const [view] = useSessionViewPreference();
   const { value: memory } = useAppSettingsKey('newSessionMemory');
-  return useEffectiveProvider(undefined, sessionpageLegOfView(view), rememberedProviderOf(memory)).providerId ?? null;
+  return useEffectiveProvider(undefined, sessionpageLegOfView(DEFAULT_SESSION_VIEW), rememberedProviderOf(memory)).providerId ?? null;
 }

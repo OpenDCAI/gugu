@@ -10,11 +10,12 @@ const harness = createReactHarness()
 afterEach(() => harness.cleanup())
 const inactive = () => undefined
 
-it('keeps the same width and quote when a streamed reply becomes a persisted message', async () => {
+it('keeps the same width and meaningful older quote when a streamed reply becomes a persisted message', async () => {
   const source = message({ id: 'source', is_mine: true, sender_user_id: 'user-1', content: '解释一下这个问题' })
+  const newer = message({ id: 'newer', is_mine: true, sender_user_id: 'user-1', content: '补充另一个问题' })
   const text = '这是一段需要多行显示的真实回复。'.repeat(15)
   await renderWithAppProviders(harness, <AssistantTyping name="bc" pending="working" activity={{ phase: 'draft', id: 'call', text, replyToMessageId: source.id }} />, {
-    chat: { activeChat: chat({ id: source.chat_id, peer_user_id: 'assistant' }), messages: [source] },
+    chat: { activeChat: chat({ id: source.chat_id, peer_user_id: 'assistant' }), messages: [source,newer] },
   })
   const column = harness.container.querySelector<HTMLElement>('[data-message-bubble-column]')
   expect(column).not.toBeNull()

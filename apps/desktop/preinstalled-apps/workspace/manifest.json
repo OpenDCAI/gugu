@@ -11,8 +11,8 @@
     }
   },
   "author": "咕咕",
-  "version": "0.2.57",
-  "apiVersion": 15,
+  "version": "0.2.59",
+  "apiVersion": 20,
   "platforms": ["desktop", "phone"],
   "entry": "index.html",
   "icon": "icon.png",
@@ -26,7 +26,8 @@
         "title": "文件夹",
         "icon": "icon.png",
         "opensFiles": { "chat": [".md", ".json"] },
-        "fileIcons": { ".md": "md.png", ".json": "json.png" }
+        "fileIcons": { ".md": "md.png", ".json": "json.png" },
+        "sideWidth": 480
       }
     ],
     "mcpServers": [{ "tools": "tools.js" }]

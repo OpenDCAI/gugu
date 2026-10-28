@@ -8,7 +8,7 @@
    主 app 的 styles/tokens.css:12 同样为此留了一行,那边先踩过。 */
 @source '../../../node_modules/streamdown/dist';
 
-@custom-variant dark (&:is(.dark *));
+@custom-variant dark (&:where([data-theme='dark'], [data-theme='dark'] *));
 @custom-variant dark-black (&:is(.dark-black *));
 @custom-variant emlight (&:is(.emlight *));
 @custom-variant emdark (&:is(.emdark *));
@@ -280,7 +280,6 @@
   --color-foreground-diff-deleted: var(--foreground-diff-deleted);
 
   --color-selection-foreground: var(--selection-foreground);
-  --color-selection-background: var(--selection-background);
 
   --color-border: var(--border, var(--border-color));
   --color-border-1: var(--border-1);
@@ -430,13 +429,10 @@
 
   /* 不定长进度条:不知道还要多久,只表示「它在动」。装依赖用(#4271 设计稿 `.barline`)。
      减弱动态时降级为一条铺满的静止条 —— ❌ 不能降级成什么都没有,那会变成「卡住了」。 */
+  /* The bar is 38% of its track; preserve the -40% → 100% track offsets. */
   @keyframes gg-indeterminate {
-    0% {
-      margin-left: -40%;
-    }
-    100% {
-      margin-left: 100%;
-    }
+    from { transform: translateX(calc(-4000% / 38)); }
+    to { transform: translateX(calc(10000% / 38)); }
   }
 
   @keyframes accordion-down {
@@ -484,7 +480,7 @@
   }
 }
 
-/* @@@reduced-motion-fallback (Refs #6104) — 会话页此前只有 3 处点名降级(logo-shimmer / progress-indeterminate / text-shimmer),
+/* @@@reduced-motion-fallback (Refs #6104) — 会话页此前只有个别动效点名降级,
    而 @theme 里登记了 4 个 --animate-* 与 5 个 keyframes,外加 tw-animate-css 整套 —— 没有兜底。
    与 apps/desktop/src/styles/tokens.css 的那段**逐字相同**。
    design.md:「**Every one of these is disabled under `prefers-reduced-motion`,
@@ -906,6 +902,10 @@
     /* @@@live-accent — 滑杆/强度这类「当前档」是 live;原来是 jade 的 9/11 两阶。 */
     --composer-accent-solid: var(--live);
     --composer-accent-text: var(--live);
+    /* 思考滑杆:圆钮明暗两套都是纯白;轨道取中性阶梯(浅 4/5 档、深 5/6 档 ≈ 契约原先写死的 0.922/0.878、0.184/0.224)。 */
+    --composer-knob: var(--color-white);
+    --composer-track: var(--neutral-4);
+    --composer-track-hover: var(--neutral-5);
     --composer-destructive-bg: var(--background-error);
     --composer-destructive-hover: var(--background-error-hover);
     --composer-destructive-selected: var(--background-error-hover);
@@ -1264,6 +1264,9 @@
     /* @@@live-accent — 滑杆/强度这类「当前档」是 live;原来是 jade 的 9/11 两阶。 */
     --composer-accent-solid: var(--live);
     --composer-accent-text: var(--live);
+    --composer-knob: var(--color-white);
+    --composer-track: var(--neutral-5);
+    --composer-track-hover: var(--neutral-6);
     --composer-destructive-bg: var(--background-error);
     --composer-destructive-hover: var(--background-error-hover);
     --composer-destructive-selected: var(--background-error-hover);
@@ -1668,87 +1671,6 @@
       width: 100%;
     }
   }
-  .text-shimmer {
-    background: linear-gradient(
-      90deg,
-      var(--foreground-passive) 0%,
-      var(--foreground-passive) 30%,
-      var(--foreground) 50%,
-      var(--foreground-passive) 70%,
-      var(--foreground-passive) 100%
-    );
-    background-size: 200% 100%;
-    background-clip: text;
-    -webkit-background-clip: text;
-    color: transparent;
-    -webkit-text-fill-color: transparent;
-    animation: text-shimmer-move 2s linear infinite;
-  }
-
-  @keyframes text-shimmer-move {
-    0% {
-      background-position: 200% 0;
-    }
-    100% {
-      background-position: -200% 0;
-    }
-  }
-
-  @media (prefers-reduced-motion: reduce) {
-    .text-shimmer {
-      animation: none;
-    }
-  }
-
-  /* Diff decorations for Monaco editor gutter and line highlights */
-  .diff-glyph-added::before,
-  .diff-glyph-modified::before,
-  .diff-glyph-deleted::before {
-    content: '';
-    position: absolute;
-    left: 3px;
-    width: 3px;
-    height: 100%;
-    border-radius: 1px;
-  }
-
-  .diff-glyph-added::before {
-    background-color: var(--diff-added);
-  }
-
-  .diff-glyph-modified::before {
-    background-color: var(--diff-modified);
-  }
-
-  .diff-glyph-deleted::before {
-    background-color: var(--diff-deleted);
-  }
-
-  .diff-glyph-added:hover::before,
-  .diff-glyph-modified:hover::before,
-  .diff-glyph-deleted:hover::before {
-    width: 4px;
-    left: 2px;
-    /* @@@task-fusion (#2802) — 并入本体后这份 CSS 落进 apps/desktop/src,受咕咕的动效 token 门
-       约束(scripts/ui-state-debt-check.mjs):❌ 魔数时长。--dur-* 由 skin bridge 从宿主
-       tokens.css 继承进 shadow root(见 packages/session-ui/src/styles/effects/animations.css.ts)。
-       ⚠️ 不能写成 `var(--dur-fast, 120ms)` —— 那个 fallback 数字照样被判为债务(实测)。 */
-    transition:
-      width var(--dur-fast) ease-in-out,
-      left var(--dur-fast) ease-in-out;
-  }
-
-  .diff-line-added {
-    background-color: var(--diff-added-bg);
-  }
-
-  .diff-line-modified {
-    background-color: var(--diff-modified-bg);
-  }
-
-  .diff-line-deleted {
-    background-color: var(--diff-deleted-bg);
-  }
 
 }
 
@@ -1850,12 +1772,6 @@ html[data-gugu-dragging] :is(webview, iframe) {
    没有厂商图形的不收,❌ 收成一颗空按钮。 */
 .session-tab-bar[data-strip-narrow] [data-testid="terminal-model-switch"] [data-testid="composer-model-trigger"]:has(> span[aria-hidden="true"])
   :is([data-slot="composer-model-trigger-label"], [data-slot="composer-effort"]) {
-  display: none;
-}
-
-/* 模式按钮(#7167)同一档让位:只剩当前模式的图标,名字收起 —— 与换模型那颗只剩厂商图形同一个说法。
-   图标一直在,所以收不成空按钮。 */
-.session-tab-bar[data-strip-narrow] [data-testid="session-mode-trigger"] [data-slot="session-mode-label"] {
   display: none;
 }
 

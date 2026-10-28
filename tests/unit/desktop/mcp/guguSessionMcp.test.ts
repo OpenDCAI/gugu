@@ -27,7 +27,7 @@ const SESSION_TOOL_NAMES = [
 const PROJECT_TOOL_NAMES = PROJECT_TOOL_DEFS.map((def) => def.name)
 const ACTIVITY_TOOL_NAMES = ACTIVITY_TOOL_DEFS.map(def => def.name)
 const LIBRARY_TOOL_NAMES = LIBRARY_TOOL_DEFS.map(def => def.name)
-const EXTENSION_TOOL_NAMES = ['app_create', 'app_pack', 'app_install', 'app_check'] as const
+const EXTENSION_TOOL_NAMES = ['app_manage', 'app_create', 'app_pack', 'app_install', 'app_check'] as const
 // #7221 给自己排的已安排:与 session_* 同一个分派器、同一份 grant。
 const SCHEDULE_TOOL_NAMES = ['schedule_create', 'schedule_list', 'schedule_cancel'] as const
 // #6614 每条 grant 都有的两个域:guide_* 与渐进披露的 catalog_*。
@@ -87,6 +87,18 @@ const socialContext = (
 })
 
 describe('single Gugu MCP surface (session_* + app_* atomic tools)', () => {
+  it('requires the assistant to distinguish a question from an assignment before dispatch', async () => {
+    const seen: unknown[] = []
+    const client = await connectTo({ ...socialContext(async action => { seen.push(action); return { recipients: [] } }), personalAssistant: true })
+    const args = { to: ['session:target'], text: '请回复一句话' }
+    expect((await client.callTool({ name: 'session_message', arguments: args })).isError).toBe(true)
+    expect(seen).toEqual([])
+    expect((await client.callTool({ name: 'session_message', arguments: { ...args, purpose: 'reply' } })).isError).not.toBe(true)
+    expect(seen).toEqual([{ action: 'message', ...args, purpose: 'reply' }])
+    await client.callTool({ name: 'session_message', arguments: { ...args, purpose: 'task' } })
+    expect(seen[1]).toMatchObject({ action: 'message', purpose: 'task', text: expect.stringContaining('<gugu_task_context>') })
+  })
+
   it('注册清单:两份 DEF 的原子工具名字→分派动作一一对应(前缀在注册机剥掉)', () => {
     expect(SESSION_TOOL_DEFS.map((def) => def.name)).toEqual([...SESSION_TOOL_NAMES])
     expect(EXTENSION_TOOL_DEFS.map((def) => def.name)).toEqual([...EXTENSION_TOOL_NAMES])
@@ -111,6 +123,7 @@ describe('single Gugu MCP surface (session_* + app_* atomic tools)', () => {
       session_set_parent: 'set_parent',
     })
     expect(Object.fromEntries(EXTENSION_TOOL_DEFS.map((def) => [def.name, def.action]))).toEqual({
+      app_manage: 'manage',
       app_create: 'create',
       app_pack: 'pack',
       app_install: 'install',

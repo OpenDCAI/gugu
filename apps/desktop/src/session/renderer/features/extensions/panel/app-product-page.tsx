@@ -26,6 +26,7 @@ import { Button } from '@renderer/lib/ui/button';
 import { Dialog, DialogContent, DialogContentArea, DialogHeader, DialogTitle } from '@renderer/lib/ui/dialog';
 import { InfoTooltip } from '@renderer/lib/ui/info-tooltip';
 import { MarkdownRenderer } from '@renderer/lib/ui/markdown-renderer';
+import { ExpandableImage } from '@renderer/lib/ui/expandable-image';
 import { Switch } from '@renderer/lib/ui/switch';
 import { ToggleGroup, ToggleGroupItem } from '@renderer/lib/ui/toggle-group';
 import { rpc } from '@renderer/lib/ipc';
@@ -56,8 +57,11 @@ import type { ExtensionsApi } from '../extensions-host';
 import type { ExtensionDisclosureLevel } from '../installed-extensions-store';
 import { AppGivenSection } from './app-given-section';
 import { AppLifecycleButton, type AppLifecycle } from './app-lifecycle-button';
+import { ResourceMenu } from '@/components/ResourceMenu';
+import type { ResourceContext } from '@shared/resource-actions';
 import { AppMoreMenu } from './app-more-menu';
 import { AppShelfRow } from './app-shelf';
+import { AppVariantList, type AppVariantRow } from './app-variant-list';
 import { ExtensionMonogram } from './extension-monogram';
 import type { ExtensionPendingAction } from './extension-pending';
 import { InstalledRowNoticeLine, programFailureText, type InstalledRowNotice } from './installed-extension-row';
@@ -104,6 +108,8 @@ export function AppProductPage({
   readOnly = false,
   justInstalled = false,
   notice,
+  variants,
+  onSwitchVariant,
   revoked = [],
   pendingPermissions = [],
   agentStatus,
@@ -143,11 +149,13 @@ export function AppProductPage({
   justInstalled?: boolean;
   /** 云端那口对装着这一版要说的话(有新版 / 撤回 / 停止维护)。 */
   notice?: InstalledRowNotice;
+  variants?: { active: string; variants: readonly AppVariantRow[] };
+  onSwitchVariant?: (name: string) => void;
   revoked?: readonly string[];
   pendingPermissions?: readonly string[];
   agentStatus?: ExtensionAgentStatus;
   disclosure?: ExtensionDisclosureLevel;
-  givenApi?: Pick<ExtensionsApi, 'appPlaces' | 'setAppPlaces'>;
+  givenApi?: Pick<ExtensionsApi, 'appPlaces' | 'changeAppPlaces'>;
   docked?: boolean;
   onBack: () => void;
   onLifecycle: () => void;
@@ -169,6 +177,7 @@ export function AppProductPage({
   /** 右栏「类似 App」:市场里同一类的别的 App(照 Google Play),点一个 = 换到它的产品页。 */
   similar?: { id: string; name: string; publisher: string; line: string; iconUrl?: string | null; onOpen: () => void }[];
   menu: {
+    resource?: ResourceContext;
     onToggleDock?: () => void;
     onOpenInWindow?: () => void;
     onForward?: () => void;
@@ -281,12 +290,12 @@ export function AppProductPage({
   // ── 截图一排(照 Google Play:产品页头下面一排图,放不下就横着翻)──
   const screenshots =
     shots.length > 0 ? (
-      <section className="mk-dsec is-shots" key="shots" data-testid="app-product-preview">
+      <section className="mk-dsec is-shots" key="shots" data-testid="app-product-preview" data-image-gallery="">
         <AppShelfRow label={translate('extensions.preview')} prevLabel={translate('extensions.shelfPrev')} nextLabel={translate('extensions.shelfNext')}>
           {shots.map((shot) => (
             <figure className="mk-shot" role="listitem" key={shot.src}>
               {/* README 里的图片是发布时一起传到下载站的公开地址(sync.mjs 改写过);会话页主渲染进程没对 img-src 设 CSP。 */}
-              <img src={shot.src} alt={shot.alt} loading="lazy" decoding="async" />
+              <ExpandableImage src={shot.src} alt={shot.alt} loading="lazy" decoding="async" />
               {/* 图注只在它说了名字以外的话时才写:README 里多半就是 App 的名字,再写一遍是废字。 */}
               {shot.alt && shot.alt !== text.name ? <figcaption>{shot.alt}</figcaption> : null}
             </figure>
@@ -472,7 +481,9 @@ export function AppProductPage({
               />
             </div>
           ) : null}
-          {installed && givenApi && givesAgentTools(installed) ? <AppGivenSection extensionId={installed.id} api={givenApi} machineName={machine} /> : null}
+          {installed && givenApi && givesAgentTools(installed)
+            ? <AppGivenSection extensionId={installed.id} api={givenApi} machineName={machine} blocked={!enabled ? 'off' : revoked.includes('agents:tools') ? 'revoked' : undefined} />
+            : null}
       </AddsEntry>
     );
   }
@@ -665,7 +676,7 @@ export function AppProductPage({
         <ChevronLeft className="size-3.5" />
         {translate('extensions.title')}
       </button>
-      <header className="mk-dh">
+      <ResourceMenu resource={menu.resource ?? { kind: 'app', target: { kind: 'app-detail', extensionId: manifest.id } }}><header className="mk-dh">
         <div className="mk-dh-main">
           <h2 className={cn('gg-type-display mk-dh-title', deprecated && 'is-deprecated')}>{text.name}</h2>
           {text.subtitle ? <p className="mk-dh-sub">{text.subtitle}</p> : null}
@@ -717,7 +728,7 @@ export function AppProductPage({
         <span className="mk-icon is-hero">
           <ExtensionMonogram name={text.name} iconDataUrl={cloud?.iconUrl ?? iconDataUrl} />
         </span>
-      </header>
+      </header></ResourceMenu>
 
       {justInstalled ? (
         <div className="mk-banner" role="status" data-testid="app-product-installed">
@@ -739,8 +750,8 @@ export function AppProductPage({
         </div>
       ) : null}
       {installed && notice && notice.kind !== 'update' ? (
-        <fieldset disabled={readOnly} className="contents">
-          <div className="mk-banner is-warn">
+        <fieldset disabled={readOnly && notice.kind !== 'forkBehind'} className="contents">
+          <div className={cn('mk-banner', notice.kind !== 'forkBehind' && 'is-warn')}>
             <InstalledRowNoticeLine
               notice={notice}
               installedVersion={installed.version}
@@ -760,6 +771,16 @@ export function AppProductPage({
 
       <div className="mk-dbody">
         <div className="mk-dmain">
+          {installed && variants && onSwitchVariant && (
+            <AppVariantList
+              resource={menu.resource}
+              active={variants.active}
+              variants={variants.variants}
+              disabled={readOnly || pending !== undefined}
+              translate={translate}
+              onSwitch={onSwitchVariant}
+            />
+          )}
           {screenshots}
           {about}
           {ask}

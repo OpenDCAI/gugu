@@ -1,8 +1,11 @@
-import { rendererLogger } from '@/lib/log';
+import { LoadingIndicator } from '@/lib/loading/LoadingIndicator';
+import { AssistantMemoryContent } from '@/components/assistant/AssistantMemoryContent';
 import { messageForUser } from '@/lib/userFacingError';
+import { rendererLogger } from '@/lib/log';
+import { assistantPanelFailure } from '@/components/assistant/assistant-panel-errors';
 import { useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
-import { ArrowUpToLine, Crown, File, Folder, FolderPlus, Heart, Mic, MoreHorizontal, Plus, Sparkles, SquarePen, Trash2 } from '@/lib/icons';
+import { ArrowUpToLine, File, Folder, FolderPlus, MoreHorizontal, Sparkles, SquarePen, Trash2 } from '@/lib/icons';
 import { useToast } from '@renderer/lib/hooks/use-toast';
 import { useShowModal } from '@renderer/lib/modal/modal-provider';
 import { Button } from '@renderer/lib/ui/button';
@@ -10,17 +13,15 @@ import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigge
 import { Input } from '@renderer/lib/ui/input';
 import { MarkdownRenderer } from '@renderer/lib/ui/markdown-renderer';
 import type { DirectoryEntry } from '@shared/core/fs/fs';
-import { folderNameProblem, joinPath, removeIndexEntry, resourceRejection, RESOURCES_DIR_NAME, type MemoryKind } from './assistant-files';
+import { folderNameProblem, isOwnerProfileNote, joinPath, removeIndexEntry, resourceRejection, RESOURCES_DIR_NAME, type MemoryKind } from './assistant-files';
 import { makeFolder, readText, removePath, renamePath, uploadFile, writeText } from './assistant-machine';
 import { useDirectory, useInvalidateAssistant, useMemoryNotes, type MemoryEntry } from './assistant-data';
 import type { AssistantContext, AssistantPageProps } from './assistant-context';
-import { AssistantEmpty, AssistantRow, AssistantSection, MachineGate, PageHead, Tile } from './assistant-ui';
+import { AssistantEmpty, AssistantRow, AssistantSection, MachineGate, ownerLeading, PageHead, Tile } from './assistant-ui';
 import { AssistantHealthPage } from './assistant-health';
-import { useVoiceNotes } from './voice-notes/voice-notes-data';
+import { memoryContentPreview } from './memory-content-preview';
 import { VOICE_NOTE_SUB, VoiceNotesPage } from './voice-notes/voice-notes-pages';
-import { AssistantLibraryCard, AssistantLibraryVolume } from '@/components/assistant/AssistantLibraryVolume';
 import { reportAssistantAppChange } from '@/components/assistant/assistant-app-client';
-import { AssistantPendingWork } from './assistant-pending-work';
 
 function useTimeFormat() {
   const { i18n } = useTranslation();
@@ -37,74 +38,53 @@ function kindLabel(kind: MemoryKind, t: (key: string, options?: Record<string, u
 }
 
 /**
- * 记忆首页:页头「记忆 +」→「我对 X 的了解」那张卡(它记下的关于你的那几条)→「全部」两列小卡:
- * 录音笔记、给它的资料(一个文件夹)、其余每一条记忆。点进去是往下钻的那一页。
+ * 记忆首页只显示长期了解与约定；项目入口在资料页，点一条记忆仍打开原来的详情。
  */
 function MemoryHome({ context }: { context: AssistantContext }) {
   const { t } = useTranslation('assistant');
   const time = useTimeFormat();
   const notes = useMemoryNotes(context.machine);
-  const root = useDirectory(context.machine, context.machine?.paths.resourcesDir ?? null);
   const name = context.assistant.display_name;
   const all = notes.data?.notes ?? [];
   const aboutYou = all.filter((n) => n.kind === 'user');
   const others = all.filter((n) => n.kind !== 'user');
-  const latest = aboutYou.map((n) => n.modifiedAt).filter(Boolean).sort().at(-1) ?? null;
-  const fileCount = (root.data ?? []).filter((entry) => !entry.name.startsWith('.')).length;
-  const voice = useVoiceNotes(context.machine);
-  const voiceCount = voice.data?.length ?? 0;
   return (
     <div className="ta-page" data-testid="assistant-memory">
-      <PageHead
-        title={t('nav.memory')}
-        action={
-          <button type="button" className="ta-circle" aria-label={t('files.upload')} title={t('files.upload')} onClick={() => context.go({ tab: 'memory', sub: 'files' })} data-testid="assistant-memory-add">
-            <Plus />
-          </button>
-        }
-      />
-      <MachineGate
+      <PageHead title={t('nav.memory')} />
+      <MachineGate hasData={notes.data !== undefined}
         readiness={context.readiness}
         loading={context.machineLoading || notes.isLoading}
         error={context.machineError ?? notes.error}
         onRetry={() => (context.machineError ? context.retryMachine() : void notes.refetch())}
       >
-        <AssistantPendingWork context={context} />
-        <AssistantSection title={t('library.longTerm')} testId="assistant-memory-about">
-          {aboutYou.length === 0 ? (
-            <div className="flex flex-col items-start gap-3">
-              <button type="button" className="ta-pill-btn" onClick={() => context.askInChat(t('memory.fasterPrompt'))} data-testid="assistant-memory-ask">
-                <Sparkles />
-                {t('memory.faster')}
-              </button>
-            </div>
-          ) : (
-            aboutYou.map(note => <AssistantRow key={note.file} leading={<Crown />} title={note.title}
-              detail={note.description || (latest ? t('memory.updated', { time: time(latest) }) : undefined)}
-              onClick={() => context.go({ tab: 'memory', sub: `note:${note.file}` })} />)
-          )}
-        </AssistantSection>
-        <AssistantSection title={t('library.workspace')}>
-          <AssistantLibraryCard assistantId={context.assistant.id} machine={context.machine} kind="workspace" onOpen={() => context.go({ tab: 'memory', sub: 'library:workspace' })} />
-        </AssistantSection>
-        {others.length > 0 && <AssistantSection title={t('library.memory')} bare testId="assistant-memory-all">
-          <div className="ta-grid">
-            {others.map((note) => (
+        <AssistantSection title={t('library.longTerm')} testId="assistant-memory-about" bare>
+          <div className="ta-card-list">
+            {aboutYou.length === 0 ? (
+              <div className="flex flex-col items-start gap-3">
+                <button type="button" className="ta-pill-btn" onClick={() => context.askInChat(t('memory.fasterPrompt'))} data-testid="assistant-memory-ask">
+                  <Sparkles />
+                  {t('memory.faster')}
+                </button>
+              </div>
+            ) : (
+              aboutYou.map(entry => <AssistantMemoryContent key={entry.file} machine={context.machine} entry={entry}>{(note,error) => <AssistantRow leading={ownerLeading(context.owner)} title={isOwnerProfileNote(note) ? t('memory.filter.user') : note.title} detailLines={4}
+                detail={error ? assistantPanelFailure(error,t) : memoryContentPreview(note.body) || (note.modifiedAt ? t('memory.updated', { time: time(note.modifiedAt) }) : undefined)}
+                onClick={() => context.go({ tab: 'memory', sub: `note:${note.file}` })} />}</AssistantMemoryContent>)
+            )}
+          </div>
+          {others.length > 0 && <div className="ta-grid" data-testid="assistant-memory-all">
+            {others.map((entry) => (
+              <AssistantMemoryContent key={entry.file} machine={context.machine} entry={entry}>{(note,error) => (
               <Tile
                 key={note.file}
                 title={note.title}
                 sub={note.modifiedAt ? t('memory.updated', { time: time(note.modifiedAt) }) : kindLabel(note.kind, t, name)}
-                preview={note.description || note.body.slice(0, 140)}
+                preview={error ? assistantPanelFailure(error,t) : memoryContentPreview(note.body, 140)}
                 onClick={() => context.go({ tab: 'memory', sub: `note:${note.file}` })}
                 testId={`assistant-memory-${note.file}`}
-              />
+              />)}</AssistantMemoryContent>
             ))}
-          </div>
-        </AssistantSection>}
-        <AssistantSection title={t('library.sources')}>
-          <AssistantRow leading={<Heart />} title={t('health.title')} onClick={() => context.go({ tab: 'memory', sub: 'health' })} testId="assistant-memory-health" />
-          <AssistantRow leading={<Mic />} title={t('memory.voiceNotes')} detail={voiceCount > 0 ? t('memory.items', { n: voiceCount }) : t('memory.voiceNotesCount')} onClick={() => context.go({ tab: 'memory', sub: VOICE_NOTE_SUB })} testId="assistant-memory-voice" />
-          <AssistantRow leading={<Folder />} title={RESOURCES_DIR_NAME} detail={root.isSuccess ? t('memory.items', { n: fileCount }) : ''} onClick={() => context.go({ tab: 'memory', sub: 'files' })} testId="assistant-memory-files" />
+          </div>}
         </AssistantSection>
       </MachineGate>
     </div>
@@ -127,7 +107,7 @@ function MemoryNoteDetail({ context, file }: { context: AssistantContext; file: 
       await reportAssistantAppChange(machine, context.assistant.id, { resource: 'memory', operation: 'removed',
         id: entry.path, deviceId: context.homeDeviceId, before: { name: entry.title, path: entry.path } });
       // 索引里指向它的那一行一起拿掉(MEMORY.md 是助理每次开工读的目录)。
-      const index = await readText(machine, machine.paths.memoryIndex);
+      const index = machine.panel ? null : await readText(machine, machine.paths.memoryIndex);
       if (index !== null) {
         const next = removeIndexEntry(index, entry.file);
         if (next !== index) await writeText(machine, machine.paths.memoryIndex, next);
@@ -136,11 +116,11 @@ function MemoryNoteDetail({ context, file }: { context: AssistantContext; file: 
       toast({ title: t('memory.deleted') });
       context.go({ tab: 'memory' });
     } catch (error) { rendererLogger('actions/assistant-memory-page').error({ error: error }, 'action failed');
-      toast({ title: t('memory.deleteFailed'), description: messageForUser(error), tier: 'error' });
+      toast({ title: t('memory.deleteFailed'), description: messageForUser(assistantPanelFailure(error,t)), tier: 'error' });
     }
   };
   return (
-    <MachineGate
+    <MachineGate hasData={!!note}
       readiness={context.readiness}
       loading={context.machineLoading || notes.isLoading}
       error={context.machineError ?? notes.error}
@@ -151,15 +131,15 @@ function MemoryNoteDetail({ context, file }: { context: AssistantContext; file: 
       ) : (
         <div className="ta-page" data-testid="assistant-memory-detail">
           <PageHead
-            title={note.title}
-            sub={[kindLabel(note.kind, t, context.assistant.display_name), note.modifiedAt ? t('memory.updated', { time: time(note.modifiedAt) }) : null].filter(Boolean).join(' · ')}
+            title={isOwnerProfileNote(note) ? t('memory.filter.user') : note.title}
+            sub={[isOwnerProfileNote(note) ? null : kindLabel(note.kind, t, context.assistant.display_name), note.modifiedAt ? t('memory.updated', { time: time(note.modifiedAt) }) : null].filter(Boolean).join(' · ')}
           />
           <div className="ta-card ta-prose" data-testid="assistant-memory-body">
-            <MarkdownRenderer content={note.body || t('memory.noContent')} />
+            <AssistantMemoryContent machine={context.machine} entry={note}>{(current,error,loading) => error ? <span role="alert">{assistantPanelFailure(error,t)}</span> : loading ? <LoadingIndicator size="inline" /> : <MarkdownRenderer content={current.body || t('memory.noContent')} />}</AssistantMemoryContent>
           </div>
           <p className="ta-page-sub ta-pad">{t('memory.createdBy', { name: context.assistant.display_name })}</p>
           <div className="flex flex-wrap gap-2">
-            <button type="button" className="ta-pill-btn" onClick={() => context.askInChat(t('memory.editPrompt', { name: note.title }))}>
+            <button type="button" className="ta-pill-btn" onClick={() => context.askInChat(isOwnerProfileNote(note) ? t('memory.editAboutMePrompt') : t('memory.editPrompt', { name: note.title }))}>
               <SquarePen />
               {t('memory.editInChat')}
             </button>
@@ -170,7 +150,7 @@ function MemoryNoteDetail({ context, file }: { context: AssistantContext; file: 
               onClick={() =>
                 showConfirm({
                   title: t('memory.deleteTitle'),
-                  description: t('memory.deleteBody', { name: note.title }),
+                  description: t('memory.deleteBody', { name: isOwnerProfileNote(note) ? t('memory.filter.user') : note.title }),
                   confirmLabel: t('common.delete'),
                   variant: 'destructive',
                   onSuccess: () => void remove(note),
@@ -218,7 +198,7 @@ function ResourceRow({
       await invalidate('dir');
       toast({ title: t('files.renamed') });
     } catch (error) { rendererLogger('actions/assistant-memory-page').error({ error: error }, 'action failed');
-      toast({ title: t('files.renameFailed'), description: messageForUser(error), tier: 'error' });
+      toast({ title: t('files.renameFailed'), description: messageForUser(assistantPanelFailure(error,t)), tier: 'error' });
     }
   };
   const remove = async () => {
@@ -229,7 +209,7 @@ function ResourceRow({
       await invalidate('dir');
       toast({ title: folder ? t('files.folderDeleted') : t('files.fileDeleted') });
     } catch (error) { rendererLogger('actions/assistant-memory-page').error({ error: error }, 'action failed');
-      toast({ title: t('files.deleteFailed'), description: messageForUser(error), tier: 'error' });
+      toast({ title: t('files.deleteFailed'), description: messageForUser(assistantPanelFailure(error,t)), tier: 'error' });
     }
   };
   if (renaming)
@@ -254,6 +234,7 @@ function ResourceRow({
       title={entry.name}
       detail={folder ? undefined : formatSize(entry.size)}
       onClick={folder ? onOpen : undefined}
+      trailingInteractive
       trailing={
         <span onClick={(e) => e.stopPropagation()}>
           <DropdownMenu>
@@ -294,12 +275,12 @@ function formatSize(bytes: number): string {
  * 文件(「添加与你有关的文件」):云电脑主目录下「给助理的资料」这一夹。人在这里传、建夹、改名、删;
  * 传完一点「让它去看」,把一句交代填进和它的私聊(人看过再发) —— 由人发那一下。
  */
-function ResourceFiles({ context, trail }: { context: AssistantContext; trail: string[] }) {
+export function ResourceFiles({ context, trail }: { context: AssistantContext; trail: string[] }) {
   const { t } = useTranslation('assistant');
   const { toast } = useToast();
   const invalidate = useInvalidateAssistant(context.homeDeviceId);
   const root = context.machine?.paths.resourcesDir ?? null;
-  const openFolder = (name: string) => context.go({ tab: 'memory', sub: `files:${[...trail, name].join('/')}` });
+  const openFolder = (name: string) => context.go({ tab: context.route.tab, sub: `files:${[...trail, name].join('/')}` });
   const dir = root ? trail.reduce((acc, name) => joinPath(acc, name), root) : null;
   const listing = useDirectory(context.machine, dir);
   const inputRef = useRef<HTMLInputElement>(null);
@@ -312,7 +293,7 @@ function ResourceFiles({ context, trail }: { context: AssistantContext; trail: s
   /** 资料夹在第一次用之前不存在:建一下再放东西。 */
   const ensureDir = async () => {
     const machine = context.machine!;
-    if (trail.length === 0) {
+    if (trail.length === 0 && !machine.panel) {
       const cut = machine.paths.resourcesDir.lastIndexOf('/');
       await makeFolder(machine, machine.paths.resourcesDir.slice(0, cut), machine.paths.resourcesDir.slice(cut + 1));
     }
@@ -322,13 +303,16 @@ function ResourceFiles({ context, trail }: { context: AssistantContext; trail: s
   const upload = async (files: FileList | null) => {
     if (!files?.length || !context.machine) return;
     const accepted: File[] = [];
+    const failed: string[] = [];
     for (const file of Array.from(files)) {
       const rejected = resourceRejection(file);
-      if (rejected) toast({ title: `${file.name}: ${rejected === 'too_large' ? t('files.tooLarge') : t('files.unsupported')}`, tier: 'error' });
+      if (rejected) failed.push(`${file.name}: ${rejected === 'too_large' ? t('files.tooLarge') : t('files.unsupported')}`);
       else accepted.push(file);
     }
-    if (!accepted.length) return;
-    const target = await ensureDir();
+    if (!accepted.length) { toast({ title: t('files.saveFailed'),description: failed.join('\n'),tier: 'error' }); return; }
+    let target: string;
+    try { target = await ensureDir(); }
+    catch (error) { toast({ title: t('files.saveFailed'),description: messageForUser(assistantPanelFailure(error,t)),tier: 'error' }); return; }
     const done: string[] = [];
     for (const file of accepted) {
       setUploading(file.name);
@@ -338,14 +322,15 @@ function ResourceFiles({ context, trail }: { context: AssistantContext; trail: s
           id: savedPath, deviceId: context.homeDeviceId, after: { name: file.name, path: savedPath } });
         done.push(file.name);
       } catch (cause) {
-        toast({ title: t('files.uploadFailed', { name: file.name, message: cause instanceof Error ? cause.message : String(cause) }), tier: 'error' });
+        failed.push(`${file.name}: ${assistantPanelFailure(cause,t)}`);
       }
     }
     setUploading(null);
+    if (failed.length) toast({ title: t('files.saveFailed'),description: failed.join('\n'),tier: 'error' });
     await invalidate('dir');
     if (done.length) {
       setUploaded(done);
-      toast({ title: t('files.uploaded', { n: done.length }) });
+      if (!failed.length) toast({ title: t('files.uploaded', { count: done.length }) });
     }
   };
 
@@ -365,7 +350,7 @@ function ResourceFiles({ context, trail }: { context: AssistantContext; trail: s
       await invalidate('dir');
       toast({ title: t('files.folderCreated') });
     } catch (error) { rendererLogger('actions/assistant-memory-page').error({ error: error }, 'action failed');
-      toast({ title: t('files.folderCreateFailed'), description: messageForUser(error), tier: 'error' });
+      toast({ title: t('files.folderCreateFailed'), description: messageForUser(assistantPanelFailure(error,t)), tier: 'error' });
     }
   };
 
@@ -406,7 +391,7 @@ function ResourceFiles({ context, trail }: { context: AssistantContext; trail: s
           ) : null
         }
       />
-      <MachineGate
+      <MachineGate hasData={listing.data !== undefined}
         readiness={context.readiness}
         loading={context.machineLoading || listing.isLoading}
         error={context.machineError ?? listing.error}
@@ -470,7 +455,6 @@ function ResourceFiles({ context, trail }: { context: AssistantContext; trail: s
 /** 记忆这一格:首页,或往下钻到的那一页(一条记忆 / 资料夹里某一层 / 语音笔记及其中一条)。 */
 export function AssistantMemoryPage({ context }: AssistantPageProps) {
   const sub = context.route.sub ?? '';
-  if (sub === 'library:workspace') return <AssistantLibraryVolume key={sub} assistantId={context.assistant.id} machine={context.machine} kind={'workspace'} askInChat={context.askInChat} />;
   if (sub.startsWith('note:')) return <MemoryNoteDetail context={context} file={sub.slice('note:'.length)} />;
   if (sub === VOICE_NOTE_SUB || sub.startsWith(`${VOICE_NOTE_SUB}:`)) return <VoiceNotesPage context={context} />;
   if (sub === 'health') return <AssistantHealthPage context={context} />;

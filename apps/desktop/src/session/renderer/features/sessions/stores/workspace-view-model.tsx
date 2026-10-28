@@ -1,3 +1,6 @@
+import { translateSessionMessage } from '@renderer/localization/locale-store';
+import { toast } from '@renderer/lib/hooks/use-toast';
+import { messageForUser } from '@/lib/userFacingError';
 import type { ILifecycle } from '@gugu/session-shared';
 import { computed, makeAutoObservable, observable, reaction, runInAction } from 'mobx';
 import { DefaultSessionSeeder } from '@renderer/features/sessions/default-session-seeder';
@@ -29,7 +32,6 @@ import {
 import { sessionTabKind } from '@renderer/features/sessions/session-tab-kind';
 import { sessionRegistry } from '@renderer/features/sessions/stores/session-registry';
 import { closeTabsOfSession, findChatPaneId, findConversationAnchor } from '../view/session-pane-policy';
-import { OutputsPanelStore } from '../view/outputs-panel-state';
 import type { OpenedOutput } from '@gugu/session-chat-ui/opened-outputs';
 import type { TerminalShellId } from '@shared/core/terminals/terminal-settings';
 import { browserAddressKey } from '@shared/browser';
@@ -66,8 +68,6 @@ export class WorkspaceViewModel implements ILifecycle, WorkspaceSurface {
   readonly paneLayout: ReturnType<typeof sessionTabView.createPaneLayoutStore>;
   readonly terminalTabs: TerminalTabViewStore;
   readonly editorView: EditorViewStore;
-  /** 「输出/来源」面板按会话的开合 —— 切 task 要留着,所以不能是弹层组件的 state(#6572)。 */
-  readonly outputsPanel = new OutputsPanelStore();
 
   /**
    * Returns the focused pane's PaneStore.
@@ -148,7 +148,6 @@ export class WorkspaceViewModel implements ILifecycle, WorkspaceSurface {
       paneLayout: false,
       terminalTabs: false,
       editorView: false,
-      outputsPanel: false,
       diffView: observable.ref,
       activeRenderer: computed,
     });
@@ -626,6 +625,7 @@ export class WorkspaceViewModel implements ILifecycle, WorkspaceSurface {
       return terminal.id;
     } catch (error) {
       log.error('Failed to create terminal:', error);
+      toast({ title: translateSessionMessage('terminal.createFailed'), description: messageForUser(error), tier: 'error' });
       return undefined;
     } finally {
       runInAction(() => {

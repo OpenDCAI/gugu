@@ -6,6 +6,7 @@ const KIND = {
   market: 'extensions.installedHereMarket',
   preinstalled: 'extensions.installedHerePreinstalled',
   folder: 'extensions.installedHereFolder',
+  fork: 'extensions.installedHereFolder',
 } as const
 
 /**

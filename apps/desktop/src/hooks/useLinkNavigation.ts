@@ -1,10 +1,9 @@
-import { parseConversationLink } from '@gugu/core/shared/ui/guguLink'
 import { useEffect, useRef } from 'react'
 import { useTranslation } from 'react-i18next'
 import type { ChatItem } from '@gugu/core/shared/types/chat'
 import type { ContactUser } from '@gugu/core/shared/types/contacts'
 import { OPEN_LINK_TARGET, type LinkNavigation } from '../lib/guguLinks'
-import type { GuguLinkTarget } from '@gugu/core/shared/ui/guguLink'
+import type { AppDetailLink, GuguLinkTarget } from '@gugu/core/shared/ui/guguLink'
 import { readMobileShell } from './useMobileShell'
 import { SERVER_LOGIN_APPROVE_EVENT } from '../lib/inAppLinks'
 import { readAssistantShellBridge } from '../lib/assistantShellBridge'
@@ -12,6 +11,7 @@ import { OPEN_ASSISTANT_TASK_CHAT, readAssistantTaskChat, type AssistantTaskChat
 import { UI_EVENTS } from '../lib/uiEvents'
 import { chatService } from '../lib/chat'
 import { askReveal } from './useSourceMessageReveal'
+import { readIdentityDirectoryBridge } from '../lib/identityDirectoryBridge'
 
 /** The navigation belongs to the chat shell, not a Markdown renderer or an agent. */
 export function useLinkNavigation(input: {
@@ -19,9 +19,11 @@ export function useLinkNavigation(input: {
   chats: readonly ChatItem[]
   contacts: readonly ContactUser[]
   openChat: (chatId: string) => string | void
+  openSender?: (sender: ContactUser) => Promise<void> | void
   openFile: (chatId: string, target: Extract<GuguLinkTarget, { kind: 'file' }>, source: Pick<LinkNavigation, 'message' | 'restore'>) => void
   openApp: (chatId: string, extensionId: string, tab: string) => void
   openProject: (projectId: string) => void
+  openAppDetail?: (target: AppDetailLink) => void | Promise<void>
   openOwnApp: (extensionId: string, tab: string) => void
   openAssistant: (tasks: boolean) => string | void
 }) {
@@ -36,12 +38,25 @@ export function useLinkNavigation(input: {
       const { target } = request
       const asked = generation
       const state = current.current
+      if (target.kind === 'sender') {
+        const sender = state.contacts.find(contact => contact.id === target.userId)
+          ?? readIdentityDirectoryBridge()?.getSnapshot()?.[target.userId]
+        if (!sender || !state.openSender) throw new Error(messages.current.t('links.unavailable'))
+        await state.openSender(sender)
+        return 'own' as const
+      }
       if (target.kind === 'file') {
-        const { chatDb } = await import('../lib/supabase')
-        const { data, error } = await chatDb.from('workspace_items').select('chat_id').eq('id', target.itemId).maybeSingle()
-        if (error) throw new Error(error.message)
+        const { localFileRevision } = await import('../lib/fileAccess')
+        const local = await localFileRevision(target.itemId)
+        let groupId = local?.chat_id
+        if (!local) {
+          const { chatDb } = await import('../lib/supabase')
+          const { data, error } = await chatDb.from('workspace_items').select('chat_id').eq('id', target.itemId).maybeSingle()
+          if (error) throw new Error(error.message)
+          groupId = data?.chat_id
+        }
         if (asked !== generation || current.current.ownerId !== state.ownerId) return
-        const fileChat = state.chats.find((row) => row.id === data?.chat_id)
+        const fileChat = state.chats.find((row) => row.id === groupId)
         if (!fileChat) throw new Error('File reference is unavailable')
         const chatId = fileChat.kind === 'topic' ? fileChat.source_chat_id! : fileChat.id
         state.openFile(chatId, target, request)
@@ -56,13 +71,28 @@ export function useLinkNavigation(input: {
         window.dispatchEvent(new CustomEvent(UI_EVENTS.chatAsked, { detail: { chatId } }))
         return { chat: chatId }
       }
+      if (target.kind === 'app-detail') {
+        if (readMobileShell()) {
+          if (!state.openAppDetail) {
+            const { translateSessionMessage } = await import('../session/renderer/localization/locale-store')
+            throw new Error(translateSessionMessage('extensions.appLinkOnPhone'))
+          }
+          await state.openAppDetail(target)
+        } else {
+          const { openAppDetailLink } = await import('../session/renderer/features/apps/app-detail-link')
+          await openAppDetailLink(target, state.ownerId, () => asked === generation && current.current.ownerId === state.ownerId)
+        }
+        return
+      }
       if (target.kind === 'session') {
-        const [{ listedSession, liveDeviceSessions }, { readCachedDevices }, { APP_SHOW_SESSION_EVENT }] = await Promise.all([
-          import('../session/shared/remote-sessions/session-directory'), import('../store/devicesCache'), import('../session/shared/extensions/app-runtime-protocol'),
-        ])
-        const listed = listedSession(readCachedDevices(), liveDeviceSessions(), target.sessionId)
-        if (!('row' in listed)) throw new Error(`Session ${target.sessionId} is not in your task list`)
-        window.dispatchEvent(new CustomEvent(APP_SHOW_SESSION_EVENT, { detail: listed.row }))
+        const assistant=readAssistantShellBridge()?.getSnapshot()
+        if(assistant?.assistant){
+          const {resolveAssistantWorkTarget}=await import('../lib/assistantWorkTarget')
+          const task=await resolveAssistantWorkTarget(assistant.assistant.id,{sessionId:target.sessionId})
+          if(asked!==generation||current.current.ownerId!==state.ownerId)return
+          if(task){window.dispatchEvent(new CustomEvent(OPEN_ASSISTANT_TASK_CHAT,{detail:task}));return 'own' as const}
+        }
+        // Any other session: the host's task list brings it up (openLinkWith → its sessionProject / bringUp).
         return
       }
       if (target.kind === 'project') {
@@ -93,27 +123,12 @@ export function useLinkNavigation(input: {
       const contact = state.contacts.find((row) => row.id === chat.peer_user_id)
       if (assistant?.assistant && contact?.type === 'agent' && contact.owner_user_id === state.ownerId
         && contact.id !== assistant.assistant.id) {
-        task = readAssistantTaskChat(state.ownerId, contact.id)
-        if (!task) {
-          const [{ remoteHostsStore }, { rpcOn }, { readCachedDevices }, { assistantDescendants }] = await Promise.all([
-            import('../session/renderer/features/remote-hosts/remote-hosts-store'),
-            import('../session/renderer/lib/ipc'), import('../store/devicesCache'),
-            import('../session/renderer/features/assistant/assistant-lineage'),
-          ])
-          const local = readCachedDevices().find((device) => device.is_current_device)
-          const listed = [...remoteHostsStore.allListedSessions()]
-          if (local) {
-            const sessions = await rpcOn(null).sessionTimeline.sessionsList()
-            listed.push(...sessions.sessions.map((summary) => ({ deviceId: local.device_id, summary, live: true })))
-          }
-          const descendants = assistantDescendants(listed, assistant.assistant.id)
-          const child = listed.find((row) => row.summary.agent?.userId === contact.id && (descendants.includes(row) || row.summary.activitySourceLinks?.some((href) => parseConversationLink(href)?.chatId === assistant.chatId)))
-          if (child) task = {
-            assistantId: assistant.assistant.id, taskAgentId: contact.id,
-            task: { deviceId: child.deviceId, sessionId: child.summary.conversationId },
-            assistants: listed.filter((row) => row.summary.agent?.userId === assistant.assistant!.id)
-              .map((row) => ({ deviceId: row.deviceId, sessionId: row.summary.conversationId })),
-          }
+        // Choosing the known task viewport must not wait for its cloud reader to be ready.
+        const known=readAssistantTaskChat(state.ownerId,contact.id)
+        if(known?.assistantId===assistant.assistant.id)task=known
+        else {
+          const {resolveAssistantWorkTarget}=await import('../lib/assistantWorkTarget')
+          task=await resolveAssistantWorkTarget(assistant.assistant.id,{agentId:contact.id})
         }
       }
       if (asked !== generation || current.current.ownerId !== state.ownerId) return
@@ -135,7 +150,7 @@ export function useLinkNavigation(input: {
       const owner = current.current.ownerId
       void open(request).then(request.resolve, (error: unknown) => {
         if (asked !== generation || owner !== current.current.ownerId) { request.resolve(); return }
-        request.reject(new Error(messages.current.t('links.unavailable'), { cause: error }))
+        request.reject(targetError(request.target, error, messages.current.t('links.unavailable')))
       })
     }
     const receiveTask = () => { generation++; current.current.openAssistant(true) }
@@ -143,4 +158,8 @@ export function useLinkNavigation(input: {
     window.addEventListener(OPEN_LINK_TARGET, receive)
     return () => { generation++; window.removeEventListener(OPEN_LINK_TARGET, receive); window.removeEventListener(OPEN_ASSISTANT_TASK_CHAT, receiveTask) }
   }, [])
+}
+
+function targetError(target: LinkNavigation['target'], error: unknown, fallback: string) {
+  return new Error(target.kind === 'app-detail' && error instanceof Error ? error.message : fallback, { cause: error })
 }

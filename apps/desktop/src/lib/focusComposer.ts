@@ -14,6 +14,10 @@ import { AUTOMATION_TEST_IDS } from './automationDom'
  * ② **移动壳「进入会话」不抢焦点**：抢了就立刻弹软键盘，把本来就短的消息区再挤掉一半，
  *    与微信 / iMessage / Telegram 的惯例相反；移动端由用户点输入框来决定什么时候起键盘。
  *    会话内续接动作不受此限 —— 那时键盘本来就起着，不聚焦反而会把它收掉、打断正在打的这句话。
+ * ③ **移动壳「刚发出一条」收键盘**(owner 10-28 手机试用):这句话已经说完，键盘该收起把消息区还回来。
+ *    以前它算续接动作要重新聚焦 —— 点发送键时焦点先落到按钮上、键盘开始收、壳跟着可视视口长高，
+ *    下一帧又被抢回输入框、键盘再弹、壳再缩：整个 App 上下抽一下(「发一条消息全屏闪一下」)。
+ *    手机发送后收键盘由 ChatComposer.handleSubmit 负责；这里只禁止发送后抢回焦点。
  */
 export type ComposerFocusReason =
   | 'chat-entry'
@@ -55,6 +59,7 @@ export function shouldFocusComposer(
   reason: ComposerFocusReason,
   context: ComposerFocusContext = {},
 ): boolean {
+  if (reason === 'message-sent') return context.mobileShell !== true
   if (!SESSION_ENTRY_REASONS.has(reason)) return true
   return context.mobileShell !== true
 }

@@ -16,6 +16,7 @@ import {
   type AgentSessionAction,
   type AgentSessionActionName,
   type AppMessageAction,
+  type AppSpawnAction,
   type AppCallAction,
   appCallWaitMs,
   type AppMessageReceipt,
@@ -26,6 +27,7 @@ import {
   type SessionpageSessionsListResult,
 } from '@gugu/session-core/session-record/contract'
 import { SESSION_HOST_RPC } from '@shared/lib/ipc/session-host-device-frames'
+import { dispatchCallOf } from '@shared/extensions/app-dispatch-core'
 import type { OtherMachines } from './session/main/core/sessions/session-family'
 import type { WorkspaceChunk } from './session/main/core/files/workspace-transfer'
 import { DeviceRpcChannelError, DeviceRpcTimeoutError, type DeviceRpcRequester } from '@gugu/core/cloud/deviceRpcRequester'
@@ -57,6 +59,7 @@ export function remoteActionTimeoutMs(action: { action: string; force?: unknown 
     case 'app_call':
       return appCallWaitMs({ method: String((action as { method?: unknown }).method) })
     // app_install { device }:那台机器下载、校验,再等人点头(人的那口钟)—— 那口钟落定之前它总会回话。
+    case 'app_manage':
     case 'app_install':
       return INSTALL_CONSENT_HUMAN_WINDOW_MS + 30_000
     case 'list_models':
@@ -101,7 +104,7 @@ export type CrossMachineDeps = {
    * #7199 离线的那台要是这个账号的云电脑:叫醒它、等它上线(true);不是云电脑 = false。醒不来抛 CloudComputerWakeError。
    * 休眠中 ≠ 离线(规定草稿 cloud-computer),所以这一格在「离线就拒绝」之前问。
    */
-  wakeCloudComputer?(deviceId: string): Promise<boolean>
+  wakeCloudComputer?(deviceId: string, signal?: AbortSignal): Promise<boolean>
 }
 
 /** 对端答 `agentSession.*` 时用到的宿主能力。 */
@@ -111,6 +114,7 @@ export type AgentSessionHost = {
   run(caller: RemoteSessionCaller, action: Action): Promise<unknown>
   /** 另一台机器上的 App 发来的消息:与本机 App 发消息同一个函数,信封写那个 App。 */
   app(caller: RemoteAppCaller, action: AppMessageAction): Promise<AppMessageReceipt>
+  appSpawn(caller: RemoteAppCaller, action: AppSpawnAction): Promise<{ agentId: string }>
   /** 另一台机器上的 App 读这台机器上一条会话工作副本里的一块(那台机器判过 `files:read:all-machines`)。 */
   appReadFile(caller: RemoteAppCaller, action: AppReadFileAction): Promise<WorkspaceChunk>
   /** 另一台机器上的 App 页面让这台机器做一个跟着会话机器的动词(它的数据目录、它的程序;页面在这台机器的一条会话里)。 */
@@ -135,7 +139,8 @@ export function createCrossMachineSessions(deps: CrossMachineDeps) {
     `${describe(device)} 没有启用任务宿主。请主人在那台设备上开启任务宿主后重试；其他设备不能代调它的原生能力。`)
 
   /** 那台机器此刻能不能接 —— 不能就在发出去之前说清为什么。 */
-  const reachable = async (deviceId: string, requireTaskRuntime = true): Promise<Device> => {
+  const reachable = async (deviceId: string, requireTaskRuntime = true, signal?: AbortSignal, allowWake = false): Promise<Device> => {
+    signal?.throwIfAborted()
     const { thisDeviceId, rows } = await devices()
     if (deviceId === thisDeviceId) throw new CrossMachineError('SESSION_DEVICE_IS_THIS_MACHINE', `device:${deviceId} is this machine`)
     const device = rows.find((row) => row.device_id === deviceId)
@@ -143,12 +148,17 @@ export function createCrossMachineSessions(deps: CrossMachineDeps) {
       throw new CrossMachineError('SESSION_DEVICE_UNKNOWN', `device:${deviceId} is not one of this account's machines — session_devices lists them`)
     }
     if (requireTaskRuntime && !isAgentHostDevice(device)) throw noTaskRuntime(device)
-    if (!device.is_online) {
+    const cloud = await deps.cloudComputerState?.().catch(() => null)
+    const pausedCloud = cloud?.deviceId === deviceId && ['asleep', 'waking', 'error', 'provisioning'].includes(cloud.state)
+    if (!device.is_online || pausedCloud) {
+      if (!allowWake) throw new CrossMachineError('SESSION_DEVICE_OFFLINE', `${describe(device)} is offline or paused; no wake was requested`)
       // #7199 睡着的云电脑:先叫醒,醒了照常发出去;醒不来就说是哪台、为什么。
       let woke = false
       try {
-        woke = (await deps.wakeCloudComputer?.(deviceId)) ?? false
+        woke = (await (signal ? deps.wakeCloudComputer?.(deviceId, signal) : deps.wakeCloudComputer?.(deviceId))) ?? false
+        signal?.throwIfAborted()
       } catch (error) {
+        if (signal?.aborted) throw error
         throw new CrossMachineError(
           'SESSION_DEVICE_WAKE_FAILED',
           `${describe(device)} is your cloud computer and could not be woken (${error instanceof Error ? error.message : String(error)}); nothing was sent there`,
@@ -158,6 +168,7 @@ export function createCrossMachineSessions(deps: CrossMachineDeps) {
         const awake = (await deps.listDevices()).find((row) => row.device_id === deviceId)
         if (awake?.is_online) return awake
       }
+      if (pausedCloud) throw new CrossMachineError('SESSION_DEVICE_WAKE_FAILED', `${describe(device)} has not resumed; nothing was sent there`)
       throw new CrossMachineError(
         'SESSION_DEVICE_OFFLINE',
         `${describe(device)} is offline (last seen ${ago(device.last_seen_at, now())}); nothing was sent there`,
@@ -205,11 +216,11 @@ export function createCrossMachineSessions(deps: CrossMachineDeps) {
   }
 
   const call = async (deviceId: string, caller: RemoteCaller, action: Action, signal?: AbortSignal): Promise<unknown> =>
-    request(await reachable(deviceId, !('kind' in caller)), `agentSession.${action.action}`, [caller, action], remoteActionTimeoutMs(action), action.action, signal)
+    request(await reachable(deviceId, !('kind' in caller), signal, action.action === 'message' || action.action === 'spawn'), action.action === 'spawn' && action.assistant_work ? 'assistantWork.prepare' : `agentSession.${action.action}`, [caller, action], remoteActionTimeoutMs(action), action.action, signal)
 
   const assertFileHandoffSupported = async (deviceIds: string[]) => {
     for (const id of new Set(deviceIds)) {
-      const device = await reachable(id)
+      const device = await reachable(id, true, undefined, true)
       const protocol = device.capabilities.remote_protocol
       if (typeof protocol !== 'number' || protocol < 11) throw new CrossMachineError(
         'SESSION_DEVICE_OUTDATED', `Update 咕咕 on ${describe(device)} before sending session files; nothing was uploaded or sent there`,
@@ -327,10 +338,10 @@ export function createCrossMachineSessions(deps: CrossMachineDeps) {
     },
     thisDeviceId: deps.thisDeviceId,
     assertReachable: async (deviceIds) => {
-      for (const deviceId of deviceIds) await reachable(deviceId)
+      for (const deviceId of deviceIds) await reachable(deviceId, true, undefined, true)
     },
     sessionsOfAgents: async (deviceId, userIds) => {
-      const device = await reachable(deviceId)
+      const device = await reachable(deviceId, true, undefined, true)
       const listed = await request(device, 'sessionTimeline.sessionsList', [], 30_000, 'listing') as SessionpageSessionsListResult
       // 行上不带 agent 的是协议 7 之前的老宿主:认不出它的 agent,当场说太旧(❌ 说成「不是你的 agent」)。
       if (listed.sessions.some((session) => session.agent === undefined)) {
@@ -405,12 +416,18 @@ export function createCrossMachineSessions(deps: CrossMachineDeps) {
     return await call(deviceId, { kind: 'app', deviceId: here.deviceId, deviceLabel: here.label, ...app } satisfies RemoteAppCaller, action)
   }
 
+  const appSpawn: OtherMachines['appSpawn'] = async (app, deviceId, action) => {
+    const here = await thisDevice()
+    return await call(deviceId, { kind: 'app', deviceId: here.deviceId, deviceLabel: here.label, ...app } satisfies RemoteAppCaller, action) as { agentId: string }
+  }
+
   /** 对端:答 `agentSession.<name>`。信任边界是账号(频道只对本账号开),这里认形状与调用方;错误带 `code` 原样回到发起方。 */
   const answer = async (name: AgentSessionActionName, rawCaller: unknown, rawAction: unknown, host: AgentSessionHost): Promise<unknown> => {
     const parsed = parseAgentSessionRequest(name, rawCaller, rawAction)
     if ('error' in parsed) throw new CrossMachineError('invalid_payload', parsed.error)
     try {
       if ('kind' in parsed.caller) {
+        if (parsed.action.action === 'spawn') return await host.appSpawn(parsed.caller, parsed.action as AppSpawnAction)
         if (parsed.action.action === 'read_file') return await host.appReadFile(parsed.caller, parsed.action as AppReadFileAction)
         if (parsed.action.action === 'app_call') return await host.appCall(parsed.caller, parsed.action as AppCallAction)
         return await host.app(parsed.caller, parsed.action as AppMessageAction)
@@ -434,6 +451,10 @@ export function createCrossMachineSessions(deps: CrossMachineDeps) {
   }
 
   return {
+    devices: async () => {
+      const { thisDeviceId, rows } = await devices()
+      return rows.map(({ device_id, label, is_online }) => ({ deviceId: device_id, label, online: is_online, thisMachine: device_id === thisDeviceId }))
+    },
     async listDeviceRows() {
       const [{ thisDeviceId, rows }, cloud] = await Promise.all([
         devices(),
@@ -471,6 +492,7 @@ export function createCrossMachineSessions(deps: CrossMachineDeps) {
         session_titles: Object.fromEntries((d.session_digest ?? []).map(s => [s.conversationId, s.title])) }))
     },
     thisDevice,
+    ensureReachable: async (deviceId: string, signal?: AbortSignal) => { await reachable(deviceId, true, signal, true); signal?.throwIfAborted() },
     isThisDevice: async (deviceId: string) => deviceId === await deps.thisDeviceId(),
     call,
     locateSessions,
@@ -484,13 +506,14 @@ export function createCrossMachineSessions(deps: CrossMachineDeps) {
     appMessage,
     appReadFile,
     appCall,
+    appSpawn,
     messageDeps,
     assertFileHandoffSupported,
     answer,
   }
 }
 
-/** `agentSession.<name>` 的参数:形状不对当场拒,❌ 带着 undefined 往下走。App 调用方(`kind: 'app'`)只能发消息、读文件、让那台机器做它页面的一个动词。 */
+/** `agentSession.<name>` 的参数:形状不对当场拒,❌ 带着 undefined 往下走。App 调用方(`kind: 'app'`)可发消息、起 agent、读文件、让那台机器做它页面的一个动词。 */
 export function parseAgentSessionRequest(
   name: AgentSessionActionName,
   rawCaller: unknown,
@@ -504,12 +527,24 @@ export function parseAgentSessionRequest(
   const deviceId = text('deviceId')
   if (!deviceId) return { error: 'caller.deviceId is required' }
   if (caller.kind === 'app') {
-    if (name !== 'message' && name !== 'read_file' && name !== 'app_call') {
-      return { error: `an App may only send a message to another machine, read a file there, or have a page's call done there, not ${name}` }
+    if (name !== 'message' && name !== 'spawn' && name !== 'read_file' && name !== 'app_call') {
+      return { error: `an App may only send a message, start an agent, read a file, or have a page's call done on another machine, not ${name}` }
     }
     const extensionId = text('extensionId')
     const extensionName = text('extensionName')
     if (!extensionId || !extensionName) return { error: 'an App caller needs extensionId and extensionName' }
+    if (name === 'spawn') {
+      try {
+        const checked = dispatchCallOf({ text: action.prompt, to: { new: true }, spawn: action.spawn })
+        if (checked.spawn.device !== undefined) return { error: 'an App spawn is already routed to its device; spawn.device must be absent' }
+        return {
+          caller: { kind: 'app', deviceId, deviceLabel: text('deviceLabel'), extensionId, extensionName },
+          action: { action: 'spawn', prompt: checked.text, spawn: checked.spawn },
+        }
+      } catch (error) {
+        return { error: error instanceof Error ? error.message : String(error) }
+      }
+    }
     if (name === 'read_file') {
       const { session_id: sessionId, path, offset, length } = action
       if (typeof sessionId !== 'string' || typeof path !== 'string' || typeof offset !== 'number' || typeof length !== 'number') {
@@ -522,14 +557,16 @@ export function parseAgentSessionRequest(
     }
     if (name === 'app_call') {
       // Which verbs that machine does for a page elsewhere, and their arguments, are the bridge's to judge (`BRIDGE_VERBS`).
-      const { call_id: callId, session_id: sessionId, version, method, args } = action
-      if (typeof callId !== 'string' || !callId || typeof sessionId !== 'string' || typeof version !== 'string' || typeof method !== 'string'
+      const { call_id: callId, session_id: sessionId, device_id: targetDevice, version, method, args } = action
+      const target = typeof sessionId === 'string' && sessionId && targetDevice === undefined ? { session_id: sessionId }
+        : typeof targetDevice === 'string' && targetDevice && sessionId === undefined ? { device_id: targetDevice } : null
+      if (typeof callId !== 'string' || !callId || !target || typeof version !== 'string' || typeof method !== 'string'
         || !args || typeof args !== 'object' || Array.isArray(args)) {
-        return { error: 'app_call names the call (call_id), a session (session_id), the App\'s version, the verb (method) and its args (an object)' }
+        return { error: 'app_call names the call (call_id), exactly one session_id or device_id, the App\'s version, the verb (method) and its args (an object)' }
       }
       return {
         caller: { kind: 'app', deviceId, deviceLabel: text('deviceLabel'), extensionId, extensionName },
-        action: { action: 'app_call', call_id: callId, session_id: sessionId, version, method, args: args as Record<string, unknown> },
+        action: { action: 'app_call', call_id: callId, ...target, version, method, args: args as Record<string, unknown> },
       }
     }
     const ids = action.session_ids

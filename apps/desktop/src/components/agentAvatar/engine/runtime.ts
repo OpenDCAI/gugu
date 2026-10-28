@@ -14,7 +14,7 @@
  * 定格(still):给只能放 <img> 的地方,用同一个引擎、同一份 GL 画一帧静止的样子,转成一张图。
  */
 import { rendererLogger } from '@/lib/log'
-import { isAnimationWindowVisible, observeAnimationViewport, subscribeAnimationWindowVisibility } from '@gugu/session-shared/animation-visibility'
+import { observeAnimationViewport } from '@gugu/session-shared/animation-visibility'
 import { clamp } from './geometry'
 import { GuguEngine } from './engine'
 import { drawAvatar, drawnLook, glPasses, lookDiff, paintGL, Crop, DrawOpts, FrameShape, Slots } from './draw'
@@ -101,13 +101,14 @@ class Runtime {
   private gl: GuguGL | null = null
   /** 用到过的角色(GL 重建时按它重载素材) */
   private chars = new Set<CharacterId>()
-  /** 无 WebGL 时整张贴的定格图:只在真走 2D 退路时才去取(有 WebGL 时不多载这一张) */
+  /** GL 素材未到齐或上下文不可用时整张贴的定格图；同一角色只取一次。 */
   private flats = new Map<CharacterId, HTMLImageElement>()
   /** GL 素材这次没载下来的角色:先走 2D 定格(❌ 整只空白),过一会儿再试 */
   private texFailed = new Set<CharacterId>()
   private ready = false
   private starting = false
   private raf = 0
+  private rafWindow: Window | null = null
   /** 画面没变时下一次查看的计时器(和 raf 同时只有一个在排) */
   private idle: ReturnType<typeof setTimeout> | null = null
   private last = 0
@@ -121,6 +122,11 @@ class Runtime {
   private glInstalledAt = 0
   /** 供 UI 读：当前是否走 GPU 网格（false = 退路） */
   usingGL = false
+
+  constructor() {
+    // 先备好首帧用的定格；GL 仍等第一次注册角色时才启动、加载。
+    if (typeof Image !== 'undefined') this.flatOf(CHARACTER_BY_ID[DEFAULT_CHARACTER])
+  }
 
   private start() {
     if (this.starting) return
@@ -147,7 +153,6 @@ class Runtime {
       },
       { passive: true }
     )
-    subscribeAnimationWindowVisibility(this.wake)
     document.addEventListener('pointerleave', () => {
       this.cursor = null
     })
@@ -159,13 +164,22 @@ class Runtime {
 
   /** 循环停着或在等计时器时马上跑一帧(窗口露出来、头像进了视口、指针在动、来了新头像):停的时候不记时间,接上时不补那一段 */
   private wake = () => {
-    if (this.raf || !this.ready) return
+    if (!this.ready) return
+    const view = [...this.handles].find((h) => h.visible)?.canvas.ownerDocument.defaultView ?? null
+    if (this.raf && this.rafWindow === view) return
+    if (this.raf) {
+      this.rafWindow?.cancelAnimationFrame(this.raf)
+      this.raf = 0
+    }
+    this.rafWindow = view
     if (this.idle) {
       // 循环还活着,只是在等计时器:提前醒,时间接着记
       clearTimeout(this.idle)
       this.idle = null
     } else this.last = 0
-    this.raf = requestAnimationFrame(this.loop)
+    if (view) {
+      this.raf = view.requestAnimationFrame(this.loop)
+    }
   }
 
   /** 用上这一份 GL:盯住它的上下文,已经用到的角色把素材载进去(旧上下文的纹理随它作废) */
@@ -236,6 +250,7 @@ class Runtime {
   private ensureSprite(ch: Character) {
     if (this.chars.has(ch.id)) return
     this.chars.add(ch.id)
+    this.flatOf(ch)
     this.loadTextures(ch)
   }
 
@@ -244,6 +259,7 @@ class Runtime {
     let img = this.flats.get(ch.id)
     if (!img) {
       img = new Image()
+      img.onload = this.wake
       img.src = ch.flat
       this.flats.set(ch.id, img)
     }
@@ -271,7 +287,7 @@ class Runtime {
       outfit: new OutfitDraw(ch),
       opts,
       dpr,
-      visible: true,
+      visible: false,
       stopVisibility: () => {},
       rect: null,
       rectAt: 0,
@@ -281,10 +297,18 @@ class Runtime {
       next: []
     }
     this.handles.add(h)
-    h.stopVisibility = observeAnimationViewport(canvas, (visible) => {
+    const stopVisibility = observeAnimationViewport(canvas, (visible) => {
       h.visible = visible
       this.wake()
     }, '80px')
+    const invalidate = () => { h.drawnWith = ''; this.wake() }
+    canvas.addEventListener('contextlost', invalidate)
+    canvas.addEventListener('contextrestored', invalidate)
+    h.stopVisibility = () => {
+      stopVisibility()
+      canvas.removeEventListener('contextlost', invalidate)
+      canvas.removeEventListener('contextrestored', invalidate)
+    }
     this.wake()
     return h
   }
@@ -312,7 +336,7 @@ class Runtime {
     // 没人看得见就停:窗口藏起来、一只都不在视口里
     this.raf = 0
     this.idle = null
-    if (!this.ready || !isAnimationWindowVisible() || ![...this.handles].some((h) => h.visible)) return
+    if (!this.ready || ![...this.handles].some((h) => h.visible)) return
     let fast = false
     const dt = this.last ? (ms - this.last) / 1000 : 1 / 60
     this.last = ms
@@ -327,11 +351,23 @@ class Runtime {
     const batch: Pending[] = []
     let nextWake = Infinity
     for (const h of this.handles) {
-      // An inert consumer keeps its first ready frame; a still-loading initial frame must finish first.
-      if (!h.visible || (h.canvas.closest('[inert]') && h.drawnWith !== '' && !h.drawnWith.startsWith('none|'))) continue
-      // 素材还在路上：先不画（避免一闪而过的空画面）；这次没载下来：用 2D 定格画着,等重试
+      if (!h.visible || h.ctx.isContextLost?.()) continue
+      // GL 素材未到齐时先画定格；同一张画布保留它，等本体和装扮都到齐后再换 GL。
       const gl = this.gl && this.gl.has(h.ch.id) ? this.gl : null
-      if (this.gl && !gl && !this.texFailed.has(h.ch.id)) continue
+      const sprite = gl ? null : this.flatOf(h.ch)
+      const o = {
+        w: h.canvas.width,
+        h: h.canvas.height,
+        dpr: h.dpr,
+        shape: h.opts.shape,
+        bg: h.opts.bg,
+        crop: h.opts.crop,
+        fx: h.opts.fx
+      }
+      const by = `${gl ? 'gl' : sprite?.complete ? 'still' : 'none'}|${o.w}x${o.h}|${o.dpr}|${o.shape}|${o.bg}|${o.crop}|${o.fx}|${h.outfit.key}`
+      if (by !== h.drawnWith) h.drawnWith = ''
+      // Hold only a frame that still describes this canvas; a reset needs one replacement frame.
+      if (h.canvas.closest('[inert]') && h.drawnWith !== '' && !h.drawnWith.startsWith('none|')) continue
       if (throttle && h.canvas.width < 160 * h.dpr) {
         h.pendingDt += dt
         if (this.frameNo % 2) continue
@@ -346,18 +382,7 @@ class Runtime {
       h.outfit.update(step, h.engine.frame)
       // 这一身还有素材在路上:先不画(画布上留着上一张);载不下来的那片 ensure 记过错,不再等
       if ((gl ? h.outfit.ensure(gl) : h.outfit.ensureFlat()) > 0) continue
-      const sprite = gl ? null : this.flatOf(h.ch)
-      const o = {
-        w: h.canvas.width,
-        h: h.canvas.height,
-        dpr: h.dpr,
-        shape: h.opts.shape,
-        bg: h.opts.bg,
-        crop: h.opts.crop,
-        fx: h.opts.fx
-      }
       // 画法变了(GL 到位 / 丢了、定格图载好了、画布尺寸或选项改了、换了一身装扮)一定马上重画;否则按画面变了多少
-      const by = `${gl ? 'gl' : sprite?.complete ? 'still' : 'none'}|${o.w}x${o.h}|${o.dpr}|${o.shape}|${o.bg}|${o.crop}|${o.fx}|${h.outfit.key}`
       drawnLook(h.engine.frame, o, h.next, h.outfit)
       const d = by === h.drawnWith ? lookDiff(h.drawn, h.next) : Infinity
       if (d < SAME_CSS_PX * h.dpr) continue
@@ -376,7 +401,7 @@ class Runtime {
     }
     this.flush(batch)
     this.workEma = this.workEma * 0.9 + (performance.now() - w0) * 0.1
-    if (fast) this.raf = requestAnimationFrame(this.loop)
+    if (fast && this.rafWindow) this.raf = this.rafWindow.requestAnimationFrame(this.loop)
     else this.idle = setTimeout(() => this.loop(performance.now()), Math.max(1, Math.min(nextWake, SLOW_TICK_MS - (ms % SLOW_TICK_MS))))
   }
 

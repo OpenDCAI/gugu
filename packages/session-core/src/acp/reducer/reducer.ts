@@ -10,6 +10,7 @@ import type {
   ToolNode,
   TranscriptTurnInitiator,
   TranscriptTurnOutcome,
+  TranscriptTurnTrigger,
   TranscriptTurn,
 } from '../models/turns';
 import { deriveConfigGroups } from './config-derive';
@@ -132,13 +133,15 @@ function openTurn(
   t: TranscriptSlice,
   deps: ReducerDeps,
   initiator: TranscriptTurnInitiator,
-  startedAt: number | undefined
+  startedAt: number | undefined,
+  trigger?: TranscriptTurnTrigger
 ): TranscriptSlice {
   const id = makeTurnId(deps.sessionId, nextTurnIndex(t));
   const turn: TranscriptTurn = {
     id,
     seq: nextTurnSeq(t),
     initiator,
+    ...(trigger ? { trigger } : {}),
     ...(startedAt !== undefined ? { startedAt } : {}),
     items: [],
   };
@@ -1064,7 +1067,7 @@ function reduceState(s: ParserState, input: ReducerInput, deps: ReducerDeps): Pa
   if (event.kind === 'message' && event.role === 'user' && event.steering !== true) {
     if (isNewUserMessage(t.active, event, segment)) {
       t = closeActive(t, input.at, undefined, openedAt);
-      t = openTurn(t, deps, 'user', openedAt);
+      t = openTurn(t, deps, 'user', openedAt, event.trigger);
       segment = initialSegment();
     }
   }
@@ -1128,7 +1131,7 @@ function reduceState(s: ParserState, input: ReducerInput, deps: ReducerDeps): Pa
 
   // Lazy open: agent-initiated content with no active turn.
   if (!t.active) {
-    t = openTurn(t, deps, 'agent', openedAt);
+    t = openTurn(t, deps, 'agent', openedAt, { kind: 'agent' });
     segment = initialSegment();
   }
 

@@ -46,6 +46,8 @@
   overflow: hidden;
   border-radius: inherit;
   --bubble-mine: var(--ta-bubble-mine);
+  --conversation-bubble-mine: var(--ta-bubble-mine);
+  --conversation-bubble-mine-fg: var(--foreground);
   --bubble-other: var(--ta-bubble-other);
   --bubble-own: var(--ta-bubble-mine);
   --bubble-agent: var(--ta-bubble-other);
@@ -65,12 +67,15 @@
 .ta-task-panel-collapse {
   position: absolute;
   top: 10px;
-  right: 12px;
+  right: 16px;
   z-index: 5;
 }
 
-.ta-panel .assistant-task-chat-window > .gg-pane-header {
-  padding-right: 52px;
+/* 标题栏和消息、输入框同一条边线(16px);右边让出收起钮 32 + 间隔 8 + 边距 16。 */
+.ta-panel .assistant-task-chat-window .task-chat-conversation > .gg-pane-header,
+.ta-panel .assistant-task-chat-window .task-chat-file-preview .gg-pane-header {
+  padding-left: 16px;
+  padding-right: 56px;
 }
 
 .ta-panel-top[hidden],
@@ -88,3 +93,5 @@
   gap: var(--spacing-md);
   color: var(--muted-fg);
 }
+
+.assistant-task-cloud-history { flex: 1; min-height: 0; overflow: auto; padding-block: var(--spacing-sm); }

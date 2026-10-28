@@ -7,8 +7,12 @@ import {
   systemPermissionRows,
   useSystemPermissionStates,
 } from '../../lib/systemPermissions'
-import { ChevronRight } from '@/lib/icons'
+import { Bell, Image, File, Gauge, Mic, ChevronRight } from '@/lib/icons'
 import { SettingsGroup, SettingsNote, SettingsPage, SettingsRow } from './SettingsPrimitives'
+import { platform } from '@/platform'
+import { useAuth } from '@/store/auth'
+import { PhonePermissionsList } from '@/mobile/phone-device/PhonePermissionsList'
+import { ThisDeviceActions } from './DeviceActionsPage'
 
 /**
  * 「我的 → 权限」(product spec)。
@@ -33,6 +37,16 @@ function labelKeyOf(permission: SystemPermission): string {
 }
 
 export function PermissionsSection() {
+  if (platform.systemPermissions.length === 0) return null
+  return platform.kind === 'capacitor' ? <PhonePermissionsSection /> : <SystemPermissionsSection />
+}
+
+function PhonePermissionsSection() {
+  const { user } = useAuth()
+  return <SettingsPage data-testid="settings-permissions">{user && <PhonePermissionsList ownerId={user.id} />}</SettingsPage>
+}
+
+function SystemPermissionsSection() {
   const { t } = useTranslation('main')
   const rows = systemPermissionRows()
   const { states, refresh, failed } = useSystemPermissionStates(rows.map((row) => row.permission))
@@ -55,9 +69,8 @@ export function PermissionsSection() {
     }
   }
 
-  return (
-    <SettingsPage data-testid="settings-permissions">
-      <SettingsNote>{t('settings.permissions.intro')}</SettingsNote>
+  const systemPermissions = (
+    <>
       <SettingsGroup
         footer={(
           <>
@@ -78,6 +91,7 @@ export function PermissionsSection() {
               aria-disabled={state === undefined || pending !== null}
               data-testid={`settings-permission-${row.permission}`}
               data-permission-state={state}
+              leading={(() => { const Icon = { notifications: Bell, camera: Image, microphone: Mic, fileAccess: File, batteryOptimization: Gauge }[row.permission]; return <span className="grid size-7 shrink-0 place-items-center rounded-[var(--radius-control)] bg-foreground/[0.06]"><Icon size={16} /></span> })()}
               title={t(row.labelKey)}
               description={t(row.purposeKey)}
               // 与「我的」入口列表同一种行尾:状态 + ›,整行可点。
@@ -95,6 +109,9 @@ export function PermissionsSection() {
           )
         })}
       </SettingsGroup>
-    </SettingsPage>
+    </>
   )
+  return platform.kind === 'electron'
+    ? <div data-testid="settings-permissions"><ThisDeviceActions bare managePermissions backLabel={t('settings.nav.permissions')}>{systemPermissions}</ThisDeviceActions></div>
+    : <SettingsPage data-testid="settings-permissions">{systemPermissions}</SettingsPage>
 }

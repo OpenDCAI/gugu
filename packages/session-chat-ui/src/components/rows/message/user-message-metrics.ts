@@ -16,7 +16,9 @@ export function measureUserMessage(item: ChatMessage, ctx: MeasureCtx, baseVars:
   if (!item.guguDelivery && isMessageEditing(item.id, ctx)) {
     return attachments + messageEditorMetrics(ctx.editingMessage!.text, ctx).height;
   }
-  const blocks = ctx.caches.parseBlocks(item.id, item.text);
+  const blocks = item.streaming ? ctx.caches.parseBlocksStreaming(item.id, item.text) : ctx.caches.parseBlocks(item.id, item.text);
+  // 没有正文就没有气泡(UserMessageCard);还在流、一个字没到的除外,那时先占一行。
+  if (blocks.length === 0 && !item.streaming) return attachments + userMessageActionsHeight(vars);
   const stackHeight = blocks.length === 0 ? ctx.theme.fonts.body.lineHeight
     : layoutBlockStack(blocks, { ...ctx, width: userInnerWidth(available, vars) }, { isCollapsed: ctx.isCollapsed }).height;
   const fullHeight = stackHeight + 2 * vars.userCardPadY + 2 * vars.cardBorder;
@@ -31,6 +33,7 @@ export function estimateUserMessage(item: ChatMessage, ctx: MeasureCtx, baseVars
   if (!item.guguDelivery && isMessageEditing(item.id, ctx)) {
     return attachments + messageEditorMetrics(ctx.editingMessage!.text, ctx).height;
   }
+  if (!item.text.trim()) return attachments + userMessageActionsHeight(vars);
   const lines = Math.max(1, Math.ceil(item.text.length / 60));
   const fullHeight = proseLinesHeight(lines, ctx.theme) + 2 * vars.userCardPadY + 2 * vars.cardBorder;
   const cap = ctx.expandedId === item.id ? vars.expandedMaxH : vars.collapsedMaxH;

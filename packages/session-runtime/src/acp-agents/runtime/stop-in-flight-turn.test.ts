@@ -21,9 +21,11 @@ async function turnInFlight(sessionId: string) {
   h.agent.prompt = vi.fn(() => new Promise((_, reject) => { rejectPrompt = reject; }));
   const sent = rt.promptDetached(sessionId, { text: 'sleep 300' });
   if (!sent.success) throw new Error('Missing session');
+  await h.agent.called('prompt');
+  // The provider has started on it: its first event admits the request.
+  h.client().sessionEvent({ sessionId: 'session-1', event: { kind: 'thinking', messageId: 'started', text: 'Starting.' } });
   await sent.data.admission;
   const turn = sent.data.completion;
-  await h.agent.called('prompt');
   const summaries = () => rt.sessionsListLiveModel().states.list.snapshot().data;
   return { h, rt, turn, outcomes, summaries, rejectPrompt: (error: unknown) => rejectPrompt(error) };
 }

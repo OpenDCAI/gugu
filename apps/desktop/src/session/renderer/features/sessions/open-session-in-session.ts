@@ -1,6 +1,8 @@
 import { when } from 'mobx';
-import { getSessionPageStore, getSessionView, asProvisioned } from '@renderer/features/sessions/stores/session-selectors';
+import { getSessionView } from '@renderer/features/sessions/stores/session-selectors';
 import { sessionTabKind } from './session-tab-kind';
+import { sessionPaneReady } from './session-pane-ready';
+import { workspaceReachLabel } from './workspace-backend/workspace-surface';
 import { sessionRegistry } from './stores/session-registry';
 import { toast } from '@renderer/lib/hooks/use-toast';
 import { translateSessionMessage } from '@renderer/localization/locale-store';
@@ -9,6 +11,8 @@ interface OpenSessionInSessionOptions {
   projectId: string;
   sessionId: string;
   timeout?: number;
+  /** Commit navigation or layout only after the task workspace can be opened. */
+  onReady?: () => void;
   /**
    * behavior session-page「键盘导航」: keyboard ↑↓ walks the sidebar and the main area follows every
    * step, so those opens must reuse the pane's preview slot instead of stacking a permanent tab per
@@ -21,6 +25,8 @@ interface OpenSessionInSessionOptions {
    * ❌ 把人停在别的页签上的那一枚抢成对话。
    */
   onlyIfNoTabs?: boolean;
+  /** 群聊点不同 Agent：把会话作为已有右栏里的新页签打开。 */
+  host?: { projectId: string; sessionId: string };
 }
 
 /**
@@ -36,28 +42,31 @@ export function openSessionInSessionWhenReady({
   timeout = 10_000,
   preview = false,
   onlyIfNoTabs = false,
+  host,
+  onReady,
 }: OpenSessionInSessionOptions): () => void {
+  const paneReady = sessionPaneReady(projectId, sessionId, { reviveArchived: false });
   return when(
     () => {
-      const page = asProvisioned(getSessionPageStore(projectId, sessionId));
       const session = sessionRegistry
         .get(sessionId)
         ?.sessions.get(sessionId);
-      return Boolean(page && getSessionView(projectId, sessionId) && session);
+      return Boolean(paneReady() && getSessionView(host?.projectId ?? projectId, host?.sessionId ?? sessionId) && session);
     },
     () => {
       const session = sessionRegistry
         .get(sessionId)
         ?.sessions.get(sessionId);
       if (!session) return;
-      const paneLayout = getSessionView(projectId, sessionId)?.paneLayout;
+      const paneLayout = getSessionView(host?.projectId ?? projectId, host?.sessionId ?? sessionId)?.paneLayout;
       if (onlyIfNoTabs && paneLayout?.groups.some((g) => g.pane.tabOrder.length > 0)) return;
 
       paneLayout?.open(
         sessionTabKind(session.data.runtime),
-        { sessionId },
+        { sessionId, ...(host ? { projectId, ownerSessionId: sessionId } : {}) },
         { preview }
       );
+      onReady?.();
     },
     {
       timeout,
@@ -69,7 +78,7 @@ export function openSessionInSessionWhenReady({
         });
         toast({
           title: translateSessionMessage('sidebar.conversationNotOpenable'),
-          description: translateSessionMessage('sidebar.workspaceNotReady'),
+          description: workspaceReachLabel(projectId) ?? translateSessionMessage('sidebar.workspaceNotReady'),
           variant: 'destructive',
         });
       },

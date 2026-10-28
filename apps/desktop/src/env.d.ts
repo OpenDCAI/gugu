@@ -16,7 +16,6 @@ interface Window {
     requestWirePort: (channel: string) => Promise<void>
     selectDirectory: () => Promise<string | null>
     selectFile: () => Promise<string | null>
-    openFileBytes: (bytes: Uint8Array, filename: string) => Promise<void>
     checkForUpdates: () => Promise<unknown>
     updateState: () => Promise<unknown>
     downloadUpdate: () => Promise<unknown>
@@ -48,6 +47,7 @@ interface Window {
     relaunchApp: () => Promise<void>
     onAppForeground: (callback: () => void) => () => void
     subscribeAppActive: (callback: (active: boolean) => void) => () => void
+    subscribeLocalDeviceIdentified: (callback: () => void) => () => void
     showNotification: (payload: { title: string; body?: string; chatId?: string | null }) => Promise<unknown>
     getLocalDeviceSelfSnapshot: () => Promise<unknown>
     releaseOwnedAgentLocalFootprint: (agentUserId: string) => Promise<unknown>

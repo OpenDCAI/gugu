@@ -38,7 +38,7 @@ import { questionAnswered, readQuestion } from './sources/question-tools';
  * 存档只是一条更快的捷径，❌ 任何一处对不上都必须能安全地退回「从头读」——
  * 接错了拼出来的是一份缺了中间的时间线，而那种缺失不报错、和"读得慢"在界面上分不出来。
  */
-export const TIMELINE_ARCHIVE_VERSION = 5;
+export const TIMELINE_ARCHIVE_VERSION = 6;
 
 export type TimelineArchive = {
   readonly version: number;
@@ -47,6 +47,7 @@ export type TimelineArchive = {
   readonly epoch: string;
   readonly seq: number;
   readonly lastAt: number | null;
+  readonly lastBoundaryMessageId: string | null;
   /** reducer 的整份内部状态。 */
   readonly parser: ParserState;
   readonly seenKeys: readonly string[];
@@ -199,6 +200,7 @@ class RecordTimeline implements SessionTimeline {
   private subscribers = new Set<Subscriber>();
   /** 最近一条记录的 provider 时钟。没有时钟的记录跟着上一条走，❌ 别拿 Date.now() 冒充。 */
   private lastAt: number | null = null;
+  private lastBoundaryMessageId: string | null = null;
   /** Per-tool timestamps collected from the same records that feed the transcript reducer. */
   private recentActionEntries = new Map<string, RecentActionEntry>();
   /** 这一代是被什么换掉的。拿旧 epoch 游标来续的人要看到真原因，不是笼统的 epoch_changed。 */
@@ -251,6 +253,7 @@ class RecordTimeline implements SessionTimeline {
     // Keep this publisher's fresh epoch: an archive can predate frames already seen by a client.
     this.seq = archive.seq;
     this.lastAt = archive.lastAt;
+    this.lastBoundaryMessageId = archive.lastBoundaryMessageId;
     this.seenKeys = new Set(archive.seenKeys);
     this.settlements = new Map(archive.settlements.map((one) => [one.itemId, one]));
     this.settlementSeq = new Map(archive.settlementSeq.map(([id, at]) => [id, at]));
@@ -313,6 +316,7 @@ class RecordTimeline implements SessionTimeline {
       epoch: this.epochValue,
       seq: this.seq,
       lastAt: this.lastAt,
+      lastBoundaryMessageId: this.lastBoundaryMessageId,
       parser: this.parser.snapshotState(),
       seenKeys: [...this.seenKeys],
       settlements: [...this.settlements.values()],
@@ -433,8 +437,8 @@ class RecordTimeline implements SessionTimeline {
         ...(request.subject !== undefined ? { subject: request.subject } : {}),
         ...(request.detail !== undefined ? { detail: request.detail } : {}),
         ...(request.options.length > 0 ? { options: request.options } : {}),
-        ...(request.host ? { host: request.host } : {}),
-        ...(request.host?.kind === 'agent-question' && request.questions ? { questions: request.questions, askedAt: request.askedAt } : {}),
+        ...(request.origin ? { origin: request.origin } : {}),
+        ...(request.origin?.source === 'agent-question' && request.questions ? { questions: request.questions, askedAt: request.askedAt } : {}),
         state: 'pending',
         optionId: null,
         resolvedBy: null,
@@ -569,11 +573,12 @@ class RecordTimeline implements SessionTimeline {
       const at = entry.at ?? this.lastAt ?? this.now();
       this.lastAt = at;
       if (entry.boundary) {
+        this.lastBoundaryMessageId = entry.boundary.messageId ?? null;
         // 边界不是内容：它不进时间线，只把当前这一轮关掉并给它结局。
         // 没有活着的一轮时 reducer 自己 no-op，所以重复的边界是安全的。
         this.parser.settleTurn(outcomeOf(entry.boundary), at);
       } else {
-        this.parser.pushRecordEvent(entry.event, at);
+        this.parser.pushRecordEvent(entry.event, at, this.lastBoundaryMessageId);
         this.recordRecentActions(this.parser.activeTurn?.items ?? [], at);
         this.trackSettlement(entry.event, at);
       }
@@ -600,6 +605,7 @@ class RecordTimeline implements SessionTimeline {
       this.putSettlement({
         itemId: question.itemId,
         kind: question.kind,
+        origin: { source: question.kind === 'question' ? 'harness-question' : 'harness-permission' },
         title: question.title,
         ...(question.detail !== undefined ? { detail: question.detail } : {}),
         ...(question.options.length > 0 ? { options: question.options } : {}),
@@ -676,6 +682,7 @@ class RecordTimeline implements SessionTimeline {
     // 「这次没报 ⇒ 撤销」在一份还没被同步过的新代上误开火。
     this.liveItemIds = new Set();
     this.lastAt = null;
+    this.lastBoundaryMessageId = null;
     this.recentActionEntries = new Map();
     this.needsPublish = true;
     // 不当场发：源紧接着就会把重读的内容送进来，那时快照才是完整的。

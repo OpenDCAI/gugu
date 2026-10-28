@@ -75,7 +75,7 @@ describe('a link of gugu\'s own, clicked in an App page (openLink)', () => {
     await expect(openLinkWith({
       installed: () => [{ manifest }], isEnabled: () => true, locale: () => 'en',
       sessionProject: async () => null, reveal: async () => {}, openApp, deliver: deliverToExtension,
-      resourceChat: async (id) => id === TOPIC ? CHAT : id, openResource: async () => {},
+      resourceChat: async (id) => id === TOPIC ? CHAT : id, openResource: async () => {}, bringUp: async () => {},
     }, `gugu-dev://ext/chess/main/game/7?move=e4&gugu.chat=${TOPIC}`))
       .resolves.toMatchObject({ kind: 'opened', target: { kind: 'app', extensionId: 'chess', tab: 'main', place: { chat: CHAT } } });
     expect(received.filter((entry) => entry.type === 'link')).toEqual([event]);

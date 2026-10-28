@@ -14,7 +14,7 @@ import { MAX_ATTACHMENT_BYTES, TOOL_IMAGE_FETCH_LIMIT } from '@gugu/session-core
 import { composePromptText } from '@renderer/features/sessions/acp/composer-file-paths'
 import { formatBytes } from '@renderer/utils/formatBytes'
 import { DEFAULT_GROUP_BY, Thread, type ThreadComponents } from '@/components/assistant-ui/thread.aui'
-import { tallyToolRun, toolRunLabel } from '@gugu/session-chat-ui/tool-run'
+import { tallyToolRun, toolRunLabel, toolRunNow, toolRunNowLabel } from '@gugu/session-chat-ui/tool-run'
 import { translateSessionMessage } from '@/session/renderer/localization/locale-store'
 import { ToolGroupContent, ToolGroupRoot, ToolGroupTrigger } from '@/components/assistant-ui/tool-group.aui'
 import { DeliveryMessage } from '@/components/assistant-ui/delivery-message.aui'
@@ -32,6 +32,7 @@ import { QUESTION_DATA_PART, runningToolIds, THINKING_DATA_PART, TOOL_RUNNING, t
 import { useLoadOlderOnTop } from './load-older-on-top'
 import { ThinkingDataUI } from './thinking-part'
 import { OpenedOutputsDataUI } from './opened-outputs-part'
+import { AgentSendDataUI } from './agent-send-part'
 import { OpenedOutputHandlersContext } from './opened-output-handlers'
 import { useOpenedOutputOpener } from './opened-output-opener'
 import { LiveTail } from './live-tail'
@@ -39,6 +40,13 @@ import { TurnProcessMessage, TurnProcessToggleProvider } from './turn-process-me
 import { attachmentMentions, sessionAttachmentAdapter } from './composer-attachments'
 import { sessionAttachmentRpc } from './sessionpage-rpc'
 import { PhoneTaskDraftRecovery } from '../local-agent/PhoneTaskDraftRecovery'
+import { appendToDraft } from '@/store/chatContext'
+import { notify } from '@/lib/notices'
+import { messageForUser } from '@/lib/userFacingError'
+import { dismissSubagent } from '@renderer/features/sessions/view/subagent-dismissals'
+import { usePhoneBackgroundTasks } from './background-tasks'
+import { PhoneBackgroundTasks } from './PhoneBackgroundTasks'
+import { stopBackgroundTask } from './sessionpage-rpc'
 
 /**
  * 手机任务时间线复用 assistant-ui Thread 的消息仓库、滚动、附件和发送行为。
@@ -187,9 +195,17 @@ const ProcessRun: NonNullable<ThreadComponents['ChainOfThoughtGroup']> = ({ grou
     }
   }
   if (members.length < 2) return <>{children}</>
+  // 跑着时这一句后面接此刻在做什么(在跑的命令 / 在想),与桌面 tool-run 同一份判断;跑完恢复原样。
+  const now = live ? toolRunNow(members as Parameters<typeof toolRunNow>[0]) : null
+  const label = toolRunLabel(tallyToolRun(members), translateSessionMessage)
   return (
     <ToolGroupRoot variant="ghost">
-      <ToolGroupTrigger count={members.length} label={toolRunLabel(tallyToolRun(members), translateSessionMessage)} active={live} />
+      <ToolGroupTrigger
+        count={members.length}
+        label={now ? `${label} · ${toolRunNowLabel(now, translateSessionMessage)}` : label}
+        {...(now?.kind === 'command' ? { detail: now.command } : {})}
+        active={live}
+      />
       <ToolGroupContent>{children}</ToolGroupContent>
     </ToolGroupRoot>
   )
@@ -199,6 +215,8 @@ export function AgentThread({
   timeline,
   deviceId,
   sessionId,
+  draft,
+  onDraftApplied,
   phoneHost = false,
   machineLabel,
   sessionRuntime,
@@ -219,6 +237,8 @@ export function AgentThread({
   timeline: AgentWatchTimeline
   deviceId: string
   sessionId: string
+  draft?: { text: string }
+  onDraftApplied?: () => void
   phoneHost?: boolean
   /** That machine's name, for an App install asked there (D-31). */
   machineLabel?: string
@@ -269,7 +289,7 @@ export function AgentThread({
     () => [
       ...toThreadMessages(timeline.turns, {
         // 发给手机的那一份裁过长输出(transport-trim);裁了就要说,❌ 不让人以为输出到此为止。
-        trimmedNote: (chars) => t('agentWatch.timeline.outputTrimmed', { chars }),
+        trimmedNote: (chars) => t('agentWatch.timeline.outputTrimmed', { count: chars }),
         // 最后一轮还没结算 = 在跑(等审批 / 提问也算):它的过程头在数秒、默认摊开,不挂附件卡(同桌面的活动层)。
         liveTurnId: unsettledLastTurnId(timeline.turns),
         settlements: timeline.settlements,
@@ -290,6 +310,19 @@ export function AgentThread({
    * 交整份时,不在里面的行库会真删 —— 仓库永远就是这一条线,一条消息一行。
    */
   const messageRepository = useMemo(() => ExportedMessageRepository.fromArray(messages), [messages])
+  // 后台命令与子智能体(#638):对话末尾、输入框上面那一句。手机自己当主机时没有这条路(那是手机上的 agent)。
+  const [dismissals, setDismissals] = useState(0)
+  const backgroundTasks = usePhoneBackgroundTasks(deviceId, sessionId, timeline.turns, dismissals, !phoneHost)
+  const background = backgroundTasks.commands.length + backgroundTasks.subagents.length > 0 ? (
+    <PhoneBackgroundTasks
+      tasks={backgroundTasks}
+      onStop={(stopId) => {
+        stopBackgroundTask(deviceId, sessionId, stopId).catch((error: unknown) =>
+          notify({ tier: 'error', title: translateSessionMessage('acpFailure.stop'), description: messageForUser(error) }))
+      }}
+      onDismiss={(entryId) => { dismissSubagent(sessionId, entryId); setDismissals((value) => value + 1) }}
+    />
+  ) : null
 
   const runtime = useExternalStoreRuntime<ThreadMessage>({
     /*
@@ -329,12 +362,26 @@ export function AgentThread({
     },
     adapters: { attachments },
   })
+  // Each App handoff is applied once, including a second draft into the task already open.
+  const appliedDraft = useRef<typeof draft>(undefined)
+  useEffect(() => {
+    if (!draft || appliedDraft.current === draft) return
+    appliedDraft.current = draft
+    const composer = runtime.thread.composer
+    const text = composer.getState().text
+    composer.setText(appendToDraft(text, draft.text))
+    onDraftApplied?.()
+  }, [draft, runtime, onDraftApplied])
   const hostRef = useRef<HTMLDivElement | null>(null)
   useLoadOlderOnTop(hostRef, timeline.hasOlder, onLoadOlder)
   useEffect(preloadSharedChatRuntime, [])
 
   // 附件卡(#7193)点开:网页交给浏览器,文件从那台电脑现读、在一整页预览里看。
-  const outputs = useOpenedOutputOpener({ deviceId, sessionId })
+  const quoteOutput = useCallback((text: string) => {
+    const composer = runtime.thread.composer
+    composer.setText(appendToDraft(composer.getState().text, text))
+  }, [runtime])
+  const outputs = useOpenedOutputOpener({ deviceId, sessionId, onQuote: quoteOutput })
   const running = useMemo(() => runningToolIds(timeline.turns), [timeline.turns])
   const imagesInHand = useMemo(() => toolImagesById(timeline.turns), [timeline.turns])
   const toolItems = useMemo(() => toolItemsById(timeline.turns), [timeline.turns])
@@ -358,6 +405,7 @@ export function AgentThread({
       <ThinkingDataUI />
       <QuestionDataUI />
       <OpenedOutputsDataUI />
+      <AgentSendDataUI />
       <div ref={hostRef} className="gg-aw-thread-host" data-testid="agent-watch-timeline">
         {/* 选项摆在输入框那一行(orca 同款位置),❌ 不在页头右上角:
             改模型/权限档是「说这句话之前先定个调」,和输入框是一件事。 */}
@@ -372,7 +420,7 @@ export function AgentThread({
             />
           }
           stop={agentWorking ? { onStop, stopping } : null}
-          above={footerNotice || phoneHost ? <div className="gg-aw-thread-extras">{footerNotice}{phoneHost && <PhoneTaskDraftRecovery deviceId={deviceId} sessionId={sessionId} composer={runtime.thread.composer} sending={sending} />}</div> : null}
+          above={footerNotice || phoneHost || background ? <div className="gg-aw-thread-extras">{background}{footerNotice}{phoneHost && <PhoneTaskDraftRecovery deviceId={deviceId} sessionId={sessionId} composer={runtime.thread.composer} sending={sending} />}</div> : null}
           tail={
             pinned.length > 0 ? (
               <div className="gg-aw-thread-extras" data-testid="agent-watch-pinned-settlements">

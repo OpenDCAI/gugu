@@ -39,7 +39,7 @@ export function summaryOf(card: PackageCard): Promise<ExtensionBundleSummary> {
   if (!pending) {
     pending = (async (): Promise<ExtensionBundleSummary> => {
       const bytes = await attachmentBytes(card.source)
-      if (bytes.status === 'gone') throw new Error('the package was deleted from the group folder')
+      if (bytes.status !== 'ready') throw new Error('the package was deleted from the group folder')
       return summarizeExtensionBundle(new Uint8Array(await bytes.blob.arrayBuffer()), __APP_VERSION__)
     })()
       .catch((error: unknown) => {

@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useMemo, useState, type CSSProperties, type ReactNode } from 'react'
 import { useTranslation } from 'react-i18next'
 import type { AgentDisplayStatus, GroupCollabSnapshot, GroupMemberRole, ListenMode } from '@gugu/core/shared/types/chat'
-import { Bot, MoreHorizontal, UserPlus } from '@/lib/icons'
+import { MoreHorizontal, UserPlus } from '@/lib/icons'
 import { chatService } from '../../lib/chat'
 import { UI_EVENTS } from '../../lib/uiEvents'
 import { groupAgentDisplayStatus } from '../../lib/groupAgentStatus'
@@ -12,6 +12,7 @@ import { MemberProfilePopover } from '../MemberProfilePopover'
 import type { MemberProfileCardModel, MemberProfileChatTarget, MemberProfileEditControls } from '../MemberProfileCard'
 import { type ActiveMemberProfile, agentOwnerDisplayName, toAgentProfile, toHumanProfile } from '../memberProfileModels'
 import { IconButton } from '../ui/IconButton'
+import { Button } from '../ui/Button'
 import { Menu, MenuItem } from '../ui/Menu'
 import { AddGroupMembers } from './AddGroupMembers'
 import { useMobileShell } from '../../hooks/useMobileShell'
@@ -157,9 +158,9 @@ export function useGroupMemberPanelControls({ chatId, enabled, snapshot, identit
   const headerActions: ReactNode = showInvite ? (
     <>
       {mobile && (
-        <IconButton size="sm" aria-label={t('group.memberList.createAgent')} title={t('group.memberList.createAgent')} data-testid="member-list-create-agent" onClick={createAgentInGroup}>
-          <Bot />
-        </IconButton>
+        <Button size="sm" variant="ghost" data-testid="member-list-create-agent" onClick={createAgentInGroup}>
+          {t('group.memberList.createAgent')}
+        </Button>
       )}
       <IconButton size="sm" aria-label={t('group.memberList.invite')} title={t('group.memberList.invite')} data-testid="member-list-invite" onClick={openPicker}>
         <UserPlus />

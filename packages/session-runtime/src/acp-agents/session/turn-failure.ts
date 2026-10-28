@@ -144,15 +144,18 @@ function parseJsonObject(text: string): Record<string, unknown> | undefined {
  * 认不出 ⇒ undefined,那一行照旧说「回合未能完成」,原文在详情里 —— claude 的「API Error: 400 …」已经作为它自己的话
  * 进了转录,不是这两种形状,❌ 在这一行再说一遍。
  */
-export function upstreamSaid(text: string): string | undefined {
-  const trimmed = text.trim();
+export function upstreamSaid(text: string, data?: unknown): string | undefined {
+  // Structured JSON-RPC data.message is the provider's own cause, including plain 5xx text.
+  const message = data && typeof data === 'object' ? (data as Record<string, unknown>).message : undefined;
+  const structured = typeof message === 'string' ? message : undefined;
+  const trimmed = (structured ?? text).trim();
   const status = /^unexpected status \d{3}[^:]*:\s*([\s\S]*?)(?:,\s*url:\s[\s\S]*)?$/.exec(trimmed);
   const body = status ? status[1]!.trim() : trimmed;
   const json = body.startsWith('{') ? parseJsonObject(body) : undefined;
   const nested = json?.error && typeof json.error === 'object' ? (json.error as Record<string, unknown>).message : undefined;
   const said = typeof nested === 'string' ? nested
     : typeof json?.message === 'string' ? json.message
-    : status && !json ? body
+    : (status || structured !== undefined) && !json ? body
     : undefined;
   const line = said?.split(/\r?\n/).map((part) => part.trim()).find(Boolean);
   if (!line || line.startsWith('<')) return undefined;
@@ -181,12 +184,10 @@ export function refusedTurnOutcome(code: string | null | undefined): TranscriptT
 export function classifyTurnFailure(fact: TurnFailureFact): ClassifiedTurnFailure {
   switch (fact.at) {
     case 'prompt': {
-      if (fact.cause.code === -32800) {
-        return { outcome: { kind: 'cancelled', reason: 'cancelled' }, provisional: false };
-      }
+      // A JSON-RPC cancellation remains a cancelled turn even when admission failed.
       // 线是我们自己断的、provider 没说话 ⇒ 这一轮被停下,与它在 close 时答 `cancelled` 同一个结局。
       // provider 说过话的那一条仍是它的话(final),❌ 被「我们在关」盖掉。
-      if (fact.closeRequested && !providerAuthored(fact.cause)) {
+      if (fact.cause.code === -32800 || (fact.closeRequested && !providerAuthored(fact.cause))) {
         return { outcome: { kind: 'cancelled', reason: 'cancelled' }, provisional: false };
       }
       // #7103 这一轮是咕咕拒的(取票没签出来):咕咕按原因说,这一家那句(claude 的「apiKeyHelper is failing」、
@@ -201,7 +202,7 @@ export function classifyTurnFailure(fact: TurnFailureFact): ClassifiedTurnFailur
       // 并让宿主把这家标成「登录已失效」。判据只认结构化信号,见 `isSignInFailure`。
       const signInRequired = !fact.platformCredentials && isSignInFailure(fact.cause);
       // #7103 上游自己说了什么(codex 原样递上来的网关错误体):那一行直接说它,❌ 只说「回合未能完成」让人点开猜。
-      const said = signInRequired ? undefined : upstreamSaid(fact.cause.message);
+      const said = signInRequired ? undefined : upstreamSaid(fact.cause.message, fact.cause.data);
       return {
         outcome: {
           kind: 'error',

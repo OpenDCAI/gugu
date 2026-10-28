@@ -38,6 +38,7 @@ export function presentationOfDisplayStatus(status: AgentDisplayStatus): AgentSt
     case 'idle':
       return presentAgentStatus({ reading: null, reachability: 'online' })
     case 'offline':
+    case 'archived':
     case 'removed':
     case 'pending':
       return presentAgentStatus({ reading: null, reachability: status })
@@ -93,7 +94,7 @@ export function useAgentDisplayStatus(agentUserId?: string | null) {
 }
 
 export function useAgentDisplayStatuses(): Record<string, typeof DEFAULT_AGENT_DISPLAY_STATUS> {
-  return {}
+  return Object.fromEntries(statusOverrides)
 }
 
 export function useAgentRecentActivity(): Record<string, { actions: string[]; lastActiveAt: string | null }> {

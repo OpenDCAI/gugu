@@ -1184,8 +1184,8 @@ export interface SessionModelCapability {
   platformSettingsEnv?: Readonly<Record<string, string>>
   /**
    * The issue response's `callable_routes` (#6921): gateway route, verbatim → the models this session
-   * token may call there. Only for a harness deciding whether to turn on one of its own built-in tools
-   * (codex image generation); never a picker input. Absent = an older server = none.
+   * token may call there. Gates tool availability (Codex image generation/standalone search and
+   * host-provided search); never a picker input. Absent = an older server = none.
    */
   platformCallableRoutes?: PlatformCallableRoutes
 }
@@ -1349,6 +1349,11 @@ export interface SessionCapabilityBundle {
   mcpDisabled?: readonly string[];
   /** #6387 Skills installed extensions bring to this session. */
   extensionSkills?: readonly ExtensionSkill[];
+  /**
+   * #7199 The Browser Use App is installed, on and allowed to give agents tools on this machine: the session's browser is
+   * its `browser_*` tools. Set by the host when the session opens; absent = no Gugu browser in this session.
+   */
+  browserUse?: true;
   env: Readonly<Record<string, string | undefined>>;
   model: SessionModelCapability | null;
   autonomy: SessionAutonomyCapability | null;

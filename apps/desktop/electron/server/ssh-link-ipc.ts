@@ -23,6 +23,7 @@ import { createSshAutoUpgrader, sshServerUpgradeRunner, type SshAutoUpgrader } f
 import { buildEnsureMasterArgs, classifySshFailure, type SshTarget } from './ssh-install/logic'
 import { systemSpawnSsh } from './ssh-install/system'
 import type { SharedSshLinks } from '../device-rpc-requester'
+import type { HeldFileSshLinks } from '../projectFileSsh'
 import { createSshLinkManager, type SshLinkManager } from './ssh-link'
 import { findSshMachine, sshTargetOf, terminalControlPath, type SshMachine, type SshMachineStore } from './ssh-machines'
 import { createTerminalAskpass } from './ssh-prompts'
@@ -66,6 +67,8 @@ export function registerSshLinkIpc(options: {
   upgradeChannel?: 'stable' | 'beta'
   /** 单测替身;默认按 upgradeChannel 真升。 */
   upgrader?: SshAutoUpgrader
+  /** 这台桌面是不是发布流水线出的包(GUGU_BUILD_DISTRIBUTION=published);不是就不报自己的版本(见 reportedDesktopVersion)。 */
+  published: boolean
   /**
    * #6264 这台桌面的设备 id(与开窗口时报给那台机器的同一个,见 src/lib/remoteSessionHost.ts):替它换成和这台桌面
    * 匹配的那一版时报给它。拿不到就只能整台升级(老路)。
@@ -76,7 +79,7 @@ export function registerSshLinkIpc(options: {
    * 不替它升级(它自己经咕咕云升级)、不问登录(只用咕咕钥匙)。
    */
   tunnels?: { linkMachine(deviceId: string): { target: SshTarget; accountUserId: string } | null; reportBroken(deviceId: string): void }
-}): SshLinkManager & SharedSshLinks {
+}): SshLinkManager & SharedSshLinks & HeldFileSshLinks {
   const send = (channel: string, payload: unknown) => {
     const win = options.getWindow()
     if (win && !win.isDestroyed()) win.webContents.send(channel, payload)
@@ -126,7 +129,7 @@ export function registerSshLinkIpc(options: {
   const channel = options.upgradeChannel
   // 报给那台机器的「这台桌面是哪一版」:正式版 = 自己的版本;开发 / 测试可用 GUGU_SERVER_MATCH_VERSION 覆盖(见 reportedDesktopVersion)。
   // process.defaultApp:Electron 以「electron .」起的(没打包)时为 true。
-  const desktopVersion = reportedDesktopVersion(process.env, { packaged: process.defaultApp !== true })
+  const desktopVersion = reportedDesktopVersion(process.env, { packaged: process.defaultApp !== true, published: options.published })
   // 渲染层开窗口时报的也是这一个(src/lib/remoteSessionHost.ts),两处 ❌ 各算各的。
   options.ipcMain.handle(SSH_LINK_CHANNELS.desktopVersion, () => desktopVersion)
   const upgrader: SshAutoUpgrader | null =
@@ -251,5 +254,7 @@ export function registerSshLinkIpc(options: {
     for (const deviceId of links.openDeviceIds()) if (!known.has(deviceId)) close(deviceId)
   })
   // closeAll 经 this.close 收,也走上面那一层。
-  return Object.assign(links, { close, tap })
+  return Object.assign(links, { close, tap, async ownedOpen(deviceId: string, accountId: string) {
+    return (await options.currentUserId()) === accountId && !!findSshMachine(options.store.list(), deviceId, accountId) && links.isOpen(deviceId)
+  } })
 }

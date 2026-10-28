@@ -637,7 +637,26 @@ function foldToolEntity(
   return items.flatMap((item, i) => isToolCallItem(item) && item.toolCallId === event.toolCallId ? i === first ? [next] : [] : [item]);
 }
 
-export function foldItem(
+export function foldItem(items: TranscriptItem[], event: FoldEvent, turnId: string, at: number, stampAt?: number): TranscriptItem[] {
+  const result = foldItemContent(items, event, turnId, at, stampAt);
+  if (stampAt === undefined || !['tool_call', 'tool_update', 'subagent_done', 'background_command_done'].includes(event.kind)) return result;
+  const before = new Map(flattenItems(items).map(item => [item.id, item]));
+  const clock = (item: TranscriptItem): TranscriptItem => {
+    if (item.kind === 'tool-group') {
+      const children = item.children.map(child => clock(child) as ToolNode);
+      return children.some((child, i) => child !== item.children[i]) ? { ...item, children } : item;
+    }
+    if (!isToolCallItem(item)) return item;
+    const previous = before.get(item.id);
+    const arrival = item.at === undefined && !previous;
+    const completion = item.completedAt === undefined && item.status !== 'running'
+      && (!previous || ('status' in previous && previous.status === 'running'));
+    return arrival || completion ? { ...item, ...(arrival ? { at: stampAt } : {}), ...(completion ? { completedAt: stampAt } : {}) } : item;
+  };
+  return result.map(clock);
+}
+
+function foldItemContent(
   items: TranscriptItem[],
   event: FoldEvent,
   turnId: string,
@@ -918,10 +937,10 @@ export function foldItem(
 }
 
 /**
- * Settle all in-progress states for a committed turn.
+ * Settle in-progress states owned by a committed turn.
  *
  * - thinking status 'thinking' → 'done' + computed durationMs
- * - tool status 'running' → 'done'
+ * - tool status 'running' → 'done', without crossing a subagent boundary
  *
  * Input must be plain objects (not Solid/MobX proxies).
  */
@@ -932,14 +951,11 @@ export function finalizeItems(items: TranscriptItem[], at: number): TranscriptIt
       return { ...item, children, status: readGroupStatus(children) };
     }
 
-    const children = item.children?.map(finalizeNode);
-    // ⚠️ 这里**不再**为后台子智能体开例外。
-    //
-    // 先前有一条「`background: true` 的不许在提交这一轮时落定」的守卫,是为了让那一行
-    // 一直活着、等子智能体真跑完再改成完成。owner 2026-09-06 判掉了那条路(见
-    // claude/acp-transform.ts 里那段):派发本身在启动返回时就完成了,「它还在不在跑」
-    // 归 agents 登记册答,不归转录行。守卫的对象没了,守卫也一并撤 —— ❌ 别留着,
-    // 那种「平时零发作、只在极端路径显形」的残留正是最难查的一类。
+    // The launch belongs to this turn; its nested tools belong to the child.
+    // Their own tool updates can still arrive after this turn is committed.
+    const children = item.kind === 'spawn-subagent-tool-call'
+      ? item.children
+      : item.children?.map(finalizeNode);
     const status = item.status === 'running' ? 'done' : item.status;
     return {
       ...item,

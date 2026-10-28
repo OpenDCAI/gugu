@@ -16,7 +16,6 @@ it('does not complete a queued user prompt with the preceding autonomous foregro
     resolveAttachment: async () => ({ data: '', mimeType: 'image/png' }), logger: noopLogger });
   cell.applySessionReady();
   const sent = cell.promptDetached({ text: 'the user question' });
-  await sent.admission;
   await vi.waitFor(() => expect(prompt).toHaveBeenCalledTimes(1));
   let completed = false;
   void sent.completion.then(() => { completed = true; });
@@ -47,7 +46,6 @@ it('a receipt arriving during another autonomous cycle completes only its alread
     resolveAttachment: async () => ({ data: '', mimeType: 'image/png' }), logger: noopLogger });
   cell.applySessionReady();
   const sent = cell.promptDetached({ text: 'question' });
-  await sent.admission;
   await vi.waitFor(() => expect(prompt).toHaveBeenCalledTimes(1));
   cell.push({ kind: 'message', role: 'user', messageId: 'user', text: 'question' });
   cell.push({ kind: 'agent_state', source: 'agent', state: 'running' });
@@ -70,15 +68,15 @@ it.each([false, true])('request-activity cancellation waits for both concurrent 
     replies.push(reply);
     return reply.promise;
   }), cancel: vi.fn(async () => {}) };
-  const { agent } = createRequestActivity(raw as never, ({ event }) => cell.push(event));
+  const { agent, observe } = createRequestActivity(raw as never, ({ event }) => cell.push(event));
   const cell = new SessionCell({ sessionId: 'v1', projectId: 'p', providerId: 'fixture', acpSessionId: 's', agent,
     resolveAttachment: async () => ({ data: '', mimeType: 'image/png' }), logger: noopLogger });
   cell.applySessionReady();
   const first = cell.promptDetached({ text: 'first' });
-  await first.admission;
   await vi.waitFor(() => expect(raw.prompt).toHaveBeenCalledTimes(1));
+  // The provider's first event admits the request and makes it running.
+  observe('s', { kind: 'message' });
   const second = cell.promptDetached({ text: 'second' }, { steerIfBusy: true });
-  await second.admission;
   await vi.waitFor(() => expect(raw.prompt).toHaveBeenCalledTimes(2));
   await cell.cancel();
   replies[reverse ? 1 : 0].resolve({ stopReason: 'cancelled' });

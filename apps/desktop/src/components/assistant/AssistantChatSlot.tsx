@@ -8,7 +8,6 @@ import { ChatAreaPanel } from '../ChatAreaPanel'
 import type { ComposerAttachAction } from '../chat/ComposerAttachButton'
 import type { MemberProfileChatTarget } from '../MemberProfileCard'
 import { Button } from '../ui/Button'
-import { appendDraft } from '../../lib/assistantDraft'
 import { requestIdeas } from '../../lib/assistantIdeas'
 import { readAssistantShellBridge } from '../../lib/assistantShellBridge'
 import { ArrowUpToLine, Mic, Plus, Sparkles } from '../../lib/icons'
@@ -20,7 +19,7 @@ import { ChatLineScope } from '@/store/chatLineScope'
 import type { AssistantDm } from './useAssistantDm'
 import { AssistantConversationProgress } from './AssistantConversationProgress'
 import { useAssistantTyping } from './useAssistantTyping'
-import { AssistantCustomizeCard } from './AssistantCustomizeCard'
+import { AssistantComposerEntries } from './AssistantComposerEntries'
 import { useCustomizeCardOffered } from '../../lib/assistantSetupState'
 import { useAuth } from '../../store/auth'
 import { appState } from '../../session/renderer/lib/stores/app-state'
@@ -37,7 +36,7 @@ export type AssistantChatHandlers = {
  * 带了文件(「分析健康报告」选的那份)就排进输入框的附件,与人自己点「+」选的同一个队列。
  */
 function useAssistantDraft(chatId: string | null) {
-  const { setDraft, draftAttachments, setDraftAttachments } = useChatStore('setDraft', 'draftAttachments', 'setDraftAttachments')
+  const { writeDraft, draftAttachments, setDraftAttachments } = useChatStore('writeDraft', 'draftAttachments', 'setDraftAttachments')
   const attachmentsRef = useRef(draftAttachments)
   attachmentsRef.current = draftAttachments
   useEffect(() => {
@@ -46,7 +45,7 @@ function useAssistantDraft(chatId: string | null) {
     const apply = () => {
       const draft = bridge.takeChatDraft()
       if (draft === null) return
-      if (draft.text) setDraft(chatId, (previous) => appendDraft(previous, draft.text))
+      if (draft.text) writeDraft(chatId, { at: 'end', text: draft.text })
       if (draft.files.length > 0) {
         const queued = attachmentsRef.current[chatId] ?? []
         setDraftAttachments(chatId, [...queued, ...draft.files.map((file) => ({ id: crypto.randomUUID(), file, kind: inferAttachmentKind(file) }))])
@@ -54,7 +53,7 @@ function useAssistantDraft(chatId: string | null) {
     }
     apply()
     return bridge.subscribeChatDraft(apply)
-  }, [chatId, setDraft, setDraftAttachments])
+  }, [chatId, writeDraft, setDraftAttachments])
 }
 
 /**
@@ -128,15 +127,11 @@ function AssistantChatSlotContent({ dm, assistantId, assistantName, visible, ...
   useReportChatOnScreen(visible ? chatId : null)
   useAssistantDraft(chatId)
   const typing = useAssistantTyping(chatId, assistantId, assistantName)
-  // 开通后递的「自定义」卡(照 dots):接在消息流末尾,点它 = 打开资料页的自定义弹窗(会话页那棵树,经共享的导航 store)。
   const { user } = useAuth()
   const customizeOffered = useCustomizeCardOffered(user?.id)
-  const footer = customizeOffered && user?.id ? (
-    <>
-      <AssistantCustomizeCard ownerUserId={user.id} name={assistantName} onOpen={() => appState.navigation.navigate('assistant', { tab: 'profile', sub: 'customize' })} />
-      {typing}
-    </>
-  ) : typing
+  const { recording } = useVoiceNoteHandler()
+  const composerEntries = <AssistantComposerEntries assistantId={assistantId} busy={recording} onOpen={requestIdeas}
+    customize={customizeOffered && user?.id ? { ownerUserId: user.id, name: assistantName, onOpen: () => appState.navigation.navigate('assistant', { tab: 'profile', sub: 'customize' }) } : undefined} />
   // 点进「聊天」= 进入可输入语境,与对话页点进一条会话同一个 reason。
   useEffect(() => (visible && chatId ? scheduleComposerFocus('chat-entry') : undefined), [visible, chatId])
 
@@ -144,6 +139,7 @@ function AssistantChatSlotContent({ dm, assistantId, assistantName, visible, ...
     return (
       <div className="flex flex-1 flex-col items-center justify-center gap-3 text-sm text-[var(--text-secondary)]" data-testid="assistant-chat-pending">
         <p>{failed ? t('chat.openFailed', { name: assistantName }) : t('chat.opening', { name: assistantName })}</p>
+        {failed ? <p role="alert">{failed.error}</p> : null}
         {failed && <Button size="sm" onClick={retry}>{t('machine.retry')}</Button>}
       </div>
     )
@@ -155,7 +151,7 @@ function AssistantChatSlotContent({ dm, assistantId, assistantName, visible, ...
         viewportKey={assistantSlotKey('chat')}
         activeTab="chats"
         hidden={!visible}
-        chrome={{ placeholder: t('chat.placeholder', { name: assistantName }), attachGlyph: <Plus />, attachMenu, typing: footer, hideRunningStatus: true }}
+        chrome={{ placeholder: t('chat.placeholder', { name: assistantName }), attachGlyph: <Plus />, attachMenu, typing, composerHeader: composerEntries, hideRunningStatus: true }}
         {...handlers}
       /></FilePreviewHost.Provider>
       {healthReport.input}

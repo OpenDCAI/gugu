@@ -36,7 +36,9 @@ describe('gugu MCP tool descriptions stay within the Claude Code budget', () => 
     // Group administration adds eleven catalog-only tools.
     // Tab management adds catalog-only session_list_tabs / session_close_tab.
     // Assistant activity adds three catalog-only tools; metadata and context reads stay separate.
-    expect(readings).toHaveLength(62)
+    // Topic deletion adds one catalog-only command.
+    // App resource management adds one catalog-only tool.
+    expect(readings).toHaveLength(64)
     const over = readings.filter(({ chars }) => chars > CLAUDE_CODE_MCP_TOOL_DESCRIPTION_BUDGET)
     expect(over, `${readings.length - over.length} of ${readings.length} tools fit ${CLAUDE_CODE_MCP_TOOL_DESCRIPTION_BUDGET} chars`).toEqual([])
   })

@@ -1,11 +1,10 @@
-import { rendererLogger } from '@/lib/log';
-import { messageForUser } from '@/lib/userFacingError';
 import { GroupRenameContext } from './use-chat-commands'
-import { useCallback, useContext, useEffect, useRef, useState } from 'react'
+import { useContext, useEffect, useRef, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import { resolveOrLoud } from '@gugu/core/shared/resolveOrLoud'
 import { Pencil } from '@/lib/icons'
 import { IconButton } from '../ui/IconButton'
+import { InlineNameInput } from '../ui/InlineNameInput'
 
 // @@@2070 群名就地编辑:默认显示为文字;canEdit(manager)点名字旁的编辑钮或双击 → 变输入框(回车/失焦确认、Esc 取消)。
 // 编辑钮是触屏上唯一的入口:双击与 title 提示在手机上都不成立。
@@ -28,34 +27,15 @@ export function GroupNameInlineEdit({
 }) {
   const { t } = useTranslation('messaging')
   const [editing, setEditing] = useState(false)
-  const [draft, setDraft] = useState('')
-  const [busy, setBusy] = useState(false)
-  const [failed, setFailed] = useState('')
 
   const renameCommand = useContext(GroupRenameContext)
   const handledRequest = useRef(0)
   useEffect(() => {
     if (renameCommand?.request && renameCommand.request !== handledRequest.current && canEdit && name !== null) {
       handledRequest.current = renameCommand.request
-      setDraft(name); setFailed(''); setEditing(true)
+      setEditing(true)
     }
   }, [renameCommand?.request, canEdit, name])
-
-  const commit = useCallback(async () => {
-    if (busy) return
-    const next = draft.trim()
-    if (!next || next === name) { setEditing(false); return } // 空 / 未改 → 静默取消,不发请求
-    setBusy(true)
-    setFailed('')
-    try {
-      await onCommit(next)
-      setEditing(false)
-    } catch (error) {
-      rendererLogger('actions/GroupNameInlineEdit').error({ error }, 'action failed'); setFailed(messageForUser(error))
-    } finally {
-      setBusy(false)
-    }
-  }, [busy, draft, name, onCommit])
 
   if (name === null) {
     return (
@@ -80,33 +60,11 @@ export function GroupNameInlineEdit({
 
   if (canEdit && editing) {
     return (
-      <input
-        autoFocus
-        value={draft}
-        onChange={(e) => setDraft(e.target.value)}
-        onKeyDown={(e) => {
-          if (e.key === 'Enter') { e.preventDefault(); void commit() }
-          else if (e.key === 'Escape') { e.preventDefault(); setEditing(false) }
-        }}
-        onBlur={() => void commit()}
-        placeholder={labels?.placeholder ?? t('group.namePlaceholder')}
-        aria-invalid={!!failed || undefined}
-        data-rename-failed={failed ? 'true' : undefined}
-        title={failed || undefined}
-        style={{
-          border: 'none',
-          fontSize: 'var(--font-heading)',
-          fontWeight: 600,
-          background: 'transparent',
-          outline: 'none',
-          width: '100%',
-          color: failed ? 'var(--danger)' : 'var(--text-primary)',
-          padding: 0,
-        }}
-      />
+      <InlineNameInput name={name} onCommit={onCommit} onClose={() => setEditing(false)}
+        placeholder={labels?.placeholder ?? t('group.namePlaceholder')} />
     )
   }
-  const startEditing = () => { if (renameCommand) renameCommand.edit(); else { setDraft(name); setFailed(''); setEditing(true) } }
+  const startEditing = () => setEditing(true)
   return (
     <div className="flex min-w-0 items-center gap-1">
       <div

@@ -5,8 +5,9 @@ import { codexFilePatches } from '../../acp/transport/codex-file-patches';
 import type { NormalizedEvent } from '../../acp/reducer/normalized-event';
 import { readCodexRecord, type CodexRecord, type CodexRecordItem } from '@gugu/core/local/agent/transcriptSources/codex';
 
-import type { RecordEntry, SessionRecordLocator, SessionRecordSource, SessionRecordResume } from '../contract';
+import type { RecordEntry, SessionRecordLocator, SessionRecordSource } from '../contract';
 import { createJsonlTailSource } from './jsonl-tail-source';
+import { childState, withSubagentSources } from './subagent-sources';
 import {
   SessionRecordNotFoundError,
   asRecord,
@@ -30,61 +31,15 @@ const DIR_CONCURRENCY = 16;
  * 决定，同一份文件读多少遍都一样;续读时随续读点装回去，接着数。
  */
 type Child = { id: string; name: string; callId: string; task?: string; model?: string };
-type Ordinals = { turn: number; item: number; calls: Record<string, Record<string, unknown>>; children: Record<string, Child> };
+type Ordinals = { turn: number; item: number; userSeen: boolean; calls: Record<string, Record<string, unknown>>; children: Record<string, Child> };
 
 export function createCodexJsonlSource(locator: SessionRecordLocator, options?: SessionRecordSourceOptions, nativeChild = false): SessionRecordSource {
-  const children = new Map<string, SessionRecordSource>();
-  const starting = new Map<string, Promise<void>>();
-  let stopped = false;
-  let sink: import('../contract').SessionRecordSourceEvents | null = null;
-  let currentState: Ordinals | null = null;
-  let initializing = true;
-  let replacement: SessionRecordSource | null = null;
-  let childResumes: Record<string, SessionRecordResume> = {};
-  const restart = async (reason: 'source_replaced' | 'source_unreadable') => {
-    if (stopped || replacement || !sink) return;
-    root.stop();
-    for (const source of children.values()) source.stop();
-    children.clear();
-    sink.onReset(reason);
-    replacement = createCodexJsonlSource(locator, options, nativeChild);
-    await replacement.start(sink);
-  };
-  const ensureChild = (child: Child): Promise<void> => {
-    if (stopped || children.has(child.id)) return Promise.resolve();
-    const pending = starting.get(child.id);
-    if (pending) return pending;
-    const source = createCodexJsonlSource({ ...locator, providerSessionId: child.id }, options, true);
-    children.set(child.id, source);
-    const read = source.start({
-      onEntries(entries) {
-        const mapped: RecordEntry[] = entries.map((entry): RecordEntry => {
-          if (entry.boundary) return { key: entry.key, at: entry.at, event: childState(child.id,
-            entry.boundary.kind === 'turn_failed' ? 'failed' : entry.boundary.kind === 'turn_aborted' ? 'stopped' : 'completed') };
-          const event = entry.event;
-          if (event.kind === 'subagent') return event.parentToolCallId ? entry : { ...entry, event: { ...event, parentToolCallId: child.id } };
-          if (event.kind === 'subagent_update' || event.kind === 'subagent_done' || event.kind === 'subagent_stream') return entry;
-          if (event.kind === 'message' && event.role === 'user') return { key: entry.key, at: entry.at, event: childState(child.id, 'in_progress') };
-          return { ...entry, event: { kind: 'subagent_stream', subagentSessionId: child.id, event } };
-        });
-        if (!stopped) sink?.onEntries(mapped);
-      },
-      onReset: (reason) => { void restart(reason).catch((error: unknown) => options?.warn?.('Codex 子线程记录重读失败', { error: String(error) })); },
-    }, childResumes[child.id]).catch((error: unknown) => {
-      children.delete(child.id);
-      options?.warn?.('Codex 子线程记录读取失败', { threadId: child.id, error: String(error) });
-      throw error;
-    }).finally(() => starting.delete(child.id));
-    starting.set(child.id, read);
-    return read;
-  };
   const root = createJsonlTailSource<Ordinals>(locator, options, {
     name: 'codex',
     resumeVersion: 6,
     resolve: () => resolveRolloutFile(locator),
-    initial: () => ({ turn: 0, item: -1, calls: {}, children: {} }),
+    initial: () => ({ turn: 0, item: -1, userSeen: false, calls: {}, children: {} }),
     decode(record, ordinals) {
-      currentState = ordinals;
       const codex = readCodexRecord(record);
       // 序号按**每一条记录**推进，不按「解出了 event 的记录」推进:
       // 这样以后给某个记录类型补上解码，已有 key 不会整体错位。
@@ -93,6 +48,7 @@ export function createCodexJsonlSource(locator: SessionRecordLocator, options?: 
         ordinals.turn += 1;
         ordinals.item = 0;
       }
+      if (codex.turnStart || codex.end) ordinals.userSeen = false;
       const key = `codex:${locator.providerSessionId}:${ordinals.turn}:${ordinals.item}`;
       if (nativeChild && codex.turnStart) return [{ key, at: parseTimestamp(codex.timestamp), event: childState(locator.providerSessionId, 'in_progress') }];
       const item = codex.item;
@@ -126,49 +82,22 @@ export function createCodexJsonlSource(locator: SessionRecordLocator, options?: 
         } }];
       }
       const entry = decode(codex, key);
+      const event = entry?.event;
+      if (entry && event?.kind === 'message' && event.role === 'user') {
+        // Only task_started's leading input opens a turn; later inputs continue it.
+        const steering = ordinals.turn > 0 && ordinals.userSeen;
+        ordinals.userSeen = true;
+        if (steering) return [{ key: entry.key, at: entry.at, event: { ...event, steering: true } }];
+      }
       return entry ? [entry] : [];
     }
   });
-  return {
-    locator,
-    async start(events, resume) {
-      sink = events;
-      const saved = resume?.data as { codexChildren?: number; root?: SessionRecordResume; children?: Record<string, SessionRecordResume> } | undefined;
-      const rootResume = saved?.codexChildren === 1 ? saved.root : resume;
-      childResumes = saved?.codexChildren === 1 ? saved.children ?? {} : {};
-      await root.start({ ...events, onReset(reason) {
-        for (const child of children.values()) child.stop();
-        children.clear();
-        events.onReset(reason);
-      }, onEntries(entries) {
-        events.onEntries(entries);
-        // Spawn records are delivered before the child's records, so the shared parser can resolve their owner.
-        if (!initializing && currentState) for (const child of Object.values(currentState.children)) {
-          void ensureChild(child).catch((error: unknown) => events.onEntries([{
-            key: `codex-child-error:${child.id}`, event: childState(child.id, 'disconnected', String(error)),
-          }]));
-        }
-      } }, rootResume);
-      const point = await root.resumePoint?.();
-      currentState = (point?.data as { state?: Ordinals } | undefined)?.state ?? currentState;
-      initializing = false;
-      if (currentState) await Promise.all(Object.values(currentState.children).map(ensureChild));
-      await Promise.all(starting.values());
-    },
-    async catchUp() { if (replacement) return replacement.catchUp?.(); await root.catchUp?.(); await Promise.all(starting.values()); await Promise.all([...children.values()].map((child) => child.catchUp?.())); },
-    async resumePoint() {
-      if (replacement) return replacement.resumePoint!();
-      const point = await root.resumePoint!();
-      if (!point) return null;
-      const childPoints: Record<string, SessionRecordResume> = {};
-      for (const [id, child] of children) {
-        const value = await child.resumePoint?.();
-        if (value) childPoints[id] = value;
-      }
-      return { data: { codexChildren: 1, root: point, children: childPoints }, fingerprint: [point.fingerprint, ...Object.entries(childPoints).sort(([a], [b]) => a.localeCompare(b)).map(([id, value]) => `${id}:${value.fingerprint}`)].join('|') };
-    },
-    stop() { stopped = true; replacement?.stop(); root.stop(); for (const child of children.values()) child.stop(); children.clear(); },
-  };
+  return withSubagentSources(
+    root,
+    (id) => createCodexJsonlSource({ ...locator, providerSessionId: id }, options, true),
+    () => createCodexJsonlSource(locator, options, nativeChild),
+    options,
+  );
 }
 
 function decode(record: CodexRecord, key: string): RecordEntry | null {
@@ -283,14 +212,3 @@ function codexResultBlock(item: unknown): Array<{ type: 'text'; text: string } |
 /** codex 的工具名 → ACP ToolKind。名单外一律 'other'，理由同 claude 侧。 */
 const codexToolKind = toolKindTable({ execute: ['shell', 'local_shell', 'exec_command'], edit: ['apply_patch', 'write_file'], read: ['read_file'], fetch: ['web_search', 'web_fetch'] });
 
-/** Recorded children cannot be interrupted; their own boundaries decide their outcome. */
-function childState(id: string, status: 'in_progress' | 'completed' | 'failed' | 'stopped' | 'disconnected', summary?: string): NormalizedEvent {
-  if (status === 'in_progress') return {
-    kind: 'subagent_update', toolCallId: id, agentId: id, subagentSessionId: id,
-    status, canCancel: false,
-  };
-  return {
-    kind: 'subagent_done', toolCallId: id, agentId: id, subagentSessionId: id,
-    ...(summary ? { summary } : {}), status,
-  };
-}

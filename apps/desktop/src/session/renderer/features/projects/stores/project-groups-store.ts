@@ -50,7 +50,7 @@ export class ProjectGroupsStore {
   }
 
   /** 会话页挂上时由远程主机那边调一次(它知道哪些机器连着)。重复调用无害。 */
-  start(syncedMachines: () => readonly string[], agentSessions: () => readonly { projectId: string; agentUserId: string | null | undefined }[] = () => []): void {
+  start(syncedMachines: () => readonly string[], agentSessions: () => readonly { projectId: string; sessionId: string; agentUserId: string | null | undefined }[] = () => []): void {
     this.syncedMachines = syncedMachines;
     if (!this.stop) {
       void this.refresh(null);
@@ -75,9 +75,12 @@ export class ProjectGroupsStore {
             const chatId = this.byProject.get(session.projectId);
             if (chatId && session.agentUserId) byChat.get(chatId)!.add(session.agentUserId);
           }
-          return [...byChat].map(([chatId, ids]) => [chatId, [...ids].sort()] as const).sort(([a], [b]) => a.localeCompare(b));
+          const rows = [...byChat].map(([chatId, ids]) => [chatId, [...ids].sort()] as const).sort(([a], [b]) => a.localeCompare(b));
+          // 哪个 agent 是哪条会话(这台电脑与连着的每台机器上的):资料卡「发消息」据此打开它的会话。
+          const sessions = agentSessions().flatMap(({ agentUserId, projectId, sessionId }) => agentUserId ? [[agentUserId, { projectId, sessionId }] as const] : []).sort(([a], [b]) => a.localeCompare(b));
+          return { rows, sessions };
         },
-        (rows) => publishProjectGroupChats(rows.map(([chatId]) => chatId), new Map(rows)),
+        ({ rows, sessions }) => publishProjectGroupChats(rows.map(([chatId]) => chatId), new Map(rows), new Map(sessions)),
         { fireImmediately: true, equals: comparer.structural }
       );
       this.stop = () => {

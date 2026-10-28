@@ -1,10 +1,14 @@
+import { composeChatDraft } from '@/lib/composeDraft'
+import { showRendererContentMenu } from '../../lib/contentContextMenu'
+import { appContextMenuOf } from '../../session/shared/extensions/app-context-menu'
+import { appIdentityOf } from '../../session/shared/extensions/app-identity'
+import { fileBlob } from '@gugu/core/shared/fileResolver'
 import { guguLink, guguLinkScheme, linkTargetOf, type GuguLinkTarget } from '@gugu/core/shared/ui/guguLink'
 import { openLinkWith } from '../../session/shared/extensions/open-link'
 import { openLinkTarget } from '../../lib/guguLinks'
 import { resourceChatIdOf } from '../../session/shared/extensions/app-files-core'
 import { readCachedDevices } from '../../store/devicesCache'
 import { listedSession, liveDeviceSessions } from '../../session/shared/remote-sessions/session-directory'
-import { fetchBlob } from '../../lib/download'
 import { rendererLogger } from '../../lib/log'
 import { platform } from '../../platform'
 import { getRendererAccessToken } from '../../lib/sessionPublication'
@@ -18,7 +22,6 @@ import { subscribeAuthenticatedRealtimeChannel, unsubscribeAuthenticatedRealtime
 import { FileSyncRelay, webSocketUrl, type PageSync } from '../../session/shared/extensions/file-sync-core'
 import { userIdFromSupabaseAccessToken } from '@gugu/core/cloud/runtimeAuthProvider'
 import {
-  APP_COMPOSE_EVENT,
   APP_FORUM_CONSENT_EVENT,
   APP_FILE_MAX_BYTES,
   APP_FRAME_MARKER,
@@ -28,7 +31,6 @@ import {
   isLocal,
   placeOf,
   sessionIdOf,
-  type AppComposeDetail,
   type AppForumConsentDetail,
   type AppFileUpload,
   type AppOpenWithDetail,
@@ -59,8 +61,11 @@ import { installedExtensionsStore } from '../../session/renderer/features/extens
 import { fileIconKey } from '../../session/shared/extensions/app-icon'
 import { appFrameChannel } from './appOrigin'
 import { PHONE_CAPABILITIES, phoneApps } from './phoneApps'
+import { cachedPhoneAgents, phoneDispatch } from './phoneDispatch'
+import { onPhoneAppState, phoneAppState } from './phoneAppState'
+import { subscribeDeviceSessions } from '../../session/shared/remote-sessions/session-directory'
 import { callOnComputer } from './phoneProgramCall'
-import { followsSessionMachine } from '../../session/shared/extensions/machine-call'
+import { appDeviceId, followsSessionMachine, notOnSessionMachine } from '../../session/shared/extensions/machine-call'
 import { HOSTED_PROGRAM_ELSEWHERE } from '../../session/shared/extensions/program-place'
 import { rendererFileServiceUrl } from '../../lib/chatFolder'
 import { AppModalSessions, type AppModalFocus } from '../../session/shared/extensions/app-modal'
@@ -187,6 +192,13 @@ const askForumConsent = (detail: AppForumConsentDetail) => {
 }
 
 const files = createAppFiles({
+  appIdentity: (id) => appIdentityOf({ manifest: { id }, origin: installedExtensionsStore.origins[id], publisher: installedExtensionsStore.publishers[id] }),
+  async resolveFile(ref, actorId, options) {
+    if (options.localOnly) return null;
+    if (!('id' in ref)) throw new AppFileError('invalid', 'A stored file must be resolved by its id');
+    const { resolveFile, fileReader, fileReadSignal } = await import('../../lib/fileAccess');
+    return resolveFile({ item_id: ref.id, ...(options.version ? { version: options.version } : {}) }, fileReader(actorId), { signal: fileReadSignal() });
+  },
   // Who opens a group file of this kind here — the same choice a tap makes (摩擦单 F39).
   claimant(typedName) {
     const candidate = claimantOf(typedName, appsHereNow(), 'chat', phoneApps.remembered)
@@ -211,6 +223,7 @@ const files = createAppFiles({
   filesUrl: rendererFileServiceUrl,
   warn: (message, data) => log.warn(data ?? {}, message),
   sync: {
+    ensureFor: (asAgent) => { relay.ensureFor(asAgent) },
     pageFor: (pageId) => {
       const hosted = frames.get(pageId)
       if (!hosted) throw new AppFileError('failed', 'This surface is gone')
@@ -464,10 +477,16 @@ export function hostAppFrame(
     const refusal = callRefusal(method, args, { kind: 'page', has: (capability) => hosted.binding.capabilities.includes(capability), gesture })
     if (refusal) refused(refusal.code, refusal.message)
     const session = hosted.binding.session
-    if (session && verbFacts(method)?.machine) {
+    if ((session || args.device !== undefined) && verbFacts(method)?.machine) {
       const manifest = installedExtensionsStore.manifestFor(hosted.binding.extensionId)
       if (!manifest) refused('not-installed', `${hosted.binding.extensionId} is not installed on this phone`)
-      if (followsSessionMachine(manifest, method, args)) {
+      if (args.device !== undefined) {
+        const invalid = notOnSessionMachine(manifest, method, args)
+        if (invalid) throw invalid
+        const { device, ...callArgs } = args
+        return callOnComputer({ extensionId: manifest.id, extensionName: manifest.name, version: manifest.version }, { deviceId: appDeviceId(device), deviceLabel: null }, method, callArgs)
+      }
+      if (session && followsSessionMachine(manifest, method, args)) {
         return callOnComputer({ extensionId: manifest.id, extensionName: manifest.name, version: manifest.version }, session, method, args)
       }
     }
@@ -526,6 +545,8 @@ export function hostAppFrame(
         focusAppModalClose(modal.id)
         return undefined
       }
+      case 'getAppState':
+        return phoneAppState(hosted.binding.capabilities)
       case 'getContext':
         // A pill's place waiting for this page goes first, whatever the answer: the frame holds it until `onLink`.
         for (const link of takeOpeningLinks(hosted.binding)) event(link)
@@ -554,20 +575,30 @@ export function hostAppFrame(
       }
       case 'clipboardWriteText':
         return navigator.clipboard.writeText(pageArgument('clipboardWriteText', args))
-      case 'dispatch':
-        // The desktop's answer, with this page's sheet and the chat shell's composer. The person's agents are their
-        // computers': a phone does not reach them yet, so the sheet offers none and a call naming one is not found here.
+      case 'listAgents': {
+        const manifest = installedExtensionsStore.manifestFor(hosted.binding.extensionId)
+        if (!manifest) refused('not-installed', 'This App is not installed')
+        const dispatch = phoneDispatch({ extensionId: manifest.id, extensionName: manifest.name }, hosted.binding.capabilities, {})
+        return args.report === true ? dispatch.listAgents(true) : dispatch.listAgents()
+      }
+      case 'dispatch': {
+        const manifest = installedExtensionsStore.manifestFor(hosted.binding.extensionId)
+        if (!manifest) refused('not-installed', 'This App is not installed')
+        const { agents, local, spawnOn } = phoneDispatch({ extensionId: manifest.id, extensionName: manifest.name }, hosted.binding.capabilities,
+          { deviceId: hosted.binding.session?.deviceId, chatId: hosted.binding.chatId, agents: members?.filter((member) => member.kind === 'agent').map((member) => member.id) })
         return dispatchFromApp(
           {
             ...sendPlatform,
+            agents,
             pick: pickDispatchTarget,
             // Use the same capture-before-append ordering as the desktop host.
-            draftInChat: async (detail) => void document.dispatchEvent(new CustomEvent<AppComposeDetail>(APP_COMPOSE_EVENT, { detail, bubbles: true })),
+            draftInChat: async (detail) => composeChatDraft(detail),
           },
           hosted.binding.extensionId,
           args,
-          { chat: chat ? { id: chat.id, name: chat.name, members: members ?? [] } : null, preselect: null },
+          { chat: chat ? { id: chat.id, name: chat.name, members: members ?? [] } : null, preselect: null, local, spawnOn },
         )
+      }
       case 'messagesHistory':
         return messagesForApp.history(args)
       case 'messagesSearch':
@@ -634,7 +665,7 @@ export function hostAppFrame(
           hooks.openWith({ ...target, choice })
         })
       case 'filesOpen':
-        return files.open(surface(), { ref: chatRef(args.ref), ...(args.readOnly === true ? { readOnly: true } : {}) })
+        return files.open(surface(), { ref: chatRef(args.ref), ...(args.readOnly === true ? { readOnly: true } : {}), deferDetails: args.deferDetails === true, appData: args.appData === true })
       case 'filesReopen': {
         const ref = chatRef(args.ref)
         if (!('id' in ref)) refused('invalid', 'reopen takes a file by its id')
@@ -651,10 +682,19 @@ export function hostAppFrame(
           const { limit } = fileSearchOf(args)
           return files.recent(limit === undefined ? {} : { limit })
         })
+      case 'showContextMenu': {
+        const menu = appContextMenuOf(args)
+        const rect = frame.getBoundingClientRect()
+        return showRendererContentMenu(menu.items, { x: rect.x + menu.x, y: rect.y + menu.y })
+      }
+      case 'filesViewPreferences':
+        return files.viewPreferences(chatPlace(args.place), args.showAppData as boolean | undefined)
       case 'filesCreate':
-        return files.create(chatPlace(args.place), args as never)
+        return files.create(chatPlace(args.place), args as never, { extensionId: hosted.binding.extensionId })
       case 'filesRename':
         return files.rename(surface(), { ref: chatRef(args.ref), name: String(args.name ?? '') })
+      case 'filesKeep':
+        return files.keep(surface(), { refs: (Array.isArray(args.refs) ? args.refs : []).map(chatRef), how: args.how })
       case 'filesMkdir':
         return files.mkdir(chatPlace(args.place), { path: args.path })
       case 'filesMove':
@@ -687,16 +727,27 @@ export function hostAppFrame(
         const chatId = chatPlace(args.place)
         if (args.pick === true) {
           // Opened now, in this very turn: the picker needs the person's activation.
-          return pickFiles().then((picked) => (picked.length === 0 ? [] : files.upload(chatId, picked, { sourceMessageIds: args.sourceMessageIds, folder: args.folder })))
+          return pickFiles().then((picked) => (picked.length === 0 ? [] : files.upload(chatId, picked, { sourceMessageIds: args.sourceMessageIds, folder: args.folder, keep: args.keep })))
         }
         if (!Array.isArray(args.files)) refused('invalid', 'files.upload takes files, or none to pick')
-        return files.upload(chatId, args.files as AppFileUpload[], { sourceMessageIds: args.sourceMessageIds, folder: args.folder })
+        return files.upload(chatId, args.files as AppFileUpload[], { sourceMessageIds: args.sourceMessageIds, folder: args.folder, keep: args.keep })
       }
       case 'filesDownload':
+        // API 20: several files go out through the share sheet at once (a phone has no folder to pick) — how many were handed.
+        if (Array.isArray(args.refs)) {
+          if (args.refs.length === 0) refused('invalid', 'files.download(files): give one file or more')
+          if (!platform.capabilities.shareToApps) refused('invalid', 'Not available on this phone: sharing several files')
+          const sources = await Promise.all(args.refs.map((ref) => files.downloadSource(surface(), { ref: chatRef(ref) })))
+          await platform.shareToApps({
+            files: sources.flatMap((source) => (source.kind === 'file' ? [{ file: source.file, name: source.name }] : [])),
+            blobs: sources.flatMap((source) => (source.kind === 'text' ? [{ blob: new Blob([source.text], { type: 'text/plain;charset=utf-8' }), name: source.name }] : [])),
+          })
+          return sources.length
+        }
         return files.downloadSource(surface(), { ref: chatRef(args.ref) }).then(async (source) => {
           // The one save every 「保存」 takes (platform.saveFile: the system's 「保存到…」 on the phone), under the file's
           // own name — a file in OSS has a link named by its hash (#7290). Cancelled in the system picker = false.
-          const blob = source.kind === 'file' ? await fetchBlob(source.url) : new Blob([source.text], { type: 'text/plain;charset=utf-8' })
+          const blob = source.kind === 'file' ? await fileBlob(source.file) : new Blob([source.text], { type: 'text/plain;charset=utf-8' })
           return (await platform.saveFile(blob, source.name)).saved
         })
       // The App's own data folder and program: in a session they are its computer's (owner 10-16「程序跟着数据」), done
@@ -760,6 +811,22 @@ export function hostAppFrame(
     )
   }
   window.addEventListener('message', onMessage)
+  let lastState = JSON.stringify(phoneAppState(hosted.binding.capabilities))
+  const stateChanged = () => {
+    const state = phoneAppState(hosted.binding.capabilities)
+    const next = JSON.stringify(state)
+    if (next !== lastState) { lastState = next; event({ type: 'appState', state }) }
+  }
+  const snapshot = () => new Map(cachedPhoneAgents(hosted.binding.extensionId, hosted.binding.capabilities).map((agent) => [agent.agentId, JSON.stringify(agent)]))
+  let previous = snapshot()
+  const stopState = onPhoneAppState(stateChanged)
+  const stopAgents = subscribeDeviceSessions(() => {
+    stateChanged()
+    const next = snapshot()
+    const changed = [...new Set([...previous.keys(), ...next.keys()])].filter((id) => previous.get(id) !== next.get(id))
+    previous = next
+    if (hosted.binding.capabilities.includes('agents:read') && changed.length) event({ type: 'agentsChanged', agentIds: changed })
+  })
 
   return {
     pageId,
@@ -768,6 +835,8 @@ export function hostAppFrame(
       // Another group, or another handed-over file: the open files it could enter were the old ones'.
       if (moved) relay.revoke(pageId, 'unbound')
       hosted.binding = granted(binding)
+      previous = snapshot()
+      stateChanged()
       // Reuse the parent's existing subscriptions and host events for its sandboxed modal pages too.
       for (const [childHost, childBinding] of modalHosts) childHost.update({ ...childBinding, locale: binding.locale, themeMode: binding.themeMode, capabilities: binding.capabilities })
       // Moved to a file a pill is waiting to open: its place is this page's now (after the context that names the file).
@@ -802,6 +871,8 @@ export function hostAppFrame(
       event({ type: 'programNotification', server: notification.server, method: notification.method, ...(notification.params === undefined ? {} : { params: notification.params }) })
     },
     dispose() {
+      stopState()
+      stopAgents()
       void phoneModals.pageGone(pageId)
       for (const { source } of watched.values()) readFiles.forget(source)
       watched = new Map()
@@ -816,7 +887,7 @@ export function hostAppFrame(
 
 
 declare const __GUGU_TIER__: string
-const phoneLinkScheme = () => guguLinkScheme({ tier: typeof __GUGU_TIER__ === 'undefined' ? undefined : __GUGU_TIER__, devLaunch: false })
+export const phoneLinkScheme = () => guguLinkScheme({ tier: typeof __GUGU_TIER__ === 'undefined' ? undefined : __GUGU_TIER__, devLaunch: false })
 
 /** Host facts and transports only; target parsing and opening order are shared with main. */
 export async function openPhoneLink(target: string | GuguLinkTarget) {
@@ -838,7 +909,13 @@ export async function openPhoneLink(target: string | GuguLinkTarget) {
       if (!opened) throw new Error('The App did not open')
       return opened
     },
-    openResource: async (resource) => { await openLinkTarget(resource) },
+    openResource: (resource) => openLinkTarget(resource),
+    bringUp: async ({ sessionId }) => {
+      const listed = listedSession(readCachedDevices(), liveDeviceSessions(), sessionId)
+      if (!('row' in listed)) throw new Error('Session is not in your task list')
+      const { APP_SHOW_SESSION_EVENT } = await import('../../session/shared/extensions/app-runtime-protocol')
+      window.dispatchEvent(new CustomEvent(APP_SHOW_SESSION_EVENT, { detail: listed.row }))
+    },
     deliver: (extensionId, event, opened) => {
       const place = opened === 'own' ? null : opened
       openingLinks.push({ extensionId, event, chatId: place && 'chat' in place ? place.chat : null, itemId: null, ...(place && 'session' in place ? { sessionId: place.session } : {}), expiresAt: Date.now() + OPENING_LINK_TTL_MS })

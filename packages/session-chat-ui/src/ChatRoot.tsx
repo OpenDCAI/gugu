@@ -42,6 +42,7 @@ import {
   useContext,
 } from 'solid-js';
 import type { ChatContext } from './chat-context';
+import { conversationBackgroundOwner } from './state/conversation-background';
 import { ChatTranslationProvider } from './localization';
 import { SelfIdentityProvider } from './lib/self-identity';
 import { SenderAvatarProvider } from './lib/sender-avatar';
@@ -76,6 +77,8 @@ import {
   makeUnitsView,
   collectUserTurnUnits,
   trailingDayKey,
+  BACKGROUND_TASKS_ID,
+  BACKGROUND_TASKS_TOGGLE,
 } from './state/flatten';
 import type { UnitsView } from './state/flatten';
 import { segmentCtxFor } from './state/segment-ctx';
@@ -610,40 +613,85 @@ export function ChatRoot(props: ChatRootProps) {
     setCommittedUnitsVersion((v) => v + 1);
   });
 
-  const activeUnits = createMemo(() => {
+  /**
+   * 还在跑的后台任务挂在哪(owner 2026-10-27 原型:后台那一句与「执行中」同一行)。
+   *
+   * 列表末尾那条 agent 回复带着过程行 ⇒ 挂在它的过程行上(返回它的 itemId);末尾不是这样一条(人刚说完话、
+   * 还没有任何回复、旧样式没有过程行)⇒ 单独一行贴在列表最后(`BACKGROUND_TASKS_ID`)。
+   * 往回找时跳过日界行与「此刻的状态」那一行;这一档空着(轮早就收口了)就到已提交那一档的末尾去找。
+   */
+  const backgroundOwnerIn = (us: ReturnType<typeof flattenTier>, live = false): string | null | undefined => {
+    if (theme().layout.agentConversation) return conversationBackgroundOwner(us);
+    for (let i = us.length - 1; i >= 0; i--) {
+      const u = us[i];
+      if (!u || u.kind === 'day-separator' || u.kind === 'session-condition' || u.kind === 'background-tasks') continue;
+      // 正在跑、还没出正文的这一轮(对话布局):头是只有过程的那一行,步骤摊在它下面 ⇒ 越过步骤挂到这条过程行上
+      // (owner 0 号图「执行中 · 9m16s · 39 步 ⌄ | 后台 · 4 个子智能体 ›」)。只在活动那一档这样找,那里只有这一轮。
+      if (live && theme().layout.agentConversation) {
+        if (u.kind === 'turn-process') return u.itemId;
+        if (u.kind !== 'message') continue;
+        // 过程里中途说的话(灰色单行)也是步骤,越过去(MBP 验收 10-28:有中途的话时药丸掉到了过程最底下)。
+        if ((u.data as ChatMessage).conversationNarration) continue;
+      }
+      if (u.kind === 'message') {
+        const m = u.data as ChatMessage;
+        if (m.role === 'assistant' && m.conversationProcess) return u.itemId;
+        // 一轮末尾是气泡、过程行在它上面那一行(对话布局拆成头 + 气泡)⇒ 后台照旧挂在那条过程行上。
+        if (m.role === 'assistant' && m.conversationPart === 'body' && m.conversationHead) return m.conversationHead;
+      }
+      return null;
+    }
+    return undefined;
+  };
+
+  const activeLayout = createMemo(() => {
     committedUnitsVersion();
     const at = state().transcript.state.activeTurnSnapshot;
     const pendingPrompt = state().session.state.pendingPrompt;
     // ⚠️ 有「当前状态」要说时这一档不能空手返回 —— 那一行就贴在这一档的末尾。
     // 没有活动轮也没有待发提示时，它是这一档**唯一**的一行（会话起不来时正是这种情形）。
     const condition = state().session.state.condition;
-    if ((!at || at.items.length === 0) && !pendingPrompt && !condition)
-      return [] as ReturnType<typeof flattenTier>;
-    if ((!at || at.items.length === 0) && !pendingPrompt) {
-      return flattenTier(
-        [],
-        segmentCtx(true),
-        SEGMENTERS,
-        UNIT_REGISTRY,
-        committedUnitsArr.length > 0
-          ? committedUnitsArr[committedUnitsArr.length - 1].kind
-          : undefined,
-        committedDayKey
-      );
-    }
+    const tasks = state().session.state.backgroundTasks;
+    const background = tasks.commands.length > 0 || tasks.subagents.length > 0;
     const prevKind =
       committedUnitsArr.length > 0
         ? committedUnitsArr[committedUnitsArr.length - 1].kind
         : undefined;
-    const activeTurn = at ?? pendingPromptTurn(pendingPrompt!);
-    return flattenTier(
-      [activeTurn],
-      segmentCtx(true),
-      SEGMENTERS,
-      UNIT_REGISTRY,
-      prevKind,
-      committedDayKey
-    );
+    const build = (withBackground: boolean) => {
+      const full = segmentCtx(true);
+      const ctx = withBackground ? full : { ...full, backgroundTasks: () => null };
+      if ((!at || at.items.length === 0) && !pendingPrompt) {
+        if (!condition && !withBackground) return [] as ReturnType<typeof flattenTier>;
+        return flattenTier([], ctx, SEGMENTERS, UNIT_REGISTRY, prevKind, committedDayKey);
+      }
+      const activeTurn = at ?? pendingPromptTurn(pendingPrompt!);
+      return flattenTier([activeTurn], ctx, SEGMENTERS, UNIT_REGISTRY, prevKind, committedDayKey);
+    };
+    const units = build(false);
+    if (!background) return { units, backgroundOwner: null as string | null };
+    // ⚠️ 不能写 `??`:这一档末尾是别的行(人刚说了话)返回的是 null,它的意思是「别挂」,❌ 接着去已提交那一档找。
+    const activeOwner = backgroundOwnerIn(units, true);
+    const owner = activeOwner === undefined ? backgroundOwnerIn(committedUnitsArr) ?? null : activeOwner;
+    if (owner) return { units, backgroundOwner: owner as string | null };
+    // 没有可挂的过程行:后台单独一行贴在最后(轮早就收口了、命令还在跑,这一档也不能空手返回)。
+    return { units: build(true), backgroundOwner: BACKGROUND_TASKS_ID as string | null };
+  });
+  const activeUnits = () => activeLayout().units;
+
+  /**
+   * 量高要知道的那一份:后台挂在哪条回复上、挂的是什么、单子开着没有。挂在回复上时那条回复照它多量出单子的高度
+   * (与 `finalReplyId` 同一路:由这里算,行里只比对)。单独成行时这一份为 null —— 那一行自己的条目里就带着。
+   */
+  const backgroundAttachment = createMemo<MeasureCtx['background']>(() => {
+    const owner = activeLayout().backgroundOwner;
+    if (!owner || owner === BACKGROUND_TASKS_ID) return null;
+    const tasks = state().session.state.backgroundTasks;
+    return {
+      ownerId: owner,
+      commands: tasks.commands,
+      subagents: tasks.subagents,
+      expanded: viewState().isCollapsed(BACKGROUND_TASKS_TOGGLE),
+    };
   });
 
   let pendingPromptCommittedTurns = state().transcript.state.committedTurns;
@@ -686,7 +734,7 @@ export function ChatRoot(props: ChatRootProps) {
     const us = units();
     for (let i = us.length - 1; i >= 0; i--) {
       const u = us.at(i);
-      if (!u || u.kind === 'day-separator') continue;
+      if (!u || u.kind === 'day-separator' || u.kind === 'background-tasks') continue;
       if (u.kind !== 'message') return null;
       const m = u.data as ChatMessage;
       return m.role === 'assistant' && !m.hookNotice ? u.itemId : null;
@@ -754,6 +802,7 @@ export function ChatRoot(props: ChatRootProps) {
         expandedId: expandedUserId(),
         editingMessage: editingMessage(),
         finalReplyId: finalReplyId(),
+        background: backgroundAttachment(),
       };
       // lastWidth > 0 iff onCleanup wrote a snapshot on a prior dispose.
       // Skip the Map.get pass entirely on cold mounts (empty heightmap).
@@ -927,10 +976,31 @@ export function ChatRoot(props: ChatRootProps) {
   );
   const pinAnchorSet = createMemo(() => new Set(pinAnchors()));
 
-  /** Lane height of an anchor: up to the next anchor, or to the end of the content. */
+  /**
+   * Where a lane ends. Normally the next anchor. In the agent conversation a delivered message is a bubble of
+   * its own on the right: it is not stuck itself, but the lane before it must stop there — otherwise the stuck
+   * copy of the last typed message covers it while it scrolls by (MBP acceptance 2026-10-28: s15's lane ran
+   * from 15734 to 16506 and hid the delivered s16 under its sticky copy).
+   */
+  const pinEnds = createMemo<number[]>(
+    () => {
+      if (!props.pinUserMessages || !theme().layout.agentConversation) return pinAnchors();
+      committedUnitsVersion();
+      const s = state();
+      const pending = s.session.state.pendingPrompt;
+      const active = s.transcript.state.activeTurnSnapshot ?? (pending ? pendingPromptTurn(pending) : null);
+      const committed = collectUserTurnUnits(s.transcript.state.committedTurns, makeUnitsView(committedUnitsArr, NO_ACTIVE_UNITS), { delivered: true });
+      if (!active) return committed;
+      const base = committedUnitsArr.length;
+      return [...committed, ...collectUserTurnUnits([active], makeUnitsView(activeUnits(), NO_ACTIVE_UNITS), { delivered: true }).map((i) => base + i)];
+    },
+    [],
+    { equals: (a, b) => a.length === b.length && a.every((v, i) => v === b[i]) }
+  );
+
+  /** Lane height of an anchor: up to the next anchor (or delivered bubble, see `pinEnds`), or to the end of the content. */
   function laneHeight(idx: number): number {
-    const anchors = pinAnchors();
-    const next = anchors[anchors.indexOf(idx) + 1];
+    const next = pinEnds().find((end) => end > idx);
     return (next !== undefined ? virt.top(next) : virt.total()) - virt.top(idx);
   }
 
@@ -1410,6 +1480,7 @@ export function ChatRoot(props: ChatRootProps) {
     expandedUserId();
     editingMessage();
     finalReplyId();
+    backgroundAttachment();
     needsProject = true;
     scheduler.request();
   });
@@ -1470,6 +1541,7 @@ export function ChatRoot(props: ChatRootProps) {
         expandedId: expandedUserId(),
         editingMessage: editingMessage(),
         finalReplyId: finalReplyId(),
+        background: backgroundAttachment(),
       };
       const contentH = unitDef.measure(u.data, ctx, unitDef.vars ?? {});
       const h = unitReservedHeight(u, contentH);
@@ -1775,6 +1847,13 @@ export function ChatRoot(props: ChatRootProps) {
     const onClick = (e: Event) => {
       const t = e.target as HTMLElement;
 
+      // 对话布局里折着的长消息,气泡下面那一行的「展开全文」:和点气泡本身一样展开。
+      const expand = t.closest('[data-expand-user-card]') as HTMLElement | null;
+      if (expand?.dataset.expandUserCard) {
+        setExpandedUserId(expand.dataset.expandUserCard);
+        return;
+      }
+
       const userCard = t.closest('[data-user-card]') as HTMLElement | null;
       if (userCard?.dataset.userCard) {
         const id = userCard.dataset.userCard;
@@ -1893,6 +1972,7 @@ export function ChatRoot(props: ChatRootProps) {
                 }}
                 data-chat-root
                 data-chat-layout={theme().layout.preset}
+                data-agent-conversation={theme().layout.agentConversation ? 'true' : undefined}
                 class={outerClip}
                 style={scrollElStyle}
               >
@@ -1967,6 +2047,7 @@ export function ChatRoot(props: ChatRootProps) {
                                 expandedId={expandedUserId()}
                                 editingMessage={editingMessage()}
                                 finalReplyId={finalReplyId()}
+                                background={backgroundAttachment()}
                               />
                               <Show when={isPinAnchor()}>
                                 {/* Signals that rows scroll beneath the stuck message; drawn only while stuck. */}

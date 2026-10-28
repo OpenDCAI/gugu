@@ -22,7 +22,7 @@ afterEach(() => {
   container.remove()
 })
 
-const chat = (fields: Partial<ChatItem>) => ({ last_message_at: '2026-10-23T00:00:00.000Z', ...fields }) as ChatItem
+const chat = (fields: Partial<ChatItem>) => ({ last_message_at: '2026-10-23T00:00:00.000Z', unread_count: 0, ...fields }) as ChatItem
 
 describe('the chat summaries the shell hands the session page', () => {
   it('names a DM by its peer, the alias first, and carries the last line and a topic’s source', async () => {
@@ -40,4 +40,33 @@ describe('the chat summaries the shell hands the session page', () => {
     expect(readChatSummary('dm-plain')?.name).toBe('Jun')
     expect(readChatSummary('topic-1')).toMatchObject({ name: '登录页白屏', kind: 'topic', sourceChatId: 'group-1' })
   })
+})
+
+it('publishes a group alias to quick open and delivery titles, and removes it when cleared', async () => {
+  const render = async (alias: string | null) => {
+    const value = chatStore({ chatsRead: true, chats: [chat({ id: 'group-alias', kind: 'group', name: 'Shared group', alias })] })
+    await act(async () => { root.render(createElement(ChatStoreProvider, { value }, createElement(ChatSlotHost, {} as never))) })
+  }
+  await render('Private group')
+  expect(readChatSummary('group-alias')).toMatchObject({ name: 'Private group', alias: 'Private group' })
+  // Clearing an alias equal to the shared name must still publish the removal.
+  await render('Shared group')
+  expect(readChatSummary('group-alias')?.alias).toBe('Shared group')
+  await render(null)
+  expect(readChatSummary('group-alias')?.name).toBe('Shared group')
+  expect(readChatSummary('group-alias')?.alias).toBeUndefined()
+})
+
+
+it('publishes unread changes and durable manual marks through the same summary subscription', async () => {
+  const render = async (unread_count: number, is_marked_unread: boolean) => {
+    const value = chatStore({ chatsRead: true, chats: [chat({ id: 'project-read', kind: 'group', name: 'Project', unread_count, is_marked_unread })] })
+    await act(async () => { root.render(createElement(ChatStoreProvider, { value }, createElement(ChatSlotHost, {} as never))) })
+  }
+  await render(3, false)
+  expect(readChatSummary('project-read')).toMatchObject({ unreadCount: 3, isMarkedUnread: false })
+  await render(0, true)
+  expect(readChatSummary('project-read')).toMatchObject({ unreadCount: 0, isMarkedUnread: true })
+  await render(0, false)
+  expect(readChatSummary('project-read')).toMatchObject({ unreadCount: 0, isMarkedUnread: false })
 })

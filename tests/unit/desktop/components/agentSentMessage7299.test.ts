@@ -5,10 +5,21 @@ import { AgentSentBadge } from '../../../../apps/desktop/src/components/chat/Age
 import { MessageBubble } from '../../../../apps/desktop/src/components/chat/MessageBubble'
 import { chatService } from '../../../../apps/desktop/src/lib/chat'
 import { createNode, createReactHarness, message, renderWithAppProviders } from '../../../support/testHarness'
+import * as attachmentReader from '../../../../apps/desktop/src/lib/attachmentBytes'
+import { attachmentQueryClient } from '../../../../apps/desktop/src/lib/attachmentQueryClient'
 vi.mock('../../../../apps/desktop/src/hooks/useAgentHarnessIdentity', () => ({ useAgentHarnessIdentity: () => 'codex' }))
 let harness: ReturnType<typeof createReactHarness>
-beforeEach(() => { harness = createReactHarness() })
-afterEach(() => { harness.cleanup() })
+beforeEach(() => {
+  attachmentQueryClient.clear()
+  vi.spyOn(attachmentReader, 'attachmentMetadata').mockResolvedValue({ status: 'ready', revision: { source: 'managed-object', file_name: 'fixture.pdf', content_type: 'application/pdf', size_bytes: 3, sha256: 'ab'.repeat(32) } })
+  vi.stubGlobal('IntersectionObserver', class {
+    constructor(private callback: (entries: { isIntersecting: boolean }[]) => void) {}
+    observe() { this.callback([{ isIntersecting: true }]) }
+    disconnect() {}
+  })
+  harness = createReactHarness()
+})
+afterEach(() => { harness.cleanup(); attachmentQueryClient.clear(); vi.restoreAllMocks(); vi.unstubAllGlobals() })
 const source = { id: 'agent-1', name: 'Researcher' }
 
 describe('AI-sent message attribution (#7299)', () => {

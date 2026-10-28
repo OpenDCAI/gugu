@@ -1,11 +1,11 @@
 import * as fs from 'node:fs/promises';
 import * as path from 'node:path';
-import { BrowserWindow, dialog, net, type WebContents } from 'electron';
+import { BrowserWindow, dialog, type WebContents } from 'electron';
 import { userIdFromSupabaseAccessToken } from '@gugu/core';
-import { configuredEndpoint, fetchAttachmentUrls } from '@gugu/core/cloud/attachmentsApi';
+import { attachmentFileRef } from '@gugu/core/shared/ui/attachmentModels';
 import { createGuguSupabaseClient } from '@gugu/core/cloud/supabase';
-import { createAttachmentResolver } from '@gugu/core/shared/attachmentUrls';
 import { fetchInChunks } from '@gugu/core/shared/inChunks';
+import { writeFileHandle } from '@gugu/core/local/files/fileSnapshots';
 import {
   AppFileError,
   contentTypeOf,
@@ -33,9 +33,10 @@ import {
   type LocalPlace,
   type ChatPeekFile,
   type PeekTarget,
+  type PreparedChatFile,
 } from '@shared/extensions/app-runtime-protocol';
 import { extensionsService } from '@main/core/extensions/extensions-root';
-import { currentAccountAccessToken } from '@main/core/extensions/account-token';
+import { currentAccountAccessToken, resolveAccountFile, publishAccountFile } from '@main/core/extensions/account-token';
 import { fileServiceUrl, fileSync, localFileService } from '@main/core/extensions/file-sync';
 import { createLocalAppFiles, type LocalSurface } from '@main/core/extensions/local-files';
 import { readElsewhere } from '@main/core/extensions/app-files-elsewhere';
@@ -100,13 +101,13 @@ export { AppFileError, type FileSurface };
  * call for it, or a page it works (owner 10-14).
  */
 export interface DesktopFilePage {
+  takeOpening?: () => PreparedChatFile | undefined;
   pageId: number;
   extensionId: string;
   handed: (AppFileRef & { id: string }) | null;
   asAgent?: string | null;
 }
 
-const DOWNLOAD_TIMEOUT_MS = 120_000;
 
 /** The account signed in here: its token and id; null when nobody is. */
 async function signedIn(): Promise<{ token: string; userId: string } | null> {
@@ -129,6 +130,8 @@ async function accounts(token: string, ids: readonly string[]) {
 }
 
 const files = createAppFiles({
+  resolveFile: resolveAccountFile,
+  publishFile: publishAccountFile,
   async account() {
     const me = await signedIn();
     if (!me) throw new AppFileError('failed', 'Not signed in');
@@ -137,6 +140,7 @@ const files = createAppFiles({
   hasCapability: (extensionId, capability) => extensionsService().hasCapability(extensionId, capability),
   sync: fileSync,
   claimant,
+  appIdentity: (id) => extensionsService().identityOf(id),
   async identities(token, ids) {
     return (await accounts(token, ids)).map((user) => ({
       id: user.id,
@@ -155,7 +159,6 @@ const files = createAppFiles({
     });
   },
   filesUrl: fileServiceUrl,
-  fetchBytes: (url) => net.fetch(url),
   warn: (message, data) => log.warn(`[app-files] ${message}`, data ?? {}),
 });
 
@@ -179,11 +182,11 @@ export const packageReads: PackageReads = {
     if (error) throw new AppFileError('failed', error.message);
     return (data as unknown as PackageMessageRow | null) ?? null;
   },
-  async sign(source) {
-    const me = await signedIn();
-    if (!me) throw new AppFileError('failed', 'Not signed in');
-    const link = await createAttachmentResolver((refs) => fetchAttachmentUrls(configuredEndpoint(me.token), refs)).resolve(source);
-    return link.status === 'ready' ? link.url : null;
+  async open(source) {
+    const ref = attachmentFileRef(source);
+    if (!ref) return null;
+    const file = await resolveAccountFile(ref);
+    return file?.status === 'ready' ? file : null;
   },
 };
 
@@ -259,14 +262,15 @@ const withId = (ref: AppFileRef, what: string): AppFileRef & { id: string } => {
   return ref;
 };
 
-export async function openAppFile(page: DesktopFilePage, args: { ref?: unknown; readOnly?: boolean }): Promise<AppFileOpened> {
+export async function openAppFile(page: DesktopFilePage, args: { ref?: unknown; readOnly?: boolean; appData?: boolean; deferDetails?: boolean; expectedVersion?: number }): Promise<AppFileOpened> {
   const ref = fileRefOf(args.ref);
   const readOnly = args.readOnly === true ? { readOnly: true } : {};
+  if (!isChat(ref) && args.appData) throw new AppFileError('invalid', 'App data metadata belongs to chat files');
   const elsewhere = isChat(ref) ? null : await fileElsewhere(page, ref as LocalFileRef);
   // Another machine's file comes as its bytes, read only, whatever it is: no live document across machines.
   if (elsewhere) return { entry: elsewhere.entry, docName: '', access: 'ro', self: await files.self(), bytes: elsewhere.bytes.slice().buffer };
   return isChat(ref)
-    ? files.open(chatSurface(page), { ref, ...readOnly })
+    ? files.open(chatSurface(page), { ref, ...readOnly, appData: args.appData === true, deferDetails: args.deferDetails === true, ...(typeof args.expectedVersion === 'number' ? { expectedVersion: args.expectedVersion } : {}) }, page.takeOpening?.())
     : local.open(await localFolder(page, ref), { ref: ref as LocalFileRef, ...readOnly });
 }
 
@@ -301,6 +305,12 @@ export async function listAppFiles(page: DesktopFilePage, args: { place?: unknow
 }
 
 /** Across every chat whoever the page works as is in (`files:read`, checked at the door): by a piece of the path; opened last. */
+export async function appFileViewPreferences(_page: DesktopFilePage, args: { place?: unknown; showAppData?: boolean }) {
+  const place = placeOf(args.place);
+  if (!('chat' in place)) throw new AppFileError('invalid', 'Folder preferences belong to a chat');
+  return files.viewPreferences(place.chat, args.showAppData);
+}
+
 export async function searchAppFiles(page: DesktopFilePage, args: unknown): Promise<AppFileEntry[]> {
   return files.search(fileSearchOf(args), { asAgent: page.asAgent ?? null });
 }
@@ -326,11 +336,12 @@ function noSourceMessagesInWorkingCopy(sourceMessageIds: unknown): void {
 
 export async function createAppFile(
   page: DesktopFilePage,
-  args: { place?: unknown; name: string; content: string; contentType?: string; sourceMessageIds?: unknown; folder?: unknown },
+  args: { place?: unknown; name: string; content: string; contentType?: string; sourceMessageIds?: unknown; folder?: unknown; appData?: boolean },
 ): Promise<AppFileEntry> {
   const place = placeOf(args.place);
   const file = { name: args.name, content: args.content, ...(args.contentType ? { contentType: args.contentType } : {}) };
-  if ('chat' in place) return files.create(place.chat, { ...file, sourceMessageIds: args.sourceMessageIds, folder: args.folder }, { asAgent: page.asAgent ?? null });
+  if ('chat' in place) return files.create(place.chat, { ...file, sourceMessageIds: args.sourceMessageIds, folder: args.folder, appData: args.appData === true }, { asAgent: page.asAgent ?? null, extensionId: page.extensionId });
+  if (args.appData) throw new AppFileError('invalid', 'App data metadata belongs to chat files');
   noSourceMessagesInWorkingCopy(args.sourceMessageIds);
   noFoldersInWorkingCopy(folderOf(args.folder));
   return local.create(await localFolder(page, place), file);
@@ -341,6 +352,13 @@ export async function renameAppFile(page: DesktopFilePage, args: { ref?: unknown
   return isChat(ref)
     ? files.rename(chatSurface(page), { ref, name: args.name })
     : local.rename(await localFolder(page, ref), { ref: ref as LocalFileRef, name: args.name });
+}
+
+/** 「设为临时 / 一直保留」: a chat file's cloud copy (a working copy's file has none). */
+export async function keepAppFile(page: DesktopFilePage, args: { refs?: unknown; how?: unknown }): Promise<{ changed: number }> {
+  const refs = (Array.isArray(args.refs) ? args.refs : []).map((ref) => fileRefOf(ref));
+  if (refs.some((ref) => !isChat(ref))) throw new AppFileError('invalid', "A working copy's file has no cloud copy to keep");
+  return files.keep(chatSurface(page), { refs: refs as ChatFileRef[], how: args.how });
 }
 
 /** 子文件夹: a chat's folder at `path`, made all the way down (one already there is answered as it is). */
@@ -392,10 +410,11 @@ export async function uploadAppFiles(
   uploads: readonly AppFileUpload[],
   sourceMessageIds?: unknown,
   folder?: unknown,
+  keep?: unknown,
 ): Promise<AppFileEntry[]> {
   const where = placeOf(place);
   // A program acting for an agent uploads as that agent (G5): the chat's door judges the agent, the rows are its.
-  if ('chat' in where) return files.upload(where.chat, uploads, { asAgent: page.asAgent ?? null, sourceMessageIds, folder });
+  if ('chat' in where) return files.upload(where.chat, uploads, { asAgent: page.asAgent ?? null, sourceMessageIds, folder, keep });
   noSourceMessagesInWorkingCopy(sourceMessageIds);
   noFoldersInWorkingCopy(folderOf(folder));
   return local.upload(await localFolder(page, where), uploads);
@@ -424,9 +443,8 @@ export function appChatFile(chatId: string, extensionId: string) {
  * own ways in (an App card's 「Open」, a file link).
  */
 export function openerChoice(typedName: string, ask = false) {
-  const service = extensionsService();
-  const manifests = service.list().extensions.filter((entry) => service.isEnabled(entry.manifest.id)).map((entry) => entry.manifest);
-  const defaults = service.openWithDefaults();
+  const manifests = enabledApps().map((entry) => entry.manifest);
+  const defaults = extensionsService().openWithDefaults();
   return chatOpenerChoice(typedName, manifests, 'chat', (key) => defaults[key] ?? null, ask);
 }
 
@@ -440,7 +458,7 @@ export async function openWithTarget(
   page: DesktopFilePage,
   args: { ref?: unknown; ask?: boolean; peek?: boolean },
 ): Promise<
-  | { kind: 'chat'; target: { chatId: string; itemId: string; name: string; typedName: string; file: ChatPeekFile } }
+  | { kind: 'chat'; target: { chatId: string; itemId: string; name: string; typedName: string; file: ChatPeekFile; opening?: PreparedChatFile } }
   | { kind: 'session' }
   | { kind: 'peek'; target: Extract<PeekTarget, { kind: 'local' }> }
 > {
@@ -487,28 +505,57 @@ export async function pickFilesToUpload(owner: WebContents | null): Promise<AppF
  * copy's, as the call names it. Gated like opening it read-only — checked before the dialog shows. Cancelled is `false`,
  * not an error.
  */
-export async function downloadAppFile(page: DesktopFilePage, args: { ref?: unknown }, owner: WebContents | null): Promise<boolean> {
-  const ref = fileRefOf(args.ref);
+type SaveSource = Awaited<ReturnType<typeof files.downloadSource>> | { name: string; bytes: Uint8Array | Buffer; kind: 'bytes' };
+
+async function downloadSourceOf(page: DesktopFilePage, given: unknown): Promise<SaveSource> {
+  const ref = fileRefOf(given);
   const elsewhere = isChat(ref) ? null : await fileElsewhere(page, ref as LocalFileRef);
-  const source = isChat(ref)
+  return isChat(ref)
     ? await files.downloadSource(chatSurface(page), { ref })
     : elsewhere
       ? { name: elsewhere.entry.name, bytes: elsewhere.bytes, kind: 'bytes' as const }
       : { ...local.downloadSource(await localFolder(page, ref), { ref: ref as LocalFileRef }), kind: 'bytes' as const };
+}
+
+async function saveTo(source: SaveSource, filePath: string): Promise<void> {
+  if (source.kind === 'text') return fs.writeFile(filePath, source.text, 'utf8');
+  if (source.kind === 'bytes') return fs.writeFile(filePath, source.bytes);
+  await writeFileHandle(source.file, filePath);
+}
+
+/** A name not yet in `folder`: the file's own, else with 「 (2)」, 「 (3)」… before its suffix (as the folder names a clash). */
+async function freePath(folder: string, name: string): Promise<string> {
+  const { name: stem, ext } = path.parse(name);
+  for (let n = 1; ; n++) {
+    const candidate = path.join(folder, n === 1 ? name : `${stem} (${n})${ext}`);
+    try { await fs.access(candidate); } catch { return candidate; }
+  }
+}
+
+/**
+ * One file: where to save it, asked (`true` saved). Several (API 20): one folder asked for them all, each saved there under
+ * its own name — how many were saved; `0` when the person cancelled.
+ */
+export async function downloadAppFile(page: DesktopFilePage, args: { ref?: unknown; refs?: unknown }, owner: WebContents | null): Promise<boolean | number> {
   const window = owner ? BrowserWindow.fromWebContents(owner) : null;
+  if (Array.isArray(args.refs)) {
+    if (args.refs.length === 0) throw new AppFileError('invalid', 'files.download(files): give one file or more');
+    const options = { properties: ['openDirectory', 'createDirectory'] as Array<'openDirectory' | 'createDirectory'> };
+    const picked = window ? await dialog.showOpenDialog(window, options) : await dialog.showOpenDialog(options);
+    const folder = picked.canceled ? null : picked.filePaths[0];
+    if (!folder) return 0;
+    let saved = 0;
+    for (const ref of args.refs) {
+      const source = await downloadSourceOf(page, ref);
+      await saveTo(source, await freePath(folder, source.name));
+      saved++;
+    }
+    return saved;
+  }
+  const source = await downloadSourceOf(page, args.ref);
   const options = { defaultPath: source.name };
   const target = window ? await dialog.showSaveDialog(window, options) : await dialog.showSaveDialog(options);
-  if (target.canceled || !target.filePath) return false;
-  if (source.kind === 'text') {
-    await fs.writeFile(target.filePath, source.text, 'utf8');
-    return true;
-  }
-  if (source.kind === 'bytes') {
-    await fs.writeFile(target.filePath, source.bytes);
-    return true;
-  }
-  const response = await fetch(source.url, { signal: AbortSignal.timeout(DOWNLOAD_TIMEOUT_MS) });
-  if (!response.ok) throw new AppFileError('failed', `Download failed: HTTP ${response.status}`);
-  await fs.writeFile(target.filePath, new Uint8Array(await response.arrayBuffer()));
+  if (target.canceled || !target.filePath) { if (source.kind === 'file') await source.file.dispose(); return false; }
+  await saveTo(source, target.filePath);
   return true;
 }

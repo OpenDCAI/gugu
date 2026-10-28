@@ -79,8 +79,7 @@ const mocks = vi.hoisted(() => ({
 }));
 
 vi.mock('@gugu/session-ui/react/components', () => ({
-  // 底排渐进披露的最后一档会把「编程 | 通用」收成下拉(见 session-view-control 的
-  // @@@session-view-collapsed)。这些用例验的是完整的两段形态,所以这里恒回「还有地方」。
+  // 底排渐进披露:这些用例验的是完整形态,所以这里恒回「还有地方」。
   // 收起形态另有真机取证;❌ 别在这里让它随档位变 —— 那会把两种形态混进同一批断言。
   useToolbarOutOfRoom: () => false,
   ChatComposer: (props: unknown) => {
@@ -537,6 +536,14 @@ vi.mock('@renderer/features/settings/use-app-settings-key', async () => {
     }),
   };
 });
+// 新会话的展示跟本机「终端」开关(应用设置 terminal.enabled)走:同一份内存设置里的 `terminal`。
+vi.mock('@renderer/features/settings/use-terminal-enabled', async () => {
+  const { useSyncExternalStore } = await import('react');
+  return {
+    useTerminalEnabled: () =>
+      useSyncExternalStore(settingsStore.subscribe, () => (settingsStore.get('terminal') as { enabled?: boolean | null } | undefined)?.enabled === true),
+  };
+});
 const EMPTY_MEMORY = { lastPicked: null, lastStarted: null, sessionView: 'code' as const };
 /** What the box remembers, as a person who started it chose it unless the record says otherwise. */
 function remember(lastStarted: Record<string, unknown>) {
@@ -917,7 +924,7 @@ describe('useInitialSessionState', () => {
     expect(latestState?.prompt).toBe('Keep this automation prompt');
   });
 
-  // product spec ④:编程视角是默认,通用视角是可选的第二种展示。
+  // 终端开关默认关:新会话走通用视角。
   it('defaults to the general view when the provider supports ACP', async () => {
     await renderProbe('project-1');
 
@@ -1015,14 +1022,26 @@ describe('useInitialSessionState', () => {
     })).toBe('acp');
   });
 
-  it('persists the chosen view in the new-session memory, where main reads it too', async () => {
+  // owner 10-28:「终端开关不是默认是否是终端，而是终端功能是否可用」—— 开着关着,新任务都进通用。
+  it('opens in the general view whether the terminal is on or off', async () => {
+    settingsStore.set('terminal', { enabled: true });
+    await renderProbe('project-1');
+    expect(latestState?.sessionView).toBe('general');
+
+    await act(async () => settingsStore.set('terminal', { enabled: false }));
+    expect(latestState?.sessionView).toBe('general');
+  });
+
+  it('a stored record\'s own view (automations) overrides only this box, never a global setting', async () => {
     await renderProbe('project-1');
 
     await act(async () => {
-      latestState?.setSessionView('general');
+      latestState?.setSessionView('code');
     });
 
-    expect(remembered()?.sessionView).toBe('general');
+    expect(latestState?.sessionView).toBe('code');
+    expect(settingsStore.get('terminal')).toBeUndefined();
+    expect(remembered()?.sessionView).toBeUndefined();
 
     await act(async () => root.unmount());
     root = createRoot(container);
@@ -1684,11 +1703,11 @@ describe('InitialSessionField', () => {
     expect(payload?.platformModel).toEqual({ modelId: 'glm-5.2' });
   });
 
-  // 上一条是「切过去的过程中」,这条是「一进来就停在通用视角」(偏好持久化在应用设置 newSessionMemory):
+  // 上一条是「切过去的过程中」,这条是「一进来就停在通用视角」(终端开关关着):
   // 预选、分组、载荷都得与编程视角一致,而不是靠切一次才回来。
   it('offers the platform group when the composer opens in the general view', async () => {
     platformCatalog({ models: [GLM], agentDefault: { modelId: 'glm-5.2' } });
-    settingsStore.set('newSessionMemory', { ...EMPTY_MEMORY, sessionView: 'general' });
+    settingsStore.set('terminal', { enabled: false });
 
     await renderField();
 

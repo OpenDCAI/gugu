@@ -1,3 +1,4 @@
+import { useScreenBlock } from '@renderer/app/screen-block-context';
 import { useCommandProvider } from '@renderer/lib/commands/use-command-provider';
 import { Cable, FileText, Globe, Plus, SquareTerminal } from '@/lib/icons'
 import { GitFork, GitPullRequest } from 'lucide-react'
@@ -30,6 +31,7 @@ import {
 import { canStartSideSession, startSideSession } from './start-side-session';
 import { useSessionMessages } from '@renderer/localization/use-session-messages';
 import { useAgents } from '@renderer/lib/stores/use-agents';
+import { useTerminalEnabled } from '@renderer/features/settings/use-terminal-enabled';
 
 /**
  * 页签条上的「+」(spec session-page「一屏几块」):紧跟最后一个页签,打开这一格要放的东西。
@@ -42,6 +44,7 @@ export const TabBarAddMenu = observer(function TabBarAddMenu() {
   const { data: agents } = useAgents();
   const { navigate } = useNavigate();
   const canSideSession = canStartSideSession(projectId, sessionId, agents);
+  const terminalEnabled = useTerminalEnabled();
   const [open, setOpen] = useState(false);
   useCommandProvider({
     scopeId: 'session-sub',
@@ -56,7 +59,7 @@ export const TabBarAddMenu = observer(function TabBarAddMenu() {
         <Plus className="size-3.5" />
       </DropdownMenuTrigger>
       <DropdownMenuContent align="start" className="w-44">
-        {getSessionWorkspaceActionOrder(projectId).map((actionId) =>
+        {getSessionWorkspaceActionOrder(projectId, terminalEnabled).map((actionId) =>
           renderWorkspaceActionMenuItem(actionId, translate, {
             blocked: sessionWorkspaceActionBlocked(projectId, actionId) !== null,
             blockedTitle: workspaceBlockedTitle(sessionWorkspaceActionBlocked(projectId, actionId), translate, projectId),
@@ -189,9 +192,19 @@ function renderWorkspaceActionMenuItem(
  */
 export const SplitPaneHotkey = observer(function SplitPaneHotkey() {
   const { pane, isFocusedPane } = usePaneContext();
+  const place = useScreenBlock();
+  const multiBlock = place.blockId !== null && place.multi;
   useCommandProvider({
     scopeId: 'session-sub',
-    getCommands: () => !isFocusedPane || !pane.inSplitLayout ? [] : [{ id: 'session.splitPane', execute: () => pane.toggleSplit() }],
+    getCommands: () => {
+      if (!isFocusedPane) return [];
+      // 页签全屏(tab-fullscreen.ts)和拆开是两件事:这个键只盖住 / 放开工作区,❌ 动布局。
+      const fullscreen = { id: 'session.fullscreenTab' as const, execute: () => {
+        const tabId = pane.resolvedActiveTabId;
+        if (tabId) pane.tabFill(tabId, multiBlock)?.toggle();
+      } };
+      return pane.inSplitLayout ? [{ id: 'session.splitPane' as const, execute: () => pane.toggleSplit() }, fullscreen] : [fullscreen];
+    },
   });
   return null;
 });

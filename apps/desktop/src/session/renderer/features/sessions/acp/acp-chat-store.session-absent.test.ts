@@ -366,7 +366,7 @@ describe('#3507 会话不在时的其余副作用', () => {
       await (store as unknown as { _refreshHistory: () => Promise<void> })._refreshHistory();
       expect(toasts.at(-1)).toMatchObject({
         title: translateSessionMessage('acpFailure.refreshHistory'),
-        description: 'Wire transport disconnected',
+        description: translateSessionMessage('taskError.connectionLost'),
       });
       expect(logged).toHaveBeenCalledWith('ACP chat action failed', {
         sessionId: store.sessionId,

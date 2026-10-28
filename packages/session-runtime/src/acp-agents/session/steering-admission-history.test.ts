@@ -30,14 +30,18 @@ describe('steering admission records the submitted message', () => {
       steer: vi.fn(() => admission.promise),
       extMethod: vi.fn(async () => ({ outcome: await admission.promise })),
       prompt: vi.fn(async () => {
-        if (transport === 'request-activity') return finished.promise;
+        if (transport === 'request-activity') {
+          // The provider's first event admits the v1 request.
+          queueMicrotask(() => activity!.observe('native', { kind: 'message' }));
+          return finished.promise;
+        }
         cell.push({ kind: 'agent_state', source: 'agent', state: 'running' });
         cell.push({ kind: 'message', role: 'user', messageId: 'native-first', text: 'first' });
         return { status: 'accepted', requestId: 'first-request', messageId: 'native-first' };
       }),
     };
-    const api = transport === 'native' ? agent as unknown as AcpAgentApi
-      : createRequestActivity(agent as never, ({ event }) => cell.push(event)).agent;
+    const activity = transport === 'native' ? null : createRequestActivity(agent as never, ({ event }) => cell.push(event));
+    const api = activity ? activity.agent : agent as unknown as AcpAgentApi;
     const cell: SessionCell = new SessionCell({ sessionId: 'conversation', projectId: 'project', providerId: 'fixture', acpSessionId: 'native',
       agent: api, supportsSteering: true, logger: noopLogger,
       resolveAttachment: async () => ({ data: '', mimeType: 'text/plain' }), callbacks: { onTranscriptChanged: changed } });

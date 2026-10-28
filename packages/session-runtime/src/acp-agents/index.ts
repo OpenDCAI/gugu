@@ -22,3 +22,5 @@ export type { AcpProcedures, StartSessionInput } from './api/procedures';
 export { AgentTerminalManager } from './agent-ports/terminal-manager';
 export type { AgentTerminalHooks as AgentTerminalListener } from './agent-ports/terminal-manager';
 export type { AcpRuntimeError } from '@gugu/session-core/acp';
+
+export { setNativePromptPreparation } from './session/prompt-preparation';

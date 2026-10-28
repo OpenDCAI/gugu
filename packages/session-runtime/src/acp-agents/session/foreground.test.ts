@@ -24,7 +24,6 @@ describe('one foreground cycle authority', () => {
   it.each(['weri', 'weir', 'ewri', 'ewir'])('receipt/echo/state order %s', async order => {
     const p = nativeCell();
     const sent = p.cell.promptDetached({ text: 'body' });
-    await sent.admission;
     await vi.waitFor(() => expect(p.prompt).toHaveBeenCalledTimes(1));
     const requestId = p.prompt.mock.calls[0][1].requestId;
     for (const action of order) {
@@ -52,7 +51,6 @@ describe('one foreground cycle authority', () => {
   it('a late receipt cannot finish the next cycle drained by idle', async () => {
     const p = nativeCell();
     const first = p.cell.promptDetached({ text: 'first' });
-    await first.admission;
     await vi.waitFor(() => expect(p.prompt).toHaveBeenCalledTimes(1));
     p.state('running'); p.echo('u1', 'first');
     await p.cell.queueBehindTurn({ text: 'second', origin: 'manual' });
@@ -73,11 +71,9 @@ describe('one foreground cycle authority', () => {
   it('two inserted messages can share a cycle without the second receipt completing the first', async () => {
     const p = nativeCell();
     const first = p.cell.promptDetached({ text: 'first' });
-    await first.admission;
     await vi.waitFor(() => expect(p.prompt).toHaveBeenCalledTimes(1));
     p.state('running'); p.echo('u1', 'first');
     const second = p.cell.promptDetached({ text: 'second' }, { steerIfBusy: true });
-    await second.admission;
     await vi.waitFor(() => expect(p.prompt).toHaveBeenCalledTimes(2));
     p.echo('u2', 'second');
     p.receipts[1].resolve({ status: 'accepted', requestId: p.prompt.mock.calls[1][1].requestId, messageId: 'u2' });
@@ -117,11 +113,11 @@ describe('one foreground cycle authority', () => {
     expect(p.cell.sessionState.lifecycle).toBe('ready');
     expect(p.cell.sessionState.backgroundAgentCount).toBe(1);
     const next = p.cell.promptDetached({ text: 'continue', origin: 'manual' });
-    expect(await next.admission).toMatchObject({ success: true, data: { queued: false } });
     await vi.waitFor(() => expect(p.prompt).toHaveBeenCalledTimes(1));
     p.state('running'); p.echo('second', 'continue');
-    p.state('idle', { stopReason: 'end_turn' });
     p.receipts[0].resolve({ status: 'accepted', requestId: p.prompt.mock.calls[0][1].requestId, messageId: 'second' });
+    expect(await next.admission).toMatchObject({ success: true, data: { queued: false } });
+    p.state('idle', { stopReason: 'end_turn' });
     await next.completion;
     expect(p.cell.sessionState.backgroundAgentCount).toBe(1);
   });
@@ -140,7 +136,6 @@ describe('one foreground cycle authority', () => {
   it('connection exit finishes an active cycle and a late receipt cannot resurrect it', async () => {
     const p = nativeCell();
     const sent = p.cell.promptDetached({ text: 'body' });
-    await sent.admission;
     await vi.waitFor(() => expect(p.prompt).toHaveBeenCalledTimes(1));
     p.state('running'); p.echo();
     p.cell.processClosed({ exitCode: null, signal: 'SIGKILL', stderrTail: '' });
@@ -155,7 +150,6 @@ describe('one foreground cycle authority', () => {
   it('a refused dispatch ends its reservation without inventing an agent idle', async () => {
     const p = nativeCell();
     const sent = p.cell.promptDetached({ text: 'refused', origin: 'manual' });
-    await sent.admission;
     await vi.waitFor(() => expect(p.prompt).toHaveBeenCalledTimes(1));
     p.receipts[0].reject(Object.assign(new Error('input refused'), { code: -32602 }));
     expect(await sent.completion).toMatchObject({ success: false });
@@ -166,7 +160,6 @@ describe('one foreground cycle authority', () => {
   it('cancel after dispatch and before running retains the native cancellation outcome', async () => {
     const p = nativeCell();
     const sent = p.cell.promptDetached({ text: 'cancel before insertion' });
-    await sent.admission;
     await vi.waitFor(() => expect(p.prompt).toHaveBeenCalledTimes(1));
     await p.cell.cancel();
     p.receipts[0].reject(Object.assign(new Error('Request cancelled'), { code: -32800 }));
@@ -179,7 +172,6 @@ describe('one foreground cycle authority', () => {
   it('a late refusal cannot close running native work; idle still owns the cycle boundary', async () => {
     const p = nativeCell();
     const sent = p.cell.promptDetached({ text: 'body', origin: 'manual' });
-    await sent.admission;
     await vi.waitFor(() => expect(p.prompt).toHaveBeenCalledTimes(1));
     p.state('running');
     const rejected = p.receipts[0].promise.catch(() => {});

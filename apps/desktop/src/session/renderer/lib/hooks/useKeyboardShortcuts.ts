@@ -8,6 +8,10 @@ export { resolveDefaultHotkey, sharesChordIntentionally } from '@shared/shortcut
 
 type ShortcutOverrides = Partial<Record<CommandId, string | null>>;
 
+export function isHostCommandId(id: string): id is CommandId {
+  return Object.hasOwn(COMMANDS, id);
+}
+
 /**
  * Returns the currently assigned hotkey for an action.
  * - `undefined` override -> falls back to default

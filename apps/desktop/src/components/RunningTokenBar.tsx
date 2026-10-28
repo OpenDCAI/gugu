@@ -4,6 +4,7 @@
 // 设计 SSOT: design/agent-running-group-1687.html（.bar/.tok/.state/.pop/.more/.ov/.otok/.opop）。
 import { useEffect, useId, useLayoutEffect, useRef, useState, type ReactNode } from 'react'
 import { useTranslation } from 'react-i18next'
+import { TextShimmer } from '@gugu/session-ui/react/text-shimmer'
 import type { MouseEvent } from 'react'
 import { Avatar } from './Avatar'
 import { useLongPress } from '../hooks/useLongPress'
@@ -28,8 +29,6 @@ export interface RunningToken {
 
 export interface RunningTokenBarProps {
   tokens: RunningToken[]
-  /** 桌面单行最多显示几个 token，其余进 +N；手机全部横滚。DM 传 1，群聊传 GROUP_AGENT_BAR_MAX。 */
-  cap: number
   onTokenClick?: (id: string) => void
   /** 兼容既有 e2e/testid：DM 传 'agent-running-status'，群聊传 'group-agent-running-status'。 */
   testId?: string
@@ -39,7 +38,7 @@ export interface RunningTokenBarProps {
 
 // 自包含样式（:hover 卡 + 流光 + 展开卡入场需 CSS，注入一次；同时只有一个运行条实例=DM 或群聊，不重复）。
 const STYLE = `
-.rtb-bar{display:flex;align-items:center;gap:8px;padding:4px 14px 2px 24px;font-size:var(--font-caption);color:var(--faint-fg);white-space:nowrap;flex-shrink:0}
+.rtb-bar{position:relative;display:flex;align-items:center;gap:8px;padding:4px 14px 2px 24px;font-size:var(--font-caption);color:var(--faint-fg);white-space:nowrap;flex-shrink:0}
 .rtb-bar[data-mobile=false]{padding:var(--spacing-sm) 0}
 .rtb-bar[data-mobile=true]{overflow-x:auto;overscroll-behavior-x:contain;scrollbar-width:none;scroll-snap-type:x proximity}
 .rtb-bar[data-mobile=true]>.rtb-tok{scroll-snap-align:start}
@@ -48,7 +47,10 @@ const STYLE = `
 .rtb-pill{height:auto;gap:7px;padding:4px 8px;max-width:168px;min-width:0;background:var(--bg-elevated);box-shadow:var(--shadow-lift);color:inherit;font-weight:inherit}
 .rtb-tok:focus-visible,.rtb-more:focus-visible,.rtb-otok:focus-visible{outline:none}
 .rtb-nm{color:var(--faint-fg);min-width:0;overflow:hidden;text-overflow:ellipsis}
-.rtb-state{flex-shrink:0;background:linear-gradient(100deg,var(--faint-fg) 36%,var(--text-primary) 50%,var(--faint-fg) 64%);background-size:220% 100%;-webkit-background-clip:text;background-clip:text;color:transparent;animation:running-shimmer 2s linear infinite;font-weight:500}
+/* Three static 220%-wide repeats cover the original 160% → -60% sweep.
+   Masks move 264% of the label width; glyphs move back by the same distance. */
+.rtb-state{flex-shrink:0;font-weight:500;--text-shimmer-base:var(--faint-fg);--text-shimmer-light:var(--text-primary);--text-shimmer-base-mask:linear-gradient(100deg,white 36%,transparent 50%,white 64%);--text-shimmer-light-mask:linear-gradient(100deg,transparent 36%,white 50%,transparent 64%);--text-shimmer-left:-412%;--text-shimmer-width:660%;--text-shimmer-mask-size:calc(100% / 3) 100%;--text-shimmer-ink-width:calc(100% / 6.6);--text-shimmer-ink-left:calc(412% / 6.6);--text-shimmer-sweep-end:40%;--text-shimmer-ink-end:-264%;--text-shimmer-idle-sweep:calc(192% / 6.6);--text-shimmer-idle-ink:-192%;--text-shimmer-duration:2s;--text-shimmer-easing:linear;--text-shimmer-iterations:infinite}
+@media(prefers-reduced-motion:reduce){.rtb-state{background:linear-gradient(100deg,var(--faint-fg) 36%,var(--text-primary) 50%,var(--faint-fg) 64%);background-size:220% 100%;-webkit-background-clip:text;background-clip:text;color:transparent;-webkit-text-fill-color:transparent}}
 /* @@@float-one-edge (Refs #6104) — 浮条去掉 1px 描边:浮层只留 lift 那一层。 */
 .rtb-mp{outline:none}
 .rtb-more{color:var(--text-tertiary);flex-shrink:0;border:0;padding:0;background:transparent;font:inherit;cursor:pointer}
@@ -66,15 +68,19 @@ const STYLE = `
  * 在可能有 agent 跑的会话里它始终占同一个高度、完全透明:里面有没有 pill、有几个、名字多长,都不改变它的高度。
  * 单行不换行:pill 最宽 168px(.rtb-pill),名字截断;桌面按这一行的宽度算放几个,其余进 +N。
  */
-const PILL_MAX_PX = 168, PILL_GAP_PX = 8, MORE_PX = 52
+const PILL_GAP_PX = 8
 export function RunningBarSlot({ children }: { children: ReactNode }) {
   return <div data-running-bar-slot="" className="flex h-[42px] shrink-0 items-center"><div data-running-bar-content="" className="w-full">{children}</div></div>
 }
-// 桌面一行能放几个:全部放得下就全放(不超过 cap),否则留出 +N 的位置后能放几个放几个,至少 1 个。
-function fitCount(width: number, count: number, cap: number): number {
-  const all = Math.min(count, cap)
-  if (all * (PILL_MAX_PX + PILL_GAP_PX) - PILL_GAP_PX <= width && all === count) return all
-  return Math.max(1, Math.min(cap, Math.floor((width - MORE_PX) / (PILL_MAX_PX + PILL_GAP_PX))))
+// 桌面一行能放几个:全部放得下就全放,否则留出 +N 的位置后能放几个放几个,至少 1 个。
+function fitCount(width: number, pills: number[], more: number): number {
+  if (pills.reduce((sum, pill) => sum + pill + PILL_GAP_PX, -PILL_GAP_PX) <= width) return pills.length
+  let used = more
+  for (let i = 0; i < pills.length; i++) {
+    used += pills[i] + PILL_GAP_PX
+    if (used > width) return Math.max(1, i)
+  }
+  return pills.length
 }
 
 type PreviewControl = ReturnType<typeof Popover.createHandle<RunningToken>>
@@ -84,12 +90,14 @@ function RunningTokenItem({
   token,
   index = 0,
   overflow = false,
+  folded = false,
   onTokenClick,
   preview,
 }: {
   token: RunningToken
   index?: number
   overflow?: boolean
+  folded?: boolean
   onTokenClick?: (id: string) => void
   preview: PreviewControl
 }) {
@@ -113,6 +121,7 @@ function RunningTokenItem({
       closeDelay={150}
       payload={token}
       className={overflow ? 'rtb-otok' : 'rtb-tok'}
+      style={folded ? { position: 'absolute', left: 0, top: 0, visibility: 'hidden' } : undefined}
       data-clickable={onTokenClick ? 'true' : 'false'}
       data-message-preview-trigger={token.id}
       aria-label={t('runtime.viewDetails', { name: displayName, status: stateWord })}
@@ -122,9 +131,9 @@ function RunningTokenItem({
       <Chip appearance="filled" className="rtb-pill" data-chat-dock-obstacle="">
         <Avatar name={displayName} avatarUrl={token.avatarUrl} seed={token.avatarSeed} size={overflow ? 16 : 'xs'} isAgent statusLabel="running" />
         <span className="rtb-nm">{displayName}</span>
-        <span className={overflow ? 'rtb-v' : 'rtb-state'} style={overflow ? undefined : { animationDelay: `${index * 0.5}s` }}>
-          {stateWord}
-        </span>
+        {overflow ? <span className="rtb-v">{stateWord}</span> : (
+          <TextShimmer className="rtb-state" style={{ animationDelay: `${index * 0.5}s` }}>{stateWord}</TextShimmer>
+        )}
       </Chip>
     </Popover.Trigger>
   )
@@ -183,23 +192,27 @@ function MoreOverflow({
   )
 }
 
-export function RunningTokenBar({ tokens, cap, onTokenClick, testId, previewChatId }: RunningTokenBarProps) {
+export function RunningTokenBar({ tokens, onTokenClick, testId, previewChatId }: RunningTokenBarProps) {
   const [handle] = useState(() => Popover.createHandle<RunningToken>())
   const mobile = useMobileShell()
   const boxRef = useRef<HTMLDivElement | null>(null)
-  const [width, setWidth] = useState(Number.POSITIVE_INFINITY)
+  const [fitted, setFitted] = useState(Number.POSITIVE_INFINITY)
   const empty = tokens.length === 0
+  const visible = mobile ? tokens.length : fitted
   useLayoutEffect(() => {
     const el = boxRef.current
-    if (!el) return
-    const observer = new ResizeObserver(() => setWidth(el.clientWidth))
+    if (!el || mobile) return
+    const pills = [...el.querySelectorAll<HTMLElement>('.rtb-bar > [data-message-preview-trigger]')]
+    const more = el.querySelector<HTMLElement>('.rtb-more')
+    const report = () => setFitted(fitCount(el.clientWidth, pills.map(pill => pill.offsetWidth), more?.offsetWidth ?? 0))
+    const observer = new ResizeObserver(report)
     observer.observe(el)
-    setWidth(el.clientWidth)
+    pills.forEach(pill => observer.observe(pill))
+    if (more) observer.observe(more)
+    report()
     return () => observer.disconnect()
-  }, [empty])
+  }, [tokens, mobile, visible]) // Re-measure after +N mounts or its digit count changes.
   if (empty) return null
-  const visible = mobile ? tokens.length : fitCount(width, tokens.length, cap)
-  const shown = tokens.slice(0, visible)
   const overflow = tokens.slice(visible)
   return (
     <div ref={boxRef} data-testid={testId} style={{ flexShrink: 0, width: '100%', minWidth: 0 }}>
@@ -210,8 +223,8 @@ export function RunningTokenBar({ tokens, cap, onTokenClick, testId, previewChat
       }}>
         {({ payload: token }) => <>
           <div className="rtb-bar" data-mobile={mobile}>
-            {shown.map((t, i) => (
-              <RunningTokenItem key={t.id} token={t} index={i} onTokenClick={onTokenClick} preview={handle} />
+            {tokens.map((t, i) => (
+              <RunningTokenItem key={t.id} token={t} index={i} folded={i >= visible} onTokenClick={onTokenClick} preview={handle} />
             ))}
             {overflow.length > 0 && <MoreOverflow tokens={overflow} onTokenClick={onTokenClick} preview={handle} />}
           </div>

@@ -39,6 +39,14 @@ rl.on('line', (line) => {
     const item = (method, item) => out({ method, params: { threadId: THREAD, turnId, item } })
     out({ id: m.id, result: { turn: { id: turnId, status: 'inProgress' } } })
     out({ method: 'turn/started', params: { threadId: THREAD, turn: { id: turnId, status: 'inProgress' } } })
+    if (JSON.stringify(m.params.input).includes('RETRY_THEN_FAIL')) {
+      const error = { message: 'Reconnecting... 1/7', additionalDetails: 'fixture upstream unavailable sk-fixture-secret-abcdefghijklmnopqrstuvwxyz' }
+      out({ method: 'error', params: { threadId: 'child-thread', turnId, willRetry: true, error: { message: 'child retry' } } })
+      out({ method: 'error', params: { threadId: THREAD, turnId, willRetry: true, error } })
+      const finalError = { message: 'fixture upstream exhausted', codexErrorInfo: 'internalServerError' }
+      out({ method: 'error', params: { threadId: THREAD, turnId, willRetry: false, error: finalError } })
+      return out({ method: 'turn/completed', params: { threadId: THREAD, turn: { id: turnId, status: 'failed', error: finalError } } })
+    }
     if (JSON.stringify(m.params.input).includes('INTERLEAVED_CHILDREN')) {
       const notify = (method, params) => out({ method, params })
       const rootDelta = (delta) => notify('item/agentMessage/delta', { threadId: THREAD, turnId, itemId: 'parent-message', delta })
@@ -130,6 +138,21 @@ async function start() {
 }
 
 describe('#6830 codex ACP bridge: reasoning reaches the desktop', () => {
+  it('reports the native retry count and sanitized cause as a notice, then rejects with the final cause', async () => {
+    const { call, updates } = await start()
+    await call('session/new', { cwd: dir, mcpServers: [] })
+    updates.length = 0
+    expect(await call('session/prompt', { sessionId: 'th-6830', prompt: [{ type: 'text', text: 'RETRY_THEN_FAIL' }] }))
+      .toMatchObject({ code: -32603, message: 'fixture upstream exhausted' })
+    const notices = updates.filter((update) => update.sessionUpdate === 'notice')
+    expect(notices).toEqual([{
+      sessionUpdate: 'notice', severity: 'warning',
+      title: 'Reconnecting... 1/7: fixture upstream unavailable [REDACTED_OPENAI_KEY]',
+    }])
+    expect(JSON.stringify(updates)).not.toContain('abcdefghijklmnopqrstuvwxyz')
+    expect(JSON.stringify(updates)).not.toContain('child retry')
+  })
+
   it('#7586: concurrent child messages, reasoning, tools and lifecycle never enter the parent stream', async () => {
     const { call, thoughts, updates } = await start()
     await call('session/new', { cwd: dir, mcpServers: [] })

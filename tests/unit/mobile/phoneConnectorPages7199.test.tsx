@@ -17,6 +17,9 @@ import { clickElement, createNode, createReactHarness, deferred, waitForConditio
 
 const ui = vi.hoisted(() => ({ platformKind: 'capacitor' as 'capacitor' | 'web', rpc: null as unknown, listeners: [] as Array<(data: unknown) => void> }))
 
+vi.mock('@/components/settings/channels/useChatChannels', () => ({ useChatChannels: () => ({ client: null, list: null, status: 'not_open', error: '', refresh: async () => {}, apply: () => {} }) }))
+vi.mock('../../../apps/desktop/src/mobile/assistant/phoneAssistantAuthorization',() => ({ phoneAssistantAuthorization: () => ui.rpc }))
+vi.mock('../../../apps/desktop/src/components/assistant/assistant-app-client',() => ({ reportAssistantAppChange: vi.fn(async () => {}) }))
 vi.mock('../../../apps/desktop/src/platform', () => ({ platform: { get kind() { return ui.platformKind } } }))
 vi.mock('../../../apps/desktop/src/mobile/agent-watch/sessionpage-rpc', () => ({
   machineRpc: () => ui.rpc,
@@ -49,6 +52,7 @@ function makeRpc() {
       accounts: vi.fn(async (_id: string): Promise<unknown[]> => []),
       cliLoginStart: vi.fn(async (_id: string): Promise<unknown> => ({ success: true, prompt: { kind: 'device-link', url: 'https://login.dingtalk.com/?user_code=AB-12', code: 'AB-12' } })),
       cliLoginWait: vi.fn(async (_id: string): Promise<unknown> => ({ status: 'connected' })),
+      cliLoginProgress: vi.fn(async () => null),
       cancelAuthorization: vi.fn(async (_id: string): Promise<unknown> => undefined),
     },
     github: {
@@ -72,7 +76,20 @@ function pageProps(id: string, options: { configured?: Record<string, boolean>; 
   return {
     retry,
     go,
-    props: { assistant, chatId: 'chat-1', ownerName: null, homeDeviceId: "cloud-1", readiness: 'ready', machine: { state: 'opening' }, askInChat: vi.fn(), sub: `connector:${id}`, go, open: vi.fn(), integrations, id } as Record<string, unknown>,
+    props: { assistant, chatId: 'chat-1', ownerName: null, homeDeviceId: "cloud-1", readiness: 'ready', machine: { state: 'ready',machine: { deviceId: 'cloud-1',projectId: 'panel',workspaceId: 'dm',paths: { memoryDir: 'memory' },panel: {
+      invalidate: vi.fn(),
+      collection: async () => {
+        const rows = id === 'github' ? await rpc.github.listAccounts() : await rpc.integrations.accounts(id)
+        return (rows.length ? rows : options.configured?.[id] && !catalog.find(item => item.id === id)?.multiAccount ? [{ accountId: 'default' }] : []).map((raw: unknown) => {
+          const row = raw as { accountId: string; displayName?: string; login?: string }
+          return { resource_key: row.accountId,data: { providerId: id,accountId: row.accountId,displayName: row.displayName ?? row.login ?? row.accountId } }
+        })
+      },change: async (row: { data: { providerId: string; accountId: string } }) => {
+        const result = (row.data.providerId === 'github' ? await rpc.github.removeAccount(row.data.accountId)
+          : await rpc.integrations.disconnect(row.data.providerId,row.data.accountId === 'default' ? undefined : row.data.accountId)) as { success: boolean; error?: string }
+        if (!result.success) throw new Error('Cloud removal could not be saved')
+      },
+    } } }, askInChat: vi.fn(), sub: `connector:${id}`, go, open: vi.fn(), integrations, id } as Record<string, unknown>,
   }
 }
 
@@ -114,13 +131,13 @@ afterEach(() => {
 const render = (node: Parameters<typeof createNode>[0], props: Record<string, unknown>) => harness.render(createNode(I18nextProvider, { i18n }, createNode(node, props)))
 
 describe('直接展开的连接列表', () => {
-  it('未连接的应用直接去授权,查看这一行才去详情', async () => {
+  it('应用行只有一个操作，先打开详情，不重复标记未连接或混入设备授权', async () => {
     const page = pageProps('qq-mail')
     await render(PhoneConnectorsPage, { ...page.props, embedded: true })
     expect(q('assistant-connectors')!.querySelector('h1')).toBeNull()
-    expect(q('assistant-connector-qq-mail')!.textContent).toContain('未连接')
-    await clickElement(q('assistant-connect-qq-mail')!)
-    expect(page.go).toHaveBeenLastCalledWith('connector:qq-mail:connect')
+    expect(q('assistant-connector-qq-mail')!.textContent).not.toContain('未连接')
+    expect(q('assistant-connect-qq-mail')).toBeNull()
+    expect(q('assistant-connectors')!.querySelector('[role="tablist"]')).toBeNull()
     await clickElement(q('assistant-connector-qq-mail')!)
     expect(page.go).toHaveBeenLastCalledWith('connector:qq-mail')
   })
@@ -128,13 +145,18 @@ describe('直接展开的连接列表', () => {
   it('有凭据但尚未检查、授权已过期、检查失败分别显示真实状态', async () => {
     const page = pageProps('qq-mail', { configured: { 'qq-mail': true } })
     await render(PhoneConnectorsPage, page.props)
-    expect(q('assistant-connector-qq-mail')!.textContent).toContain('正在检查')
+    expect(q('assistant-connector-qq-mail')!.textContent).toContain('尚未验证')
     expect(q('assistant-connector-qq-mail')!.textContent).not.toContain('已连接')
     const data = page.props.integrations as { data: PhoneIntegrations }
+    data.data.statuses = { 'qq-mail': { connected: true, capabilities: { requiresRepositoryUrl: false, supportsIssueContext: false } } }
+    await render(PhoneConnectorsPage, page.props)
+    expect(q('assistant-connectors')!.querySelector('section')).toBe(q('assistant-connectors-connected'))
+    expect(q('assistant-connectors-connected')!.querySelector('h2')!.textContent).toBe('已连接')
+    expect(q('assistant-connectors-connected')!.contains(q('assistant-connector-qq-mail'))).toBe(true)
     data.data.statuses = { 'qq-mail': { connected: false, errorType: 'authorization_expired', capabilities: { requiresRepositoryUrl: false, supportsIssueContext: false } } }
     await render(PhoneConnectorsPage, page.props)
     expect(q('assistant-connector-qq-mail')!.textContent).toContain('需要重新授权')
-    expect(q('assistant-connect-qq-mail')!.textContent).toContain('重新连接')
+    expect(q('assistant-connect-qq-mail')).toBeNull()
     data.data.statusError = new Error('service unreachable')
     await render(PhoneConnectorsPage, page.props)
     expect(q('assistant-connector-qq-mail')!.textContent).toContain('检查没通过')
@@ -142,11 +164,39 @@ describe('直接展开的连接列表', () => {
 })
 
 describe('详情页', () => {
+  it.each(['default', '', '  '])('已连接详情隐藏内部账号名 %j，断开操作留在状态卡片行内', async (displayName) => {
+    const page = pageProps('dingtalk', { configured: { dingtalk: true }, statuses: { dingtalk: { connected: true, displayName, capabilities: { requiresRepositoryUrl: false, supportsIssueContext: false } } } })
+    await render(PhoneConnectorDetail, page.props)
+    const card = q('assistant-connector-connection')!
+    expect(card).not.toBeNull()
+    expect(card.querySelector('h2')).toBeNull()
+    expect(card.textContent).not.toContain('账号')
+    expect(card.textContent).not.toContain('default')
+    expect(q('assistant-connector-disconnect')!.closest('.ta-row')).not.toBeNull()
+  })
+
+  it('已连接详情保留真实账号或组织名', async () => {
+    const page = pageProps('dingtalk', { configured: { dingtalk: true }, statuses: { dingtalk: { connected: true, displayName: '研究团队', capabilities: { requiresRepositoryUrl: false, supportsIssueContext: false } } } })
+    await render(PhoneConnectorDetail, page.props)
+    expect(q('assistant-connector-connection')!.textContent).toContain('研究团队')
+  })
+  it('飞书只显示实际存在的读写连接，不臆造聊天连接或开放状态', async () => {
+    const page = pageProps('feishu')
+    await render(PhoneConnectorDetail, page.props)
+    await waitForCondition(() => !!q('assistant-connector-connect'), 'Feishu data detail loaded')
+    expect(q('assistant-connector-detail')!.textContent).not.toContain('让它读写飞书')
+    expect(q('assistant-app-chat-feishu')).toBeNull()
+    expect(q('assistant-connector-detail')!.textContent).not.toContain('在飞书里找到它')
+    expect(q('assistant-connector-detail')!.textContent).not.toContain('此应用暂未开放聊天连接')
+  })
+
   it('没连:主按钮「连接」去连接页(connector:<id>:connect),没有「断开」', async () => {
     const page = pageProps('qq-mail')
     await render(PhoneConnectorDetail, page.props)
     expect(q('assistant-connector-detail')).not.toBeNull()
     expect(q('assistant-connector-disconnect')).toBeNull()
+    expect(q('assistant-connector-detail')!.textContent).not.toContain('未连接')
+    expect(q('assistant-connector-detail')!.textContent).toContain('在哪能用')
     await clickElement(q('assistant-connector-connect')!)
     expect(page.go).toHaveBeenCalledWith('connector:qq-mail:connect')
   })
@@ -210,7 +260,8 @@ describe('详情页', () => {
     rpc.integrations.accounts.mockRejectedValue(new Error('link closed'))
     const page = pageProps('qq-mail', { configured: { 'qq-mail': true } })
     await render(PhoneConnectorDetail, page.props)
-    await waitForCondition(() => q('assistant-connector-accounts-retry') !== null, 'retry shown')
+    await waitForCondition(() => document.querySelector('[role="alert"]') !== null, 'read failure shown')
+    expect(q('assistant-connector-accounts-retry')).toBeNull()
     expect(q('assistant-connector-disconnect')).toBeNull()
   })
 
@@ -218,7 +269,8 @@ describe('详情页', () => {
     rpc.integrations.accounts.mockRejectedValue(Object.assign(new Error('unknown method'), { code: 'unknown_method' }))
     const page = pageProps('qq-mail', { configured: { 'qq-mail': true } })
     await render(PhoneConnectorDetail, page.props)
-    await waitForCondition(() => q('assistant-connector-disconnect') !== null, 'single-account disconnect shown')
+    await waitForCondition(() => document.querySelector('[role="alert"]') !== null, 'cloud account read failed')
+    expect(q('assistant-connector-disconnect')).toBeNull()
     expect(qa('assistant-connector-account')).toHaveLength(0)
   })
 
@@ -234,12 +286,20 @@ describe('详情页', () => {
     expect(rpc.integrations.disconnect).not.toHaveBeenCalled()
   })
 
-  it('网页版上浏览器授权的服务:如实说要 App,❌ 摆一个必败的连接钮', async () => {
+  it.each(['tencent-docs', 'notion'])('网页版上浏览器授权的服务 %s:如实说要 App,❌ 摆一个必败的连接钮', async (id) => {
     ui.platformKind = 'web'
-    const page = pageProps('tencent-docs')
+    const page = pageProps(id)
     await render(PhoneConnectorDetail, page.props)
     expect(q('assistant-connector-connect')).toBeNull()
     expect(q('assistant-connector-connect-note')).not.toBeNull()
+    if (id === 'notion') expect(q('assistant-connector-connect-note')!.textContent).toContain('连接 Notion')
+  })
+
+  it('Notion in the phone App offers its real connect action instead of telling people to enter the App', async () => {
+    const page = pageProps('notion')
+    await render(PhoneConnectorDetail, page.props)
+    expect(q('assistant-connector-connect')?.textContent).toBe('连接')
+    expect(q('assistant-connector-connect-note')).toBeNull()
   })
 })
 
@@ -317,8 +377,16 @@ describe('连接页:浏览器授权', () => {
     const writeText = vi.fn(async () => undefined)
     Object.defineProperty(navigator, 'clipboard', { configurable: true, value: { writeText } })
     await startAuthorization()
-    await clickElement(q('assistant-connector-copy-auth-link')!)
-    expect(writeText).toHaveBeenCalledWith(opened[0])
+    vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] })
+    try {
+      await clickElement(q('assistant-connector-copy-auth-link')!)
+      expect(writeText).toHaveBeenCalledWith(opened[0])
+      expect(q('assistant-connector-copy-auth-link')!.textContent).toContain(i18n.t('connectors.setup.linkCopied', { ns: 'assistant' }))
+      await act(async () => { await vi.runOnlyPendingTimersAsync() })
+      expect(q('assistant-connector-copy-auth-link')!.textContent).toContain(i18n.t('connectors.setup.copyAuthLink', { ns: 'assistant' }))
+    } finally {
+      vi.useRealTimers()
+    }
   })
 
   it('人拒绝了授权:说是拒绝(带 data-reason),不 connect', async () => {

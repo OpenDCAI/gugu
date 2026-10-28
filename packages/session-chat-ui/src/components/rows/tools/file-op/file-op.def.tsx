@@ -30,6 +30,7 @@ export function readFileOpFromItem(
   return {
     kind: 'file-op',
     id: item.id,
+    ...(item.trimmedChars ? { transportNote: ctx.translate('transcript.outputTrimmed', { chars: item.trimmedChars }) } : {}),
     op: 'read',
     status: item.status,
     ...(item.rawInput !== undefined ? { request: item.rawInput } : {}),

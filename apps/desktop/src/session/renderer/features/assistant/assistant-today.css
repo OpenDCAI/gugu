@@ -14,7 +14,7 @@
 [data-ta-menu],
 [data-ta-scope] {
   /* 渐变底与玻璃卡片;品牌色仍由助理的主题色提供。 */
-  --ta-tint-h: var(--tint, 268);
+  --ta-tint-h: 268;
   --ta-tint: oklch(0.74 0.1 var(--ta-tint-h));
   --ta-tint-wash: color-mix(in oklab, var(--ta-tint) 13%, transparent);
   --ta-tint-soft: color-mix(in oklab, var(--ta-tint) 20%, transparent);
@@ -127,6 +127,21 @@
   --ta-bubble-other: #fff;
 }
 
+/* 素白复用浅色字阶与对话几何,只把共享表面换成白底和中性色。手机壳、咕咕和 portal 同步消费。 */
+[data-theme-preference='plain-white'] :is(.ta-app, .ta-dialog, .ta-phone, [data-ta-menu], [data-ta-scope]) {
+  --ta-app-bg: var(--bg);
+  --ta-panel-bg: var(--bg);
+  --ta-panel-border: var(--border);
+  --ta-glass: var(--card);
+  --ta-glass-strong: var(--muted);
+  --ta-glass-hover: var(--hover);
+  --ta-glass-edge: var(--border);
+  --ta-bubble-other: var(--muted);
+  --ta-tint-wash: var(--hover);
+  --ta-tint-soft: var(--selected);
+  --ta-tint-ink: var(--fg);
+}
+
 /* ── 左边:聊天这一列 ─────────────────────────────────────────────── */
 
 .ta-chat-col {
@@ -152,7 +167,7 @@
 .ta-chat-actions {
   position: absolute;
   top: 10px;
-  right: 6px;
+  right: 16px; /* 和消息、输入框同一条右边线 */
   display: flex;
   gap: 8px;
 }
@@ -213,6 +228,8 @@
   min-width: 0;
   padding-top: 68px;
   --bubble-mine: var(--ta-bubble-mine);
+  --conversation-bubble-mine: var(--ta-bubble-mine);
+  --conversation-bubble-mine-fg: var(--foreground);
   --bubble-other: var(--ta-bubble-other);
   --bubble-own: var(--ta-bubble-mine);
   --bubble-agent: var(--ta-bubble-other);
@@ -220,7 +237,29 @@
 .ta-chat > * { background: transparent !important; }
 .ta-chat [data-chat-area-header] { background: transparent !important; }
 /* 输入区那一块不要底色:输入条浮在渐变上;消息从头像那一排底下淡出来。 */
-.ta-chat [data-chat-composer] { background: transparent !important; padding: 8px 16px 16px !important; }
+/* 输入框和消息同一条边线:左右都离这一列 16px(dock 自己的 16,输入区不再另加一层)。 */
+.ta-chat [data-chat-composer] { background: transparent !important; padding: 0 !important; }
+.ta-chat [data-chat-bottom-dock] > div { padding-bottom: 0 !important; }
+/* 电脑上底边落在右边面板的内容线上(面板 1px 边 + 16 内距):面板里开着任务聊天时,两个输入框上下齐平。 */
+.ta-chat-col [data-chat-bottom-dock] > div { padding-bottom: 17px !important; }
+.ta-chat [data-msg-id] > div { padding-inline: 16px !important; }
+/* 消息到输入区留 16px；工具行由 dock 的实测高度统一让位，不再额外预留一行。 */
+.ta-chat-col [data-testid='chat-message-list'],
+.ta-phone-chat [data-testid='chat-message-list'] { padding-bottom: 16px; }
+/* 面板里的任务聊天:同一条边线(消息、输入框离面板内沿 16px);输入框底下也留 16,不贴面板圆角。 */
+.ta-task-chat-slot [data-msg-id] > div { padding-inline: 16px !important; }
+.ta-task-chat-slot [data-chat-bottom-dock] > div:last-child { padding-bottom: 16px !important; }
+.ta-task-chat-slot [data-testid='chat-message-list'] { padding-bottom: 16px; }
+/* 主聊天和面板里的任务聊天是同一个输入框:同高同宽,四边按 8/16 走。
+   文字离框 16,+ 号和发送键离框 8;空着时一行字(上 12、下 8)加一排 32 的按钮(下 8),共 86 高,打字多了照常长高。
+   聊天页那档加厚是给宽窗口的,助理这一列窄,沿用它就成了一块大方墩。 */
+.ta-chat-col [data-slot='composer-input'],
+.ta-task-chat-slot [data-slot='composer-input'] { min-height: 44px !important; padding: 12px 16px 8px !important; }
+.ta-chat-col [data-slot='composer-toolbar'],
+.ta-task-chat-slot [data-slot='composer-toolbar'] { padding: 0 8px 8px !important; }
+/* 助理这里没有快捷动词,它那个空位却有 42 高,把底排撑高 10px。 */
+.ta-chat-col [data-slot='composer-actions-start'] > span:empty,
+.ta-task-chat-slot [data-slot='composer-actions-start'] > span:empty { display: none; }
 /* 输入条上方那句说明(云电脑休眠中…):做成一行居中的小字胶囊,不抢输入条。 */
 .ta-chat [data-composer-notice] {
   justify-content: center;
@@ -232,9 +271,15 @@
   padding: 4px 12px !important;
   font-size: var(--font-caption) !important;
 }
+/* 顶上从头像那一排底下淡出来;底下在输入框(或它上面那颗胶囊)的上沿之前 24px 淡完:输入框底下、两侧那条空地不露出滚过去的消息,
+   也不在上沿硬切一刀(硬切会把气泡和字截成一道锯齿)。--chat-dock-avatar-h 是 ChatBottomDock 实测的「输入框上沿到列底」的高度。 */
 .ta-chat [data-testid='chat-message-list'] {
-  -webkit-mask-image: linear-gradient(to bottom, transparent 0, #000 28px);
-  mask-image: linear-gradient(to bottom, transparent 0, #000 28px);
+  -webkit-mask-image: linear-gradient(to bottom, transparent 0, #000 28px, #000 calc(100% - var(--chat-dock-avatar-h, 0px) - 24px), transparent calc(100% - var(--chat-dock-avatar-h, 0px)));
+  mask-image: linear-gradient(to bottom, transparent 0, #000 28px, #000 calc(100% - var(--chat-dock-avatar-h, 0px) - 24px), transparent calc(100% - var(--chat-dock-avatar-h, 0px)));
+}
+.ta-task-chat-slot [data-testid='chat-message-list'] {
+  -webkit-mask-image: linear-gradient(to bottom, #000 calc(100% - var(--chat-dock-avatar-h, 0px) - 24px), transparent calc(100% - var(--chat-dock-avatar-h, 0px)));
+  mask-image: linear-gradient(to bottom, #000 calc(100% - var(--chat-dock-avatar-h, 0px) - 24px), transparent calc(100% - var(--chat-dock-avatar-h, 0px)));
 }
 
 /* 输入区复用聊天页的三段式组件与尺寸，多行输入不另套圆角容器。 */
@@ -260,10 +305,11 @@
   flex-shrink: 0;
   align-items: center;
   justify-content: center;
-  padding-inline: 12px;
+  padding-inline: 16px;
 }
-.ta-panel-top > .ta-panel-back { position: absolute; left: 12px; }
-.ta-panel-top > .ta-panel-collapse { position: absolute; right: 12px; }
+/* 顶栏的圆钮和面板正文同一条边线(正文左右 16px)。 */
+.ta-panel-top > .ta-panel-back { position: absolute; left: 16px; }
+.ta-panel-top > .ta-panel-collapse { position: absolute; right: 16px; }
 .ta-panel-body {
   flex: 1;
   min-height: 0;
@@ -394,6 +440,8 @@ button.ta-row:hover, a.ta-row:hover { background: var(--ta-glass-hover); }
 .ta-row-body { display: flex; flex: 1; min-width: 0; flex-direction: column; gap: 2px; }
 .ta-row-title { font-size: var(--ta-fs-row); line-height: var(--ta-lh-row); font-weight: 500; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .ta-row-sub { font-size: var(--ta-fs-sub); line-height: var(--ta-lh-sub); color: var(--ta-muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+/* 要多露几行的说明(「关于你」):按 data-lines 折行截断,❌ 一行省略号。 */
+.ta-row .ta-row-sub[data-lines] { display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: var(--ta-row-lines); white-space: normal; overflow-wrap: anywhere; }
 .ta-row-meta { flex-shrink: 0; display: inline-flex; align-items: center; gap: 5px; font-size: var(--ta-fs-sub); line-height: var(--ta-lh-sub); color: var(--ta-faint); }
 .ta-row-chevron { flex-shrink: 0; color: var(--ta-faint); }
 .ta-row-chevron svg { width: 16px; height: 16px; }
@@ -856,13 +904,14 @@ textarea.ta-input { min-height: 80px; resize: vertical; line-height: 1.5; }
 .ta-discover-compose { display: flex; flex-direction: column; gap: 8px; }
 
 /* ── 灵感:输入框右上一颗白底渐变胶囊;面板里分组的卡,一张 = emoji + 两行标题 + 两行说明。 ── */
-.ta-chat-col[data-ideas-entry] [data-testid='chat-message-list'],
-.ta-phone-chat[data-ideas-entry] [data-testid='chat-message-list'] { padding-bottom: 56px; }
+/* The dock measures this row together with the composer; an empty row has no height or gap. */
+.ta-composer-entries { display: flex; min-width: 0; align-items: center; gap: 8px; margin-bottom: 8px; }
+.ta-composer-entries:empty { display: none; }
+.ta-composer-entries > .ta-customize-card { flex: 0 1 auto; }
+.ta-composer-entries > .ta-ideas-pill { margin-inline-start: auto; flex: none; }
 .ta-phone-chat { position: relative; }
+.ta-ideas-pill { right: 20px; }
 .ta-ideas-pill {
-  position: absolute;
-  right: 21px;
-  z-index: 5;
   display: inline-flex;
   height: var(--control-h-md);
   align-items: center;
@@ -877,6 +926,7 @@ textarea.ta-input { min-height: 80px; resize: vertical; line-height: 1.5; }
   color: var(--ta-fg);
   cursor: pointer;
 }
+.ta-phone .ta-ideas-pill { height: var(--control-h-touch); }
 .ta-ideas-pill:hover { background: linear-gradient(120deg, var(--ta-tint-soft), var(--ta-tint-wash)), var(--ta-composer-bg); }
 .ta-ideas-pill svg { width: 16px; height: 16px; }
 .ta-ideas { display: flex; min-height: 0; flex-direction: column; gap: 16px; }
@@ -908,3 +958,10 @@ textarea.ta-input { min-height: 80px; resize: vertical; line-height: 1.5; }
 .ta-connector-hero h2 { margin: 0; font-size: var(--ta-fs-title, var(--font-title)); line-height: var(--ta-lh-title, var(--lh-title)); font-weight: 600; }
 .ta-connector-hero p { margin: 0; font-size: var(--ta-fs-sub, var(--font-body)); color: var(--ta-muted, var(--muted-fg)); }
 .ta-connector-hero > button { border-radius: 999px; }
+
+/* Resource folders have a primary open action and a separate context menu. */
+.ta-row.ta-row-split { padding: 0; }
+.ta-row-main { display: flex; flex: 1; min-width: 0; align-items: center; gap: var(--spacing-md); padding: var(--ta-pad-row-y) var(--ta-pad-row-x); border: 0; background: transparent; color: inherit; font: inherit; text-align: left; cursor: pointer; }
+.ta-row-split > .ta-row-meta { padding-inline-end: var(--ta-pad-row-x); }
+
+.ta-skin .ta-application-row .gg-settings-row-description { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }

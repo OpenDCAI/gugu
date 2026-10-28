@@ -11,10 +11,13 @@ import { LoadingIndicator } from '@/lib/loading/LoadingIndicator'
 import { platform } from '@/platform'
 import { openAuthorizationLink } from '@/lib/openAuthorizationLink'
 import { CliInstallProgress } from '@/session/renderer/features/integrations/CliInstallProgress'
+import { prepareThenStartCliLogin } from '@/session/renderer/features/integrations/cli-tool-prepare'
+import { requestCloudVersionMatch, useCloudVersionMatch } from '@/lib/cloudVersionMatch'
 import { AssistantEmpty, PageHead } from '@/session/renderer/features/assistant/assistant-ui-parts'
 import { integrationErrorText } from '@/session/renderer/features/integrations/integration-display'
 import {
   canSubmitForm,
+  cliInstructionKey,
   cliMethodOf,
   formInputOf,
   formMethodOf,
@@ -24,7 +27,9 @@ import type { IntegrationMetadata } from '@/session/renderer/features/integratio
 import { translateSessionMessage } from '@/session/renderer/localization/locale-store'
 import { githubAuthDeviceCodeChannel } from '@/session/shared/events/githubEvents'
 import { machineRpc, onMachineEvent } from '../agent-watch/sessionpage-rpc'
+import { phoneAssistantAuthorization } from './phoneAssistantAuthorization'
 import type { PhonePageProps } from './MobileAssistantApp'
+import { ReadFailed,ReadingNow } from './PhoneMachineView'
 import { CloudGate, ConnectorIcon } from './PhoneConnectors'
 import { createNativeFetch } from './phoneNativeFetch'
 import {
@@ -44,7 +49,7 @@ import {
   type SetupFailure,
 } from './phoneConnectorFlow'
 import { connectorDetail } from './phoneProfileModel'
-import type { usePhoneIntegrations } from './usePhoneProfileData'
+import { usePhoneIntegrationDetail,type usePhoneIntegrations } from './usePhoneProfileData'
 
 type Integrations = ReturnType<typeof usePhoneIntegrations>
 type MachineRpc = ReturnType<typeof machineRpc>
@@ -73,26 +78,30 @@ const AuthorizationBrowser = createContext<(url: string) => void>(() => {})
  */
 export function PhoneConnectorSetupPage({
   assistant,
-  readiness,
+  home,
   homeDeviceId,
+  machine,
   integrations,
   id,
   go,
 }: PhonePageProps & { integrations: Integrations; id: string }) {
   const { t } = useTranslation('assistant')
   const name = assistant.display_name
-  const view = integrations.data && !integrations.error ? connectorDetail(integrations.data.items, integrations.data.configured, integrations.data.statuses, id) : null
-  const rpc = useMemo(() => (homeDeviceId ? machineRpc(homeDeviceId) : null), [homeDeviceId])
+  const selected = integrations.data?.items.find(item => item.id === id)
+  const detail = usePhoneIntegrationDetail(machine,selected)
+  const view = integrations.data && detail.data ? connectorDetail([detail.data],integrations.data.configured,integrations.data.statuses,id) : null
+  const rpc = useMemo(() => (homeDeviceId ? phoneAssistantAuthorization(homeDeviceId,home) : null), [homeDeviceId,home])
   const [done, setDone] = useState<{ displayName?: string } | null>(null)
-  const [browserFailed, setBrowserFailed] = useState(false)
+  const [browserFailed, setBrowserFailed] = useState<string | null>(null)
   const openInBrowser = useCallback((url: string) => {
-    setBrowserFailed(false)
-    void openAuthorizationLink(url).catch(() => setBrowserFailed(true))
+    setBrowserFailed(null)
+    void openAuthorizationLink(url).catch((error) => setBrowserFailed(messageForUser(error)))
   }, [])
   const connected = (displayName?: string) => {
     if (rpc) void reportAssistantAppChange({ rpc }, assistant.id, { resource: 'integrations', operation: 'saved', id,
       deviceId: homeDeviceId ?? undefined, after: { name: view?.item.name ?? id } })
-    // 连上了:重读一遍连接状态,回详情页时已是「已连接 + 账号」。
+    // Clear the shared snapshot too; an immediate read must not reuse pre-authorization state.
+    if (machine.state === 'ready') machine.machine.panel?.invalidate()
     integrations.retry()
     setDone({ ...(displayName ? { displayName } : {}) })
   }
@@ -100,10 +109,10 @@ export function PhoneConnectorSetupPage({
     <AuthorizationBrowser.Provider value={openInBrowser}>
     <div className="ta-page ta-phone-profile" data-testid="assistant-connector-setup">
       <PageHead title={view ? t('connectors.setup.title', { name: view.item.name }) : t('connectors.title')} />
-      {browserFailed ? <p role="alert" className="ta-phone-error">{t('connectors.setup.openFailed')}</p> : null}
-      <CloudGate readiness={readiness} name={name} integrations={integrations}>
+      {browserFailed ? <p role="alert" className="ta-phone-error">{t('connectors.setup.openFailed')}<br />{browserFailed}</p> : null}
+      <CloudGate integrations={integrations}>
         {() =>
-          !view || !rpc ? (
+          detail.error ? <ReadFailed title={t('connectors.loadFailed')} error={detail.error} onRetry={detail.reload} /> : detail.loading ? <ReadingNow /> : !view || !rpc ? (
             <AssistantEmpty title={t('connectors.goneTitle')}>{t('connectors.gone')}</AssistantEmpty>
           ) : done ? (
             <SetupDone item={view.item} displayName={done.displayName} finish={() => go(`connector:${view.item.id}`)} />
@@ -134,7 +143,7 @@ function SetupBody({
   const plan = setupPlanOf(item, platform.kind)
   if (plan.kind === 'form') return <FormSetup item={item} rpc={rpc} onConnected={onConnected} />
   if (plan.kind === 'browser') return <BrowserSetup item={item} serverUrl={plan.serverUrl} rpc={rpc} onConnected={onConnected} />
-  if (plan.kind === 'cli') return <CliSetup item={item} rpc={rpc} assistantName={assistantName} onConnected={onConnected} />
+  if (plan.kind === 'cli') return <CliSetup item={item} rpc={rpc} deviceId={deviceId} assistantName={assistantName} onConnected={onConnected} />
   if (plan.kind === 'github') return <GithubSetup item={item} rpc={rpc} deviceId={deviceId} onConnected={onConnected} />
   return (
     <div data-testid="assistant-connector-unavailable">
@@ -302,7 +311,7 @@ function BrowserSetup({
   const openInBrowser = useContext(AuthorizationBrowser)
   const [state, setState] = useState<OauthState | null>(null)
   const [text, setText] = useState('')
-  const [pasteFailed, setPasteFailed] = useState(false)
+  const [pasteFailed, setPasteFailed] = useState<string | null>(null)
   const [linkCopied, setLinkCopied] = useState(false)
   const handle = useRef<OauthSetupHandle | null>(null)
   const connectedRef = useRef(onConnected)
@@ -313,7 +322,7 @@ function BrowserSetup({
   const start = () => {
     handle.current?.cancel()
     setText('')
-    setPasteFailed(false)
+    setPasteFailed(null)
     const deps: OauthSetupDeps = {
       begin: async (options) => {
         // OAuth 客户端(MCP SDK 的授权那一块)只在人点「前往授权」时才加载。
@@ -339,10 +348,10 @@ function BrowserSetup({
   const paste = async () => {
     try {
       const value = await navigator.clipboard.readText()
-      setPasteFailed(false)
+      setPasteFailed(null)
       onChange(value)
-    } catch {
-      setPasteFailed(true)
+    } catch (error) {
+      setPasteFailed(messageForUser(error))
     }
   }
 
@@ -401,7 +410,7 @@ function BrowserSetup({
       />
       {state.hint || pasteFailed ? (
         <p className="ta-phone-error" role="alert" data-testid="assistant-connector-paste-hint">
-          {pasteFailed ? t('connectors.setup.pasteFailed') : t(`connectors.setup.hint.${state.hint}`)}
+          {pasteFailed ? <>{t('connectors.setup.pasteFailed')}<br />{pasteFailed}</> : t(`connectors.setup.hint.${state.hint}`)}
         </p>
       ) : null}
       <div className="ta-phone-setup-actions">
@@ -443,17 +452,20 @@ function BrowserSetup({
 function CliSetup({
   item,
   rpc,
+  deviceId,
   assistantName,
   onConnected,
 }: {
   item: IntegrationMetadata
   rpc: MachineRpc
+  deviceId: string
   assistantName: string
   onConnected: (displayName?: string) => void
 }) {
   const { t } = useTranslation('assistant')
   const openInBrowser = useContext(AuthorizationBrowser)
   const method = cliMethodOf(item)
+  const cloudVersion = useCloudVersionMatch(deviceId)
   const [state, setState] = useState<CliSetupState | null>(null)
   const readProgress = useCallback(() => rpc.integrations.cliLoginProgress(item.id), [rpc, item.id])
   const handle = useRef<{ cancel(): void } | null>(null)
@@ -461,11 +473,17 @@ function CliSetup({
   connectedRef.current = onConnected
   useEffect(() => () => handle.current?.cancel(), [])
 
-  const start = () => {
+  const start = async () => {
+    if (cloudVersion?.status === 'updating') return
+    if (cloudVersion?.status === 'failed') await requestCloudVersionMatch(deviceId, true)
     handle.current?.cancel()
-    handle.current = startCliSetup(
+    // 等工具装好的那一圈只认这一次:取消 / 重点「连接」后不再起登录。
+    let stopped = false
+    const setup = startCliSetup(
       {
-        start: () => rpc.integrations.cliLoginStart(item.id),
+        start: async () => (await prepareThenStartCliLogin(rpc.integrations, item.id, { cancelled: () => stopped,
+          timeoutError: () => new Error(t('connectors.setup.cliPrepareTimedOut')) }))
+          ?? { success: false as const, error: 'This connection attempt was cancelled.' },
         wait: () => rpc.integrations.cliLoginWait(item.id),
         cancel: () => rpc.integrations.cancelAuthorization(item.id),
       },
@@ -474,24 +492,19 @@ function CliSetup({
         if (next.phase === 'done') connectedRef.current()
       },
     )
+    handle.current = { cancel: () => { stopped = true; setup.cancel() } }
   }
   const idle = !state || state.phase === 'cancelled'
   return (
     <div className="ta-phone-setup" data-testid="assistant-connector-cli">
       {idle ? (
         <>
-          <p className="ta-page-sub ta-pad">{t('connectors.setup.cliIntro', { name: item.name, assistant: assistantName })}</p>
-          {method?.prerequisite ? (
-            <div className="ta-card ta-phone-setup-prereq" data-testid="assistant-connector-prereq">
-              <p className="ta-page-sub">{method.prerequisite.text}</p>
-              {method.prerequisite.url ? (
-                <Button variant="ghost" className="ta-pill-btn" onClick={() => openInBrowser(method.prerequisite?.url ?? '')}>
-                  <ExternalLink />
-                  {t('connectors.setup.prerequisiteLink')}
-                </Button>
-              ) : null}
-            </div>
-          ) : null}
+          <p className="ta-page-sub ta-pad" data-testid={method?.prerequisite ? 'assistant-connector-prereq' : undefined}>
+            {cliInstructionKey(item) ? translateSessionMessage(cliInstructionKey(item)!) : method?.prerequisite?.text ?? t('connectors.setup.cliIntro', { name: item.name, assistant: assistantName })}
+          </p>
+          {method?.prerequisite?.url ? <Button variant="ghost" className="ta-pill-btn" onClick={() => openInBrowser(method.prerequisite!.url!)}>
+            <ExternalLink />{t('connectors.setup.prerequisiteLink')}
+          </Button> : null}
           <Button variant="ghost" className="ta-wide-btn" data-tone="primary" onClick={start} data-testid="assistant-connector-cli-start">
             {t('connectors.connect')}
           </Button>
@@ -513,7 +526,13 @@ function CliSetup({
           </Button>
         </>
       ) : state.phase === 'failed' ? (
-        <SetupFailureNote failure={state.failure} name={item.name} assistantName={assistantName} onRetry={start} />
+        cloudVersion && cloudVersion.status !== 'idle' ? <>
+          <p role={cloudVersion.status === 'failed' ? 'alert' : 'status'} className="ta-page-sub ta-pad">
+            {cloudVersion.status === 'updating' ? t('connectors.setup.cloudUpdating', { version: cloudVersion.version })
+              : cloudVersion.status === 'failed' ? cloudVersion.error : t('connectors.setup.cloudUpdated')}
+          </p>
+          {cloudVersion.status !== 'updating' ? <Button variant="ghost" className="ta-pill-btn" onClick={start}>{t('connectors.reconnect')}</Button> : null}
+        </> : <SetupFailureNote failure={state.failure} name={item.name} assistantName={assistantName} onRetry={start} />
       ) : null}
     </div>
   )

@@ -14,6 +14,7 @@ import { LoadingIndicator } from '../../lib/loading/LoadingIndicator'
 import { useReportChatOnScreen } from '../../lib/onScreenChat'
 import { useChatStore } from '../../store/chatContext'
 import { useChatConversation } from '../../store/useChatConversation'
+import { useQueuedMessageIds } from '../../hooks/useQueuedMessageIds'
 import './quick-chat.css'
 
 export type QuickChatAssistant = { id: string; display_name: string; avatar: string | null }
@@ -41,7 +42,7 @@ export function QuickChat({
   assistant: QuickChatAssistant | null
   assistantState: 'found' | 'loading' | 'none' | 'unreadable'
   chatId: string | null
-  chatFailed: boolean
+  chatFailed: { error: string } | null
   retryChat: () => void
   visible: boolean
   shortcut: string
@@ -69,7 +70,7 @@ export function QuickChat({
       ) : assistantState === 'unreadable' ? (
         <QuickNote title={t('quickChat.unreadableTitle')} body={t('quickChat.unreadable')} action={t('quickChat.openApp')} onAction={onOpenMain} testId="quick-chat-unreadable" />
       ) : chatFailed ? (
-        <QuickNote title={t('quickChat.chatFailedTitle', { name })} body={t('quickChat.chatFailed')} action={t('machine.retry')} onAction={retryChat} testId="quick-chat-failed" />
+        <QuickNote title={t('quickChat.chatFailedTitle', { name })} body={chatFailed.error} action={t('machine.retry')} onAction={retryChat} testId="quick-chat-failed" />
       ) : assistantState === 'loading' || !chatId ? (
         <QuickNote loading body={t('quickChat.opening', { name })} />
       ) : (
@@ -99,7 +100,8 @@ function QuickThread({ chatId, name, visible }: { chatId: string; name: string; 
   const { t } = useTranslation('assistant')
   useReportChatOnScreen(visible ? chatId : null)
   const { conversations } = useChatStore('conversations')
-  const { messages, loadingMessages, sendMessage, setFollowingTail } = useChatConversation(chatId, conversations)
+  const { messages, loadingMessages, sendMessage, setFollowingTail, memberReadSeqs } = useChatConversation(chatId, conversations)
+  const queuedIds = useQueuedMessageIds(messages, memberReadSeqs)
   useEffect(() => { setFollowingTail(visible ? true : undefined) }, [visible, setFollowingTail])
   const recent = visibleDeliveryMessages(messages).filter((message) => !message.thread_root_id && !message.retracted_at).slice(-RECENT)
   const list = useRef<HTMLDivElement>(null)
@@ -150,7 +152,7 @@ function QuickThread({ chatId, name, visible }: { chatId: string; name: string; 
             <span>{t('quickChat.empty')}</span>
           </div>
         ) : (
-          recent.map((message) => <QuickMessage key={message.id} message={message} />)
+          recent.map((message) => <QuickMessage key={message.id} message={message} queued={queuedIds.has(message.id)} />)
         )}
       </div>
       <footer className="qc-compose">
@@ -174,7 +176,7 @@ function QuickThread({ chatId, name, visible }: { chatId: string; name: string; 
   )
 }
 
-function QuickMessage({ message }: { message: MessageItem }) {
+function QuickMessage({ message, queued }: { message: MessageItem; queued: boolean }) {
   const { t } = useTranslation('assistant')
   if (message.content_type === 'system') {
     const reason = turnFailureReason(message)
@@ -191,7 +193,8 @@ function QuickMessage({ message }: { message: MessageItem }) {
       <span className="qc-other">{t('quickChat.inApp')}</span>
     )
   return (
-    <div className="qc-msg" data-mine={message.is_mine || undefined} data-sending={message.local_send_state ?? undefined} data-testid={`quick-chat-message-${message.id}`}>
+    <div className="qc-msg" data-mine={message.is_mine || undefined} data-sending={queued ? 'queued' : message.local_send_state ?? undefined}
+      title={queued ? t('message.sendStatus.queued', { ns: 'messaging' }) : undefined} data-testid={`quick-chat-message-${message.id}`}>
       {body}
       {message.local_send_state === 'failed' ? <span className="qc-error" title={message.local_send_error ? messageForUser(message.local_send_error) : undefined}>{t('quickChat.notSent')}</span> : null}
     </div>

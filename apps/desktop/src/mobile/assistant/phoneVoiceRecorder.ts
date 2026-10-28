@@ -16,6 +16,7 @@ export type RecorderSnapshot = {
   /** 连着多久几乎没声音(「未检测到声音」)。 */
   silentMs: number
   error: RecorderError | null
+  cause?: unknown
 }
 
 export type RecordedSegment = {
@@ -37,8 +38,8 @@ export type CaptureSession = { sampleRate: number; stop: () => void }
 
 /** 开不起来的原因(录音机原样当 error 报出去)。 */
 export class MicOpenError extends Error {
-  constructor(readonly failure: Exclude<RecorderError, 'interrupted'>) {
-    super(failure)
+  constructor(readonly failure: Exclude<RecorderError, 'interrupted'>, cause?: unknown) {
+    super(cause instanceof Error ? cause.message : failure, { cause })
     this.name = 'MicOpenError'
   }
 }
@@ -93,7 +94,7 @@ export class PhoneVoiceRecorder {
   }
 
   clearError() {
-    if (this.snapshot.error) this.set({ error: null })
+    if (this.snapshot.error) this.set({ error: null, cause: undefined })
   }
 
   /** 开始录:先问系统要麦克风(安卓第一次会弹框),再开录。拿不到麦克风 = false,原因在 snapshot.error。 */
@@ -108,7 +109,7 @@ export class PhoneVoiceRecorder {
         () => this.interrupt(),
       )
     } catch (error) {
-      this.set({ phase: 'idle', error: error instanceof MicOpenError ? error.failure : 'capture_failed' })
+      this.set({ phase: 'idle', cause: error, error: error instanceof MicOpenError ? error.failure : 'capture_failed' })
       return false
     }
     if (this.cancelled) {
@@ -261,8 +262,8 @@ export const webAudioBackend: CaptureBackend = {
       } catch {
         context = new AudioContext()
       }
-    } catch {
-      throw new MicOpenError('capture_failed')
+    } catch (error) {
+      throw new MicOpenError('capture_failed', error)
     }
     if (context.state === 'suspended') void context.resume().catch(() => undefined)
     let stream: MediaStream
@@ -272,7 +273,7 @@ export const webAudioBackend: CaptureBackend = {
       })
     } catch (error) {
       void context.close().catch(() => undefined)
-      throw new MicOpenError(micFailureOf(error))
+      throw new MicOpenError(micFailureOf(error), error)
     }
     let tap: { node: AudioNode; dispose: () => void } | null = null
     let releaseScreen: (() => void) | null = null
@@ -297,9 +298,9 @@ export const webAudioBackend: CaptureBackend = {
       for (const track of stream.getAudioTracks()) track.addEventListener('ended', onEnded)
       releaseScreen = holdScreenAwake()
       return { sampleRate: context.sampleRate, stop: teardown }
-    } catch {
+    } catch (error) {
       teardown()
-      throw new MicOpenError('capture_failed')
+      throw new MicOpenError('capture_failed', error)
     }
   },
 }

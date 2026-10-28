@@ -16,6 +16,7 @@ import {
   grantableBy,
   PACKAGE_MESSAGE_SELECT,
   resolveAttachmentPackage,
+  packageBytes,
   type AttachmentInstallRefused,
   type AttachmentPackage,
   type InstalledApp,
@@ -433,10 +434,10 @@ const phonePackageReads: PackageReads = {
     if (error) throw new Error(error.message)
     return (data as unknown as PackageMessageRow | null) ?? null
   },
-  async sign(source) {
-    const { attachmentResolver } = await import('../../lib/attachmentBytes')
-    const link = await attachmentResolver.resolve(source)
-    return link.status === 'ready' ? link.url : null
+  async open(source) {
+    const { resolveAttachment } = await import('../../lib/attachmentBytes')
+    const file = await resolveAttachment(source)
+    return file.status === 'ready' ? file : null
   },
 }
 
@@ -453,12 +454,11 @@ async function installAttachment(args: AttachmentPackage & { unasked?: boolean; 
     await ready()
     // 摩擦单 F66: nobody clicked, and it could be no update of an App here — not downloaded.
     if (args.unasked && !couldUpdateUnasked(publisher.id, Object.keys(index.installed).flatMap((id) => installedHere(id) ?? []))) {
+      await found.file.dispose()
       return { success: true, data: { installed: false, outcome: 'held' } }
     }
     // A deadline, because the consent window only starts after this.
-    const response = await fetch(found.url, { signal: AbortSignal.timeout(15_000) })
-    if (!response.ok) throw new Error(`could not download the App package (HTTP ${response.status})`)
-    const { files, manifest, manifestDigest, sha256: digest } = await readPackage(new Uint8Array(await response.arrayBuffer()))
+    const { files, manifest, manifestDigest, sha256: digest } = await readPackage(await packageBytes(found.file))
     const installed = installedHere(manifest.id)
     // Asked only about what this phone can grant (`grantableBy`): the rest is not on its pages' gugu, and a sheet about it
     // asks the person for nothing they could use here. The whole manifest is what is stored.

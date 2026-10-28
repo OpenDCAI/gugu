@@ -3,9 +3,11 @@ import { invokePhoneHost } from '../local-agent/phoneHostRpc'
 import type { AttachmentUploadRpc } from '@renderer/features/sessions/acp/composer-file-upload'
 import type { ToolImage } from '@gugu/session-core/acp/client'
 import { rendererLogger } from '@/lib/log'
-import { readCachedDevices } from '@/store/devicesCache'
+import { readCachedDevices, subscribeCachedDevices } from '@/store/devicesCache'
+import { getCloudComputerState, subscribeCloudComputerState } from '@/lib/cloudComputerStore'
+import { remoteHostReachable } from '@/session/shared/remote-hosts'
 import { translateSessionMessage } from '@renderer/localization/locale-store'
-import { appCallWaitMs, type AppCallAction } from '@gugu/session-core/session-record/contract'
+import { appCallWaitMs, type AppCallAction, type AppMessageAction, type AppMessageReceipt, type AppSpawnAction } from '@gugu/session-core/session-record/contract'
 import { callDeviceRpc } from '@/lib/deviceRpc'
 import { openPhoneSessionHostPipe } from '@/lib/remoteSessionHost'
 import { SESSION_HOST_RPC } from '@/session/shared/lib/ipc/session-host-device-frames'
@@ -55,10 +57,28 @@ import type { SessionpageSessionOptionsWithMenu } from '@main/core/session-timel
 const log = rendererLogger('mobile/agent-watch')
 const hosts = new Map<string, SessionHostClient>()
 
+function reachable(deviceId: string): boolean {
+  const device = readCachedDevices().find((row) => row.device_id === deviceId)
+  const snapshot = getCloudComputerState().snapshot
+  const cloud = snapshot?.deviceId === deviceId ? snapshot.state : device?.cloud_computer
+  // An empty/unfinished device directory is unknown, not proof of an offline host.
+  return remoteHostReachable({
+    isOnline: device?.is_online !== false,
+    directTerminal: false,
+    ...(cloud === 'awake' || cloud === 'asleep' || cloud === 'waking' ? { cloudComputer: cloud } : {}),
+  })
+}
+
 function host(deviceId: string): SessionHostClient {
   let client = hosts.get(deviceId)
   if (!client) {
     client = createSessionHostClient(openPhoneSessionHostPipe(deviceId), {
+      isReachable: () => reachable(deviceId),
+      subscribeReachability: (listener) => {
+        const stopCloud = subscribeCloudComputerState(listener)
+        const stopDevices = subscribeCachedDevices(listener)
+        return () => { stopCloud(); stopDevices() }
+      },
       subscribeEvents: true,
       heartbeatMs: SESSION_HOST_CLIENT_HEARTBEAT_MS,
       retryMaxMs: 60_000,
@@ -114,6 +134,7 @@ export function machineRpc(deviceId: string) {
  */
 function once(deviceId: string) {
   return createRPCClient<RpcRouter>(async (channel, ...args) => {
+    if (!reachable(deviceId)) throw new SessionpageRpcError('unreachable', translateSessionMessage('deviceScope.unreachable', { device: deviceId.slice(0, 8) }))
     const reply = await callDeviceRpc<{ value: unknown }>(deviceId, SESSION_HOST_RPC.call, { channel, args }, { timeoutMs: 12_000 })
     if (reply.error) throw new SessionpageRpcError(reply.error.code, reply.error.message)
     return reply.result?.value
@@ -124,12 +145,18 @@ function once(deviceId: string) {
  * owner 10-16 An App page on the phone, in a session on this machine, has one of its calls that follow the session's
  * machine (its data folder, its program) done there — the cross-machine App call the desktop makes (`agentSession.app_call`,
  * one question and answer). The wait is the desktop's (`remoteActionTimeoutMs`): a program call, its program's own request
- * bound (60 s) and the way back. A machine too old to have it answers `unknown_method` / no handler.
+ * bound (60 s) and the way back; dispatch uses the same route with the desktop's wake/start waits. A machine too old to have it answers `unknown_method` / no handler.
  */
-export async function appCallOn(deviceId: string, caller: unknown, action: AppCallAction): Promise<unknown> {
-  const reply = await callDeviceRpc<{ value: unknown }>(deviceId, SESSION_HOST_RPC.call, { channel: 'agentSession.app_call', args: [caller, action] }, { timeoutMs: appCallWaitMs(action) })
+type PhoneAppAction = AppCallAction | AppMessageAction | AppSpawnAction
+type PhoneAppAnswer<A> = A extends AppSpawnAction ? { agentId: string } : A extends AppMessageAction ? AppMessageReceipt : unknown
+
+export async function appCallOn<A extends PhoneAppAction>(deviceId: string, caller: unknown, action: A): Promise<PhoneAppAnswer<A>> {
+  const timeoutMs = action.action === 'app_call' ? appCallWaitMs(action) : action.action === 'spawn' ? 90_000 : 180_000
+  const reply = await callDeviceRpc<{ value: PhoneAppAnswer<A> }>(deviceId, SESSION_HOST_RPC.call,
+    { channel: `agentSession.${action.action}`, args: [caller, action] }, { timeoutMs })
   if (reply.error) throw new SessionpageRpcError(reply.error.code, reply.error.message)
-  return reply.result?.value
+  if (!reply.result && action.action !== 'app_call') throw new SessionpageRpcError('failed', 'The computer returned no dispatch receipt')
+  return reply.result?.value as PhoneAppAnswer<A>
 }
 
 /** A push of that machine's on a channel of its own (e.g. `extensions.program.notified`), heard through its window. */
@@ -208,6 +235,19 @@ export function cancelSessionTurn(deviceId: string, sessionId: string): Promise<
   return value(rpc(deviceId).sessionTimeline.sessionCancel({ conversationId: sessionId }))
 }
 
+/**
+ * 运行时说还在跑的后台命令(#6582 的筛子,`null` = 那台机器的运行时没报这一格、不筛)。
+ * 老版本电脑没有这条路由 ⇒ 抛;调用方当作「不知道」(不筛、没有停止键),同桌面遇到旧运行时。
+ */
+export function fetchBackgroundTasks(deviceId: string, sessionId: string): Promise<{ runningCommandTaskIds: string[] | null }> {
+  return value(rpc(deviceId).sessionTimeline.sessionBackgroundTasks({ conversationId: sessionId }))
+}
+
+/** 停一个后台任务:命令给 asyncTaskId,子智能体给派它的 tool_use id(同桌面那一行的停止键)。 */
+export function stopBackgroundTask(deviceId: string, sessionId: string, stopId: string): Promise<{ stopped: true }> {
+  return value(rpc(deviceId).sessionTimeline.sessionStopBackgroundTask({ conversationId: sessionId, stopId }))
+}
+
 /** 重命名 / 置顶 / 归档(桌面侧栏同三条)。 */
 export function updateSession(
   deviceId: string,
@@ -246,7 +286,7 @@ export function fetchCreateOptions(deviceId: string): Promise<SessionpageSession
   return value(rpc(deviceId).sessionTimeline.sessionCreateOptions())
 }
 
-/** 选定 harness 在那台机器上能跑哪些模型。 */
+/** 选定 harness 在那台机器上能跑哪些模型。`sessionView` 给 null = 那台电脑按自己的「终端」开关定。 */
 export function fetchCreateModels(
   deviceId: string,
   harness: string,
@@ -263,6 +303,11 @@ export function fetchCreateModels(
 /** **在那台机器上开一条新会话。**只在用户点了发送之后调 —— 它会在对方机器上起一个 agent 进程。 */
 export function createSession(deviceId: string, request: SessionpageSessionCreateRequest): Promise<SessionpageSessionCreateResult> {
   return value(rpc(deviceId).sessionTimeline.sessionCreate(request))
+}
+
+/** A fresh read of the same per-computer list, e.g. an App looking up the agent it just started. */
+export function fetchSessionsList(deviceId: string) {
+  return once(deviceId).sessionTimeline.sessionsList()
 }
 
 export function fetchPhoneSessions(deviceId: string): Promise<{ projects: SessionpageProjectSummary[]; sessions: SessionpageSessionSummary[] }> {

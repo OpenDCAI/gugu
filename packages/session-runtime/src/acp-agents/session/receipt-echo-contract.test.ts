@@ -15,7 +15,6 @@ describe('accepted receipt requires an earlier native echo', () => {
     cell.applySessionReady();
     if (phase !== 'ready') cell.push({ kind: 'agent_state', source: 'agent', state: 'running' });
     const sent = cell.promptDetached({ text: 'user input' }, { steerIfBusy: true });
-    await sent.admission;
     await vi.waitFor(() => expect(prompt).toHaveBeenCalledTimes(1));
     if (phase === 'previous-idle') cell.push({ kind: 'agent_state', source: 'agent', state: 'idle', stopReason: 'end_turn' });
     let result: unknown;

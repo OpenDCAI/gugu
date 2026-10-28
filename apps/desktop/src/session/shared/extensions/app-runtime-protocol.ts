@@ -92,32 +92,6 @@ export function injectAppRuntime(html: string): string {
   return head + RUNTIME_SCRIPT_TAG + html.slice(head.length);
 }
 
-// ─── slots outside the session page ─────────────────────────────────────────────
-
-/**
- * The window event a slot outside the session page (a group's side panel, later the dock) claims an
- * App's resident page with, and releases it (task renderer `app-slot-events.ts`).
- */
-export const APP_SLOT_EVENT = 'gugu:app-slot';
-
-export type AppSlotEventDetail =
-  | {
-      type: 'claim';
-      /** Stable for the slot; claiming again replaces its claim. */
-      slotId: string;
-      /** `<extensionId>.<tabName>` — which App page. */
-      kind: string;
-      /** The group the slot is drawn for; the page's context carries it (and no sessionId). */
-      chatId?: string;
-      /** The group file the slot opened with this App (「用 X 打开」): the page's handed-over file. */
-      itemId?: string;
-      /** Where to draw the page: an element of this document, on screen while claimed. */
-      element: HTMLElement;
-    }
-  | { type: 'release'; slotId: string }
-  /** The person picked one of the tab's declared toolbar / menu entries on the slot's header (摩擦单 F13). */
-  | { type: 'command'; slotId: string; commandId: string };
-
 // ─── the sync port ──────────────────────────────────────────────────────────
 
 /** main → preload: here is this page's sync port (in `event.ports`). */
@@ -156,7 +130,10 @@ export type SyncToPage =
    * A session working copy's file taken back as `deleted` is on the disk again (`git checkout`, an undo): the page opens
    * it again (`files.reopen`, the next generation) and is online (摩擦单 F92). Never sent for a group's file.
    */
-  | { t: 'back'; docName: string };
+  | { t: 'back'; docName: string }
+  /** Decorations of the authorized entry, read after the page has painted its document. */
+  | { t: 'entry'; docName: string; entry: AppFileEntry }
+  | { t: 'entry-error'; docName: string; message: string };
 
 export type SyncToMain =
   /**
@@ -169,7 +146,8 @@ export type SyncToMain =
    * the whole state as one Yjs update, opaque to main. `null` clears it. If the page goes
    * away still holding one, main delivers it when it can (`L3-runtime-interface.md` §3.4-5).
    */
-  | { t: 'will'; docName: string; update: ArrayBuffer | null };
+  | { t: 'will'; docName: string; update: ArrayBuffer | null }
+  | { t: 'entry'; docName: string };
 
 // ─── files.* over the bridge ─────────────────────────────────────────────────
 
@@ -328,6 +306,10 @@ export function fileSearchOf(value: unknown): AppFileSearch {
 
 /** A file as the page sees it (`GuguFileEntry`) — itself a ref: `{ chat, id }` or `{ session, id }`. */
 export interface AppFileEntry {
+  /** Durable workspace namespaces, including app={publisher,id}; never an access restriction. */
+  metadata?: Record<string, unknown>;
+  /** Author names and delete-menu eligibility are still being read; the file itself is already authorized. */
+  detailsPending?: boolean;
   /** A chat file: its item id. A working-copy file: its path there (POSIX). */
   id: string;
   /** Where it lives: exactly one of these (`AppPlace`). */
@@ -354,6 +336,18 @@ export interface AppFileEntry {
   /** The App that opens it here (the most specific claim, or the one chosen to always use); `null` when none does. */
   claimedBy: AppFileClaimant | null;
   size: number | null;
+  /**
+   * A project chat's file kept on its host machine and uploaded only when someone opens it (file storage policy): the
+   * machine's name when it is the reader's own (`null` otherwise), and whose file storage setting it follows; whether it is
+   * on (`online`, the reader's own machines only — the file opens once it is). Absent for every other file.
+   */
+  storedOn?: { machine: string | null; owner: string; mine: boolean; online?: boolean };
+  /**
+   * How long its cloud copy is kept (`files.list`'s answer only, gugu-supabase #69): `expiresAt`, when it is cleared — `null`,
+   * kept until someone deletes it — and `mine`, whether whoever reads uploaded it (only they change it, `files.keep`).
+   * `null`: no cloud copy (a project file kept on its machine, a document, a folder). Absent where the read does not say.
+   */
+  keep?: { expiresAt: string | null; mine: boolean } | null;
   /** A chat file's version (G1: `files.replace` makes the next one); `null` for a working copy's file. */
   version: number | null;
   createdAt: string | null;
@@ -460,6 +454,10 @@ export type HostToFrame =
  */
 export const APP_OPEN_WITH_EVENT = 'gugu:app-open-with';
 export interface AppOpenWithDetail {
+  /** Refresh this already-open App tab after it was shown; never activate a late validation result. */
+  background?: boolean;
+  /** Host-only, one-shot authorization carried to the file's binding. Contains no document content. */
+  opening?: PreparedChatFile;
   chatId: string;
   itemId: string;
   name: string;
@@ -549,7 +547,7 @@ export interface AppShowMessageDetail {
 
 /** `gugu.showSession` on the phone: the task tab opens the session's row — the machine it is on, and the row as listed. */
 export const APP_SHOW_SESSION_EVENT = 'gugu:app-show-session';
-export type AppShowSessionDetail = { deviceId: string; session: SessionpageSessionSummary; tabKind?: string } | { projectId: string };
+export type AppShowSessionDetail = { deviceId: string; session: SessionpageSessionSummary; tabKind?: string; draft?: { text: string } } | { projectId: string };
 
 /** What `files.open` / `files.reopen` answer. */
 export interface AppFileOpened {
@@ -563,6 +561,14 @@ export interface AppFileOpened {
    * for it (`docName` is empty); the page hands them over as `f.blob()`.
    */
   bytes?: ArrayBuffer;
+}
+
+/** The click's authorized document metadata, consumed by exactly one bound file open. */
+export interface PreparedChatFile {
+  entry: AppFileEntry;
+  epoch: number;
+  actor: string;
+  expiresAt: number;
 }
 
 /** The suffix a content type stands for (摩擦单 F41), `''` for a type that names none (bytes: `application/octet-stream`). */

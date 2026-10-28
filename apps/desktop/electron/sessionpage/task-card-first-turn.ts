@@ -34,6 +34,7 @@ export interface TaskCardFirstTurnInput {
 
 /** `envelope` = the first turn is a chat delivery the agent answers in that chat; otherwise plain words. */
 export interface TaskCardFirstTurn {
+  /** Where the agent answers: the chat the card is in. */
   chatId: string
   firstTurn: string
   envelope: boolean

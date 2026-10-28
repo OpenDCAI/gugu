@@ -30,7 +30,7 @@ async function flush() {
   })
 }
 beforeEach(() => {
-  publishProjectGroupChats([], new Map())
+  publishProjectGroupChats([], new Map(), new Map())
   mobileShellState.enabled = false
   setLocalePreference('zh-CN')
   toastMock.mockClear()
@@ -485,6 +485,75 @@ describe('ChatMessageComposer', () => {
     expect(onSend).toHaveBeenCalledWith('你好', expect.objectContaining({ beforeDeliver: beforeSend }))
     expect(beforeSend, '文字消息的就绪由 outbox 在投递前 await,composer 不自己挡').not.toHaveBeenCalled()
   })
+  it.each([
+    { sender_user_id: 'ada', to_user_ids: ['me'] },
+    { sender_user_id: 'me', to_user_ids: ['ada'] },
+  ])('replies privately to the original peer for $sender_user_id → $to_user_ids', async (pair) => {
+    const onSend = vi.fn(async () => {})
+    const quoteContent = { messageId: 'private-source', senderName: 'Ada', content: 'private', source: message({ ...pair, is_whisper: true }) }
+    await act(async () => { root.render(createElement(ChatMessageComposer, {
+      onSend, chatId: 'group-1', isGroupChat: true, currentUserId: 'me', quoteContent,
+      groupMembers: [rosterMember('ada', 'Ada')],
+    })) })
+    expect(container.textContent).toContain('悄悄话给 Ada')
+    await typeInComposer('private reply')
+    await clickSend()
+    expect(onSend).toHaveBeenCalledWith('private reply', expect.objectContaining({
+      toUserIds: ['ada'], isWhisper: true, replyToMessageId: 'private-source',
+    }))
+  })
+  it('requires Exit whisper mode to publish a private reply and defaults a new reply back to private', async () => {
+    const onSend = vi.fn(async () => {})
+    const source = message({ sender_user_id: 'ada', to_user_ids: ['me'], is_whisper: true })
+    const renderQuote = async () => act(async () => { root.render(createElement(ChatMessageComposer, {
+      onSend, chatId: 'group-1', isGroupChat: true, currentUserId: 'me',
+      quoteContent: { messageId: source.id, senderName: 'Ada', content: 'private', source },
+    })) })
+    await renderQuote()
+    await act(async () => { (container.querySelector('button[aria-label="退出悄悄话"]') as HTMLButtonElement).click() })
+    await typeInComposer('public reply')
+    await clickSend()
+    expect(onSend).toHaveBeenLastCalledWith('public reply', expect.objectContaining({ toUserIds: [], replyToMessageId: source.id }))
+    expect(onSend).toHaveBeenLastCalledWith('public reply', expect.not.objectContaining({ isWhisper: true }))
+    await renderQuote()
+    expect(container.querySelector('button[aria-label="退出悄悄话"]')).not.toBeNull()
+    await typeInComposer('private again')
+    await clickSend()
+    expect(onSend).toHaveBeenLastCalledWith('private again', expect.objectContaining({ toUserIds: ['ada'], isWhisper: true }))
+  })
+  it('does not send a reply whose original privacy metadata is unavailable', async () => {
+    const onSend = vi.fn(async () => {})
+    await act(async () => { root.render(createElement(ChatMessageComposer, {
+      onSend, quoteContent: { messageId: 'missing', senderName: 'Ada', content: 'unavailable' },
+    })) })
+    expect(container.querySelector('[data-chat-composer-host]')?.getAttribute('title')).toContain('原消息不可用')
+    expect(container.querySelector('[contenteditable]')?.getAttribute('contenteditable')).toBe('false')
+    expect(onSend).not.toHaveBeenCalled()
+  })
+  it.each([
+    { currentUserId: undefined, sender_user_id: 'ada' },
+    { currentUserId: 'me', sender_user_id: null },
+  ])('disables private replies when the pair cannot be resolved: $sender_user_id / $currentUserId', async ({ currentUserId, sender_user_id }) => {
+    const onSend = vi.fn(async () => {})
+    await act(async () => { root.render(createElement(ChatMessageComposer, {
+      onSend, currentUserId,
+      quoteContent: { messageId: 'unavailable-private-source', senderName: 'Ada', content: 'private',
+        source: message({ sender_user_id, to_user_ids: ['me'], is_whisper: true }) },
+    })) })
+    expect(container.querySelector('[data-chat-composer-host]')?.getAttribute('title')).toContain('原消息不可用')
+    expect(container.querySelector('[contenteditable]')?.getAttribute('contenteditable')).toBe('false')
+    expect(onSend).not.toHaveBeenCalled()
+  })
+  it('preserves the reply id when whisper mode was selected manually', async () => {
+    const onSend = vi.fn(async () => {})
+    await act(async () => { root.render(createElement(ChatMessageComposer, {
+      onSend, currentUserId: 'me', whisperTarget: { userId: 'ada', displayName: 'Ada' },
+      quoteContent: { messageId: 'public-source', senderName: 'Ada', content: 'public', source: message({ is_whisper: false }) },
+    })) })
+    await typeInComposer('manual private reply')
+    await clickSend()
+    expect(onSend).toHaveBeenCalledWith('manual private reply', expect.objectContaining({ toUserIds: ['ada'], isWhisper: true, replyToMessageId: 'public-source' }))
+  })
   it('#1641 preserves @, reply, whisper, DM, and @all routing precedence', async () => {
     const agent = rosterMember('agent-codex', 'Codex 8', 'agent')
     const onSend = vi.fn(async () => {})
@@ -507,7 +576,7 @@ describe('ChatMessageComposer', () => {
       toUserIds: ['agent-codex'],
       replyToMessageId: null,
     }))
-    await render({ quoteContent: { messageId: 'message-1', senderName: 'Codex 8', content: '原消息' } })
+    await render({ quoteContent: { messageId: 'message-1', senderName: 'Codex 8', content: '原消息', source: message({ id: 'message-1' }) } })
     await typeInComposer('Codex 8 收到')
     await clickSend()
     expect(onSend).toHaveBeenLastCalledWith('Codex 8 收到', expect.objectContaining({
@@ -648,7 +717,7 @@ describe('ChatMessageComposer', () => {
   })
   it.each(['project-group', 'project-topic', 'ordinary-group'] as const)('uses project affiliation in %s without changing the selected identity', async (chatId) => {
     vi.spyOn(Date, 'now').mockReturnValue(Date.UTC(2026, 9, 25, 12))
-    publishProjectGroupChats(['project-group'], new Map([['project-group', ['ada']]]))
+    publishProjectGroupChats(['project-group'], new Map([['project-group', ['ada']]]), new Map())
     const onSend = vi.fn(async () => {})
     const topic = chatId === 'project-topic'
     await act(async () => {
@@ -664,6 +733,7 @@ describe('ChatMessageComposer', () => {
     await flush()
     await typeInComposer('@a')
     const options = Array.from(document.body.querySelectorAll('[role="option"]'))
+    // A project group's main line offers its whole roster, the same as an ordinary group.
     expect(options).toHaveLength(2)
     const expectedId = chatId === 'ordinary-group' ? 'atlas' : 'ada'
     const expectedName = chatId === 'ordinary-group' ? 'Atlas' : 'Ada'

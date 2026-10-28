@@ -93,7 +93,7 @@ export async function deliverSessionCancel(target: SessionWriteTarget): Promise<
 export async function acpSessionLive(sessionId: string): Promise<boolean> {
   const summaries = await readAcpSessionSummaries();
   const summary = Object.values(summaries).find((s) => s.sessionId === sessionId);
-  return !!summary && summary.lifecycle !== 'closed' && summary.lifecycle !== 'lost';
+  return !!summary && !summary.closing && summary.lifecycle !== 'closed' && summary.lifecycle !== 'lost';
 }
 
 /** 导出给读会话参数那条路:参数住在活运行时里,不活先按桌面同一条「唤醒」拉起来,再读。 */

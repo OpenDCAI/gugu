@@ -14,7 +14,7 @@ import { askInShell, installConsentPrompt } from '@/session/renderer/features/ex
 import { rpcOn } from '@/session/renderer/lib/ipc'
 import { deviceScopeTrayDevices, LOCAL_DEVICE_SCOPE } from '@/session/renderer/features/remote-hosts/device-scope-store'
 import { remoteHostsStore } from '@/session/renderer/features/remote-hosts/remote-hosts-store'
-import { INSTALL_CONSENT_HUMAN_WINDOW_MS, type InstallAlsoOnMachine } from '@shared/extensions/host-actions'
+import { alsoOnMachines, INSTALL_CONSENT_HUMAN_WINDOW_MS, type InstallAlsoOnMachine } from '@shared/extensions/host-actions'
 import { answered, installAgreedOn, InstallRefusedError } from '@/session/shared/extensions/install-agreed-on'
 import { rendererLogger } from '../../lib/log'
 import { appsHere } from '../appSlot/appsHere'
@@ -141,6 +141,10 @@ export function ExtensionBundleCard({ meta, card, isMine, senderName, chatId }: 
     const card = { ...installPackageOf(pkg), ...(chatId ? { chatId } : {}) }
     const at = (id: string | null) => (consent: HandedConsent) =>
       rpcOn(id).extensions.installAttachment({ ...card, consent })
+    // The other computers ticked go on as installs there, not installs for this chat (architecture I3): the sheet named what
+    // this chat gets on the computer it asked for, so another computer adds no row of this chat's on its own.
+    const alsoAt = (id: string) => (consent: HandedConsent) =>
+      rpcOn(id).extensions.installAttachment({ ...installPackageOf(pkg), consent })
     let also: string[] = []
     let digest: string | null = null
     /** What stopped this device's own install, thrown once the computers ticked with it have each said theirs. */
@@ -151,18 +155,16 @@ export function ExtensionBundleCard({ meta, card, isMine, senderName, chatId }: 
       if (!data) throw new Error('no answer')
       if (data.outcome === 'ask' && 'ask' in data) {
         // Nothing to agree to (`asks` false): the click was the yes.
-        let enableIn: string[] | undefined
         digest = data.ask.manifestDigest
         if (data.asks !== false) {
           const ask = target ? { ...data.ask, machine: target.label } : data.ask
-          const sheet = askInShell(installConsentPrompt(ask, ask.manifest), `${target?.id ?? 'here'}:${ask.manifestDigest}`, INSTALL_CONSENT_HUMAN_WINDOW_MS, ask.places, undefined, target?.label, alsoOn)
+          const sheet = askInShell(installConsentPrompt(ask, ask.manifest), `${target?.id ?? 'here'}:${ask.manifestDigest}`, INSTALL_CONSENT_HUMAN_WINDOW_MS, ask.given, undefined, target?.label, alsoOn)
           if (!sheet) throw new Error('No consent sheet in this window to ask the person with')
           const answer = await sheet
           if (answer.outcome !== 'confirmed') return
           also = answer.alsoOn ?? []
-          enableIn = answer.enableIn
         }
-        data = answered(await at(target?.id ?? null)({ kind: 'given', digest, ...(enableIn ? { enableIn } : {}) }), 'no answer')
+        data = answered(await at(target?.id ?? null)({ kind: 'given', digest }), 'no answer')
         if (!data) throw new Error('no answer')
       }
       if (target) sayThere(target.id, target.label, data.installed)
@@ -185,7 +187,7 @@ export function ExtensionBundleCard({ meta, card, isMine, senderName, chatId }: 
     // The other computers ticked under the same yes: each its own install, each said — refused ones with what is there.
     for (const id of also) {
       const label = alsoOn.find((one) => one.id === id)?.label ?? id
-      const said = await installAgreedOn(at(id), async () => ({ digest: digest! })).then(
+      const said = await installAgreedOn(alsoAt(id), async () => ({ digest: digest! })).then(
         () => ({ installed: true }),
         (error: unknown) => {
           if (error instanceof InstallRefusedError) {
@@ -206,10 +208,7 @@ export function ExtensionBundleCard({ meta, card, isMine, senderName, chatId }: 
     setRefused(null)
     try {
       // The person's other online computers, each by name: ticked in the sheet, the same yes installs there too.
-      const alsoOn = [...remoteHostsStore.hosts.values()]
-        .map(({ device }) => device)
-        .filter((device) => device.isOnline && device.id !== machine?.id)
-        .map((device) => ({ id: device.id, label: device.label }))
+      const alsoOn = alsoOnMachines([...remoteHostsStore.hosts.values()].map(({ device }) => device), machine?.id)
       await (machine || alsoOn.length > 0 ? installVia(machine, alsoOn, pkg) : installHere(pkg))
       setInstall('idle')
     } catch (error) {

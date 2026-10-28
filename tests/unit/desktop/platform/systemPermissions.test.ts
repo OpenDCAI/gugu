@@ -13,6 +13,8 @@ const mocks = vi.hoisted(() => ({
   schedule: vi.fn(),
   cameraCheck: vi.fn(),
   cameraRequest: vi.fn(),
+  microphoneCheck: vi.fn(),
+  microphoneRequest: vi.fn(),
   openSettings: vi.fn(),
   batteryCheck: vi.fn(),
   batteryRequest: vi.fn(),
@@ -20,6 +22,10 @@ const mocks = vi.hoisted(() => ({
   bgUpdate: vi.fn(),
   bgDisable: vi.fn(),
 }))
+
+vi.mock('../../../../apps/desktop/src/platform/capacitorMicrophone', () => ({ nativeAudioPermissions: {
+  checkPermissions: mocks.microphoneCheck, requestPermissions: mocks.microphoneRequest,
+} }))
 
 vi.mock('@anuradev/capacitor-background-mode', () => ({
   BackgroundMode: {
@@ -85,6 +91,9 @@ describe('system permission state mapping', () => {
     mocks.cameraCheck.mockResolvedValue({ camera: 'denied' })
     await expect(capacitorPlatform.checkSystemPermission('notifications')).resolves.toBe('prompt')
     await expect(capacitorPlatform.checkSystemPermission('camera')).resolves.toBe('blocked')
+    mocks.microphoneCheck.mockResolvedValue({ microphone: 'granted' })
+    await expect(capacitorPlatform.checkSystemPermission('microphone')).resolves.toBe('granted')
+    expect(mocks.microphoneRequest).not.toHaveBeenCalled()
   })
 
   it('returns the state after the system dialog', async () => {
@@ -92,6 +101,9 @@ describe('system permission state mapping', () => {
     mocks.cameraRequest.mockResolvedValue({ camera: 'prompt-with-rationale' })
     await expect(capacitorPlatform.requestSystemPermission('notifications')).resolves.toBe('granted')
     await expect(capacitorPlatform.requestSystemPermission('camera')).resolves.toBe('prompt')
+    mocks.microphoneRequest.mockResolvedValue({ microphone: 'denied' })
+    await expect(capacitorPlatform.requestSystemPermission('microphone')).resolves.toBe('blocked')
+    expect(mocks.microphoneRequest).toHaveBeenCalledExactlyOnceWith({ permissions: ['microphone'] })
   })
 })
 
@@ -138,6 +150,8 @@ describe('capacitor openSystemPermissionSettings', () => {
     await expect(capacitorPlatform.openSystemPermissionSettings('camera')).resolves.toBe(true)
     expect(mocks.openSettings.mock.calls[0][0]).toMatchObject({ optionAndroid: 'app_notification' })
     expect(mocks.openSettings.mock.calls[1][0]).toMatchObject({ optionAndroid: 'application_details' })
+    await capacitorPlatform.openSystemPermissionSettings('microphone')
+    expect(mocks.openSettings.mock.calls[2][0]).toMatchObject({ optionAndroid: 'application_details' })
   })
 
   it('passes a failed jump back so the page can say where to go instead', async () => {
@@ -235,7 +249,7 @@ describe('background watch', () => {
 
 describe('capability gate', () => {
   it('each host reports the rows it can serve; unreadable is said out loud, never invented', async () => {
-    expect(capacitorPlatform.systemPermissions).toEqual(['notifications', 'camera', 'batteryOptimization'])
+    expect(capacitorPlatform.systemPermissions).toEqual(['notifications', 'camera', 'batteryOptimization', 'microphone'])
     expect(capacitorPlatform.capabilities.notifications).toBe(true)
     expect(webPlatform.systemPermissions).toEqual([])
     // 桌面按「这个系统有没有那一页可跳」决定列哪几行;状态读不到写「查不到」,不是不列的理由。

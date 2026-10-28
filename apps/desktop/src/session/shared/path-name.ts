@@ -25,3 +25,8 @@ export function safePathSegment(input: string, fallback = 'project'): string {
   }
   return segment;
 }
+
+/** 只管显示:常见的主目录前缀写成 ~(悬停的 title 仍是完整路径)。 */
+export function shortHome(path: string): string {
+  return path.replace(/^(?:\/Users\/[^/]+|\/home\/[^/]+|\/root|[A-Za-z]:\\Users\\[^\\]+)(?=[/\\]|$)/, '~');
+}

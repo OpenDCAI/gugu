@@ -4,7 +4,7 @@ import { describe, expect, it, vi } from 'vitest';
 import { connectStdioAcp, nodeReadableToWeb } from './acp-stdio';
 import type { NormalizedEvent } from '@gugu/session-core/acp';
 
-it('v1 stdio returns a dispatch receipt and keeps activity until the real RPC response', async () => {
+it('v1 stdio admits on the provider\'s first update and keeps activity until the real RPC response', async () => {
   const stdin = new PassThrough();
   const stdout = new PassThrough();
   const events: NormalizedEvent[] = [];
@@ -28,10 +28,13 @@ it('v1 stdio returns a dispatch receipt and keeps activity until the real RPC re
   expect(requests[0].params).toMatchObject({ clientCapabilities: { _meta: { jetbrains: {
     air: { version: 1, capabilities: ['nativeSubagentSessions', 'asyncTasks'] },
   } } } });
-  const receipt = await api.prompt({ sessionId: 's', prompt: [{ type: 'text', text: 'hi' }] });
-  expect(receipt.status).toBe('dispatched');
-  expect(events).toEqual([{ kind: 'agent_state', source: 'request', state: 'running' }]);
+  const receipt = api.prompt({ sessionId: 's', prompt: [{ type: 'text', text: 'hi' }] });
   await vi.waitFor(() => expect(requests).toHaveLength(2));
+  expect(events).toEqual([{ kind: 'agent_state', source: 'request', state: 'running' }]);
+  stdout.write(JSON.stringify({ jsonrpc: '2.0', method: 'session/update', params: { sessionId: 's',
+    update: { sessionUpdate: 'agent_message_chunk', content: { type: 'text', text: 'on it' } } } }) + '\n');
+  expect((await receipt).status).toBe('dispatched');
+  expect(events[0]).toEqual({ kind: 'agent_state', source: 'request', state: 'running' });
   stdout.write(JSON.stringify({ jsonrpc: '2.0', id: requests[1].id, result: { stopReason: 'end_turn' } }) + '\n');
   await vi.waitFor(() => expect(events.at(-1)).toMatchObject({ source: 'request', state: 'idle', stopReason: 'end_turn' }));
   stdout.end(); stdin.end();

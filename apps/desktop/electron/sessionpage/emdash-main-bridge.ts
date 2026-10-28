@@ -7,9 +7,13 @@
 // the ONE entry + bridges IPC — it never reaches into the session backend's DB / pty / services individually.
 export { injectEmdashPromptDetached } from '../session/main/core/acp/inject-prompt'
 export { recordConfirmedDeviceSleep } from '../session/main/core/activity/collector'
+export { readAssistantWorkOwnerReceipts } from '../session/main/core/sessions/assistant-work-owner-receipts'
 export {
   bootEmdashModule,
+  setSessionAdmissionPreparation,
+  assistantPanelLocal,
   readCurrentActivityInput,
+  readCurrentAssistantWorkInput,
   disposeEmdashModule,
   emdashRpcRouter,
   // @@@sessionpage TASKPAGE-FUSION — control-channel entries: the host injects a new ACP turn into a
@@ -27,6 +31,7 @@ export {
   // @@@sessionpage TASKPAGE-FUSION — a project's display name, so the host can name the gugu group it
   // mirrors that project onto (spec ⑨「项目 = 群」) without deep-importing the session backend's projects/DB layer.
   emdashProjectName,
+  emdashProjectRoot,
   emdashTakeBirthGroup,
   // 资源库 → MCP:这条任务带上的那几台(会话能力包的桥问它)。
   emdashLibraryMcpForSession,
@@ -50,13 +55,16 @@ export {
   emdashOpenSessionFile,
   // @@@sessionpage TASKPAGE-FUSION — the live-conversation set + a "something may have been removed"
   // trigger, so the host can reconcile its contacts/groups projection and reap agents whose conversation
-  // was archived or deleted (spec ⑨ 删除必同步 — 不能只同步增).
+  // was truly deleted; archived conversations keep their original identities.
   emdashSessionpageInventory,
+  emdashSessionArchivalState,
+  emdashSessionMessageRefused,
   onEmdashSessionpageReapTrigger,
   runSessionAction,
   // agent 的 session_* 跨机器(owner 2026-09-30):别的机器发来的动作、本机发起方的自述、「这个 id 在不在本机」。
   // 同 runEmdashExtensionAction 那条教训:漏在这张清单外只会在真有人跨机器时才炸。
   runRemoteSessionAction,
+  readAssistantWorkReceipts,
   sessionCallerFacts,
   localSessionIds,
   // 宿主的唤醒入口要读它:引擎进程在不在跑、归宿主还是 tmux(漏在这里只会在唤醒时才发现)。
@@ -70,6 +78,7 @@ export {
   // agent 的 session_* 跨机器:别的机器问 `agentSession.*` 时由宿主答;别的机器上的 App 发来的消息由这台的 App 发信答。
   setAgentSessionHost,
   answerAppMessage,
+  spawnAgentForExtension,
   answerAppReadFile,
   answerAppCall,
   // @@@2374 —— `gugu_session` 的 app_* 动作分派。宿主(main.ts)按 `EmdashBridgeModule`
@@ -90,9 +99,6 @@ export {
   emdashExtensionCheckAvailable,
   // 少了它,guide_read apps-ui 只有字没有图 —— agent 写之前看不到咕咕的样子长什么样。
   emdashLookPicture,
-  // @@@sessionpage TASKPAGE-FUSION otty-state — subscribe to the consolidated agent-attention count
-  // (agents blocked on the human) so the host can badge the 任务 sidebar tab.
-  onEmdashAttentionChanged,
   // #4008 —— 会话页会话的 agent 状态(working/…)是「这个 agent 在不在干活」的事实源;宿主读它、发布成
   // 权威 activity,咕咕的单聊/会话列表/群于是显示同一件事,而不再各自从投递命令的执行区间反推。
   onAgentStatus,
@@ -101,7 +107,6 @@ export {
   // TEST-ONLY (host exposes env-gated) — feed a real AgentEvent into the real pipeline for the otty e2e.
   emitSessionpageAgentEventForTest,
   emitSessionpageAgentEvent,
-  emitSessionpageAgentFailure,
   // @@@sessionpage TASKPAGE-FUSION — register a gugu-built MCP injector so session-page codex sessions get
   // the gugu MCP send tool + gugu identity at session start (enables the target agent to reply).
   // @@@5301 会话页 agent 通知正文的注入口(见 notification-copy.ts)。
@@ -136,6 +141,7 @@ export {
   sessionpageSessionDigest,
   // server 换版看的忙闲(activity.json)。同上,经桥拿。
   sessionpageBusyForVersionSwitch,
+  onSessionpageAuthorizationActivityChange,
   setSessionLiveNotifier,
   listPendingSessionDirectMessages,
   acceptPendingSessionDirectMessage,

@@ -1,10 +1,11 @@
 import { createHash, randomUUID } from 'node:crypto'
-import { mkdir, open, readFile, rename, rm, stat } from 'node:fs/promises'
+import { readFile, rmdir, stat } from 'node:fs/promises'
 import { basename, join } from 'node:path'
 import { uploadAttachmentBytes, type AttachmentsEndpoint } from '../../cloud/attachmentsApi'
-import { commitSessionAttachment, resolveSessionAttachment, revokeSessionAttachment, type SessionFileInput } from '../../cloud/sessionAttachments'
+import { commitSessionAttachment, revokeSessionAttachment, type SessionFileInput } from '../../cloud/sessionAttachments'
 import { resolveAttachmentMimeType } from '../../shared/imageMime.mjs'
-import { attachmentDownloadName } from '../../shared/attachmentDownloadName.mjs'
+import { userIdFromSupabaseAccessToken } from '../../cloud/runtimeAuthProvider'
+import { createNodeFileResolver, saveFileHandle } from '../files/fileSnapshots'
 
 const MAX_BYTES = 25 * 1024 * 1024
 export async function uploadSessionFile(endpoint: AttachmentsEndpoint, file: SessionFileInput, sender: {
@@ -41,31 +42,16 @@ export async function uploadSessionFile(endpoint: AttachmentsEndpoint, file: Ses
 }
 
 export async function downloadSessionFile(endpoint: AttachmentsEndpoint, id: string, actor: string, directory: string, signal?: AbortSignal) {
-  const reference = await resolveSessionAttachment(endpoint, id, actor)
-  if (!Number.isSafeInteger(reference.size_bytes) || reference.size_bytes < 0 || reference.size_bytes > MAX_BYTES || !/^[0-9a-f]{64}$/.test(reference.sha256)) throw new Error('Invalid session attachment metadata')
-  const response = await (endpoint.fetch ?? fetch)(reference.url, { signal: signal ?? AbortSignal.timeout(120_000) })
-  if (!response.ok || !response.body) throw new Error(`Session attachment download failed: HTTP ${response.status}`)
-  await mkdir(directory, { recursive: true, mode: 0o700 })
-  const temporary = join(directory, `${randomUUID()}.incomplete`)
-  const file = await open(temporary, 'wx', 0o600)
-  const hash = createHash('sha256'); let size = 0
+  const accountId = userIdFromSupabaseAccessToken(endpoint.token)
+  if (!accountId) throw new Error('Session attachment reader is not signed in')
+  const staging = join(directory, '.staging')
   try {
-    for await (const chunk of response.body) {
-      signal?.throwIfAborted(); size += chunk.length
-      if (size > reference.size_bytes) throw new Error('Session attachment is larger than its receipt')
-      hash.update(chunk); await file.writeFile(chunk)
-    }
-    await file.close()
-    if (size !== reference.size_bytes || hash.digest('hex') !== reference.sha256) throw new Error('Session attachment bytes or SHA-256 do not match')
-    await resolveSessionAttachment(endpoint, id, actor) // Recheck access after the actual download.
-    const contentDirectory = join(directory, reference.sha256)
-    await mkdir(contentDirectory, { recursive: true, mode: 0o700 })
-    const path = join(contentDirectory, attachmentDownloadName(reference.file_name))
-    await rename(temporary, path)
-    return { ...reference, url: undefined, expires_at: undefined, file_path: path }
-  } catch (error) { await file.close().catch(() => undefined); await rm(temporary, { force: true }); throw error }
+    const file = await createNodeFileResolver(staging, async () => endpoint)({ attachment_id: id }, { accountId, actorId: actor }, { signal })
+    if (file.status !== 'ready') throw new Error('Session attachment is no longer readable')
+    if (file.revision.size_bytes > MAX_BYTES) { await file.dispose(); throw new Error('Session attachment exceeds 25 MiB') }
+    return { ...await saveFileHandle(file, directory), attachment_id: id }
+  } finally { await rmdir(staging).catch(error => { if (!['ENOENT', 'ENOTEMPTY'].includes(error.code)) throw error }) }
 }
-
 
 /** No recipient is admitted yet. Revoke only references created by this failed preparation. */
 export async function uploadSessionFiles(endpoint: AttachmentsEndpoint, files: SessionFileInput[], sender: Parameters<typeof uploadSessionFile>[2]) {

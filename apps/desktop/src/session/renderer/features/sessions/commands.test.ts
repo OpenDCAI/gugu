@@ -61,6 +61,7 @@ const mocks = vi.hoisted(() => ({
     { projectId: 'project-1', sessionId: 'conversation-2' },
   ],
   clipboardWriteText: vi.fn(() => Promise.resolve({ success: true })),
+  terminalEnabled: true,
 }));
 
 vi.mock('@renderer/features/browser/browser-controls-registry', () => ({
@@ -140,6 +141,9 @@ vi.mock('@renderer/features/settings/app-settings-client', () => ({
   setAppSettingsValueInCache: vi.fn(),
   updateAppSettingsRequest: vi.fn(() => Promise.resolve()),
   invalidateAppSettingsKey: vi.fn(),
+}));
+vi.mock('@renderer/features/settings/use-terminal-enabled', () => ({
+  terminalEnabledSnapshot: () => mocks.terminalEnabled,
 }));
 vi.mock('@renderer/localization/locale-store', () => ({
   translateSessionMessage: (key: string) => key,
@@ -368,6 +372,7 @@ describe('createSessionCommandProvider', () => {
   });
 
   it('opens a new terminal as a tab from the terminal command', () => {
+    mocks.terminalEnabled = true;
     const openTerminalAsTab = vi.fn();
     mocks.getSessionView.mockReturnValue({
       ...mocks.getSessionView(),
@@ -382,6 +387,14 @@ describe('createSessionCommandProvider', () => {
     command?.execute();
 
     expect(openTerminalAsTab).toHaveBeenCalled();
+  });
+
+  it('offers no terminal commands while the terminal setting is off', () => {
+    mocks.terminalEnabled = false;
+    const ids = createSessionCommandProvider('project-1', 'conversation-1').getCommands().map((command) => command.id);
+
+    expect(ids).not.toContain('session.newTerminal');
+    expect(ids).not.toContain('session.viewTerminals');
   });
 
   it('archives the focused session and leaves its view', async () => {

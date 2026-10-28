@@ -77,7 +77,15 @@ export function connectStdioAcpV2(
     },
     listSessions: (params) => agent.request(v2.methods.agent.session.list, params),
     async prompt(params, dispatch) {
-      const receipt = await agent.request(v2.methods.agent.session.prompt, params as v2.PromptRequest);
+      const request = agent.request(v2.methods.agent.session.prompt, params as v2.PromptRequest);
+      const timeoutMs = dispatch?.admissionTimeoutMs;
+      let timer: ReturnType<typeof setTimeout> | undefined;
+      const receipt = await (timeoutMs === undefined ? request : Promise.race([request, new Promise<never>((_resolve, reject) => {
+        timer = setTimeout(() => {
+          void agent.notify(v2.methods.agent.session.cancel, { sessionId: params.sessionId }).catch(() => undefined);
+          reject(Object.assign(new Error(`Native prompt admission timed out after ${timeoutMs}ms`), { code: 'prompt_admission_timeout' }));
+        }, timeoutMs);
+      })]).finally(() => clearTimeout(timer)));
       return { status: 'accepted', requestId: dispatch?.requestId ?? crypto.randomUUID(), ...receipt };
     },
     cancel: (params) => agent.notify(v2.methods.agent.session.cancel, params),

@@ -12,6 +12,7 @@
 import { Menu as MenuPrimitive } from '@base-ui/react/menu'
 import { useMemo, useRef, useState, type CSSProperties, type ReactNode, type RefObject } from 'react'
 import { cn } from '@/lib/cn'
+import { ChevronRight } from '@/lib/icons'
 import { popupMotion } from './variants'
 import { useBackLayer } from './sheetStack'
 
@@ -128,10 +129,13 @@ export function Menu({
           collisionPadding={8}
           // 放不下就翻到另一侧(下 → 上),沿边平移对齐;与 EmojiQuickPicker 同一套。
           collisionAvoidance={{ side: 'flip', align: 'shift', fallbackAxisSide: 'none' }}
+          // 两侧都放不下(手机长按一条比屏幕剩余空间还高的气泡)就压着锚点滑回屏内,❌ 翻到屏幕外。
+          sticky
           style={{ zIndex }}
         >
           <MenuPrimitive.Popup
             className={menuPopup}
+            data-occludes-browser-page
             aria-label={ariaLabel}
             style={{ minWidth: Math.max(minWidth, 0), padding: menuSurfacePadding, ...style }}
           >
@@ -148,7 +152,7 @@ export interface MenuItemProps {
   icon?: ReactNode
   danger?: boolean
   disabled?: boolean
-  /** Native tooltip — used by disabled「即将开放」placeholders. */
+  /** Native tooltip for a real action or its current availability. */
   title?: string
   className?: string
   style?: CSSProperties
@@ -163,11 +167,13 @@ export interface MenuItemProps {
    * 这一格只是文字,不注册任何按键。
    */
   shortcut?: string
+  /** false = 点了菜单不收(在原浮层里换一屏,如「选择文字」);默认点了就收。 */
+  closeOnClick?: boolean
   onClick?: () => void
   children: ReactNode
 }
 
-export function MenuItem({ icon, danger, disabled, title, className, style, 'data-testid': testId, render, nativeButton, shortcut, onClick, children }: MenuItemProps) {
+export function MenuItem({ icon, danger, disabled, title, className, style, 'data-testid': testId, render, nativeButton, shortcut, closeOnClick, onClick, children }: MenuItemProps) {
   return (
     <MenuPrimitive.Item
       className={cn('group/menu-item', menuItem, className)}
@@ -178,6 +184,7 @@ export function MenuItem({ icon, danger, disabled, title, className, style, 'dat
       title={title}
       render={render}
       nativeButton={nativeButton}
+      closeOnClick={closeOnClick}
       onClick={onClick}
     >
       {icon != null && <span className={menuItemIcon}>{icon}</span>}
@@ -191,6 +198,35 @@ export function MenuItem({ icon, danger, disabled, title, className, style, 'dat
         </span>
       )}
     </MenuPrimitive.Item>
+  )
+}
+
+const submenuRowStyle: CSSProperties = { padding: menuRowPadding }
+const submenuPositionerStyle: CSSProperties = { zIndex: 'var(--z-menu)' }
+// 子菜单最多撑到窗口里放得下的高度(base-ui 在 positioner 上给的 --available-height,与会话页各弹层同一个上限),
+// 多出来的在弹层里滚:群页头 ⋯ →「话题」话题一多就一直往下撑出窗口(owner 10-28)。父菜单那几行不在这里,不跟着滚。
+const submenuPopupStyle: CSSProperties = { minWidth: 160, maxWidth: 320, padding: menuSurfacePadding, maxHeight: 'var(--available-height)', overflowY: 'auto' }
+
+/** A row that opens a nested menu beside it (header ⋯ →「话题」); the nested popup uses the same surface and rows. */
+export function MenuSubmenu({ icon, label, 'data-testid': testId, children }: {
+  icon?: ReactNode
+  label: ReactNode
+  'data-testid'?: string
+  children: ReactNode
+}) {
+  return (
+    <MenuPrimitive.SubmenuRoot>
+      <MenuPrimitive.SubmenuTrigger className={cn('group/menu-item', menuItem)} style={submenuRowStyle} data-testid={testId}>
+        {icon != null && <span className={menuItemIcon}>{icon}</span>}
+        <span className={menuItemLabel}>{label}</span>
+        <ChevronRight size={14} aria-hidden className="shrink-0 text-[var(--menu-icon)]" />
+      </MenuPrimitive.SubmenuTrigger>
+      <MenuPrimitive.Portal>
+        <MenuPrimitive.Positioner className="gg-menu-positioner window-no-drag-region" positionMethod="fixed" collisionPadding={8} style={submenuPositionerStyle}>
+          <MenuPrimitive.Popup className={menuPopup} style={submenuPopupStyle}>{children}</MenuPrimitive.Popup>
+        </MenuPrimitive.Positioner>
+      </MenuPrimitive.Portal>
+    </MenuPrimitive.SubmenuRoot>
   )
 }
 

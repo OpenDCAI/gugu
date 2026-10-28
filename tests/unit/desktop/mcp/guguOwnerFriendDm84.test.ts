@@ -1,6 +1,7 @@
 import { mkdtemp, readFile, rm } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
+import { verifiedFileHandle } from '../../../helpers/verifiedFileHandle'
 import { afterAll, describe, expect, it } from 'vitest'
 // @ts-expect-error — MCP implementation is an untyped ESM module.
 import { callTool, callToolWithState, createSessionState, RpcHttpError } from '../../../../apps/desktop/electron/mcp/gugu-im-server.mjs'
@@ -69,6 +70,7 @@ function fakeDb({ staleOnce }: { staleOnce?: string } = {}) {
   }
   const restGet = async (path: string) => {
     reads.push(path)
+    if (path.startsWith('message_agent_delivery_blocks?')) return []
     if (path.startsWith('friendships?')) return [{ user_a_id: FRIEND, user_b_id: OWNER }]
     if (path.startsWith('chat_members?chat_id=in.(')) {
       const ids = decodeURIComponent(path.slice('chat_members?chat_id=in.('.length, path.indexOf(')'))).split(',')
@@ -87,13 +89,9 @@ function fakeDb({ staleOnce }: { staleOnce?: string } = {}) {
   }
   const restInsert = async (_table: string, row: unknown) => { inserts.push(row) }
   const signedAs: unknown[] = []
-  // attachments/urls:记下以谁的身份要的签名链接。
-  const attachmentUrls = async (refs: Array<Record<string, unknown>>, asUserId?: string) => {
-    signedAs.push(asUserId)
-    return { urls: refs.map((ref) => ({ ...ref, message_id: null, url: 'https://cdn.test/report?auth_key=k', thumb_url: null, sha256: null, width: null, height: null, expires_at: '2999-01-01T00:00:00Z' })) }
-  }
-  const fetchBytes = async () => Buffer.from('bytes')
-  return { deps: { restRpc, restGet, restInsert, attachmentUrls, fetchBytes }, rpcs, reads, inserts, signedAs }
+  // Preserve the reader boundary: owner-friend DMs resolve as the owner; the agent's own chats as the agent.
+  const resolveFile = async (_ref: unknown, asUserId: string) => { signedAs.push(asUserId); return verifiedFileHandle(Buffer.from('bytes')) }
+  return { deps: { restRpc, restGet, restInsert, resolveFile }, rpcs, reads, inserts, signedAs }
 }
 
 describe('owner DMs with friends (#84)', () => {

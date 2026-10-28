@@ -55,7 +55,7 @@ let harness: ReturnType<typeof createReactHarness>;
 beforeAll(async () => {
   await i18n.changeLanguage('zh-CN');
 });
-afterEach(() => { harness?.cleanup(); clearDraggedScreenContent(); publishSidebarChatView({ focusedChatId: null, focusedSessionId: null, groups: [] }); });
+afterEach(() => { harness?.cleanup(); clearDraggedScreenContent(); publishSidebarChatView({ focusedChatId: null, groups: [] }); });
 
 async function renderList(activeChatId = 'grp-1', onChatSelected = vi.fn(), mobile = false, peerAvatar: string | null = null, placement: 'page' | 'sidebar' = 'page') {
   harness = createReactHarness();
@@ -72,7 +72,7 @@ async function renderList(activeChatId = 'grp-1', onChatSelected = vi.fn(), mobi
 describe('the IM chat list in the master\'s roles (#7333)', () => {
   it.each(['dm-1', 'grp-1', 't-live'])('drags grouped sidebar row %s with the shared workspace content identity', async (chatId) => {
     await page.viewport(1000, 800);
-    publishSidebarChatView({ focusedChatId: 'grp-1', focusedSessionId: null, groups: [
+    publishSidebarChatView({ focusedChatId: 'grp-1', groups: [
       { members: ['chat:grp-1', 'chat:dm-1'], onScreen: true },
     ] });
     const root = await renderList('grp-1', vi.fn(), false, null, 'sidebar');
@@ -180,7 +180,7 @@ describe('the IM chat list in the master\'s roles (#7333)', () => {
       { chat: { activeChatId: 'grp-1', openUnreadChat,
         chats: chats.map((row) => row.id === 'grp-1' ? { ...row, unread_count: 1,
           unread_locator: { stream_id: 'main:grp-1', stream_kind: 'main', thread_root_id: null,
-            message_id: 'unread-target', message_seq: 1, unread_count: 1, cursor_seq: 0,
+            message_id: 'unread-target', message_seq: 1, unread_count: 1, addressed_count: 1, cursor_seq: 0,
             version: 0, is_marked_unread: true } } : row),
         identitiesById: { 'peer-lin': displayIdentity('peer-lin', { display_name: '林知夏' }) },
       } },
@@ -225,22 +225,21 @@ describe('the IM chat list in the master\'s roles (#7333)', () => {
     expect(onChatSelected).not.toHaveBeenCalled();
   });
 
-  it('mobile row clicks navigate while only the chevron changes topic visibility', async () => {
+  it('mobile rows navigate without topic sub-rows, and include topic unread in the group', async () => {
     const onChatSelected = vi.fn();
     const root = await renderList('grp-1', onChatSelected, true);
     const source = () => root.querySelector<HTMLElement>('[data-chat-row="grp-1"]')!;
     const title = () => source().querySelector<HTMLElement>('.gg-list-row-title')!;
 
     await userEvent.click(title());
-    expect(source().getAttribute('aria-expanded')).toBe('true');
-    expect(root.querySelector('[data-topic-subrow="t-live"]')).not.toBeNull();
+    expect(source().hasAttribute('aria-expanded')).toBe(false);
+    expect(source().querySelector('button[aria-expanded]')).toBeNull();
+    expect(root.querySelector('[data-topic-subrow]')).toBeNull();
+    expect(source().querySelector('.gg-chip[data-tone="accent"]')?.textContent).toBe('1');
     expect(onChatSelected).toHaveBeenCalledExactlyOnceWith('composer');
 
-    await userEvent.click(source().querySelector<HTMLButtonElement>('button[aria-expanded]')!);
-    await until('mobile disclosure collapses topics', () => source().getAttribute('aria-expanded') === 'false');
-    expect(onChatSelected).toHaveBeenCalledTimes(1);
     await userEvent.click(title());
-    expect(source().getAttribute('aria-expanded')).toBe('false');
+    expect(root.querySelector('[data-topic-subrow]')).toBeNull();
     expect(onChatSelected).toHaveBeenCalledTimes(2);
   });
 

@@ -1,4 +1,6 @@
 import { EXTENSION_ARCHIVE_MIME, resolveAttachmentMimeType } from '@gugu/core/shared/imageMime.mjs';
+import { fileBlob, type FileHandle } from '@gugu/core/shared/fileResolver';
+import { withBoundedOperation } from '@gugu/core/cloud/boundedOperation';
 import { parseAttachmentContent, type AttachmentSource } from '@gugu/core/shared/ui/attachmentModels';
 import { appIdentityOf, type Publisher } from './app-identity';
 import { declaredPermissions } from './catalog';
@@ -52,19 +54,27 @@ export function messagePackageSource(row: PackageMessageRow): { publisher: strin
 export interface PackageReads {
   /** The card's message as the signed-in person reads it (`PACKAGE_MESSAGE_SELECT` from `chat.messages_view`); null: none they can read. */
   message(messageId: string): Promise<PackageMessageRow | null>;
-  /** A link to its bytes (attachments/urls); null: no longer there. */
-  sign(source: AttachmentSource): Promise<string | null>;
+  /** A lazy verified-original capability; null: no longer there. Resolving never signs or reads. */
+  open(source: AttachmentSource): Promise<FileHandle | null>;
 }
 
+/** Both hosts preserve the package's bounded download deadline and cancel the underlying verified acquisition. */
+export const packageBytes = (file: FileHandle) => withBoundedOperation(15_000, () => new Error('App package download timed out'), async signal => {
+  const cancel = () => { void file.dispose(); };
+  signal.addEventListener('abort', cancel, { once: true });
+  try { return new Uint8Array(await (await fileBlob(file)).arrayBuffer()); }
+  finally { signal.removeEventListener('abort', cancel); }
+});
+
 /** Who published a card's package and where its bytes are (#7290): read from its message, as the signed-in person. */
-export async function resolveAttachmentPackage(pkg: AttachmentPackage, reads: PackageReads): Promise<{ publisher: string; url: string }> {
+export async function resolveAttachmentPackage(pkg: AttachmentPackage, reads: PackageReads): Promise<{ publisher: string; file: FileHandle }> {
   const row = await reads.message(pkg.messageId);
   if (!row) throw new Error(`There is no message ${pkg.messageId} you can read`);
   const found = messagePackageSource(row);
   if ('problem' in found) throw new Error(found.problem);
-  const url = await reads.sign(found.source);
-  if (!url) throw new Error(`The App package of message ${pkg.messageId} is no longer there`);
-  return { publisher: found.publisher, url };
+  const file = await reads.open(found.source);
+  if (!file) throw new Error(`The App package of message ${pkg.messageId} is no longer there`);
+  return { publisher: found.publisher, file };
 }
 
 /** The App of the package's id installed here, as far as the decision needs it. */

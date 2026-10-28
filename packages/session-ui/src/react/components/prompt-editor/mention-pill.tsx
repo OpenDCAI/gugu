@@ -9,9 +9,10 @@
  *
  *   [icon] [name]
  *
- * On hover, a small ✕ button appears over the icon so the user can remove the
- * mention without keyboard navigation. The pill is `contentEditable=false`, so
- * Backspace / Delete at the node boundary deletes the entire atom at once.
+ * On a file pill's hover, a small ✕ button appears over the icon so the user can
+ * remove it without keyboard navigation; participant pills have no ✕. The pill is
+ * `contentEditable=false`, so Backspace / Delete at the node boundary deletes the
+ * entire atom at once.
  */
 
 import { cx } from '@session-ui/styles/utilities/cx';
@@ -74,15 +75,11 @@ export function MentionPill({
         data-mention-pending={pending || undefined}
         title={title ?? undefined}
       >
-        {/* Icon area — relative so the ✕ overlay is positioned inside it */}
-        {isFile ? (
+        {/* File icon area — relative so the ✕ overlay is positioned inside it. Participant pills have no ✕:
+            like Slack / Discord they are one token, removed whole by Backspace / Delete. */}
+        {isFile && (
           <span className={styles.pillIconArea}>
             <File aria-hidden style={{ width: '0.75rem', height: '0.75rem' }} />
-            {removeBtn}
-          </span>
-        ) : (
-          <span className={cx(styles.pillIconArea, styles.pillPlainIconArea)}>
-            {/* Hover-x: for plain mentions, overlaid across the whole text */}
             {removeBtn}
           </span>
         )}

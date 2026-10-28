@@ -21,12 +21,13 @@ export const HOST_CALLS = {
   'modal.close': { verb: 'modalClose', pack: (result: unknown = null) => ({ result }) },
   'modal.key': { verb: 'modalKey', pack: (key: string) => ({ key }) },
   getContext: { verb: 'getContext' },
+  showContextMenu: { verb: 'showContextMenu' },
   getAppState: { verb: 'getAppState' },
   openBrowserTab: { verb: 'openBrowserTab', pack: (url: string) => ({ url }) },
   /** `level: 'hint'` (摩擦单 F62): a note for the App's author, recorded, no red dot. */
   reportError: { verb: 'reportError', pack: (message: string, options?: { level?: 'error' | 'hint' }) => ({ message, ...(options?.level === 'hint' ? { level: 'hint' } : {}) }) },
   /** How wide the answer is was settled at install, never at the call: no scope argument (behavior tab-extensions). */
-  listAgents: { verb: 'listAgents', pack: () => ({}) },
+  listAgents: { verb: 'listAgents', pack: (options?: { report?: boolean }) => options?.report === true ? { report: true } : {} },
   readAgentHistory: { verb: 'readAgentHistory', pack: (agentId: string, before?: number) => ({ agentId, ...(before === undefined ? {} : { before }) }) },
   stopAgent: { verb: 'stopAgent', pack: (agentId: string) => ({ agentId }) },
   /** `gugu.dispatch(text, options)` (15): the one way to hand something to someone; `images` arrive as bytes (create-gugu.ts). */
@@ -56,8 +57,10 @@ export const HOST_CALLS = {
   listData: { verb: 'listData', pack: (dir = '.') => ({ path: dir }) },
   callProgram: {
     verb: 'callProgram',
-    pack: (tool: string, args?: Record<string, unknown>, server?: string) => ({ name: tool, ...(args === undefined ? {} : { arguments: args }), ...(server === undefined ? {} : { server }) }),
+    pack: (tool: string, args?: Record<string, unknown>, options?: string | { server?: string; device?: string }) => ({ name: tool, ...(args === undefined ? {} : { arguments: args }), ...(typeof options === 'string' ? { server: options } : options) }),
   },
+  'sessions.index': { verb: 'sessionsIndex', pack: (options?: Record<string, unknown>) => ({ ...options }) },
+  'sessions.read': { verb: 'sessionsRead' },
   notify: { verb: 'notify' },
   openLink: { verb: 'openLink', pack: (url: string) => ({ url }) },
   linkTo: { verb: 'linkTo', pack: (options: Record<string, unknown> = {}) => options },
@@ -76,8 +79,10 @@ export const HOST_CALLS = {
   'appFiles.search': { verb: 'filesSearch' },
   'appFiles.recent': { verb: 'filesRecent' },
   'appFiles.create': { verb: 'filesCreate' },
+  'appFiles.viewPreferences': { verb: 'filesViewPreferences' },
   'appFiles.remove': { verb: 'filesRemove' },
   'appFiles.rename': { verb: 'filesRename' },
+  'appFiles.keep': { verb: 'filesKeep' },
   'appFiles.mkdir': { verb: 'filesMkdir' },
   'appFiles.move': { verb: 'filesMove' },
   'appFiles.watch': { verb: 'filesWatch' },
@@ -134,11 +139,11 @@ export type HostMember = keyof typeof HOST_CALLS | keyof typeof HOST_EVENTS;
 export type HostCaller = 'page' | 'background' | 'program';
 
 /**
- * #6387 Events a page may not be listening for yet when they arrive — a link or a banner click that opened this very page
+ * #6387 Events a page may not be listening for yet when they arrive — a link, command or banner click that opened this page
  * lands while its script is still loading: held for the first subscriber, the newest kept (a page that never subscribes
  * must not grow it forever).
  */
-const HELD: ReadonlySet<ExtensionHostEvent['type']> = new Set(['link', 'notificationClicked']);
+const HELD: ReadonlySet<ExtensionHostEvent['type']> = new Set(['link', 'command', 'notificationClicked']);
 export function hostEventHub() {
   const listeners = new Map<ExtensionHostEvent['type'], Set<(event: ExtensionHostEvent) => void>>();
   const held: ExtensionHostEvent[] = [];

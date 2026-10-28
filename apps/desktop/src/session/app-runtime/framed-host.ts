@@ -14,7 +14,7 @@ import type { GuguHost } from './host';
  */
 export function framedHost(): GuguHost & Record<string, unknown> {
   const parent = window.parent;
-  // A session's tab names its frame (SessionAppFrame): only there is there a computer whose program a page can call.
+  // A task tab also receives its computer's program notifications; explicit device calls work from any page.
   const inSession = window.name === APP_SESSION_FRAME_NAME;
   // This document's start, ahead of its first call: the outer page lets go of what the frame's previous document held.
   parent.postMessage({ m: APP_FRAME_MARKER, t: 'hello' } satisfies FrameToHost, '*');
@@ -37,14 +37,15 @@ export function framedHost(): GuguHost & Record<string, unknown> {
  */
 const PHONE: ReadonlySet<HostMember> = new Set<HostMember>([
   'modal.open', 'modal.close', 'modal.key', 'onModalFocus',
-  'getContext', 'onContextChanged', 'onFilesChanged', 'reportError', 'openBrowserTab', 'dispatch', 'messages.history', 'messages.search',
+  'getContext', 'showContextMenu', 'getAppState', 'onAppStateChanged', 'onAgentsChanged', 'onContextChanged', 'onFilesChanged', 'reportError', 'openBrowserTab', 'dispatch', 'listAgents', 'messages.history', 'messages.search',
   'chats.list', 'chats.members', 'linkTo', 'openLink',
+  'callProgram', 'sessions.index', 'sessions.read',
   'forum.list', 'forum.read', 'forum.post', 'forum.reply', 'forum.react', 'forum.remove', 'forum.block', 'forum.assign', 'forum.award',
   'forum.subscribe', 'forum.unsubscribe', 'onForumChanged',
   'setTabTitle', 'setTabBadge', 'onCommand', 'onLink', 'showMessage', 'showSession', 'clipboard.writeText',
   'readData', 'writeData', 'listData',
-  'appFiles.open', 'appFiles.reopen', 'appFiles.close', 'appFiles.list', 'appFiles.search', 'appFiles.recent', 'appFiles.create',
-  'appFiles.remove', 'appFiles.rename', 'appFiles.mkdir', 'appFiles.move', 'appFiles.watch', 'appFiles.replace',
+  'appFiles.open', 'appFiles.reopen', 'appFiles.close', 'appFiles.list', 'appFiles.search', 'appFiles.recent', 'appFiles.create', 'appFiles.viewPreferences',
+  'appFiles.keep', 'appFiles.remove', 'appFiles.rename', 'appFiles.mkdir', 'appFiles.move', 'appFiles.watch', 'appFiles.replace',
   'appFiles.versions', 'appFiles.readVersion', 'appFiles.upload', 'appFiles.openWith', 'appFiles.download',
 ]);
 const IN_SESSION: ReadonlySet<HostMember> = new Set<HostMember>(['callProgram', 'onProgramNotification']);
@@ -52,6 +53,7 @@ const IN_SESSION: ReadonlySet<HostMember> = new Set<HostMember>(['callProgram', 
 const PROGRAM: ReadonlySet<HostMember> = new Set<HostMember>([
   'getContext', 'onContextChanged', 'onFilesChanged', 'reportError', 'openBrowserTab', 'dispatch', 'messages.history', 'messages.search',
   'chats.list', 'chats.members', 'projects.list', 'linkTo',
+  'sessions.index', 'sessions.read',
   'appFiles.open', 'appFiles.reopen', 'appFiles.close', 'appFiles.list', 'appFiles.search', 'appFiles.recent', 'appFiles.create',
   'appFiles.remove', 'appFiles.rename', 'appFiles.mkdir', 'appFiles.move', 'appFiles.watch', 'appFiles.replace',
   'appFiles.versions', 'appFiles.readVersion', 'appFiles.upload',
@@ -63,7 +65,7 @@ const PROGRAM: ReadonlySet<HostMember> = new Set<HostMember>([
  */
 export function messageHost(
   transport: { post(message: FrameToHost): void; listen(handler: (message: unknown) => void): void },
-  flags: { framed?: true; program?: true; session?: true },
+  flags: { framed?: true; program?: true; session?: true; background?: true },
 ): GuguHost & Record<string, unknown> {
   let seq = 0;
   const pending = new Map<number, { resolve: (value: unknown) => void; reject: (reason: unknown) => void }>();
@@ -90,10 +92,10 @@ export function messageHost(
       pending.set(id, { resolve, reject });
       transport.post({ m: APP_FRAME_MARKER, t: 'call', id, method, args });
     });
-  const offers = (member: HostMember) => (flags.program ? PROGRAM.has(member) : PHONE.has(member) || (!!flags.session && IN_SESSION.has(member)));
+  const offers = (member: HostMember) => flags.background || (flags.program ? PROGRAM.has(member) : PHONE.has(member) || (!!flags.session && IN_SESSION.has(member)));
   return {
     apiVersion: EXTENSION_API_VERSION,
     ...flags,
-    ...hostMembers(flags.program ? 'program' : 'page', offers, call, events.on),
+    ...hostMembers(flags.background ? 'background' : flags.program ? 'program' : 'page', offers, call, events.on),
   } as GuguHost & Record<string, unknown>;
 }

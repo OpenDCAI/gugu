@@ -12,11 +12,15 @@ export const PROJECT_GROUP_CHATS_EVENT = 'gugu:project-group-chats' as const;
 export type ProjectGroupChatsBridge = {
   readonly chatIds: ReadonlySet<string>;
   readonly projectMemberIds: ReadonlyMap<string, readonly string[]>;
+  /** agent → 它那条会话,只列是某台机器上的会话的 agent。 */
+  readonly agentSessions: ReadonlyMap<string, AgentSession>;
 };
 
-export function publishProjectGroupChats(chatIds: Iterable<string>, projectMemberIds: ReadonlyMap<string, readonly string[]>): void {
+export type AgentSession = { readonly projectId: string; readonly sessionId: string };
+
+export function publishProjectGroupChats(chatIds: Iterable<string>, projectMemberIds: ReadonlyMap<string, readonly string[]>, agentSessions: ReadonlyMap<string, AgentSession>): void {
   if (typeof window === 'undefined') return;
-  const bridge: ProjectGroupChatsBridge = { chatIds: new Set(chatIds), projectMemberIds };
+  const bridge: ProjectGroupChatsBridge = { chatIds: new Set(chatIds), projectMemberIds, agentSessions };
   (window as unknown as Record<string, unknown>)[PROJECT_GROUP_CHATS_BRIDGE_KEY] = bridge;
   window.dispatchEvent(new Event(PROJECT_GROUP_CHATS_EVENT));
 }

@@ -1,5 +1,6 @@
 apps/desktop/src/**/*.js
 dist/
+dist-phone/
 dist-electron/
 out/
 release/

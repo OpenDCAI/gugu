@@ -40,7 +40,7 @@ export function startPhoneAgentDirectorySync(deviceId: string, reachable: boolea
   let failures = 0
   let timer: ReturnType<typeof setTimeout> | undefined
   const previous = liveDeviceSessions()[deviceId]
-  updateDeviceSessions(deviceId, { cached: true, loading: reachable && !previous?.sessions.length, error: null })
+  updateDeviceSessions(deviceId, { cached: true, connected: false, loading: reachable && !previous?.sessions.length, error: null })
 
   void readCachedSessionList<SessionpageProjectSummary, SessionpageSessionSummary>(deviceId).then((stored) => {
     if (stopped || received || !stored || liveDeviceSessions()[deviceId]?.sessions.length) return
@@ -68,12 +68,12 @@ export function startPhoneAgentDirectorySync(deviceId: string, reachable: boolea
         if (stopped) return
         received = true
         failures = 0
-        updateDeviceSessions(deviceId, { ...result, cached: false, loading: false, error: null })
+        updateDeviceSessions(deviceId, { ...result, cached: false, connected: true, loading: false, error: null })
         writeCachedSessionList(deviceId, result)
       } catch (cause) {
         if (stopped) return
         failures += 1
-        updateDeviceSessions(deviceId, { cached: true, loading: false, error: cause instanceof Error ? cause.message : String(cause) })
+        updateDeviceSessions(deviceId, { cached: true, connected: false, loading: false, error: cause instanceof Error ? cause.message : String(cause) })
       } finally {
         if (!stopped && reachable) timer = setTimeout(() => { void refresh() }, failures ? reconnectDelayMs(failures + 1) : REFRESH_MS)
       }
@@ -91,6 +91,7 @@ export function startPhoneAgentDirectorySync(deviceId: string, reachable: boolea
     stopped = true
     if (timer) clearTimeout(timer)
     if (reachable) document.removeEventListener('visibilitychange', onVisible)
+    updateDeviceSessions(deviceId, { cached: true, connected: false, loading: false })
   }
   return Object.assign(stop, { refresh })
 }
@@ -98,7 +99,7 @@ export function startPhoneAgentDirectorySync(deviceId: string, reachable: boolea
 /** 移动壳根的唯一手机目录同步点。关闭宿主后的设备仍读本地摘要,不向动作设备发送宿主 RPC。 */
 export function usePhoneAgentDirectory(devices: readonly Device[]): void {
   const ownerId = useAuth().user?.id ?? null
-  const phones = devices.filter(isPhoneDevice)
+  const phones = phoneAgentAvailable() ? devices.filter(isPhoneDevice) : []
   const active = phones.filter((device) => device.is_online && isAgentHostDevice(device)).map((device) => device.device_id)
   const retryScope = useRef({ ownerId, active })
   retryScope.current = { ownerId, active }

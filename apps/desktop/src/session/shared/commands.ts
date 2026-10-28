@@ -145,13 +145,6 @@ export const COMMANDS = defineCommands({
     iconKey: 'terminal',
     category: 'Task View',
   },
-  'session.toggleTerminalDrawer': {
-    label: 'Toggle Terminal Drawer',
-    description: 'Show or hide the terminal drawer',
-    iconKey: 'terminal',
-    defaultHotkey: 'Mod+J',
-    category: 'Task View',
-  },
   'session.newTerminal': {
     label: 'New Terminal',
     description: 'Create a new terminal session',
@@ -377,6 +370,12 @@ export const COMMANDS = defineCommands({
     defaultHotkey: 'Mod+\\',
     label: 'Split Pane',
     description: 'Show the active tab side by side with the last one, or separate the pair',
+    category: 'Tab Navigation',
+  },
+  'session.fullscreenTab': {
+    defaultHotkey: 'Mod+Shift+Enter',
+    label: 'Full Screen Tab',
+    description: 'Let the active tab cover the whole workspace for now, or leave full screen (the layout stays as it is)',
     category: 'Tab Navigation',
   },
   'session.next': {

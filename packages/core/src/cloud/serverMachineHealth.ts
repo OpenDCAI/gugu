@@ -9,7 +9,7 @@ import type { DeviceCapabilities } from '../shared/types/chat'
  * 照 VS Code / Zed 的「客户端与 server 版本对不上就明说」(Zed 发了旧客户端不认的消息直接断线:zed#42474),
  * 只是不要求逐版本相等 —— server 自动升级、桌面自动升级,两边总有先后。
  */
-export const REMOTE_PROTOCOL_VERSION = 12
+export const REMOTE_PROTOCOL_VERSION = 14
 /**
  * server 报给桌面:桌面的协议版本低于它 = 这台电脑上的咕咕太旧。
  *
@@ -55,12 +55,18 @@ export const REMOTE_PROTOCOL_VERSION = 12
  * 11(会话消息带原文件):消息动作保留附件引用。发文件前要求目标至少为11，避免旧宿主忽略引用却回报投递成功。
  * 纯文字、任务控制与窗口不变，两个通用下沿仍为9。
  *
- * 12(Canonical file patches):sessionTimeline sends one patch tool entity with structured changes and raw patch bytes.
+ * 12(历史按改动游标取,10-26 devdb 出口事故):会话页对账不再每提交一轮重读整份历史,改成带着改动游标
+ * (`getHistory` 的 `changedSince`,应答带 `cursor` / `count`)只取新增 / 改过的那几轮(@@@history-change-cursor)。
+ * Both ends require protocol 12: a new desktop cannot reconcile an old host's history; an old desktop
+ * would keep rereading full pages from a new host. Reject both version mismatches through the existing
+ * client_outdated / server_outdated path, on cloud and SSH alike, rather than retaining the old transfer.
+ * 14(Canonical file patches):sessionTimeline sends one patch tool entity with structured changes and raw patch bytes.
  * Older peers only understand create/modify/delete entities; both compatibility floors advance instead of translating them.
  */
-export const MIN_CLIENT_PROTOCOL = 12
+/** 13: Ask settlements use origin instead of host; 14: canonical file patches. All clients and hosts update together. */
+export const MIN_CLIENT_PROTOCOL = 14
 /** 桌面 / 手机自己的要求:那台机器报的协议版本低于它 = 那台机器上的咕咕太旧。 */
-export const MIN_SERVER_PROTOCOL = 12
+export const MIN_SERVER_PROTOCOL = 14
 
 /**
  * 那台 server 说的协议版本够不够这台桌面用 —— 设备行 / 会话末尾(心跳报的 remote_protocol)与 SSH 装机时
@@ -92,13 +98,15 @@ export function serverMachineNotices(
   capabilities: Pick<DeviceCapabilities, 'host_kind' | 'server_disk' | 'server_rollback' | 'remote_protocol' | 'min_client_protocol'> | null | undefined,
   own: { protocol: number; minServer: number } = { protocol: REMOTE_PROTOCOL_VERSION, minServer: MIN_SERVER_PROTOCOL },
 ): ServerMachineNotice[] {
-  if (!capabilities || capabilities.host_kind !== 'server') return []
+  if (!capabilities) return []
   const notices: ServerMachineNotice[] = []
   if (capabilities.min_client_protocol !== undefined && capabilities.min_client_protocol > own.protocol) {
     notices.push({ kind: 'desktop-too-old' })
   } else if (serverProtocolTooOld(capabilities.remote_protocol, { unknownIsTooOld: false, minServer: own.minServer })) {
     notices.push({ kind: 'server-too-old' })
   }
+  // Protocol windows apply to every task host; disk/update notices belong to headless servers.
+  if (capabilities.host_kind !== 'server') return notices
   const disk = capabilities.server_disk
   if (disk && disk.free_bytes < SERVER_DISK_LOW_BYTES) notices.push({ kind: 'disk-low', freeBytes: disk.free_bytes })
   const rollback = capabilities.server_rollback

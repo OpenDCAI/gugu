@@ -1,4 +1,9 @@
+import type { Device } from '@gugu/core/shared/types/chat'
+import type { SessionpageSessionSummary } from '@gugu/session-core/session-record/contract'
+import { retainDeviceSessions, updateDeviceSessions } from '../../../../apps/desktop/src/session/shared/remote-sessions/session-directory'
+import { showPhoneAppView } from '../../../../apps/desktop/src/components/appSlot/phoneAppState'
 // @vitest-environment jsdom
+import { rpcQuery } from '../../../helpers/rpcQuery'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { hostAppFrame, type PhoneAppBinding } from '../../../../apps/desktop/src/components/appSlot/phoneAppHost'
 import { PHONE_CAPABILITIES } from '../../../../apps/desktop/src/components/appSlot/phoneApps'
@@ -17,7 +22,11 @@ const ORIGIN = 'https://board.acct.apps.gugu.invalid'
 /** The chat compose names: one the person signed in to this page is in (`composeInChat` reads it as them). */
 const CHAT = '0b000000-0000-4000-8000-0000000000b4'
 const DECK = '0c000000-0000-4000-8000-0000000000b4'
+vi.mock('../../../../apps/desktop/src/session/renderer/features/extensions/installed-extensions-store', () => ({ installedExtensionsStore: { manifests: [], icons: {}, isEnabled: () => true, manifestFor: () => ({ id: 'board', name: 'Board' }) } }))
 const auth = vi.hoisted(() => ({ token: `h.${Buffer.from(JSON.stringify({ sub: '0a000000-0000-4000-8000-0000000000b4' })).toString('base64url')}.s` }))
+const machines = vi.hoisted(() => ({ devices: [] as Device[] }))
+vi.mock('../../../../apps/desktop/src/store/devicesCache', () => ({ readCachedDevices: () => machines.devices }))
+vi.mock('../../../../apps/desktop/src/mobile/agent-watch/sessionpage-rpc', () => ({ fetchSessionsList: vi.fn() }))
 vi.mock('../../../../apps/desktop/src/lib/sessionPublication', () => ({ getRendererAccessToken: () => auth.token }))
 vi.mock('@gugu/core/cloud/supabase', () => ({
   createGuguSupabaseClient: () => {
@@ -30,12 +39,15 @@ vi.mock('@gugu/core/cloud/supabase', () => ({
     }
     // The folder's doors, as the person: the deck by its id, who may delete what (everyone, everything).
     // (Built when asked: this client is made while the module loads, before DECK is.)
-    const rpc = async (name: string, args: Record<string, unknown>) =>
+    const rpc = rpcQuery(async (name: string, args: Record<string, unknown>) =>
       name === 'chat_facts'
         ? { data: [{ id: args.p_chat_id, kind: 'group', source_chat_id: null }], error: null }
         : name === 'workspace_deletable_as'
         ? { data: args.p_item_ids, error: null }
-        : { data: [{ id: DECK, chat_id: CHAT, kind: 'file', filename: 'deck.pptx', version: 3, parent_id: null, system_role: null, path: 'deck.pptx' }], error: null }
+        // Not a project chat: no machine keeps its files.
+        : name === 'file_project_policy_for'
+        ? { data: null, error: null }
+        : { data: [{ id: DECK, chat_id: CHAT, kind: 'file', filename: 'deck.pptx', version: 3, parent_id: null, system_role: null, path: 'deck.pptx' }], error: null })
     return { from: () => query, rpc }
   },
 }))
@@ -64,6 +76,8 @@ function start(capabilities: PhoneAppBinding['capabilities']) {
   )
 }
 beforeEach(() => {
+  machines.devices = []
+  retainDeviceSessions([])
   frame = document.createElement('iframe')
   frame.src = `${ORIGIN}/index.html`
   document.body.appendChild(frame)
@@ -136,7 +150,7 @@ describe('the phone refuses a verb outside the gesture it needs, in the same sen
     window.addEventListener(APP_COMPOSE_EVENT, take)
     activation.isActive = true
     expect(await call('dispatch', { text: '  > picked  ', draft: true, to: { chat: CHAT } })).toMatchObject({ ok: true, value: { to: { chat: CHAT } } })
-    // A phone reaches none of the person's agents yet: one named is not here.
+    // An agent absent from every current list is not found.
     expect(await call('dispatch', { text: 'picked', draft: true, to: { agent: 'user:00000000-0000-4000-8000-000000000009' } })).toMatchObject({ ok: false, code: 'not-found' })
     // App 引用 pill: refs make pills the composer holds, as on the desktop; `about` is gone, said so.
     expect(await call('dispatch', { text: '', draft: true, refs: [{ file: { id: DECK }, at: { slide: 2 }, label: '第 2 页' }] })).toMatchObject({ ok: true })
@@ -147,6 +161,32 @@ describe('the phone refuses a verb outside the gesture it needs, in the same sen
       { chatId: CHAT, text: '', refs: [{ label: 'deck.pptx · 第 2 页', link: `gugu-file://${DECK}?v=3#slide=2` }] },
     ])
   })
+})
+
+it('onAgentsChanged observes the existing directory, filters App scope, and stops on dispose', () => {
+  machines.devices = [{ device_id: 'computer', label: 'Computer', is_online: true, capabilities: {} } as Device]
+  const own = { conversationId: 'own', spawnedByExtensionId: 'board', agent: { userId: 'a' }, agentStatus: 'idle' } as SessionpageSessionSummary
+  const other = { ...own, conversationId: 'other', spawnedByExtensionId: 'elsewhere', agent: { userId: 'b' } }
+  updateDeviceSessions('computer', { sessions: [own, other], cached: false, loading: false, error: null })
+  start(['agents:read'])
+  const changes = () => posted.mock.calls.filter(([message]) => message.t === 'event' && message.event?.type === 'agentsChanged')
+  const next = { ...own, title: 'changed' }
+  updateDeviceSessions('computer', { sessions: [next, { ...other, title: 'other changed' }] })
+  expect(changes().map(([message]) => message.event.agentIds)).toEqual([['user:a']])
+  updateDeviceSessions('computer', { sessions: [next, other] })
+  expect(changes()).toHaveLength(1)
+  host?.dispose(); host = undefined
+  updateDeviceSessions('computer', { sessions: [] })
+  expect(changes()).toHaveLength(1)
+})
+
+it('answers getAppState and pushes actual view changes once, independent of the App context', async () => {
+  expect(await call('getAppState', {})).toMatchObject({ ok: true, value: { activeSessionId: null, activeProjectId: null, panes: [] } })
+  const next = { activeSessionId: 'shown', activeProjectId: 'project', panes: [] }
+  const clear = showPhoneAppView(next)
+  expect(await call('getAppState', {})).toMatchObject({ ok: true, value: next })
+  expect(posted.mock.calls.filter(([message]) => message.t === 'event' && message.event?.type === 'appState')).toHaveLength(1)
+  clear()
 })
 
 describe("showSession on the phone: the task tab opens the session's row, on whichever of the person's computers", () => {

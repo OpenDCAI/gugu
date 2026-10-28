@@ -4,11 +4,11 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { createNode, createReactHarness } from '../../../support/testHarness'
 const mocks = vi.hoisted(() => ({
   currentPredicates: [] as Array<() => boolean>,
-  setDraft: vi.fn(),
+  writeDraft: vi.fn(),
   toast: vi.fn(),
   landPendingStarters: vi.fn(),
 }))
-vi.mock('../../../../apps/desktop/src/store/chatContext', () => ({ useChatStore: () => ({ setDraft: mocks.setDraft }) }))
+vi.mock('../../../../apps/desktop/src/store/chatContext', () => ({ useChatStore: () => ({ writeDraft: mocks.writeDraft }) }))
 vi.mock('../../../../apps/desktop/src/components/toastContext', () => ({ useToast: () => ({ toast: mocks.toast }) }))
 vi.mock('../../../../apps/desktop/src/lib/starterContinuation', () => ({ landPendingStarters: mocks.landPendingStarters }))
 import { StarterContinuationHost } from '../../../../apps/desktop/src/components/StarterContinuationHost'
@@ -39,7 +39,7 @@ describe('StarterContinuationHost', () => {
     await act(async () => { await Promise.resolve() })
     expect(mocks.landPendingStarters).toHaveBeenCalledTimes(1)
     expect(mocks.landPendingStarters).toHaveBeenCalledWith(
-      mocks.setDraft,
+      mocks.writeDraft,
       undefined,
       undefined,
       expect.any(Function),

@@ -13,8 +13,8 @@ import { readSessionpageSessionStartupFailureBridge } from '../../lib/sessionpag
 import { rendererLogger } from '../../lib/log'
 import { AUTOMATION_TEST_IDS } from '../../lib/automationDom'
 import { NoticeButton, SessionpageNoticeBar } from './SessionpageNoticeBar'
-import { AgentModeMenu } from './AgentModeMenu'
-import { MobileAgentModeMenu } from '@/mobile/agent-watch/MobileModeMenu'
+import { Button } from '../ui/Button'
+import { MobileAgentOpenTask } from '@/mobile/agent-watch/MobileAgentOpenTask'
 import { useAgentSessionRow } from '@/mobile/agent-watch/useAgentSessionRow'
 import { AgentPermissionBand } from './AgentPermissionBand'
 import { AgentQuestionCard } from './AgentQuestionCard'
@@ -52,8 +52,8 @@ export function useAgentSessionpagePresentation(
   identity: { display_name: string; avatar: string | null } | null,
   legacy: Pick<AgentRunningStatus, 'status' | 'presentation' | 'runningActivity' | 'local'>,
   mobile: boolean,
-  /** 打开这个 Agent 的任务;带 `view` = 打开后请会话页换成那种展示(模式按钮 #7167)。 */
-  onOpen: ((agentUserId: string, view?: 'code' | 'general') => Promise<void>) | undefined,
+  /** 打开这个 Agent 的任务。 */
+  onOpen: ((agentUserId: string) => Promise<void>) | undefined,
   onOpenFile?: (agentUserId: string, path: string) => Promise<void>,
 ): AgentSessionpagePresentation {
   const projection = useSessionpageAgentProjection(agentChat?.peer_user_id ?? null)
@@ -82,12 +82,12 @@ export function useAgentSessionpagePresentation(
   // running 没有人来收尾。状态、审阅门、阻塞都是宿主按 agent 的流里的那一条(agentStatusFeedBridge →
   // presence 表的 `local`),本 hook 只把它们在会话面显形:会话入口、review 门、阻塞条、启动失败条。
 
-  const handleOpen = useCallback(async (view?: 'code' | 'general') => {
+  const handleOpen = useCallback(async () => {
     const agentUserId = agentChat?.peer_user_id
     if (!agentUserId || !onOpen || opening) return
     setOpening(true)
     try {
-      await onOpen(agentUserId, view)
+      await onOpen(agentUserId)
     } catch (error) {
       toast(t('agent.taskpage.openFailed', { reason: error instanceof Error ? error.message : String(error) }), 'error')
     } finally {
@@ -149,12 +149,22 @@ export function useAgentSessionpagePresentation(
         avatar: identity?.avatar ?? legacy.runningActivity.avatar,
       }
 
-  // 头部最右那颗模式按钮(#7167,取代「↗ 在任务中打开」):聊天 / 编程 / 通用,选后两者 = 打开这条任务、换成那种展示。
+  // 头部最右那颗「在任务中打开」。「通用 / 编程」的手动切换已删(展示跟设置 → 通用的「终端」开关走),这里只剩去处。
   // 手机上没有会话页可开(#7197):那一颗从手机的会话目录里找这个 agent 的会话,去处是任务 tab 里它那一页。
   const openAction = mobile
-    ? (mobileSessionRow ? <MobileAgentModeMenu row={mobileSessionRow} /> : null)
+    ? (mobileSessionRow ? <MobileAgentOpenTask row={mobileSessionRow} /> : null)
     : agentChat && projection.context && onOpen ? (
-      <AgentModeMenu taskView={projection.context.view} busy={opening} onOpen={(view) => { void handleOpen(view) }} />
+      <Button
+        variant="ghost"
+        disabled={opening}
+        data-testid="agent-open-task"
+        data-sessionpage-open-target={projection.context.sessionId}
+        onClick={() => { void handleOpen() }}
+        className="window-no-drag-region shrink-0 gap-2"
+      >
+        <ExternalLink size={16} />
+        <span>{t('agent.taskpage.open')}</span>
+      </Button>
     ) : null
 
   // 会话页会话事实在当前 DM 的两种显形共用一条通知条(composer 上方的槽位):review 门(status)与启动失败(alert)。
@@ -232,7 +242,7 @@ export function useAgentSessionpagePresentation(
   ) : null
 
   // 头像上的感叹号(needs_user)在这里有地方按:同一条审批,会话页、手机、聊天页谁先答谁生效。
-  const permissionNotice = timeline.pendingPermission && agentChat ? <AgentPermissionBand pending={timeline.pendingPermission} respond={timeline.respondPermission} /> : null
+  const permissionNotice = timeline.pendingPermission && agentChat ? <AgentPermissionBand sessionId={projection.context?.sessionId ?? null} pending={timeline.pendingPermission} respond={timeline.respondPermission} /> : null
   const question = timeline.question ?? remoteQuestion.question
   const questionScope = `${user?.id}:${projection.context?.sessionId ?? remoteQuestion.key}`
   const questionNotice = question && agentChat ? <AgentQuestionCard key={agentQuestionDraftKey(questionScope, question)} scope={questionScope} settlement={question} mobile={mobile}

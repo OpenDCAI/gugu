@@ -58,7 +58,12 @@ vi.mock('@main/db/schema', () => ({
 }));
 vi.mock('drizzle-orm', () => ({ asc: () => null, desc: () => null, eq: () => null }));
 // Each row's model is its session's platform decision (none here) or the harness's own: session-model-fact.
-vi.mock('@main/core/sessions/platform-model-selection', () => ({ sessionPlatformModel: async () => undefined }));
+const platformDecisions = new Map<string, { modelId: string }>();
+vi.mock('@main/core/sessions/platform-model-selection', () => ({
+  sessionPlatformModel: async (id: string) => platformDecisions.get(id),
+  // The name kept with the decision (filled once per session and model, platform-model-selection.db.test).
+  sessionModelLabel: async (_id: string, decision: { modelId: string } | undefined) => (decision ? 'GLM 5.3 Flash' : null),
+}));
 vi.mock('@main/lib/logger', () => ({ log: { error: () => {}, warn: () => {}, info: () => {} } }));
 vi.mock('@main/core/sessions/getSessions', () => ({
   getSessions: () => Promise.resolve(rows.map((row) => ({ ...row }))),
@@ -175,6 +180,7 @@ const {
 
 beforeEach(() => {
   elsewhere = { sessions: [], unreached: [] };
+  platformDecisions.clear();
   rows.length = 0;
   stopped.length = 0;
   liveSessions.clear();
@@ -542,6 +548,22 @@ describe('问题 13:扩展起的 agent 是一条独立会话(#5665),在这个扩
     ]);
   });
 
+  // A Gugu model's menu name, as kept with each session's decision; an engine's own model has none.
+  it('modelLabel: a Gugu model\'s kept menu name; an engine\'s own model has none', async () => {
+    agentRow('chat-a');
+    agentRow('chat-b');
+    rows.push({ id: 'tui', runtime: 'pty', provider: 'claude', projectId: 'p', title: 'tui', spawnedByExtensionId: null });
+    agentRow('own');
+    for (const id of ['chat-a', 'chat-b', 'tui']) platformDecisions.set(id, { modelId: 'glm-5.3-flash' });
+    const { agents: listed } = await listAgentsForExtension(everyone);
+    expect(listed.map((agent) => [agent.agentId, agent.model, agent.modelLabel])).toEqual([
+      ['user:chat-a', 'platform:glm-5.3-flash', 'GLM 5.3 Flash'],
+      ['user:chat-b', 'platform:glm-5.3-flash', 'GLM 5.3 Flash'],
+      ['user:tui', 'platform:glm-5.3-flash', 'GLM 5.3 Flash'],
+      ['user:own', null, null],
+    ]);
+  });
+
   it('上下文用量(L12):开着的会话给引擎报的数,没开的给 null —— ❌ 拿 0 冒充', async () => {
     agentRow('open');
     agentRow('cold');
@@ -676,7 +698,7 @@ describe(':all-machines:别的机器上的 agent 来自那台机器的会话列�
     const child = agents[1]!;
     expect(child).toMatchObject({
       parentAgentId: 'user:parent-here', spawnedByThisExtension: true, transport: 'pty', providerId: 'codex',
-      status: 'working', model: null, isGenerating: null, failure: null, pendingPermissionCount: null, queuedPromptCount: null,
+      status: 'working', model: null, modelLabel: null, isGenerating: null, failure: null, pendingPermissionCount: null, queuedPromptCount: null,
     });
     expect(unreached).toEqual([{ deviceId: 'dev-c', label: 'Laptop', detail: 'offline' }]);
     contextTokensOf.clear();

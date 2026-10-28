@@ -1,8 +1,8 @@
-import { readAgentQuestionRecords, rememberAgentQuestion, settleAgentQuestionRecord } from '../sessions/agent-question-store';
-import { questionAnswerError } from '@gugu/session-core/session-record';
-import { sessionEvents } from '../sessions/session-events';
+import { ask, withdrawAll } from '../asks';
+import { hostAsks, resetAsks, respond as respondAsk, respondQuestion as respondAskQuestion } from '../asks/ask';
+import { ASK_SOURCE_SPEC } from '../asks/sources';
+import { readAgentQuestionRecords, rememberAgentQuestion } from '../sessions/agent-question-store';
 import { deliverAgentQuestionAnswer, restoredAgentQuestion } from '../sessions/agent-question-delivery';
-import type { QuestionAnswer } from '@gugu/session-core/session-record/contract';
 import { desc, eq, isNull } from 'drizzle-orm';
 import { isImplicitSessionHomeProjectId } from '@shared/core/projects/session-home-project';
 import { resolveAgentHome } from '@gugu/session-core/agents/plugins/helpers';
@@ -77,6 +77,7 @@ import { OpenedFileError, readOpenedFileChunk } from './opened-file';
 import { sessionOpenedFile, sessionOutputs } from '../sessions/session-outputs';
 import { createStandInTimeline } from './stand-in-timeline';
 import { readStartFailure } from './start-failures';
+import { knownHarnessConfigRoots } from '@main/core/agent-hooks/harness-config-roots';
 import { notStartedSessionOptions } from './not-started-options';
 import { readSessionModelMenu, type SessionpageSessionOptionsWithMenu } from './session-model-menu';
 import {
@@ -213,7 +214,7 @@ function readLocalProjects(): SessionpageProjectSummary[] {
     .all();
 }
 
-function readSessionRow(conversationId: string): SessionRow | null {
+export function readSessionRow(conversationId: string): SessionRow | null {
   return (
     readSessionRows().find((row) => row.session.id === conversationId)?.session ??
     null
@@ -321,7 +322,8 @@ function locateRow(row: SessionRow): SessionRecordLocation {
     provider: row.provider,
     providerSessionId: row.providerSessionId,
     managedConfigRoot: managed.root,
-    fallbackConfigRoots: legacy ? [legacy] : [],
+    // 这一家在本机 hook 里报过的配置目录(包装器在进程里改过的那种)排在默认根之后一起找。
+    fallbackConfigRoots: [...(legacy ? [legacy] : []), ...knownHarnessConfigRoots(row.provider)],
   });
 }
 
@@ -399,43 +401,10 @@ function attachPendingRequests(entry: TimelineEntry): void {
     });
 }
 
-/**
- * D-31 (owner 10-06「怎么符合用户思维和操作路径怎么来」; L11 复核 67): the approvals the host asks on an agent's behalf — an
- * App install — kept here, per session, for a chat-UI session and a terminal one alike (the owner works in Claude's TUI):
- * on the session's timeline next to its own approvals, so whoever follows it (the phone, another desktop, the private
- * chat's band) answers it there, and `respond` settles it once (compare-and-set) and hands the answer to the host. Nothing
- * here answers for the person: there is no full-access auto-approve at this layer.
- */
-export type HostAnswer = { optionId: string; by: string; answers?: readonly QuestionAnswer[]; digest?: string; enableIn?: string[] };
-type HostAskEntry = {
-  request: PendingRequest & { host: NonNullable<PendingRequest['host']> };
-  /** Why this answer cannot be taken (it stays asked), or null. */
-  refuse?: (answer: HostAnswer) => string | null;
-  answered: (answer: HostAnswer) => void;
-  withdraw: () => void;
-  detach: () => void;
-};
-const hostAsks = new Map<string, Map<string, HostAskEntry>>();
-let hostAskLifecycle: Array<() => void> | null = null;
-
-/** Explicit interruption or removal invalidates question cards, including detached ones. */
-export function withdrawHostQuestions(conversationId: string): void {
-  for (const item of readAgentQuestionRecords(conversationId)) {
-    if (item.state === 'pending') settleAgentQuestionRecord(conversationId, item.itemId, { state: 'cancelled', optionId: null, by: null });
-  }
-  for (const ask of [...(hostAsks.get(conversationId)?.values() ?? [])]) {
-    if (ask.request.host.kind === 'agent-question') ask.withdraw();
-  }
-}
-
-/** The session waits on the person while a host ask is out (an approval wait). Imported when asked: the status writer pulls in the
- *  hook service and the window's notifications, which this service has no other use for. One promise ⇒ start lands before end. */
-let statusWriter: Promise<typeof import('@main/core/agent-status/agent-status-writer')> | null = null;
-function reportHostWait(conversationId: string, id: string, open: boolean): void {
-  statusWriter ??= import('@main/core/agent-status/agent-status-writer');
-  void statusWriter
-    .then(({ agentStatusWriter }) => agentStatusWriter.reportHostWait({ sessionId: conversationId, id, open, ...(id.startsWith('host-ask:agent-question:') ? { waitKind: 'question' as const } : {}) }))
-    .catch((error: unknown) => log.warn('sessionTimeline: the host wait was not reported', { conversationId, error: String(error) }));
+/** Publish the already-owned host requests alongside the runtime queue. */
+export function syncAsked(conversationId: string): void {
+  const entry = entries.get(conversationId);
+  if (entry) syncPending(entry);
 }
 
 function syncPending(entry: TimelineEntry): void {
@@ -465,7 +434,7 @@ function restoreAgentQuestions(entry: TimelineEntry, projectId: string): void {
       entry.timeline.syncPendingRequests([...entry.runtimeRequests, ...[...(hostAsks.get(entry.conversationId)?.values() ?? [])].map(ask => ask.request), restored.request]);
       entry.timeline.settle({ itemId: restored.request.itemId, optionId: settlement.optionId, by: settlement.resolvedBy ?? 'owner' });
     }
-    const answer = restored.answer ? Promise.resolve(restored.answer) : askHost(entry.conversationId, restored.request,
+    const answer = restored.answer ? Promise.resolve(restored.answer) : ask(entry.conversationId, restored.request,
       { signal: new AbortController().signal });
     deliverAgentQuestionAnswer(entry.conversationId, projectId, restored.request, restored.answerMessageId, answer);
   }
@@ -474,97 +443,10 @@ function restoreAgentQuestions(entry: TimelineEntry, projectId: string): void {
 function withdrawOrphanHostAsks(entry: TimelineEntry): void {
   const asked = hostAsks.get(entry.conversationId);
   for (const settlement of entry.timeline.getSnapshot({ limit: 1 }).settlements) {
-    if (settlement.state === 'pending' && settlement.host && !asked?.has(settlement.itemId)) {
+    if (settlement.state === 'pending' && settlement.origin && ASK_SOURCE_SPEC[settlement.origin.source].raisedBy === 'host' && !asked?.has(settlement.itemId)) {
       entry.timeline.cancelSettlement(settlement.itemId);
     }
   }
-}
-
-/**
- * Ask the person, as an approval in this session: held until answered (`HostAnswer`), or `withdrawn` once `signal` aborts
- * (the host's clock, or the call it was asked for went away) — it ends cancelled where it was shown. `unavailable`: no
- * such session here. The session is waiting on the person meanwhile (an approval wait, or a question wait for an agent's
- * question: its yellow dot, the phone's alert).
- */
-export function askHost(
-  conversationId: string,
-  request: HostAskEntry['request'],
-  options: { signal: AbortSignal; refuse?: HostAskEntry['refuse'] }
-): Promise<HostAnswer | 'withdrawn' | 'unavailable'> {
-  if (!readSessionRow(conversationId)) return Promise.resolve('unavailable');
-  if (options.signal.aborted) return Promise.resolve('withdrawn');
-  if (request.host.kind === 'agent-question') rememberAgentQuestion(conversationId, request);
-  hostAskLifecycle ??= [sessionEvents.on('session:archived', withdrawHostQuestions), sessionEvents.on('session:deleted', withdrawHostQuestions)];
-  return new Promise((resolve) => {
-    const asks = hostAsks.get(conversationId) ?? new Map<string, HostAskEntry>();
-    hostAsks.set(conversationId, asks);
-    const wait = `host-ask:${request.itemId}`;
-    const aborted = () => {
-      if (request.host.kind === 'agent-question') settleAgentQuestionRecord(conversationId, request.itemId, { state: 'cancelled', optionId: null, by: null });
-      end('withdrawn');
-    };
-    const end = (answer: HostAnswer | 'withdrawn', publish = true) => {
-      if (!asks.delete(request.itemId)) return;
-      options.signal.removeEventListener('abort', aborted);
-      if (asks.size === 0) hostAsks.delete(conversationId);
-      reportHostWait(conversationId, wait, false);
-      const entry = entries.get(conversationId);
-      if (entry && publish) syncPending(entry);
-      resolve(answer);
-    };
-    asks.set(request.itemId, { request, ...(options.refuse ? { refuse: options.refuse } : {}), answered: end, withdraw: aborted, detach: () => end('withdrawn', false) });
-    reportHostWait(conversationId, wait, true);
-    const entry = entries.get(conversationId);
-    if (entry) syncPending(entry);
-    options.signal.addEventListener('abort', aborted, { once: true });
-  });
-}
-
-/** `respond` on a host's ask: refused (it stays asked), lost the race, or settled and handed to the host. */
-function respondHost(
-  timeline: SessionTimeline,
-  input: Extract<SessionpageSessionRespondRequest, { optionId: string }>,
-  current: Settlement
-): SessionTimelineResult<SessionpageSessionRespondResult> {
-  const ask = hostAsks.get(input.conversationId)?.get(input.itemId);
-  // Withdrawn (its clock ran out) or already answered: said as it is — 「已经不等了」 / 「已在某端回答」.
-  if (!ask || current.state !== 'pending') return { ok: true, value: { accepted: false, settlement: current } };
-  const answer: HostAnswer = {
-    optionId: input.optionId,
-    by: input.by,
-    ...(input.digest ? { digest: input.digest } : {}),
-    ...(input.enableIn ? { enableIn: [...input.enableIn] } : {}),
-  };
-  const refusal = ask.refuse?.(answer);
-  if (refusal) return fail('host_ask_refused', refusal);
-  const settled = timeline.settle({ itemId: input.itemId, optionId: input.optionId, by: input.by });
-  if (!settled.ok) return { ok: true, value: { accepted: false, settlement: settled.existing } };
-  ask.answered(answer);
-  return { ok: true, value: { accepted: true, settlement: settled.settlement } };
-}
-
-function respondHostQuestion(
-  timeline: SessionTimeline,
-  input: Exclude<SessionpageSessionRespondRequest, { optionId: string }>,
-  current: Settlement,
-): SessionTimelineResult<SessionpageSessionRespondResult> {
-  const ask = hostAsks.get(input.conversationId)?.get(input.itemId);
-  if (!ask || current.state !== 'pending') return { ok: true, value: { accepted: false, settlement: current } };
-  if ('decline' in input) {
-    try { settleAgentQuestionRecord(input.conversationId, input.itemId, { state: 'cancelled', optionId: null, by: input.by }); }
-    catch (error) { return fail('persist_failed', String(error)); }
-    timeline.cancelSettlement(input.itemId);
-    ask.answered({ optionId: 'withdrawn', by: input.by });
-    return { ok: true, value: { accepted: true, settlement: settlementOf(timeline, input.itemId)! } };
-  }
-  const invalid = questionAnswerError(current.questions ?? [], input.answers);
-  if (invalid) return fail('answer_invalid', invalid);
-  try { settleAgentQuestionRecord(input.conversationId, input.itemId, { state: 'resolved', optionId: JSON.stringify(input.answers), by: input.by }); }
-  catch (error) { return fail('persist_failed', String(error)); }
-  const settled = timeline.settle({ itemId: input.itemId, optionId: JSON.stringify(input.answers), by: input.by });
-  if (!settled.ok) return { ok: true, value: { accepted: false, settlement: settled.existing } };
-  ask.answered({ optionId: 'answered', answers: input.answers, by: input.by });
-  return { ok: true, value: { accepted: true, settlement: settled.settlement } };
 }
 
 function scheduleIdleDispose(entry: TimelineEntry): void {
@@ -1076,6 +958,46 @@ export async function outputs(input: { conversationId: string }): Promise<Sessio
 }
 
 /**
+ * 这条会话的运行时说「本进程里还在跑」的后台命令(#6582 那道筛子,手机看会话末尾那一句用;桌面读的是自己 store 里同一格)。
+ * 会话不在运行时里 ⇒ `[]`(没有活着的进程,就没有在跑的命令);运行时没报这一格(旧运行时)⇒ `null` = 不筛。
+ */
+export async function backgroundTasks(input: {
+  conversationId: string;
+}): Promise<SessionTimelineResult<{ runningCommandTaskIds: string[] | null }>> {
+  const row = readSessionRow(input.conversationId);
+  if (!row) return fail('session_not_found', `这台机器上没有会话 ${input.conversationId}`);
+  try {
+    // 用时再 import:它们拖着运行时进程那一串(app scope),只读时间线的路不该替它交税。
+    const { readAcpSessionState } = await import('@main/core/acp/session-summary-reader');
+    const state = await readAcpSessionState(row.id);
+    return { ok: true, value: { runningCommandTaskIds: state ? (state.backgroundCommandTaskIds ? [...state.backgroundCommandTaskIds] : null) : [] } };
+  } catch (error) {
+    return fail('read_failed', (error as Error)?.message ?? String(error));
+  }
+}
+
+/**
+ * 停一个后台任务:命令报供应商的 asyncTaskId,子智能体报派它的 tool_use id —— 与桌面那一行的停止键同一个调用
+ * (`stopBackgroundTask`)。受理即返回,停没停下来看时间线。
+ */
+export async function stopBackgroundTask(input: {
+  conversationId: string;
+  stopId: string;
+}): Promise<SessionTimelineResult<{ stopped: true }>> {
+  const row = readSessionRow(input.conversationId);
+  if (!row) return fail('session_not_found', `这台机器上没有会话 ${input.conversationId}`);
+  try {
+    const { getAcpRuntimeClient } = await import('@main/core/acp/runtime-process/host');
+    const client = await getAcpRuntimeClient();
+    const result = await client.stopBackgroundTask({ sessionId: row.id, taskId: input.stopId });
+    if (!result.success) return fail('stop_failed', String((result.error as { message?: string })?.message ?? result.error));
+    return { ok: true, value: { stopped: true } };
+  } catch (error) {
+    return fail('stop_failed', (error as Error)?.message ?? String(error));
+  }
+}
+
+/**
  * 订阅。`emit` 是这条传输自己的推送口（设备 RPC 的 broadcast / 桌面的 IPC）。
  * 同一个 subscriptionId 再订阅 = 顶掉前一条（重连时手机会带着同一个 id 回来）。
  */
@@ -1329,7 +1251,7 @@ export async function cancel(
 ): Promise<SessionTimelineResult<SessionpageSessionCancelResult>> {
   const row = readSessionRow(conversationId);
   if (!row) return fail('session_not_found', `这台机器上没有会话 ${conversationId}`);
-  withdrawHostQuestions(conversationId);
+  withdrawAll(conversationId, 'agent-question');
   try {
     return { ok: true, value: await deliverSessionCancel(writeTargetFrom(row)) };
   } catch (error) {
@@ -1406,13 +1328,13 @@ export async function respond(
   try {
     if (!('optionId' in input)) {
       const question = settlementOf(timeline, input.itemId);
-      if (question?.host?.kind === 'agent-question') return respondHostQuestion(timeline, input, question);
+      if (question?.origin?.source === 'agent-question') return respondAskQuestion(timeline, input, question);
       return await respondQuestion(target, timeline, input);
     }
     // D-31 The host's own ask: settled here, on either kind of session — no runtime to hand it to.
     const current = settlementOf(timeline, input.itemId);
-    if (current?.host?.kind === 'agent-question') return fail('answer_invalid', '请提交这道题的完整回答');
-    if (current?.host) return respondHost(timeline, input, current);
+    if (current?.origin?.source === 'agent-question') return fail('answer_invalid', '请提交这道题的完整回答');
+    if (current?.origin && ASK_SOURCE_SPEC[current.origin.source].raisedBy === 'host') return respondAsk(timeline, input, current);
     // 这条腿上根本没有结算口 ⇒ 抢之前就拒,❌ 抢成 resolved 推出去再放回(#6739)。
     const unavailable = permissionChannelError(target, input.kind);
     if (unavailable) return fail(unavailable.code, unavailable.message);
@@ -1488,9 +1410,7 @@ function settlementOf(timeline: SessionTimeline, itemId: string): Settlement | n
 
 /** 测试与收尾用：拆掉所有订阅与缓存实例。 */
 export function resetSessionTimelineService(): void {
-  for (const asks of [...hostAsks.values()]) for (const ask of [...asks.values()]) { if (ask.request.host.kind === 'agent-question') ask.detach(); else ask.withdraw(); }
-  for (const stop of hostAskLifecycle ?? []) stop();
-  hostAskLifecycle = null;
+  resetAsks();
   // 存档跟着一起作废:重置意味着「这一层记的东西可能都不作数了」,
   // 留着一份自称还对得上的存档,下次开会话就会拿它去续一段不存在的历史。
   for (const id of entries.keys()) void dropTimelineArchive(id);

@@ -1,12 +1,11 @@
 import { GroupRenameContext, useChatCommands } from './chat/use-chat-commands'
-import { useState, useRef, useEffect, useCallback, useMemo, useSyncExternalStore, type ReactNode } from 'react'
+import { useState, useRef, useEffect, useCallback, useMemo, type ReactNode } from 'react'
 import { createPortal } from 'react-dom'
 import { useTranslation } from 'react-i18next'
 import { motion, AnimatePresence } from 'framer-motion'
 import { DUR_FAST_MS, tween } from '@/styles/motion'
 import type { FlowListHandle } from '@/lib/flowList'
 import { ChevronLeft, MessageCircle, Zap } from '@/lib/icons'
-import { downloadAttachment } from '@/lib/attachmentBytes'
 import { createSessionpageChatSendPreflight } from '@/lib/sessionpage-session-recovery'
 import type { SidebarTab } from '@gugu/core/shared/enums/sidebarTabModels'
 import { resolveOrLoud } from '@gugu/core/shared/resolveOrLoud'
@@ -18,7 +17,7 @@ import { useAuth } from '../store/auth'
 import { AgentSettingsModal } from './agentsettings/AgentSettingsModal'
 import type { AgentConversationActivity, GroupCollabSnapshot, MessageItem } from '@gugu/core/shared/types/chat'
 import { chatService } from '../lib/chat'
-import { useUnreadLocatorNavigation } from '../hooks/useUnreadLocatorNavigation'
+import { useUnreadLocatorNavigation } from '../hooks/useUnreadLocatorNavigation'; import { useQueuedMessageIds } from '../hooks/useQueuedMessageIds'
 import { useSourceMessageReveal } from '../hooks/useSourceMessageReveal'
 import { useChatHistoryPagination } from './chat/useChatHistoryPagination'
 import { useGroupCollabRemovedAgentGate } from '../hooks/useGroupCollabRemovedAgentGate'
@@ -31,7 +30,7 @@ import { drainTopicSplitRequest, requestTopicSplit } from '../lib/topicSplitRequ
 import { buildGroupRosterCandidates } from '../lib/mention'
 import { topicMentionCandidates } from './chat/topicMentionModels'
 import { resolveGroupRunningIndicator } from '../lib/agentRunningStatusModels'
-import { GROUP_AGENT_BAR_MAX, groupRunningTokens } from '../lib/groupRunningTokenModels'
+import { groupRunningTokens, latestSpokeAt } from '../lib/groupRunningTokenModels'
 import type { AgentLocation } from '@gugu/core/shared/ui/agentHeaderStatusModels'
 import { useReadReceiptPanel } from '@/hooks/useReadReceiptPanel'
 import { agentComposerModel, isRetiredCloudAgentChat } from '../lib/agentComposerModel'
@@ -48,7 +47,6 @@ import { composerCardLine } from '../lib/composerCardCopy'
 import { useMessageFilePreview } from './chat/useMessageFilePreview'
 import { AgentComposerNotices } from './chat/AgentComposerNotices'
 import { useAgentSessionpagePresentation } from './chat/AgentSessionpagePresentation'
-import { AnnouncementDrawer } from './chat/AnnouncementDrawer'
 import type { MemberProfileCardModel, MemberProfileChatTarget } from './MemberProfileCard'
 import { AgentChatHero } from './chat/AgentChatHero'
 import { useShownAgentStatus } from './chat/useAgentsOnCloudComputer'
@@ -56,21 +54,20 @@ import { AgentHeaderStatusLine } from './chat/AgentHeaderStatusLine'
 import { MemberProfilePopover } from './MemberProfilePopover'
 import { ReadReceiptPopover } from './ReadReceiptPopover'
 import { useListenModeEditControls } from './chat/useListenModeEditControls'
-import { useMessageColumnMinWidth } from './chat/useMessageColumnMinWidth'
-import { RightPanel } from './chat/RightPanel'; import { isGroupManagerRole } from '../lib/groupMemberPermissions'; import { SettingsPageHead } from './chat/groupSettingsUi'
+import { RightPanel } from './chat/RightPanel'; import { isGroupManagerRole } from '../lib/groupMemberPermissions'
 import {
   buildMemberProfileMap,
   type ActiveMemberProfile,
   type MemberProfileSide,
   toIdentityProfile,
 } from './memberProfileModels'
-import { ChatMessageComposer, type ComposerAttachAction } from './chat/ChatMessageComposer'
+import { ChatMessageComposer, type ChatMessageComposerProps, type ComposerAttachAction } from './chat/ChatMessageComposer'
 // @@@5856 消息列表抽成共享组件(话题分栏也用它)——见 MessageList.tsx 头部注释。
 import { MessageList, type MessageListRowProps } from './chat/MessageList'
 import { useTaskChatRows } from './assistant/useTaskChatRows'
 import { MessageLoadFailure } from './chat/MessageLoadFailure'
 import { AgentFirstConversationEmpty } from './chat/AgentFirstConversationEmpty'
-import { MessageListSkeleton } from './chat/MessageListSkeleton'; import { ChatBottomDock } from './chat/ChatBottomDock'
+import { MessageListSkeleton } from './chat/MessageListSkeleton'; import { ChatBottomDock } from './chat/ChatBottomDock'; import { PhoneChatTabs } from '../mobile/chat/PhoneChatTabs'; import { PhoneProjectEmpty } from '../mobile/chat/PhoneProjectEmpty'
 import { ChatHeaderActions } from './chat/ChatHeaderActions'
 import { useFollowingTail, useTailPinning } from './chat/useFollowingTail'
 import { useConversationScrollMemory } from './chat/useConversationScrollMemory'
@@ -78,12 +75,11 @@ import {
   AGENT_HERO_OVERHANG_PX, isAgentHeroBird, type AgentHeaderStatus,
 } from './chat/chatPresentation'
 import { sessionComposerDockBandClassName } from '../session/renderer/features/sessions/session-composer-styles'
-import { GroupPanelTabs } from './appSlot/GroupPanelTabs'
-import { GroupAppSlot } from './appSlot/GroupAppSlot'; import { useOpenApp } from './appSlot/useOpenApp'; import { folderTab, GROUP_PANEL_WIDTHS, groupSlotMemory, isFolder } from './appSlot/groupSlotMemory'; import { SidePanelSplit, type PanelForm } from '../session/renderer/lib/layout/side-panel-split'
-import { useTopicSurface, type TopicSurface } from '@/hooks/useTopicSurface'
+import { GroupTabContent } from './appSlot/GroupTabContent'; import { useChatOpener } from './appSlot/useChatOpener'; import { ChatPlusMenu, ChatTabPage, ChatTabPortals } from './appSlot/ChatTabHosts'; import { useTabsReading } from './appSlot/useTabsReading'
+import { folderItem, isFolderItem } from '../session/renderer/features/chats/chat-tabs/chat-panel-item'; import { closeChatTab, closeInfoTab, focusedChatTab, infoTabOf, openInfoTab, openPanelItem, panelFull, panelTabsOf, setPanelFull, showChatOnly, type ChatPanelTab } from '../session/renderer/features/chats/chat-tabs/chat-layouts'
+import { useTopicSurface } from '@/hooks/useTopicSurface'
 import { chatDisplayName, isRoomChat } from '@gugu/core/shared/ui/chatModels'
 import { topicService } from '@/lib/topics'
-import { MemberListPanel } from './chat/MemberListPanel'
 import { useAgentFloodNotice } from '@/hooks/useAgentFloodNotice'
 import { TopicSplitPane } from './chat/TopicSplitPane'
 import { useToast } from './toastContext'
@@ -117,10 +113,10 @@ interface ChatAreaPanelProps {
   openNonce?: number
   onBack?: () => void
   /** #7199「助理」App 里那块:头栏只在搜索时出现(头像、搜索、设置在 App 自己那一排),输入框「和 X 聊天」+「+」;typing = 接在消息流末尾、取代运行条的「它在处理」。 */
-  chrome?: { placeholder: string; attachGlyph: ReactNode; attachMenu?: readonly ComposerAttachAction[]; typing?: ReactNode; hideRunningStatus?: boolean }
+  chrome?: { placeholder: string; attachGlyph: ReactNode; attachMenu?: readonly ComposerAttachAction[]; typing?: ReactNode; composerHeader?: ReactNode; hideRunningStatus?: boolean;runtimeReady?:boolean }
   /** Block tab-strip slots for actions, title, topics and right-panel tabs; absent on standalone/phone headers. */
   blockHost?: { actions: HTMLElement | null; title: HTMLElement | null; tabs: HTMLElement | null }
-  onOpenUserChat?: (target: MemberProfileChatTarget) => void; onOpenSessionpageAgent?: (agentUserId: string, view?: 'code' | 'general') => Promise<void>; onOpenSessionpageAgentFile?: (agentUserId: string, path: string) => Promise<void>
+  onOpenUserChat?: (target: MemberProfileChatTarget) => void; onOpenSessionpageAgent?: (agentUserId: string) => Promise<void>; onOpenSessionpageAgentFile?: (agentUserId: string, path: string) => Promise<void>
 }
 
 // ── ChatAreaPanel ──────────────────────────────────────────────────────────────
@@ -141,30 +137,17 @@ export function ChatAreaPanel({ chatId, ...surface }: ChatAreaPanelProps) {
 function ChatAreaSurface({ viewportKey = 'chats', activeTab, navigationTarget = false, hidden = false, mobile = false, openNonce, onBack, chrome, blockHost, onOpenUserChat, onOpenSessionpageAgent, onOpenSessionpageAgentFile }: Omit<ChatAreaPanelProps, 'chatId'>) {
   const { toast } = useToast()
   const { t } = useTranslation('messaging')
-  const { getImRepository, subscribeAccountRevision, identitiesById, chats, activeChat, activeChatId, messages, loadingMessages, messagesError, refreshMessages, sendMessage, toggleReaction, memberReadSeqs, clearMessages, deleteMessage, sendAttachments, pinChat, deleteChat, leaveGroup, setChatNotificationLevel, loadOlderMessages, messageWindow, unreadEntry, jumpToUnreadEntry, loadNewerMessages, loadMessageAnchor, returnToLatestMessages, markMessageVisible, setFollowingTail, threadScope, setActiveChatId, setDraft } = useChatStore('getImRepository', 'subscribeAccountRevision', 'identitiesById', 'chats', 'activeChat', 'activeChatId', 'messages', 'loadingMessages', 'messagesError', 'refreshMessages', 'sendMessage', 'toggleReaction', 'memberReadSeqs', 'clearMessages', 'deleteMessage', 'sendAttachments', 'pinChat', 'deleteChat', 'leaveGroup', 'setChatNotificationLevel', 'loadOlderMessages', 'messageWindow', 'unreadEntry', 'jumpToUnreadEntry', 'loadNewerMessages', 'loadMessageAnchor', 'returnToLatestMessages', 'markMessageVisible', 'setFollowingTail', 'threadScope', 'setActiveChatId', 'setDraft')
+  const { getImRepository, subscribeAccountRevision, identitiesById, chats, activeChat, activeChatId, messages, loadingMessages, messagesError, refreshMessages, sendMessage, toggleReaction, memberReadSeqs, clearMessages, deleteMessage, sendAttachments, pinChat, deleteChat, leaveGroup, setChatNotificationLevel, loadOlderMessages, messageWindow, unreadEntry, jumpToUnreadEntry, loadNewerMessages, loadMessageAnchor, returnToLatestMessages, markMessageVisible, setFollowingTail, threadScope, setActiveChatId, writeDraft } = useChatStore('getImRepository', 'subscribeAccountRevision', 'identitiesById', 'chats', 'activeChat', 'activeChatId', 'messages', 'loadingMessages', 'messagesError', 'refreshMessages', 'sendMessage', 'toggleReaction', 'memberReadSeqs', 'clearMessages', 'deleteMessage', 'sendAttachments', 'pinChat', 'deleteChat', 'leaveGroup', 'setChatNotificationLevel', 'loadOlderMessages', 'messageWindow', 'unreadEntry', 'jumpToUnreadEntry', 'loadNewerMessages', 'loadMessageAnchor', 'returnToLatestMessages', 'markMessageVisible', 'setFollowingTail', 'threadScope', 'setActiveChatId', 'writeDraft')
   const { user } = useAuth()
   const surfaceVisible = activeTab === 'chats' && !hidden
   const { contacts } = useContactsStore()
-  const [showDrawer, setShowDrawer] = useState(false); const surfaceElement = useRef<HTMLDivElement>(null)
+  const surfaceElement = useRef<HTMLDivElement>(null)
   const [showAgentSettings, setShowAgentSettings] = useState(false)
-  // #986 群公告：群聊 ⋮ 下拉菜单 + 右侧抽屉。
-  const [showAnnounce, setShowAnnounce] = useState(false)
   const [showHeaderMenu, setShowHeaderMenu] = useState(false)
-  const [topicTabHost, setTopicTabHost] = useState<HTMLElement | null>(null)
-  const [workspaceForm, setWorkspaceForm] = useState<PanelForm>('closed') // the workspace App's slot: the session page's three forms
-  // @@@5856 成员列表面板开关(与 workspace/history/话题分栏 同槽位互斥)。头栏 👥 接的就是它 ——
-  // 此前那颗按钮接的是群设置抽屉,于是成员列表本身在产品里没有任何入口(owner 2026-09-18 指出)。
-  const [memberListOpen, setMemberListOpen] = useState(false)
-  // closeRightSurfaces 在 topicSurface 之前声明,而它要关分栏 ⇒ 经 ref 取当前实例,避免声明顺序打结。
-  const topicSurfaceRef = useRef<TopicSurface | null>(null)
-  // ⚠️ ❌ 不要在这里读 topicSurfaceRef —— 它要到本文件更靠后才赋值,这一行读到的是**上一帧**的
-  // 分栏状态。它喂 rightPanelOpen → useMessageColumnMinWidth(#2234 那条「右栏永不被裁切」),
-  // 差一帧就是开分栏那一帧 min-width 算错。分栏开没开是本地状态,直接存一份。
-  const [topicSplitOpen, setTopicSplitOpen] = useState(false)
   const search = useChatSearch(activeChatId, surfaceVisible, messages, surfaceElement, viewportKey)
   const { searchMode, setSearchMode, searchQuery, setSearchQuery, isFiltering, displayedMessages } = search
   const filePreviewCloseRef = useRef<() => void>(() => {})
-  const [quoteText, setQuoteText] = useState<{ messageId?: string; senderName: string; content: string } | null>(null)
+  const [quoteText, setQuoteText] = useState<ChatMessageComposerProps['quoteContent']>(null)
   // @@@message-forward (#899) / @@@multi-select (#988) - messages pending forward; single-forward
   // sets [msg], batch sets the selected list. Opens ForwardMessageDialog when non-empty.
   const [forwardMessages, setForwardMessages] = useState<MessageItem[]>([])
@@ -203,13 +186,9 @@ function ChatAreaSurface({ viewportKey = 'chats', activeTab, navigationTarget = 
   // 其余 surface 的 setX(false)（O(n²) 漂移）——已漏掉 群公告(showAnnounce) 多路（#1497 Scale review CONFIRMED:
   // 设置/工作区/历史/agent设置/话题分栏/成员列表 任一开时 群公告 仍可叠加）。统一在此一处关全部，
   // opener 只 close+开自己。
+  // 群信息(成员、公告、设置)、群文件夹、App、话题是这条线页签条上的页签(chat-tabs,owner 10-26),与抽屉不争同一格:这里只关抽屉。
   const closeRightSurfaces = useCallback(() => {
-    setWorkspaceForm('closed')
-    topicSurfaceRef.current?.closeSplit()
-    setMemberListOpen(false)
     setShowAgentSettings(false)
-    setShowDrawer(false)
-    setShowAnnounce(false)
     filePreviewCloseRef.current()
   }, [])
   // @@@message-forward (#899) - open the forward picker; the dialog calls handleForwardTo to fan out.
@@ -218,22 +197,12 @@ function ChatAreaSurface({ viewportKey = 'chats', activeTab, navigationTarget = 
   const filePreview = useMessageFilePreview({ onForward: handleForward, mobile, visible: surfaceVisible, closeRightSurfaces, toast })
   const openFilePreview = filePreview.open
   filePreviewCloseRef.current = filePreview.close
-  // @@@2234 中栏 min-width 自适应(有右栏展开时按内容区实宽让位,右栏永不被 overflow:hidden 裁切)—— 逻辑见 hook。
-  const rightPanelOpen = topicSplitOpen || memberListOpen || showDrawer || showAnnounce || filePreview.isOpen; const { messageColumnMinWidth, attachPanelsRow } = useMessageColumnMinWidth(rightPanelOpen, mobile)
-  const handleOpenSettingsDrawer = useCallback(() => {
-    closeRightSurfaces()
-    setShowDrawer(true)
-  }, [closeRightSurfaces])
+  const handleOpenSettingsDrawer = useCallback(() => { if (activeChatId) openInfoTab(activeChatId) }, [activeChatId])
   const projectName = useChatSlotProjectName()
   const emptyProject = useChatHasMessages(projectName !== null ? activeChatId ?? undefined : undefined) === false
   const handleOpenAgentSettings = useCallback(() => {
     closeRightSurfaces()
     setShowAgentSettings(true)
-  }, [closeRightSurfaces])
-  // @@@1485 review：群公告也走具名 opener（与其余 5 个 opener 一致 + 受 exhaustive-deps 保护，避免内联漏改）。
-  const handleOpenAnnounce = useCallback(() => {
-    closeRightSurfaces()
-    setShowAnnounce(true)
   }, [closeRightSurfaces])
   const openConversationOrAgentSettings = useCallback(() => {
     if (isAgentChat && agentChatContact) handleOpenAgentSettings()
@@ -251,7 +220,7 @@ function ChatAreaSurface({ viewportKey = 'chats', activeTab, navigationTarget = 
     peerAvatar: activeChatAvatar,
   })
   // @@@recent-actions (#518/#437) - presence 的最近工具动作,经 header 状态 chip 的 pop-out(hover/长按)展示。
-  const sessionpageAgent = useAgentSessionpagePresentation(isAgentChat ? activeChat : null, peerIdentity ?? null, running, mobile, onOpenSessionpageAgent, onOpenSessionpageAgentFile)
+  const sessionpageAgent = useAgentSessionpagePresentation(isAgentChat && chrome?.runtimeReady!==false ? activeChat : null, peerIdentity ?? null, running, mobile, onOpenSessionpageAgent, onOpenSessionpageAgentFile)
   const agentRecentActions = isAgentChat ? sessionpageAgent.recentActions?.actions ?? running.recentActions : []
   const agentLastActiveAt = isAgentChat ? sessionpageAgent.recentActions?.lastActionAt ?? running.lastActionAt : null
   // #1319 — anchor for the header ⋯ menu. The menu is portalled to document.body and positioned with
@@ -288,7 +257,6 @@ function ChatAreaSurface({ viewportKey = 'chats', activeTab, navigationTarget = 
     // groupThread 在下方第二个 effect 里)→ 在 A 会话开着 Agent 设置面板时切到 B,面板残留泄漏。归一后切会话与
     // opener 走同一 SSOT helper;下方冗余的第二个 reset effect 一并删除。
     closeRightSurfaces()
-    setWorkspaceForm(groupSlotMemory.form(activeChatId)) // 摩擦单 F29: as it was left in this chat, full too
     setShowHeaderMenu(false)
     setQuoteText(null)
     isAtBottomRef.current = true
@@ -308,7 +276,7 @@ function ChatAreaSurface({ viewportKey = 'chats', activeTab, navigationTarget = 
   const groupRename = useChatCommands({
     chatId: activeChatId, visible: surfaceVisible, surface: surfaceElement,
     canRename: isGroupChat && isGroupManagerRole(groupCollabSnapshot.humans.find((h) => h.id === user?.id)?.role),
-    openSettings: handleOpenSettingsDrawer, openAnnouncement: handleOpenAnnounce,
+    openSettings: handleOpenSettingsDrawer,
   })
 
   useEffect(() => {
@@ -357,19 +325,26 @@ function ChatAreaSurface({ viewportKey = 'chats', activeTab, navigationTarget = 
     })
   }, [])
 
-  // A chat's panel (a group's, a topic's, a private chat's — 主人 10-05) holds Apps' pages and files, the folder among them (真源 §2.4):
-  // the Apps list, open and follow changes themselves (gugu.files.*), so nothing about the files is held here.
-  const handleOpenWorkspacePanel = useCallback(() => {
-    if (!activeChatId) return
-    closeRightSurfaces() // 同槽位互斥（#1312），含 群公告（#1485 review）
-    setWorkspaceForm(workspaceForm === 'closed' ? 'side' : workspaceForm) // full stays full (a link opening a file in it)
-  }, [activeChatId, closeRightSurfaces, workspaceForm])
-  const handleCloseWorkspacePanel = useCallback(() => setWorkspaceForm('closed'), [])
-  const handleOpenFolder = useCallback(() => { handleOpenWorkspacePanel(); if (activeChatId) groupSlotMemory.open(activeChatId, folderTab()) }, [activeChatId, handleOpenWorkspacePanel])
-  const shownInPanel = useSyncExternalStore(groupSlotMemory.subscribe, () => (activeChatId ? groupSlotMemory.opened(activeChatId) : null))
-  // What this chat's panel was asked to open, every way in — a link (摩擦单 F10), 「在本群打开」(app-redesign §5), a page's files.openWith.
-  const asked = useOpenApp(activeChatId, handleOpenWorkspacePanel)
-  const workspaceSlot = activeChatId ? <GroupAppSlot visible={surfaceVisible} onForward={handleForward} chatId={activeChatId} onClose={handleCloseWorkspacePanel} asked={asked} tabbed={Boolean(blockHost)} full={workspaceForm === 'full'} onToggleFull={() => setWorkspaceForm(workspaceForm === 'full' ? 'side' : 'full')} /> : null
+  // A chat's tabs (a group's, a topic's, a private chat's — 主人 10-05) hold Apps' pages and files, the folder among them
+  // (真源 §2.4), beside the messages on the task's tab engine (chat-tabs/chat-layouts): asked of the chat every way in.
+  const opener = useChatOpener(activeChatId)
+  const inBlock = Boolean(blockHost)
+  const tabs = useTabsReading(() => {
+    if (!activeChatId) return { folder: null as ChatPanelTab | null, page: null as ChatPanelTab | null, chatUp: true, infoShown: false }
+    const panels = panelTabsOf(activeChatId)
+    const focused = focusedChatTab(activeChatId)
+    // In a block the folder is pressed while it is on screen; without a strip (the phone) while it is the page in front.
+    const folder = panels.find((tab) => isFolderItem(tab.item) && (inBlock ? tab.shown : tab.tabId === focused?.tabId)) ?? null
+    const full = panels.find((tab) => panelFull(activeChatId, tab.tabId)) ?? null
+    const info = infoTabOf(activeChatId)
+    return { folder, page: full, chatUp: inBlock ? !full : focused?.kind !== 'panel', infoShown: inBlock ? Boolean(info?.shown) : focused?.kind === 'info' }
+  }, [activeChatId, inBlock])
+  const handleOpenFolder = useCallback(() => { if (activeChatId) { closeRightSurfaces(); openPanelItem(activeChatId, folderItem()) } }, [activeChatId, closeRightSurfaces])
+  const handleCloseWorkspacePanel = useCallback(() => { if (activeChatId && tabs.folder) closeChatTab(activeChatId, tabs.folder.tabId) }, [activeChatId, tabs.folder])
+  // A block draws its shown tabs in the engine's slots; without a strip, one focused page covers the chat (topics too).
+  const coverChat = (page: ReactNode) => mobile ? <RightPanel>{page}</RightPanel> : <div className="absolute inset-0 z-20 flex flex-col bg-[var(--bg-primary)]">{page}</div>
+  const inTabs = (topicPane: ReactNode, infoPage: () => ReactNode) => !activeChatId ? null : blockHost ? <ChatTabPortals chatId={activeChatId} panel={panelContent} topic={() => topicPane} info={infoPage} /> : <ChatTabPage chatId={activeChatId} panel={(tab) => coverChat(panelContent(tab))} topic={() => topicPane} info={() => coverChat(infoPage())} />
+  const panelContent = (tab: ChatPanelTab) => activeChatId ? <GroupTabContent chatId={activeChatId} tabId={tab.tabId} item={tab.item} tabbed={Boolean(blockHost)} inWindow={tab.inWindow} mobile={mobile} visible={surfaceVisible} onForward={handleForward} onOpenWith={opener.openWith} /> : null
 
   const topicSurface = useTopicSurface({
     chat: activeChat, messages,
@@ -377,15 +352,13 @@ function ChatAreaSurface({ viewportKey = 'chats', activeTab, navigationTarget = 
     closeRightSurfaces,
     subscribeAccountRevision,
     onCreateFailed: (error) => toast(t('topic.openFailed'), 'error', safeFailureLine(String((error as Error)?.message ?? error))),
+    embedded: Boolean(blockHost),
   })
-  topicSurfaceRef.current = topicSurface
-  useEffect(() => { groupSlotMemory.setForm(activeChatId, workspaceForm); groupSlotMemory.showTopic(activeChatId, topicSurface.splitTopic) }, [activeChatId, workspaceForm, topicSurface.splitTopic]) // 摩擦单 F29;⑥ 右边正显示哪样
-  // 渲染期收口:分栏开没开以 surface 为准(它自己是 subject-scoped 的),❌ 不靠副作用补一刀。
-  if (topicSplitOpen !== Boolean(topicSurface.splitTopic)) setTopicSplitOpen(Boolean(topicSurface.splitTopic))
+  const topicSplitOpen = Boolean(topicSurface.splitTopic)
   // @@@5856 分栏标题块要说清「引自哪一句」。三态必须分开(pending 还没读到 / null 读到了「没这条」/
   // 有字 = 预览),合并任意两种都会让它说假话:首帧闪「已删除」、读取失败也渲染成「已删除」。
   // @@@3922 另把它 subject-scope(渲染期比对),否则从话题 A 切到 B 时 B 会顶着 A 的预览一个往返。
-  const splitTopicChatIdForPreview = topicSurface.splitTopic?.chatId ?? null
+  const splitTopicChatIdForPreview = topicSurface.topic?.chatId ?? null
   const [sourcePreviewState, setSourcePreviewState] = useState<{
     forTopicChatId: string | null
     preview: string | null | 'pending' | 'unreadable'
@@ -460,10 +433,6 @@ function ChatAreaSurface({ viewportKey = 'chats', activeTab, navigationTarget = 
     topicSurface.openSplit({ chatId: topic.chat_id, name: topic.name })
   }, [topicSurface])
   const agentFlood = useAgentFloodNotice(activeChatId, messages)
-  const handleOpenMemberList = useCallback(() => {
-    closeRightSurfaces()
-    setMemberListOpen(true)
-  }, [closeRightSurfaces])
 
   // @@@1503 — 原「切换聊天关历史/群 thread 面板」那个 reset effect 已并入上方主 reset 的
   // closeRightSurfaces()(history/分栏/成员列表都在 helper 内),reset 路径归一到单一 SSOT。
@@ -477,7 +446,7 @@ function ChatAreaSurface({ viewportKey = 'chats', activeTab, navigationTarget = 
 
   const handleQuote = useCallback((msg: MessageItem) => {
     setQuoteText({
-      messageId: msg.id,
+      messageId: msg.id, source: msg,
       senderName: msg.sender_user_id ? (identitiesById[msg.sender_user_id]?.display_name ?? '') : '',
       content: msg.content_type === 'attachment' ? t('chatArea.attachment') : msg.content_type === 'card' ? composerCardLine(msg.content ?? '') : (msg.content ?? ''),
     })
@@ -501,12 +470,8 @@ function ChatAreaSurface({ viewportKey = 'chats', activeTab, navigationTarget = 
   // Listen for RPC-triggered quote
   useEffect(() => {
     const handler = (e: Event) => {
-      const { messageId, senderName = '', content } = (e as CustomEvent).detail as {
-        messageId?: string
-        senderName?: string
-        content: string
-      }
-      setQuoteText({ messageId, senderName, content })
+      const { messageId, senderName = '', content, source } = (e as CustomEvent).detail as NonNullable<ChatMessageComposerProps['quoteContent']>
+      setQuoteText({ messageId, senderName, content, source })
     }
     window.addEventListener(UI_EVENTS.quoteMessage, handler)
     return () => window.removeEventListener(UI_EVENTS.quoteMessage, handler)
@@ -518,7 +483,7 @@ function ChatAreaSurface({ viewportKey = 'chats', activeTab, navigationTarget = 
     })
   }, [deleteMessage])
 
-  const { rows: chatListRows, listedMessages, notice: taskChatNotice, threeParty } = useTaskChatRows(displayedMessages, user?.id, activeChat?.peer_user_id, surfaceVisible, isFiltering ? searchQuery : '')
+  const { rows: chatListRows, listedMessages, notice: taskChatNotice, threeParty } = useTaskChatRows(displayedMessages, user?.id, activeChat?.peer_user_id, surfaceVisible, isFiltering ? searchQuery : ''); const queuedIds = useQueuedMessageIds(messages, memberReadSeqs)
   const chatResetKey = `${activeChatId ?? ''}#${openNonce ?? 0}#${messageWindow?.viewVersion ?? 0}`
   const { scrollerEl, scrollerRef, setScrollerRef, prepareForSavedPosition, isPreservingPosition, forgetSavedPosition, openLocation, revealMessage } = useConversationScrollMemory({
     chatId: activeChatId, viewportKey, activationKey: activeChatId ?? '', enabled: !isFiltering, discardSaved: !!unreadEntry,
@@ -530,7 +495,7 @@ function ChatAreaSurface({ viewportKey = 'chats', activeTab, navigationTarget = 
   useChatHistoryPagination({ resetKey: chatResetKey, messages, enabled: !isFiltering && !unreadNavigationPending, scroller: scrollerEl, atBottom: viewportAtBottom, loadOlder: loadOlderMessages, loadNewer: loadNewerMessages, window: messageWindow, onError: onHistoryError })
 
   // #1708 来源消息(群右栏工作区 App 的 gugu.showMessage):不在加载段里的先按锚点载进来,再定位 + 闪烁;载不到 → fail-loud toast。
-  const showMessage = useSourceMessageReveal({ activeChatId, viewportKey, navigationTarget, enabled: surfaceVisible, ready: !isFiltering && workspaceForm !== 'full' && (!mobile || workspaceForm === 'closed'), onNavigate: () => { setSearchMode(false); setWorkspaceForm((form) => mobile ? 'closed' : form === 'full' ? 'side' : form) }, rows: chatListRows, listRef, isAtBottomRef, setFollowingTail, setFlashMessageId, flashTimerRef, revealMessage, onMissing: () => toast(t('chatArea.source.notVisible'), 'error') })
+  const showMessage = useSourceMessageReveal({ activeChatId, viewportKey, navigationTarget, enabled: surfaceVisible, ready: !isFiltering && tabs.chatUp, onNavigate: () => { setSearchMode(false); if (activeChatId && tabs.page) setPanelFull(activeChatId, tabs.page.tabId, false); else if (activeChatId && mobile) showChatOnly(activeChatId) }, rows: chatListRows, listRef, isAtBottomRef, setFollowingTail, setFlashMessageId, flashTimerRef, revealMessage, onMissing: () => toast(t('chatArea.source.notVisible'), 'error') })
 
   const { pinToBottom, onTotalListHeightChanged } = useTailPinning({ resetKey: chatResetKey, messages: listedMessages,
     enabled: !isFiltering && !unreadNavigationPending, messageWindow, scrollerEl, scrollerRef, listRef, isAtBottomRef,
@@ -594,7 +559,7 @@ function ChatAreaSurface({ viewportKey = 'chats', activeTab, navigationTarget = 
   const shownAgent = useShownAgentStatus() // #7199 画头像 / 状态字用的那一份;在跑、提醒照旧读原读数
   const groupAgentRecentActivity = useAgentRecentActivity(groupAgentIds)
   // 群的运行 token:群聊页的运行条和手机话题页挂的那条是同一份。
-  const groupRunTokens = groupRunningTokens({ agents: groupCollabSnapshot.agents, statuses: groupAgentStatuses, identities: identitiesById, currentUserId: user?.id, recentActivity: groupAgentRecentActivity })
+  const groupRunTokens = groupRunningTokens({ agents: groupCollabSnapshot.agents, statuses: groupAgentStatuses, identities: identitiesById, currentUserId: user?.id, recentActivity: groupAgentRecentActivity, spokeAt: latestSpokeAt(messages) })
   // 群 thread panel 的运行中占位指示器(panel 内没有主线浮动条)。它和浮动条读**同一个** agent 态:
   // DM 里就是本会话那个 agent,群里挑「任一成员在跑」里的第一个来画身份(纯函数在 agentRunningStatusModels)。
   const activeAgentActivity = useMemo<AgentConversationActivity | null>(
@@ -645,7 +610,7 @@ function ChatAreaSurface({ viewportKey = 'chats', activeTab, navigationTarget = 
     mobile,
     highlight: isFiltering ? searchQuery : undefined,
     flashMessageId,
-    memberReadSeqs,
+    memberReadSeqs, queuedIds,
     isAgentChat,
     isGroupChat: isRoomChatSurface,
     memberProfiles: messageMemberProfiles,
@@ -678,7 +643,7 @@ function ChatAreaSurface({ viewportKey = 'chats', activeTab, navigationTarget = 
     isFiltering,
     mobile,
     searchQuery,
-    memberReadSeqs,
+    memberReadSeqs, queuedIds,
     isAgentChat,
     isRoomChatSurface,
     messageMemberProfiles,
@@ -736,14 +701,8 @@ function ChatAreaSurface({ viewportKey = 'chats', activeTab, navigationTarget = 
     ? { peerId: activeChat.peer_user_id ?? '', presentation: agentHeaderPresentation ?? null, location: agentHeaderLocation, engine: agentHeaderEngine, engineMissing: agentHeaderEngineMissing }
     : null
   const agentHero = isAgentChat && !searchMode && !!activeChat.peer_user_id
-  // 块里第一枚页签后面那一格:先是开着的话题(和群对话连成一对),再是右栏开着的那几枚和「+」(gugu-dev#181 第 ⑤⑥ 步)。
-  const blockTabs = blockHost?.tabs && activeChatId ? createPortal(
-    <>
-      <span ref={setTopicTabHost} className="contents" data-topic-tab-host="" />
-      <GroupPanelTabs chatId={activeChatId} onShowPanel={(form) => { closeRightSurfaces(); setWorkspaceForm(form) }} onClosePanel={handleCloseWorkspacePanel} onShowTopic={topicSurface.openSplit} onShowChatAlone={closeRightSurfaces} />
-    </>,
-    blockHost.tabs,
-  ) : null
+  // 块的页签条最后那枚之后的「+」(gugu-dev#181 第 ⑥ 步);页签本身由会话页的页签引擎画(chat-tabs)。
+  const blockTabs = blockHost?.tabs && activeChatId ? createPortal(<ChatPlusMenu chatId={activeChatId} />, blockHost.tabs) : null
   const roomMemberTotal = isRoomChatSurface ? groupCollabSnapshot.humans.length + groupCollabSnapshot.agents.length : 0
   const headerActions = (
     <>
@@ -751,8 +710,8 @@ function ChatAreaSurface({ viewportKey = 'chats', activeTab, navigationTarget = 
         isGroupChat={isGroupChat}
         isRoomChat={isRoomChatSurface}
         searchMode={searchMode}
-        folderShown={workspaceForm !== 'closed' && isFolder(shownInPanel)}
-        memberListOpen={memberListOpen}
+        folderShown={tabs.folder !== null}
+        infoShown={tabs.infoShown}
         showHeaderMenu={showHeaderMenu}
         mobile={mobile}
         // 块里没有标题后面那个「(N)」,人数挂在成员按钮上(原型「👥 4」)。
@@ -761,15 +720,75 @@ function ChatAreaSurface({ viewportKey = 'chats', activeTab, navigationTarget = 
         onEnterSearchMode={() => setSearchMode(true)}
         onOpenFolder={handleOpenFolder}
         onCloseWorkspacePanel={handleCloseWorkspacePanel}
-        onOpenSettingsDrawer={handleOpenSettingsDrawer}
-        onOpenMemberList={handleOpenMemberList}
-        onCloseRightSurfaces={closeRightSurfaces}
+        onOpenInfo={(page) => { if (activeChatId) openInfoTab(activeChatId, page) }}
+        onCloseInfo={() => { if (activeChatId) closeInfoTab(activeChatId) }}
         onToggleHeaderMenu={() => setShowHeaderMenu((v) => !v)}
         onCloseHeaderMenu={() => setShowHeaderMenu(false)}
-        onOpenAnnouncement={handleOpenAnnounce}
       />
       {sessionpageAgent.openAction}
     </>
+  )
+
+  // 群信息 / 会话信息(owner 10-26):成员、公告、设置合成一枚页签,和群文件夹同一套;从成员钮开就落在成员那一页。
+  const infoPage = () => activeChat && activeChatId ? (
+    <GroupRenameContext.Provider value={groupRename}><ChatSettingsPanel
+      key={infoTabOf(activeChatId)?.info.at}
+      initialPage={infoTabOf(activeChatId)?.info.page}
+      activeChat={activeChat}
+      messages={messages}
+      onClose={() => closeInfoTab(activeChatId)}
+      onClearMessages={clearMessages}
+      onOpenSearch={() => {
+        setSearchQuery('')
+        setSearchMode(true)
+      }}
+      onSetNotificationLevel={(level) => setChatNotificationLevel(activeChat.id, level)}
+      onTogglePinned={(pinned) => pinChat(activeChat.id, pinned)}
+      memberProfiles={drawerMemberProfiles}
+      currentUserId={user?.id ?? null}
+      onOpenUserChat={onOpenUserChat}
+      onWhisper={isGroupChat ? (target) => setWhisperTarget({ userId: target.id, displayName: target.displayName }) : undefined}
+      groupCollabSnapshot={groupCollabSnapshot}
+      groupCollabError={groupCollabError}
+      groupAgentStatuses={groupAgentStatuses}
+      onReloadGroupCollab={loadGroupCollab}
+      onLeaveGroup={() => leaveGroup(activeChat.id)}
+      onDissolveGroup={() => deleteChat(activeChat.id, true)}
+      mobile={mobile}
+    /></GroupRenameContext.Provider>
+  ) : null
+
+  const topicPane = topicSurface.topic && (
+    <TopicSplitPane
+      viewportKey={`${viewportKey}:topic`} navigationTarget={navigationTarget}
+      topic={topicSurface.topic}
+      messages={topicSurface.splitLine.messages} history={topicSurface.splitLine}
+      loading={topicSurface.splitLine.loadingMessages}
+      memberProfiles={messageMemberProfiles}
+      visibleChats={chats}
+      sourceMessagePreview={topicSourceMessagePreview}
+      focusComposerToken={splitFocusToken}
+      memberReadSeqs={topicSurface.splitLine.memberReadSeqs}
+      mentionMembers={splitMentionMembers}
+      onSend={topicSurface.sendInSplit}
+      onSendAttachments={topicSurface.sendAttachmentsInSplit}
+      agentStatuses={groupAgentStatuses}
+      runningTokens={mobile ? groupRunTokens : undefined}
+      runningPreviewChatId={activeChatId}
+      onOpenMemberProfile={Object.keys(messageMemberProfiles).length > 0
+        ? (member, anchor, side) => openMessageMemberProfile(member, anchor, side, 'aside')
+        : undefined}
+      onOpenAttachment={(file, message) => { const split = topicSurface.splitTopic; openFilePreview(file, message, split ? () => topicSurface.openSplit(split) : undefined) }}
+      onClose={topicSurface.closeSplit}
+      embedded={Boolean(blockHost)}
+      currentUserId={user?.id ?? null}
+      mobile={mobile} inTab={mobile}
+      onReaction={(id, emoji) => void topicSurface.splitLine.toggleReaction(id, emoji)
+        .catch((error) => toast(t('message.actions.react'), 'error', safeFailureLine(String((error as Error)?.message ?? error))))}
+      onForward={handleForward} visible={surfaceVisible && topicSurface.splitTopic !== null}
+      onDelete={(id) => void topicSurface.splitLine.deleteMessage(id)
+        .catch((error) => toast(t('message.actions.delete'), 'error', safeFailureLine(String((error as Error)?.message ?? error))))}
+    />
   )
 
   return (
@@ -780,7 +799,7 @@ function ChatAreaSurface({ viewportKey = 'chats', activeTab, navigationTarget = 
         // flexShrink:0 的固定宽度)在异常并存时把整个 MainLayout 行撑开、反向挤压左侧会话列表。
         minWidth: 0,
         height: '100%',
-        background: 'var(--bg-primary)',
+        background: mobile ? 'var(--ta-panel-bg)' : 'var(--bg-primary)',
         display: 'flex',
         flexDirection: 'column',
         overflow: 'hidden',
@@ -794,10 +813,10 @@ function ChatAreaSurface({ viewportKey = 'chats', activeTab, navigationTarget = 
       {blockHost && <ChatBlockHead host={blockHost} actions={headerActions} chat={activeChat} name={activeChatName} avatar={activeChatAvatar} isAgent={isAgentChat} identitiesById={identitiesById} />}
       {blockTabs}
       {((!chrome && !blockHost) || searchMode) && <PaneHeader
-        divider={!agentHero} className={agentHero ? 'gg-agent-header' : undefined} data-chat-area-header=""
+        divider={!agentHero && !(mobile && topicSurface.topics.length > 0)} className={agentHero ? 'gg-agent-header' : undefined} data-chat-area-header=""
         mobile={mobile}
         style={{
-          background: 'var(--bg-primary)',
+          background: mobile ? 'transparent' : 'var(--bg-primary)',
           paddingRight: 'calc(var(--pane-pad-x) + var(--titlebar-controls-width))',
           // agent 单聊:小鸟比头栏高几像素,允许它探出头栏(见 tokens.css .gg-agent-header)。
           overflow: agentHero ? 'visible' : 'hidden',
@@ -859,7 +878,7 @@ function ChatAreaSurface({ viewportKey = 'chats', activeTab, navigationTarget = 
                 )
               })()}
               {/* @@@single-head (#957/#1234) agent 标识 ⚡bolt — 逐字节抄设计稿 #single-name .bolt(琥珀 #e0a13a, 12px, 明暗一致)。 */}
-              {isAgentChat && (
+              {isAgentChat && !mobile && (
                 <span aria-hidden style={{ color: 'var(--agent-bolt)', flexShrink: 0, display: 'inline-flex' }}>
                   <Zap size={12} />
                 </span>
@@ -868,7 +887,7 @@ function ChatAreaSurface({ viewportKey = 'chats', activeTab, navigationTarget = 
                   terminal 时代的离线/陈旧告警(设计稿仅 ⚡ + 状态点)。该 badge 仍存在于
                   chat-list/group 等 surface(它本质是「主机 gugu 版本过旧」提示,与 offline 正交)。 */}
             </span>
-            {isGroupChat && (() => {
+            {isGroupChat && !mobile && (() => {
               // #single-name 群头 .st: 绿点 ● + 完整成员名(`P7测试、林小满、Atlas、Borealis`),无「· N 人」
               // 点击 header 展开成员抽屉。溢出由 ellipsis 收。
               const members = [...groupCollabSnapshot.humans, ...groupCollabSnapshot.agents]
@@ -909,21 +928,21 @@ function ChatAreaSurface({ viewportKey = 'chats', activeTab, navigationTarget = 
             </motion.div>
           )}
         </AnimatePresence>
-      </PaneHeader>}
+      </PaneHeader>}{mobile && !chrome && !blockHost && !searchMode ? <PhoneChatTabs topics={topicSurface.topics} messages={messages} current={topicSurface.splitTopic?.chatId ?? null} onPick={(topic) => topic ? topicSurface.openSplit({ chatId: topic.chat_id, name: topic.name }) : topicSurface.closeSplit()} /> : null}
 
       <div
-        ref={attachPanelsRow}
         style={{
           flex: 1,
           minHeight: 0,
+          minWidth: 0,
           display: 'flex',
           overflow: 'hidden',
           position: 'relative',
         }}
       >
-        <SidePanelSplit form={mobile ? 'closed' : workspaceForm} resizeLabel={t('chatArea.openWith.resize')} widths={GROUP_PANEL_WIDTHS} unmountWhenClosed onCollapseWorkspace={handleCloseWorkspacePanel}
-          className="flex-1" chatMinWidth={workspaceForm === 'closed' ? messageColumnMinWidth : 0} workspacePanel={workspaceSlot} chatColumn={
-        emptyProject ? <ChatPartSlot chatId={activeChat.id} part="empty" className="flex min-h-0 min-w-0 flex-1 flex-col" /> : <div
+        <div data-testid="session-chat-panel" className={`relative isolate flex min-h-0 min-w-0 flex-1 flex-col${mobile && topicSurface.splitTopic ? ' invisible pointer-events-none' : ''}`}>
+        {opener.overlay}
+        {emptyProject ? <ChatPartSlot chatId={activeChat.id} part="empty" className="flex min-h-0 min-w-0 flex-1 flex-col" /> : <div
           style={{
             flex: 1,
             minHeight: 0,
@@ -952,7 +971,7 @@ function ChatAreaSurface({ viewportKey = 'chats', activeTab, navigationTarget = 
 
       {/* Message list —— 有行就画列表,与 loading 无关:加载中已有的行(盘缓存/乐观发送)照样可见,
           列表不会因为 loading 翻转被卸载重挂。骨架只在「在加载且一行都没有」时占位。 */}
-      {taskChatNotice}{loadingMessages && chatListRows.length === 0 && <MessageListSkeleton />}
+      {taskChatNotice}{loadingMessages && chatListRows.length === 0 && <MessageListSkeleton delayMs={threeParty?300:0} overlay={threeParty}/>}
 
       {/* #7199 没读出来 ≠ 没聊过:读失败时说读不到 + 重试,❌ 往下落进首次对话欢迎页 / 「暂无消息」。 */}
       {messagesError && !(loadingMessages && chatListRows.length === 0) && (
@@ -971,10 +990,10 @@ function ChatAreaSurface({ viewportKey = 'chats', activeTab, navigationTarget = 
             {t('chatArea.searchNoResults', { query: searchQuery })}
           </div>
         ) : isAgentChat ? (
-          <AgentFirstConversationEmpty name={resolveOrLoud(activeChatName, `agent chat greeting ${activeChat?.id}`)} onPick={(s) => { if (activeChatId) setDraft(activeChatId, s) }} />
+          <AgentFirstConversationEmpty name={resolveOrLoud(activeChatName, `agent chat greeting ${activeChat?.id}`)} onPick={(s) => { if (activeChatId) writeDraft(activeChatId, s) }} />
         ) : (
           <div style={{ flex: 1, textAlign: 'center', color: 'var(--text-muted)', fontSize: 'var(--font-body)', padding: '40px 0' }}>
-            {t('chatArea.noMessages')}
+            {mobile && isGroupChat ? <PhoneProjectEmpty chatId={activeChat.id} /> : t('chatArea.noMessages')}
           </div>
         )
       )}
@@ -997,14 +1016,13 @@ function ChatAreaSurface({ viewportKey = 'chats', activeTab, navigationTarget = 
 
       {/* @@@1506 - Agent 运行状态：输入框上方的轻量浮动文字（owner #1506：无重白板，打字时也能瞥见）。群聊列出在跑的 agent（可点 → @mention）；
           单聊是运行中/思考中（流式正文仍留消息流）。运行条那一行是固定高的一行(群、agent 私聊才有),没有底,消息从它后面滚过;运行条出现、消失不改变布局。 */}
-      <ChatBottomDock floating={!mobile} reserve={chatListRows.length === 0} above={(isRoomChatSurface || isAgentChat) && <RunningBarSlot>
+      <ChatBottomDock reserve={chatListRows.length === 0} above={(isRoomChatSurface || isAgentChat) && !chrome?.hideRunningStatus && <RunningBarSlot>
       {!searchMode && !chrome?.hideRunningStatus && (isRoomChatSurface ? (
         // @@@1696 群聊运行态：横排单行「运行 token」(流光动词) + cap +N。数据 = 在跑(transient)的 agent，
         // stateKey 由 presence recentActions 的最新 kind 派生，展示文案由 RunningTokenBar 翻译；
         // toolCount 近似用近 5 分钟 actions.length。onTokenClick 仍 @mention。
         <RunningTokenBar
           testId="group-agent-running-status"
-          cap={GROUP_AGENT_BAR_MAX}
           // @@@6357 悬浮 token = MessagePreview(它最近在做的事,不按 chat 过滤,#6573)。
           previewChatId={activeChatId}
           tokens={groupRunTokens}
@@ -1018,7 +1036,6 @@ function ChatAreaSurface({ viewportKey = 'chats', activeTab, navigationTarget = 
         // thinking → live tool kind → presence recent action → running；当前 locale 只在 RunningTokenBar 消费。
         <RunningTokenBar
           testId="agent-running-status"
-          cap={1}
           // @@@6357 私聊同一张卡。
           previewChatId={activeChatId}
           tokens={[
@@ -1043,7 +1060,7 @@ function ChatAreaSurface({ viewportKey = 'chats', activeTab, navigationTarget = 
           @@@multi-select (#988) — 多选态用底部批量操作条替换输入框（同槽位 + 同 --bg-primary 外壳）。 */}
       {selectMode ? (
         // Desktop selection and editing use the same ACP slot frame; phone spacing stays local.
-        <div className={mobile && blockHost ? `${sessionComposerDockBandClassName} pt-3` : undefined} style={{ background: mobile ? 'var(--bg-primary)' : undefined, padding: mobile ? (blockHost ? undefined : '10px 8px max(8px, env(safe-area-inset-bottom))') : 0, flexShrink: 0 }}>
+        <div className={mobile && blockHost ? `${sessionComposerDockBandClassName} pt-3` : undefined} style={{ background: mobile ? 'transparent' : undefined, padding: mobile ? (blockHost ? undefined : '8px 8px max(8px, env(safe-area-inset-bottom))') : 0, flexShrink: 0 }}>
           <div
             data-testid="message-select-bar"
             style={{ display: 'flex', flexWrap: mobile ? 'wrap' : undefined, alignItems: 'center', gap: 10, padding: '8px', border: '1px solid var(--border-subtle)', borderRadius: 'var(--radius-surface)', background: 'var(--bg-secondary)' }}
@@ -1073,9 +1090,8 @@ function ChatAreaSurface({ viewportKey = 'chats', activeTab, navigationTarget = 
         </div>
       ) : (
         // ChatBottomDock owns the shared desktop frame; keep phone padding and safe area unchanged.
-        <div data-chat-composer="" className={mobile && blockHost ? `${sessionComposerDockBandClassName} pt-3` : undefined} style={{ background: mobile ? 'var(--bg-primary)' : undefined, padding: mobile ? (blockHost ? undefined : '8px 10px max(10px, env(safe-area-inset-bottom))') : 0, borderTop: mobile ? '1px solid var(--border-subtle)' : undefined, flexShrink: 0 }}>
-        {/* #1099: offline「唤醒 Agent」状态栏已删(ACP 发消息即触达自启)。removed 显提示栏。 */}
-        {/* agent 会话 composer 通知区：已注销 Agent 的禁用说明。 */}
+        <div data-chat-composer="" className={mobile && blockHost ? `${sessionComposerDockBandClassName} pt-3` : undefined} style={{ padding: mobile ? (blockHost ? undefined : '8px 8px max(8px, env(safe-area-inset-bottom))') : 0, flexShrink: 0 }}>
+        {chrome?.composerHeader}
         {isAgentChat ? <AgentComposerNotices disabledReason={agentComposerDisabled ? (agentComposerDisabledReason ?? null) : null} agentUserId={activeChat?.peer_user_id ?? null} agentName={activeChatName} /> : null}
         <ChatMessageComposer
           beforeSend={createSessionpageChatSendPreflight(isAgentChat, activeChat?.peer_user_id, t('agent.taskpage.recoveryFailed.unknown'))}
@@ -1107,114 +1123,12 @@ function ChatAreaSurface({ viewportKey = 'chats', activeTab, navigationTarget = 
             <AgentSettingsModal agent={agentChatContact} onClose={() => setShowAgentSettings(false)} />
           ) : null}
 
+        </div>}
         </div>
-        } />
 
-        {/* The workspace on the phone: a whole page. No onClose on the shell: the slot keeps its own back layer (a file opened over it first, then the panel). */}
-        <AnimatePresence>{mobile && workspaceForm !== 'closed' && <RightPanel key="workspace-panel">{workspaceSlot}</RightPanel>}</AnimatePresence>
+        {inTabs(topicPane, infoPage)}
 
         {filePreview.panel}
-
-        {/* 会话/群设置、群公告:与成员列表同一个右栏外壳(RightPanel),同槽位互斥。 */}
-        <AnimatePresence>
-          {showDrawer && (
-            <GroupRenameContext.Provider value={groupRename}><ChatSettingsPanel
-              activeChat={activeChat}
-              messages={messages}
-              onClose={() => setShowDrawer(false)}
-              onClearMessages={clearMessages}
-              onOpenSearch={() => {
-                setSearchQuery('')
-                setSearchMode(true)
-              }}
-              onSetNotificationLevel={(level) => setChatNotificationLevel(activeChat.id, level)}
-              onTogglePinned={(pinned) => pinChat(activeChat.id, pinned)}
-              memberProfiles={drawerMemberProfiles}
-              currentUserId={user?.id ?? null}
-              onOpenUserChat={onOpenUserChat}
-              onWhisper={isGroupChat ? (target) => {
-                setShowDrawer(false)
-                setWhisperTarget({ userId: target.id, displayName: target.displayName })
-              } : undefined}
-              groupCollabSnapshot={groupCollabSnapshot}
-              groupAgentStatuses={groupAgentStatuses}
-              onReloadGroupCollab={loadGroupCollab}
-              onLeaveGroup={() => leaveGroup(activeChat.id)}
-              onDissolveGroup={() => deleteChat(activeChat.id, true)}
-              mobile={mobile}
-            /></GroupRenameContext.Provider>
-          )}
-        </AnimatePresence>
-        {/* 从页头 ⋯ 开的群公告 / 👥 开的名册没有上一层:页头与群设置同一个,桌面 ⊗、手机左上返回 = 关。
-            返回键由页头接(SettingsPageHead),外壳不再接一次。从群设置里点进去的那两页在设置栈里(GroupMembersSection)。 */}
-        {isGroupChat && showAnnounce ? (
-          <RightPanel>
-            <AnnouncementDrawer
-              chatId={activeChat.id}
-              isAdmin={isGroupManagerRole(groupCollabSnapshot.humans.find((h) => h.id === user?.id)?.role)}
-              head={(title) => <SettingsPageHead title={title} onClose={() => setShowAnnounce(false)} mobile={mobile} />}
-            />
-          </RightPanel>
-        ) : null}
-
-        {/* @@@5856 话题分栏 —— 来源那条线留在左边继续能看能发,话题在右边独立收发。
-            它取代了原来的群 thread 面板:那是同一个 chat 里的过滤视图,这是**另一条线**。
-            与 workspace/history/成员列表 同槽位互斥(统一走 closeRightSurfaces)。 */}
-        {/* @@@5856 成员列表 —— 头栏 👥 的落点。群与话题同一个面板:两者都有自己的成员名单,
-            话题的那份可以比来源窄。与工作区/历史/话题分栏 同槽位互斥。 */}
-        {memberListOpen && isRoomChatSurface && activeChatId && activeChat && (
-          <RightPanel>
-            <MemberListPanel
-              chatId={activeChatId} snapshot={groupCollabSnapshot} error={groupCollabError}
-              chatKind={activeChat.kind === 'topic' ? 'topic' : 'group'}
-              head={(title, actions) => <SettingsPageHead title={title} action={actions} onClose={() => setMemberListOpen(false)} mobile={mobile} />}
-              chatName={activeChat.name}
-              onReload={loadGroupCollab}
-              onOpenUserChat={onOpenUserChat}
-              onWhisper={(target) => setWhisperTarget({ userId: target.id, displayName: target.displayName })}
-            />
-          </RightPanel>
-        )}
-
-        {topicSurface.splitTopic && (
-          <TopicSplitPane
-            viewportKey={`${viewportKey}:topic`} navigationTarget={navigationTarget}
-            topic={topicSurface.splitTopic} sourceChatId={activeChatId!}
-            messages={topicSurface.splitLine.messages} history={topicSurface.splitLine}
-            loading={topicSurface.splitLine.loadingMessages}
-            memberProfiles={messageMemberProfiles}
-            visibleChats={chats}
-            sourceMessagePreview={topicSourceMessagePreview}
-            focusComposerToken={splitFocusToken}
-            memberReadSeqs={topicSurface.splitLine.memberReadSeqs}
-            onOpenFile={(file) => {
-              const split = topicSurface.splitTopic; openFilePreview(file, undefined, split ? () => topicSurface.openSplit(split) : undefined)
-            }}
-            onDownloadFile={(file) => {
-              void downloadAttachment(file.source, file.fileName).catch((error) => toast(t('chatArea.downloadFailed'), 'error', safeFailureLine(String((error as Error)?.message ?? error))))
-            }}
-            mentionMembers={splitMentionMembers}
-            onSend={topicSurface.sendInSplit}
-            onSendAttachments={topicSurface.sendAttachmentsInSplit}
-            agentStatuses={groupAgentStatuses}
-            runningTokens={mobile ? groupRunTokens : undefined}
-            runningPreviewChatId={activeChatId}
-            onOpenMemberProfile={Object.keys(messageMemberProfiles).length > 0
-              ? (member, anchor, side) => openMessageMemberProfile(member, anchor, side, 'aside')
-              : undefined}
-            onOpenAttachment={(file, message) => { const split = topicSurface.splitTopic; openFilePreview(file, message, split ? () => topicSurface.openSplit(split) : undefined) }}
-            onClose={topicSurface.closeSplit}
-            tabHost={blockHost ? topicTabHost : undefined}
-            currentUserId={user?.id ?? null}
-            mobile={mobile}
-            onReaction={(id, emoji) => void topicSurface.splitLine.toggleReaction(id, emoji)
-              .catch((error) => toast(t('message.actions.react'), 'error', safeFailureLine(String((error as Error)?.message ?? error))))}
-            onForward={handleForward} visible={surfaceVisible}
-            onDelete={(id) => void topicSurface.splitLine.deleteMessage(id)
-              .catch((error) => toast(t('message.actions.delete'), 'error', safeFailureLine(String((error as Error)?.message ?? error))))}
-          />
-        )}
-
       </div>
       {shownMessageProfile ? (
         <MemberProfilePopover

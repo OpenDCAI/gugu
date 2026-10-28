@@ -8,6 +8,7 @@ import { InstalledExtensionsStore, installedExtensionsStore } from './installed-
 export type ExtensionsApi = Pick<
   typeof rpc.extensions,
   | 'list'
+  | 'switchVariant'
   | 'revoked'
   | 'market'
   | 'marketEntry'
@@ -22,7 +23,7 @@ export type ExtensionsApi = Pick<
   | 'setAutoUpdate'
   | 'setDisclosure'
   | 'appPlaces'
-  | 'setAppPlaces'
+  | 'changeAppPlaces'
   | 'uninstall'
   | 'agentStatus'
   | 'agentTools'

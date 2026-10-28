@@ -45,7 +45,7 @@ import type { ProjectFolder } from '@shared/core/projects/project-folders';
 import { machineSessionListClient } from './machine-session-list';
 import {
   liveDeviceSessions,
-  retainDeviceSessions,
+  removeDeviceSessions,
   subscribeDeviceSessions,
   updateDeviceSessions,
   type DeviceSessions,
@@ -187,10 +187,10 @@ export class RemoteHostsStore {
           if (machineRegistry.machineOf(project.id)) return [];
           return [...(project.mountedProject?.sessionManager.sessions.values() ?? [])].flatMap((page) =>
             'archivedAt' in page.data && page.data.archivedAt ? [] : pageSessions(page).filter((session) => !session.data.archivedAt).map((session) => ({
-              projectId: project.id, agentUserId: sessionAgentNames.identityFor(session.data.id)?.agentUserId,
+              projectId: project.id, sessionId: session.data.id, agentUserId: sessionAgentNames.identityFor(session.data.id)?.agentUserId,
             })));
         }),
-        ...this.allListedSessions().map(({ summary }) => ({ projectId: summary.projectId, agentUserId: summary.agent?.userId })),
+        ...this.allListedSessions().map(({ summary }) => ({ projectId: summary.projectId, sessionId: summary.conversationId, agentUserId: summary.agent?.userId })),
       ]
     );
     subscribeDeviceSessions(() => runInAction(() => (this.directory = liveDeviceSessions())));
@@ -566,6 +566,7 @@ export class RemoteHostsStore {
     let lastLink: MachineLinkState | null = null;
     const onLink = () => {
       const link = machineLinkState(deviceId);
+      updateDeviceSessions(deviceId, { connected: link === 'open' });
       runInAction(() => {
         const state = this.hosts.get(deviceId);
         if (state) state.link = link;
@@ -621,7 +622,7 @@ export class RemoteHostsStore {
           updateDeviceSessions(deviceId, { projects: result.projects, sessions: result.sessions, cached: false }),
         onLoading: (loading) => updateDeviceSessions(deviceId, { loading }),
         onError: (error) => {
-          updateDeviceSessions(deviceId, { error });
+          updateDeviceSessions(deviceId, { error, ...(error ? { connected: false } : {}) });
           if (error) log.warn('[machines] 读那台机器的会话列表失败', { deviceId, error });
         },
       })
@@ -632,7 +633,7 @@ export class RemoteHostsStore {
   private forget(deviceId: string): void {
     this.listSyncs.get(deviceId)?.stop();
     this.listSyncs.delete(deviceId);
-    retainDeviceSessions([...this.hosts.keys()].filter((id) => id !== deviceId));
+    removeDeviceSessions(deviceId);
     this.linkOffs.get(deviceId)?.();
     this.linkOffs.delete(deviceId);
     this.accountSeenLive.delete(deviceId);
@@ -693,11 +694,12 @@ export class RemoteHostsStore {
  * 刚从离线回来的(`cameBack`):正在开的那一次是离线时发出去的,对面没人接,要等满超时 —— 作废它,立刻重开。
  */
 export function linkNeedsReopen(
-  device: Pick<RemoteHostDevice, 'version'>,
+  device: Pick<RemoteHostDevice, 'version' | 'notices'>,
   link: MachineLinkState,
   client: Pick<SessionHostClient, 'state' | 'hello'>,
   cameBack = false
 ): boolean {
+  if (device.notices?.some(notice => notice.kind === 'desktop-too-old')) return false;
   if (client.state() === 'closed') return true;
   if (client.state() === 'connecting') return cameBack;
   const helloVersion = client.hello()?.appVersion;
@@ -722,7 +724,8 @@ export function machineConnectionState(
 ): HostConnectionState {
   // 远程 SSH 的机器太旧:设备连接那一格说得更具体(正在替它升级 / 没升成),先看它。
   const ssh = state.device.sshLink;
-  if (state.link === 'tooOld' && ssh !== 'updating' && ssh !== 'outdated') return 'outdated';
+  const versionMismatch = state.device.notices?.some(notice => notice.kind === 'desktop-too-old' || notice.kind === 'server-too-old');
+  if ((state.link === 'tooOld' || versionMismatch) && ssh !== 'updating' && ssh !== 'outdated') return 'outdated';
   // 线没通就是在连:不管这一刻是在拨(connecting)还是在等下一次退避(closed)。只看 closed 的话,连上过的机器断了之后,
   // 每一次重连在飞的那几秒会读成「已连接」,再一失败又翻回「重连中」,直到心跳租约过期才停(#137)。
   const attempting = state.link === 'connecting' || state.link === 'closed';

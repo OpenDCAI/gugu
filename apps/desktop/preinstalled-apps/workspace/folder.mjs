@@ -52,6 +52,7 @@ const rowOf = async (entry) => ({
   ...(Number.isInteger(entry.version) ? { version: entry.version } : {}),
   by: byOf(entry),
   updated_at: entry.updatedAt,
+  metadata: entry.metadata ?? {},
   ...await linked(entry),
 })
 
@@ -270,9 +271,10 @@ export const create = {
       content: { type: 'string', description: 'The text of a new text file (up to 1 MiB): markdown, or a JSON object.' },
       path: { type: 'string', description: 'Absolute path of a file on this computer (up to 25 MiB). UTF-8 text up to 1 MiB goes in as a text file people edit together; anything else as stored bytes.' },
       source_message_ids: { type: 'array', items: { type: 'string' }, description: 'The messages it came from, by id: shown under the file.' },
+      keep: { type: 'string', enum: ['temporary', 'permanent'], description: 'For path (stored bytes): temporary = scratch whose cloud copy expires (screenshots, drafts); permanent = kept. Default: the chat\'s rule.' },
     },
   },
-  async run({ chat_id: given, folder, title, content, path, source_message_ids }) {
+  async run({ chat_id: given, folder, title, content, path, source_message_ids, keep }) {
     const chat_id = chatOf(given)
     if (folder !== undefined && typeof folder !== 'string') throw new Error('folder is a folder\'s path from the top (合同/2026) or its id')
     // 子文件夹: folder alone (no content, no path) makes that folder, all the way down.
@@ -302,7 +304,7 @@ export const create = {
       file = new File([bytes], typeof title === 'string' && title.trim() ? title.trim() : basename(path))
     }
     const sourceMessageIds = (source_message_ids ?? []).map((id) => String(id).replace(/^msg:/, ''))
-    const [entry] = await gugu.files.upload(folder === undefined ? { chat: chat_id } : { chat: chat_id, folder }, file, { sourceMessageIds })
+    const [entry] = await gugu.files.upload(folder === undefined ? { chat: chat_id } : { chat: chat_id, folder }, file, { sourceMessageIds, ...(keep === undefined ? {} : { keep }) })
     return {
       created: { id: entry.id, name: entry.name, path: entry.path, type: entry.type, size: entry.size },
       link: await linkOf(entry),

@@ -1,3 +1,4 @@
+import { verifiedFileHandle } from '../../../helpers/verifiedFileHandle'
 import { createHash } from 'node:crypto'
 import { mkdtempSync, readFileSync, truncateSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
@@ -70,6 +71,15 @@ function sparseFixture(name: string, size: number): string {
   const full = fixtureFile(name, '')
   truncateSync(full, size)
   return full
+}
+
+function replyHistory(h: ReturnType<typeof harness>, rows: Array<Record<string, unknown>>) {
+  const restRpc = h.deps.restRpc
+  h.deps.restRpc = async (name, body, profile) => {
+    if (name !== 'message_history_as') return restRpc(name, body, profile)
+    h.calls.rpcs.push([name, body])
+    return rows
+  }
 }
 
 function harness(members: string[] = [], groupPrompt: string | null = null) {
@@ -242,10 +252,11 @@ function harness(members: string[] = [], groupPrompt: string | null = null) {
     // #7290 gugu-3:附件经 attachments 函数(core 的客户端)—— upload 给表单、表单传到 OSS、commit 发消息。uploads 记成
     // [桶, 暂存键, 类型, 字节](第 4 位是真正传上去的字节,#5828);commit 记进 inserts,正文照服务端那样由信封生成。
     attachmentsEndpoint: async () => ({ supabaseUrl: 'https://db.test', anonKey: 'anon', token: 'token', fetch: attachmentsFetch }),
-    // 新式附件的签名链接:条目指回它那次上传的字节。
-    attachmentUrls: async (refs: Array<{ item_id?: string; version?: number; message_id?: string }>) => ({
-      urls: refs.map((ref) => ({ ...ref, message_id: ref.message_id ?? null, url: `https://oss.test/${String(ref.item_id).slice('item:'.length)}`, thumb_url: null, sha256: null, width: null, height: null, expires_at: '2999-01-01T00:00:00Z' })),
-    }),
+    resolveFile: async (ref: { message_id: string }) => {
+      const message = calls.inserts.map(([, row]) => row as Record<string, unknown>).find(row => row.id === ref.message_id)
+      const bytes = stagedBytes.get(String(message?.file_item_id).slice('item:'.length))
+      return bytes ? verifiedFileHandle(bytes) : { status: 'gone', sha256: null }
+    },
   }
   return {
     setGroupPrompt: (v: string | null) => { currentGroupPrompt = v }, failCommit: (error: Error) => { commitError = error }, loseCommitAnswers: (n: number) => { lostAnswers = n }, commitBodies, deps, calls }
@@ -559,7 +570,7 @@ describe('gugu 原子工具 MCP server（#1060 SDK 迁移 → #4191 原子化）
       'activity_chat_list', 'contact_friend', 'forum_read', 'forum_reply', 'group_add_agent', 'group_announcement_delete', 'group_announcement_post', 'group_announcement_update', 'group_avatar_set', 'group_create', 'group_flood_undo', 'group_info', 'group_join_decide', 'group_join_requests', 'group_leave', 'group_list', 'group_remove_member', 'group_set_role', 'group_update', 'message_conversations', 'message_download_file', 'message_history', 'message_invitations', 'message_invite', 'message_members',
       'message_rules', 'message_search', 'message_send', 'message_send_as_owner', 'message_send_file', 'message_send_file_as_owner',
       'owner_friends_list', 'profile_lookup', 'profile_update', 'profile_whoami', 'session_peers',
-      'topic_invite', 'topic_list', 'topic_members', 'topic_open',
+      'topic_delete', 'topic_invite', 'topic_list', 'topic_members', 'topic_open',
     ])
     for (const tool of tools) {
       expect(tool.inputSchema.type, tool.name).toBe('object')
@@ -938,6 +949,22 @@ describe('gugu 原子工具 MCP server（#1060 SDK 迁移 → #4191 原子化）
     expect(h.calls.inserts).toHaveLength(1)
     expect(h.calls.inserts[0][0]).toBe('messages')
     expect((h.calls.inserts[0][1] as Record<string, unknown>).content_type).toBe('text')
+    await client.close()
+  })
+  test('message_send reports the persisted archived-recipient refusal while keeping the message in history', async () => {
+    const h = harness(['alice'])
+    const get = h.deps.restGet
+    h.deps.restGet = async (path: string) => path.startsWith('message_agent_delivery_blocks?')
+      ? [{ agent_user_id: 'alice', reason: 'agent_archived' }] : get(path)
+    const client = await connect(h.deps)
+    const result = await client.callTool({ name: 'message_send', arguments: {
+      chat_id: '00000000-0000-4000-8000-000000000001', text: 'Archive marker', to_user_ids: ['user:alice'],
+    } })
+    expect(result.isError).not.toBe(true)
+    expect(text(result)).toContain('对方已归档、未送达')
+    expect(text(result)).toContain('agent_archived')
+    expect(text(result)).toContain('no replay after restoration')
+    expect(h.calls.inserts).toHaveLength(1)
     await client.close()
   })
   // @@@5856 名单读不到时必须说「读不到」,❌ 不许当空集(会把它说成「这些人不是成员」,与事实相反)、
@@ -1326,6 +1353,7 @@ describe('gugu 原子工具 MCP server（#1060 SDK 迁移 → #4191 原子化）
     ]
     function addressedHarness() {
       const h = harness(['agent-1', ...directory.map((member) => member.id)])
+      replyHistory(h, [{ id: 'm-peer', sender_user_id: 'agent-long', is_whisper: false }])
       const restGet = h.deps.restGet
       h.deps.restGet = async (path: string) => {
         if (path.startsWith('users?id=in.')) return directory
@@ -1469,14 +1497,8 @@ describe('gugu 原子工具 MCP server（#1060 SDK 迁移 → #4191 原子化）
   })
   test.each(['dm', 'ai'])('%s direct reply derives its recipient from the same-chat source and unique peer', async (kind) => {
     const h = harness(['agent-1', 'owner-1'])
-    const restGet = h.deps.restGet
+    replyHistory(h, [{ id: 'source-message', sender_user_id: 'owner-1', is_whisper: false }])
     const restRpc = h.deps.restRpc
-    h.deps.restGet = async (path: string) => {
-      if (path.startsWith('messages?id=eq.source-message&chat_id=eq.00000000-0000-4000-8000-000000000001')) {
-        return [{ chat_id: '00000000-0000-4000-8000-000000000001', sender_user_id: 'owner-1' }]
-      }
-      return restGet(path)
-    }
     // @@@5856 kind 改从 chat_facts 这条按 actor 的 RPC 读(见 chatFactsOf 的注释)。
     h.deps.restRpc = async (name: string, body: Record<string, unknown>, profile?: string) => (
       name === 'chat_facts' ? [{ id: '00000000-0000-4000-8000-000000000001', kind, source_chat_id: null, group_prompt: null }] : restRpc(name, body, profile)
@@ -1501,6 +1523,7 @@ describe('gugu 原子工具 MCP server（#1060 SDK 迁移 → #4191 原子化）
   })
   test('group reply requires explicit recipients even when a source message exists', async () => {
     const h = harness(['agent-1', 'owner-1'])
+    replyHistory(h, [{ id: 'source-message', sender_user_id: 'owner-1', is_whisper: false }])
     const restRpc = h.deps.restRpc
     h.deps.restRpc = async (name: string, body: Record<string, unknown>, profile?: string) => (
       name === 'chat_facts' ? [{ id: '00000000-0000-4000-8000-000000000001', kind: 'group', source_chat_id: null, group_prompt: null }] : restRpc(name, body, profile)
@@ -1533,7 +1556,7 @@ describe('gugu 原子工具 MCP server（#1060 SDK 迁移 → #4191 原子化）
       name: 'source outside the chat',
       members: ['agent-1', 'owner-1'],
       source: [],
-      error: 'must belong to this chat and its unique peer',
+      error: 'reply source is unavailable in this chat',
     },
     {
       name: 'non-unique peer membership',
@@ -1543,12 +1566,8 @@ describe('gugu 原子工具 MCP server（#1060 SDK 迁移 → #4191 原子化）
     },
   ])('exact DM reply fails before insertion for $name', async ({ members, source, error }) => {
     const h = harness(members)
-    const restGet = h.deps.restGet
+    replyHistory(h, source.map((row) => ({ ...row, id: 'source-message', is_whisper: false })))
     const restRpc = h.deps.restRpc
-    h.deps.restGet = async (path: string) => {
-      if (path.startsWith('messages?id=eq.source-message&chat_id=eq.00000000-0000-4000-8000-000000000001')) return source
-      return restGet(path)
-    }
     h.deps.restRpc = async (name: string, body: Record<string, unknown>, profile?: string) => (
       name === 'chat_facts' ? [{ id: '00000000-0000-4000-8000-000000000001', kind: 'dm', source_chat_id: null, group_prompt: null }] : restRpc(name, body, profile)
     )
@@ -1568,12 +1587,8 @@ describe('gugu 原子工具 MCP server（#1060 SDK 迁移 → #4191 原子化）
   })
   test('agent DM reply also validates its same-chat source and unique peer', async () => {
     const h = harness(['agent-1', 'owner-1', 'other-1'])
-    const restGet = h.deps.restGet
+    replyHistory(h, [{ id: 'source-message', sender_user_id: 'owner-1', is_whisper: false }])
     const restRpc = h.deps.restRpc
-    h.deps.restGet = async (path: string) => {
-      if (path.startsWith('messages?id=eq.source-message&chat_id=eq.00000000-0000-4000-8000-000000000001')) return []
-      return restGet(path)
-    }
     h.deps.restRpc = async (name: string, body: Record<string, unknown>, profile?: string) => (
       name === 'chat_facts' ? [{ id: '00000000-0000-4000-8000-000000000001', kind: 'ai', source_chat_id: null, group_prompt: null }] : restRpc(name, body, profile)
     )
@@ -1831,11 +1846,7 @@ describe('gugu 原子工具 MCP server（#1060 SDK 迁移 → #4191 原子化）
       restGet: async (path: string): Promise<Array<Record<string, unknown>>> => path.startsWith('messages?chat_id=eq.00000000-0000-4000-8000-000000000001&content_type=eq.attachment')
         ? h.calls.inserts.map(([, row]) => row as Record<string, unknown>).filter((row) => row.content_type === 'attachment').reverse()
         : h.deps.restGet(path),
-      // A card's bytes, as the signed link serves them back.
-      fetch: async (url: string) => {
-        const upload = h.calls.uploads.find(([, objectPath]) => url.endsWith(String(objectPath)))
-        return new Response(upload ? new Uint8Array(upload[3] as Uint8Array) : null, { status: upload ? 200 : 404 })
-      },
+
     }
     const send = (fileName: string, bytes: string) =>
       sendExtensionCardOf(TEST_CONTEXT, { chatId: '00000000-0000-4000-8000-000000000001', filePath: fixtureFile(fileName, bytes), fileName, sha256: sha(bytes) }, deps)
@@ -1855,7 +1866,7 @@ describe('gugu 原子工具 MCP server（#1060 SDK 迁移 → #4191 原子化）
     const unreadable = await sendExtensionCardOf(
       TEST_CONTEXT,
       { chatId: '00000000-0000-4000-8000-000000000001', filePath: fixtureFile('again.guguext', 'v1-bytes'), fileName: 'dinner-vote-1.0.0.guguext', sha256: sha('v1-bytes') },
-      { ...deps, fetch: async () => new Response(null, { status: 503 }) },
+      { ...deps, resolveFile: async () => { throw new Error('503') } },
     )
     expect(unreadable).toEqual({ messageId: String(row.id), alreadyThere: true, differs: null })
     expect(h.calls.inserts).toHaveLength(1)
@@ -2599,9 +2610,63 @@ describe('message_send whisper (#6835)', () => {
   // 回复预览本来就按读的人可见性给,挂着不漏任何东西。
   test('a whisper may reply to a message', async () => {
     const h = harness(['agent-1', 'alice'])
+    replyHistory(h, [{ id: 'm1', sender_user_id: 'alice', is_whisper: false }])
     const r = await send(h, { whisper: true, to_user_ids: ['user:alice'], reply_to_message_id: 'msg:m1' })
     expect(text(r)).toMatch(/^replied/)
     expect(h.calls.inserts[0][1]).toMatchObject({ is_whisper: true, to_user_ids: ['alice'], reply_to_message_id: 'm1' })
+  })
+
+  test.each([
+    { sender_user_id: 'alice', to_user_ids: ['agent-1'] },
+    { sender_user_id: 'agent-1', to_user_ids: ['alice'] },
+  ])('inherits the private pair for $sender_user_id → $to_user_ids without requiring recipients', async (pair) => {
+    const h = harness(['agent-1', 'alice', 'bob'])
+    replyHistory(h, [{ id: 'm1', ...pair, is_whisper: true }])
+    const restGet = vi.fn(h.deps.restGet)
+    h.deps.restGet = restGet
+    const r = await send(h, { reply_to_message_id: 'msg:m1' })
+    expect(r.isError).not.toBe(true)
+    expect(h.calls.inserts[0][1]).toMatchObject({ is_whisper: true, to_user_ids: ['alice'], reply_to_message_id: 'm1' })
+    expect(h.calls.rpcs).toContainEqual(['message_history_as', expect.objectContaining({ p_as_user_id: 'agent-1', p_chat_id: '00000000-0000-4000-8000-000000000001' })])
+    expect(restGet.mock.calls.some(([path]) => path.startsWith('messages?id=eq.m1'))).toBe(false)
+  })
+  test('only whisper:false makes a reply to a whisper public', async () => {
+    const h = harness(['agent-1', 'alice'])
+    replyHistory(h, [{ id: 'm1', sender_user_id: 'alice', to_user_ids: ['agent-1'], is_whisper: true }])
+    const r = await send(h, { reply_to_message_id: 'msg:m1', to_user_ids: ['user:alice'], whisper: false })
+    expect(r.isError).not.toBe(true)
+    expect(h.calls.inserts[0][1]).toMatchObject({ to_user_ids: ['alice'], reply_to_message_id: 'm1' })
+    expect(h.calls.inserts[0][1]).not.toHaveProperty('is_whisper')
+  })
+  test('refuses a whisper reply whose original peer is unavailable', async () => {
+    const h = harness(['agent-1', 'alice'])
+    replyHistory(h, [{ id: 'm1', sender_user_id: null, to_user_ids: ['agent-1'], is_whisper: true }])
+    const r = await send(h, { reply_to_message_id: 'msg:m1' })
+    expect(r.isError).toBe(true)
+    expect(text(r)).toContain('cannot resolve the participants')
+    expect(h.calls.inserts).toEqual([])
+  })
+  test('refuses old history responses without privacy metadata instead of publishing', async () => {
+    const h = harness(['agent-1', 'alice'])
+    replyHistory(h, [{ id: 'm1', sender_user_id: 'alice', to_user_ids: ['agent-1'] }])
+    const r = await send(h, { reply_to_message_id: 'msg:m1', to_user_ids: ['user:alice'] })
+    expect(text(r)).toContain('update the backend')
+    expect(h.calls.inserts).toEqual([])
+  })
+  test('reads older reply sources through the same paginated agent history', async () => {
+    const h = harness(['agent-1', 'alice'])
+    const base = h.deps.restRpc
+    const historyCalls: Record<string, unknown>[] = []
+    h.deps.restRpc = async (name, body, profile) => {
+      if (name !== 'message_history_as') return base(name, body, profile)
+      historyCalls.push(body)
+      return body.p_before_seq === null
+        ? Array.from({ length: 100 }, (_, i) => ({ id: `newer-${i}`, seq: 200 - i, is_whisper: false }))
+        : [{ id: 'm1', seq: 100, sender_user_id: 'alice', to_user_ids: ['agent-1'], is_whisper: true }]
+    }
+    expect((await send(h, { reply_to_message_id: 'msg:m1' })).isError).not.toBe(true)
+    expect(historyCalls.map((body) => body.p_before_seq)).toEqual([null, 101])
+    expect(h.calls.inserts[0][1]).toMatchObject({ is_whisper: true, to_user_ids: ['alice'] })
   })
 
   // 私聊里不另拦:两个人的私聊漏不出去,判据只在库里一处(gugu-supabase #84 不按 chat 种类拦)。
@@ -2676,7 +2741,7 @@ describe('write tools refuse unknown keys (#6840)', () => {
     const { tools } = await client.listTools()
     const writers = (TOOL_DEFS as Array<{ name: string; writer?: boolean }>).filter((def) => def.writer).map((def) => def.name)
     // Includes both delegated text and attachment writers; workspace writers live in the folder App.
-    expect(writers).toHaveLength(21)
+    expect(writers).toHaveLength(22)
     for (const name of writers) {
       expect(tools.find((tool) => tool.name === name)?.inputSchema, name).toMatchObject({ additionalProperties: false })
     }

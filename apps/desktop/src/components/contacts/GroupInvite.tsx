@@ -1,3 +1,4 @@
+import { useGroupDisplayName } from '../../hooks/useGroupDisplayName'
 import { messageForUser } from '@/lib/userFacingError';
 import { safeFailureLine } from '@/session/renderer/features/sessions/gugu-reason'
 /**
@@ -202,7 +203,7 @@ function GroupInviteQr({ group }: { group: ContactGroupChat }) {
           </div>
           <div
             style={{
-              color: qrError ? 'var(--error)' : 'var(--text-secondary)',
+              color: qrError ? 'var(--danger)' : 'var(--text-secondary)',
               fontSize: qrError ? 'var(--font-body)' : 'var(--font-caption)',
               lineHeight: qrError ? 'var(--lh-body)' : 'var(--lh-caption)',
               marginTop: 4
@@ -279,6 +280,7 @@ export function GroupJoinConfirmDialog({
   onCancel: () => void
 }) {
   const { t } = useTranslation('contacts')
+  const groupName = useGroupDisplayName(group)
   // #855 — guard against a double-click double-join (the join RPC's `joining` guard reads a stale
   // closure on concurrent calls, so disable at the button on first confirm).
   const [submitting, setSubmitting] = useState(false)
@@ -310,7 +312,7 @@ export function GroupJoinConfirmDialog({
             }}
           >
             <div style={{ fontSize: 'var(--font-body)', lineHeight: 'var(--lh-body)', fontWeight: 600, color: 'var(--text-primary)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-              {group.name}
+              {groupName}
             </div>
             <div style={{ fontSize: 'var(--font-caption)', lineHeight: 'var(--lh-caption)', color: 'var(--text-secondary)' }}>
               {t('groupInvite.groupNumberHash', { number: group.public_id })}

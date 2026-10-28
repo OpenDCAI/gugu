@@ -1,3 +1,5 @@
+import { trimCursorPageForTransport } from '@gugu/session-core/session-record';
+import type { HistoryCursor } from '@gugu/session-core/acp/client';
 import type {
   AcpAttachmentError,
   AcpCancelTurnError,
@@ -27,7 +29,7 @@ import type {
   QueuedPromptEdit,
   ResumeResult,
 } from '@gugu/session-core/acp';
-import { ok, type Result } from '@gugu/session-shared';
+import { errorDetail, ok, type Result } from '@gugu/session-shared';
 import { randomUUID } from 'node:crypto';
 import { blobSourceFromBytes, type WireFile } from '@gugu/session-wire';
 import type { AcpRuntime } from '../runtime/runtime';
@@ -39,7 +41,9 @@ export function createAcpProcedures(runtime: AcpRuntime) {
   const detachedPrompts = new Map<string, Promise<Result<{ queued: boolean }, AcpSendPromptError>>>();
   const errorMessage = (error: AcpSendPromptError): string => {
     if (error.message) return error.message;
-    if ('cause' in error && error.cause?.message) return error.cause.message;
+    // A JSON-RPC cause keeps the provider's sentence in `data.details` (qwen: message "Internal error",
+    // details "400 You've hit your usage limit…"); the host classifies quota failures from this text.
+    if ('cause' in error && error.cause) return errorDetail(error.cause) ?? error.cause.message;
     return `ACP prompt failed (${error.type})`;
   };
   return {
@@ -48,15 +52,17 @@ export function createAcpProcedures(runtime: AcpRuntime) {
     }): Promise<Result<{ providerSessionId: string }, AcpStartSessionError>> {
       return runtime.startSession(input.input);
     },
-    resumeSession(input: {
+    async resumeSession(input: {
       input: StartSessionInput & { providerSessionId: string };
     }): Promise<Result<ResumeResult, AcpResumeSessionError>> {
-      return runtime.resumeSession(input.input);
+      const result = await runtime.resumeSession(input.input);
+      return result.success ? ok(trimCursorPageForTransport(result.data)) : result;
     },
     stopSession(input: {
       sessionId: string;
+      onlyIfIdle?: boolean;
     }): Promise<Result<void, AcpStopSessionError>> {
-      return runtime.stopSession(input.sessionId);
+      return runtime.stopSession(input.sessionId, input.onlyIfIdle);
     },
     sendPrompt(input: {
       sessionId: string;
@@ -69,12 +75,32 @@ export function createAcpProcedures(runtime: AcpRuntime) {
       sessionId: string;
       prompt: PromptInput;
       steerIfBusy?: boolean;
-    }): Promise<{ requestId: string; queued: boolean; steered?: boolean; declined: boolean }> {
+    }): Promise<{ requestId: string; queued: boolean; steered?: boolean; declined: boolean; missing?: true }> {
       const started = runtime.promptDetached(input.sessionId, input.prompt, input.steerIfBusy ? { steerIfBusy: true } : undefined);
-      if (!started.success) throw new Error(started.error.message);
+      if (!started.success) {
+        if (started.error.type === 'session_busy' || started.error.type === 'conversation_not_found') {
+          return { requestId: '', queued: false, declined: true };
+        }
+        throw new Error(started.error.message);
+      }
+      const completion = started.data.completion.then(async result => {
+        if (!result.success && 'cause' in result.error && result.error.cause?.code === 'prompt_admission_timeout') {
+          // A silent request still owns its transport. Stop it before a later prompt can reuse it;
+          // stop_pending remains closing and can be retried, rather than claiming the process exited.
+          await runtime.stopSession(input.sessionId);
+        }
+        return result;
+      });
+      void completion.catch(() => undefined);
       const admission = await started.data.admission;
       if (!admission.success) {
-        void started.data.completion.catch(() => undefined);
+        if (admission.error.type === 'conversation_not_found') {
+          const stopped = await runtime.stopSession(input.sessionId);
+          if (!stopped.success && !runtime.adapterProvenance(input.sessionId)?.closing) {
+            throw new Error(stopped.error.message ?? 'Provider session teardown did not complete');
+          }
+          return { requestId: '', queued: false, declined: true, missing: true };
+        }
         // 会话此刻不收(原位回退进行中,#7308):调用方留着消息,等它收的那一刻再投。
         if (admission.error.type === 'session_busy') {
           return { requestId: '', queued: false, declined: true };
@@ -82,11 +108,9 @@ export function createAcpProcedures(runtime: AcpRuntime) {
         throw new Error(errorMessage(admission.error));
       }
       const requestId = randomUUID();
-      // Attach a rejection consumer at storage time. The wait RPC is a separate wire call and may
-      // arrive after the provider has already failed; leaving this promise bare creates an
-      // unhandled-rejection window before waitPromptDetached can consume it.
-      void started.data.completion.catch(() => undefined);
-      detachedPrompts.set(requestId, started.data.completion);
+      // The completion has been observed since creation; wait is a separate RPC that can arrive
+      // after the provider has already failed.
+      detachedPrompts.set(requestId, completion);
       return {
         requestId,
         queued: admission.data.queued,
@@ -156,7 +180,7 @@ export function createAcpProcedures(runtime: AcpRuntime) {
     },
     adapterProvenance(input: {
       sessionId: string;
-    }): { connectionKey: string; pid: number | null } | null {
+    }): { connectionKey: string; pid: number | null; closing?: true } | null {
       return runtime.adapterProvenance(input.sessionId);
     },
     announceSession(input: Parameters<AcpRuntime['announceSession']>[0]): { delivered: boolean } {
@@ -220,12 +244,26 @@ export function createAcpProcedures(runtime: AcpRuntime) {
     deleteAttachment(input: { id: string }): Promise<Result<void, AcpAttachmentError>> {
       return runtime.deleteAttachment(input.id);
     },
+    getToolImage(input: { sessionId: string; itemId: string; index: number }) {
+      return ok(runtime.getToolImage(input.sessionId, input.itemId, input.index));
+    },
+    getStoredQueue(input: { sessionId: string }): Array<Pick<PromptInput, 'text' | 'origin'>> {
+      return runtime.getStoredQueue(input.sessionId);
+    },
     getHistory(input: {
       sessionId: string;
       before?: number;
       limit: number;
+      changedSince?: HistoryCursor;
     }): Result<HistoryPage, AcpGetHistoryError> {
-      return runtime.getHistory(input.sessionId, input.before, input.limit);
+      const result = runtime.getHistory(input.sessionId, input.before, input.limit, input.changedSince);
+      if (!result.success) return result;
+      const page = trimCursorPageForTransport(result.data);
+      // Reuse cursor reset when a reconnect gap exceeds a page. Never advance past
+      // omitted changes; bootstrap the latest page and leave older turns pageable.
+      return ok(input.changedSince !== undefined && page.turns.length < result.data.turns.length
+        ? { ...page, turns: [], nextCursor: null, reset: true }
+        : page);
     },
   };
 }

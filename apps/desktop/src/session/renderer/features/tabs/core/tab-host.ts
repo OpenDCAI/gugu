@@ -33,6 +33,12 @@ export interface TabHost {
   closeAll(): void;
   /** 右键「拆开」:并排的一对变回两枚普通页签(spec session-page「并排」)。 */
   separatePair(): void;
+  /**
+   * 页签全屏(`tab-fullscreen.ts`):这一枚临时盖住整个工作区,❌ 动布局(拆开是另一件事,`separatePair`)。
+   * 只在全屏有意义时给(并排着、或这一屏不止一块,或它正全屏着);别的时候 = null。页签上那颗钮和双击用它。
+   * `multiBlock` = 这一格所在的这屏不止一块(调用方从 ScreenBlockContext 读)。
+   */
+  tabFill(tabId: string, multiBlock?: boolean): { full: boolean; toggle: () => void } | null;
   /** Whether this tab can go to a new pane beside its own (#7052). False where there is no pane layout. */
   canSplitTab(tabId: string): boolean;
   /** Moves this tab into a new pane on that side of its own. */
@@ -68,8 +74,8 @@ export interface TabBarItemProps<T extends TabResource> {
 /**
  * Props for a kind's Content component (the pane body area).
  *
- * PaneContent mounts every registered Content unconditionally — the
- * component decides visibility, keepalive, and async loading internally.
+ * PaneContent retains recently visited kinds within its shared bound. A kind
+ * with several pages uses the same retention for its individual tabs.
  */
 export interface TabContentProps {
   host: TabHost;

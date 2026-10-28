@@ -1,4 +1,6 @@
 import { registerGuguActivityTools } from './mcp/gugu-activity-tool'
+import type { ProjectFileMessage, ProjectFileNextVersion, SelectedProjectFile } from './projectFilePublication'
+import { registerGuguWebSearchTool, type SessionWebSearch } from './mcp/gugu-web-search-tool'
 // ACP 引擎运行时工具 —— 从已删除的 JSON-RPC automation 层(原 rpc/methods/acpEngine.ts)抽出的
 // 纯生产函数：引擎配置加载 / provider 凭据 allowlist / 注入式社交桥。
 // 由 session-page 会话路径调用。原文件的 registerAcpEngineMethods()(HTTP RPC 端点)随对外
@@ -29,6 +31,7 @@ import { registerGuguAppSearchTool, type AppSearchHit } from './mcp/gugu-app-sea
 import { buildAgentIdentityBlock } from '@gugu/core/local/agent/deviceCommandRuntime'
 import type { McpServerOwner } from '@gugu/session-core/mcp'
 import { startupDiscovery } from './sessionpage/startup-discovery'
+import type { FileActor, FileRef, ResolvedFile } from '@gugu/core/shared/fileResolver'
 import type { GuguMcpRequestTracker } from './gugu-mcp-host'
 
 export type AcpMcpServer =
@@ -144,6 +147,7 @@ export function providerEnv(source: NodeJS.ProcessEnv): NodeJS.ProcessEnv {
 }
 
 interface GuguMcpContextBase {
+  webSearch?: SessionWebSearch
   expectedOwnerUserId: string
   subjectId: string
   /** Explicit provision role, never inferred from workspace or inherited by executors. */
@@ -181,6 +185,8 @@ export type GuguMcpContext = GuguMcpContextBase & (
       threadRootId: string | null
       guguHome: string
       getAccessToken: (signal?: AbortSignal) => Promise<string>
+      resolveFile?: (ref: FileRef, actorId: string) => Promise<ResolvedFile>
+      publishFile?: ProjectFilePublish
       runHostAction?: (action: unknown, signal?: AbortSignal) => Promise<unknown>
       /**
        * 有值 = 这条 grant 属于一条**运行时分叉**(侧边聊天),值是来源 agent 的显示名。
@@ -204,7 +210,9 @@ export function createDesktopGuguMcpHost(persistence?: GuguMcpHostPersistence): 
   return new GuguMcpHost<GuguMcpContext>(
     (getContext, grantSignal, trackHostRequest) => {
       const initial = getContext()
-      const listedTools = initial.personalAssistant ? GUGU_ASSISTANT_LISTED_TOOLS : GUGU_LISTED_TOOLS
+      const baseTools = initial.personalAssistant ? GUGU_ASSISTANT_LISTED_TOOLS : GUGU_LISTED_TOOLS
+      const search = initial.webSearch?.available() ? initial.webSearch : undefined
+      const listedTools = search ? new Set([...baseTools, 'web_search']) : baseTools
       const trackRequest: GuguMcpRequestTracker = (work, toolName) => {
         const tracked = trackHostRequest(work, toolName)
         if (initial.personalAssistant && toolName) {
@@ -249,7 +257,7 @@ export function createDesktopGuguMcpHost(persistence?: GuguMcpHostPersistence): 
             if (!read) throw new Error('Personal assistant context is unavailable')
             return read()
           } } : {}),
-        })
+        }, initial.personalAssistant && initial.kind === 'social' ? initial.guguHome : undefined)
         registerGuguActivityTools(server, sessionDispatcher, trackRequest)
         // #7221 schedule_* 与 session_* 同一个分派器:给自己排的已安排只作用于这条会话。
         registerGuguScheduleTools(server, sessionDispatcher, trackRequest)
@@ -273,6 +281,14 @@ export function createDesktopGuguMcpHost(persistence?: GuguMcpHostPersistence): 
         )
       }
       registerGuguGuideTools(server)
+      if (search) registerGuguWebSearchTool(server, {
+        available: search.available,
+        run: (query, signal) => {
+          const latest = getContext().webSearch
+          if (!latest) throw new Error('Web search is unavailable for this session')
+          return latest.run(query, AbortSignal.any([grantSignal, signal]))
+        },
+      }, trackRequest)
       // 侧边聊天(分叉)不带扩展,与原生条目同一条规矩。
       const extensionsFor = (context: GuguMcpContext) =>
         context.kind === 'social' && context.forkOf === undefined && context.grantKey ? sessionExtensionCatalog : null
@@ -309,7 +325,16 @@ export function createDesktopGuguMcpHost(persistence?: GuguMcpHostPersistence): 
   )
 }
 
+/** chat, file on this machine, acting agent, its message → the sent message; null when the chat does not keep files here. */
+/** `next`: the folder file this is the next version of, from the version named (message_send_file with file and file_path). */
+export type ProjectFilePublish = (chatId: string, file: SelectedProjectFile, actor: string, message: ProjectFileMessage,
+  next?: ProjectFileNextVersion) => Promise<{ message?: Record<string, unknown> } | null>
+
 export interface BuildSocialBridgeDeps {
+  webSearch?: SessionWebSearch
+  resolveFile?: (ref: FileRef, actor: FileActor) => Promise<ResolvedFile>
+  /** The host's project file publisher (the composer's): a file of a chat that keeps files on this machine, with its message. */
+  publishFile?: ProjectFilePublish
   getSupabaseUrl?: () => string
   getSupabaseAnonKey?: () => string
   host: DesktopGuguMcpHost
@@ -358,9 +383,23 @@ export async function buildSocialBridge(
       threadRootId: threadRootId ?? null,
       guguHome: resolveGuguHome(context.env),
       grantKey: deps.grantKey,
+      ...(deps.webSearch ? { webSearch: {
+        available: deps.webSearch.available,
+        run: async (query: string, signal: AbortSignal) => {
+          await getBoundAuth(signal)
+          const output = await deps.webSearch!.run(query, signal)
+          await getBoundAuth(signal)
+          return output
+        },
+      } } : {}),
       ...(deps.personalAssistant ? { personalAssistant: true as const } : {}),
       ...(deps.personalAssistant && deps.assistantWork ? { assistantWork: deps.assistantWork } : {}),
       getAccessToken: async (signal?: AbortSignal) => (await getBoundAuth(signal)).accessToken,
+      ...(deps.resolveFile ? { resolveFile: (ref: FileRef, actorId: string) => deps.resolveFile!(ref, { accountId: expectedOwnerUserId, actorId }) } : {}),
+      ...(deps.publishFile ? { publishFile: async (...args: Parameters<ProjectFilePublish>) => {
+        await getBoundAuth()
+        return deps.publishFile!(...args)
+      } } : {}),
       ...(deps.forkOf === undefined ? {} : { forkOf: deps.forkOf }),
       ...(deps.readAssistantResources ? { readAssistantResources: async () => {
         await getBoundAuth()

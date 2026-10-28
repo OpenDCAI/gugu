@@ -256,7 +256,9 @@ exports[`Codex ACP fixture parsing > transcript 1`] = `
           "_meta": {
             "sha256": "672bcc87d2c4ec7f11c756c8bbf750b2553bd44500643ecfa72cf51780d97ab7",
           },
+          "at": 1577836800000,
           "command": "sed -n '/^## Repository Structure$/,/^## Build & Development Commands$/p' AGENTS.md",
+          "completedAt": 1577836800000,
           "contentBlocks": {
             "blocks": 1,
             "sha256": "4606970fb89e7a88709e1790f88a6178751bae9c7e27bf6ffd8c56e324128b1c",
@@ -327,6 +329,8 @@ exports[`Codex ACP fixture parsing > transcript 1`] = `
           "text": "I’ll search by symbol name with \`rg\` so the result is tied to the actual checkout rather than memory.",
         },
         {
+          "at": 1577836800000,
+          "completedAt": 1577836800000,
           "id": "019f259a-9386-7e20-9af4-b4fdcd67bdac:turn:2:tool:call_sqP7LTqUlaTMofbbig96Qk08",
           "kind": "search-tool-call",
           "locations": [],
@@ -407,6 +411,8 @@ I think I need to form an answer after reviewing the relevant information. Using
         {
           "children": [
             {
+              "at": 1577836800000,
+              "completedAt": 1577836800000,
               "id": "019f259a-9386-7e20-9af4-b4fdcd67bdac:turn:3:tool:call_8Xe7CkBGWr56UnafQajA6tJm",
               "kind": "read-tool-call",
               "locations": [
@@ -426,6 +432,8 @@ I think I need to form an answer after reviewing the relevant information. Using
               "toolKind": "read",
             },
             {
+              "at": 1577836800000,
+              "completedAt": 1577836800000,
               "id": "019f259a-9386-7e20-9af4-b4fdcd67bdac:turn:3:tool:call_x033kE3l2l9CKnHIIMOL1MlJ",
               "kind": "read-tool-call",
               "locations": [
@@ -445,6 +453,8 @@ I think I need to form an answer after reviewing the relevant information. Using
               "toolKind": "read",
             },
             {
+              "at": 1577836800000,
+              "completedAt": 1577836800000,
               "id": "019f259a-9386-7e20-9af4-b4fdcd67bdac:turn:3:tool:call_cJhMBU98lbEuPzKi0p4PHRCt",
               "kind": "read-tool-call",
               "locations": [
@@ -484,6 +494,8 @@ I think I need to form an answer after reviewing the relevant information. Using
           "text": "I’ve got the converter and the main state transitions; I’m reading the wrapper section too so the explanation reflects how updates actually enter the machine.",
         },
         {
+          "at": 1577836800000,
+          "completedAt": 1577836800000,
           "id": "019f259a-9386-7e20-9af4-b4fdcd67bdac:turn:3:tool:call_EpbDQ39xyA1D5C7qfQS7LEVO",
           "kind": "read-tool-call",
           "locations": [
@@ -568,6 +580,8 @@ I need to respond with just a plan since the user is asking for a checklist or t
         {
           "children": [
             {
+              "at": 1577836800000,
+              "completedAt": 1577836800000,
               "id": "019f259a-9386-7e20-9af4-b4fdcd67bdac:turn:4:tool:call_L8H2vFMxU8sqVLUvHG38FwYj",
               "kind": "read-tool-call",
               "locations": [
@@ -587,6 +601,8 @@ I need to respond with just a plan since the user is asking for a checklist or t
               "toolKind": "read",
             },
             {
+              "at": 1577836800000,
+              "completedAt": 1577836800000,
               "id": "019f259a-9386-7e20-9af4-b4fdcd67bdac:turn:4:tool:call_4aV1pRthSPJZGbDql5SiEfWG",
               "kind": "read-tool-call",
               "locations": [
@@ -614,6 +630,8 @@ I need to respond with just a plan since the user is asking for a checklist or t
           "status": "done",
         },
         {
+          "at": 1577836800000,
+          "completedAt": 1577836800000,
           "id": "019f259a-9386-7e20-9af4-b4fdcd67bdac:turn:4:tool:call_nutYXe2pUBohJK0zZA75dd6x",
           "kind": "search-tool-call",
           "locations": [],
@@ -681,7 +699,9 @@ I need to respond with just a plan since the user is asking for a checklist or t
           "_meta": {
             "sha256": "2087512f3b2dde082717adc564395a9e475771d3ce105774880797cc5e82551f",
           },
+          "at": 1577836800000,
           "command": "git rev-parse --abbrev-ref HEAD",
+          "completedAt": 1577836800000,
           "contentBlocks": {
             "blocks": 1,
             "sha256": "ff6413d0eb38421f7b89708d039afa437526473430decf24ada595e0cf83e5f0",
@@ -768,6 +788,8 @@ I need to mention that if the branch name is "HEAD," it might be in a detached s
           "text": "I’m listing the \`packages/\` directory now and will report the workspace package folders that are present.",
         },
         {
+          "at": 1577836800000,
+          "completedAt": 1577836800000,
           "id": "019f259a-9386-7e20-9af4-b4fdcd67bdac:turn:6:tool:call_DagRCdNzm1jDfGHSmO0H6Awg",
           "kind": "read-tool-call",
           "locations": [],
@@ -845,6 +867,8 @@ I'm thinking about how to edit a file effectively. I need to use apply_patch, bu
           "text": "I’m creating the requested notes file with the exact one-line content, and I’ll keep it scoped to that path only.",
         },
         {
+          "at": 1577836800000,
+          "completedAt": 1577836800000,
           "contentBlocks": {
             "blocks": 1,
             "sha256": "5589a9d6ca59262739d6e230fdb1df5386ca51588a4cf057c5cfd873f45e5a40",
@@ -904,6 +928,8 @@ I'm thinking about how to edit a file effectively. I need to use apply_patch, bu
           "text": "I’m appending the requested line to the existing notes file and leaving the original content intact.",
         },
         {
+          "at": 1577836800000,
+          "completedAt": 1577836800000,
           "contentBlocks": {
             "blocks": 1,
             "sha256": "ca02707144ea23a4295ceae808d4cf4f19cfcd979b1e421ccaed9d4027c095f0",
@@ -1011,6 +1037,8 @@ I need to figure out if I should move content or maybe make some changes. It's l
           "text": "The rename helper needs a non-empty hunk, so I’m using a file move pattern that preserves the current contents before deleting the target.",
         },
         {
+          "at": 1577836800000,
+          "completedAt": 1577836800000,
           "contentBlocks": {
             "blocks": 2,
             "sha256": "91fb92708302fd6253f6c67d63128375c0b5fd5557aca56d8b1835c377b97c1d",
@@ -1100,6 +1128,8 @@ I think I need to spawn an explorer and likely use one subagent for this task. I
           "text": "I have the subagent tool; I’m delegating the file search so I can use its findings to summarize each ACP file without duplicating the scan locally.",
         },
         {
+          "at": 1577836800000,
+          "completedAt": 1577836800000,
           "id": "019f259a-9386-7e20-9af4-b4fdcd67bdac:turn:10:tool:call_U0X3lVrvv8SibOVvfLqNv1UL",
           "kind": "unknown-tool-call",
           "locations": [],
@@ -1137,6 +1167,8 @@ I think I need to spawn an explorer and likely use one subagent for this task. I
           "text": "The search is running in the subagent now. I’m waiting for the result so I can turn it into a clean per-file summary.",
         },
         {
+          "at": 1577836800000,
+          "completedAt": 1577836800000,
           "id": "019f259a-9386-7e20-9af4-b4fdcd67bdac:turn:10:tool:call_rdtvueUm8DZ67xoFXfH6t5iV",
           "kind": "unknown-tool-call",
           "locations": [],
@@ -1185,6 +1217,8 @@ I need to think about whether I should send a request to check the agent's statu
           "text": "The subagent hasn’t finished yet, so I’m giving it more time rather than redoing its search.",
         },
         {
+          "at": 1577836800000,
+          "completedAt": 1577836800000,
           "id": "019f259a-9386-7e20-9af4-b4fdcd67bdac:turn:10:tool:call_Uf7LkLGngCf0W6f3PHkD5cyM",
           "kind": "unknown-tool-call",
           "locations": [],
@@ -1233,6 +1267,8 @@ I need to decide if I should use send_input to ask for a complete response. Mayb
           "text": "I’m nudging the subagent for the concrete output now so I can finish the summary instead of leaving it hanging.",
         },
         {
+          "at": 1577836800000,
+          "completedAt": 1577836800000,
           "id": "019f259a-9386-7e20-9af4-b4fdcd67bdac:turn:10:tool:call_HD9SvVJVnuIV8lFW4GouE71Y",
           "kind": "unknown-tool-call",
           "locations": [],
@@ -1270,6 +1306,8 @@ I need to decide if I should use send_input to ask for a complete response. Mayb
           "text": "The agent has been interrupted with a tighter request; I’m waiting once more for the confirmed list.",
         },
         {
+          "at": 1577836800000,
+          "completedAt": 1577836800000,
           "id": "019f259a-9386-7e20-9af4-b4fdcd67bdac:turn:10:tool:call_zlWroMrQjIwsLNdyjbuvoI9m",
           "kind": "unknown-tool-call",
           "locations": [],
@@ -1318,6 +1356,8 @@ It seems the subagent might be unavailable, so I'm thinking we could conduct a l
           "text": "The subagent didn’t come back in time, so I’m finishing the same bounded search locally to avoid blocking the answer.",
         },
         {
+          "at": 1577836800000,
+          "completedAt": 1577836800000,
           "id": "019f259a-9386-7e20-9af4-b4fdcd67bdac:turn:10:tool:call_VY8bGhbVARun0bPiMEW0ZPJ4",
           "kind": "search-tool-call",
           "locations": [],
@@ -1333,6 +1373,8 @@ It seems the subagent might be unavailable, so I'm thinking we could conduct a l
           "toolKind": "search",
         },
         {
+          "at": 1577836800000,
+          "completedAt": 1577836800000,
           "id": "019f259a-9386-7e20-9af4-b4fdcd67bdac:turn:10:tool:call_rNvzMKvIYbci6gHFNcpP4NNR",
           "kind": "read-tool-call",
           "locations": [],
@@ -1377,6 +1419,8 @@ I need to filter out files containing the term "stopReason" from the output. The
           "text": "I have the matching file set now; I’m narrowing it to the actual files that contain \`stopReason\` so the summary stays precise.",
         },
         {
+          "at": 1577836800000,
+          "completedAt": 1577836800000,
           "id": "019f259a-9386-7e20-9af4-b4fdcd67bdac:turn:10:tool:call_53oAy9tdQgqO3XurfmMoYdKq",
           "kind": "search-tool-call",
           "locations": [],
@@ -1422,6 +1466,8 @@ I need to summarize what each file does. I'm wondering if mentioning that the su
           "text": "I’m wrapping up by closing the subagent since the answer is assembled from the repo scan and the agent didn’t need to stay open.",
         },
         {
+          "at": 1577836800000,
+          "completedAt": 1577836800000,
           "id": "019f259a-9386-7e20-9af4-b4fdcd67bdac:turn:10:tool:call_CN8W72UrQ7vpQbpLIxpbw6ad",
           "kind": "unknown-tool-call",
           "locations": [],

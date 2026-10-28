@@ -8,11 +8,12 @@ import { hookSpeakerOfNotice } from '@gugu/session-core/acp';
 import type { TranscriptCompaction, TranscriptContextReset, TranscriptSessionNotice } from '@gugu/session-core/acp';
 import { toolCallName } from '@gugu/session-core/acp/client';
 import { isQuestionOrPlanToolName } from '@gugu/session-core/session-record/question-tools';
+import { agentSendOf } from '@gugu/session-core/session-record/reply-process';
 import { localDayKey } from '@session-chat/lib/day-boundary';
 import { formatElapsed } from '@session-chat/lib/format-elapsed';
 import { isGuguSilence } from '@gugu/core/local/agent/silenceMarker';
 import { parseHookNotice } from '@session-chat/lib/hook-notice';
-import type { ChatItem, ChatMessage, TranscriptTurn } from '@session-chat/model';
+import type { ChatItem, ChatMessage, TranscriptItem, TranscriptTurn } from '@session-chat/model';
 
 /** Returns true when the item is a user-role message (boundary seam sentinel). */
 export function itemIsUser(item: ChatItem): boolean {
@@ -47,6 +48,9 @@ function isHookNotice(item: ChatItem): boolean {
  * 真正的答复就被划进 `process` 折起来看不见了。
  */
 function isAssistantMessage(item: ChatItem): boolean {
+  // 经 message_send / session_message 说出去的那段话也是 agent 在说话(群里派的任务,话都是这么回的):
+  // 它和文字回复一样能当「最后一条回复」留在折叠外面。
+  if (agentSendOf(item as TranscriptItem)) return true;
   if (item.kind !== 'message' || (item as ChatMessage).role !== 'assistant') return false;
   if (isHookNotice(item)) return false;
   // `[NO_REPLY]` 也不算:那是 agent 对一条通知的「不回」,面板根本不画它(unit-registry 返回空)。
@@ -54,6 +58,11 @@ function isAssistantMessage(item: ChatItem): boolean {
   // process 折起来看不见(2026-09-06 真机:「做完了,子智能体已执行 sleep 40」整条进了「过程」)。
   if (isGuguSilence((item as ChatMessage).text)) return false;
   return true;
+}
+
+/** 这一条里 agent 说的话:它自己的回复,或经 message_send / session_message 说出去的那段(`agentSendOf`)。 */
+function replyText(item: ChatItem): string {
+  return item.kind === 'message' ? ((item as ChatMessage).text ?? '') : (agentSendOf(item as TranscriptItem)?.text ?? '');
 }
 
 /**
@@ -206,7 +215,7 @@ function staysOutside(item: ChatItem): boolean {
 
 /** agent 在干活:说话、钩子通知、路过的事件都不算。 */
 function isWork(item: ChatItem): boolean {
-  return item.kind !== 'message' && !isPassingEvent(item) && !staysOutside(item);
+  return item.kind !== 'message' && !agentSendOf(item as TranscriptItem) && !isPassingEvent(item) && !staysOutside(item);
 }
 
 /**
@@ -288,7 +297,7 @@ function segmentTurn(turn: TranscriptTurn): TurnFoldPlan {
   // collapsed process rows. A steer/delivery is also a navigation target, even after completion.
   const visible = segments.flatMap((segment) => splitAtContextBoundaries(segment, clocked));
   const spoke = [...cuts.map((cut) => cut.reply), lastReply].some(
-    (i) => i !== -1 && ((items[i] as ChatMessage).text ?? '').trim().length > 0
+    (i) => i !== -1 && replyText(items[i] as ChatItem).trim().length > 0
   );
   return { leading: items.slice(0, leadEnd), segments: visible, spoke };
 }
@@ -384,7 +393,12 @@ export function planTurnFoldRuns(
    * 手机的 live 层都是):agent 自己开头的一轮按它判会多出可折的过程,前面若还有一轮、末段没有尾巴,
    * 这一轮就会被当成「接得上」并进前一轮的头里(#129 review)。
    */
-  live = false
+  live = false,
+  /**
+   * 对话布局:跑着的那一轮 agent 自己起的(后台跑完、定时、群投递)也给过程行,写清在干什么(管家 10-28),
+   * ❌ 一句话还没说就不折、行平铺在上一轮回复底下、只露出后台药丸(MBP 验收 #733)。见 `turnFoldView`。
+   */
+  headLiveAgentTurn = false
 ): { folds: (TurnFoldPlan | null)[]; runs: Map<number, TurnFoldRun>; absorbed: boolean[] } {
   const foldPlans = turns.map((turn, i) =>
     !enabled ? null : live && i === turns.length - 1 ? planLiveTurnFold(turn) : planTurnFold(turn)
@@ -425,7 +439,7 @@ export function planTurnFoldRuns(
       }
       // agent 自己开头、一句话没说的一轮(只有完成通知、`[NO_REPLY]`)不折,也不当锚(#69):折起来外面
       // 只剩一个空头;当锚的话,下一次被叫醒的那一轮会并进来,头上的用时就把两次之间的空闲也算进去了。
-      if (fold.leading.length === 0 && turn.initiator !== 'user' && !fold.spoke) {
+      if (fold.leading.length === 0 && turn.initiator !== 'user' && !fold.spoke && !(headLiveAgentTurn && live && i === turns.length - 1)) {
         foldPlans[i] = null;
         anchor = -1;
         continue;
@@ -476,8 +490,9 @@ export function completedTurnResult(turn: TranscriptTurn, run: TurnFoldRun | und
   let lastReply = -1;
   let lastCall = -1;
   items.forEach((item, index) => {
-    if (isAssistantMessage(item) && (item as ChatMessage).text.trim().length > 0) lastReply = index;
-    if (item.kind === 'tool' || ('toolCallId' in item && item.kind !== 'subagent-done-tool-call')) lastCall = index;
+    const reply = isAssistantMessage(item);
+    if (reply && replyText(item).trim().length > 0) lastReply = index;
+    else if (item.kind === 'tool' || ('toolCallId' in item && item.kind !== 'subagent-done-tool-call')) lastCall = index;
   });
   if (lastReply >= 0 && lastReply > lastCall) return null;
   const text = items.flatMap((item) => {
@@ -505,7 +520,9 @@ export function turnFoldView(
   turn: TranscriptTurn,
   fold: TurnFoldPlan,
   run: TurnFoldRun | undefined,
-  active: boolean
+  active: boolean,
+  /** 对话布局:跑着的 agent 自起轮也套头(见 `planTurnFoldRuns` 的 `headLiveAgentTurn`)。 */
+  headLiveAgentTurn = false
 ): { leading: ChatItem[]; segments: { process: ChatItem[]; tail: ChatItem[]; header: TurnProcessHeader | null }[] } {
   // 这一条覆盖的全部过程行与最终的尾巴 —— 可能来自不止一个回合(见 `planTurnFoldRuns`)。
   const merged = run ?? { segments: copySegments(fold.segments), turnCount: 1, endedAt: turn.endedAt };
@@ -515,7 +532,9 @@ export function turnFoldView(
   // 一句话没说的那种在 `planTurnFoldRuns` 里就不折了。跑着的时候不套头:它会不会开口还不知道,
   // 先给头、跑完一句没说再撤掉,那一行就白跳一下 —— 跑完再折,正是「跑完了就折起来」。
   const userRun = fold.leading.length > 0 || turn.initiator === 'user';
-  const headed = userRun || (!active && fold.spoke);
+  // 对话布局例外:跑着就套头,过程行写「执行中 · 后台任务」(管家 10-28 推翻上面「跑着不套头」:主人手打的消息
+  // 不能看着像被不是他发起的事挡住)。代价是跑完一句没说的那一轮(`[NO_REPLY]`)头会撤掉。
+  const headed = userRun || (!active && fold.spoke) || (active && headLiveAgentTurn);
   return {
     leading: fold.leading,
     segments: merged.segments.map((segment, segIndex) => {

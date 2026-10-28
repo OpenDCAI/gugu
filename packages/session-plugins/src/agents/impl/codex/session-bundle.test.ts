@@ -44,23 +44,26 @@ describe('problem 9: gugu-delivered MCP servers are not asked about call by call
       }),
     );
     expect(result.threadConfig).toMatchObject({
+      'tools.update_plan.enabled': true,
       'mcp_servers.gugu.default_tools_approval_mode': 'approve',
       'mcp_servers.quiet_probe_quiet.default_tools_approval_mode': 'approve',
     });
   });
 });
 
-describe('#7191 a session with gugu\'s browser tab turns off codex\'s own browser plugins', () => {
-  const browser = { name: 'gugu-browser', url: 'http://127.0.0.1:5/mcp', owner: 'integration' as const };
+describe('#7199 a session with the Browser Use App turns off codex\'s own browser plugins', () => {
   const off = ['-c', 'plugins.browser@openai-bundled.enabled=false', '-c', 'plugins.chrome@openai-bundled.enabled=false'];
 
   it.each(['acp', 'app-server'] as const)('%s leg: both plugins off for this process only', (surface) => {
-    const result = materializeCodexSessionBundle({ ...ctx, surface }, bundle({ mcpServers: [browser] }));
+    const result = materializeCodexSessionBundle({ ...ctx, surface }, bundle({ browserUse: true }));
     expect(result.argsAppend.join(' ')).toContain(off.join(' '));
   });
 
-  it('no browser tab in the session, codex\'s plugins stay as the person has them', () => {
-    const result = materializeCodexSessionBundle(ctx, bundle({ mcpServers: [{ name: 'gugu', url: 'http://127.0.0.1:1/mcp' }] }));
+  it('no Browser Use, codex\'s plugins stay as the person has them — a server named gugu-browser no longer counts', () => {
+    const result = materializeCodexSessionBundle(ctx, bundle({ mcpServers: [
+      { name: 'gugu', url: 'http://127.0.0.1:1/mcp' },
+      { name: 'gugu-browser', url: 'http://127.0.0.1:5/mcp', owner: 'integration' },
+    ] }));
     expect(result.argsAppend.join(' ')).not.toContain('openai-bundled');
   });
 });

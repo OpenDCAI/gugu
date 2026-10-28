@@ -622,6 +622,14 @@ describe('flattenTier × foldTurnProcess (#4874 → #4981 时间头)', () => {
     const units = flattenTier([running], ctxWith({ foldTurnProcess: true, active: true }), SEGMENTERS);
     expect(kinds(units)).not.toContain('turn-process');
     expect(ids(units)).toContain('a14');
+    // 对话布局例外(管家 10-28,MBP 验收 #733):跑着就套头,写「执行中 · 后台任务」,❌ 行平铺在上一轮回复底下。
+    const silent = turn('t15', [row('background-command-done-tool-call', 'bd'), bash('x1')], undefined, { startedAt: 5_000 });
+    for (const record of [running, silent]) {
+      const conversation = flattenTier([record], ctxWith({ foldTurnProcess: true, active: true, agentConversation: true }), SEGMENTERS);
+      const head = conversation.map(unit => unit.kind === 'turn-process' ? unit.data : (unit.data as ChatMessage).conversationProcess).find(Boolean) as TurnProcessItem | undefined;
+      expect(head?.live).toBe(true);
+      expect(head?.trigger).toEqual({ kind: 'agent' });
+    }
   });
 
   it('活动层:时间头带 live 在数,内容**默认摊开**(Codex:跑着的时候看得见在干嘛)', () => {
@@ -917,5 +925,89 @@ describe('joinsFoldRunAt:追加的那一轮会不会并进前面还没收尾的�
   });
   it('跨了一天的那一轮不并', () => {
     expect(joinsFoldRunAt([ask, { ...spoke, startedAt: DAY * 3, endedAt: DAY * 3 + 1_000 }], 1, true)).toBe(false);
+  });
+});
+
+describe('agent conversation segment process', () => {
+  const process = (units: ReturnType<typeof flattenTier>) => units.map(unit => unit.kind === 'turn-process' ? unit.data : (unit.data as ChatMessage).conversationProcess).find(Boolean) as ChatMessage['conversationProcess'];
+  const completed = () => turn('footer', [user('u'), thinking('think'), tool('call'), reply('answer')],
+    { kind: 'done', reason: 'end_turn' }, { startedAt: 1000, endedAt: 25000 });
+  const conversation = (record: TranscriptTurn, active = false, open = false) => flattenTier([record], ctxWith({ active, foldTurnProcess: true, agentConversation: true,
+    isTurnProcessExpanded: () => open }), SEGMENTERS);
+  it('binds every completed segment to its stable process head, with only tools counted', () => {
+    const units = conversation(completed());
+    expect(ids(units).indexOf('footer:process:head')).toBe(ids(units).indexOf('answer') - 1);
+    expect(process(units)).toMatchObject({ id: turnProcessId('footer'), startedAt: 1000, endedAt: 25000, steps: 1 });
+    expect(units.find(unit => unit.itemId === 'answer')?.data).toMatchObject({ conversationPart: 'body', conversationHead: 'footer:process:head' });
+    expect(ids(units)).not.toContain('call');
+  });
+  it('expands single steps in their original order above the reply', () => {
+    const units = conversation(completed(), false, true);
+    expect(ids(units)).toEqual(['u', 'footer:process:head', 'think', 'call', 'answer']);
+  });
+  it('keeps a live reply visible when its process is collapsed', () => {
+    const running = turn('running', [user('u'), reply('answer'), tool('search')]);
+    const open = conversation(running, true);
+    expect(process(open)?.live).toBe(true);
+    expect((open.find(unit => unit.itemId === 'answer')?.data as ChatMessage).conversationNarration).toBeUndefined();
+    expect(ids(open).indexOf('search')).toBeLessThan(ids(open).indexOf('answer'));
+    const closed = conversation(running, true, true);
+    expect(ids(closed)).toContain('answer');
+    expect(ids(closed)).not.toContain('search');
+  });
+  it('shows the latest words while running and preserves earlier narration after settling', () => {
+    const initial = reply('commentary', '我现在去查一查。');
+    const record = turn('weather', [user('u'), initial, tool('search'), reply('result', '北京今天晴')], DONE, { startedAt: 1000, endedAt: 9000 });
+    for (const active of [true, false]) {
+      const units = conversation(record, active, !active);
+      expect(units.filter(unit => (unit.data as ChatMessage).conversationPart === 'body').map(unit => unit.itemId)).toEqual(['result']);
+      expect(units.filter(unit => (unit.data as ChatMessage).conversationNarration).map(unit => unit.itemId)).toEqual(['commentary']);
+    }
+    expect(initial).not.toHaveProperty('conversationNarration');
+  });
+  it('seals each message_send into its own chronological segment', () => {
+    const sent = (call: string, id: string): ChatMessage => reply(`${call}:sent:${id}`, id);
+    const record = turn('sends', [user('u'), tool('call'), sent('call', 'm1'), tool('call2'), sent('call2', 'm2'), reply('answer')], DONE,
+      { startedAt: 1000, endedAt: 9000 });
+    for (const open of [false, true]) {
+      const units = conversation(record, false, open);
+      const bodies = units.filter(unit => (unit.data as ChatMessage).conversationPart === 'body');
+      expect(bodies.map(unit => unit.itemId)).toEqual(['call:sent:m1', 'call2:sent:m2', 'answer']);
+      expect(units.filter(unit => (unit.data as ChatMessage).conversationPart === 'head')).toHaveLength(3);
+      expect(bodies.every(unit => !!(unit.data as ChatMessage).conversationHead)).toBe(true);
+      expect(ids(units)).not.toContain('call');
+      expect(ids(units)).not.toContain('call2');
+    }
+  });
+  it('counts work on a live process-only segment, and collapses its body', () => {
+    const record = turn('busy', [user('u'), tool('a'), tool('b'), tool('c')], undefined, { startedAt: 1000 });
+    const units = conversation(record, true);
+    expect(process(units)).toMatchObject({ steps: 3, live: true });
+    expect(conversation(record, true, true).length).toBeLessThan(units.length);
+  });
+  it('carries delivery, schedule and agent triggers through both process paths', () => {
+    for (const trigger of [{ kind: 'delivery' as const, chatIds: ['g1'] }, { kind: 'schedule' as const }, { kind: 'agent' as const }]) {
+      for (const speech of [[], [reply('said')]]) {
+        const record = { ...turn('t', [user('u'), tool('a'), ...speech]), trigger };
+        expect(process(conversation(record, true))?.trigger).toEqual(trigger);
+        expect(process(conversation(record))?.trigger).toBeUndefined();
+      }
+    }
+    expect(process(conversation(turn('bg', [reply('said'), tool('a')]), true))?.trigger).toEqual({ kind: 'agent' });
+    expect(process(conversation(turn('owner', [user('u'), tool('a')]), true))?.trigger).toBeUndefined();
+  });
+  it('leaves a single tool as one row and uses speech to separate consecutive tool groups', () => {
+    const record = turn('pings', [user('u'), bash('p1'), reply('mid'), bash('p2'), reply('final')], DONE);
+    const units = conversation(record, false, true);
+    expect(units.filter(unit => unit.kind === 'tool-run')).toHaveLength(0);
+    expect(ids(units).filter(id => ['p1', 'mid', 'p2', 'final'].includes(id))).toEqual(['p1', 'mid', 'p2', 'final']);
+  });
+  it('keeps the failure outcome visible beside the same readable reply/process structure', () => {
+    const record = completed(); record.outcome = { kind: 'error', reason: 'prompt_failed' };
+    const units = conversation(record, false, true);
+    expect(ids(units)).toContain('call');
+    expect(ids(units)).toContain('answer');
+    expect(kinds(units)).toContain('turn-outcome');
+    expect(process(units)?.live).toBeUndefined();
   });
 });

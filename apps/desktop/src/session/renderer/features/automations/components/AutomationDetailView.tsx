@@ -1,4 +1,5 @@
-import { Bot, Ellipsis, Play, Trash2 } from '@/lib/icons';
+import { AutomationAgentAvatar } from './AutomationAgentAvatar';
+import { Ellipsis, Play, Trash2 } from '@/lib/icons';
 import { observer } from 'mobx-react-lite';
 import { useState } from 'react';
 import { Button } from '@renderer/lib/ui/button';
@@ -243,7 +244,7 @@ const AgentScheduleDetailView = observer(function AgentScheduleDetailView({
         <NextRunBanner automationId={automation.id} />
         <div className="flex flex-col gap-2 rounded-lg bg-background-1 p-2 text-sm">
           <span className="flex items-start gap-2 text-foreground-muted">
-            <Bot className="mt-1 size-3.5 shrink-0" aria-hidden />
+            <AutomationAgentAvatar sessionId={automation.agentSessionId} />
             {gone
               ? translate('automations.agentScheduleNoteGone')
               : translate('automations.agentScheduleNote', { name: agent?.name ?? '' })}

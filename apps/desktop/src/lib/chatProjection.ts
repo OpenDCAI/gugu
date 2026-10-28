@@ -12,7 +12,7 @@
 // 那就是第二个属主在原地 —— #3271 的病只治了增量那一半。
 
 import type { ChatItem, ChatUnreadLocator, GroupMemberRole, NotificationLevel } from '@gugu/core/shared/types/chat'
-import { turnFailureReason } from '@gugu/core/shared/ui/systemNotice'
+import { isPendingDelivery, turnFailureReason } from '@gugu/core/shared/ui/systemNotice'
 import {
   assemble,
   assertRevision,
@@ -235,7 +235,8 @@ export function createChatProjection(viewerId: string): ChatProjection {
       const found = (data ?? []) as Array<Record<string, unknown> & { chat_id: string } & Parameters<typeof turnFailureReason>[0]>
       const byChat = new Map<string, unknown>()
       for (const row of found) {
-        if (byChat.has(row.chat_id)) continue
+        // 还在等 agent 接走的那种行不画(气泡上说),也不当预览;与 sync_snapshot 的 chat.is_pending_delivery 同一判据。
+        if (byChat.has(row.chat_id) || isPendingDelivery(row)) continue
         byChat.set(row.chat_id, {
           chat_id: row.chat_id,
           created_at: String(row.created_at),
@@ -250,11 +251,11 @@ export function createChatProjection(viewerId: string): ChatProjection {
     },
     override: async (ids, signal) => {
       const { data, error } = await identityDb.from('contact_overrides')
-        .select('contact_user_id, alias').eq('owner_user_id', viewerId).abortSignal(signal)
+        .select('target_kind, target_id, alias').eq('owner_user_id', viewerId).abortSignal(signal)
       if (error) throw new Error(error.message)
       const byId = new Map<string, unknown>()
-      for (const row of (data ?? []) as Array<{ contact_user_id: string; alias: string | null }>) {
-        byId.set(row.contact_user_id, { contact_user_id: row.contact_user_id, alias: row.alias })
+      for (const row of (data ?? []) as Array<{ target_kind: string; target_id: string; alias: string | null }>) {
+        byId.set(row.target_kind === 'group' ? `group/${row.target_id}` : row.target_id, { alias: row.alias })
       }
       return indexExact(ids, byId)
     },
@@ -544,6 +545,7 @@ export function mergeUnreadRows(
       message_id: typeof row.message_id === 'string' ? row.message_id : null,
       message_seq: Number.isFinite(Number(row.message_seq)) ? Number(row.message_seq) : null,
       unread_count: Number(row.unread_count),
+      addressed_count: addressedCount(row, Number(row.unread_count)),
       cursor_seq: Number(row.cursor_seq),
       version: Number(row.version),
       is_marked_unread: row.is_marked_unread === true,
@@ -552,9 +554,18 @@ export function mergeUnreadRows(
     if (!previous) { byChat.set(row.chat_id, locator); continue }
     const first = (locator.message_seq ?? Number.MAX_SAFE_INTEGER) < (previous.message_seq ?? Number.MAX_SAFE_INTEGER)
       ? locator : previous
-    byChat.set(row.chat_id, { ...first, unread_count: previous.unread_count + locator.unread_count })
+    byChat.set(row.chat_id, { ...first, unread_count: previous.unread_count + locator.unread_count, addressed_count: (previous.addressed_count ?? previous.unread_count) + locator.addressed_count })
   }
   return byChat
+}
+
+/**
+ * 后端比 gugu-supabase#73 旧(还没有这一列):退回这条流的全部未读 —— 项目行照旧数、照旧弹,❌ 报错让整张列表起不来,
+ * ❌ 当成 0 把话题里点名你的消息悄悄算没。生产库晚于客户端上线也不出事。
+ */
+function addressedCount(row: Record<string, unknown>, unread: number): number {
+  const value = row.addressed_count == null ? Number.NaN : Number(row.addressed_count)
+  return Number.isFinite(value) ? value : unread
 }
 
 /** 请求过的键一律落位:读到 = 值,没读到 = null(tombstone,spec I3)。 */

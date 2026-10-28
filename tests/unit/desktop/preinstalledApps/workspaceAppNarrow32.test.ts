@@ -31,6 +31,7 @@ const gugu = {
   codemirror: vi.fn(() => new Promise(() => {})),
   markdown: vi.fn(() => new Promise(() => {})),
   files: {
+    viewPreferences: vi.fn(async () => ({ showAppData: false })),
     list: vi.fn(async () => entries),
     onChanged: vi.fn(() => () => {}),
     open: vi.fn(async () => { throw new Error('rig: no file service here') }),
@@ -133,8 +134,9 @@ describe('workspace App in a narrow pane (F32)', () => {
     expect(document.body.classList.contains('show-doc')).toBe(false)
     expect($('doc-message').textContent).not.toMatch(/pick a file/i)
     const files = document.querySelector('.files')!
-    // 子文件夹: the crumbs sit between the head and the list (hidden at the top), then the list's own line for what went wrong.
-    expect([...files.children].map((e) => e.id || e.classList[0]).slice(0, 5)).toEqual(['files-head', 'crumbs', 'list-banner', 'files-empty', 'file-list'])
+    // The kinds, the order and the view under the search, then the filters; 子文件夹: the crumbs between them and the list (hidden at the top), then the
+    // list's own line for what went wrong.
+    expect([...files.children].map((e) => e.id || e.classList[0]).slice(0, 7)).toEqual(['files-head', 'files-tools', 'chips', 'crumbs', 'list-banner', 'files-empty', 'file-list'])
   })
 
   // owner 10-11「私聊就叫做文件夹吧，群里面是群文件夹」: a topic goes by the chat it grew out of, which ctx.chat.groupId says.
@@ -151,7 +153,11 @@ describe('workspace App in a narrow pane (F32)', () => {
 
   test('an open Markdown uses the existing inline rename field, preserving it through revisions and handling cancel and failure', async () => {
     const changed = (gugu.onContextChanged.mock.calls[0] as unknown as [(ctx: unknown) => void])[0]
-    const file = { type: 'text', entry: entries[1], readOnly: false, close: vi.fn() }
+    const file = {
+      type: 'text', entry: entries[1], readOnly: false, close: vi.fn(), status: 'online',
+      onChange: () => () => {}, onStatus: () => () => {},
+      presence: { onChange: () => () => {}, others: [] },
+    }
     gugu.files.open.mockResolvedValueOnce(file as never)
     changed({ ...context, file: { chat: 'chat-1', id: 'plan' } })
     await vi.waitFor(() => expect(shown()).toBe('plan.md'))

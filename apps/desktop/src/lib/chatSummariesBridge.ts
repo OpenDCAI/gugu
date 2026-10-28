@@ -9,6 +9,9 @@
 import { useSyncExternalStore } from 'react'
 
 export type ChatSummary = {
+  readonly alias?: string | null
+  readonly unreadCount: number
+  readonly isMarkedUnread: boolean
   readonly hasMessages: boolean
   readonly name: string | null
   readonly kind: string | null
@@ -24,9 +27,12 @@ type Summaries = ReadonlyMap<string, ChatSummary>
 
 /** 壳:聊天列表那一份(整份替换;没变不通知)。 */
 export function publishChatSummaries(chats: readonly {
-  id: string; kind: string; name?: string | null; last_message_at?: string | null; last_message_preview?: string | null; source_chat_id?: string | null
+  id: string; kind: string; unread_count: number; is_marked_unread?: boolean; name?: string | null; alias?: string | null; last_message_at?: string | null; last_message_preview?: string | null; source_chat_id?: string | null
 }[]): void {
   const next: Summaries = new Map(chats.map((chat) => [chat.id, {
+    ...(chat.alias ? { alias: chat.alias } : {}),
+    unreadCount: chat.unread_count,
+    isMarkedUnread: chat.is_marked_unread === true,
     hasMessages: Boolean(chat.last_message_at),
     name: chat.name || null,
     kind: chat.kind,
@@ -36,7 +42,7 @@ export function publishChatSummaries(chats: readonly {
   const current = read()
   if (current && current.size === next.size && [...next].every(([id, summary]) => {
     const was = current.get(id)
-    return was !== undefined && (Object.keys(summary) as (keyof ChatSummary)[]).every((key) => was[key] === summary[key])
+    return was !== undefined && was.alias === summary.alias && (Object.keys(summary) as (keyof ChatSummary)[]).every((key) => was[key] === summary[key])
   })) return
   ;(window as unknown as Record<string, unknown>)[KEY] = next
   window.dispatchEvent(new Event(EVENT))
@@ -58,7 +64,7 @@ export function subscribeChatSummaries(listener: () => void): () => void {
 /** 会话页(不在渲染里):这个对话的摘要;壳还没告诉过 = null,壳的列表里没有它 = 没有过消息、不知道名字。 */
 export function readChatSummary(chatId: string): ChatSummary | null {
   const summaries = read()
-  return summaries ? (summaries.get(chatId) ?? { hasMessages: false, name: null, kind: null, lastMessagePreview: null, sourceChatId: null }) : null
+  return summaries ? (summaries.get(chatId) ?? { unreadCount: 0, isMarkedUnread: false, hasMessages: false, name: null, kind: null, lastMessagePreview: null, sourceChatId: null }) : null
 }
 
 /** 会话页:这个对话有没有过消息;壳还没告诉过 = null(还不知道,❌ 当成没有)。 */

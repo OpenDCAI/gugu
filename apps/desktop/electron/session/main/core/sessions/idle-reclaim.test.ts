@@ -66,6 +66,26 @@ const acp = (id: string, atRest: boolean): LiveSession => ({
 });
 
 describe('IdleReclaimer', () => {
+  it('starts a fresh idle window after a confirmed three-hour sleep and an immediate incoming message', async () => {
+    const h = harness({ live: [acp('a', true)] });
+    await h.reclaimer.tick();
+    h.advance(9 * MINUTE);
+    const since = 1_000_000 + 9 * MINUTE;
+    h.advance(3 * 60 * MINUTE);
+    h.reclaimer.resumedFromConfirmedSleep({ since, until: since + 3 * 60 * MINUTE });
+    expect(await h.reclaimer.tick()).toEqual([]);
+    h.reclaimer.observeStatus('a', 'working');
+    h.state.facts.a = { status: 'working', resumable: true };
+    expect(await h.reclaimer.tick()).toEqual([]);
+    expect(h.stopped).toEqual([]);
+    h.reclaimer.observeStatus('a', 'idle');
+    h.state.facts.a = { status: 'idle', resumable: true };
+    h.advance(IDLE_RECLAIM_AFTER_MS - 1);
+    expect(await h.reclaimer.tick()).toEqual([]);
+    h.advance(1);
+    expect(await h.reclaimer.tick()).toHaveLength(1);
+  });
+
   it('stops a live idle session once it has been idle for the full window, then tells the renderer', async () => {
     const h = harness({ live: [pty('a')] });
     // 第一次看见:从现在起算,❌ 往前补。
@@ -118,6 +138,16 @@ describe('IdleReclaimer', () => {
     await h.reclaimer.tick();
     h.advance(IDLE_RECLAIM_AFTER_MS);
     expect((await h.reclaimer.tick()).map((t) => t.sessionId)).toEqual(['rest']);
+  });
+
+  it('releases an idle browser page after its process is already gone, even without a resumable harness', async () => {
+    const h = harness({
+      live: [{ projectId: 'p', sessionId: 'a', runtime: 'browser' }],
+      facts: { a: { status: 'idle', resumable: false } },
+    });
+    await h.reclaimer.tick();
+    h.advance(IDLE_RECLAIM_AFTER_MS);
+    expect(await h.reclaimer.tick()).toEqual([{ projectId: 'p', sessionId: 'a' }]);
   });
 
   it('drops the clock of a session whose process went away; it starts over when it comes back', async () => {

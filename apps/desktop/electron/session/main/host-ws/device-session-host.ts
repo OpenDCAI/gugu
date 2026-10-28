@@ -35,6 +35,8 @@ import { SESSION_SHELL_CHANNELS } from '@shared/lib/ipc/shell-port';
 import { serializeHostWsError } from '@shared/lib/ipc/host-ws-protocol';
 import { log } from '../lib/logger';
 import { FrameSessionHost, type FrameInvokePolicy, type FrameSocket } from './frame-host';
+import { createRemotePtyPacer } from './remote-pty-pacer';
+import { ptySessionRegistry } from '../core/pty/pty-session-registry';
 
 /**
  * 别的电脑连进来时不给的:属于「看界面的那台电脑」的动作(窗口、剪贴板、对话框、内置浏览器、界面布局记忆),
@@ -134,7 +136,7 @@ export function installDeviceSessionHost(options: { appVersion: () => string }):
 
 type ClientLink = {
   receive: (seq: number, pieces: SessionHostPiece[]) => void;
-  close: () => void;
+  close: (reason?: string) => void;
 };
 
 /**
@@ -180,7 +182,7 @@ export function createSessionHostDeviceRpcHandlers(options: { host?: () => Frame
     asker: DeviceRpcAskerContext | undefined,
     callerId: string | undefined,
   ): void => {
-    clients.get(client)?.close();
+    clients.get(client)?.close('replaced');
     const refreshReport = reportDesktop(desktop);
     let frameCb: ((frame: string | Uint8Array) => void) | null = null;
     let closeCb: (() => void) | null = null;
@@ -210,19 +212,20 @@ export function createSessionHostDeviceRpcHandlers(options: { host?: () => Frame
           queueMicrotask(flush);
         }
       },
-      close: () => shut(),
+      close: (reason) => shut(reason),
       onFrame: (cb) => (frameCb = cb),
       onClose: (cb) => (closeCb = cb),
     };
-    const shut = () => {
+    const shut = (reason = 'client close') => {
       if (closed) return;
       closed = true;
+      log.warn('[session-host-device] client closed', { client, reason });
       stopWatchingAsker?.();
       if (clients.get(client) === link) clients.delete(client);
       closeCb?.();
     };
     // #7233 开它的发问端那条线没了(宿主空闲关 / 让位 / 收摊):帧推不过去了,窗口一并关掉;发问端重新报到后会重开一条。
-    const stopWatchingAsker = asker?.onDetached(() => shut());
+    const stopWatchingAsker = asker?.onDetached(() => shut('asker detached'));
     const link: ClientLink = {
       receive: (seq, pieces) => {
         refreshReport();
@@ -231,9 +234,16 @@ export function createSessionHostDeviceRpcHandlers(options: { host?: () => Frame
       close: shut,
     };
     clients.set(client, link);
-    frameHost.attach(socket, { remote: `device:${client.slice(0, 8)}`, policy: remoteInvokePolicyForCaller(callerId) });
+    // 开与关成对落盘(关那句在 shut 里),两头的日志才对得上是哪一条窗口(桌面那头按同一个 client 记,remoteSessionHost)。
+    // 用 warn 是因为会话进程默认只落 warn 及以上(@gugu/session-shared/logger 的 resolveLogLevel):frame-host 那句
+    // info 的「client connected」在用户机器上落不了盘,2026-10-27 d22 上就只剩关、没有开。一条窗口一行,❌ 按帧记。
+    log.warn('[session-host-device] client opened', { client, desktop: desktop?.id ?? null });
+    frameHost.attach(socket, {
+      remote: `device:${client.slice(0, 8)}`,
+      policy: remoteInvokePolicyForCaller(callerId),
+      outgoing: createRemotePtyPacer({ screenSnapshot: (id) => ptySessionRegistry.screenSnapshot(id) }),
+    });
   };
-
   const readClient = (payload: unknown): string | null => {
     const client = (payload as { client?: unknown } | null)?.client;
     return typeof client === 'string' && /^[A-Za-z0-9_-]{8,64}$/.test(client) ? client : null;
@@ -305,7 +315,7 @@ export function createSessionHostDeviceRpcHandlers(options: { host?: () => Frame
   return {
     handlers,
     dispose: () => {
-      for (const link of [...clients.values()]) link.close();
+      for (const link of [...clients.values()]) link.close('handler disposed');
       clients.clear();
     },
   };

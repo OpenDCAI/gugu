@@ -4,16 +4,14 @@ import { ChevronLeft, Maximize2, X } from '@/lib/icons'
 import { sessionPeek } from '../../session/renderer/app/session-peek'
 import { APP_OPEN_WITH_EVENT, type AppOpenWithDetail, type PeekTarget } from '../../session/shared/extensions/app-runtime-protocol'
 import type { FileOpenerCandidate } from '../../session/shared/extensions/file-openers'
-import { localizedManifestText } from '../../session/shared/extensions/catalog'
-import { installedExtensionsStore } from '../../session/renderer/features/extensions/installed-extensions-store'
 import { useMobileShell } from '../../hooks/useMobileShell'
 import { platform } from '../../platform'
 import { MessageFilePreview } from '../chat/MessageFilePreview'
-import { Button } from '../ui/Button'
 import { IconButton } from '../ui/IconButton'
 import { PaneHeader } from '../ui/Pane'
 import { ClaimedPage } from './ClaimedPage'
 import { PhoneAppFrame } from './PhoneAppFrame'
+import { OpenWithPick } from './OpenWithPick'
 
 // Desktop-only and phone-only halves, loaded where they are drawn.
 const PeekLocalFile = lazy(() => import('../../session/renderer/features/extensions/peek-local-file').then((m) => ({ default: m.PeekLocalFile })))
@@ -83,20 +81,11 @@ function openFull(target: PeekTarget): (() => void) | null {
 
 /** A chat file an App here opens: that App's page made for the file (as 「用 X 打开」 makes it); several, the person picks. */
 function ChatFileOpener({ detail, slotId }: { detail: AppOpenWithDetail; slotId: string }) {
-  const { t } = useTranslation('messaging')
   const [picked, setPicked] = useState<FileOpenerCandidate | null>(detail.choice.kind === 'one' ? detail.choice.candidate : null)
   if (!picked) {
-    const candidates = detail.choice.kind === 'choose' ? detail.choice.candidates : []
-    return (
-      <div className="flex flex-col gap-3 !p-4" data-testid="app-peek-open-with">
-        <div className="text-[length:var(--font-body)] font-semibold text-[var(--text-primary)]">{t('chatArea.openWith.title', { name: detail.name })}</div>
-        {candidates.map((candidate) => (
-          <Button key={candidate.tabKind} variant="secondary" data-open-with={candidate.tabKind} onClick={() => setPicked(candidate)}>
-            {localizedManifestText(candidate.app, installedExtensionsStore.locale).name}
-          </Button>
-        ))}
-      </div>
-    )
+    return detail.choice.kind === 'choose' ? (
+      <div className="!p-4"><OpenWithPick detail={{ ...detail, choice: detail.choice }} onPick={setPicked} testId="app-peek-open-with" /></div>
+    ) : null
   }
   return platform.kind === 'electron' ? (
     <ClaimedPage slotId={slotId} chatId={detail.chatId} kind={picked.tabKind} itemId={detail.itemId} />

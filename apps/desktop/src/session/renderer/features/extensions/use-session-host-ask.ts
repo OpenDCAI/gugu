@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useState } from 'react';
 import type { ComposerPermissionRequest } from '@gugu/session-ui/react/components';
-import type { Settlement, SessionpageSessionEvent, TimelineAfterResult } from '@gugu/session-core/session-record/contract';
+import type { AskSource, Settlement, SessionpageSessionEvent, TimelineAfterResult } from '@gugu/session-core/session-record/contract';
 import { sessionpageSessionTimelineChannel } from '@shared/core/session-timeline/sessionTimelineEvents';
 import { appInstallAskOf } from '@shared/extensions/host-actions';
 import { remoteHostsStore } from '@renderer/features/remote-hosts/remote-hosts-store';
@@ -11,15 +11,20 @@ import { useSessionMessages } from '@renderer/localization/use-session-messages'
 import { log } from '@renderer/utils/logger';
 import { answerAppInstall, answeredTooLate, appInstallWords, sessionWaitsOnApproval } from './app-install-approval';
 
-const pendingHostAsk = (settlements: ReadonlyMap<string, Settlement>): Settlement | null =>
-  [...settlements.values()].find((settlement) => settlement.host && settlement.state === 'pending') ?? null;
+const pendingHostAsk = (settlements: ReadonlyMap<string, Settlement>, source: AskSource): Settlement | null =>
+  [...settlements.values()].find((settlement) => settlement.origin?.source === source && settlement.state === 'pending') ?? null;
 
 /**
  * D-31 (L11 复核 67) The ask the host keeps pending on this session's timeline — an App install it asks for the agent — for
  * the session page's band, here or for a session another desktop runs (the timeline is read on that machine). A chat-UI
  * session's own approvals stay where they are (the runtime's queue); the host's are the timeline's, for either kind.
  */
-export function useSessionHostAsk(sessionId: string | null): Settlement | null {
+export function useSessionHostAsk(
+  sessionId: string | null,
+  source: AskSource,
+  options: { rereadMs?: number } = {}
+): Settlement | null {
+  const { rereadMs } = options;
   const [ask, setAsk] = useState<Settlement | null>(null);
   useEffect(() => {
     setAsk(null);
@@ -28,7 +33,7 @@ export function useSessionHostAsk(sessionId: string | null): Settlement | null {
     const settlements = new Map<string, Settlement>();
     const take = (batch: readonly Settlement[]) => {
       for (const settlement of batch) settlements.set(settlement.itemId, settlement);
-      if (alive) setAsk(pendingHostAsk(settlements));
+      if (alive) setAsk(pendingHostAsk(settlements, source));
     };
     const subscriptionId = crypto.randomUUID();
     const there = rpcOn(machineRegistry.machineOf(sessionId));
@@ -48,12 +53,27 @@ export function useSessionHostAsk(sessionId: string | null): Settlement | null {
     })().catch((error: unknown) =>
       log.warn('Host asks of this session could not be read', { sessionId, error: error instanceof Error ? error.message : String(error) })
     );
+    // 另一台机器上的会话:那台重启过(云电脑睡醒、server 升级),订阅就跟着没了、不会再推 —— 新的提问进不来,
+    // 答完的也不会消失(10-28 实测)。要一直看着的(Browser Use 页签)隔一会儿重读一份快照,❌ 只靠订阅。
+    const reread = rereadMs
+      ? setInterval(() => {
+          void there.sessionTimeline
+            .sessionSnapshot({ conversationId: sessionId, limit: 1 })
+            .then((snapshot) => {
+              if (!alive || !snapshot.ok) return;
+              settlements.clear();
+              take(snapshot.value.settlements);
+            })
+            .catch(() => undefined);
+        }, rereadMs)
+      : null;
     return () => {
       alive = false;
+      if (reread) clearInterval(reread);
       off();
       void there.sessionTimeline.sessionUnsubscribe({ subscriptionId }).catch(() => undefined);
     };
-  }, [sessionId]);
+  }, [sessionId, source, rereadMs]);
   return ask;
 }
 
@@ -70,18 +90,19 @@ export function useHostAskBand(
   session: { status: string | null; detail: string | null } | null | undefined
 ): { request: ComposerPermissionRequest; resolve: (optionId: string | null) => void } | null {
   const { translate } = useSessionMessages();
-  const ask = useSessionHostAsk(sessionWaitsOnApproval(session) ? sessionId : null);
-  const install = appInstallAskOf(ask?.host);
+  const ask = useSessionHostAsk(sessionWaitsOnApproval(session) ? sessionId : null, 'app-install');
+  const install = appInstallAskOf(ask?.origin);
   const itemId = ask?.itemId;
+  const machineId = sessionId ? machineRegistry.machineOf(sessionId) : null;
+  const machine = machineId ? remoteHostsStore.device(machineId)?.label ?? machineId : undefined;
   const resolve = useCallback(
     (optionId: string | null) => {
       if (!optionId || !sessionId || !itemId || !install) return;
-      const machine = machineRegistry.machineOf(sessionId);
       void answerAppInstall({
         itemId,
         ask: install,
         optionId,
-        machine: machine ? remoteHostsStore.device(machine)?.label ?? machine : undefined,
+        machine,
         respond: (answer) =>
           rpc.sessionTimeline.sessionRespond({ conversationId: sessionId, itemId, kind: 'permission', by: 'desktop', ...answer }),
       })
@@ -90,10 +111,10 @@ export function useHostAskBand(
         })
         .catch((error: unknown) => toast({ title: error instanceof Error ? error.message : String(error), variant: 'destructive' }));
     },
-    [sessionId, itemId, install, translate]
+    [sessionId, itemId, install, machine, translate]
   );
   if (!ask || !install) return null;
-  const words = appInstallWords(install, translate);
+  const words = appInstallWords(install, translate, machine);
   return {
     request: {
       requestId: ask.itemId,

@@ -1,14 +1,14 @@
 import { observer } from 'mobx-react-lite';
 import { reaction } from 'mobx';
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react';
 import { rpc } from '@renderer/lib/ipc';
 import { log } from '@renderer/utils/logger';
 import type { BrowserWebviewElement } from '@renderer/features/browser/browser-webview-types';
 import { extensionSurfaceStore } from './extension-surface-store';
 import { extensionViewStore, type ExtensionViewClaim } from './extension-view-store';
 import { installedExtensionsStore } from './installed-extensions-store';
-import { listenForAppSlots } from './app-slot-events';
 import { AppSettingsPage } from './app-settings-page';
+import { BrowserUseHostPage } from '@/components/browserUse/BrowserUseHostPage';
 import { ExtensionGuestBinding } from './extension-guest-binding';
 
 /**
@@ -27,14 +27,10 @@ import { ExtensionGuestBinding } from './extension-guest-binding';
  * 而不是再准备一次。但它只在**第一次有格要它**时才建(从入口打开、以后的 dock):
  * ❌ 装好就起一张谁也没要的隐藏页(摩擦单 F3)。
  *
- * 群右栏「用 X 打开」一个文件不用这张共享页:每次打开都新建一张绑着这个文件的页,页的一生
- * 不换文件,返回 / 关掉就没了。拿共享页去接文件,接到的是一张早就开机、没有文件、开机那次
- * `files.open(…)` 早已失败的页(F3 实测:timeOrigin 是装好的时刻)。
+ * 文件页按地方与文件各一张,同样常驻,一生不换文件。
  */
 export const ExtensionViewLayer = observer(function ExtensionViewLayer() {
   const layerRef = useRef<HTMLDivElement | null>(null);
-  // Slots outside the session page (a group's side panel) claim through a window event.
-  useEffect(() => listenForAppSlots(), []);
   // Switched off or removed: its shared page goes, and switched on again it waits to be wanted.
   useEffect(
     () =>
@@ -65,26 +61,24 @@ export const ExtensionViewLayer = observer(function ExtensionViewLayer() {
             extensionId={contribution.extensionId}
             layerRef={layerRef}
             pageKey={page.key}
-            managed={contribution.hostSettings}
-          />
-        ) : null;
-      })}
-      {[...extensionViewStore.filePages].map(([token, filePage]) => {
-        const contribution = enabled.get(filePage.kind);
-        return contribution ? (
-          <ExtensionPage
-            key={`file:${token}`}
-            kind={filePage.kind}
-            extensionId={contribution.extensionId}
-            layerRef={layerRef}
-            fileToken={token}
-            itemId={filePage.claim.itemId}
+            itemId={page.itemId}
+            managed={contribution.hostSettings || contribution.hostBrowser}
+            hostBrowser={contribution.hostBrowser}
+            place={page.place}
           />
         ) : null;
       })}
     </div>
   );
 });
+
+/**
+ * The task a per-task page belongs to, read from its place (`session:<id>`, extension-view-store `residentPlace`) — never
+ * from whichever slot claims it now: the page is that task's for life. A page in no task (`app`) has none.
+ */
+function sessionOfPlace(place: string | undefined): string | null {
+  return place?.startsWith('session:') ? place.slice('session:'.length) : null;
+}
 
 /** Following a claimed slot's box after it appears: until it holds still this many frames, or this long. */
 const FOLLOW_STILL_FRAMES = 10;
@@ -157,35 +151,33 @@ function ancestorsOf(element: HTMLElement): Element[] {
 }
 
 /**
- * One App page in the layer. With `pageKey` it is the App's page for one place (a group, a task) and
- * follows whichever slot of that place claims it now (`claims`); with `fileToken`, it is the page opened
- * for one file and follows that one claim (`filePages`) — bound to it at its first dom-ready, never retargeted.
+ * One App page in the layer, for one place and optionally one file. It follows whichever slot claims it now.
  */
 const ExtensionPage = observer(function ExtensionPage({
   kind,
   extensionId,
   layerRef,
   pageKey,
-  fileToken,
   itemId,
   managed = false,
+  hostBrowser = false,
+  place,
 }: {
   kind: string;
   extensionId: string;
   layerRef: React.RefObject<HTMLDivElement | null>;
   pageKey?: string;
-  fileToken?: number;
   itemId?: string;
+  /** Drawn by the host (its settings page, a task's browser page): no App HTML, no webview. */
   managed?: boolean;
+  /** The host's page of a task's browser (`hostPage: 'browser'`). */
+  hostBrowser?: boolean;
+  /** Where this resident page lives for life (`residentPlace`): a per-task page's is `session:<id>`. */
+  place?: string;
 }) {
   const claimOf = useCallback(
-    () =>
-      fileToken === undefined
-        ? pageKey === undefined
-          ? undefined
-          : extensionViewStore.claims.get(pageKey)
-        : extensionViewStore.filePages.get(fileToken)?.claim,
-    [fileToken, pageKey]
+    () => pageKey === undefined ? undefined : extensionViewStore.claims.get(pageKey),
+    [pageKey]
   );
   const [surface, setSurface] = useState<Surface | null>(null);
   const boxRef = useRef<HTMLDivElement | null>(null);
@@ -259,6 +251,7 @@ const ExtensionPage = observer(function ExtensionPage({
         tabId: claim.tabId,
         ...(claim.chatId ? { chatId: claim.chatId } : {}),
         ...(claim.itemId ? { itemId: claim.itemId } : {}),
+        ...(claim.takeOpening ? { opening: claim.takeOpening() } : {}),
       };
       void guestBinding.aim(target)
         .then((result) => {
@@ -330,7 +323,7 @@ const ExtensionPage = observer(function ExtensionPage({
   );
 
   // 认领方一换(切会话 / 换 tab / 聊天栏换会话)→ 重新指向 + 重新摆位。
-  useEffect(
+  useLayoutEffect(
     () =>
       reaction(
         () => claimOf(),
@@ -341,7 +334,7 @@ const ExtensionPage = observer(function ExtensionPage({
   );
 
   // 摆位与尺寸汇报:跟着认领方那一格走;一格都没有就藏起来。
-  useEffect(
+  useLayoutEffect(
     () =>
       reaction(
         () => claimOf(),
@@ -430,7 +423,6 @@ const ExtensionPage = observer(function ExtensionPage({
     () => () => {
       teardownRef.current?.();
       // 常驻页没了(扩展停用 / 卸载 / 最久没用被销毁):它说过的话一起清掉,再开从清单标题重新开始。
-      // 为文件开的页走了不算:那些话是常驻页的。
       if (pageKey !== undefined) extensionSurfaceStore.forgetShared(pageKey);
     },
     [pageKey]
@@ -447,7 +439,7 @@ const ExtensionPage = observer(function ExtensionPage({
       data-extension-item={itemId}
     >
       <div ref={innerRef} className="absolute" style={{ left: 0, top: 0, width: 0, height: 0 }}>
-        {managed && manifest ? <AppSettingsPage key={`${manifest.version}:${JSON.stringify(manifest.settings)}`} manifest={manifest} active={claimOf() !== undefined} /> : surface ? <webview
+        {hostBrowser ? <BrowserUseHostPage sessionId={sessionOfPlace(place)} active={claimOf() !== undefined} /> : managed && manifest ? <AppSettingsPage key={`${manifest.version}:${JSON.stringify(manifest.settings)}`} manifest={manifest} active={claimOf() !== undefined} /> : surface ? <webview
           key={`${extensionId}:${surface.partition}`}
           ref={attachWebview}
           src={surface.entryUrl}

@@ -1,10 +1,13 @@
 // @@@vitest-environment node
 import { spawn, type ChildProcessWithoutNullStreams } from 'node:child_process'
-import { chmodSync, mkdirSync, realpathSync, rmSync, writeFileSync } from 'node:fs'
+import { appendFileSync, chmodSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join, resolve } from 'node:path'
 import { createInterface } from 'node:readline'
 import { AcpTranscriptParser, decodeV2SessionUpdate } from '@gugu/session-core/acp'
+import type { TranscriptTurn } from '../../../../packages/session-core/src/acp/models/turns/turn'
+import { createCodexJsonlSource } from '../../../../packages/session-core/src/session-record/sources/codex-jsonl'
+import { createSessionTimeline } from '../../../../packages/session-core/src/session-record/timeline'
 import { afterEach, describe, expect, it } from 'vitest'
 
 import { awaitFact } from '../../../support/awaitFact'
@@ -13,26 +16,32 @@ import { awaitFact } from '../../../support/awaitFact'
 // that turn's items. Reopen must rebuild the same turns the live session had: one native turn, one turn.
 
 const ADAPTER = resolve(__dirname, '../../../../apps/desktop/electron/runtime/codex-app-server-acp.mjs')
+const ROLLOUT = resolve(__dirname, '../../../../packages/session-core/src/session-record/__fixtures__/codex-steered-rollout.jsonl')
 
 const FAKE_CODEX = `#!/usr/bin/env node
 const rl = require('node:readline').createInterface({ input: process.stdin })
 rl.on('close', () => process.exit(0))
 const out = (m) => process.stdout.write(JSON.stringify(m) + '\\n')
-const user = (id, text) => ({ type: 'userMessage', id, content: [{ type: 'text', text }] })
+// Project the same rollout fixture into the app-server's turn/item API. The adapter still does the real replay.
+const turns = []
+for (const [index, line] of require('node:fs').readFileSync(${JSON.stringify(ROLLOUT)}, 'utf8').trim().split('\\n').entries()) {
+  const { type, payload: p } = JSON.parse(line)
+  if (type === 'event_msg' && p.type === 'task_started') turns.push({ id: p.turn_id, items: [] })
+  if (type !== 'response_item') continue
+  const items = turns.at(-1).items
+  if (p.type === 'message') items.push(p.role === 'user'
+    ? { type: 'userMessage', id: 'u' + index, content: p.content.map(c => ({ type: 'text', text: c.text })) }
+    : { type: 'agentMessage', id: 'a' + index, text: p.content.map(c => c.text).join('\\n') })
+  if (p.type === 'function_call') items.push({ type: 'mcpToolCall', id: p.call_id, server: p.namespace.slice(5), tool: p.name, arguments: JSON.parse(p.arguments), status: 'completed' })
+  if (p.type === 'custom_tool_call') items.push({ type: 'dynamicToolCall', id: p.call_id, tool: p.name, arguments: p.input, status: 'completed' })
+  if (p.type === 'function_call_output') items.find(i => i.id === p.call_id).result = { content: p.output.map(c => ({ type: 'text', text: c.text })) }
+}
 rl.on('line', (line) => {
   const m = JSON.parse(line)
   if (m.id === undefined || !m.method) return
   if (m.method === 'thread/resume') return out({ id: m.id, result: { thread: { id: 'th-steer' }, model: 'm' } })
   if (m.method === 'thread/turns/list') {
-    return out({ id: m.id, result: { nextCursor: null, data: [
-      { id: 'turn-2', items: [
-        user('u2', 'run the long job'),
-        { type: 'commandExecution', id: 'c1', command: 'sleep 5', status: 'completed', aggregatedOutput: '' },
-        user('u3', 'also print pwd'),
-        { type: 'agentMessage', id: 'a2', text: 'done, /tmp' },
-      ] },
-      { id: 'turn-1', items: [user('u1', 'hi'), { type: 'agentMessage', id: 'a1', text: 'hello' }] },
-    ] } })
+    return out({ id: m.id, result: { nextCursor: null, data: [...turns].reverse() } })
   }
   out({ id: m.id, result: { data: [] } })
 })
@@ -40,8 +49,10 @@ rl.on('line', (line) => {
 
 let dir = ''
 let adapter: ChildProcessWithoutNullStreams | null = null
+const disposers: Array<() => void> = []
 
 afterEach(async () => {
+  while (disposers.length) disposers.pop()!()
   const child = adapter
   adapter = null
   if (child && child.exitCode === null && child.signalCode === null) {
@@ -51,6 +62,15 @@ afterEach(async () => {
   }
   if (dir) rmSync(dir, { recursive: true, force: true })
 })
+
+function expectNativeTurns(turns: readonly TranscriptTurn[]) {
+  expect(turns.map(turn => turn.items.flatMap(item => item.kind === 'message' && item.role === 'user' ? [item.text] : [])))
+    .toEqual([['hi'], ['run the long job', 'also print pwd']])
+  expect(turns[1].items.filter(item => item.kind.endsWith('-tool-call'))).toEqual([
+    expect.objectContaining({ kind: 'mcp-tool-call', server: 'gugu', tool: 'profile_whoami', status: 'done', outputText: 'profile result' }),
+    expect.objectContaining({ kind: 'unknown-tool-call', name: 'exec', title: 'exec' }),
+  ])
+}
 
 async function loadHistory(): Promise<unknown[]> {
   const raw = join(tmpdir(), `codex-replay-steer-${process.pid}-${Date.now()}`)
@@ -88,7 +108,25 @@ describe('codex reopen: a steered input stays in its native turn', () => {
     for (const update of updates) parser.pushEvent(decodeV2SessionUpdate(update), 2)
     parser.endReplay(3)
     const turns = [...parser.history, ...(parser.activeTurn ? [parser.activeTurn] : [])]
-    const userTexts = turns.map((turn) => turn.items.flatMap((item) => (item.kind === 'message' && item.role === 'user' ? [item.text] : [])))
-    expect(userTexts).toEqual([['hi'], ['run the long job', 'also print pwd']])
+    expectNativeTurns(turns)
+  })
+
+  it.each([false, true])('rebuilds the same rollout from the native source (resume mid-turn: %s)', async (resumeMidTurn) => {
+    dir = realpathSync(mkdtempSync(join(tmpdir(), 'codex-native-steer-')))
+    const file = join(dir, 'rollout-test-th-steer.jsonl')
+    const lines = readFileSync(ROLLOUT, 'utf8').trim().split('\n')
+    const cut = resumeMidTurn ? 7 : lines.length
+    writeFileSync(file, lines.slice(0, cut).join('\n') + '\n')
+    const locator = { harness: 'codex' as const, providerSessionId: 'th-steer', roots: [dir] }
+    let timeline = await createSessionTimeline(createCodexJsonlSource(locator), { sessionId: 'th-steer' })
+    disposers.push(() => timeline.dispose())
+    if (resumeMidTurn) {
+      const archive = await timeline.archive!()
+      expect(archive).not.toBeNull()
+      timeline.dispose()
+      appendFileSync(file, lines.slice(cut).join('\n') + '\n')
+      timeline = await createSessionTimeline(createCodexJsonlSource(locator), { sessionId: 'th-steer', archive: archive! })
+    }
+    expectNativeTurns(timeline.getSnapshot().turns)
   })
 })

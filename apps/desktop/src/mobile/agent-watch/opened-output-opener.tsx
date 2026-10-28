@@ -4,6 +4,8 @@ import { useTranslation } from 'react-i18next'
 import { OPENED_FILE_MAX_BYTES } from '@gugu/session-core/session-record/contract'
 import type { AttachmentMeta } from '@gugu/core/shared/ui/attachmentModels'
 import { formatBytes } from '@renderer/utils/formatBytes'
+import { bindFileViewerMenu } from '@/components/preview/file-viewer-menu'
+import { workspaceFileQuote } from '@/components/preview/quote-preview-file'
 import { MessageFilePreviewPanel } from '@/components/chat/MessageFilePreviewPanel'
 import type { DocumentPreviewKind } from '@/components/chat/documentPreview'
 import type { OpenedOutput } from '@gugu/session-chat-ui'
@@ -21,6 +23,7 @@ import { readOpenedFileChunk, SessionpageRpcError } from './sessionpage-rpc'
 const log = rendererLogger('mobile/opened-output')
 
 type Preview = {
+  path: string
   file: AttachmentMeta
   kind: DocumentPreviewKind
   /** 读到的字节;下载就交它。 */
@@ -37,7 +40,7 @@ type Preview = {
  * 读到了图进看图器、文档在这页里画(App 现成的那张预览,与聊天里的附件同一份)。
  * 读不到就在这页里说为什么(那台机器给的原因),❌ 点了没反应。
  */
-export function useOpenedOutputOpener({ deviceId, sessionId }: { deviceId: string; sessionId: string }): {
+export function useOpenedOutputOpener({ deviceId, sessionId, onQuote }: { deviceId: string; sessionId: string; onQuote: (text: string) => void }): {
   handlers: OpenedOutputHandlers
   panel: ReactNode
 } {
@@ -48,7 +51,7 @@ export function useOpenedOutputOpener({ deviceId, sessionId }: { deviceId: strin
   // 卡上「预览 ▾ / 浏览器 ▾」点开的那张打开方式菜单:锚在那枚按钮下面(❌ 底部抽屉)。
   const [menu, setMenu] = useState<{ output: OpenedOutput; anchor: HTMLElement } | null>(null)
   const requestRef = useRef<AbortController | null>(null)
-  const blobUrlRef = useRef<{ url: string; image?: string } | null>(null)
+  const blobUrlRef = useRef<{ url: string; image?: { name: string; path: string } } | null>(null)
 
   const releaseBlobUrl = useCallback(() => {
     if (blobUrlRef.current) URL.revokeObjectURL(blobUrlRef.current.url)
@@ -62,6 +65,16 @@ export function useOpenedOutputOpener({ deviceId, sessionId }: { deviceId: strin
   }, [])
 
   useEffect(() => () => { requestRef.current?.abort(); releaseBlobUrl() }, [releaseBlobUrl])
+
+  const path = preview?.path
+  const previewKind = preview?.kind
+  const viewerRef = useCallback((element: HTMLElement | null) => {
+    if (!element || !path) return
+    return bindFileViewerMenu(element, () => ({
+      quote: selection => { onQuote(workspaceFileQuote(path, selection)); close() },
+      canSelectAll: previewKind !== 'html' && previewKind !== 'video' && previewKind !== 'unsupported',
+    }), error => toast(String(error), 'error'))
+  }, [path, previewKind, onQuote, close, toast])
 
   const describeFailure = useCallback(
     (error: unknown): string => {
@@ -90,7 +103,7 @@ export function useOpenedOutputOpener({ deviceId, sessionId }: { deviceId: strin
         requestRef.current = request
         const kind: DocumentPreviewKind = plan.view === 'image' ? 'unsupported' : plan.view
         const file: AttachmentMeta = { kind: 'file', fileName: plan.name, mimeType: plan.mimeType, url: '', sizeBytes: 0 }
-        setPreview({ file, kind, blob: null, content: null, loading: true })
+        setPreview({ path: plan.path, file, kind, blob: null, content: null, loading: true })
         void readWholeOpenedFile({
           read: (chunk) => readOpenedFileChunk(deviceId, chunk),
           conversationId: sessionId,
@@ -115,7 +128,7 @@ export function useOpenedOutputOpener({ deviceId, sessionId }: { deviceId: strin
               return
             }
             const url = URL.createObjectURL(blob)
-            blobUrlRef.current = { url, ...(plan.view === 'image' ? { image: plan.name } : {}) }
+            blobUrlRef.current = { url, ...(plan.view === 'image' ? { image: { name: plan.name, path: plan.path } } : {}) }
             if (plan.view === 'image') {
               // 图走全 app 唯一的看图器;这一页只是读的时候的等待,读到就让位。
               setPreview(null)
@@ -127,13 +140,13 @@ export function useOpenedOutputOpener({ deviceId, sessionId }: { deviceId: strin
                 : kind === 'video' || kind === 'unsupported'
                   ? null
                   : await blob.arrayBuffer()
-            setPreview({ file: { ...file, url, sizeBytes: bytes.length }, kind, blob, content, loading: false })
+            setPreview({ path: plan.path, file: { ...file, url, sizeBytes: bytes.length }, kind, blob, content, loading: false })
           })
           .catch((error: unknown) => {
             if (request.signal.aborted || requestRef.current !== request) return
             requestRef.current = null
             log.warn({ error, path: plan.path }, 'opened file read failed')
-            setPreview({ file, kind, blob: null, content: null, loading: false, error: describeFailure(error) })
+            setPreview({ path: plan.path, file, kind, blob: null, content: null, loading: false, error: describeFailure(error) })
           })
       },
     [deviceId, sessionId, releaseBlobUrl, describeFailure, t, toast],
@@ -193,12 +206,14 @@ export function useOpenedOutputOpener({ deviceId, sessionId }: { deviceId: strin
 
   const closed = () => {
     const blob = blobUrlRef.current
-    if (blob?.image !== undefined) openImageViewer([{ url: blob.url, alt: blob.image }])
+    const image = blob?.image
+    if (blob && image) openImageViewer([{ url: blob.url, alt: image.name, quote: () => onQuote(workspaceFileQuote(image.path, null)) }])
     else releaseBlobUrl()
   }
   const sheet = (
     <Sheet open={preview !== null} onClosed={closed} fullScreenMobile onClose={close} ariaLabel={preview?.file.fileName} testId="opened-output-preview-sheet">
       {preview ? <MessageFilePreviewPanel
+        viewerRef={viewerRef}
         mobile
         file={preview.file}
         videoUrl={preview.file.url || undefined}
@@ -213,7 +228,7 @@ export function useOpenedOutputOpener({ deviceId, sessionId }: { deviceId: strin
         {...(preview.progress && preview.progress.size > 0 ? { loadingFraction: preview.progress.read / preview.progress.size } : {})}
         {...(preview.error ? { error: preview.error } : {})}
         onClose={close}
-        actions={messageActionItems({ isMine: false, isRetracted: false, content: null, onDownload: preview.blob ? () => void downloadBlob(preview.blob as Blob, preview.file.fileName).catch((error: unknown) => {
+        actions={messageActionItems({ isRetracted: false, content: null, onDownload: preview.blob ? () => void downloadBlob(preview.blob as Blob, preview.file.fileName).catch((error: unknown) => {
           log.error({ error, name: preview.file.fileName }, 'opened file save failed')
           toast(t('agentWatch.output.saveFailed'), 'error', messageForUser(error))
         }) : undefined }, messageT)}

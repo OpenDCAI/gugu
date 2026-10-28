@@ -11,6 +11,10 @@ import { useTheme } from '@session-chat/components/contexts/ThemeContext';
 import { CollapseHeader } from '@session-chat/components/primitives/CollapseHeader';
 import { defineUnit } from '@session-chat/core/units';
 import type { ToolRunItem } from '@session-chat/model';
+import { summaryChip } from '@session-chat/components/primitives/summary-chip.css';
+import { useChatTranslator } from '@session-chat/localization';
+import { toolRunNowLabel } from '@session-chat/state/tool-run';
+import { Show } from 'solid-js';
 import {
   turnProcessHeaderSlot,
   turnProcessLine,
@@ -28,6 +32,7 @@ export const toolRunUnitDef = defineUnit<ToolRunItem, { extraH: number }>({
 
   Render(props) {
     const theme = useTheme();
+    const translate = useChatTranslator();
     const height = () => theme().fonts.body.lineHeight + props.vars.extraH;
     // ViewState keeps the inverted flag inherited from the original store:
     // `isCollapsed(id) === true` means expanded (see view-state.ts).
@@ -50,8 +55,19 @@ export const toolRunUnitDef = defineUnit<ToolRunItem, { extraH: number }>({
               expanded={expanded()}
               active={props.data.live}
               height={height()}
+              // 命令片走 trailing、与执行行同一枚片(同一种截断):塞进标签会跟着它换行,而这一行是固定高度、会裁。
+              trailing={
+                <Show when={props.data.now?.kind === 'command' ? props.data.now.command : null}>
+                  {(command) => (
+                    <span class={summaryChip} data-slot="tool-run-now-command" title={command()}>
+                      {command()}
+                    </span>
+                  )}
+                </Show>
+              }
             >
               {props.data.label}
+              {props.data.now ? ` · ${toolRunNowLabel(props.data.now, translate)}` : ''}
             </CollapseHeader>
           </div>
         </div>

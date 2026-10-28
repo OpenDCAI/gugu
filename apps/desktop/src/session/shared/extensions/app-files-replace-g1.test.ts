@@ -1,3 +1,4 @@
+import { rpcQuery } from '../../../../../../tests/helpers/rpcQuery';
 import { randomUUID } from 'node:crypto';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
@@ -29,7 +30,7 @@ const placed = (row: Row) => ({ ...row, parent_id: null, system_role: null, path
 
 vi.mock('@gugu/core/cloud/supabase', () => ({
   createGuguSupabaseClient: () => ({
-    rpc: async (name: string, args: Row) => {
+    rpc: rpcQuery(async (name: string, args: Row) => {
       // Who may delete what is the folder's to say; here, everyone may delete everything.
       if (name === 'workspace_deletable_as') return { data: args.p_item_ids, error: null };
       rpcs.push({ name, args });
@@ -39,7 +40,7 @@ vi.mock('@gugu/core/cloud/supabase', () => ({
       if (name === 'workspace_versions_as') return { data: versions.filter((version) => version.item_id === row.id), error: null };
       if (name === 'workspace_delete_as') return (rows.splice(rows.indexOf(row), 1), { data: [row], error: null });
       return { data: null, error: { message: `no fake for ${name}` } };
-    },
+    }),
     storage: {
       from: () => ({
         upload: async (pointer: string, bytes: Uint8Array) => (stored.set(pointer, bytes), { error: null }),
@@ -80,7 +81,7 @@ const can = { write: true };
 const files = createAppFiles({
   account: async () => ({ token: 'token', userId: ME }),
   hasCapability: (_id, capability) => capability === 'files:read' || can.write,
-  sync: { pageFor: () => ({}), grant: () => undefined, revoke: () => undefined, ungrant: () => undefined } as never,
+  sync: { ensureFor: () => undefined, pageFor: () => ({}), grant: () => undefined, revoke: () => undefined, ungrant: () => undefined } as never,
   identities: async () => [],
   faces: async () => ({}),
   filesUrl: () => 'http://files.invalid',

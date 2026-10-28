@@ -34,6 +34,11 @@ export type ChatUnreadLocator = {
   message_id: string | null
   message_seq: number | null
   unread_count: number
+  /**
+   * 未读里叫到你的条数:点名你、@all,或回复你说的那条(服务端 list_unread_locators.addressed_count)。手动标未读算 1。
+   * 缺 = 后端早于 gugu-supabase#73,或这一行是那之前的版本落的盘:按全部未读算(unreadForYou)。
+   */
+  addressed_count?: number
   cursor_seq: number
   version: number
   is_marked_unread: boolean
@@ -46,6 +51,8 @@ export interface ChatItem {
   status: ChatStatus
   peer_user_id?: string | null
   peer_alias?: string | null
+  /** Private group display name owned by the signed-in account. */
+  alias?: string | null
   avatar?: string | null
   member_user_ids?: string[]
   name: string
@@ -124,6 +131,7 @@ export interface MessageItem {
   // @@@per-message-read (#598) - user_ids of recipients that have read THIS message (from message_deliveries
   // 'read' rows), independent of the monotonic last_read_seq watermark. Drives precise directed read receipts.
   readers?: string[]
+  delivery_blocks?: Array<{ agent_user_id: string; reason: 'agent_archived' }>
   local_send_state?: 'sending' | 'failed' | null
   local_send_error?: string | null
   forwarded_from_message_id?: string | null
@@ -138,7 +146,8 @@ export interface MessageItem {
   edited_at?: string | null
 }
 
-export type MessageSendState = 'sending' | 'sent' | 'delivered' | 'read' | 'failed'
+/** queued = persisted, but an agent it wakes has not taken it yet (shared/ui/systemNotice.ts queuedMessageIds). */
+export type MessageSendState = 'sending' | 'queued' | 'sent' | 'delivered' | 'read' | 'failed'
 
 export interface ReactionGroup {
   emoji: string
@@ -158,7 +167,7 @@ export type AgentActivityStatus = 'idle' | 'running'
  * pending(spec agent-status)。「进程在不在内存」不让用户感知:没有活 runtime 但可达 = idle,会话正在起 = working。
  * 它是 `presentAgentStatus` 的输出折出来的(`displayStatusOf`),❌ 另有推导;文案与颜色读完整的 presentation。
  */
-export type AgentDisplayStatus = 'pending' | 'idle' | 'working' | 'parked' | 'needs_user' | 'offline' | 'removed' | 'error'
+export type AgentDisplayStatus = 'pending' | 'idle' | 'working' | 'parked' | 'needs_user' | 'offline' | 'archived' | 'removed' | 'error'
 export type AgentConversationActivityStatus =
   | Extract<AgentRuntimeStatus, 'starting'>
   | AgentActivityStatus
@@ -274,6 +283,8 @@ export interface Device {
    * 两个 build 是两条设备行;通讯录等「按电脑归类」的展示要拿这一列归并,❌ 把一台电脑显示成两台。
    */
   machine_id?: string | null
+  /** Registered build/configuration name; absent on older cached rows. */
+  tier?: string
   capabilities: DeviceCapabilities
   /**
    * 这台机器上会话的**状态摘要**（identity.gugu_devices.session_digest，随心跳写）。
@@ -334,6 +345,8 @@ export interface DeviceCapabilities extends Partial<DeviceHostInfo> {
   // @@@fleet-version (#663) - build version of the app reporting the heartbeat; absent = host predating
   // the field (UI shows 版本未知, never fabricates one).
   app_version?: string
+  /** Published desktop builds only; development versions never select a cloud host package. */
+  published_desktop_version?: string
   /** #7199 这台设备能被调用的动作(设备心跳登记;老设备缺席)。 */
   actions?: DeviceActionsSummary
 }

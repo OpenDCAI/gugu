@@ -1,8 +1,9 @@
 import { randomUUID } from 'node:crypto';
 import { homedir } from 'node:os';
-import { join } from 'node:path';
+import { isAbsolute, join, resolve } from 'node:path';
 import { desc, eq, isNull, sql } from 'drizzle-orm';
 import type { AgentProviderId } from '@gugu/session-plugins/agents';
+import { DEFAULT_SESSION_VIEW } from '@shared/core/sessions/new-session-defaults';
 import {
   GUGU_PERMISSION_MODES,
   type GuguPermissionMode,
@@ -201,14 +202,17 @@ async function findAgent(harness: string): Promise<AgentPayload | null> {
   return (await agentPayloads()).find((agent) => agent.id === harness) ?? null;
 }
 
-/** 请求没说展示就取这家给的第一种(通用优先);说了就必须在它给的里面。 */
-function resolveSessionView(
+/**
+ * 请求没说展示就走通用(这家不给通用就取它给的第一种);说了就必须在它给的里面。
+ * 「终端」开关只管终端入口显不显示,❌ 决定新任务的展示(owner 10-28:开着也默认通用,终端是会话里多一个页签)。
+ */
+async function resolveSessionView(
   agent: AgentPayload,
   requested: SessionpageSessionView | undefined,
-): { ok: true; view: SessionpageSessionView } | { ok: false; message: string } {
+): Promise<{ ok: true; view: SessionpageSessionView } | { ok: false; message: string }> {
   const offered = offeredSessionViews(agent);
   if (offered.length === 0) return { ok: false, message: `${agent.id} 在这台机器上一种展示都接不通` };
-  if (!requested) return { ok: true, view: offered[0]! };
+  if (!requested) return { ok: true, view: offered.includes(DEFAULT_SESSION_VIEW) ? DEFAULT_SESSION_VIEW : offered[0]! };
   if (!SESSION_VIEWS.includes(requested) || !offered.includes(requested)) {
     return { ok: false, message: `${agent.id} 不提供「${requested}」这种展示` };
   }
@@ -279,7 +283,7 @@ export async function createModels(
   try {
     const agent = await findAgent(request.harness);
     if (!agent) return fail('harness_not_found', `这台机器上没有 ${request.harness}`);
-    const view = resolveSessionView(agent, request.sessionView);
+    const view = await resolveSessionView(agent, request.sessionView);
     if (!view.ok) return fail('session_view_rejected', view.message);
     const { listLocalModels, probeHarnessCatalogState } = await import('@main/core/agents/session-discovery');
     const [catalog, state] = await Promise.all([
@@ -367,13 +371,16 @@ async function createSessionSteps(
 
   const resolved = await resolveProjectWorkspace({ projectId: request.projectId, projectPath: request.projectPath });
   if (!resolved.ok) return resolved;
-  const { projectId, repositoryWorkspaceId } = resolved.value;
+  const { projectId } = resolved.value;
+  const folder = request.cwd?.trim() ? await resolveProjectFolderWorkspace(projectId, request.cwd) : null;
+  if (folder && !folder.ok) return folder;
+  const workspaceId = folder ? folder.value : resolved.value.repositoryWorkspaceId;
 
   // ── 先把四维选择全部解析完,一维不对就在这里拒 —— 此时什么都还没建,❌ 不留空壳会话 ──
   const agent = await findAgent(request.harness);
   if (!agent) return fail('harness_not_found', `这台机器上没有 ${request.harness}`);
   const provider = agent.id as AgentProviderId;
-  const view = resolveSessionView(agent, request.sessionView);
+  const view = await resolveSessionView(agent, request.sessionView);
   if (!view.ok) return fail('session_view_rejected', view.message);
   const runtime = sessionRuntimeOfView(view.view);
 
@@ -434,6 +441,9 @@ async function createSessionSteps(
   const { prepareCreateSession, commitCreateSession, finalizeCreateSession } = createSessionOps;
 
 
+  // 派任务(gugu-dev#181):第一句是一条真的咕咕消息(那张卡),要稳定 id —— 与桌面 use-create-session-callback 同。
+  const taskChatId = request.taskChatId?.trim() || undefined;
+  const taskMessageId = taskChatId ? randomUUID() : undefined;
   const sessionId = randomUUID();
   // 与桌面 composer 同一个翻译点。首轮内容的投递方式跟着腿走:聊天腿把第一句放进 ACP 启动队列,
   // 终端腿放进 initialPrompt(与 use-create-session-callback 对 startup-capable provider 的做法同)。
@@ -450,15 +460,17 @@ async function createSessionSteps(
       startupOrigin: 'session-page',
     }),
     ...(runtime === 'acp' ? { initialQueue: [{ text: prompt, origin: 'manual' as const }] } : { initialPrompt: prompt }),
+    ...(taskChatId ? { taskChatId, initialMessageId: taskMessageId } : {}),
   };
   const params: CreateSessionParams = {
     projectId: projectId,
     sessionConfig: { version: '1', name: generateRandom(), initialSession },
     workspaceConfig: {
       version: '2',
-      workspace: { kind: 'repository-instance', workspaceId: repositoryWorkspaceId },
+      workspace: { kind: 'repository-instance', workspaceId },
     },
-    ...(request.chatId ? { birthGroup: { chatId: request.chatId, asTask: false } } : {}),
+    // 派的任务进群坐任务座位(不发入群提示),与桌面派任务同一口径。
+    ...(request.chatId ? { birthGroup: { chatId: request.chatId, asTask: Boolean(taskChatId) } } : {}),
   };
 
   const prepared = await prepareCreateSession(params);
@@ -476,6 +488,7 @@ async function createSessionSteps(
     conversationId: sessionId,
     projectId: projectId,
     title: initialSession.title ?? titleSource.slice(0, 60),
+    ...(taskMessageId ? { taskMessageId } : {}),
   };
 
   // ── 从这里起会话行已经写下了:再失败也 ❌ 回一个错误让发起方留在新建页 —— 那会留下一条点不开的死行
@@ -571,6 +584,21 @@ export async function resolveProjectWorkspace(input: {
     return fail('project_not_open', '这个项目在那台机器上还没打开过,先在电脑上打开一次');
   }
   return { ok: true, value: { projectId, repositoryWorkspaceId } };
+}
+
+/**
+ * 「在项目的哪个文件夹里开工」(手机新任务:点项目文件夹卡开工)→ 那个文件夹的工作区。只认这个项目的文件夹
+ * (根目录或挂上的),❌ 不替它登记一个新文件夹:不是的就说出来,会话一行都不写。
+ */
+async function resolveProjectFolderWorkspace(projectId: string, cwd: string): Promise<CreateSessionResult<string>> {
+  const target = expandHome(cwd);
+  if (!isAbsolute(target)) return fail('folder_not_in_project', `文件夹要给绝对路径:${cwd}`);
+  const { listProjectFolderRefs } = await import('@main/core/projects/operations/project-folders');
+  const folders = await listProjectFolderRefs(projectId);
+  if (!folders) return fail('project_not_found', `这台机器上没有项目 ${projectId}`);
+  const folder = folders.find((candidate) => resolve(candidate.path) === resolve(target));
+  if (!folder) return fail('folder_not_in_project', `${cwd} 不是这个项目的文件夹`);
+  return { ok: true, value: folder.workspaceId };
 }
 
 /** `~` / `~/x` → 这台机器上的家目录(远端传来的路径按那台机器解释)。 */

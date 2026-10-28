@@ -28,6 +28,9 @@ const freshFolders = new Map<string, string>();
 /** 一台机器这么久还没答(掉线了、连接还没断开):先列账号上记着的、标离线。 */
 export const UNANSWERED_AFTER_MS = 3000;
 
+/** 一个项目最多挂多少个文件夹(含根目录,各台机器合计;owner 2026-10-27:再多就奇怪了)。 */
+export const MAX_PROJECT_FOLDERS = 20;
+
 /** 账号上记着的这个本地项目的文件夹(本机的项目 / 还没读到过账号上的那份 = null)。 */
 function accountFolders(projectId: string): ProjectFolder[] | null {
   const machine = machineRegistry.machineOf(projectId);
@@ -59,6 +62,8 @@ export type ProjectFoldersState = {
   folders: ShownFolder[] | null;
   /** 一台都读不到、账号上也没有:卡片如实说读不到(原因进日志),❌ 拿根目录冒充全部。 */
   loadError: boolean;
+  /** 这一行里还没答过的本地项目(那台机器的文件夹还不知道,❌ 当成没有)。 */
+  unanswered: readonly string[];
   chosen: ShownFolder | null;
   /** 刚挂上的那一个(workspaceId)。 */
   fresh: string | undefined;
@@ -74,7 +79,7 @@ export type ProjectFoldersState = {
  * @param memberIds 这个项目在各台机器上的本地项目(含 rowId;没合并就只有它)
  */
 export function useProjectFolders(rowId: string, memberIds: readonly string[] = [rowId]): ProjectFoldersState {
-  const [snapshot, setSnapshot] = useState<{ rowId: string; folders: ShownFolder[] | null; loadError: boolean }>(
+  const [snapshot, setSnapshot] = useState<{ rowId: string; folders: ShownFolder[] | null; loadError: boolean; unanswered?: readonly string[] }>(
     () => ({ rowId, folders: null, loadError: false })
   );
   // Switching projects must never expose the previous project's folders, even
@@ -161,7 +166,7 @@ export function useProjectFolders(rowId: string, memberIds: readonly string[] = 
       });
       previous.current = { rowId, members };
       shown.current = { rowId, lists: new Map(ids.flatMap((projectId, index) => { const list = lists[index]; return Array.isArray(list) ? [[projectId, list] as const] : []; })) };
-      setSnapshot({ rowId, folders: merged, loadError: false });
+      setSnapshot({ rowId, folders: merged, loadError: false, unanswered: ids.filter((_, index) => lists[index] === undefined) });
     };
 
     for (const projectId of ids) {
@@ -262,6 +267,7 @@ export function useProjectFolders(rowId: string, memberIds: readonly string[] = 
   return {
     folders,
     loadError,
+    unanswered: (snapshot.rowId === rowId && snapshot.unanswered) || [],
     chosen: chosenFolderOf(rowId, folders),
     fresh,
     choose,

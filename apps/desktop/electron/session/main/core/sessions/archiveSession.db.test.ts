@@ -283,7 +283,7 @@ describe('archiveSession', () => {
         ],
         unreached: [{ deviceId: 'dev-d', label: 'dev-d', detail: 'offline' }],
       }));
-      setOtherMachines({
+      setOtherMachines({ devices: async () => [], isThisDevice: async () => false, appSpawn: vi.fn(),
         sessions,
         archive: async (_deviceId, sessionId) => {
           archivedThere.push(sessionId);
@@ -314,7 +314,7 @@ describe('archiveSession', () => {
     it('那台机器收不动的那一条说出来,别的照收;问不到别的机器也说出来', async () => {
       insertSession('parent');
       insertSession('child', { parent: 'parent' });
-      setOtherMachines({
+      setOtherMachines({ devices: async () => [], isThisDevice: async () => false, appSpawn: vi.fn(),
         sessions: async () => ({ sessions: [remote('b-child', 'dev-b', 'parent')], unreached: [] }),
         archive: async () => {
           throw new Error('on "dev-b" (device:dev-b): failed to stop ACP conversation');
@@ -332,7 +332,7 @@ describe('archiveSession', () => {
       });
 
       insertSession('second');
-      setOtherMachines({
+      setOtherMachines({ devices: async () => [], isThisDevice: async () => false, appSpawn: vi.fn(),
         sessions: async () => {
           throw new Error('not signed in');
         },
@@ -350,7 +350,7 @@ describe('archiveSession', () => {
     it('不勾「连同子会话」就只动点名的这一条,别的机器一台都不问', async () => {
       insertSession('only');
       const sessions = vi.fn();
-      setOtherMachines({ sessions, archive: vi.fn(), appMessage, appReadFile, appCall });
+      setOtherMachines({ devices: async () => [], isThisDevice: async () => false, appSpawn: vi.fn(), sessions, archive: vi.fn(), appMessage, appReadFile, appCall });
       await archiveSession('p1', 'only');
       expect(sessions).not.toHaveBeenCalled();
     });
@@ -384,6 +384,27 @@ describe('restoreSession(内部接口,UI 上没有入口)', () => {
     (fixture.sqlite.prepare(`SELECT archived_at FROM sessions WHERE id = ?`).get(id) as {
       archived_at: string | null
     }).archived_at;
+
+  it('commits refusal before teardown finishes and serializes a concurrent restore', async () => {
+    insert('concurrent');
+    mocks.mounted.add('concurrent');
+    const teardown = Promise.withResolvers<{ success: boolean }>();
+    mocks.teardown.mockReturnValueOnce(teardown.promise);
+    const archiving = archiveSession('p1', 'concurrent');
+    await vi.waitFor(() => expect(mocks.teardown).toHaveBeenCalledWith('concurrent', 'archive'));
+    expect(archivedAt('concurrent')).not.toBeNull();
+    let restored = false;
+    const restoring = restoreSession('p1', 'concurrent').then(() => { restored = true; });
+    await Promise.resolve();
+    expect(restored).toBe(false);
+    expect(archivedAt('concurrent')).not.toBeNull();
+    teardown.resolve({ success: true });
+    await Promise.all([archiving, restoring]);
+    expect(archivedAt('concurrent')).toBeNull();
+    const { sessionArchivalState } = await import('./session-archival');
+    expect(sessionArchivalState('concurrent')).toMatchObject({ revision: 2, archivedAt: null,
+      intervals: [{ restoredAt: expect.any(String) }] });
+  });
 
   it('把这条会话放回列表', async () => {
     insert('a');

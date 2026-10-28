@@ -24,7 +24,8 @@ type OpenInAppConfigShape = {
   id: string;
   label: string;
   iconPath: (typeof ICON_PATHS)[keyof typeof ICON_PATHS];
-  invertInDark?: boolean;
+  /** 单色图标(svg 里填 currentColor):用遮罩画、颜色跟着文字走,深浅色都对(❌ 深色下 invert 一张写死颜色的图)。 */
+  monochrome?: boolean;
   alwaysAvailable?: boolean;
   hideIfUnavailable?: boolean;
   autoInstall?: boolean;
@@ -87,7 +88,7 @@ const _OPEN_IN_APPS = {
     id: 'cursor',
     label: 'Cursor',
     iconPath: ICON_PATHS.cursor,
-    invertInDark: true,
+    monochrome: true,
     autoInstall: true,
     platforms: {
       darwin: {
@@ -728,6 +729,19 @@ export const OPEN_IN_APPS: Record<OpenInAppId, OpenInAppConfig> = _OPEN_IN_APPS 
 export const OPEN_IN_APP_IDS = Object.keys(OPEN_IN_APPS) as [OpenInAppId, ...OpenInAppId[]];
 
 export const openInAppIdSchema = z.enum(OPEN_IN_APP_IDS);
+
+/** 终端类 App:设置 → 通用里的「终端」开关关着时,「在…中打开」与它的设置里都不列(本身不删,开关一开就回来)。 */
+export const TERMINAL_OPEN_IN_APP_IDS: ReadonlySet<OpenInAppId> = new Set<OpenInAppId>([
+  'terminal',
+  'kaku',
+  'alacritty',
+  'hyper',
+  'warp',
+  'iterm2',
+  'ghostty',
+  'kitty',
+  'termy',
+]);
 
 export function getAppById(id: string): OpenInAppConfig | undefined {
   return isValidOpenInAppId(id) ? OPEN_IN_APPS[id] : undefined;

@@ -444,6 +444,7 @@ async function proxyPlatformRequest(
     warn: event => log.warn({ sessionId, path: suffix, ...event, error: event.code }, event.kind === 'stream'
       ? '平台中转:网关中途掐断了回答,给 harness 的那条也当场断开'
       : '平台中转:连不上网关'),
+    streamTiming: timing => log.info({ sessionId, ...timing }, 'platform model stream timing'),
   })
 }
 
@@ -893,7 +894,7 @@ async function tellCredentialRefusal(sessionId: string, error: unknown): Promise
   }
 }
 
-async function credentialForRuntimeRequest(sessionId: string): Promise<string> {
+export async function credentialForRuntimeRequest(sessionId: string): Promise<string> {
   const held = activeAccessSessions.get(sessionId)
   if (!held?.credentialRoute) throw new Error('platform runtime credential session is not active')
 
@@ -2012,6 +2013,21 @@ async function resolvePlatformModelForSession(input: PlatformModelForSessionInpu
  */
 export function heldPlatformModelForSession(sessionId: string): SessionpagePlatformModel | null {
   return activeAccessSessions.get(sessionId)?.launch ?? null
+}
+
+/** Host-only metadata for the Claude search tool; credentials stay in the runtime lease. */
+export function claudePlatformSearchSession(sessionId: string): {
+  model: string | null
+  relayUrl: string
+  callableRoutes: PlatformCallableRoutes | undefined
+} | null {
+  const held = activeAccessSessions.get(sessionId)
+  if (held?.providerId !== 'claude') return null
+  return {
+    model: held.launch.model,
+    relayUrl: held.relayUrl,
+    callableRoutes: held.launch.modelCapability?.platformCallableRoutes,
+  }
 }
 
 /** Only a real relay route, not a legacy helper, owns request-time credential admission. */

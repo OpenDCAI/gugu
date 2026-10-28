@@ -47,6 +47,8 @@ export interface AgentAvatarProps {
   hoverPoke?: boolean
   /** 星星 / 睡眠 z / 感叹号这类动效。默认 ≥ 40px 才有。 */
   fx?: boolean
+  /** Transparent drawing room outside the layout width, for full-body wing animations. */
+  canvasPaddingX?: number
   className?: string
 }
 
@@ -89,13 +91,16 @@ export function AgentAvatar({
   interactive = false,
   hoverPoke = false,
   fx,
-  className
+  className,
+  canvasPaddingX = 0
 }: AgentAvatarProps) {
   const ref = useRef<HTMLCanvasElement>(null)
   const handle = useRef<AvatarHandle | null>(null)
   const reactId = useId()
   const dpr = Math.min(2.5, typeof window === 'undefined' ? 1 : window.devicePixelRatio || 1)
   const px = Math.max(8, Math.round(size))
+  const paddingX = Math.max(0, canvasPaddingX)
+  const canvasWidth = px + paddingX * 2
   const reduced = prefersReducedMotion()
   const opts = {
     shape: 'free' as const,
@@ -110,8 +115,9 @@ export function AgentAvatar({
   const worn = wornOf(look)
   const wear = wearKey(worn)
   const canvasStyle: CSSProperties = {
-    width: px,
+    width: canvasWidth,
     height: px,
+    marginInline: -paddingX,
     display: 'block',
     flexShrink: 0,
     userSelect: 'none'
@@ -121,7 +127,7 @@ export function AgentAvatar({
   useEffect(() => {
     const canvas = ref.current
     if (!canvas) return
-    canvas.width = Math.round(px * dpr)
+    canvas.width = Math.round(canvasWidth * dpr)
     canvas.height = Math.round(px * dpr)
     const h = runtime.register(canvas, opts, seedOf(id || reactId), dpr, DEFAULT_CHARACTER)
     if (!h) {
@@ -170,13 +176,14 @@ export function AgentAvatar({
   useEffect(() => {
     const canvas = ref.current
     if (!canvas) return
-    const w = Math.round(px * dpr)
-    if (canvas.width !== w) {
+    const w = Math.round(canvasWidth * dpr)
+    const h = Math.round(px * dpr)
+    if (canvas.width !== w || canvas.height !== h) {
       canvas.width = w
-      canvas.height = w
+      canvas.height = h
     }
-    if (handle.current) handle.current.engine.gain = gain
-  }, [px, dpr, gain])
+    if (handle.current) { handle.current.dpr = dpr; handle.current.engine.gain = gain }
+  }, [px, canvasWidth, dpr, gain])
 
   useEffect(() => {
     handle.current?.engine.setState(state)

@@ -16,6 +16,8 @@ export interface ContactUser {
   owner_user_id?: string | null
   agent_public?: boolean | null
   desired_status?: AgentDesiredStatus | null
+  session_archived_at?: string | null
+  session_lifecycle_revision?: number
   created_at?: string | null
   updated_at?: string | null
   // @@@1289 含 'gugu-cloud'（云 agent 固定标记）+ 六款 CLI engine —— AgentType 已涵盖；UI 显示为「云端 Agent」。
@@ -59,6 +61,7 @@ export interface ContactGroupChat {
   public_id?: number | null
   kind: 'group'
   name: string
+  alias?: string | null
   avatar_url: string | null
   status?: ChatStatus
   group_prompt?: string | null

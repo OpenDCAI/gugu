@@ -1,22 +1,14 @@
 import { useState, type KeyboardEvent, type ReactNode, type RefObject } from 'react'
 import { Menu as MenuPrimitive } from '@base-ui/react/menu'
 import { useTranslation } from 'react-i18next'
-import { FrequentlyUsed } from 'emoji-mart'
-import data, { type EmojiMartData } from '@emoji-mart/data'
 import { QUICK_REACTIONS, REACTIONS, reactionLabel } from '@gugu/core/shared/ui/reactionCatalog'
 import { Plus } from '@/lib/icons'
 import { Popover } from '../ui/Popover'
 import { Button } from '../ui/Button'
-import { DeferredEmojiPickerPanel } from './messageActionModules'
 
-// emoji-mart 5.6 的运行时导出 get,类型生成物却写成 _get1。只收窄这一个已存在的接口。
-const frequent = FrequentlyUsed as typeof FrequentlyUsed & { get(options: { maxFrequentRows: number; perLine: number }): string[] }
-// 不把库自带的示例当成用户记录;空记录时的六个按钮由唯一目录补齐。
-frequent.DEFAULTS.splice(0)
-const emojiData = data as unknown as EmojiMartData
-const emojiIds = new Map(Object.values(emojiData.emojis).flatMap((entry) => entry.skins.map(({ native }) => [native, entry.id] as const)))
+const FREQUENCY_KEY = 'gugu.reaction-frequency'
 
-/** 桌面回应浮层与手机长按面板共用:一行常用 + 完整选择器,在原面板内切换。 */
+/** 桌面回应浮层与手机长按面板共用:一行常用 + 目录里的精选回应,在原面板内切换。 */
 export function EmojiQuickPicker({ anchor, onPick, onClose, onExpand, children, disabled = false, menu = false }: {
   anchor?: Element | RefObject<Element | null>
   onPick: (emoji: string) => void
@@ -28,9 +20,14 @@ export function EmojiQuickPicker({ anchor, onPick, onClose, onExpand, children, 
 }) {
   const { t, i18n } = useTranslation('messaging')
   const [expanded, setExpanded] = useState(false)
-  const emojis = [...new Set([...frequent.get({ maxFrequentRows: 2, perLine: 9 }).slice(0, 6).map((id) => emojiData.emojis[id].skins[0].native), ...QUICK_REACTIONS.map(({ emoji }) => emoji)])].slice(0, 6)
-  const pick = (emoji: string) => { onPick(emoji); onClose() }
-  const pickQuick = (emoji: string) => { frequent.add({ id: emojiIds.get(emoji)! }); pick(emoji) }
+  const frequency: Record<string, number> = JSON.parse(localStorage.getItem(FREQUENCY_KEY) ?? '{}')
+  const emojis = [...new Set([...REACTIONS.filter(({ emoji }) => frequency[emoji] > 0).sort((a, b) => frequency[b.emoji] - frequency[a.emoji]).map(({ emoji }) => emoji), ...QUICK_REACTIONS.map(({ emoji }) => emoji)])].slice(0, 6)
+  const pick = (emoji: string) => {
+    localStorage.setItem(FREQUENCY_KEY, JSON.stringify({ ...frequency, [emoji]: (frequency[emoji] ?? 0) + 1 }))
+    localStorage.removeItem('emoji-mart.frequently')
+    localStorage.removeItem('emoji-mart.last')
+    onPick(emoji); onClose()
+  }
   const handleToolbarKeyDown = (event: KeyboardEvent<HTMLDivElement>) => {
     if (!['ArrowLeft', 'ArrowRight', 'Home', 'End'].includes(event.key)) return
     const buttons = Array.from(event.currentTarget.querySelectorAll<HTMLButtonElement>('button'))
@@ -45,15 +42,20 @@ export function EmojiQuickPicker({ anchor, onPick, onClose, onExpand, children, 
       <section aria-label={t('emoji.workStatus')} className="pb-2">
         <div className="pb-1 text-[length:var(--font-caption)] text-[var(--text-tertiary)]">{t('emoji.workStatus')}</div>
         <div className="grid grid-cols-3">
-          {REACTIONS.filter(({ kind }) => kind === 'status').map(({ emoji }) => <Button key={emoji} variant="ghost" onClick={() => pickQuick(emoji)}><span className="text-xl">{emoji}</span>{reactionLabel(emoji, i18n.language)}</Button>)}
+          {REACTIONS.filter(({ kind }) => kind === 'status').map(({ emoji }) => <Button key={emoji} variant="ghost" className="px-1" onClick={() => pick(emoji)}><span className="text-[length:var(--font-size-xl)]">{emoji}</span>{reactionLabel(emoji, i18n.language)}</Button>)}
         </div>
       </section>
-      <DeferredEmojiPickerPanel onSelect={pick} />
+      <section aria-label={t('emoji.reactions')}>
+        <div className="pb-1 text-[length:var(--font-caption)] text-[var(--text-tertiary)]">{t('emoji.reactions')}</div>
+        <div className="grid grid-cols-6 justify-items-center">
+          {REACTIONS.filter(({ kind }) => kind === 'mood').map(({ emoji }) => <QuickReactionButton key={emoji} menu={menu} title={reactionLabel(emoji, i18n.language) ?? emoji} label={t('emoji.reactWith', { emoji: `${emoji} ${reactionLabel(emoji, i18n.language) ?? ''}`.trim() })} onClick={() => pick(emoji)}>{emoji}</QuickReactionButton>)}
+        </div>
+      </section>
     </>
   ) : (
     <>
       <div role={menu ? 'group' : 'toolbar'} aria-label={t('emoji.quickReactions')} onKeyDown={handleToolbarKeyDown} className="grid grid-cols-7 justify-items-center pb-2">
-        {emojis.map((emoji) => <QuickReactionButton key={emoji} menu={menu} title={reactionLabel(emoji, i18n.language) ?? emoji} label={t('emoji.reactWith', { emoji: `${emoji} ${reactionLabel(emoji, i18n.language) ?? ''}`.trim() })} onClick={() => pickQuick(emoji)}>{emoji}</QuickReactionButton>)}
+        {emojis.map((emoji) => <QuickReactionButton key={emoji} menu={menu} title={reactionLabel(emoji, i18n.language) ?? emoji} label={t('emoji.reactWith', { emoji: `${emoji} ${reactionLabel(emoji, i18n.language) ?? ''}`.trim() })} onClick={() => pick(emoji)}>{emoji}</QuickReactionButton>)}
         <QuickReactionButton menu={menu} label={t('emoji.moreReactions')} onClick={() => { setExpanded(true); onExpand?.() }}><Plus size={20} /></QuickReactionButton>
       </div>
       {children}

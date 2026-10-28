@@ -221,8 +221,13 @@ const tabContributionSchema = z.strictObject({
    * break them all to state something they already state.
    */
   entry: bundlePathSchema.optional(),
-  /** A host-owned page; no HTML is loaded from the App for this tab. */
-  hostPage: z.literal('settings').optional(),
+  /**
+   * A host-owned page; no HTML is loaded from the App for this tab.
+   * `settings`: the App's configuration / status page, one per App.
+   * `browser`: the browser a `host:"browser-use"` program drives for the page's task (watch, take over, log in) —
+   * one per task, so it must be `perSession`.
+   */
+  hostPage: z.enum(['settings', 'browser']).optional(),
   /**
    * One page of this tab in each task, belonging to that task for its whole life — the way a group's page belongs to
    * its group (behavior tab-extensions「每个任务一份的页签」, #7317). For a page that shows what happens in one task, like
@@ -270,6 +275,12 @@ const tabContributionSchema = z.strictObject({
    * from the chat and that file opened from the folder are one tab. Without it, the App in a chat is its own page.
    */
   chatFile: z.string().trim().min(1).max(128).regex(/^[^/\\]+$/, { message: 'a file name at the top of the chat folder, without folders' }).optional(),
+  /**
+   * API 16 (owner 10-26): how wide (px) this tab's page is beside a chat or a task's conversation — a form of rows about 360,
+   * a list about 480. The host gives it that much, at most half, until the person drags the divider. None: the page is the
+   * conversation's peer, half each.
+   */
+  sideWidth: z.number().int().min(280).max(960).optional(),
   /**
    * The icon of each kind of file this tab opens, by its claim in `opensFiles`: `{ ".md": "md.png" }` — what a file list
    * draws next to such a file (owner 10-17: a markdown file drawn with the folder App's own icon reads as a folder). The
@@ -589,7 +600,7 @@ export const extensionManifestSchema = z
     }),
   })
   .superRefine((manifest, ctx) => {
-    const managed = manifest.contributes.tabs.some((tab) => tab.hostPage === 'settings');
+    const managed = manifest.contributes.tabs.some((tab) => tab.hostPage);
     if ((managed || manifest.settings) && manifest.apiVersion < 5) {
       ctx.addIssue({ code: 'custom', path: ['apiVersion'], message: 'host pages and settings require apiVersion 5' });
     }
@@ -611,13 +622,20 @@ export const extensionManifestSchema = z
     }
     for (const [index, tab] of manifest.contributes.tabs.entries()) {
       if (tab.hostPage) {
-        if (tab.entry || tab.opensFiles || tab.menu?.length || tab.toolbar?.length) ctx.addIssue({ code: 'custom', path: ['contributes', 'tabs', index], message: 'a host settings page cannot have entry, opensFiles or page commands' });
+        if (tab.entry || tab.opensFiles || tab.menu?.length || tab.toolbar?.length) ctx.addIssue({ code: 'custom', path: ['contributes', 'tabs', index], message: `a host ${tab.hostPage} page cannot have entry, opensFiles or page commands` });
       } else if (!tab.entry && !manifest.entry) {
         ctx.addIssue({ code: 'custom', path: ['contributes', 'tabs', index, 'entry'], message: 'an HTML tab needs its entry or the App entry' });
       }
+      // 宿主浏览器页画的是「这个任务」的浏览器:每个任务一份,且只给开着 browser-use 宿主程序的 App。
+      if (tab.hostPage === 'browser') {
+        if (!tab.perSession) ctx.addIssue({ code: 'custom', path: ['contributes', 'tabs', index, 'perSession'], message: 'a host browser page shows one task\'s browser: it needs "perSession": true' });
+        if (!(manifest.contributes.mcpServers ?? []).some((server) => 'host' in server && server.host === 'browser-use')) {
+          ctx.addIssue({ code: 'custom', path: ['contributes', 'tabs', index, 'hostPage'], message: 'a host browser page needs a "browser-use" host program in contributes.mcpServers' });
+        }
+      }
       // A file's tab is already one page per file, and the settings page is one per App: neither has a task of its own.
-      if (tab.perSession && (tab.hostPage || tab.opensFiles)) {
-        ctx.addIssue({ code: 'custom', path: ['contributes', 'tabs', index, 'perSession'], message: 'a page per task cannot be a host page or open files' });
+      if (tab.perSession && (tab.hostPage === 'settings' || tab.opensFiles)) {
+        ctx.addIssue({ code: 'custom', path: ['contributes', 'tabs', index, 'perSession'], message: 'a page per task cannot be the host settings page or open files' });
       }
       const claims = [...claimedSuffixes(tab, 'session'), ...claimedSuffixes(tab, 'chat')];
       for (const claim of Object.keys(tab.fileIcons ?? {})) {
@@ -625,6 +643,7 @@ export const extensionManifestSchema = z
           ctx.addIssue({ code: 'custom', path: ['contributes', 'tabs', index, 'fileIcons', claim], message: `"${claim}" is not one of this tab's opensFiles claims (${claims.join(', ') || 'none'}): fileIcons are keyed by them` });
         }
       }
+      if (tab.sideWidth !== undefined && manifest.apiVersion < 16) ctx.addIssue({ code: 'custom', path: ['apiVersion'], message: 'sideWidth requires apiVersion 16' });
       if (tab.chatFile !== undefined) {
         if (manifest.apiVersion < 14) ctx.addIssue({ code: 'custom', path: ['apiVersion'], message: 'chatFile requires apiVersion 14' });
         const chatClaims = claimedSuffixes(tab, 'chat');

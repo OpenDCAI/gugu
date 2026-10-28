@@ -1,4 +1,5 @@
 import fs from 'node:fs/promises';
+import { randomUUID } from 'node:crypto';
 import path from 'node:path';
 import type { ExtensionSkill } from '@gugu/session-core/agents/plugins';
 import {
@@ -8,7 +9,7 @@ import {
 import { readExtensionSkills } from '../../../../../extension-session-mcp';
 import { cliLauncherDir } from './cli-paths';
 import { installedCliTool, isCliToolInstalled, type InstalledCliTool } from './cli-tool-installer';
-import type { CliToolRecipe } from './cli-tools';
+import { cliToolRecipe, type CliToolRecipe } from './cli-tools';
 
 /** 这家集成走官方命令行吗;是 → 它的那一条授权方式。 */
 export function cliMethodOf(integrationId: string): IntegrationCliMethod | null {
@@ -36,8 +37,22 @@ export async function publishCliLauncher(recipe: CliToolRecipe, installed: Insta
   const dir = cliLauncherDir(guguHome);
   await fs.mkdir(dir, { recursive: true });
   const file = path.join(dir, recipe.bin);
-  await fs.writeFile(file, cliLauncherScript(recipe, installed), { mode: 0o755 });
-  await fs.chmod(file, 0o755);
+  const script = cliLauncherScript(recipe, installed);
+  const previous = await fs.readFile(file, 'utf8').catch((error: NodeJS.ErrnoException) => {
+    if (error.code === 'ENOENT') return null;
+    throw error;
+  });
+  if (previous === script) {
+    if (!((await fs.stat(file)).mode & 0o111)) await fs.chmod(file, 0o755);
+    return;
+  }
+  const temporary = `${file}.${randomUUID()}.tmp`;
+  try {
+    await fs.writeFile(temporary, script, { mode: 0o755 });
+    await fs.rename(temporary, file);
+  } finally {
+    await fs.rm(temporary, { force: true });
+  }
 }
 
 export async function removeCliLauncher(recipe: CliToolRecipe, guguHome?: string): Promise<void> {
@@ -62,7 +77,16 @@ export async function connectedCliSkills(
       onProblem(`integration ${integrationId}: ${method.tool} is connected but not installed; its skills are left out.`);
       continue;
     }
-    skills.push(...readExtensionSkills(integrationId, installedCliTool(method.tool).skillsDir, onProblem));
+    const installed = installedCliTool(method.tool);
+    try {
+      // The selected binary can change after restore or adopting a verified preinstall.
+      // Refresh only connected entries; account credentials stay in the same HOME.
+      await publishCliLauncher(cliToolRecipe(method.tool), installed);
+    } catch (error) {
+      onProblem(`integration ${integrationId}: command launcher is unavailable: ${error instanceof Error ? error.message : String(error)}`);
+      continue;
+    }
+    skills.push(...readExtensionSkills(integrationId, installed.skillsDir, onProblem));
   }
   return skills;
 }

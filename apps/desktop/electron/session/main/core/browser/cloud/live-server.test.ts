@@ -1,3 +1,5 @@
+vi.mock('../../asks', () => import('../../../../../../../../tests/support/ask-service'));
+vi.mock('../../asks/ask', () => import('../../../../../../../../tests/support/ask-service'));
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import WebSocket from 'ws';
 
@@ -26,7 +28,8 @@ describe('#7199 cloud browser live server · tunnel activity', () => {
   });
 
   async function connect() {
-    live = new CloudBrowserLiveServer(new CloudBrowser({ PATH: '' }, '/tmp/gugu-cloud-browser-test'));
+    const browser = new CloudBrowser({ PATH: '' }, '/tmp/gugu-cloud-browser-test');
+    live = new CloudBrowserLiveServer(browser);
     const { port, token } = await live.ensure();
     const messages: Array<Record<string, unknown>> = [];
     socket = new WebSocket(`ws://127.0.0.1:${port}/live`, ['gugu-browser-v1', `gugu-browser-ticket.${token}`]);
@@ -35,7 +38,7 @@ describe('#7199 cloud browser live server · tunnel activity', () => {
       socket!.once('open', resolve);
       socket!.once('error', reject);
     });
-    return { port, messages };
+    return { port, messages, browser };
   }
 
   /** 发一条,等服务端处理完(本机回环,不碰 Chrome,150ms 足够)。 */
@@ -52,6 +55,22 @@ describe('#7199 cloud browser live server · tunnel activity', () => {
     live!.close();
     live = null;
     expect(isQuietTunnelPort(port)).toBe(false);
+  });
+
+  it('protects the owning task only while a viewer has its page enabled', async () => {
+    const { browser } = await connect();
+    vi.spyOn(browser, 'tabIdForSession').mockImplementation((id) => id === 'owner' ? 'tab-one' : null);
+    vi.spyOn(browser, 'hasTab').mockImplementation((id) => id === 'tab-one');
+    expect(live!.watching('owner')).toBe(false);
+    socket!.send(JSON.stringify({ type: 'config', framesEnabled: true, maxFps: 1, maxWidth: 480, maxHeight: 360, tabId: 'tab-one' }));
+    await vi.waitFor(() => expect(live!.watching('owner')).toBe(true));
+    expect(live!.watching('another-task')).toBe(false);
+    socket!.send(JSON.stringify({ type: 'config', framesEnabled: false, maxFps: 1, maxWidth: 480, maxHeight: 360, tabId: 'tab-one' }));
+    await vi.waitFor(() => expect(live!.watching('owner')).toBe(false));
+    socket!.send(JSON.stringify({ type: 'config', framesEnabled: true, maxFps: 1, maxWidth: 480, maxHeight: 360, tabId: 'tab-one' }));
+    await vi.waitFor(() => expect(live!.watching('owner')).toBe(true));
+    socket!.close();
+    await vi.waitFor(() => expect(live!.watching('owner')).toBe(false));
   });
 
   it('只看画面不算;接管后的输入算', async () => {

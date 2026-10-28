@@ -110,6 +110,7 @@ describe('codex rollout 记录源', () => {
 
   it('native subagent activity loads its own record, preserving nested ownership and history', async () => {
     const childId = 'native-child-thread';
+    const nestedId = 'native-nested-thread';
     const line = (type: string, payload: object) => JSON.stringify({ type, timestamp: '2026-06-18T07:03:21Z', payload });
     const { root, file } = await stage([
       line('event_msg', { type: 'task_started' }),
@@ -127,7 +128,14 @@ describe('codex rollout 记录源', () => {
       line('response_item', { type: 'reasoning', summary: [{ type: 'summary_text', text: 'CHILD_THOUGHT' }] }),
       line('response_item', { type: 'function_call', name: 'exec_command', call_id: 'child-step', arguments: '{"cmd":"inspect"}' }),
       line('response_item', { type: 'function_call_output', call_id: 'child-step', output: 'CHILD_TOOL_RESULT' }),
+      line('response_item', { type: 'function_call', namespace: 'collaboration', name: 'spawn_agent', call_id: 'nested-spawn', arguments: JSON.stringify({ message: 'Nested audit' }) }),
+      line('event_msg', { type: 'item_completed', item: { type: 'SubAgentActivity', id: 'nested-spawn', kind: 'started', agent_thread_id: nestedId, agent_path: '/root/audit/nested' } }),
       line('response_item', { type: 'message', role: 'assistant', content: [{ type: 'output_text', text: 'CHILD_RESULT' }] }),
+      line('event_msg', { type: 'task_complete' }),
+    ].join('\n') + '\n');
+    await writeFile(file.replace(THREAD_ID, nestedId), [
+      line('event_msg', { type: 'task_started' }),
+      line('response_item', { type: 'message', role: 'assistant', content: [{ type: 'output_text', text: 'NESTED_RESULT' }] }),
       line('event_msg', { type: 'task_complete' }),
     ].join('\n') + '\n');
     const source = createCodexJsonlSource({ harness: 'codex', providerSessionId: THREAD_ID, roots: [root] });
@@ -139,13 +147,17 @@ describe('codex rollout 记录源', () => {
       .toEqual(['PARENT_RESULT']);
     const launch = all.find((item) => item.kind === 'spawn-subagent-tool-call');
     expect(launch).toMatchObject({ agentStatus: 'completed', outputText: 'CHILD_RESULT', reasoningText: 'CHILD_THOUGHT',
-      children: [expect.objectContaining({ toolCallId: 'child-step' })] });
-    expect(all.filter((item) => item.kind === 'subagent-done-tool-call')).toEqual([
+      children: [expect.objectContaining({ toolCallId: 'child-step' }),
+        expect.objectContaining({ kind: 'spawn-subagent-tool-call', agentStatus: 'completed', outputText: 'NESTED_RESULT' })] });
+    expect(all.filter((item) => item.kind === 'subagent-done-tool-call')).toHaveLength(2);
+    expect(all.filter((item) => item.kind === 'subagent-done-tool-call')).toEqual(expect.arrayContaining([
+      expect.objectContaining({ outputText: 'NESTED_RESULT' }),
       expect.objectContaining({ outputText: 'CHILD_RESULT' }),
-    ]);
-    const archive = await timeline.archive!();
-    expect(archive).not.toBeNull();
+    ]));
+    const pendingArchive = timeline.archive!();
     timeline.dispose();
+    const archive = await pendingArchive;
+    expect(archive).not.toBeNull();
     const reopened = await createSessionTimeline(createCodexJsonlSource({ harness: 'codex', providerSessionId: THREAD_ID, roots: [root] }), {
       sessionId: 'native-parent', archive: archive!,
     });
@@ -164,9 +176,11 @@ describe('codex rollout 记录源', () => {
     expect(afterFollowup.filter((item) => item.kind === 'spawn-subagent-tool-call')).toEqual([
       expect.objectContaining({ agentStatus: 'completed', outputText: 'FOLLOW_UP_RESULT' }),
     ]);
-    expect(afterFollowup.filter((item) => item.kind === 'subagent-done-tool-call')).toEqual([
+    expect(afterFollowup.filter((item) => item.kind === 'subagent-done-tool-call')).toHaveLength(2);
+    expect(afterFollowup.filter((item) => item.kind === 'subagent-done-tool-call')).toEqual(expect.arrayContaining([
+      expect.objectContaining({ outputText: 'NESTED_RESULT' }),
       expect.objectContaining({ outputText: 'FOLLOW_UP_RESULT' }),
-    ]);
+    ]));
     expect(afterFollowup.filter((item) => item.kind === 'message' && item.role === 'assistant')).toEqual([
       expect.objectContaining({ text: 'PARENT_RESULT' }),
     ]);
@@ -588,6 +602,7 @@ describe('codex rollout 记录源', () => {
       const { timeline, settlement } = await open([asked], true);
       expect(settlement()).toMatchObject({
         kind: 'question',
+        origin: { source: 'harness-question' },
         state: 'pending',
         questions: [{
           question: 'Which color do you prefer?',

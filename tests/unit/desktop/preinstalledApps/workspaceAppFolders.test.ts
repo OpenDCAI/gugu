@@ -1,8 +1,8 @@
 // @vitest-environment jsdom
 // 群文件夹 App 的子文件夹(gugu-supabase 20261016012659):
-// 文件夹在前(「附件」打头、按身份叫它),点进去、面包屑与「上一级」回来;新建文件夹在当前文件夹里、建完就改名;
+// 文件夹在前,点进去、面包屑与「上一级」回来;最上层里「附件」不是一行,它里面的文件和最上层的文件列在一起(owner 10-28);新建文件夹在当前文件夹里、建完就改名;
 // 「移动到…」列出能去的文件夹(不含自己和自己里面的、现在的位置不可选);上传进当前文件夹,撞了名问「两个都留 / 替换原来的」;
-// 「附件」没有 ⋯;删文件夹先说里面有几项。页面跑在假的 window.gugu 上 —— 判的是 App 怎么用宿主动词、怎么画。
+// 「附件」还是能移进去的文件夹;删文件夹先说里面有几项。页面跑在假的 window.gugu 上 —— 判的是 App 怎么用宿主动词、怎么画。
 // 父提交上没有文件夹:这里每一格都红。
 import { readFileSync } from 'node:fs'
 import { resolve } from 'node:path'
@@ -24,7 +24,8 @@ const reset = () =>
     entry('contracts', '合同', 'folder', null, '合同'),
     entry('y2026', '2026', 'folder', 'contracts', '合同/2026'),
     entry('deal', '甲方.pdf', 'binary', 'y2026', '合同/2026/甲方.pdf'),
-    entry('notes', 'notes.md', 'text', null, 'notes.md'),
+    // A change a little newer than shot.png's: the order between them is not left to the milliseconds the rig takes.
+    entry('notes', 'notes.md', 'text', null, 'notes.md', { updatedAt: ago(50) }),
     entry('shot', 'shot.png', 'binary', 'att', 'attachments-store/shot.png'))
 
 const context = { chat: { id: 'chat-1', name: 'G', kind: 'group', groupId: 'chat-1' }, locale: 'zh-CN', capabilities: ['files:read', 'files:write'] }
@@ -39,6 +40,7 @@ const gugu = {
   onLink: vi.fn(() => () => {}),
   showMessage: vi.fn(async () => {}),
   files: {
+    viewPreferences: vi.fn(async () => ({ showAppData: false })),
     list: vi.fn(async () => ENTRIES.map((e) => ({ ...e }))),
     onChanged: vi.fn(() => () => {}),
     open: vi.fn(async (e: Entry) => ({ entry: e, type: 'binary', blob: async () => new Blob([new Uint8Array([7])]), close: () => {} })),
@@ -130,14 +132,15 @@ beforeEach(async () => {
   for (const banner of document.querySelectorAll<HTMLElement>('.banner')) banner.hidden = true
   $('conflicts').hidden = true
   goTop()
-  expect(names(), 'each case starts from the same list').toEqual(['附件', '合同', 'notes.md'])
+  expect(names(), 'each case starts from the same list').toEqual(['合同', 'notes.md', 'shot.png'])
 })
 
 describe('the folder on screen', () => {
-  test('the top: folders first, 「附件」 at their head (by its role), then files; inside a folder only what is in it', async () => {
-    expect(names()).toEqual(['附件', '合同', 'notes.md'])
-    expect(row('att').dataset.system).toBe('attachments')
-    expect(more('att'), '「附件」 is gugu\'s: nothing to do to it here').toBe(null)
+  // owner 10-28: what was sent in the chat is not one folder further down — 「附件」's files are at the top with the rest.
+  test('the top: folders first, then the files there and in 「附件」 (no 「附件」 row); inside a folder only what is in it', async () => {
+    expect(names()).toEqual(['合同', 'notes.md', 'shot.png'])
+    expect(row('att'), '「附件」 is not a row at the top').toBe(null)
+    expect(row('shot').querySelector('.file-path'), 'nor said of its files').toBe(null)
     expect(row('contracts').querySelector('.file-meta')!.textContent).toContain('1 项')
     open('contracts')
     expect(names()).toEqual(['2026'])
@@ -149,7 +152,7 @@ describe('the folder on screen', () => {
     ;($('crumbs').querySelector('.back') as HTMLButtonElement).click()
     expect(names()).toEqual(['2026'])
     goTop()
-    expect(names()).toEqual(['附件', '合同', 'notes.md'])
+    expect(names()).toEqual(['合同', 'notes.md', 'shot.png'])
   })
 
   test('filtering searches every folder, each match saying the folder it is in', async () => {
@@ -196,7 +199,7 @@ describe('making, moving, uploading, deleting', () => {
     into.click()
     await readAgain(listed)
     expect(gugu.files.move.mock.calls).toEqual([[expect.objectContaining({ id: 'notes' }), { folder: 'y2026' }]])
-    expect(names()).toEqual(['附件', '合同'])
+    expect(names()).toEqual(['合同', 'shot.png'])
   })
 
   test('a move to a folder that has the name says so', async () => {
@@ -242,10 +245,11 @@ describe('making, moving, uploading, deleting', () => {
   })
 
   test('upload goes into the folder on screen; a name already there is asked about: keep both, or replace the old one', async () => {
-    open('att')
-    expect(names()).toEqual(['shot.png'])
-    // Picked as shot.png; the database named it 「shot (2).png」 (the upload says both).
-    const copy = { ...entry('shot2', 'shot (2).png', 'binary', 'att', 'attachments-store/shot (2).png'), clashWith: 'shot' }
+    open('contracts')
+    open('y2026')
+    expect(names()).toEqual(['甲方.pdf'])
+    // Picked as 甲方.pdf; the database named it 「甲方 (2).pdf」 (the upload says both).
+    const copy = { ...entry('deal2', '甲方 (2).pdf', 'binary', 'y2026', '合同/2026/甲方 (2).pdf'), clashWith: 'deal' }
     gugu.files.upload.mockImplementationOnce(async () => {
       ENTRIES.push(copy)
       return [copy]
@@ -254,20 +258,21 @@ describe('making, moving, uploading, deleting', () => {
     await uploaded()
     // The question is up by the upload's end (asked as the files come in, never later).
     expect($('conflicts').hidden).toBe(false)
-    expect(gugu.files.upload.mock.calls.at(-1)).toEqual([{ chat: 'chat-1', folder: 'att' }])
-    expect($('conflict-list').textContent).toContain('「shot.png」已经有了，新传的这份叫「shot (2).png」。')
+    expect(gugu.files.upload.mock.calls.at(-1)).toEqual([{ chat: 'chat-1', folder: 'y2026' }])
+    expect($('conflict-list').textContent).toContain('「甲方.pdf」已经有了，新传的这份叫「甲方 (2).pdf」。')
     const buttons = [...$('conflict-list').querySelectorAll('button')].map((b) => b.textContent)
     expect(buttons).toEqual(['两个都留', '替换原来的'])
     ;[...$('conflict-list').querySelectorAll<HTMLButtonElement>('button')].find((b) => b.textContent === '替换原来的')!.click()
-    await until('shot2 removed', () => gugu.files.remove.mock.calls.some(([e]) => (e as { id?: string } | undefined)?.id === 'shot2'))
-    expect(gugu.files.replace).toHaveBeenCalledWith(expect.objectContaining({ id: 'shot' }), expect.any(Blob), { expectedVersion: 1 })
+    await until('deal2 removed', () => gugu.files.remove.mock.calls.some(([e]) => (e as { id?: string } | undefined)?.id === 'deal2'))
+    expect(gugu.files.replace).toHaveBeenCalledWith(expect.objectContaining({ id: 'deal' }), expect.any(Blob), { expectedVersion: 1 })
     expect($('conflicts').hidden).toBe(true)
   })
 
-  test('a file picked as 「shot (2).png」 next to shot.png is just that: nothing is asked, nothing replaced', async () => {
-    open('att')
-    expect(names()).toEqual(['shot.png'])
-    const picked = { ...entry('shot2', 'shot (2).png', 'binary', 'att', 'attachments-store/shot (2).png'), clashWith: null }
+  test('a file picked as 「甲方 (2).pdf」 next to 甲方.pdf is just that: nothing is asked, nothing replaced', async () => {
+    open('contracts')
+    open('y2026')
+    expect(names()).toEqual(['甲方.pdf'])
+    const picked = { ...entry('deal2', '甲方 (2).pdf', 'binary', 'y2026', '合同/2026/甲方 (2).pdf'), clashWith: null }
     gugu.files.upload.mockImplementationOnce(async () => {
       ENTRIES.push(picked)
       return [picked]
@@ -276,7 +281,7 @@ describe('making, moving, uploading, deleting', () => {
     $('upload').click()
     await uploaded()
     // Both kept, side by side (same change time here: the order between them is not what this reads).
-    expect([...names()].sort()).toEqual(['shot (2).png', 'shot.png'])
+    expect([...names()].sort()).toEqual(['甲方 (2).pdf', '甲方.pdf'])
     expect($('conflicts').hidden).toBe(true)
     expect(gugu.files.replace).not.toHaveBeenCalled()
   })

@@ -220,7 +220,7 @@ describe('到点送回建它的会话', () => {
   }
 
   it('调度器到点把交代原样送回那条会话(不开会话);一次性的跑完就关,管家不再为它醒', async () => {
-    const { id } = await dueOneTimeRun();
+    const { id, run } = await dueOneTimeRun();
     const record = recordingCallbacks();
     const scheduler = new AutomationScheduler(record.callbacks);
     await scheduler.reload();
@@ -231,7 +231,7 @@ describe('到点送回建它的会话', () => {
     const [envelope, sessionId, text, options] = mocks.messageSessionFrom.mock.calls[0]!;
     expect(sessionId).toBe(AGENT.sessionId);
     expect(text).toBe('remind them to drink water');
-    expect(options).toEqual({ keyScope: `automation:${id}` });
+    expect(options).toMatchObject({ keyScope: `automation:${id}`, receipt: { id: expect.any(String), at: new Date(run.scheduledAt!).toISOString() } });
 
     const delivered = readDeliveryEnvelope((envelope as (messageId: string, said: string) => string)('m-1', text as string));
     const facts = delivered!.segments[0]!.facts!;
@@ -295,6 +295,40 @@ describe('到点送回建它的会话', () => {
     const failed = record.steps.find((run) => run.status === 'failed')!;
     expect(failed.automationId).toBe(id);
     expect(failed.error).toEqual({ step: 'deliver', code: 'delivery_failed', message: 'SESSION_DIRECT_NOT_LIVE: could not resume' });
+  });
+
+  it('keeps a refused scheduled reminder enabled and retries once on a later queue drain', async () => {
+    const { id } = await dueOneTimeRun();
+    mocks.messageSessionFrom.mockRejectedValue(Object.assign(new Error('not admitted'), { code: 'SESSION_DIRECT_NOT_LIVE' }));
+    const record = recordingCallbacks();
+    const scheduler = new AutomationScheduler(record.callbacks);
+    await scheduler.reload();
+    await record.when(() => record.steps.some(row => row.status === 'queued'));
+    await new Promise(resolve => setTimeout(resolve,50));
+    expect(mocks.messageSessionFrom).toHaveBeenCalledTimes(1);
+    expect(fixture.sqlite.prepare('SELECT enabled FROM automations WHERE id=?').pluck().get(id)).toBe(1);
+    expect(fixture.sqlite.prepare("SELECT status FROM automation_runs WHERE automation_id=? AND status <> 'scheduled'").pluck().get(id)).toBe('queued');
+    mocks.messageSessionFrom.mockResolvedValue({ id: 'accepted' });
+    vi.setSystemTime(Date.now() + 2000);
+    await scheduler.drainQueue();
+    await record.when(() => record.steps.some(row => row.status === 'done'));
+    expect(mocks.messageSessionFrom).toHaveBeenCalledTimes(2);
+    expect(mocks.messageSessionFrom.mock.calls[0]![3].receipt).toEqual(mocks.messageSessionFrom.mock.calls[1]![3].receipt);
+  });
+
+  it('keeps a reminder queued after a definite refusal and reuses its delivery identity on retry', async () => {
+    const { id,run } = await dueOneTimeRun();
+    const automation = (await getAutomation(id))!;
+    const started = await insertRun({ automationId: id,triggerConfigSnapshot: run.triggerConfigSnapshot,
+      agentConfigSnapshot: run.agentConfigSnapshot,scheduledAt: run.scheduledAt,status: 'creating_session',triggerKind: 'cron',startedAt: Date.now() });
+    const deliver = vi.fn().mockRejectedValueOnce(Object.assign(new Error('面板状态暂时不可用。'),{ code: 'SESSION_DIRECT_NOT_LIVE' }))
+      .mockResolvedValue({ id: 'native-admitted' });
+    const deps = { sessionPresent: async () => true,deliver };
+    expect((await executeAgentDelivery(automation,started,() => {},deps)).success).toBe(false);
+    expect(fixture.sqlite.prepare('SELECT status, finished_at FROM automation_runs WHERE id=?').get(started.id)).toMatchObject({ status: 'queued',finished_at: null });
+    expect((await executeAgentDelivery(automation,started,() => {},deps)).success).toBe(true);
+    expect(deliver.mock.calls[0]![4]).toEqual(deliver.mock.calls[1]![4]);
+    expect(deliver.mock.calls[0]![4]).toMatchObject({ id: started.id });
   });
 });
 

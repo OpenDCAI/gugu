@@ -6,7 +6,7 @@ export type InstallAnswer<D extends Handed = Handed> = { success: boolean; error
 type Handed = { outcome?: string; installed?: boolean; ask?: { manifestDigest: string }; asks?: boolean; reason?: string };
 
 /** The yes, decided between the two steps: the package agreed to (its digest, and where they ticked), or why not. */
-export type Agreement = { digest: string; enableIn?: string[] } | { declined: string };
+export type Agreement = { digest: string } | { declined: string };
 
 /**
  * owner 10-16「装的时候一次选好装到哪几台」: the package the person said yes to, on another of their computers, by that

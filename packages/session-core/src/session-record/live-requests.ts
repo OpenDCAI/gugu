@@ -65,6 +65,7 @@ export function permissionToPendingRequest(request: AcpPermissionRequest): Pendi
     // ACP 这条通道上问的永远是「准不准做这件事」。提问（从几项里挑一个）在协议上不是
     // requestPermission，本仓今天也没有从宿主结算它的口（write-bridge 对它 fail loud）。
     kind: 'permission',
+    origin: { source: 'harness-permission' },
     title,
     ...(request.subject !== undefined ? { subject: request.subject } : {}),
     ...(detail && detail !== title ? { detail: clip(detail) } : {}),

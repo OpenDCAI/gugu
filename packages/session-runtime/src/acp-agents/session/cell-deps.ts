@@ -22,6 +22,8 @@ export interface SessionCellCallbacks {
   onTranscriptChanged?: () => void;
   onDraftChanged?: () => void;
   onClosed?: (exitCode: number | null) => void;
+  /** v2 native admission failed internally. Retire the executor through the existing lifecycle. */
+  onPromptRejected?: () => Promise<void>;
   onAgentEvent?: (phase: 'start' | 'stop' | 'error') => void;
 }
 
@@ -84,6 +86,10 @@ export interface SessionCellDeps {
   acceptsImagePrompts?: boolean;
   /** Whether initialize negotiated the ACP `_session/steering` extension. */
   supportsSteering?: boolean;
+  /** Host-verified personal assistant owner; absent for task agents and ordinary sessions. */
+  assistantOwnerId?: string;
+  /** Synchronous queue persistence must have succeeded before cancelling a replied continuation. */
+  queuedPromptsPersisted?: () => boolean;
   /** 这一家「失败报成正常结束」的识别(插件 `acp.turnFailure`,语义见那里)。 */
   turnFailure?: {
     fromAgentMessage?: (text: string) => string | null;

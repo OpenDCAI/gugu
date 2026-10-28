@@ -88,6 +88,10 @@ describe('problem 9: codex does not ask before each call to a gugu-delivered MCP
     expect(config['mcp_servers.quiet_probe_quiet.default_tools_approval_mode']).toBe('approve')
     expect(config['mcp_servers.mine.enabled']).toBe(false)
     expect(config).not.toHaveProperty('mcp_servers.mine.default_tools_approval_mode')
+    // Codex's own 300 s per MCP call would end a 10-minute wait for the person; servers we hand over get more.
+    expect(config['mcp_servers.gugu.tool_timeout_sec']).toBe(900)
+    expect(config['mcp_servers.quiet_probe_quiet.tool_timeout_sec']).toBe(900)
+    expect(config).not.toHaveProperty('mcp_servers.mine.tool_timeout_sec')
   })
 })
 

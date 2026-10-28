@@ -71,7 +71,8 @@ export function connectStdioAcp(io: AcpProcessIo, toClient: AcpClientFactory, op
   let boundary: ReturnType<typeof createRequestActivity>;
   const deliver = (params: SessionNotification): void => {
     const event = decodeSessionUpdate(params.update);
-    if (event.kind === 'tool_call' || event.kind === 'tool_update') boundary.observe(params.sessionId, event);
+    // Admission and tool boundaries both read the provider's own events, before the client does.
+    boundary.observe(params.sessionId, event);
     client.sessionEvent({ sessionId: params.sessionId, event, trace: params.update });
   };
   const stream = ndJsonStream(

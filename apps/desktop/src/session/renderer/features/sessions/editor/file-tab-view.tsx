@@ -14,7 +14,7 @@ import { FileContentRenderer } from './file-content-renderer';
 import { FileContentToolbar } from './file-content-toolbar';
 import { FILE_CONTENT_TYPES } from './file-content-types';
 import type { FileTabResource } from './stores/file-tab-resource';
-import { RETAINED_SURFACE_HIDDEN_STYLE } from '@/lib/retainedSurface';
+import { RetainedTabContent, useRetainedTabs } from '@renderer/features/tabs/retained-tab-content';
 
 /**
  * Mounts EditorProvider unconditionally so the Monaco instance persists across
@@ -35,17 +35,10 @@ function showsPreview(file: FileTabResource): boolean {
 }
 
 /**
- * 正在看的那页之外,最多再留几页藏着的预览。每页预览是一个独立的渲染进程:mac1 实测 10 页 HTML 全留着,
- * 渲染进程 4→11 个、整个应用多出约 1GB(每页约 100MB)。不封顶,一条会话里看过几十份报告就是几个 GB。
- * 按页数封顶而不按时间:内存跟留了几页走,跟藏了多久无关。
- */
-export const KEPT_HIDDEN_PREVIEWS = 3;
-
-/**
  * Renders the Monaco source and/or preview for the active file tab.
  *
  * 最近看过的预览挂着,切走只藏起来 —— 浏览到一半的 HTML 切回来还在原处,❌ 重新登记、重新加载、
- * 滚动归零。与浏览器页签同一条,只是封了顶(KEPT_HIDDEN_PREVIEWS):再早看过的释放,切回去重新加载。
+ * 滚动归零。与其他页签共用保留上限:再早看过的释放,切回去重新加载。
  * 关掉页签或切回源码也释放。恢复出来还没看过的不挂:别一开会话就把每个页签的页面都加载一遍。
  *
  * 别的种类的页签在前面时(这一层被 PaneContent 藏着)版面照常摆:工具栏、文件树都在,藏着的
@@ -60,13 +53,9 @@ const FileContent = observer(function FileContent({ host, ctx }: TabContentProps
   const file = activeFile ?? fileTabs[0]?.resource ?? null;
 
   const activePreview = activeFile && showsPreview(activeFile) ? activeFile : null;
-  // 最近看过的预览,新的在前;正在看的那页就是第一项。
-  const [recent, setRecent] = useState<FileTabResource[]>([]);
-  if (activePreview && recent[0] !== activePreview) {
-    const open = (f: FileTabResource) => f !== activePreview && fileTabs.some((t) => t.resource === f);
-    setRecent([activePreview, ...recent.filter(open)].slice(0, KEPT_HIDDEN_PREVIEWS + 1));
-  }
-  const previews = fileTabs.filter((t) => showsPreview(t.resource) && recent.includes(t.resource));
+  const previewTabs = fileTabs.filter((t) => showsPreview(t.resource));
+  const retained = useRetainedTabs(previewTabs.map((t) => t.tabId), previewTabs.filter((t) => t.isActive).map((t) => t.tabId));
+  const previews = previewTabs.filter((t) => retained.has(t.tabId));
 
   if (!file) return null;
   const bufferUri = file.isExternal ? '' : file.bufferUri;
@@ -86,24 +75,24 @@ const FileContent = observer(function FileContent({ host, ctx }: TabContentProps
         onTreeVisibleChange={setTreeVisible}
       />
       {bufferUri ? <FileDeletedNotice bufferUri={bufferUri} projectId={(ctx as SessionTabContext).projectId} /> : null}
-      <ResizablePanelGroup orientation="horizontal" id="file-tab-split" className="min-h-0 flex-1">
+      <ResizablePanelGroup orientation="horizontal" className="min-h-0 flex-1">
         <ResizablePanel id="file-tab-content" minSize="140px" className="relative min-w-0 overflow-hidden">
-          <div
+          <RetainedTabContent
             className="absolute inset-0"
-            style={showSource ? undefined : RETAINED_SURFACE_HIDDEN_STYLE}
+            visible={showSource}
           >
             <FileContentRenderer />
-          </div>
+          </RetainedTabContent>
           {previews.map((t) => {
             const visible = t.resource === activePreview;
             return (
-              <div
+              <RetainedTabContent
                 key={t.tabId}
                 className="absolute inset-0"
-                style={visible ? undefined : RETAINED_SURFACE_HIDDEN_STYLE}
+                visible={visible}
               >
                 <FileContentPreview tab={t.resource} ctx={ctx as SessionTabContext} />
-              </div>
+              </RetainedTabContent>
             );
           })}
         </ResizablePanel>

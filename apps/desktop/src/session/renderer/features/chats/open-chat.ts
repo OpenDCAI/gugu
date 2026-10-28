@@ -1,5 +1,4 @@
-import { isScreenView, showBesideOnScreen, showOnScreen, showSessionBeside } from '@renderer/app/screen-layout-actions';
-import { openSessionInSessionWhenReady } from '@renderer/features/sessions/open-session-in-session';
+import { isScreenView, showBesideOnScreen, showOnScreen } from '@renderer/app/screen-layout-actions';
 import { projectGroupsStore } from '@renderer/features/projects/stores/project-groups-store';
 import { appState, sidebarStore } from '@renderer/lib/stores/app-state';
 import type { ScreenBlockContent } from '@renderer/app/screen-layout';
@@ -15,14 +14,4 @@ export function openChatOnScreen(chatId: string, beside: boolean): void {
     ? { kind: 'project', projectId: sidebarStore.rowProjectIdOf(projectId) }
     : { kind: 'chat', chatId };
   (beside && isScreenView(appState.navigation.currentViewId) ? showBesideOnScreen : showOnScreen)(content);
-}
-
-/**
- * 壳的「对话」里一条没有项目的会话(它就是和 agent 私聊):和侧栏会话行点下去同一个结果 ——
- * 导航到它;⌘ 点且正看着这屏时并排放在正看着那块右边。
- */
-export function openSessionOnScreen(session: { projectId: string; sessionId: string }, beside: boolean): void {
-  if (beside && isScreenView(appState.navigation.currentViewId)) showSessionBeside(session);
-  else appState.navigation.navigate('session', session);
-  openSessionInSessionWhenReady(session);
 }

@@ -33,13 +33,9 @@ export async function openLink(raw: string | GuguLinkTarget): Promise<LinkOpenOu
         return opened;
       },
       resourceChat: async (chatId) => (await import('./app-files')).resourceChatOf(chatId),
-      openResource: async (target) => {
-        if (target.kind === 'session') {
-          const { showSession } = await import('./extension-show-session');
-          const [{ events }, { notificationFocusSessionChannel }] = await Promise.all([import('@main/lib/events'), import('@shared/events/appEvents')]);
-          await showSession(target.sessionId, { projectHere: sessionHere, projectListed: listedSessionProject, bringUp: async (session) => { events.emit(notificationFocusSessionChannel, session); } });
-        } else await actInWindow({ kind: 'openLinkTarget', target });
-      },
+      // The account shell resolves the assistant's task records first; desktop Markdown and OS links both come here.
+      openResource: (target) => actInWindow({ kind: 'openLinkTarget', target }),
+      bringUp: bridge.bringSessionUp,
       deliver: (id, event, opened) => {
         bridge.deliverToExtension(id, event, opened);
       },
