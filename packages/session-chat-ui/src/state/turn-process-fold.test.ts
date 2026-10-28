@@ -930,7 +930,7 @@ describe('agent conversation process footer', () => {
     // 名字 + 过程行一行,气泡另一行;过程挂在头上,气泡不再带它。
     expect(ids(units).indexOf('answer:head')).toBe(ids(units).indexOf('answer') - 1);
     expect((units.find(unit => unit.itemId === 'answer:head')?.data as ChatMessage).conversationProcess)
-      .toEqual({ id: turnProcessId('footer'), startedAt: 1000, endedAt: 25000 });
+      .toEqual({ id: turnProcessId('footer'), startedAt: 1000, endedAt: 25000, steps: 2 });
     expect(units.find(unit => unit.itemId === 'answer')?.data).toMatchObject({ conversationPart: 'body', conversationHead: 'answer:head', conversationProcess: undefined });
     expect(ids(units)).not.toContain('think');
     expect(ids(units)).not.toContain('call');
@@ -982,6 +982,13 @@ describe('agent conversation process footer', () => {
       if (open) expect(ids(units).indexOf('call2')).toBeLessThan(ids(units).indexOf('call:sent:m1'));
       else expect(ids(units)).not.toContain('call2');
     }
+  });
+  it('counts the steps on a live process line that has no reply yet', () => {
+    const running = turn('busy', [user('u'), tool('a'), tool('b'), tool('c')], undefined, { startedAt: 1000 });
+    const units = flattenTier([running], ctxWith({ active: true, foldTurnProcess: true, agentConversation: true }), SEGMENTERS);
+    const head = units.find(unit => unit.kind === 'turn-process')?.data as { steps?: number; live?: boolean } | undefined;
+    // owner 0 号图「思考执行中 · 9m16s · 39 步」:还没说话的那一轮也写步数。
+    expect(head?.steps).toBe(3);
   });
   it('places live work under its reply and does not hide failure states', () => {
     const live = flattenTier([completed()], ctxWith({ active: true, foldTurnProcess: true, agentConversation: true }), SEGMENTERS);

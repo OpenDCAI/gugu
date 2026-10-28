@@ -29,9 +29,15 @@ export function ConversationProcess(props: {
     return startedAt !== undefined && end !== undefined && Number.isFinite(startedAt) && Number.isFinite(end)
       ? formatElapsed(Math.max(0, end - startedAt)) : null;
   };
-  const label = () => `${translate('transcript.thinkingAndExecution')}${elapsed() ? ` · ${elapsed()}` : ''}`;
+  // owner 0 号图:「1m14s · 10 步」—— 时长后面跟这一段过程有几步(折起来的那些行一共几条)。
+  const steps = () => {
+    const count = props.process.steps;
+    return count ? translate(count === 1 ? 'transcript.processStepsOne' : 'transcript.processSteps', { count }) : null;
+  };
+  const summary = () => [elapsed(), steps()].filter(Boolean).join(' · ') || null;
+  const label = () => `${translate('transcript.thinkingAndExecution')}${summary() ? ` · ${summary()}` : ''}`;
   // 在跑:点阵代替大脑,字写「思考执行中 · 1m15s」并带微光(owner 2026-10-27 原型);跑完换回大脑 + 用时。
-  const liveLabel = () => `${translate('transcript.thinkingLive')}${elapsed() ? ` · ${elapsed()}` : ''}`;
+  const liveLabel = () => `${translate('transcript.thinkingLive')}${summary() ? ` · ${summary()}` : ''}`;
   return <button type="button" class={conversationProcessButton} data-conversation-process={props.process.id}
     data-collapse-id={props.collapsible === false ? undefined : props.process.id} data-collapse-anchor={props.anchorId}
     aria-expanded={props.collapsible === false ? undefined : props.expanded} aria-label={label()} title={label()}>
@@ -41,7 +47,7 @@ export function ConversationProcess(props: {
         <path d="M11.5 4.5C10 2 6 2 5 5c-3-.2-4 3-2.5 5-2 2 .1 5 2.5 4.5-.2 3 4.5 4.5 6.5 2M11.5 4.5C13 2 17 2 18 5c3-.2 4 3 2.5 5 2 2-.1 5-2.5 4.5.2 3-4.5 4.5-6.5 2V4.5Z" />
         <path d="m6 7 2 2-1 3m9-5-2 2 1 3M8 9h7" /><circle cx="7" cy="13" r=".6" /><circle cx="16" cy="13" r=".6" />
       </svg>
-      <Show when={elapsed()}>{value => <span>{value()}</span>}</Show>
+      <Show when={summary()}>{value => <span>{value()}</span>}</Show>
     </Show>
     <Show when={props.collapsible !== false}><span class={conversationProcessChevron} aria-hidden="true">›</span></Show>
   </button>;
