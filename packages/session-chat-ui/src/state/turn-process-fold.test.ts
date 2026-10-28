@@ -930,7 +930,7 @@ describe('agent conversation process footer', () => {
     // 名字 + 过程行一行,气泡另一行;过程挂在头上,气泡不再带它。
     expect(ids(units).indexOf('answer:head')).toBe(ids(units).indexOf('answer') - 1);
     expect((units.find(unit => unit.itemId === 'answer:head')?.data as ChatMessage).conversationProcess)
-      .toEqual({ id: turnProcessId('footer'), startedAt: 1000, endedAt: 25000 });
+      .toEqual({ id: turnProcessId('footer'), startedAt: 1000, endedAt: 25000, steps: 2 });
     expect(units.find(unit => unit.itemId === 'answer')?.data).toMatchObject({ conversationPart: 'body', conversationHead: 'answer:head', conversationProcess: undefined });
     expect(ids(units)).not.toContain('think');
     expect(ids(units)).not.toContain('call');

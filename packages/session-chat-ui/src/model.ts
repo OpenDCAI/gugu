@@ -85,7 +85,7 @@ export type ChatMessage = {
   /** View-only reference to the input this agent output responds to. */
   conversationReply?: { itemId: string; text: string };
   /** View-only disclosure of the completed thinking/execution segment. */
-  conversationProcess?: { live?: boolean; id: string; startedAt?: number; endedAt?: number };
+  conversationProcess?: { live?: boolean; id: string; startedAt?: number; endedAt?: number; steps?: number };
   /**
    * View-only split of one agent-conversation reply (owner 0 号图): `head` draws the name and the
    * process line, each `body` only a bubble. The process steps go between them, so they never land

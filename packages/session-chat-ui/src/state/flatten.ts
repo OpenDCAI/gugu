@@ -376,6 +376,8 @@ export function flattenTier(
         const footerReply = output?.reply ? conversationProcessReply(header, [output.reply]) : null;
         if (footerReply && header && output) {
           const expanded = ctx.revealAllFolds || turnProcessExpanded(header.live, ctx.isTurnProcessExpanded?.(header.id) ?? false);
+          const steps = output.rest.filter(item => !isSubagentChild(item)).length;
+          if (steps && footerReply.conversationProcess) footerReply.conversationProcess = { ...footerReply.conversationProcess, steps };
           emitConversationReply(footerReply, output.sent, () => {
             if (expanded) emitOps(planRows(outsideProcess(output.rest)), turn.id, [{ id: header.id, stored: !header.live }]);
           });
