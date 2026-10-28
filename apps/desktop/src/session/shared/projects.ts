@@ -48,6 +48,8 @@ export type CreateLocalProjectParams = {
   createDirectory?: boolean;
   /** 「使用现有文件夹」:所选目录本身就是项目,不是 git 仓库也放行(与远程项目同口径,#2358),❌ 替用户 git init。 */
   allowNonGit?: boolean;
+  /** #609 替人登记的(助理的目录、远端的主目录),❌ 人在「添加项目」里亲手选的:见主进程 createLocalProject。 */
+  automatic?: boolean;
 };
 
 export type CreateProjectParams = CreateLocalProjectParams;

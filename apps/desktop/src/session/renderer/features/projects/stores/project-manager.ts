@@ -52,7 +52,10 @@ export class ProjectManagerStore {
     this._disposeProjectCreatedEvent = events.on(projectCreatedChannel, ({ project }) => {
       let added = false;
       runInAction(() => {
-        if (this.projects.has(project.id)) return;
+        const known = this.projects.get(project.id);
+        // #609 已有的 workspace 被人亲手加成了项目:同一个 id,只换 kind。
+        if (known?.data && known.data.kind !== project.kind) known.data = { ...known.data, kind: project.kind };
+        if (known) return;
         this.projects.set(project.id, createUnmountedProject(project, 'idle'));
         added = true;
       });
@@ -184,6 +187,11 @@ export class ProjectManagerStore {
     const inspection = await rpcOn(machine).projects.inspectProjectPath({ type: 'local', path: targetPath });
     if (inspection.existingProject) {
       if (machine) machineRegistry.register(machine, [inspection.existingProject.id]);
+      // #609 这个目录是替人登记的 workspace(~):人亲手加 ⇒ 交给那台机器把它记成项目(同一个 id)。
+      if (inspection.existingProject.kind === 'workspace' && !(data.mode === 'pick' && data.automatic)) {
+        const claimed = await rpcOn(machine).projects.createProject({ type: 'local', path: targetPath, name: data.name, allowNonGit: true });
+        if (!claimed.success) throw new Error(claimed.error.type);
+      }
       if (inspection.existingProject.rootFolderDetached) {
         const attached = await rpcOn(machine).projects.attachProjectFolder(inspection.existingProject.id, targetPath);
         if (!attached.success) throw new Error(attached.error.message);
@@ -233,6 +241,7 @@ export class ProjectManagerStore {
             createDirectory: data.createDirectory,
             initGitRepository: data.initGitRepository,
             allowNonGit: data.allowNonGit,
+            automatic: data.automatic,
           });
           if (!projectResult.success) {
             result = err(projectResult.error);

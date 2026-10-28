@@ -41,7 +41,8 @@ it('目录存在但还没登记:当场登记成项目(非 git 也行,用目录�
   const project = await resolveAgentSessionProject(dir);
   expect(project.path).toBe(dir);
   expect(mocks.create).toHaveBeenCalledWith(
-    expect.objectContaining({ path: dir, allowNonGit: true, reuseExisting: true, exactPath: true }),
+    // #609 automatic:替人登记的,落在 ~ / GUGU_HOME 底下就是 workspace(人亲手「添加项目」不带它)。
+    expect.objectContaining({ path: dir, allowNonGit: true, reuseExisting: true, exactPath: true, automatic: true }),
   );
 });
 

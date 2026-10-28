@@ -272,7 +272,7 @@ describe('没选项目 = 那台机器的主目录项目', () => {
     await expect(store.ensureHomeProject('dev-home-1')).resolves.toBe('dev-home-1-project-home');
     expect(create).toHaveBeenCalledWith(
       { type: 'local', machine: 'dev-home-1' },
-      expect.objectContaining({ mode: 'pick', path: '/home/alice', allowNonGit: true })
+      expect.objectContaining({ mode: 'pick', path: '/home/alice', allowNonGit: true, automatic: true })
     );
     create.mockRestore();
     mount.mockRestore();

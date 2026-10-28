@@ -23,7 +23,7 @@ export async function openAssistantMachine(home: AssistantHomePlace, workdir: st
     return openMachineWith(rpcOn(home.deviceId), { deviceId: home.deviceId, projectId, home: homeDir, workdir, kind: 'cloud' });
   }
   const rpc = rpcOn(target);
-  const projectId = target === null ? await localProjectOf(workdir) : await remoteHostsStore.ensureProject(home.deviceId, workdir);
+  const projectId = target === null ? await localProjectOf(workdir) : await remoteHostsStore.ensureProject(home.deviceId, workdir, true);
   const homeDir = target === null ? await rpc.app.getHomeDirectory() : await remoteHostsStore.ensureHomeDir(home.deviceId);
   return { ...(await openMachineWith(rpc, { deviceId: home.deviceId, projectId, home: homeDir, workdir, kind: 'computer' })), target };
 }
@@ -40,7 +40,7 @@ async function localProjectOf(workdir: string): Promise<string> {
   const name = workdir.replace(/\/+$/, '').split('/').pop() || workdir;
   const projectId = await appState.projects.createProject(
     { type: 'local' },
-    { mode: 'pick', path: workdir, name, initGitRepository: false, createDirectory: false, allowNonGit: true }
+    { mode: 'pick', path: workdir, name, initGitRepository: false, createDirectory: false, allowNonGit: true, automatic: true }
   );
   if (!projectId) throw new Error(`could not open ${workdir} as a project on this computer`);
   await appState.projects.ensureMounted(projectId);

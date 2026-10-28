@@ -227,7 +227,8 @@ describe('importLocalSession', () => {
       });
 
       expect(mocks.createLocalProject).toHaveBeenCalledWith(
-        expect.objectContaining({ path: '/work/webapp', allowNonGit: true, reuseExisting: true })
+        // #609 导入是替人登记的:在 ~ 里跑的会话导进来是 workspace,❌ 多出一个「~」项目。
+        expect.objectContaining({ path: '/work/webapp', allowNonGit: true, reuseExisting: true, automatic: true })
       );
     });
   });

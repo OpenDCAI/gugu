@@ -409,6 +409,36 @@ describe('ProjectManagerStore project creation', () => {
     expect(store.pendingCreationIds.has('optimistic-project')).toBe(false);
   });
 
+  it('#609 adding by hand a folder that is a workspace (~) asks the machine to make it a project; automatic entries do not', async () => {
+    const workspace = { ...localProject({ id: 'home-project', path: '/home/me' }), kind: 'workspace' as const };
+    mocks.inspectProjectPath.mockResolvedValue({ isDirectory: true, isGitRepo: false, existingProject: workspace });
+    mocks.createProject.mockResolvedValue({ success: true, data: localProject({ id: 'home-project', path: '/home/me' }) });
+    const store = new ProjectManagerStore();
+
+    const byHand = await store.startProjectCreation({ type: 'local' }, { mode: 'pick', name: 'me', path: '/home/me' });
+    expect(byHand).toEqual({ kind: 'existing', projectId: 'home-project' });
+    expect(mocks.createProject).toHaveBeenCalledWith(expect.objectContaining({ path: '/home/me' }));
+    expect(mocks.createProject.mock.calls[0]?.[0]).not.toHaveProperty('automatic');
+
+    mocks.createProject.mockClear();
+    await store.startProjectCreation({ type: 'local' }, { mode: 'pick', name: 'me', path: '/home/me', automatic: true });
+    expect(mocks.createProject).not.toHaveBeenCalled();
+    mocks.inspectProjectPath.mockReset();
+    mocks.createProject.mockReset();
+  });
+
+  it('#609 a known workspace announced as created again (made a project by hand) loses its workspace kind', () => {
+    const store = new ProjectManagerStore();
+    const workspace = { ...localProject({ id: 'home-project' }), kind: 'workspace' as const };
+    store.projects.set(workspace.id, createUnmountedProject(workspace, 'idle'));
+    const handler = mocks.eventOn.mock.calls.find(([channel]) => channel === projectCreatedChannel)?.[1];
+    if (!handler) throw new Error('Expected project-created event subscription');
+
+    handler({ project: localProject({ id: 'home-project' }) });
+
+    expect(store.projects.get('home-project')?.data?.kind).toBeUndefined();
+  });
+
   it('fails loudly with the out-of-scope path owner before starting creation (#4855)', async () => {
     mocks.inspectProjectPath.mockResolvedValueOnce({
       isDirectory: true,

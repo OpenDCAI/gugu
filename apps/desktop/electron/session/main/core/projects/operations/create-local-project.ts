@@ -2,7 +2,7 @@ import { randomUUID } from 'node:crypto';
 import fs from 'node:fs';
 import { isFileNotFoundCode } from '@gugu/session-core/files';
 import { err, ok, withLease } from '@gugu/session-shared';
-import { sql } from 'drizzle-orm';
+import { eq, sql } from 'drizzle-orm';
 import { projectEvents } from '@main/core/projects/project-events';
 import { projectManager } from '@main/core/projects/project-manager';
 import { statAbsolute } from '@main/core/runtime/files-helpers';
@@ -43,15 +43,28 @@ export type CreateLocalProjectParams = {
    * 归一化到仓库根会让 `--resume` 找不到原会话。
    */
   exactPath?: boolean;
-  /** #609 'workspace' = the app needs this directory for itself; it never shows as a project. Default: decided by the
-   *  directory (isAppKeptDirectory), so every entry point lands on the same kind. */
-  kind?: 'project' | 'workspace';
+  /**
+   * #609 true = 不是人亲手加的,是替人登记的(agent 建会话、App 派活、助理的目录、导入本机会话、远端不选目录):
+   * 落在咕咕自己要用的目录上(isAppKeptDirectory:~、GUGU_HOME 底下)就是 workspace。
+   * 人在「添加项目」里亲手选的目录(哪怕是 ~)一律是项目(owner 10-28)。任务工作区按固定 id 认,与此无关。
+   */
+  automatic?: boolean;
 };
 
 export async function createLocalProject(
   input: CreateLocalProjectParams
 ): Promise<CreateProjectResult> {
   const params = { ...input, path: projectPathKey(input.path) };
+  // #609 人亲手加的目录原来是替人登记的 workspace(~ 上的,或迁移降下来的)⇒ 从此是项目(owner 10-28)。
+  if (!params.automatic) {
+    const kept = await getLocalProjectByPath(params.path);
+    if (kept?.kind === 'workspace' && !isImplicitSessionHomeProjectId(kept.id)) {
+      db.update(projects).set({ kind: 'project', updatedAt: sql`CURRENT_TIMESTAMP` }).where(eq(projects.id, kept.id)).run();
+      const { kind: _workspace, ...claimed } = kept;
+      projectEvents._emit('project:created', claimed);
+      return ok(claimed);
+    }
+  }
   if ((params.createDirectory || params.initGitRepository) && !fs.existsSync(params.path)) {
     try {
       fs.mkdirSync(params.path, { recursive: true });
@@ -133,7 +146,7 @@ export async function createLocalProject(
         workspaceProvider: 'local',
         baseRef: gitInfo.baseRef,
         gitless: gitInfo.baseRef === null,
-        kind: params.kind ?? (isImplicitSessionHomeProjectId(projectId) || isAppKeptDirectory(gitInfo.rootPath) ? 'workspace' : 'project'),
+        kind: isImplicitSessionHomeProjectId(projectId) || (params.automatic && isAppKeptDirectory(gitInfo.rootPath)) ? 'workspace' : 'project',
         updatedAt: sql`CURRENT_TIMESTAMP`,
       }).returning().get();
       const created: LocalProject = {

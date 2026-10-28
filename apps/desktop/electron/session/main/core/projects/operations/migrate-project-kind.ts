@@ -24,6 +24,8 @@ function readRecord(file: string): ProjectKindMigrationRecord {
  * #609 / project-machine-model 迁移:库里已有的、登记在「咕咕自己要用的目录」(isAppKeptDirectory:~、task-home、GUGU_HOME
  * 底下)上的项目改成 workspace —— 从前 server 落主目录、App 派活、助理的家、导入 ~ 里的会话都建过这种项目。
  * 用户自己往里加过文件夹的不动(那是他在用的项目)。会话不挪:projectId 不变,它们因为项目成了 workspace 而列进「任务」。
+ * 人在「添加项目」里亲手加的 ~ 本该留作项目(owner 10-28),但老库里查不出一个项目是谁加的(projects 表没有来源,
+ * 活动记录 project.created 也不带入口),所以照降;要留的人从记录文件回滚,或者再「添加项目」一次(新版记成项目)。
  *
  * 幂等:只看 kind='project' 的行,判据是纯函数,重跑结果一样。可回滚:改了哪些行记在 `file` 里,
  * rollbackProjectKindMigration 按它改回 'project';比这一版旧的客户端本来就不认 kind。

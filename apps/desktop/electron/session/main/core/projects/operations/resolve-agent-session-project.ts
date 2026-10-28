@@ -34,6 +34,7 @@ export async function resolveAgentSessionProject(requestedPath: string) {
       allowNonGit: true,
       reuseExisting: true,
       exactPath: !existsSync(join(path, '.git')),
+      automatic: true,
     });
     if (!created.success) {
       throw new Error(`登记项目 ${path} 失败:${created.error.type}`);

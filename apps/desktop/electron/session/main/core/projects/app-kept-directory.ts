@@ -17,8 +17,9 @@ const inside = (child: string, parent: string) => {
 
 /**
  * #609 一个目录是不是「咕咕自己要用的」:这台机器的主目录(~),GUGU_HOME 底下(助理的家与工作目录都在那里);
- * 任务工作区(task-home)按固定 id 认。在这些目录里登记的项目是 workspace —— 不进任何项目列表、选择器、计数与账号项目表,会话列在「任务」里。
- * ❌ 不看是谁建的:agent.create、App 派活、导入本机会话、别的机器打进来的建项目,都按这同一个判据落 kind。
+ * 任务工作区(task-home)按固定 id 认。替人登记在这些目录上的项目是 workspace —— 不进任何项目列表、选择器、计数与账号
+ * 项目表,会话列在「任务」里。只用在自动的入口上(createLocalProject 的 `automatic`:agent 建会话、App 派活、助理的目录、
+ * 导入本机会话、远端不选目录);人在「添加项目」里亲手选的 ~ 是项目(owner 10-28)。
  */
 export function isAppKeptDirectory(directory: string, dirs: AppKeptDirectories = currentDirectories()): boolean {
   const key = projectPathKey(directory);

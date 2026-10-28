@@ -472,12 +472,13 @@ export class RemoteHostsStore {
   /**
    * 在这台机器上把这个文件夹加成项目(新建时选了那台机器上还不是项目的文件夹),挂上,返回项目 id。
    * 与本机「打开文件夹」同一步(projectManager.createProject),只是建在那台机器上。
+   * `automatic` = 替人登记的(主目录、助理的目录,#609),❌ 人在新建框里亲手选的文件夹。
    */
-  async ensureProject(deviceId: string, path: string): Promise<string> {
+  async ensureProject(deviceId: string, path: string, automatic = false): Promise<string> {
     const name = path.replace(/\/+$/, '').split('/').pop() || path;
     const projectId = await appState.projects.createProject(
       { type: 'local', machine: deviceId },
-      { mode: 'pick', path, name, initGitRepository: false, createDirectory: false, allowNonGit: true }
+      { mode: 'pick', path, name, initGitRepository: false, createDirectory: false, allowNonGit: true, automatic }
     );
     if (!projectId) throw new Error(`could not add ${path} as a project on ${deviceId}`);
     await appState.projects.ensureMounted(projectId);
@@ -497,7 +498,7 @@ export class RemoteHostsStore {
         .filter((project) => machineRegistry.machineOf(project.id) === deviceId && !isImplicitSessionHomeProject(project))
         .map((project) => ({ id: project.id, path: project.data?.path }));
       const existing = findHomeProject(onMachine, home);
-      if (!existing) return this.ensureProject(deviceId, home);
+      if (!existing) return this.ensureProject(deviceId, home, true);
       await appState.projects.ensureMounted(existing.id);
       return existing.id;
     })().finally(() => this.homeProjectPromises.delete(deviceId));
