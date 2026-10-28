@@ -85,7 +85,15 @@ export type ChatMessage = {
   /** View-only reference to the input this agent output responds to. */
   conversationReply?: { itemId: string; text: string };
   /** View-only disclosure of the completed thinking/execution segment. */
-  conversationProcess?: { live?: boolean; id: string; startedAt?: number; endedAt?: number };
+  conversationProcess?: { live?: boolean; id: string; startedAt?: number; endedAt?: number; steps?: number };
+  /**
+   * View-only split of one agent-conversation reply (owner 0 号图): `head` draws the name and the
+   * process line, each `body` only a bubble. The process steps go between them, so they never land
+   * under the bubble; every output of the turn (message_send ones too) is its own bubble.
+   */
+  conversationPart?: 'head' | 'body';
+  /** A `body`'s head row — background tasks still hang on that process line. */
+  conversationHead?: string;
   /**
    * 这条其实是某个 hook 说的话，不是 agent 的回复（#4981）。与 `guguDelivery` 同一路数：
    * 由消息单元从正文里解出来（见 `lib/hook-notice.ts`），❌ transcript 生产者不写它。
@@ -496,6 +504,8 @@ export type TurnProcessItem = {
    * 唯一的动静,才自己微光。
    */
   withBody?: boolean;
+  /** 对话布局:过程行上写的「· N 步」(折在这条头下面的行数)。还没出回复、只有头的那一轮也要写(owner 0 号图「思考执行中 · 9m16s · 39 步」)。 */
+  steps?: number;
   /**
    * 占位:跑着、还没有可折的过程(`placeholderTurnHeader`)。写「正在思考…」、不数秒、没有箭头 ——
    * 下面没有可展开的东西,点了没反应的箭头比没有箭头更糟;过程一到,同一个 id 的头接手。
