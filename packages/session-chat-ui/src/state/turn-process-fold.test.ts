@@ -1018,6 +1018,10 @@ describe('agent conversation process footer', () => {
       .find(unit => unit.kind === 'turn-process')?.data as TurnProcessItem | undefined;
     const running = (trigger?: TranscriptTurn['trigger']) => ({ ...turn('t', [user('u'), tool('a'), tool('b')], undefined, { startedAt: 1000 }), ...(trigger ? { trigger } : {}) });
     // 管家 10-28:主人手打的消息不能被不是他发起的事挡住 —— 过程行写清在干什么。
+    // chatIds 是信封里的公开号;从这一轮的群投递信封换成对话 id(宿主按它认群名)。私聊 / 认不出的原样留着。
+    const group = '<gugu_delivery route="chat" from="天天" from_id="user:other" chat="216125" chat_kind="group" msg="msg:1" source_link="gugu-chat://b3fc1556-22fa-4bdf-aeb7-0ffdc51b4d8f/0f231679-14b7-46a8-9673-1c1099dc3784"><![CDATA[看一下]]></gugu_delivery>';
+    const delivered = { ...turn('t', [user('u', group), tool('a'), tool('b')], undefined, { startedAt: 1000 }), trigger: { kind: 'delivery' as const, chatIds: ['216125', '333'] } };
+    expect(live(delivered)?.trigger).toEqual({ kind: 'delivery', chatIds: ['b3fc1556-22fa-4bdf-aeb7-0ffdc51b4d8f', '333'] });
     expect(live(running({ kind: 'delivery', chatIds: ['g1'] }))?.trigger).toEqual({ kind: 'delivery', chatIds: ['g1'] });
     expect(live(running({ kind: 'schedule' }))?.trigger).toEqual({ kind: 'schedule' });
     // 主人手打的、以及没有 trigger 的老记录里人起的那一轮:照旧。
