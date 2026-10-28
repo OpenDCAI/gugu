@@ -47,7 +47,7 @@
   {
     "rule": "hard-coded-color",
     "file": "apps/desktop/src/components/cloudBrowser/cloudBrowser.css",
-    "count": 3
+    "count": 1
   },
   {
     "rule": "hard-coded-color",
@@ -257,7 +257,7 @@
   {
     "rule": "undefined-var",
     "file": "apps/desktop/src/components/cloudBrowser/cloudBrowser.css",
-    "count": 4
+    "count": 2
   },
   {
     "rule": "undefined-var",
