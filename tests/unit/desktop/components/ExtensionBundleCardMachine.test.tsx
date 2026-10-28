@@ -194,9 +194,10 @@ describe('an App card installs on the machine the person picks', () => {
     const { q, install } = await card()
     await act(async () => install().click())
     expect(localInstall).not.toHaveBeenCalled()
-    // The sheet lists the other online machine by name; this one is not named (it is this computer).
+    // The sheet lists the other machines by name, the offline one too (it greys it, as the machine picker does); this one is
+    // not named (it is this computer).
     expect(sheets[0]?.[5]).toBeUndefined()
-    expect(sheets[0]?.[6]).toEqual([{ id: 'dev-b', label: 'mac1 B' }])
+    expect(sheets[0]?.[6]).toEqual([{ id: 'dev-b', label: 'mac1 B' }, { id: 'off', label: 'old laptop' }])
     expect(remoteInstalls.map(({ machine, args }) => [machine, args.consent])).toEqual([
       [null, { kind: 'return' }],
       [null, { kind: 'given', digest: 'digest-r' }],

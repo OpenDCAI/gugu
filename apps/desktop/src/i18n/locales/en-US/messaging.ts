@@ -174,11 +174,9 @@ export default {
     },
     "appEnable": {
       "devices": "Install on",
-      "devicesHint": "On a computer it is new to, every agent can use it; where it is installed already, who has it stays as it is. To give it to only some agents, change that on the App page.",
+      "devicesHint": "Every agent on a computer it is new to can use it; to change who, use the App page.",
       "addsChat": "Installed here already for some agents only: this adds the group “{{name}}” and changes nothing else.",
-      "agentHere": "{{agent}} is on this one",
       "decline": "Don't install",
-      "closeKeeps": "Closing this card is not a no: the request stays, and you can open it again with “Review and install”.",
       "machine": "This computer",
       "all": "All agents",
       "allSub": "Including the agents in each project",

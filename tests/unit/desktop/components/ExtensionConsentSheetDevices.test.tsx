@@ -11,6 +11,13 @@ import {
 
 vi.mock('../../../../apps/desktop/src/components/chat/DispatchSheet', () => ({ DispatchSheet: () => null }))
 vi.mock('../../../../apps/desktop/src/components/extensionBundle/ForumConsent', () => ({ ForumConsent: () => null }))
+// The person's computers as this window follows them: Linux 1 is offline (the machine picker greys it, so does the sheet).
+vi.mock('../../../../apps/desktop/src/session/renderer/features/remote-hosts/remote-hosts-store', () => ({
+  remoteHostsStore: {
+    hosts: new Map([['dev-d', { device: { id: 'dev-d', label: 'Linux 4', isOnline: false, platform: 'linux', lastSeenAt: null } }]]),
+    connectionState: () => null,
+  },
+}))
 
 import { ExtensionConsentSheet } from '../../../../apps/desktop/src/components/extensionBundle/ExtensionConsentSheet'
 
@@ -36,12 +43,13 @@ afterEach(() => {
   harness.cleanup()
 })
 
-async function ask(given: InstallGrant | null = fresh, requestId = 'r1', render = true, requester?: { name: string }) {
+const others = [{ id: 'dev-b', label: 'Linux 1' }, { id: 'dev-c', label: 'Mac 2', disabledReason: 'Only this computer can read the folder' }, { id: 'dev-d', label: 'Linux 4' }]
+async function ask(given: InstallGrant | null = fresh, requestId = 'r1', render = true, requester?: { name: string }, alsoOn: typeof others = others) {
   if (render) await harness.render(createNode(ExtensionConsentSheet, {}))
   await act(async () => {
     window.dispatchEvent(new CustomEvent(EXTENSION_CONSENT_EVENT, { detail: {
       type: 'ask', requestId, title: `Install ${requestId}?`, description: 'A board.', confirmLabel: 'Install', ...(given ? { given } : {}), ...(requester ? { requester } : {}),
-      alsoOn: [{ id: 'dev-b', label: 'Linux 1' }, { id: 'dev-c', label: 'Mac 2', disabledReason: 'Only this computer can read the folder' }],
+      ...(alsoOn.length ? { alsoOn } : {}),
     } }))
   })
 }
@@ -54,6 +62,9 @@ describe('the install sheet asks which computers', () => {
     expect(target.checked && target.disabled).toBe(true)
     expect(q('[data-testid="extension-consent-devices"]')!.textContent).toMatch(/Linux 1.*Mac 2/)
     expect(q<HTMLInputElement>('[data-testid="extension-consent-also-on-dev-c"]')!.disabled).toBe(true)
+    // Each row is the machine picker's own row: another computer carries its online dot, and its state on the right.
+    expect(q('[data-device-id="dev-b"] [data-slot="machine-dot"]')).not.toBeNull()
+    expect(q('[data-device-id=""] [data-slot="machine-dot"]')).toBeNull()
     expect(q('[data-testid="app-places"]')).toBeNull()
     expect(document.body.textContent).not.toContain('Helper')
   })
@@ -64,6 +75,18 @@ describe('the install sheet asks which computers', () => {
     await act(async () => { q<HTMLInputElement>('[data-testid="extension-consent-also-on-dev-b"]')!.click() })
     await act(async () => { q<HTMLButtonElement>('[data-testid="extension-consent-confirm"]')!.click() })
     expect(answers).toEqual([{ requestId: 'r1', outcome: 'confirmed', alsoOn: ['dev-b'] }])
+  })
+
+  it('an offline computer is listed, greyed and not to be ticked, as the machine picker lists it', async () => {
+    await ask()
+    expect(q<HTMLInputElement>('[data-testid="extension-consent-also-on-dev-d"]')!.disabled).toBe(true)
+    expect(q('[data-device-id="dev-d"] [data-slot="machine-dot"]')!.getAttribute('data-state')).toBe('offline')
+  })
+
+  it('with no other computer there is nothing to choose: no list, the sentence about who gets it stays', async () => {
+    await ask(fresh, 'r1', true, undefined, [])
+    expect(q('[data-testid="extension-consent-devices"]')).toBeNull()
+    expect(q('[data-testid="extension-consent-grant"]')).not.toBeNull()
   })
 
   it('an install for a group on a narrowed computer says it adds that one group, and nothing else', async () => {
@@ -81,11 +104,9 @@ describe('the install sheet asks which computers', () => {
     expect(answers.map(({ requestId, outcome }) => [requestId, outcome])).toEqual([['r1', 'declined'], ['r2', 'confirmed']])
   })
 
-  it("an agent's ask: the computer installed on is the one the agent is on, the no is 「不装」, and closing says the ask stays", async () => {
+  it("an agent's ask: the no is 「不装」, and closing it (Esc) is no answer", async () => {
     await ask(forGroup, 'r1', true, { name: 'Claude 8' })
-    expect(q('[data-testid="extension-consent-devices"] label')!.textContent).toContain('Claude 8')
     expect(q('[data-testid="extension-consent-cancel"]')!.textContent).toBe('不装')
-    expect(q('[data-testid="extension-consent-close-keeps"]')).not.toBeNull()
     await act(async () => { document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true })) })
     expect(answers.map(({ outcome }) => outcome)).toEqual(['dismissed'])
   })

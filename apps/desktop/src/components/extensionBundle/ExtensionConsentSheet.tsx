@@ -12,11 +12,28 @@ import { Avatar } from '../Avatar'
 import { Button } from '../ui/Button'
 import { Sheet } from '../ui/Sheet'
 import { ConsentBody } from './ConsentDetails'
-import { MachineLines } from '../../session/renderer/features/remote-hosts/machine-picker'
+import { MachineRow } from '../../session/renderer/features/remote-hosts/machine-picker'
+import { localMachineChoice, machineAcceptsWork, machineChoiceFromHost, machineMeta, type MachineChoice } from '../../session/renderer/features/remote-hosts/machine-choice'
+import { remoteHostsStore } from '../../session/renderer/features/remote-hosts/remote-hosts-store'
+import { translateSessionMessage } from '../../session/renderer/localization/locale-store'
+import { Check } from '../../lib/icons'
 import { ForumConsent } from './ForumConsent'
 import { DispatchSheet } from '../chat/DispatchSheet'
 
 type Ask = Extract<ExtensionConsentEventDetail, { type: 'ask' }>
+
+/** Another of the person's computers as the machine picker draws it; one this window does not follow yet, by its name alone. */
+function hostChoice(id: string, label: string): MachineChoice {
+  const host = remoteHostsStore.hosts.get(id)
+  return host ? machineChoiceFromHost(host.device, remoteHostsStore.connectionState(id)) : { id, label, isLocal: false, isOnline: true }
+}
+
+/** The computer asked for: this one, or the one named (another desktop's install, an agent's on its computer). */
+function targetChoice(machine: string | undefined, thisComputer: string): MachineChoice {
+  if (!machine) return localMachineChoice('', thisComputer)
+  const host = [...remoteHostsStore.hosts.values()].find(({ device }) => device.label === machine)
+  return host ? hostChoice(host.device.id, machine) : { id: '', label: machine, isLocal: false, isOnline: true }
+}
 
 /** D-31 The agent that asked, as the chat list draws it: its face beside 「〈agent〉要装 X」. */
 function RequesterFace({ requester }: { requester: ExtensionConsentRequester }) {
@@ -94,34 +111,43 @@ function InstallConsentSheet() {
         </div>
         <div className="min-h-0 flex-1 overflow-auto text-[length:var(--font-body)] text-[var(--text-secondary)]">
           <ConsentBody description={ask.description} details={ask.details} />
-          {ask.given || ask.alsoOn?.length ? (
-            // owner 10-27「不关心给哪些 agent，关心给哪些设备」: one list of computers. The one asked for is installed on; each
-            // other one ticked is installed on too (owner 10-16). Who gets its tools is each computer's own install rule
-            // (`InstallGrant`): a first install there gives every agent there, one installed already keeps what it gives — so
-            // ticking a computer never widens who has it. Naming agents, groups and projects is the App page's.
-            <fieldset className="!mt-3 flex flex-col gap-1" data-testid="extension-consent-devices">
-              <legend className="text-[length:var(--font-body)] font-semibold text-[var(--text-primary)]">{t('chatArea.appEnable.devices')}</legend>
-              {[{ id: '', label: ask.machine ?? t('chatArea.appEnable.machine'), disabledReason: undefined }, ...(ask.alsoOn ?? [])].map((machine) => {
-                // An agent's ask: the one installed on is the computer that agent is on.
-                const meta = machine.disabledReason ?? (!machine.id && ask.requester ? t('chatArea.appEnable.agentHere', { agent: ask.requester.name }) : null)
+          {ask.alsoOn?.length ? (
+            // owner 10-27「不关心给哪些 agent，关心给哪些设备」: one list of computers, each row the machine picker's own
+            // (`MachineRow`); the only difference here is the tick. The one asked for is installed on; each other one ticked is
+            // installed on too (owner 10-16). Offline ones are listed, greyed, as everywhere a machine is picked. With no other
+            // computer there is nothing to choose: no list (the title and the band say which computer).
+            <fieldset className="!mt-3 flex flex-col" data-testid="extension-consent-devices">
+              <legend className="pb-1 text-[length:var(--font-body)] font-semibold text-[var(--text-primary)]">{t('chatArea.appEnable.devices')}</legend>
+              {[{ id: '', choice: targetChoice(ask.machine, t('chatArea.appEnable.machine')), disabledReason: undefined as string | undefined },
+                ...ask.alsoOn.map((machine) => ({ id: machine.id, choice: hostChoice(machine.id, machine.label), disabledReason: machine.disabledReason }))].map(({ id, choice, disabledReason }) => {
+                const blocked = !id || disabledReason !== undefined || !machineAcceptsWork(choice) || choice.cloudComputer !== undefined
+                const ticked = !id || alsoOn.includes(id)
                 return (
-                <label key={machine.id} className="flex items-center gap-2 py-1" title={machine.disabledReason}>
-                  <input
-                    type="checkbox"
-                    data-testid={machine.id ? `extension-consent-also-on-${machine.id}` : 'extension-consent-device-target'}
-                    disabled={!machine.id || machine.disabledReason !== undefined}
-                    checked={!machine.id || alsoOn.includes(machine.id)}
-                    onChange={(event) => setAlsoOn((ids) => (event.target.checked ? [...ids, machine.id] : ids.filter((id) => id !== machine.id)))}
-                  />
-                  <MachineLines label={machine.label} meta={meta} muted={machine.disabledReason !== undefined} />
-                </label>
+                  <label
+                    key={id}
+                    data-device-id={id}
+                    title={disabledReason}
+                    className={`flex items-center gap-2 rounded-sm px-2 py-1.5 text-sm text-foreground ${blocked ? (id ? 'opacity-50' : '') : 'cursor-pointer hover:bg-row-hover'}`}
+                  >
+                    <input
+                      type="checkbox"
+                      className="sr-only"
+                      data-testid={id ? `extension-consent-also-on-${id}` : 'extension-consent-device-target'}
+                      disabled={blocked}
+                      checked={ticked}
+                      onChange={(event) => setAlsoOn((ids) => (event.target.checked ? [...ids, id] : ids.filter((one) => one !== id)))}
+                    />
+                    <MachineRow
+                      machine={choice}
+                      meta={disabledReason ?? machineMeta(choice, translateSessionMessage)}
+                      trailing={<Check aria-hidden="true" className={`size-3.5 ${ticked ? '' : 'invisible'}`} />}
+                    />
+                  </label>
                 )
               })}
-              {ask.given ? <div data-testid="extension-consent-grant" className="px-1 pt-1 text-[length:var(--font-caption)] leading-normal text-[var(--text-tertiary)]">{ask.given.first ? t('chatArea.appEnable.devicesHint') : t('chatArea.appEnable.addsChat', { name: ask.given.chat.name })}</div> : null}
             </fieldset>
           ) : null}
-          {/* I8 An agent's ask is kept in its session: closing this only closes it; 「不装」 is the no. */}
-          {ask.requester ? <div data-testid="extension-consent-close-keeps" className="!mt-3 text-[length:var(--font-caption)] text-[var(--text-tertiary)]">{t('chatArea.appEnable.closeKeeps')}</div> : null}
+          {ask.given ? <div data-testid="extension-consent-grant" className="!mt-2 px-2 text-[length:var(--font-caption)] leading-normal text-[var(--text-tertiary)]">{ask.given.first ? t('chatArea.appEnable.devicesHint') : t('chatArea.appEnable.addsChat', { name: ask.given.chat.name })}</div> : null}
         </div>
         <div className="flex justify-end gap-2">
           <Button variant="ghost" data-testid="extension-consent-cancel" onClick={() => answer('declined')}>
