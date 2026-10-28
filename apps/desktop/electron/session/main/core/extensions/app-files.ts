@@ -354,6 +354,13 @@ export async function renameAppFile(page: DesktopFilePage, args: { ref?: unknown
     : local.rename(await localFolder(page, ref), { ref: ref as LocalFileRef, name: args.name });
 }
 
+/** 「设为临时 / 一直保留」: a chat file's cloud copy (a working copy's file has none). */
+export async function keepAppFile(page: DesktopFilePage, args: { ref?: unknown; how?: unknown }): Promise<void> {
+  const ref = fileRefOf(args.ref);
+  if (!isChat(ref)) throw new AppFileError('invalid', "A working copy's file has no cloud copy to keep");
+  return files.keep(chatSurface(page), { ref, how: args.how });
+}
+
 /** 子文件夹: a chat's folder at `path`, made all the way down (one already there is answered as it is). */
 export async function makeAppFolder(page: DesktopFilePage, args: { place?: unknown; path?: unknown }): Promise<AppFileEntry> {
   const place = placeOf(args.place);

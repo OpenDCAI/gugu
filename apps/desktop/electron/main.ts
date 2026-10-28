@@ -665,6 +665,8 @@ registerFileViewerMenus(app, () => currentHostCatalog().fileViewerMenu, (error) 
 // @@@gugu-tier - inlined at build time by vite (define in vite.config.mts), default 'production'.
 declare const __GUGU_TIER__: string
 declare const __GUGU_BUILD_DISTRIBUTION__: string
+// 给别的机器装哪条通道的 server,构建时按连的库定(vite.config.mts → scripts/build-env-preflight.mjs serverChannelForDb)。
+declare const __GUGU_SERVER_CHANNEL__: 'stable' | 'beta'
 
 // @@@home-unify - one account home shared by desktop, CLI, and runtime host. The DEFAULT instance's
 if (!process.env.GUGU_HOME) {
@@ -2305,7 +2307,7 @@ function drainProjectFiles() { void desktopFiles.drain().catch(error => createLo
 const nativeFiles = createNativeFileHost({ root: remoteFileTempRoot,
   owner: async () => (await desktopAuthProvider().getAuth())?.userId ?? null,
   alive: scope => !!webContents.fromId(scope) && !webContents.fromId(scope)!.isDestroyed(),
-  local: desktopFiles.providers.local, ssh: desktopFiles.providers.ssh, publish: (chat, file, actor, message) => desktopFiles.publish(chat, file, null, actor, undefined, message), publication: desktopFiles.publish.local,
+  local: desktopFiles.providers.local, ssh: desktopFiles.providers.ssh, publish: (chat, file, actor, message) => desktopFiles.publish(chat, file, null, actor, undefined, { message }), publication: desktopFiles.publish.local,
   openPath: path => shell.openPath(path), published: directory => trackRemoteFileDirectory(remoteFileOpenDirectories, directory),
 })
 registerNativeFileIpc(ipcMain, nativeFiles, error => createLogger('files').warn({ error: String(error) }, 'Native file operation failed'))
@@ -2685,7 +2687,8 @@ const updateFeed = updateFeedUrl(updateChannel)
 const updateFeedConfig = updateFeedOptions(updateChannel, process.platform)
 
 // #6264「从桌面用 SSH 一步装好」(设置 → 设备 → 添加一台机器)。server 模式没有窗口、也没人在界面上点,不挂。
-// 装哪条通道跟桌面自己走:Beta 桌面装 Beta 的 server,其余(含开发构建)装正式版。
+// 装哪条通道跟这台桌面连的库走:连生产库装正式版,别的库装 Beta(❌ 跟 tier 走:开发构建的 tier 也是 production)。
+const serverChannel = __GUGU_SERVER_CHANNEL__
 // #6264「别的机器上的编程只给用 SSH 装上的机器」:这台桌面上用 SSH 装上的机器(本机映射,不上云)。
 const sshMachineStore = SERVER_MODE ? null : createSshMachineStore(defaultSshMachinesFile(app.getPath('userData')))
 // 这台桌面到远程 SSH 机器的设备连接,一台机器一条:窗口(经 ssh-link-ipc)与主进程(agent 的 session_* 跨机器)共用。
@@ -2766,7 +2769,7 @@ if (sshMachineStore) {
     }),
     log: (message, fields) => createLogger('server/ssh-link').info(fields ?? {}, message),
     // 那台机器的 server 太旧、连不上:当场替它升级(与添加时装同一条通道);#6264 换成和这台桌面(按设备 id 报)匹配的那一版。
-    upgradeChannel: updateChannel === 'beta' ? 'beta' : 'stable',
+    upgradeChannel: serverChannel,
     published: parseBuildDistribution(__GUGU_BUILD_DISTRIBUTION__) === 'published',
     desktopId: async () => (await getLocalDeviceSelfSnapshot())?.device_id ?? null,
     ...(tunnelMachines ? { tunnels: tunnelMachines } : {}),
@@ -2780,7 +2783,7 @@ if (!SERVER_MODE && sshMachineStore) {
   registerServerSshInstallIpc({
     getWindow: () => mainWindow,
     getAuth: () => desktopAuthProvider().getAuth(),
-    channel: updateChannel === 'beta' ? 'beta' : 'stable',
+    channel: serverChannel,
     rememberMachine: (machine) => sshMachineStore.remember(machine),
     keyDir: guguKeyDir(app.getPath('userData')),
     sharedControlPath: terminalControlPath,
@@ -5290,7 +5293,7 @@ app.whenReady().then(async () => {
             socialBridgeDeps: {
               host: primaryGuguMcpHost,
               resolveFile: desktopFiles.resolve,
-              publishFile: (chat, file, actor, message) => desktopFiles.publish(chat, file, null, actor, undefined, message),
+              publishFile: (chat, file, actor, message, next) => desktopFiles.publish(chat, file, null, actor, undefined, { message, next }),
               // grant key 用**分叉自己**的会话 id:它必须是独立一格,否则会顶掉来源会话的 grant。
               grantKey: sessionpageSurfaceKey(info.sessionId),
               runHostAction: runAction,
@@ -5574,7 +5577,7 @@ app.whenReady().then(async () => {
           socialBridgeDeps: {
             host: primaryGuguMcpHost,
             resolveFile: desktopFiles.resolve,
-            publishFile: (chat, file, actor, message) => desktopFiles.publish(chat, file, null, actor, undefined, message),
+            publishFile: (chat, file, actor, message, next) => desktopFiles.publish(chat, file, null, actor, undefined, { message, next }),
             grantKey: sessionpageSurfaceKey(info.sessionId),
             ...(assistantRole ? { personalAssistant: true as const, assistantWork: {
               ...assistantWorkBinding(persistedSessionId, info.cwd, SERVER_MODE ? 'cloud' : 'computer', provisioned.guguAgentUserId),
@@ -6337,7 +6340,7 @@ app.whenReady().then(async () => {
   // 结尾,系统按亮/暗/毛玻璃自己着色);Windows ICO / Linux PNG 各出黑白两套,按系统深浅色换。
   if (SERVER_MODE) {
     createLogger('server').info({ userData: app.getPath('userData'), signedInAs: serverAuth?.signedInUserId() ?? null }, '咕咕 server 已启动')
-    // 忙闲写给守护进程(server-supervisor.ts、server-account-converge.ts):有会话在干活、而且换版会打断它时才等空闲。
+    // 忙闲写给守护进程(server-supervisor.ts、server-account-converge.ts):有会话或集成授权会被换版打断时才等空闲。
     // tmux 里的终端会话不随账号进程重启断,不拦换版(busyForVersionSwitch)。
     const activityFile = join(app.getPath('userData'), 'activity.json')
     // #6264 同一份读数也是升级看门狗判「新版本站稳了没有」的依据(server-upgrade-guard.ts):带上自己的版本与起始时刻。
@@ -6356,6 +6359,7 @@ app.whenReady().then(async () => {
         createLogger('server').warn({ err: error }, '忙闲写不进去')
       }
     }
+    loadEmdashBridge()?.onSessionpageAuthorizationActivityChange?.(reportActivity)
     reportActivity()
     setInterval(reportActivity, 10_000).unref()
     return

@@ -7,7 +7,7 @@
 //   阈值单常量,owner 可调。回到 app(可能刚跑过云对话扣费)→ 刷新,让走低及时触发。
 import { useEffect, useState } from 'react'
 import { AlertTriangle, X } from '@/lib/icons'
-import { formatCredits, isLowBalance, LOW_BALANCE_CREDITS, useSpendingPower } from '../lib/billing'
+import { creditCount, formatCredits, isLowBalance, LOW_BALANCE_CREDITS, useSpendingPower } from '../lib/billing'
 import { AUTOMATION_TEST_IDS } from '../lib/automationDom'
 import type { AuthUser } from '../store/auth'
 import { useTranslation } from 'react-i18next'
@@ -66,7 +66,7 @@ export function LowBalanceBanner({ user, onRecharge }: { user: AuthUser | null; 
       </div>
       <div style={{ flex: 1, minWidth: 0 }}>
         <div style={{ fontSize: 'var(--font-body)', fontWeight: 600, color: 'var(--text-primary)' }}>
-          {t('lowBalance.title', { credits: credits === null ? '--' : formatCredits(credits) })}
+          {t('lowBalance.title', { credits: credits === null ? '--' : formatCredits(credits), count: credits === null ? 0 : creditCount(credits) })}
         </div>
         <div style={{ fontSize: 'var(--font-caption)', color: 'var(--text-secondary)' }}>
           {t('lowBalance.description')}

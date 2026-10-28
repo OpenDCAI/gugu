@@ -3,6 +3,7 @@ import { homedir } from 'node:os';
 import { isAbsolute, join, resolve } from 'node:path';
 import { desc, eq, isNull, sql } from 'drizzle-orm';
 import type { AgentProviderId } from '@gugu/session-plugins/agents';
+import { DEFAULT_SESSION_VIEW } from '@shared/core/sessions/new-session-defaults';
 import {
   GUGU_PERMISSION_MODES,
   type GuguPermissionMode,
@@ -202,8 +203,8 @@ async function findAgent(harness: string): Promise<AgentPayload | null> {
 }
 
 /**
- * 请求没说展示就按这台电脑的「终端」开关(开 → 编程,关 → 通用),这家不给那种就取它给的第一种;
- * 说了就必须在它给的里面。
+ * 请求没说展示就走通用(这家不给通用就取它给的第一种);说了就必须在它给的里面。
+ * 「终端」开关只管终端入口显不显示,❌ 决定新任务的展示(owner 10-28:开着也默认通用,终端是会话里多一个页签)。
  */
 async function resolveSessionView(
   agent: AgentPayload,
@@ -211,11 +212,7 @@ async function resolveSessionView(
 ): Promise<{ ok: true; view: SessionpageSessionView } | { ok: false; message: string }> {
   const offered = offeredSessionViews(agent);
   if (offered.length === 0) return { ok: false, message: `${agent.id} 在这台机器上一种展示都接不通` };
-  if (!requested) {
-    const { preferredSessionView } = await import('@main/core/settings/terminal-visibility');
-    const preferred = await preferredSessionView();
-    return { ok: true, view: offered.includes(preferred) ? preferred : offered[0]! };
-  }
+  if (!requested) return { ok: true, view: offered.includes(DEFAULT_SESSION_VIEW) ? DEFAULT_SESSION_VIEW : offered[0]! };
   if (!SESSION_VIEWS.includes(requested) || !offered.includes(requested)) {
     return { ok: false, message: `${agent.id} 不提供「${requested}」这种展示` };
   }

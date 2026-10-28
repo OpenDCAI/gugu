@@ -6,11 +6,11 @@ import { attachmentRequest, configuredEndpoint } from '@gugu/core/cloud/attachme
 import { createFileMetadataLoader } from '@gugu/core/cloud/fileMetadata'
 import { cloudFileProviders } from '@gugu/core/cloud/fileProviders'
 import { createFileChunkCache, createFileSink, saveFileHandle } from '@gugu/core/local/files/fileSnapshots'
-import { createFileResolver, type FileContext, type FileRef } from '@gugu/core/shared/fileResolver'
+import { createFileResolver, type FileContext, type FileRef, type FileRevision } from '@gugu/core/shared/fileResolver'
 import { PROJECT_FILE_READ, createProjectFileReader, localProjectFileProvider } from './projectFileHost'
 import { ownSshFileProvider, type HeldFileSshLinks } from './projectFileSsh'
 import { createProjectTransferHost } from './projectFileTransferHost'
-import { findProjectFileByName } from './sessionpage/sessionpage-project-groups'
+import { findProjectFileByName, type ProjectFileVersionLookup } from './sessionpage/sessionpage-project-groups'
 import type { setAccountFileResolver } from './session/main/core/extensions/account-token'
 import { createProjectFilePublisher } from './projectFilePublication'
 
@@ -29,16 +29,20 @@ export function createDesktopFileAccess(deps: {
     if (!auth || context && auth.userId !== context.actor.accountId) throw new Error('File reader account changed')
     return { ...configuredEndpoint(auth.accessToken), fetch: deps.fetch }
   }
-  const read = createProjectFileReader({ identity, root: deps.root, env: deps.env })
+  const later: ProjectFileVersionLookup = async ref => {
+    const row = await attachmentRequest(await endpoint(), 'file-resolve', { ref, as: (await identity()).accountId }) as FileRevision & { status?: string }
+    return row?.status === 'ready' ? row : null
+  }
+  const read = createProjectFileReader({ identity, root: deps.root, env: deps.env, later })
   const metadata = createFileMetadataLoader(async (context, refs) => attachmentRequest(await endpoint(context), 'file-resolve', { refs, as: context.actor.actorId }))
   const providers = { ...cloudFileProviders({ endpoint, metadata, cache: createFileChunkCache(deps.tempRoot), sink: size => createFileSink(deps.tempRoot, size) }),
-    local: localProjectFileProvider({ identity, read, tempRoot: deps.tempRoot, env: deps.env }),
+    local: localProjectFileProvider({ identity, read, tempRoot: deps.tempRoot, env: deps.env, later }),
     ssh: async (...args: Parameters<ReturnType<typeof ownSshFileProvider>>) => {
       const links = deps.links(); return links ? ownSshFileProvider(links, deps.tempRoot)(...args) : null
     },
   }
   const resolve = createFileResolver(providers)
-  const drain = createProjectTransferHost({ identity, endpoint, read: async request => read(request, (await identity()).accountId), tempRoot: deps.tempRoot, env: deps.env })
+  const drain = createProjectTransferHost({ identity, endpoint, read: async request => read(request, (await identity()).accountId), tempRoot: deps.tempRoot, env: deps.env, later })
   const resolveAccount: Parameters<typeof setAccountFileResolver>[0] = async (ref, actor, options) => {
     const { accountId, deviceId } = await identity()
     if ('name' in ref) {

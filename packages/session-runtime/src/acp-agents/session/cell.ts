@@ -36,6 +36,7 @@ import type {
   ToolNode,
   TranscriptTurn,
   TranscriptTurnOutcome,
+  TranscriptTurnTrigger,
 } from '@gugu/session-core/acp';
 import {
   AcpTranscriptParser,
@@ -190,6 +191,11 @@ export class SessionCell {
   private pendingWorkEnd: { outcome: TranscriptTurnOutcome; dequeueQueuedPrompt?: boolean } | null = null;
   /** 自报状态的家:agent 报了 idle、可还有请求没答复 ⇒ 等那条答复带着结局来落定。 */
   private idleReported = false;
+  /**
+   * 这一轮是不是人亲手发起的(origin manual 的那一句开的工)。投递开的、agent 自己开的(后台跑完的通知等)都不是。
+   * 人在**别人开的**一轮里打字 ⇒ 在下一个工具边界插进去,不排到这一轮讲完(见 queueBehindTurn)。
+   */
+  private workStartedByOwner = false;
   /** 发出去的句数(含回放):转录行 id 与回合信封的序号用它,❌ 不是状态。 */
   private promptSequence = 0;
   private resolveActiveTurnCompletion: (() => void) | null = null;
@@ -572,7 +578,7 @@ export class SessionCell {
   /** Start a prompt without making the caller wait for the provider turn to finish. */
   promptDetached(
     input: PromptInput,
-    opts?: { steerIfBusy?: boolean },
+    opts?: { steerIfBusy?: boolean; overtakeQueue?: boolean },
   ): DetachedPromptResult {
     let admitted = false;
     let resolveAdmission!: (result: Result<{ queued: boolean; steered?: boolean }, AcpSendPromptError>) => void;
@@ -586,6 +592,7 @@ export class SessionCell {
       updatedAt: Date.now(),
     }, {
       ...(opts?.steerIfBusy ? { steerIfBusy: true } : {}),
+      ...(opts?.overtakeQueue ? { overtakeQueue: true } : {}),
       onAdmission: (result) => {
         admitted = true;
         resolveAdmission(result);
@@ -641,7 +648,13 @@ export class SessionCell {
       const queued = this.queuePrompt(input);
       return queued.success ? ok({ queued: true }) : queued;
     }
-    const { admission, completion } = this.promptDetached(input);
+    // 2026-10-28 主人撞到:agent 自己开的一轮(处理群消息)跑了几分钟,主人打的话一直「排队」。
+    // 人在别人开的一轮里打字 ⇒ 下一个工具边界插进去,越过排着的投递;人自己开的那一轮照旧排到讲完。
+    const ownerOvertakes = isOwnerOrigin(input.origin)
+      && this.machine.phase.kind === 'working'
+      && !this.workStartedByOwner
+      && (this.supportsSteering || this.deps.midTurnSteer === 'interrupt-at-tool-boundary');
+    const { admission, completion } = this.promptDetached(input, ownerOvertakes ? { steerIfBusy: true, overtakeQueue: true } : undefined);
     completion.catch((error: unknown) => {
       this.deps.logger.error('SessionCell: queued prompt settlement threw', {
         sessionId: this.sessionId,
@@ -1332,10 +1345,13 @@ export class SessionCell {
     this.dispatchAgentsChangedIfNeeded(previousRunningAgentCount);
     this.emitTranscriptChanged();
     if (working) {
+      // 正在关:这时出队的那一句只会被 `sendPromptInternal` 以「Session is closing」拒掉,而出队已经把它从队列里拿走了
+      // ⇒ 人排的话凭空没了(2026-10-28 07:34:06)。关的时候不出队,队列原样留给关闭那一侧决定去留。
+      const dequeue = opts?.dequeueQueuedPrompt !== false && !this.closeRequested;
       this.applyEvent({
         type: 'WorkEnded',
         outcome: machineOutcome(outcome),
-        ...(opts?.dequeueQueuedPrompt === false ? { dequeueQueuedPrompt: false } : {}),
+        ...(dequeue ? {} : { dequeueQueuedPrompt: false }),
       });
     }
     this.closeTurnCompletion();
@@ -1355,7 +1371,11 @@ export class SessionCell {
     if (state !== 'idle') {
       this.providerAdmission?.accept();
       this.idleReported = false;
-      if (this.machine.phase.kind === 'ready') this.applyEvent({ type: 'WorkStarted' });
+      if (this.machine.phase.kind === 'ready') {
+        // 没有一句在飞,agent 自己开了工(后台跑完的通知、子任务回来):不是人开的。
+        if (!this.activeTurnCompletion) this.workStartedByOwner = false;
+        this.applyEvent({ type: 'WorkStarted' });
+      }
       return;
     }
     if (!this.machine.isWorking) return;
@@ -1697,6 +1717,8 @@ export class SessionCell {
     opts?: {
       steerIfBusy?: boolean;
       fromQueue?: boolean;
+      /** 人在别人开的一轮里打字:像「现在插入」一样越过排着的条目(见 queueBehindTurn)。 */
+      overtakeQueue?: boolean;
       skipAdmission?: boolean;
       onAdmission?: (result: Result<{ queued: boolean; steered?: boolean }, AcpSendPromptError>) => void;
     },
@@ -1734,7 +1756,7 @@ export class SessionCell {
     // (spec session-injection)。排队那条的「立即发送」(fromQueue)是人亲手越过,照插。
     // 下面的设置闸认的也是这一个:闸扣着人话时,后到的投递同样扣在它后面。
     const steerIfBusy = opts?.steerIfBusy === true
-      && (opts.fromQueue === true || this.machine.queuedPrompts.length === 0);
+      && (opts.fromQueue === true || opts.overtakeQueue === true || this.machine.queuedPrompts.length === 0);
     // A setting request and the next prompt share one linearization point. If a prompt arrives
     // while a setting is being confirmed (or remains unconfirmed), keep it in the runtime queue;
     // the queue drain is released only by a confirmed `SettingsReady` event.
@@ -1767,6 +1789,7 @@ export class SessionCell {
     if (!decision.success) return decision;
     const started = decision.data.some((effect) => effect.type === 'promptStarted');
     if (started) {
+      this.workStartedByOwner = isOwnerOrigin(prompt.origin);
       this.promptSequence += 1;
       // 不自报状态的家:「请求在飞」就是它在干活的唯一事实。自报的家开工由它自己报 running。
       if (!this.reportsState) this.applyEvent({ type: 'WorkStarted' });
@@ -1843,7 +1866,7 @@ export class SessionCell {
         role: 'user',
         messageId,
         text: prompt.text,
-        ...(steered ? { steering: true } : {}),
+        ...(steered ? { steering: true } : { trigger: promptTrigger(prompt) }),
         ...(prompt.attachments?.length
           ? {
               attachments: prompt.attachments.map((attachment, index) => ({
@@ -2507,6 +2530,32 @@ function machineOutcome(
 
 /** 「一个字都没回就正常结束」时,等 stderr 那行失败说明的最长时间。 */
 const STDERR_FAILURE_GRACE_MS = 300;
+
+/**
+ * 「主人亲手发的」只有一种:会话页输入框打的(`manual`)。插不插队、这一轮算不算主人开的、`trigger` 记不记 owner
+ * 三处都只认这一个判断。`typed` / 缺省是别处原样送进来的正文(开场委派、会话直发),不是主人打的字。
+ */
+function isOwnerOrigin(origin: QueuedPrompt['origin']): boolean {
+  return origin === 'manual';
+}
+
+/**
+ * 一句 prompt 开的一轮是被什么起的(`TranscriptTurn.trigger`)。主人亲手发的(`isOwnerOrigin`)= owner;
+ * 投递按信封认:`route="scheduled"` = 到点的定时任务,其余 = delivery,带上信封里的 `chat=`(几条并成一轮时是多个)。
+ * `typed` / 缺省(不带信封、原样送进来的正文)也算 delivery,没有 chatIds。
+ * 只读信封头这一层属性,❌ 解析正文;信封的唯一属主在 core,这里不另造第二份格式。
+ */
+function promptTrigger(prompt: { origin?: QueuedPrompt['origin']; text: string }): TranscriptTurnTrigger {
+  if (isOwnerOrigin(prompt.origin)) return { kind: 'owner' };
+  if (prompt.origin !== 'communication') return { kind: 'delivery' };
+  const heads = prompt.text.match(/<gugu_delivery\s[^>]*>/g) ?? [];
+  if (heads.length > 0 && heads.every((head) => /\sroute="scheduled"/.test(head))) return { kind: 'schedule' };
+  const chatIds = [...new Set(heads.flatMap((head) => {
+    const chat = /\schat="([^"]+)"/.exec(head)?.[1];
+    return chat ? [chat] : [];
+  }))];
+  return { kind: 'delivery', ...(chatIds.length ? { chatIds } : {}) };
+}
 
 /** 咕咕自己写进会话级背景的块都以这几个标签开头(平台块 / 身份块 / 用户规则)。 */
 const SESSION_CONTEXT_BLOCK = /^\s*<(gugu_platform|agent_identity|user_rules)\b/;

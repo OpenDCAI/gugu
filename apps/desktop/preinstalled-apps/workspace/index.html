@@ -13,6 +13,11 @@
       <button id="upload" type="button" hidden><gugu-icon name="arrow-up-to-line"></gugu-icon><span id="upload-label"></span></button>
       <button id="new-doc" class="primary" type="button" aria-haspopup="menu" aria-expanded="false" hidden><gugu-icon name="plus"></gugu-icon><span id="new-label"></span><gugu-icon name="chevron-down"></gugu-icon></button>
     </div>
+    <!-- Which kind of file the list shows, and in what order (list.js): kept on this device. -->
+    <div class="files-tools">
+      <div id="kinds" class="kinds" role="group"></div>
+      <button id="sort" class="sort" type="button" aria-haspopup="menu" aria-expanded="false"><span id="sort-label"></span><gugu-icon name="chevron-down"></gugu-icon></button>
+    </div>
     <!-- Where the list is (子文件夹): the way up, then each folder from the top. Hidden at the top. -->
     <nav id="crumbs" class="crumbs" hidden></nav>
     <!-- What went wrong on the list (a name taken there, a failed move or upload): the file's own line is not drawn here. -->
