@@ -64,24 +64,13 @@ it('任务工作区已经有了:直接用', async () => {
   expect(mocks.create).not.toHaveBeenCalled();
 });
 
-// owner 2026-09-25:无界面的咕咕 server 收到不带目录的创建(手机建会话、云端 agent.create、远端建「已安排」)
-// ⇒ 落在 $HOME 的主目录项目里、会话真的在 $HOME 跑;桌面机不变(仍进任务工作区)。
-it('server 模式没给目录:落在主目录项目(已有同路径项目就复用)', async () => {
-  const home = mkdtempSync(join(tmpdir(), 'gugu-6264-home-'));
-  const server = { serverMode: true, homeDir: () => home };
-  const project = await resolveAgentSessionProject('', server);
-  expect(project.path).toBe(home);
-  expect(mocks.byId).not.toHaveBeenCalled();
-  expect(mocks.create).toHaveBeenCalledWith(expect.objectContaining({ path: home, allowNonGit: true, reuseExisting: true }));
-
-  mocks.create.mockClear();
-  mocks.byPath.mockResolvedValue({ id: 'home-project', path: home });
-  expect(await resolveAgentSessionProject('  ', server)).toEqual({ id: 'home-project', path: home });
-  expect(mocks.create).not.toHaveBeenCalled();
-});
-
-it('桌面模式没给目录:照旧进任务工作区,❌ 落主目录', async () => {
-  const project = await resolveAgentSessionProject('', { serverMode: false, homeDir: () => '/home/should-not-use' });
+// #609 (owner 2026-10-28, supersedes 2026-09-25): no directory ⇒ this machine's task workspace, on a gugu server too.
+// ❌ $HOME: that registered ~ as a project nobody created and showed it as a「~ · machine」row.
+it('没给目录:server 也进任务工作区,❌ 落主目录', async () => {
+  vi.stubEnv('GUGU_SERVER_MODE', '1');
+  const project = await resolveAgentSessionProject('');
   expect(project.id).toBe('00000000-0000-4000-8000-000000000001');
   expect(mocks.byPath).not.toHaveBeenCalled();
+  vi.unstubAllEnvs();
 });
+

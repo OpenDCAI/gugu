@@ -485,6 +485,22 @@ describe('SidebarStore project ordering', () => {
     expect(store.standaloneSessionEntries.map((e) => e.sessionId)).toContain('legacy-conv');
   });
 
+  it('#609 a workspace this computer keeps (kind workspace: ~, the assistant\'s directories) is no project row; its sessions are Tasks', () => {
+    sessionRegistry.acquire('home-task', 'home-workspace', [
+      { id: 'home-conv', projectId: 'home-workspace', providerId: 'claude', title: 'in ~', lastInteractedAt: '2026-01-01T00:00:05.000Z', runtime: 'pty', agentStatus: 'idle' },
+    ]);
+    const manager = projectManagerWithSessions([
+      { id: 'home-workspace', createdAt: '2026-01-01T00:00:00.000Z', sessionIds: ['home-task'] },
+      { id: 'code', createdAt: '2026-01-02T00:00:00.000Z', sessionIds: [] },
+    ]);
+    (manager.projects.get('home-workspace') as unknown as { data: { kind: string } }).data = { kind: 'workspace' };
+    const store = new SidebarStore(manager);
+
+    expect(store.orderedProjects.map((project) => project.id)).toEqual(['code']);
+    expect(store.standaloneSessionEntries.map((e) => e.sessionId)).toContain('home-conv');
+    sessionRegistry.release('home-task');
+  });
+
   it('keeps executors in the Sessions section when the assistant home project row is hidden', () => {
     const home = 'assistant-home';
     const record = (id: string, parentSessionId?: string) => ({

@@ -16,7 +16,7 @@ import { machineRegistry } from '@renderer/lib/machine-routing';
 import { useSessionMessages } from '@renderer/localization/use-session-messages';
 import { ComposerRemoteProjectPicker } from './composer-context-tray';
 import { ImplicitSessionHomeProjectError } from './implicit-session-home-project';
-import { isImplicitSessionHomeProject } from './session-home-project-constants';
+import { isWorkspaceProject } from './session-home-project-constants';
 
 type Translate = ReturnType<typeof useSessionMessages>['translate'];
 
@@ -204,7 +204,7 @@ export function machineComposerProps(
 
 function machineProjects(deviceId: string): { id: string; name: string; path: string }[] {
   return [...getProjectManagerStore().projects.values()]
-    .filter((project) => project.data && !isImplicitSessionHomeProject(project) && machineRegistry.machineOf(project.id) === deviceId)
+    .filter((project) => project.data && !isWorkspaceProject(project) && machineRegistry.machineOf(project.id) === deviceId)
     .map((project) => ({ id: project.id, name: project.name ?? '', path: project.data?.path ?? '' }));
 }
 

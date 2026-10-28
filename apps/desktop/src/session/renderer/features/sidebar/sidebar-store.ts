@@ -12,7 +12,7 @@ import {
 import { type ProjectStore } from '@renderer/features/projects/stores/project';
 import type { ProjectManagerStore } from '@renderer/features/projects/stores/project-manager';
 import { pageSessions } from '@renderer/features/sessions/stores/session-selectors';
-import { isImplicitSessionHomeProject } from '@renderer/features/sessions/session-home-project-constants';
+import { isImplicitSessionHomeProject, isWorkspaceProject } from '@renderer/features/sessions/session-home-project-constants';
 import {
   EMPTY_MACHINE_HOME_LAYOUT,
   HOME_PROJECT_LABEL,
@@ -268,7 +268,9 @@ export class SidebarStore implements Snapshottable<SidebarSnapshot> {
     const { standIns, rowOf } = this.homeLayout;
     // 被并进别的行的项目(任务工作区、个人助理那台上的其余项目)不单列。
     const all: SidebarProjectRef[] = Array.from(this.projectManager.projects.values())
+      // #609 本机的 workspace 不单列(会话在「任务」里);别的机器上的仍由下面的主目录折叠画,等「任务」收别的机器的会话再改。
       .filter((project) => (!isImplicitSessionHomeProject(project) || standIns.has(project.id)) && !rowOf.has(project.id))
+      .filter((project) => this.isRemote(project.id) || !isWorkspaceProject(project))
       .filter((project) => project.id !== this.assistantHomeProjectId)
       .sort((a, b) => this.compareSidebarProjects(a, b))
       .map((project) => ({ kind: 'local', id: project.id, project }));
@@ -1027,7 +1029,7 @@ export class SidebarStore implements Snapshottable<SidebarSnapshot> {
   private standaloneOwnEntries(): SidebarSessionEntry[] {
     return [...this.projectManager.projects.values()]
       .filter((project) => !this.isRemote(project.id)
-        && (isImplicitSessionHomeProject(project) || project.id === this.assistantHomeProjectId))
+        && (isWorkspaceProject(project) || project.id === this.assistantHomeProjectId))
       .flatMap((project) => this.projectSessionEntries(project))
       .sort((a, b) => b.time - a.time);
   }

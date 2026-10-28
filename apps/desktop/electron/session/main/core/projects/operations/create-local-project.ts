@@ -12,6 +12,7 @@ import { projects } from '@main/db/schema';
 import { log } from '@main/lib/logger';
 import { isImplicitSessionHomeProjectId } from '@shared/core/projects/session-home-project';
 import type { CreateProjectResult, LocalProject, ProjectPathStatus } from '@shared/projects';
+import { isAppKeptDirectory } from '../app-kept-directory';
 import { getDirectoryStatus, projectPathKey } from '../path-utils';
 import { ensureProjectRepository } from './create-project-utils';
 import { ensureRepositoryWorkspace } from './ensure-repository-workspace';
@@ -42,6 +43,9 @@ export type CreateLocalProjectParams = {
    * 归一化到仓库根会让 `--resume` 找不到原会话。
    */
   exactPath?: boolean;
+  /** #609 'workspace' = the app needs this directory for itself; it never shows as a project. Default: decided by the
+   *  directory (isAppKeptDirectory), so every entry point lands on the same kind. */
+  kind?: 'project' | 'workspace';
 };
 
 export async function createLocalProject(
@@ -129,6 +133,7 @@ export async function createLocalProject(
         workspaceProvider: 'local',
         baseRef: gitInfo.baseRef,
         gitless: gitInfo.baseRef === null,
+        kind: params.kind ?? (isImplicitSessionHomeProjectId(projectId) || isAppKeptDirectory(gitInfo.rootPath) ? 'workspace' : 'project'),
         updatedAt: sql`CURRENT_TIMESTAMP`,
       }).returning().get();
       const created: LocalProject = {
@@ -138,6 +143,7 @@ export async function createLocalProject(
         path: row.path,
         baseRef: row.baseRef ?? gitInfo.baseRef,
         repositoryWorkspaceId: null,
+        ...(row.kind === 'workspace' ? { kind: 'workspace' as const } : {}),
         createdAt: row.createdAt,
         updatedAt: row.updatedAt,
       };

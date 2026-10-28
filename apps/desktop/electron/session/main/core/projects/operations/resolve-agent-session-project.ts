@@ -1,5 +1,4 @@
 import { existsSync, statSync } from 'node:fs';
-import { homedir } from 'node:os';
 import { basename, join } from 'node:path';
 import { sessionHomeDir } from '@main/core/app/session-home-dir';
 import { createLocalProject } from '@main/core/projects/operations/create-local-project';
@@ -17,20 +16,12 @@ import {
  * 现在主进程自己补齐:
  *  - 给了目录:已是项目就用;目录存在但还没登记 → 当场登记(非 git 目录也行,就用这个目录本身,
  *    与导入本机会话同一口径);目录不存在 → 说清楚是哪个目录不存在。
- *  - 没给目录:
- *    · 无界面的咕咕 server(server 模式):落在这台机器的主目录项目($HOME,已有同路径项目就复用,否则登记)。
- *      server 上的会话永远是从别的机器看的,而别的机器上的会话一律属于那台机器上的某个项目
- *      (behavior gugu-server「会话页里的别的机器」,owner 2026-09-25)——与桌面在那台机器上新建时落的是同一个项目。
- *    · 桌面机:用隐式任务工作区,没有就建(与渲染层同一个 id、同一个名字、同一个目录);它在本机侧栏的「任务」列表里。
+ *  - 没给目录:用这台机器的隐式任务工作区,没有就建(与渲染层同一个 id、同一个名字、同一个目录)。咕咕 server 也一样
+ *    (#609):❌ 再落到主目录($HOME)—— 那会把 ~ 登记成一个用户没建过的项目,侧栏里多出「~ · 机器」。
+ *    任务工作区是 workspace,它的会话列在「任务」里。
  */
-export async function resolveAgentSessionProject(
-  requestedPath: string,
-  host: { serverMode: boolean; homeDir: () => string } = {
-    serverMode: process.env.GUGU_SERVER_MODE === '1',
-    homeDir: homedir,
-  },
-) {
-  const path = requestedPath.trim() || (host.serverMode ? host.homeDir() : '');
+export async function resolveAgentSessionProject(requestedPath: string) {
+  const path = requestedPath.trim();
   if (path) {
     const existing = await getLocalProjectByPath(path);
     if (existing) return existing;

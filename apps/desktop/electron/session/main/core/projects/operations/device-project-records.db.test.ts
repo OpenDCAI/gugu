@@ -87,6 +87,18 @@ describe('listDeviceProjectRecords', () => {
     });
   });
 
+  it('#609 a workspace (~, the task workspace, the assistant\'s directories) is not recorded as a project, even with a group', async () => {
+    fixture.sqlite.exec(`
+      INSERT INTO workspaces (id, kind, location, type, path, key) VALUES ('ws-root-home', 'project-root', 'local', 'local', '/home/ada', 'key-home');
+      INSERT INTO projects (id, name, path, repository_workspace_id, kind) VALUES ('project-home', 'ada', '/home/ada', 'ws-root-home', 'workspace');
+      INSERT INTO workspaces (id, kind, location, type, path, key) VALUES ('ws-root-task', 'project-root', 'local', 'local', '/data/task-home', 'key-task');
+      INSERT INTO projects (id, name, path, repository_workspace_id) VALUES ('00000000-0000-4000-8000-000000000001', '任务工作区', '/data/task-home', 'ws-root-task');
+    `);
+    setProjectGroupHost(host(async () => ok([{ projectId: 'project-home', chatId: 'chat-home' }])));
+    const records = await listDeviceProjectRecords();
+    expect(records.map((record) => record.localProjectId).sort()).toEqual(['project-a', 'project-b']);
+  });
+
   it('a project whose root folder was detached keeps only its attached folders', async () => {
     fixture.sqlite.exec(`UPDATE projects SET root_folder_detached = 1 WHERE id = 'project-a'`);
     setProjectGroupHost(host(async () => ok([])));

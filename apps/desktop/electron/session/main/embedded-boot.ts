@@ -100,6 +100,7 @@ import {
 } from '@main/core/extensions/extension-background'
 import { rpcRouter } from '@main/rpc' // ← the complete router, every controller
 import { initializeDatabase } from '@main/db/initialize'
+import { migrateProjectKind } from '@main/core/projects/operations/migrate-project-kind'
 import { closeDatabase, db, sqlite } from '@main/db/client'
 import { resolveDatabasePath } from '@main/db/path'
 import { backupBeforeTaskToSession, runTaskToSessionOnce } from '../../migrations/task-to-session'
@@ -511,6 +512,13 @@ export async function bootSessionHostCore(options: SessionHostBootOptions): Prom
   await backupBeforeTaskToSession(sqlite, resolveDatabasePath())
   await backupBeforeSessionNaming(sqlite, resolveDatabasePath())
   await initializeDatabase()
+  // #609 已有的、登记在 ~ / task-home / GUGU_HOME 底下的项目改成 workspace(会话随之列进「任务」);幂等,失败不拦启动。
+  try {
+    const demoted = migrateProjectKind(path.join(app.getPath('userData'), 'project-kind-migration.json'))
+    if (demoted.length > 0) log.info('project-kind: app-kept directories are workspaces now', { demoted })
+  } catch (error) {
+    log.error('project-kind: migration failed; retrying next start', { error: String(error) })
+  }
   await tmuxBackendStartupSweepSettled()
   await runTaskToSessionOnce({ db: sqlite, userData: app.getPath('userData') }).then(
     (summary) => { if (summary) log.info('task-to-session: segment 2 done', { summary }) },

@@ -1,3 +1,4 @@
+import { isImplicitSessionHomeProjectId } from '@shared/core/projects/session-home-project';
 import type { DeviceProject } from '@gugu/core/shared/types/deviceProject';
 import { tapMainEvents } from '@main/lib/events';
 import {
@@ -28,6 +29,8 @@ export async function listDeviceProjectRecords(): Promise<DeviceProject[]> {
   const bindingOf = new Map(bindings.data.map((binding) => [binding.projectId, binding]));
   const records: DeviceProject[] = [];
   for (const project of projects) {
+    // #609 workspace(任务工作区、~、助理与 App 的目录)不是项目:不记到账号上,别的端也就不会把它当项目列出来。
+    if (project.kind === 'workspace' || isImplicitSessionHomeProjectId(project.id)) continue;
     const folders = await listProjectFolderRefs(project.id);
     // 两次读之间刚被删掉的项目:它的删除事件会再触发一次,这一份不带它。
     if (!folders) continue;
