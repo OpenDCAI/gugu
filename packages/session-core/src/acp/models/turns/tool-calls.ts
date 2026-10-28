@@ -53,6 +53,9 @@ export interface BaseToolCallItem {
    */
   toolName?: string;
   status: ToolStatus;
+  /** Authentic arrival/completion clocks; absent in provider replay. */
+  at?: number;
+  completedAt?: number;
   inputSummary?: string;
   rawInput?: string;
   rawOutput?: string;
@@ -300,6 +303,8 @@ export const baseToolCallItemSchema = z.object({
   toolCallId: z.string(),
   title: z.string(),
   status: toolStatusSchema,
+  at: z.number().optional(),
+  completedAt: z.number().optional(),
   /** Provider/plugin-generated short input description for compact display. */
   inputSummary: z.string().optional(),
   /**

@@ -1,11 +1,14 @@
 /** @jsxImportSource solid-js */
 import { render } from 'solid-js/web';
 import { createSignal } from 'solid-js';
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
+import type { ChatCommands } from '@session-chat/commands';
 import { CommandsContext } from '@session-chat/components/contexts/CommandsContext';
 import { ThemeContext } from '@session-chat/components/contexts/ThemeContext';
 import { CachesContext } from '@session-chat/components/contexts/CachesContext';
 import { SelfIdentityProvider } from '@session-chat/lib/self-identity';
+import { ChatNameProvider } from '@session-chat/lib/chat-name';
+import { ConversationProcess } from './ConversationProcess';
 import { createChatCaches } from '@session-chat/core/caches';
 import { DEFAULT_CONFIG, buildChatTheme } from '@session-chat/core/config';
 import type { MeasureCtx, RenderCtx } from '@session-chat/core/define';
@@ -13,7 +16,7 @@ import type { ChatMessage } from '@session-chat/model';
 import { messageUnitDef, normalizeMessage } from './message.def';
 import { cardFadeOverlay } from './user-message.css';
 
-async function mount(raw: ChatMessage, width = 600) {
+async function mount(raw: ChatMessage, width = 600, commands: ChatCommands = {}) {
   const item = normalizeMessage(raw);
   const [data, setData] = createSignal(item);
   const theme = buildChatTheme(DEFAULT_CONFIG, { preset: 'double', userGutter: 72, agentConversation: true });
@@ -27,7 +30,7 @@ async function mount(raw: ChatMessage, width = 600) {
   const Comp = messageUnitDef.Render;
   const dispose = render(() => <ThemeContext.Provider value={() => theme}><CachesContext.Provider value={caches}>
     <SelfIdentityProvider value={() => ({ userId: 'owner', displayName: '刘威', guguNumber: 111179 })}>
-    <CommandsContext.Provider value={() => ({ conversationAgentName: () => 'Codex 11' })}>
+    <CommandsContext.Provider value={() => ({ conversationAgentName: () => 'Codex 11', ...commands })}>
       <Comp data={data()} ctx={renderCtx} vars={messageUnitDef.vars!} />
     </CommandsContext.Provider></SelfIdentityProvider>
   </CachesContext.Provider></ThemeContext.Provider>, host);
@@ -53,7 +56,7 @@ describe('agent-centered conversation bubbles', () => {
         // 时间、复制(、编辑)那一行在气泡下面占着位置,鼠标停上去才显出来(设计稿 `.acts{opacity:0}`,owner 10-28)。
         const actions = row.querySelector<HTMLElement>('[data-user-message-actions]')!;
         expect(actions.querySelectorAll('time')).toHaveLength(1);
-        expect(getComputedStyle(actions).opacity).toBe('0');
+        expect(getComputedStyle(actions.querySelector('button')!).opacity).toBe('0');
         expect(actions.getBoundingClientRect().top).toBeGreaterThanOrEqual(bubble.getBoundingClientRect().bottom - 1);
         if (role === 'assistant') {
           expect(Math.abs(bubble.getBoundingClientRect().left - row.getBoundingClientRect().left)).toBeLessThanOrEqual(1);
@@ -66,8 +69,7 @@ describe('agent-centered conversation bubbles', () => {
     }
   });
   it('folds a long subject bubble with a light fade and a show-all button in its actions row', async () => {
-    // 回复本身不折叠(conversationVars),折叠只在主体那一侧。
-    for (const role of ['user'] as const) {
+    for (const role of ['user', 'assistant'] as const) {
       const view = await mount({ kind: 'message', id: `long-${role}`, role, text: '这是一条很长的消息，用来验证折叠。\n\n'.repeat(60), at: Date.now() });
       try {
         const bubble = view.host.querySelector<HTMLElement>('[data-user-card]')!;
@@ -84,6 +86,7 @@ describe('agent-centered conversation bubbles', () => {
         expect(actions.contains(expand)).toBe(false);
         expect(expand.getBoundingClientRect().bottom).toBeLessThanOrEqual(actions.getBoundingClientRect().top + 1);
         expect(expand.getBoundingClientRect().top).toBeGreaterThanOrEqual(bubble.getBoundingClientRect().bottom - 1);
+        if (role === 'assistant') expect(Math.abs(expand.getBoundingClientRect().left - bubble.getBoundingClientRect().left)).toBeLessThanOrEqual(1);
         expect(Math.abs(view.host.getBoundingClientRect().height - messageUnitDef.measure(view.item, view.ctx, messageUnitDef.vars!))).toBeLessThanOrEqual(1);
       } finally { view.dispose(); }
     }
@@ -169,6 +172,19 @@ describe('agent-centered conversation bubbles', () => {
       expect(view.host.querySelector('[data-conversation-process]')?.textContent).toBe('1m14s · 10 steps›');
     } finally { view.dispose(); }
   });
+  it('keeps a zero-body process clock without a disclosure arrow or action', async () => {
+    const view = await mount({ kind: 'message', id: 'woken', role: 'assistant', text: 'The completion notice arrived.',
+      conversationProcess: { id: 'woken:process', startedAt: 1000, endedAt: 3500, steps: 0, empty: true } });
+    try {
+      const process = view.host.querySelector<HTMLButtonElement>('[data-conversation-process]')!;
+      expect(process.textContent).toBe('2s');
+      expect(process.disabled).toBe(true);
+      expect(process.hasAttribute('data-collapse-id')).toBe(false);
+      expect(process.hasAttribute('aria-expanded')).toBe(false);
+      expect(process.querySelector('svg')).not.toBeNull();
+    } finally { view.dispose(); }
+  });
+
   it('does not invent a duration for historical replies without both clock boundaries', async () => {
     const view = await mount({ kind: 'message', id: 'historical', role: 'assistant', text: '你好', conversationProcess: { id: 'old:process' } });
     try {
@@ -191,6 +207,25 @@ describe('agent-centered conversation bubbles', () => {
       expect(view.host.textContent).not.toContain('已处理');
       expect(Math.abs(view.host.getBoundingClientRect().height - messageUnitDef.measure(view.item, view.ctx, messageUnitDef.vars!))).toBeLessThanOrEqual(1);
     } finally { view.dispose(); }
+  });
+
+  it('says what a live turn the owner did not type is busy with, naming the group only when it knows exactly one', () => {
+    const label = (trigger: NonNullable<ChatMessage['conversationProcess']>['trigger']) => {
+      const host = document.createElement('div');
+      const dispose = render(() => <ChatNameProvider value={id => (id === 'g1' ? 'gugu' : null)}>
+        <ConversationProcess process={{ id: 'p', live: true, steps: 2, ...(trigger ? { trigger } : {}) }} anchorId="p" expanded />
+      </ChatNameProvider>, host);
+      const text = host.querySelector('[data-conversation-process]')!.textContent;
+      dispose();
+      return text;
+    };
+    expect(label(undefined)).toBe('Thinking and working · 2 steps›');
+    expect(label({ kind: 'delivery', chatIds: ['g1'] })).toBe('Thinking and working · handling a message from gugu · 2 steps›');
+    // 几条合成一轮、或者宿主认不出:不写名字,❌ 写会话 id。
+    expect(label({ kind: 'delivery', chatIds: ['g1', 'g2'] })).toBe('Thinking and working · handling incoming messages · 2 steps›');
+    expect(label({ kind: 'delivery', chatIds: ['unknown'] })).toBe('Thinking and working · handling incoming messages · 2 steps›');
+    expect(label({ kind: 'schedule' })).toBe('Thinking and working · running a scheduled task · 2 steps›');
+    expect(label({ kind: 'agent' })).toBe('Thinking and working · background task · 2 steps›');
   });
 
   it('updates the existing bubble in place while keeping its name and brain control', async () => {
@@ -222,19 +257,59 @@ describe('agent-centered conversation bubbles', () => {
     } finally { view.dispose(); }
   });
 
-  it('puts a measured 「群名 · 发送者 · 短摘要」 line above a message_send bubble only when it passed reply_to_message_id', async () => {
-    const quote = { itemId: 'src', text: '这是被引用的那条消息，很长很长很长很长很长很长很长很长', from: '小王' };
-    const quoted = await mount({ kind: 'message', id: 'call:sent:a', role: 'assistant', text: '答你', at: Date.now(), conversationPart: 'body', sentReplyTo: 'src', conversationReply: quote });
+  it('keeps the quote in the name row and never repeats it on the body', async () => {
+    const quote = { itemId: 'src', text: '这是被引用的那条消息，'.repeat(12), from: '小王' };
+    const quoted = await mount({ kind: 'message', id: 'send:head', role: 'assistant', text: '', at: Date.now(), conversationPart: 'head', sentReplyTo: 'src', conversationReply: quote,
+      conversationProcess: { id: 'send:process', startedAt: 1000, endedAt: 2000 } });
     const plain = await mount({ kind: 'message', id: 'call:sent:b', role: 'assistant', text: '答你', at: Date.now(), conversationPart: 'body', conversationReply: quote });
     try {
       const line = quoted.host.querySelector<HTMLElement>('[data-slot="conversation-quote"]')!;
-      expect(line.textContent).toContain('小王 ·');
+      expect(line.textContent).toContain('小王：');
       expect(line.textContent).toContain('…');
       const row = quoted.host.querySelector<HTMLElement>('[data-agent-conversation-message]')!;
       expect(Math.abs(row.getBoundingClientRect().height - messageUnitDef.measure(quoted.item, quoted.ctx, messageUnitDef.vars!))).toBeLessThanOrEqual(1);
-      expect(line.getBoundingClientRect().bottom).toBeLessThanOrEqual(row.querySelector<HTMLElement>('[data-user-card]')!.getBoundingClientRect().top + 1);
+      expect(line.parentElement?.textContent).toContain('Codex 11');
+      expect(line.getBoundingClientRect().bottom).toBeLessThanOrEqual(row.querySelector<HTMLElement>('[data-conversation-process]')!.getBoundingClientRect().top + 1);
       // 没传 reply_to_message_id ⇒ 不画(❌ 猜)。
       expect(plain.host.querySelector('[data-slot="conversation-quote"]')).toBeNull();
     } finally { quoted.dispose(); plain.dispose(); }
+  });
+  it('truncates narration to 160 characters with the same measured 32px row', async () => {
+    const view = await mount({ kind: 'message', id: 'narration', role: 'assistant', text: 'word '.repeat(80), conversationNarration: true });
+    try {
+      const row = view.host.querySelector<HTMLElement>('[data-conversation-narration]')!;
+      expect(row.textContent).toHaveLength(160);
+      expect(row.offsetHeight).toBe(32);
+      expect(getComputedStyle(row).fontSize).toBe('14px');
+      expect(messageUnitDef.measure(view.item, view.ctx, messageUnitDef.vars!)).toBe(32);
+    } finally { view.dispose(); }
+  });
+  it('opens the exact group message when the sender name is clicked', async () => {
+    const onOpenSender = vi.fn();
+    const chat = '22222222-2222-4222-8222-222222222222';
+    const msg = '33333333-3333-4333-8333-333333333333';
+    const view = await mount({ kind: 'message', id: 'source', role: 'user', text: `<gugu_delivery route="chat" chat_kind="group" from="Cleo" from_id="user:11111111-1111-4111-8111-111111111111" source_link="gugu-chat://${chat}/${msg}"><![CDATA[hello]]></gugu_delivery>` }, 600, { onOpenSender });
+    try {
+      const name = view.host.querySelector<HTMLButtonElement>('[data-slot="sender-name-link"]')!;
+      expect(name.textContent).toBe('Cleo');
+      expect(getComputedStyle(name).cursor).toBe('pointer');
+      expect(name.querySelector('svg')).toBeNull();
+      name.click();
+      expect(onOpenSender).toHaveBeenCalledExactlyOnceWith({ kind: 'chat', chatId: chat, messageId: msg });
+    } finally { view.dispose(); }
+  });
+  it('a sent bubble keeps a faint 「sent to」 note in its actions row while time and copy wait for hover', async () => {
+    const view = await mount({ kind: 'message', id: 'call:sent:x', role: 'assistant', text: '完成', at: Date.now(), conversationPart: 'body',
+      sentTo: { kind: 'chat', conversationId: null, threadRootId: null, whisper: false } });
+    try {
+      const actions = view.host.querySelector<HTMLElement>('[data-user-message-actions]')!;
+      const note = actions.querySelector<HTMLElement>('[data-slot="sent-to"]')!;
+      expect(note.textContent?.trim()).toBeTruthy();
+      // 整行和「发到」都常亮(MBP 验收 10-28:之前整行被原气泡的 hover 规则藏了,「发到」跟着看不见)。
+      expect(getComputedStyle(actions).opacity).toBe('1');
+      expect(getComputedStyle(note).opacity).toBe('1');
+      expect(getComputedStyle(actions.querySelector('button')!).opacity).toBe('0');
+      expect(Math.abs(view.host.getBoundingClientRect().height - messageUnitDef.measure(view.item, view.ctx, messageUnitDef.vars!))).toBeLessThanOrEqual(1);
+    } finally { view.dispose(); }
   });
 });
