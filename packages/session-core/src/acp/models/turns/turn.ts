@@ -21,6 +21,20 @@ export const transcriptTurnInitiatorSchema = z.enum(['user', 'agent']);
 export type TranscriptTurnInitiator = z.infer<typeof transcriptTurnInitiatorSchema>;
 
 /**
+ * 这一轮是被什么起的(2026-10-28,界面据此说「在处理「gugu」群消息」,运行时据此决定主人的话插不插进去)。
+ * - `owner`:人在这条会话里亲手发的(manual / typed);
+ * - `delivery`:投递起的(群消息、私聊、会话直发);`chatIds` 是信封里的会话 id,几条并成一轮时是多个;
+ * - `schedule`:到点的定时任务;
+ * - `agent`:没有一句在飞时 agent 自己开的(后台命令 / 子任务跑完的通知)。
+ * 缺席 = 旧记录或回放重建的轮次,读者按 `initiator` 退化。
+ */
+export const transcriptTurnTriggerSchema = z.object({
+  kind: z.enum(['owner', 'delivery', 'schedule', 'agent']),
+  chatIds: z.array(z.string()).optional(),
+});
+export type TranscriptTurnTrigger = z.infer<typeof transcriptTurnTriggerSchema>;
+
+/**
  * Successful turn reasons = ACP stop reasons(用户那一轮,prompt 结算时带来)+ `cycle_end`
  * (agent **自发**的一轮:没有 prompt 在飞,它的边界是适配器在那个 cycle 的 `result` 时
  * 报上来的那条带 cost 的 usage —— 见 session-runtime cell.ts `isAgentCycleEnd`)。
@@ -117,6 +131,8 @@ export const transcriptTurnSchema = z.object({
   seq: z.number().int(),
   /** Who opened the turn: a user prompt or agent-originated background activity. */
   initiator: transcriptTurnInitiatorSchema,
+  /** What started it (see `transcriptTurnTriggerSchema`); absent on old or replayed turns. */
+  trigger: transcriptTurnTriggerSchema.optional(),
   /**
    * Epoch ms read off the wall clock at the moment this turn opened.
    *
