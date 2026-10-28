@@ -81,14 +81,9 @@ export function useLinkNavigation(input: {
           const {resolveAssistantWorkTarget}=await import('../lib/assistantWorkTarget')
           const task=await resolveAssistantWorkTarget(assistant.assistant.id,{sessionId:target.sessionId})
           if(asked!==generation||current.current.ownerId!==state.ownerId)return
-          if(task){window.dispatchEvent(new CustomEvent(OPEN_ASSISTANT_TASK_CHAT,{detail:task}));return}
+          if(task){window.dispatchEvent(new CustomEvent(OPEN_ASSISTANT_TASK_CHAT,{detail:task}));return 'own' as const}
         }
-        const [{ listedSession, liveDeviceSessions }, { readCachedDevices }, { APP_SHOW_SESSION_EVENT }] = await Promise.all([
-          import('../session/shared/remote-sessions/session-directory'), import('../store/devicesCache'), import('../session/shared/extensions/app-runtime-protocol'),
-        ])
-        const listed = listedSession(readCachedDevices(), liveDeviceSessions(), target.sessionId)
-        if (!('row' in listed)) throw new Error(`Session ${target.sessionId} is not in your task list`)
-        window.dispatchEvent(new CustomEvent(APP_SHOW_SESSION_EVENT, { detail: listed.row }))
+        // Any other session: the host's task list brings it up (openLinkWith → its sessionProject / bringUp).
         return
       }
       if (target.kind === 'project') {

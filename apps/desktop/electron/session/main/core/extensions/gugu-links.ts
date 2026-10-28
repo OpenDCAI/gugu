@@ -33,11 +33,9 @@ export async function openLink(raw: string | GuguLinkTarget): Promise<LinkOpenOu
         return opened;
       },
       resourceChat: async (chatId) => (await import('./app-files')).resourceChatOf(chatId),
-      openResource: async (target) => {
-        // The account shell resolves task records before a generic session directory.
-        // This also covers desktop Markdown and OS links, which do not call the phone router.
-        await actInWindow({ kind: 'openLinkTarget', target });
-      },
+      // The account shell resolves the assistant's task records first; desktop Markdown and OS links both come here.
+      openResource: (target) => actInWindow({ kind: 'openLinkTarget', target }),
+      bringUp: bridge.bringSessionUp,
       deliver: (id, event, opened) => {
         bridge.deliverToExtension(id, event, opened);
       },

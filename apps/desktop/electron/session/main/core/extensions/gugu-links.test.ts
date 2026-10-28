@@ -72,6 +72,7 @@ function deps(overrides: Partial<LinkOpenDeps> = {}) {
     openApp: vi.fn(async (_id, _tab, chat) => chat ? { chat } : 'own'),
     resourceChat: async (id) => id,
     openResource: vi.fn(async () => {}),
+    bringUp: vi.fn(async () => {}),
     deliver: (id, event, opened) => delivered.push({ id, event, opened }),
     ...overrides,
   };
@@ -148,6 +149,20 @@ describe('resource links share one parser and opener', () => {
       await openLinkWith(value, guguLink(target, 'gugu-beta'));
       expect(value.openResource).toHaveBeenCalledWith(target);
     }
+  });
+
+  it('a session the window does not open (only the assistant\'s own task opens there) comes up from the host\'s task list', async () => {
+    // Control (the parent commit 2dae2795): the window's phone-only directory was the end of it, so on a desktop a session
+    // link, clicked in a chat or handed over by the OS, failed for any session but the assistant's.
+    const desktop = deps().value;
+    await expect(openLinkWith(desktop, 'gugu://session/s1')).resolves.toMatchObject({ kind: 'opened' });
+    expect(desktop.bringUp).toHaveBeenCalledWith({ projectId: 'p1', sessionId: 's1' });
+    const assistant = deps({ openResource: vi.fn(async () => 'own' as const) }).value;
+    await openLinkWith(assistant, 'gugu://session/s1');
+    expect(assistant.bringUp).not.toHaveBeenCalled();
+    const nowhere = deps().value;
+    await expect(openLinkWith(nowhere, 'gugu://session/elsewhere')).resolves.toMatchObject({ kind: 'failed', reason: 'no-session' });
+    expect(nowhere.bringUp).not.toHaveBeenCalled();
   });
 
   it('delivers to the actual place the App opened, including an App already placed in a task', async () => {
