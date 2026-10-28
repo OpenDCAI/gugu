@@ -83,3 +83,19 @@ it('keeps a shared wake alive for another explicit waiter after cancellation', a
   await other
   expect(f.state).toHaveBeenCalledTimes(2)
 })
+
+it('aborts an already issued wake request when its last waiter cancels', async () => {
+  f.state.mockResolvedValue(snap('asleep'))
+  let signal: AbortSignal | undefined
+  f.wake.mockImplementationOnce((_input: unknown, abort: AbortSignal) => {
+    signal = abort
+    return new Promise((_resolve, reject) => abort.addEventListener('abort', () => reject(abort.reason), { once: true }))
+  })
+  const abort = new AbortController()
+  const run = ensureCloudConnectionReady('cloud', { isOnline: async () => true, signal: abort.signal })
+  await vi.waitFor(() => expect(f.wake).toHaveBeenCalledOnce())
+  abort.abort()
+  await expect(run).rejects.toMatchObject({ name: 'AbortError' })
+  expect(signal?.aborted).toBe(true)
+  expect(f.state).toHaveBeenCalledTimes(2) // Initial refresh plus this attempt; no more polling.
+})
