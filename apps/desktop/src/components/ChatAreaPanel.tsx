@@ -63,6 +63,7 @@ import {
 } from './memberProfileModels'
 import { ChatMessageComposer, type ChatMessageComposerProps, type ComposerAttachAction } from './chat/ChatMessageComposer'
 // @@@5856 消息列表抽成共享组件(话题分栏也用它)——见 MessageList.tsx 头部注释。
+import { AgentDmTranscript } from './chat/AgentDmTranscript'
 import { MessageList, type MessageListRowProps } from './chat/MessageList'
 import { useTaskChatRows } from './assistant/useTaskChatRows'
 import { MessageLoadFailure } from './chat/MessageLoadFailure'
@@ -160,6 +161,7 @@ function ChatAreaSurface({ viewportKey = 'chats', activeTab, navigationTarget = 
   const [activeMessageProfile, setActiveMessageProfile] = useState<ActiveMemberProfile | null>(null)
   const peerIdentity = identitiesById[activeChat?.peer_user_id ?? '']
   const isAgentChat = activeChat?.kind === 'ai' || peerIdentity?.type === 'agent'
+  const agentDmTranscript = isAgentChat && !chrome && !mobile && !searchMode && Boolean(activeChat?.peer_user_id)
   const isGroupChat = activeChat?.kind === 'group'
   // @@@5856 场所型会话 = 群 + 话题:都有自己的名字、成员、文件与响应档位。头栏的搜索/工作区/成员
   // 三颗按钮问的是这个,不是「是不是群」。判据的唯一真源在 @gugu/core/shared/ui/chatModels。
@@ -971,6 +973,11 @@ function ChatAreaSurface({ viewportKey = 'chats', activeTab, navigationTarget = 
 
       {/* Message list —— 有行就画列表,与 loading 无关:加载中已有的行(盘缓存/乐观发送)照样可见,
           列表不会因为 loading 翻转被卸载重挂。骨架只在「在加载且一行都没有」时占位。 */}
+      {/* #691 和自己 agent 的私聊:消息区是它那条会话的记录(任务页同一个转录),只留这个私聊的那部分。助理 App 的聊天面
+          (chrome)另有自己的样子,不走这里。手机私聊由手机线接上(去掉 !mobile 并传 mobile)。 */}
+      {agentDmTranscript ? (
+        <AgentDmTranscript agentUserId={activeChat!.peer_user_id!} chatId={activeChat!.id} />
+      ) : (<>
       {taskChatNotice}{loadingMessages && chatListRows.length === 0 && <MessageListSkeleton delayMs={threeParty?300:0} overlay={threeParty}/>}
 
       {/* #7199 没读出来 ≠ 没聊过:读失败时说读不到 + 重试,❌ 往下落进首次对话欢迎页 / 「暂无消息」。 */}
@@ -1011,6 +1018,7 @@ function ChatAreaSurface({ viewportKey = 'chats', activeTab, navigationTarget = 
           onTotalListHeightChanged={onTotalListHeightChanged}
         />
       )}
+      </>)}
 
       <ChatTailNotice window={messageWindow} hidden={searchMode} onClick={pinToBottom} />
 
