@@ -1,4 +1,4 @@
-import type { MouseEvent } from 'react'
+import type { MouseEvent, ReactNode } from 'react'
 import { useTranslation } from 'react-i18next'
 import type { MessageItem } from '@gugu/core/shared/types/chat'
 import { resolveOrLoud } from '@gugu/core/shared/resolveOrLoud'
@@ -20,27 +20,48 @@ export function MessageQuote({ msg, quoterIsAgent, memberProfiles, onShowMessage
   quoterIsAgent: boolean
   memberProfiles?: Record<string, MemberProfileCardModel>
 }) {
-  const { t } = useTranslation('messaging')
   const quotedCard = composerCardPreview(msg.reply_to_content)
   const showQuoted = (event: MouseEvent) => {
     event.stopPropagation()
     if (msg.reply_to_message_id) onShowMessage?.(msg.reply_to_message_id)
   }
   return (
-    <div role={onShowMessage ? "button" : undefined} title={t('message.showQuoted')} onClick={onShowMessage ? showQuoted : undefined} style={{
-      cursor: onShowMessage ? 'pointer' : 'inherit',
+    <MessageQuoteFrame
+      mine={msg.is_mine}
+      onClick={onShowMessage ? showQuoted : undefined}
+      head={quotedCard ? <ComposerCardHead type={quotedCard.type} agentUserId={quoterIsAgent ? msg.sender_user_id : null} />
+        : resolveOrLoud(memberProfiles?.[msg.reply_to_sender_user_id ?? '']?.displayName, `reply sender ${msg.reply_to_message_id ?? msg.id}`)}
+      text={displayAgentReferences(quotedCard?.text ?? msg.reply_to_content ?? '', (_id, label) => `@${label}`)}
+    />
+  )
+}
+
+/**
+ * 引用块那一面:左边一道竖线、第一行是谁(或卡头)、第二行是原话。只管长相,❌ 读任何数据 ——
+ * 群里的引用(MessageQuote)和示例项目(#709)里 agent 引它那张卡画的是同一面。
+ */
+export function MessageQuoteFrame({ mine, head, text, onClick }: {
+  mine: boolean
+  head: ReactNode
+  text: string
+  /** 给了 = 点一下跳到被引用的那一条。 */
+  onClick?: (event: MouseEvent) => void
+}) {
+  const { t } = useTranslation('messaging')
+  return (
+    <div role={onClick ? "button" : undefined} title={t('message.showQuoted')} onClick={onClick} style={{
+      cursor: onClick ? 'pointer' : 'inherit',
       display: 'inline-block',
       overflow: 'hidden',
-      borderLeft: `3px solid ${msg.is_mine ? 'var(--bubble-quote-bar-mine)' : 'var(--bubble-quote-bar-other)'}`,
+      borderLeft: `3px solid ${mine ? 'var(--bubble-quote-bar-mine)' : 'var(--bubble-quote-bar-other)'}`,
       paddingLeft: '7px',
       maxWidth: '180px',
     }}>
       <div style={{ fontSize: 'var(--font-body)', lineHeight: 'var(--lh-body)', fontWeight: 600, opacity: 0.6, marginBottom: '1px', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
-        {quotedCard ? <ComposerCardHead type={quotedCard.type} agentUserId={quoterIsAgent ? msg.sender_user_id : null} />
-          : resolveOrLoud(memberProfiles?.[msg.reply_to_sender_user_id ?? '']?.displayName, `reply sender ${msg.reply_to_message_id ?? msg.id}`)}
+        {head}
       </div>
       <div style={{ fontSize: 'var(--font-body)', lineHeight: 'var(--lh-body)', opacity: 0.55, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
-        {displayAgentReferences(quotedCard?.text ?? msg.reply_to_content ?? '', (_id, label) => `@${label}`)}
+        {text}
       </div>
     </div>
   )
