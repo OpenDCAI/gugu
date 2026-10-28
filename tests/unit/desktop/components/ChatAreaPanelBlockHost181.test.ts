@@ -85,8 +85,8 @@ async function renderPanel(blockHost?: { actions: HTMLElement | null; title: HTM
     chat: {
       getImRepository: getImRepositoryMock,
       activeChatId: 'group-1',
-      activeChat: chat({ id: 'group-1', kind, name: '设计评审' }),
-      identitiesById: { 'user-1': displayIdentity('user-1'), 'user-2': displayIdentity('user-2') },
+      activeChat: chat({ id: 'group-1', kind, name: '设计评审', ...(kind === 'ai' ? { peer_user_id: 'agent-1' } : {}) }),
+      identitiesById: { 'user-1': displayIdentity('user-1'), 'user-2': displayIdentity('user-2'), 'agent-1': displayIdentity('agent-1', { type: 'agent', display_name: '设计评审' }) },
       messages: [],
     },
   })
