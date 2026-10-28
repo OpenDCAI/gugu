@@ -41,7 +41,7 @@ export function AgentPermissionBand({ sessionId, pending, respond }: {
     toast(t('agent.taskpage.permission.failed'), 'error', messageForUser(error))
   }
   // D-31 An App install the host asks for this agent: this window's own sheet first, then the session (with its places).
-  const install = appInstallAskOf(pending.host)
+  const install = appInstallAskOf(pending.origin)
   const machineId = sessionId ? machineRegistry.machineOf(sessionId) : null
   const machine = machineId ? remoteHostsStore.device(machineId)?.label ?? machineId : undefined
   const words = install ? appInstallWords(install, translateSessionMessage, machine) : null

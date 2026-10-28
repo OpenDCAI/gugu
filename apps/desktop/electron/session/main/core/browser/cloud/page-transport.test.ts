@@ -1,10 +1,10 @@
 import nodeFs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 import type { CdpEvent, CdpHub } from './cdp-hub';
 import { createCloudPageTransport, PAGE_SESSION } from './page-transport';
-import { chromeArgs, findChrome, findDisplay, linkCachesOut, parseDevToolsActivePort, PROFILE_CACHES } from './chrome';
+import { chromeArgs, findChrome, linkCachesOut, openDisplay, parseDevToolsActivePort, PROFILE_CACHES } from './chrome';
 
 /** 一个只记命令、能手动推事件的 hub。 */
 function fakeHub() {
@@ -108,13 +108,22 @@ describe('#7199 cloud Chrome launcher', () => {
     expect(findChrome({ PATH: '/usr/bin' }, fs([]))).toBeNull();
   });
 
-  it('有桌面就开有界面的:DISPLAY 优先,否则第一个 X 套接字;都没有 = 无头', () => {
-    expect(findDisplay({ DISPLAY: ':0' }, fs([]))).toBe(':0');
-    expect(findDisplay({}, fs([], { '/tmp/.X11-unix': ['X3', 'X1'] }))).toBe(':1');
-    expect(findDisplay({}, fs([]))).toBeNull();
+  it('开有界面的:DISPLAY 优先;否则自己的 Xvfb,❌ 借 /tmp/.X11-unix 里别人的;连 Xvfb 都没有 = 无头', async () => {
+    expect((await openDisplay({ DISPLAY: ':0' }, fs([]))).display).toBe(':0');
+    // Control (the parent commit 583b4dfc): with no DISPLAY it took the first socket there, here another lane's :1.
+    expect((await openDisplay({ PATH: '/usr/bin' }, fs([], { '/tmp/.X11-unix': ['X3', 'X1'] }))).display).toBeNull();
     expect(chromeArgs({ userDataDir: '/p', cacheDir: '/c', headless: true, root: false })).toContain('--headless=new');
     expect(chromeArgs({ userDataDir: '/p', cacheDir: '/c', headless: false, root: true })).toEqual(expect.arrayContaining(['--no-sandbox', '--remote-debugging-address=127.0.0.1']));
     expect(chromeArgs({ userDataDir: '/p', cacheDir: '/c', headless: false, root: false })).not.toContain('--headless=new');
+  });
+
+  it.skipIf(!nodeFs.existsSync('/usr/bin/Xvfb'))('no DISPLAY: its own Xvfb on a free display, gone when stopped', async () => {
+    const own = await openDisplay({ PATH: '/usr/bin' });
+    expect(own.display).toMatch(/^:\d+$/);
+    const socket = `/tmp/.X11-unix/X${own.display!.slice(1)}`;
+    expect(nodeFs.existsSync(socket)).toBe(true);
+    own.stop();
+    await vi.waitFor(() => expect(nodeFs.existsSync(socket)).toBe(false));
   });
 
   it('读 DevToolsActivePort', () => {

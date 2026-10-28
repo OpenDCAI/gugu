@@ -35,7 +35,6 @@ export type CloudBrowserStatus = {
   /** 有人接管着(或在等接管)。 */
   controlled: boolean;
   lastActivityAt: string | null;
-  assistance: CloudBrowserAssistance | null;
   /** 实时画面那条 websocket 在云电脑本机哪个端口、凭什么连;Chrome 没开 = null。 */
   live: { port: number; token: string } | null;
 };
@@ -57,7 +56,6 @@ export type CloudBrowserState = {
   automation: CloudBrowserAutomation;
   completed: boolean;
   control: CloudBrowserControl;
-  assistance: CloudBrowserAssistance | null;
 };
 
 export type CloudBrowserServerMessage =
@@ -112,8 +110,7 @@ export type CloudBrowserClientMessage =
       text?: string;
     }
   | { type: 'input_text'; id: string; text: string }
-  | { type: 'vault_submit'; requestId: string; username: string; password: string; save: boolean }
-  | { type: 'assistance_dismiss'; requestId: string };
+  | { type: 'vault_submit'; requestId: string; username: string; password: string; save: boolean };
 
 /** 一段文字一次最多发这么多(4096 字);更长的分块发。 */
 export const CLOUD_BROWSER_TEXT_CHUNK = 4096;
@@ -203,8 +200,6 @@ export function parseCloudBrowserClientMessage(raw: string): CloudBrowserClientM
       if (!isId(value.requestId) || typeof value.username !== 'string' || typeof value.password !== 'string' || typeof value.save !== 'boolean') return null;
       if (value.username.length > 512 || value.password.length > 1024 || (!value.username && !value.password)) return null;
       return { type: 'vault_submit', requestId: value.requestId, username: value.username, password: value.password, save: value.save };
-    case 'assistance_dismiss':
-      return isId(value.requestId) ? { type: 'assistance_dismiss', requestId: value.requestId } : null;
     default:
       return null;
   }

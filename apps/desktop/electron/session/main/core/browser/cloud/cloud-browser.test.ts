@@ -1,3 +1,6 @@
+import { hostAsks, respond } from '../../../../../../../../tests/support/ask-service';
+vi.mock('../../asks', () => import('../../../../../../../../tests/support/ask-service'));
+vi.mock('../../asks/ask', () => import('../../../../../../../../tests/support/ask-service'));
 import { describe, expect, it, vi } from 'vitest';
 
 vi.mock('electron', () => ({ app: { getPath: () => '/tmp/gugu-cloud-browser-test' }, safeStorage: {} }));
@@ -59,6 +62,33 @@ describe('#7199 cloud browser gates', () => {
     const none = await b.requestTakeover('s1', { reason: '输验证码' });
     expect(none.ok).toBe(false);
     expect(none.message).toMatch(/browser_navigate/);
+  });
+
+  it('asks through the timeline origin and continues after the shared response', async () => {
+    const b = browser();
+    (b as unknown as { sessionTab: Map<string, string> }).sessionTab.set('browser-task', 'tab-1');
+    const result = b.requestTakeover('browser-task', { reason: 'Finish the visible step' });
+    const entry = [...hostAsks.get('browser-task')!.values()][0]!;
+    expect(entry.request.origin).toEqual({ source: 'browser-assistance', payload: { kind: 'takeover', text: 'Finish the visible step' } });
+    expect(b.status(null)).not.toHaveProperty('assistance');
+    await respond({ conversationId: 'browser-task', itemId: entry.request.itemId, kind: 'permission', optionId: 'done', by: 'mobile' });
+    await expect(result).resolves.toMatchObject({ ok: true });
+    expect(b.toolStarting('browser-task').ok).toBe(true);
+    b.toolFinished('browser-task');
+  });
+
+  it('replaces the preceding browser Ask and withdraws it when stopped', async () => {
+    const b = browser();
+    const tabs = (b as unknown as { sessionTab: Map<string, string> }).sessionTab;
+    tabs.set('browser-old', 'tab-1'); tabs.set('browser-new', 'tab-2');
+    const before = b.requestTakeover('browser-old', {});
+    const after = b.requestTakeover('browser-new', {});
+    await expect(before).resolves.toMatchObject({ ok: false });
+    expect(hostAsks.has('browser-old')).toBe(false);
+    expect(hostAsks.get('browser-new')?.size).toBe(1);
+    b.stopAutomation();
+    await expect(after).resolves.toMatchObject({ ok: false });
+    expect(hostAsks.has('browser-new')).toBe(false);
   });
 
   it('请人登录:还没打开登录页 = 先去打开', async () => {

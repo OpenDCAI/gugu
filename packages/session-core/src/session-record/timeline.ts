@@ -38,7 +38,7 @@ import { questionAnswered, readQuestion } from './sources/question-tools';
  * 存档只是一条更快的捷径，❌ 任何一处对不上都必须能安全地退回「从头读」——
  * 接错了拼出来的是一份缺了中间的时间线，而那种缺失不报错、和"读得慢"在界面上分不出来。
  */
-export const TIMELINE_ARCHIVE_VERSION = 2;
+export const TIMELINE_ARCHIVE_VERSION = 3;
 
 export type TimelineArchive = {
   readonly version: number;
@@ -437,8 +437,8 @@ class RecordTimeline implements SessionTimeline {
         title: request.title,
         ...(request.detail !== undefined ? { detail: request.detail } : {}),
         ...(request.options.length > 0 ? { options: request.options } : {}),
-        ...(request.host ? { host: request.host } : {}),
-        ...(request.host?.kind === 'agent-question' && request.questions ? { questions: request.questions, askedAt: request.askedAt } : {}),
+        ...(request.origin ? { origin: request.origin } : {}),
+        ...(request.origin?.source === 'agent-question' && request.questions ? { questions: request.questions, askedAt: request.askedAt } : {}),
         state: 'pending',
         optionId: null,
         resolvedBy: null,
@@ -604,6 +604,7 @@ class RecordTimeline implements SessionTimeline {
       this.putSettlement({
         itemId: question.itemId,
         kind: question.kind,
+        origin: { source: question.kind === 'question' ? 'harness-question' : 'harness-permission' },
         title: question.title,
         ...(question.detail !== undefined ? { detail: question.detail } : {}),
         ...(question.options.length > 0 ? { options: question.options } : {}),

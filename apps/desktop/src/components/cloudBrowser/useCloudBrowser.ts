@@ -1,3 +1,6 @@
+import { useMobileShell } from '@/hooks/useMobileShell'
+import { useTimelineSession } from '@/mobile/agent-watch/use-timeline-session'
+import { assistantTimelineClient } from '../assistant/assistantTimelineClient'
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import {
   canOpenLiveBrowser,
@@ -11,6 +14,7 @@ import { rendererLogger } from '@/lib/log'
 import { cloudHostSuspended } from '@/lib/cloudHostSuspended'
 import type {
   CloudBrowserClientMessage,
+  CloudBrowserAssistance,
   CloudBrowserServerMessage,
   CloudBrowserState,
   CloudBrowserStatus,
@@ -41,6 +45,8 @@ export type CloudBrowserSize = 'small' | 'medium' | 'large'
 export type CloudBrowserNeed = { framesEnabled: boolean; large: boolean; tabId: string | null }
 
 export type CloudBrowserView = {
+  assistance: CloudBrowserAssistance | null
+  error: string | null
   /** 能实时看、能接管(Electron 桌面);否则只看小图。 */
   live: boolean
   status: CloudBrowserStatus | null
@@ -65,7 +71,10 @@ function isUnsupported(error: unknown): boolean {
  * 一位 agent 所在那台云电脑上的浏览器:问状态、决定出不出小窗、连实时画面(桌面)或刷小图(手机)。
  * `deviceId` = agent 所在的那台 server;null = 不是 server 上的 agent,什么都不做。
  */
-export function useCloudBrowser(deviceId: string | null, need: CloudBrowserNeed): CloudBrowserView {
+export function useCloudBrowser(deviceId: string | null, need: CloudBrowserNeed, sessionId: string | null): CloudBrowserView {
+  const timeline = useTimelineSession(assistantTimelineClient(false), useMobileShell() ? 'mobile' : 'desktop', deviceId, sessionId, !!deviceId && !!sessionId)
+  const pending = Object.values(timeline.timeline.settlements).find(item => item.state === 'pending' && item.origin?.source === 'browser-assistance')
+  const assistance = useMemo(() => pending ? { ...(pending.origin?.payload as Omit<CloudBrowserAssistance, 'requestId'>), requestId: pending.itemId } : null, [pending])
   const live = canOpenLiveBrowser()
   const [status, setStatus] = useState<CloudBrowserStatus | null>(null)
   const [state, setState] = useState<CloudBrowserState | null>(null)
@@ -123,13 +132,13 @@ export function useCloudBrowser(deviceId: string | null, need: CloudBrowserNeed)
     if ((state?.tabs ?? status.tabs).length === 0) return false
     // 停着的任务也算:「允许 Agent 继续」只在这张卡上,收起来就没人能放行了。
     const stopped = (state?.automation ?? status.automation) === 'stopped'
-    const pressing = stopped || status.controlled || !!status.assistance || state?.control === 'granted' || state?.control === 'pending' || !!state?.assistance
+    const pressing = stopped || status.controlled || !!assistance || state?.control === 'granted' || state?.control === 'pending'
     const lastActivity = status.lastActivityAt ? Date.parse(status.lastActivityAt) : 0
     if (!pressing && (!lastActivity || Date.now() - lastActivity > QUIET_HIDE_MS)) return false
     // 人关掉了小窗:agent 之后再动浏览器 / 又来求助才重新出现。
     if (dismissedAt && !pressing && status.lastActivityAt && status.lastActivityAt <= dismissedAt) return false
     return true
-  }, [deviceId, unsupported, status, state, dismissedAt])
+  }, [deviceId, unsupported, status, state, dismissedAt, assistance])
 
   // ── 实时连接(桌面)──
   const wantLink = live && shown && !!deviceId && need.framesEnabled
@@ -219,5 +228,5 @@ export function useCloudBrowser(deviceId: string | null, need: CloudBrowserNeed)
     }
   }, [])
 
-  return { live, status, state, linkState, frame, shown, send, ack, reconnect, dismiss, onServerMessage }
+  return { live, status, state, linkState, frame, shown, send, ack, reconnect, dismiss, onServerMessage, assistance, error: timeline.error ?? timeline.actionError }
 }

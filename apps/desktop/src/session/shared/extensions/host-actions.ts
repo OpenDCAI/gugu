@@ -173,7 +173,7 @@ export interface ExtensionConsentRequester {
 }
 
 /**
- * D-31 An App install asked as an approval in the agent's session (`HostAsk` kind `app-install`): what a phone, another desktop
+ * D-31 An App install asked as an approval in the agent's session (`AskOrigin` kind `app-install`): what a phone, another desktop
  * or this one needs to draw its own sheet for it, and to answer it back through the session (the option, with the digest).
  */
 export interface AppInstallAsk {
@@ -182,10 +182,10 @@ export interface AppInstallAsk {
 export const APP_INSTALL_OPTION = 'install';
 export const APP_INSTALL_DECLINE_OPTION = 'decline';
 
-/** The App install a session's approval asks about, when it is one (read on every surface from `Settlement.host`). */
-export function appInstallAskOf(host: { kind: string; payload: unknown } | undefined): AppInstallAsk | null {
-  if (host?.kind !== 'app-install') return null;
-  const payload = host.payload as Partial<AppInstallAsk> | null;
+/** The App install a session's approval asks about, when it is one (read on every surface from `Settlement.origin`). */
+export function appInstallAskOf(origin: { source: string; payload?: unknown } | undefined): AppInstallAsk | null {
+  if (origin?.source !== 'app-install') return null;
+  const payload = origin.payload as Partial<AppInstallAsk> | null;
   return payload && typeof payload.request === 'object' && payload.request ? (payload as AppInstallAsk) : null;
 }
 

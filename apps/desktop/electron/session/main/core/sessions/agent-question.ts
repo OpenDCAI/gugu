@@ -1,5 +1,5 @@
 import { randomUUID } from 'node:crypto';
-import { askHost } from '../session-timeline/service';
+import { ask } from '../asks';
 import { deliverAgentQuestionAnswer, questionDeliveryPayload } from './agent-question-delivery';
 
 /**
@@ -20,9 +20,9 @@ export async function postAgentQuestion(input: {
   if (!questions.length || questions.some((q) => new Set(q.options.map((o) => o.optionId)).size !== q.options.length)) throw new Error('Questions require distinct options');
   const request = {
     itemId, kind: 'question', title: questions[0].question, questions, options: questions[0].options, askedAt: Date.now(),
-    host: { kind: 'agent-question', payload: questionDeliveryPayload(input.sourceLink, answerMessageId) },
+    origin: { source: 'agent-question', payload: questionDeliveryPayload(input.sourceLink, answerMessageId) },
   } as const;
-  const answer = askHost(input.sessionId, request, { signal: new AbortController().signal });
+  const answer = ask(input.sessionId, request, { signal: new AbortController().signal });
   const immediate = await Promise.race([answer, Promise.resolve(undefined)]);
   if (typeof immediate === 'string') throw new Error(`Question could not be published: ${immediate}`);
   deliverAgentQuestionAnswer(input.sessionId, input.projectId, request, answerMessageId, answer);
