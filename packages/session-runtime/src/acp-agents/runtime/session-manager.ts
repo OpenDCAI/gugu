@@ -42,6 +42,7 @@ import type {
   NormalizedEvent,
   PlanState,
   PromptDraft,
+  PromptInput,
   PromptDraftUpdate,
   QueuedPrompt,
   QueuedPromptEdit,
@@ -1315,7 +1316,7 @@ export class SessionManager implements InboundRouter {
           this.deps.logger.warn('SessionManager: provider close failed; stopping its process', { sessionId, error: String(error) });
         } finally { if (timer) clearTimeout(timer); }
       }
-      this.deps.promptQueueStore?.clear(sessionId);
+      this.keepQueueAcrossStop(sessionId, record);
       await record.connectionLease.value.stopProcess();
       this.removeRecord(sessionId, false, true);
       await record.connectionLease.release();
@@ -1784,6 +1785,12 @@ export class SessionManager implements InboundRouter {
     const record = this.cells.get(sessionId);
     if (record) return record.cell.sessionState;
     return closedSessionState();
+  }
+
+  /** Read-only stopped queue projection; reading it must never wake the provider. */
+  getStoredQueue(sessionId: string): Array<Pick<PromptInput, 'text' | 'origin'>> {
+    if (this.cells.has(sessionId)) return [];
+    return (this.deps.promptQueueStore?.load(sessionId) ?? []).map(({ text, origin }) => ({ text, origin }));
   }
 
   getTerminals(sessionId: string): TerminalState[] {
@@ -2831,6 +2838,26 @@ export class SessionManager implements InboundRouter {
       mcpServers: (input.mcpServers ?? []) as LoadSessionRequest['mcpServers'],
       ...sessionOpenMeta(input),
     };
+  }
+
+  /**
+   * Every queued input has already been accepted. Communication inbox cursors have advanced,
+   * so preserve all origins here; the sender cannot recover an input discarded during stop.
+   */
+  private keepQueueAcrossStop(sessionId: string, record: SessionRecord): void {
+    const store = this.deps.promptQueueStore;
+    if (!store) return;
+    const queued = record.cell.sessionState.queuedPrompts;
+    try {
+      if (queued.length > 0) store.save(sessionId, queued);
+      else store.clear(sessionId);
+    } catch (error) {
+      this.deps.logger.error('SessionManager: failed to keep accepted inputs across stop', {
+        sessionId,
+        queuedPromptCount: queued.length,
+        error,
+      });
+    }
   }
 
   private persistQueueSnapshot(record: SessionRecord, queuedPrompts: readonly QueuedPrompt[]): void {

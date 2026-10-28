@@ -3,20 +3,23 @@ import { For, Show } from 'solid-js';
 import { useCommands } from '@session-chat/components/contexts/CommandsContext';
 import { useSelfIdentity, shownSender, isSelfAddress } from '@session-chat/lib/self-identity';
 import { useChatTranslator } from '@session-chat/localization';
+import { useChatName } from '@session-chat/lib/chat-name';
 import type { MeasureCtx, RenderCtx } from '@session-chat/core/define';
 import type { ChatMessage } from '@session-chat/model';
 import { turnProcessExpanded } from '@session-chat/state/turn-fold';
 import { ConversationProcess } from './ConversationProcess';
+import { SenderName } from './SenderName';
+import { conversationAgentTarget, messageSenderTarget, type MessageSenderTarget } from '@session-chat/lib/sender-target';
 import { BackgroundTasksList, backgroundTasksLabel, backgroundTasksListHeight } from '../background-tasks/background-tasks-parts';
 import { ShimmerText } from '@session-chat/components/primitives/ShimmerText';
 import { BACKGROUND_TASKS_TOGGLE } from '@session-chat/state/flatten';
 import { segmentItem } from './DeliveryCard';
 import { isMessageEditing } from './message-editor-metrics';
 import { UserMessageCard } from './UserMessageCard';
-import { CONVERSATION_EXPAND_H, CONVERSATION_HEADER_H, CONVERSATION_PROCESS_H, hasConversationBody } from './conversation-body';
+import { CONVERSATION_EXPAND_H, CONVERSATION_HEADER_H, CONVERSATION_PROCESS_H, CONVERSATION_NARRATION_H, conversationNarrationText, hasConversationActions } from './conversation-body';
 import { measureUserMessage } from './user-message-metrics';
 import { userMessageActionsHeight, type MessageVars } from './metrics';
-import { conversationRoot, conversationHeader, conversationName, conversationTime, conversationProcessButton, conversationProcessChevron, conversationTimeSeparator } from './conversation-message.css';
+import { conversationRoot, conversationHeader, conversationName, conversationNarration, conversationQuote, conversationQuoteFrom, conversationTime, conversationProcessButton, conversationProcessChevron, conversationTimeSeparator } from './conversation-message.css';
 
 const HEADER_H = CONVERSATION_HEADER_H;
 const TIME_H = CONVERSATION_PROCESS_H;
@@ -31,7 +34,8 @@ export function conversationContext(ctx: MeasureCtx): MeasureCtx {
 }
 
 export function conversationVars(item: ChatMessage, vars: MessageVars): MessageVars {
-  return item.role === 'assistant' ? { ...vars, collapsedMaxH: Number.MAX_SAFE_INTEGER, expandedMaxH: Number.MAX_SAFE_INTEGER } : vars;
+  const long = item.text.length > 700 || item.text.split('\n').length > 10;
+  return { ...vars, footerH: 16, collapsedMaxH: long ? 252 : Number.MAX_SAFE_INTEGER, expandedMaxH: Number.MAX_SAFE_INTEGER };
 }
 
 function segments(item: ChatMessage): ChatMessage[] {
@@ -43,12 +47,25 @@ export function conversationMessageHeight(item: ChatMessage, ctx: MeasureCtx, va
   return segments(item).reduce((height, segment, index) => height + singleHeight(segment, ctx, vars) + (index ? 12 : 0), 0);
 }
 
+/** agent 发出去的那条带了 reply_to_message_id ⇒ 气泡上方一行「谁 · 摘要」(owner 10-28);❌ 猜出来的不画。 */
+function sentQuote(item: ChatMessage): NonNullable<ChatMessage['conversationReply']> | null {
+  return item.role === 'assistant' && item.conversationPart !== 'body' && item.conversationReply ? item.conversationReply : null;
+}
+
+/** 引用里的摘要截短一点(owner 10-28「比现在短一点」);一行放不下再由 CSS 省略。 */
+const QUOTE_CHARS = 60;
+function quoteSummary(text: string): string {
+  const flat = text.replace(/\s+/g, ' ').trim();
+  return flat.length > QUOTE_CHARS ? `${flat.slice(0, QUOTE_CHARS)}…` : flat;
+}
+
 function singleHeight(item: ChatMessage, ctx: MeasureCtx, vars: MessageVars): number {
+  if (item.conversationNarration) return CONVERSATION_NARRATION_H;
   if (item.conversationPart === 'head') return HEADER_H + TIME_H + backgroundHeight(item, ctx);
   const header = item.conversationPart === 'body' ? 0 : HEADER_H;
   const bodyVars = conversationVars(item, vars);
   // 时间、复制、编辑那一行照原气泡画在气泡下面(owner 定稿 0 号图);没有正文就没有气泡,也不留这一行。
-  const actions = hasConversationBody(item) || isMessageEditing(item.id, ctx) ? 0 : userMessageActionsHeight(bodyVars);
+  const actions = hasConversationActions(item) || isMessageEditing(item.id, ctx) ? 0 : userMessageActionsHeight(bodyVars);
   const bodyCtx = conversationContext(ctx);
   const body = measureUserMessage(item, bodyCtx, bodyVars);
   // 折着 ⇔ 展开量出来比现在高;那时气泡下面多一行「展开全文」。
@@ -65,8 +82,15 @@ export function backgroundHeight(item: { id: string }, ctx: MeasureCtx): number 
 
 /** Agent-centered view: assistant left, every incoming actor right. */
 export function ConversationMessage(props: { data: ChatMessage; ctx: RenderCtx; vars: MessageVars }) {
-  return <Show when={(props.data.guguDelivery?.segments.length ?? 0) > 1} fallback={<SingleConversationMessage {...props} />}>
-    <For each={segments(props.data)}>{(segment, index) => <div style={{ 'margin-top': index() ? '12px' : '0' }}><SingleConversationMessage {...props} data={segment} /></div>}</For>
+  // 中途说的话:步骤之间一行灰字,放不下就省略(设计稿 0 号「五路排查都回来了……」)。
+  // 同一条在跑完时会变成回复气泡(同一个 id),所以用 <Show> 跟着数据换,❌ 组件里一次性 if。
+  return <Show when={!props.data.conversationNarration} fallback={
+    <div class={conversationNarration} style={{ height: `${CONVERSATION_NARRATION_H}px` }}
+      data-conversation-narration={props.data.id} title={props.data.text}>{conversationNarrationText(props.data.text)}</div>
+  }>
+    <Show when={(props.data.guguDelivery?.segments.length ?? 0) > 1} fallback={<SingleConversationMessage {...props} />}>
+      <For each={segments(props.data)}>{(segment, index) => <div style={{ 'margin-top': index() ? '12px' : '0' }}><SingleConversationMessage {...props} data={segment} /></div>}</For>
+    </Show>
   </Show>;
 }
 
@@ -83,12 +107,33 @@ function SingleConversationMessage(props: { data: ChatMessage; ctx: RenderCtx; v
     if (isSelfAddress(sender.fromId, self()) && self()?.displayName?.trim()) return self()!.displayName!.trim();
     return shownSender(sender.from, sender.fromId, self()) ?? translate('transcript.deliveryUnknownSender');
   };
+  const chatName = useChatName();
+  const senderTarget = (): MessageSenderTarget | null => {
+    if (subject()) return conversationAgentTarget({ sessionId: commands().conversationAgentSession?.(), userId: commands().conversationAgentUserId?.() });
+    return messageSenderTarget(facts()) ?? (!facts() && self()?.userId ? { kind: 'sender', userId: self()!.userId } : null);
+  };
+  const quoteSender = (from: string | null, fromId: string | null) =>
+    isSelfAddress(fromId, self()) && self()?.displayName?.trim() ? self()!.displayName!.trim() : shownSender(from, fromId, self());
+  // 「群名 · 发送者 · 短摘要」;被引用那条来自私聊就没有群名。发送者是那条自己的发送者(agent 或真人),❌ 默认写成 agent。
+  const quoteLabel = (quote: NonNullable<ChatMessage['conversationReply']>) => [
+    quote.chatId ? chatName(quote.chatId) : null,
+    // 发送者照抬头的写法:是本人就写本人的名字,❌ 信封里「验收员 (咕咕号 112615)」原样贴上(真机验收 10-28)。
+    quote.self ? commands().conversationAgentName?.() ?? null : quoteSender(quote.from ?? null, quote.fromId ?? null) ?? self()?.displayName,
+  ].filter((part): part is string => Boolean(part?.trim())).join(' · ');
   const bodyCtx: RenderCtx = { ...props.ctx, measureCtx: () => conversationContext(props.ctx.measureCtx!()) };
   return <div class={conversationRoot} data-agent-conversation-message={props.data.id} data-side={subject() ? 'left' : 'right'}
     data-conversation-part={props.data.conversationPart}>
     <Show when={props.data.conversationPart !== 'body'}>
     <div class={conversationHeader} style={{ height: `${HEADER_H}px` }}>
-      <span class={conversationName} title={name()}>{name()}</span>
+      <SenderName class={conversationName} name={name()} target={senderTarget()} />
+      <Show when={sentQuote(props.data)}>{quote => <>
+        <span class={conversationTimeSeparator} aria-hidden="true" />
+        <span class={conversationQuote} data-slot="conversation-quote" title={quote().text}>
+          <Show when={quoteLabel(quote())}>{label => <span class={conversationQuoteFrom}>{`${label()}：`}</span>}</Show>
+          <span>{quoteSummary(quote().text)}</span>
+          <svg viewBox="0 0 16 16" width="14" height="14" aria-hidden="true"><path d="M12.5 3v4.5a3 3 0 0 1-3 3H3m3.5-3.5L3 10.5 6.5 14" /></svg>
+        </span>
+      </>}</Show>
       {/* owner 0 号图:名字那一行只写名字 —— ❌ 后面再跟被回复那条的摘要(管家 10-28 定)。 */}
     </div>
     </Show>

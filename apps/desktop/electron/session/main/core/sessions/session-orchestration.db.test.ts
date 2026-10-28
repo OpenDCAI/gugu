@@ -406,6 +406,15 @@ describe('session orchestration', () => {
     });
     const sentDelivery = () => (mocks.sendMessage.mock.calls.at(-1)![0] as { delivery?: unknown }).delivery;
 
+    it.each([undefined, 'queue', 'defer'] as const)('refuses archived direct delivery %s before sending or storing local debt', async (delivery) => {
+      fixture.sqlite.prepare("UPDATE sessions SET archived_at='2026-10-28T09:00:00Z' WHERE id='peer'").run();
+      await expect(messageSessionFrom(envelope, 'peer', 'Archive marker', { ...(delivery ? { delivery } : {}), ...app }))
+        .rejects.toMatchObject({ code: 'SESSION_ARCHIVED' });
+      expect(mocks.sendMessage).not.toHaveBeenCalled();
+      expect(fixture.sqlite.prepare("SELECT id FROM messages WHERE session_id='peer'").all()).toEqual([]);
+      expect(mocks.startSession).not.toHaveBeenCalled();
+    });
+
     it('hands queue to the delivery, with the key scoped to the App', async () => {
       await messageSessionFrom(envelope, 'peer', 'paper 5', { delivery: 'queue', key: 'paper', ...app });
       expect(sentDelivery()).toEqual({ queue: true, coalesceKey: 'app:lens:paper' });

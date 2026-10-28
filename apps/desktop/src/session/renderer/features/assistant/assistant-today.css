@@ -127,6 +127,21 @@
   --ta-bubble-other: #fff;
 }
 
+/* 素白复用浅色字阶与对话几何,只把共享表面换成白底和中性色。手机壳、咕咕和 portal 同步消费。 */
+[data-theme-preference='plain-white'] :is(.ta-app, .ta-dialog, .ta-phone, [data-ta-menu], [data-ta-scope]) {
+  --ta-app-bg: var(--bg);
+  --ta-panel-bg: var(--bg);
+  --ta-panel-border: var(--border);
+  --ta-glass: var(--card);
+  --ta-glass-strong: var(--muted);
+  --ta-glass-hover: var(--hover);
+  --ta-glass-edge: var(--border);
+  --ta-bubble-other: var(--muted);
+  --ta-tint-wash: var(--hover);
+  --ta-tint-soft: var(--selected);
+  --ta-tint-ink: var(--fg);
+}
+
 /* ── 左边:聊天这一列 ─────────────────────────────────────────────── */
 
 .ta-chat-col {
@@ -213,6 +228,8 @@
   min-width: 0;
   padding-top: 68px;
   --bubble-mine: var(--ta-bubble-mine);
+  --conversation-bubble-mine: var(--ta-bubble-mine);
+  --conversation-bubble-mine-fg: var(--foreground);
   --bubble-other: var(--ta-bubble-other);
   --bubble-own: var(--ta-bubble-mine);
   --bubble-agent: var(--ta-bubble-other);

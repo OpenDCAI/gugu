@@ -135,6 +135,8 @@ export function advanceReadWatermark(
   const shouldPersist = seq > known || current?.is_marked_unread === true
   const previousReadState = {
     unread_count: current?.unread_count ?? 0,
+    // 读失败回滚连定位一起还:话题算进项目行的是定位里的 addressed_count,只还 unread_count 会少算。
+    unread_locator: current?.unread_locator ?? null,
     last_read_seq: known,
     is_marked_unread: current?.is_marked_unread ?? false,
     read_state_version: current?.read_state_version ?? 0,
@@ -162,7 +164,7 @@ function markChatReadUpTo(
   seq: number,
   patchChat: PatchChat,
   optimisticVersion: number,
-  previousReadState: Pick<ChatItem, 'unread_count' | 'last_read_seq' | 'is_marked_unread' | 'read_state_version'>,
+  previousReadState: Pick<ChatItem, 'unread_count' | 'unread_locator' | 'last_read_seq' | 'is_marked_unread' | 'read_state_version'>,
 ): void {
   chatService.markRead(chatId, seq).catch((err) => {
     console.error('[ChatStore] markRead failed', err)

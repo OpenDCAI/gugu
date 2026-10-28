@@ -49,4 +49,17 @@ describe('managed installations survive leaving the selection step (#7582)', () 
     expect(host.querySelectorAll('[role="alert"]')).toHaveLength(2);
     expect(host.textContent).not.toContain('firstRun.harnessInstalled');
   });
+  it('does not queue an agent again when someone goes back and continues while it is installing', async () => {
+    const codex = deferred();
+    f.install.mockImplementation(() => codex.promise);
+    function BackAndForth() {
+      const queue = useFirstRunInstaller();
+      return <><button data-k="a" onClick={() => queue(['codex'])}>Continue</button><button data-k="b" onClick={() => queue(['codex', 'claude'])}>Continue again</button></>;
+    }
+    await act(async () => root.render(<FirstRunInstallProvider><BackAndForth /></FirstRunInstallProvider>));
+    await act(async () => host.querySelector<HTMLButtonElement>('[data-k="a"]')!.click());
+    await act(async () => host.querySelector<HTMLButtonElement>('[data-k="b"]')!.click());
+    expect(f.install.mock.calls.map(([x]) => x.id)).toEqual(['codex', 'claude']);
+    await act(async () => codex.resolve({ success: true }));
+  });
 });

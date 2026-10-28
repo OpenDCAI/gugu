@@ -19,6 +19,7 @@ export default {
       "startFailed": "Agent startup failed"
     },
     "offlineWarning": "Currently offline and may not respond promptly",
+    "archivedWarning": "Recipient is archived.",
     "wakeRefused": "{{name}} can't come online right now: ",
     "dm": {
       "resolving": "Opening the conversation…",
@@ -192,6 +193,8 @@ export default {
       "cardGroup": "Card's chat",
       "agent": "Your agent",
       "members": "{{count}} people",
+      "members_one": "{{count}} person",
+      "members_other": "{{count}} people",
       "remove": "Stop giving it to {{name}}",
       "add": "Add an agent, group or project…",
       "empty": "None chosen yet.",
@@ -535,6 +538,8 @@ export default {
       "agentRequestPending": "Submitted for approval — waiting for the owner or an admin",
       "agentRequestRejected": "Your last request was declined; you can submit again",
       "invitationSent": "Sent {{count}} invitations; members join after they or their Agent owner accept",
+      "invitationSent_one": "Sent {{count}} invitation; the member joins after they or their Agent owner accepts",
+      "invitationSent_other": "Sent {{count}} invitations; members join after they or their Agent owner accept",
       "pendingApproval": "Submitted for approval: {{count}} Agents will join once the owner or an admin approves",
       "pendingApproval_one": "Submitted for approval: {{count}} Agent will join once the owner or an admin approves",
       "pendingApproval_other": "Submitted for approval: {{count}} Agents will join once the owner or an admin approves",
@@ -686,7 +691,13 @@ export default {
       "topics": "Topics"
     },
     "title": "History",
-    "topicMeta": "{{participantCount}} people · {{messageCount}} messages · {{date}}"
+    "topicMeta": "{{people}} · {{messages}} · {{date}}",
+    "topicPeople": "{{count}} people",
+    "topicPeople_one": "{{count}} person",
+    "topicPeople_other": "{{count}} people",
+    "topicMessages": "{{count}} messages",
+    "topicMessages_one": "{{count}} message",
+    "topicMessages_other": "{{count}} messages"
   },
   "importedHistory": {
     "agentRole": "Agent",
@@ -733,6 +744,7 @@ export default {
     },
     "retracted": "Message retracted",
     "sendStatus": {
+      "archived": "Recipient is archived. Not delivered.",
       "failed": "Not delivered",
       "failedActions": "Undelivered message actions",
       "failedHint": "Not delivered. Click to retry or discard.",
@@ -834,15 +846,17 @@ export default {
     "consent": {
       "cancel": "Cancel",
       "postTitle": "Post a bounty",
-      "postBody": "{{amount}} community points are taken from your balance now. They go to the answers you accept; if nobody ever answers by the deadline, they come back to you; if there were answers but you accept none, they are gone.",
+      "postBody": "{{count}} community points are taken from your balance now. They go to the answers you accept; if nobody ever answers by the deadline, they come back to you; if there were answers but you accept none, they are gone.",
+      "postBody_one": "{{count}} community point is taken from your balance now. It goes to the answer you accept; if nobody ever answers by the deadline, it comes back to you; if there were answers but you accept none, it is gone.",
+      "postBody_other": "{{count}} community points are taken from your balance now. They go to the answers you accept; if nobody ever answers by the deadline, they come back to you; if there were answers but you accept none, they are gone.",
       "postConfirm": "Post",
-      "reward": "Bounty: {{amount}} points",
+      "reward": "Bounty: {{count}} points", "reward_one": "Bounty: {{count}} point", "reward_other": "Bounty: {{count}} points",
       "days": "Ends in {{count}} days", "days_one": "Ends in {{count}} day", "days_other": "Ends in {{count}} days",
       "visibility": { "public": "Answers are public", "poster_only": "Answers seen by you only, public once it ends" },
       "acceptTitle": "Accept answers",
       "acceptBody": "The points go to the answerers, the bounty ends, and answers seen by you only become public. This cannot be undone.",
       "acceptConfirm": "Accept",
-      "awardLine": "{{name}} · {{amount}} points",
+      "awardLine": "{{name}} · {{count}} points", "awardLine_one": "{{name}} · {{count}} point", "awardLine_other": "{{name}} · {{count}} points",
       "endTitle": "End bounty",
       "endBody": "End the bounty without accepting an answer. If nobody ever answered, the points come back to you; if someone did, they are gone.",
       "endConfirm": "End bounty",

@@ -1,8 +1,10 @@
 import { assistantWorkIntentSchema,type AssistantWorkIntent } from '@gugu/core/shared/assistantWorkIntent';
+import { SessionArchivedError } from '@gugu/core/shared/sessionArchival';
 import { assistantWorkLedgerContext } from '../../../../sessionpage/assistant-work-ledger';
 import { withSessionAttachments, type SessionAttachmentRef } from '@gugu/core/cloud/sessionAttachments';
 import { isActivityAction, runActivityAction, type ActivityAction } from '../activity/actions';
 import { tabHygiene, type TabHygieneResult } from './tab-hygiene';
+import { DEFAULT_SESSION_VIEW } from '@shared/core/sessions/new-session-defaults';
 import type { SessionPaneTabsResult } from '@gugu/session-core/session-record/contract';
 import { parseConversationLink } from '@gugu/core/shared/ui/guguLink';
 import { readCurrentActivitySource } from './session-activity-source';
@@ -323,6 +325,7 @@ function assertMessageableTarget(
   target: SessionRow,
 ): SessionRow {
   if (target.id === callerSessionId) throw new Error('session cannot message itself');
+  if (target.archivedAt) throw new SessionArchivedError();
   // 发起方在别的机器上(null)时它当然不在本机的行里;本机发起方消失了才是错。
   if (callerSessionId !== null && !rows.some((row) => row.id === callerSessionId)) {
     throw new Error('current session no longer exists');
@@ -1179,12 +1182,9 @@ async function createChildSession(input: {
  * page sits in (真源原则 13).
  */
 async function newSessionMemory(): Promise<NewSessionMemory> {
-  const [{ appSettingsService }, { preferredSessionView }] = await Promise.all([
-    import('@main/core/settings/settings-service'),
-    import('@main/core/settings/terminal-visibility'),
-  ]);
-  // 形态不再由新建框记:跟这台电脑的「终端」开关走(开 → 编程,关 → 通用),与新建框同一条。
-  return { ...(await appSettingsService.get('newSessionMemory')), sessionView: await preferredSessionView() };
+  const { appSettingsService } = await import('@main/core/settings/settings-service');
+  // 形态不再由新建框记,也不跟「终端」开关走:新会话一律通用(owner 10-28),与新建框同一条。
+  return { ...(await appSettingsService.get('newSessionMemory')), sessionView: DEFAULT_SESSION_VIEW };
 }
 
 /**
@@ -1804,16 +1804,21 @@ async function sendSessionMessage(
   for (const target of targets) {
     signal?.throwIfAborted();
     const messageId = action.client_message_id ?? sessionDirectMessageId(keyScope, target.id, action);
-    if (action.source_link) await rememberActivitySource(target.id, action.source_link);
-    // 附带:目标已经在运行中就当场按普通发送投出;否则存下来(不叫醒),等它进入运行中那一刻再投(session-deferred-messages.ts)。
-    if (plan && 'defer' in plan && !sessionIsWorking(target.id)) {
-      storeDeferredMessage({ sessionId: target.id, id: messageId, text: envelope(messageId, text), ...plan.defer });
-      recipients.push({ to: encodeTypedId('session', target.id), status: 'deferred', message_id: messageId });
-      // 存下之前那一瞬刚进入运行中的,边沿已经过去了:再看一次,在跑就当场冲。
-      if (sessionIsWorking(target.id)) void flushDeferredMessages(target.id);
-      continue;
-    }
     try {
+      if (action.source_link) await rememberActivitySource(target.id, action.source_link);
+      // Another recipient or source bookkeeping may have yielded since preflight.
+      // Check the committed row immediately before storing even a deferred message.
+      const current = db.select({ archivedAt: sessions.archivedAt }).from(sessions).where(eq(sessions.id, target.id)).get();
+      if (!current) throw new Error(`Session not found: ${target.id}`);
+      if (current.archivedAt) throw new SessionArchivedError();
+      // 附带:目标已经在运行中就当场按普通发送投出;否则存下来(不叫醒),等它进入运行中那一刻再投(session-deferred-messages.ts)。
+      if (plan && 'defer' in plan && !sessionIsWorking(target.id)) {
+        storeDeferredMessage({ sessionId: target.id, id: messageId, text: envelope(messageId, text), ...plan.defer });
+        recipients.push({ to: encodeTypedId('session', target.id), status: 'deferred', message_id: messageId });
+        // 存下之前那一瞬刚进入运行中的,边沿已经过去了:再看一次,在跑就当场冲。
+        if (sessionIsWorking(target.id)) void flushDeferredMessages(target.id);
+        continue;
+      }
       const result = await sendMessage({
         projectId: target.projectId,
         sessionId: target.id,
@@ -1849,7 +1854,7 @@ async function sendSessionMessage(
       // 本工具的合同是「每个收件人各自有一句判决」。所以**一旦有人已经收到,这个调用就不许再抛** ——
       // 抛出去会把已投递的那几个连同它们的 message_id 一起丢掉,调用方无从知道谁收到了。
       // 还没有人收到时照旧抛:那时没有要保护的部分结果,响亮失败更清楚。
-      if (error instanceof SessionDirectDeliveryError) {
+      if (error instanceof SessionDirectDeliveryError || error instanceof SessionArchivedError) {
         recipients.push({
           to: encodeTypedId('session', target.id),
           status: 'failed',

@@ -24,3 +24,8 @@
 .first-run-install-task { margin-top: var(--spacing-md); }
 .first-run-install-task-heading > span + span { color: var(--text-secondary); }
 @media (max-width: 480px) { .first-run-harness-choices { grid-template-columns: 1fr; } }
+/* 全屏步骤(规范 3):顶上「n / N」,底部左「上一步」右主按钮。 */
+.first-run-step-count { margin: 0 0 var(--spacing-md); font-size: var(--font-caption); line-height: var(--lh-caption); color: var(--text-tertiary); font-variant-numeric: tabular-nums; }
+.ta-onb-actions.first-run-step-actions { display: flex; flex-direction: row; justify-content: space-between; align-items: center; gap: var(--spacing-md); width: 100%; margin-top: 0; }
+.ta-onb-actions.first-run-step-actions > button { width: auto; min-width: 120px; }
+.ta-onb-actions.first-run-step-actions > button:only-child { margin-left: auto; }

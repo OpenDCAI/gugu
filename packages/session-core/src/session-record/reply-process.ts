@@ -51,6 +51,11 @@ export type AgentSendTarget =
       /** The thread this session is bound to: a send to the delivery's own chat lands there (the server, not the agent, picks it). */
       threadRootId: string | null;
       whisper: boolean;
+      /**
+       * A send back into the private chat it was answering: the other person in it, by name. The host's name for a
+       * private chat is the agent's own from the owner's side, so 「发到 Claude 1」 would read as sent to itself.
+       */
+      peer?: string;
     }
   | { kind: 'session'; count: number };
 
@@ -90,7 +95,8 @@ export function agentSendOf(item: TranscriptItem, turn?: TranscriptTurn): AgentS
   const here = facts !== null && sourceChatMatches(facts, args.chat_id);
   const linked = here && facts.sourceLink ? parseConversationLink(facts.sourceLink)?.chatId ?? null : null;
   const conversationId = linked ?? (typeof args.chat_id === 'string' && CONVERSATION_ID.test(args.chat_id) ? args.chat_id.toLowerCase() : null);
-  return { text: args.text, to: { kind: 'chat', conversationId, threadRootId: here && !whisper ? facts.thread : null, whisper } };
+  const peer = here && facts.chatKind === 'dm' && facts.from ? facts.from.replace(/\s*[(（][^()（）]*[)）]\s*$/, '').trim() : '';
+  return { text: args.text, to: { kind: 'chat', conversationId, threadRootId: here && !whisper ? facts.thread : null, whisper, ...(peer ? { peer } : {}) } };
 }
 
 /** Only the explicit send to this input's destination can preview an IM reply. */
@@ -106,14 +112,15 @@ export function replySend(item: ToolCallItem, facts: DeliveryReadFacts): { text:
 }
 
 /** Actual successful sends owned by this agent, including proactive sends to another chat. */
-export function successfulMessageSend(item: ToolCallItem): { text: string; id: string } | null {
+export function successfulMessageSend(item: ToolCallItem): { text: string; id: string; chat: string; replyTo?: string } | null {
   if (!isRootSend(item) || item.status !== 'done' || !item.rawInput) return null;
   const id = sentMessageId(item);
   if (!id) return null;
   try {
     const args = JSON.parse(item.rawInput) as Record<string, unknown>;
-    return typeof args.chat_id === 'string' && args.chat_id && typeof args.text === 'string'
-      ? { id, text: args.text } : null;
+    if (!(typeof args.chat_id === 'string' && args.chat_id && typeof args.text === 'string')) return null;
+    const replyTo = typeof args.reply_to_message_id === 'string' ? args.reply_to_message_id.replace(/^msg:/, '') : '';
+    return replyTo ? { id, text: args.text, chat: args.chat_id, replyTo } : { id, text: args.text, chat: args.chat_id };
   } catch { return null; }
 }
 

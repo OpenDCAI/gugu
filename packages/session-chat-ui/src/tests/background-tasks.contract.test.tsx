@@ -8,7 +8,7 @@ import type { SubagentRosterEntry } from '@session-chat/lib/subagent-roster'
 import type { TranscriptTurn } from '@session-chat/model'
 import { createChatState } from '@session-chat/state/chat-state'
 import { afterEach, describe, expect, it, vi } from 'vitest'
-import { until } from '../../../../tests/support/awaitCondition'
+import { until, untilStable } from '../../../../tests/support/awaitCondition'
 
 /**
  * 还在跑的后台命令与子智能体,贴在消息列表最后一行(owner 2026-10-27:去掉右上角「摘要」卡,后台任务放进主对话)。
@@ -157,7 +157,7 @@ describe('background tasks at the end of the transcript', () => {
     expect(row(host)?.textContent).toContain('Background · 1 subagent')
   })
 
-  // owner 2026-10-27 原型:末尾那条回复带着过程行时,后台那一句与「思考执行中」同一行,单子就地展开在它下面。
+  // owner 2026-10-27 原型:末尾那条回复带着过程行时,后台那一句与「执行中」同一行,单子就地展开在它下面。
   it('hangs on a live process line that has no reply yet, across the steps under it', async () => {
     const { state, host } = mount({}, true)
     state.transcript.activeTurn.set({
@@ -169,7 +169,7 @@ describe('background tasks at the end of the transcript', () => {
       ]
     } as unknown as TranscriptTurn)
     state.session.setBackgroundTasks({ commands: [command], subagents: [agent()] })
-    // owner 0 号图:「思考执行中 · … · N 步 ⌄ | 后台 · … ›」同一行,❌ 单独一行排在步骤下面。
+    // owner 0 号图:「执行中 · … · N 步 ⌄ | 后台 · … ›」同一行,❌ 单独一行排在步骤下面。
     const pill = () => host.querySelector<HTMLElement>('[data-slot="turn-process"] [data-slot="background-tasks-pill"]')
     await until('the background pill sits on the live process line', () => pill() !== null)
     expect(row(host)).toBeNull()
@@ -214,18 +214,18 @@ describe('background tasks at the end of the transcript', () => {
     state.transcript.history.seed([worked])
     state.session.setBackgroundTasks({ commands: [command], subagents: [agent()] })
 
-    // 对话布局里一轮回复拆成「名字 + 过程行」那一行(answer:head)和气泡那一行(answer)。
-    const pill = () => host.querySelector<HTMLElement>('[data-agent-conversation-message="answer:head"] [data-slot="background-tasks-pill"]')
+    // 对话布局里一轮回复拆成「名字 + 过程行」那一行(w1:process:head)和气泡那一行(answer)。
+    const pill = () => host.querySelector<HTMLElement>('[data-agent-conversation-message="w1:process:head"] [data-slot="background-tasks-pill"]')
     await until('the background line sits on the reply\'s process line', () => pill() !== null)
     expect(pill()?.textContent).toContain('Background · 1 command · 1 subagent')
     expect(row(host)).toBeNull()
-    const process = host.querySelector<HTMLElement>('[data-agent-conversation-message="answer:head"] [data-conversation-process]')!
+    const process = host.querySelector<HTMLElement>('[data-agent-conversation-message="w1:process:head"] [data-conversation-process]')!
     // 同一行
     expect(Math.abs(process.getBoundingClientRect().top - pill()!.getBoundingClientRect().top)).toBeLessThanOrEqual(2)
 
     pill()!.click()
     await until('the list opens under that line, above the bubble', () => items(host).length === 2)
-    const head = host.querySelector<HTMLElement>('[data-agent-conversation-message="answer:head"]')!
+    const head = host.querySelector<HTMLElement>('[data-agent-conversation-message="w1:process:head"]')!
     expect(head.contains(items(host)[0])).toBe(true)
     const bubble = host.querySelector<HTMLElement>('[data-agent-conversation-message="answer"] [data-user-card]')!
     // 气泡是下一行:头那一行长高有个过渡,等它落定。
@@ -290,6 +290,28 @@ describe('background tasks at the end of the transcript', () => {
     await until('the panel closes after leaving it', () => panel() === null)
   })
 
+  // 新一步开始时完成数不变:名单的「没变」判据只看完成数的话,这一步就进不了时间线(mac1 2026-10-28 实测)。
+  it('shows a step that just started even though the completed count did not change', async () => {
+    const { state, host } = mount()
+    const startedAt = Date.now() - 30_000
+    const done = { toolCallId: 'c1', title: 'Read a.ts', status: 'done' as const, seq: 0 }
+    state.transcript.history.seed([settled])
+    state.session.setBackgroundTasks({ commands: [], subagents: [agent({ startedAt, completedSteps: 1, calls: [done] })] })
+    await until('the background line is on screen', () => row(host) !== null)
+    host.querySelector<HTMLElement>('[data-collapse-id="background-tasks:open"]')?.click()
+    await until('the list opens', () => items(host).length === 1)
+    items(host)[0].dispatchEvent(new MouseEvent('mouseenter'))
+    const steps = () => [...document.querySelectorAll<HTMLElement>('[data-slot="subagent-hover-panel"] [data-slot="subagent-timeline-step"]')]
+    await until('the panel opens', () => steps().length === 1)
+
+    state.session.setBackgroundTasks({
+      commands: [],
+      subagents: [agent({ startedAt, completedSteps: 1, calls: [done, { toolCallId: 'c2', title: 'Run pnpm test', status: 'running', seq: 1 }] })]
+    })
+    await until('the running step shows', () => steps().length === 2)
+    expect(steps()[1].dataset.status).toBe('running')
+  })
+
   it('says so when the subagent has no steps yet', async () => {
     const { state, host } = mount()
     state.transcript.history.seed([settled])
@@ -321,4 +343,74 @@ describe('background tasks at the end of the transcript', () => {
     // 上下都放不下:贴着窗口底,❌ 出窗。
     expect(placeSubagentPanel({ top: 150, bottom: 178, left: 360, right: 960 }, { width: 320, height: 500 }, narrow).top).toBe(92)
   })
+})
+
+
+it('keeps the background pill on a zero-step notification reply process line without a standalone row', async () => {
+  const { state, host } = mount({}, true)
+  state.transcript.history.seed([{ id: 'wake', seq: 0, initiator: 'agent', startedAt: Date.now() - 2000, endedAt: Date.now(),
+    outcome: { kind: 'done' }, items: [{ kind: 'message', id: 'woken', seq: 0, role: 'assistant', text: 'B 的停止通知到了。' }] }])
+  state.session.setBackgroundTasks({ commands: [command], subagents: [agent(), agent({ id: 'agent-b', launchToolCallId: 'b' })] })
+  await until('zero-step reply owns the background pill', () => host.querySelector('[data-agent-conversation-message="wake:process:head"] [data-slot="background-tasks-pill"]') !== null)
+  const head = host.querySelector<HTMLElement>('[data-agent-conversation-message="wake:process:head"]')!
+  const pill = head.querySelector<HTMLElement>('[data-slot="background-tasks-pill"]')!
+  const process = head.querySelector<HTMLElement>('[data-conversation-process]')!
+  expect(Math.abs(pill.getBoundingClientRect().top - process.getBoundingClientRect().top)).toBeLessThanOrEqual(1)
+  expect(process.textContent).not.toContain('step')
+  expect(process.textContent).not.toContain('›')
+  expect(process.hasAttribute('data-collapse-id')).toBe(false)
+  expect(head.offsetHeight).toBe(46)
+  expect(row(host)).toBeNull()
+  pill.click()
+  await until('zero-step reply expands its real background list', () => items(host).length === 3)
+  expect(head.contains(items(host)[0])).toBe(true)
+  pill.click()
+  await until('zero-step reply removes list height when folded', () => items(host).length === 0)
+  await untilStable('head height settles', () => head.offsetHeight)
+  expect(head.offsetHeight).toBe(46)
+})
+
+it('keeps a sealed bubble above a steer and the background pill on the following empty process', async () => {
+  const { state, host } = mount({}, true)
+  const startedAt = Date.now() - 10_000
+  state.transcript.activeTurn.set({ id: 'steered', seq: 0, initiator: 'user', startedAt, items: [
+    { kind: 'message', id: 'ask', seq: 0, role: 'user', text: '开始', at: startedAt },
+    { kind: 'message', id: 'ready', seq: 1, role: 'assistant', text: '工具就绪。现在一次性发出。', at: startedAt + 2000 },
+    { kind: 'message', id: 'inserted', seq: 2, role: 'user', text: '我临时性地插入一句话，试一下', at: startedAt + 5000 },
+  ] })
+  state.session.setBackgroundTasks({ commands: [command], subagents: [agent()] })
+  await until('steer placeholder owns the background pill', () => host.querySelector('[data-conversation-process="steered:process@inserted"]') !== null)
+  const bubble = host.querySelector<HTMLElement>('[data-user-card="ready"]')!
+  const input = host.querySelector<HTMLElement>('[data-user-card="inserted"]')!
+  const process = host.querySelector<HTMLElement>('[data-conversation-process="steered:process@inserted"]')!
+  const line = process.parentElement!
+  expect(bubble.getBoundingClientRect().bottom).toBeLessThanOrEqual(input.getBoundingClientRect().top)
+  expect(input.getBoundingClientRect().bottom).toBeLessThanOrEqual(process.getBoundingClientRect().top)
+  expect(line.querySelector('[data-slot="background-tasks-pill"]')).not.toBeNull()
+  expect(row(host)).toBeNull()
+  expect(line.closest<HTMLElement>('[data-slot="turn-process"]')!.offsetHeight).toBe(46)
+  expect(host.querySelectorAll('[data-slot="background-tasks-pill"]')).toHaveLength(1)
+})
+
+it('renders a single Bash step without a nested disclosure and gives an owner steer its own origin', async () => {
+  const { state, host } = mount({}, true)
+  const now = Date.now()
+  state.transcript.activeTurn.set({ id: 'origin', seq: 0, initiator: 'agent', trigger: { kind: 'agent' }, startedAt: now - 5000, items: [
+    { kind: 'message', id: 'before', seq: 0, role: 'assistant', text: '工具就绪。', at: now - 4000 },
+    { kind: 'message', id: 'owner-steer', seq: 1, role: 'user', text: '我临时插话。', at: now - 2000 },
+    { kind: 'execute-tool-call', id: 'single', seq: 2, toolCallId: 'single', toolName: 'Bash', title: 'Read Beta workflow', command: 'cat workflow.yml', status: 'done', at: now - 1000 },
+  ] })
+  await until('owner-steer process is visible', () => host.querySelector('[data-conversation-process="origin:process@owner-steer"]') !== null)
+  const step = host.querySelector<HTMLElement>('[data-conversation-step="single"]')!
+  expect(step).not.toBeNull()
+  expect(step.textContent).toContain('Bash')
+  expect(step.textContent).toContain('Read Beta workflow')
+  expect(step.querySelector('button, [data-collapse-id]')).toBeNull()
+  expect(step.offsetHeight).toBe(32)
+  const process = host.querySelector<HTMLElement>('[data-conversation-process="origin:process@owner-steer"]')!
+  expect(process.textContent).not.toContain('background task')
+  const bubble = host.querySelector<HTMLElement>('[data-user-card="before"]')!
+  const input = host.querySelector<HTMLElement>('[data-agent-conversation-message="owner-steer"]')!
+  await untilStable('message seam settles', () => input.getBoundingClientRect().top - bubble.getBoundingClientRect().bottom)
+  expect(Math.abs(input.getBoundingClientRect().top - bubble.getBoundingClientRect().bottom - 20)).toBeLessThanOrEqual(1)
 })

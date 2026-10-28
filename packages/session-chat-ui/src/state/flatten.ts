@@ -1,6 +1,8 @@
-import { conversationOutput, conversationProcessReply } from './conversation-process';
+import { conversationOutput, processTrigger } from './conversation-process';
 import { conversationMessages } from './conversation-messages';
 import { withSentReplies } from './sent-replies';
+import { planConversationSegments } from './conversation-segments';
+import { readDeliveryEnvelope } from '@gugu/core/local/agent/deliveryEnvelope';
 /**
  * flatten — segment a transcript into a two-tier UnitsView.
  *
@@ -192,6 +194,8 @@ export function flattenTier(
   // preceding tier so the committed→active seam does not re-announce a day that
   // is already on screen.
   let lastDayKey = prevDayKey;
+  let conversationOwner: string | undefined;
+  let lastConversationPart: 'input' | 'head' | 'step' | 'body' | undefined;
 
   const processItem = (item: ChatItem | SyntheticItem, folds?: readonly FoldGate[]): void => {
     if (isSubagentChild(item)) return;
@@ -202,6 +206,7 @@ export function flattenTier(
 
     stampGroupRoles(group);
     if (group.length === 0) return;
+    if (conversationOwner) for (const u of group) u.conversationProcessOwner = conversationOwner;
     if (ctx.revealAllFolds && folds) for (const u of group) u.folds = folds;
 
     // Copy chrome from the segmenter onto each unit (allows UnitRow to read it
@@ -209,7 +214,7 @@ export function flattenTier(
     // is module-level, not data-dependent).
     if (chrome) {
       for (const u of group) {
-        u.chrome = chrome;
+        u.chrome ??= chrome;
       }
     }
 
@@ -217,6 +222,18 @@ export function flattenTier(
     // group (except the very first group overall, which gets gapBefore = 0).
     if (lastKind !== undefined) {
       group[0].gapBefore = resolveSeamGap(lastKind, group[0].kind, marginOf);
+    }
+    if (ctx.agentConversation) {
+      const part = item.kind === 'message' && (item as ChatMessage).conversationPart === 'head' || item.kind === 'turn-process' ? 'head'
+        : item.kind === 'message' && (item as ChatMessage).conversationPart === 'body' ? 'body'
+        : conversationOwner ? 'step' : item.kind === 'message' && item.role === 'user' ? 'input' : undefined;
+      if (lastConversationPart && part) {
+        // The 20px action lane is the message's trailing space, not another gap on top of it.
+        group[0].gapBefore = part === 'step' ? (lastConversationPart === 'head' ? 4 : 0)
+          : part === 'body' ? (lastConversationPart === 'step' ? 8 : 4)
+          : lastConversationPart === 'body' || lastConversationPart === 'input' ? 0 : 20;
+      }
+      lastConversationPart = part;
     }
 
     lastKind = group[group.length - 1].kind;
@@ -231,12 +248,14 @@ export function flattenTier(
    * ❌ 气泡先画、步骤挂在气泡底下。这一轮每条输出(message_send 发出去的也是)各自一个气泡,同一个名字下面排着。
    */
   const emitConversationReply = (reply: ChatMessage, sent: readonly ChatMessage[], steps: () => void): void => {
-    const head = `${reply.id}:head`;
+    const head = `${reply.conversationProcess?.id ?? reply.id}:head`;
     // 头不带正文:话只在气泡里画一次(找、复制、计数都只见一份)。
     processItem({ ...reply, id: head, text: '', attachments: undefined, conversationPart: 'head' });
     steps();
+    // 时间、复制那一行只给收了口那一轮的最后一句(设计稿 0 号「轮次结束且有正文才出 tail」);中途的气泡不带(owner 10-28)。
+    const tail = !reply.conversationProcess?.live;
     for (const output of [...sent, reply]) {
-      processItem({ ...output, conversationProcess: undefined, conversationPart: 'body', conversationHead: head });
+      processItem({ ...output, conversationProcess: undefined, conversationPart: 'body', conversationHead: head, ...(tail && output === reply ? { conversationTail: true } : {}) });
     }
   };
 
@@ -253,8 +272,9 @@ export function flattenTier(
     const ops: EmitOp[] = [];
     let run: ChatItem[] = [];
     const flush = (): void => {
+      // Prototype stepRows(): a single call keeps its own row; folding starts at two calls.
       if (run.length === 1) ops.push({ kind: 'row', item: run[0] });
-      else if (run.length > 1) ops.push({ kind: 'run', rows: run });
+      else if (run.length > 0) ops.push({ kind: 'run', rows: run });
       run = [];
     };
     for (const row of rows) {
@@ -275,7 +295,7 @@ export function flattenTier(
     for (const op of ops) {
       if (op.kind === 'row') {
         // agent 经 message_send / session_message 说的话:画成它说的话、标明发到了哪里,❌ 一行「调用了 MCP 工具」。
-        const send = 'toolCallId' in op.item && !sentReplyCalls.has(op.item.id) ? agentSendOf(op.item as TranscriptItem, sendTurn) : null;
+        const send = !ctx.agentConversation && 'toolCallId' in op.item && !sentReplyCalls.has(op.item.id) ? agentSendOf(op.item as TranscriptItem, sendTurn) : null;
         processItem(send
           ? { kind: 'agent-send', id: op.item.id, turnId, send, status: (op.item as { status?: string }).status === 'running' ? 'running' : 'done' }
           : op.item, folds);
@@ -323,8 +343,9 @@ export function flattenTier(
   const { folds: foldPlans, runs: foldRuns, absorbed } = planTurnFoldRuns(
     turns.map((turn, i) => ({ ...turn, items: turnItems[i] }) as TranscriptTurn),
     prevDayKey,
-    ctx.foldTurnProcess === true,
-    ctx.active
+    ctx.foldTurnProcess === true && !ctx.agentConversation,
+    ctx.active,
+    ctx.agentConversation === true
   );
 
   for (let turnIndex = 0; turnIndex < turns.length; turnIndex++) {
@@ -365,25 +386,55 @@ export function flattenTier(
     }
 
     const fold = foldPlans[turnIndex];
-    if (fold) {
-      const view = turnFoldView(turn, fold, foldRuns.get(turnIndex), ctx.active);
+    if (ctx.agentConversation) {
+      for (const block of planConversationSegments(turn, ctx.active && turnIndex === turns.length - 1)) {
+        if (block.kind === 'input') { processItem(block.item); continue; }
+        const output = conversationOutput(block.items, block.live);
+        const ops = planRows(outsideProcess(output.rest));
+        const trigger = block.live ? processTrigger({ ...turn, trigger: block.trigger }) : undefined;
+        const process = { id: block.id, ...(block.live ? { live: true } : {}),
+          startedAt: block.startedAt, endedAt: block.endedAt, ...(block.idleMs ? { idleMs: block.idleMs } : {}), steps: output.steps.length,
+          ...(trigger ? { trigger } : {}), ...(ops.length ? {} : { empty: true }) };
+        const expanded = ctx.revealAllFolds || turnProcessExpanded(block.live, ctx.isTurnProcessExpanded?.(block.id) ?? false);
+        const steps = () => {
+          if (!expanded) return;
+          const folds = [{ id: block.id, stored: !block.live }];
+          const folded = block.live && ops.length > 3 ? ops.length - 3 : 0;
+          const earlier = `${block.id}:earlier`;
+          if (folded) {
+            processItem({ kind: 'tool-run', id: earlier, turnId: turn.id, stepCount: folded,
+              label: ctx.translate('transcript.processEarlierParts', { count: folded }) }, folds);
+            if (ctx.revealAllFolds || ctx.isTurnProcessExpanded?.(earlier)) emitOps(ops.slice(0, folded), turn.id, [...folds, { id: earlier, stored: true }]);
+          }
+          emitOps(ops.slice(folded), turn.id, folds);
+        };
+        conversationOwner = output.reply ? `${block.id}:head` : block.id;
+        if (output.reply) {
+          const reply = { ...output.reply, conversationProcess: process,
+            conversationCaret: block.live && block.items.at(-1)?.id === output.reply.id };
+          if (!reply.conversationReply && !reply.sentReplyTo && !reply.id.includes(':sent:') && block.input) {
+            const envelope = readDeliveryEnvelope(block.input.text);
+            const facts = envelope?.segments[0]?.facts;
+            reply.conversationReply = { itemId: block.input.id, text: envelope?.body ?? block.input.text,
+              ...(block.inputFrom || facts?.from ? { from: block.inputFrom ? ctx.translate('transcript.backgroundSource') : facts!.from! } : {}), ...(facts?.fromId ? { fromId: facts.fromId } : {}) };
+          }
+          emitConversationReply(reply, [], steps);
+        } else {
+          processItem({ kind: 'turn-process', ...process, turnId: turn.id,
+            ...(output.silent ? { silent: true } : {}),
+            ...(ops.length ? { withBody: true } : { placeholder: true }) });
+          steps();
+        }
+        conversationOwner = undefined;
+      }
+    } else if (fold) {
+      const view = turnFoldView(turn, fold, foldRuns.get(turnIndex), ctx.active, false);
       for (const item of view.leading) processItem(item);
       for (const segment of view.segments) {
         // 先按语义折一遍,再看**剩几行**(owner 2026-09-06 截图:「过程 · 2 步」底下只有一句
         // 「2 个子智能体跑完了」—— 折叠套折叠;「过程 · 1 步」—— 一步也套了头)。
         const header = segment.header;
         // 不套头的那一段是平铺在外面的,和不折的一轮一样先剔掉别处已经画了的(卡片 / 改动汇总,#70 review)。
-        const output = ctx.agentConversation && header ? conversationOutput([...segment.process, ...segment.tail]) : null;
-        const footerReply = output?.reply ? conversationProcessReply(header, [output.reply]) : null;
-        if (footerReply && header && output) {
-          const expanded = ctx.revealAllFolds || turnProcessExpanded(header.live, ctx.isTurnProcessExpanded?.(header.id) ?? false);
-          const steps = output.rest.filter(item => !isSubagentChild(item)).length;
-          if (steps && footerReply.conversationProcess) footerReply.conversationProcess = { ...footerReply.conversationProcess, steps };
-          emitConversationReply(footerReply, output.sent, () => {
-            if (expanded) emitOps(planRows(outsideProcess(output.rest)), turn.id, [{ id: header.id, stored: !header.live }]);
-          });
-          continue;
-        }
         const ops = planRows(header ? segment.process : outsideProcess(segment.process));
         if (ops.length === 0 || !header) {
           // 一条都不剩就连头都不画 —— ❌ 别留一个点开是空的壳。
@@ -394,7 +445,6 @@ export function flattenTier(
             processItem({
               kind: 'turn-process',
               ...placeholderTurnHeader(header.id),
-              ...(ctx.agentConversation && header.startedAt !== undefined ? { startedAt: header.startedAt } : {}),
               turnId: turn.id,
               withBody: true,
             });
@@ -402,13 +452,11 @@ export function flattenTier(
           emitOps(ops, turn.id);
         } else {
           const expanded = ctx.revealAllFolds || turnProcessExpanded(header.live, ctx.isTurnProcessExpanded?.(header.id) ?? false);
-          const steps = ctx.agentConversation ? segment.process.filter(item => !isSubagentChild(item)).length : 0;
           processItem({
             kind: 'turn-process',
             id: header.id,
             turnId: turn.id,
             ...(header.live ? { live: true as const } : {}),
-            ...(steps ? { steps } : {}),
             // 收起来时下面什么都看不见,头又是这一轮唯一的动静(#124 review)
             ...(expanded ? { withBody: true } : {}),
             ...(header.startedAt !== undefined ? { startedAt: header.startedAt } : {}),
@@ -427,28 +475,9 @@ export function flattenTier(
       const pending = pendingTurnHeader(turns[turnIndex] as TranscriptTurn, ctx.active, ctx.foldTurnProcess === true);
       if (pending) {
         emitOps(planRows(outsideProcess(items.slice(0, pending.at))), turn.id);
-        const pendingReply = ctx.agentConversation
-          ? conversationProcessReply({ ...pending.header, startedAt: turn.startedAt }, items.slice(pending.at)) : null;
-        // 对话布局:跑着默认摊开(owner 0 号图「思考执行中 · 9m16s · 39 步 ⌄」),点了收起就真收起 ——
-        // 还没出正文的这一轮以前不看开关,收起了步骤照样摊在下面。
-        const pendingExpanded = !ctx.agentConversation || ctx.revealAllFolds || turnProcessExpanded(true, ctx.isTurnProcessExpanded?.(pending.header.id) ?? false);
-        const pendingFolds = ctx.agentConversation ? [{ id: pending.header.id, stored: false }] : undefined;
-        if (pendingReply) {
-          emitConversationReply(pendingReply, [], () => {
-            if (pendingExpanded) emitOps(planRows(outsideProcess(items.slice(pending.at + 1))), turn.id, pendingFolds);
-          });
-        } else {
-          processItem({
-            kind: 'turn-process',
-            ...pending.header,
-            ...(ctx.agentConversation && turn.startedAt !== undefined ? { startedAt: turn.startedAt } : {}),
-            turnId: turn.id,
-            ...(pending.at < items.length ? { withBody: true } : {}),
-            ...(ctx.agentConversation && items.slice(pending.at).some(item => !isSubagentChild(item))
-              ? { steps: items.slice(pending.at).filter(item => !isSubagentChild(item)).length } : {}),
-          });
-          if (pendingExpanded) emitOps(planRows(outsideProcess(items.slice(pending.at))), turn.id, pendingFolds);
-        }
+        processItem({ kind: 'turn-process', ...pending.header, turnId: turn.id,
+          ...(pending.at < items.length ? { withBody: true } : {}) });
+        emitOps(planRows(outsideProcess(items.slice(pending.at))), turn.id);
       } else {
         emitOps(planRows(outsideProcess(items)), turn.id);
       }
@@ -618,13 +647,15 @@ export function makeUnitsView(committed: RenderUnit[], active: RenderUnit[]): Un
  */
 export function collectUserTurnUnits(
   turns: readonly TranscriptTurn[],
-  units: UnitsView
+  units: UnitsView,
+  options: { delivered?: boolean } = {}
 ): number[] {
   const userItemIds = new Set<string>();
   for (const turn of turns) {
     for (const item of turn.items) {
       // 投递进来的通知不进这个集合 —— 这个集合就是「钉到顶端」的名单。
-      if (itemIsUser(item) && !isDeliveredFromAgent(item)) userItemIds.add(item.id);
+      // `delivered`:要的是「钉顶在哪儿让位」,投递进来的那条也算(对话布局里它是右侧的一个气泡)。
+      if (itemIsUser(item) && (options.delivered || !isDeliveredFromAgent(item))) userItemIds.add(item.id);
     }
   }
 

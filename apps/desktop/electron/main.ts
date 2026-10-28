@@ -262,6 +262,7 @@ import {
 } from './sessionpage/session-tui-host-start'
 import { resolveBootOwner, type BootOwnerAnswer } from './sessionpage/boot-owner'
 import { reconcileSessionpageAgents } from './sessionpage/sessionpage-agent-reaper'
+import { startSessionpageAgentArchivalSync } from './sessionpage/sessionpage-agent-archival'
 import { releaseDeletedOwnedAgent } from './sessionpage/owner-agent-deletion'
 import {
   createHostLocalSessionSource,
@@ -352,7 +353,7 @@ import {
   providerUsesSessionProcessConfig,
   setSessionIntegrationBridge,
   setSessionIntegrationSkillBridge,
-  setSessionBrowserBridge,
+  setBrowserUseApp,
   setSessionWebSearchBridge,
   setSessionExtensionBridge,
   setSessionLibraryMcpBridge,
@@ -368,11 +369,9 @@ import {
   type IntegrationMcpHost,
 } from './integration-mcp-bridge'
 import {
-  buildBrowserAgentBridge,
+  browserUseAppInstalled,
   closeSessionBrowserTools,
-  createBrowserAgentMcpHost,
   createBrowserAppProgram,
-  type BrowserAgentMcpHost,
 } from './browser-agent-mcp'
 import { createComputerUsePreview, installedComputerUseApps, type ComputerUsePreview } from './computer-use-program'
 import { sessionOf as computerSessionOf } from './device-actions/families/computer'
@@ -665,6 +664,8 @@ registerFileViewerMenus(app, () => currentHostCatalog().fileViewerMenu, (error) 
 // @@@gugu-tier - inlined at build time by vite (define in vite.config.mts), default 'production'.
 declare const __GUGU_TIER__: string
 declare const __GUGU_BUILD_DISTRIBUTION__: string
+// 给别的机器装哪条通道的 server,构建时按连的库定(vite.config.mts → scripts/build-env-preflight.mjs serverChannelForDb)。
+declare const __GUGU_SERVER_CHANNEL__: 'stable' | 'beta'
 
 // @@@home-unify - one account home shared by desktop, CLI, and runtime host. The DEFAULT instance's
 if (!process.env.GUGU_HOME) {
@@ -712,6 +713,7 @@ if (!process.env.GUGU_TIER) {
 // their {...process.env} spread. Unconditional (no `if (!...)` knob like GUGU_TIER): the reported
 // version is ground truth of the running binary — a stray shell var must not spoof the fleet inventory.
 process.env.GUGU_APP_VERSION = app.getVersion()
+process.env.GUGU_BUILD_DISTRIBUTION = __GUGU_BUILD_DISTRIBUTION__
 // ────────────────────────────────────────────────────────────────────────────
 
 const hasSingleInstanceLock = app.requestSingleInstanceLock()
@@ -822,30 +824,6 @@ async function integrationMcpServersFor(grantKey: string, subjectId: string): Pr
     return []
   }
 }
-let browserAgentMcpHost: BrowserAgentMcpHost | null = null
-
-function getBrowserAgentMcpHost(): BrowserAgentMcpHost {
-  return (browserAgentMcpHost ??= createBrowserAgentMcpHost(() => {
-    const emdash = loadEmdashBridge()
-    if (!emdash) throw new Error('the session page is unavailable, so there is no browser tab to drive')
-    return emdash.emdashAgentBrowser()
-  }, stableMcpPersistence('browser-mcp')))
-}
-
-/**
- * #7199 server 保留云浏览器工具;桌面浏览器经 Browser Use App 授权接入。
- * 取不到身份 / 会话页没起来就不带 —— 少一组工具 agent 照样能用,❌ 把会话拖死;但日志里看得见为什么没带。
- */
-async function browserMcpServersFor(session: { grantKey: string; sessionId: string; subjectId: string; personalAssistant?: true }): Promise<AcpMcpServer[]> {
-  if (!authProvider || !loadEmdashBridge()) return []
-  try {
-    const { userId } = await requireRuntimeAuth(authProvider, 'gugu browser MCP bridge')
-    return await buildBrowserAgentBridge(getBrowserAgentMcpHost(), session.grantKey, session.sessionId, userId, session.subjectId, session.personalAssistant)
-  } catch (error) {
-    createLogger('browser-agent-mcp').warn({ error: (error as Error).message }, 'browser tools skipped for this session')
-    return []
-  }
-}
 let extensionGatewayHost: ExtensionGatewayHost | null = null
 
 /** #6615 扩展网关:会话经它调 main 托管的扩展程序。 */
@@ -889,6 +867,8 @@ function getSessionpageLocalDelivery(): SessionpageLocalDeliveryRouter {
   // 各家原生认领者在自己的模块里自注册)—— 这里不再手拼每家一行。
   return (sessionpageLocalDelivery ??= new SessionpageLocalDeliveryRouter(sessionpageDeliveryTargets(), {
     waitUntilReady: () => sessionpageAgentRehydration,
+    archivalState: (sessionId) => loadEmdashBridge()?.emdashSessionArchivalState(sessionId) ?? null,
+    messageRefused: (sessionId, messageId, createdAt) => loadEmdashBridge()?.emdashSessionMessageRefused(sessionId, messageId, createdAt) ?? false,
     wakeSession: async (sessionId) => {
       if (isQuitting) throw new Error('session-page host is shutting down; cannot wake a session')
       const emdash = loadEmdashBridge()
@@ -2033,7 +2013,15 @@ function startDeviceRuntimeWhenRendererReady(): void {
       return []
     }),
   )
-  if (SERVER_MODE) setSessionBrowserBridge(browserMcpServersFor)
+  // #7199 浏览器只有 Browser Use App 一条路:会话开场读这台机器装没装它(Codex 的浏览器插件;server 上还有开场提示,见 setBrowserUseApp)。
+  setBrowserUseApp({
+    server: SERVER_MODE,
+    installed: () => {
+      const emdash = loadEmdashBridge()
+      if (!emdash) throw new Error('the session page is unavailable, so the installed Apps cannot be read')
+      return browserUseAppInstalled(emdash.emdashExtensionPrograms())
+    },
+  })
   deviceRuntimeHost ??= createDeviceRuntimeHostLoop({
     env: process.env,
     onRuntimeLeaseRenewed: () => { void assistantWorkDeliveryHost().kick() },
@@ -2305,7 +2293,7 @@ function drainProjectFiles() { void desktopFiles.drain().catch(error => createLo
 const nativeFiles = createNativeFileHost({ root: remoteFileTempRoot,
   owner: async () => (await desktopAuthProvider().getAuth())?.userId ?? null,
   alive: scope => !!webContents.fromId(scope) && !webContents.fromId(scope)!.isDestroyed(),
-  local: desktopFiles.providers.local, ssh: desktopFiles.providers.ssh, publish: (chat, file, actor, message) => desktopFiles.publish(chat, file, null, actor, undefined, message), publication: desktopFiles.publish.local,
+  local: desktopFiles.providers.local, ssh: desktopFiles.providers.ssh, publish: (chat, file, actor, message) => desktopFiles.publish(chat, file, null, actor, undefined, { message }), publication: desktopFiles.publish.local,
   openPath: path => shell.openPath(path), published: directory => trackRemoteFileDirectory(remoteFileOpenDirectories, directory),
 })
 registerNativeFileIpc(ipcMain, nativeFiles, error => createLogger('files').warn({ error: String(error) }, 'Native file operation failed'))
@@ -2685,7 +2673,8 @@ const updateFeed = updateFeedUrl(updateChannel)
 const updateFeedConfig = updateFeedOptions(updateChannel, process.platform)
 
 // #6264「从桌面用 SSH 一步装好」(设置 → 设备 → 添加一台机器)。server 模式没有窗口、也没人在界面上点,不挂。
-// 装哪条通道跟桌面自己走:Beta 桌面装 Beta 的 server,其余(含开发构建)装正式版。
+// 装哪条通道跟这台桌面连的库走:连生产库装正式版,别的库装 Beta(❌ 跟 tier 走:开发构建的 tier 也是 production)。
+const serverChannel = __GUGU_SERVER_CHANNEL__
 // #6264「别的机器上的编程只给用 SSH 装上的机器」:这台桌面上用 SSH 装上的机器(本机映射,不上云)。
 const sshMachineStore = SERVER_MODE ? null : createSshMachineStore(defaultSshMachinesFile(app.getPath('userData')))
 // 这台桌面到远程 SSH 机器的设备连接,一台机器一条:窗口(经 ssh-link-ipc)与主进程(agent 的 session_* 跨机器)共用。
@@ -2766,7 +2755,7 @@ if (sshMachineStore) {
     }),
     log: (message, fields) => createLogger('server/ssh-link').info(fields ?? {}, message),
     // 那台机器的 server 太旧、连不上:当场替它升级(与添加时装同一条通道);#6264 换成和这台桌面(按设备 id 报)匹配的那一版。
-    upgradeChannel: updateChannel === 'beta' ? 'beta' : 'stable',
+    upgradeChannel: serverChannel,
     published: parseBuildDistribution(__GUGU_BUILD_DISTRIBUTION__) === 'published',
     desktopId: async () => (await getLocalDeviceSelfSnapshot())?.device_id ?? null,
     ...(tunnelMachines ? { tunnels: tunnelMachines } : {}),
@@ -2780,7 +2769,7 @@ if (!SERVER_MODE && sshMachineStore) {
   registerServerSshInstallIpc({
     getWindow: () => mainWindow,
     getAuth: () => desktopAuthProvider().getAuth(),
-    channel: updateChannel === 'beta' ? 'beta' : 'stable',
+    channel: serverChannel,
     rememberMachine: (machine) => sshMachineStore.remember(machine),
     keyDir: guguKeyDir(app.getPath('userData')),
     sharedControlPath: terminalControlPath,
@@ -4826,9 +4815,10 @@ app.whenReady().then(async () => {
       // 不在流里的由调用方去问云端 presence。
       if (record.action === 'agent-status') {
         const ids = Array.isArray(record.agentUserIds) ? record.agentUserIds.filter((id): id is string => typeof id === 'string') : []
-        return ids.flatMap((agentUserId) => {
+        return ids.flatMap<{ agentUserId: string; status: string | null; detail: string | null }>((agentUserId) => {
           const entry = agentStatusFeed.get(agentUserId)
-          return entry ? [{ agentUserId, status: entry.reading?.status ?? null, detail: entry.reading?.detail ?? null }] : []
+          const archived = getSessionpageLocalDelivery().sessionArchivalForAgent(agentUserId)?.archivedAt
+          return archived ? [{ agentUserId, status: 'archived', detail: null }] : entry ? [{ agentUserId, status: entry.reading?.status ?? null, detail: entry.reading?.detail ?? null }] : []
         })
       }
       if (record.action === 'message') return unifiedSessionMessage(auth, context, record, signal)
@@ -4897,7 +4887,7 @@ app.whenReady().then(async () => {
     // addressable BEFORE its session-page session reopens: a deliver to a mapped-but-not-live agent becomes
     // ordered local debt instead of silently passing through to a gugu-native engine spawn.
     // @@@sessionpage TASKPAGE-FUSION — deletion sync (spec ⑨「删除必同步」): reconcile the social-side
-    // projection against the session page, reaping agents whose conversation was archived/deleted and
+    // projection against the session page, reaping agents whose conversation was deleted and
     // archiving groups whose project is gone. Runs at boot (so removals made while gugu was closed still
     // converge) and on every session-page removal trigger. The reap itself is fail-loud/aggregated; here we only
     // log, because a failed reconcile must not take down the app — the next trigger retries it.
@@ -4907,6 +4897,8 @@ app.whenReady().then(async () => {
         ? { accessToken: auth.accessToken, refreshToken: auth.refreshToken ?? '', userId: auth.userId }
         : null
     }
+    app.once('will-quit', startSessionpageAgentArchivalSync({ getAuth: getSessionpageAuth, resolveDeviceId: localDeviceId,
+      inventory: () => emdash.emdashSessionpageInventory(), subscribe: (listener) => emdash.onEmdashSessionpageReapTrigger(listener) }))
     // @@@task-shell-port (#5012) 「给会话开账号」的口与网页版无头宿主共用(sessionpage-identity-host.ts);
     // 这里只喂它桌面版的四样:登录态、设备 id、项目名、会话事实。
     const sessionpageIdentityHost = createSessionpageIdentityHost({
@@ -5151,7 +5143,7 @@ app.whenReady().then(async () => {
     })
     const runSessionpageReap = (reason: string, info?: { deadSessionId?: string }): void => {
       void reconcileSessionpageAgents({
-        // 真拆(删除/归档)时会话页后端会点名那条会话:点名把「行还在路上、只看存活状态的对账摘不到」那个窗口关掉;
+        // 真删除时会话页后端才点名:归档会话与原身份仍在清单里,不会进入删除路径;
         // detach 不点名(会话还活着)。
         deadSessionIds: info?.deadSessionId ? [info.deadSessionId] : undefined,
         getAuth: getSessionpageAuth,
@@ -5290,7 +5282,7 @@ app.whenReady().then(async () => {
             socialBridgeDeps: {
               host: primaryGuguMcpHost,
               resolveFile: desktopFiles.resolve,
-              publishFile: (chat, file, actor, message) => desktopFiles.publish(chat, file, null, actor, undefined, message),
+              publishFile: (chat, file, actor, message, next) => desktopFiles.publish(chat, file, null, actor, undefined, { message, next }),
               // grant key 用**分叉自己**的会话 id:它必须是独立一格,否则会顶掉来源会话的 grant。
               grantKey: sessionpageSurfaceKey(info.sessionId),
               runHostAction: runAction,
@@ -5574,7 +5566,7 @@ app.whenReady().then(async () => {
           socialBridgeDeps: {
             host: primaryGuguMcpHost,
             resolveFile: desktopFiles.resolve,
-            publishFile: (chat, file, actor, message) => desktopFiles.publish(chat, file, null, actor, undefined, message),
+            publishFile: (chat, file, actor, message, next) => desktopFiles.publish(chat, file, null, actor, undefined, { message, next }),
             grantKey: sessionpageSurfaceKey(info.sessionId),
             ...(assistantRole ? { personalAssistant: true as const, assistantWork: {
               ...assistantWorkBinding(persistedSessionId, info.cwd, SERVER_MODE ? 'cloud' : 'computer', provisioned.guguAgentUserId),
@@ -6118,7 +6110,8 @@ app.whenReady().then(async () => {
         // #6387 扩展服务就绪之后,会话开场才读得到扩展带来的 MCP 程序与 skill;程序经扩展网关给会话(#6615)。
         const onProblem = (message: string) => createLogger('extension-session').error({ message }, 'extension contribution left out of the session')
         const programHost = { nodeExecutable: process.execPath, toolsRuntime: toolsRuntimePath(), linkPrefix: `${GUGU_LINK_SCHEME}://ext`, onProblem }
-        if (!SERVER_MODE) emdash.emdashExtensionPrograms().registerNative('browser-use', createBrowserAppProgram(() => emdash.emdashAgentBrowser()))
+        // 桌面是会话页的页签,server 是云浏览器(emdashAgentBrowser 在 server 上就是 cloudAgentBrowserBridge);装了 Browser Use 两边一样走 App。
+        emdash.emdashExtensionPrograms().registerNative('browser-use', createBrowserAppProgram(() => emdash.emdashAgentBrowser()))
         if (!SERVER_MODE) {
           // #7317 Computer Use 的「电脑」页签:看的是 agent 经设备动作做的每一步电脑控制;App 的程序只给它的页面 preview_state。
           const programs = emdash.emdashExtensionPrograms()
@@ -6337,7 +6330,7 @@ app.whenReady().then(async () => {
   // 结尾,系统按亮/暗/毛玻璃自己着色);Windows ICO / Linux PNG 各出黑白两套,按系统深浅色换。
   if (SERVER_MODE) {
     createLogger('server').info({ userData: app.getPath('userData'), signedInAs: serverAuth?.signedInUserId() ?? null }, '咕咕 server 已启动')
-    // 忙闲写给守护进程(server-supervisor.ts、server-account-converge.ts):有会话在干活、而且换版会打断它时才等空闲。
+    // 忙闲写给守护进程(server-supervisor.ts、server-account-converge.ts):有会话或集成授权会被换版打断时才等空闲。
     // tmux 里的终端会话不随账号进程重启断,不拦换版(busyForVersionSwitch)。
     const activityFile = join(app.getPath('userData'), 'activity.json')
     // #6264 同一份读数也是升级看门狗判「新版本站稳了没有」的依据(server-upgrade-guard.ts):带上自己的版本与起始时刻。
@@ -6356,6 +6349,7 @@ app.whenReady().then(async () => {
         createLogger('server').warn({ err: error }, '忙闲写不进去')
       }
     }
+    loadEmdashBridge()?.onSessionpageAuthorizationActivityChange?.(reportActivity)
     reportActivity()
     setInterval(reportActivity, 10_000).unref()
     return

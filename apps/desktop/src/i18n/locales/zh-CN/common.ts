@@ -37,6 +37,7 @@ export default {
     "idle": "空闲",
     "online": "在线",
     "offline": "不在线",
+    "archived": "已归档",
     "removed": "已移除",
     "pending": "确认中",
     "none": "状态不可用"

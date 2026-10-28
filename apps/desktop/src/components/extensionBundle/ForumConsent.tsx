@@ -84,12 +84,12 @@ export function ForumConsent() {
   const lines = ask.type === 'bounty'
     ? [
         ask.draft.title,
-        t('forum.consent.reward', { amount: ask.draft.amount }),
+        t('forum.consent.reward', { count: ask.draft.amount }),
         t('forum.consent.days', { count: ask.draft.days }),
         t(`forum.consent.visibility.${ask.draft.visibility}`),
       ]
-    : [ask.draft.title, ...ask.draft.awards.map((award) => t('forum.consent.awardLine', { name: award.to, amount: award.amount }))]
-  const body = ask.type === 'bounty' ? t('forum.consent.postBody', { amount: ask.draft.amount })
+    : [ask.draft.title, ...ask.draft.awards.map((award) => t('forum.consent.awardLine', { name: award.to, count: award.amount }))]
+  const body = ask.type === 'bounty' ? t('forum.consent.postBody', { count: ask.draft.amount })
     : ending ? t('forum.consent.endBody') : t('forum.consent.acceptBody')
   const confirmLabel = ask.type === 'bounty' ? t('forum.consent.postConfirm') : ending ? t('forum.consent.endConfirm') : t('forum.consent.acceptConfirm')
 

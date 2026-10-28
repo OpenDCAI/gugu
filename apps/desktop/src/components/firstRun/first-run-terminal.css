@@ -1,0 +1,11 @@
+/* 终端模式(规范 3):单栏居中 ≤ 560px;进度、标题、一句话、录屏、唯一的开关、底部按钮。 */
+.ta-onb.first-run-terminal-panel { width: min(560px, 100%); gap: 0; padding: 32px 32px 28px; border: 1px solid var(--border); border-radius: var(--radius-dialog); background: var(--card); box-shadow: none; backdrop-filter: none; }
+.first-run-terminal-panel .ta-onb-title { margin: 0; font-size: var(--font-heading); line-height: var(--lh-heading); color: var(--text-primary); }
+.first-run-terminal-panel .ta-onb-sub { margin-top: var(--spacing-sm); font-size: var(--font-body); line-height: var(--lh-body); }
+.first-run-terminal-film-frame { position: relative; width: 100%; margin: 24px 0 20px; }
+.first-run-terminal-film { display: block; width: 100%; aspect-ratio: 16 / 9; border: 1px solid var(--border); border-radius: var(--radius-surface); background: var(--muted); object-fit: cover; }
+img.first-run-terminal-film { margin: 24px 0 20px; }
+.first-run-terminal-film-toggle { position: absolute; right: 10px; bottom: 10px; background: var(--card); }
+.first-run-terminal-choice { display: flex; flex-direction: column; align-items: center; gap: var(--spacing-xs); width: 100%; margin-bottom: 24px; }
+.first-run-terminal-switch { display: flex; align-items: center; gap: var(--spacing-md); font-size: var(--font-body); line-height: var(--lh-body); color: var(--text-primary); cursor: pointer; }
+.first-run-terminal-later { font-size: var(--font-caption); line-height: var(--lh-caption); color: var(--text-tertiary); }

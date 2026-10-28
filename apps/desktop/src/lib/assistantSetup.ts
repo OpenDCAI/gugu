@@ -24,7 +24,8 @@ import {
   type ProvisionResumeRecord,
   type SingleProvisionDeps,
 } from './agentProvision'
-import { ASSISTANT_HOME_CHANNELS, type PrepareLocalHomeResult } from './assistantHomeIpc'
+import { ASSISTANT_HOME_CHANNELS } from './assistantHomeIpc'
+import { prepareLocalAssistantSetup } from './assistantSetupPreparation'
 import { provisionCloudComputer } from './cloudComputerStore'
 import { platformModelsEnabled } from '@gugu/core/cloud/optionalServices'
 import { contactsService } from './contacts'
@@ -117,16 +118,16 @@ function singleFlight(work: () => Promise<CreateAgentOnDeviceResult>): Promise<C
 }
 
 /** 非会员:装在这台电脑上(这台 = `localDeviceId`)。建好返回它是谁、和它的私聊。 */
-export function setUpAssistantOnThisComputer(draft: AssistantSetupDraft, localDeviceId: string): Promise<CreateAgentOnDeviceResult> {
-  return singleFlight(() => setUpHere(draft, localDeviceId))
+export function setUpAssistantOnThisComputer(draft: AssistantSetupDraft, localDeviceId: string, options: { signal?: AbortSignal; onInstalling?: () => void } = {}): Promise<CreateAgentOnDeviceResult> {
+  return singleFlight(() => setUpHere(draft, localDeviceId, options))
 }
 
-async function setUpHere(draft: AssistantSetupDraft, localDeviceId: string): Promise<CreateAgentOnDeviceResult> {
+async function setUpHere(draft: AssistantSetupDraft, localDeviceId: string, options: { signal?: AbortSignal; onInstalling?: () => void }): Promise<CreateAgentOnDeviceResult> {
   const ipc = desktopIpc()
   if (!ipc) throw new AssistantSetupError('not-desktop', 'only the desktop app can host the assistant')
   const clean = cleanDraft(draft)
   // 开通的是全新的一位:上一位留在这台电脑上的家先清掉(#7350,别处删掉的 / 关到一半的),❌ 带着上一位的记忆和性格。
-  const home = (await ipc.invoke(ASSISTANT_HOME_CHANNELS.prepare, { ownerProfile: clean.ownerProfile, fresh: true })) as PrepareLocalHomeResult
+  const home = await prepareLocalAssistantSetup(ipc, { ownerProfile: clean.ownerProfile, fresh: true }, options)
   const result = await provisionSingleAgent(
     localDeviceId,
     {

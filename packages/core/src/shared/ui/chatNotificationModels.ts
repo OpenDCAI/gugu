@@ -1,4 +1,4 @@
-import { chatDisplayName } from './chatModels'
+import { chatDisplayName, unreadForYou } from './chatModels'
 import type { ChatItem } from '../types/chat'
 
 export type ChatNotificationPayload = {
@@ -20,7 +20,9 @@ export function shouldNotifyForChat(
   if (!context.notificationsEnabled) return false
   if (next.is_muted) return false
   if (next.id === context.activeChatId) return false
-  return next.unread_count > 0 && next.unread_count > (previous?.unread_count ?? 0)
+  // 话题只在叫到你的那几条涨了才弹:agent 之间的往来不叫醒被自动拉进来的主人。
+  const count = unreadForYou(next)
+  return count > 0 && count > (previous ? unreadForYou(previous) : 0)
 }
 
 export function createChatNotificationPayload(chat: ChatItem): ChatNotificationPayload {

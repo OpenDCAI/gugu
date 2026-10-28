@@ -52,7 +52,7 @@ export function agentContactTone(status: AgentDisplayStatus): Pick<AgentContactP
 export function agentContactRowToneColorClass(tone: AgentContactTone): string {
   if (tone === 'working' || tone === 'parked') return 'bg-[var(--agent-tone-running)]'
   if (tone === 'idle') return 'bg-[var(--agent-tone-online)]'
-  if (tone === 'offline' || tone === 'pending') return 'bg-[var(--agent-tone-muted)]'
+  if (tone === 'offline' || tone === 'archived' || tone === 'pending') return 'bg-[var(--agent-tone-muted)]'
   if (tone === 'needs_user') return 'bg-[var(--agent-tone-needs-user)]'
   if (tone === 'error') return 'bg-[var(--agent-tone-error)]'
   return 'bg-[var(--agent-tone-removed)]'
@@ -60,7 +60,7 @@ export function agentContactRowToneColorClass(tone: AgentContactTone): string {
 
 export function agentContactRowStatusClass(tone: AgentContactTone | null): string {
   const base = 'gg-c-st-dot !mt-0.5 flex items-center gap-1 text-[length:var(--font-body)] text-[var(--faint-fg)]'
-  return tone === 'pending' || tone === 'offline' ? `${base} off` : base
+  return tone === 'pending' || tone === 'offline' || tone === 'archived' ? `${base} off` : base
 }
 
 export function agentContactRowDotClass(tone: AgentContactTone): string {
