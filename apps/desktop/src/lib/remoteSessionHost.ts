@@ -9,8 +9,9 @@
 import { unwrapPayload } from '@gugu/core/cloud/payload'
 import { desktopReportId, MIN_SERVER_PROTOCOL, REMOTE_PROTOCOL_VERSION } from '@gugu/core/cloud/serverMachineHealth'
 import type { DesktopHello } from '@gugu/core/cloud/serverDesktopVersions'
+import { DeviceRpcTimeoutError } from '@gugu/core/cloud/deviceRpcRequester'
 import { callDeviceRpc, subscribeDeviceRpcEvents } from './deviceRpc'
-import { desktopMatchVersion, isSshMachine, requestSshServerUpgrade, waitForTunnel } from './sshLinkChannel'
+import { desktopMatchVersion, isSshMachine, requestSshServerUpgrade, usesDeviceLink, waitForTunnel } from './sshLinkChannel'
 import { rendererLogger } from './log'
 import type { SessionHostPipe, SessionHostPipeOpener } from '../session/shared/lib/ipc/session-host-client'
 import {
@@ -42,11 +43,11 @@ export class SessionHostTooOldError extends Error {
 /** 开线 / 发帧的一次设备 RPC 等多久(咕咕云一来一回 + 那台机器处理)。 */
 const OPEN_TIMEOUT_MS = 15_000
 const FRAME_TIMEOUT_MS = 20_000
+const DEVICE_LINK_FRAME_ATTEMPTS = 3
 /**
  * 桌面连别的机器时,只装着心跳的那一批等应答多久(#156)。那台机器收下一批就当场回(不等处理,device-session-host 的
- * `taskhost.frame`),心跳又小:几秒没回 = 那台机器没了,断开让客户端重连,机器的状态随之变成「重新连接」。咕咕云上
- * 没回还会重新报到、原样再问一次(#7233),所以最长 2 × 这个数。❌ 按办事的那一批等 20 s(再加一次重问):死掉的机器要
- * 30 多秒才被发现。
+ * `taskhost.frame`),心跳又小:设备连接连着三次没确认才关窗口,期间补发同一 seq。咕咕云上没回还会重新报到、原样
+ * 再问一次(#7233),所以最长 2 × 这个数。真实 SSH 断线不等这些期限,当场失败在途请求。
  */
 export const HEARTBEAT_REPLY_TIMEOUT_MS = 4_000
 
@@ -67,6 +68,7 @@ export type DeviceRpcDeps = {
   /** 开窗口时报给那台机器的「这台桌面是哪一版」(那台咕咕 server 据此让这个账号跑匹配的版本);拿不到 = 不报。 */
   desktop?: () => Promise<DesktopHello | null>
   waitForTunnel?: (deviceId: string) => Promise<void>
+  usesDeviceLink?: (deviceId: string) => boolean
 }
 
 declare const __APP_VERSION__: string | undefined
@@ -116,6 +118,7 @@ const defaultDeps: DeviceRpcDeps = {
   requestUpgrade: (deviceId) => requestSshServerUpgrade(deviceId),
   desktop: thisDesktop,
   waitForTunnel,
+  usesDeviceLink,
 }
 
 /** 推送到手里时还套着广播外壳(`{ type: 'broadcast', payload: 信封 }`,SSH 设备连接与咕咕云同一个形状):先剥。 */
@@ -262,20 +265,30 @@ export function openRemoteSessionHostPipe(
       for (const pieces of toPieces(frames)) {
         const batch: SessionHostFrameBatch = { client, seq: outSeq++, frames: pieces }
         unanswered += 1
-        void deps.call(deviceId, SESSION_HOST_RPC.frame, batch, { timeoutMs }).then(
-          (reply) => {
+        void (async () => {
+          try {
+            for (let attempt = 1; !closed; attempt += 1) {
+              try {
+                const reply = await deps.call(deviceId, SESSION_HOST_RPC.frame, batch, { timeoutMs })
+                // 那台机器已经不认这条窗口(重启过 / 频道换过):断开,客户端会重开一条。
+                if (reply.error) shut(`frame rejected: ${reply.error.code} (client ${client})`)
+                else heard += 1
+                return
+              } catch (error) {
+                const deviceLink = deps.usesDeviceLink?.(deviceId) === true
+                // ACK 可能丢了:只补同一个 client/seq,宿主对已交付的 seq 回成功而不再执行。
+                // 不能跳过这批:后面的 seq 会一直等着缺口。普通业务 RPC 不在这里重放。
+                if (error instanceof DeviceRpcTimeoutError && deviceLink && attempt < DEVICE_LINK_FRAME_ATTEMPTS) continue
+                // 云端探活照旧:期间听到过那台机器就留到下一拍。设备连接补发仍无确认时不能丢掉这个 seq。
+                if (probe && !deviceLink && heard !== heardAtSend) return
+                shut(`frame not delivered: ${String(error)} (client ${client})`)
+                return
+              }
+            }
+          } finally {
             unanswered -= 1
-            // 那台机器已经不认这条窗口(重启过 / 频道换过):断开,客户端会重开一条。
-            if (reply.error) shut(`frame rejected: ${reply.error.code} (client ${client})`)
-            else heard += 1
-          },
-          (error: unknown) => {
-            unanswered -= 1
-            // 探活那一问没回,可这期间听到过那台机器(推来的帧、别的批的应答):它还在,下一拍再问。
-            if (probe && heard !== heardAtSend) return
-            shut(`frame not delivered: ${String(error)} (client ${client})`)
-          },
-        )
+          }
+        })()
       }
     }
     const pipe: SessionHostPipe = {

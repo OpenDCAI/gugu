@@ -180,7 +180,7 @@ describe('the IM chat list in the master\'s roles (#7333)', () => {
       { chat: { activeChatId: 'grp-1', openUnreadChat,
         chats: chats.map((row) => row.id === 'grp-1' ? { ...row, unread_count: 1,
           unread_locator: { stream_id: 'main:grp-1', stream_kind: 'main', thread_root_id: null,
-            message_id: 'unread-target', message_seq: 1, unread_count: 1, cursor_seq: 0,
+            message_id: 'unread-target', message_seq: 1, unread_count: 1, addressed_count: 1, cursor_seq: 0,
             version: 0, is_marked_unread: true } } : row),
         identitiesById: { 'peer-lin': displayIdentity('peer-lin', { display_name: '林知夏' }) },
       } },

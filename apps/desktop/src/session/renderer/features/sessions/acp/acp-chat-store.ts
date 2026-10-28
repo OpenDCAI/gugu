@@ -34,7 +34,7 @@ import { findToolItem } from '@gugu/session-core/session-record/tool-image';
 import { toolImageUrl } from '@gugu/session-core/acp/client';
 import { commandToken } from '@gugu/session-core/acp/commands';
 import { permissionWaitKind } from '@gugu/session-core/acp/models/permissions';
-import type { LiveSettingResult, PermissionWaitKind } from '@gugu/session-core/acp';
+import type { AgentState, LiveSettingResult, PermissionWaitKind } from '@gugu/session-core/acp';
 import { errorDetail } from '@gugu/session-shared';
 import type { BlobSource } from '@gugu/session-wire';
 import { action, computed, makeObservable, observable, runInAction, toJS } from 'mobx';
@@ -160,6 +160,11 @@ export class AcpChatStore {
    * 只由挂着的活会话的 sessionState 写 —— 读它走 `runningBackgroundTaskIds`。
    */
   private _runtimeBackgroundTaskIds: readonly string[] | null = [];
+  /**
+   * 运行时登记册里还在跑的子智能体(`toolCallId` 与派它那次调用的 `agentToolUseId` 都算)。
+   * 库里读出来的旧轮可能是上一个进程派的,随进程没了、永远等不来完成通知 —— 后台列表只留这里有的(与后台命令同一条,#6582)。
+   */
+  private _runtimeLiveSubagentIds: readonly string[] = [];
 
   private _view: ChatView | null = null;
   private _bootstrapped = false;
@@ -292,12 +297,14 @@ export class AcpChatStore {
       this.commands.map((command) => command.name)
     );
 
-    makeObservable<this, '_bootstrapped' | '_bootstrapsInFlight' | '_runtimeBackgroundTaskIds' | '_startupQueued' | '_startupRunningId'>(this, {
+    makeObservable<this, '_bootstrapped' | '_bootstrapsInFlight' | '_runtimeBackgroundTaskIds' | '_runtimeLiveSubagentIds' | '_startupQueued' | '_startupRunningId'>(this, {
       _bootstrapped: observable,
       _startupQueued: observable.ref,
       _startupRunningId: observable,
       _runtimeBackgroundTaskIds: observable.ref,
       runningBackgroundTaskIds: computed,
+      _runtimeLiveSubagentIds: observable.ref,
+      liveSubagentIds: computed,
       session: observable.ref,
       pendingPermissionMode: observable.ref,
       historyLoading: observable,
@@ -572,6 +579,19 @@ export class AcpChatStore {
    */
   get runningBackgroundTaskIds(): readonly string[] | null {
     return this.session ? this._runtimeBackgroundTaskIds : [];
+  }
+
+  /** 没挂着活会话 = 一个都不在跑。 */
+  get liveSubagentIds(): readonly string[] {
+    return this.session ? this._runtimeLiveSubagentIds : [];
+  }
+
+  private _syncLiveSubagentIds(agents: readonly AgentState[]): void {
+    const next = agents
+      .filter((agent) => agent.status === 'running')
+      .flatMap((agent) => (agent.agentToolUseId ? [agent.toolCallId, agent.agentToolUseId] : [agent.toolCallId]));
+    const previous = this._runtimeLiveSubagentIds;
+    if (next.length !== previous.length || next.some((id, index) => id !== previous[index])) this._runtimeLiveSubagentIds = next;
   }
 
   private _syncRuntimeBackgroundTaskIds(state: Parameters<typeof runningBackgroundTaskIds>[0]): void {
@@ -2043,13 +2063,17 @@ export class AcpChatStore {
       } finally { refreshingChildren = false; }
     };
     this._unsubs.push(() => { unsubscribed = true; }, session.agents.onChange((agents) => {
+      runInAction(() => this._syncLiveSubagentIds(agents));
       if (agents.some((agent) => agent.subagentSessionId && agent.launchTurnId !== session.activeTurn.current()?.id)) {
         void refreshChildHistory();
       }
     }));
     this._lastQueuedPrompts = [...initialState.queuedPrompts];
     this._lastActiveTurnId = initialState.activeTurnId;
-    runInAction(() => this._syncRuntimeBackgroundTaskIds(initialState));
+    runInAction(() => {
+      this._syncRuntimeBackgroundTaskIds(initialState);
+      this._syncLiveSubagentIds(session.agents.current());
+    });
     const disconnectChatSession = connectSession(
       this.chatState,
       {
