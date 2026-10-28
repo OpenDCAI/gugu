@@ -67,7 +67,7 @@ rl.on('line', (line) => {
       plan(THREAD, [{ step: 'Read', status: 'completed' }, { step: 'Check', status: 'inProgress' }, { step: 'Report', status: 'pending' }])
       plan(THREAD, [{ step: 'Read', status: 'completed' }, { step: 'Check', status: 'completed' }, { step: 'Report', status: 'completed' }])
       plan(THREAD, [])
-      out({ method: 'item/plan/delta', params: { threadId: THREAD, turnId, delta: 'Plan-mode prose' } })
+      out({ method: 'item/plan/delta', params: { threadId: THREAD, turnId, itemId: 'plan-prose', delta: 'Plan-mode prose' } })
     }
     const tool = text.includes('LEGACY_REPLY') ? 'message_send' : text.includes('LEGACY_READ') ? 'message_conversations' : null
     if (!tool) return out({ method: 'turn/completed', params: { threadId: THREAD, turn: { id: turnId, status: 'completed' } } })
@@ -185,7 +185,7 @@ describe('问题 12 codex ACP bridge: gugu tools reach new threads through MCP o
   it('a resumed thread also enables the native checklist tool', async () => {
     const rig = start()
     const sessionId = await open(rig, [GUGU_SERVER])
-    await rig.reply(rig.send('session/load', { sessionId, cwd: dir, mcpServers: [GUGU_SERVER] }), 'session/load')
+    await rig.reply(rig.send('session/resume', { sessionId, cwd: dir, mcpServers: [GUGU_SERVER] }), 'session/resume')
     expect(rig.records().find((r) => r.method === 'thread/resume')?.params?.config)
       .toHaveProperty(['tools.update_plan.enabled'], true)
   })
@@ -204,7 +204,7 @@ describe('问题 12 codex ACP bridge: gugu tools reach new threads through MCP o
       { sessionUpdate: 'plan', entries: [] },
     ])
     expect(rig.updates).toContainEqual({
-      sessionUpdate: 'agent_thought_chunk', content: { type: 'text', text: 'Plan-mode prose' },
+      sessionUpdate: 'agent_thought_chunk', messageId: 'plan-prose', content: { type: 'text', text: 'Plan-mode prose' },
     })
   })
 
