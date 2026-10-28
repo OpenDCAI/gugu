@@ -19,6 +19,13 @@ export type ReplicaStateOptions<T> = {
   logger?: Logger;
 };
 
+/**
+ * 重连后重取快照失败时的退避(ms),到最后一档就一直用它,直到取到或上游说没有这份实例(NOT_FOUND)。
+ * 2026-10-28:远程看的那一端来回重连,重连后那一次快照失败了,副本停在断开前的 working 上;会话只剩后台命令、
+ * 再没有更新进来触发 resync ⇒ 输入框一直「排队」。
+ */
+const REFRESH_RETRY_MS = [250, 500, 1_000, 2_000, 5_000];
+
 type ReplicaStateChange<T> = {
   value: T;
   meta: LiveChangeMeta;
@@ -39,6 +46,8 @@ export class ReplicaState<T> implements LiveSource {
   private localSequence = 0;
   private upstreamBase: LiveCursor | undefined;
   private disposed = false;
+  private refreshRetry: ReturnType<typeof setTimeout> | null = null;
+  private refreshAttempt = 0;
 
   constructor(
     private readonly handle: LiveClientHandle<T>,
@@ -59,11 +68,7 @@ export class ReplicaState<T> implements LiveSource {
     );
     this.detachPromise = handle.attach((update) => this.applyUpdate(update), {
       // 重取时 NOT_FOUND = 上游此刻没有这份实例(拆了 / 进程重启过,#7327):告诉持有者;副本照旧挂着(@@@follow-key)。
-      onReattach: () =>
-        void this.refresh().catch((error: unknown) => {
-          if ((error as WireError | null)?.code === 'NOT_FOUND') this.goneEmitter.emit(error as WireError);
-          else (deps.logger ?? log).warn('wire replica refresh failed', { topic: handle.topic, error: String(error) });
-        }),
+      onReattach: () => this.refreshAfterReattach(),
       // 重连被拒且不会再好(非 keyed 主题),连接删掉这条 attach:❌ 不吭声。可重试的(DISCONNECTED)由连接自己重试。
       onReattachError: (error, { retrying }) => {
         if (!retrying) this.goneEmitter.emit(error);
@@ -157,12 +162,54 @@ export class ReplicaState<T> implements LiveSource {
   async dispose(): Promise<void> {
     if (this.disposed) return;
     this.disposed = true;
+    this.clearRefreshRetry();
     this.waiters.rejectAll(new Error('ReplicaState disposed'));
     this.localWaiters.rejectAll(new Error('ReplicaState disposed'));
     this.emitter.clear();
     this.changeEmitter.clear();
     this.goneEmitter.clear();
     await detachSettled(this.detachPromise);
+  }
+
+  /** 重连了:重取一次;取不到就按退避再取,❌ 只打一条 warn 就停在旧值上。又一次重连从头来。 */
+  private refreshAfterReattach(): void {
+    this.clearRefreshRetry();
+    this.refreshAttempt = 0;
+    this.tryRefresh();
+  }
+
+  private tryRefresh(): void {
+    if (this.disposed) return;
+    this.refresh().then(
+      () => {
+        this.refreshAttempt = 0;
+      },
+      (error: unknown) => {
+        if (this.disposed) return;
+        if ((error as WireError | null)?.code === 'NOT_FOUND') {
+          this.goneEmitter.emit(error as WireError);
+          return;
+        }
+        const delay = REFRESH_RETRY_MS[Math.min(this.refreshAttempt, REFRESH_RETRY_MS.length - 1)]!;
+        (this.deps.logger ?? log).warn('wire replica refresh failed', {
+          topic: this.handle.topic,
+          attempt: this.refreshAttempt + 1,
+          retryInMs: delay,
+          error: String(error),
+        });
+        this.refreshAttempt += 1;
+        this.clearRefreshRetry();
+        this.refreshRetry = setTimeout(() => {
+          this.refreshRetry = null;
+          this.tryRefresh();
+        }, delay);
+      }
+    );
+  }
+
+  private clearRefreshRetry(): void {
+    if (this.refreshRetry) clearTimeout(this.refreshRetry);
+    this.refreshRetry = null;
   }
 
   private handleSeeded(): void {
