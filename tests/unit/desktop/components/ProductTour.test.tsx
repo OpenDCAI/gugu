@@ -12,7 +12,7 @@ vi.mock('../../../../apps/desktop/src/lib/supabase', () => ({ identityDb: {} }))
 vi.mock('../../../../apps/desktop/src/components/ui/Popover', () => ({
   Popover: { Arrow: () => createNode('i', { 'data-testid': 'tour-arrow' }), Root: ({ children }: { children: unknown }) => children, Portal: ({ children }: { children: unknown }) => children,
     Positioner: ({ children }: { children: unknown }) => children,
-    Popup: ({ children, ...props }: { children: unknown; 'data-testid'?: string; role?: string }) => createNode('section', { 'data-testid': props['data-testid'], role: props.role }, children as never) },
+    Popup: ({ children, ...props }: { children: unknown; 'data-testid'?: string; role?: string; ref?: import('react').Ref<HTMLElement> }) => createNode('section', { ref: props.ref, tabIndex: -1, 'data-testid': props['data-testid'], role: props.role }, children as never) },
 }))
 const { ProductTour } = await import('../../../../apps/desktop/src/components/productTour/ProductTour')
 const { availableTourSteps } = await import('../../../../apps/desktop/src/components/productTour/tourTargets')
@@ -104,6 +104,18 @@ describe('feature-bar coach marks (onboarding spec §2)', () => {
       await key('Escape')
       expect(h.done).toHaveBeenCalledOnce()
       expect(io.save).toHaveBeenLastCalledWith('owner-1', { step: 'tasks', status: 'skipped' })
+    } finally { h.cleanup() }
+  })
+  it('returns keyboard focus to the card after advancing from an activated ordinary target', async () => {
+    const h = await mount()
+    try {
+      const target = rail.querySelector<HTMLElement>('[data-rail="assistant"]')!
+      await clickElement(target)
+      target.focus()
+      expect(h.card().textContent).toContain('1 / 7')
+      await key('ArrowRight')
+      expect(h.card().textContent).toContain('2 / 7')
+      expect(document.activeElement).toBe(h.button('next'))
     } finally { h.cleanup() }
   })
   it('ignores clicks on the dimmed area', async () => {

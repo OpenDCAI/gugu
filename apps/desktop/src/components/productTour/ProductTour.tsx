@@ -1,7 +1,7 @@
 import { messageForUser } from '@/lib/userFacingError';
 import './catalog'
 import './product-tour.css'
-import { useEffect, useRef, useState } from 'react'
+import { useEffect, useLayoutEffect, useRef, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import { saveProductTourState, useRememberProductTourState, type ProductTourState, type TourStepId } from '../../lib/productTour'
 import { rendererLogger } from '../../lib/log'
@@ -51,6 +51,12 @@ export function ProductTour({ userId, steps, start, onDone }: {
   const step = steps[index]
   const { target, rect } = useTourTarget(step)
   const last = index === steps.length - 1
+
+  // 普通目标照常能点;之后键盘换步时,焦点回新卡片,不留在刚才的功能入口。
+  useLayoutEffect(() => {
+    const popup = card.current
+    if (popup) (popup.querySelector<HTMLElement>('[data-primary]') ?? popup).focus({ preventScroll: true })
+  }, [step, target?.element])
 
   // 进度先在界面上走,再串行存到账号:存是为了换设备接着看,❌ 锁住下一步。
   const persist = (state: ProductTourState) => {
