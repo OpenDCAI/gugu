@@ -62,7 +62,7 @@ export function AssistantMoveDialog() {
             <p>{t('move.confirmItems')}</p>
             {phase.direction === 'to-cloud' ? <p className="text-[var(--muted-fg)]">{t('move.confirmCloudModel')}</p> : null}
             <p className="text-[var(--muted-fg)]">
-              {t('move.confirmSize', { files: phase.preview.files, size: formatSize(phase.preview.bytes) })}
+              {t('move.confirmSize', { count: phase.preview.files, size: formatSize(phase.preview.bytes) })}
             </p>
             {phase.preview.accounts.unsupported ? (
               <p className="text-[var(--muted-fg)]" data-testid="assistant-move-accounts-unsupported-note">{t('move.confirmAccountsUnsupported')}</p>

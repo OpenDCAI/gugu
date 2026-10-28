@@ -151,7 +151,7 @@ function Summary({ data, usage, current, previous, preset }: {
   // Token 分两格:走咕咕模型(扣积分)的与走自己账号(BYOK)的。说不清来源的那部分(来源记录出现之前的会话)
   // 不塞进任何一格,只在悬停里说出来,❌ 猜一边。
   const unknown = now ? Math.max(0, now.tokens - now.guguTokens - now.byokTokens) : 0
-  const detail = now && unknown > 0 ? t('usage.tiles.tokensUnknown', { value: compact(unknown) }) : undefined
+  const detail = now && unknown > 0 ? t('usage.tiles.tokensUnknown', { value: compact(unknown), count: unknown }) : undefined
   return (
     <div className="gg-usage-tiles">
       {tile('sessions', t('usage.tiles.sessions'), now ? plain(now.sessions) : null, change(now?.sessions ?? 0, prev?.sessions ?? null), failed)}
@@ -197,13 +197,13 @@ function Activity({ usageState, today, metric, onMetric, range }: {
   const comparison = tokenComparison(totals.tokens, resolvedLocale.startsWith('zh') ? 'zh' : 'en', today)
   const formatValue = (count: number) => metric === 'sessions'
     ? t('usage.units.sessions', { count, value: plain(count) })
-    : t('usage.units.tokens', { value: compact(count) })
+    : t('usage.units.tokens', { count, value: compact(count) })
   return (
     <>
       <div className="gg-usage-card">
         <div className="gg-usage-heat-head">
           <span className="gg-usage-muted" data-testid="usage-streaks">
-            {!settled ? '' : active.size === 0 ? t('usage.emptyHeat') : t('usage.streaks', { current, longest, active: active.size })}
+            {!settled ? '' : active.size === 0 ? t('usage.emptyHeat') : t('usage.streaks', { current, longest, count: active.size })}
           </span>
           <SegmentedTabs
             ariaLabel={t('usage.metric')}
@@ -224,7 +224,7 @@ function Activity({ usageState, today, metric, onMetric, range }: {
       </div>
       {comparison && (
         <div className="gg-usage-quip" data-testid="usage-quip">
-          {t('usage.quip', { tokens: compact(totals.tokens), book: t(`usage.books.${comparison.key}`), times: plain(comparison.times) })}
+          {t('usage.quip', { tokens: compact(totals.tokens), book: t(`usage.books.${comparison.key}`), times: plain(comparison.times), count: comparison.times })}
         </div>
       )}
     </>
