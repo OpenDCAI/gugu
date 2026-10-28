@@ -21,6 +21,7 @@ import { PALETTE_ITEM_CLASS } from './palette-item-styles';
 import { PaletteProjectsGroup } from './palette-projects-group';
 import { PaletteChatGroups } from './palette-chats';
 import { PaletteSessionItem } from './palette-session-item';
+import { rankPaletteMatches } from './palette-rank';
 
 interface CommandPaletteProps {
   initialQuery?: string;
@@ -47,7 +48,7 @@ function Palette({ initialQuery = '', onClose }: CommandPaletteProps & BaseModal
     enabled: !commandsMode,
     staleTime: 5_000,
   });
-  const commands = useObserver(() => commandRegistry.activeCommands
+  const commands = useObserver(() => rankPaletteMatches(commandRegistry.activeCommands
     .filter((command, index, all) => command.enabled !== false && !command.hideFromPalette
       && all.findIndex((other) => other.id === command.id) === index)
     .map((command) => {
@@ -61,10 +62,11 @@ function Palette({ initialQuery = '', onClose }: CommandPaletteProps & BaseModal
       return { command, title, description: command.description ?? def?.description ?? '',
         icon: def ? getCommandIcon(def.iconKey) : undefined, hotkey: hostId ? getEffectiveHotkey(hostId, keyboard) : null };
     })
-    .filter(({ title, description }) => [title, description]
-      .some((text) => text.toLocaleLowerCase().includes(search.toLocaleLowerCase()))));
-  const tasks = results.filter((item) => item.kind === 'session');
-  const projects = results.filter((item) => item.kind === 'project');
+    , search, ({ title, description }) => [title, description]));
+  // 本机索引负责召回(短查询的 LIKE 没有分数);排序与 @ 选人同一套,同分保留索引给的顺序。
+  const ranked = rankPaletteMatches(results, search, (item) => [item.title], { recallOnly: true });
+  const tasks = ranked.filter((item) => item.kind === 'session');
+  const projects = ranked.filter((item) => item.kind === 'project');
 
   return (
     <Command className="flex flex-col overflow-hidden" shouldFilter={false} loop>
