@@ -157,7 +157,7 @@ describe('background tasks at the end of the transcript', () => {
     expect(row(host)?.textContent).toContain('Background · 1 subagent')
   })
 
-  // owner 2026-10-27 原型:末尾那条回复带着过程行时,后台那一句与「思考执行中」同一行,单子就地展开在它下面。
+  // owner 2026-10-27 原型:末尾那条回复带着过程行时,后台那一句与「执行中」同一行,单子就地展开在它下面。
   it('hangs on a live process line that has no reply yet, across the steps under it', async () => {
     const { state, host } = mount({}, true)
     state.transcript.activeTurn.set({
@@ -169,7 +169,7 @@ describe('background tasks at the end of the transcript', () => {
       ]
     } as unknown as TranscriptTurn)
     state.session.setBackgroundTasks({ commands: [command], subagents: [agent()] })
-    // owner 0 号图:「思考执行中 · … · N 步 ⌄ | 后台 · … ›」同一行,❌ 单独一行排在步骤下面。
+    // owner 0 号图:「执行中 · … · N 步 ⌄ | 后台 · … ›」同一行,❌ 单独一行排在步骤下面。
     const pill = () => host.querySelector<HTMLElement>('[data-slot="turn-process"] [data-slot="background-tasks-pill"]')
     await until('the background pill sits on the live process line', () => pill() !== null)
     expect(row(host)).toBeNull()
@@ -288,6 +288,28 @@ describe('background tasks at the end of the transcript', () => {
     expect(panel()).not.toBeNull()
     panel()!.dispatchEvent(new MouseEvent('mouseleave'))
     await until('the panel closes after leaving it', () => panel() === null)
+  })
+
+  // 新一步开始时完成数不变:名单的「没变」判据只看完成数的话,这一步就进不了时间线(mac1 2026-10-28 实测)。
+  it('shows a step that just started even though the completed count did not change', async () => {
+    const { state, host } = mount()
+    const startedAt = Date.now() - 30_000
+    const done = { toolCallId: 'c1', title: 'Read a.ts', status: 'done' as const, seq: 0 }
+    state.transcript.history.seed([settled])
+    state.session.setBackgroundTasks({ commands: [], subagents: [agent({ startedAt, completedSteps: 1, calls: [done] })] })
+    await until('the background line is on screen', () => row(host) !== null)
+    host.querySelector<HTMLElement>('[data-collapse-id="background-tasks:open"]')?.click()
+    await until('the list opens', () => items(host).length === 1)
+    items(host)[0].dispatchEvent(new MouseEvent('mouseenter'))
+    const steps = () => [...document.querySelectorAll<HTMLElement>('[data-slot="subagent-hover-panel"] [data-slot="subagent-timeline-step"]')]
+    await until('the panel opens', () => steps().length === 1)
+
+    state.session.setBackgroundTasks({
+      commands: [],
+      subagents: [agent({ startedAt, completedSteps: 1, calls: [done, { toolCallId: 'c2', title: 'Run pnpm test', status: 'running', seq: 1 }] })]
+    })
+    await until('the running step shows', () => steps().length === 2)
+    expect(steps()[1].dataset.status).toBe('running')
   })
 
   it('says so when the subagent has no steps yet', async () => {

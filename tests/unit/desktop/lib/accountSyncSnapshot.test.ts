@@ -28,7 +28,7 @@ function populatedSnapshot() {
     identities: [identity, { ...identity, id: 'peer', display_name: 'Remote peer' }],
     previews: [{ chat_id: 'chat-1', id: 'remote-message', created_at: at, preview: 'Remote text', seq: 3, content_type: 'text', sender_user_id: 'peer', client_message_id: 'remote-message' }],
     unread: [{ chat_id: 'chat-1', stream_id: 'main:chat-1', stream_kind: 'main', thread_root_id: null,
-      message_id: 'remote-message', message_seq: 3, unread_count: 2, cursor_seq: 1, version: 2, is_marked_unread: false }],
+      message_id: 'remote-message', message_seq: 3, unread_count: 2, addressed_count: 0, cursor_seq: 1, version: 2, is_marked_unread: false }],
   }
 }
 const pending: OutboxRecord = { clientMessageId: 'unsent', chatId: 'chat-1', senderUserId: 'account-a',

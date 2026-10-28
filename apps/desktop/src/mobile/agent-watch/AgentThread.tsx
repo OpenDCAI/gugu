@@ -289,7 +289,7 @@ export function AgentThread({
     () => [
       ...toThreadMessages(timeline.turns, {
         // 发给手机的那一份裁过长输出(transport-trim);裁了就要说,❌ 不让人以为输出到此为止。
-        trimmedNote: (chars) => t('agentWatch.timeline.outputTrimmed', { chars }),
+        trimmedNote: (chars) => t('agentWatch.timeline.outputTrimmed', { count: chars }),
         // 最后一轮还没结算 = 在跑(等审批 / 提问也算):它的过程头在数秒、默认摊开,不挂附件卡(同桌面的活动层)。
         liveTurnId: unsettledLastTurnId(timeline.turns),
         settlements: timeline.settlements,

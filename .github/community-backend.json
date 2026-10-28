@@ -1,5 +1,5 @@
 {
   "repository": "OpenDCAI/gugu-supabase",
-  "ref": "153a0f48ef25ec1e162e90fc35b0a77049bb486b",
-  "status": "Device revisions tagged with what changed (row / projects), readable wake rows, per-owner project file storage policy, and document import with dry run, merged in OpenDCAI/gugu-supabase#63, #64, #65 and #66."
+  "ref": "e7918c4cd8b20816bae382aa1dddbe91d72dd54a",
+  "status": "list_unread_locators returns addressed_count (unread messages that name you, @all, or reply to you), merged in OpenDCAI/gugu-supabase#73."
 }

@@ -84,7 +84,11 @@ export default {
   },
   "createGroup": {
     "invitesSent": "Group created; {{count}} invitations are awaiting acceptance.",
+    "invitesSent_one": "Group created; {{count}} invitation is awaiting acceptance.",
+    "invitesSent_other": "Group created; {{count}} invitations are awaiting acceptance.",
     "invitesFailed": "Group created, but {{count}} invitations failed. Retry them from the group members panel.",
+    "invitesFailed_one": "Group created, but {{count}} invitation failed. Retry it from the group members panel.",
+    "invitesFailed_other": "Group created, but {{count}} invitations failed. Retry them from the group members panel.",
     "create": "Create group chat",
     "createWithCount": "Create group chat · {{count}} members",
     "createWithCount_one": "Create group chat · {{count}} member",
