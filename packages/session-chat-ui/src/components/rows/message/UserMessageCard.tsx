@@ -27,7 +27,7 @@ import { isDoubleColumnLayout } from '@session-chat/core/layout/preset';
 import { srOnly } from './message.css';
 import { useChatTranslator } from '@session-chat/localization';
 import { UserMessageActions } from './UserMessageActions';
-import { CONVERSATION_EXPAND_H, hasConversationBody } from './conversation-body';
+import { CONVERSATION_EXPAND_H, hasConversationActions } from './conversation-body';
 import { UserMessageEditor } from './UserMessageEditor';
 import { messageEditorMetrics } from './message-editor-metrics';
 import {
@@ -241,7 +241,7 @@ export function UserMessageCard(props: { data: ChatMessage; ctx: RenderCtx; vars
         <button type="button" class={userMessageExpand} data-expand-user-card={props.data.id}>{translate('transcript.showFullText')}</button>
       </div>
     </Show>
-    <Show when={!props.conversation || hasConversationBody(props.data)}>
+    <Show when={!props.conversation || hasConversationActions(props.data)}>
     <UserMessageActions itemId={props.data.id} text={props.data.text} at={props.data.at}
       generating={isGenerating()} readOnly={Boolean(props.data.guguDelivery) || (props.conversation && props.data.role === 'assistant')} vars={props.vars} />
     </Show>
