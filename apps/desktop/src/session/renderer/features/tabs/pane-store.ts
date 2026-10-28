@@ -17,6 +17,7 @@ import {
   type TabReturnTo,
 } from '@shared/view-state';
 import type { TabHost } from './core/tab-host';
+import { tabFullscreen } from './tab-fullscreen';
 import type {
   TabEntry,
   TabHandle,
@@ -914,15 +915,13 @@ export class PaneStore<R extends TabRegistry = TabRegistry>
     return this.inSplitLayout && this.pairSplitBlocked(tabId, 'right') === null;
   }
 
-  tabFill(tabId: string): { full: boolean; toggle: () => void } | null {
-    const anchor = this._layoutSplitter?.pairAnchorTab?.() ?? null;
-    if (!anchor || tabId === anchor) return null;
+  tabFill(tabId: string, multiBlock = false): { full: boolean; toggle: () => void } | null {
+    const full = tabFullscreen.isOn(this, tabId);
     const pair = this.livePair;
-    if (pair && this.pairShown && (tabId === pair.anchor || tabId === pair.side)) {
-      return { full: false, toggle: () => runInAction(() => { this.separatePair(); this._focus(tabId); }) };
-    }
-    if (!this.splitDeclined || this.resolvedActiveTabId !== tabId || !this._canPair(anchor, tabId) || !roomForTwo(this.dimensions, false)) return null;
-    return { full: true, toggle: () => runInAction(() => { this.splitDeclined = false; this.pairWith(anchor, tabId); this._focus(tabId); }) };
+    // 只有一块时,对话那一枚(并排的锚)照旧没有这颗钮:全屏它只等于把旁边那页藏起来。
+    const paired = !!pair && this.pairShown && tabId === pair.side;
+    if (!full && !paired && !multiBlock) return null;
+    return { full, toggle: () => runInAction(() => { this._focus(tabId); tabFullscreen.toggle(this, tabId); }) };
   }
 
   tabWindowOpener(tabId: string): (() => void) | null {

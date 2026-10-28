@@ -1,3 +1,4 @@
+import { WORKSPACE_ANCHOR } from '@renderer/features/tabs/tab-fullscreen';
 import { observer } from 'mobx-react-lite';
 import { Fragment, useEffect, type CSSProperties, type DragEvent } from 'react';
 import { useGroupRef } from 'react-resizable-panels';
@@ -48,7 +49,8 @@ export const ScreenFrame = observer(function ScreenFrame() {
   const layout = screenLayout.layout;
   if (!layout) return null;
   return (
-    <div className="flex h-full min-h-0 min-w-0 flex-1 bg-background-tertiary" data-screen-frame="">
+    // 工作区的锚点:页签全屏(tab-fullscreen.ts)的那一格贴到这里的四条边上。
+    <div className="flex h-full min-h-0 min-w-0 flex-1 bg-background-tertiary" data-screen-frame="" style={{ anchorName: WORKSPACE_ANCHOR } as CSSProperties}>
       <BlockTree node={layout} />
     </div>
   );

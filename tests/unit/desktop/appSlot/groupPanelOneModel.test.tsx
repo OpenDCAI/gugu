@@ -4,6 +4,7 @@ import { act } from 'react'
 import { createReactHarness } from '../../../support/testHarness'
 import { folderItem, isFolderItem, WORKSPACE_APP_KIND } from '../../../../apps/desktop/src/session/renderer/features/chats/chat-tabs/chat-panel-item'
 import { askChat, chatLayoutOf, openPanelItem, panelFull, panelTabsOf, shownPanelTab, takeChatAsk } from '../../../../apps/desktop/src/session/renderer/features/chats/chat-tabs/chat-layouts'
+import { tabFullscreen } from '../../../../apps/desktop/src/session/renderer/features/tabs/tab-fullscreen'
 import { extensionSurfaceStore } from '../../../../apps/desktop/src/session/renderer/features/extensions/extension-surface-store'
 import { extensionViewStore, residentPageKey, residentPlace } from '../../../../apps/desktop/src/session/renderer/features/extensions/extension-view-store'
 import {
@@ -59,8 +60,11 @@ describe('the slot header', () => {
     expect(harness.container.querySelector('[data-testid="group-app-slot-bar"]')).toBeNull()
     const fill = () => chatLayoutOf('full-switch').groups[0]!.pane.tabFill(tab)!
     act(() => fill().toggle())
-    expect(panelFull('full-switch', tab)).toBe(true)
+    // 全屏只盖住工作区,❌ 动布局(panelFull = 拆开、对话不在,是另一件事)。
+    expect(tabFullscreen.isOn(chatLayoutOf('full-switch').groups[0]!.pane, tab)).toBe(true)
+    expect(panelFull('full-switch', tab)).toBe(false)
     act(() => fill().toggle())
+    expect(tabFullscreen.isOn(chatLayoutOf('full-switch').groups[0]!.pane)).toBe(false)
     expect(panelFull('full-switch', tab)).toBe(false)
 
     await harness.render(slot({ chatId: 'full-switch' }))

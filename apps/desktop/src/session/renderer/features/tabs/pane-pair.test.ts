@@ -1,3 +1,4 @@
+import { tabFullscreen } from './tab-fullscreen';
 import { describe, expect, it } from 'vitest';
 import { closeTabsOfSession } from '@renderer/features/sessions/view/session-pane-policy';
 import { createTabProvider, createTabRegistry } from './core/tab-provider-registry';
@@ -757,16 +758,36 @@ describe('并排:页面自己声明在对话旁边多宽(sideWidth,owner 10-26)'
     expect(Math.round((1 - again.layout.groups[0].pane.pairShare) * 1600)).toBe(480);
   });
 
-  it('页签上的「最大化 / 还原」:并排那一页 = 拆开它占满;拆开后点着的它 = 回到对话旁边;对话那一枚没有', () => {
+  it('页签上的「全屏 / 退出全屏」:只盖住工作区,❌ 动布局(并排、存档原样);拆开是另一件事;一块时对话那一枚没有', () => {
     const { layout, pane, chatTabId } = declared();
     layout.open('folder', { id: 'f' }, { beside: true });
     const side = pane.livePair!.side;
+    const pairBefore = { ...pane.livePair! };
+    const savedBefore = JSON.stringify(layout.snapshot);
     expect(pane.tabFill(chatTabId)).toBeNull();
+    expect(pane.tabFill(chatTabId, true)?.full).toBe(false); // 不止一块:对话那一枚也能盖住整屏
     expect(pane.tabFill(side)?.full).toBe(false);
     pane.tabFill(side)!.toggle();
-    expect(pane.shownTabIds).toEqual([side]);
+    expect(tabFullscreen.isOn(pane, side)).toBe(true);
     expect(pane.tabFill(side)?.full).toBe(true);
-    pane.tabFill(side)!.toggle();
+    expect(pane.livePair).toEqual(pairBefore);
     expect(pane.shownTabIds).toEqual([chatTabId, side]);
+    expect(JSON.stringify(layout.snapshot)).toBe(savedBefore);
+    pane.tabFill(side)!.toggle();
+    expect(tabFullscreen.isOn(pane)).toBe(false);
+    expect(JSON.stringify(layout.snapshot)).toBe(savedBefore);
+  });
+
+  it('全屏的那一枚关掉了、或这一格换到别的页签 ⇒ 自己退出', () => {
+    const { layout, pane, chatTabId } = declared();
+    layout.open('folder', { id: 'f' }, { beside: true });
+    const side = pane.livePair!.side;
+    pane.tabFill(side)!.toggle();
+    pane.setActiveTab(chatTabId);
+    expect(tabFullscreen.isOn(pane)).toBe(false);
+    pane.tabFill(side)!.toggle();
+    expect(tabFullscreen.isOn(pane, side)).toBe(true);
+    pane.closeTab(side);
+    expect(tabFullscreen.isOn(pane)).toBe(false);
   });
 });
