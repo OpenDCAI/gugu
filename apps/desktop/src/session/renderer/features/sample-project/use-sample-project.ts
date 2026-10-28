@@ -16,8 +16,11 @@ export function sampleProjectContent(locale: SupportedLocale): SampleProjectCont
 
 // 这个账号看不看得到示例项目:账号上那一个键(lib/sampleProject)。侧栏那一行和那一块读同一份,一个账号只读一次;
 // 走完首次引导那一刻(主界面早已挂在引导下面)写上键,这里跟着重读。
+// 读不到 ≠ 没有:那一行先不出现,屏上留着的那一块也不收(收了就存进布局、下次也没了),过一会儿再读。
 type Reading = { userId: string; shown: boolean | null };
 let reading: Reading | null = null;
+let retry: ReturnType<typeof setTimeout> | null = null;
+const RETRY_MS = [5_000, 30_000, 120_000, 300_000];
 const listeners = new Set<() => void>();
 
 function publish(next: Reading): void {
@@ -25,14 +28,17 @@ function publish(next: Reading): void {
   for (const listener of listeners) listener();
 }
 
-function load(userId: string): void {
+function load(userId: string, attempt = 0): void {
+  if (retry) clearTimeout(retry);
+  retry = null;
   publish({ userId, shown: null });
   readSampleProjectShown(userId).then(
     (shown) => { if (reading?.userId === userId) publish({ userId, shown }); },
     (error: unknown) => {
-      // 读不到 = 这一行不出现,❌ 猜它在。侧栏照常。
-      log.error('[sample-project] reading the account key failed', { error: String(error) });
-      if (reading?.userId === userId) publish({ userId, shown: false });
+      log.error('[sample-project] reading the account key failed', { error: String(error), attempt });
+      if (reading?.userId !== userId) return;
+      const wait = RETRY_MS[Math.min(attempt, RETRY_MS.length - 1)];
+      retry = setTimeout(() => { if (reading?.userId === userId) load(userId, attempt + 1); }, wait);
     },
   );
 }

@@ -92,22 +92,32 @@ const turns = local
 local.close()
 if (turns.length < turnCount) fail(`session ${args.session} has ${turns.length} finished turn(s) in ${args['local-db']}`)
 const endedAt = Math.max(...turns.map((turn) => turn.endedAt))
+if (!turns.every((turn) => Number.isFinite(turn.startedAt) && Number.isFinite(turn.endedAt))) fail(`session ${args.session}: a frozen turn has no start or end time`)
 
 // The group's messages from the card until the last frozen turn ended: the card, and what the agent posted.
 const messages = (await rows(chatDb.from('messages').select('*').eq('chat_id', chatId).gte('seq', card.row.seq).order('seq'), 'the group messages'))
   .filter((row) => Date.parse(row.created_at) <= endedAt && !row.deleted_at && !row.retracted_at)
+if (!messages.some((row) => row.id === card.row.id)) fail('the task card is not among the messages up to the end of the run')
 
 // Files in the frozen messages — posted as file cards, or linked from text: one sample id each, and the bytes that
-// match what the server recorded for the version the card carries (the latest one for a link).
-const FILE_LINK = /gugu-file:\/\/([0-9a-f-]{36})(\?v=\d+)?/g
-const cardVersion = new Map(messages.filter((row) => row.content_type === 'attachment').map((row) => [row.file_item_id, row.file_version]))
-const itemIds = [...new Set(messages.flatMap((row) => (row.content_type === 'attachment' ? [row.file_item_id] : [...String(row.content).matchAll(FILE_LINK)].map((match) => match[1]))))]
+// match what the server recorded for the version the card or the link carries (the latest one for a bare link).
+const FILE_LINK = /gugu-file:\/\/([0-9a-f-]{36})(?:\?v=(\d+))?/gi
+const versionOf = new Map()
+const pinVersion = (itemId, version) => {
+  if (version === undefined) return
+  if (versionOf.has(itemId) && versionOf.get(itemId) !== version) fail(`file ${itemId} is shown at versions ${versionOf.get(itemId)} and ${version} in one run`)
+  versionOf.set(itemId, version)
+}
+const itemIds = [...new Set(messages.flatMap((row) => {
+  if (row.content_type === 'attachment') return (pinVersion(row.file_item_id, row.file_version), [row.file_item_id])
+  return [...String(row.content).matchAll(FILE_LINK)].map(([, id, version]) => (pinVersion(id.toLowerCase(), version === undefined ? undefined : Number(version)), id.toLowerCase()))
+}))]
 const sampleIdOf = new Map(itemIds.map((itemId, index) => [itemId, `00000000-0000-4000-8000-${String(index + 1).padStart(12, '0')}`]))
 const files = []
 for (const itemId of itemIds) {
   const revisions = await rows(chatDb.from('file_device_revisions').select('version, relative_path, sha256, file_name, content_type').eq('item_id', itemId), `file ${itemId}`)
   if (revisions.length === 0) fail(`file ${itemId} has no recorded revision`)
-  const wanted = cardVersion.get(itemId)
+  const wanted = versionOf.get(itemId)
   const latest = wanted === undefined ? revisions.reduce((a, b) => (b.version > a.version ? b : a)) : revisions.find((revision) => revision.version === wanted)
   if (!latest) fail(`file ${itemId} has no recorded version ${wanted}`)
   const bytes = readFileSync(join(args.snapshot, latest.relative_path))
@@ -119,7 +129,7 @@ for (const itemId of itemIds) {
 const fileNameOf = new Map(files.map((file) => [file.itemId, file.name]))
 
 const time = (at) => new Intl.DateTimeFormat('en-GB', { timeZone: TIME_ZONE, hour: '2-digit', minute: '2-digit', hourCycle: 'h23' }).format(new Date(at))
-const relink = (text) => text.replace(FILE_LINK, (_, itemId) => `gugu-file://${sampleIdOf.get(itemId)}`)
+const relink = (text) => text.replace(FILE_LINK, (_, itemId) => `gugu-file://${sampleIdOf.get(itemId.toLowerCase())}`)
 // The owner's name must not be frozen into a sample everyone sees: it may only be the mention the group adds.
 const ownerMention = `@${owner.display_name} `
 const keyOf = new Map(messages.map((row, index) => [row.id, `m${index + 1}`]))
@@ -175,8 +185,6 @@ for (const turn of turns) {
     }
   }
 }
-for (const step of steps) if (step.kind === 'said' && step.text.includes(owner.display_name)) fail(`a line it said names the owner: ${step.text}`)
-for (const message of frozenMessages) if (message.text?.includes(owner.display_name)) fail(`message ${message.id} names the owner beyond the mention`)
 
 const model = args.log
   ? [...readFileSync(args.log, 'utf8').matchAll(/platform model injected into Chat UI session (\{.*\})/g)].map((match) => json(match[1])).find((entry) => entry?.sessionId === args.session)?.model
@@ -187,6 +195,8 @@ const content = {
   files: files.map(({ id, name, mimeType, text, sha256 }) => ({ id, name, mimeType, text, sha256 })),
   task: { startedAt: time(turns[0].startedAt), endedAt: time(endedAt), steps },
 }
+// Anywhere at all — a message, a line it said, a search, a file's text: the mention is already only a mark.
+if (JSON.stringify(content).includes(owner.display_name)) fail(`the frozen run names the owner (${owner.display_name}) beyond the mention`)
 const exportName = `${args.locale.replace('-', '')}SampleProject`
 const header = [
   `// Generated by scripts/freeze-sample-project.mjs (#709): one real run, frozen. Do not edit by hand — run it again.`,

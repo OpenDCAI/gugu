@@ -344,6 +344,8 @@ export function forgetSampleProjectOnScreen(): void {
   screenLayout.forgetContent({ kind: 'sample-project' });
   refillScreen();
   followFocus();
+  // 它是屏上唯一一块、也没有最近看过的会话可摆回:回首页(同 returnToScreen),❌ 留一屏空白。
+  if (!screenLayout.layout && appState.navigation.currentViewId === 'screen') appState.navigation.navigate('home');
 }
 
 /** 这个 App 不在一块里、也不在单独的窗里了:× 收起、退出、停用、被放进某条会话或新建任务页的面板。 */
