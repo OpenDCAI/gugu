@@ -17,7 +17,7 @@ const TITLE_STYLE: CSSProperties = { margin: 0, fontSize: 'var(--font-body)', fo
 const SEARCH_STYLE: CSSProperties = { padding: '12px 16px' }
 const LIST_STYLE: CSSProperties = { minHeight: 0, overflowY: 'auto', flex: 1, padding: '0 8px' }
 const HINT_STYLE: CSSProperties = { margin: 0, padding: '8px 16px', fontSize: 'var(--font-body)', color: 'var(--text-secondary)', lineHeight: 1.5 }
-const ERROR_STYLE: CSSProperties = { ...HINT_STYLE, color: 'var(--danger)' }
+const ERROR_STYLE: CSSProperties = { ...HINT_STYLE, color: 'var(--danger-fg)' }
 const FOOTER_STYLE: CSSProperties = { ...HEADER_STYLE, borderBottom: undefined, borderTop: '1px solid var(--border-subtle)' }
 
 export type TopicMemberInvitation = {

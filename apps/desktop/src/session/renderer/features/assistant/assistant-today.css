@@ -463,7 +463,7 @@ button.ta-row:hover, a.ta-row:hover { background: var(--ta-glass-hover); }
 }
 .ta-pill-btn:hover { background: var(--ta-glass-hover); }
 .ta-pill-btn svg { width: 14px; height: 14px; }
-.ta-pill-btn[data-tone='danger'] { color: var(--danger); }
+.ta-pill-btn[data-tone='danger'] { color: var(--danger-fg); }
 
 .ta-chip {
   display: inline-flex;

@@ -86,7 +86,7 @@
 .ta-phone-warn { color: var(--warn); }
 .ta-phone-setup .ta-wide-btn,
 .ta-wide-btn[data-tone='danger'] { min-height: 44px; }
-.ta-wide-btn[data-tone='danger'] { color: var(--danger); }
+.ta-wide-btn[data-tone='danger'] { color: var(--danger-fg); }
 
 /* One app, one row action; the detail page owns connection controls. */
 .ta-phone-connectors-inline { display: flex; flex-direction: column; gap: 24px; }

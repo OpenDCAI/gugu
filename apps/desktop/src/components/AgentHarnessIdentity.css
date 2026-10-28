@@ -41,7 +41,7 @@
 }
 
 .agent-harness-icon[data-agent-harness="unavailable"] {
-  color: var(--danger);
+  color: var(--danger-fg);
 }
 
 /* @@@6009 —— 兜底字形的着色。形状已经不同(见 AgentHarnessIdentity.tsx 的 FALLBACK_GLYPHS),

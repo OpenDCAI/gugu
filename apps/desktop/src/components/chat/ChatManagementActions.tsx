@@ -37,12 +37,12 @@ const ROW_STYLE: CSSProperties = {
   color: 'var(--text-primary)',
 }
 const STATIC_ROW_STYLE: CSSProperties = { ...ROW_STYLE, cursor: 'default' }
-const DANGER_ROW_STYLE: CSSProperties = { ...ROW_STYLE, color: 'var(--danger)' }
+const DANGER_ROW_STYLE: CSSProperties = { ...ROW_STYLE, color: 'var(--danger-fg)' }
 const DIVIDER_STYLE: CSSProperties = { height: '1px', background: 'var(--border-color)', flexShrink: 0 }
 const COLUMN_STYLE: CSSProperties = { display: 'flex', flexDirection: 'column' }
 const ERROR_STYLE: CSSProperties = {
   margin: '8px 14px 0', padding: '7px 8px', borderRadius: 'var(--radius-document)',
-  background: 'var(--danger-tint)', color: 'var(--danger)', fontSize: 'var(--font-caption)', lineHeight: '15px',
+  background: 'var(--danger-tint)', color: 'var(--danger-fg)', fontSize: 'var(--font-caption)', lineHeight: '15px',
 }
 const CONFIRM_STYLE: CSSProperties = { padding: '10px 14px' }
 const CONFIRM_TEXT_STYLE: CSSProperties = { fontSize: 'var(--font-body)', color: COLOR_MUTED, margin: '0 0 8px' }
@@ -72,7 +72,7 @@ const APPEARANCE = {
     row: SETTINGS_ROW_STYLE,
     staticRow: { ...SETTINGS_ROW_STYLE, cursor: 'default' } as CSSProperties,
     wrapRow: { ...SETTINGS_ROW_STYLE, cursor: 'default', ...WRAP_ROW } as CSSProperties,
-    dangerRow: { ...SETTINGS_ROW_STYLE, color: 'var(--danger)' } as CSSProperties,
+    dangerRow: { ...SETTINGS_ROW_STYLE, color: 'var(--danger-fg)' } as CSSProperties,
     divider: null as CSSProperties | null,
     confirm: { padding: '10px 0' } as CSSProperties,
     error: { ...ERROR_STYLE, margin: '8px 0 0' } as CSSProperties,

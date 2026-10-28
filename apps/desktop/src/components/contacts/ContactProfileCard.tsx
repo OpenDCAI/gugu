@@ -49,7 +49,7 @@ const styles = {
   aliasBox:
     'group/alias relative flex min-w-0 flex-1 items-center rounded-[var(--radius-control)] bg-transparent transition-[background] duration-[var(--dur-fast)] hover:[background:var(--bg-secondary)] focus-within:[background:var(--bg-secondary)]',
   aliasInput:
-    'h-9 w-full min-w-0 border-0 bg-transparent pl-3 pr-9 text-sm text-[var(--fg)] outline-none [font-family:inherit] placeholder:text-[var(--text-tertiary)]',
+    'h-9 w-full min-w-0 border-0 bg-transparent pl-3 pr-9 text-sm text-[var(--fg)] outline-none [font-family:inherit] placeholder:text-[var(--muted-fg)]',
   // owner:铅笔悬停才出现;正在输入时也收起(它只是「可编辑」的提示,不是按钮)
   aliasPen:
     'pointer-events-none absolute right-3 text-[var(--text-tertiary)] opacity-0 transition-opacity duration-[var(--dur-fast)] group-hover/alias:opacity-100 group-focus-within/alias:opacity-0',
@@ -60,7 +60,7 @@ const styles = {
   action:
     'gg-c-cact inline-flex cursor-pointer items-center gap-2 rounded-[var(--radius-control)] border-0 bg-transparent px-3 py-2 text-sm font-medium text-[var(--fg)] !transition-[background] !duration-[var(--dur-fast)] [font-family:inherit] hover:[background:var(--hover)] active:[background:var(--press)] disabled:cursor-default disabled:text-[var(--text-tertiary)]',
   delete:
-    'gg-c-cpane-del !-ml-3 !mt-5 inline-flex cursor-pointer items-center gap-2 rounded-[var(--radius-control)] border-0 bg-transparent !px-3 !py-2 text-sm font-medium text-[var(--danger)] [font-family:inherit] hover:bg-[var(--danger-tint)]',
+    'gg-c-cpane-del !-ml-3 !mt-5 inline-flex cursor-pointer items-center gap-2 rounded-[var(--radius-control)] border-0 bg-transparent !px-3 !py-2 text-sm font-medium text-[var(--danger-fg)] [font-family:inherit] hover:bg-[var(--danger-tint)]',
 } as const
 
 const avatarClass = () => cn(styles.avatarBase, styles.avatarRound)
@@ -83,7 +83,7 @@ export function RemovedAgentContactBadge() {
     <span
       data-agent-status-surface="contact-index"
       className="inline-flex items-center gap-1 text-xs"
-      style={{ color: 'var(--danger)' }}
+      style={{ color: 'var(--danger-fg)' }}
     >
       <span aria-hidden="true" className="h-[6px] w-[6px] shrink-0 rounded-full bg-current" />
       {t('profile.removed')}

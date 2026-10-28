@@ -34,7 +34,7 @@ function StepIcon({ status }: { status: ServerSshInstallStep['status'] }) {
   if (status === 'running') return <LoadingIndicator size="inline" className="text-live" />
   if (status === 'done') return <Check aria-hidden className="size-4 text-[var(--fg)]" />
   if (status === 'skipped') return <Check aria-hidden className={cn('size-4', faint)} />
-  if (status === 'failed') return <X aria-hidden className="size-4 text-[var(--danger)]" />
+  if (status === 'failed') return <X aria-hidden className="size-4 text-[var(--danger-fg)]" />
   return <Circle aria-hidden className={cn('size-4', faint)} />
 }
 
@@ -197,7 +197,7 @@ export function InstallProgress({
 
       {failure && (
         <div className={calloutClassName('danger')} role="alert" data-testid="add-server-failure">
-          <div className={cn(text, 'font-semibold text-[var(--danger)]')}>
+          <div className={cn(text, 'font-semibold text-[var(--danger-fg)]')}>
             {failure.reason === 'cancelled'
               ? t('devices.addServer.reasons.cancelled')
               : t('devices.addServer.failedAt', { step: t(`devices.addServer.steps.${failure.step}`) })}

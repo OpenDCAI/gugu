@@ -193,7 +193,7 @@ export function SharePosterDialog({ title, subtitle, qrValue, memberAvatarUrls, 
             }}
           >
             {genError ? (
-              <span style={{ fontSize: 'var(--font-body)', color: 'var(--danger)', textAlign: 'center', padding: '0 16px' }}>
+              <span style={{ fontSize: 'var(--font-body)', color: 'var(--danger-fg)', textAlign: 'center', padding: '0 16px' }}>
                 {genError}
               </span>
             ) : generating || !posterDataUrl ? (

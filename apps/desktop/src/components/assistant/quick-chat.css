@@ -29,7 +29,7 @@
 .qc-plain { white-space: pre-wrap; }
 .qc-other { color: var(--muted-fg); }
 .qc-system { align-self: center; font-size: var(--font-caption); color: var(--faint-fg); }
-.qc-error { display: block; font-size: var(--font-caption); color: var(--danger); }
+.qc-error { display: block; font-size: var(--font-caption); color: var(--danger-fg); }
 .qc-note { display: flex; flex: 1; flex-direction: column; align-items: center; justify-content: center; gap: 8px; padding: 24px; text-align: center; color: var(--muted-fg); }
 .qc-note-title { font-size: var(--font-title); font-weight: 600; color: var(--fg); }
 .qc-compose { flex-shrink: 0; padding: 4px 12px 12px; }

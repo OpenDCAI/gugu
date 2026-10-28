@@ -286,9 +286,9 @@
   --color-bg-window: var(--page);
   --color-text-primary: var(--fg);
   --color-text-secondary: var(--muted-fg);
-  --color-text-placeholder: var(--faint-fg);
+  --color-text-placeholder: var(--muted-fg);  /* placeholder 说明「该填什么」,是信息:可读次级字(≥4.5),❌ faint */
   --color-text-link: var(--live);   /* @@@live-accent —— 链接与「信息」走同一个蓝 */
-  --color-text-danger: #e64340;
+  --color-text-danger: var(--danger-fg);
   --color-divider: var(--border);
   --color-bubble-received: var(--bubble-agent);
   --color-bubble-sent: var(--bubble-own);
@@ -421,7 +421,7 @@
      border, a ring, and a shadow on one edge」)⇒ 它的最后一个消费者(ui/Menu)去掉了 border,
      全仓零引用。一个没人读的边框色留着,只会让下一个人以为菜单还该有边。 */
   --shadow-menu: var(--shadow-lift);               /* @@@shadow-lift —— 菜单是浮层,走唯一那一档 */
-  --menu-danger: var(--danger);                    /* @@@2322 收敛别名 → --danger */
+  --menu-danger: var(--danger-fg);                 /* @@@2322 收敛别名;菜单里的红是字 → --danger-fg */
   --menu-bg: var(--popover);
   --menu-fg: var(--fg);
   --menu-icon: var(--faint-fg);
@@ -609,7 +609,7 @@
   --bg-auth-page: var(--page); /* was #0e0d12 —— H=294,离面族 26° */
 
   /* Status / feedback text */
-  --text-error: var(--danger);           /* @@@one-red 别名 → --danger */
+  --text-error: var(--danger-fg);        /* @@@one-red 别名;报错是字 → --danger-fg */
 
   /* 浮起来的那层面(toast / modal 卡片 / switch 旋钮)。名字是历史的,值早就该跟主题走。 */
   --surface-white: var(--card);
@@ -767,7 +767,7 @@
   --border-subtle: var(--border-strong);
   --color-text-primary: var(--fg);
   --color-text-secondary: var(--muted-fg);
-  --color-text-placeholder: var(--faint-fg);
+  --color-text-placeholder: var(--muted-fg);  /* placeholder 说明「该填什么」,是信息:可读次级字(≥4.5),❌ faint */
   --color-divider: var(--border);
   --color-active-item: var(--selected);
   --color-bubble-received: rgba(255,255,255,0.85);
@@ -809,7 +809,7 @@
 
   --bg-auth-page: var(--page);
 
-  --text-error: var(--danger);           /* @@@one-red 别名 → --danger(两侧同一个红) */
+  --text-error: var(--danger-fg);        /* @@@one-red 别名;报错是字 → --danger-fg */
 
   --surface-white: var(--card);
   --text-on-white: var(--fg);
@@ -1268,7 +1268,14 @@ body.barcode-scanner-active #root {
    手机上点进一行再返回,那一行就一直灰着(2026-09-23 手机端走查实拍)。按下/选中不受影响。
    (Tailwind v4 的 hover: 变体本来就带这条媒体查询,手写的类要自己带。) */
 :root {
+  /* 红分三种用途(owner 10-28 批的 token 方案):
+     --danger            圆点、徽标、tint 的颜料;❌ 写字,❌ 当实底按钮的底(白字在 #ef4444 上 3.76)。
+     --danger-fg         可读的红字(≥4.5:暗 #f87171 在 card 上 5.82,浅 #b91c1c 在白底 6.47)。
+     --danger-solid(-fg) 实底危险按钮那一对,两套主题同值:#b91c1c 上白字 6.47。 */
   --danger: #ef4444;
+  --danger-fg: #f87171;
+  --danger-solid: #b91c1c;
+  --danger-solid-fg: var(--color-white);
   --danger-tint: #ef44441a;
   --danger-tint-press: #ef44442e;
   /* @@@3079-semantic 语义三色补齐。danger 早就有 token,而「在线」与「启动中/未响应」一直是
@@ -1291,6 +1298,7 @@ body.barcode-scanner-active #root {
   --agent-tone-muted: var(--text-tertiary);
 }
 [data-theme='light'] {
+  --danger-fg: #b91c1c;
   --danger-tint: #ef444414;
   --danger-tint-press: #ef444424;
 }
@@ -1348,7 +1356,7 @@ body.barcode-scanner-active #root {
 
 /* 危险项:删除/退群/注销。状态反馈唯一允许的色相。 */
 .gg-danger-item {
-  color: var(--danger);
+  color: var(--danger-fg);
   cursor: pointer;
   transition: background var(--dur-fast) var(--ease);
 }
@@ -1391,7 +1399,7 @@ body.barcode-scanner-active #root {
 }
 @media (hover: hover) { .gg-mi:hover { background: var(--hover); } }
 .gg-mi:active { background: var(--press); }
-.gg-mi[data-danger] { color: var(--danger); }
+.gg-mi[data-danger] { color: var(--danger-fg); }
 @media (hover: hover) { .gg-mi[data-danger]:hover { background: var(--danger-tint); } }
 .gg-mi[data-disabled] { opacity: 0.4; pointer-events: none; }
 
@@ -1738,7 +1746,7 @@ body.barcode-scanner-active #root {
   margin-inline-start: auto;
   font-size: var(--font-caption);
   line-height: var(--lh-caption);
-  color: var(--faint-fg);
+  color: var(--muted-fg);   /* 时间是要读的信息:可读次级字;❌ faint(侧栏底上 2.96 / 3.89) */
   font-variant-numeric: tabular-nums;
 }
 .gg-list-row-trailing { flex-shrink: 0; display: flex; align-items: center; gap: 4px; }
@@ -1811,8 +1819,8 @@ body.barcode-scanner-active #root {
   flex: 0 1 auto;
 }
 .gg-chip[data-tone='accent'] { background: var(--primary); color: var(--primary-fg); font-weight: var(--font-weight-semibold); }
-/* danger chip 的字画在饱和红上,取绝对白是对比度决定的,不是中性族的一员(同上)。 */
-.gg-chip[data-tone='danger'] { background: var(--danger); color: #fff; font-weight: var(--font-weight-semibold); }
+/* danger chip 是实底红上的字:走 --danger-solid 那一对(白字 6.47),不是中性族的一员(同上)。 */
+.gg-chip[data-tone='danger'] { background: var(--danger-solid); color: var(--danger-solid-fg); font-weight: var(--font-weight-semibold); }
 .gg-chip[data-tone='ok'] { background: var(--ok-tint); color: var(--ok); }
 .gg-chip[data-tone='warn'] { background: var(--warn-tint); color: var(--warn); }
 .gg-chip[data-appearance='plain'] { background: transparent; }

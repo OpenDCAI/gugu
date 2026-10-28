@@ -717,7 +717,7 @@
 /* 状态要读得出是状态:改选项失败那一条原来与旁边的普通说明**完全同色**。
    只换字色,❌ 不加底色块(与 .gg-aw-create-blocker 同一个克制口径)。 */
 .gg-aw .gg-aw-sheet-caption[data-tone='error'] {
-  color: var(--danger);
+  color: var(--danger-fg);
 }
 
 /* 选项组 / 摘要组:组内靠分隔线分行(orca 的 choiceGroup / optionGroup)。
@@ -917,5 +917,5 @@
 }
 
 .gg-aw .gg-aw-bg-stop {
-  color: var(--danger);
+  color: var(--danger-fg);
 }

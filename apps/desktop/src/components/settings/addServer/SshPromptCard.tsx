@@ -261,7 +261,7 @@ function SshPromptBody({
     </label>
   )
   const retryLine = retry && !busy && (
-    <div className={cn(floating ? caption : text, 'text-[var(--danger)]')} role="alert" data-testid="ssh-prompt-retry">{retry}</div>
+    <div className={cn(floating ? caption : text, 'text-[var(--danger-fg)]')} role="alert" data-testid="ssh-prompt-retry">{retry}</div>
   )
   const onSubmit = (e: FormEvent) => {
     e.preventDefault()
