@@ -73,7 +73,7 @@ export function useHomeLibraryHost(home: AssistantHomePlace): LibraryHost {
       const key = failure?.code === 'credits_exhausted' ? 'authorizationCreditsExhausted'
         : failure?.code === 'membership_expired' ? 'authorizationMembershipExpired'
           : failure?.reason === 'timeout' ? 'authorizationTimedOut' : 'authorizationUnavailable';
-      throw new Error(t(`connectors.${key}`));
+      throw Object.assign(new Error(t(`connectors.${key}`), { cause: error }), { code: failure?.code, reason: failure?.reason });
     }
     signal?.throwIfAborted();
     remoteHostsStore.reconnect(deviceId);

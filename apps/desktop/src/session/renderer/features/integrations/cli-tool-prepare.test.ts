@@ -9,7 +9,7 @@ function clock() {
 }
 
 describe('prepareThenStartCliLogin', () => {
-  it.each(['server_outdated', 'client_outdated', 'forbidden', 'unauthorized'])('does not retry a terminal %s refusal', async code => {
+  it.each(['server_outdated', 'client_outdated', 'forbidden', 'unauthorized', 'credits_exhausted', 'membership_expired', 'plan_required'])('does not retry a terminal %s refusal', async code => {
     const failure = Object.assign(new Error('Rejected by the host'), { code });
     const api = { cliToolPrepare: vi.fn(async () => { throw failure; }), cliLoginStart: vi.fn() };
     await expect(prepareThenStartCliLogin(api, 'feishu')).rejects.toBe(failure);
