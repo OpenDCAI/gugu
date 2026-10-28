@@ -62,7 +62,7 @@ body:not(.show-doc):not(.no-list) .doc { display: none; }
 .sort { margin-inline-start: auto; display: inline-flex; align-items: center; gap: 2px; border: 0; background: none; padding: 2px var(--em-spacing-xs); min-height: 24px; font-size: var(--em-font-caption); color: var(--em-foreground-muted); white-space: nowrap; }
 .sort gugu-icon { width: 12px; height: 12px; }
 .views { display: flex; gap: 0; flex: none; }
-.views button { border: 0; background: none; width: 26px; min-height: 24px; padding: 0; display: inline-flex; align-items: center; justify-content: center; color: var(--em-foreground-muted); border-radius: calc(var(--em-radius-control) - 2px); }
+.views button { border: 0; background: none; width: 26px; height: 26px; min-height: 0; padding: 0; display: inline-flex; align-items: center; justify-content: center; color: var(--em-foreground-muted); border-radius: calc(var(--em-radius-control) - 2px); }
 .views button[aria-pressed='true'] { color: var(--em-foreground); background: var(--em-background-subtle, color-mix(in srgb, var(--em-foreground) 6%, transparent)); }
 .views gugu-icon { width: 14px; height: 14px; }
 
@@ -88,7 +88,8 @@ body:not(.show-doc):not(.no-list) .doc { display: none; }
 .cell-play { position: absolute; inset: 0; margin: auto; width: 28px; height: 28px; color: #fff; opacity: .85; }
 .cell-keep { position: absolute; top: 6px; left: 6px; padding: 1px 6px; border-radius: var(--em-radius-capsule); background: color-mix(in srgb, var(--em-background) 85%, transparent); }
 .cell-host { position: absolute; bottom: 26px; left: 6px; padding: 1px 6px; border-radius: var(--em-radius-capsule); background: color-mix(in srgb, var(--em-background) 85%, transparent); }
-.file.cell .row-more { position: absolute; top: 4px; right: 4px; background: var(--em-background); }
+/* The cell's ⋯ stays small on a touch screen too (ui.css gives buttons a finger's size there): it sits on the picture. */
+.file.cell .row-more { position: absolute; top: 4px; right: 4px; width: 26px; height: 26px; min-width: 0; min-height: 0; padding: 0; line-height: 1; background: color-mix(in srgb, var(--em-background) 85%, transparent); }
 
 /* 多选: a file's box sits on its mark — drawn on hover, and on every row while anything is picked. */
 .file { position: relative; }
@@ -154,7 +155,7 @@ img.details-picture { object-fit: contain; }
   .file:not(.cell) { min-height: 60px; }
   .chips { flex-wrap: nowrap; overflow-x: auto; scrollbar-width: none; }
   .chip { flex: none; }
-  .pick-bar { left: 0; right: 0; bottom: 0; transform: none; max-width: none; border-radius: 0; justify-content: space-between; padding-bottom: calc(4px + env(safe-area-inset-bottom, 0px)); }
+  .pick-bar { left: 0; right: 0; bottom: 0; transform: none; max-width: none; border-radius: 0; flex-wrap: wrap; justify-content: center; overflow-x: visible; padding-bottom: calc(4px + env(safe-area-inset-bottom, 0px)); }
   .details { padding-top: var(--em-spacing-sm); }
   .details::before { content: ''; align-self: center; width: 36px; height: 4px; border-radius: 2px; background: var(--em-border); }
   .file-list.as-grid { grid-template-columns: repeat(3, 1fr); gap: 3px; }

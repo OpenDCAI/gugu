@@ -529,17 +529,23 @@ async function refreshList(readPreferences = false) {
 function heard(change) {
   if (change.kind !== 'entries') return
   state.listing?.heard.push(change)
-  take(change)
+  if (take(change)) keepLater()
   showList()
 }
 
 // A change is read one file at a time, which does not say how long a cloud copy is kept (`keep`, the list's): the list's
-// answer stays until the list is read again.
+// answer stays until the list is read again. A file new to the list has none to keep — true when the list says it
+// (the host's list carries `keep`), so the list is read again for it.
 function take(change) {
   const before = new Map(state.entries.map((entry) => [entry.id, entry]))
+  const listsKeep = state.entries.some((entry) => 'keep' in entry)
   const fresh = new Map(change.entries.map((entry) => [entry.id, 'keep' in entry || !before.has(entry.id) || !('keep' in before.get(entry.id)) ? entry : { ...entry, keep: before.get(entry.id).keep }]))
   state.entries = [...state.entries.filter((entry) => !fresh.has(entry.id) && !change.gone.includes(entry.id)), ...fresh.values()]
+  return listsKeep && [...fresh.values()].some((entry) => !('keep' in entry) && entry.type !== 'folder')
 }
+
+// Several files arriving together (an upload of ten) are one read of the list, a moment after the last.
+const keepLater = debounce(() => void refreshList(), 800)
 
 function showList() {
   renderList()

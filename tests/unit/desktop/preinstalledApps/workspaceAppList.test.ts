@@ -166,3 +166,23 @@ describe('「设为临时 / 一直保留」 in the ⋯', () => {
     await until('the refusal said', () => banner(), (said) => said === '只有上传这份文件的人能改它保留多久。')
   })
 })
+
+describe('a file that arrives while the folder is open', () => {
+  // A change is read one file at a time, without `keep`: a new file is read again with the list, so its ⋯ has 「保留方式」.
+  test('is read again with the list, once, and then says how long its cloud copy is kept', async () => {
+    const [, changed] = gugu.files.onChanged.mock.calls.at(-1) as unknown as [unknown, (change: unknown) => void]
+    const arrived = file('late', 'late.pdf', 'application/pdf', 10, ago(5))
+    const listed = { ...arrived, keep: { expiresAt: null, mine: false } }
+    gugu.files.list.mockImplementation(async () => [...ENTRIES, listed].map((e) => ({ ...e })))
+    const reads = gugu.files.list.mock.calls.length
+    changed({ kind: 'entries', entries: [arrived], gone: [] })
+    changed({ kind: 'entries', entries: [{ ...arrived, name: 'late.pdf' }], gone: [] })
+    expect(ids()).toContain('late')
+    await until('the list read again', () => gugu.files.list.mock.calls.length > reads)
+    await new Promise((done) => setTimeout(done, 900))
+    expect(gugu.files.list.mock.calls.length, 'two changes, one read').toBe(reads + 1)
+    openMenu('late')
+    expect(radios().map((r) => r.disabled)).toEqual([true, true])
+    pressEscape()
+  })
+})
