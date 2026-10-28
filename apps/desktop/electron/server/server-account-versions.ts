@@ -11,7 +11,7 @@
  *     version-switch.json     版本信号来了:这个账号当场换,❌ 等空闲
  *     server-version.json     这个账号现在跑哪一版(守护进程写;账号进程从 versions/<它>/ 起)
  *
- * 规则(纯函数 planAccountVersion):目标 = 没过期的桌面报告里最新的那一版;和在跑的不一样 ⇒
+ * 规则(纯函数 planAccountVersion):目标 = 没过期的桌面报告里最新的、下载站上有的那一版;和在跑的不一样 ⇒
  * 没装就先装(下载、校验、试跑),装好了有版本信号就当场换、没有就等这个账号空闲再换。只重启这一个账号的进程,
  * 同一台机器上别的账号 ❌ 受影响。换过去秒退(起不来)就退回原来那一版,这一版几个小时内不再试。
  */
@@ -93,8 +93,10 @@ export function planAccountVersion(input: {
   failed: (version: string) => boolean
   /** 报告全过期了(用它的桌面都很久没来):回到这台机器自己的版本(守护进程那一版,跟着自动升级走)。 */
   fallback?: string | null
+  /** 下载站上没有的版本(刚 404 过、还没到再看的时刻):让位给次新的那一版。 */
+  unpublished?: (version: string) => boolean
 }): AccountVersionPlan {
-  const target = pickTargetVersion(input.reports, input.now) ?? input.fallback ?? null
+  const target = pickTargetVersion(input.reports, input.now, undefined, input.unpublished) ?? input.fallback ?? null
   if (!target || target === input.running) return { kind: 'none', clearSwitchRequest: true }
   const failed = input.failed(target)
   if (!input.installed(target)) return failed ? { kind: 'failed', version: target } : { kind: 'stage', version: target }

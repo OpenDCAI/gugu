@@ -35,6 +35,9 @@ export const CHAT_VIEW_COMMANDS = [
  * via `view.setCommands(commands)`.
  */
 export type ChatCommands = {
+  /** Display name of the agent owning this transcript, supplied by its host. */
+  conversationAgentName?: () => string | null;
+  onConversationReply?: (itemId: string) => void;
   onCopyError?: (error: unknown) => void;
   canRevertMessage?: (itemId: string) => boolean;
   onEditMessage?: (arg: { itemId: string }) => void;
@@ -219,6 +222,17 @@ export type ChatCommands = {
     itemId: string;
     source: 'prose-mention';
   }) => void;
+
+  /**
+   * 列表末尾那一行后台任务里按了「停止」:真把它停掉。`stopId` 是报给供应商的那个 id —— 后台命令是它的
+   * asyncTaskId,子智能体是派它那次调用的 tool_use id(#5117)。宿主不接 ⇒ 那一行没有停止键。
+   */
+  onStopBackgroundTask?: (arg: { stopId: string }) => void;
+  /**
+   * 按了 ×:只把这一条从列表末尾那一行收起来,❌ 不停它(它照旧在跑)。`entryId` 是转录条目 id。
+   * 宿主不接 ⇒ 没有 ×。
+   */
+  onDismissBackgroundTask?: (arg: { entryId: string }) => void;
 };
 
 export type ScrollToItemOptions = {

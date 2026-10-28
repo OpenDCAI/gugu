@@ -4,12 +4,11 @@ import { cn } from '@/lib/cn'
 import { Button } from '@/components/ui/Button'
 import { IconButton } from '@/components/ui/IconButton'
 import { DropdownMenu, menuRowClassName, menuRowLabelClassName } from '@/components/ui/Menu'
-import { APP_SHOW_SESSION_EVENT, type AppShowSessionDetail } from '@/session/shared/extensions/app-runtime-protocol'
-import type { SessionDirectoryRow } from '@/session/shared/remote-sessions/session-directory'
 import { translateSessionMessage } from '@renderer/localization/locale-store'
 
 /**
- * 手机上那颗模式按钮(#7197,behavior mobile-session-view「模式按钮」):看一条会话的那一页页头、Agent 私聊页头各一颗。
+ * 手机上那颗模式按钮(#7197,behavior mobile-session-view「模式按钮」):看一条会话的那一页页头。
+ * Agent 私聊页头那一颗已按 #639 换成一颗「在任务中打开」(MobileAgentOpenTask)。
  *
  * 只在**手机自己**的两个视图之间跳:对话(这个 agent 的私聊)、项目(看这条会话的那一页,底栏「项目」那一格),人在哪儿哪儿打勾。
  * ❌ 没有「切换为编程 / 通用模式」—— 手机不让那台电脑换展示,电脑上的视图不受手机影响(owner 10-15「手机上切就是
@@ -107,16 +106,4 @@ export function MobileModeMenu({
       </DropdownMenu.Content>
     </DropdownMenu.Root>
   )
-}
-
-/**
- * Agent 私聊页头那一颗(#7197),只画图标:私聊页头放不下名字。
- * 去项目 = 与 App 点名一条会话(`gugu.showSession`)同一条跳转:项目 tab 打开它那一行。
- */
-export function MobileAgentModeMenu({ row }: { row: SessionDirectoryRow }) {
-  const openTask = (): void => {
-    const detail: AppShowSessionDetail = { deviceId: row.deviceId, session: row.session }
-    window.dispatchEvent(new CustomEvent(APP_SHOW_SESSION_EVENT, { detail }))
-  }
-  return <MobileModeMenu at="chat" onOpenTask={openTask} iconOnly />
 }

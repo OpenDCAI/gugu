@@ -1,7 +1,7 @@
 import { describe, expect, it, vi } from 'vitest';
 import { observable, runInAction } from 'mobx';
 
-const opened = vi.hoisted(() => ({ calls: [] as unknown[], tabs: 0, provisioned: true, archived: false, provision: vi.fn(), reason: null as string | null }));
+const opened = vi.hoisted(() => ({ calls: [] as unknown[], tabs: 0, views: [] as string[], provisioned: true, archived: false, provision: vi.fn(), reason: null as string | null }));
 const ready = observable.box(true);
 
 vi.mock('@renderer/features/sessions/stores/session-selectors', () => {
@@ -14,7 +14,10 @@ vi.mock('@renderer/features/sessions/stores/session-selectors', () => {
   return {
     asProvisioned: (page: unknown) => page,
     getSessionPageStore: () => (opened.provisioned && ready.get() ? { viewModel: {} } : null),
-    getSessionView: () => ({ paneLayout }),
+    getSessionView: (projectId: string, sessionId: string) => {
+      opened.views.push(`${projectId}/${sessionId}`);
+      return { paneLayout };
+    },
     getSessionManagerStore: () => ({ provisionSession: opened.provision }),
     sessionViewKind: () => opened.archived ? 'archived' : 'idle',
   };
@@ -51,6 +54,14 @@ describe('给屏上一块空着的会话补上对话(onlyIfNoTabs)', () => {
     opened.tabs = 2;
     openSessionInSessionWhenReady({ projectId: 'p', sessionId: 's' });
     expect(opened.calls).toHaveLength(1);
+  });
+
+  it('群聊第二个 Agent：页签在已有右栏打开，资源仍属于目标会话', () => {
+    opened.calls = [];
+    opened.views = [];
+    openSessionInSessionWhenReady({ projectId: 'other-project', sessionId: 'agent-2', host: { projectId: 'p', sessionId: 'agent-1' } });
+    expect(opened.calls).toEqual([['session', { sessionId: 'agent-2', projectId: 'other-project', ownerSessionId: 'agent-2' }, { preview: false }]]);
+    expect(opened.views).toEqual(['p/agent-1', 'p/agent-1']);
   });
 });
 

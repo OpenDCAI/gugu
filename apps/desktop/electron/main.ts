@@ -203,6 +203,7 @@ import { isOwnerReceiptEvent } from '@gugu/core/cloud/assistantWorkReconciliatio
 import { assistantWorkCoordinator } from '@gugu/core/cloud/assistantWorkRouting'
 import { createDesktopAssistantWorkReconciler } from './assistant-work-reconciliation'
 import { enqueueAssistantWorkReport } from '@gugu/core/cloud/assistantWorkReports'
+import {withAssistantWorkReply} from '@gugu/core/shared/assistantWorkReply'
 import { pickAssistant, type AssistantProvisionRow } from '@gugu/core/shared/assistantProvision'
 import { landTaskCardFirstTurn } from './sessionpage/task-card-first-turn'
 import { withQuestionCard } from './sessionpage/question-card'
@@ -2765,6 +2766,7 @@ if (sshMachineStore) {
     log: (message, fields) => createLogger('server/ssh-link').info(fields ?? {}, message),
     // 那台机器的 server 太旧、连不上:当场替它升级(与添加时装同一条通道);#6264 换成和这台桌面(按设备 id 报)匹配的那一版。
     upgradeChannel: updateChannel === 'beta' ? 'beta' : 'stable',
+    published: parseBuildDistribution(__GUGU_BUILD_DISTRIBUTION__) === 'published',
     desktopId: async () => (await getLocalDeviceSelfSnapshot())?.device_id ?? null,
     ...(tunnelMachines ? { tunnels: tunnelMachines } : {}),
   })
@@ -4613,6 +4615,8 @@ app.whenReady().then(async () => {
       signal: AbortSignal,
     ): Promise<unknown> => {
       signal.throwIfAborted()
+      record=await withAssistantWorkReply(record,await emdash.readCurrentAssistantWorkInput(context.sessionId),async number=>
+        (await crossMachine().messageDeps(()=>remoteCaller(auth,context),signal).locateAgents({userIds:[],numbers:[number]})).numberToUserId.get(number))
       const prepareFiles = async (files: SessionFileInput[], targets: Array<{sessionId: string; deviceId?: string; agentId?: string}>) => {
           await crossMachine().assertFileHandoffSupported(targets.flatMap(target => target.deviceId && !target.agentId ? [target.deviceId] : []))
           const sender = await senderBinding(context, auth.userId)
@@ -4641,6 +4645,24 @@ app.whenReady().then(async () => {
         prepareFiles,
         localDeviceId: () => crossMachine().thisDevice().then(row => row.deviceId),
         enqueueWork: enqueueAssistantWorkMessage,
+        workTitle:async(intent,targets)=>{
+          const store=assistantWorkForAgent(intent.assistant_id)
+          if(!store)throw new Error('Assistant dispatch reference is unavailable')
+          // Dispatch never waits on reachability: only a local task's title is read here. A remote or
+          // unreadable one keeps the requested title; the work list projects it from the device digest.
+          const target=targets.length===1?targets[0]:undefined
+          if(!target||target.deviceId!==(await crossMachine().thisDevice()).deviceId)return intent.title
+          return store.dispatchTitle(intent.work_id,intent.operation_id,async()=>{
+            const snapshot=await emdash.runSessionAction(context,{action:'get',session_id:target.sessionId},signal)
+            const title=(snapshot as {title?:unknown})?.title
+            if(typeof title!=='string')throw new Error('Addressed task has no readable title')
+            return title
+          }).catch((error:unknown)=>{
+            if(signal.aborted)throw error
+            createLogger('assistant/work').warn({workId:intent.work_id,error:String(error)},'assistant work title unavailable; dispatching with the requested title')
+            return intent.title
+          })
+        },
         enqueueReport: async report => {
           const current = await assistantWorkDeliveryHost().context()
           if (!current || current.ownerId !== auth.userId) throw new Error('Work account changed')
@@ -5142,14 +5164,13 @@ app.whenReady().then(async () => {
         },
         env: process.env,
       })
-        .then(({ reapedAgents, archivedGroups, reapedOrphans }) => {
+        .then(({ reapedAgents, archivedGroups }) => {
           // Always log the boot passes (a silent "nothing happened" is indistinguishable from "never ran" —
           // that ambiguity already hid an ordering bug once). Per-trigger passes log only when they act,
           // since a plain tab detach fires the trigger too and would otherwise spam the log.
-          if (reason.startsWith('boot') || reapedAgents || archivedGroups || reapedOrphans) {
+          if (reason.startsWith('boot') || reapedAgents || archivedGroups) {
             console.log(
-              `[sessionpage] session-page reap (${reason}): reaped ${reapedAgents} agent(s), archived ${archivedGroups} group(s), ` +
-                `reaped ${reapedOrphans} projection orphan(s)`,
+              `[sessionpage] session-page reap (${reason}): reaped ${reapedAgents} agent(s), archived ${archivedGroups} group(s)`,
             )
           }
         })
@@ -6256,7 +6277,7 @@ app.whenReady().then(async () => {
         // Deletion-sync boot pass (spec ⑨) — ONLY here: it reads the session backend's DB, which the boot above is
         // what initializes, so running it any earlier races an uninitialized database.
         runSessionpageReap('boot')
-        // #4277 投影段(云端有行、本机没会话的孤儿)要以账号身份读云端,而开机那一刻归属未定、令牌
+        // 删身份、读「项目 → 群」映射都要账号令牌,而开机那一刻归属未定、令牌
         // 拿不到(#5025):归属定下来之后再对一轮。令牌在归属定下与 session 真正恢复之间还有一小段空窗,
         // 所以有界地等它到位;等不到就喊出来,留给下一次触发。不在任何关键路径上。
         void bootOwnerWithin(60_000)
@@ -6278,7 +6299,7 @@ app.whenReady().then(async () => {
             }
             createLogger('sessionpage/reap').warn(
               { ownerUserId },
-              '#4277 owner decided but no access token within 60s — projection pass left to the next trigger',
+              'owner decided but no access token within 60s — the owner-scoped reap is left to the next trigger',
             )
           })
           .catch((err) =>

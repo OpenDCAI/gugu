@@ -26,6 +26,7 @@
 .gg-folder-card__toggle {
   height: auto;
   min-width: 0;
+  max-width: 100%;
   padding: 0;
   border: 0;
   background: transparent;
@@ -107,6 +108,8 @@
 }
 .gg-folder-card.is-open .gg-folder-paper-slot:hover {
   translate: 0 -8px;
+  /* 指到哪张,哪张整张浮到最前(压过行内 z-index):一手牌里被压住的那几张靠它读全。 */
+  z-index: 999 !important;
 }
 .gg-folder-paper-slot.is-dropping {
   animation: gg-folder-drop calc(var(--dur-slow) * 2.4) var(--fc-ease) both;
@@ -124,9 +127,9 @@
   color: var(--fg);
   border-radius: var(--radius-xl, 12px);
   box-shadow: var(--fc-paper-shadow);
-  padding: 10px 12px;
+  padding: 7px 10px 8px;
   font-size: var(--font-size-sm);
-  line-height: 20px;
+  line-height: 18px;
 }
 .gg-folder-card.is-open .gg-folder-paper[aria-pressed='true'] {
   box-shadow: 0 0 0 1.5px var(--live), var(--fc-paper-shadow);
@@ -138,8 +141,24 @@
   font-weight: 500;
   min-width: 0;
 }
+.gg-folder-paper__name {
+  min-width: 0;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+  font-weight: 600;
+}
+.gg-folder-paper__where {
+  margin-top: 2px;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+  overflow: hidden;
+  white-space: nowrap;
+}
 .gg-folder-paper__path {
-  margin-top: 4px;
+  margin-top: 1px;
   font-family: var(--font-mono, ui-monospace, Menlo, monospace);
   font-size: var(--font-size-xs);
   line-height: 16px;
@@ -149,7 +168,9 @@
   text-overflow: ellipsis;
 }
 .gg-folder-paper__meta {
-  margin-top: 4px;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
   font-size: var(--font-size-xs);
   line-height: 16px;
   color: var(--muted-fg);
@@ -164,6 +185,12 @@
   color: var(--live);
 }
 .gg-folder-paper__fresh {
+  /* 窄栏里纸跟着收窄:「刚挂上」让位给机器标签和勾,挤不下就省略。 */
+  flex: 0 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
   font-size: var(--font-size-xs);
   line-height: 16px;
   font-weight: 600;
@@ -268,10 +295,13 @@
   text-overflow: ellipsis;
 }
 .gg-folder-card__meta {
+  max-width: 100%;
   font-size: var(--font-size-sm);
   line-height: 18px;
   color: var(--muted-fg);
+  overflow: hidden;
   white-space: nowrap;
+  text-overflow: ellipsis;
 }
 .gg-folder-card__meta .is-running {
   color: var(--live);
@@ -355,7 +385,10 @@
   font-size: var(--font-size-sm);
   line-height: 18px;
   color: var(--live);
+  max-width: 100%;
+  overflow: hidden;
   white-space: nowrap;
+  text-overflow: ellipsis;
   opacity: 0;
   transition: opacity var(--dur-med);
   pointer-events: none;

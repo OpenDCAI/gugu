@@ -18,6 +18,7 @@
 import { compactionUnitDef } from '@session-chat/components/rows/boundary/compaction.def';
 import { contextResetUnitDef } from '@session-chat/components/rows/boundary/context-reset.def';
 import { sessionConditionUnitDef } from '@session-chat/components/rows/boundary/session-condition.def';
+import { backgroundTasksUnitDef } from '@session-chat/components/rows/background-tasks/background-tasks.def';
 import { sessionNoticeUnitDef } from '@session-chat/components/rows/boundary/session-notice.def';
 import { daySeparatorUnitDef } from '@session-chat/components/rows/day-separator/day-separator.def';
 import { messageFromItem, messageUnitDef } from '@session-chat/components/rows/message/message.def';
@@ -211,6 +212,7 @@ export const SEGMENTERS: Record<string, ItemSegmenter> = {
   'context-reset': nativePassthrough<ChatItem>('context-reset', (item) => item, COMPOSITE_CHROME),
   'session-notice': nativePassthrough<ChatItem>('session-notice', (item) => item, COMPOSITE_CHROME),
   'session-condition': nativePassthrough<ChatItem>('session-condition', (item) => item, COMPOSITE_CHROME),
+  'background-tasks': nativePassthrough<ChatItem>('background-tasks', (item) => item, COMPOSITE_CHROME),
   tool: nativePassthrough<ChatItem>('tool', (item) => item, COMPOSITE_CHROME),
   'file-op': nativePassthrough<ChatItem>('file-op', (item) => item, COMPOSITE_CHROME),
   execute: nativePassthrough<ChatItem>('execute', (item) => item, COMPOSITE_CHROME),
@@ -270,6 +272,7 @@ export const UNIT_REGISTRY: Record<string, RegistryUnitDef> = {
   'context-reset': contextResetUnitDef as unknown as RegistryUnitDef,
   'session-notice': sessionNoticeUnitDef as unknown as RegistryUnitDef,
   'session-condition': sessionConditionUnitDef as unknown as RegistryUnitDef,
+  'background-tasks': backgroundTasksUnitDef as unknown as RegistryUnitDef,
   'file-op': fileOpUnitDef as unknown as RegistryUnitDef,
   subagent: subagentUnitDef as unknown as RegistryUnitDef,
   tool: toolUnitDef as unknown as RegistryUnitDef,

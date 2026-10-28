@@ -142,6 +142,8 @@ export type UnitRowProps = {
   editingMessage?: MeasureCtx['editingMessage'];
   /** 跑完后的最后一条回复(从 ChatRoot 来),只有它量出页脚 —— 见 MeasureCtx.finalReplyId。 */
   finalReplyId?: string | null;
+  /** 后台任务挂在哪条回复的过程行上 —— 见 MeasureCtx.background。 */
+  background?: MeasureCtx['background'];
 };
 
 // ── UnitRow ───────────────────────────────────────────────────────────────────
@@ -168,6 +170,7 @@ export function UnitRow(props: UnitRowProps) {
     expandedId: props.expandedId,
     editingMessage: props.editingMessage,
     finalReplyId: props.finalReplyId,
+    background: props.background,
   });
 
   const contentH = createMemo(() => {
@@ -351,6 +354,7 @@ export function UnitRow(props: UnitRowProps) {
     expandedId: collapsing() ? rowItemId() : props.expandedId,
     editingMessage: props.editingMessage,
     finalReplyId: props.finalReplyId,
+    background: props.background,
   });
 
   // ── Animated clip ─────────────────────────────────────────────────────────

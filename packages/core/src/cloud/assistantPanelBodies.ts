@@ -25,19 +25,25 @@ function panelEndpoint(token: string, parentSignal?: AbortSignal) {
   }))) as typeof fetch }
 }
 
+/** A body is an immutable byte snapshot, never a live document: the attachment service turns an upload whose name or
+ * declared type says text (.md, .json, text/*) into an editable document, so a body never declares either. */
+export const PANEL_BODY_CONTENT_TYPE = 'application/octet-stream'
+export function panelBodyFileName(label: string): string { return `${label}.bin` }
+
 /** The existing private file upload/place path; it sends no chat message. */
 export async function uploadAssistantPanelBody(input: AssistantPanelBodyAccess & {
-  name: string; bytes: Uint8Array; contentType: string
+  label: string; bytes: Uint8Array
 }): Promise<{ itemId: string; sha256: string }> {
   await assertOwner(input)
   const endpoint = panelEndpoint(input.token)
   const digest = await sha256(input.bytes)
+  const name = panelBodyFileName(input.label)
   const staging = await uploadAttachmentBytes(endpoint,{
-    bytes: input.bytes,name: input.name,contentType: input.contentType,
+    bytes: input.bytes,name,contentType: PANEL_BODY_CONTENT_TYPE,
   },{ chat_id: input.chatId,as: input.ownerId })
   await assertOwner(input)
   const item = await placeAttachment(endpoint,{
-    staging_key: staging,chat_id: input.chatId,file_name: input.name,content_type: input.contentType,
+    staging_key: staging,chat_id: input.chatId,file_name: name,content_type: PANEL_BODY_CONTENT_TYPE,
     as_user_id: input.ownerId,folder: '.assistant-panel',
   })
   await assertOwner(input)

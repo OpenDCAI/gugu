@@ -9,10 +9,12 @@ import { confirmCloseSessionTab } from './close-session-tab-flow';
 
 export interface SessionState {
   sessionId: string;
+  ownerSessionId?: string;
 }
 
 export interface SessionOpenArgs {
   sessionId: string;
+  ownerSessionId?: string;
 }
 
 export const sessionTabProvider: TabProvider<
@@ -26,13 +28,14 @@ export const sessionTabProvider: TabProvider<
   resourceKey: (state: SessionState) => state.sessionId,
   onBeforeOpen: (args: SessionOpenArgs): SessionState => ({
     sessionId: args.sessionId,
+    ...(args.ownerSessionId ? { ownerSessionId: args.ownerSessionId } : {}),
   }),
 
   initialize(entry: TabEntry<SessionState>, handle: TabHandle, ctx: TabViewContext) {
     const { sessionId } = ctx as SessionTabContext;
     // Hold the tab and its one reference while the registry loads. The resource
     // observes the real result instead of closing and reopening on a timer.
-    getSessionPtyManager(sessionId).acquire(entry.state.sessionId);
+    getSessionPtyManager(entry.state.ownerSessionId ?? sessionId).acquire(entry.state.sessionId);
     return new SessionTabResource(entry.state.sessionId, handle);
   },
 
@@ -41,7 +44,7 @@ export const sessionTabProvider: TabProvider<
     confirmCloseSessionTab(entry.state.sessionId, ctx, request),
 
   dispose(entry: TabEntry<SessionState>, _resource: SessionTabResource, ctx: TabViewContext) {
-    getSessionPtyManager((ctx as SessionTabContext).sessionId).release(entry.state.sessionId);
+    getSessionPtyManager(entry.state.ownerSessionId ?? (ctx as SessionTabContext).sessionId).release(entry.state.sessionId);
   },
 
   commands: {

@@ -16,6 +16,7 @@
 import { createHash } from 'node:crypto'
 import { sessionInjectionCapabilityFor } from './session-injection'
 import { createLogger } from '../lib/logger'
+import { isImplicitSessionHomeProjectId } from '@gugu/core/shared/sessionProject'
 import type { AgentStatusView } from '@gugu/core/shared/agentStatus'
 import type { SessionMessageDelivery } from '@shared/core/sessions/sessions'
 
@@ -74,6 +75,7 @@ export interface LocalSessionPeerIdentity {
 /** What the user's task sidebar shows for the same conversation (this machine's task DB). */
 export interface LocalSessionFacts {
   sessionId: string
+  projectId?: string
   title: string
   projectName: string
   status: AgentStatusView | null
@@ -166,7 +168,7 @@ export function resolveLocalSessionPeers(
       identity: { users: { id: row.id, gugu_number: row.gugu_number, display_name: row.display_name } },
       sessionId: binding.sessionId,
       title: session.title,
-      project: session.projectName,
+      project: isImplicitSessionHomeProjectId(session.projectId) ? '' : session.projectName,
       status: session.status?.status ?? null,
       detail: session.status?.detail ?? null,
       pinned: session.isPinned,

@@ -30,13 +30,6 @@ export default {
       },
       "open": "在任务中打开",
       "openFailed": "无法在任务中打开：{{reason}}",
-      "mode": {
-        "menu": "模式：{{mode}}",
-        "code": "编程",
-        "general": "通用",
-        "switchToCode": "切换为编程模式",
-        "switchToGeneral": "切换为通用模式"
-      },
       "review": {
         "action": "请打开任务终端检查 MCP server，然后按 Enter 确认。",
         "title": "Agent 正等待 MCP review"
@@ -63,6 +56,13 @@ export default {
       "statusReadFailed": "无法读取任务状态：{{reason}}"
     },
     "turnFailure": {
+      "state": {
+        "exhausted": "额度已用完",
+        "weekly": "周限额度已满",
+        "monthly": "月限额度已满",
+        "model-unavailable": "模型不可用"
+      },
+      "stateAction": "{{name}} {{state}}，点击切换模型",
       "authentication": "模型服务拒绝了本次请求的授权，回复未完成。",
       "network": "与模型服务的连接中断，本次回复未完成。",
       "statusReadFailed": "回复状态暂时读不到，请重试。",

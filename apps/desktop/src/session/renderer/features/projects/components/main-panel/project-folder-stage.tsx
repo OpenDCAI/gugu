@@ -14,7 +14,7 @@ import { useEnsureMounted } from '@renderer/features/projects/hooks/use-ensure-m
 import { foldersInScope, useProjectDeviceScope } from './project-device-scope';
 import { ProjectFolderCard, shortHome, type AttachMachine, type FolderCardMachine } from './project-folder-card';
 import { linkFolderOnMachine, planAttach, type LinkFolderDeps } from '@shared/core/projects/project-attach-flow';
-import { useProjectFolders, type AttachResult } from './project-folders';
+import { MAX_PROJECT_FOLDERS, useProjectFolders, type AttachResult } from './project-folders';
 import { useSessionMessages } from '@renderer/localization/use-session-messages';
 import { log } from '@renderer/utils/logger';
 
@@ -194,7 +194,15 @@ export function useProjectFolderStage(projectId: string, { floating = false, onC
     });
   };
 
+  // 挂满了就当场说,❌ 先弹目录框、挑完才拒(各台机器上的合计;列表还没读到时数不出来,不拦)。
+  const refuseWhenFull = () => {
+    if ((folders.folders?.length ?? 0) < MAX_PROJECT_FOLDERS) return false;
+    toast({ tier: 'error', title: translate('projects.folders.errorFull', { projectName: displayName, max: MAX_PROJECT_FOLDERS }) });
+    return true;
+  };
+
   const attachOn = async (machine: string | null, path: string) => {
+    if (refuseWhenFull()) return;
     const plan = await planAttach({
       machine,
       path,
@@ -222,6 +230,7 @@ export function useProjectFolderStage(projectId: string, { floating = false, onC
 
   // 「+」:在选的那台机器上挑文件夹 —— 本机弹系统的目录框,别的机器由那台机器画目录树(同「新建项目 › 使用现有文件夹」)。
   const pickAndAttach = (machine: string | null) => {
+    if (refuseWhenFull()) return;
     const picked = machine
       ? (remoteHostsStore.connectionState(machine) === 'asleep'
           ? remoteHostsStore.wakeCloudComputer(machine)

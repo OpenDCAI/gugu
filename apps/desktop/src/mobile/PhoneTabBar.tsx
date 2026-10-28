@@ -1,4 +1,4 @@
-import { useLayoutEffect, useRef, useState, type CSSProperties, type RefObject } from 'react'
+import { useEffect, useLayoutEffect, useRef, useState, type CSSProperties, type RefObject } from 'react'
 import { useTranslation } from 'react-i18next'
 import type { SidebarTab } from '@gugu/core/shared/enums/sidebarTabModels'
 import { Button } from '@/components/ui/Button'
@@ -7,6 +7,9 @@ import { AUTOMATION_TEST_IDS } from '@/lib/automationDom'
 import { UI_EVENTS } from '@/lib/uiEvents'
 import { tabItemStyle } from './settledTab'
 import type { PhoneViewport } from './usePhoneViewport'
+
+/** 点按切换时挂在栏上的过渡窗口:比 --dur-med(200ms)多留一点,过渡跑完就摘,❌ 拖动时还挂着(那会拖在手指后面)。 */
+const TAB_SWITCH_MS = 320
 
 const anchorStyle = (height: number, index: number): CSSProperties => ({ '--phone-nav-viewport-height': `${height}px`, '--phone-nav-selected-index': index }) as CSSProperties
 
@@ -33,6 +36,17 @@ export function PhoneTabBar({ activeTab, onTabChange, pendingContactsCount, barR
   const { t } = useTranslation('main')
   const { t: mt } = useTranslation('messaging')
   const height = useNavHeight(viewport)
+  const switchTimer = useRef<number | undefined>(undefined)
+  useEffect(() => () => window.clearTimeout(switchTimer.current), [])
+  const tapTab = (tab: SidebarTab) => {
+    const bar = barRef.current
+    if (bar && tab !== activeTab) {
+      bar.setAttribute('data-tab-switching', '')
+      window.clearTimeout(switchTimer.current)
+      switchTimer.current = window.setTimeout(() => bar.removeAttribute('data-tab-switching'), TAB_SWITCH_MS)
+    }
+    onTabChange(tab)
+  }
   const entries = {
     chats: { label: t('shell.messagesMobile'), icon: <MessageCircle />, testId: AUTOMATION_TEST_IDS.mobileMessagesNav },
     contacts: { label: t('shell.partnersMobile'), icon: <Users />, testId: AUTOMATION_TEST_IDS.mobileContactsNav },
@@ -43,9 +57,9 @@ export function PhoneTabBar({ activeTab, onTabChange, pendingContactsCount, barR
         {tabs.map((tab, index) => {
           const item = tab === 'chats' || tab === 'contacts' ? entries[tab] : null
           if (!item) return null
-          return <Button key={tab} variant="ghost" className="gg-phone-nav-item" aria-label={item.label} aria-current={tab === activeTab ? 'page' : undefined} data-testid={item.testId} onClick={() => onTabChange(tab)} style={tabItemStyle(index, tabs.indexOf(activeTab), 'var(--primary)')}>
+          return <Button key={tab} variant="ghost" className="gg-phone-nav-item" aria-label={item.label} aria-current={tab === activeTab ? 'page' : undefined} data-testid={item.testId} onClick={() => tapTab(tab)} style={tabItemStyle(index, tabs.indexOf(activeTab), 'var(--primary)', 'var(--phone-nav-idle)')}>
             <span className="gg-phone-nav-icon">{item.icon}{tab === 'contacts' && pendingContactsCount > 0 ? <span className="gg-phone-nav-badge">{pendingContactsCount > 99 ? '99+' : pendingContactsCount}</span> : null}</span>
-            <span>{item.label}</span>
+            <span className="gg-phone-nav-label">{item.label}</span>
           </Button>
         })}
       </div>
