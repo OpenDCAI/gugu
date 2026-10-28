@@ -1,12 +1,8 @@
 // @vitest-environment jsdom
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import type { Device } from '@gugu/core/shared/types/chat'
-import type { SessionpageSessionSummary } from '@gugu/session-core/session-record/contract'
 import { MobileModeMenu } from '../../../apps/desktop/src/mobile/agent-watch/MobileModeMenu'
-import { MobileAgentOpenTask } from '../../../apps/desktop/src/mobile/agent-watch/MobileAgentOpenTask'
-import { useAgentSessionRow } from '../../../apps/desktop/src/mobile/agent-watch/useAgentSessionRow'
-import { APP_SHOW_SESSION_EVENT, type AppShowSessionDetail } from '../../../apps/desktop/src/session/shared/extensions/app-runtime-protocol'
-import { retainDeviceSessions, updateDeviceSessions } from '../../../apps/desktop/src/session/shared/remote-sessions/session-directory'
+import { retainDeviceSessions } from '../../../apps/desktop/src/session/shared/remote-sessions/session-directory'
 import { translateSessionMessage } from '../../../apps/desktop/src/session/renderer/localization/locale-store'
 import { clickElement, createNode, createReactHarness, waitForCondition } from '../../support/testHarness'
 
@@ -16,19 +12,6 @@ const deviceStore = vi.hoisted(() => ({ devices: [] as Device[] }))
 vi.mock('../../../apps/desktop/src/store/devicesContext', () => ({
   useDevicesStore: () => ({ devices: deviceStore.devices }),
 }))
-
-const session = (extra: Partial<SessionpageSessionSummary> = {}): SessionpageSessionSummary => ({
-  conversationId: 'conversation-1',
-  projectId: 'project-1',
-  title: 'Task one',
-  harness: 'claude',
-  runtime: 'pty',
-  agentStatus: null,
-  lastInteractedAt: '2026-10-15T00:00:00.000Z',
-  supported: true,
-  agent: { userId: 'agent-1' },
-  ...extra,
-})
 
 const device = (): Device => ({
   device_id: 'device-1',
@@ -100,43 +83,5 @@ describe('MobileModeMenu on the session page (at=task)', () => {
     await openMenu()
     expect(choice('chat')?.getAttribute('aria-disabled')).toBe('true')
     expect(choice('chat')?.textContent).toContain(translateSessionMessage('task.modeChatNeedsIdentity'))
-  })
-})
-
-/** 私聊页拿到的就是这一份:找得到才放按钮(AgentSessionpagePresentation)。 */
-function DmHeader({ agentUserId }: { agentUserId: string | null }) {
-  const row = useAgentSessionRow(agentUserId)
-  return row ? createNode(MobileAgentOpenTask, { row }) : createNode('span', { 'data-testid': 'no-mode-button' })
-}
-
-// #639:电脑私聊页头的模式菜单换成了一颗「在任务中打开」;手机跟着换成一颗按钮,❌ 「对话 / 项目」下拉。
-describe('MobileAgentOpenTask (agent chat header)', () => {
-  it('one icon button that opens the agent’s session the way gugu.showSession does, no menu', async () => {
-    updateDeviceSessions('device-1', { sessions: [session({ conversationId: 'other', agent: { userId: 'agent-2' } }), session()], cached: false, loading: false, error: null })
-    const shown: AppShowSessionDetail[] = []
-    const listen = (event: Event) => shown.push((event as CustomEvent<AppShowSessionDetail>).detail)
-    window.addEventListener(APP_SHOW_SESSION_EVENT, listen)
-    try {
-      await harness.render(createNode(DmHeader, { agentUserId: 'agent-1' }))
-      expect(q('[data-testid="agent-watch-mode-open"]')).toBeNull()
-      const button = q<HTMLElement>('[data-testid="agent-open-task"]')!
-      // 私聊页头放不下名字(390 宽时 agent 名被挤成「C…」):只画图标,名字进读屏标签。
-      expect(button.textContent).toBe('')
-      expect(button.getAttribute('aria-label')).toBe('在任务中打开')
-      await clickElement(button)
-      expect(rows()).toEqual([])
-      expect(shown).toEqual([{ deviceId: 'device-1', session: expect.objectContaining({ conversationId: 'conversation-1' }) }])
-    } finally {
-      window.removeEventListener(APP_SHOW_SESSION_EVENT, listen)
-    }
-  })
-
-  it('no button when no machine lists a session for this agent, or when it is not asked to look (desktop)', async () => {
-    updateDeviceSessions('device-1', { sessions: [session({ agent: { userId: 'agent-2' } })], cached: false, loading: false, error: null })
-    await harness.render(createNode(DmHeader, { agentUserId: 'agent-1' }))
-    expect(q('[data-testid="agent-open-task"]')).toBeNull()
-    expect(q('[data-testid="no-mode-button"]')).not.toBeNull()
-    await harness.render(createNode(DmHeader, { agentUserId: null }))
-    expect(q('[data-testid="agent-open-task"]')).toBeNull()
   })
 })

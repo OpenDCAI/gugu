@@ -14,7 +14,6 @@ import { rendererLogger } from '../../lib/log'
 import { AUTOMATION_TEST_IDS } from '../../lib/automationDom'
 import { NoticeButton, SessionpageNoticeBar } from './SessionpageNoticeBar'
 import { Button } from '../ui/Button'
-import { MobileAgentOpenTask } from '@/mobile/agent-watch/MobileAgentOpenTask'
 import { useAgentSessionRow } from '@/mobile/agent-watch/useAgentSessionRow'
 import { AgentPermissionBand } from './AgentPermissionBand'
 import { AgentQuestionCard } from './AgentQuestionCard'
@@ -57,7 +56,7 @@ export function useAgentSessionpagePresentation(
   onOpenFile?: (agentUserId: string, path: string) => Promise<void>,
 ): AgentSessionpagePresentation {
   const projection = useSessionpageAgentProjection(agentChat?.peer_user_id ?? null)
-  // 手机上这个 agent 的会话在哪台机器上(#7197):找得到才放模式按钮,页头据 openAction 决定要不要给它腾地方。
+  // 手机上这个 agent 的会话在哪台机器上(#7197):远端的提问卡从那台机器读。
   const mobileSessionRow = useAgentSessionRow(agentChat?.peer_user_id ?? null)
   const timeline = useSessionpageSessionTimeline(projection.context?.sessionId ?? null)
   const remoteQuestion = useRemoteAgentQuestion(mobileSessionRow, projection.context?.sessionId ?? null)
@@ -150,10 +149,8 @@ export function useAgentSessionpagePresentation(
       }
 
   // 头部最右那颗「在任务中打开」。「通用 / 编程」的手动切换已删(展示跟设置 → 通用的「终端」开关走),这里只剩去处。
-  // 手机上没有会话页可开(#7197):那一颗从手机的会话目录里找这个 agent 的会话,去处是任务 tab 里它那一页。
-  const openAction = mobile
-    ? (mobileSessionRow ? <MobileAgentOpenTask row={mobileSessionRow} /> : null)
-    : agentChat && projection.context && onOpen ? (
+  // 手机上没有(#691 owner 10-28):私聊统一以后私聊本身就是任务页那个转录,再开一次是多余的。
+  const openAction = !mobile && agentChat && projection.context && onOpen ? (
       <Button
         variant="ghost"
         disabled={opening}

@@ -8,7 +8,7 @@ import { translateSessionMessage } from '@renderer/localization/locale-store'
 
 /**
  * 手机上那颗模式按钮(#7197,behavior mobile-session-view「模式按钮」):看一条会话的那一页页头。
- * Agent 私聊页头那一颗已按 #639 换成一颗「在任务中打开」(MobileAgentOpenTask)。
+ * Agent 私聊页头没有这颗按钮(#691:私聊本身就是任务页那个转录)。
  *
  * 只在**手机自己**的两个视图之间跳:对话(这个 agent 的私聊)、项目(看这条会话的那一页,底栏「项目」那一格),人在哪儿哪儿打勾。
  * ❌ 没有「切换为编程 / 通用模式」—— 手机不让那台电脑换展示,电脑上的视图不受手机影响(owner 10-15「手机上切就是
