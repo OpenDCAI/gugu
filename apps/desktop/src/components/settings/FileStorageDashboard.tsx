@@ -11,8 +11,8 @@ import '../usage/usage.css'
 
 const CLASSES: readonly FileStorageClass[] = ['temporary', 'image', 'kept']
 // The usage page's theme-following chart colors (its .gg-usage container below lends them).
-const SWATCH: Record<FileStorageClass, string> = { temporary: 'bg-[var(--na-warning)]', image: 'bg-[var(--na-chart-1)]', kept: 'bg-[var(--faint-fg)]' }
-const FILL: Record<FileStorageClass, string> = { temporary: 'fill-[var(--na-warning)]', image: 'fill-[var(--na-chart-1)]', kept: 'fill-[var(--faint-fg)]' }
+const SWATCH: Record<FileStorageClass, string> = { temporary: 'bg-[var(--warn)]', image: 'bg-[var(--usage-accent-1)]', kept: 'bg-[var(--faint-fg)]' }
+const FILL: Record<FileStorageClass, string> = { temporary: 'fill-[var(--warn)]', image: 'fill-[var(--usage-accent-1)]', kept: 'fill-[var(--faint-fg)]' }
 const DAY = 86_400_000
 type Expiring = FileStorageOverview['expiring'][number]
 type SortKey = 'name' | 'group' | 'size' | 'expires'
@@ -188,7 +188,7 @@ export function FileStorageDashboard() {
                   </span></td>
                   <td className="text-[var(--muted-fg)]">{groupName(file.chat_id)}</td>
                   <td className="text-right tabular-nums">{size(file.bytes)}</td>
-                  <td className={left <= 2 ? 'text-right tabular-nums text-[var(--na-warning)]' : 'text-right tabular-nums'}>
+                  <td className={left <= 2 ? 'text-right tabular-nums text-[var(--warn)]' : 'text-right tabular-nums'}>
                     {left === 0 ? t('fileStorage.dashboard.today') : t('fileStorage.dashboard.daysLeft', { count: left })}
                   </td>
                 </tr>

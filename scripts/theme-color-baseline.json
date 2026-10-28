@@ -71,21 +71,6 @@
   },
   {
     "rule": "hard-coded-color",
-    "file": "apps/desktop/src/components/usage/usage.css",
-    "count": 28
-  },
-  {
-    "rule": "hard-coded-color",
-    "file": "apps/desktop/src/components/usage/UsageCharts.tsx",
-    "count": 30
-  },
-  {
-    "rule": "hard-coded-color",
-    "file": "apps/desktop/src/lib/usage/table.ts",
-    "count": 12
-  },
-  {
-    "rule": "hard-coded-color",
     "file": "apps/desktop/src/mobile/assistant/phone-connector.css",
     "count": 1
   },
