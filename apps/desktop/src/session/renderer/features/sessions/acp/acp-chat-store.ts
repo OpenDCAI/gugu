@@ -176,6 +176,9 @@ export class AcpChatStore {
    */
   private _closedByHost = false;
   private _disposed = false;
+  /** Read-only queue snapshot while the provider is stopped. */
+  private _storedQueue: Array<Pick<PromptInput, 'text' | 'origin'>> = [];
+  private _storedQueueGeneration = 0;
   /**
    * 到这条会话所在那台机器的线「从断变通」了几次(本机会话不数)。线断掉的那种失败(`connection_lost`)
    * 只在它往上跳的那一下自动再开一次 —— 每次变通至多一次,❌ 循环重试。
@@ -297,9 +300,10 @@ export class AcpChatStore {
       this.commands.map((command) => command.name)
     );
 
-    makeObservable<this, '_bootstrapped' | '_bootstrapsInFlight' | '_runtimeBackgroundTaskIds' | '_runtimeLiveSubagentIds' | '_startupQueued' | '_startupRunningId'>(this, {
+    makeObservable<this, '_bootstrapped' | '_bootstrapsInFlight' | '_runtimeBackgroundTaskIds' | '_runtimeLiveSubagentIds' | '_startupQueued' | '_storedQueue' | '_startupRunningId'>(this, {
       _bootstrapped: observable,
       _startupQueued: observable.ref,
+      _storedQueue: observable.ref,
       _startupRunningId: observable,
       _runtimeBackgroundTaskIds: observable.ref,
       runningBackgroundTaskIds: computed,
@@ -508,7 +512,15 @@ export class AcpChatStore {
   }
 
   get queuedPrompts(): ComposerQueuedPrompt[] {
-    if (!this.session) return this._startupQueued.map((prompt) => ({ ...prompt, locked: true }));
+    if (!this.session) return [
+      ...this._storedQueue.flatMap((prompt, index): ComposerQueuedPrompt[] => {
+        if (!prompt.origin) throw new Error(`Stored queued prompt ${index} has no explicit origin`);
+        return prompt.origin === 'communication' ? [] : [{
+          id: `stored:${index}`, text: prompt.text, origin: prompt.origin, locked: true,
+        }];
+      }),
+      ...this._startupQueued.map((prompt) => ({ ...prompt, locked: true })),
+    ];
     return this._queuedPromptModels().filter(isVisibleQueuedPrompt).map(
       (prompt) => ({ id: prompt.id, text: prompt.text, origin: prompt.origin })
     );
@@ -826,6 +838,8 @@ export class AcpChatStore {
     this.session?.dispose();
     this.session = null;
     this._closedByHost = false;
+    this._storedQueue = [];
+    this._storedQueueGeneration += 1;
     this.historyLoading = true;
     this.loadError = null;
     void this._runBootstrap();
@@ -845,6 +859,8 @@ export class AcpChatStore {
     this.session?.dispose();
     this.session = null;
     this._closedByHost = false;
+    this._storedQueue = [];
+    this._storedQueueGeneration += 1;
     this.historyLoading = true;
     this.loadError = null;
     // ⚠️ `attachOnly` —— **重新附着,不是再建立一次**(#5550)。
@@ -1139,6 +1155,8 @@ export class AcpChatStore {
     // 不挂,上屏的那一句会永远停在「处理中」。
     if (this._closedByHost) {
       this._closedByHost = false;
+      this._storedQueue = [];
+      this._storedQueueGeneration += 1;
       void this._runBootstrap();
     } else if (!this.starting) {
       if (this.loadError) this.retry();
@@ -1648,6 +1666,8 @@ export class AcpChatStore {
     let bootstrapSession: AcpLiveSession | undefined;
     let firstPrompt: PendingPrompt | null = null;
     this._closedByHost = false;
+    this._storedQueue = [];
+    this._storedQueueGeneration += 1;
     this._watchMachineLink();
     const openingAtStart = this._linkOpenings;
     const resuming = options?.attachOnly && this._runtimeCursor != null;
@@ -2454,6 +2474,14 @@ export class AcpChatStore {
       () => closed.dispose()
     );
     this._closedByHost = true;
+    const generation = ++this._storedQueueGeneration;
+    void getAcpRuntimeClient(machineRegistry.machineOf(this.runtimeSessionId))
+      .then((client) => client.getStoredQueue({ sessionId: this.runtimeSessionId }))
+      .then((queue) => {
+        if (this._disposed || !this._closedByHost || generation !== this._storedQueueGeneration) return;
+        runInAction(() => { this._storedQueue = queue; });
+      })
+      .catch((error: unknown) => this._toastError('acpFailure.refreshHistory', error));
     this.historyLoading = false;
     this.loadError = loadError;
   }

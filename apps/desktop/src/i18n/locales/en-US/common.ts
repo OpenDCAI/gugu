@@ -37,6 +37,7 @@ export default {
     "idle": "Idle",
     "online": "Online",
     "offline": "Offline",
+    "archived": "Archived",
     "removed": "Removed",
     "pending": "Confirming",
     "none": "Status unavailable"

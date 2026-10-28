@@ -19,6 +19,7 @@ export default {
       "startFailed": "Agent startup failed"
     },
     "offlineWarning": "Currently offline and may not respond promptly",
+    "archivedWarning": "Recipient is archived.",
     "wakeRefused": "{{name}} can't come online right now: ",
     "dm": {
       "resolving": "Opening the conversation…",
@@ -743,6 +744,7 @@ export default {
     },
     "retracted": "Message retracted",
     "sendStatus": {
+      "archived": "Recipient is archived. Not delivered.",
       "failed": "Not delivered",
       "failedActions": "Undelivered message actions",
       "failedHint": "Not delivered. Click to retry or discard.",

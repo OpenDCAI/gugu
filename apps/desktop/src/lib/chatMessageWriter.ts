@@ -2,6 +2,7 @@ import { messageItemFromRow, type RawMessageRow } from '@gugu/core/cloud/message
 import type { MessageItem } from '@gugu/core/shared/types/chat'
 import { chatDb } from './supabase'
 import { rendererLogger } from './log'
+import { loadMessageOverlays } from './chatMessageRevalidation'
 
 const writerLog = rendererLogger('chat/message-writer')
 
@@ -47,6 +48,7 @@ export async function writeIdempotentChatMessage(
     ? messageItemFromRow(rows[0] as RawMessageRow, input.senderUserId)
     : null
   if (!message) throw new Error('send_message_idempotent returned an unexpected row shape', { cause: { data } })
+  Object.assign(message, (await loadMessageOverlays([message.id], input.senderUserId)).get(message.id))
   // gugu-dev#181 ⑨ a reply to an agent's question card is its answer (questionCardAnswer.ts). The reply is sent either way;
   // an answer that does not land leaves the card waiting, where the owner sees it.
   if (message.reply_to_message_id) {

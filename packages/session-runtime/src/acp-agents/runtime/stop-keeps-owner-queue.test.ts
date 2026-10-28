@@ -1,7 +1,7 @@
 /*
  * 2026-10-28 07:34:06 主人撞到:会话正在关的时候,这一轮落定、队列出队,主人排的那条被 `Session is closing` 拒掉,
  * 日志一句「not re-queued」就没了;停止又把队列快照清空,重起之后也找不回来。
- * 现在:关的时候不出队;停下时队列快照只留主人排的话(origin `manual`),重起后照常先发它。投递信封照旧清掉。
+ * Stop retains every accepted input: delivery cursors already advanced and cannot redeliver it.
  */
 import { isOk } from '@gugu/session-shared';
 import { noopLogger } from '@gugu/session-shared/logger';
@@ -38,7 +38,7 @@ describe('stopping a session keeps the owner\'s queued message for the next star
     expect(sentTexts(h.agent).at(-1)).toContain('and then this');
   });
 
-  it('❌ negative: a queued delivery envelope is cleared on stop as before, so the restart does not deliver it a second time', async () => {
+  it('preserves an accepted delivery behind the owner queue and sends both once after restart', async () => {
     const h = makeAcpHarness();
     h.agent.prompt.mockImplementationOnce(() => new Promise(() => {}));
     const rt = new AcpRuntime(h.deps);
@@ -47,17 +47,21 @@ describe('stopping a session keeps the owner\'s queued message for the next star
 
     expect(isOk(rt.promptDetached('conv-stop-delivery', { text: 'the long task', origin: 'manual' }))).toBe(true);
     await h.agent.called('prompt');
-    await rt.queuePrompt('conv-stop-delivery', { text: DELIVERY, origin: 'communication' });
     await rt.queuePrompt('conv-stop-delivery', { text: 'and then this', origin: 'manual' });
+    await rt.queuePrompt('conv-stop-delivery', { text: DELIVERY, origin: 'communication' });
 
     await rt.stopSession('conv-stop-delivery');
-    expect(h.deps.promptQueueStore?.load('conv-stop-delivery').map((prompt) => prompt.origin)).toEqual(['manual']);
+    expect(h.deps.promptQueueStore?.load('conv-stop-delivery').map(({ text, origin }) => ({ text, origin }))).toEqual([
+      { text: 'and then this', origin: 'manual' }, { text: DELIVERY, origin: 'communication' },
+    ]);
+    expect(rt.getStoredQueue('conv-stop-delivery')).toHaveLength(2);
 
     expect(isOk(await rt.startSession({ ...start, providerSessionId: 'session-1' }))).toBe(true);
-    await vi.waitFor(() => expect(h.agent.prompt).toHaveBeenCalledTimes(2));
-    await new Promise((resolve) => setTimeout(resolve, 20));
-    expect(sentTexts(h.agent).filter((text) => text.includes('ping')), 'the envelope is not sent again').toEqual([]);
-    expect(h.agent.prompt).toHaveBeenCalledTimes(2);
+    await vi.waitFor(() => expect(h.agent.prompt).toHaveBeenCalledTimes(3));
+    expect(sentTexts(h.agent)[1]).toContain('and then this');
+    expect(sentTexts(h.agent)[2]).toContain(DELIVERY);
+    expect(rt.getStoredQueue('conv-stop-delivery')).toEqual([]);
+    expect(h.deps.promptQueueStore?.load('conv-stop-delivery')).toEqual([]);
   });
 
   it('a turn that settles while the cell is closing does not dequeue — the queued prompt is not thrown away', async () => {

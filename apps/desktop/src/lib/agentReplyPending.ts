@@ -20,7 +20,7 @@ export const WAKE_PICKUP_MS = 90_000
 /** 消息到了(或它刚醒)、读数还没翻成「在跑」的那一段最多等多久:宿主收下消息、起一轮要几秒到几十秒。 */
 export const START_PICKUP_MS = 45_000
 
-type Line = Pick<MessageItem, 'is_mine' | 'created_at' | 'retracted_at' | 'content_type' | 'local_send_state' | 'thread_root_id'>
+type Line = Pick<MessageItem, 'is_mine' | 'created_at' | 'retracted_at' | 'content_type' | 'local_send_state' | 'thread_root_id' | 'delivery_blocks'>
   & Partial<Pick<MessageItem, 'id' | 'sender_user_id' | 'client_message_id' | 'reply_to_message_id'>>
 
 /** 这条线最后一句是我说的、还没人接:返回它发出的时刻(毫秒);最后一句是对方的 / 没发出去 = null。 */
@@ -40,7 +40,7 @@ export function awaitingReplyMessage<T extends Line>(messages: readonly T[]): T 
       continue
     }
     if (legacyTurnEnded || (message.id && failed.has(message.id))) return null
-    if (!message.is_mine || message.local_send_state === 'failed') return null
+    if (!message.is_mine || message.local_send_state === 'failed' || message.delivery_blocks?.length) return null
     return Number.isFinite(Date.parse(message.created_at)) ? message : null
   }
   return null
@@ -71,6 +71,7 @@ export function agentReplyPending(input: {
   now: number
 }): AgentReplyPending {
   const { status, cloud, awaitingSince, now } = input
+  if (status === 'archived') return null
   if (status === 'working') return 'working'
   if (awaitingSince === null) return null
   if (cloud?.presence === 'waking') return 'waking'

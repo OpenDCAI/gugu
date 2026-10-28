@@ -16,6 +16,8 @@ import { VALID_AGENT_TYPES } from '../agentTypes'
 export type AgentPresencePayload = {
   agentUserId: string
   accountStatus: AgentAccountStatus
+  sessionArchivedAt?: string | null
+  sessionLifecycleRevision?: number
   // 在不在线 = 设备行(deviceStatus)+ owner 意图(desiredStatus)。载荷里的 runtime_status / derived_status 不读:
   // desired=online 时它们的 offline 本来就改不了结果,后端也已不再计算 / 不再听它们。
   desiredStatus: 'online' | 'offline' | null
@@ -54,6 +56,8 @@ export type AgentPresencePayload = {
 type RawPresence = {
   agent_user_id?: unknown
   account_status?: unknown
+  session_archived_at?: unknown
+  session_lifecycle_revision?: unknown
   desired_status?: unknown
   activity_status?: unknown
   agent_status?: unknown
@@ -145,6 +149,8 @@ export function parseAgentPresencePayload(raw: unknown): AgentPresencePayload | 
   return {
     agentUserId,
     accountStatus: presence.account_status,
+    sessionArchivedAt: asTimestamp(presence.session_archived_at),
+    sessionLifecycleRevision: asNonNegativeInt(presence.session_lifecycle_revision) ?? 0,
     desiredStatus: asOnlineOffline(presence.desired_status),
     activityStatus: isAgentActivityStatus(presence.activity_status) ? presence.activity_status : 'idle',
     status,

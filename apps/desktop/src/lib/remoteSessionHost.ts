@@ -65,6 +65,7 @@ export type DeviceRpcDeps = {
   newClientId: () => string
   isSshMachine: (deviceId: string) => boolean
   requestUpgrade: (deviceId: string) => Promise<boolean>
+  requestCloudUpgrade?: (deviceId: string) => Promise<boolean>
   /** 开窗口时报给那台机器的「这台桌面是哪一版」(那台咕咕 server 据此让这个账号跑匹配的版本);拿不到 = 不报。 */
   desktop?: () => Promise<DesktopHello | null>
   waitForTunnel?: (deviceId: string) => Promise<void>
@@ -116,6 +117,7 @@ const defaultDeps: DeviceRpcDeps = {
   newClientId: () => crypto.randomUUID().replace(/-/g, ''),
   isSshMachine,
   requestUpgrade: (deviceId) => requestSshServerUpgrade(deviceId),
+  requestCloudUpgrade: async deviceId => (await import('./cloudVersionMatch')).requestCloudVersionMatch(deviceId),
   desktop: thisDesktop,
   waitForTunnel,
   usesDeviceLink,
@@ -232,6 +234,7 @@ export function openRemoteSessionHostPipe(
       if (opened.error.code === 'unknown_method') {
         // 远程 SSH 的机器:这台桌面够得着,当场替它升级(升完自动重连);远程隧道的等它空闲时自己升。
         if (deps.isSshMachine(deviceId)) void deps.requestUpgrade(deviceId)
+        else void deps.requestCloudUpgrade?.(deviceId)
         throw new SessionHostTooOldError()
       }
       throw Object.assign(new Error(`${opened.error.code}: ${opened.error.message}`), { code: opened.error.code })
@@ -242,6 +245,7 @@ export function openRemoteSessionHostPipe(
       unsubscribe()
       void deps.call(deviceId, SESSION_HOST_RPC.close, { client }, { timeoutMs: FRAME_TIMEOUT_MS }).catch(() => undefined)
       if (deps.isSshMachine(deviceId)) void deps.requestUpgrade(deviceId)
+      else void deps.requestCloudUpgrade?.(deviceId)
       throw new SessionHostTooOldError()
     }
 

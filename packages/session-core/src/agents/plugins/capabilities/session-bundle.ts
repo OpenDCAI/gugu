@@ -1349,6 +1349,11 @@ export interface SessionCapabilityBundle {
   mcpDisabled?: readonly string[];
   /** #6387 Skills installed extensions bring to this session. */
   extensionSkills?: readonly ExtensionSkill[];
+  /**
+   * #7199 The Browser Use App is installed, on and allowed to give agents tools on this machine: the session's browser is
+   * its `browser_*` tools. Set by the host when the session opens; absent = no Gugu browser in this session.
+   */
+  browserUse?: true;
   env: Readonly<Record<string, string | undefined>>;
   model: SessionModelCapability | null;
   autonomy: SessionAutonomyCapability | null;
