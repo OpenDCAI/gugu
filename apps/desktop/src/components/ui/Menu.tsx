@@ -203,7 +203,9 @@ export function MenuItem({ icon, danger, disabled, title, className, style, 'dat
 
 const submenuRowStyle: CSSProperties = { padding: menuRowPadding }
 const submenuPositionerStyle: CSSProperties = { zIndex: 'var(--z-menu)' }
-const submenuPopupStyle: CSSProperties = { minWidth: 160, maxWidth: 320, padding: menuSurfacePadding }
+// 子菜单最多撑到窗口里放得下的高度(base-ui 在 positioner 上给的 --available-height,与会话页各弹层同一个上限),
+// 多出来的在弹层里滚:群页头 ⋯ →「话题」话题一多就一直往下撑出窗口(owner 10-28)。父菜单那几行不在这里,不跟着滚。
+const submenuPopupStyle: CSSProperties = { minWidth: 160, maxWidth: 320, padding: menuSurfacePadding, maxHeight: 'var(--available-height)', overflowY: 'auto' }
 
 /** A row that opens a nested menu beside it (header ⋯ →「话题」); the nested popup uses the same surface and rows. */
 export function MenuSubmenu({ icon, label, 'data-testid': testId, children }: {
