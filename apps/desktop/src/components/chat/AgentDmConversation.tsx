@@ -128,6 +128,10 @@ function DmConversation({ chat, target, shown, mobile, onBack, chrome, embedded,
     {options.confirmation}
     <SessionTranscriptView uri={target?.sessionId ?? `dm:${chat.id}`} turns={turns} mobile={mobile} shown={shown}
       commands={{ ...(target ? outputs.handlers : {}), onOpenFile: target ? ({ path }) => outputs.openFile(path) : undefined, classifyLink: classifyFileLink, onOpenLink: openAttachment, conversationAgentName: () => name, conversationAgentSession: () => target?.sessionId ?? null, conversationAgentUserId: () => chat.peer_user_id ?? null, onOpenSender: openMessageSender, onConversationReply: id => view.current?.scrollToItem(id, { align: 'center' }),
+        conversationProcessNotice: processId => {
+          const notice = messages.find(message => message.content_type === 'system' && !message.retracted_at && processId === `im:${message.id}:process`)
+          return notice ? { id: notice.id, text: notice.content ?? '' } : null
+        },
         onStopBackgroundTask: target && client.stopBackgroundTask ? ({ stopId }) => { void client.stopBackgroundTask!(target.deviceId, target.sessionId, stopId).catch(error => toast(messageForUser(error), 'error')) } : undefined,
         onDismissBackgroundTask: target ? ({ entryId }) => { dismissSubagent(target.sessionId, entryId); setDismissals(value => value + 1) } : undefined,
         resolveToolImage: target ? async (itemId, index) => toolImageUrl(await client.fetchToolImage(target.deviceId, target.sessionId, itemId, index)) : undefined,

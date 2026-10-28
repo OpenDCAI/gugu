@@ -40,6 +40,23 @@ async function mount(raw: ChatMessage, width = 600, commands: ChatCommands = {})
 }
 
 describe('agent-centered conversation bubbles', () => {
+  it('keeps an authorized system notice visible in a closed zero-step process header', () => {
+    const host = document.createElement('div');
+    host.style.width = '320px';
+    document.body.append(host);
+    const text = '消息已保留，助理就绪后回复。';
+    const dispose = render(() => <CommandsContext.Provider value={() => ({ conversationProcessNotice: () => ({ id: 'notice', text }) })}>
+      <ConversationProcess process={{ id: 'im:notice:process', steps: 0 }} anchorId="p" expanded={false} />
+    </CommandsContext.Provider>, host);
+    try {
+      const header = host.querySelector<HTMLElement>('[data-conversation-process]')!;
+      expect(header.textContent).toContain(text);
+      expect(header.querySelector('[data-agent-conversation-message="notice"]')?.textContent).toBe(text);
+      expect(header.offsetHeight).toBe(22);
+      expect(header.getBoundingClientRect().width).toBeLessThanOrEqual(320);
+      expect(host.textContent).not.toContain('0 steps');
+    } finally { dispose(); host.remove(); }
+  });
   it.each([320, 600])('keeps the subject left and incoming agents right at width %s with matching measured geometry', async width => {
     for (const role of ['assistant', 'user'] as const) {
       const view = await mount({ kind: 'message', id: role, role, text: '你好，**一起讨论一下这个计划**。'.repeat(12), at: Date.now(), conversationReply: { itemId: 'source', text: '你好' } }, width);

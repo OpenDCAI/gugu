@@ -54,6 +54,8 @@ export function dmRecordIds(turns: readonly TranscriptTurn[]): Map<string, reado
       if (messages.length) ids.set(item.id, messages)
       else if (turn.id === `im:${item.id}`) ids.set(item.id, [item.id])
       for (const id of messages) ids.set(id, [id])
+    } else if (item.kind === 'session-notice' && turn.id === `im:${item.id}`) {
+      ids.set(item.id, [item.id])
     } else if (item.kind === 'mcp-tool-call') {
       const sent = successfulMessageSend(item)?.id ?? sentAttachmentOf(item, (turn as AttachmentTurn).sentAttachments)?.messageId
       if (sent) ids.set(`${item.id}:sent:${sent}`, [sent])

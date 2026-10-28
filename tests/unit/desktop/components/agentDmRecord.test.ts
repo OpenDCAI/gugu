@@ -57,7 +57,7 @@ describe('authorized DM rows in the shared transcript', () => {
 
   it('adapts IM turns into the session sequence space without changing message seq or identity', () => {
     const recorded = [{ ...dmRecord([human('recorded', 3)], names)[0], seq: 950 }]
-    const rows = [human('recorded', 3), human('new', 4), human('pending', -1)]
+    const rows = [human('recorded', 3), human('new', 4), { ...human('pending', -1), local_send_state: 'sending' as const }]
     const merged = mergeDmRecord(recorded, rows, names)
     expect(merged.map(turn => turn.seq)).toEqual([950, 951, 952])
     expect(merged.slice(1).map(turn => [turn.id, turn.items[0].seq])).toEqual([['im:new', 4], ['im:pending', -1]])

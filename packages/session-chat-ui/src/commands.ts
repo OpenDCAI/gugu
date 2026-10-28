@@ -43,6 +43,8 @@ export type ChatCommands = {
   conversationClock?: () => number;
   /** Display name of the agent owning this transcript, supplied by its host. */
   conversationAgentName?: () => string | null;
+  /** Authorized IM system notices stay visible in their process header, even when folded. */
+  conversationProcessNotice?: (processId: string) => { id: string; text: string } | null;
   onConversationReply?: (itemId: string) => void;
   onCopyError?: (error: unknown) => void;
   canRevertMessage?: (itemId: string) => boolean;

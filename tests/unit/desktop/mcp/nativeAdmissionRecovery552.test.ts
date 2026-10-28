@@ -14,14 +14,14 @@ vi.mock('../../../../apps/desktop/electron/lib/logger', () => ({
 import { emdashAgentRegistry } from '../../../../apps/desktop/electron/sessionpage/emdash-agent-registry';
 import { SessionpageLocalDeliveryRouter } from '../../../../apps/desktop/electron/sessionpage/session-injection';
 
-function delivery(runtime: AcpRuntime, sessionId: string, wake: () => Promise<void>) {
+function delivery(runtime: AcpRuntime, sessionId: string, wake: () => Promise<void>, origin: 'communication' | 'manual' = 'communication') {
   const api = createAcpProcedures(runtime);
   emdashAgentRegistry.setBridge({
     emdashSessionSummaries: async () => [{ sessionId, providerId: 'claude', ...runtime.getSessionState(sessionId) }],
     injectEmdashPromptDetached: async (target, text, opts) => {
-      const result = await api.promptDetached({ sessionId: target, prompt: { text, origin: 'communication' }, steerIfBusy: opts?.steerIfBusy });
+      const result = await api.promptDetached({ sessionId: target, prompt: { text, origin }, steerIfBusy: opts?.steerIfBusy });
       return {
-        outcome: result.declined ? 'declined' : result.queued ? 'queued' : 'started',
+        outcome: result.declined ? result.missing ? 'missing' : 'declined' : result.queued ? 'queued' : 'started',
         turnId: result.requestId,
         completion: api.waitPromptDetached({ requestId: result.requestId }).then(() => {}),
       };
@@ -36,6 +36,37 @@ function delivery(runtime: AcpRuntime, sessionId: string, wake: () => Promise<vo
 
 describe('native admission through local message delivery', () => {
   afterEach(() => emdashAgentRegistry.setBridge(null));
+
+  it('resumes the same provider session when a human DM finds its executor missing before admission', async () => {
+    const h = makeAcpHarness({ reportsState: true });
+    Object.assign(h.agent, { protocolVersion: 2 });
+    h.agent.initialize.mockResolvedValue({ protocolVersion: 2, agentCapabilities: { loadSession: true } });
+    h.agent.prompt = vi.fn<AcpAgentApi['prompt']>()
+      .mockRejectedValueOnce(Object.assign(new Error('Internal error'), { code: -32603, data: { details: 'Session not found' } }))
+      .mockImplementation(async (_params, accept) => { accept?.(); return { stopReason: 'end_turn' }; });
+    const runtime = new AcpRuntime(h.deps);
+    const input = makeStartInput({ sessionId: 'human-dm-ended-executor' });
+    const wake = vi.fn(async () => {
+      const result = await runtime.startSession({ ...input, providerSessionId: 'session-1' });
+      if (!result.success) throw new Error(result.error.message);
+    });
+    try {
+      expect((await runtime.startSession(input)).success).toBe(true);
+      const receipt = await delivery(runtime, input.sessionId, wake, 'manual')('same human DM');
+      expect(receipt).toMatchObject({ turnId: expect.any(String) });
+      if (typeof receipt !== 'boolean') await receipt.completion;
+      expect(wake).toHaveBeenCalledTimes(1);
+      expect(h.children).toHaveLength(2);
+      expect(h.agent.newSession).toHaveBeenCalledTimes(1);
+      expect(h.agent.loadSession).toHaveBeenCalledWith(expect.objectContaining({ sessionId: 'session-1' }));
+      expect(h.agent.prompt).toHaveBeenCalledTimes(2);
+      const history = runtime.getHistory(input.sessionId);
+      if (!history.success) throw new Error('resumed history unavailable');
+      expect(history.data.turns.flatMap(turn => turn.items).filter(item => item.kind === 'message' && item.text === 'same human DM')).toHaveLength(1);
+    } finally {
+      await runtime.dispose();
+    }
+  });
 
   it('does not accept a real v2 request cancelled before native admission', async () => {
     const toAgent = new PassThrough();

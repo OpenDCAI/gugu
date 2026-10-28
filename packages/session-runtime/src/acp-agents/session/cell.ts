@@ -2090,7 +2090,10 @@ export class SessionCell {
       const rejected = nativeRequest && !providerAccepted && toSerializedError(e).code === -32603 && !providerRejectedMissingSession(e);
       const beforeTurn = providerAdmission !== null && this.providerAdmission === providerAdmission;
       const preparationRefused = (e as { deliveryRejectedBeforeAdmission?: unknown } | null)?.deliveryRejectedBeforeAdmission === true;
-      const refusal = preparationRefused || beforeTurn && providerRejectedMissingSession(e);
+      // Human DMs keep manual queue policy, so they have no communication watchdog.
+      // A v2 provider's missing-session response before its receipt is still a
+      // refusal, not an admitted failed turn. Let the existing owner wake and retry.
+      const refusal = preparationRefused || (beforeTurn || nativeRequest && !providerAccepted) && providerRejectedMissingSession(e);
       // Native auth/network/quota failures belong to this turn. Return its receipt so the inbox
       // advances once and the completion channel reports the original cause, rather than requeueing.
       if (beforeTurn && !refusal && !nativeRequest) providerAdmission.accept();

@@ -9,13 +9,13 @@ import { chat, clickElement, contact, createReactHarness, displayIdentity, messa
 import { writeComposer } from '../../../support/composerEditor'
 import { emptyAgentWatchTimeline } from '../../../../apps/desktop/src/mobile/agent-watch/agent-watch-store'
 
-const probe = vi.hoisted(() => ({ props: null as unknown, read: vi.fn(), find: vi.fn(), setScrollMode: vi.fn(), fail: false, session: { state: 'no-session' } as AgentDmSession }))
+const probe = vi.hoisted(() => ({ props: null as unknown, read: vi.fn(), find: vi.fn(), setScrollMode: vi.fn(), fail: false, session: { state: 'no-session' } as AgentDmSession, settlements: {} as ReturnType<typeof emptyAgentWatchTimeline>['settlements'], respond: vi.fn() }))
 vi.mock('../../../../apps/desktop/src/hooks/useAgentDmSession', () => ({ useAgentDmSession: () => ({ session: probe.session }) }))
 vi.mock('../../../../apps/desktop/src/hooks/useAgentDisplayStatus', () => import('../../../support/agentDisplayStatusTestDouble'))
 vi.mock('../../../../apps/desktop/src/lib/chat', () => import('../../../support/contactsChatServiceTestDouble'))
 vi.mock('../../../../apps/desktop/src/mobile/agent-watch/use-timeline-session', () => ({ useTimelineSession: (...args: unknown[]) => {
   probe.read(...args)
-  return { timeline: emptyAgentWatchTimeline(), phase: 'idle', respondingItemId: null, actionError: null }
+  return { timeline: { ...emptyAgentWatchTimeline(), settlements: probe.settlements }, phase: 'idle', respondingItemId: null, actionError: null, respond: probe.respond }
 } }))
 vi.mock('../../../../apps/desktop/src/components/assistant-ui/session-transcript-view.aui', () => ({ SessionTranscriptView: (props: { turns: TranscriptTurn[]; composerContent: ReactNode; onReady?: (view: unknown) => void }) => {
   if (probe.fail) throw new Error('Conversation render failure')
@@ -30,7 +30,7 @@ import { ChatAreaPanel } from '../../../../apps/desktop/src/components/ChatAreaP
 import { ShellErrorBoundary } from '../../../../apps/desktop/src/components/ShellErrorBoundary'
 import { AUTOMATION_TEST_IDS } from '../../../../apps/desktop/src/lib/automationDom'
 let harness: ReturnType<typeof createReactHarness>
-beforeEach(() => { harness = createReactHarness(); probe.fail = false; probe.session = { state: 'no-session' }; probe.read.mockClear(); probe.find.mockClear(); probe.setScrollMode.mockClear(); vi.stubGlobal('IntersectionObserver', class { observe() {} disconnect() {} }) })
+beforeEach(() => { harness = createReactHarness(); probe.fail = false; probe.session = { state: 'no-session' }; probe.read.mockClear(); probe.find.mockClear(); probe.setScrollMode.mockClear(); probe.settlements = {}; probe.respond.mockReset(); vi.stubGlobal('IntersectionObserver', class { observe() {} disconnect() {} }) })
 afterEach(() => { harness.cleanup(); vi.unstubAllGlobals() })
 const dm = chat({ id: 'external-dm', kind: 'ai', peer_user_id: 'external-agent', name: 'External agent' })
 const received = message({ id: 'received', chat_id: dm.id, sender_user_id: 'external-agent', is_mine: false, content: '外部 agent 的已有回复。' })
@@ -148,4 +148,18 @@ it('binds an owned agent name to its real readable session, keeping the user ide
   expect(commands.onOpenSender).toBe(openMessageSender)
   expect(commands.conversationAgentSession?.()).toBe('own-session')
   expect(commands.conversationAgentUserId?.()).toBe('own-agent')
+})
+
+it('uses the project approval labels and the same settlement when approving from a DM', async () => {
+  probe.settlements = { write: { itemId: 'write', kind: 'permission', state: 'pending', title: 'Write proof.txt', options: [
+    { optionId: 'yes', name: 'Yes', kind: 'allow_once' }, { optionId: 'no', name: 'No', kind: 'reject_once' },
+  ] } as unknown as ReturnType<typeof emptyAgentWatchTimeline>['settlements'][string] }
+  probe.respond.mockResolvedValue({ accepted: true })
+  await renderWithAppProviders(harness, createElement(AgentDmConversation, { chat: dm, shown: true }), { chat: { activeChat: dm, activeChatId: dm.id } })
+  const band = harness.container.querySelector('[data-testid="agent-sessionpage-permission"]')!
+  expect(band.textContent).toContain('等待批准')
+  expect(band.textContent).not.toContain('Yes')
+  const allow = [...band.querySelectorAll('button')].find(button => button.textContent?.includes('允许这次'))!
+  await clickElement(allow)
+  expect(probe.respond).toHaveBeenCalledWith({ itemId: 'write', kind: 'permission', optionId: 'yes' })
 })

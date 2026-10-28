@@ -40,7 +40,8 @@ export function ConversationProcess(props: {
     return count ? translate(count === 1 ? 'transcript.processStepsOne' : 'transcript.processSteps', { count }) : null;
   };
   const summary = () => [elapsed(), steps()].filter(Boolean).join(' · ') || null;
-  const label = () => `${translate('transcript.thinkingAndExecution')}${summary() ? ` · ${summary()}` : ''}`;
+  const notice = () => commands().conversationProcessNotice?.(props.process.id);
+  const label = () => notice()?.text ?? `${translate('transcript.thinkingAndExecution')}${summary() ? ` · ${summary()}` : ''}`;
   // 在跑:点阵代替大脑,字写「执行中 · 1m15s」并带微光(owner 2026-10-27 原型);跑完换回大脑 + 用时。
   // 不是主人手打起的这一轮:写清在干什么(管家 10-28)。群名只在恰好一个、宿主认得时写;几条合成一轮或认不出就不写名字。
   const doing = () => {
@@ -64,6 +65,7 @@ export function ConversationProcess(props: {
       </svg>
       <Show when={summary()}>{value => <span>{value()}</span>}</Show>
     </Show>
+    <Show when={notice()}>{value => <span data-agent-conversation-message={value().id}>{value().text}</span>}</Show>
     <Show when={collapsible()}><span class={conversationProcessChevron} aria-hidden="true">›</span></Show>
   </button>;
 }
