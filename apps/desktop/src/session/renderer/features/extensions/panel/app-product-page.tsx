@@ -481,7 +481,9 @@ export function AppProductPage({
               />
             </div>
           ) : null}
-          {installed && givenApi && givesAgentTools(installed) ? <AppGivenSection extensionId={installed.id} api={givenApi} machineName={machine} /> : null}
+          {installed && givenApi && givesAgentTools(installed)
+            ? <AppGivenSection extensionId={installed.id} api={givenApi} machineName={machine} blocked={!enabled ? 'off' : revoked.includes('agents:tools') ? 'revoked' : undefined} />
+            : null}
       </AddsEntry>
     );
   }

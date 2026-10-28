@@ -19,11 +19,17 @@ export function AppGivenSection({
   extensionId,
   api,
   machineName,
+  blocked,
 }: {
   extensionId: string;
   api: Pick<ExtensionsApi, 'appPlaces' | 'changeAppPlaces'>;
   /** Another machine's App page: its agents, named as that machine's (not 「这台电脑」「本机」). */
   machineName?: string;
+  /**
+   * Architecture I5: what this computer's switch says before any place does — switched off, or `agents:tools` taken back.
+   * Then no agent gets its tools whoever it is given to, and the summary says that, never 「给了：…」.
+   */
+  blocked?: 'off' | 'revoked';
 }) {
   const { translate } = useSessionMessages();
   const [places, setPlaces] = useState<EnablePlace[] | null>(null);
@@ -64,7 +70,9 @@ export function AppGivenSection({
     <Collapsible className="xp-row-details" data-testid={`extension-given-${extensionId}`} onOpenChange={(open) => { if (open) void load(); }}>
       <CollapsibleTrigger className="xp-row-details-toggle">
         <ChevronRight className="size-3" />
-        <AppPlacesSummary places={places} machineName={machineName} />
+        {blocked
+          ? <span data-testid="extension-given-blocked">{translate(blocked === 'off' ? 'extensions.givenBlockedOff' : 'extensions.givenBlockedRevoked')}</span>
+          : <AppPlacesSummary places={places} machineName={machineName} />}
       </CollapsibleTrigger>
       <CollapsibleContent className="xp-row-details-body">
         <AppPlacesEditor places={places} machineName={machineName} enabled={new Set((places ?? []).filter((place) => place.enabled).map((place) => place.id))} onChange={(changes) => void change(changes)} disabled={busy} />

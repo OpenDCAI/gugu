@@ -41,7 +41,7 @@ export async function readEnablements(token: string, userId: string, chatIds?: r
 
 /**
  * The Apps (`<publisher>/<id>`) a person gave to the agents of a chat this agent is in: their rows, narrowed to the chats
- * the agent is a member of — a group it is in, or its own private chat with them.
+ * the agent is a member of — a group it is in, or its own private chat with them — that are in use (`active`).
  */
 export async function appsGivenTo(token: string, ownerId: string, agentUserId: string): Promise<Set<string>> {
   const rows = await readEnablements(token, ownerId);
@@ -52,7 +52,13 @@ export async function appsGivenTo(token: string, ownerId: string, agentUserId: s
     .eq('user_id', agentUserId)
     .in('chat_id', [...new Set(rows.map((row) => row.chatId))]);
   if (error) throw new Error(error.message);
-  const its = new Set(((data as { chat_id: string }[] | null) ?? []).map((row) => row.chat_id));
+  const member = ((data as { chat_id: string }[] | null) ?? []).map((row) => row.chat_id);
+  if (member.length === 0) return new Set();
+  // Only a chat in use gives (architecture I5): an archived or stopped one is not listed where the person picks places, so it
+  // cannot give what they cannot see — the same chats the 「已给」 picker draws (placesOfChats: status 'active').
+  const live = await chat(token).from('chats').select('id').in('id', member).eq('status', 'active');
+  if (live.error) throw new Error(live.error.message);
+  const its = new Set(((live.data as { id: string }[] | null) ?? []).map((row) => row.id));
   return new Set(rows.filter((row) => its.has(row.chatId)).map((row) => appKey(row.app)));
 }
 
