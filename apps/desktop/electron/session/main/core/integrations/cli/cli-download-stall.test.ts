@@ -51,3 +51,33 @@ it('treats a server that never answers as stalled too', async () => {
   await expect(downloadTo('https://example.test/tool.tgz', path.join(dir, 'tool.tgz'), 'sha256', 'hex', () => undefined, 50))
     .rejects.toThrow(/stalled/);
 });
+
+// 重复点「连接」、或几台设备同时每 20 秒问一次 `cliToolPrepare`:同一个工具只能有一份下载在跑。
+it('starts one download for a tool however many callers ask while it installs', async () => {
+  dir = await mkdtemp(path.join(tmpdir(), 'gugu-cli-dedupe-'));
+  const originalHome = process.env.GUGU_HOME;
+  process.env.GUGU_HOME = dir;
+  try {
+    const { ensureCliTool, isCliToolInstalling } = await import('./cli-tool-installer');
+    const source = stream();
+    const fetch = vi.fn(async (url: string) =>
+      url.startsWith('https://registry.npmmirror.com/')
+        ? Response.json({ dist: { tarball: 'https://example.test/tool.tgz' } })
+        : new Response(source.body));
+    vi.stubGlobal('fetch', fetch);
+    const installs = [ensureCliTool('dws'), ensureCliTool('dws'), ensureCliTool('dws')];
+    await vi.waitFor(() => expect(fetch).toHaveBeenCalledTimes(2));
+    expect(new Set(installs).size).toBe(1);
+    expect(isCliToolInstalling('dws')).toBe(true);
+    // 第四个人晚到,照样接上同一份。
+    expect(ensureCliTool('dws')).toBe(installs[0]);
+    expect(fetch).toHaveBeenCalledTimes(2);
+    source.push([1]);
+    source.end();
+    await Promise.all(installs.map((install) => install.catch(() => undefined)));
+    expect(isCliToolInstalling('dws')).toBe(false);
+  } finally {
+    if (originalHome === undefined) delete process.env.GUGU_HOME;
+    else process.env.GUGU_HOME = originalHome;
+  }
+});
