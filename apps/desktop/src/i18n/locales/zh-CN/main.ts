@@ -35,9 +35,9 @@ export default {
     "harnessCancelFailed": "没能取消安装，请重试。",
     "introStart": "开通我的咕咕",
     "introLater": "先逛逛",
-    "terminalTitle": "会话终端",
-    "terminalSub": "看 Agent 在终端里实时干活",
-    "terminalToggle": "打开会话终端"
+    "terminalTitle": "终端模式",
+    "terminalSub": "习惯在终端里用 Claude Code、Codex 这类 CLI？可以开启终端模式。",
+    "terminalToggle": "开启终端模式"
   },
   "groupFile": {
     "notInGroup": "这个文件所在的对话，你不在里面"

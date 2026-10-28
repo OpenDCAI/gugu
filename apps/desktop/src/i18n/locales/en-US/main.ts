@@ -35,9 +35,9 @@ export default {
     "harnessCancelFailed": "Couldn't cancel the installation. Please try again.",
     "introStart": "Set up my Gugu",
     "introLater": "Look around first",
-    "terminalTitle": "Session terminal",
-    "terminalSub": "Watch your agent work in a terminal, live",
-    "terminalToggle": "Turn on the session terminal"
+    "terminalTitle": "Terminal mode",
+    "terminalSub": "Used to CLIs like Claude Code or Codex in a terminal? You can turn on terminal mode.",
+    "terminalToggle": "Turn on terminal mode"
   },
   "groupFile": {
     "notInGroup": "You are not in the chat this file belongs to"
