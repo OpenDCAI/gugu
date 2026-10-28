@@ -8,7 +8,7 @@ import { nextProductTourPosition, previousProductTourPosition, saveProductTourPo
 import { rendererLogger } from '../../lib/log'
 import { Button } from '../ui/Button'
 import { Popover } from '../ui/Popover'
-import { TOUR_MODULES } from './catalog'
+import { TOUR_FEATURES, TOUR_MODULES } from './catalog'
 import { useTourAnchor } from './useTourAnchor'
 import { FeatureTour } from './FeatureTour'
 
@@ -62,7 +62,7 @@ export function ProductTour({ userId, initial, onDone }: { userId: string; initi
       <div>
         {previous && <Button variant="ghost" disabled={busy} onClick={() => void go(previous)}>{t('previous')}</Button>}
         <Button variant="primary" disabled={busy} onClick={() => void go(nextProductTourPosition(position))}>
-          {position.phase === 'features' && position.index === 3 ? t('done') : position.phase === 'modules' && position.index === 6 ? t('features') : t('next')}
+          {position.phase === 'features' && position.index === TOUR_FEATURES.length - 1 ? t('done') : position.phase === 'modules' && position.index === 6 ? t('features') : t('next')}
         </Button>
       </div>
     </footer>

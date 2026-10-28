@@ -4,4 +4,4 @@ import en from '../../i18n/locales/en-US/productTour'
 registerLocaleNamespace('productTour', { 'zh-CN': zh, 'en-US': en })
 
 export const TOUR_MODULES = ['assistant', 'tasks', 'chats', 'contacts', 'library', 'apps', 'settings'] as const
-export const TOUR_FEATURES = ['split', 'modes', 'contacts', 'report'] as const
+export { PRODUCT_TOUR_FEATURES as TOUR_FEATURES } from '../../lib/productTour'

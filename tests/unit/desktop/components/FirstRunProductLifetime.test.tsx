@@ -9,7 +9,7 @@ const io = vi.hoisted(() => ({
   rememberFirstRunDone: vi.fn(),
   readFirstRunProgress: vi.fn(async () => ({
     stage: 'intro', occupation: { key: 'research' }, harness: ['codex'],
-    tour: { phase: 'features', index: 3 },
+    tour: { phase: 'features', index: 2 },
   })),
   finishFirstRun: vi.fn(async () => '2026-10-24T00:00:00Z'),
   writeOccupation: vi.fn(),

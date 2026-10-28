@@ -59,23 +59,6 @@ export default {
         "5": "Release the tab to open another pane"
       }
     },
-    "modes": {
-      "title": "Choose how to interact",
-      "body": "Work in General, talk in Chat, or switch to Coding to use a terminal.",
-      "captions": {
-        "0": "Start in General mode",
-        "1": "Open the mode menu and choose Chat",
-        "2": "Discuss progress with this Agent",
-        "3": "Choose General to return to the task",
-        "4": "Continue in General mode",
-        "5": "Choose Switch to Coding",
-        "6": "Confirm interrupting this turn and switching",
-        "7": "Continue this task in the terminal",
-        "8": "Choose Switch to General",
-        "9": "Confirm and return to General",
-        "10": "The chat and task belong to the same Agent"
-      }
-    },
     "contacts": {
       "title": "Add a collaborator",
       "body": "Search, check their identity, then send a contact request with a short note.",

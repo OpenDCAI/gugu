@@ -6,17 +6,15 @@ import { Dialog } from '../ui/Dialog'
 import { Button } from '../ui/Button'
 import { TOUR_FEATURES } from './catalog'
 import split from '../../assets/product-tour/feature-1.webm'
-import modes from '../../assets/product-tour/feature-2.webm'
 import contacts from '../../assets/product-tour/feature-3.webm'
 import report from '../../assets/product-tour/feature-4.webm'
 import splitPoster from '../../assets/product-tour/feature-1.webp'
-import modesPoster from '../../assets/product-tour/feature-2.webp'
 import contactsPoster from '../../assets/product-tour/feature-3.webp'
 import reportPoster from '../../assets/product-tour/feature-4.webp'
 
-const films = [split, modes, contacts, report]
-const posters = [splitPoster, modesPoster, contactsPoster, reportPoster]
-const chapterStarts = [[0, 1.45, 4.3, 5.6, 8.2, 12.5], [0, 1.4, 3.6, 6.5, 9, 11.3, 14.1, 16.3, 19.9, 22.2, 24.3], [0, 2.3, 4.5, 7.2, 11.8], [0, 4.2, 7.5, 14, 17]]
+const films = [split, contacts, report]
+const posters = [splitPoster, contactsPoster, reportPoster]
+const chapterStarts = [[0, 1.45, 4.3, 5.6, 8.2, 12.5], [0, 2.3, 4.5, 7.2, 11.8], [0, 4.2, 7.5, 14, 17]]
 
 export function FeatureTour({ index, children, onSelect, onClose }: { index: number; children: ReactNode; onSelect: (index: number) => void; onClose: () => void }) {
   const { t } = useTranslation('productTour')
@@ -32,7 +30,7 @@ export function FeatureTour({ index, children, onSelect, onClose }: { index: num
           <Button variant="ghost" size="icon" onClick={onClose} aria-label={t('skip')}>×</Button>
         </header>
         <div className="product-tour-feature-heading">
-          <div className="product-tour-kicker">{t('featuresProgress', { current: index + 1, total: 4 })}</div>
+          <div className="product-tour-kicker">{t('featuresProgress', { current: index + 1, total: TOUR_FEATURES.length })}</div>
           <Dialog.Title>{t(`feature.${TOUR_FEATURES[index]}.title`)}</Dialog.Title>
           <Dialog.Description>{t(`feature.${TOUR_FEATURES[index]}.body`)}</Dialog.Description>
         </div>
