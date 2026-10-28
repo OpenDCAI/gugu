@@ -29,6 +29,11 @@ function sessionEntry(sessionId: string): { projectId: string; view: WorkspaceVi
   return null
 }
 
+/** 这个任务挂着的工作区视图(它的页签条);没挂上 = undefined。 */
+export function taskView(sessionId: string): WorkspaceViewModel | undefined {
+  return sessionEntry(sessionId)?.view
+}
+
 export function browserUseMachine(sessionId: string): BrowserUseMachine {
   const entry = sessionEntry(sessionId)
   const machine = entry ? workspaceBackend(entry.projectId).machine : null
