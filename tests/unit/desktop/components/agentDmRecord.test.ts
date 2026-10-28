@@ -20,11 +20,20 @@ describe('authorized DM rows in the shared transcript', () => {
   it('does not deduplicate repeated words and merges only by real message provenance', () => {
     const rows = [human('m1', 1), human('m2', 2)]
     const recorded = dmRecord(rows.slice(0, 1), names)
-    expect(dmRecordIds(recorded).get('m1')).toBe('m1')
+    expect(dmRecordIds(recorded).get('m1')).toEqual(['m1'])
     const merged = mergeDmRecord(recorded, rows, names)
     expect(merged).toHaveLength(2)
     expect(merged.map(row => row.items[0].id)).toEqual(['m1', 'm2'])
     expect(mergeDmRecord(merged, rows, names)).toHaveLength(2)
+  })
+
+  it('retains every message identity in a batched delivery for deduplication and read visibility', () => {
+    const rows = dmRecord([human('m1', 1), human('m2', 2)], names)
+    const items = rows.flatMap(row => row.items)
+    const batch = [{ ...rows[0], items: [{ ...items[0], id: 'batch', text: items.map(item => item.kind === 'message' ? item.text : '').join('\n') }] }] as TranscriptTurn[]
+    expect(dmRecordIds(batch).get('batch')).toEqual(['m1', 'm2'])
+    expect(dmRecordIds(batch).get('m1')).toEqual(['m1'])
+    expect(mergeDmRecord(batch, [human('m1', 1), human('m2', 2)], names)).toBe(batch)
   })
 
   it('does not append old IM history behind a newer session page', () => {

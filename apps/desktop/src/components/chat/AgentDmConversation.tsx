@@ -81,8 +81,10 @@ function DmConversation({ chat, target, shown, mobile, onBack, chrome }: {
   const onVisibleItems = useCallback((ids: readonly string[]) => {
     if (!shown) return
     for (const id of ids) {
-      const message = byId.get(id) ?? byId.get(aliases.get(id) ?? '')
-      if (message) markMessageVisible(message)
+      for (const messageId of byId.has(id) ? [id] : aliases.get(id) ?? []) {
+        const message = byId.get(messageId)
+        if (message) markMessageVisible(message)
+      }
     }
   }, [shown, byId, aliases, markMessageVisible])
   const error = messagesError ?? (read.phase === 'error' ? new Error(read.error ?? '') : null)

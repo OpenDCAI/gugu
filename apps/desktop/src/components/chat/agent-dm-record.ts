@@ -43,24 +43,24 @@ export function dmRecord(messages: readonly MessageItem[], names: Readonly<Recor
 }
 
 /** Stable provenance, never body-text equality: a repeated “OK” is still another message. */
-export function dmRecordIds(turns: readonly TranscriptTurn[]): Map<string, string> {
-  const ids = new Map<string, string>()
+export function dmRecordIds(turns: readonly TranscriptTurn[]): Map<string, readonly string[]> {
+  const ids = new Map<string, readonly string[]>()
   for (const turn of turns) for (const item of replyItems(turn)) {
     if (item.kind === 'message') {
-      for (const segment of readDeliveryEnvelope(item.text)?.segments ?? []) {
-        const id = segment.facts?.messageId?.replace(/^msg:/, '')
-        if (id) ids.set(item.id, id)
-      }
+      const messages = (readDeliveryEnvelope(item.text)?.segments ?? [])
+        .flatMap(segment => segment.facts?.messageId ? [segment.facts.messageId.replace(/^msg:/, '')] : [])
+      if (messages.length) ids.set(item.id, messages)
+      for (const id of messages) ids.set(id, [id])
     } else if (item.kind === 'mcp-tool-call') {
       const sent = sentMessageId(item)
-      if (sent) ids.set(`${item.id}:sent:${sent}`, sent)
+      if (sent) ids.set(`${item.id}:sent:${sent}`, [sent])
     }
   }
   return ids
 }
 
 export function mergeDmRecord(turns: readonly TranscriptTurn[], messages: readonly MessageItem[], names: Readonly<Record<string, { display_name: string }>>): readonly TranscriptTurn[] {
-  const recorded = new Set(dmRecordIds(turns).values())
+  const recorded = new Set([...dmRecordIds(turns).values()].flat())
   const known = messages.filter(message => recorded.has(message.id))
   const watermark = known.length ? Math.max(...known.map(message => message.seq)) : null
   const pending = dmRecord(messages.filter(message => !recorded.has(message.id) && (watermark === null || message.seq > watermark || message.local_send_state)), names)
