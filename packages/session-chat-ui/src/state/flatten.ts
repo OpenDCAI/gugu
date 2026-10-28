@@ -620,13 +620,15 @@ export function makeUnitsView(committed: RenderUnit[], active: RenderUnit[]): Un
  */
 export function collectUserTurnUnits(
   turns: readonly TranscriptTurn[],
-  units: UnitsView
+  units: UnitsView,
+  options: { delivered?: boolean } = {}
 ): number[] {
   const userItemIds = new Set<string>();
   for (const turn of turns) {
     for (const item of turn.items) {
       // 投递进来的通知不进这个集合 —— 这个集合就是「钉到顶端」的名单。
-      if (itemIsUser(item) && !isDeliveredFromAgent(item)) userItemIds.add(item.id);
+      // `delivered`:要的是「钉顶在哪儿让位」,投递进来的那条也算(对话布局里它是右侧的一个气泡)。
+      if (itemIsUser(item) && (options.delivered || !isDeliveredFromAgent(item))) userItemIds.add(item.id);
     }
   }
 

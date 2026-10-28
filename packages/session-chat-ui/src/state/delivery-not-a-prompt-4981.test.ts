@@ -73,6 +73,8 @@ describe('#4981 投递进来的不是人打的字', () => {
   it('投递卡不进「钉到顶端」的名单', () => {
     const items = [message('m1', 'user', DELIVERY), message('m2', 'assistant', '好的')];
     expect(collectUserTurnUnits([turnOf(items)], unitsOf(items))).toEqual([]);
+    // 但「钉顶在哪儿让位」要算上它(对话布局里它是右侧一个气泡,前一条的钉顶副本 ❌ 盖过它,MBP 验收 10-28)。
+    expect(collectUserTurnUnits([turnOf(items)], unitsOf(items), { delivered: true })).toEqual([0]);
   });
 
   /**
