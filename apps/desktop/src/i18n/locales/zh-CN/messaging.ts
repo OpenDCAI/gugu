@@ -30,13 +30,6 @@ export default {
       },
       "open": "在任务中打开",
       "openFailed": "无法在任务中打开：{{reason}}",
-      "mode": {
-        "menu": "模式：{{mode}}",
-        "code": "编程",
-        "general": "通用",
-        "switchToCode": "切换为编程模式",
-        "switchToGeneral": "切换为通用模式"
-      },
       "review": {
         "action": "请打开任务终端检查 MCP server，然后按 Enter 确认。",
         "title": "Agent 正等待 MCP review"
@@ -63,6 +56,13 @@ export default {
       "statusReadFailed": "无法读取任务状态：{{reason}}"
     },
     "turnFailure": {
+      "state": {
+        "exhausted": "额度已用完",
+        "weekly": "周限额度已满",
+        "monthly": "月限额度已满",
+        "model-unavailable": "模型不可用"
+      },
+      "stateAction": "{{name}} {{state}}，点击切换模型",
       "authentication": "模型服务拒绝了本次请求的授权，回复未完成。",
       "network": "与模型服务的连接中断，本次回复未完成。",
       "statusReadFailed": "回复状态暂时读不到，请重试。",
@@ -381,8 +381,7 @@ export default {
       "cancel": "不派任务了",
       "failed": {
         "host_outdated": "{{machine}} 上的咕咕太旧，更新后再派任务",
-        "start_failed": "任务没开起来，到任务卡上看原因",
-        "topic_missing": "任务开工了，到群里点任务卡进它的话题"
+        "start_failed": "任务没开起来，到任务卡上看原因"
       }
     },
     "notInGroup": "不在本群",
@@ -704,13 +703,11 @@ export default {
     "agentOwnerTag": "{{owner}} 的 agent",
     "agentOwnerSuffix": "（{{owner}} 的 agent）",
     "actions": {
-      "comingSoon": "即将开放",
       "copy": "复制文本",
       "copyLink": "复制链接",
       "openLink": "打开链接",
       "selectText": "选择文本",
       "delete": "删除",
-      "edit": "编辑",
       "forward": "转发",
       "more": "更多",
       "openTopic": "开话题",

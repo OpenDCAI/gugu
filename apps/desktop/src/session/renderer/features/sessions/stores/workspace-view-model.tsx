@@ -32,7 +32,6 @@ import {
 import { sessionTabKind } from '@renderer/features/sessions/session-tab-kind';
 import { sessionRegistry } from '@renderer/features/sessions/stores/session-registry';
 import { closeTabsOfSession, findChatPaneId, findConversationAnchor } from '../view/session-pane-policy';
-import { OutputsPanelStore } from '../view/outputs-panel-state';
 import type { OpenedOutput } from '@gugu/session-chat-ui/opened-outputs';
 import type { TerminalShellId } from '@shared/core/terminals/terminal-settings';
 import { browserAddressKey } from '@shared/browser';
@@ -69,8 +68,6 @@ export class WorkspaceViewModel implements ILifecycle, WorkspaceSurface {
   readonly paneLayout: ReturnType<typeof sessionTabView.createPaneLayoutStore>;
   readonly terminalTabs: TerminalTabViewStore;
   readonly editorView: EditorViewStore;
-  /** 「输出/来源」面板按会话的开合 —— 切 task 要留着,所以不能是弹层组件的 state(#6572)。 */
-  readonly outputsPanel = new OutputsPanelStore();
 
   /**
    * Returns the focused pane's PaneStore.
@@ -151,7 +148,6 @@ export class WorkspaceViewModel implements ILifecycle, WorkspaceSurface {
       paneLayout: false,
       terminalTabs: false,
       editorView: false,
-      outputsPanel: false,
       diffView: observable.ref,
       activeRenderer: computed,
     });

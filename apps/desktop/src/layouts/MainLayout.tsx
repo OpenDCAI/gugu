@@ -83,6 +83,7 @@ import { readAgentCreateDefaults, rememberAgentCreateProject } from '../lib/agen
 import { rememberedAgentCreateProject } from '@gugu/core/shared/ui/agentCreateDefaultsModels'
 import { createOptimisticAgentChat, createOptimisticDmChat, createOptimisticGroupChat } from '@gugu/core/shared/ui/chatModels'
 import { AGENT_SESSION_STARTED_EVENT, readAgentConversationStartedEvent } from '../lib/agentConversationEvents'
+import { agentFailureNeedsModelChoice, agentFailureReason } from '@gugu/core/shared/agentQuotaReason'
 import { createAgentStartedNotificationPayload, createAgentTurnFailedNotificationPayload, shouldNotifyForAgentStarted, shouldNotifyForAgentTurnFailed } from '../lib/agentNotificationModels'
 import { agentTurnFailureUserMessage } from '../lib/agentTurnFailure'
 import type { AgentStreamPayload } from '@gugu/core/shared/types/agentStream'
@@ -833,6 +834,8 @@ function InnerLayout({
     const handleSessionpageDeliverFailed = (event: Event) => {
       const detail = (event as CustomEvent).detail as { agentUserId?: string; messageId?: string | null; error?: string } | undefined
       if (!detail?.agentUserId) return
+      // #7685 额度/模型类由运行条的 agent 状态位 + 恢复前只弹一次的提示说(AgentTurnFailureSlot)，❌ 每条失败的投递再弹一条。
+      if (agentFailureNeedsModelChoice(agentFailureReason(detail.error))) return
       const agentId = detail.agentUserId
       const messages = failedDeliveries.current.get(agentId) ?? new Set<string>()
       failedDeliveries.current.set(agentId, messages)
@@ -989,19 +992,13 @@ function InnerLayout({
     void refreshChats()
   }
 
-  const handleOpenSessionpageAgent = useCallback(async (agentUserId: string, view?: 'code' | 'general'): Promise<void> => {
+  const handleOpenSessionpageAgent = useCallback(async (agentUserId: string): Promise<void> => {
     const api = (window as unknown as {
       electronAPI?: { invoke?: (channel: string, ...args: unknown[]) => Promise<unknown> }
     }).electronAPI
     if (!api?.invoke) throw new Error(t('shell.errors.taskBridgeUnavailable'))
-    const target = await api.invoke('sessionpage:open-agent-session', agentUserId) as { sessionId?: unknown } | null
+    await api.invoke('sessionpage:open-agent-session', agentUserId)
     setActiveTab('tasks')
-    // #7167 模式按钮选了编程 / 通用:任务打开之后请会话页换成那种。能不能换、换前问不问由会话页说。
-    if (!view) return
-    const sessionId = typeof target?.sessionId === 'string' ? target.sessionId : null
-    const bridge = readSessionpageViewRequestBridge()
-    if (!sessionId || !bridge) throw new Error(t('shell.errors.taskBridgeUnavailable'))
-    bridge.request(sessionId, view)
   }, [t])
 
   const handleOpenSessionpageAgentFile = useCallback(async (
@@ -1324,11 +1321,10 @@ function InnerLayout({
                       onLeave={() => navigateMobile(() => setActiveTab('chats'), 'pop')}
                       onSwitchToChat={handleSwitchToChat}
                       onOpenGroupChat={handleOpenGroupChat}
-                      onOpenProjectGroup={(chatId, tabChatId) => navigateMobile(() => {
+                      onOpenProjectGroup={(chatId) => navigateMobile(() => {
                         setProjectChatFromPartners(true)
                         openChatTarget(chatId)
-                        if (tabChatId) requestTopicSplit({ chatId: tabChatId, name: chats.find((chat) => chat.id === tabChatId)?.name ?? '', sourceChatId: chatId })
-                        else closeTopicTab(chatId)
+                        closeTopicTab(chatId)
                       }, 'push')}
                     />
                   ) : (

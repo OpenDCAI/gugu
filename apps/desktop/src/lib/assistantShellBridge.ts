@@ -201,8 +201,8 @@ function sameSnapshot(a: AssistantShellSnapshot, b: AssistantShellSnapshot): boo
 }
 
 /** 会话页:读 window 上那一个桥;壳还没装上 = null(会话页先于壳挂上的那一瞬)。 */
-export function readAssistantShellBridge(w: Window = window): AssistantShellBridge | null {
-  return (w as BridgeWindow)[ASSISTANT_SHELL_BRIDGE_KEY] ?? null
+export function readAssistantShellBridge(w: Window | undefined = typeof window === 'undefined' ? undefined : window): AssistantShellBridge | null {
+  return w ? (w as BridgeWindow)[ASSISTANT_SHELL_BRIDGE_KEY] ?? null : null
 }
 
 /** 助理这一格在公共格子表里的键。 */

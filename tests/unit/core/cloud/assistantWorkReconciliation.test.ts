@@ -13,6 +13,11 @@ function fixture(events:WorkReconciliationEvent[]=[dispatch]) {
   return {...f,rpc,reconciler:createAssistantWorkReconciler(f)}
 }
 describe('unfinished delivery reconciliation',()=>{
+  it('still reports missing deliverables when an assignment only acknowledged that it started',async()=>{
+    const f=fixture([dispatch,{message_id:'ack',kind:'progress',from_session_id:'child',platform_received_at:new Date(now-160000).toISOString(),assistant_admitted_at:new Date(now-150000).toISOString()}])
+    await f.reconciler.kick()
+    expect(f.rpc).toHaveBeenCalledWith('assistant_work_commit',expect.objectContaining({p_events:[expect.objectContaining({kind:'failed',reason_code:'EXECUTOR_ENDED_WITHOUT_REPORT'})]}))
+  })
   it('reconciles a task from a former home using the current coordinator while preserving original report addresses',async()=>{
     const f=fixture([dispatch])
     f.works.mockResolvedValue([{...work,coordinator_session_id:'former-session',coordinator_device_id:'former-device',coordinator_current:{session_id:'current-session',device_id:'cloud'}}] as never)

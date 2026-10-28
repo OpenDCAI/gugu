@@ -33,6 +33,7 @@ export type UnifiedSessionMessageDeps = {
   localDeviceId?: () => Promise<string>
   enqueueReport?: (record: Record<string, unknown>) => Promise<{ route: 'session-direct'; recipients: UnifiedRecipientResult[] }>
   enqueueWork?: (intent: AssistantWorkIntent, text: string, attachments: SessionAttachmentRef[], targets: AssistantWorkTarget[]) => Promise<{ route: 'session-direct'; recipients: UnifiedRecipientResult[] }>
+  workTitle?: (intent:AssistantWorkIntent,targets:AssistantWorkTarget[])=>Promise<string>
   /** The graph (`session:`) leg — resolves all its bare targets before injecting any. Absent when the caller has no session-page session (gugu-native bridge). */
   graphMessage: ((sessionIds: string[], text: string, said: SessionMessageSaid) => Promise<{ recipients: UnifiedRecipientResult[] }>) | null
   /**
@@ -245,10 +246,12 @@ export async function handleUnifiedSessionMessage(
     if (!deps.enqueueWork || !deps.localDeviceId) throw new Error('Durable work admission is unavailable')
     const here = await deps.localDeviceId()
     const agentFor = (sessionId: string) => named.get(sessionId) ?? [...localOf].find(([, id]) => id === sessionId)?.[0]
-    return deps.enqueueWork(intent, text, said.attachments ?? [], [
+    const targets=[
       ...localSessionIds.map(sessionId => ({ sessionId, deviceId: here, ...(agentFor(sessionId) ? { agentId: agentFor(sessionId) } : {}) })),
       ...[...remote].flatMap(([deviceId, ids]) => ids.map(sessionId => ({ sessionId, deviceId, ...(agentFor(sessionId) ? { agentId: agentFor(sessionId) } : {}) }))),
-    ])
+    ]
+    const title=!intent.continuation&&deps.workTitle?await deps.workTitle(intent,targets):intent.title
+    return deps.enqueueWork({...intent,title}, text, said.attachments ?? [], targets)
   }
   const recipients: UnifiedRecipientResult[] = []
   const anyDelivered = () => recipients.some((entry) => entry.status === 'delivered')

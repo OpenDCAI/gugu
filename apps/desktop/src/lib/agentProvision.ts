@@ -1,5 +1,6 @@
 import { identityDb, getCurrentAuthUserId } from './supabase'
 import { chatService } from './chat'
+import { listDevicesOnceIdentified } from './listDevicesOnceIdentified'
 import { platform } from '../platform'
 import { ensureSshMachineUsable } from './sshLinkChannel'
 import type {
@@ -847,7 +848,7 @@ export async function defaultEnsureDeviceOnline(deviceId: string): Promise<void>
   }
   // #6264 这台电脑用远程 SSH 添加的机器:在线只看这台电脑到它的设备连接(见 sshLinkChannel.ts)。
   if (await ensureSshMachineUsable(deviceId)) return
-  const devices = await chatService.listDevices()
+  const devices = await listDevicesOnceIdentified()
   const device = devices.find((d) => d.device_id === deviceId)
   if (device?.is_online) return
   // #7199 云电脑休眠中 ≠ 离线(规定草稿 cloud-computer):叫醒它,建 agent 的命令照常发出去 —— 命令进队列等它醒来领,

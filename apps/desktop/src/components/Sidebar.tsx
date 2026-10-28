@@ -99,8 +99,6 @@ interface RailItemProps {
   badge?: number
   /** 点的颜色:默认红;`warn` = 琥珀(有人在等你,同列表里「需要你」那一色)。 */
   badgeTone?: 'warn'
-  /** Backend-not-built placeholder: 诚实禁用「即将开放」(反 fake, 对齐 #1228)，不留点了静默无反应的死按钮。 */
-  disabled?: boolean
   /** Which entry this is (`tasks` / `chats` / …): its own small move on hover hangs off this (Sidebar.css). */
   rail?: string
   /** An App that is running: a dot to the left of its icon, as the macOS dock marks one (#7050). */
@@ -122,7 +120,6 @@ function RailItem({
   testId,
   badge = 0,
   badgeTone,
-  disabled = false,
   rail,
   running = false,
   onContextMenu,
@@ -139,14 +136,12 @@ function RailItem({
         className={cn('gg-sidebar-item', className)}
         aria-label={title}
         aria-current={active ? 'page' : undefined}
-        aria-disabled={disabled || undefined}
         data-testid={testId}
         data-on={active || undefined}
         data-rail={rail}
         data-entry={entry}
         data-menu-open={menuOpen || undefined}
-        disabled={disabled}
-        onClick={disabled ? undefined : onClick}
+        onClick={onClick}
         onContextMenu={onContextMenu}
       >
         {icon}
@@ -385,7 +380,7 @@ function AssistantRailTop({ active, onOpen }: { active: boolean; onOpen: () => v
 export const Sidebar = observer(function Sidebar({ activeTab, onTabChange, settingsOpen = false, pendingContactsCount = 0, sessionAttention = null }: SidebarProps) {
   const { t } = useTranslation('main')
   const messagesActive = activeTab === 'chats' || (activeTab === 'tasks' && sessionPagePlace() === 'tasks')
-  // 手机版 — 已移除占位(owner 决定);移动端交接后端(#1534)就绪后再作为真功能加回(RailItem.disabled 能力保留)
+  // 手机版 — 移动端交接后端(#1534)就绪后再提供入口
 
   return (
     <aside className="gg-sidebar-rail" aria-label={t('shell.mainNavigation')}>

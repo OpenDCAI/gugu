@@ -30,13 +30,6 @@ export default {
       },
       "open": "Open in Tasks",
       "openFailed": "Could not open in Tasks: {{reason}}",
-      "mode": {
-        "menu": "Mode: {{mode}}",
-        "code": "Code",
-        "general": "Work",
-        "switchToCode": "Switch to Code mode",
-        "switchToGeneral": "Switch to Work mode"
-      },
       "review": {
         "action": "Open the task terminal, review the MCP servers, then press Enter to confirm.",
         "title": "Agent is waiting for MCP review"
@@ -63,6 +56,13 @@ export default {
       "statusReadFailed": "Could not read the task status: {{reason}}"
     },
     "turnFailure": {
+      "state": {
+        "exhausted": "out of credits",
+        "weekly": "weekly limit reached",
+        "monthly": "monthly limit reached",
+        "model-unavailable": "model unavailable"
+      },
+      "stateAction": "{{name}}: {{state}}. Click to change model",
       "authentication": "The model service refused authorization for this reply.",
       "network": "The connection to the model service was interrupted; this reply could not be completed.",
       "statusReadFailed": "Reply status could not be read. Please retry.",
@@ -381,8 +381,7 @@ export default {
       "cancel": "Cancel task",
       "failed": {
         "host_outdated": "Gugu on {{machine}} is too old. Update it, then send the task again.",
-        "start_failed": "The task did not start. Open its task card to see why.",
-        "topic_missing": "The task started. Tap its card in the group to open its topic."
+        "start_failed": "The task did not start. Open its task card to see why."
       }
     },
     "notInGroup": "Not in this group",
@@ -704,13 +703,11 @@ export default {
     "agentOwnerTag": "{{owner}}'s agent",
     "agentOwnerSuffix": " ({{owner}}'s agent)",
     "actions": {
-      "comingSoon": "Coming soon",
       "copy": "Copy text",
       "copyLink": "Copy link",
       "openLink": "Open link",
       "selectText": "Select text",
       "delete": "Delete",
-      "edit": "Edit",
       "forward": "Forward",
       "more": "More",
       "openTopic": "Open a topic",

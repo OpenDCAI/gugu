@@ -18,6 +18,7 @@ import { normalizeBrowserUrl } from '@shared/browser';
 import { COMMANDS, type CommandId } from '@shared/commands';
 import { runGitFetch, runGitPublishBranch, runGitPull, runGitPush } from './git-action-handlers';
 import { startSideSession } from './start-side-session';
+import { terminalEnabledSnapshot } from '@renderer/features/settings/use-terminal-enabled';
 
 function sessionDef<T extends CommandId>(id: T): (typeof COMMANDS)[T] {
   return COMMANDS[id];
@@ -106,22 +107,26 @@ export function createSessionCommandProvider(projectId: string, sessionId: strin
             sessionView?.paneLayout.open('file-browser', {}, { preview: false });
           },
         },
-        {
-          ...viewTerminalsDef,
-          execute() {
-            // spec 会话页: terminals are workspace tabs, not a drawer — open one as a tab.
-            void sessionView?.openTerminalAsTab();
-          },
-        },
-
         // ── Terminals ─────────────────────────────────────────────────────
-        {
-          ...newTerminalDef,
-          execute() {
-            // spec 会话页: a new terminal opens as a workspace tab (unified), not the legacy drawer.
-            void sessionView?.openTerminalAsTab();
-          },
-        },
+        // 「终端」开关关着:命令面板和快捷键里都没有终端(设置 → 通用)。
+        ...(terminalEnabledSnapshot()
+          ? [
+              {
+                ...viewTerminalsDef,
+                execute() {
+                  // spec 会话页: terminals are workspace tabs, not a drawer — open one as a tab.
+                  void sessionView?.openTerminalAsTab();
+                },
+              },
+              {
+                ...newTerminalDef,
+                execute() {
+                  // spec 会话页: a new terminal opens as a workspace tab (unified), not the legacy drawer.
+                  void sessionView?.openTerminalAsTab();
+                },
+              },
+            ]
+          : []),
         {
           ...openBrowserDef,
           execute() {

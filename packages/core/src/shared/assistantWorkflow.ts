@@ -12,6 +12,7 @@ export const ASSISTANT_TASK_EXECUTION = [
 export function assistantExecutionAction(action: unknown): unknown {
   if (!action || typeof action !== 'object' || Array.isArray(action)) return action
   const record = action as Record<string, unknown>
+  if(record.action==='message'&&record.purpose==='reply')return action
   const field = record.action === 'spawn' ? 'prompt' : record.action === 'message' ? 'text' : null
   if (!field || typeof record[field] !== 'string' || record[field].includes(ASSISTANT_TASK_EXECUTION)) return action
   return { ...record, [field]: `${record[field]}\n\n<gugu_task_context>\n${ASSISTANT_TASK_EXECUTION}\n</gugu_task_context>` }

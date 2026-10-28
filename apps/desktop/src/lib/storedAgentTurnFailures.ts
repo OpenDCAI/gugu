@@ -1,5 +1,6 @@
 import { agentQuotaReason, agentTurnFailureNeedsModelChoice, type AgentTurnFailure } from './agentTurnFailure'
 import { identityDb } from './supabase'
+import { agentTurnFailureMuteKind } from './agentTurnFailureMute'
 
 export type StoredAgentTurnFailure = AgentTurnFailure & { revision: string }
 
@@ -16,14 +17,31 @@ export function storedAgentTurnFailures(rows: unknown[], agentIds: readonly stri
     seen.add(id)
     if (row.status !== 'error' || typeof row.id !== 'string') continue
     const result = row.result && typeof row.result === 'object' ? row.result as Record<string, unknown> : null
-    if (result?.reply_notice === 'in-chat') continue
     const rawMessage = typeof row.error === 'string' ? row.error : ''
+    // 额度/模型类是 agent 的状态位（#7685），旧宿主就算也在聊天里写了一行，状态位照样要亮。
+    if (result?.reply_notice === 'in-chat' && !agentTurnFailureMuteKind(rawMessage)) continue
     // 老宿主没记披露位置：只补明确的额度/模型原因，避免把已在聊天披露的其他旧失败又叠一层。
     if (result?.reply_notice !== 'context' && !agentQuotaReason(rawMessage) && !agentTurnFailureNeedsModelChoice(rawMessage)) continue
     const revision = typeof row.completed_at === 'string' ? row.completed_at : String(row.created_at ?? '')
     failures.push({ agentUserId: id, commandId: row.id, rawMessage, at: Date.parse(revision), revision })
   }
   return failures
+}
+
+/** 最新一次投递已成功的 Agent：额度/模型类的「关掉别再提醒」到这里解除。 */
+export function storedAgentRecoveries(rows: unknown[], agentIds: readonly string[]): string[] {
+  const seen = new Set<string>()
+  const recovered: string[] = []
+  for (const raw of rows) {
+    if (!raw || typeof raw !== 'object') continue
+    const row = raw as Record<string, unknown>
+    const payload = row.payload && typeof row.payload === 'object' ? row.payload as Record<string, unknown> : null
+    const id = payload?.agent_user_id
+    if (typeof id !== 'string' || !agentIds.includes(id) || seen.has(id)) continue
+    seen.add(id)
+    if (row.status === 'done') recovered.push(id)
+  }
+  return recovered
 }
 
 export async function readStoredAgentTurnFailures(userId: string, chatId: string, threadRootId: string | null, agentIds: readonly string[]) {
@@ -34,5 +52,5 @@ export async function readStoredAgentTurnFailures(userId: string, chatId: string
   query = threadRootId ? query.eq('payload->>thread_root_id', threadRootId) : query.is('payload->>thread_root_id', null)
   const { data, error } = await query.order('created_at', { ascending: false }).limit(50)
   if (error) throw new Error(error.message)
-  return storedAgentTurnFailures(data ?? [], agentIds)
+  return { failures: storedAgentTurnFailures(data ?? [], agentIds), recovered: storedAgentRecoveries(data ?? [], agentIds) }
 }

@@ -17,6 +17,7 @@ import { prepareAssistantProfileReview } from './assistant-profile-review'
 import { assistantResourceChanges } from './assistant-resource-changes'
 import { invalidateAssistantIndex, stopAssistantIndexRefresh } from './assistant-index-cache'
 import { collectAssistantPanelFiles, publishAssistantPanelCollection, type PanelObservation } from './assistant-panel-publisher'
+import { createAssistantPanelBodyFailures } from './assistant-panel-body-failures'
 
 type Auth = { accessToken: string; userId: string }
 type Binding = AssistantPanelHome & { sessionId: string }
@@ -32,6 +33,7 @@ export function createAssistantPanelRuntime(deps: {
   const bindings = new Map<string, Binding>()
   const runtimes = new Map<string, ReturnType<typeof runtime>>()
   const roles = new Map<string, boolean>()
+  const bodyFailures = new Map<string, ReturnType<typeof createAssistantPanelBodyFailures>>()
   async function resolve(sessionId: string): Promise<Binding | null> {
     const auth = await hostAuth()
     if (!auth) return null
@@ -57,6 +59,9 @@ export function createAssistantPanelRuntime(deps: {
     return binding
   }
   function runtime(binding: Binding) {
+    const failureKey = JSON.stringify([binding.ownerId,binding.assistantId])
+    if (!bodyFailures.has(failureKey)) bodyFailures.set(failureKey,createAssistantPanelBodyFailures(deps.guguHome,binding.ownerId,binding.assistantId))
+    const failures = bodyFailures.get(failureKey)!
     let chatId: string | undefined
     let tail: Promise<unknown> = Promise.resolve()
     let publication: Promise<void> | null = null
@@ -126,18 +131,18 @@ export function createAssistantPanelRuntime(deps: {
       }
       if (domain === 'capabilities' || domain === 'device-notes') return (await deps.local.library(domain === 'capabilities' ? 'capabilities' : 'devices')).map(row => ({
         key: row.id,data: { name: row.name,description: row.description,group: row.group,modifiedAt: row.modifiedAt,contentFormat: 'markdown' },
-        bytes: new TextEncoder().encode(row.content),contentType: 'text/plain',
+        bytes: new TextEncoder().encode(row.content),
       }))
       if (domain === 'integrations') return [
         ...deps.local.integrationCatalog().map(row => ({ key: `catalog:${row.id}`,data: { providerId: row.id,configured: false,displayName: row.en.name },
-          bytes: new TextEncoder().encode(JSON.stringify({ version: 1,en: row.en,'zh-CN': row.zh })),contentType: 'application/json',
+          bytes: new TextEncoder().encode(JSON.stringify({ version: 1,en: row.en,'zh-CN': row.zh })),
         })),
         ...(await deps.local.integrations(binding.ownerId,() => scheduleCollection('integrations'))).map(({ publicMetadata,...row }) => {
           const checkedAt = typeof row.checkedAt === 'number' ? row.checkedAt : Date.parse(String(row.checkedAt ?? ''))
           const { checkResult,checkedAt: _checkedAt,...metadata } = row
           return { key: JSON.stringify([row.providerId,row.accountId]),data: { ...metadata,
             ...(typeof publicMetadata.updatedAt === 'number' && checkedAt >= publicMetadata.updatedAt ? { checkResult,checkedAt: row.checkedAt } : {}) },
-            bytes: new TextEncoder().encode(JSON.stringify(publicMetadata)),contentType: 'application/json' }
+            bytes: new TextEncoder().encode(JSON.stringify(publicMetadata)) }
         }),
       ]
       const sessions = await deps.local.sessions(binding.ownerId)
@@ -202,8 +207,9 @@ export function createAssistantPanelRuntime(deps: {
           const instanceId = deps.instanceId(),deviceId = await deps.deviceId()
           if (!instanceId) throw new Error('PANEL_RUNTIME_LEASE_UNAVAILABLE')
           await publishAssistantPanelCollection({ assistantId: binding.assistantId,instanceId,deviceId,domain,cloud,
+            bodyFailures: failures,
             collect: previous => observations(domain,previous),
-            upload: async row => uploadAssistantPanelBody({ ...await access(),name: `${row.key.split('/').pop() ?? domain}.bin`,bytes: row.bytes!,contentType: row.contentType ?? 'application/octet-stream' }),
+            upload: async row => uploadAssistantPanelBody({ ...await access(),label: row.key.split('/').pop() ?? domain,bytes: row.bytes! }),
             discard: async itemId => {
               const current = await auth()
               const client = createGuguSupabaseClient({ schema: 'chat',headers: { Authorization: `Bearer ${current.accessToken}` } })

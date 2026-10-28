@@ -12,7 +12,7 @@ import {
   type DeviceTableClient,
   type DeviceRpcClient,
 } from '@gugu/core/cloud/devices'
-import { resolveSelfDeviceLabel } from './device-labels'
+import { markLocalDevice } from './device-labels'
 import {
   dataClient,
   chatDb,
@@ -883,12 +883,7 @@ export const chatService = {
       platform.getLocalDeviceSelfSnapshot?.() ?? Promise.resolve(null),
       listCoreDevices(deviceTableClient(), await getCurrentAuthUserId(), options) // @@@1962 按当前用户过滤设备(多账号同机不混入他人行);#7199 手机默认不在
     ])
-    if (!self) return cloud
-    const others = cloud.filter((device) => device.device_id !== self.device_id)
-    // 名字以云端行为准(见 resolveSelfDeviceLabel);在线性仍信本机 self。
-    const cloudSelf = cloud.find((device) => device.device_id === self.device_id)
-    const selfMerged = { ...self, label: resolveSelfDeviceLabel(self, cloudSelf?.label), machine_id: cloudSelf?.machine_id ?? null, is_current_device: true }
-    return [selfMerged, ...others.map((device) => ({ ...device, is_current_device: false }))]
+    return markLocalDevice(self, cloud, !!platform.getLocalDeviceSelfSnapshot)
   },
 
   // #1749 rename/remove 走受控 RPC(core service)。

@@ -109,7 +109,7 @@ export function MessageFilePreview({ file, mobile = false, fill = false, tabbed 
     })
   }
   const download = () => void previewBytes(file).then((blob) => downloadBlob(blob, file.fileName)).catch((error) => { fileOpenLog.error({ error }, 'preview file download failed'); toast(t('chatArea.downloadFailed'), 'error', messageForUser(error)) })
-  const actions = messageActionItems({ isMine: false, isRetracted: !!message?.retracted_at, content: message?.content ?? null, onForward: message && onForward ? () => onForward(message) : undefined, onDownload: download }, t)
+  const actions = messageActionItems({ isRetracted: !!message?.retracted_at, content: message?.content ?? null, onForward: message && onForward ? () => onForward(message) : undefined, onDownload: download }, t)
   if (kind === 'image' && !read?.error) return null
   return <MessageFilePreviewPanel viewerRef={viewerRef} fill={fill} tabbed={tabbed} mobile={mobile} file={file} kind={kind} content={read?.content ?? null} videoUrl={read?.videoUrl} onVideoError={renewVideo} loading={kind !== 'unsupported' && read === null} error={read?.error} onBack={onBack} onClose={onClose} actions={actions} onOpenExternal={kind === 'unsupported' || file.document ? undefined : openExternal} />
 }

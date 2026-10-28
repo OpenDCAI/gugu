@@ -6,7 +6,6 @@ import { motion, AnimatePresence } from 'framer-motion'
 import { DUR_FAST_MS, tween } from '@/styles/motion'
 import type { FlowListHandle } from '@/lib/flowList'
 import { ChevronLeft, MessageCircle, Zap } from '@/lib/icons'
-import { downloadAttachment } from '@/lib/attachmentBytes'
 import { createSessionpageChatSendPreflight } from '@/lib/sessionpage-session-recovery'
 import type { SidebarTab } from '@gugu/core/shared/enums/sidebarTabModels'
 import { resolveOrLoud } from '@gugu/core/shared/resolveOrLoud'
@@ -117,7 +116,7 @@ interface ChatAreaPanelProps {
   chrome?: { placeholder: string; attachGlyph: ReactNode; attachMenu?: readonly ComposerAttachAction[]; typing?: ReactNode; composerHeader?: ReactNode; hideRunningStatus?: boolean;runtimeReady?:boolean }
   /** Block tab-strip slots for actions, title, topics and right-panel tabs; absent on standalone/phone headers. */
   blockHost?: { actions: HTMLElement | null; title: HTMLElement | null; tabs: HTMLElement | null }
-  onOpenUserChat?: (target: MemberProfileChatTarget) => void; onOpenSessionpageAgent?: (agentUserId: string, view?: 'code' | 'general') => Promise<void>; onOpenSessionpageAgentFile?: (agentUserId: string, path: string) => Promise<void>
+  onOpenUserChat?: (target: MemberProfileChatTarget) => void; onOpenSessionpageAgent?: (agentUserId: string) => Promise<void>; onOpenSessionpageAgentFile?: (agentUserId: string, path: string) => Promise<void>
 }
 
 // ── ChatAreaPanel ──────────────────────────────────────────────────────────────
@@ -762,7 +761,7 @@ function ChatAreaSurface({ viewportKey = 'chats', activeTab, navigationTarget = 
   const topicPane = topicSurface.topic && (
     <TopicSplitPane
       viewportKey={`${viewportKey}:topic`} navigationTarget={navigationTarget}
-      topic={topicSurface.topic} sourceChatId={activeChatId!}
+      topic={topicSurface.topic}
       messages={topicSurface.splitLine.messages} history={topicSurface.splitLine}
       loading={topicSurface.splitLine.loadingMessages}
       memberProfiles={messageMemberProfiles}
@@ -770,12 +769,6 @@ function ChatAreaSurface({ viewportKey = 'chats', activeTab, navigationTarget = 
       sourceMessagePreview={topicSourceMessagePreview}
       focusComposerToken={splitFocusToken}
       memberReadSeqs={topicSurface.splitLine.memberReadSeqs}
-      onOpenFile={(file) => {
-        const split = topicSurface.splitTopic; openFilePreview(file, undefined, split ? () => topicSurface.openSplit(split) : undefined)
-      }}
-      onDownloadFile={(file) => {
-        void downloadAttachment(file.source, file.fileName).catch((error) => toast(t('chatArea.downloadFailed'), 'error', safeFailureLine(String((error as Error)?.message ?? error))))
-      }}
       mentionMembers={splitMentionMembers}
       onSend={topicSurface.sendInSplit}
       onSendAttachments={topicSurface.sendAttachmentsInSplit}

@@ -40,10 +40,8 @@ import { SidebarProjectItem } from './project-item';
 import { SidebarSessionItem } from './sidebar-session-item';
 import { SidebarMoreRow } from './sidebar-more-row';
 import { SidebarStateHeader } from './sidebar-state-header';
-import { ProjectTopicsSlot } from '@renderer/lib/chat-slot';
-import { projectGroupsStore } from '@renderer/features/projects/stores/project-groups-store';
 
-// Task rows have a fixed height; projects are measured as their topic branch expands.
+// Task rows have a fixed height; project rows are measured.
 const ROW_HEIGHT = 32;
 // @@@sidebar-label-size — 状态标题的字从 11px 放大到 13px,行也跟着从 24 松到 28,
 // 否则 32px 的正文行夹着 24px 的标题槽,标题会显得被压扁。与 ROW_HEIGHT 同理:
@@ -291,7 +289,6 @@ export const SidebarVirtualList = observer(function SidebarVirtualList() {
                 return (
                   <SortableRow key={row.projectId} dndId={rowToDndId(row)} style={vStyle} index={vItem.index} measure={virtualizer.measureElement}>
                     <SidebarProjectItem projectId={row.projectId} />
-                    {sidebarStore.expandedProjectIds.has(row.projectId) && projectGroupsStore.chatIdOf(row.projectId) ? <ProjectTopicsSlot chatId={projectGroupsStore.chatIdOf(row.projectId)!} /> : null}
                   </SortableRow>
                 );
               }

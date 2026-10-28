@@ -46,6 +46,12 @@ export const sessionSettingsSchema = z.object({
 });
 
 export const terminalSettingsSchema = z.object({
+  /**
+   * 设置 → 通用里的「终端」开关:终端的入口与界面给不给人看,新会话走编程(开)还是通用(关)。
+   * `null` = 还没定 —— 启动时按老用户迁移规则算一次写回(terminal-visibility.ts),之后只由人来改。
+   * ❌ 不管 agent 自己能不能跑 pty 会话。
+   */
+  enabled: z.boolean().nullable(),
   fontFamily: z.string().optional(),
   fontSize: z.number().min(TERMINAL_FONT_SIZE_MIN).max(TERMINAL_FONT_SIZE_MAX).optional(),
   autoCopyOnSelection: z.boolean(),

@@ -8,18 +8,18 @@ import { HeaderSearch } from '@/components/ui/HeaderSearch'
 import { ListRow } from '@/components/ui/ListRow'
 import { Pane, PaneHeader } from '@/components/ui/Pane'
 import { SectionLabel } from '@/components/ui/SectionLabel'
-import { Hash } from '@/lib/icons'
 import { isMyAssistant } from '@/lib/myAssistant'
 import { useAuth } from '@/store/auth'
-import { useChatStore } from '@/store/chatContext'
 import { useContactsStore } from '@/store/contactsContext'
-import { agentName, matchesQuery, projectAgents, projectTopics, type PartnerProject } from './partnersModel'
+import { APP_SHOW_SESSION_EVENT, type AppShowSessionDetail } from '@/session/shared/extensions/app-runtime-protocol'
+import { agentName, matchesQuery, projectAgents, projectAgentTarget, type PartnerProject, type ProjectAgent } from './partnersModel'
 import { ProjectFolderAvatar } from './ProjectFolderAvatar'
-import { useProjectTaskTopics } from './useProjectTaskTopics'
 
 /**
- * 项目通讯录(「伙伴」里点一个项目推进来):页头 返回 · 项目头像 · 项目名;「群」= 项目的群聊 + 不属于哪件任务的话题,
+ * 项目通讯录(「伙伴」里点一个项目推进来):页头 返回 · 项目头像 · 项目名;「群」= 项目的群聊这一行,
  * 「Agent」= 我在这个项目里的 agent,副标题是它在这里最近那件事。项目群不进人:没有邀请链接,也没有「人」这一组。
+ * 话题不成行(owner 10-28「项目 topic 在伙伴中也不应该像会话一样作为条目」,同电脑 #602 侧栏项目下不再列话题):
+ * 话题在群里顶上那一排页签。点 Agent 打开它在这里最近那条会话,❌ 进群聊页(owner:选会话却进了群聊页离谱)。
  * 没有状态、没有提醒(那归「消息」)。
  */
 export function PhoneProjectContacts({
@@ -35,37 +35,34 @@ export function PhoneProjectContacts({
   sessions: readonly { deviceId: string; session: SessionpageSessionSummary }[]
   active: boolean
   onBack: () => void
-  /** 打开项目群(给了 tabChatId = 落在那一枚页签:话题 / 任务)。 */
-  onOpenGroup: (tabChatId?: string) => void
+  /** 打开项目群。 */
+  onOpenGroup: () => void
 }) {
   const { t } = useTranslation('main')
   const { user } = useAuth()
   const myId = user?.id ?? null
-  const { chats } = useChatStore('chats')
   const { contacts, groupChats } = useContactsStore()
   const [query, setQuery] = useState('')
-  const taskTopics = useProjectTaskTopics(project.chatId)
 
   const myAgents = useMemo(
     () => new Map(contacts.filter((contact) => contact.type === 'agent' && contact.owner_user_id === myId).map((contact) => [contact.id, contact])),
     [contacts, myId],
   )
   const group = project.chatId ? groupChats.find((candidate) => candidate.id === project.chatId) ?? null : null
-  const topics = useMemo(() => taskTopics.loading || taskTopics.error ? [] : projectTopics(project.chatId, chats, taskTopics.taskIds), [project.chatId, chats, taskTopics.loading, taskTopics.error, taskTopics.taskIds])
   const agents = useMemo(() => projectAgents(group, myAgents, sessions), [group, myAgents, sessions])
 
   const groupLabel = t('partners.groupChat')
-  const rooms = [
-    ...(matchesQuery(groupLabel, query) || matchesQuery(project.name, query)
-      ? [{ key: 'group', title: groupLabel, lead: <ProjectFolderAvatar coverId={project.coverId} running={running} />, tab: undefined }]
-      : []),
-    ...topics.filter((topic) => matchesQuery(topic.name, query)).map((topic) => ({
-      key: topic.id,
-      title: topic.name,
-      lead: <span className="gg-partners-topic-icon"><Hash size={20} /></span>,
-      tab: topic.id,
-    })),
-  ]
+  const showGroup = matchesQuery(groupLabel, query) || matchesQuery(project.name, query)
+  // 它在这里还没有会话(只在群里):进项目群。
+  const openAgent = (agent: ProjectAgent) => {
+    const target = projectAgentTarget(agent)
+    if (target.kind === 'group') {
+      onOpenGroup()
+      return
+    }
+    const detail: AppShowSessionDetail = { deviceId: target.deviceId, session: target.session }
+    window.dispatchEvent(new CustomEvent(APP_SHOW_SESSION_EVENT, { detail }))
+  }
   const shownAgents = agents.filter((agent) => matchesQuery(agentName(agent), query) || matchesQuery(agent.work ?? '', query))
 
   return (
@@ -82,10 +79,10 @@ export function PhoneProjectContacts({
       </HeaderSearch>
       <div className="gg-partners-scroll">
         <div className="gg-partners-list">
-          {rooms.length ? <SectionLabel>{t('partners.rooms', { count: rooms.length })}</SectionLabel> : null}
-          {rooms.map((room) => (
-            <ListRow key={room.key} mobile role="button" tabIndex={0} leading={room.lead} title={room.title} onClick={() => onOpenGroup(room.tab)} onKeyDown={rowKeyActivate(() => onOpenGroup(room.tab))} />
-          ))}
+          {showGroup ? <SectionLabel>{t('partners.rooms', { count: 1 })}</SectionLabel> : null}
+          {showGroup ? (
+            <ListRow mobile role="button" tabIndex={0} leading={<ProjectFolderAvatar coverId={project.coverId} running={running} />} title={groupLabel} onClick={onOpenGroup} onKeyDown={rowKeyActivate(onOpenGroup)} />
+          ) : null}
           {shownAgents.length ? <SectionLabel>{t('partners.agents', { count: shownAgents.length })}</SectionLabel> : null}
           {shownAgents.map((agent) => {
             const name = agentName(agent)
@@ -97,14 +94,13 @@ export function PhoneProjectContacts({
                 tabIndex={0}
                 leading={<Avatar name={name} avatarUrl={agent.contact?.avatar} seed={agent.id} size="md" isAgent harnessBadge={false} />}
                 title={name}
-                subtitle={isMyAssistant(myId, agent.id) ? t('partners.assistant') : taskTopics.byAgent.get(agent.id)?.title ?? agent.work ?? undefined}
-                onClick={() => onOpenGroup(taskTopics.byAgent.get(agent.id)?.topic.chat_id)}
-                onKeyDown={rowKeyActivate(() => onOpenGroup(taskTopics.byAgent.get(agent.id)?.topic.chat_id))}
+                subtitle={isMyAssistant(myId, agent.id) ? t('partners.assistant') : agent.work ?? undefined}
+                onClick={() => openAgent(agent)}
+                onKeyDown={rowKeyActivate(() => openAgent(agent))}
               />
             )
           })}
-          {taskTopics.error ? <p role="alert" className="gg-partners-error">{t('partners.groupUnavailable')}</p> : null}
-          {query.trim() && !rooms.length && !shownAgents.length ? <div className="gg-partners-empty">{t('partners.noResults')}</div> : null}
+          {query.trim() && !showGroup && !shownAgents.length ? <div className="gg-partners-empty">{t('partners.noResults')}</div> : null}
         </div>
       </div>
     </Pane>
