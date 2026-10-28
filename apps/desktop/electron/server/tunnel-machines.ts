@@ -21,7 +21,7 @@ import {
   type TunnelOpenResponse,
 } from '@gugu/core/cloud/remoteTunnel'
 import type { DeviceRpcResponse } from '@gugu/core/cloud/deviceRpcProtocol'
-import { frpcConfig, startFrpc, type FrpcRunner } from './frpc-runner'
+import { frpcConfig, killStaleFrpc, startFrpc, type FrpcRunner } from './frpc-runner'
 import { buildEnsureMasterArgs, buildMuxControlArgs, type SshTarget } from './ssh-install/logic'
 import { sshBatchArgs } from './ssh-batch'
 import type { TunnelProblem, TunnelState } from '../../src/lib/tunnelMachines'
@@ -151,6 +151,18 @@ export function createTunnelMachines(deps: {
   startFrpc?: typeof startFrpc
   freePort?: () => Promise<number>
 }): TunnelMachines {
+  // 同一个桌面 profile 重启后就收掉上次崩溃留下的访问端,不等那台机器再次上线。
+  const stateDir = deps.stateDir()
+  if (fs.existsSync(stateDir)) {
+    for (const name of fs.readdirSync(stateDir)) {
+      if (!/^frpc-[A-Za-z0-9_-]{1,128}\.toml\.pid$/.test(name)) continue
+      const pidFile = path.join(stateDir, name)
+      const configFile = pidFile.slice(0, -4)
+      if (killStaleFrpc(pidFile, configFile)) deps.log('frpc left over from last run, stopped', { configFile })
+      fs.rmSync(configFile, { force: true })
+      fs.rmSync(pidFile, { force: true })
+    }
+  }
   const tunnels = new Map<string, Tunnel>()
   const problems = new Map<string, TunnelProblem>()
   const listeners = new Set<(state: TunnelState) => void>()
