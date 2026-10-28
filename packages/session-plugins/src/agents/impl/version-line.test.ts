@@ -32,7 +32,7 @@ const MEASURED: Array<{ id: string; output: string; gate: string; library: strin
 
 const BIN = '/opt/wrapped/harness';
 
-function context(output: string, exitCode = 0): IExecutionContext {
+function context(output: string, exitCode = 0, stderr = ''): IExecutionContext {
   return {
     root: undefined,
     supportsLocalSpawn: false,
@@ -41,7 +41,7 @@ function context(output: string, exitCode = 0): IExecutionContext {
       if (command === 'realpath') return { stdout: `${args[0]}\n`, stderr: '' };
       if (command === BIN) {
         if (exitCode !== 0) throw Object.assign(new Error('exit'), { code: exitCode, stdout: output, stderr: '' });
-        return { stdout: output, stderr: '' };
+        return { stdout: output, stderr };
       }
       throw new Error(`missing ${command}`);
     }),
@@ -67,12 +67,12 @@ async function gateReads(id: string, output: string, versionLine: RegExp | undef
   return resolution.harnessVersion ?? null;
 }
 
-async function libraryReads(id: string, output: string, versionLine: RegExp | undefined, exitCode = 0) {
+async function libraryReads(id: string, output: string, versionLine: RegExp | undefined, exitCode = 0, stderr = '') {
   const descriptor: DependencyDescriptor = {
     id, name: id, category: 'agent', commands: ['harness'], versionArgs: ['--version'], ...(versionLine ? { versionLine } : {}),
     installCommands: {}, updates: { kind: 'none' },
   } as DependencyDescriptor;
-  const manager = new HostDependencyManager(context(output, exitCode), { dependencies: [descriptor], platform: 'linux' });
+  const manager = new HostDependencyManager(context(output, exitCode, stderr), { dependencies: [descriptor], platform: 'linux' });
   const state = await manager.probe(id);
   return { version: state.version, status: state.status };
 }
@@ -111,6 +111,20 @@ describe('the version is read off the harness\'s own line, a wrapper\'s banner b
 
   it('[control] a harness that declares no line reads as before', async () => {
     expect(await gateReads('x', 'codex-cli 0.145.0', undefined)).toBe('0.145.0');
-    expect(await libraryReads('x', 'wcc: banner\ncodex-cli 0.145.0', undefined)).toEqual({ version: 'wcc: banner', status: 'available' });
+    // …except that a first line with no version is no version: its text is not shown as one.
+    expect(await libraryReads('x', 'wcc: banner\ncodex-cli 0.145.0', undefined)).toEqual({ version: null, status: 'available' });
+  });
+
+  it('reclaude\'s first probe (only its sync banner, on stderr; Linux 2 10-28 verbatim) reads as no version, not 「同步配置…」', async () => {
+    const versionLine = pluginRegistry.get('claude')!.capabilities.hostDependency.versionLine;
+    expect(await libraryReads('claude', '', versionLine, 0, '同步配置…\n')).toEqual({ version: null, status: 'available' });
+    expect(parseHarnessRuntimeVersion({ path: BIN, stdout: '', stderr: '同步配置…\n', exitCode: 0, timedOut: false } as never, versionLine)).toBeNull();
+    // [positive control] once synced it prints its own line on stdout, the banner still on stderr.
+    expect(await libraryReads('claude', '2.1.302 (Claude Code)\n', versionLine, 0, '同步配置…\n')).toEqual({ version: '2.1.302', status: 'available' });
+  });
+
+  it('declares its line, and a wrapper puts a version on a line that is not it: no version, the first line is not taken', async () => {
+    const versionLine = pluginRegistry.get('claude')!.capabilities.hostDependency.versionLine;
+    expect(await libraryReads('claude', BANNER, versionLine)).toEqual({ version: null, status: 'available' });
   });
 });

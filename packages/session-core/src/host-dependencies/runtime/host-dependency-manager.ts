@@ -185,10 +185,12 @@ function resolveProbeStatus(resolvedPath: string | null, probe: ProbeResult, ver
 
 function extractVersion(probe: ProbeResult, versionLine?: RegExp): string | null {
   const raw = (probe.stdout || probe.stderr).trim();
-  // 这一家自己那一行(`versionLineOf`);认不出就照旧读第一行。
+  // 声明了自己那一行却一行都没对上(reclaude 头一次只在 stderr 打「同步配置…」):没读到版本,❌ 退回第一行。
+  if (versionLine && !raw.split('\n').some((line) => versionLine.test(line.trim()))) return null;
+  // 这一家自己那一行(`versionLineOf`);不止一行对上、或没声明,照旧读第一行。
   const line = versionLineOf(raw, versionLine) ?? raw.split('\n')[0]?.trim() ?? '';
-  const m = VERSION_RE.exec(line);
-  return m ? m[1] : line || null;
+  // 那一行里没有版本号就是没读到:❌ 拿原文冒充版本(界面曾画出「v同步配置…」)。
+  return VERSION_RE.exec(line)?.[1] ?? null;
 }
 
 function dependencyStateFromProbeResult(

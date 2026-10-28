@@ -19,7 +19,8 @@ export function parseHarnessRuntimeVersion(probe: ProbeResult, versionLine?: Reg
     .find(Boolean);
   if (!firstLine) return null;
   const match = firstLine.match(/(?:^|\s)v?(\d+\.\d+\.\d+(?:[-+][0-9A-Za-z.-]+)?)(?=$|\s)/);
-  return match?.[1] ?? firstLine;
+  // 那一行里没有版本号就是没读到,❌ 拿原文冒充版本。
+  return match?.[1] ?? null;
 }
 
 export function makeHarnessRuntimeIdentity(input: {
