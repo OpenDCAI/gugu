@@ -1,5 +1,7 @@
 import { composeChatDraft } from '@/lib/composeDraft';
-import { openLinkTarget } from '@/lib/guguLinks';
+import { followLink, openLinkTarget } from '@/lib/guguLinks';
+import { toast } from '@renderer/lib/hooks/use-toast';
+import { translateSessionMessage } from '@renderer/localization/locale-store';
 import { rpc } from '@renderer/lib/ipc';
 import { desktopIpc } from '@/platform/desktopIpc';
 import { EXTENSION_BRIDGE_CHANNEL, type ExtensionBridgeResponse } from '@shared/extensions/bridge-protocol';
@@ -109,6 +111,17 @@ function openForClick(action: ExtensionHostAction, fromTab?: string): ExtensionH
       return openLinkTarget({ kind: 'file', itemId: action.itemId });
     case 'openLinkTarget':
       return openLinkTarget(action.target);
+    case 'notGivenAt': {
+      // The App's page in 「App」 is where a chat is added, one at a time (`changeAppPlaces`).
+      const app = installedExtensionsStore.manifests.find((manifest) => manifest.id === action.extensionId)?.name ?? action.extensionId;
+      toast({
+        title: translateSessionMessage('extensions.notGivenAt', { app, chat: action.chat.name }),
+        tier: 'warning',
+        duration: 15_000,
+        action: { label: translateSessionMessage('extensions.notGivenAtAction'), onClick: () => void followLink({ kind: 'app-detail', extensionId: action.extensionId }) },
+      });
+      return undefined;
+    }
     default:
       throw new Error(`${action.kind} is a page's: no page asked for it`);
   }

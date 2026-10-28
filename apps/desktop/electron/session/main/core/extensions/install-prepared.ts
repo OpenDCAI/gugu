@@ -8,7 +8,7 @@ import type { ExtensionPublisher, InstalledExtension } from './extensions-servic
 
 export type { InstallConsent };
 import { applyInstalledExtension } from './extension-after-install';
-import { announceInstalledChanged, requestExtensionInstallConsent } from './extension-bridge-relay';
+import { actInWindow, announceInstalledChanged, requestExtensionInstallConsent } from './extension-bridge-relay';
 import { extensionsService } from './extensions-root';
 import { recordMarketInstall } from './market-ranking';
 import { log } from '@main/lib/logger';
@@ -50,7 +50,17 @@ export type PreparedOutcome =
       asked: boolean;
       /** Whether the window was told and drew its tabs (an agent's answer says so; F52). */
       announced: 'shown' | 'pending' | 'failed';
+      /** The chat it was asked for and could not be given (`recordInstallGrant`): the window and the agent's answer say so. */
+      notGivenAt?: { id: string; name: string };
     };
+
+/** What an agent's answer adds when the chat it installed for was not given the App: said, so it tells the person. */
+export function notGivenNoteOf(done: { notGivenAt?: { id: string; name: string } }): { notGivenAt: { id: string; name: string }; notGivenNote: string } | null {
+  return done.notGivenAt ? {
+    notGivenAt: done.notGivenAt,
+    notGivenNote: `Installed, but "${done.notGivenAt.name}" was not given it (its row could not be written). The person can add that chat on the App's page in 「App」.`,
+  } : null;
+}
 
 /**
  * One install, wherever its files came from (161 10-15: one path, never one per caller): the consent bound to the manifest
@@ -66,9 +76,10 @@ export async function installPrepared(prepared: PreparedInstall, consent: Instal
   const grant = await given.installGrant(manifest, first, prepared.places.chatId, prepared.places.identity);
   const ask: Omit<ExtensionInstallConsentRequest, 'sourceDir'> = { manifest, manifestDigest, ...prepared.sheet, ...(grant ? { given: grant } : {}) };
   const asks = prepared.asks || grant !== null;
+  let notGivenAt: { id: string; name: string } | null = null;
   const done = await agreeThenInstall(ask, asks, consent, () => (dependencies.requestInstallConsent ?? requestExtensionInstallConsent)({ sourceDir: prepared.dir, ...ask }), async () => {
     const installed = extensionsService().installFromDirectory(prepared.dir, manifestDigest, prepared.origin, prepared.publisher, prepared.variant);
-    await given.recordInstallGrant(installed.manifest.id, grant);
+    notGivenAt = await given.recordInstallGrant(installed.manifest.id, grant);
     (dependencies.afterInstall ?? applyInstalledExtension)(installed);
     return installed;
   });
@@ -82,5 +93,11 @@ export async function installPrepared(prepared: PreparedInstall, consent: Instal
     );
   }
   const announced = await announceInstalledChanged(dependencies.notifyInstalledChanged);
-  return { outcome: 'confirmed', installed: done.installed, asked: asks, announced };
+  if (!notGivenAt) return { outcome: 'confirmed', installed: done.installed, asked: asks, announced };
+  // 「没加上群 X，去 App 页加」: told in the window, not waited on — the install stands either way.
+  const chat: { id: string; name: string } = notGivenAt;
+  void actInWindow({ kind: 'notGivenAt', extensionId: manifest.id, chat }).catch((error: unknown) =>
+    log.warn(`the window was not told ${manifest.id} was not given ${chat.id}: ${error instanceof Error ? error.message : String(error)}`)
+  );
+  return { outcome: 'confirmed', installed: done.installed, asked: asks, announced, notGivenAt: chat };
 }
