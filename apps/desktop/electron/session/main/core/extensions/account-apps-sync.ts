@@ -138,7 +138,10 @@ const runner = accountAppsRunner({
       if (!outcome.installed) throw new Error(`The account App was not installed (${outcome.outcome})`);
       return { state: 'installed' as const };
     } catch (error) {
-      if (error instanceof AccountAppRestoreError) return { state: error.state, reason: error.message };
+      if (error instanceof AccountAppRestoreError) {
+        log.warn('Account App restoration needs attention', { id: entry.id, state: error.state, error: error.message });
+        return { state: error.state };
+      }
       throw error;
     }
   },

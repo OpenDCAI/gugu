@@ -55,9 +55,8 @@ export function accountInstallMatches(entry: AccountApp, candidate: {
 export type AccountAppState = {
   id: string;
   state: 'installing' | 'installed' | 'excluded' | 'needs-consent' | 'unavailable' | 'failed';
-  reason?: string;
 };
-export type AccountAppInstallResult = { state: 'installed' | 'needs-consent' | 'unavailable'; reason?: string };
+export type AccountAppInstallResult = { state: 'installed' | 'needs-consent' | 'unavailable' };
 
 export interface AccountAppsDependencies {
   /** A snapshot of the authenticated owner; current becomes false at an account boundary. */
@@ -95,7 +94,7 @@ export async function reconcileAccountApps(deps: AccountAppsDependencies): Promi
       } catch (error) {
         if (!owner.current()) return;
         const reason = error instanceof Error ? error.message : String(error);
-        states[states.length - 1] = { id: entry.id, state: 'failed', reason };
+        states[states.length - 1] = { id: entry.id, state: 'failed' };
         deps.warn('An account App could not be restored; it will be retried', { id: entry.id, reason });
       }
     }

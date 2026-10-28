@@ -109,7 +109,7 @@ describe('each machine reconciles its own account Apps', () => {
   it('retries an interrupted download at the next start', async () => {
     const f = fixture(); f.install.mockRejectedValueOnce(new Error('offline'));
     await reconcileAccountApps(f.deps);
-    expect(f.states.at(-1)?.apps[0]).toMatchObject({ state: 'failed', reason: 'offline' });
+    expect(f.states.at(-1)?.apps[0]).toEqual({ id: 'browser-use', state: 'failed' });
     await reconcileAccountApps(f.deps);
     expect(f.install).toHaveBeenCalledTimes(2);
     expect(f.states.at(-1)?.apps[0].state).toBe('installed');

@@ -23,7 +23,7 @@ describe('account App restoration notices', () => {
     const h = createReactHarness(); const review = vi.fn();
     try {
       await h.render(createNode(AccountAppsNotice, {
-        apps: [{ id: 'browser-use', state: 'needs-consent', reason: 'internal manifest digest changed' }],
+        apps: [{ id: 'browser-use', state: 'needs-consent' }],
         onReview: review, onRetry: vi.fn(),
       }));
       expect(h.container.textContent).toContain('安装 Browser Use 前，需要确认权限。');
@@ -37,7 +37,7 @@ describe('account App restoration notices', () => {
     const h = createReactHarness();
     try {
       await h.render(createNode(AccountAppsNotice, {
-        apps: [{ id: 'browser-use', state: 'unavailable', reason: 'Host capability is unavailable: browser-use' }],
+        apps: [{ id: 'browser-use', state: 'unavailable' }],
         onReview: vi.fn(), onRetry: vi.fn(),
       }));
       expect(h.container.textContent).toBe('这台机器暂不支持 Browser Use。');
