@@ -38,8 +38,14 @@ Object.defineProperty(document, 'fonts', {
 Object.defineProperty(window, 'electronAPI', {
   configurable: true,
   value: {
-    invoke: (channel: string) =>
-      Promise.resolve(channel === 'sessions.getStoredHistory' ? storedPage : []),
+    // 与库的读法同一套语义:带 `fromSeq` 的是开场后补读的尾巴,只回那之后的几轮。
+    invoke: (channel: string, args?: { fromSeq?: number }) => {
+      if (channel !== 'sessions.getStoredHistory' || !storedPage) return Promise.resolve(channel === 'sessions.getStoredHistory' ? storedPage : []);
+      const fromSeq = args?.fromSeq;
+      if (fromSeq === undefined) return Promise.resolve(storedPage);
+      const turns = storedPage.turns.filter((t) => t.seq >= fromSeq);
+      return Promise.resolve({ turns, originTurnIds: [], nextCursor: null });
+    },
     eventSend: () => {},
     eventOn: () => () => {},
     getPathForFile: () => '',
