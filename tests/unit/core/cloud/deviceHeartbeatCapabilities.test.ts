@@ -42,6 +42,15 @@ function fixture() {
 }
 
 describe('device heartbeat capability registration', () => {
+  test.each(['desktop', 'server', 'phone'] as const)('only a published desktop can choose a cloud package (%s)', async host_kind => {
+    const f = fixture()
+    const info = { hostInfo: () => ({ host_kind, os_name: 'Test', arch: 'x64', home_dir: '/test' }) }
+    await f.beat(info, { GUGU_APP_VERSION: '0.2.58-beta.1052.1', GUGU_BUILD_DISTRIBUTION: 'published' })
+    expect(f.rows[0].capabilities).toMatchObject(host_kind === 'desktop' ? { published_desktop_version: '0.2.58-beta.1052.1' } : {})
+    if (host_kind !== 'desktop') expect(f.rows[0].capabilities).not.toHaveProperty('published_desktop_version')
+    await f.beat(info, { GUGU_APP_VERSION: '999.0.0', GUGU_BUILD_DISTRIBUTION: 'local' })
+    expect(f.rows[1].capabilities).not.toHaveProperty('published_desktop_version')
+  })
   test('steady heartbeats write only current presence; capability changes register again', async () => {
     const f = fixture()
     await f.beat()

@@ -1,3 +1,5 @@
+import { isAssistantActionRefusal } from './assistantActionRefusal'
+
 /** Only explicit operations use this bounded read-only handshake. It never wakes a host. */
 export async function waitForAssistantControl(
   check: () => Promise<unknown>,
@@ -21,7 +23,7 @@ export async function waitForAssistantControl(
       return
     } catch (error) {
       await assertCurrent()
-      if (error instanceof TypeError) throw error
+      if (isAssistantActionRefusal(error)) throw error
       if (Date.now() >= deadline) throw error
       const code = (error as { code?: string } | null)?.code
       if (code === 'unknown_method' || code === 'forbidden' || code === 'unauthorized') throw error

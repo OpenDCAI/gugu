@@ -4,6 +4,7 @@ import type { GitHubAccountSummary } from '@/session/shared/github'
 import { readAssistantPanelIntegrations } from './assistant-panel-integrations'
 import { translateSessionMessage } from '@/session/renderer/localization/locale-store'
 import { waitForAssistantControl } from '@/lib/assistantControlReady'
+import { isAssistantActionRefusal } from '@/lib/assistantActionRefusal'
 
 /** Read-only cloud metadata plus explicit existing authorization actions. */
 export function assistantPanelLibraryHost(base: LibraryHost, panel: AssistantPanelFiles | undefined, prepare: () => Promise<void>,loadError?: unknown): LibraryHost {
@@ -20,6 +21,7 @@ export function assistantPanelLibraryHost(base: LibraryHost, panel: AssistantPan
         await waitForAssistantControl(() => base.integrations.checkConfiguredConnections(), () => requirePanel().assertCurrent())
       } catch (cause) {
         await requirePanel().assertCurrent()
+        if (isAssistantActionRefusal(cause)) throw cause
         throw new Error(translateSessionMessage('deviceScope.unreachable', { device: base.remote.deviceLabel }), { cause })
       }
     }
@@ -66,7 +68,16 @@ export function assistantPanelLibraryHost(base: LibraryHost, panel: AssistantPan
     authorize: (...args) => authorize(args[0],() => base.integrations.authorize(...args)),
     cliLoginStart: (...args) => authorize(args[0],() => base.integrations.cliLoginStart(...args)),
     // 第一问叫醒 / 核对那台(云电脑停着就先唤醒,叫不醒明说);之后每 20 秒一问不再重复唤醒。
-    cliToolPrepare: (...args) => prepared ? base.integrations.cliToolPrepare(...args) : authorize(args[0],() => base.integrations.cliToolPrepare(...args)),
+    cliToolPrepare: async (...args) => {
+      try {
+        return await (prepared ? base.integrations.cliToolPrepare(...args) : authorize(args[0],() => base.integrations.cliToolPrepare(...args)))
+      } catch (error) {
+        // The previous successful preparation says nothing about this live
+        // connection. A retry must wake/check the home again after a failure.
+        prepared = false
+        throw error
+      }
+    },
     cliLoginWait: (...args) => base.integrations.cliLoginWait(...args),
     cliLoginProgress: (...args) => prepared ? base.integrations.cliLoginProgress(...args) : Promise.resolve(null),
     cancelAuthorization: (...args) => { cancelPending(args[0]); return prepared ? base.integrations.cancelAuthorization(...args) : Promise.resolve() },

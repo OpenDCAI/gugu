@@ -1,3 +1,5 @@
+import { isAssistantActionRefusal } from '@/lib/assistantActionRefusal';
+
 /**
  * 起命令行登录之前先把工具装好,一问一答、不绑在一次调用上。
  *
@@ -26,21 +28,44 @@ export async function prepareThenStartCliLogin<Start>(
     cancelled?: () => boolean;
     now?: () => number;
     sleep?: (ms: number) => Promise<void>;
+    timeoutError?: () => Error;
   } = {}
 ): Promise<Start | { success: false; error: string } | null> {
   const now = options.now ?? Date.now;
   const sleep = options.sleep ?? ((ms: number) => new Promise<void>((resolve) => setTimeout(resolve, ms)));
   const cancelled = options.cancelled ?? (() => false);
+  // A pending RPC must also settle when the peer stops answering or the dialog closes.
+  // This wraps preparation only; a late preparation response cannot start authorization.
+  async function prepare(): Promise<CliToolPrepareResult | null> {
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    let poll: ReturnType<typeof setInterval> | undefined;
+    try {
+      return await Promise.race([
+        api.cliToolPrepare!(integrationId),
+        new Promise<never>((_, reject) => {
+          timer = setTimeout(() => reject(Object.assign(options.timeoutError?.() ?? new Error('Connection preparation did not respond. Please try again.'),
+            { code: 'connection_prepare_timeout' })), CLI_PREPARE_LINK_BUDGET_MS);
+        }),
+        new Promise<null>(resolve => { poll = setInterval(() => { if (cancelled()) resolve(null); }, 100); }),
+      ]);
+    } finally {
+      clearTimeout(timer);
+      clearInterval(poll);
+    }
+  }
   if (api.cliToolPrepare) {
     let lastAnswer = now();
     for (;;) {
       if (cancelled()) return null;
       let result: CliToolPrepareResult;
       try {
-        result = await api.cliToolPrepare(integrationId);
+        const answer = await prepare();
+        if (!answer) return null;
+        result = answer;
       } catch (error) {
         // 旧版本的那台不认这一问:照旧直接起登录(装和起登录还在同一次调用里)。
         if (doesNotKnowPrepare(error)) break;
+        if (isAssistantActionRefusal(error)) throw error;
         if (now() - lastAnswer >= CLI_PREPARE_LINK_BUDGET_MS) throw error;
         await sleep(RETRY_DELAY_MS);
         continue;

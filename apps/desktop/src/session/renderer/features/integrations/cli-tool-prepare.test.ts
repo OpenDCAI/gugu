@@ -9,6 +9,44 @@ function clock() {
 }
 
 describe('prepareThenStartCliLogin', () => {
+  it.each(['server_outdated', 'client_outdated', 'forbidden', 'unauthorized'])('does not retry a terminal %s refusal', async code => {
+    const failure = Object.assign(new Error('Rejected by the host'), { code });
+    const api = { cliToolPrepare: vi.fn(async () => { throw failure; }), cliLoginStart: vi.fn() };
+    await expect(prepareThenStartCliLogin(api, 'feishu')).rejects.toBe(failure);
+    expect(api.cliToolPrepare).toHaveBeenCalledOnce();
+    expect(api.cliLoginStart).not.toHaveBeenCalled();
+  });
+
+  it('bounds an unanswered request and never starts a login from its late response', async () => {
+    vi.useFakeTimers();
+    try {
+      let answer!: (result: CliToolPrepareResult) => void;
+      const api = { cliToolPrepare: vi.fn(() => new Promise<CliToolPrepareResult>(resolve => { answer = resolve; })), cliLoginStart: vi.fn() };
+      const run = prepareThenStartCliLogin(api, 'feishu');
+      const rejected = expect(run).rejects.toMatchObject({ code: 'connection_prepare_timeout' });
+      await vi.advanceTimersByTimeAsync(CLI_PREPARE_LINK_BUDGET_MS);
+      await rejected;
+      answer({ status: 'ready' });
+      await Promise.resolve();
+      expect(api.cliToolPrepare).toHaveBeenCalledOnce();
+      expect(api.cliLoginStart).not.toHaveBeenCalled();
+      expect(vi.getTimerCount()).toBe(0);
+    } finally { vi.useRealTimers(); }
+  });
+
+  it('settles cancellation while the preparation call is still unanswered', async () => {
+    vi.useFakeTimers();
+    try {
+      let cancelled = false;
+      const api = { cliToolPrepare: vi.fn(() => new Promise<CliToolPrepareResult>(() => {})), cliLoginStart: vi.fn() };
+      const run = prepareThenStartCliLogin(api, 'feishu', { cancelled: () => cancelled });
+      cancelled = true;
+      await vi.advanceTimersByTimeAsync(100);
+      await expect(run).resolves.toBeNull();
+      expect(api.cliLoginStart).not.toHaveBeenCalled();
+      expect(vi.getTimerCount()).toBe(0);
+    } finally { vi.useRealTimers(); }
+  });
   it('asks until the tool is installed, then starts the login once', async () => {
     const answers: CliToolPrepareResult[] = [{ status: 'installing' }, { status: 'installing' }, { status: 'ready' }];
     const api = { cliToolPrepare: vi.fn(async () => answers.shift()!), cliLoginStart: vi.fn(async () => started) };

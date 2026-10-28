@@ -249,6 +249,7 @@ export function IntegrationsProvider({ children }: { children: React.ReactNode }
         cliGenerations.current.set(integrationId, generation);
         const result = await prepareThenStartCliLogin(api, integrationId, {
           cancelled: () => cliGenerations.current.get(integrationId) !== generation,
+          timeoutError: () => new Error(translateSessionMessage('integrations.cliPrepareTimedOut')),
         });
         if (!result) return { success: false as const, error: 'This connection attempt was cancelled.' };
         if (result.success && 'connected' in result) {

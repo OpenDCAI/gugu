@@ -14,7 +14,6 @@ import { connectorOrder } from './assistant-connector-order';
 import { homeTarget } from './assistant-home-sessions';
 import { useAssistantReadError, useReadFailure } from './assistant-read-failure';
 import { retryAssistantPanelRead } from '@gugu/core/cloud/assistantPanelRead';
-import { when } from 'mobx';
 import { useAssistantShell } from './assistant-shell';
 import { useCloudAssistantFiles } from '@/components/assistant/assistant-panel-files';
 import { assistantPanelLibraryHost } from '@/components/assistant/assistant-panel-library-host';
@@ -68,8 +67,8 @@ export function useHomeLibraryHost(home: AssistantHomePlace): LibraryHost {
       throw new Error(t(`connectors.${key}`));
     }
     remoteHostsStore.reconnect(deviceId);
-    try { await when(() => remoteHostsStore.connectionState(deviceId) === 'connected',{ timeout: 60_000 }); }
-    catch { throw new Error(t('connectors.authorizationTimedOut')); }
+    // The following control read owns readiness and preserves a protocol refusal.
+    // Waiting only for `connected` here hides an already known `outdated` state.
   },[local,home.kind,deviceId,t]);
   return useMemo(() => assistantPanelLibraryHost(base,machine?.panel,prepare,folder.error ?? identity.error),[base,machine,prepare,folder.error,identity.error]);
 }

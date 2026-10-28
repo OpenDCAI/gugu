@@ -712,6 +712,7 @@ if (!process.env.GUGU_TIER) {
 // their {...process.env} spread. Unconditional (no `if (!...)` knob like GUGU_TIER): the reported
 // version is ground truth of the running binary — a stray shell var must not spoof the fleet inventory.
 process.env.GUGU_APP_VERSION = app.getVersion()
+process.env.GUGU_BUILD_DISTRIBUTION = __GUGU_BUILD_DISTRIBUTION__
 // ────────────────────────────────────────────────────────────────────────────
 
 const hasSingleInstanceLock = app.requestSingleInstanceLock()

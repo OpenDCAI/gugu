@@ -53,6 +53,7 @@ let issued = 0
 let applied = 0
 /** 换账号时停掉在途的叫醒(❌ 拿新账号的 /state 接着等旧账号的那台)。 */
 let wakeAbort = new AbortController()
+const connectionWakes = new Map<string, Promise<void>>()
 
 /** 管家说出错时那句原因只进日志(界面说「云电脑那边出了问题」);同一句只记一次。 */
 let loggedSnapshotError: string | null = null
@@ -81,6 +82,7 @@ export function resetCloudComputerState(): void {
   generation += 1
   wakeAbort.abort()
   wakeAbort = new AbortController()
+  connectionWakes.clear()
   set({ available: rendererCloudComputerClient() !== null, snapshot: null, loadError: null, wakeRefused: null })
 }
 
@@ -242,6 +244,20 @@ export async function wakeAndWaitOnline(deviceId: string, deps: { isOnline: (dev
     signal: wakeAbort.signal,
   }).catch(noteWakeFailure)
   if (outcome === 'not-cloud') throw new CloudComputerWakeError('failed', `device ${deviceId} is not this account's cloud computer`)
+}
+
+/** A requested connection/reconnection must re-read the controller, even when
+ * cached presence still says awake. Concurrent windows share this check; no
+ * background timer wakes an otherwise unused computer. */
+export function ensureCloudConnectionReady(deviceId: string, deps: { isOnline: (deviceId: string) => Promise<boolean> }): Promise<void> {
+  if (state.snapshot?.deviceId !== deviceId) return Promise.resolve()
+  const existing = connectionWakes.get(deviceId)
+  if (existing) return existing
+  const pending = wakeAndWaitOnline(deviceId, deps).finally(() => {
+    if (connectionWakes.get(deviceId) === pending) connectionWakes.delete(deviceId)
+  })
+  connectionWakes.set(deviceId, pending)
+  return pending
 }
 
 /** 这一行是不是要先叫醒的云电脑(睡着 / 正在醒)。 */

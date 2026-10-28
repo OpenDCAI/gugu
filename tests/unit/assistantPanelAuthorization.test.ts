@@ -18,6 +18,15 @@ function fixture() {
   return { native,subscribe,panel,prepare,ready,host: assistantPanelLibraryHost(base,panel,prepare) }
 }
 
+it.each(['server_outdated', 'client_outdated', 'forbidden', 'unauthorized'])('preserves %s from the rejecting control layer without starting authorization', async code => {
+  const f = fixture()
+  const refusal = Object.assign(new Error('The cloud host needs an update'), { code })
+  f.ready.mockRejectedValue(refusal)
+  await expect(f.host.integrations.cliToolPrepare('feishu')).rejects.toBe(refusal)
+  expect(f.ready).toHaveBeenCalledOnce()
+  expect(f.native).not.toHaveBeenCalled()
+})
+
 it('does not start a CLI download/login until control RPC actually acknowledges the read', async () => {
   const f = fixture()
   let release!: () => void
@@ -86,4 +95,15 @@ it('wakes a sleeping home before the first install question and says so plainly 
   await f.host.integrations.cliToolPrepare('feishu')
   expect(f.prepare).toHaveBeenCalledTimes(2)
   expect(f.native).toHaveBeenCalledTimes(2)
+})
+
+it('rechecks and wakes the home after a prepared control connection stops answering', async () => {
+  const f = fixture()
+  await f.host.integrations.cliToolPrepare('feishu')
+  f.native.mockRejectedValueOnce(new Error('host fell asleep'))
+  await expect(f.host.integrations.cliToolPrepare('feishu')).rejects.toThrow('host fell asleep')
+  await f.host.integrations.cliToolPrepare('feishu')
+  expect(f.prepare).toHaveBeenCalledTimes(2)
+  expect(f.ready).toHaveBeenCalledTimes(2)
+  expect(f.prepare.mock.invocationCallOrder[1]).toBeLessThan(f.native.mock.invocationCallOrder[2])
 })

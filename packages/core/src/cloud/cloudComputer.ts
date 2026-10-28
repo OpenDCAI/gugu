@@ -128,6 +128,7 @@ function provisionBody(input: CloudComputerProvisionInput | undefined): Record<s
 }
 
 export type CloudComputerClient = {
+  matchVersion?(deviceId: string, start: boolean, signal?: AbortSignal): Promise<CloudVersionMatchState>
   state(signal?: AbortSignal): Promise<CloudComputerSnapshot>
   provision(input?: CloudComputerProvisionInput): Promise<void>
   wake(input?: CloudComputerWakeInput): Promise<void>
@@ -137,6 +138,8 @@ export type CloudComputerClient = {
   /** 身份与自己的会话已关闭后，只清助理资料并等待存档完成；保留宿主。 */
   closeAssistant(input: { deviceId: string; assistantId: string }, signal?: AbortSignal): Promise<void>
 }
+
+export type CloudVersionMatchState = { status: 'idle' } | { status: 'updating' | 'ready'; version: string } | { status: 'failed'; version?: string; error: string }
 
 /**
  * 一次请求最多等多久。管家的四个接口都是立刻回的(开通、叫醒是 202 + 之后看 /state);挂住不回 = 当作连不上 ——
@@ -179,6 +182,15 @@ export function createCloudComputerClient(options: {
     return raw
   }
   return {
+    async matchVersion(deviceId, start, signal) {
+      const raw = await request(start ? 'POST' : 'GET', start ? '/version-match' : `/version-match?${new URLSearchParams({ deviceId })}`,
+        start ? { deviceId } : undefined, signal)
+      const state = JSON.parse(raw) as CloudVersionMatchState
+      if (!state || !['idle', 'updating', 'ready', 'failed'].includes(state.status)
+        || ((state.status === 'updating' || state.status === 'ready') && typeof state.version !== 'string')
+        || (state.status === 'failed' && typeof state.error !== 'string')) throw new CloudComputerError(200, 'bad_response', '云端咕咕没有返回有效的升级状态')
+      return state
+    },
     async state(signal) {
       const raw = await request('GET', '/state', undefined, signal)
       let parsed: unknown
@@ -320,7 +332,9 @@ export async function wakeCloudComputerUntilOnline(input: {
   const deadline = now() + timeoutMs
   const read = async (): Promise<CloudComputerSnapshot> => {
     try {
+      input.signal?.throwIfAborted()
       const snapshot = await input.client.state(input.signal)
+      input.signal?.throwIfAborted()
       input.onSnapshot?.(snapshot)
       return snapshot
     } catch (error) {
