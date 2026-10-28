@@ -72,7 +72,8 @@ describe('durable background session archival synchronization', () => {
     let began!: () => void
     const started = new Promise<void>((resolve) => { began = resolve })
     deps.synchronize = vi.fn(async (_id, _device, _token, operation) => {
-      sent.push(structuredClone(operation)); if (sent.length === 1) { began(); await gate }; remoteRevision = operation.revision
+      sent.push(structuredClone(operation)); if (sent.length === 1) { began(); await gate }
+      remoteRevision = operation.revision
     })
     const sync = new SessionpageAgentArchivalSync(deps)
     const first = sync.flush(); await started
