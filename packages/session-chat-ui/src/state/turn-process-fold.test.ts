@@ -983,6 +983,13 @@ describe('agent conversation process footer', () => {
       else expect(ids(units)).not.toContain('call2');
     }
   });
+  it('counts the steps on a live process line that has no reply yet', () => {
+    const running = turn('busy', [user('u'), tool('a'), tool('b'), tool('c')], undefined, { startedAt: 1000 });
+    const units = flattenTier([running], ctxWith({ active: true, foldTurnProcess: true, agentConversation: true }), SEGMENTERS);
+    const head = units.find(unit => unit.kind === 'turn-process')?.data as { steps?: number; live?: boolean } | undefined;
+    // owner 0 号图「思考执行中 · 9m16s · 39 步」:还没说话的那一轮也写步数。
+    expect(head?.steps).toBe(3);
+  });
   it('places live work under its reply and does not hide failure states', () => {
     const live = flattenTier([completed()], ctxWith({ active: true, foldTurnProcess: true, agentConversation: true }), SEGMENTERS);
     expect(kinds(live)).not.toContain('turn-process');

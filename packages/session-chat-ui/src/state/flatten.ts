@@ -401,11 +401,13 @@ export function flattenTier(
           emitOps(ops, turn.id);
         } else {
           const expanded = ctx.revealAllFolds || turnProcessExpanded(header.live, ctx.isTurnProcessExpanded?.(header.id) ?? false);
+          const steps = ctx.agentConversation ? segment.process.filter(item => !isSubagentChild(item)).length : 0;
           processItem({
             kind: 'turn-process',
             id: header.id,
             turnId: turn.id,
             ...(header.live ? { live: true as const } : {}),
+            ...(steps ? { steps } : {}),
             // 收起来时下面什么都看不见,头又是这一轮唯一的动静(#124 review)
             ...(expanded ? { withBody: true } : {}),
             ...(header.startedAt !== undefined ? { startedAt: header.startedAt } : {}),
@@ -435,6 +437,8 @@ export function flattenTier(
             ...(ctx.agentConversation && turn.startedAt !== undefined ? { startedAt: turn.startedAt } : {}),
             turnId: turn.id,
             ...(pending.at < items.length ? { withBody: true } : {}),
+            ...(ctx.agentConversation && items.slice(pending.at).some(item => !isSubagentChild(item))
+              ? { steps: items.slice(pending.at).filter(item => !isSubagentChild(item)).length } : {}),
           });
           emitOps(planRows(outsideProcess(items.slice(pending.at))), turn.id);
         }
