@@ -87,6 +87,14 @@ export type ChatMessage = {
   /** View-only disclosure of the completed thinking/execution segment. */
   conversationProcess?: { live?: boolean; id: string; startedAt?: number; endedAt?: number };
   /**
+   * View-only split of one agent-conversation reply (owner 0 号图): `head` draws the name and the
+   * process line, each `body` only a bubble. The process steps go between them, so they never land
+   * under the bubble; every output of the turn (message_send ones too) is its own bubble.
+   */
+  conversationPart?: 'head' | 'body';
+  /** A `body`'s head row — background tasks still hang on that process line. */
+  conversationHead?: string;
+  /**
    * 这条其实是某个 hook 说的话，不是 agent 的回复（#4981）。与 `guguDelivery` 同一路数：
    * 由消息单元从正文里解出来（见 `lib/hook-notice.ts`），❌ transcript 生产者不写它。
    */
