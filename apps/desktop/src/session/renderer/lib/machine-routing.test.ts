@@ -90,6 +90,19 @@ describe('machine routing (one workbench seam)', () => {
     expect(() => r.route('tasks.x', [P, LOCAL_P])).toThrow(MachineRoutingConflictError);
   });
 
+  // #581 这台电脑的 id 永远是本机的:别的机器的清单、应答、推送都认领不走;已经被认领的,本机一认领就撤回来。
+  it('keeps this computer’s ids local whatever another machine lists or answers', () => {
+    const r = registry();
+    r.register('stale-row', [LOCAL_P]);
+    expect(r.route('sessions.getSessions', [LOCAL_P])).toBe('stale-row');
+    r.claimLocal([LOCAL_P]);
+    expect(r.machineOf(LOCAL_P)).toBeNull();
+    r.register('stale-row', [LOCAL_P]);
+    r.absorb('stale-row', [{ projectId: LOCAL_P }]);
+    expect(r.route('sessions.getSessions', [LOCAL_P])).toBeNull();
+    expect(r.machineOf(P), 'other machines’ ids are untouched').toBe('dev-a');
+  });
+
   it('forgets a removed machine', () => {
     const r = registry();
     r.forgetMachine('dev-a');

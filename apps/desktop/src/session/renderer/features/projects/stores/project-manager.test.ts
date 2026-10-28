@@ -793,6 +793,71 @@ describe('ProjectManagerStore project creation', () => {
   });
 });
 
+// #581 实机复现:同一个库换了设备 id(换 tier / 重新登记),旧设备行的账号副本里写着这台电脑的项目 id ——
+// 它被记到那台名下:本机项目被错路由到那台(「Can't reach …」),那台一被移除,本机项目就从侧栏消失,而本机库里还在。
+describe('#581 这台电脑的项目不被别的机器认领', () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    mocks.eventOn.mockReturnValue(vi.fn());
+  });
+
+  it('别的机器的清单先到、带着本机项目的 id:本机清单到了以本机为准,那台被移除后它还在', async () => {
+    const { machineRegistry } = await import('@renderer/lib/machine-routing');
+    const mine = localProject({ id: 'keep-me-remote-first', name: 'keep-me' });
+    const store = new ProjectManagerStore();
+    vi.spyOn(store, 'mountProject').mockResolvedValue(undefined);
+    store.syncMachineProjects('stale-row-1', [mine]);
+    expect(machineRegistry.machineOf(mine.id)).toBe('stale-row-1');
+
+    mocks.getProjects.mockResolvedValueOnce([mine]);
+    await store.load();
+    expect(machineRegistry.machineOf(mine.id)).toBeNull();
+    expect(store.projects.get(mine.id)?.data).toEqual(mine);
+
+    store.syncMachineProjects('stale-row-1', [mine]);
+    expect(machineRegistry.machineOf(mine.id), '再登记也认领不走').toBeNull();
+    store.dropMachine('stale-row-1');
+    machineRegistry.forgetMachine('stale-row-1');
+    expect(store.projects.has(mine.id)).toBe(true);
+  });
+
+  it('本机清单先到:别的机器的清单(账号副本)再写着它也认领不走,那台的清单变了 / 被移除都拿不掉它', async () => {
+    const { machineRegistry } = await import('@renderer/lib/machine-routing');
+    const mine = localProject({ id: 'keep-me-local-first', name: 'keep-me' });
+    const store = new ProjectManagerStore();
+    vi.spyOn(store, 'mountProject').mockResolvedValue(undefined);
+    mocks.getProjects.mockResolvedValueOnce([mine]);
+    await store.load();
+
+    store.syncMachineProjects('stale-row-2', [mine]);
+    expect(machineRegistry.machineOf(mine.id)).toBeNull();
+    store.syncMachineProjects('stale-row-2', []);
+    store.dropMachine('stale-row-2');
+    machineRegistry.forgetMachine('stale-row-2');
+    expect(store.projects.has(mine.id)).toBe(true);
+  });
+
+  it('别的机器的应答 / 推送里带着本机项目的 id(absorb):认领不走;本机刚建的同样', async () => {
+    const { machineRegistry } = await import('@renderer/lib/machine-routing');
+    const mine = localProject({ id: 'keep-me-absorbed', name: 'keep-me' });
+    const store = new ProjectManagerStore();
+    vi.spyOn(store, 'mountProject').mockResolvedValue(undefined);
+    mocks.getProjects.mockResolvedValueOnce([mine]);
+    await store.load();
+    machineRegistry.absorb('peer-3', { sessions: [{ id: 'remote-child', projectId: 'their-project' }, { parent: { projectId: mine.id } }] });
+    expect(machineRegistry.machineOf('their-project')).toBe('peer-3');
+    expect(machineRegistry.machineOf(mine.id)).toBeNull();
+
+    // 本机项目建出来的那一刻(项目事件)也是本机的。
+    const handler = mocks.eventOn.mock.calls.find(([channel]) => channel === projectCreatedChannel)?.[1];
+    if (!handler) throw new Error('Expected project-created event subscription');
+    handler({ project: localProject({ id: 'keep-me-created' }) });
+    machineRegistry.register('peer-3', ['keep-me-created']);
+    expect(machineRegistry.machineOf('keep-me-created')).toBeNull();
+    machineRegistry.forgetMachine('peer-3');
+  });
+});
+
 describe('ensureMounted:挂载的唯一入口(别的机器上的项目列出不挂,用到才挂)', () => {
   it('那台机器的项目:登记时不挂;要用时线没开就等它开了再挂,同一个项目只等一份', async () => {
     const { machineRegistry } = await import('@renderer/lib/machine-routing');
