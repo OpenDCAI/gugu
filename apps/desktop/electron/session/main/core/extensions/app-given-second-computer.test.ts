@@ -219,6 +219,21 @@ describe('I9: the App page changes one place at a time — never the whole set w
     expect(one.givenHere(APP)).toEqual([]);
     expect(two.givenHere(APP)).toEqual([HERE_ALL]);
   });
+
+  it('I10 uninstalled from the last computer: the account\'s rows for it go, another App\'s and another person\'s stay', async () => {
+    const other = { publisher: 'owner-1', id: 'sheet' };
+    state.rows = [{ chatId: 'g', userId: 'owner-1', app: APP }, { chatId: 'h', userId: 'owner-1', app: APP },
+      { chatId: 'g', userId: 'owner-1', app: other }, { chatId: 'g', userId: 'friend', app: APP }];
+    await given.forgetAccountGrants(APP);
+    expect(state.rows.map((row) => `${row.userId}/${row.app.id}@${row.chatId}`)).toEqual(['owner-1/sheet@g', 'friend/searcher@g']);
+  });
+
+  it('I10 the account unreadable at uninstall: nothing is thrown, the rows stay (harmless where nothing has the App)', async () => {
+    state.rows = [{ chatId: 'g', userId: 'owner-1', app: APP }];
+    state.unread = new Error('offline');
+    await expect(given.forgetAccountGrants(APP)).resolves.toBeUndefined();
+    expect(chats()).toEqual(['g']);
+  });
 });
 
 // #6981 × #6976: an agent's app_install for a chat the App is not given at, on a computer where it is narrowed, goes to the

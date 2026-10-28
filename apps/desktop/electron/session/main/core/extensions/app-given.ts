@@ -141,6 +141,21 @@ export async function ownInstallIdentity(manifestId: string, origin: 'market' | 
 }
 
 /**
+ * I10 Uninstalled from the last of the person's computers: the account's rows for it go too — nothing is left giving it, and a
+ * later install starts as a first one. Read before the uninstall (the identity is the install's). A failure is logged: the rows
+ * then stay, harmless where nothing has the App.
+ */
+export async function forgetAccountGrants(identity: AppIdentity): Promise<void> {
+  try {
+    const { token, userId } = await me();
+    const rows = (await readEnablements(token, userId)).filter((row) => appKey(row.app) === appKey(identity));
+    for (const row of rows) await setEnablement(token, userId, row.chatId, identity, false);
+  } catch (error) {
+    log.warn({ app: appKey(identity), error: error instanceof Error ? error.message : String(error) }, 'uninstalled everywhere, but its grants in chats were not cleared');
+  }
+}
+
+/**
  * The person changes who gets an App on its row in 「App」: each change on its own — this computer's every agent on or off,
  * one chat's row added or removed. Never the whole set written back, so what another computer (or another sheet still open)
  * changed meanwhile stays (architecture I9).

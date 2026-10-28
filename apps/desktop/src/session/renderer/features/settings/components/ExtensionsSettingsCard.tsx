@@ -27,6 +27,7 @@ import { ConsentBody } from '@/components/extensionBundle/ConsentDetails';
 import { askInShell, installConsentPrompt, type InstallConsentAsk } from '@renderer/features/extensions/install-consent';
 import { alsoOnMachines, INSTALL_CONSENT_HUMAN_WINDOW_MS, type InstallGrant, type InstallAlsoOnMachine } from '@shared/extensions/host-actions';
 import { findRemoteHostsBridge } from '@shared/remote-hosts';
+import { installedElsewhere } from '@renderer/features/extensions/installed-elsewhere';
 import { AppMarketContent, type AppMarketState } from '@renderer/features/extensions/panel/app-market-content';
 import { appLifecycle } from '@renderer/features/extensions/panel/app-lifecycle';
 import type { AppLifecycle } from '@renderer/features/extensions/panel/app-lifecycle-button';
@@ -866,7 +867,9 @@ export const ExtensionsSettingsCard = observer(function ExtensionsSettingsCard({
     beginPending(app.id, 'uninstalling');
     try {
       // A machine picked in the device picker that cannot be reached rejects instead of answering: the same failure.
-      const result = await host.api.uninstall({ extensionId: app.id });
+      // I10 Off the last of the person's computers: its grants in chats go with it.
+      const lastAnywhere = !(await installedElsewhere(app.id, remoteRef.current?.deviceId ?? null));
+      const result = await host.api.uninstall({ extensionId: app.id, lastAnywhere });
       if (!result.success) throw new Error(result.error ?? '');
       await refresh();
       void store.checkUpdates();

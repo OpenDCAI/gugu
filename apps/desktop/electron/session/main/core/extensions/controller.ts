@@ -1000,9 +1000,12 @@ export const extensionsController = createRPCController({
     }
   },
 
-  uninstall: async (args: { extensionId: string }) => {
+  /** `lastAnywhere`: none of the person's other computers has it (the renderer looked) — its grants in chats go too (I10). */
+  uninstall: async (args: { extensionId: string; lastAnywhere?: boolean }) => {
     try {
+      const identity = args.lastAnywhere ? extensionsService().identityOf(args.extensionId) : null;
       extensionsService().uninstall(args.extensionId);
+      if (identity) void (await import('@main/core/extensions/app-given')).forgetAccountGrants(identity);
       // F87: open group pages list again with the removed App's file claims withdrawn; device capability follows too,
       // before asynchronous storage cleanup can yield to a heartbeat.
       void notifyInstalledAppsChanged();
