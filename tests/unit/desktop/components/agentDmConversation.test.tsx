@@ -17,7 +17,8 @@ vi.mock('../../../../apps/desktop/src/mobile/agent-watch/use-timeline-session', 
 vi.mock('../../../../apps/desktop/src/components/assistant-ui/session-transcript-view.aui', () => ({ SessionTranscriptView: (props: { turns: TranscriptTurn[]; composerContent: ReactNode; onReady?: (view: unknown) => void }) => {
   if (probe.fail) throw new Error('Conversation render failure')
   probe.props = props
-  useEffect(() => { props.onReady?.({ find: probe.find }) }, [props.onReady])
+  const { onReady } = props
+  useEffect(() => { onReady?.({ find: probe.find }) }, [onReady])
   return createElement('div', { 'data-shared-transcript': '' }, props.turns.flatMap(turn => turn.items.map(item => 'text' in item ? item.text : '')).join('\n'), props.composerContent)
 } }))
 import { AgentDmConversation } from '../../../../apps/desktop/src/components/chat/AgentDmConversation'
@@ -93,9 +94,14 @@ it('does not mark a hidden DM read even if an old visibility callback arrives', 
 })
 
 it('routes the shared header search to the transcript find API and clears it on close', async () => {
+  const setFollowingTail = vi.fn()
   await renderWithAppProviders(harness, createElement(ChatAreaPanel, { activeTab: 'chats' }), { chat: {
-    activeChat: dm, activeChatId: dm.id, messages: [received], identitiesById: { 'external-agent': displayIdentity('external-agent', { type: 'agent' }) },
+    activeChat: dm, activeChatId: dm.id, messages: [received], identitiesById: { 'external-agent': displayIdentity('external-agent', { type: 'agent' }) }, setFollowingTail,
   } })
+  expect(setFollowingTail, 'the inactive IM scroller does not write the agent transcript follow state').not.toHaveBeenCalled()
+  const transcript = probe.props as { onAtBottomChange: (atBottom: boolean) => void }
+  transcript.onAtBottomChange(true)
+  expect(setFollowingTail).toHaveBeenLastCalledWith(true)
   await clickElement(harness.container.querySelector<HTMLElement>(`[data-testid="${AUTOMATION_TEST_IDS.chatHeaderMoreButton}"]`)!)
   await clickElement(document.querySelector<HTMLElement>(`[data-testid="${AUTOMATION_TEST_IDS.chatHeaderSearchButton}"]`)!)
   const input = harness.container.querySelector<HTMLInputElement>(`[data-testid="${AUTOMATION_TEST_IDS.chatHeaderSearchInput}"]`)!
