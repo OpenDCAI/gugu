@@ -358,11 +358,11 @@ describe('ProjectsPage — 所有机器一页、个人助理一组', () => {
     expect(heading(groups()[0]!)).not.toContain('sdk_gphone64_arm64')
   })
 
-  it('每台机器的每个项目一格,页头只写项目(owner 10-28 ❌ 机器);两台机器上同名的项目各是一格', async () => {
+  it('每台机器的每个项目一格,页头只写项目(owner 10-28 ❌ 机器);两台机器上同名的项目各是一格,同名时带路径区分(与桌面同一个判据)', async () => {
     write('mac', [summary('m1', 1)])
-    write('thinkpad', [summary('t1', 2)])
+    write('thinkpad', [summary('t1', 2)], [{ ...repo, path: '/srv/repo' }])
     await renderPage([mac, thinkpad])
-    expect(groups().map(heading)).toEqual(['Repo', 'Repo'])
+    expect(groups().map(heading)).toEqual(['Repo /srv/repo', 'Repo /repo'])
     expect(row(groups()[0], 't1')).not.toBeNull()
     expect(row(groups()[1], 'm1')).not.toBeNull()
     // 阴控:没有会话的机器不画空分区。

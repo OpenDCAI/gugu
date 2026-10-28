@@ -13,6 +13,7 @@ import { type ProjectStore } from '@renderer/features/projects/stores/project';
 import type { ProjectManagerStore } from '@renderer/features/projects/stores/project-manager';
 import { pageSessions } from '@renderer/features/sessions/stores/session-selectors';
 import { isImplicitSessionHomeProject, isWorkspaceProject } from '@renderer/features/sessions/session-home-project-constants';
+import { nameTwinIds } from '@renderer/features/projects/name-twins';
 import {
   EMPTY_MACHINE_HOME_LAYOUT,
   HOME_PROJECT_LABEL,
@@ -430,16 +431,15 @@ export class SidebarStore implements Snapshottable<SidebarSnapshot> {
   }
 
   /**
-   * 侧栏上另有一行与它同名(那一行带上路径区分,spec session-page-remote)。只算自己成一行的:并进某一行的项目
-   * (别的机器上的同一个项目,#7341;并进主目录的任务工作区)在侧栏上不单独出现,谈不上分不清。
+   * 侧栏上另有一行与它同名(那一行带上路径区分,spec session-page-remote)。只算画出来的项目行:并进某一行的项目
+   * (别的机器上的同一个项目,#7341)与 workspace(#609)在侧栏上不单独出现,谈不上分不清。
    */
   hasNameTwin(projectId: string): boolean {
-    const name = this.projectManager.projects.get(projectId)?.name;
-    if (name === undefined) return false;
-    for (const [id, other] of this.projectManager.projects) {
-      if (id !== projectId && this.rowProjectIdOf(id) === id && other.name === name) return true;
-    }
-    return false;
+    return this.nameTwins.has(projectId);
+  }
+
+  get nameTwins(): ReadonlySet<string> {
+    return nameTwinIds(this.sidebarProjects.map((ref) => ({ id: ref.id, name: ref.project.name })));
   }
 
   /** 这个项目的会话显示在哪一行下(被并进主目录项目的任务工作区 → 那一行;其余就是它自己)。 */

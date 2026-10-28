@@ -830,6 +830,13 @@ describe('SidebarStore: 别的机器上的会话归到那台机器的项目下',
     legacy.machines = machines;
     expect(legacy.orderedProjects.map((p) => p.id)).toEqual(['d22-home']);
     expect(legacy.projectLabel('d22-home')).toBe('root');
+    // 同名判据只比画出来的行:与一个同名的 workspace 不算同名(❌ 平白挂上路径)。
+    const withTwinWorkspace = new SidebarStore(managerWithPaths([
+      { id: 'local-root', path: '/root', sessionIds: [], name: 'root' },
+      { id: 'd22-home', path: '/root', sessionIds: [], name: 'root', kind: 'workspace' },
+    ]));
+    withTwinWorkspace.machines = machines;
+    expect(withTwinWorkspace.hasNameTwin('local-root')).toBe(false);
     for (const id of ['rt-old', 'rt-home', 'lt-mine']) sessionRegistry.release(id);
   });
 

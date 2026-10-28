@@ -1,3 +1,4 @@
+import { nameTwinIds } from '@/session/renderer/features/projects/name-twins'
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type MutableRefObject, type ReactNode } from 'react'
 import { useTranslation } from 'react-i18next'
 import type { Device } from '@gugu/core/shared/types/chat'
@@ -188,6 +189,7 @@ export function ProjectsPage({
   }
   const launchedBy = translateSessionMessage('sidebar.launchedByAssistant', { name: assistant?.name ?? assistantName })
   const manyMachines = machines.length > 1
+  const twins = nameTwinIds(sections.flatMap((section) => (section.project ? [{ id: section.key, name: section.project.name }] : [])))
   /**
    * 行上除 agent 名之外的标记。❌ 标机器(owner 10-28:会话列表不标机器,机器只在会话里说)。分区页头已经说了项目的格里
    * 不重复;置顶那格标自己的项目;挂在父会话下的行与父会话不在同一个项目里时标项目。
@@ -319,6 +321,8 @@ export function ProjectsPage({
 
       {sections.map((section) => {
         const { key } = section
+        // 同名的项目格(两台机器上各有一个「Repo」)带上路径区分,与桌面侧栏同一个判据;不同名不带。
+        const twinPath = section.project && twins.has(key) ? section.project.path : null
         const isCollapsed = collapsed.has(key)
         const machine = section.deviceId ? deviceOf.get(section.deviceId) : undefined
         const heading = section.pinned
@@ -348,6 +352,7 @@ export function ProjectsPage({
               onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); toggleCollapsed(key) } }}
             >
               {heading}
+              {twinPath ? <span className="gg-aw-group-path" title={twinPath}>{` ${twinPath}`}</span> : null}
             </SectionLabel>
             {!isCollapsed && noteDevice ? <MachineNote device={noteDevice} error={errorOf.get(noteDevice.device_id)} /> : null}
             {isCollapsed ? null : renderTree(section, section.roots)}
