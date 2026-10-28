@@ -13,6 +13,14 @@
   /* 底栏没选中那格:--text-tertiary 在玻璃上只有 ~2.8:1,看不清(owner 10-28)。往前景色掺三成,两套主题都 ≥ 4.5:1;
      选中那格靠前景色 + 胶囊底区分。 */
   --phone-nav-idle: color-mix(in srgb, var(--primary) 30%, var(--text-secondary));
+  --phone-nav-selected-bg: var(--ta-glass-strong);
+  --phone-nav-selected-fx: none;
+}
+/* 浅色:选中胶囊原是 78% 白叠在 60% 白的玻璃上,两层白几乎一样,米色底上那颗胶囊看不出来(owner 10-28 真机)。
+   换成掺一成二前景色的浅灰,再借输入框那道细边影,和玻璃拉开;深色那颗本来就看得清,不动。 */
+[data-theme='light'] [data-phone-shell] {
+  --phone-nav-selected-bg: color-mix(in srgb, var(--primary) 12%, var(--card));
+  --phone-nav-selected-fx: var(--shadow-composer);
 }
 
 /* ── 玻璃:底栏、搜索框 ── */
@@ -52,7 +60,8 @@
   inset-inline-start: var(--spacing-sm);
   width: calc((100% - var(--spacing-sm) * 2) / 2);
   border-radius: calc(var(--phone-nav-height) / 2 - var(--spacing-sm));
-  background: var(--ta-glass-strong);
+  background: var(--phone-nav-selected-bg);
+  box-shadow: var(--phone-nav-selected-fx);
   transform: translateX(calc(var(--gg-tab-position, var(--phone-nav-selected-index, 0)) * 100%));
   pointer-events: none;
 }
