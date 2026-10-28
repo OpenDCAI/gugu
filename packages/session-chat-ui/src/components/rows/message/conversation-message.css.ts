@@ -43,6 +43,8 @@ globalStyle(`${conversationRoot}[data-side="left"] [data-user-message-actions]`,
 globalStyle(`${conversationRoot}[data-side="left"] [data-user-message-actions] time`, { order: 2, marginLeft: 8, marginRight: 0 });
 // 折着的长消息淡出成气泡自己的底色(浅色),❌ 淡成原用户气泡的深色 —— 那就是一条黑带。
 globalStyle(`${conversationRoot} ${cardFadeOverlay}`, {
+  // 0 号图里淡出要拖过两三行,32px 那条太短,像被裁掉。
+  height: 96,
   background: 'linear-gradient(to top, var(--bubble-mine, var(--chat-bubble-user)) 0%, transparent 100%)',
 });
 globalStyle(`${conversationRoot}[data-side="left"] ${cardFadeOverlay}`, {

@@ -79,6 +79,11 @@ describe('agent-centered conversation bubbles', () => {
         const expand = view.host.querySelector<HTMLButtonElement>('[data-expand-user-card]')!;
         expect(expand.dataset.expandUserCard).toBe(`long-${role}`);
         expect(expand.textContent).toBe('Show all');
+        // 「展开全文」单起一行,在时间那一行上面(0 号图)。
+        const actions = view.host.querySelector<HTMLElement>('[data-user-message-actions]')!;
+        expect(actions.contains(expand)).toBe(false);
+        expect(expand.getBoundingClientRect().bottom).toBeLessThanOrEqual(actions.getBoundingClientRect().top + 1);
+        expect(expand.getBoundingClientRect().top).toBeGreaterThanOrEqual(bubble.getBoundingClientRect().bottom - 1);
         expect(Math.abs(view.host.getBoundingClientRect().height - messageUnitDef.measure(view.item, view.ctx, messageUnitDef.vars!))).toBeLessThanOrEqual(1);
       } finally { view.dispose(); }
     }

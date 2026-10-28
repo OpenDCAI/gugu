@@ -208,8 +208,12 @@ export const userMessageActionButton = style({
 });
 
 /** 对话布局里折着的长消息:时间那一行最前面的「展开全文」。 */
+export const userMessageExpandRow = style({
+  display: 'flex', justifyContent: 'flex-end', alignItems: 'flex-end',
+});
+
 export const userMessageExpand = style({
-  alignSelf: 'center', marginRight: 8, padding: 0, border: 0, background: 'transparent', cursor: 'pointer',
+  padding: 0, border: 0, background: 'transparent', cursor: 'pointer',
   color: vars.fgMuted, fontFamily: vars.fontSans, fontSize: vars.typeChromeTinyFontSize, whiteSpace: 'nowrap',
   selectors: { '&:hover': { color: vars.fg }, '&:focus-visible': { outline: `1px solid ${vars.fgMuted}`, outlineOffset: 2, borderRadius: 3 } },
 });

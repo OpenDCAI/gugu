@@ -27,7 +27,7 @@ import { isDoubleColumnLayout } from '@session-chat/core/layout/preset';
 import { srOnly } from './message.css';
 import { useChatTranslator } from '@session-chat/localization';
 import { UserMessageActions } from './UserMessageActions';
-import { hasConversationBody } from './conversation-body';
+import { CONVERSATION_EXPAND_H, hasConversationBody } from './conversation-body';
 import { UserMessageEditor } from './UserMessageEditor';
 import { messageEditorMetrics } from './message-editor-metrics';
 import {
@@ -43,6 +43,8 @@ import {
   cardVars,
   stopButtonOverlay,
   userCardGroup,
+  userMessageExpand,
+  userMessageExpandRow,
 } from './user-message.css';
 
 export function UserMessageCard(props: { data: ChatMessage; ctx: RenderCtx; vars: MessageVars; conversation?: boolean }) {
@@ -232,10 +234,15 @@ export function UserMessageCard(props: { data: ChatMessage; ctx: RenderCtx; vars
       </Show>
     </div>
     </Show>
+    {/* 对话布局里气泡折着:气泡下面单起一行「展开全文」,再下面才是时间那一行(owner 定稿 0 号图)。点了和点气泡一样展开(ChatRoot 认 `data-expand-user-card`)。 */}
+    <Show when={props.conversation && isOverflowing() && !isExpanded()}>
+      <div class={userMessageExpandRow} style={{ height: `${CONVERSATION_EXPAND_H}px` }}>
+        <button type="button" class={userMessageExpand} data-expand-user-card={props.data.id}>{translate('transcript.showFullText')}</button>
+      </div>
+    </Show>
     <Show when={!props.conversation || hasConversationBody(props.data)}>
     <UserMessageActions itemId={props.data.id} text={props.data.text} at={props.data.at}
-      generating={isGenerating()} readOnly={Boolean(props.data.guguDelivery) || (props.conversation && props.data.role === 'assistant')}
-      expandable={props.conversation && isOverflowing() && !isExpanded()} vars={props.vars} />
+      generating={isGenerating()} readOnly={Boolean(props.data.guguDelivery) || (props.conversation && props.data.role === 'assistant')} vars={props.vars} />
     </Show>
     </>}>
       {(editing) => <UserMessageEditor edit={editing()} height={editorMetrics().height} textHeight={editorMetrics().textHeight} />}
