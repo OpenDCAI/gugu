@@ -37,7 +37,12 @@ export default {
     "introLater": "Look around first",
     "terminalTitle": "Terminal mode",
     "terminalSub": "Used to CLIs like Claude Code or Codex in a terminal? You can turn on terminal mode.",
-    "terminalToggle": "Turn on terminal mode"
+    "terminalToggle": "Turn on terminal mode",
+    "back": "Back",
+    "stepCount": "{{current}} / {{total}}",
+    "terminalLater": "Change it later in Settings → General",
+    "terminalPause": "Pause",
+    "terminalPlay": "Play"
   },
   "groupFile": {
     "notInGroup": "You are not in the chat this file belongs to"

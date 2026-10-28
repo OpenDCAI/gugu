@@ -37,7 +37,12 @@ export default {
     "introLater": "先逛逛",
     "terminalTitle": "终端模式",
     "terminalSub": "习惯在终端里用 Claude Code、Codex 这类 CLI？可以开启终端模式。",
-    "terminalToggle": "开启终端模式"
+    "terminalToggle": "开启终端模式",
+    "back": "上一步",
+    "stepCount": "{{current}} / {{total}}",
+    "terminalLater": "之后可在设置 → 通用中更改",
+    "terminalPause": "暂停",
+    "terminalPlay": "播放"
   },
   "groupFile": {
     "notInGroup": "这个文件所在的对话，你不在里面"

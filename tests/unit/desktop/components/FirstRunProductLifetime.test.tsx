@@ -8,7 +8,7 @@ const io = vi.hoisted(() => ({
   firstRunDoneHere: vi.fn((_userId: string) => false),
   rememberFirstRunDone: vi.fn(),
   readFirstRunProgress: vi.fn(async () => ({
-    stage: 'intro', occupation: { key: 'research' }, harness: ['codex'],
+    stage: 'intro', occupation: { key: 'research' }, harness: ['codex'], terminalSeen: true,
     tour: { phase: 'features', index: 3 },
   })),
   finishFirstRun: vi.fn(async () => '2026-10-24T00:00:00Z'),
