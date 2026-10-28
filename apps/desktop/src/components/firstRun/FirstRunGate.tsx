@@ -20,6 +20,7 @@ import { queryClient } from '@renderer/lib/query-client'
 import { platform } from '../../platform'
 import { ProductTour } from '../productTour/ProductTour'
 import { FirstRunHarness } from './FirstRunHarness'
+import { FirstRunTerminal } from './FirstRunTerminal'
 import { FirstRunInstallProvider } from './FirstRunInstallProvider'
 import { UI_EVENTS } from '../../lib/uiEvents'
 import { startFirstRunHints } from '../../lib/firstRunHints'
@@ -33,6 +34,7 @@ type GateState =
   | { kind: 'profile'; occupation: Occupation | null }
   | { kind: 'intro' }
   | { kind: 'harness' }
+  | { kind: 'terminal' }
   | { kind: 'tour' }
   | { kind: 'done' }
 
@@ -95,7 +97,7 @@ function FirstRunFlow({ user, children }: { user: AuthUser; children: ReactNode 
   if (state.kind === 'loading') return <FullScreenLoader />
   return (
     <div className="ta-first-run" data-ta-scope data-testid={`first-run-${state.kind}`}>
-      <div className={`ta-onb${state.kind === 'harness' ? ' first-run-harness-panel' : ''}`}>
+      <div className={`ta-onb${state.kind === 'harness' ? ' first-run-harness-panel' : state.kind === 'terminal' ? ' first-run-terminal-panel' : ''}`}>
         {state.kind === 'unreadable' ? (
           <>
             <h1 className="ta-onb-title">{t('firstRun.unreadableTitle')}</h1>
@@ -109,7 +111,10 @@ function FirstRunFlow({ user, children }: { user: AuthUser; children: ReactNode 
         ) : state.kind === 'profile' ? (
           <FirstRunProfile user={user} initial={state.occupation} onDone={() => setState({ kind: platform.kind === 'electron' ? 'harness' : 'intro' })} />
         ) : state.kind === 'harness' ? (
-          <FirstRunHarness userId={user.id} onDone={() => setState({ kind: 'intro' })} />
+          <FirstRunHarness userId={user.id} onDone={() => setState({ kind: 'terminal' })} />
+        ) : state.kind === 'terminal' ? (
+          // 选完 Agent、介绍咕咕之前(owner 10-27)。开关即时写本机设置,❌ 存进度:中途退出再进直接到介绍,开关保持当时的值。
+          <FirstRunTerminal onDone={() => setState({ kind: 'intro' })} />
         ) : (
           <FirstRunIntro userId={user.id} onDone={done} />
         )}

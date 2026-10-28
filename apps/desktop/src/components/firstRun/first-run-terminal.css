@@ -1,0 +1,8 @@
+/* 一屏一个画面一个选择:录屏是主体,上面一行标题一句说明,下面开关 + 继续。 */
+.ta-onb.first-run-terminal-panel { width: min(760px, 100%); gap: 0; padding: 40px 40px 32px; border: 1px solid var(--border); border-radius: var(--radius-dialog); background: var(--card); box-shadow: none; backdrop-filter: none; }
+.first-run-terminal-panel .ta-onb-title { margin: 0; font-size: var(--font-heading); line-height: var(--lh-heading); color: var(--text-primary); }
+.first-run-terminal-panel .ta-onb-sub { margin-top: var(--spacing-sm); font-size: var(--font-body); line-height: var(--lh-body); }
+.first-run-terminal-film { display: block; width: 100%; aspect-ratio: 1280 / 900; margin: 28px 0; border: 1px solid var(--border); border-radius: var(--radius-surface); background: var(--muted); object-fit: cover; }
+.first-run-terminal-actions { display: flex; align-items: center; justify-content: space-between; width: 100%; gap: var(--spacing-lg); }
+.first-run-terminal-switch { display: flex; align-items: center; gap: var(--spacing-md); font-size: var(--font-body); line-height: var(--lh-body); color: var(--text-primary); cursor: pointer; }
+.first-run-terminal-actions > button { min-width: 160px; }

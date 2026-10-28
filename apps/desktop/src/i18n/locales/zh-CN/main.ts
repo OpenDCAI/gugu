@@ -34,7 +34,10 @@ export default {
     "harnessReadFailed": "暂时读不到智能体状态，请重试。",
     "harnessCancelFailed": "没能取消安装，请重试。",
     "introStart": "开通我的咕咕",
-    "introLater": "先逛逛"
+    "introLater": "先逛逛",
+    "terminalTitle": "会话终端",
+    "terminalSub": "看 Agent 在终端里实时干活",
+    "terminalToggle": "打开会话终端"
   },
   "groupFile": {
     "notInGroup": "这个文件所在的对话，你不在里面"

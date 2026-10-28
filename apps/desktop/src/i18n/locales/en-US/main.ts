@@ -34,7 +34,10 @@ export default {
     "harnessReadFailed": "Couldn't read agent status. Please try again.",
     "harnessCancelFailed": "Couldn't cancel the installation. Please try again.",
     "introStart": "Set up my Gugu",
-    "introLater": "Look around first"
+    "introLater": "Look around first",
+    "terminalTitle": "Session terminal",
+    "terminalSub": "Watch your agent work in a terminal, live",
+    "terminalToggle": "Turn on the session terminal"
   },
   "groupFile": {
     "notInGroup": "You are not in the chat this file belongs to"
