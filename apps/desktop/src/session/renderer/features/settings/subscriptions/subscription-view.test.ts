@@ -4,7 +4,9 @@ import { formatPercent, quotaReading, payerLine, planLabel, planNotes, unavailab
 
 /** 用真词表(中文)渲染 —— 断言的就是用户读到的那句话。 */
 const translate = (key: string, values?: Record<string, unknown>) => {
-  const template = (zhCNSubscriptionMessages as Record<string, string>)[key];
+  const messages = zhCNSubscriptionMessages as Record<string, string>;
+  // 带 count 的键拆成了 `_one` / `_other`(中文两条相同),照 i18next 的取法回落到 `_other`。
+  const template = messages[key] ?? (typeof values?.count === 'number' ? messages[`${key}_other`] : undefined);
   if (template === undefined) throw new Error(`missing key ${key}`);
   return template.replace(/\{(\w+)\}/g, (_, name: string) => String(values?.[name] ?? ''));
 };

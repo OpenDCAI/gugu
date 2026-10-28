@@ -76,7 +76,7 @@ function CheckStatus({ check, checking, harnessName }: { check?: LibraryMcpCheck
         {check?.status === 'needs-login' && <p className="text-xs text-foreground-muted">{translate('mcpLibrary.needsLoginNote')}</p>}
         {check?.status === 'ok' && (
           <div data-slot="mcp-check-tools" className="flex max-h-56 flex-col gap-2 overflow-y-auto">
-            <span className="text-xs text-foreground-muted">{translate('mcpLibrary.tools', { count: String(check.tools.length) })}</span>
+            <span className="text-xs text-foreground-muted">{translate('mcpLibrary.tools', { count: check.tools.length })}</span>
             {check.tools.map((tool) => (
               <div key={tool.name} className="flex flex-col">
                 {/* @@@raw tool name — server 报回来的工具名与说明,原样显示。 */}
