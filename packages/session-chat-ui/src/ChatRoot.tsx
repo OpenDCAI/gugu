@@ -972,10 +972,31 @@ export function ChatRoot(props: ChatRootProps) {
   );
   const pinAnchorSet = createMemo(() => new Set(pinAnchors()));
 
-  /** Lane height of an anchor: up to the next anchor, or to the end of the content. */
+  /**
+   * Where a lane ends. Normally the next anchor. In the agent conversation a delivered message is a bubble of
+   * its own on the right: it is not stuck itself, but the lane before it must stop there — otherwise the stuck
+   * copy of the last typed message covers it while it scrolls by (MBP acceptance 2026-10-28: s15's lane ran
+   * from 15734 to 16506 and hid the delivered s16 under its sticky copy).
+   */
+  const pinEnds = createMemo<number[]>(
+    () => {
+      if (!props.pinUserMessages || !theme().layout.agentConversation) return pinAnchors();
+      committedUnitsVersion();
+      const s = state();
+      const pending = s.session.state.pendingPrompt;
+      const active = s.transcript.state.activeTurnSnapshot ?? (pending ? pendingPromptTurn(pending) : null);
+      const committed = collectUserTurnUnits(s.transcript.state.committedTurns, makeUnitsView(committedUnitsArr, NO_ACTIVE_UNITS), { delivered: true });
+      if (!active) return committed;
+      const base = committedUnitsArr.length;
+      return [...committed, ...collectUserTurnUnits([active], makeUnitsView(activeUnits(), NO_ACTIVE_UNITS), { delivered: true }).map((i) => base + i)];
+    },
+    [],
+    { equals: (a, b) => a.length === b.length && a.every((v, i) => v === b[i]) }
+  );
+
+  /** Lane height of an anchor: up to the next anchor (or delivered bubble, see `pinEnds`), or to the end of the content. */
   function laneHeight(idx: number): number {
-    const anchors = pinAnchors();
-    const next = anchors[anchors.indexOf(idx) + 1];
+    const next = pinEnds().find((end) => end > idx);
     return (next !== undefined ? virt.top(next) : virt.total()) - virt.top(idx);
   }
 

@@ -12,6 +12,7 @@ import { createChatContext } from '@session-chat/chat-context';
 import { createChatView } from '@session-chat/chat-view';
 import { UNIT_REGISTRY } from '@session-chat/components/engine/unit-registry';
 import { DEFAULT_THEME } from '@session-chat/core/theme';
+import { DEFAULT_CONFIG, buildChatTheme } from '@session-chat/core/config';
 import type { ChatItem, TranscriptTurn } from '@session-chat/model';
 import { createChatState } from '@session-chat/state/chat-state';
 import { afterEach, describe, expect, it } from 'vitest';
@@ -42,9 +43,10 @@ function longTurn(id: string, seq: number, replies: number, inserted: string[] =
 
 async function mount(
   committed: TranscriptTurn[] = [longTurn('a', 0, 150), longTurn('b', 1, 150)],
-  active?: TranscriptTurn
+  active?: TranscriptTurn,
+  theme = DEFAULT_THEME
 ) {
-  const context = createChatContext({ theme: DEFAULT_THEME });
+  const context = createChatContext({ theme });
   const state = createChatState(context);
   state.transcript.history.seed(committed);
   if (active) state.transcript.activeTurn.set(active, 'generating');
@@ -138,5 +140,25 @@ describe('sticky user lanes', () => {
     expect(aTop === null || aTop < 0, 'a left with its turn').toBe(true);
     await stuckAfter('c-user');
     expect(t.cardTop('c-user'), 'the inserted c takes over').toBeCloseTo(PIN_LINE, 0);
+  });
+  it('in the agent conversation, a delivered bubble ends the lane before it instead of sliding under its stuck copy', async () => {
+    const delivered = longTurn('b', 1, 150);
+    delivered.items[0] = { kind: 'message', id: 'b-user', seq: 0, role: 'user',
+      text: '<gugu_delivery route="chat" msg="msg:b" from="小王" from_id="user:wang"><![CDATA[来自群里的一条消息]]></gugu_delivery>' } as TranscriptTurn['items'][number];
+    const theme = buildChatTheme(DEFAULT_CONFIG, { preset: 'double', userGutter: 72, agentConversation: true });
+    const t = await mount([longTurn('a', 0, 150), delivered], undefined, theme);
+    let st = 2600;
+    while (!(t.cardTop('b-user') !== null && t.cardTop('b-user')! < 250 && t.cardTop('b-user')! > 120)) {
+      st += 100;
+      expect(st, 'b-user came into view').toBeLessThan(40_000);
+      await t.scrollTo(st);
+    }
+    // MBP 验收 10-28:前一条打字消息的钉顶副本一直盖着投进来的那条。
+    for (let i = 0; i < 40; i++) {
+      t.scrollEl.scrollTop = st + i * 6;
+      const a = t.card('a-user');
+      const b = t.card('b-user')!;
+      if (a) expect(a.getBoundingClientRect().bottom, `step ${i}`).toBeLessThanOrEqual(b.getBoundingClientRect().top + 1);
+    }
   });
 });
