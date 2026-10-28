@@ -15,6 +15,8 @@ import { useAgentDisplayStatus } from '../hooks/useAgentDisplayStatus'
 import { Button } from './ui/Button'
 import { cn } from '@/lib/cn'
 import { CommunityPointsTag } from './forum/CommunityPointsTag'
+import { useAgentSession } from '@/lib/projectGroupChatsBridge'
+import type { AgentSession } from '@/session/renderer/features/projects/stores/project-group-chats-bridge'
 
 // @@@float-one-edge (Refs #6104) — 名片是浮层:圆角 xl(12) + 一层 lift,❌ 不再叠描边。
 const profileCardClass = 'gg-pop w-[284px] overflow-hidden rounded-xl bg-[var(--bg-elevated)] text-[var(--text-primary)] shadow-[var(--shadow-lift)]'
@@ -122,6 +124,8 @@ export type MemberProfileChatTarget = {
   email: string | null
   bio: string | null
   type: GroupMemberType
+  /** 这个 agent 是某台机器上的一条会话:「发消息」打开的是它的会话页,❌ 另开一个空私聊。 */
+  session?: AgentSession
 }
 
 // @@@profile-edit-controls - Rendered for a group owner/admin (role, remove) and for an agent's owner
@@ -223,6 +227,7 @@ export function MemberProfileCard({
   const { user } = useAuth()
   // 别人的 agent 不能私聊(#509):不画能点的「发消息」(#6832)。通讯录那边同一条规则见 ContactsPanel 的 isOwnedAgent。
   const canOpenChat = !!onOpenChat && (!isAgent || member.ownerUserId === user?.id)
+  const session = useAgentSession(isAgent ? member.id : null)
   const editBusy = !!editControls?.busy
   const showEdits = isGroupProfile && (editControls?.canChangeRole || editControls?.canRemove)
   const roleLabel = member.role === 'owner' ? t('profile.roles.owner') : member.role === 'admin' ? t('profile.roles.admin') : t('profile.roles.member')
@@ -254,6 +259,7 @@ export function MemberProfileCard({
       email: member.email,
       bio: member.bio ?? null,
       type: member.type,
+      session,
     })
   }
 

@@ -7,12 +7,14 @@ import type {
   PROJECT_GROUP_CHATS_BRIDGE_KEY as WriterKey,
   PROJECT_GROUP_CHATS_EVENT as WriterEvent,
   ProjectGroupChatsBridge,
+  AgentSession,
 } from '@/session/renderer/features/projects/stores/project-group-chats-bridge'
 
 const BRIDGE_KEY = '__GUGU_PROJECT_GROUP_CHATS__' satisfies typeof WriterKey
 const EVENT = 'gugu:project-group-chats' satisfies typeof WriterEvent
 const NONE: ReadonlySet<string> = new Set()
 const NO_MEMBERS: ReadonlyMap<string, readonly string[]> = new Map()
+const NO_SESSIONS: ReadonlyMap<string, AgentSession> = new Map()
 
 /** 桥不在 = 任务 bundle 还没起来(或不是桌面版):还不知道哪些是项目群,一个也不拿掉。形状不对 = 两边构建漂开了,照旧 throw。 */
 export function readProjectGroupChats(target: Window | undefined = typeof window === 'undefined' ? undefined : window): ReadonlySet<string> {
@@ -45,4 +47,13 @@ export function readProjectGroupMembers(target: Window | undefined = typeof wind
 
 export function useProjectGroupMembers(): ReadonlyMap<string, readonly string[]> {
   return useSyncExternalStore(subscribe, () => readProjectGroupMembers(), () => NO_MEMBERS)
+}
+
+/** 这个 agent 是哪台机器上的哪条会话;不是任何一台上的会话(或桥还没起来)= undefined。 */
+export function useAgentSession(agentUserId: string | null): AgentSession | undefined {
+  const sessions = useSyncExternalStore(subscribe, () => {
+    const candidate = (window as unknown as Record<string, unknown>)[BRIDGE_KEY] as Partial<ProjectGroupChatsBridge> | undefined
+    return candidate?.agentSessions ?? NO_SESSIONS
+  }, () => NO_SESSIONS)
+  return agentUserId ? sessions.get(agentUserId) : undefined
 }

@@ -187,10 +187,10 @@ export class RemoteHostsStore {
           if (machineRegistry.machineOf(project.id)) return [];
           return [...(project.mountedProject?.sessionManager.sessions.values() ?? [])].flatMap((page) =>
             'archivedAt' in page.data && page.data.archivedAt ? [] : pageSessions(page).filter((session) => !session.data.archivedAt).map((session) => ({
-              projectId: project.id, agentUserId: sessionAgentNames.identityFor(session.data.id)?.agentUserId,
+              projectId: project.id, sessionId: session.data.id, agentUserId: sessionAgentNames.identityFor(session.data.id)?.agentUserId,
             })));
         }),
-        ...this.allListedSessions().map(({ summary }) => ({ projectId: summary.projectId, agentUserId: summary.agent?.userId })),
+        ...this.allListedSessions().map(({ summary }) => ({ projectId: summary.projectId, sessionId: summary.conversationId, agentUserId: summary.agent?.userId })),
       ]
     );
     subscribeDeviceSessions(() => runInAction(() => (this.directory = liveDeviceSessions())));
