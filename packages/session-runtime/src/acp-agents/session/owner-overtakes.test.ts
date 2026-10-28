@@ -134,14 +134,16 @@ describe('SessionCell: the owner is not queued behind a turn someone else starte
 
   it('the first frame a scheduled turn is visible in already carries its trigger, before the engine reports running', async () => {
     const frames: Array<{ lifecycle: string; active: boolean; trigger: unknown }> = [];
-    let cell: SessionCell | undefined;
+    // 回调在构造里就会来,那时 cell 还没交回来 ⇒ 先空着,交回来之后才记帧。
+    const holder: { cell?: SessionCell } = {};
     const record = () => {
+      const cell = holder.cell;
       if (!cell) return;
       const active = cell.history().active;
       frames.push({ lifecycle: cell.sessionState.lifecycle, active: !!active, trigger: active?.trigger });
     };
     const created = steeringCell(true, { onTranscriptChanged: record, onSessionStateChanged: record }).cell;
-    cell = created;
+    holder.cell = created;
 
     void created.prompt({ text: '<gugu_delivery route="scheduled" schedule="daily">run it</gugu_delivery>', origin: 'communication' });
     await Promise.resolve();
