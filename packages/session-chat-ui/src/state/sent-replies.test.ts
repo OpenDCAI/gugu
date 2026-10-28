@@ -101,6 +101,8 @@ it('binds a tool-only group reply to its footer instead of a duplicate process h
     terminalOutputText: () => null, terminalExitStatus: () => null } as unknown as SegmentCtx;
   const rows = flattenTier([record], ctx, segmenters);
   expect(rows.some(row => row.kind === 'turn-process')).toBe(false);
-  const delivered = rows.find(row => row.itemId.includes(':sent:'))?.data;
-  expect(delivered).toMatchObject({ text: '你好，我在。', conversationProcess: { startedAt: 1000, endedAt: 24000 } });
+  const head = rows.find(row => row.itemId.includes(':sent:') && row.itemId.endsWith(':head'))?.data;
+  const delivered = rows.find(row => row.itemId.includes(':sent:') && !row.itemId.endsWith(':head'))?.data;
+  expect(head).toMatchObject({ conversationPart: 'head', conversationProcess: { startedAt: 1000, endedAt: 24000 } });
+  expect(delivered).toMatchObject({ text: '你好，我在。', conversationPart: 'body' });
 });

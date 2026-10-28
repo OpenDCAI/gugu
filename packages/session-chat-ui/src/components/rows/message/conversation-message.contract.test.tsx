@@ -96,6 +96,25 @@ describe('agent-centered conversation bubbles', () => {
       expect(Math.abs(view.host.getBoundingClientRect().height - messageUnitDef.measure(view.item, view.ctx, messageUnitDef.vars!))).toBeLessThanOrEqual(1);
     } finally { view.dispose(); }
   });
+  it('splits a reply into a name + process head and bubble-only bodies with matching measured heights', async () => {
+    const process = { id: 'split:process', startedAt: 1000, endedAt: 9000 };
+    const head = await mount({ kind: 'message', id: 'split:head', role: 'assistant', text: '两条都发了', at: 1000, conversationProcess: process, conversationPart: 'head' });
+    try {
+      expect(head.host.querySelector('span[title]')?.textContent).toBe('Codex 11');
+      expect(head.host.querySelector('[data-conversation-process]')).not.toBeNull();
+      expect(head.host.querySelector('[data-user-card]')).toBeNull();
+      expect(head.host.querySelector('[data-user-message-actions]')).toBeNull();
+      expect(Math.abs(head.host.getBoundingClientRect().height - messageUnitDef.measure(head.item, head.ctx, messageUnitDef.vars!))).toBeLessThanOrEqual(1);
+    } finally { head.dispose(); }
+    const body = await mount({ kind: 'message', id: 'split', role: 'assistant', text: '两条都发了', at: 1000, conversationPart: 'body', conversationHead: 'split:head' });
+    try {
+      expect(body.host.querySelector('span[title]')).toBeNull();
+      expect(body.host.querySelector('[data-conversation-process]')).toBeNull();
+      expect(body.host.querySelector('[data-user-card]')?.textContent).toContain('两条都发了');
+      expect(body.host.querySelector('[data-user-message-actions] time')).not.toBeNull();
+      expect(Math.abs(body.host.getBoundingClientRect().height - messageUnitDef.measure(body.item, body.ctx, messageUnitDef.vars!))).toBeLessThanOrEqual(1);
+    } finally { body.dispose(); }
+  });
   it('shows the incoming sender and quote, without delivery chrome or avatars', async () => {
     const view = await mount({ kind: 'message', id: 'delivery', role: 'user', text: '<gugu_delivery route="chat" from="天天" from_id="user:other" chat="group" msg="msg:incoming"><reply_to msg="msg:sent" from_id="user:subject"><![CDATA[天天，你好。]]></reply_to><![CDATA[你好，我在。]]></gugu_delivery>' });
     try {

@@ -927,22 +927,28 @@ describe('agent conversation process footer', () => {
   it('binds the completed process to the reply instead of emitting a separate header', () => {
     const units = flattenTier([completed()], ctxWith({ foldTurnProcess: true, agentConversation: true }), SEGMENTERS);
     expect(kinds(units)).not.toContain('turn-process');
-    expect((units.find(unit => unit.itemId === 'answer')?.data as ChatMessage).conversationProcess)
+    // 名字 + 过程行一行,气泡另一行;过程挂在头上,气泡不再带它。
+    expect(ids(units).indexOf('answer:head')).toBe(ids(units).indexOf('answer') - 1);
+    expect((units.find(unit => unit.itemId === 'answer:head')?.data as ChatMessage).conversationProcess)
       .toEqual({ id: turnProcessId('footer'), startedAt: 1000, endedAt: 25000 });
+    expect(units.find(unit => unit.itemId === 'answer')?.data).toMatchObject({ conversationPart: 'body', conversationHead: 'answer:head', conversationProcess: undefined });
     expect(ids(units)).not.toContain('think');
     expect(ids(units)).not.toContain('call');
   });
-  it('expands the original steps below the reply using the existing process id', () => {
+  it('expands the original steps between the process line and the reply bubble', () => {
     const units = flattenTier([completed()], ctxWith({ foldTurnProcess: true, agentConversation: true,
       isTurnProcessExpanded: id => id === turnProcessId('footer'), revealAllFolds: false }), SEGMENTERS);
-    expect(ids(units).indexOf('answer')).toBeLessThan(ids(units).indexOf('think'));
+    // owner 0 号图:过程行 → 步骤 → 气泡;❌ 步骤挂在气泡底下(10-28 第 5 处)。
+    expect(ids(units).indexOf('answer:head')).toBeLessThan(ids(units).indexOf('think'));
     expect(ids(units).indexOf('think')).toBeLessThan(ids(units).indexOf('call'));
+    expect(ids(units).indexOf('call')).toBeLessThan(ids(units).indexOf('answer'));
     expect(kinds(units)).not.toContain('turn-process');
   });
   it('folds live tools that arrive after the latest reply under the brain control', () => {
     const running = turn('running', [user('u'), reply('answer'), tool('search')]);
     const open = flattenTier([running], ctxWith({ active: true, foldTurnProcess: true, agentConversation: true }), SEGMENTERS);
-    expect(ids(open).indexOf('search')).toBeGreaterThan(ids(open).indexOf('answer'));
+    expect(ids(open).indexOf('search')).toBeGreaterThan(ids(open).indexOf('answer:head'));
+    expect(ids(open).indexOf('search')).toBeLessThan(ids(open).indexOf('answer'));
     const closed = flattenTier([running], ctxWith({ active: true, foldTurnProcess: true, agentConversation: true,
       isTurnProcessExpanded: () => true }), SEGMENTERS);
     expect(ids(closed)).toContain('answer');
@@ -954,19 +960,35 @@ describe('agent conversation process footer', () => {
       done ? { kind: 'done', reason: 'end_turn' } : undefined, { startedAt: 1000, ...(done ? { endedAt: 9000 } : {}) });
     for (const [result, active] of [[undefined, true], [reply('result', '北京今天晴'), true], [reply('result', '北京今天晴，气温适宜。'), false]] as const) {
       const units = flattenTier([running(result, !active)], ctxWith({ active, foldTurnProcess: true, agentConversation: true }), SEGMENTERS);
-      const outputs = units.filter(unit => unit.kind === 'message' && (unit.data as ChatMessage).role === 'assistant');
+      const outputs = units.filter(unit => unit.kind === 'message' && (unit.data as ChatMessage).conversationPart === 'body');
       expect(outputs).toHaveLength(1);
       expect(outputs[0].itemId).toBe('commentary');
       expect((outputs[0].data as ChatMessage).text).toBe(result?.text ?? initial.text);
-      expect((outputs[0].data as ChatMessage).conversationProcess?.id).toBe(turnProcessId('weather'));
+      expect((units.find(unit => unit.itemId === 'commentary:head')?.data as ChatMessage).conversationProcess?.id).toBe(turnProcessId('weather'));
     }
     expect(initial.text).toBe('我现在去查一查。');
+  });
+  it('keeps every message_send output as its own bubble outside the fold, under one head', () => {
+    const sent = (id: string, text: string): ChatMessage => ({ ...reply(`call:sent:${id}`, text) });
+    const record = turn('sends', [user('u'), tool('call'), sent('m1', '收到'), tool('call2'), sent('m2', '第二条'), reply('answer', '两条都发了')],
+      { kind: 'done', reason: 'end_turn' }, { startedAt: 1000, endedAt: 9000 });
+    for (const open of [false, true]) {
+      const units = flattenTier([record], ctxWith({ foldTurnProcess: true, agentConversation: true,
+        isTurnProcessExpanded: () => open, revealAllFolds: false }), SEGMENTERS);
+      const bodies = units.filter(unit => (unit.data as ChatMessage).conversationPart === 'body').map(unit => unit.itemId);
+      // owner 10-28 第 6 处:发出去的那两条 ❌ 折进过程、展开才看得到。
+      expect(bodies).toEqual(['call:sent:m1', 'call:sent:m2', 'answer']);
+      expect(units.filter(unit => (unit.data as ChatMessage).conversationPart === 'head').map(unit => unit.itemId)).toEqual(['answer:head']);
+      if (open) expect(ids(units).indexOf('call2')).toBeLessThan(ids(units).indexOf('call:sent:m1'));
+      else expect(ids(units)).not.toContain('call2');
+    }
   });
   it('places live work under its reply and does not hide failure states', () => {
     const live = flattenTier([completed()], ctxWith({ active: true, foldTurnProcess: true, agentConversation: true }), SEGMENTERS);
     expect(kinds(live)).not.toContain('turn-process');
-    expect((live.find(unit => unit.itemId === 'answer')?.data as ChatMessage).conversationProcess?.live).toBe(true);
-    expect(ids(live).indexOf('answer')).toBeLessThan(ids(live).indexOf('call'));
+    expect((live.find(unit => unit.itemId === 'answer:head')?.data as ChatMessage).conversationProcess?.live).toBe(true);
+    expect(ids(live).indexOf('answer:head')).toBeLessThan(ids(live).indexOf('call'));
+    expect(ids(live).indexOf('call')).toBeLessThan(ids(live).indexOf('answer'));
     expect(ids(live)).toContain('call');
     const failed = completed(); failed.outcome = { kind: 'error', reason: 'prompt_failed' };
     const units = flattenTier([failed], ctxWith({ foldTurnProcess: true, agentConversation: true }), SEGMENTERS);

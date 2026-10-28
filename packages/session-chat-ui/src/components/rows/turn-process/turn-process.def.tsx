@@ -30,6 +30,7 @@ import { turnProcessExpanded, turnProcessLabel } from '@session-chat/state/turn-
 import { useCommands } from '@session-chat/components/contexts/CommandsContext';
 import { conversationHeader, conversationName } from '../message/conversation-message.css';
 import { ConversationProcess } from '../message/ConversationProcess';
+import { CONVERSATION_HEADER_H, CONVERSATION_PROCESS_H } from '../message/conversation-body';
 import { Show, createEffect, createMemo, createSignal, onCleanup } from 'solid-js';
 import { turnProcessHeaderSlot, turnProcessLine, turnProcessRow } from './turn-process.css';
 
@@ -39,7 +40,9 @@ export const turnProcessUnitDef = defineUnit<TurnProcessItem, { extraH: number }
   vars: { extraH: HEADER_ROW_EXTRA_H },
 
   measure(_data, ctx, vars_) {
-    return ctx.theme.fonts.body.lineHeight + vars_.extraH + (ctx.theme.layout.agentConversation ? 24 : 0);
+    // 对话布局:名字一行 + 过程行,与回复里的那两行一样高 —— 原先按经典头的「一行正文 + 8」再加名字,过程行下面多出一截空白(owner 10-28 第 3 处)。
+    if (ctx.theme.layout.agentConversation) return CONVERSATION_HEADER_H + CONVERSATION_PROCESS_H;
+    return ctx.theme.fonts.body.lineHeight + vars_.extraH;
   },
 
   Render(props) {
@@ -47,7 +50,7 @@ export const turnProcessUnitDef = defineUnit<TurnProcessItem, { extraH: number }
     const theme = useTheme();
     const commands = useCommands();
     const height = () => theme().fonts.body.lineHeight + props.vars.extraH;
-    const rowHeight = () => height() + (theme().layout.agentConversation ? 24 : 0);
+    const rowHeight = () => theme().layout.agentConversation ? CONVERSATION_HEADER_H + CONVERSATION_PROCESS_H : height();
     // ViewState keeps the inverted flag inherited from the original store:
     // `isCollapsed(id) === true` means "toggled" (see view-state.ts).
     const expanded = () => turnProcessExpanded(props.data.live, props.ctx.viewState.isCollapsed(props.data.id));
@@ -78,9 +81,10 @@ export const turnProcessUnitDef = defineUnit<TurnProcessItem, { extraH: number }
         style={{ height: `${rowHeight()}px` }}
       >
         <Show when={theme().layout.agentConversation}>
-          <div class={conversationHeader} style={{ height: '24px' }}><span class={conversationName}>{commands().conversationAgentName?.() ?? 'Agent'}</span></div>
+          <div class={conversationHeader} style={{ height: `${CONVERSATION_HEADER_H}px` }}><span class={conversationName}>{commands().conversationAgentName?.() ?? 'Agent'}</span></div>
         </Show>
-        <div class={turnProcessLine} data-slot="tool-timeline-line">
+        <div class={turnProcessLine} data-slot="tool-timeline-line"
+          style={theme().layout.agentConversation ? { height: `${CONVERSATION_PROCESS_H}px` } : undefined}>
           <div class={turnProcessHeaderSlot}>
             <Show when={theme().layout.agentConversation} fallback={<CollapseHeader
               id={props.data.id}
