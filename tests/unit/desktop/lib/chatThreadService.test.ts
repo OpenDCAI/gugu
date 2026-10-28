@@ -43,6 +43,9 @@ const {
         }
         return chain
       }
+      if (['message_reactions', 'message_deliveries', 'message_agent_delivery_blocks'].includes(table)) {
+        return { select: () => ({ in: async () => ({ data: [], error: null }) }) }
+      }
       if (table === 'messages') return { insert: insertMessage }
       if (table === 'messages_view') {
         const chain = {

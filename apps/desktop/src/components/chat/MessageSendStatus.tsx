@@ -6,13 +6,27 @@
 
 import { useState } from 'react'
 import { useTranslation } from 'react-i18next'
-import type { MessageSendState } from '@gugu/core/shared/types/chat'
+import type { MessageSendState, MessageItem } from '@gugu/core/shared/types/chat'
 import { useChatStore } from '../../store/chatContext'
 import { COLOR_MUTED } from './chatPresentation'
 import { DropdownMenu, MenuItem } from '../ui/Menu'
 import { safeFailureLine } from '@/session/renderer/features/sessions/gugu-reason'
 
-export function MessageSendStatus({ state, messageId, reason }: { state: MessageSendState; messageId: string; reason?: string | null }) {
+type Props = { state: MessageSendState; messageId: string; reason?: string | null; blocks?: MessageItem['delivery_blocks'] }
+
+export function MessageSendStatus(props: Props) {
+  const { t } = useTranslation('messaging')
+  const { identitiesById } = useChatStore('identitiesById')
+  return <>
+    {props.blocks?.map((block) => <span key={block.agent_user_id} data-agent-delivery-block="agent_archived" data-agent-id={block.agent_user_id}
+      className="text-[length:var(--font-caption)] text-[var(--text-secondary)]">
+      {identitiesById[block.agent_user_id]?.display_name ? `${identitiesById[block.agent_user_id].display_name} · ` : ''}{t('message.sendStatus.archived')}
+    </span>)}
+    <MessageTransportStatus {...props} />
+  </>
+}
+
+function MessageTransportStatus({ state, messageId, reason }: Props) {
   const { t } = useTranslation('messaging')
   const { retrySend, discardSend } = useChatStore('retrySend', 'discardSend')
   const [menuOpen, setMenuOpen] = useState(false)

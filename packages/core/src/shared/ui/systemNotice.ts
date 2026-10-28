@@ -54,7 +54,7 @@ export function visibleDeliveryMessages<T extends MessageItem>(messages: readonl
   return messages.filter(msg => !isPendingDelivery(msg))
 }
 
-type WaitLine = Pick<MessageItem, 'id' | 'seq' | 'is_mine' | 'retracted_at' | 'thread_root_id' | 'content_type' | 'sender_user_id' | 'client_message_id' | 'readers'>
+type WaitLine = Pick<MessageItem, 'id' | 'seq' | 'is_mine' | 'retracted_at' | 'thread_root_id' | 'content_type' | 'sender_user_id' | 'client_message_id' | 'readers' | 'delivery_blocks'>
 type Waiting = { message: WaitLine; agentId: string; rowSeq: number }
 
 /** My messages an agent with a pending-delivery row in their line has not read yet (its precise read row or watermark). */
@@ -71,6 +71,7 @@ function waitingOn(messages: readonly WaitLine[], memberReadSeqs: Readonly<Recor
     if (!message.is_mine || message.seq <= 0 || message.retracted_at || message.content_type === 'system') continue
     for (const [agentId, rowSeq] of rowsByThread.get(message.thread_root_id ?? null) ?? []) {
       if (message.readers?.includes(agentId) || (memberReadSeqs[agentId] ?? 0) >= message.seq) continue
+      if (message.delivery_blocks?.some((block) => block.agent_user_id === agentId)) continue
       waiting.push({ message, agentId, rowSeq })
     }
   }

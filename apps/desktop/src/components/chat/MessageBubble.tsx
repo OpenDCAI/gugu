@@ -440,7 +440,7 @@ export const MessageBubble = memo(function MessageBubble({
             onMore={openMoreMenuFromButton}
           />}
           {msg.is_mine && !msg.retracted_at && sendState && (
-            <MessageSendStatus state={sendState} messageId={msg.id} reason={msg.local_send_error} />
+            <MessageSendStatus state={sendState} messageId={msg.id} reason={msg.local_send_error} blocks={msg.delivery_blocks} />
           )}
 
           {/* @@@1345 逐成员读回执做成进度圆环(替文字)：本人已发消息显示 ○ 环(填充比例=已读%)，

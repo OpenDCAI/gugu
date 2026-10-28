@@ -55,8 +55,10 @@ export {
   emdashOpenSessionFile,
   // @@@sessionpage TASKPAGE-FUSION — the live-conversation set + a "something may have been removed"
   // trigger, so the host can reconcile its contacts/groups projection and reap agents whose conversation
-  // was archived or deleted (spec ⑨ 删除必同步 — 不能只同步增).
+  // was truly deleted; archived conversations keep their original identities.
   emdashSessionpageInventory,
+  emdashSessionArchivalState,
+  emdashSessionMessageRefused,
   onEmdashSessionpageReapTrigger,
   runSessionAction,
   // agent 的 session_* 跨机器(owner 2026-09-30):别的机器发来的动作、本机发起方的自述、「这个 id 在不在本机」。

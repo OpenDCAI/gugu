@@ -264,7 +264,7 @@ export const SESSION_TOOL_DEFS: readonly SessionpageToolDef[] = [
   },
   {
     name: 'session_archive',
-    description: 'Archive another session of yours: stop its process, remove its agent identity and hide it from lists. A person can restore it from history. session_get still reads it; session_children requires status:"archived". with_children=true archives its subtree; default false archives only this one. Only a person can delete a session.',
+    description: 'Archive another session of yours: stop its process and hide it from lists, keeping its identity, name, history and group seats. It receives no messages while archived; restoring does not replay that interval. A person can restore it from history. session_get still reads it; session_children requires status:"archived". with_children=true archives its subtree; default false archives only this one. Only a person can delete a session.',
     schema: z.object({
       session_id: sessionIdSchema,
       with_children: z.boolean().describe('Also archive every session under it (its children, transitively, on any of your machines) — the "together with its child sessions" box on the session page. Machines that could not be reached are listed in not_reached.').optional(),

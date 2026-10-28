@@ -113,7 +113,7 @@ export function ComposerCardView({ card, isMine, isGroup, chatId, senderName, ti
  */
 export function TaskStatusMark({ status }: { status: AgentDisplayStatus | undefined }) {
   const { t } = useTranslation('common')
-  if (!status || status === 'pending' || status === 'removed' || status === 'offline') return null
+  if (!status || status === 'pending' || status === 'removed' || status === 'archived' || status === 'offline') return null
   if (status === 'idle') return <Check role="img" aria-label={t('agentStatus.idle')} size={14} className="text-[var(--muted-fg)]" />
   const presentation = presentAgentStatus({
     reading: status === 'parked' ? { status: 'working', detail: 'parked' } : { status, detail: null },
