@@ -17,7 +17,8 @@ import {
 import type { SshPrompt } from '../session/shared/ssh-prompt'
 import { useDevicesStore } from '../store/devicesContext'
 import { IconButton } from './ui/IconButton'
-import { SshPromptCard } from './settings/addServer/SshPromptCard'
+import { SshPromptCard, SshPromptFrame } from './settings/addServer/SshPromptCard'
+import { Button } from './ui/Button'
 import { InlineAction } from './settings/addServer/InlineAction'
 import { CommandBlock } from './settings/addServer/CommandBlock'
 import { LoadingIndicator } from '@/lib/loading/LoadingIndicator'
@@ -41,6 +42,7 @@ export function SshLinkSignIn() {
   const [signingIn, setSigningIn] = useState<string | null>(null)
   const [prompt, setPrompt] = useState<{ deviceId: string; prompt: SshPrompt } | null>(null)
   const [answered, setAnswered] = useState(false)
+  const [confirmRestart, setConfirmRestart] = useState<string | null>(null)
 
   useEffect(() => subscribeSshLinkProblems(setProblems), [])
   useEffect(
@@ -81,6 +83,14 @@ export function SshLinkSignIn() {
     })
   }
   const dismiss = () => setDismissed((prev) => new Map(prev).set(shown.deviceId, shown.reason))
+  // 人点了「现在重启更新」又确认了:远程 SSH 的这台电脑替它当场换(--now);远程隧道 / 云电脑走设备行「重试」那条设备 RPC。只有人点的才不等空闲。
+  const restartNow = () => {
+    const deviceId = shown.deviceId
+    if (isSshMachine(deviceId)) void requestSshServerUpgrade(deviceId, { force: true, now: true })
+    else void retryServerVersionMatch(deviceId)
+    setConfirmRestart(null)
+    setDismissed((prev) => new Map(prev).set(deviceId, 'waitingIdle'))
+  }
   const activePrompt = prompt && prompt.deviceId === shown.deviceId ? prompt.prompt : null
   const canSignIn = shown.reason === 'signInRequired' || shown.reason === 'hostKeyChanged'
   const reinstall = shown.reason === 'outdated' ? sshReinstallCommand(shown.deviceId) : null
@@ -91,7 +101,30 @@ export function SshLinkSignIn() {
       data-testid="ssh-link-sign-in"
     >
       <div className="pointer-events-auto w-full max-w-[440px] overflow-hidden rounded-[var(--radius-xl)] bg-background-quaternary text-foreground shadow-lift">
-        {activePrompt ? (
+        {shown.reason === 'waitingIdle' && !activePrompt ? (
+          // 版本对不上、那台机器在等 agent 空闲:与 SSH 提问同一副卡(机器名一行 + 一句 + 底行按钮),「现在」先当面确认一次。
+          <SshPromptFrame
+            context={{ name: shown.name }}
+            testId={confirmRestart === shown.deviceId ? 'ssh-link-update-confirm' : 'ssh-link-update-ask'}
+            actions={
+              confirmRestart === shown.deviceId ? (
+                <>
+                  <Button size="sm" onClick={() => setConfirmRestart(null)} data-testid="ssh-link-update-cancel">{t('devices.cancel')}</Button>
+                  <Button size="sm" variant="primary" autoFocus onClick={restartNow} data-testid="ssh-link-update-confirm-now">{t('devices.link.confirmRestart')}</Button>
+                </>
+              ) : (
+                <>
+                  <Button size="sm" onClick={dismiss} data-testid="ssh-link-update-later">{t('devices.link.later')}</Button>
+                  <Button size="sm" variant="primary" autoFocus onClick={() => setConfirmRestart(shown.deviceId)} data-testid="ssh-link-update-now">{t('devices.link.updateNow')}</Button>
+                </>
+              )
+            }
+          >
+            <p className="m-0 text-[length:var(--font-body)] leading-[1.5]">
+              {t(confirmRestart === shown.deviceId ? 'devices.link.updateNowConfirm' : 'devices.link.waitingIdle', { name: shown.name })}
+            </p>
+          </SshPromptFrame>
+        ) : activePrompt ? (
           <SshPromptCard
             prompt={activePrompt}
             pending={answered}
@@ -124,22 +157,6 @@ export function SshLinkSignIn() {
               ) : (
                 <>
                   {t(`devices.link.${noticeKey(shown.reason)}`, { name: shown.name })}
-                  {shown.reason === 'waitingIdle' ? (
-                    <>
-                      {' '}
-                      <InlineAction
-                        onClick={() => {
-                          const deviceId = shown.deviceId
-                          if (isSshMachine(deviceId)) void requestSshServerUpgrade(deviceId, { force: true, now: true })
-                          else void retryServerVersionMatch(deviceId)
-                          setDismissed((prev) => new Map(prev).set(deviceId, 'waitingIdle'))
-                        }}
-                        testId="ssh-link-update-now"
-                      >
-                        {t('devices.link.updateNow')}
-                      </InlineAction>
-                    </>
-                  ) : null}
                   {shown.reason === 'outdated' ? (
                     <>
                       {' '}
@@ -171,10 +188,8 @@ export function SshLinkSignIn() {
   )
 }
 
-function noticeKey(reason: SshLinkFailure): 'signInNeeded' | 'hostKeyChanged' | 'outdated' | 'waitingIdle' | 'refused' | 'notSignedIn' | 'notInstalled' {
+function noticeKey(reason: SshLinkFailure): 'signInNeeded' | 'hostKeyChanged' | 'outdated' | 'refused' | 'notSignedIn' | 'notInstalled' {
   switch (reason) {
-    case 'waitingIdle':
-      return 'waitingIdle'
     case 'refused':
       return 'refused'
     case 'hostKeyChanged':
