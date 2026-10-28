@@ -159,3 +159,18 @@ it('implicitly continues open work of the same kind, never on a fresh or reply d
   expect(store.dispatch({ kind: 'executor', purpose: 'reply' }, ['session:child'])).toMatchObject({ continued: false })
   expect(store.dispatch({ kind: 'executor' }, ['session:child'], { fresh: true })).toMatchObject({ continued: false })
 })
+
+it('a follow-up reopens the newest finished work of the same kind for the same executors, never on fresh, reply or unledgered (#615)', () => {
+  const store = new AssistantWorkStore(root)
+  const id = store.begin({ kind: 'executor' })
+  store.confirm(id, ['session:child'], [])
+  store.report('session:child', { work_id: id, status: 'completed' }, 'final')
+  expect(store.list()).toEqual([])
+  expect(store.dispatch({ kind: 'executor' }, ['session:other'])).toMatchObject({ continued: false })
+  expect(store.dispatch({ kind: 'executor', purpose: 'reply' }, ['session:child'])).toMatchObject({ continued: false })
+  expect(store.dispatch({ kind: 'executor' }, ['session:child'], { fresh: true })).toMatchObject({ continued: false })
+  expect(store.dispatch({ kind: 'executor' }, ['session:child'], { ledgered: true })).toMatchObject({ continued: false })
+  expect(store.dispatch({ kind: 'executor' }, ['session:child'])).toEqual({ id, continued: true })
+  store.confirm(id, ['session:child'], ['follow-up'])
+  expect(store.list()).toMatchObject([{ id, state: 'waiting', recipients: ['session:child'] }])
+})
