@@ -203,6 +203,10 @@ export interface InstallAlsoOnMachine {
   disabledReason?: string;
 }
 
+/** The person's other online computers, each by name: what the install sheet offers to install on too (owner 10-16). */
+export const alsoOnMachines = (devices: readonly { id: string; label: string; isOnline: boolean }[], here: string | undefined, disabledReason?: string): InstallAlsoOnMachine[] =>
+  devices.filter((device) => device.isOnline && device.id !== here).map((device) => ({ id: device.id, label: device.label, ...(disabledReason ? { disabledReason } : {}) }));
+
 export const EXTENSION_INSTALL_CONSENT_METHOD = 'extensions.requestInstallConsent';
 /** D-31 The ask was answered elsewhere (or ran out): this window's sheet for it goes. */
 export const EXTENSION_INSTALL_CONSENT_CLOSE_METHOD = 'extensions.closeInstallConsent';

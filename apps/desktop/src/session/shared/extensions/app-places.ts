@@ -66,19 +66,20 @@ export interface PlaceChange {
   on: boolean;
 }
 
-/** The places switched on, after `changes`. */
-export const applyPlaceChanges = (ids: readonly string[], changes: readonly PlaceChange[]): string[] =>
-  changes.reduce((now, change) => (change.on ? (now.includes(change.id) ? now : [...now, change.id]) : now.filter((id) => id !== change.id)), [...ids]);
-
 /**
  * An App whose tools reach agents: what 「给哪些 agent」 is about. One that gives none is never asked (125 10-05) —
  * Computer Use among them (#7317): its program only answers its own page, and it brings no skills.
  */
-export const givesAgentTools = (manifest: Pick<ExtensionManifest, 'permissions'> & { contributes?: Pick<ExtensionManifest['contributes'], 'mcpServers' | 'skills'> }): boolean => {
-  if (!(manifest.permissions?.capabilities ?? []).includes('agents:tools')) return false;
+export const givesAgentTools = (manifest: Pick<ExtensionManifest, 'permissions'> & { contributes?: Pick<ExtensionManifest['contributes'], 'mcpServers' | 'skills'> }): boolean =>
+  (manifest.permissions?.capabilities ?? []).includes('agents:tools') && !isComputerUseView(manifest);
+
+/**
+ * #7317 Only the switch of gugu's computer control on a computer: its programs all `computer-use`, no skills. It runs no
+ * program of its own; the one reading of that, for `givesAgentTools` and the install sheet's sentence.
+ */
+export const isComputerUseView = (manifest: { contributes?: Pick<ExtensionManifest['contributes'], 'mcpServers' | 'skills'> }): boolean => {
   const servers = manifest.contributes?.mcpServers ?? [];
-  const viewOnly = servers.length > 0 && servers.every((server) => 'host' in server && server.host === 'computer-use') && !manifest.contributes?.skills;
-  return !viewOnly;
+  return servers.length > 0 && servers.every((server) => 'host' in server && server.host === 'computer-use') && !manifest.contributes?.skills;
 };
 
 /**

@@ -81,7 +81,7 @@ const AUTO_UPDATE_OFF_FILENAME = '.auto-update-off.json';
 
 /**
  * D-30 「给哪些 agent」, this computer's half: `{ [<publisher>/<id>]: 'here:all'[] }` (host-actions
- * `HERE_*`), by the App's identity as the chats' rows are (`chat.app_enablements`): another publisher's App under the same
+ * `HERE_ALL`), by the App's identity as the chats' rows are (`chat.app_enablements`): another publisher's App under the same
  * id does not inherit them. An App with no entry was never chosen for, and reaches every agent here (125 10-06); an entry,
  * even an empty one, is what the person chose. This machine's only, like the install; pruned on uninstall.
  */

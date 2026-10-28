@@ -14,7 +14,7 @@ import { askInShell, installConsentPrompt } from '@/session/renderer/features/ex
 import { rpcOn } from '@/session/renderer/lib/ipc'
 import { deviceScopeTrayDevices, LOCAL_DEVICE_SCOPE } from '@/session/renderer/features/remote-hosts/device-scope-store'
 import { remoteHostsStore } from '@/session/renderer/features/remote-hosts/remote-hosts-store'
-import { INSTALL_CONSENT_HUMAN_WINDOW_MS, type InstallAlsoOnMachine } from '@shared/extensions/host-actions'
+import { alsoOnMachines, INSTALL_CONSENT_HUMAN_WINDOW_MS, type InstallAlsoOnMachine } from '@shared/extensions/host-actions'
 import { answered, installAgreedOn, InstallRefusedError } from '@/session/shared/extensions/install-agreed-on'
 import { rendererLogger } from '../../lib/log'
 import { appsHere } from '../appSlot/appsHere'
@@ -208,10 +208,7 @@ export function ExtensionBundleCard({ meta, card, isMine, senderName, chatId }: 
     setRefused(null)
     try {
       // The person's other online computers, each by name: ticked in the sheet, the same yes installs there too.
-      const alsoOn = [...remoteHostsStore.hosts.values()]
-        .map(({ device }) => device)
-        .filter((device) => device.isOnline && device.id !== machine?.id)
-        .map((device) => ({ id: device.id, label: device.label }))
+      const alsoOn = alsoOnMachines([...remoteHostsStore.hosts.values()].map(({ device }) => device), machine?.id)
       await (machine || alsoOn.length > 0 ? installVia(machine, alsoOn, pkg) : installHere(pkg))
       setInstall('idle')
     } catch (error) {

@@ -84,6 +84,7 @@ import {
   EXTENSION_MEMBER_FACES_METHOD,
   type ExtensionInstallConsentResult,
 } from '@shared/extensions/host-actions'
+import { givesAgentTools } from '@shared/extensions/app-places'
 import { buildProbePlatformCredentials } from './harness-catalog-probe-env'
 import { runWindowMenuCommand } from './window-menu-commands'
 import { isWindowMenuCommand } from '../shared/window-menu-commands'
@@ -6156,8 +6157,8 @@ app.whenReady().then(async () => {
           sessionContext: extensionCallerSessionContext,
           // A broken skill was reported when the session opened (extensionAgentPrograms below); the catalog only leaves it out.
           skills: () => extensionAgentPrograms(emdash.emdashExtensionAgentContributions(), { ...programHost, onProblem: () => {} }).skills,
-          apps: () => emdash.emdashExtensionAgentContributions().map(({ manifest, enabled, servers, skillsDir }) => ({
-            manifest, enabled, givesAgents: servers.length > 0 || skillsDir !== null,
+          apps: () => emdash.emdashExtensionAgentContributions().map(({ manifest, enabled }) => ({
+            manifest, enabled, givesAgents: givesAgentTools(manifest),
           })),
           market: () => cloudExtensionMarket().entries(),
         })

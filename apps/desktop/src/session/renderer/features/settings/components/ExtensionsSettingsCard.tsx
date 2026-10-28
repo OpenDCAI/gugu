@@ -25,7 +25,7 @@ import { useShowModal } from '@renderer/lib/modal/modal-provider';
 import type { ConsentPrompt } from '@renderer/features/extensions/extension-consent';
 import { ConsentBody } from '@/components/extensionBundle/ConsentDetails';
 import { askInShell, installConsentPrompt, type InstallConsentAsk } from '@renderer/features/extensions/install-consent';
-import { INSTALL_CONSENT_HUMAN_WINDOW_MS, type InstallGrant, type InstallAlsoOnMachine } from '@shared/extensions/host-actions';
+import { alsoOnMachines, INSTALL_CONSENT_HUMAN_WINDOW_MS, type InstallGrant, type InstallAlsoOnMachine } from '@shared/extensions/host-actions';
 import { findRemoteHostsBridge } from '@shared/remote-hosts';
 import { AppMarketContent, type AppMarketState } from '@renderer/features/extensions/panel/app-market-content';
 import { appLifecycle } from '@renderer/features/extensions/panel/app-lifecycle';
@@ -502,9 +502,7 @@ export const ExtensionsSettingsCard = observer(function ExtensionsSettingsCard({
         const machine = remoteRef.current?.deviceLabel;
         const prompt = installConsentPrompt(machine ? { ...ask, machine } : ask, ask.manifest);
         // owner 10-16「装的时候一次选好装到哪几台」: the person's other online computers, each by name, ticked in the same sheet.
-        const alsoOn = (findRemoteHostsBridge()?.listDevices() ?? [])
-          .filter((device) => device.isOnline && device.id !== remoteRef.current?.deviceId)
-          .map((device) => ({ id: device.id, label: device.label }));
+        const alsoOn = alsoOnMachines(findRemoteHostsBridge()?.listDevices() ?? [], remoteRef.current?.deviceId);
         await askToInstall(prompt, ask.manifestDigest, ask.given, async (also) => {
           await completeMarketInstall(ask);
           for (const deviceId of also ?? []) await installOnAlso(deviceId, alsoOn.find((one) => one.id === deviceId)?.label ?? deviceId, ask);
@@ -555,9 +553,7 @@ export const ExtensionsSettingsCard = observer(function ExtensionsSettingsCard({
         const machine = remoteRef.current?.deviceLabel;
         const prompt = installConsentPrompt(machine ? { ...ask, machine } : ask, ask.manifest);
         // owner 10-16 / 09-25「完整能力披露」: the other computers are listed and greyed — a folder is only this computer's to read.
-        const alsoOn = (findRemoteHostsBridge()?.listDevices() ?? [])
-          .filter((device) => device.isOnline && device.id !== remoteRef.current?.deviceId)
-          .map((device) => ({ id: device.id, label: device.label, disabledReason: translateRef.current('extensions.alsoOnFolderOnly') }));
+        const alsoOn = alsoOnMachines(findRemoteHostsBridge()?.listDevices() ?? [], remoteRef.current?.deviceId, translateRef.current('extensions.alsoOnFolderOnly'));
         await askToInstall(prompt, ask.manifestDigest, ask.given, () => completeInstall(sourceDir, ask), machine, alsoOn);
       } catch (error) {
         toast({
