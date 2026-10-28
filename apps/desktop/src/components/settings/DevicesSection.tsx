@@ -40,6 +40,7 @@ import { SegmentedTabs } from '../ui/SegmentedTabs'
 import { cn } from '../../lib/cn'
 import { AddServerPanel, type AddServerMethod, type AddedServer } from './AddServerPanel'
 import { InlineAction } from './addServer/InlineAction'
+import { supersededBy } from '../../lib/deviceSuperseded'
 import { consumeAddServerIntent } from '../../lib/addServerIntent'
 import { consumeDeviceActionsIntent } from '../../lib/deviceActionsIntent'
 import { DeviceRemoveDialog } from './DeviceRemoveDialog'
@@ -92,6 +93,8 @@ export function DevicesSection({
   const cloudDeviceId = cloudComputer?.snapshot?.deviceId ?? null
   const machines = useMemo(() => deviceMachines(withoutAssistantHome(allDevices, cloudDeviceId)), [allDevices, cloudDeviceId])
   const devices = useMemo(() => machines.map(machine => machine.device), [machines])
+  // A reinstall or a new data directory leaves the old row behind: the online row that may have replaced it (a hint only).
+  const replaced = useMemo(() => supersededBy(devices), [devices])
   const { addresses, forget } = useSshMachines()
 
   const [editingId, setEditingId] = useState<string | null>(null)
@@ -216,6 +219,7 @@ export function DevicesSection({
           device={dialog.device}
           removesVersion={(deviceMachineFor(machines, dialog.device.device_id)?.configurations.length ?? 1) > 1}
           model={deviceRowModel(dialog.device, addressOf(dialog.device.device_id))}
+          replacedBy={replaced.get(dialog.device.device_id) ?? null}
           agents={agents}
           onCascadeChange={(value) => setAgents((s) => ({ ...s, cascadeChecked: value }))}
           removing={dialog.removing}
@@ -263,6 +267,7 @@ export function DevicesSection({
       onCancelRename={() => setEditingId(null)}
       onCopyAddress={(address) => void copyAddress(address)}
       onRemove={() => openRemove(device)}
+      replacedBy={replaced.get(device.device_id) ?? null}
       onUninstall={() => openUninstall(device)}
       onOpenActions={() => setActionsFor(device.device_id)}
       signIn={signIns.get(device.device_id) ?? null}
@@ -490,6 +495,32 @@ function useNameWhenAppears(devices: readonly Device[], rename: (deviceId: strin
   }, [])
 }
 
+/**
+ * 「可能已被「B」顶替」(owner 10-28): the row that may have replaced this one, and its removal (the usual confirmation).
+ * Why it says so is on hover — and a press opens it under the line, for a phone, which has no hover.
+ */
+function ReplacedHint({ by, onRemove }: { by: Device; onRemove: () => void }) {
+  const { t } = useTranslation('settings')
+  const [open, setOpen] = useState(false)
+  const why = t('devices.replaced.why', { name: by.label })
+  return (
+    <div className="mt-[3px] text-[length:var(--font-caption)] text-[var(--muted-fg)]" data-testid="settings-device-replaced">
+      <Button
+        variant="ghost"
+        title={why}
+        aria-expanded={open}
+        onClick={() => setOpen((value) => !value)}
+        className="inline h-auto min-h-0 max-[719px]:min-h-0 border-0 p-0 align-baseline text-left text-[length:inherit] leading-[inherit] font-[inherit] text-[var(--muted-fg)] underline decoration-dotted underline-offset-2 [&:hover:not([data-disabled])]:bg-transparent"
+        data-testid="settings-device-replaced-hint"
+      >
+        {t('devices.replaced.hint', { name: by.label })}
+      </Button>
+      {' '}<InlineAction onClick={onRemove} testId="settings-device-replaced-remove">{t('devices.replaced.remove')}</InlineAction>
+      {open && <div className="mt-[3px] leading-[1.5]" data-testid="settings-device-replaced-why">{why}</div>}
+    </div>
+  )
+}
+
 function DeviceRow({
   device,
   model,
@@ -503,6 +534,7 @@ function DeviceRow({
   onCancelRename,
   onCopyAddress,
   onRemove,
+  replacedBy,
   onUninstall,
   onOpenActions,
   signIn,
@@ -525,6 +557,8 @@ function DeviceRow({
   onCancelRename: () => void
   onCopyAddress: (address: string) => void
   onRemove: () => void
+  /** The online row this one may have been replaced by (lib/deviceSuperseded): said, with a way to remove it. */
+  replacedBy: Device | null
   onUninstall: () => void
   /** #7199 这台设备能做的事(能被助理调用的动作)。 */
   onOpenActions: () => void
@@ -698,6 +732,7 @@ function DeviceRow({
           )}
         </div>
         </div>
+        {replacedBy && <ReplacedHint by={replacedBy} onRemove={onRemove} />}
         {renameFailed && (
           <div className="mt-1 text-[length:var(--font-caption)] text-[var(--danger)]">{renameFailed}</div>
         )}

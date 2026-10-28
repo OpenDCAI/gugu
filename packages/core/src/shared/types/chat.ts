@@ -276,6 +276,8 @@ export interface Device {
   platform: string
   status: DeviceStatus
   last_seen_at: string
+  /** When the row first appeared: a reinstall or a new data directory is a new row, created later. */
+  created_at?: string
   is_online: boolean
   is_current_device?: boolean
   /**
