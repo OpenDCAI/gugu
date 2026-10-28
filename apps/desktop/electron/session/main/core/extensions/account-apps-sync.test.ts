@@ -53,6 +53,20 @@ afterEach(async () => {
 });
 
 describe('account approval at the real host install boundary', () => {
+  it('reconciles at boot and sign-in, and immediately clears the previous account view on sign-out', async () => {
+    sync.accountAppsAtBoot(false);
+    expect(state.quit).toBeNull();
+    sync.accountAppsAtBoot(true);
+    await sync.runAccountApps();
+    expect(sync.accountAppsState()).toEqual({ userId: 'owner', apps: [{ id: 'browser-use', state: 'installed' }] });
+    state.token = null; notifyAccountAccessTokenChanged();
+    expect(sync.accountAppsState()).toEqual({ userId: null, apps: [] });
+    await sync.runAccountApps();
+    state.token = token('owner'); notifyAccountAccessTokenChanged();
+    await sync.runAccountApps();
+    expect(sync.accountAppsState().userId).toBe('owner');
+  });
+
   it('reads the authenticated record and returns a final commit guard', async () => {
     const approval = await sync.verifyAccountAppConsent(candidate());
     expect(approval.entry).toEqual(entry());
