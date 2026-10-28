@@ -498,7 +498,9 @@ export class RemoteHostsStore {
     return this.once(`tasks:${deviceId}`, async () => {
       const id = aliasFixedId(IMPLICIT_SESSION_HOME_PROJECT_ID, deviceId);
       if (!appState.projects.projects.has(id)) {
-        const path = await rpcOn(deviceId).app.getSessionHomeDir();
+        // 比这一版旧的咕咕 server 不回这一问(device-session-host 的白名单):照旧落在它的主目录项目里。
+        const path = await rpcOn(deviceId).app.getSessionHomeDir().catch(() => null);
+        if (!path) return this.ensureHomeProject(deviceId);
         const created = await appState.projects.createProject(
           { type: 'local', machine: deviceId },
           { mode: 'pick', path, name: IMPLICIT_SESSION_HOME_PROJECT_NAME, initGitRepository: false, allowNonGit: true },

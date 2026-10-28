@@ -33,6 +33,16 @@ describe('没选文件夹 = 那台机器的任务工作区', () => {
     expect(mount).toHaveBeenCalledWith(`${TASK_WORKSPACE}~d22`);
   });
 
+  it('比这一版旧的 server 不回 getSessionHomeDir:照旧落在它的主目录项目里,❌ 新建框卡在「连不上」', async () => {
+    const { RemoteHostsStore } = await import('./remote-hosts-store');
+    const store = new RemoteHostsStore();
+    mocks.getSessionHomeDir.mockRejectedValueOnce(new Error('denied'));
+    const home = vi.spyOn(store, 'ensureHomeProject').mockResolvedValue('home-on-old-server');
+
+    await expect(store.ensureTaskWorkspace('d25')).resolves.toBe('home-on-old-server');
+    expect(home).toHaveBeenCalledWith('d25');
+  });
+
   it('已经有了:挂上就用,❌ 再建', async () => {
     const { appState } = await import('@renderer/lib/stores/app-state');
     const { RemoteHostsStore } = await import('./remote-hosts-store');
