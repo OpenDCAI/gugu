@@ -120,24 +120,13 @@ function FirstRunFlow({ user, children }: { user: AuthUser; children: ReactNode 
     return () => window.removeEventListener(UI_EVENTS.reopenProductTour, reopen)
   }, [startTour])
 
-  // The embedded task entry bootstraps once per document; finishing or reopening the tour must
-  // keep its product tree and mount element connected at the same position.
   const overlay = state.kind === 'intro' || state.kind === 'tourChoice'
-  if (state.kind === 'done' || state.kind === 'tour' || state.kind === 'films' || (overlay && platform.kind === 'electron')) return (
-    <PhoneAgentSetupGate key={user.id} ownerId={user.id}>
-      <div className="contents" inert={overlay}>{children}</div>
-      {state.kind === 'done' && <FirstRunHints key={user.id} userId={user.id} />}
-      {state.kind === 'intro' && <div className="ta-first-run ta-first-run-overlay" data-ta-scope data-testid="first-run-intro"><div className="ta-onb"><StepCount step="intro" /><FirstRunIntro userId={user.id} onDone={done} onBack={() => setState({ kind: 'terminal' })} onNext={(openAssistant) => setState({ kind: 'tourChoice', openAssistant })} /></div></div>}
-      {state.kind === 'tourChoice' && <div className="ta-first-run ta-first-run-overlay" data-ta-scope data-testid="first-run-tour-choice"><div className="ta-onb"><StepCount step="tourChoice" />
-        <FirstRunTourChoice userId={user.id} openAssistant={state.openAssistant} onBack={() => setState({ kind: 'intro' })}
-          onDone={(tour) => { rememberFirstRunDone(user.id); if (tour) startTour(null); else setState({ kind: 'done' }) }} /></div></div>}
-      {state.kind === 'tour' && <ProductTour key={user.id} userId={user.id} steps={state.steps} start={state.start} onDone={done} />}
-      {state.kind === 'films' && <FeatureFilms onClose={done} />}
-    </PhoneAgentSetupGate>
-  )
+  // 一旦进入过主界面,回到前置页也保留它:嵌入入口每个文档只求值一次。
+  const productVisible = state.kind === 'done' || state.kind === 'tour' || state.kind === 'films' || (overlay && platform.kind === 'electron')
+  const [productMounted, setProductMounted] = useState(productVisible)
+  if (productVisible && !productMounted) setProductMounted(true)
 
-  if (state.kind === 'loading') return <FullScreenLoader />
-  return (
+  const wizard = state.kind === 'loading' ? <FullScreenLoader /> : (
     <div className="ta-first-run" data-ta-scope data-testid={`first-run-${state.kind}`}>
       <div className={`ta-onb${state.kind === 'harness' ? ' first-run-harness-panel' : state.kind === 'terminal' ? ' first-run-terminal-panel' : ''}`}>
         {state.kind === 'unreadable' ? (
@@ -173,6 +162,23 @@ function FirstRunFlow({ user, children }: { user: AuthUser; children: ReactNode 
       </div>
     </div>
   )
+
+  // Keep the embedded product connected across setup, tour choice, tour and films.
+  if (productMounted || productVisible) return (
+    <PhoneAgentSetupGate key={user.id} ownerId={user.id}>
+      <div className="contents" inert={!productVisible || overlay} style={productVisible ? undefined : { display: 'none' }}>{children}</div>
+      {!productVisible && wizard}
+      {state.kind === 'done' && <FirstRunHints key={user.id} userId={user.id} />}
+      {state.kind === 'intro' && <div className="ta-first-run ta-first-run-overlay" data-ta-scope data-testid="first-run-intro"><div className="ta-onb"><StepCount step="intro" /><FirstRunIntro userId={user.id} onDone={done} onBack={() => setState({ kind: 'terminal' })} onNext={(openAssistant) => setState({ kind: 'tourChoice', openAssistant })} /></div></div>}
+      {state.kind === 'tourChoice' && <div className="ta-first-run ta-first-run-overlay" data-ta-scope data-testid="first-run-tour-choice"><div className="ta-onb"><StepCount step="tourChoice" />
+        <FirstRunTourChoice userId={user.id} openAssistant={state.openAssistant} onBack={() => setState({ kind: 'intro' })}
+          onDone={(tour) => { rememberFirstRunDone(user.id); if (tour) startTour(null); else setState({ kind: 'done' }) }} /></div></div>}
+      {state.kind === 'tour' && <ProductTour key={user.id} userId={user.id} steps={state.steps} start={state.start} onDone={done} />}
+      {state.kind === 'films' && <FeatureFilms onClose={done} />}
+    </PhoneAgentSetupGate>
+  )
+
+  return wizard
 }
 
 function FirstRunProfile({ user, initial, step, onDone }: { user: AuthUser; initial: Occupation | null; step: ReactNode; onDone: () => void }) {
