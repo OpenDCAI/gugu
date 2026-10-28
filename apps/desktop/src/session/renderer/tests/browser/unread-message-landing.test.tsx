@@ -82,7 +82,7 @@ async function renderConversation(target: number, width: number, portal = false)
         threadRootId: null, messageId: `m${target}`, messageSeq: target, commit, confirm: confirmed, reject: rejected, isCurrent: () => true }
       globalThis.window.dispatchEvent(new CustomEvent(UI_EVENTS.openUnreadMessage, { detail: request }))
     }
-    const rowProps: MessageListRowProps = { rows, messages, isFiltering: false, mobile: width < 720, memberReadSeqs: {}, memberProfiles: {}, isAgentChat: false,
+    const rowProps: MessageListRowProps = { rows, messages, isFiltering: false, mobile: width < 720, memberReadSeqs: {}, queuedIds: new Set(), memberProfiles: {}, isAgentChat: false,
       isGroupChat: true, onReaction: noop, onQuote: noop, onForward: noop, onDelete: noop, onVisible: noop, selectMode: false,
       selectedIds: new Set(), onToggleSelect: noop, onEnterSelectMode: noop, flashMessageId, highlight: undefined, threeParty: undefined,
       onShowReadReceipt: undefined, onOpenMemberProfile: undefined, onOpenTopic: undefined, topicAnchors: undefined, onOpenTopicAnchor: undefined,

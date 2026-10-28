@@ -18,11 +18,13 @@ export function MessageSendStatus({ state, messageId, reason }: { state: Message
   const [menuOpen, setMenuOpen] = useState(false)
   const failureReason = safeFailureLine(reason ?? '')
 
-  if (state === 'sending') {
+  // queued = 已经落库、它叫醒的助理还没接走:同一个发送中,悬停说明在等助理就绪。
+  if (state === 'sending' || state === 'queued') {
+    const label = t(state === 'queued' ? 'message.sendStatus.queued' : 'message.sendStatus.sending')
     return (
-      <svg width="15" height="15" viewBox="0 0 15 15" fill="none" className="gg-ring-march" aria-label={t('message.sendStatus.sending')}
+      <svg width="15" height="15" viewBox="0 0 15 15" fill="none" className="gg-ring-march" aria-label={label} data-send-state={state}
         style={{ flexShrink: 0, display: 'block', opacity: 0.56 }}>
-        <title>{t('message.sendStatus.sending')}</title>
+        <title>{label}</title>
         {/* @@@5649 owner 拍板方案 C:发送中 = 虚线环流动,停下变「已发出」实线空心环(MessageBubble 的 read=0 环)。
             两态同位同半径,靠「虚线在动 / 实线静止」区分,不再是小钟——小钟与空心环形似,正是 #1855 把空心环藏起来的原因。 */}
         <circle cx="7.5" cy="7.5" r="5.5" stroke={COLOR_MUTED} strokeWidth="1.5" strokeDasharray="2.6 3.2" strokeLinecap="round" />

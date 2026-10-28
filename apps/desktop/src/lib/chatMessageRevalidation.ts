@@ -64,7 +64,7 @@ export function applyMessageWindowRevalidation(
 const OVERLAY_IN_CHUNK = 64
 
 async function fetchOverlayRows<T>(
-  table: 'message_reactions' | 'message_deliveries',
+  table: 'message_reactions' | 'message_deliveries' | 'message_agent_wakes',
   columns: string,
   messageIds: string[]
 ): Promise<T[]> {
@@ -81,6 +81,14 @@ async function fetchOverlayRows<T>(
     if (data) rows.push(...(data as T[]))
   }
   return rows
+}
+
+/** The agents each message wakes (chat.message_agent_wakes: decided once, when it was written). Unreadable = none known. */
+export async function loadMessageAgentWakes(messageIds: string[]): Promise<Map<string, Set<string>>> {
+  const wakes = new Map<string, Set<string>>()
+  const rows = await fetchOverlayRows<{ message_id: string; agent_user_id: string }>('message_agent_wakes', 'message_id, agent_user_id', messageIds)
+  for (const row of rows) wakes.set(row.message_id, (wakes.get(row.message_id) ?? new Set()).add(row.agent_user_id))
+  return wakes
 }
 
 export async function loadMessageOverlays(
