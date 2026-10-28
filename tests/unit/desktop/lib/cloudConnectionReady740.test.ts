@@ -4,7 +4,7 @@ import type { CloudComputerSnapshot } from '@gugu/core/cloud/cloudComputer'
 const f = vi.hoisted(() => ({ state: vi.fn(), wake: vi.fn() }))
 vi.mock('@/lib/cloudComputer', () => ({ rendererCloudComputerClient: () => f }))
 vi.mock('@/lib/log', () => ({ rendererLogger: () => ({ warn() {}, debug() {}, info() {} }) }))
-const { ensureCloudConnectionReady, refreshCloudComputer, resetCloudComputerState } = await import('@/lib/cloudComputerStore')
+const { wakeAndWaitOnline: ensureCloudConnectionReady, refreshCloudComputer, resetCloudComputerState } = await import('@/lib/cloudComputerStore')
 const snap = (state: CloudComputerSnapshot['state']): CloudComputerSnapshot => ({ state, deviceId: 'cloud', since: null, error: null })
 
 beforeEach(async () => {
@@ -27,9 +27,9 @@ it('re-reads the controller after attach failure and resumes despite stale awake
   expect(online).toHaveBeenCalledWith('cloud')
 })
 
-it('does not wake unrelated machines or periodically wake an unused cloud computer', async () => {
-  await ensureCloudConnectionReady('another-machine', { isOnline: async () => false })
-  expect(f.state).toHaveBeenCalledOnce() // Initial refresh only.
+it('refuses an unrelated machine without sending a wake under this account', async () => {
+  await expect(ensureCloudConnectionReady('another-machine', { isOnline: async () => false })).rejects.toThrow('not this account')
+  expect(f.state).toHaveBeenCalledTimes(2) // Initial refresh and ownership check.
   expect(f.wake).not.toHaveBeenCalled()
 })
 

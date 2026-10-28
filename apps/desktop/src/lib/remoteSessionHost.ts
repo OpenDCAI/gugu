@@ -70,7 +70,6 @@ export type DeviceRpcDeps = {
   desktop?: () => Promise<DesktopHello | null>
   waitForTunnel?: (deviceId: string) => Promise<void>
   usesDeviceLink?: (deviceId: string) => boolean
-  ensureAwake?: (deviceId: string) => Promise<void>
 }
 
 declare const __APP_VERSION__: string | undefined
@@ -122,14 +121,6 @@ const defaultDeps: DeviceRpcDeps = {
   desktop: thisDesktop,
   waitForTunnel,
   usesDeviceLink,
-  ensureAwake: async deviceId => {
-    if (isSshMachine(deviceId)) return
-    const [{ ensureCloudConnectionReady }, { listDevicesOnceIdentified }] = await Promise.all([
-      import('./cloudComputerStore'), import('./listDevicesOnceIdentified'),
-    ])
-    await ensureCloudConnectionReady(deviceId, { isOnline: async id =>
-      (await listDevicesOnceIdentified()).some(device => device.device_id === id && device.is_online) })
-  },
 }
 
 /** 推送到手里时还套着广播外壳(`{ type: 'broadcast', payload: 信封 }`,SSH 设备连接与咕咕云同一个形状):先剥。 */
@@ -167,7 +158,6 @@ export function openRemoteSessionHostPipe(
   options: RemoteSessionHostPipeOptions = {},
 ): SessionHostPipeOpener {
   const opener: SessionHostPipeOpener = async ({ onFrame, onClose }) => {
-    await deps.ensureAwake?.(deviceId)
     await deps.waitForTunnel?.(deviceId)
     const client = deps.newClientId()
     let closed = false

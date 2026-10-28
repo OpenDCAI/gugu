@@ -229,9 +229,12 @@ export function cloudComputerPollMs(snapshot: CloudComputerSnapshot | null, devi
  * 在它上面开会话 / 打开它上面的会话这类要一条活连接的动作之前:叫醒它,等到它真的在线(每问到一次 /state 都更新界面)。
  * 原因见 CloudComputerWakeError;不是这个账号的云电脑也当失败说(调用方只对云电脑那一行调它)。
  */
-export async function wakeAndWaitOnline(deviceId: string, deps: { isOnline: (deviceId: string) => Promise<boolean> }): Promise<void> {
+export function wakeAndWaitOnline(deviceId: string, deps: { isOnline: (deviceId: string) => Promise<boolean> }): Promise<void> {
+  const existing = connectionWakes.get(deviceId)
+  if (existing) return existing
   const asked = generation
-  const outcome = await wakeCloudComputerUntilOnline({
+  // Explicit operations own resume; background pipe retries must stay read-only.
+  const pending = wakeCloudComputerUntilOnline({
     client: requireClient(),
     deviceId,
     isOnline: deps.isOnline,
@@ -242,18 +245,9 @@ export async function wakeAndWaitOnline(deviceId: string, deps: { isOnline: (dev
       set({ available: true, snapshot, loadError: null })
     },
     signal: wakeAbort.signal,
-  }).catch(noteWakeFailure)
-  if (outcome === 'not-cloud') throw new CloudComputerWakeError('failed', `device ${deviceId} is not this account's cloud computer`)
-}
-
-/** A requested connection/reconnection must re-read the controller, even when
- * cached presence still says awake. Concurrent windows share this check; no
- * background timer wakes an otherwise unused computer. */
-export function ensureCloudConnectionReady(deviceId: string, deps: { isOnline: (deviceId: string) => Promise<boolean> }): Promise<void> {
-  if (state.snapshot?.deviceId !== deviceId) return Promise.resolve()
-  const existing = connectionWakes.get(deviceId)
-  if (existing) return existing
-  const pending = wakeAndWaitOnline(deviceId, deps).finally(() => {
+  }).catch(noteWakeFailure).then(outcome => {
+    if (outcome === 'not-cloud') throw new CloudComputerWakeError('failed', `device ${deviceId} is not this account's cloud computer`)
+  }).finally(() => {
     if (connectionWakes.get(deviceId) === pending) connectionWakes.delete(deviceId)
   })
   connectionWakes.set(deviceId, pending)

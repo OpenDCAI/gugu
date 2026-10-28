@@ -47,30 +47,6 @@ function fakeDevice(reply: (call: Call) => Reply, options: { ssh?: boolean } = {
 const flush = () => new Promise((resolve) => setTimeout(resolve, 0))
 
 describe('remote task host pipe over device RPC', () => {
-  it('resumes the cloud computer before an attach retry starts its tunnel or RPC', async () => {
-    const device = fakeDevice(() => ({ result: { protocol: REMOTE_PROTOCOL_VERSION } }))
-    let resume!: () => void
-    const ensureAwake = vi.fn(() => new Promise<void>(resolve => { resume = resolve }))
-    const waitForTunnel = vi.fn(async () => {})
-    const opening = openRemoteSessionHostPipe('dev', { ...device.deps, ensureAwake, waitForTunnel })({ onFrame() {}, onClose() {} })
-    expect(ensureAwake).toHaveBeenCalledWith('dev')
-    expect(waitForTunnel).not.toHaveBeenCalled()
-    expect(device.calls).toEqual([])
-    resume()
-    const pipe = await opening
-    expect(waitForTunnel).toHaveBeenCalledOnce()
-    expect(device.calls[0]?.type).toBe('taskhost.open')
-    pipe.close()
-  })
-
-  it('preserves a refused wake without attempting attach', async () => {
-    const device = fakeDevice(() => ({ result: { protocol: REMOTE_PROTOCOL_VERSION } }))
-    const refusal = Object.assign(new Error('membership expired'), { code: 'membership_expired' })
-    const opening = openRemoteSessionHostPipe('dev', { ...device.deps, ensureAwake: async () => { throw refusal } })({ onFrame() {}, onClose() {} })
-    await expect(opening).rejects.toBe(refusal)
-    expect(device.calls).toEqual([])
-  })
-
   it('waits for the tunnel event before subscribing or starting the taskhost.open RPC budget', async () => {
     vi.useFakeTimers()
     try {
