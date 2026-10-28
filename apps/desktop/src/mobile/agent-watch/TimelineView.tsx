@@ -104,7 +104,7 @@ export function SettlementCard({
   const multi = (questions?.length ?? 0) > 1
   // D-31 An App install the host asks for this agent: who asks for what; 「查看并安装」 opens this phone's own sheet first.
   const install = appInstallAskOf(settlement.host)
-  const words = install ? appInstallWords(install, translateSessionMessage) : null
+  const words = install ? appInstallWords(install, translateSessionMessage, machine) : null
   const answer = (optionId: string) => {
     if (!install) {
       onRespond({ itemId: settlement.itemId, optionId, kind })

@@ -73,15 +73,16 @@ export function useHostAskBand(
   const ask = useSessionHostAsk(sessionWaitsOnApproval(session) ? sessionId : null);
   const install = appInstallAskOf(ask?.host);
   const itemId = ask?.itemId;
+  const machineId = sessionId ? machineRegistry.machineOf(sessionId) : null;
+  const machine = machineId ? remoteHostsStore.device(machineId)?.label ?? machineId : undefined;
   const resolve = useCallback(
     (optionId: string | null) => {
       if (!optionId || !sessionId || !itemId || !install) return;
-      const machine = machineRegistry.machineOf(sessionId);
       void answerAppInstall({
         itemId,
         ask: install,
         optionId,
-        machine: machine ? remoteHostsStore.device(machine)?.label ?? machine : undefined,
+        machine,
         respond: (answer) =>
           rpc.sessionTimeline.sessionRespond({ conversationId: sessionId, itemId, kind: 'permission', by: 'desktop', ...answer }),
       })
@@ -90,10 +91,10 @@ export function useHostAskBand(
         })
         .catch((error: unknown) => toast({ title: error instanceof Error ? error.message : String(error), variant: 'destructive' }));
     },
-    [sessionId, itemId, install, translate]
+    [sessionId, itemId, install, machine, translate]
   );
   if (!ask || !install) return null;
-  const words = appInstallWords(install, translate);
+  const words = appInstallWords(install, translate, machine);
   return {
     request: {
       requestId: ask.itemId,

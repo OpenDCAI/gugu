@@ -76,10 +76,16 @@ describe('an App install answered from this device (D-31)', () => {
     expect(sessionWaitsOnApproval(undefined)).toBe(false);
   });
 
+  it('the band names the computer the session runs on, and the group an install on a narrowed computer adds (problem 8)', () => {
+    const translate = (key: string, params?: Record<string, string>) => (params ? `${key}:${Object.values(params).join('|')}` : key);
+    const forGroup = { request: { ...(ask as { request: object }).request, given: { first: false, chat: { id: 'g1', name: 'Ops' } } } } as never;
+    expect(appInstallWords(forGroup, translate as never, 'Linux 1').title).toBe('extensions.installAskBandForGroup:Claude 6|Reader|extensions.permissionsOnMachine:Linux 1|Ops');
+  });
+
   it('the band says who asks for what, and 「查看并安装」 / 「不装」', () => {
     const translate = (key: string, params?: Record<string, string>) => (params ? `${key}:${Object.values(params).join('|')}` : key);
     const words = appInstallWords(ask, translate as never);
-    expect(words.title).toBe('extensions.installConfirmTitleBy:Claude 6|Reader');
+    expect(words.title).toBe('extensions.installAskBand:Claude 6|Reader|extensions.permissionsThisComputer');
     expect([words.label('install'), words.label('decline'), words.label('other')]).toEqual([
       'extensions.consentAsk',
       'extensions.consentDeclineAction',

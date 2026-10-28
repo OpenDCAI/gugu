@@ -118,7 +118,8 @@ export async function askInstallInSession(
     if (!dependencies.window) here.catch(() => undefined);
     void here
       .then(async (answer) => {
-        if (answer.outcome === 'timeout' || !inSession) return;
+        // I8 Closed here (Esc, the scrim) is no answer: the ask stays in the session, for the band or another screen.
+        if (answer.outcome === 'timeout' || answer.outcome === 'dismissed' || !inSession) return;
         const confirmed = answer.outcome === 'confirmed';
         const reply: SessionpageSessionRespondRequest = {
           conversationId: sessionId,

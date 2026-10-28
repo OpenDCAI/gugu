@@ -7,6 +7,7 @@ import {
 import { safeParseExtensionManifest } from '@shared/extensions/manifest';
 import type { SessionMessageLookupKey } from '@renderer/localization/messages';
 import { askInShell, installConsentPrompt } from './install-consent';
+import { computerNamed } from './extension-consent';
 
 /**
  * D-31 An agent's App install, asked as an approval in its session, answered from this device — the session page here or on
@@ -57,15 +58,24 @@ export function answeredTooLate(result: unknown): boolean {
   return accepted === false && settlement?.state === 'cancelled';
 }
 
-/** How a surface's approval band words an App install: who asks for what, and its two answers. */
+/**
+ * How a surface's approval band words an App install: who asks for what, on which computer, for which group (an install the
+ * session's computer has narrowed adds just that one), and its two answers. `machine`: the computer the session runs on, when it
+ * is not this one.
+ */
 export function appInstallWords(
   ask: AppInstallAsk,
-  translate: (key: SessionMessageLookupKey, params?: Record<string, string>) => string
+  translate: (key: SessionMessageLookupKey, params?: Readonly<Record<string, string | number>>) => string,
+  machine?: string
 ): { title: string; label: (optionId: string) => string | undefined } {
   const name = (ask.request.manifest as { name?: string }).name ?? '';
+  const { requester, given } = ask.request;
+  const computer = computerNamed(translate, ask.request.machine ?? machine);
   return {
-    title: ask.request.requester
-      ? translate('extensions.installConfirmTitleBy', { agent: ask.request.requester.name, name })
+    title: requester
+      ? given && !given.first
+        ? translate('extensions.installAskBandForGroup', { agent: requester.name, name, computer, group: given.chat.name })
+        : translate('extensions.installAskBand', { agent: requester.name, name, computer })
       : translate('extensions.installConfirmTitle', { name }),
     label: (optionId) =>
       optionId === APP_INSTALL_OPTION

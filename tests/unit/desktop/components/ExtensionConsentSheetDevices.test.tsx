@@ -36,11 +36,11 @@ afterEach(() => {
   harness.cleanup()
 })
 
-async function ask(given: InstallGrant | null = fresh) {
-  await harness.render(createNode(ExtensionConsentSheet, {}))
+async function ask(given: InstallGrant | null = fresh, requestId = 'r1', render = true, requester?: { name: string }) {
+  if (render) await harness.render(createNode(ExtensionConsentSheet, {}))
   await act(async () => {
     window.dispatchEvent(new CustomEvent(EXTENSION_CONSENT_EVENT, { detail: {
-      type: 'ask', requestId: 'r1', title: 'Install Board?', description: 'A board.', confirmLabel: 'Install', ...(given ? { given } : {}),
+      type: 'ask', requestId, title: `Install ${requestId}?`, description: 'A board.', confirmLabel: 'Install', ...(given ? { given } : {}), ...(requester ? { requester } : {}),
       alsoOn: [{ id: 'dev-b', label: 'Linux 1' }, { id: 'dev-c', label: 'Mac 2', disabledReason: 'Only this computer can read the folder' }],
     } }))
   })
@@ -69,6 +69,25 @@ describe('the install sheet asks which computers', () => {
   it('an install for a group on a narrowed computer says it adds that one group, and nothing else', async () => {
     await ask(forGroup)
     expect(q('[data-testid="extension-consent-grant"]')!.textContent).toMatch(/Ops/)
+  })
+
+  it('a second ask while the first is open waits its turn: each is answered, ❌ the first left unanswered under it', async () => {
+    await ask(fresh, 'r1')
+    await ask(fresh, 'r2', false)
+    expect(document.body.textContent).toContain('Install r1?')
+    await act(async () => { q<HTMLButtonElement>('[data-testid="extension-consent-cancel"]')!.click() })
+    expect(document.body.textContent).toContain('Install r2?')
+    await act(async () => { q<HTMLButtonElement>('[data-testid="extension-consent-confirm"]')!.click() })
+    expect(answers.map(({ requestId, outcome }) => [requestId, outcome])).toEqual([['r1', 'declined'], ['r2', 'confirmed']])
+  })
+
+  it("an agent's ask: the computer installed on is the one the agent is on, the no is 「不装」, and closing says the ask stays", async () => {
+    await ask(forGroup, 'r1', true, { name: 'Claude 8' })
+    expect(q('[data-testid="extension-consent-devices"] label')!.textContent).toContain('Claude 8')
+    expect(q('[data-testid="extension-consent-cancel"]')!.textContent).toBe('不装')
+    expect(q('[data-testid="extension-consent-close-keeps"]')).not.toBeNull()
+    await act(async () => { document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true })) })
+    expect(answers.map(({ outcome }) => outcome)).toEqual(['dismissed'])
   })
 
   it('an App giving agents no tools says nothing about agents', async () => {

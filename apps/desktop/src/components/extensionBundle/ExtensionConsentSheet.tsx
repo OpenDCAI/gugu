@@ -48,10 +48,14 @@ export function ExtensionConsentSheet() {
 
 function InstallConsentSheet() {
   const { t } = useTranslation('messaging')
-  const [ask, setAsk] = useState<Ask | null>(null)
+  /** Every ask not yet answered, oldest first: a second one waits its turn, ❌ drawn over the first and leaving it unanswered. */
+  const [asks, setAsks] = useState<Ask[]>([])
+  const ask = asks[0] ?? null
   /** owner 10-16: the other computers ticked to install on too — none until the person ticks one. */
   const [alsoOn, setAlsoOn] = useState<string[]>([])
   const titleId = useId()
+  // Each ask starts with none ticked.
+  useEffect(() => setAlsoOn([]), [ask?.requestId])
 
   useEffect(() => {
     const onEvent = (event: Event) => {
@@ -59,10 +63,9 @@ function InstallConsentSheet() {
       if (!detail) return
       if (detail.type === 'ask') {
         detail.shown = true
-        setAlsoOn([])
-        setAsk(detail)
+        setAsks((now) => (now.some((one) => one.requestId === detail.requestId) ? now : [...now, detail]))
       } else if (detail.type === 'close') {
-        setAsk((current) => (current?.requestId === detail.requestId ? null : current))
+        setAsks((now) => now.filter((one) => one.requestId !== detail.requestId))
       }
     }
     window.addEventListener(EXTENSION_CONSENT_EVENT, onEvent)
@@ -71,7 +74,7 @@ function InstallConsentSheet() {
 
   if (!ask) return null
   const answer = (outcome: ExtensionConsentAnswerDetail['outcome']) => {
-    setAsk(null)
+    setAsks((now) => now.filter((one) => one.requestId !== ask.requestId))
     const detail: ExtensionConsentAnswerDetail = {
       requestId: ask.requestId,
       outcome,
@@ -98,7 +101,10 @@ function InstallConsentSheet() {
             // ticking a computer never widens who has it. Naming agents, groups and projects is the App page's.
             <fieldset className="!mt-3 flex flex-col gap-1" data-testid="extension-consent-devices">
               <legend className="text-[length:var(--font-body)] font-semibold text-[var(--text-primary)]">{t('chatArea.appEnable.devices')}</legend>
-              {[{ id: '', label: ask.machine ?? t('chatArea.appEnable.machine'), disabledReason: undefined }, ...(ask.alsoOn ?? [])].map((machine) => (
+              {[{ id: '', label: ask.machine ?? t('chatArea.appEnable.machine'), disabledReason: undefined }, ...(ask.alsoOn ?? [])].map((machine) => {
+                // An agent's ask: the one installed on is the computer that agent is on.
+                const meta = machine.disabledReason ?? (!machine.id && ask.requester ? t('chatArea.appEnable.agentHere', { agent: ask.requester.name }) : null)
+                return (
                 <label key={machine.id} className="flex items-center gap-2 py-1" title={machine.disabledReason}>
                   <input
                     type="checkbox"
@@ -107,16 +113,19 @@ function InstallConsentSheet() {
                     checked={!machine.id || alsoOn.includes(machine.id)}
                     onChange={(event) => setAlsoOn((ids) => (event.target.checked ? [...ids, machine.id] : ids.filter((id) => id !== machine.id)))}
                   />
-                  <MachineLines label={machine.label} meta={machine.disabledReason ?? null} muted={machine.disabledReason !== undefined} />
+                  <MachineLines label={machine.label} meta={meta} muted={machine.disabledReason !== undefined} />
                 </label>
-              ))}
+                )
+              })}
               {ask.given ? <div data-testid="extension-consent-grant" className="px-1 pt-1 text-[length:var(--font-caption)] leading-normal text-[var(--text-tertiary)]">{ask.given.first ? t('chatArea.appEnable.devicesHint') : t('chatArea.appEnable.addsChat', { name: ask.given.chat.name })}</div> : null}
             </fieldset>
           ) : null}
+          {/* I8 An agent's ask is kept in its session: closing this only closes it; 「不装」 is the no. */}
+          {ask.requester ? <div data-testid="extension-consent-close-keeps" className="!mt-3 text-[length:var(--font-caption)] text-[var(--text-tertiary)]">{t('chatArea.appEnable.closeKeeps')}</div> : null}
         </div>
         <div className="flex justify-end gap-2">
           <Button variant="ghost" data-testid="extension-consent-cancel" onClick={() => answer('declined')}>
-            {ask.cancelLabel ?? t('common.cancel')}
+            {ask.cancelLabel ?? (ask.requester ? t('chatArea.appEnable.decline') : t('common.cancel'))}
           </Button>
           <Button data-testid="extension-consent-confirm" onClick={() => answer('confirmed')}>
             {ask.confirmLabel}

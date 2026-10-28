@@ -121,6 +121,18 @@ describe('an agent’s App install, asked as an approval in its session (D-31)',
     expect(w.responses[0]).not.toHaveProperty('digest');
   });
 
+  it('I8 the sheet here closed (Esc, the scrim) is no answer: the ask stays in the session for another screen', async () => {
+    const w = world({ window: async () => ({ outcome: 'dismissed' }) });
+    const result = askInstallInSession('conv-1', request, requester, w.dependencies as never);
+    let settled = false;
+    void result.then(() => (settled = true));
+    await flush();
+    expect(w.responses).toEqual([]);
+    expect(settled).toBe(false);
+    w.answer({ optionId: 'install', by: 'phone', digest: 'digest-r' });
+    await expect(result).resolves.toEqual({ outcome: 'confirmed' });
+  });
+
   it('nobody answers within the person’s window: the ask is withdrawn and the agent is told it timed out', async () => {
     vi.useFakeTimers();
     const w = world();
