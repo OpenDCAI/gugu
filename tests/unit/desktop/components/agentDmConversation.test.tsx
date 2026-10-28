@@ -9,7 +9,7 @@ import { chat, clickElement, contact, createReactHarness, displayIdentity, messa
 import { writeComposer } from '../../../support/composerEditor'
 import { emptyAgentWatchTimeline } from '../../../../apps/desktop/src/mobile/agent-watch/agent-watch-store'
 
-const probe = vi.hoisted(() => ({ props: null as unknown, read: vi.fn(), find: vi.fn(), fail: false, session: { state: 'no-session' } as AgentDmSession }))
+const probe = vi.hoisted(() => ({ props: null as unknown, read: vi.fn(), find: vi.fn(), setScrollMode: vi.fn(), fail: false, session: { state: 'no-session' } as AgentDmSession }))
 vi.mock('../../../../apps/desktop/src/hooks/useAgentDmSession', () => ({ useAgentDmSession: () => ({ session: probe.session }) }))
 vi.mock('../../../../apps/desktop/src/hooks/useAgentDisplayStatus', () => import('../../../support/agentDisplayStatusTestDouble'))
 vi.mock('../../../../apps/desktop/src/lib/chat', () => import('../../../support/contactsChatServiceTestDouble'))
@@ -21,7 +21,7 @@ vi.mock('../../../../apps/desktop/src/components/assistant-ui/session-transcript
   if (probe.fail) throw new Error('Conversation render failure')
   probe.props = props
   const { onReady } = props
-  useEffect(() => { onReady?.({ find: probe.find }) }, [onReady])
+  useEffect(() => { onReady?.({ find: probe.find, setScrollMode: probe.setScrollMode }) }, [onReady])
   return createElement('div', { 'data-shared-transcript': '' }, props.turns.flatMap(turn => turn.items.map(item => 'text' in item ? item.text : '')).join('\n'), props.composerContent)
 } }))
 import { AgentDmConversation } from '../../../../apps/desktop/src/components/chat/AgentDmConversation'
@@ -30,7 +30,7 @@ import { ChatAreaPanel } from '../../../../apps/desktop/src/components/ChatAreaP
 import { ShellErrorBoundary } from '../../../../apps/desktop/src/components/ShellErrorBoundary'
 import { AUTOMATION_TEST_IDS } from '../../../../apps/desktop/src/lib/automationDom'
 let harness: ReturnType<typeof createReactHarness>
-beforeEach(() => { harness = createReactHarness(); probe.fail = false; probe.session = { state: 'no-session' }; probe.read.mockClear(); probe.find.mockClear(); vi.stubGlobal('IntersectionObserver', class { observe() {} disconnect() {} }) })
+beforeEach(() => { harness = createReactHarness(); probe.fail = false; probe.session = { state: 'no-session' }; probe.read.mockClear(); probe.find.mockClear(); probe.setScrollMode.mockClear(); vi.stubGlobal('IntersectionObserver', class { observe() {} disconnect() {} }) })
 afterEach(() => { harness.cleanup(); vi.unstubAllGlobals() })
 const dm = chat({ id: 'external-dm', kind: 'ai', peer_user_id: 'external-agent', name: 'External agent' })
 const received = message({ id: 'received', chat_id: dm.id, sender_user_id: 'external-agent', is_mine: false, content: '外部 agent 的已有回复。' })
@@ -104,9 +104,10 @@ it('routes the shared header search to the transcript find API and clears it on 
   await renderWithAppProviders(harness, createElement(ChatAreaPanel, { activeTab: 'chats' }), { chat: {
     activeChat: dm, activeChatId: dm.id, messages: [received], identitiesById: { 'external-agent': displayIdentity('external-agent', { type: 'agent' }) }, setFollowingTail,
   } })
-  expect(setFollowingTail, 'the inactive IM scroller does not write the agent transcript follow state').not.toHaveBeenCalled()
-  const transcript = probe.props as { onAtBottomChange: (atBottom: boolean) => void }
+  const transcript = probe.props as { onAtBottomChange: (atBottom: boolean) => void; onVisibleItems: (ids: string[]) => void }
   transcript.onAtBottomChange(true)
+  expect(setFollowingTail, 'tail geometry does not acknowledge unseen replies').toHaveBeenLastCalledWith(false)
+  transcript.onVisibleItems([received.id])
   expect(setFollowingTail).toHaveBeenLastCalledWith(true)
   await clickElement(harness.container.querySelector<HTMLElement>(`[data-testid="${AUTOMATION_TEST_IDS.chatHeaderMoreButton}"]`)!)
   await clickElement(document.querySelector<HTMLElement>(`[data-testid="${AUTOMATION_TEST_IDS.chatHeaderSearchButton}"]`)!)
@@ -118,6 +119,23 @@ it('routes the shared header search to the transcript find API and clears it on 
   expect(probe.find).toHaveBeenLastCalledWith('已有回复')
   await clickElement(harness.container.querySelector<HTMLElement>(`[data-testid="${AUTOMATION_TEST_IDS.chatHeaderSearchCancelButton}"]`)!)
   expect(probe.find).toHaveBeenLastCalledWith('')
+})
+
+it('opens at the first unread and does not let a transient tail frame read the hidden backlog', async () => {
+  const rows = Array.from({ length: 8 }, (_, index) => message({ id: `reply-${index}`, seq: index + 1, chat_id: dm.id, is_mine: false }))
+  const markMessageVisible = vi.fn(), setFollowingTail = vi.fn()
+  const unread = { ...dm, unread_count: 8, last_read_seq: 0, unread_locator: { message_id: rows[0].id, message_seq: 1, cursor_seq: 0 } } as typeof dm
+  await renderWithAppProviders(harness, createElement(AgentDmConversation, { chat: unread, shown: true }), { chat: {
+    activeChat: unread, activeChatId: dm.id, messages: rows, markMessageVisible, setFollowingTail,
+  } })
+  expect(probe.setScrollMode).toHaveBeenCalledWith({ kind: 'anchor', itemId: rows[0].id, edge: 'top', offset: 0 })
+  const props = probe.props as { onAtBottomChange: (atBottom: boolean) => void; onVisibleItems: (ids: string[]) => void }
+  props.onAtBottomChange(true)
+  props.onVisibleItems(rows.slice(5).map(row => row.id))
+  expect(markMessageVisible).not.toHaveBeenCalled()
+  expect(setFollowingTail).toHaveBeenLastCalledWith(false)
+  props.onVisibleItems(rows.slice(0, 2).map(row => row.id))
+  expect(markMessageVisible.mock.calls.map(([row]) => row.id)).toEqual(rows.slice(0, 2).map(row => row.id))
 })
 
 it('binds an owned agent name to its real readable session, keeping the user identity distinct', async () => {

@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import type { ChatItem } from '@gugu/core/shared/types/chat'
 import { useChatStore } from '@/store/chatContext'
@@ -19,7 +19,6 @@ import { toolImageUrl } from '@gugu/session-core/acp/client'
 import { openImageViewer } from '@/lib/imageViewer'
 import { usePhoneBackgroundTasks } from '@/mobile/agent-watch/background-tasks'
 import { dismissSubagent } from '@renderer/features/sessions/view/subagent-dismissals'
-import type { ChatView } from '@gugu/session-chat-ui'
 import { createSessionpageChatSendPreflight } from '@/lib/sessionpage-session-recovery'
 import { followConversationLink } from '@/lib/followConversationLink'
 import { openMessageSender } from '@/lib/openMessageSender'
@@ -39,6 +38,7 @@ import { useLocale } from '@/i18n'
 import { useTheme } from '@/store/theme'
 import { translateSessionMessage } from '@renderer/localization/locale-store'
 import { ConversationErrorBoundary } from './ConversationErrorBoundary'
+import { useAgentDmRead } from './useAgentDmRead'
 
 type Chrome = { attachGlyph: import('react').ReactNode; attachMenu?: readonly ComposerAttachAction[]; composerHeader?: import('react').ReactNode }
 
@@ -65,15 +65,13 @@ function AgentDmSession({ chat, shown, mobile = false, onBack, chrome, embedded,
 function DmConversation({ chat, target, shown, mobile, onBack, chrome, embedded, searchQuery = '' }: {
   chat: ChatItem; target: Target | null; shown: boolean; mobile: boolean; onBack?: () => void; chrome?: Chrome; embedded?: boolean; searchQuery?: string
 }) {
-  const view = useRef<ChatView | null>(null)
-  useEffect(() => { view.current?.find(searchQuery) }, [searchQuery])
   const { toast } = useToast()
   const filePreview = useMessageFilePreview({ mobile, visible: shown, closeRightSurfaces: () => {}, toast })
   const [dismissals, setDismissals] = useState(0)
   const { t } = useTranslation('messaging')
   const { identitiesById, messages, messagesError, refreshMessages, sendMessage, sendAttachments,
-    loadOlderMessages, markMessageVisible, setFollowingTail, retrySend, writeDraft } = useChatStore('identitiesById', 'messages', 'messagesError', 'refreshMessages',
-      'sendMessage', 'sendAttachments', 'loadOlderMessages', 'markMessageVisible', 'setFollowingTail', 'retrySend', 'writeDraft')
+    loadOlderMessages, loadMessageAnchor, unreadEntry, markMessageVisible, setFollowingTail, retrySend, writeDraft } = useChatStore('identitiesById', 'messages', 'messagesError', 'refreshMessages',
+      'sendMessage', 'sendAttachments', 'loadOlderMessages', 'loadMessageAnchor', 'unreadEntry', 'markMessageVisible', 'setFollowingTail', 'retrySend', 'writeDraft')
   const { contacts } = useContactsStore()
   const contact = contacts.find(item => item.id === chat.peer_user_id)
   const presence = useAgentDisplayStatus(chat.peer_user_id)
@@ -92,18 +90,11 @@ function DmConversation({ chat, target, shown, mobile, onBack, chrome, embedded,
   const working = !!read.timeline.turns.at(-1) && !read.timeline.turns.at(-1)?.outcome
   const options = useConversationOptions(target)
   const queue = useConversationQueue(target, read.timeline.queuedPrompts, working, options.steers)
-  const byId = useMemo(() => new Map(messages.map(message => [message.id, message])), [messages])
   const aliases = useMemo(() => dmRecordIds(turns), [turns])
-  useEffect(() => () => setFollowingTail(false), [setFollowingTail])
-  const onVisibleItems = useCallback((ids: readonly string[]) => {
-    if (!shown) return
-    for (const id of ids) {
-      for (const messageId of byId.has(id) ? [id] : aliases.get(id) ?? []) {
-        const message = byId.get(messageId)
-        if (message) markMessageVisible(message)
-      }
-    }
-  }, [shown, byId, aliases, markMessageVisible])
+  const reading = useAgentDmRead({ chat, shown, messages, aliases, unreadEntry, loadMessageAnchor, markMessageVisible, setFollowingTail,
+    onError: error => toast(messageForUser(error), 'error') })
+  const view = reading.view
+  useEffect(() => { view.current?.find(searchQuery) }, [searchQuery, view])
   const error = messagesError ?? (read.phase === 'error' ? new Error(read.error ?? '') : null)
   const openAttachment = (href: string) => {
     const message = messages.find(item => item.content_type === 'attachment' && (() => {
@@ -142,8 +133,8 @@ function DmConversation({ chat, target, shown, mobile, onBack, chrome, embedded,
         resolveToolImage: target ? async (itemId, index) => toolImageUrl(await client.fetchToolImage(target.deviceId, target.sessionId, itemId, index)) : undefined,
         onViewImages: ({ urls, index, thumb }) => openImageViewer(urls.map(url => ({ url, alt: '', thumb })), index),
         onStop: target ? () => { void read.cancel() } : undefined }}
-      activeTurnId={target && !read.timeline.turns.at(-1)?.outcome ? read.timeline.turns.at(-1)?.id ?? null : null} onVisibleItems={onVisibleItems} composerContent={composer} backgroundTasks={background} onReady={ready => { view.current = ready; ready.find(searchQuery) }}
-      onAtBottomChange={atBottom => setFollowingTail(shown && atBottom)}
+      activeTurnId={target && !read.timeline.turns.at(-1)?.outcome ? read.timeline.turns.at(-1)?.id ?? null : null} onVisibleItems={reading.onVisibleItems} composerContent={composer} backgroundTasks={background} onReady={ready => { reading.onReady(ready); ready.find(searchQuery) }}
+      onAtBottomChange={reading.onAtBottomChange}
       onReachStart={() => { if (target) void read.loadOlder(); else void loadOlderMessages() }}
       className="relative min-h-0 flex-1" />
     </div>

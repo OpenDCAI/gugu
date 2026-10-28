@@ -79,5 +79,8 @@ export function mergeDmRecord(turns: readonly TranscriptTurn[], messages: readon
   const known = messages.filter(message => recorded.has(message.id))
   const watermark = known.length ? Math.max(...known.map(message => message.seq)) : null
   const pending = dmRecord(messages.filter(message => !recorded.has(message.id) && (watermark === null || message.seq > watermark || message.local_send_state)), names)
-  return pending.length ? [...enriched, ...pending] : enriched
+  // Session turns and IM messages have independent sequence spaces. Only the
+  // adapter's turn order belongs to the transcript; keep the IM item seq intact.
+  const lastSeq = enriched.at(-1)?.seq ?? 0
+  return pending.length ? [...enriched, ...pending.map((turn, index) => ({ ...turn, seq: lastSeq + index + 1 }))] : enriched
 }

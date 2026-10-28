@@ -54,6 +54,15 @@ describe('authorized DM rows in the shared transcript', () => {
     const rows: TranscriptTurn[] = dmRecord([message({ content_type: 'system', content: 'A recorded system event' })], names)
     expect(rows[0].items[0]).toMatchObject({ kind: 'session-notice', detail: 'A recorded system event' })
   })
+
+  it('adapts IM turns into the session sequence space without changing message seq or identity', () => {
+    const recorded = [{ ...dmRecord([human('recorded', 3)], names)[0], seq: 950 }]
+    const rows = [human('recorded', 3), human('new', 4), human('pending', -1)]
+    const merged = mergeDmRecord(recorded, rows, names)
+    expect(merged.map(turn => turn.seq)).toEqual([950, 951, 952])
+    expect(merged.slice(1).map(turn => [turn.id, turn.items[0].seq])).toEqual([['im:new', 4], ['im:pending', -1]])
+    expect(mergeDmRecord(merged, rows, names)).toBe(merged)
+  })
 })
 
 it('retains text, attachment and text in receipt order, exactly once, even below the later text watermark', async () => {
