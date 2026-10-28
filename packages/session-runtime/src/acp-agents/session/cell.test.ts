@@ -738,6 +738,26 @@ describe('SessionCell prompts', () => {
     });
   });
 
+  it('a failure reported as end_turn fails the caller with its cause, so a delivery cannot complete as done (MiMo quota)', async () => {
+    const agent = new FakeAcpAgent();
+    const { cell } = makeCell(agent, { turnFailure: { watchesStderr: true } });
+    agent.prompt = vi.fn(async () => {
+      setTimeout(() => cell.noteProviderStderrFailure("You've hit your usage limit. Upgrade or try again later."), 50);
+      return { stopReason: 'end_turn' };
+    });
+    const failed = await cell.prompt({ text: 'hi' });
+    expect(failed).toMatchObject({
+      success: false,
+      error: { type: 'prompt_failed', cause: { message: "You've hit your usage limit. Upgrade or try again later." } },
+    });
+    // Control: a turn that answered stays a success.
+    agent.prompt = vi.fn(async () => {
+      cell.push({ kind: 'message', role: 'assistant', messageId: null, text: 'ok' });
+      return { stopReason: 'end_turn' };
+    });
+    expect((await cell.prompt({ text: 'again' })).success).toBe(true);
+  });
+
   it('a stderr failure the provider marks as a credential failure settles with signInRequired (MiMo, 10-07)', async () => {
     const agent = new FakeAcpAgent();
     const { cell } = makeCell(agent, { turnFailure: { watchesStderr: true } });
