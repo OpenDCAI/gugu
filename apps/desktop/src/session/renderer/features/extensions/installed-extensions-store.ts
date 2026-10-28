@@ -182,6 +182,23 @@ export class InstalledExtensionsStore {
     return this.manifests.flatMap((manifest) => this.railApp(manifest.id) ?? []);
   }
 
+  /**
+   * What a group can open, in the order they were installed: the Apps with a page of their own, and the Apps whose tab opens
+   * a chat's files — opened on the group's file, as its card's 「Open」 does. A group game an agent makes is the second kind
+   * (group-json: one tab, on the group's data file), so the group's App list has to hold it (5-minute game ①).
+   */
+  get chatOpenableApps(): RailApp[] {
+    return this.manifests.flatMap((manifest) => this.railApp(manifest.id) ?? this.chatFilesApp(manifest) ?? []);
+  }
+
+  /** An App that only opens a chat's files, as the group's list draws it: on, and not one gugu ships (those it places itself). */
+  private chatFilesApp(manifest: ExtensionManifest): RailApp | null {
+    const tab = manifest.contributes.tabs.find((candidate) => declaredContexts(candidate).includes('chat'));
+    if (!tab || !this.isEnabled(manifest.id) || this.isPreinstalled(manifest.id)) return null;
+    const name = localizedManifestText(manifest, this.locale).name;
+    return { extensionId: manifest.id, name, kind: extensionTabKind(manifest.id, tab.name), iconDataUrl: this.appIcons[manifest.id] ?? null };
+  }
+
   /** An App as the rail draws it, if the rail can open it: installed, on, with a page of its own. */
   private railApp(extensionId: string): RailApp | null {
     const main = this.mainTabOf(extensionId);

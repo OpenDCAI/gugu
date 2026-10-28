@@ -27,17 +27,20 @@ describe('session replies sent to IM', () => {
     expect(words(original)).toHaveLength(0);
     expect(withSentReplies(original).items).toContain(original.items[1]);
   });
-  it('keeps a delivered reply reachable in the collapsed transcript', () => {
+  it('keeps a delivered reply reachable in the collapsed transcript, once, as the agent\'s words', () => {
     const record = turn();
     record.outcome = { kind: 'done', reason: 'end_turn' };
-    const segmenters = Object.fromEntries(['message', 'mcp-tool-call', 'turn-process', 'turn-completion'].map(kind => [kind, {
+    const segmenters = Object.fromEntries(['message', 'mcp-tool-call', 'agent-send', 'turn-process', 'turn-completion'].map(kind => [kind, {
       kind, segment: item => [unit(item.kind, item, item, { key: 'self' })],
     } satisfies ItemSegmenter]));
     const ctx = { caches: {}, expanded: () => false, active: false, foldTurnProcess: true,
       plan: () => null, translate: defaultChatTranslator, pendingToolCallIds: () => new Set(),
       terminalOutputText: () => null, terminalExitStatus: () => null } as unknown as SegmentCtx;
     const rows = flattenTier([record], ctx, segmenters);
-    expect(rows.some(row => row.kind === 'message' && row.data !== null && typeof row.data === 'object' && 'text' in row.data && row.data.text === '你好，我在。')).toBe(true);
+    // On the session page the send is drawn as the agent's words (agent-send); the reply copied out of it is not drawn again.
+    const said = rows.filter(row => (row.kind === 'agent-send' && (row.data as { send?: { text?: string } }).send?.text === '你好，我在。')
+      || (row.kind === 'message' && (row.data as { text?: string }).text === '你好，我在。'));
+    expect(said.map(row => row.kind)).toEqual(['agent-send']);
   });
   it('rejects other chats, whispers, mismatched quotes, nested agents, failed and unconfirmed sends', () => {
     for (const call of [send({ chat_id: 'other' }), send({ whisper: true }), send({ reply_to_message_id: 'other' }),

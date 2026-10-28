@@ -108,6 +108,7 @@ import { PlatformError } from '../platform/errors'
 import { CameraPermissionSheet } from '../components/CameraPermissionSheet'
 import { RemoteMachinesHost } from '../components/sessionpage/RemoteMachinesHost'
 import type { ContactGroupChat, ContactUser } from '@gugu/core/shared/types/contacts'
+import { followLink } from '../lib/guguLinks'
 import { useMobileShell, readMobileShell } from '../hooks/useMobileShell'
 import { useMobileChatOpenNonce } from '../hooks/useMobileChatOpenNonce'
 import { useAgentCreateContextBridge } from '../hooks/useAgentCreateContextBridge'
@@ -946,6 +947,8 @@ function InnerLayout({
   }
 
   const handleOpenProfileChat = (target: MemberProfileChatTarget) => {
+    // The session may be on another machine: the one session entry decides how to open it (#626).
+    if (target.session) return void followLink({ kind: 'session', sessionId: target.session.sessionId })
     const contact = contacts.find((item) => item.id === target.id)
     return handleSwitchToChat({
       id: target.id,

@@ -987,7 +987,7 @@ function deliver(binding: SurfaceBinding, action: ExtensionHostAction): Promise<
  * A session brought up the way a click on its row in the task list brings it, from any page of gugu — the way an agent's
  * banner brings its session up (notificationFocusSessionChannel): `showSession`, and a session's `compose`.
  */
-async function bringSessionUp(session: { sessionId: string; projectId: string }): Promise<void> {
+export async function bringSessionUp(session: { sessionId: string; projectId: string }): Promise<void> {
   const [{ events }, { notificationFocusSessionChannel }] = await Promise.all([import('@main/lib/events'), import('@shared/events/appEvents')]);
   events.emit(notificationFocusSessionChannel, session);
 }

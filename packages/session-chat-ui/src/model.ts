@@ -2,6 +2,7 @@ import type { HookNotice } from './lib/hook-notice';
 import type { BackgroundCommandEntry } from './lib/background-command-roster';
 import type { SubagentRosterEntry } from './lib/subagent-roster';
 import type { DeliveryReading } from '@gugu/core/local/agent/deliveryEnvelope';
+import type { AgentSend } from '@gugu/session-core/session-record/reply-process';
 import type {
   AcpPermissionRequest,
   OpenedOutput,
@@ -17,6 +18,7 @@ import type {
   TranscriptTurn,
   TranscriptTurnOutcome,
 } from '@gugu/session-core/acp/client';
+import type { ToolRunNow } from '@session-chat/state/tool-run';
 
 export type {
   AcpPermissionRequest,
@@ -541,6 +543,8 @@ export type ToolRunItem = {
   stepCount: number;
   /** 这一段里还有在跑的调用（活动层）⇒ 头上微光。 */
   live?: boolean;
+  /** 跑着的这一段此刻在做什么(`toolRunNow`):在跑的命令或在思考;只在活动层、只在有的时候写。 */
+  now?: ToolRunNow;
 };
 
 /**
@@ -620,6 +624,19 @@ export type BackgroundTasksItem = {
   expanded: boolean;
 };
 
+/**
+ * agent 经 message_send / session_message 说出去的一段话,画成它说的话、标明发到了哪里。
+ * 由 `flattenTier` 从那次调用造出来(判据 `agentSendOf`),在它原来的位置上顶替那一行工具;id 就是那次调用的 id。
+ */
+export type AgentSendItem = {
+  kind: 'agent-send';
+  id: string;
+  turnId: string;
+  send: AgentSend;
+  /** 还在发 / 已发出(那次调用的状态;发失败的不造这一项,照常是一行工具)。 */
+  status: 'running' | 'done';
+};
+
 /** Successful file edits presented once below a settled turn's reply. */
 export type FileChangeSummaryItem = {
   kind: 'file-change-summary';
@@ -633,6 +650,7 @@ export type SyntheticItem =
   | BackgroundTasksItem
   | TurnOutcomeItem
   | OpenedOutputItem
+  | AgentSendItem
   | FileChangeSummaryItem
   | DaySeparatorItem
   | TurnProcessItem

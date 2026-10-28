@@ -78,6 +78,7 @@ function stateOf(partial: Partial<ProjectFoldersState>): ProjectFoldersState {
   return {
     folders: shown(ROOT, WT, OTHER, EXTRA),
     loadError: false,
+    unanswered: [],
     chosen: { ...ROOT, offline: false },
     fresh: undefined,
     choose: vi.fn(),
@@ -549,7 +550,9 @@ describe('useProjectFolders', () => {
       await mount('p-here', ['p-here', 'proj-hung-d15']);
       expect(latest?.folders?.map((f) => f.workspaceId)).toEqual(['ws-root']);
       expect(latest?.loadError).toBe(false);
+      expect(latest?.unanswered).toEqual(['proj-hung-d15']);
       await act(async () => vi.advanceTimersByTime(UNANSWERED_AFTER_MS));
+      expect(latest?.unanswered).toEqual([]);
       expect(latest?.folders?.map((f) => [f.workspaceId, f.offline])).toEqual([
         ['ws-root', false],
         ['ws-d15', true],

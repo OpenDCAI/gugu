@@ -1,4 +1,4 @@
-import type { RefObject } from 'react'
+import { useEffect, useState, type RefObject } from 'react'
 import { observer } from 'mobx-react-lite'
 import { useTranslation } from 'react-i18next'
 import { Pin, PinOff, X } from '@/lib/icons'
@@ -10,8 +10,30 @@ import { Popover } from '../ui/Popover'
 import { Sheet } from '../ui/Sheet'
 import { menuSurfaceClassName } from '../ui/Menu'
 import { openApp } from '../appSlot/useOpenApp'
+import { appsHere } from '../appSlot/appsHere'
 import type { useChatAppPins } from './useChatAppPins'
 import { AUTOMATION_TEST_IDS } from '../../lib/automationDom'
+
+/**
+ * The Apps this group can open: those with a page of their own, and those with a file in this group's folder they open —
+ * an agent's group game is the second kind and opens on its file, as its card's 「Open」 (5-minute game ①). An App that only
+ * opens files and has none here would open nothing, so it is not listed.
+ */
+function useGroupApps(chatId: string) {
+  const all = installedExtensionsStore.chatOpenableApps
+  const fileOnly = all.filter((app) => !installedExtensionsStore.mainTabOf(app.extensionId)).map((app) => app.extensionId).join('\n')
+  const [withFiles, setWithFiles] = useState<{ chatId: string; ids: ReadonlySet<string> }>({ chatId, ids: new Set() })
+  useEffect(() => {
+    let live = true
+    const ids = fileOnly ? fileOnly.split('\n') : []
+    void Promise.all(ids.map(async (extensionId) => {
+      const files = await appsHere?.groupFilesOpenedBy({ chatId, extensionId })
+      return files?.success && (files.data?.length ?? 0) > 0 ? [extensionId] : []
+    })).then((found) => { if (live) setWithFiles({ chatId, ids: new Set(found.flat()) }) })
+    return () => { live = false }
+  }, [chatId, fileOnly])
+  return all.filter((app) => installedExtensionsStore.mainTabOf(app.extensionId) || (withFiles.chatId === chatId && withFiles.ids.has(app.extensionId)))
+}
 
 export const GroupAppsPicker = observer(function GroupAppsPicker({ chatId, pins, mobile, anchor, onClose }: {
   chatId: string
@@ -21,7 +43,7 @@ export const GroupAppsPicker = observer(function GroupAppsPicker({ chatId, pins,
   onClose: () => void
 }) {
   const { t } = useTranslation('messaging')
-  const apps = installedExtensionsStore.openableApps
+  const apps = useGroupApps(chatId)
   const body = (
     <div data-testid={AUTOMATION_TEST_IDS.groupAppsPicker} className="p-2">
       <div className="flex items-center justify-between gap-2 px-2 pb-2">

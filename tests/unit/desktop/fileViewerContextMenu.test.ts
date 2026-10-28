@@ -120,6 +120,14 @@ describe('host file viewer menu', () => {
     expect(editor.filter(item => item.type !== 'separator').map(item => item.label)).toEqual(['Undo', 'Redo', 'Cut', 'Copy', 'Paste', 'Select all', 'Quote selection', 'Quote file'])
   })
 
+  it('puts a file\'s gugu URL pair last, behind its own separator', () => {
+    // Control (the parent commit 1b055755): the pair led the extra group, ahead of the quotes.
+    const resourceActions = [{ id: 'copy-resource-url' as const, label: 'Copy gugu URL' }, { id: 'send-resource-url' as const, label: 'Copy URL & send to…' }]
+    const items = fileViewerMenuItems({ requestId: 'file', action: 'snapshot', selection: { text: '' }, canSelectAll: false, resourceActions }, labels, vi.fn())
+    expect(items.slice(-3).map(item => item.type === 'separator' ? '—' : item.label)).toEqual(['—', 'Copy gugu URL', 'Copy URL & send to…'])
+    expect(items.findIndex(item => item.type !== 'separator' && item.label === 'Quote file')).toBe(items.length - 4)
+  })
+
   it('uses an editor snapshot for custom undo state without losing the host clipboard capabilities', () => {
     const root = viewer()
     const dispose = bindFileViewerMenu(root, () => ({ quote: vi.fn(), editable: true, edit: vi.fn(), editorHistory: { undo: false, redo: true }, enabled: { copy: true } }), vi.fn())

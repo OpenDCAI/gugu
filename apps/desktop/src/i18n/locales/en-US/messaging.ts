@@ -239,7 +239,7 @@ export default {
       "title": "Open “{{name}}” with"
     },
     "source": {
-      "notVisible": "The source message is not in this view. It may not be loaded or may be in a thread."
+      "notVisible": "The source message is not in this view. It may not be loaded or may be in a topic."
     },
     "suggestions": {
       "help": "What can you help me with?",

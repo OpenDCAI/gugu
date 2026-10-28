@@ -48,9 +48,9 @@ export function fileViewerMenuItems(context: FileViewerMenuRequest, labels: File
     } : {}) },
   };
   const extra: ContentMenuEntry[] = [
-    ...(context.resourceActions ?? []).map(item => ({ ...item, click: () => run(item.id) })),
     { id: 'quote-selection', icon: 'quote', label: labels.quoteSelection, enabled: context.selection.text.length > 0, click: () => run('quote-selection') },
     { id: 'quote-file', icon: 'file', label: labels.quoteFile, click: () => run('quote-file') },
+    ...(context.resourceActions?.length ? [{ type: 'separator' as const }, ...context.resourceActions.map(item => ({ ...item, click: () => run(item.id) }))] : []),
   ];
   return textContextMenuItems(options, extra);
 }

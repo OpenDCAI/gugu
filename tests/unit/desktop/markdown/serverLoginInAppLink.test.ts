@@ -16,7 +16,7 @@ vi.mock('../../../../apps/desktop/src/components/appSlot/phoneAppHost', () => ({
   openPhoneLink: (target: GuguLinkTarget) => openLinkWith({
     installed: () => [], isEnabled: () => false, locale: () => 'en', sessionProject: async () => null,
     reveal: async () => {}, openApp: async () => 'own', resourceChat: async (id) => id,
-    openResource: async (resource) => { await openLinkTarget(resource) }, deliver: () => {},
+    openResource: async (resource) => { await openLinkTarget(resource) }, bringUp: async () => {}, deliver: () => {},
   }, target),
 }))
 

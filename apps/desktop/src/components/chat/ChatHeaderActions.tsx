@@ -78,7 +78,7 @@ export const ChatHeaderActions = observer(function ChatHeaderActions({
   const compactRoom = Boolean(mobile && isRoomChat) // 手机群聊页头只留成员 + ⋯,搜索/文件夹/群 Apps 收进 ⋯。
   const groupId = isGroupChat ? activeChatId : null
   const pins = useChatAppPins(groupId)
-  const apps = installedExtensionsStore.openableApps
+  const apps = installedExtensionsStore.chatOpenableApps
   const pinnedApps = pins.ids.flatMap((id) => apps.find((app) => app.extensionId === id) ?? [])
   const { ref: pinsRef, capacity } = useHeaderAppCapacity(pinnedApps.length, compactRoom || !groupId)
   const overflow = pinnedApps.slice(capacity)

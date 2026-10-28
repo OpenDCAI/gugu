@@ -111,6 +111,9 @@ const fallbackMessages = {
   // 同一行的两副面孔（#4981 #12）：跑着的时候是这一句 + 微光，落定后是上面那一句。
   // 连续工具调用折成的一句（#4981，owner 2026-09-06）：各类一个短语，单数 / 复数各一键
   // （英文 `1 pattern` / `3 patterns` 不能靠一个模板），用 `join` 串起来。首字母大写由代码做。
+  // 跑着的那一句后面接的半句(toolRunNow)。
+  'transcript.toolRun.nowRunning': 'running',
+  'transcript.toolRun.nowThinking': 'thinking',
   'transcript.toolRun.join': ', ',
   'transcript.toolRun.thinkingOne': 'thought {count} time',
   'transcript.toolRun.thinking': 'thought {count} times',
@@ -141,6 +144,16 @@ const fallbackMessages = {
   'transcript.toolRun.toolOne': 'used {count} tool',
   'transcript.toolRun.tool': 'used {count} tools',
   'transcript.planProgress': 'Plan · {done} of {total} done',
+  // agent 经 message_send / session_message 说的话,下面那一行去向(agent-send.def)。
+  'transcript.agentSendTo': 'Sent to {chat}',
+  'transcript.agentSendToChat': 'Sent to a chat',
+  'transcript.agentSendToThreadIn': 'Sent to a topic in {chat}',
+  'transcript.agentSendToThread': 'Sent to a topic',
+  'transcript.agentSendWhisperIn': 'Whispered in {chat}',
+  'transcript.agentSendWhisper': 'Whispered',
+  'transcript.agentSendToSession': 'Sent to another task',
+  'transcript.agentSendToSessions': 'Sent to {count} tasks',
+  'transcript.agentSending': 'sending…',
   'transcript.deliveryViaChat': 'via chat',
   'transcript.deliveryViaGroup': 'via group {chat}',
   'transcript.deliveryViaUnnamedGroup': 'via a group',
@@ -162,12 +175,12 @@ const fallbackMessages = {
   'transcript.deliveryFact.at': 'Time',
   'transcript.deliveryFact.sender': 'Sender',
   'transcript.deliveryFact.route': 'Route',
-  'transcript.deliveryFact.thread': 'Thread',
+  'transcript.deliveryFact.thread': 'Topic',
   'transcript.deliveryFact.message': 'Message',
   'transcript.deliveryFact.listen': 'Listening',
   'transcript.deliveryFact.then': 'Then',
   'transcript.deliveryFact.replyTo': 'In reply to',
-  'transcript.deliveryFact.threadContext': 'Thread context',
+  'transcript.deliveryFact.threadContext': 'Topic context',
   'transcript.deliveryFact.messageContext': 'Message context',
   'transcript.deliveryFact.whisperTo': 'Whisper to',
   'transcript.deliveryFact.viaApp': 'App',

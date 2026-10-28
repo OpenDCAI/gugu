@@ -128,6 +128,19 @@ describe('app_search, the tool', () => {
     expect(found.body.market).toBe('not reached (fetch failed); only the Apps installed here were searched')
   })
 
+  it('offers conditional creation advice on every result without using the pagination next', async () => {
+    const call = await connect(async () => ({ apps: SIXTY }))
+    for (const args of [{ query: '井字棋' }, { query: 'Tool' }, { rows: '71-80' }]) {
+      const found = await call(args)
+      expect(found.body.note).toContain('If none fits and the person wants one made: guide_read apps')
+      expect(found.body.note).toContain('chat: group-json')
+      expect(found.body.note).toContain('app_install(chat_id, data) → app_check')
+      expect(found.body.note).toContain('For a missing feature in an existing App: ask to fork')
+    }
+    expect((await call({ query: 'Tool' })).body.next).toBe('11-20')
+    expect((await call({ query: '井字棋' })).body).toMatchObject({ total: 0, items: [], next: null })
+  })
+
   it('a page of the longest rows fits one output (8 000 bytes)', async () => {
     const long = Array.from({ length: 60 }, (_, i) => app(i, {
       description: `${'很长的描述'.repeat(60)}。Second sentence.`,

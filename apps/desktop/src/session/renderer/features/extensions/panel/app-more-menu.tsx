@@ -47,8 +47,8 @@ export function AppMoreMenu({
   resource?: ResourceContext;
 }) {
   const label = translate('extensions.moreActions', { name });
+  const share = resource ? resourceMenuItems(resource).map(item => <DropdownMenuItem key={item.id} onClick={() => void item.click()}>{item.label}</DropdownMenuItem>) : [];
   const top = [
-    ...(resource ? resourceMenuItems(resource).map(item => <DropdownMenuItem key={item.id} onClick={() => void item.click()}>{item.label}</DropdownMenuItem>) : []),
     onToggleDock && (
       <DropdownMenuItem key="dock" onClick={onToggleDock}>
         {translate(docked ? 'extensions.unpinFromRail' : 'extensions.pinToRail')}
@@ -80,7 +80,7 @@ export function AppMoreMenu({
       </DropdownMenuCheckboxItem>
     ),
   ].filter(Boolean);
-  if (top.length === 0 && !onUninstall) return null;
+  if (top.length === 0 && share.length === 0 && !onUninstall) return null;
   return (
     <DropdownMenu>
       <DropdownMenuTrigger
@@ -101,7 +101,9 @@ export function AppMoreMenu({
       </DropdownMenuTrigger>
       <DropdownMenuContent align="end" className="w-44" onClick={(event) => event.stopPropagation()}>
         {top}
-        {onUninstall && top.length > 0 ? <DropdownMenuSeparator /> : null}
+        {share.length > 0 && top.length > 0 ? <DropdownMenuSeparator /> : null}
+        {share}
+        {onUninstall && top.length + share.length > 0 ? <DropdownMenuSeparator /> : null}
         {onUninstall ? (
           <DropdownMenuItem variant="destructive" onClick={onUninstall}>
             {translate('extensions.uninstallAction')}

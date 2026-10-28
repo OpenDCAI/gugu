@@ -62,6 +62,8 @@ export type ProjectFoldersState = {
   folders: ShownFolder[] | null;
   /** 一台都读不到、账号上也没有:卡片如实说读不到(原因进日志),❌ 拿根目录冒充全部。 */
   loadError: boolean;
+  /** 这一行里还没答过的本地项目(那台机器的文件夹还不知道,❌ 当成没有)。 */
+  unanswered: readonly string[];
   chosen: ShownFolder | null;
   /** 刚挂上的那一个(workspaceId)。 */
   fresh: string | undefined;
@@ -77,7 +79,7 @@ export type ProjectFoldersState = {
  * @param memberIds 这个项目在各台机器上的本地项目(含 rowId;没合并就只有它)
  */
 export function useProjectFolders(rowId: string, memberIds: readonly string[] = [rowId]): ProjectFoldersState {
-  const [snapshot, setSnapshot] = useState<{ rowId: string; folders: ShownFolder[] | null; loadError: boolean }>(
+  const [snapshot, setSnapshot] = useState<{ rowId: string; folders: ShownFolder[] | null; loadError: boolean; unanswered?: readonly string[] }>(
     () => ({ rowId, folders: null, loadError: false })
   );
   // Switching projects must never expose the previous project's folders, even
@@ -164,7 +166,7 @@ export function useProjectFolders(rowId: string, memberIds: readonly string[] = 
       });
       previous.current = { rowId, members };
       shown.current = { rowId, lists: new Map(ids.flatMap((projectId, index) => { const list = lists[index]; return Array.isArray(list) ? [[projectId, list] as const] : []; })) };
-      setSnapshot({ rowId, folders: merged, loadError: false });
+      setSnapshot({ rowId, folders: merged, loadError: false, unanswered: ids.filter((_, index) => lists[index] === undefined) });
     };
 
     for (const projectId of ids) {
@@ -265,6 +267,7 @@ export function useProjectFolders(rowId: string, memberIds: readonly string[] = 
   return {
     folders,
     loadError,
+    unanswered: (snapshot.rowId === rowId && snapshot.unanswered) || [],
     chosen: chosenFolderOf(rowId, folders),
     fresh,
     choose,

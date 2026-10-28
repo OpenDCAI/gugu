@@ -14,7 +14,7 @@ import { MAX_ATTACHMENT_BYTES, TOOL_IMAGE_FETCH_LIMIT } from '@gugu/session-core
 import { composePromptText } from '@renderer/features/sessions/acp/composer-file-paths'
 import { formatBytes } from '@renderer/utils/formatBytes'
 import { DEFAULT_GROUP_BY, Thread, type ThreadComponents } from '@/components/assistant-ui/thread.aui'
-import { tallyToolRun, toolRunLabel } from '@gugu/session-chat-ui/tool-run'
+import { tallyToolRun, toolRunLabel, toolRunNow, toolRunNowLabel } from '@gugu/session-chat-ui/tool-run'
 import { translateSessionMessage } from '@/session/renderer/localization/locale-store'
 import { ToolGroupContent, ToolGroupRoot, ToolGroupTrigger } from '@/components/assistant-ui/tool-group.aui'
 import { DeliveryMessage } from '@/components/assistant-ui/delivery-message.aui'
@@ -32,6 +32,7 @@ import { QUESTION_DATA_PART, runningToolIds, THINKING_DATA_PART, TOOL_RUNNING, t
 import { useLoadOlderOnTop } from './load-older-on-top'
 import { ThinkingDataUI } from './thinking-part'
 import { OpenedOutputsDataUI } from './opened-outputs-part'
+import { AgentSendDataUI } from './agent-send-part'
 import { OpenedOutputHandlersContext } from './opened-output-handlers'
 import { useOpenedOutputOpener } from './opened-output-opener'
 import { LiveTail } from './live-tail'
@@ -194,9 +195,17 @@ const ProcessRun: NonNullable<ThreadComponents['ChainOfThoughtGroup']> = ({ grou
     }
   }
   if (members.length < 2) return <>{children}</>
+  // 跑着时这一句后面接此刻在做什么(在跑的命令 / 在想),与桌面 tool-run 同一份判断;跑完恢复原样。
+  const now = live ? toolRunNow(members as Parameters<typeof toolRunNow>[0]) : null
+  const label = toolRunLabel(tallyToolRun(members), translateSessionMessage)
   return (
     <ToolGroupRoot variant="ghost">
-      <ToolGroupTrigger count={members.length} label={toolRunLabel(tallyToolRun(members), translateSessionMessage)} active={live} />
+      <ToolGroupTrigger
+        count={members.length}
+        label={now ? `${label} · ${toolRunNowLabel(now, translateSessionMessage)}` : label}
+        {...(now?.kind === 'command' ? { detail: now.command } : {})}
+        active={live}
+      />
       <ToolGroupContent>{children}</ToolGroupContent>
     </ToolGroupRoot>
   )
@@ -395,6 +404,7 @@ export function AgentThread({
       <ThinkingDataUI />
       <QuestionDataUI />
       <OpenedOutputsDataUI />
+      <AgentSendDataUI />
       <div ref={hostRef} className="gg-aw-thread-host" data-testid="agent-watch-timeline">
         {/* 选项摆在输入框那一行(orca 同款位置),❌ 不在页头右上角:
             改模型/权限档是「说这句话之前先定个调」,和输入框是一件事。 */}

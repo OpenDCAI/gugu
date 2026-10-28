@@ -55,14 +55,15 @@ import { withSentReplies } from './sent-replies';
  */
 
 import { isDeliveryEnvelope } from '@gugu/core/local/agent/deliveryEnvelope';
+import { agentSendOf, replyItems } from '@gugu/session-core/session-record/reply-process';
 import { resolveSeamGap } from '@session-chat/core/spacing';
 import type { FoldGate, ItemSegmenter, Margin, RenderUnit, SegmentCtx } from '@session-chat/core/units';
 import { stampGroupRoles } from '@session-chat/core/units';
 import { localDayKey } from '@session-chat/lib/day-boundary';
-import type { ChatItem, ChatMessage, SyntheticItem, TranscriptTurn } from '@session-chat/model';
+import type { ChatItem, ChatMessage, SyntheticItem, TranscriptItem, TranscriptTurn } from '@session-chat/model';
 import { fileChangeSummary, successfulFileDiff } from '@session-chat/state/file-change-summary';
 import { collectOpenedOutputs, openedOutputKey, outputsOfRun } from '@session-chat/state/opened-outputs';
-import { tallyToolRun, toolRunCategory, toolRunLabel } from '@session-chat/state/tool-run';
+import { tallyToolRun, toolRunCategory, toolRunLabel, toolRunNow } from '@session-chat/state/tool-run';
 import { completedTurnResult, itemIsUser, pendingTurnHeader, placeholderTurnHeader, planTurnFoldRuns, turnFoldView, turnProcessExpanded } from '@session-chat/state/turn-fold';
 
 export { planTurnFold, turnProcessId } from '@session-chat/state/turn-fold';
@@ -147,6 +148,20 @@ function isSubagentChild(item: ChatItem | SyntheticItem): boolean {
   return 'parentToolCallId' in item && Boolean(item.parentToolCallId);
 }
 
+/** The call a sent reply (`withSentReplies`, id `<call id>:sent:<message id>`) was copied out of. */
+const sentReplyCall = (id: string): string | undefined => /^(.*):sent:[^:]+$/.exec(id)?.[1];
+
+/** Drop the sent replies whose call renders as an agent-send. */
+function withoutSentRepliesOfAgentSends(turn: TranscriptTurn): TranscriptTurn {
+  const sends = new Set(replyItems(turn).filter((item) => agentSendOf(item, turn)).map((item) => item.id));
+  if (sends.size === 0) return turn;
+  const drawnAsSend = (item: TranscriptTurn['items'][number]) => {
+    const call = item.kind === 'message' ? sentReplyCall(item.id) : undefined;
+    return call !== undefined && sends.has(call);
+  };
+  return turn.items.some(drawnAsSend) ? { ...turn, items: turn.items.filter((item) => !drawnAsSend(item)) } : turn;
+}
+
 export function flattenTier(
   turns: readonly TranscriptTurn[],
   ctx: SegmentCtx,
@@ -157,6 +172,15 @@ export function flattenTier(
 ): RenderUnit[] {
   turns = turns.map(turn => withSentReplies(turn, { allDestinations: ctx.agentConversation }));
   if (ctx.agentConversation) turns = conversationMessages(turns);
+  // One send, drawn once. On the session page the call itself is drawn as the agent's words (agent-send, below), so the
+  // reply copied out of it goes. In the agent conversation the copy is the reply bubble that carries the turn's process
+  // footer and the quote anchor, so there the call stays an ordinary tool call (`sentReplyCalls`).
+  const sentReplyCalls = new Set<string>();
+  if (ctx.agentConversation) for (const turn of turns) for (const item of turn.items) {
+    const call = item.kind === 'message' ? sentReplyCall(item.id) : undefined;
+    if (call !== undefined) sentReplyCalls.add(call);
+  }
+  else turns = turns.map(withoutSentRepliesOfAgentSends);
   const out: RenderUnit[] = [];
 
   // Hoist stable per-call values so processItem allocates nothing per seam.
@@ -199,6 +223,9 @@ export function flattenTier(
     out.push(...group);
   };
 
+  /** 正在发的这一轮:agent 说出去的话发到哪,要看它当时在回哪一条投递(`agentSendOf`)。 */
+  let sendTurn: TranscriptTurn | undefined;
+
   /**
    * 把一串过程行排成要发出的单元：**连续的工具调用**折成一句（#4981，owner 2026-09-06：
    * 「连续的 tool call 可以被折叠……除了 ai 文本以外都语义化折叠」）。分类与切段规则在
@@ -233,7 +260,11 @@ export function flattenTier(
   const emitOps = (ops: readonly EmitOp[], turnId: string, folds: readonly FoldGate[] = []): void => {
     for (const op of ops) {
       if (op.kind === 'row') {
-        processItem(op.item, folds);
+        // agent 经 message_send / session_message 说的话:画成它说的话、标明发到了哪里,❌ 一行「调用了 MCP 工具」。
+        const send = 'toolCallId' in op.item && !sentReplyCalls.has(op.item.id) ? agentSendOf(op.item as TranscriptItem, sendTurn) : null;
+        processItem(send
+          ? { kind: 'agent-send', id: op.item.id, turnId, send, status: (op.item as { status?: string }).status === 'running' ? 'running' : 'done' }
+          : op.item, folds);
         continue;
       }
       const runId = toolRunId(turnId, op.rows[0].id);
@@ -244,6 +275,8 @@ export function flattenTier(
           const status = 'status' in row ? (row as { status?: string }).status : undefined;
           return status === 'running' || (row.kind === 'thinking' && status === 'thinking');
         });
+      // 跑着时这一句只说做了多少;此刻在跑哪条命令 / 在想,接在后面(`toolRunNow`),跑完自然恢复原样。
+      const now = live ? toolRunNow(op.rows) : null;
       processItem({
         kind: 'tool-run',
         id: runId,
@@ -251,6 +284,7 @@ export function flattenTier(
         label: toolRunLabel(tallyToolRun(op.rows), ctx.translate),
         stepCount: op.rows.length,
         ...(live ? { live: true as const } : {}),
+        ...(now ? { now } : {}),
       }, folds);
       if (ctx.revealAllFolds || (ctx.isTurnProcessExpanded?.(runId) ?? false)) {
         for (const row of op.rows) processItem(row, [...folds, { id: runId, stored: true }]);
@@ -281,6 +315,7 @@ export function flattenTier(
   for (let turnIndex = 0; turnIndex < turns.length; turnIndex++) {
     const turn = turns[turnIndex];
     if (absorbed[turnIndex]) continue;
+    sendTurn = turn as TranscriptTurn;
     // Day boundary (#3334 row 20). A turn with no `startedAt` came from provider
     // replay and carries no authentic clock, so it neither opens a new day nor
     // closes the current one — it is simply not evidence about the calendar.

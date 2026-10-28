@@ -896,7 +896,13 @@ export async function openPhoneLink(target: string | GuguLinkTarget) {
       if (!opened) throw new Error('The App did not open')
       return opened
     },
-    openResource: async (resource) => { await openLinkTarget(resource) },
+    openResource: (resource) => openLinkTarget(resource),
+    bringUp: async ({ sessionId }) => {
+      const listed = listedSession(readCachedDevices(), liveDeviceSessions(), sessionId)
+      if (!('row' in listed)) throw new Error('Session is not in your task list')
+      const { APP_SHOW_SESSION_EVENT } = await import('../../session/shared/extensions/app-runtime-protocol')
+      window.dispatchEvent(new CustomEvent(APP_SHOW_SESSION_EVENT, { detail: listed.row }))
+    },
     deliver: (extensionId, event, opened) => {
       const place = opened === 'own' ? null : opened
       openingLinks.push({ extensionId, event, chatId: place && 'chat' in place ? place.chat : null, itemId: null, ...(place && 'session' in place ? { sessionId: place.session } : {}), expiresAt: Date.now() + OPENING_LINK_TTL_MS })

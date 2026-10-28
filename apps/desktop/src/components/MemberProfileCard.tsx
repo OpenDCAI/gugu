@@ -15,6 +15,10 @@ import { useAgentDisplayStatus } from '../hooks/useAgentDisplayStatus'
 import { Button } from './ui/Button'
 import { cn } from '@/lib/cn'
 import { CommunityPointsTag } from './forum/CommunityPointsTag'
+import { useAgentSession } from '@/lib/projectGroupChatsBridge'
+import { useMobileShell } from '@/hooks/useMobileShell'
+import { useAgentSessionRow } from '@/mobile/agent-watch/useAgentSessionRow'
+import type { AgentSession } from '@/session/renderer/features/projects/stores/project-group-chats-bridge'
 
 // @@@float-one-edge (Refs #6104) — 名片是浮层:圆角 xl(12) + 一层 lift,❌ 不再叠描边。
 const profileCardClass = 'gg-pop w-[284px] overflow-hidden rounded-xl bg-[var(--bg-elevated)] text-[var(--text-primary)] shadow-[var(--shadow-lift)]'
@@ -122,6 +126,8 @@ export type MemberProfileChatTarget = {
   email: string | null
   bio: string | null
   type: GroupMemberType
+  /** 这个 agent 是某台机器上的一条会话:「发消息」打开的是它的会话页,❌ 另开一个空私聊。 */
+  session?: AgentSession
 }
 
 // @@@profile-edit-controls - Rendered for a group owner/admin (role, remove) and for an agent's owner
@@ -221,8 +227,18 @@ export function MemberProfileCard({
   const { presence } = useAgentDisplayStatus(isAgent ? member.id : null)
   const statusLabel = useAgentContactStatusLabel(status, presence.presentation)
   const { user } = useAuth()
+  // Desktop: the session bridge the task bundle publishes. The phone has no such bundle: it finds the agent's session in
+  // its session directory, as its agent chat header and Partners rows do (#673, #658).
+  const phone = useMobileShell()
+  const bridged = useAgentSession(isAgent && !phone ? member.id : null)
+  const row = useAgentSessionRow(isAgent && phone ? member.id : null)
+  const session: AgentSession | undefined = phone
+    ? (row ? { projectId: row.session.projectId, sessionId: row.session.conversationId } : undefined)
+    : bridged
   // 别人的 agent 不能私聊(#509):不画能点的「发消息」(#6832)。通讯录那边同一条规则见 ContactsPanel 的 isOwnedAgent。
-  const canOpenChat = !!onOpenChat && (!isAgent || member.ownerUserId === user?.id)
+  // An agent's「发消息」opens its session and nothing else (#622): no session found → no button, ❌ a DM fallback. The DM
+  // itself stays reachable where the product offers it; only this entry is closed.
+  const canOpenChat = !!onOpenChat && (!isAgent || (member.ownerUserId === user?.id && !!session))
   const editBusy = !!editControls?.busy
   const showEdits = isGroupProfile && (editControls?.canChangeRole || editControls?.canRemove)
   const roleLabel = member.role === 'owner' ? t('profile.roles.owner') : member.role === 'admin' ? t('profile.roles.admin') : t('profile.roles.member')
@@ -254,6 +270,7 @@ export function MemberProfileCard({
       email: member.email,
       bio: member.bio ?? null,
       type: member.type,
+      session,
     })
   }
 

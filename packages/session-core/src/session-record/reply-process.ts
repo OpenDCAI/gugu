@@ -34,8 +34,63 @@ function sourceChatMatches(facts: DeliveryReadFacts, chatId: unknown): boolean {
     && source.chatId === chatId;
 }
 
+function isRootGuguTool(item: ToolCallItem, tool: string): item is McpToolCall {
+  return item.kind === 'mcp-tool-call' && item.tool === tool && isGuguServer(item.server) && !item.parentToolCallId;
+}
+
 function isRootSend(item: ToolCallItem): item is McpToolCall {
-  return item.kind === 'mcp-tool-call' && item.tool === 'message_send' && isGuguServer(item.server) && !item.parentToolCallId;
+  return isRootGuguTool(item, 'message_send');
+}
+
+/** Where an agent's own send went, as the session timeline names it. */
+export type AgentSendTarget =
+  | {
+      kind: 'chat';
+      /** The conversation the person can name (host `chatName`); null when the agent addressed it by number only. */
+      conversationId: string | null;
+      /** The thread this session is bound to: a send to the delivery's own chat lands there (the server, not the agent, picks it). */
+      threadRootId: string | null;
+      whisper: boolean;
+    }
+  | { kind: 'session'; count: number };
+
+export type AgentSend = { text: string; to: AgentSendTarget };
+
+const CONVERSATION_ID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
+/** The delivery that the agent was answering when it made this call: the last input before it in the turn. */
+function inputFactsBefore(turn: TranscriptTurn, item: TranscriptItem): DeliveryReadFacts | null {
+  const items = replyItems(turn);
+  const end = items.indexOf(item);
+  const input = items.slice(0, end < 0 ? items.length : end).findLast((it) => it.kind === 'message' && it.role === 'user');
+  if (input?.kind !== 'message') return null;
+  const facts = readDeliveryEnvelope(input.text)?.segments.at(-1)?.facts;
+  return facts?.route === 'chat' ? facts : null;
+}
+
+/**
+ * What the agent said through 咕咕 instead of in its own reply: a top-level `message_send` / `session_message` with its
+ * text. The session timeline shows it as the agent speaking, with where it went (desktop flatten and the phone's
+ * thread-messages read this one function, like `openedOutputOf`). A failed call, a subagent's, or one whose input was
+ * cut in transport (no parsable text) stays an ordinary tool row: its reason or its args are what there is to read.
+ * Without `turn` it only answers "is this a send" (tool-run and turn-fold do not need the destination).
+ */
+export function agentSendOf(item: TranscriptItem, turn?: TranscriptTurn): AgentSend | null {
+  if (!('toolCallId' in item) || item.status === 'error') return null;
+  const relay = isRootGuguTool(item, 'session_message');
+  if (!relay && !isRootSend(item)) return null;
+  let args: Record<string, unknown>;
+  try {
+    args = JSON.parse(item.rawInput ?? '') as Record<string, unknown>;
+  } catch { return null; }
+  if (!args || typeof args.text !== 'string' || !args.text.trim()) return null;
+  if (relay) return { text: args.text, to: { kind: 'session', count: Array.isArray(args.to) ? args.to.length : 0 } };
+  const whisper = args.whisper === true;
+  const facts = turn ? inputFactsBefore(turn, item) : null;
+  const here = facts !== null && sourceChatMatches(facts, args.chat_id);
+  const linked = here && facts.sourceLink ? parseConversationLink(facts.sourceLink)?.chatId ?? null : null;
+  const conversationId = linked ?? (typeof args.chat_id === 'string' && CONVERSATION_ID.test(args.chat_id) ? args.chat_id.toLowerCase() : null);
+  return { text: args.text, to: { kind: 'chat', conversationId, threadRootId: here && !whisper ? facts.thread : null, whisper } };
 }
 
 /** Only the explicit send to this input's destination can preview an IM reply. */
