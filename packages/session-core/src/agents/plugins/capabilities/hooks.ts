@@ -49,6 +49,11 @@ export type HarnessPresenceFile = {
   directory: string;
   /** 一份在场文件的内容 → 读数。缺字段、出现不认识的取值 ⇒ 抛(协议变了,❌ 猜)。 */
   parse(text: string): HarnessPresence;
+  /**
+   * 从一条 hook 的负载读出 harness 自己实际用的配置目录(它可能被包装器在进程里改过,宿主的 env 里看不到);
+   * 负载里没有 / 认不出 = `null`。
+   */
+  configRootOfHook?(body: Record<string, unknown>): string | null;
 };
 
 /** 与 `HOOK_EVENTS` 同一份词表(`supportedEvents` = 这一家的 hook 产物真报得出的规范边,#5922)。 */
