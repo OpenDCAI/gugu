@@ -40,8 +40,10 @@ class TabFullscreen {
           event.preventDefault();
           this.exit();
         };
-        window.addEventListener('keydown', onKey);
-        const stop = reaction(() => this.target !== null, (still) => { if (!still) { window.removeEventListener('keydown', onKey); stop(); } });
+        // 捕获阶段:冒泡到 window 之前,应用里别的键盘处理会把 Esc 拦下(实机量到:冒泡那一层收不到)。先看 escapeIsFree,
+        // 该给别人的不碰;退出了就 preventDefault,让后面的处理知道这一下已经用掉了(❌ stopPropagation)。
+        window.addEventListener('keydown', onKey, true);
+        const stop = reaction(() => this.target !== null, (still) => { if (!still) { window.removeEventListener('keydown', onKey, true); stop(); } });
       },
     );
   }
