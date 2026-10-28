@@ -83,7 +83,12 @@ export interface FileSurface {
 export interface FilesPlatform {
   /** Installed identity, never an identity supplied by the App page. */
   appIdentity?(extensionId: string): OwnerIdentity | null;
-  publishFile?(chatId: string, file: AppFileUpload, parentId: string | null, actor: string, store?: () => Promise<ItemRow>): Promise<ItemRow | null>;
+  /**
+   * The host's project file publisher: null when this is not the machine a project chat keeps its files on (or the chat
+   * uploads them), so the ordinary uploader decides. `next` makes it that file's next version, from the version named.
+   */
+  publishFile?(chatId: string, file: AppFileUpload, parentId: string | null, actor: string, store?: () => Promise<ItemRow>,
+    options?: { next?: { itemId: string; expectedVersion: number } }): Promise<ItemRow | null>;
   /** Delegates to the one file resolver; localOnly performs no cloud lookup or byte read. */
   resolveFile?(ref: ChatFileRef, actorId: string | null, options: { localOnly?: boolean; version?: number }): Promise<ResolvedFile | null>;
   /** The signed-in account; throw `AppFileError('failed', …)` when there is none. */
@@ -477,6 +482,25 @@ const ATTACHMENTS_CODES: Readonly<Record<string, AppFileError['code']>> = {
   too_large: 'too-large',
 };
 
+/**
+ * Every layer's way of saying that only the machine a project chat keeps its files on may change them: the host
+ * publisher, the cloud upload a project chat refuses, and the database's read-only fence.
+ */
+const KEPT_ON_HOST = /Only the bound (file )?host|not uploaded proactively|Remote project files are read-only|Local revisions must be published by the host/;
+
+/**
+ * That refusal said for people, or null when `error` is another one: whose computer keeps the file, that only an agent
+ * there can change it, and that nothing was changed — never the layers' words for it ("published by the host").
+ */
+async function keptOnHostError(token: string, row: ItemRow, actor: string, identities: Identities, error: unknown): Promise<AppFileError | null> {
+  if (!KEPT_ON_HOST.test(error instanceof Error ? error.message : String(error))) return null;
+  const on = (await storedOnOf(token, [{ ...row, kind: 'file', pointer: null }], identities, actor).catch(() => null))?.get(row.chat_id);
+  const where = !on ? 'another computer'
+    : on.mine ? (on.machine ? `your computer "${on.machine}"` : 'another of your computers')
+    : `${on.owner}'s computer`;
+  return new AppFileError('denied', `${row.filename} was not changed: this project chat keeps its files on ${where}, and only an agent on that computer can change them. Nothing was changed.`, { reason: 'kept-on-host' });
+}
+
 /** The code a refusal keeps on its way out: the door's own, or what attachments/* said; anything else failed. */
 function refusalCode(error: unknown): AppFileError['code'] {
   if (error instanceof AppFileError) return error.code;
@@ -811,7 +835,8 @@ export function createAppFiles(platform: FilesPlatform) {
       throw new AppFileError('invalid', 'files.move(file, { folder, name }) puts it in another folder, renames it, or both: say which');
     }
     const { row } = await resolve(surface, { token, userId }, args.ref);
-    const moved = await agentRow(token, 'workspace_move_as', { p_item_id: row.id, p_as_user_id: surface.asAgent ?? userId, p_folder: folder ?? null, p_name: name });
+    const moved = await agentRow(token, 'workspace_move_as', { p_item_id: row.id, p_as_user_id: surface.asAgent ?? userId, p_folder: folder ?? null, p_name: name })
+      .catch(async (error: unknown) => { throw await keptOnHostError(token, row, surface.asAgent ?? userId, platform.identities, error) ?? error; });
     return entryOne(token, { ...moved, metadata: row.metadata }, surface.asAgent ?? userId);
   }
 
@@ -1091,6 +1116,22 @@ export function createAppFiles(platform: FilesPlatform) {
       // Gone by already: refused before a byte goes. The database checks again.
       if (row.version !== expected) throw replacedSinceError(row.filename, row.version, expected);
       const contentType = file.contentType || row.content_type;
+      const actor = surface.asAgent ?? userId;
+      // A project chat that keeps its files on this machine: its next version stays here too, published by the host
+      // (gugu-supabase file_device_publish, from the version read). Null anywhere else: the cloud path below decides.
+      let published: ItemRow | null = null;
+      try {
+        published = await platform.publishFile?.(row.chat_id, { name: row.filename, contentType, bytes: file.bytes }, row.parent_id, actor,
+          undefined, { next: { itemId: row.id, expectedVersion: expected } }) ?? null;
+      } catch (error) {
+        if (/File revision conflict/.test(error instanceof Error ? error.message : String(error))) {
+          const { row: now } = await resolve(surface, { token, userId }, args.ref);
+          throw replacedSinceError(row.filename, now.version, expected);
+        }
+        throw await keptOnHostError(token, row, actor, platform.identities, error)
+          ?? new AppFileError(refusalCode(error), `${row.filename} was not replaced: ${error instanceof Error ? error.message : String(error)}`);
+      }
+      if (published) return entryOne(token, { ...published, metadata: row.metadata }, actor);
       // #7290 gugu-3: the bytes go to OSS (attachments/upload) and the server makes them the next version (attachments/place);
       // an upload the server refused is nobody's and goes on its own (unclaimed uploads expire).
       const endpoint = configuredEndpoint(token);
@@ -1103,7 +1144,8 @@ export function createAppFiles(platform: FilesPlatform) {
       } catch (error) {
         const changed = error instanceof AttachmentsError && error.code === 'version_conflict' ? /got (\d+)/.exec(error.message) : null;
         if (changed) throw replacedSinceError(row.filename, Number(changed[1]), expected);
-        throw new AppFileError(refusalCode(error), `${row.filename} was not replaced: ${error instanceof Error ? error.message : String(error)}`);
+        throw await keptOnHostError(token, row, actor, platform.identities, error)
+          ?? new AppFileError(refusalCode(error), `${row.filename} was not replaced: ${error instanceof Error ? error.message : String(error)}`);
       }
       // Versions older than the 50 kept, from before the switch, still have their bytes in the workspace bucket.
       const pruned = replaced.pruned_pointers ?? [];
@@ -1166,6 +1208,8 @@ export function createAppFiles(platform: FilesPlatform) {
             .slice(index)
             .map((f) => f.name)
             .join(', ');
+          const kept = await keptOnHostError(token, { chat_id: chatId, filename: name, kind: 'file', pointer: null } as ItemRow, actor, platform.identities, error);
+          if (kept) throw kept;
           const why = error instanceof Error ? error.message : String(error);
           // The door's own refusal keeps its code (and detail) — the App branches on it; anything else failed.
           throw new AppFileError(refusalCode(error), `Upload stopped at ${name} (${why}); not uploaded: ${notIn}`, error instanceof AppFileError ? error.detail : undefined);
