@@ -11,7 +11,7 @@ import { messageActionItems, type MessageActionTarget } from './messageActionIte
  * 手机长按贴着气泡弹出(owner 10-26 v7.12:❌ 底部抽屉);传了 selectableText 就多一项「选择文本」,
  * 在同一只浮层里换成可选中的原文,挑一段复制。
  */
-export function MsgMoreMenu({ hasHoverBar, onReact, onClose, selectableText, isRetracted, content, onReply, onQuoteSelection, onCopy, resource, onCopyLink, onOpenLink, onForward, onDownload, onDelete, onSelect, onOpenTopic, ...anchor }: MenuAnchorProps & MessageActionTarget & MessageMenuCapabilities & {
+export function MsgMoreMenu({ hasHoverBar, onReact, onClose, selectableText, isRetracted, content, onReply, onQuoteSelection, onCopy, onCopyLink, onOpenLink, onForward, onDownload, onDelete, onSelect, onOpenTopic, ...anchor }: MenuAnchorProps & MessageActionTarget & MessageMenuCapabilities & {
   onReact: (emoji: string) => void
   onClose: () => void
   selectableText?: string
@@ -33,7 +33,7 @@ export function MsgMoreMenu({ hasHoverBar, onReact, onClose, selectableText, isR
     document.addEventListener('selectionchange', remember)
     return () => document.removeEventListener('selectionchange', remember)
   }, [selecting])
-  const target = { isRetracted, content, onReply, onQuoteSelection, onCopy, resource, onCopyLink, onOpenLink, onForward, onDownload, onDelete, onSelect, onOpenTopic,
+  const target = { isRetracted, content, onReply, onQuoteSelection, onCopy, onCopyLink, onOpenLink, onForward, onDownload, onDelete, onSelect, onOpenTopic,
     onSelectText: selectableText && !isRetracted ? () => setSelecting(true) : undefined }
   const copyPicked = () => { onCopy?.(picked.current || window.getSelection()?.toString() || undefined); onClose() }
   return (

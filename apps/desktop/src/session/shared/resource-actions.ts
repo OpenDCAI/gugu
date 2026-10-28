@@ -1,6 +1,9 @@
 import type { GuguLinkTarget } from '@gugu/core/shared/ui/guguLink'
 
-/** Resource hosts supply the kind and facts; these declarations never infer intent from text. */
+/** Resource hosts supply the kind and facts; these declarations never infer intent from text.
+ *  Every menu places these as one trailing group behind a separator, only ahead of a destructive item (uninstall,
+ *  delete); a resource's own right-click menu (ResourceMenu) is just them. ❌ A message's menu: the file or App has its
+ *  own (its card, its preview), and the bubble's menu stays short (owner, #560). */
 export const RESOURCE_ACTIONS = [
   { id: 'copy-resource-url', labelKey: 'resources.copyUrl' },
   { id: 'send-resource-url', labelKey: 'resources.sendTo' },
