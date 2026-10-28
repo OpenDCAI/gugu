@@ -79,10 +79,16 @@ export function sectionOf(iso, now) {
 /** The orders the person picks: the newest change first (with sections), by name, the largest first. */
 export const SORTS = ['recent', 'name', 'size']
 
+/** Display names, then unique ids: a refreshed list or an unchanged event must not move tied entries. */
+export function compareNames(a, b, nameOf, locale, numeric = false) {
+  return nameOf(a).localeCompare(nameOf(b), locale || undefined, { numeric })
+    || (a.id < b.id ? -1 : a.id > b.id ? 1 : 0)
+}
+
 export function comparer(sort, nameOf, changedAt, locale) {
-  if (sort === 'name') return (a, b) => nameOf(a).localeCompare(nameOf(b), locale || undefined, { numeric: true })
-  if (sort === 'size') return (a, b) => (b.size ?? -1) - (a.size ?? -1) || nameOf(a).localeCompare(nameOf(b), locale || undefined)
-  return (a, b) => (Date.parse(changedAt(b)) || 0) - (Date.parse(changedAt(a)) || 0)
+  if (sort === 'name') return (a, b) => compareNames(a, b, nameOf, locale, true)
+  if (sort === 'size') return (a, b) => (b.size ?? -1) - (a.size ?? -1) || compareNames(a, b, nameOf, locale)
+  return (a, b) => (Date.parse(changedAt(b)) || 0) - (Date.parse(changedAt(a)) || 0) || compareNames(a, b, nameOf, locale)
 }
 
 /**

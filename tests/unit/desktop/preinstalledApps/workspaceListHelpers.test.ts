@@ -54,6 +54,35 @@ describe('workspace list helpers', () => {
     expect([...files].sort(comparer('name', name, at, 'en')).map(name)).toEqual(['a2', 'a10', 'b', 'c'])
     expect([...files].sort(comparer('size', name, at, 'en')).map(name)).toEqual(['a2', 'b', 'a10', 'c'])
   })
+
+  test.each(['recent', 'size', 'name'])('%s ties use names then ids regardless of input order', (sort) => {
+    const files = [
+      { id: 'z', name: 'report', size: 5, at: '2026-10-28T12:00:00Z' },
+      { id: 'a', name: 'report', size: 5, at: '2026-10-28T12:00:00Z' },
+      { id: 'n', name: 'notes', size: 5, at: '2026-10-28T12:00:00Z' },
+    ]
+    const compare = comparer(sort, (e: typeof files[number]) => e.name, (e: typeof files[number]) => e.at, 'en')
+    for (const input of [files, [...files].reverse(), [files[1]!, files[2]!, files[0]!]]) {
+      expect([...input].sort(compare).map((e) => e.id)).toEqual(['n', 'a', 'z'])
+    }
+  })
+
+  test('recent order still puts newer timestamps before names and missing timestamps last', () => {
+    const files = [
+      { id: 'missing', name: 'a', at: '' },
+      { id: 'older', name: 'b', at: '2026-10-27T12:00:00Z' },
+      { id: 'newer', name: 'z', at: '2026-10-28T12:00:00Z' },
+    ]
+    expect(files.sort(comparer('recent', (e: typeof files[number]) => e.name, (e: typeof files[number]) => e.at, 'en'))
+      .map((e) => e.id)).toEqual(['newer', 'older', 'missing'])
+  })
+
+  test('numeric-equivalent names and absent timestamps still have an id order', () => {
+    const files = [{ id: 'z', name: 'a2' }, { id: 'a', name: 'a02' }]
+    const name = (e: typeof files[number]) => e.name
+    expect([...files].sort(comparer('name', name, () => '', 'en')).map((e) => e.id)).toEqual(['a', 'z'])
+    expect([...files].sort(comparer('recent', name, () => '', 'en')).map((e) => e.id)).toEqual(['a', 'z'])
+  })
 })
 
 describe('workspace list filters and views', () => {

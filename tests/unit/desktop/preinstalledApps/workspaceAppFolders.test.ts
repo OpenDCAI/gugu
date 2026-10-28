@@ -9,7 +9,8 @@ import { resolve } from 'node:path'
 import { beforeAll, beforeEach, describe, expect, test, vi } from 'vitest'
 import { until } from '../../../support/awaitCondition'
 
-const ago = (seconds: number) => new Date(Date.now() - seconds * 1000).toISOString()
+// Every entry shares one fixed clock: creation order must not become a newer timestamp across a millisecond boundary.
+const ago = (seconds: number) => new Date(Date.parse('2026-10-28T12:00:00Z') - seconds * 1000).toISOString()
 type Entry = { id: string; name: string; displayName: string; type: string; contentType: string; parentId: string | null; path: string; systemRole: string | null; version: number; createdBy: { id: string; name: string; kind: string }; createdAt: string; updatedAt: string; sourceMessageIds: string[]; canDelete: boolean }
 const me = { id: 'u1', name: '张三', kind: 'human' }
 const entry = (id: string, name: string, type: string, parentId: string | null, path: string, more: Partial<Entry> = {}): Entry => ({
@@ -136,6 +137,37 @@ beforeEach(async () => {
 })
 
 describe('the folder on screen', () => {
+  test.each(['refresh', 'event'])('equal timestamps keep name order after an unchanged %s', async (change) => {
+    ENTRIES.find((e) => e.id === 'notes')!.updatedAt = ago(60)
+    ENTRIES.push(entry('other', 'other.md', 'text', null, 'other.md'))
+    await refreshed()
+    expect(names()).toEqual(['合同', 'notes.md', 'other.md', 'shot.png'])
+    if (change === 'refresh') {
+      ENTRIES.reverse()
+      await refreshed()
+    } else {
+      const [, changed] = gugu.files.onChanged.mock.calls.at(-1) as unknown as [unknown, (change: unknown) => void]
+      changed({ kind: 'entries', entries: [{ ...ENTRIES.find((e) => e.id === 'notes')! }], gone: [] })
+    }
+    expect(names()).toEqual(['合同', 'notes.md', 'other.md', 'shot.png'])
+  })
+
+  test('same-name folders from different paths keep id order in search after refresh and events', async () => {
+    ENTRIES.push(entry('z-folder', 'shared', 'folder', 'contracts', '合同/shared'))
+    ENTRIES.push(entry('a-folder', 'shared', 'folder', 'y2026', '合同/2026/shared'))
+    await refreshed()
+    ;($('filter') as HTMLInputElement).value = 'shared'
+    $('filter').dispatchEvent(new Event('input'))
+    const ids = () => [...$('file-list').querySelectorAll<HTMLElement>('.file')].map((e) => e.dataset.id)
+    expect(ids()).toEqual(['a-folder', 'z-folder'])
+    ENTRIES.reverse()
+    await refreshed()
+    expect(ids()).toEqual(['a-folder', 'z-folder'])
+    const [, changed] = gugu.files.onChanged.mock.calls.at(-1) as unknown as [unknown, (change: unknown) => void]
+    changed({ kind: 'entries', entries: [{ ...ENTRIES.find((e) => e.id === 'a-folder')! }], gone: [] })
+    expect(ids()).toEqual(['a-folder', 'z-folder'])
+  })
+
   // owner 10-28: what was sent in the chat is not one folder further down — 「附件」's files are at the top with the rest.
   test('the top: folders first, then the files there and in 「附件」 (no 「附件」 row); inside a folder only what is in it', async () => {
     expect(names()).toEqual(['合同', 'notes.md', 'shot.png'])
