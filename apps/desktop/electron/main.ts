@@ -1778,9 +1778,19 @@ function assistantWorkDeliveryHost(): AssistantWorkOutboxHost {
 /**
  * 远程隧道 · 这台 server 这一头(server/tunnel-endpoint.ts):账号进程起来后起一次。没起成(这个构建没配中转、
  * 包里没有 frpc、端口开不出来)就把原因留着,别的电脑来要 `tunnel.open` 时如实答 —— ❌ 装作没有这个动作。
+ * 还认不出本机设备 id(开机那一刻连不上咕咕云)不算没起成:设备运行时认出来、续上租约时再起(见 onRuntimeLeaseRenewed),
+ * ❌ 就此不起、等到下次重启(10-28:juma 每小时那一分钟断网,隧道断到重启为止)。
  */
 let tunnelEndpoint: TunnelEndpoint | null = null
 let tunnelEndpointProblem = '远程隧道还在启动'
+/** 起隧道这件事:还在起 / 起好了 / 起不了(不是缺设备 id)都不再起;只有「还没有设备 id」那一种留给下一次。 */
+let tunnelEndpointStart: Promise<void> | null = null
+let tunnelEndpointSettled = false
+
+function ensureServerTunnelEndpoint(): void {
+  if (!SERVER_MODE || tunnelEndpointSettled || tunnelEndpointStart) return
+  tunnelEndpointStart = startServerTunnelEndpoint().finally(() => { tunnelEndpointStart = null })
+}
 
 function tunnelRpcHandlers(): DeviceRpcHandlers {
   if (!SERVER_MODE) return {}
@@ -1794,6 +1804,14 @@ function tunnelRpcHandlers(): DeviceRpcHandlers {
 
 async function startServerTunnelEndpoint(): Promise<void> {
   const log = createLogger('server/tunnel')
+  // 认出设备 id 之前什么都不开(❌ 先开 ssh 监听、再发现没有 id 而丢下一个开着的端口)。
+  const deviceId = await localDeviceId()
+  if (!deviceId) {
+    tunnelEndpointProblem = '远程隧道起不来:这台机器还没有设备 id(连上咕咕云后会自己起)'
+    log.warn({}, tunnelEndpointProblem)
+    return
+  }
+  tunnelEndpointSettled = true
   if (!REMOTE_TUNNEL_OPEN) return
   const relay = resolveRelayEndpoint(process.env)
   if (!relay) {
@@ -1824,7 +1842,7 @@ async function startServerTunnelEndpoint(): Promise<void> {
     tunnelEndpoint = await startTunnelEndpoint({
       dataDir: app.getPath('userData'),
       accountUserId,
-      deviceId: () => localDeviceId(),
+      deviceId: async () => deviceId,
       relay,
       frpcBinary,
       log: { info: (message, fields) => log.info(fields ?? {}, message), warn: (message, fields) => log.warn(fields ?? {}, message) },
@@ -2024,7 +2042,8 @@ function startDeviceRuntimeWhenRendererReady(): void {
   })
   deviceRuntimeHost ??= createDeviceRuntimeHostLoop({
     env: process.env,
-    onRuntimeLeaseRenewed: () => { void assistantWorkDeliveryHost().kick() },
+    // 续上租约 = 这一轮认出了设备 id、写上了心跳:开机时没起成的远程隧道(那时还没有设备 id)在这里起。
+    onRuntimeLeaseRenewed: () => { void assistantWorkDeliveryHost().kick(); ensureServerTunnelEndpoint() },
     authProvider: hostAuthProvider,
     makeIdentityClient: (accessToken) =>
       makeIdentityClient(accessToken) as unknown as DeviceRuntimeIdentityClient,
@@ -6083,7 +6102,7 @@ app.whenReady().then(async () => {
           const stopResumeGapWatch = watchHostResumeGap(resumeAccountMessaging)
           app.once('will-quit', stopResumeGapWatch)
           // 远程隧道:别的电脑经中转连到这里的终端 / 浏览器 / 端口(不挡启动,失败原因留给 tunnel.open 答)。
-          void startServerTunnelEndpoint()
+          ensureServerTunnelEndpoint()
         }
         // #6264 桌面:会话页打开 SSH 装上的机器上的「编程」会话时,问这里怎么连。
         if (sshMachineStore) {
