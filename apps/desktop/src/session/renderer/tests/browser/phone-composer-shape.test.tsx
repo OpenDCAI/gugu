@@ -2,17 +2,20 @@ import { createRoot, type Root } from 'react-dom/client'
 import { afterEach, expect, it, vi } from 'vitest'
 import { page } from 'vitest/browser'
 import { ChatMessageComposer } from '@/components/chat/ChatMessageComposer'
+import { ChatBottomDock } from '@/components/chat/ChatBottomDock'
 import { LocalizationProvider } from '@/i18n'
 import { until } from '../../../../../../../tests/support/awaitCondition'
 import '@/i18n/registerMessagingCatalog'
 import '@/styles/tokens.css'
 import '@/mobile/phone-shell.css'
+import '@/session/renderer/features/assistant/assistant-today.css'
 import '@/mobile/phone-look.css'
 
 let root: Root | null = null
 let host: HTMLDivElement | null = null
 
 afterEach(() => {
+  document.documentElement.removeAttribute('data-theme')
   root?.unmount()
   host?.remove()
   root = null
@@ -42,4 +45,66 @@ it('a multi-line phone composer grows into a rounded rectangle, not a circle', a
   const { height, width } = box.getBoundingClientRect()
   expect(radius()).toBeLessThan(height / 4)
   expect(width, 'the box keeps its width while it grows').toBeGreaterThan(height)
+})
+
+function rgbOf(css: string): number[] {
+  const srgb = css.match(/color\(srgb ([\d.e-]+) ([\d.e-]+) ([\d.e-]+)/)
+  if (srgb) return [Number(srgb[1]), Number(srgb[2]), Number(srgb[3])]
+  const m = css.match(/rgba?\(([\d.]+),? ([\d.]+),? ([\d.]+)/)
+  if (!m) throw new Error(`unparsed color: ${css}`)
+  return [Number(m[1]) / 255, Number(m[2]) / 255, Number(m[3]) / 255]
+}
+function contrast(a: number[], b: number[]): number {
+  const lum = (c: number[]) => {
+    const [r, g, bl] = c.map((v) => (v <= 0.04045 ? v / 12.92 : ((v + 0.055) / 1.055) ** 2.4))
+    return 0.2126 * r! + 0.7152 * g! + 0.0722 * bl!
+  }
+  const [hi, lo] = [lum(a), lum(b)].sort((x, y) => y - x)
+  return (hi! + 0.05) / (lo! + 0.05)
+}
+
+/** 计算后的颜色的不透明度:rgb() = 1;rgba(..., a) / color(srgb ... / a) = a。 */
+function alphaOf(css: string): number {
+  const slash = css.match(/\/\s*([\d.]+)\s*\)$/)
+  if (slash) return Number(slash[1])
+  const rgba = css.match(/^rgba\([^)]*,\s*([\d.]+)\)$/)
+  return rgba ? Number(rgba[1]) : 1
+}
+
+// owner 10-28 手机试用:输入框完全透明,后面滚过的消息和输入的字叠在一起。
+it.each(['dark', 'light'] as const)('%s: the phone composer row has a solid backing over the messages behind it', async (theme) => {
+  await page.viewport(390, 844)
+  if (theme === 'light') document.documentElement.setAttribute('data-theme', 'light')
+  host = document.body.appendChild(document.createElement('div'))
+  host.setAttribute('data-phone-shell', '')
+  host.setAttribute('data-ta-scope', '')
+  host.style.cssText = 'position:relative;width:390px;height:600px;overflow:hidden;background:var(--ta-app-bg);color:var(--text-primary)'
+  root = createRoot(host)
+  root.render(
+    <LocalizationProvider>
+      <div data-test-messages="" style={{ fontSize: 40, lineHeight: '48px' }}>{Array.from({ length: 14 }, (_, index) => <p key={index}>消息 message {index}</p>)}</div>
+      <ChatBottomDock reserve={false}>
+        <div data-chat-composer="" style={{ padding: '8px 8px max(8px, env(safe-area-inset-bottom))' }}>
+          <ChatMessageComposer onSend={vi.fn(async () => {})} isGroupChat />
+        </div>
+      </ChatBottomDock>
+    </LocalizationProvider>,
+  )
+  await until('the phone composer has mounted', () => !!host?.querySelector('[data-slot="composer"][data-mobile] [contenteditable]'))
+  const dock = host.querySelector<HTMLElement>('[data-chat-bottom-dock]')!
+  const input = host.querySelector<HTMLElement>('[data-slot="composer-input"]')!
+  expect(alphaOf(getComputedStyle(input).backgroundColor), 'the input itself is opaque').toBe(1)
+  const band = getComputedStyle(dock.lastElementChild!, '::before')
+  expect(alphaOf(band.backgroundColor), 'the composer row is backed').toBeGreaterThanOrEqual(0.85)
+  const bandBox = dock.lastElementChild!.getBoundingClientRect()
+  expect(bandBox.height).toBeGreaterThan(input.getBoundingClientRect().height)
+  expect(Number.parseFloat(getComputedStyle(host).getPropertyValue('--chat-dock-h')), 'the message list reserves the dock height').toBeGreaterThanOrEqual(dock.getBoundingClientRect().height - 1)
+  await page.getByTestId('chat-composer').fill('Typed text stays readable')
+  const editor = host.querySelector<HTMLElement>('[contenteditable]')!
+  expect(contrast(rgbOf(getComputedStyle(editor).color), rgbOf(getComputedStyle(input).backgroundColor)), 'the typed text reads on the input').toBeGreaterThanOrEqual(4.5)
+  // 让一条消息正好一半压在输入那一行的底下,截图里看得出遮挡。
+  const list = host.querySelector<HTMLElement>('[data-test-messages]')!
+  const bandTop = dock.lastElementChild!.getBoundingClientRect().top - host.getBoundingClientRect().top
+  list.style.marginTop = `${((bandTop - 24) % 48 + 48) % 48}px`
+  await page.screenshot({ path: `phone-composer-backing-${theme}.png` })
 })

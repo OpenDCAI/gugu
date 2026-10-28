@@ -34,7 +34,15 @@ export default {
     "harnessReadFailed": "Couldn't read agent status. Please try again.",
     "harnessCancelFailed": "Couldn't cancel the installation. Please try again.",
     "introStart": "Set up my Gugu",
-    "introLater": "Look around first"
+    "introLater": "Look around first",
+    "terminalTitle": "Terminal",
+    "terminalSub": "Used to CLIs like Claude Code or Codex in a terminal? Turn it on to work with agents through a TUI.",
+    "terminalToggle": "Enable terminal",
+    "back": "Back",
+    "stepCount": "{{current}} / {{total}}",
+    "terminalLater": "Change it later in Settings → General",
+    "terminalPause": "Pause",
+    "terminalPlay": "Play"
   },
   "groupFile": {
     "notInGroup": "You are not in the chat this file belongs to"
