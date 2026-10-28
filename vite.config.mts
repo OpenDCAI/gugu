@@ -18,7 +18,7 @@ import {
 import { obfuscateOwnChunks, parseObfuscateFlag } from './scripts/obfuscate-own-chunks.mjs'
 import { monacoWorkerSingleBundlePlugin } from './scripts/monaco-worker-bundle.mjs'
 import { deterministicModuleSideEffects } from './scripts/deterministic-module-side-effects.mjs'
-import { announceActiveDb, applyActiveDbEnv } from './scripts/build-env-preflight.mjs'
+import { announceActiveDb, applyActiveDbEnv, PRODUCTION_DB_HOST } from './scripts/build-env-preflight.mjs'
 import { vanillaExtractPlugin } from '@vanilla-extract/vite-plugin'
 import solid from 'vite-plugin-solid'
 import { emdashAliasEntries } from './apps/desktop/electron/sessionpage/emdash-aliases.mjs'
@@ -144,6 +144,8 @@ const sessionMainVite: ElectronOptions['vite'] = {
     ...bakedSupabaseDefine,
     __GUGU_TIER__: JSON.stringify(guguTier),
     __GUGU_BUILD_DISTRIBUTION__: JSON.stringify(guguBuildDistribution),
+    // 给别的机器装哪条通道的 server 看连的是不是生产库(apps/desktop/electron/server/server-channel.ts)。
+    __GUGU_PRODUCTION_DB_HOST__: JSON.stringify(PRODUCTION_DB_HOST),
   },
   // 与渲染层同一条(@@@renderer-ascii-output,#6484):V8 把每个模块的源码常驻堆里,一个非 Latin-1 字符
   // 就让整份按双字节存。主进程与几个 helper 各自常驻一份(10-27 Linux 2 实测主进程堆 125 MB 里源码串 38.6 MB)。

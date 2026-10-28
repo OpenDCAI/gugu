@@ -134,6 +134,7 @@ import {
 } from '@gugu/core/cloud/remoteTunnel'
 import { startTunnelEndpoint, type TunnelEndpoint } from './server/tunnel-endpoint'
 import { findFrpc, frpcCandidates } from './server/frpc-runner'
+import { serverChannelForBackend } from './server/server-channel'
 import { createTunnelMachines, type TunnelMachines } from './server/tunnel-machines'
 import { TUNNEL_MACHINES_CHANNELS, type TunnelWant } from '../src/lib/tunnelMachines'
 import { machineDisplayName } from '@gugu/core/device/machineDisplayName'
@@ -665,6 +666,8 @@ registerFileViewerMenus(app, () => currentHostCatalog().fileViewerMenu, (error) 
 // @@@gugu-tier - inlined at build time by vite (define in vite.config.mts), default 'production'.
 declare const __GUGU_TIER__: string
 declare const __GUGU_BUILD_DISTRIBUTION__: string
+// 生产库的 host,与构建闸门(scripts/env-registry.cjs PRODUCTION_DB_HOST)同一个值。
+declare const __GUGU_PRODUCTION_DB_HOST__: string
 
 // @@@home-unify - one account home shared by desktop, CLI, and runtime host. The DEFAULT instance's
 if (!process.env.GUGU_HOME) {
@@ -2685,7 +2688,8 @@ const updateFeed = updateFeedUrl(updateChannel)
 const updateFeedConfig = updateFeedOptions(updateChannel, process.platform)
 
 // #6264「从桌面用 SSH 一步装好」(设置 → 设备 → 添加一台机器)。server 模式没有窗口、也没人在界面上点,不挂。
-// 装哪条通道跟桌面自己走:Beta 桌面装 Beta 的 server,其余(含开发构建)装正式版。
+// 装哪条通道跟这台桌面实际连的库走(server-channel.ts):连生产库装正式版,别的库装 Beta。
+const serverChannel = serverChannelForBackend(getSupabaseUrl(), __GUGU_PRODUCTION_DB_HOST__)
 // #6264「别的机器上的编程只给用 SSH 装上的机器」:这台桌面上用 SSH 装上的机器(本机映射,不上云)。
 const sshMachineStore = SERVER_MODE ? null : createSshMachineStore(defaultSshMachinesFile(app.getPath('userData')))
 // 这台桌面到远程 SSH 机器的设备连接,一台机器一条:窗口(经 ssh-link-ipc)与主进程(agent 的 session_* 跨机器)共用。
@@ -2766,7 +2770,7 @@ if (sshMachineStore) {
     }),
     log: (message, fields) => createLogger('server/ssh-link').info(fields ?? {}, message),
     // 那台机器的 server 太旧、连不上:当场替它升级(与添加时装同一条通道);#6264 换成和这台桌面(按设备 id 报)匹配的那一版。
-    upgradeChannel: updateChannel === 'beta' ? 'beta' : 'stable',
+    upgradeChannel: serverChannel,
     published: parseBuildDistribution(__GUGU_BUILD_DISTRIBUTION__) === 'published',
     desktopId: async () => (await getLocalDeviceSelfSnapshot())?.device_id ?? null,
     ...(tunnelMachines ? { tunnels: tunnelMachines } : {}),
@@ -2780,7 +2784,7 @@ if (!SERVER_MODE && sshMachineStore) {
   registerServerSshInstallIpc({
     getWindow: () => mainWindow,
     getAuth: () => desktopAuthProvider().getAuth(),
-    channel: updateChannel === 'beta' ? 'beta' : 'stable',
+    channel: serverChannel,
     rememberMachine: (machine) => sshMachineStore.remember(machine),
     keyDir: guguKeyDir(app.getPath('userData')),
     sharedControlPath: terminalControlPath,
