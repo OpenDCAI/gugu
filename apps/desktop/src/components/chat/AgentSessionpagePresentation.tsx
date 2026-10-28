@@ -13,7 +13,6 @@ import { readSessionpageSessionStartupFailureBridge } from '../../lib/sessionpag
 import { rendererLogger } from '../../lib/log'
 import { AUTOMATION_TEST_IDS } from '../../lib/automationDom'
 import { NoticeButton, SessionpageNoticeBar } from './SessionpageNoticeBar'
-import { Button } from '../ui/Button'
 import { MobileAgentOpenTask } from '@/mobile/agent-watch/MobileAgentOpenTask'
 import { useAgentSessionRow } from '@/mobile/agent-watch/useAgentSessionRow'
 import { AgentPermissionBand } from './AgentPermissionBand'
@@ -149,23 +148,9 @@ export function useAgentSessionpagePresentation(
         avatar: identity?.avatar ?? legacy.runningActivity.avatar,
       }
 
-  // 头部最右那颗「在任务中打开」。「通用 / 编程」的手动切换已删(展示跟设置 → 通用的「终端」开关走),这里只剩去处。
-  // 手机上没有会话页可开(#7197):那一颗从手机的会话目录里找这个 agent 的会话,去处是任务 tab 里它那一页。
-  const openAction = mobile
-    ? (mobileSessionRow ? <MobileAgentOpenTask row={mobileSessionRow} /> : null)
-    : agentChat && projection.context && onOpen ? (
-      <Button
-        variant="ghost"
-        disabled={opening}
-        data-testid="agent-open-task"
-        data-sessionpage-open-target={projection.context.sessionId}
-        onClick={() => { void handleOpen() }}
-        className="window-no-drag-region shrink-0 gap-2"
-      >
-        <ExternalLink size={16} />
-        <span>{t('agent.taskpage.open')}</span>
-      </Button>
-    ) : null
+  // 电脑上私聊页头不再放「在任务中打开」(owner 10-28):私聊统一以后,私聊、任务页、项目页进去是同一个界面。
+  // 手机上那一颗由手机线自己删(#7197 的会话目录入口)。
+  const openAction = mobile && mobileSessionRow ? <MobileAgentOpenTask row={mobileSessionRow} /> : null
 
   // 会话页会话事实在当前 DM 的两种显形共用一条通知条(composer 上方的槽位):review 门(status)与启动失败(alert)。
   // 移动壳里触控目标 ≥44px、正文 ≥14px、按压反馈走 .gg-pressable —— 规范在 CLAUDE.md「移动端」,两条一起遵守。
