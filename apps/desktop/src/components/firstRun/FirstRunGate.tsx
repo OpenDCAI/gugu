@@ -334,6 +334,7 @@ function FirstRunTourChoice({ userId, openAssistant, onBack, onDone }: { userId:
     setError(null)
     try {
       await startFirstRunHints(userId)
+      await enrollSampleProject(userId)
       await finishFirstRun()
       if (openAssistant) requestAssistantSetupHandoff(userId)
       onDone(tour)
