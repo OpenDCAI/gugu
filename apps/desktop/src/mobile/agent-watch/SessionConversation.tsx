@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
 import { toolImageUrl } from '@gugu/session-core/acp/client'
 import { openImageViewer } from '@/lib/imageViewer'
 import { PhoneTaskDraftRecovery } from '../local-agent/PhoneTaskDraftRecovery'
@@ -30,6 +30,7 @@ import { usePhoneBackgroundTasks } from './background-tasks'
 import { followLink } from '@/lib/guguLinks'
 import { classifyFileLink } from '@gugu/core/shared/ui/guguLink'
 import { ComposerAttachButton } from '@/components/chat/ComposerAttachButton'
+import { messageForUser } from '@/lib/userFacingError'
 
 /** The phone supplies session data and RPC actions to the same project conversation UI. */
 export function SessionConversation({ timeline, deviceId, sessionId, agentName, draft, onDraftApplied, phoneHost = false,
@@ -49,6 +50,7 @@ export function SessionConversation({ timeline, deviceId, sessionId, agentName, 
   const { theme } = useTheme()
   const view = useRef<ChatView | null>(null)
   const [dismissals, setDismissals] = useState(0)
+  const [backgroundError, setBackgroundError] = useState<string | null>(null)
   const editor = useRef<PromptEditorRef | null>(null)
   const inFlight = useRef(false)
   const input = useRef<HTMLInputElement>(null)
@@ -69,6 +71,14 @@ export function SessionConversation({ timeline, deviceId, sessionId, agentName, 
   }, [draft, onDraftApplied, draftText, setDraftText])
   const options = useConversationOptions({ deviceId, sessionId, local: false, phoneHost })
   const queue = useConversationQueue({ deviceId, sessionId, local: false, phoneHost }, timeline.queuedPrompts, agentWorking, options.steers)
+  const editorState = useRef({ text: draftText, edit: queue.props.queuedPromptEdit })
+  editorState.current = { text: draftText, edit: queue.props.queuedPromptEdit }
+  const receiveEditor = useCallback((handle: PromptEditorRef | null) => {
+    editor.current = handle
+    if (!handle) return
+    const initial = editorState.current.edit?.text ?? editorState.current.text
+    if (handle.getText() !== initial) handle.setText(initial)
+  }, [])
   const uploads = useComposerFileUploads({ sessionId: () => sessionId, deviceLabel: () => machineLabel ?? null,
     setAttachments, onUploaded: (id, file) => paths.current.set(id, file.mentionPath), translate: translateSessionMessage,
     uploadRpc: sessionAttachmentRpc(deviceId, phoneHost) })
@@ -114,16 +124,20 @@ export function SessionConversation({ timeline, deviceId, sessionId, agentName, 
     onDismissBackgroundTask: ({ entryId }) => { dismissSubagent(sessionId, entryId); setDismissals(value => value + 1) },
     resolveToolImage: async (itemId, index) => toolImageUrl(await (phoneHost ? phoneTimelineClient.fetchToolImage(deviceId, sessionId, itemId, index) : fetchToolImage(deviceId, sessionId, itemId, index))),
     onViewImages: ({ urls, index, thumb }) => { openImageViewer(urls.map(url => ({ url, alt: '', thumb })), index) }, ...outputs.handlers, conversationAgentName: () => agentName, onStop,
-    onStopBackgroundTask: ({ stopId }) => { void stopBackgroundTask(deviceId, sessionId, stopId) },
+    onStopBackgroundTask: ({ stopId }) => {
+      setBackgroundError(null)
+      void stopBackgroundTask(deviceId, sessionId, stopId).catch(error => setBackgroundError(messageForUser(error)))
+    },
   }
   const composer = <>
     <ConversationSettlements sessionId={sessionId} settlements={timeline.settlements} runtime={sessionRuntime} mobile machine={machineLabel} busyItemId={respondingItemId} respond={onRespond} />
     {footerNotice}
+    {backgroundError ? <div role="alert">{backgroundError}</div> : null}
     {phoneHost ? <PhoneTaskDraftRecovery deviceId={deviceId} sessionId={sessionId} composer={recoveryComposer} sending={sending} /> : null}
     {queue.error ? <div role="alert">{queue.error}</div> : null}
     <input ref={input} type="file" hidden multiple onChange={event => { addFiles(Array.from(event.target.files ?? [])); event.target.value = '' }} />
     <AgentConversationComposer {...options.props} {...queue.props} queuedPrompts={[...queue.props.queuedPrompts, ...pendingSends.slice(1).map(send => ({ id: send.id, text: send.text, origin: 'manual' as const, locked: true }))]} mobile isWorking={agentWorking} canSubmit={!sending && !stopping && (!!composerDraft.text.trim() || attachments.length > 0)}
-      onStop={agentWorking ? onStop : undefined} editorApiRef={editor} editorOptions={{ clearOnSubmit: false, enterBehavior: 'newline' }}
+      onStop={agentWorking ? onStop : undefined} editorApiRef={receiveEditor} editorOptions={{ clearOnSubmit: false, enterBehavior: 'newline' }}
       onInputChange={composerDraft.setText} onSubmit={value => { void submit(value) }} onSubmitWhileWorking={value => { void submit(value) }}
       attachments={attachments} onAttachmentsChange={next => { uploads.keepOnly(new Set(next.map(file => file.id))); setAttachments(next) }}
       onRetryAttachment={uploads.retry} onFilesDropped={addFiles} onImageFilesDropped={addFiles}

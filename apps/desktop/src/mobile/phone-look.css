@@ -220,7 +220,6 @@
       等你批准的卡琥珀叠在实底上(不然透过渐变发灰),办完的卡和提示是玻璃。 ── */
 
 [data-phone-shell] :is(.gg-aw, .gg-aw-thread-host, .gg-aw .aui-thread-viewport-footer) { background: transparent; }
-[data-phone-shell] .gg-aw .gg-aw-thread-host .aui-user-message-content { background: var(--ta-bubble-mine); }
 [data-phone-shell] .gg-aw .gg-aw-card[data-state='pending'] { background: linear-gradient(var(--warn-tint), var(--warn-tint)), var(--card); }
 [data-phone-shell] .gg-aw :is(.gg-aw-card[data-state='resolved'], .gg-aw-card[data-state='cancelled'], .gg-aw-note:not([data-tone]), .gg-aw-offline) {
   border-color: transparent;

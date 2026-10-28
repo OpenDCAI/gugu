@@ -22,7 +22,7 @@ export type AgentDmSession =
 
 /**
  * 本机的 agent 问本机宿主(会话页的 agent 映射,`useSessionpageAgentProjection`);别的机器上的从会话目录里找
- * (`useAgentSessionRow`,与手机「在任务中打开」同一份)。桌面项目页与手机私聊都用它。
+ * (`useAgentSessionRow`)。桌面项目页与手机私聊都用它。
  */
 export function useAgentDmSession(agentUserId: string | null): { session: AgentDmSession; retry: () => void } {
   const { user } = useAuth()

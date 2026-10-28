@@ -1,5 +1,5 @@
 // @vitest-environment jsdom
-import { act, createElement } from 'react'
+import { act, createElement, useEffect, useState } from 'react'
 import { afterEach, beforeEach, expect, it, vi } from 'vitest'
 import { createNode, createReactHarness, renderWithAppProviders, waitForCondition } from '../../support/testHarness'
 import { readComposer, writeComposer } from '../../support/composerEditor'
@@ -7,7 +7,11 @@ vi.mock('../../../apps/desktop/src/mobile/agent-watch/sessionpage-rpc', () => ({
   SessionpageRpcError: class extends Error {}, fetchSessionOptions: vi.fn(() => new Promise(() => {})),
   setSessionOption: vi.fn(), sessionAttachmentRpc: vi.fn(() => ({})),
 }))
-vi.mock('../../../apps/desktop/src/components/assistant-ui/session-transcript-view.aui', () => ({ SessionTranscriptView: (props: { composerContent: import('react').ReactNode }) => createElement('div', {}, props.composerContent) }))
+vi.mock('../../../apps/desktop/src/components/assistant-ui/session-transcript-view.aui', () => ({ SessionTranscriptView: (props: { composerContent: import('react').ReactNode }) => {
+  const [ready, setReady] = useState(false)
+  useEffect(() => { const timer = setTimeout(() => setReady(true), 20); return () => clearTimeout(timer) }, [])
+  return ready ? createElement('div', {}, props.composerContent) : null
+} }))
 
 import { SessionConversation } from '../../../apps/desktop/src/mobile/agent-watch/SessionConversation'
 import { emptyAgentWatchTimeline } from '../../../apps/desktop/src/mobile/agent-watch/agent-watch-store'

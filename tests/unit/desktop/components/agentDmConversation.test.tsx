@@ -25,7 +25,7 @@ afterEach(() => { harness.cleanup(); vi.unstubAllGlobals() })
 const dm = chat({ id: 'external-dm', kind: 'ai', peer_user_id: 'external-agent', name: 'External agent' })
 const received = message({ id: 'received', chat_id: dm.id, sender_user_id: 'external-agent', is_mine: false, content: '外部 agent 的已有回复。' })
 it('shows authorized external DM history in the shared view, without reading a private session or blocking the composer', async () => {
-  const sendMessage = vi.fn<(...args: unknown[]) => Promise<void>>(async () => undefined)
+  const sendMessage = vi.fn<(content: string) => Promise<string | undefined>>(async () => undefined)
   await renderWithAppProviders(harness, createElement(AgentDmConversation, { chat: dm, shown: true }), { chat: {
     activeChat: dm, activeChatId: dm.id, messages: [received], identitiesById: { 'external-agent': displayIdentity('external-agent', { type: 'agent', display_name: 'External agent' }) }, sendMessage,
   } })
