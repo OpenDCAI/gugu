@@ -78,7 +78,23 @@ export function assistantPanelLibraryHost(base: LibraryHost, panel: AssistantPan
         throw error
       }
     },
-    cliLoginWait: (...args) => base.integrations.cliLoginWait(...args),
+    cliLoginWait: async (provider) => {
+      const version = authorizationVersions.get(provider) ?? 0
+      await requirePanel().assertCurrent()
+      try { return await base.integrations.cliLoginWait(provider) }
+      catch (error) {
+        if (!base.remote || isAssistantActionRefusal(error)) throw error
+        // A known sleeping host can be rejected before its pipe opener runs.
+        // This is an active authorization's idempotent status read: resume it
+        // through preparation, then read the same operation once more.
+        prepared = false
+        await requirePanel().assertCurrent()
+        if ((authorizationVersions.get(provider) ?? 0) !== version) throw new Error(translateSessionMessage('integrations.authorizationCancelled'))
+        await prepareAction()
+        if ((authorizationVersions.get(provider) ?? 0) !== version) throw new Error(translateSessionMessage('integrations.authorizationCancelled'))
+        return base.integrations.cliLoginWait(provider)
+      }
+    },
     cliLoginProgress: (...args) => prepared ? base.integrations.cliLoginProgress(...args) : Promise.resolve(null),
     cancelAuthorization: (...args) => { cancelPending(args[0]); return prepared ? base.integrations.cancelAuthorization(...args) : Promise.resolve() },
   }
