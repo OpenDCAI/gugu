@@ -55,7 +55,7 @@ export const turnProcessUnitDef = defineUnit<TurnProcessItem, { extraH: number }
       ? CONVERSATION_HEADER_H + CONVERSATION_PROCESS_H + (props.ctx.measureCtx ? backgroundHeight(props.data, props.ctx.measureCtx()) : 0) : height();
     // ViewState keeps the inverted flag inherited from the original store:
     // `isCollapsed(id) === true` means "toggled" (see view-state.ts).
-    const expanded = () => turnProcessExpanded(props.data.live, props.ctx.viewState.isCollapsed(props.data.id));
+    const expanded = () => turnProcessExpanded(props.data.live, props.ctx.viewState.isCollapsed(props.data.id), theme().layout.agentConversation);
 
     // 跑着的时候每秒数一次;落定后不再数。
     // effect 只跟「该不该数」这一个布尔(memo 去重):流式期间 `props.data` 一直在换,直接读它的 effect

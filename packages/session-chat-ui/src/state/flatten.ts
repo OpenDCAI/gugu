@@ -375,11 +375,11 @@ export function flattenTier(
         const output = ctx.agentConversation && header ? conversationOutput([...segment.process, ...segment.tail]) : null;
         const footerReply = output?.reply ? conversationProcessReply(header, [output.reply]) : null;
         if (footerReply && header && output) {
-          const expanded = ctx.revealAllFolds || turnProcessExpanded(header.live, ctx.isTurnProcessExpanded?.(header.id) ?? false);
+          const expanded = ctx.revealAllFolds || turnProcessExpanded(header.live, ctx.isTurnProcessExpanded?.(header.id) ?? false, ctx.agentConversation);
           const steps = output.rest.filter(item => !isSubagentChild(item)).length;
           if (steps && footerReply.conversationProcess) footerReply.conversationProcess = { ...footerReply.conversationProcess, steps };
           emitConversationReply(footerReply, output.sent, () => {
-            if (expanded) emitOps(planRows(outsideProcess(output.rest)), turn.id, [{ id: header.id, stored: !header.live }]);
+            if (expanded) emitOps(planRows(outsideProcess(output.rest)), turn.id, [{ id: header.id, stored: !header.live || ctx.agentConversation === true }]);
           });
           continue;
         }
@@ -400,7 +400,7 @@ export function flattenTier(
           }
           emitOps(ops, turn.id);
         } else {
-          const expanded = ctx.revealAllFolds || turnProcessExpanded(header.live, ctx.isTurnProcessExpanded?.(header.id) ?? false);
+          const expanded = ctx.revealAllFolds || turnProcessExpanded(header.live, ctx.isTurnProcessExpanded?.(header.id) ?? false, ctx.agentConversation);
           const steps = ctx.agentConversation ? segment.process.filter(item => !isSubagentChild(item)).length : 0;
           processItem({
             kind: 'turn-process',
@@ -416,7 +416,7 @@ export function flattenTier(
           // 头里面照样按语义折成「跑了 N 条命令」,跑着时自己摊开的、跑完后人点开的都一样(owner 2026-10-16,
           // 推翻 10-02「点开就逐条摆」:跑着时「执行、执行、执行、执行」一直平铺)。只在头里摊平的话,同一轮里还会
           // 自相矛盾:最后一句话之前的平铺、之后的(尾巴,头外面)折着,agent 一开口,折好的那几行就摊开。
-          if (expanded) emitOps(ops, turn.id, [{ id: header.id, stored: !header.live }]);
+          if (expanded) emitOps(ops, turn.id, [{ id: header.id, stored: !header.live || ctx.agentConversation === true }]);
         }
         emitOps(planRows(outsideProcess(segment.tail)), turn.id);
       }
@@ -428,8 +428,13 @@ export function flattenTier(
         emitOps(planRows(outsideProcess(items.slice(0, pending.at))), turn.id);
         const pendingReply = ctx.agentConversation
           ? conversationProcessReply({ ...pending.header, startedAt: turn.startedAt }, items.slice(pending.at)) : null;
+        // 对话布局里跑着也收着(`turnProcessExpanded`):没点开就只有那一行,❌ 步骤和「正在跑」摊在下面。
+        const pendingExpanded = !ctx.agentConversation || ctx.revealAllFolds || turnProcessExpanded(true, ctx.isTurnProcessExpanded?.(pending.header.id) ?? false, ctx.agentConversation);
+        const pendingFolds = ctx.agentConversation ? [{ id: pending.header.id, stored: true }] : undefined;
         if (pendingReply) {
-          emitConversationReply(pendingReply, [], () => emitOps(planRows(outsideProcess(items.slice(pending.at + 1))), turn.id));
+          emitConversationReply(pendingReply, [], () => {
+            if (pendingExpanded) emitOps(planRows(outsideProcess(items.slice(pending.at + 1))), turn.id, pendingFolds);
+          });
         } else {
           processItem({
             kind: 'turn-process',
@@ -440,7 +445,7 @@ export function flattenTier(
             ...(ctx.agentConversation && items.slice(pending.at).some(item => !isSubagentChild(item))
               ? { steps: items.slice(pending.at).filter(item => !isSubagentChild(item)).length } : {}),
           });
-          emitOps(planRows(outsideProcess(items.slice(pending.at))), turn.id);
+          if (pendingExpanded) emitOps(planRows(outsideProcess(items.slice(pending.at))), turn.id, pendingFolds);
         }
       } else {
         emitOps(planRows(outsideProcess(items)), turn.id);

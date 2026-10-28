@@ -502,9 +502,13 @@ export function completedTurnResult(turn: TranscriptTurn, run: TurnFoldRun | und
   return text || null;
 }
 
-/** 头开着没有。开关记的是「点过没有」;跑着默认摊开,所以活动层把它反过来读。 */
-export function turnProcessExpanded(live: boolean | undefined, toggled: boolean): boolean {
-  return live ? !toggled : toggled;
+/**
+ * 头开着没有。开关记的是「点过没有」;跑着默认摊开,所以活动层把它反过来读。
+ * 对话布局(agent 私聊)跑着也默认收着:owner 0 号图跑着只有一行「思考执行中 · 9m16s · 39 步 ⌄」,
+ * 下面不摊步骤、不挂「正在跑 <命令>」(owner 10-28 新管家截图)⇒ 开关就是「点开过没有」,跑着跑完一个读法。
+ */
+export function turnProcessExpanded(live: boolean | undefined, toggled: boolean, conversation = false): boolean {
+  return live && !conversation ? !toggled : toggled;
 }
 
 /**
