@@ -96,16 +96,6 @@
   },
   {
     "rule": "hard-coded-color",
-    "file": "apps/desktop/src/session/renderer/features/assistant/assistant-today.css",
-    "count": 81
-  },
-  {
-    "rule": "hard-coded-color",
-    "file": "apps/desktop/src/session/renderer/features/assistant/voice-notes/voice-notes.css",
-    "count": 11
-  },
-  {
-    "rule": "hard-coded-color",
     "file": "apps/desktop/src/session/renderer/features/extensions/panel/app-store.css",
     "count": 11
   },
