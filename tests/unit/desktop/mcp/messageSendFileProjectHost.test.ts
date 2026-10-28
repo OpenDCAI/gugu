@@ -68,7 +68,7 @@ describe('message_send_file in a project chat that keeps files on its machine', 
     const error = await send({ file_path: pdf }).catch((e: Error) => e) as Error
     expect(error.message).toContain('notes.pdf was not sent')
     expect(error.message).toContain('on Ming\'s machine')
-    expect(error.message).toContain('Settings › File storage')
+    expect(error.message).toContain('Settings › Devices › File storage')
     expect(error.message).toContain('留在Ming 的机器上')
     expect(error.message).not.toContain('not uploaded proactively')
   })

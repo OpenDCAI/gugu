@@ -2103,9 +2103,9 @@ async function keptOnHostRefusal(deps, chatId, fileName) {
   const machineZh = ownerName ? `${ownerName} 的机器` : '它绑定的那台机器'
   return `message_send_file: ${fileName} was not sent. This project chat keeps its files on ${machine} and uploads them only when someone opens them, `
     + `so files (other than images) can be shared here only from that machine. Send it from there, or ask ${ownerName ?? 'the machine\'s owner'} to choose `
-    + `"Upload everything to the cloud" in Settings › File storage.\n`
+    + `"Upload everything to the cloud" in Settings › Devices › File storage.\n`
     + `${fileName} 没有发出去。这个项目群的文件留在${machineZh}上，有人打开才上传，所以图片以外的文件只能从那台机器发。`
-    + `请在那台机器上发，或者请${ownerName ?? '机器主人'}在「设置 › 文件存储与读取」里改成「全部上传到云端」。`
+    + `请在那台机器上发，或者请${ownerName ?? '机器主人'}在「设置 › 设备 › 文件存储与读取」里改成「全部上传到云端」。`
 }
 
 async function sendMessageAsOwner(args, deps, content, extra = {}, outcome = { uncertain: false }) {
