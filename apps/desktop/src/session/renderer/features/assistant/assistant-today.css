@@ -136,6 +136,7 @@
   --ta-glass-strong: var(--muted);
   --ta-glass-hover: var(--hover);
   --ta-glass-edge: var(--border);
+  --ta-bubble-other: var(--muted);
   --ta-tint-wash: var(--hover);
   --ta-tint-soft: var(--selected);
   --ta-tint-ink: var(--fg);

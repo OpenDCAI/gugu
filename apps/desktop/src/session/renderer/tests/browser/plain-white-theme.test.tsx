@@ -3,6 +3,7 @@ import { afterEach, beforeEach, expect, it, vi } from 'vitest'
 import { page, userEvent } from 'vitest/browser'
 import { createReactHarness } from '../../../../../../../tests/support/testHarness'
 import { GeneralSection } from '@/components/settings/GeneralSection'
+import { buildBubbleStyle } from '@/components/chat/messageBubbleStyle'
 import { i18n, LocalizationProvider } from '@/i18n'
 import { ThemeProvider } from '@/store/theme'
 import { hydrateHostTheme, writeThemePreference } from '@/session/renderer/lib/theme/host-theme'
@@ -85,6 +86,27 @@ it('replaces the gradient with pure white in every shared scope, using neutral g
     expect(style.getPropertyValue('--ta-tint-ink').trim()).toBe(style.getPropertyValue('--fg').trim())
   }
 })
+
+it.each(['phone group', 'phone assistant', 'desktop assistant'])(
+  '%s: received bubbles remain distinct from the plain white page', (place) => {
+    writeThemePreference('plain-white')
+    const { shell, phone, panel } = surfaces()
+    const surface = place === 'phone group' ? shell : place === 'phone assistant' ? phone : panel
+    const chat = document.createElement('div')
+    if (place !== 'phone group') chat.className = 'ta-chat'
+    const bubble = document.createElement('div')
+    bubble.textContent = 'Keyboard-assistant-check received.'
+    Object.assign(bubble.style, buildBubbleStyle(false, false, place !== 'desktop assistant'))
+    const messageList = document.createElement('div')
+    messageList.appendChild(bubble)
+    chat.appendChild(messageList)
+    surface.appendChild(chat)
+
+    const background = getComputedStyle(bubble).backgroundColor
+    expect(background).not.toBe('rgba(0, 0, 0, 0)')
+    expect(background).not.toBe(getComputedStyle(surface).backgroundColor)
+  },
+)
 
 it('keeps the default gradient and dark gradient, including switching away from white', async () => {
   const { shell, panel } = surfaces()
