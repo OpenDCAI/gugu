@@ -213,8 +213,21 @@ export class ReplicaState<T> implements LiveSource {
   }
 
   private handleSeeded(): void {
+    const previousGeneration = this.localGeneration;
     this.localGeneration = nextGeneration(this.localGeneration);
     this.localSequence = 0;
+    // 下游跟着的是旧 generation:推一条新 generation 的空更新,它当场发现对不上、重取快照。
+    // ❌ 不推的话下游要等下一条真更新才发现,会话静下来(只剩后台)时就一直停在旧值上。
+    // 已经在新 generation 上的下游(刚 seed 过)把它当空补丁收下,不重取。
+    if (this.emitter.size > 0 && previousGeneration !== this.localGeneration) {
+      this.emitter.emit({
+        generation: this.localGeneration,
+        baseSequence: 0,
+        sequence: 0,
+        timestamp: Date.now(),
+        delta: [],
+      });
+    }
     this.emitChange({ kind: 'seed' });
     this.waiters.flushCursorWaiters();
     this.waiters.flushAllMutationWaiters();

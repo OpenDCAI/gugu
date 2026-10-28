@@ -107,4 +107,31 @@ describe('ReplicaState refresh after reattach', () => {
 
     expect(upstream.snapshotFn).toHaveBeenCalledTimes(2);
   });
+
+  it('a chained replica follows its upstream replica\'s reseed at once, without waiting for a later update', async () => {
+    const upstream = fakeUpstream('working');
+    const middle = new ReplicaState(upstream.handle, { logger });
+    await middle.ready;
+    // 下游(比如宿主主进程那几份副本的订阅者)直接跟着中间这份副本。
+    const downstreamHandle: LiveClientHandle<State> = {
+      topic: 'session.state:conv-1/downstream',
+      snapshot: () => middle.snapshot() as Promise<LiveSnapshot<State>>,
+      attach: async (push) => middle.subscribe(push),
+      asLiveSource: () => {
+        throw new Error('not used');
+      },
+    };
+    const downstream = new ReplicaState(downstreamHandle, { logger });
+    await downstream.ready;
+    expect(downstream.current().lifecycle).toBe('working');
+
+    upstream.snapshotFn.mockResolvedValueOnce(snapshot(2, 'ready'));
+    upstream.reattach();
+    await vi.advanceTimersByTimeAsync(0);
+
+    expect(middle.current().lifecycle).toBe('ready');
+    expect(downstream.current().lifecycle, 'no further update needed').toBe('ready');
+    await downstream.dispose();
+    await middle.dispose();
+  });
 });
