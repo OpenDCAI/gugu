@@ -7,6 +7,7 @@ import { conversationLink } from '@gugu/core/shared/ui/guguLink';
 import { projectGroupsStore } from '@renderer/features/projects/stores/project-groups-store';
 import { useSessionMessages } from '@renderer/localization/use-session-messages';
 import { PALETTE_ITEM_CLASS } from './palette-item-styles';
+import { rankPaletteMatches } from './palette-rank';
 
 export function PaletteChatGroups({ query, groupClassName, onClose }: {
   query: string; groupClassName: string; onClose: () => void;
@@ -14,11 +15,10 @@ export function PaletteChatGroups({ query, groupClassName, onClose }: {
   const { translate } = useSessionMessages();
   const summaries = useChatSummaries();
   const contacts = useContactSummaries();
-  const q = query.trim().toLocaleLowerCase();
-  const matches = (name: string | null) => !!name && (!q || name.toLocaleLowerCase().includes(q));
-  const groups = [...summaries].filter(([id, chat]) => chat.kind === 'group'
-    && !projectGroupsStore.projectOfChat(id) && matches(chat.name)).slice(0, q ? 20 : 5);
-  const people = contacts.filter((contact) => matches(contact.name)).slice(0, q ? 20 : 5);
+  const limit = query.trim() ? 20 : 5;
+  const groups = rankPaletteMatches([...summaries].filter(([id, chat]) => chat.kind === 'group'
+    && !!chat.name && !projectGroupsStore.projectOfChat(id)), query, ([, chat]) => [chat.name, chat.alias]).slice(0, limit);
+  const people = rankPaletteMatches(contacts, query, (contact) => [contact.name]).slice(0, limit);
   return (
     <>
       {groups.length > 0 && (
