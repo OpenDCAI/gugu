@@ -1725,12 +1725,15 @@ export class AcpChatStore {
         // A spawned child has a durable first utterance. Once its ACP cell is ready and idle,
         // an empty history is a record-integrity failure, not a valid empty conversation. Surface it
         // instead of rendering a silent blank panel (the old Claude rendezvous bypass shape, #4949).
+        // 只在库里也是空的时候才算:适配器退出后按 `resume-unspecified` 接上的引擎不重放旧轮次,
+        // 引擎那页空、库里有 ⇒ 照库上屏,❌ 报「transcript 为空」(那样重试是同一个判断,次次都红)。
         const childSession = session?.spawnedBySessionId;
         const stateAfterLoad = clientSession.sessionState.current();
         if (
           childSession
           && session?.firstUtterance
           && history.data.turns.length === 0
+          && this._storedBaseSeq === null
           && stateAfterLoad.lifecycle === 'ready'
           && !stateAfterLoad.isGenerating
           && stateAfterLoad.queuedPrompts.length === 0
