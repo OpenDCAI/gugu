@@ -2431,7 +2431,7 @@ export const AcpChatPanel = observer(function AcpChatPanel({
             commands={transcriptCommands}
             onAtBottomChange={setAtBottom}
             onReachStart={handleReachStart}
-            layout={{ ...chatLayout, agentConversation: true }}
+            layout={chatLayout}
             style={{ position: 'absolute', inset: 0 }}
           />
         </div>
