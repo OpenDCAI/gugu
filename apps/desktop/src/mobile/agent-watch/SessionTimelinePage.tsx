@@ -12,7 +12,7 @@ import { useBackLayer } from '@/components/ui/sheetStack'
 import { IconButton } from '@/components/ui/IconButton'
 import { MoreHorizontal } from '@/lib/icons'
 import { AgentWatchNote, AgentWatchScreen } from './AgentWatchChrome'
-import { AgentThread } from './AgentThread'
+import { SessionConversation } from './SessionConversation'
 import { SessionAvatar } from './StatusGlyph'
 import { OfflineNote } from './OfflineNote'
 import { CloudComputerNote } from './CloudComputerNote'
@@ -23,7 +23,7 @@ import { agentStatusText } from '@/lib/agentStatusText'
 import { agentStatusColorVar } from '@gugu/core/shared/agentStatusPresentation'
 import { useAgentWatchSession } from './useAgentWatchSession'
 import { SessionActions } from './SessionsPage'
-import { MobileModeMenu } from './MobileModeMenu'
+import { SessionAppMenu } from './SessionAppMenu'
 import { useMachineLabel } from './useMachineLabel'
 import { SessionAppFrame } from '@/components/appSlot/SessionAppFrame'
 import { installedExtensionsStore } from '@/session/renderer/features/extensions/installed-extensions-store'
@@ -53,7 +53,6 @@ export function SessionTimelinePage({
   draft,
   initialAppKind,
   onBack,
-  onOpenChat,
 }: {
   device: Device
   session: SessionpageSessionSummary
@@ -64,8 +63,6 @@ export function SessionTimelinePage({
   draft?: { text: string }
   initialAppKind?: string
   onBack: () => void
-  /** 去这个 agent 的私聊(模式按钮的「聊天」,#7197)。 */
-  onOpenChat?: (agentUserId: string) => void
 }) {
   const { t } = useTranslation('main')
   const { label: machineLabel } = useMachineLabel()
@@ -169,14 +166,12 @@ export function SessionTimelinePage({
   // 有没有咕咕身份看会话自己带不带 agent id,❌ 看通讯录里有没有它的名字(通讯录还没到时会把有身份的说成没有);
   // 通讯录里真找不到,由去对话那头(MainLayout handleOpenAgentChat)响亮地说。
   // 会话的管理动作与列表行尾「…」同一个面板;都要那台机器执行,离线不给。
-  const agentUserId = agent?.agentUserId ?? session.agent?.userId ?? null
   const headerActions = (
     <>
       {phoneHost ? <PhoneTaskSkills deviceId={device.device_id} sessionId={session.conversationId} online={online} busy={attention === 'running' || attention === 'waiting' || sending || pendingSends.length > 0 || cancelling} /> : null}
-      {!phoneHost ? <MobileModeMenu
-        at={appKind ? `app:${appKind}` : 'task'}
-        onOpenChat={agentUserId && onOpenChat ? () => onOpenChat(agentUserId) : null}
-        onOpenTask={() => setAppKind(null)}
+      {!phoneHost ? <SessionAppMenu
+        appKind={appKind}
+        onConversation={() => setAppKind(null)}
         apps={apps}
         onOpenApp={setAppKind}
       /> : null}
@@ -233,7 +228,8 @@ export function SessionTimelinePage({
       {/* ⚠️ 此前是 `phase !== 'error'`:首次拉取失败就把时间线**和输入框**一起藏掉。
           缓存里有东西时那是白藏 —— 错误已经在上面那条说明里说清楚了,内容照常给。 */}
       {phase !== 'error' || timeline.turns.length > 0 ? (
-        <AgentThread
+        <SessionConversation
+          agentName={agent?.displayName ?? session.title}
           timeline={timeline}
           deviceId={device.device_id}
           sessionId={session.conversationId}
@@ -243,7 +239,7 @@ export function SessionTimelinePage({
           machineLabel={machineLabel(device)}
           sessionRuntime={session.runtime}
           respondingItemId={respondingItemId}
-          onRespond={(input) => { void respond(input).catch(() => undefined) }}
+          onRespond={respond}
           onSend={send}
           pendingSends={pendingSends}
           sending={sending}

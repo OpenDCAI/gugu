@@ -106,7 +106,7 @@ describe('mobile ACP replies use the shared session message router', () => {
       expect(await bridge.deliverSessionText(target, `  ${text}  `)).toEqual({ accepted: 'started' });
       expect(state.calls).toEqual(['send']);
       expect(state.sentParams).toEqual([{
-        projectId: 'p', sessionId: 'conv-1', clientMessageId: expect.any(String), text, kind: 'session-direct',
+        projectId: 'p', sessionId: 'conv-1', clientMessageId: expect.any(String), text, kind: 'session-direct', delivery: { queue: true, origin: 'manual' },
       }]);
     },
   );

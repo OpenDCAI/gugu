@@ -9,7 +9,6 @@ import { openMessageSender } from '@/lib/openMessageSender';
 import { classifyFileLink } from '@gugu/core/shared/ui/guguLink';
 import {
   AttachmentViewerDialog,
-  ChatComposer,
   MermaidViewerDialog,
   formatAttachmentSize,
   readAttachmentPreviewText,
@@ -57,7 +56,7 @@ import {
   issueMentionToken,
   parseIssueMentionToken,
 } from '@renderer/lib/chat/chat-mention-provider';
-import { ChatTranscript } from '@renderer/lib/chat/chat-transcript';
+import { AgentConversationView as ChatTranscript, AgentConversationComposer as ChatComposer } from '@renderer/lib/chat/agent-conversation-view';
 import { useSessionChatLayout } from '@renderer/lib/chat/use-session-chat-layout';
 import type { ChatCommands, ChatView } from '@renderer/lib/chat/chat-transcript';
 import { AgentIcon } from '@renderer/lib/components/agent-icon';

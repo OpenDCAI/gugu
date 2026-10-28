@@ -40,8 +40,12 @@ type Preview = {
  * 读到了图进看图器、文档在这页里画(App 现成的那张预览,与聊天里的附件同一份)。
  * 读不到就在这页里说为什么(那台机器给的原因),❌ 点了没反应。
  */
-export function useOpenedOutputOpener({ deviceId, sessionId, onQuote }: { deviceId: string; sessionId: string; onQuote: (text: string) => void }): {
+export function useOpenedOutputOpener({ deviceId, sessionId, onQuote, readFileChunk }: {
+  deviceId: string; sessionId: string; onQuote: (text: string) => void
+  readFileChunk?: (input: import('@gugu/session-core/session-record/contract').SessionpageOpenedFileReadRequest) => Promise<import('@gugu/session-core/session-record/contract').SessionpageOpenedFileChunk>
+}): {
   handlers: OpenedOutputHandlers
+  openFile: (path: string) => void
   panel: ReactNode
 } {
   const { t } = useTranslation('main')
@@ -105,7 +109,7 @@ export function useOpenedOutputOpener({ deviceId, sessionId, onQuote }: { device
         const file: AttachmentMeta = { kind: 'file', fileName: plan.name, mimeType: plan.mimeType, url: '', sizeBytes: 0 }
         setPreview({ path: plan.path, file, kind, blob: null, content: null, loading: true })
         void readWholeOpenedFile({
-          read: (chunk) => readOpenedFileChunk(deviceId, chunk),
+          read: (chunk) => readFileChunk ? readFileChunk(chunk) : readOpenedFileChunk(deviceId, chunk),
           conversationId: sessionId,
           path: plan.path,
           signal: request.signal,
@@ -149,7 +153,7 @@ export function useOpenedOutputOpener({ deviceId, sessionId, onQuote }: { device
             setPreview({ path: plan.path, file, kind, blob: null, content: null, loading: false, error: describeFailure(error) })
           })
       },
-    [deviceId, sessionId, releaseBlobUrl, describeFailure, t, toast],
+    [deviceId, sessionId, readFileChunk, releaseBlobUrl, describeFailure, t, toast],
   )
 
   const copy = useCallback(
@@ -238,6 +242,7 @@ export function useOpenedOutputOpener({ deviceId, sessionId, onQuote }: { device
 
   return {
     handlers,
+    openFile: path => openOutput({ kind: 'file', path }),
     panel: (
       <>
         {sheet}

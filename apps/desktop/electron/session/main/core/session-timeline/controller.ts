@@ -130,6 +130,7 @@ export const sessionTimelineController = createRPCController({
   sessionOutputs: (input: { conversationId: string }) => service.outputs(input),
   sessionBackgroundTasks: (input: { conversationId: string }) => service.backgroundTasks(input),
   sessionStopBackgroundTask: (input: { conversationId: string; stopId: string }) => service.stopBackgroundTask(input),
+  sessionQueue: (input: Parameters<typeof service.changeQueue>[0]) => service.changeQueue(input),
   sessionSend: (input: SessionpageSessionSendRequest) => service.send(input.conversationId, input.text),
   sessionRespond: (input: SessionpageSessionRespondRequest) => service.respond(input),
   sessionCancel: (input: SessionpageSessionCancelRequest) => service.cancel(input.conversationId),

@@ -36,7 +36,7 @@ export default {
         "noLongerWaiting": "No longer waiting: this ask is over, nothing was installed.",
         "failed": "The approval did not go through. Open it in Tasks to answer."
       },
-      "open": "Open in Tasks",
+      "resolve": "Resolve issue",
       "openFailed": "Could not open in Tasks: {{reason}}",
       "review": {
         "action": "Open the task terminal, review the MCP servers, then press Enter to confirm.",

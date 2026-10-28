@@ -11,7 +11,7 @@ const log = rendererLogger('chat/agent-dm-session')
 
 /**
  * 和 agent 的私聊画的是它那条会话的记录(任务页同一个 ChatTranscript):这个 agent 在哪台机器的哪条会话。
- * 解析不到也说清楚是哪一种 —— 私聊里直接给这句话和重试(AgentDmUnavailable),❌ 退回老的气泡列表。
+ * 解析不到也说清楚是哪一种 —— 已有 DM 仍由共享转录展示；这个结果只决定是否还能读取会话过程。
  */
 export type AgentDmSession =
   | { state: 'resolving' }

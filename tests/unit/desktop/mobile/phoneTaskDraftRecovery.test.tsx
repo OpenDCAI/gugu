@@ -1,5 +1,5 @@
 // @vitest-environment jsdom
-import { act } from 'react'
+import { act, createElement } from 'react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { clickElement, createNode, createReactHarness, renderWithAppProviders, waitForCondition } from '../../../support/testHarness'
 import { readComposer, writeComposer } from '../../../support/composerEditor'
@@ -13,7 +13,9 @@ vi.mock('../../../../apps/desktop/src/mobile/agent-watch/sessionpage-rpc', () =>
   fetchSessionOptions: vi.fn(() => new Promise(() => undefined)), setSessionOption: vi.fn(), sessionAttachmentRpc: vi.fn(() => ({})),
 }))
 
-import { AgentThread } from '../../../../apps/desktop/src/mobile/agent-watch/AgentThread'
+vi.mock('../../../../apps/desktop/src/components/assistant-ui/session-transcript-view.aui', () => ({ SessionTranscriptView: (props: { composerContent: import('react').ReactNode }) => createElement('div', {}, props.composerContent) }))
+
+import { SessionConversation } from '../../../../apps/desktop/src/mobile/agent-watch/SessionConversation'
 import { emptyAgentWatchTimeline } from '../../../../apps/desktop/src/mobile/agent-watch/agent-watch-store'
 import { phoneTaskSendKey, readPhoneTaskSend, restorePhoneTaskDraft, sendPhoneTaskText } from '../../../../apps/desktop/src/mobile/local-agent/phoneTaskSend'
 
@@ -29,9 +31,9 @@ async function leaveUnconfirmed(text: string) {
   return invoke.mock.calls[0][2][0]
 }
 async function show(onSend = async (_text: string) => undefined) {
-  await renderWithAppProviders(harness, createNode(AgentThread, {
+  await renderWithAppProviders(harness, createNode(SessionConversation, {
     timeline: emptyAgentWatchTimeline(), deviceId: 'phone-draft', sessionId: 'task-draft', phoneHost: true,
-    sessionRuntime: 'acp', respondingItemId: null, onRespond: () => undefined, onSend, pendingSends: [], sending: false,
+    agentName: 'Test agent', sessionRuntime: 'acp', respondingItemId: null, onRespond: () => undefined, onSend, pendingSends: [], sending: false,
     agentWorking: false, onStop: () => undefined, stopping: false, onLoadOlder: async () => undefined,
   }), { auth: { id: auth.owner } })
 }

@@ -6,6 +6,8 @@ import { deliverAgentQuestionAnswer, restoredAgentQuestion } from '../sessions/a
 import { desc, eq, isNull } from 'drizzle-orm';
 import { isImplicitSessionHomeProjectId } from '@shared/core/projects/session-home-project';
 import { resolveAgentHome } from '@gugu/session-core/agents/plugins/helpers';
+import { isVisibleQueuedPrompt } from '@shared/core/sessions/visible-queued-prompt';
+import { conversationQueueText } from '@shared/core/sessions/conversation-queue-text';
 import type { OpenedOutput, ToolImage } from '@gugu/session-core/acp/client';
 import {
   findToolImage,
@@ -378,7 +380,7 @@ function attachPendingRequests(entry: TimelineEntry): void {
     if (entry.disposed) return;
     entry.runtimeRequests = requests;
     syncPending(entry);
-    entry.timeline.syncQueuedPrompts(queuedPrompts);
+    entry.timeline.syncQueuedPrompts(queuedPrompts.filter(isVisibleQueuedPrompt).map(prompt => ({ ...prompt, text: conversationQueueText(prompt.text) })));
     entry.timeline.syncLiveReply(liveReply ?? null);
   })
     .then((watch) => {
@@ -1422,5 +1424,18 @@ export function resetSessionTimelineService(): void {
     } catch {
       // 收尾路径：拆一个实例失败不该拦住拆别的。
     }
+  }
+}
+
+export async function changeQueue(input: { conversationId: string; action: import('@gugu/session-core/session-record/contract').SessionpageQueueAction }): Promise<SessionTimelineResult<null>> {
+  const row = readSessionRow(input.conversationId);
+  if (!row) return fail('session_not_found', 'The session is no longer available');
+  if (row.runtime !== 'acp') return fail('unsupported_runtime', 'This session does not expose a prompt queue');
+  try {
+    const { changeConversationQueue } = await import('./conversation-queue');
+    await changeConversationQueue(row.id, input.action);
+    return { ok: true, value: null };
+  } catch (error) {
+    return fail('queue_update_failed', error instanceof Error ? error.message : String(error));
   }
 }

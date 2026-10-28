@@ -1,7 +1,9 @@
-import { useEffect, useLayoutEffect, useRef, useState, type CSSProperties, type ReactElement } from 'react'
+import { useEffect, useLayoutEffect, useRef, useState, type CSSProperties, type ReactElement, type ReactNode } from 'react'
 import type { ChatCommands, ChatContext, ChatLayout, ChatState } from '@gugu/session-chat-ui'
 import type { TranscriptTurn } from '@gugu/session-core/acp/client'
-import { ChatTranscript, loadChatUi } from '@renderer/lib/chat/chat-transcript'
+import { loadChatUi } from '@renderer/lib/chat/chat-transcript'
+import { useSessionChatLayout } from '@renderer/lib/chat/use-session-chat-layout'
+import { AgentConversationView } from '@renderer/lib/chat/agent-conversation-view'
 import { createSessionChatContext } from '@renderer/lib/chat/shared-chat-context'
 import { planHistorySync, splitActiveTurn } from './transcript-sync'
 
@@ -25,6 +27,13 @@ export function SessionTranscriptView({
   turns,
   layout,
   commands,
+  composerContent,
+  shown,
+  onVisibleItems,
+  onAtBottomChange,
+  onReady,
+  activeTurnId,
+  pendingPrompt,
   backgroundTasks,
   onReachStart,
   mobile = false,
@@ -36,6 +45,13 @@ export function SessionTranscriptView({
   turns: readonly TranscriptTurn[]
   layout?: ChatLayout
   commands?: ChatCommands
+  composerContent?: ReactNode
+  shown?: boolean
+  activeTurnId?: string | null
+  pendingPrompt?: import('@gugu/session-chat-ui').PendingPrompt | null
+  onReady?: import('@renderer/lib/chat/chat-transcript').ChatTranscriptProps['onReady']
+  onAtBottomChange?: (atBottom: boolean) => void
+  onVisibleItems?: (ids: readonly string[]) => void
   /** 此刻还在跑的后台任务(宿主算好的两份名单);不给 = 没有。 */
   backgroundTasks?: SessionBackgroundTasks
   /** 滚到顶了:往前翻更早的轮。 */
@@ -44,6 +60,7 @@ export function SessionTranscriptView({
   className?: string
   style?: CSSProperties
 }): ReactElement | null {
+  const defaultLayout = useSessionChatLayout()
   const [model, setModel] = useState<Model | null>(null)
   const written = useRef<readonly TranscriptTurn[]>([])
 
@@ -70,7 +87,8 @@ export function SessionTranscriptView({
   // 画之前写进去:❌ 先画一帧空转录、下一帧才长出正文。
   useLayoutEffect(() => {
     if (!model) return
-    const { settled, active } = splitActiveTurn(turns)
+    const { settled, active } = activeTurnId === undefined ? splitActiveTurn(turns)
+      : { settled: turns.filter(turn => turn.id !== activeTurnId), active: turns.find(turn => turn.id === activeTurnId) ?? null }
     const plan = planHistorySync(written.current, settled)
     const { history, activeTurn } = model.state.transcript
     if (plan.op === 'seed') history.seed(plan.turns)
@@ -79,7 +97,9 @@ export function SessionTranscriptView({
     written.current = settled
     // seed 会清掉进行中的那一轮,所以每次都重写它。
     activeTurn.set(active, active ? 'generating' : undefined)
-  }, [model, turns])
+  }, [model, turns, activeTurnId])
+
+  useEffect(() => { model?.state.session.setPendingPrompt(pendingPrompt ?? null) }, [model, pendingPrompt])
 
   useEffect(() => {
     model?.state.session.setBackgroundTasks(backgroundTasks ?? NO_BACKGROUND_TASKS)
@@ -87,14 +107,18 @@ export function SessionTranscriptView({
 
   if (!model) return null
   return (
-    <ChatTranscript
+    <AgentConversationView
       context={model.context}
       state={model.state}
       commands={commands}
+      composerContent={composerContent}
+      shown={shown}
+      onVisibleItems={onVisibleItems}
+      onAtBottomChange={onAtBottomChange}
+      onReady={onReady}
       composer="none"
       stickToBottom
-      pinUserMessages={false}
-      layout={layout}
+      layout={layout ?? defaultLayout}
       onReachStart={onReachStart}
       className={[mobile ? 'gg-session-transcript gg-session-transcript--mobile' : 'gg-session-transcript', className].filter(Boolean).join(' ')}
       style={style}

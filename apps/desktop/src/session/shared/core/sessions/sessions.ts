@@ -138,7 +138,7 @@ export type SessionMessage = {
  * this turn, as the next one (at once when idle); `coalesceKey` = a queued message of the same key is replaced, not
  * added to. Only the ACP adapter reads it — a terminal session is refused before anything is sent.
  */
-export type SessionMessageDelivery = { queue: true; coalesceKey?: string };
+export type SessionMessageDelivery = { queue: true; coalesceKey?: string; origin?: 'manual' };
 
 export type PendingRestart = {
   status: 'restart_failed';

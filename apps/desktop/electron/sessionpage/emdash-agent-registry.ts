@@ -14,6 +14,7 @@
 // the session backend's ACP runtime internals from gugu main.
 
 import { createHash } from 'node:crypto'
+import { isHumanDmDelivery } from '@gugu/core/local/agent/deliveryEnvelope'
 import { sessionInjectionCapabilityFor } from './session-injection'
 import { createLogger } from '../lib/logger'
 import { isImplicitSessionHomeProjectId } from '@gugu/core/shared/sessionProject'
@@ -40,7 +41,7 @@ export interface EmdashDeliveryBridge {
   injectEmdashPromptDetached(
     sessionId: string,
     text: string,
-    opts?: { steerIfBusy?: boolean; coalesceKey?: string; deferredDispatch?: true },
+    opts?: { steerIfBusy?: boolean; coalesceKey?: string; deferredDispatch?: true; origin?: 'manual' },
   ): Promise<{ outcome: 'started' | 'queued' | 'declined' | 'missing'; completion: Promise<void>; turnId?: string }>
   ensureEmdashSession?(sessionId: string): Promise<void>
   /** @@@4526B 宿主 ACP 通道的取消口。 */
@@ -463,9 +464,10 @@ class EmdashAgentRegistry {
     // per-harness 时机档(spec session-injection):next-tool-call 家带 steerIfBusy;idle-only 家直接尝试注入。
     // runtime 带 request identity 的 queue admission 视为一次已受理投递;无 identity 的 queued 结果才转成 loud failure。
     // 发信方要「排队」(delivery.queue)时不插:忙就排进会话机的队列,这一轮结束作为下一轮送出;同键的排队消息原地替换。
-    const steerIfBusy = !opts?.delivery?.queue
+    const steerIfBusy = !isHumanDmDelivery(text) && !opts?.delivery?.queue
       && sessionInjectionCapabilityFor(summary.providerId, 'acp').timing === 'next-tool-call'
     const injectOpts = {
+      ...(opts?.delivery?.origin ? { origin: opts.delivery.origin } : {}),
       ...(steerIfBusy ? { steerIfBusy: true } : {}),
       ...(opts?.delivery?.coalesceKey ? { coalesceKey: opts.delivery.coalesceKey } : {}),
       ...(opts?.deferredDispatch ? { deferredDispatch: true as const } : {}),

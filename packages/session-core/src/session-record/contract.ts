@@ -292,7 +292,7 @@ export type TimelineSnapshot = {
    * 已发出、还排着没被 agent 接走的输入 —— 与桌面「Queued prompts」同一份（ACP 腿：宿主运行时的队列）。
    * 每次都是此刻的全集；缺省 = 宿主太旧，不报队列。终端腿不投影（owner 2026-10-04）。
    */
-  queuedPrompts?: Pick<QueuedPrompt, 'id' | 'text'>[];
+  queuedPrompts?: Pick<QueuedPrompt, 'id' | 'text' | 'queueEdit'>[];
   /** Actual in-flight reply stage; absent on older hosts, null when no live reply is present. */
   liveReply?: SessionLiveReply | null;
 };
@@ -336,7 +336,7 @@ export type TimelineBatch = {
   /** Newest known tool-action timestamp, including actions outside the window. */
   lastActionAt?: number | null;
   /** 同快照的 `queuedPrompts`：每一批都带此刻的全集。 */
-  queuedPrompts?: Pick<QueuedPrompt, 'id' | 'text'>[];
+  queuedPrompts?: Pick<QueuedPrompt, 'id' | 'text' | 'queueEdit'>[];
   /** Actual in-flight reply stage; absent on older hosts, null when no live reply is present. */
   liveReply?: SessionLiveReply | null;
 };
@@ -414,7 +414,7 @@ export interface SessionTimeline {
   /**
    * 宿主把**活运行时**里这条会话的排队提示（`session.state` 的 `queuedPrompts`）整份同步进来（ACP 腿）。
    */
-  syncQueuedPrompts(prompts: readonly Pick<QueuedPrompt, 'id' | 'text'>[]): void;
+  syncQueuedPrompts(prompts: readonly Pick<QueuedPrompt, 'id' | 'text' | 'queueEdit'>[]): void;
   syncLiveReply(reply: SessionLiveReply | null): void;
 
   /** 一个 item 已由 provider 侧了结（超时、取消）时由宿主调用。终态，❌ 不能再答。 */
@@ -1125,3 +1125,10 @@ export type SessionpageSessionsEvent =
 export * from './workspace-contract';
 
 export * from './pane-contract';
+
+/** Account-authorized actions on the same runtime queue shown by the project page. */
+export type SessionpageQueueAction =
+  | { kind: 'edit'; id: string; text: string; queueEdit?: { draftText: string; originalDraftText: string } | null }
+  | { kind: 'delete'; id: string }
+  | { kind: 'reorder'; ids: string[] }
+  | { kind: 'send-now'; id: string; steers: boolean };

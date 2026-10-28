@@ -115,6 +115,8 @@ export type DeliveryMode = 'notice' | 'task'
 type CommonEnvelopeFacts = {
   /** 人读的发信方；`null` = 可展示内容只剩 `fromId` 本身，那一格已经把事实带到了。 */
   from: string | null
+  /** Platform-resolved actor kind; absent when the identity directory did not report it. */
+  fromType?: 'human' | 'agent'
   /** 人读的送达时刻。 */
   at: string
   /** chat 路由的群号锚（服务端认它）；其余渠道缺席。 */
@@ -200,6 +202,7 @@ export function renderDeliveryEnvelope(facts: DeliveryEnvelopeFacts): string {
     attr('route', facts.route),
     attr('from', facts.from),
     attr('from_id', facts.fromId),
+    attr('from_type', facts.fromType),
     attr('via_app', facts.viaApp),
     attr('schedule', facts.schedule),
     attr('post', facts.post),
@@ -272,6 +275,7 @@ export function mergeDeliveryEnvelopes(envelopes: readonly string[]): string {
 
 /** 读出来的一条投递的现场事实:名字与 `DeliveryEnvelopeFacts` 一一对应,`null` = 这条信封没带这一格。 */
 export type DeliveryReadFacts = {
+  fromType?: string | null
   sourceLink?: string
   route: string
   from: string | null
@@ -391,6 +395,7 @@ function readSegment(envelope: XmlElement): DeliverySegment | null {
       route: attr('route') ?? 'chat',
       from: attr('from'),
       fromId: attr('from_id'),
+      ...(attr('from_type') ? { fromType: attr('from_type') } : {}),
       chat: attr('chat'),
       chatKind: attr('chat_kind'),
       whisperTo: attr('whisper_to'),
@@ -672,6 +677,8 @@ export function buildAgentDeliveryEnvelope(
     from: systemSender ? '咕咕系统' : identityShown(guguIds, input.senderUserId!),
     // A system event has no addressable identity.users row. Never fabricate user:null.
     fromId: systemSender ? 'system:gugu' : encodeTypedId('user', input.senderUserId!),
+    ...(!systemSender && guguIds.get(input.senderUserId!)?.isAgent !== undefined
+      ? { fromType: guguIds.get(input.senderUserId!)!.isAgent ? 'agent' as const : 'human' as const } : {}),
     messageId: encodeTypedId('msg', input.messageId),
     at: timestamp,
     chat: isSessionDirect ? null : chatAnchor,
@@ -895,4 +902,10 @@ function escapeXmlAttribute(value: string): string {
 
 function toCdata(value: string): string {
   return value.replaceAll(']]>', ']]]]><![CDATA[>')
+}
+
+/** Human DMs use the same manual queue as the project composer; agent communications keep their own admission policy. */
+export function isHumanDmDelivery(text: string): boolean {
+  const parts = readDeliveryEnvelope(text)?.segments
+  return !!parts?.length && parts.every(({ facts }) => facts?.route === 'chat' && facts.fromType === 'human' && (facts.chatKind === 'ai' || facts.chatKind === 'dm'))
 }

@@ -34,6 +34,7 @@ import { ChatComposerContextBands } from './ChatComposerContextBands'
 import { AgentMentionOptionLabel, AgentMentionSelectionNotice } from './AgentMentionStatusNotice'
 import { mentionOptionStatusProps } from './agentMentionStatusModels'
 import type { ChatMessageComposerProps } from './chatComposerModels'
+import { AgentConversationComposer } from '@renderer/lib/chat/agent-conversation-view'
 import { usePhoneNewTask } from '../../mobile/chat/PhoneNewTask'
 export type { ComposerAttachAction } from './ComposerAttachButton'
 export type { ChatMessageComposerProps } from './chatComposerModels'
@@ -159,6 +160,7 @@ export function ChatMessageComposer(props: ChatMessageComposerProps) {
   }
   const editorOptions = { inputTestId: surface === 'aside' ? AUTOMATION_TEST_IDS.chatComposerAside : AUTOMATION_TEST_IDS.chatComposer,
     inputRef: receiveInput, clearOnSubmit: false, enterBehavior: mobile ? 'newline' as const : 'submit' as const }
+  const Composer = props.conversation ? AgentConversationComposer : ChatComposer
   return <ThemeProvider theme={theme} target="documentElement">
     <MessageProvider locale={resolvedLocale} translate={translateSessionMessage}>
       <div title={disabledReason} data-chat-composer-host="" data-mobile-group={mobile && isGroupChat || undefined} data-phone-task={phoneTask.active || undefined} data-sending={sending} hidden={hidden || takenOver}>
@@ -168,14 +170,14 @@ export function ChatMessageComposer(props: ChatMessageComposerProps) {
         {invitation}
         {phoneTask.overlay}
         {phoneTask.band}
-        <ChatComposer key={chatId} editorApiRef={editorApiRef} editorOptions={editorOptions} mobile={mobile}
+        <Composer {...props.conversation} key={chatId} editorApiRef={editorApiRef} editorOptions={editorOptions} mobile={mobile}
           disabled={disabled} disabledPlaceholder={placeholder ?? disabledReason} canSubmit={!sending && (!!text.trim() || attachments.length > 0)}
-          placeholder={phoneTask.placeholder ?? (whisperTarget ? t('composer.whisperPlaceholder', { name: whisperTarget.displayName }) : placeholder ?? (mobile && isGroupChat ? t('composer.mobilePlaceholder') : projectName && !mobile ? t('composer.projectGroupPlaceholder', { name: projectName }) : t('composer.placeholder')))}
-          onInputChange={setText} onSubmit={(value) => { void (phoneTask.active ? phoneTask.send(value) : handleSend(value)) }} onMentionInsert={onMentionInsert}
+          placeholder={props.conversation ? undefined : phoneTask.placeholder ?? (whisperTarget ? t('composer.whisperPlaceholder', { name: whisperTarget.displayName }) : placeholder ?? (mobile && isGroupChat ? t('composer.mobilePlaceholder') : projectName && !mobile ? t('composer.projectGroupPlaceholder', { name: projectName }) : t('composer.placeholder')))}
+          onInputChange={setText} onSubmitWhileWorking={props.conversation ? value => { void handleSend(value) } : undefined} onSubmit={(value) => { void (phoneTask.active ? phoneTask.send(value) : handleSend(value)) }} onMentionInsert={onMentionInsert}
           mentionProvider={mentionProvider} renderMentionIcon={renderMentionIcon} dataDropTypes={dataDropTypes} onDataDropped={onDataDropped}
           onFilesDropped={enqueueFiles} onImageFilesDropped={enqueueFiles}
           attachments={composerAttachments} onAttachmentsChange={(next) => { const kept = attachments.filter((file) => next.some((item) => item.id === file.id)); revokeAttachmentPreviewUrls(attachments.filter((file) => !kept.includes(file))); setAttachments(kept) }}
-          toolbarExtra={<><ComposerAttachButton glyph={attachGlyph} actions={phoneTask.action ? [...(attachMenu ?? []), phoneTask.action] : attachMenu} disabled={disabled} mobile={mobile} onPickFile={() => fileInputRef.current?.click()} />{isMain && !mobile && <ComposerVerbs chatId={chatId} isGroupChat={!!isGroupChat} draft={() => editorApiRef.current?.getText() ?? ''} onCarried={() => writeDraft(chatId, '')} />}</>}
+          toolbarExtra={<><ComposerAttachButton glyph={attachGlyph} actions={phoneTask.action ? [...(attachMenu ?? []), phoneTask.action] : attachMenu} disabled={disabled} mobile={mobile} onPickFile={() => fileInputRef.current?.click()} />{isMain && !mobile && !props.conversation && <ComposerVerbs chatId={chatId} isGroupChat={!!isGroupChat} draft={() => editorApiRef.current?.getText() ?? ''} onCarried={() => writeDraft(chatId, '')} />}</>}
           queryCommands={async (query) => SLASH_COMMANDS.filter((command) => command.trigger.slice(1).startsWith(query)).map((command) => ({ id: command.id, name: command.id, behavior: 'execute' as const }))}
           onCommand={(item) => SLASH_COMMANDS.find((command) => command.id === item.id)?.run({ setText: (update) => writeDraft(chatId, update(editorApiRef.current?.getText() ?? '')), clearText: () => writeDraft(chatId, '') })}
           className={inChatSlot ? sessionComposerDockedWidthClassName : undefined} />

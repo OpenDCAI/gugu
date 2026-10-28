@@ -365,3 +365,8 @@ export function onLinkChange(deviceId: string, cb: (open: boolean) => void): () 
 export function onMachineEvent<T>(deviceId: string, event: { name: string; _data?: T }, cb: (data: T) => void): () => void {
   return host(deviceId).api.eventOn(event.name, (data) => cb(data as T))
 }
+
+export function changeSessionQueue(deviceId: string, conversationId: string, action: import('@gugu/session-core/session-record/contract').SessionpageQueueAction, phoneHost = false): Promise<null> {
+  if (phoneHost) return invokePhoneHost(deviceId, 'sessionTimeline.sessionQueue', [{ conversationId, action }])
+  return value(rpc(deviceId).sessionTimeline.sessionQueue({ conversationId, action }))
+}

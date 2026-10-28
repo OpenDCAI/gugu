@@ -142,6 +142,7 @@ export async function deliverSessionText(
       clientMessageId: `mobile-${target.id}-${Date.now()}`,
       text: body,
       kind: 'session-direct' as const,
+      ...(target.runtime === 'acp' ? { delivery: { queue: true as const, origin: 'manual' as const } } : {}),
     };
     // 冷着的终端腿(app 重启后没起、被停过)由 session-direct 的路由自己唤醒再投(#6546),
     // 这里 ❌ 再拉一遍 —— owner 2026-09-06 真机撞的那格(codex 终端腿)现在走的是同一条恢复。

@@ -62,7 +62,7 @@ export function AgentWatchPage({
   createRequest,
   createInGroup = null,
   openRequest,
-  onOpenAgentChat,
+  onOpenAgentChat: _onOpenAgentChat,
   onOpenGroupChat,
 }: {
   /** 「项目」tab 是不是当前 tab。手机壳里这张页常驻在横滑分页器里,切走时也挂着。 */
@@ -167,7 +167,6 @@ export function AgentWatchPage({
         firstPrompt={route.firstPrompt}
         draft={route.draft}
         onBack={() => setRoute({ name: 'projects' })}
-        onOpenChat={onOpenAgentChat}
       />
     )
   }

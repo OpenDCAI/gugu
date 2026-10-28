@@ -28,7 +28,6 @@ import { MsgMoreMenu } from './MsgMoreMenu'
 import { canSourceTopic } from './topicSplitModels' // @@@5856 与顶栏那颗按钮共用同一个判据,❌ 不再写第二份
 import { highlightText } from './highlightText'
 import { SystemMessageNotice } from './SystemMessageNotice'
-import { AgentAnswerActions } from './AgentAnswerActions'
 import { BubbleSender, BubbleTime } from './MessageBubbleChrome'; import { fmtMsgTime } from './messageRowTime'
 
 /** The composer's quote (`> [SenderName]: QuotedText\nReplyText`, InputArea) into quote + reply parts. Any other `> `
@@ -578,7 +577,6 @@ export const MessageBubble = memo(function MessageBubble({
           />
         )}
         </div>{/* closes bubble + reactions block */}
-        {!streaming && isAgent && !msg.is_mine && !isGroup && !isRetracted && msg.content_type === 'text' && <AgentAnswerActions moreRef={moreButtonRef} onCopy={() => { void handleCopyText() }} onQuote={() => onQuote(msg)} onMore={openMoreMenuFromButton} />}
       </div>
 
       {/* ── More menu (hover-bar "More" button) — design #msgmenu, portalled ── */}

@@ -45,6 +45,22 @@ describe('shared ACP prompt admission', () => {
     expect(userTexts).toEqual(['Run the long tool', ...texts]);
   });
 
+  it('keeps human DMs in the same editable manual queue as project prompts', async () => {
+    const { harness, runtime, finish } = await busySession();
+    const envelopes = ['first request', 'second request'].map((content, index) => renderDeliveryEnvelope({
+      route: 'chat', chat: 'dm-1', chatKind: 'ai', from: 'Owner', fromId: 'user:owner', fromType: 'human',
+      messageId: `msg:human-${index}`, at: '2026-10-24 20:00 UTC', content,
+    }));
+    const deliveries = [];
+    for (const text of envelopes) deliveries.push(await injectEmdashPromptDetached('conv-1', text));
+    const state = runtime.getSessionState('conv-1');
+    expect(state.queuedPrompts.map(prompt => prompt.origin)).toEqual(['manual', 'manual']);
+    await finish();
+    await Promise.all(deliveries.map(delivery => delivery.completion));
+    expect(harness.agent.prompt.mock.calls.slice(1).map(([request]) => request.prompt))
+      .toEqual(envelopes.map(text => [{ type: 'text', text }]));
+  });
+
   it('retains delivery merging for real envelopes', async () => {
     const { harness, finish } = await busySession();
     const envelopes = ['first fact', 'second fact'].map((content, index) => renderDeliveryEnvelope({

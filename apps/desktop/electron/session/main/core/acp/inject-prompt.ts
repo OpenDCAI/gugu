@@ -1,4 +1,4 @@
-import { readDeliveryEnvelope } from '@gugu/core/local/agent/deliveryEnvelope';
+import { isHumanDmDelivery, readDeliveryEnvelope } from '@gugu/core/local/agent/deliveryEnvelope';
 import { getAcpRuntimeClient } from './runtime-process/host';
 import { withDeferredMessagesBeforeAdmission } from '../sessions/session-deferred-messages';
 
@@ -6,13 +6,13 @@ import { withDeferredMessagesBeforeAdmission } from '../sessions/session-deferre
 export async function injectEmdashPromptDetached(
   sessionId: string,
   text: string,
-  opts?: { steerIfBusy?: boolean; coalesceKey?: string; deferredDispatch?: true },
+  opts?: { steerIfBusy?: boolean; coalesceKey?: string; deferredDispatch?: true; origin?: 'manual' },
 ): Promise<{ outcome: 'started' | 'queued' | 'declined' | 'missing'; completion: Promise<void>; turnId?: string }> {
   const client = await getAcpRuntimeClient();
   // Plain user text keeps its manual queue policy; only actual envelopes may be merged as deliveries.
   const result = await withDeferredMessagesBeforeAdmission(sessionId, text, prepared => client.promptDetached({
     sessionId,
-    prompt: { text: prepared, origin: readDeliveryEnvelope(prepared) ? 'communication' : 'manual', ...(opts?.coalesceKey ? { coalesceKey: opts.coalesceKey } : {}) },
+    prompt: { text: prepared, origin: opts?.origin ?? (isHumanDmDelivery(text) ? 'manual' : readDeliveryEnvelope(prepared) ? 'communication' : 'manual'), ...(opts?.coalesceKey ? { coalesceKey: opts.coalesceKey } : {}) },
     ...(opts?.steerIfBusy ? { steerIfBusy: true } : {}),
   // A replaceable queued prompt must not take ownership of unrelated App context.
   }), Boolean(opts?.deferredDispatch || opts?.coalesceKey));

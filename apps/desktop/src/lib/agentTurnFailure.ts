@@ -3,7 +3,7 @@
 // 载体 = spec(agent-reply) 规定的 {type:'error'} AgentStreamEvent：deliver 终态失败时主进程附 commandId
 // 发出（spawn 失败/进程退出等进程级 error 不带 commandId → 不进失败条，维持既有行为）。
 // 生命周期：error(带 commandId) 落条目 → 同 (chat,thread) 作用域一有新流事件（新 turn 跑起来/终态 done）
-// 即清；「重试/关闭」由 UI 显式清。与 activity/presence 调和状态机（useAgentRunningStatus）完全解耦——
+// 即清；「重试/关闭」由 UI 显式清。与 activity/presence 调和状态机完全解耦——
 // 失败不是「运行态」的一种，是独立的会话内通知。
 
 import type { AgentStreamPayload } from '@gugu/core/shared/types/agentStream'

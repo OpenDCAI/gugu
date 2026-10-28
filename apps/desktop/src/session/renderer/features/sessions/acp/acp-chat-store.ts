@@ -116,14 +116,9 @@ type PermissionQueueItem = {
   waitKind: PermissionWaitKind;
 };
 
-export function isVisibleQueuedPrompt(
-  prompt: QueuedPrompt,
-): prompt is QueuedPrompt & { origin: 'manual' | 'typed' } {
-  if (!prompt.origin) {
-    throw new Error(`Queued prompt ${prompt.id} has no explicit origin`);
-  }
-  return prompt.origin !== 'communication';
-}
+export { isVisibleQueuedPrompt } from '@shared/core/sessions/visible-queued-prompt';
+import { isVisibleQueuedPrompt } from '@shared/core/sessions/visible-queued-prompt';
+import { conversationQueueText, editedConversationQueueText } from '@shared/core/sessions/conversation-queue-text';
 
 export type { AcpLoadError } from './acp-load-error';
 
@@ -522,7 +517,7 @@ export class AcpChatStore {
       ...this._startupQueued.map((prompt) => ({ ...prompt, locked: true })),
     ];
     return this._queuedPromptModels().filter(isVisibleQueuedPrompt).map(
-      (prompt) => ({ id: prompt.id, text: prompt.text, origin: prompt.origin })
+      (prompt) => ({ id: prompt.id, text: conversationQueueText(prompt.text), origin: prompt.origin })
     );
   }
 
@@ -1451,7 +1446,7 @@ export class AcpChatStore {
     const existing = session.sessionState.current().queuedPrompts.find((prompt) => prompt.id === id);
     if (!existing) return false;
     const input: PromptInput = {
-      text, hiddenContext: existing.hiddenContext, attachments: existing.attachments,
+      text: editedConversationQueueText(existing.text, text), hiddenContext: existing.hiddenContext, attachments: existing.attachments,
       ...(existing.origin ? { origin: existing.origin } : {}),
     };
     try {
@@ -1470,7 +1465,7 @@ export class AcpChatStore {
     if (!prompt) return;
     this.queueEditPending = true;
     try {
-      await this.editQueuedPrompt(id, prompt.text, { draftText: prompt.text, originalDraftText: this.draftText });
+      await this.editQueuedPrompt(id, conversationQueueText(prompt.text), { draftText: conversationQueueText(prompt.text), originalDraftText: this.draftText });
     } finally {
       runInAction(() => { this.queueEditPending = false; });
     }
@@ -1486,7 +1481,7 @@ export class AcpChatStore {
       const current = this.queuedPromptEdit;
       const prompt = this._queuedPromptModels().find((entry) => entry.id === edit.id);
       if (!current || current.id !== edit.id || !prompt) return;
-      void this.editQueuedPrompt(edit.id, prompt.text, {
+      void this.editQueuedPrompt(edit.id, conversationQueueText(prompt.text), {
         draftText: current.text, originalDraftText: current.originalDraftText,
       });
     }, 300);
@@ -1501,7 +1496,7 @@ export class AcpChatStore {
     this._queueEditTimer = null;
     this.queueEditPending = true;
     try {
-      const saved = await this.editQueuedPrompt(edit.id, text ?? prompt.text, null);
+      const saved = await this.editQueuedPrompt(edit.id, text ?? conversationQueueText(prompt.text), null);
       if (saved) runInAction(() => { this.queuedEditDraft = null; });
     } finally {
       runInAction(() => { this.queueEditPending = false; });
