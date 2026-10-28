@@ -1,3 +1,8 @@
+// 生成脚本里的文案放在 String.raw 之外、按 JSON 插进去:raw 段里的非 ASCII 会让整份主进程 bundle 按双字节常驻(#655)。
+const DENY_PANEL_LOG = '面板变更记录由系统维护，不能覆盖、删除或自行撤销。';
+const DENY_DELETED = '这条记忆或资料已被主人删除，不再作为依据；不能读取或重建原文件。';
+const DENY_UNVERIFIED = '无法核实主人已删除的资料，本次工具调用未执行，请重试。';
+
 /** Native history stays intact. Revoked files are denied at the actual tool
  * boundary, even if an old turn or a stale index still names their paths. */
 export function assistantPanelRevocationHook(statePath: string): string {
@@ -18,7 +23,7 @@ async function main() {
   const candidates = [lexical];
   try { candidates.push(await fs.realpath(lexical)); } catch (error) { if (error.code !== 'ENOENT') throw error; }
   if (event.tool_name !== 'Read' && candidates.some(file => normalized(file) === normalized(statePath))) {
-    return deny('面板变更记录由系统维护，不能覆盖、删除或自行撤销。');
+    return deny(${JSON.stringify(DENY_PANEL_LOG)});
   }
   let value;
   try {
@@ -34,9 +39,9 @@ async function main() {
     const rest = path.relative(root,normalized(file));
     return !rest || !path.isAbsolute(rest) && rest !== '..' && !rest.startsWith('..' + path.sep);
   }))) {
-    deny('这条记忆或资料已被主人删除，不再作为依据；不能读取或重建原文件。');
+    deny(${JSON.stringify(DENY_DELETED)});
   }
 }
-main().catch(() => { deny('无法核实主人已删除的资料，本次工具调用未执行，请重试。'); });
+main().catch(() => { deny(${JSON.stringify(DENY_UNVERIFIED)}); });
 `}`
 }

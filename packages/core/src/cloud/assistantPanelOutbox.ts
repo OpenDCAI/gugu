@@ -37,7 +37,12 @@ export function createAssistantPanelOutbox(deps: {
       if (!entry) return receipt
       const assistant = entry.assistantId ?? await deps.assistantId(owner)
       assertOwner(owner)
-      if (!assistant) return receipt
+      if (!assistant) {
+        // No assistant to tell. The edits themselves are already saved in their own tables, and an assistant opened later
+        // reads that current state, so these change notices have no one to inform: drop them (never wait and re-poll).
+        save(owner,read(owner).filter(next => next.assistantId))
+        continue
+      }
       try { receipt = await deps.send(assistant,entry.notice) }
       catch (error) {
         if (!['22023','23505','54000','55000','42501'].includes(String((error as { code?: string }).code))) throw error

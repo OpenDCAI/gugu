@@ -61,16 +61,15 @@ describe('saved App change outbox', () => {
 })
 
 
-it('retains a notice until the account has an assistant instead of silently dropping it', async () => {
+it('drops notices when the account has no assistant: the edits are saved, and nobody is waiting to be told', async () => {
   const f = fixture()
-  f.deps.assistantId.mockResolvedValueOnce(null)
+  f.deps.assistantId.mockResolvedValue(null)
   const outbox = createAssistantPanelOutbox(f.deps)
-  await outbox.enqueue('owner',notice())
-  expect(outbox.hasPending('owner')).toBe(true)
+  await outbox.enqueue('owner',notice('a'))
+  await outbox.enqueue('owner',notice('b'))
   expect(f.send).not.toHaveBeenCalled()
-  await outbox.flush('owner')
-  expect(f.send).toHaveBeenCalledOnce()
   expect(outbox.hasPending('owner')).toBe(false)
+  expect(f.deps.assistantId).toHaveBeenCalledTimes(2)
 })
 
 it('retires a terminally invalid notice and continues with the following valid one', async () => {
