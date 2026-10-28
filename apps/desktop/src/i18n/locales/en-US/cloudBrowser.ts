@@ -4,7 +4,7 @@ export default {
     "title": "Browser",
     "titleOf": "{{name}}'s browser",
     "agentFallback": "the assistant",
-    "empty": "{{name}} has not opened a browser yet. When it browses, the screen shows up here and you can take over from here.",
+    "empty": "No browser is open yet. When {{name}} browses, the screen shows up here and you can take over from here.",
     "watching": "Live · {{name}} is browsing",
     "connecting": "Connecting…",
     "waiting": "Waiting for {{name}} to finish its current step…",
