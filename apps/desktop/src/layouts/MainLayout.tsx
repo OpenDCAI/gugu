@@ -34,7 +34,6 @@ import { PhonePartnersPage } from '@/mobile/partners/PhonePartnersPage'
 import { chatOnScreen, useReportChatOnScreen } from '@/lib/onScreenChat'
 import { useLinkNavigation } from '../hooks/useLinkNavigation'
 import { readAssistantShellBridge } from '../lib/assistantShellBridge'
-import { openTaskCardSession } from '../components/chat/openTaskCardSession'
 import { ChatListPanel } from '../components/ChatListPanel'
 import { ChatAreaPanel } from '../components/ChatAreaPanel'
 import type { MemberProfileChatTarget } from '../components/MemberProfileCard'
@@ -109,6 +108,7 @@ import { PlatformError } from '../platform/errors'
 import { CameraPermissionSheet } from '../components/CameraPermissionSheet'
 import { RemoteMachinesHost } from '../components/sessionpage/RemoteMachinesHost'
 import type { ContactGroupChat, ContactUser } from '@gugu/core/shared/types/contacts'
+import { followLink } from '../lib/guguLinks'
 import { useMobileShell, readMobileShell } from '../hooks/useMobileShell'
 import { useMobileChatOpenNonce } from '../hooks/useMobileChatOpenNonce'
 import { useAgentCreateContextBridge } from '../hooks/useAgentCreateContextBridge'
@@ -947,7 +947,8 @@ function InnerLayout({
   }
 
   const handleOpenProfileChat = (target: MemberProfileChatTarget) => {
-    if (target.session) return openTaskCardSession(target.session)
+    // The session may be on another machine: the one session entry decides how to open it (#626).
+    if (target.session) return void followLink({ kind: 'session', sessionId: target.session.sessionId })
     const contact = contacts.find((item) => item.id === target.id)
     return handleSwitchToChat({
       id: target.id,

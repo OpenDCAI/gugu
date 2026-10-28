@@ -5,6 +5,14 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { MemberProfileCard, type MemberProfileCardModel } from '../../../../apps/desktop/src/components/MemberProfileCard'
 import { publishProjectGroupChats } from '../../../../apps/desktop/src/session/renderer/features/projects/stores/project-group-chats-bridge'
 import { clickElement, createNode, createReactHarness, renderWithAppProviders } from '../../../support/testHarness'
+import type { Device } from '@gugu/core/shared/types/chat'
+import { retainDeviceSessions, updateDeviceSessions } from '../../../../apps/desktop/src/session/shared/remote-sessions/session-directory'
+
+const deviceStore = vi.hoisted(() => ({ devices: [] as Device[] }))
+vi.mock('../../../../apps/desktop/src/store/devicesContext', async (importOriginal) => ({
+  ...(await importOriginal<object>()),
+  useDevicesStore: () => ({ devices: deviceStore.devices }),
+}))
 
 // 连着的另一台机器上的项目里的会话(会话页按 projectId 认它在哪台机器上)。
 const onLinux1 = { projectId: 'project-on-linux-1', sessionId: 'conversation-on-linux-1' }
@@ -41,4 +49,24 @@ describe('profile card「发消息」on an agent that is a session', () => {
     publishProjectGroupChats([], new Map(), new Map([['u-a', onLinux1]]))
     expect((await send({ ...agent, id: 'u-a', type: 'human', ownerUserId: undefined }))?.session).toBeUndefined()
   })
+
+  // The phone has no session-page bundle to publish the bridge: its card finds the agent's session in the phone's
+  // session directory, as its agent chat header and Partners rows do (#673, #658).
+  it('on the phone, hands over the session the phone\'s session directory has for the agent', async () => {
+    const width = Object.getOwnPropertyDescriptor(window, 'innerWidth')!
+    Object.defineProperty(window, 'innerWidth', { configurable: true, value: 412 })
+    deviceStore.devices = [{ device_id: 'linux-1', label: 'Linux 1', hostname: 'linux-1', platform: 'linux', status: 'online',
+      last_seen_at: '2026-10-28T00:00:00.000Z', is_online: true, capabilities: { terminals: [], runtimes: [] } } as unknown as Device]
+    updateDeviceSessions('linux-1', { sessions: [{ conversationId: onLinux1.sessionId, projectId: onLinux1.projectId, title: 'Task',
+      harness: 'claude', runtime: 'acp', agentStatus: null, lastInteractedAt: '2026-10-28T00:00:00.000Z', supported: true,
+      agent: { userId: 'a-mine' } }] as never, cached: false, loading: false, error: null })
+    try {
+      expect(await send(agent)).toEqual(expect.objectContaining({ id: 'a-mine', session: onLinux1 }))
+    } finally {
+      Object.defineProperty(window, 'innerWidth', width)
+      deviceStore.devices = []
+      retainDeviceSessions([])
+    }
+  })
 })
+

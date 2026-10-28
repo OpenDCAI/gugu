@@ -16,6 +16,8 @@ import { Button } from './ui/Button'
 import { cn } from '@/lib/cn'
 import { CommunityPointsTag } from './forum/CommunityPointsTag'
 import { useAgentSession } from '@/lib/projectGroupChatsBridge'
+import { useMobileShell } from '@/hooks/useMobileShell'
+import { useAgentSessionRow } from '@/mobile/agent-watch/useAgentSessionRow'
 import type { AgentSession } from '@/session/renderer/features/projects/stores/project-group-chats-bridge'
 
 // @@@float-one-edge (Refs #6104) — 名片是浮层:圆角 xl(12) + 一层 lift,❌ 不再叠描边。
@@ -227,7 +229,14 @@ export function MemberProfileCard({
   const { user } = useAuth()
   // 别人的 agent 不能私聊(#509):不画能点的「发消息」(#6832)。通讯录那边同一条规则见 ContactsPanel 的 isOwnedAgent。
   const canOpenChat = !!onOpenChat && (!isAgent || member.ownerUserId === user?.id)
-  const session = useAgentSession(isAgent ? member.id : null)
+  // Desktop: the session bridge the task bundle publishes. The phone has no such bundle: it finds the agent's session in
+  // its session directory, as its agent chat header and Partners rows do (#673, #658).
+  const phone = useMobileShell()
+  const bridged = useAgentSession(isAgent && !phone ? member.id : null)
+  const row = useAgentSessionRow(isAgent && phone ? member.id : null)
+  const session: AgentSession | undefined = phone
+    ? (row ? { projectId: row.session.projectId, sessionId: row.session.conversationId } : undefined)
+    : bridged
   const editBusy = !!editControls?.busy
   const showEdits = isGroupProfile && (editControls?.canChangeRole || editControls?.canRemove)
   const roleLabel = member.role === 'owner' ? t('profile.roles.owner') : member.role === 'admin' ? t('profile.roles.admin') : t('profile.roles.member')
