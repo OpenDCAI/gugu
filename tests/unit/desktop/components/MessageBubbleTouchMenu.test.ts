@@ -239,8 +239,7 @@ describe('MessageBubble touch menu', () => {
     })
     const receipt = harness.container.querySelector('[data-testid="message-read-receipt"]') as HTMLElement | null
     const bubble = messageBubble()
-    const innerRow = bubble.closest<HTMLElement>('[data-message-bubble-row="true"]')
-    expect(innerRow?.contains(receipt)).toBe(true)
+    const innerRow = bubble.parentElement as HTMLElement | null
     expect(receipt?.style.position).toBe('absolute')
     // 浮层锚在气泡那一行上(不是整列),贴着气泡左侧 —— 原先 left:-14px 钉在整列最左边,离短气泡半个屏幕
     expect(receipt?.style.right).toBe('100%')

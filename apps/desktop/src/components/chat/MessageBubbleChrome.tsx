@@ -1,7 +1,5 @@
 import { useTranslation } from 'react-i18next'
 import { Chip } from '../ui/Chip'
-import { Button } from '../ui/Button'
-import { notify } from '../../lib/notices'
 import { useAuth } from '../../store/auth'
 import { BODY_COLORS } from '../agentAvatar/engine/identity'
 import { resolveAgentLook } from '../agentAvatar/look'
@@ -14,7 +12,7 @@ import './messageBubbleChrome.css'
 
 /** 群里收到的消息、组首那一条:名字 + 归属小标签(「我的 agent」「Alice 的 agent」)。
  *  颜色不另起色板:用身份层按 id 定下的那一档色相(agent 形象的身体色,agent 改过形象就跟着它),亮度/彩度随主题(tokens.css)。 */
-export function BubbleSender({ member, senderId, compact = false }: { compact?: boolean; member: MemberProfileCardModel | null; senderId: string | null }) {
+export function BubbleSender({ member, senderId }: { member: MemberProfileCardModel | null; senderId: string | null }) {
   const { t } = useTranslation('messaging')
   const { user } = useAuth()
   const hue = BODY_COLORS[resolveAgentLook(senderId, member?.avatar ?? null).color].hue
@@ -23,14 +21,9 @@ export function BubbleSender({ member, senderId, compact = false }: { compact?: 
     : member.ownerDisplayName ? t('message.agentOwnerTag', { owner: member.ownerDisplayName })
     : t('message.agentOwnerUnavailableTag')
   return (
-    <div data-message-sender-id={compact ? senderId ?? undefined : undefined} data-message-who="true" data-message-sender-name="true" className={compact ? "msg-sender msg-sender-compact" : "msg-sender"} style={{ '--member-hue': hue } as React.CSSProperties}>
-      {compact && member?.type === 'agent' && senderId ? (
-        <Button variant="ghost" className="msg-sender-name msg-sender-link" onClick={() => {
-          void import('./openAgentSession').then(({ openAgentSession }) => openAgentSession(senderId))
-            .catch((error: unknown) => notify({ tier: 'error', title: error instanceof Error ? error.message : String(error) }))
-        }}>{member.displayName}</Button>
-      ) : <span className="msg-sender-name">{member?.displayName ?? ''}</span>}
-      {!compact && tag && <Chip appearance="filled" data-message-agent-owner="true">{tag}</Chip>}
+    <div data-message-who="true" data-message-sender-name="true" className="msg-sender" style={{ '--member-hue': hue } as React.CSSProperties}>
+      <span className="msg-sender-name">{member?.displayName ?? ''}</span>
+      {tag && <Chip appearance="filled" data-message-agent-owner="true">{tag}</Chip>}
     </div>
   )
 }
