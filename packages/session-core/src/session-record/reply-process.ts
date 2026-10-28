@@ -51,6 +51,11 @@ export type AgentSendTarget =
       /** The thread this session is bound to: a send to the delivery's own chat lands there (the server, not the agent, picks it). */
       threadRootId: string | null;
       whisper: boolean;
+      /**
+       * A send back into the private chat it was answering: the other person in it, by name. The host's name for a
+       * private chat is the agent's own from the owner's side, so 「发到 Claude 1」 would read as sent to itself.
+       */
+      peer?: string;
     }
   | { kind: 'session'; count: number };
 
@@ -90,7 +95,8 @@ export function agentSendOf(item: TranscriptItem, turn?: TranscriptTurn): AgentS
   const here = facts !== null && sourceChatMatches(facts, args.chat_id);
   const linked = here && facts.sourceLink ? parseConversationLink(facts.sourceLink)?.chatId ?? null : null;
   const conversationId = linked ?? (typeof args.chat_id === 'string' && CONVERSATION_ID.test(args.chat_id) ? args.chat_id.toLowerCase() : null);
-  return { text: args.text, to: { kind: 'chat', conversationId, threadRootId: here && !whisper ? facts.thread : null, whisper } };
+  const peer = here && facts.chatKind === 'dm' && facts.from ? facts.from.replace(/\s*[(（][^()（）]*[)）]\s*$/, '').trim() : '';
+  return { text: args.text, to: { kind: 'chat', conversationId, threadRootId: here && !whisper ? facts.thread : null, whisper, ...(peer ? { peer } : {}) } };
 }
 
 /** Only the explicit send to this input's destination can preview an IM reply. */

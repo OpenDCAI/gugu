@@ -118,6 +118,16 @@ describe('agentSendOf: what the agent said through 咕咕, and where it went', (
       .toMatchObject({ threadRootId: null, whisper: true });
   });
 
+  it('a send back into the private chat it was answering names the other person, not the chat', () => {
+    const dmInput = renderDeliveryEnvelope({ route: 'chat', from: '验收员 (咕咕号 112615)', fromId: 'user:owner',
+      chat: '216099', chatKind: 'dm', sourceLink: `gugu-chat://${chat}/${messageId}`, messageId: 'msg:' + messageId,
+      content: '你好', at: '2026-10-27T04:10:00Z' });
+    const tool = send({ chat_id: '216099', text: '收到' });
+    // MBP 验收 10-28:宿主给这个私聊起的名字从主人那边看就是 agent 自己,「发到 Claude 1」读着像发给了自己。
+    expect(agentSendOf(tool, inGroup(tool, dmInput))?.to).toMatchObject({ conversationId: chat, peer: '验收员' });
+    expect(agentSendOf(tool, inGroup(tool))?.to).not.toHaveProperty('peer');
+  });
+
   it('another chat is named only when the agent addressed it by conversation id', () => {
     expect(agentSendOf(send({ chat_id: '999' }), turn())?.to).toMatchObject({ conversationId: null, threadRootId: null });
     const other = 'aaaaaaaa-bbbb-4ccc-8ddd-eeeeeeeeeeee';

@@ -5,6 +5,7 @@ import { projectGroupsStore } from '@renderer/features/projects/stores/project-g
 import { SessionComposerVerbs, SessionVerbDock, sessionVerbKey } from '../session-verb-dock';
 import type { AttachmentMimeType, AttachmentRef } from '@gugu/session-core/acp/client';
 import { followLink } from '@/lib/guguLinks';
+import { openMessageSender } from '@/lib/openMessageSender';
 import { classifyFileLink } from '@gugu/core/shared/ui/guguLink';
 import {
   AttachmentViewerDialog,
@@ -2224,6 +2225,8 @@ export const AcpChatPanel = observer(function AcpChatPanel({
       ...outputMenu.commands,
       onConversationReply: (itemId) => viewRef.current?.scrollToItem(itemId),
       conversationAgentName: () => conversationAgentName,
+      conversationAgentSession: () => store?.sessionId ?? null,
+      onOpenSender: openMessageSender,
       classifyLink: classifyFileLink,
       onOpenLink: followLink,
       // transcript 自己那颗停止按钮（用户消息卡右下角）一直**没有**接过宿主 ——
