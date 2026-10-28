@@ -405,7 +405,7 @@ export default {
       "notificationsTestSentMobile": "系统收下了这条通知。还是没看到 → 去「我的 → 权限 → 通知」确认咕咕的通知已打开、允许弹出横幅。",
       "notificationsTestRejectedMobile": "系统没让这条通知弹出来——咕咕还没拿到通知权限。去「我的 → 权限 → 通知」开。",
       "terminal": "终端",
-      "terminalDescription": "显示终端,新任务在终端里运行。",
+      "terminalDescription": "开启后，agent 可以用 TUI（终端界面）的方式交互；新任务默认还是通用模式。",
       "trayBadge": "托盘角标",
       "trayBadgeAria": "在托盘图标上显示未读数",
       "trayBadgeEnabled": "在托盘图标上显示未读数",

@@ -411,7 +411,7 @@ export default {
       "notificationsTestSentMobile": "The system accepted it. Still nothing? Go to Me → Permissions → Notifications and make sure notifications and pop-up banners are on for 咕咕.",
       "notificationsTestRejectedMobile": "The system refused to show it — 咕咕 has no notification permission yet. Turn it on from Me → Permissions → Notifications.",
       "terminal": "Terminal",
-      "terminalDescription": "Show the terminal, and run new tasks in it.",
+      "terminalDescription": "When on, agents can work through a TUI (terminal interface). New tasks still start in the General view.",
       "trayBadge": "Tray badge",
       "trayBadgeAria": "Show the unread count on the tray icon",
       "trayBadgeEnabled": "Show the unread count on the tray icon",
