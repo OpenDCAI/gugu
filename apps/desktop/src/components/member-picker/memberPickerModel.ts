@@ -1,6 +1,7 @@
 import type { Device } from '@gugu/core/shared/types/chat'
 import type { ContactUser } from '@gugu/core/shared/types/contacts'
 import { getAgentTypeLabel, isAgentType, isCloudAgentMarked } from '@gugu/core/shared/enums/agentTypeModels'
+import { IMPLICIT_SESSION_HOME_PROJECT_ID } from '@gugu/core/shared/sessionProject'
 import { deviceSessionsOf, type DeviceSessions } from '@/session/shared/remote-sessions/session-directory'
 import type { ContactSearchField } from '../../lib/contactSearch'
 import { groupContacts } from '../../lib/contactsListSort'
@@ -46,7 +47,8 @@ export function agentTasks(devices: readonly Device[], live: Readonly<Record<str
   const tasks = new Map<string, AgentTask>()
   for (const device of devices) {
     const { projects, sessions } = deviceSessionsOf(device, live)
-    const projectName = new Map(projects.map((project) => [project.id, project.name]))
+    // 没选仓库的任务住在隐藏的内部项目里(别的机器上的那份 id 带 `~<机器>`):它不是用户的项目,❌ 当项目名显示。
+    const projectName = new Map(projects.filter((project) => !isSessionHome(project.id)).map((project) => [project.id, project.name]))
     for (const session of sessions) {
       const id = session.agent?.userId
       if (!id || tasks.has(id)) continue
@@ -56,7 +58,12 @@ export function agentTasks(devices: readonly Device[], live: Readonly<Record<str
   return tasks
 }
 
-const folderName = (path: string | null | undefined) => path?.split(/[\\/]/).filter(Boolean).pop() ?? null
+const isSessionHome = (projectId: string) => projectId === IMPLICIT_SESSION_HOME_PROJECT_ID || projectId.startsWith(`${IMPLICIT_SESSION_HOME_PROJECT_ID}~`)
+/** 工作目录的末级名;独立任务的 `task-home` 是咕咕自己的目录,❌ 当项目名(新建群选成员时 Agent 旁边就写着 task-home)。 */
+const folderName = (path: string | null | undefined) => {
+  const name = path?.split(/[\\/]/).filter(Boolean).pop() ?? null
+  return name === 'task-home' ? null : name
+}
 const byRecent = (a: PickerEntry, b: PickerEntry) => b.lastAt - a.lastAt
 
 export function pickerModel({ contacts, currentUserId, devices, live, recentChats, now, withPeople = true }: {

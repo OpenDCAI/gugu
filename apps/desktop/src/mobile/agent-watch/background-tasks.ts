@@ -43,8 +43,18 @@ export function backgroundTaskRosters(
   }
 }
 
-/** `dismissals`:人按过 × 就加一,让名单重算(收起表是 mobx 的,React 这边不订它)。 */
-export function usePhoneBackgroundTasks(deviceId: string, sessionId: string, turns: readonly TranscriptTurn[], dismissals: number, enabled: boolean): PhoneBackgroundTasks {
+/**
+ * `dismissals`:人按过 × 就加一,让名单重算(收起表是 mobx 的,React 这边不订它)。
+ * `fetchRunning`:问那台机器哪些还活着;默认走 sessionpage RPC(另一台机器),本机会话传本机的那一问。
+ */
+export function usePhoneBackgroundTasks(
+  deviceId: string,
+  sessionId: string,
+  turns: readonly TranscriptTurn[],
+  dismissals: number,
+  enabled: boolean,
+  fetchRunning?: (deviceId: string, sessionId: string) => Promise<{ runningCommandTaskIds: string[] | null }>,
+): PhoneBackgroundTasks {
   const [running, setRunning] = useState<{ key: string; ids: string[] | null; canStop: boolean } | null>(null)
   const key = `${deviceId}:${sessionId}`
   const known = running?.key === key ? running : null
@@ -54,8 +64,9 @@ export function usePhoneBackgroundTasks(deviceId: string, sessionId: string, tur
   useEffect(() => {
     if (!asking) return
     let live = true
+    const fetchRunningIds = fetchRunning ?? fetchBackgroundTasks
     const ask = () => {
-      fetchBackgroundTasks(deviceId, sessionId).then(
+      fetchRunningIds(deviceId, sessionId).then(
         (value) => { if (live) setRunning({ key, ids: value.runningCommandTaskIds, canStop: true }) },
         (error: unknown) => {
           log.info({ error: String(error), deviceId }, 'that computer cannot report its running background tasks')
@@ -66,7 +77,7 @@ export function usePhoneBackgroundTasks(deviceId: string, sessionId: string, tur
     ask()
     const timer = setInterval(ask, BACKGROUND_TASKS_POLL_MS)
     return () => { live = false; clearInterval(timer) }
-  }, [asking, deviceId, sessionId, key])
+  }, [asking, deviceId, sessionId, key, fetchRunning])
   return useMemo(() => {
     if (!asking) return { commands: [], subagents: [], canStop: false }
     const ids = known?.ids ?? null
