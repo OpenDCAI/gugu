@@ -36,7 +36,7 @@ export function ConversationProcess(props: {
   };
   const summary = () => [elapsed(), steps()].filter(Boolean).join(' · ') || null;
   const label = () => `${translate('transcript.thinkingAndExecution')}${summary() ? ` · ${summary()}` : ''}`;
-  // 在跑:点阵代替大脑,字写「思考执行中 · 1m15s」并带微光(owner 2026-10-27 原型);跑完换回大脑 + 用时。
+  // 在跑:点阵代替大脑,字写「执行中 · 1m15s」并带微光(owner 2026-10-27 原型);跑完换回大脑 + 用时。
   const liveLabel = () => `${translate('transcript.thinkingLive')}${summary() ? ` · ${summary()}` : ''}`;
   return <button type="button" class={conversationProcessButton} data-conversation-process={props.process.id}
     data-collapse-id={props.collapsible === false ? undefined : props.process.id} data-collapse-anchor={props.anchorId}

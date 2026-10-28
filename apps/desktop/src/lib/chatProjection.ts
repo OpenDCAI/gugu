@@ -545,6 +545,7 @@ export function mergeUnreadRows(
       message_id: typeof row.message_id === 'string' ? row.message_id : null,
       message_seq: Number.isFinite(Number(row.message_seq)) ? Number(row.message_seq) : null,
       unread_count: Number(row.unread_count),
+      addressed_count: addressedCount(row, Number(row.unread_count)),
       cursor_seq: Number(row.cursor_seq),
       version: Number(row.version),
       is_marked_unread: row.is_marked_unread === true,
@@ -553,9 +554,18 @@ export function mergeUnreadRows(
     if (!previous) { byChat.set(row.chat_id, locator); continue }
     const first = (locator.message_seq ?? Number.MAX_SAFE_INTEGER) < (previous.message_seq ?? Number.MAX_SAFE_INTEGER)
       ? locator : previous
-    byChat.set(row.chat_id, { ...first, unread_count: previous.unread_count + locator.unread_count })
+    byChat.set(row.chat_id, { ...first, unread_count: previous.unread_count + locator.unread_count, addressed_count: (previous.addressed_count ?? previous.unread_count) + locator.addressed_count })
   }
   return byChat
+}
+
+/**
+ * 后端比 gugu-supabase#73 旧(还没有这一列):退回这条流的全部未读 —— 项目行照旧数、照旧弹,❌ 报错让整张列表起不来,
+ * ❌ 当成 0 把话题里点名你的消息悄悄算没。生产库晚于客户端上线也不出事。
+ */
+function addressedCount(row: Record<string, unknown>, unread: number): number {
+  const value = row.addressed_count == null ? Number.NaN : Number(row.addressed_count)
+  return Number.isFinite(value) ? value : unread
 }
 
 /** 请求过的键一律落位:读到 = 值,没读到 = null(tombstone,spec I3)。 */

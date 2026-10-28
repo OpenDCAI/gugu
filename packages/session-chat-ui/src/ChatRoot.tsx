@@ -613,7 +613,7 @@ export function ChatRoot(props: ChatRootProps) {
   });
 
   /**
-   * 还在跑的后台任务挂在哪(owner 2026-10-27 原型:后台那一句与「思考执行中」同一行)。
+   * 还在跑的后台任务挂在哪(owner 2026-10-27 原型:后台那一句与「执行中」同一行)。
    *
    * 列表末尾那条 agent 回复带着过程行 ⇒ 挂在它的过程行上(返回它的 itemId);末尾不是这样一条(人刚说完话、
    * 还没有任何回复、旧样式没有过程行)⇒ 单独一行贴在列表最后(`BACKGROUND_TASKS_ID`)。
@@ -624,7 +624,7 @@ export function ChatRoot(props: ChatRootProps) {
       const u = us[i];
       if (!u || u.kind === 'day-separator' || u.kind === 'session-condition' || u.kind === 'background-tasks') continue;
       // 正在跑、还没出正文的这一轮(对话布局):头是只有过程的那一行,步骤摊在它下面 ⇒ 越过步骤挂到这条过程行上
-      // (owner 0 号图「思考执行中 · 9m16s · 39 步 ⌄ | 后台 · 4 个子智能体 ›」)。只在活动那一档这样找,那里只有这一轮。
+      // (owner 0 号图「执行中 · 9m16s · 39 步 ⌄ | 后台 · 4 个子智能体 ›」)。只在活动那一档这样找,那里只有这一轮。
       if (live && theme().layout.agentConversation) {
         if (u.kind === 'turn-process') return u.itemId;
         if (u.kind !== 'message') continue;
@@ -972,10 +972,31 @@ export function ChatRoot(props: ChatRootProps) {
   );
   const pinAnchorSet = createMemo(() => new Set(pinAnchors()));
 
-  /** Lane height of an anchor: up to the next anchor, or to the end of the content. */
+  /**
+   * Where a lane ends. Normally the next anchor. In the agent conversation a delivered message is a bubble of
+   * its own on the right: it is not stuck itself, but the lane before it must stop there — otherwise the stuck
+   * copy of the last typed message covers it while it scrolls by (MBP acceptance 2026-10-28: s15's lane ran
+   * from 15734 to 16506 and hid the delivered s16 under its sticky copy).
+   */
+  const pinEnds = createMemo<number[]>(
+    () => {
+      if (!props.pinUserMessages || !theme().layout.agentConversation) return pinAnchors();
+      committedUnitsVersion();
+      const s = state();
+      const pending = s.session.state.pendingPrompt;
+      const active = s.transcript.state.activeTurnSnapshot ?? (pending ? pendingPromptTurn(pending) : null);
+      const committed = collectUserTurnUnits(s.transcript.state.committedTurns, makeUnitsView(committedUnitsArr, NO_ACTIVE_UNITS), { delivered: true });
+      if (!active) return committed;
+      const base = committedUnitsArr.length;
+      return [...committed, ...collectUserTurnUnits([active], makeUnitsView(activeUnits(), NO_ACTIVE_UNITS), { delivered: true }).map((i) => base + i)];
+    },
+    [],
+    { equals: (a, b) => a.length === b.length && a.every((v, i) => v === b[i]) }
+  );
+
+  /** Lane height of an anchor: up to the next anchor (or delivered bubble, see `pinEnds`), or to the end of the content. */
   function laneHeight(idx: number): number {
-    const anchors = pinAnchors();
-    const next = anchors[anchors.indexOf(idx) + 1];
+    const next = pinEnds().find((end) => end > idx);
     return (next !== undefined ? virt.top(next) : virt.total()) - virt.top(idx);
   }
 

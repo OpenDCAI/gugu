@@ -23,4 +23,9 @@ it('shows an older target until a consecutive reply has already quoted it',async
 it.each(['group','topic'] as const)('preserves the existing quote header in a %s',async kind=>{
  await render([row('question','user-1')],'question',kind)
  expect(quote()).not.toBeNull()
+ expect(quote()!.closest('[data-testid="message-bubble-action-target"]')).not.toBeNull()
+})
+it('a streamed direct reply draws the same one-line quote above the bubble as the persisted one',async()=>{
+ await render([row('old','user-1'),row('new','user-1')],'old')
+ expect(quote()?.getAttribute('data-testid')).toBe('direct-message-quote')
 })
