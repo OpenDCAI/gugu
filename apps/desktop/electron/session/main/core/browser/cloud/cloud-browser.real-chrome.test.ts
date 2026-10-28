@@ -76,7 +76,7 @@ describe.skipIf(!chrome)('cloud browser against a real Chrome', () => {
     try {
       const client = await tools.client();
       const { redactOutputFiles, redactToolResult, withoutOwnFilename } = await import('../../../../../browser-agent-mcp');
-      // 与 createBrowserAgentMcpHost 的 CallTool 一样:不许自己挑文件名、Playwright 落盘的文字也盖掉
+      // 与 callBrowserTool 一样:不许自己挑文件名、Playwright 落盘的文字也盖掉
       const raw = (await client.callTool({ name, arguments: withoutOwnFilename(name, args) })) as import('@modelcontextprotocol/sdk/types.js').CallToolResult;
       redactOutputFiles(tools.outputDir, startedAt, bridge.redact!);
       const result = redactToolResult(raw, bridge.redact);

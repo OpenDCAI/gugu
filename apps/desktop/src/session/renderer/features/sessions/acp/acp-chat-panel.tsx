@@ -5,6 +5,7 @@ import { projectGroupsStore } from '@renderer/features/projects/stores/project-g
 import { SessionComposerVerbs, SessionVerbDock, sessionVerbKey } from '../session-verb-dock';
 import type { AttachmentMimeType, AttachmentRef } from '@gugu/session-core/acp/client';
 import { followLink } from '@/lib/guguLinks';
+import { openMessageSender } from '@/lib/openMessageSender';
 import { classifyFileLink } from '@gugu/core/shared/ui/guguLink';
 import {
   AttachmentViewerDialog,
@@ -96,6 +97,7 @@ import { useSessionSchedules } from '@renderer/features/automations/use-session-
 import { toComposerPermission } from './composer-permission';
 import { useHostAskBand } from '@renderer/features/extensions/use-session-host-ask';
 import { SessionHostQuestion } from '@renderer/features/extensions/session-host-question';
+import { SessionHostBrowserAsk } from '@renderer/features/extensions/session-host-browser-ask';
 import { uploadComposerAttachment, type AttachmentUploadRpc, type UploadSource } from './composer-file-upload';
 import { useComposerFileUploads } from './use-composer-file-uploads';
 import { entryUploadItems, type DropEntry } from '@renderer/features/remote-hosts/workspace/remote-drop-items';
@@ -1637,6 +1639,7 @@ const ComposerForStore = observer(function ComposerForStore({
       ) : null}
       <NeedsYouSlot />
       <SessionHostQuestion sessionId={store.runtimeSessionId} session={hostSession} />
+      <SessionHostBrowserAsk sessionId={store.runtimeSessionId} session={hostSession} />
       <ChatComposer
         className={schedules.length > 0 ? sessionComposerFrameLiftClassName : undefined}
         hideLockedAgent
@@ -2224,6 +2227,8 @@ export const AcpChatPanel = observer(function AcpChatPanel({
       ...outputMenu.commands,
       onConversationReply: (itemId) => viewRef.current?.scrollToItem(itemId),
       conversationAgentName: () => conversationAgentName,
+      conversationAgentSession: () => store?.sessionId ?? null,
+      onOpenSender: openMessageSender,
       classifyLink: classifyFileLink,
       onOpenLink: followLink,
       // transcript 自己那颗停止按钮（用户消息卡右下角）一直**没有**接过宿主 ——

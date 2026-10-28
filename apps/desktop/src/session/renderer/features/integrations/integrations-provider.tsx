@@ -3,7 +3,7 @@ import { EMPTY_INTEGRATION_SUMMARIES,useAssistantIntegrationSummaries } from '@/
 import { isAssistantPanelReadRetryable, retryAssistantPanelRead } from '@gugu/core/cloud/assistantPanelRead';
 import { ASSISTANT_PANEL_CHANGED } from '@/components/assistant/assistant-panel-events';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
-import React, { createContext, useCallback, useContext, useEffect, useMemo, useState, useSyncExternalStore } from 'react';
+import React, { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState, useSyncExternalStore } from 'react';
 import { useLibraryHost } from '@renderer/features/library/library-host';
 import { registerIssueMentionIcons } from '@renderer/lib/chat/chat-mention-provider';
 import { rpcOn, type rpc } from '@renderer/lib/ipc';
@@ -16,6 +16,7 @@ import {
   translateSessionMessage,
 } from '@renderer/localization/locale-store';
 import { integrationErrorText } from './integration-display';
+import { prepareThenStartCliLogin } from './cli-tool-prepare';
 import type { IntegrationFormInput } from './types';
 
 export const ISSUE_CONNECTION_STATUS_QUERY_KEY = ['issues:connection-status'] as const;
@@ -229,8 +230,11 @@ export function IntegrationsProvider({ children }: { children: React.ReactNode }
     [runConnectionMutation, api]
   );
 
+  // 每次起命令行连接领一个号;取消就作废,还在等工具装好的那一圈不再起登录。
+  const cliGenerations = useRef(new Map<string, number>());
   const cancelIntegrationAuthorization = useCallback(
     (integrationId: string) => {
+      cliGenerations.current.set(integrationId, (cliGenerations.current.get(integrationId) ?? 0) + 1);
       void api.cancelAuthorization(integrationId);
     },
     [api]
@@ -241,7 +245,13 @@ export function IntegrationsProvider({ children }: { children: React.ReactNode }
       const ownerId = cachedDevicesAccount();
       setIntegrationMutating(integrationId, true);
       try {
-        const result = await api.cliLoginStart(integrationId);
+        const generation = (cliGenerations.current.get(integrationId) ?? 0) + 1;
+        cliGenerations.current.set(integrationId, generation);
+        const result = await prepareThenStartCliLogin(api, integrationId, {
+          cancelled: () => cliGenerations.current.get(integrationId) !== generation,
+          timeoutError: () => new Error(translateSessionMessage('integrations.cliPrepareTimedOut')),
+        });
+        if (!result) return { success: false as const, error: 'This connection attempt was cancelled.' };
         if (result.success && 'connected' in result) {
           invalidateStatuses();
           await reportAssistantAppChange({ rpc: rpcOn(host.remote?.deviceId ?? null) }, undefined,

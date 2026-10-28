@@ -1736,6 +1736,7 @@ async function dispatch(caller: BridgeCaller, method: ExtensionBridgeMethod, arg
     case 'filesVersions':
     case 'filesReadVersion':
     case 'filesRename':
+    case 'filesKeep':
     case 'filesMkdir':
     case 'filesMove': {
       const files = await import('@main/core/extensions/app-files');
@@ -1753,6 +1754,7 @@ async function dispatch(caller: BridgeCaller, method: ExtensionBridgeMethod, arg
         filesViewPreferences: 'appFileViewPreferences',
         filesRemove: 'removeAppFile',
         filesRename: 'renameAppFile',
+        filesKeep: 'keepAppFile',
         filesMkdir: 'makeAppFolder',
         filesMove: 'moveAppFile',
         filesReplace: 'replaceAppFile',

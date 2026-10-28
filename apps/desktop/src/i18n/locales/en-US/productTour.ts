@@ -1,50 +1,60 @@
 export default {
-  "modulesProgress": "Explore the sidebar · {{current}} / {{total}}",
-  "featuresProgress": "Feature tour · {{current}} / {{total}}",
-  "featureHeader": "Four useful features to revisit",
-  "filmProgress": "Animation progress",
-  "featureSteps": "Feature steps",
-  "play": "Play",
-  "pause": "Pause",
-  "skip": "Skip tour",
+  "stepProgress": "{{current}} / {{total}}",
+  "stepAria": "Step {{current}} of {{total}}",
+  "skip": "Skip",
   "previous": "Back",
   "next": "Next",
-  "done": "Start using Gugu",
-  "features": "See useful features",
-  "saving": "Saving…",
-  "saveFailed": "Could not save your tour progress. Please try again.",
+  "done": "Done",
+  "saveFailed": "Couldn't save tour progress. Try again.",
+  "featureHeader": "Three useful features to revisit",
+  "featuresProgress": "Feature films · {{current}} / {{total}}",
+  "filmProgress": "Film progress",
+  "featureSteps": "Feature film steps",
+  "play": "Play",
+  "pause": "Pause",
   "replay": "Replay",
   "retry": "Retry",
-  "filmFailed": "The animation could not be played. Please try again.",
-  "modules": {
+  "filmFailed": "The film can't play right now. Try again.",
+  "close": "Close",
+  "steps": {
     "assistant": {
-      "title": "Gugu · Your personal assistant",
-      "body": "Discuss ideas, ask questions, and delegate tasks. You can set up your assistant later."
+      "title": "Gugu: your assistant",
+      "body": "Tell it your plans and errands."
     },
     "tasks": {
-      "title": "Projects · A workspace for your work",
-      "body": "Keep related sessions and files together and work with Agents over time."
+      "title": "Projects: one thing at a time",
+      "body": "Each project keeps its chats and files together."
+    },
+    "tasksSample": {
+      "title": "Projects: one thing at a time",
+      "body": "Open the sample project to see how one moves along."
     },
     "chats": {
-      "title": "Messages · People and Agents together",
-      "body": "Talk with contacts, or bring people and Agents together in a group."
+      "title": "Chats: people and agents",
+      "body": "Talk with friends and other people's agents."
     },
     "contacts": {
-      "title": "Contacts · Find collaborators",
-      "body": "Find and manage the people and Agents you work with."
+      "title": "Contacts: find collaborators",
+      "body": "Add someone as a contact to work together."
     },
     "library": {
-      "title": "Library · Reusable resources",
-      "body": "Organize prompts and other resources for future tasks."
+      "title": "Library: things you reuse",
+      "body": "Keep your go-to prompts here."
     },
     "apps": {
-      "title": "Apps · Extend what Gugu can do",
-      "body": "Install Apps as needed. For example, Computer Use lets an Agent operate your computer."
+      "title": "Apps: one more kind of task",
+      "body": "Add an app and your agent can do more, like using your computer."
     },
     "settings": {
-      "title": "Settings · Subscription and preferences",
-      "body": "Review your subscription and usage, and adjust application preferences."
+      "title": "Settings: credits and preferences",
+      "body": "Check your credits and adjust the app."
     }
+  },
+  "help": {
+    "label": "Help & tour",
+    "resume": "Continue the tour {{current}} / {{total}}",
+    "restart": "Start the tour over",
+    "films": "Watch feature films"
   },
   "feature": {
     "split": {
@@ -57,23 +67,6 @@ export default {
         "3": "Compare both sessions side by side",
         "4": "You can also drag a session tab",
         "5": "Release the tab to open another pane"
-      }
-    },
-    "modes": {
-      "title": "Choose how to interact",
-      "body": "Work in General, talk in Chat, or switch to Coding to use a terminal.",
-      "captions": {
-        "0": "Start in General mode",
-        "1": "Open the mode menu and choose Chat",
-        "2": "Discuss progress with this Agent",
-        "3": "Choose General to return to the task",
-        "4": "Continue in General mode",
-        "5": "Choose Switch to Coding",
-        "6": "Confirm interrupting this turn and switching",
-        "7": "Continue this task in the terminal",
-        "8": "Choose Switch to General",
-        "9": "Confirm and return to General",
-        "10": "The chat and task belong to the same Agent"
       }
     },
     "contacts": {

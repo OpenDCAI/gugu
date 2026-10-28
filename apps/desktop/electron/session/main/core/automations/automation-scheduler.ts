@@ -12,6 +12,7 @@ import {
   listQueuedRuns,
   closeSpentOneTimeAutomation,
   markDueCronRunsQueued,
+  nextScheduledRunAt,
   startCreatingSession,
 } from './repo';
 import { markRunFailed, markRunSkipped, type OnStepCompleted } from './run-transitions';
@@ -63,6 +64,8 @@ class SlotPool {
 
 export class AutomationScheduler {
   private timer: NodeJS.Timeout | null = null;
+  /** 排程带秒(如 15:58:25)时的准点唤醒;整分钟那次扫描一秒内就能看见的不另起。 */
+  private dueTimer: NodeJS.Timeout | null = null;
   private ticking = false;
   private tickTail: Promise<void> = Promise.resolve();
   private drainTail: Promise<void> = Promise.resolve();
@@ -92,6 +95,8 @@ export class AutomationScheduler {
   }
 
   stop(): void {
+    if (this.dueTimer) clearTimeout(this.dueTimer);
+    this.dueTimer = null;
     if (!this.timer) return;
     clearTimeout(this.timer);
     this.timer = null;
@@ -100,13 +105,39 @@ export class AutomationScheduler {
   /** 每次扫完按当下的钟重新对齐到下一个整分,❌ setInterval(会从进程起来那一刻起算,还会漂)。 */
   private armTick(): void {
     this.timer = setTimeout(() => {
-      void prepareAgentScheduleChanges().then(blocked => {
-        this.tickTail = Promise.all([this.tickTail, this.tick(blocked)]).then(() => undefined);
-        return this.tickTail;
-      }).catch(error => log.error('Automation preparation failed',{ error: String(error) }));
+      this.scanNow();
       this.armTick();
     }, msUntilNextTick(Date.now()));
     this.timer.unref?.();
+  }
+
+  private scanNow(): void {
+    void prepareAgentScheduleChanges().then(blocked => {
+      this.tickTail = Promise.all([this.tickTail, this.tick(blocked)]).then(() => undefined);
+      return this.tickTail;
+    }).then(() => this.armDueWake())
+      .catch(error => log.error('Automation preparation failed',{ error: String(error) }));
+  }
+
+  /**
+   * 排程可以带秒(agent 排的「15:58:25」):只靠整分钟扫描,它要等到 15:59:01 才被看见,晚 36 秒(MBP 10-28)。
+   * ⇒ 最近一条在下一次整分扫描之前、且早于它一秒以上的,到那一刻准点醒一次;整分钟的排程照旧由整分扫描接。
+   */
+  private async armDueWake(): Promise<void> {
+    if (!this.timer) return;
+    const now = Date.now();
+    const due = await nextScheduledRunAt(now);
+    if (!this.timer) return;
+    if (this.dueTimer) clearTimeout(this.dueTimer);
+    this.dueTimer = null;
+    if (due == null) return;
+    const wait = Math.max(0, due - Date.now());
+    if (wait >= msUntilNextTick(Date.now()) - TICK_AFTER_MINUTE_MS) return;
+    this.dueTimer = setTimeout(() => {
+      this.dueTimer = null;
+      this.scanNow();
+    }, wait);
+    this.dueTimer.unref?.();
   }
 
   async reload(): Promise<void> {
@@ -116,6 +147,10 @@ export class AutomationScheduler {
       log.error('AutomationScheduler bootstrap failed', { error: String(error) });
     });
     await this.bootstrapTail;
+    // 新排的、改过的排程都经这里(automations-service 改完就 reload):按它重新对准准点唤醒。
+    await this.armDueWake().catch((error) => {
+      log.error('AutomationScheduler failed to arm the due wake', { error: String(error) });
+    });
   }
 
   async beginAutomationDeletion(automationId: string): Promise<boolean> {

@@ -30,9 +30,3 @@ export async function settleTerminalEnabled(): Promise<boolean> {
   await appSettingsService.update('terminal', { ...terminal, enabled });
   return enabled;
 }
-
-/** 新会话在没指定展示时走哪一种:终端开着走编程,关着走通用。还没定值按关算。 */
-export async function preferredSessionView(): Promise<SessionView> {
-  const { enabled } = await appSettingsService.get('terminal');
-  return enabled === true ? 'code' : 'general';
-}

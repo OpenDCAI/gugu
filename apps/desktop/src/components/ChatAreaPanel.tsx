@@ -30,7 +30,7 @@ import { drainTopicSplitRequest, requestTopicSplit } from '../lib/topicSplitRequ
 import { buildGroupRosterCandidates } from '../lib/mention'
 import { topicMentionCandidates } from './chat/topicMentionModels'
 import { resolveGroupRunningIndicator } from '../lib/agentRunningStatusModels'
-import { groupRunningTokens } from '../lib/groupRunningTokenModels'
+import { groupRunningTokens, latestSpokeAt } from '../lib/groupRunningTokenModels'
 import type { AgentLocation } from '@gugu/core/shared/ui/agentHeaderStatusModels'
 import { useReadReceiptPanel } from '@/hooks/useReadReceiptPanel'
 import { agentComposerModel, isRetiredCloudAgentChat } from '../lib/agentComposerModel'
@@ -559,7 +559,7 @@ function ChatAreaSurface({ viewportKey = 'chats', activeTab, navigationTarget = 
   const shownAgent = useShownAgentStatus() // #7199 画头像 / 状态字用的那一份;在跑、提醒照旧读原读数
   const groupAgentRecentActivity = useAgentRecentActivity(groupAgentIds)
   // 群的运行 token:群聊页的运行条和手机话题页挂的那条是同一份。
-  const groupRunTokens = groupRunningTokens({ agents: groupCollabSnapshot.agents, statuses: groupAgentStatuses, identities: identitiesById, currentUserId: user?.id, recentActivity: groupAgentRecentActivity })
+  const groupRunTokens = groupRunningTokens({ agents: groupCollabSnapshot.agents, statuses: groupAgentStatuses, identities: identitiesById, currentUserId: user?.id, recentActivity: groupAgentRecentActivity, spokeAt: latestSpokeAt(messages) })
   // 群 thread panel 的运行中占位指示器(panel 内没有主线浮动条)。它和浮动条读**同一个** agent 态:
   // DM 里就是本会话那个 agent,群里挑「任一成员在跑」里的第一个来画身份(纯函数在 agentRunningStatusModels)。
   const activeAgentActivity = useMemo<AgentConversationActivity | null>(

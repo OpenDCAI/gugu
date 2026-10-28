@@ -32,6 +32,7 @@ import { sessionPageOnScreen, sessionPagesOnScreen } from '@/session/renderer/ap
 import { getSessionView } from '@/session/renderer/features/sessions/stores/session-selectors'
 import { isEmbedVisible, subscribeEmbedVisibility } from '@/session/renderer/lib/portal-container'
 import { useNeedsYouTasks, type NeedsYouTask } from './useNeedsYouTasks'
+import { BrowserAssistanceAction } from '../browserUse/BrowserAssistanceAction'
 import '@/i18n/registerMobileWorkspaceCatalog'
 import '@/mobile/agent-watch/agent-watch.css'
 
@@ -130,6 +131,7 @@ function PendingTask({ task, onOpenTask }: { task: NeedsYouTask; onOpenTask: () 
     {!ready && <p role="status">{t('needsYou.loading')}</p>}
     {ready && pending.map((settlement, index) => <SettlementCard key={settlement.itemId} settlement={settlement} runtime={task.session.runtime} source={index === 0 ? source : undefined}
       machine={task.local ? undefined : task.machine} busy={read.respondingItemId === settlement.itemId}
+      action={<BrowserAssistanceAction sessionId={task.session.conversationId} settlement={settlement} />}
       onRespond={input => { void read.respond(input).catch(() => undefined) }} />)}
   </section>
 }

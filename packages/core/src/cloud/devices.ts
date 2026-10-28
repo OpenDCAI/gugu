@@ -265,6 +265,7 @@ export function normalizeDeviceCapabilities(value: unknown): DeviceCapabilities 
     // @@@fleet-version (#663) - old hosts omit the field → undefined (UI shows 版本未知).
     app_version:
       typeof row.app_version === 'string' && row.app_version.length > 0 ? row.app_version : undefined,
+    published_desktop_version: typeof row.published_desktop_version === 'string' ? row.published_desktop_version : undefined,
     // #6264 老宿主不报这几项 ⇒ 缺席(界面退回平台名、不显示升级状态),❌ 补默认值冒充事实。
     ...(row.host_kind === 'server' || row.host_kind === 'desktop' || row.host_kind === 'phone' ? { host_kind: row.host_kind } : {}),
     ...(typeof row.os_name === 'string' && row.os_name ? { os_name: row.os_name.slice(0, 80) } : {}),

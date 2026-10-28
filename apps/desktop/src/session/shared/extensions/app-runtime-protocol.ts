@@ -342,6 +342,12 @@ export interface AppFileEntry {
    * every other file.
    */
   storedOn?: { machine: string | null; owner: string; mine: boolean };
+  /**
+   * How long its cloud copy is kept (`files.list`'s answer only, gugu-supabase #69): `expiresAt`, when it is cleared — `null`,
+   * kept until someone deletes it — and `mine`, whether whoever reads uploaded it (only they change it, `files.keep`).
+   * `null`: no cloud copy (a project file kept on its machine, a document, a folder). Absent where the read does not say.
+   */
+  keep?: { expiresAt: string | null; mine: boolean } | null;
   /** A chat file's version (G1: `files.replace` makes the next one); `null` for a working copy's file. */
   version: number | null;
   createdAt: string | null;

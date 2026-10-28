@@ -3,7 +3,8 @@ import { describe, expect, it, vi } from 'vitest'
 // 线本身由注入的 deps 替掉;真的 deviceRpc 模块在测试里不求值(它一加载就挂 Supabase / 渲染层全局)。
 vi.mock('@/lib/deviceRpc', () => ({ callDeviceRpc: vi.fn(), subscribeDeviceRpcEvents: vi.fn() }))
 import { MIN_SERVER_PROTOCOL, REMOTE_PROTOCOL_VERSION } from '@gugu/core/cloud/serverMachineHealth'
-import { HEARTBEAT_REPLY_TIMEOUT_MS, openRemoteSessionHostPipe, SessionHostTooOldError } from '@/lib/remoteSessionHost'
+import { DeviceRpcChannelError, DeviceRpcTimeoutError } from '@gugu/core/cloud/deviceRpcRequester'
+import { HEARTBEAT_REPLY_TIMEOUT_MS, openRemoteSessionHostPipe, SessionHostTooOldError, type DeviceRpcDeps } from '@/lib/remoteSessionHost'
 import { SESSION_HOST_FRAME_EVENT, SESSION_HOST_READY_EVENT } from '@/session/shared/lib/ipc/session-host-device-frames'
 
 type Call = { type: string; payload: Record<string, unknown> }
@@ -15,7 +16,7 @@ function fakeDevice(reply: (call: Call) => Reply, options: { ssh?: boolean } = {
   let listener: ((payload: unknown) => void) | null = null
   let resubscribed: ((rejoin: boolean) => void) | undefined
   let switching: (() => unknown) | undefined
-  const deps = {
+  const deps: DeviceRpcDeps = {
     call: (async (_device: string, type: string, payload: unknown) => {
       const call = { type, payload: payload as Record<string, unknown> }
       calls.push(call)
@@ -381,5 +382,150 @@ describe('heartbeat-only batches are a liveness probe on the desktop (#156)', ()
     await flush()
     expect(frames).toEqual(['a big read result'])
     expect(closed).toEqual([])
+  })
+})
+
+describe('device-link frame timeout recovery', () => {
+  it.each([1, 2])('keeps the same window and batch after %i missing acknowledgements', async (timeouts) => {
+    const device = fakeDevice(() => ({ result: { protocol: REMOTE_PROTOCOL_VERSION } }))
+    const attempts: unknown[] = []
+    const call = device.deps.call
+    device.deps.call = (async (deviceId: string, type: string, payload: unknown) => {
+      if (type !== 'taskhost.frame') return call(deviceId, type, payload)
+      attempts.push(payload)
+      if (attempts.length <= timeouts) throw new DeviceRpcTimeoutError('lost acknowledgement')
+      return { result: { ok: true } }
+    }) as never
+    const closed = vi.fn()
+    const pipe = await openRemoteSessionHostPipe('dev', { ...device.deps, usesDeviceLink: () => true })({ onFrame: () => undefined, onClose: closed })
+    pipe.send('operation')
+    await flush()
+    expect(attempts).toHaveLength(timeouts + 1)
+    expect(attempts.every((batch) => batch === attempts[0])).toBe(true)
+    expect(closed).not.toHaveBeenCalled()
+    pipe.send('next operation')
+    await flush()
+    expect(attempts.at(-1)).toMatchObject({ seq: 1 })
+  })
+
+  it.each([false, true])('the real host acknowledges duplicate seqs and fills sequence gaps without repeating operations (first batch lost: %s)', async (lostBatch) => {
+    const { createSessionHostDeviceRpcHandlers } = await import('../../../../apps/desktop/electron/session/main/host-ws/device-session-host')
+    type Host = import('../../../../apps/desktop/electron/session/main/host-ws/frame-host').FrameSessionHost
+    type Socket = import('../../../../apps/desktop/electron/session/main/host-ws/frame-host').FrameSocket
+    type Context = import('@gugu/core/cloud/deviceRpcResponder').DeviceRpcHandlerContext
+    const delivered: unknown[] = []
+    const host = createSessionHostDeviceRpcHandlers({ host: () => ({
+      attach: (socket: Socket) => { socket.onFrame((frame) => delivered.push(frame)) },
+    }) as unknown as Host })
+    const replies: unknown[] = []
+    let attempts = 0
+    let rejectFirst!: (error: Error) => void
+    const device = fakeDevice(() => ({}))
+    const ctx = { publishEvent: () => undefined, request: { user_id: 'owner' } } as unknown as Context
+    const closed = vi.fn()
+    try {
+      const pipe = await openRemoteSessionHostPipe('dev', {
+        ...device.deps,
+        usesDeviceLink: () => true,
+        call: (async (_device: string, type: string, payload: unknown) => {
+          const first = type === 'taskhost.frame' && ++attempts === 1
+          if (first && lostBatch) return new Promise((_, reject) => { rejectFirst = reject })
+          const reply = await host.handlers[type]!(payload, ctx)
+          if (type === 'taskhost.frame') {
+            replies.push(reply)
+            if (first) return new Promise((_, reject) => { rejectFirst = reject })
+          }
+          return reply
+        }) as never,
+      })({ onFrame: () => undefined, onClose: closed })
+      pipe.send('execute once')
+      await flush()
+      pipe.send('next operation')
+      await flush()
+      expect(delivered).toEqual(lostBatch ? [] : ['execute once', 'next operation'])
+      rejectFirst(new DeviceRpcTimeoutError('lost batch or acknowledgement'))
+      await flush()
+      expect(replies).toEqual(Array.from({ length: lostBatch ? 2 : 3 }, () => ({ result: { ok: true } })))
+      expect(delivered).toEqual(['execute once', 'next operation'])
+      expect(closed).not.toHaveBeenCalled()
+    } finally {
+      host.dispose()
+    }
+  })
+
+  it('an eight-second probe stall recovers on the third attempt; a persistent stall closes after twelve seconds', async () => {
+    vi.useFakeTimers()
+    try {
+      for (const recovers of [true, false]) {
+        const device = fakeDevice(() => ({ result: { protocol: REMOTE_PROTOCOL_VERSION } }))
+        let attempts = 0
+        const closed = vi.fn()
+        const call = device.deps.call
+        const pipe = await openRemoteSessionHostPipe('dev', {
+          ...device.deps,
+          usesDeviceLink: () => true,
+          call: (async (id: string, type: string, payload: unknown) => {
+            if (type !== 'taskhost.frame') return call(id, type, payload)
+            attempts += 1
+            if (recovers && attempts === 3) return { result: { ok: true } }
+            return new Promise((_, reject) => setTimeout(() => reject(new DeviceRpcTimeoutError('probe deadline')), 4_000))
+          }) as never,
+        }, { heartbeatReplyTimeoutMs: 4_000 })({ onFrame: () => undefined, onClose: closed })
+        pipe.send('heartbeat', 'heartbeat')
+        await vi.advanceTimersByTimeAsync(8_000)
+        expect(attempts).toBe(3)
+        expect(closed).not.toHaveBeenCalled()
+        await vi.advanceTimersByTimeAsync(4_000)
+        expect(closed).toHaveBeenCalledTimes(recovers ? 0 : 1)
+        expect(attempts).toBe(3)
+      }
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
+  it.each([false, true])('preserves cloud behavior and never retries a confirmed transport closure (device link: %s)', async (deviceLink) => {
+    const device = fakeDevice(() => ({ result: { protocol: REMOTE_PROTOCOL_VERSION } }))
+    let attempts = 0
+    const call = device.deps.call
+    const closed = vi.fn()
+    const pipe = await openRemoteSessionHostPipe('dev', {
+      ...device.deps,
+      usesDeviceLink: () => deviceLink,
+      call: (async (id: string, type: string, payload: unknown) => {
+        if (type !== 'taskhost.frame') return call(id, type, payload)
+        attempts += 1
+        if (deviceLink) throw new DeviceRpcChannelError('SSH heartbeat failed', 'closed')
+        throw new DeviceRpcTimeoutError('cloud timeout')
+      }) as never,
+    })({ onFrame: () => undefined, onClose: closed })
+    pipe.send('operation')
+    await flush()
+    expect(attempts).toBe(1)
+    expect(closed).toHaveBeenCalledTimes(1)
+  })
+
+  it('does not retry after the window was closed while its frame acknowledgement was pending', async () => {
+    const device = fakeDevice(() => ({ result: { protocol: REMOTE_PROTOCOL_VERSION } }))
+    let reject!: (error: Error) => void
+    let attempts = 0
+    const call = device.deps.call
+    const closed = vi.fn()
+    const pipe = await openRemoteSessionHostPipe('dev', {
+      ...device.deps,
+      usesDeviceLink: () => true,
+      call: (async (id: string, type: string, payload: unknown) => {
+        if (type !== 'taskhost.frame') return call(id, type, payload)
+        attempts += 1
+        return new Promise((_, fail) => { reject = fail })
+      }) as never,
+    })({ onFrame: () => undefined, onClose: closed })
+    pipe.send('operation')
+    await flush()
+    pipe.close()
+    reject(new DeviceRpcTimeoutError('late deadline'))
+    await flush()
+    expect(attempts).toBe(1)
+    expect(closed).toHaveBeenCalledTimes(1)
   })
 })

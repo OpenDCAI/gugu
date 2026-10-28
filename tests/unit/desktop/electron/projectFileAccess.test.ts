@@ -71,6 +71,54 @@ describe('account/project revision index', () => {
   })
 })
 
+describe('a later version the database made from the same bytes (#719: a rename or move)', () => {
+  // The index still holds version 1; the database's record of version 2 names the same bytes under a new name.
+  const renamed = () => ({ ...revision, version: 2, file_name: 'renamed.bin' })
+  it('reads version 2 as the same bytes, under its new name, and keeps reading version 1 without asking', async () => {
+    const later = vi.fn(async () => renamed())
+    expect(await readProjectFile({ ...ref, version: 2 }, 'owner', 'host-device', env, later)).toEqual({ ...revision, version: 2, file_name: 'renamed.bin' })
+    expect(later).toHaveBeenCalledWith({ item_id: 'item', version: 2 })
+    later.mockClear()
+    expect(await readProjectFile(ref, 'owner', 'host-device', env, later)).toEqual(revision)
+    expect(await readProjectFile({ item_id: 'item' }, 'owner', 'host-device', env, later)).toEqual(revision)
+    expect(later).not.toHaveBeenCalled()
+    const provider = localProjectFileProvider({ identity, read: createProjectFileReader({ identity, root: async () => root, env, later }), tempRoot, env, later })
+    const file = await createFileResolver({ local: provider, metadata: later as never, managed: later as never, ssh: later as never, temporary: later as never })({ ...ref, version: 2 }, actor)
+    if (file.status !== 'ready') throw Error('ready expected')
+    expect(file.revision).toMatchObject({ version: 2, file_name: 'renamed.bin' })
+    expect(await file.read(500_000, 2)).toEqual(new Uint8Array([83, 83]))
+    await file.dispose()
+  })
+  it('the composition root asks the database for that version as the owner', async () => {
+    await writeDeviceIdCache(deviceFile(env, 'owner'), 'host-device')
+    const network = vi.fn(async (input: string | URL | Request, init?: RequestInit) => {
+      expect(String(input)).toMatch(/\/functions\/v1\/attachments\/file-resolve$/)
+      expect(JSON.parse(String(init?.body))).toEqual({ ref: { item_id: 'item', version: 2 }, as: 'owner' })
+      return Response.json({ ...renamed(), status: 'ready' })
+    })
+    const access = createDesktopFileAccess({ auth: async () => ({ userId: 'owner', accessToken: 'memory-only-token' }), root: async () => root, links: () => null, tempRoot, downloads: join(home, 'downloads'), fetch: network as typeof fetch, rpc: network as never, env })
+    const file = await access.resolveAccount({ id: 'item' }, null, { version: 2, localOnly: true })
+    if (file?.status !== 'ready') throw Error('ready expected')
+    expect(file.revision.file_name).toBe('renamed.bin')
+    expect(await file.read(0, 2)).toEqual(new Uint8Array([83, 83]))
+    await file.dispose()
+  })
+  it.each([
+    ['another path', { relative_path: 'other.bin' }], ['other bytes', { sha256: 'ab'.repeat(32) }], ['another size', { size_bytes: 7 }],
+    ['another computer', { host_device_id: 'other-device' }], ['another project', { host_project_id: 'other' }], ['another chat', { chat_id: 'other' }],
+    ['another version', { version: 3 }], ['bytes in the cloud', { source: 'managed-object' }],
+  ] as const)('refuses when the database names %s', async (_, change) => {
+    expect(await readProjectFile({ ...ref, version: 2 }, 'owner', 'host-device', env, async () => ({ ...renamed(), ...change }) as FileRevision)).toBeNull()
+  })
+  it('refuses a version the database does not have, and never asks about one older than the index', async () => {
+    expect(await readProjectFile({ ...ref, version: 2 }, 'owner', 'host-device', env, async () => null)).toBeNull()
+    await rememberProjectFile({ ...revision, version: 3 }, 'owner', env)
+    const later = vi.fn(async () => renamed())
+    expect(await readProjectFile({ ...ref, version: 2 }, 'owner', 'host-device', env, later)).toBeNull()
+    expect(later).not.toHaveBeenCalled()
+  })
+})
+
 describe('local read fence and verified snapshot', () => {
   it('the production composition root opens by item or folder path without cloud, auth refresh or an SSH dial', async () => {
     await writeDeviceIdCache(deviceFile(env, 'owner'), 'host-device')

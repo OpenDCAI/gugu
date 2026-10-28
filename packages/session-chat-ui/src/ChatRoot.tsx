@@ -42,6 +42,7 @@ import {
   useContext,
 } from 'solid-js';
 import type { ChatContext } from './chat-context';
+import { conversationBackgroundOwner } from './state/conversation-background';
 import { ChatTranslationProvider } from './localization';
 import { SelfIdentityProvider } from './lib/self-identity';
 import { SenderAvatarProvider } from './lib/sender-avatar';
@@ -613,16 +614,25 @@ export function ChatRoot(props: ChatRootProps) {
   });
 
   /**
-   * 还在跑的后台任务挂在哪(owner 2026-10-27 原型:后台那一句与「思考执行中」同一行)。
+   * 还在跑的后台任务挂在哪(owner 2026-10-27 原型:后台那一句与「执行中」同一行)。
    *
    * 列表末尾那条 agent 回复带着过程行 ⇒ 挂在它的过程行上(返回它的 itemId);末尾不是这样一条(人刚说完话、
    * 还没有任何回复、旧样式没有过程行)⇒ 单独一行贴在列表最后(`BACKGROUND_TASKS_ID`)。
    * 往回找时跳过日界行与「此刻的状态」那一行;这一档空着(轮早就收口了)就到已提交那一档的末尾去找。
    */
-  const backgroundOwnerIn = (us: ReturnType<typeof flattenTier>): string | null | undefined => {
+  const backgroundOwnerIn = (us: ReturnType<typeof flattenTier>, live = false): string | null | undefined => {
+    if (theme().layout.agentConversation) return conversationBackgroundOwner(us);
     for (let i = us.length - 1; i >= 0; i--) {
       const u = us[i];
       if (!u || u.kind === 'day-separator' || u.kind === 'session-condition' || u.kind === 'background-tasks') continue;
+      // 正在跑、还没出正文的这一轮(对话布局):头是只有过程的那一行,步骤摊在它下面 ⇒ 越过步骤挂到这条过程行上
+      // (owner 0 号图「执行中 · 9m16s · 39 步 ⌄ | 后台 · 4 个子智能体 ›」)。只在活动那一档这样找,那里只有这一轮。
+      if (live && theme().layout.agentConversation) {
+        if (u.kind === 'turn-process') return u.itemId;
+        if (u.kind !== 'message') continue;
+        // 过程里中途说的话(灰色单行)也是步骤,越过去(MBP 验收 10-28:有中途的话时药丸掉到了过程最底下)。
+        if ((u.data as ChatMessage).conversationNarration) continue;
+      }
       if (u.kind === 'message') {
         const m = u.data as ChatMessage;
         if (m.role === 'assistant' && m.conversationProcess) return u.itemId;
@@ -660,7 +670,7 @@ export function ChatRoot(props: ChatRootProps) {
     const units = build(false);
     if (!background) return { units, backgroundOwner: null as string | null };
     // ⚠️ 不能写 `??`:这一档末尾是别的行(人刚说了话)返回的是 null,它的意思是「别挂」,❌ 接着去已提交那一档找。
-    const activeOwner = backgroundOwnerIn(units);
+    const activeOwner = backgroundOwnerIn(units, true);
     const owner = activeOwner === undefined ? backgroundOwnerIn(committedUnitsArr) ?? null : activeOwner;
     if (owner) return { units, backgroundOwner: owner as string | null };
     // 没有可挂的过程行:后台单独一行贴在最后(轮早就收口了、命令还在跑,这一档也不能空手返回)。
@@ -966,10 +976,31 @@ export function ChatRoot(props: ChatRootProps) {
   );
   const pinAnchorSet = createMemo(() => new Set(pinAnchors()));
 
-  /** Lane height of an anchor: up to the next anchor, or to the end of the content. */
+  /**
+   * Where a lane ends. Normally the next anchor. In the agent conversation a delivered message is a bubble of
+   * its own on the right: it is not stuck itself, but the lane before it must stop there — otherwise the stuck
+   * copy of the last typed message covers it while it scrolls by (MBP acceptance 2026-10-28: s15's lane ran
+   * from 15734 to 16506 and hid the delivered s16 under its sticky copy).
+   */
+  const pinEnds = createMemo<number[]>(
+    () => {
+      if (!props.pinUserMessages || !theme().layout.agentConversation) return pinAnchors();
+      committedUnitsVersion();
+      const s = state();
+      const pending = s.session.state.pendingPrompt;
+      const active = s.transcript.state.activeTurnSnapshot ?? (pending ? pendingPromptTurn(pending) : null);
+      const committed = collectUserTurnUnits(s.transcript.state.committedTurns, makeUnitsView(committedUnitsArr, NO_ACTIVE_UNITS), { delivered: true });
+      if (!active) return committed;
+      const base = committedUnitsArr.length;
+      return [...committed, ...collectUserTurnUnits([active], makeUnitsView(activeUnits(), NO_ACTIVE_UNITS), { delivered: true }).map((i) => base + i)];
+    },
+    [],
+    { equals: (a, b) => a.length === b.length && a.every((v, i) => v === b[i]) }
+  );
+
+  /** Lane height of an anchor: up to the next anchor (or delivered bubble, see `pinEnds`), or to the end of the content. */
   function laneHeight(idx: number): number {
-    const anchors = pinAnchors();
-    const next = anchors[anchors.indexOf(idx) + 1];
+    const next = pinEnds().find((end) => end > idx);
     return (next !== undefined ? virt.top(next) : virt.total()) - virt.top(idx);
   }
 

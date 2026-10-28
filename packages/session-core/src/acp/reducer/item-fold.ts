@@ -844,7 +844,26 @@ function normalizeToolStructure(items: TranscriptItem[], turnId: string): Transc
  * Content-bearing events (message, tool, diff, plan) auto-finalize any open
  * thinking rows before appending (the agent has moved past the reasoning phase).
  */
-export function foldItem(
+export function foldItem(items: TranscriptItem[], event: FoldEvent, turnId: string, at: number, stampAt?: number): TranscriptItem[] {
+  const result = foldItemContent(items, event, turnId, at, stampAt);
+  if (stampAt === undefined || !['tool_call', 'tool_update', 'subagent_done', 'background_command_done'].includes(event.kind)) return result;
+  const before = new Map(flattenItems(items).map(item => [item.id, item]));
+  const clock = (item: TranscriptItem): TranscriptItem => {
+    if (item.kind === 'tool-group') {
+      const children = item.children.map(child => clock(child) as ToolNode);
+      return children.some((child, i) => child !== item.children[i]) ? { ...item, children } : item;
+    }
+    if (!isToolCallItem(item)) return item;
+    const previous = before.get(item.id);
+    const arrival = item.at === undefined && !previous;
+    const completion = item.completedAt === undefined && item.status !== 'running'
+      && (!previous || ('status' in previous && previous.status === 'running'));
+    return arrival || completion ? { ...item, ...(arrival ? { at: stampAt } : {}), ...(completion ? { completedAt: stampAt } : {}) } : item;
+  };
+  return result.map(clock);
+}
+
+function foldItemContent(
   items: TranscriptItem[],
   event: FoldEvent,
   turnId: string,

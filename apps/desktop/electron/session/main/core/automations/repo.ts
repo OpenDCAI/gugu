@@ -661,6 +661,27 @@ export async function ensureNextCronRun(
  */
 const hasProjectOrAgent = sql`(${automations.projectId} IS NOT NULL OR ${automations.agentSessionId} IS NOT NULL)`;
 
+/**
+ * 还没到点的排程里最早的那一刻(`now` 之后),调度器据此在整分钟扫描之外准点醒一次;条件与 `markDueCronRunsQueued` 同一套。
+ */
+export async function nextScheduledRunAt(now = Date.now()): Promise<number | null> {
+  const [row] = await db
+    .select({ at: sql<number | null>`min(${automationRuns.scheduledAt})` })
+    .from(automationRuns)
+    .innerJoin(automations, eq(automationRuns.automationId, automations.id))
+    .where(
+      and(
+        eq(automationRuns.status, 'scheduled'),
+        eq(automationRuns.triggerKind, 'cron'),
+        sql`${automationRuns.scheduledAt} > ${now}`,
+        eq(automations.enabled, 1),
+        hasProjectOrAgent,
+        isNull(automations.deletedAt)
+      )
+    );
+  return row?.at ?? null;
+}
+
 export async function markDueCronRunsQueued(
   now = Date.now()
 ): Promise<Array<{ run: AutomationRun; automation: Automation }>> {

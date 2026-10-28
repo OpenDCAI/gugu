@@ -1,5 +1,5 @@
 import { registerGuguActivityTools } from './mcp/gugu-activity-tool'
-import type { ProjectFileMessage, SelectedProjectFile } from './projectFilePublication'
+import type { ProjectFileMessage, ProjectFileNextVersion, SelectedProjectFile } from './projectFilePublication'
 import { registerGuguWebSearchTool, type SessionWebSearch } from './mcp/gugu-web-search-tool'
 // ACP 引擎运行时工具 —— 从已删除的 JSON-RPC automation 层(原 rpc/methods/acpEngine.ts)抽出的
 // 纯生产函数：引擎配置加载 / provider 凭据 allowlist / 注入式社交桥。
@@ -326,7 +326,9 @@ export function createDesktopGuguMcpHost(persistence?: GuguMcpHostPersistence): 
 }
 
 /** chat, file on this machine, acting agent, its message → the sent message; null when the chat does not keep files here. */
-export type ProjectFilePublish = (chatId: string, file: SelectedProjectFile, actor: string, message: ProjectFileMessage) => Promise<{ message?: Record<string, unknown> } | null>
+/** `next`: the folder file this is the next version of, from the version named (message_send_file with file and file_path). */
+export type ProjectFilePublish = (chatId: string, file: SelectedProjectFile, actor: string, message: ProjectFileMessage,
+  next?: ProjectFileNextVersion) => Promise<{ message?: Record<string, unknown> } | null>
 
 export interface BuildSocialBridgeDeps {
   webSearch?: SessionWebSearch

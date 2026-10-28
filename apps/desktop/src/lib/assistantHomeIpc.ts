@@ -2,6 +2,12 @@
 // (electron/assistant-home.ts)。渲染层 ↔ 主进程的契约,只此一份。
 
 export const ASSISTANT_HOME_CHANNELS = {
+  preparationStart: 'assistant-home:preparation-start',
+  preparationStatus: 'assistant-home:preparation-status',
+  preparationCancel: 'assistant-home:preparation-cancel',
+  preparationCommit: 'assistant-home:preparation-commit',
+  preparationRelease: 'assistant-home:preparation-release',
+  preparationChanged: 'assistant-home:preparation-changed',
   /**
    * 准备 / 刷新它在这台电脑上的家(invoke,PrepareLocalHomeInput → PrepareLocalHomeResult):建工作目录、写宿主维护的那段说明、
    * 禁掉 CronCreate;带 ownerProfile 时把「关于主人」写进它的记忆夹。幂等:开通前调一次,之后每次打开 App 再调一次让说明跟上版本。
@@ -13,6 +19,10 @@ export const ASSISTANT_HOME_CHANNELS = {
    */
   wipe: 'assistant-home:wipe',
 } as const
+
+export type LocalAssistantPreparationState =
+  | { phase: 'preparing' | 'ready' | 'committing' | 'committed' | 'cancelled' }
+  | { phase: 'failed'; error: string; installationStarted?: true }
 
 export type PrepareLocalHomeInput = {
   /** 只问家在哪个目录,什么都不建不写(搬家预览 / 读旧家用)。 */

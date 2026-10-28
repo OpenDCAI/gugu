@@ -28,7 +28,6 @@ beforeEach(async () => {
 
 describe('external selections become durable project-owned copies through the same publisher', () => {
   const selected = () => ({ name: file.name, path: join(home, 'selected.bin'), size: data.length, contentType: file.contentType })
-  const publishedPaths = (f: ReturnType<typeof fixture>) => f.rpc.mock.calls.filter(([name]) => name === 'file_device_publish').map(([, args]) => args.p_path as string)
   it('copies into a unique fenced directory, never overwrites a same-name original, and survives original deletion', async () => {
     const f = fixture(); await writeFile(selected().path, data)
     await f.publish('group', selected(), null, 'owner')
@@ -122,6 +121,7 @@ describe('external selections become durable project-owned copies through the sa
     expect(await readProjectFile({ item_id: 'item' }, 'owner', 'device', env)).toBeNull()
   })
 })
+const publishedPaths = (f: ReturnType<typeof fixture>) => f.rpc.mock.calls.filter(([name]) => name === 'file_device_publish').map(([, args]) => args.p_path as string)
 afterEach(async () => { expect(home.startsWith(join(tmpdir(), 'gugu-file-publication-153-'))).toBe(true); await rm(home, { recursive: true, force: true }) })
 function fixture(proactive = false) {
   let accountId = 'owner'
@@ -141,7 +141,9 @@ describe('project file publication runs before document conversion or cloud uplo
     expect(await f.publish('group', file, null, 'owner', f.store)).toEqual(row)
     expect(f.store).not.toHaveBeenCalled()
     const publication = f.rpc.mock.calls.find(([name]) => name === 'file_device_publish')![1]
-    expect(publication).toMatchObject({ p_path: 'file.bin', p_sha: createHash('sha256').update(data).digest('hex'), p_size: 3, p_device: 'device' })
+    expect(publication).toMatchObject({ p_sha: createHash('sha256').update(data).digest('hex'), p_size: 3, p_device: 'device' })
+    expect(publication.p_path).toMatch(/^\.gugu\/attachments\/[0-9a-f-]{36}\/file\.bin$/)
+    expect(publication).not.toHaveProperty('p_expected')
     expect(Object.values(publication)).not.toContain(root)
     expect(await readProjectFile({ item_id: 'item' }, 'owner', 'device', env)).toMatchObject({ workspace: { path: row.path, created_at: row.created_at, created_by: row.created_by }, sha256: publication.p_sha })
   })
@@ -157,7 +159,7 @@ describe('project file publication runs before document conversion or cloud uplo
     await expect(f.publish.local('group', 'owner')).resolves.toBe(true)
     expect(f.rpc.mock.calls.map(([name]) => name)).toEqual(['file_project_policy_for'])
     expect(await readProjectFile({ item_id: 'item' }, 'owner', 'device', env)).toBeNull()
-    await expect(f.publish('group', { name: file.name, path: join(root, file.name), size: data.length, contentType: file.contentType }, null, 'owner', undefined, message))
+    await expect(f.publish('group', { name: file.name, path: join(root, file.name), size: data.length, contentType: file.contentType }, null, 'owner', undefined, { message }))
       .resolves.toMatchObject({ ...row, message: { id: 'message', file_item_id: 'item', file_version: 1 } })
     expect(f.rpc.mock.calls.find(([name]) => name === 'file_device_publish')?.[1]).toMatchObject({ p_message: message })
     expect(f.store).not.toHaveBeenCalled()
@@ -182,16 +184,29 @@ describe('project file publication runs before document conversion or cloud uplo
     expect(await f.publish('ordinary', file, null, 'owner', f.store)).toBeNull()
     expect(f.rpc).not.toHaveBeenCalled(); expect(f.store).not.toHaveBeenCalled()
   })
-  it.each(['different bytes', 'traversal', 'outside symlink', 'other host'])('rejects %s before publishing or uploading bytes', async failure => {
+  // An App's upload (an agent's new text, a page's pick) is bytes with a name: imported as a project-owned copy, like a
+  // paste — never read as a project path named by its title (#719: workspace__create with content answered "not found").
+  it.each(['a title nothing on disk is called', 'a same-name project file with other bytes', 'a name that climbs out'])('imports an App upload with %s from its own bytes', async (kind) => {
+    const f = fixture(), name = kind.includes('nothing') ? '行程.md' : kind.includes('climbs') ? '../secret' : file.name
+    if (kind.includes('other bytes')) await writeFile(join(root, file.name), new Uint8Array([9, 9, 9]))
+    await f.publish('group', { ...file, name }, null, 'owner')
+    const [path] = publishedPaths(f)
+    expect(path).toMatch(/^\.gugu\/attachments\/[0-9a-f-]{36}\/[^/]+$/)
+    expect(await readFile(join(root, path))).toEqual(Buffer.from(data))
+    expect(f.rpc.mock.calls.find(([call]) => call === 'file_device_publish')?.[1]).toMatchObject({ p_sha: createHash('sha256').update(data).digest('hex'), p_size: data.length })
+    if (kind.includes('other bytes')) expect(await readFile(join(root, file.name))).toEqual(Buffer.from([9, 9, 9]))
+    await expect(readFile(join(home, 'secret'))).rejects.toThrow()
+  })
+  // #719: an agent on the host stores a folder file's next version — the same item, from the version it read.
+  it('publishes the next version of an existing file from the version named', async () => {
     const f = fixture()
-    let selected = file
-    if (failure === 'different bytes') await writeFile(join(root, file.name), new Uint8Array([9, 9, 9]))
-    if (failure === 'traversal') selected = { ...file, name: '../secret' }
-    if (failure === 'outside symlink') {
-      await writeFile(join(home, 'secret'), data); await rm(join(root, file.name)); await symlink(join(home, 'secret'), join(root, file.name))
-    }
-    if (failure === 'other host') f.rpc.mockResolvedValueOnce({ host_device_id: 'remote', host_project_id: 'project' })
-    await expect(f.publish('group', selected, null, 'owner', f.store)).rejects.toThrow()
+    expect(await f.publish('group', file, null, 'owner', undefined, { next: { itemId: 'existing', expectedVersion: 3 } })).toEqual(row)
+    expect(f.rpc.mock.calls.find(([name]) => name === 'file_device_publish')?.[1]).toMatchObject({ p_item: 'existing', p_expected: 3 })
+  })
+  it('rejects another host before publishing or uploading bytes', async () => {
+    const f = fixture()
+    f.rpc.mockResolvedValueOnce({ host_device_id: 'remote', host_project_id: 'project' })
+    await expect(f.publish('group', file, null, 'owner', f.store)).rejects.toThrow('Only the bound file host')
     expect(f.store).not.toHaveBeenCalled()
     expect(f.rpc.mock.calls.some(([name]) => name === 'file_device_publish')).toBe(false)
     expect(await readProjectFile({ item_id: 'item' }, 'owner', 'device', env)).toBeNull()

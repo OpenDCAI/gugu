@@ -1,6 +1,6 @@
 import { messageForUser } from '@/lib/userFacingError';
 import './assistant-onboarding.css'
-import { useCallback, useEffect, useState } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import { useMutation } from '@tanstack/react-query'
 import { cloudComputerFailureKind, type CloudComputerSnapshot } from '@gugu/core/cloud/cloudComputer'
@@ -18,6 +18,7 @@ import {
   type AssistantSetupDraft,
 } from '../../lib/assistantSetup'
 import { offerCustomizeCard, writeSetupStep } from '../../lib/assistantSetupState'
+import { AssistantSetupCleanupError } from '../../lib/assistantSetupPreparation'
 import { readOccupation, takeAssistantStartAtHome } from '../../lib/firstRun'
 import { AssistantIntro } from './AssistantIntro'
 import { AssistantSetupIdentity } from './AssistantSetupIdentity'
@@ -83,6 +84,12 @@ export function AssistantOnboarding({
     return { ...draft, owner: { preferredName: ownerName?.trim() ?? '', about: label ? t('setup.ownerOccupation', { occupation: label }) : '' } }
   }, [draft, ownerName, ownerUserId, t, tMain])
   const [busy, setBusy] = useState<Busy>(null)
+  const localAttempt = useRef<AbortController | null>(null)
+  const localInstallationStarted = useRef(false)
+  const [installing, setInstalling] = useState(false)
+  const [cancelling, setCancelling] = useState(false)
+  const [retryCleanup, setRetryCleanup] = useState<(() => Promise<void>) | null>(null)
+  useEffect(() => () => localAttempt.current?.abort(), [])
   const [error, setError] = useState<string | null>(null)
   const [cloudFailure, setCloudFailure] = useState<CloudComputerActionFailure | null>(null)
   const [member, setMember] = useState<boolean | null>(null)
@@ -102,16 +109,19 @@ export function AssistantOnboarding({
       return
     }
     if (!record) return
+    let resumed = false
+    localInstallationStarted.current = true
+    setInstalling(true)
     setBusy('resume')
     writeSetupStep(ownerUserId, 'connect')
     resumeLocalAssistant(record)
-      .then(() => reloadMyAssistant(ownerUserId))
+      .then(() => { resumed = true; reloadMyAssistant(ownerUserId) })
       .catch((e: unknown) => {
         writeSetupStep(ownerUserId, null)
         setError(messageForUser(e))
         log.error({ error: String(e) }, 'resume local assistant failed')
       })
-      .finally(() => setBusy(null))
+      .finally(() => setBusy(resumed ? null : 'computer'))
   }, [ownerUserId, localDeviceId])
 
   // 到「住哪」那一步才问会员档:没读到就当不是会员(云上那一条给「了解会员」,❌ 替人点一下领取)。
@@ -150,18 +160,43 @@ export function AssistantOnboarding({
   const installHere = useCallback(async () => {
     if (!localDeviceId) return
     setBusy('computer')
+    setInstalling(localInstallationStarted.current)
+    setCancelling(false)
+    const attempt = new AbortController()
+    localAttempt.current = attempt
     setError(null)
-    writeSetupStep(ownerUserId, 'connect')
-    offerCustomizeCard(ownerUserId)
+    setRetryCleanup(null)
+    let keepBusy = false
     try {
-      await setUpAssistantOnThisComputer(await setupDraft(), localDeviceId)
+      const pending = pendingLocalAssistant(ownerUserId)
+      // The write boundary belongs to this attempt. A failed previous commit
+      // must not hide Back during a new, still reversible preparation.
+      localInstallationStarted.current = !!pending
+      setInstalling(!!pending)
+      const onInstalling = () => {
+        localInstallationStarted.current = true
+        setInstalling(true)
+        setCancelling(false)
+        writeSetupStep(ownerUserId, 'connect')
+        offerCustomizeCard(ownerUserId)
+      }
+      if (pending) {
+        onInstalling()
+        await resumeLocalAssistant(pending)
+      } else await setUpAssistantOnThisComputer(await setupDraft(), localDeviceId, { signal: attempt.signal, onInstalling })
       reloadMyAssistant(ownerUserId)
     } catch (e) {
+      keepBusy = localInstallationStarted.current || e instanceof AssistantSetupCleanupError
       writeSetupStep(ownerUserId, null)
-      setError(messageForUser(e))
-      log.error({ error: String(e) }, 'set up assistant on this computer failed')
+      if (e instanceof AssistantSetupCleanupError) setRetryCleanup(() => e.retry)
+      if (!(e instanceof Error && e.name === 'AbortError')) {
+        setError(messageForUser(e))
+        log.error({ error: String(e) }, 'set up assistant on this computer failed')
+      }
     } finally {
-      setBusy(null)
+      if (localAttempt.current === attempt) localAttempt.current = null
+      setCancelling(false)
+      setBusy(keepBusy ? 'computer' : null)
     }
   }, [setupDraft, localDeviceId, ownerUserId])
 
@@ -194,10 +229,28 @@ export function AssistantOnboarding({
             <h1 className="ta-onb-title">
               {busy === 'resume' ? t('setup.resuming', { name: displayName }) : t('setup.installing', { name: displayName })}
             </h1>
-            <p className="ta-onb-sub inline-flex items-center gap-2">
+            {error && busy === 'computer' ? <>
+              <p className="ta-onb-error" role="alert">{retryCleanup ? t('setup.cleanupFailed') : error}</p>
+              <Button onClick={async () => {
+                if (retryCleanup) {
+                  setCancelling(true)
+                  try {
+                    await retryCleanup()
+                    setRetryCleanup(null)
+                    if (!localInstallationStarted.current) { setError(null); setBusy(null); return }
+                  } catch (e) { log.error({ error: String(e) }, 'assistant preparation cleanup retry failed'); return }
+                  finally { setCancelling(false) }
+                }
+                void installHere()
+              }} disabled={cancelling}>{t('setup.retry')}</Button>
+            </> : <p className="ta-onb-sub inline-flex items-center gap-2">
               <LoadingIndicator size="inline" />
               {t('setup.installingBody')}
-            </p>
+            </p>}
+            {busy === 'computer' && !installing && !error ? <Button variant="secondary" className="rounded-full" disabled={cancelling}
+              onClick={() => { setCancelling(true); localAttempt.current?.abort() }} data-testid="assistant-setup-return">
+              {cancelling ? t('setup.cancelling') : t('setup.back')}
+            </Button> : null}
           </>
         ) : step === 'intro' ? (
           <AssistantIntro primaryLabel={t('setup.introStart')} onPrimary={() => setStep('name')} look={draft} />

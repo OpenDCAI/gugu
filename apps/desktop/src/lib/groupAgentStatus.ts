@@ -12,6 +12,7 @@ export type GroupAgentStatusMember = string | {
 const GROUP_AGENT_STATUS_RANK: Record<AgentDisplayStatus, number> = {
   removed: 0,
   offline: 1,
+  archived: 1,
   pending: 2,
   idle: 3,
   parked: 4,
