@@ -140,10 +140,12 @@ export const PaneContent = observer(function PaneContent({
   /** 这一种页签那一层此刻摆的是这一对里的哪一枚(没在这一对里 = null)。 */
   const layerTabId = (kind: string): string | null =>
     pair ? (kind === anchorKind ? pair.anchor : kind === sideKind ? pair.side : null) : null;
-  const retained = useRetainedTabs(
-    [...new Set(pane.resolvedTabs.map((tab) => tab.kind))],
+  const openKinds = [...new Set(pane.resolvedTabs.map((tab) => tab.kind))];
+  const recentKinds = useRetainedTabs(
+    openKinds,
     pair ? [anchorKind, sideKind].filter((kind): kind is string => kind !== null) : activeKind ? [activeKind] : [],
   );
+  const retained = new Set([...recentKinds, ...openKinds.filter((kind) => pane.registry.has(kind) && pane.registry.get(kind).keepMounted)]);
 
   if (!hasAnyTab) {
     return (
