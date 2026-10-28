@@ -30,9 +30,12 @@ export type OtherMachines = {
   devices(): Promise<Array<{ deviceId: string; label: string; online: boolean; thisMachine: boolean }>>;
   isThisDevice(deviceId: string): Promise<boolean>;
   appSpawn(app: { extensionId: string; extensionName: string }, deviceId: string, action: AppSpawnAction): Promise<{ agentId: string }>;
-  /** 别的机器上的会话(界面那份列表的整行);够不着的报在 unreached。`since` 之前就离线的机器不报,null = 都报。 */
-  sessions(since: string | null): Promise<{
-    sessions: Array<{ deviceId: string; label: string; session: SessionpageSessionSummary }>;
+  /**
+   * 别的机器上的会话(界面那份列表的整行);够不着的报在 unreached。`since` 之前就离线的机器不报,null = 都报。
+   * 同一台几秒内问过就用那一次的;`fresh` = 现问。`listsAgents` = 那台的行带 agent(老宿主不带)。
+   */
+  sessions(since: string | null, options?: { fresh?: boolean }): Promise<{
+    sessions: Array<{ deviceId: string; label: string; session: SessionpageSessionSummary; listsAgents: boolean }>;
     unreached: UnreachedMachine[];
   }>;
   archive(deviceId: string, sessionId: string): Promise<void>;
@@ -63,6 +66,7 @@ export function otherMachines(): OtherMachines {
 async function sessionGraph(options: {
   includeArchived: boolean;
   since: string | null;
+  fresh?: boolean;
 }): Promise<{ nodes: Linked[]; unreached: UnreachedMachine[] }> {
   const rows = await db
     .select({
@@ -82,7 +86,7 @@ async function sessionGraph(options: {
       label: null,
       parentId: sessionParentId(row),
     }));
-  const elsewhere = others ? await sessionsElsewhere(others, options.since) : { sessions: [], unreached: [] };
+  const elsewhere = others ? await sessionsElsewhere(others, options.since, options.fresh) : { sessions: [], unreached: [] };
   return { nodes: [...local, ...elsewhere.sessions], unreached: elsewhere.unreached };
 }
 
@@ -98,7 +102,8 @@ export async function familyOf(
     .from(sessions)
     .where(eq(sessions.id, rootId))
     .limit(1);
-  const { nodes: all, unreached } = await sessionGraph({ includeArchived: false, since: root?.createdAt ?? null });
+  // 现问:几秒前问过的那份可能漏了那台机器上刚派出来的子会话,收的时候不能漏下它。
+  const { nodes: all, unreached } = await sessionGraph({ includeArchived: false, since: root?.createdAt ?? null, fresh: true });
 
   const found: FamilyMember[] = [];
   const seen = new Set([rootId]);
@@ -138,10 +143,11 @@ export async function archiveOnOtherMachine(
 /** 本机这一份已经能用了,问别的机器出什么错都不能让整个动作失败 —— 落成「这次没够着」说出来。 */
 async function sessionsElsewhere(
   machines: OtherMachines,
-  since: string | null
+  since: string | null,
+  fresh = false
 ): Promise<{ sessions: Linked[]; unreached: UnreachedMachine[] }> {
   try {
-    const { sessions, unreached } = await machines.sessions(since);
+    const { sessions, unreached } = await machines.sessions(since, { fresh });
     const nodes = sessions.map(({ deviceId, label, session: s }) => ({ id: s.conversationId, projectId: s.projectId, deviceId, label, parentId: s.parentConversationId ?? null }));
     return { sessions: nodes, unreached };
   } catch (error) {

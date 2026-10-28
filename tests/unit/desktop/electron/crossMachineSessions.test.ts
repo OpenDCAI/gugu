@@ -481,6 +481,7 @@ describe('the family across machines', () => {
       deviceId: 'dev-b',
       label: 'gpu server',
       session: { conversationId: 'b-child', projectId: 'pb', parentConversationId: 'p', spawnedByConversationId: 'p' },
+      listsAgents: false,
     }])
     expect(early.unreached).toEqual([{
       deviceId: 'dev-c',
@@ -488,10 +489,8 @@ describe('the family across machines', () => {
       detail: '"laptop" (device:dev-c) is offline (last seen 3 h ago)',
     }])
     expect((await xm.sessionsElsewhere('2026-09-30T02:00:00Z')).unreached).toEqual([])
-    expect(call.mock.calls.map(([deviceId, type]) => [deviceId, type])).toEqual([
-      ['dev-b', 'sessionTimeline.sessionsList'],
-      ['dev-b', 'sessionTimeline.sessionsList'],
-    ])
+    // The second read within seconds reuses the first answer from dev-b.
+    expect(call.mock.calls.map(([deviceId, type]) => [deviceId, type])).toEqual([['dev-b', 'sessionTimeline.sessionsList']])
   })
 
   it('names an online machine that does not answer', async () => {
@@ -617,4 +616,50 @@ it('prepares a dormant work seat only through the dedicated capability and never
   await expect(xm.runOnDevice('dev-b', CALLER, { action: 'spawn', assistant_work: { version: 1 }, prompt: 'task' })).rejects.toMatchObject({ code: 'SESSION_DEVICE_OUTDATED' })
   expect(call).toHaveBeenCalledOnce()
   expect(call.mock.calls[0]?.[1]).toBe('assistantWork.prepare')
+})
+
+// owner 10-28:一台机器的会话列表只问一处(sessionsOn),几秒内复用,正在问的合成一个,失败不留;往那台发了别的就作废。
+describe('one machine\'s session list, asked once and reused for a few seconds', () => {
+  const listing = (sessions: unknown[]) => async (_deviceId: string, type: string) =>
+    type === 'sessionTimeline.sessionsList' ? { result: { projects: [], sessions } } : { result: { ok: true, value: {} } }
+  const lists = (call: ReturnType<typeof vi.fn>) => call.mock.calls.filter(([, type]) => type === 'sessionTimeline.sessionsList').length
+  const agentRow = { conversationId: 's-b', projectId: 'pb', agent: { userId: 'agent-b' } }
+
+  it('the agent lookup and the family read share one answer; after five seconds it is asked again', async () => {
+    let at = NOW
+    const { xm, call } = makeCrossMachine(listing([agentRow]), { now: () => at })
+    await xm.sessionsElsewhere(null)
+    expect(await xm.messageDeps(async () => CALLER).sessionsOfAgents('dev-b', ['agent-b'])).toEqual(new Map([['agent-b', 's-b']]))
+    expect((await xm.sessionsElsewhere(null)).sessions[0]).toMatchObject({ listsAgents: true })
+    expect(lists(call)).toBe(1)
+    at += 5_000
+    await xm.sessionsElsewhere(null)
+    expect(lists(call)).toBe(2)
+  })
+
+  it('asks once for reads that overlap, and keeps no failure', async () => {
+    let fail = true
+    const { xm, call } = makeCrossMachine(async (deviceId, type) => {
+      if (fail) throw new DeviceRpcTimeoutError('no reply')
+      return listing([agentRow])(deviceId, type)
+    })
+    const [one, two] = await Promise.all([xm.sessionsElsewhere(null), xm.sessionsElsewhere(null)])
+    for (const { unreached } of [one, two]) expect(unreached.map((m) => m.deviceId)).toContain('dev-b')
+    expect(lists(call)).toBe(1)
+    fail = false
+    expect((await xm.sessionsElsewhere(null)).sessions).toHaveLength(1)
+    expect(lists(call)).toBe(2)
+  })
+
+  it('asks again when told to (fresh), or after this machine sent that one anything else', async () => {
+    const { xm, call } = makeCrossMachine(listing([agentRow]))
+    await xm.sessionsElsewhere(null)
+    await xm.sessionsElsewhere(null, { fresh: true })
+    expect(lists(call)).toBe(2)
+    await xm.sessionsElsewhere(null)
+    expect(lists(call)).toBe(2)
+    await xm.archiveOn('dev-b', 's-b')
+    await xm.sessionsElsewhere(null)
+    expect(lists(call)).toBe(3)
+  })
 })
