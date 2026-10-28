@@ -393,7 +393,12 @@ export function planTurnFoldRuns(
    * 手机的 live 层都是):agent 自己开头的一轮按它判会多出可折的过程,前面若还有一轮、末段没有尾巴,
    * 这一轮就会被当成「接得上」并进前一轮的头里(#129 review)。
    */
-  live = false
+  live = false,
+  /**
+   * 对话布局:跑着的那一轮 agent 自己起的(后台跑完、定时、群投递)也给过程行,写清在干什么(管家 10-28),
+   * ❌ 一句话还没说就不折、行平铺在上一轮回复底下、只露出后台药丸(MBP 验收 #733)。见 `turnFoldView`。
+   */
+  headLiveAgentTurn = false
 ): { folds: (TurnFoldPlan | null)[]; runs: Map<number, TurnFoldRun>; absorbed: boolean[] } {
   const foldPlans = turns.map((turn, i) =>
     !enabled ? null : live && i === turns.length - 1 ? planLiveTurnFold(turn) : planTurnFold(turn)
@@ -434,7 +439,7 @@ export function planTurnFoldRuns(
       }
       // agent 自己开头、一句话没说的一轮(只有完成通知、`[NO_REPLY]`)不折,也不当锚(#69):折起来外面
       // 只剩一个空头;当锚的话,下一次被叫醒的那一轮会并进来,头上的用时就把两次之间的空闲也算进去了。
-      if (fold.leading.length === 0 && turn.initiator !== 'user' && !fold.spoke) {
+      if (fold.leading.length === 0 && turn.initiator !== 'user' && !fold.spoke && !(headLiveAgentTurn && live && i === turns.length - 1)) {
         foldPlans[i] = null;
         anchor = -1;
         continue;
@@ -515,7 +520,9 @@ export function turnFoldView(
   turn: TranscriptTurn,
   fold: TurnFoldPlan,
   run: TurnFoldRun | undefined,
-  active: boolean
+  active: boolean,
+  /** 对话布局:跑着的 agent 自起轮也套头(见 `planTurnFoldRuns` 的 `headLiveAgentTurn`)。 */
+  headLiveAgentTurn = false
 ): { leading: ChatItem[]; segments: { process: ChatItem[]; tail: ChatItem[]; header: TurnProcessHeader | null }[] } {
   // 这一条覆盖的全部过程行与最终的尾巴 —— 可能来自不止一个回合(见 `planTurnFoldRuns`)。
   const merged = run ?? { segments: copySegments(fold.segments), turnCount: 1, endedAt: turn.endedAt };
@@ -525,7 +532,9 @@ export function turnFoldView(
   // 一句话没说的那种在 `planTurnFoldRuns` 里就不折了。跑着的时候不套头:它会不会开口还不知道,
   // 先给头、跑完一句没说再撤掉,那一行就白跳一下 —— 跑完再折,正是「跑完了就折起来」。
   const userRun = fold.leading.length > 0 || turn.initiator === 'user';
-  const headed = userRun || (!active && fold.spoke);
+  // 对话布局例外:跑着就套头,过程行写「执行中 · 后台任务」(管家 10-28 推翻上面「跑着不套头」:主人手打的消息
+  // 不能看着像被不是他发起的事挡住)。代价是跑完一句没说的那一轮(`[NO_REPLY]`)头会撤掉。
+  const headed = userRun || (!active && fold.spoke) || (active && headLiveAgentTurn);
   return {
     leading: fold.leading,
     segments: merged.segments.map((segment, segIndex) => {

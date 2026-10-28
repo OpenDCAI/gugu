@@ -623,6 +623,14 @@ describe('flattenTier × foldTurnProcess (#4874 → #4981 时间头)', () => {
     const units = flattenTier([running], ctxWith({ foldTurnProcess: true, active: true }), SEGMENTERS);
     expect(kinds(units)).not.toContain('turn-process');
     expect(ids(units)).toContain('a14');
+    // 对话布局例外(管家 10-28,MBP 验收 #733):跑着就套头,写「执行中 · 后台任务」,❌ 行平铺在上一轮回复底下。
+    const silent = turn('t15', [row('background-command-done-tool-call', 'bd'), bash('x1')], undefined, { startedAt: 5_000 });
+    for (const record of [running, silent]) {
+      const conversation = flattenTier([record], ctxWith({ foldTurnProcess: true, active: true, agentConversation: true }), SEGMENTERS);
+      const head = conversation.find(unit => unit.kind === 'turn-process')?.data as TurnProcessItem | undefined;
+      expect(head?.live).toBe(true);
+      expect(head?.trigger).toEqual({ kind: 'agent' });
+    }
   });
 
   it('活动层:时间头带 live 在数,内容**默认摊开**(Codex:跑着的时候看得见在干嘛)', () => {

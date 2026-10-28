@@ -328,7 +328,8 @@ export function flattenTier(
     turns.map((turn, i) => ({ ...turn, items: turnItems[i] }) as TranscriptTurn),
     prevDayKey,
     ctx.foldTurnProcess === true,
-    ctx.active
+    ctx.active,
+    ctx.agentConversation === true
   );
 
   for (let turnIndex = 0; turnIndex < turns.length; turnIndex++) {
@@ -370,7 +371,7 @@ export function flattenTier(
 
     const fold = foldPlans[turnIndex];
     if (fold) {
-      const view = turnFoldView(turn, fold, foldRuns.get(turnIndex), ctx.active);
+      const view = turnFoldView(turn, fold, foldRuns.get(turnIndex), ctx.active, ctx.agentConversation === true);
       const trigger = ctx.agentConversation ? processTrigger(turn) : undefined;
       for (const item of view.leading) processItem(item);
       for (const segment of view.segments) {
