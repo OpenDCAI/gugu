@@ -64,22 +64,6 @@ export function shouldFocusComposer(
   return context.mobileShell !== true
 }
 
-/**
- * 发出一条之后输入框该怎样：桌面接着打(聚焦回输入框)，移动壳收起软键盘(见契约 ③)。
- * 键盘跟着焦点走，所以收键盘 = 让输入框和刚点的发送键都失焦。
- */
-export function settleComposerAfterSend(context: ComposerFocusContext = {}): void {
-  if (shouldFocusComposer('message-sent', context)) {
-    scheduleComposerFocus('message-sent', context)
-    return
-  }
-  if (typeof document === 'undefined') return
-  const composer = resolveComposer(context.target)
-  const active = document.activeElement
-  if (active instanceof HTMLElement && active !== document.body) active.blur()
-  if (composer && composer !== active) composer.blur()
-}
-
 const COMPOSER_SELECTOR = `[data-testid="${AUTOMATION_TEST_IDS.chatComposer}"]`
 const MAX_FOCUS_FRAMES = 40
 

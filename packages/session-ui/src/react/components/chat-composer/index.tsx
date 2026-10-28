@@ -474,6 +474,7 @@ export function ChatComposer({
   className,
 }: ChatComposerProps) {
   const { translate } = useMessages();
+  const rootRef = useRef<HTMLDivElement>(null);
   const editorRef = useRef<PromptEditorRef | null>(null);
   // 底排放不下时按档把标签收成图标(渐进披露),见 use-toolbar-disclosure.ts
   const toolbarDisclosure = useToolbarDisclosure();
@@ -551,6 +552,11 @@ export function ChatComposer({
     }
     if (disabled || !canSubmit) return;
     onSubmit(text);
+    // Every phone host (chat, agent thread, new task) submits here. Settle focus
+    // synchronously: a deferred refocus reopens the keyboard and jumps the shell.
+    // Scope the blur to this composer so another input never loses its focus.
+    const active = rootRef.current?.ownerDocument.activeElement;
+    if (mobile && active instanceof HTMLElement && rootRef.current?.contains(active)) active.blur();
   };
 
   /**
@@ -738,7 +744,7 @@ export function ChatComposer({
   );
 
   return (
-    <div data-slot="composer" data-mobile={mobile || undefined} className={cx(styles.composerRoot, className)} onKeyDown={(event) => {
+    <div ref={rootRef} data-slot="composer" data-mobile={mobile || undefined} className={cx(styles.composerRoot, className)} onKeyDown={(event) => {
       if (queueEdit && event.key === 'Escape' && !event.defaultPrevented && !event.nativeEvent.isComposing && event.keyCode !== 229) {
         event.preventDefault(); finishQueueEdit(null);
       }
