@@ -2261,6 +2261,8 @@ async function handleFile(args, deps) {
         ...thread,
         // 那个文件的下一版:起点版本对不上(有人先存了新版)服务端就拒,什么都不写。
         ...(folderFile ? { item_id: folderFile.itemId, expected_version: folderFile.version } : {}),
+        // 临时 / 保留:这份上传的副本留多久,和人在 ⋯ 里改的是同一个标记。不给就照这个群的规矩。
+        ...(args.temporary === true ? { keep: 'temporary' } : {}),
       }
       message = await commitWithReplay(() => commitAttachment(endpoint, commit)).catch((error) => {
         if (!(error instanceof AttachmentsError && error.code === 'version_conflict')) throw error
@@ -2463,12 +2465,13 @@ export const TOOL_DEFS = [
   {
     name: 'message_send_file',
     writer: true,
-    description: 'File delivery tool: post a file card. file: a chat-folder file by its gugu-file://<id>?v=<n> link (no bytes copied); with file_path, your changed copy as its next version from n. file_path alone: a new file.',
+    description: 'File delivery tool: post a file card. file: a chat-folder file by its gugu-file://<id>?v=<n>; with file_path, next version. file_path alone: new file; temporary: cloud copy expires.',
     schema: z.object({
       file: z.string().optional(),
       file_path: uploadFilePathSchema.optional(),
       file_name: uploadFileNameSchema,
       mime_type: uploadMimeTypeSchema,
+      temporary: z.boolean().optional(),
       to_user_ids: toUserIdsSchema,
       chat_id: chatIdSchema,
     }),

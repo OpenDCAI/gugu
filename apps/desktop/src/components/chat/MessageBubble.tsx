@@ -1,4 +1,5 @@
 import { memo, useEffect, useRef, useState } from 'react'
+import { markFileStorage } from '../../lib/fileStorage'
 import { useTranslation } from 'react-i18next'
 import { useToast } from '../toastContext'; import { downloadAttachment } from '../../lib/attachmentBytes'
 import { motion, AnimatePresence } from 'framer-motion'; import { MediaAttachmentBubble } from './MediaAttachmentBubble'; import { GroupAvatarSlot } from './StickyGroupAvatar'
@@ -287,6 +288,13 @@ export const MessageBubble = memo(function MessageBubble({
     onCopyLink: menuLink ? () => { void handleCopyText(menuLink.href); close() } : undefined, onOpenLink: menuLink ? () => { menuLink.click(); close() } : undefined,
     onForward: () => { onForward(msg); close() },
     onDownload: mediaAttachment && mediaAttachment.source.kind !== 'gone' ? () => { void downloadAttachment(mediaAttachment.source, mediaAttachment.fileName).catch((error) => toast(t('chatArea.downloadFailed'), 'error', safeFailureLine(String((error as Error)?.message ?? error)))); close() } : undefined,
+    // 自己发的附件:它在云端那份留多久(临时 / 一直保留),和发送时 agent 填的是同一个标记。
+    onKeep: msg.is_mine && mediaAttachment && mediaAttachment.source.kind !== 'gone' ? (keep: 'temporary' | 'permanent') => {
+      close()
+      void markFileStorage([{ message_id: msg.id }], keep)
+        .then(() => toast(t(keep === 'temporary' ? 'message.actions.keptTemporary' : 'message.actions.keptPermanent'), 'success'))
+        .catch((error) => toast(t('message.actions.keepFailed'), 'error', safeFailureLine(String((error as Error)?.message ?? error))))
+    } : undefined,
     onDelete: () => { onDelete(msg.id); close() },
     onSelect: onEnterSelectMode ? () => { onEnterSelectMode(msg); close() } : undefined,
     onOpenTopic: onOpenTopic && canSourceTopic(msg) ? () => { onOpenTopic(msg.id); close() } : undefined,

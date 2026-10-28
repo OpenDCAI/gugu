@@ -1780,6 +1780,7 @@ async function dispatch(caller: BridgeCaller, method: ExtensionBridgeMethod, arg
       if (!Array.isArray(picked)) throw Object.assign(new Error('files.upload takes files, or none to pick'), { code: 'invalid' });
       // 子文件夹: the folder they go in, when the call names one.
       if (picked.length === 0) return [];
+      if (args.keep !== undefined) return await files.uploadAppFiles(page, place, picked, args.sourceMessageIds, args.folder, args.keep);
       return args.folder === undefined
         ? await files.uploadAppFiles(page, place, picked, args.sourceMessageIds)
         : await files.uploadAppFiles(page, place, picked, args.sourceMessageIds, args.folder);

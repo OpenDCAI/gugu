@@ -697,6 +697,11 @@ export default {
     "agentOwnerTag": "{{owner}}'s agent",
     "agentOwnerSuffix": " ({{owner}}'s agent)",
     "actions": {
+      "keepTemporary": "Make temporary",
+      "keepPermanent": "Keep",
+      "keptTemporary": "Made temporary: the cloud copy is deleted when it expires",
+      "keptPermanent": "Kept",
+      "keepFailed": "Not changed",
       "copy": "Copy text",
       "copyLink": "Copy link",
       "openLink": "Open link",

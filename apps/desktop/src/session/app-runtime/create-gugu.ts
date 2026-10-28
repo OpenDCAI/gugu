@@ -111,7 +111,8 @@ export function createGugu(
     // are allowed only inside the person's gesture, checked on this very call. Bytes the caller has need none (G5).
     // A4 `{ sourceMessageIds }`: the messages the files came from, as an entry gives them back.
     // 子文件夹 `{ chat, folder }`: the folder they go in (its path or id, made all the way down); not given, the top.
-    upload: (place: unknown, file?: unknown, options?: { sourceMessageIds?: string[] }) =>
+    // `{ keep }` 临时 / 保留: how long a stored copy stays ('temporary' | 'permanent'); not given, the chat's rule.
+    upload: (place: unknown, file?: unknown, options?: { sourceMessageIds?: string[]; keep?: string }) =>
       withPlace(place, (where) => {
         // Checked as list and create check it (folderOf): what is not a folder's path, id or entry is `invalid`.
         let folder: string | undefined;
@@ -120,7 +121,7 @@ export function createGugu(
         } catch (error) {
           return Promise.reject(guguError('invalid', error instanceof Error ? error.message : String(error)));
         }
-        const into = folder === undefined ? {} : { folder };
+        const into = { ...(folder === undefined ? {} : { folder }), ...(options?.keep === undefined ? {} : { keep: options.keep }) };
         return file === undefined
           ? upload({ place: where, sourceMessageIds: options?.sourceMessageIds, ...into })
           : uploadsOf(file).then((uploads) => upload({ place: where, files: uploads, sourceMessageIds: options?.sourceMessageIds, ...into }));

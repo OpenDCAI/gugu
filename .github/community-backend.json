@@ -1,5 +1,5 @@
 {
   "repository": "OpenDCAI/gugu-supabase",
-  "ref": "153a0f48ef25ec1e162e90fc35b0a77049bb486b",
-  "status": "Device revisions tagged with what changed (row / projects), readable wake rows, per-owner project file storage policy, and document import with dry run, merged in OpenDCAI/gugu-supabase#63, #64, #65 and #66."
+  "ref": "34b4891d7b17a727a1809dfc756f247b5f7d843a",
+  "status": "Temporary or kept copies on the reference ledger (temporary_retention beside image_retention), the uploader's mark and storage overview RPCs, and keep on attachments commit/place, merged in OpenDCAI/gugu-supabase#68."
 }

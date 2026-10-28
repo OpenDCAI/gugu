@@ -1,4 +1,5 @@
 import { readDocumentText, ChatFolderReadError } from './chat-folder-text';
+import { FILE_KEEPS, type FileKeep } from '@gugu/core/shared/fileStorage';
 import { AttachmentsError, configuredEndpoint, placeAttachment, uploadAttachmentBytes } from '@gugu/core/cloud/attachmentsApi';
 import { createGuguSupabaseClient } from '@gugu/core/cloud/supabase';
 import { fileBlob, type FileHandle, type ResolvedFile } from '@gugu/core/shared/fileResolver';
@@ -1098,10 +1099,14 @@ export function createAppFiles(platform: FilesPlatform) {
      * Every size is checked before the first byte goes. Not a transaction across files: if one
      * fails, the ones before it stay, and the rejection names what did not get in.
      */
-    async upload(chatId: string, files: readonly AppFileUpload[], as: { asAgent?: string | null; sourceMessageIds?: unknown; folder?: unknown } = {}): Promise<AppFileEntry[]> {
+    async upload(chatId: string, files: readonly AppFileUpload[], as: { asAgent?: string | null; sourceMessageIds?: unknown; folder?: unknown; keep?: unknown } = {}): Promise<AppFileEntry[]> {
       const { token, userId } = await platform.account();
       const sourceMessageIds = sourceMessageIdsOf(as.sourceMessageIds);
       const folder = folderOf(as.folder);
+      // 临时 / 保留: how long a stored copy stays (the server marks it as the uploader marks it later). A text file is a live
+      // document, not a stored copy: nothing to mark.
+      if (as.keep !== undefined && !FILE_KEEPS.includes(as.keep as FileKeep)) throw new AppFileError('invalid', "keep is 'temporary' or 'permanent'");
+      const keep = as.keep as FileKeep | undefined;
       for (const file of files) {
         if (!file || typeof file.name !== 'string' || !file.name.trim() || !(file.bytes instanceof ArrayBuffer)) {
           throw new AppFileError('invalid', 'Each upload needs a name and its bytes');
@@ -1125,7 +1130,7 @@ export function createAppFiles(platform: FilesPlatform) {
             const endpoint = configuredEndpoint(token);
             const stagingKey = await uploadAttachmentBytes(endpoint, { bytes: new Uint8Array(file.bytes), name, contentType }, { chat_id: chatId, as: actor });
             return await placeAttachment(endpoint, { staging_key: stagingKey, chat_id: chatId, file_name: name, folder: folder ?? null,
-              as_user_id: actor, source_message_ids: sourceMessageIds, content_type: contentType }) as unknown as ItemRow;
+              as_user_id: actor, source_message_ids: sourceMessageIds, content_type: contentType, ...(keep ? { keep } : {}) }) as unknown as ItemRow;
           };
           const published = await platform.publishFile?.(chatId, { ...file, contentType }, parentId, actor, store);
           if (published) { rows.push(published); continue; }
