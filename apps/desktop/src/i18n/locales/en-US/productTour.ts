@@ -1,7 +1,7 @@
 export default {
   "modulesProgress": "Explore the sidebar · {{current}} / {{total}}",
   "featuresProgress": "Feature tour · {{current}} / {{total}}",
-  "featureHeader": "Four useful features to revisit",
+  "featureHeader": "Three useful features to revisit",
   "filmProgress": "Animation progress",
   "featureSteps": "Feature steps",
   "play": "Play",

@@ -1,7 +1,7 @@
 export default {
   "modulesProgress": "认识功能栏 · {{current}} / {{total}}",
   "featuresProgress": "特色功能 · {{current}} / {{total}}",
-  "featureHeader": "再认识四个好用的功能",
+  "featureHeader": "再认识三个好用的功能",
   "filmProgress": "动画播放进度",
   "featureSteps": "特色功能步骤",
   "play": "播放",
