@@ -55,6 +55,15 @@ export {
   resetDbAnnounceForTest,
 }
 
+// 给别的机器装哪条通道的 server:跟这次构建连的库走,❌ 跟构建类型(tier)走。正式通道的包烘的是生产库,Beta 通道
+// 烘的是共享测试库(gugu-dev 两条出包道各自的 environment)。开发构建的 tier 默认也是 production,按 tier 选会让
+// 连测试库的开发版装上连生产库的 server,测试账号的登录码被送去生产库(10-28 真机撞到)。
+// 生产库以外一律 Beta:自建的本地库没有发布过的包,要用 GUGU_SERVER_DOWNLOAD_BASE 指到自己打的包。
+// 烘进产物的只有通道名:❌ 把生产库 host 烘进主进程 —— verifyDistBake 靠在产物里找这个 host 判断库地址烘进去了没有。
+export function serverChannelForDb(url) {
+  return hostOf(url) === PRODUCTION_DB_HOST ? 'stable' : 'beta'
+}
+
 // vite 的 cascade 顺序（弱 → 强）。这是 vite 内部 getEnvFilesForMode 的顺序，不是文档转述；
 // tests/unit/scripts/buildEnvPreflight.test.ts 用真 loadEnv 把它钉住，vite 改了顺序测试就红。
 export function envFileOrder(mode) {

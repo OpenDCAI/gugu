@@ -19,6 +19,7 @@ export function AssistantIntro({
   busy = false,
   error = null,
   look = DEFAULT_ASSISTANT_LOOK,
+  summary,
 }: {
   primaryLabel: string
   onPrimary: () => void
@@ -32,6 +33,8 @@ export function AssistantIntro({
   error?: string | null
   /** 开通流程退回介绍页时沿用已经确认的形象。 */
   look?: AgentLook
+  /** 桌面首次流程的一句话介绍；其它开通入口保留原有功能介绍。 */
+  summary?: string
 }) {
   const { t } = useTranslation('assistant')
   const mobile = useMobileShell()
@@ -41,6 +44,7 @@ export function AssistantIntro({
     <>
       <AgentAvatar id="assistant-draft" name={t('rail')} look={look} size={88} />
       <h1 className="ta-onb-title">{t('intro.title')}</h1>
+      {summary ? <p className="ta-onb-sub">{summary}</p> : <>
       <div className="ta-onb-intro-gugu" data-intro-row="gugu" data-intro-device={device}>
         <strong className="ta-onb-choice-title">{t('intro.guguTitle')}</strong>
         <p className="ta-onb-choice-body">{t(`intro.${device}.guguBody`)}</p>
@@ -55,6 +59,7 @@ export function AssistantIntro({
           </li>
         ))}
       </ul>
+      </>}
       {error ? <p className="ta-onb-error" role="alert">{error}</p> : null}
       <div className="ta-onb-actions ta-onb-actions-stack">
         <Button

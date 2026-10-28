@@ -178,7 +178,7 @@ function FirstRunFlow({ user, children }: { user: AuthUser; children: ReactNode 
   ) : wizard
 
   return platform.kind === 'electron'
-    ? <FirstRunInstallProvider showNotification={productVisible && !overlay}>{content}</FirstRunInstallProvider>
+    ? <FirstRunInstallProvider showNotification={state.kind === 'done'}>{content}</FirstRunInstallProvider>
     : content
 }
 
@@ -259,7 +259,7 @@ function FirstRunProfile({ user, initial, step, onDone }: { user: AuthUser; init
       </Button>
       <input ref={fileInput} type="file" accept="image/jpeg,image/png,image/webp" hidden onChange={(e) => void pickAvatar(e)} />
       <h1 className="ta-onb-title">{t('firstRun.profileTitle')}</h1>
-      <p className="ta-onb-sub">{t('firstRun.profileSub')}</p>
+      <p className="ta-onb-sub">{t(platform.kind === 'electron' ? 'firstRun.profileSubDesktop' : 'firstRun.profileSub')}</p>
       <label className="ta-onb-field">
         <span className="ta-field-label">{t('firstRun.nameLabel')}</span>
         <input
@@ -385,6 +385,7 @@ function FirstRunIntro({ userId, onDone, onBack, onNext }: { userId: string; onD
 
   return (
     <AssistantIntro
+      summary={platform.kind === 'electron' ? t('firstRun.introSubDesktop') : undefined}
       primaryLabel={t('firstRun.introStart')}
       onPrimary={() => void leave(true)}
       laterLabel={t('firstRun.introLater')}
