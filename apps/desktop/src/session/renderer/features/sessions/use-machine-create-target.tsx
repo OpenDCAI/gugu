@@ -64,7 +64,7 @@ export type MachineCreateTarget = {
 
 /**
  * 那台机器上的这个文件夹对应的项目 id:已是项目就用它;还不是就在那台机器上把它加成项目;
- * 没选文件夹 = 那台机器的主目录项目「~」。
+ * 没选文件夹 = 那台机器的任务工作区(#609,会话列在「任务」里)。
  */
 export function resolveMachineProject(target: MachineCreateTarget): Promise<string> {
   if (target.projectId) return Promise.resolve(target.projectId);
@@ -72,7 +72,7 @@ export function resolveMachineProject(target: MachineCreateTarget): Promise<stri
   if (existing) return Promise.resolve(existing.id);
   return target.projectPath
     ? remoteHostsStore.ensureProject(target.deviceId, target.projectPath)
-    : remoteHostsStore.ensureHomeProject(target.deviceId);
+    : remoteHostsStore.ensureTaskWorkspace(target.deviceId);
 }
 
 export type MachineCreateContext = {
@@ -220,7 +220,6 @@ export const MachineProjectPicker = observer(function MachineProjectPicker({
   return (
     <ComposerRemoteProjectPicker
       selectedPath={target.projectPath}
-      homePath={remoteHostsStore.homeDir(target.deviceId)}
       projects={machineProjects(target.deviceId)}
       recentPaths={remoteHostsStore.recentFolders(target.deviceId)}
       loading={false}

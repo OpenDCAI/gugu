@@ -39,7 +39,7 @@ export class ImplicitSessionHomeProjectError extends Error {
  * running a task must not depend on Git metadata being present.
  */
 /**
- * 只管本机:别的机器上没选项目的会话落在那台机器的主目录项目里(#6264,remoteHostsStore.ensureHomeProject)。
+ * 只管本机;别的机器上的任务工作区见 remoteHostsStore.ensureTaskWorkspace(#609)。
  */
 export async function ensureImplicitSessionHomeProjectId(): Promise<string | undefined> {
   if (ensurePromise) return ensurePromise;
