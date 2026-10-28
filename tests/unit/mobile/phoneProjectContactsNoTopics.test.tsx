@@ -12,6 +12,8 @@ const topic = (id: string): ChatItem => ({
 
 vi.mock('react-i18next', async (importOriginal) => ({ ...await importOriginal<typeof import('react-i18next')>(), useTranslation: () => ({ t: (key: string) => key }) }))
 vi.mock('@/components/Avatar', () => ({ Avatar: () => null }))
+const followLink = vi.hoisted(() => vi.fn())
+vi.mock('@/lib/guguLinks', () => ({ followLink }))
 vi.mock('@/store/auth', () => ({ useAuth: () => ({ user: { id: 'me' } }) }))
 vi.mock('@/store/chatContext', () => ({ useChatStore: () => ({ chats: [topic('t1'), topic('t2')] }) }))
 vi.mock('@/store/contactsContext', () => ({
@@ -22,7 +24,6 @@ vi.mock('@/store/contactsContext', () => ({
 }))
 
 const { PhoneProjectContacts } = await import('../../../apps/desktop/src/mobile/partners/PhoneProjectContacts')
-const { APP_SHOW_SESSION_EVENT } = await import('../../../apps/desktop/src/session/shared/extensions/app-runtime-protocol')
 
 const session = (fields: Partial<SessionpageSessionSummary>): SessionpageSessionSummary =>
   ({ conversationId: 's', projectId: 'p', title: 's', harness: 'claude', runtime: 'acp', agentStatus: null, lastInteractedAt: null, supported: true, ...fields })
@@ -49,17 +50,12 @@ describe('phone project contacts', () => {
 
   it('opens the agent’s latest session in this project when its row is tapped', async () => {
     const onOpenGroup = vi.fn()
-    const shown = vi.fn()
-    window.addEventListener(APP_SHOW_SESSION_EVENT, shown)
     await harness.render(createElement(PhoneProjectContacts, { project, running: 0, sessions, active: true, onBack: vi.fn(), onOpenGroup }))
     const row = [...harness.container.querySelectorAll('[role="button"]')].find((node) => node.textContent?.includes('Coder')) as HTMLElement
     expect(row.textContent).toContain('fix login')
     await act(async () => { row.click() })
-    window.removeEventListener(APP_SHOW_SESSION_EVENT, shown)
     expect(onOpenGroup).not.toHaveBeenCalled()
-    expect(shown).toHaveBeenCalledTimes(1)
-    const detail = (shown.mock.calls[0]![0] as CustomEvent).detail
-    expect(detail.deviceId).toBe('mac')
-    expect(detail.session.conversationId).toBe('new')
+    // The one way a session is opened, with the machine it is on.
+    expect(followLink).toHaveBeenCalledExactlyOnceWith({ kind: 'session', sessionId: 'new', deviceId: 'mac' })
   })
 })

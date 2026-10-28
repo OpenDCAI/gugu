@@ -278,7 +278,7 @@ import { createSessionpageIdentityHost } from './sessionpage/sessionpage-identit
 import { createSessionpageProjectGroupHost, ensureProjectNoticeAccess } from './sessionpage/sessionpage-project-group-binding'
 import { prepareProjectAgentNotice } from './sessionpage/project-agent-notice'
 import { onProjectGroupMappingChanged } from './sessionpage/sessionpage-project-groups'
-import { readSessionpageOpenTarget, type SessionpageOpenTarget } from './sessionpage/sessionpage-agent-mapping'
+import { readSessionpageOpenTarget } from './sessionpage/sessionpage-agent-mapping'
 import {
   clearLocalSessionDeliveryFailuresForTest,
   clearLocalSessionInjectionAuditForTest,
@@ -2301,7 +2301,6 @@ app.on('will-quit', () => { void nativeFiles.drop().catch(error => createLogger(
 
 // @@@payment-window (#1907) - 支付在专用 BrowserWindow 原生 POST 落地,主窗不再被支付页顶掉。
 // @@@local-runtime-open - Opening a terminal window is strictly local, so it bypasses cloud device commands.
-ipcMain.handle('agent-runtime:open', (_event, agentUserId: unknown) => openAgentRuntime(agentUserId))
 // The renderer's harness selectors consume this exact main-process reachability decision.
 ipcMain.handle('agent-creation-tools:list', () => listAgentCreationTools())
 function requiredIpcString(value: unknown, field: string): string {
@@ -3047,10 +3046,6 @@ function startAutoUpdateChecks(): void {
   if (!updaterPolicy.enabled || IS_TEST_MODE) return
   setTimeout(() => { void checkForUpdates() }, AUTO_UPDATE_INITIAL_DELAY_MS)
   setInterval(() => { void checkForUpdates() }, AUTO_UPDATE_INTERVAL_MS)
-}
-
-async function openAgentRuntime(agentUserId: unknown): Promise<unknown> {
-  return focusSessionpageAgentSession(requiredSessionpageAgentId(agentUserId))
 }
 
 /**
@@ -3871,23 +3866,6 @@ async function ensureSessionpageSessionReady(
     ?? { status: 'ready' }
 }
 
-async function focusSessionpageAgentSession(agentUserId: string): Promise<SessionpageOpenTarget> {
-  const target = await readSessionpageOpenTarget(agentUserId)
-  if (!target) throw new Error('这个 Agent 在本机没有可打开的任务会话映射')
-  const emdash = loadEmdashBridge()
-  if (!emdash) throw new Error('任务页运行时不可用')
-  const ready = await ensureSessionpageSessionReady(target.sessionId, 'sessionpage-open')
-  if (ready.status === 'failed') {
-    createLogger('sessionpage/platform').error({ sessionId: target.sessionId, error: ready.error }, 'sessionpage-open platform recovery failed')
-  }
-  if (!(await emdash.emdashSessionExists(target))) {
-    throw new Error('映射的任务或 Session 已不存在')
-  }
-  if (!mainWindow || mainWindow.isDestroyed()) throw new Error('应用主窗口不可用')
-  mainWindow.webContents.send('notification:focus-session', target)
-  return target
-}
-
 /**
  * #5276 设备命令 `agent.set_model` 的宿主实现：校验（与目录、协议、引擎一致）→ 落本地 agent cache
  * （下次 spawn 用）→ 该 agent 此刻有活会话就当场应用（热切 / 重开续上）。三步顺序固定：校验不过
@@ -4023,8 +4001,7 @@ ipcMain.handle('sessionpage:open-agent-file', async (
   if (!(await emdash.emdashSessionExists(target))) {
     throw new Error('映射的任务或 Session 已不存在')
   }
-  if (!mainWindow || mainWindow.isDestroyed()) throw new Error('应用主窗口不可用')
-  mainWindow.webContents.send('notification:focus-session', target)
+  // 会话已经由打开会话的那一条路(gugu-links.openLink)打开了,这里只开它工作区里的文件。
   await emdash.emdashOpenSessionFile(target, path)
   return target
 })

@@ -6,6 +6,7 @@ import { APP_OPEN_WITH_EVENT, type AppOpenWithDetail, type PeekTarget } from '..
 import type { FileOpenerCandidate } from '../../session/shared/extensions/file-openers'
 import { useMobileShell } from '../../hooks/useMobileShell'
 import { platform } from '../../platform'
+import { followLink } from '../../lib/guguLinks'
 import { MessageFilePreview } from '../chat/MessageFilePreview'
 import { IconButton } from '../ui/IconButton'
 import { PaneHeader } from '../ui/Pane'
@@ -74,7 +75,7 @@ export function AppPeek({ target, slotKey, beside, onClose }: { target: PeekTarg
 function openFull(target: PeekTarget): (() => void) | null {
   if (target.kind === 'chat') return () => window.dispatchEvent(new CustomEvent<AppOpenWithDetail>(APP_OPEN_WITH_EVENT, { detail: target.detail }))
   if (target.kind === 'session' && platform.kind === 'electron') {
-    return () => void import('./peekFullSession').then(({ openSessionInFull }) => openSessionInFull(target))
+    return () => void followLink({ kind: 'session', sessionId: target.sessionId, projectId: target.projectId, ...(target.deviceId ? { deviceId: target.deviceId } : {}) })
   }
   return null
 }

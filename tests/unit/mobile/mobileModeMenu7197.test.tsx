@@ -5,7 +5,6 @@ import type { SessionpageSessionSummary } from '@gugu/session-core/session-recor
 import { MobileModeMenu } from '../../../apps/desktop/src/mobile/agent-watch/MobileModeMenu'
 import { MobileAgentOpenTask } from '../../../apps/desktop/src/mobile/agent-watch/MobileAgentOpenTask'
 import { useAgentSessionRow } from '../../../apps/desktop/src/mobile/agent-watch/useAgentSessionRow'
-import { APP_SHOW_SESSION_EVENT, type AppShowSessionDetail } from '../../../apps/desktop/src/session/shared/extensions/app-runtime-protocol'
 import { retainDeviceSessions, updateDeviceSessions } from '../../../apps/desktop/src/session/shared/remote-sessions/session-directory'
 import { translateSessionMessage } from '../../../apps/desktop/src/session/renderer/localization/locale-store'
 import { clickElement, createNode, createReactHarness, waitForCondition } from '../../support/testHarness'
@@ -13,6 +12,8 @@ import { clickElement, createNode, createReactHarness, waitForCondition } from '
 // #7197 手机上的模式按钮:只在手机自己的「对话 / 项目」两个视图之间跳,不让那台电脑换编程 / 通用(owner 10-15)。
 
 const deviceStore = vi.hoisted(() => ({ devices: [] as Device[] }))
+const followLink = vi.hoisted(() => vi.fn())
+vi.mock('../../../apps/desktop/src/lib/guguLinks', () => ({ followLink }))
 vi.mock('../../../apps/desktop/src/store/devicesContext', () => ({
   useDevicesStore: () => ({ devices: deviceStore.devices }),
 }))
@@ -113,10 +114,7 @@ function DmHeader({ agentUserId }: { agentUserId: string | null }) {
 describe('MobileAgentOpenTask (agent chat header)', () => {
   it('one icon button that opens the agent’s session the way gugu.showSession does, no menu', async () => {
     updateDeviceSessions('device-1', { sessions: [session({ conversationId: 'other', agent: { userId: 'agent-2' } }), session()], cached: false, loading: false, error: null })
-    const shown: AppShowSessionDetail[] = []
-    const listen = (event: Event) => shown.push((event as CustomEvent<AppShowSessionDetail>).detail)
-    window.addEventListener(APP_SHOW_SESSION_EVENT, listen)
-    try {
+    {
       await harness.render(createNode(DmHeader, { agentUserId: 'agent-1' }))
       expect(q('[data-testid="agent-watch-mode-open"]')).toBeNull()
       const button = q<HTMLElement>('[data-testid="agent-open-task"]')!
@@ -125,9 +123,8 @@ describe('MobileAgentOpenTask (agent chat header)', () => {
       expect(button.getAttribute('aria-label')).toBe('在任务中打开')
       await clickElement(button)
       expect(rows()).toEqual([])
-      expect(shown).toEqual([{ deviceId: 'device-1', session: expect.objectContaining({ conversationId: 'conversation-1' }) }])
-    } finally {
-      window.removeEventListener(APP_SHOW_SESSION_EVENT, listen)
+      // The one way a session is opened, with the machine it is on.
+      expect(followLink).toHaveBeenCalledExactlyOnceWith({ kind: 'session', sessionId: 'conversation-1', deviceId: 'device-1' })
     }
   })
 

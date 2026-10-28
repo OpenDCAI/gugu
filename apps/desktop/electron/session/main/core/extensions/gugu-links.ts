@@ -25,10 +25,9 @@ export function setSessionOpening(next: SessionOpening | null): void {
 
 /** The live path: main.ts hands every URL the OS gives it to this, and every click that opens a session comes here. */
 export async function openLink(raw: string | OpenTarget): Promise<LinkOpenOutcome> {
-  const [{ extensionsService }, bridge, orchestration, { sessionHere }, { actInWindow, listedSessionProject }] = await Promise.all([
+  const [{ extensionsService }, bridge, { sessionHere }, { actInWindow, listedSessionProject }] = await Promise.all([
     import('./extensions-root'),
     import('./extension-bridge'),
-    import('@main/core/sessions/session-orchestration'),
     import('./extension-show-session'),
     import('./extension-bridge-relay'),
   ]);
@@ -37,10 +36,13 @@ export async function openLink(raw: string | OpenTarget): Promise<LinkOpenOutcom
       installed: () => extensionsService().list().extensions,
       isEnabled: (id) => extensionsService().isEnabled(id),
       locale: sessionHostLocale,
-      sessionProject: async (sessionId, hint) => (await sessionHere(sessionId)) ?? listedSessionProject(sessionId, hint),
+      // An archived session of this computer only when the opener named its project (任务历史 opens those).
+      sessionProject: async (sessionId, hint) =>
+        (await sessionHere(sessionId, { archived: Boolean(hint?.projectId && !hint.deviceId) })) ?? listedSessionProject(sessionId, hint),
       agentSession: async (agentId, deviceId) => (opening ? opening.agentSession(agentId, deviceId) : null),
       // App 面上那一格仍叫 sessionId(App 层那一刀改名);它的值就是那条会话的 id。
-      reveal: ({ sessionId, ...target }) => orchestration.revealExtensionTabInSession({ ...target, sessionId: sessionId }),
+      reveal: async ({ sessionId, ...target }) =>
+        (await import('@main/core/sessions/session-orchestration')).revealExtensionTabInSession({ ...target, sessionId: sessionId }),
       openApp: async (extensionId, tab, chatId) => {
         const opened = await actInWindow({ kind: 'openApp', extensionId, tab, ...(chatId ? { chatId } : {}) });
         if (!opened) throw new Error('The window did not return where the App opened');

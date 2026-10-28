@@ -49,7 +49,7 @@ import type {
   ExtensionHostActionResult,
 } from '@shared/extensions/host-actions';
 import { fileSync } from '@main/core/extensions/file-sync';
-import { fileRefOf, isLocal, placeKey, placeOf, type AppFileEntry, type AppFileRef, type AppPlace, type LocalPlace, type PreparedChatFile } from '@shared/extensions/app-runtime-protocol';
+import { fileRefOf, isLocal, placeKey, placeOf, sessionIdOf, type AppFileEntry, type AppFileRef, type AppPlace, type LocalPlace, type PreparedChatFile } from '@shared/extensions/app-runtime-protocol';
 import { placeFor, placeLink, type FileOpenerCandidate } from '@shared/extensions/file-openers';
 import type { FilePlace } from '@gugu/core/shared/ui/guguLink';
 import { rosterMoved, type MemberChange } from '@shared/extensions/app-files-core';
@@ -1581,7 +1581,9 @@ async function dispatch(caller: BridgeCaller, method: ExtensionBridgeMethod, arg
           },
           draftInChat: async (detail) => { await deliver(thePage(caller), { kind: 'compose', detail }); },
           draftInSession: async (session, text) => {
-            await bringSessionUp({ sessionId: session.id, projectId: session.projectId });
+            // Opened the one way a session is opened, then the draft in its composer.
+            const opened = await (await import('./gugu-links')).openLink({ kind: 'session', sessionId: session.id, projectId: session.projectId });
+            if (opened.kind === 'failed') throw new Error(`The session did not open: ${opened.reason}${opened.detail ? ` (${opened.detail})` : ''}`);
             await deliver(thePage(caller), { kind: 'compose', sessionId: session.id, text });
           },
           from: await operatorSession(caller),
@@ -1850,10 +1852,19 @@ async function dispatch(caller: BridgeCaller, method: ExtensionBridgeMethod, arg
         import('@main/core/extensions/extension-bridge-relay'),
       ]);
       // `peek` (G1): the session's own page beside the page that asked, in its slot — found the same way.
-      const bringUp = (args as { peek?: unknown }).peek === true
-        ? async (session: { sessionId: string; projectId: string }) => { await deliver(thePage(caller), { kind: 'peek', target: { kind: 'session', ...session } }); }
-        : bringSessionUp;
-      await showSession(args.id, { projectHere: sessionHere, projectListed: listedSessionProject, bringUp });
+      if ((args as { peek?: unknown }).peek === true) {
+        const bringUp = async (session: { sessionId: string; projectId: string }) => { await deliver(thePage(caller), { kind: 'peek', target: { kind: 'session', ...session } }); };
+        await showSession(args.id, { projectHere: sessionHere, projectListed: listedSessionProject, bringUp });
+        return undefined;
+      }
+      // Otherwise it opens the one way every session is opened (gugu-links.openLink); its failure in this API's codes.
+      const { openLink } = await import('./gugu-links');
+      const outcome = await openLink({ kind: 'session', sessionId: sessionIdOf(args.id) });
+      if (outcome.kind === 'failed') {
+        throw Object.assign(new Error(outcome.reason === 'no-session'
+          ? `Session ${sessionIdOf(args.id)} is not on this computer or in your task list`
+          : `The task page did not answer (${outcome.detail ?? outcome.reason}): try again once it shows`), { code: outcome.reason === 'no-session' ? 'not-found' : 'failed' });
+      }
       return undefined;
     }
 

@@ -108,7 +108,7 @@ import { PlatformError } from '../platform/errors'
 import { CameraPermissionSheet } from '../components/CameraPermissionSheet'
 import { RemoteMachinesHost } from '../components/sessionpage/RemoteMachinesHost'
 import type { ContactGroupChat, ContactUser } from '@gugu/core/shared/types/contacts'
-import { followLink } from '../lib/guguLinks'
+import { followLink, openLink } from '../lib/guguLinks'
 import { useMobileShell, readMobileShell } from '../hooks/useMobileShell'
 import { useMobileChatOpenNonce } from '../hooks/useMobileChatOpenNonce'
 import { useAgentCreateContextBridge } from '../hooks/useAgentCreateContextBridge'
@@ -1004,8 +1004,9 @@ function InnerLayout({
       electronAPI?: { invoke?: (channel: string, ...args: unknown[]) => Promise<unknown> }
     }).electronAPI
     if (!api?.invoke) throw new Error(t('shell.errors.taskBridgeUnavailable'))
+    // The session opens the one way; then its file there.
+    if (!(await openLink({ kind: 'session', agentId: agentUserId }))) throw new Error(t('shell.errors.taskBridgeUnavailable'))
     await api.invoke('sessionpage:open-agent-file', agentUserId, path)
-    setActiveTab('tasks')
   }, [t])
 
   useEffect(() => {
