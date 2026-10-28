@@ -13,6 +13,7 @@ const io = vi.hoisted(() => ({
   finishFirstRun: vi.fn(async () => '2026-10-28T00:00:00Z'), requestAssistantSetupHandoff: vi.fn(),
 }))
 vi.mock('../../../../apps/desktop/src/lib/firstRun', () => io)
+vi.mock('../../../../apps/desktop/src/lib/sampleProject', () => ({ enrollSampleProject: vi.fn(async () => undefined) }))
 vi.mock('../../../../apps/desktop/src/lib/firstRunHints', () => ({
   startFirstRunHints: vi.fn(async () => undefined), readFirstRunHints: vi.fn(async () => null), dismissFirstRunHints: vi.fn(),
 }))
