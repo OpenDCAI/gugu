@@ -22,8 +22,9 @@ export type TranscriptTurnInitiator = z.infer<typeof transcriptTurnInitiatorSche
 
 /**
  * 这一轮是被什么起的(2026-10-28,界面据此说「在处理「gugu」群消息」,运行时据此决定主人的话插不插进去)。
- * - `owner`:人在这条会话里亲手发的(manual / typed);
- * - `delivery`:投递起的(群消息、私聊、会话直发);`chatIds` 是信封里的会话 id,几条并成一轮时是多个;
+ * - `owner`:主人在会话页输入框亲手打的(origin `manual`;`typed` 不算);
+ * - `delivery`:投递起的(群消息、私聊、会话直发、`typed` 原样送进来的正文);`chatIds` 是信封里的 `chat=`,
+ *   即会话的**公开号**(如 `216125`),❌ 不是 chat uuid —— 取群名要按公开号查;几条并成一轮时是多个,没有信封时缺席;
  * - `schedule`:到点的定时任务;
  * - `agent`:没有一句在飞时 agent 自己开的(后台命令 / 子任务跑完的通知)。
  * 缺席 = 旧记录或回放重建的轮次,读者按 `initiator` 退化。

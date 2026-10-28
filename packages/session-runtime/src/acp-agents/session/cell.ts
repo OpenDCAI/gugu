@@ -650,7 +650,7 @@ export class SessionCell {
     }
     // 2026-10-28 主人撞到:agent 自己开的一轮(处理群消息)跑了几分钟,主人打的话一直「排队」。
     // 人在别人开的一轮里打字 ⇒ 下一个工具边界插进去,越过排着的投递;人自己开的那一轮照旧排到讲完。
-    const ownerOvertakes = input.origin === 'manual'
+    const ownerOvertakes = isOwnerOrigin(input.origin)
       && this.machine.phase.kind === 'working'
       && !this.workStartedByOwner
       && (this.supportsSteering || this.deps.midTurnSteer === 'interrupt-at-tool-boundary');
@@ -1786,7 +1786,7 @@ export class SessionCell {
     if (!decision.success) return decision;
     const started = decision.data.some((effect) => effect.type === 'promptStarted');
     if (started) {
-      this.workStartedByOwner = prompt.origin === 'manual';
+      this.workStartedByOwner = isOwnerOrigin(prompt.origin);
       this.promptSequence += 1;
       // 不自报状态的家:「请求在飞」就是它在干活的唯一事实。自报的家开工由它自己报 running。
       if (!this.reportsState) this.applyEvent({ type: 'WorkStarted' });
@@ -2529,12 +2529,22 @@ function machineOutcome(
 const STDERR_FAILURE_GRACE_MS = 300;
 
 /**
- * 一句 prompt 开的一轮是被什么起的(`TranscriptTurn.trigger`)。人亲手发的(manual / typed)= owner;
- * 投递按信封认:`route="scheduled"` = 到点的定时任务,其余 = delivery,带上信封里的 `chat` id(几条并成一轮时是多个)。
+ * 「主人亲手发的」只有一种:会话页输入框打的(`manual`)。插不插队、这一轮算不算主人开的、`trigger` 记不记 owner
+ * 三处都只认这一个判断。`typed` / 缺省是别处原样送进来的正文(开场委派、会话直发),不是主人打的字。
+ */
+function isOwnerOrigin(origin: QueuedPrompt['origin']): boolean {
+  return origin === 'manual';
+}
+
+/**
+ * 一句 prompt 开的一轮是被什么起的(`TranscriptTurn.trigger`)。主人亲手发的(`isOwnerOrigin`)= owner;
+ * 投递按信封认:`route="scheduled"` = 到点的定时任务,其余 = delivery,带上信封里的 `chat=`(几条并成一轮时是多个)。
+ * `typed` / 缺省(不带信封、原样送进来的正文)也算 delivery,没有 chatIds。
  * 只读信封头这一层属性,❌ 解析正文;信封的唯一属主在 core,这里不另造第二份格式。
  */
-function promptTrigger(prompt: { origin?: string; text: string }): TranscriptTurnTrigger {
-  if (prompt.origin !== 'communication') return { kind: 'owner' };
+function promptTrigger(prompt: { origin?: QueuedPrompt['origin']; text: string }): TranscriptTurnTrigger {
+  if (isOwnerOrigin(prompt.origin)) return { kind: 'owner' };
+  if (prompt.origin !== 'communication') return { kind: 'delivery' };
   const heads = prompt.text.match(/<gugu_delivery\s[^>]*>/g) ?? [];
   if (heads.length > 0 && heads.every((head) => /\sroute="scheduled"/.test(head))) return { kind: 'schedule' };
   const chatIds = [...new Set(heads.flatMap((head) => {

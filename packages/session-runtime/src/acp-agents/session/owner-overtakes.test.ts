@@ -92,6 +92,30 @@ describe('SessionCell: the owner is not queued behind a turn someone else starte
     expect(steeredTexts(agent)).toEqual([]);
   });
 
+  it('typed text (sent verbatim from elsewhere, e.g. a startup delegation) is not the owner: its turn is a delivery, and the owner steers in', async () => {
+    const { cell, agent } = steeringCell();
+    void cell.prompt({ text: 'please review the migration', origin: 'typed' });
+    await Promise.resolve();
+    expect(cell.sessionState.lifecycle).toBe('working');
+    expect(cell.history().active?.trigger).toEqual({ kind: 'delivery' });
+
+    const owner = await cell.queueBehindTurn({ text: 'skip the tests for now', origin: 'manual' });
+
+    expect(owner).toEqual({ success: true, data: { queued: false } });
+    expect(steeredTexts(agent)).toEqual(['skip the tests for now']);
+  });
+
+  it('❌ negative: typed text arriving in the owner\'s turn does not overtake; it is queued', async () => {
+    const { cell, agent } = steeringCell();
+    void cell.prompt({ text: 'do the long task', origin: 'manual' });
+    await Promise.resolve();
+
+    const typed = await cell.queueBehindTurn({ text: 'a verbatim note', origin: 'typed' });
+
+    expect(typed).toEqual({ success: true, data: { queued: true } });
+    expect(steeredTexts(agent)).toEqual([]);
+  });
+
   it('a turn a scheduled run starts is tagged schedule; several deliveries in one turn keep every chat id', async () => {
     const scheduled = steeringCell();
     void scheduled.cell.prompt({ text: '<gugu_delivery route="scheduled" schedule="daily">run it</gugu_delivery>', origin: 'communication' });
