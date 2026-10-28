@@ -232,7 +232,8 @@ export function flattenTier(
    */
   const emitConversationReply = (reply: ChatMessage, sent: readonly ChatMessage[], steps: () => void): void => {
     const head = `${reply.id}:head`;
-    processItem({ ...reply, id: head, conversationPart: 'head' });
+    // 头不带正文:话只在气泡里画一次(找、复制、计数都只见一份)。
+    processItem({ ...reply, id: head, text: '', attachments: undefined, conversationPart: 'head' });
     steps();
     for (const output of [...sent, reply]) {
       processItem({ ...output, conversationProcess: undefined, conversationPart: 'body', conversationHead: head });
