@@ -1,5 +1,9 @@
 import type { ChatMessage } from '@session-chat/model';
 
+/** 对话布局里名字那一行、过程行的高(ConversationMessage 与只有过程的那一行 turn-process 共用,两边一样高才没有空白)。 */
+export const CONVERSATION_HEADER_H = 24;
+export const CONVERSATION_PROCESS_H = 22;
+
 /** 折着的气泡下面那一行「展开全文」的高(UserMessageCard 画、ConversationMessage 量)。 */
 export const CONVERSATION_EXPAND_H = 24;
 
