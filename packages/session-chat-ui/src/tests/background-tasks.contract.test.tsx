@@ -158,6 +158,44 @@ describe('background tasks at the end of the transcript', () => {
   })
 
   // owner 2026-10-27 原型:末尾那条回复带着过程行时,后台那一句与「思考执行中」同一行,单子就地展开在它下面。
+  it('hangs on a live process line that has no reply yet, across the steps under it', async () => {
+    const { state, host } = mount({}, true)
+    state.transcript.activeTurn.set({
+      id: 'live', seq: 0, initiator: 'user', startedAt: Date.now() - 5000,
+      items: [
+        { kind: 'message', id: 'q', seq: 0, role: 'user', text: 'Run four commands.' },
+        { kind: 'tool', id: 't1', seq: 1, name: 'bash', status: 'done' },
+        { kind: 'tool', id: 't2', seq: 2, name: 'bash', status: 'running' },
+      ]
+    } as unknown as TranscriptTurn)
+    state.session.setBackgroundTasks({ commands: [command], subagents: [agent()] })
+    // owner 0 号图:「思考执行中 · … · N 步 ⌄ | 后台 · … ›」同一行,❌ 单独一行排在步骤下面。
+    const pill = () => host.querySelector<HTMLElement>('[data-slot="turn-process"] [data-slot="background-tasks-pill"]')
+    await until('the background pill sits on the live process line', () => pill() !== null)
+    expect(row(host)).toBeNull()
+    const process = host.querySelector<HTMLElement>('[data-slot="turn-process"] [data-conversation-process]')!
+    expect(Math.abs(process.getBoundingClientRect().top - pill()!.getBoundingClientRect().top)).toBeLessThanOrEqual(2)
+    // 真机验收 10-28:没出正文时这一行 14px、左半边比药丸低 4px —— 要跟回复头里那一行同字号、同一条中线。
+    expect(getComputedStyle(process).fontSize).toBe(getComputedStyle(pill()!).fontSize)
+    const middle = (el: HTMLElement) => { const box = el.getBoundingClientRect(); return box.top + box.height / 2 }
+    expect(Math.abs(middle(process) - middle(pill()!))).toBeLessThanOrEqual(1)
+    pill()!.click()
+    await until('the list opens in that row', () => items(host).length === 2)
+    expect(host.querySelector('[data-slot="turn-process"]')!.contains(items(host)[0])).toBe(true)
+    // owner 10-28:过程行和后台各管各的 —— 收起过程,后台单子照样开着、照样能点;开合后台,过程行不动。
+    const line = () => host.querySelector<HTMLElement>('[data-slot="turn-process"]')!
+    const processOpen = line().dataset.expanded
+    host.querySelector<HTMLElement>('[data-slot="turn-process"] [data-conversation-process]')!.click()
+    await until('the process line folds', () => line().dataset.expanded !== processOpen)
+    expect(items(host)).toHaveLength(2)
+    expect(pill()).not.toBeNull()
+    pill()!.click()
+    await until('the list closes on its own toggle', () => items(host).length === 0)
+    expect(line().dataset.expanded).not.toBe(processOpen)
+    pill()!.click()
+    await until('and opens again with the process folded', () => items(host).length === 2)
+  })
+
   it('hangs on the last reply\'s process line in the conversation layout, not as its own row', async () => {
     const { state, host } = mount({}, true)
     const worked: TranscriptTurn = {
@@ -193,12 +231,15 @@ describe('background tasks at the end of the transcript', () => {
     // 气泡是下一行:头那一行长高有个过渡,等它落定。
     await until('the bubble row settles below the open list', () => items(host)[1].getBoundingClientRect().bottom <= bubble.getBoundingClientRect().top)
 
-    // 人接着说话:末尾不再是那条回复 ⇒ 后台单独一行贴在最后。
+    // 人接着说话:新的一轮开跑,它那条「执行中」过程行就是末尾 ⇒ 后台挂到这条新过程行上
+    // (#703:在跑、还没出正文的过程行也挂后台),❌ 留在上一轮的回复上,也 ❌ 单独一行。
     state.transcript.activeTurn.set({
       id: 'w2', seq: 1, initiator: 'user', startedAt: Date.now(),
       items: [{ kind: 'message', id: 'q2', seq: 0, role: 'user', text: 'And lint too.' }]
     } as unknown as TranscriptTurn)
-    await until('the background line moves to its own last row', () => row(host) !== null && pill() === null)
+    const livePill = () => host.querySelector<HTMLElement>('[data-slot="turn-process"] [data-slot="background-tasks-pill"]')
+    await until('the background line moves to the new live process line', () => livePill() !== null && pill() === null)
+    expect(row(host)).toBeNull()
   })
 
   // owner 2026-10-27 拍板补回:悬停子智能体那一行,弹出它的工具时间线(样式照原来摘要卡里那张)。

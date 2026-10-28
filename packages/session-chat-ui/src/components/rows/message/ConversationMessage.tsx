@@ -56,8 +56,8 @@ function singleHeight(item: ChatMessage, ctx: MeasureCtx, vars: MessageVars): nu
   return header + body - actions + (folded ? CONVERSATION_EXPAND_H : 0) + (item.role === 'assistant' && item.conversationProcess ? TIME_H + backgroundHeight(item, ctx) : 0);
 }
 
-/** 后台任务挂在这条回复的过程行上、单子又展开着 ⇒ 多出单子的高(挂在哪由 ChatRoot 算,见 MeasureCtx.background)。 */
-function backgroundHeight(item: ChatMessage, ctx: MeasureCtx): number {
+/** 后台任务挂在这条过程行上、单子又展开着 ⇒ 多出单子的高(挂在哪由 ChatRoot 算,见 MeasureCtx.background)。 */
+export function backgroundHeight(item: { id: string }, ctx: MeasureCtx): number {
   const background = ctx.background;
   if (!background || background.ownerId !== item.id || !background.expanded) return 0;
   return backgroundTasksListHeight(background.commands.length + background.subagents.length);
@@ -83,10 +83,6 @@ function SingleConversationMessage(props: { data: ChatMessage; ctx: RenderCtx; v
     if (isSelfAddress(sender.fromId, self()) && self()?.displayName?.trim()) return self()!.displayName!.trim();
     return shownSender(sender.from, sender.fromId, self()) ?? translate('transcript.deliveryUnknownSender');
   };
-  const background = () => {
-    const attached = props.ctx.measureCtx?.().background;
-    return attached && attached.ownerId === props.data.id ? attached : null;
-  };
   const bodyCtx: RenderCtx = { ...props.ctx, measureCtx: () => conversationContext(props.ctx.measureCtx!()) };
   return <div class={conversationRoot} data-agent-conversation-message={props.data.id} data-side={subject() ? 'left' : 'right'}
     data-conversation-part={props.data.conversationPart}>
@@ -101,24 +97,40 @@ function SingleConversationMessage(props: { data: ChatMessage; ctx: RenderCtx; v
       <>
         <div class={conversationTime} style={{ height: `${TIME_H}px` }}>
           <ConversationProcess process={process()} anchorId={props.data.id} expanded={turnProcessExpanded(process().live, props.ctx.viewState.isCollapsed(process().id))} />
-          <Show when={background()}>{tasks =>
-            <>
-              <span class={conversationTimeSeparator} aria-hidden="true" />
-              <button type="button" class={conversationProcessButton} data-slot="background-tasks-pill"
-                data-collapse-id={BACKGROUND_TASKS_TOGGLE} data-collapse-anchor={props.data.id} aria-expanded={tasks().expanded}>
-                <ShimmerText active>{backgroundTasksLabel(translate, tasks().commands.length, tasks().subagents.length)}</ShimmerText>
-                <span class={conversationProcessChevron} aria-hidden="true">›</span>
-              </button>
-            </>
-          }</Show>
+          <ProcessBackgroundPill ownerId={props.data.id} ctx={props.ctx} />
         </div>
-        <Show when={background()?.expanded}>
-          <BackgroundTasksList commands={background()!.commands} subagents={background()!.subagents} />
-        </Show>
+        <ProcessBackgroundList ownerId={props.data.id} ctx={props.ctx} />
       </>
     }</Show>
     <Show when={props.data.conversationPart !== 'head'}>
       <UserMessageCard data={props.data} ctx={bodyCtx} vars={conversationVars(props.data, props.vars)} conversation />
     </Show>
   </div>;
+}
+
+function attachedBackground(ownerId: string, ctx: RenderCtx) {
+  const attached = ctx.measureCtx?.().background;
+  return attached && attached.ownerId === ownerId ? attached : null;
+}
+
+/** 还在跑的后台任务与过程行同一行(owner 2026-10-27 原型):回复的头、只有过程的那一行(turn-process)都用这一颗。 */
+export function ProcessBackgroundPill(props: { ownerId: string; ctx: RenderCtx }) {
+  const translate = useChatTranslator();
+  return <Show when={attachedBackground(props.ownerId, props.ctx)}>{tasks =>
+    <>
+      <span class={conversationTimeSeparator} aria-hidden="true" />
+      <button type="button" class={conversationProcessButton} data-slot="background-tasks-pill"
+        data-collapse-id={BACKGROUND_TASKS_TOGGLE} data-collapse-anchor={props.ownerId} aria-expanded={tasks().expanded}>
+        <ShimmerText active>{backgroundTasksLabel(translate, tasks().commands.length, tasks().subagents.length)}</ShimmerText>
+        <span class={conversationProcessChevron} aria-hidden="true">›</span>
+      </button>
+    </>
+  }</Show>;
+}
+
+/** 单子就地展开在过程行下面(高度见 `backgroundHeight`)。 */
+export function ProcessBackgroundList(props: { ownerId: string; ctx: RenderCtx }) {
+  return <Show when={attachedBackground(props.ownerId, props.ctx)?.expanded ? attachedBackground(props.ownerId, props.ctx) : null}>{tasks =>
+    <BackgroundTasksList commands={tasks().commands} subagents={tasks().subagents} />
+  }</Show>;
 }

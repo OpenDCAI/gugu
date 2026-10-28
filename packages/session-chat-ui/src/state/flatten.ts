@@ -290,7 +290,8 @@ export function flattenTier(
           return status === 'running' || (row.kind === 'thinking' && status === 'thinking');
         });
       // 跑着时这一句只说做了多少;此刻在跑哪条命令 / 在想,接在后面(`toolRunNow`),跑完自然恢复原样。
-      const now = live ? toolRunNow(op.rows) : null;
+      // 对话布局不接:owner 0 号图跑着的步骤组只说「跑了 5 条命令」,❌「正在跑 cd … && export PATH=…」原始命令(10-28)。
+      const now = live && !ctx.agentConversation ? toolRunNow(op.rows) : null;
       processItem({
         kind: 'tool-run',
         id: runId,
@@ -428,8 +429,14 @@ export function flattenTier(
         emitOps(planRows(outsideProcess(items.slice(0, pending.at))), turn.id);
         const pendingReply = ctx.agentConversation
           ? conversationProcessReply({ ...pending.header, startedAt: turn.startedAt }, items.slice(pending.at)) : null;
+        // 对话布局:跑着默认摊开(owner 0 号图「思考执行中 · 9m16s · 39 步 ⌄」),点了收起就真收起 ——
+        // 还没出正文的这一轮以前不看开关,收起了步骤照样摊在下面。
+        const pendingExpanded = !ctx.agentConversation || ctx.revealAllFolds || turnProcessExpanded(true, ctx.isTurnProcessExpanded?.(pending.header.id) ?? false);
+        const pendingFolds = ctx.agentConversation ? [{ id: pending.header.id, stored: false }] : undefined;
         if (pendingReply) {
-          emitConversationReply(pendingReply, [], () => emitOps(planRows(outsideProcess(items.slice(pending.at + 1))), turn.id));
+          emitConversationReply(pendingReply, [], () => {
+            if (pendingExpanded) emitOps(planRows(outsideProcess(items.slice(pending.at + 1))), turn.id, pendingFolds);
+          });
         } else {
           processItem({
             kind: 'turn-process',
@@ -440,7 +447,7 @@ export function flattenTier(
             ...(ctx.agentConversation && items.slice(pending.at).some(item => !isSubagentChild(item))
               ? { steps: items.slice(pending.at).filter(item => !isSubagentChild(item)).length } : {}),
           });
-          emitOps(planRows(outsideProcess(items.slice(pending.at))), turn.id);
+          if (pendingExpanded) emitOps(planRows(outsideProcess(items.slice(pending.at))), turn.id, pendingFolds);
         }
       } else {
         emitOps(planRows(outsideProcess(items)), turn.id);
