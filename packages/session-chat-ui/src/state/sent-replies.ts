@@ -16,7 +16,8 @@ export function withSentReplies(turn: TranscriptTurn, options: { allDestinations
     const id = sentMessageId(item);
     if (!send || !id || !send.text.trim() || texts.has(send.text.trim()) || seen.has(id)) continue;
     seen.add(id);
-    const reply = { kind: 'message' as const, id: `${item.id}:sent:${id}`, seq: item.seq, role: 'assistant' as const, text: send.text };
+    const replyTo = 'replyTo' in send ? send.replyTo : undefined;
+    const reply = { kind: 'message' as const, id: `${item.id}:sent:${id}`, seq: item.seq, role: 'assistant' as const, text: send.text, ...(replyTo ? { sentReplyTo: replyTo } : {}) };
     replies.push(reply);
     if (options.allDestinations) {
       const container = turn.items.find(parent => parent.id === item.id || (parent.kind === 'tool-group' && replyItems({ ...turn, items: [parent] }).some(child => child.id === item.id)));

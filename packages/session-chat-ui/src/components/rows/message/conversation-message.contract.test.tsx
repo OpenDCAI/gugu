@@ -216,4 +216,19 @@ describe('agent-centered conversation bubbles', () => {
     } finally { view.dispose(); }
   });
 
+  it('puts a measured 「群名 · 发送者 · 短摘要」 line above a message_send bubble only when it passed reply_to_message_id', async () => {
+    const quote = { itemId: 'src', text: '这是被引用的那条消息，很长很长很长很长很长很长很长很长', from: '小王' };
+    const quoted = await mount({ kind: 'message', id: 'call:sent:a', role: 'assistant', text: '答你', at: Date.now(), conversationPart: 'body', sentReplyTo: 'src', conversationReply: quote });
+    const plain = await mount({ kind: 'message', id: 'call:sent:b', role: 'assistant', text: '答你', at: Date.now(), conversationPart: 'body', conversationReply: quote });
+    try {
+      const line = quoted.host.querySelector<HTMLElement>('[data-slot="conversation-quote"]')!;
+      expect(line.textContent).toContain('小王 ·');
+      expect(line.textContent).toContain('…');
+      const row = quoted.host.querySelector<HTMLElement>('[data-agent-conversation-message]')!;
+      expect(Math.abs(row.getBoundingClientRect().height - messageUnitDef.measure(quoted.item, quoted.ctx, messageUnitDef.vars!))).toBeLessThanOrEqual(1);
+      expect(line.getBoundingClientRect().bottom).toBeLessThanOrEqual(row.querySelector<HTMLElement>('[data-user-card]')!.getBoundingClientRect().top + 1);
+      // 没传 reply_to_message_id ⇒ 不画(❌ 猜)。
+      expect(plain.host.querySelector('[data-slot="conversation-quote"]')).toBeNull();
+    } finally { quoted.dispose(); plain.dispose(); }
+  });
 });
