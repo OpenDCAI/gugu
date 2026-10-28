@@ -4,6 +4,7 @@
 // 设计 SSOT: design/agent-running-group-1687.html（.bar/.tok/.state/.pop/.more/.ov/.otok/.opop）。
 import { useEffect, useId, useLayoutEffect, useRef, useState, type ReactNode } from 'react'
 import { useTranslation } from 'react-i18next'
+import { TextShimmer } from '@gugu/session-ui/react/text-shimmer'
 import type { MouseEvent } from 'react'
 import { Avatar } from './Avatar'
 import { useLongPress } from '../hooks/useLongPress'
@@ -46,7 +47,10 @@ const STYLE = `
 .rtb-pill{height:auto;gap:7px;padding:4px 8px;max-width:168px;min-width:0;background:var(--bg-elevated);box-shadow:var(--shadow-lift);color:inherit;font-weight:inherit}
 .rtb-tok:focus-visible,.rtb-more:focus-visible,.rtb-otok:focus-visible{outline:none}
 .rtb-nm{color:var(--faint-fg);min-width:0;overflow:hidden;text-overflow:ellipsis}
-.rtb-state{flex-shrink:0;background:linear-gradient(100deg,var(--faint-fg) 36%,var(--text-primary) 50%,var(--faint-fg) 64%);background-size:220% 100%;-webkit-background-clip:text;background-clip:text;color:transparent;animation:running-shimmer 2s linear infinite;font-weight:500}
+/* Three static 220%-wide repeats cover the original 160% → -60% sweep.
+   Masks move 264% of the label width; glyphs move back by the same distance. */
+.rtb-state{flex-shrink:0;font-weight:500;--text-shimmer-base:var(--faint-fg);--text-shimmer-light:var(--text-primary);--text-shimmer-base-mask:linear-gradient(100deg,white 36%,transparent 50%,white 64%);--text-shimmer-light-mask:linear-gradient(100deg,transparent 36%,white 50%,transparent 64%);--text-shimmer-left:-412%;--text-shimmer-width:660%;--text-shimmer-mask-size:calc(100% / 3) 100%;--text-shimmer-ink-width:calc(100% / 6.6);--text-shimmer-ink-left:calc(412% / 6.6);--text-shimmer-sweep-end:40%;--text-shimmer-ink-end:-264%;--text-shimmer-idle-sweep:calc(192% / 6.6);--text-shimmer-idle-ink:-192%;--text-shimmer-duration:2s;--text-shimmer-easing:linear;--text-shimmer-iterations:infinite}
+@media(prefers-reduced-motion:reduce){.rtb-state{background:linear-gradient(100deg,var(--faint-fg) 36%,var(--text-primary) 50%,var(--faint-fg) 64%);background-size:220% 100%;-webkit-background-clip:text;background-clip:text;color:transparent;-webkit-text-fill-color:transparent}}
 /* @@@float-one-edge (Refs #6104) — 浮条去掉 1px 描边:浮层只留 lift 那一层。 */
 .rtb-mp{outline:none}
 .rtb-more{color:var(--text-tertiary);flex-shrink:0;border:0;padding:0;background:transparent;font:inherit;cursor:pointer}
@@ -127,9 +131,9 @@ function RunningTokenItem({
       <Chip appearance="filled" className="rtb-pill" data-chat-dock-obstacle="">
         <Avatar name={displayName} avatarUrl={token.avatarUrl} seed={token.avatarSeed} size={overflow ? 16 : 'xs'} isAgent statusLabel="running" />
         <span className="rtb-nm">{displayName}</span>
-        <span className={overflow ? 'rtb-v' : 'rtb-state'} style={overflow ? undefined : { animationDelay: `${index * 0.5}s` }}>
-          {stateWord}
-        </span>
+        {overflow ? <span className="rtb-v">{stateWord}</span> : (
+          <TextShimmer className="rtb-state" style={{ animationDelay: `${index * 0.5}s` }}>{stateWord}</TextShimmer>
+        )}
       </Chip>
     </Popover.Trigger>
   )

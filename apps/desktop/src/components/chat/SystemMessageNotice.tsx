@@ -3,7 +3,7 @@ import { useTranslation } from 'react-i18next'
 import { agentFailureNeedsModelChoice, type AgentFailureReason } from '@gugu/core/shared/agentQuotaReason'
 import { parseSystemNotice } from '@gugu/core/shared/ui/systemNotice'
 import type { MessageItem } from '@gugu/core/shared/types/chat'
-import { AlertTriangle, Clock } from '@/lib/icons'
+import { AlertTriangle } from '@/lib/icons'
 import { useContactsStore } from '@/store/contactsContext'
 import { AgentSettingsModal } from '../agentsettings/AgentSettingsModal'
 import { Button } from '../ui/Button'
@@ -15,7 +15,6 @@ type NoticeMessage = Pick<MessageItem, 'id' | 'content' | 'content_type' | 'send
 export function SystemMessageNotice({ message, senderName, onOpenTopic }: { message: NoticeMessage; senderName?: string; onOpenTopic?: (topicChatId: string) => void }) {
   const notice = parseSystemNotice(message)
   const reason = notice?.kind === 'turn-failure' ? notice.reason : null
-  if (reason === 'notAdmitted') return <PendingDeliveryNotice />
   // 额度/模型类失败由运行条那一排的 agent 状态位说（#7685），❌ 在消息流里再叠一行。
   if (reason && agentFailureNeedsModelChoice(reason)) return null
   if (reason) return <AgentReplyFailureNotice reason={reason} agentUserId={message.sender_user_id} senderName={senderName} />
@@ -27,14 +26,6 @@ export function SystemMessageNotice({ message, senderName, onOpenTopic }: { mess
     return <div className="system-message-notice"><span>{message.content!.slice(0, end)}<InlineAction testId="topic-opened-link" onClick={() => onOpenTopic(notice.topicChatId)}>{message.content!.slice(end)}</InlineAction></span></div>
   }
   return <div className="system-message-notice"><span>{message.content}</span></div>
-}
-
-function PendingDeliveryNotice() {
-  const { t } = useTranslation('messaging')
-  return <div className="agent-reply-system-notice" role="status" aria-live="polite" data-pending-delivery="">
-    <Clock size={16} className="shrink-0" aria-hidden />
-    <span>{t('agent.turnFailure.notAdmitted')}</span>
-  </div>
 }
 
 function AgentReplyFailureNotice({ reason, agentUserId, senderName }: { reason: AgentFailureReason; agentUserId: string | null; senderName?: string }) {

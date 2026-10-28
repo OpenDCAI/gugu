@@ -825,6 +825,33 @@ export default {
       "screenshotType": "Only image files are supported"
     }
   },
+  "fileStorage": {
+    "title": "File storage",
+    "entryHint": "How project groups on your machines keep images and other files, and for how long; next to ordinary groups.",
+    "intro": "Project groups and ordinary groups store and read files differently. Project groups follow your settings here; ordinary groups work as described below.",
+    "projectTitle": "Project groups",
+    "machines": "Applies to project groups on your machines: {{machines}}. A project group on someone else's machine follows that machine owner's settings.",
+    "images": "Images",
+    "imagesHint": "Uploaded when sent; the cloud copy is deleted when it expires. A change applies to images sent afterwards.",
+    "files": "Other files",
+    "filesMachine": "Keep on the machine, upload when opened",
+    "filesCloud": "Upload everything to the cloud",
+    "filesMachineHint": "Files stay on the machine; a temporary copy is uploaded only when someone opens one.",
+    "filesCloudHint": "Uploaded when sent and kept, like in ordinary groups.",
+    "imagesCloudHint": "Uploaded when sent and kept with the other files; they no longer expire.",
+    "temporaryRetention": "Keep temporary copies",
+    "ordinaryTitle": "Ordinary groups",
+    "ordinary": "Files and images are uploaded when sent and kept. Very large files nobody has downloaded for a long time expire under the deployment's settings. Nothing to adjust here.",
+    "noMachine": "You have no machine bound to a project yet, so only the ordinary group rules apply to you.",
+    "loading": "Loading…",
+    "retry": "Retry",
+    "retentions": {
+      "read-once": "Delete after reading",
+      "1d": "1 day",
+      "7d": "7 days",
+      "30d": "30 days"
+    }
+  },
   "giftCode": {
     "alreadyRedeemed": "This code has already been redeemed.",
     "codeExpired": "This code expired on {{date}}.",

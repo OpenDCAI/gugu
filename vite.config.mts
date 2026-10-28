@@ -145,6 +145,10 @@ const sessionMainVite: ElectronOptions['vite'] = {
     __GUGU_TIER__: JSON.stringify(guguTier),
     __GUGU_BUILD_DISTRIBUTION__: JSON.stringify(guguBuildDistribution),
   },
+  // 与渲染层同一条(@@@renderer-ascii-output,#6484):V8 把每个模块的源码常驻堆里,一个非 Latin-1 字符
+  // 就让整份按双字节存。主进程与几个 helper 各自常驻一份(10-27 Linux 2 实测主进程堆 125 MB 里源码串 38.6 MB)。
+  // 不压缩,只去掉注释、非 ASCII 转义;esbuild 不经手的依赖代码由 rendererAsciiOutput() 收尾。
+  esbuild: { charset: 'ascii', legalComments: 'none' },
   build: {
     // ❌ 不压缩主进程图。并图前这张图由 esbuild 单独打、从不压缩;并图后 vite lib 构建默认用 esbuild 压缩,
     // 而 esbuild 压缩会把 xterm(TUI 屏幕解析)里 TypeScript 枚举 `var V;(fn)(V||(V={}))` 的声明丢掉、
@@ -267,6 +271,7 @@ const sessionMainVite: ElectronOptions['vite'] = {
         })
       },
     },
+    rendererAsciiOutput(),
   ],
 }
 

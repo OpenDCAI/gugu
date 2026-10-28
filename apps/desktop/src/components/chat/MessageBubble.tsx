@@ -445,7 +445,7 @@ export const MessageBubble = memo(function MessageBubble({
               showReadReceipt：每条本人消息各自挂环（#2098 owner 要逐条，撤 #1779 只挂末条的降噪）。
               read=0 的空环 = 「已发出、还没人读」(#5649 owner 拍板四态:发送中/已发出/已读/失败;发送中已改成虚线流动环,与空环可区分)。
               任务卡不挂环:它是交给一个 agent 的事件(gugu-dev#181),接没接、做到哪看卡行尾的状态,❌ 再问谁读了。 */}
-          {showReadReceipt && own && !card && !msg.retracted_at && sendState !== 'sending' && sendState !== 'failed' && readReceiptTotal != null && readReceiptTotal > 0 && readReceiptRead != null && (
+          {showReadReceipt && own && !card && !msg.retracted_at && sendState !== 'sending' && sendState !== 'queued' && sendState !== 'failed' && readReceiptTotal != null && readReceiptTotal > 0 && readReceiptRead != null && (
             <button
               type="button"
               data-testid="message-read-receipt"

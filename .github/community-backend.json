@@ -1,5 +1,5 @@
 {
   "repository": "OpenDCAI/gugu-supabase",
-  "ref": "10d8d29f73979ff40712a186b53c2539b679af85",
-  "status": "Explicit App-owned workspace data with metadata on file reads and preserved API ACLs, merged in OpenDCAI/gugu-supabase#58."
+  "ref": "153a0f48ef25ec1e162e90fc35b0a77049bb486b",
+  "status": "Device revisions tagged with what changed (row / projects), readable wake rows, per-owner project file storage policy, and document import with dry run, merged in OpenDCAI/gugu-supabase#63, #64, #65 and #66."
 }

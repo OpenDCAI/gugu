@@ -1,5 +1,7 @@
 import { EventEmitter } from 'node:events';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+vi.mock('../asks', () => import('../../../../../../../tests/support/ask-service'));
+vi.mock('../asks/ask', () => import('../../../../../../../tests/support/ask-service'));
 
 const emitted = vi.hoisted(() => [] as Array<{ browserId: string; state?: string; kind?: string; moveId?: number; x?: number; y?: number; target?: unknown }>);
 const registry = vi.hoisted(() => ({

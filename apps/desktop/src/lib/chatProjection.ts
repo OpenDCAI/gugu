@@ -12,7 +12,7 @@
 // 那就是第二个属主在原地 —— #3271 的病只治了增量那一半。
 
 import type { ChatItem, ChatUnreadLocator, GroupMemberRole, NotificationLevel } from '@gugu/core/shared/types/chat'
-import { turnFailureReason } from '@gugu/core/shared/ui/systemNotice'
+import { isPendingDelivery, turnFailureReason } from '@gugu/core/shared/ui/systemNotice'
 import {
   assemble,
   assertRevision,
@@ -235,7 +235,8 @@ export function createChatProjection(viewerId: string): ChatProjection {
       const found = (data ?? []) as Array<Record<string, unknown> & { chat_id: string } & Parameters<typeof turnFailureReason>[0]>
       const byChat = new Map<string, unknown>()
       for (const row of found) {
-        if (byChat.has(row.chat_id)) continue
+        // 还在等 agent 接走的那种行不画(气泡上说),也不当预览;与 sync_snapshot 的 chat.is_pending_delivery 同一判据。
+        if (byChat.has(row.chat_id) || isPendingDelivery(row)) continue
         byChat.set(row.chat_id, {
           chat_id: row.chat_id,
           created_at: String(row.created_at),

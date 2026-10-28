@@ -27,6 +27,8 @@ import { PaneHeader } from '../ui/Pane'
 import { useBackLayer } from '../ui/sheetStack'
 import { RightPanelBackButton } from '../chat/RightPanel'
 import { platform } from '../../platform'
+import { FileHostMark } from './FileHostMark'
+import { openFileStorageSettings, useFileHost } from '../../lib/fileHost'
 import { AppErrorDetails, AppErrorMark } from './AppErrorMark'
 import { appsHere } from './appsHere'
 import { MessageFilePreview } from '../chat/MessageFilePreview'
@@ -337,6 +339,7 @@ export const GroupTabContent = observer(function GroupTabContent({ chatId, tabId
   const heading = extensionTabTitle(shown, isFolderItem(item) ? folderName : kind ? installedExtensionsStore.tabTitle(kind) ?? item.title : item.title, item.itemId ? { name: item.title, path: item.fileName ?? item.title } : undefined)
   const badge = shown.badge
   const hasBadge = badge !== null && badge !== ''
+  const fileHost = useFileHost(item.itemId && !isFolderItem(item) ? item.itemId : null)
   const appError = shown.error
   const backButton = backIsPanel ? (
     <IconButton size={mobile ? 'lg' : 'sm'} data-testid="group-app-slot-back" onClick={close} aria-label={t('chatArea.openWith.back')}>
@@ -351,7 +354,7 @@ export const GroupTabContent = observer(function GroupTabContent({ chatId, tabId
           {command.title}
         </Button>
       ))}
-      {folded.length > 0 ? (
+      {folded.length > 0 || fileHost ? (
         <DropdownMenu.Root>
           <DropdownMenu.Trigger className="gg-ghost" data-testid="group-app-slot-more" aria-label={t('chatArea.openWith.more')}>
             <MoreHorizontal size={16} />
@@ -362,6 +365,7 @@ export const GroupTabContent = observer(function GroupTabContent({ chatId, tabId
                 {command.title}
               </DropdownMenu.Item>
             ))}
+            {fileHost ? <DropdownMenu.Item className={menuRowClassName} onClick={openFileStorageSettings}>{t('fileStoredOn.settings')}</DropdownMenu.Item> : null}
           </DropdownMenu.Content>
         </DropdownMenu.Root>
       ) : null}
@@ -369,6 +373,7 @@ export const GroupTabContent = observer(function GroupTabContent({ chatId, tabId
   )
   const marks = (
     <>
+      {fileHost ? <FileHostMark host={fileHost} /> : null}
       {hasBadge ? <Chip data-testid="group-app-slot-badge">{badge}</Chip> : null}
       {appError ? <AppErrorMark error={appError} onToggle={() => setErrorShown((open) => !open)} testId="group-app-slot-error" /> : null}
     </>

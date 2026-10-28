@@ -1,7 +1,7 @@
 import { beforeEach, expect, it, vi } from 'vitest'
-import type { HostAnswer } from '../../../apps/desktop/electron/session/main/core/session-timeline/service'
+import type { AskAnswer } from '../../../apps/desktop/electron/session/main/core/asks'
 const mocks = vi.hoisted(() => ({ ask: vi.fn(), send: vi.fn(), error: vi.fn() }))
-vi.mock('../../../apps/desktop/electron/session/main/core/session-timeline/service', () => ({ askHost: mocks.ask }))
+vi.mock('../../../apps/desktop/electron/session/main/core/asks', () => ({ ask: mocks.ask }))
 vi.mock('../../../apps/desktop/electron/session/main/core/sessions/sendMessage', () => ({ sendMessage: mocks.send }))
 vi.mock('@main/lib/logger', () => ({ log: { error: mocks.error } }))
 import { postAgentQuestion } from '../../../apps/desktop/electron/session/main/core/sessions/agent-question'
@@ -10,7 +10,7 @@ import { readQuestionAnswerDelivery } from '../../../packages/session-core/src/s
 const input = { sessionId: 'assistant', projectId: 'home', sourceLink: 'gugu-chat://22222222-2222-4222-8222-222222222222/33333333-3333-4333-8333-333333333333', questions: [
   { question: 'Which Node?', options: [{ label: 'PATH' }, { label: 'Repository' }] },
 ] }
-let answer: (value: HostAnswer | 'withdrawn' | 'unavailable') => void
+let answer: (value: AskAnswer | 'withdrawn' | 'unavailable') => void
 beforeEach(() => {
   vi.clearAllMocks()
   mocks.ask.mockImplementation(() => new Promise((resolve) => { answer = resolve }))
@@ -32,7 +32,7 @@ it('returns pending without holding the model turn, then delivers only the expli
   expect(sent.text).toContain('"selected":["PATH"]')
   expect(sent.text).toContain(input.sourceLink)
   expect(sent.text).toContain('"reply_to_message_id":"33333333-3333-4333-8333-333333333333"')
-  expect(mocks.ask.mock.calls[0][1].host.payload).toMatchObject({ answerMessageId: sent.clientMessageId, deliveryVersion: 1 })
+  expect(mocks.ask.mock.calls[0][1].origin.payload).toMatchObject({ answerMessageId: sent.clientMessageId, deliveryVersion: 1 })
   // The session's transcript reads this very text back as the owner's answer, one line, not the block (gugu-dev#181).
   expect(readQuestionAnswerDelivery(sent.text)).toEqual({ answer: 'PATH' })
   expect(mocks.error).not.toHaveBeenCalled()

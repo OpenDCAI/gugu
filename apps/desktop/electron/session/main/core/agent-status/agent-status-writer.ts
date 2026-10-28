@@ -379,7 +379,7 @@ class AgentStatusWriter implements IInitializable, IDisposable, Hookable<AgentSt
    * answered or withdrawn (the agent starting work again does not answer it). The same edge for a chat-UI session and a
    * terminal one: its yellow dot, the phone's 「等你批准」 / 「等你回答」.
    */
-  reportHostWait(params: StatusWriteParams & { id: string; open: boolean; waitKind?: 'approval' | 'question' }): void {
+  reportHostWait(params: StatusWriteParams & { id: string; open: boolean; waitKind?: 'approval' | 'question' | 'dialog' }): void {
     const event: AgentStatusEvent = params.open
       ? { kind: 'WaitStarted', sessionId: params.sessionId, id: params.id, waitKind: params.waitKind ?? 'approval', scope: 'host' }
       : { kind: 'WaitEnded', sessionId: params.sessionId, id: params.id };

@@ -551,6 +551,7 @@ describe('codex rollout 记录源', () => {
       const { timeline, settlement } = await open([asked], true);
       expect(settlement()).toMatchObject({
         kind: 'question',
+        origin: { source: 'harness-question' },
         state: 'pending',
         questions: [{
           question: 'Which color do you prefer?',

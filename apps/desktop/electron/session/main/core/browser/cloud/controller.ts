@@ -17,7 +17,6 @@ const NONE: CloudBrowserStatus = {
   completed: false,
   controlled: false,
   lastActivityAt: null,
-  assistance: null,
   live: null,
 };
 

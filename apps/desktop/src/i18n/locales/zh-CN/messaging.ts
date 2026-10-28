@@ -100,6 +100,7 @@ export default {
     "unlike": "取消点赞",
     "unpin": "取消置顶"
   },
+  "fileStoredOn": {"machineOf": "{{owner}} 的机器", "mine": "保存在 {{machine}} 上，有人打开时才上传。按你的文件存储设置。", "other": "保存在 {{owner}} 的机器上，有人打开时才上传。按 {{owner}} 的文件存储设置。", "settings": "文件存储设置"},
   "chatArea": {
     "agentLocation": {
       "cloud": "咕咕云",
@@ -543,15 +544,6 @@ export default {
     "renameHintTopic": "编辑话题名",
     "renamePlaceholderTopic": "话题名称",
     "settings": {
-      "filePolicyLoadFailed": "无法读取项目文件策略。",
-      "fileCloudUpload": "文件上传到云端",
-      "fileCloudUploadHint": "默认关闭。文件保留在主家设备，临时中转单独设置。",
-      "fileAdvanced": "文件扩展配置",
-      "fileLocalSsh": "优先从本机读取，其次使用本人已有的 SSH 连接。远端文件只读。",
-      "fileTemporary": "允许云端临时中转",
-      "fileStrictHint": "严格不上传：同时关闭云端存储和临时中转。远端读取仅能通过可用的本机或本人 SSH 连接。",
-      "fileRetention": "临时副本保留时长",
-      "fileRetentions": {"read-once": "读完即删", "1d": "1 天", "7d": "7 天", "30d": "30 天"},
       "notLoaded": "群设置还没加载完，请稍后再试",
       "manage": "群管理",
       "saveFailed": "保存失败，已恢复为原来的设置。请重试。",
@@ -736,6 +728,7 @@ export default {
       "failed": "未送达",
       "failedActions": "未送达消息操作",
       "failedHint": "未送达，点击重试或丢弃",
+      "queued": "发送中，助理就绪后回复",
       "sending": "发送中"
     },
     "showQuoted": "跳到被引用的消息",

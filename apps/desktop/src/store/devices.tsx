@@ -11,6 +11,8 @@ import { useChatStore } from './chatContext'
 import { DevicesContext } from './devicesContext'
 import { publishDirectoryDevices } from '@/session/shared/remote-sessions/session-directory'
 import type { Device } from '@gugu/core/shared/types/chat'
+import { readDeviceRevision } from '../lib/accountRevisionCoordinator'
+import type { AccountRevisionOperation } from '../lib/accountRevisionRuntime'
 import { cachedDevicesAccount, deviceCacheAction, readCachedDevices, writeCachedDevices } from './devicesCache'
 import { withDeviceProjects } from '@gugu/core/cloud/deviceProjects'
 import { listMyDeviceProjects } from '../lib/deviceProjects'
@@ -130,14 +132,49 @@ export function DevicesProvider({ children, active = true }: { children: React.R
   }, [userId])
 
   // gugu_devices 任何增删改都落账号 revision journal。初始拉取 + durable cursor 覆盖订阅建立前与离线期间的变更。
+  // 每条带着是哪一台、是那一行还是它的项目:只读变了的那一样(心跳每 30 秒一条,从前每条都把整个账号的设备和项目重读一遍)。
   // 云电脑睡下 / 醒来,它那一行的在线与否就会翻 ⇒ 顺带再问一次管家(❌ 让它拖住设备列表的游标)。
+  const applyDeviceRevisions = useCallback(async (operations: readonly AccountRevisionOperation[]) => {
+    if (!userId) return
+    const changed = new Set<string>()
+    const removed = new Set<string>()
+    const projectsOf = new Set<string>()
+    for (const operation of operations) {
+      const key = readDeviceRevision(operation.payload)
+      if (key.removed) removed.add(key.deviceId)
+      else {
+        if (key.row) changed.add(key.deviceId)
+        if (key.projects) projectsOf.add(key.deviceId)
+      }
+    }
+    let listed: Device[]
+    let projects: Awaited<ReturnType<typeof listMyDeviceProjects>> | null
+    try {
+      [listed, projects] = await Promise.all([
+        changed.size > 0 ? chatService.listDevices({ includePhones: true, deviceIds: [...changed] }) : Promise.resolve([]),
+        projectsOf.size > 0 ? listMyDeviceProjects([...projectsOf]) : Promise.resolve(null),
+      ])
+    } catch (err) {
+      // 与整读同一条:本机还没认出自己时不算失败,认出那一刻会整读一次(上面)。
+      if (isLocalDeviceUnidentified(err)) return
+      if (!isLifecycleCancellation(err)) devicesLog.error({ err: String((err as Error)?.message ?? err) }, 'read changed devices failed')
+      throw err
+    }
+    // 那几台此刻的样子(没读回来的 = 已经不在了);其余各台原样,项目没变就沿用。
+    const fresh = listed.filter((row) => changed.has(row.device_id))
+    const kept = devicesRef.current.filter((row) => !changed.has(row.device_id) && !removed.has(row.device_id))
+    const rows = withDeviceProjects([...kept, ...fresh], projects, devicesRef.current, projectsOf)
+    setDevices(sortDevices(rows))
+    writeCachedDevices(userId, rows)
+    if (removed.size > 0) void desktopIpc()?.invoke(SERVER_SSH_MACHINES_CHANNELS.reconcile, { owner: userId, present: rows.map((row) => row.device_id) }).catch(() => undefined)
+  }, [userId])
   useEffect(() => {
     if (!userId) return
-    return subscribeAccountRevision('device_changed', () => {
+    return subscribeAccountRevision('device_changed', (operations) => {
       void refreshCloudComputer().catch(() => undefined)
-      return refresh({ throwOnError: true })
+      return applyDeviceRevisions(operations)
     })
-  }, [userId, refresh, subscribeAccountRevision])
+  }, [userId, applyDeviceRevisions, subscribeAccountRevision])
 
   // 切回窗口时再问一次(别的端开通 / 关掉了,或它在后台睡下了)。
   useEffect(() => {

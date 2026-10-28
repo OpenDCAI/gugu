@@ -1,3 +1,5 @@
+import { existsSync } from 'node:fs';
+import { join } from 'node:path';
 import type { IExecutionContext } from '@gugu/session-core/exec';
 import { log } from '@main/lib/logger';
 import { quoteShellArg } from '@main/utils/shellEscape';
@@ -147,6 +149,13 @@ export function decodeTmuxSessionName(sessionName: string): string | null {
   }
 }
 
+/** `tmux -L <label>` 在本机的服务器套接字(tmux 的默认位置 `${TMUX_TMPDIR:-/tmp}/tmux-<uid>/<label>`);Windows(psmux)与远端不适用 = null。 */
+function localTmuxSocketPath(ctx: Pick<IExecutionContext, 'supportsLocalSpawn'>): string | null {
+  const label = ctx.supportsLocalSpawn ? getConfiguredTmuxSocketLabel() : undefined;
+  if (!label || process.platform === 'win32' || typeof process.getuid !== 'function') return null;
+  return join(process.env.TMUX_TMPDIR || '/tmp', `tmux-${process.getuid()}`, label);
+}
+
 /**
  * 咕咕的 tmux 服务器里此刻有哪些会话(tmux 会话名)。tmux 这一侧「活没活」只认这一个读数:
  * 接回还是新起、pty 退出后进程还在不在、宿主退出时票的去留,都问它。
@@ -157,6 +166,10 @@ export function decodeTmuxSessionName(sessionName: string): string | null {
 export async function listTmuxSessionNames(
   ctx: Pick<IExecutionContext, 'supportsLocalSpawn' | 'exec'>
 ): Promise<Set<string>> {
+  // 本机咕咕的服务器套接字还不存在 = tmux 也只会答「error connecting … (No such file or directory)」(下面认作空集)。
+  // 空闲时没有任何会话起过 tmux,idle-reclaim 每分钟一次都落在这里:❌ 为一个已知答案从主进程 fork 一次 tmux。
+  const socket = localTmuxSocketPath(ctx);
+  if (socket && !existsSync(socket)) return new Set();
   const { command, args } = tmuxExecArgs(ctx, ['list-sessions', '-F', '#{session_name}']);
   let stdout: string;
   try {

@@ -19,18 +19,16 @@ export function MessageListSkeleton({delayMs=0,overlay=false}:{delayMs?:number;o
   },[delayMs])
   if(!ready)return null
   return (
-    <div style={{ ...(overlay?{position:'absolute' as const,inset:0,pointerEvents:'none' as const}:{}),flex: 1, padding: '8px 16px', display: 'flex', flexDirection: 'column', gap: '12px', overflow: 'hidden' }}>
+    <div className="gg-message-skeleton" style={overlay?{position:'absolute',inset:0,pointerEvents:'none'}:undefined}>
       {SKELETON_ROWS.map((row, i) => (
         <div key={i} style={{ display: 'flex', justifyContent: row.side === 'me' ? 'flex-end' : 'flex-start' }}>
           <div
             data-skeleton-bubble
+            className="gg-message-skeleton-bubble"
             style={{
               width: row.width,
               height: 28 + (i % 3) * 4,
               borderRadius: 'var(--radius-surface)',
-              background: 'linear-gradient(90deg, var(--bg-elevated) 0%, var(--bg-secondary) 50%, var(--bg-elevated) 100%)',
-              backgroundSize: '200% 100%',
-              animation: 'skeleton-shimmer 1.4s ease-in-out infinite',
             }}
           />
         </div>

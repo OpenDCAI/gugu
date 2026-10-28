@@ -32,7 +32,7 @@ beforeEach(() => {
   vi.clearAllMocks()
   installShellSlots()
   state.tasks = [{ deviceId: 'server', machine: 'Remote host', local: false, session: { conversationId: 'task', title: 'Install Reader', projectId: 'project', runtime: 'pty', supported: true } }]
-  state.settlements = { install: { itemId: 'install', kind: 'permission', title: 'Review Reader', state: 'pending', host: { kind: 'app-install', payload: { request: {} } } } }
+  state.settlements = { install: { itemId: 'install', kind: 'permission', title: 'Review Reader', state: 'pending', origin: { source: 'app-install', payload: { request: {} } } } }
   state.link = 'ok'
   state.mobile = false
   state.pages = []

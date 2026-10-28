@@ -13,7 +13,7 @@ import { z } from 'zod'
 import { tokenizeMarkdownMath } from '../../../../packages/core/src/shared/markdownMath.mjs'
 import { findRosterNameHits } from '../../../../packages/core/src/shared/rosterNameMatching.mjs'
 import { findMentionSpans } from '../../../../packages/core/src/shared/mentionToken.mjs'
-import { EXTENSION_ARCHIVE_MIME, resolveAttachmentMimeType } from '../../../../packages/core/src/shared/imageMime.mjs'
+import { EXTENSION_ARCHIVE_MIME, isImageMimeType, resolveAttachmentMimeType } from '../../../../packages/core/src/shared/imageMime.mjs'
 import { saveFileHandle } from '@gugu/core/local/files/fileSnapshots'
 import { decodeIdentityAddress, decodeTypedId, encodeTypedId } from '../../../../packages/core/src/shared/typedId.mjs'
 import { workspaceUploadKind } from '../../../../packages/core/src/shared/workspaceUpload.mjs'
@@ -2071,6 +2071,43 @@ async function uploadForSend(args, deps, label, chatId) {
   return { endpoint, fileName, contentType, stagingKey: await uploadAttachmentBytes(endpoint, { bytes, name: fileName, contentType }, { chat_id: chatId, as: deps.context.agentId }) }
 }
 
+/**
+ * A project chat that keeps its files on its machine (file storage policy): on that machine a file other than an image is
+ * published by the host, through the one publisher the composer uses — it stays on the machine, the message pins it.
+ * Null when this is not that machine or chat, or for an image (uploaded when sent): the ordinary upload then decides.
+ */
+async function publishOnHost(args, deps, chatId, message) {
+  const publish = deps.context.publishFile
+  if (!publish) return null
+  const fileName = resolveUploadName(args)
+  const contentType = resolveAttachmentMimeType(basename(String(args.file_path)), args.mime_type)
+  if (isImageMimeType(contentType)) return null
+  const filePath = typeof args?.file_path === 'string' ? args.file_path.trim() : ''
+  if (!isAbsolute(filePath)) throw new Error(`message_send_file: file_path must be absolute, got ${filePath}`)
+  const target = resolvePath(filePath)
+  const info = await stat(target).catch((err) => { throw new Error(`message_send_file: cannot read ${target} (${err?.code || err?.message || 'unknown'})`) })
+  if (!info.isFile()) throw new Error(`message_send_file: ${target} is not a file`)
+  const sent = await publish(chatId, { name: fileName, path: target, size: info.size, contentType }, deps.context.agentId,
+    { ...message, file_name: fileName, content_type: contentType })
+  return sent?.message ?? null
+}
+
+/** The server's refusal said for people: which machine keeps this project chat's files, and what can be done instead. */
+async function keptOnHostRefusal(deps, chatId, fileName) {
+  const policy = await deps.restRpc('file_project_policy_for', { p_chat: chatId, p_as: deps.context.agentId }).catch(() => null)
+  const account = typeof policy?.host_account_id === 'string' ? policy.host_account_id : null
+  // The machine is named by its owner, as a project file's mark names it to the chat's other members.
+  const [owner] = account ? await deps.restGet(`users?id=eq.${enc(account)}&select=display_name`, 'identity').catch(() => []) : []
+  const ownerName = owner?.display_name || null
+  const machine = ownerName ? `${ownerName}'s machine` : 'its host machine'
+  const machineZh = ownerName ? `${ownerName} 的机器` : '它绑定的那台机器'
+  return `message_send_file: ${fileName} was not sent. This project chat keeps its files on ${machine} and uploads them only when someone opens them, `
+    + `so files (other than images) can be shared here only from that machine. Send it from there, or ask ${ownerName ?? 'the machine\'s owner'} to choose `
+    + `"Upload everything to the cloud" in Settings › File storage.\n`
+    + `${fileName} 没有发出去。这个项目群的文件留在${machineZh}上，有人打开才上传，所以图片以外的文件只能从那台机器发。`
+    + `请在那台机器上发，或者请${ownerName ?? '机器主人'}在「设置 › 文件存储与读取」里改成「全部上传到云端」。`
+}
+
 async function sendMessageAsOwner(args, deps, content, extra = {}, outcome = { uncertain: false }) {
   const request = {
     p_agent_user_id: deps.context.agentId,
@@ -2203,8 +2240,14 @@ async function handleFile(args, deps) {
       })
       message = row
       fileName = attachmentNameOf(row ?? {})
+    } else if (!folderFile && (message = await publishOnHost(args, deps, chatId, { message_id: messageId, chat_id: chatId,
+      sender_user_id: deps.context.agentId, to_user_ids: toUserIds ?? [], ...thread }))) {
+      fileName = resolveUploadName(args)
     } else {
-      const upload = await uploadForSend(args, deps, 'message_send_file', chatId)
+      const upload = await uploadForSend(args, deps, 'message_send_file', chatId).catch(async (error) => {
+        if (!(error instanceof AttachmentsError && /not uploaded proactively/.test(error.message))) throw error
+        throw new Error(await keptOnHostRefusal(deps, chatId, resolveUploadName(args)))
+      })
       const { endpoint, contentType, stagingKey } = upload
       fileName = upload.fileName
       const commit = {

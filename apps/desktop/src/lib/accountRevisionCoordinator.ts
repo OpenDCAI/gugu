@@ -107,6 +107,19 @@ export function readMemberRosterRevision(
   return { chatId: key.chatId, memberId: key.entityId, left: tombstone }
 }
 
+// device_changed 的 resource_key 带 device_id 和 kind(迁移 20261027190000):'row' = 那一行变了(设备行触发器),
+// 'projects' = 那一台的项目变了(publish_device_projects)。没有 kind(之前落的行 / 还没部署那条迁移的库)= 两样都可能变了。
+// tombstone = 那一行被删。客户端据此只读变了的那一样、只读那一台。
+export function readDeviceRevision(
+  payload: unknown,
+): { deviceId: string; row: boolean; projects: boolean; removed: boolean } {
+  const raw = (payload && typeof payload === 'object' && !Array.isArray(payload) ? payload : {}) as { device_id?: unknown; kind?: unknown; tombstone?: unknown }
+  if (typeof raw.device_id !== 'string' || !raw.device_id) throw new Error('device_changed revision requires device_id')
+  if (raw.kind !== undefined && raw.kind !== 'row' && raw.kind !== 'projects') throw new Error('device_changed revision has unknown kind')
+  if (typeof raw.tombstone !== 'boolean') throw new Error('device_changed revision requires boolean tombstone')
+  return { deviceId: raw.device_id, row: raw.kind !== 'projects', projects: raw.kind !== 'row', removed: raw.tombstone }
+}
+
 // @@@5649 delivery_changed 的 resource_key 自迁移 20260915083000 起带 device_id/status(谁把 entity_id 这条标成了
 // delivered/read),客户端直接打到消息行上,不再重拉整个窗口的覆盖层。旧行没这两个键 ⇒ receipt 为 null,调用方按旧路重验证。
 export function readDeliveryRevision(

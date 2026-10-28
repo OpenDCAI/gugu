@@ -62,6 +62,9 @@ export const resolveFile = createFileResolver({ ...cloud,
   },
 })
 
+/** Where a chat file's bytes are kept, from the same metadata batch the resolver reads: no bytes, no transfer. */
+export const fileMetadata = (itemId: string) => cloud.metadata({ ref: { item_id: itemId }, actor: fileReader(), signal: fileReadSignal() })
+
 /** The UI's placement and recent-open tracking share the resolver's no-network local probe. */
 export async function localFileRevision(itemId: string): Promise<FileRevision | null> {
   if (!globalThis.window?.electronAPI) return null

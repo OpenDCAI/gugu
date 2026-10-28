@@ -34,17 +34,46 @@ async function mount(doc = document) {
     }]} />
     <Avatar name="Running agent" seed="animation-agent" avatarUrl={avatar} isAgent agentStatus="working" harnessBadge={false} />
   </>);
-  await until('the real running highlight and two avatar pulse rings animate', () => host.getAnimations({ subtree: true }).length === 3);
+  await until('the real running highlight and two avatar pulse rings animate', () => host.getAnimations({ subtree: true }).length === 6 && host.querySelector('.rtb-state')?.getAttribute('data-shimmer-visible') === 'true');
   const animations = host.getAnimations({ subtree: true });
-  expect(animations.map((animation) => (animation as CSSAnimation).animationName).sort()).toEqual(['av-status-pulse', 'av-status-pulse', 'running-shimmer']);
+  expect(animations.filter((animation) => (animation as CSSAnimation).animationName === 'av-status-pulse')).toHaveLength(2);
+  expect(host.querySelector('.rtb-state')!.getAnimations({ subtree: true })).toHaveLength(4);
   expect(animations.every((animation) => animation.playState === 'running')).toBe(true);
   return { host, animations };
 }
 
+it('keeps one semantic running label and stationary glyphs throughout the composited sweep', async () => {
+  const { host } = await mount();
+  const label = host.querySelector<HTMLElement>('.rtb-state')!;
+  const text = label.textContent;
+  const glyphs = [...label.querySelectorAll<HTMLElement>('[data-shimmer-text]')];
+  expect(glyphs).toHaveLength(2);
+  expect(label.querySelector('[aria-hidden="true"]')!.textContent).toBe('');
+  expect(glyphs.every((glyph) => glyph.dataset.shimmerText === text)).toBe(true);
+  const box = label.getBoundingClientRect();
+  const animations = label.getAnimations({ subtree: true });
+  for (const animation of animations) {
+    expect(animation.effect!.getTiming()).toMatchObject({ duration: 2000, iterations: Infinity });
+    for (const frame of (animation.effect as KeyframeEffect).getKeyframes()) {
+      expect(Object.keys(frame).filter((key) => !['offset', 'computedOffset', 'easing', 'composite'].includes(key))).toEqual(['transform']);
+    }
+    animation.pause();
+  }
+  for (const time of [0, 500, 1000, 1999]) {
+    animations.forEach((animation) => { animation.currentTime = time; });
+    for (const glyph of glyphs) {
+      expect(Math.abs(glyph.getBoundingClientRect().left - box.left)).toBeLessThan(0.1);
+      expect(Math.abs(glyph.getBoundingClientRect().width - box.width)).toBeLessThan(0.1);
+    }
+    expect(label.textContent).toBe(text);
+    expect(label.getBoundingClientRect().toJSON()).toEqual(box.toJSON());
+  }
+});
+
 it('pauses and resumes the running highlight and avatar pulses on the shared native signal', async () => {
   const { host, animations } = await mount();
   window.dispatchEvent(new CustomEvent(ANIMATION_WINDOW_SEEN_EVENT, { detail: false }));
-  await until('all three CSS animation clocks pause', () => animations.every((animation) => animation.playState === 'paused'));
+  await until('all six CSS animation clocks pause', () => animations.every((animation) => animation.playState === 'paused'));
   expect(document.hidden).toBe(false);
   expect(getComputedStyle(host.querySelector('.rtb-state')!).animationPlayState).toBe('paused');
   window.dispatchEvent(new CustomEvent(ANIMATION_WINDOW_SEEN_EVENT, { detail: true }));

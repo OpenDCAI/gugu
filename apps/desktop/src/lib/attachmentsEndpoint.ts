@@ -21,9 +21,10 @@ async function publishNative(args: Record<string, unknown>) {
 const cloudChatAttachment = async (endpoint: AttachmentsEndpoint, file: File, chatId: string, actor: string): Promise<PreparedChatAttachment> => ({
   staging_key: await uploadAttachmentBytes(endpoint, { bytes: file, name: file.name || 'file', contentType: resolveFileMimeType(file) }, { chat_id: chatId, as: actor }),
 })
+/** An image is uploaded when sent, also in a project chat that keeps its other files on the machine (file storage policy). */
 export async function prepareChatAttachment(endpoint: AttachmentsEndpoint, file: File, scope: { chat_id: string; as: string; is_whisper?: boolean }): Promise<PreparedChatAttachment> {
   const native = globalThis.window?.electronAPI
-  if (native && !scope.is_whisper && await publishNative({ chatId: scope.chat_id }) === true) return { local: file }
+  if (native && !scope.is_whisper && !resolveFileMimeType(file).startsWith('image/') && await publishNative({ chatId: scope.chat_id }) === true) return { local: file }
   return cloudChatAttachment(endpoint, file, scope.chat_id, scope.as)
 }
 export async function commitPreparedChatAttachment(endpoint: AttachmentsEndpoint, prepared: PreparedChatAttachment, args: Omit<CommitArgs, 'staging_key'>): Promise<Record<string, unknown>> {
