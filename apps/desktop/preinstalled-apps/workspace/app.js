@@ -12,7 +12,7 @@
 // workspace; with a file (ctx.file) it opens the file it was handed; with neither there is nothing to show.
 
 import { placeOf, plainWords, relocate, spanOf } from './lines.js'
-import { KINDS, SORTS, comparer, kindOf, markOf, sectionOf, sizeOf, timeLeft } from './list.js'
+import { KINDS, SORTS, comparer, defaultView, keptAs, kindOf, markOf, matches, sectionOf, sizeOf, timeLeft, wantsThumb } from './list.js'
 
 const $ = (id) => document.getElementById(id)
 
@@ -124,6 +124,38 @@ const STRINGS = {
     showInChat: '在聊天中定位',
     copyLink: '复制链接',
     linkCopied: '链接已复制',
+    views: '显示方式',
+    view_list: '列表',
+    view_grid: '网格',
+    filter_who: '上传者',
+    filter_where: '存放',
+    filter_keep: '保留方式',
+    anyone: '全部',
+    cloud: '云端',
+    keep_temporary: '临时',
+    keep_kept: '一直保留',
+    keep_soon: '7 天内清除',
+    clearFilters: '清除筛选',
+    noFiltered: '没有符合条件的文件。',
+    details: '详情',
+    open: '打开',
+    close: '关闭',
+    col_name: '名称',
+    col_who: '上传者',
+    col_when: '修改时间',
+    col_size: '大小',
+    d_size: '大小',
+    d_by: '上传',
+    d_edited: '改动',
+    d_where: '位置',
+    d_stored: '存放',
+    d_keep: '保留',
+    d_versions: '版本',
+    d_version: '第 {n} 版',
+    noCopy: '没有云端副本',
+    machineOnline: '在线',
+    machineOffline: '离线',
+    hostOffline: '{machine} 离线，上线后才能打开这个文件。',
   },
   en: {
     groupFolder: 'Group folder',
@@ -232,6 +264,38 @@ const STRINGS = {
     showInChat: 'Show in chat',
     copyLink: 'Copy link',
     linkCopied: 'Link copied',
+    views: 'View',
+    view_list: 'List',
+    view_grid: 'Grid',
+    filter_who: 'Uploaded by',
+    filter_where: 'Kept on',
+    filter_keep: 'Keep',
+    anyone: 'Any',
+    cloud: 'Cloud',
+    keep_temporary: 'Temporary',
+    keep_kept: 'Until deleted',
+    keep_soon: 'Cleared within 7 days',
+    clearFilters: 'Clear filters',
+    noFiltered: 'No file matches these filters.',
+    details: 'Details',
+    open: 'Open',
+    close: 'Close',
+    col_name: 'Name',
+    col_who: 'Uploaded by',
+    col_when: 'Modified',
+    col_size: 'Size',
+    d_size: 'Size',
+    d_by: 'Uploaded',
+    d_edited: 'Changed',
+    d_where: 'Location',
+    d_stored: 'Kept on',
+    d_keep: 'Keep',
+    d_versions: 'Versions',
+    d_version: 'Version {n}',
+    noCopy: 'No cloud copy',
+    machineOnline: 'online',
+    machineOffline: 'offline',
+    hostOffline: '{machine} is offline: this file opens once it is back.',
   },
 }
 
@@ -244,6 +308,10 @@ const state = {
   // The kind of file the list shows and its order (list.js), as this person last left them on this device.
   kind: remembered('kind', KINDS, 'all'),
   sort: remembered('sort', SORTS, 'recent'),
+  // The filters (上传者 / 存放 / 保留方式), each null for any: not kept — a folder opened later shows all its files.
+  filters: { who: null, where: null, keep: null },
+  details: null, // the entry whose details are open
+  ofKind: [], // the files of the kind picked in the list last drawn: what the filters offer to pick by
   showAppData: false,
   folder: null, // the folder the list shows (子文件夹): a folder entry's id, null for the top
   dragging: null, // the entry being dragged onto a folder (desktop)
@@ -541,8 +609,8 @@ function folderOrder(a, b) {
 }
 
 // One list, one scroll: the folder on screen (子文件夹) — or, while filtering, every file whose name matches, wherever it
-// is. Folders first, then the files of the kind picked in the order picked; by time, under today / yesterday / the past
-// week / each month.
+// is. Folders first, then the files of the kind picked and the filters set, in the order picked; by time, under today /
+// yesterday / the past week / each month. As rows (a table when the pane is wide) or, for images and videos, a grid.
 function renderList() {
   // A name being typed (改名, a new folder's name) is not drawn over — a change heard meanwhile is in state.entries, and
   // the list is drawn when the name is done (finish → refreshList).
@@ -553,19 +621,24 @@ function renderList() {
   // The folder on screen is gone (deleted, or no longer seen): back to the top.
   if (state.folder && !state.entries.some((e) => e.id === state.folder)) state.folder = null
   renderCrumbs()
-  renderTools()
   const needle = state.filter.trim().toLocaleLowerCase()
   // One clock for the whole list, the one relative times read (Date.now).
   const now = new Date(Date.now())
   const shown = (needle ? state.entries : state.folder ? inside(state.folder) : topEntries())
     .filter(visibleEntry)
     .filter((e) => !needle || e.name.toLocaleLowerCase().includes(needle) || shownName(e).toLocaleLowerCase().includes(needle))
-  const folders = state.kind === 'all' ? shown.filter(isFolder).sort(folderOrder) : []
-  const files = shown.filter((e) => !isFolder(e) && (state.kind === 'all' || kindOf(e) === state.kind))
-    .sort(comparer(state.sort, shownName, changedAt, state.ctx?.locale))
+  const ofKind = (state.ofKind = shown.filter((e) => !isFolder(e) && (state.kind === 'all' || kindOf(e) === state.kind)))
+  renderTools(ofKind, now)
+  const filtering = Object.values(state.filters).some(Boolean)
+  const folders = state.kind === 'all' && !filtering ? shown.filter(isFolder).sort(folderOrder) : []
+  const files = ofKind.filter((e) => matches(e, state.filters, machineOf, now)).sort(comparer(state.sort, shownName, changedAt, state.ctx?.locale))
+  const grid = viewOf(state.kind) === 'grid'
+  list.classList.toggle('as-grid', grid)
+  const item = (entry) => (grid && !isFolder(entry) ? gridItem(entry, now) : listItem(entry, now))
   const rows = []
+  if (!grid && (folders.length || files.length)) rows.push(tableHead())
   if (folders.length && files.length) rows.push(sectionRow(t.folders))
-  rows.push(...folders.map((e) => listItem(e, now)))
+  rows.push(...folders.map(item))
   let section = null
   for (const entry of files) {
     if (state.sort === 'recent') {
@@ -576,16 +649,22 @@ function renderList() {
       section = { key: 'files' }
       rows.push(sectionRow(t.files))
     }
-    rows.push(listItem(entry, now))
+    rows.push(item(entry))
   }
   list.replaceChildren(...rows)
   // A row's menu goes with its row (the list is drawn anew when the workspace changes).
   if (state.menuAnchor && !state.menuAnchor.isConnected) closeMenu()
+  if (state.details) {
+    const fresh = state.entries.find((e) => e.id === state.details.id)
+    if (fresh) showDetails(fresh)
+    else closeDetails()
+  }
   const count = folders.length + files.length
   empty.hidden = count > 0
   $('files-empty-message').textContent = state.listError
-    ?? (needle ? fmt(t.noMatch, { q: state.filter.trim() }) : state.kind !== 'all' && shown.length ? t.noKind : state.folder ? t.folderEmpty : t.noFiles)
-  $('empty-upload').hidden = !canWrite() || !!needle || !!state.listError || (state.kind !== 'all' && shown.length > 0)
+    ?? (needle ? fmt(t.noMatch, { q: state.filter.trim() }) : filtering && ofKind.length ? t.noFiltered
+      : state.kind !== 'all' && shown.length ? t.noKind : state.folder ? t.folderEmpty : t.noFiles)
+  $('empty-upload').hidden = !canWrite() || !!needle || !!state.listError || (state.kind !== 'all' && shown.length > 0) || filtering
 }
 
 function sectionRow(text) {
@@ -602,8 +681,40 @@ function sectionName(section) {
   return new Intl.DateTimeFormat(state.ctx?.locale || 'en', { year: 'numeric', month: 'long' }).format(new Date(section.year, section.month - 1, 1))
 }
 
-// The kinds (全部 / 文档 / 图片和视频 / 其他) and the order, above the list; both kept on this device.
-function renderTools() {
+// The table's head (drawn only where the pane is wide, style.css): its columns, the sortable ones a press away.
+function tableHead() {
+  const t = state.t
+  const li = document.createElement('li')
+  li.className = 'table-head'
+  li.setAttribute('role', 'presentation')
+  const column = (cell, text, sort) => {
+    const head = document.createElement(sort ? 'button' : 'span')
+    head.dataset.cell = cell
+    head.textContent = text
+    if (sort) {
+      head.type = 'button'
+      if (state.sort === sort) head.setAttribute('aria-current', 'true')
+      head.onclick = () => setSort(sort)
+    }
+    return head
+  }
+  li.append(column('name', t.col_name, 'name'), column('who', t.col_who), column('when', t.col_when, 'recent'), column('size', t.col_size, 'size'))
+  return li
+}
+
+// The way a kind is shown (list or grid), as the person last left it on this device; images and videos open as a grid.
+function viewOf(kind) {
+  return remembered(`view.${kind}`, ['list', 'grid'], defaultView(kind))
+}
+
+// What the 「存放」 filter calls the machine a project file stays on.
+function machineOf(storedOn) {
+  return storedOn.machine ?? fmt(state.t.machineOf, { owner: storedOn.owner })
+}
+
+// The kinds (全部 / 文档 / 图片和视频 / 其他), the order and the view, above the list (kept on this device); under them the
+// filters this list has something to pick by (上传者; 存放 where a file stays on a machine; 保留方式 where one has a cloud copy).
+function renderTools(files = state.ofKind, now = new Date(Date.now())) {
   const t = state.t
   const kinds = $('kinds')
   if (kinds.childElementCount !== KINDS.length) {
@@ -628,6 +739,67 @@ function renderTools() {
   $('sort-label').textContent = t[`sort_${state.sort}`]
   $('sort').title = t.sort
   $('sort').setAttribute('aria-label', `${t.sort}: ${t[`sort_${state.sort}`]}`)
+  $('views').setAttribute('aria-label', t.views)
+  for (const button of $('views').children) {
+    const label = t[`view_${button.dataset.view}`]
+    button.title = label
+    button.setAttribute('aria-label', label)
+    button.setAttribute('aria-pressed', String(viewOf(state.kind) === button.dataset.view))
+  }
+  renderChips(files, now)
+}
+
+// One chip per filter there is something to pick by; a set one says what it is set to.
+function renderChips(files, now) {
+  const t = state.t
+  const people = new Map()
+  for (const entry of files) if (entry.createdBy && entry.createdBy.kind !== 'system' && entry.createdBy.id) people.set(entry.createdBy.id, entry.createdBy)
+  const machines = [...new Set(files.filter((e) => e.storedOn).map((e) => machineOf(e.storedOn)))]
+  const kept = new Set(files.map((e) => keptAs(e, now)).filter(Boolean))
+  const options = {
+    who: people.size > 1 || state.filters.who ? [...people.values()].map((person) => [person.id, who(person)]) : [],
+    where: machines.length || state.filters.where ? [['cloud', t.cloud], ...machines.map((name) => [name, name])] : [],
+    keep: kept.size || state.filters.keep ? [['temporary', t.keep_temporary], ['soon', t.keep_soon], ['kept', t.keep_kept]] : [],
+  }
+  const chips = []
+  for (const key of ['who', 'where', 'keep']) {
+    if (!options[key].length) continue
+    const chip = document.createElement('button')
+    chip.type = 'button'
+    chip.className = 'chip'
+    chip.dataset.filter = key
+    chip.setAttribute('aria-haspopup', 'menu')
+    const set = state.filters[key]
+    const label = set ? options[key].find(([value]) => value === set)?.[1] ?? set : null
+    chip.textContent = label ? `${t[`filter_${key}`]}: ${label}` : t[`filter_${key}`]
+    if (set) chip.setAttribute('aria-pressed', 'true')
+    chip.onclick = () => toggleMenu(chip, [[null, t.anyone], ...options[key]].map(([value, text]) => ({
+      text, checked: (state.filters[key] ?? null) === value, run: () => setFilter(key, value),
+    })))
+    chips.push(chip)
+  }
+  if (Object.values(state.filters).some(Boolean)) {
+    const clear = Object.assign(document.createElement('button'), { type: 'button', className: 'chips-clear', textContent: t.clearFilters })
+    clear.onclick = () => {
+      state.filters = { who: null, where: null, keep: null }
+      renderList()
+    }
+    chips.push(clear)
+  }
+  $('chips').replaceChildren(...chips)
+  $('chips').hidden = chips.length === 0
+}
+
+function setFilter(key, value) {
+  state.filters = { ...state.filters, [key]: value }
+  renderList()
+  $('file-list').scrollTop = 0
+}
+
+function setSort(sort) {
+  state.sort = sort
+  remember('sort', sort)
+  renderList()
 }
 
 function sortMenu() {
@@ -635,11 +807,7 @@ function sortMenu() {
   toggleMenu($('sort'), SORTS.map((sort) => ({
     text: t[`sort_${sort}`],
     checked: state.sort === sort,
-    run: () => {
-      state.sort = sort
-      remember('sort', sort)
-      renderList()
-    },
+    run: () => setSort(sort),
   })))
 }
 
@@ -818,7 +986,71 @@ function fileMark(entry) {
   mark.textContent = label
   mark.setAttribute('aria-hidden', 'true')
   if (entry.claimedBy) mark.title = entry.claimedBy.name
+  // An image with a cloud copy: its picture, once it is on screen (until then, and if it cannot be read, its suffix).
+  if (wantsThumb(entry)) thumbInto(mark, entry)
   return mark
+}
+
+// ─── thumbnails ─────────────────────────────────────────────────────────────
+// An image is read as any image file is (files.open read-only, its blob), drawn small once, and kept for this page by
+// its id and version; only the ones scrolled into view are read, a few at a time. A file kept on a machine is never
+// read for its picture (that would upload it): it keeps its suffix.
+
+const thumbs = new Map() // `${id}:${version}` → Promise<object URL | null>
+const thumbWaiting = []
+let thumbsReading = 0
+const thumbSeen = typeof IntersectionObserver === 'function'
+  ? new IntersectionObserver((seen) => {
+    for (const { isIntersecting, target } of seen) {
+      if (!isIntersecting) continue
+      thumbSeen.unobserve(target)
+      target.thumbWanted?.()
+    }
+  }, { rootMargin: '200px' })
+  : null
+
+function thumbInto(el, entry) {
+  if (!thumbSeen) return
+  const key = `${entry.id}:${entry.version ?? ''}`
+  const draw = (url) => {
+    if (!url) return
+    el.style.backgroundImage = `url("${url}")`
+    el.classList.add('has-thumb')
+    el.textContent = ''
+  }
+  el.thumbWanted = () => {
+    if (!thumbs.has(key)) thumbs.set(key, new Promise((done) => {
+      thumbWaiting.push(() => thumbOf(entry).then(done, () => done(null)))
+      nextThumb()
+    }))
+    void thumbs.get(key).then(draw)
+  }
+  thumbSeen.observe(el)
+}
+
+function nextThumb() {
+  while (thumbsReading < 3 && thumbWaiting.length) {
+    thumbsReading++
+    thumbWaiting.shift()().finally(() => {
+      thumbsReading--
+      nextThumb()
+    })
+  }
+}
+
+async function thumbOf(entry) {
+  const file = await gugu.files.open(entry, { readOnly: true })
+  try {
+    const bitmap = await createImageBitmap(await file.blob())
+    const scale = Math.min(1, 240 / Math.max(bitmap.width, bitmap.height))
+    const canvas = Object.assign(document.createElement('canvas'), { width: Math.max(1, Math.round(bitmap.width * scale)), height: Math.max(1, Math.round(bitmap.height * scale)) })
+    canvas.getContext('2d').drawImage(bitmap, 0, 0, canvas.width, canvas.height)
+    bitmap.close?.()
+    const small = await new Promise((done) => canvas.toBlob(done, 'image/webp', 0.85))
+    return small ? URL.createObjectURL(small) : null
+  } finally {
+    file.close()
+  }
 }
 
 // What the machine a project chat's file stays on says of it: which machine, that it is uploaded only when someone opens
@@ -839,8 +1071,23 @@ function storedOnMark(storedOn) {
   const icon = document.createElement('gugu-icon')
   icon.setAttribute('name', 'server')
   icon.setAttribute('aria-hidden', 'true')
-  mark.append(icon, Object.assign(document.createElement('span'), { textContent: storedOn.machine ?? fmt(state.t.machineOf, { owner: storedOn.owner }) }))
+  mark.append(icon, Object.assign(document.createElement('span'), { textContent: machineOf(storedOn) }))
+  // Whether it is on (storedOn.online; known for the reader's own machines): a dot, and the word on hover.
+  if (storedOn.online !== undefined) {
+    mark.dataset.online = String(storedOn.online)
+    mark.title = `${machineOf(storedOn)} · ${storedOn.online ? state.t.machineOnline : state.t.machineOffline} — ${mark.title}`
+  }
   return mark
+}
+
+// A project file whose machine is off (as the list last read it), with no cloud copy to open meanwhile: it opens once the
+// machine is back.
+const offline = (entry) => entry.storedOn?.online === false && !entry.keep
+
+// A press on a file: the host picks the App that opens it — or, its machine off, the list says why it cannot now.
+function openFile(entry) {
+  if (offline(entry)) return void showBanner(fmt(state.t.hostOffline, { machine: machineOf(entry.storedOn) }), 'info')
+  return openInHost(entry)
 }
 
 // A cloud copy kept for a while (entry.keep.expiresAt): how long it has left, faint (owner 10-28) — the day it goes on hover.
@@ -872,18 +1119,19 @@ function whenOf(iso, now) {
 
 // The row's second line: who made it, when it last changed, how big it is — one line, no avatars (owner 10-28); who made
 // and who edited it, and when, on hover.
+// Each cell says which column it is in where the pane is wide (`who`, `when`, `size`): a table of the same rows.
 function metaOf(entry, now) {
   const t = state.t
   const cells = []
   if (isFolder(entry)) {
-    cells.push(fmt(t.items, { n: inside(entry.id).filter(visibleEntry).length }))
+    cells.push(['size', fmt(t.items, { n: inside(entry.id).filter(visibleEntry).length })])
   } else {
-    if (entry.createdBy && entry.createdBy.kind !== 'system' && !entry.systemRole) cells.push(who(entry.createdBy))
+    if (entry.createdBy && entry.createdBy.kind !== 'system' && !entry.systemRole) cells.push(['who', who(entry.createdBy)])
     const edited = entry.updatedAt && entry.createdAt && Date.parse(entry.updatedAt) - Date.parse(entry.createdAt) > 60_000
     const when = whenOf(changedAt(entry), now)
-    if (when) cells.push(edited ? fmt(t.editedWhen, { time: when }) : when)
+    if (when) cells.push(['when', edited ? fmt(t.editedWhen, { time: when }) : when])
     const size = sizeOf(entry.size)
-    if (size) cells.push(size)
+    if (size) cells.push(['size', size])
   }
   return cells
 }
@@ -916,13 +1164,18 @@ function listItem(entry, now = new Date(Date.now())) {
   open.title = pathOf(entry)
   const meta = document.createElement('span')
   meta.className = 'file-meta'
-  for (const text of metaOf(entry, now)) meta.append(Object.assign(document.createElement('span'), { className: 'file-cell', textContent: text }))
+  for (const [cell, text] of metaOf(entry, now)) {
+    const span = Object.assign(document.createElement('span'), { className: 'file-cell', textContent: text })
+    span.dataset.cell = cell
+    meta.append(span)
+  }
   if (!folder) meta.title = activityOf(entry).join(' · ')
   open.append(title)
   const where = state.filter.trim() && entry.parentId ? pathOf(entry).split('/').slice(0, -1).join('/') : ''
   if (where) meta.prepend(Object.assign(document.createElement('span'), { className: 'file-path', textContent: where }))
   open.append(meta)
-  open.onclick = () => (folder ? enterFolder(entry.id) : openInHost(entry))
+  open.onclick = () => (folder ? enterFolder(entry.id) : openFile(entry))
+  if (offline(entry)) li.dataset.offline = ''
   // Files carry the same resource link outside this App; folder moves stay inside it.
   const drag = (text, isLink) => {
     li.draggable = true
@@ -961,6 +1214,46 @@ function listItem(entry, now = new Date(Date.now())) {
   return li
 }
 
+// A cell of the grid (images and videos): its picture — or its suffix, large — with its name under it; how long its cloud
+// copy has left in a corner; the same ⋯ as its row.
+function gridItem(entry, now) {
+  const t = state.t
+  const li = document.createElement('li')
+  li.className = 'file cell'
+  li.dataset.id = entry.id
+  li.setAttribute('role', 'option')
+  li.setAttribute('aria-selected', 'false')
+  if (offline(entry)) li.dataset.offline = ''
+  const open = document.createElement('button')
+  open.type = 'button'
+  open.className = 'file-open'
+  open.title = [pathOf(entry), ...metaOf(entry, now).map(([, text]) => text)].join(' · ')
+  const mark = fileMark(entry)
+  mark.classList.add('cell-picture')
+  if (/^video\//i.test(entry.contentType || '')) {
+    mark.textContent = ''
+    const play = document.createElement('gugu-icon')
+    play.setAttribute('name', 'play')
+    play.className = 'cell-play'
+    mark.append(play)
+  }
+  open.append(mark, Object.assign(document.createElement('span'), { className: 'file-name', textContent: shownName(entry) }))
+  open.onclick = () => openFile(entry)
+  li.append(open)
+  const keep = keepMark(entry, now)
+  if (keep) li.append(Object.assign(keep, { className: `${keep.className} cell-keep` }))
+  if (entry.storedOn) li.append(Object.assign(storedOnMark(entry.storedOn), { className: 'file-host cell-host' }))
+  const more = document.createElement('button')
+  more.type = 'button'
+  more.className = 'row-more'
+  more.innerHTML = '<gugu-icon name="more-horizontal"></gugu-icon>'
+  more.setAttribute('aria-label', t.more)
+  more.setAttribute('aria-haspopup', 'menu')
+  more.onclick = () => toggleMenu(more, rowMenu(li, entry))
+  li.append(more)
+  return li
+}
+
 // One ⋯ per row, made when it opens: what to do with the file (download, find its message, copy its link), how long its
 // cloud copy is kept, then the other Apps that open it, rename, move and delete. 「附件」 is gugu's: nothing to do to it.
 function rowMenu(li, entry) {
@@ -970,7 +1263,7 @@ function rowMenu(li, entry) {
   if (!folder) {
     const use = [{ text: t.download, run: () => downloadEntry(entry) }]
     if (entry.sourceMessageIds?.length) use.push({ text: t.showInChat, run: () => showSource(entry.sourceMessageIds[entry.sourceMessageIds.length - 1]) })
-    use.push({ text: t.copyLink, run: () => copyLink(entry) })
+    use.push({ text: t.copyLink, run: () => copyLink(entry) }, { text: t.details, run: () => showDetails(entry) })
     groups.push(use)
     // 「设为临时 / 一直保留」 (gugu-supabase #68/#69): the reader's own cloud copy; someone else's, or a file kept on its
     // machine, says why it cannot — on hover (owner 10-28: no long text in the menu).
@@ -1794,6 +2087,72 @@ function toggleMenu(anchor, items) {
   menu.querySelector('button:not(:disabled)')?.focus({ preventScroll: true })
 }
 
+// ─── details ────────────────────────────────────────────────────────────────
+// A file's details (⋯ › 详情): beside the list where the pane is wide, over it where it is narrow (style.css) — what the row
+// says in full, where it is kept and for how long, and its versions (files.versions), with open, download and its message.
+function showDetails(entry) {
+  const t = state.t
+  const same = state.details?.id === entry.id
+  state.details = entry
+  const panel = $('details')
+  const head = document.createElement('div')
+  head.className = 'details-head'
+  const close = Object.assign(document.createElement('button'), { type: 'button', className: 'details-close', innerHTML: '<gugu-icon name="x"></gugu-icon>' })
+  close.setAttribute('aria-label', t.close)
+  close.onclick = () => closeDetails()
+  head.append(Object.assign(document.createElement('h2'), { className: 'details-title', textContent: shownName(entry), title: entry.name }), close)
+  const picture = fileMark(entry)
+  picture.classList.add('details-picture')
+  if (!wantsThumb(entry)) picture.classList.add('details-badge')
+  const actions = document.createElement('div')
+  actions.className = 'details-actions'
+  const act = (text, run) => Object.assign(document.createElement('button'), { type: 'button', textContent: text, onclick: run })
+  actions.append(act(t.open, () => openFile(entry)), act(t.download, () => downloadEntry(entry)))
+  if (entry.sourceMessageIds?.length) actions.append(act(t.showInChat, () => showSource(entry.sourceMessageIds[entry.sourceMessageIds.length - 1])))
+  const facts = document.createElement('dl')
+  facts.className = 'details-facts'
+  const fact = (term, text, title) => {
+    if (!text) return
+    facts.append(Object.assign(document.createElement('dt'), { textContent: term }), Object.assign(document.createElement('dd'), { textContent: text, ...(title ? { title } : {}) }))
+  }
+  const dated = (iso) => (iso ? new Intl.DateTimeFormat(state.ctx?.locale || 'en', { dateStyle: 'medium', timeStyle: 'short' }).format(new Date(iso)) : '')
+  fact(t.d_size, [sizeOf(entry.size), entry.suffix ? entry.suffix.slice(1).toUpperCase() : ''].filter(Boolean).join(' · '))
+  fact(t.d_by, [entry.createdBy && entry.createdBy.kind !== 'system' ? who(entry.createdBy) : '', dated(entry.createdAt)].filter(Boolean).join(' · '))
+  if (entry.updatedAt && entry.createdAt && Date.parse(entry.updatedAt) - Date.parse(entry.createdAt) > 60_000) {
+    fact(t.d_edited, [entry.updatedBy ? who(entry.updatedBy) : '', dated(entry.updatedAt), entry.version ? fmt(t.d_version, { n: entry.version }) : ''].filter(Boolean).join(' · '))
+  }
+  const folders = []
+  for (let at = state.entries.find((e) => e.id === entry.parentId); at; at = state.entries.find((e) => e.id === at.parentId)) folders.unshift(shownName(at))
+  fact(t.d_where, [t.title, ...folders].join(' / '))
+  if (entry.storedOn) fact(t.d_stored, `${machineOf(entry.storedOn)}${entry.storedOn.online === undefined ? '' : ` · ${entry.storedOn.online ? t.machineOnline : t.machineOffline}`}`, storedOnText(entry.storedOn))
+  const left = entry.keep?.expiresAt ? fmt(t.clearsAt, { time: dated(entry.keep.expiresAt) }) : null
+  if (entry.keep !== undefined) fact(t.d_keep, !entry.keep ? t.noCopy : left ? `${t.keepTemporary} · ${left}` : t.keepPermanent, entry.keep && !entry.keep.mine ? t.keepNotMine : undefined)
+  const versions = document.createElement('ol')
+  versions.className = 'details-versions'
+  const versionsHead = Object.assign(document.createElement('h3'), { className: 'details-sub', textContent: t.d_versions, hidden: true })
+  panel.replaceChildren(head, picture, actions, facts, versionsHead, versions)
+  panel.hidden = false
+  document.body.classList.add('has-details')
+  if (!same) close.focus({ preventScroll: true })
+  // Its history, newest first, when it has one (a working copy's file and a live document do not).
+  if (entry.version && entry.version > 1 && typeof gugu.files.versions === 'function') {
+    gugu.files.versions(entry).then((kept) => {
+      if (state.details?.id !== entry.id) return
+      versionsHead.hidden = kept.length === 0
+      versions.replaceChildren(...kept.map((v) => Object.assign(document.createElement('li'), {
+        textContent: [fmt(t.d_version, { n: v.n }), v.by ? who(v.by) : '', dated(v.at), sizeOf(v.size)].filter(Boolean).join(' · '),
+      })))
+    }, () => {})
+  }
+}
+
+function closeDetails() {
+  state.details = null
+  $('details').hidden = true
+  $('details').replaceChildren()
+  document.body.classList.remove('has-details')
+}
+
 function closeMenu() {
   if ($('menu').contains(document.activeElement)) state.menuAnchor?.focus({ preventScroll: true })
   state.menuAnchor?.setAttribute('aria-expanded', 'false')
@@ -1822,6 +2181,12 @@ function start() {
     renderList()
   }
   $('sort').onclick = () => sortMenu()
+  for (const button of $('views').children) {
+    button.onclick = () => {
+      remember(`view.${state.kind}`, button.dataset.view)
+      renderList()
+    }
+  }
   $('new-doc').onclick = () => toggleMenu($('new-doc'), [[state.t.newDoc, createDoc], [state.t.newFolder, createFolder]])
   $('upload').onclick = $('empty-upload').onclick = () => uploadFiles()
   $('move-cancel').onclick = closeMoveDialog
@@ -1844,6 +2209,7 @@ function start() {
   })
   document.addEventListener('keydown', (event) => {
     if (event.key !== 'Escape') return
+    if (!state.menuAnchor && state.details) closeDetails()
     closeMenu()
     if (!$('move-dialog').hidden) closeMoveDialog()
   })

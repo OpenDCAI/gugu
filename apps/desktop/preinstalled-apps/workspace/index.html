@@ -17,7 +17,13 @@
     <div class="files-tools">
       <div id="kinds" class="kinds" role="group"></div>
       <button id="sort" class="sort" type="button" aria-haspopup="menu" aria-expanded="false"><span id="sort-label"></span><gugu-icon name="chevron-down"></gugu-icon></button>
+      <div id="views" class="views" role="group">
+        <button type="button" data-view="list"><gugu-icon name="align-justify"></gugu-icon></button>
+        <button type="button" data-view="grid"><gugu-icon name="layout-grid"></gugu-icon></button>
+      </div>
     </div>
+    <!-- The filters there is something to pick by (上传者 / 存放 / 保留方式), and the way to clear them. -->
+    <div id="chips" class="chips" hidden></div>
     <!-- Where the list is (子文件夹): the way up, then each folder from the top. Hidden at the top. -->
     <nav id="crumbs" class="crumbs" hidden></nav>
     <!-- What went wrong on the list (a name taken there, a failed move or upload): the file's own line is not drawn here. -->
@@ -54,6 +60,8 @@
       <article id="preview" class="preview"></article>
     </div>
   </main>
+  <!-- A file's details (⋯ › 详情): beside the list when the pane is wide, over it when narrow. -->
+  <aside id="details" class="details card" aria-label="details" hidden></aside>
   <div id="menu" class="menu card list" role="menu" hidden></div>
   <!-- 「移动到…」: every folder of the chat, the top first; a press moves the file there. -->
   <div id="move-dialog" class="dialog" role="dialog" aria-modal="true" hidden>

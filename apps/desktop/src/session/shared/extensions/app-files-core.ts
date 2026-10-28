@@ -5,6 +5,8 @@ import { fileBlob, type FileHandle, type ResolvedFile } from '@gugu/core/shared/
 import { fetchInChunks } from '@gugu/core/shared/inChunks';
 import { mimeTypeFromName } from '@gugu/core/shared/imageMime.mjs';
 import { workspaceUploadKind } from '@gugu/core/shared/workspaceUpload.mjs';
+import { isDeviceOnline } from '@gugu/core/shared/enums/deviceModels';
+import type { DeviceStatus } from '@gugu/core/shared/types/chat';
 import type { ErrorDetail, ExtensionChat } from './bridge-protocol';
 import type { Grant, PageSync } from './file-sync-core';
 import {
@@ -403,13 +405,16 @@ async function storedOnOf(token: string, rows: readonly ItemRow[], identities: I
     const mine = personId(policy.host_account_id) === personId(actor);
     const [owner] = await identities(token, [policy.host_account_id]);
     let machine: string | null = null;
+    let online: boolean | undefined;
     if (mine) {
       const device = await createGuguSupabaseClient({ schema: 'identity', headers: { Authorization: `Bearer ${token}` } })
-        .from('gugu_devices').select('label').eq('device_id', policy.host_device_id).maybeSingle();
+        .from('gugu_devices').select('label, status').eq('device_id', policy.host_device_id).maybeSingle();
       if (device.error) throw new AppFileError('failed', device.error.message);
-      machine = (device.data as { label: string } | null)?.label ?? null;
+      const row = device.data as { label: string; status?: string } | null;
+      machine = row?.label ?? null;
+      if (typeof row?.status === 'string') online = isDeviceOnline(row.status as DeviceStatus);
     }
-    found.set(chatId, { machine, owner: owner?.name ?? policy.host_account_id.slice(0, 8), mine });
+    found.set(chatId, { machine, owner: owner?.name ?? policy.host_account_id.slice(0, 8), mine, ...(online === undefined ? {} : { online }) });
   }));
   return found;
 }
