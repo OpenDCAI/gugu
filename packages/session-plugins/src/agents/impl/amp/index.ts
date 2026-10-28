@@ -135,7 +135,8 @@ export const plugin = definePlugin(
     // 归档里就是一个可执行文件 `amp`)。
     // ⚠️ 厂商**没发** `@ampcode/cli-win32-arm64`(核于 2026-09-21 的 latest),所以那一格不声明 ——
     //    Windows ARM 上这家只能「你自己装,咕咕认」。
-    hostDependency: miseDependency({
+    // `versionLine`:`--version` 里它自己那一行,实测原样「0.0.1793203246-g5eab6d (released …)」(包装器的 banner 在它前面)。
+    hostDependency: { ...miseDependency({
       id: 'amp',
       package: '@ampcode/cli',
       executables: {
@@ -143,7 +144,7 @@ export const plugin = definePlugin(
         'linux-x64': 'amp', 'linux-arm64': 'amp',
         'win32-x64': 'amp.exe',
       },
-    }),
+    }), versionLine: /^\d+\.\d+\.\d+\S* \(released / },
     mcp: {
       kind: 'supported',
       scope: 'global',

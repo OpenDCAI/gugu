@@ -1,3 +1,4 @@
+import { versionLineOf } from './probe';
 import type { ProbeResult } from './types';
 
 export interface HarnessRuntimeIdentity {
@@ -8,9 +9,11 @@ export interface HarnessRuntimeIdentity {
   versionProbeTimedOut: boolean;
 }
 
-export function parseHarnessRuntimeVersion(probe: ProbeResult): string | null {
+export function parseHarnessRuntimeVersion(probe: ProbeResult, versionLine?: RegExp): string | null {
   if (probe.exitCode !== 0 || probe.timedOut) return null;
-  const firstLine = `${probe.stdout}\n${probe.stderr}`
+  const printed = `${probe.stdout}\n${probe.stderr}`;
+  // 它自己那一行(`versionLineOf`:包装器的 banner 在前面);认不出就照旧取第一行。
+  const firstLine = versionLineOf(printed, versionLine) ?? printed
     .split('\n')
     .map((line) => line.trim())
     .find(Boolean);
@@ -23,11 +26,12 @@ export function makeHarnessRuntimeIdentity(input: {
   providerId: string;
   executable: string;
   probe: ProbeResult;
+  versionLine?: RegExp;
 }): HarnessRuntimeIdentity {
   return {
     providerId: input.providerId,
     executable: input.executable,
-    version: parseHarnessRuntimeVersion(input.probe),
+    version: parseHarnessRuntimeVersion(input.probe, input.versionLine),
     versionProbeExitCode: input.probe.exitCode,
     versionProbeTimedOut: input.probe.timedOut,
   };

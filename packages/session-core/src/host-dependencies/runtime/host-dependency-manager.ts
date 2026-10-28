@@ -13,6 +13,7 @@ import {
   resolveRealpath,
   runVersionProbe,
   VERSION_RE,
+  versionLineOf,
   withProbeSwitches,
 } from './probe';
 import { isDownloadStageFailure, readHostDependency,
@@ -176,17 +177,18 @@ function inheritTwinProvenance(
   }
 }
 
-function resolveProbeStatus(resolvedPath: string | null, probe: ProbeResult): DependencyStatus {
+function resolveProbeStatus(resolvedPath: string | null, probe: ProbeResult, versionLine?: RegExp): DependencyStatus {
   // 口径只有一份,在 probe.ts。`resolvedPath` 与 `probe.path` 是同一个值(runVersionProbe
   // 就是把它写进 path 的),所以这里直接把探测结果交过去。
-  return defaultProbeStatus(resolvedPath === probe.path ? probe : { ...probe, path: resolvedPath });
+  return defaultProbeStatus(resolvedPath === probe.path ? probe : { ...probe, path: resolvedPath }, versionLine);
 }
 
-function extractVersion(probe: ProbeResult): string | null {
+function extractVersion(probe: ProbeResult, versionLine?: RegExp): string | null {
   const raw = (probe.stdout || probe.stderr).trim();
-  const firstLine = raw.split('\n')[0]?.trim() ?? '';
-  const m = VERSION_RE.exec(firstLine);
-  return m ? m[1] : firstLine || null;
+  // 这一家自己那一行(`versionLineOf`);认不出就照旧读第一行。
+  const line = versionLineOf(raw, versionLine) ?? raw.split('\n')[0]?.trim() ?? '';
+  const m = VERSION_RE.exec(line);
+  return m ? m[1] : line || null;
 }
 
 function dependencyStateFromProbeResult(
@@ -200,11 +202,11 @@ function dependencyStateFromProbeResult(
   if (probe === null) {
     status = resolvedPath !== null ? 'available' : 'missing';
   } else {
-    status = resolveProbeStatus(resolvedPath, probe);
+    status = resolveProbeStatus(resolvedPath, probe, descriptor.versionLine);
   }
 
   if (status === 'available' && probe) {
-    version = extractVersion(probe);
+    version = extractVersion(probe, descriptor.versionLine);
   }
 
   return {
@@ -565,8 +567,8 @@ export class HostDependencyManager<Ctx extends IExecutionContext = IExecutionCon
         const probe = await runVersionProbe(primaryCommand, pathEntry, versionArgs, this.ctx, {
           env: await this.resolveProbeEnv(descriptor),
         });
-        status = resolveProbeStatus(pathEntry, probe);
-        if (status === 'available') version = extractVersion(probe);
+        status = resolveProbeStatus(pathEntry, probe, descriptor.versionLine);
+        if (status === 'available') version = extractVersion(probe, descriptor.versionLine);
       } else {
         version = await this.readManagedVersion(realpath);
       }
@@ -914,7 +916,7 @@ export class HostDependencyManager<Ctx extends IExecutionContext = IExecutionCon
           manageable: false,
           provenance: { kind: 'unknown', confidence: 'inferred' },
           status,
-          version: status === 'available' ? extractVersion(pathProbe) : null,
+          version: status === 'available' ? extractVersion(pathProbe, descriptor.versionLine) : null,
           latestVersion: null,
           updateAvailable: false,
         };
@@ -949,7 +951,7 @@ export class HostDependencyManager<Ctx extends IExecutionContext = IExecutionCon
         manageable: false,
         provenance: { kind: 'unknown', confidence: 'inferred' },
         status,
-        version: status === 'available' ? extractVersion(cliProbe) : null,
+        version: status === 'available' ? extractVersion(cliProbe, descriptor.versionLine) : null,
         latestVersion: null,
         updateAvailable: false,
       };
@@ -1438,7 +1440,7 @@ export class HostDependencyManager<Ctx extends IExecutionContext = IExecutionCon
       this.ctx,
       { env: await this.resolveProbeEnv(descriptor) },
     );
-    return extractVersion(probe);
+    return extractVersion(probe, descriptor.versionLine);
   }
 
   private async resolveFirstPath(descriptor: DependencyDescriptor): Promise<string | null> {
