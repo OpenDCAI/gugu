@@ -51,7 +51,7 @@ describe('session replies sent to IM', () => {
   });
   it('carries the reply_to_message_id the agent passed, and nothing when it passed none', () => {
     const quoted = words(withSentReplies(turn(send({ chat_id: 'other', reply_to_message_id: 'msg:abc' })), { allDestinations: true }));
-    expect(quoted).toMatchObject([{ sentReplyTo: 'abc' }]);
+    expect(quoted).toMatchObject([{ sentReplyTo: 'abc', sentChat: 'other' }]);
     expect(words(withSentReplies(turn(send({ chat_id: 'other' })), { allDestinations: true }))[0]).not.toHaveProperty('sentReplyTo');
   });
   it('keeps separate successful replies in order and deduplicates replayed calls by DB message id', () => {
