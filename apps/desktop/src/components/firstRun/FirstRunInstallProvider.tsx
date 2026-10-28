@@ -13,7 +13,7 @@ import { FirstRunInstallContext } from './first-run-install-context'
 type InstallTask = { id: FirstRunHarness; state: 'installing' | 'done' | 'failed'; error?: string }
 
 /** 跨引导步骤和主界面常驻；页面切换不会取消安装，也不会丢掉失败后的重试入口。 */
-export function FirstRunInstallProvider({ children }: { children: ReactNode }) {
+export function FirstRunInstallProvider({ children, showNotification = true }: { children: ReactNode; showNotification?: boolean }) {
   const { t } = useTranslation('main')
   const { translate } = useSessionMessages()
   const installation = useAgentInstallationStatuses()
@@ -52,7 +52,7 @@ export function FirstRunInstallProvider({ children }: { children: ReactNode }) {
   return (
     <FirstRunInstallContext.Provider value={start}>
       {children}
-      {tasks.length > 0 && !hidden ? (
+      {showNotification && tasks.length > 0 && !hidden ? (
         <aside className="first-run-install-notification" aria-label={t('firstRun.backgroundInstall')} aria-live="polite" data-testid="first-run-install-notification">
           <div className="first-run-install-notification-heading">
             <strong>{t('firstRun.backgroundInstall')}</strong>

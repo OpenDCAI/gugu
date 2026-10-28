@@ -53,9 +53,7 @@ type GateState =
 export function FirstRunGate(props: { user: AuthUser; children: ReactNode }) {
   return (
     <QueryClientProvider client={queryClient}>
-      {platform.kind === 'electron'
-        ? <FirstRunInstallProvider><FirstRunFlow {...props} /></FirstRunInstallProvider>
-        : <FirstRunFlow {...props} />}
+      <FirstRunFlow {...props} />
     </QueryClientProvider>
   )
 }
@@ -147,7 +145,7 @@ function FirstRunFlow({ user, children }: { user: AuthUser; children: ReactNode 
 
   // The embedded task entry bootstraps once per document; finishing or reopening the tour must
   // keep its product tree and mount element connected at the same position.
-  if (productMounted || productVisible) return (
+  const content = productMounted || productVisible ? (
     <PhoneAgentSetupGate key={user.id} ownerId={user.id}>
       <div className="contents" inert={!productVisible || state.kind === 'intro'} style={productVisible ? undefined : { display: 'none' }}>{children}</div>
       {!productVisible && wizard}
@@ -155,9 +153,11 @@ function FirstRunFlow({ user, children }: { user: AuthUser; children: ReactNode 
       {state.kind === 'intro' && <div className="ta-first-run ta-first-run-overlay" data-ta-scope data-testid="first-run-intro"><div className="ta-onb"><StepCount step="intro" /><FirstRunIntro userId={user.id} onDone={done} onBack={() => setState({ kind: 'terminal' })} /></div></div>}
       {state.kind === 'tour' && <ProductTour key={user.id} userId={user.id} onDone={done} />}
     </PhoneAgentSetupGate>
-  )
+  ) : wizard
 
-  return wizard
+  return platform.kind === 'electron'
+    ? <FirstRunInstallProvider showNotification={state.kind === 'done' || state.kind === 'tour'}>{content}</FirstRunInstallProvider>
+    : content
 }
 
 function FirstRunProfile({ user, initial, step, onDone }: { user: AuthUser; initial: Occupation | null; step: ReactNode; onDone: () => void }) {
