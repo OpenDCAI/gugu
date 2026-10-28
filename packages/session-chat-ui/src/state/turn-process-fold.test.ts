@@ -939,8 +939,11 @@ describe('agent conversation process footer', () => {
     const units = flattenTier([completed()], ctxWith({ foldTurnProcess: true, agentConversation: true,
       isTurnProcessExpanded: id => id === turnProcessId('footer'), revealAllFolds: false }), SEGMENTERS);
     // owner 0 号图:过程行 → 步骤 → 气泡;❌ 步骤挂在气泡底下(10-28 第 5 处)。
-    expect(ids(units).indexOf('answer:head')).toBeLessThan(ids(units).indexOf('think'));
-    expect(ids(units).indexOf('think')).toBeLessThan(ids(units).indexOf('call'));
+    // 对话布局一条也折成一组(「› 想了一下」),所以思考那一步是一个 tool-run。
+    const think = ids(units).indexOf(toolRunId('footer', 'think'));
+    expect(think).toBeGreaterThan(-1);
+    expect(ids(units).indexOf('answer:head')).toBeLessThan(think);
+    expect(think).toBeLessThan(ids(units).indexOf('call'));
     expect(ids(units).indexOf('call')).toBeLessThan(ids(units).indexOf('answer'));
     expect(kinds(units)).not.toContain('turn-process');
   });
