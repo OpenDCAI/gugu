@@ -1,6 +1,8 @@
 /** @jsxImportSource solid-js */
 import { Show, createEffect, createMemo, createSignal, onCleanup } from 'solid-js';
 import { useChatTranslator } from '@session-chat/localization';
+import { useCommands } from '@session-chat/components/contexts/CommandsContext';
+import { useChatName } from '@session-chat/lib/chat-name';
 import { formatElapsed } from '@session-chat/lib/format-elapsed';
 import type { ChatMessage } from '@session-chat/model';
 import { GridLoader } from '@session-chat/components/primitives/GridLoader';
@@ -15,19 +17,22 @@ export function ConversationProcess(props: {
   collapsible?: boolean;
 }) {
   const translate = useChatTranslator();
-  const [now, setNow] = createSignal(Date.now());
+  const commands = useCommands();
+  const clock = () => commands().conversationClock?.() ?? Date.now();
+  const chatName = useChatName();
+  const [now, setNow] = createSignal(clock());
   const ticking = createMemo(() => !!props.process.live && props.process.startedAt !== undefined);
   createEffect(() => {
     if (!ticking()) return;
-    setNow(Date.now());
-    const timer = setInterval(() => setNow(Date.now()), 1000);
+    setNow(clock());
+    const timer = setInterval(() => setNow(clock()), 1000);
     onCleanup(() => clearInterval(timer));
   });
   const elapsed = () => {
     const { startedAt, endedAt } = props.process;
     const end = props.process.live ? now() : endedAt;
     return startedAt !== undefined && end !== undefined && Number.isFinite(startedAt) && Number.isFinite(end)
-      ? formatElapsed(Math.max(0, end - startedAt)) : null;
+      ? formatElapsed(Math.max(0, end - startedAt - (props.process.idleMs ?? 0))) : null;
   };
   // owner 0 号图:「1m14s · 10 步」—— 时长后面跟这一段过程有几步(折起来的那些行一共几条)。
   const steps = () => {
@@ -37,10 +42,20 @@ export function ConversationProcess(props: {
   const summary = () => [elapsed(), steps()].filter(Boolean).join(' · ') || null;
   const label = () => `${translate('transcript.thinkingAndExecution')}${summary() ? ` · ${summary()}` : ''}`;
   // 在跑:点阵代替大脑,字写「执行中 · 1m15s」并带微光(owner 2026-10-27 原型);跑完换回大脑 + 用时。
-  const liveLabel = () => `${translate('transcript.thinkingLive')}${summary() ? ` · ${summary()}` : ''}`;
+  // 不是主人手打起的这一轮:写清在干什么(管家 10-28)。群名只在恰好一个、宿主认得时写;几条合成一轮或认不出就不写名字。
+  const doing = () => {
+    const trigger = props.process.trigger;
+    if (!trigger) return null;
+    if (trigger.kind === 'schedule') return translate('transcript.processForSchedule');
+    if (trigger.kind === 'agent') return translate('transcript.processForBackground');
+    const name = trigger.chatIds?.length === 1 ? chatName(trigger.chatIds[0]) : null;
+    return name ? translate('transcript.processForGroupNamed', { name }) : translate('transcript.processForDelivery');
+  };
+  const collapsible = () => props.collapsible !== false && !props.process.empty;
+  const liveLabel = () => [translate('transcript.thinkingLive'), doing(), summary()].filter(Boolean).join(' · ');
   return <button type="button" class={conversationProcessButton} data-conversation-process={props.process.id}
-    data-collapse-id={props.collapsible === false ? undefined : props.process.id} data-collapse-anchor={props.anchorId}
-    aria-expanded={props.collapsible === false ? undefined : props.expanded} aria-label={label()} title={label()}>
+    disabled={!collapsible()} data-collapse-id={collapsible() ? props.process.id : undefined} data-collapse-anchor={props.anchorId}
+    aria-expanded={collapsible() ? props.expanded : undefined} aria-label={label()} title={label()}>
     <Show when={!props.process.live} fallback={<><GridLoader /><ShimmerText active>{liveLabel()}</ShimmerText></>}>
       <svg width="17" height="17" viewBox="0 0 24 22" fill="none" stroke="currentColor" stroke-width="1.4"
         stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
@@ -49,6 +64,6 @@ export function ConversationProcess(props: {
       </svg>
       <Show when={summary()}>{value => <span>{value()}</span>}</Show>
     </Show>
-    <Show when={props.collapsible !== false}><span class={conversationProcessChevron} aria-hidden="true">›</span></Show>
+    <Show when={collapsible()}><span class={conversationProcessChevron} aria-hidden="true">›</span></Show>
   </button>;
 }

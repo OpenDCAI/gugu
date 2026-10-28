@@ -12,8 +12,8 @@
  * 所以读写都收敛到这里一处。属性 = 真值,咕咕的 provider 观察它并同步自身 state,
  * 会话页的 provider 用 useSyncExternalStore 订阅它 —— 没有第二处可以漂。
  *
- * @@@5293 三态:**偏好**(用户在设置里选的)与**真值**(当下到底是浅还是深)是两层。
- * 偏好存 localStorage `app-theme`,取值 `light` / `dark` / `system`;真值永远是解析后的
+ * **偏好**(用户在设置里选的)与**真值**(当下到底是浅还是深)是两层。
+ * 偏好存 localStorage `app-theme`,取值 `light` / `dark` / `system` / `plain-white`;真值永远是解析后的
  * `light` / `dark`,落在 `<html data-theme>` 上。选了 `system` 时真值随系统外观走,
  * 由 `startHostThemeSystemSync()` 一处负责改写属性 —— 两个 React 根都只是观察者。
  */
@@ -27,7 +27,7 @@ export type EffectiveTheme = 'emlight' | 'emdark';
 export type HostTheme = 'light' | 'dark';
 
 /** 偏好:用户在设置里选的那一项。`system` = 跟随系统外观。 */
-export type ThemePreference = HostTheme | 'system';
+export type ThemePreference = HostTheme | 'system' | 'plain-white';
 
 const HOST_THEME_STORAGE_KEY = 'app-theme';
 
@@ -50,17 +50,17 @@ export function systemPrefersDark(): boolean {
   return prefersDarkQuery()?.matches === true;
 }
 
-/** 把偏好解析成真值:`system` 查系统外观,其余就是它自己。 */
+/** 把偏好解析成明暗真值:`system` 查系统外观,素白固定用浅色。 */
 export function resolveThemePreference(preference: ThemePreference): HostTheme {
   if (preference === 'system') return systemPrefersDark() ? 'dark' : 'light';
-  return preference;
+  return preference === 'plain-white' ? 'light' : preference;
 }
 
 /** 读用户选的那一项。存的值不认识(旧版本/被改过)时退回默认,❌ 不猜。 */
 export function readThemePreference(): ThemePreference {
   if (typeof localStorage === 'undefined') return DEFAULT_PREFERENCE;
   const saved = localStorage.getItem(HOST_THEME_STORAGE_KEY);
-  return saved === 'light' || saved === 'dark' || saved === 'system' ? saved : DEFAULT_PREFERENCE;
+  return saved === 'light' || saved === 'dark' || saved === 'system' || saved === 'plain-white' ? saved : DEFAULT_PREFERENCE;
 }
 
 /**
@@ -80,13 +80,14 @@ function syncNativeAppearance(preference: ThemePreference): NativeAppearanceSync
   if (typeof window === 'undefined') return { kind: 'no-bridge' };
   const bridge = window.electronAPI?.syncThemePreference;
   if (!bridge) return { kind: 'no-bridge' };
-  const answer = bridge(preference);
+  // 素白是浅色的表面样式;原生窗口仍消费浅/深/系统这三种外观。
+  const answer = bridge(preference === 'plain-white' ? 'light' : preference);
   return answer === 'light' || answer === 'dark' ? { kind: 'ok', system: answer } : { kind: 'failed' };
 }
 
 /** 同步成功(或没有主进程)之后,偏好 → 真值。 */
 function settledTheme(preference: ThemePreference, sync: Exclude<NativeAppearanceSync, { kind: 'failed' }>): HostTheme {
-  if (preference !== 'system') return preference;
+  if (preference !== 'system') return resolveThemePreference(preference);
   return sync.kind === 'ok' ? sync.system : resolveThemePreference('system');
 }
 
@@ -102,9 +103,10 @@ export function subscribeToThemePreference(onChange: () => void): () => void {
   };
 }
 
-function applyEffectiveTheme(theme: HostTheme): void {
+function applyEffectiveTheme(theme: HostTheme, preference: ThemePreference): void {
   if (typeof document === 'undefined') return;
   document.documentElement.dataset.theme = theme;
+  document.documentElement.dataset.themePreference = preference;
   notifyWindowTone(theme);
 }
 
@@ -150,7 +152,7 @@ export function writeThemePreference(preference: ThemePreference): HostTheme {
   if (typeof localStorage !== 'undefined') {
     localStorage.setItem(HOST_THEME_STORAGE_KEY, preference);
   }
-  applyEffectiveTheme(resolved);
+  applyEffectiveTheme(resolved, preference);
   notifyPreferenceChanged();
   return resolved;
 }
@@ -177,7 +179,7 @@ export function startHostThemeSystemSync(): () => void {
   if (!detachSystemSync) {
     const handler = () => {
       if (readThemePreference() !== 'system') return;
-      applyEffectiveTheme(systemPrefersDark() ? 'dark' : 'light');
+      applyEffectiveTheme(systemPrefersDark() ? 'dark' : 'light', 'system');
     };
     mq.addEventListener('change', handler);
     detachSystemSync = () => mq.removeEventListener('change', handler);
@@ -208,7 +210,7 @@ export function hydrateHostTheme(): HostTheme {
     return readEffectiveHostTheme();
   }
   const resolved = settledTheme(preference, sync);
-  applyEffectiveTheme(resolved);
+  applyEffectiveTheme(resolved, preference);
   return resolved;
 }
 

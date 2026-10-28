@@ -344,6 +344,8 @@ export interface DeviceCapabilities extends Partial<DeviceHostInfo> {
   // @@@fleet-version (#663) - build version of the app reporting the heartbeat; absent = host predating
   // the field (UI shows 版本未知, never fabricates one).
   app_version?: string
+  /** Published desktop builds only; development versions never select a cloud host package. */
+  published_desktop_version?: string
   /** #7199 这台设备能被调用的动作(设备心跳登记;老设备缺席)。 */
   actions?: DeviceActionsSummary
 }

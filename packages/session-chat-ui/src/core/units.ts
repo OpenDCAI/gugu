@@ -81,6 +81,8 @@ export type RenderUnit<D = unknown> = {
   groupRole: GroupRole;
   gapBefore: number;
   chrome?: GroupChrome;
+  /** Agent conversation block ownership; process steps and reply keep one chronological owner. */
+  conversationProcessOwner?: string;
   /** The fold toggles this unit is emitted behind, outermost first (set only under `revealAllFolds`). */
   folds?: readonly FoldGate[];
 };

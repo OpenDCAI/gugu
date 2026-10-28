@@ -19,9 +19,11 @@ import { useSshLinkProblems } from './useSshLinkProblems'
 import { useDevicesStore } from '../store/devicesContext'
 import { openMachineSessionHostPipe } from '../lib/remoteSessionHost'
 import { retryServerVersionMatch } from '../lib/serverVersionRetry'
+import { requestCloudVersionMatch } from '../lib/cloudVersionMatch'
 import { listDevicesOnceIdentified } from '../lib/listDevicesOnceIdentified'
 import { CloudComputerWakeError } from '@gugu/core/cloud/cloudComputer'
 import { wakeAndWaitOnline } from '../lib/cloudComputerStore'
+import { reconnectMachine } from '../session/renderer/lib/machine-clients'
 import { isAssistantHome } from '../lib/assistantHome'
 import { useAssistantName } from './useAssistantHomeLabel'
 import {
@@ -44,6 +46,13 @@ export function useRemoteHostsBridge(
   const { devices, cloudComputer } = useDevicesStore()
   // #7199 个人助理住的那台:会话页里说到它,说的是它本人(名字由「助理」App 的壳认出来;还没认出 = 「个人助理」)。
   const homeId = cloudComputer?.snapshot?.deviceId ?? null
+  const homeIdRef = useRef(homeId)
+  homeIdRef.current = homeId
+  useEffect(() => {
+    const ready = (event: Event) => reconnectMachine((event as CustomEvent<{ deviceId: string }>).detail.deviceId)
+    window.addEventListener('gugu:cloud-version-matched', ready)
+    return () => window.removeEventListener('gugu:cloud-version-matched', ready)
+  }, [])
   const homeName = useAssistantName()
   const sshMachines = useSshMachineIds()
   // 离线的 SSH 机器:这个账号在那台机器上的登录还在不在(侧栏与会话里说「登录已失效」而不只是「离线」)。
@@ -142,7 +151,7 @@ export function useRemoteHostsBridge(
       matchServerVersion: (deviceId, options) =>
         currentSshMachineIds().has(deviceId)
           ? requestSshServerUpgrade(deviceId, { force: options?.retry === true })
-          : retryServerVersionMatch(deviceId),
+          : homeIdRef.current === deviceId ? requestCloudVersionMatch(deviceId, options?.retry === true) : retryServerVersionMatch(deviceId),
     }
     return installRemoteHostsBridge(bridge)
   }, [enabled])
