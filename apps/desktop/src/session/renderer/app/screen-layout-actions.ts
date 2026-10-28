@@ -195,6 +195,11 @@ function followFocus(): void {
     if (!here) navigation.navigate('project', { projectId: focusedBlock.projectId });
     return;
   }
+  // 正看着示例项目(#709):它不是导航里的哪一样,看的就是这一屏;❌ 跟回最近看过的会话(那会把它换下去)。
+  if (focusedBlock?.kind === 'sample-project') {
+    if (navigation.currentViewId !== 'screen') navigation.navigate('screen');
+    return;
+  }
   // 正看着对话块:导航到那条对话(左边那一行高亮)。
   if (focusedBlock?.kind === 'chat') {
     const current = navigation.viewParamsStore.chat as { chatId?: string } | undefined;
@@ -330,6 +335,13 @@ function refillScreen(): void {
 /** 这个项目删掉了:它那块收掉(收起来的组里也一样);屏上空了就摆回最近看过的会话。 */
 export function forgetProjectOnScreen(projectId: string): void {
   screenLayout.forgetContent({ kind: 'project', projectId });
+  refillScreen();
+  followFocus();
+}
+
+/** 这个账号没有(或删了)示例项目:屏上那块收掉;屏上空了就摆回最近看过的会话。 */
+export function forgetSampleProjectOnScreen(): void {
+  screenLayout.forgetContent({ kind: 'sample-project' });
   refillScreen();
   followFocus();
 }

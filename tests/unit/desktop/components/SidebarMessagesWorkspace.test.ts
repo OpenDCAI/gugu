@@ -33,6 +33,7 @@ describe('Messages returns to the shared screen', () => {
     { kind: 'project', projectId: 'project-1' },
     { kind: 'session', projectId: 'project-1', sessionId: 'session-1' },
     { kind: 'app', tabKind: 'notes.main' },
+    { kind: 'sample-project' },
   ]
   for (const content of contents) {
     for (const away of ['assistant', 'library', 'app'] as const) {
@@ -45,9 +46,9 @@ describe('Messages returns to the shared screen', () => {
 
         await clickMessages()
 
-        expect(appState.navigation.currentViewId).toBe(content.kind === 'app' ? 'screen' : content.kind)
+        expect(appState.navigation.currentViewId).toBe(content.kind === 'app' || content.kind === 'sample-project' ? 'screen' : content.kind)
         expect(screenLayout.snapshot).toEqual(saved)
-        if (content.kind !== 'app') expect(appState.navigation.viewParamsStore[content.kind]).toMatchObject(content.kind === 'session'
+        if (content.kind !== 'app' && content.kind !== 'sample-project') expect(appState.navigation.viewParamsStore[content.kind]).toMatchObject(content.kind === 'session'
           ? { projectId: content.projectId, sessionId: content.sessionId }
           : content.kind === 'chat' ? { chatId: content.chatId } : { projectId: content.projectId })
       })

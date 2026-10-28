@@ -23,6 +23,7 @@ import { FirstRunHarness } from './FirstRunHarness'
 import { FirstRunInstallProvider } from './FirstRunInstallProvider'
 import { UI_EVENTS } from '../../lib/uiEvents'
 import { startFirstRunHints } from '../../lib/firstRunHints'
+import { enrollSampleProject } from '../../lib/sampleProject'
 import { FirstRunHints } from './FirstRunHints'
 
 const log = rendererLogger('first-run')
@@ -266,6 +267,7 @@ function FirstRunIntro({ userId, onDone }: { userId: string; onDone: () => void 
     setError(null)
     try {
       await startFirstRunHints(userId)
+      await enrollSampleProject(userId)
       await finishFirstRun()
       if (openAssistant) requestAssistantSetupHandoff(userId)
       onDone()

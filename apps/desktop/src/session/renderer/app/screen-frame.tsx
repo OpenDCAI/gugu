@@ -34,6 +34,7 @@ import { openPanelItem } from '@renderer/features/chats/chat-tabs/chat-layouts';
 import { requestTopicSplit } from '@/lib/topicSplitRequest';
 import { ComposerVerbDock } from '@renderer/features/sessions/task-dispatch-composer';
 import { ProjectBlock } from './project-block';
+import { SampleProjectBlock } from '@renderer/features/sample-project/sample-project-block';
 import { screenLayout, type ScreenBlockContent } from './screen-layout';
 import { clearDraggedScreenContent, getDraggedScreenContent, hasDraggedScreenContent, setDraggedScreenContent } from '@renderer/lib/drag-screen-content';
 
@@ -152,6 +153,9 @@ const BlockSlot = observer(function BlockSlot({ blockId }: { blockId: string }) 
           projectId={block.projectId}
           blockActions={screenLayout.order.length > 1 ? <CloseBlockButton blockId={blockId} /> : null}
         />
+      ) : null}
+      {block?.kind === 'sample-project' ? (
+        <SampleProjectBlock blockId={blockId} blockActions={screenLayout.order.length > 1 ? <CloseBlockButton blockId={blockId} /> : null} />
       ) : null}
       {block?.kind === 'chat' ? <ChatBlock blockId={blockId} chatId={block.chatId} /> : null}
       {block?.kind === 'chat-app' ? <ChatAppBlock blockId={blockId} content={block} /> : null}

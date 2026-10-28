@@ -36,6 +36,7 @@ import { openShellChatAction, shellChatActions, SidebarChatsSection } from './si
 import { publishSidebarChatView, useSidebarChatSignals } from '@/lib/sidebarChatsBridge';
 import { SidebarSessionsSection } from './sidebar-sessions-section';
 import { SidebarVirtualList } from './sidebar-virtual-list';
+import { SampleProjectSidebar } from './sample-project-row';
 import { useSidebarDrop } from './use-sidebar-drop';
 import { useSessionMessages } from '@renderer/localization/use-session-messages';
 
@@ -275,6 +276,7 @@ export const LeftSidebar: React.FC = observer(function LeftSidebar() {
                               显式让开,不叠第二份。留白的数值只有一个出处:sidebarGroupInsetX。 */}
                           <SidebarMenu className="flex flex-col px-0">
                             <SidebarVirtualList />
+                            <SampleProjectSidebar />
                           </SidebarMenu>
                         </SidebarGroupContent>
                       )}
