@@ -626,6 +626,8 @@ export function ChatRoot(props: ChatRootProps) {
       if (u.kind === 'message') {
         const m = u.data as ChatMessage;
         if (m.role === 'assistant' && m.conversationProcess) return u.itemId;
+        // 一轮末尾是气泡、过程行在它上面那一行(对话布局拆成头 + 气泡)⇒ 后台照旧挂在那条过程行上。
+        if (m.role === 'assistant' && m.conversationPart === 'body' && m.conversationHead) return m.conversationHead;
       }
       return null;
     }
