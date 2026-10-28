@@ -881,11 +881,11 @@ export class PaneStore<R extends TabRegistry = TabRegistry>
   /**
    * 亮起一枚页签(点页签、键盘切换、新开的页签都经过这里)。spec session-page「并排」的那条规矩就在这儿:
    * 屏上正并排时,钉住的那页不动 —— 亮起一枚不在这对里的,它顶替另一页、原来那页退下;屏上只有一页时照旧换成它。
-   * 亮起这一对里的任一枚 = 那一边拿到焦点,并排照旧。
+   * 亮起这一对里的任一枚 = 那一边拿到焦点,并排照旧。用户拆开过的那一类不顶替,自己占满这一格(这一对留着)。
    */
   setActiveTab(id: string): void {
     const pair = this.livePair;
-    if (pair && id !== pair.anchor && id !== pair.side && this.pairShown && this._canPair(pair.anchor, id)) {
+    if (pair && id !== pair.anchor && id !== pair.side && this.pairShown && !this.splitDeclinedFor(id) && this._canPair(pair.anchor, id)) {
       this._replaceSide(pair, id);
     }
     this._focus(id);

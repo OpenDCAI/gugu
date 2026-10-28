@@ -502,6 +502,12 @@ describe('并排:手动分屏、拆开', () => {
     layout.open('page', { id: 'docs' }, { beside: true, activate: false });
     expect(shown()).toEqual(['chat:conv', 'page:docs']);
     expect([...pane.splitDeclinedKinds]).toEqual(['file']);
+    // 拆开过的那一类已经开着:点它不顶替旁边那页,自己占满;回到对话,那一对还在。
+    const fileTab = pane.tabOrder.find((id) => pane.entries.get(id)?.kind === 'file')!;
+    pane.setActiveTab(fileTab);
+    expect(shown()).toEqual(['file:a.ts']);
+    pane.setActiveTab(pane.tabOrder[0]);
+    expect(shown()).toEqual(['chat:conv', 'page:docs']);
   });
 
   it('程序为让位拆开的(remember: false)不算用户选的:下次照旧并排', () => {
