@@ -35,9 +35,9 @@ export default {
     "harnessCancelFailed": "没能取消安装，请重试。",
     "introStart": "开通我的咕咕",
     "introLater": "先逛逛",
-    "terminalTitle": "终端模式",
+    "terminalTitle": "终端",
     "terminalSub": "习惯在终端里用 Claude Code、Codex 这类 CLI？开启后，可以用 TUI 的方式和 agent 交互。",
-    "terminalToggle": "开启终端模式",
+    "terminalToggle": "启用终端",
     "tourChoiceTitle": "要不要带你看看？",
     "tourChoiceSub": "用 1 分钟认识左边这一栏。",
     "tourChoiceStart": "带我看看（1 分钟）",
@@ -175,7 +175,8 @@ export default {
       "tooLarge": "图太大 · 在桌面上看"
     },
     "timeline": {
-      "outputTrimmed": "… 此预览省略了 {{chars}} 字",
+      "outputTrimmed_one": "… 此预览省略了 {{count}} 字",
+      "outputTrimmed_other": "… 此预览省略了 {{count}} 字",
       "loading": "正在读取时间线…",
       "waitingRecord": "会话已开，正在等它写下第一行…",
       "empty": "这个会话还没有内容。",

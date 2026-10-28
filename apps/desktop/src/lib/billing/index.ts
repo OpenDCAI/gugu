@@ -34,6 +34,7 @@ export {
 } from './quota'
 export type { UsageActivityRow } from './usage'
 export {
+  creditCount,
   describeSpendingPower,
   formatCredits,
   formatUsageCredits,

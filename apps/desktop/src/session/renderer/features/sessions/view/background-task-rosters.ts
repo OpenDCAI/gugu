@@ -22,13 +22,24 @@ export function collectSubagents(sessionId: string | undefined, fallbackName: st
   if (!store) return [];
   void store.transcriptRevision;
   const transcript = store.chatState.transcript.state;
+  const live = new Set(store.liveSubagentIds);
+  const active = transcript.activeTurnSnapshot;
   return collectSubagentRoster(
     transcript.committedTurns,
-    transcript.activeTurnSnapshot,
+    active,
     fallbackName
+  ).filter((entry) =>
+    // 库里读出来的旧轮可能是上一个进程派的:随进程没了、永远等不来完成通知 ⇒ 只留运行时登记册说还在跑的
+    // (与后台命令同一条,#6582)。正在跑的这一轮里派的不受这条管 —— 没有登记册的 harness 也照常显示前台子智能体。
+    (live.has(entry.launchToolCallId) || (active ? launchedIn(active.items, entry.launchToolCallId) : false))
     // 「我不看它了」是显示层的事,所以过滤在这儿、不在 `collectSubagentRoster` 里:
     // 那个函数是纯的,它只该回答「谁还在跑」,不该知道有人按过 ×。
-  ).filter((entry) => !isSubagentDismissed(sessionId, entry.id));
+    && !isSubagentDismissed(sessionId, entry.id));
+}
+
+function launchedIn(items: readonly unknown[], toolCallId: string): boolean {
+  return (items as Array<{ toolCallId?: string; children?: readonly unknown[] }>).some((item) =>
+    item.toolCallId === toolCallId || (item.children !== undefined && launchedIn(item.children, toolCallId)));
 }
 
 /**

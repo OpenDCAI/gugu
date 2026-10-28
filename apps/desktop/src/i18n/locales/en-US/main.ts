@@ -35,9 +35,9 @@ export default {
     "harnessCancelFailed": "Couldn't cancel the installation. Please try again.",
     "introStart": "Set up my Gugu",
     "introLater": "Look around first",
-    "terminalTitle": "Terminal mode",
+    "terminalTitle": "Terminal",
     "terminalSub": "Used to CLIs like Claude Code or Codex in a terminal? Turn it on to work with agents through a TUI.",
-    "terminalToggle": "Turn on terminal mode",
+    "terminalToggle": "Enable terminal",
     "tourChoiceTitle": "Want a quick look around?",
     "tourChoiceSub": "Take a minute to get to know the left bar.",
     "tourChoiceStart": "Show me (1 min)",
@@ -181,7 +181,8 @@ export default {
       "tooLarge": "Too large · view on desktop"
     },
     "timeline": {
-      "outputTrimmed": "… {{chars}} chars omitted from this preview",
+      "outputTrimmed_one": "… {{count}} char omitted from this preview",
+      "outputTrimmed_other": "… {{count}} chars omitted from this preview",
       "loading": "Loading the timeline…",
       "waitingRecord": "Task started — waiting for its first line…",
       "empty": "This task has no content yet.",
