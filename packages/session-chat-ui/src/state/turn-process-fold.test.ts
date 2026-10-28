@@ -1010,6 +1010,19 @@ describe('agent conversation process footer', () => {
       isTurnProcessExpanded: id => id === (head as { id?: string } | undefined)?.id }), SEGMENTERS);
     expect(closed.length).toBeLessThan(units.length);
   });
+  it('folds a single command into its own step group, between the lines the agent said', () => {
+    // MBP 验收 10-28 第十四轮:ping / 中途的话 / ping —— 一组只有一条命令时整组不见了。
+    const record = turn('pings', [user('u'), bash('p1'), reply('mid', '中途汇报一'), bash('p2'), reply('final', '完成了')],
+      { kind: 'done', reason: 'end_turn' }, { startedAt: 1000, endedAt: 9000 });
+    const open = flattenTier([record], ctxWith({ foldTurnProcess: true, agentConversation: true, isTurnProcessExpanded: id => id === turnProcessId('pings') }), SEGMENTERS);
+    expect(open.filter(unit => unit.kind === 'tool-run').map(unit => (unit.data as { stepCount: number }).stepCount)).toEqual([1, 1]);
+    expect(open.map(unit => unit.kind === 'tool-run' ? 'run' : unit.itemId).filter(id => ['run', 'mid', 'final'].includes(id))).toEqual(['run', 'mid', 'run', 'final']);
+    // 在跑时也一样,而且 ❌「正在跑 <原始命令>」。
+    const running = turn('pings', [user('u'), bash('p1'), reply('mid', '中途汇报一'), { ...bash('p2'), status: 'running' } as ChatItem], undefined, { startedAt: 1000 });
+    const live = flattenTier([running], ctxWith({ active: true, foldTurnProcess: true, agentConversation: true }), SEGMENTERS);
+    expect(live.filter(unit => unit.kind === 'tool-run')).toHaveLength(2);
+    expect(live.some(unit => (unit.data as { now?: unknown }).now !== undefined)).toBe(false);
+  });
   it('places live work under its reply and does not hide failure states', () => {
     const live = flattenTier([completed()], ctxWith({ active: true, foldTurnProcess: true, agentConversation: true }), SEGMENTERS);
     // 还在跑:只有「执行中」过程行,没有回复气泡,也就没有哪句带时间那一行。

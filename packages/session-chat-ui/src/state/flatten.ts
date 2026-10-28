@@ -258,7 +258,7 @@ export function flattenTier(
       // 对话布局一条也折成「跑了 1 条命令」:设计稿 0 号里过程下面只有步骤组和灰色单行,
       // ❌ 单独一行「执行 ping -c 12 …」把原始命令露出来(MBP 验收 10-28)。
       if (run.length === 1 && !ctx.agentConversation) ops.push({ kind: 'row', item: run[0] });
-      else if (run.length > 1) ops.push({ kind: 'run', rows: run });
+      else if (run.length > 0) ops.push({ kind: 'run', rows: run });
       run = [];
     };
     for (const row of rows) {

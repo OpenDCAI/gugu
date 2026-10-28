@@ -26,6 +26,8 @@ import {
 import { isDoubleColumnLayout } from '@session-chat/core/layout/preset';
 import { srOnly } from './message.css';
 import { useChatTranslator } from '@session-chat/localization';
+import { useChatName } from '@session-chat/lib/chat-name';
+import { agentSendLabel } from '@session-chat/state/agent-send';
 import { UserMessageActions } from './UserMessageActions';
 import { CONVERSATION_EXPAND_H, hasConversationActions } from './conversation-body';
 import { UserMessageEditor } from './UserMessageEditor';
@@ -49,8 +51,11 @@ import {
 
 export function UserMessageCard(props: { data: ChatMessage; ctx: RenderCtx; vars: MessageVars; conversation?: boolean }) {
   const translate = useChatTranslator();
+  const chatName = useChatName();
   const commands = useCommands();
   const turn = useTurnState();
+  /** 对话布局里发出去的那条:气泡下面那一行最前面常驻「发到 群名」(管家 10-28)。 */
+  const sentTo = () => props.conversation && props.data.sentTo ? agentSendLabel(props.data.sentTo, translate, chatName) : undefined;
   const mCtx = () => props.ctx.measureCtx?.();
   // Layout-resolved geometry (#4874): `base` narrows padding, drops the border
   // and reserves a left gutter. Same helper as measureMessage so the painted
@@ -243,7 +248,7 @@ export function UserMessageCard(props: { data: ChatMessage; ctx: RenderCtx; vars
     </Show>
     <Show when={!props.conversation || hasConversationActions(props.data)}>
     <UserMessageActions itemId={props.data.id} text={props.data.text} at={props.data.at}
-      generating={isGenerating()} readOnly={Boolean(props.data.guguDelivery) || (props.conversation && props.data.role === 'assistant')} vars={props.vars} />
+      generating={isGenerating()} readOnly={Boolean(props.data.guguDelivery) || (props.conversation && props.data.role === 'assistant')} vars={props.vars} prefix={sentTo()} />
     </Show>
     </>}>
       {(editing) => <UserMessageEditor edit={editing()} height={editorMetrics().height} textHeight={editorMetrics().textHeight} />}

@@ -99,6 +99,8 @@ export type ChatMessage = {
   conversationNarration?: boolean;
   /** View-only: the closing reply of a finished turn — the only agent bubble with the time / copy row (design 0 `tail`). */
   conversationTail?: boolean;
+  /** Where this message_send output went (same reading as the session page's 「发到 …」 line, `agentSendOf`). */
+  sentTo?: AgentSend['to'];
   /** The `chat_id` that message_send went to — names the group when this row is itself quoted later. */
   sentChat?: string;
   /** View-only disclosure of the completed thinking/execution segment. */

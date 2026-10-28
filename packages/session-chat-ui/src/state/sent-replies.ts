@@ -1,4 +1,4 @@
-import { replyItems, replySend, replySource, sentMessageId, successfulMessageSend } from '@gugu/session-core/session-record/reply-process';
+import { agentSendOf, replyItems, replySend, replySource, sentMessageId, successfulMessageSend } from '@gugu/session-core/session-record/reply-process';
 import type { TranscriptTurn } from '@session-chat/model';
 
 /** Keep successfully delivered replies readable when their tool process is folded. */
@@ -22,6 +22,9 @@ export function withSentReplies(turn: TranscriptTurn, options: { allDestinations
     const chat = 'chat' in send ? send.chat : undefined;
     const reply = { kind: 'message' as const, id: `${item.id}:sent:${id}`, seq: item.seq, role: 'assistant' as const, text: send.text,
       ...(replyTo ? { sentReplyTo: replyTo } : {}), ...(chat ? { sentChat: chat } : {}) };
+    // 对话布局:气泡下面常驻一小段「发到 群名」(管家 10-28),去向与会话页那一行同一个读法。
+    const to = options.allDestinations ? agentSendOf(item, turn)?.to : undefined;
+    if (to) Object.assign(reply, { sentTo: to });
     replies.push(reply);
     if (options.allDestinations) {
       const container = turn.items.find(parent => parent.id === item.id || (parent.kind === 'tool-group' && replyItems({ ...turn, items: [parent] }).some(child => child.id === item.id)));

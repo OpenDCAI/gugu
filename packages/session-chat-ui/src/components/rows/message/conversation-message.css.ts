@@ -49,8 +49,10 @@ for (const label of [collapseHeader, toolName, summaryChip]) {
 
 // owner 定稿(0 号图):对话布局照样复用原气泡 —— 时间、复制、编辑那一行在气泡下面占着位置,
 // 鼠标停在这条消息上才显出来(设计稿 `.acts{opacity:0}` + `.msg:hover > .acts`,owner 10-28);agent 那边靠左,复制在前、时间在后。
-globalStyle(`${conversationRoot} [data-user-message-actions]`, { opacity: 0, pointerEvents: 'none', transition: 'opacity 120ms ease' });
-globalStyle(`${conversationRoot}:hover [data-user-message-actions], ${conversationRoot} [data-user-message-actions]:focus-within`, { opacity: 1, pointerEvents: 'auto' });
+globalStyle(`${conversationRoot} [data-user-message-actions] > :not([data-slot="sent-to"])`, { opacity: 0, pointerEvents: 'none', transition: 'opacity 120ms ease' });
+globalStyle(`${conversationRoot}:hover [data-user-message-actions] > *, ${conversationRoot} [data-user-message-actions]:focus-within > *`, { opacity: 1, pointerEvents: 'auto' });
+// 发出去的气泡:那一行最前面常驻一小段淡灰的「发到 群名」(管家 10-28),时间、复制照旧悬停才出。
+globalStyle(`${conversationRoot} [data-user-message-actions] > [data-slot="sent-to"]`, { order: -1, marginLeft: 0, marginRight: 8, color: vars.fgMuted, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', minWidth: 0 });
 globalStyle(`${conversationRoot}[data-side="left"] [data-user-message-actions]`, { justifyContent: 'flex-start' });
 globalStyle(`${conversationRoot}[data-side="left"] [data-user-message-actions] time`, { order: 2, marginLeft: 8, marginRight: 0 });
 // 折着的长消息淡出成气泡自己的底色(浅色),❌ 淡成原用户气泡的深色 —— 那就是一条黑带。

@@ -17,7 +17,8 @@ export const CONVERSATION_QUOTE_H = 22;
  */
 export function hasConversationActions(item: ChatMessage): boolean {
   if (!hasConversationBody(item)) return false;
-  return !(item.role === 'assistant' && item.conversationPart === 'body' && !item.conversationTail);
+  // 发出去的那几条也带:那一行最前面常驻「发到 群名」(管家 10-28),时间、复制照旧悬停才出。
+  return !(item.role === 'assistant' && item.conversationPart === 'body' && !item.conversationTail && !item.sentTo);
 }
 
 /** 对话布局里这条有没有要画的正文或附件:只有过程、一个字没回的那一轮没有气泡,也不留时间那一行。 */

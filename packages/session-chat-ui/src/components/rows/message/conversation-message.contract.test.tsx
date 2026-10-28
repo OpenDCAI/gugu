@@ -53,7 +53,7 @@ describe('agent-centered conversation bubbles', () => {
         // 时间、复制(、编辑)那一行在气泡下面占着位置,鼠标停上去才显出来(设计稿 `.acts{opacity:0}`,owner 10-28)。
         const actions = row.querySelector<HTMLElement>('[data-user-message-actions]')!;
         expect(actions.querySelectorAll('time')).toHaveLength(1);
-        expect(getComputedStyle(actions).opacity).toBe('0');
+        expect(getComputedStyle(actions.querySelector('button')!).opacity).toBe('0');
         expect(actions.getBoundingClientRect().top).toBeGreaterThanOrEqual(bubble.getBoundingClientRect().bottom - 1);
         if (role === 'assistant') {
           expect(Math.abs(bubble.getBoundingClientRect().left - row.getBoundingClientRect().left)).toBeLessThanOrEqual(1);
@@ -236,5 +236,17 @@ describe('agent-centered conversation bubbles', () => {
       // 没传 reply_to_message_id ⇒ 不画(❌ 猜)。
       expect(plain.host.querySelector('[data-slot="conversation-quote"]')).toBeNull();
     } finally { quoted.dispose(); plain.dispose(); }
+  });
+  it('a sent bubble keeps a faint 「sent to」 note in its actions row while time and copy wait for hover', async () => {
+    const view = await mount({ kind: 'message', id: 'call:sent:x', role: 'assistant', text: '完成', at: Date.now(), conversationPart: 'body',
+      sentTo: { kind: 'chat', conversationId: null, threadRootId: null, whisper: false } });
+    try {
+      const actions = view.host.querySelector<HTMLElement>('[data-user-message-actions]')!;
+      const note = actions.querySelector<HTMLElement>('[data-slot="sent-to"]')!;
+      expect(note.textContent?.trim()).toBeTruthy();
+      expect(getComputedStyle(note).opacity).toBe('1');
+      expect(getComputedStyle(actions.querySelector('button')!).opacity).toBe('0');
+      expect(Math.abs(view.host.getBoundingClientRect().height - messageUnitDef.measure(view.item, view.ctx, messageUnitDef.vars!))).toBeLessThanOrEqual(1);
+    } finally { view.dispose(); }
   });
 });
