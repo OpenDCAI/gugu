@@ -156,7 +156,7 @@ describe('background tasks at the end of the transcript', () => {
     expect(row(host)?.textContent).toContain('Background · 1 subagent')
   })
 
-  // owner 2026-10-27 原型:末尾那条回复带着过程行时,后台那一句与「思考执行中」同一行,单子就地展开在它下面。
+  // owner 2026-10-27 原型:末尾那条回复带着过程行时,后台那一句与「执行中」同一行,单子就地展开在它下面。
   it('hangs on a live process line that has no reply yet, across the steps under it', async () => {
     const { state, host } = mount({}, true)
     state.transcript.activeTurn.set({
@@ -168,7 +168,7 @@ describe('background tasks at the end of the transcript', () => {
       ]
     } as unknown as TranscriptTurn)
     state.session.setBackgroundTasks({ commands: [command], subagents: [agent()] })
-    // owner 0 号图:「思考执行中 · … · N 步 ⌄ | 后台 · … ›」同一行,❌ 单独一行排在步骤下面。
+    // owner 0 号图:「执行中 · … · N 步 ⌄ | 后台 · … ›」同一行,❌ 单独一行排在步骤下面。
     const pill = () => host.querySelector<HTMLElement>('[data-slot="turn-process"] [data-slot="background-tasks-pill"]')
     await until('the background pill sits on the live process line', () => pill() !== null)
     expect(row(host)).toBeNull()

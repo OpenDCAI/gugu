@@ -429,7 +429,7 @@ export function flattenTier(
         emitOps(planRows(outsideProcess(items.slice(0, pending.at))), turn.id);
         const pendingReply = ctx.agentConversation
           ? conversationProcessReply({ ...pending.header, startedAt: turn.startedAt }, items.slice(pending.at)) : null;
-        // 对话布局:跑着默认摊开(owner 0 号图「思考执行中 · 9m16s · 39 步 ⌄」),点了收起就真收起 ——
+        // 对话布局:跑着默认摊开(owner 0 号图「执行中 · 9m16s · 39 步 ⌄」),点了收起就真收起 ——
         // 还没出正文的这一轮以前不看开关,收起了步骤照样摊在下面。
         const pendingExpanded = !ctx.agentConversation || ctx.revealAllFolds || turnProcessExpanded(true, ctx.isTurnProcessExpanded?.(pending.header.id) ?? false);
         const pendingFolds = ctx.agentConversation ? [{ id: pending.header.id, stored: false }] : undefined;
