@@ -93,9 +93,10 @@ export async function reconcileAccountApps(deps: AccountAppsDependencies): Promi
         states[states.length - 1] = { id: entry.id, ...result };
       } catch (error) {
         if (!owner.current()) return;
-        const reason = error instanceof Error ? error.message : String(error);
         states[states.length - 1] = { id: entry.id, state: 'failed' };
-        deps.warn('An account App could not be restored; it will be retried', { id: entry.id, reason });
+        deps.warn('An account App could not be restored; it will be retried', {
+          id: entry.id, error: error instanceof Error ? error.message : String(error),
+        });
       }
     }
     deps.changed(owner.userId, [...states]);
