@@ -106,14 +106,15 @@ export function replySend(item: ToolCallItem, facts: DeliveryReadFacts): { text:
 }
 
 /** Actual successful sends owned by this agent, including proactive sends to another chat. */
-export function successfulMessageSend(item: ToolCallItem): { text: string; id: string } | null {
+export function successfulMessageSend(item: ToolCallItem): { text: string; id: string; chat: string; replyTo?: string } | null {
   if (!isRootSend(item) || item.status !== 'done' || !item.rawInput) return null;
   const id = sentMessageId(item);
   if (!id) return null;
   try {
     const args = JSON.parse(item.rawInput) as Record<string, unknown>;
-    return typeof args.chat_id === 'string' && args.chat_id && typeof args.text === 'string'
-      ? { id, text: args.text } : null;
+    if (!(typeof args.chat_id === 'string' && args.chat_id && typeof args.text === 'string')) return null;
+    const replyTo = typeof args.reply_to_message_id === 'string' ? args.reply_to_message_id.replace(/^msg:/, '') : '';
+    return replyTo ? { id, text: args.text, chat: args.chat_id, replyTo } : { id, text: args.text, chat: args.chat_id };
   } catch { return null; }
 }
 
@@ -197,4 +198,24 @@ export function replyProcesses(turns: readonly TranscriptTurn[], chatId: string)
     }
   }
   return results;
+}
+
+/**
+ * The turns of an agent's session that belong to one chat with it (the agent DM shows its session record through the
+ * task page's transcript, only this conversation): a turn is kept when one of its inputs was delivered from that chat,
+ * or when the agent sent a message to that chat in it (a scheduled turn that reports back). A prompt typed on the task
+ * page carries no delivery and stays out, and so does a turn that only answered another chat.
+ */
+export function filterTurnsForChat(turns: readonly TranscriptTurn[], chatId: string): TranscriptTurn[] {
+  return turns.filter((turn) => replyItems(turn).some((item) => {
+    if (item.kind === 'message' && item.role === 'user') {
+      return (readDeliveryEnvelope(item.text)?.segments ?? []).some(
+        (segment) => segment.facts?.route === 'chat' && sourceChatMatches(segment.facts, chatId),
+      );
+    }
+    if (!('toolCallId' in item) || !successfulMessageSend(item) || !item.rawInput) return false;
+    try {
+      return (JSON.parse(item.rawInput) as { chat_id?: unknown }).chat_id === chatId;
+    } catch { return false; }
+  }));
 }

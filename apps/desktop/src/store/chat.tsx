@@ -6,7 +6,7 @@ import { chatService } from '../lib/chat'
 import { isLifecycleCancellation } from '../lib/authBoundedFetch'
 import { useAuth } from './auth'
 import { useToast, type ToastType } from '../components/toastContext'
-import { upsertChatRow } from '@gugu/core/shared/ui/chatModels'
+import { unreadForYou, upsertChatRow } from '@gugu/core/shared/ui/chatModels'
 import { useGroupCreation } from './useGroupCreation'
 import { mergeMessagesById, optimisticReplyFields, upsertMessageById } from '@gugu/core/shared/ui/messageListModels'
 import { useNotificationSettings } from '../lib/notificationSettings'
@@ -863,10 +863,10 @@ export function ChatProvider({ children, active = true }: { children: React.Reac
     }
   }, [userId])
 
-  // ── Update macOS Dock badge with total unread count ───────────────────────
+  // ── Dock / 托盘角标:与项目行、通知同一把尺 —— 话题只算叫到你的(owner 10-28) ──────
   useEffect(() => {
     if (!platform.capabilities.badge) return
-    const total = chats.reduce((sum, c) => sum + (c.is_muted ? 0 : c.unread_count), 0)
+    const total = chats.reduce((sum, c) => sum + (c.is_muted ? 0 : unreadForYou(c)), 0)
     platform.setBadge(total)
   }, [chats])
 

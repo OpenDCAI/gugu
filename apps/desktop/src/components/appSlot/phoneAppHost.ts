@@ -693,6 +693,8 @@ export function hostAppFrame(
         return files.create(chatPlace(args.place), args as never, { extensionId: hosted.binding.extensionId })
       case 'filesRename':
         return files.rename(surface(), { ref: chatRef(args.ref), name: String(args.name ?? '') })
+      case 'filesKeep':
+        return files.keep(surface(), { ref: chatRef(args.ref), how: args.how })
       case 'filesMkdir':
         return files.mkdir(chatPlace(args.place), { path: args.path })
       case 'filesMove':

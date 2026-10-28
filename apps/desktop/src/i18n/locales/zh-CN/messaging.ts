@@ -20,6 +20,13 @@ export default {
     },
     "offlineWarning": "当前不在线，可能无法及时回复",
     "wakeRefused": "{{name}}现在上不了线：",
+    "dm": {
+      "resolving": "正在打开会话…",
+      "noSession": "这个 agent 还没有会话。",
+      "machineOffline": "它所在的电脑离线，打不开会话。",
+      "failed": "会话没能打开。",
+      "retry": "重试"
+    },
     "taskpage": {
       "permission": {
         "allow": "允许",
@@ -185,6 +192,8 @@ export default {
       "cardGroup": "卡片所在",
       "agent": "你的 agent",
       "members": "{{count}} 人",
+      "members_one": "{{count}} 人",
+      "members_other": "{{count}} 人",
       "remove": "不再给{{name}}",
       "add": "添加 agent、群或项目…",
       "empty": "还没有选。",
@@ -528,6 +537,8 @@ export default {
       "agentRequestPending": "已提交审批，等群主或管理员批准",
       "agentRequestRejected": "上次的申请被拒绝了，可以再提交一次",
       "invitationSent": "已发送 {{count}} 个邀请，等待本人或 Agent 主人接受后入群",
+      "invitationSent_one": "已发送 {{count}} 个邀请，等待本人或 Agent 主人接受后入群",
+      "invitationSent_other": "已发送 {{count}} 个邀请，等待本人或 Agent 主人接受后入群",
       "pendingApproval": "已提交审批：{{count}} 个 Agent 等群主或管理员批准后入群",
       "pendingApproval_one": "已提交审批：{{count}} 个 Agent 等群主或管理员批准后入群",
       "pendingApproval_other": "已提交审批：{{count}} 个 Agent 等群主或管理员批准后入群",
@@ -679,7 +690,13 @@ export default {
       "topics": "话题"
     },
     "title": "历史",
-    "topicMeta": "{{participantCount}} 人 · {{messageCount}} 条 · {{date}}"
+    "topicMeta": "{{people}} · {{messages}} · {{date}}",
+    "topicPeople": "{{count}} 人",
+    "topicPeople_one": "{{count}} 人",
+    "topicPeople_other": "{{count}} 人",
+    "topicMessages": "{{count}} 条",
+    "topicMessages_one": "{{count}} 条",
+    "topicMessages_other": "{{count}} 条"
   },
   "importedHistory": {
     "agentRole": "Agent",
@@ -825,15 +842,17 @@ export default {
     "consent": {
       "cancel": "取消",
       "postTitle": "发布悬赏",
-      "postBody": "发布后从你的社区积分中扣除 {{amount}} 积分。采纳后发给被采纳的回答者；截止时从未有人回答，全额退还；有过回答但未采纳，积分作废。",
+      "postBody": "发布后从你的社区积分中扣除 {{count}} 积分。采纳后发给被采纳的回答者；截止时从未有人回答，全额退还；有过回答但未采纳，积分作废。",
+      "postBody_one": "发布后从你的社区积分中扣除 {{count}} 积分。采纳后发给被采纳的回答者；截止时从未有人回答，全额退还；有过回答但未采纳，积分作废。",
+      "postBody_other": "发布后从你的社区积分中扣除 {{count}} 积分。采纳后发给被采纳的回答者；截止时从未有人回答，全额退还；有过回答但未采纳，积分作废。",
       "postConfirm": "发布",
-      "reward": "赏金 {{amount}} 积分",
+      "reward": "赏金 {{count}} 积分", "reward_one": "赏金 {{count}} 积分", "reward_other": "赏金 {{count}} 积分",
       "days": "{{count}} 天后截止", "days_one": "{{count}} 天后截止", "days_other": "{{count}} 天后截止",
       "visibility": { "public": "回答公开", "poster_only": "回答仅楼主可见，结束后公开" },
       "acceptTitle": "采纳回答",
       "acceptBody": "采纳后积分发给回答者，悬赏随即结束，仅楼主可见的回答会公开。采纳后不可撤销。",
       "acceptConfirm": "采纳",
-      "awardLine": "{{name}} · {{amount}} 积分",
+      "awardLine": "{{name}} · {{count}} 积分", "awardLine_one": "{{name}} · {{count}} 积分", "awardLine_other": "{{name}} · {{count}} 积分",
       "endTitle": "结束悬赏",
       "endBody": "不采纳任何回答，直接结束悬赏。从未有人回答时，赏金全额退还；有过回答时，赏金作废。",
       "endConfirm": "结束悬赏",

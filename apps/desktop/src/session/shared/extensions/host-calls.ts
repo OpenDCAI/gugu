@@ -82,6 +82,7 @@ export const HOST_CALLS = {
   'appFiles.viewPreferences': { verb: 'filesViewPreferences' },
   'appFiles.remove': { verb: 'filesRemove' },
   'appFiles.rename': { verb: 'filesRename' },
+  'appFiles.keep': { verb: 'filesKeep' },
   'appFiles.mkdir': { verb: 'filesMkdir' },
   'appFiles.move': { verb: 'filesMove' },
   'appFiles.watch': { verb: 'filesWatch' },

@@ -27,7 +27,7 @@ import { isDoubleColumnLayout } from '@session-chat/core/layout/preset';
 import { srOnly } from './message.css';
 import { useChatTranslator } from '@session-chat/localization';
 import { UserMessageActions } from './UserMessageActions';
-import { CONVERSATION_EXPAND_H, hasConversationBody } from './conversation-body';
+import { CONVERSATION_EXPAND_H, hasConversationActions } from './conversation-body';
 import { UserMessageEditor } from './UserMessageEditor';
 import { messageEditorMetrics } from './message-editor-metrics';
 import {
@@ -199,7 +199,8 @@ export function UserMessageCard(props: { data: ChatMessage; ctx: RenderCtx; vars
       class={`${card({ state: isOverflowing() && !isExpanded() ? 'overflowing' : 'static', current: isGenerating() })} ${cardRoot} ${userCardGroup}`}
       style={{
         ...assignInlineVars(cardVars, pxTokens({ ...styleVars(), height: cardH() })),
-        ...assignInlineVars({ [themeVars.fgBody]: props.conversation ? themeVars.fg : themeVars.bubbleUserFg, [themeVars.link]: props.conversation ? themeVars.fg : themeVars.bubbleUserFg }),
+        // 对话布局里人那一侧的字色由 conversation-message.css 给(跟着气泡底色反色),这里只管 agent 那一侧。
+        ...(props.conversation && props.data.role !== 'assistant' ? {} : assignInlineVars({ [themeVars.fgBody]: props.conversation ? themeVars.fg : themeVars.bubbleUserFg, [themeVars.link]: props.conversation ? themeVars.fg : themeVars.bubbleUserFg })),
         // `base` pill: explicit hug width + right alignment. Left as-is in
         // classic so the card keeps spanning the column (no inline width).
         ...(isDoubleColumnLayout(layout())
@@ -240,7 +241,7 @@ export function UserMessageCard(props: { data: ChatMessage; ctx: RenderCtx; vars
         <button type="button" class={userMessageExpand} data-expand-user-card={props.data.id}>{translate('transcript.showFullText')}</button>
       </div>
     </Show>
-    <Show when={!props.conversation || hasConversationBody(props.data)}>
+    <Show when={!props.conversation || hasConversationActions(props.data)}>
     <UserMessageActions itemId={props.data.id} text={props.data.text} at={props.data.at}
       generating={isGenerating()} readOnly={Boolean(props.data.guguDelivery) || (props.conversation && props.data.role === 'assistant')} vars={props.vars} />
     </Show>

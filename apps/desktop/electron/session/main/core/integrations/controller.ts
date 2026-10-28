@@ -62,6 +62,8 @@ export const integrationsController = createRPCController({
    * 授权链接 / 二维码;之后 `cliLoginWait` 一问一答等它登上(每问最多 20 秒)。远程机器上也是那台机器自己跑。
    */
   cliLoginStart: async (integrationId: string) => integrationConnectionService.cliLoginStart(integrationId),
+  /** 起登录前先装好工具:一问最多 20 秒,装得慢(远程机器上十来分钟)也不绑在一次调用上。 */
+  cliToolPrepare: async (integrationId: string) => integrationConnectionService.cliToolPrepare(integrationId),
 
   cliLoginWait: async (integrationId: string) => integrationConnectionService.cliLoginWait(integrationId),
   cliLoginProgress: async (integrationId: string) => integrationConnectionService.cliLoginProgress(integrationId),

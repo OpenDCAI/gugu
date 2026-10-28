@@ -5,6 +5,8 @@ export default {
     "retry": "重试",
     "profileTitle": "先认识一下你",
     "profileSub": "咕咕和你的 agent 会用这些称呼你、了解你。以后可以在「设置 → 账户」里改。",
+    "profileSubDesktop": "咕咕和你的 agent 会用这些称呼你。",
+    "introSubDesktop": "咕咕是你的个人助理，帮你记安排、办事情。",
     "avatar": "换头像",
     "avatarUploading": "正在上传…",
     "nameLabel": "怎么称呼你",
@@ -34,7 +36,19 @@ export default {
     "harnessReadFailed": "暂时读不到智能体状态，请重试。",
     "harnessCancelFailed": "没能取消安装，请重试。",
     "introStart": "开通我的咕咕",
-    "introLater": "先逛逛"
+    "introLater": "先逛逛",
+    "terminalTitle": "终端",
+    "terminalSub": "习惯在终端里用 Claude Code、Codex 这类 CLI？开启后，可以用 TUI 的方式和 agent 交互。",
+    "terminalToggle": "启用终端",
+    "tourChoiceTitle": "要不要带你看看？",
+    "tourChoiceSub": "用 1 分钟认识左边这一栏。",
+    "tourChoiceStart": "带我看看（1 分钟）",
+    "tourChoiceSkip": "直接开始",
+    "back": "上一步",
+    "stepCount": "{{current}} / {{total}}",
+    "terminalLater": "之后可在设置 → 通用中更改",
+    "terminalPause": "暂停",
+    "terminalPlay": "播放"
   },
   "groupFile": {
     "notInGroup": "这个文件所在的对话，你不在里面"
@@ -163,7 +177,8 @@ export default {
       "tooLarge": "图太大 · 在桌面上看"
     },
     "timeline": {
-      "outputTrimmed": "… 此预览省略了 {{chars}} 字",
+      "outputTrimmed_one": "… 此预览省略了 {{count}} 字",
+      "outputTrimmed_other": "… 此预览省略了 {{count}} 字",
       "loading": "正在读取时间线…",
       "waitingRecord": "会话已开，正在等它写下第一行…",
       "empty": "这个会话还没有内容。",
@@ -396,7 +411,7 @@ export default {
       "notificationsTestSentMobile": "系统收下了这条通知。还是没看到 → 去「我的 → 权限 → 通知」确认咕咕的通知已打开、允许弹出横幅。",
       "notificationsTestRejectedMobile": "系统没让这条通知弹出来——咕咕还没拿到通知权限。去「我的 → 权限 → 通知」开。",
       "terminal": "终端",
-      "terminalDescription": "显示终端,新任务在终端里运行。",
+      "terminalDescription": "开启后，agent 可以用 TUI（终端界面）的方式交互；新任务默认还是通用模式。",
       "trayBadge": "托盘角标",
       "trayBadgeAria": "在托盘图标上显示未读数",
       "trayBadgeEnabled": "在托盘图标上显示未读数",

@@ -1,7 +1,7 @@
 import { copyVerifiedFile } from '@gugu/core/shared/fileCipher'
 import { fileRefKey, requireFileRange, requireFileRevision, type FileBytes, type FileContext, type FileRef, type FileRevision } from '@gugu/core/shared/fileResolver'
 import { readWorkspaceChunk } from './session/main/core/files/workspace-transfer'
-import { readProjectFile } from './sessionpage/sessionpage-project-groups'
+import { readProjectFile, type ProjectFileVersionLookup } from './sessionpage/sessionpage-project-groups'
 import { createFileSink } from './fileSnapshot'
 
 export const PROJECT_FILE_READ = 'file.read'
@@ -13,21 +13,21 @@ export type ProjectFileReader = (request: ReadRequest) => Promise<ProjectFileChu
 export function createProjectFileReader(deps: {
   identity(): Promise<{ accountId: string; deviceId: string }>
   root(projectId: string): Promise<string | null>
-  env?: NodeJS.ProcessEnv
+  env?: NodeJS.ProcessEnv; later?: ProjectFileVersionLookup
 }) {
   return async (request: ReadRequest, callerId: string): Promise<ProjectFileChunk> => {
     if (!request || Object.keys(request).some(key => !['ref', 'offset', 'length', 'etag'].includes(key))) throw new Error('Invalid file read request')
     fileRefKey(request.ref)
     const identity = await deps.identity()
     if (identity.accountId !== callerId) throw new Error('File reader is not the device owner')
-    const revision = await readProjectFile(request.ref, identity.accountId, identity.deviceId, deps.env)
+    const revision = await readProjectFile(request.ref, identity.accountId, identity.deviceId, deps.env, deps.later)
     if (!revision) throw new Error('Local file revision is unavailable')
     requireFileRange(revision.size_bytes, request.offset, request.length)
     const root = await deps.root(revision.host_project_id!)
     if (!root) throw new Error('Project root is unavailable')
     const chunk = await readWorkspaceChunk(root, { path: revision.relative_path!, offset: request.offset, length: request.length })
     if (chunk.size !== revision.size_bytes || request.etag !== undefined && request.etag !== chunk.etag) throw new Error('Local file changed during read')
-    if (JSON.stringify(await deps.identity()) !== JSON.stringify(identity) || !await readProjectFile(request.ref, identity.accountId, identity.deviceId, deps.env)) throw new Error('File binding changed during read')
+    if (JSON.stringify(await deps.identity()) !== JSON.stringify(identity) || !await readProjectFile(request.ref, identity.accountId, identity.deviceId, deps.env, deps.later)) throw new Error('File binding changed during read')
     // Absolute host paths stay here. The current etag anchors this read, not the publication mtime.
     return { revision, offset: chunk.offset, etag: chunk.etag, data: chunk.data }
   }
@@ -60,12 +60,12 @@ export async function snapshotProjectFile(revision: FileRevision, read: ProjectF
 /** Called before metadata lookup. Agents require their existing authorization context instead. */
 export function localProjectFileProvider(deps: {
   identity(): Promise<{ accountId: string; deviceId: string }>
-  read: ReturnType<typeof createProjectFileReader>; tempRoot: string; env?: NodeJS.ProcessEnv
+  read: ReturnType<typeof createProjectFileReader>; tempRoot: string; env?: NodeJS.ProcessEnv; later?: ProjectFileVersionLookup
 }) {
   return async (context: FileContext) => {
     const identity = await deps.identity()
     if (context.actor.actorId !== identity.accountId || context.actor.accountId !== identity.accountId) return null
-    const revision = await readProjectFile(context.ref, identity.accountId, identity.deviceId, deps.env)
+    const revision = await readProjectFile(context.ref, identity.accountId, identity.deviceId, deps.env, deps.later)
     return revision ? { revision, open: () => snapshotProjectFile(revision, request => deps.read(request, context.actor.actorId), deps.tempRoot, context.signal) } : null
   }
 }
