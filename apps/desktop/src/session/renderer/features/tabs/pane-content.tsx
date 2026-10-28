@@ -23,6 +23,7 @@ import { MIN_PANE_HEIGHT_PX, MIN_PANE_WIDTH_PX, type PaneStore } from './pane-st
 import { TabBar } from './tab-bar';
 import { isUnavailableTabResource, UnavailableTabContent } from './unavailable-tab';
 import { RetainedTabContent, useRetainedTabs } from './retained-tab-content';
+import { tabFullscreen, WORKSPACE_ANCHOR } from './tab-fullscreen';
 
 // Monaco 0.55 收字的是 `.native-edit-context`,旁边那个 `ime-text-area` 是只读的:聚焦它 = 看着进了编辑器、字打不进去。
 // 浏览器页签的网页是主进程的 view(#7274),页签里只有它的占位 `[data-browser-page]`:聚焦占位 = 把焦点交给网页。
@@ -37,6 +38,21 @@ function focusActiveContentElement(container: HTMLElement): void {
 }
 
 /** The content for a single pane: tab bar + content area. */
+/**
+ * 全屏的那一格:固定定位、四条边贴到工作区(ScreenFrame)上,盖住这屏所有块。用 fixed 而不是 absolute:
+ * 格子在某一块的页里,absolute 的包含块是那一块,够不着块外面的锚点;fixed 的包含块是视口,锚点认得到。
+ * 不换父节点 —— 终端、网页、对话都不重挂。
+ */
+const FULLSCREEN_STYLE = {
+  position: 'fixed',
+  positionAnchor: WORKSPACE_ANCHOR,
+  top: 'anchor(top)',
+  bottom: 'anchor(bottom)',
+  left: 'anchor(left)',
+  right: 'anchor(right)',
+  zIndex: 30,
+} as CSSProperties;
+
 export const PaneContent = observer(function PaneContent({
   emptyState,
   tabLeadingSlot,
@@ -115,7 +131,9 @@ export const PaneContent = observer(function PaneContent({
       : null;
   // 并排(spec session-page「并排」):两页左右(或上下)摆开,中间一条可拖的分界。每种页签一层内容,
   // 两页是同一种(两个文件、两个网页)时另一页单独再挂一份那种页签的内容(paneSlotView),各管各的那一枚。
-  const pair = pane.pairShown ? pane.livePair : null;
+  // 页签全屏(tab-fullscreen.ts):这一格整个铺到工作区上,并排只是这一刻不画(pair 本身原样,退出就回来)。
+  const fullscreen = tabFullscreen.isOn(pane);
+  const pair = pane.pairShown && !fullscreen ? pane.livePair : null;
   const slots = pair ? pane.pairSlots : null;
   const anchorKind = pair ? (pane.entries.get(pair.anchor)?.kind ?? null) : null;
   const sideKind = pair ? (pane.entries.get(pair.side)?.kind ?? null) : null;
@@ -158,7 +176,11 @@ export const PaneContent = observer(function PaneContent({
   }
 
   return (
-    <div className="flex h-full min-w-0 flex-col overflow-hidden">
+    <div
+      className={fullscreen ? 'flex min-w-0 flex-col overflow-hidden bg-background' : 'flex h-full min-w-0 flex-col overflow-hidden'}
+      style={fullscreen ? FULLSCREEN_STYLE : undefined}
+      data-tab-fullscreen={fullscreen ? '' : undefined}
+    >
       {!hideTabBar && (
         <TabBar
           leadingSlot={tabLeadingSlot}

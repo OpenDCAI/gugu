@@ -38,6 +38,7 @@ const { AppPeek } = await import('@/components/appSlot/AppPeek')
 const { ask, chatTabs, shownItem } = await import('./chatTabsHarness')
 const { folderItem, isFolderItem } = await import('@/session/renderer/features/chats/chat-tabs/chat-panel-item')
 const { chatAlone, chatLayoutOf, closeChatTab, openPanelItem, panelFull, panelTabsOf, shownPanelTab } = await import('@/session/renderer/features/chats/chat-tabs/chat-layouts')
+import { tabFullscreen } from '@/session/renderer/features/tabs/tab-fullscreen'
 const { installedExtensionsStore } = await import('@/session/renderer/features/extensions/installed-extensions-store')
 const { appsHere } = await import('@/components/appSlot/appsHere')
 const workspace = { id: 'workspace', name: '文件夹', version: '0.2.53', apiVersion: 3, entry: 'index.html', contributes: { tabs: [{ name: 'main', title: '文件夹', opensFiles: { chat: ['.md', '.json'] } }] } }
@@ -263,8 +264,11 @@ describe('unclaimed group files use the message preview from every entry', () =>
     const tabId = shownPanelTab(file.chatId)!.tabId
     const fill = () => chatLayoutOf(file.chatId).groups[0]!.pane.tabFill(tabId)!
     await act(async () => fill().toggle())
-    expect(panelFull(file.chatId, tabId)).toBe(true)
+    // 全屏只盖住工作区,❌ 动布局(panelFull = 拆开、对话不在,是另一件事)。
+    expect(tabFullscreen.isOn(chatLayoutOf(file.chatId).groups[0]!.pane, tabId)).toBe(true)
+    expect(panelFull(file.chatId, tabId)).toBe(false)
     await act(async () => fill().toggle())
+    expect(tabFullscreen.isOn(chatLayoutOf(file.chatId).groups[0]!.pane)).toBe(false)
     expect(panelFull(file.chatId, tabId)).toBe(false)
     expect(harness.container.querySelector('iframe')).toBe(page)
     expect(harness.container.querySelectorAll('header')).toHaveLength(0)
