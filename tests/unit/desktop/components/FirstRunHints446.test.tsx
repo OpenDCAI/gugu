@@ -6,7 +6,7 @@ import { clickElement, createNode, createReactHarness, waitForCondition } from '
 import type { FirstRunHintId, FirstRunHintsProgress } from '../../../../apps/desktop/src/lib/firstRunHints'
 
 const io = vi.hoisted(() => ({ read: vi.fn(), dismiss: vi.fn() }))
-vi.mock('../../../../apps/desktop/src/lib/firstRunHints', () => ({ readFirstRunHints: io.read, dismissFirstRunHints: io.dismiss }))
+vi.mock('../../../../apps/desktop/src/lib/firstRunHints', async (importOriginal) => ({ ...(await importOriginal<object>()), readFirstRunHints: io.read, dismissFirstRunHints: io.dismiss }))
 const { FirstRunHints } = await import('../../../../apps/desktop/src/components/firstRun/FirstRunHints')
 const { AssistantIntro } = await import('../../../../apps/desktop/src/components/assistant/AssistantIntro')
 const { i18n } = await import('../../../../apps/desktop/src/i18n/runtime')
