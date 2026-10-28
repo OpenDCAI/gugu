@@ -384,6 +384,8 @@ export default {
       "outdated": "「{{name}}」上的咕咕 server 版本太旧，更新没成功。",
       "updating": "「{{name}}」上的咕咕 server 版本太旧，正在更新…",
       "retryUpdate": "重试",
+      "waitingIdle": "「{{name}}」上的咕咕要更新才能连上，但上面有 agent 正在运行，会等它们空闲后自动更新。现在重启会中断它们这一轮。",
+      "updateNow": "现在重启更新",
       "reinstall": "「{{name}}」上的咕咕 server 太旧，没法自动更新。请在那台机器上重新运行安装命令：",
       "refused": "「{{name}}」上的咕咕 server 拒绝了连接。",
       "notSignedIn": "「{{name}}」未登录，请在「设置 → 设备」中重新添加。",
@@ -549,6 +551,7 @@ export default {
         "loginFailed": "登录未完成，请重试。",
         "cloudUnreachable": "那台机器连不上咕咕。请放行外网 HTTPS 或配置代理后重试。",
         "machineLimit": "已达机器上限。",
+        "agentsRunning": "那台机器上有 agent 正在运行，会等它们空闲后自动更新。",
         "cancelled": "已取消。",
         "unknown": "出了点问题，请重试。"
       },
@@ -763,7 +766,9 @@ export default {
       "downloading": "更新中",
       "downloadingHint": "正在下载 {{version}}，空闲时自动切换。",
       "ready": "有新版本",
-      "readyHint": "{{version}} 已下载，空闲时自动切换。"
+      "readyHint": "{{version}} 已下载，空闲时自动切换。",
+      "updateNow": "现在重启更新",
+      "updateNowConfirm": "现在重启「{{name}}」上的咕咕？正在运行的 agent 这一轮会被中断。"
     },
     "versionUnknown": "版本未知",
     "via": {

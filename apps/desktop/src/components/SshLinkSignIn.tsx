@@ -1,10 +1,13 @@
 import { useEffect, useMemo, useState } from 'react'
 import { useTranslation } from 'react-i18next'
+import { serverMachineNotices } from '@gugu/core/cloud/serverMachineHealth'
 import { X } from '../lib/icons'
+import { retryServerVersionMatch } from '../lib/serverVersionRetry'
 import type { SshLinkFailure } from '../lib/sshLink'
 import { pickSshLinkNotice, type SshLinkNotice } from '../lib/sshLinkNotice'
 import {
   answerSshSignInPrompt,
+  isSshMachine,
   requestSshServerUpgrade,
   signInSshMachine,
   sshReinstallCommand,
@@ -27,6 +30,8 @@ import { LoadingIndicator } from '@/lib/loading/LoadingIndicator'
 //    没更新成就说没成,句子里一段「重试」;老到没法自动更新的,给出在那台机器上重装的那一行命令;
 //  · 指纹变了 / 被拒绝 / 没登这个账号 / 没装:如实说(被拒绝 ❌ 当成太旧去升级 —— 升级只因为版本)。
 // 后台开的连接从不自己弹问(BatchMode),所以人不点就不会被突然问密码;收起之后同一台同一种原因不再出现。
+//  · 版本对不上、那台机器上有 agent 在跑(它在等空闲再换):问人「现在重启更新」,收起 = 稍后。远程隧道的机器也在这里问
+//    (它的心跳报「装好了、等空闲」+ 协议太旧),点了走设备行「重试」那条设备 RPC —— 只有人点的请求才不等空闲。
 
 export function SshLinkSignIn() {
   const { t } = useTranslation('settings')
@@ -48,11 +53,22 @@ export function SshLinkSignIn() {
   )
 
   const notice = useMemo(() => pickSshLinkNotice({ problems, machines: devices, dismissed }), [problems, devices, dismissed])
+  const tunnelWaiting = useMemo(
+    () =>
+      devices.find(
+        (d) =>
+          !isSshMachine(d.device_id) &&
+          dismissed.get(d.device_id) !== 'waitingIdle' &&
+          d.capabilities?.server_update?.state === 'ready' &&
+          serverMachineNotices(d.capabilities).some((n) => n.kind === 'server-too-old'),
+      ) ?? null,
+    [devices, dismissed],
+  )
   // 正在登录的那台优先(登录中它的原因会被清掉,卡片 ❌ 跳到别的机器上去)。
   const signingMachine = signingIn ? devices.find((d) => d.device_id === signingIn) : null
   const shown: SshLinkNotice | null = signingMachine
     ? { deviceId: signingMachine.device_id, name: signingMachine.label, reason: 'signInRequired' }
-    : notice
+    : (notice ?? (tunnelWaiting ? { deviceId: tunnelWaiting.device_id, name: tunnelWaiting.label, reason: 'waitingIdle' } : null))
   if (!shown) return null
 
   const startSignIn = () => {
@@ -108,6 +124,22 @@ export function SshLinkSignIn() {
               ) : (
                 <>
                   {t(`devices.link.${noticeKey(shown.reason)}`, { name: shown.name })}
+                  {shown.reason === 'waitingIdle' ? (
+                    <>
+                      {' '}
+                      <InlineAction
+                        onClick={() => {
+                          const deviceId = shown.deviceId
+                          if (isSshMachine(deviceId)) void requestSshServerUpgrade(deviceId, { force: true, now: true })
+                          else void retryServerVersionMatch(deviceId)
+                          setDismissed((prev) => new Map(prev).set(deviceId, 'waitingIdle'))
+                        }}
+                        testId="ssh-link-update-now"
+                      >
+                        {t('devices.link.updateNow')}
+                      </InlineAction>
+                    </>
+                  ) : null}
                   {shown.reason === 'outdated' ? (
                     <>
                       {' '}
@@ -139,8 +171,10 @@ export function SshLinkSignIn() {
   )
 }
 
-function noticeKey(reason: SshLinkFailure): 'signInNeeded' | 'hostKeyChanged' | 'outdated' | 'refused' | 'notSignedIn' | 'notInstalled' {
+function noticeKey(reason: SshLinkFailure): 'signInNeeded' | 'hostKeyChanged' | 'outdated' | 'waitingIdle' | 'refused' | 'notSignedIn' | 'notInstalled' {
   switch (reason) {
+    case 'waitingIdle':
+      return 'waitingIdle'
     case 'refused':
       return 'refused'
     case 'hostKeyChanged':

@@ -10,6 +10,7 @@
  *  ⑤ #6264 每个账号跑和自己桌面匹配的那一版(server-account-versions.ts):各账号可以跑不同版本,换版只重启那一个账号。
  */
 import { SERVER_LOGIN_ACTION } from '@gugu/core/cloud/remoteTunnel'
+import { readVersionSwitchRequest } from '@gugu/core/cloud/serverDesktopVersions'
 import { onErrorEvents } from '@gugu/session-shared'
 import { spawn, type ChildProcess } from 'node:child_process'
 import fs from 'node:fs'
@@ -240,7 +241,11 @@ export async function runSupervisor(): Promise<void> {
 
   startServerUpdater({
     log,
-    isBusy: () => listAccounts().some((account) => children.has(account.userId) && accountIsBusy(account.dataDir)),
+    // 人在这个账号上点了「现在重启更新」:它的 agent 不再挡守护进程自己的升级(别的账号的照样挡)。
+    isBusy: () =>
+      listAccounts().some(
+        (account) => children.has(account.userId) && accountIsBusy(account.dataDir) && !readVersionSwitchRequest(account.dataDir)?.confirmed,
+      ),
     shutdown: () => shutdown('upgrade'),
     inUse: () => versions.inUse(),
   })

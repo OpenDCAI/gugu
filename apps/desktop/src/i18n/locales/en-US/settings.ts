@@ -384,6 +384,8 @@ export default {
       "outdated": "Gugu server on {{name}} is too old and couldn't be updated.",
       "updating": "Gugu server on {{name}} is too old. Updating…",
       "retryUpdate": "Retry",
+      "waitingIdle": "Gugu on {{name}} needs an update before this computer can connect, but agents are running there. It updates once they're idle. Restarting now interrupts their current turn.",
+      "updateNow": "Restart to update now",
       "reinstall": "Gugu server on {{name}} is too old to update automatically. Run the install command on that machine again:",
       "refused": "Gugu server on {{name}} refused the connection.",
       "notSignedIn": "{{name}} isn't signed in. Re-add it in Settings → Devices.",
@@ -549,6 +551,7 @@ export default {
         "loginFailed": "Sign-in didn't finish. Try again.",
         "cloudUnreachable": "That machine can't reach Gugu. Allow outbound HTTPS or set a proxy, then retry.",
         "machineLimit": "Machine limit reached.",
+        "agentsRunning": "Agents are running on that machine. It updates once they're idle.",
         "cancelled": "Cancelled.",
         "unknown": "Something went wrong. Try again."
       },
@@ -763,7 +766,9 @@ export default {
       "downloading": "Updating",
       "downloadingHint": "Downloading {{version}}; switches when idle.",
       "ready": "Update ready",
-      "readyHint": "{{version}} downloaded; switches when idle."
+      "readyHint": "{{version}} downloaded; switches when idle.",
+      "updateNow": "Restart to update now",
+      "updateNowConfirm": "Restart Gugu on “{{name}}” now? Agents running there will have their current turn interrupted."
     },
     "versionUnknown": "Version unknown",
     "via": {

@@ -71,6 +71,8 @@ export type ServerSshInstallFailureReason =
   | 'cloudUnreachable'
   /** #6264 这个账号的咕咕 server 数到上限了(哪条上限、用了几台在 failure.machineLimit)。 */
   | 'machineLimit'
+  /** #6264 upgrade 模式:那个账号有 agent 在跑,那台机器等它空闲再换(人可以点「现在重启更新」)。 */
+  | 'agentsRunning'
   | 'cancelled'
   | 'unknown'
 

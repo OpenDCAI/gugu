@@ -127,11 +127,15 @@ export type SshInstallDeps = {
    * #6264 upgrade 模式要的:那台机器上是哪个账号、这台桌面是哪一版。只换这一个账号(❌ 整台换、❌ 影响同机别的账号)。
    */
   match?: { accountUserId: string; desktop: { id: string; version: string; protocol: number } }
+  /** upgrade 模式:人点了「现在重启更新」,有 agent 在跑也当场换。 */
+  now?: boolean
 }
 
 /** `match-version --apply` 的退出码(match-version-cli.ts):守护进程装那一版失败了 / 它连不上下载站、要包的字节。 */
 const APPLY_INSTALL_FAILED_EXIT = 6
 const APPLY_NEEDS_BYTES_EXIT = 7
+/** 这个账号有 agent 在跑,守护进程等它空闲再换。 */
+const APPLY_WAITING_IDLE_EXIT = 8
 
 export const DEFAULT_TIMEOUTS = {
   /** 第一次连接 + 看一眼系统,总时长(不算等人回答的时间)。 */
@@ -437,7 +441,7 @@ export async function runSshInstall(target: SshTarget, run: InstallRun, deps: Ss
       }
       run.appendLog(`── 这个账号换到 ${report.target} ──`)
       const match = deps.match
-      const apply = () => ssh(matchApplyScript({ accountUserId: match.accountUserId, version: report.target }), {
+      const apply = () => ssh(matchApplyScript({ accountUserId: match.accountUserId, version: report.target, now: deps.now === true }), {
         // 没装的那一版由守护进程先下载、试跑(match-version 自己最多等 10 分钟)。
         limit: { kind: 'total', ms: 11 * 60_000 },
         timeoutReason: 'timeout',
@@ -448,6 +452,7 @@ export async function runSshInstall(target: SshTarget, run: InstallRun, deps: Ss
         await uploadIncoming(report.target, versionedManifestUrl(deps.downloadBase, report.target, found), manifestUrl(deps.downloadBase, deps.channel, found))
         applied = await apply()
       }
+      if (applied.code === APPLY_WAITING_IDLE_EXIT) throw new StepFailure('agentsRunning', lastLines(applied.stderr))
       if (applied.code !== 0 || parseMatchOutput(applied.stdout)?.switched !== report.target) {
         throw new StepFailure(applied.code === APPLY_INSTALL_FAILED_EXIT ? 'installFailed' : 'serviceFailed', lastLines(`${applied.stdout}\n${applied.stderr}`))
       }
