@@ -242,6 +242,10 @@ export class AcpRuntime {
     return this.manager.getSessionState(sessionId);
   }
 
+  getStoredQueue(sessionId: string): Array<Pick<PromptInput, 'text' | 'origin'>> {
+    return this.manager.getStoredQueue(sessionId);
+  }
+
   getTerminals(sessionId: string): TerminalState[] {
     return this.manager.getTerminals(sessionId);
   }

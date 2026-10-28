@@ -42,6 +42,7 @@ import type {
   NormalizedEvent,
   PlanState,
   PromptDraft,
+  PromptInput,
   PromptDraftUpdate,
   QueuedPrompt,
   QueuedPromptEdit,
@@ -1315,7 +1316,7 @@ export class SessionManager implements InboundRouter {
           this.deps.logger.warn('SessionManager: provider close failed; stopping its process', { sessionId, error: String(error) });
         } finally { if (timer) clearTimeout(timer); }
       }
-      this.keepOwnerQueueAcrossStop(sessionId, record);
+      this.keepQueueAcrossStop(sessionId, record);
       await record.connectionLease.value.stopProcess();
       this.removeRecord(sessionId, false, true);
       await record.connectionLease.release();
@@ -1784,6 +1785,12 @@ export class SessionManager implements InboundRouter {
     const record = this.cells.get(sessionId);
     if (record) return record.cell.sessionState;
     return closedSessionState();
+  }
+
+  /** Read-only stopped queue projection; reading it must never wake the provider. */
+  getStoredQueue(sessionId: string): Array<Pick<PromptInput, 'text' | 'origin'>> {
+    if (this.cells.has(sessionId)) return [];
+    return (this.deps.promptQueueStore?.load(sessionId) ?? []).map(({ text, origin }) => ({ text, origin }));
   }
 
   getTerminals(sessionId: string): TerminalState[] {
@@ -2834,20 +2841,20 @@ export class SessionManager implements InboundRouter {
   }
 
   /**
-   * 停下时队列快照只留主人在输入框里排的话(origin `manual`),下次起来时它照常从快照恢复、先发出去。
-   * 投递信封照旧清掉(规则不变):这里只救人打的字,❌ 顺手改投递的去留 —— 那会多出一条重投的路。
+   * Every queued input has already been accepted. Communication inbox cursors have advanced,
+   * so preserve all origins here; the sender cannot recover an input discarded during stop.
    */
-  private keepOwnerQueueAcrossStop(sessionId: string, record: SessionRecord): void {
+  private keepQueueAcrossStop(sessionId: string, record: SessionRecord): void {
     const store = this.deps.promptQueueStore;
     if (!store) return;
-    const owner = record.cell.sessionState.queuedPrompts.filter((prompt) => prompt.origin === 'manual');
+    const queued = record.cell.sessionState.queuedPrompts;
     try {
-      if (owner.length > 0) store.save(sessionId, owner);
+      if (queued.length > 0) store.save(sessionId, queued);
       else store.clear(sessionId);
     } catch (error) {
-      this.deps.logger.error('SessionManager: failed to keep the owner queue across stop', {
+      this.deps.logger.error('SessionManager: failed to keep accepted inputs across stop', {
         sessionId,
-        queuedPromptCount: owner.length,
+        queuedPromptCount: queued.length,
         error,
       });
     }
