@@ -133,7 +133,7 @@ it('host adds the actual execution contract to spawn and reuse', async () => {
   const source = 'gugu-chat://3be752cb-0925-447e-8bbc-70de8a867bd1/bfb72f98-986e-4314-b242-d9b95a0c8083'
   for (const [tool, args, field] of [
     ['session_spawn', { prompt: 'Produce the requested artifact.', device: 'device:remote', source_link: source }, 'prompt'],
-    ['session_message', { to: ['session:existing'], text: 'Continue with the revised constraint.', source_link: source }, 'text'],
+    ['session_message', { to: ['session:existing'], text: 'Continue with the revised constraint.', source_link: source, purpose: 'task' }, 'text'],
   ] as const) {
     const result = await client.callTool({ name: tool, arguments: args })
     expect(result).not.toMatchObject({ isError: true })
@@ -165,7 +165,7 @@ it('returns a host work reference from the real MCP grant and reuses it for a la
     expect(JSON.stringify(response)).toContain(work.id)
     expect(run.mock.calls.at(-1)![0]).toMatchObject({ prompt: expect.stringContaining(ASSISTANT_TASK_EXECUTION) })
     run.mockResolvedValueOnce({ recipients: [{ to: 'session:child', status: 'delivered', message_id: 'constraint-receipt' }] })
-    await client.callTool({ name: 'session_message', arguments: { to: ['session:child'], text: 'Wait for the owner’s approval.', work_id: work.id } })
+    await client.callTool({ name: 'session_message', arguments: { to: ['session:child'], text: 'Wait for the owner’s approval.', work_id: work.id, purpose: 'task' } })
     expect(new AssistantWorkStore(memoryDir).list()).toHaveLength(1)
     expect(new AssistantWorkStore(memoryDir).list()[0].receipt_ids).toContain('constraint-receipt')
   } finally { await rm(memoryDir, { recursive: true, force: true }) }

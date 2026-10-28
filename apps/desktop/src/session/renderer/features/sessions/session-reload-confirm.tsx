@@ -12,13 +12,13 @@ import { useSessionMessages } from '@renderer/localization/use-session-messages'
  *
  * ## 形状:**理由用枚举,❌ 不收自由文本**
  *
- * `reason` 只决定标题(换成 X / 应用 Y / 重启本会话 / 切换为某种展示)。收 `note?: string` 会把措辞的
+ * `reason` 只决定标题(换成 X / 应用 Y / 重启本会话)。收 `note?: string` 会把措辞的
  * 所有权交回调用方 —— 那就等于没抽这个组件:两条车道又各写各的,而且下一个人无从知道该写什么。
  *
  * (曾经还有一个「额外后果」枚举,唯一的值是 claude 关一台 = 咕咕接管整份 MCP 清单。那条 strict 机制
  * 10-07 换成了 claude 自己的 `disallowedTools`,只摘被关的那台,这句后果连同枚举一起删了。)
  */
-export type SessionReloadReason = 'model-switch' | 'mcp-toggle' | 'manual' | 'view-switch';
+export type SessionReloadReason = 'model-switch' | 'mcp-toggle' | 'manual';
 
 /**
  * @@@history-not-replayed 已撤(2026-09-07)—— 记着它为什么错,免得下一个人照原样加回来。
@@ -55,7 +55,6 @@ export interface SessionReloadConfirmProps {
  */
 const ACTION_KEYS = {
   'model-switch': 'chat.reloadConfirmActionSwitch',
-  'view-switch': 'chat.reloadConfirmActionSwitch',
   'mcp-toggle': 'chat.reloadConfirmActionApply',
   manual: 'chat.reloadConfirmActionRestart',
 } as const satisfies Record<SessionReloadReason, string>;
@@ -70,19 +69,16 @@ export function SessionReloadConfirm({
   onCancel,
 }: SessionReloadConfirmProps) {
   const { translate } = useSessionMessages();
-  // `manual` 与 `view-switch` 的标题**就是那个动作自己的名字**(「重启本会话」/「切换为通用模式」),
-  // 所以前者不看 target、后者直接用 target:菜单上写什么,确认框抬头就是什么,用户不必在两句
-  // 不同措辞之间自己对上号。另外两种是「把 X 换成 Y」的半句,宾语才是 target。
+  // `manual` 的标题**就是那个动作自己的名字**(「重启本会话」),不看 target:菜单上写什么,确认框抬头就是什么。
+  // 另外两种是「把 X 换成 Y」的半句,宾语才是 target。
   const title = isReloading
     ? translate('chat.reloadInProgress')
     : reason === 'manual'
       ? translate('task.manualReload')
-      : reason === 'view-switch'
-        ? target
-        : translate(
-            reason === 'mcp-toggle' ? 'chat.reloadConfirmTitleMcp' : 'chat.reloadConfirmTitleModel',
-            { target },
-          );
+      : translate(
+          reason === 'mcp-toggle' ? 'chat.reloadConfirmTitleMcp' : 'chat.reloadConfirmTitleModel',
+          { target },
+        );
   const body = translate('chat.reloadConfirmBody');
   return (
     <ConfirmationDialog

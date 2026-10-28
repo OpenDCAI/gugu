@@ -74,6 +74,8 @@ export function createClaudeJsonlSource(
 class ClaudeJsonlSource implements SessionRecordSource {
   private readonly warn: RecordSourceWarn;
   private launches: Record<string, Launch> = {};
+  /** 这份记录里起过的后台命令的任务 id:它们的 `<task-notification>` 才写成「跑完了」。 */
+  private backgroundTasks = new Set<string>();
   childRoots: Record<string, string[]> = {};
   private events: SessionRecordSourceEvents | null = null;
   private reader: TailReader | null = null;
@@ -195,6 +197,7 @@ class ClaudeJsonlSource implements SessionRecordSource {
 
   private async fullRead(path: string): Promise<void> {
     this.launches = {};
+    this.backgroundTasks = new Set();
     this.childRoots = {};
     this.seenUuids = new Set();
     this.lastUuid = null;
@@ -231,7 +234,7 @@ class ClaudeJsonlSource implements SessionRecordSource {
     // The launch result supplies the native identity; keep its call paired until then,
     // as the Codex source does for collaboration calls and activity records.
     const decoded = decodeClaudeRecord(this.nativeChild ? { ...record, isSidechain: false } : record, uuid);
-    return decoded.flatMap((entry): RecordEntry[] => {
+    return [...decoded.flatMap((entry): RecordEntry[] => {
       const update = entry.update;
       if (!update || (update.sessionUpdate !== 'tool_call' && update.sessionUpdate !== 'tool_call_update')) return [entry];
       const launch = this.launches[update.toolCallId];
@@ -259,7 +262,39 @@ class ClaudeJsonlSource implements SessionRecordSource {
         }) },
         { ...entry, update: { sessionUpdate: 'tool_call_update', toolCallId: id, status: update.status } },
       ];
-    });
+    }), ...this.backgroundTaskEntries(record, message, uuid)];
+  }
+
+  /**
+   * 后台命令(`run_in_background` 的 Bash,#5117)在记录里的两头,写成运行时 ACP 流里同名的那两条扩展更新
+   * (`async_task_spawned` / `async_task_state_update`),reducer 照常把任务 id 记到那次调用上、跑完时撤下:
+   *  · 起:tool_result 那条记录的 `toolUseResult.backgroundTaskId`;
+   *  · 完:之后一条 user 字符串消息 `<task-notification>`,带 task-id / tool-use-id / status。
+   * 手机看会话读的是这份记录,不是运行时的流 —— 没有这一路,它那一句「后台 · 1 条命令」永远不出来。
+   * 子智能体的通知不走这里(它们有自己那一路):只认这份记录里起过的后台命令。
+   */
+  private backgroundTaskEntries(record: Record<string, unknown>, message: Record<string, unknown> | null, uuid: string): RecordEntry[] {
+    const at = parseTimestamp(record.timestamp);
+    const stamp = at !== undefined ? { at } : {};
+    const taskId = asRecord(record.toolUseResult)?.backgroundTaskId;
+    if (typeof taskId === 'string' && taskId) {
+      const blocks = Array.isArray(message?.content) ? message.content.map(asRecord) : [];
+      const toolCallId = blocks.find((block) => block?.type === 'tool_result' && typeof block.tool_use_id === 'string')?.tool_use_id;
+      if (typeof toolCallId !== 'string') return [];
+      this.backgroundTasks.add(taskId);
+      return [{ key: `claude:${uuid}#bg-spawn`, ...stamp,
+        update: { sessionUpdate: 'async_task_spawned', asyncTaskId: taskId, toolCallId } as unknown as SessionUpdate }];
+    }
+    const text = typeof message?.content === 'string' ? message.content : null;
+    if (!text?.includes('<task-notification>')) return [];
+    const tag = (name: string) => new RegExp(`<${name}>([^<]*)</${name}>`).exec(text)?.[1]?.trim();
+    const id = tag('task-id');
+    if (!id || !this.backgroundTasks.has(id)) return [];
+    const status = tag('status');
+    const state = status === 'failed' ? 'failed' : status === 'killed' || status === 'stopped' ? 'stopped' : 'completed';
+    const toolCallId = tag('tool-use-id');
+    return [{ key: `claude:${uuid}#bg-done`, ...stamp,
+      update: { sessionUpdate: 'async_task_state_update', asyncTaskId: id, state, ...(toolCallId ? { toolCallId } : {}) } as unknown as SessionUpdate }];
   }
 
   /**

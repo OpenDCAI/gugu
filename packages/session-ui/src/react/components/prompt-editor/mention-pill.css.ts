@@ -58,13 +58,6 @@ export const pillIconArea = style({
   justifyContent: 'center',
 });
 
-export const pillPlainIconArea = style({
-  position: 'absolute',
-  inset: 0,
-  width: '100%',
-  height: '100%',
-});
-
 export const pillRemoveBtn = style({
   position: 'absolute',
   inset: 0,

@@ -202,7 +202,7 @@ export default {
       "decline": "不回答",
       "cancelled": "这条已经不需要回答了",
       "noOptions": "这条要在桌面端回答：机器没有把可选项发过来。",
-      "answerInTerminal": "这条要在桌面端的终端里回答：终端会话手机答不了。",
+      "answerInTerminal": "这条要在电脑上回答。",
       "answerOnDesktop": "这条要在桌面端回答：这一类手机还答不了。",
       "byDesktop": "桌面端",
       "byMobile": "手机端"
@@ -216,12 +216,6 @@ export default {
       "project": "项目",
       "harness": "Harness",
       "model": "模型",
-      "view": "模式",
-      "sessionView": {
-        "label": "模式",
-        "code": { "name": "编程", "desc": "在终端里跑，看到的是 harness 自己的界面" },
-        "general": { "name": "通用", "desc": "聊天式界面，手机上能完整看回复与审批" }
-      },
       "permission": {
         "plan": { "name": "只出方案", "desc": "只想不动手，不真的执行工具" },
         "read-only": { "name": "只读", "desc": "能看不能改，动手前问你;你在 harness 自己设置里放行过的工具除外" },
@@ -401,6 +395,8 @@ export default {
       "notificationsTestFailed": "这台设备不支持系统通知。",
       "notificationsTestSentMobile": "系统收下了这条通知。还是没看到 → 去「我的 → 权限 → 通知」确认咕咕的通知已打开、允许弹出横幅。",
       "notificationsTestRejectedMobile": "系统没让这条通知弹出来——咕咕还没拿到通知权限。去「我的 → 权限 → 通知」开。",
+      "terminal": "终端",
+      "terminalDescription": "显示终端,新任务在终端里运行。",
       "trayBadge": "托盘角标",
       "trayBadgeAria": "在托盘图标上显示未读数",
       "trayBadgeEnabled": "在托盘图标上显示未读数",

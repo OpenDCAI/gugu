@@ -208,7 +208,7 @@ export default {
       "decline": "Decline",
       "cancelled": "This no longer needs an answer",
       "noOptions": "Answer this on the desktop: the machine did not send the available options.",
-      "answerInTerminal": "Answer this in the terminal on the desktop: a terminal task can't be answered from the phone.",
+      "answerInTerminal": "Answer this on the computer.",
       "answerOnDesktop": "Answer this on the desktop: this kind can't be answered from the phone yet.",
       "byDesktop": "the desktop",
       "byMobile": "the phone"
@@ -222,12 +222,6 @@ export default {
       "project": "Project",
       "harness": "Harness",
       "model": "Model",
-      "view": "Mode",
-      "sessionView": {
-        "label": "Mode",
-        "code": { "name": "Code", "desc": "Runs in a terminal; you see the harness's own UI" },
-        "general": { "name": "Work", "desc": "Chat-style; replies and approvals show fully on the phone" }
-      },
       "permission": {
         "plan": { "name": "Plan only", "desc": "Think it through without running tools" },
         "read-only": { "name": "Read-only", "desc": "Can look but not change; asks before acting, except for tools you have allowed in the harness's own settings" },
@@ -407,6 +401,8 @@ export default {
       "notificationsTestFailed": "This device does not support system notifications.",
       "notificationsTestSentMobile": "The system accepted it. Still nothing? Go to Me → Permissions → Notifications and make sure notifications and pop-up banners are on for 咕咕.",
       "notificationsTestRejectedMobile": "The system refused to show it — 咕咕 has no notification permission yet. Turn it on from Me → Permissions → Notifications.",
+      "terminal": "Terminal",
+      "terminalDescription": "Show the terminal, and run new tasks in it.",
       "trayBadge": "Tray badge",
       "trayBadgeAria": "Show the unread count on the tray icon",
       "trayBadgeEnabled": "Show the unread count on the tray icon",

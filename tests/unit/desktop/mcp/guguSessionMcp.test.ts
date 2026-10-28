@@ -87,6 +87,18 @@ const socialContext = (
 })
 
 describe('single Gugu MCP surface (session_* + app_* atomic tools)', () => {
+  it('requires the assistant to distinguish a question from an assignment before dispatch', async () => {
+    const seen: unknown[] = []
+    const client = await connectTo({ ...socialContext(async action => { seen.push(action); return { recipients: [] } }), personalAssistant: true })
+    const args = { to: ['session:target'], text: '请回复一句话' }
+    expect((await client.callTool({ name: 'session_message', arguments: args })).isError).toBe(true)
+    expect(seen).toEqual([])
+    expect((await client.callTool({ name: 'session_message', arguments: { ...args, purpose: 'reply' } })).isError).not.toBe(true)
+    expect(seen).toEqual([{ action: 'message', ...args, purpose: 'reply' }])
+    await client.callTool({ name: 'session_message', arguments: { ...args, purpose: 'task' } })
+    expect(seen[1]).toMatchObject({ action: 'message', purpose: 'task', text: expect.stringContaining('<gugu_task_context>') })
+  })
+
   it('注册清单:两份 DEF 的原子工具名字→分派动作一一对应(前缀在注册机剥掉)', () => {
     expect(SESSION_TOOL_DEFS.map((def) => def.name)).toEqual([...SESSION_TOOL_NAMES])
     expect(EXTENSION_TOOL_DEFS.map((def) => def.name)).toEqual([...EXTENSION_TOOL_NAMES])

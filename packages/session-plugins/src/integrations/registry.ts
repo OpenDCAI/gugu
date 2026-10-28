@@ -1,4 +1,5 @@
 import { createPluginRegistry } from '@gugu/session-shared/plugins';
+import { provider as amap } from './impl/amap';
 import { provider as asana } from './impl/asana';
 import { provider as dida } from './impl/dida';
 import { provider as dingtalk } from './impl/dingtalk';
@@ -42,6 +43,8 @@ for (const provider of [
   tencentDocs,
   tencentMeeting,
   dida,
+  // 用户自己的 Key 拼进地址的托管 MCP。
+  amap,
   // 国产平台的官方命令行(#7210 第二批):咕咕装好工具、调起它自带的登录,把工具与它的 skills 交给会话。
   dingtalk,
   wecom,

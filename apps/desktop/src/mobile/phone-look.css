@@ -10,6 +10,9 @@
   --bubble-other: var(--ta-bubble-other);
   --bubble-own: var(--ta-bubble-mine);
   --bubble-agent: var(--ta-bubble-other);
+  /* 底栏没选中那格:--text-tertiary 在玻璃上只有 ~2.8:1,看不清(owner 10-28)。往前景色掺三成,两套主题都 ≥ 4.5:1;
+     选中那格靠前景色 + 胶囊底区分。 */
+  --phone-nav-idle: color-mix(in srgb, var(--primary) 30%, var(--text-secondary));
 }
 
 /* ── 玻璃:底栏、搜索框 ── */
@@ -68,6 +71,14 @@
   line-height: var(--lh-caption);
 }
 [data-phone-shell] .gg-phone-nav-icon { position: relative; display: flex; }
+/* 字的行盒收紧到字号本身:12px 字配 18px 行高时,行盒上下的空白不对称(中文字体在安卓上尤其偏下),
+   图标 + 字这一摞看着不在胶囊正中(owner 10-28)。 */
+[data-phone-shell] .gg-phone-nav-label { line-height: 1; }
+/* 点按切换:胶囊滑过去、两格颜色渐变;只在点按那一下挂(data-tab-switching),横滑跟手时不挂。 */
+@media (prefers-reduced-motion: no-preference) {
+  [data-phone-shell] [data-phone-tabbar][data-tab-switching] .gg-phone-nav-destinations::before { transition: transform var(--dur-med) var(--ease); }
+  [data-phone-shell] [data-phone-tabbar][data-tab-switching] .gg-phone-nav-item { transition: color var(--dur-med) var(--ease); }
+}
 [data-phone-shell] .gg-phone-nav-icon > svg { width: var(--icon-rail); height: var(--icon-rail); }
 [data-phone-shell] .gg-phone-nav-search {
   flex: 0 0 var(--phone-nav-height);
@@ -75,6 +86,7 @@
   height: var(--phone-nav-height);
   padding: 0;
 }
+[data-phone-shell] .gg-phone-nav-search { color: var(--phone-nav-idle); }
 [data-phone-shell] .gg-phone-nav-search > svg { width: var(--icon-rail); height: var(--icon-rail); }
 [data-phone-shell] .gg-phone-nav-badge {
   position: absolute;
@@ -98,7 +110,9 @@
   box-shadow: var(--ta-glass-fx);
 }
 
-/* ── 输入框:回形针 | 胶囊 | 发送,没有底色、没有分隔线,浮在渐变上;胶囊里 8×16。 ── */
+/* ── 输入框:回形针 | 胶囊 | 发送,没有底色、没有分隔线,浮在渐变上;胶囊里 8×16。
+      圆角是单行高的一半(单行 = 胶囊);多行长高后是圆角矩形 —— ❌ --radius-capsule:
+      9999px 会把四五行高的框压成一个圆(owner 10-28 手机试用「输入框怎么还能是圆形」)。 ── */
 
 [data-phone-shell] [data-slot='composer'][data-mobile] [data-slot='composer-bar'] {
   padding: 0;
@@ -110,7 +124,7 @@
 [data-phone-shell] [data-slot='composer'][data-mobile] [data-slot='composer-input'] {
   align-items: center;
   padding: var(--spacing-sm) var(--spacing-lg);
-  border-radius: var(--radius-capsule);
+  border-radius: calc(var(--control-h-touch) / 2);
   background: var(--ta-composer-bg);
   box-shadow: var(--ta-composer-shadow);
 }

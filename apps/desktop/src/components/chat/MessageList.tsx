@@ -21,6 +21,7 @@ import { TopicAnchorCard } from './TopicAnchorCard'
 import { shouldShowTimeDivider } from './messageRowTime'
 import { TaskExchangeBubble } from '../assistant/TaskExchangeBubble'
 import { visibleReplyQuoteIds } from './replyQuoteVisibility'
+import { MESSAGE_SEEN_THRESHOLDS, messageSeen } from './messageSeen'
 
 // #1163 perf — 在父层为单条消息预算「发送/已读态」(primitive 字符串)，下传给 memo 化的 MessageBubble，
 // 取代旧的「整个 memberReadSeqs map 下传、气泡自己 derive」。任一成员已读回执会换 map 引用、破气泡浅比较
@@ -187,11 +188,12 @@ const MessageListRow = memo(function MessageListRow({
       onVisible(msg)
       return
     }
+    // Measured against the message scroller, so "fills the view" means the chat column, not the window.
     const observer = new IntersectionObserver((entries) => {
-      if (entries.some((entry) => entry.isIntersecting)) {
+      if (entries.some(messageSeen)) {
         onVisible(msg)
       }
-    }, { threshold: 0.6 })
+    }, { root: node.closest<HTMLElement>('[data-unread-stream-surface]'), threshold: [...MESSAGE_SEEN_THRESHOLDS] })
     observer.observe(node)
     return () => observer.disconnect()
   }, [row, onVisible])
@@ -229,6 +231,7 @@ const MessageListRow = memo(function MessageListRow({
   const bubble = (
     <MessageBubble
       msg={msg}
+      hideTime
       showReplyQuote={showReplyQuote}
       onReaction={onReaction}
       sendState={isAgentChat && sendState === 'read' ? 'sent' : sendState}
@@ -261,8 +264,6 @@ const MessageListRow = memo(function MessageListRow({
   return (
     <MessageRow rowRef={rowRef} index={index} count={rows.length} messageId={msg.id} className={msg.id === flashMessageId ? 'msg-src-flash' : undefined} style={{ paddingBottom: 'var(--spacing-xs)' }} onContextMenu={mentionFromAvatar}>
       {showTimeDivider && (
-        /* @@@ui-ruler 时间分隔 = Chip(小标签的唯一实现:18px 药丸、caption 字号、muted 底)。
-           原来是这里自己拍的 10px 圆角 + 2/10 内距 + 裸 11px。 */
         <div style={{ textAlign: 'center', margin: 'var(--spacing-sm) 0 var(--spacing-xs)', userSelect: 'none' }}>
           <Chip>{formatCalendarDayTime(msg.created_at)}</Chip>
         </div>

@@ -30,13 +30,6 @@ export default {
       },
       "open": "Open in Tasks",
       "openFailed": "Could not open in Tasks: {{reason}}",
-      "mode": {
-        "menu": "Mode: {{mode}}",
-        "code": "Code",
-        "general": "Work",
-        "switchToCode": "Switch to Code mode",
-        "switchToGeneral": "Switch to Work mode"
-      },
       "review": {
         "action": "Open the task terminal, review the MCP servers, then press Enter to confirm.",
         "title": "Agent is waiting for MCP review"
@@ -63,6 +56,13 @@ export default {
       "statusReadFailed": "Could not read the task status: {{reason}}"
     },
     "turnFailure": {
+      "state": {
+        "exhausted": "out of credits",
+        "weekly": "weekly limit reached",
+        "monthly": "monthly limit reached",
+        "model-unavailable": "model unavailable"
+      },
+      "stateAction": "{{name}}: {{state}}. Click to change model",
       "authentication": "The model service refused authorization for this reply.",
       "network": "The connection to the model service was interrupted; this reply could not be completed.",
       "statusReadFailed": "Reply status could not be read. Please retry.",

@@ -298,6 +298,9 @@ export function registerGuguSessionTools(
   track: GuguMcpRequestTracker,
   personalAssistant = false,
 ): void {
-  const defs = personalAssistant ? SESSION_TOOL_DEFS.filter(def => def.name !== 'device_call') : SESSION_TOOL_DEFS
+  const defs = personalAssistant ? SESSION_TOOL_DEFS.filter(def => def.name !== 'device_call').map(def=>def.name==='session_message'?{
+    ...def,description:'Send to session:/aid:/gugu: from session_peers. Chats: message_send.',
+    schema:(def.schema as z.ZodObject).extend({purpose:z.enum(['reply','task','new']).describe('reply: relay/question; task: result required; new: unrelated task.')}),
+  }:def) : SESSION_TOOL_DEFS
   registerSessionpageTools(server, defs, runAction, (tool) => `${tool} is unavailable for this grant`, track)
 }
