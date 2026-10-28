@@ -17,14 +17,16 @@
  *    他的语义类似于编辑了几次文件」（先前那句「文本消息和 edit 不折叠」由此作废）。
  *    owner 2026-10-16 又把思考收了进来：「短暂思考其实也是可以折叠的……压缩成一段话」——
  *    它夹在一串命令中间，每一行都把「跑了 N 条命令」劈开，一屏全是「短暂思考 / 执行」交替（#7316）。
- *  · 切段：文本消息 —— 那是 agent 在说话，不是过程。
+ *  · 切段：文本消息 —— 那是 agent 在说话，不是过程。经 message_send / session_message 说出去的那段话同理
+ *    (`agentSendOf`):群里派的任务,agent 的话都是这么回的,折进「调用了 N 个 MCP 工具」就一个字也看不到了。
  *
  * ❌ 不按「N 条以上才折」之外的任何启发式：一条就是一行（折一条等于把一行换成另一行，
  * 没意义）；两条起折。
  */
 import { toolCallName } from '@gugu/session-core/acp/client';
 import { isQuestionOrPlanToolName } from '@gugu/session-core/session-record/question-tools';
-import type { ChatItem } from '@session-chat/model';
+import { agentSendOf } from '@gugu/session-core/session-record/reply-process';
+import type { ChatItem, TranscriptItem } from '@session-chat/model';
 import type { ChatTranslator } from '@session-chat/localization';
 import { executeCommandChipText } from '@session-chat/components/rows/tools/execute/execute.layout';
 
@@ -87,7 +89,7 @@ export function toolRunCategory(item: ChatItem): ToolRunCategory | null {
     case 'web-fetch-tool-call':
       return 'fetch';
     case 'mcp-tool-call':
-      return 'mcp';
+      return agentSendOf(item as TranscriptItem) ? null : 'mcp';
     case 'spawn-subagent-tool-call':
       return 'subagentLaunch';
     case 'subagent-done-tool-call':

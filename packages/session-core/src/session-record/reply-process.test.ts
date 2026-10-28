@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { liveReplyOf } from './live-reply';
-import { canYieldRepliedAssistant, replyProcess, replyProcesses } from './reply-process';
+import { agentSendOf, canYieldRepliedAssistant, replyProcess, replyProcesses } from './reply-process';
 import { renderDeliveryEnvelope, mergeDeliveryEnvelopes } from '@gugu/core/local/agent/deliveryEnvelope';
 import type { TranscriptTurn } from '../acp/models/turns/turn';
 import type { McpToolCall } from '../acp/models/turns/tool-calls';
@@ -89,3 +89,52 @@ describe('explicit message streaming and reply effort', () => {
     expect(replyProcess(record, 'send')).toEqual({ thoughts: 1, thinkingMs: 0, tools: 1, commands: 1 });
   });
 });
+
+describe('agentSendOf: what the agent said through 咕咕, and where it went', () => {
+  const chat = '127ec4f0-30b1-4583-b469-706756153bdd';
+  const groupInput = (facts: { thread?: string } = {}) => renderDeliveryEnvelope({ route: 'chat', from: 'Owner', fromId: 'user:owner',
+    chat: '216012', chatKind: 'group', sourceLink: `gugu-chat://${chat}/${messageId}`, messageId: 'msg:' + messageId,
+    content: 'Go', at: '2026-10-27T04:10:00Z', ...facts });
+  const inGroup = (tool: McpToolCall, input = groupInput()): TranscriptTurn => {
+    const record = turn(tool); const first = record.items[0];
+    if (first.kind !== 'message') throw new Error('fixture');
+    first.text = input;
+    return record;
+  };
+
+  it('names a send to the delivering group by its conversation, whatever number the agent typed', () => {
+    const tool = send({ chat_id: '216012', text: 'Round 1: still running' });
+    expect(agentSendOf(tool, inGroup(tool))).toEqual({ text: 'Round 1: still running',
+      to: { kind: 'chat', conversationId: chat, threadRootId: null, whisper: false } });
+  });
+
+  it('a send into the thread this session is bound to says it went to that thread', () => {
+    const tool = send({ chat_id: '216012', text: 'In the thread' });
+    expect(agentSendOf(tool, inGroup(tool, groupInput({ thread: 'msg:root-1' })))?.to)
+      .toEqual({ kind: 'chat', conversationId: chat, threadRootId: 'msg:root-1', whisper: false });
+    // A whisper only goes on the main line (the server refuses it in a thread), so it is never "in the thread".
+    const whisper = send({ chat_id: '216012', text: 'psst', whisper: true });
+    expect(agentSendOf(whisper, inGroup(whisper, groupInput({ thread: 'msg:root-1' })))?.to)
+      .toMatchObject({ threadRootId: null, whisper: true });
+  });
+
+  it('another chat is named only when the agent addressed it by conversation id', () => {
+    expect(agentSendOf(send({ chat_id: '999' }), turn())?.to).toMatchObject({ conversationId: null, threadRootId: null });
+    const other = 'aaaaaaaa-bbbb-4ccc-8ddd-eeeeeeeeeeee';
+    expect(agentSendOf(send({ chat_id: other.toUpperCase() }))?.to).toMatchObject({ conversationId: other });
+  });
+
+  it('session_message counts its recipients', () => {
+    const relay = { ...send(), tool: 'session_message', rawInput: JSON.stringify({ to: ['session:a', 'session:b'], text: 'done' }) };
+    expect(agentSendOf(relay)).toEqual({ text: 'done', to: { kind: 'session', count: 2 } });
+  });
+
+  it('stays a tool row when it failed, is a subagent\'s, is not 咕咕\'s, or its text did not survive transport', () => {
+    const base = send();
+    for (const tool of [{ ...base, status: 'error' as const }, { ...base, parentToolCallId: 'child' }, { ...base, server: 'unrelated' },
+      { ...base, tool: 'message_send_as_owner' }, { ...base, rawInput: '{"chat_id":"dm","text":"cut' }, send({ text: '  ' })]) {
+      expect(agentSendOf(tool, turn(tool))).toBeNull();
+    }
+  });
+});
+

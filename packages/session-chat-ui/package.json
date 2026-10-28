@@ -17,6 +17,7 @@
     "./tool-run": "./src/state/tool-run.ts",
     "./background-rosters": "./src/lib/background-rosters.ts",
     "./opened-outputs": "./src/state/opened-outputs.ts",
+    "./agent-send": "./src/state/agent-send.ts",
     "./file-icons": "./src/lib/file-icons.ts",
     "./layout-geometry": "./src/layout-geometry.ts",
     "./markdown-attachment-mentions": "./src/core/markdown/attachment-mentions.ts",
