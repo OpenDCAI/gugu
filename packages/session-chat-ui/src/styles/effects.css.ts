@@ -15,11 +15,11 @@ import { vars } from './theme.css';
 
 const shimmerSweep = keyframes({
   from: { transform: 'translateX(0)' },
-  to: { transform: 'translateX(50%)' },
+  to: { transform: 'translateX(var(--text-shimmer-sweep-end, 50%))' },
 });
 const shimmerInk = keyframes({
   from: { transform: 'translateX(0)' },
-  to: { transform: 'translateX(-200%)' },
+  to: { transform: 'translateX(var(--text-shimmer-ink-end, -200%))' },
 });
 
 const planSpin = keyframes({
@@ -77,6 +77,8 @@ export const textShimmerClip = style({
   overflow: 'hidden',
   pointerEvents: 'none',
   isolation: 'isolate',
+  contain: 'paint',
+  animationDelay: 'inherit',
   // Reduced motion keeps the same flat passive text as before, with no frozen band.
   '@media': { '(prefers-reduced-motion: reduce)': { display: 'none' } },
 });
@@ -90,40 +92,44 @@ const sweep = {
   position: 'absolute',
   top: 0,
   bottom: 0,
-  left: '-200%',
-  width: '400%',
-  maskSize: '50% 100%',
+  left: 'var(--text-shimmer-left, -200%)',
+  width: 'var(--text-shimmer-width, 400%)',
+  maskSize: 'var(--text-shimmer-mask-size, 50% 100%)',
+  transform: 'translateX(var(--text-shimmer-idle-sweep, 0%))',
   maskRepeat: 'repeat',
-  animation: `${shimmerSweep} 1s steps(20, end) forwards`,
+  animation: `${shimmerSweep} var(--text-shimmer-duration, 1s) var(--text-shimmer-easing, steps(20, end)) var(--text-shimmer-iterations, 1) forwards`,
+  animationDelay: 'inherit',
 } as const;
 
 export const textShimmerBaseSweep = style({
   ...sweep,
-  maskImage: 'linear-gradient(90deg, white 30%, transparent 50%, white 70%)',
+  maskImage: 'var(--text-shimmer-base-mask, linear-gradient(90deg, white 30%, transparent 50%, white 70%))',
 });
 
 export const textShimmerSweep = style({
   ...sweep,
-  maskImage: 'linear-gradient(90deg, transparent 30%, white 50%, transparent 70%)',
+  maskImage: 'var(--text-shimmer-light-mask, linear-gradient(90deg, transparent 30%, white 50%, transparent 70%))',
   mixBlendMode: 'plus-lighter',
 });
 
 export const textShimmerInk = style({
   display: 'block',
-  width: '25%',
-  marginLeft: '50%',
+  width: 'var(--text-shimmer-ink-width, 25%)',
+  marginLeft: 'var(--text-shimmer-ink-left, 50%)',
+  transform: 'translateX(var(--text-shimmer-idle-ink, 0%))',
   overflow: 'hidden',
   textOverflow: 'ellipsis',
   whiteSpace: 'nowrap',
-  color: vars.fgPassive,
-  WebkitTextFillColor: vars.fgPassive,
-  animation: `${shimmerInk} 1s steps(20, end) forwards`,
+  color: `var(--text-shimmer-base, ${vars.fgPassive})`,
+  WebkitTextFillColor: `var(--text-shimmer-base, ${vars.fgPassive})`,
+  animation: `${shimmerInk} var(--text-shimmer-duration, 1s) var(--text-shimmer-easing, steps(20, end)) var(--text-shimmer-iterations, 1) forwards`,
+  animationDelay: 'inherit',
   '::before': { content: 'attr(data-shimmer-text)' },
 });
 
 export const textShimmerLightInk = style({
-  color: vars.fgMuted,
-  WebkitTextFillColor: vars.fgMuted,
+  color: `var(--text-shimmer-light, ${vars.fgMuted})`,
+  WebkitTextFillColor: `var(--text-shimmer-light, ${vars.fgMuted})`,
 });
 
 // ── fade-overlay-top ──────────────────────────────────────────────────────────

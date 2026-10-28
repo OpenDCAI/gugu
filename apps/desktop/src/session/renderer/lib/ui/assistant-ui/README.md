@@ -118,7 +118,7 @@ scrollTop 写者，症状是「偶尔跳一下」，且难以归因。上游自�
 
 | 文件 | 是什么 | 上游 |
 |---|---|---|
-| `surfaces.tsx` | **全家公共底座**：class 配方 + `ShimmerLabel` / `SwapLabel` | `elements-surfaces` |
+| `surfaces.tsx` | **全家公共底座**：class 配方 + `SwapLabel` | `elements-surfaces` |
 | `range.ts` | 数值归一化（`clamp` / `take` / `pct` / `progressOf` …） | `elements-range` |
 | `thread-welcome.tsx` | 空态 + 建议芯片 | `thread.json` 内的 `ThreadWelcome` / `ThreadSuggestions` |
 | `thread-scroll-to-bottom.tsx` | 回到底部按钮 | `thread.json` 内的 `ThreadScrollToBottom` |
