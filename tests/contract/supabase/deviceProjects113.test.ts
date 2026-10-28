@@ -14,7 +14,7 @@ import {
   type DeviceProjectsRpcClient,
   type DeviceProjectsTableClient,
 } from '@gugu/core/cloud/deviceProjects'
-import { ACCOUNT_REVISION_EVENTS } from '../../../apps/desktop/src/lib/accountRevisionCoordinator'
+import { ACCOUNT_REVISION_EVENTS, readDeviceRevision } from '../../../apps/desktop/src/lib/accountRevisionCoordinator'
 
 interface DatabaseClient {
   connect(): Promise<void>
@@ -91,19 +91,25 @@ function clientAs(user: string): DeviceProjectsRpcClient & DeviceProjectsTableCl
           return {
             eq(column, value) {
               const order: string[] = []
-              // PostgREST 的 order / range / count=exact:同一个判权上下文里排好、切一页、数总行数。
+              let ids: readonly string[] | null = null
+              // PostgREST 的 in / order / range / count=exact:同一个判权上下文里筛好、排好、切一页、数总行数。
               const page = {
+                in(inColumn: 'device_id', values: readonly string[]) {
+                  if (inColumn !== 'device_id') throw new Error(`unexpected in ${inColumn}`)
+                  ids = values
+                  return page
+                },
                 order(by: 'device_id' | 'local_project_id') {
                   order.push(by)
                   return page
                 },
                 async range(from: number, to: number) {
-                  const where = `FROM identity.device_projects WHERE ${column} = $1`
+                  const where = `FROM identity.device_projects WHERE ${column} = $1 AND ($2::text[] IS NULL OR device_id = ANY($2))`
                   const rows = await asUser<{ row: unknown }>(user,
-                    `SELECT to_jsonb(picked) AS row FROM (SELECT ${columns} ${where} ORDER BY ${order.join(', ')} OFFSET $2 LIMIT $3) AS picked`,
-                    [value, from, to - from + 1])
+                    `SELECT to_jsonb(picked) AS row FROM (SELECT ${columns} ${where} ORDER BY ${order.join(', ')} OFFSET $3 LIMIT $4) AS picked`,
+                    [value, ids, from, to - from + 1])
                   if ('error' in rows) return { data: null, error: { message: rows.error }, count: null }
-                  const counted = await asUser<{ count: number }>(user, `SELECT count(*)::int AS count ${where}`, [value])
+                  const counted = await asUser<{ count: number }>(user, `SELECT count(*)::int AS count ${where}`, [value, ids])
                   if ('error' in counted) return { data: null, error: { message: counted.error }, count: null }
                   return { data: rows.rows.map((r) => r.row), error: null, count: counted.rows[0]?.count ?? null }
                 },
@@ -158,8 +164,10 @@ describe('#113 项目记在账号上:客户端写的那份,库收得下、读回
 
       const { rows } = await db.query<{ event: string; resource_key: unknown }>(
         'SELECT event, resource_key FROM chat.account_revisions WHERE user_id = $1 AND revision = $2::bigint', [owner, after])
-      expect(rows[0]?.resource_key).toEqual({ device_id: device })
+      expect(rows[0]?.resource_key).toEqual({ device_id: device, kind: 'projects' })
       expect(ACCOUNT_REVISION_EVENTS).toContain(rows[0]?.event)
+      // 客户端读得懂:只读这一台的项目,不读设备行。
+      expect(readDeviceRevision({ ...(rows[0]?.resource_key as object), tombstone: false })).toEqual({ deviceId: device, row: false, projects: true, removed: false })
     })
   })
 

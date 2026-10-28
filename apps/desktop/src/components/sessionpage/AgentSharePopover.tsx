@@ -274,8 +274,8 @@ export function AgentSharePopover({
               // --bg-elevated 才是这仓锚定信息浮层的底(暗 #1a1c24 / 亮 #fff,即设计稿的 --popover),
               // 与 ReadReceiptPopover、AgentRecentActionPopover 同一个 —— ❌ 别在这里另拍一个颜色。
               background: 'var(--bg-elevated)',
-              // 举起来的物件:一圈 hairline + 一层 lift 影,圆角 12(design.md --radius-xl:floating card)。
-              boxShadow: '0 0 0 1px var(--border-color), 0 12px 32px rgba(0,0,0,0.18)',
+              // 举起来的物件:hairline + lift 影都在 --shadow-popover 里,按主题分值;圆角 12(design.md --radius-xl:floating card)。
+              boxShadow: 'var(--shadow-popover)',
               borderRadius: 'var(--radius-xl)',
               overflow: 'hidden',
             }}
@@ -313,7 +313,7 @@ export function AgentSharePopover({
 
             <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12, borderTop: '1px solid var(--border-color)', padding: '8px 12px' }}>
               {/* 脚上只有一个动作:有号 → 生成海报;没号 → 开启公开(铸号)。说明文字只在没号态出现一句。 */}
-              <span style={{ minWidth: 0, fontSize: 'var(--font-body)', lineHeight: 1.4, color: makePublicError ? 'var(--text-danger, #b3261e)' : 'var(--text-secondary)' }}>
+              <span style={{ minWidth: 0, fontSize: 'var(--font-body)', lineHeight: 1.4, color: makePublicError ? 'var(--danger)' : 'var(--text-secondary)' }}>
                 {hasNumber ? null : (makePublicError ?? t('agentShare.makePublicHint'))}
               </span>
               <button
