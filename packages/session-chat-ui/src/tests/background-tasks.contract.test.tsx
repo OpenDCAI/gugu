@@ -175,20 +175,22 @@ describe('background tasks at the end of the transcript', () => {
     state.transcript.history.seed([worked])
     state.session.setBackgroundTasks({ commands: [command], subagents: [agent()] })
 
-    const pill = () => host.querySelector<HTMLElement>('[data-agent-conversation-message="answer"] [data-slot="background-tasks-pill"]')
+    // 对话布局里一轮回复拆成「名字 + 过程行」那一行(answer:head)和气泡那一行(answer)。
+    const pill = () => host.querySelector<HTMLElement>('[data-agent-conversation-message="answer:head"] [data-slot="background-tasks-pill"]')
     await until('the background line sits on the reply\'s process line', () => pill() !== null)
     expect(pill()?.textContent).toContain('Background · 1 command · 1 subagent')
     expect(row(host)).toBeNull()
-    const process = host.querySelector<HTMLElement>('[data-agent-conversation-message="answer"] [data-conversation-process]')!
+    const process = host.querySelector<HTMLElement>('[data-agent-conversation-message="answer:head"] [data-conversation-process]')!
     // 同一行
     expect(Math.abs(process.getBoundingClientRect().top - pill()!.getBoundingClientRect().top)).toBeLessThanOrEqual(2)
 
     pill()!.click()
     await until('the list opens under that line, above the bubble', () => items(host).length === 2)
-    const message = host.querySelector<HTMLElement>('[data-agent-conversation-message="answer"]')!
-    expect(message.contains(items(host)[0])).toBe(true)
-    const bubble = message.querySelector<HTMLElement>('[data-user-card]')!
-    expect(items(host)[1].getBoundingClientRect().bottom).toBeLessThanOrEqual(bubble.getBoundingClientRect().top)
+    const head = host.querySelector<HTMLElement>('[data-agent-conversation-message="answer:head"]')!
+    expect(head.contains(items(host)[0])).toBe(true)
+    const bubble = host.querySelector<HTMLElement>('[data-agent-conversation-message="answer"] [data-user-card]')!
+    // 气泡是下一行:头那一行长高有个过渡,等它落定。
+    await until('the bubble row settles below the open list', () => items(host)[1].getBoundingClientRect().bottom <= bubble.getBoundingClientRect().top)
 
     // 人接着说话:末尾不再是那条回复 ⇒ 后台单独一行贴在最后。
     state.transcript.activeTurn.set({

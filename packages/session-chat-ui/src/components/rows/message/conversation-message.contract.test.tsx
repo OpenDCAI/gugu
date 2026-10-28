@@ -46,7 +46,9 @@ describe('agent-centered conversation bubbles', () => {
         expect(Math.abs(row.getBoundingClientRect().height - messageUnitDef.measure(view.item, view.ctx, messageUnitDef.vars!))).toBeLessThanOrEqual(1);
         const bubble = row.querySelector<HTMLElement>('[data-user-card]')!;
         const name = row.querySelector<HTMLElement>('span[title]')!;
-        const quote = row.querySelector<HTMLButtonElement>('button[title="你好"]')!;
+        // owner 0 号图:名字那一行只有名字,❌ 被回复那条的摘要。
+        expect(row.querySelector('button[title="你好"]')).toBeNull();
+        expect(row.textContent).not.toContain('你好↵');
         expect(bubble.contains(name)).toBe(false);
         // owner 定稿(0 号图):时间、复制(、编辑)那一行照原气泡常驻在气泡下面,❌ 悬停才出。
         const actions = row.querySelector<HTMLElement>('[data-user-message-actions]')!;
@@ -55,11 +57,9 @@ describe('agent-centered conversation bubbles', () => {
         expect(actions.getBoundingClientRect().top).toBeGreaterThanOrEqual(bubble.getBoundingClientRect().bottom - 1);
         if (role === 'assistant') {
           expect(Math.abs(bubble.getBoundingClientRect().left - row.getBoundingClientRect().left)).toBeLessThanOrEqual(1);
-          expect(name.getBoundingClientRect().right).toBeLessThan(quote.getBoundingClientRect().left);
           expect(name.textContent).toBe('Codex 11');
         } else {
           expect(Math.abs(bubble.getBoundingClientRect().right - row.getBoundingClientRect().right)).toBeLessThanOrEqual(1);
-          expect(quote.getBoundingClientRect().right).toBeLessThan(name.getBoundingClientRect().left);
           expect(name.textContent).toBe('刘威');
         }
       } finally { view.dispose(); }
@@ -96,12 +96,31 @@ describe('agent-centered conversation bubbles', () => {
       expect(Math.abs(view.host.getBoundingClientRect().height - messageUnitDef.measure(view.item, view.ctx, messageUnitDef.vars!))).toBeLessThanOrEqual(1);
     } finally { view.dispose(); }
   });
-  it('shows the incoming sender and quote, without delivery chrome or avatars', async () => {
+  it('splits a reply into a name + process head and bubble-only bodies with matching measured heights', async () => {
+    const process = { id: 'split:process', startedAt: 1000, endedAt: 9000 };
+    const head = await mount({ kind: 'message', id: 'split:head', role: 'assistant', text: '两条都发了', at: 1000, conversationProcess: process, conversationPart: 'head' });
+    try {
+      expect(head.host.querySelector('span[title]')?.textContent).toBe('Codex 11');
+      expect(head.host.querySelector('[data-conversation-process]')).not.toBeNull();
+      expect(head.host.querySelector('[data-user-card]')).toBeNull();
+      expect(head.host.querySelector('[data-user-message-actions]')).toBeNull();
+      expect(Math.abs(head.host.getBoundingClientRect().height - messageUnitDef.measure(head.item, head.ctx, messageUnitDef.vars!))).toBeLessThanOrEqual(1);
+    } finally { head.dispose(); }
+    const body = await mount({ kind: 'message', id: 'split', role: 'assistant', text: '两条都发了', at: 1000, conversationPart: 'body', conversationHead: 'split:head' });
+    try {
+      expect(body.host.querySelector('span[title]')).toBeNull();
+      expect(body.host.querySelector('[data-conversation-process]')).toBeNull();
+      expect(body.host.querySelector('[data-user-card]')?.textContent).toContain('两条都发了');
+      expect(body.host.querySelector('[data-user-message-actions] time')).not.toBeNull();
+      expect(Math.abs(body.host.getBoundingClientRect().height - messageUnitDef.measure(body.item, body.ctx, messageUnitDef.vars!))).toBeLessThanOrEqual(1);
+    } finally { body.dispose(); }
+  });
+  it('shows the incoming sender only, without the quote, delivery chrome or avatars', async () => {
     const view = await mount({ kind: 'message', id: 'delivery', role: 'user', text: '<gugu_delivery route="chat" from="天天" from_id="user:other" chat="group" msg="msg:incoming"><reply_to msg="msg:sent" from_id="user:subject"><![CDATA[天天，你好。]]></reply_to><![CDATA[你好，我在。]]></gugu_delivery>' });
     try {
       const row = view.host.querySelector<HTMLElement>('[data-agent-conversation-message]')!;
       expect(row.textContent).toContain('天天');
-      expect(row.textContent).toContain('天天，你好。');
+      expect(row.textContent).not.toContain('天天，你好。');
       expect(row.querySelectorAll('img')).toHaveLength(0);
       expect(row.textContent).not.toContain('来自');
       expect(row.querySelector('[data-user-card]')?.textContent).toContain('你好，我在。');
@@ -136,6 +155,12 @@ describe('agent-centered conversation bubbles', () => {
       // owner 2026-10-27 原型:过程行在气泡上方 —— 正文在流式长高时,这一行不跟着往下挪。
       expect(button.parentElement!.getBoundingClientRect().bottom).toBeLessThanOrEqual(bubble.getBoundingClientRect().top);
       expect(Math.abs(view.host.getBoundingClientRect().height - messageUnitDef.measure(view.item, view.ctx, messageUnitDef.vars!))).toBeLessThanOrEqual(1);
+    } finally { view.dispose(); }
+  });
+  it('writes the step count after the duration on the process line', async () => {
+    const view = await mount({ kind: 'message', id: 'counted', role: 'assistant', text: '好了', conversationProcess: { id: 'counted:process', startedAt: 1000, endedAt: 75000, steps: 10 } });
+    try {
+      expect(view.host.querySelector('[data-conversation-process]')?.textContent).toBe('1m14s · 10 steps›');
     } finally { view.dispose(); }
   });
   it('does not invent a duration for historical replies without both clock boundaries', async () => {
