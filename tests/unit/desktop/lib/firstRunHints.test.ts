@@ -3,7 +3,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest'
 const io = vi.hoisted(() => ({ read: vi.fn(), write: vi.fn() }))
 vi.mock('@gugu/core/cloud/userSettings', () => ({ readUserSettingsConfig: io.read, writeUserSettingsConfig: io.write }))
 vi.mock('../../../../apps/desktop/src/lib/supabase', () => ({ identityDb: {} }))
-const { parseFirstRunHints, readFirstRunHints, startFirstRunHints, dismissFirstRunHints } = await import('../../../../apps/desktop/src/lib/firstRunHints')
+const { allFirstRunHintsDismissed, parseFirstRunHints, readFirstRunHints, startFirstRunHints, dismissFirstRunHints } = await import('../../../../apps/desktop/src/lib/firstRunHints')
 
 beforeEach(() => vi.resetAllMocks())
 
@@ -20,6 +20,12 @@ describe('account-scoped contextual first-run progress', () => {
 
   it('reads a saved dismissal of the retired topics hint and drops it', () => {
     expect(parseFirstRunHints({ firstRunHints: { version: 1, dismissed: ['assistant', 'topics'] } })).toEqual({ version: 1, dismissed: ['assistant'] })
+  })
+
+  it('counts as finished once both live hints are dismissed, whatever was retired', () => {
+    const done = parseFirstRunHints({ firstRunHints: { version: 1, dismissed: ['assistant', 'topics', 'collaboration'] } })!
+    expect(allFirstRunHintsDismissed(done)).toBe(true)
+    expect(allFirstRunHintsDismissed({ version: 1, dismissed: ['assistant'] })).toBe(false)
   })
 
   it('enrolls in the same account settings row, preserving the profile and harness choice', async () => {
