@@ -233,7 +233,6 @@ const MessageListRow = memo(function MessageListRow({
   const bubble = (
     <MessageBubble
       msg={msg}
-      hideTime
       showReplyQuote={showReplyQuote}
       onReaction={onReaction}
       sendState={isAgentChat && sendState === 'read' ? 'sent' : sendState}
@@ -266,6 +265,8 @@ const MessageListRow = memo(function MessageListRow({
   return (
     <MessageRow rowRef={rowRef} index={index} count={rows.length} messageId={msg.id} className={msg.id === flashMessageId ? 'msg-src-flash' : undefined} style={{ paddingBottom: 'var(--spacing-xs)' }} onContextMenu={mentionFromAvatar}>
       {showTimeDivider && (
+        /* @@@ui-ruler 时间分隔 = Chip(小标签的唯一实现:18px 药丸、caption 字号、muted 底)。
+           原来是这里自己拍的 10px 圆角 + 2/10 内距 + 裸 11px。 */
         <div style={{ textAlign: 'center', margin: 'var(--spacing-sm) 0 var(--spacing-xs)', userSelect: 'none' }}>
           <Chip>{formatCalendarDayTime(msg.created_at)}</Chip>
         </div>

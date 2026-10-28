@@ -4,17 +4,14 @@ import type { MessageItem } from '@gugu/core/shared/types/chat'
 import { resolveOrLoud } from '@gugu/core/shared/resolveOrLoud'
 import { composerCardPreview } from '@gugu/core/shared/ui/taskCardModels'
 import { displayAgentReferences } from '@/lib/mentionMdast'
-import { Reply } from '@/lib/icons'
 import type { MemberProfileCardModel } from '../MemberProfileCard'
-import { Button } from '../ui/Button'
 import { ComposerCardHead } from './ComposerCardView'
 
 /**
  * 气泡里引的那一条:谁说的 + 原话,点一下跳到被引用的消息。
  * 引的是一张任务卡(gugu-dev#181):第一行是卡头「✳ 新任务」(谁的卡不用说,卡上有),第二行是原话。
  */
-export function MessageQuote({ msg, quoterIsAgent, memberProfiles, onShowMessage, compact = false }: {
-  compact?: boolean
+export function MessageQuote({ msg, quoterIsAgent, memberProfiles, onShowMessage }: {
   msg: MessageItem
   onShowMessage?: (id: string) => void
   /** 引卡的是 agent(它回群时引自己那张卡):卡头画它的标。 */
@@ -27,12 +24,6 @@ export function MessageQuote({ msg, quoterIsAgent, memberProfiles, onShowMessage
     event.stopPropagation()
     if (msg.reply_to_message_id) onShowMessage?.(msg.reply_to_message_id)
   }
-  if (compact) return (
-    <Button variant="ghost" className="msg-reply-summary" title={t('message.showQuoted')} disabled={!onShowMessage}
-      onClick={showQuoted}>
-      <span>{displayAgentReferences(quotedCard?.text ?? msg.reply_to_content ?? '', (_id, label) => `@${label}`)}</span><Reply className="size-3.5" aria-hidden />
-    </Button>
-  )
   return (
     <div role={onShowMessage ? "button" : undefined} title={t('message.showQuoted')} onClick={onShowMessage ? showQuoted : undefined} style={{
       cursor: onShowMessage ? 'pointer' : 'inherit',
