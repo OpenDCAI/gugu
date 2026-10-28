@@ -741,7 +741,7 @@ export const extensionsController = createRPCController({
         publisher: await (await import('@main/core/extensions/app-files')).folderPublisher(),
         asks: plan.asks,
         sheet: { installed: plan.approved, revokedPermissions: plan.revokedPermissions },
-        places: { first: !plan.displaced, identity: await given.ownInstallIdentity(manifest.id, 'folder') },
+        places: { identity: await given.ownInstallIdentity(manifest.id, 'folder') },
       }, args.consent);
       return { success: true, data: done.outcome === 'confirmed' ? { outcome: done.outcome, manifest: done.installed.manifest } : done };
     } catch (error) {
@@ -750,29 +750,23 @@ export const extensionsController = createRPCController({
     }
   },
 
-  /**
-   * D-30 「给哪些 agent」: the places an App can be given at, ticked where it is now (its row in 「App」); with no App, the
-   * places an install asks about, `chatId`'s ticked at first (else every agent here), and where the account already gave
-   * the App being installed (`app`) ticked as they are.
-   */
-  appPlaces: async (args: { extensionId?: string; chatId?: string; app?: { id: string; origin: 'market' | 'folder' } }) => {
+  /** D-30 「给哪些 agent」 on an App's row in 「App」: the places it can be given at, ticked where it is now. */
+  appPlaces: async (args: { extensionId: string }) => {
     try {
       const given = await import('@main/core/extensions/app-given');
-      if (args?.extensionId) return { success: true as const, data: await given.appPlaces(String(args.extensionId)) };
-      const identity = args?.app ? await given.ownInstallIdentity(String(args.app.id), args.app.origin === 'market' ? 'market' : 'folder') : null;
-      const { places } = await given.installPlaces(identity, args?.chatId ? String(args.chatId) : undefined);
-      return { success: true as const, data: places };
+      return { success: true as const, data: await given.appPlaces(String(args?.extensionId ?? '')) };
     } catch (error) {
       log.warn('Failed to read which agents an App is given to:', error);
       return { success: false as const, error: error instanceof Error ? error.message : String(error) };
     }
   },
 
-  /** The person's choice of which agents get an App (its row in 「App」): the whole set of places. */
-  setAppPlaces: async (args: { extensionId: string; enableIn: string[] }) => {
+  /** The person changes which agents get an App on its row in 「App」: each change on its own, never the whole set. */
+  changeAppPlaces: async (args: { extensionId: string; changes: { id: string; on: boolean }[] }) => {
     try {
       const given = await import('@main/core/extensions/app-given');
-      await given.setAppPlaces(String(args?.extensionId ?? ''), Array.isArray(args?.enableIn) ? args.enableIn.map(String) : []);
+      const changes = Array.isArray(args?.changes) ? args.changes.map((change) => ({ id: String(change?.id ?? ''), on: change?.on === true })) : [];
+      await given.changeAppPlaces(String(args?.extensionId ?? ''), changes.filter((change) => change.id));
       return { success: true as const };
     } catch (error) {
       log.warn('Failed to change which agents an App is given to:', error);
@@ -1006,9 +1000,12 @@ export const extensionsController = createRPCController({
     }
   },
 
-  uninstall: async (args: { extensionId: string }) => {
+  /** `lastAnywhere`: none of the person's other computers has it (the renderer looked) — its grants in chats go too (I10). */
+  uninstall: async (args: { extensionId: string; lastAnywhere?: boolean }) => {
     try {
+      const identity = args.lastAnywhere ? extensionsService().identityOf(args.extensionId) : null;
       extensionsService().uninstall(args.extensionId);
+      if (identity) void (await import('@main/core/extensions/app-given')).forgetAccountGrants(identity);
       // F87: open group pages list again with the removed App's file claims withdrawn; device capability follows too,
       // before asynchronous storage cleanup can yield to a heartbeat.
       void notifyInstalledAppsChanged();

@@ -204,7 +204,7 @@ describe('Install from folder over a folder install (quiet upgrade)', () => {
       expect(h.showConfirm).toHaveBeenCalledOnce();
       await act(async () => void (h.showConfirm.mock.calls[0][0] as { onSuccess: () => void }).onSuccess());
       await settle();
-      expect(h.api.uninstall).toHaveBeenCalledWith({ extensionId: 'old-notes' });
+      expect(h.api.uninstall).toHaveBeenCalledWith({ extensionId: 'old-notes', lastAnywhere: true });
     } finally {
       h.api.list.mockImplementation(listed!);
     }

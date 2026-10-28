@@ -149,8 +149,8 @@ export interface ExtensionInstallConsentRequest {
   attachment?: { from: string; replaces?: string | null };
   /** From the market (installExtensionFromMarket): where this version's code is, as the market recorded it, and what it changed. */
   market?: { source: MarketCodeSource; releaseNotes?: string };
-  /** D-30: an App giving agents tools asks which agents get them — these places, the ones ticked at first marked. */
-  places?: EnablePlace[];
+  /** Who gets its tools on the computer it installs on (architecture §4: an install writes this computer's half only). */
+  given?: InstallGrant;
   /** D-31 The one ask, wherever it is drawn: its approval in the agent's session and this window's sheet share it. */
   requestId?: string;
   /** D-31 An agent asked for it: the sheet says 「〈agent〉要装 X」, with its face. */
@@ -158,6 +158,13 @@ export interface ExtensionInstallConsentRequest {
   /** D-31 The computer it installs on, when that is not the one asking (`app_install { device }`): its agents are that one's. */
   machine?: string;
 }
+
+/**
+ * What an install gives on the computer it lands on — the only thing an install changes about who may use an App there:
+ * a first install there gives every agent on it (`here:all`); an agent installing for a chat adds that one chat; an App
+ * installed there already keeps what it gives. Naming agents, groups and projects is the App page's (`changeAppPlaces`).
+ */
+export type InstallGrant = { first: true } | { first: false; chat: { id: string; name: string } };
 
 /** The agent an install was asked for by: its name, and its id for its face (each surface draws it as its chat list does). */
 export interface ExtensionConsentRequester {
@@ -167,7 +174,7 @@ export interface ExtensionConsentRequester {
 
 /**
  * D-31 An App install asked as an approval in the agent's session (`AskOrigin` kind `app-install`): what a phone, another desktop
- * or this one needs to draw its own sheet for it, and to answer it back through the session (`enableIn` with the option).
+ * or this one needs to draw its own sheet for it, and to answer it back through the session (the option, with the digest).
  */
 export interface AppInstallAsk {
   request: ExtensionInstallConsentRequest;
@@ -184,8 +191,6 @@ export function appInstallAskOf(origin: { source: string; payload?: unknown } | 
 
 export interface ExtensionInstallConsentResult {
   outcome: ExtensionInstallConsentOutcome;
-  /** D-30: the places switched on when the person confirmed (only when the sheet asked). */
-  enableIn?: string[];
   /** owner 10-16: the person's other computers it also goes on, ticked in the same sheet (only when the sheet listed them). */
   alsoOn?: string[];
 }
@@ -197,6 +202,13 @@ export interface InstallAlsoOnMachine {
   /** Listed but not to be ticked, and why (owner 09-25「完整能力披露」): a folder's App goes on this computer only. */
   disabledReason?: string;
 }
+
+/**
+ * The person's other computers, each by name: what the install sheet offers to install on too (owner 10-16). Offline ones are
+ * listed as well — the sheet greys them, as everywhere a machine is picked.
+ */
+export const alsoOnMachines = (devices: readonly { id: string; label: string; assistantHome?: true }[], here: string | undefined, disabledReason?: string): InstallAlsoOnMachine[] =>
+  devices.filter((device) => device.id !== here && !device.assistantHome).map((device) => ({ id: device.id, label: device.label, ...(disabledReason ? { disabledReason } : {}) }));
 
 export const EXTENSION_INSTALL_CONSENT_METHOD = 'extensions.requestInstallConsent';
 /** D-31 The ask was answered elsewhere (or ran out): this window's sheet for it goes. */
@@ -224,8 +236,8 @@ export type ExtensionConsentEventDetail =
       title: string;
       description: string;
       details?: ExtensionConsentDetails;
-      /** D-30: which agents get its tools — the places to list, the ones ticked at first marked. Absent: not asked. */
-      places?: EnablePlace[];
+      /** Who gets its tools where it lands (`InstallGrant`). Absent: it gives agents no tools. */
+      given?: InstallGrant;
       /** D-31: the agent that asked, drawn above the title with its face. */
       requester?: ExtensionConsentRequester;
       /** D-31: the computer it installs on, when that is not the one showing the sheet — its agents are that computer's. */
@@ -243,8 +255,6 @@ export type ExtensionConsentEventDetail =
 export interface ExtensionConsentAnswerDetail {
   requestId: string;
   outcome: Exclude<ExtensionInstallConsentOutcome, 'timeout'>;
-  /** D-30: the places on when the person answered, when the sheet asked. */
-  enableIn?: string[];
   /** owner 10-16: the other computers ticked, when the sheet listed them. */
   alsoOn?: string[];
 }

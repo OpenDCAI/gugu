@@ -173,8 +173,10 @@ export default {
       "members": "Chat members"
     },
     "appEnable": {
-      "title": "Which agents get it",
-      "alsoOn": "Also install on",
+      "devices": "Install on",
+      "devicesHint": "Every agent on a computer it is new to can use it; to change who, use the App page.",
+      "addsChat": "Installed here already for some agents only: this adds the group “{{name}}” and changes nothing else.",
+      "decline": "Don't install",
       "machine": "This computer",
       "all": "All agents",
       "allSub": "Including the agents in each project",
@@ -185,7 +187,6 @@ export default {
       "members": "{{count}} people",
       "remove": "Stop giving it to {{name}}",
       "add": "Add an agent, group or project…",
-      "emptyInstall": "None chosen yet. You can install without, and add some later in Apps.",
       "empty": "None chosen yet.",
       "hint": "The agents chosen, and the agents in the groups chosen, can use its tools.",
       "pickerTitle": "Add an agent, group or project",

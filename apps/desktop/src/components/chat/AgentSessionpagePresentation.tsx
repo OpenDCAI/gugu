@@ -242,7 +242,7 @@ export function useAgentSessionpagePresentation(
   ) : null
 
   // 头像上的感叹号(needs_user)在这里有地方按:同一条审批,会话页、手机、聊天页谁先答谁生效。
-  const permissionNotice = timeline.pendingPermission && agentChat ? <AgentPermissionBand pending={timeline.pendingPermission} respond={timeline.respondPermission} /> : null
+  const permissionNotice = timeline.pendingPermission && agentChat ? <AgentPermissionBand sessionId={projection.context?.sessionId ?? null} pending={timeline.pendingPermission} respond={timeline.respondPermission} /> : null
   const question = timeline.question ?? remoteQuestion.question
   const questionScope = `${user?.id}:${projection.context?.sessionId ?? remoteQuestion.key}`
   const questionNotice = question && agentChat ? <AgentQuestionCard key={agentQuestionDraftKey(questionScope, question)} scope={questionScope} settlement={question} mobile={mobile}

@@ -15,7 +15,7 @@ const fail = (code: string, message: string) => ({ ok: false as const, error: { 
  * answer to the host. Nothing here answers for the person: there is no full-access auto-approve at this layer.
  */
 export type AskResult = AskAnswer | 'withdrawn' | 'timeout' | 'unavailable';
-export type AskAnswer = { optionId: string; by: string; answers?: readonly QuestionAnswer[]; digest?: string; enableIn?: string[] };
+export type AskAnswer = { optionId: string; by: string; answers?: readonly QuestionAnswer[]; digest?: string };
 type AskEntry = {
   request: PendingRequest & { origin: NonNullable<PendingRequest['origin']> };
   /** Why this answer cannot be taken (it stays asked), or null. */
@@ -109,7 +109,6 @@ export function respond(
     optionId: input.optionId,
     by: input.by,
     ...(input.digest ? { digest: input.digest } : {}),
-    ...(input.enableIn ? { enableIn: [...input.enableIn] } : {}),
   };
   const refusal = ask.refuse?.(answer);
   if (refusal) return fail('host_ask_refused', refusal);

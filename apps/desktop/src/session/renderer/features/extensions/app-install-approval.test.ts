@@ -19,7 +19,7 @@ const ask = {
     manifest: { id: 'reader', name: 'Reader' },
     manifestDigest: 'digest-r',
     revokedPermissions: [],
-    places: [{ id: 'here:all', kind: 'here', enabled: true }],
+    given: { first: true },
     requester: { name: 'Claude 6', agentUserId: 'agent-6' },
   },
 } as never;
@@ -35,17 +35,17 @@ describe('an App install answered from this device (D-31)', () => {
   });
 
   it("「查看并安装」 opens this device's own sheet, naming the computer the session runs on; its 装 carries what it showed", async () => {
-    askInShell.mockReturnValueOnce(Promise.resolve({ outcome: 'confirmed', enableIn: ['g1'] }));
+    askInShell.mockReturnValueOnce(Promise.resolve({ outcome: 'confirmed' }));
     const respond = vi.fn(async () => ({ ok: true }));
     await answerAppInstall({ itemId: 'ask-1', ask, optionId: 'install', machine: 'mac1', respond });
-    const [, requestId, , places, requester, machine] = askInShell.mock.calls[0]!;
-    expect({ requestId, places, requester, machine }).toEqual({
+    const [, requestId, , given, requester, machine] = askInShell.mock.calls[0]!;
+    expect({ requestId, given, requester, machine }).toEqual({
       requestId: 'ask-1',
-      places: [{ id: 'here:all', kind: 'here', enabled: true }],
+      given: { first: true },
       requester: { name: 'Claude 6', agentUserId: 'agent-6' },
       machine: 'mac1',
     });
-    expect(respond).toHaveBeenCalledWith({ optionId: 'install', digest: 'digest-r', enableIn: ['g1'] });
+    expect(respond).toHaveBeenCalledWith({ optionId: 'install', digest: 'digest-r' });
   });
 
   it('a no on the sheet is a no; closing it answers nothing — the ask stays where it was', async () => {
@@ -76,10 +76,16 @@ describe('an App install answered from this device (D-31)', () => {
     expect(sessionWaitsOnApproval(undefined)).toBe(false);
   });
 
+  it('the band names the computer the session runs on, and the group an install on a narrowed computer adds (problem 8)', () => {
+    const translate = (key: string, params?: Record<string, string>) => (params ? `${key}:${Object.values(params).join('|')}` : key);
+    const forGroup = { request: { ...(ask as { request: object }).request, given: { first: false, chat: { id: 'g1', name: 'Ops' } } } } as never;
+    expect(appInstallWords(forGroup, translate as never, 'Linux 1').title).toBe('extensions.installAskBandForGroup:Claude 6|Reader|extensions.permissionsOnMachine:Linux 1|Ops');
+  });
+
   it('the band says who asks for what, and 「查看并安装」 / 「不装」', () => {
     const translate = (key: string, params?: Record<string, string>) => (params ? `${key}:${Object.values(params).join('|')}` : key);
     const words = appInstallWords(ask, translate as never);
-    expect(words.title).toBe('extensions.installConfirmTitleBy:Claude 6|Reader');
+    expect(words.title).toBe('extensions.installAskBand:Claude 6|Reader|extensions.permissionsThisComputer');
     expect([words.label('install'), words.label('decline'), words.label('other')]).toEqual([
       'extensions.consentAsk',
       'extensions.consentDeclineAction',

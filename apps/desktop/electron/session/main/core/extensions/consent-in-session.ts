@@ -113,7 +113,8 @@ export async function askInstallInSession(
     if (!dependencies.window) here.catch(() => undefined);
     void here
       .then(async (answer) => {
-        if (answer.outcome === 'timeout' || !inSession) return;
+        // I8 Closed here (Esc, the scrim) is no answer: the ask stays in the session, for the band or another screen.
+        if (answer.outcome === 'timeout' || answer.outcome === 'dismissed' || !inSession) return;
         const confirmed = answer.outcome === 'confirmed';
         const reply: SessionpageSessionRespondRequest = {
           conversationId: sessionId,
@@ -121,7 +122,7 @@ export async function askInstallInSession(
           kind: 'permission',
           optionId: confirmed ? APP_INSTALL_OPTION : APP_INSTALL_DECLINE_OPTION,
           // The sheet here showed this manifest.
-          ...(confirmed ? { digest: request.manifestDigest, ...(answer.enableIn ? { enableIn: answer.enableIn } : {}) } : {}),
+          ...(confirmed ? { digest: request.manifestDigest } : {}),
           by: 'desktop',
         };
         await timeline.respond(reply);
@@ -130,9 +131,7 @@ export async function askInstallInSession(
     const result = await answered;
     if (result === 'unavailable') return await here;
     if (result === 'withdrawn' || result === 'timeout') return { outcome: result === 'timeout' ? 'timeout' : 'dismissed' };
-    return result.optionId === APP_INSTALL_OPTION
-      ? { outcome: 'confirmed', ...(result.enableIn ? { enableIn: result.enableIn } : {}) }
-      : { outcome: 'declined' };
+    return { outcome: result.optionId === APP_INSTALL_OPTION ? 'confirmed' : 'declined' };
   } finally {
     // Answered on another surface (or ran out): the sheet here goes.
     void dependencies.closeWindow(requestId).catch(() => undefined);

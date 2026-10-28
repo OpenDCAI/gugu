@@ -173,8 +173,10 @@ export default {
       "members": "聊天成员"
     },
     "appEnable": {
-      "title": "给哪些 agent",
-      "alsoOn": "也装到这几台",
+      "devices": "装到哪几台电脑",
+      "devicesHint": "新装上的电脑，所有 agent 都能用；要改给谁，去「App」页。",
+      "addsChat": "这台电脑上已经装了、只给了部分 agent：这次只加上群「{{name}}」，别的不变。",
+      "decline": "不装",
       "machine": "这台电脑",
       "all": "所有 agent",
       "allSub": "包括各个项目里的 agent",
@@ -185,7 +187,6 @@ export default {
       "members": "{{count}} 人",
       "remove": "不再给{{name}}",
       "add": "添加 agent、群或项目…",
-      "emptyInstall": "还没有选。不选也能装，以后在「App」页里加。",
       "empty": "还没有选。",
       "hint": "选中的 agent，和选中的群里的 agent，能用它的工具。",
       "pickerTitle": "添加 agent、群或项目",

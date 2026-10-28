@@ -23,7 +23,7 @@ export type AttachmentInstall = AttachmentPackage & {
    * D-31 Asked on the person's side — another device installs it here (the card's 「装到哪台」, an agent's
    * `app_install { device }`): `return` hands back what it would ask (`outcome: 'ask'`, `asks` false when it would ask
    * nothing) instead of asking here; `given` installs what the person agreed to there, these bytes only (`digest`), given
-   * where they ticked (`enableIn`) — as every install takes it (install-prepared.ts).
+   * what it gives there being the install's own rule (InstallGrant) — as every install takes it (install-prepared.ts).
    */
   consent?: HandedConsent;
 };
@@ -90,7 +90,7 @@ export async function installExtensionFromAttachment(
         revokedPermissions: [...(plan.kind === 'ask' ? plan.revokedPermissions : service.revokedPermissions(manifest.id))],
         attachment: { from: publisher.name ?? '', ...(plan.kind === 'ask' && plan.replaces !== undefined ? { replaces: plan.replaces } : {}) },
       },
-      places: { first: !installed, chatId: attachment.unasked ? undefined : attachment.chatId, identity: appIdentityOf({ manifest, origin: 'attachment', publisher }), fromCard: true },
+      places: { chatId: attachment.unasked ? undefined : attachment.chatId, identity: appIdentityOf({ manifest, origin: 'attachment', publisher }) },
     }, attachment.consent ?? { kind: 'here' }, dependencies);
     if (done.outcome === 'ask') return { installed: false, ...summary, ...done };
     if (done.outcome !== 'confirmed') return { installed: false, outcome: done.outcome, ...summary };

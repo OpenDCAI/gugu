@@ -155,7 +155,7 @@ export function AppProductPage({
   pendingPermissions?: readonly string[];
   agentStatus?: ExtensionAgentStatus;
   disclosure?: ExtensionDisclosureLevel;
-  givenApi?: Pick<ExtensionsApi, 'appPlaces' | 'setAppPlaces'>;
+  givenApi?: Pick<ExtensionsApi, 'appPlaces' | 'changeAppPlaces'>;
   docked?: boolean;
   onBack: () => void;
   onLifecycle: () => void;
@@ -481,7 +481,9 @@ export function AppProductPage({
               />
             </div>
           ) : null}
-          {installed && givenApi && givesAgentTools(installed) ? <AppGivenSection extensionId={installed.id} api={givenApi} machineName={machine} /> : null}
+          {installed && givenApi && givesAgentTools(installed)
+            ? <AppGivenSection extensionId={installed.id} api={givenApi} machineName={machine} blocked={!enabled ? 'off' : revoked.includes('agents:tools') ? 'revoked' : undefined} />
+            : null}
       </AddsEntry>
     );
   }

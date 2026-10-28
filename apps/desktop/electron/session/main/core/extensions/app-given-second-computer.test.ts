@@ -1,4 +1,4 @@
-import { mkdirSync, mkdtempSync, writeFileSync } from 'node:fs';
+import { mkdirSync, mkdtempSync, readFileSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import * as path from 'node:path';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
@@ -8,9 +8,9 @@ import type { AppIdentity } from '@shared/extensions/app-identity';
 import { ExtensionsService } from './extensions-service';
 
 /**
- * 复核 72 (125 10-07): 「给哪些 agent」 is the account's — every computer of the owner reads the same rows. An App's first install
- * on a second computer is not the account's first: its sheet shows the chats the owner gave it at from the first computer
- * ticked, and its answer (written back whole) keeps them. Two install roots stand for the two computers, sharing one table.
+ * App architecture §4 (owner 10-27): who may use an App is two layers — this computer's half (every agent here, or not), kept
+ * with the install, and the account's rows at chats, shared by every computer of the owner. An install writes this computer's
+ * half only; the App page changes the rows one at a time. Two install roots stand for two computers, sharing one table.
  */
 const state = vi.hoisted(() => ({
   service: null as unknown as ExtensionsService,
@@ -26,15 +26,15 @@ vi.mock('@main/core/extensions/account-token', async (importOriginal) => ({ ...(
 vi.mock('./app-files', () => ({ folderPublisher: async () => ({ id: 'owner-1' }) }));
 vi.mock('../../../../sessionpage/sessionpage-project-groups', () => ({ listProjectGroupIds: async () => [] }));
 vi.mock('@shared/extensions/app-enablements-core', () => ({
-  readEnablements: async (_token: string, userId: string) => {
+  readEnablements: async (_token: string, userId: string, chatIds?: readonly string[]) => {
     if (state.unread) throw state.unread;
-    return state.rows.filter((row) => row.userId === userId);
+    return state.rows.filter((row) => row.userId === userId && (!chatIds || chatIds.includes(row.chatId)));
   },
   setEnablement: async (_token: string, userId: string, chatId: string, app: AppIdentity, on: boolean) => {
     state.rows = state.rows.filter((row) => !(row.userId === userId && row.chatId === chatId && row.app.publisher === app.publisher && row.app.id === app.id));
     if (on) state.rows.push({ chatId, userId, app: { ...app } });
   },
-  enablementChatOf: async (_token: string, chatId: string) => chatId,
+  enablementChatOf: async (_token: string, chatId: string) => (['g', 'h'].includes(chatId) ? { id: chatId, name: chatId.toUpperCase() } : null),
 }));
 // The owner's chats: groups G and H (owner-1 and their agent in each).
 vi.mock('@gugu/core/cloud/supabase', () => ({
@@ -82,150 +82,173 @@ function computer(): ExtensionsService {
   return new ExtensionsService(path.join(work, `installed-${Math.random().toString(36).slice(2)}`));
 }
 
-/** An install from a folder on this computer, as the agent's `app_install` does it: asked, installed, recorded. */
-async function installHere(service: ExtensionsService, answer?: (ask: { places: { id: string; enabled: boolean }[] }) => string[], chatId?: string) {
+const APP = { publisher: 'owner-1', id: 'searcher' };
+const chats = () => state.rows.map((row) => row.chatId).sort();
+
+/** One install of the folder App on `service`, the one way every install goes (installPrepared), confirmed as asked. */
+async function install(service: ExtensionsService, options: { chatId?: string; consent?: 'given'; publisher?: string } = {}) {
   state.service = service;
   const dir = source();
-  const inspected = service.inspectDirectory(dir);
-  const asked = await given.installAsk(inspected.manifest, !service.list().extensions.some((one) => one.manifest.id === 'searcher'), chatId, await given.ownInstallIdentity('searcher', 'folder'));
-  service.installFromDirectory(dir, inspected.manifestDigest, 'folder', { id: 'owner-1' });
-  await given.recordGiven('searcher', asked, asked && answer ? answer(asked) : undefined);
-  return asked;
+  const { manifest, manifestDigest } = service.inspectDirectory(dir);
+  const asked: unknown[] = [];
+  const result = await installPrepared(
+    { dir, manifest, manifestDigest, origin: 'folder', publisher: { id: options.publisher ?? 'owner-1' }, asks: false, sheet: { revokedPermissions: [] },
+      places: { chatId: options.chatId, identity: { publisher: options.publisher ?? 'owner-1', id: 'searcher' } } },
+    options.consent ? { kind: 'given', digest: manifestDigest } : { kind: 'here' },
+    { requestInstallConsent: async (request) => { asked.push(request.given ?? null); return { outcome: 'confirmed' }; }, afterInstall: () => {}, notifyInstalledChanged: async () => {} },
+  );
+  return { result, asked };
 }
 
-describe('an App given at chats from one computer, installed first on another (复核 72)', () => {
+describe('an install writes this computer\'s half only (architecture §4.2: problems 1, 2, 10, 16)', () => {
   beforeEach(() => {
     state.rows = [];
+    state.unread = null;
   });
 
-  it('the second computer asks with those chats ticked, and its default answer keeps them', async () => {
-    const a = computer();
-    await installHere(a);
-    state.service = a;
-    await given.setAppPlaces('searcher', [HERE_ALL, 'g']);
-    expect(state.rows.map((row) => row.chatId)).toEqual(['g']);
-
-    const asked = await installHere(computer());
-    expect(asked?.places.find((place) => place.id === 'g')?.enabled).toBe(true);
-    expect(asked?.places.find((place) => place.id === 'h')?.enabled).toBe(false);
-    expect(asked?.ticks).toEqual([HERE_ALL, 'g']);
-    expect(state.rows.map((row) => row.chatId)).toEqual(['g']);
+  it('a first install gives every agent here and leaves the account\'s rows exactly as they were', async () => {
+    state.rows = [{ chatId: 'g', userId: 'owner-1', app: APP }, { chatId: 'h', userId: 'owner-1', app: APP }];
+    const second = computer();
+    const { asked } = await install(second);
+    expect(asked).toEqual([{ first: true }]);
+    expect(second.givenHere(APP)).toEqual([HERE_ALL]);
+    expect(chats()).toEqual(['g', 'h']);
   });
 
-  it('a chat the person unticks on the second computer is theirs to drop', async () => {
-    const a = computer();
-    await installHere(a);
-    state.service = a;
-    await given.setAppPlaces('searcher', [HERE_ALL, 'g', 'h']);
-
-    await installHere(computer(), (ask) => ask.places.filter((place) => place.enabled && place.id !== 'h').map((place) => place.id));
-    expect(state.rows.map((row) => row.chatId)).toEqual(['g']);
+  it('I3: a computer ticked in 「也装到」 (installed with the digest alone) gets the same rule — every agent there — and writes no row', async () => {
+    state.rows = [{ chatId: 'g', userId: 'owner-1', app: APP }];
+    const other = computer();
+    const { result } = await install(other, { consent: 'given' });
+    expect(result.outcome).toBe('confirmed');
+    expect(other.givenHere(APP)).toEqual([HERE_ALL]);
+    expect(chats()).toEqual(['g']);
   });
 
-  it("another publisher's App under the same id is not that App: nothing of the first one's is ticked", async () => {
-    state.rows = [{ chatId: 'g', userId: 'owner-1', app: { publisher: 'someone-else', id: 'searcher' } }];
-    const asked = await installHere(computer());
-    expect(asked?.places.find((place) => place.id === 'g')?.enabled).toBe(false);
-    expect(state.rows).toEqual([{ chatId: 'g', userId: 'owner-1', app: { publisher: 'someone-else', id: 'searcher' } }]);
-  });
-
-  it('app_install { device }: the machine it lands on asks with them ticked, and the answer the person gave elsewhere keeps them', async () => {
-    // D-31 two-step (extension-attachment-install): that machine inspects the package and returns its ask — the places as it
-    // lists them — the person answers on their own screen, and it installs with that answer.
-    state.rows = [{ chatId: 'g', userId: 'owner-1', app: { publisher: 'owner-1', id: 'searcher' } }];
-    state.service = computer();
-    const dir = source();
-    const { manifest, manifestDigest } = state.service.inspectDirectory(dir);
-    const ask = await given.installAsk(manifest, true, undefined, { publisher: 'owner-1', id: 'searcher' }, true);
-    expect(ask?.places.find((place) => place.id === 'g')?.enabled).toBe(true);
-    const answer = ask!.places.filter((place) => place.enabled).map((place) => place.id);
-    state.service.installFromDirectory(dir, manifestDigest, 'attachment', { id: 'owner-1' });
-    await given.recordGiven('searcher', ask, answer);
-    expect(state.rows.map((row) => row.chatId)).toEqual(['g']);
-  });
-});
-
-// 编号 2 (10-12 片场试演): 片场 was installed first from a card in one group, ticked for that group only, and the agents of the
-// next group had nothing. D-30「没选过的 App 给本机所有 agent」: a first install ticks every agent here, wherever it comes from.
-describe('a first install from a chat — a card, an agent installing for it — ticks every agent here, not that chat (编号 2)', () => {
-  beforeEach(() => {
-    state.rows = [];
-  });
-
-  it('every agent here ticked, the chat not ticked nor marked; confirmed as asked, no chat row is written', async () => {
-    state.service = computer();
-    const dir = source();
-    const { manifest, manifestDigest } = state.service.inspectDirectory(dir);
-    const asked = await given.installAsk(manifest, true, 'g', { publisher: 'owner-1', id: 'searcher' }, true);
-    expect(asked?.ticks).toEqual([HERE_ALL]);
-    expect(asked?.places.find((place) => place.id === 'g')).toMatchObject({ enabled: false });
-    expect(asked?.places.some((place) => place.card)).toBe(false);
-    state.service.installFromDirectory(dir, manifestDigest, 'attachment', { id: 'owner-1' });
-    await given.recordGiven('searcher', asked, undefined);
-    expect(state.service.givenHere({ publisher: 'owner-1', id: 'searcher' })).toEqual([HERE_ALL]);
-    expect(state.rows).toEqual([]);
-  });
-});
-
-describe('an App installed here already, installed again for a chat it is not given at (125 10-07)', () => {
-  beforeEach(() => {
-    state.rows = [];
-  });
-
-  it('asks, with the new chat ticked and what the person chose kept', async () => {
+  it('a first install works with the account unreadable (offline): it reads nothing of the account', async () => {
+    state.unread = new Error('offline');
     const here = computer();
-    await installHere(here);
-    await given.setAppPlaces('searcher', ['g']);
-
-    const asked = await installHere(here, undefined, 'h');
-    expect(asked?.ticks.sort()).toEqual(['g', 'h']);
-    expect(asked?.places.find((place) => place.id === 'h')?.enabled).toBe(true);
-    expect(asked?.places.find((place) => place.id === 'g')?.enabled).toBe(true);
-    expect(state.rows.map((row) => row.chatId).sort()).toEqual(['g', 'h']);
-    expect(here.givenHere({ publisher: 'owner-1', id: 'searcher' })).toEqual([]);
+    const { result } = await install(here);
+    expect(result.outcome).toBe('confirmed');
+    expect(here.givenHere(APP)).toEqual([HERE_ALL]);
   });
 
-  it('the person unticking the new chat leaves things as they were', async () => {
+  it('a first install from a chat (a card, an agent installing for it) gives every agent here, not a row for that chat (编号 2)', async () => {
     const here = computer();
-    await installHere(here);
-    await given.setAppPlaces('searcher', ['g']);
-    await installHere(here, (ask) => ask.places.filter((place) => place.enabled && place.id !== 'h').map((place) => place.id), 'h');
-    expect(state.rows.map((row) => row.chatId)).toEqual(['g']);
-  });
-
-  it('asks nothing for a chat it is given at, for no chat, or when it reaches every agent here', async () => {
-    const here = computer();
-    await installHere(here);
-    await given.setAppPlaces('searcher', ['g']);
-    expect(await installHere(here, undefined, 'g')).toBeNull();
-    expect(await installHere(here)).toBeNull();
-
-    await given.setAppPlaces('searcher', [HERE_ALL]);
-    expect(await installHere(here, undefined, 'h')).toBeNull();
+    await install(here, { chatId: 'g' });
+    expect(here.givenHere(APP)).toEqual([HERE_ALL]);
     expect(state.rows).toEqual([]);
   });
 
-  it('a chat that is no place asks nothing (installing for one chat never widens to every agent here)', async () => {
+  it('installed again for a chat where this computer is narrowed: adds that one row, takes nothing away, widens nothing here', async () => {
     const here = computer();
-    await installHere(here);
-    await given.setAppPlaces('searcher', ['g']);
-    expect(await installHere(here, undefined, 'not-a-place')).toBeNull();
-    expect(state.rows.map((row) => row.chatId)).toEqual(['g']);
+    await install(here);
+    state.service = here;
+    await given.changeAppPlaces('searcher', [{ id: HERE_ALL, on: false }, { id: 'g', on: true }]);
+    const { asked } = await install(here, { chatId: 'h' });
+    expect(asked).toEqual([{ first: false, chat: { id: 'h', name: 'H' } }]);
+    expect(chats()).toEqual(['g', 'h']);
+    expect(here.givenHere(APP)).toEqual([]);
+  });
+
+  it('installed again changes nothing — and asks nothing — for a chat given already, for no chat, a chat that is no place, or where every agent here has it', async () => {
+    const here = computer();
+    await install(here);
+    state.service = here;
+    await given.changeAppPlaces('searcher', [{ id: HERE_ALL, on: false }, { id: 'g', on: true }]);
+    for (const chatId of ['g', undefined, 'not-a-place']) expect((await install(here, { chatId })).asked).toEqual([]);
+    await given.changeAppPlaces('searcher', [{ id: HERE_ALL, on: true }]);
+    expect((await install(here, { chatId: 'h' })).asked).toEqual([]);
+    expect(chats()).toEqual(['g']);
+  });
+
+  it('the chat row failing to be written does not fail the install (this computer\'s half decides here)', async () => {
+    const here = computer();
+    await install(here);
+    state.service = here;
+    await given.changeAppPlaces('searcher', [{ id: HERE_ALL, on: false }]);
+    const enablements = await import('@shared/extensions/app-enablements-core');
+    const write = vi.spyOn(enablements, 'setEnablement').mockRejectedValueOnce(new Error('network'));
+    const { result } = await install(here, { chatId: 'h' });
+    expect(result.outcome).toBe('confirmed');
+    write.mockRestore();
   });
 });
 
-// #6981 × #6976: the line that turns that ask into a sheet is `if (plan.asks || asked)` in extension-agent-actions — a
-// reinstall asking for nothing new still goes to the person when it is for a chat the App is not given at. Lose `|| asked`
-// and the ask is computed, then dropped: installed quietly, the new chat never offered.
+describe('I2: another publisher\'s App under the same id is another App', () => {
+  beforeEach(() => {
+    state.rows = [];
+    state.unread = null;
+  });
+
+  it('replacing a narrowed one: asked as a first install (said on the sheet), and nothing of the one replaced is kept or inherited', async () => {
+    const root = path.join(work, `installed-${Math.random().toString(36).slice(2)}`);
+    const here = new ExtensionsService(root);
+    await install(here);
+    state.service = here;
+    await given.changeAppPlaces('searcher', [{ id: HERE_ALL, on: false }]);
+    expect(here.givenHere(APP)).toEqual([]);
+
+    const { asked } = await install(here, { publisher: 'someone-else' });
+    const theirs = { publisher: 'someone-else', id: 'searcher' };
+    // Asked — the sheet says what it gives — never quietly reaching every agent.
+    expect(asked).toEqual([{ first: true }]);
+    expect(here.givenHere(theirs)).toEqual([HERE_ALL]);
+    // The narrowed choice of the App replaced is gone with it, not left to come back if that one is installed again.
+    expect(here.givenHere(APP)).toBeNull();
+    const grants = JSON.parse(readFileSync(path.join(root, '.granted-permissions.json'), 'utf8')) as Record<string, unknown>;
+    expect(Object.keys(grants)).toEqual(['someone-else/searcher']);
+  });
+});
+
+describe('I9: the App page changes one place at a time — never the whole set written back', () => {
+  beforeEach(() => {
+    state.rows = [];
+    state.unread = null;
+  });
+
+  it('a change made on one computer is not taken away by another computer\'s change made from an older snapshot', async () => {
+    const one = computer(), two = computer();
+    await install(one);
+    await install(two);
+    // Computer two gives group H; computer one, its panel read before that, turns every agent there off.
+    state.service = two;
+    await given.changeAppPlaces('searcher', [{ id: 'h', on: true }]);
+    state.service = one;
+    await given.changeAppPlaces('searcher', [{ id: HERE_ALL, on: false }]);
+    expect(chats()).toEqual(['h']);
+    expect(one.givenHere(APP)).toEqual([]);
+    expect(two.givenHere(APP)).toEqual([HERE_ALL]);
+  });
+
+  it('I10 uninstalled from the last computer: the account\'s rows for it go, another App\'s and another person\'s stay', async () => {
+    const other = { publisher: 'owner-1', id: 'sheet' };
+    state.rows = [{ chatId: 'g', userId: 'owner-1', app: APP }, { chatId: 'h', userId: 'owner-1', app: APP },
+      { chatId: 'g', userId: 'owner-1', app: other }, { chatId: 'g', userId: 'friend', app: APP }];
+    await given.forgetAccountGrants(APP);
+    expect(state.rows.map((row) => `${row.userId}/${row.app.id}@${row.chatId}`)).toEqual(['owner-1/sheet@g', 'friend/searcher@g']);
+  });
+
+  it('I10 the account unreadable at uninstall: nothing is thrown, the rows stay (harmless where nothing has the App)', async () => {
+    state.rows = [{ chatId: 'g', userId: 'owner-1', app: APP }];
+    state.unread = new Error('offline');
+    await expect(given.forgetAccountGrants(APP)).resolves.toBeUndefined();
+    expect(chats()).toEqual(['g']);
+  });
+});
+
+// #6981 × #6976: an agent's app_install for a chat the App is not given at, on a computer where it is narrowed, goes to the
+// person (the sheet says which chat it adds); for a chat it is given at already, it installs quietly.
 describe('app_install of the same folder App for a chat it is not given at shows the sheet', () => {
   beforeEach(() => {
     state.rows = [];
+    state.unread = null;
   });
 
-  it('asks for chat h (nothing new in the bundle), stays quiet for chat g where it is given already', async () => {
+  it('asks for chat h, naming it; stays quiet for chat g where it is given already', async () => {
     const here = computer();
-    await installHere(here);
-    await given.setAppPlaces('searcher', ['g']);
+    await install(here);
+    state.service = here;
+    await given.changeAppPlaces('searcher', [{ id: HERE_ALL, on: false }, { id: 'g', on: true }]);
     const { runExtensionAgentAction } = await import('./extension-agent-actions');
     const requestInstallConsent = vi.fn().mockResolvedValue({ outcome: 'declined' });
     const dependencies = { requestInstallConsent, notifyInstalledChanged: vi.fn().mockResolvedValue(undefined), afterInstall: vi.fn() };
@@ -233,7 +256,7 @@ describe('app_install of the same folder App for a chat it is not given at shows
     await expect(runExtensionAgentAction({ action: 'install', source_dir: source(), chat_id: 'h' }, dependencies))
       .resolves.toMatchObject({ installed: false, outcome: 'declined' });
     expect(requestInstallConsent).toHaveBeenCalledTimes(1);
-    expect(requestInstallConsent.mock.calls[0]![0].places.find((place: { id: string }) => place.id === 'h')?.enabled).toBe(true);
+    expect(requestInstallConsent.mock.calls[0]![0].given).toEqual({ first: false, chat: { id: 'h', name: 'H' } });
 
     await expect(runExtensionAgentAction({ action: 'install', source_dir: source(), chat_id: 'g' }, dependencies))
       .resolves.toMatchObject({ installed: true });
@@ -241,91 +264,26 @@ describe('app_install of the same folder App for a chat it is not given at shows
   });
 });
 
-// 主人 10-16「去掉插件授权范围里面的"给任何非项目 agent"这个选项」: a computer still keeping that place (`here:projectless`)
-// from before gives nobody anything by it — never widened to every agent here — and the next answer leaves it out.
+// 主人 10-16: a computer still keeping the removed 「agents in no project」 place (`here:projectless`) gives nobody anything by it.
 describe('a computer that kept only the removed 「agents in no project」', () => {
   beforeEach(() => {
     state.rows = [];
+    state.unread = null;
   });
 
-  it('shows the App given to nobody, and installing it again for a chat keeps only what is a place', async () => {
+  it('shows the App given to nobody, and installing it again for a chat adds that chat and widens nothing here', async () => {
     const root = path.join(work, `installed-${Math.random().toString(36).slice(2)}`);
     const here = new ExtensionsService(root);
-    await installHere(here);
-    const app = { publisher: 'owner-1', id: 'searcher' };
+    await install(here);
     writeFileSync(path.join(root, '.given-here.json'), JSON.stringify({ 'owner-1/searcher': ['here:projectless'] }));
-    expect(here.givenHere(app)).toEqual(['here:projectless']);
-
+    state.service = here;
     expect((await given.appPlaces('searcher')).filter((place) => place.enabled)).toEqual([]);
-
-    // The sheet answers with the places it lists, as they are switched: the kept one is none of them.
-    const asked = await installHere(here, (ask) => ask.places.filter((place) => place.enabled).map((place) => place.id), 'h');
-    expect(asked?.places.filter((place) => place.enabled).map((place) => place.id)).toEqual(['h']);
-    expect(here.givenHere(app)).toEqual([]);
-    expect(state.rows.map((row) => row.chatId)).toEqual(['h']);
-  });
-
-  // 复核·二代 10-16: an install that records what it ticked at first (no answer with places: 「没弹框 = 照原样」) — the kept
-  // one is not among the ticks, so it is never written as a chat and the chat this install is for is given.
-  it('installing it again for a chat with no answer of places gives that chat, and keeps nothing removed', async () => {
-    const root = path.join(work, `installed-${Math.random().toString(36).slice(2)}`);
-    const here = new ExtensionsService(root);
-    await installHere(here);
-    writeFileSync(path.join(root, '.given-here.json'), JSON.stringify({ 'owner-1/searcher': ['here:projectless'] }));
-
-    const asked = await installHere(here, undefined, 'h');
-    expect(asked?.ticks).toEqual(['h']);
-    expect(state.rows.map((row) => row.chatId)).toEqual(['h']);
-    expect(here.givenHere({ publisher: 'owner-1', id: 'searcher' })).toEqual([]);
+    await install(here, { chatId: 'h' });
+    expect(here.givenHere(APP)).toEqual(['here:projectless']);
+    expect(chats()).toEqual(['h']);
   });
 });
 
-// owner 10-17 (体检 #21): which agents get an App unread fails its install, said — never «not asked», which gave every agent here.
-describe('places unread at an install', () => {
-  beforeEach(() => {
-    state.rows = [];
-    state.unread = new Error('network down');
-  });
-  afterEach(() => {
-    state.unread = null;
-  });
-
-  // The one install path every source goes through (installPrepared): it rejects with the reason, nothing lands, nobody is
-  // asked, nothing is applied. Positive control below: the same call with the places readable installs.
-  async function prepare(here: ExtensionsService) {
-    state.service = here;
-    const dir = source();
-    const { manifest, manifestDigest } = here.inspectDirectory(dir);
-    return {
-      dir,
-      manifest,
-      manifestDigest,
-      origin: 'folder' as const,
-      publisher: { id: 'owner-1' },
-      asks: true,
-      sheet: { revokedPermissions: [] },
-      places: { first: true, identity: await given.ownInstallIdentity('searcher', 'folder') },
-    };
-  }
-
-  it('the install is refused with the reason, nothing installed', async () => {
-    const here = computer();
-    const requestInstallConsent = vi.fn(async () => ({ outcome: 'confirmed' as const }));
-    const afterInstall = vi.fn();
-    await expect(installPrepared(await prepare(here), { kind: 'here' }, { requestInstallConsent, afterInstall }))
-      .rejects.toThrow('network down');
-    expect(here.list().extensions).toEqual([]);
-    expect(requestInstallConsent).not.toHaveBeenCalled();
-    expect(afterInstall).not.toHaveBeenCalled();
-  });
-
-  it('control: the places read, the same call installs', async () => {
-    state.unread = null;
-    const here = computer();
-    const requestInstallConsent = vi.fn(async () => ({ outcome: 'confirmed' as const }));
-    const done = await installPrepared(await prepare(here), { kind: 'here' }, { requestInstallConsent, afterInstall: vi.fn() });
-    expect(done.outcome).toBe('confirmed');
-    expect(requestInstallConsent).toHaveBeenCalledTimes(1);
-    expect(here.list().extensions.map((one) => one.manifest.id)).toEqual(['searcher']);
-  });
+afterEach(() => {
+  state.unread = null;
 });

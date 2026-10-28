@@ -143,7 +143,7 @@ describe('app_install { device }: installed on another of the owner\'s machines'
   // D-31 The person is asked here, as this agent's approval: that machine hands back its ask, and installs only what they agreed to.
   it('that machine asks: the person is asked here (naming it), and it installs only the bytes agreed to, given where ticked', async () => {
     const ask = { manifest: { id: 'reader', name: 'Reader' }, manifestDigest: 'digest-r', revokedPermissions: [], sourceDir: '/there/x' }
-    const asked = vi.fn(async () => ({ outcome: 'confirmed', enableIn: ['here:all'] }))
+    const asked = vi.fn(async () => ({ outcome: 'confirmed' }))
     const { install, sessions, extensions } = await agent(
       async (action) => (action.consent as { kind: string }).kind === 'return'
         ? { installed: false, outcome: 'ask', id: 'reader', ask }
@@ -156,7 +156,7 @@ describe('app_install { device }: installed on another of the owner\'s machines'
     expect(extensions).toEqual([{ action: 'ask_install', request: { ...ask, machine: 'mac1 B' } }])
     expect(sessions.slice(1)).toEqual([
       { action: 'app_install', device: 'other', message_id: MESSAGE, consent: { kind: 'return' } },
-      { action: 'app_install', device: 'other', message_id: MESSAGE, consent: { kind: 'given', digest: 'digest-r', enableIn: ['here:all'] } },
+      { action: 'app_install', device: 'other', message_id: MESSAGE, consent: { kind: 'given', digest: 'digest-r' } },
     ])
   })
 

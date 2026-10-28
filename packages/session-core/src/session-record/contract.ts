@@ -1065,9 +1065,10 @@ export type SessionpageSessionSendRequest = {
 export type SettlementResponse =
   /**
    * An App install's answer (D-31): `digest` — the manifest fingerprint of the sheet the person saw (an install answered
-   * without it is refused: nobody saw what it may do); `enableIn` — where its tools are given (D-30), as they ticked it.
+   * without it is refused: nobody saw what it may do). Who gets its tools is the install's own rule (InstallGrant), never
+   * carried with the answer.
    */
-  | { itemId: string; kind: 'permission' | 'question'; optionId: string; digest?: string; enableIn?: readonly string[] }
+  | { itemId: string; kind: 'permission' | 'question'; optionId: string; digest?: string }
   /** 终端选择器(结算带 `questions` 的提问):每题一个答案,题序与 `Settlement.questions` 一致。 */
   | { itemId: string; kind: 'question'; answers: readonly QuestionAnswer[] }
   | { itemId: string; kind: 'question'; decline: true };

@@ -1217,9 +1217,9 @@ describe('session timeline service', () => {
       const answered = asks.ask('conv-1', ask(), { signal: new AbortController().signal });
       const before = await service.snapshot({ conversationId: 'conv-1' });
       expect(before).toMatchObject({ ok: true, value: { settlements: [{ itemId: 'host-1', state: 'pending', origin: { source: 'app-install' } }] } });
-      const result = await service.respond({ conversationId: 'conv-1', itemId: 'host-1', kind: 'permission', optionId: 'install', digest: 'digest-r', enableIn: ['g1'], by: 'phone' });
+      const result = await service.respond({ conversationId: 'conv-1', itemId: 'host-1', kind: 'permission', optionId: 'install', digest: 'digest-r', by: 'phone' });
       expect(result).toMatchObject({ ok: true, value: { accepted: true, settlement: { resolvedBy: 'phone' } } });
-      await expect(answered).resolves.toEqual({ optionId: 'install', by: 'phone', digest: 'digest-r', enableIn: ['g1'] });
+      await expect(answered).resolves.toEqual({ optionId: 'install', by: 'phone', digest: 'digest-r' });
       // The terminal leg has no channel for the harness's approvals: never asked, never consulted for the host's.
       expect(state.deliverPermission).not.toHaveBeenCalled();
       expect(state.permissionChannelError).not.toHaveBeenCalled();

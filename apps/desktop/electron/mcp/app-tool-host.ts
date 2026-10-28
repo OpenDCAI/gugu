@@ -121,8 +121,8 @@ function agreeOnMachine(invoke: (consent: unknown) => Promise<unknown>, run: (ac
   return installAgreedOn(async (consent) => ({ success: true, data: await invoke(consent) as Handed }), async (handed) => {
     const digest = handed.ask!.manifestDigest
     if (handed.asks === false) return { digest }
-    const answer = await run({ action: 'ask_install', request: { ...handed.ask, machine } }) as { outcome: string; enableIn?: string[] }
-    return answer.outcome === 'confirmed' ? { digest, ...(answer.enableIn ? { enableIn: answer.enableIn } : {}) } : { declined: answer.outcome }
+    const answer = await run({ action: 'ask_install', request: { ...handed.ask, machine } }) as { outcome: string }
+    return answer.outcome === 'confirmed' ? { digest } : { declined: answer.outcome }
   })
 }
 

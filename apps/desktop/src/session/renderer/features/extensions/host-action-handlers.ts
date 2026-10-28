@@ -287,7 +287,7 @@ export const extensionHostActionHandlers: RendererRpcHandlers = {
     const requestId = request.requestId ?? `${request.manifestDigest}:${Date.now()}`;
     // The same words and the same sheet as the phone's own installs (install-consent.ts).
     const prompt = installConsentPrompt(request, parsed.manifest);
-    const inShell = askInShell(prompt, requestId, INSTALL_CONSENT_HUMAN_WINDOW_MS, request.places, request.requester, request.machine);
+    const inShell = askInShell(prompt, requestId, INSTALL_CONSENT_HUMAN_WINDOW_MS, request.given, request.requester, request.machine);
     // The shell (MainLayout) draws it on the desktop and the phone alike; there is no second way (D-31: the 「切到任务页再弹」
     // fallback is gone — it switched the person's view, the one thing F6 asked never to do).
     if (!inShell) throw new Error('No consent sheet in this window to ask the person with');
