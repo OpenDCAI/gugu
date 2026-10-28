@@ -65,8 +65,9 @@ describe('agent-centered conversation bubbles', () => {
       } finally { view.dispose(); }
     }
   });
-  it('folds a long bubble with a light fade and a show-all button in its actions row', async () => {
-    for (const role of ['assistant', 'user'] as const) {
+  it('folds a long subject bubble with a light fade and a show-all button in its actions row', async () => {
+    // 回复本身不折叠(conversationVars),折叠只在主体那一侧。
+    for (const role of ['user'] as const) {
       const view = await mount({ kind: 'message', id: `long-${role}`, role, text: '这是一条很长的消息，用来验证折叠。\n\n'.repeat(60), at: Date.now() });
       try {
         const bubble = view.host.querySelector<HTMLElement>('[data-user-card]')!;

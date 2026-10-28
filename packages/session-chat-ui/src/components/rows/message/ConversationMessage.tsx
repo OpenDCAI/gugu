@@ -51,8 +51,6 @@ function singleHeight(item: ChatMessage, ctx: MeasureCtx, vars: MessageVars): nu
   return HEADER_H + measureUserMessage(item, conversationContext(ctx), bodyVars) - actions + (item.role === 'assistant' && item.conversationProcess ? TIME_H + backgroundHeight(item, ctx) : 0);
 }
 
-}
-
 /** 后台任务挂在这条回复的过程行上、单子又展开着 ⇒ 多出单子的高(挂在哪由 ChatRoot 算,见 MeasureCtx.background)。 */
 function backgroundHeight(item: ChatMessage, ctx: MeasureCtx): number {
   const background = ctx.background;
