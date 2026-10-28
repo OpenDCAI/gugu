@@ -1,0 +1,337 @@
+[
+  {
+    "rule": "hard-coded-color",
+    "file": "apps/desktop/src/components/AgentHostStaleBadge.tsx",
+    "count": 1
+  },
+  {
+    "rule": "hard-coded-color",
+    "file": "apps/desktop/src/components/agentsettings/AgentLookPane.css",
+    "count": 9
+  },
+  {
+    "rule": "hard-coded-color",
+    "file": "apps/desktop/src/components/agentsettings/AgentSharePane.tsx",
+    "count": 2
+  },
+  {
+    "rule": "hard-coded-color",
+    "file": "apps/desktop/src/components/assistant-ui/elements/mcp-server-panel.tsx",
+    "count": 7
+  },
+  {
+    "rule": "hard-coded-color",
+    "file": "apps/desktop/src/components/assistant-ui/thread.aui.tsx",
+    "count": 1
+  },
+  {
+    "rule": "hard-coded-color",
+    "file": "apps/desktop/src/components/assistant/assistant-onboarding.css",
+    "count": 1
+  },
+  {
+    "rule": "hard-coded-color",
+    "file": "apps/desktop/src/components/Avatar.tsx",
+    "count": 1
+  },
+  {
+    "rule": "hard-coded-color",
+    "file": "apps/desktop/src/components/BuildTagBadge.tsx",
+    "count": 3
+  },
+  {
+    "rule": "hard-coded-color",
+    "file": "apps/desktop/src/components/chat/documentPreview.css",
+    "count": 1
+  },
+  {
+    "rule": "hard-coded-color",
+    "file": "apps/desktop/src/components/cloudBrowser/cloudBrowser.css",
+    "count": 3
+  },
+  {
+    "rule": "hard-coded-color",
+    "file": "apps/desktop/src/components/ContactQrShare.tsx",
+    "count": 2
+  },
+  {
+    "rule": "hard-coded-color",
+    "file": "apps/desktop/src/components/contacts/GroupInvite.tsx",
+    "count": 4
+  },
+  {
+    "rule": "hard-coded-color",
+    "file": "apps/desktop/src/components/devices/ConnectMoreDevices.tsx",
+    "count": 2
+  },
+  {
+    "rule": "hard-coded-color",
+    "file": "apps/desktop/src/components/imagePreview.css",
+    "count": 1
+  },
+  {
+    "rule": "hard-coded-color",
+    "file": "apps/desktop/src/components/productTour/product-tour.css",
+    "count": 28
+  },
+  {
+    "rule": "hard-coded-color",
+    "file": "apps/desktop/src/components/sessionpage/AgentSharePopover.tsx",
+    "count": 2
+  },
+  {
+    "rule": "hard-coded-color",
+    "file": "apps/desktop/src/components/settings/channels/WechatConnectDialog.tsx",
+    "count": 2
+  },
+  {
+    "rule": "hard-coded-color",
+    "file": "apps/desktop/src/components/settings/DeviceActionsPage.tsx",
+    "count": 2
+  },
+  {
+    "rule": "hard-coded-color",
+    "file": "apps/desktop/src/components/SharePosterDialog.tsx",
+    "count": 2
+  },
+  {
+    "rule": "hard-coded-color",
+    "file": "apps/desktop/src/components/usage/usage.css",
+    "count": 28
+  },
+  {
+    "rule": "hard-coded-color",
+    "file": "apps/desktop/src/components/usage/UsageCharts.tsx",
+    "count": 35
+  },
+  {
+    "rule": "hard-coded-color",
+    "file": "apps/desktop/src/lib/usage/table.ts",
+    "count": 12
+  },
+  {
+    "rule": "hard-coded-color",
+    "file": "apps/desktop/src/mobile/assistant/phone-connector.css",
+    "count": 1
+  },
+  {
+    "rule": "hard-coded-color",
+    "file": "apps/desktop/src/session/app-runtime/ui/ui.css",
+    "count": 1
+  },
+  {
+    "rule": "hard-coded-color",
+    "file": "apps/desktop/src/session/renderer/features/assistant/assistant-today.css",
+    "count": 81
+  },
+  {
+    "rule": "hard-coded-color",
+    "file": "apps/desktop/src/session/renderer/features/assistant/voice-notes/voice-notes.css",
+    "count": 11
+  },
+  {
+    "rule": "hard-coded-color",
+    "file": "apps/desktop/src/session/renderer/features/extensions/panel/app-store.css",
+    "count": 11
+  },
+  {
+    "rule": "hard-coded-color",
+    "file": "apps/desktop/src/session/renderer/features/integrations/integration-setup-modal.tsx",
+    "count": 1
+  },
+  {
+    "rule": "hard-coded-color",
+    "file": "apps/desktop/src/session/renderer/features/mcp/components/mcp-session-panel-adapter.tsx",
+    "count": 3
+  },
+  {
+    "rule": "hard-coded-color",
+    "file": "apps/desktop/src/session/renderer/features/projects/components/main-panel/project-folder-card.css",
+    "count": 6
+  },
+  {
+    "rule": "hard-coded-color",
+    "file": "apps/desktop/src/session/renderer/features/projects/components/main-panel/project-folder-cover.tsx",
+    "count": 19
+  },
+  {
+    "rule": "hard-coded-color",
+    "file": "apps/desktop/src/session/renderer/features/sidebar/sidebar-list-switch.tsx",
+    "count": 1
+  },
+  {
+    "rule": "hard-coded-color",
+    "file": "apps/desktop/src/session/renderer/features/sidebar/sidebar-session-title.css.ts",
+    "count": 1
+  },
+  {
+    "rule": "hard-coded-color",
+    "file": "apps/desktop/src/session/renderer/index.css",
+    "count": 56
+  },
+  {
+    "rule": "hard-coded-color",
+    "file": "apps/desktop/src/session/renderer/lib/components/app-icon.tsx",
+    "count": 1
+  },
+  {
+    "rule": "hard-coded-color",
+    "file": "apps/desktop/src/session/renderer/lib/ui/dialog.tsx",
+    "count": 1
+  },
+  {
+    "rule": "hard-coded-color",
+    "file": "apps/desktop/src/session/renderer/lib/ui/sheet.tsx",
+    "count": 1
+  },
+  {
+    "rule": "hard-coded-color",
+    "file": "apps/desktop/src/session/renderer/lib/vendor/cua-cursor-motion/render.ts",
+    "count": 2
+  },
+  {
+    "rule": "hard-coded-color",
+    "file": "packages/session-chat-ui/src/components/engine/block-frame.css.ts",
+    "count": 5
+  },
+  {
+    "rule": "hard-coded-color",
+    "file": "packages/session-chat-ui/src/components/engine/unit-row.css.ts",
+    "count": 4
+  },
+  {
+    "rule": "hard-coded-color",
+    "file": "packages/session-chat-ui/src/mock-transcript.ts",
+    "count": 1
+  },
+  {
+    "rule": "hard-coded-color",
+    "file": "packages/session-chat-ui/src/stories/_harness/state-matrix.tsx",
+    "count": 1
+  },
+  {
+    "rule": "hard-coded-color",
+    "file": "packages/session-ui/src/react/chat-ui/chat-theme.css",
+    "count": 2
+  },
+  {
+    "rule": "hard-coded-color",
+    "file": "packages/session-ui/src/react/components/chat-composer/chat-composer.css.ts",
+    "count": 1
+  },
+  {
+    "rule": "hard-coded-color",
+    "file": "packages/session-ui/src/react/components/loading-indicator/LoadingIndicator.css",
+    "count": 2
+  },
+  {
+    "rule": "hard-coded-color",
+    "file": "packages/session-ui/src/react/primitives/dialog/dialog.css.ts",
+    "count": 1
+  },
+  {
+    "rule": "hard-coded-color",
+    "file": "packages/session-ui/src/react/story-layout.css.ts",
+    "count": 2
+  },
+  {
+    "rule": "hard-coded-color",
+    "file": "packages/session-ui/src/styles/effects/overflow-fade.css",
+    "count": 4
+  },
+  {
+    "rule": "hard-coded-color",
+    "file": "packages/session-ui/src/styles/recipes/popup-surface.css.ts",
+    "count": 1
+  },
+  {
+    "rule": "hard-coded-color",
+    "file": "packages/session-ui/src/theme/core/generate/color-format.ts",
+    "count": 2
+  },
+  {
+    "rule": "hard-coded-color",
+    "file": "packages/session-ui/src/theme/core/generate/fill-gaps.ts",
+    "count": 1
+  },
+  {
+    "rule": "undefined-var",
+    "file": "apps/desktop/src/components/assistant/assistant-onboarding.css",
+    "count": 1
+  },
+  {
+    "rule": "undefined-var",
+    "file": "apps/desktop/src/components/chat/AgentFloodThresholdSetting.tsx",
+    "count": 1
+  },
+  {
+    "rule": "undefined-var",
+    "file": "apps/desktop/src/components/chat/StickyGroupAvatar.tsx",
+    "count": 1
+  },
+  {
+    "rule": "undefined-var",
+    "file": "apps/desktop/src/components/cloudBrowser/cloudBrowser.css",
+    "count": 4
+  },
+  {
+    "rule": "undefined-var",
+    "file": "apps/desktop/src/components/contacts/GroupInvite.tsx",
+    "count": 1
+  },
+  {
+    "rule": "undefined-var",
+    "file": "apps/desktop/src/components/sessionpage/AgentSharePopover.tsx",
+    "count": 1
+  },
+  {
+    "rule": "undefined-var",
+    "file": "apps/desktop/src/components/sessionpage/EmdashSessionFrame.css",
+    "count": 1
+  },
+  {
+    "rule": "undefined-var",
+    "file": "apps/desktop/src/components/settings/DeviceActionsPage.tsx",
+    "count": 2
+  },
+  {
+    "rule": "undefined-var",
+    "file": "apps/desktop/src/components/usage/format.ts",
+    "count": 1
+  },
+  {
+    "rule": "undefined-var",
+    "file": "apps/desktop/src/session/app-runtime/ui/ui.css",
+    "count": 1
+  },
+  {
+    "rule": "undefined-var",
+    "file": "apps/desktop/src/session/renderer/features/assistant/assistant-today.css",
+    "count": 1
+  },
+  {
+    "rule": "undefined-var",
+    "file": "apps/desktop/src/session/renderer/features/settings/subscriptions/subscriptions.css",
+    "count": 1
+  },
+  {
+    "rule": "undefined-var",
+    "file": "apps/desktop/src/session/renderer/index.css",
+    "count": 7
+  },
+  {
+    "rule": "undefined-var",
+    "file": "packages/session-ui/src/react/components/chat-composer/composer-contract.css.ts",
+    "count": 6
+  },
+  {
+    "rule": "undefined-var",
+    "file": "packages/session-ui/src/styles/effects/effects.css",
+    "count": 8
+  },
+  {
+    "rule": "undefined-var",
+    "file": "packages/session-ui/src/styles/typography.css",
+    "count": 12
+  }
+]
