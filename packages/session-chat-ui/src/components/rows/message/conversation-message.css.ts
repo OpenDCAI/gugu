@@ -8,6 +8,9 @@ import { vars } from '@session-chat/styles/theme.css';
 export const conversationRoot = style({ position: 'relative', color: vars.fgBody });
 export const conversationHeader = style({ display: 'flex', alignItems: 'center', gap: 8, paddingBottom: 6, boxSizing: 'border-box', minWidth: 0, overflow: 'hidden', fontFamily: vars.fontSans, fontSize: vars.typeChromeTinyFontSize, lineHeight: '18px' });
 export const conversationName = style({ fontWeight: 650, whiteSpace: 'nowrap', maxWidth: '52%', overflow: 'hidden', textOverflow: 'ellipsis', flexShrink: 0 });
+/** 过程里中途说的话:一行灰字,与步骤组的字对齐,放不下省略。 */
+export const conversationNarration = style({ display: 'block', boxSizing: 'border-box', paddingLeft: 22, minWidth: 0,
+  overflow: 'hidden', whiteSpace: 'nowrap', textOverflow: 'ellipsis', color: vars.fgMuted, fontFamily: vars.fontSans, fontSize: vars.typeChromeTinyFontSize });
 /** 气泡上方一行引用:「谁 · 摘要」,单行截断(owner 10-28:要看得出是谁说的)。 */
 export const conversationQuote = style({ display: 'flex', alignItems: 'center', gap: 5, boxSizing: 'border-box', paddingBottom: 4, minWidth: 0, maxWidth: '86%', overflow: 'hidden', whiteSpace: 'nowrap', color: vars.fgMuted, fontFamily: vars.fontSans, fontSize: vars.typeChromeTinyFontSize, lineHeight: '18px' });
 globalStyle(`${conversationQuote} > span:last-child`, { overflow: 'hidden', textOverflow: 'ellipsis', minWidth: 0 });

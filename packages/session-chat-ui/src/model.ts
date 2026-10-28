@@ -92,6 +92,11 @@ export type ChatMessage = {
   conversationReply?: { itemId: string; text: string; from?: string; fromId?: string; self?: boolean; chatId?: string };
   /** The `reply_to_message_id` (without `msg:`) of the message_send this `:sent:` row came from. */
   sentReplyTo?: string;
+  /**
+   * View-only: something the agent said along the way (not the turn's reply). Drawn as one gray line among the
+   * steps under the process line (design 0), ❌ a bubble of its own.
+   */
+  conversationNarration?: boolean;
   /** View-only: the closing reply of a finished turn — the only agent bubble with the time / copy row (design 0 `tail`). */
   conversationTail?: boolean;
   /** The `chat_id` that message_send went to — names the group when this row is itself quoted later. */

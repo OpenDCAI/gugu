@@ -944,28 +944,37 @@ describe('agent conversation process footer', () => {
     expect(ids(units).indexOf('call')).toBeLessThan(ids(units).indexOf('answer'));
     expect(kinds(units)).not.toContain('turn-process');
   });
-  it('folds live tools that arrive after the latest reply under the brain control', () => {
+  it('keeps what a running turn said as gray lines among its steps, under the live process line', () => {
     const running = turn('running', [user('u'), reply('answer'), tool('search')]);
     const open = flattenTier([running], ctxWith({ active: true, foldTurnProcess: true, agentConversation: true }), SEGMENTERS);
-    expect(ids(open).indexOf('search')).toBeGreaterThan(ids(open).indexOf('answer:head'));
-    expect(ids(open).indexOf('search')).toBeLessThan(ids(open).indexOf('answer'));
+    // owner 0 号图:跑着只有「执行中 ⌄」这一行,说过的话是步骤之间的灰色单行,❌ 气泡。
+    expect(kinds(open)).toContain('turn-process');
+    expect(ids(open)).not.toContain('answer:head');
+    expect((open.find(unit => unit.itemId === 'answer')?.data as ChatMessage).conversationNarration).toBe(true);
+    expect(ids(open).indexOf('answer')).toBeLessThan(ids(open).indexOf('search'));
     const closed = flattenTier([running], ctxWith({ active: true, foldTurnProcess: true, agentConversation: true,
       isTurnProcessExpanded: () => true }), SEGMENTERS);
-    expect(ids(closed)).toContain('answer');
+    expect(ids(closed)).not.toContain('answer');
     expect(ids(closed)).not.toContain('search');
   });
-  it('updates one stable bubble from commentary to streamed result and completion', () => {
+  it('has no bubble while running; once done the last line is the reply and earlier lines stay in the process', () => {
     const initial = reply('commentary', '我现在去查一查。');
     const running = (result?: ChatMessage, done = false) => turn('weather', [user('u'), initial, tool('search'), ...(result ? [result] : [])],
       done ? { kind: 'done', reason: 'end_turn' } : undefined, { startedAt: 1000, ...(done ? { endedAt: 9000 } : {}) });
-    for (const [result, active] of [[undefined, true], [reply('result', '北京今天晴'), true], [reply('result', '北京今天晴，气温适宜。'), false]] as const) {
-      const units = flattenTier([running(result, !active)], ctxWith({ active, foldTurnProcess: true, agentConversation: true }), SEGMENTERS);
-      const outputs = units.filter(unit => unit.kind === 'message' && (unit.data as ChatMessage).conversationPart === 'body');
-      expect(outputs).toHaveLength(1);
-      expect(outputs[0].itemId).toBe('commentary');
-      expect((outputs[0].data as ChatMessage).text).toBe(result?.text ?? initial.text);
-      expect((units.find(unit => unit.itemId === 'commentary:head')?.data as ChatMessage).conversationProcess?.id).toBe(turnProcessId('weather'));
-    }
+    const bodies = (units: ReturnType<typeof flattenTier>) => units.filter(unit => unit.kind === 'message' && (unit.data as ChatMessage).conversationPart === 'body');
+    const narration = (units: ReturnType<typeof flattenTier>) => units.filter(unit => (unit.data as ChatMessage).conversationNarration).map(unit => unit.itemId);
+    // 跑着:没有气泡,两句都是过程里的灰色单行(MBP 验收 10-28:❌ 只剩最新一句、❌ 合成一个会变的气泡)。
+    const live = flattenTier([running(reply('result', '北京今天晴'))], ctxWith({ active: true, foldTurnProcess: true, agentConversation: true }), SEGMENTERS);
+    expect(bodies(live)).toHaveLength(0);
+    expect(narration(live)).toEqual(['commentary', 'result']);
+    // 跑完:最后一句是回复气泡;前面那句留在过程里(❌ 跑完就不见了),点开过程看得到。
+    const doneTurn = running(reply('result', '北京今天晴，气温适宜。'), true);
+    const folded = flattenTier([doneTurn], ctxWith({ foldTurnProcess: true, agentConversation: true }), SEGMENTERS);
+    expect(bodies(folded).map(unit => unit.itemId)).toEqual(['result']);
+    expect((folded.find(unit => unit.itemId === 'result:head')?.data as ChatMessage).conversationProcess?.id).toBe(turnProcessId('weather'));
+    expect(narration(folded)).toEqual([]);
+    const open = flattenTier([doneTurn], ctxWith({ foldTurnProcess: true, agentConversation: true, isTurnProcessExpanded: () => true }), SEGMENTERS);
+    expect(narration(open)).toEqual(['commentary']);
     expect(initial.text).toBe('我现在去查一查。');
   });
   it('keeps every message_send output as its own bubble outside the fold, under one head', () => {
@@ -999,12 +1008,11 @@ describe('agent conversation process footer', () => {
   });
   it('places live work under its reply and does not hide failure states', () => {
     const live = flattenTier([completed()], ctxWith({ active: true, foldTurnProcess: true, agentConversation: true }), SEGMENTERS);
-    expect(kinds(live)).not.toContain('turn-process');
-    expect((live.find(unit => unit.itemId === 'answer:head')?.data as ChatMessage).conversationProcess?.live).toBe(true);
-    // 还在跑:没有哪句是收口的那句,都不带时间那一行。
+    // 还在跑:只有「执行中」过程行,没有回复气泡,也就没有哪句带时间那一行。
+    expect((live.find(unit => unit.kind === 'turn-process')?.data as { live?: boolean }).live).toBe(true);
+    expect(ids(live)).not.toContain('answer:head');
     expect(live.some(unit => (unit.data as ChatMessage).conversationTail)).toBe(false);
-    expect(ids(live).indexOf('answer:head')).toBeLessThan(ids(live).indexOf('call'));
-    expect(ids(live).indexOf('call')).toBeLessThan(ids(live).indexOf('answer'));
+    expect(live.some(unit => (unit.data as ChatMessage).conversationPart === 'body')).toBe(false);
     expect(ids(live)).toContain('call');
     const failed = completed(); failed.outcome = { kind: 'error', reason: 'prompt_failed' };
     const units = flattenTier([failed], ctxWith({ foldTurnProcess: true, agentConversation: true }), SEGMENTERS);

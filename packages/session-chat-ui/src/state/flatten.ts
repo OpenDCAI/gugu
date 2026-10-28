@@ -375,7 +375,25 @@ export function flattenTier(
         // 「2 个子智能体跑完了」—— 折叠套折叠;「过程 · 1 步」—— 一步也套了头)。
         const header = segment.header;
         // 不套头的那一段是平铺在外面的,和不折的一轮一样先剔掉别处已经画了的(卡片 / 改动汇总,#70 review)。
-        const output = ctx.agentConversation && header ? conversationOutput([...segment.process, ...segment.tail]) : null;
+        const output = ctx.agentConversation && header ? conversationOutput([...segment.process, ...segment.tail], header.live) : null;
+        // 对话布局、还在跑:没有回复气泡(owner 0 号图)—— 只有这条「执行中」过程行,说过的话是步骤间的灰色单行,
+        // message_send 发出去的照旧各自一个气泡,挂在这条过程行下面。
+        if (output && header?.live) {
+          const expanded = ctx.revealAllFolds || turnProcessExpanded(true, ctx.isTurnProcessExpanded?.(header.id) ?? false);
+          const steps = output.rest.filter(item => !isSubagentChild(item)).length;
+          processItem({
+            kind: 'turn-process',
+            id: header.id,
+            turnId: turn.id,
+            live: true as const,
+            ...(steps ? { steps } : {}),
+            ...(expanded ? { withBody: true } : {}),
+            ...(header.startedAt !== undefined ? { startedAt: header.startedAt } : {}),
+          });
+          if (expanded) emitOps(planRows(outsideProcess(output.rest)), turn.id, [{ id: header.id, stored: false }]);
+          for (const sent of output.sent) processItem({ ...sent, conversationPart: 'body', conversationHead: header.id });
+          continue;
+        }
         const footerReply = output?.reply ? conversationProcessReply(header, [output.reply]) : null;
         if (footerReply && header && output) {
           const expanded = ctx.revealAllFolds || turnProcessExpanded(header.live, ctx.isTurnProcessExpanded?.(header.id) ?? false);
@@ -429,27 +447,24 @@ export function flattenTier(
       const pending = pendingTurnHeader(turns[turnIndex] as TranscriptTurn, ctx.active, ctx.foldTurnProcess === true);
       if (pending) {
         emitOps(planRows(outsideProcess(items.slice(0, pending.at))), turn.id);
-        const pendingReply = ctx.agentConversation
-          ? conversationProcessReply({ ...pending.header, startedAt: turn.startedAt }, items.slice(pending.at)) : null;
+        // 对话布局:跑着没有回复气泡,说过的话是过程里的灰色单行(owner 0 号图,见 `conversationOutput`)。
+        const pendingItems = ctx.agentConversation ? conversationOutput(items.slice(pending.at), true).rest : items.slice(pending.at);
         // 对话布局:跑着默认摊开(owner 0 号图「执行中 · 9m16s · 39 步 ⌄」),点了收起就真收起 ——
         // 还没出正文的这一轮以前不看开关,收起了步骤照样摊在下面。
         const pendingExpanded = !ctx.agentConversation || ctx.revealAllFolds || turnProcessExpanded(true, ctx.isTurnProcessExpanded?.(pending.header.id) ?? false);
         const pendingFolds = ctx.agentConversation ? [{ id: pending.header.id, stored: false }] : undefined;
-        if (pendingReply) {
-          emitConversationReply(pendingReply, [], () => {
-            if (pendingExpanded) emitOps(planRows(outsideProcess(items.slice(pending.at + 1))), turn.id, pendingFolds);
-          });
-        } else {
-          processItem({
-            kind: 'turn-process',
-            ...pending.header,
-            ...(ctx.agentConversation && turn.startedAt !== undefined ? { startedAt: turn.startedAt } : {}),
-            turnId: turn.id,
-            ...(pending.at < items.length ? { withBody: true } : {}),
-            ...(ctx.agentConversation && items.slice(pending.at).some(item => !isSubagentChild(item))
-              ? { steps: items.slice(pending.at).filter(item => !isSubagentChild(item)).length } : {}),
-          });
-          if (pendingExpanded) emitOps(planRows(outsideProcess(items.slice(pending.at))), turn.id, pendingFolds);
+        processItem({
+          kind: 'turn-process',
+          ...pending.header,
+          ...(ctx.agentConversation && turn.startedAt !== undefined ? { startedAt: turn.startedAt } : {}),
+          turnId: turn.id,
+          ...(pending.at < items.length ? { withBody: true } : {}),
+          ...(ctx.agentConversation && pendingItems.some(item => !isSubagentChild(item))
+            ? { steps: pendingItems.filter(item => !isSubagentChild(item)).length } : {}),
+        });
+        if (pendingExpanded) emitOps(planRows(outsideProcess(pendingItems)), turn.id, pendingFolds);
+        if (ctx.agentConversation) {
+          for (const sent of conversationOutput(items.slice(pending.at), true).sent) processItem({ ...sent, conversationPart: 'body', conversationHead: pending.header.id });
         }
       } else {
         emitOps(planRows(outsideProcess(items)), turn.id);

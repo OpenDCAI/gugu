@@ -11,33 +11,35 @@ export function conversationProcessReply(header: TurnProcessHeader | null, tail:
   return { ...reply, conversationProcess: { id: header.id, ...(header.live ? { live: true } : {}), startedAt: header.startedAt, endedAt: header.endedAt } };
 }
 
+/** An assistant text the agent said itself (not a message_send projection, a delivery, silence or a hook notice). */
+function isSpoken(item: ChatItem): item is ChatMessage {
+  return item.kind === 'message' && item.role === 'assistant' && !item.id.includes(':sent:')
+    && !('guguDelivery' in item && item.guguDelivery) && !!item.text.trim() && !isGuguSilence(item.text) && !parseHookNotice(item.text);
+}
+
 /**
- * One reply bubble per segment, plus every message_send output as its own bubble (`sent`);
- * `rest` is the process work that folds under the process line.
+ * The turn's outputs: the reply bubble, every message_send output as its own bubble (`sent`), and `rest` —
+ * the process work that folds under the process line.
+ *
+ * Design 0 (owner 10-28): what the agent says along the way is a gray line among the steps, alternating with
+ * the step groups; only the **last** thing it said in a finished turn is the reply bubble. While the turn runs
+ * there is no reply yet — every line it has said is narration (`live`). Earlier lines stay in `rest`
+ * (flagged `conversationNarration`), ❌ dropped when the turn closes, ❌ merged into one updating bubble.
  */
-export function conversationOutput(items: readonly ChatItem[]): { reply: ChatMessage | null; sent: ChatMessage[]; rest: ChatItem[] } {
-  let outputs = items.filter((item): item is ChatMessage => item.kind === 'message'
-    && item.role === 'assistant' && !item.id.includes(':sent:') && !('guguDelivery' in item && item.guguDelivery)
-    && !!item.text.trim() && !isGuguSilence(item.text) && !parseHookNotice(item.text));
+export function conversationOutput(items: readonly ChatItem[], live = false): { reply: ChatMessage | null; sent: ChatMessage[]; rest: ChatItem[] } {
+  const spoken = items.filter(isSpoken);
   // A group reply can exist only as a confirmed message_send projection,
   // followed by [NO_REPLY]. Bind that delivered bubble to the process too.
-  if (outputs.length === 0) {
-    const delivered = items.find((item): item is ChatMessage => item.kind === 'message'
-      && item.role === 'assistant' && item.id.includes(':sent:') && !!item.text.trim());
-    if (delivered) outputs = [delivered];
-  }
-  const first = outputs[0];
-  const latest = outputs.at(-1);
-  const ids = new Set(outputs.map(item => item.id));
+  const delivered = spoken.length === 0 && !live ? items.find((item): item is ChatMessage => item.kind === 'message'
+    && item.role === 'assistant' && item.id.includes(':sent:') && !!item.text.trim()) : undefined;
+  const reply = live ? null : spoken.at(-1) ?? delivered ?? null;
   // owner 10-28:message_send 发出去的那几条是这一轮的输出,各自一个气泡,❌ 折进过程里、展开才看得到。
-  const sent = first ? items.filter((item): item is ChatMessage => item.kind === 'message' && item.role === 'assistant'
-    && item.id.includes(':sent:') && !ids.has(item.id) && !!item.text.trim()) : [];
-  for (const item of sent) ids.add(item.id);
+  const sent = items.filter((item): item is ChatMessage => item.kind === 'message' && item.role === 'assistant'
+    && item.id.includes(':sent:') && item !== reply && !!item.text.trim());
+  const out = new Set<ChatItem>([...sent, ...(reply ? [reply] : [])]);
   return {
-    // Stable identity prevents replacement of the bubble when a new provider
-    // message carries the result of the tool call.
-    reply: first && latest ? { ...latest, id: first.id } : null,
+    reply,
     sent,
-    rest: items.filter(item => !ids.has(item.id)),
+    rest: items.filter(item => !out.has(item)).map(item => isSpoken(item) ? { ...item, conversationNarration: true } : item),
   };
 }
