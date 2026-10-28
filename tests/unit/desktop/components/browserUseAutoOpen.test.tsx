@@ -27,7 +27,10 @@ vi.mock('../../../../apps/desktop/src/lib/browserUseLink', () => ({
 vi.mock('../../../../apps/desktop/src/lib/cloudHostSuspended', () => ({ cloudHostSuspended: () => false }))
 vi.mock('../../../../apps/desktop/src/session/renderer/features/extensions/use-session-host-ask', () => ({ useSessionHostAsk: () => fx.ask }))
 
-import { autoOpenBrowserUseTab, BrowserUseAutoOpen } from '../../../../apps/desktop/src/components/browserUse/BrowserUseAutoOpen'
+import { autoOpenBrowserUseTab } from '../../../../apps/desktop/src/components/browserUse/browserUseAutoOpenRules'
+import { BrowserUseAutoOpen } from '../../../../apps/desktop/src/components/browserUse/BrowserUseAutoOpen'
+// The watch BrowserUseAutoOpen loads lazily: loaded up front here, so the lazy import settles at once.
+import '../../../../apps/desktop/src/components/browserUse/BrowserUseServerWatch'
 
 function view(kinds: string[] = []) {
   return { paneLayout: { groups: [{ pane: { resolvedTabs: kinds.map((kind) => ({ kind })) } }], windowPanes: new Map(), open: vi.fn() } }
@@ -81,11 +84,20 @@ describe('when the task’s browser starts', () => {
   const poll = async () => {
     await act(async () => { await vi.advanceTimersByTimeAsync(10_000) })
   }
+  /** Render, then let the lazily loaded watch mount and run its first look. */
+  const mount = async () => {
+    await harness.render(createNode(BrowserUseAutoOpen, { sessionId: 'task-1' }))
+    for (let i = 0; i < 3; i += 1) {
+      await act(async () => {
+        await vi.dynamicImportSettled()
+        await vi.advanceTimersByTimeAsync(0)
+      })
+    }
+  }
 
   it('the browser going from closed to open adds the tab', async () => {
     fx.running = [false, false, true]
-    await harness.render(createNode(BrowserUseAutoOpen, { sessionId: 'task-1' }))
-    await act(async () => { await vi.advanceTimersByTimeAsync(0) })
+    await mount()
     await poll()
     expect(fx.view!.paneLayout.open).not.toHaveBeenCalled()
     await poll()
@@ -94,7 +106,7 @@ describe('when the task’s browser starts', () => {
 
   it('a browser already open when the task is opened does not', async () => {
     fx.running = [true]
-    await harness.render(createNode(BrowserUseAutoOpen, { sessionId: 'task-1' }))
+    await mount()
     await poll()
     await poll()
     expect(fx.view!.paneLayout.open).not.toHaveBeenCalled()
@@ -103,7 +115,7 @@ describe('when the task’s browser starts', () => {
   it('a login / takeover ask of this task adds it', async () => {
     fx.running = [true]
     fx.ask = { itemId: 'ask-1', state: 'pending', origin: { source: 'browser-assistance', payload: { kind: 'login' } } }
-    await harness.render(createNode(BrowserUseAutoOpen, { sessionId: 'task-1' }))
+    await mount()
     expect(fx.view!.paneLayout.open).toHaveBeenCalledWith('browser-use.browser', {}, BACKGROUND)
   })
 
@@ -111,7 +123,7 @@ describe('when the task’s browser starts', () => {
     fx.state = 'missing'
     fx.running = [false, true]
     fx.ask = { itemId: 'ask-1' }
-    await harness.render(createNode(BrowserUseAutoOpen, { sessionId: 'task-1' }))
+    await mount()
     await poll()
     await poll()
     expect(fx.view!.paneLayout.open).not.toHaveBeenCalled()

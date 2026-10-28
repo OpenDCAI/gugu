@@ -63,6 +63,9 @@ describe('browser-assistance ask: the way to the task’s Browser Use tab', () =
     await act(async () => button()!.click())
     expect(fx.followLink).toHaveBeenCalledWith({ kind: 'app-detail', extensionId: 'browser-use' })
     expect(fx.open).not.toHaveBeenCalled()
+    // Observer components skip a re-render with the same props: the switched-off App is a fresh mount.
+    harness.cleanup()
+    harness = createReactHarness()
     fx.state = 'disabled'
     await harness.render(createNode(BrowserAssistanceAction, { sessionId: 'task-1', settlement: login }))
     expect(harness.container.textContent).toContain('Browser Use App 已停用')
@@ -71,6 +74,8 @@ describe('browser-assistance ask: the way to the task’s Browser Use tab', () =
   it('nothing for another kind of ask, and nothing on the phone', async () => {
     await harness.render(createNode(BrowserAssistanceAction, { sessionId: 'task-1', settlement: { origin: { source: 'app-install' } } }))
     expect(harness.container.innerHTML).toBe('')
+    harness.cleanup()
+    harness = createReactHarness()
     fx.mobile = true
     await harness.render(createNode(BrowserAssistanceAction, { sessionId: 'task-1', settlement: login }))
     expect(harness.container.innerHTML).toBe('')

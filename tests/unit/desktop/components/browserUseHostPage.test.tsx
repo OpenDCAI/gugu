@@ -125,6 +125,9 @@ describe('Browser Use host page', () => {
     fx.machine = { kind: 'desktop', label: '办公室 Mac' }
     await harness.render(createNode(BrowserUseHostPage, { sessionId: 's1', active: true }))
     expect(harness.container.textContent).toContain('另一台电脑「办公室 Mac」')
+    // Observer components skip a re-render with the same props: the offline machine is a fresh mount.
+    harness.cleanup()
+    harness = createReactHarness()
     fx.machine = { ...server, online: false }
     await harness.render(createNode(BrowserUseHostPage, { sessionId: 's1', active: true }))
     expect(harness.container.textContent).toContain('「云电脑」现在不在线')

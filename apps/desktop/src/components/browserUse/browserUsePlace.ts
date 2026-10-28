@@ -1,5 +1,4 @@
 import { runInAction, when } from 'mobx'
-import { openLink } from '@/lib/guguLinks'
 import { getProjectManagerStore } from '@/session/renderer/features/projects/stores/project-selectors'
 import { workspaceBackend } from '@/session/renderer/features/sessions/workspace-backend/workspace-backend'
 import type { WorkspaceViewModel } from '@/session/renderer/features/sessions/stores/workspace-view-model'
@@ -73,6 +72,8 @@ const SESSION_VIEW_TIMEOUT_MS = 10_000
 export async function openBrowserUseTab(sessionId: string): Promise<void> {
   const { tab } = browserUseTab()
   if (!tab?.enabled) throw new Error('Browser Use is not available')
+  // guguLinks 拖着平台层(模块载入就碰 window):用到才载入,这个模块在会话页的图里保持轻。
+  const { openLink } = await import('@/lib/guguLinks')
   await openLink({ kind: 'session', sessionId })
   try {
     await when(() => !!sessionEntry(sessionId)?.view, { timeout: SESSION_VIEW_TIMEOUT_MS })
