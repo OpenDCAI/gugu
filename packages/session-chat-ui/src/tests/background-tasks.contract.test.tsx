@@ -157,6 +157,28 @@ describe('background tasks at the end of the transcript', () => {
   })
 
   // owner 2026-10-27 原型:末尾那条回复带着过程行时,后台那一句与「思考执行中」同一行,单子就地展开在它下面。
+  it('hangs on a live process line that has no reply yet, across the steps under it', async () => {
+    const { state, host } = mount({}, true)
+    state.transcript.activeTurn.set({
+      id: 'live', seq: 0, initiator: 'user', startedAt: Date.now() - 5000,
+      items: [
+        { kind: 'message', id: 'q', seq: 0, role: 'user', text: 'Run four commands.' },
+        { kind: 'tool', id: 't1', seq: 1, name: 'bash', status: 'done' },
+        { kind: 'tool', id: 't2', seq: 2, name: 'bash', status: 'running' },
+      ]
+    } as unknown as TranscriptTurn)
+    state.session.setBackgroundTasks({ commands: [command], subagents: [agent()] })
+    // owner 0 号图:「思考执行中 · … · N 步 ⌄ | 后台 · … ›」同一行,❌ 单独一行排在步骤下面。
+    const pill = () => host.querySelector<HTMLElement>('[data-slot="turn-process"] [data-slot="background-tasks-pill"]')
+    await until('the background pill sits on the live process line', () => pill() !== null)
+    expect(row(host)).toBeNull()
+    const process = host.querySelector<HTMLElement>('[data-slot="turn-process"] [data-conversation-process]')!
+    expect(Math.abs(process.getBoundingClientRect().top - pill()!.getBoundingClientRect().top)).toBeLessThanOrEqual(2)
+    pill()!.click()
+    await until('the list opens in that row', () => items(host).length === 2)
+    expect(host.querySelector('[data-slot="turn-process"]')!.contains(items(host)[0])).toBe(true)
+  })
+
   it('hangs on the last reply\'s process line in the conversation layout, not as its own row', async () => {
     const { state, host } = mount({}, true)
     const worked: TranscriptTurn = {
