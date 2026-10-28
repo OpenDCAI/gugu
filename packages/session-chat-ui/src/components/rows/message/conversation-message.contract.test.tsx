@@ -50,10 +50,10 @@ describe('agent-centered conversation bubbles', () => {
         expect(row.querySelector('button[title="你好"]')).toBeNull();
         expect(row.textContent).not.toContain('你好↵');
         expect(bubble.contains(name)).toBe(false);
-        // owner 定稿(0 号图):时间、复制(、编辑)那一行照原气泡常驻在气泡下面,❌ 悬停才出。
+        // 时间、复制(、编辑)那一行在气泡下面占着位置,鼠标停上去才显出来(设计稿 `.acts{opacity:0}`,owner 10-28)。
         const actions = row.querySelector<HTMLElement>('[data-user-message-actions]')!;
         expect(actions.querySelectorAll('time')).toHaveLength(1);
-        expect(getComputedStyle(actions).opacity).toBe('1');
+        expect(getComputedStyle(actions).opacity).toBe('0');
         expect(actions.getBoundingClientRect().top).toBeGreaterThanOrEqual(bubble.getBoundingClientRect().bottom - 1);
         if (role === 'assistant') {
           expect(Math.abs(bubble.getBoundingClientRect().left - row.getBoundingClientRect().left)).toBeLessThanOrEqual(1);
@@ -106,7 +106,13 @@ describe('agent-centered conversation bubbles', () => {
       expect(head.host.querySelector('[data-user-message-actions]')).toBeNull();
       expect(Math.abs(head.host.getBoundingClientRect().height - messageUnitDef.measure(head.item, head.ctx, messageUnitDef.vars!))).toBeLessThanOrEqual(1);
     } finally { head.dispose(); }
-    const body = await mount({ kind: 'message', id: 'split', role: 'assistant', text: '两条都发了', at: 1000, conversationPart: 'body', conversationHead: 'split:head' });
+    // 中途的气泡不带时间那一行,收了口那一轮的最后一句才带(设计稿 0 号 tail,owner 10-28);两种都量得和画的一样高。
+    const middle = await mount({ kind: 'message', id: 'middle', role: 'assistant', text: '中途汇报：前半段跑完了', at: 1000, conversationPart: 'body', conversationHead: 'split:head' });
+    try {
+      expect(middle.host.querySelector('[data-user-message-actions]')).toBeNull();
+      expect(Math.abs(middle.host.getBoundingClientRect().height - messageUnitDef.measure(middle.item, middle.ctx, messageUnitDef.vars!))).toBeLessThanOrEqual(1);
+    } finally { middle.dispose(); }
+    const body = await mount({ kind: 'message', id: 'split', role: 'assistant', text: '两条都发了', at: 1000, conversationPart: 'body', conversationHead: 'split:head', conversationTail: true });
     try {
       expect(body.host.querySelector('span[title]')).toBeNull();
       expect(body.host.querySelector('[data-conversation-process]')).toBeNull();
@@ -216,4 +222,19 @@ describe('agent-centered conversation bubbles', () => {
     } finally { view.dispose(); }
   });
 
+  it('puts a measured 「群名 · 发送者 · 短摘要」 line above a message_send bubble only when it passed reply_to_message_id', async () => {
+    const quote = { itemId: 'src', text: '这是被引用的那条消息，很长很长很长很长很长很长很长很长', from: '小王' };
+    const quoted = await mount({ kind: 'message', id: 'call:sent:a', role: 'assistant', text: '答你', at: Date.now(), conversationPart: 'body', sentReplyTo: 'src', conversationReply: quote });
+    const plain = await mount({ kind: 'message', id: 'call:sent:b', role: 'assistant', text: '答你', at: Date.now(), conversationPart: 'body', conversationReply: quote });
+    try {
+      const line = quoted.host.querySelector<HTMLElement>('[data-slot="conversation-quote"]')!;
+      expect(line.textContent).toContain('小王 ·');
+      expect(line.textContent).toContain('…');
+      const row = quoted.host.querySelector<HTMLElement>('[data-agent-conversation-message]')!;
+      expect(Math.abs(row.getBoundingClientRect().height - messageUnitDef.measure(quoted.item, quoted.ctx, messageUnitDef.vars!))).toBeLessThanOrEqual(1);
+      expect(line.getBoundingClientRect().bottom).toBeLessThanOrEqual(row.querySelector<HTMLElement>('[data-user-card]')!.getBoundingClientRect().top + 1);
+      // 没传 reply_to_message_id ⇒ 不画(❌ 猜)。
+      expect(plain.host.querySelector('[data-slot="conversation-quote"]')).toBeNull();
+    } finally { quoted.dispose(); plain.dispose(); }
+  });
 });

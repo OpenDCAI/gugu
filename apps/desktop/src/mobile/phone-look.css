@@ -7,6 +7,8 @@
   --phone-nav-height: calc(var(--spacing-lg) * 4);
   --phone-nav-clearance: calc(var(--phone-nav-height) + var(--spacing-lg) * 2 + env(safe-area-inset-bottom));
   --bubble-mine: var(--ta-bubble-mine);
+  --conversation-bubble-mine: var(--ta-bubble-mine);
+  --conversation-bubble-mine-fg: var(--foreground);
   --bubble-other: var(--ta-bubble-other);
   --bubble-own: var(--ta-bubble-mine);
   --bubble-agent: var(--ta-bubble-other);

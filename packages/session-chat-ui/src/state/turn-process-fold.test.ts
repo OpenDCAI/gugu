@@ -978,6 +978,8 @@ describe('agent conversation process footer', () => {
       const bodies = units.filter(unit => (unit.data as ChatMessage).conversationPart === 'body').map(unit => unit.itemId);
       // owner 10-28 第 6 处:发出去的那两条 ❌ 折进过程、展开才看得到。
       expect(bodies).toEqual(['call:sent:m1', 'call:sent:m2', 'answer']);
+      // 时间那一行只给收了口那一轮的最后一句(设计稿 0 号 tail)。
+      expect(units.filter(unit => (unit.data as ChatMessage).conversationTail).map(unit => unit.itemId)).toEqual(['answer']);
       expect(units.filter(unit => (unit.data as ChatMessage).conversationPart === 'head').map(unit => unit.itemId)).toEqual(['answer:head']);
       if (open) expect(ids(units).indexOf('call2')).toBeLessThan(ids(units).indexOf('call:sent:m1'));
       else expect(ids(units)).not.toContain('call2');
@@ -987,7 +989,7 @@ describe('agent conversation process footer', () => {
     const running = turn('busy', [user('u'), tool('a'), tool('b'), tool('c')], undefined, { startedAt: 1000 });
     const units = flattenTier([running], ctxWith({ active: true, foldTurnProcess: true, agentConversation: true }), SEGMENTERS);
     const head = units.find(unit => unit.kind === 'turn-process')?.data as { steps?: number; live?: boolean } | undefined;
-    // owner 0 号图「思考执行中 · 9m16s · 39 步」:还没说话的那一轮也写步数。
+    // owner 0 号图「执行中 · 9m16s · 39 步」:还没说话的那一轮也写步数。
     expect(head?.steps).toBe(3);
     // owner 0 号图:跑着默认摊开(⌄),步骤组只说「跑了 N 条命令」,❌「正在跑 <原始命令>」;点了收起就真收起。
     expect(units.some(unit => (unit.data as { now?: unknown }).now !== undefined)).toBe(false);
@@ -999,6 +1001,8 @@ describe('agent conversation process footer', () => {
     const live = flattenTier([completed()], ctxWith({ active: true, foldTurnProcess: true, agentConversation: true }), SEGMENTERS);
     expect(kinds(live)).not.toContain('turn-process');
     expect((live.find(unit => unit.itemId === 'answer:head')?.data as ChatMessage).conversationProcess?.live).toBe(true);
+    // 还在跑:没有哪句是收口的那句,都不带时间那一行。
+    expect(live.some(unit => (unit.data as ChatMessage).conversationTail)).toBe(false);
     expect(ids(live).indexOf('answer:head')).toBeLessThan(ids(live).indexOf('call'));
     expect(ids(live).indexOf('call')).toBeLessThan(ids(live).indexOf('answer'));
     expect(ids(live)).toContain('call');
