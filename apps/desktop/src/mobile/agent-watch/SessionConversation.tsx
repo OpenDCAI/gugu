@@ -27,7 +27,7 @@ import { useConversationOptions } from '@/components/chat/useConversationOptions
 import { useOpenedOutputOpener } from './opened-output-opener'
 import { dismissSubagent } from '@renderer/features/sessions/view/subagent-dismissals'
 import { usePhoneBackgroundTasks } from './background-tasks'
-import { followLink } from '@/lib/guguLinks'
+import { followConversationLink } from '@/lib/followConversationLink'
 import { openMessageSender } from '@/lib/openMessageSender'
 import { classifyFileLink } from '@gugu/core/shared/ui/guguLink'
 import { ComposerAttachButton } from '@/components/chat/ComposerAttachButton'
@@ -120,7 +120,7 @@ export function SessionConversation({ timeline, deviceId, sessionId, agentName, 
   const background = usePhoneBackgroundTasks(deviceId, sessionId, timeline.turns, dismissals, !phoneHost)
   const turns = timeline.turns
   const commands: ChatCommands = {
-    classifyLink: classifyFileLink, onOpenLink: followLink, onOpenSender: openMessageSender,
+    classifyLink: classifyFileLink, onOpenLink: followConversationLink, onOpenSender: openMessageSender,
     conversationAgentSession: () => sessionId, conversationAgentUserId: () => agentUserId ?? null,
     onConversationReply: id => view.current?.scrollToItem(id, { align: 'center' }),
     onDismissBackgroundTask: ({ entryId }) => { dismissSubagent(sessionId, entryId); setDismissals(value => value + 1) },

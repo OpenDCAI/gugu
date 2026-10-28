@@ -1,6 +1,7 @@
 import type { MessageItem } from '@gugu/core/shared/types/chat'
 import { readDeliveryEnvelope, renderDeliveryEnvelope } from '@gugu/core/local/agent/deliveryEnvelope'
-import { replyItems, sentMessageId } from '@gugu/session-core/session-record/reply-process'
+import { replyItems, successfulMessageSend } from '@gugu/session-core/session-record/reply-process'
+import { sentAttachmentOf, type AttachmentTurn, type SentAttachment } from '@gugu/session-core/session-record/sent-attachment'
 import type { TranscriptTurn } from '@gugu/session-core/acp/client'
 import type { ChatMessage } from '@gugu/session-chat-ui'
 import { parseAttachmentContent } from '@gugu/core/shared/ui/attachmentModels'
@@ -20,7 +21,7 @@ export function dmRecord(messages: readonly MessageItem[], names: Readonly<Recor
     const attachment = message.content_type === 'attachment' ? parseAttachmentContent(message.content, message) : null
     const link = attachment?.source.kind === 'url' ? attachment.source.url
       : attachment?.source.kind === 'item' ? `gugu-file://${attachment.source.itemId}?v=${attachment.source.version}`
-      : attachment?.source.kind === 'message' ? `gugu-message-file://${attachment.source.messageId}` : null
+      : attachment?.source.kind === 'message' ? `gugu-message-file://${attachment.source.messageId}` : attachment ? `gugu-message-file://${message.id}` : null
     const content = attachment ? [attachment.caption, link ? `[${attachment.fileName}](${link})` : attachment.fileName].filter(Boolean).join('\n')
       : message.content_type === 'card' ? composerCardLine(message.content ?? '') : message.content ?? ''
     if (message.content_type === 'system') return { id: `im:${message.id}`, seq: message.seq, initiator: 'agent', items: [{
@@ -35,6 +36,7 @@ export function dmRecord(messages: readonly MessageItem[], names: Readonly<Recor
         ...(reply && reply.fromId ? { replyTo: { messageId: `msg:${reply.itemId}`, fromId: reply.fromId, from: reply.from ?? null, preview: reply.text } } : {}),
       }) : content,
       at: Date.parse(message.created_at),
+      ...(attachment && link ? { sentAttachment: { messageId: message.id, name: attachment.fileName, href: link, ...(attachment.caption ? { caption: attachment.caption } : {}) } } : {}),
       ...(reply && !message.is_mine ? { sentReplyTo: reply.itemId, conversationReply: reply } : {}),
     }
     // IM confirms a persisted message, not a duration or an execution process.
@@ -50,9 +52,10 @@ export function dmRecordIds(turns: readonly TranscriptTurn[]): Map<string, reado
       const messages = (readDeliveryEnvelope(item.text)?.segments ?? [])
         .flatMap(segment => segment.facts?.messageId ? [segment.facts.messageId.replace(/^msg:/, '')] : [])
       if (messages.length) ids.set(item.id, messages)
+      else if (turn.id === `im:${item.id}`) ids.set(item.id, [item.id])
       for (const id of messages) ids.set(id, [id])
     } else if (item.kind === 'mcp-tool-call') {
-      const sent = sentMessageId(item)
+      const sent = successfulMessageSend(item)?.id ?? sentAttachmentOf(item, (turn as AttachmentTurn).sentAttachments)?.messageId
       if (sent) ids.set(`${item.id}:sent:${sent}`, [sent])
     }
   }
@@ -60,9 +63,21 @@ export function dmRecordIds(turns: readonly TranscriptTurn[]): Map<string, reado
 }
 
 export function mergeDmRecord(turns: readonly TranscriptTurn[], messages: readonly MessageItem[], names: Readonly<Record<string, { display_name: string }>>): readonly TranscriptTurn[] {
-  const recorded = new Set([...dmRecordIds(turns).values()].flat())
+  const files: Record<string, SentAttachment> = {}
+  for (const turn of dmRecord(messages.filter(message => message.content_type === 'attachment'), names)) {
+    const file = (turn.items[0] as ChatMessage).sentAttachment
+    if (file) files[file.messageId] = file
+  }
+  const enriched = Object.keys(files).length ? turns.map(turn => {
+    const known = Object.fromEntries(replyItems(turn).flatMap(item => {
+      const file = sentAttachmentOf(item, files)
+      return file ? [[file.messageId, file]] : []
+    }))
+    return Object.keys(known).length ? { ...turn, sentAttachments: known } : turn
+  }) : turns
+  const recorded = new Set([...dmRecordIds(enriched).values()].flat())
   const known = messages.filter(message => recorded.has(message.id))
   const watermark = known.length ? Math.max(...known.map(message => message.seq)) : null
   const pending = dmRecord(messages.filter(message => !recorded.has(message.id) && (watermark === null || message.seq > watermark || message.local_send_state)), names)
-  return pending.length ? [...turns, ...pending] : turns
+  return pending.length ? [...enriched, ...pending] : enriched
 }

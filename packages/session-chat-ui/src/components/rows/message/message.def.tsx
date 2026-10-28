@@ -65,9 +65,12 @@ export function normalizeMessage(item: ChatMessage): ChatMessage {
     ...item,
     ...(guguDelivery ? { text: guguDelivery.body, guguDelivery } : {}),
     ...(hookNotice ? { text: hookNotice.body, hookNotice } : {}),
-    attachments: item.attachments?.map((attachment) => ({
+    ...(item.sentAttachment ? { text: item.sentAttachment.caption ?? '' } : {}),
+    attachments: item.sentAttachment ? [{ id: item.sentAttachment.messageId, name: item.sentAttachment.name, kind: 'file' as const, href: item.sentAttachment.href }] : item.attachments?.map((attachment) => ({
       id: attachment.id,
       name: attachment.name,
+      ...(attachment.kind ? { kind: attachment.kind } : {}),
+      ...(attachment.href ? { href: attachment.href } : {}),
       ...(attachment.dataUrl ? { dataUrl: attachment.dataUrl } : {}),
     })),
   };

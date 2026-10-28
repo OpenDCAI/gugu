@@ -50,6 +50,8 @@ export type ThinkingStatus = 'thinking' | 'done';
 export type ChatAttachment = {
   id: string;
   name: string;
+  /** A canonical sent-file reference, opened by the host's existing link handler. */
+  href?: string;
   /**
    * 画成缩略图还是画成一枚文件 chip。缺席 = `'image'`(历史生产者只送图)。
    *
@@ -73,6 +75,8 @@ export type ChatMessage = {
   text: string;
   /** True while the agent is still writing to this message. */
   streaming?: boolean;
+  /** View-only confirmed file send; normalized to the existing attachment card before painting. */
+  sentAttachment?: import('@gugu/session-core/session-record/sent-attachment').SentAttachment;
   /** Image attachments rendered as a thumbnail strip above the text (user messages). */
   attachments?: ChatAttachment[];
   /**

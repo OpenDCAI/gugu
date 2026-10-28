@@ -188,7 +188,7 @@ export function UserMessageCard(props: { data: ChatMessage; ctx: RenderCtx; vars
           style={{
             height: `${attachStripH()}px`,
             // `base`:整条右对齐到与气泡同一条边。
-            ...(isDoubleColumnLayout(layout()) ? { 'justify-content': 'flex-end' } : {}),
+            ...(isDoubleColumnLayout(layout()) ? { 'justify-content': props.conversation && props.data.role === 'assistant' ? 'flex-start' : 'flex-end' } : {}),
           }}
         >
           <For each={props.data.attachments}>
@@ -292,6 +292,7 @@ function AttachmentChip(props: { attachment: ChatAttachment; itemId: string }) {
       )}
       onClick={(e) => {
         e.stopPropagation();
+        if (props.attachment.href) { commands().onOpenLink?.(props.attachment.href); return; }
         commands().onViewAttachment?.({
           attachment: { ...props.attachment, ...(dataUrl() ? { dataUrl: dataUrl() } : {}) },
           itemId: props.itemId,

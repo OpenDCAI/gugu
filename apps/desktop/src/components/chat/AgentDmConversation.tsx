@@ -21,7 +21,7 @@ import { usePhoneBackgroundTasks } from '@/mobile/agent-watch/background-tasks'
 import { dismissSubagent } from '@renderer/features/sessions/view/subagent-dismissals'
 import type { ChatView } from '@gugu/session-chat-ui'
 import { createSessionpageChatSendPreflight } from '@/lib/sessionpage-session-recovery'
-import { followLink } from '@/lib/guguLinks'
+import { followConversationLink } from '@/lib/followConversationLink'
 import { openMessageSender } from '@/lib/openMessageSender'
 import { classifyFileLink } from '@gugu/core/shared/ui/guguLink'
 import { agentComposerModel, isRetiredCloudAgentChat } from '@/lib/agentComposerModel'
@@ -115,7 +115,7 @@ function DmConversation({ chat, target, shown, mobile, onBack, chrome, embedded,
       const file = parseAttachmentContent(message.content, message)
       if (file) { filePreview.open(file, message); return true }
     }
-    return followLink(href)
+    return followConversationLink(href)
   }
   const composer = <>
     <ConversationSettlements sessionId={target?.sessionId ?? `dm:${chat.id}`} settlements={read.timeline.settlements} runtime="acp" mobile={mobile} busyItemId={read.respondingItemId} respond={read.respond} />

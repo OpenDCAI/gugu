@@ -313,3 +313,20 @@ describe('agent-centered conversation bubbles', () => {
     } finally { view.dispose(); }
   });
 });
+
+it.each([320, 600])('paints a sent file as the existing left-side attachment card, opens its canonical link and measures it at width %s', async width => {
+  const onOpenLink = vi.fn();
+  const view = await mount({ kind: 'message', id: 'file:sent:receipt', role: 'assistant', text: 'proof.txt',
+    sentAttachment: { messageId: 'receipt', name: 'proof.txt', href: 'gugu-file://proof?v=2' } }, width, { onOpenLink });
+  try {
+    const row = view.host.querySelector<HTMLElement>('[data-agent-conversation-message]')!;
+    const card = row.querySelector<HTMLButtonElement>('[data-attachment-chip]')!;
+    expect(row.dataset.side).toBe('left');
+    expect(card.dataset.kind).toBe('file');
+    expect(card.textContent).toBe('proof.txt');
+    expect(row.querySelector('[data-user-card]'), 'an attachment-only send has no empty text bubble').toBeNull();
+    expect(Math.abs(row.getBoundingClientRect().height - messageUnitDef.measure(view.item, view.ctx, messageUnitDef.vars!))).toBeLessThanOrEqual(1);
+    card.click();
+    expect(onOpenLink).toHaveBeenCalledWith('gugu-file://proof?v=2');
+  } finally { view.dispose(); }
+});

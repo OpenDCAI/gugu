@@ -55,3 +55,27 @@ describe('authorized DM rows in the shared transcript', () => {
     expect(rows[0].items[0]).toMatchObject({ kind: 'session-notice', detail: 'A recorded system event' })
   })
 })
+
+it('retains text, attachment and text in receipt order, exactly once, even below the later text watermark', async () => {
+  const { withSentReplies } = await import('../../../../packages/session-chat-ui/src/state/sent-replies')
+  const ids = ['6417511d-8f36-4cbc-8cbb-81ce9f97df71', '6417511d-8f36-4cbc-8cbb-81ce9f97df72', '6417511d-8f36-4cbc-8cbb-81ce9f97df73']
+  const calls = ids.map((id, seq) => ({ kind: 'mcp-tool-call' as const, id: `call-${seq}`, toolCallId: `call-${seq}`, seq,
+    title: 'Send', server: 'plugin_gugu-product_gugu', status: 'done' as const,
+    tool: seq === 1 ? 'message_send_file' : 'message_send',
+    rawInput: JSON.stringify(seq === 1 ? { chat_id: 'dm', file: 'existing-file' } : { chat_id: 'dm', text: seq === 0 ? 'First' : 'Last' }),
+    outputText: JSON.stringify({ message_id: id }), completedAt: (seq + 1) * 1000,
+  }))
+  const raw: TranscriptTurn[] = [{ id: 'record', seq: 0, initiator: 'user', items: calls }]
+  const rows = ids.map((id, seq) => message({ id, seq: seq + 1, chat_id: 'dm', sender_user_id: 'agent', is_mine: false,
+    content_type: seq === 1 ? 'attachment' : 'text', content: seq === 1 ? '[附件] proof.txt (text/plain)\n[Size] 9\n[Kind] file' : seq === 0 ? 'First' : 'Last',
+    ...(seq === 1 ? { file_item_id: '7417511d-8f36-4cbc-8cbb-81ce9f97df73', file_version: 2 } : {}),
+  }))
+  const merged = mergeDmRecord(raw, rows, names)
+  const projected = withSentReplies(merged[0], { allDestinations: true })
+  const outputs = projected.items.filter(item => item.kind === 'message')
+  expect(outputs.map(item => item.kind === 'message' ? item.text : '')).toEqual(['First', 'proof.txt', 'Last'])
+  expect((outputs[1] as import('@gugu/session-chat-ui').ChatMessage).sentAttachment).toMatchObject({ messageId: ids[1], href: 'gugu-file://7417511d-8f36-4cbc-8cbb-81ce9f97df73?v=2' })
+  expect(withSentReplies(projected, { allDestinations: true }).items).toHaveLength(projected.items.length)
+  expect(merged).toHaveLength(1)
+  expect(dmRecordIds(merged).get(`call-1:sent:${ids[1]}`)).toEqual([ids[1]])
+})

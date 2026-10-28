@@ -118,3 +118,16 @@ it('binds a tool-only group reply to its footer instead of a duplicate process h
   expect(head).toMatchObject({ conversationPart: 'head', conversationProcess: { startedAt: 1000, endedAt: 4000 } });
   expect(delivered).toMatchObject({ text: '你好，我在。', conversationPart: 'body' });
 });
+
+it('projects text, a confirmed file card and text at their actual call positions in every agent conversation', () => {
+  const first = send({ text: 'First' });
+  const file = { ...send(), id: 'file', toolCallId: 'file', seq: 3, tool: 'message_send_file',
+    rawInput: JSON.stringify({ chat_id: 'group', file_path: '/private/proof.txt' }),
+    outputText: JSON.stringify({ status: 'sent', message_id: '7417511d-8f36-4cbc-8cbb-81ce9f97df73', file_name: 'proof.txt', file: `gugu-file://${id}?v=2` }) };
+  const last = { ...send({ text: 'Last' }), id: 'last', toolCallId: 'last', seq: 4, outputText: 'sent (id=msg:8417511d-8f36-4cbc-8cbb-81ce9f97df73)' };
+  const record = { ...turn(first), items: [turn(first).items[0], first, file, last] };
+  const projected = withSentReplies(record, { allDestinations: true });
+  expect(words(projected).map(item => item.kind === 'message' ? item.text : '')).toEqual(['First', 'proof.txt', 'Last']);
+  expect(words(projected)[1]).toMatchObject({ sentAttachment: { name: 'proof.txt', href: `gugu-file://${id}?v=2` } });
+  expect(withSentReplies(projected, { allDestinations: true })).toBe(projected);
+});
