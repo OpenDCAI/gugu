@@ -30,7 +30,7 @@ describe('conversation reply references', () => {
       { kind: 'message', id: 'call:sent:d', seq: 6, role: 'assistant', text: '接着上一条', sentReplyTo: 'c', sentChat: '206258' },
       { kind: 'message', id: 'call:sent:e', seq: 7, role: 'assistant', text: '私聊里说', sentChat: '999' },
       { kind: 'message', id: 'call:sent:f', seq: 8, role: 'assistant', text: '接私聊那条', sentReplyTo: 'e', sentChat: '999' },
-    ] }];
+    ] as ChatMessage[] as TranscriptTurn['items'] }];
     const [items] = conversationMessages(turns).map(turn => turn.items as ChatMessage[]);
     expect(items[1].conversationReply).toEqual({ itemId: 'incoming', text: '帮我看一下', from: '天天', fromId: 'user:other' });
     // 引用的那条不在这段记录里 ⇒ 不画,❌ 换成别的。
