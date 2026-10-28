@@ -6,7 +6,8 @@ import { createReactHarness } from '../../../support/testHarness'
 vi.mock('../../../../apps/desktop/src/session/renderer/lib/chat/chat-transcript', () => ({
   ChatTranscript: (props: { onReady: (view: unknown) => void }) => {
     const ref = useRef<HTMLDivElement>(null)
-    useLayoutEffect(() => { props.onReady({ composerSlot: ref.current }) }, [])
+    const { onReady } = props
+    useLayoutEffect(() => { onReady({ composerSlot: ref.current }) }, [onReady])
     return <div><div data-agent-conversation-message="visible-message"><div data-user-card="">Reply</div></div><div ref={ref} data-test-composer="" /></div>
   },
 }))
