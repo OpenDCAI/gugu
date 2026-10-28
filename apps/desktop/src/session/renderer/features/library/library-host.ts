@@ -68,6 +68,7 @@ export type LibraryIntegrationsRpc = Pick<
   | 'authorize'
   | 'cancelAuthorization'
   | 'cliLoginStart'
+  | 'cliToolPrepare'
   | 'cliLoginWait'
   | 'cliLoginProgress'
   | 'accounts'
@@ -148,6 +149,7 @@ const localIntegrations: LibraryIntegrationsRpc = {
   authorize: (id) => rpc.integrations.authorize(id),
   cancelAuthorization: (id) => rpc.integrations.cancelAuthorization(id),
   cliLoginStart: (id) => rpc.integrations.cliLoginStart(id),
+  cliToolPrepare: (id) => rpc.integrations.cliToolPrepare(id),
   cliLoginWait: (id) => rpc.integrations.cliLoginWait(id),
   cliLoginProgress: (id) => rpc.integrations.cliLoginProgress(id),
   checkAllConnections: () => rpc.integrations.checkAllConnections(),
@@ -234,6 +236,7 @@ export function createRemoteLibraryHost(
     },
     /** 官方命令行在**那台**机器上装、在那台机器上登:登录态要落在用它的那台机器上。 */
     cliLoginStart: (id) => there.integrations.cliLoginStart(id),
+    cliToolPrepare: (id) => there.integrations.cliToolPrepare(id),
     cliLoginWait: (id) => there.integrations.cliLoginWait(id),
     cliLoginProgress: (id) => there.integrations.cliLoginProgress(id),
     checkAllConnections: () => there.integrations.checkAllConnections(),
