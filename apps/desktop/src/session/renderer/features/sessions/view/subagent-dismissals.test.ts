@@ -16,7 +16,7 @@ vi.mock('@gugu/session-chat-ui', async (importOriginal) => ({
   collectSubagentRoster: () => mocks.roster
 }));
 
-const { collectSubagents } = await import('./session-subagents-section');
+const { collectSubagents } = await import('./background-task-rosters');
 const { dismissSubagent, isSubagentDismissed, resetSubagentDismissals } = await import(
   './subagent-dismissals'
 );
@@ -59,7 +59,7 @@ describe('#4981 手动收起一张子智能体卡', () => {
   });
 
   /**
-   * 弹层一关就卸载(见 `session-subagents-section.tsx` 顶上那句),所以这个状态**不能**
+   * 那一行跟着转录的虚拟列表滚出视窗就卸载,所以这个状态**不能**
    * 放在组件里。这条用例就是那件事的判据:同一个模块再问一次,答案还在。
    *
    * ⚠️ 它验的是「状态活在模块里」,不是「React 不会重挂」—— 后者这层测不到,

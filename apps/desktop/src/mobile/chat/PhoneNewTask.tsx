@@ -187,7 +187,7 @@ export function usePhoneNewTask({ chatId, enabled, clear }: {
       await createTaskInGroup({
         deviceId: home.deviceId, projectId: home.localProjectId, cwd: chosen.path, chatId, prompt, harness: picked.id,
         ...(remembered?.harness === picked.id ? {
-          model: remembered.model ?? undefined, sessionView: remembered.sessionView ?? undefined,
+          model: remembered.model ?? undefined,
           permissionMode: remembered.permissionMode ?? undefined, effort: remembered.effort ?? undefined,
         } : {}),
       })

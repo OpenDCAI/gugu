@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { identityPlace, shortenHome } from './sidebar-identity-place';
+import { identityPlace, shortenHome, splitPathTail } from './sidebar-identity-place';
 
 describe('身份卡「在哪」:设备 + 文件夹', () => {
   it('文件夹取会话自己的工作区,没有再退到项目目录,都没有是 null', () => {
@@ -20,5 +20,21 @@ describe('身份卡「在哪」:设备 + 文件夹', () => {
     expect(shortenHome('C:\\Users\\a\\proj', 'C:\\Users\\a')).toBe('~\\proj');
     expect(shortenHome('/root/x', null)).toBe('/root/x');
     expect(shortenHome('/x', '/')).toBe('/x');
+  });
+});
+
+describe('身份卡文件夹:截断时保住最后一段', () => {
+  it('拆成前面与最后一段目录名', () => {
+    expect(splitPathTail('~/Codebase/idcard-624-demo/shop')).toEqual({ head: '~/Codebase/idcard-624-demo', tail: '/shop' });
+    expect(splitPathTail('C:\\Users\\me\\code\\gugu')).toEqual({ head: 'C:\\Users\\me\\code', tail: '\\gugu' });
+    // 拼回去就是原样:显示没丢字、没多字。
+    const { head, tail } = splitPathTail('/www/gugu-wt/idcard-tail');
+    expect(head + tail).toBe('/www/gugu-wt/idcard-tail');
+  });
+
+  it('没有可拆的就整串当结尾', () => {
+    expect(splitPathTail('~')).toEqual({ head: '', tail: '~' });
+    expect(splitPathTail('/')).toEqual({ head: '', tail: '/' });
+    expect(splitPathTail('shop')).toEqual({ head: '', tail: 'shop' });
   });
 });

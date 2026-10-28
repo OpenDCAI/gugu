@@ -6,7 +6,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { setLocalePreference } from '@/i18n';
 import type { ProjectFolder } from '@shared/core/projects/project-folders';
 import { SessionLocalizationProvider } from '@renderer/localization/localization-provider';
-import { ProjectFolderCard, shortHome } from './project-folder-card';
+import { ProjectFolderCard, shortHome, FAN_MAX_ROWS, FAN_ROW_MAX, fanPlace } from './project-folder-card';
 import { UNANSWERED_AFTER_MS, useProjectFolders, type ProjectFoldersState } from './project-folders';
 import { machineRegistry } from '@renderer/lib/machine-routing';
 
@@ -625,5 +625,64 @@ describe('shortHome', () => {
     expect(shortHome('/Users/applesauce/x')).toBe('~/x');
     expect(shortHome('/www/gugu')).toBe('/www/gugu');
     expect(shortHome('/rootless/x')).toBe('/rootless/x');
+  });
+});
+
+describe('fanPlace', () => {
+  const hand = (count: number, column = 960) =>
+    Array.from({ length: count }, (_, slot) => fanPlace(slot, count, { column, paperW: 200, paperH: 64, key: `ws-${slot}` }));
+  const rowSizes = (count: number, column = 960) => {
+    const sizes = new Map<number, number>();
+    for (const p of hand(count, column)) sizes.set(p.row, (sizes.get(p.row) ?? 0) + 1);
+    return [...sizes.values()];
+  };
+
+  it('puts slot 0 (the chosen folder) in the front row, rightmost and on top of everything', () => {
+    for (const count of [2, 6, 12, 20]) {
+      const places = hand(count);
+      expect(places[0].row).toBe(0);
+      expect(places[0].z).toBe(Math.max(...places.map((p) => p.z)));
+      const front = places.filter((p) => p.row === 0);
+      expect(places[0].x).toBe(Math.max(...front.map((p) => p.x)));
+    }
+  });
+
+  it('within a row the right paper covers the left one, and a front row covers every row behind it', () => {
+    const places = hand(20);
+    for (const row of new Set(places.map((p) => p.row))) {
+      const inRow = places.filter((p) => p.row === row).sort((a, b) => a.x - b.x);
+      expect(inRow.map((p) => p.z)).toEqual([...inRow.map((p) => p.z)].sort((a, b) => a - b));
+    }
+    const minFront = Math.min(...places.filter((p) => p.row === 0).map((p) => p.z));
+    expect(Math.max(...places.filter((p) => p.row > 0).map((p) => p.z))).toBeLessThan(minFront);
+  });
+
+  it('holds at most six a row, split evenly, and never more than five rows', () => {
+    expect(rowSizes(6)).toEqual([6]);
+    expect(rowSizes(20)).toEqual([5, 5, 5, 5]);
+    for (const column of [360, 480, 600, 960, 1400]) {
+      for (const count of [1, 7, 13, 20]) {
+        const sizes = rowSizes(count, column);
+        expect(Math.max(...sizes)).toBeLessThanOrEqual(FAN_ROW_MAX);
+        expect(sizes.length).toBeLessThanOrEqual(FAN_MAX_ROWS);
+        expect(Math.max(...sizes) - Math.min(...sizes)).toBeLessThanOrEqual(1);
+      }
+    }
+  });
+
+  it('a narrow column takes more rows instead of squeezing the names', () => {
+    expect(rowSizes(20, 480).length).toBeGreaterThan(rowSizes(20, 1200).length);
+  });
+
+  it('back rows rise above the front row', () => {
+    const places = hand(20);
+    const lowest = (row: number) => Math.max(...places.filter((p) => p.row === row).map((p) => p.y));
+    expect(lowest(1)).toBeLessThan(lowest(0));
+  });
+
+  it('the same folder lands in the same spot every time', () => {
+    expect(fanPlace(3, 12, { column: 900, paperW: 200, paperH: 64, key: 'ws-a' })).toEqual(
+      fanPlace(3, 12, { column: 900, paperW: 200, paperH: 64, key: 'ws-a' })
+    );
   });
 });

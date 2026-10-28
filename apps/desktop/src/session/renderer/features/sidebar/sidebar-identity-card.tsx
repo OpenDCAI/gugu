@@ -16,6 +16,7 @@ import { remoteHostsStore } from '@renderer/features/remote-hosts/remote-hosts-s
 import { getWorkspaceForSession } from '@renderer/features/sessions/stores/session-selectors';
 import { getProjectStore } from '@renderer/features/projects/stores/project-selectors';
 import { identityPlace } from './sidebar-identity-place';
+import { TailValue } from './sidebar-identity-tail';
 
 /**
  * 侧栏会话行的**身份卡**(#6092,取代 #5818 的「标题就地翻成 agent 名」)。
@@ -210,6 +211,8 @@ type RowSpec = {
   display?: string;
   /** value 为 null 时写什么;默认「未分配」。 */
   missing?: string;
+  /** 放不下时保住结尾:文件夹的最后一段目录名永远露着,截掉的是前面(「~/Codebase/idc…/shop」)。 */
+  keepTail?: boolean;
 };
 
 export const SidebarIdentityCard = observer(function SidebarIdentityCard({
@@ -249,6 +252,7 @@ export const SidebarIdentityCard = observer(function SidebarIdentityCard({
       value: place.folder,
       display: place.folderDisplay ?? undefined,
       missing: translate('identityCard.folderUnknown'),
+      keepTail: true,
     }
   );
 
@@ -282,8 +286,9 @@ export const SidebarIdentityCard = observer(function SidebarIdentityCard({
               'duration-[var(--dur-fast)] data-open:animate-in data-open:fade-in-0 data-open:zoom-in-95 data-closed:animate-out data-closed:fade-out-0 data-closed:zoom-out-95 data-[side=right]:slide-in-from-left-2 data-[side=left]:slide-in-from-right-2 motion-reduce:animate-none motion-reduce:transition-none'
             )}
           >
-            {/* 宽度跟内容走,封顶 16rem:短名字不再拖着一大截空白(owner 2026-10-16 实看:「占的留白太多了」)。 */}
-            <div className="flex w-max max-w-64 flex-col overflow-hidden rounded-surface bg-background-quaternary py-1 text-sm text-foreground shadow-lift">
+            {/* 宽度跟内容走,封顶 20rem:短名字不再拖着一大截空白(owner 2026-10-16 实看:「占的留白太多了」);
+                16rem 时文件夹那一行只剩「~/Codebase/idcard…」,看不到是哪个目录(2026-10-27 实机),放宽一档。 */}
+            <div className="flex w-max max-w-80 flex-col overflow-hidden rounded-surface bg-background-quaternary py-1 text-sm text-foreground shadow-lift">
               {rows.map((row) => (
                 <IdentityRow key={row.key} row={row} />
               ))}
@@ -358,7 +363,11 @@ function IdentityRow({ row }: { row: RowSpec }) {
           两行图标不对齐也看不出来。反馈就地替换值:值与反馈叠在同一格,值只是藏起来仍占着宽,
           所以点完卡不变窄、图标不挪位。 */}
       <span className="grid min-w-0 grid-cols-1">
-        <span className={cn(valueClass, 'col-start-1 row-start-1', state !== null && 'invisible')}>{row.display ?? row.value}</span>
+        {row.keepTail ? (
+          <TailValue text={row.display ?? row.value} className={cn('col-start-1 row-start-1', state !== null && 'invisible')} />
+        ) : (
+          <span className={cn(valueClass, 'col-start-1 row-start-1', state !== null && 'invisible')}>{row.display ?? row.value}</span>
+        )}
         <span aria-live="polite" className="min-w-0 whitespace-normal break-words text-left text-sm leading-5 col-start-1 row-start-1 text-foreground-muted">
           {state}
         </span>

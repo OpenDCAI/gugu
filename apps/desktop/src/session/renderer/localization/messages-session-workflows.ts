@@ -240,8 +240,6 @@ export const enUSSessionWorkflowMessages = {
   'task.sessionMenu': 'Task menu',
   'task.newSessionMemoryNotSaved': 'Couldn’t save defaults',
   'task.manualReload': 'Restart this task',
-  'task.switchToGeneralView': 'Switch to Work mode',
-  'task.switchToCodeView': 'Switch to Code mode',
   'task.modeMenu': 'Mode: {mode}',
   'task.modeChatNeedsIdentity': "Chat mode isn’t available for this task yet",
   'task.unpin': 'Unpin',
@@ -279,29 +277,6 @@ export const enUSSessionWorkflowMessages = {
   'task.convertToTask': 'Convert to regular task',
   'task.restoreTask': 'Restore',
   'task.copyBranchName': 'Copy branch name',
-  'task.outputsAndSources': 'Outputs / sources',
-  'task.subagents': 'Subagents',
-  // 悬浮在一个子智能体身上时弹出的那条时间线:它都在做什么。
-  // ⚠️ 这些调用不在主消息列表里出现,这儿是唯一能看到它们的地方。
-  // ❌ 不再报「几步」—— owner 2026-09-06:「过程我不关心几步,我关心的是运行多长时间了」。
-  'task.subagentNoSteps': 'No tool calls yet',
-  // 卡上那个 ×。⚠️ 名字里必须把「不停它」说出来:停它的是旁边那颗「停止」(#5117),这颗只收起 ——
-  // 一个叫「结束」的按钮点下去什么也没结束,那是 fake。
-  'task.backgroundCommands': 'Background commands',
-  /** 一个字都没给时那条命令的通用词。 */
-  'task.backgroundCommand': 'Background command',
-  'task.backgroundCommandStop': 'Stop this background command',
-  'task.backgroundCommandDismiss': 'Remove from list (does not stop it)',
-  'task.subagentDismiss': 'Remove from list (does not stop it)',
-  'task.subagentStop': 'Stop this subagent',
-  'task.subagentSteps_one': '{count} step',
-  'task.subagentSteps_other': '{count} steps',
-  'task.outputs': 'Outputs',
-  'task.outputsHint': 'Create files or sites',
-  'task.outputsUnreadable': "Could not read this task's outputs. Reopen this panel to try again.",
-  'task.sources': 'Sources',
-  'task.sourcesEmpty': 'No referenced links in this task yet',
-  'task.viewAll': 'View all ({count})',
   'task.jumpToTurn': 'Jump to turn: {prompt}',
   'task.jumpToDelivery': 'Jump to the message from {sender}: {prompt}',
   'task.timelineYou': 'You',
@@ -504,17 +479,12 @@ export const enUSSessionWorkflowMessages = {
   'taskConfig.grokPermissionFullAccess': 'Full Access only',
   'taskConfig.grokPermissionWarning':
     'Grok 1.0.13 executes tools directly with full access; it does not provide per-action approval. Full Access maps to always-approve, while approval-required is rejected.',
-  // 模式「编程 | 通用」分段控件(owner 2026-09-03 拍板的产品词):两段各有名字,❌ 不是只给一头起名的
-  // 开关;"Chat UI" / "TUI" / pty / acp 这类实现术语不见用户(product spec)。
+  // 两种展示的产品词「编程 | 通用」(owner 2026-09-03 拍板;手动切换已删,账号页说「哪条腿还要登录」时仍用这两个词)。
+  // "Chat UI" / "TUI" / pty / acp 这类实现术语不见用户(product spec)。
   // ⚠️ 这一层是**产品的词**,底下那条轴的**值的词**仍是 pty / acp(落库字段与测试锚点)——
   // 两套词的分工写在 conversation-type-control.tsx 抬头,改文案不该动到测试。
-  'taskConfig.sessionView': 'Mode',
   'taskConfig.sessionViewCode': 'Code',
   'taskConfig.sessionViewGeneral': 'Work',
-  'taskConfig.sessionViewGeneralOnly': '{name} only offers Work mode',
-  'taskConfig.sessionViewGeneralRequiredHere': 'Started from here, {name} runs in Work mode',
-  'taskConfig.sessionViewRemoteNeedsSsh': 'Work only here. For Code, add this machine with Remote SSH in Settings → Devices.',
-  'taskConfig.sessionViewCodeOnly': "{name}'s Work mode isn't wired up yet, so it runs in Code mode",
   // 选择闸只剩这一类失败还要出声,人话直说(product spec:19:实现术语不见用户)。
   // 「没装 / 没配默认 / id 退役」三条已于 2026-09-17 退成空态,不再有文案 —— 理由见
   // `provider-selection.ts` 的 `resolveSessionProviderSelection` 抬头。
@@ -891,8 +861,6 @@ export const zhCNSessionWorkflowMessages: Record<keyof typeof enUSSessionWorkflo
   'task.sessionMenu': '会话菜单',
   'task.newSessionMemoryNotSaved': '未能保存默认选项',
   'task.manualReload': '重启本会话',
-  'task.switchToGeneralView': '切换为通用模式',
-  'task.switchToCodeView': '切换为编程模式',
   'task.modeMenu': '模式：{mode}',
   'task.modeChatNeedsIdentity': '此任务暂不支持聊天模式',
   'task.unpin': '取消置顶',
@@ -921,23 +889,6 @@ export const zhCNSessionWorkflowMessages: Record<keyof typeof enUSSessionWorkflo
   'task.convertToTask': '转为普通会话',
   'task.restoreTask': '恢复',
   'task.copyBranchName': '复制分支名',
-  'task.outputsAndSources': '输出/来源',
-  'task.subagents': '子智能体',
-  'task.subagentNoSteps': '还没有工具调用',
-  'task.backgroundCommands': '后台命令',
-  'task.backgroundCommand': '后台命令',
-  'task.backgroundCommandStop': '停止这条后台命令',
-  'task.backgroundCommandDismiss': '从列表移除（不会停止它）',
-  'task.subagentDismiss': '从列表移除（不会停止它）',
-  'task.subagentStop': '停止这个子智能体',
-  'task.subagentSteps_one': '{count} 步',
-  'task.subagentSteps_other': '{count} 步',
-  'task.outputs': '输出',
-  'task.outputsHint': '创建文件或站点',
-  'task.outputsUnreadable': '读不到这条任务的输出，重新打开这个面板再试一次。',
-  'task.sources': '来源',
-  'task.sourcesEmpty': '本会话还没有引用链接',
-  'task.viewAll': '查看全部（{count}）',
   'task.jumpToTurn': '跳到这一轮：{prompt}',
   'task.jumpToDelivery': '跳到 {sender} 发来的这条：{prompt}',
   'task.timelineYou': '你',
@@ -1126,13 +1077,8 @@ export const zhCNSessionWorkflowMessages: Record<keyof typeof enUSSessionWorkflo
   'taskConfig.grokPermissionFullAccess': '仅完全访问',
   'taskConfig.grokPermissionWarning':
     'Grok 1.0.13 会直接执行工具，结构上始终是完全访问，不提供逐次审批。完全访问会映射为 always-approve；需审批的模式会被拒绝。',
-  'taskConfig.sessionView': '模式',
   'taskConfig.sessionViewCode': '编程',
   'taskConfig.sessionViewGeneral': '通用',
-  'taskConfig.sessionViewGeneralOnly': '{name} 只提供通用模式',
-  'taskConfig.sessionViewGeneralRequiredHere': '从这里发起时,{name} 只能用通用模式',
-  'taskConfig.sessionViewRemoteNeedsSsh': '这里仅支持「通用」。要用「编程」，请在 设置 → 设备 中用远程 SSH 添加这台机器。',
-  'taskConfig.sessionViewCodeOnly': '{name} 的通用模式尚未接通,先用编程模式',
   // 选择闸只剩这一类失败还要出声,人话直说(product spec:19:实现术语不见用户)。
   'providerSelection.noTaskpageSession': '{name} 还不能在这里开会话,请换一个智能体。',
 

@@ -31,6 +31,7 @@
 import type { Component } from 'solid-js';
 import type { ChatTranslator } from '@session-chat/localization';
 import type { AcpPermissionRequest, ChatItem, PlanState, SyntheticItem, TerminalExit, SessionCondition } from '@session-chat/model';
+import type { BackgroundTasks } from '@session-chat/state/chat-state';
 import type { ChatCaches } from './caches';
 import type { MeasureCtx, RenderCtx } from './define';
 import type { Margin } from './spacing';
@@ -120,6 +121,7 @@ export type SegmentItem = ChatItem | SyntheticItem;
  * cheap even if called on every tick.
  */
 export type SegmentCtx = {
+  agentConversation?: boolean;
   caches: ChatCaches;
   expanded: (id: string) => boolean;
   active: boolean;
@@ -135,6 +137,11 @@ export type SegmentCtx = {
    * 只有**最后一档**（active 档）读它 —— 它是贴在列表末尾的一行，不是历史。
    */
   condition?: () => SessionCondition | null;
+  /**
+   * 此刻还在跑的后台任务,连同那张单子展开着没有。同样只有**最后一档**读它 —— 它贴在列表末尾,不是历史。
+   * 一条都没有 ⇒ null。
+   */
+  backgroundTasks?: () => (BackgroundTasks & { expanded: boolean }) | null;
   /**
    * 一轮的过程行折到一个 `turn-process` 头后面（#4874）。宿主按布局档位决定
    * （Base 视图开、经典关）。

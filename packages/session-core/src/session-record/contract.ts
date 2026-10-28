@@ -738,7 +738,7 @@ export type SessionpageSessionCreateOptions = {
 export type SessionpageSessionCreateModelsRequest = {
   /** provider id，取自 `sessionCreateOptions` 报的那一份。 */
   harness: string;
-  /** 目录按腿算(咕咕那组 provider × 腿),所以要说清是哪种展示;不给 = 这家给的第一种。 */
+  /** 目录按腿算(咕咕那组 provider × 腿);不给 = 那台电脑按自己的「终端」开关定(开 → 编程,关 → 通用),这家不给那种就取它给的第一种。 */
   sessionView?: SessionpageSessionView;
   /** 已选的模型(与 create 请求同一套编码);推理档按模型算(桌面同一条),没选就按默认模型。 */
   model?: string;
@@ -908,7 +908,7 @@ export type SessionpageSessionCreateRequest = {
   model?: string;
   /** 第一句话。空的不建 —— 一条没有开场白的会话建出来就是个空壳。 */
   prompt: string;
-  /** 展示;不给 = 这家给的第一种(通用优先)。须在 `sessionViews` 里。 */
+  /** 展示;不给 = 那台电脑按自己的「终端」开关定(开 → 编程,关 → 通用),这家不给那种就取它给的第一种。给了须在 `sessionViews` 里。 */
   sessionView?: SessionpageSessionView;
   /** 咕咕权限档;不给 = 这家的默认。须在该 harness 的 `permissionModes` 里。 */
   permissionMode?: SessionpagePermissionMode;
