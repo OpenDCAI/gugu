@@ -47,8 +47,13 @@ export function watchFirstTurnTaken(input: {
   };
 }
 
-/** 会话页上那句话(起失败账本里显示的原文):说清是终端里的 harness 没接住首句,后面跟屏上最后几行。 */
+/**
+ * 会话页上那句话(起失败账本里显示的原文):说清是终端里的 harness 没接住首句。会话页只显示第一行(safeFailureLine),
+ * 所以屏上最后两行有字的接在第一行里;整屏那几行跟在后面(日志、别的读者)。
+ */
 export function firstTurnNotTakenMessage(providerName: string, lines: readonly string[], withinMs = FIRST_TURN_WITHIN_MS): string {
   const head = `${providerName} in the terminal did not take the first message within ${Math.round(withinMs / 1000)} s.`;
-  return lines.length ? `${head} Last lines on its screen:\n${lines.join('\n')}` : `${head} Its screen was empty.`;
+  const shown = lines.map((line) => line.trim()).filter(Boolean);
+  if (!shown.length) return `${head} Its screen was empty.`;
+  return `${head} Its screen ends with: "${shown.slice(-2).join(' / ')}"\n${lines.join('\n')}`;
 }

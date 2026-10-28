@@ -57,7 +57,7 @@ describe('a pty harness that does not take its first message', () => {
   });
 
   it('the message names the harness, the window, and carries the lines', () => {
-    expect(firstTurnNotTakenMessage('Claude', ['a', 'b'])).toBe('Claude in the terminal did not take the first message within 20 s. Last lines on its screen:\na\nb');
+    expect(firstTurnNotTakenMessage('Claude', [' a', '', 'b ', 'c'])).toBe('Claude in the terminal did not take the first message within 20 s. Its screen ends with: "b / c"\n a\n\nb \nc');
     expect(firstTurnNotTakenMessage('Claude', [])).toBe('Claude in the terminal did not take the first message within 20 s. Its screen was empty.');
   });
 });
