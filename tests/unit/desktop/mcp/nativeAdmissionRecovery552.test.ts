@@ -23,7 +23,7 @@ function delivery(runtime: AcpRuntime, sessionId: string, wake: () => Promise<vo
       return {
         outcome: result.declined ? result.missing ? 'missing' : 'declined' : result.queued ? 'queued' : 'started',
         turnId: result.requestId,
-        completion: api.waitPromptDetached({ requestId: result.requestId }).then(() => {}),
+        completion: result.declined ? Promise.resolve() : api.waitPromptDetached({ requestId: result.requestId }).then(() => {}),
       };
     },
   });
