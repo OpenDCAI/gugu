@@ -203,7 +203,7 @@ function GroupInviteQr({ group }: { group: ContactGroupChat }) {
           </div>
           <div
             style={{
-              color: qrError ? 'var(--error)' : 'var(--text-secondary)',
+              color: qrError ? 'var(--danger)' : 'var(--text-secondary)',
               fontSize: qrError ? 'var(--font-body)' : 'var(--font-caption)',
               lineHeight: qrError ? 'var(--lh-body)' : 'var(--lh-caption)',
               marginTop: 4

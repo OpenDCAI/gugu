@@ -14,7 +14,7 @@
 [data-ta-menu],
 [data-ta-scope] {
   /* 渐变底与玻璃卡片;品牌色仍由助理的主题色提供。 */
-  --ta-tint-h: var(--tint, 268);
+  --ta-tint-h: 268;
   --ta-tint: oklch(0.74 0.1 var(--ta-tint-h));
   --ta-tint-wash: color-mix(in oklab, var(--ta-tint) 13%, transparent);
   --ta-tint-soft: color-mix(in oklab, var(--ta-tint) 20%, transparent);
