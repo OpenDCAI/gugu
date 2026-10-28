@@ -1352,7 +1352,10 @@ export class SessionCell {
     // Closing keeps the queue for the closing side to decide (#743), like WorkEnded in endWork.
     if (this.closeRequested) return;
     if (this.machine.phase.kind === 'ready' && this.settingsInFlight === 0 && !this.settingsBlockedReason) {
-      this.applyEvent({ type: 'AdmissionReady' });
+      // The drain sends the next queued batch; its failure is reported as endWork reports it.
+      try { this.applyEvent({ type: 'AdmissionReady' }); } catch (error) {
+        this.deps.logger.error('SessionCell: queued dispatch failed', { sessionId: this.sessionId, error });
+      }
     }
   }
 
