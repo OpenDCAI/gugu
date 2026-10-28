@@ -36,7 +36,7 @@ export default {
     "introStart": "Set up my Gugu",
     "introLater": "Look around first",
     "terminalTitle": "Terminal mode",
-    "terminalSub": "Used to CLIs like Claude Code or Codex in a terminal? You can turn on terminal mode.",
+    "terminalSub": "Used to CLIs like Claude Code or Codex in a terminal? Turn it on and your tasks get a terminal you can use too.",
     "terminalToggle": "Turn on terminal mode",
     "back": "Back",
     "stepCount": "{{current}} / {{total}}",
