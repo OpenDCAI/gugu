@@ -174,6 +174,10 @@ describe('background tasks at the end of the transcript', () => {
     expect(row(host)).toBeNull()
     const process = host.querySelector<HTMLElement>('[data-slot="turn-process"] [data-conversation-process]')!
     expect(Math.abs(process.getBoundingClientRect().top - pill()!.getBoundingClientRect().top)).toBeLessThanOrEqual(2)
+    // 真机验收 10-28:没出正文时这一行 14px、左半边比药丸低 4px —— 要跟回复头里那一行同字号、同一条中线。
+    expect(getComputedStyle(process).fontSize).toBe(getComputedStyle(pill()!).fontSize)
+    const middle = (el: HTMLElement) => { const box = el.getBoundingClientRect(); return box.top + box.height / 2 }
+    expect(Math.abs(middle(process) - middle(pill()!))).toBeLessThanOrEqual(1)
     pill()!.click()
     await until('the list opens in that row', () => items(host).length === 2)
     expect(host.querySelector('[data-slot="turn-process"]')!.contains(items(host)[0])).toBe(true)
