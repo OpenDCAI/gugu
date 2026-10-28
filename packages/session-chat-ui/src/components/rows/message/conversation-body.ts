@@ -7,7 +7,9 @@ export const CONVERSATION_PROCESS_H = 22;
 /** 折着的气泡下面那一行「展开全文」的高(UserMessageCard 画、ConversationMessage 量)。 */
 export const CONVERSATION_EXPAND_H = 24;
 /** 过程里 agent 中途说的话:一行灰字(设计稿 0 号),❌ 一个气泡。 */
-export const CONVERSATION_NARRATION_H = 26;
+export const CONVERSATION_NARRATION_H = 32;
+
+export const conversationNarrationText = (text: string): string => text.replace(/\s+/g, ' ').slice(0, 160);
 /** message_send 带了 reply_to_message_id 时气泡上方那一行引用「谁 · 摘要」。 */
 export const CONVERSATION_QUOTE_H = 22;
 

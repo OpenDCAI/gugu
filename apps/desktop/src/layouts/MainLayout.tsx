@@ -323,6 +323,7 @@ function InnerLayout({
   }, [openChatBlock, setActiveChatId])
   const [appDetail, setAppDetail] = useState<import('@gugu/core/shared/ui/guguLink').AppDetailLink>()
   useLinkNavigation({ ownerId: user.id, chats, contacts,
+    openSender: target => handleSwitchToChat(target),
     openAppDetail: target => {
       if (target.deviceId || target.variant) throw new Error(translateSessionMessage('extensions.appLinkOnPhone'))
       setAppDetail(target)

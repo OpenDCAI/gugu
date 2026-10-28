@@ -201,6 +201,7 @@ export function UserMessageCard(props: { data: ChatMessage; ctx: RenderCtx; vars
     <Show when={!mCtx() || stack() || props.data.streaming}>
     <div
       data-user-card={props.data.id}
+      data-conversation-caret={props.data.conversationCaret ? 'true' : undefined}
       class={`${card({ state: isOverflowing() && !isExpanded() ? 'overflowing' : 'static', current: isGenerating() })} ${cardRoot} ${userCardGroup}`}
       style={{
         ...assignInlineVars(cardVars, pxTokens({ ...styleVars(), height: cardH() })),

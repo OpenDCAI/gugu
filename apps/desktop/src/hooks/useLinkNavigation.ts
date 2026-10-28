@@ -11,6 +11,7 @@ import { OPEN_ASSISTANT_TASK_CHAT, readAssistantTaskChat, type AssistantTaskChat
 import { UI_EVENTS } from '../lib/uiEvents'
 import { chatService } from '../lib/chat'
 import { askReveal } from './useSourceMessageReveal'
+import { readIdentityDirectoryBridge } from '../lib/identityDirectoryBridge'
 
 /** The navigation belongs to the chat shell, not a Markdown renderer or an agent. */
 export function useLinkNavigation(input: {
@@ -18,6 +19,7 @@ export function useLinkNavigation(input: {
   chats: readonly ChatItem[]
   contacts: readonly ContactUser[]
   openChat: (chatId: string) => string | void
+  openSender?: (sender: ContactUser) => Promise<void> | void
   openFile: (chatId: string, target: Extract<GuguLinkTarget, { kind: 'file' }>, source: Pick<LinkNavigation, 'message' | 'restore'>) => void
   openApp: (chatId: string, extensionId: string, tab: string) => void
   openProject: (projectId: string) => void
@@ -36,6 +38,13 @@ export function useLinkNavigation(input: {
       const { target } = request
       const asked = generation
       const state = current.current
+      if (target.kind === 'sender') {
+        const sender = state.contacts.find(contact => contact.id === target.userId)
+          ?? readIdentityDirectoryBridge()?.getSnapshot()?.[target.userId]
+        if (!sender || !state.openSender) throw new Error(messages.current.t('links.unavailable'))
+        await state.openSender(sender)
+        return 'own' as const
+      }
       if (target.kind === 'file') {
         const { localFileRevision } = await import('../lib/fileAccess')
         const local = await localFileRevision(target.itemId)
@@ -151,6 +160,6 @@ export function useLinkNavigation(input: {
   }, [])
 }
 
-function targetError(target: GuguLinkTarget, error: unknown, fallback: string) {
+function targetError(target: LinkNavigation['target'], error: unknown, fallback: string) {
   return new Error(target.kind === 'app-detail' && error instanceof Error ? error.message : fallback, { cause: error })
 }

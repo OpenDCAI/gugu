@@ -1,19 +1,22 @@
-import { globalStyle, style } from '@vanilla-extract/css';
+import { globalStyle, keyframes, style } from '@vanilla-extract/css';
 import { chevron, collapseHeader } from '@session-chat/components/primitives/collapse-header.css';
 import { summaryChip } from '@session-chat/components/primitives/summary-chip.css';
 import { toolName } from '../tools/tool/tool.css';
-import { cardFadeOverlay } from './user-message.css';
+import { cardFadeOverlay, userMessageExpandRow } from './user-message.css';
 import { vars } from '@session-chat/styles/theme.css';
 
 export const conversationRoot = style({ position: 'relative', color: vars.fgBody });
 export const conversationHeader = style({ display: 'flex', alignItems: 'center', gap: 8, paddingBottom: 6, boxSizing: 'border-box', minWidth: 0, overflow: 'hidden', fontFamily: vars.fontSans, fontSize: vars.typeChromeTinyFontSize, lineHeight: '18px' });
 export const conversationName = style({ fontWeight: 650, whiteSpace: 'nowrap', maxWidth: '52%', overflow: 'hidden', textOverflow: 'ellipsis', flexShrink: 0 });
+export const senderNameLink = style({ border: 0, padding: 0, background: 'transparent', color: 'inherit', fontFamily: 'inherit', fontSize: 'inherit', lineHeight: 'inherit', textAlign: 'inherit', cursor: 'pointer', selectors: { '&:hover': { textDecoration: 'underline' }, '&:focus-visible': { textDecoration: 'underline', outlineOffset: 2 } } });
+const caretBlink = keyframes({ '0%, 100%': { opacity: 1 }, '50%': { opacity: 0 } });
+globalStyle('[data-conversation-caret="true"] p:last-child::after', { content: '"▍"', display: 'inline-block', width: 0, color: vars.fgMuted, animation: `${caretBlink} 1s steps(1) infinite` });
 /** 过程里中途说的话:一行灰字,与步骤组「跑了」两个字对齐(「›」凸在左边,MBP 量过差 10.6px),放不下省略。 */
-export const conversationNarration = style({ display: 'block', boxSizing: 'border-box', paddingLeft: 27, minWidth: 0,
-  overflow: 'hidden', whiteSpace: 'nowrap', textOverflow: 'ellipsis', color: vars.fgMuted, fontFamily: vars.fontSans, fontSize: vars.typeChromeTinyFontSize });
+export const conversationNarration = style({ display: 'block', boxSizing: 'border-box', padding: '6px 0 6px 20px', minWidth: 0,
+  overflow: 'hidden', whiteSpace: 'nowrap', textOverflow: 'ellipsis', color: vars.fgMuted, fontFamily: vars.fontSans, fontSize: 14, lineHeight: '20px' });
 /** 气泡上方一行引用:「谁 · 摘要」,单行截断(owner 10-28:要看得出是谁说的)。 */
-export const conversationQuote = style({ display: 'flex', alignItems: 'center', gap: 5, boxSizing: 'border-box', paddingBottom: 4, minWidth: 0, maxWidth: '86%', overflow: 'hidden', whiteSpace: 'nowrap', color: vars.fgMuted, fontFamily: vars.fontSans, fontSize: vars.typeChromeTinyFontSize, lineHeight: '18px' });
-globalStyle(`${conversationQuote} > span:last-child`, { overflow: 'hidden', textOverflow: 'ellipsis', minWidth: 0 });
+export const conversationQuote = style({ display: 'flex', alignItems: 'center', gap: 5, boxSizing: 'border-box', minWidth: 0, maxWidth: '55%', overflow: 'hidden', whiteSpace: 'nowrap', color: vars.fgMuted, fontFamily: vars.fontSans, fontSize: vars.typeChromeTinyFontSize, lineHeight: '18px' });
+globalStyle(`${conversationQuote} > span:last-of-type`, { overflow: 'hidden', textOverflow: 'ellipsis', minWidth: 0 });
 globalStyle(`${conversationQuote} svg`, { flexShrink: 0, fill: 'none', stroke: 'currentColor', strokeWidth: 1.4 });
 export const conversationQuoteFrom = style({ fontWeight: 600, flexShrink: 0, maxWidth: '60%', overflow: 'hidden', textOverflow: 'ellipsis' });
 export const conversationTime = style({ display: 'flex', alignItems: 'center', gap: 9, color: vars.fgMuted, fontFamily: vars.fontSans, fontSize: vars.typeChromeTinyFontSize });
@@ -31,7 +34,7 @@ globalStyle(`${conversationRoot}[data-side="left"] [data-user-card]`, { backgrou
 
 
 
-export const conversationProcessButton = style({ display: 'inline-flex', alignItems: 'center', gap: 5, height: 22, padding: 0, border: 0, background: 'transparent', color: vars.fgMuted, font: 'inherit', fontVariantNumeric: 'tabular-nums', cursor: 'pointer', whiteSpace: 'nowrap', selectors: { '&:hover': { color: vars.fg }, '&:focus-visible': { outline: `1px solid ${vars.fgMuted}`, outlineOffset: 2, borderRadius: 3 } } });
+export const conversationProcessButton = style({ display: 'inline-flex', alignItems: 'center', gap: 5, height: 22, padding: 0, border: 0, background: 'transparent', color: vars.fgMuted, font: 'inherit', fontVariantNumeric: 'tabular-nums', cursor: 'pointer', whiteSpace: 'nowrap', selectors: { '&:hover:not(:disabled)': { color: vars.fg }, '&:disabled': { cursor: 'default' }, '&:focus-visible': { outline: `1px solid ${vars.fgMuted}`, outlineOffset: 2, borderRadius: 3 } } });
 export const conversationProcessChevron = style({ display: 'inline-block', lineHeight: 1, transition: 'transform 120ms ease', selectors: { [`${conversationProcessButton}[aria-expanded="true"] &`]: { transform: 'rotate(90deg)' } }, '@media': { '(prefers-reduced-motion: reduce)': { transition: 'none' } } });
 globalStyle(`${conversationProcessButton} svg`, { flexShrink: 0 });
 /** 过程行里「执行中」与「后台 · …」之间那道细竖线。 */
@@ -56,6 +59,7 @@ globalStyle(`${conversationRoot}:hover [data-user-message-actions] > *, ${conver
 // 发出去的气泡:那一行最前面常驻一小段淡灰的「发到 群名」(管家 10-28),时间、复制照旧悬停才出。
 globalStyle(`${conversationRoot} [data-user-message-actions] > [data-slot="sent-to"]`, { order: -1, marginLeft: 0, marginRight: 8, color: vars.fgMuted, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', minWidth: 0 });
 globalStyle(`${conversationRoot}[data-side="left"] [data-user-message-actions]`, { justifyContent: 'flex-start' });
+globalStyle(`${conversationRoot}[data-side="left"] ${userMessageExpandRow}`, { justifyContent: 'flex-start' });
 globalStyle(`${conversationRoot}[data-side="left"] [data-user-message-actions] time`, { order: 2, marginLeft: 8, marginRight: 0 });
 // 折着的长消息淡出成气泡自己的底色(浅色),❌ 淡成原用户气泡的深色 —— 那就是一条黑带。
 globalStyle(`${conversationRoot} ${cardFadeOverlay}`, {

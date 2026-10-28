@@ -21,6 +21,7 @@ export function withSentReplies(turn: TranscriptTurn, options: { allDestinations
     const replyTo = 'replyTo' in send ? send.replyTo : undefined;
     const chat = 'chat' in send ? send.chat : undefined;
     const reply = { kind: 'message' as const, id: `${item.id}:sent:${id}`, seq: item.seq, role: 'assistant' as const, text: send.text,
+      ...(item.completedAt !== undefined ? { at: item.completedAt } : {}),
       ...(replyTo ? { sentReplyTo: replyTo } : {}), ...(chat ? { sentChat: chat } : {}) };
     // 对话布局:气泡下面常驻一小段「发到 群名」(管家 10-28),去向与会话页那一行同一个读法。
     const to = options.allDestinations ? agentSendOf(item, turn)?.to : undefined;

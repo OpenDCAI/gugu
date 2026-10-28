@@ -103,6 +103,7 @@ it('binds a tool-only group reply to its footer instead of a duplicate process h
   record.startedAt = 1000;
   record.endedAt = 24000;
   record.outcome = { kind: 'done', reason: 'end_turn' };
+  Object.assign(record.items[1], { completedAt: 4000 });
   record.items.push({ kind: 'message', id: 'silence', seq: 3, role: 'assistant', text: '[NO_REPLY]' });
   const segmenters = Object.fromEntries(['message', 'mcp-tool-call', 'turn-process', 'turn-completion', 'day-separator'].map(kind => [kind, {
     kind, segment: item => [unit(item.kind, item, item, { key: 'self' })],
@@ -111,9 +112,9 @@ it('binds a tool-only group reply to its footer instead of a duplicate process h
     plan: () => null, translate: defaultChatTranslator, pendingToolCallIds: () => new Set(),
     terminalOutputText: () => null, terminalExitStatus: () => null } as unknown as SegmentCtx;
   const rows = flattenTier([record], ctx, segmenters);
-  expect(rows.some(row => row.kind === 'turn-process')).toBe(false);
-  const head = rows.find(row => row.itemId.includes(':sent:') && row.itemId.endsWith(':head'))?.data;
+  expect(rows.filter(row => row.kind === 'turn-process').map(row => row.data)).toMatchObject([{ silent: true }]);
+  const head = rows.find(row => row.kind === 'message' && (row.data as { conversationPart?: string }).conversationPart === 'head')?.data;
   const delivered = rows.find(row => row.itemId.includes(':sent:') && !row.itemId.endsWith(':head'))?.data;
-  expect(head).toMatchObject({ conversationPart: 'head', conversationProcess: { startedAt: 1000, endedAt: 24000 } });
+  expect(head).toMatchObject({ conversationPart: 'head', conversationProcess: { startedAt: 1000, endedAt: 4000 } });
   expect(delivered).toMatchObject({ text: '你好，我在。', conversationPart: 'body' });
 });

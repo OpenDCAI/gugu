@@ -42,6 +42,7 @@ import {
   useContext,
 } from 'solid-js';
 import type { ChatContext } from './chat-context';
+import { conversationBackgroundOwner } from './state/conversation-background';
 import { ChatTranslationProvider } from './localization';
 import { SelfIdentityProvider } from './lib/self-identity';
 import { SenderAvatarProvider } from './lib/sender-avatar';
@@ -620,6 +621,7 @@ export function ChatRoot(props: ChatRootProps) {
    * 往回找时跳过日界行与「此刻的状态」那一行;这一档空着(轮早就收口了)就到已提交那一档的末尾去找。
    */
   const backgroundOwnerIn = (us: ReturnType<typeof flattenTier>, live = false): string | null | undefined => {
+    if (theme().layout.agentConversation) return conversationBackgroundOwner(us);
     for (let i = us.length - 1; i >= 0; i--) {
       const u = us[i];
       if (!u || u.kind === 'day-separator' || u.kind === 'session-condition' || u.kind === 'background-tasks') continue;
