@@ -1,6 +1,6 @@
 import { rendererLogger } from '@/lib/log';
 import { messageForUser } from '@/lib/userFacingError';
-import { useSyncExternalStore } from 'react'
+import { useRef, useState, useSyncExternalStore } from 'react'
 import type { AgentAttention } from '@gugu/core/shared/agentStatus'
 import { observer } from 'mobx-react-lite'
 import { DndContext, PointerSensor, closestCenter, useSensor, useSensors, type DragEndEvent } from '@dnd-kit/core'
@@ -24,7 +24,11 @@ import { RailAppIcon } from './RailAppIcon'
 import { UpdateBanner } from './UpdateBanner'
 import { LoadingIndicator } from '../lib/loading/LoadingIndicator'
 import { AUTOMATION_TEST_IDS, type AutomationTestId } from '../lib/automationDom'
-import { Library, Plus, Settings } from '@/lib/icons'
+import { HelpCircle, Library, Plus, Settings } from '@/lib/icons'
+import { UI_EVENTS } from '../lib/uiEvents'
+import { resumableStep, TOUR_STEPS, useProductTourState, type ProductTourRequest } from '../lib/productTour'
+import { useAuth } from '../store/auth'
+import '../components/productTour/catalog'
 import { readAssistantShellBridge } from '../lib/assistantShellBridge'
 import { cn } from '@/lib/cn'
 import { Menu, MenuItem as DropdownMenuItem, MenuSeparator } from './ui/Menu'
@@ -151,6 +155,39 @@ function RailItem({
         {running && <i className="gg-sidebar-running" aria-hidden="true" />}
       </button>
     </Hint>
+  )
+}
+
+// ─── Help & tour ──────────────────────────────────────────────────────────────
+// 导览唯一的入口(规范 4.3;设置 → 关于里那一行挪到这里):从第 n 步继续(中途退出 / 跳过的,带一个点)、从头开始、看功能短片。
+// 导览只有桌面端有。
+function HelpOnRail() {
+  const { t } = useTranslation('productTour')
+  const { user } = useAuth()
+  const tour = useProductTourState(user?.id ?? null)
+  const resume = resumableStep(tour.data)
+  const [open, setOpen] = useState(false)
+  const anchor = useRef<HTMLDivElement>(null)
+  const request = (detail: ProductTourRequest) => {
+    setOpen(false)
+    window.dispatchEvent(new CustomEvent(UI_EVENTS.reopenProductTour, { detail }))
+  }
+  return (
+    <div ref={anchor}>
+      <RailItem icon={<HelpCircle size={22} />} active={open} menuOpen={open} onClick={() => setOpen((value) => !value)}
+        title={t('help.label')} rail="help" badge={resume ? 1 : 0} />
+      {open && (
+        <Menu anchor={anchor} minWidth={200} onClose={() => setOpen(false)} ariaLabel={t('help.label')}>
+          {resume && (
+            <DropdownMenuItem onClick={() => request({ mode: 'resume', step: resume })}>
+              {t('help.resume', { current: TOUR_STEPS.indexOf(resume) + 1, total: TOUR_STEPS.length })}
+            </DropdownMenuItem>
+          )}
+          <DropdownMenuItem onClick={() => request({ mode: 'restart' })}>{t('help.restart')}</DropdownMenuItem>
+          <DropdownMenuItem onClick={() => request({ mode: 'films' })}>{t('help.films')}</DropdownMenuItem>
+        </Menu>
+      )}
+    </div>
   )
 }
 
@@ -444,6 +481,7 @@ export const Sidebar = observer(function Sidebar({ activeTab, onTabChange, setti
 
       <div className="gg-sidebar-bottom">
         <UpdateBanner placement="rail" />
+        {platform.kind === 'electron' && <HelpOnRail />}
         {/* 设置在栏底,一点就开(product spec「入口」;owner 10-15 推翻 #7046 里「设置收进头像菜单」那一半)。
             摆法照 VS Code 活动栏栏底的「管理」齿轮;owner 10-16 移除了本人账户按钮。⌘,、应用菜单「设置…」、
             命令面板开的是同一个弹窗,弹窗开着(不管从哪开的)这枚就亮着。 */}

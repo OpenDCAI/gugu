@@ -7,7 +7,6 @@ export default {
     "iconAlt": "Gugu app icon",
     "iconAttribution": "Icons · <iconSet>Solar Icon Set</iconSet> by 480 Design · CC BY 4.0",
     "releaseNotes": "What's new",
-    "reopenProductTour": "View the feature tour again",
     "restartToInstall": "Restart to install the update",
     "updateUpToDate": "You are on the latest version",
     "updateAvailable": "A new version is available",

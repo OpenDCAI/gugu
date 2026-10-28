@@ -79,7 +79,13 @@ describe('desktop product lifetime across the first-run tour', () => {
     expect(mount.isConnected).toBe(true)
     expect(content).not.toBeNull()
     await clickElement(document.querySelector(`[data-testid="${testId}"]`)!)
-    await waitForCondition(() => !document.querySelector('[data-testid="first-run-intro"]'), 'intro dismissed')
+    // Desktop asks once more whether to take the feature-bar tour (onboarding spec §4.1 step 5).
+    await waitForCondition(() => !!document.querySelector('[data-testid="first-run-tour-choice"]'), 'tour choice shown')
+    expect(document.querySelector('[data-testid="first-run-step-count"]')?.textContent).toBe('5 / 5')
+    expect(io.finishFirstRun).not.toHaveBeenCalled()
+    await clickElement(document.querySelector('[data-testid="first-run-tour-skip"]')!)
+    await waitForCondition(() => !document.querySelector('[data-testid="first-run-tour-choice"]'), 'choice dismissed')
+    expect(io.requestAssistantSetupHandoff).toHaveBeenCalledTimes(testId === 'assistant-intro-primary' ? 1 : 0)
 
     expect(io.finishFirstRun).toHaveBeenCalledOnce()
     expect(sessionMount()).toBe(mount)
@@ -88,7 +94,7 @@ describe('desktop product lifetime across the first-run tour', () => {
     expect(harness.container.querySelector('[data-testid="loading-indicator"]')).toBeNull()
     expect(entry.importSessionEntry).toHaveBeenCalledOnce()
 
-    // Reopening from Settings crosses the same boundary in reverse and must preserve the root too.
+    // Reopening from Help & tour crosses the same boundary in reverse and must preserve the root too.
     await act(async () => {
       window.dispatchEvent(new Event(UI_EVENTS.reopenProductTour))
     })
