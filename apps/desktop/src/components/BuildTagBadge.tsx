@@ -34,7 +34,7 @@ const badgeStyle: CSSProperties = {
   fontWeight: 700,
   lineHeight: 1.2,
   letterSpacing: '.02em',
-  boxShadow: '0 2px 10px rgba(216, 31, 38, .45)',
+  boxShadow: 'var(--shadow-lift)',
   userSelect: 'none',
 }
 

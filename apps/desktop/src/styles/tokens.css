@@ -995,6 +995,30 @@ button, [role="button"] {
   :is(input:not([type='checkbox'], [type='radio'], [type='range'], [type='button'], [type='submit']), textarea, [contenteditable]):focus-visible { outline: none; }
 }
 
+/* ───────────── theme batch D(宿主组件:二维码、形象工坊、看图 / 文档预览)───────────── */
+:root {
+  /* 二维码两套主题都要深字浅底才扫得出:码和码底下的白框都用这一对,不随主题变。 */
+  --qr-ink: #1f2933;
+  --qr-paper: #ffffff;
+  /* 看图查看器的底和压在照片上的字:两套主题同值 —— 主题的 fg/bg 会在浅色里出现黑字压黑照片。 */
+  --image-bg: #000000;
+  --image-fg: #ffffff;
+  /* 文档预览画的是白纸:文档内容本身按白页面排版,不随主题变。 */
+  --paper: #ffffff;
+  /* 形象工坊浅色舞台上的星屑(白星星在浅底上看不见),原写在 AgentLookPane.css,搬来不改值。 */
+  --gg-look-star-light: oklch(0.82 0.13 80);
+  --gg-look-star-glow-light: rgb(255 255 255 / 0.9);
+  /* 形象工坊色球左上角的高光:球是身体颜色画的立体球,高光是光源,不随主题变。搬来不改值。 */
+  --gg-look-orb-shine: rgb(255 255 255 / 0.95);
+}
+
+/* 形象工坊舞台跟着选中的身体颜色走,注册成 <color> 才能平滑过渡;initial-value 只能写字面值,所以注册放在这里。 */
+@property --gg-look-color {
+  syntax: '<color>';
+  inherits: true;
+  initial-value: #f3e2c3;
+}
+
 textarea::placeholder,
 input::placeholder {
   color: var(--color-text-placeholder);
