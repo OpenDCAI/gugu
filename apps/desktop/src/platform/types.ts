@@ -38,6 +38,8 @@ export interface ShareToAppsPayload {
   text?: string
   title?: string
   files?: Array<{ file: FileHandle; name: string; mimeType?: string }>
+  /** Bytes made here (a live document's text, say), shared as files beside `files`. */
+  blobs?: Array<{ blob: Blob; name: string }>
 }
 
 /** 没收下的原因,给界面挑一句用户看得懂的话;原文只进日志。 */

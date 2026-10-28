@@ -2,7 +2,7 @@ import { fetchInChunks } from '@gugu/core/shared/inChunks'
 import { currentAuthSessionSignal } from './authSessionLoss'
 import { displayIdentityFromRow, type DisplayIdentity } from './displayIdentity'
 import { identityDb } from './supabase'
-export const DISPLAY_IDENTITY_SELECT = 'id, gugu_number, display_name, avatar, bio, type, owner_user_id, agent_public, desired_status, device_id, category, is_official, local_path, created_at, updated_at, onboarded_at'
+export const DISPLAY_IDENTITY_SELECT = 'id, gugu_number, display_name, avatar, bio, type, owner_user_id, agent_public, desired_status, session_archived_at, session_lifecycle_revision, device_id, category, is_official, local_path, created_at, updated_at, onboarded_at'
 export async function readDisplayIdentities(ids: readonly string[], signal: AbortSignal = currentAuthSessionSignal()): Promise<DisplayIdentity[]> {
   const rows = await fetchInChunks([...new Set(ids.filter(Boolean))], async (chunk) => { const { data, error } = await identityDb.from('users').select(DISPLAY_IDENTITY_SELECT).in('id', chunk).abortSignal(signal); if (error) throw new Error(error.message); return data ?? [] })
   return rows.map(displayIdentityFromRow)

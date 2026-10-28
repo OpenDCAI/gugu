@@ -29,7 +29,7 @@ import type {
   QueuedPromptEdit,
   ResumeResult,
 } from '@gugu/session-core/acp';
-import { ok, type Result } from '@gugu/session-shared';
+import { errorDetail, ok, type Result } from '@gugu/session-shared';
 import { randomUUID } from 'node:crypto';
 import { blobSourceFromBytes, type WireFile } from '@gugu/session-wire';
 import type { AcpRuntime } from '../runtime/runtime';
@@ -41,7 +41,9 @@ export function createAcpProcedures(runtime: AcpRuntime) {
   const detachedPrompts = new Map<string, Promise<Result<{ queued: boolean }, AcpSendPromptError>>>();
   const errorMessage = (error: AcpSendPromptError): string => {
     if (error.message) return error.message;
-    if ('cause' in error && error.cause?.message) return error.cause.message;
+    // A JSON-RPC cause keeps the provider's sentence in `data.details` (qwen: message "Internal error",
+    // details "400 You've hit your usage limit…"); the host classifies quota failures from this text.
+    if ('cause' in error && error.cause) return errorDetail(error.cause) ?? error.cause.message;
     return `ACP prompt failed (${error.type})`;
   };
   return {
@@ -244,6 +246,9 @@ export function createAcpProcedures(runtime: AcpRuntime) {
     },
     getToolImage(input: { sessionId: string; itemId: string; index: number }) {
       return ok(runtime.getToolImage(input.sessionId, input.itemId, input.index));
+    },
+    getStoredQueue(input: { sessionId: string }): Array<Pick<PromptInput, 'text' | 'origin'>> {
+      return runtime.getStoredQueue(input.sessionId);
     },
     getHistory(input: {
       sessionId: string;

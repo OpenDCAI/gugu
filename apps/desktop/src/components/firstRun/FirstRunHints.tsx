@@ -5,7 +5,7 @@ import { createPortal } from 'react-dom'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { useTranslation } from 'react-i18next'
 import { useMobileShell } from '@/hooks/useMobileShell'
-import { dismissFirstRunHints, readFirstRunHints, type FirstRunHintId } from '@/lib/firstRunHints'
+import { allFirstRunHintsDismissed, dismissFirstRunHints, readFirstRunHints, type FirstRunHintId } from '@/lib/firstRunHints'
 import { Button } from '../ui/Button'
 import { Popover } from '../ui/Popover'
 import { HINT_ENTRIES, useFirstRunHintTargets } from './firstRunHintTargets'
@@ -17,7 +17,7 @@ export function FirstRunHints({ userId }: { userId: string }) {
   const client = useQueryClient()
   const queryKey = ['first-run-hints', userId]
   const progress = useQuery({ queryKey, queryFn: () => readFirstRunHints(userId), retry: false })
-  const targets = useFirstRunHintTargets(device, progress.isError || (progress.data != null && progress.data.dismissed.length < 3))
+  const targets = useFirstRunHintTargets(device, progress.isError || (progress.data != null && !allFirstRunHintsDismissed(progress.data)))
   const [pending, setPending] = useState<FirstRunHintId[]>([])
   // Retire the current encounter, not every hint currently on screen in a chain.
   // Another hint can appear when its entry is encountered on a later page/visit.
@@ -41,7 +41,7 @@ export function FirstRunHints({ userId }: { userId: string }) {
   }
   // Capture use even while the account read is pending, and before a pushed page removes its entry.
   useEffect(() => {
-    if (progress.isSuccess && (!progress.data || progress.data.dismissed.length === 3)) return
+    if (progress.isSuccess && (!progress.data || allFirstRunHintsDismissed(progress.data))) return
     const used = (event: Event) => {
       const element = event.target instanceof Element ? event.target : null
       if (!element || element.closest('[disabled], [aria-disabled="true"]')) return

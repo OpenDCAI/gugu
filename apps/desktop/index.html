@@ -10,17 +10,19 @@
     <title>咕咕</title>
     <!-- @@@5293 首帧之前把偏好解析成真值,避免闪一下再改。规则必须与
          `src/session/renderer/lib/theme/host-theme.ts` 里那份逐字一致:
-         存的是**偏好**(light / dark / system),落到属性上的是**真值**(light / dark)。
+         存的是**偏好**(light / dark / system / plain-white),明暗真值仍是 light / dark;
+         data-theme-preference 保留偏好,让素白在首帧就覆盖渐变。
          认不出来的值退回浅色(@@@1424 的默认),❌ 不猜、也❌ 不在这里跟随系统——
          「跟随系统」只有在用户显式选了 system 时才成立。 -->
     <script>
       (function() {
         var pref = localStorage.getItem('app-theme');
-        if (pref !== 'light' && pref !== 'dark' && pref !== 'system') pref = 'light';
+        if (pref !== 'light' && pref !== 'dark' && pref !== 'system' && pref !== 'plain-white') pref = 'light';
         var resolved = pref === 'system'
           ? (window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light')
-          : pref;
+          : (pref === 'plain-white' ? 'light' : pref);
         document.documentElement.setAttribute('data-theme', resolved);
+        document.documentElement.setAttribute('data-theme-preference', pref);
       })();
     </script>
     <!-- @@@sidebar-tint 同理:侧栏渐进底色开着时,首帧之前就要落上属性,否则会先闪一下

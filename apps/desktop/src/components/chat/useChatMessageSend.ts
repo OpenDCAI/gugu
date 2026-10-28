@@ -3,7 +3,7 @@ import { useTranslation } from 'react-i18next'
 import { inferAttachmentKind } from '@gugu/core/shared/ui/attachmentModels'
 import { buildRosterNameIndex, resolveOpeningAgentCall } from '@gugu/core/shared/rosterNameMatching.mjs'
 import { resolveMentionUserIds, type MentionCandidate } from '@/lib/mention'
-import { settleComposerAfterSend } from '@/lib/focusComposer'
+import { scheduleComposerFocus } from '@/lib/focusComposer'
 import { rendererLogger } from '@/lib/log'
 import { safeFailureLine } from '@/session/renderer/features/sessions/gugu-reason'
 import { useToast } from '../toastContext'
@@ -82,7 +82,7 @@ export function useChatMessageSend(props: ChatMessageComposerProps, draft: ChatD
       clear()
       flush()
       onQuoteConsumed?.()
-      settleComposerAfterSend({ target: () => inputRef.current, mobileShell: mobile })
+      scheduleComposerFocus('message-sent', { target: () => inputRef.current, mobileShell: mobile })
       if (pendingFiles.length > 0 && onSendAttachments) await beforeSend?.()
 
       if (pendingFiles.length > 0 && onSendAttachments) {

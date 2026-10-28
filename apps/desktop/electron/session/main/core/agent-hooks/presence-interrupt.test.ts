@@ -12,6 +12,7 @@ vi.mock('./app-focus', () => ({ isAppFocused: () => false }));
 vi.mock('@main/core/agent-status/agent-status-writer', () => ({
   agentStatusWriter: { reportStatusSourceFault: mocks.reportStatusSourceFault, isWorkingOrWaiting: mocks.isWorkingOrWaiting },
 }));
+vi.mock('./harness-config-roots', () => ({ harnessConfigRootOf: () => undefined }));
 vi.mock('@main/lib/logger', () => ({ log: { error: mocks.logError, warn: vi.fn(), info: vi.fn(), debug: vi.fn() } }));
 
 const { watchPresenceInterrupt, startPresenceInterrupt, PRESENCE_POLL_MS, PRESENCE_APPEAR_WITHIN_MS } = await import('./presence-interrupt');
@@ -50,10 +51,11 @@ describe('watchPresenceInterrupt (spec hook-status-derivation「打断边:会话
   let stop: () => void;
   let harnessSessionId: string | undefined;
   let dead: Set<number>;
+  let roots: string[];
   const start = () => {
     stop = watchPresenceInterrupt({
       presence: claudePresenceFile,
-      configRoot: '/home/u/.claude',
+      configRoots: () => roots,
       harnessSessionId: () => harnessSessionId,
       isAlive: (pid) => !dead.has(pid),
       isActive: () => active,
@@ -77,6 +79,7 @@ describe('watchPresenceInterrupt (spec hook-status-derivation「打断边:会话
     faults = [];
     harnessSessionId = 's-claude';
     dead = new Set();
+    roots = ['/home/u/.claude'];
   });
   afterEach(() => {
     stop?.();
@@ -132,6 +135,30 @@ describe('watchPresenceInterrupt (spec hook-status-derivation「打断边:会话
     expect(faults).toEqual([missing]);
     await step('busy');
     expect(faults).toEqual([missing, null]);
+  });
+
+  // 10-28 Linux 2:`claude` 是包装器(reclaude),配置目录由它在进程里设,在场文件在别处。harness 在 hook 里报了它的目录之后
+  // 读者要在那里找到,❌ 只认 env / `~/.claude`;报之前不在宽限内判失效。
+  it('a config root the harness reports later is searched too: found there, no fault within the grace', async () => {
+    const wrapped = '/root/.rec/claude/accounts/1/config';
+    start();
+    await step();
+    files.set(`${wrapped}/sessions/42.json`, record(42, 'busy'));
+    await step();
+    expect(faults).toEqual([]);
+    roots = [wrapped, '/home/u/.claude'];
+    await step();
+    files.set(`${wrapped}/sessions/42.json`, record(42, 'idle'));
+    await step();
+    expect(interrupted).toBe(1);
+    expect(faults).toEqual([]);
+  });
+
+  it('with the file only under the reported root and that root never reported, the fault names every root searched', async () => {
+    roots = ['/home/u/.claude', '/home/u/other'];
+    start();
+    await vi.advanceTimersByTimeAsync(PRESENCE_APPEAR_WITHIN_MS + 2 * PRESENCE_POLL_MS);
+    expect(faults).toEqual(['no sessions/<pid>.json for session s-claude under /home/u/.claude or /home/u/other']);
   });
 
   it('an unknown status or a file of another process is a fault, never an interrupt', async () => {

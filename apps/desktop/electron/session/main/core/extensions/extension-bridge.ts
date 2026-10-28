@@ -236,7 +236,7 @@ export function checkReadingsOf(webContentsId: number): CheckReadings | null {
  * with its own tools (owner 10-14). One it cannot open is refused, as the save would be.
  */
 async function handToAgent(caller: BridgeCaller, page: AgentPage, verb: string, args: Record<string, unknown>): Promise<void> {
-  if (verb === 'filesDownload' && !isLocal(fileRefOf(args.ref))) {
+  if (verb === 'filesDownload' && args.ref !== undefined && !isLocal(fileRefOf(args.ref))) {
     const files = await import('@main/core/extensions/app-files');
     const found = await files.openWithTarget(caller.filePage(args), { ref: args.ref });
     if (found.kind === 'chat') {
@@ -1736,6 +1736,7 @@ async function dispatch(caller: BridgeCaller, method: ExtensionBridgeMethod, arg
     case 'filesVersions':
     case 'filesReadVersion':
     case 'filesRename':
+    case 'filesKeep':
     case 'filesMkdir':
     case 'filesMove': {
       const files = await import('@main/core/extensions/app-files');
@@ -1753,6 +1754,7 @@ async function dispatch(caller: BridgeCaller, method: ExtensionBridgeMethod, arg
         filesViewPreferences: 'appFileViewPreferences',
         filesRemove: 'removeAppFile',
         filesRename: 'renameAppFile',
+        filesKeep: 'keepAppFile',
         filesMkdir: 'makeAppFolder',
         filesMove: 'moveAppFile',
         filesReplace: 'replaceAppFile',
@@ -1780,6 +1782,7 @@ async function dispatch(caller: BridgeCaller, method: ExtensionBridgeMethod, arg
       if (!Array.isArray(picked)) throw Object.assign(new Error('files.upload takes files, or none to pick'), { code: 'invalid' });
       // 子文件夹: the folder they go in, when the call names one.
       if (picked.length === 0) return [];
+      if (args.keep !== undefined) return await files.uploadAppFiles(page, place, picked, args.sourceMessageIds, args.folder, args.keep);
       return args.folder === undefined
         ? await files.uploadAppFiles(page, place, picked, args.sourceMessageIds)
         : await files.uploadAppFiles(page, place, picked, args.sourceMessageIds, args.folder);

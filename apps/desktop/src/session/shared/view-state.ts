@@ -81,8 +81,11 @@ export type TabManagerSnapshot = {
     share?: number;
     sideAt?: 'left' | 'right' | 'top' | 'bottom';
   };
-  /** 用户拆开过:开在对话旁边的不再自动并排,直到他自己再分屏。没有 = 没拆开过。 */
-  splitDeclined?: boolean;
+  /**
+   * 用户拆开过的那几类页签(按页签类型各记各的):开在对话旁边的同一类不再自动并排,直到他自己再把这一类分屏。
+   * 没有 = 都没拆开过。10-28 之前那个不分类型的 `splitDeclined: boolean` 不再读(来源混着,owner 定直接丢)。
+   */
+  splitDeclinedKinds?: string[];
 };
 
 export type TabGroupsSnapshot = {

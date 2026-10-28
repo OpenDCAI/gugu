@@ -68,7 +68,7 @@ function AccountCount({ integrationId }: { integrationId: string }) {
   if (!supported || accounts.length === 0) return null;
   return (
     <span className="shrink-0 text-xs text-foreground-muted">
-      {translate('integrations.accountCount', { count: String(accounts.length) })}
+      {translate('integrations.accountCount', { count: accounts.length })}
     </span>
   );
 }

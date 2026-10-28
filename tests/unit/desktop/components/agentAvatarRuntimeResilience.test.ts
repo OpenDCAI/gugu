@@ -7,6 +7,8 @@ vi.unmock('../../../../apps/desktop/src/components/agentAvatar/engine/runtime')
 
 const fake = vi.hoisted(() => ({
   draws: [] as unknown[],
+  sources: [] as Array<{ gl: unknown; sprite: unknown; w: number; h: number }>,
+  loadGate: null as Promise<boolean> | null,
   handles: [] as Array<{ drawnWith: string; dpr: number; ctx: CanvasRenderingContext2D }>,
   loads: [] as boolean[],
   made: [] as Array<{ canvas: HTMLCanvasElement; loaded: Set<string>; has(id: string): boolean; room(w: number, h: number, n: number): boolean; reset(): void }>,
@@ -35,10 +37,11 @@ vi.mock('../../../../apps/desktop/src/components/agentAvatar/engine/draw', async
       fake.order.push(`paint:${fake.ids.get(f)}`)
       return { at: [0, 0], next: 0 }
     },
-    drawAvatar: (_ctx: unknown, gl: unknown, _s: unknown, f: unknown) => {
+    drawAvatar: (_ctx: unknown, gl: unknown, sprite: unknown, f: unknown, o: { w: number; h: number }) => {
       // 只记这一条用例 boot 的头像:前面用例的运行时还挂在同一个 window 的事件上,窗口事件一来它们也会醒
       if (!fake.ids.has(f)) return
       fake.draws.push(gl)
+      fake.sources.push({ gl, sprite, w: o.w, h: o.h })
       fake.order.push(`copy:${fake.ids.get(f)}`)
     },
     drawnLook: (f: unknown, _o: unknown, out: number[]) => {
@@ -68,7 +71,7 @@ vi.mock('../../../../apps/desktop/src/components/agentAvatar/engine/gl', () => {
       on,
     },
     loadCharacter: async (gl: { loaded: Set<string> }, ch: { id: string }) => {
-      const ok = fake.loads.shift() ?? true
+      const ok = fake.loadGate ? await fake.loadGate : fake.loads.shift() ?? true
       if (ok) gl.loaded.add(ch.id)
       return ok
     },
@@ -108,6 +111,8 @@ const fakeClock = () => vi.useFakeTimers({ toFake: ['setTimeout', 'performance']
 
 beforeEach(() => {
   fake.draws.length = 0
+  fake.sources.length = 0
+  fake.loadGate = null
   fake.handles.length = 0
   fake.loads.length = 0
   fake.made.length = 0
@@ -397,6 +402,38 @@ describe('只画会变的帧、按变了多少决定什么时候画,看不见就
 })
 
 describe('小鸟的绘图层出岔子时不整只空白', () => {
+  it('prepares the default flat body before registration without starting GL', async () => {
+    const flat = { complete: false, naturalWidth: 0, src: '' }
+    vi.stubGlobal('Image', class { constructor() { return flat } })
+    vi.resetModules()
+    await import('../../../../apps/desktop/src/components/agentAvatar/engine/runtime')
+    const { CHARACTER_BY_ID } = await import('../../../../apps/desktop/src/components/agentAvatar/engine/characters')
+    expect(flat.src).toBe(CHARACTER_BY_ID['fjj-beak'].flat)
+    expect(fake.made).toHaveLength(0)
+  })
+
+  it('draws the flat still while GL loads and switches on the same canvas at the same size', async () => {
+    fakeClock()
+    let ready!: (ok: boolean) => void
+    fake.loadGate = new Promise((resolve) => { ready = resolve })
+    const flat = { complete: true, naturalWidth: 1000, src: '' }
+    vi.stubGlobal('Image', class { constructor() { return flat } })
+    await boot()
+    const canvas = fake.canvas!
+    step()
+    expect(fake.sources).toHaveLength(1)
+    expect(fake.sources[0]).toMatchObject({ gl: null, sprite: flat })
+    const { w, h } = fake.sources[0]
+
+    ready(true)
+    await Promise.resolve()
+    await Promise.resolve()
+    step()
+    expect(fake.sources).toHaveLength(2)
+    expect(fake.sources[1]).toEqual({ gl: fake.made[0], sprite: null, w, h })
+    expect(fake.canvas).toBe(canvas)
+  })
+
   it('小头像后绘制超出原画布的大预览:先保留已画内容,再扩容,循环继续绘制', async () => {
     fakeClock()
     const runtime = await boot()

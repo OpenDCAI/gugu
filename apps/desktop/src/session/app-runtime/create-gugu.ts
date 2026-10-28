@@ -94,6 +94,8 @@ export function createGugu(
       loadFiles().then((m) => m.createFile(host, target, content, options)),
     remove: (file: unknown) => loadFiles().then((m) => m.removeFile(host, file)),
     rename: (file: unknown, name: string) => loadFiles().then((m) => m.renameFile(host, file, name)),
+    /** 「设为临时 / 一直保留」: `'temporary'` clears its cloud copy after the uploader's period, from now; `'permanent'` keeps it. */
+    keep: (files: unknown, how: 'temporary' | 'permanent') => withRefs(files, (refs) => host.appFiles.keep({ refs, how })),
     /** 子文件夹: a chat's folder at `path` (made all the way down), and a file or folder moved into another (`''` the top). */
     mkdir: (target: unknown) => loadFiles().then((m) => m.makeFolder(host, target)),
     move: (file: unknown, to: unknown) => loadFiles().then((m) => m.moveFile(host, file, to)),
@@ -111,7 +113,8 @@ export function createGugu(
     // are allowed only inside the person's gesture, checked on this very call. Bytes the caller has need none (G5).
     // A4 `{ sourceMessageIds }`: the messages the files came from, as an entry gives them back.
     // 子文件夹 `{ chat, folder }`: the folder they go in (its path or id, made all the way down); not given, the top.
-    upload: (place: unknown, file?: unknown, options?: { sourceMessageIds?: string[] }) =>
+    // `{ keep }` 临时 / 保留: how long a stored copy stays ('temporary' | 'permanent'); not given, the chat's rule.
+    upload: (place: unknown, file?: unknown, options?: { sourceMessageIds?: string[]; keep?: string }) =>
       withPlace(place, (where) => {
         // Checked as list and create check it (folderOf): what is not a folder's path, id or entry is `invalid`.
         let folder: string | undefined;
@@ -120,14 +123,15 @@ export function createGugu(
         } catch (error) {
           return Promise.reject(guguError('invalid', error instanceof Error ? error.message : String(error)));
         }
-        const into = folder === undefined ? {} : { folder };
+        const into = { ...(folder === undefined ? {} : { folder }), ...(options?.keep === undefined ? {} : { keep: options.keep }) };
         return file === undefined
           ? upload({ place: where, sourceMessageIds: options?.sourceMessageIds, ...into })
           : uploadsOf(file).then((uploads) => upload({ place: where, files: uploads, sourceMessageIds: options?.sourceMessageIds, ...into }));
       }),
     ...(download && openWith
       ? {
-          download: (file: unknown) => withRef(file, (ref) => download({ ref })),
+          // API 20: several files at once — one 「save to」 for them all (a folder on the desktop, the share sheet on the phone).
+          download: (files: unknown) => (Array.isArray(files) ? withRefs(files, (refs) => download({ refs })) : withRef(files, (ref) => download({ ref }))),
           // `{ ask: true }`: 「用别的 App 打开」 — every App that opens it, the person picks. `{ at }`: the place in it (a pill's).
           // `{ peek: true }`: beside this page, which stays as it is (G1).
           openWith: (file: unknown, options?: { ask?: boolean; at?: Record<string, string>; peek?: boolean }) =>
@@ -245,6 +249,18 @@ export function createGugu(
 }
 
 /** `refOf` throws on what is not a file; a verb answers that as a rejection, like every other. */
+/** One file or several (API 20: files.keep, files.download): each a ref, as withRef reads one; none is `invalid`. */
+function withRefs<T>(files: unknown, run: (refs: ReturnType<typeof refOf>[]) => Promise<T>): Promise<T> {
+  let refs: ReturnType<typeof refOf>[];
+  try {
+    refs = (Array.isArray(files) ? files : [files]).map((file) => refOf(file));
+  } catch (error) {
+    return Promise.reject(error);
+  }
+  if (refs.length === 0) return Promise.reject(Object.assign(new Error('Give one file or more'), { code: 'invalid' }));
+  return run(refs);
+}
+
 function withRef<T>(file: unknown, run: (ref: ReturnType<typeof refOf>) => Promise<T>): Promise<T> {
   let ref: ReturnType<typeof refOf>;
   try {

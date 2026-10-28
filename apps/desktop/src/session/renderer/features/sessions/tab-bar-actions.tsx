@@ -1,3 +1,4 @@
+import { useScreenBlock } from '@renderer/app/screen-block-context';
 import { useCommandProvider } from '@renderer/lib/commands/use-command-provider';
 import { Cable, FileText, Globe, Plus, SquareTerminal } from '@/lib/icons'
 import { GitFork, GitPullRequest } from 'lucide-react'
@@ -191,9 +192,19 @@ function renderWorkspaceActionMenuItem(
  */
 export const SplitPaneHotkey = observer(function SplitPaneHotkey() {
   const { pane, isFocusedPane } = usePaneContext();
+  const place = useScreenBlock();
+  const multiBlock = place.blockId !== null && place.multi;
   useCommandProvider({
     scopeId: 'session-sub',
-    getCommands: () => !isFocusedPane || !pane.inSplitLayout ? [] : [{ id: 'session.splitPane', execute: () => pane.toggleSplit() }],
+    getCommands: () => {
+      if (!isFocusedPane) return [];
+      // 页签全屏(tab-fullscreen.ts)和拆开是两件事:这个键只盖住 / 放开工作区,❌ 动布局。
+      const fullscreen = { id: 'session.fullscreenTab' as const, execute: () => {
+        const tabId = pane.resolvedActiveTabId;
+        if (tabId) pane.tabFill(tabId, multiBlock)?.toggle();
+      } };
+      return pane.inSplitLayout ? [{ id: 'session.splitPane' as const, execute: () => pane.toggleSplit() }, fullscreen] : [fullscreen];
+    },
   });
   return null;
 });

@@ -4,6 +4,7 @@ import { app } from 'electron';
 import { getPlugin } from '@main/core/agents/plugin-registry';
 import { sessionEvents } from '@main/core/sessions/session-events';
 import { setProviderSessionId } from '@main/core/sessions/set-session-id';
+import { loadHarnessConfigRoots } from './harness-config-roots';
 import { HookCore, type Hookable } from '@main/lib/hookable';
 import { log } from '@main/lib/logger';
 import type { AgentEvent } from '@shared/core/agents/agentEvents';
@@ -154,6 +155,8 @@ class AgentHookService implements IInitializable, IDisposable, Hookable<AgentHoo
       )
     );
 
+    // 各家在本机 hook 里报过的配置目录:读会话记录时要用,先读进内存(读侧是同步的)。
+    void loadHarnessConfigRoots();
     await this.server.start(async (raw) => {
       let parsed;
       try {

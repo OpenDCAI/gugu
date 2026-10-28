@@ -11,7 +11,7 @@ import '@/styles/tokens.css'
 
 const rig = vi.hoisted(() => ({ identities: vi.fn(), stats: vi.fn() }))
 vi.mock('@/lib/identityReadAdapter', async original => ({ ...(await original<object>()), readDisplayIdentities: rig.identities }))
-vi.mock('@/lib/billing', () => ({ getReferralStats: rig.stats }))
+vi.mock('@/lib/billing', async (original) => ({ ...(await original<object>()), getReferralStats: rig.stats }))
 let h: ReturnType<typeof createReactHarness>
 beforeEach(() => { h = createReactHarness(); vi.stubEnv('VITE_GUGU_WEB_URL', 'https://invites.example.test'); rig.identities.mockReset(); rig.stats.mockReset() })
 afterEach(() => { h.cleanup(); vi.unstubAllEnvs() })

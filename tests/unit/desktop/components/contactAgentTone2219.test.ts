@@ -12,6 +12,8 @@ import contactsZhCN from '../../../../apps/desktop/src/i18n/locales/zh-CN/contac
 describe('agentContactTone removed projection (#2219)', () => {
   it('keeps removed distinct from offline', () => {
     expect(agentContactTone('offline')).toEqual({ tone: 'offline', labelKey: 'agentStatus.offline' })
+    expect(agentContactTone('archived')).toEqual({ tone: 'archived', labelKey: 'agentStatus.archived' })
+    expect(agentContactRowDotClass('archived')).toContain('bg-[var(--agent-tone-muted)]')
     expect(agentContactTone('pending')).toEqual({ tone: 'pending', labelKey: 'agentStatus.pending' })
     expect(agentContactTone('removed')).toEqual({ tone: 'removed', labelKey: 'agentStatus.removed' })
     expect(agentContactRowDotClass('removed')).toContain('bg-[var(--agent-tone-removed)]')

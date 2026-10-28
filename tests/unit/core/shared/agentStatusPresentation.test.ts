@@ -46,7 +46,7 @@ describe('presentAgentStatus — the one table', () => {
   })
 
   it('reachability outranks the reading', () => {
-    for (const reachability of ['removed', 'offline', 'pending'] as const) {
+    for (const reachability of ['removed', 'archived', 'offline', 'pending'] as const) {
       expect(presentAgentStatus({ reading: r('working', 'running'), reachability })).toMatchObject({ tone: reachability, label: reachability, animate: false })
     }
   })
@@ -92,6 +92,9 @@ describe('chat folds the presentation into its coarse status', () => {
     expect(deriveAgentReachability({ ...base, accountStatus: 'removed' })).toBe('removed')
     expect(deriveAgentReachability({ ...base, deviceOnline: false })).toBe('offline')
     expect(deriveAgentReachability({ ...base, desiredStatus: 'offline' })).toBe('offline')
+    expect(deriveAgentReachability({ ...base, sessionArchivedAt: '2026-10-28T09:00:00Z' })).toBe('archived')
+    expect(deriveAgentReachability({ ...base, deviceOnline: false, sessionArchivedAt: '2026-10-28T09:00:00Z' })).toBe('archived')
+    expect(agentStatusColorVar('archived')).toBe('var(--agent-tone-muted)')
   })
 
   it('an old host with no reading still says "running" through its projection, and nothing else', () => {

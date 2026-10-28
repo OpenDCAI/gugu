@@ -35,6 +35,12 @@ export const CHAT_VIEW_COMMANDS = [
  * via `view.setCommands(commands)`.
  */
 export type ChatCommands = {
+  onOpenSender?: (target: import('./lib/sender-target').MessageSenderTarget) => void;
+  conversationAgentSession?: () => string | null;
+  /** External agents may expose only their public identity, with no readable session. */
+  conversationAgentUserId?: () => string | null;
+  /** Recorded-conversation hosts can supply an event clock without freezing the UI scheduler. */
+  conversationClock?: () => number;
   /** Display name of the agent owning this transcript, supplied by its host. */
   conversationAgentName?: () => string | null;
   onConversationReply?: (itemId: string) => void;

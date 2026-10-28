@@ -20,7 +20,7 @@ export type { ThemePreference }
 interface ThemeContextValue {
   /** 当下的真值(解析过的)。要给 CSS/图标/编辑器挑明暗色阶的都读它。 */
   theme: Theme
-  /** 用户在设置里选的那一项,含 `system`。只有设置界面画选中态需要它。 */
+  /** 用户在设置里选的那一项,含 `system` 和 `plain-white`。 */
   preference: ThemePreference
   setTheme: (preference: ThemePreference) => void
 }
@@ -36,7 +36,7 @@ export function useTheme(): ThemeContextValue {
 }
 
 /**
- * @@@5293 三态:浅色 / 深色 / 跟随系统(推翻 @@@1424 的二态)。
+ * 浅色 / 深色 / 跟随系统 / 素白。素白复用浅色真值,保留独立的偏好与表面样式。
  *
  * 这里不再自己存一份 state —— 偏好与真值的读写全在 `lib/theme/host-theme.ts` 那一处,
  * 本 provider 只是订阅者。会话页那个独立 React 根订阅的是同两条链,所以两边不会分家。

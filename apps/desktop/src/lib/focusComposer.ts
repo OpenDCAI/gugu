@@ -17,7 +17,7 @@ import { AUTOMATION_TEST_IDS } from './automationDom'
  * ③ **移动壳「刚发出一条」收键盘**(owner 10-28 手机试用):这句话已经说完，键盘该收起把消息区还回来。
  *    以前它算续接动作要重新聚焦 —— 点发送键时焦点先落到按钮上、键盘开始收、壳跟着可视视口长高，
  *    下一帧又被抢回输入框、键盘再弹、壳再缩：整个 App 上下抽一下(「发一条消息全屏闪一下」)。
- *    现在只收一次，❌ 不再抢回来。
+ *    手机发送后收键盘由 ChatComposer.handleSubmit 负责；这里只禁止发送后抢回焦点。
  */
 export type ComposerFocusReason =
   | 'chat-entry'
@@ -62,22 +62,6 @@ export function shouldFocusComposer(
   if (reason === 'message-sent') return context.mobileShell !== true
   if (!SESSION_ENTRY_REASONS.has(reason)) return true
   return context.mobileShell !== true
-}
-
-/**
- * 发出一条之后输入框该怎样：桌面接着打(聚焦回输入框)，移动壳收起软键盘(见契约 ③)。
- * 键盘跟着焦点走，所以收键盘 = 让输入框和刚点的发送键都失焦。
- */
-export function settleComposerAfterSend(context: ComposerFocusContext = {}): void {
-  if (shouldFocusComposer('message-sent', context)) {
-    scheduleComposerFocus('message-sent', context)
-    return
-  }
-  if (typeof document === 'undefined') return
-  const composer = resolveComposer(context.target)
-  const active = document.activeElement
-  if (active instanceof HTMLElement && active !== document.body) active.blur()
-  if (composer && composer !== active) composer.blur()
 }
 
 const COMPOSER_SELECTOR = `[data-testid="${AUTOMATION_TEST_IDS.chatComposer}"]`

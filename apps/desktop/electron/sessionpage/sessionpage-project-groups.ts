@@ -213,7 +213,15 @@ export async function findProjectFileCopy(projectId: string, sha: string, ownerI
   return found ? readProjectFile({ item_id: found.item_id! }, ownerId, deviceId, env) : null
 }
 
-export async function readProjectFile(ref: FileRef, ownerId: string, deviceId: string, env: NodeJS.ProcessEnv = process.env): Promise<FileRevision | null> {
+/** The database's record of one version of a file, asked only when this index holds an earlier version of it. */
+export type ProjectFileVersionLookup = (ref: { item_id: string; version: number }) => Promise<FileRevision | null>
+
+/**
+ * The index keeps the version this computer last published. A later version the database made without new bytes — a
+ * rename or move elsewhere carries the local revision forward — is read here when the database's record of it names the
+ * same bytes in the same place: chat, host, project, path, sha and size. Any difference is refused as before.
+ */
+export async function readProjectFile(ref: FileRef, ownerId: string, deviceId: string, env: NodeJS.ProcessEnv = process.env, later?: ProjectFileVersionLookup): Promise<FileRevision | null> {
   fileRefKey(ref)
   if (!('item_id' in ref) || !ownerId || !deviceId) return null
   const mapping = await readMapping(env)
@@ -222,8 +230,16 @@ export async function readProjectFile(ref: FileRef, ownerId: string, deviceId: s
   if (!revision) return null
   requireFileRevision(revision)
   if (!revision.chat_id || revision.host_account_id !== ownerId || revision.host_device_id !== deviceId || revision.item_id !== ref.item_id ||
-    mapping.owners[ownerId]?.[revision.host_project_id!] !== revision.chat_id || ref.version !== undefined && ref.version !== revision.version) return null
-  return revision
+    mapping.owners[ownerId]?.[revision.host_project_id!] !== revision.chat_id) return null
+  if (ref.version === undefined || ref.version === revision.version) return revision
+  if (!later || ref.version < revision.version!) return null
+  const found = await later({ item_id: ref.item_id, version: ref.version })
+  if (!found || found.source !== 'local' || found.item_id !== revision.item_id || found.version !== ref.version || found.chat_id !== revision.chat_id ||
+    found.host_account_id !== revision.host_account_id || found.host_device_id !== revision.host_device_id || found.host_project_id !== revision.host_project_id ||
+    found.relative_path !== revision.relative_path || found.sha256 !== revision.sha256 || found.size_bytes !== revision.size_bytes) return null
+  // Where the file sits in the folder is the database's now, not the index's from its publication.
+  const { workspace: _published, ...same } = revision
+  return { ...same, version: ref.version, file_name: found.file_name }
 }
 
 export async function forgetProjectFile(itemId: string, ownerId: string, env: NodeJS.ProcessEnv = process.env): Promise<void> {

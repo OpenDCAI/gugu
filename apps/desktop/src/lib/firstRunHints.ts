@@ -11,6 +11,11 @@ export type FirstRunHintsProgress = { version: 1; dismissed: FirstRunHintId[] }
 const KEY = 'firstRunHints'
 const client = identityDb as unknown as SettingsTableClient
 
+/** Every live hint is dismissed. ❌ A hard-coded count: it stayed at 3 after 'topics' retired, so the watchers never stood down. */
+export function allFirstRunHintsDismissed(progress: FirstRunHintsProgress): boolean {
+  return FIRST_RUN_HINTS.every((id) => progress.dismissed.includes(id))
+}
+
 export function parseFirstRunHints(config: Record<string, unknown>): FirstRunHintsProgress | null {
   const value = config[KEY]
   // Existing accounts have no record: contextual onboarding is only enrolled by the new intro.

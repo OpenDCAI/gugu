@@ -58,7 +58,7 @@ async function renderConversation(width: number, naturallySeen = false, surface:
   function Slot() { return <div ref={registerSlot} /> }
   function Host() {
     const chatsRef = useRef([chat({ id: 'long-chat', unread_count: 341 - target, last_read_seq: target - 1, next_message_seq: 341, unread_locator: { stream_id: 'main:long-chat', stream_kind: 'main', thread_root_id: null,
-      message_id: `m${target}`, message_seq: target, unread_count: 341 - target, cursor_seq: target - 1, version: 1, is_marked_unread: false } })])
+      message_id: `m${target}`, message_seq: target, unread_count: 341 - target, addressed_count: 0, cursor_seq: target - 1, version: 1, is_marked_unread: false } })])
     const activeChatIdRef = useRef<string | null>('long-chat'), cancelChatOpenRef = useRef(noop)
     // The account's primary observer stays alive when a desktop portal closes. Its snapshot epoch does not change.
     const navigation = useChatUnreadStreamNavigation({ user: { id: 'reader' }, chatsRef, activeChatIdRef, cancelChatOpenRef,

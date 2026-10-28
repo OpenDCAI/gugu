@@ -25,6 +25,7 @@ vi.mock('../../../../apps/desktop/src/components/extensionBundle/sharedPackages'
 const { ask, chatTabs, shownItem } = await import('./chatTabsHarness')
 const { folderItem, isFolderItem } = await import('../../../../apps/desktop/src/session/renderer/features/chats/chat-tabs/chat-panel-item')
 const { chatAlone, chatLayoutOf, closeChatTab, openPanelItem, panelFull, panelTabsOf, shownPanelTab } = await import('../../../../apps/desktop/src/session/renderer/features/chats/chat-tabs/chat-layouts')
+import { tabFullscreen } from '../../../../apps/desktop/src/session/renderer/features/tabs/tab-fullscreen'
 const { AppPeekSlot } = await import('../../../../apps/desktop/src/components/appSlot/AppPeekSlot')
 const { ClaimedPage } = await import('../../../../apps/desktop/src/components/appSlot/ClaimedPage')
 const { peekStore } = await import('../../../../apps/desktop/src/session/renderer/features/extensions/peek-store')
@@ -117,9 +118,12 @@ describe('tabbed group panel expansion', () => {
     const fill = () => pane.tabFill(opened.tabId)!
     expect(fill().full).toBe(false)
     act(() => fill().toggle())
-    expect(panelFull(chatId, opened.tabId)).toBe(true)
+    // 全屏只盖住工作区,❌ 动布局:面板仍和对话并排着(panelFull 是另一件事:拆开、对话不在)。
+    expect(tabFullscreen.isOn(pane, opened.tabId)).toBe(true)
+    expect(panelFull(chatId, opened.tabId)).toBe(false)
     expect(fill().full).toBe(true)
     act(() => fill().toggle())
+    expect(tabFullscreen.isOn(pane)).toBe(false)
     expect(panelFull(chatId, opened.tabId)).toBe(false)
     expect(shownPanelTab(chatId)?.tabId).toBe(opened.tabId)
     expect(chatAlone(chatId)).toBe(false)

@@ -303,7 +303,9 @@ function sameBackgroundTasks(a: BackgroundTasks, b: BackgroundTasks): boolean {
     x.length === y.length && x.every((item, i) => key(item) === key(y[i]));
   return (
     same(a.commands, b.commands, (c) => `${c.id}|${c.taskId}|${c.name}`) &&
-    same(a.subagents, b.subagents, (g) => `${g.id}|${g.name}|${g.startedAt ?? ''}|${g.completedSteps}|${g.canCancel ? 1 : 0}`)
+    // 每一步的 id 与状态也要比:新一步开始时完成数不变,只比完成数的话「进行中」那一行永远进不了悬停时间线。
+    same(a.subagents, b.subagents, (g) =>
+      `${g.id}|${g.name}|${g.model ?? ''}|${g.startedAt ?? ''}|${g.completedSteps}|${g.canCancel ? 1 : 0}|${g.calls.map((c) => `${c.toolCallId}:${c.status}:${c.title}`).join(',')}`)
   );
 }
 
