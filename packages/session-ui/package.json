@@ -32,6 +32,7 @@
     "./react/chat-ui": "./src/react/chat-ui/index.ts",
     "./styles/global": "./src/styles/global.css.ts",
     "./package.json": "./package.json",
+    "./react/text-shimmer": "./src/react/components/TextShimmer.tsx",
     "./react/loading-indicator": "./src/react/components/loading-indicator/LoadingIndicator.tsx"
   },
   "scripts": {

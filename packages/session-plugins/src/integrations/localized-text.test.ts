@@ -4,7 +4,7 @@ import { integrationPluginRegistry } from './registry';
 
 /**
  * 插件写给人看的那几格只收 `{ en, 'zh-CN' }`(10-07 资源库修复,125 定:❌ 留纯字符串的兼容口子)。
- * 这里钉两件事:schema 拒收纯字符串;21 家每一格都带齐两份(12 家 + #7210 飞书、腾讯文档、滴答清单、钉钉、企业微信 + #7240 三家邮箱 + #7490 腾讯会议),
+ * 这里钉两件事:schema 拒收纯字符串;22 家每一格都带齐两份(12 家 + #7210 飞书、腾讯文档、滴答清单、钉钉、企业微信 + #7240 三家邮箱 + #7490 腾讯会议 + #648 高德地图),
  * 含 #7240 的「能力」「推荐玩法」。
  */
 describe('integration copy is { en, zh-CN } everywhere', () => {
@@ -16,7 +16,7 @@ describe('integration copy is { en, zh-CN } everywhere', () => {
 
   it('every registered integration carries both for description, field labels, placeholders, help and prerequisites', () => {
     const plugins = integrationPluginRegistry.getAll();
-    expect(plugins.length).toBe(21);
+    expect(plugins.length).toBe(22);
     for (const plugin of plugins) {
       const texts = [
         plugin.metadata.description,

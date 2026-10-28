@@ -430,13 +430,10 @@
 
   /* 不定长进度条:不知道还要多久,只表示「它在动」。装依赖用(#4271 设计稿 `.barline`)。
      减弱动态时降级为一条铺满的静止条 —— ❌ 不能降级成什么都没有,那会变成「卡住了」。 */
+  /* The bar is 38% of its track; preserve the -40% → 100% track offsets. */
   @keyframes gg-indeterminate {
-    0% {
-      margin-left: -40%;
-    }
-    100% {
-      margin-left: 100%;
-    }
+    from { transform: translateX(calc(-4000% / 38)); }
+    to { transform: translateX(calc(10000% / 38)); }
   }
 
   @keyframes accordion-down {
@@ -484,7 +481,7 @@
   }
 }
 
-/* @@@reduced-motion-fallback (Refs #6104) — 会话页此前只有 3 处点名降级(logo-shimmer / progress-indeterminate / text-shimmer),
+/* @@@reduced-motion-fallback (Refs #6104) — 会话页此前只有个别动效点名降级,
    而 @theme 里登记了 4 个 --animate-* 与 5 个 keyframes,外加 tw-animate-css 整套 —— 没有兜底。
    与 apps/desktop/src/styles/tokens.css 的那段**逐字相同**。
    design.md:「**Every one of these is disabled under `prefers-reduced-motion`,
@@ -1668,38 +1665,6 @@
       width: 100%;
     }
   }
-  .text-shimmer {
-    background: linear-gradient(
-      90deg,
-      var(--foreground-passive) 0%,
-      var(--foreground-passive) 30%,
-      var(--foreground) 50%,
-      var(--foreground-passive) 70%,
-      var(--foreground-passive) 100%
-    );
-    background-size: 200% 100%;
-    background-clip: text;
-    -webkit-background-clip: text;
-    color: transparent;
-    -webkit-text-fill-color: transparent;
-    animation: text-shimmer-move 2s linear infinite;
-  }
-
-  @keyframes text-shimmer-move {
-    0% {
-      background-position: 200% 0;
-    }
-    100% {
-      background-position: -200% 0;
-    }
-  }
-
-  @media (prefers-reduced-motion: reduce) {
-    .text-shimmer {
-      animation: none;
-    }
-  }
-
   /* Diff decorations for Monaco editor gutter and line highlights */
   .diff-glyph-added::before,
   .diff-glyph-modified::before,

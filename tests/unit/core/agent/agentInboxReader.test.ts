@@ -573,6 +573,44 @@ describe('P-E4 离线追赶:未读行逐条受理,由队列 drain 合批', () =>
     expect(injections).toHaveLength(3)
   })
 
+  it('a row no host can deliver is skipped on its own: the rest is delivered and the cursor passes it', async () => {
+    const chat = '00000000-0000-4000-8000-000000000003'
+    const cloud = new FakeCloud()
+    cloud.addChat(chat, 'group')
+    cloud.join(chat, AGENT, { listenMode: 'active' })
+    cloud.join(chat, HUMAN)
+    cloud.post({ chatId: chat, id: '10000000-0000-4000-8000-00000000000f', seq: 1, senderUserId: HUMAN, senderType: 'human', content: 'before' })
+    // An id that is already typed cannot be encoded into an envelope: every host refuses it, on every pull.
+    cloud.post({ chatId: chat, id: 'msg:20000000-0000-4000-8000-000000000001', seq: 2, senderUserId: OTHER_AGENT, senderType: 'agent', content: 'Agent 本次回复出错，未能完成' })
+    cloud.post({ chatId: chat, id: '10000000-0000-4000-8000-000000000010', seq: 3, senderUserId: HUMAN, senderType: 'human', content: 'after' })
+    const disclosed: unknown[] = []
+    const { deps, injections, outcomes } = makeDeps(cloud, { postDisclosure: async (row) => { disclosed.push(row) } })
+
+    const result = await pullAgentInbox(AGENT, deps)
+
+    expect(result).toMatchObject({ injected: 2, verdict: 'accepted' })
+    expect(injections.map((injection) => injection.messageId)).toEqual(['10000000-0000-4000-8000-00000000000f', '10000000-0000-4000-8000-000000000010'])
+    expect(cloud.watermark(chat, AGENT)).toBe(3)
+    expect(disclosed).toEqual([])
+    expect(outcomes.every((outcome) => outcome.ok)).toBe(true)
+    // The next pull no longer sees it: it does not fail every later delivery to this agent.
+    expect(await pullAgentInbox(AGENT, deps)).toMatchObject({ injected: 0, verdict: 'idle' })
+  })
+
+  it('a batch of only undeliverable rows injects nothing and still moves the cursor past them', async () => {
+    const chat = '00000000-0000-4000-8000-000000000003'
+    const cloud = new FakeCloud()
+    cloud.addChat(chat, 'group')
+    cloud.join(chat, AGENT, { listenMode: 'active' })
+    cloud.join(chat, HUMAN)
+    cloud.post({ chatId: chat, id: 'msg:20000000-0000-4000-8000-000000000001', seq: 1, senderUserId: OTHER_AGENT, senderType: 'agent', content: 'notice' })
+    const { deps, injections } = makeDeps(cloud)
+
+    expect(await pullAgentInbox(AGENT, deps)).toMatchObject({ injected: 0, verdict: 'accepted' })
+    expect(injections).toEqual([])
+    expect(cloud.watermark(chat, AGENT)).toBe(1)
+  })
+
   it('inbox entries are admitted one by one while attachments remain solo', async () => {
     const cloud = new FakeCloud()
     cloud.addChat('00000000-0000-4000-8000-000000000005', 'group')
@@ -1127,7 +1165,7 @@ describe('三态判决与失败面', () => {
   })
 
   it.each([
-    ['ECONNRESET', 'network'], ['401 Unauthorized', 'authentication'], ['insufficient_quota', 'quota'],
+    ['ECONNRESET', 'network'], ['401 Unauthorized', 'authentication'],
   ])('settles a native failure before first output once, with its cause and no re-delivery: %s', async (cause, reason) => {
     const { AcpRuntime, createAcpProcedures } = await import('@gugu/session-runtime/acp-agents')
     const { makeAcpHarness, makeStartInput } = await import('../../../../packages/session-runtime/src/acp-agents/acp-test-support')
@@ -1238,39 +1276,41 @@ describe('三态判决与失败面', () => {
     expect(isSaidInChat(new Error('never pulled'))).toBe(false)
   })
 
-  it('reports a quota failure after admission, even when a wake pull owns the turn instead of a command', async () => {
+  // #7685 额度/模型类失败是 agent 的状态位，❌ 聊天里的失败行；留成「没说」，由设备命令结果(reply_notice=context)带到界面。
+  it.each([
+    "Internal error: You've hit your weekly limit; private trace x123",
+    'insufficient_quota',
+    'API Error: 400 Model private/deepseek is not available (request id: private-trace)',
+    'Selected model is at capacity. Please try a different model.',
+  ])('keeps a quota or model failure out of the chat and leaves it unsaid: %s', async (reason) => {
     const cloud = seed()
     let fail!: (error: Error) => void
     const completion = new Promise<void>((_, reject) => { fail = reject })
-    const notices: Array<{ reason: string; chatId: string }> = []
+    const notices: Array<{ reason: string }> = []
     const { deps } = makeDeps(cloud, {
       inject: async () => ({ verdict: 'accepted', completion }),
       postDisclosure: async (input) => { notices.push(input) },
     })
     const admitted = await pullAgentInbox(AGENT, deps)
     const settled = admitted.completion!.catch((error: unknown) => error)
-    expect(cloud.markReadCalls).toHaveLength(1)
-    // A subsequent nudge sees no unread rows. It cannot own this provider failure.
-    await expect(pullAgentInbox(AGENT, deps)).resolves.toMatchObject({ injected: 0 })
-    fail(new Error("Internal error: You've hit your weekly limit; private trace x123"))
-    expect(isSaidInChat(await settled)).toBe(true)
-    expect(notices).toEqual([expect.objectContaining({ chatId: '00000000-0000-4000-8000-000000000003', reason: 'weeklyQuota' })])
+    fail(new Error(reason))
+    const thrown = await settled
+    expect(notices).toEqual([])
+    expect(isSaidInChat(thrown)).toBe(false)
+    expect((thrown as Error).message).toBe(reason)
     expect(cloud.markReadCalls).toHaveLength(1)
   })
 
-  it.each([
-    'API Error: 400 Model private/deepseek is not available (request id: private-trace)',
-    'Selected model is at capacity. Please try a different model.',
-  ])('discloses an unavailable model without leaking its upstream route or request trace: %s', async (reason) => {
+  it('[positive control] still says a non-quota failure in the chat', async () => {
     const cloud = seed()
     const notices: Array<{ reason: string }> = []
     const { deps } = makeDeps(cloud, {
-      inject: async () => ({ verdict: 'accepted', completion: Promise.reject(new Error(reason)) }),
+      inject: async () => ({ verdict: 'accepted', completion: Promise.reject(new Error('HTTP 429 too many requests')) }),
       postDisclosure: async (input) => { notices.push(input) },
     })
     const admitted = await pullAgentInbox(AGENT, deps)
-    await admitted.completion!.catch(() => {})
-    expect(notices).toEqual([expect.objectContaining({ reason: 'modelUnavailable' })])
+    expect(isSaidInChat(await admitted.completion!.catch((error: unknown) => error))).toBe(true)
+    expect(notices).toEqual([expect.objectContaining({ reason: 'rateLimited' })])
   })
 
   // Beta 1042: the agent's message_send landed, then the provider rejected the request after it (API Error: 400) and the

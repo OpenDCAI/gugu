@@ -1,3 +1,4 @@
+import { isImplicitSessionHomeProjectId } from '../shared/sessionProject'
 import { normalizeDeviceActionsSummary, type DeviceActionsSummary } from '../shared/deviceActions'
 import { parseMachineLimitRefusal, type MachineLimitRefusal } from './machineLimit'
 import { isDeviceOnline } from '../shared/enums/deviceModels'
@@ -218,7 +219,7 @@ export function normalizeSessionDigest(value: unknown): DeviceSessionSummary[] {
     out.push({
       conversationId: sessionId,
       projectId: typeof row.projectId === 'string' ? row.projectId : '',
-      projectName: typeof row.projectName === 'string' ? row.projectName : '',
+      projectName: !isImplicitSessionHomeProjectId(typeof row.projectId === 'string' ? row.projectId : null) && typeof row.projectName === 'string' ? row.projectName : '',
       title,
       harness: typeof row.harness === 'string' ? row.harness : 'unknown',
       agentStatus: typeof row.agentStatus === 'string' ? row.agentStatus : null,

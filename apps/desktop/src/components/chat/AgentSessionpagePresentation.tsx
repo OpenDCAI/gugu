@@ -14,7 +14,7 @@ import { rendererLogger } from '../../lib/log'
 import { AUTOMATION_TEST_IDS } from '../../lib/automationDom'
 import { NoticeButton, SessionpageNoticeBar } from './SessionpageNoticeBar'
 import { Button } from '../ui/Button'
-import { MobileAgentModeMenu } from '@/mobile/agent-watch/MobileModeMenu'
+import { MobileAgentOpenTask } from '@/mobile/agent-watch/MobileAgentOpenTask'
 import { useAgentSessionRow } from '@/mobile/agent-watch/useAgentSessionRow'
 import { AgentPermissionBand } from './AgentPermissionBand'
 import { AgentQuestionCard } from './AgentQuestionCard'
@@ -152,7 +152,7 @@ export function useAgentSessionpagePresentation(
   // 头部最右那颗「在任务中打开」。「通用 / 编程」的手动切换已删(展示跟设置 → 通用的「终端」开关走),这里只剩去处。
   // 手机上没有会话页可开(#7197):那一颗从手机的会话目录里找这个 agent 的会话,去处是任务 tab 里它那一页。
   const openAction = mobile
-    ? (mobileSessionRow ? <MobileAgentModeMenu row={mobileSessionRow} /> : null)
+    ? (mobileSessionRow ? <MobileAgentOpenTask row={mobileSessionRow} /> : null)
     : agentChat && projection.context && onOpen ? (
       <Button
         variant="ghost"

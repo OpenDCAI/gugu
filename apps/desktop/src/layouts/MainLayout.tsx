@@ -83,6 +83,7 @@ import { readAgentCreateDefaults, rememberAgentCreateProject } from '../lib/agen
 import { rememberedAgentCreateProject } from '@gugu/core/shared/ui/agentCreateDefaultsModels'
 import { createOptimisticAgentChat, createOptimisticDmChat, createOptimisticGroupChat } from '@gugu/core/shared/ui/chatModels'
 import { AGENT_SESSION_STARTED_EVENT, readAgentConversationStartedEvent } from '../lib/agentConversationEvents'
+import { agentFailureNeedsModelChoice, agentFailureReason } from '@gugu/core/shared/agentQuotaReason'
 import { createAgentStartedNotificationPayload, createAgentTurnFailedNotificationPayload, shouldNotifyForAgentStarted, shouldNotifyForAgentTurnFailed } from '../lib/agentNotificationModels'
 import { agentTurnFailureUserMessage } from '../lib/agentTurnFailure'
 import type { AgentStreamPayload } from '@gugu/core/shared/types/agentStream'
@@ -833,6 +834,8 @@ function InnerLayout({
     const handleSessionpageDeliverFailed = (event: Event) => {
       const detail = (event as CustomEvent).detail as { agentUserId?: string; messageId?: string | null; error?: string } | undefined
       if (!detail?.agentUserId) return
+      // #7685 额度/模型类由运行条的 agent 状态位 + 恢复前只弹一次的提示说(AgentTurnFailureSlot)，❌ 每条失败的投递再弹一条。
+      if (agentFailureNeedsModelChoice(agentFailureReason(detail.error))) return
       const agentId = detail.agentUserId
       const messages = failedDeliveries.current.get(agentId) ?? new Set<string>()
       failedDeliveries.current.set(agentId, messages)
@@ -1318,11 +1321,10 @@ function InnerLayout({
                       onLeave={() => navigateMobile(() => setActiveTab('chats'), 'pop')}
                       onSwitchToChat={handleSwitchToChat}
                       onOpenGroupChat={handleOpenGroupChat}
-                      onOpenProjectGroup={(chatId, tabChatId) => navigateMobile(() => {
+                      onOpenProjectGroup={(chatId) => navigateMobile(() => {
                         setProjectChatFromPartners(true)
                         openChatTarget(chatId)
-                        if (tabChatId) requestTopicSplit({ chatId: tabChatId, name: chats.find((chat) => chat.id === tabChatId)?.name ?? '', sourceChatId: chatId })
-                        else closeTopicTab(chatId)
+                        closeTopicTab(chatId)
                       }, 'push')}
                     />
                   ) : (

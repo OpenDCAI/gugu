@@ -1,5 +1,5 @@
 import { observer } from 'mobx-react-lite';
-import type { ReactNode } from 'react';
+import { useLayoutEffect, useRef, useState, type ReactNode } from 'react';
 import { usePaneContext } from '@renderer/features/tabs/pane-context';
 import { cn } from '@renderer/utils/utils';
 import type { AcpChatTabResource } from '../acp/acp-chat-tab-resource';
@@ -15,10 +15,22 @@ export const SessionChatTimeline = observer(function SessionChatTimeline({ child
   const { pane } = usePaneContext();
   const activeTab = pane.resolvedTabs.find((tab) => tab.isActive && tab.kind === 'acp-chat');
   const sessionId = activeTab ? (activeTab.resource as AcpChatTabResource).store.sessionId : undefined;
-  const hasTimeline = useSessionTimelinePresence(sessionId);
+  const hasTurns = useSessionTimelinePresence(sessionId);
+  const columnRef = useRef<HTMLDivElement>(null);
+  const [wide, setWide] = useState(false);
+  useLayoutEffect(() => {
+    const column = columnRef.current;
+    if (!column) return;
+    const measure = () => setWide(column.getBoundingClientRect().width >= 640);
+    measure();
+    const observer = new ResizeObserver(measure);
+    observer.observe(column);
+    return () => observer.disconnect();
+  }, []);
+  const hasTimeline = hasTurns && wide;
   return (
     // 「聚焦输入框」找的是 [data-region="composer"]:只有真在这一格前面的对话才挂这个标记,❌ 每一格藏着的那份也挂。
-    <div className={cn('relative h-full min-h-0', hasTimeline && 'bg-background-secondary-1 px-6')} data-region={activeTab ? 'composer' : undefined}>
+    <div ref={columnRef} className={cn('relative h-full min-h-0', hasTimeline && 'bg-background-secondary-1 px-6')} data-region={activeTab ? 'composer' : undefined}>
       {hasTimeline && sessionId && <SessionTimeline sessionId={sessionId} />}
       {children}
     </div>

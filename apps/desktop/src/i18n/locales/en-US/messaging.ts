@@ -56,6 +56,13 @@ export default {
       "statusReadFailed": "Could not read the task status: {{reason}}"
     },
     "turnFailure": {
+      "state": {
+        "exhausted": "out of credits",
+        "weekly": "weekly limit reached",
+        "monthly": "monthly limit reached",
+        "model-unavailable": "model unavailable"
+      },
+      "stateAction": "{{name}}: {{state}}. Click to change model",
       "authentication": "The model service refused authorization for this reply.",
       "network": "The connection to the model service was interrupted; this reply could not be completed.",
       "statusReadFailed": "Reply status could not be read. Please retry.",
