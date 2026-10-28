@@ -54,6 +54,12 @@ describe('session replies sent to IM', () => {
     expect(quoted).toMatchObject([{ sentReplyTo: 'abc', sentChat: 'other' }]);
     expect(words(withSentReplies(turn(send({ chat_id: 'other' })), { allDestinations: true }))[0]).not.toHaveProperty('sentReplyTo');
   });
+  it('in the agent conversation keeps a send even when the turn also said the same words', () => {
+    const record = turn(send({ text: '完成' }));
+    record.items.push({ kind: 'message', id: 'final', seq: 3, role: 'assistant', text: '完成' });
+    // MBP 验收 10-28:发到群里的「完成」和最后说的「完成」是两条输出,❌ 撞字就丢了发出去的那条。
+    expect(words(withSentReplies(record, { allDestinations: true })).map(item => item.id)).toEqual([`send:sent:${id}`, 'final']);
+  });
   it('keeps separate successful replies in order and deduplicates replayed calls by DB message id', () => {
     const record = turn();
     record.items.push({ ...send({ text: '第二条回复' }), id: 'next', outputText: 'sent (id=msg:7417511d-8f36-4cbc-8cbb-81ce9f97df73)' }, send());

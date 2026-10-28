@@ -26,7 +26,7 @@ function isSpoken(item: ChatItem): item is ChatMessage {
  * there is no reply yet — every line it has said is narration (`live`). Earlier lines stay in `rest`
  * (flagged `conversationNarration`), ❌ dropped when the turn closes, ❌ merged into one updating bubble.
  */
-export function conversationOutput(items: readonly ChatItem[], live = false): { reply: ChatMessage | null; sent: ChatMessage[]; rest: ChatItem[] } {
+export function conversationOutput(items: readonly ChatItem[], live = false): { reply: ChatMessage | null; sent: ChatMessage[]; rest: ChatItem[]; steps: ChatItem[] } {
   const spoken = items.filter(isSpoken);
   // A group reply can exist only as a confirmed message_send projection,
   // followed by [NO_REPLY]. Bind that delivered bubble to the process too.
@@ -43,5 +43,8 @@ export function conversationOutput(items: readonly ChatItem[], live = false): { 
     reply,
     sent,
     rest: items.filter(item => !out.has(item) && !sentCalls.has(item.id)).map(item => isSpoken(item) ? { ...item, conversationNarration: true } : item),
+    // 「N 步」数的是干的活:发消息的那几次调用算(它们不在 rest 里,画成了气泡),中途说的话不算 ——
+    // 否则最后一句在跑完那一下先算进来再退出去,步数 3→4→3 跳一下(MBP 验收 10-28)。
+    steps: items.filter(item => !out.has(item) && !isSpoken(item)),
   };
 }

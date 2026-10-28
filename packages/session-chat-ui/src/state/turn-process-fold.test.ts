@@ -987,6 +987,8 @@ describe('agent conversation process footer', () => {
       const bodies = units.filter(unit => (unit.data as ChatMessage).conversationPart === 'body').map(unit => unit.itemId);
       // owner 10-28 第 6 处:发出去的那两条 ❌ 折进过程、展开才看得到。
       expect(bodies).toEqual(['call:sent:m1', 'call:sent:m2', 'answer']);
+      // 「N 步」把发消息的那两次调用算进去(它们画成了气泡,不在过程里)。
+      expect((units.find(unit => unit.itemId === 'answer:head')?.data as ChatMessage).conversationProcess?.steps).toBe(2);
       // 时间那一行只给收了口那一轮的最后一句(设计稿 0 号 tail)。
       expect(units.filter(unit => (unit.data as ChatMessage).conversationTail).map(unit => unit.itemId)).toEqual(['answer']);
       expect(units.filter(unit => (unit.data as ChatMessage).conversationPart === 'head').map(unit => unit.itemId)).toEqual(['answer:head']);

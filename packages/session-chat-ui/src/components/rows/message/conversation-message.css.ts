@@ -1,5 +1,5 @@
 import { globalStyle, style } from '@vanilla-extract/css';
-import { collapseHeader } from '@session-chat/components/primitives/collapse-header.css';
+import { chevron, collapseHeader } from '@session-chat/components/primitives/collapse-header.css';
 import { summaryChip } from '@session-chat/components/primitives/summary-chip.css';
 import { toolName } from '../tools/tool/tool.css';
 import { cardFadeOverlay } from './user-message.css';
@@ -9,7 +9,7 @@ export const conversationRoot = style({ position: 'relative', color: vars.fgBody
 export const conversationHeader = style({ display: 'flex', alignItems: 'center', gap: 8, paddingBottom: 6, boxSizing: 'border-box', minWidth: 0, overflow: 'hidden', fontFamily: vars.fontSans, fontSize: vars.typeChromeTinyFontSize, lineHeight: '18px' });
 export const conversationName = style({ fontWeight: 650, whiteSpace: 'nowrap', maxWidth: '52%', overflow: 'hidden', textOverflow: 'ellipsis', flexShrink: 0 });
 /** 过程里中途说的话:一行灰字,与步骤组的字对齐,放不下省略。 */
-export const conversationNarration = style({ display: 'block', boxSizing: 'border-box', paddingLeft: 22, minWidth: 0,
+export const conversationNarration = style({ display: 'block', boxSizing: 'border-box', paddingLeft: 16, minWidth: 0,
   overflow: 'hidden', whiteSpace: 'nowrap', textOverflow: 'ellipsis', color: vars.fgMuted, fontFamily: vars.fontSans, fontSize: vars.typeChromeTinyFontSize });
 /** 气泡上方一行引用:「谁 · 摘要」,单行截断(owner 10-28:要看得出是谁说的)。 */
 export const conversationQuote = style({ display: 'flex', alignItems: 'center', gap: 5, boxSizing: 'border-box', paddingBottom: 4, minWidth: 0, maxWidth: '86%', overflow: 'hidden', whiteSpace: 'nowrap', color: vars.fgMuted, fontFamily: vars.fontSans, fontSize: vars.typeChromeTinyFontSize, lineHeight: '18px' });
@@ -36,6 +36,9 @@ export const conversationProcessChevron = style({ display: 'inline-block', lineH
 globalStyle(`${conversationProcessButton} svg`, { flexShrink: 0 });
 /** 过程行里「执行中」与「后台 · …」之间那道细竖线。 */
 export const conversationTimeSeparator = style({ width: 1, height: 10, background: vars.border, flexShrink: 0 });
+
+// 设计稿 0 号:过程里的步骤组是「› 跑了 5 条命令」,箭头在字前面。
+globalStyle(`[data-chat-root][data-agent-conversation="true"] ${collapseHeader} ${chevron}`, { order: -1 });
 
 // Process labels share the conversation's auxiliary typography; code bodies retain monospace.
 for (const label of [collapseHeader, toolName, summaryChip]) {

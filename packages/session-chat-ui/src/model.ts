@@ -102,7 +102,7 @@ export type ChatMessage = {
   /** The `chat_id` that message_send went to — names the group when this row is itself quoted later. */
   sentChat?: string;
   /** View-only disclosure of the completed thinking/execution segment. */
-  conversationProcess?: { live?: boolean; id: string; startedAt?: number; endedAt?: number; steps?: number };
+  conversationProcess?: { live?: boolean; id: string; startedAt?: number; endedAt?: number; steps?: number; empty?: boolean };
   /**
    * View-only split of one agent-conversation reply (owner 0 号图): `head` draws the name and the
    * process line, each `body` only a bubble. The process steps go between them, so they never land

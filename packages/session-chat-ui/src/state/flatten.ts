@@ -255,7 +255,9 @@ export function flattenTier(
     const ops: EmitOp[] = [];
     let run: ChatItem[] = [];
     const flush = (): void => {
-      if (run.length === 1) ops.push({ kind: 'row', item: run[0] });
+      // 对话布局一条也折成「跑了 1 条命令」:设计稿 0 号里过程下面只有步骤组和灰色单行,
+      // ❌ 单独一行「执行 ping -c 12 …」把原始命令露出来(MBP 验收 10-28)。
+      if (run.length === 1 && !ctx.agentConversation) ops.push({ kind: 'row', item: run[0] });
       else if (run.length > 1) ops.push({ kind: 'run', rows: run });
       run = [];
     };
@@ -380,7 +382,7 @@ export function flattenTier(
         // message_send 发出去的照旧各自一个气泡,挂在这条过程行下面。
         if (output && header?.live) {
           const expanded = ctx.revealAllFolds || turnProcessExpanded(true, ctx.isTurnProcessExpanded?.(header.id) ?? false);
-          const steps = output.rest.filter(item => !isSubagentChild(item)).length;
+          const steps = output.steps.filter(item => !isSubagentChild(item)).length;
           processItem({
             kind: 'turn-process',
             id: header.id,
@@ -397,8 +399,10 @@ export function flattenTier(
         const footerReply = output?.reply ? conversationProcessReply(header, [output.reply]) : null;
         if (footerReply && header && output) {
           const expanded = ctx.revealAllFolds || turnProcessExpanded(header.live, ctx.isTurnProcessExpanded?.(header.id) ?? false);
-          const steps = output.rest.filter(item => !isSubagentChild(item)).length;
-          if (steps && footerReply.conversationProcess) footerReply.conversationProcess = { ...footerReply.conversationProcess, steps };
+          const steps = output.steps.filter(item => !isSubagentChild(item)).length;
+          // 过程里没有可摊开的(只发了几条消息,都画成了气泡):过程行不带箭头,❌ 点开是空的(MBP 验收 10-28 引用测试那一轮)。
+          const empty = !output.rest.some(item => !isSubagentChild(item));
+          if (footerReply.conversationProcess) footerReply.conversationProcess = { ...footerReply.conversationProcess, ...(steps ? { steps } : {}), ...(empty ? { empty: true } : {}) };
           emitConversationReply(footerReply, output.sent, () => {
             if (expanded) emitOps(planRows(outsideProcess(output.rest)), turn.id, [{ id: header.id, stored: !header.live }]);
           });
@@ -448,7 +452,9 @@ export function flattenTier(
       if (pending) {
         emitOps(planRows(outsideProcess(items.slice(0, pending.at))), turn.id);
         // 对话布局:跑着没有回复气泡,说过的话是过程里的灰色单行(owner 0 号图,见 `conversationOutput`)。
-        const pendingItems = ctx.agentConversation ? conversationOutput(items.slice(pending.at), true).rest : items.slice(pending.at);
+        const pendingOutput = ctx.agentConversation ? conversationOutput(items.slice(pending.at), true) : null;
+        const pendingItems = pendingOutput ? pendingOutput.rest : items.slice(pending.at);
+        const pendingSteps = pendingOutput ? pendingOutput.steps : items.slice(pending.at);
         // 对话布局:跑着默认摊开(owner 0 号图「执行中 · 9m16s · 39 步 ⌄」),点了收起就真收起 ——
         // 还没出正文的这一轮以前不看开关,收起了步骤照样摊在下面。
         const pendingExpanded = !ctx.agentConversation || ctx.revealAllFolds || turnProcessExpanded(true, ctx.isTurnProcessExpanded?.(pending.header.id) ?? false);
@@ -459,12 +465,12 @@ export function flattenTier(
           ...(ctx.agentConversation && turn.startedAt !== undefined ? { startedAt: turn.startedAt } : {}),
           turnId: turn.id,
           ...(pending.at < items.length ? { withBody: true } : {}),
-          ...(ctx.agentConversation && pendingItems.some(item => !isSubagentChild(item))
-            ? { steps: pendingItems.filter(item => !isSubagentChild(item)).length } : {}),
+          ...(ctx.agentConversation && pendingSteps.some(item => !isSubagentChild(item))
+            ? { steps: pendingSteps.filter(item => !isSubagentChild(item)).length } : {}),
         });
         if (pendingExpanded) emitOps(planRows(outsideProcess(pendingItems)), turn.id, pendingFolds);
         if (ctx.agentConversation) {
-          for (const sent of conversationOutput(items.slice(pending.at), true).sent) processItem({ ...sent, conversationPart: 'body', conversationHead: pending.header.id });
+          for (const sent of pendingOutput!.sent) processItem({ ...sent, conversationPart: 'body', conversationHead: pending.header.id });
         }
       } else {
         emitOps(planRows(outsideProcess(items)), turn.id);

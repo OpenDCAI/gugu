@@ -127,7 +127,7 @@ function SingleConversationMessage(props: { data: ChatMessage; ctx: RenderCtx; v
     <Show when={subject() && props.data.conversationProcess}>{process =>
       <>
         <div class={conversationTime} style={{ height: `${TIME_H}px` }}>
-          <ConversationProcess process={process()} anchorId={props.data.id} expanded={turnProcessExpanded(process().live, props.ctx.viewState.isCollapsed(process().id))} />
+          <ConversationProcess process={process()} anchorId={props.data.id} expanded={turnProcessExpanded(process().live, props.ctx.viewState.isCollapsed(process().id))} collapsible={!process().empty} />
           <ProcessBackgroundPill ownerId={props.data.id} ctx={props.ctx} />
         </div>
         <ProcessBackgroundList ownerId={props.data.id} ctx={props.ctx} />

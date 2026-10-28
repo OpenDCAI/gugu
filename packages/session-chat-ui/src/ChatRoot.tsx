@@ -628,6 +628,8 @@ export function ChatRoot(props: ChatRootProps) {
       if (live && theme().layout.agentConversation) {
         if (u.kind === 'turn-process') return u.itemId;
         if (u.kind !== 'message') continue;
+        // 过程里中途说的话(灰色单行)也是步骤,越过去(MBP 验收 10-28:有中途的话时药丸掉到了过程最底下)。
+        if ((u.data as ChatMessage).conversationNarration) continue;
       }
       if (u.kind === 'message') {
         const m = u.data as ChatMessage;

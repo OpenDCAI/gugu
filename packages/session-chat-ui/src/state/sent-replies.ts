@@ -14,7 +14,9 @@ export function withSentReplies(turn: TranscriptTurn, options: { allDestinations
     if (item.kind !== 'mcp-tool-call' || item.status !== 'done') continue;
     const send = options.allDestinations ? successfulMessageSend(item) : source ? replySend(item, source) : null;
     const id = sentMessageId(item);
-    if (!send || !id || !send.text.trim() || texts.has(send.text.trim()) || seen.has(id)) continue;
+    // 对话布局(allDestinations):发到群里的那一句和这一轮最后说的话撞了字也是两条输出,❌ 当成同一条丢掉 ——
+    // 丢了它就既不是气泡、又在过程里画成一张「Claude 1 · 完成」(MBP 验收 10-28 第六轮)。
+    if (!send || !id || !send.text.trim() || (!options.allDestinations && texts.has(send.text.trim())) || seen.has(id)) continue;
     seen.add(id);
     const replyTo = 'replyTo' in send ? send.replyTo : undefined;
     const chat = 'chat' in send ? send.chat : undefined;
