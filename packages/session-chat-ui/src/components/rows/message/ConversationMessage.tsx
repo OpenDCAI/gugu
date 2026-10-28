@@ -5,19 +5,18 @@ import { useSelfIdentity, shownSender, isSelfAddress } from '@session-chat/lib/s
 import { useChatTranslator } from '@session-chat/localization';
 import type { MeasureCtx, RenderCtx } from '@session-chat/core/define';
 import type { ChatMessage } from '@session-chat/model';
-import { useTurnState } from '@session-chat/components/contexts/TurnStateContext';
 import { turnProcessExpanded } from '@session-chat/state/turn-fold';
 import { ConversationProcess } from './ConversationProcess';
 import { BackgroundTasksList, backgroundTasksLabel, backgroundTasksListHeight } from '../background-tasks/background-tasks-parts';
 import { ShimmerText } from '@session-chat/components/primitives/ShimmerText';
 import { BACKGROUND_TASKS_TOGGLE } from '@session-chat/state/flatten';
 import { segmentItem } from './DeliveryCard';
-import { UserMessageActions } from './UserMessageActions';
 import { isMessageEditing } from './message-editor-metrics';
 import { UserMessageCard } from './UserMessageCard';
+import { CONVERSATION_EXPAND_H, hasConversationBody } from './conversation-body';
 import { measureUserMessage } from './user-message-metrics';
 import { userMessageActionsHeight, type MessageVars } from './metrics';
-import { conversationRoot, conversationHeader, conversationName, conversationDivider, conversationQuote, conversationTime, conversationActions, conversationProcessButton, conversationProcessChevron, conversationTimeSeparator } from './conversation-message.css';
+import { conversationRoot, conversationHeader, conversationName, conversationDivider, conversationQuote, conversationTime, conversationProcessButton, conversationProcessChevron, conversationTimeSeparator } from './conversation-message.css';
 
 const HEADER_H = 24;
 const TIME_H = 22;
@@ -46,7 +45,13 @@ export function conversationMessageHeight(item: ChatMessage, ctx: MeasureCtx, va
 
 function singleHeight(item: ChatMessage, ctx: MeasureCtx, vars: MessageVars): number {
   const bodyVars = conversationVars(item, vars);
-  return HEADER_H + measureUserMessage(item, conversationContext(ctx), bodyVars) - (isMessageEditing(item.id, ctx) && !item.guguDelivery ? 0 : userMessageActionsHeight(bodyVars)) + (item.role === 'assistant' && item.conversationProcess ? TIME_H + backgroundHeight(item, ctx) : 0);
+  // 时间、复制、编辑那一行照原气泡画在气泡下面(owner 定稿 0 号图);没有正文就没有气泡,也不留这一行。
+  const actions = hasConversationBody(item) || isMessageEditing(item.id, ctx) ? 0 : userMessageActionsHeight(bodyVars);
+  const bodyCtx = conversationContext(ctx);
+  const body = measureUserMessage(item, bodyCtx, bodyVars);
+  // 折着 ⇔ 展开量出来比现在高;那时气泡下面多一行「展开全文」。
+  const folded = ctx.expandedId !== item.id && !isMessageEditing(item.id, ctx) && measureUserMessage(item, { ...bodyCtx, expandedId: item.id }, bodyVars) > body;
+  return HEADER_H + body - actions + (folded ? CONVERSATION_EXPAND_H : 0) + (item.role === 'assistant' && item.conversationProcess ? TIME_H + backgroundHeight(item, ctx) : 0);
 }
 
 /** 后台任务挂在这条回复的过程行上、单子又展开着 ⇒ 多出单子的高(挂在哪由 ChatRoot 算,见 MeasureCtx.background)。 */
@@ -65,7 +70,6 @@ export function ConversationMessage(props: { data: ChatMessage; ctx: RenderCtx; 
 
 function SingleConversationMessage(props: { data: ChatMessage; ctx: RenderCtx; vars: MessageVars }) {
   const self = useSelfIdentity();
-  const turn = useTurnState();
   const commands = useCommands();
   const translate = useChatTranslator();
   const facts = () => props.data.guguDelivery?.segments[0]?.facts;
@@ -119,8 +123,5 @@ function SingleConversationMessage(props: { data: ChatMessage; ctx: RenderCtx; v
       </>
     }</Show>
     <UserMessageCard data={props.data} ctx={bodyCtx} vars={conversationVars(props.data, props.vars)} conversation />
-    <div class={conversationActions}><UserMessageActions itemId={props.data.id} text={props.data.text}
-      generating={turn.currentMessageId() === props.data.id && turn.turnStatus() === 'generating'}
-      readOnly={subject() || Boolean(props.data.guguDelivery)} vars={{ ...props.vars, footerH: 18 }} /></div>
   </div>;
 }
