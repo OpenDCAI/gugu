@@ -22,6 +22,7 @@ import { dismissSubagent } from '@renderer/features/sessions/view/subagent-dismi
 import type { ChatView } from '@gugu/session-chat-ui'
 import { createSessionpageChatSendPreflight } from '@/lib/sessionpage-session-recovery'
 import { followLink } from '@/lib/guguLinks'
+import { openMessageSender } from '@/lib/openMessageSender'
 import { classifyFileLink } from '@gugu/core/shared/ui/guguLink'
 import { agentComposerModel, isRetiredCloudAgentChat } from '@/lib/agentComposerModel'
 import { useAgentDisplayStatus } from '@/hooks/useAgentDisplayStatus'
@@ -135,7 +136,7 @@ function DmConversation({ chat, target, shown, mobile, onBack, chrome, embedded,
       leading={onBack ? <IconButton aria-label={t('chatArea.backToList')} onClick={onBack}><ArrowLeft /></IconButton> : undefined} />}
     {options.confirmation}
     <SessionTranscriptView uri={target?.sessionId ?? `dm:${chat.id}`} turns={turns} mobile={mobile} shown={shown}
-      commands={{ ...(target ? outputs.handlers : {}), onOpenFile: target ? ({ path }) => outputs.openFile(path) : undefined, classifyLink: classifyFileLink, onOpenLink: openAttachment, conversationAgentName: () => name, onConversationReply: id => view.current?.scrollToItem(id, { align: 'center' }),
+      commands={{ ...(target ? outputs.handlers : {}), onOpenFile: target ? ({ path }) => outputs.openFile(path) : undefined, classifyLink: classifyFileLink, onOpenLink: openAttachment, conversationAgentName: () => name, conversationAgentSession: () => target?.sessionId ?? null, conversationAgentUserId: () => chat.peer_user_id ?? null, onOpenSender: openMessageSender, onConversationReply: id => view.current?.scrollToItem(id, { align: 'center' }),
         onStopBackgroundTask: target && client.stopBackgroundTask ? ({ stopId }) => { void client.stopBackgroundTask!(target.deviceId, target.sessionId, stopId).catch(error => toast(messageForUser(error), 'error')) } : undefined,
         onDismissBackgroundTask: target ? ({ entryId }) => { dismissSubagent(target.sessionId, entryId); setDismissals(value => value + 1) } : undefined,
         resolveToolImage: target ? async (itemId, index) => toolImageUrl(await client.fetchToolImage(target.deviceId, target.sessionId, itemId, index)) : undefined,

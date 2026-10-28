@@ -1232,3 +1232,24 @@ describe('MainLayout: initial private-chat drafts', () => {
     expect(draftValues.get('private-chat')).toBe('initial private draft')
   })
 })
+
+
+describe('MainLayout: agent sender-name entry', () => {
+  it.each(['owned', 'existing-external', 'new-external'] as const)('uses the contact chat action and its access rules for %s', async scenario => {
+    const peer = { id: 'sender-agent', type: 'agent', display_name: 'Sender agent', owner_user_id: scenario === 'owned' ? 'user-1' : 'other-owner' }
+    taskRoute.contacts = [peer]
+    if (scenario === 'existing-external') chatStoreMock.chats = [{ id: 'sender-dm', kind: 'ai', peer_user_id: peer.id }] as never
+    chatServiceMock.getOrCreateDM.mockResolvedValue('sender-dm')
+    const { toast } = await renderMainLayoutWithToast()
+    await act(async () => { await openLinkTarget({ kind: 'sender', userId: peer.id }) })
+    if (scenario === 'new-external') {
+      expect(chatServiceMock.getOrCreateDM).not.toHaveBeenCalled()
+      expect(sessionPageViewRequests.openChat).not.toHaveBeenCalled()
+      expect(toast).toHaveBeenCalled()
+    } else {
+      expect(sessionPageViewRequests.openChat).toHaveBeenCalledWith('sender-dm', false)
+      if (scenario === 'owned') expect(chatServiceMock.getOrCreateDM).toHaveBeenCalledWith('user-1', peer.id)
+      else expect(chatServiceMock.getOrCreateDM).not.toHaveBeenCalled()
+    }
+  })
+})

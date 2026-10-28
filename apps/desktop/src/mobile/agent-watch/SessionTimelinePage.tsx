@@ -230,6 +230,7 @@ export function SessionTimelinePage({
       {phase !== 'error' || timeline.turns.length > 0 ? (
         <SessionConversation
           agentName={agent?.displayName ?? session.title}
+          agentUserId={agent?.agentUserId ?? session.agent?.userId}
           timeline={timeline}
           deviceId={device.device_id}
           sessionId={session.conversationId}

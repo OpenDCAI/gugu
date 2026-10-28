@@ -1,13 +1,16 @@
 // @vitest-environment jsdom
 import { act, createElement, useEffect, useState, type ReactNode } from 'react'
 import { afterEach, beforeEach, expect, it, vi } from 'vitest'
+import type { AgentDmSession } from '../../../../apps/desktop/src/hooks/useAgentDmSession'
+import type { ChatCommands } from '@gugu/session-chat-ui'
+import { openMessageSender } from '../../../../apps/desktop/src/lib/openMessageSender'
 import type { TranscriptTurn } from '@gugu/session-core/acp/client'
 import { chat, clickElement, contact, createReactHarness, displayIdentity, message, renderWithAppProviders } from '../../../support/testHarness'
 import { writeComposer } from '../../../support/composerEditor'
 import { emptyAgentWatchTimeline } from '../../../../apps/desktop/src/mobile/agent-watch/agent-watch-store'
 
-const probe = vi.hoisted(() => ({ props: null as unknown, read: vi.fn(), find: vi.fn(), fail: false }))
-vi.mock('../../../../apps/desktop/src/hooks/useAgentDmSession', () => ({ useAgentDmSession: () => ({ session: { state: 'no-session' } }) }))
+const probe = vi.hoisted(() => ({ props: null as unknown, read: vi.fn(), find: vi.fn(), fail: false, session: { state: 'no-session' } as AgentDmSession }))
+vi.mock('../../../../apps/desktop/src/hooks/useAgentDmSession', () => ({ useAgentDmSession: () => ({ session: probe.session }) }))
 vi.mock('../../../../apps/desktop/src/hooks/useAgentDisplayStatus', () => import('../../../support/agentDisplayStatusTestDouble'))
 vi.mock('../../../../apps/desktop/src/lib/chat', () => import('../../../support/contactsChatServiceTestDouble'))
 vi.mock('../../../../apps/desktop/src/mobile/agent-watch/use-timeline-session', () => ({ useTimelineSession: (...args: unknown[]) => {
@@ -27,7 +30,7 @@ import { ChatAreaPanel } from '../../../../apps/desktop/src/components/ChatAreaP
 import { ShellErrorBoundary } from '../../../../apps/desktop/src/components/ShellErrorBoundary'
 import { AUTOMATION_TEST_IDS } from '../../../../apps/desktop/src/lib/automationDom'
 let harness: ReturnType<typeof createReactHarness>
-beforeEach(() => { harness = createReactHarness(); probe.fail = false; probe.read.mockClear(); probe.find.mockClear(); vi.stubGlobal('IntersectionObserver', class { observe() {} disconnect() {} }) })
+beforeEach(() => { harness = createReactHarness(); probe.fail = false; probe.session = { state: 'no-session' }; probe.read.mockClear(); probe.find.mockClear(); vi.stubGlobal('IntersectionObserver', class { observe() {} disconnect() {} }) })
 afterEach(() => { harness.cleanup(); vi.unstubAllGlobals() })
 const dm = chat({ id: 'external-dm', kind: 'ai', peer_user_id: 'external-agent', name: 'External agent' })
 const received = message({ id: 'received', chat_id: dm.id, sender_user_id: 'external-agent', is_mine: false, content: '外部 agent 的已有回复。' })
@@ -76,7 +79,10 @@ it('shows authorized external DM history in the shared view, without reading a p
   expect(harness.container.textContent).toContain(received.content)
   expect(harness.container.textContent).not.toContain('没有会话')
   expect(probe.read.mock.calls.at(-1)?.slice(2)).toEqual([null, null, false])
-  const props = probe.props as { activeTurnId: string | null }
+  const props = probe.props as { activeTurnId: string | null; commands: ChatCommands }
+  expect(props.commands.onOpenSender).toBe(openMessageSender)
+  expect(props.commands.conversationAgentSession?.()).toBeNull()
+  expect(props.commands.conversationAgentUserId?.()).toBe('external-agent')
   expect(props.activeTurnId).toBeNull()
   const editor = harness.container.querySelector<HTMLElement>('[contenteditable="true"]')!
   expect(editor).not.toBeNull()
@@ -112,4 +118,16 @@ it('routes the shared header search to the transcript find API and clears it on 
   expect(probe.find).toHaveBeenLastCalledWith('已有回复')
   await clickElement(harness.container.querySelector<HTMLElement>(`[data-testid="${AUTOMATION_TEST_IDS.chatHeaderSearchCancelButton}"]`)!)
   expect(probe.find).toHaveBeenLastCalledWith('')
+})
+
+it('binds an owned agent name to its real readable session, keeping the user identity distinct', async () => {
+  probe.session = { state: 'ready', deviceId: 'own-device', sessionId: 'own-session', local: false }
+  const own = chat({ id: 'own-dm', kind: 'ai', peer_user_id: 'own-agent' })
+  await renderWithAppProviders(harness, createElement(AgentDmConversation, { chat: own, shown: true }), { chat: {
+    activeChat: own, activeChatId: own.id, messages: [],
+  } })
+  const { commands } = probe.props as { commands: ChatCommands }
+  expect(commands.onOpenSender).toBe(openMessageSender)
+  expect(commands.conversationAgentSession?.()).toBe('own-session')
+  expect(commands.conversationAgentUserId?.()).toBe('own-agent')
 })
