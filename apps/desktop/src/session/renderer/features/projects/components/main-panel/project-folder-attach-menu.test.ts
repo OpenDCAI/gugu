@@ -74,6 +74,7 @@ describe('the card’s + with several machines', () => {
     const state: ProjectFoldersState = {
       folders: [ROOT],
       loadError: false,
+      unanswered: [],
       chosen: ROOT,
       fresh: undefined,
       choose: vi.fn(),
