@@ -405,7 +405,7 @@ function attachPendingRequests(entry: TimelineEntry): void {
  * chat's band) answers it there, and `respond` settles it once (compare-and-set) and hands the answer to the host. Nothing
  * here answers for the person: there is no full-access auto-approve at this layer.
  */
-export type HostAnswer = { optionId: string; by: string; answers?: readonly QuestionAnswer[]; digest?: string; enableIn?: string[] };
+export type HostAnswer = { optionId: string; by: string; answers?: readonly QuestionAnswer[]; digest?: string };
 type HostAskEntry = {
   request: PendingRequest & { host: NonNullable<PendingRequest['host']> };
   /** Why this answer cannot be taken (it stays asked), or null. */
@@ -532,7 +532,6 @@ function respondHost(
     optionId: input.optionId,
     by: input.by,
     ...(input.digest ? { digest: input.digest } : {}),
-    ...(input.enableIn ? { enableIn: [...input.enableIn] } : {}),
   };
   const refusal = ask.refuse?.(answer);
   if (refusal) return fail('host_ask_refused', refusal);

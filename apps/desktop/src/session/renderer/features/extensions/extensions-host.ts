@@ -23,7 +23,7 @@ export type ExtensionsApi = Pick<
   | 'setAutoUpdate'
   | 'setDisclosure'
   | 'appPlaces'
-  | 'setAppPlaces'
+  | 'changeAppPlaces'
   | 'uninstall'
   | 'agentStatus'
   | 'agentTools'

@@ -23,7 +23,7 @@ export interface MarketInstall {
    * - `return`: what it would ask is handed back instead (`outcome: 'ask'`, `asks` false when it would ask nothing), always,
    *   never installed — the caller asks in its own place (the Apps page, the first-run page, another device) and comes back
    *   with `given`. The package downloaded and checked for it is kept until then (`market.hold`), so it is not fetched twice;
-   * - `given`: installs what the person agreed to — these bytes only (`digest`), given where they ticked (`enableIn`);
+   * - `given`: installs what the person agreed to — these bytes only (`digest`), what it gives there being the install's own rule (InstallGrant);
    * - `gugu`: gugu's own App put in by gugu itself (the first-run set, @shared/extensions/first-run.ts): asks nobody — agreed
    *   to as gugu reviewed it, as a preinstalled App was; its capabilities recorded as its manifest says, every agent here (as
    *   an App nobody chose for). Only for an App whose code is in gugu's own repository, and only as a first install.

@@ -5,7 +5,7 @@ import { ChevronRight } from '@/lib/icons';
 import { AppPlacesEditor, AppPlacesSummary } from '@/components/extensionBundle/AppPlaces';
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from '@renderer/lib/ui/collapsible';
 import type { EnablePlace } from '@shared/extensions/host-actions';
-import { applyPlaceChanges, type PlaceChange } from '@shared/extensions/app-places';
+import type { PlaceChange } from '@shared/extensions/app-places';
 import type { ExtensionsApi } from '../extensions-host';
 import { useSessionMessages } from '@renderer/localization/use-session-messages';
 
@@ -21,7 +21,7 @@ export function AppGivenSection({
   machineName,
 }: {
   extensionId: string;
-  api: Pick<ExtensionsApi, 'appPlaces' | 'setAppPlaces'>;
+  api: Pick<ExtensionsApi, 'appPlaces' | 'changeAppPlaces'>;
   /** Another machine's App page: its agents, named as that machine's (not 「这台电脑」「本机」). */
   machineName?: string;
 }) {
@@ -41,11 +41,11 @@ export function AppGivenSection({
     void load();
   }, [load]);
   if (!places && !failed) return null;
-  const enabled = (places ?? []).filter((place) => place.enabled).map((place) => place.id);
   const change = async (changes: readonly PlaceChange[]) => {
     setBusy(true);
     try {
-      const result = await api.setAppPlaces({ extensionId, enableIn: applyPlaceChanges(enabled, changes) });
+      // Each change on its own (architecture I9): what another computer changed meanwhile is never written over.
+      const result = await api.changeAppPlaces({ extensionId, changes: [...changes] });
       if (!result.success) throw result.error;
       await load();
     } catch (error) {
@@ -67,7 +67,7 @@ export function AppGivenSection({
         <AppPlacesSummary places={places} machineName={machineName} />
       </CollapsibleTrigger>
       <CollapsibleContent className="xp-row-details-body">
-        <AppPlacesEditor places={places} machineName={machineName} enabled={new Set(enabled)} onChange={(changes) => void change(changes)} disabled={busy} />
+        <AppPlacesEditor places={places} machineName={machineName} enabled={new Set((places ?? []).filter((place) => place.enabled).map((place) => place.id))} onChange={(changes) => void change(changes)} disabled={busy} />
       </CollapsibleContent>
     </Collapsible>}
     </>

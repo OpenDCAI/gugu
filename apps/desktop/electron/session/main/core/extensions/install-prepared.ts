@@ -29,9 +29,9 @@ export interface PreparedInstall {
   /** Whether installing this asks the person by itself: what it newly declares, or another source replacing one here. */
   asks: boolean;
   /** What the sheet shows of it beyond the manifest: the App it replaces, the grants taken back, where it came from. */
-  sheet: Omit<ExtensionInstallConsentRequest, 'sourceDir' | 'manifest' | 'manifestDigest' | 'places'>;
-  /** D-30 「给哪些 agent」 is asked of a first install, or of one for a chat it is not given at yet (`installAsk`). */
-  places: { first: boolean; chatId?: string; identity: AppIdentity | null; fromCard?: boolean };
+  sheet: Omit<ExtensionInstallConsentRequest, 'sourceDir' | 'manifest' | 'manifestDigest' | 'given'>;
+  /** What it gives where it lands (`installGrant`): every agent on a first install, or the chat an install again is for. */
+  places: { first: boolean; chatId?: string; identity: AppIdentity | null };
 }
 
 export interface InstallDependencies {
@@ -53,20 +53,21 @@ export type PreparedOutcome =
     };
 
 /**
- * One install, wherever its files came from (161 10-15: one path, never one per caller): the D-30 question, the consent
- * bound to the manifest digest, the files landed (`installFromDirectory`), where its tools are given recorded before it
- * goes live (a session asking about it reads that), its tabs and programs on, the window told — told, not waited on (F52).
+ * One install, wherever its files came from (161 10-15: one path, never one per caller): the consent bound to the manifest
+ * digest, the files landed (`installFromDirectory`), what it gives here recorded before it goes live (a session asking about
+ * it reads that: `recordInstallGrant`, this computer's half only), its tabs and programs on, the window told — told, not
+ * waited on (F52).
  */
 export async function installPrepared(prepared: PreparedInstall, consent: InstallConsent, dependencies: InstallDependencies = {}): Promise<PreparedOutcome> {
   const { manifest, manifestDigest } = prepared;
   requireAppPlatform(manifest, 'desktop');
   const given = await import('./app-given');
-  const asked = await given.installAsk(manifest, prepared.places.first, prepared.places.chatId, prepared.places.identity, prepared.places.fromCard);
-  const ask: Omit<ExtensionInstallConsentRequest, 'sourceDir'> = { manifest, manifestDigest, ...prepared.sheet, ...(asked ? { places: asked.places } : {}) };
-  const asks = prepared.asks || asked !== null;
-  const done = await agreeThenInstall(ask, asks, consent, () => (dependencies.requestInstallConsent ?? requestExtensionInstallConsent)({ sourceDir: prepared.dir, ...ask }), async (enableIn) => {
+  const grant = await given.installGrant(manifest, prepared.places.first, prepared.places.chatId, prepared.places.identity);
+  const ask: Omit<ExtensionInstallConsentRequest, 'sourceDir'> = { manifest, manifestDigest, ...prepared.sheet, ...(grant ? { given: grant } : {}) };
+  const asks = prepared.asks || grant !== null;
+  const done = await agreeThenInstall(ask, asks, consent, () => (dependencies.requestInstallConsent ?? requestExtensionInstallConsent)({ sourceDir: prepared.dir, ...ask }), async () => {
     const installed = extensionsService().installFromDirectory(prepared.dir, manifestDigest, prepared.origin, prepared.publisher, prepared.variant);
-    await given.recordGiven(installed.manifest.id, asked, enableIn);
+    await given.recordInstallGrant(installed.manifest.id, grant);
     (dependencies.afterInstall ?? applyInstalledExtension)(installed);
     return installed;
   });

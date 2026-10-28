@@ -750,29 +750,23 @@ export const extensionsController = createRPCController({
     }
   },
 
-  /**
-   * D-30 「给哪些 agent」: the places an App can be given at, ticked where it is now (its row in 「App」); with no App, the
-   * places an install asks about, `chatId`'s ticked at first (else every agent here), and where the account already gave
-   * the App being installed (`app`) ticked as they are.
-   */
-  appPlaces: async (args: { extensionId?: string; chatId?: string; app?: { id: string; origin: 'market' | 'folder' } }) => {
+  /** D-30 「给哪些 agent」 on an App's row in 「App」: the places it can be given at, ticked where it is now. */
+  appPlaces: async (args: { extensionId: string }) => {
     try {
       const given = await import('@main/core/extensions/app-given');
-      if (args?.extensionId) return { success: true as const, data: await given.appPlaces(String(args.extensionId)) };
-      const identity = args?.app ? await given.ownInstallIdentity(String(args.app.id), args.app.origin === 'market' ? 'market' : 'folder') : null;
-      const { places } = await given.installPlaces(identity, args?.chatId ? String(args.chatId) : undefined);
-      return { success: true as const, data: places };
+      return { success: true as const, data: await given.appPlaces(String(args?.extensionId ?? '')) };
     } catch (error) {
       log.warn('Failed to read which agents an App is given to:', error);
       return { success: false as const, error: error instanceof Error ? error.message : String(error) };
     }
   },
 
-  /** The person's choice of which agents get an App (its row in 「App」): the whole set of places. */
-  setAppPlaces: async (args: { extensionId: string; enableIn: string[] }) => {
+  /** The person changes which agents get an App on its row in 「App」: each change on its own, never the whole set. */
+  changeAppPlaces: async (args: { extensionId: string; changes: { id: string; on: boolean }[] }) => {
     try {
       const given = await import('@main/core/extensions/app-given');
-      await given.setAppPlaces(String(args?.extensionId ?? ''), Array.isArray(args?.enableIn) ? args.enableIn.map(String) : []);
+      const changes = Array.isArray(args?.changes) ? args.changes.map((change) => ({ id: String(change?.id ?? ''), on: change?.on === true })) : [];
+      await given.changeAppPlaces(String(args?.extensionId ?? ''), changes.filter((change) => change.id));
       return { success: true as const };
     } catch (error) {
       log.warn('Failed to change which agents an App is given to:', error);

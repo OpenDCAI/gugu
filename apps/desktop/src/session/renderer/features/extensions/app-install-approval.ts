@@ -21,7 +21,7 @@ export async function answerAppInstall(input: {
   optionId: string;
   /** The computer the session runs on, when it is not this one (its agents are the ones 「给哪些 agent」 lists). */
   machine?: string;
-  respond: (answer: { optionId: string; digest?: string; enableIn?: string[] }) => Promise<unknown>;
+  respond: (answer: { optionId: string; digest?: string }) => Promise<unknown>;
 }): Promise<unknown> {
   if (input.optionId !== APP_INSTALL_OPTION) return input.respond({ optionId: APP_INSTALL_DECLINE_OPTION });
   const parsed = safeParseExtensionManifest(input.ask.request.manifest);
@@ -29,12 +29,12 @@ export async function answerAppInstall(input: {
   // Installed on the computer the session runs on: when that is not this one, the sheet names it — its agents, its files.
   const machine = input.ask.request.machine ?? input.machine;
   const request = { ...input.ask.request, ...(machine ? { machine } : {}) };
-  const sheet = askInShell(installConsentPrompt(request, parsed.manifest), input.itemId, INSTALL_CONSENT_HUMAN_WINDOW_MS, request.places, request.requester, machine);
+  const sheet = askInShell(installConsentPrompt(request, parsed.manifest), input.itemId, INSTALL_CONSENT_HUMAN_WINDOW_MS, request.given, request.requester, machine);
   if (!sheet) throw new Error('No consent sheet in this window to ask the person with');
   const answer = await sheet;
   // The fingerprint of the manifest this sheet showed: an install is taken only with it (the host refuses one without).
   if (answer.outcome === 'confirmed') {
-    return input.respond({ optionId: APP_INSTALL_OPTION, digest: request.manifestDigest, ...(answer.enableIn ? { enableIn: answer.enableIn } : {}) });
+    return input.respond({ optionId: APP_INSTALL_OPTION, digest: request.manifestDigest });
   }
   if (answer.outcome === 'declined') return input.respond({ optionId: APP_INSTALL_DECLINE_OPTION });
   return undefined;

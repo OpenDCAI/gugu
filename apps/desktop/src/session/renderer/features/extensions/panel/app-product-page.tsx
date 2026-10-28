@@ -155,7 +155,7 @@ export function AppProductPage({
   pendingPermissions?: readonly string[];
   agentStatus?: ExtensionAgentStatus;
   disclosure?: ExtensionDisclosureLevel;
-  givenApi?: Pick<ExtensionsApi, 'appPlaces' | 'setAppPlaces'>;
+  givenApi?: Pick<ExtensionsApi, 'appPlaces' | 'changeAppPlaces'>;
   docked?: boolean;
   onBack: () => void;
   onLifecycle: () => void;

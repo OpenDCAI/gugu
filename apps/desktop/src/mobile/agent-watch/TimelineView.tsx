@@ -115,8 +115,8 @@ export function SettlementCard({
       ask: install,
       optionId,
       ...(machine ? { machine } : {}),
-      respond: async ({ optionId: picked, digest, enableIn }) =>
-        onRespond({ itemId: settlement.itemId, optionId: picked, kind, ...(digest ? { digest } : {}), ...(enableIn ? { enableIn } : {}) }),
+      respond: async ({ optionId: picked, digest }) =>
+        onRespond({ itemId: settlement.itemId, optionId: picked, kind, ...(digest ? { digest } : {}) }),
     })
   }
 

@@ -77,11 +77,11 @@ export async function removeExtensionVariant(id: string, name: string, consent?:
   };
   const done = await agreeThenInstall(ask, true, consent ?? { kind: 'here' },
     () => (dependencies.requestInstallConsent ?? requestExtensionInstallConsent)({ ...ask, sourceDir: service.variantDirectory(id, name) }),
-    async (enableIn) => {
+    async () => {
       if (fingerprint() !== ask.manifestDigest) throw new Error('This fork changed while awaiting confirmation; read it and ask again.');
       if (prepared) {
         try {
-          const switched = await switchExtensionVariant(id, 'upstream', { kind: 'given', digest: prepared.manifestDigest, enableIn }, dependencies);
+          const switched = await switchExtensionVariant(id, 'upstream', { kind: 'given', digest: prepared.manifestDigest }, dependencies);
           if (!switched.installed) return { removed: false as const, active: service.variants(id).active, outcome: switched.outcome };
         } catch (error) { return { removed: false as const, active: service.variants(id).active, error: String(error) }; }
       }

@@ -81,5 +81,11 @@ export const givesAgentTools = (manifest: Pick<ExtensionManifest, 'permissions'>
   return !viewOnly;
 };
 
+/**
+ * Whether this computer's places give an App to every agent here: `here:all` among them, or none recorded at all (an App
+ * installed before anyone chose, or with no identity to record it under — 125 10-06). The one reading of that rule.
+ */
+export const hereGives = (here: readonly string[] | null): boolean => here === null || here.includes(HERE_ALL);
+
 /** This computer's places, kept with the install; any other place is a chat (an agent's private chat, or a group). */
 export const isHerePlace = (id: string): boolean => id === HERE_ALL;

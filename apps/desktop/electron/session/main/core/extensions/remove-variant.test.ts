@@ -8,7 +8,7 @@ import type { ExtensionVariant } from '@shared/extensions/variants';
 
 let service: ExtensionsService;
 vi.mock('./extensions-root', () => ({ extensionsService: () => service }));
-vi.mock('./app-given', () => ({ installAsk: async () => null, recordGiven: async () => undefined }));
+vi.mock('./app-given', () => ({ installGrant: async () => null, recordInstallGrant: async () => undefined }));
 vi.mock('./extension-after-install', () => ({ applyInstalledExtension: vi.fn() }));
 vi.mock('./market-ranking', () => ({ recordMarketInstall: vi.fn() }));
 vi.mock('./extension-bridge-relay', () => ({ requestExtensionInstallConsent: vi.fn(), announceInstalledChanged: vi.fn(async () => 'shown') }));

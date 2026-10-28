@@ -58,17 +58,17 @@ export async function appsGivenTo(token: string, ownerId: string, agentUserId: s
 
 /**
  * The chat an App is given at for a chat a card or an install is in. A topic goes by the chat it grew out of: its people are
- * that chat's, and that is where tools reach. `null`: none (a chat it cannot read).
+ * that chat's, and that is where tools reach — with its name, as a sheet says it. `null`: none (a chat it cannot read).
  */
-export async function enablementChatOf(token: string, chatId: string): Promise<string | null> {
+export async function enablementChatOf(token: string, chatId: string): Promise<{ id: string; name: string } | null> {
   const read = async (id: string) => {
-    const { data, error } = await chat(token).from('chats').select('id, kind, source_chat_id').eq('id', id).maybeSingle();
+    const { data, error } = await chat(token).from('chats').select('id, kind, name, source_chat_id').eq('id', id).maybeSingle();
     if (error) throw new Error(error.message);
-    return data as { id: string; kind: string; source_chat_id: string | null } | null;
+    return data as { id: string; kind: string; name: string | null; source_chat_id: string | null } | null;
   };
   const row = await read(chatId);
   const place = row?.kind === 'topic' && row.source_chat_id ? await read(row.source_chat_id) : row;
-  return place && (place.kind === 'group' || place.kind === 'dm') ? place.id : null;
+  return place && (place.kind === 'group' || place.kind === 'dm') ? { id: place.id, name: place.name ?? '' } : null;
 }
 
 /** The person gives (`on`) or stops giving an App at a chat — their own row; giving twice changes nothing. */

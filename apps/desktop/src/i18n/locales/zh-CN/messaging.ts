@@ -174,6 +174,7 @@ export default {
     "appEnable": {
       "devices": "装到哪几台电脑",
       "devicesHint": "新装上的电脑，所有 agent 都能用；已经装了的，给哪些 agent 照旧。只给部分 agent：在「App」页里改。",
+      "addsChat": "这台电脑上已经装了、只给了部分 agent：这次只加上群「{{name}}」，别的不变。",
       "machine": "这台电脑",
       "all": "所有 agent",
       "allSub": "包括各个项目里的 agent",

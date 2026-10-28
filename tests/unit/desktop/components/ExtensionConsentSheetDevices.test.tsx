@@ -5,8 +5,7 @@ import { createNode, createReactHarness } from '../../../support/testHarness'
 import {
   EXTENSION_CONSENT_ANSWER_EVENT,
   EXTENSION_CONSENT_EVENT,
-  HERE_ALL,
-  type EnablePlace,
+  type InstallGrant,
   type ExtensionConsentAnswerDetail,
 } from '../../../../apps/desktop/src/session/shared/extensions/host-actions'
 
@@ -19,18 +18,10 @@ import { ExtensionConsentSheet } from '../../../../apps/desktop/src/components/e
  * owner 10-27「安装卡……不关心给哪些 agent，关心给哪些设备」: the install sheet is one list of computers. The one asked for is
  * installed on, each other one ticked too, and on each every agent gets it; naming agents, groups and projects is the App page's.
  */
-/** A first install here: main ticks every agent here. */
-const fresh: EnablePlace[] = [
-  { id: HERE_ALL, kind: 'here', enabled: true },
-  { id: 'dm-1', kind: 'agent', name: 'Helper', enabled: false },
-  { id: 'g1', kind: 'group', name: 'Ops', enabled: false },
-]
-/** Installed here already and narrowed to one agent; an agent installs it again for group g1, which main ticks. */
-const narrowed: EnablePlace[] = [
-  { id: HERE_ALL, kind: 'here', enabled: false },
-  { id: 'dm-1', kind: 'agent', name: 'Helper', enabled: true },
-  { id: 'g1', kind: 'group', name: 'Ops', enabled: true },
-]
+/** A first install where it lands: every agent there gets it. */
+const fresh: InstallGrant = { first: true }
+/** Installed there already and narrowed; an agent installs it again for group Ops: that one group is added. */
+const forGroup: InstallGrant = { first: false, chat: { id: 'g1', name: 'Ops' } }
 
 let harness: ReturnType<typeof createReactHarness>
 let answers: ExtensionConsentAnswerDetail[]
@@ -45,11 +36,11 @@ afterEach(() => {
   harness.cleanup()
 })
 
-async function ask(places = fresh) {
+async function ask(given: InstallGrant | null = fresh) {
   await harness.render(createNode(ExtensionConsentSheet, {}))
   await act(async () => {
     window.dispatchEvent(new CustomEvent(EXTENSION_CONSENT_EVENT, { detail: {
-      type: 'ask', requestId: 'r1', title: 'Install Board?', description: 'A board.', confirmLabel: 'Install', places,
+      type: 'ask', requestId: 'r1', title: 'Install Board?', description: 'A board.', confirmLabel: 'Install', ...(given ? { given } : {}),
       alsoOn: [{ id: 'dev-b', label: 'Linux 1' }, { id: 'dev-c', label: 'Mac 2', disabledReason: 'Only this computer can read the folder' }],
     } }))
   })
@@ -67,16 +58,21 @@ describe('the install sheet asks which computers', () => {
     expect(document.body.textContent).not.toContain('Helper')
   })
 
-  it('a yes on a first install gives every agent here, and the computers ticked are installed on too', async () => {
+  it('a first install says every agent on a newly installed computer gets it; the yes carries the computers ticked and nothing about agents', async () => {
     await ask()
+    expect(q('[data-testid="extension-consent-grant"]')!.textContent).not.toMatch(/Ops/)
     await act(async () => { q<HTMLInputElement>('[data-testid="extension-consent-also-on-dev-b"]')!.click() })
     await act(async () => { q<HTMLButtonElement>('[data-testid="extension-consent-confirm"]')!.click() })
-    expect(answers).toEqual([{ requestId: 'r1', outcome: 'confirmed', enableIn: [HERE_ALL], alsoOn: ['dev-b'] }])
+    expect(answers).toEqual([{ requestId: 'r1', outcome: 'confirmed', alsoOn: ['dev-b'] }])
   })
 
-  it('统筹 10-27: installed here already and narrowed, a yes keeps who has it — never widened to every agent here', async () => {
-    await ask(narrowed)
-    await act(async () => { q<HTMLButtonElement>('[data-testid="extension-consent-confirm"]')!.click() })
-    expect(answers).toEqual([{ requestId: 'r1', outcome: 'confirmed', enableIn: ['dm-1', 'g1'], alsoOn: [] }])
+  it('an install for a group on a narrowed computer says it adds that one group, and nothing else', async () => {
+    await ask(forGroup)
+    expect(q('[data-testid="extension-consent-grant"]')!.textContent).toMatch(/Ops/)
+  })
+
+  it('an App giving agents no tools says nothing about agents', async () => {
+    await ask(null)
+    expect(q('[data-testid="extension-consent-grant"]')).toBeNull()
   })
 })

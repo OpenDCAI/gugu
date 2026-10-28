@@ -54,8 +54,8 @@ vi.mock('@main/core/extensions/extensions-root', () => ({
 // 读不到时安装会失败(owner 10-17 体检 #21),所以这里把「问」定成没有可问的,而不是靠吞错。
 vi.mock('./app-given', async (importOriginal) => ({
   ...(await importOriginal<typeof import('./app-given')>()),
-  installAsk: async () => null,
-  recordGiven: async () => undefined,
+  installGrant: async () => null,
+  recordInstallGrant: async () => undefined,
 }));
 
 const { runExtensionAgentAction } = await import('./extension-agent-actions');

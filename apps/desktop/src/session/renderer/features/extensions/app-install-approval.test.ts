@@ -19,7 +19,7 @@ const ask = {
     manifest: { id: 'reader', name: 'Reader' },
     manifestDigest: 'digest-r',
     revokedPermissions: [],
-    places: [{ id: 'here:all', kind: 'here', enabled: true }],
+    given: { first: true },
     requester: { name: 'Claude 6', agentUserId: 'agent-6' },
   },
 } as never;
@@ -35,17 +35,17 @@ describe('an App install answered from this device (D-31)', () => {
   });
 
   it("「查看并安装」 opens this device's own sheet, naming the computer the session runs on; its 装 carries what it showed", async () => {
-    askInShell.mockReturnValueOnce(Promise.resolve({ outcome: 'confirmed', enableIn: ['g1'] }));
+    askInShell.mockReturnValueOnce(Promise.resolve({ outcome: 'confirmed' }));
     const respond = vi.fn(async () => ({ ok: true }));
     await answerAppInstall({ itemId: 'ask-1', ask, optionId: 'install', machine: 'mac1', respond });
-    const [, requestId, , places, requester, machine] = askInShell.mock.calls[0]!;
-    expect({ requestId, places, requester, machine }).toEqual({
+    const [, requestId, , given, requester, machine] = askInShell.mock.calls[0]!;
+    expect({ requestId, given, requester, machine }).toEqual({
       requestId: 'ask-1',
-      places: [{ id: 'here:all', kind: 'here', enabled: true }],
+      given: { first: true },
       requester: { name: 'Claude 6', agentUserId: 'agent-6' },
       machine: 'mac1',
     });
-    expect(respond).toHaveBeenCalledWith({ optionId: 'install', digest: 'digest-r', enableIn: ['g1'] });
+    expect(respond).toHaveBeenCalledWith({ optionId: 'install', digest: 'digest-r' });
   });
 
   it('a no on the sheet is a no; closing it answers nothing — the ask stays where it was', async () => {

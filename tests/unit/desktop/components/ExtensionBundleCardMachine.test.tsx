@@ -25,7 +25,7 @@ const hosts = new Map<string, { device: Record<string, unknown> }>()
 const host = (id: string, label: string, patch: Record<string, unknown> = {}) =>
   hosts.set(id, { device: { id, label, isOnline: true, platform: 'darwin', lastSeenAt: null, sessionDigest: null, directTerminal: false, hostKind: 'desktop', ...patch } })
 const sheets: unknown[][] = []
-let sheetAnswer: { outcome: string; enableIn?: string[] } = { outcome: 'confirmed', enableIn: ['g1'] }
+let sheetAnswer: { outcome: string; alsoOn?: string[] } = { outcome: 'confirmed' }
 
 vi.mock('../../../../apps/desktop/src/components/appSlot/appsHere', () => ({
   appsHere: { runs: () => true, grantable: (value: unknown) => value, installAttachment: localInstall },
@@ -81,7 +81,7 @@ const { ExtensionBundleCard } = await import('../../../../apps/desktop/src/compo
 const { createReactHarness } = await import('../../../support/testHarness')
 
 const URL_ = 'https://db.example/storage/v1/object/public/chat-media/u1/reader-1.0.0.guguext'
-const ASK = { sourceDir: '/there/x', manifest, manifestDigest: 'digest-r', revokedPermissions: [], places: [{ id: 'g1', kind: 'group', enabled: true }] }
+const ASK = { sourceDir: '/there/x', manifest, manifestDigest: 'digest-r', revokedPermissions: [], given: { first: true } }
 const harnesses: ReturnType<typeof createReactHarness>[] = []
 afterEach(() => {
   harnesses.splice(0).forEach((harness) => harness.cleanup())
@@ -90,7 +90,7 @@ afterEach(() => {
   sheets.length = 0
   hosts.clear()
   thereAnswers = () => ({ installed: true, outcome: 'confirmed' })
-  sheetAnswer = { outcome: 'confirmed', enableIn: ['g1'] }
+  sheetAnswer = { outcome: 'confirmed' }
 })
 
 const OLD_CARD = { source: { kind: 'url' as const, url: URL_ }, messageId: 'm-old' }
@@ -155,7 +155,7 @@ describe('an App card installs on the machine the person picks', () => {
     expect(remoteInstalls).toEqual([{ machine: 'dev-b', args: { messageId: 'm-new', chatId: 'g1', consent: { kind: 'return' } } }])
   })
 
-  it('another machine that asks: the person is asked here (naming it), and it installs only the bytes agreed to, given where ticked', async () => {
+  it('another machine that asks: the person is asked here (naming it), and it installs only the bytes agreed to', async () => {
     host('dev-b', 'mac1 B')
     thereAnswers = (args) => ((args.consent as { kind: string }).kind === 'return'
       ? { installed: false, outcome: 'ask', id: 'reader', ask: ASK }
@@ -164,10 +164,10 @@ describe('an App card installs on the machine the person picks', () => {
     await pick('dev-b')
     await act(async () => install().click())
     expect(sheets).toHaveLength(1)
-    // The sheet's places are that machine's, and it is named on the sheet.
-    expect(sheets[0]?.[3]).toEqual(ASK.places)
+    // What it gives there is that machine's own answer, and the machine is named on the sheet.
+    expect(sheets[0]?.[3]).toEqual(ASK.given)
     expect(sheets[0]?.[5]).toBe('mac1 B')
-    expect(remoteInstalls.map(({ args }) => args.consent)).toEqual([{ kind: 'return' }, { kind: 'given', digest: 'digest-r', enableIn: ['g1'] }])
+    expect(remoteInstalls.map(({ args }) => args.consent)).toEqual([{ kind: 'return' }, { kind: 'given', digest: 'digest-r' }])
     expect(q('[data-testid="extension-bundle-card-there"]')?.textContent).toBe('extensions.bundleCardInstalledOn:mac1 B')
   })
 
@@ -190,7 +190,7 @@ describe('an App card installs on the machine the person picks', () => {
     thereAnswers = (args) => ((args.consent as { kind: string }).kind === 'return'
       ? { installed: false, outcome: 'ask', id: 'reader', ask: ASK }
       : { installed: true, outcome: 'confirmed', id: 'reader', version: '1.0.0' })
-    sheetAnswer = { outcome: 'confirmed', enableIn: ['g1'], alsoOn: ['dev-b'] } as typeof sheetAnswer
+    sheetAnswer = { outcome: 'confirmed', alsoOn: ['dev-b'] }
     const { q, install } = await card()
     await act(async () => install().click())
     expect(localInstall).not.toHaveBeenCalled()
@@ -199,10 +199,14 @@ describe('an App card installs on the machine the person picks', () => {
     expect(sheets[0]?.[6]).toEqual([{ id: 'dev-b', label: 'mac1 B' }])
     expect(remoteInstalls.map(({ machine, args }) => [machine, args.consent])).toEqual([
       [null, { kind: 'return' }],
-      [null, { kind: 'given', digest: 'digest-r', enableIn: ['g1'] }],
+      [null, { kind: 'given', digest: 'digest-r' }],
       ['dev-b', { kind: 'return' }],
       ['dev-b', { kind: 'given', digest: 'digest-r' }],
     ])
+    // Architecture I3: the computer ticked as well installs there — not for this chat — so it adds no row of this chat's
+    // that the sheet never named; the computer the sheet was for installs for the chat, as the card asked.
+    expect(remoteInstalls.filter(({ machine }) => machine === 'dev-b').every(({ args }) => !('chatId' in args))).toBe(true)
+    expect(remoteInstalls.filter(({ machine }) => machine === null).every(({ args }) => args.chatId === 'g1')).toBe(true)
     expect(q('[data-testid="extension-bundle-card-there"]')?.textContent).toBe('extensions.bundleCardInstalledOn:mac1 B')
   })
 
@@ -211,7 +215,7 @@ describe('an App card installs on the machine the person picks', () => {
     thereAnswers = (args, machine) => ((args.consent as { kind: string }).kind === 'return'
       ? { installed: false, outcome: 'ask', id: 'reader', ask: machine === 'dev-b' ? { ...ASK, manifestDigest: 'digest-other' } : ASK }
       : { installed: true, outcome: 'confirmed', id: 'reader' })
-    sheetAnswer = { outcome: 'confirmed', alsoOn: ['dev-b'] } as typeof sheetAnswer
+    sheetAnswer = { outcome: 'confirmed', alsoOn: ['dev-b'] }
     const { q, install } = await card()
     await act(async () => install().click())
     expect(remoteInstalls.filter(({ machine }) => machine === 'dev-b').map(({ args }) => args.consent)).toEqual([{ kind: 'return' }])
@@ -233,7 +237,7 @@ describe('two other computers ticked on a card', () => {
     thereAnswers = (args, machine) => ((args.consent as { kind: string }).kind === 'return'
       ? { installed: false, outcome: 'ask', id: 'reader', ask: machine === 'dev-b' ? { ...ASK, manifestDigest: 'digest-other' } : ASK }
       : { installed: true, outcome: 'confirmed', id: 'reader', version: '1.0.0' })
-    sheetAnswer = { outcome: 'confirmed', enableIn: ['g1'], alsoOn: ['dev-b', 'dev-c'] } as typeof sheetAnswer
+    sheetAnswer = { outcome: 'confirmed', alsoOn: ['dev-b', 'dev-c'] }
     const { install } = await card()
     await act(async () => install().click())
     const calls = remoteInstalls.map(({ machine, args }) => `${machine}:${(args.consent as { kind: string }).kind}`)
@@ -270,7 +274,7 @@ describe('a refusal after the yes (E-05 at the second step)', () => {
   it('this computer refuses with the yes: said here; the computer ticked with it still installs, and says so', async () => {
     host('dev-b', 'mac1 B')
     thereAnswers = askThenRefuse((machine) => machine === null)
-    sheetAnswer = { outcome: 'confirmed', enableIn: ['g1'], alsoOn: ['dev-b'] } as typeof sheetAnswer
+    sheetAnswer = { outcome: 'confirmed', alsoOn: ['dev-b'] }
     const { q, install } = await card()
     await act(async () => install().click())
     expect(q('[data-testid="extension-bundle-card-refused"]')?.textContent).toContain('extensions.chatCannotReplace')
@@ -305,7 +309,7 @@ describe('a refusal after the yes (E-05 at the second step)', () => {
     // This computer's own second answer is a failure, not a refusal; the computer ticked installs.
     const installs = askThenRefuse(() => false)
     thereAnswers = (args, machine) => (machine === null && (args.consent as { kind: string }).kind === 'given' ? { failWith: 'network down' } : installs(args, machine))
-    sheetAnswer = { outcome: 'confirmed', enableIn: ['g1'], alsoOn: ['dev-b'] } as typeof sheetAnswer
+    sheetAnswer = { outcome: 'confirmed', alsoOn: ['dev-b'] }
     const { q, install } = await card()
     await act(async () => install().click())
     expect(remoteInstalls.map(({ machine, args }) => `${machine}:${(args.consent as { kind: string }).kind}`)).toEqual(['null:return', 'null:given', 'dev-b:return', 'dev-b:given'])
@@ -316,7 +320,7 @@ describe('a refusal after the yes (E-05 at the second step)', () => {
   it('a computer ticked refuses with the yes: it says so, with what is there', async () => {
     host('dev-b', 'mac1 B')
     thereAnswers = askThenRefuse((machine) => machine === 'dev-b')
-    sheetAnswer = { outcome: 'confirmed', enableIn: ['g1'], alsoOn: ['dev-b'] } as typeof sheetAnswer
+    sheetAnswer = { outcome: 'confirmed', alsoOn: ['dev-b'] }
     const { q, install } = await card()
     await act(async () => install().click())
     const said = q('[data-testid="extension-bundle-card-there"]')

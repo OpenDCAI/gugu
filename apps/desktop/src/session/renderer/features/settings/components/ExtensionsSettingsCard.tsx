@@ -25,7 +25,7 @@ import { useShowModal } from '@renderer/lib/modal/modal-provider';
 import type { ConsentPrompt } from '@renderer/features/extensions/extension-consent';
 import { ConsentBody } from '@/components/extensionBundle/ConsentDetails';
 import { askInShell, installConsentPrompt, type InstallConsentAsk } from '@renderer/features/extensions/install-consent';
-import { INSTALL_CONSENT_HUMAN_WINDOW_MS, type EnablePlace, type InstallAlsoOnMachine } from '@shared/extensions/host-actions';
+import { INSTALL_CONSENT_HUMAN_WINDOW_MS, type InstallGrant, type InstallAlsoOnMachine } from '@shared/extensions/host-actions';
 import { findRemoteHostsBridge } from '@shared/remote-hosts';
 import { AppMarketContent, type AppMarketState } from '@renderer/features/extensions/panel/app-market-content';
 import { appLifecycle } from '@renderer/features/extensions/panel/app-lifecycle';
@@ -505,8 +505,8 @@ export const ExtensionsSettingsCard = observer(function ExtensionsSettingsCard({
         const alsoOn = (findRemoteHostsBridge()?.listDevices() ?? [])
           .filter((device) => device.isOnline && device.id !== remoteRef.current?.deviceId)
           .map((device) => ({ id: device.id, label: device.label }));
-        await askToInstall(prompt, ask.manifestDigest, ask.places, async (enableIn, also) => {
-          await completeMarketInstall(ask, enableIn);
+        await askToInstall(prompt, ask.manifestDigest, ask.given, async (also) => {
+          await completeMarketInstall(ask);
           for (const deviceId of also ?? []) await installOnAlso(deviceId, alsoOn.find((one) => one.id === deviceId)?.label ?? deviceId, ask);
         }, machine, alsoOn);
       } catch (error) {
@@ -558,7 +558,7 @@ export const ExtensionsSettingsCard = observer(function ExtensionsSettingsCard({
         const alsoOn = (findRemoteHostsBridge()?.listDevices() ?? [])
           .filter((device) => device.isOnline && device.id !== remoteRef.current?.deviceId)
           .map((device) => ({ id: device.id, label: device.label, disabledReason: translateRef.current('extensions.alsoOnFolderOnly') }));
-        await askToInstall(prompt, ask.manifestDigest, ask.places, (enableIn) => completeInstall(sourceDir, ask, enableIn), machine, alsoOn);
+        await askToInstall(prompt, ask.manifestDigest, ask.given, () => completeInstall(sourceDir, ask), machine, alsoOn);
       } catch (error) {
         toast({
           title: translateRef.current('extensions.installFailed'),
@@ -584,15 +584,15 @@ export const ExtensionsSettingsCard = observer(function ExtensionsSettingsCard({
       if (!handed.success || !handed.data) throw new Error(handed.error ?? 'App variant unreadable');
       if (handed.data.outcome !== 'ask') { await refresh(); return; }
       const { ask, asks } = handed.data;
-      const complete = (enableIn?: string[]) => installing(
+      const complete = () => installing(
         ask.manifest,
-        () => api.switchVariant(manifest.id, name, { kind: 'given', digest: ask.manifestDigest, ...(enableIn ? { enableIn } : {}) }),
+        () => api.switchVariant(manifest.id, name, { kind: 'given', digest: ask.manifestDigest }),
         () => switchVariant(manifest, name),
       );
       if (!asks) { await complete(); return; }
       const machine = remoteRef.current?.deviceLabel;
       const prompt = installConsentPrompt(machine ? { ...ask, machine } : ask, ask.manifest);
-      await askToInstall(prompt, ask.manifestDigest, ask.places, complete, machine);
+      await askToInstall(prompt, ask.manifestDigest, ask.given, complete, machine);
     } catch (error) {
       toast({ title: translateRef.current('extensions.switchFailed'), description: messageForUser(error), tier: 'error' });
     } finally {
@@ -607,19 +607,19 @@ export const ExtensionsSettingsCard = observer(function ExtensionsSettingsCard({
   const askToInstall = async (
     prompt: ConsentPrompt,
     digest: string,
-    places: EnablePlace[] | undefined,
-    agreed: (enableIn?: string[], alsoOn?: string[]) => Promise<void>,
+    given: InstallGrant | undefined,
+    agreed: (alsoOn?: string[]) => Promise<void>,
     /** Another machine's App page: the one it installs on (its agents are that machine's). */
     machine?: string,
     /** owner 10-16: the person's other computers it may also go on, with the same yes. */
     alsoOn?: InstallAlsoOnMachine[]
   ) => {
-    const inShell = places || alsoOn?.length
-      ? askInShell(prompt, `${digest}:${Date.now()}`, INSTALL_CONSENT_HUMAN_WINDOW_MS, places, undefined, machine, alsoOn)
+    const inShell = given || alsoOn?.length
+      ? askInShell(prompt, `${digest}:${Date.now()}`, INSTALL_CONSENT_HUMAN_WINDOW_MS, given, undefined, machine, alsoOn)
       : null;
     if (inShell) {
       const answer = await inShell;
-      if (answer.outcome === 'confirmed') await agreed(answer.enableIn, answer.alsoOn);
+      if (answer.outcome === 'confirmed') await agreed(answer.alsoOn);
       return;
     }
     showConfirm({
@@ -658,12 +658,12 @@ export const ExtensionsSettingsCard = observer(function ExtensionsSettingsCard({
     }
   };
 
-  /** A folder the person picked, installed with the digest they agreed to (D-30: the agents ticked, when it asked). */
-  const completeInstall = (sourceDir: string, ask: InstallConsentAsk, enableIn?: string[]): Promise<void> =>
+  /** A folder the person picked, installed with the digest they agreed to. */
+  const completeInstall = (sourceDir: string, ask: InstallConsentAsk): Promise<void> =>
     installing(
       ask.manifest,
-      () => api.installFromFolder({ sourceDir, consent: { kind: 'given', digest: ask.manifestDigest, ...(enableIn ? { enableIn } : {}) } }),
-      () => completeInstall(sourceDir, ask, enableIn)
+      () => api.installFromFolder({ sourceDir, consent: { kind: 'given', digest: ask.manifestDigest } }),
+      () => completeInstall(sourceDir, ask)
     );
 
   /** owner 10-16 The same release on another of the person's computers, with the yes given in the sheet (`installAgreedOn`). */
@@ -684,15 +684,15 @@ export const ExtensionsSettingsCard = observer(function ExtensionsSettingsCard({
   };
 
   /** A market App the person agreed to (`given`): main installs the very bytes it read for that consent. */
-  const completeMarketInstall = (ask: InstallConsentAsk, enableIn?: string[]): Promise<void> =>
+  const completeMarketInstall = (ask: InstallConsentAsk): Promise<void> =>
     installing(
       ask.manifest,
       () =>
         api.installFromMarket({
           ref: { extensionId: ask.manifest.id, version: ask.manifest.version },
-          consent: { kind: 'given', digest: ask.manifestDigest, ...(enableIn ? { enableIn } : {}) },
+          consent: { kind: 'given', digest: ask.manifestDigest },
         }),
-      () => completeMarketInstall(ask, enableIn)
+      () => completeMarketInstall(ask)
     );
 
   /** Installing one App, as its card shows it: busy, then the list read again, its tabs, 「装好了」 — or why not, with a retry. */

@@ -126,7 +126,7 @@ export async function askInstallInSession(
           kind: 'permission',
           optionId: confirmed ? APP_INSTALL_OPTION : APP_INSTALL_DECLINE_OPTION,
           // The sheet here showed this manifest.
-          ...(confirmed ? { digest: request.manifestDigest, ...(answer.enableIn ? { enableIn: answer.enableIn } : {}) } : {}),
+          ...(confirmed ? { digest: request.manifestDigest } : {}),
           by: 'desktop',
         };
         await timeline.respond(reply);
@@ -135,9 +135,7 @@ export async function askInstallInSession(
     const result = await answered;
     if (result === 'unavailable') return await here;
     if (result === 'withdrawn') return { outcome: callSignal?.aborted ? 'dismissed' : 'timeout' };
-    return result.optionId === APP_INSTALL_OPTION
-      ? { outcome: 'confirmed', ...(result.enableIn ? { enableIn: result.enableIn } : {}) }
-      : { outcome: 'declined' };
+    return { outcome: result.optionId === APP_INSTALL_OPTION ? 'confirmed' : 'declined' };
   } finally {
     clearTimeout(timer);
     callSignal?.removeEventListener('abort', gone);

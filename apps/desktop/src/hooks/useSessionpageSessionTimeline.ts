@@ -42,7 +42,7 @@ export type SessionpageSessionTimeline = {
   respondQuestion: (itemId: string, answers: readonly QuestionAnswer[]) => Promise<SessionpageSessionRespondResult>
   /** 经时间线的 `sessionRespond` 作答 —— 与手机、会话页同一条 CAS + resolvePermission 路径。 */
   /** `extra`: an App install's answer (D-31) — the fingerprint of the sheet shown, and where its tools are given. */
-  respondPermission: (itemId: string, optionId: string, extra?: { digest?: string; enableIn?: string[] }) => Promise<SessionpageSessionRespondResult>
+  respondPermission: (itemId: string, optionId: string, extra?: { digest?: string }) => Promise<SessionpageSessionRespondResult>
 }
 
 type RpcResult<T> = { ok: true; value: T } | { ok: false; error?: unknown }
@@ -256,7 +256,7 @@ export function useSessionpageSessionTimeline(sessionId: string | null): Session
   }, [sessionId, attempt])
 
   const respondPermission = useCallback(
-    async (itemId: string, optionId: string, extra?: { digest?: string; enableIn?: string[] }): Promise<SessionpageSessionRespondResult> => {
+    async (itemId: string, optionId: string, extra?: { digest?: string }): Promise<SessionpageSessionRespondResult> => {
       const api = desktopIpc()
       if (!sessionId || !api) throw new Error('sessionpage session timeline is unavailable')
       const raw = (await api.invoke('sessionTimeline.sessionRespond', {
@@ -264,7 +264,6 @@ export function useSessionpageSessionTimeline(sessionId: string | null): Session
         itemId,
         optionId,
         ...(extra?.digest ? { digest: extra.digest } : {}),
-        ...(extra?.enableIn ? { enableIn: extra.enableIn } : {}),
         kind: 'permission',
         by: 'desktop'
       })) as RpcResult<SessionpageSessionRespondResult>

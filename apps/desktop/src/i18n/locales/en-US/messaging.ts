@@ -174,6 +174,7 @@ export default {
     "appEnable": {
       "devices": "Install on",
       "devicesHint": "On a computer it is new to, every agent can use it; where it is installed already, who has it stays as it is. To give it to only some agents, change that on the App page.",
+      "addsChat": "Installed here already for some agents only: this adds the group “{{name}}” and changes nothing else.",
       "machine": "This computer",
       "all": "All agents",
       "allSub": "Including the agents in each project",

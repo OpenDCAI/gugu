@@ -70,16 +70,11 @@ function InstallConsentSheet() {
   }, [])
 
   if (!ask) return null
-  // Who gets it there is what the install ticks (main's installAsk): a first install, every agent there; one installed already
-  // keeps what it gives, narrowed or not, plus the chat an agent installs it for. The sheet changes none of it (that is the
-  // App page's 「已给」): ticking a computer never widens who has it.
-  const enableIn = ask.places?.filter((place) => place.enabled).map((place) => place.id)
   const answer = (outcome: ExtensionConsentAnswerDetail['outcome']) => {
     setAsk(null)
     const detail: ExtensionConsentAnswerDetail = {
       requestId: ask.requestId,
       outcome,
-      ...(enableIn ? { enableIn } : {}),
       ...(ask.alsoOn ? { alsoOn } : {}),
     }
     window.dispatchEvent(new CustomEvent(EXTENSION_CONSENT_ANSWER_EVENT, { detail }))
@@ -96,9 +91,11 @@ function InstallConsentSheet() {
         </div>
         <div className="min-h-0 flex-1 overflow-auto text-[length:var(--font-body)] text-[var(--text-secondary)]">
           <ConsentBody description={ask.description} details={ask.details} />
-          {enableIn || ask.alsoOn?.length ? (
+          {ask.given || ask.alsoOn?.length ? (
             // owner 10-27「不关心给哪些 agent，关心给哪些设备」: one list of computers. The one asked for is installed on; each
-            // other one ticked is installed on too (owner 10-16), with what that computer's own install ticks.
+            // other one ticked is installed on too (owner 10-16). Who gets its tools is each computer's own install rule
+            // (`InstallGrant`): a first install there gives every agent there, one installed already keeps what it gives — so
+            // ticking a computer never widens who has it. Naming agents, groups and projects is the App page's.
             <fieldset className="!mt-3 flex flex-col gap-1" data-testid="extension-consent-devices">
               <legend className="text-[length:var(--font-body)] font-semibold text-[var(--text-primary)]">{t('chatArea.appEnable.devices')}</legend>
               {[{ id: '', label: ask.machine ?? t('chatArea.appEnable.machine'), disabledReason: undefined }, ...(ask.alsoOn ?? [])].map((machine) => (
@@ -113,7 +110,7 @@ function InstallConsentSheet() {
                   <MachineLines label={machine.label} meta={machine.disabledReason ?? null} muted={machine.disabledReason !== undefined} />
                 </label>
               ))}
-              {enableIn ? <div className="px-1 pt-1 text-[length:var(--font-caption)] leading-normal text-[var(--text-tertiary)]">{t('chatArea.appEnable.devicesHint')}</div> : null}
+              {ask.given ? <div data-testid="extension-consent-grant" className="px-1 pt-1 text-[length:var(--font-caption)] leading-normal text-[var(--text-tertiary)]">{ask.given.first ? t('chatArea.appEnable.devicesHint') : t('chatArea.appEnable.addsChat', { name: ask.given.chat.name })}</div> : null}
             </fieldset>
           ) : null}
         </div>
