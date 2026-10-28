@@ -1,5 +1,9 @@
 import { describe, expect, it, vi } from 'vitest'
 import { messageActionItems } from '../../../../apps/desktop/src/components/chat/messageActionItems'
+import { keepAction } from '../../../../apps/desktop/src/components/chat/messageKeep'
+
+const mark = vi.hoisted(() => vi.fn())
+vi.mock('../../../../apps/desktop/src/lib/fileStorage', () => ({ markFileStorage: mark }))
 
 const t = ((key: string) => key) as never
 
@@ -14,5 +18,15 @@ describe('临时 / 一直保留 in a message\'s actions', () => {
   })
   it('offers neither without a handler (someone else\'s message, or no cloud copy)', () => {
     expect(messageActionItems({ isRetracted: false, content: null }, t).some((item) => item.key.startsWith('keep-'))).toBe(false)
+  })
+  it('marks the sender\'s own live attachment through the uploader\'s mark, and says so', async () => {
+    mark.mockResolvedValue(1)
+    const close = vi.fn(), toast = vi.fn()
+    keepAction({ id: 'm1', mine: true, live: true }, close, toast, t)!('temporary')
+    expect(close).toHaveBeenCalledOnce()
+    expect(mark).toHaveBeenCalledWith([{ message_id: 'm1' }], 'temporary')
+    await vi.waitFor(() => expect(toast).toHaveBeenCalledWith('message.actions.keptTemporary', 'success'))
+    expect(keepAction({ id: 'm1', mine: false, live: true }, close, toast, t)).toBeUndefined()
+    expect(keepAction({ id: 'm1', mine: true, live: false }, close, toast, t)).toBeUndefined()
   })
 })

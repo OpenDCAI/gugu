@@ -1,5 +1,4 @@
 import { memo, useEffect, useRef, useState } from 'react'
-import { markFileStorage } from '../../lib/fileStorage'
 import { useTranslation } from 'react-i18next'
 import { useToast } from '../toastContext'; import { downloadAttachment } from '../../lib/attachmentBytes'
 import { motion, AnimatePresence } from 'framer-motion'; import { MediaAttachmentBubble } from './MediaAttachmentBubble'; import { GroupAvatarSlot } from './StickyGroupAvatar'
@@ -15,7 +14,7 @@ import { MemberProfileAvatarButton } from '../MemberProfileAvatarButton'
 import type { MemberProfileCardModel } from '../MemberProfileCard'
 import type { MemberProfileSide } from '../memberProfileModels'
 import { COLOR_MUTED, readReceiptLabel } from './chatPresentation'
-import { MessageSendStatus } from './MessageSendStatus'; import { safeFailureLine } from '@/session/renderer/features/sessions/gugu-reason'
+import { MessageSendStatus } from './MessageSendStatus'; import { safeFailureLine } from '@/session/renderer/features/sessions/gugu-reason'; import { keepAction } from './messageKeep'
 import { Markdown } from '../markdown/Markdown'; import { classifyFileLink } from '@gugu/core/shared/ui/guguLink'
 import { buildBubbleStyle } from './messageBubbleStyle'
 import { WidgetCard, type Widget } from './WidgetCard'
@@ -286,15 +285,8 @@ export const MessageBubble = memo(function MessageBubble({
     onQuoteSelection: menuSelection && msg.content_type === 'text' ? () => { onQuote({ ...msg, content: menuSelection }); close() } : undefined,
     onCopy: (content = menuSelection || undefined) => { void handleCopyText(content); close() },
     onCopyLink: menuLink ? () => { void handleCopyText(menuLink.href); close() } : undefined, onOpenLink: menuLink ? () => { menuLink.click(); close() } : undefined,
-    onForward: () => { onForward(msg); close() },
+    onForward: () => { onForward(msg); close() }, onKeep: keepAction({ id: msg.id, mine: msg.is_mine, live: !!mediaAttachment && mediaAttachment.source.kind !== 'gone' }, close, toast, t),
     onDownload: mediaAttachment && mediaAttachment.source.kind !== 'gone' ? () => { void downloadAttachment(mediaAttachment.source, mediaAttachment.fileName).catch((error) => toast(t('chatArea.downloadFailed'), 'error', safeFailureLine(String((error as Error)?.message ?? error)))); close() } : undefined,
-    // 自己发的附件:它在云端那份留多久(临时 / 一直保留),和发送时 agent 填的是同一个标记。
-    onKeep: msg.is_mine && mediaAttachment && mediaAttachment.source.kind !== 'gone' ? (keep: 'temporary' | 'permanent') => {
-      close()
-      void markFileStorage([{ message_id: msg.id }], keep)
-        .then(() => toast(t(keep === 'temporary' ? 'message.actions.keptTemporary' : 'message.actions.keptPermanent'), 'success'))
-        .catch((error) => toast(t('message.actions.keepFailed'), 'error', safeFailureLine(String((error as Error)?.message ?? error))))
-    } : undefined,
     onDelete: () => { onDelete(msg.id); close() },
     onSelect: onEnterSelectMode ? () => { onEnterSelectMode(msg); close() } : undefined,
     onOpenTopic: onOpenTopic && canSourceTopic(msg) ? () => { onOpenTopic(msg.id); close() } : undefined,
