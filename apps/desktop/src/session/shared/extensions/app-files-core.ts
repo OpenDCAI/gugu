@@ -150,6 +150,12 @@ interface ItemRow {
   system_role: string | null;
   /** Its path from the top, as every door answers it. */
   path: string;
+  /**
+   * `workspace_list_as` only (gugu-supabase #69): when its cloud copy is cleared (null: kept), and whether the reader
+   * uploaded it — both null when it has no cloud copy.
+   */
+  expires_at?: string | null;
+  is_mine?: boolean | null;
 }
 
 /** A row `workspace_search` / `workspace_recent` answers (gugu-supabase 20261017002319): with its chat, and when opened. */
@@ -248,6 +254,7 @@ function entryOf(row: ItemRow, claimant: Claimant): AppFileEntry {
       : null,
     sourceMessageIds: row.source_message_ids ?? [],
     canDelete: false,
+    ...('is_mine' in row ? { keep: typeof row.is_mine === 'boolean' ? { expiresAt: row.expires_at ?? null, mine: row.is_mine } : null } : {}),
   }, claimant);
 }
 
@@ -446,6 +453,9 @@ const FOLDER_CODES: Readonly<Record<string, AppFileError['code']>> = {
   workspace_item_not_found: 'not-found',
   workspace_no_version: 'not-found',
   workspace_version_conflict: 'content-changed',
+  // How long a cloud copy is kept (gugu-supabase #68 `file_storage_mark_as`): someone else's upload; no cloud copy.
+  file_transfer_denied: 'denied',
+  file_transfer_invalid: 'invalid',
 };
 
 /**
@@ -960,6 +970,20 @@ export function createAppFiles(platform: FilesPlatform) {
     },
 
     move,
+
+    /**
+     * 「设为临时 / 一直保留」 (gugu-supabase #68): the cloud copy of a chat file's current version cleared after the uploader's
+     * temporary period, counted from now — or kept until someone deletes it. Only its uploader changes it (`denied`); a file
+     * with no cloud copy has nothing to keep (`invalid`).
+     */
+    async keep(surface: FileSurface, args: { ref: ChatFileRef; how: unknown }): Promise<void> {
+      if (args.how !== 'temporary' && args.how !== 'permanent') throw new AppFileError('invalid', "files.keep(file, how): how is 'temporary' or 'permanent'");
+      const { token, userId } = await platform.account();
+      const { row } = await resolve(surface, { token, userId }, args.ref);
+      if (row.kind === 'folder') throw notAFile(row);
+      const { error } = await chatClient(token).rpc('file_storage_mark_as', { p_refs: [{ item_id: row.id }], p_action: args.how, p_as: surface.asAgent ?? userId });
+      if (error) throw new AppFileError(codeOf(error), error.message);
+    },
 
     /** Rename in place: only its name changes (真源 §2.5) — a move that stays in its folder. The folder App's edit(item_id, name) for an agent. */
     async rename(surface: FileSurface, args: { ref: ChatFileRef; name: string }): Promise<AppFileEntry> {
