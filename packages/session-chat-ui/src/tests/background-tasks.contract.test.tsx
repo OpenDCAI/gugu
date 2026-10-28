@@ -230,11 +230,14 @@ describe('background tasks at the end of the transcript', () => {
     // 气泡是下一行:头那一行长高有个过渡,等它落定。
     await until('the bubble row settles below the open list', () => items(host)[1].getBoundingClientRect().bottom <= bubble.getBoundingClientRect().top)
 
-    // 人接着说话:末尾不再是那条回复 ⇒ 后台单独一行贴在最后。
+    // 人接着说话:新的一轮开跑,它那条「执行中」过程行就是末尾 ⇒ 后台挂到这条新过程行上
+    // (#703:在跑、还没出正文的过程行也挂后台),❌ 留在上一轮的回复上,也 ❌ 单独一行。
     state.transcript.activeTurn.set({
       id: 'w2', seq: 1, initiator: 'user', startedAt: Date.now(),
       items: [{ kind: 'message', id: 'q2', seq: 0, role: 'user', text: 'And lint too.' }]
     } as unknown as TranscriptTurn)
-    await until('the background line moves to its own last row', () => row(host) !== null && pill() === null)
+    const livePill = () => host.querySelector<HTMLElement>('[data-slot="turn-process"] [data-slot="background-tasks-pill"]')
+    await until('the background line moves to the new live process line', () => livePill() !== null && pill() === null)
+    expect(row(host)).toBeNull()
   })
 })
