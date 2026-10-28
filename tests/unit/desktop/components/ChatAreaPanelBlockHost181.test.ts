@@ -61,6 +61,7 @@ let actions: HTMLElement
 let title: HTMLElement
 
 beforeEach(async () => {
+  vi.stubGlobal('IntersectionObserver', class { observe() {} unobserve() {} disconnect() {} })
   harness = createReactHarness()
   repository = await openImRepository('user-1', { adapter: createMemoryLocalSyncDb() })
   getImRepositoryMock.mockReset()
@@ -70,6 +71,7 @@ beforeEach(async () => {
 })
 
 afterEach(() => {
+  vi.unstubAllGlobals()
   repository.close()
   harness.cleanup()
   actions.remove()

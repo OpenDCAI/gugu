@@ -112,6 +112,7 @@ let harness: ReturnType<typeof createReactHarness>
 // 帧时钟是假的:消息列表首帧之后隔两帧才补齐整窗(flowList),那次提交挂在真实帧上,落进哪条断言的观测窗由机器负载决定。
 // 假帧只在 flushFrames() 里走 —— 挂载时排上的帧算在挂载里,一次操作排上的帧算在这次操作里。
 beforeEach(() => {
+  vi.stubGlobal('IntersectionObserver', class { observe() {} unobserve() {} disconnect() {} })
   vi.useFakeTimers({ toFake: ['requestAnimationFrame', 'cancelAnimationFrame'] })
   harness = createReactHarness()
   counts.bubble.clear()
@@ -119,6 +120,7 @@ beforeEach(() => {
   counts.panelCommits = 0
 })
 afterEach(() => {
+  vi.unstubAllGlobals()
   harness.cleanup()
   vi.useRealTimers()
 })

@@ -37,11 +37,13 @@ vi.mock(
 let harness: ReturnType<typeof createReactHarness>
 
 beforeEach(() => {
+  vi.stubGlobal('IntersectionObserver', class { observe() {} unobserve() {} disconnect() {} })
   harness = createReactHarness()
   platformMock.platform.capabilities.agentRuntime = false
 })
 
 afterEach(() => {
+  vi.unstubAllGlobals()
   harness.cleanup()
 })
 
