@@ -20,6 +20,13 @@ export default {
     },
     "offlineWarning": "Currently offline and may not respond promptly",
     "wakeRefused": "{{name}} can't come online right now: ",
+    "dm": {
+      "resolving": "Opening the conversation…",
+      "noSession": "This agent has no session yet.",
+      "machineOffline": "Its computer is offline, so the conversation can't be opened.",
+      "failed": "The conversation couldn't be opened.",
+      "retry": "Retry"
+    },
     "taskpage": {
       "permission": {
         "allow": "Allow",

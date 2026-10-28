@@ -65,6 +65,8 @@ export function assistantPanelLibraryHost(base: LibraryHost, panel: AssistantPan
     connect: (...args) => authorize(args[0],() => base.integrations.connect(...args)),
     authorize: (...args) => authorize(args[0],() => base.integrations.authorize(...args)),
     cliLoginStart: (...args) => authorize(args[0],() => base.integrations.cliLoginStart(...args)),
+    // 第一问叫醒 / 核对那台(云电脑停着就先唤醒,叫不醒明说);之后每 20 秒一问不再重复唤醒。
+    cliToolPrepare: (...args) => prepared ? base.integrations.cliToolPrepare(...args) : authorize(args[0],() => base.integrations.cliToolPrepare(...args)),
     cliLoginWait: (...args) => base.integrations.cliLoginWait(...args),
     cliLoginProgress: (...args) => prepared ? base.integrations.cliLoginProgress(...args) : Promise.resolve(null),
     cancelAuthorization: (...args) => { cancelPending(args[0]); return prepared ? base.integrations.cancelAuthorization(...args) : Promise.resolve() },

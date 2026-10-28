@@ -45,6 +45,19 @@ describe('其他设备的额度通知由命令结果驱动', () => {
     read.mockResolvedValue([]); await emit({ status: 'pending' })
     read.mockResolvedValue([failure('two')]); await emit(); expect(current()).toBe('cmd')
   })
+  it('关掉之后组件重挂（切走再回来、重开 App）不重现；之后一条新命令的失败照旧提醒（owner 10-28 Codex 91）', async () => {
+    read.mockResolvedValue([failure()]); await ui.render(createNode(Probe, {}))
+    await clickElement(ui.container.querySelector('button')!); expect(current()).toBe('')
+    ui.cleanup(); ui = createReactHarness(); await ui.render(createNode(Probe, {}))
+    expect(current()).toBe('')
+    read.mockResolvedValue([failure('two', 'cmd-2')]); await emit({ id: 'cmd-2' }); expect(current()).toBe('cmd-2')
+  })
+  it('关掉的记录读坏了：当没关过，失败条照常出现，不崩', async () => {
+    window.localStorage.setItem('gugu.agent-turn-failure-dismissed.owner', '"broken"')
+    read.mockResolvedValue([failure()]); await ui.render(createNode(Probe, {}))
+    expect(current()).toBe('cmd')
+  })
+
   it('迟到的旧读数不能盖掉新事件的结果', async () => {
     const old = deferred<ReturnType<typeof failure>[]>(); read.mockReturnValueOnce(old.promise).mockResolvedValue([failure('two', 'new')])
     await ui.render(createNode(Probe, {})); await emit(); expect(current()).toBe('new')

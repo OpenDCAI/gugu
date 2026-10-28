@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import type { Device } from '../../../../packages/core/src/shared/types/chat'
+import { IMPLICIT_SESSION_HOME_PROJECT_ID } from '../../../../packages/core/src/shared/sessionProject'
 import { agentTasks, pickerModel, projectsOf, RECENT_WINDOW_MS } from '../../../../apps/desktop/src/components/member-picker/memberPickerModel'
 import { searchContacts } from '../../../../apps/desktop/src/lib/contactSearch'
 import { contact } from '../../../support/testHarness'
@@ -65,5 +66,20 @@ describe('member picker model', () => {
     expect(search('input').agents.map((hit) => [hit.item.id, hit.field])).toEqual([['a1', 'task']])
     expect(search('linux').agents.map((hit) => [hit.item.id, hit.field])).toEqual([['a2', 'device']])
     expect(search('codex').agents.map((hit) => hit.item.id)).toEqual(['a2'])
+  })
+
+  it('a task without a project shows no project, not the app’s own task-home folder or hidden project name', () => {
+    const home = `${IMPLICIT_SESSION_HOME_PROJECT_ID}~dev-linux`
+    const homeLive = { 'dev-linux': { cached: false, loading: false, error: null, projects: [{ id: home, name: '任务工作区', path: '' }], sessions: [
+      { conversationId: 's9', projectId: home, title: 'Standalone task', harness: 'codex', runtime: 'acp', agentStatus: null, lastInteractedAt: iso(HOUR), supported: true, agent: { userId: 'a9' } },
+    ] } } as never
+    const homeContacts = [
+      contact({ id: 'a9', display_name: 'Codex 3', type: 'agent', owner_user_id: 'me', device_id: 'dev-linux', project_path: '/root/.config/咕咕/task-home' }),
+      contact({ id: 'a10', display_name: 'Claude 4', type: 'agent', owner_user_id: 'me', device_id: 'dev-here', project_path: 'C:\\Users\\me\\AppData\\Roaming\\咕咕\\task-home\\' }),
+    ]
+    const homeModel = pickerModel({ contacts: homeContacts, currentUserId: 'me', devices: [here, linux], live: homeLive, recentChats: new Map(), now: NOW })
+    const entry = (id: string) => homeModel.agents.find((a) => a.contact.id === id)!
+    expect(entry('a9')).toMatchObject({ task: 'Standalone task', project: null })
+    expect(entry('a10')).toMatchObject({ project: null })
   })
 })

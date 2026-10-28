@@ -20,6 +20,13 @@ export default {
     },
     "offlineWarning": "当前不在线，可能无法及时回复",
     "wakeRefused": "{{name}}现在上不了线：",
+    "dm": {
+      "resolving": "正在打开会话…",
+      "noSession": "这个 agent 还没有会话。",
+      "machineOffline": "它所在的电脑离线，打不开会话。",
+      "failed": "会话没能打开。",
+      "retry": "重试"
+    },
     "taskpage": {
       "permission": {
         "allow": "允许",

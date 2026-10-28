@@ -29,7 +29,7 @@ All paths are relative to `apps/desktop/`.
 - `skills/` — skills catalog and management
 - `integrations/` — integration management (GitHub, GitLab, Jira, Linear, ...)
 - `settings/` — settings view
-- `automations/`, `browser/`, `command-palette/`, `library/`, `onboarding/`
+- `automations/`, `browser/`, `command-palette/`, `library/`
 
 ## Shared Renderer Infrastructure (`apps/desktop/src/session/renderer/lib/`)
 
