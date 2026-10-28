@@ -60,7 +60,7 @@ export interface GuguHost {
     versions(args: { ref: AppFileRef }): Promise<AppFileVersion[]>;
     readVersion(args: { ref: AppFileRef; n: number }): Promise<AppFileVersionContent>;
     /** Bytes the caller has, or (no `files`) the person's picker — which only a page has, inside a gesture. */
-    upload(args: { place: AppPlace; files?: AppFileUpload[]; sourceMessageIds?: string[]; folder?: string }): Promise<AppFileEntry[]>;
+    upload(args: { place: AppPlace; files?: AppFileUpload[]; sourceMessageIds?: string[]; folder?: string; keep?: string }): Promise<AppFileEntry[]>;
     /** The gesture halves: a page's only (`VerbFacts.only`) — a background page and a program have none. */
     openWith?(args: { ref: AppFileRef; ask?: boolean; at?: Record<string, string>; peek?: boolean }): Promise<void>;
     download?(args: { ref: AppFileRef }): Promise<boolean>;

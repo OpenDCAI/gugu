@@ -410,10 +410,11 @@ export async function uploadAppFiles(
   uploads: readonly AppFileUpload[],
   sourceMessageIds?: unknown,
   folder?: unknown,
+  keep?: unknown,
 ): Promise<AppFileEntry[]> {
   const where = placeOf(place);
   // A program acting for an agent uploads as that agent (G5): the chat's door judges the agent, the rows are its.
-  if ('chat' in where) return files.upload(where.chat, uploads, { asAgent: page.asAgent ?? null, sourceMessageIds, folder });
+  if ('chat' in where) return files.upload(where.chat, uploads, { asAgent: page.asAgent ?? null, sourceMessageIds, folder, keep });
   noSourceMessagesInWorkingCopy(sourceMessageIds);
   noFoldersInWorkingCopy(folderOf(folder));
   return local.upload(await localFolder(page, where), uploads);

@@ -715,6 +715,11 @@ export default {
     "agentOwnerTag": "{{owner}} 的 agent",
     "agentOwnerSuffix": "（{{owner}} 的 agent）",
     "actions": {
+      "keepTemporary": "设为临时",
+      "keepPermanent": "一直保留",
+      "keptTemporary": "已设为临时：到期后删除云端那份",
+      "keptPermanent": "已设为一直保留",
+      "keepFailed": "没改成",
       "copy": "复制文本",
       "copyLink": "复制链接",
       "openLink": "打开链接",
