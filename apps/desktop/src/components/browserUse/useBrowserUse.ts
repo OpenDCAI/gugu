@@ -71,7 +71,7 @@ function isUnsupported(error: unknown): boolean {
  * ❌ 当成浏览器的错说给人看(时间线那条线的 record_not_found 不是浏览器坏了)。
  */
 export function useBrowserUse(deviceId: string | null, sessionId: string | null, live: boolean, need: BrowserUseNeed): BrowserUseView {
-  const pending = useSessionHostAsk(deviceId ? sessionId : null, 'browser-assistance')
+  const pending = useSessionHostAsk(deviceId ? sessionId : null, 'browser-assistance', { rereadMs: STATUS_POLL_MS })
   const assistance = useMemo(
     () => (pending ? { ...(pending.origin?.payload as Omit<CloudBrowserAssistance, 'requestId'>), requestId: pending.itemId } : null),
     [pending],

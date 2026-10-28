@@ -25,7 +25,7 @@ const BrowserUseServerWatch = observer(function BrowserUseServerWatch({ sessionI
 export default BrowserUseServerWatch
 
 function ServerWatch({ sessionId, deviceId }: { sessionId: string; deviceId: string }) {
-  const ask = useSessionHostAsk(sessionId, 'browser-assistance')
+  const ask = useSessionHostAsk(sessionId, 'browser-assistance', { rereadMs: WATCH_POLL_MS })
   useEffect(() => {
     if (ask) autoOpenBrowserUseTab(sessionId)
   }, [ask, sessionId])
