@@ -330,7 +330,7 @@ export function ResourceFiles({ context, trail }: { context: AssistantContext; t
     await invalidate('dir');
     if (done.length) {
       setUploaded(done);
-      if (!failed.length) toast({ title: t('files.uploaded', { n: done.length }) });
+      if (!failed.length) toast({ title: t('files.uploaded', { count: done.length }) });
     }
   };
 

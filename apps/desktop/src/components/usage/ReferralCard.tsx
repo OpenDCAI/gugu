@@ -54,7 +54,7 @@ export function ReferralCard() {
             {pending && !referral ? <span className="gg-usage-skeleton na-referral-stat-skeleton" aria-hidden /> : t('referral.invited', { count: referral ? formatNumber(referral.invitedCount) : '—' })}
           </span>
           <span data-testid="settings-quota-credits-earned">
-            {pending && !referral ? <span className="gg-usage-skeleton na-referral-stat-skeleton" aria-hidden /> : t('referral.earned', { credits: referral ? t('referral.amountCredits', { credits: formatNumber(referral.creditsEarned) }) : '—' })}
+            {pending && !referral ? <span className="gg-usage-skeleton na-referral-stat-skeleton" aria-hidden /> : t('referral.earned', { credits: referral ? t('referral.amountCredits', { credits: formatNumber(referral.creditsEarned), count: referral.creditsEarned }) : '—' })}
           </span>
           </>}
         </div>

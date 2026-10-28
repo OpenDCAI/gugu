@@ -1,6 +1,7 @@
 import { observer } from 'mobx-react-lite';
 import { getSessionGitWorktreeStore } from '@renderer/features/sessions/stores/session-selectors';
 import { isRegistered, type SessionPageStore } from '@renderer/features/sessions/stores/session-store';
+import { useSessionMessages } from '@renderer/localization/use-session-messages';
 import { formatDiffLineCount } from '@renderer/utils/format-diff-line-count';
 import { cn } from '@renderer/utils/utils';
 
@@ -35,8 +36,14 @@ export const SessionGitDiffStats = observer(function SessionGitDiffStats({
   className?: string;
 }) {
   const { linesAdded, linesDeleted, visible } = useSessionGitDiffStats(session);
+  const { translate } = useSessionMessages();
 
   if (!visible) return null;
+
+  // 读屏说法:只说非零的那一半;两半都有时用同一条模板拼(与变更列表行一致)。
+  const added = linesAdded > 0 ? translate('changes.linesAdded', { count: linesAdded }) : null;
+  const removed = linesDeleted > 0 ? translate('changes.linesRemoved', { count: linesDeleted }) : null;
+  const label = added && removed ? translate('changes.lineDelta', { additions: added, deletions: removed }) : (added ?? removed ?? undefined);
 
   return (
     <span
@@ -44,12 +51,7 @@ export const SessionGitDiffStats = observer(function SessionGitDiffStats({
         'shrink-0 tabular-nums leading-none text-foreground-muted flex items-center gap-1 text-xs',
         className
       )}
-      aria-label={[
-        linesAdded > 0 ? `${linesAdded} lines added` : null,
-        linesDeleted > 0 ? `${linesDeleted} lines removed` : null,
-      ]
-        .filter(Boolean)
-        .join(', ')}
+      aria-label={label}
     >
       {linesAdded > 0 ? (
         <span className="text-foreground-diff-added">+{formatDiffLineCount(linesAdded)}</span>
