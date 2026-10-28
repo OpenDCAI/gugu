@@ -4,7 +4,6 @@ import { pickAssistant, type AssistantProvisionRow } from '@gugu/core/shared/ass
 import { identityDb, chatDb } from '@/lib/supabase'
 import { getRendererSession, observeRendererSession } from '@/lib/sessionPublication'
 import { rendererLogger } from '@/lib/log'
-import { onMyAssistantChange } from '@/lib/myAssistant'
 import { assistantAppChangeSchema, type AssistantAppChange } from '@/session/shared/extensions/assistant-app'
 
 const accountId = () => getRendererSession()?.user.id ?? null
@@ -41,19 +40,15 @@ async function flushNotices(): Promise<void> {
   const owner = accountId()
   if (!owner) return
   try { await outbox.flush(owner); delay = 1000 }
-  catch {
-    log.warn({},'Saved App change publication will retry')
-    // Only a failed send is retried. Notices left with no assistant to take them wait for one (onMyAssistantChange below).
-    try {
-      if (accountId() === owner && outbox.hasPending(owner)) {
-        retry = setTimeout(() => { void flushNotices() },delay)
-        delay = Math.min(delay * 2,60_000)
-      }
-    } catch { log.warn({},'Saved App change outbox could not be read') }
-  }
+  catch { log.warn({},'Saved App change publication will retry') }
+  try {
+    if (accountId() === owner && outbox.hasPending(owner)) {
+      retry = setTimeout(() => { void flushNotices() },delay)
+      delay = Math.min(delay * 2,60_000)
+    }
+  } catch { log.warn({},'Saved App change outbox could not be read') }
 }
 observeRendererSession(() => { delay = 1000; void flushNotices() })
-onMyAssistantChange(() => { delay = 1000; void flushNotices() })
 if (typeof window !== 'undefined') window.addEventListener('online',() => { delay = 1000; void flushNotices() })
 void flushNotices()
 
