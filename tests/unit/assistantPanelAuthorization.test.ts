@@ -7,7 +7,7 @@ import { assistantPanelLibraryHost } from '../../apps/desktop/src/components/ass
 function fixture() {
   const native = vi.fn(async () => ({ success: true })), subscribe = vi.fn(() => vi.fn()), ready = vi.fn(async () => ({}))
   const base = { key: 'native',remote: { online: false },
-    integrations: { connect: native,authorize: native,cliLoginStart: native,cliLoginProgress: native,cancelAuthorization: native,
+    integrations: { connect: native,authorize: native,cliLoginStart: native,cliToolPrepare: native,cliLoginProgress: native,cancelAuthorization: native,
       list: native,accounts: native,checkAllConnections: native,checkConfiguredConnections: ready },
     github: { auth: native,authCancel: native,listAccounts: native,importCliAccounts: native,onEvent: subscribe },
   } as unknown as LibraryHost
@@ -71,4 +71,19 @@ it('does not present an old credential check as an authorized account', async ()
     body: async (row: typeof rows[number]) => new TextEncoder().encode(JSON.stringify(row.resource_key.startsWith('catalog:')
       ? { version: 1,en: { id: 'github',name: 'GitHub',auth: { methods: [] },capabilities: {} } } : { updatedAt: 20 })) } as unknown as AssistantPanelFiles
   expect((await readAssistantPanelIntegrations(panel,'en-US')).statuses.github?.connected).not.toBe(true)
+})
+
+// 2026-10-28 owner 在 Beta 上:助理住的云电脑停着,点「连接」报「此刻连不上」。第一问先叫醒(叫不醒照叫醒那一步的话明说),
+// 叫醒之后每 20 秒一问不再重复叫醒。
+it('wakes a sleeping home before the first install question and says so plainly when it cannot', async () => {
+  const f = fixture()
+  f.prepare.mockRejectedValueOnce(new Error('暂时无法使用授权所需的云端服务。'))
+  await expect(f.host.integrations.cliToolPrepare('feishu')).rejects.toThrow('暂时无法使用授权所需的云端服务。')
+  expect(f.native).not.toHaveBeenCalled()
+  await f.host.integrations.cliToolPrepare('feishu')
+  expect(f.prepare).toHaveBeenCalledTimes(2)
+  expect(f.prepare.mock.invocationCallOrder[1]).toBeLessThan(f.native.mock.invocationCallOrder[0])
+  await f.host.integrations.cliToolPrepare('feishu')
+  expect(f.prepare).toHaveBeenCalledTimes(2)
+  expect(f.native).toHaveBeenCalledTimes(2)
 })

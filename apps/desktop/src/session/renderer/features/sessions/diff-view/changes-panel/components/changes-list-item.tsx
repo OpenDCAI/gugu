@@ -89,8 +89,8 @@ export function ChangeStatusAffordance({
     <div
       className="flex shrink-0 items-center gap-1.5"
       aria-label={translate('changes.lineDelta', {
-            additions: change.additions,
-            deletions: change.deletions
+            additions: translate('changes.linesAdded', { count: change.additions }),
+            deletions: translate('changes.linesRemoved', { count: change.deletions })
           })}
     >
       <DiffLineStats additions={change.additions} deletions={change.deletions} />

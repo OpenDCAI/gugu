@@ -62,6 +62,7 @@ describe('unread locator message id boundary', () => {
       message_id: 'friend-request:request-1',
       message_seq: 1,
       unread_count: 1,
+      addressed_count: 0,
       cursor_seq: 0,
       version: 0,
       is_marked_unread: false,

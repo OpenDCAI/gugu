@@ -1,5 +1,7 @@
 export const PRODUCTION_DB_HOST: string
 
+export function serverChannelForDb(url: string | null | undefined): 'stable' | 'beta'
+
 export interface EnvSlot {
   value: string
   source: string | null

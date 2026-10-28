@@ -4,19 +4,20 @@ import { useEffect, useRef, useState, type ReactNode } from 'react'
 import { useTranslation } from 'react-i18next'
 import { Dialog } from '../ui/Dialog'
 import { Button } from '../ui/Button'
-import { TOUR_FEATURES } from './catalog'
+import { TOUR_FILMS } from './catalog'
 import split from '../../assets/product-tour/feature-1.webm'
-import modes from '../../assets/product-tour/feature-2.webm'
 import contacts from '../../assets/product-tour/feature-3.webm'
 import report from '../../assets/product-tour/feature-4.webm'
 import splitPoster from '../../assets/product-tour/feature-1.webp'
-import modesPoster from '../../assets/product-tour/feature-2.webp'
 import contactsPoster from '../../assets/product-tour/feature-3.webp'
 import reportPoster from '../../assets/product-tour/feature-4.webp'
 
-const films = [split, modes, contacts, report]
-const posters = [splitPoster, modesPoster, contactsPoster, reportPoster]
-const chapterStarts = [[0, 1.45, 4.3, 5.6, 8.2, 12.5], [0, 1.4, 3.6, 6.5, 9, 11.3, 14.1, 16.3, 19.9, 22.2, 24.3], [0, 2.3, 4.5, 7.2, 11.8], [0, 4.2, 7.5, 14, 17]]
+// Keep each film's media together: removing a chapter must not shift another film's captions.
+const films = [
+  { src: split, poster: splitPoster, captions: new URL('../../assets/product-tour/feature-1.vtt', import.meta.url).href, chapterStarts: [0, 1.45, 4.3, 5.6, 8.2, 12.5] },
+  { src: contacts, poster: contactsPoster, captions: new URL('../../assets/product-tour/feature-3.vtt', import.meta.url).href, chapterStarts: [0, 2.3, 4.5, 7.2, 11.8] },
+  { src: report, poster: reportPoster, captions: new URL('../../assets/product-tour/feature-4.vtt', import.meta.url).href, chapterStarts: [0, 4.2, 7.5, 14, 17] },
+]
 
 export function FeatureTour({ index, children, onSelect, onClose }: { index: number; children: ReactNode; onSelect: (index: number) => void; onClose: () => void }) {
   const { t } = useTranslation('productTour')
@@ -29,17 +30,17 @@ export function FeatureTour({ index, children, onSelect, onClose }: { index: num
       <Dialog.Popup className="product-tour-feature">
         <header className="product-tour-feature-header">
           <span>{t('featureHeader')}</span>
-          <Button variant="ghost" size="icon" onClick={onClose} aria-label={t('skip')}>×</Button>
+          <Button variant="ghost" size="icon" onClick={onClose} aria-label={t('close')}>×</Button>
         </header>
         <div className="product-tour-feature-heading">
-          <div className="product-tour-kicker">{t('featuresProgress', { current: index + 1, total: 4 })}</div>
-          <Dialog.Title>{t(`feature.${TOUR_FEATURES[index]}.title`)}</Dialog.Title>
-          <Dialog.Description>{t(`feature.${TOUR_FEATURES[index]}.body`)}</Dialog.Description>
+          <div className="product-tour-kicker">{t('featuresProgress', { current: index + 1, total: TOUR_FILMS.length })}</div>
+          <Dialog.Title>{t(`feature.${TOUR_FILMS[index]}.title`)}</Dialog.Title>
+          <Dialog.Description>{t(`feature.${TOUR_FILMS[index]}.body`)}</Dialog.Description>
         </div>
         <FeatureFilm key={index} index={index} />
         <div className="product-tour-feature-footer">
           <div className="product-tour-feature-dots" aria-label={t('featureSteps')}>
-            {TOUR_FEATURES.map((feature, step) => <Button variant="ghost" size="icon" key={feature} aria-label={t(`feature.${feature}.title`)} onClick={() => onSelect(step)} aria-current={step === index ? 'step' : undefined}><span className="product-tour-dot" /></Button>)}
+            {TOUR_FILMS.map((feature, step) => <Button variant="ghost" size="icon" key={feature} aria-label={t(`feature.${feature}.title`)} onClick={() => onSelect(step)} aria-current={step === index ? 'step' : undefined}><span className="product-tour-dot" /></Button>)}
           </div>
           {children}
         </div>
@@ -50,6 +51,7 @@ export function FeatureTour({ index, children, onSelect, onClose }: { index: num
 
 function FeatureFilm({ index }: { index: number }) {
   const { t } = useTranslation('productTour')
+  const film = films[index]
   const video = useRef<HTMLVideoElement>(null)
   const [time, setTime] = useState(0)
   const [duration, setDuration] = useState(0)
@@ -66,7 +68,7 @@ function FeatureFilm({ index }: { index: number }) {
     frame = requestAnimationFrame(updateProgress)
     return () => cancelAnimationFrame(frame)
   }, [playing])
-  const chapter = Math.max(0, chapterStarts[index].findLastIndex((start) => time >= start))
+  const chapter = Math.max(0, film.chapterStarts.findLastIndex((start) => time >= start))
   const replay = () => {
     const player = video.current
     if (!player) return
@@ -81,17 +83,17 @@ function FeatureFilm({ index }: { index: number }) {
     if (player.paused) void player.play().then(() => setPlaying(true)).catch((error: unknown) => { rendererLogger('product-tour/film').error({ error }, 'film playback failed'); setFailed(messageForUser(error)); setPlaying(false) })
     else { player.pause(); setPlaying(false) }
   }
-  return <section aria-label={t(`feature.${TOUR_FEATURES[index]}.title`)}>
-    <video className="product-tour-film" ref={video} src={films[index]} poster={posters[index]} muted playsInline autoPlay={autoplay}
+  return <section aria-label={t(`feature.${TOUR_FILMS[index]}.title`)}>
+    <video className="product-tour-film" ref={video} src={film.src} poster={film.poster} muted playsInline autoPlay={autoplay}
       preload="metadata" aria-describedby="product-tour-film-caption" onError={(event) => { const error = event.currentTarget.error; rendererLogger('product-tour/film').error({ error }, 'film load failed'); setFailed(messageForUser(error)); setPlaying(false) }}
       onLoadedMetadata={(event) => setDuration(event.currentTarget.duration)}
       onPlay={() => setPlaying(true)} onPause={() => setPlaying(false)} onEnded={() => setPlaying(false)}
       onTimeUpdate={(event) => setTime(event.currentTarget.currentTime)}>
-      <track kind="captions" srcLang="zh-CN" label="简体中文" src={new URL(`../../assets/product-tour/feature-${index + 1}.vtt`, import.meta.url).href} />
+      <track kind="captions" srcLang="zh-CN" label="简体中文" src={film.captions} />
     </video>
     <div className="product-tour-film-controls">
       <Button variant="ghost" onClick={togglePlay}>{playing ? t('pause') : t('play')}</Button>
-      <p id="product-tour-film-caption">{t(`feature.${TOUR_FEATURES[index]}.captions.${chapter}`)}</p>
+      <p id="product-tour-film-caption">{t(`feature.${TOUR_FILMS[index]}.captions.${chapter}`)}</p>
       <Button variant="ghost" onClick={replay}>{t('replay')}</Button>
     </div>
     <div className="product-tour-film-track"><input aria-label={t('filmProgress')} type="range" min={0} max={duration || 1} step="any" value={Math.min(time, duration || 1)} onChange={(event) => {

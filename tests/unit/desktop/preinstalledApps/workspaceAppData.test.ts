@@ -16,7 +16,7 @@ const preferences = vi.fn(async (_place: unknown, options?: { showAppData?: bool
 })
 const gugu = { getContext: async () => context, onContextChanged: vi.fn(), setTabTitle: vi.fn(), onLink: vi.fn(), markdown: async () => ({}), showContextMenu: menu,
   linkTo: vi.fn(async () => 'gugu-file://file'), files: { list: async () => entries, viewPreferences: preferences, onChanged: (_place: unknown, fn: typeof change) => { change = fn }, openWith: vi.fn() } }
-const ids = () => [...document.querySelectorAll('#file-list > li')].map(node => (node as HTMLElement).dataset.id)
+const ids = () => [...document.querySelectorAll('#file-list > li.file')].map(node => (node as HTMLElement).dataset.id)
 const blank = () => document.querySelector('aside.files') as HTMLElement
 beforeAll(async () => {
   const parsed = new DOMParser().parseFromString(readFileSync(resolve('apps/desktop/preinstalled-apps/workspace/index.html'), 'utf8'), 'text/html')

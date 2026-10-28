@@ -18,6 +18,7 @@
 import type { BirthGroup } from '@shared/core/sessions/create-session';
 export { readCurrentActivityInput,readCurrentAssistantWorkInput } from './core/sessions/session-activity-source'
 import { installActivityCollector } from '@main/core/activity/collector'
+import { integrationConnectionService } from './core/integrations/integration-connection-service'
 import { openLink } from './core/extensions/gugu-links'
 import type { LinkOpenOutcome } from '@shared/extensions/open-link'
 import * as path from 'node:path'
@@ -2487,16 +2488,23 @@ function refreshDigestAgents(): void {
 /**
  * #6264 server 换版时这台机器(这个账号)算不算忙 —— 写进 activity.json 的 busy,守护进程据此决定现在换还是等空闲。
  * 只数账号进程一重启就会被打断的会话(`busyForVersionSwitch`,「会不会被打断」读 `sessionProcess(id).home`);
- * tmux 里的终端会话换版后照名字接回,不拦换版。本机读数,❌ 进云端摘要:读者只有本机守护进程。
+ * tmux 里的终端会话换版后照名字接回,不拦换版。未结束的集成授权同样会被重启打断,也计入 activity.json。
+ * 本机读数,❌ 进云端摘要。
  */
 export function sessionpageBusyForVersionSwitch(): boolean {
-  return listSessionStates().sessions.some((session) =>
+  return integrationConnectionService.hasPendingAuthorizations() || listSessionStates().sessions.some((session) =>
     busyForVersionSwitch(
       parseAgentStatusView(session.status ?? null),
       session.runtime,
       sessionProcess(session.conversationId)?.home ?? null,
     ),
   )
+}
+
+/** Refresh the account heartbeat at authorization boundaries, without waiting
+ * for the periodic report. The connection service belongs to this bundle. */
+export function onSessionpageAuthorizationActivityChange(listener: () => void): () => void {
+  return integrationConnectionService.onAuthorizationActivityChange(listener)
 }
 
 /**

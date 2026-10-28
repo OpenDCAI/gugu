@@ -79,7 +79,7 @@ describe('resume and reclaim admission', () => {
     const accepted = await admission;
     expect(accepted.declined).toBe(false);
     fail(Object.assign(new Error('Internal error'), { code: -32603, data: { details: 'Session not found' } }));
-    await expect(api.waitPromptDetached({ requestId: accepted.requestId })).rejects.toThrow('Internal error');
+    await expect(api.waitPromptDetached({ requestId: accepted.requestId })).rejects.toThrow('Session not found');
     expect(rt.sessionsListLiveModel().states.list.snapshot().data['conv-1']).toMatchObject({
       lifecycle: 'ready', isGenerating: false, lastTurnOutcome: 'errored',
     });

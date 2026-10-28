@@ -5,6 +5,8 @@ export default {
     "retry": "Retry",
     "profileTitle": "Let's get to know you",
     "profileSub": "Gugu and your agents use this to address you and understand you. You can change it later in Settings → Account.",
+    "profileSubDesktop": "Gugu and your agents will use these details to address you.",
+    "introSubDesktop": "Gugu is your personal assistant for plans and everyday tasks.",
     "avatar": "Change avatar",
     "avatarUploading": "Uploading…",
     "nameLabel": "What should we call you?",
@@ -34,7 +36,19 @@ export default {
     "harnessReadFailed": "Couldn't read agent status. Please try again.",
     "harnessCancelFailed": "Couldn't cancel the installation. Please try again.",
     "introStart": "Set up my Gugu",
-    "introLater": "Look around first"
+    "introLater": "Look around first",
+    "terminalTitle": "Terminal",
+    "terminalSub": "Used to CLIs like Claude Code or Codex in a terminal? Turn it on to work with agents through a TUI.",
+    "terminalToggle": "Enable terminal",
+    "tourChoiceTitle": "Want a quick look around?",
+    "tourChoiceSub": "Take a minute to get to know the left bar.",
+    "tourChoiceStart": "Show me (1 min)",
+    "tourChoiceSkip": "Just start",
+    "back": "Back",
+    "stepCount": "{{current}} / {{total}}",
+    "terminalLater": "Change it later in Settings → General",
+    "terminalPause": "Pause",
+    "terminalPlay": "Play"
   },
   "groupFile": {
     "notInGroup": "You are not in the chat this file belongs to"
@@ -169,7 +183,8 @@ export default {
       "tooLarge": "Too large · view on desktop"
     },
     "timeline": {
-      "outputTrimmed": "… {{chars}} chars omitted from this preview",
+      "outputTrimmed_one": "… {{count}} char omitted from this preview",
+      "outputTrimmed_other": "… {{count}} chars omitted from this preview",
       "loading": "Loading the timeline…",
       "waitingRecord": "Task started — waiting for its first line…",
       "empty": "This task has no content yet.",
@@ -402,7 +417,7 @@ export default {
       "notificationsTestSentMobile": "The system accepted it. Still nothing? Go to Me → Permissions → Notifications and make sure notifications and pop-up banners are on for 咕咕.",
       "notificationsTestRejectedMobile": "The system refused to show it — 咕咕 has no notification permission yet. Turn it on from Me → Permissions → Notifications.",
       "terminal": "Terminal",
-      "terminalDescription": "Show the terminal, and run new tasks in it.",
+      "terminalDescription": "When on, agents can work through a TUI (terminal interface). New tasks still start in the General view.",
       "trayBadge": "Tray badge",
       "trayBadgeAria": "Show the unread count on the tray icon",
       "trayBadgeEnabled": "Show the unread count on the tray icon",
