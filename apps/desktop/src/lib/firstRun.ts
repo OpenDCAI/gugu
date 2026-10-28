@@ -1,6 +1,5 @@
 import { readUserSettingsConfig, writeUserSettingsConfig, type SettingsTableClient } from '@gugu/core/cloud/userSettings'
 import { completedFirstRunHarness, firstRunStage, parseOccupation, withOccupation, type FirstRunStage, type FirstRunHarness, type Occupation } from '@gugu/core/shared/firstRun'
-import { parseProductTourPosition, type ProductTourPosition } from './productTour'
 import { identityDb } from './supabase'
 import { readOwnOnboardedAt } from './identityReadAdapter'
 
@@ -9,7 +8,7 @@ import { readOwnOnboardedAt } from './identityReadAdapter'
 const settingsClient = identityDb as unknown as SettingsTableClient
 const USER_SCOPE = 'user'
 
-export type FirstRunProgress = { stage: FirstRunStage; occupation: Occupation | null; harness: FirstRunHarness[] | null; terminalSeen: boolean; tour: ProductTourPosition | null }
+export type FirstRunProgress = { stage: FirstRunStage; occupation: Occupation | null; harness: FirstRunHarness[] | null; terminalSeen: boolean }
 
 // 终端模式那一页按过「继续」:只记「看过」,开关的值在本机设置里(terminal.enabled),❌ 记进账号。
 // 中途退出再进,没看过就回到这一页(规范 7-7)。
@@ -28,7 +27,7 @@ export async function readFirstRunProgress(userId: string): Promise<FirstRunProg
     readUserSettingsConfig(settingsClient, userId, USER_SCOPE),
   ])
   const occupation = parseOccupation(config)
-  return { stage: firstRunStage({ onboardedAt, occupation }), occupation, harness: completedFirstRunHarness(config), terminalSeen: config[TERMINAL_SEEN] === true, tour: onboardedAt ? null : parseProductTourPosition(config) }
+  return { stage: firstRunStage({ onboardedAt, occupation }), occupation, harness: completedFirstRunHarness(config), terminalSeen: config[TERMINAL_SEEN] === true }
 }
 
 export async function readOccupation(userId: string): Promise<Occupation | null> {

@@ -106,19 +106,3 @@ export function useAgentCloudState(agentUserId: string | null): AgentCloudState 
     return { presence, since: Number.isFinite(since) ? since : null }
   }, [agentUserId, contacts, devices, snapshot])
 }
-
-/**
- * #7199 这位 agent 所在的那台咕咕 server(在线的才算):云浏览器小窗只问它。不是 server 上的 agent / 离线 = null。
- */
-export function useAgentServerDevice(agentUserId: string | null): string | null {
-  const { contacts } = useContactsStore()
-  const { devices } = useDevicesStore()
-  return useMemo(() => {
-    if (!agentUserId) return null
-    const deviceId = contacts.find((c) => c.id === agentUserId && c.type === 'agent')?.device_id
-    if (!deviceId) return null
-    const device = devices.find((d) => d.device_id === deviceId)
-    if (!device || !device.is_online || device.is_current_device || device.capabilities?.host_kind !== 'server') return null
-    return device.device_id
-  }, [agentUserId, contacts, devices])
-}

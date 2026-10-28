@@ -2310,7 +2310,7 @@ function drainProjectFiles() { void desktopFiles.drain().catch(error => createLo
 const nativeFiles = createNativeFileHost({ root: remoteFileTempRoot,
   owner: async () => (await desktopAuthProvider().getAuth())?.userId ?? null,
   alive: scope => !!webContents.fromId(scope) && !webContents.fromId(scope)!.isDestroyed(),
-  local: desktopFiles.providers.local, ssh: desktopFiles.providers.ssh, publish: (chat, file, actor, message) => desktopFiles.publish(chat, file, null, actor, undefined, message), publication: desktopFiles.publish.local,
+  local: desktopFiles.providers.local, ssh: desktopFiles.providers.ssh, publish: (chat, file, actor, message) => desktopFiles.publish(chat, file, null, actor, undefined, { message }), publication: desktopFiles.publish.local,
   openPath: path => shell.openPath(path), published: directory => trackRemoteFileDirectory(remoteFileOpenDirectories, directory),
 })
 registerNativeFileIpc(ipcMain, nativeFiles, error => createLogger('files').warn({ error: String(error) }, 'Native file operation failed'))
@@ -5299,7 +5299,7 @@ app.whenReady().then(async () => {
             socialBridgeDeps: {
               host: primaryGuguMcpHost,
               resolveFile: desktopFiles.resolve,
-              publishFile: (chat, file, actor, message) => desktopFiles.publish(chat, file, null, actor, undefined, message),
+              publishFile: (chat, file, actor, message, next) => desktopFiles.publish(chat, file, null, actor, undefined, { message, next }),
               // grant key 用**分叉自己**的会话 id:它必须是独立一格,否则会顶掉来源会话的 grant。
               grantKey: sessionpageSurfaceKey(info.sessionId),
               runHostAction: runAction,
@@ -5583,7 +5583,7 @@ app.whenReady().then(async () => {
           socialBridgeDeps: {
             host: primaryGuguMcpHost,
             resolveFile: desktopFiles.resolve,
-            publishFile: (chat, file, actor, message) => desktopFiles.publish(chat, file, null, actor, undefined, message),
+            publishFile: (chat, file, actor, message, next) => desktopFiles.publish(chat, file, null, actor, undefined, { message, next }),
             grantKey: sessionpageSurfaceKey(info.sessionId),
             ...(assistantRole ? { personalAssistant: true as const, assistantWork: {
               ...assistantWorkBinding(persistedSessionId, info.cwd, SERVER_MODE ? 'cloud' : 'computer', provisioned.guguAgentUserId),
@@ -6346,7 +6346,7 @@ app.whenReady().then(async () => {
   // 结尾,系统按亮/暗/毛玻璃自己着色);Windows ICO / Linux PNG 各出黑白两套,按系统深浅色换。
   if (SERVER_MODE) {
     createLogger('server').info({ userData: app.getPath('userData'), signedInAs: serverAuth?.signedInUserId() ?? null }, '咕咕 server 已启动')
-    // 忙闲写给守护进程(server-supervisor.ts、server-account-converge.ts):有会话在干活、而且换版会打断它时才等空闲。
+    // 忙闲写给守护进程(server-supervisor.ts、server-account-converge.ts):有会话或集成授权会被换版打断时才等空闲。
     // tmux 里的终端会话不随账号进程重启断,不拦换版(busyForVersionSwitch)。
     const activityFile = join(app.getPath('userData'), 'activity.json')
     // #6264 同一份读数也是升级看门狗判「新版本站稳了没有」的依据(server-upgrade-guard.ts):带上自己的版本与起始时刻。
@@ -6365,6 +6365,7 @@ app.whenReady().then(async () => {
         createLogger('server').warn({ err: error }, '忙闲写不进去')
       }
     }
+    loadEmdashBridge()?.onSessionpageAuthorizationActivityChange?.(reportActivity)
     reportActivity()
     setInterval(reportActivity, 10_000).unref()
     return

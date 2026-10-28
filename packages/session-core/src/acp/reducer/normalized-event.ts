@@ -19,6 +19,7 @@ import type { AttachmentRef } from '../models/attachments';
 import type { SessionUsage } from '../models/config';
 import type { PlanEntryInput } from '../models/plan';
 import type { SessionNoticeCode } from '../models/turns/session-notice';
+import type { TranscriptTurnTrigger } from '../models/turns/turn';
 import type { ToolImage } from '../models/turns/tool-calls';
 import type { TerminalExit } from '../models/terminals';
 
@@ -47,6 +48,8 @@ export type NormalizedEvent =
       steering?: boolean;
       /** Attachment references for user messages submitted with images. */
       attachments?: AttachmentRef[];
+      /** What started the turn this user message opens (ignored on a steering message). */
+      trigger?: TranscriptTurnTrigger;
     }
   | {
       kind: 'thinking';

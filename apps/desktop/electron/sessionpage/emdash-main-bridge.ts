@@ -141,6 +141,7 @@ export {
   sessionpageSessionDigest,
   // server 换版看的忙闲(activity.json)。同上,经桥拿。
   sessionpageBusyForVersionSwitch,
+  onSessionpageAuthorizationActivityChange,
   setSessionLiveNotifier,
   listPendingSessionDirectMessages,
   acceptPendingSessionDirectMessage,
