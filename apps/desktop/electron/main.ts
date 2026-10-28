@@ -4010,10 +4010,6 @@ ipcMain.handle('sessionpage:retry-platform-recovery', async (_event, sessionId: 
 // (重)连接时的那一次对账:这台机器上每个 agent 此刻的条目。之后渲染层只吃 `agent-status-feed`。
 ipcMain.handle('agent-status-feed:snapshot', () => agentStatusFeed.snapshot())
 
-ipcMain.handle('sessionpage:open-agent-session', async (_event, agentUserId: unknown) => {
-  return focusSessionpageAgentSession(requiredSessionpageAgentId(agentUserId))
-})
-
 ipcMain.handle('sessionpage:open-agent-file', async (
   _event,
   agentUserId: unknown,
