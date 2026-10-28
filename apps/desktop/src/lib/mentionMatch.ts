@@ -60,8 +60,9 @@ export function matchText(text: string | null | undefined, query: string): TextM
     return { score, hits: [...new Set(from.slice(at, at + key.length))] }
   }
   if (!HAN.test(text) || !LATIN_LETTERS.test(key)) return null
+  // 拼音只在命中了汉字时才算:pinyin-pro 对整串匹配,「设计评审 gugu」里的拉丁字母会被当成 g…g 首字母(owner 10-28)。
   const pinyinHits = matchPinyin(text, query.replace(IGNORED, ''), { insensitive: true })
-  return pinyinHits ? { score: 1, hits: pinyinHits } : null
+  return pinyinHits?.some((at) => HAN.test(text[at] ?? '')) ? { score: 1, hits: pinyinHits } : null
 }
 
 /** 0 = 不匹配;越大越靠前(全等 > 前缀 > 包含 > 拼音)。空查询匹配所有人。 */
