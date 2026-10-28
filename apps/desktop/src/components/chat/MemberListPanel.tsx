@@ -515,7 +515,7 @@ export function MemberListPanel({ chatId, chatKind, head, chatName, snapshot, er
               ) : null}
               {otherAgents.length > 0 ? (
                 <div data-member-group="others" style={myAgents.length > 0 ? OTHER_AGENTS_GROUP_STYLE : undefined}>
-                  {myAgents.length > 0 ? <SectionLabel>{t('group.memberList.otherAgents', { count: otherAgents.length })}</SectionLabel> : null}
+                  {myAgents.length > 0 ? <SectionLabel leading={<span aria-hidden="true" style={myAgentsChevronStyle(false)} />}>{t('group.memberList.otherAgents', { count: otherAgents.length })}</SectionLabel> : null}
                   {otherAgents.map(renderAgentRow)}
                 </div>
               ) : null}
