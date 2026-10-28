@@ -68,15 +68,21 @@ export function AssistantIntro({
         >
           {primaryLabel}
         </Button>
-        {laterLabel && onLater ? (
-          <Button variant="ghost" size="sm" className="self-center rounded-full" onClick={onLater} disabled={busy} data-testid="assistant-intro-later">
-            {laterLabel}
-          </Button>
-        ) : null}
-        {tourLabel && onTour ? (
-          <Button variant="ghost" size="sm" className="self-center rounded-full" onClick={onTour} disabled={busy} data-testid="assistant-intro-tour">
-            {tourLabel}
-          </Button>
+        {/* 两条文字链排一行(「先逛逛 · 看导览」),❌ 上下叠两个空心按钮。 */}
+        {(laterLabel && onLater) || (tourLabel && onTour) ? (
+          <div className="flex flex-wrap items-center justify-center self-center">
+            {laterLabel && onLater ? (
+              <Button variant="ghost" size="sm" className="rounded-full" onClick={onLater} disabled={busy} data-testid="assistant-intro-later">
+                {laterLabel}
+              </Button>
+            ) : null}
+            {laterLabel && onLater && tourLabel && onTour ? <span aria-hidden className="text-tertiary">·</span> : null}
+            {tourLabel && onTour ? (
+              <Button variant="ghost" size="sm" className="rounded-full" onClick={onTour} disabled={busy} data-testid="assistant-intro-tour">
+                {tourLabel}
+              </Button>
+            ) : null}
+          </div>
         ) : null}
       </div>
     </>
